@@ -26,6 +26,8 @@ owlfolio find --count 15            # agentic discovery
 owlfolio serve                      # web dashboard
 ```
 
+<img src="assets/demo.svg" alt="Owlfolio CLI Demo" width="800">
+
 <details>
 <summary><b>Architecture at a glance</b></summary>
 
