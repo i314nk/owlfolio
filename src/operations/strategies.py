@@ -25,6 +25,7 @@ from src.strategy.loader import Strategy, load_strategy
 # `owlfolio serve` is launched from anywhere except the project root,
 # producing the "I switched but the header didn't update" bug.
 
+
 def _resolve_project_root() -> Path:
     explicit = os.environ.get("OWLFOLIO_PROJECT_DIR")
     if explicit:
@@ -64,7 +65,9 @@ def list_strategies() -> list[dict[str, Any]]:
 
 def get_active_strategy() -> dict[str, Any]:
     """Return a structured summary of the active strategy (methodology.yaml)."""
-    path = METHODOLOGY_PATH if METHODOLOGY_PATH.exists() else (STRATEGIES_DIR / "buffett-munger.yaml")
+    path = (
+        METHODOLOGY_PATH if METHODOLOGY_PATH.exists() else (STRATEGIES_DIR / "buffett-munger.yaml")
+    )
     if not path.exists():
         raise FileNotFoundError(f"No active strategy found at {path}")
     return _strategy_summary(load_strategy(path), path=str(path))
@@ -89,8 +92,11 @@ def list_specialists(strategy_name: str | None = None) -> list[dict[str, Any]]:
     if strategy_name:
         s = load_strategy(STRATEGIES_DIR / f"{validate_strategy_name(strategy_name)}.yaml")
     else:
-        s = load_strategy(METHODOLOGY_PATH if METHODOLOGY_PATH.exists()
-                          else STRATEGIES_DIR / "buffett-munger.yaml")
+        s = load_strategy(
+            METHODOLOGY_PATH
+            if METHODOLOGY_PATH.exists()
+            else STRATEGIES_DIR / "buffett-munger.yaml"
+        )
     return [
         {"name": name, "prompt_body": (body or "").strip()}
         for name, body in s.prompts.specialists.items()
@@ -122,9 +128,7 @@ def _strategy_summary(s: Strategy, path: str) -> dict[str, Any]:
         "summary": s.summary,
         "author": s.author,
         "path": path,
-        "criteria": [
-            {"name": c.name, "weight": c.weight} for c in s.criteria
-        ],
+        "criteria": [{"name": c.name, "weight": c.weight} for c in s.criteria],
         "tiers": {k: v for k, v in s.tiers.items()},
         "thresholds": dict(s.thresholds),
         "position_sizing": {

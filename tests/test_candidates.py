@@ -5,9 +5,6 @@ wrappers (import_candidates, list_lists, show_list, delete_list).
 The agentic-discovery path is exercised in test_discovery.py.
 """
 
-import os
-import tempfile
-
 import pytest
 
 
@@ -24,6 +21,7 @@ def tmp_workdir(tmp_path, monkeypatch):
 
 def test_schema_creates_candidate_tables(tmp_workdir):
     from src.db.schema import get_db
+
     conn = get_db()
     try:
         cl_table = conn.execute(
@@ -45,8 +43,11 @@ def test_create_and_lookup_candidate_list(tmp_workdir):
     conn = get_db()
     try:
         list_id = create_candidate_list(
-            conn, name="my-list", source="import",
-            strategy="deep-value", note="test",
+            conn,
+            name="my-list",
+            source="import",
+            strategy="deep-value",
+            note="test",
         )
         assert list_id > 0
         got = get_candidate_list(conn, "my-list")
@@ -78,12 +79,16 @@ def test_add_candidates_bulk_dedupes(tmp_workdir):
     conn = get_db()
     try:
         list_id = create_candidate_list(conn, name="dup-test", source="import")
-        inserted = add_candidates_bulk(conn, list_id, [
-            {"ticker": "AAPL", "company_name": "Apple"},
-            {"ticker": "MSFT"},
-            {"ticker": "AAPL", "note": "dup"},  # silently skipped
-            {"ticker": "", "note": "blank"},     # silently skipped
-        ])
+        inserted = add_candidates_bulk(
+            conn,
+            list_id,
+            [
+                {"ticker": "AAPL", "company_name": "Apple"},
+                {"ticker": "MSFT"},
+                {"ticker": "AAPL", "note": "dup"},  # silently skipped
+                {"ticker": "", "note": "blank"},  # silently skipped
+            ],
+        )
         assert inserted == 2
     finally:
         conn.close()
@@ -100,9 +105,13 @@ def test_get_candidates_parses_metrics_json(tmp_workdir):
     conn = get_db()
     try:
         list_id = create_candidate_list(conn, name="m", source="import")
-        add_candidates_bulk(conn, list_id, [
-            {"ticker": "AAPL", "metrics": {"pe": 30, "fcf_yield": 0.04}},
-        ])
+        add_candidates_bulk(
+            conn,
+            list_id,
+            [
+                {"ticker": "AAPL", "metrics": {"pe": 30, "fcf_yield": 0.04}},
+            ],
+        )
         cands = get_candidates(conn, list_id)
         assert len(cands) == 1
         assert cands[0]["metrics"] == {"pe": 30, "fcf_yield": 0.04}
@@ -163,9 +172,9 @@ def test_list_candidate_lists_includes_counts(tmp_workdir):
     from src.db.operations import (
         add_candidates_bulk,
         create_candidate_list,
+        get_candidates,
         list_candidate_lists,
         mark_candidate_analyzed,
-        get_candidates,
     )
     from src.db.schema import get_db
 
@@ -189,8 +198,13 @@ def test_list_candidate_lists_includes_counts(tmp_workdir):
 
 def test_split_tokens_handles_common_separators():
     from src.operations.candidates import _split_tokens
+
     assert _split_tokens("AAPL, MSFT GOOGL\nNVDA;TSLA") == [
-        "AAPL", "MSFT", "GOOGL", "NVDA", "TSLA",
+        "AAPL",
+        "MSFT",
+        "GOOGL",
+        "NVDA",
+        "TSLA",
     ]
     assert _split_tokens("") == []
     assert _split_tokens("   ") == []
@@ -198,6 +212,7 @@ def test_split_tokens_handles_common_separators():
 
 def test_validate_list_name_accepts_safe_names():
     from src.operations.candidates import _validate_list_name
+
     for name in ("watch-q2", "list_2026", "deep.value.1", "A"):
         assert _validate_list_name(name) == name
 
@@ -205,6 +220,7 @@ def test_validate_list_name_accepts_safe_names():
 @pytest.mark.parametrize("bad", ["", "--bad", "../etc", "name with spaces", "x" * 65])
 def test_validate_list_name_rejects_unsafe(bad):
     from src.operations.candidates import _validate_list_name
+
     with pytest.raises(ValueError):
         _validate_list_name(bad)
 
@@ -212,6 +228,7 @@ def test_validate_list_name_rejects_unsafe(bad):
 def test_extract_csv_tickers_with_header(tmp_workdir):
     """CSV with a 'ticker' column extracts that column."""
     from src.operations.candidates import _extract_csv_tickers
+
     csv = "ticker,note\nAAPL,big tech\nMSFT,cloud\n"
     assert _extract_csv_tickers(csv) == ["AAPL", "MSFT"]
 
@@ -219,6 +236,7 @@ def test_extract_csv_tickers_with_header(tmp_workdir):
 def test_extract_csv_tickers_without_header(tmp_workdir):
     """CSV without recognized header takes column 0 as tickers."""
     from src.operations.candidates import _extract_csv_tickers
+
     csv = "AAPL\nMSFT\nGOOGL\n"
     assert _extract_csv_tickers(csv) == ["AAPL", "MSFT", "GOOGL"]
 
@@ -253,7 +271,7 @@ def test_import_candidates_inline(tmp_workdir):
 
     # Visible via list_lists / show_list
     lists = list_lists()
-    assert any(l["name"] == "inline-test" for l in lists)
+    assert any(item["name"] == "inline-test" for item in lists)
     shown = show_list("inline-test")
     assert [c["ticker"] for c in shown["candidates"]] == ["AAPL", "MSFT", "NVDA"]
 
@@ -283,10 +301,12 @@ def test_import_candidates_rejects_duplicate_list_name(tmp_workdir):
 
 def test_delete_list_returns_false_for_missing(tmp_workdir):
     from src.operations.candidates import delete_list
+
     assert delete_list("does-not-exist") is False
 
 
 def test_show_list_raises_on_missing(tmp_workdir):
     from src.operations.candidates import show_list
+
     with pytest.raises(FileNotFoundError):
         show_list("does-not-exist")

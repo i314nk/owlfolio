@@ -27,7 +27,11 @@ def list_memories(category: str | None = None, limit: int = 50) -> list[dict[str
         conn.close()
 
 
-def remember(content: str, category: str = "observation", ticker: str | None = None) -> dict[str, Any]:
+def remember(
+    content: str,
+    category: str = "observation",
+    ticker: str | None = None,
+) -> dict[str, Any]:
     """Save a memory entry. Returns the inserted row info."""
     if not isinstance(content, str) or not content.strip():
         raise ValueError("content is required")

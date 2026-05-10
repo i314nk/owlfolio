@@ -21,7 +21,7 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
-from src.strategy.loader import load_strategy, validate_strategy
+from src.strategy.loader import validate_strategy
 
 console = Console()
 
@@ -48,8 +48,8 @@ ZONE 1 — STRUCTURED CONTRACT (small, typed, machine-readable)
     wide: 0.12                            #   moat strategies: inevitable / monopoly / wide / narrow
     narrow: null                          #   deep-value:      fortress / safe / risky / dangerous
                                           #   income:          aristocrat / achiever / contender
-                                          #   compounder:      generational / exceptional / proven / unproven
-                                          #   growth:          hypergrower / leader / contender / fading
+                                          #   compounder: generational/exceptional/proven/unproven
+                                          #   growth:     hypergrower / leader / contender / fading
 
   thresholds:                             # weighted score thresholds for tier classification
     wide: 3.5
@@ -93,21 +93,25 @@ Example strategies for reference (all use the new two-zone shape):
 
 1. BUFFETT VALUE (buffett-munger.yaml):
    - Owner-earnings methodology embedded in prompts.synthesis
-   - Moat criteria: pricing_power(20%), switching_costs(20%), network_effects(20%), cost_advantages(20%), intangible_assets(20%)
+   - Moat criteria: pricing_power(20%), switching_costs(20%),
+     network_effects(20%), cost_advantages(20%), intangible_assets(20%)
    - Tiers: inevitable=10%, monopoly=12%, wide=14%, narrow=null (don't buy)
    - Max 8 positions, 25% max single position
    - Specialists: financial_analyst, moat_analyst, risk_analyst, management_analyst, mental_models
 
 2. GROWTH (growth.yaml):
    - PEG-based methodology in prompts.synthesis
-   - Criteria: market_size(20%), product_leadership(25%), network_effects(25%), switching_costs(15%), management_vision(15%)
+   - Criteria: market_size(20%), product_leadership(25%),
+     network_effects(25%), switching_costs(15%), management_vision(15%)
    - Tiers: hypergrower=20% / leader=15% / contender=10% / fading=null
    - Max 20 positions, 8% max single position
    - Specialists: tam_analyst, unit_economics_analyst, competitive_dynamics, risk_analyst
 
 3. DIVIDEND INCOME (dividend-income.yaml):
-   - Dividend-yield methodology in prompts.synthesis (Chowder Number, payout < 60%, FCF coverage > 1.5x)
-   - Criteria: earnings_stability(30%), dividend_track_record(30%), competitive_position(20%), balance_sheet_strength(20%)
+   - Dividend-yield methodology in prompts.synthesis
+     (Chowder Number, payout < 60%, FCF coverage > 1.5x)
+   - Criteria: earnings_stability(30%), dividend_track_record(30%),
+     competitive_position(20%), balance_sheet_strength(20%)
    - Tiers: aristocrat=3.0% / achiever=3.5% / contender=4.5%
    - Max 25 positions, 5% max single position
    - Specialists: dividend_safety_analyst, earnings_stability_analyst, balance_sheet_analyst
@@ -203,12 +207,14 @@ def run_onboarding() -> str:
 
     system_prompt = _build_system_prompt()
 
-    console.print(Panel(
-        "[bold]Strategy Design Consultant[/bold]\n\n"
-        "I'll help you create a custom investment strategy through\n"
-        "a natural conversation about your investing philosophy.",
-        border_style="blue",
-    ))
+    console.print(
+        Panel(
+            "[bold]Strategy Design Consultant[/bold]\n\n"
+            "I'll help you create a custom investment strategy through\n"
+            "a natural conversation about your investing philosophy.",
+            border_style="blue",
+        )
+    )
 
     console.print()
     console.print(OPENING_MESSAGE)
@@ -333,13 +339,13 @@ def extract_yaml_from_response(response: str) -> str | None:
     after_marker = response[marker_idx:]
 
     # Look for YAML in a code fence
-    yaml_match = re.search(r'```(?:yaml|yml)?\s*\n(.*?)```', after_marker, re.DOTALL)
+    yaml_match = re.search(r"```(?:yaml|yml)?\s*\n(.*?)```", after_marker, re.DOTALL)
     if yaml_match:
         return yaml_match.group(1).strip()
 
     # Fallback: try to find bare YAML after the marker
     # Look for content that starts with "name:" (first required field)
-    name_match = re.search(r'(name:\s*\S+.*)', after_marker, re.DOTALL)
+    name_match = re.search(r"(name:\s*\S+.*)", after_marker, re.DOTALL)
     if name_match:
         return name_match.group(1).strip()
 
@@ -410,50 +416,105 @@ VALUATION_METHODS = {
 }
 
 AVAILABLE_METRICS = [
-    "revenue", "net_income", "gross_margin", "operating_margin",
-    "net_margin", "free_cash_flow", "debt_to_equity", "roic", "roe",
-    "stock_based_compensation", "operating_cash_flow", "total_capex",
-    "depreciation_amortization", "research_development", "dividend_per_share",
-    "revenue_growth_1yr", "revenue_growth_3yr", "revenue_growth_5yr",
+    "revenue",
+    "net_income",
+    "gross_margin",
+    "operating_margin",
+    "net_margin",
+    "free_cash_flow",
+    "debt_to_equity",
+    "roic",
+    "roe",
+    "stock_based_compensation",
+    "operating_cash_flow",
+    "total_capex",
+    "depreciation_amortization",
+    "research_development",
+    "dividend_per_share",
+    "revenue_growth_1yr",
+    "revenue_growth_3yr",
+    "revenue_growth_5yr",
 ]
 
 # ─── Moat templates by philosophy ─────────────────────
 
 VALUE_MOAT_CRITERIA = [
-    {"name": "pricing_power", "weight": 0.20,
-     "description": "Can the company raise prices without losing customers?"},
-    {"name": "switching_costs", "weight": 0.20,
-     "description": "How hard is it for customers to leave?"},
-    {"name": "network_effects", "weight": 0.20,
-     "description": "Does the product get better with more users?"},
-    {"name": "cost_advantages", "weight": 0.20,
-     "description": "Structural cost advantage from scale or process?"},
-    {"name": "intangible_assets", "weight": 0.20,
-     "description": "Brands, patents, licenses, regulatory moats?"},
+    {
+        "name": "pricing_power",
+        "weight": 0.20,
+        "description": "Can the company raise prices without losing customers?",
+    },
+    {
+        "name": "switching_costs",
+        "weight": 0.20,
+        "description": "How hard is it for customers to leave?",
+    },
+    {
+        "name": "network_effects",
+        "weight": 0.20,
+        "description": "Does the product get better with more users?",
+    },
+    {
+        "name": "cost_advantages",
+        "weight": 0.20,
+        "description": "Structural cost advantage from scale or process?",
+    },
+    {
+        "name": "intangible_assets",
+        "weight": 0.20,
+        "description": "Brands, patents, licenses, regulatory moats?",
+    },
 ]
 
 GROWTH_MOAT_CRITERIA = [
-    {"name": "market_size", "weight": 0.20,
-     "description": "How large is the TAM? Room to grow 5-10x?"},
-    {"name": "product_leadership", "weight": 0.25,
-     "description": "Is the product clearly best-in-class?"},
-    {"name": "network_effects", "weight": 0.25,
-     "description": "Does the product get better with more users?"},
-    {"name": "switching_costs", "weight": 0.15,
-     "description": "How deeply embedded in customer workflows?"},
-    {"name": "management_vision", "weight": 0.15,
-     "description": "Founder-led? Clear long-term vision?"},
+    {
+        "name": "market_size",
+        "weight": 0.20,
+        "description": "How large is the TAM? Room to grow 5-10x?",
+    },
+    {
+        "name": "product_leadership",
+        "weight": 0.25,
+        "description": "Is the product clearly best-in-class?",
+    },
+    {
+        "name": "network_effects",
+        "weight": 0.25,
+        "description": "Does the product get better with more users?",
+    },
+    {
+        "name": "switching_costs",
+        "weight": 0.15,
+        "description": "How deeply embedded in customer workflows?",
+    },
+    {
+        "name": "management_vision",
+        "weight": 0.15,
+        "description": "Founder-led? Clear long-term vision?",
+    },
 ]
 
 INCOME_MOAT_CRITERIA = [
-    {"name": "earnings_stability", "weight": 0.30,
-     "description": "How stable and predictable are earnings?"},
-    {"name": "dividend_track_record", "weight": 0.30,
-     "description": "How long has the company paid and grown dividends?"},
-    {"name": "competitive_position", "weight": 0.20,
-     "description": "Can competitors undercut this business?"},
-    {"name": "balance_sheet_strength", "weight": 0.20,
-     "description": "Can the company maintain dividends in a recession?"},
+    {
+        "name": "earnings_stability",
+        "weight": 0.30,
+        "description": "How stable and predictable are earnings?",
+    },
+    {
+        "name": "dividend_track_record",
+        "weight": 0.30,
+        "description": "How long has the company paid and grown dividends?",
+    },
+    {
+        "name": "competitive_position",
+        "weight": 0.20,
+        "description": "Can competitors undercut this business?",
+    },
+    {
+        "name": "balance_sheet_strength",
+        "weight": 0.20,
+        "description": "Can the company maintain dividends in a recession?",
+    },
 ]
 
 
@@ -488,13 +549,15 @@ def run_onboarding_quick() -> str:
     investment strategy, then generates a valid YAML file and copies
     it to methodology.yaml as the active strategy.
     """
-    console.print(Panel(
-        "[bold]Strategy Builder (Quick Mode)[/bold]\n\n"
-        "I'll help you create a custom investment strategy.\n"
-        "Answer a few questions about your investing style,\n"
-        "and I'll generate a strategy YAML file for you.",
-        border_style="blue",
-    ))
+    console.print(
+        Panel(
+            "[bold]Strategy Builder (Quick Mode)[/bold]\n\n"
+            "I'll help you create a custom investment strategy.\n"
+            "Answer a few questions about your investing style,\n"
+            "and I'll generate a strategy YAML file for you.",
+            border_style="blue",
+        )
+    )
 
     # ── Step 1: Investment philosophy ──
     console.print("\n[bold]Step 1: Investment Philosophy[/bold]")
@@ -512,10 +575,12 @@ def run_onboarding_quick() -> str:
         "3": ("aggressive", "Concentrated positions, higher conviction"),
     }
     risk_choice = _ask_choice("Choose", risk_choices, "2")
-    risk_level, max_position, max_positions = RISK_LEVELS.get(
-        risk_choice, RISK_LEVELS["2"]
+    risk_level, max_position, max_positions = RISK_LEVELS.get(risk_choice, RISK_LEVELS["2"])
+    console.print(
+        f"\n  Risk: [bold]{risk_level}[/bold]"
+        f" (max {max_position:.0%}/position,"
+        f" up to {max_positions} positions)"
     )
-    console.print(f"\n  Risk: [bold]{risk_level}[/bold] (max {max_position:.0%}/position, up to {max_positions} positions)")
 
     time_horizon = _ask("\n  Investment time horizon in years", "5")
     try:
@@ -571,7 +636,7 @@ def run_onboarding_quick() -> str:
     except ValueError:
         lookback_years = 5
 
-    console.print(f"\n  Available metrics:")
+    console.print("\n  Available metrics:")
     for i, m in enumerate(AVAILABLE_METRICS, 1):
         console.print(f"    {i:2d}. {m}")
 
@@ -600,11 +665,15 @@ def run_onboarding_quick() -> str:
     for spec_name in default_specialists:
         console.print(f"    • {spec_name}")
     console.print(
-        f"\n  Default roster ({len(default_specialists)} specialists) tuned for [bold]{philosophy}[/bold].\n"
+        f"\n  Default roster ({len(default_specialists)} specialists)"
+        f" tuned for [bold]{philosophy}[/bold].\n"
     )
 
     # ── Step 7: Summary ──
-    strategy_name = _ask("\n[bold]Strategy name[/bold] (lowercase, hyphens ok)", f"custom-{philosophy}")
+    strategy_name = _ask(
+        "\n[bold]Strategy name[/bold] (lowercase, hyphens ok)",
+        f"custom-{philosophy}",
+    )
     strategy_name = strategy_name.lower().replace(" ", "-")
 
     console.print("\n")
@@ -619,7 +688,10 @@ def run_onboarding_quick() -> str:
     table.add_row("Time Horizon", f"{time_horizon_years} years")
     table.add_row("Valuation", valuation_method)
     table.add_row("Lookback Years", str(lookback_years))
-    table.add_row("Key Metrics", ", ".join(default_metrics[:5]) + ("..." if len(default_metrics) > 5 else ""))
+    metrics_str = ", ".join(default_metrics[:5])
+    if len(default_metrics) > 5:
+        metrics_str += "..."
+    table.add_row("Key Metrics", metrics_str)
     table.add_row("Specialists", ", ".join(default_specialists))
     console.print(table)
 
@@ -681,21 +753,39 @@ def _default_metrics(philosophy: str) -> list[str]:
     """Return default key metrics for philosophy."""
     if philosophy == "growth":
         return [
-            "revenue", "net_income", "gross_margin", "operating_margin",
-            "free_cash_flow", "stock_based_compensation", "research_development",
-            "revenue_growth_1yr", "revenue_growth_3yr",
+            "revenue",
+            "net_income",
+            "gross_margin",
+            "operating_margin",
+            "free_cash_flow",
+            "stock_based_compensation",
+            "research_development",
+            "revenue_growth_1yr",
+            "revenue_growth_3yr",
         ]
     elif philosophy == "income":
         return [
-            "revenue", "net_income", "free_cash_flow", "gross_margin",
-            "operating_margin", "debt_to_equity", "operating_cash_flow",
+            "revenue",
+            "net_income",
+            "free_cash_flow",
+            "gross_margin",
+            "operating_margin",
+            "debt_to_equity",
+            "operating_cash_flow",
             "dividend_per_share",
         ]
     else:  # value or hybrid
         return [
-            "revenue", "net_income", "free_cash_flow", "gross_margin",
-            "operating_margin", "net_margin", "roic", "debt_to_equity",
-            "stock_based_compensation", "operating_cash_flow",
+            "revenue",
+            "net_income",
+            "free_cash_flow",
+            "gross_margin",
+            "operating_margin",
+            "net_margin",
+            "roic",
+            "debt_to_equity",
+            "stock_based_compensation",
+            "operating_cash_flow",
         ]
 
 
@@ -747,7 +837,10 @@ def _build_strategy_dict(
         },
         "prompts": {
             "synthesis": _build_synthesis_prompt(
-                philosophy, valuation_method, criteria, tier_dict,
+                philosophy,
+                valuation_method,
+                criteria,
+                tier_dict,
             ),
             "discovery": _build_discovery_prompt(philosophy),
             "specialists": _build_specialists(specialists),
@@ -866,7 +959,8 @@ def _build_synthesis_prompt(
         for c in criteria
     )
     tier_lines = "\n".join(
-        f"- **{name}:** required return {rate:.0%}" if rate is not None
+        f"- **{name}:** required return {rate:.0%}"
+        if rate is not None
         else f"- **{name}:** don't buy"
         for name, rate in tiers.items()
     )

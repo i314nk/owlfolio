@@ -34,7 +34,6 @@ them automatically.
 
 from src.specialists.runner import SpecialistConfig
 
-
 SHARIAH_SPECIALIST = SpecialistConfig(
     name="shariah_compliance",
     prompt_body="""Check AAOIFI Shariah compliance for {COMPANY} ({TICKER}). You must
@@ -239,10 +238,7 @@ def get_addon(name: str) -> SpecialistConfig:
     full set of available names if the key isn't registered."""
     n = (name or "").strip().lower()
     if n not in ADDON_REGISTRY:
-        raise KeyError(
-            f"unknown addon {name!r} — available: "
-            f"{sorted(ADDON_REGISTRY.keys())}"
-        )
+        raise KeyError(f"unknown addon {name!r} — available: {sorted(ADDON_REGISTRY.keys())}")
     return ADDON_REGISTRY[n]
 
 

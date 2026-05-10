@@ -16,13 +16,13 @@ logger = logging.getLogger("owlfolio.schedule_defaults")
 # Used to anchor daily checks relative to trading hours.
 MARKET_OPEN_UTC: dict[str, int] = {
     "US": 14,  # NYSE 9:30 ET ≈ 14:00 UTC
-    "UK": 8,   # LSE 8:00 UTC
-    "AE": 6,   # ADX 10:00 GST = 6:00 UTC
-    "JP": 0,   # TSE 9:00 JST = 0:00 UTC
-    "HK": 1,   # HKEX 9:30 HKT ≈ 1:30 UTC
-    "IN": 4,   # NSE 9:15 IST ≈ 3:45 UTC
-    "SA": 7,   # Tadawul 10:00 AST = 7:00 UTC
-    "CN": 1,   # SSE 9:30 CST ≈ 1:30 UTC
+    "UK": 8,  # LSE 8:00 UTC
+    "AE": 6,  # ADX 10:00 GST = 6:00 UTC
+    "JP": 0,  # TSE 9:00 JST = 0:00 UTC
+    "HK": 1,  # HKEX 9:30 HKT ≈ 1:30 UTC
+    "IN": 4,  # NSE 9:15 IST ≈ 3:45 UTC
+    "SA": 7,  # Tadawul 10:00 AST = 7:00 UTC
+    "CN": 1,  # SSE 9:30 CST ≈ 1:30 UTC
     "BR": 13,  # B3 10:00 BRT = 13:00 UTC
 }
 
@@ -105,11 +105,7 @@ DEFAULT_TASKS = [
 
 def _resolve_cron(template: str, market_hour: int) -> str:
     """Replace {H} and {H-1} placeholders in a cron template."""
-    return (
-        template
-        .replace("{H}", str(market_hour))
-        .replace("{H-1}", str((market_hour - 1) % 24))
-    )
+    return template.replace("{H}", str(market_hour)).replace("{H-1}", str((market_hour - 1) % 24))
 
 
 def create_default_schedule(
@@ -141,13 +137,15 @@ def create_default_schedule(
             timezone=timezone,
             description=description,
         )
-        created.append({
-            "id": task_id,
-            "name": name,
-            "command": command,
-            "cron": cron,
-            "description": description,
-        })
+        created.append(
+            {
+                "id": task_id,
+                "name": name,
+                "command": command,
+                "cron": cron,
+                "description": description,
+            }
+        )
         logger.info("Created task '%s' (ID %d): %s @ %s", name, task_id, command, cron)
 
     return created

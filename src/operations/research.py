@@ -66,8 +66,11 @@ async def quick_research(query: str) -> dict[str, Any]:
     from claude_agent_sdk import (
         ClaudeAgentOptions,
         ResultMessage,
+    )
+    from claude_agent_sdk import (
         query as sdk_query,
     )
+
     from src.llm.provider import _agent_sdk_model
 
     prompt = f"""Answer this general-purpose finance/markets question
@@ -134,7 +137,7 @@ def _parse_research_json(text: str) -> dict:
     s, e = text.find("{"), text.rfind("}")
     if s != -1 and e > s:
         try:
-            return json.loads(text[s:e + 1])
+            return json.loads(text[s : e + 1])
         except json.JSONDecodeError:
             pass
     return {"answer": text[:500], "key_facts": [], "sources": []}

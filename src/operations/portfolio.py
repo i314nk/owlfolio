@@ -49,13 +49,15 @@ def list_holdings(ticker: str | None = None, with_prices: bool = False) -> dict[
         value = float(h["shares"]) * price if price is not None else None
         pnl = (value - cost) if value is not None else None
         pnl_pct = (pnl / cost * 100) if (pnl is not None and cost) else None
-        enriched.append({
-            **h,
-            "current_price": price,
-            "current_value": value,
-            "pnl": pnl,
-            "pnl_pct": pnl_pct,
-        })
+        enriched.append(
+            {
+                **h,
+                "current_price": price,
+                "current_value": value,
+                "pnl": pnl,
+                "pnl_pct": pnl_pct,
+            }
+        )
         if value is not None:
             total_value += value
             total_cost += cost

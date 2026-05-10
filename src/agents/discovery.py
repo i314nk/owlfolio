@@ -75,8 +75,10 @@ MARKET_ACCOUNTING: dict[str, str] = {
 
 # Ticker suffix → market code mapping (yfinance conventions)
 _SUFFIX_TO_MARKET: dict[str, str] = {
-    ".NS": "IN", ".BO": "IN",
-    ".AD": "AE", ".DFM": "AE",
+    ".NS": "IN",
+    ".BO": "IN",
+    ".AD": "AE",
+    ".DFM": "AE",
     ".L": "UK",
     ".HK": "HK",
     ".TO": "CA",
@@ -169,9 +171,9 @@ class Candidate:
     sector: str = ""
     market_cap: float = 0.0
     current_price: float = 0.0
-    note: str = ""                # one-sentence rationale from the model
+    note: str = ""  # one-sentence rationale from the model
     metrics: dict[str, Any] = field(default_factory=dict)  # strategy-specific fields
-    source: str = "agentic"       # "agentic" | "import"
+    source: str = "agentic"  # "agentic" | "import"
     discovered_at: str = ""
 
     def to_dict(self) -> dict[str, Any]:
@@ -253,14 +255,16 @@ def _build_discovery_mcp_server():
     async def validate_ticker_tool(args):
         t = (args.get("ticker") or "").strip().upper()
         if not t:
-            return {"content": [{"type": "text", "text": json.dumps({
-                "valid": False, "reason": "empty ticker"
-            })}]}
+            return {
+                "content": [
+                    {"type": "text", "text": json.dumps({"valid": False, "reason": "empty ticker"})}
+                ]
+            }
         result = yfinance_validate(t)
         payload = (
             {"valid": True, "ticker": t, "company_name": result.get("company_name", "")}
-            if result else
-            {"valid": False, "ticker": t, "reason": "no yfinance data"}
+            if result
+            else {"valid": False, "ticker": t, "reason": "no yfinance data"}
         )
         return {"content": [{"type": "text", "text": json.dumps(payload)}]}
 
@@ -274,14 +278,12 @@ def _build_discovery_mcp_server():
     async def get_ticker_summary_tool(args):
         t = (args.get("ticker") or "").strip().upper()
         if not t:
-            return {"content": [{"type": "text", "text": json.dumps({
-                "error": "empty ticker"
-            })}]}
+            return {"content": [{"type": "text", "text": json.dumps({"error": "empty ticker"})}]}
         result = yfinance_validate(t)
         if not result:
-            return {"content": [{"type": "text", "text": json.dumps({
-                "error": "no data", "ticker": t
-            })}]}
+            return {
+                "content": [{"type": "text", "text": json.dumps({"error": "no data", "ticker": t})}]
+            }
         return {"content": [{"type": "text", "text": json.dumps(result)}]}
 
     return create_sdk_mcp_server(
@@ -335,7 +337,9 @@ borderline cases in the note field.
 
 
 def _build_discovery_prompt(
-    strategy: Strategy, n: int, exclude: set[str] | None = None,
+    strategy: Strategy,
+    n: int,
+    exclude: set[str] | None = None,
     shariah: bool = False,
 ) -> str:
     """Compose the discovery prompt from the strategy's discovery prose."""
@@ -410,8 +414,8 @@ Return EXACTLY this JSON shape:
       "ticker": "AAPL",
       "company_name": "Apple Inc.",
       "sector": "Technology",
-      "quality_signal": "preliminary qualitative signal — e.g. 'appears to have durable pricing power'",
-      "note": "one-sentence preliminary rationale tying this name to the strategy brief",
+      "quality_signal": "preliminary qualitative signal",
+      "note": "one-sentence preliminary rationale",
       "metrics": {{
         "any_strategy_specific_field": "e.g. PEG=0.8, payout=42%, P/B=0.6"
       }}
@@ -460,8 +464,11 @@ async def discover_candidates(
     from claude_agent_sdk import (
         ClaudeAgentOptions,
         ResultMessage,
+    )
+    from claude_agent_sdk import (
         query as sdk_query,
     )
+
     from src.llm.provider import _agent_sdk_model
 
     if exclude:
@@ -472,7 +479,9 @@ async def discover_candidates(
 
     logger.info(
         "Running discovery for %s (target=%d, brief=%dc)",
-        strategy.name, n, len(strategy.prompts.discovery),
+        strategy.name,
+        n,
+        len(strategy.prompts.discovery),
     )
 
     result_text = ""
@@ -535,7 +544,7 @@ def _parse_discovery_json(text: str) -> dict | None:
     start, end = text.find("{"), text.rfind("}")
     if start != -1 and end > start:
         try:
-            return json.loads(text[start:end + 1])
+            return json.loads(text[start : end + 1])
         except json.JSONDecodeError:
             pass
 
@@ -562,6 +571,7 @@ def _materialize_candidates(
         # Use the canonical TICKER_RE from operations/__init__.py — same
         # 15-char widened pattern that admits ADX/HKEX/SS/NS/etc. listings.
         from src.operations import TICKER_RE
+
         if not TICKER_RE.match(ticker):
             logger.info("Discovery: rejecting non-ticker-shaped %r", ticker)
             continue
@@ -580,20 +590,23 @@ def _materialize_candidates(
                 continue
 
         seen.add(ticker)
-        out.append(Candidate(
-            ticker=ticker,
-            company_name=validated.get("company_name") or entry.get("company_name", ticker),
-            sector=validated.get("sector") or entry.get("sector", ""),
-            market_cap=validated.get("market_cap", 0.0),
-            current_price=validated.get("current_price", 0.0),
-            note=(entry.get("note") or "").strip(),
-            metrics=entry.get("metrics") if isinstance(entry.get("metrics"), dict) else {},
-            source="agentic",
-            discovered_at=now,
-        ))
+        out.append(
+            Candidate(
+                ticker=ticker,
+                company_name=validated.get("company_name") or entry.get("company_name", ticker),
+                sector=validated.get("sector") or entry.get("sector", ""),
+                market_cap=validated.get("market_cap", 0.0),
+                current_price=validated.get("current_price", 0.0),
+                note=(entry.get("note") or "").strip(),
+                metrics=entry.get("metrics") if isinstance(entry.get("metrics"), dict) else {},
+                source="agentic",
+                discovered_at=now,
+            )
+        )
 
-    logger.info("Discovery: materialized %d candidates from %d raw entries",
-                len(out), len(raw_list))
+    logger.info(
+        "Discovery: materialized %d candidates from %d raw entries", len(out), len(raw_list)
+    )
     return out
 
 

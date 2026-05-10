@@ -30,7 +30,6 @@ async def synthesize(
             material changes (score drift >= 2 or decision change) should
             be flagged prominently.
     """
-    from src.llm.provider import _run_async, _agent_sdk_complete
 
     # Format specialist findings
     findings_text = _format_specialist_outputs(specialist_outputs)
@@ -47,7 +46,8 @@ async def synthesize(
 
     prompt = f"""You are the lead analyst for {company_name} ({ticker}).
 
-{len(specialist_outputs)} specialists have independently researched this company under the {strategy.name} strategy.
+{len(specialist_outputs)} specialists have independently researched this company \
+under the {strategy.name} strategy.
 {drift_section}
 ## Specialist Reports
 
@@ -97,9 +97,12 @@ Return valid JSON:
 
 Return ONLY valid JSON -- no markdown, no explanation."""
 
-    from claude_agent_sdk import query as sdk_query, ClaudeAgentOptions, ResultMessage
-    from src.llm.provider import _agent_sdk_model
     from pathlib import Path
+
+    from claude_agent_sdk import ClaudeAgentOptions, ResultMessage
+    from claude_agent_sdk import query as sdk_query
+
+    from src.llm.provider import _agent_sdk_model
 
     result_text = ""
     async for msg in sdk_query(
@@ -118,9 +121,7 @@ Return ONLY valid JSON -- no markdown, no explanation."""
         if isinstance(msg, ResultMessage) and msg.result:
             result_text = msg.result
 
-    return _parse_synthesis_result(
-        result_text, ticker, company_name, strategy, specialist_outputs
-    )
+    return _parse_synthesis_result(result_text, ticker, company_name, strategy, specialist_outputs)
 
 
 def _build_drift_context(previous_analysis: dict | None, is_holding: bool) -> str:
@@ -138,9 +139,11 @@ def _build_drift_context(previous_analysis: dict | None, is_holding: bool) -> st
     score = previous_analysis.get("weighted_score", 0.0)
     specialist_scores = previous_analysis.get("specialist_scores", {})
 
-    scores_line = ", ".join(
-        f"{name} {val:.0%}" for name, val in specialist_scores.items()
-    ) if specialist_scores else "(none recorded)"
+    scores_line = (
+        ", ".join(f"{name} {val:.0%}" for name, val in specialist_scores.items())
+        if specialist_scores
+        else "(none recorded)"
+    )
 
     lines = [
         "",
@@ -168,17 +171,13 @@ def _format_specialist_outputs(outputs: list[SpecialistFindings]) -> str:
     """Format specialist findings for the synthesis prompt."""
     sections = []
     for output in outputs:
-        flags_text = (
-            "\n".join(f"  - {f}" for f in output.flags) if output.flags else "  (none)"
-        )
+        flags_text = "\n".join(f"  - {f}" for f in output.flags) if output.flags else "  (none)"
         findings_text = (
             "\n".join(f"  - {f}" for f in output.key_findings)
             if output.key_findings
             else "  (none)"
         )
-        sources_text = (
-            ", ".join(output.data_sources[:3]) if output.data_sources else "(none)"
-        )
+        sources_text = ", ".join(output.data_sources[:3]) if output.data_sources else "(none)"
 
         section = f"""### {output.specialist_name} (confidence: {output.confidence:.0%})
 

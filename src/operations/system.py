@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import os
 import socket
-import subprocess
 import sqlite3
+import subprocess
 import sys
 from pathlib import Path
 from typing import Any
@@ -66,9 +66,7 @@ def doctor_report() -> dict[str, Any]:
 
     # Daemon
     try:
-        result = subprocess.run(
-            ["pgrep", "-f", "owlfolio.*daemon"], capture_output=True, timeout=2
-        )
+        result = subprocess.run(["pgrep", "-f", "owlfolio.*daemon"], capture_output=True, timeout=2)
         daemon_alive = result.returncode == 0
     except Exception:
         daemon_alive = False

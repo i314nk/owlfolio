@@ -50,7 +50,15 @@ def test_doctor_command_runs():
     assert result.exit_code == 0
     assert "Owlfolio Doctor" in result.stdout
     # Each major section should appear
-    for label in ("Python", "credentials", "strategy", "Portfolio DB", "Web UI port", "Daemon", "Runtime"):
+    for label in (
+        "Python",
+        "credentials",
+        "strategy",
+        "Portfolio DB",
+        "Web UI port",
+        "Daemon",
+        "Runtime",
+    ):
         assert label.lower() in result.stdout.lower(), f"doctor missing section: {label}"
 
 
@@ -58,6 +66,7 @@ def test_install_script_exists():
     """install.sh must exist, be executable, and support native mode."""
     import os
     from pathlib import Path
+
     script = Path(__file__).parent.parent / "install.sh"
     assert script.exists(), "install.sh is the one-command entrypoint advertised in README"
     assert os.access(script, os.X_OK), "install.sh must be executable"

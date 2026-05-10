@@ -9,7 +9,7 @@ The strategy YAML has two zones:
     thresholds: {wide, narrow}               # weighted_score → tier classification
     position_sizing: PositionSizingConfig    # numeric sizing constraints
     display: DisplayConfig                   # CLI labels
-    llm_overridable: {var: OverridableVar}   # numeric knob ranges (synthesis can adjust within bounds)
+    llm_overridable: {var: OverridableVar}   # numeric knob ranges
 
   Zone 2 — Prompt corpus (one prose block per LLM consumer)
     prompts:
@@ -41,7 +41,6 @@ from typing import Any
 import yaml
 from pydantic import BaseModel, ConfigDict, field_validator
 
-
 # ─── Zone 1: structured contract ──────────────────────
 
 
@@ -55,7 +54,7 @@ class OverridableVar(BaseModel):
 
     default: float
     range: tuple[float, float]  # (min, max) inclusive
-    label: str = ""             # short human-readable label for CLI display
+    label: str = ""  # short human-readable label for CLI display
 
     @field_validator("range")
     @classmethod
@@ -300,8 +299,7 @@ def validate_strategy(path: str | Path) -> list[str]:
     )
     if primary is not None and primary.default > 0.30:
         warnings.append(
-            f"Primary threshold {primary.default:.2f} looks very high — "
-            "few companies will qualify."
+            f"Primary threshold {primary.default:.2f} looks very high — few companies will qualify."
         )
 
     ps = strategy.position_sizing
@@ -323,7 +321,8 @@ def validate_strategy(path: str | Path) -> list[str]:
 
     if not strategy.prompts.specialists:
         warnings.append(
-            "No specialists defined under prompts.specialists — the analyze pipeline needs at least one."
+            "No specialists defined under prompts.specialists"
+            " — the analyze pipeline needs at least one."
         )
 
     return warnings

@@ -15,14 +15,11 @@ from pathlib import Path
 import yaml
 
 from src.modules.onboarding import (
-    STRATEGY_EXAMPLES_SUMMARY,
-    STRATEGY_SCHEMA,
     _build_strategy_dict,
     _build_system_prompt,
     extract_yaml_from_response,
 )
 from src.strategy.loader import Strategy, validate_strategy
-
 
 # ─── YAML Extraction ──────────────────────────────────
 
@@ -148,7 +145,10 @@ def test_build_income_strategy_dict():
     assert strategy.position_sizing.max_positions == 20
     assert "aristocrat" in strategy.tiers
     assert "dividend_safety_analyst" in strategy.prompts.specialists
-    assert "Dividend per Share" in strategy.prompts.synthesis or "dividend" in strategy.prompts.synthesis.lower()
+    assert (
+        "Dividend per Share" in strategy.prompts.synthesis
+        or "dividend" in strategy.prompts.synthesis.lower()
+    )
 
 
 def test_built_strategies_pass_validation():
@@ -189,27 +189,39 @@ def test_different_philosophies_produce_different_configs():
     )
 
     value_dict = _build_strategy_dict(
-        name="v", philosophy="value", risk_level="moderate",
-        max_position=0.08, max_positions=15,
+        name="v",
+        philosophy="value",
+        risk_level="moderate",
+        max_position=0.08,
+        max_positions=15,
         valuation_method="owner_earnings_yield",
         moat_criteria=VALUE_MOAT_CRITERIA,
-        lookback_years=5, key_metrics=["revenue"],
+        lookback_years=5,
+        key_metrics=["revenue"],
         specialists=_default_specialists("value"),
     )
     growth_dict = _build_strategy_dict(
-        name="g", philosophy="growth", risk_level="aggressive",
-        max_position=0.06, max_positions=10,
+        name="g",
+        philosophy="growth",
+        risk_level="aggressive",
+        max_position=0.06,
+        max_positions=10,
         valuation_method="peg_ratio",
         moat_criteria=GROWTH_MOAT_CRITERIA,
-        lookback_years=3, key_metrics=["revenue"],
+        lookback_years=3,
+        key_metrics=["revenue"],
         specialists=_default_specialists("growth"),
     )
     income_dict = _build_strategy_dict(
-        name="i", philosophy="income", risk_level="conservative",
-        max_position=0.10, max_positions=20,
+        name="i",
+        philosophy="income",
+        risk_level="conservative",
+        max_position=0.10,
+        max_positions=20,
         valuation_method="dividend_yield",
         moat_criteria=INCOME_MOAT_CRITERIA,
-        lookback_years=7, key_metrics=["revenue"],
+        lookback_years=7,
+        key_metrics=["revenue"],
         specialists=_default_specialists("income"),
     )
 
@@ -224,13 +236,19 @@ def test_different_philosophies_produce_different_configs():
     assert "aristocrat" in income_dict["tiers"]
 
     # Criteria sets differ
-    assert {c["name"] for c in value_dict["criteria"]} != {c["name"] for c in growth_dict["criteria"]}
+    value_criteria = {c["name"] for c in value_dict["criteria"]}
+    growth_criteria = {c["name"] for c in growth_dict["criteria"]}
+    assert value_criteria != growth_criteria
 
     # Position sizing differs
-    assert value_dict["position_sizing"]["max_positions"] != growth_dict["position_sizing"]["max_positions"]
+    val_max = value_dict["position_sizing"]["max_positions"]
+    grw_max = growth_dict["position_sizing"]["max_positions"]
+    assert val_max != grw_max
 
     # Specialist rosters differ
-    assert set(value_dict["prompts"]["specialists"].keys()) != set(growth_dict["prompts"]["specialists"].keys())
+    val_specs = set(value_dict["prompts"]["specialists"].keys())
+    grw_specs = set(growth_dict["prompts"]["specialists"].keys())
+    assert val_specs != grw_specs
 
 
 # ─── System Prompt ──────────────────────────────────

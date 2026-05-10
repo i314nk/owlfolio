@@ -68,7 +68,7 @@ def test_discovery_prompt_includes_target_count():
 
 
 def test_discovery_prompt_includes_screening_stance():
-    """The prompt must instruct the agent to use preliminary language, not definitive moat ratings."""
+    """The prompt must instruct the agent to use preliminary language."""
     s = load_strategy(STRATEGIES_DIR / "buffett-munger.yaml")
     p = _build_discovery_prompt(s, n=10)
     assert "screening, not performing a full deep-dive analysis" in p
@@ -87,12 +87,15 @@ def test_discovery_prompt_restricts_to_candidate_pipeline():
 # ─── JSON parsing ───────────────────────────────────────────────────
 
 
-@pytest.mark.parametrize("text", [
-    '{"candidates": [{"ticker": "AAPL"}]}',
-    '```json\n{"candidates": [{"ticker": "AAPL"}]}\n```',
-    'preamble {"candidates": [{"ticker": "AAPL"}]} trailing prose',
-    '```\n{"candidates": [{"ticker": "AAPL"}]}\n```',
-])
+@pytest.mark.parametrize(
+    "text",
+    [
+        '{"candidates": [{"ticker": "AAPL"}]}',
+        '```json\n{"candidates": [{"ticker": "AAPL"}]}\n```',
+        'preamble {"candidates": [{"ticker": "AAPL"}]} trailing prose',
+        '```\n{"candidates": [{"ticker": "AAPL"}]}\n```',
+    ],
+)
 def test_parse_discovery_json_handles_common_wrappers(text):
     parsed = _parse_discovery_json(text)
     assert parsed is not None
@@ -109,23 +112,29 @@ def test_parse_discovery_json_returns_none_for_non_json():
 
 def test_materialize_candidates_skips_malformed():
     """Empty / missing tickers and non-dict entries are dropped silently."""
-    cands = _materialize_candidates([
-        {"ticker": "AAPL", "note": "good"},
-        {"company_name": "missing ticker"},
-        "not a dict at all",
-        {"ticker": "", "note": "empty"},
-    ], skip_validation=True)
+    cands = _materialize_candidates(
+        [
+            {"ticker": "AAPL", "note": "good"},
+            {"company_name": "missing ticker"},
+            "not a dict at all",
+            {"ticker": "", "note": "empty"},
+        ],
+        skip_validation=True,
+    )
     assert [c.ticker for c in cands] == ["AAPL"]
 
 
 def test_materialize_candidates_dedupes():
     """Duplicate tickers within one batch only appear once."""
-    cands = _materialize_candidates([
-        {"ticker": "AAPL", "note": "first"},
-        {"ticker": "AAPL", "note": "dup"},
-        {"ticker": "msft", "note": "case-insensitive"},
-        {"ticker": "MSFT", "note": "dup of msft"},
-    ], skip_validation=True)
+    cands = _materialize_candidates(
+        [
+            {"ticker": "AAPL", "note": "first"},
+            {"ticker": "AAPL", "note": "dup"},
+            {"ticker": "msft", "note": "case-insensitive"},
+            {"ticker": "MSFT", "note": "dup of msft"},
+        ],
+        skip_validation=True,
+    )
     assert [c.ticker for c in cands] == ["AAPL", "MSFT"]
     assert cands[0].note == "first"
 
@@ -137,26 +146,37 @@ def test_materialize_candidates_rejects_bad_shape():
     `0700.HK` and `600519.SS`) — that's a deliberate widening from the
     earlier US-only validator.
     """
-    cands = _materialize_candidates([
-        {"ticker": "!@#"},                          # symbol-only — rejected
-        {"ticker": "AAAAAAAAAAAAAAAAA"},            # 17 chars — over the 15 limit
-        {"ticker": ".AAPL"},                        # leading punctuation
-        {"ticker": "OK"},
-        {"ticker": "BRK.B"},                        # dot is allowed
-        {"ticker": "0700.HK"},                      # HK digit-leading — now allowed
-        {"ticker": "ADNOCGAS.AD"},                  # 11 chars — now allowed
-    ], skip_validation=True)
+    cands = _materialize_candidates(
+        [
+            {"ticker": "!@#"},  # symbol-only — rejected
+            {"ticker": "AAAAAAAAAAAAAAAAA"},  # 17 chars — over the 15 limit
+            {"ticker": ".AAPL"},  # leading punctuation
+            {"ticker": "OK"},
+            {"ticker": "BRK.B"},  # dot is allowed
+            {"ticker": "0700.HK"},  # HK digit-leading — now allowed
+            {"ticker": "ADNOCGAS.AD"},  # 11 chars — now allowed
+        ],
+        skip_validation=True,
+    )
     assert [c.ticker for c in cands] == [
-        "OK", "BRK.B", "0700.HK", "ADNOCGAS.AD",
+        "OK",
+        "BRK.B",
+        "0700.HK",
+        "ADNOCGAS.AD",
     ]
 
 
 def test_candidate_to_dict_roundtrip():
     """Candidate.to_dict produces a JSON-serializable dict with all fields."""
     c = Candidate(
-        ticker="AAPL", company_name="Apple", sector="Tech",
-        market_cap=3e12, current_price=200.0,
-        note="great", metrics={"pe": 30}, source="agentic",
+        ticker="AAPL",
+        company_name="Apple",
+        sector="Tech",
+        market_cap=3e12,
+        current_price=200.0,
+        note="great",
+        metrics={"pe": 30},
+        source="agentic",
         discovered_at="2026-04-26T12:00:00",
     )
     d = c.to_dict()
@@ -191,9 +211,7 @@ def test_discovery_module_does_not_import_portfolio_db():
         "from src.operations.watchlist",
     )
     for f in forbidden_imports:
-        assert f not in src, (
-            f"discovery.py must not import {f!r} — it should be read-only"
-        )
+        assert f not in src, f"discovery.py must not import {f!r} — it should be read-only"
 
 
 # ─── exclude list ─────────────────────────────────────────────────
@@ -236,6 +254,7 @@ def test_prompt_omits_exclude_section_when_empty():
 def test_ticker_currency_us_default():
     """US tickers (no suffix) return USD."""
     from src.agents.discovery import ticker_currency
+
     code, sym = ticker_currency("AAPL")
     assert code == "USD"
     assert sym == "$"
@@ -244,6 +263,7 @@ def test_ticker_currency_us_default():
 def test_ticker_currency_uae():
     """UAE tickers return AED."""
     from src.agents.discovery import ticker_currency
+
     code, sym = ticker_currency("ADNOCGAS.AD")
     assert code == "AED"
     assert "AED" in sym
@@ -252,6 +272,7 @@ def test_ticker_currency_uae():
 def test_ticker_currency_india():
     """Indian tickers return INR."""
     from src.agents.discovery import ticker_currency
+
     code, sym = ticker_currency("RELIANCE.NS")
     assert code == "INR"
     assert sym == "₹"
@@ -260,6 +281,7 @@ def test_ticker_currency_india():
 def test_ticker_currency_uk():
     """UK tickers return GBP."""
     from src.agents.discovery import ticker_currency
+
     code, sym = ticker_currency("SHEL.L")
     assert code == "GBP"
     assert sym == "£"

@@ -38,6 +38,12 @@ def add_to_watchlist(
             (t, strategy, buy_price, notes),
         )
         conn.commit()
-        return {"id": cur.lastrowid, "ticker": t, "strategy": strategy, "buy_price": buy_price, "notes": notes}
+        return {
+            "id": cur.lastrowid,
+            "ticker": t,
+            "strategy": strategy,
+            "buy_price": buy_price,
+            "notes": notes,
+        }
     finally:
         conn.close()

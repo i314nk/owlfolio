@@ -69,6 +69,7 @@ def app_with_db(tmp_path, monkeypatch):
 
     # Patch the app's DB_PATH before importing/instantiating the client
     from src.web import app as web_app
+
     monkeypatch.setattr(web_app, "DB_PATH", db_path)
     return TestClient(web_app.app)
 
@@ -88,8 +89,13 @@ def test_strategies_endpoint_lists_presets(app_with_db):
     assert r.status_code == 200
     names = {s["name"] for s in r.json()}
     expected = {
-        "buffett-munger", "deep-value", "quality-compounder",
-        "100-bagger", "garp", "growth", "dividend-income",
+        "buffett-munger",
+        "deep-value",
+        "quality-compounder",
+        "100-bagger",
+        "garp",
+        "growth",
+        "dividend-income",
     }
     assert expected.issubset(names)
 
@@ -124,6 +130,7 @@ def test_tasks_partial_renders(app_with_db):
 def test_build_chat_system_prompt_includes_claude_md(monkeypatch, tmp_path):
     """_build_chat_system_prompt loads CLAUDE.md and appends memory if present."""
     from src.web import app as web_app
+
     fake_agent_dir = tmp_path / "agent"
     fake_agent_dir.mkdir()
     (fake_agent_dir / "CLAUDE.md").write_text("# Test base prompt\nbe direct.")
@@ -131,6 +138,7 @@ def test_build_chat_system_prompt_includes_claude_md(monkeypatch, tmp_path):
 
     # Stub get_memory_context
     import src.db.operations as ops
+
     monkeypatch.setattr(ops, "get_memory_context", lambda: "remembered: AAPL is on watchlist")
 
     prompt = web_app._build_chat_system_prompt()
@@ -142,8 +150,10 @@ def test_build_chat_system_prompt_includes_claude_md(monkeypatch, tmp_path):
 def test_build_chat_system_prompt_handles_missing_claude_md(monkeypatch, tmp_path):
     """If CLAUDE.md can't be read, _build_chat_system_prompt falls back to a default."""
     from src.web import app as web_app
+
     monkeypatch.setattr(web_app, "AGENT_DIR", tmp_path / "does-not-exist")
     import src.db.operations as ops
+
     monkeypatch.setattr(ops, "get_memory_context", lambda: "")
     prompt = web_app._build_chat_system_prompt()
     assert "Owlfolio" in prompt
@@ -171,5 +181,6 @@ def test_format_tool_use_handles_known_tools():
 
 def test_format_tool_use_unknown_tool_falls_back():
     from src.web.app import _format_tool_use
+
     label = _format_tool_use(_FakeBlock("MysteryTool", {"x": "abc"}))
     assert "MysteryTool" in label

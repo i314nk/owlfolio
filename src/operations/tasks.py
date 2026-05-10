@@ -22,6 +22,7 @@ def _known_owlfolio_subcommands() -> frozenset[str]:
     fire and silently fail every run).
     """
     from src.main import app
+
     names: set[str] = set()
     for c in app.registered_commands:
         n = c.name or (c.callback.__name__ if c.callback else None)
@@ -115,6 +116,7 @@ def _validate_owlfolio_command(command: str) -> None:
     if sub not in known:
         # Suggest closest matches so the caller sees the real options
         from difflib import get_close_matches
+
         suggestions = get_close_matches(sub, known, n=3, cutoff=0.5)
         hint = f" Did you mean: {', '.join(suggestions)}?" if suggestions else ""
         raise ValueError(
@@ -129,7 +131,9 @@ def daemon_status() -> dict[str, Any]:
     try:
         result = subprocess.run(
             ["pgrep", "-f", "owlfolio.*daemon"],
-            capture_output=True, text=True, timeout=2,
+            capture_output=True,
+            text=True,
+            timeout=2,
         )
         running = result.returncode == 0
         pids = [int(p) for p in result.stdout.split() if p.strip().isdigit()] if running else []

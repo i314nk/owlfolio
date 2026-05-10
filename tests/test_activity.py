@@ -24,6 +24,7 @@ def tmp_workdir_with_strategies(tmp_path, monkeypatch):
     needs to load a strategy (e.g. run_addon) can find one."""
     import shutil
     from pathlib import Path
+
     monkeypatch.chdir(tmp_path)
     (tmp_path / "data").mkdir()
     src = Path(__file__).parent.parent / "strategies"
@@ -47,24 +48,38 @@ def test_save_specialist_findings_with_extras(tmp_workdir):
     conn = get_db()
     try:
         aid = save_analysis(
-            conn, ticker="AAPL", strategy="buffett-munger", decision="WATCH",
-            buy_price=350, current_price=400, quality_tier="wide",
-            weighted_score=4.2, thesis="", bull_case="", bear_case="",
-            key_risks=[], overrides={},
+            conn,
+            ticker="AAPL",
+            strategy="buffett-munger",
+            decision="WATCH",
+            buy_price=350,
+            current_price=400,
+            quality_tier="wide",
+            weighted_score=4.2,
+            thesis="",
+            bull_case="",
+            bear_case="",
+            key_risks=[],
+            overrides={},
         )
-        save_specialist_findings(conn, aid, [
-            {
-                "specialist_name": "moat_analyst", "ticker": "AAPL",
-                "summary": "wide moat from ecosystem",
-                "key_findings": ["80% gross margin", "switching costs high"],
-                "data_sources": ["stockanalysis.com"],
-                "flags": ["GREEN: pricing power"],
-                "confidence": 0.85,
-                # Specialist-specific extras
-                "moat_score_breakdown": {"switching": 5, "network": 3},
-                "industry_position": "dominant",
-            },
-        ])
+        save_specialist_findings(
+            conn,
+            aid,
+            [
+                {
+                    "specialist_name": "moat_analyst",
+                    "ticker": "AAPL",
+                    "summary": "wide moat from ecosystem",
+                    "key_findings": ["80% gross margin", "switching costs high"],
+                    "data_sources": ["stockanalysis.com"],
+                    "flags": ["GREEN: pricing power"],
+                    "confidence": 0.85,
+                    # Specialist-specific extras
+                    "moat_score_breakdown": {"switching": 5, "network": 3},
+                    "industry_position": "dominant",
+                },
+            ],
+        )
         rows = get_specialist_findings(conn, aid)
         assert len(rows) == 1
         r = rows[0]
@@ -93,18 +108,34 @@ def test_specialist_findings_cascade_on_analysis_delete(tmp_workdir):
     conn = get_db()
     try:
         aid = save_analysis(
-            conn, ticker="MSFT", strategy="quality-compounder", decision="BUY",
-            buy_price=300, current_price=290, quality_tier="generational",
-            weighted_score=4.8, thesis="", bull_case="", bear_case="",
-            key_risks=[], overrides={},
+            conn,
+            ticker="MSFT",
+            strategy="quality-compounder",
+            decision="BUY",
+            buy_price=300,
+            current_price=290,
+            quality_tier="generational",
+            weighted_score=4.8,
+            thesis="",
+            bull_case="",
+            bear_case="",
+            key_risks=[],
+            overrides={},
         )
-        save_specialist_findings(conn, aid, [
-            {"specialist_name": "a", "ticker": "MSFT", "summary": "x"},
-            {"specialist_name": "b", "ticker": "MSFT", "summary": "y"},
-        ])
-        assert conn.execute(
-            "SELECT COUNT(*) FROM specialist_findings WHERE analysis_id = ?", (aid,)
-        ).fetchone()[0] == 2
+        save_specialist_findings(
+            conn,
+            aid,
+            [
+                {"specialist_name": "a", "ticker": "MSFT", "summary": "x"},
+                {"specialist_name": "b", "ticker": "MSFT", "summary": "y"},
+            ],
+        )
+        assert (
+            conn.execute(
+                "SELECT COUNT(*) FROM specialist_findings WHERE analysis_id = ?", (aid,)
+            ).fetchone()[0]
+            == 2
+        )
 
         conn.execute("DELETE FROM analyses WHERE id = ?", (aid,))
         conn.commit()
@@ -129,6 +160,7 @@ def test_get_analysis_by_id_returns_none_for_missing(tmp_workdir):
 
 def test_get_analysis_op_validates_id(tmp_workdir):
     from src.operations.analyses import get_analysis
+
     with pytest.raises(ValueError, match="positive int"):
         get_analysis(0)
     with pytest.raises(ValueError, match="positive int"):
@@ -151,11 +183,16 @@ def test_task_run_lifecycle(tmp_workdir):
     conn = get_db()
     try:
         task_id = add_scheduled_task(
-            conn, name="daily-watch", command="owlfolio analyze AAPL",
+            conn,
+            name="daily-watch",
+            command="owlfolio analyze AAPL",
             schedule="0 7 * * *",
         )
         run_id = record_task_run_start(
-            conn, task_id, "daily-watch", "owlfolio analyze AAPL",
+            conn,
+            task_id,
+            "daily-watch",
+            "owlfolio analyze AAPL",
         )
         # Mid-flight: exit_code is NULL
         runs = get_task_runs(conn)
@@ -163,8 +200,11 @@ def test_task_run_lifecycle(tmp_workdir):
         assert runs[0]["finished_at"] is None
 
         record_task_run_end(
-            conn, run_id, exit_code=0,
-            stdout="Analysis complete.", stderr="",
+            conn,
+            run_id,
+            exit_code=0,
+            stdout="Analysis complete.",
+            stderr="",
         )
         runs = get_task_runs(conn)
         assert runs[0]["exit_code"] == 0
@@ -187,11 +227,13 @@ def test_task_run_excerpts_capped_at_2kb(tmp_workdir):
     conn = get_db()
     try:
         task_id = add_scheduled_task(
-            conn, name="t", command="owlfolio analyze AAPL", schedule="* * * * *",
+            conn,
+            name="t",
+            command="owlfolio analyze AAPL",
+            schedule="* * * * *",
         )
         run_id = record_task_run_start(conn, task_id, "t", "owlfolio analyze AAPL")
-        record_task_run_end(conn, run_id, exit_code=1,
-                            stdout="x" * 5000, stderr="y" * 5000)
+        record_task_run_end(conn, run_id, exit_code=1, stdout="x" * 5000, stderr="y" * 5000)
         runs = get_task_runs(conn)
         assert len(runs[0]["stdout_excerpt"]) == 2048
         assert len(runs[0]["stderr_excerpt"]) == 2048
@@ -209,7 +251,10 @@ def test_task_runs_cascade_on_task_delete(tmp_workdir):
     conn = get_db()
     try:
         task_id = add_scheduled_task(
-            conn, name="t", command="owlfolio analyze AAPL", schedule="* * * * *",
+            conn,
+            name="t",
+            command="owlfolio analyze AAPL",
+            schedule="* * * * *",
         )
         record_task_run_start(conn, task_id, "t", "owlfolio analyze AAPL")
         record_task_run_start(conn, task_id, "t", "owlfolio analyze AAPL")
@@ -241,24 +286,47 @@ def _seed_one_of_each(tmp_path):
     conn = get_db()
     try:
         aid = save_analysis(
-            conn, ticker="AAPL", strategy="buffett-munger", decision="WATCH",
-            buy_price=350, current_price=400, quality_tier="wide",
-            weighted_score=4.2, thesis="t", bull_case="b", bear_case="",
-            key_risks=[], overrides={},
+            conn,
+            ticker="AAPL",
+            strategy="buffett-munger",
+            decision="WATCH",
+            buy_price=350,
+            current_price=400,
+            quality_tier="wide",
+            weighted_score=4.2,
+            thesis="t",
+            bull_case="b",
+            bear_case="",
+            key_risks=[],
+            overrides={},
         )
         log_decision(
-            conn, ticker="AAPL", action="buy", price=395, shares=10,
-            reasoning="t", strategy="buffett-munger", analysis_id=aid,
+            conn,
+            ticker="AAPL",
+            action="buy",
+            price=395,
+            shares=10,
+            reasoning="t",
+            strategy="buffett-munger",
+            analysis_id=aid,
         )
         create_candidate_list(
-            conn, name="my-import", source="import", strategy="garp",
+            conn,
+            name="my-import",
+            source="import",
+            strategy="garp",
         )
         task_id = add_scheduled_task(
-            conn, name="daily", command="owlfolio analyze AAPL",
+            conn,
+            name="daily",
+            command="owlfolio analyze AAPL",
             schedule="0 7 * * *",
         )
         run_id = record_task_run_start(
-            conn, task_id, "daily", "owlfolio analyze AAPL",
+            conn,
+            task_id,
+            "daily",
+            "owlfolio analyze AAPL",
         )
         record_task_run_end(conn, run_id, exit_code=0)
     finally:
@@ -267,6 +335,7 @@ def _seed_one_of_each(tmp_path):
 
 def test_get_activity_unifies_all_sources(tmp_workdir):
     from src.operations.activity import get_activity
+
     _seed_one_of_each(tmp_workdir)
 
     events = get_activity()
@@ -280,6 +349,7 @@ def test_get_activity_unifies_all_sources(tmp_workdir):
 
 def test_get_activity_filters_by_type(tmp_workdir):
     from src.operations.activity import get_activity
+
     _seed_one_of_each(tmp_workdir)
 
     only_analyses = get_activity(type_filter="analysis")
@@ -288,11 +358,12 @@ def test_get_activity_filters_by_type(tmp_workdir):
 
     only_lists = get_activity(type_filter="list")
     assert all(e["type"] == "list" for e in only_lists)
-    assert only_lists[0]["reference"] == "my-import"   # lists referenced by name
+    assert only_lists[0]["reference"] == "my-import"  # lists referenced by name
 
 
 def test_get_activity_rejects_unknown_filter(tmp_workdir):
     from src.operations.activity import get_activity
+
     with pytest.raises(ValueError, match="unknown type_filter"):
         get_activity(type_filter="nonsense")
 
@@ -307,10 +378,19 @@ def test_analysis_event_distinguishes_addon_runs(tmp_workdir):
     conn = get_db()
     try:
         save_analysis(
-            conn, ticker="AAPL", strategy="shariah-addon", decision="N/A",
-            buy_price=0, current_price=0, quality_tier="addon",
-            weighted_score=0, thesis="compliant", bull_case="", bear_case="",
-            key_risks=[], overrides={},
+            conn,
+            ticker="AAPL",
+            strategy="shariah-addon",
+            decision="N/A",
+            buy_price=0,
+            current_price=0,
+            quality_tier="addon",
+            weighted_score=0,
+            thesis="compliant",
+            bull_case="",
+            bear_case="",
+            key_risks=[],
+            overrides={},
         )
     finally:
         conn.close()
@@ -360,15 +440,28 @@ def test_delete_analysis_cascades_to_findings(tmp_workdir):
     conn = get_db()
     try:
         aid = save_analysis(
-            conn, ticker="AAPL", strategy="buffett-munger", decision="BUY",
-            buy_price=350, current_price=300, quality_tier="wide",
-            weighted_score=4.5, thesis="", bull_case="", bear_case="",
-            key_risks=[], overrides={},
+            conn,
+            ticker="AAPL",
+            strategy="buffett-munger",
+            decision="BUY",
+            buy_price=350,
+            current_price=300,
+            quality_tier="wide",
+            weighted_score=4.5,
+            thesis="",
+            bull_case="",
+            bear_case="",
+            key_risks=[],
+            overrides={},
         )
-        save_specialist_findings(conn, aid, [
-            {"specialist_name": "a", "ticker": "AAPL", "summary": "x"},
-            {"specialist_name": "b", "ticker": "AAPL", "summary": "y"},
-        ])
+        save_specialist_findings(
+            conn,
+            aid,
+            [
+                {"specialist_name": "a", "ticker": "AAPL", "summary": "x"},
+                {"specialist_name": "b", "ticker": "AAPL", "summary": "y"},
+            ],
+        )
     finally:
         conn.close()
 
@@ -376,13 +469,14 @@ def test_delete_analysis_cascades_to_findings(tmp_workdir):
 
     conn = get_db()
     try:
-        assert conn.execute(
-            "SELECT COUNT(*) FROM analyses WHERE id = ?", (aid,)
-        ).fetchone()[0] == 0
+        assert conn.execute("SELECT COUNT(*) FROM analyses WHERE id = ?", (aid,)).fetchone()[0] == 0
         # FK cascade dropped the findings rows
-        assert conn.execute(
-            "SELECT COUNT(*) FROM specialist_findings WHERE analysis_id = ?", (aid,)
-        ).fetchone()[0] == 0
+        assert (
+            conn.execute(
+                "SELECT COUNT(*) FROM specialist_findings WHERE analysis_id = ?", (aid,)
+            ).fetchone()[0]
+            == 0
+        )
     finally:
         conn.close()
 
@@ -416,14 +510,29 @@ def test_delete_decision_does_not_touch_analyses(tmp_workdir):
     conn = get_db()
     try:
         aid = save_analysis(
-            conn, ticker="MSFT", strategy="garp", decision="WATCH",
-            buy_price=300, current_price=400, quality_tier="steady_grower",
-            weighted_score=3.5, thesis="", bull_case="", bear_case="",
-            key_risks=[], overrides={},
+            conn,
+            ticker="MSFT",
+            strategy="garp",
+            decision="WATCH",
+            buy_price=300,
+            current_price=400,
+            quality_tier="steady_grower",
+            weighted_score=3.5,
+            thesis="",
+            bull_case="",
+            bear_case="",
+            key_risks=[],
+            overrides={},
         )
         log_decision(
-            conn, ticker="MSFT", action="watch", price=400, shares=0,
-            reasoning="", strategy="garp", analysis_id=aid,
+            conn,
+            ticker="MSFT",
+            action="watch",
+            price=400,
+            shares=0,
+            reasoning="",
+            strategy="garp",
+            analysis_id=aid,
         )
         decision_id = conn.execute(
             "SELECT id FROM decisions WHERE analysis_id = ?", (aid,)
@@ -436,13 +545,14 @@ def test_delete_decision_does_not_touch_analyses(tmp_workdir):
     conn = get_db()
     try:
         # Analysis still there
-        assert conn.execute(
-            "SELECT COUNT(*) FROM analyses WHERE id = ?", (aid,)
-        ).fetchone()[0] == 1
+        assert conn.execute("SELECT COUNT(*) FROM analyses WHERE id = ?", (aid,)).fetchone()[0] == 1
         # Decision gone
-        assert conn.execute(
-            "SELECT COUNT(*) FROM decisions WHERE id = ?", (decision_id,)
-        ).fetchone()[0] == 0
+        assert (
+            conn.execute("SELECT COUNT(*) FROM decisions WHERE id = ?", (decision_id,)).fetchone()[
+                0
+            ]
+            == 0
+        )
     finally:
         conn.close()
 
@@ -460,11 +570,16 @@ def test_delete_task_run_does_not_touch_schedule(tmp_workdir):
     conn = get_db()
     try:
         task_id = add_scheduled_task(
-            conn, name="daily", command="owlfolio analyze AAPL",
+            conn,
+            name="daily",
+            command="owlfolio analyze AAPL",
             schedule="0 7 * * *",
         )
         run_id = record_task_run_start(
-            conn, task_id, "daily", "owlfolio analyze AAPL",
+            conn,
+            task_id,
+            "daily",
+            "owlfolio analyze AAPL",
         )
         record_task_run_end(conn, run_id, exit_code=0)
     finally:
@@ -475,13 +590,17 @@ def test_delete_task_run_does_not_touch_schedule(tmp_workdir):
     conn = get_db()
     try:
         # Scheduled task survived
-        assert conn.execute(
-            "SELECT COUNT(*) FROM scheduled_tasks WHERE id = ?", (task_id,)
-        ).fetchone()[0] == 1
+        assert (
+            conn.execute(
+                "SELECT COUNT(*) FROM scheduled_tasks WHERE id = ?", (task_id,)
+            ).fetchone()[0]
+            == 1
+        )
         # Run history row gone
-        assert conn.execute(
-            "SELECT COUNT(*) FROM task_runs WHERE id = ?", (run_id,)
-        ).fetchone()[0] == 0
+        assert (
+            conn.execute("SELECT COUNT(*) FROM task_runs WHERE id = ?", (run_id,)).fetchone()[0]
+            == 0
+        )
     finally:
         conn.close()
 
@@ -535,10 +654,13 @@ def test_run_addon_persists_as_degenerate_analysis(tmp_workdir_with_strategies, 
 
     async def fake_single(ticker, name, config, strategy):
         return SpecialistFindings(
-            specialist_name=config.name, ticker=ticker,
-            summary="compliant", key_findings=["debt 25%", "cash 12%"],
+            specialist_name=config.name,
+            ticker=ticker,
+            summary="compliant",
+            key_findings=["debt 25%", "cash 12%"],
             data_sources=["stockanalysis.com"],
-            confidence=0.9, flags=["GREEN: under thresholds"],
+            confidence=0.9,
+            flags=["GREEN: under thresholds"],
         )
 
     monkeypatch.setattr(runner_mod, "_run_single_specialist", fake_single)
@@ -591,9 +713,13 @@ def test_addon_runs_appear_in_activity_feed(tmp_workdir_with_strategies, monkeyp
 
     async def fake_single(ticker, name, config, strategy):
         return SpecialistFindings(
-            specialist_name=config.name, ticker=ticker,
-            summary="ok", key_findings=[], data_sources=[],
-            confidence=0.8, flags=[],
+            specialist_name=config.name,
+            ticker=ticker,
+            summary="ok",
+            key_findings=[],
+            data_sources=[],
+            confidence=0.8,
+            flags=[],
         )
 
     monkeypatch.setattr(runner_mod, "_run_single_specialist", fake_single)

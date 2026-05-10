@@ -72,6 +72,7 @@ def _run_async(coro):
         # We're inside an already-running loop (e.g. Jupyter, uvicorn).
         # Create a new loop in a thread.
         import concurrent.futures
+
         with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
             return pool.submit(asyncio.run, coro).result()
     else:
@@ -80,7 +81,7 @@ def _run_async(coro):
 
 async def _agent_sdk_complete(prompt: str, system: str, model: str) -> str:
     """Call Claude via Agent SDK (uses subscription auth)."""
-    from claude_agent_sdk import query, ClaudeAgentOptions, ResultMessage
+    from claude_agent_sdk import ClaudeAgentOptions, ResultMessage, query
 
     full_prompt = f"{system}\n\n{prompt}" if system else prompt
     for attempt in range(2):
@@ -104,9 +105,13 @@ async def _agent_sdk_complete(prompt: str, system: str, model: str) -> str:
             raise
 
 
-async def _agent_sdk_complete_messages(messages: list[dict[str, str]], system: str, model: str) -> str:
+async def _agent_sdk_complete_messages(
+    messages: list[dict[str, str]],
+    system: str,
+    model: str,
+) -> str:
     """Call Claude via Agent SDK with a multi-turn conversation."""
-    from claude_agent_sdk import query, ClaudeAgentOptions, ResultMessage
+    from claude_agent_sdk import ClaudeAgentOptions, ResultMessage, query
 
     # Flatten message list into a single prompt string
     parts = []
@@ -134,6 +139,7 @@ async def _agent_sdk_complete_messages(messages: list[dict[str, str]], system: s
 # ---------------------------------------------------------------------------
 # Raw Anthropic SDK helpers (API key auth)
 # ---------------------------------------------------------------------------
+
 
 def _load_oauth_token() -> str | None:
     """Try to load OAuth token from Claude Code's credentials file."""
@@ -195,7 +201,7 @@ def _call_with_retry(client: anthropic.Anthropic, kwargs: dict) -> anthropic.typ
         except anthropic.RateLimitError:
             if attempt == MAX_RETRIES - 1:
                 raise
-            delay = RETRY_BASE_DELAY * (2 ** attempt)
+            delay = RETRY_BASE_DELAY * (2**attempt)
             logger.warning("Rate limited — retrying in %ds", delay)
             time.sleep(delay)
     raise RuntimeError("Unreachable")
@@ -204,6 +210,7 @@ def _call_with_retry(client: anthropic.Anthropic, kwargs: dict) -> anthropic.typ
 # ---------------------------------------------------------------------------
 # Public interface
 # ---------------------------------------------------------------------------
+
 
 def complete(
     prompt: str,
@@ -234,12 +241,15 @@ def complete(
         # --- Agent SDK path (subscription auth) ---
         logger.debug(
             "LLM call (agent-sdk): model=%s, system_prompt_length=%d, prompt_length=%d",
-            model, len(system or ""), len(prompt),
+            model,
+            len(system or ""),
+            len(prompt),
         )
         result = _run_async(_agent_sdk_complete(prompt, system, model))
         logger.debug(
             "LLM response (agent-sdk): model=%s, response_length=%d",
-            model, len(result),
+            model,
+            len(result),
         )
         return result
 
@@ -265,7 +275,12 @@ def complete(
         kwargs["temperature"] = temperature
         kwargs["max_tokens"] = max_tokens
 
-    logger.debug("LLM call: model=%s, system_prompt_length=%d, prompt_length=%d", model, len(system or ""), len(prompt))
+    logger.debug(
+        "LLM call: model=%s, system_prompt_length=%d, prompt_length=%d",
+        model,
+        len(system or ""),
+        len(prompt),
+    )
     message = _call_with_retry(client, kwargs)
     logger.debug(
         "LLM response: model=%s, tokens_in=%d, tokens_out=%d, response_length=%d",
@@ -310,12 +325,15 @@ def complete_with_thinking(
         # We return empty thinking text; reasoning quality is preserved.
         logger.debug(
             "LLM call (agent-sdk, thinking): model=%s, system_prompt_length=%d, prompt_length=%d",
-            model, len(system or ""), len(prompt),
+            model,
+            len(system or ""),
+            len(prompt),
         )
         result = _run_async(_agent_sdk_complete(prompt, system, model))
         logger.debug(
             "LLM response (agent-sdk, thinking): model=%s, response_length=%d",
-            model, len(result),
+            model,
+            len(result),
         )
         return "", result
 
@@ -336,7 +354,12 @@ def complete_with_thinking(
     if system:
         kwargs["system"] = system
 
-    logger.debug("LLM call: model=%s, system_prompt_length=%d, prompt_length=%d", model, len(system or ""), len(prompt))
+    logger.debug(
+        "LLM call: model=%s, system_prompt_length=%d, prompt_length=%d",
+        model,
+        len(system or ""),
+        len(prompt),
+    )
     message = _call_with_retry(client, kwargs)
 
     thinking_text = ""
@@ -381,16 +404,22 @@ def complete_structured(
     """
     if not _use_raw_sdk():
         # --- Agent SDK path ---
-        json_instruction = "\n\nIMPORTANT: Return valid JSON only. No markdown fences, no explanation outside the JSON."
+        json_instruction = (
+            "\n\nIMPORTANT: Return valid JSON only."
+            " No markdown fences, no explanation outside the JSON."
+        )
         full_system = (system + json_instruction) if system else json_instruction.strip()
         logger.debug(
             "LLM call (agent-sdk, structured): model=%s, system_prompt_length=%d, prompt_length=%d",
-            model, len(full_system), len(prompt),
+            model,
+            len(full_system),
+            len(prompt),
         )
         result = _run_async(_agent_sdk_complete(prompt, full_system, model))
         logger.debug(
             "LLM response (agent-sdk, structured): model=%s, response_length=%d",
-            model, len(result),
+            model,
+            len(result),
         )
         return result
 
@@ -398,7 +427,10 @@ def complete_structured(
     client = get_client()
 
     if thinking:
-        json_instruction = "\n\nIMPORTANT: Return valid JSON only. No markdown fences, no explanation outside the JSON."
+        json_instruction = (
+            "\n\nIMPORTANT: Return valid JSON only."
+            " No markdown fences, no explanation outside the JSON."
+        )
         full_system = (system + json_instruction) if system else json_instruction.strip()
 
         return complete(
@@ -424,7 +456,12 @@ def complete_structured(
     if system:
         kwargs["system"] = system
 
-    logger.debug("LLM call: model=%s, system_prompt_length=%d, prompt_length=%d", model, len(system or ""), len(prompt))
+    logger.debug(
+        "LLM call: model=%s, system_prompt_length=%d, prompt_length=%d",
+        model,
+        len(system or ""),
+        len(prompt),
+    )
     message = _call_with_retry(client, kwargs)
     logger.debug(
         "LLM response: model=%s, tokens_in=%d, tokens_out=%d, response_length=%d",
@@ -466,12 +503,15 @@ def complete_messages(
         total_prompt_length = sum(len(m.get("content", "")) for m in messages)
         logger.debug(
             "LLM call (agent-sdk, messages): model=%s, system_prompt_length=%d, prompt_length=%d",
-            model, len(system or ""), total_prompt_length,
+            model,
+            len(system or ""),
+            total_prompt_length,
         )
         result = _run_async(_agent_sdk_complete_messages(messages, system, model))
         logger.debug(
             "LLM response (agent-sdk, messages): model=%s, response_length=%d",
-            model, len(result),
+            model,
+            len(result),
         )
         return result
 
@@ -489,7 +529,12 @@ def complete_messages(
         kwargs["system"] = system
 
     total_prompt_length = sum(len(m.get("content", "")) for m in messages)
-    logger.debug("LLM call: model=%s, system_prompt_length=%d, prompt_length=%d", model, len(system or ""), total_prompt_length)
+    logger.debug(
+        "LLM call: model=%s, system_prompt_length=%d, prompt_length=%d",
+        model,
+        len(system or ""),
+        total_prompt_length,
+    )
     message = _call_with_retry(client, kwargs)
     logger.debug(
         "LLM response: model=%s, tokens_in=%d, tokens_out=%d, response_length=%d",

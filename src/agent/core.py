@@ -7,7 +7,6 @@ Runs as `owlfolio chat` in the CLI.
 import asyncio
 import os
 import sqlite3
-import sys
 from pathlib import Path
 
 import yaml
@@ -47,6 +46,7 @@ OWL_BANNER = """\
 ⠈⠉⠙⠒⠲⠶⠶⢶⣶⣤⣬⣽⣶⣦⣤⣤⣤⣶⣶⣿⡿⠿⠿⠟⠛⠿⠿⠏⣴⣿⣿⠟⣛⣛⣋⣀⣀⡀⠀⠀⡀⠀⠀⠀⠀⠹⡇⠀⠀
 ⠀⠀⠀⠀⢀⣠⠶⠛⠋⠉⠉⠁⠀⠈⠉⠉⠉⠉⠁⠀⠀⠀⠀⠀⠀⠀⠀⠈⢏⠈⡏⠈⠛⠛⠻⠿⢿⣿⣿⣿⣿⣿⣶⣦⣤⣤⠑⠀⠀
 ⠀⠀⠀⠐⠋⠁⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠉⠉⠛⠻⠿⣿⡇⠀⠀⠀"""
+
 
 def _format_tool_use(block) -> str:
     """Format a tool use block for display."""
@@ -107,6 +107,7 @@ def _resolve_project_dir() -> Path:
     if (cwd / "strategies").is_dir() and (cwd / "src").is_dir():
         return cwd
     return Path(__file__).parent.parent.parent
+
 
 PROJECT_DIR = _resolve_project_dir()
 DB_PATH = PROJECT_DIR / "data" / "portfolio.db"
@@ -191,6 +192,7 @@ async def _chat_loop():
 
     # Load memory context from DB
     from src.db.operations import get_memory_context
+
     memory_context = get_memory_context()
 
     # Read base CLAUDE.md
@@ -209,7 +211,9 @@ async def _chat_loop():
     # researcher. For general-purpose finance questions there's
     # `mcp__owlfolio__quick_research` — a bounded typed wrapper.
     # See docs/ARCHITECTURE.md → Security Model.
-    from src.mcp_server import SERVER as OWLFOLIO_MCP, allowed_tool_names
+    from src.mcp_server import SERVER as OWLFOLIO_MCP
+    from src.mcp_server import allowed_tool_names
+
     async with ClaudeSDKClient(
         options=ClaudeAgentOptions(
             model="claude-opus-4-7",
@@ -219,9 +223,15 @@ async def _chat_loop():
             mcp_servers={"owlfolio": OWLFOLIO_MCP},
             allowed_tools=allowed_tool_names(),
             disallowed_tools=[
-                "Bash", "Read", "Glob", "Grep",
-                "Edit", "Write", "NotebookEdit",
-                "WebSearch", "WebFetch",
+                "Bash",
+                "Read",
+                "Glob",
+                "Grep",
+                "Edit",
+                "Write",
+                "NotebookEdit",
+                "WebSearch",
+                "WebFetch",
             ],
             # Adaptive extended thinking — model sizes its own thinking budget.
             thinking={"type": "adaptive"},

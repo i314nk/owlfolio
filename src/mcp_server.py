@@ -34,16 +34,38 @@ from claude_agent_sdk import create_sdk_mcp_server, tool
 
 from src.operations import (
     activity as op_activity,
+)
+from src.operations import (
     alerts as op_alerts,
+)
+from src.operations import (
     analyses as op_analyses,
+)
+from src.operations import (
     analysis as op_analysis,
+)
+from src.operations import (
     candidates as op_candidates,
+)
+from src.operations import (
     memory as op_memory,
+)
+from src.operations import (
     portfolio as op_portfolio,
+)
+from src.operations import (
     research as op_research,
+)
+from src.operations import (
     strategies as op_strategies,
+)
+from src.operations import (
     system as op_system,
+)
+from src.operations import (
     tasks as op_tasks,
+)
+from src.operations import (
     watchlist as op_watchlist,
 )
 
@@ -75,10 +97,12 @@ def _err(message: str) -> dict[str, Any]:
 )
 async def get_portfolio(args: dict) -> dict[str, Any]:
     try:
-        return _ok(op_portfolio.list_holdings(
-            ticker=args.get("ticker") or None,
-            with_prices=bool(args.get("with_prices", True)),
-        ))
+        return _ok(
+            op_portfolio.list_holdings(
+                ticker=args.get("ticker") or None,
+                with_prices=bool(args.get("with_prices", True)),
+            )
+        )
     except Exception as e:
         return _err(f"get_portfolio: {e}")
 
@@ -108,10 +132,12 @@ async def get_watchlist(args: dict) -> dict[str, Any]:
 )
 async def get_alerts(args: dict) -> dict[str, Any]:
     try:
-        return _ok(op_alerts.list_alerts(
-            unread_only=bool(args.get("unread_only", True)),
-            limit=int(args.get("limit", 20)),
-        ))
+        return _ok(
+            op_alerts.list_alerts(
+                unread_only=bool(args.get("unread_only", True)),
+                limit=int(args.get("limit", 20)),
+            )
+        )
     except Exception as e:
         return _err(f"get_alerts: {e}")
 
@@ -208,10 +234,12 @@ async def list_specialists(args: dict) -> dict[str, Any]:
 )
 async def list_analyses(args: dict) -> dict[str, Any]:
     try:
-        return _ok(op_analyses.list_analyses(
-            ticker=args.get("ticker") or None,
-            limit=int(args.get("limit", 20)),
-        ))
+        return _ok(
+            op_analyses.list_analyses(
+                ticker=args.get("ticker") or None,
+                limit=int(args.get("limit", 20)),
+            )
+        )
     except Exception as e:
         return _err(f"list_analyses: {e}")
 
@@ -261,16 +289,20 @@ async def get_analysis(args: dict) -> dict[str, Any]:
     "the user asks 'what have you been doing', 'show me recent "
     "activity', or wants to audit what the system did over a period.",
     {
-        "type_filter": Annotated[str, "One of: analysis, list, decision, task_run, all (default all)"],
+        "type_filter": Annotated[
+            str, "One of: analysis, list, decision, task_run, all (default all)"
+        ],
         "limit": Annotated[int, "Max events (default 50)"],
     },
 )
 async def get_activity(args: dict) -> dict[str, Any]:
     try:
-        return _ok(op_activity.get_activity(
-            type_filter=args.get("type_filter") or None,
-            limit=int(args.get("limit") or 50),
-        ))
+        return _ok(
+            op_activity.get_activity(
+                type_filter=args.get("type_filter") or None,
+                limit=int(args.get("limit") or 50),
+            )
+        )
     except Exception as e:
         return _err(f"get_activity: {e}")
 
@@ -288,7 +320,7 @@ async def get_activity(args: dict) -> dict[str, Any]:
             str,
             "Reference token: integer id for analysis/decision/task_run, "
             "list name for list. Strip the `#` if the user quoted `#42` — "
-            "pass `42`."
+            "pass `42`.",
         ],
     },
 )
@@ -304,8 +336,7 @@ async def delete_activity_event(args: dict) -> dict[str, Any]:
         deleted = op_activity.delete_event(et, ref)
         if not deleted:
             return _err(
-                f"no {et} found with reference {args.get('reference')!r} — "
-                "nothing was deleted"
+                f"no {et} found with reference {args.get('reference')!r} — nothing was deleted"
             )
         return _ok({"deleted": True, "event_type": et, "reference": ref})
     except Exception as e:
@@ -322,10 +353,12 @@ async def delete_activity_event(args: dict) -> dict[str, Any]:
 )
 async def list_decisions(args: dict) -> dict[str, Any]:
     try:
-        return _ok(op_analyses.list_decisions(
-            ticker=args.get("ticker") or None,
-            limit=int(args.get("limit", 50)),
-        ))
+        return _ok(
+            op_analyses.list_decisions(
+                ticker=args.get("ticker") or None,
+                limit=int(args.get("limit", 50)),
+            )
+        )
     except Exception as e:
         return _err(f"list_decisions: {e}")
 
@@ -358,10 +391,12 @@ async def compare_tickers(args: dict) -> dict[str, Any]:
 )
 async def list_memories(args: dict) -> dict[str, Any]:
     try:
-        return _ok(op_memory.list_memories(
-            category=args.get("category") or None,
-            limit=int(args.get("limit", 50)),
-        ))
+        return _ok(
+            op_memory.list_memories(
+                category=args.get("category") or None,
+                limit=int(args.get("limit", 50)),
+            )
+        )
     except Exception as e:
         return _err(f"list_memories: {e}")
 
@@ -481,6 +516,7 @@ async def quick_research(args: dict) -> dict[str, Any]:
 async def list_addons(args: dict) -> dict[str, Any]:
     try:
         from src.specialists.addons import list_addons as _list
+
         return _ok({"addons": _list()})
     except Exception as e:
         return _err(f"list_addons: {e}")
@@ -499,7 +535,11 @@ async def list_addons(args: dict) -> dict[str, Any]:
         "strategy_name": Annotated[str, "Override the active strategy"],
         "list_name": Annotated[str, "Name to save the list under (auto-generated if empty)"],
         "note": Annotated[str, "One-line description"],
-        "shariah": Annotated[bool, "Apply Shariah compliance pre-filter to exclude non-compliant companies (default false)"],
+        "shariah": Annotated[
+            bool,
+            "Apply Shariah compliance pre-filter"
+            " to exclude non-compliant companies (default false)",
+        ],
     },
 )
 async def find_candidates(args: dict) -> dict[str, Any]:
@@ -557,8 +597,7 @@ async def list_candidate_lists(args: dict) -> dict[str, Any]:
 
 @tool(
     "get_candidate_list",
-    "Show all candidates in a named list, with their company info and "
-    "analysis status.",
+    "Show all candidates in a named list, with their company info and analysis status.",
     {"name": Annotated[str, "Candidate list name"]},
 )
 async def get_candidate_list(args: dict) -> dict[str, Any]:
@@ -629,15 +668,17 @@ async def delete_candidate_list(args: dict) -> dict[str, Any]:
 )
 async def add_holding(args: dict) -> dict[str, Any]:
     try:
-        return _ok(op_portfolio.add_holding(
-            ticker=args["ticker"],
-            shares=float(args["shares"]),
-            cost_basis=float(args["cost_basis"]),
-            date_acquired=args.get("date_acquired") or None,
-            account=args.get("account") or "default",
-            strategy=args.get("strategy") or None,
-            notes=args.get("notes") or None,
-        ))
+        return _ok(
+            op_portfolio.add_holding(
+                ticker=args["ticker"],
+                shares=float(args["shares"]),
+                cost_basis=float(args["cost_basis"]),
+                date_acquired=args.get("date_acquired") or None,
+                account=args.get("account") or "default",
+                strategy=args.get("strategy") or None,
+                notes=args.get("notes") or None,
+            )
+        )
     except Exception as e:
         return _err(f"add_holding: {e}")
 
@@ -653,11 +694,13 @@ async def add_holding(args: dict) -> dict[str, Any]:
 )
 async def sell_holding(args: dict) -> dict[str, Any]:
     try:
-        return _ok(op_portfolio.sell_holding(
-            ticker=args["ticker"],
-            shares=float(args["shares"]),
-            price=float(args["price"]),
-        ))
+        return _ok(
+            op_portfolio.sell_holding(
+                ticker=args["ticker"],
+                shares=float(args["shares"]),
+                price=float(args["price"]),
+            )
+        )
     except Exception as e:
         return _err(f"sell_holding: {e}")
 
@@ -674,12 +717,14 @@ async def sell_holding(args: dict) -> dict[str, Any]:
 )
 async def add_to_watchlist(args: dict) -> dict[str, Any]:
     try:
-        return _ok(op_watchlist.add_to_watchlist(
-            ticker=args["ticker"],
-            buy_price=float(args["buy_price"]) if args.get("buy_price") else None,
-            strategy=args.get("strategy") or None,
-            notes=args.get("notes") or None,
-        ))
+        return _ok(
+            op_watchlist.add_to_watchlist(
+                ticker=args["ticker"],
+                buy_price=float(args["buy_price"]) if args.get("buy_price") else None,
+                strategy=args.get("strategy") or None,
+                notes=args.get("notes") or None,
+            )
+        )
     except Exception as e:
         return _err(f"add_to_watchlist: {e}")
 
@@ -697,11 +742,13 @@ async def add_to_watchlist(args: dict) -> dict[str, Any]:
 )
 async def remember(args: dict) -> dict[str, Any]:
     try:
-        return _ok(op_memory.remember(
-            content=args["content"],
-            category=args.get("category") or "observation",
-            ticker=args.get("ticker") or None,
-        ))
+        return _ok(
+            op_memory.remember(
+                content=args["content"],
+                category=args.get("category") or "observation",
+                ticker=args.get("ticker") or None,
+            )
+        )
     except Exception as e:
         return _err(f"remember: {e}")
 
@@ -746,13 +793,15 @@ async def mark_alerts_read(args: dict) -> dict[str, Any]:
 )
 async def schedule_task(args: dict) -> dict[str, Any]:
     try:
-        return _ok(op_tasks.add_task(
-            name=args["name"],
-            command=args["command"],
-            schedule=args["schedule"],
-            description=args.get("description") or None,
-            timezone=args.get("timezone") or "UTC",
-        ))
+        return _ok(
+            op_tasks.add_task(
+                name=args["name"],
+                command=args["command"],
+                schedule=args["schedule"],
+                description=args.get("description") or None,
+                timezone=args.get("timezone") or "UTC",
+            )
+        )
     except Exception as e:
         return _err(f"schedule_task: {e}")
 
@@ -788,22 +837,49 @@ async def switch_strategy(args: dict) -> dict[str, Any]:
 
 ALL_TOOLS = [
     # Read-only — portfolio + watchlist + alerts + tasks
-    get_portfolio, get_watchlist, get_alerts, list_tasks, get_daemon_status,
+    get_portfolio,
+    get_watchlist,
+    get_alerts,
+    list_tasks,
+    get_daemon_status,
     # Read-only — strategies + specialists
-    list_strategies, get_active_strategy, get_strategy_info, list_specialists,
+    list_strategies,
+    get_active_strategy,
+    get_strategy_info,
+    list_specialists,
     # Read-only — analyses + memory
-    list_analyses, get_latest_analysis, get_analysis, get_activity,
-    list_decisions, compare_tickers, list_memories,
+    list_analyses,
+    get_latest_analysis,
+    get_analysis,
+    get_activity,
+    list_decisions,
+    compare_tickers,
+    list_memories,
     # Read-only — system
     get_doctor_report,
     # Analysis pipeline
-    analyze, get_price, run_addon, list_addons, quick_research,
+    analyze,
+    get_price,
+    run_addon,
+    list_addons,
+    quick_research,
     # Candidate lists (discovery + import + analyze-list)
-    find_candidates, import_candidates, list_candidate_lists,
-    get_candidate_list, analyze_candidate_list, delete_candidate_list,
+    find_candidates,
+    import_candidates,
+    list_candidate_lists,
+    get_candidate_list,
+    analyze_candidate_list,
+    delete_candidate_list,
     # Mutation
-    add_holding, sell_holding, add_to_watchlist, remember, forget,
-    mark_alerts_read, schedule_task, unschedule_task, switch_strategy,
+    add_holding,
+    sell_holding,
+    add_to_watchlist,
+    remember,
+    forget,
+    mark_alerts_read,
+    schedule_task,
+    unschedule_task,
+    switch_strategy,
     delete_activity_event,
 ]
 

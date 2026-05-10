@@ -143,6 +143,7 @@ def test_overridable_var_invalid_range_rejected():
     from pydantic import ValidationError
 
     from src.strategy.loader import OverridableVar
+
     with pytest.raises(ValidationError):
         OverridableVar(default=0.10, range=(0.20, 0.10), label="bad")
 
@@ -166,7 +167,7 @@ def test_build_strategy_context_includes_tiers_block():
     ctx = build_strategy_context(s)
     assert "TIERS" in ctx
     assert "inevitable" in ctx
-    assert "10%" in ctx       # inevitable hurdle rate
+    assert "10%" in ctx  # inevitable hurdle rate
     assert "don't buy" in ctx  # narrow tier (None)
 
 

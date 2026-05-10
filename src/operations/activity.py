@@ -22,7 +22,6 @@ from typing import Any
 
 from src.db.schema import get_db
 
-
 # Type filter values. Mirrors the Activity-tab pill row.
 ACTIVITY_TYPES = ("analysis", "list", "decision", "task_run")
 
@@ -53,8 +52,7 @@ def get_activity(
     """
     if type_filter and type_filter not in ACTIVITY_TYPES and type_filter != "all":
         raise ValueError(
-            f"unknown type_filter {type_filter!r}; "
-            f"expected one of {ACTIVITY_TYPES + ('all',)}"
+            f"unknown type_filter {type_filter!r}; expected one of {ACTIVITY_TYPES + ('all',)}"
         )
     if limit < 1:
         raise ValueError(f"limit must be >= 1, got {limit}")
@@ -116,29 +114,29 @@ def _analyses_to_events(conn, limit: int, strategy: str | None = None) -> list[d
             else f"{d['ticker']} — {d['decision']} ({d['strategy']})"
         )
         if is_addon:
-            summary = f"Specialist run (informational only)."
+            summary = "Specialist run (informational only)."
         else:
             from src.agents.discovery import ticker_currency
             from src.data.prices import get_price_data
+
             _, csym = ticker_currency(d["ticker"])
-            buy = f"{csym}{d['buy_price']:.2f}" if d['buy_price'] else "—"
+            buy = f"{csym}{d['buy_price']:.2f}" if d["buy_price"] else "—"
             live = get_price_data(d["ticker"])
             live_price = live.price if live.price and live.price > 0 else d["current_price"]
             cur = f"{csym}{live_price:.2f}" if live_price else "—"
-            summary = (
-                f"{d['quality_tier']} {d['weighted_score']:.1f}/5 | "
-                f"fair {buy} vs {cur}"
-            )
-        out.append({
-            "type": "analysis",
-            "timestamp": d["created_at"],
-            "title": title,
-            "summary": summary,
-            "reference": f"#{d['id']}",
-            "link_to": {"tool": "get_analysis", "args": {"id": d["id"]}},
-            "decision": d["decision"],
-            "ticker": d["ticker"],
-        })
+            summary = f"{d['quality_tier']} {d['weighted_score']:.1f}/5 | fair {buy} vs {cur}"
+        out.append(
+            {
+                "type": "analysis",
+                "timestamp": d["created_at"],
+                "title": title,
+                "summary": summary,
+                "reference": f"#{d['id']}",
+                "link_to": {"tool": "get_analysis", "args": {"id": d["id"]}},
+                "decision": d["decision"],
+                "ticker": d["ticker"],
+            }
+        )
     return out
 
 
@@ -160,18 +158,19 @@ def _lists_to_events(conn, limit: int) -> list[dict[str, Any]]:
         title = f"{verb} list: {d['name']}"
         analyzed = int(d["analyzed"] or 0)
         summary = (
-            f"{d['total']} candidates ({analyzed} analyzed)"
-            f" | strategy: {d['strategy'] or '—'}"
+            f"{d['total']} candidates ({analyzed} analyzed) | strategy: {d['strategy'] or '—'}"
         )
-        out.append({
-            "type": "list",
-            "timestamp": d["created_at"],
-            "title": title,
-            "summary": summary,
-            "reference": d["name"],   # lists are referenced by name, not id
-            "link_to": {"tool": "get_candidate_list", "args": {"name": d["name"]}},
-            "list_name": d["name"],
-        })
+        out.append(
+            {
+                "type": "list",
+                "timestamp": d["created_at"],
+                "title": title,
+                "summary": summary,
+                "reference": d["name"],  # lists are referenced by name, not id
+                "link_to": {"tool": "get_candidate_list", "args": {"name": d["name"]}},
+                "list_name": d["name"],
+            }
+        )
     return out
 
 
@@ -203,23 +202,27 @@ def _decisions_to_events(conn, limit: int, strategy: str | None = None) -> list[
             bits.append(f"{d['shares']:g} sh")
         if d["price"]:
             from src.agents.discovery import ticker_currency
+
             _, csym = ticker_currency(d["ticker"])
             bits.append(f"@ {csym}{d['price']:.2f}")
         if d["strategy"]:
             bits.append(f"({d['strategy']})")
         summary = " ".join(bits) if bits else (d["reasoning"] or "—")[:120]
-        out.append({
-            "type": "decision",
-            "timestamp": d["created_at"],
-            "title": title,
-            "summary": summary,
-            "reference": f"d#{d['id']}",
-            "link_to": (
-                {"tool": "get_analysis", "args": {"id": d["analysis_id"]}}
-                if d.get("analysis_id") else None
-            ),
-            "ticker": d["ticker"],
-        })
+        out.append(
+            {
+                "type": "decision",
+                "timestamp": d["created_at"],
+                "title": title,
+                "summary": summary,
+                "reference": f"d#{d['id']}",
+                "link_to": (
+                    {"tool": "get_analysis", "args": {"id": d["analysis_id"]}}
+                    if d.get("analysis_id")
+                    else None
+                ),
+                "ticker": d["ticker"],
+            }
+        )
     return out
 
 
@@ -249,10 +252,7 @@ def delete_event(event_type: str, reference: str | int) -> bool:
     )
 
     if event_type not in ACTIVITY_TYPES:
-        raise ValueError(
-            f"unknown event_type {event_type!r}; "
-            f"expected one of {ACTIVITY_TYPES}"
-        )
+        raise ValueError(f"unknown event_type {event_type!r}; expected one of {ACTIVITY_TYPES}")
 
     conn = get_db()
     try:
@@ -301,14 +301,16 @@ def _task_runs_to_events(conn, limit: int) -> list[dict[str, Any]]:
             status = "ok"
         else:
             status = f"failed (exit {ec})"
-        out.append({
-            "type": "task_run",
-            "timestamp": d["started_at"],
-            "title": f"Task: {d['task_name']}",
-            "summary": f"{d['command']} — {status}",
-            "reference": f"r#{d['id']}",
-            "link_to": None,
-            "exit_code": ec,
-            "status": status,
-        })
+        out.append(
+            {
+                "type": "task_run",
+                "timestamp": d["started_at"],
+                "title": f"Task: {d['task_name']}",
+                "summary": f"{d['command']} — {status}",
+                "reference": f"r#{d['id']}",
+                "link_to": None,
+                "exit_code": ec,
+                "status": status,
+            }
+        )
     return out

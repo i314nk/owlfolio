@@ -26,6 +26,7 @@ from src.db.schema import get_db
 
 logger = logging.getLogger("owlfolio.daemon")
 
+
 def _resolve_project_root() -> Path:
     """Resolve project root: OWLFOLIO_PROJECT_DIR env > cwd > __file__."""
     explicit = os.environ.get("OWLFOLIO_PROJECT_DIR")
@@ -37,6 +38,7 @@ def _resolve_project_root() -> Path:
     if (cwd / "strategies").is_dir() and (cwd / "src").is_dir():
         return cwd
     return Path(__file__).parent.parent
+
 
 PROJECT_ROOT = _resolve_project_root()
 PID_FILE = PROJECT_ROOT / "data" / "daemon.pid"
@@ -161,7 +163,10 @@ def _execute_task(task: dict):
     run_id: int | None = None
     try:
         run_id = record_task_run_start(
-            conn, task["id"], task["name"], task["command"],
+            conn,
+            task["id"],
+            task["name"],
+            task["command"],
         )
     except Exception as e:
         logger.error("Could not open task_runs row for %s: %s", task["name"], e)
@@ -184,7 +189,8 @@ def _execute_task(task: dict):
         log_task_run(conn, task["id"], "success" if success else "error", output)
         if run_id is not None:
             record_task_run_end(
-                conn, run_id,
+                conn,
+                run_id,
                 exit_code=result.returncode,
                 stdout=result.stdout or "",
                 stderr=result.stderr or "",
@@ -206,15 +212,22 @@ def _execute_task(task: dict):
         if run_id is not None:
             # Convention: -1 = timeout, distinct from the subprocess's own exit codes.
             record_task_run_end(
-                conn, run_id, exit_code=-1,
-                stdout="", stderr="Task exceeded 5 minute timeout",
+                conn,
+                run_id,
+                exit_code=-1,
+                stdout="",
+                stderr="Task exceeded 5 minute timeout",
             )
         logger.error("Task %s timed out", task["name"])
     except Exception as e:
         log_task_run(conn, task["id"], "error", str(e))
         if run_id is not None:
             record_task_run_end(
-                conn, run_id, exit_code=-2, stdout="", stderr=str(e),
+                conn,
+                run_id,
+                exit_code=-2,
+                stdout="",
+                stderr=str(e),
             )
         logger.error("Task %s error: %s", task["name"], e)
     finally:

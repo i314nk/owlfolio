@@ -2,18 +2,18 @@
 
 import sqlite3
 from datetime import datetime, timedelta
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 from zoneinfo import ZoneInfo
 
 import pytest
 
-from src.db.schema import _create_tables
+from src.daemon import _execute_task, _is_due, run_daemon
 from src.db.operations import (
     add_scheduled_task,
     get_scheduled_tasks,
     log_task_run,
 )
-from src.daemon import _is_due, _execute_task, run_daemon
+from src.db.schema import _create_tables
 
 
 class _UnclosableConnection:
@@ -142,7 +142,7 @@ def test_is_due_default_timezone():
 def test_execute_task_success(mock_get_db, db):
     """Successful command execution logs success."""
     mock_get_db.return_value = db
-    task_id = add_scheduled_task(db, name="echo-test", command="echo hello", schedule="* * * * *")
+    add_scheduled_task(db, name="echo-test", command="echo hello", schedule="* * * * *")
 
     task = get_scheduled_tasks(db)[0]
     _execute_task(task)
@@ -156,9 +156,7 @@ def test_execute_task_success(mock_get_db, db):
 def test_execute_task_failure(mock_get_db, db):
     """Failed command logs error status."""
     mock_get_db.return_value = db
-    task_id = add_scheduled_task(
-        db, name="fail-test", command="exit 1", schedule="* * * * *"
-    )
+    add_scheduled_task(db, name="fail-test", command="exit 1", schedule="* * * * *")
 
     task = get_scheduled_tasks(db)[0]
     _execute_task(task)
@@ -177,9 +175,7 @@ def test_execute_task_timeout(mock_run, mock_get_db, db):
     mock_get_db.return_value = db
     mock_run.side_effect = subprocess.TimeoutExpired(cmd="sleep 999", timeout=300)
 
-    task_id = add_scheduled_task(
-        db, name="timeout-test", command="sleep 999", schedule="* * * * *"
-    )
+    add_scheduled_task(db, name="timeout-test", command="sleep 999", schedule="* * * * *")
 
     task = get_scheduled_tasks(db)[0]
     _execute_task(task)

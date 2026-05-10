@@ -16,6 +16,7 @@ app = FastAPI(title="Owlfolio", docs_url=None, redoc_url=None)
 WEB_DIR = Path(__file__).parent
 TEMPLATES = Jinja2Templates(directory=str(WEB_DIR / "templates"))
 
+
 def _resolve_project_dir() -> Path:
     """Resolve project root: OWLFOLIO_PROJECT_DIR env > cwd > __file__."""
     explicit = os.environ.get("OWLFOLIO_PROJECT_DIR")
@@ -27,6 +28,7 @@ def _resolve_project_dir() -> Path:
     if (cwd / "strategies").is_dir() and (cwd / "src").is_dir():
         return cwd
     return WEB_DIR.parent.parent
+
 
 PROJECT_DIR = _resolve_project_dir()
 DB_PATH = PROJECT_DIR / "data" / "portfolio.db"
@@ -57,10 +59,12 @@ def _load_strategies() -> list[dict]:
                 # Truncate to first sentence or 80 chars
                 if len(desc) > 80:
                     desc = desc[:77] + "..."
-                strategies.append({
-                    "name": raw.get("name", f.stem),
-                    "description": desc,
-                })
+                strategies.append(
+                    {
+                        "name": raw.get("name", f.stem),
+                        "description": desc,
+                    }
+                )
         except Exception:
             pass
     return strategies
@@ -78,9 +82,12 @@ async def dashboard(request: Request):
     watchlist = [dict(r) for r in conn.execute("SELECT * FROM watchlist").fetchall()]
 
     # Alerts
-    alerts = [dict(r) for r in conn.execute(
-        "SELECT * FROM alerts WHERE read = 0 ORDER BY id DESC LIMIT 5"
-    ).fetchall()]
+    alerts = [
+        dict(r)
+        for r in conn.execute(
+            "SELECT * FROM alerts WHERE read = 0 ORDER BY id DESC LIMIT 5"
+        ).fetchall()
+    ]
 
     # Active strategy
     strategy_name = "unknown"
@@ -100,10 +107,12 @@ async def dashboard(request: Request):
 
     # Check if daemon is running
     from src.daemon import is_daemon_running
+
     daemon_running = is_daemon_running()
 
     response = TEMPLATES.TemplateResponse(
-        request, "dashboard.html",
+        request,
+        "dashboard.html",
         context={
             "holdings": holdings,
             "watchlist": watchlist,
@@ -135,14 +144,19 @@ async def api_strategies():
 @app.get("/api/portfolio", response_class=HTMLResponse)
 async def api_portfolio(request: Request, strategy: str | None = None):
     from src.operations.portfolio import list_holdings
+
     result = list_holdings(ticker=None, with_prices=True)
     holdings = result["holdings"]
     if strategy:
         holdings = [h for h in holdings if h.get("strategy") == strategy]
     return TEMPLATES.TemplateResponse(
-        request, "partials/portfolio.html",
-        context={"holdings": holdings, "totals": result["totals"],
-                 "active_strategy_filter": strategy or ""},
+        request,
+        "partials/portfolio.html",
+        context={
+            "holdings": holdings,
+            "totals": result["totals"],
+            "active_strategy_filter": strategy or "",
+        },
     )
 
 
@@ -150,9 +164,12 @@ async def api_portfolio(request: Request, strategy: str | None = None):
 async def api_watchlist(request: Request, strategy: str | None = None, fresh: str | None = None):
     conn = _get_db()
     if strategy:
-        watchlist = [dict(r) for r in conn.execute(
-            "SELECT * FROM watchlist WHERE strategy = ?", (strategy,)
-        ).fetchall()]
+        watchlist = [
+            dict(r)
+            for r in conn.execute(
+                "SELECT * FROM watchlist WHERE strategy = ?", (strategy,)
+            ).fetchall()
+        ]
     else:
         watchlist = [dict(r) for r in conn.execute("SELECT * FROM watchlist").fetchall()]
 
@@ -160,7 +177,8 @@ async def api_watchlist(request: Request, strategy: str | None = None, fresh: st
     skip_fresh = fresh and fresh.lower() in ("false", "0", "no")
     if not skip_fresh:
         from src.data.prices import get_price_data
-        from src.db.operations import update_watchlist_price, update_latest_analysis_price
+        from src.db.operations import update_latest_analysis_price, update_watchlist_price
+
         for w in watchlist:
             try:
                 price_data = get_price_data(w["ticker"])
@@ -173,7 +191,8 @@ async def api_watchlist(request: Request, strategy: str | None = None, fresh: st
 
     conn.close()
     return TEMPLATES.TemplateResponse(
-        request, "partials/watchlist.html",
+        request,
+        "partials/watchlist.html",
         context={"watchlist": watchlist, "active_strategy_filter": strategy or ""},
     )
 
@@ -181,12 +200,16 @@ async def api_watchlist(request: Request, strategy: str | None = None, fresh: st
 @app.get("/api/alerts", response_class=HTMLResponse)
 async def api_alerts(request: Request):
     conn = _get_db()
-    alerts = [dict(r) for r in conn.execute(
-        "SELECT * FROM alerts WHERE read = 0 ORDER BY id DESC LIMIT 5"
-    ).fetchall()]
+    alerts = [
+        dict(r)
+        for r in conn.execute(
+            "SELECT * FROM alerts WHERE read = 0 ORDER BY id DESC LIMIT 5"
+        ).fetchall()
+    ]
     conn.close()
     return TEMPLATES.TemplateResponse(
-        request, "partials/alerts.html",
+        request,
+        "partials/alerts.html",
         context={"alerts": alerts},
     )
 
@@ -201,10 +224,12 @@ def _render_tasks(request: Request):
     conn = _get_db()
     tasks = [dict(r) for r in conn.execute("SELECT * FROM scheduled_tasks ORDER BY id").fetchall()]
     from src.daemon import is_daemon_running
+
     daemon_running = is_daemon_running()
     conn.close()
     return TEMPLATES.TemplateResponse(
-        request, "partials/tasks.html",
+        request,
+        "partials/tasks.html",
         context={"tasks": tasks, "daemon_running": daemon_running},
     )
 
@@ -213,6 +238,7 @@ def _render_tasks(request: Request):
 async def api_task_toggle(request: Request, task_id: int):
     """Toggle a task's enabled state."""
     from src.db.operations import toggle_task
+
     conn = _get_db()
     row = conn.execute("SELECT enabled FROM scheduled_tasks WHERE id = ?", (task_id,)).fetchone()
     if row:
@@ -225,6 +251,7 @@ async def api_task_toggle(request: Request, task_id: int):
 async def api_task_delete(request: Request, task_id: int):
     """Delete a scheduled task."""
     from src.db.operations import delete_scheduled_task
+
     conn = _get_db()
     delete_scheduled_task(conn, task_id)
     conn.close()
@@ -235,7 +262,9 @@ async def api_task_delete(request: Request, task_id: int):
 async def api_task_run(request: Request, task_id: int):
     """Manually trigger a task immediately (runs in background thread)."""
     import asyncio
+
     from src.daemon import _execute_task
+
     conn = _get_db()
     row = conn.execute("SELECT * FROM scheduled_tasks WHERE id = ?", (task_id,)).fetchone()
     conn.close()
@@ -248,14 +277,20 @@ async def api_task_run(request: Request, task_id: int):
 async def api_task_update(request: Request, task_id: int):
     """Update a task's schedule, command, or other fields."""
     from croniter import croniter
+
     from src.db.operations import update_scheduled_task
+
     body = await request.json()
     schedule = body.get("schedule")
     if schedule and not croniter.is_valid(schedule):
-        return HTMLResponse("<p class='text-red-400 text-sm px-3 py-2'>Invalid cron expression</p>", status_code=400)
+        return HTMLResponse(
+            "<p class='text-red-400 text-sm px-3 py-2'>Invalid cron expression</p>",
+            status_code=400,
+        )
     conn = _get_db()
     update_scheduled_task(
-        conn, task_id,
+        conn,
+        task_id,
         schedule=schedule,
         command=body.get("command"),
         name=body.get("name"),
@@ -270,7 +305,9 @@ async def api_task_update(request: Request, task_id: int):
 async def api_task_create(request: Request):
     """Create a new scheduled task."""
     from croniter import croniter
+
     from src.db.operations import add_scheduled_task
+
     body = await request.json()
     name = body.get("name", "").strip()
     command = body.get("command", "").strip()
@@ -278,18 +315,32 @@ async def api_task_create(request: Request):
     timezone = body.get("timezone", "UTC").strip()
     description = body.get("description", "").strip()
     if not name or not command or not schedule:
-        return HTMLResponse("<p class='text-red-400 text-sm px-3 py-2'>Name, command, and schedule are required</p>", status_code=400)
+        return HTMLResponse(
+            "<p class='text-red-400 text-sm px-3 py-2'>"
+            "Name, command, and schedule are required</p>",
+            status_code=400,
+        )
     if not croniter.is_valid(schedule):
-        return HTMLResponse("<p class='text-red-400 text-sm px-3 py-2'>Invalid cron expression</p>", status_code=400)
+        return HTMLResponse(
+            "<p class='text-red-400 text-sm px-3 py-2'>Invalid cron expression</p>",
+            status_code=400,
+        )
     # Validate owlfolio subcommands
     try:
         from src.operations.tasks import _validate_owlfolio_command
+
         _validate_owlfolio_command(command)
     except ValueError as e:
         return HTMLResponse(f"<p class='text-red-400 text-sm px-3 py-2'>{e}</p>", status_code=400)
     conn = _get_db()
-    add_scheduled_task(conn, name=name, command=command, schedule=schedule,
-                       timezone=timezone, description=description)
+    add_scheduled_task(
+        conn,
+        name=name,
+        command=command,
+        schedule=schedule,
+        timezone=timezone,
+        description=description,
+    )
     conn.close()
     return _render_tasks(request)
 
@@ -299,6 +350,7 @@ def _read_active_strategy_name() -> str:
     # Use the same METHODOLOGY_PATH the strategies op writes to — that
     # way endpoint reads + agent writes can never disagree.
     from src.operations.strategies import METHODOLOGY_PATH
+
     try:
         with open(METHODOLOGY_PATH) as f:
             return yaml.safe_load(f).get("name", "unknown")
@@ -327,7 +379,8 @@ async def api_strategy_dropdown_body(request: Request):
     same level.
     """
     response = TEMPLATES.TemplateResponse(
-        request, "partials/strategy_dropdown_body.html",
+        request,
+        "partials/strategy_dropdown_body.html",
         context={
             "strategy": _read_active_strategy_name(),
             "strategies": _load_strategies(),
@@ -344,9 +397,11 @@ async def api_daemon_status(request: Request):
     the header is rendered once at page load and never updates.
     """
     from src.daemon import is_daemon_running
+
     daemon_running = is_daemon_running()
     response = TEMPLATES.TemplateResponse(
-        request, "partials/daemon_status.html",
+        request,
+        "partials/daemon_status.html",
         context={"daemon_running": daemon_running},
     )
     response.headers["Cache-Control"] = "no-store"
@@ -357,8 +412,10 @@ async def api_daemon_status(request: Request):
 async def api_lists(request: Request):
     """Candidate lists (from `find` discovery + `import` ingest)."""
     from src.operations.candidates import list_lists
+
     return TEMPLATES.TemplateResponse(
-        request, "partials/lists.html",
+        request,
+        "partials/lists.html",
         context={"lists": list_lists()},
     )
 
@@ -368,12 +425,14 @@ async def api_analysis_findings(request: Request, analysis_id: int):
     """Specialist findings drilldown — lazy-loaded by htmx when the user
     expands an analysis row in the activity feed or chat."""
     from src.operations.analyses import get_specialist_findings_for_analysis
+
     try:
         findings = get_specialist_findings_for_analysis(analysis_id)
     except ValueError:
         findings = []
     return TEMPLATES.TemplateResponse(
-        request, "partials/specialist_findings.html",
+        request,
+        "partials/specialist_findings.html",
         context={"findings": findings, "analysis_id": analysis_id},
     )
 
@@ -382,6 +441,7 @@ async def api_analysis_findings(request: Request, analysis_id: int):
 async def api_activity(request: Request, type_filter: str = "all", strategy: str | None = None):
     """Unified chronological activity feed."""
     from src.operations.activity import get_activity
+
     try:
         events = get_activity(
             type_filter=None if type_filter == "all" else type_filter,
@@ -391,15 +451,23 @@ async def api_activity(request: Request, type_filter: str = "all", strategy: str
     except ValueError:
         events = []
     return TEMPLATES.TemplateResponse(
-        request, "partials/activity.html",
-        context={"events": events, "active_filter": type_filter, "active_strategy_filter": strategy or ""},
+        request,
+        "partials/activity.html",
+        context={
+            "events": events,
+            "active_filter": type_filter,
+            "active_strategy_filter": strategy or "",
+        },
     )
 
 
 @app.delete("/api/activity/{event_type}/{reference}", response_class=HTMLResponse)
 async def api_activity_delete(
-    request: Request, event_type: str, reference: str,
-    type_filter: str = "all", strategy: str | None = None,
+    request: Request,
+    event_type: str,
+    reference: str,
+    type_filter: str = "all",
+    strategy: str | None = None,
 ):
     """Delete an activity row, then return the refreshed feed.
 
@@ -425,8 +493,13 @@ async def api_activity_delete(
     except ValueError:
         events = []
     return TEMPLATES.TemplateResponse(
-        request, "partials/activity.html",
-        context={"events": events, "active_filter": type_filter, "active_strategy_filter": strategy or ""},
+        request,
+        "partials/activity.html",
+        context={
+            "events": events,
+            "active_filter": type_filter,
+            "active_strategy_filter": strategy or "",
+        },
     )
 
 
@@ -435,6 +508,7 @@ async def api_daemon_start():
     """Start the Owlfolio daemon in the background."""
     import subprocess
     import sys
+
     try:
         subprocess.Popen(
             [sys.executable, "-m", "src.main", "daemon"],
@@ -514,6 +588,7 @@ def _whisper_available() -> bool:
     """Check if faster-whisper is importable."""
     try:
         import faster_whisper  # noqa: F401
+
         return True
     except ImportError:
         return False
@@ -531,6 +606,7 @@ def _get_whisper_model():
         _whisper_loading = True
         try:
             from faster_whisper import WhisperModel
+
             # "base" is a good default: 74MB, fast on CPU, decent accuracy.
             # Users can override via WHISPER_MODEL env (tiny/small/medium/large-v3).
             model_size = os.environ.get("WHISPER_MODEL", "base")
@@ -587,7 +663,11 @@ async def api_transcribe(request: Request):
         text = " ".join(seg.text.strip() for seg in segments)
 
         os.unlink(tmp_path)
-        return {"text": text, "language": info.language, "language_probability": round(info.language_probability, 2)}
+        return {
+            "text": text,
+            "language": info.language,
+            "language_probability": round(info.language_probability, 2),
+        }
     except ImportError:
         return {"error": "Voice not available. Reinstall with: pip install 'owlfolio[web]'"}
     except Exception as e:
@@ -598,6 +678,7 @@ async def api_transcribe(request: Request):
 async def api_daemon_stop():
     """Stop the Owlfolio daemon."""
     from src.daemon import stop_daemon
+
     try:
         if stop_daemon():
             return {"status": "stopped"}
@@ -616,6 +697,7 @@ def _build_chat_system_prompt() -> str:
     memory_context = ""
     try:
         from src.db.operations import get_memory_context
+
         memory_context = get_memory_context() or ""
     except Exception:
         pass
@@ -682,7 +764,9 @@ async def websocket_chat(websocket: WebSocket):
     # internally spawns a bounded SDK query with WebSearch. The chat agent
     # never gets raw web access, so it can't pretend to "analyze" a
     # company by Googling it. See docs/ARCHITECTURE.md → Security Model.
-    from src.mcp_server import SERVER as OWLFOLIO_MCP, allowed_tool_names
+    from src.mcp_server import SERVER as OWLFOLIO_MCP
+    from src.mcp_server import allowed_tool_names
+
     options = ClaudeAgentOptions(
         model="claude-opus-4-7",
         permission_mode="bypassPermissions",
@@ -690,8 +774,17 @@ async def websocket_chat(websocket: WebSocket):
         system_prompt=system_prompt,
         mcp_servers={"owlfolio": OWLFOLIO_MCP},
         allowed_tools=allowed_tool_names(),
-        disallowed_tools=["Bash", "Read", "Glob", "Grep", "Edit", "Write",
-                          "NotebookEdit", "WebSearch", "WebFetch"],
+        disallowed_tools=[
+            "Bash",
+            "Read",
+            "Glob",
+            "Grep",
+            "Edit",
+            "Write",
+            "NotebookEdit",
+            "WebSearch",
+            "WebFetch",
+        ],
         # Adaptive extended thinking for the chat agent — same default as the
         # specialist subagents, so the web chat reasons as deeply as the CLI chat.
         thinking={"type": "adaptive"},
@@ -723,13 +816,13 @@ async def websocket_chat(websocket: WebSocket):
                     if bubble_open:
                         # Send the final canonical text so the client can swap
                         # the plain-text typing buffer for fully-rendered markdown.
-                        joined = "".join(
-                            streaming_text[i] for i in sorted(streaming_text.keys())
+                        joined = "".join(streaming_text[i] for i in sorted(streaming_text.keys()))
+                        await websocket.send_json(
+                            {
+                                "type": "message_end",
+                                "content": joined,
+                            }
                         )
-                        await websocket.send_json({
-                            "type": "message_end",
-                            "content": joined,
-                        })
                         bubble_open = False
                         streaming_text.clear()
 
@@ -753,10 +846,12 @@ async def websocket_chat(websocket: WebSocket):
                                     idx = evt.get("index", 0)
                                     streaming_text[idx] = streaming_text.get(idx, "") + chunk
                                     if chunk:
-                                        await websocket.send_json({
-                                            "type": "token",
-                                            "content": chunk,
-                                        })
+                                        await websocket.send_json(
+                                            {
+                                                "type": "token",
+                                                "content": chunk,
+                                            }
+                                        )
                             # message_stop / content_block_stop close handled below
                         elif isinstance(message, AssistantMessage):
                             # The SDK still delivers a consolidated AssistantMessage at
@@ -769,17 +864,21 @@ async def websocket_chat(websocket: WebSocket):
                                         if not bubble_open:
                                             await websocket.send_json({"type": "message_start"})
                                             bubble_open = True
-                                        await websocket.send_json({
-                                            "type": "token",
-                                            "content": block.text,
-                                        })
+                                        await websocket.send_json(
+                                            {
+                                                "type": "token",
+                                                "content": block.text,
+                                            }
+                                        )
                                         streaming_text[0] = block.text
                                 elif hasattr(block, "name") and hasattr(block, "input"):
                                     await _close_bubble()
-                                    await websocket.send_json({
-                                        "type": "tool_use",
-                                        "label": _format_tool_use(block),
-                                    })
+                                    await websocket.send_json(
+                                        {
+                                            "type": "tool_use",
+                                            "label": _format_tool_use(block),
+                                        }
+                                    )
                                     # State-mutation push events. Earlier
                                     # attempts (htmx polling + client-side
                                     # regex on tool labels) failed in subtle
@@ -803,30 +902,38 @@ async def websocket_chat(websocket: WebSocket):
                                         requested = (block.input or {}).get("name")
                                         if isinstance(requested, str) and requested:
                                             # Stage 1: instant optimistic update.
-                                            await websocket.send_json({
-                                                "type": "strategy_changed",
-                                                "name": requested,
-                                            })
+                                            await websocket.send_json(
+                                                {
+                                                    "type": "strategy_changed",
+                                                    "name": requested,
+                                                }
+                                            )
+
                                         # Stage 2: scheduled canonical re-check.
                                         async def _confirm_strategy_change(ws):
                                             await asyncio.sleep(0.6)
                                             try:
-                                                await ws.send_json({
-                                                    "type": "strategy_changed",
-                                                    "name": _read_active_strategy_name(),
-                                                })
+                                                await ws.send_json(
+                                                    {
+                                                        "type": "strategy_changed",
+                                                        "name": _read_active_strategy_name(),
+                                                    }
+                                                )
                                             except Exception:
                                                 pass  # WS may have closed
+
                                         asyncio.create_task(_confirm_strategy_change(websocket))
                             # End of an assistant turn — finalize whatever was streaming.
                             await _close_bubble()
                         elif isinstance(message, ResultMessage):
                             await _close_bubble()
                             if message.is_error and message.result:
-                                await websocket.send_json({
-                                    "type": "error",
-                                    "content": message.result,
-                                })
+                                await websocket.send_json(
+                                    {
+                                        "type": "error",
+                                        "content": message.result,
+                                    }
+                                )
                 except Exception as e:
                     await _close_bubble()
                     await websocket.send_json({"type": "error", "content": str(e)})

@@ -109,8 +109,8 @@ async def find_candidates(
         get_candidate_list,
     )
     from src.db.schema import get_db
-    from src.operations.strategies import METHODOLOGY_PATH, STRATEGIES_DIR
     from src.operations import validate_strategy_name
+    from src.operations.strategies import METHODOLOGY_PATH, STRATEGIES_DIR
     from src.strategy.loader import load_strategy
 
     # Resolve which strategy YAML to load
@@ -118,7 +118,11 @@ async def find_candidates(
         n_safe = validate_strategy_name(strategy_name)
         path = STRATEGIES_DIR / f"{n_safe}.yaml"
     else:
-        path = METHODOLOGY_PATH if METHODOLOGY_PATH.exists() else STRATEGIES_DIR / "buffett-munger.yaml"
+        path = (
+            METHODOLOGY_PATH
+            if METHODOLOGY_PATH.exists()
+            else STRATEGIES_DIR / "buffett-munger.yaml"
+        )
     if not path.exists():
         raise FileNotFoundError(f"strategy file not found: {path}")
     strategy = load_strategy(path)
@@ -143,15 +147,16 @@ async def find_candidates(
             strategy=strategy.name,
             note=note or f"Agentic discovery for {strategy.name}",
         )
-        inserted = add_candidates_bulk(
-            conn, list_id, [c.to_dict() for c in candidates]
-        )
+        inserted = add_candidates_bulk(conn, list_id, [c.to_dict() for c in candidates])
     finally:
         conn.close()
 
     logger.info(
         "discovered %d candidates for %s, persisted as list %r (id=%d)",
-        inserted, strategy.name, list_name, list_id,
+        inserted,
+        strategy.name,
+        list_name,
+        list_id,
     )
 
     return {
@@ -220,13 +225,15 @@ def import_candidates(
         if not info:
             rejected.append(t)
             continue
-        rows.append({
-            "ticker": t,
-            "company_name": info.get("company_name", ""),
-            "sector": info.get("sector", ""),
-            "market_cap": info.get("market_cap"),
-            "current_price": info.get("current_price"),
-        })
+        rows.append(
+            {
+                "ticker": t,
+                "company_name": info.get("company_name", ""),
+                "sector": info.get("sector", ""),
+                "market_cap": info.get("market_cap"),
+                "current_price": info.get("current_price"),
+            }
+        )
 
     conn = get_db()
     try:
@@ -244,8 +251,7 @@ def import_candidates(
         conn.close()
 
     if rejected:
-        logger.info("import: rejected %d tickers: %s",
-                    len(rejected), ", ".join(rejected[:10]))
+        logger.info("import: rejected %d tickers: %s", len(rejected), ", ".join(rejected[:10]))
 
     return {
         "list_name": list_name,
@@ -345,7 +351,8 @@ async def analyze_list(
         raise ValueError(f"concurrency must be >= 1, got {concurrency}")
     if concurrency > 5:
         logger.warning(
-            "analyze_list concurrency=%d is high; rate-limit risk", concurrency,
+            "analyze_list concurrency=%d is high; rate-limit risk",
+            concurrency,
         )
 
     conn = get_db()
@@ -358,8 +365,13 @@ async def analyze_list(
         conn.close()
 
     if not candidates:
-        return {"name": name, "strategy": strategy_name or lst.get("strategy"),
-                "results": [], "errors": [], "skipped": []}
+        return {
+            "name": name,
+            "strategy": strategy_name or lst.get("strategy"),
+            "results": [],
+            "errors": [],
+            "skipped": [],
+        }
 
     effective_strategy = strategy_name or lst.get("strategy")
     strategy_path: str | None = None
@@ -381,7 +393,10 @@ async def analyze_list(
 
     logger.info(
         "analyze_list %r: %d to run, %d already-analyzed skipped, concurrency=%d",
-        name, len(pending), len(skipped), concurrency,
+        name,
+        len(pending),
+        len(skipped),
+        concurrency,
     )
 
     semaphore = asyncio.Semaphore(concurrency)
@@ -408,16 +423,18 @@ async def analyze_list(
                 mark_candidate_analyzed(conn2, candidate["id"], result["analysis_id"])
             finally:
                 conn2.close()
-            results.append({
-                "ticker": ticker,
-                "decision": result["decision"],
-                "confidence": result["confidence"],
-                "fair_value": result["fair_value"],
-                "current_price": result["current_price"],
-                "quality_tier": result["quality_tier"],
-                "weighted_score": result["weighted_score"],
-                "analysis_id": result["analysis_id"],
-            })
+            results.append(
+                {
+                    "ticker": ticker,
+                    "decision": result["decision"],
+                    "confidence": result["confidence"],
+                    "fair_value": result["fair_value"],
+                    "current_price": result["current_price"],
+                    "quality_tier": result["quality_tier"],
+                    "weighted_score": result["weighted_score"],
+                    "analysis_id": result["analysis_id"],
+                }
+            )
 
     await asyncio.gather(*[_one(c) for c in pending], return_exceptions=False)
 

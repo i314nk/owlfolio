@@ -1,7 +1,5 @@
 """Tests for specialist subagent infrastructure (non-LLM parts)."""
 
-import json
-import os
 from pathlib import Path
 
 from src.specialists.runner import _get_specialist_configs, _parse_specialist_json
@@ -86,6 +84,7 @@ def test_specialist_config_from_strategy():
 def test_specialist_config_empty_strategy():
     """Strategy with no specialists returns empty configs list."""
     from src.strategy.loader import Strategy
+
     strategy = Strategy(
         name="test-empty",
         criteria=[],
@@ -222,6 +221,7 @@ def test_format_specialist_outputs_no_flags():
 def test_strategy_specialists_field_default():
     """A Strategy without specialists has prompts.specialists == {} by default."""
     from src.strategy.loader import Strategy
+
     strategy_no_spec = Strategy(
         name="test-no-spec",
         criteria=[],
@@ -240,6 +240,7 @@ def test_strategy_specialists_field_default():
 def test_run_specialists_emits_progress_events(monkeypatch):
     """Progress callback receives init/start/done events for every specialist."""
     import asyncio
+
     from src.specialists import runner as runner_mod
     from src.specialists.runner import SpecialistConfig, run_specialists
 
@@ -286,6 +287,7 @@ def test_run_specialists_emits_progress_events(monkeypatch):
 def test_run_specialists_emits_error_event_on_failure(monkeypatch):
     """If a specialist raises, the callback receives a specialist_error event."""
     import asyncio
+
     from src.specialists import runner as runner_mod
     from src.specialists.runner import run_specialists
 
@@ -301,9 +303,7 @@ def test_run_specialists_emits_error_event_on_failure(monkeypatch):
     async def on_progress(evt):
         events.append(evt)
 
-    findings = asyncio.run(
-        run_specialists("AAPL", "Apple", strategy, on_progress=on_progress)
-    )
+    findings = asyncio.run(run_specialists("AAPL", "Apple", strategy, on_progress=on_progress))
     # All specialists failed — no findings, but pipeline did not crash
     assert findings == []
 
@@ -315,6 +315,7 @@ def test_run_specialists_emits_error_event_on_failure(monkeypatch):
 def test_run_specialists_no_callback_still_works(monkeypatch):
     """Pipeline must continue to work when no on_progress is supplied (backwards-compatible)."""
     import asyncio
+
     from src.specialists import runner as runner_mod
     from src.specialists.runner import run_specialists
 
@@ -341,6 +342,7 @@ def test_run_specialists_no_callback_still_works(monkeypatch):
 def test_shariah_addon_appends_to_roster(monkeypatch):
     """The Shariah add-on specialist runs alongside the strategy roster, not replacing it."""
     import asyncio
+
     from src.specialists import runner as runner_mod
     from src.specialists.addons import SHARIAH_SPECIALIST
     from src.specialists.runner import run_specialists
@@ -362,9 +364,7 @@ def test_shariah_addon_appends_to_roster(monkeypatch):
 
     monkeypatch.setattr(runner_mod, "_run_single_specialist", fake_run_single)
 
-    asyncio.run(
-        run_specialists("AAPL", "Apple", strategy, addons=[SHARIAH_SPECIALIST])
-    )
+    asyncio.run(run_specialists("AAPL", "Apple", strategy, addons=[SHARIAH_SPECIALIST]))
     assert "shariah_compliance" in seen
     assert "financial_analyst" in seen
     assert len(seen) == len(strategy.prompts.specialists) + 1
@@ -375,7 +375,6 @@ def test_shariah_addon_appends_to_roster(monkeypatch):
 
 def test_synthesis_agent_uses_web_tools(monkeypatch):
     """Synthesis agent must request WebSearch/WebFetch so it can verify discrepancies."""
-    import asyncio
     from src.specialists import synthesis as synth_mod
 
     captured_options = {}
@@ -429,25 +428,32 @@ def test_build_specialist_prompt():
     """Both in-process and container runners must produce the same prompt for
     the same inputs, so swapping modes can't change analysis behavior."""
     from src.specialists.runner import build_specialist_prompt
+
     body = (
         "Score competitive advantages for {COMPANY} ({TICKER}).\n"
         "Sources to check first:\n  - https://x.com/{TICKER}"
     )
     p1 = build_specialist_prompt(
-        ticker="AAPL", company_name="Apple", config_name="moat_analyst",
+        ticker="AAPL",
+        company_name="Apple",
+        config_name="moat_analyst",
         prompt_body=body,
-        strategy_name="buffett-munger", strategy_description="Concentrated value.",
+        strategy_name="buffett-munger",
+        strategy_description="Concentrated value.",
     )
     assert "AAPL" in p1
     assert "Apple" in p1
-    assert "https://x.com/AAPL" in p1   # {TICKER} substitution applied
-    assert "Apple (AAPL)" in p1          # {COMPANY} substitution applied
+    assert "https://x.com/AAPL" in p1  # {TICKER} substitution applied
+    assert "Apple (AAPL)" in p1  # {COMPANY} substitution applied
     assert "Score competitive advantages" in p1
     # Same call with same args — deterministic
     p2 = build_specialist_prompt(
-        ticker="AAPL", company_name="Apple", config_name="moat_analyst",
+        ticker="AAPL",
+        company_name="Apple",
+        config_name="moat_analyst",
         prompt_body=body,
-        strategy_name="buffett-munger", strategy_description="Concentrated value.",
+        strategy_name="buffett-munger",
+        strategy_description="Concentrated value.",
     )
     assert p1 == p2
 
@@ -467,7 +473,11 @@ def test_specialists_have_only_web_tools():
         text = path.read_text()
         # Find the allowed_tools lines explicitly so a mention in a comment
         # doesn't trip the assertion.
-        tool_lines = [l for l in text.splitlines() if "allowed_tools=" in l and "#" not in l.split("allowed_tools=")[0]]
+        tool_lines = [
+            line
+            for line in text.splitlines()
+            if "allowed_tools=" in line and "#" not in line.split("allowed_tools=")[0]
+        ]
         assert tool_lines, f"{label}: no allowed_tools= line found"
         for line in tool_lines:
             for f in forbidden:
@@ -485,6 +495,7 @@ def test_specialists_have_only_web_tools():
 def test_addon_registry_contains_review_and_news():
     """Review and news pulse addons are registered and discoverable."""
     from src.specialists.addons import ADDON_REGISTRY, list_addons
+
     assert "review" in ADDON_REGISTRY
     assert "news" in ADDON_REGISTRY
     assert "review" in list_addons()
@@ -494,18 +505,21 @@ def test_addon_registry_contains_review_and_news():
 def test_review_addon_has_previous_analysis_placeholder():
     """Review addon prompt must contain {PREVIOUS_ANALYSIS} for context injection."""
     from src.specialists.addons import REVIEW_SPECIALIST
+
     assert "{PREVIOUS_ANALYSIS}" in REVIEW_SPECIALIST.prompt_body
 
 
 def test_news_addon_has_previous_analysis_placeholder():
     """News pulse addon prompt must contain {PREVIOUS_ANALYSIS} for context injection."""
     from src.specialists.addons import NEWS_PULSE_SPECIALIST
+
     assert "{PREVIOUS_ANALYSIS}" in NEWS_PULSE_SPECIALIST.prompt_body
 
 
 def test_strategy_aware_addons_set_matches_registry():
     """Every addon in STRATEGY_AWARE_ADDONS must exist in the registry."""
     from src.specialists.addons import ADDON_REGISTRY, STRATEGY_AWARE_ADDONS
+
     for name in STRATEGY_AWARE_ADDONS:
         assert name in ADDON_REGISTRY, f"{name} in STRATEGY_AWARE_ADDONS but not in ADDON_REGISTRY"
 
@@ -513,17 +527,19 @@ def test_strategy_aware_addons_set_matches_registry():
 def test_shariah_is_not_strategy_aware():
     """Shariah is strategy-agnostic — must NOT be in STRATEGY_AWARE_ADDONS."""
     from src.specialists.addons import STRATEGY_AWARE_ADDONS
+
     assert "shariah" not in STRATEGY_AWARE_ADDONS
 
 
 def test_inject_previous_analysis_no_saved_analysis(tmp_path, monkeypatch):
     """When no previous analysis exists, placeholder is replaced with first-time note."""
+    # Empty DB
+    import sqlite3
+
+    import src.db.schema as schema_mod
     from src.operations.analysis import _inject_previous_analysis
     from src.specialists.runner import SpecialistConfig
 
-    # Empty DB
-    import sqlite3
-    import src.db.schema as schema_mod
     db_path = tmp_path / "empty.db"
     conn = sqlite3.connect(str(db_path))
     conn.execute("""CREATE TABLE analyses (
@@ -556,11 +572,12 @@ def test_inject_previous_analysis_no_saved_analysis(tmp_path, monkeypatch):
 
 def test_inject_previous_analysis_with_saved_analysis(tmp_path, monkeypatch):
     """When a previous analysis exists, context is injected with thesis and risks."""
+    # Create a temp DB with a saved analysis
+    import sqlite3
+
     from src.operations.analysis import _inject_previous_analysis
     from src.specialists.runner import SpecialistConfig
 
-    # Create a temp DB with a saved analysis
-    import sqlite3
     db_path = tmp_path / "test.db"
     conn = sqlite3.connect(str(db_path))
     conn.execute("""CREATE TABLE analyses (
@@ -576,21 +593,36 @@ def test_inject_previous_analysis_with_saved_analysis(tmp_path, monkeypatch):
     )""")
     conn.execute(
         "INSERT INTO analyses (ticker, strategy, decision, buy_price, current_price, "
-        "quality_tier, weighted_score, thesis, bull_case, bear_case, key_risks, catalysts, overrides) "
+        "quality_tier, weighted_score, thesis, bull_case, bear_case,"
+        " key_risks, catalysts, overrides) "
         "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        ("AAPL", "buffett", "BUY", 150.0, 175.0, "wide", 4.2,
-         "Apple has dominant ecosystem", "Services growth", "China risk",
-         '["Regulatory pressure", "China revenue"]', '["AI integration"]', '{}'),
+        (
+            "AAPL",
+            "buffett",
+            "BUY",
+            150.0,
+            175.0,
+            "wide",
+            4.2,
+            "Apple has dominant ecosystem",
+            "Services growth",
+            "China risk",
+            '["Regulatory pressure", "China revenue"]',
+            '["AI integration"]',
+            "{}",
+        ),
     )
     conn.commit()
     conn.close()
 
     # Monkeypatch get_db to return our temp DB
     import src.db.schema as schema_mod
+
     def _make_conn():
         c = sqlite3.connect(str(db_path))
         c.row_factory = sqlite3.Row
         return c
+
     monkeypatch.setattr(schema_mod, "get_db", _make_conn)
 
     addon = SpecialistConfig(
@@ -607,6 +639,7 @@ def test_inject_previous_analysis_with_saved_analysis(tmp_path, monkeypatch):
 def test_review_addon_prompt_is_strategy_aware():
     """Review prompt references strategy context via standard runner substitution."""
     from src.specialists.addons import REVIEW_SPECIALIST
+
     # The runner substitutes {TICKER} and {COMPANY} and wraps with STRATEGY header
     assert "{TICKER}" in REVIEW_SPECIALIST.prompt_body
     assert "{COMPANY}" in REVIEW_SPECIALIST.prompt_body
@@ -617,9 +650,8 @@ def test_review_addon_prompt_is_strategy_aware():
 def test_news_addon_prompt_is_strategy_aware():
     """News pulse prompt references strategy context."""
     from src.specialists.addons import NEWS_PULSE_SPECIALIST
+
     assert "{TICKER}" in NEWS_PULSE_SPECIALIST.prompt_body
     assert "{COMPANY}" in NEWS_PULSE_SPECIALIST.prompt_body
     assert "thesis_alignment" in NEWS_PULSE_SPECIALIST.prompt_body
     assert "material_changes" in NEWS_PULSE_SPECIALIST.prompt_body
-
-

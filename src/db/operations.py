@@ -6,10 +6,8 @@ import json
 import sqlite3
 from datetime import datetime
 
-from src.db.schema import get_db
-
-
 from src.agents.discovery import ticker_currency
+from src.db.schema import get_db
 
 
 def _fmt_price(value: float, ticker: str = "") -> str:
@@ -35,7 +33,8 @@ def add_holding(
 ) -> int:
     """Add a new holding. Returns the holding ID."""
     cursor = conn.execute(
-        """INSERT INTO holdings (ticker, shares, cost_basis, date_acquired, account, strategy, notes)
+        """INSERT INTO holdings
+           (ticker, shares, cost_basis, date_acquired, account, strategy, notes)
            VALUES (?, ?, ?, ?, ?, ?, ?)""",
         (ticker, shares, cost_basis, date_acquired, account, strategy, notes),
     )
@@ -43,9 +42,7 @@ def add_holding(
     return cursor.lastrowid
 
 
-def get_holdings(
-    conn: sqlite3.Connection, ticker: str | None = None
-) -> list[dict]:
+def get_holdings(conn: sqlite3.Connection, ticker: str | None = None) -> list[dict]:
     """Retrieve holdings, optionally filtered by ticker."""
     if ticker:
         rows = conn.execute(
@@ -80,9 +77,7 @@ def update_holding(
         return
 
     params.append(holding_id)
-    conn.execute(
-        f"UPDATE holdings SET {', '.join(updates)} WHERE id = ?", params
-    )
+    conn.execute(f"UPDATE holdings SET {', '.join(updates)} WHERE id = ?", params)
     conn.commit()
 
 
@@ -105,28 +100,26 @@ def sell_holding(
 
     remaining = row["shares"] - shares
     if remaining < 0:
-        raise ValueError(
-            f"Cannot sell {shares} shares of {ticker} — only {row['shares']} held"
-        )
+        raise ValueError(f"Cannot sell {shares} shares of {ticker} — only {row['shares']} held")
 
     if remaining == 0:
         conn.execute("DELETE FROM holdings WHERE id = ?", (row["id"],))
     else:
-        conn.execute(
-            "UPDATE holdings SET shares = ? WHERE id = ?", (remaining, row["id"])
-        )
+        conn.execute("UPDATE holdings SET shares = ? WHERE id = ?", (remaining, row["id"]))
 
     # Log the decision
     decision_id = log_decision(
-        conn, ticker=ticker, action="SELL", price=price, shares=shares,
+        conn,
+        ticker=ticker,
+        action="SELL",
+        price=price,
+        shares=shares,
         reasoning=f"Sold {shares} shares at {_fmt_price(price, ticker)}",
     )
 
     conn.commit()
 
-    decision = conn.execute(
-        "SELECT * FROM decisions WHERE id = ?", (decision_id,)
-    ).fetchone()
+    decision = conn.execute("SELECT * FROM decisions WHERE id = ?", (decision_id,)).fetchone()
     return dict(decision)
 
 
@@ -165,9 +158,7 @@ def get_decisions(
             (ticker, limit),
         ).fetchall()
     else:
-        rows = conn.execute(
-            "SELECT * FROM decisions ORDER BY id DESC LIMIT ?", (limit,)
-        ).fetchall()
+        rows = conn.execute("SELECT * FROM decisions ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
     return [dict(row) for row in rows]
 
 
@@ -203,9 +194,7 @@ def get_watchlist(conn: sqlite3.Connection) -> list[dict]:
     return [dict(row) for row in rows]
 
 
-def update_watchlist_price(
-    conn: sqlite3.Connection, ticker: str, current_price: float
-):
+def update_watchlist_price(conn: sqlite3.Connection, ticker: str, current_price: float):
     """Update the current price and last_checked timestamp for a watchlist entry."""
     conn.execute(
         "UPDATE watchlist SET current_price = ?, last_checked = datetime('now') WHERE ticker = ?",
@@ -214,9 +203,7 @@ def update_watchlist_price(
     conn.commit()
 
 
-def update_analysis_price(
-    conn: sqlite3.Connection, analysis_id: int, current_price: float
-):
+def update_analysis_price(conn: sqlite3.Connection, analysis_id: int, current_price: float):
     """Update the current_price on an analysis record (e.g. after a fresh price fetch)."""
     conn.execute(
         "UPDATE analyses SET current_price = ? WHERE id = ?",
@@ -246,9 +233,7 @@ def update_latest_analysis_price(
     return True
 
 
-def update_watchlist_buy_price(
-    conn: sqlite3.Connection, ticker: str, buy_price: float
-):
+def update_watchlist_buy_price(conn: sqlite3.Connection, ticker: str, buy_price: float):
     """Update the buy_price for a watchlist entry."""
     conn.execute(
         "UPDATE watchlist SET buy_price = ? WHERE ticker = ?",
@@ -282,18 +267,25 @@ def save_analysis(
             weighted_score, thesis, bull_case, bear_case, key_risks, overrides)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (
-            ticker, strategy, decision, buy_price, current_price, quality_tier,
-            weighted_score, thesis, bull_case, bear_case,
-            json.dumps(key_risks), json.dumps(overrides),
+            ticker,
+            strategy,
+            decision,
+            buy_price,
+            current_price,
+            quality_tier,
+            weighted_score,
+            thesis,
+            bull_case,
+            bear_case,
+            json.dumps(key_risks),
+            json.dumps(overrides),
         ),
     )
     conn.commit()
     return cursor.lastrowid
 
 
-def get_latest_analysis(
-    conn: sqlite3.Connection, ticker: str
-) -> dict | None:
+def get_latest_analysis(conn: sqlite3.Connection, ticker: str) -> dict | None:
     """Retrieve the most recent analysis for a ticker. Deserializes JSON fields."""
     row = conn.execute(
         "SELECT * FROM analyses WHERE ticker = ? ORDER BY id DESC LIMIT 1",
@@ -321,9 +313,7 @@ def get_analyses(
             (ticker, limit),
         ).fetchall()
     else:
-        rows = conn.execute(
-            "SELECT * FROM analyses ORDER BY id DESC LIMIT ?", (limit,)
-        ).fetchall()
+        rows = conn.execute("SELECT * FROM analyses ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
 
     results = []
     for row in rows:
@@ -375,9 +365,7 @@ def get_analysis_by_id(
     user can quote in chat). Optionally inlines the per-specialist
     findings rows so the audit card has everything in one fetch.
     """
-    row = conn.execute(
-        "SELECT * FROM analyses WHERE id = ?", (analysis_id,)
-    ).fetchone()
+    row = conn.execute("SELECT * FROM analyses WHERE id = ?", (analysis_id,)).fetchone()
     if row is None:
         return None
     result = dict(row)
@@ -404,8 +392,13 @@ def save_specialist_findings(
     ratios) is JSON-encoded into extra_json.
     """
     common = {
-        "specialist_name", "ticker", "summary", "key_findings",
-        "data_sources", "flags", "confidence",
+        "specialist_name",
+        "ticker",
+        "summary",
+        "key_findings",
+        "data_sources",
+        "flags",
+        "confidence",
     }
     inserted = 0
     for f in findings:
@@ -487,7 +480,7 @@ def record_task_run_end(
     stderr: str = "",
 ) -> None:
     """Close out a task-run row with the subprocess result."""
-    EXCERPT = 2048
+    excerpt_len = 2048
     conn.execute(
         """UPDATE task_runs
            SET finished_at = datetime('now'),
@@ -495,7 +488,7 @@ def record_task_run_end(
                stdout_excerpt = ?,
                stderr_excerpt = ?
            WHERE id = ?""",
-        (exit_code, (stdout or "")[:EXCERPT], (stderr or "")[:EXCERPT], run_id),
+        (exit_code, (stdout or "")[:excerpt_len], (stderr or "")[:excerpt_len], run_id),
     )
     conn.commit()
 
@@ -513,9 +506,7 @@ def get_task_runs(
             (task_id, limit),
         ).fetchall()
     else:
-        rows = conn.execute(
-            "SELECT * FROM task_runs ORDER BY id DESC LIMIT ?", (limit,)
-        ).fetchall()
+        rows = conn.execute("SELECT * FROM task_runs ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
     return [dict(r) for r in rows]
 
 
@@ -540,18 +531,14 @@ def add_scheduled_task(
     return cursor.lastrowid
 
 
-def get_scheduled_tasks(
-    conn: sqlite3.Connection, enabled_only: bool = False
-) -> list[dict]:
+def get_scheduled_tasks(conn: sqlite3.Connection, enabled_only: bool = False) -> list[dict]:
     """Retrieve scheduled tasks."""
     if enabled_only:
         rows = conn.execute(
             "SELECT * FROM scheduled_tasks WHERE enabled = 1 ORDER BY name"
         ).fetchall()
     else:
-        rows = conn.execute(
-            "SELECT * FROM scheduled_tasks ORDER BY name"
-        ).fetchall()
+        rows = conn.execute("SELECT * FROM scheduled_tasks ORDER BY name").fetchall()
     return [dict(row) for row in rows]
 
 
@@ -581,18 +568,20 @@ def update_scheduled_task(
 ):
     """Update mutable fields of a scheduled task."""
     updates, params = [], []
-    for col, val in [("schedule", schedule), ("command", command),
-                     ("name", name), ("description", description),
-                     ("timezone", timezone)]:
+    for col, val in [
+        ("schedule", schedule),
+        ("command", command),
+        ("name", name),
+        ("description", description),
+        ("timezone", timezone),
+    ]:
         if val is not None:
             updates.append(f"{col} = ?")
             params.append(val)
     if not updates:
         return
     params.append(task_id)
-    conn.execute(
-        f"UPDATE scheduled_tasks SET {', '.join(updates)} WHERE id = ?", params
-    )
+    conn.execute(f"UPDATE scheduled_tasks SET {', '.join(updates)} WHERE id = ?", params)
     conn.commit()
 
 
@@ -626,9 +615,7 @@ def add_alert(
 
 def get_unread_alerts(conn: sqlite3.Connection) -> list[dict]:
     """Retrieve all unread alerts, most recent first."""
-    rows = conn.execute(
-        "SELECT * FROM alerts WHERE read = 0 ORDER BY id DESC"
-    ).fetchall()
+    rows = conn.execute("SELECT * FROM alerts WHERE read = 0 ORDER BY id DESC").fetchall()
     return [dict(row) for row in rows]
 
 
@@ -659,13 +646,9 @@ def save_snapshot(
     return cursor.lastrowid
 
 
-def get_snapshots(
-    conn: sqlite3.Connection, limit: int = 12
-) -> list[dict]:
+def get_snapshots(conn: sqlite3.Connection, limit: int = 12) -> list[dict]:
     """Retrieve recent snapshots, most recent first."""
-    rows = conn.execute(
-        "SELECT * FROM snapshots ORDER BY id DESC LIMIT ?", (limit,)
-    ).fetchall()
+    rows = conn.execute("SELECT * FROM snapshots ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
     return [dict(row) for row in rows]
 
 
@@ -677,7 +660,9 @@ MEMORY_CATEGORIES = ("preference", "context", "observation", "decision_context")
 def add_memory(category: str, content: str, ticker: str = None) -> int:
     """Store a memory entry. Returns the memory ID."""
     if category not in MEMORY_CATEGORIES:
-        raise ValueError(f"Invalid category '{category}'. Must be one of: {', '.join(MEMORY_CATEGORIES)}")
+        raise ValueError(
+            f"Invalid category '{category}'. Must be one of: {', '.join(MEMORY_CATEGORIES)}"
+        )
     conn = get_db()
     cursor = conn.execute(
         "INSERT INTO memory (category, content, ticker) VALUES (?, ?, ?)",
@@ -798,8 +783,13 @@ def add_candidate(
            (list_id, ticker, company_name, sector, market_cap, current_price, note, metrics_json)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
         (
-            list_id, ticker.upper(), company_name, sector,
-            market_cap, current_price, note,
+            list_id,
+            ticker.upper(),
+            company_name,
+            sector,
+            market_cap,
+            current_price,
+            note,
             json.dumps(metrics) if metrics else None,
         ),
     )
@@ -826,10 +816,12 @@ def add_candidates_bulk(
         try:
             conn.execute(
                 """INSERT INTO candidates
-                   (list_id, ticker, company_name, sector, market_cap, current_price, note, metrics_json)
+                   (list_id, ticker, company_name, sector,
+                    market_cap, current_price, note, metrics_json)
                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
-                    list_id, ticker,
+                    list_id,
+                    ticker,
                     c.get("company_name", "") or "",
                     c.get("sector", "") or "",
                     c.get("market_cap"),
@@ -861,9 +853,7 @@ def list_candidate_lists(conn: sqlite3.Connection) -> list[dict]:
 
 def get_candidate_list(conn: sqlite3.Connection, name: str) -> dict | None:
     """Look up a candidate list by name. Returns None if not found."""
-    row = conn.execute(
-        "SELECT * FROM candidate_lists WHERE name = ?", (name,)
-    ).fetchone()
+    row = conn.execute("SELECT * FROM candidate_lists WHERE name = ?", (name,)).fetchone()
     return dict(row) if row else None
 
 

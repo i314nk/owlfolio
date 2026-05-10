@@ -21,6 +21,7 @@ def tmp_workdir(tmp_path, monkeypatch):
 
 def test_validator_accepts_real_subcommands():
     from src.operations.tasks import _validate_owlfolio_command
+
     # These all exist in src/main.py
     for cmd in (
         "owlfolio analyze AAPL",
@@ -36,6 +37,7 @@ def test_validator_rejects_phantom_subcommand():
     """`owlfolio watchlist check` is the bug from the chat transcript —
     no such subcommand exists. Validator must reject it loudly."""
     from src.operations.tasks import _validate_owlfolio_command
+
     with pytest.raises(ValueError, match="unknown owlfolio subcommand"):
         _validate_owlfolio_command("owlfolio watchlist check")
 
@@ -43,12 +45,14 @@ def test_validator_rejects_phantom_subcommand():
 def test_validator_suggests_close_matches():
     """Typo'd subcommands get a 'Did you mean' hint."""
     from src.operations.tasks import _validate_owlfolio_command
+
     with pytest.raises(ValueError, match="Did you mean"):
         _validate_owlfolio_command("owlfolio anaylze AAPL")  # typo
 
 
 def test_validator_rejects_bare_owlfolio():
     from src.operations.tasks import _validate_owlfolio_command
+
     with pytest.raises(ValueError, match="not a valid scheduled task"):
         _validate_owlfolio_command("owlfolio")
 
@@ -58,6 +62,7 @@ def test_validator_passes_through_non_owlfolio_commands():
     `owlfolio ...` commands get the existence check.
     """
     from src.operations.tasks import _validate_owlfolio_command
+
     for cmd in (
         "pg_dump > /tmp/backup.sql",
         "/usr/bin/python3 /home/me/script.py",
@@ -68,6 +73,7 @@ def test_validator_passes_through_non_owlfolio_commands():
 
 def test_validator_rejects_unparseable_shell():
     from src.operations.tasks import _validate_owlfolio_command
+
     with pytest.raises(ValueError, match="not parseable as shell"):
         _validate_owlfolio_command('owlfolio analyze "unclosed quote')
 

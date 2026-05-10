@@ -10,10 +10,10 @@ from dotenv import load_dotenv
 # Load .env before anything else reads os.environ
 load_dotenv()
 
-import typer
-from rich.console import Console
-from rich.panel import Panel
-from rich.table import Table
+import typer  # noqa: E402
+from rich.console import Console  # noqa: E402
+from rich.panel import Panel  # noqa: E402
+from rich.table import Table  # noqa: E402
 
 
 def _configure_logging(verbose: bool = False):
@@ -24,13 +24,13 @@ def _configure_logging(verbose: bool = False):
     level = logging.DEBUG if verbose else logging.INFO
 
     # File handler with rotation (5MB, keep 3 files)
-    file_handler = RotatingFileHandler(
-        log_dir / "agent.log", maxBytes=5_000_000, backupCount=3
-    )
+    file_handler = RotatingFileHandler(log_dir / "agent.log", maxBytes=5_000_000, backupCount=3)
     file_handler.setLevel(logging.DEBUG)  # Always log everything to file
-    file_handler.setFormatter(logging.Formatter(
-        "%(asctime)s %(name)s %(levelname)s %(message)s", datefmt="%Y-%m-%d %H:%M:%S"
-    ))
+    file_handler.setFormatter(
+        logging.Formatter(
+            "%(asctime)s %(name)s %(levelname)s %(message)s", datefmt="%Y-%m-%d %H:%M:%S"
+        )
+    )
 
     # Console handler — only warnings and errors (Rich handles normal output)
     console_handler = logging.StreamHandler()
@@ -39,10 +39,11 @@ def _configure_logging(verbose: bool = False):
 
     logging.basicConfig(level=level, handlers=[file_handler, console_handler])
 
+
 OWL_BANNER = "\n  🦉 Owlfolio — An AI portfolio manager. Your investment philosophy, automated.\n"
 
 
-from src.agents.discovery import ticker_currency
+from src.agents.discovery import ticker_currency  # noqa: E402
 
 
 def _fmt_price(value: float, ticker: str = "") -> str:
@@ -60,7 +61,7 @@ def _fmt_price(value: float, ticker: str = "") -> str:
 def _fmt_mcap(value: float, ticker: str = "") -> str:
     """Format market cap in billions with correct currency symbol."""
     _, symbol = ticker_currency(ticker) if ticker else ("USD", "$")
-    return f"{symbol}{value/1e9:.1f}B"
+    return f"{symbol}{value / 1e9:.1f}B"
 
 
 def _owl_callback(ctx: typer.Context):
@@ -85,6 +86,7 @@ def _deprecated_owlclaw_alias() -> None:
     `owlfolio` app. Will be removed in the release after this one.
     """
     import sys
+
     sys.stderr.write(
         "\n\033[33m[DEPRECATED]\033[0m The `owlclaw` command has been renamed to "
         "`owlfolio`. Update your scripts. This alias will be removed in the next release.\n\n"
@@ -95,12 +97,16 @@ def _deprecated_owlclaw_alias() -> None:
 def _deprecated_agent_alias() -> None:
     """Backward-compatibility entry point for the legacy `agent` command name."""
     import sys
+
     sys.stderr.write(
         "\n\033[33m[DEPRECATED]\033[0m The `agent` command has been renamed to "
         "`owlfolio`. Update your scripts. This alias will be removed in the next release.\n\n"
     )
     app()
+
+
 console = Console()
+
 
 # Default strategy path
 def get_default_strategy() -> str:
@@ -159,28 +165,33 @@ def analyze(
     strategy = load_strategy(strategy_path)
 
     specialist_count = len(strategy.prompts.specialists)
-    console.print(
-        f"[dim]Strategy: {strategy.name} | "
-        f"Specialists: {specialist_count}[/dim]\n"
-    )
+    console.print(f"[dim]Strategy: {strategy.name} | Specialists: {specialist_count}[/dim]\n")
 
     # ── Quick check (--skip-llm) — show saved analysis if available ──
     if skip_llm:
         from src.db.operations import get_latest_analysis
         from src.db.schema import get_db
+
         conn = get_db()
         saved = get_latest_analysis(conn, ticker)
         conn.close()
 
         if saved:
             console.print(f"\n  [bold]{ticker}[/bold] — Last analysis ({saved['created_at'][:10]})")
-            console.print(f"  Decision: {saved['decision']} | {saved['quality_tier']} {saved['weighted_score']}/5")
-            if saved.get('buy_price'):
+            console.print(
+                f"  Decision: {saved['decision']}"
+                f" | {saved['quality_tier']} {saved['weighted_score']}/5"
+            )
+            if saved.get("buy_price"):
                 console.print(f"  Fair Value: {_fmt_price(saved['buy_price'], ticker)}")
-            if saved.get('thesis'):
+            if saved.get("thesis"):
                 console.print(f"  Thesis: {saved['thesis'][:150]}...")
         else:
-            console.print(f"\n  [dim]No saved analysis for {ticker}. Run without --skip-llm for full specialist analysis.[/dim]")
+            console.print(
+                f"\n  [dim]No saved analysis for {ticker}."
+                " Run without --skip-llm for full specialist"
+                " analysis.[/dim]"
+            )
         return
 
     # ── Full specialist analysis ──
@@ -188,14 +199,16 @@ def analyze(
 
     # ── Specialist pipeline ──
     import time as _time
+
+    from src.llm.provider import _run_async
     from src.specialists.runner import run_specialists
     from src.specialists.synthesis import synthesize
-    from src.llm.provider import _run_async
 
     # Build add-on specialists
     addons = []
     if shariah:
         from src.specialists.addons import SHARIAH_SPECIALIST
+
         addons.append(SHARIAH_SPECIALIST)
 
     total_count = specialist_count + len(addons)
@@ -207,15 +220,17 @@ def analyze(
     findings = _run_async(run_specialists(ticker, company_name, strategy, addons=addons))
 
     for f in findings:
-        console.print(f"  [green]\u2713[/green] {f.specialist_name} (confidence: {f.confidence:.0%})")
+        console.print(
+            f"  [green]\u2713[/green] {f.specialist_name} (confidence: {f.confidence:.0%})"
+        )
 
     # Run synthesis
-    console.print(f"[dim]Synthesizing findings...[/dim]")
+    console.print("[dim]Synthesizing findings...[/dim]")
     result = _run_async(synthesize(ticker, company_name, findings, strategy))
 
     # Save to DB
+    from src.db.operations import add_memory, save_analysis, save_specialist_findings
     from src.db.schema import get_db
-    from src.db.operations import save_analysis, save_specialist_findings, add_memory
 
     conn = get_db()
     analysis_id = save_analysis(
@@ -242,7 +257,8 @@ def analyze(
     fair_value_str = _fmt_price(result.fair_value, ticker) if result.fair_value else "N/A"
     add_memory(
         "observation",
-        f"{ticker}: {result.decision} at {fair_value_str} fair value, {result.quality_tier} {result.weighted_score:.1f}/5",
+        f"{ticker}: {result.decision} at {fair_value_str} fair value,"
+        f" {result.quality_tier} {result.weighted_score:.1f}/5",
         ticker=ticker,
     )
 
@@ -255,8 +271,16 @@ def analyze(
     logging.getLogger("owlfolio.run").info(
         "ticker=%s strategy=%s addons=%s decision=%s confidence=%.2f "
         "score=%.1f/5 specialists=%d/%d duration=%.1fs analysis_id=%d",
-        ticker, strategy.name, addon_str, result.decision, result.confidence,
-        result.weighted_score, len(findings), total_count, duration_s, analysis_id,
+        ticker,
+        strategy.name,
+        addon_str,
+        result.decision,
+        result.confidence,
+        result.weighted_score,
+        len(findings),
+        total_count,
+        duration_s,
+        analysis_id,
     )
 
     # Display
@@ -285,24 +309,26 @@ def _primary_overridable_str(s) -> str:
 
 def _display_synthesis_result(result, strategy):
     """Display the specialist pipeline's synthesis result."""
-    from src.specialists.schemas import SynthesisResult
 
     # Decision panel
     colors = {"BUY": "green", "WATCH": "yellow", "PASS": "red"}
     color = colors.get(result.decision, "white")
 
-    console.print(Panel(
-        f"[bold]{result.ticker} — {result.company_name}[/bold]\n"
-        f"Decision: [{color}][bold]{result.decision}[/bold][/{color}] "
-        f"(confidence: {result.confidence:.0%})\n"
-        f"{result.reasoning}",
-        title="Investment Decision",
-        border_style=f"bold {color}",
-    ))
+    console.print(
+        Panel(
+            f"[bold]{result.ticker} — {result.company_name}[/bold]\n"
+            f"Decision: [{color}][bold]{result.decision}[/bold][/{color}] "
+            f"(confidence: {result.confidence:.0%})\n"
+            f"{result.reasoning}",
+            title="Investment Decision",
+            border_style=f"bold {color}",
+        )
+    )
 
     # Valuation — always fetch a live price instead of using stored value
     if result.fair_value:
         from src.data.prices import get_price_data
+
         live = get_price_data(result.ticker)
         display_price = live.price if live.price and live.price > 0 else result.current_price
         if display_price:
@@ -310,23 +336,30 @@ def _display_synthesis_result(result, strategy):
             table = Table(title="Valuation", show_header=True)
             table.add_column("Metric", style="bold")
             table.add_column("Value", justify="right")
-            table.add_row(strategy.display.target_price_label, _fmt_price(result.fair_value, result.ticker))
+            table.add_row(
+                strategy.display.target_price_label,
+                _fmt_price(result.fair_value, result.ticker),
+            )
             table.add_row("Current Price", _fmt_price(display_price, result.ticker))
             table.add_row("Gap", f"{gap:+.1f}%")
             table.add_row("Reasoning", result.valuation_reasoning[:100])
             console.print(table)
 
     # Quality
-    console.print(f"\n  Weighted Score: {result.weighted_score:.1f}/5 — {result.quality_tier.upper()}")
+    console.print(
+        f"\n  Weighted Score: {result.weighted_score:.1f}/5 — {result.quality_tier.upper()}"
+    )
 
     # Thesis
     if result.thesis:
-        console.print(Panel(
-            f"[bold]Thesis:[/bold] {result.thesis}\n\n"
-            f"[green][bold]Bull:[/bold][/green] {result.bull_case}\n\n"
-            f"[red][bold]Bear:[/bold][/red] {result.bear_case}",
-            title="Investment Thesis",
-        ))
+        console.print(
+            Panel(
+                f"[bold]Thesis:[/bold] {result.thesis}\n\n"
+                f"[green][bold]Bull:[/bold][/green] {result.bull_case}\n\n"
+                f"[red][bold]Bear:[/bold][/red] {result.bear_case}",
+                title="Investment Thesis",
+            )
+        )
 
     # Risks
     if result.key_risks:
@@ -370,6 +403,7 @@ def setup(
     """
     if create:
         from src.modules.onboarding import run_onboarding
+
         path = run_onboarding()
         if path:
             console.print(f"[bold]Strategy created:[/bold] {path}")
@@ -382,6 +416,7 @@ def setup(
     console.print("[bold]Step 1: API Credentials[/bold]")
 
     from src.llm.provider import _load_oauth_token
+
     has_creds = False
     cred_source = ""
 
@@ -417,7 +452,11 @@ def setup(
         if token:
             env_path = Path(".env")
             env_content = env_path.read_text() if env_path.exists() else ""
-            lines = [l for l in env_content.splitlines() if not l.startswith("CLAUDE_CODE_OAUTH_TOKEN")]
+            lines = [
+                line
+                for line in env_content.splitlines()
+                if not line.startswith("CLAUDE_CODE_OAUTH_TOKEN")
+            ]
             lines.append(f"CLAUDE_CODE_OAUTH_TOKEN={token}")
             env_path.write_text("\n".join(lines) + "\n")
             console.print("  [green]✓ Setup token saved to .env[/green]")
@@ -433,7 +472,11 @@ def setup(
         if api_key:
             env_path = Path(".env")
             env_content = env_path.read_text() if env_path.exists() else ""
-            lines = [l for l in env_content.splitlines() if not l.startswith("ANTHROPIC_API_KEY")]
+            lines = [
+                line
+                for line in env_content.splitlines()
+                if not line.startswith("ANTHROPIC_API_KEY")
+            ]
             lines.append(f"ANTHROPIC_API_KEY={api_key}")
             env_path.write_text("\n".join(lines) + "\n")
             console.print("  [green]✓ API key saved to .env[/green]")
@@ -441,7 +484,7 @@ def setup(
             has_creds = True
 
     # ── Step 2: Strategy ──
-    console.print(f"\n[bold]Step 2: Investment Strategy[/bold]")
+    console.print("\n[bold]Step 2: Investment Strategy[/bold]")
 
     strategies_dir = Path("strategies")
     available = sorted(strategies_dir.glob("*.yaml")) if strategies_dir.exists() else []
@@ -451,6 +494,7 @@ def setup(
         # First-run convenience: pick a default and copy it. The user can
         # change strategies any time with `owlfolio strategy --use NAME`.
         import shutil
+
         default_src = strategies_dir / "buffett-munger.yaml"
         if not default_src.exists():
             default_src = available[0]
@@ -463,9 +507,11 @@ def setup(
     if available:
         console.print("  Available strategies:")
         for i, s in enumerate(available, 1):
-            marker = " [yellow](active)[/yellow]" if s.stem in (
-                methodology.exists() and methodology.read_text() or ""
-            ) else ""
+            marker = (
+                " [yellow](active)[/yellow]"
+                if s.stem in (methodology.exists() and methodology.read_text() or "")
+                else ""
+            )
             console.print(f"    {i}. {s.stem}{marker}")
 
         console.print(f"\n  Default: [bold]{DEFAULT_STRATEGY}[/bold]")
@@ -481,7 +527,7 @@ def setup(
         warnings = validate_strategy(DEFAULT_STRATEGY)
 
         console.print(f"\n  Strategy: [bold]{strategy.name}[/bold]")
-        console.print(f"  Tiers (tier → required return; None = don't buy):")
+        console.print("  Tiers (tier → required return; None = don't buy):")
         for tier, rate in strategy.tiers.items():
             if rate is not None:
                 console.print(f"    {tier:20s} → {rate:.0%}")
@@ -498,48 +544,65 @@ def setup(
 
     # ── Step 3: Test API ──
     if not quick:
-        console.print(f"\n[bold]Step 3: API Connection Test[/bold]")
+        console.print("\n[bold]Step 3: API Connection Test[/bold]")
 
         try:
             from src.llm.provider import complete
+
             result = complete("Respond with exactly: API test successful")
             console.print(f"  [green]✓ API working:[/green] {result.strip()}")
         except Exception as e:
             console.print(f"  [red]✗ API error: {e}[/red]")
             console.print("  [dim]Fix Claude credentials before running 'owlfolio analyze'.[/dim]")
     else:
-        console.print(f"\n[bold]Step 3: API Connection Test[/bold] [dim](skipped — use without --quick to test)[/dim]")
+        console.print(
+            "\n[bold]Step 3: API Connection Test[/bold]"
+            " [dim](skipped — use without --quick to test)[/dim]"
+        )
 
     # ── Step 4: Quick test ──
-    console.print(f"\n[bold]Step 4: Quick Test (price fetch)[/bold]")
+    console.print("\n[bold]Step 4: Quick Test (price fetch)[/bold]")
     console.print("  [dim]Running: price check for AAPL[/dim]")
     try:
         from src.data.prices import get_price_data
 
         price_data = get_price_data("AAPL")
-        console.print(f"  [green]✓ Pipeline works:[/green] {price_data.name} — {_fmt_price(price_data.price, 'AAPL')} (market cap: {_fmt_mcap(price_data.market_cap, 'AAPL')})")
+        console.print(
+            f"  [green]✓ Pipeline works:[/green] {price_data.name}"
+            f" — {_fmt_price(price_data.price, 'AAPL')}"
+            f" (market cap: {_fmt_mcap(price_data.market_cap, 'AAPL')})"
+        )
     except Exception as e:
         console.print(f"  [red]✗ Pipeline error: {e}[/red]")
 
     # ── Step 5: Timezone & Schedule ──
-    console.print(f"\n[bold]Step 5: Timezone & Default Schedule[/bold]")
+    console.print("\n[bold]Step 5: Timezone & Default Schedule[/bold]")
 
     common_tzs = [
-        "America/New_York", "America/Chicago", "America/Los_Angeles",
-        "Europe/London", "Europe/Berlin", "Asia/Dubai", "Asia/Kolkata",
-        "Asia/Hong_Kong", "Asia/Tokyo", "Asia/Shanghai", "Asia/Riyadh",
+        "America/New_York",
+        "America/Chicago",
+        "America/Los_Angeles",
+        "Europe/London",
+        "Europe/Berlin",
+        "Asia/Dubai",
+        "Asia/Kolkata",
+        "Asia/Hong_Kong",
+        "Asia/Tokyo",
+        "Asia/Shanghai",
+        "Asia/Riyadh",
         "Australia/Sydney",
     ]
 
     # Load current config
     import yaml
+
     config_path = Path("data/config.yaml")
     config = yaml.safe_load(config_path.read_text()) if config_path.exists() else {}
     current_tz = config.get("timezone", "UTC")
     primary_market = config.get("markets", ["US"])[0]
 
     console.print(f"  Current timezone: [bold]{current_tz}[/bold]")
-    console.print(f"  Common timezones:")
+    console.print("  Common timezones:")
     for i, tz in enumerate(common_tzs, 1):
         marker = " [yellow](current)[/yellow]" if tz == current_tz else ""
         console.print(f"    {i:2d}. {tz}{marker}")
@@ -561,6 +624,7 @@ def setup(
 
     # Validate timezone
     from zoneinfo import ZoneInfo
+
     try:
         ZoneInfo(chosen_tz)
     except (KeyError, ValueError):
@@ -593,10 +657,12 @@ def setup(
     else:
         console.print("  [dim]Default schedule already configured (all tasks exist).[/dim]")
 
-    console.print("  [dim]Customize with: owlfolio tasks / owlfolio schedule / owlfolio unschedule[/dim]")
+    console.print(
+        "  [dim]Customize with: owlfolio tasks / owlfolio schedule / owlfolio unschedule[/dim]"
+    )
 
     # ── Step 6: Custom strategy? ──
-    console.print(f"\n[bold]Step 6: Custom Strategy (optional)[/bold]")
+    console.print("\n[bold]Step 6: Custom Strategy (optional)[/bold]")
     create_custom = typer.confirm(
         "  Would you like to create a custom strategy?",
         default=False,
@@ -604,20 +670,21 @@ def setup(
 
     if create_custom:
         from src.modules.onboarding import run_onboarding
+
         run_onboarding()
 
     # ── Done ──
     console.print(f"\n{'═' * 50}")
     console.print("[bold]Setup complete![/bold]")
-    console.print(f"\nNext steps:")
-    console.print(f"  owlfolio analyze AAPL              # Full specialist analysis")
-    console.print(f"  owlfolio analyze AAPL --shariah    # Add Shariah compliance check")
-    console.print(f"  owlfolio analyze AAPL --skip-llm   # Show last saved analysis (no new run)")
-    console.print(f"  owlfolio setup --create            # Create a custom strategy")
-    console.print(f"  owlfolio strategy --list           # View all strategies")
-    console.print(f"  owlfolio config show               # View active strategy")
-    console.print(f"  owlfolio tasks                     # View scheduled tasks")
-    console.print(f"  owlfolio daemon                    # Start the background scheduler")
+    console.print("\nNext steps:")
+    console.print("  owlfolio analyze AAPL              # Full specialist analysis")
+    console.print("  owlfolio analyze AAPL --shariah    # Add Shariah compliance check")
+    console.print("  owlfolio analyze AAPL --skip-llm   # Show last saved analysis (no new run)")
+    console.print("  owlfolio setup --create            # Create a custom strategy")
+    console.print("  owlfolio strategy --list           # View all strategies")
+    console.print("  owlfolio config show               # View active strategy")
+    console.print("  owlfolio tasks                     # View scheduled tasks")
+    console.print("  owlfolio daemon                    # Start the background scheduler")
     console.print()
 
 
@@ -651,10 +718,11 @@ def config(
         if strategy.summary:
             console.print(f"  {strategy.summary.strip().splitlines()[0]}")
         console.print(f"  Max positions: {strategy.position_sizing.max_positions}")
-        console.print(f"  Criteria ({len(strategy.criteria)}): "
-                      f"{', '.join(c.name for c in strategy.criteria)}")
+        console.print(
+            f"  Criteria ({len(strategy.criteria)}): {', '.join(c.name for c in strategy.criteria)}"
+        )
         if strategy.llm_overridable:
-            console.print(f"  LLM-overridable variables:")
+            console.print("  LLM-overridable variables:")
             for name, var in strategy.llm_overridable.items():
                 console.print(
                     f"    {name:25s} default={var.default:<6.2f} "
@@ -664,8 +732,8 @@ def config(
         if specialists:
             console.print(f"  Specialists ({len(specialists)}): {', '.join(specialists.keys())}")
         else:
-            console.print(f"  Specialists: [yellow]none defined[/yellow]")
-        console.print(f"  Tiers (tier → required return; None = don't buy):")
+            console.print("  Specialists: [yellow]none defined[/yellow]")
+        console.print("  Tiers (tier → required return; None = don't buy):")
         for tier, rate in strategy.tiers.items():
             if rate is not None:
                 console.print(f"    {tier:20s} → {rate:.0%}")
@@ -725,7 +793,8 @@ def strategy_cmd(
         parts.append(f"[bold]Criteria:[/bold] {criteria_names}")
 
         specialist_names = _get_specialist_names(s)
-        parts.append(f"[bold]Specialists:[/bold] {', '.join(specialist_names) if specialist_names else 'none'}")
+        spec_str = ", ".join(specialist_names) if specialist_names else "none"
+        parts.append(f"[bold]Specialists:[/bold] {spec_str}")
 
         ps = s.position_sizing
         if ps.tiers:
@@ -737,22 +806,28 @@ def strategy_cmd(
             )
         else:
             tier_parts = "not configured"
-        parts.append(f"[bold]Position Sizing:[/bold] {tier_parts} | max {ps.max_single_position:.0%} per position | {ps.max_positions} positions max")
+        parts.append(
+            f"[bold]Position Sizing:[/bold] {tier_parts}"
+            f" | max {ps.max_single_position:.0%} per position"
+            f" | {ps.max_positions} positions max"
+        )
         parts.append("")
 
         # LLM-overridable variables
         if s.llm_overridable:
-            parts.append(f"[bold]LLM-Overridable Variables:[/bold]")
+            parts.append("[bold]LLM-Overridable Variables:[/bold]")
             for name, var in s.llm_overridable.items():
                 parts.append(
                     f"  {name}: default={var.default}, range=[{var.range[0]}, {var.range[1]}]"
                 )
 
-        console.print(Panel(
-            "\n".join(parts),
-            title=f"Strategy Info: {s.name}",
-            border_style="bold",
-        ))
+        console.print(
+            Panel(
+                "\n".join(parts),
+                title=f"Strategy Info: {s.name}",
+                border_style="bold",
+            )
+        )
         return
 
     if list_all:
@@ -797,7 +872,8 @@ def strategy_cmd(
                 specialist_names = _get_specialist_names(s)
                 mod_display = (
                     f"{len(specialist_names)} ({', '.join(specialist_names)})"
-                    if specialist_names else "none"
+                    if specialist_names
+                    else "none"
                 )
 
                 # Philosophy (truncated description)
@@ -806,7 +882,13 @@ def strategy_cmd(
                     desc = desc[:97] + "..."
                 philosophy_display = desc
 
-                table.add_row(name_display, knob_display, criteria_display, mod_display, philosophy_display)
+                table.add_row(
+                    name_display,
+                    knob_display,
+                    criteria_display,
+                    mod_display,
+                    philosophy_display,
+                )
             except Exception as e:
                 table.add_row(yf.stem, f"[red]Error: {e}[/red]", "", "", "")
 
@@ -903,9 +985,7 @@ def strategy_cmd(
     parts.append("")
 
     # Criteria framework
-    criteria_parts = " | ".join(
-        f"{c.name} ({c.weight:.0%})" for c in s.criteria
-    )
+    criteria_parts = " | ".join(f"{c.name} ({c.weight:.0%})" for c in s.criteria)
     parts.append(f"[bold]Criteria:[/bold] {len(s.criteria)} (weighted, sum=1.0)")
     parts.append(f"  {criteria_parts}")
     wide = s.thresholds.get("wide", 3.5)
@@ -920,16 +1000,14 @@ def strategy_cmd(
             tier_parts.append(f"{tier}: {rate:.0%}")
         else:
             tier_parts.append(f"{tier}: don't buy")
-    parts.append(f"[bold]Tiers:[/bold]")
+    parts.append("[bold]Tiers:[/bold]")
     parts.append(f"  {' | '.join(tier_parts)}")
     parts.append("")
 
     # Position sizing
     ps = s.position_sizing
     if ps.tiers:
-        tier_parts = " | ".join(
-            f"{name}: {t.allocation:.0%}" for name, t in ps.tiers.items()
-        )
+        tier_parts = " | ".join(f"{name}: {t.allocation:.0%}" for name, t in ps.tiers.items())
     elif ps.tier_ranges:
         tier_parts = " | ".join(
             f"{name}: {r[0]:.0%}-{r[1]:.0%}" if r else f"{name}: N/A"
@@ -937,8 +1015,11 @@ def strategy_cmd(
         )
     else:
         tier_parts = "not configured"
-    parts.append(f"[bold]Position Sizing:[/bold]")
-    parts.append(f"  {tier_parts} | Max: {ps.max_single_position:.0%} | Cash min: {ps.cash_reserve.minimum:.0%}")
+    parts.append("[bold]Position Sizing:[/bold]")
+    parts.append(
+        f"  {tier_parts} | Max: {ps.max_single_position:.0%}"
+        f" | Cash min: {ps.cash_reserve.minimum:.0%}"
+    )
     parts.append("")
 
     # Specialists
@@ -949,17 +1030,17 @@ def strategy_cmd(
 
     # LLM-overridable variables
     if s.llm_overridable:
-        parts.append(f"[bold]LLM-Overridable:[/bold]")
+        parts.append("[bold]LLM-Overridable:[/bold]")
         for name, var in s.llm_overridable.items():
-            parts.append(
-                f"  {name} [{var.range[0]}-{var.range[1]}, default {var.default}]"
-            )
+            parts.append(f"  {name} [{var.range[0]}-{var.range[1]}, default {var.default}]")
 
-    console.print(Panel(
-        "\n".join(parts),
-        title="Active Strategy",
-        border_style="bold",
-    ))
+    console.print(
+        Panel(
+            "\n".join(parts),
+            title="Active Strategy",
+            border_style="bold",
+        )
+    )
 
 
 @app.command()
@@ -969,9 +1050,7 @@ def doctor():
     Use this when something isn't working. Output is intentionally
     copy-pasteable into a bug report.
     """
-    import shutil
     import socket
-    import subprocess
     import sys
 
     from src.llm.provider import _load_oauth_token
@@ -1006,7 +1085,11 @@ def doctor():
         auth = "Claude subscription (~/.claude/.credentials.json)"
     table.add_row(
         "Claude credentials",
-        f"[green]✓ {auth}[/green]" if auth else "[red]✗ none — run `owlfolio setup` or set ANTHROPIC_API_KEY[/red]",
+        (
+            f"[green]✓ {auth}[/green]"
+            if auth
+            else "[red]✗ none — run `owlfolio setup` or set ANTHROPIC_API_KEY[/red]"
+        ),
     )
 
     # Active strategy + methodology.yaml
@@ -1014,6 +1097,7 @@ def doctor():
     if Path(active).exists():
         try:
             from src.strategy.loader import load_strategy
+
             s = load_strategy(active)
             n_spec = len(getattr(s, "specialists", {}) or {})
             table.add_row(
@@ -1027,9 +1111,11 @@ def doctor():
 
     # Database
     from src.db.schema import DB_PATH as _DB_PATH
+
     if Path(_DB_PATH).exists():
         try:
             import sqlite3
+
             conn = sqlite3.connect(str(_DB_PATH))
             holdings = conn.execute("SELECT COUNT(*) FROM holdings").fetchone()[0]
             analyses = conn.execute("SELECT COUNT(*) FROM analyses").fetchone()[0]
@@ -1051,10 +1137,12 @@ def doctor():
 
     # Daemon status
     from src.daemon import is_daemon_running
+
     daemon_alive = is_daemon_running()
     table.add_row(
         "Daemon",
-        "[green]✓ running[/green]" if daemon_alive
+        "[green]✓ running[/green]"
+        if daemon_alive
         else "[dim]not running (scheduled tasks won't execute until you start it)[/dim]",
     )
 
@@ -1097,6 +1185,7 @@ def status():
     strategy_exists = Path(active_strategy).exists()
     if strategy_exists:
         from src.strategy.loader import load_strategy
+
         try:
             s = load_strategy(active_strategy)
             table.add_row("Strategy", f"{s.name} ({active_strategy})")
@@ -1109,7 +1198,11 @@ def status():
     methodology_exists = Path("methodology.yaml").exists()
     table.add_row(
         "methodology.yaml",
-        "[green]exists[/green]" if methodology_exists else "[dim]not found (using default strategy)[/dim]",
+        (
+            "[green]exists[/green]"
+            if methodology_exists
+            else "[dim]not found (using default strategy)[/dim]"
+        ),
     )
 
     # Python version
@@ -1118,6 +1211,7 @@ def status():
     # Package version
     try:
         from importlib.metadata import version as pkg_version
+
         table.add_row("owlfolio", pkg_version("owlfolio"))
     except Exception:
         table.add_row("owlfolio", "[dim]dev (not installed)[/dim]")
@@ -1162,9 +1256,9 @@ def specialists_cmd():
 @app.command()
 def portfolio():
     """View portfolio holdings and performance."""
-    from src.db.schema import get_db
-    from src.db.operations import get_holdings
     from src.data.prices import get_price_data
+    from src.db.operations import get_holdings
+    from src.db.schema import get_db
 
     conn = get_db()
     holdings = get_holdings(conn)
@@ -1203,7 +1297,7 @@ def portfolio():
             table.add_row(
                 h["ticker"],
                 f"{h['shares']:.2f}",
-                _fmt_price(h['cost_basis'], h["ticker"]),
+                _fmt_price(h["cost_basis"], h["ticker"]),
                 _fmt_price(current, h["ticker"]),
                 f"[{color}]{_fmt_price(pnl, h['ticker'])}[/{color}]",
                 f"[{color}]{pnl_pct:+.1f}%[/{color}]",
@@ -1214,7 +1308,7 @@ def portfolio():
             table.add_row(
                 h["ticker"],
                 f"{h['shares']:.2f}",
-                _fmt_price(h['cost_basis'], h["ticker"]),
+                _fmt_price(h["cost_basis"], h["ticker"]),
                 "[yellow]N/A[/yellow]",
                 "[yellow]N/A[/yellow]",
                 "[yellow]N/A[/yellow]",
@@ -1252,11 +1346,19 @@ def add(
 
     conn = get_db()
     holding_id = add_holding(
-        conn, ticker=ticker, shares=shares, cost_basis=price,
-        date_acquired=date, account=account,
+        conn,
+        ticker=ticker,
+        shares=shares,
+        cost_basis=price,
+        date_acquired=date,
+        account=account,
     )
     log_decision(
-        conn, ticker=ticker, action="BUY", price=price, shares=shares,
+        conn,
+        ticker=ticker,
+        action="BUY",
+        price=price,
+        shares=shares,
         reasoning=f"Bought {shares} shares at {_fmt_price(price, ticker)}",
     )
 
@@ -1279,9 +1381,10 @@ def sell(
     ticker = ticker.upper()
     conn = get_db()
     try:
-        decision = sell_holding(conn, ticker=ticker, shares=shares, price=price)
+        sell_holding(conn, ticker=ticker, shares=shares, price=price)
         console.print(
-            f"[green]Sold:[/green] {shares} shares of [bold]{ticker}[/bold] at {_fmt_price(price, ticker)}"
+            f"[green]Sold:[/green] {shares} shares of"
+            f" [bold]{ticker}[/bold] at {_fmt_price(price, ticker)}"
         )
     except ValueError as e:
         console.print(f"[red]Error:[/red] {e}")
@@ -1346,14 +1449,14 @@ def history(
     table.add_column("Reasoning")
 
     for d in decisions:
-        action_style = {
-            "BUY": "green", "SELL": "red", "WATCH": "yellow", "PASS": "dim"
-        }.get(d["action"], "")
+        action_style = {"BUY": "green", "SELL": "red", "WATCH": "yellow", "PASS": "dim"}.get(
+            d["action"], ""
+        )
         table.add_row(
             d["created_at"] or "",
             d["ticker"],
             f"[{action_style}]{d['action']}[/{action_style}]",
-            _fmt_price(d['price'], d['ticker']) if d["price"] else "",
+            _fmt_price(d["price"], d["ticker"]) if d["price"] else "",
             f"{d['shares']:.2f}" if d["shares"] else "",
             d["reasoning"] or "",
         )
@@ -1372,7 +1475,11 @@ def watchlist_check():
     Designed to run as a scheduled task before market open.
     """
     from src.data.prices import get_price_data
-    from src.db.operations import get_watchlist, update_watchlist_price, update_latest_analysis_price
+    from src.db.operations import (
+        get_watchlist,
+        update_latest_analysis_price,
+        update_watchlist_price,
+    )
     from src.db.schema import get_db
 
     conn = get_db()
@@ -1396,8 +1503,13 @@ def watchlist_check():
             price_data = get_price_data(ticker)
             current = price_data.price
         except Exception:
-            table.add_row(ticker, _fmt_price(buy_price, ticker) if buy_price else "-",
-                          "[yellow]N/A[/yellow]", "-", "-")
+            table.add_row(
+                ticker,
+                _fmt_price(buy_price, ticker) if buy_price else "-",
+                "[yellow]N/A[/yellow]",
+                "-",
+                "-",
+            )
             continue
 
         # Persist fresh price to watchlist and latest analysis record
@@ -1434,10 +1546,17 @@ def watchlist_check():
 
 @app.command(name="review-holdings")
 def review_holdings_cmd(
-    mode: str = typer.Option("review", "--mode", "-m",
-                             help="Mode: news (news pulse), review (light quarterly), full (deep re-analysis)"),
-    thorough: bool = typer.Option(False, "--thorough",
-                                  help="More thorough review (e.g. post-10Q with full filing analysis)"),
+    mode: str = typer.Option(
+        "review",
+        "--mode",
+        "-m",
+        help="Mode: news (news pulse), review (light quarterly), full (deep re-analysis)",
+    ),
+    thorough: bool = typer.Option(
+        False,
+        "--thorough",
+        help="More thorough review (e.g. post-10Q with full filing analysis)",
+    ),
 ):
     """Run a review across all portfolio holdings.
 
@@ -1527,7 +1646,9 @@ def analyses(
 
     if not results:
         msg = f"for {ticker.upper()}" if ticker else ""
-        console.print(f"[dim]No analyses saved {msg}. Run [bold]owlfolio analyze TICKER[/bold] first.[/dim]")
+        console.print(
+            f"[dim]No analyses saved {msg}. Run [bold]owlfolio analyze TICKER[/bold] first.[/dim]"
+        )
         return
 
     table = Table(title="Saved Analyses", show_header=True)
@@ -1542,6 +1663,7 @@ def analyses(
 
     # Fetch live prices for all unique tickers in one pass
     from src.data.prices import get_price_data
+
     tickers_seen: dict[str, float | None] = {}
     for a in results:
         t = a["ticker"]
@@ -1550,9 +1672,7 @@ def analyses(
             tickers_seen[t] = live.price if live.price and live.price > 0 else None
 
     for a in results:
-        decision_style = {
-            "BUY": "green", "WATCH": "yellow", "PASS": "red"
-        }.get(a["decision"], "")
+        decision_style = {"BUY": "green", "WATCH": "yellow", "PASS": "red"}.get(a["decision"], "")
         live_price = tickers_seen.get(a["ticker"]) or a["current_price"]
         table.add_row(
             str(a["id"]),
@@ -1560,8 +1680,8 @@ def analyses(
             a["ticker"],
             a["strategy"] or "",
             f"[{decision_style}]{a['decision']}[/{decision_style}]",
-            _fmt_price(a['buy_price'], a['ticker']) if a["buy_price"] else "",
-            _fmt_price(live_price, a['ticker']) if live_price else "",
+            _fmt_price(a["buy_price"], a["ticker"]) if a["buy_price"] else "",
+            _fmt_price(live_price, a["ticker"]) if live_price else "",
             a["quality_tier"] or "",
         )
 
@@ -1574,7 +1694,12 @@ def analyses(
 @app.command(name="find")
 def find_cmd(
     n: int = typer.Option(15, "--count", "-n", help="Target number of candidates"),
-    strategy_name: str = typer.Option(None, "--strategy", "-s", help="Strategy to use (default: active)"),
+    strategy_name: str = typer.Option(
+        None,
+        "--strategy",
+        "-s",
+        help="Strategy to use (default: active)",
+    ),
     list_name: str = typer.Option(None, "--name", help="Save under this list name"),
     note: str = typer.Option("", "--note", help="One-line description for the list"),
     shariah: bool = typer.Option(False, "--shariah", help="Apply Shariah compliance pre-filter"),
@@ -1589,14 +1714,19 @@ def find_cmd(
     from src.operations.candidates import find_candidates
 
     _configure_logging()
-    console.print(f"\n[bold]Running discovery agent...[/bold]")
-    console.print(f"[dim]This is slow (3-10 min) and uses real API credits.[/dim]\n")
+    console.print("\n[bold]Running discovery agent...[/bold]")
+    console.print("[dim]This is slow (3-10 min) and uses real API credits.[/dim]\n")
 
     try:
-        result = _run_async(find_candidates(
-            strategy_name=strategy_name, n=n, list_name=list_name, note=note,
-            shariah=shariah,
-        ))
+        result = _run_async(
+            find_candidates(
+                strategy_name=strategy_name,
+                n=n,
+                list_name=list_name,
+                note=note,
+                shariah=shariah,
+            )
+        )
     except Exception as e:
         console.print(f"[red]find failed: {e}[/red]")
         raise typer.Exit(1)
@@ -1612,11 +1742,14 @@ def find_cmd(
     table.add_column("Sector")
     table.add_column("Note", max_width=60)
     for c in result["candidates"]:
-        table.add_row(c["ticker"], c.get("company_name", ""), c.get("sector", ""), c.get("note", ""))
+        table.add_row(
+            c["ticker"],
+            c.get("company_name", ""),
+            c.get("sector", ""),
+            c.get("note", ""),
+        )
     console.print(table)
-    console.print(
-        f"\n[dim]Next: owlfolio analyze-list {result['list_name']}[/dim]"
-    )
+    console.print(f"\n[dim]Next: owlfolio analyze-list {result['list_name']}[/dim]")
 
 
 @app.command(name="import")
@@ -1625,8 +1758,9 @@ def import_cmd(
     list_name: str = typer.Option(..., "--name", help="Save under this list name"),
     strategy_name: str = typer.Option(None, "--strategy", "-s", help="Strategy this list targets"),
     note: str = typer.Option("", "--note", help="One-line description"),
-    skip_validation: bool = typer.Option(False, "--no-validate",
-                                         help="Skip yfinance ticker validation (offline / fast)"),
+    skip_validation: bool = typer.Option(
+        False, "--no-validate", help="Skip yfinance ticker validation (offline / fast)"
+    ),
 ):
     """Import a ticker list from CSV / text file / inline string.
 
@@ -1640,8 +1774,10 @@ def import_cmd(
     _configure_logging()
     try:
         result = import_candidates(
-            source=source, list_name=list_name,
-            strategy_name=strategy_name, note=note,
+            source=source,
+            list_name=list_name,
+            strategy_name=strategy_name,
+            note=note,
             skip_validation=skip_validation,
         )
     except Exception as e:
@@ -1655,7 +1791,9 @@ def import_cmd(
     if result["rejected"]:
         console.print(
             f"[yellow]Rejected ({len(result['rejected'])}): "
-            f"{', '.join(result['rejected'][:10])}{'...' if len(result['rejected']) > 10 else ''}[/yellow]"
+            f"{', '.join(result['rejected'][:10])}"
+            f"{'...' if len(result['rejected']) > 10 else ''}"
+            "[/yellow]"
         )
     console.print(f"[dim]Next: owlfolio analyze-list {result['list_name']}[/dim]")
 
@@ -1667,7 +1805,9 @@ def lists_cmd():
 
     lists = list_lists()
     if not lists:
-        console.print("[dim]No candidate lists yet. Use `owlfolio find` or `owlfolio import`.[/dim]")
+        console.print(
+            "[dim]No candidate lists yet. Use `owlfolio find` or `owlfolio import`.[/dim]"
+        )
         return
 
     table = Table(title="Candidate Lists", show_header=True)
@@ -1677,14 +1817,14 @@ def lists_cmd():
     table.add_column("Total", justify="right")
     table.add_column("Analyzed", justify="right")
     table.add_column("Created")
-    for l in lists:
+    for lst in lists:
         table.add_row(
-            l["name"],
-            l["source"],
-            l["strategy"] or "-",
-            str(l["total"]),
-            str(l["analyzed"] or 0),
-            (l["created_at"] or "")[:16],
+            lst["name"],
+            lst["source"],
+            lst["strategy"] or "-",
+            str(lst["total"]),
+            str(lst["analyzed"] or 0),
+            (lst["created_at"] or "")[:16],
         )
     console.print(table)
 
@@ -1724,8 +1864,13 @@ def list_show_cmd(
         price_str = _fmt_price(price, c["ticker"]) if price else "-"
         status = "[green]✓[/green]" if c.get("analyzed") else "[dim]pending[/dim]"
         table.add_row(
-            c["ticker"], c.get("company_name", ""), c.get("sector", ""),
-            mcap_str, price_str, status, c.get("note", ""),
+            c["ticker"],
+            c.get("company_name", ""),
+            c.get("sector", ""),
+            mcap_str,
+            price_str,
+            status,
+            c.get("note", ""),
         )
     console.print(table)
 
@@ -1747,14 +1892,20 @@ def list_delete_cmd(
 def analyze_list_cmd(
     name: str = typer.Argument("", help="Candidate list name (optional with --auto)"),
     strategy_name: str = typer.Option(None, "--strategy", "-s", help="Override strategy"),
-    concurrency: int = typer.Option(2, "--concurrency", "-j",
-                                    help="Max concurrent analyses (default 2; raises rate-limit risk if >5)"),
+    concurrency: int = typer.Option(
+        2,
+        "--concurrency",
+        "-j",
+        help="Max concurrent analyses (default 2; raises rate-limit risk if >5)",
+    ),
     redo: bool = typer.Option(False, "--redo", help="Re-analyze candidates already analyzed"),
     shariah: bool = typer.Option(False, "--shariah", help="Also run Shariah compliance"),
-    next_n: int = typer.Option(0, "--next", "-n",
-                               help="Only analyze the next N unprocessed candidates (0 = all)"),
-    auto: bool = typer.Option(False, "--auto",
-                              help="Auto-select the most recent list (for scheduled tasks)"),
+    next_n: int = typer.Option(
+        0, "--next", "-n", help="Only analyze the next N unprocessed candidates (0 = all)"
+    ),
+    auto: bool = typer.Option(
+        False, "--auto", help="Auto-select the most recent list (for scheduled tasks)"
+    ),
 ):
     """Run the analyze pipeline against every candidate in a list.
 
@@ -1768,6 +1919,7 @@ def analyze_list_cmd(
     # Auto-select most recent list if --auto is set
     if auto and name == "":
         from src.operations.candidates import list_lists
+
         lists = list_lists()
         if not lists:
             console.print("[red]No candidate lists found.[/red]")
@@ -1784,14 +1936,19 @@ def analyze_list_cmd(
     if next_n:
         console.print(f"[dim]Processing next {next_n} unanalyzed candidates.[/dim]\n")
     else:
-        console.print(f"[dim]Each ticker takes ~2-5 min; this will run for a while.[/dim]\n")
+        console.print("[dim]Each ticker takes ~2-5 min; this will run for a while.[/dim]\n")
 
     try:
-        result = _run_async(analyze_list(
-            name=name, strategy_name=strategy_name,
-            concurrency=concurrency, skip_analyzed=not redo, shariah=shariah,
-            max_candidates=next_n if next_n else None,
-        ))
+        result = _run_async(
+            analyze_list(
+                name=name,
+                strategy_name=strategy_name,
+                concurrency=concurrency,
+                skip_analyzed=not redo,
+                shariah=shariah,
+                max_candidates=next_n if next_n else None,
+            )
+        )
     except FileNotFoundError as e:
         console.print(f"[red]{e}[/red]")
         raise typer.Exit(1)
@@ -1801,8 +1958,7 @@ def analyze_list_cmd(
 
     if result["skipped"]:
         console.print(
-            f"[dim]Skipped {len(result['skipped'])} already-analyzed "
-            f"(use --redo to re-run)[/dim]"
+            f"[dim]Skipped {len(result['skipped'])} already-analyzed (use --redo to re-run)[/dim]"
         )
 
     if result["results"]:
@@ -1817,15 +1973,16 @@ def analyze_list_cmd(
         for r in result["results"]:
             colors = {"BUY": "green", "WATCH": "yellow", "PASS": "red"}
             color = colors.get(r["decision"], "white")
-            fv = _fmt_price(r['fair_value'], r['ticker']) if r["fair_value"] else "-"
-            cp = _fmt_price(r['current_price'], r['ticker']) if r["current_price"] else "-"
+            fv = _fmt_price(r["fair_value"], r["ticker"]) if r["fair_value"] else "-"
+            cp = _fmt_price(r["current_price"], r["ticker"]) if r["current_price"] else "-"
             table.add_row(
                 r["ticker"],
                 f"[{color}]{r['decision']}[/{color}]",
                 f"{r['confidence']:.0%}",
                 r["quality_tier"],
                 f"{r['weighted_score']:.1f}",
-                fv, cp,
+                fv,
+                cp,
             )
         console.print(table)
 
@@ -1886,8 +2043,9 @@ def schedule(
     from src.db.schema import get_db
 
     conn = get_db()
-    task_id = add_scheduled_task(conn, name=name, command=command, schedule=cron,
-                                 timezone=tz, description=description)
+    task_id = add_scheduled_task(
+        conn, name=name, command=command, schedule=cron, timezone=tz, description=description
+    )
     console.print(f"[green]Scheduled task '{name}' (ID: {task_id})[/green]")
     console.print(f"  Command:  {command}")
     console.print(f"  Schedule: {cron}")
@@ -1925,7 +2083,9 @@ def create_strategy(
 
     # Validate name format
     if not re.match(r"^[a-z0-9][a-z0-9-]*$", name):
-        console.print("[red]Error: Strategy name must be lowercase letters, numbers, and hyphens only.[/red]")
+        console.print(
+            "[red]Error: Strategy name must be lowercase letters, numbers, and hyphens only.[/red]"
+        )
         raise typer.Exit(1)
 
     # Read YAML content
@@ -2020,7 +2180,9 @@ def alerts():
 
             for task in tasks:
                 if task.get("last_result") and task.get("last_run"):
-                    console.print(f"  [{task['name']}] {task['last_run'][:16]}: {task['last_result'][:100]}")
+                    console.print(
+                        f"  [{task['name']}] {task['last_run'][:16]}: {task['last_result'][:100]}"
+                    )
                     has_alerts = True
 
             if not has_alerts:
@@ -2063,7 +2225,7 @@ def compare(
     conn.close()
 
     if not a1 and not a2:
-        console.print(f"  [yellow]No saved analyses for either ticker.[/yellow]")
+        console.print("  [yellow]No saved analyses for either ticker.[/yellow]")
         console.print(f"  Run 'owlfolio analyze {ticker1}' and 'owlfolio analyze {ticker2}' first.")
         return
 
@@ -2088,9 +2250,21 @@ def compare(
     table.add_row("Decision", _val(a1, "decision"), _val(a2, "decision"))
     table.add_row("Quality Tier", _val(a1, "quality_tier"), _val(a2, "quality_tier"))
     table.add_row("Score", _val(a1, "weighted_score", "score"), _val(a2, "weighted_score", "score"))
-    table.add_row("Fair Value", _val(a1, "buy_price", "dollar", ticker1), _val(a2, "buy_price", "dollar", ticker2))
-    table.add_row("Price at Analysis", _val(a1, "current_price", "dollar", ticker1), _val(a2, "current_price", "dollar", ticker2))
-    table.add_row("Analyzed", _val(a1, "created_at")[:10] if a1 else "—", _val(a2, "created_at")[:10] if a2 else "—")
+    table.add_row(
+        "Fair Value",
+        _val(a1, "buy_price", "dollar", ticker1),
+        _val(a2, "buy_price", "dollar", ticker2),
+    )
+    table.add_row(
+        "Price at Analysis",
+        _val(a1, "current_price", "dollar", ticker1),
+        _val(a2, "current_price", "dollar", ticker2),
+    )
+    table.add_row(
+        "Analyzed",
+        _val(a1, "created_at")[:10] if a1 else "—",
+        _val(a2, "created_at")[:10] if a2 else "—",
+    )
 
     console.print(table)
 
@@ -2101,9 +2275,13 @@ def compare(
         console.print(f"\n[bold]{ticker2} Thesis:[/bold] {a2['thesis'][:200]}...")
 
     if not a1:
-        console.print(f"\n  [dim]{ticker1} hasn't been analyzed yet. Run 'owlfolio analyze {ticker1}'[/dim]")
+        console.print(
+            f"\n  [dim]{ticker1} hasn't been analyzed yet. Run 'owlfolio analyze {ticker1}'[/dim]"
+        )
     if not a2:
-        console.print(f"\n  [dim]{ticker2} hasn't been analyzed yet. Run 'owlfolio analyze {ticker2}'[/dim]")
+        console.print(
+            f"\n  [dim]{ticker2} hasn't been analyzed yet. Run 'owlfolio analyze {ticker2}'[/dim]"
+        )
 
     console.print()
 
@@ -2140,12 +2318,14 @@ def snapshot():
         total_cost += cost
         total_value += value
 
-        holdings_data.append({
-            "ticker": h["ticker"],
-            "shares": h["shares"],
-            "price": current,
-            "value": round(value, 2),
-        })
+        holdings_data.append(
+            {
+                "ticker": h["ticker"],
+                "shares": h["shares"],
+                "price": current,
+                "value": round(value, 2),
+            }
+        )
 
     # Fetch SPY as benchmark
     benchmark_value = None
@@ -2217,12 +2397,12 @@ def performance():
         else:
             change_str = "--"
 
-        spy_str = _fmt_price(s['benchmark_value'], 'SPY') if s.get("benchmark_value") else "--"
+        spy_str = _fmt_price(s["benchmark_value"], "SPY") if s.get("benchmark_value") else "--"
 
         table.add_row(
             (s["created_at"] or "")[:10],
-            _fmt_price(s['total_value']),
-            _fmt_price(s['total_cost']),
+            _fmt_price(s["total_value"]),
+            _fmt_price(s["total_cost"]),
             f"[{color}]{_fmt_price(pnl)}[/{color}]",
             f"[{color}]{pnl_pct:+.1f}%[/{color}]",
             change_str,
@@ -2237,11 +2417,17 @@ def performance():
 @app.command()
 def remember(
     content: str = typer.Argument(help="What to remember"),
-    category: str = typer.Option("preference", "--category", "-c", help="Category: preference, context, observation, decision_context"),
+    category: str = typer.Option(
+        "preference",
+        "--category",
+        "-c",
+        help="Category: preference, context, observation, decision_context",
+    ),
     ticker: str = typer.Option(None, "--ticker", "-t", help="Associated ticker"),
 ):
     """Save something to Owlfolio's memory."""
     from src.db.operations import add_memory
+
     add_memory(category, content, ticker)
     console.print(f"  [green]\u2713[/green] Remembered: {content[:80]}")
 
@@ -2285,6 +2471,7 @@ def forget(
 ):
     """Delete a memory."""
     from src.db.operations import delete_memory
+
     delete_memory(memory_id)
     console.print(f"  [green]\u2713[/green] Memory {memory_id} forgotten.")
 
@@ -2293,6 +2480,7 @@ def forget(
 def chat():
     """Chat with your portfolio manager."""
     from src.agent.core import run_chat
+
     _configure_logging()
     run_chat()
 
@@ -2473,7 +2661,9 @@ def _stop_running_serve(timeout: float = 5.0) -> int:
     try:
         result = subprocess.run(
             ["pgrep", "-f", "src.main serve"],
-            capture_output=True, text=True, timeout=2,
+            capture_output=True,
+            text=True,
+            timeout=2,
         )
         for line in result.stdout.split():
             try:
@@ -2491,9 +2681,6 @@ def _stop_running_serve(timeout: float = 5.0) -> int:
         pass
 
     return killed
-
-
-
 
 
 @app.command()
@@ -2514,8 +2701,8 @@ def serve(
         False,
         "--allow-public",
         help="Required when binding to a non-loopback host (e.g. 0.0.0.0). "
-             "The chat agent has full Bash — binding to all interfaces exposes "
-             "that to anyone reachable. This flag is the explicit acknowledgement.",
+        "The chat agent has full Bash — binding to all interfaces exposes "
+        "that to anyone reachable. This flag is the explicit acknowledgement.",
     ),
 ):
     """Launch the Owlfolio web interface.
@@ -2525,6 +2712,7 @@ def serve(
     Use `--restart` to restart. Use `--stop` to shut down.
     """
     import uvicorn
+
     _configure_logging()
 
     if stop or restart:
@@ -2532,7 +2720,7 @@ def serve(
         if n:
             console.print(f"  [dim]Stopped {n} running serve instance(s).[/dim]")
         elif stop:
-            console.print(f"  [dim]No running serve instance found.[/dim]")
+            console.print("  [dim]No running serve instance found.[/dim]")
         if stop:
             return
 
@@ -2550,7 +2738,8 @@ def serve(
             f"web page.\n\n"
             f"You have two options:\n"
             f"  1. [bold]Stay loopback-only[/bold]: omit --host (defaults to 127.0.0.1)\n"
-            f"  2. [bold]Override[/bold]: re-run with [bold]--allow-public[/bold] if you understand\n"
+            f"  2. [bold]Override[/bold]: re-run with"
+            f" [bold]--allow-public[/bold] if you understand\n"
             f"     the risk and have an external boundary (Tailscale, SSH tunnel,\n"
             f"     reverse proxy with auth) in front. NEVER on a public IP.\n\n"
             f"See docs/ARCHITECTURE.md → Security Model."
@@ -2567,7 +2756,7 @@ def serve(
         )
 
     _write_serve_pid(os.getpid())
-    console.print(f"\n  \U0001f989 Owlfolio Web UI")
+    console.print("\n  \U0001f989 Owlfolio Web UI")
     console.print(f"  [dim]http://{host}:{port}[/dim]")
     console.print(f"  [dim]pid {os.getpid()} (data/serve.pid)[/dim]\n")
     try:

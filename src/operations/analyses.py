@@ -69,6 +69,7 @@ def get_specialist_findings_for_analysis(analysis_id: int) -> list[dict[str, Any
     conn = get_db()
     try:
         from src.db.operations import get_specialist_findings
+
         return get_specialist_findings(conn, analysis_id)
     finally:
         conn.close()
@@ -92,6 +93,7 @@ def get_previous_analysis_context(ticker: str) -> dict[str, Any] | None:
 
         # Fetch per-specialist scores from specialist_findings
         from src.db.operations import get_specialist_findings
+
         specialist_scores: dict[str, float] = {}
         if analysis.get("id"):
             findings = get_specialist_findings(conn, analysis["id"])

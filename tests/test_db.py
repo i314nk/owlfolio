@@ -1,30 +1,29 @@
 """Tests for SQLite persistence layer (portfolio state, decisions, watchlist, analyses)."""
 
-import json
 import sqlite3
 
 import pytest
 
-from src.db.schema import get_db, _create_tables
 from src.db.operations import (
     add_holding,
-    get_holdings,
-    update_holding,
-    sell_holding,
-    log_decision,
-    get_decisions,
-    add_to_watchlist,
-    remove_from_watchlist,
-    get_watchlist,
-    update_watchlist_price,
-    save_analysis,
-    get_latest_analysis,
-    get_analyses,
     add_memory,
-    get_memories,
+    add_to_watchlist,
     delete_memory,
+    get_analyses,
+    get_decisions,
+    get_holdings,
+    get_latest_analysis,
+    get_memories,
     get_memory_context,
+    get_watchlist,
+    log_decision,
+    remove_from_watchlist,
+    save_analysis,
+    sell_holding,
+    update_holding,
+    update_watchlist_price,
 )
+from src.db.schema import _create_tables
 
 
 @pytest.fixture
@@ -352,22 +351,49 @@ def test_save_and_retrieve_analysis(db):
 def test_get_analyses_by_ticker(db):
     """Filter analyses by ticker."""
     save_analysis(
-        db, ticker="AAPL", strategy="buffett-munger", decision="WATCH",
-        buy_price=140.0, current_price=150.0, quality_tier="wide",
-        weighted_score=3.8, thesis="T1", bull_case="B1", bear_case="R1",
-        key_risks=[], overrides={},
+        db,
+        ticker="AAPL",
+        strategy="buffett-munger",
+        decision="WATCH",
+        buy_price=140.0,
+        current_price=150.0,
+        quality_tier="wide",
+        weighted_score=3.8,
+        thesis="T1",
+        bull_case="B1",
+        bear_case="R1",
+        key_risks=[],
+        overrides={},
     )
     save_analysis(
-        db, ticker="GOOG", strategy="growth", decision="BUY",
-        buy_price=160.0, current_price=140.0, quality_tier="narrow",
-        weighted_score=3.2, thesis="T2", bull_case="B2", bear_case="R2",
-        key_risks=["risk"], overrides={},
+        db,
+        ticker="GOOG",
+        strategy="growth",
+        decision="BUY",
+        buy_price=160.0,
+        current_price=140.0,
+        quality_tier="narrow",
+        weighted_score=3.2,
+        thesis="T2",
+        bull_case="B2",
+        bear_case="R2",
+        key_risks=["risk"],
+        overrides={},
     )
     save_analysis(
-        db, ticker="AAPL", strategy="buffett-munger", decision="BUY",
-        buy_price=140.0, current_price=130.0, quality_tier="wide",
-        weighted_score=4.0, thesis="T3", bull_case="B3", bear_case="R3",
-        key_risks=[], overrides={},
+        db,
+        ticker="AAPL",
+        strategy="buffett-munger",
+        decision="BUY",
+        buy_price=140.0,
+        current_price=130.0,
+        quality_tier="wide",
+        weighted_score=4.0,
+        thesis="T3",
+        bull_case="B3",
+        bear_case="R3",
+        key_risks=[],
+        overrides={},
     )
 
     aapl = get_analyses(db, ticker="AAPL")

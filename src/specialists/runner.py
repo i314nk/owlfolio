@@ -94,6 +94,7 @@ class SpecialistConfig:
     URLs and role description live inside the prose — this is the new
     one-prompt-per-specialist contract.
     """
+
     name: str
     prompt_body: str
 
@@ -124,10 +125,12 @@ async def run_specialists(
     logger.info("Running %d specialists for %s (parallel)", len(configs), ticker)
 
     if on_progress:
-        await on_progress({
-            "type": "specialists_init",
-            "names": [c.name for c in configs],
-        })
+        await on_progress(
+            {
+                "type": "specialists_init",
+                "names": [c.name for c in configs],
+            }
+        )
 
     async def _wrapped(config: SpecialistConfig):
         if on_progress:
@@ -136,18 +139,22 @@ async def run_specialists(
             result = await _run_single_specialist(ticker, company_name, config, strategy)
         except Exception as e:
             if on_progress:
-                await on_progress({
-                    "type": "specialist_error",
-                    "name": config.name,
-                    "error": str(e),
-                })
+                await on_progress(
+                    {
+                        "type": "specialist_error",
+                        "name": config.name,
+                        "error": str(e),
+                    }
+                )
             raise
         if on_progress:
-            await on_progress({
-                "type": "specialist_done",
-                "name": config.name,
-                "confidence": result.confidence if result else 0.0,
-            })
+            await on_progress(
+                {
+                    "type": "specialist_done",
+                    "name": config.name,
+                    "confidence": result.confidence if result else 0.0,
+                }
+            )
         return result
 
     tasks = [_wrapped(c) for c in configs]
@@ -193,16 +200,23 @@ async def _run_in_process(
     strategy: Strategy,
 ) -> SpecialistFindings | None:
     """Run a specialist in this Python process via the Agent SDK (default mode)."""
-    from claude_agent_sdk import query as sdk_query, ClaudeAgentOptions, ResultMessage
+    from claude_agent_sdk import ClaudeAgentOptions, ResultMessage
+    from claude_agent_sdk import query as sdk_query
+
     from src.llm.provider import _agent_sdk_model
 
     prompt = build_specialist_prompt(
-        ticker, company_name, config.name, config.prompt_body,
-        strategy.name, strategy.description,
+        ticker,
+        company_name,
+        config.name,
+        config.prompt_body,
+        strategy.name,
+        strategy.description,
     )
 
     try:
         from pathlib import Path
+
         result_text = ""
         async for msg in sdk_query(
             prompt=prompt,
@@ -258,7 +272,7 @@ def _parse_specialist_json(text: str) -> dict | None:
         pass
 
     # Try extracting JSON from markdown code blocks
-    match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', text, re.DOTALL)
+    match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL)
     if match:
         try:
             return json.loads(match.group(1))
@@ -266,11 +280,11 @@ def _parse_specialist_json(text: str) -> dict | None:
             pass
 
     # Try finding first { to last }
-    start = text.find('{')
-    end = text.rfind('}')
+    start = text.find("{")
+    end = text.rfind("}")
     if start != -1 and end != -1 and end > start:
         try:
-            return json.loads(text[start:end + 1])
+            return json.loads(text[start : end + 1])
         except json.JSONDecodeError:
             pass
 

