@@ -1,0 +1,388 @@
+# ═══════════════════════════════════════════════════════════════
+# QUALITY COMPOUNDER STRATEGY
+# ═══════════════════════════════════════════════════════════════
+#
+# Buy the highest-quality businesses at fair prices. Quality means
+# sustained high ROIC, predictable revenue, expanding margins, and
+# capital-light models. Pay up for quality — the compounding does the
+# work. Inspired by Terry Smith (Fundsmith) and Nick Sleep (Nomad).
+#
+# Key difference from 100-Bagger: this strategy buys the CURRENT great
+# compounders (lower risk, reliable). 100-Bagger hunts for the NEXT
+# great compounder (higher risk, higher reward).
+#
+# ═══════════════════════════════════════════════════════════════
+
+name: quality-compounder
+description: >
+  Buy the highest-quality businesses at fair prices. Quality means
+  sustained high ROIC, predictable revenue, expanding margins, and
+  capital-light models. Pay up for quality — the compounding does the work.
+summary: >
+  Own the world's best businesses and let compounding do the heavy
+  lifting. Quality is the moat — high ROIC sustained over decades,
+  predictable revenue, and expanding margins.
+
+  GOOD FOR: Investors who want to own 15-20 best-in-class businesses
+  for decades. Works best with capital-light compounders in technology,
+  consumer brands, and healthcare. Tolerates higher valuations than
+  Buffett if quality is exceptional.
+
+  NOT FOR: Value hunters seeking cheap stocks. This strategy willingly
+  pays 25-35x earnings for exceptional quality. It will pass on
+  bargains in mediocre businesses.
+
+  INSPIRED BY: Terry Smith (Fundsmith), Nick Sleep (Nomad Partnership).
+author: "Owlfolio (default)"
+
+# ─── Zone 1: Structured Contract ────────────────────────────────
+
+criteria:
+  - {name: roic_consistency,        weight: 0.30}
+  - {name: revenue_predictability,  weight: 0.25}
+  - {name: margin_trajectory,       weight: 0.20}
+  - {name: capital_allocation,      weight: 0.15}
+  - {name: competitive_durability,  weight: 0.10}
+
+tiers:
+  generational: 0.07
+  exceptional:  0.08
+  high:         0.10
+  inconsistent: null
+
+thresholds:
+  wide:   3.5
+  narrow: 2.5
+
+llm_overridable:
+  hurdle_rate:
+    default: 0.06
+    range: [0.03, 0.12]
+    label: "Required return"
+  growth_haircut:
+    default: 0.15
+    range: [0.05, 0.40]
+    label: "Growth haircut"
+  maintenance_capex_ratio:
+    default: 0.50
+    range: [0.20, 1.00]
+    label: "Maintenance capex as % of total capex"
+
+position_sizing:
+  max_positions: 20
+  max_single_position: 0.07
+  tiers:
+    T1: {allocation: 0.03}
+    T2: {allocation: 0.02}
+    T3: {allocation: 0.02}
+  cash_reserve:
+    minimum: 0.10
+    target:  0.15
+
+display:
+  primary_value_label: "Free Cash Flow"
+  target_price_label:  "Fair Value"
+  yield_label:         "FCF Yield"
+  safety_label:        "Margin of Safety"
+  zone_label:          "Buy Zone"
+
+# ─── Zone 2: Prompt Corpus ──────────────────────────────────────
+
+prompts:
+
+  synthesis: |
+    You are scoring this company against the Quality Compounder framework
+    (Terry Smith / Nick Sleep). Your job: reconcile specialist findings,
+    score the criteria, classify the quality tier, compute the buy price,
+    decide BUY / WATCH / PASS.
+
+    The thesis: the world's best businesses compound intrinsic value at
+    15-25%/year. If you buy them at a fair FCF yield, the compounding
+    does the work. You don't need a discount — you need a wonderful
+    business that stays wonderful for decades.
+
+    ## Score each criterion 1-5
+
+    - **roic_consistency (30%):** Has ROIC been above 15% for 10+
+      consecutive years? Score 5 for 20%+ ROIC sustained 15+ years
+      through multiple cycles. Score 3 for 15%+ ROIC for 7-10 years
+      with minor dips. Score 1 for inconsistent or declining ROIC.
+    - **revenue_predictability (25%):** Score 5 for subscription or
+      consumable models with 95%+ net retention and contractual revenue
+      (SaaS, data terminals, razor/blade). Score 3 for recurring but
+      non-contractual. Score 1 for project-based or transactional.
+    - **margin_trajectory (20%):** Score 5 for consistent margin
+      expansion driven by operating leverage and pricing power (gross
+      margins expanding 50+ bps/year). Score 3 for stable margins.
+      Score 1 for compressing margins or pricing pressure.
+    - **capital_allocation (15%):** Score 5 for disciplined reinvestment
+      with incremental ROIC above cost of capital, smart bolt-on
+      acquisitions, shareholder-friendly buybacks at reasonable prices.
+      Score 3 for adequate but unremarkable. Score 1 for empire-building
+      or excessive SBC.
+    - **competitive_durability (10%):** Score 5 for advantages rooted in
+      data, regulation, or deeply embedded workflows that strengthen
+      over time. Score 3 for strong brands or scale that could face
+      disruption. Score 1 for advantages being eroded.
+
+    ## Classify into a tier
+
+    - **generational (4.8-5.0, 7% hurdle):** Generational quality —
+      ROIC 25%+ for 15+ years, margins expanding, revenue 95%+
+      predictable, management best-in-class. So good even overpaying
+      works out.
+    - **exceptional (4.2-4.7, 8% hurdle):** Exceptional quality — ROIC
+      20%+ sustained, strong revenue predictability, competent capital
+      allocation. Worth paying a premium.
+    - **high (3.5-4.1, 10% hurdle):** High quality — ROIC consistently
+      above 15%, good revenue visibility, stable margins. Strong
+      compounder but not exceptional.
+    - **inconsistent (<3.5, don't buy):** Decent quality but inconsistent.
+      Don't pay quality-compounder multiples.
+
+    ## Compute the buy price
+
+    Use FCF yield (cleaner than Owner Earnings for quality compounders,
+    which have minimal adjustments):
+
+        Buy Price = FCF per Share / (Hurdle Rate − Growth Rate)
+
+    Hurdle rate from the tier (7% / 8% / 10% / don't buy). Growth rate:
+    5-year revenue CAGR with 15% haircut (lower than Buffett because
+    quality compounders grow predictably), capped at 10%.
+
+    Apply Terry Smith's three tests as a sanity check:
+    1. Does the business earn high returns on capital (ROIC > 15%)?
+    2. Can it sustain those returns for decades?
+    3. Can it reinvest at those same high returns?
+    If all three pass, the compounding does the work.
+
+    Margin of safety is **embedded in the hurdle**. No separate discount.
+
+    ## Decision rules
+
+    Smith's "do nothing" philosophy: only sell if quality deteriorates
+    over 3+ years. Short-term dips are noise.
+
+    - **BUY** when current price ≤ buy price AND tier is high or better
+      AND ROIC ≥ 15%.
+    - **WATCH** when tier is high or better but current price > buy
+      price (exceptional quality, waiting for fair price).
+    - **PASS** when tier is inconsistent, or ROIC has been below 15%
+      multiple recent years.
+    - **SELL** (only if): quality deterioration for 3+ consecutive years
+      (ROIC < 12% AND margin compression), OR thesis broken.
+
+    ## When to adjust the LLM-overridable knobs
+
+    - **hurdle_rate** (default 0.06): 6-7% for ROIC > 25% sustained 15+
+      years, near-monopoly position. 8-9% for ROIC > 20% sustained 10+
+      years, wide moat. 10-12% for ROIC > 15% sustained 10+ years,
+      strong but competitive. 13-14% for quality with thesis risk.
+    - **growth_haircut** (default 0.15): 5-10% for subscription/consumable
+      with 95%+ retention. 10-20% for recurring revenue with strong
+      pricing power. 25-40% for less predictable revenue streams.
+    - **maintenance_capex_ratio** (default 0.50): 20-35% for asset-light
+      software/platforms. 40-60% for capital-light consumer brands and
+      healthcare. 70-100% for capital-intensive quality businesses.
+
+    ## Output
+
+    Return the typed SynthesisResult JSON. Lead with ROIC consistency
+    evidence (year-by-year if possible). Quote the FCF margin and
+    pricing-power evidence. Be honest if you're stretching — paying up
+    for quality only works if the quality is real.
+
+  discovery: |
+    Find 10-15 US-listed quality compounders.
+
+    **Universe:** Established large-caps with 10+ year public records.
+    Market cap >$5B. Skip recent IPOs and anything without a decade of
+    audited financials.
+
+    **Hard gates — exclude if ANY fail:**
+    - Gross margin < 40% (below 50% needs strong justification)
+    - FCF margin < 15% of revenue
+    - ROIC below 15% in more than 2 of the last 10 years
+    - SBC > 15% of revenue (growth bought, not earned — disqualifying)
+    - Payout ratio > 80% with no reinvestment runway
+
+    **Bias toward:** Subscription / consumable / razor-blade business
+    models with 95%+ net retention. Asset-light models (FCF / tangible
+    capital >25%). Companies with 10+ consecutive years of ROIC above
+    15%. Pricing power (raised prices >CPI without volume loss).
+    Founder-aligned or long-tenured CEOs with disciplined capital
+    allocation history. FCF conversion > 80% of net income.
+
+    **Avoid (Terry Smith's explicit avoid list):** Conventional banks,
+    utilities, commodities and miners, airlines, oil & gas. These
+    sectors structurally cannot sustain the high ROIC + capital
+    efficiency that the strategy requires.
+
+    **Rank by:** ROIC × gross margin × consistency (consistency = number
+    of years out of 10 with ROIC ≥ 15%).
+
+    **Output:** For each candidate return ticker, company name, current
+    price, market cap, sector, 10-year ROIC range (min-max), 5-year
+    gross margin trend, FCF margin, SBC % of revenue, and a
+    one-sentence "why this is a quality compounder" note. Flag any
+    candidate where ROIC has dipped below 15% in the last 3 years.
+
+  specialists:
+
+    quality_analyst: |
+      Verify quality credentials with concrete numbers — not narrative.
+
+      Report ROIC for **each of the last 10 years**. Flag any year where
+      ROIC dipped below 15% and explain why (cyclical downturn,
+      acquisition drag, accounting change). The strategy requires ROIC
+      consistency; a single bad year is acceptable, a multi-year decline
+      is disqualifying.
+
+      Calculate **FCF conversion rate** = FCF / Net Income. Quality
+      compounders should convert >80%. Flag if FCF lags net income by a
+      lot — that often means working-capital problems, aggressive
+      revenue recognition, or growing receivables.
+
+      Calculate **FCF return on tangible capital employed**:
+      FCF / (Total Assets − Current Liabilities − Goodwill − Intangibles).
+      Asset-light compounders should score 50%+. Capital-light service
+      businesses 30-50%. Below 25% is a red flag for the strategy.
+
+      Sources to check first:
+      - https://stockanalysis.com/stocks/{TICKER}/financials/
+      - https://www.macrotrends.net/stocks/charts/{TICKER}
+
+    revenue_durability_analyst: |
+      Assess revenue predictability with concrete metrics.
+
+      Calculate the **% of revenue that is recurring** (subscription,
+      consumable, contractual). For subscription businesses, find net
+      revenue retention (NRR) — quality compounders should show NRR
+      ≥ 110%, ideally ≥ 130%.
+
+      Find **average contract length** for B2B subscriptions if
+      disclosed. Multi-year contracts = strong signal. Month-to-month
+      = weaker.
+
+      Evaluate **revenue concentration risk**: does any single customer
+      or segment represent >20% of revenue? Flag if concentrated.
+
+      Watch for **revenue model shifts** — a company moving from
+      contractual to transactional revenue (or vice versa) materially
+      changes the strategy fit. Flag if shifting.
+
+      Sources to check first:
+      - https://stockanalysis.com/stocks/{TICKER}/financials/
+      - SEC EDGAR 10-K filings (search: "{TICKER} 10-K revenue breakdown SEC")
+
+    margin_analyst: |
+      Analyze margin trajectory with concrete benchmarks. Quality
+      compounders should show stable or expanding margins over a full
+      business cycle (7-10 years). Temporary dips during recessions are
+      acceptable — structural decline is not.
+
+      1. **GROSS MARGIN.** Report 5-year and 10-year trend. For a
+         quality compounder:
+         - Software/platforms: expect 60-85%, flag if <60%
+         - Asset-light services (ratings, data, payments): expect 50-75%
+         - Consumer brands: expect 40-65%
+         - Flag if gross margin contracted >200bps over any 3-year
+           period outside of a recession.
+
+      2. **OPERATING LEVERAGE.** Is operating margin expanding faster
+         than gross margin? Calculate the gap:
+         - Expanding gap = positive operating leverage (scale benefits)
+         - Flat gap = no leverage (costs growing with revenue)
+         - Shrinking gap = negative leverage (spending outpacing growth)
+         Quality compounders should show >50bps/year operating margin
+         expansion on average over 5 years.
+
+      3. **SBC AS % OF REVENUE (concrete thresholds):**
+         - <5%: Excellent — minimal dilution
+         - 5-10%: Acceptable for tech/growth phase
+         - 10-15%: Concerning — real margins are significantly overstated
+         - 15-25%: Red flag — report GAAP operating margin alongside
+           adjusted margin. The gap IS the problem.
+         - >25%: Disqualifying for quality compounder status
+
+      4. **PRICING POWER EVIDENCE.**
+         - Has the company raised prices above CPI (>3-4%) in the last
+           3 years?
+         - Revenue per customer/unit trend: growing, flat, or declining?
+         - Did pricing increases lead to volume loss (churn, downgrades)?
+         Pricing power is confirmed if prices rose above CPI with stable
+         or growing volume.
+
+      5. **FCF MARGIN.** Calculate FCF as % of revenue. Quality
+         compounders should convert >15% of revenue to FCF. Flag if
+         FCF margin <10% or declining.
+
+      Score margin quality 1-5:
+      - 5: Gross >60%, operating expanding >50bps/yr, SBC <5%, FCF >20%
+      - 4: Gross >50%, margins stable or expanding, SBC <10%, FCF >15%
+      - 3: Gross >40%, margins flat, SBC 10-15%, FCF >10%
+      - 2: Margins compressing or SBC 15-25%
+      - 1: Structural margin decline or SBC >25%
+
+      Flag RED if SBC >15% of revenue. Flag RED if gross margin declined
+      >200bps over 3 years (non-recession). Flag GREEN if operating
+      margin expanding AND SBC <10%.
+
+      Sources to check first:
+      - https://stockanalysis.com/stocks/{TICKER}/financials/
+      - https://www.macrotrends.net/stocks/charts/{TICKER}
+
+    competitive_durability: |
+      Assess competitive durability using OBSERVABLE present-day
+      signals. Do not predict the future — measure what is happening
+      NOW that indicates whether the advantage is strengthening or
+      weakening.
+
+      1. **MOAT SOURCE CLASSIFICATION.** Identify the primary moat
+         source and rate durability of each active source as
+         HIGH / MEDIUM / LOW:
+         - Data/IP: proprietary data that grows with usage (strongest)
+         - Regulation: licenses, certifications, legal barriers
+         - Switching costs: deeply embedded in customer workflows
+         - Network effects: value increases with each additional user
+         - Brand/trust: reputation that takes decades to build
+         - Scale: cost advantages from size
+
+      2. **OBSERVABLE DISRUPTION SIGNALS** (check all):
+         - Are new entrants gaining >2% market share per year?
+         - Has a well-funded competitor ($1B+) entered in the last
+           3 years?
+         - Is the core technology facing obsolescence risk (e.g.,
+           on-prem to cloud, physical to digital)?
+         - Are regulators actively reviewing the company's market
+           position?
+         - Is customer concentration increasing (top 10 customers
+           growing as % of revenue)?
+
+      3. **MOAT TRAJECTORY (measurable):**
+         - Gross margin trend over 5 years (expanding = moat
+           strengthening)
+         - Market share trend over 3 years
+         - Pricing power evidence: has the company raised prices >CPI
+           in the last 3 years without volume loss?
+         - Customer retention/NRR if available
+
+      4. **DURABILITY SCORE (1-5):**
+         - 5: Multiple moat sources (data + switching + regulation),
+           no disruption signals visible, gross margins expanding
+         - 4: Strong primary moat, minor disruption signals, margins
+           stable
+         - 3: Single moat source, some competitive pressure, margins
+           flat
+         - 2: Moat narrowing — share loss, margin compression, or new
+           entrant gaining traction
+         - 1: Structural disruption underway — technology shift or
+           regulatory change actively eroding the advantage
+
+      Flag RED if any disruption signal is YES. Flag GREEN if
+      durability score ≥ 4 AND gross margins expanding.
+
+      Sources to check first:
+      - Competitive landscape and disruption risk (web search)
+      - Industry-specific regulator filings if applicable

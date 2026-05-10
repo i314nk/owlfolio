@@ -1,0 +1,68 @@
+{% if findings %}
+<div class="specialist-findings">
+  {% for f in findings %}
+  <div class="specialist-card" x-data="{ open: false }">
+    <button @click="open = !open" class="specialist-card-header">
+      <div class="flex items-center gap-2">
+        <span class="specialist-icon">
+          {% if 'moat' in f.specialist_name %}&#x1F3F0;{% elif 'financial' in f.specialist_name %}&#x1F4CA;{% elif 'valuation' in f.specialist_name %}&#x1F4B0;{% elif 'risk' in f.specialist_name %}&#x26A0;{% elif 'catalyst' in f.specialist_name %}&#x26A1;{% elif 'shariah' in f.specialist_name %}&#x2764;{% else %}&#x1F50D;{% endif %}
+        </span>
+        <span class="specialist-name">{{ f.specialist_name|replace('_', ' ')|title }}</span>
+        {% if f.confidence is not none %}
+        <span class="specialist-confidence">{{ (f.confidence * 100)|round|int }}%</span>
+        {% endif %}
+      </div>
+      <svg class="specialist-chevron" :class="open && 'rotate-180'" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+      </svg>
+    </button>
+
+    <div x-show="open" x-transition:enter="transition ease-out duration-150"
+         x-transition:enter-start="opacity-0 max-h-0" x-transition:enter-end="opacity-100 max-h-[800px]"
+         x-transition:leave="transition ease-in duration-100"
+         x-transition:leave-start="opacity-100" x-transition:leave-end="opacity-0"
+         class="specialist-card-body" style="display: none;">
+
+      {% if f.summary %}
+      <p class="specialist-summary">{{ f.summary }}</p>
+      {% endif %}
+
+      {% if f.key_findings %}
+      <div class="specialist-section">
+        <span class="specialist-section-label">Key Findings</span>
+        <ul class="specialist-list">
+          {% for item in f.key_findings %}
+          <li>{{ item }}</li>
+          {% endfor %}
+        </ul>
+      </div>
+      {% endif %}
+
+      {% if f.flags %}
+      <div class="specialist-section">
+        <span class="specialist-section-label">Flags</span>
+        <div class="specialist-flags">
+          {% for flag in f.flags %}
+          <span class="specialist-flag">{{ flag }}</span>
+          {% endfor %}
+        </div>
+      </div>
+      {% endif %}
+
+      {% if f.data_sources %}
+      <div class="specialist-section">
+        <span class="specialist-section-label">Sources</span>
+        <div class="specialist-sources">
+          {% for src in f.data_sources %}
+          <span class="specialist-source">{{ src }}</span>
+          {% endfor %}
+        </div>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% else %}
+<p class="text-gray-600 text-xs py-2 px-3">No specialist findings saved for this analysis.</p>
+{% endif %}

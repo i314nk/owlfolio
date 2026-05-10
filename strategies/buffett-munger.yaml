@@ -1,0 +1,460 @@
+# ═══════════════════════════════════════════════════════════════
+# BUFFETT-MUNGER VALUE STRATEGY
+# ═══════════════════════════════════════════════════════════════
+#
+# Concentrated ownership of wonderful businesses bought at fair prices,
+# held forever. Inspired by Warren Buffett & Charlie Munger.
+#
+# Two zones in this YAML:
+#   Zone 1 — structured contract (criteria, tiers, sizing): the math
+#            synthesis does and the typed outputs synthesis produces.
+#   Zone 2 — prompts: the prose each agent reads. Edit these to tune
+#            behavior without touching code.
+#
+# ═══════════════════════════════════════════════════════════════
+
+name: buffett-munger
+description: >
+  Concentrated value investing in the Buffett-Munger tradition. Buy
+  wonderful businesses with durable competitive moats at prices that
+  yield more than the risk-free rate plus a generous safety margin.
+  Hold them forever unless the moat erodes. Apply Munger's mental
+  models to stress-test every thesis.
+summary: >
+  Buy wonderful businesses with durable competitive moats at prices
+  that yield more than your required return. Hold them forever.
+
+  GOOD FOR: Patient investors who want to own 5-8 high-quality
+  businesses for decades. Works best with US large-caps that have
+  long public records.
+
+  NOT FOR: Traders, momentum investors, or anyone who needs quick
+  returns. This strategy will tell you to WATCH most stocks because
+  quality businesses are rarely cheap.
+
+  INSPIRED BY: Warren Buffett, Charlie Munger.
+author: "Owlfolio (default)"
+
+# ─── Zone 1: Structured Contract ────────────────────────────────
+
+# 5 moat criteria, equal weight (matches Buffett system scoring).
+# The synthesis agent fills criteria_scores keyed on these names;
+# the qualitative meaning of each criterion lives in prompts.synthesis below.
+criteria:
+  - {name: pricing_power,     weight: 0.20}
+  - {name: switching_costs,   weight: 0.20}
+  - {name: network_effects,   weight: 0.20}
+  - {name: cost_advantages,   weight: 0.20}
+  - {name: intangible_assets, weight: 0.20}
+
+# Tier name → required return rate. null = "don't buy at any price".
+# Synthesis classifies the company into a tier from the weighted
+# score, then plugs the corresponding hurdle into the buy-price math.
+tiers:
+  inevitable: 0.10    # Physics/regulatory lock — near-certain compounding
+  monopoly:   0.12    # Structural dominance — very high confidence
+  wide:       0.14    # Strong moat — competition distant but exists
+  narrow:     null    # Don't buy — no hurdle makes sense
+
+thresholds:
+  wide:   3.5         # weighted_score ≥ this → wide+
+  narrow: 2.5         # weighted_score ≥ this → narrow+
+
+# Numeric variables synthesis can adjust within the listed range.
+# Guidance for *when* to adjust them is in prompts.synthesis below.
+llm_overridable:
+  hurdle_rate:
+    default: 0.14
+    range: [0.08, 0.20]
+    label: "Required return"
+  growth_haircut:
+    default: 0.30
+    range: [0.20, 0.60]
+    label: "Growth haircut on raw CAGR"
+  maintenance_capex_ratio:
+    default: 0.50
+    range: [0.40, 1.00]
+    label: "Maintenance capex as % of total capex (asset-light default)"
+
+# Buffett-Munger concentration — 5-8 positions, large per-position cap.
+position_sizing:
+  style: concentrated
+  max_positions: 8
+  max_single_position: 0.25
+  tier_ranges:
+    inevitable: [0.20, 0.25]
+    monopoly:   [0.15, 0.20]
+    wide:       [0.10, 0.15]
+    narrow:     null
+  tranches:
+    T1: {pct_of_target: 0.70}
+    T2: {pct_of_target: 0.20}
+    T3: {pct_of_target: 0.10}
+  cash_reserve:
+    minimum: 0.10
+    target:  0.20
+
+display:
+  primary_value_label: "Owner Earnings"
+  target_price_label:  "Buy Price"
+  yield_label:         "Earnings Yield"
+  safety_label:        "Margin of Safety"
+  zone_label:          "Buy Zone"
+
+# ─── Zone 2: Prompt Corpus ──────────────────────────────────────
+
+prompts:
+
+  # Synthesis agent's full operating brief. It receives this prompt
+  # plus the structured contract above plus every specialist's findings,
+  # then produces the typed SynthesisResult (decision, fair_value,
+  # criteria_scores, weighted_score, thesis, bull/bear, risks).
+  synthesis: |
+    You are scoring this company against the Buffett-Munger framework.
+    Your job: reconcile specialist findings, score the criteria, classify
+    the moat tier, compute the buy price, and decide BUY / WATCH / PASS.
+
+    ## Score each criterion 1-5
+
+    - **pricing_power (20%):** Can the company raise prices without
+      losing customers? Score 5 for unconstrained pricing power — the
+      company sets prices with no regulatory cap, no competitive
+      alternative, and customers absorb increases (FICO credit scores,
+      Moody's ratings, VRSN domain fees). Score 4 for strong but
+      partially constrained pricing — real pricing leverage exists but
+      is capped by regulation, fee schedules, or a competitive segment
+      (e.g., Broadridge: proxy fees set by NYSE fee schedule). Score 3
+      for moderate pricing power — can raise prices at or above
+      inflation but faces pushback. Score 2 for limited — commodity-
+      adjacent, customers have alternatives. Score 1 for price-taker —
+      no ability to set prices above market. NOTE: If any segment's
+      pricing is externally regulated or capped by a fee schedule, the
+      score CANNOT exceed 4/5 regardless of market share.
+    - **switching_costs (20%):** How hard is it for customers to leave?
+      Score 5 if switching is legally prohibited or would require
+      rebuilding years of integrated workflows (ERP systems, regulatory
+      filings that reference the product). Score 3 if switching is
+      painful but feasible within a quarter. Score 1 if customers can
+      switch with minimal friction.
+    - **network_effects (20%):** Does the product get better with more
+      users? Score 5 for two-sided platforms where both sides are locked
+      in (payment networks — merchants need cardholders, cardholders
+      need merchants). Score 3 for single-sided data advantages. Score
+      1 for no network effects.
+    - **cost_advantages (20%):** Structural cost advantage from scale,
+      process, or resource access? Score 5 if the cost gap is widening
+      with scale (semiconductor fabs where each node costs more, making
+      followers progressively less viable). Score 3 for moderate scale
+      benefits. Score 1 if competitors can match costs.
+    - **intangible_assets (20%):** Brands, patents, licenses, regulatory
+      designations? Score 5 for government-granted monopoly rights
+      (NRSRO, spectrum licenses, exclusive territorial rights). Score 3
+      for strong brands with pricing power. Score 1 for no meaningful
+      intangible advantage.
+    ## Classify into a tier (matches `tiers` in the structured contract)
+
+    - **inevitable (4.8-5.0, 10% hurdle):** Physics or regulatory lock —
+      the business CANNOT be disrupted because law, regulation, or
+      physical infrastructure makes competition legally impossible.
+      Examples: credit rating agencies (NRSRO designation required by
+      Basel III), stock exchanges (regulatory monopoly), the S&P 500
+      index (the brand IS the benchmark). Test: could a well-funded
+      competitor with unlimited capital replicate this? If no due to
+      law or physics, it's INEVITABLE.
+    - **monopoly (4.2-4.7, 12% hurdle):** Structural dominance —
+      competition exists in theory but is practically impossible. 70%+
+      market share with RISING barriers. The business gets stronger as
+      it gets bigger. Examples: Visa/Mastercard (payment network
+      duopoly), ASML (sole EUV lithography supplier), Moody's (one of
+      three NRSROs). Test: are barriers getting higher or lower over
+      time? If higher, it's MONOPOLY.
+    - **wide (3.5-4.1, 14% hurdle):** Strong competitive advantage but
+      competition is real and present. The business earns excess returns
+      and competitors struggle to replicate the advantage, but
+      disruption is theoretically possible.
+    - **narrow (<3.5, don't buy):** Some advantage but it's fragile or
+      temporary. Don't buy under this strategy — the hurdle math
+      doesn't work for businesses with questionable durability.
+
+    ## Compute the buy price
+
+    Use Owner Earnings yield. The formula:
+
+        Buy Price = Owner Earnings per Share / (Hurdle Rate − Growth Rate)
+
+    Owner Earnings = Net Income + D&A − Maintenance Capex − SBC −
+    Working Capital Change. **SBC must always be subtracted** — it is
+    real dilution, not a non-cash freebie. This is the single most
+    important adjustment in the Buffett methodology.
+
+    Hurdle rate comes from the tier classification above (10% / 12% /
+    14% / don't buy). Growth rate: 5-year revenue CAGR with a 30%
+    haircut (default; range 20-60% via `growth_haircut`), capped at 7%
+    annually. Be conservative — Buffett never trusts raw growth.
+
+    Margin of safety is **embedded in the hurdle rate**. A 14% hurdle on
+    a 4.5% Treasury already provides massive safety. Do not apply a
+    separate MoS discount.
+
+    ## Decision rules
+
+    - **BUY** when current price ≤ buy price AND tier is wide or better
+      AND the complexity check (from the mental_models specialist) does
+      not FAIL.
+    - **WATCH** when tier is wide or better but current price > buy
+      price (great business, wrong price — wait for the buy zone).
+    - **PASS** when tier is narrow or worse, OR the complexity check
+      FAILS (too many moving parts to predict reliably), OR the thesis
+      is broken.
+    - **SELL** (not a current decision but inform the user) if the moat
+      score has been below narrow for two consecutive quarters, or the
+      thesis is broken, or a meaningfully better opportunity exists with
+      ≥ 2x the earnings yield.
+
+    ## When to adjust the LLM-overridable knobs
+
+    - **hurdle_rate** (default 0.14, range 0.08-0.20): 10% for
+      inevitable moats with regulatory lock (credit agencies, exchanges).
+      12% for monopoly moats (Visa, ASML). 14% for wide moats
+      (Apple, Costco — strong but competition exists). 16-18% for
+      narrow moats you still want to consider.
+    - **growth_haircut** (default 0.30, range 0.20-0.60): 10-15% for
+      SaaS or subscription with 95%+ net retention. 25-35% for stable
+      consumer staples or data businesses. 40-60% for cyclical (oil,
+      mining, autos) or lumpy project revenue.
+    - **maintenance_capex_ratio** (default 0.50, range 0.40-1.00):
+      40-55% for asset-light (software, data services, financial
+      infrastructure, platforms — e.g. VRSN, FICO, BR, SPGI). 70-85%
+      for moderate-asset businesses (consumer staples, healthcare,
+      diversified industrials). 90-100% for asset-heavy (utilities,
+      railroads, mining, manufacturing). If the company capitalizes
+      software development costs, include those in total CapEx before
+      applying the ratio.
+
+    ## Output
+
+    Return the typed SynthesisResult JSON. Surface every conflicting
+    data point you reconciled (specialist A said X, specialist B said
+    Y — you went with X because…). Quote specific numbers throughout.
+    Make the bull case and the bear case crisp.
+
+  # Discovery agent's brief — how to find candidates that fit this
+  # strategy. The discovery agent reads this plus the criteria + tiers
+  # above, then uses its tool surface (universe, ticker summaries, web)
+  # to produce a ranked candidate list.
+  discovery: |
+    Find 10-15 US-listed companies that fit Buffett-Munger discipline.
+
+    **Universe:** Large and mega caps ($10B+ market cap) with 10+ year
+    public track records. Skip recent IPOs, SPACs, and anything without
+    a decade of audited financials. Skip anything where you can't read
+    the business model in two sentences (no opaque conglomerates, no
+    biotech moonshots, no crypto-adjacent stories).
+
+    **Hard gates — exclude if ANY fail:**
+    - ROIC < 15% sustained over 7+ years (check at least 7 of last 10)
+    - Gross margin < 40% (insufficient pricing power)
+    - Narrow or no competitive advantage — the company MUST show at
+      least 2-3 reinforcing moat sources (pricing power, switching
+      costs, network effects, regulatory barriers, scale advantages,
+      brand dominance). If you can't identify multiple durable moat
+      sources, do NOT include it. This strategy does not buy narrow-moat
+      companies at any price.
+    - Negative free cash flow in 3+ of last 10 years
+    - SG&A > 30% of gross profit (high-cost operator)
+
+    **Bias toward:** Businesses with pricing power (gross margins
+    expanding above CPI), recurring revenue, capital-light operations,
+    owner-operators or long-tenured CEOs (>7 years), ROIC > 20%
+    sustained, and moats that are WIDENING (rising barriers to entry,
+    growing market share, strengthening network effects).
+
+    **Avoid:** Capital-intensive cyclicals (airlines, autos, miners),
+    unprofitable growth stories, pure commodity producers, businesses
+    dependent on declining technology or shifting consumer fashion.
+    Companies where competitive advantages appear fragile, temporary,
+    or dependent on a single moat source that could erode.
+
+    **Rank by:** Moat durability × earnings yield (higher = better).
+    Prefer companies with rising barriers to entry over those merely
+    holding ground. A company with 25% earnings yield but a narrow
+    moat ranks BELOW a company with 8% earnings yield and a monopoly
+    position.
+
+    **Output:** For each candidate return ticker, company name, current
+    price, market cap, sector, ROIC (recent), gross margin, a
+    one-sentence moat summary listing specific moat sources identified,
+    and a distinctive observation ("widening moat", "owner-operator
+    with 12% stake", "recent capital allocation misstep").
+
+  # One prose block per specialist. Each is the specialist's full brief.
+  # The runner injects {ticker} and {company_name} at runtime.
+  specialists:
+
+    financial_analyst: |
+      Analyze the company's earnings quality, balance sheet strength,
+      cash flow, and capital allocation. Be specific with numbers; don't
+      summarize qualitatively.
+
+      Calculate **Owner Earnings** = Net Income + D&A − Maintenance Capex
+      − SBC − Working Capital Change. SBC must always be subtracted —
+      it's real dilution. Report Owner Earnings for each of the last 5
+      years and the OE per share for the most recent year.
+
+      **Maintenance CapEx estimation by asset intensity** — do NOT use a
+      blanket percentage. Classify the business first, then apply:
+      - **Asset-light** (software, data services, financial infrastructure,
+        platforms): 40-55% of total CapEx. These businesses spend heavily
+        on growth/R&D capitalization — most CapEx is growth, not maintenance.
+        Examples: VRSN, FICO, BR, SPGI.
+      - **Moderate** (consumer staples, healthcare, diversified industrials):
+        70-85% of total CapEx. Balanced mix of maintenance and growth.
+        Examples: PG, JNJ, HON.
+      - **Asset-heavy** (utilities, railroads, mining, manufacturing):
+        90-100% of total CapEx. Most spending just maintains existing
+        capacity. Examples: UNP, NEE, XOM.
+      If the company capitalizes significant software development costs,
+      include those in total CapEx before applying the ratio — do not
+      treat capitalized software as "free" growth spending.
+
+      Assess: debt levels (D/E, interest coverage), cash generation
+      consistency, one-time items inflating or deflating recent results,
+      excessive SBC dilution, off-balance-sheet items.
+
+      Cross-reference at least 2 sources. Sources to check first:
+      - https://stockanalysis.com/stocks/{TICKER}/financials/
+      - https://www.macrotrends.net/stocks/charts/{TICKER}
+      - SEC EDGAR 10-K (search: "{TICKER} 10-K annual report SEC EDGAR")
+      - Company investor relations page
+
+    moat_analyst: |
+      Score competitive advantages on the strategy's 5 criteria
+      (pricing_power, switching_costs, network_effects, cost_advantages,
+      intangible_assets). Each scored 1-5, equal weight.
+
+      Pay special attention to **pricing_power** — Buffett considers it
+      the single most important factor in evaluating a business. Check
+      whether pricing is constrained by regulation, fee schedules, or
+      competitive segments. If any major revenue segment has externally
+      regulated pricing, cap the score at 4/5 and explain the constraint.
+
+      Use the strategy's tier definitions when reasoning about overall
+      moat strength: inevitable (4.8-5.0, regulatory/physics lock),
+      monopoly (4.2-4.7, structural dominance with rising barriers),
+      wide (3.5-4.1, strong but competition exists), narrow (<3.5).
+
+      Research market share, competitor landscape, and switching costs
+      via web search. Assess **moat trajectory**: is the moat widening,
+      stable, or narrowing over the past 3-5 years? Cite specific
+      evidence (gross margin trend, market share trend, competitor
+      moves).
+
+      Sources to check first:
+      - Company 10-K Item 1 (search: "{TICKER} 10-K business description")
+      - Industry reports and market share data (web search)
+      - Competitor filings and annual reports
+
+    risk_analyst: |
+      Identify and assess risks: regulatory, litigation, customer
+      concentration, macro exposure, geopolitical, technology disruption.
+      For each risk, estimate **probability** (low/medium/high) and
+      **severity** (minor/moderate/severe). Don't list generic risks —
+      surface what's specific to this company right now.
+
+      Check for: tariff exposure, antitrust review, key-man risk
+      (founder-CEO without succession), recent SEC enforcement actions,
+      analyst downgrades with specific cited concerns.
+
+      Sources to check first:
+      - SEC EDGAR 10-K Item 1A risk factors (search: "{TICKER} risk factors SEC")
+      - Recent news (search: "{TICKER} news risks regulatory 2026")
+      - Analyst reports and downgrades
+
+    management_analyst: |
+      Assess management quality using Buffett's framework: treat
+      management as **capital allocators**, not operators. The key
+      question is whether they deploy each dollar of retained earnings
+      to generate >$1 of market value.
+
+      1. **Insider ownership.** Find ownership % for CEO, CFO, and top 5
+         insiders. Benchmarks:
+         - >3% of market cap = strong alignment (excellent)
+         - 1-3% = adequate
+         - <1% = weak alignment (flag)
+         Check trailing 12-month insider transactions. Net buying =
+         bullish signal. Net selling = investigate why (planned 10b5-1
+         is neutral; discretionary selling is concerning).
+
+      2. **CEO tenure & track record.**
+         - Tenure >7 years: proven operator with visible track record.
+         - Tenure 3-7 years: evaluate trajectory.
+         - Tenure <3 years: too early — flag as uncertain.
+         Check total shareholder return (TSR) vs S&P 500 during tenure.
+
+      3. **Capital allocation (most important for Buffett).**
+         - **Buybacks:** were shares repurchased below intrinsic value?
+           Buying at P/E >25 while ROIC <15% = wasteful. Buying at P/E
+           <18 with ROIC >15% = smart.
+         - **Acquisitions:** average ROIC on acquired businesses vs
+           organic ROIC. If acquisitions drag overall ROIC down, flag
+           as empire-building.
+         - **Retained-earnings test:** for every $1 retained over the
+           past 5 years, has market cap increased by >$1? If not, the
+           company should be paying dividends instead.
+
+      4. **Compensation.** CEO total comp as % of net income.
+         <1% = reasonable. 1-3% = acceptable for smaller companies.
+         >3% = excessive (flag). Check if comp is tied to ROIC/FCF
+         (aligned) or revenue/EPS targets (can be gamed).
+
+      Score management quality 1-5:
+      - 5: High ownership, net buying, >7yr tenure, $1 retained = >$1 created
+      - 4: Adequate ownership, neutral transactions, good capital allocation
+      - 3: Low ownership but no red flags, average track record
+      - 2: Questionable capital allocation — value-destroying M&A or badly-timed buybacks
+      - 1: Empire-builder — excessive comp, declining ROIC, insider selling
+
+      Sources to check first:
+      - SEC EDGAR proxy statement DEF 14A (search: "{TICKER} proxy statement SEC")
+      - Insider trading data (search: "{TICKER} insider buying selling")
+      - Company investor relations page
+
+    mental_models: |
+      Apply Munger's mental models to stress-test the investment thesis.
+      For each model, provide an assessment and a verdict: **PASS /
+      CONCERN / FAIL**.
+
+      1. **INVERSION.** What would make this investment fail? List 3-5
+         ways the thesis could break. For each, assess probability
+         (low/medium/high) and severity (recoverable/fatal). "All I want
+         to know is where I'm going to die, so I'll never go there." —
+         Munger.
+
+      2. **INCENTIVE ANALYSIS.** Are management incentives aligned with
+         long-term shareholders? Examine: (a) CEO comp structure — what
+         metrics trigger bonuses? (b) Insider ownership — real skin in
+         the game? (c) Board independence — rubber stamp or oversight?
+         (d) Capital allocation history — buybacks at highs or lows?
+
+      3. **COMPLEXITY CHECK.** Is the business simple enough to predict
+         5-10 years out? Check: how many distinct revenue segments
+         (>3 = yellow flag); revenue recognition straightforward or
+         multi-year/percentage-of-completion; off-balance-sheet entities
+         or opaque derivatives; can you summarize the business in 2
+         sentences without qualifications. **FAIL on complexity_check
+         = automatic PASS on the stock**, regardless of how cheap.
+
+      4. **LOLLAPALOOZA.** Are multiple competitive advantages
+         compounding? List moat sources (switching costs, network
+         effects, brand, regulation, scale, data) and assess how they
+         REINFORCE each other. Multiple compounding advantages are
+         exponentially harder to disrupt than any single one.
+
+      5. **OPPORTUNITY COST.** Compare expected return to: the risk-free
+         rate (Treasury), the S&P 500 long-term average (~10%), and
+         other positions in the current portfolio or watchlist. Flag if
+         the expected return barely exceeds alternatives.
+
+      Sources to check first:
+      - Findings from the other specialists (you receive these inline)
+      - Web search for recent developments affecting the thesis

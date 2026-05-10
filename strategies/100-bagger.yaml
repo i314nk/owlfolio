@@ -1,0 +1,357 @@
+# ═══════════════════════════════════════════════════════════════
+# 100 BAGGER STRATEGY
+# ═══════════════════════════════════════════════════════════════
+#
+# Find small-to-mid cap businesses that can compound 100x over 15-25
+# years. The #1 criterion is reinvestment runway — a business that can
+# deploy capital at 20%+ ROIC for decades. Inspired by Chris Mayer
+# (100 Baggers), Thomas Phelps (100 to 1), Nick Sleep (Nomad).
+#
+# ═══════════════════════════════════════════════════════════════
+
+name: 100-bagger
+description: >
+  Find small-to-mid cap compounders that can grow 100x over 15-25 years.
+  The #1 criterion is reinvestment runway — a business deploying capital
+  at 20%+ ROIC for decades. Concentrated portfolio, never sell winners.
+summary: >
+  Find small-to-mid cap compounders that can grow 100x over 15-25 years.
+  The key ingredient is reinvestment runway — a business that can deploy
+  capital at 20%+ ROIC for decades.
+
+  GOOD FOR: Ultra-patient investors who can hold for 15-25 years without
+  selling. Best for identifying the next Constellation Software, Danaher,
+  or ASML. Concentrated portfolio of 10-15 positions.
+
+  NOT FOR: Anyone who needs liquidity, short-term returns, or
+  diversification. This strategy will tell you to never sell a winner
+  even at 50x because the thesis is 100x.
+
+  INSPIRED BY: Chris Mayer (100 Baggers), Thomas Phelps, Nick Sleep.
+author: "Owlfolio (default)"
+
+# ─── Zone 1: Structured Contract ────────────────────────────────
+
+criteria:
+  - {name: reinvestment_runway,   weight: 0.30}
+  - {name: competitive_advantage, weight: 0.25}
+  - {name: owner_operator,        weight: 0.20}
+  - {name: capital_efficiency,    weight: 0.15}
+  - {name: culture_durability,    weight: 0.10}
+
+tiers:
+  generational: 0.06    # Pay up — generational compounder
+  exceptional:  0.08    # Fair price — exceptional compounder
+  proven:       0.10    # Standard hurdle — good compounder
+  unproven:     null    # Watch only — don't commit large capital
+
+thresholds:
+  wide:   3.5
+  narrow: 2.5
+
+llm_overridable:
+  hurdle_rate:
+    default: 0.10
+    range: [0.04, 0.12]
+    label: "Required return"
+  growth_haircut:
+    default: 0.20
+    range: [0.05, 0.40]
+    label: "Growth haircut"
+  maintenance_capex_ratio:
+    default: 0.50
+    range: [0.20, 1.00]
+    label: "Maintenance capex as % of total capex"
+
+position_sizing:
+  max_positions: 15
+  max_single_position: 0.10
+  tiers:
+    T1: {allocation: 0.04}
+    T2: {allocation: 0.03}
+    T3: {allocation: 0.03}
+  cash_reserve:
+    minimum: 0.15
+    target:  0.25
+
+display:
+  primary_value_label: "Owner Earnings"
+  target_price_label:  "Buy Price"
+  yield_label:         "Earnings Yield"
+  safety_label:        "Margin of Safety"
+  zone_label:          "Buy Zone"
+
+# ─── Zone 2: Prompt Corpus ──────────────────────────────────────
+
+prompts:
+
+  synthesis: |
+    You are scoring this company against the 100-Bagger framework. Your
+    job: reconcile specialist findings, score the criteria, classify the
+    compounder tier, compute the buy price, and decide BUY / WATCH / PASS.
+
+    The thesis: a business earning 20%+ ROIC that can reinvest at that
+    rate for 25 years turns $1 into $95. Add multiple expansion and you
+    get 100x. The hard part: finding the runway, AND having the patience
+    to hold through 15-25 years of volatility.
+
+    ## Score each criterion 1-5
+
+    - **reinvestment_runway (30%):** Can the business deploy capital at
+      20%+ ROIC for 15+ years? Score 5 for businesses with TAM 50x+
+      current revenue AND proven ability to capture it (Constellation
+      Software acquiring VMS businesses indefinitely). Score 3 for
+      businesses with 10-15 years of reinvestment at 15%+ ROIC. Score
+      1 for businesses approaching saturation or with declining ROIC.
+    - **competitive_advantage (25%):** Does the moat WIDEN as the
+      business grows? Score 5 for increasing returns to scale — each
+      dollar of revenue makes the next dollar cheaper or the product
+      better (data network effects, platform lock-in). Score 3 for
+      stable advantages. Score 1 for advantages eroded by competition.
+    - **owner_operator (20%):** Founder-CEO with 10%+ ownership and a
+      10+ year capital allocation record? Score 5 for founder-led with
+      heavy skin in the game. Score 3 for professional management with
+      meaningful ownership. Score 1 for hired-gun CEOs with minimal
+      ownership or short tenure.
+    - **capital_efficiency (15%):** How much capital does growth
+      require? Score 5 for asset-light models where revenue scales
+      without proportional capex (software, platforms, franchises).
+      Score 3 for moderate capital needs. Score 1 for capital-intensive
+      businesses.
+    - **culture_durability (10%):** Will the culture survive leadership
+      transitions? Score 5 for decentralized cultures with documented
+      principles that outlast any single leader (Danaher Business
+      System, Berkshire's autonomy model). Score 3 for strong culture
+      dependent on current leadership. Score 1 for no distinctive
+      culture or high turnover.
+
+    ## Classify into a tier
+
+    - **generational (4.8-5.0, 6% hurdle):** Compounding machine with
+      20+ year runway. Owner-operator aligned. Moat widening.
+      Asset-light. Proven through multiple cycles. Buy and never sell.
+    - **exceptional (4.2-4.7, 8% hurdle):** Exceptional compounder with
+      15+ year runway. Strong leadership alignment. High ROIC with
+      clear reinvestment path. Likely a 50-100x over 20 years.
+    - **proven (3.5-4.1, 10% hurdle):** Good compounder with 10+ year
+      runway but some risk to thesis. Could be a 20-50x if thesis
+      plays out.
+    - **unproven (<3.5, don't buy):** Runway exists but ROIC is
+      inconsistent or leadership alignment is weak. Watch only.
+
+    ## Compute the buy price
+
+    Use Owner Earnings yield with a lower hurdle than Buffett:
+
+        Buy Price = Owner Earnings per Share / (Hurdle Rate − Growth Rate)
+
+    Owner Earnings = Net Income + D&A − Maintenance Capex − SBC −
+    Working Capital Change. Maintenance capex ratio is **lower** here
+    (default 50%) because 100-baggers invest heavily in growth capex —
+    don't over-deduct.
+
+    Hurdle rate from the tier (6% / 8% / 10% / don't buy). Growth rate:
+    5-year revenue CAGR with 20% haircut, capped at 12% — higher than
+    Buffett's cap because these businesses *should* grow faster for
+    longer.
+
+    Margin of safety is in **ROIC durability**, not in a price discount.
+    The gap between the 10% hurdle and the 20%+ ROIC IS the safety.
+
+    ## Decision rules
+
+    Coffee can approach: buy right and hold for decades.
+
+    - **BUY** when current price ≤ buy price AND tier is proven or
+      better.
+    - **WATCH** when tier is proven or better but current price > buy
+      price.
+    - **PASS** when tier is unproven, or the runway is unclear, or
+      ROIC is inconsistent.
+    - **SELL** (only if): the thesis is broken (ROIC declining for 2+
+      years, runway exhausted, founder departed without succession),
+      OR insider selling at scale. **Do NOT sell because the price
+      went up.** Mayer: "The single most important thing you can do
+      is hold."
+
+    ## When to adjust the LLM-overridable knobs
+
+    - **hurdle_rate** (default 0.10): 6-8% for Constellation Software-type
+      serial acquirers with 20yr track records. 8-10% for proven
+      compounders with 10+ years of high ROIC. 10-12% for strong
+      businesses with visible but unproven runway. 12-15% for
+      earlier-stage businesses with thesis risk.
+    - **growth_haircut** (default 0.20): 5-10% for serial acquirers with
+      predictable deal pipelines. 15-25% for organic growers with
+      strong retention metrics. 30-40% for businesses in rapidly
+      evolving markets.
+    - **maintenance_capex_ratio** (default 0.50): 20-40% for asset-light
+      software/platform businesses. 40-60% for capital-light serial
+      acquirers. 70-100% for capital-intensive growers.
+
+    ## Output
+
+    Return the typed SynthesisResult JSON. Make the runway thesis
+    concrete (years × ROIC × reinvestment rate). Surface the founder
+    or capital-allocator track record. Flag any signs the moat is
+    failing to widen — that's the silent killer of a 100-bagger thesis.
+
+  discovery: |
+    Find 10-15 US-listed candidates that fit the 100-bagger profile.
+
+    **Universe:** Small-to-mid cap, $500M to $50B market cap. Big enough
+    to be real businesses with audited financials; small enough to have
+    decades of growth ahead. Recent IPOs (1-3 years public) are OK if
+    the revenue trajectory and management quality are strong.
+
+    **Hard gates — exclude if ANY fail:**
+    - ROIC < 15% (need credible path to sustaining 20%+ for a decade)
+    - Revenue CAGR < 15% over last 3 years (100-baggers need growth)
+    - Declining ROIC trend over 3+ years (moat eroding)
+    - Current revenue > 20% of addressable market (approaching
+      saturation — not enough runway for 100x)
+    - Gross margins declining for 3+ consecutive years (moat narrowing)
+
+    **Bias toward:** Founder-led businesses with 10%+ insider ownership.
+    Asset-light models (software, platforms, franchises, data, financial
+    networks). Serial acquirers in fragmented industries (the
+    Constellation/Roper/Danaher pattern). Strong organic growth +
+    disciplined M&A. Companies that share scale advantages with
+    customers (Sleep's flywheel — Costco, Amazon, GEICO pattern).
+    Moats that are actively WIDENING (gross margins expanding, market
+    share growing, network effects compounding) — a stable moat is
+    not enough for a 100-bagger thesis.
+
+    **Avoid:** Capital-intensive businesses where growth requires
+    ongoing massive investment (utilities, autos, traditional retail).
+    Pure commodity producers. Businesses where the moat is narrowing
+    (declining gross margins over 5 years, market share losses).
+    Companies with unclear or short-tenured leadership.
+
+    **Rank by:** ROIC × revenue growth (higher = better), with a
+    qualitative bias toward owner-operators, demonstrated capital
+    allocation discipline, and large remaining TAM (< 20% penetrated).
+
+    **Output:** For each candidate return ticker, company name, current
+    price, market cap, sector, founder status, insider ownership %,
+    5yr revenue CAGR, ROIC, estimated TAM penetration, and a
+    one-sentence "why this could be a 100-bagger" note. Be honest
+    about which are speculative bets vs well-proven compounders.
+
+  specialists:
+
+    reinvestment_analyst: |
+      Analyze ROIC trends over 10+ years, reinvestment opportunities,
+      and remaining TAM runway. This is the #1 criterion for a
+      100-bagger — get this right and the rest matters less; get this
+      wrong and everything else is moot.
+
+      Calculate **sustainable growth rate** = ROIC × reinvestment rate.
+      Report ROIC for each of the last 10 years. Flag any year where
+      ROIC dipped below 15% and explain why.
+
+      Assess: can the business deploy capital at 20%+ ROIC for another
+      15+ years? What's the evidence — TAM size, current penetration,
+      recent reinvestment results? Flag if ROIC is declining or
+      reinvestment opportunities are shrinking.
+
+      Sources to check first:
+      - https://stockanalysis.com/stocks/{TICKER}/financials/
+      - https://www.macrotrends.net/stocks/charts/{TICKER}
+
+    owner_operator_analyst: |
+      Assess founder/owner-operator alignment with long-term compounding.
+      Use concrete benchmarks — not narrative judgment.
+
+      1. **FOUNDER STATUS.** Is the founder still CEO or in a key
+         leadership role? If not, when did they leave and why?
+         Founder-led scores higher.
+
+      2. **INSIDER OWNERSHIP.** Find insider ownership as % of shares
+         outstanding. Benchmarks by market cap:
+         - <$5B: expect >5% insider ownership (founder skin in the game)
+         - $5-50B: expect >2%
+         - >$50B: expect >0.5% (even 0.5% of $100B = $500M personal stake)
+         Flag if insider ownership is below these thresholds.
+
+      3. **CAPITAL ALLOCATION TRACK RECORD (10+ years):**
+         - **Acquisitions.** Calculate average acquisition multiple paid
+           (EV/Revenue or EV/EBITDA). Compare to industry median. Score
+           as disciplined if acquisitions were at <3x revenue or <15x
+           EBITDA on average.
+         - **ROIC on acquisitions.** Did acquisitions maintain or
+           improve overall ROIC within 2-3 years? If ROIC declined >3%
+           post-acquisition and never recovered, flag as empire-building.
+         - **Buybacks.** Were shares repurchased below intrinsic value
+           (P/E < 15 or P/FCF < 20 at time of buyback) or at inflated
+           prices?
+         - **Dividends vs reinvestment.** For a 100-bagger candidate,
+           reinvestment at high ROIC is preferred over dividends. Flag
+           if >50% of FCF goes to dividends with ROIC >20% (should be
+           reinvesting).
+
+      4. **COMPENSATION.** Check proxy DEF 14A. Is CEO comp >3% of net
+         income? Is compensation tied to long-term metrics (5yr ROIC,
+         TSR) or short-term (1yr EPS, revenue targets)?
+
+      Score owner-operator alignment 1-5:
+      - 5: Founder-led, >5% ownership, disciplined capital allocation, long-term comp
+      - 4: Professional CEO but >2% ownership, strong track record
+      - 3: Professional CEO, <2% ownership but no red flags
+      - 2: Low ownership, questionable acquisitions or excessive comp
+      - 1: Empire-builder — declining ROIC on acquisitions, excessive comp, insider selling
+
+      Sources to check first:
+      - SEC EDGAR proxy statement DEF 14A (search: "{TICKER} proxy statement SEC")
+      - Insider ownership and founder status (web search)
+
+    moat_trajectory_analyst: |
+      Is the competitive moat **widening or narrowing** over time? A
+      100-bagger needs a moat that WIDENS — stable moats are not enough
+      for 25-year compounding.
+
+      Assess: scale economics (does the business get stronger as it
+      grows?), network effects evolution (more users = more value, or
+      saturating?), competitive threats (well-funded entrants, tech
+      shifts, regulatory changes).
+
+      Cite measurable evidence: gross margin trend over 5 years (>50bps
+      annual expansion = widening moat); market share trend over 3
+      years; pricing power (raised prices >CPI without volume loss).
+
+      Sources to check first:
+      - Competitive landscape and moat analysis (web search)
+      - Competitor filings and market share trends
+
+    mental_models: |
+      Apply 100-bagger mental models to stress-test the thesis. For
+      each model, provide an assessment and a verdict: **STRONG /
+      MODERATE / WEAK**.
+
+      1. **SCALE ECONOMICS SHARED (Sleep).** Does the company share its
+         scale advantages with customers (lower prices, better service)
+         rather than keeping them as profit? Companies that share create
+         a flywheel: lower prices → more customers → more scale → even
+         lower prices. Examples: Costco (low markup covenant), Amazon
+         (relentless price reduction), GEICO. Score: does the business
+         model structurally pass savings to customers?
+
+      2. **TWIN ENGINES (Mayer).** Does the company grow via BOTH
+         organic growth AND smart acquisitions? Organic growth proves
+         the model. Acquisitions at disciplined prices accelerate the
+         flywheel. Examples: Constellation Software (organic SaaS +
+         VMS acquisitions at 3-5x earnings), Danaher (DBS applied to
+         acquired businesses). Flag if growth is ONLY acquisition-driven
+         (no organic engine) or only organic (no consolidation
+         opportunity).
+
+      3. **DESTINATION ANALYSIS (Sleep).** Will this company be
+         meaningfully bigger in 10 years regardless of the economy?
+         Not "might be" but "will be" — based on structural tailwinds,
+         remaining TAM, and the flywheel's momentum. If the destination
+         is clear and large, short-term volatility is noise. If the
+         destination is uncertain, the compounding thesis is fragile.
+
+      Sources to check first:
+      - Findings from the other specialists (you receive these inline)
+      - Web search for recent developments affecting the compounding thesis

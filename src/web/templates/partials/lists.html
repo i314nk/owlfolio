@@ -1,0 +1,26 @@
+{% if lists %}
+<div class="space-y-2">
+  {% for l in lists %}
+  <button onclick="sendSuggestion('Show me the {{ l.name }} candidate list')"
+          class="w-full text-left p-2.5 rounded-lg bg-surface-card border border-surface-border hover:border-accent/30 hover:bg-surface-hover transition-colors block">
+    <div class="flex items-center justify-between gap-2">
+      <span class="text-sm font-medium text-white truncate">{{ l.name }}</span>
+      <span class="activity-type-pill activity-type-list shrink-0">{{ l.source }}</span>
+    </div>
+    <div class="text-[11px] text-gray-500 mt-1">
+      {{ l.total }} candidates
+      {% if l.analyzed %}<span class="text-green-400">· {{ l.analyzed }} analyzed</span>{% endif %}
+      {% if l.strategy %} · <span class="text-gray-400">{{ l.strategy }}</span>{% endif %}
+    </div>
+    {% if l.note %}
+    <div class="text-[10px] text-gray-600 mt-0.5 truncate">{{ l.note }}</div>
+    {% endif %}
+  </button>
+  {% endfor %}
+</div>
+{% else %}
+<p class="text-gray-500 text-xs py-3">
+  No candidate lists yet. Ask the agent to <span class="kbd-hint">find candidates</span>
+  or <span class="kbd-hint">import a list of tickers</span>.
+</p>
+{% endif %}

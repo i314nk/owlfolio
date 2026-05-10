@@ -1,0 +1,55 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Environment
+.env
+.env.local
+
+# Database
+*.db
+*.sqlite
+*.db-shm
+*.db-wal
+
+# Runtime data + logs (LLM prompts in logs can include sensitive context)
+data/
+logs/
+*.pid
+
+# Docker secrets (keep the dir + its .gitignore stub, ignore the actual key file)
+secrets/anthropic_key
+
+# Screenshots / scratch dirs
+.screenshots/
+
+# User config (keep strategies/ presets, ignore user's own)
+methodology.yaml
+config.yaml
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Testing
+.coverage
+htmlcov/
+.pytest_cache/
+
+# uv
+.python-version

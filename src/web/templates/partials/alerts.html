@@ -1,0 +1,44 @@
+<!-- Alerts explanation -->
+<div class="mb-3 px-1">
+  <p class="text-[10px] text-gray-500 leading-relaxed">
+    Results from scheduled tasks — price alerts, screening results, and analysis findings.
+    Alerts are generated when the daemon runs your scheduled tasks.
+  </p>
+</div>
+
+{% if alerts %}
+<div class="space-y-2">
+  {% for a in alerts %}
+  <div class="flex items-start gap-2 p-2.5 rounded-lg bg-white/[0.03] border border-white/[0.06]">
+    <span class="shrink-0 mt-0.5">
+      {% if 'price_alert' in a.type %}
+        <span class="inline-block w-2 h-2 rounded-full bg-green-400"></span>
+      {% elif 'risk' in a.type or 'error' in a.type %}
+        <span class="inline-block w-2 h-2 rounded-full bg-red-400"></span>
+      {% elif 'task_result' in a.type %}
+        <span class="inline-block w-2 h-2 rounded-full bg-blue-400"></span>
+      {% else %}
+        <span class="inline-block w-2 h-2 rounded-full bg-yellow-400"></span>
+      {% endif %}
+    </span>
+    <div class="min-w-0 flex-1">
+      <div class="flex items-center justify-between">
+        <span class="text-[10px] text-gray-500 uppercase tracking-wider">{{ a.type }}</span>
+        {% if a.created_at %}
+        <span class="text-[10px] text-gray-600">{{ a.created_at[:16] }}</span>
+        {% endif %}
+      </div>
+      <p class="text-xs text-gray-300 leading-relaxed mt-0.5">{{ a.message[:150] }}</p>
+      {% if a.ticker %}
+      <span class="text-[10px] text-blue-400 font-medium mt-1 inline-block">{{ a.ticker }}</span>
+      {% endif %}
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% else %}
+<div class="text-center py-6">
+  <p class="text-sm text-gray-500">No alerts yet</p>
+  <p class="text-xs text-gray-600 mt-1">Alerts appear here when scheduled tasks find something — price targets hit, screening results, or risk flags</p>
+</div>
+{% endif %}
