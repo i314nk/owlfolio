@@ -21,8 +21,8 @@ Your investing philosophy is defined as configuration, not code.
 Ships with 7 preset strategies (Buffett, Graham, Lynch, Terry Smith, and more). Bring your own methodology.
 
 <div align="center">
-<img src="docs/assets/screenshot-dashboard.png" alt="Owlfolio Web Dashboard" width="800">
-<br><em>Web UI — chat with your AI analyst, track portfolio, schedule automated tasks</em>
+<img src="docs/assets/owlfolio-demo.gif" alt="Owlfolio Web Dashboard" width="800">
+<br><em>Web UI — chat with your AI analyst, track portfolio, manage watchlists, schedule automated tasks</em>
 </div>
 
 ```bash
