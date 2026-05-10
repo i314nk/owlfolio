@@ -20,13 +20,16 @@ Your investing philosophy is defined as configuration, not code.
 
 Ships with 7 preset strategies (Buffett, Graham, Lynch, Terry Smith, and more). Bring your own methodology.
 
-```
-owlfolio analyze MSFT               # full specialist analysis
-owlfolio find --count 15            # agentic discovery
-owlfolio serve                      # web dashboard
+<div align="center">
+<img src="docs/assets/screenshot-dashboard.png" alt="Owlfolio Web Dashboard" width="800">
+<br><em>Web UI — chat with your AI analyst, track portfolio, schedule automated tasks</em>
+</div>
+
+```bash
+owlfolio serve                      # launch the web dashboard
 ```
 
-<img src="assets/demo.svg" alt="Owlfolio CLI Demo" width="800">
+The Web UI is the primary interface — chat with your portfolio manager, run analyses, manage scheduled tasks, and browse your audit trail, all from the browser. A full CLI is also available for power users who prefer the terminal.
 
 <details>
 <summary><b>Architecture at a glance</b></summary>
@@ -60,11 +63,6 @@ owlfolio serve                      # web dashboard
 ```
 
 </details>
-
-<div align="center">
-<img src="docs/assets/screenshot-dashboard.png" alt="Owlfolio Web Dashboard" width="800">
-<br><em>Chat interface with strategy selector, quick actions, and daemon status</em>
-</div>
 
 ---
 
@@ -152,7 +150,14 @@ git clone https://github.com/qwibitai/owlfolio && cd owlfolio
 ### Then use it
 
 ```bash
-owlfolio serve                       # web dashboard
+owlfolio serve                       # launch the web dashboard (primary interface)
+```
+
+Open `http://localhost:8000` and you're in — chat with your AI analyst, run analyses, manage your portfolio, and configure scheduled tasks, all from the browser.
+
+**Prefer the CLI?** Everything in the Web UI is also available from the terminal:
+
+```bash
 owlfolio analyze AAPL                # full specialist analysis
 owlfolio analyze AAPL --shariah      # add Shariah compliance specialist
 owlfolio find --count 15             # agentic discovery for the active strategy
@@ -163,23 +168,6 @@ owlfolio chat                        # CLI chat with your portfolio manager
 owlfolio strategy --use buffett-munger   # switch active strategy
 owlfolio doctor                      # one-stop health report when something's off
 ```
-
-### One command per intent
-
-The CLI is designed so each user intent maps to exactly one command. You
-should never have to compose multiple steps to do one thing.
-
-| What you want | What you type |
-|---|---|
-| Set up the tool from scratch | `./install.sh` (or `claude` → "set up owlfolio") |
-| Start the web UI | `owlfolio serve` |
-| Restart to pick up code changes | `owlfolio serve --restart` |
-| Stop the web UI | `owlfolio serve --stop` |
-| Diagnose anything not working | `owlfolio doctor` |
-| Analyze a stock | `owlfolio analyze TICKER` |
-| Switch strategy | `owlfolio strategy --use NAME` |
-
-`install.sh` orchestrates the underlying setup work (`pip install -e ".[web]"`, credential discovery, `methodology.yaml` creation) so the user never has to. `owlfolio doctor` consolidates every check that used to live in three different commands.
 
 ---
 
@@ -203,6 +191,29 @@ Two complementary paths for getting tickers into the analysis pipeline — Owlfo
 - **External import** (`owlfolio import`) takes whatever ticker list you have — pasted CSV, a file path, comma-separated string — from any external screener, paid subscription, or hand-curated list. Same yfinance-validation against typos.
 
 Both paths persist as named candidate lists. Run `owlfolio analyze-list NAME` to deep-analyze every ticker in the list (concurrency-capped at 2 to avoid rate-limit / billing surprises).
+
+### Scheduled Tasks — Automation That Runs While You Sleep
+
+Owlfolio's background daemon runs scheduled tasks on cron schedules, so your investment process keeps working when you're not at the keyboard. Configure tasks from the Web UI's Schedule tab or via CLI.
+
+**Built-in examples:**
+
+| Task | What it does | Typical schedule |
+|------|-------------|-----------------|
+| Earnings watch | Checks upcoming earnings dates for all holdings and watchlist | Weekly |
+| Price alerts | Scans watchlist for tickers entering buy zones | Daily |
+| Holdings review | Re-runs analysis on current holdings to catch thesis drift | Monthly |
+| Candidate screening | Batch-analyzes a saved ticker list overnight | On demand |
+
+**Custom tasks:** Schedule any Owlfolio command to run on a cron cadence:
+
+```bash
+owlfolio schedule "earnings-check" "owlfolio watchlist-check" "0 7 * * 1-5"   # weekday mornings
+owlfolio schedule "quarterly-review" "owlfolio review-holdings" "0 9 1 */3 *" # first of each quarter
+owlfolio tasks                                                                 # view all scheduled tasks
+```
+
+Every task run is logged with start time, exit code, and output excerpts — visible in the Web UI's Activity tab and Alerts tab. Silent failures become visible failures.
 
 ### Audit trail
 
@@ -271,20 +282,21 @@ prompt and CLI output read naturally in the strategy's own vocabulary. See
 
 ## Features
 
+- **Web UI (primary interface)** -- browser-based dashboard with live token streaming, specialist progress cards, and sidebar tabs for Portfolio / Watchlist / Lists / Activity / Alerts / Schedule (`owlfolio serve`). Chat with your AI analyst, run analyses, and manage everything from the browser.
+- **Scheduled tasks** -- cron-based background automation for earnings checks, price alerts, holdings reviews, and batch screening. Every run is logged with exit codes and output excerpts. Configure from the Web UI's Schedule tab or CLI.
 - **Specialist subagents** -- 3-5 AI analysts per strategy, running in parallel, each fetching its own data
 - **Saved specialist findings** -- every analysis persists the per-specialist output (not just the synthesis result), so the audit trail can answer "why BUY?" with the underlying evidence — and a future synthesis-prompt change can re-synthesize against saved findings without re-paying for the research phase
 - **Configurable methodology** -- your philosophy, your rules, defined in YAML (two-zone shape: structured contract + prompt corpus)
-- **Web UI** -- browser-based chat interface with live token streaming, specialist progress card, and sidebar tabs for Portfolio / Watchlist / Lists / Activity / Alerts / Schedule (`owlfolio serve`)
 - **Activity feed** -- unified chronological audit across analyses, candidate lists, recorded decisions, and daemon-fired task runs. Each row carries a `#NN` reference you can quote in chat to drill into details.
 - **Adaptive extended thinking** -- every specialist, the synthesis agent, and both chat surfaces use Claude's adaptive thinking budget
 - **Portfolio tracking** -- holdings, cost basis, performance snapshots, alpha vs SPY
 - **Candidate sourcing** -- agentic discovery (`find`) for the natural-language path; CSV / inline import (`import`) for whatever external screener you already use
 - **Alert system** -- price alerts, task results, watchlist notifications
-- **Background daemon** -- scheduled tasks with full execution history (start time, exit code, stdout/stderr excerpts) so silent scheduler failures become visible failures
 - **Decision journal** -- every decision logged with reasoning
 - **Memory system** -- persistent context across chat sessions
 - **Shariah screening** -- optional Islamic finance compliance with any strategy (also persists as a `#NN` audit row)
 - **Add-on pattern** -- Shariah works with any strategy via `--shariah` flag (ESG / Insider trading planned)
+- **Full CLI** -- every Web UI action has a CLI equivalent for power users and scripting
 - **Free data** -- yfinance + LLM web-search fallback (see [`docs/ARCHITECTURE.md` → Market Data](docs/ARCHITECTURE.md) for reliability tradeoffs and hardening options). No paid market-data API required.
 
 ---
