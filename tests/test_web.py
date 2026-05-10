@@ -67,10 +67,14 @@ def app_with_db(tmp_path, monkeypatch):
     conn.commit()
     conn.close()
 
-    # Patch the app's DB_PATH before importing/instantiating the client
+    # Patch DB_PATH in both the web app and the db schema module
+    # so that list_holdings (called via src.operations.portfolio → src.db)
+    # uses the same test database.
+    from src.db import schema as db_schema
     from src.web import app as web_app
 
     monkeypatch.setattr(web_app, "DB_PATH", db_path)
+    monkeypatch.setattr(db_schema, "DB_PATH", db_path)
     return TestClient(web_app.app)
 
 
