@@ -129,17 +129,17 @@ def _yfinance_price(ticker: str) -> PriceData:
 # uses EXCHANGE:TICKER format (e.g. "ADX:ADNOCGAS").
 
 _SUFFIX_TO_TV_EXCHANGE = {
-    ".AD": "ADX",      # Abu Dhabi Securities Exchange
-    ".DH": "DFM",      # Dubai Financial Market
+    ".AD": "ADX",  # Abu Dhabi Securities Exchange
+    ".DH": "DFM",  # Dubai Financial Market
     ".SR": "TADAWUL",  # Saudi Tadawul
-    ".NS": "NSE",      # National Stock Exchange of India
-    ".BO": "BSE",      # Bombay Stock Exchange
-    ".L":  "LSE",      # London Stock Exchange
-    ".HK": "HKEX",     # Hong Kong
-    ".T":  "TSE",      # Tokyo
-    ".AX": "ASX",      # Australian Securities Exchange
-    ".TO": "TSX",      # Toronto Stock Exchange
-    ".DE": "XETR",     # XETRA / Frankfurt
+    ".NS": "NSE",  # National Stock Exchange of India
+    ".BO": "BSE",  # Bombay Stock Exchange
+    ".L": "LSE",  # London Stock Exchange
+    ".HK": "HKEX",  # Hong Kong
+    ".T": "TSE",  # Tokyo
+    ".AX": "ASX",  # Australian Securities Exchange
+    ".TO": "TSX",  # Toronto Stock Exchange
+    ".DE": "XETR",  # XETRA / Frankfurt
     ".SA": "BMFBOVESPA",  # B3 (Brasil Bolsa Balcão)
 }
 
@@ -149,7 +149,7 @@ def _to_tv_symbol(ticker: str) -> str:
     t = ticker.upper()
     for suffix, exchange in _SUFFIX_TO_TV_EXCHANGE.items():
         if t.endswith(suffix):
-            return f"{exchange}:{t[:-len(suffix)]}"
+            return f"{exchange}:{t[: -len(suffix)]}"
     # No suffix → assume US; try NYSE first (TradingView resolves it)
     return f"NYSE:{t}"
 
@@ -178,8 +178,14 @@ def _tradingview_price(ticker: str) -> PriceData:
     rows = data.get("data", [])
     if not rows:
         return PriceData(
-            ticker=ticker.upper(), price=0.0, market_cap=0.0,
-            currency="USD", exchange="", name=ticker, sector="", industry="",
+            ticker=ticker.upper(),
+            price=0.0,
+            market_cap=0.0,
+            currency="USD",
+            exchange="",
+            name=ticker,
+            sector="",
+            industry="",
         )
 
     cols = rows[0]["d"]
@@ -206,7 +212,8 @@ def _web_search_price(ticker: str) -> PriceData:
     from pathlib import Path
 
     async def _search():
-        from claude_agent_sdk import query, ClaudeAgentOptions, ResultMessage
+        from claude_agent_sdk import ClaudeAgentOptions, ResultMessage, query
+
         from src.llm.provider import _agent_sdk_model
 
         result_text = ""
@@ -278,7 +285,7 @@ def _parse_price_json(text: str) -> dict | None:
         pass
 
     # Try extracting JSON from markdown code blocks
-    match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', text, re.DOTALL)
+    match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL)
     if match:
         try:
             return json.loads(match.group(1))
@@ -286,11 +293,11 @@ def _parse_price_json(text: str) -> dict | None:
             pass
 
     # Try finding first { to last }
-    start = text.find('{')
-    end = text.rfind('}')
+    start = text.find("{")
+    end = text.rfind("}")
     if start != -1 and end != -1 and end > start:
         try:
-            return json.loads(text[start:end + 1])
+            return json.loads(text[start : end + 1])
         except json.JSONDecodeError:
             pass
 
@@ -316,11 +323,13 @@ def get_price_history(ticker: str, period: str = "5y") -> list[dict]:
 
     result = []
     for date, row in hist.iterrows():
-        result.append({
-            "date": str(date.date()) if hasattr(date, "date") else str(date),
-            "close": float(row["Close"]),
-            "volume": int(row["Volume"]) if "Volume" in row else 0,
-        })
+        result.append(
+            {
+                "date": str(date.date()) if hasattr(date, "date") else str(date),
+                "close": float(row["Close"]),
+                "volume": int(row["Volume"]) if "Volume" in row else 0,
+            }
+        )
 
     return result
 
