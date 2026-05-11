@@ -143,21 +143,21 @@ async def api_strategies():
 # Sidebar data endpoints (htmx polling)
 @app.get("/api/portfolio", response_class=HTMLResponse)
 async def api_portfolio(request: Request, strategy: str | None = None):
-    from src.operations.portfolio import list_holdings
-
     from src.agents.discovery import ticker_currency
+    from src.operations.portfolio import list_holdings
 
     result = list_holdings(ticker=None, with_prices=True)
     holdings = result["holdings"]
     if strategy:
         holdings = [h for h in holdings if h.get("strategy") == strategy]
-    _CS = {
+    symbols = {
         "USD": "$", "AED": "AED ", "JPY": "¥", "GBP": "£", "INR": "₹",
-        "HKD": "HK$", "CAD": "C$", "AUD": "A$", "SAR": "SAR ", "EUR": "€", "BRL": "R$",
+        "HKD": "HK$", "CAD": "C$", "AUD": "A$", "SAR": "SAR ",
+        "EUR": "€", "BRL": "R$",
     }
     for h in holdings:
         code = h.get("currency") or ticker_currency(h["ticker"])[0]
-        h["currency_symbol"] = _CS.get(code, f"{code} ")
+        h["currency_symbol"] = symbols.get(code, f"{code} ")
     return TEMPLATES.TemplateResponse(
         request,
         "partials/portfolio.html",
@@ -211,15 +211,16 @@ async def api_watchlist(request: Request, strategy: str | None = None, fresh: st
     # Derive display currency symbol from stored currency code (falls back to ticker suffix)
     from src.agents.discovery import ticker_currency
 
-    _CURRENCY_SYMBOLS = {
+    symbols = {
         "USD": "$", "AED": "AED ", "JPY": "¥", "GBP": "£", "INR": "₹",
-        "HKD": "HK$", "CAD": "C$", "AUD": "A$", "SAR": "SAR ", "EUR": "€", "BRL": "R$",
+        "HKD": "HK$", "CAD": "C$", "AUD": "A$", "SAR": "SAR ",
+        "EUR": "€", "BRL": "R$",
     }
-    _NO_DECIMAL_CURRENCIES = {"JPY", "KRW"}
+    no_dec = {"JPY", "KRW"}
     for w in watchlist:
         code = w.get("currency") or ticker_currency(w["ticker"])[0]
-        w["currency_symbol"] = _CURRENCY_SYMBOLS.get(code, f"{code} ")
-        w["no_decimals"] = code in _NO_DECIMAL_CURRENCIES
+        w["currency_symbol"] = symbols.get(code, f"{code} ")
+        w["no_decimals"] = code in no_dec
 
     conn.close()
     return TEMPLATES.TemplateResponse(
@@ -247,11 +248,13 @@ async def api_alerts(request: Request):
 
 
 @app.get("/api/task-run/{run_id}")
-async def api_task_run(run_id: int):
+async def api_task_run_detail(run_id: int):
     """Return the full stdout of a task run for alert detail view."""
     conn = _get_db()
     row = conn.execute(
-        "SELECT task_name, started_at, finished_at, exit_code, stdout_excerpt, stderr_excerpt FROM task_runs WHERE id = ?",
+        "SELECT task_name, started_at, finished_at, exit_code,"
+        " stdout_excerpt, stderr_excerpt"
+        " FROM task_runs WHERE id = ?",
         (run_id,),
     ).fetchone()
     conn.close()
