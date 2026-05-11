@@ -125,7 +125,20 @@ def _is_due(task: dict, now: datetime) -> bool:
     return local_now >= next_run
 
 
-def _check_for_alerts(conn, task: dict, output: str):
+def _strip_rich_tables(text: str) -> str:
+    """Strip Rich box-drawing characters and collapse whitespace."""
+    import re
+
+    # Remove box-drawing lines (━, ┃, ┏, ┓, ┗, ┛, ┣, ┫, ┳, ┻, ╋, ┡, ╇, etc.)
+    text = re.sub(r"[┏┓┗┛┣┫┳┻╋┡╇━┃╈╉╊╃╄╅╆╀╁╂┠┨┯┷┝┥┰┸┍┑┕┙┞┦┟┧┮┶┭┵┲┺┱┹╞╡╥╨]+", "", text)
+    # Collapse multiple spaces/whitespace into single space
+    text = re.sub(r"[ \t]{2,}", " ", text)
+    # Remove blank lines
+    text = re.sub(r"\n\s*\n", "\n", text)
+    return text.strip()
+
+
+def _check_for_alerts(conn, task: dict, output: str, run_id: int | None = None):
     """Check task output for alert-worthy content and create alerts."""
     alert_keywords = {
         "BUY ZONE": "price_alert",
@@ -135,7 +148,14 @@ def _check_for_alerts(conn, task: dict, output: str):
     }
     for keyword, alert_type in alert_keywords.items():
         if keyword.lower() in output.lower():
-            add_alert(conn, alert_type, f"[{task['name']}] {output[:200]}", ticker=None)
+            clean = _strip_rich_tables(output)
+            add_alert(
+                conn,
+                alert_type,
+                f"[{task['name']}] {clean[:500]}",
+                ticker=None,
+                task_run_id=run_id,
+            )
             break
 
 
@@ -198,7 +218,7 @@ def _execute_task(task: dict):
 
         if success:
             logger.info("Task %s completed successfully", task["name"])
-            _check_for_alerts(conn, task, output)
+            _check_for_alerts(conn, task, output, run_id=run_id)
         else:
             logger.warning(
                 "Task %s failed (exit %d): %s",

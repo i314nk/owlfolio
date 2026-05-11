@@ -239,12 +239,12 @@ def _web_search_price(ticker: str) -> PriceData:
     try:
         result_text = asyncio.run(_search())
     except RuntimeError:
-        # Already in an async event loop — use nest_asyncio or create new loop
-        loop = asyncio.new_event_loop()
-        try:
-            result_text = loop.run_until_complete(_search())
-        finally:
-            loop.close()
+        # Already inside an async event loop (e.g. called from FastAPI).
+        # Spawning a new loop or run_until_complete would block the server's
+        # event loop, killing WebSocket connections. Return gracefully —
+        # callers (activity feed, etc.) have fallback prices.
+        logger.info("Skipping web search for %s (already in async loop)", ticker)
+        return PriceData(ticker=ticker.upper(), price=0, market_cap=0)
     except Exception as e:
         # Agent SDK can crash (nested invocation, missing key, etc.)
         logger.warning("Agent SDK web search failed for %s: %s", ticker, e)

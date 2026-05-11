@@ -214,6 +214,28 @@ async def api_alerts(request: Request):
     )
 
 
+@app.get("/api/task-run/{run_id}")
+async def api_task_run(run_id: int):
+    """Return the full stdout of a task run for alert detail view."""
+    conn = _get_db()
+    row = conn.execute(
+        "SELECT task_name, started_at, finished_at, exit_code, stdout_excerpt, stderr_excerpt FROM task_runs WHERE id = ?",
+        (run_id,),
+    ).fetchone()
+    conn.close()
+    if not row:
+        return {"error": "not found"}
+    r = dict(row)
+    return {
+        "task_name": r["task_name"],
+        "started_at": r["started_at"],
+        "finished_at": r["finished_at"],
+        "exit_code": r["exit_code"],
+        "stdout": r["stdout_excerpt"] or "",
+        "stderr": r["stderr_excerpt"] or "",
+    }
+
+
 @app.get("/api/tasks", response_class=HTMLResponse)
 async def api_tasks(request: Request):
     return _render_tasks(request)
@@ -798,6 +820,10 @@ async def websocket_chat(websocket: WebSocket):
             while True:
                 user_msg = await websocket.receive_text()
                 if not user_msg.strip():
+                    continue
+                # Ignore keepalive pings from the client
+                if user_msg.strip().startswith('{"type"') and '"ping"' in user_msg:
+                    await websocket.send_json({"type": "pong"})
                     continue
 
                 await websocket.send_json({"type": "thinking", "content": True})

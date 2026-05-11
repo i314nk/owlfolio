@@ -94,6 +94,7 @@ def _create_tables(conn: sqlite3.Connection):
             type TEXT NOT NULL,
             ticker TEXT,
             message TEXT NOT NULL,
+            task_run_id INTEGER REFERENCES task_runs(id),
             read INTEGER DEFAULT 0,
             created_at TEXT DEFAULT (datetime('now'))
         );

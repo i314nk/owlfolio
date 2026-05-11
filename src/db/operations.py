@@ -603,11 +603,12 @@ def add_alert(
     alert_type: str,
     message: str,
     ticker: str | None = None,
+    task_run_id: int | None = None,
 ) -> int:
     """Create a new alert. Returns the alert ID."""
     cursor = conn.execute(
-        "INSERT INTO alerts (type, ticker, message) VALUES (?, ?, ?)",
-        (alert_type, ticker, message),
+        "INSERT INTO alerts (type, ticker, message, task_run_id) VALUES (?, ?, ?, ?)",
+        (alert_type, ticker, message, task_run_id),
     )
     conn.commit()
     return cursor.lastrowid

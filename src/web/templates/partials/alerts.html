@@ -7,38 +7,145 @@
 </div>
 
 {% if alerts %}
-<div class="space-y-2">
+<div class="space-y-2.5">
   {% for a in alerts %}
-  <div class="flex items-start gap-2 p-2.5 rounded-lg bg-white/[0.03] border border-white/[0.06]">
-    <span class="shrink-0 mt-0.5">
-      {% if 'price_alert' in a.type %}
-        <span class="inline-block w-2 h-2 rounded-full bg-green-400"></span>
-      {% elif 'risk' in a.type or 'error' in a.type %}
-        <span class="inline-block w-2 h-2 rounded-full bg-red-400"></span>
-      {% elif 'task_result' in a.type %}
-        <span class="inline-block w-2 h-2 rounded-full bg-blue-400"></span>
-      {% else %}
-        <span class="inline-block w-2 h-2 rounded-full bg-yellow-400"></span>
-      {% endif %}
-    </span>
-    <div class="min-w-0 flex-1">
-      <div class="flex items-center justify-between">
-        <span class="text-[10px] text-gray-500 uppercase tracking-wider">{{ a.type }}</span>
-        {% if a.created_at %}
-        <span class="text-[10px] text-gray-600">{{ a.created_at[:16] }}</span>
+  <div class="rounded-lg bg-white/[0.03] border border-white/[0.06] overflow-hidden">
+    <!-- Header bar -->
+    <div class="flex items-center justify-between px-3 py-1.5 border-b border-white/[0.04]"
+         style="background: {% if 'price' in a.type %}rgba(74,222,128,0.06){% elif 'risk' in a.type or 'error' in a.type %}rgba(248,113,113,0.06){% elif 'dividend' in a.type %}rgba(96,165,250,0.06){% else %}rgba(250,204,21,0.06){% endif %}">
+      <div class="flex items-center gap-2">
+        {% if 'price' in a.type %}
+          <span class="inline-flex items-center gap-1 text-[10px] font-semibold text-green-400 uppercase tracking-wider">
+            <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"/></svg>
+            Price Alert
+          </span>
+        {% elif 'risk' in a.type or 'error' in a.type %}
+          <span class="inline-flex items-center gap-1 text-[10px] font-semibold text-red-400 uppercase tracking-wider">
+            <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
+            Risk Alert
+          </span>
+        {% elif 'dividend' in a.type %}
+          <span class="inline-flex items-center gap-1 text-[10px] font-semibold text-blue-400 uppercase tracking-wider">
+            <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+            Dividend
+          </span>
+        {% else %}
+          <span class="inline-flex items-center gap-1 text-[10px] font-semibold text-yellow-400 uppercase tracking-wider">
+            <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+            {{ a.type | replace("_", " ") | title }}
+          </span>
         {% endif %}
       </div>
-      <p class="text-xs text-gray-300 leading-relaxed mt-0.5">{{ a.message[:150] }}</p>
-      {% if a.ticker %}
-      <span class="text-[10px] text-blue-400 font-medium mt-1 inline-block">{{ a.ticker }}</span>
+      {% if a.created_at %}
+      <span class="text-[10px] text-gray-500">{{ a.created_at[:10] }}</span>
+      {% endif %}
+    </div>
+
+    <!-- Body -->
+    <div class="px-3 py-2.5">
+      {% set clean_msg = a.message | replace("\u2501", "") | replace("\u2503", "") | replace("\u250f", "") | replace("\u2513", "") | replace("\u2517", "") | replace("\u251b", "") | replace("\u2523", "") | replace("\u252b", "") | replace("\u2533", "") | replace("\u253b", "") | replace("\u254b", "") | replace("\u2521", "") | replace("\u2547", "") %}
+
+      <!-- Extract task name from [bracketed] prefix -->
+      {% if clean_msg.startswith("[") and "]" in clean_msg %}
+        {% set task_name = clean_msg[1:clean_msg.index("]")] %}
+        {% set body = clean_msg[clean_msg.index("]")+1:] | trim %}
+      {% else %}
+        {% set task_name = "" %}
+        {% set body = clean_msg | trim %}
+      {% endif %}
+
+      {% if task_name %}
+      <div class="flex items-center gap-1.5 mb-1.5">
+        <span class="text-[10px] px-1.5 py-0.5 rounded bg-white/[0.06] text-gray-400 font-mono">{{ task_name }}</span>
+      </div>
+      {% endif %}
+
+      <!-- Check if body has meaningful content beyond just table headers -->
+      {% set has_data = body | length > 80 and "Ticker" not in body[-60:] %}
+      {% if has_data %}
+        <p class="text-xs text-gray-300 leading-relaxed">{{ body[:400] }}</p>
+      {% else %}
+        <!-- Fallback for truncated/empty alerts -->
+        <div class="flex items-center gap-2 py-1">
+          <span class="text-xs text-gray-400 italic">Watchlist price check completed</span>
+          {% if a.ticker %}
+          <span class="text-[10px] font-semibold text-blue-400 bg-blue-400/10 px-1.5 py-0.5 rounded">{{ a.ticker }}</span>
+          {% endif %}
+        </div>
+        <p class="text-[10px] text-gray-600 mt-1">Full results available in the Watchlist tab.</p>
+      {% endif %}
+
+      <!-- View Results button (only when we have a linked task run) -->
+      {% if a.task_run_id %}
+      <div class="mt-2 pt-2 border-t border-white/[0.04]">
+        <button onclick="toggleResults(this, {{ a.task_run_id }})"
+                class="inline-flex items-center gap-1.5 text-[10px] font-medium px-2.5 py-1 rounded
+                       bg-white/[0.05] hover:bg-white/[0.10] text-gray-400 hover:text-gray-200
+                       transition-all duration-150 cursor-pointer border border-white/[0.06]">
+          <svg class="w-3 h-3 result-chevron transition-transform duration-150" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+          </svg>
+          View Full Results
+        </button>
+        <div class="results-panel hidden mt-2 rounded bg-black/30 border border-white/[0.04] max-h-80 overflow-y-auto">
+          <div class="p-3 text-[11px] text-gray-400 font-mono whitespace-pre-wrap leading-relaxed"></div>
+        </div>
+      </div>
       {% endif %}
     </div>
   </div>
   {% endfor %}
 </div>
+
+<script>
+async function toggleResults(btn, runId) {
+  const panel = btn.nextElementSibling;
+  const chevron = btn.querySelector('.result-chevron');
+  const content = panel.querySelector('div');
+
+  if (!panel.classList.contains('hidden')) {
+    panel.classList.add('hidden');
+    chevron.style.transform = '';
+    btn.querySelector('svg + span, svg ~ *:last-child')
+    return;
+  }
+
+  // Show panel
+  panel.classList.remove('hidden');
+  chevron.style.transform = 'rotate(90deg)';
+
+  // Load if empty
+  if (!content.textContent.trim()) {
+    content.textContent = 'Loading...';
+    try {
+      const resp = await fetch(`/api/task-run/${runId}`);
+      const data = await resp.json();
+      if (data.error) {
+        content.innerHTML = `<span class="text-red-400">Run not found</span>`;
+      } else {
+        const header = `<span class="text-gray-500">${data.task_name} \u2022 ${data.started_at?.slice(0, 16) || '?'} \u2022 exit ${data.exit_code ?? '?'}</span>\n\n`;
+        content.innerHTML = header + escapeHtml(data.stdout || '(no output)');
+        if (data.stderr) {
+          content.innerHTML += `\n\n<span class="text-red-400/70">STDERR:\n${escapeHtml(data.stderr)}</span>`;
+        }
+      }
+    } catch (e) {
+      content.innerHTML = `<span class="text-red-400">Failed to load: ${e.message}</span>`;
+    }
+  }
+}
+
+function escapeHtml(text) {
+  const d = document.createElement('div');
+  d.textContent = text;
+  return d.innerHTML;
+}
+</script>
+
 {% else %}
-<div class="text-center py-6">
-  <p class="text-sm text-gray-500">No alerts yet</p>
-  <p class="text-xs text-gray-600 mt-1">Alerts appear here when scheduled tasks find something — price targets hit, screening results, or risk flags</p>
+<div class="text-center py-8">
+  <svg class="w-8 h-8 mx-auto text-gray-600 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"/></svg>
+  <p class="text-sm text-gray-500">No alerts</p>
+  <p class="text-[10px] text-gray-600 mt-1">Price targets, screening results, and risk flags appear here</p>
 </div>
 {% endif %}

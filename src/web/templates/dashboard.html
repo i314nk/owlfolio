@@ -981,9 +981,27 @@
       streamBuffer = '';
     }
 
+    let pendingMessage = null;  // queued message waiting for WS reconnect
+    let keepaliveTimer = null;
+
     function connectWebSocket() {
       const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
       ws = new WebSocket(`${protocol}//${location.host}/ws/chat`);
+
+      ws.onopen = () => {
+        // Flush any queued message
+        if (pendingMessage && ws.readyState === WebSocket.OPEN) {
+          ws.send(pendingMessage);
+          pendingMessage = null;
+        }
+        // Keepalive ping every 25s to prevent idle disconnect
+        clearInterval(keepaliveTimer);
+        keepaliveTimer = setInterval(() => {
+          if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({type: 'ping'}));
+          }
+        }, 25000);
+      };
 
       ws.onmessage = (event) => {
         const data = JSON.parse(event.data);
@@ -1080,7 +1098,10 @@
         }
       };
 
-      ws.onclose = () => { setTimeout(connectWebSocket, 3000); };
+      ws.onclose = () => {
+        clearInterval(keepaliveTimer);
+        setTimeout(connectWebSocket, 2000);
+      };
       ws.onerror = () => { ws.close(); };
     }
 
@@ -1137,8 +1158,9 @@
       if (ws && ws.readyState === WebSocket.OPEN) {
         ws.send(text);
       } else {
-        appendMessage('assistant', 'Connecting to server...');
-        setThinking(false);
+        // Queue the message — it'll be sent automatically when WS reconnects
+        pendingMessage = text;
+        setThinking(true, 'Reconnecting…');
       }
     }
 
