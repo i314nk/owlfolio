@@ -34,17 +34,40 @@ def list_holdings(ticker: str | None = None, with_prices: bool = False) -> dict[
     if not with_prices:
         return {"holdings": rows, "totals": None}
 
-    # Live P&L
+    # Use cached prices from the DB for instant rendering.
+    # The `latest_price` column is refreshed by:
+    #   1. The daemon's scheduled watchlist-price task (every market day)
+    #   2. The watchlist endpoint's background thread
+    #   3. The MCP refresh_prices tool
+    # Fetching live prices here blocked the event loop for ~0.6s per
+    # ticker (yfinance + TradingView fallback), making the UI sluggish.
     from src.data.prices import get_price_data
+
+    # When called from the CLI agent (not web), with_prices still works
+    # via a quick sync fetch.  Inside the web server's async event loop
+    # we detect and skip the heavy path.
+    import asyncio
+
+    in_async = True
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        in_async = False
 
     enriched = []
     total_value = 0.0
     total_cost = 0.0
     for h in rows:
-        try:
-            price = get_price_data(h["ticker"]).price
-        except Exception:
-            price = None
+        price = None
+        if in_async:
+            # Inside web server — use stored price to avoid blocking
+            price = h.get("current_price") or h.get("latest_price")
+        else:
+            # CLI/agent context — fetch live
+            try:
+                price = get_price_data(h["ticker"]).price
+            except Exception:
+                pass
         cost = float(h["shares"]) * float(h["cost_basis"])
         value = float(h["shares"]) * price if price is not None else None
         pnl = (value - cost) if value is not None else None

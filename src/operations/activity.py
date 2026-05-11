@@ -117,13 +117,13 @@ def _analyses_to_events(conn, limit: int, strategy: str | None = None) -> list[d
             summary = "Specialist run (informational only)."
         else:
             from src.agents.discovery import ticker_currency
-            from src.data.prices import get_price_data
 
             _, csym = ticker_currency(d["ticker"])
             buy = f"{csym}{d['buy_price']:.2f}" if d["buy_price"] else "—"
-            live = get_price_data(d["ticker"])
-            live_price = live.price if live.price and live.price > 0 else d["current_price"]
-            cur = f"{csym}{live_price:.2f}" if live_price else "—"
+            # Use stored price — live fetching blocks the event loop and
+            # makes the UI take 60s+ to load.  The daemon's scheduled
+            # watchlist task keeps prices fresh enough for display.
+            cur = f"{csym}{d['current_price']:.2f}" if d["current_price"] else "—"
             summary = f"{d['quality_tier']} {d['weighted_score']:.1f}/5 | fair {buy} vs {cur}"
         out.append(
             {

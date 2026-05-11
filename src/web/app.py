@@ -173,21 +173,31 @@ async def api_watchlist(request: Request, strategy: str | None = None, fresh: st
     else:
         watchlist = [dict(r) for r in conn.execute("SELECT * FROM watchlist").fetchall()]
 
-    # Always enrich with live prices (skip only if ?fresh=false explicitly)
+    # Live price refresh moved to a background thread so the UI renders
+    # instantly with stored prices. The daemon's scheduled watchlist task
+    # keeps prices fresh; this is a best-effort top-up.
     skip_fresh = fresh and fresh.lower() in ("false", "0", "no")
     if not skip_fresh:
-        from src.data.prices import get_price_data
-        from src.db.operations import update_latest_analysis_price, update_watchlist_price
+        import threading
 
-        for w in watchlist:
-            try:
-                price_data = get_price_data(w["ticker"])
-                if price_data.price and price_data.price > 0:
-                    w["current_price"] = price_data.price
-                    update_watchlist_price(conn, w["ticker"], price_data.price)
-                    update_latest_analysis_price(conn, w["ticker"], price_data.price)
-            except Exception:
-                pass
+        tickers = [w["ticker"] for w in watchlist]
+
+        def _bg_refresh():
+            from src.data.prices import get_price_data
+            from src.db.operations import update_latest_analysis_price, update_watchlist_price
+
+            bg_conn = _get_db()
+            for t in tickers:
+                try:
+                    pd = get_price_data(t)
+                    if pd.price and pd.price > 0:
+                        update_watchlist_price(bg_conn, t, pd.price)
+                        update_latest_analysis_price(bg_conn, t, pd.price)
+                except Exception:
+                    pass
+            bg_conn.close()
+
+        threading.Thread(target=_bg_refresh, daemon=True).start()
 
     conn.close()
     return TEMPLATES.TemplateResponse(
