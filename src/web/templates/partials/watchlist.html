@@ -12,10 +12,10 @@
     <tr class="border-b border-surface-border/50 hover:bg-surface-hover transition-colors">
       <td class="py-2 font-semibold text-white">{{ w.ticker }}</td>
       <td class="py-2 text-right text-gray-300">
-        {% if w.buy_price %}${{ "%.2f"|format(w.buy_price) }}{% else %}<span class="text-gray-500">--</span>{% endif %}
+        {% if w.buy_price %}{{ w.currency_symbol }}{% if w.no_decimals %}{{ "%.0f"|format(w.buy_price) }}{% else %}{{ "%.2f"|format(w.buy_price) }}{% endif %}{% else %}<span class="text-gray-500">--</span>{% endif %}
       </td>
       <td class="py-2 text-right text-gray-300">
-        {% if w.current_price %}${{ "%.2f"|format(w.current_price) }}{% else %}<span class="text-gray-500">--</span>{% endif %}
+        {% if w.current_price %}{{ w.currency_symbol }}{% if w.no_decimals %}{{ "%.0f"|format(w.current_price) }}{% else %}{{ "%.2f"|format(w.current_price) }}{% endif %}{% else %}<span class="text-gray-500">--</span>{% endif %}
       </td>
     </tr>
     {% endfor %}

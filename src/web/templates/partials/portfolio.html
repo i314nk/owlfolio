@@ -13,7 +13,7 @@
     <tr class="border-b border-surface-border/50 hover:bg-surface-hover transition-colors">
       <td class="py-2 font-semibold text-white">{{ h.ticker }}</td>
       <td class="py-2 text-right text-gray-300">{{ "%.2f"|format(h.shares) }}</td>
-      <td class="py-2 text-right text-gray-300">${{ "%.2f"|format(h.cost_basis) }}</td>
+      <td class="py-2 text-right text-gray-300">{{ h.currency_symbol|default("$") }}{{ "%.2f"|format(h.cost_basis) }}</td>
       <td class="py-2 text-right text-gray-400">{{ h.account or "default" }}</td>
     </tr>
     {% endfor %}

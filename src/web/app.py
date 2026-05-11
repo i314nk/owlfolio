@@ -145,10 +145,15 @@ async def api_strategies():
 async def api_portfolio(request: Request, strategy: str | None = None):
     from src.operations.portfolio import list_holdings
 
+    from src.agents.discovery import ticker_currency
+
     result = list_holdings(ticker=None, with_prices=True)
     holdings = result["holdings"]
     if strategy:
         holdings = [h for h in holdings if h.get("strategy") == strategy]
+    for h in holdings:
+        _, csym = ticker_currency(h["ticker"])
+        h["currency_symbol"] = csym
     return TEMPLATES.TemplateResponse(
         request,
         "partials/portfolio.html",
@@ -198,6 +203,16 @@ async def api_watchlist(request: Request, strategy: str | None = None, fresh: st
             bg_conn.close()
 
         threading.Thread(target=_bg_refresh, daemon=True).start()
+
+    # Enrich with currency symbols so the template doesn't hardcode '$'
+    from src.agents.discovery import ticker_currency
+
+    # Currencies like JPY and KRW don't use decimal places
+    _NO_DECIMAL_CURRENCIES = {"¥", "₩"}
+    for w in watchlist:
+        _, csym = ticker_currency(w["ticker"])
+        w["currency_symbol"] = csym
+        w["no_decimals"] = csym.strip() in _NO_DECIMAL_CURRENCIES
 
     conn.close()
     return TEMPLATES.TemplateResponse(
