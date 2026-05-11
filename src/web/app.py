@@ -151,9 +151,13 @@ async def api_portfolio(request: Request, strategy: str | None = None):
     holdings = result["holdings"]
     if strategy:
         holdings = [h for h in holdings if h.get("strategy") == strategy]
+    _CS = {
+        "USD": "$", "AED": "AED ", "JPY": "¥", "GBP": "£", "INR": "₹",
+        "HKD": "HK$", "CAD": "C$", "AUD": "A$", "SAR": "SAR ", "EUR": "€", "BRL": "R$",
+    }
     for h in holdings:
-        _, csym = ticker_currency(h["ticker"])
-        h["currency_symbol"] = csym
+        code = h.get("currency") or ticker_currency(h["ticker"])[0]
+        h["currency_symbol"] = _CS.get(code, f"{code} ")
     return TEMPLATES.TemplateResponse(
         request,
         "partials/portfolio.html",
@@ -204,15 +208,18 @@ async def api_watchlist(request: Request, strategy: str | None = None, fresh: st
 
         threading.Thread(target=_bg_refresh, daemon=True).start()
 
-    # Enrich with currency symbols so the template doesn't hardcode '$'
+    # Derive display currency symbol from stored currency code (falls back to ticker suffix)
     from src.agents.discovery import ticker_currency
 
-    # Currencies like JPY and KRW don't use decimal places
-    _NO_DECIMAL_CURRENCIES = {"¥", "₩"}
+    _CURRENCY_SYMBOLS = {
+        "USD": "$", "AED": "AED ", "JPY": "¥", "GBP": "£", "INR": "₹",
+        "HKD": "HK$", "CAD": "C$", "AUD": "A$", "SAR": "SAR ", "EUR": "€", "BRL": "R$",
+    }
+    _NO_DECIMAL_CURRENCIES = {"JPY", "KRW"}
     for w in watchlist:
-        _, csym = ticker_currency(w["ticker"])
-        w["currency_symbol"] = csym
-        w["no_decimals"] = csym.strip() in _NO_DECIMAL_CURRENCIES
+        code = w.get("currency") or ticker_currency(w["ticker"])[0]
+        w["currency_symbol"] = _CURRENCY_SYMBOLS.get(code, f"{code} ")
+        w["no_decimals"] = code in _NO_DECIMAL_CURRENCIES
 
     conn.close()
     return TEMPLATES.TemplateResponse(

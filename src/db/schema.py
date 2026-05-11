@@ -32,6 +32,7 @@ def _create_tables(conn: sqlite3.Connection):
             account TEXT DEFAULT 'default',
             strategy TEXT,
             notes TEXT,
+            currency TEXT DEFAULT 'USD',
             created_at TEXT DEFAULT (datetime('now'))
         );
 
@@ -55,6 +56,7 @@ def _create_tables(conn: sqlite3.Connection):
             current_price REAL,
             last_checked TEXT,
             notes TEXT,
+            currency TEXT DEFAULT 'USD',
             created_at TEXT DEFAULT (datetime('now')),
             UNIQUE(ticker, strategy)
         );

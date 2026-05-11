@@ -30,13 +30,18 @@ def add_holding(
     account: str = "default",
     strategy: str | None = None,
     notes: str | None = None,
+    currency: str | None = None,
 ) -> int:
     """Add a new holding. Returns the holding ID."""
+    if currency is None:
+        from src.agents.discovery import ticker_currency as _tc
+
+        currency, _ = _tc(ticker)
     cursor = conn.execute(
         """INSERT INTO holdings
-           (ticker, shares, cost_basis, date_acquired, account, strategy, notes)
-           VALUES (?, ?, ?, ?, ?, ?, ?)""",
-        (ticker, shares, cost_basis, date_acquired, account, strategy, notes),
+           (ticker, shares, cost_basis, date_acquired, account, strategy, notes, currency)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+        (ticker, shares, cost_basis, date_acquired, account, strategy, notes, currency),
     )
     conn.commit()
     return cursor.lastrowid
@@ -171,12 +176,17 @@ def add_to_watchlist(
     strategy: str | None = None,
     buy_price: float | None = None,
     notes: str | None = None,
+    currency: str | None = None,
 ) -> int:
     """Add a ticker to the watchlist. Returns the watchlist entry ID."""
+    if currency is None:
+        from src.agents.discovery import ticker_currency as _tc
+
+        currency, _ = _tc(ticker)
     cursor = conn.execute(
-        """INSERT INTO watchlist (ticker, strategy, buy_price, notes)
-           VALUES (?, ?, ?, ?)""",
-        (ticker, strategy, buy_price, notes),
+        """INSERT INTO watchlist (ticker, strategy, buy_price, notes, currency)
+           VALUES (?, ?, ?, ?, ?)""",
+        (ticker, strategy, buy_price, notes, currency),
     )
     conn.commit()
     return cursor.lastrowid

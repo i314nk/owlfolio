@@ -30,12 +30,16 @@ def add_to_watchlist(
         if not isinstance(buy_price, (int, float)) or buy_price <= 0:
             raise ValueError(f"buy_price must be positive, got {buy_price!r}")
 
+    from src.agents.discovery import ticker_currency
+
+    currency, _ = ticker_currency(t)
+
     conn = get_db()
     try:
         cur = conn.execute(
-            """INSERT OR REPLACE INTO watchlist (ticker, strategy, buy_price, notes)
-               VALUES (?, ?, ?, ?)""",
-            (t, strategy, buy_price, notes),
+            """INSERT OR REPLACE INTO watchlist (ticker, strategy, buy_price, notes, currency)
+               VALUES (?, ?, ?, ?, ?)""",
+            (t, strategy, buy_price, notes, currency),
         )
         conn.commit()
         return {
@@ -43,6 +47,7 @@ def add_to_watchlist(
             "ticker": t,
             "strategy": strategy,
             "buy_price": buy_price,
+            "currency": currency,
             "notes": notes,
         }
     finally:
