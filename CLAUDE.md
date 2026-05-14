@@ -117,6 +117,35 @@ pytest tests/ -x -q              # run tests
 owlfolio serve --restart         # restart after code changes
 ```
 
+## Coding Conventions
+
+- **Type hints everywhere.** All function signatures use type annotations. Use `X | None` over `Optional[X]`.
+- **Pydantic for data models.** Schemas in `src/specialists/schemas.py`. Nullable fields use `float | None = None` — prefer null over placeholder values.
+- **Async by default.** All agent-facing code is async. Use `asyncio.gather()` for parallel work. Always pass `return_exceptions=True` to avoid one failure cancelling siblings.
+- **Logging over print.** Use `logging.getLogger("owlfolio.<module>")`. Never print to stdout in library code.
+- **Imports:** absolute imports from `src.` — no relative imports.
+
+## Error Handling Philosophy
+
+- **Classify errors:** Transient (retry) vs business (flag to user) vs permission (escalate). See `_is_transient()` in runner.py.
+- **Never silently swallow.** Log every error, even if handled. `logger.warning` for recoverable, `logger.error` for failures.
+- **MCP tools wrap all exceptions.** Every MCP tool in `mcp_server.py` catches exceptions and returns `_err(message)` with `is_error: True`. The agent loop never crashes from a bad tool call.
+- **Specialists are fault-tolerant.** If 1 of 5 specialists fails, the other 4 still complete. Synthesis works with partial data.
+- **Retry transient errors.** Rate limits, timeouts, 5xx → retry with exponential backoff (30s base, 2x per attempt, max 2 retries). Non-transient errors fail immediately.
+
+## Security Model
+
+- **Chat agent has no shell.** `allowed_tools` restricts to `mcp__owlfolio__*` only. Bash, Read, Write, Edit, Glob, Grep are all removed.
+- **Specialist subagents have no filesystem.** Only `WebSearch` + `WebFetch`. Prompt injection from web content cannot escalate.
+- **Tool inputs are untrusted.** They come from the LLM, not the user. Validate all inputs at the operations layer.
+
+## Testing
+
+- Tests live in `tests/`. Run with `pytest tests/ -x -q`.
+- Use `pytest-asyncio` for async tests.
+- Mock the Agent SDK — don't make real API calls in tests.
+- Test specialist JSON parsing edge cases (malformed JSON, missing fields, null values).
+
 ## Important
 
 - Claude-only: no multi-LLM support. Uses Claude Agent SDK with adaptive extended thinking.

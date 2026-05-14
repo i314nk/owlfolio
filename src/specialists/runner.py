@@ -20,6 +20,24 @@ from src.strategy.loader import Strategy
 
 logger = logging.getLogger("owlfolio.specialists")
 
+# Retry configuration for transient failures (rate limits, timeouts, network)
+MAX_RETRIES = 2
+RETRY_BASE_DELAY = 30  # seconds — matches Anthropic rate-limit retry-after
+TRANSIENT_PATTERNS = (
+    "rate limit",
+    "rate_limit",
+    "overloaded",
+    "529",
+    "timeout",
+    "timed out",
+    "connection",
+    "temporarily unavailable",
+    "server error",
+    "500",
+    "502",
+    "503",
+)
+
 ProgressCallback = Callable[[dict], Awaitable[None]]
 
 
@@ -82,6 +100,7 @@ Return your findings as valid JSON with this structure:
 }}
 
 Include any additional fields relevant to your role (revenue, margins, moat_scores, risks, etc.).
+If you cannot find reliable data for a field, use null rather than guessing or hallucinating a value.
 Return ONLY valid JSON -- no markdown, no explanation."""
 
 
@@ -193,13 +212,47 @@ async def _run_single_specialist(
     return await _run_in_process(ticker, company_name, config, strategy)
 
 
+def _is_transient(error: Exception) -> bool:
+    """Classify whether an error is transient (worth retrying).
+
+    Transient: rate limits, timeouts, network errors, server 5xx.
+    Non-transient: auth failures, invalid requests, permission errors.
+    """
+    msg = str(error).lower()
+    return any(p in msg for p in TRANSIENT_PATTERNS)
+
+
+def _validate_specialist_data(data: dict, config_name: str) -> list[str]:
+    """Validate specialist JSON output against the expected schema.
+
+    Returns a list of validation issues (empty = valid).
+    """
+    issues = []
+    if not isinstance(data.get("summary"), str) or not data.get("summary"):
+        issues.append("'summary' must be a non-empty string")
+    if not isinstance(data.get("key_findings"), list) or not data.get("key_findings"):
+        issues.append("'key_findings' must be a non-empty list")
+    if "confidence" in data:
+        conf = data["confidence"]
+        if not isinstance(conf, (int, float)) or not (0 <= conf <= 1):
+            issues.append("'confidence' must be a number between 0 and 1")
+    if "flags" in data and not isinstance(data["flags"], list):
+        issues.append("'flags' must be a list")
+    return issues
+
+
 async def _run_in_process(
     ticker: str,
     company_name: str,
     config: SpecialistConfig,
     strategy: Strategy,
 ) -> SpecialistFindings | None:
-    """Run a specialist in this Python process via the Agent SDK (default mode)."""
+    """Run a specialist in this Python process via the Agent SDK (default mode).
+
+    Includes retry with exponential backoff for transient errors (rate limits,
+    timeouts, network issues) and a single validation-retry if the JSON output
+    doesn't match the expected schema.
+    """
     from claude_agent_sdk import ClaudeAgentOptions, ResultMessage
     from claude_agent_sdk import query as sdk_query
 
@@ -214,52 +267,84 @@ async def _run_in_process(
         strategy.description,
     )
 
-    try:
-        from pathlib import Path
+    last_error: Exception | None = None
 
-        result_text = ""
-        async for msg in sdk_query(
-            prompt=prompt,
-            options=ClaudeAgentOptions(
-                model=_agent_sdk_model("claude-opus-4-7-20250507"),
-                permission_mode="bypassPermissions",
-                cwd=str(Path.home()),
-                # Specialists only need the web. Bash/Read/Glob/Grep would
-                # be pure attack surface — a prompt-injection from a fetched
-                # page could escalate to host shell. Locked down on purpose.
-                allowed_tools=["WebSearch", "WebFetch"],
-                # Adaptive extended thinking — let the model size its own
-                # thinking budget per question. Applies to every specialist
-                # subagent, including add-ons (Shariah, future ESG/Insider).
-                thinking={"type": "adaptive"},
-            ),
-        ):
-            if isinstance(msg, ResultMessage) and msg.result:
-                result_text = msg.result
+    for attempt in range(1 + MAX_RETRIES):
+        try:
+            from pathlib import Path
 
-        if not result_text:
-            logger.warning("Specialist %s returned empty response", config.name)
-            return None
+            result_text = ""
+            async for msg in sdk_query(
+                prompt=prompt,
+                options=ClaudeAgentOptions(
+                    model=_agent_sdk_model("claude-opus-4-7-20250507"),
+                    permission_mode="bypassPermissions",
+                    cwd=str(Path.home()),
+                    # Specialists only need the web. Bash/Read/Glob/Grep would
+                    # be pure attack surface — a prompt-injection from a fetched
+                    # page could escalate to host shell. Locked down on purpose.
+                    allowed_tools=["WebSearch", "WebFetch"],
+                    # Adaptive extended thinking — let the model size its own
+                    # thinking budget per question. Applies to every specialist
+                    # subagent, including add-ons (Shariah, future ESG/Insider).
+                    thinking={"type": "adaptive"},
+                ),
+            ):
+                if isinstance(msg, ResultMessage) and msg.result:
+                    result_text = msg.result
 
-        # Parse JSON response
-        data = _parse_specialist_json(result_text)
-        if not data:
-            return None
+            if not result_text:
+                logger.warning("Specialist %s returned empty response", config.name)
+                return None
 
-        # Ensure required fields
-        data.setdefault("specialist_name", config.name)
-        data.setdefault("ticker", ticker)
-        data.setdefault("summary", "")
-        data.setdefault("key_findings", [])
-        data.setdefault("data_sources", [])
-        data.setdefault("confidence", 0.5)
-        data.setdefault("flags", [])
+            # Parse JSON response
+            data = _parse_specialist_json(result_text)
+            if not data:
+                # JSON parse failed entirely — no point retrying, model gave bad format
+                logger.warning("Specialist %s returned unparseable JSON", config.name)
+                return None
 
-        return SpecialistFindings(**data)
+            # Validate output schema
+            issues = _validate_specialist_data(data, config.name)
+            if issues:
+                logger.warning(
+                    "Specialist %s output has schema issues: %s",
+                    config.name,
+                    "; ".join(issues),
+                )
+                # Don't retry schema issues — use what we have with defaults
 
-    except Exception as e:
-        logger.error("Specialist %s error: %s", config.name, e)
-        return None
+            # Ensure required fields with defaults (nullable-safe)
+            data.setdefault("specialist_name", config.name)
+            data.setdefault("ticker", ticker)
+            data.setdefault("summary", "")
+            data.setdefault("key_findings", [])
+            data.setdefault("data_sources", [])
+            data.setdefault("confidence", 0.5)
+            data.setdefault("flags", [])
+
+            return SpecialistFindings(**data)
+
+        except Exception as e:
+            last_error = e
+            if attempt < MAX_RETRIES and _is_transient(e):
+                delay = RETRY_BASE_DELAY * (2 ** attempt)
+                logger.warning(
+                    "Specialist %s transient error (attempt %d/%d), retrying in %ds: %s",
+                    config.name,
+                    attempt + 1,
+                    1 + MAX_RETRIES,
+                    delay,
+                    e,
+                )
+                await asyncio.sleep(delay)
+                continue
+            else:
+                logger.error("Specialist %s error (non-transient or retries exhausted): %s", config.name, e)
+                return None
+
+    logger.error("Specialist %s failed after %d attempts: %s", config.name, 1 + MAX_RETRIES, last_error)
+    return None
 
 
 def _parse_specialist_json(text: str) -> dict | None:
