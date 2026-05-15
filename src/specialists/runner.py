@@ -99,8 +99,10 @@ Return your findings as valid JSON with this structure:
   "flags": ["RED: concern", "GREEN: positive"]
 }}
 
-Include any additional fields relevant to your role (revenue, margins, moat_scores, risks, etc.).
-If you cannot find reliable data for a field, use null rather than guessing or hallucinating a value.
+Include any additional fields relevant to your role
+(revenue, margins, moat_scores, risks, etc.).
+If you cannot find reliable data for a field, use null
+rather than guessing or hallucinating a value.
 Return ONLY valid JSON -- no markdown, no explanation."""
 
 
@@ -340,10 +342,16 @@ async def _run_in_process(
                 await asyncio.sleep(delay)
                 continue
             else:
-                logger.error("Specialist %s error (non-transient or retries exhausted): %s", config.name, e)
+                logger.error(
+                    "Specialist %s error (non-transient or retries exhausted): %s",
+                    config.name, e,
+                )
                 return None
 
-    logger.error("Specialist %s failed after %d attempts: %s", config.name, 1 + MAX_RETRIES, last_error)
+    logger.error(
+        "Specialist %s failed after %d attempts: %s",
+        config.name, 1 + MAX_RETRIES, last_error,
+    )
     return None
 
 

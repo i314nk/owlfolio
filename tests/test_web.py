@@ -59,7 +59,12 @@ def app_with_db(tmp_path, monkeypatch):
         INSERT INTO holdings (ticker, shares, cost_basis, date_acquired, account)
         VALUES ('AAPL', 10, 150.0, '2024-01-01', 'default');
         INSERT INTO watchlist (ticker, buy_price) VALUES ('MSFT', 350.0);
-        INSERT INTO alerts (type, ticker, message) VALUES ('price', 'AAPL', '[daily-watchlist-check] AAPL trading at $298.21 vs buy price $334.24 (-10.8%). Currently in BUY ZONE — below target entry price. Consider adding to position per strategy allocation rules.');
+        INSERT INTO alerts (type, ticker, message) VALUES (
+            'price', 'AAPL',
+            '[daily-watchlist-check] AAPL trading at $298.21 vs buy price'
+            || ' $334.24 (-10.8%). Currently in BUY ZONE — below target'
+            || ' entry price. Consider adding to position.'
+        );
         INSERT INTO scheduled_tasks (name, command, schedule)
         VALUES ('weekly-screen', 'owlfolio screen', '0 9 * * 1');
         """

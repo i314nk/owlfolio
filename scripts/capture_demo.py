@@ -12,10 +12,7 @@ import time
 
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
-from selenium.webdriver.support import expected_conditions as EC
-from selenium.webdriver.support.ui import WebDriverWait
 
 URL = "http://localhost:8000"
 OUT_DIR = "/tmp/owlfolio-captures"
@@ -159,7 +156,10 @@ def main():
         "-framerate", "0.5",  # 2 seconds per frame
         "-pattern_type", "glob",
         "-i", os.path.join(OUT_DIR, "*.png"),
-        "-vf", "scale=800:-1:flags=lanczos,split[s0][s1];[s0]palettegen=max_colors=128[p];[s1][p]paletteuse=dither=bayer",
+        "-vf",
+        "scale=800:-1:flags=lanczos,split[s0][s1];"
+        "[s0]palettegen=max_colors=128[p];"
+        "[s1][p]paletteuse=dither=bayer",
         "-loop", "0",
         FINAL_GIF,
     ]

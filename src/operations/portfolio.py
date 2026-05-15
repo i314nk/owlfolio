@@ -41,12 +41,13 @@ def list_holdings(ticker: str | None = None, with_prices: bool = False) -> dict[
     #   3. The MCP refresh_prices tool
     # Fetching live prices here blocked the event loop for ~0.6s per
     # ticker (yfinance + TradingView fallback), making the UI sluggish.
+    import asyncio
+
     from src.data.prices import get_price_data
 
     # When called from the CLI agent (not web), with_prices still works
     # via a quick sync fetch.  Inside the web server's async event loop
     # we detect and skip the heavy path.
-    import asyncio
 
     in_async = True
     try:
