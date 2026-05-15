@@ -1924,7 +1924,7 @@ def analyze_list_cmd(
         if not lists:
             console.print("[red]No candidate lists found.[/red]")
             raise typer.Exit(1)
-        name = lists[-1]["name"]
+        name = lists[0]["name"]  # lists sorted by created_at DESC — [0] is newest
         console.print(f"[dim]Auto-selected list: {name}[/dim]")
 
     if not name:
