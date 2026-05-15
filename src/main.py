@@ -1672,14 +1672,15 @@ def analyses(
             tickers_seen[t] = live.price if live.price and live.price > 0 else None
 
     for a in results:
-        decision_style = {"BUY": "green", "WATCH": "yellow", "PASS": "red"}.get(a["decision"], "")
+        decision = a["decision"] or "—"
+        decision_style = {"BUY": "green", "WATCH": "yellow", "PASS": "red"}.get(decision, "dim")
         live_price = tickers_seen.get(a["ticker"]) or a["current_price"]
         table.add_row(
             str(a["id"]),
             (a["created_at"] or "")[:10],
             a["ticker"],
             a["strategy"] or "",
-            f"[{decision_style}]{a['decision']}[/{decision_style}]",
+            f"[{decision_style}]{decision}[/{decision_style}]",
             _fmt_price(a["buy_price"], a["ticker"]) if a["buy_price"] else "",
             _fmt_price(live_price, a["ticker"]) if live_price else "",
             a["quality_tier"] or "",
