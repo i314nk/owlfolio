@@ -152,15 +152,20 @@ def main():
 
     # Use ffmpeg: 0.6 fps = ~1.7s per frame, good for browsing
     cmd = [
-        "ffmpeg", "-y",
-        "-framerate", "0.5",  # 2 seconds per frame
-        "-pattern_type", "glob",
-        "-i", os.path.join(OUT_DIR, "*.png"),
+        "ffmpeg",
+        "-y",
+        "-framerate",
+        "0.5",  # 2 seconds per frame
+        "-pattern_type",
+        "glob",
+        "-i",
+        os.path.join(OUT_DIR, "*.png"),
         "-vf",
         "scale=800:-1:flags=lanczos,split[s0][s1];"
         "[s0]palettegen=max_colors=128[p];"
         "[s1][p]paletteuse=dither=bayer",
-        "-loop", "0",
+        "-loop",
+        "0",
         FINAL_GIF,
     ]
     result = subprocess.run(cmd, capture_output=True, text=True)

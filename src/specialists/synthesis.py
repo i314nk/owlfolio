@@ -210,9 +210,7 @@ def _format_specialist_outputs(outputs: list[SpecialistFindings]) -> str:
             source_warning = " ⚠️ LOW SOURCE COUNT"
 
         header = (
-            f"### {output.specialist_name} "
-            f"(confidence: {output.confidence:.0%})"
-            f"{source_warning}"
+            f"### {output.specialist_name} (confidence: {output.confidence:.0%}){source_warning}"
         )
         section = f"""{header}
 

@@ -384,7 +384,7 @@ async def _run_in_process(
         except Exception as e:
             last_error = e
             if attempt < MAX_RETRIES and _is_transient(e):
-                delay = RETRY_BASE_DELAY * (2 ** attempt)
+                delay = RETRY_BASE_DELAY * (2**attempt)
                 logger.warning(
                     "Specialist %s transient error (attempt %d/%d), retrying in %ds: %s",
                     config.name,
@@ -398,13 +398,16 @@ async def _run_in_process(
             else:
                 logger.error(
                     "Specialist %s error (non-transient or retries exhausted): %s",
-                    config.name, e,
+                    config.name,
+                    e,
                 )
                 return None
 
     logger.error(
         "Specialist %s failed after %d attempts: %s",
-        config.name, 1 + MAX_RETRIES, last_error,
+        config.name,
+        1 + MAX_RETRIES,
+        last_error,
     )
     return None
 

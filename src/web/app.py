@@ -151,9 +151,17 @@ async def api_portfolio(request: Request, strategy: str | None = None):
     if strategy:
         holdings = [h for h in holdings if h.get("strategy") == strategy]
     symbols = {
-        "USD": "$", "AED": "AED ", "JPY": "¥", "GBP": "£", "INR": "₹",
-        "HKD": "HK$", "CAD": "C$", "AUD": "A$", "SAR": "SAR ",
-        "EUR": "€", "BRL": "R$",
+        "USD": "$",
+        "AED": "AED ",
+        "JPY": "¥",
+        "GBP": "£",
+        "INR": "₹",
+        "HKD": "HK$",
+        "CAD": "C$",
+        "AUD": "A$",
+        "SAR": "SAR ",
+        "EUR": "€",
+        "BRL": "R$",
     }
     for h in holdings:
         code = h.get("currency") or ticker_currency(h["ticker"])[0]
@@ -212,9 +220,17 @@ async def api_watchlist(request: Request, strategy: str | None = None, fresh: st
     from src.agents.discovery import ticker_currency
 
     symbols = {
-        "USD": "$", "AED": "AED ", "JPY": "¥", "GBP": "£", "INR": "₹",
-        "HKD": "HK$", "CAD": "C$", "AUD": "A$", "SAR": "SAR ",
-        "EUR": "€", "BRL": "R$",
+        "USD": "$",
+        "AED": "AED ",
+        "JPY": "¥",
+        "GBP": "£",
+        "INR": "₹",
+        "HKD": "HK$",
+        "CAD": "C$",
+        "AUD": "A$",
+        "SAR": "SAR ",
+        "EUR": "€",
+        "BRL": "R$",
     }
     no_dec = {"JPY", "KRW"}
     for w in watchlist:

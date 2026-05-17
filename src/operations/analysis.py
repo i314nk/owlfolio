@@ -84,12 +84,14 @@ def _build_previous_analysis_text(ticker: str) -> str:
                 f"Note: Analysis is {age_days} days old. Verify key assumptions still hold."
             )
 
-        parts.extend([
-            f"Analysis date: {analysis.get('created_at', 'unknown')}",
-            f"Decision: {analysis.get('decision', 'N/A')}",
-            f"Quality tier: {analysis.get('quality_tier', 'unknown')}",
-            f"Score: {analysis.get('weighted_score', 0)}/5",
-        ])
+        parts.extend(
+            [
+                f"Analysis date: {analysis.get('created_at', 'unknown')}",
+                f"Decision: {analysis.get('decision', 'N/A')}",
+                f"Quality tier: {analysis.get('quality_tier', 'unknown')}",
+                f"Score: {analysis.get('weighted_score', 0)}/5",
+            ]
+        )
         if analysis.get("thesis"):
             parts.append(f"Thesis: {analysis['thesis']}")
         if analysis.get("bull_case"):

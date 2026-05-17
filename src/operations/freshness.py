@@ -18,17 +18,17 @@ from src.db.operations import get_analyses
 from src.db.schema import get_db
 
 # Thresholds in days
-FRESH_DAYS = 30       # Analysis is current — no flag needed
-AGING_DAYS = 60       # Still usable, but note the age
-STALE_DAYS = 90       # Should be re-analyzed before acting on it
-EXPIRED_DAYS = 180    # Do not use — treat as if no analysis exists
+FRESH_DAYS = 30  # Analysis is current — no flag needed
+AGING_DAYS = 60  # Still usable, but note the age
+STALE_DAYS = 90  # Should be re-analyzed before acting on it
+EXPIRED_DAYS = 180  # Do not use — treat as if no analysis exists
 
 
 class FreshnessStatus:
-    FRESH = "FRESH"         # <30 days
-    AGING = "AGING"         # 30-60 days — usable with age note
-    STALE = "STALE"         # 60-90 days — re-analysis recommended
-    EXPIRED = "EXPIRED"     # >90 days — do not use
+    FRESH = "FRESH"  # <30 days
+    AGING = "AGING"  # 30-60 days — usable with age note
+    STALE = "STALE"  # 60-90 days — re-analysis recommended
+    EXPIRED = "EXPIRED"  # >90 days — do not use
 
 
 def classify_freshness(analysis_date: str | datetime) -> tuple[str, int]:
@@ -141,13 +141,15 @@ def audit_all_freshness() -> list[dict[str, Any]]:
     for ticker, analysis in seen.items():
         created = analysis.get("created_at", "")
         status, age = classify_freshness(created)
-        results.append({
-            "ticker": ticker,
-            "status": status,
-            "age_days": age,
-            "analysis_date": created,
-            "decision": analysis.get("decision"),
-        })
+        results.append(
+            {
+                "ticker": ticker,
+                "status": status,
+                "age_days": age,
+                "analysis_date": created,
+                "decision": analysis.get("decision"),
+            }
+        )
 
     # Sort: EXPIRED first, then STALE, then AGING, then FRESH
     priority = {
