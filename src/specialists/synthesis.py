@@ -61,6 +61,24 @@ under the {strategy.name} strategy.
 
 {synthesis_prose}
 
+## Data Quality Gate (run BEFORE scoring)
+
+Before synthesizing, audit each specialist report for data quality:
+1. CHECK SOURCES: Each specialist must have >= 3 data_sources. If a specialist
+   has < 3 sources, flag it as LOW CONFIDENCE in discrepancies and weight its
+   findings less heavily in your scoring.
+2. CHECK FRESHNESS: Look at each specialist's data_as_of field. If any specialist
+   is citing data from > 2 quarters ago, flag as STALE DATA in discrepancies.
+   Prefer findings from specialists with more recent data.
+3. CHECK CONFLICTS: If two specialists cite conflicting numbers for the same metric,
+   trust the one with: (a) more sources, (b) more recent data, (c) primary source
+   (SEC filing > news article > blog post).
+4. GROUND TRUTH: Your decision must be traceable to specialist findings which are
+   themselves traceable to tool-fetched sources. No claim in your output should
+   exist that cannot be traced back through this chain.
+5. NO ADDON RECOMMENDATIONS: Do not suggest running any addons (news, shariah, etc.)
+   in your output. Return only the analysis — addon usage is the user's choice.
+
 ## Cross-cutting Job (in addition to the strategy-specific instructions above)
 
 1. RECONCILE: Flag any conflicting data between specialists in `discrepancies`
@@ -68,6 +86,8 @@ under the {strategy.name} strategy.
 3. CLASSIFY: Pick a tier from the TIERS block; report it as `quality_tier`
 4. THESIS / CASES / RISKS: Concise prose for `thesis`, `bull_case`, `bear_case`, `key_risks`
 5. DECIDE: `decision` is BUY / WATCH / PASS with `confidence` (0-1) and `reasoning`
+6. SOURCE AUDIT: If any specialist has < 3 sources or missing data_as_of, cap your
+   overall confidence at 0.7 maximum and note it in reasoning
 
 Return valid JSON:
 {{
@@ -168,7 +188,10 @@ def _build_drift_context(previous_analysis: dict | None, is_holding: bool) -> st
 
 
 def _format_specialist_outputs(outputs: list[SpecialistFindings]) -> str:
-    """Format specialist findings for the synthesis prompt."""
+    """Format specialist findings for the synthesis prompt.
+
+    Includes source count and data_as_of for the Data Quality Gate to assess.
+    """
     sections = []
     for output in outputs:
         flags_text = "\n".join(f"  - {f}" for f in output.flags) if output.flags else "  (none)"
@@ -177,9 +200,18 @@ def _format_specialist_outputs(outputs: list[SpecialistFindings]) -> str:
             if output.key_findings
             else "  (none)"
         )
-        sources_text = ", ".join(output.data_sources[:3]) if output.data_sources else "(none)"
+        sources_text = ", ".join(output.data_sources) if output.data_sources else "(none)"
+        source_count = len(output.data_sources) if output.data_sources else 0
+        data_as_of = getattr(output, "data_as_of", None) or "(not reported)"
 
-        section = f"""### {output.specialist_name} (confidence: {output.confidence:.0%})
+        # Flag low-source specialists visually for synthesis
+        source_warning = ""
+        if source_count < 3:
+            source_warning = " ⚠️ LOW SOURCE COUNT"
+
+        section = f"""### {output.specialist_name} (confidence: {output.confidence:.0%}){source_warning}
+
+Data as of: {data_as_of}
 
 {output.summary}
 
@@ -189,7 +221,7 @@ Key findings:
 Flags:
 {flags_text}
 
-Sources: {sources_text}"""
+Sources ({source_count}): {sources_text}"""
         sections.append(section)
 
     return "\n\n".join(sections)

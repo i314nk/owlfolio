@@ -95,7 +95,7 @@ Return JSON ONLY (no markdown, no preface):
     async for msg in sdk_query(
         prompt=prompt,
         options=ClaudeAgentOptions(
-            model=_agent_sdk_model("claude-haiku-4-5-20250507"),
+            model=_agent_sdk_model("claude-haiku-4-5-20251001"),
             permission_mode="bypassPermissions",
             cwd=str(Path.home()),
             allowed_tools=["WebSearch", "WebFetch"],

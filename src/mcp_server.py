@@ -257,6 +257,22 @@ async def get_latest_analysis(args: dict) -> dict[str, Any]:
 
 
 @tool(
+    "check_freshness",
+    "Check how fresh/stale a ticker's analysis is. Returns status "
+    "(FRESH/AGING/STALE/EXPIRED/NO_ANALYSIS), age in days, and recommendation. "
+    "Call this before relying on saved analysis data for decisions.",
+    {"ticker": Annotated[str, "Ticker symbol"]},
+)
+async def check_freshness(args: dict) -> dict[str, Any]:
+    from src.operations.freshness import check_analysis_freshness
+
+    try:
+        return _ok(check_analysis_freshness(args["ticker"]))
+    except Exception as e:
+        return _err(f"check_freshness: {e}")
+
+
+@tool(
     "get_analysis",
     "Look up a saved analysis by its `#NN` id token (e.g. user says "
     "'tell me about #42' or 'show analysis 42'). Returns the full "
@@ -426,11 +442,15 @@ async def get_doctor_report(args: dict) -> dict[str, Any]:
     "Run the full specialist analysis pipeline on a ticker. Spawns 3-5 "
     "specialist subagents in parallel, then a synthesis agent reconciles "
     "their findings into a BUY/WATCH/PASS decision. Persists the result "
-    "to the analyses table. Slow (~30-90s).",
+    "to the analyses table. Slow (~30-90s). "
+    "FRESHNESS GATE: If a FRESH analysis (<30 days old) already exists, "
+    "returns it immediately without re-running specialists. Use force=true "
+    "to bypass this and force a full re-analysis.",
     {
         "ticker": Annotated[str, "Ticker symbol (e.g. 'AAPL')"],
         "company_name": Annotated[str, "Optional human-readable name"],
         "shariah": Annotated[bool, "Add Shariah compliance specialist (default false)"],
+        "force": Annotated[bool, "Bypass freshness gate and force re-analysis (default false)"],
     },
 )
 async def analyze(args: dict) -> dict[str, Any]:
@@ -439,6 +459,7 @@ async def analyze(args: dict) -> dict[str, Any]:
             ticker=args["ticker"],
             company_name=args.get("company_name") or None,
             shariah=bool(args.get("shariah", False)),
+            force=bool(args.get("force", False)),
         )
         return _ok(result)
     except Exception as e:
@@ -847,9 +868,10 @@ ALL_TOOLS = [
     get_active_strategy,
     get_strategy_info,
     list_specialists,
-    # Read-only — analyses + memory
+    # Read-only — analyses + memory + freshness
     list_analyses,
     get_latest_analysis,
+    check_freshness,
     get_analysis,
     get_activity,
     list_decisions,

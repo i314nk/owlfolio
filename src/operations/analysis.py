@@ -40,10 +40,15 @@ def _inject_previous_analysis(
 
 
 def _build_previous_analysis_text(ticker: str) -> str:
-    """Build a compact text summary of the latest saved analysis."""
+    """Build a compact text summary of the latest saved analysis.
+
+    Applies freshness gate: EXPIRED analyses are discarded entirely,
+    STALE analyses get a LOW CONFIDENCE warning, AGING analyses get a note.
+    """
     from src.db.operations import get_analyses as db_get_analyses
     from src.db.operations import get_specialist_findings
     from src.db.schema import get_db
+    from src.operations.freshness import classify_freshness, FreshnessStatus
 
     conn = get_db()
     try:
@@ -55,12 +60,36 @@ def _build_previous_analysis_text(ticker: str) -> str:
                 "findings without comparison to prior thesis."
             )
         analysis = rows[0]
-        parts = [
+
+        # Freshness gate — reject expired analyses
+        created = analysis.get("created_at", "")
+        status, age_days = classify_freshness(created)
+        if status == FreshnessStatus.EXPIRED:
+            return (
+                f"Previous analysis exists but is EXPIRED ({age_days} days old, "
+                f"dated {created}). DO NOT reference it — data is too stale. "
+                "Treat this as a first-time review."
+            )
+
+        parts = []
+        # Add freshness warning header if not FRESH
+        if status == FreshnessStatus.STALE:
+            parts.append(
+                f"⚠️ FRESHNESS WARNING: This analysis is {age_days} days old. "
+                "Data may be from a prior quarter. Treat with LOW CONFIDENCE — "
+                "verify all key figures against current filings before relying on them."
+            )
+        elif status == FreshnessStatus.AGING:
+            parts.append(
+                f"Note: Analysis is {age_days} days old. Verify key assumptions still hold."
+            )
+
+        parts.extend([
             f"Analysis date: {analysis.get('created_at', 'unknown')}",
             f"Decision: {analysis.get('decision', 'N/A')}",
             f"Quality tier: {analysis.get('quality_tier', 'unknown')}",
             f"Score: {analysis.get('weighted_score', 0)}/5",
-        ]
+        ])
         if analysis.get("thesis"):
             parts.append(f"Thesis: {analysis['thesis']}")
         if analysis.get("bull_case"):
@@ -101,6 +130,7 @@ async def analyze(
     company_name: str | None = None,
     strategy_path: str | None = None,
     shariah: bool = False,
+    force: bool = False,
 ) -> dict[str, Any]:
     """Run the full specialist + synthesis pipeline on a ticker.
 
@@ -111,6 +141,9 @@ async def analyze(
             to the active strategy (methodology.yaml or buffett-munger.yaml).
         shariah: If True, attaches the Shariah compliance specialist as
             an add-on alongside the strategy roster.
+        force: If True, bypass the freshness gate and re-analyze even if
+            a recent (<30 day) analysis exists. Used by annual-reanalysis
+            and explicit user requests.
 
     Returns:
         {
@@ -131,6 +164,46 @@ async def analyze(
 
     t = validate_ticker(ticker)
     name = company_name or t
+
+    # ── Freshness pre-check: skip expensive pipeline if analysis is fresh ──
+    # Saves tokens/cost by returning the existing analysis when it's <30 days old.
+    # Callers can bypass by passing force=True.
+    from src.operations.freshness import check_analysis_freshness, FreshnessStatus
+
+    freshness = check_analysis_freshness(t)
+    if not force and freshness["status"] == FreshnessStatus.FRESH:
+        from src.operations.analyses import get_latest_analysis as _get_latest
+
+        existing = _get_latest(t)
+        if existing:
+            logger.info(
+                "Skipping analysis for %s — existing analysis is FRESH (%d days old). "
+                "Use force=True or wait until analysis ages past %d days.",
+                t,
+                freshness["age_days"],
+                30,
+            )
+            return {
+                "ticker": t,
+                "company_name": name,
+                "strategy": existing.get("strategy", ""),
+                "decision": existing.get("decision", "WATCH"),
+                "confidence": existing.get("weighted_score", 0) / 5.0,
+                "fair_value": existing.get("buy_price"),
+                "current_price": existing.get("current_price"),
+                "quality_tier": existing.get("quality_tier", "unknown"),
+                "weighted_score": existing.get("weighted_score", 0),
+                "thesis": existing.get("thesis", ""),
+                "bull_case": existing.get("bull_case", ""),
+                "bear_case": existing.get("bear_case", ""),
+                "key_risks": existing.get("key_risks", []),
+                "specialists_used": [],
+                "data_sources": [],
+                "analysis_id": existing.get("id"),
+                "duration_s": 0,
+                "skipped": True,
+                "skip_reason": f"Existing analysis is FRESH ({freshness['age_days']} days old)",
+            }
 
     if strategy_path:
         from pathlib import Path as _Path

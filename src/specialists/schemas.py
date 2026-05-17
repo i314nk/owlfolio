@@ -15,6 +15,7 @@ class SpecialistFindings(BaseModel):
     summary: str  # 2-3 sentence summary of findings
     key_findings: list[str]  # Bullet points
     data_sources: list[str]  # URLs/sources used
+    data_as_of: str | None = None  # Period covered (e.g. "FY2025", "Q1 2026", "2026-05-15")
     confidence: float = 0.7  # 0-1 how confident in the findings
     flags: list[str] = []  # Red/yellow/green flags
 

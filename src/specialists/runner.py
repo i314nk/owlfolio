@@ -69,10 +69,13 @@ ACCOUNTING CONTEXT: {acct_ctx}
 YOUR JOB:
 {body}
 
-DATA FRESHNESS (mandatory):
+DATA FRESHNESS (mandatory — architectural enforcement):
 - Today's date is {date.today().isoformat()}.
-- Always fetch data relevant to your role from primary sources. Never cite facts,
-  figures, or metrics from memory -- always verify via a live search.
+- You have NO pre-loaded knowledge about this company. Your context is EMPTY.
+  Every single fact you report MUST come from a tool call (WebSearch or WebFetch)
+  you make during THIS session. If you did not fetch it just now, you do not know it.
+- NEVER cite facts, figures, or metrics from memory or training data — they are
+  stale by definition. Always verify via a live search.
 - Use the most recent data available. For financial figures: latest fiscal year and
   most recent quarter. For risks/news: developments within the last 3-6 months.
   For competitive/moat data: most current market share and industry reports.
@@ -82,27 +85,48 @@ DATA FRESHNESS (mandatory):
 - Do NOT report a "current stock price" -- the system fetches that separately.
   Focus on the fundamentals relevant to your specialist role.
 
+GROUND TRUTH PROTOCOL (from Anthropic context engineering principles):
+- You are a subagent with NO persistent memory. Treat every run as a fresh start.
+- Your ONLY source of truth is tool call results. No tool call = no fact.
+- If a search returns no results for a specific claim, report it as null/unknown
+  rather than filling from training data. A gap is better than a hallucination.
+- Cross-reference at minimum 2 independent sources for any key figure.
+- Include the URL where you found each major fact in your data_sources array.
+  Minimum 3 sources required. If you cannot find 3 sources, lower your confidence.
+
 INSTRUCTIONS:
-1. Use WebSearch and WebFetch to gather data from the sources cited above
-2. Cross-reference at least 2 sources when possible
+1. Use WebSearch and WebFetch to gather data from primary sources
+2. Cross-reference at least 2 sources for every key metric
 3. Focus on what's relevant to your specific role -- don't try to cover everything
 4. Be specific with numbers -- revenue, margins, growth rates, not vague statements
+5. For EVERY key_finding, mentally note which tool call produced it. If you cannot
+   trace it to a specific search result, do not include it.
 
 Return your findings as valid JSON with this structure:
 {{
   "specialist_name": "{config_name}",
   "ticker": "{ticker}",
   "summary": "2-3 sentence summary",
-  "key_findings": ["finding 1", "finding 2", ...],
-  "data_sources": ["url1", "url2", ...],
+  "key_findings": ["finding 1 (Source: url)", "finding 2 (Source: url)", ...],
+  "data_sources": ["url1", "url2", "url3", ...],
+  "data_as_of": "YYYY-MM-DD or fiscal period (e.g. FY2025, Q1 2026)",
   "confidence": 0.8,
   "flags": ["RED: concern", "GREEN: positive"]
 }}
 
+HARD RULES:
+- data_sources MUST contain >= 3 URLs. If you found fewer, your confidence
+  MUST be <= 0.5 and add flag "RED: insufficient sources (<3)"
+- data_as_of MUST reflect the most recent period your data covers
+- Each key_finding SHOULD include inline source attribution
+- If you cannot find reliable data for a field, use null — never guess
+- confidence reflects BOTH quality of findings AND source coverage:
+  * 3+ quality sources, cross-referenced = 0.7-1.0
+  * 2 sources, some gaps = 0.5-0.7
+  * <2 sources or unable to verify key claims = 0.1-0.5
+
 Include any additional fields relevant to your role
 (revenue, margins, moat_scores, risks, etc.).
-If you cannot find reliable data for a field, use null
-rather than guessing or hallucinating a value.
 Return ONLY valid JSON -- no markdown, no explanation."""
 
 
@@ -228,6 +252,7 @@ def _validate_specialist_data(data: dict, config_name: str) -> list[str]:
     """Validate specialist JSON output against the expected schema.
 
     Returns a list of validation issues (empty = valid).
+    Enforces ground-truth protocol: minimum sources, data_as_of, etc.
     """
     issues = []
     if not isinstance(data.get("summary"), str) or not data.get("summary"):
@@ -240,6 +265,35 @@ def _validate_specialist_data(data: dict, config_name: str) -> list[str]:
             issues.append("'confidence' must be a number between 0 and 1")
     if "flags" in data and not isinstance(data["flags"], list):
         issues.append("'flags' must be a list")
+
+    # Ground-truth enforcement: source minimums
+    sources = data.get("data_sources", [])
+    if not isinstance(sources, list) or len(sources) < 3:
+        issues.append(
+            f"'data_sources' has {len(sources) if isinstance(sources, list) else 0} "
+            f"entries (minimum 3 required) — LOW CONFIDENCE"
+        )
+        # Hard-cap confidence: <2 sources means near-certain hallucination,
+        # <3 sources means insufficient research.
+        src_count = len(sources) if isinstance(sources, list) else 0
+        if isinstance(data.get("confidence"), (int, float)):
+            if src_count < 2:
+                data["confidence"] = 0.1
+                logger.warning(
+                    "Specialist %s: confidence capped to 0.1 (<2 sources — likely training data)",
+                    config_name,
+                )
+            elif data["confidence"] > 0.5:
+                data["confidence"] = 0.5
+                logger.info(
+                    "Specialist %s: confidence capped to 0.5 (insufficient sources)",
+                    config_name,
+                )
+
+    # Freshness enforcement: data_as_of field
+    if not data.get("data_as_of"):
+        issues.append("'data_as_of' missing — cannot verify data currency")
+
     return issues
 
 
