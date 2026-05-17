@@ -11,12 +11,11 @@ This module provides:
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from typing import Any
 
 from src.db.operations import get_analyses
 from src.db.schema import get_db
-
 
 # Thresholds in days
 FRESH_DAYS = 30       # Analysis is current — no flag needed
@@ -92,9 +91,18 @@ def check_analysis_freshness(ticker: str) -> dict[str, Any]:
 
         recommendations = {
             FreshnessStatus.FRESH: "Analysis is current. Safe to use.",
-            FreshnessStatus.AGING: f"Analysis is {age} days old. Still usable but verify key assumptions haven't changed.",
-            FreshnessStatus.STALE: f"⚠️ Analysis is {age} days old. Re-analysis recommended before any position changes.",
-            FreshnessStatus.EXPIRED: f"🚫 Analysis is {age} days old. EXPIRED — do not use for decisions. Full re-analysis required.",
+            FreshnessStatus.AGING: (
+                f"Analysis is {age} days old. Still usable "
+                "but verify key assumptions haven't changed."
+            ),
+            FreshnessStatus.STALE: (
+                f"⚠️ Analysis is {age} days old. "
+                "Re-analysis recommended before any position changes."
+            ),
+            FreshnessStatus.EXPIRED: (
+                f"🚫 Analysis is {age} days old. EXPIRED — "
+                "do not use for decisions. Full re-analysis required."
+            ),
         }
 
         return {
@@ -171,13 +179,20 @@ def freshness_gate(ticker: str) -> dict[str, Any]:
     elif status == FreshnessStatus.AGING:
         return {
             "trust": True,
-            "caveat": f"Prior analysis is {result['age_days']} days old — verify key data points are still current.",
+            "caveat": (
+                f"Prior analysis is {result['age_days']} days old"
+                " — verify key data points are still current."
+            ),
             "block": False,
         }
     elif status == FreshnessStatus.STALE:
         return {
             "trust": False,
-            "caveat": f"⚠️ Prior analysis is {result['age_days']} days old. Data may be from a previous quarter. Treat with LOW CONFIDENCE.",
+            "caveat": (
+                f"⚠️ Prior analysis is {result['age_days']} days old."
+                " Data may be from a previous quarter."
+                " Treat with LOW CONFIDENCE."
+            ),
             "block": False,
         }
     else:  # EXPIRED

@@ -48,7 +48,7 @@ def _build_previous_analysis_text(ticker: str) -> str:
     from src.db.operations import get_analyses as db_get_analyses
     from src.db.operations import get_specialist_findings
     from src.db.schema import get_db
-    from src.operations.freshness import classify_freshness, FreshnessStatus
+    from src.operations.freshness import FreshnessStatus, classify_freshness
 
     conn = get_db()
     try:
@@ -168,7 +168,7 @@ async def analyze(
     # ── Freshness pre-check: skip expensive pipeline if analysis is fresh ──
     # Saves tokens/cost by returning the existing analysis when it's <30 days old.
     # Callers can bypass by passing force=True.
-    from src.operations.freshness import check_analysis_freshness, FreshnessStatus
+    from src.operations.freshness import FreshnessStatus, check_analysis_freshness
 
     freshness = check_analysis_freshness(t)
     if not force and freshness["status"] == FreshnessStatus.FRESH:

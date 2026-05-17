@@ -209,7 +209,12 @@ def _format_specialist_outputs(outputs: list[SpecialistFindings]) -> str:
         if source_count < 3:
             source_warning = " ⚠️ LOW SOURCE COUNT"
 
-        section = f"""### {output.specialist_name} (confidence: {output.confidence:.0%}){source_warning}
+        header = (
+            f"### {output.specialist_name} "
+            f"(confidence: {output.confidence:.0%})"
+            f"{source_warning}"
+        )
+        section = f"""{header}
 
 Data as of: {data_as_of}
 
