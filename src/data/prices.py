@@ -16,7 +16,7 @@ Alpha Vantage second-tier fallback, broker APIs, paid feeds).
 import json
 import logging
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime
 
 import requests
@@ -31,7 +31,7 @@ _MAX_FAILURES = 3
 _COOLDOWN_SECONDS = 3600  # 1 hour
 _ticker_failures: dict[str, int] = {}          # ticker -> consecutive failure count
 _ticker_cooldown: dict[str, float] = {}        # ticker -> time.monotonic() when cooldown expires
-_ticker_last_error: dict[str, str] = {}        # ticker -> last error reason (TICKER_NOT_FOUND, NETWORK_ERROR)
+_ticker_last_error: dict[str, str] = {}  # ticker -> last error reason
 
 _COOLDOWN_BY_ERROR: dict[str, int] = {
     "TICKER_NOT_FOUND": 86400,  # 24 hours — ticker doesn't exist
@@ -53,7 +53,7 @@ class PriceData:
     sector: str
     industry: str
     next_earnings_date: datetime | None = None
-    error: str | None = None          # TICKER_NOT_FOUND, NETWORK_ERROR, RATE_LIMITED, NO_DATA, COOLDOWN
+    error: str | None = None  # e.g. TICKER_NOT_FOUND, NO_DATA
     error_detail: str | None = None   # Human-readable explanation
 
 
@@ -83,7 +83,10 @@ def get_price_data(ticker: str) -> PriceData:
     # Check cooldown for repeatedly-failing tickers (e.g. ADX:LULU)
     cooldown_until = _ticker_cooldown.get(ticker)
     if cooldown_until is not None and _time.monotonic() < cooldown_until:
-        logger.debug("Skipping %s — on cooldown after %d consecutive failures", ticker, _MAX_FAILURES)
+        logger.debug(
+            "Skipping %s — on cooldown after %d failures",
+            ticker, _MAX_FAILURES,
+        )
         return PriceData(
             ticker=ticker.upper(), price=0.0, market_cap=0.0,
             currency="USD", exchange="", name=ticker, sector="", industry="",
@@ -323,8 +326,13 @@ def _web_search_price(ticker: str) -> PriceData:
         # event loop, killing WebSocket connections. Return gracefully —
         # callers (activity feed, etc.) have fallback prices.
         logger.info("Skipping web search for %s (already in async loop)", ticker)
-        return PriceData(ticker=ticker.upper(), price=0, market_cap=0,
-                         error="NETWORK_ERROR", error_detail="Cannot run web search inside async loop")
+        return PriceData(
+            ticker=ticker.upper(), price=0, market_cap=0,
+            currency="USD", exchange="", name=ticker,
+            sector="", industry="",
+            error="NETWORK_ERROR",
+            error_detail="Cannot run web search in async loop",
+        )
     except Exception as e:
         # Agent SDK can crash (nested invocation, missing key, etc.)
         logger.warning("Agent SDK web search failed for %s: %s", ticker, e)
