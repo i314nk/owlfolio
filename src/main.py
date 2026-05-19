@@ -1907,6 +1907,9 @@ def analyze_list_cmd(
     auto: bool = typer.Option(
         False, "--auto", help="Auto-select the most recent list (for scheduled tasks)"
     ),
+    screened_only: bool = typer.Option(
+        False, "--screened-only", help="Only analyze candidates that passed quick screen"
+    ),
 ):
     """Run the analyze pipeline against every candidate in a list.
 
@@ -1948,6 +1951,7 @@ def analyze_list_cmd(
                 skip_analyzed=not redo,
                 shariah=shariah,
                 max_candidates=next_n if next_n else None,
+                screened_only=screened_only,
             )
         )
     except FileNotFoundError as e:
@@ -2768,6 +2772,81 @@ def serve(
                 SERVE_PID_FILE.unlink()
             except FileNotFoundError:
                 pass
+
+
+@app.command(name="screen")
+def screen_cmd(
+    ticker: str = typer.Argument("", help="Ticker to screen (or use --auto)"),
+    list_name: str = typer.Option("", "--list", "-l", help="Screen all unscreened in this list"),
+    auto: bool = typer.Option(False, "--auto", help="Auto-select most recent list"),
+    concurrency: int = typer.Option(3, "--concurrency", "-j", help="Max concurrent screens"),
+):
+    """Quick screen candidates — lightweight single-agent evaluation.
+
+    Evaluates candidates from the active strategy's perspective.
+    Much faster and cheaper than a full deep dive.
+    """
+    from src.llm.provider import _run_async
+
+    _configure_logging()
+
+    if ticker and ticker != "":
+        # Single ticker mode
+        from src.operations.screening import screen_candidate
+        from src.operations.strategies import get_active_strategy
+
+        strategy = get_active_strategy()
+        console.print(f"\n[bold]Quick screening {ticker}...[/bold]")
+        result = _run_async(
+            screen_candidate(
+                ticker,
+                strategy.get("description", "Value investing"),
+                strategy.get("name", "unknown"),
+            )
+        )
+        status = "[green]PASS[/green]" if result.get("pass") else "[red]FAIL[/red]"
+        score = result.get("score", 0)
+        console.print(f"\n  Result: {status} ({score}/5)")
+        console.print(f"  {result.get('reasoning', 'No reasoning')}")
+        if result.get("key_strengths"):
+            console.print(f"  Strengths: {', '.join(result['key_strengths'])}")
+        if result.get("key_concerns"):
+            console.print(f"  Concerns: {', '.join(result['key_concerns'])}")
+        return
+
+    # List mode
+    from src.operations.screening import screen_list
+
+    name_arg = list_name if list_name else None
+    if not name_arg and not auto:
+        console.print("[red]Provide a ticker, --list NAME, or --auto.[/red]")
+        raise typer.Exit(1)
+
+    console.print("\n[bold]Quick Screen — evaluating candidates...[/bold]")
+    result = _run_async(screen_list(list_name=name_arg, concurrency=concurrency))
+
+    if result.get("error"):
+        console.print(f"[red]{result['error_detail']}[/red]")
+        raise typer.Exit(1)
+
+    table = Table(title=f"Quick Screen: {result.get('list_name', '?')}")
+    table.add_column("Ticker", style="bold")
+    table.add_column("Result")
+    table.add_column("Score", justify="right")
+    table.add_column("Reasoning")
+
+    for r in result.get("results", []):
+        status = "[green]PASS[/green]" if r["pass"] else "[red]FAIL[/red]"
+        table.add_row(r["ticker"], status, f"{r['score']}/5", r["reasoning"][:80])
+
+    console.print(table)
+    console.print(
+        f"\n  Screened: {result['screened']}  |  "
+        f"[green]Passed: {result['passed']}[/green]  |  "
+        f"[red]Failed: {result['failed']}[/red]"
+    )
+    if result["passed"] > 0:
+        console.print("\n[dim]Next: owlfolio analyze-list --auto --screened-only[/dim]")
 
 
 if __name__ == "__main__":

@@ -315,6 +315,7 @@ async def analyze_list(
     skip_analyzed: bool = True,
     shariah: bool = False,
     max_candidates: int | None = None,
+    screened_only: bool = False,
 ) -> dict[str, Any]:
     """Run the analyze pipeline against every candidate in a list.
 
@@ -384,6 +385,9 @@ async def analyze_list(
     skipped: list[str] = []
     for c in candidates:
         if skip_analyzed and c.get("analyzed"):
+            skipped.append(c["ticker"])
+            continue
+        if screened_only and c.get("screen_status") != "PASS":
             skipped.append(c["ticker"])
             continue
         pending.append(c)
