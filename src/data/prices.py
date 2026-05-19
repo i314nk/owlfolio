@@ -16,7 +16,7 @@ Alpha Vantage second-tier fallback, broker APIs, paid feeds).
 import json
 import logging
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 
 import requests
@@ -46,6 +46,8 @@ class PriceData:
     sector: str
     industry: str
     next_earnings_date: datetime | None = None
+    error: str | None = None          # TICKER_NOT_FOUND, NETWORK_ERROR, RATE_LIMITED, NO_DATA, COOLDOWN
+    error_detail: str | None = None   # Human-readable explanation
 
 
 # Ticker suffixes where yfinance is known to return nothing.
@@ -78,6 +80,8 @@ def get_price_data(ticker: str) -> PriceData:
         return PriceData(
             ticker=ticker.upper(), price=0.0, market_cap=0.0,
             currency="USD", exchange="", name=ticker, sector="", industry="",
+            error="COOLDOWN",
+            error_detail=f"Skipped — on cooldown after {_MAX_FAILURES} consecutive failures",
         )
 
     # Tier 1: yfinance (skip for known blind spots)
@@ -113,6 +117,8 @@ def get_price_data(ticker: str) -> PriceData:
         return PriceData(
             ticker=ticker.upper(), price=0.0, market_cap=0.0,
             currency="USD", exchange="", name=ticker, sector="", industry="",
+            error="NO_DATA",
+            error_detail=f"Failed {count} times consecutively across yfinance and TradingView",
         )
 
     # Tier 3: LLM web search (heavy, last resort)
@@ -300,7 +306,8 @@ def _web_search_price(ticker: str) -> PriceData:
         # event loop, killing WebSocket connections. Return gracefully —
         # callers (activity feed, etc.) have fallback prices.
         logger.info("Skipping web search for %s (already in async loop)", ticker)
-        return PriceData(ticker=ticker.upper(), price=0, market_cap=0)
+        return PriceData(ticker=ticker.upper(), price=0, market_cap=0,
+                         error="NETWORK_ERROR", error_detail="Cannot run web search inside async loop")
     except Exception as e:
         # Agent SDK can crash (nested invocation, missing key, etc.)
         logger.warning("Agent SDK web search failed for %s: %s", ticker, e)
@@ -330,6 +337,8 @@ def _web_search_price(ticker: str) -> PriceData:
         name=ticker,
         sector="",
         industry="",
+        error="NO_DATA",
+        error_detail="All sources exhausted: yfinance, TradingView, web search",
     )
 
 
