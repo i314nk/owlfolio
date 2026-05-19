@@ -29,13 +29,13 @@ logger = logging.getLogger(__name__)
 # the ticker is skipped for _COOLDOWN_SECONDS.
 _MAX_FAILURES = 3
 _COOLDOWN_SECONDS = 3600  # 1 hour
-_ticker_failures: dict[str, int] = {}          # ticker -> consecutive failure count
-_ticker_cooldown: dict[str, float] = {}        # ticker -> time.monotonic() when cooldown expires
+_ticker_failures: dict[str, int] = {}  # ticker -> consecutive failure count
+_ticker_cooldown: dict[str, float] = {}  # ticker -> time.monotonic() when cooldown expires
 _ticker_last_error: dict[str, str] = {}  # ticker -> last error reason
 
 _COOLDOWN_BY_ERROR: dict[str, int] = {
     "TICKER_NOT_FOUND": 86400,  # 24 hours — ticker doesn't exist
-    "NETWORK_ERROR": 600,       # 10 minutes — transient network/timeout
+    "NETWORK_ERROR": 600,  # 10 minutes — transient network/timeout
 }
 _COOLDOWN_DEFAULT = 3600  # 1 hour — other/unknown errors
 
@@ -54,7 +54,7 @@ class PriceData:
     industry: str
     next_earnings_date: datetime | None = None
     error: str | None = None  # e.g. TICKER_NOT_FOUND, NO_DATA
-    error_detail: str | None = None   # Human-readable explanation
+    error_detail: str | None = None  # Human-readable explanation
 
 
 # Ticker suffixes where yfinance is known to return nothing.
@@ -85,11 +85,18 @@ def get_price_data(ticker: str) -> PriceData:
     if cooldown_until is not None and _time.monotonic() < cooldown_until:
         logger.debug(
             "Skipping %s — on cooldown after %d failures",
-            ticker, _MAX_FAILURES,
+            ticker,
+            _MAX_FAILURES,
         )
         return PriceData(
-            ticker=ticker.upper(), price=0.0, market_cap=0.0,
-            currency="USD", exchange="", name=ticker, sector="", industry="",
+            ticker=ticker.upper(),
+            price=0.0,
+            market_cap=0.0,
+            currency="USD",
+            exchange="",
+            name=ticker,
+            sector="",
+            industry="",
             error="COOLDOWN",
             error_detail=f"Skipped — on cooldown after {_MAX_FAILURES} consecutive failures",
         )
@@ -131,12 +138,21 @@ def get_price_data(ticker: str) -> PriceData:
         cooldown = _COOLDOWN_BY_ERROR.get(err_type, _COOLDOWN_DEFAULT)
         logger.warning(
             "Ticker %s failed %d times consecutively — cooling down for %ds (%s)",
-            ticker, count, cooldown, err_type or "unknown",
+            ticker,
+            count,
+            cooldown,
+            err_type or "unknown",
         )
         _ticker_cooldown[ticker] = _time.monotonic() + cooldown
         return PriceData(
-            ticker=ticker.upper(), price=0.0, market_cap=0.0,
-            currency="USD", exchange="", name=ticker, sector="", industry="",
+            ticker=ticker.upper(),
+            price=0.0,
+            market_cap=0.0,
+            currency="USD",
+            exchange="",
+            name=ticker,
+            sector="",
+            industry="",
             error="NO_DATA",
             error_detail=f"Failed {count} times consecutively across yfinance and TradingView",
         )
@@ -327,9 +343,14 @@ def _web_search_price(ticker: str) -> PriceData:
         # callers (activity feed, etc.) have fallback prices.
         logger.info("Skipping web search for %s (already in async loop)", ticker)
         return PriceData(
-            ticker=ticker.upper(), price=0, market_cap=0,
-            currency="USD", exchange="", name=ticker,
-            sector="", industry="",
+            ticker=ticker.upper(),
+            price=0,
+            market_cap=0,
+            currency="USD",
+            exchange="",
+            name=ticker,
+            sector="",
+            industry="",
             error="NETWORK_ERROR",
             error_detail="Cannot run web search in async loop",
         )
