@@ -31,6 +31,13 @@ _MAX_FAILURES = 3
 _COOLDOWN_SECONDS = 3600  # 1 hour
 _ticker_failures: dict[str, int] = {}          # ticker -> consecutive failure count
 _ticker_cooldown: dict[str, float] = {}        # ticker -> time.monotonic() when cooldown expires
+_ticker_last_error: dict[str, str] = {}        # ticker -> last error reason (TICKER_NOT_FOUND, NETWORK_ERROR)
+
+_COOLDOWN_BY_ERROR: dict[str, int] = {
+    "TICKER_NOT_FOUND": 86400,  # 24 hours — ticker doesn't exist
+    "NETWORK_ERROR": 600,       # 10 minutes — transient network/timeout
+}
+_COOLDOWN_DEFAULT = 3600  # 1 hour — other/unknown errors
 
 
 @dataclass
@@ -91,8 +98,14 @@ def get_price_data(ticker: str) -> PriceData:
             if data.price and data.price > 0:
                 _ticker_failures.pop(ticker, None)
                 _ticker_cooldown.pop(ticker, None)
+                _ticker_last_error.pop(ticker, None)
                 return data
         except Exception as e:
+            err_str = str(e)
+            if "404" in err_str or "Not Found" in err_str:
+                _ticker_last_error[ticker] = "TICKER_NOT_FOUND"
+            else:
+                _ticker_last_error[ticker] = "NETWORK_ERROR"
             logger.debug("yfinance failed for %s: %s", ticker, e)
 
     # Tier 2: TradingView scanner (lightweight, covers all markets incl. UAE)
@@ -101,19 +114,23 @@ def get_price_data(ticker: str) -> PriceData:
         if data.price and data.price > 0:
             _ticker_failures.pop(ticker, None)
             _ticker_cooldown.pop(ticker, None)
+            _ticker_last_error.pop(ticker, None)
             return data
     except Exception as e:
+        _ticker_last_error[ticker] = "NETWORK_ERROR"
         logger.debug("TradingView failed for %s: %s", ticker, e)
 
     # Track consecutive failures — skip web search after too many
     count = _ticker_failures.get(ticker, 0) + 1
     _ticker_failures[ticker] = count
     if count >= _MAX_FAILURES:
+        err_type = _ticker_last_error.get(ticker, "")
+        cooldown = _COOLDOWN_BY_ERROR.get(err_type, _COOLDOWN_DEFAULT)
         logger.warning(
-            "Ticker %s failed %d times consecutively — cooling down for %ds",
-            ticker, count, _COOLDOWN_SECONDS,
+            "Ticker %s failed %d times consecutively — cooling down for %ds (%s)",
+            ticker, count, cooldown, err_type or "unknown",
         )
-        _ticker_cooldown[ticker] = _time.monotonic() + _COOLDOWN_SECONDS
+        _ticker_cooldown[ticker] = _time.monotonic() + cooldown
         return PriceData(
             ticker=ticker.upper(), price=0.0, market_cap=0.0,
             currency="USD", exchange="", name=ticker, sector="", industry="",
