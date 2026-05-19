@@ -251,7 +251,12 @@ async def list_analyses(args: dict) -> dict[str, Any]:
 )
 async def get_latest_analysis(args: dict) -> dict[str, Any]:
     try:
-        return _ok(op_analyses.get_latest_analysis(args["ticker"]))
+        result = op_analyses.get_latest_analysis(args["ticker"])
+        if result is None:
+            return _err(f"No analysis found for {args['ticker']}")
+        if isinstance(result, dict) and result.get("error"):
+            return _err(result["error_detail"] or result["error"])
+        return _ok(result)
     except Exception as e:
         return _err(f"get_latest_analysis: {e}")
 

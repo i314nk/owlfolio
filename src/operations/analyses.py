@@ -88,7 +88,7 @@ def get_previous_analysis_context(ticker: str) -> dict[str, Any] | None:
     try:
         rows = db_get_analyses(conn, ticker=t, limit=1)
         if not rows:
-            return None
+            return {"error": "NOT_FOUND", "error_detail": f"No previous analysis for {t}"}
         analysis = rows[0]
 
         # Fetch per-specialist scores from specialist_findings
