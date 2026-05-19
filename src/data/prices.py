@@ -68,6 +68,7 @@ def get_price_data(ticker: str) -> PriceData:
     Returns:
         PriceData with current market information.
     """
+    ticker = _normalize_ticker(ticker)
     import time as _time
 
     # Check cooldown for repeatedly-failing tickers (e.g. ADX:LULU)
@@ -179,6 +180,24 @@ _SUFFIX_TO_TV_EXCHANGE = {
     ".DE": "XETR",  # XETRA / Frankfurt
     ".SA": "BMFBOVESPA",  # B3 (Brasil Bolsa Balcão)
 }
+
+_TV_EXCHANGE_TO_SUFFIX = {v: k for k, v in _SUFFIX_TO_TV_EXCHANGE.items()}
+
+
+def _normalize_ticker(ticker: str) -> str:
+    """Convert EXCHANGE:SYMBOL (e.g. ADX:LULU) to yfinance format (LULU.AD).
+
+    Returns the ticker unchanged if it's already in yfinance format.
+    """
+    if ":" in ticker:
+        exchange, symbol = ticker.split(":", 1)
+        suffix = _TV_EXCHANGE_TO_SUFFIX.get(exchange.upper())
+        if suffix:
+            return f"{symbol.upper()}{suffix}"
+        # Unknown exchange — return as-is (will likely fail downstream,
+        # but no worse than the EXCHANGE:SYMBOL format)
+        return ticker
+    return ticker
 
 
 def _to_tv_symbol(ticker: str) -> str:
@@ -352,6 +371,7 @@ def get_price_history(ticker: str, period: str = "5y") -> list[dict]:
     Returns:
         List of {"date": str, "close": float} dicts, oldest first.
     """
+    ticker = _normalize_ticker(ticker)
     stock = yf.Ticker(ticker)
     hist = stock.history(period=period)
 
@@ -391,6 +411,7 @@ def calculate_growth_rate(
     Returns:
         Annualized growth rate as decimal, or None.
     """
+    ticker = _normalize_ticker(ticker)
     history = get_price_history(ticker, period=f"{years}y")
 
     if len(history) < 2:
