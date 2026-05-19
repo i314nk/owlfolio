@@ -36,18 +36,25 @@ logger = logging.getLogger("owlfolio.candidates")
 DEFAULT_ANALYZE_CONCURRENCY = 2
 
 
-_CANDIDATE_RECENCY_DAYS = 90
+# Tiered exclusion windows — companies that failed later pipeline
+# stages get longer cooldowns before the discovery agent retries them.
+_EXCLUSION_DAYS_UNPROCESSED = 90  # never screened or analyzed
+_EXCLUSION_DAYS_SCREEN_FAIL = 180  # quick screen rejected
+_EXCLUSION_DAYS_ANALYZED = 365  # deep-dived (confirmed bad/good)
 
 
 def _get_known_tickers() -> set[str]:
     """Return tickers the discovery agent should skip.
 
-    Three buckets with different rules:
+    Four buckets with tiered exclusion windows:
       • Holdings — always excluded (you own it).
       • Watchlist — always excluded (you're already tracking it).
-      • Previous candidates — only excluded if discovered within the last
-        90 days.  Older candidates rotate back in because market
-        conditions change (price drops, earnings improve, etc.).
+      • Analyzed candidates — excluded for 12 months (deep-dived).
+      • Screen-failed candidates — excluded for 6 months.
+      • Unprocessed candidates — excluded for 90 days.
+    Longer cooldowns for later-stage rejects prevent the discovery
+    agent from recycling confirmed bad companies, while still allowing
+    them back once enough time has passed for conditions to change.
     """
     from src.db.operations import get_holdings, get_watchlist
     from src.db.schema import get_db
@@ -61,13 +68,42 @@ def _get_known_tickers() -> set[str]:
         for w in get_watchlist(conn):
             if w.get("ticker"):
                 known.add(w["ticker"].upper())
-        # Only exclude recently-discovered candidates (within 90 days)
+
+        # Tier 1: analyzed (deep-dived) — 12 month exclusion
         rows = conn.execute(
             """SELECT DISTINCT c.ticker
                FROM candidates c
                JOIN candidate_lists cl ON c.list_id = cl.id
-               WHERE cl.created_at > datetime('now', ?)""",
-            (f"-{_CANDIDATE_RECENCY_DAYS} days",),
+               WHERE c.analyzed = 1
+                 AND cl.created_at > datetime('now', ?)""",
+            (f"-{_EXCLUSION_DAYS_ANALYZED} days",),
+        ).fetchall()
+        for r in rows:
+            if r[0]:
+                known.add(r[0].upper())
+
+        # Tier 2: screen failed — 6 month exclusion
+        rows = conn.execute(
+            """SELECT DISTINCT c.ticker
+               FROM candidates c
+               JOIN candidate_lists cl ON c.list_id = cl.id
+               WHERE c.screen_status = 'FAIL'
+                 AND cl.created_at > datetime('now', ?)""",
+            (f"-{_EXCLUSION_DAYS_SCREEN_FAIL} days",),
+        ).fetchall()
+        for r in rows:
+            if r[0]:
+                known.add(r[0].upper())
+
+        # Tier 3: unprocessed candidates — 90 day exclusion
+        rows = conn.execute(
+            """SELECT DISTINCT c.ticker
+               FROM candidates c
+               JOIN candidate_lists cl ON c.list_id = cl.id
+               WHERE c.screen_status = 'UNSCREENED'
+                 AND c.analyzed = 0
+                 AND cl.created_at > datetime('now', ?)""",
+            (f"-{_EXCLUSION_DAYS_UNPROCESSED} days",),
         ).fetchall()
         for r in rows:
             if r[0]:
