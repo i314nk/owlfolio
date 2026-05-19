@@ -24,6 +24,14 @@ import yfinance as yf
 
 logger = logging.getLogger(__name__)
 
+# Per-ticker failure tracking to avoid retrying tickers that consistently
+# fail (e.g. ADX:LULU 404 spam).  After _MAX_FAILURES consecutive failures
+# the ticker is skipped for _COOLDOWN_SECONDS.
+_MAX_FAILURES = 3
+_COOLDOWN_SECONDS = 3600  # 1 hour
+_ticker_failures: dict[str, int] = {}          # ticker -> consecutive failure count
+_ticker_cooldown: dict[str, float] = {}        # ticker -> time.monotonic() when cooldown expires
+
 
 @dataclass
 class PriceData:
@@ -60,11 +68,24 @@ def get_price_data(ticker: str) -> PriceData:
     Returns:
         PriceData with current market information.
     """
+    import time as _time
+
+    # Check cooldown for repeatedly-failing tickers (e.g. ADX:LULU)
+    cooldown_until = _ticker_cooldown.get(ticker)
+    if cooldown_until is not None and _time.monotonic() < cooldown_until:
+        logger.debug("Skipping %s — on cooldown after %d consecutive failures", ticker, _MAX_FAILURES)
+        return PriceData(
+            ticker=ticker.upper(), price=0.0, market_cap=0.0,
+            currency="USD", exchange="", name=ticker, sector="", industry="",
+        )
+
     # Tier 1: yfinance (skip for known blind spots)
     if not _is_yfinance_blind_spot(ticker):
         try:
             data = _yfinance_price(ticker)
             if data.price and data.price > 0:
+                _ticker_failures.pop(ticker, None)
+                _ticker_cooldown.pop(ticker, None)
                 return data
         except Exception as e:
             logger.debug("yfinance failed for %s: %s", ticker, e)
@@ -73,9 +94,25 @@ def get_price_data(ticker: str) -> PriceData:
     try:
         data = _tradingview_price(ticker)
         if data.price and data.price > 0:
+            _ticker_failures.pop(ticker, None)
+            _ticker_cooldown.pop(ticker, None)
             return data
     except Exception as e:
         logger.debug("TradingView failed for %s: %s", ticker, e)
+
+    # Track consecutive failures — skip web search after too many
+    count = _ticker_failures.get(ticker, 0) + 1
+    _ticker_failures[ticker] = count
+    if count >= _MAX_FAILURES:
+        logger.warning(
+            "Ticker %s failed %d times consecutively — cooling down for %ds",
+            ticker, count, _COOLDOWN_SECONDS,
+        )
+        _ticker_cooldown[ticker] = _time.monotonic() + _COOLDOWN_SECONDS
+        return PriceData(
+            ticker=ticker.upper(), price=0.0, market_cap=0.0,
+            currency="USD", exchange="", name=ticker, sector="", industry="",
+        )
 
     # Tier 3: LLM web search (heavy, last resort)
     logger.info("Primary sources returned no price for %s, trying web search", ticker)

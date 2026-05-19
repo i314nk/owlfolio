@@ -258,6 +258,10 @@ def run_daemon(poll_interval: int = 60):
     """Main daemon loop. Checks for due tasks every poll_interval seconds."""
     logger.info("Owlfolio daemon starting (poll every %ds)...", poll_interval)
 
+    # Track in-flight tasks to prevent duplicate execution when a task
+    # takes longer than one poll cycle (Bug: duplicate task execution).
+    _in_flight: set[int] = set()
+
     _write_pid()
     try:
         while True:
@@ -271,8 +275,16 @@ def run_daemon(poll_interval: int = 60):
                 now = datetime.now().astimezone()
 
                 for task in tasks:
+                    task_id = task["id"]
+                    if task_id in _in_flight:
+                        logger.debug("Skipping %s — already running", task["name"])
+                        continue
                     if _is_due(task, now):
-                        _execute_task(task)
+                        _in_flight.add(task_id)
+                        try:
+                            _execute_task(task)
+                        finally:
+                            _in_flight.discard(task_id)
 
             except KeyboardInterrupt:
                 raise
