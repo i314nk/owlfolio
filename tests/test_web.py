@@ -109,6 +109,21 @@ def test_strategies_endpoint_lists_presets(app_with_db):
     assert expected.issubset(names)
 
 
+def test_active_strategy_name_defaults_to_buffett_munger_when_no_methodology(app_with_db):
+    """The Web UI badge should match CLI status when methodology.yaml is absent."""
+    r = app_with_db.get("/api/active-strategy-name")
+    assert r.status_code == 200
+    assert r.text == "buffett-munger"
+
+
+def test_dashboard_defaults_to_buffett_munger_when_no_methodology(app_with_db):
+    """Initial dashboard render should not show an Unknown strategy badge."""
+    r = app_with_db.get("/")
+    assert r.status_code == 200
+    assert "buffett-munger" in r.text
+    assert ">unknown<" not in r.text.lower()
+
+
 def test_portfolio_partial_renders(app_with_db):
     r = app_with_db.get("/api/portfolio")
     assert r.status_code == 200

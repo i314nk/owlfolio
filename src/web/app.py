@@ -90,12 +90,7 @@ async def dashboard(request: Request):
     ]
 
     # Active strategy
-    strategy_name = "unknown"
-    try:
-        with open(PROJECT_DIR / "methodology.yaml") as f:
-            strategy_name = yaml.safe_load(f).get("name", "unknown")
-    except Exception:
-        pass
+    strategy_name = _read_active_strategy_name()
 
     # All available strategies
     strategies = _load_strategies()
@@ -421,11 +416,14 @@ async def api_task_create(request: Request):
 def _read_active_strategy_name() -> str:
     """Single source of truth for the active strategy name."""
     # Use the same METHODOLOGY_PATH the strategies op writes to — that
-    # way endpoint reads + agent writes can never disagree.
-    from src.operations.strategies import METHODOLOGY_PATH
+    # way endpoint reads + agent writes can never disagree. When no
+    # methodology.yaml exists, match src.operations.strategies.get_active_strategy()
+    # and the CLI by falling back to the default buffett-munger preset.
+    from src.operations.strategies import METHODOLOGY_PATH, STRATEGIES_DIR
 
+    path = METHODOLOGY_PATH if METHODOLOGY_PATH.exists() else STRATEGIES_DIR / "buffett-munger.yaml"
     try:
-        with open(METHODOLOGY_PATH) as f:
+        with open(path) as f:
             return yaml.safe_load(f).get("name", "unknown")
     except Exception:
         return "unknown"
