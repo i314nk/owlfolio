@@ -772,7 +772,7 @@ investment-agent/
 |   |
 |   +-- ui/                     # CLI display helpers
 |
-+-- tests/                      # 276 tests across 12 files
++-- tests/                      # 298 tests across 14 files
 +-- docs/                       # Documentation
 +-- logs/                       # Rotating log files
 ```
@@ -952,7 +952,7 @@ that's a different and much worse decision.
 
 ## Testing
 
-276 tests across 12 test files. Key test files:
+298 tests across 14 test files. Key test files:
 
 - `tests/test_specialists.py` — Specialist runner, synthesis, schemas, add-on injection (incl. strategy-aware review/news), JSON parsing
 - `tests/test_strategy_loader.py` — Two-zone schema, both zones, per-strategy validation, `extra='ignore'` lenience
@@ -966,3 +966,5 @@ that's a different and much worse decision.
 - `tests/test_cli.py` — CLI command tests
 - `tests/test_db.py` — SQLite operations
 - `tests/test_onboarding.py` — Strategy creation
+- `tests/test_schedule_defaults.py` — safe first-run automation defaults
+- `tests/test_prices.py` — price-source fallback behavior

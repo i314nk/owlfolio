@@ -149,5 +149,5 @@ owlfolio serve --restart         # restart after code changes
 ## Important
 
 - Claude-only: no multi-LLM support. Uses Claude Agent SDK with adaptive extended thinking.
-- Subscription (Pro/Max) recommended over API key — analyses are token-intensive.
+- Subscription (Pro/Max) auth is convenient for personal use, but Agent SDK usage is token-intensive and draws from Anthropic's Agent SDK credit/usage-credit model.
 - All data stays local in SQLite (`data/portfolio.db`). No telemetry, no external services except Claude API and yfinance for market data.

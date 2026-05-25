@@ -5,7 +5,7 @@ Thanks for your interest. Owlfolio started as a personal tool and is still large
 ## Getting Started
 
 ```bash
-git clone https://github.com/qwibitai/owlfolio.git
+git clone https://github.com/i314nk/owlfolio.git
 cd owlfolio
 python -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev,web]"
@@ -13,12 +13,12 @@ pip install -e ".[dev,web]"
 
 Requires Python 3.12+. The `dev` extra pulls in pytest and ruff. The `web` extra adds FastAPI + uvicorn for the web UI.
 
-Copy `.env.example` to `.env` and add your Anthropic API key. That's the only required secret — Owlfolio uses yfinance for market data (no API key needed) and Claude for all LLM work.
+Copy `.env.example` to `.env` and add either an Anthropic API key or Claude Code subscription credentials. Owlfolio uses yfinance for market data (no API key needed) and Claude for all LLM work.
 
 ## Running Tests and Linting
 
 ```bash
-pytest                  # 276 tests across 12 files
+pytest                  # 298 tests across 14 files
 pytest -x               # stop on first failure
 pytest tests/test_foo.py  # run one file
 ruff check src/         # lint
@@ -57,16 +57,16 @@ To add a strategy:
 
 ## Adding a New Specialist
 
-Specialists live in `src/specialists/`. Each strategy YAML references 3-5 specialists that run as subagents during analysis.
+Specialist prompts live in each strategy YAML under `prompts.specialists`. The shared runner in `src/specialists/runner.py` turns those prompt bodies into Claude Agent SDK subagents during analysis.
 
 To add a specialist:
 
-1. Create your specialist module in `src/specialists/`. Follow the pattern in existing files — each specialist is a function that receives a context dict and returns structured output.
-2. Register it in `src/specialists/__init__.py`.
-3. Reference it by name in the `specialists` section of any strategy YAML that should use it.
-4. Add tests — at minimum, test that the specialist produces valid output given mock inputs.
+1. Add the specialist prompt body to the relevant strategy YAML under `prompts.specialists.<name>`.
+2. Include required placeholders such as `{TICKER}` and keep the prompt self-contained: role, research targets, output expectations, and strategy-specific nuance.
+3. If the specialist needs reusable Python support code, add it to `src/specialists/` and keep it independent of strategy-specific prompt text.
+4. Add tests — at minimum, test that the strategy loads, the specialist appears in `strategy.prompts.specialists`, and any required placeholders are present.
 
-Specialists must be stateless. They receive context, call Claude, and return results. No side effects, no database writes.
+Specialists must be stateless. They receive strategy/ticker context, call Claude through the runner, and return structured findings. No side effects, no database writes.
 
 ## Code Style
 

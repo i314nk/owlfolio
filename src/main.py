@@ -575,8 +575,8 @@ def setup(
     except Exception as e:
         console.print(f"  [red]✗ Pipeline error: {e}[/red]")
 
-    # ── Step 5: Timezone & Schedule ──
-    console.print("\n[bold]Step 5: Timezone & Default Schedule[/bold]")
+    # ── Step 5: Timezone & Safe Schedule ──
+    console.print("\n[bold]Step 5: Timezone & Safe Default Schedule[/bold]")
 
     common_tzs = [
         "America/New_York",
@@ -647,7 +647,7 @@ def setup(
         conn.close()
 
     if created:
-        sched_table = Table(title="Default Schedule Created", show_header=True)
+        sched_table = Table(title="Safe Default Schedule Created", show_header=True)
         sched_table.add_column("Task", style="bold")
         sched_table.add_column("Schedule")
         sched_table.add_column("Description")
@@ -657,6 +657,10 @@ def setup(
     else:
         console.print("  [dim]Default schedule already configured (all tasks exist).[/dim]")
 
+    console.print(
+        "  [dim]Safe defaults only check watchlist prices and portfolio P&L; "
+        "they do not run Claude research jobs automatically.[/dim]"
+    )
     console.print(
         "  [dim]Customize with: owlfolio tasks / owlfolio schedule / owlfolio unschedule[/dim]"
     )
@@ -1099,7 +1103,7 @@ def doctor():
             from src.strategy.loader import load_strategy
 
             s = load_strategy(active)
-            n_spec = len(getattr(s, "specialists", {}) or {})
+            n_spec = len(s.prompts.specialists)
             table.add_row(
                 "Active strategy",
                 f"[green]✓ {s.name}[/green] ({active}, {n_spec} specialists)",
@@ -1254,7 +1258,13 @@ def specialists_cmd():
 
 
 @app.command()
-def portfolio():
+def portfolio(
+    allow_llm_price: bool = typer.Option(
+        True,
+        "--llm-price/--no-llm-price",
+        help="Allow Claude web-search fallback if primary price sources fail.",
+    ),
+):
     """View portfolio holdings and performance."""
     from src.data.prices import get_price_data
     from src.db.operations import get_holdings
@@ -1278,11 +1288,12 @@ def portfolio():
 
     total_cost = 0.0
     total_value = 0.0
+    missing_price_count = 0
 
     for h in holdings:
         try:
-            price_data = get_price_data(h["ticker"])
-            current = price_data.price
+            price_data = get_price_data(h["ticker"], allow_llm_fallback=allow_llm_price)
+            current = price_data.price if price_data.price and price_data.price > 0 else None
         except Exception:
             current = None
 
@@ -1304,7 +1315,7 @@ def portfolio():
                 h.get("account", "default") or "default",
             )
         else:
-            total_cost += cost
+            missing_price_count += 1
             table.add_row(
                 h["ticker"],
                 f"{h['shares']:.2f}",
@@ -1321,9 +1332,14 @@ def portfolio():
     total_pnl = total_value - total_cost
     total_pct = (total_pnl / total_cost * 100) if total_cost > 0 else 0
     color = "green" if total_pnl >= 0 else "red"
-    console.print(f"\n  Total Cost: {_fmt_price(total_cost)}")
-    console.print(f"  Total Value: {_fmt_price(total_value)}")
-    console.print(f"  Total P&L: [{color}]{_fmt_price(total_pnl)} ({total_pct:+.1f}%)[/{color}]")
+    console.print(f"\n  Priced Cost: {_fmt_price(total_cost)}")
+    console.print(f"  Priced Value: {_fmt_price(total_value)}")
+    console.print(f"  Priced P&L: [{color}]{_fmt_price(total_pnl)} ({total_pct:+.1f}%)[/{color}]")
+    if missing_price_count:
+        console.print(
+            f"  [yellow]Summary excludes {missing_price_count} holding(s) with unavailable "
+            "current prices.[/yellow]"
+        )
 
 
 @app.command()
@@ -1465,7 +1481,13 @@ def history(
 
 
 @app.command(name="watchlist-check")
-def watchlist_check():
+def watchlist_check(
+    allow_llm_price: bool = typer.Option(
+        True,
+        "--llm-price/--no-llm-price",
+        help="Allow Claude web-search fallback if primary price sources fail.",
+    ),
+):
     """Check current prices for all watchlist items.
 
     Shows each ticker on the watchlist with its buy price (from the
@@ -1500,8 +1522,8 @@ def watchlist_check():
         ticker = w["ticker"]
         buy_price = w.get("buy_price")
         try:
-            price_data = get_price_data(ticker)
-            current = price_data.price
+            price_data = get_price_data(ticker, allow_llm_fallback=allow_llm_price)
+            current = price_data.price if price_data.price and price_data.price > 0 else None
         except Exception:
             table.add_row(
                 ticker,
@@ -1520,7 +1542,10 @@ def watchlist_check():
             except Exception:
                 pass  # best-effort persistence
 
-        if buy_price and buy_price > 0:
+        if current is None:
+            gap_str = "-"
+            signal = "-"
+        elif buy_price and buy_price > 0:
             gap_pct = (current - buy_price) / buy_price * 100
             if gap_pct <= 0:
                 signal = "[green bold]BUY ZONE[/green bold]"
@@ -1536,7 +1561,7 @@ def watchlist_check():
         table.add_row(
             ticker,
             _fmt_price(buy_price, ticker) if buy_price else "-",
-            _fmt_price(current, ticker),
+            _fmt_price(current, ticker) if current is not None else "[yellow]N/A[/yellow]",
             gap_str,
             signal,
         )

@@ -7,7 +7,7 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from src.daemon import _execute_task, _is_due, run_daemon
+from src.daemon import _execute_task, _is_due, _task_command_args, run_daemon
 from src.db.operations import (
     add_scheduled_task,
     get_scheduled_tasks,
@@ -135,14 +135,36 @@ def test_is_due_default_timezone():
     assert _is_due(task, now) is True
 
 
+def test_task_command_args_accepts_owlfolio_commands():
+    assert _task_command_args("owlfolio watchlist-check --no-llm-price") == [
+        "owlfolio",
+        "watchlist-check",
+        "--no-llm-price",
+    ]
+
+
+def test_task_command_args_rejects_shell_commands():
+    with pytest.raises(ValueError, match="unsupported shell metacharacters"):
+        _task_command_args("owlfolio doctor; rm -rf data")
+
+    with pytest.raises(ValueError, match="only run owlfolio"):
+        _task_command_args("sh -c 'owlfolio doctor'")
+
+
 # ── _execute_task ─────────────────────────────────────────────────────
 
 
 @patch("src.daemon.get_db")
-def test_execute_task_success(mock_get_db, db):
+@patch("src.daemon.subprocess.run")
+def test_execute_task_success(mock_run, mock_get_db, db):
     """Successful command execution logs success."""
+    import subprocess
+
     mock_get_db.return_value = db
-    add_scheduled_task(db, name="echo-test", command="echo hello", schedule="* * * * *")
+    mock_run.return_value = subprocess.CompletedProcess(
+        args=["owlfolio", "doctor"], returncode=0, stdout="hello", stderr=""
+    )
+    add_scheduled_task(db, name="doctor-test", command="owlfolio doctor", schedule="* * * * *")
 
     task = get_scheduled_tasks(db)[0]
     _execute_task(task)
@@ -150,13 +172,39 @@ def test_execute_task_success(mock_get_db, db):
     updated = get_scheduled_tasks(db)[0]
     assert updated["last_run"] is not None
     assert "success" in updated["last_result"]
+    assert mock_run.call_args.args[0] == ["owlfolio", "doctor"]
+    assert mock_run.call_args.kwargs["shell"] is False
 
 
 @patch("src.daemon.get_db")
-def test_execute_task_failure(mock_get_db, db):
-    """Failed command logs error status."""
+@patch("src.daemon.subprocess.run")
+def test_execute_task_allows_agentic_jobs_long_enough(mock_run, mock_get_db, db):
+    """Daemon timeout should fit slow agentic jobs scheduled by Owlfolio."""
+    import subprocess
+
     mock_get_db.return_value = db
-    add_scheduled_task(db, name="fail-test", command="exit 1", schedule="* * * * *")
+    mock_run.return_value = subprocess.CompletedProcess(
+        args="owlfolio find", returncode=0, stdout="done", stderr=""
+    )
+    add_scheduled_task(db, name="slow-agentic", command="owlfolio find", schedule="* * * * *")
+
+    task = get_scheduled_tasks(db)[0]
+    _execute_task(task)
+
+    assert mock_run.call_args.kwargs["timeout"] >= 3600
+
+
+@patch("src.daemon.get_db")
+@patch("src.daemon.subprocess.run")
+def test_execute_task_failure(mock_run, mock_get_db, db):
+    """Failed command logs error status."""
+    import subprocess
+
+    mock_get_db.return_value = db
+    mock_run.return_value = subprocess.CompletedProcess(
+        args=["owlfolio", "doctor"], returncode=1, stdout="", stderr="failed"
+    )
+    add_scheduled_task(db, name="fail-test", command="owlfolio doctor", schedule="* * * * *")
 
     task = get_scheduled_tasks(db)[0]
     _execute_task(task)
@@ -175,7 +223,7 @@ def test_execute_task_timeout(mock_run, mock_get_db, db):
     mock_get_db.return_value = db
     mock_run.side_effect = subprocess.TimeoutExpired(cmd="sleep 999", timeout=300)
 
-    add_scheduled_task(db, name="timeout-test", command="sleep 999", schedule="* * * * *")
+    add_scheduled_task(db, name="timeout-test", command="owlfolio find", schedule="* * * * *")
 
     task = get_scheduled_tasks(db)[0]
     _execute_task(task)
@@ -189,16 +237,24 @@ def test_execute_task_timeout(mock_run, mock_get_db, db):
 
 
 @patch("src.daemon.get_db")
-def test_execute_task_success_records_task_run(mock_get_db, db):
+@patch("src.daemon.subprocess.run")
+def test_execute_task_success_records_task_run(mock_run, mock_get_db, db):
     """Successful runs land in task_runs with exit_code=0 + stdout captured.
 
     Without this wiring, the Activity tab's task_run rows would always
     be empty in production — the producer side of the audit trail.
     """
+    import subprocess
+
     from src.db.operations import get_task_runs
 
     mock_get_db.return_value = db
-    task_id = add_scheduled_task(db, name="echo-test", command="echo hello", schedule="* * * * *")
+    mock_run.return_value = subprocess.CompletedProcess(
+        args=["owlfolio", "doctor"], returncode=0, stdout="hello", stderr=""
+    )
+    task_id = add_scheduled_task(
+        db, name="doctor-test", command="owlfolio doctor", schedule="* * * * *"
+    )
     _execute_task(get_scheduled_tasks(db)[0])
 
     runs = get_task_runs(db)
@@ -211,12 +267,18 @@ def test_execute_task_success_records_task_run(mock_get_db, db):
 
 
 @patch("src.daemon.get_db")
-def test_execute_task_failure_records_task_run_with_exit_code(mock_get_db, db):
+@patch("src.daemon.subprocess.run")
+def test_execute_task_failure_records_task_run_with_exit_code(mock_run, mock_get_db, db):
     """Non-zero exit codes are captured exactly (not collapsed to 1)."""
+    import subprocess
+
     from src.db.operations import get_task_runs
 
     mock_get_db.return_value = db
-    add_scheduled_task(db, name="fail-test", command="exit 7", schedule="* * * * *")
+    mock_run.return_value = subprocess.CompletedProcess(
+        args=["owlfolio", "doctor"], returncode=7, stdout="", stderr="failed"
+    )
+    add_scheduled_task(db, name="fail-test", command="owlfolio doctor", schedule="* * * * *")
     _execute_task(get_scheduled_tasks(db)[0])
 
     runs = get_task_runs(db)
@@ -236,7 +298,7 @@ def test_execute_task_timeout_records_task_run(mock_run, mock_get_db, db):
 
     mock_get_db.return_value = db
     mock_run.side_effect = subprocess.TimeoutExpired(cmd="sleep 999", timeout=300)
-    add_scheduled_task(db, name="t-out", command="sleep 999", schedule="* * * * *")
+    add_scheduled_task(db, name="t-out", command="owlfolio find", schedule="* * * * *")
     _execute_task(get_scheduled_tasks(db)[0])
 
     runs = get_task_runs(db)
@@ -255,7 +317,7 @@ def test_execute_task_unexpected_exception_records_task_run(mock_run, mock_get_d
 
     mock_get_db.return_value = db
     mock_run.side_effect = OSError("disk full")
-    add_scheduled_task(db, name="boom", command="anything", schedule="* * * * *")
+    add_scheduled_task(db, name="boom", command="owlfolio doctor", schedule="* * * * *")
     _execute_task(get_scheduled_tasks(db)[0])
 
     runs = get_task_runs(db)
@@ -270,14 +332,20 @@ def test_execute_task_unexpected_exception_records_task_run(mock_run, mock_get_d
 
 @patch("src.daemon.get_db")
 @patch("src.daemon.time.sleep")
-def test_run_daemon_executes_due_tasks(mock_sleep, mock_get_db, db):
+@patch("src.daemon.subprocess.run")
+def test_run_daemon_executes_due_tasks(mock_run, mock_sleep, mock_get_db, db):
     """Daemon loop finds and executes due tasks."""
+    import subprocess
+
     mock_get_db.return_value = db
+    mock_run.return_value = subprocess.CompletedProcess(
+        args=["owlfolio", "doctor"], returncode=0, stdout="done", stderr=""
+    )
 
     # Make sleep raise KeyboardInterrupt after first iteration
     mock_sleep.side_effect = KeyboardInterrupt
 
-    add_scheduled_task(db, name="daemon-test", command="echo daemon", schedule="* * * * *")
+    add_scheduled_task(db, name="daemon-test", command="owlfolio doctor", schedule="* * * * *")
 
     run_daemon(poll_interval=10)
 

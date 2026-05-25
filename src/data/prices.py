@@ -68,11 +68,15 @@ def _is_yfinance_blind_spot(ticker: str) -> bool:
     return any(t.endswith(suffix) for suffix in _YFINANCE_BLIND_SPOTS)
 
 
-def get_price_data(ticker: str) -> PriceData:
+def get_price_data(ticker: str, *, allow_llm_fallback: bool = True) -> PriceData:
     """Get current price data. Three-tier fallback chain.
 
     Args:
         ticker: Stock ticker (e.g., "AAPL", "ADNOCGAS.AD").
+        allow_llm_fallback: If true, use the Claude Agent SDK web-search
+            fallback after yfinance and TradingView fail. Disable this for
+            safe scheduled monitoring tasks that should never spend LLM
+            credits just to refresh prices.
 
     Returns:
         PriceData with current market information.
@@ -155,6 +159,20 @@ def get_price_data(ticker: str) -> PriceData:
             industry="",
             error="NO_DATA",
             error_detail=f"Failed {count} times consecutively across yfinance and TradingView",
+        )
+
+    if not allow_llm_fallback:
+        return PriceData(
+            ticker=ticker.upper(),
+            price=0.0,
+            market_cap=0.0,
+            currency="USD",
+            exchange="",
+            name=ticker,
+            sector="",
+            industry="",
+            error="NO_DATA",
+            error_detail="Primary sources exhausted; LLM fallback disabled",
         )
 
     # Tier 3: LLM web search (heavy, last resort)
@@ -335,12 +353,16 @@ def _web_search_price(ticker: str) -> PriceData:
         return result_text
 
     try:
-        result_text = asyncio.run(_search())
+        asyncio.get_running_loop()
     except RuntimeError:
+        in_async_loop = False
+    else:
+        in_async_loop = True
+
+    if in_async_loop:
         # Already inside an async event loop (e.g. called from FastAPI).
-        # Spawning a new loop or run_until_complete would block the server's
-        # event loop, killing WebSocket connections. Return gracefully —
-        # callers (activity feed, etc.) have fallback prices.
+        # asyncio.run() would raise and leak an un-awaited coroutine. Return
+        # gracefully — callers (activity feed, etc.) have fallback prices.
         logger.info("Skipping web search for %s (already in async loop)", ticker)
         return PriceData(
             ticker=ticker.upper(),
@@ -354,6 +376,9 @@ def _web_search_price(ticker: str) -> PriceData:
             error="NETWORK_ERROR",
             error_detail="Cannot run web search in async loop",
         )
+
+    try:
+        result_text = asyncio.run(_search())
     except Exception as e:
         # Agent SDK can crash (nested invocation, missing key, etc.)
         logger.warning("Agent SDK web search failed for %s: %s", ticker, e)

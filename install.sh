@@ -114,9 +114,9 @@ install_native() {
 
   step "Done"
   say "  Activate the venv:           ${C_BOLD}source .venv/bin/activate${C_END}"
-  say "  Then start the web UI:       ${C_BOLD}owlfolio serve${C_END}"
+  say "  Check setup health:          ${C_BOLD}owlfolio doctor${C_END}"
+  say "  Start the web UI:           ${C_BOLD}owlfolio serve${C_END}"
   say "  Or analyze a stock:          ${C_BOLD}owlfolio analyze AAPL${C_END}"
-  say "  One-stop diagnostic:         ${C_BOLD}owlfolio doctor${C_END}"
 }
 
 case "$MODE" in

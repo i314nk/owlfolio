@@ -267,7 +267,7 @@ strategies:
 
 ## Testing
 
-276 tests across 12 test files, all passing. Run with:
+298 tests across 14 test files, all passing. Run with:
 
 ```bash
 pytest tests/ -q

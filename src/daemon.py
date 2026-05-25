@@ -6,6 +6,7 @@ Start with: owlfolio daemon
 
 import logging
 import os
+import shlex
 import signal
 import subprocess
 import time
@@ -159,6 +160,26 @@ def _check_for_alerts(conn, task: dict, output: str, run_id: int | None = None):
             break
 
 
+TASK_TIMEOUT_SECONDS = 60 * 60  # agentic discovery/list analysis often exceeds 5 minutes
+
+
+def _task_command_args(command: str) -> list[str]:
+    """Parse and validate a scheduled command.
+
+    Scheduled tasks intentionally run Owlfolio CLI commands only. This avoids
+    shell injection from database/web-created task strings while preserving the
+    local automation use case.
+    """
+    args = shlex.split(command)
+    if not args:
+        raise ValueError("Scheduled task command is empty")
+    if args[0] != "owlfolio":
+        raise ValueError("Scheduled tasks may only run owlfolio commands")
+    if any(any(ch in arg for ch in ";|&`$<>") for arg in args):
+        raise ValueError("Scheduled task command contains unsupported shell metacharacters")
+    return args
+
+
 def _execute_task(task: dict):
     """Run a task's command and persist the result.
 
@@ -193,11 +214,11 @@ def _execute_task(task: dict):
 
     try:
         result = subprocess.run(
-            task["command"],
-            shell=True,
+            _task_command_args(task["command"]),
+            shell=False,
             capture_output=True,
             text=True,
-            timeout=300,
+            timeout=TASK_TIMEOUT_SECONDS,
             cwd=str(PROJECT_ROOT),
         )
 
@@ -228,7 +249,12 @@ def _execute_task(task: dict):
             )
 
     except subprocess.TimeoutExpired:
-        log_task_run(conn, task["id"], "timeout", "Task exceeded 5 minute timeout")
+        log_task_run(
+            conn,
+            task["id"],
+            "timeout",
+            f"Task exceeded {TASK_TIMEOUT_SECONDS // 60} minute timeout",
+        )
         if run_id is not None:
             # Convention: -1 = timeout, distinct from the subprocess's own exit codes.
             record_task_run_end(
@@ -236,7 +262,7 @@ def _execute_task(task: dict):
                 run_id,
                 exit_code=-1,
                 stdout="",
-                stderr="Task exceeded 5 minute timeout",
+                stderr=f"Task exceeded {TASK_TIMEOUT_SECONDS // 60} minute timeout",
             )
         logger.error("Task %s timed out", task["name"])
     except Exception as e:

@@ -1,8 +1,8 @@
 """Default automation schedule for Owlfolio.
 
-Creates a sensible end-to-end investment lifecycle schedule when the user
-completes setup. All cron times are adjusted to the user's timezone and
-their primary market's trading hours.
+Creates a small, safe first-run schedule when the user completes setup.
+Only non-LLM monitoring jobs are enabled by default; slow Claude research
+automations are opt-in so onboarding stays simple and predictable.
 """
 
 from __future__ import annotations
@@ -57,48 +57,56 @@ def _market_open_local_hour(market: str, timezone: str) -> int:
 # Each entry: (name, command, cron_template, description).
 # In the cron_template, {H} is replaced with the market-open local hour,
 # and {H-1} with one hour before.
+#
+# Keep the first-run schedule intentionally small and safe: setup should
+# not surprise users by scheduling credit-burning agentic research jobs.
+# Users can opt into discovery, candidate analysis, and holding reviews
+# explicitly after they understand the cost/time tradeoff.
 DEFAULT_TASKS = [
     (
         "daily-watchlist-check",
-        "owlfolio watchlist-check",
+        "owlfolio watchlist-check --no-llm-price",
         "30 {H-1} * * 1-5",
         "Price check 30min before market open (weekdays)",
     ),
     (
         "daily-portfolio-check",
-        "owlfolio portfolio",
+        "owlfolio portfolio --no-llm-price",
         "0 {H} * * 1-5",
         "Portfolio P&L update at market open (weekdays)",
     ),
+]
+
+OPTIONAL_RESEARCH_TASKS = [
     (
         "weekly-discovery",
         "owlfolio find",
         "0 {H} * * 1",
-        "Discover new candidates (Monday)",
+        "Discover new candidates (Monday; slow, uses Claude credits)",
     ),
     (
         "weekly-news-check",
         "owlfolio review-holdings --mode news",
         "0 {H-1} * * 2",
-        "News pulse for all holdings (Tuesday)",
+        "News pulse for all holdings (Tuesday; uses Claude credits)",
     ),
     (
         "weekly-candidate-screening",
         "owlfolio analyze-list --auto --next 3",
         "0 {H} * * 3",
-        "Analyze top 3 unprocessed candidates (Wednesday)",
+        "Analyze top 3 unprocessed candidates (Wednesday; slow, uses Claude credits)",
     ),
     (
         "quarterly-10q-review",
         "owlfolio review-holdings --mode review --thorough",
         "0 {H} 15 1,4,7,10 *",
-        "Post-10Q review of all holdings (mid-quarter)",
+        "Post-10Q review of all holdings (mid-quarter; uses Claude credits)",
     ),
     (
         "annual-full-reanalysis",
         "owlfolio review-holdings --mode full",
         "0 {H} 15 2,5,8,11 *",
-        "Full re-analysis after 10-K season (Feb/May/Aug/Nov)",
+        "Full re-analysis after 10-K season (Feb/May/Aug/Nov; slow, uses Claude credits)",
     ),
 ]
 

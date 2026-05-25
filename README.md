@@ -9,7 +9,7 @@ source candidates, research, value, size, decide, audit.
 
 Your investing philosophy is defined as configuration, not code.
 
-[![CI](https://github.com/qwibitai/owlfolio/actions/workflows/ci.yml/badge.svg)](https://github.com/qwibitai/owlfolio/actions/workflows/ci.yml)
+[![CI](https://github.com/i314nk/owlfolio/actions/workflows/ci.yml/badge.svg)](https://github.com/i314nk/owlfolio/actions/workflows/ci.yml)
 [![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Claude SDK](https://img.shields.io/badge/LLM-Claude%20Agent%20SDK-blueviolet.svg)](https://docs.anthropic.com/en/docs/agents-and-tools/claude-agent-sdk)
@@ -97,9 +97,11 @@ The principles that fall out of that goal:
   own. No SaaS dashboard, no telemetry, no portfolio data leaving the box
   unless you mount it on the public internet on purpose.
 - **Claude-only, by design.** Owlfolio is not a multi-LLM abstraction layer.
-  It's tuned end-to-end for the Claude Agent SDK with adaptive extended
-  thinking on every specialist. That's a deliberate scope choice — it
-  keeps the codebase small and the prompt engineering coherent.
+  It is a Claude Agent SDK portfolio-research system: specialist subagents,
+  tool-bounded web research, adaptive extended thinking, and synthesis are
+  tuned as one coherent agentic workflow. Avoiding provider abstraction is
+  intentional; it keeps the codebase focused and the prompt engineering
+  consistent.
 - **Honest about what it isn't.** Not a robo-advisor. Not a backtesting
   suite (yet). Not a substitute for thinking. Not a deterministic
   numeric screener. It's a disciplined *agentic* research pipeline
@@ -133,7 +135,7 @@ implies.
 If you have [Claude Code](https://docs.anthropic.com/en/docs/claude-code) installed, it can set up everything for you:
 
 ```bash
-git clone https://github.com/qwibitai/owlfolio && cd owlfolio
+git clone https://github.com/i314nk/owlfolio && cd owlfolio
 claude
 # Then say: "set up owlfolio"
 ```
@@ -143,17 +145,18 @@ Claude Code reads the project's `CLAUDE.md` and handles the full setup — Pytho
 ### Option B: Install script
 
 ```bash
-git clone https://github.com/qwibitai/owlfolio && cd owlfolio
-./install.sh                 # sets up Python venv, installs deps, configures credentials
+git clone https://github.com/i314nk/owlfolio && cd owlfolio
+./install.sh                 # sets up Python venv and installs deps
 ```
 
 ### Then use it
 
 ```bash
+owlfolio doctor                      # confirm credentials, strategy, DB, daemon
 owlfolio serve                       # launch the web dashboard (primary interface)
 ```
 
-Open `http://localhost:8000` and you're in — chat with your AI analyst, run analyses, manage your portfolio, and configure scheduled tasks, all from the browser.
+Open `http://localhost:8000` and you're in — chat with your AI analyst, run analyses, manage your portfolio, and configure scheduled tasks, all from the browser. First-run setup creates only safe price/P&L checks; slow Claude research jobs are opt-in so onboarding stays predictable.
 
 **Prefer the CLI?** Everything in the Web UI is also available from the terminal:
 
@@ -194,16 +197,17 @@ Both paths persist as named candidate lists. Run `owlfolio analyze-list NAME` to
 
 ### Scheduled Tasks — Automation That Runs While You Sleep
 
-Owlfolio's background daemon runs scheduled tasks on cron schedules, so your investment process keeps working when you're not at the keyboard. Configure tasks from the Web UI's Schedule tab or via CLI.
+Owlfolio's background daemon runs scheduled tasks on cron schedules, so your investment process keeps working when you're not at the keyboard. First-run setup intentionally creates only safe, non-LLM monitoring tasks (`watchlist-check` and `portfolio`). Credit-burning Claude research jobs like discovery, holding reviews, and list analysis are opt-in from the Web UI's Schedule tab or via CLI. See [`docs/AUTONOMOUS_SCHEDULE_POLICY.md`](docs/AUTONOMOUS_SCHEDULE_POLICY.md) for the safe-vs-research cadence policy.
 
 **Built-in examples:**
 
 | Task | What it does | Typical schedule |
 |------|-------------|-----------------|
-| Earnings watch | Checks upcoming earnings dates for all holdings and watchlist | Weekly |
-| Price alerts | Scans watchlist for tickers entering buy zones | Daily |
-| Holdings review | Re-runs analysis on current holdings to catch thesis drift | Monthly |
-| Candidate screening | Batch-analyzes a saved ticker list overnight | On demand |
+| Price alerts | Scans watchlist for tickers entering buy zones | Safe default: weekdays |
+| Portfolio check | Refreshes holdings / P&L view | Safe default: weekdays |
+| Holdings review | Re-runs analysis on current holdings to catch thesis drift | Opt-in |
+| Candidate screening | Batch-analyzes a saved ticker list overnight | Opt-in |
+| Agentic discovery | Finds new strategy-fit candidates with Claude WebSearch | Opt-in |
 
 **Custom tasks:** Schedule any Owlfolio command to run on a cron cadence:
 
@@ -310,10 +314,10 @@ prompt and CLI output read naturally in the strategy's own vocabulary. See
 
 | Method | Best for | How |
 |--------|----------|-----|
-| **Claude Pro / Max subscription** (recommended) | Individual investors | Install [Claude Code](https://docs.anthropic.com/en/docs/claude-code), run `claude` once to log in. Credentials are stored at `~/.claude/.credentials.json`. No per-token costs — analyses run against your subscription. |
+| **Claude Pro / Max subscription** (recommended) | Individual investors | Install [Claude Code](https://docs.anthropic.com/en/docs/claude-code), run `claude` once to log in. Credentials are stored at `~/.claude/.credentials.json`. Claude Agent SDK usage is covered by Anthropic's subscription Agent SDK credit model, with usage credits/API billing required after the monthly credit is exhausted. |
 | **API key** | Developers, teams, CI/CD | Set `export ANTHROPIC_API_KEY=sk-ant-...` in your shell profile. Standard API billing per token. |
 
-> **Why we recommend the subscription:** Owlfolio is token-heavy. A single analysis spawns 3-5 specialist subagents in parallel, each running web research with adaptive extended thinking. A full analysis can consume significant tokens. With a Claude Pro/Max subscription, this is all included — no surprise bills. API billing works fine but costs add up quickly with frequent analyses.
+> **Cost note:** Owlfolio is token-heavy. A single analysis spawns 3-5 specialist subagents in parallel, each running web research with adaptive extended thinking. A full analysis can consume significant tokens. Subscription auth is convenient for personal use, but Agent SDK usage has its own monthly credit budget; heavy usage may require usage credits or API-key billing.
 
 ---
 
@@ -369,7 +373,7 @@ Owlfolio is in active development and ready for daily personal use. The core pip
 - **Background automation** — daemon with cron scheduling, full execution history (exit codes, stdout/stderr), resumable batch analysis
 - **Audit trail** — every analysis, decision, candidate list, and task run persisted with `#NN` references you can quote in chat
 - **Add-on pattern** — Shariah compliance works with any strategy via `--shariah` (discovery + analysis); ESG/Insider planned
-- **288 tests** across 12 test files, CI via GitHub Actions
+- **298 tests** across 14 test files, CI via GitHub Actions
 
 *What's next:* interactive Plotly charts, portfolio analytics dashboard (quantstats + agent narrative), quarterly report generator. See [`docs/FUTURE_PLAN.md`](docs/FUTURE_PLAN.md) for the roadmap.
 
@@ -404,6 +408,6 @@ MIT — see [LICENSE](LICENSE).
 
 <div align="center">
 
-Built by [Sultan Al Aryani](https://github.com/qwibitai)
+Built by [Sultan Al Aryani](https://github.com/i314nk)
 
 </div>
