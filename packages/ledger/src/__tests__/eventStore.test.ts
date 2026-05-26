@@ -3,8 +3,9 @@ import { InMemoryEventStore } from '../eventStore'
 import type { LedgerEventEnvelope } from '../eventEnvelope'
 
 type ResearchPayload = { ticker: string; strategy_id: string }
+type ResearchEvent = LedgerEventEnvelope<ResearchPayload>
 
-function researchCaseEvent(overrides: Partial<LedgerEventEnvelope<ResearchPayload>> = {}): LedgerEventEnvelope<ResearchPayload> {
+function researchCaseEvent(overrides: Partial<ResearchEvent> = {}): ResearchEvent {
   return {
     event_id: 'evt_research_created_1',
     event_type: 'research_case_created',
@@ -20,9 +21,17 @@ function researchCaseEvent(overrides: Partial<LedgerEventEnvelope<ResearchPayloa
   }
 }
 
+function ignoreReadonlyMutation(mutation: () => void): void {
+  try {
+    mutation()
+  } catch (error) {
+    expect(error).toBeInstanceOf(TypeError)
+  }
+}
+
 describe('InMemoryEventStore', () => {
   it('appends and reads immutable event envelopes', async () => {
-    const store = new InMemoryEventStore()
+    const store = new InMemoryEventStore<ResearchEvent>()
     const event = researchCaseEvent()
 
     const appended = await store.append(event)
@@ -32,8 +41,60 @@ describe('InMemoryEventStore', () => {
     expect(await store.listByAggregate('research_case', 'rc_cost_001')).toEqual([event])
   })
 
-  it('deduplicates repeated appends with the same idempotency key', async () => {
-    const store = new InMemoryEventStore()
+  it('does not let mutations to the original event alter stored history', async () => {
+    const store = new InMemoryEventStore<ResearchEvent>()
+    const event = researchCaseEvent({ source_ids: ['src_original'] })
+
+    await store.append(event)
+
+    event.event_id = 'evt_mutated'
+    event.payload.ticker = 'MSFT'
+    event.source_ids.push('src_mutated')
+
+    const stored = await store.list()
+    expect(stored).toEqual([
+      researchCaseEvent({
+        source_ids: ['src_original'],
+      }),
+    ])
+  })
+
+  it('does not let mutations to returned event payloads or source ids alter stored history', async () => {
+    const store = new InMemoryEventStore<ResearchEvent>()
+    const event = researchCaseEvent({ source_ids: ['src_original'] })
+
+    await store.append(event)
+
+    const listedEvent = (await store.list())[0]
+    expect(listedEvent).toBeDefined()
+    ignoreReadonlyMutation(() => {
+      listedEvent!.event_id = 'evt_mutated_from_list'
+    })
+    ignoreReadonlyMutation(() => {
+      listedEvent!.payload.ticker = 'MSFT'
+    })
+    ignoreReadonlyMutation(() => {
+      listedEvent!.source_ids.push('src_mutated_from_list')
+    })
+
+    const aggregateEvent = (await store.listByAggregate('research_case', 'rc_cost_001'))[0]
+    expect(aggregateEvent).toBeDefined()
+    ignoreReadonlyMutation(() => {
+      aggregateEvent!.payload.strategy_id = 'changed'
+    })
+    ignoreReadonlyMutation(() => {
+      aggregateEvent!.source_ids.push('src_mutated_from_aggregate_list')
+    })
+
+    expect(await store.list()).toEqual([
+      researchCaseEvent({
+        source_ids: ['src_original'],
+      }),
+    ])
+  })
+
+  it('deduplicates repeated appends by idempotency key only', async () => {
+    const store = new InMemoryEventStore<ResearchEvent>()
     const first = researchCaseEvent({
       event_id: 'evt_first',
       idempotency_key: 'research-case:COST:buffett-munger',
@@ -53,7 +114,7 @@ describe('InMemoryEventStore', () => {
   })
 
   it('exposes no update or delete mutation API', () => {
-    const store = new InMemoryEventStore()
+    const store = new InMemoryEventStore<ResearchEvent>()
     expect('update' in store).toBe(false)
     expect('delete' in store).toBe(false)
     expect('remove' in store).toBe(false)

@@ -1,34 +1,51 @@
 import type { AggregateType, LedgerEventEnvelope } from './eventEnvelope'
 
-export class InMemoryEventStore {
-  private readonly events: LedgerEventEnvelope<unknown>[] = []
-  private readonly eventsByIdempotencyKey = new Map<string, LedgerEventEnvelope<unknown>>()
+function deepFreeze<T>(value: T): T {
+  if (value !== null && (typeof value === 'object' || typeof value === 'function')) {
+    for (const key of Reflect.ownKeys(value)) {
+      deepFreeze((value as Record<PropertyKey, unknown>)[key])
+    }
 
-  async append<TPayload>(event: LedgerEventEnvelope<TPayload>): Promise<LedgerEventEnvelope<TPayload>> {
+    Object.freeze(value)
+  }
+
+  return value
+}
+
+function cloneAndFreeze<T>(value: T): T {
+  return deepFreeze(structuredClone(value))
+}
+
+export class InMemoryEventStore<TEvent extends LedgerEventEnvelope<unknown> = LedgerEventEnvelope<unknown>> {
+  private readonly events: TEvent[] = []
+  private readonly eventsByIdempotencyKey = new Map<string, TEvent>()
+
+  async append(event: TEvent): Promise<TEvent> {
     if (event.idempotency_key !== undefined) {
       const existing = this.eventsByIdempotencyKey.get(event.idempotency_key)
       if (existing !== undefined) {
-        return existing as LedgerEventEnvelope<TPayload>
+        return existing
       }
     }
 
-    this.events.push(event)
+    const storedEvent = cloneAndFreeze(event)
+    this.events.push(storedEvent)
 
-    if (event.idempotency_key !== undefined) {
-      this.eventsByIdempotencyKey.set(event.idempotency_key, event)
+    if (storedEvent.idempotency_key !== undefined) {
+      this.eventsByIdempotencyKey.set(storedEvent.idempotency_key, storedEvent)
     }
 
-    return event
+    return storedEvent
   }
 
-  async list(): Promise<LedgerEventEnvelope<unknown>[]> {
+  async list(): Promise<TEvent[]> {
     return [...this.events]
   }
 
   async listByAggregate(
     aggregateType: AggregateType,
     aggregateId: string,
-  ): Promise<LedgerEventEnvelope<unknown>[]> {
+  ): Promise<TEvent[]> {
     return this.events.filter(
       (event) => event.aggregate_type === aggregateType && event.aggregate_id === aggregateId,
     )
