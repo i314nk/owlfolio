@@ -20,7 +20,28 @@ describe('Buffett-Munger certified strategy', () => {
     const result = evaluateGates(buffettMungerStrategy, { shariah_status: 'COMPLIANT', owner_earnings_positive: true, leverage_safe: true, valuation_complete: true, source_coverage_complete: true })
     expect(result.status).toBe('COMPLIANT')
     expect(result.failed_gates).toEqual([])
+    expect(result.warning_gates).toEqual([])
     expect(result.unknown_gates).toEqual([])
+  })
+
+  it('returns NON_COMPLIANT when a blocking gate is false', () => {
+    const result = evaluateGates(buffettMungerStrategy, { shariah_status: 'COMPLIANT', owner_earnings_positive: false, leverage_safe: true, valuation_complete: true, source_coverage_complete: true })
+    expect(result.status).toBe('NON_COMPLIANT')
+    expect(result.failed_gates).toEqual(['positive_owner_earnings'])
+    expect(result.warning_gates).toEqual([])
+  })
+
+  it('does not block compliance when a warning gate is false', () => {
+    const result = evaluateGates(buffettMungerStrategy, { shariah_status: 'COMPLIANT', owner_earnings_positive: true, leverage_safe: true, valuation_complete: true, source_coverage_complete: false })
+    expect(result.status).toBe('COMPLIANT')
+    expect(result.failed_gates).toEqual([])
+    expect(result.warning_gates).toEqual(['source_coverage_complete'])
+  })
+
+  it('returns NON_COMPLIANT when Shariah status is prohibited', () => {
+    const result = evaluateGates(buffettMungerStrategy, { shariah_status: 'NON_COMPLIANT', owner_earnings_positive: true, leverage_safe: true, valuation_complete: true, source_coverage_complete: true })
+    expect(result.status).toBe('NON_COMPLIANT')
+    expect(result.failed_gates).toEqual(['shariah_compliant_or_conditional'])
   })
 
   it('returns CONDITIONAL when Shariah is conditional but allowed', () => {

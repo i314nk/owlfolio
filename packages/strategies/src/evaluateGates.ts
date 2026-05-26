@@ -15,6 +15,7 @@ export type GateEvaluationStatus = 'COMPLIANT' | 'CONDITIONAL' | 'NON_COMPLIANT'
 export interface GateEvaluationResult {
   status: GateEvaluationStatus
   failed_gates: string[]
+  warning_gates: string[]
   unknown_gates: string[]
   conditional_gates: string[]
 }
@@ -23,14 +24,19 @@ type SingleGateResult = 'pass' | 'conditional' | 'fail' | 'unknown'
 
 export function evaluateGates(strategy: StrategyContract, facts: GateFacts): GateEvaluationResult {
   const failed_gates: string[] = []
+  const warning_gates: string[] = []
   const unknown_gates: string[] = []
   const conditional_gates: string[] = []
 
   for (const gate of strategy.hard_gates) {
     const result = evaluateGate(strategy, gate, facts)
 
-    if (result === 'fail') {
+    if (result === 'fail' && gate.severity === 'blocking') {
       failed_gates.push(gate.id)
+    }
+
+    if (result === 'fail' && gate.severity === 'warning') {
+      warning_gates.push(gate.id)
     }
 
     if (result === 'unknown' && gate.severity === 'blocking') {
@@ -43,18 +49,18 @@ export function evaluateGates(strategy: StrategyContract, facts: GateFacts): Gat
   }
 
   if (failed_gates.length > 0) {
-    return { status: 'NON_COMPLIANT', failed_gates, unknown_gates, conditional_gates }
+    return { status: 'NON_COMPLIANT', failed_gates, warning_gates, unknown_gates, conditional_gates }
   }
 
   if (unknown_gates.length > 0) {
-    return { status: 'INSUFFICIENT_DATA', failed_gates, unknown_gates, conditional_gates }
+    return { status: 'INSUFFICIENT_DATA', failed_gates, warning_gates, unknown_gates, conditional_gates }
   }
 
   if (conditional_gates.length > 0) {
-    return { status: 'CONDITIONAL', failed_gates, unknown_gates, conditional_gates }
+    return { status: 'CONDITIONAL', failed_gates, warning_gates, unknown_gates, conditional_gates }
   }
 
-  return { status: 'COMPLIANT', failed_gates, unknown_gates, conditional_gates }
+  return { status: 'COMPLIANT', failed_gates, warning_gates, unknown_gates, conditional_gates }
 }
 
 function evaluateGate(strategy: StrategyContract, gate: HardGate, facts: GateFacts): SingleGateResult {
@@ -73,15 +79,19 @@ function evaluateGate(strategy: StrategyContract, gate: HardGate, facts: GateFac
       return value ? 'pass' : 'fail'
 
     case 'shariah_compliant_or_conditional':
-      if (value === 'COMPLIANT') {
+      if (value === 'COMPLIANT' && strategy.shariah.accepted_statuses.includes(value)) {
         return 'pass'
       }
 
-      if (value === 'CONDITIONAL' && strategy.shariah.allow_conditional) {
-        return 'conditional'
+      if (value === 'CONDITIONAL') {
+        if (strategy.shariah.allow_conditional && strategy.shariah.accepted_statuses.includes(value)) {
+          return 'conditional'
+        }
+
+        return 'fail'
       }
 
-      if (value === 'NON_COMPLIANT' || value === 'CONDITIONAL') {
+      if (value === 'NON_COMPLIANT' && strategy.shariah.prohibited_statuses.includes(value)) {
         return 'fail'
       }
 
