@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": {
     "dev": "echo 'web app dev server not implemented yet'",
-    "lint": "echo 'No lint configured for @owlfolio/web'",
-    "typecheck": "echo 'No typecheck configured for @owlfolio/web'"
+    "lint": "node -e \"console.log('Lint not configured yet for @owlfolio/web')\"",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
   }
 }

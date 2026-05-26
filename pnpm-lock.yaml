@@ -9,16 +9,16 @@ importers:
   .:
     devDependencies:
       '@playwright/test':
-        specifier: latest
+        specifier: 1.60.0
         version: 1.60.0
       '@types/node':
-        specifier: latest
+        specifier: 25.9.1
         version: 25.9.1
       typescript:
-        specifier: latest
+        specifier: 6.0.3
         version: 6.0.3
       vitest:
-        specifier: latest
+        specifier: 4.1.7
         version: 4.1.7(@types/node@25.9.1)(vite@8.0.14(@types/node@25.9.1))
 
   apps/web: {}

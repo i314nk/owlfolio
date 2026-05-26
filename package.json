@@ -2,19 +2,20 @@
   "name": "owlfolio-v02",
   "private": true,
   "type": "module",
+  "packageManager": "pnpm@11.3.0",
   "scripts": {
-    "dev": "pnpm --filter @owlfolio/web dev",
-    "worker": "pnpm --filter @owlfolio/worker dev",
-    "test": "vitest run",
-    "test:watch": "vitest",
-    "lint": "pnpm -r lint",
-    "typecheck": "pnpm -r typecheck",
+    "dev": "corepack pnpm --filter @owlfolio/web dev",
+    "worker": "corepack pnpm --filter @owlfolio/worker dev",
+    "test": "vitest run --passWithNoTests",
+    "test:watch": "vitest --passWithNoTests",
+    "lint": "corepack pnpm -r lint",
+    "typecheck": "tsc --noEmit -p tsconfig.json && corepack pnpm -r typecheck",
     "e2e": "playwright test"
   },
   "devDependencies": {
-    "@playwright/test": "latest",
-    "@types/node": "latest",
-    "typescript": "latest",
-    "vitest": "latest"
+    "@playwright/test": "1.60.0",
+    "@types/node": "25.9.1",
+    "typescript": "6.0.3",
+    "vitest": "4.1.7"
   }
 }

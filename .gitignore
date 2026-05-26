@@ -14,6 +14,10 @@ env/
 # Node.js
 node_modules/
 .next/
+coverage/
+playwright-report/
+test-results/
+.turbo/
 
 # IDE
 .vscode/
