@@ -11,6 +11,10 @@ build/
 venv/
 env/
 
+# Node.js
+node_modules/
+.next/
+
 # IDE
 .vscode/
 .idea/

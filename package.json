@@ -1,0 +1,20 @@
+{
+  "name": "owlfolio-v02",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "pnpm --filter @owlfolio/web dev",
+    "worker": "pnpm --filter @owlfolio/worker dev",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "pnpm -r lint",
+    "typecheck": "pnpm -r typecheck",
+    "e2e": "playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "latest",
+    "@types/node": "latest",
+    "typescript": "latest",
+    "vitest": "latest"
+  }
+}

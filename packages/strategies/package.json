@@ -1,0 +1,9 @@
+{
+  "name": "@owlfolio/strategies",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "lint": "echo 'No lint configured for @owlfolio/strategies'",
+    "typecheck": "echo 'No typecheck configured for @owlfolio/strategies'"
+  }
+}

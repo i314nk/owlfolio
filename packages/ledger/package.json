@@ -1,0 +1,9 @@
+{
+  "name": "@owlfolio/ledger",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "lint": "echo 'No lint configured for @owlfolio/ledger'",
+    "typecheck": "echo 'No typecheck configured for @owlfolio/ledger'"
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "name": "@owlfolio/web",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "echo 'web app dev server not implemented yet'",
+    "lint": "echo 'No lint configured for @owlfolio/web'",
+    "typecheck": "echo 'No typecheck configured for @owlfolio/web'"
+  }
+}

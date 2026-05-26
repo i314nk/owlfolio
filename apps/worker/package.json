@@ -1,0 +1,10 @@
+{
+  "name": "@owlfolio/worker",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "echo 'worker dev process not implemented yet'",
+    "lint": "echo 'No lint configured for @owlfolio/worker'",
+    "typecheck": "echo 'No typecheck configured for @owlfolio/worker'"
+  }
+}

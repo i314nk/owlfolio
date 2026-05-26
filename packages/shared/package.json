@@ -1,0 +1,9 @@
+{
+  "name": "@owlfolio/shared",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "lint": "echo 'No lint configured for @owlfolio/shared'",
+    "typecheck": "echo 'No typecheck configured for @owlfolio/shared'"
+  }
+}

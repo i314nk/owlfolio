@@ -1,0 +1,9 @@
+{
+  "name": "@owlfolio/workflow",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "lint": "echo 'No lint configured for @owlfolio/workflow'",
+    "typecheck": "echo 'No typecheck configured for @owlfolio/workflow'"
+  }
+}

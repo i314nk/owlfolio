@@ -1,0 +1,9 @@
+{
+  "name": "@owlfolio/providers",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "lint": "echo 'No lint configured for @owlfolio/providers'",
+    "typecheck": "echo 'No typecheck configured for @owlfolio/providers'"
+  }
+}
