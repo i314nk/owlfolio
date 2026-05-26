@@ -96,7 +96,43 @@ packages/
 
 If using a full-stack framework, `apps/web` may contain both UI and API routes. The worker should remain separately runnable so scheduled tasks do not depend on a browser session.
 
-## 5. Recommended stack
+## 5. Runtime model
+
+v0.2 is a local Node application, not a serverless web app.
+
+Runtime decisions:
+
+- The primary app is a Next.js server running locally.
+- The worker is a separate Node process using the same ledger API and app config.
+- The durable store lives in a local app data directory, not in the repository.
+- SQLite is the default durable store for the alpha unless the ledger spike proves another embedded store is simpler and safer.
+- No serverless deployment target is required for v0.2 alpha.
+- Browser onboarding writes local configuration through authenticated local API routes.
+- Normal setup must not require manual `.env` editing.
+- Provider credentials are stored in local configuration or OS keychain where feasible; secrets must never be committed to git.
+- Web and worker share configuration through a single config module and must use ledger-level idempotency for concurrent/retried work.
+- Background jobs are scheduled by the local worker, not by hosted cron infrastructure.
+
+This model optimizes for a polished local demo and personal workflow. Hosted deployment and desktop packaging can be future milestones, but they should not complicate the v0.2 alpha.
+
+## 6. v0.1 to v0.2 architecture reversals
+
+The rewrite intentionally changes several v0.1 assumptions:
+
+| v0.1 prototype | v0.2 target |
+| --- | --- |
+| Claude-only by design | Certified providers with full workflow parity |
+| Agent SDK owns much of the loop | Owlfolio owns orchestration, tools, validation, and ledger writes |
+| Synthesis owns the decision | Workflow engine owns gates; synthesis drafts conclusions |
+| Prompt-first strategy YAML | Executable strategy policy contracts |
+| Chat-centered web UI | Workflow-first command center |
+| SQLite tables as product model | Ledger/projection API as product model |
+| Shariah as useful add-on | Shariah-by-design domain model |
+| Analyses as final text artifacts | Audited research cases with gate status, sources, and next actions |
+
+These reversals are implementation constraints. If a v0.2 implementation recreates the v0.1 Claude/chat/table-centered architecture, it is off-track.
+
+## 7. Recommended stack
 
 Recommended starting stack:
 
@@ -117,7 +153,7 @@ Reasoning:
 - Zod makes provider output validation explicit.
 - A separate worker keeps autonomous monitoring clean and testable.
 
-## 6. Hybrid memory ledger
+## 8. Hybrid memory ledger
 
 The missing heart of Owlfolio is the investment operating ledger.
 
@@ -227,7 +263,7 @@ The app should expose a ledger API rather than letting business logic directly m
    - purification paid
    - remaining balance
 
-## 7. Workflow-centered UI
+## 9. Workflow-centered UI
 
 The main UI should show the whole investment workflow in action.
 
@@ -313,7 +349,7 @@ Primary screens:
 
 Chat should appear as a contextual assistant panel, not the center of navigation.
 
-## 8. Provider-neutral research engine
+## 10. Provider-neutral research engine
 
 Owlfolio v0.2 should invert the current architecture.
 
@@ -366,7 +402,7 @@ Providers that cannot pass the certification suite may be experimental or unsupp
 - Experimental: visible only with explicit opt-in; not guaranteed for full workflows.
 - Unsupported: not available in onboarding.
 
-## 9. Provider certification suite
+## 11. Provider certification suite
 
 The certification suite is how Owlfolio keeps the promise that all supported providers can run all features.
 
@@ -388,7 +424,7 @@ Minimum tests:
 
 Certification should produce a readable report shown in developer docs and optionally in the UI.
 
-## 10. Strategy system redesign
+## 12. Strategy system redesign
 
 Strategies become executable policy contracts, not prompt presets.
 
@@ -449,7 +485,7 @@ Every final research result should separately report:
 
 This prevents optimistic synthesis from overriding missing data or failed hard gates.
 
-## 11. Buffett-Munger certified strategy
+## 13. Buffett-Munger certified strategy
 
 Buffett-Munger is the main strategy and first certified policy.
 
@@ -495,7 +531,7 @@ Required changes from current strategy files:
    - stale-analysis date
    - thesis-break triggers
 
-## 12. Experimental strategies
+## 14. Experimental strategies
 
 All non-Buffett-Munger strategies are experimental at v0.2 launch:
 
@@ -526,7 +562,7 @@ Strategy certification checklist:
 - test fixtures
 - sample passing and failing research cases
 
-## 13. Shariah-by-design model
+## 15. Shariah-by-design model
 
 Shariah is a first-class domain, not a plugin.
 
@@ -558,7 +594,7 @@ Core components:
 5. Workflow integration
    - Shariah status affects research promotion, watchlist eligibility, holding review, and monthly audit.
 
-## 14. Monthly accounting
+## 16. Monthly accounting
 
 Monthly accounting is part of the core workflow.
 
@@ -579,7 +615,7 @@ Required monthly snapshot fields:
 
 The monthly accounting workflow should produce a readable monthly report and append ledger events for audit.
 
-## 15. Onboarding and setup
+## 17. Onboarding and setup
 
 Setup must be simple enough for a GitHub reviewer and a future user.
 
@@ -632,7 +668,7 @@ First-run onboarding wizard:
 
 No normal setup path should require manual `.env` editing.
 
-## 16. Migration from Python v0.1
+## 18. Migration from Python v0.1
 
 Migration is useful but should not constrain v0.2 architecture.
 
@@ -653,7 +689,189 @@ Migration should produce a report:
 - unsupported legacy fields
 - warnings
 
-## 17. Testing strategy
+## 19. v0.2 alpha/MVP vertical slice
+
+The first implementation milestone must be a thin working path through the new architecture, not a broad partial rewrite.
+
+Alpha goal:
+
+A reviewer can run the local app, enter demo mode, inspect a Buffett-Munger research case, see strategy/Shariah/gate status, and promote the case to a watchlist draft through ledger events and projections.
+
+Alpha scope:
+
+1. Next.js app boots locally.
+2. Demo mode works without external provider credentials.
+3. SQLite-backed ledger exists with append-only events, versioned event envelopes, and rebuildable projections.
+4. One workflow is implemented end-to-end:
+   - create research case
+   - run mocked or canned Buffett-Munger analysis
+   - produce gate/status output
+   - create decision draft
+   - promote to watchlist draft with user confirmation
+5. Shariah status is modeled as first-class and can be demo-seeded or manually entered.
+6. Provider adapter interface exists.
+7. A mocked provider passes provider contract tests.
+8. Claude is the first real provider target, but broad provider work waits until the contract is proven.
+9. Monthly accounting and purification ledger schemas exist, but full workflows can ship in a later milestone.
+10. CLI is minimal and limited to health/dev/admin commands if needed.
+
+Alpha exclusions:
+
+- No live brokerage integration.
+- No automated buy/sell approvals.
+- No OpenAI certification until the provider contract and mocked-provider tests are stable.
+- No full migration from Python before the ledger model stabilizes.
+- No production desktop packaging.
+
+## 20. Ledger contract and invariants
+
+The ledger is the source of audit truth.
+
+### Event invariants
+
+- Events are append-only.
+- Existing events are never edited or deleted through application logic.
+- Corrections are represented by new correcting/reversing events.
+- Projections are disposable and rebuildable from the event stream.
+- Provider outputs cannot directly mutate current state; they create validated proposals or draft events.
+- Portfolio-impacting final state changes require explicit user actor attribution unless an automation rule explicitly permits a low-risk draft transition.
+- Every event handler must be idempotent.
+- Every scheduled/provider run that can retry must include an idempotency key.
+
+### Minimal event envelope
+
+```ts
+type LedgerEventEnvelope<TPayload> = {
+  event_id: string
+  event_type: string
+  aggregate_type: 'strategy' | 'company' | 'research_case' | 'watchlist_item' | 'holding' | 'decision' | 'accounting_snapshot' | 'purification_entry' | 'provider_run' | 'scheduled_task'
+  aggregate_id: string
+  causation_id?: string
+  correlation_id?: string
+  idempotency_key?: string
+  actor_type: 'user' | 'system' | 'provider' | 'worker'
+  actor_id?: string
+  payload: TPayload
+  source_ids: string[]
+  created_at: string
+  schema_version: number
+}
+```
+
+### Stable identity rules
+
+- Tickers are not primary keys.
+- Companies receive stable company IDs because tickers, listings, and markets can change.
+- Research cases, decisions, holdings, accounting snapshots, and purification entries receive independent stable IDs.
+- Market/ticker/currency live as attributes on company or instrument records.
+
+### Evidence attachment
+
+- Material research claims should reference one or more `source_ids`.
+- Unsourced claims must be marked as unsourced or assumption-based.
+- Source records include URL/file reference, retrieval time, title, publisher, extracted text hash, and trust classification.
+
+## 21. Human approval and automation safety
+
+Owlfolio is decision-support software. The automation boundary must be explicit.
+
+Allowed AI/system actions:
+
+- draft research cases
+- classify candidate stages
+- draft strategy compliance assessments
+- draft Shariah assessments
+- draft valuation outputs
+- draft ledger update proposals
+- create alerts and review reminders
+- run scheduled research/monitoring tasks that produce drafts
+
+Disallowed AI/system actions by default:
+
+- mark a buy/sell decision as user-approved
+- open or close a holding
+- record an external transaction as final without user action
+- mark purification as paid
+- silently change Shariah policy
+- silently promote a candidate into a portfolio-impacting state
+
+Default approval rules:
+
+- Buy/sell/pass/watch decisions are drafts until user-approved.
+- Watchlist promotion requires confirmation in the certified default mode.
+- Holding changes require manual user entry of an external transaction.
+- Research schedules may create drafts and alerts, not final portfolio decisions.
+- Every portfolio-impacting event must include actor attribution and an audit trail.
+
+## 22. Legal and product boundary
+
+Owlfolio is a local research, journaling, accounting, and audit-support tool.
+
+It does not:
+
+- provide personalized financial advice
+- act as a registered investment adviser
+- execute trades
+- connect to a broker for order placement
+- guarantee investment performance
+- guarantee Shariah compliance as a scholarly ruling or fatwa
+
+Outputs are decision-support drafts with audit trails. The user remains responsible for investment decisions, trade execution, source verification, and consultation with qualified financial or Shariah advisers where appropriate.
+
+## 23. Provider execution sandbox and permissions
+
+Provider calls run inside an Owlfolio-mediated execution context.
+
+Rules:
+
+- Providers receive scoped context, not unrestricted database access.
+- Providers never write ledger events directly.
+- Tool calls are mediated by Owlfolio and constrained by a per-run allowlist.
+- Each provider run records model, provider, prompt/template version, tool allowlist, budget, timeout, and correlation ID.
+- Provider outputs are validated by schemas and converted into proposals or draft events.
+- Web-fetched content is untrusted and cannot alter tool permissions, system policy, strategy gates, or approval rules.
+- Research tools return canonical source records with stable IDs.
+- Portfolio/private data is redacted or minimized unless the task requires it.
+- Case-scoped provider runs should not receive the full portfolio unless explicitly required.
+- Tool calls must respect timeout, cancellation, rate-limit, and cost-budget controls.
+- Retry behavior must use idempotency keys to avoid duplicate decisions, alerts, or ledger proposals.
+
+Security tests must verify that providers cannot approve user decisions, bypass gates, or write directly to the ledger.
+
+## 24. Shariah policy contract and versioning
+
+Shariah policy is versioned and auditable.
+
+A Shariah policy contract includes:
+
+- policy_id
+- policy_version
+- standard_basis, such as AAOIFI, MSCI Islamic, or a user-defined policy
+- sector exclusions
+- doubtful sector handling
+- financial ratio thresholds
+- denominator rule
+- non-compliant income threshold
+- evidence requirements
+- stale_after interval
+- promotion rules for COMPLIANT, CONDITIONAL, NON_COMPLIANT, and UNKNOWN statuses
+- purification calculation basis
+- override rules and audit behavior
+
+Every Shariah status must include:
+
+- status
+- policy_id and policy_version
+- evidence date
+- source filing/source IDs
+- known fields
+- unknown fields
+- next required evidence
+- stale date
+
+Policy changes do not rewrite old rulings. They create new policy versions and new evaluation events. A company that was compliant under old evidence may become conditional, unknown, or non-compliant when new evidence or a new policy version is applied.
+
+## 25. Testing strategy
 
 Testing must cover both software correctness and investment workflow integrity.
 
@@ -687,7 +905,39 @@ Test layers:
    - watchlist promotion
    - monthly accounting report
 
-## 18. Kanban plan
+
+Additional required test categories:
+
+6. Ledger replay tests
+   - event stream -> projection state
+   - projection rebuild after schema changes
+
+7. Idempotency tests
+   - duplicate provider/worker callbacks do not duplicate decisions, alerts, or ledger proposals
+
+8. Golden research fixtures
+   - known company cases with expected Buffett-Munger gate outcomes
+   - passing, failing, insufficient-data, and conditional cases
+
+9. Provider mock contract tests
+   - fake provider exercises structured output, tool calls, retries, invalid JSON, and timeouts deterministically
+
+10. Source-grounding tests
+    - every material claim has a source_id or is explicitly flagged as unsourced/assumption-based
+
+11. Migration snapshot tests
+    - v0.1 SQLite fixtures import into expected v0.2 ledger events and projections
+
+12. Authorization/safety tests
+    - provider cannot write ledger directly
+    - provider cannot approve user decisions
+    - scheduled tasks cannot create final buy/sell approvals
+
+13. Shariah policy versioning tests
+    - policy changes create new evaluations without rewriting old rulings
+    - UNKNOWN and CONDITIONAL statuses block or permit promotion according to policy
+
+## 26. Kanban plan and milestone gates
 
 Use a dedicated board for the rewrite:
 
@@ -714,8 +964,66 @@ Kanban rules:
 - No uncontrolled parallel coding before foundational interfaces are defined.
 - Use final verification cards per milestone.
 - Keep cards small enough for focused worker execution.
+- Worker cards must declare dependencies explicitly.
 
-## 19. Open decisions before implementation planning
+### Milestone 0: Foundation decisions
+
+Blocking decisions before implementation:
+
+- runtime model
+- package manager/workspace layout
+- database/ledger technology
+- event envelope
+- projection rebuild strategy
+- strategy contract schema
+- provider adapter interface
+- provider sandbox/permissions model
+- human approval policy
+- Shariah policy contract
+
+### Milestone 1: Vertical demo skeleton
+
+Deliverables:
+
+- Next.js app boots locally
+- SQLite ledger persists events
+- demo data available
+- command center renders
+- research case projection works
+- mocked provider executes deterministic workflow
+- user can promote a demo research case to watchlist draft
+
+### Milestone 2: Certified Buffett-Munger workflow
+
+Deliverables:
+
+- real Claude adapter
+- Buffett-Munger gates
+- valuation policy
+- source ledger
+- strategy compliance report
+- provider certification report for Claude
+
+### Milestone 3: Shariah + purification/accounting
+
+Deliverables:
+
+- Shariah policy contract
+- compliance history
+- purification events
+- monthly accounting snapshot
+- monthly report draft
+
+### Milestone 4: OpenAI certification + migration
+
+Deliverables:
+
+- OpenAI adapter
+- provider parity tests
+- OpenAI certification report
+- Python import report
+
+## 27. Open decisions before implementation planning
 
 1. Confirm Next.js vs Hono/Fastify + React.
    - Recommendation: Next.js for polished web-first portfolio/demo.
@@ -732,7 +1040,7 @@ Kanban rules:
 5. Confirm whether to push v0.1.1 before starting implementation.
    - Recommendation: push and tag v0.1.1 before substantial v0.2 coding.
 
-## 20. Implementation readiness criteria
+## 28. Implementation readiness criteria
 
 Implementation should begin only after:
 
