@@ -11,43 +11,77 @@ from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-app = FastAPI(title="Owlfolio", docs_url=None, redoc_url=None)
+from src.runtime import (
+    DEFAULT_STRATEGY_NAME,
+    get_runtime_context,
+    resolve_project_root,
+)
+
+
+def _is_daemon_running() -> bool:
+    """Shared daemon health bool for Web initial render and htmx partials."""
+    from src.operations.tasks import daemon_status
+
+    return bool(daemon_status()["running"])
+
+
+def _web_project_dir() -> Path:
+    """Return the project root for request-time Web reads.
+
+    Most Web code should follow the current runtime root instead of a root
+    cached during module import, because tests and production service wrappers
+    can change OWLFOLIO_PROJECT_DIR before issuing requests. Tests also
+    monkeypatch PROJECT_DIR to a minimal fixture with strategies/ but no src/;
+    keep supporting that explicit override.
+    """
+    if os.environ.get("OWLFOLIO_PROJECT_DIR"):
+        return resolve_project_root()
+    if (PROJECT_DIR / "strategies").is_dir() and not (PROJECT_DIR / "src").is_dir():
+        return PROJECT_DIR
+    return resolve_project_root()
+
 
 WEB_DIR = Path(__file__).parent
 TEMPLATES = Jinja2Templates(directory=str(WEB_DIR / "templates"))
+app = FastAPI(title="Owlfolio", docs_url=None, redoc_url=None)
 
 
-def _resolve_project_dir() -> Path:
-    """Resolve project root: OWLFOLIO_PROJECT_DIR env > cwd > __file__."""
-    explicit = os.environ.get("OWLFOLIO_PROJECT_DIR")
-    if explicit:
-        p = Path(explicit).resolve()
-        if p.exists():
-            return p
-    cwd = Path.cwd()
-    if (cwd / "strategies").is_dir() and (cwd / "src").is_dir():
-        return cwd
-    return WEB_DIR.parent.parent
-
-
-PROJECT_DIR = _resolve_project_dir()
-DB_PATH = PROJECT_DIR / "data" / "portfolio.db"
+PROJECT_DIR = resolve_project_root()
+DB_PATH = get_runtime_context(PROJECT_DIR).db_path
 AGENT_DIR = PROJECT_DIR / "src" / "agent"
 
 # Mount static files
 app.mount("/static", StaticFiles(directory=str(WEB_DIR / "static")), name="static")
 
 
+def _web_db_path() -> Path:
+    """Return the database path the current Web request should use.
+
+    Keep honoring tests that explicitly monkeypatch DB_PATH, but when
+    OWLFOLIO_PROJECT_DIR is set the runtime project directory is authoritative.
+    This mirrors production systemd wrappers and prevents an import-time DB path
+    from drifting away from CLI/daemon runtime state.
+    """
+    if os.environ.get("OWLFOLIO_PROJECT_DIR"):
+        return get_runtime_context(_web_project_dir()).db_path
+    return DB_PATH
+
+
 def _get_db():
-    conn = sqlite3.connect(str(DB_PATH))
+    conn = sqlite3.connect(str(_web_db_path()))
     conn.row_factory = sqlite3.Row
     return conn
+
+
+def _strategy_display_name(name: str) -> str:
+    """Return a short human-facing strategy label for header/dropdown UI."""
+    return name.title()
 
 
 def _load_strategies() -> list[dict]:
     """Load all preset strategies from the strategies/ directory."""
     strategies = []
-    strategies_dir = PROJECT_DIR / "strategies"
+    strategies_dir = get_runtime_context(_web_project_dir()).strategies_dir
     if not strategies_dir.exists():
         return strategies
     for f in sorted(strategies_dir.glob("*.yaml")):
@@ -59,15 +93,31 @@ def _load_strategies() -> list[dict]:
                 # Truncate to first sentence or 80 chars
                 if len(desc) > 80:
                     desc = desc[:77] + "..."
+                name = raw.get("name", f.stem)
+                is_default = name == DEFAULT_STRATEGY_NAME
                 strategies.append(
                     {
-                        "name": raw.get("name", f.stem),
+                        "name": name,
+                        "display_name": _strategy_display_name(name),
                         "description": desc,
+                        "is_default": is_default,
+                        "group_label": "Default strategy" if is_default else "Advanced presets",
                     }
                 )
         except Exception:
             pass
-    return strategies
+    return sorted(strategies, key=lambda s: (not s["is_default"], s["display_name"]))
+
+
+def _strategy_template_context() -> dict:
+    """Return strategy state/context used by initial render and htmx partials."""
+    strategies = _load_strategies()
+    return {
+        "strategy": _read_active_strategy_name(),
+        "strategies": strategies,
+        "default_strategy": next((s for s in strategies if s["is_default"]), None),
+        "advanced_strategies": [s for s in strategies if not s["is_default"]],
+    }
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -89,11 +139,8 @@ async def dashboard(request: Request):
         ).fetchall()
     ]
 
-    # Active strategy
-    strategy_name = _read_active_strategy_name()
-
-    # All available strategies
-    strategies = _load_strategies()
+    # Strategy state
+    strategy_context = _strategy_template_context()
 
     # Scheduled tasks
     tasks = [dict(r) for r in conn.execute("SELECT * FROM scheduled_tasks ORDER BY id").fetchall()]
@@ -101,9 +148,7 @@ async def dashboard(request: Request):
     conn.close()
 
     # Check if daemon is running
-    from src.daemon import is_daemon_running
-
-    daemon_running = is_daemon_running()
+    daemon_running = _is_daemon_running()
 
     response = TEMPLATES.TemplateResponse(
         request,
@@ -112,8 +157,7 @@ async def dashboard(request: Request):
             "holdings": holdings,
             "watchlist": watchlist,
             "alerts": alerts,
-            "strategy": strategy_name,
-            "strategies": strategies,
+            **strategy_context,
             "tasks": tasks,
             "daemon_running": daemon_running,
         },
@@ -291,9 +335,7 @@ def _render_tasks(request: Request):
     """Re-render the tasks partial — shared by all task mutation endpoints."""
     conn = _get_db()
     tasks = [dict(r) for r in conn.execute("SELECT * FROM scheduled_tasks ORDER BY id").fetchall()]
-    from src.daemon import is_daemon_running
-
-    daemon_running = is_daemon_running()
+    daemon_running = _is_daemon_running()
     conn.close()
     return TEMPLATES.TemplateResponse(
         request,
@@ -415,18 +457,7 @@ async def api_task_create(request: Request):
 
 def _read_active_strategy_name() -> str:
     """Single source of truth for the active strategy name."""
-    # Use the same METHODOLOGY_PATH the strategies op writes to — that
-    # way endpoint reads + agent writes can never disagree. When no
-    # methodology.yaml exists, match src.operations.strategies.get_active_strategy()
-    # and the CLI by falling back to the default buffett-munger preset.
-    from src.operations.strategies import METHODOLOGY_PATH, STRATEGIES_DIR
-
-    path = METHODOLOGY_PATH if METHODOLOGY_PATH.exists() else STRATEGIES_DIR / "buffett-munger.yaml"
-    try:
-        with open(path) as f:
-            return yaml.safe_load(f).get("name", "unknown")
-    except Exception:
-        return "unknown"
+    return get_runtime_context(_web_project_dir()).active_strategy_name
 
 
 @app.get("/api/active-strategy-name", response_class=HTMLResponse)
@@ -452,10 +483,7 @@ async def api_strategy_dropdown_body(request: Request):
     response = TEMPLATES.TemplateResponse(
         request,
         "partials/strategy_dropdown_body.html",
-        context={
-            "strategy": _read_active_strategy_name(),
-            "strategies": _load_strategies(),
-        },
+        context=_strategy_template_context(),
     )
     response.headers["Cache-Control"] = "no-store"
     return response
@@ -467,9 +495,7 @@ async def api_daemon_status(request: Request):
     header pill stays in sync with the Schedule tab — without this
     the header is rendered once at page load and never updates.
     """
-    from src.daemon import is_daemon_running
-
-    daemon_running = is_daemon_running()
+    daemon_running = _is_daemon_running()
     response = TEMPLATES.TemplateResponse(
         request,
         "partials/daemon_status.html",
@@ -477,6 +503,47 @@ async def api_daemon_status(request: Request):
     )
     response.headers["Cache-Control"] = "no-store"
     return response
+
+
+@app.get("/api/runtime-status")
+async def api_runtime_status():
+    """Safe structured runtime state shared with CLI/operations tests.
+
+    This endpoint intentionally returns only non-secret status metadata so the
+    Web UI can be regression-tested against the same state model as CLI, daemon,
+    and operations code.
+    """
+    from src.agents.discovery import _load_market_universe
+    from src.operations.tasks import daemon_status
+
+    runtime = get_runtime_context(_web_project_dir())
+    conn = _get_db()
+    try:
+        rows = [dict(r) for r in conn.execute("SELECT * FROM scheduled_tasks ORDER BY name")]
+    finally:
+        conn.close()
+    enabled = [row for row in rows if row.get("enabled")]
+    universe = _load_market_universe(_web_config_path())
+    return {
+        "project_dir": str(runtime.project_root),
+        "db_path": str(runtime.db_path),
+        "active_strategy": {
+            "name": runtime.active_strategy_name,
+            "path": str(runtime.active_strategy_path),
+        },
+        "credentials": {"ok": runtime.credentials.ok, "source": runtime.credentials.source},
+        "daemon": daemon_status(),
+        "scheduled_tasks": {
+            "total": len(rows),
+            "enabled": len(enabled),
+            "names": [row["name"] for row in rows],
+        },
+        "market_universe": {
+            "codes": universe.codes,
+            "labels": universe.labels,
+            "terminology": "market-universe",
+        },
+    }
 
 
 @app.get("/api/lists", response_class=HTMLResponse)
@@ -581,13 +648,17 @@ async def api_daemon_start():
     import sys
 
     try:
-        subprocess.Popen(
-            [sys.executable, "-m", "src.main", "daemon"],
-            cwd=str(PROJECT_DIR),
-            stdout=open(PROJECT_DIR / "logs" / "daemon.log", "a"),
-            stderr=subprocess.STDOUT,
-            start_new_session=True,
-        )
+        runtime_project = _web_project_dir()
+        log_path = runtime_project / "logs" / "daemon.log"
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(log_path, "a") as log_file:
+            subprocess.Popen(
+                [sys.executable, "-m", "src.main", "daemon"],
+                cwd=str(runtime_project),
+                stdout=log_file,
+                stderr=subprocess.STDOUT,
+                start_new_session=True,
+            )
         return {"status": "started"}
     except Exception as e:
         return {"status": "error", "message": str(e)}
@@ -607,14 +678,23 @@ KNOWN_MARKETS = [
     {"code": "SA", "label": "Tadawul"},
     {"code": "DE", "label": "XETRA"},
     {"code": "BR", "label": "B3"},
+    {"code": "CN", "label": "SSE / SZSE"},
 ]
+
+
+def _web_config_path() -> Path:
+    """Return the request-time market-universe config path."""
+    if os.environ.get("OWLFOLIO_PROJECT_DIR"):
+        return get_runtime_context(_web_project_dir()).project_root / "data" / "config.yaml"
+    return CONFIG_PATH
 
 
 def _read_config() -> dict:
     """Read data/config.yaml, returning empty dict on missing/corrupt."""
+    config_path = _web_config_path()
     try:
-        if CONFIG_PATH.exists():
-            with open(CONFIG_PATH) as f:
+        if config_path.exists():
+            with open(config_path) as f:
                 return yaml.safe_load(f) or {}
     except Exception:
         pass
@@ -623,8 +703,9 @@ def _read_config() -> dict:
 
 def _write_config(cfg: dict) -> None:
     """Write data/config.yaml, preserving non-markets keys."""
-    CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
-    with open(CONFIG_PATH, "w") as f:
+    config_path = _web_config_path()
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(config_path, "w") as f:
         yaml.dump(cfg, f, default_flow_style=False)
 
 

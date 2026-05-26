@@ -8,7 +8,10 @@ The WebSocket handler itself is not exercised here — it depends on the
 Claude Agent SDK runtime, which we don't run in unit tests.
 """
 
+import shutil
 import sqlite3
+import sys
+import types
 from pathlib import Path
 
 import pytest
@@ -20,6 +23,8 @@ PROJECT_DIR = Path(__file__).parent.parent
 @pytest.fixture
 def app_with_db(tmp_path, monkeypatch):
     """Spin up the FastAPI app pointed at an empty fixture DB."""
+    monkeypatch.setitem(sys.modules, "yfinance", types.SimpleNamespace())
+
     db_path = tmp_path / "portfolio.db"
     conn = sqlite3.connect(str(db_path))
     conn.executescript(
@@ -92,6 +97,19 @@ def test_dashboard_renders(app_with_db):
     assert "AAPL" in body or "Strategy" in body  # one of the rendered fields
 
 
+def test_market_selector_wording_is_market_universe_not_brokerage(app_with_db):
+    """Market selector copy must not imply broker credentials/account integration."""
+    r = app_with_db.get("/")
+    assert r.status_code == 200
+    body = r.text
+
+    assert "Market universe" in body
+    assert "Select the public markets Owlfolio may search and validate" in body
+    assert "does not connect a broker" in body
+    assert "Brokerages" not in body
+    assert "Brokerage Access" not in body
+
+
 def test_strategies_endpoint_lists_presets(app_with_db):
     """GET /api/strategies returns at least the 7 preset strategies by name."""
     r = app_with_db.get("/api/strategies")
@@ -122,6 +140,68 @@ def test_dashboard_defaults_to_buffett_munger_when_no_methodology(app_with_db):
     assert r.status_code == 200
     assert "buffett-munger" in r.text
     assert ">unknown<" not in r.text.lower()
+
+
+def test_dashboard_labels_default_strategy_and_market_universe(app_with_db):
+    """Header copy should separate strategy selection from market universe filters."""
+    r = app_with_db.get("/")
+    assert r.status_code == 200
+    body = r.text
+    assert "Default strategy" in body
+    assert "Advanced presets" in body
+    assert "Market universe" in body
+    assert "Brokerages" not in body
+    assert "Brokerage Access" not in body
+
+
+def test_active_strategy_name_tracks_switched_methodology(app_with_db, tmp_path, monkeypatch):
+    """The htmx strategy endpoint should read the centralized runtime strategy state."""
+    project = tmp_path / "project"
+    shutil.copytree(PROJECT_DIR / "strategies", project / "strategies")
+    shutil.copyfile(project / "strategies" / "growth.yaml", project / "methodology.yaml")
+
+    from src.web import app as web_app
+
+    monkeypatch.setattr(web_app, "PROJECT_DIR", project)
+    r = app_with_db.get("/api/active-strategy-name")
+
+    assert r.status_code == 200
+    assert r.text == "growth"
+
+
+def test_strategy_dropdown_marks_default_and_advanced_presets(app_with_db):
+    """Default strategy should be visually distinct from opt-in advanced presets."""
+    r = app_with_db.get("/api/strategy-dropdown-body")
+    assert r.status_code == 200
+    body = r.text
+    assert "Default strategy" in body
+    assert "Buffett-Munger" in body
+    assert "Advanced presets" in body
+    assert 'aria-current="true"' in body
+
+
+def test_strategy_dropdown_selected_marker_tracks_switched_methodology(
+    app_with_db, tmp_path, monkeypatch
+):
+    """The dropdown selected marker should follow a switched methodology.yaml."""
+    project = tmp_path / "project"
+    shutil.copytree(PROJECT_DIR / "strategies", project / "strategies")
+    shutil.copyfile(project / "strategies" / "growth.yaml", project / "methodology.yaml")
+
+    from src.web import app as web_app
+
+    monkeypatch.setattr(web_app, "PROJECT_DIR", project)
+    r = app_with_db.get("/api/strategy-dropdown-body")
+
+    assert r.status_code == 200
+    body = r.text
+    assert 'data-strategy-name="growth"' in body
+    growth_button = body.split('data-strategy-name="growth"', 1)[1].split("</button>", 1)[0]
+    default_button = body.split('data-strategy-name="buffett-munger"', 1)[1].split("</button>", 1)[
+        0
+    ]
+    assert 'aria-current="true"' in growth_button
+    assert 'aria-current="true"' not in default_button
 
 
 def test_portfolio_partial_renders(app_with_db):

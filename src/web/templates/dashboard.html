@@ -38,10 +38,10 @@
     <!-- Right: Addons + Strategy + Hamburger -->
     <div class="flex items-center gap-2">
 
-      <!-- Markets selector dropdown -->
+      <!-- Market-universe selector dropdown -->
       <div x-data="{ open: false, markets: [] }" x-init="fetch('/api/config/markets').then(r => r.json()).then(d => markets = d.markets || ['US'])" class="relative">
         <button @click="open = !open" class="flex items-center gap-2 px-2 sm:px-3 py-2 rounded-lg hover:bg-white/5 transition-colors">
-          <span class="text-sm text-gray-400 hidden sm:inline">Brokerages</span>
+          <span class="text-sm text-gray-400 hidden sm:inline">Market universe</span>
           <span class="text-sm text-gray-400 sm:hidden">&#x1F310;</span>
           <span class="text-[10px] font-semibold bg-white/10 text-gray-300 rounded-full px-1.5 py-0.5 min-w-[1.25rem] text-center" x-text="markets.length"></span>
           <svg class="w-3.5 h-3.5 text-gray-500 hidden sm:block" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -56,8 +56,8 @@
              @click.away="open = false"
              class="header-dropdown fixed sm:absolute left-2 right-2 sm:left-auto sm:right-0 top-14 sm:top-auto mt-0 sm:mt-2 w-auto sm:w-72 bg-[#141414] border border-surface-border rounded-xl shadow-2xl z-50" style="display: none;">
           <div class="p-3 border-b border-surface-border">
-            <p class="text-xs text-gray-500 uppercase tracking-wider font-medium">Brokerage Access</p>
-            <p class="text-[10px] text-gray-600 mt-1">Select markets you can trade in. Used by the Discovery Agent to filter candidates.</p>
+            <p class="text-xs text-gray-500 uppercase tracking-wider font-medium">Market universe</p>
+            <p class="text-[10px] text-gray-600 mt-1">Select the public markets Owlfolio may search and validate for analysis. This does not connect a broker or enable trading.</p>
           </div>
           <div class="p-3 space-y-1">
             <template x-for="m in [
@@ -99,7 +99,7 @@
             </template>
           </div>
           <div class="p-3 border-t border-surface-border">
-            <p class="text-[10px] text-gray-600"><span class="text-gray-500 font-medium">Analysis supported for:</span> US, IN, AE, UK, HK, CA, JP, AU, SA, DE, BR, CN. You can analyze any ticker from these markets regardless of brokerage access.</p>
+            <p class="text-[10px] text-gray-600"><span class="text-gray-500 font-medium">Analysis supported for:</span> US, IN, AE, UK, HK, CA, JP, AU, SA, DE, BR, CN. Portfolio data remains local/manual; this setting only constrains discovery search and validation.</p>
           </div>
         </div>
       </div>
@@ -191,26 +191,7 @@
                hx-get="/api/strategy-dropdown-body"
                hx-trigger="load, refresh-strategy from:body"
                hx-swap="innerHTML">
-            {% for s in strategies %}
-            <button onclick="selectStrategy('{{ s.name }}')" class="w-full text-left px-3 py-2.5 rounded-lg hover:bg-white/5 transition-colors group">
-              <div class="flex items-center justify-between">
-                <span class="text-sm font-medium text-white">{{ s.name }}</span>
-                {% if s.name == strategy %}
-                <svg class="w-4 h-4 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"/>
-                </svg>
-                {% endif %}
-              </div>
-              <p class="text-xs text-gray-500 mt-0.5 leading-relaxed">{{ s.description }}</p>
-            </button>
-            {% endfor %}
-            <div class="border-t border-surface-border mt-2 pt-2">
-              <button onclick="sendSuggestion('Create a custom investment strategy for me')"
-                      class="w-full text-left px-3 py-2.5 rounded-lg hover:bg-white/5 transition-colors">
-                <span class="text-sm font-medium text-blue-400">+ Custom Strategy</span>
-                <p class="text-xs text-gray-500 mt-0.5">Design your own with Owlfolio's help</p>
-              </button>
-            </div>
+            {% include "partials/strategy_dropdown_body.html" %}
           </div>
         </div>
       </div>

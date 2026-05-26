@@ -14,6 +14,7 @@ from src.agents.discovery import (
     _build_discovery_mcp_server,
     _build_discovery_prompt,
     _build_exclude_section,
+    _load_market_universe,
     _materialize_candidates,
     _parse_discovery_json,
 )
@@ -34,6 +35,35 @@ def test_discovery_prompt_embeds_strategy_brief_verbatim():
     assert "Russell 3000" in p
     # Required JSON schema must be advertised so the model knows what to return
     assert '"candidates"' in p and '"ticker"' in p
+
+
+def test_load_market_universe_reads_deterministic_codes_and_labels(tmp_path):
+    """The discovery universe is a deterministic market-code setting, not broker auth."""
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text("markets:\n  - AE\n  - IN\n")
+
+    universe = _load_market_universe(config_path=config_path)
+
+    assert universe.codes == ["AE", "IN"]
+    assert universe.labels == ["ADX / DFM", "NSE / BSE"]
+    assert "AE: ADX / DFM" in universe.prompt_section()
+    assert "IN: NSE / BSE" in universe.prompt_section()
+    assert "does not connect to broker accounts" in universe.prompt_section()
+
+
+def test_discovery_prompt_always_includes_selected_market_universe(tmp_path):
+    """Even strategy-authored discovery briefs must receive the user's market universe."""
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text("markets:\n  - AE\n  - IN\n")
+    s = load_strategy(STRATEGIES_DIR / "deep-value.yaml")
+
+    p = _build_discovery_prompt(s, n=15, config_path=config_path)
+
+    assert "## Selected market universe" in p
+    assert "AE: ADX / DFM" in p
+    assert "IN: NSE / BSE" in p
+    assert "does not connect to broker accounts" in p
+    assert "Russell 3000" in p
 
 
 def test_discovery_prompt_falls_back_when_brief_empty():

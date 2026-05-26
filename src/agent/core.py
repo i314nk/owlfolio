@@ -5,7 +5,6 @@ Runs as `owlfolio chat` in the CLI.
 """
 
 import asyncio
-import os
 import sqlite3
 from pathlib import Path
 
@@ -19,6 +18,8 @@ from claude_agent_sdk import (
     TextBlock,
 )
 from rich.console import Console
+
+from src.runtime import get_runtime_context
 
 console = Console()
 
@@ -96,22 +97,10 @@ def _format_tool_use(block) -> str:
     return f"{name}: {first_val}" if first_val else name
 
 
-def _resolve_project_dir() -> Path:
-    """Resolve project root: OWLFOLIO_PROJECT_DIR env > cwd > __file__."""
-    explicit = os.environ.get("OWLFOLIO_PROJECT_DIR")
-    if explicit:
-        p = Path(explicit).resolve()
-        if p.exists():
-            return p
-    cwd = Path.cwd()
-    if (cwd / "strategies").is_dir() and (cwd / "src").is_dir():
-        return cwd
-    return Path(__file__).parent.parent.parent
-
-
-PROJECT_DIR = _resolve_project_dir()
-DB_PATH = PROJECT_DIR / "data" / "portfolio.db"
-METHODOLOGY_PATH = PROJECT_DIR / "methodology.yaml"
+_RUNTIME = get_runtime_context()
+PROJECT_DIR = _RUNTIME.project_root
+DB_PATH = _RUNTIME.db_path
+METHODOLOGY_PATH = _RUNTIME.active_strategy_path
 
 
 def _load_startup_context() -> dict:

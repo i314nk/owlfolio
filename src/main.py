@@ -44,6 +44,11 @@ OWL_BANNER = "\n  🦉 Owlfolio — An AI portfolio manager. Your investment phi
 
 
 from src.agents.discovery import ticker_currency  # noqa: E402
+from src.runtime import (  # noqa: E402
+    default_strategy_path,
+    get_runtime_context,
+    resolve_active_strategy_path,
+)
 
 
 def _fmt_price(value: float, ticker: str = "") -> str:
@@ -111,14 +116,10 @@ console = Console()
 # Default strategy path
 def get_default_strategy() -> str:
     """Return the active strategy path, checked at runtime."""
-    if Path("methodology.yaml").exists():
-        return "methodology.yaml"
-    if Path("strategies/buffett-munger.yaml").exists():
-        return "strategies/buffett-munger.yaml"
-    return "strategies/buffett-value.yaml"
+    return str(resolve_active_strategy_path())
 
 
-DEFAULT_STRATEGY = "strategies/buffett-munger.yaml"
+DEFAULT_STRATEGY = str(default_strategy_path())
 
 
 @app.command()
@@ -486,10 +487,11 @@ def setup(
     # ── Step 2: Strategy ──
     console.print("\n[bold]Step 2: Investment Strategy[/bold]")
 
-    strategies_dir = Path("strategies")
+    runtime = get_runtime_context()
+    strategies_dir = runtime.strategies_dir
     available = sorted(strategies_dir.glob("*.yaml")) if strategies_dir.exists() else []
 
-    methodology = Path("methodology.yaml")
+    methodology = runtime.methodology_path
     if not methodology.exists() and available:
         # First-run convenience: pick a default and copy it. The user can
         # change strategies any time with `owlfolio strategy --use NAME`.
@@ -596,7 +598,7 @@ def setup(
     # Load current config
     import yaml
 
-    config_path = Path("data/config.yaml")
+    config_path = runtime.project_root / "data" / "config.yaml"
     config = yaml.safe_load(config_path.read_text()) if config_path.exists() else {}
     current_tz = config.get("timezone", "UTC")
     primary_market = config.get("markets", ["US"])[0]
@@ -633,6 +635,7 @@ def setup(
 
     # Save timezone to config
     config["timezone"] = chosen_tz
+    config_path.parent.mkdir(parents=True, exist_ok=True)
     config_path.write_text(yaml.dump(config, default_flow_style=False))
     console.print(f"  [green]✓ Timezone set to {chosen_tz}[/green]")
 
@@ -646,16 +649,25 @@ def setup(
     finally:
         conn.close()
 
-    if created:
-        sched_table = Table(title="Safe Default Schedule Created", show_header=True)
+    changed = [t for t in created if t["action"] != "unchanged"]
+    if changed:
+        sched_table = Table(title="Default Schedule Installed/Repaired", show_header=True)
         sched_table.add_column("Task", style="bold")
+        sched_table.add_column("Action")
+        sched_table.add_column("Enabled")
         sched_table.add_column("Schedule")
         sched_table.add_column("Description")
-        for t in created:
-            sched_table.add_row(t["name"], t["cron"], t["description"])
+        for t in changed:
+            sched_table.add_row(
+                t["name"],
+                t["action"],
+                "yes" if t["enabled"] else "no (opt-in template)",
+                t["cron"],
+                t["description"],
+            )
         console.print(sched_table)
     else:
-        console.print("  [dim]Default schedule already configured (all tasks exist).[/dim]")
+        console.print("  [dim]Default schedule already configured (no changes needed).[/dim]")
 
     console.print(
         "  [dim]Safe defaults only check watchlist prices and portfolio P&L; "
@@ -760,14 +772,15 @@ def strategy_cmd(
 
     from src.strategy.loader import load_strategy
 
-    strategies_dir = Path("strategies")
+    runtime = get_runtime_context()
+    strategies_dir = runtime.strategies_dir
 
     if use is not None:
         source = strategies_dir / f"{use}.yaml"
         if not source.exists():
             console.print(f"[red]Strategy not found: {source}[/red]")
             raise typer.Exit(1)
-        shutil.copy2(str(source), "methodology.yaml")
+        shutil.copy2(str(source), runtime.methodology_path)
         console.print(f"\u2713 Active strategy changed to {use}")
         return
 
@@ -1057,8 +1070,6 @@ def doctor():
     import socket
     import sys
 
-    from src.llm.provider import _load_oauth_token
-
     def _port_free(port: int) -> bool:
         try:
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
@@ -1070,6 +1081,14 @@ def doctor():
     table = Table(title="Owlfolio Doctor", show_header=True, header_style="bold")
     table.add_column("Check", style="bold")
     table.add_column("Status")
+    runtime = get_runtime_context()
+
+    def _display_path(path: str | Path) -> str:
+        p = Path(path)
+        try:
+            return str(p.relative_to(runtime.project_root))
+        except ValueError:
+            return str(p)
 
     # Python
     pyver = sys.version.split()[0]
@@ -1080,18 +1099,12 @@ def doctor():
     )
 
     # Auth
-    auth = None
-    if os.environ.get("ANTHROPIC_API_KEY"):
-        auth = "API key (ANTHROPIC_API_KEY)"
-    elif os.environ.get("CLAUDE_CODE_OAUTH_TOKEN"):
-        auth = "Agent SDK token (CLAUDE_CODE_OAUTH_TOKEN)"
-    elif _load_oauth_token():
-        auth = "Claude subscription (~/.claude/.credentials.json)"
+    auth = runtime.credentials
     table.add_row(
         "Claude credentials",
         (
-            f"[green]✓ {auth}[/green]"
-            if auth
+            f"[green]✓ {auth.source}[/green]"
+            if auth.ok
             else "[red]✗ none — run `owlfolio setup` or set ANTHROPIC_API_KEY[/red]"
         ),
     )
@@ -1106,7 +1119,7 @@ def doctor():
             n_spec = len(s.prompts.specialists)
             table.add_row(
                 "Active strategy",
-                f"[green]✓ {s.name}[/green] ({active}, {n_spec} specialists)",
+                f"[green]✓ {s.name}[/green] ({_display_path(active)}, {n_spec} specialists)",
             )
         except Exception as e:
             table.add_row("Active strategy", f"[red]✗ load error: {e}[/red]")
@@ -1114,24 +1127,24 @@ def doctor():
         table.add_row("Active strategy", f"[red]✗ {active} not found[/red]")
 
     # Database
-    from src.db.schema import DB_PATH as _DB_PATH
+    db_path = runtime.db_path
 
-    if Path(_DB_PATH).exists():
+    if Path(db_path).exists():
         try:
             import sqlite3
 
-            conn = sqlite3.connect(str(_DB_PATH))
+            conn = sqlite3.connect(str(db_path))
             holdings = conn.execute("SELECT COUNT(*) FROM holdings").fetchone()[0]
             analyses = conn.execute("SELECT COUNT(*) FROM analyses").fetchone()[0]
             conn.close()
             table.add_row(
                 "Portfolio DB",
-                f"[green]✓ {_DB_PATH}[/green] ({holdings} holdings, {analyses} analyses)",
+                f"[green]✓ {db_path}[/green] ({holdings} holdings, {analyses} analyses)",
             )
         except Exception as e:
-            table.add_row("Portfolio DB", f"[yellow]⚠ {_DB_PATH} (read error: {e})[/yellow]")
+            table.add_row("Portfolio DB", f"[yellow]⚠ {db_path} (read error: {e})[/yellow]")
     else:
-        table.add_row("Portfolio DB", f"[dim]not yet initialized[/dim] ({_DB_PATH})")
+        table.add_row("Portfolio DB", f"[dim]not yet initialized[/dim] ({db_path})")
 
     # Web UI port
     table.add_row(
@@ -1140,13 +1153,13 @@ def doctor():
     )
 
     # Daemon status
-    from src.daemon import is_daemon_running
+    from src.operations.tasks import daemon_status
 
-    daemon_alive = is_daemon_running()
+    daemon_health = daemon_status()
     table.add_row(
         "Daemon",
         "[green]✓ running[/green]"
-        if daemon_alive
+        if daemon_health["running"]
         else "[dim]not running (scheduled tasks won't execute until you start it)[/dim]",
     )
 
@@ -1199,13 +1212,14 @@ def status():
         table.add_row("Strategy", f"[red]Not found: {active_strategy}[/red]")
 
     # methodology.yaml
-    methodology_exists = Path("methodology.yaml").exists()
+    runtime = get_runtime_context()
+    methodology_exists = runtime.methodology_path.exists()
     table.add_row(
         "methodology.yaml",
         (
-            "[green]exists[/green]"
+            f"[green]exists[/green] ({runtime.methodology_path})"
             if methodology_exists
-            else "[dim]not found (using default strategy)[/dim]"
+            else f"[dim]not found (using default strategy)[/dim] ({runtime.methodology_path})"
         ),
     )
 
@@ -1219,6 +1233,17 @@ def status():
         table.add_row("owlfolio", pkg_version("owlfolio"))
     except Exception:
         table.add_row("owlfolio", "[dim]dev (not installed)[/dim]")
+
+    # Daemon status (same shared health source as doctor and Web UI)
+    from src.operations.tasks import daemon_status
+
+    daemon_health = daemon_status()
+    daemon_label = (
+        f"[green]running[/green] ({daemon_health['source']})"
+        if daemon_health["running"]
+        else f"[dim]not running[/dim] ({daemon_health['source']})"
+    )
+    table.add_row("Daemon", daemon_label)
 
     console.print(table)
 

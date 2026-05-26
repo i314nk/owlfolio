@@ -116,44 +116,146 @@ def _resolve_cron(template: str, market_hour: int) -> str:
     return template.replace("{H}", str(market_hour)).replace("{H-1}", str((market_hour - 1) % 24))
 
 
+def _task_policy(market_hour: int, timezone: str) -> list[dict]:
+    """Return the managed default schedule policy for this market/timezone."""
+    tasks: list[dict] = []
+    for name, command, cron_template, description in DEFAULT_TASKS:
+        tasks.append(
+            {
+                "name": name,
+                "command": command,
+                "schedule": _resolve_cron(cron_template, market_hour),
+                "timezone": timezone,
+                "description": description,
+                "enabled": True,
+                "kind": "safe-default",
+            }
+        )
+    for name, command, cron_template, description in OPTIONAL_RESEARCH_TASKS:
+        tasks.append(
+            {
+                "name": name,
+                "command": command,
+                "schedule": _resolve_cron(cron_template, market_hour),
+                "timezone": timezone,
+                "description": description,
+                "enabled": False,
+                "kind": "opt-in-research-template",
+            }
+        )
+    return tasks
+
+
+def _audit_text(action: str, changed_fields: list[str], kind: str) -> str:
+    if changed_fields:
+        fields = ",".join(changed_fields)
+        return f"schedule-defaults: {action} {kind}; changed={fields}"
+    return f"schedule-defaults: {action} {kind}"
+
+
 def create_default_schedule(
     conn: sqlite3.Connection,
     timezone: str,
     market: str = "US",
 ) -> list[dict]:
-    """Create the default schedule, skipping tasks that already exist.
+    """Install or repair the managed default schedule policy.
 
-    Returns a list of dicts describing what was created.
+    Safe monitoring tasks are created enabled. Claude/research automations are
+    created as disabled opt-in templates. Existing rows are matched by stable
+    name and have managed metadata repaired without changing the user's current
+    enabled/disabled choice.
+
+    Returns one audit dict per managed task with action=created/updated/unchanged.
     """
-    from src.db.operations import add_scheduled_task, get_scheduled_tasks
+    from src.db.operations import add_scheduled_task, get_scheduled_tasks, update_scheduled_task
 
-    existing = {t["name"] for t in get_scheduled_tasks(conn)}
+    existing = {t["name"]: t for t in get_scheduled_tasks(conn)}
     market_hour = _market_open_local_hour(market, timezone)
 
-    created = []
-    for name, command, cron_template, description in DEFAULT_TASKS:
-        if name in existing:
-            logger.info("Task '%s' already exists, skipping", name)
+    changes = []
+    for expected in _task_policy(market_hour, timezone):
+        current = existing.get(expected["name"])
+        if current is None:
+            task_id = add_scheduled_task(
+                conn,
+                name=expected["name"],
+                command=expected["command"],
+                schedule=expected["schedule"],
+                timezone=expected["timezone"],
+                description=expected["description"],
+                enabled=expected["enabled"],
+            )
+            changed_fields = ["name", "command", "schedule", "timezone", "description", "enabled"]
+            update_scheduled_task(
+                conn,
+                task_id,
+                last_result=_audit_text("created", changed_fields, expected["kind"]),
+            )
+            change = {
+                "action": "created",
+                "id": task_id,
+                "name": expected["name"],
+                "command": expected["command"],
+                "cron": expected["schedule"],
+                "schedule": expected["schedule"],
+                "timezone": expected["timezone"],
+                "description": expected["description"],
+                "enabled": expected["enabled"],
+                "kind": expected["kind"],
+                "changed_fields": changed_fields,
+            }
+            changes.append(change)
+            logger.info(
+                "Created %s task '%s' (ID %d): %s @ %s enabled=%s",
+                expected["kind"],
+                expected["name"],
+                task_id,
+                expected["command"],
+                expected["schedule"],
+                expected["enabled"],
+            )
             continue
 
-        cron = _resolve_cron(cron_template, market_hour)
-        task_id = add_scheduled_task(
-            conn,
-            name=name,
-            command=command,
-            schedule=cron,
-            timezone=timezone,
-            description=description,
-        )
-        created.append(
+        changed_fields = [
+            field
+            for field in ("command", "schedule", "timezone", "description")
+            if current.get(field) != expected[field]
+        ]
+        if changed_fields:
+            update_scheduled_task(
+                conn,
+                current["id"],
+                command=expected["command"] if "command" in changed_fields else None,
+                schedule=expected["schedule"] if "schedule" in changed_fields else None,
+                timezone=expected["timezone"] if "timezone" in changed_fields else None,
+                description=expected["description"] if "description" in changed_fields else None,
+                last_result=_audit_text("updated", changed_fields, expected["kind"]),
+            )
+            action = "updated"
+            logger.info(
+                "Updated %s task '%s' fields: %s",
+                expected["kind"],
+                expected["name"],
+                ", ".join(changed_fields),
+            )
+        else:
+            action = "unchanged"
+            logger.info("Task '%s' already matches defaults", expected["name"])
+
+        changes.append(
             {
-                "id": task_id,
-                "name": name,
-                "command": command,
-                "cron": cron,
-                "description": description,
+                "action": action,
+                "id": current["id"],
+                "name": expected["name"],
+                "command": expected["command"],
+                "cron": expected["schedule"],
+                "schedule": expected["schedule"],
+                "timezone": expected["timezone"],
+                "description": expected["description"],
+                "enabled": current["enabled"] == 1,
+                "kind": expected["kind"],
+                "changed_fields": changed_fields,
             }
         )
-        logger.info("Created task '%s' (ID %d): %s @ %s", name, task_id, command, cron)
 
-    return created
+    return changes

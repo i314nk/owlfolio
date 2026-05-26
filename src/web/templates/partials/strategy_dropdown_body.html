@@ -1,9 +1,39 @@
-{% for s in strategies %}
-<button onclick="selectStrategy('{{ s.name }}')" class="w-full text-left px-3 py-2.5 rounded-lg hover:bg-white/5 transition-colors group">
+{% if default_strategy %}
+<div class="px-3 pb-1 pt-1">
+  <p class="text-[10px] uppercase tracking-wider text-gray-500 font-medium">Default strategy</p>
+</div>
+<button onclick="selectStrategy('{{ default_strategy.name }}')"
+        data-strategy-name="{{ default_strategy.name }}"
+        {% if default_strategy.name == strategy %}aria-current="true"{% endif %}
+        class="w-full text-left px-3 py-2.5 rounded-lg hover:bg-white/5 transition-colors group {% if default_strategy.name == strategy %}bg-blue-500/10{% endif %}">
   <div class="flex items-center justify-between">
-    <span class="text-sm font-medium text-white">{{ s.name }}</span>
+    <span class="text-sm font-medium text-white">{{ default_strategy.display_name }}</span>
+    {% if default_strategy.name == strategy %}
+    <span class="text-[10px] uppercase tracking-wider text-blue-300 mr-2">Active</span>
+    <svg class="w-4 h-4 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-label="Active strategy">
+      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"/>
+    </svg>
+    {% endif %}
+  </div>
+  <p class="text-xs text-gray-500 mt-0.5 leading-relaxed">{{ default_strategy.description }}</p>
+</button>
+{% endif %}
+
+{% if advanced_strategies %}
+<div class="px-3 pb-1 pt-3">
+  <p class="text-[10px] uppercase tracking-wider text-gray-500 font-medium">Advanced presets</p>
+  <p class="text-[10px] text-gray-600 mt-0.5">Optional alternatives for specific investing styles.</p>
+</div>
+{% for s in advanced_strategies %}
+<button onclick="selectStrategy('{{ s.name }}')"
+        data-strategy-name="{{ s.name }}"
+        {% if s.name == strategy %}aria-current="true"{% endif %}
+        class="w-full text-left px-3 py-2.5 rounded-lg hover:bg-white/5 transition-colors group {% if s.name == strategy %}bg-blue-500/10{% endif %}">
+  <div class="flex items-center justify-between">
+    <span class="text-sm font-medium text-white">{{ s.display_name }}</span>
     {% if s.name == strategy %}
-    <svg class="w-4 h-4 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <span class="text-[10px] uppercase tracking-wider text-blue-300 mr-2">Active</span>
+    <svg class="w-4 h-4 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-label="Active strategy">
       <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"/>
     </svg>
     {% endif %}
@@ -11,6 +41,8 @@
   <p class="text-xs text-gray-500 mt-0.5 leading-relaxed">{{ s.description }}</p>
 </button>
 {% endfor %}
+{% endif %}
+
 <div class="border-t border-surface-border mt-2 pt-2">
   <button onclick="sendSuggestion('Create a custom investment strategy for me')"
           class="w-full text-left px-3 py-2.5 rounded-lg hover:bg-white/5 transition-colors">

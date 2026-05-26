@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-import os
 import socket
 import sqlite3
-import subprocess
 import sys
 from pathlib import Path
 from typing import Any
+
+from src.runtime import get_runtime_context
 
 
 def _port_free(port: int) -> bool:
@@ -27,18 +27,11 @@ def doctor_report() -> dict[str, Any]:
     dict so the chat agent can answer "is everything OK?" without parsing
     text output.
     """
-    from src.db.schema import DB_PATH
-    from src.llm.provider import _load_oauth_token
     from src.operations.strategies import get_active_strategy
 
-    # Auth
-    auth = None
-    if os.environ.get("ANTHROPIC_API_KEY"):
-        auth = "API key (ANTHROPIC_API_KEY)"
-    elif os.environ.get("CLAUDE_CODE_OAUTH_TOKEN"):
-        auth = "Agent SDK token (CLAUDE_CODE_OAUTH_TOKEN)"
-    elif _load_oauth_token():
-        auth = "Claude subscription (~/.claude/.credentials.json)"
+    runtime_context = get_runtime_context()
+    db_path = runtime_context.db_path
+    auth = runtime_context.credentials
 
     # Strategy
     strategy_status: dict[str, Any]
@@ -54,10 +47,10 @@ def doctor_report() -> dict[str, Any]:
         strategy_status = {"ok": False, "error": str(e)}
 
     # DB
-    db_status: dict[str, Any] = {"path": str(DB_PATH), "exists": Path(DB_PATH).exists()}
+    db_status: dict[str, Any] = {"path": str(db_path), "exists": Path(db_path).exists()}
     if db_status["exists"]:
         try:
-            conn = sqlite3.connect(str(DB_PATH))
+            conn = sqlite3.connect(str(db_path))
             db_status["holdings"] = conn.execute("SELECT COUNT(*) FROM holdings").fetchone()[0]
             db_status["analyses"] = conn.execute("SELECT COUNT(*) FROM analyses").fetchone()[0]
             conn.close()
@@ -65,21 +58,19 @@ def doctor_report() -> dict[str, Any]:
             db_status["error"] = str(e)
 
     # Daemon
-    try:
-        result = subprocess.run(["pgrep", "-f", "owlfolio.*daemon"], capture_output=True, timeout=2)
-        daemon_alive = result.returncode == 0
-    except Exception:
-        daemon_alive = False
+    from src.operations.tasks import daemon_status
+
+    daemon_health = daemon_status()
 
     return {
         "python": {
             "version": sys.version.split()[0],
             "ok": sys.version_info >= (3, 12),
         },
-        "credentials": {"ok": auth is not None, "source": auth},
+        "credentials": {"ok": auth.ok, "source": auth.source},
         "strategy": strategy_status,
         "database": db_status,
         "web_ui_port_8000_free": _port_free(8000),
-        "daemon": {"running": daemon_alive},
+        "daemon": daemon_health,
         "runtime": "native",
     }

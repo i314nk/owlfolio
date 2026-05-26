@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import shlex
-import subprocess
 from functools import lru_cache
 from typing import Any
 
@@ -127,16 +126,8 @@ def _validate_owlfolio_command(command: str) -> None:
 
 
 def daemon_status() -> dict[str, Any]:
-    """Return whether the owlfolio daemon process is currently running."""
-    try:
-        result = subprocess.run(
-            ["pgrep", "-f", "owlfolio.*daemon"],
-            capture_output=True,
-            text=True,
-            timeout=2,
-        )
-        running = result.returncode == 0
-        pids = [int(p) for p in result.stdout.split() if p.strip().isdigit()] if running else []
-    except Exception as e:
-        return {"running": False, "pids": [], "error": str(e)}
-    return {"running": running, "pids": pids}
+    """Return shared daemon health for CLI, Web, MCP, and doctor callers."""
+    from src.daemon import PID_FILE
+    from src.daemon_health import resolve_daemon_health
+
+    return resolve_daemon_health(pid_file=PID_FILE).to_dict()

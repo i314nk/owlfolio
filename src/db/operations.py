@@ -530,12 +530,13 @@ def add_scheduled_task(
     schedule: str,
     timezone: str = "UTC",
     description: str = "",
+    enabled: bool = True,
 ) -> int:
     """Add a scheduled task. Returns the task ID."""
     cursor = conn.execute(
-        """INSERT INTO scheduled_tasks (name, command, schedule, timezone, description)
-           VALUES (?, ?, ?, ?, ?)""",
-        (name, command, schedule, timezone, description),
+        """INSERT INTO scheduled_tasks (name, command, schedule, timezone, description, enabled)
+           VALUES (?, ?, ?, ?, ?, ?)""",
+        (name, command, schedule, timezone, description, 1 if enabled else 0),
     )
     conn.commit()
     return cursor.lastrowid
@@ -575,6 +576,8 @@ def update_scheduled_task(
     name: str | None = None,
     description: str | None = None,
     timezone: str | None = None,
+    enabled: bool | None = None,
+    last_result: str | None = None,
 ):
     """Update mutable fields of a scheduled task."""
     updates, params = [], []
@@ -584,6 +587,8 @@ def update_scheduled_task(
         ("name", name),
         ("description", description),
         ("timezone", timezone),
+        ("enabled", None if enabled is None else 1 if enabled else 0),
+        ("last_result", last_result),
     ]:
         if val is not None:
             updates.append(f"{col} = ?")

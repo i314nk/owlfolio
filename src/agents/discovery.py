@@ -53,9 +53,12 @@ MARKET_EXCHANGES: dict[str, str] = {
     "AE": "ADX / DFM",
     "UK": "LSE",
     "HK": "HKEX",
+    "CA": "TSX",
     "CN": "SSE / SZSE",
     "JP": "TSE",
+    "AU": "ASX",
     "SA": "Tadawul",
+    "DE": "XETRA",
     "BR": "B3",
 }
 
@@ -141,6 +144,66 @@ def ticker_currency(ticker: str) -> tuple[str, str]:
     return _MARKET_CURRENCY.get(market, ("USD", "$"))
 
 
+@dataclass(frozen=True)
+class MarketUniverse:
+    """Selected public markets for discovery.
+
+    This is a non-credentialed research/discovery universe. It deliberately
+    carries market codes and exchange labels only — no broker names, account
+    identifiers, credentials, order routing, or sync state.
+    """
+
+    codes: list[str]
+    labels: list[str]
+
+    def prompt_section(self) -> str:
+        """Render deterministic instructions for the discovery agent."""
+        lines = [f"- {code}: {label}" for code, label in zip(self.codes, self.labels)]
+        markets = "\n".join(lines)
+        return f"""## Selected market universe
+
+Search and validate candidates only within these public markets:
+
+{markets}
+
+This is a non-credentialed discovery universe. It does not connect to broker accounts,
+sync holdings, place orders, route trades, or call live broker APIs.
+"""
+
+
+def _default_config_path() -> Path:
+    """Return the active runtime config path, falling back to repo data/."""
+    try:
+        from src.runtime import get_runtime_context
+
+        return get_runtime_context().project_root / "data" / "config.yaml"
+    except Exception:
+        return Path(__file__).parent.parent.parent / "data" / "config.yaml"
+
+
+def _load_market_universe(config_path: Path | None = None) -> MarketUniverse:
+    """Read selected discovery markets from config.yaml.
+
+    Unknown/empty values fall back to US so discovery always receives a
+    deterministic investable/searchable universe.
+    """
+    config_path = config_path or _default_config_path()
+    codes = ["US"]
+    try:
+        if config_path.exists():
+            raw = yaml.safe_load(config_path.read_text()) or {}
+            raw_codes = raw.get("markets")
+            if isinstance(raw_codes, list):
+                valid = [str(c).upper() for c in raw_codes if str(c).upper() in MARKET_EXCHANGES]
+                if valid:
+                    codes = valid
+    except Exception:
+        logger.debug("Could not read user config; defaulting to US markets")
+
+    labels = [MARKET_EXCHANGES[c] for c in codes]
+    return MarketUniverse(codes=codes, labels=labels)
+
+
 def _load_user_markets() -> str:
     """Read the user's market preferences from data/config.yaml.
 
@@ -148,18 +211,7 @@ def _load_user_markets() -> str:
     "NYSE / NASDAQ, ADX / DFM, NSE / BSE".  Falls back to US if
     the config file is missing or has no markets key.
     """
-    config_path = Path(__file__).parent.parent.parent / "data" / "config.yaml"
-    codes = ["US"]  # default
-    try:
-        if config_path.exists():
-            raw = yaml.safe_load(config_path.read_text()) or {}
-            if isinstance(raw.get("markets"), list) and raw["markets"]:
-                codes = [str(c).upper() for c in raw["markets"]]
-    except Exception:
-        logger.debug("Could not read user config; defaulting to US markets")
-
-    names = [MARKET_EXCHANGES.get(c, c) for c in codes]
-    return ", ".join(names)
+    return ", ".join(_load_market_universe().labels)
 
 
 @dataclass
@@ -341,12 +393,14 @@ def _build_discovery_prompt(
     n: int,
     exclude: set[str] | None = None,
     shariah: bool = False,
+    config_path: Path | None = None,
 ) -> str:
     """Compose the discovery prompt from the strategy's discovery prose."""
+    market_universe = _load_market_universe(config_path=config_path)
     discovery_prose = strategy.prompts.discovery.strip()
     if not discovery_prose:
         # Fall back to a generic instruction derived from the criteria.
-        market_description = _load_user_markets()
+        market_description = ", ".join(market_universe.labels)
         criteria_lines = "\n".join(
             f"  - {c.name} (weight {c.weight:.0%})" for c in strategy.criteria
         )
@@ -370,6 +424,8 @@ exists before you include it.
 ## Strategy Brief
 
 {discovery_prose}
+
+{market_universe.prompt_section()}
 
 ## Process
 

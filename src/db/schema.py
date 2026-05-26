@@ -1,15 +1,18 @@
 """SQLite schema and connection management for portfolio persistence."""
 
 import sqlite3
-from pathlib import Path
 
-DB_PATH = Path("data/portfolio.db")
+from src.runtime import resolve_database_path
+
+DB_PATH = resolve_database_path()
+_INITIAL_DB_PATH = DB_PATH
 
 
 def get_db() -> sqlite3.Connection:
     """Get database connection, creating tables if needed."""
-    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(str(DB_PATH))
+    db_path = resolve_database_path() if DB_PATH == _INITIAL_DB_PATH else DB_PATH
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(str(db_path))
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
     # ON DELETE CASCADE is a no-op in SQLite without this pragma — needed

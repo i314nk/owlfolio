@@ -11,11 +11,11 @@ import signal
 import subprocess
 import time
 from datetime import datetime
-from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from croniter import croniter
 
+from src.daemon_health import resolve_daemon_health
 from src.db.operations import (
     add_alert,
     get_scheduled_tasks,
@@ -24,24 +24,12 @@ from src.db.operations import (
     record_task_run_start,
 )
 from src.db.schema import get_db
+from src.runtime import resolve_project_root
 
 logger = logging.getLogger("owlfolio.daemon")
 
 
-def _resolve_project_root() -> Path:
-    """Resolve project root: OWLFOLIO_PROJECT_DIR env > cwd > __file__."""
-    explicit = os.environ.get("OWLFOLIO_PROJECT_DIR")
-    if explicit:
-        p = Path(explicit).resolve()
-        if p.exists():
-            return p
-    cwd = Path.cwd()
-    if (cwd / "strategies").is_dir() and (cwd / "src").is_dir():
-        return cwd
-    return Path(__file__).parent.parent
-
-
-PROJECT_ROOT = _resolve_project_root()
+PROJECT_ROOT = resolve_project_root()
 PID_FILE = PROJECT_ROOT / "data" / "daemon.pid"
 # Ensure the venv's bin directory is on PATH so `owlfolio` resolves in
 # subprocess shells spawned by _execute_task.
@@ -65,22 +53,8 @@ def _remove_pid():
 
 
 def is_daemon_running() -> bool:
-    """Check if the daemon is running by reading the PID file and verifying
-    the process is alive. This avoids false positives from pgrep matching
-    unrelated processes (e.g. Claude Agent SDK subprocesses whose command
-    line contains 'daemon' in the system prompt text).
-    """
-    try:
-        if not PID_FILE.exists():
-            return False
-        pid = int(PID_FILE.read_text().strip())
-        # Signal 0 checks process existence without actually signalling it
-        os.kill(pid, 0)
-        return True
-    except (ValueError, OSError, ProcessLookupError):
-        # Stale PID file or process gone — clean up
-        _remove_pid()
-        return False
+    """Return shared daemon health as a bool for legacy callers."""
+    return resolve_daemon_health(pid_file=PID_FILE).running
 
 
 def stop_daemon() -> bool:

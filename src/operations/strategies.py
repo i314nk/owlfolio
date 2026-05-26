@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 import shutil
 from pathlib import Path
 from typing import Any
@@ -10,6 +9,12 @@ from typing import Any
 import yaml
 
 from src.operations import validate_strategy_name
+from src.runtime import (
+    resolve_active_strategy_path,
+    resolve_methodology_path,
+    resolve_project_root,
+    resolve_strategies_dir,
+)
 from src.strategy.loader import Strategy, load_strategy
 
 # These paths are resolved against the project root, NOT the current
@@ -26,30 +31,33 @@ from src.strategy.loader import Strategy, load_strategy
 # producing the "I switched but the header didn't update" bug.
 
 
-def _resolve_project_root() -> Path:
-    explicit = os.environ.get("OWLFOLIO_PROJECT_DIR")
-    if explicit:
-        p = Path(explicit).resolve()
-        if p.exists():
-            return p
-    cwd = Path.cwd()
-    if (cwd / "strategies").is_dir() and (cwd / "src").is_dir():
-        return cwd
-    # src/operations/strategies.py → src/operations → src → <root>
-    return Path(__file__).parent.parent.parent.resolve()
+PROJECT_ROOT = resolve_project_root()
+STRATEGIES_DIR = resolve_strategies_dir(PROJECT_ROOT)
+METHODOLOGY_PATH = resolve_methodology_path(PROJECT_ROOT)
 
 
-PROJECT_ROOT = _resolve_project_root()
-STRATEGIES_DIR = PROJECT_ROOT / "strategies"
-METHODOLOGY_PATH = PROJECT_ROOT / "methodology.yaml"
+def _project_root() -> Path:
+    """Resolve the active project root at call time."""
+    return resolve_project_root()
+
+
+def _strategies_dir() -> Path:
+    """Resolve the active preset strategies directory at call time."""
+    return resolve_strategies_dir(_project_root())
+
+
+def _methodology_path() -> Path:
+    """Resolve the active methodology.yaml path at call time."""
+    return resolve_methodology_path(_project_root())
 
 
 def list_strategies() -> list[dict[str, Any]]:
     """Every strategy YAML in strategies/, with name and one-line description."""
     out = []
-    if not STRATEGIES_DIR.exists():
+    strategies_dir = _strategies_dir()
+    if not strategies_dir.exists():
         return out
-    for f in sorted(STRATEGIES_DIR.glob("*.yaml")):
+    for f in sorted(strategies_dir.glob("*.yaml")):
         try:
             raw = yaml.safe_load(f.read_text())
             if not raw:
@@ -65,9 +73,7 @@ def list_strategies() -> list[dict[str, Any]]:
 
 def get_active_strategy() -> dict[str, Any]:
     """Return a structured summary of the active strategy (methodology.yaml)."""
-    path = (
-        METHODOLOGY_PATH if METHODOLOGY_PATH.exists() else (STRATEGIES_DIR / "buffett-munger.yaml")
-    )
+    path = resolve_active_strategy_path(_project_root())
     if not path.exists():
         raise FileNotFoundError(f"No active strategy found at {path}")
     return _strategy_summary(load_strategy(path), path=str(path))
@@ -76,7 +82,7 @@ def get_active_strategy() -> dict[str, Any]:
 def get_strategy_info(name: str) -> dict[str, Any]:
     """Return a structured summary of a named preset strategy."""
     n = validate_strategy_name(name)
-    path = STRATEGIES_DIR / f"{n}.yaml"
+    path = _strategies_dir() / f"{n}.yaml"
     if not path.exists():
         raise FileNotFoundError(f"strategy {n!r} not found at {path}")
     return _strategy_summary(load_strategy(path), path=str(path))
@@ -90,13 +96,9 @@ def list_specialists(strategy_name: str | None = None) -> list[dict[str, Any]]:
     sources, scoring rubrics, and instructions are folded inline).
     """
     if strategy_name:
-        s = load_strategy(STRATEGIES_DIR / f"{validate_strategy_name(strategy_name)}.yaml")
+        s = load_strategy(_strategies_dir() / f"{validate_strategy_name(strategy_name)}.yaml")
     else:
-        s = load_strategy(
-            METHODOLOGY_PATH
-            if METHODOLOGY_PATH.exists()
-            else STRATEGIES_DIR / "buffett-munger.yaml"
-        )
+        s = load_strategy(resolve_active_strategy_path(_project_root()))
     return [
         {"name": name, "prompt_body": (body or "").strip()}
         for name, body in s.prompts.specialists.items()
@@ -106,11 +108,13 @@ def list_specialists(strategy_name: str | None = None) -> list[dict[str, Any]]:
 def switch_strategy(name: str) -> dict[str, Any]:
     """Make a named preset the active strategy (copies it to methodology.yaml)."""
     n = validate_strategy_name(name)
-    src = STRATEGIES_DIR / f"{n}.yaml"
+    strategies_dir = _strategies_dir()
+    methodology_path = _methodology_path()
+    src = strategies_dir / f"{n}.yaml"
     if not src.exists():
         raise FileNotFoundError(f"strategy {n!r} not found at {src}")
-    shutil.copy2(src, METHODOLOGY_PATH)
-    return {"active": n, "path": str(METHODOLOGY_PATH)}
+    shutil.copy2(src, methodology_path)
+    return {"active": n, "path": str(methodology_path)}
 
 
 def _strategy_summary(s: Strategy, path: str) -> dict[str, Any]:
