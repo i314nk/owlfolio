@@ -180,11 +180,71 @@ git commit -m "chore: create v0.2 typescript workspace"
 
 - [ ] **Step 1: Write failing tests for append-only/idempotent events**
 
-Test cases:
+Create `packages/ledger/src/__tests__/eventStore.test.ts`:
 
-- appending an event stores it with immutable envelope fields
-- appending the same idempotency key returns the existing event
-- attempts to mutate through store API are impossible because only append/read methods exist
+```ts
+import { describe, expect, it } from 'vitest'
+import { InMemoryEventStore } from '../eventStore'
+import type { LedgerEventEnvelope } from '../eventEnvelope'
+
+type ResearchPayload = { ticker: string; strategy_id: string }
+
+function researchCaseEvent(overrides: Partial<LedgerEventEnvelope<ResearchPayload>> = {}): LedgerEventEnvelope<ResearchPayload> {
+  return {
+    event_id: 'evt_research_created_1',
+    event_type: 'research_case_created',
+    aggregate_type: 'research_case',
+    aggregate_id: 'rc_cost_001',
+    actor_type: 'user',
+    actor_id: 'user_local',
+    payload: { ticker: 'COST', strategy_id: 'buffett-munger' },
+    source_ids: [],
+    created_at: '2026-05-27T00:00:00.000Z',
+    schema_version: 1,
+    ...overrides,
+  }
+}
+
+describe('InMemoryEventStore', () => {
+  it('appends and reads immutable event envelopes', async () => {
+    const store = new InMemoryEventStore()
+    const event = researchCaseEvent()
+
+    const appended = await store.append(event)
+
+    expect(appended).toEqual(event)
+    expect(await store.list()).toEqual([event])
+    expect(await store.listByAggregate('research_case', 'rc_cost_001')).toEqual([event])
+  })
+
+  it('deduplicates repeated appends with the same idempotency key', async () => {
+    const store = new InMemoryEventStore()
+    const first = researchCaseEvent({
+      event_id: 'evt_first',
+      idempotency_key: 'research-case:COST:buffett-munger',
+    })
+    const duplicate = researchCaseEvent({
+      event_id: 'evt_duplicate',
+      idempotency_key: 'research-case:COST:buffett-munger',
+      payload: { ticker: 'COST', strategy_id: 'changed' },
+    })
+
+    const appendedFirst = await store.append(first)
+    const appendedDuplicate = await store.append(duplicate)
+
+    expect(appendedDuplicate).toEqual(appendedFirst)
+    expect(await store.list()).toHaveLength(1)
+    expect((await store.list())[0]?.event_id).toBe('evt_first')
+  })
+
+  it('exposes no update or delete mutation API', () => {
+    const store = new InMemoryEventStore()
+    expect('update' in store).toBe(false)
+    expect('delete' in store).toBe(false)
+    expect('remove' in store).toBe(false)
+  })
+})
+```
 
 Run:
 
@@ -263,20 +323,144 @@ git commit -m "feat(ledger): define append-only event contract"
 
 - [ ] **Step 1: Write replay tests**
 
-Test a fixed event stream:
+Create `packages/ledger/src/__tests__/replay.test.ts`:
 
-1. `research_case_created`
-2. `buffett_munger_analysis_drafted`
-3. `decision_drafted`
-4. `watchlist_draft_created`
+```ts
+import { describe, expect, it } from 'vitest'
+import type { LedgerEventEnvelope } from '../eventEnvelope'
+import { projectResearchCases } from '../projections/researchCaseProjection'
+import { projectWatchlist } from '../projections/watchlistProjection'
 
-Expected projection:
+const events: LedgerEventEnvelope<unknown>[] = [
+  {
+    event_id: 'evt_001',
+    event_type: 'research_case_created',
+    aggregate_type: 'research_case',
+    aggregate_id: 'rc_cost_001',
+    actor_type: 'user',
+    actor_id: 'user_local',
+    payload: { company_id: 'company_cost', ticker: 'COST', strategy_id: 'buffett-munger' },
+    source_ids: [],
+    created_at: '2026-05-27T00:00:00.000Z',
+    schema_version: 1,
+  },
+  {
+    event_id: 'evt_002',
+    event_type: 'buffett_munger_analysis_drafted',
+    aggregate_type: 'research_case',
+    aggregate_id: 'rc_cost_001',
+    actor_type: 'provider',
+    actor_id: 'mock-provider',
+    payload: {
+      investment_verdict: 'WATCH',
+      strategy_compliance: 'CONDITIONAL',
+      shariah_status: 'COMPLIANT',
+      valuation_status: 'FAIR',
+      next_required_action: 'Confirm watchlist draft after user review',
+    },
+    source_ids: ['src_cost_10k_2025'],
+    created_at: '2026-05-27T00:01:00.000Z',
+    schema_version: 1,
+  },
+  {
+    event_id: 'evt_003',
+    event_type: 'decision_drafted',
+    aggregate_type: 'decision',
+    aggregate_id: 'decision_cost_watch_001',
+    causation_id: 'evt_002',
+    correlation_id: 'rc_cost_001',
+    actor_type: 'system',
+    payload: {
+      research_case_id: 'rc_cost_001',
+      decision: 'WATCH',
+      user_approved: false,
+      reason: 'High quality business, valuation not yet compelling enough for buy decision.',
+    },
+    source_ids: ['src_cost_10k_2025'],
+    created_at: '2026-05-27T00:02:00.000Z',
+    schema_version: 1,
+  },
+  {
+    event_id: 'evt_004',
+    event_type: 'watchlist_draft_created',
+    aggregate_type: 'watchlist_item',
+    aggregate_id: 'watch_cost_001',
+    causation_id: 'evt_003',
+    correlation_id: 'rc_cost_001',
+    actor_type: 'user',
+    actor_id: 'user_local',
+    payload: {
+      research_case_id: 'rc_cost_001',
+      company_id: 'company_cost',
+      ticker: 'COST',
+      strategy_id: 'buffett-munger',
+      user_approved: false,
+      thesis_summary: 'Durable quality compounder; wait for better margin of safety.',
+    },
+    source_ids: ['src_cost_10k_2025'],
+    created_at: '2026-05-27T00:03:00.000Z',
+    schema_version: 1,
+  },
+]
 
-- research case stage is `watchlist_draft`
-- investment verdict is `WATCH`
-- strategy compliance is `CONDITIONAL`
-- Shariah status is `COMPLIANT`
-- watchlist draft exists and is not user-approved
+describe('ledger replay projections', () => {
+  it('rebuilds research and watchlist state from events only', () => {
+    const researchCases = projectResearchCases(events)
+    const watchlist = projectWatchlist(events)
+
+    expect(researchCases).toHaveLength(1)
+    expect(researchCases[0]).toMatchObject({
+      research_case_id: 'rc_cost_001',
+      stage: 'watchlist_draft',
+      investment_verdict: 'WATCH',
+      strategy_compliance: 'CONDITIONAL',
+      shariah_status: 'COMPLIANT',
+      valuation_status: 'FAIR',
+    })
+
+    expect(watchlist).toHaveLength(1)
+    expect(watchlist[0]).toMatchObject({
+      watchlist_item_id: 'watch_cost_001',
+      research_case_id: 'rc_cost_001',
+      ticker: 'COST',
+      strategy_id: 'buffett-munger',
+      user_approved: false,
+    })
+  })
+})
+```
+
+Create `packages/ledger/src/__tests__/idempotency.test.ts`:
+
+```ts
+import { describe, expect, it } from 'vitest'
+import { InMemoryEventStore } from '../eventStore'
+
+describe('ledger idempotency', () => {
+  it('does not duplicate retried worker/provider events', async () => {
+    const store = new InMemoryEventStore()
+    const event = {
+      event_id: 'evt_analysis_first',
+      event_type: 'buffett_munger_analysis_drafted',
+      aggregate_type: 'research_case' as const,
+      aggregate_id: 'rc_cost_001',
+      idempotency_key: 'provider-run:mock:rc_cost_001:v1',
+      actor_type: 'provider' as const,
+      actor_id: 'mock-provider',
+      payload: { investment_verdict: 'WATCH' },
+      source_ids: ['src_cost_10k_2025'],
+      created_at: '2026-05-27T00:01:00.000Z',
+      schema_version: 1,
+    }
+
+    await store.append(event)
+    await store.append({ ...event, event_id: 'evt_analysis_retry' })
+
+    expect(await store.list()).toHaveLength(1)
+    expect((await store.list())[0]?.event_id).toBe('evt_analysis_first')
+  })
+})
+```
 
 - [ ] **Step 2: Implement projection functions**
 
@@ -314,13 +498,86 @@ git commit -m "feat(ledger): add replayable research projections"
 
 - [ ] **Step 1: Write failing strategy tests**
 
-Test that Buffett-Munger includes:
+Create `packages/strategies/src/__tests__/buffettMunger.test.ts`:
 
-- certified status
-- required specialists: moat, financials, risk, management, valuation, synthesis
-- hurdle rates: 12%, 13%, 15%
-- Shariah required by default
-- at least one blocking hard gate for Shariah, positive owner earnings, leverage safety, valuation completeness
+```ts
+import { describe, expect, it } from 'vitest'
+import { buffettMungerStrategy } from '../buffettMunger'
+import { evaluateGates } from '../evaluateGates'
+
+describe('Buffett-Munger certified strategy', () => {
+  it('defines the certified core policy', () => {
+    expect(buffettMungerStrategy.id).toBe('buffett-munger')
+    expect(buffettMungerStrategy.certification_status).toBe('certified')
+    expect(buffettMungerStrategy.shariah.required).toBe(true)
+    expect(buffettMungerStrategy.research.required_specialists.map((s) => s.id)).toEqual([
+      'moat',
+      'financials',
+      'risk',
+      'management',
+      'valuation',
+      'synthesis',
+    ])
+    expect(buffettMungerStrategy.valuation.hurdle_rates).toEqual({
+      inevitable: 0.12,
+      monopoly: 0.13,
+      wide_moat: 0.15,
+    })
+  })
+
+  it('includes required blocking gates', () => {
+    const blockingGateIds = buffettMungerStrategy.hard_gates
+      .filter((gate) => gate.severity === 'blocking')
+      .map((gate) => gate.id)
+
+    expect(blockingGateIds).toEqual(
+      expect.arrayContaining([
+        'shariah_compliant_or_conditional',
+        'positive_owner_earnings',
+        'leverage_safe',
+        'valuation_complete',
+      ]),
+    )
+  })
+
+  it('returns COMPLIANT only when blocking gates pass', () => {
+    const result = evaluateGates(buffettMungerStrategy, {
+      shariah_status: 'COMPLIANT',
+      owner_earnings_positive: true,
+      leverage_safe: true,
+      valuation_complete: true,
+      source_coverage_complete: true,
+    })
+
+    expect(result.status).toBe('COMPLIANT')
+    expect(result.failed_gates).toEqual([])
+    expect(result.unknown_gates).toEqual([])
+  })
+
+  it('returns CONDITIONAL when Shariah is conditional but allowed', () => {
+    const result = evaluateGates(buffettMungerStrategy, {
+      shariah_status: 'CONDITIONAL',
+      owner_earnings_positive: true,
+      leverage_safe: true,
+      valuation_complete: true,
+      source_coverage_complete: true,
+    })
+
+    expect(result.status).toBe('CONDITIONAL')
+    expect(result.conditional_gates).toContain('shariah_compliant_or_conditional')
+  })
+
+  it('returns INSUFFICIENT_DATA when required facts are missing', () => {
+    const result = evaluateGates(buffettMungerStrategy, {
+      shariah_status: 'COMPLIANT',
+      owner_earnings_positive: true,
+    })
+
+    expect(result.status).toBe('INSUFFICIENT_DATA')
+    expect(result.unknown_gates).toEqual(expect.arrayContaining(['leverage_safe', 'valuation_complete']))
+  })
+})
+```
 
 - [ ] **Step 2: Implement strategy contract and Buffett-Munger policy**
 
@@ -364,12 +621,78 @@ git commit -m "feat(strategies): define certified buffett munger policy"
 
 - [ ] **Step 1: Write failing provider contract tests**
 
-Test that a mocked provider can:
+Create `packages/providers/src/__tests__/mockProvider.test.ts`:
 
-- return structured JSON matching a Zod schema
-- perform a deterministic tool-call-like workflow
-- fail safely on invalid output
-- record run metadata with provider ID, model ID, timeout, budget, and tool allowlist
+```ts
+import { describe, expect, it } from 'vitest'
+import { z } from 'zod'
+import { MockProvider } from '../mockProvider'
+import { runProviderTask } from '../runProviderTask'
+
+const AnalysisSchema = z.object({
+  investment_verdict: z.enum(['BUY', 'WATCH', 'PASS', 'RESEARCH_MORE']),
+  strategy_compliance: z.enum(['COMPLIANT', 'CONDITIONAL', 'NON_COMPLIANT', 'INSUFFICIENT_DATA']),
+  shariah_status: z.enum(['COMPLIANT', 'CONDITIONAL', 'NON_COMPLIANT', 'UNKNOWN']),
+  valuation_status: z.enum(['ATTRACTIVE', 'FAIR', 'EXPENSIVE', 'INSUFFICIENT_DATA']),
+  next_required_action: z.string().min(1),
+  source_ids: z.array(z.string()).min(1),
+})
+
+describe('MockProvider', () => {
+  it('returns structured Buffett-Munger analysis matching schema', async () => {
+    const provider = new MockProvider()
+
+    const result = await provider.structured({
+      run_id: 'run_mock_cost_001',
+      model_id: 'mock-research-v1',
+      prompt: 'Analyze COST with Buffett-Munger policy',
+      timeout_ms: 1000,
+      budget: { max_tool_calls: 2, max_tokens: 2000 },
+      tool_allowlist: ['source.fetch'],
+    }, AnalysisSchema)
+
+    expect(result).toMatchObject({
+      investment_verdict: 'WATCH',
+      strategy_compliance: 'CONDITIONAL',
+      shariah_status: 'COMPLIANT',
+    })
+    expect(result.source_ids).toContain('src_cost_10k_2025')
+  })
+
+  it('records provider run metadata and tool allowlist', async () => {
+    const provider = new MockProvider()
+    const run = await runProviderTask(provider, {
+      run_id: 'run_metadata_001',
+      model_id: 'mock-research-v1',
+      prompt: 'Use allowed tools only',
+      timeout_ms: 1000,
+      budget: { max_tool_calls: 1, max_tokens: 500 },
+      tool_allowlist: ['source.fetch'],
+    })
+
+    expect(run.metadata).toMatchObject({
+      provider_id: 'mock-provider',
+      model_id: 'mock-research-v1',
+      timeout_ms: 1000,
+      tool_allowlist: ['source.fetch'],
+    })
+    expect(run.ledger_events_written).toBe(0)
+  })
+
+  it('fails safely when structured output violates schema', async () => {
+    const provider = new MockProvider({ mode: 'invalid-json' })
+
+    await expect(provider.structured({
+      run_id: 'run_invalid_001',
+      model_id: 'mock-research-v1',
+      prompt: 'Return invalid result',
+      timeout_ms: 1000,
+      budget: { max_tool_calls: 0, max_tokens: 500 },
+      tool_allowlist: [],
+    }, AnalysisSchema)).rejects.toThrow(/structured output validation failed/i)
+  })
+})
+```
 
 - [ ] **Step 2: Implement provider interface**
 
@@ -409,15 +732,77 @@ git commit -m "feat(providers): add mocked provider contract"
 
 - [ ] **Step 1: Write failing vertical slice test**
 
-Test flow:
+Create `packages/workflow/src/__tests__/verticalSlice.test.ts`:
 
-1. seed demo company
-2. create research case
-3. run mocked Buffett-Munger analysis
-4. append draft analysis event
-5. append decision draft event
-6. user confirms watchlist draft
-7. projection shows watchlist draft with user actor attribution
+```ts
+import { describe, expect, it } from 'vitest'
+import { InMemoryEventStore } from '@owlfolio/ledger/eventStore'
+import { projectResearchCases } from '@owlfolio/ledger/projections/researchCaseProjection'
+import { projectWatchlist } from '@owlfolio/ledger/projections/watchlistProjection'
+import { MockProvider } from '@owlfolio/providers/mockProvider'
+import { createResearchCase, runDemoBuffettMungerAnalysis, draftDecision } from '../researchWorkflow'
+import { confirmWatchlistDraft } from '../watchlistWorkflow'
+
+describe('v0.2 vertical research workflow', () => {
+  it('creates a Buffett-Munger research case and promotes it to a user-attributed watchlist draft', async () => {
+    const store = new InMemoryEventStore()
+    const provider = new MockProvider()
+
+    const researchCase = await createResearchCase(store, {
+      research_case_id: 'rc_cost_001',
+      company_id: 'company_cost',
+      ticker: 'COST',
+      strategy_id: 'buffett-munger',
+      actor_id: 'user_local',
+    })
+
+    const analysis = await runDemoBuffettMungerAnalysis(store, provider, {
+      research_case_id: researchCase.research_case_id,
+      company_id: 'company_cost',
+      ticker: 'COST',
+      idempotency_key: 'analysis:rc_cost_001:mock:v1',
+    })
+
+    const decision = await draftDecision(store, {
+      research_case_id: researchCase.research_case_id,
+      decision_id: 'decision_cost_watch_001',
+      decision: analysis.investment_verdict,
+      reason: 'Demo analysis says watch until margin of safety improves.',
+      causation_id: analysis.event_id,
+    })
+
+    await confirmWatchlistDraft(store, {
+      watchlist_item_id: 'watch_cost_001',
+      research_case_id: researchCase.research_case_id,
+      decision_id: decision.decision_id,
+      company_id: 'company_cost',
+      ticker: 'COST',
+      strategy_id: 'buffett-munger',
+      thesis_summary: 'Durable quality compounder; wait for better margin of safety.',
+      actor_id: 'user_local',
+    })
+
+    const events = await store.list()
+    const projectedCases = projectResearchCases(events)
+    const projectedWatchlist = projectWatchlist(events)
+
+    expect(projectedCases[0]).toMatchObject({
+      research_case_id: 'rc_cost_001',
+      stage: 'watchlist_draft',
+      investment_verdict: 'WATCH',
+      strategy_compliance: 'CONDITIONAL',
+      shariah_status: 'COMPLIANT',
+    })
+    expect(projectedWatchlist[0]).toMatchObject({
+      watchlist_item_id: 'watch_cost_001',
+      user_approved: false,
+      created_by_actor_type: 'user',
+      created_by_actor_id: 'user_local',
+    })
+    expect(events.some((event) => event.actor_type === 'provider' && event.event_type === 'watchlist_draft_created')).toBe(false)
+  })
+})
+```
 
 - [ ] **Step 2: Implement workflow functions**
 
@@ -544,13 +929,36 @@ The page must show:
 
 - [ ] **Step 2: Add Playwright smoke test**
 
-Test:
+Create `apps/web/e2e/demo-mode.spec.ts`:
 
-- app loads
-- onboarding page renders
-- demo mode link reaches command center
-- command center shows Buffett-Munger and Shariah enabled
-- research case page shows strategy compliance and Shariah status
+```ts
+import { expect, test } from '@playwright/test'
+
+test('demo onboarding shows workflow command center and research statuses', async ({ page }) => {
+  await page.goto('/onboarding')
+
+  await expect(page.getByRole('heading', { name: /set up owlfolio/i })).toBeVisible()
+  await expect(page.getByText(/demo mode/i)).toBeVisible()
+  await expect(page.getByText(/mock provider/i)).toBeVisible()
+  await expect(page.getByText(/buffett-munger/i)).toBeVisible()
+  await expect(page.getByText(/shariah.*enabled/i)).toBeVisible()
+
+  await page.getByRole('link', { name: /start demo/i }).click()
+
+  await expect(page.getByRole('heading', { name: /command center/i })).toBeVisible()
+  await expect(page.getByText(/provider.*mock provider/i)).toBeVisible()
+  await expect(page.getByText(/strategy.*buffett-munger/i)).toBeVisible()
+  await expect(page.getByText(/shariah.*enabled/i)).toBeVisible()
+
+  await page.getByRole('link', { name: /view demo research case/i }).click()
+
+  await expect(page.getByRole('heading', { name: /cost/i })).toBeVisible()
+  await expect(page.getByText(/investment verdict.*watch/i)).toBeVisible()
+  await expect(page.getByText(/strategy compliance.*conditional/i)).toBeVisible()
+  await expect(page.getByText(/shariah status.*compliant/i)).toBeVisible()
+  await expect(page.getByText(/valuation status/i)).toBeVisible()
+})
+```
 
 - [ ] **Step 3: Run E2E test**
 
