@@ -38,6 +38,7 @@ secrets/anthropic_key
 
 # Screenshots / scratch dirs
 .screenshots/
+.superpowers/
 
 # User config (keep strategies/ presets, ignore user's own)
 methodology.yaml
