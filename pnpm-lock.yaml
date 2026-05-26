@@ -27,7 +27,11 @@ importers:
 
   packages/ledger: {}
 
-  packages/providers: {}
+  packages/providers:
+    dependencies:
+      zod:
+        specifier: ^4.4.3
+        version: 4.4.3
 
   packages/shared: {}
 
