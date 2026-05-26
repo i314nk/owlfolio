@@ -3,8 +3,9 @@
   "compilerOptions": {
     "noEmit": true,
     "types": [
-      "node"
+      "node",
+      "vitest"
     ]
   },
-  "files": []
+  "include": ["src/**/*.ts"]
 }
