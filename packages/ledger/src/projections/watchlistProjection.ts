@@ -7,6 +7,8 @@ export type WatchlistProjection = {
   ticker?: string
   strategy_id?: string
   user_approved: boolean
+  created_by_actor_type?: string
+  created_by_actor_id?: string
   thesis_summary?: string
   updated_at: string
 }
@@ -70,6 +72,11 @@ export function projectWatchlist(events: LedgerEventEnvelope<unknown>[]): Watchl
     applyString(watchlistItem, 'ticker', getString(event.payload, 'ticker'))
     applyString(watchlistItem, 'strategy_id', getString(event.payload, 'strategy_id'))
     applyString(watchlistItem, 'thesis_summary', getString(event.payload, 'thesis_summary'))
+    watchlistItem.created_by_actor_type = getString(event.payload, 'created_by_actor_type') ?? event.actor_type
+    const createdByActorId = getString(event.payload, 'created_by_actor_id') ?? event.actor_id
+    if (createdByActorId !== undefined) {
+      watchlistItem.created_by_actor_id = createdByActorId
+    }
 
     watchlist.set(event.aggregate_id, watchlistItem)
   }

@@ -5,5 +5,11 @@
   "scripts": {
     "lint": "node -e \"console.log('Lint not configured yet for @owlfolio/ledger')\"",
     "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "exports": {
+    "./eventEnvelope": "./src/eventEnvelope.ts",
+    "./eventStore": "./src/eventStore.ts",
+    "./projections/researchCaseProjection": "./src/projections/researchCaseProjection.ts",
+    "./projections/watchlistProjection": "./src/projections/watchlistProjection.ts"
   }
 }
