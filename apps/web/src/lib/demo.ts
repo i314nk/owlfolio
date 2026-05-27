@@ -1,6 +1,8 @@
 import type { LedgerEventEnvelope } from '@owlfolio/ledger/eventEnvelope'
-import { projectResearchCases } from '@owlfolio/ledger/projections/researchCaseProjection'
-import { projectWatchlist } from '@owlfolio/ledger/projections/watchlistProjection'
+import { projectResearchCases, type ResearchCaseProjection } from '@owlfolio/ledger/projections/researchCaseProjection'
+import { projectWatchlist, type WatchlistProjection } from '@owlfolio/ledger/projections/watchlistProjection'
+
+import type { StatusBadgeTone } from '../components/StatusBadge'
 
 export type PipelineCounts = {
   research_cases: number
@@ -16,6 +18,22 @@ export type DemoCommandCenter = {
   shariah_status: string
   pipeline_counts: PipelineCounts
   next_recommended_action: string
+  demo_research_case_id: string
+}
+
+export type DemoGateChecklistItem = {
+  label: string
+  status: string
+  tone: StatusBadgeTone
+}
+
+export type DemoResearchCase = ResearchCaseProjection & {
+  gate_checklist: DemoGateChecklistItem[]
+  source_ids: string[]
+}
+
+export type DemoWatchlistItem = WatchlistProjection & {
+  buy_zone_status?: string
 }
 
 const demoEvents: LedgerEventEnvelope<unknown>[] = [
@@ -94,14 +112,19 @@ const demoEvents: LedgerEventEnvelope<unknown>[] = [
   },
 ]
 
+const demoGateChecklist: DemoGateChecklistItem[] = [
+  { label: 'Quality business', status: 'Pass', tone: 'success' },
+  { label: 'Management alignment', status: 'Review', tone: 'neutral' },
+  { label: 'Margin of safety', status: 'Watch', tone: 'warning' },
+]
+
 export function getDemoEvents(): LedgerEventEnvelope<unknown>[] {
   return demoEvents.map((event) => ({ ...event, source_ids: [...event.source_ids] }))
 }
 
 export function getDemoCommandCenter(): DemoCommandCenter {
-  const events = getDemoEvents()
-  const researchCases = projectResearchCases(events)
-  const watchlist = projectWatchlist(events)
+  const researchCases = getDemoResearchCases()
+  const watchlist = getDemoWatchlistItems()
   const pendingDrafts = watchlist.filter((item) => !item.user_approved).length
   const nextRequiredAction = researchCases[0]?.next_required_action ?? 'Review the demo workflow status'
 
@@ -117,5 +140,66 @@ export function getDemoCommandCenter(): DemoCommandCenter {
       pending_user_actions: pendingDrafts,
     },
     next_recommended_action: nextRequiredAction,
+    demo_research_case_id: researchCases[0]?.research_case_id ?? 'rc_cost_001',
   }
+}
+
+export function getDemoResearchCases(): DemoResearchCase[] {
+  const events = getDemoEvents()
+
+  return projectResearchCases(events).map((researchCase) => ({
+    ...researchCase,
+    gate_checklist: demoGateChecklist.map((gate) => ({ ...gate })),
+    source_ids: sourceIdsForResearchCase(events, researchCase.research_case_id),
+  }))
+}
+
+export function getDemoResearchCase(caseId: string): DemoResearchCase {
+  const researchCase = getDemoResearchCases().find((candidate) => candidate.research_case_id === caseId)
+
+  if (researchCase === undefined) {
+    throw new Error(`Unknown demo research case: ${caseId}`)
+  }
+
+  return researchCase
+}
+
+export function getDemoWatchlistItems(): DemoWatchlistItem[] {
+  return projectWatchlist(getDemoEvents()).map((item) => ({ ...item }))
+}
+
+function sourceIdsForResearchCase(events: LedgerEventEnvelope<unknown>[], researchCaseId: string): string[] {
+  const sourceIds = new Set<string>()
+
+  for (const event of events) {
+    if (!eventBelongsToResearchCase(event, researchCaseId)) {
+      continue
+    }
+
+    for (const sourceId of event.source_ids) {
+      sourceIds.add(sourceId)
+    }
+  }
+
+  return [...sourceIds]
+}
+
+function eventBelongsToResearchCase(event: LedgerEventEnvelope<unknown>, researchCaseId: string): boolean {
+  if (event.aggregate_type === 'research_case' && event.aggregate_id === researchCaseId) {
+    return true
+  }
+
+  if (event.correlation_id === researchCaseId) {
+    return true
+  }
+
+  if (isRecord(event.payload) && event.payload.research_case_id === researchCaseId) {
+    return true
+  }
+
+  return false
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
 }

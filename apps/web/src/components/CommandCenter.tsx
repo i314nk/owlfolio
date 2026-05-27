@@ -1,7 +1,18 @@
-import { createElement } from 'react'
+import { createElement, type CSSProperties } from 'react'
 
 import { StatusBadge } from './StatusBadge'
 import type { DemoCommandCenter } from '../lib/demo'
+
+const linkStyle: CSSProperties = {
+  background: '#047857',
+  borderRadius: '999px',
+  color: '#ffffff',
+  display: 'inline-flex',
+  fontSize: '0.9rem',
+  fontWeight: 800,
+  padding: '0.65rem 0.9rem',
+  textDecoration: 'none',
+}
 
 export type CommandCenterProps = {
   dashboard: DemoCommandCenter
@@ -84,8 +95,18 @@ export function CommandCenter({ dashboard }: CommandCenterProps) {
         ),
         createElement(
           'p',
-          { style: { fontSize: '1.35rem', fontWeight: 800, margin: '0.45rem 0 0' } },
+          { style: { fontSize: '1.35rem', fontWeight: 800, margin: '0.45rem 0 1rem' } },
           dashboard.next_recommended_action,
+        ),
+        createElement(
+          'div',
+          { style: { display: 'flex', flexWrap: 'wrap', gap: '0.75rem' } },
+          createElement(
+            'a',
+            { href: `/research/${dashboard.demo_research_case_id}`, style: linkStyle },
+            'View demo research case',
+          ),
+          createElement('a', { href: '/watchlist', style: linkStyle }, 'Open watchlist drafts'),
         ),
       ),
     ),
