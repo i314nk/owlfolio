@@ -131,9 +131,9 @@ export function getDemoCommandCenter(): DemoCommandCenter {
   return {
     product_name: 'Owlfolio',
     setup_status: 'Setup ready',
-    provider_status: 'Mock provider / demo mode',
-    strategy_status: 'Buffett-Munger certified',
-    shariah_status: 'Shariah enabled by default',
+    provider_status: 'Provider: Mock provider / demo mode',
+    strategy_status: 'Strategy: Buffett-Munger certified',
+    shariah_status: 'Shariah: enabled by default',
     pipeline_counts: {
       research_cases: researchCases.length,
       watchlist_drafts: watchlist.length,
