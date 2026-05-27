@@ -3,8 +3,18 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "echo 'web app dev server not implemented yet'",
+    "dev": "next dev",
     "lint": "node -e \"console.log('Lint not configured yet for @owlfolio/web')\"",
     "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@owlfolio/ledger": "workspace:*",
+    "next": "16.2.6",
+    "react": "19.2.1",
+    "react-dom": "19.2.1"
+  },
+  "devDependencies": {
+    "@types/react": "19.2.7",
+    "@types/react-dom": "19.2.3"
   }
 }
