@@ -42,17 +42,6 @@ export type DemoGateChecklistItem = {
   tone: StatusBadgeTone
 }
 
-export type ResearchCaseTimelineEntry = {
-  event_id: string
-  event_type: string
-  actor_type: LedgerEventEnvelope<unknown>['actor_type']
-  actor_id?: string
-  actor_label: string
-  created_at: string
-  summary: string
-  source_ids: string[]
-}
-
 export type DemoResearchCase = ResearchCaseProjection & {
   gate_checklist: DemoGateChecklistItem[]
   source_ids: string[]
