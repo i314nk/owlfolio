@@ -43,7 +43,13 @@ export class SQLiteEventStore<TEvent extends LedgerEventEnvelope<unknown> = Ledg
   constructor(dbPath = ':memory:') {
     ensureParentDirectory(dbPath)
     this.db = new DatabaseSync(dbPath)
-    runLedgerMigrations(this.db)
+
+    try {
+      runLedgerMigrations(this.db)
+    } catch (error) {
+      this.db.close()
+      throw error
+    }
   }
 
   async append(event: TEvent): Promise<TEvent> {
