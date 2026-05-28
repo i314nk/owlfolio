@@ -11,6 +11,7 @@ import {
 } from '@owlfolio/ledger/projections/researchCaseTimelineProjection'
 import { projectWatchlist, type WatchlistProjection } from '@owlfolio/ledger/projections/watchlistProjection'
 import { SQLiteEventStore } from '@owlfolio/ledger/sqliteEventStore'
+import type { AppConfig } from '@owlfolio/shared'
 
 import type { StatusBadgeTone } from '../components/StatusBadge'
 import { DEMO_RESEARCH_CASE_ID, seedDemoLedger } from './demoSeed'
@@ -23,7 +24,12 @@ export type PipelineCounts = {
   pending_user_actions: number
 }
 
-export type DemoCommandCenter = {
+export type CommandCenterAction = {
+  href: string
+  label: string
+}
+
+export type AppCommandCenter = {
   product_name: string
   setup_status: string
   provider_status: string
@@ -32,9 +38,12 @@ export type DemoCommandCenter = {
   ledger_status: string
   pipeline_counts: PipelineCounts
   next_recommended_action: string
-  demo_research_case_id: string
   recent_activity: string[]
+  primary_action: CommandCenterAction
+  secondary_action?: CommandCenterAction
 }
+
+export type DemoCommandCenter = AppCommandCenter
 
 export type DemoGateChecklistItem = {
   label: string
@@ -68,6 +77,12 @@ type DemoLedgerEnv = {
 type ResolveDemoLedgerPathOptions = {
   cwd?: string
   env?: DemoLedgerEnv
+}
+
+export type SetupAwareCommandCenterInput = {
+  config: AppConfig
+  is_initialized: boolean
+  store?: EventStore
 }
 
 export function resolveDemoLedgerPath({ cwd = process.cwd(), env = process.env as DemoLedgerEnv }: ResolveDemoLedgerPathOptions = {}): string {
@@ -119,6 +134,59 @@ export async function getDemoCommandCenterFromStore(store: EventStore): Promise<
   const events = await getDemoEventsFromStore(store)
   const summary = projectCommandCenterSummary(events)
 
+  return buildDemoCommandCenter(summary)
+}
+
+export async function getSetupAwareCommandCenter({ config, is_initialized, store }: SetupAwareCommandCenterInput): Promise<AppCommandCenter> {
+  if (config.mode === 'demo') {
+    return store === undefined ? getDemoCommandCenter() : getDemoCommandCenterFromStore(store)
+  }
+
+  if (!is_initialized || config.ledger_path === undefined) {
+    return {
+      product_name: 'Owlfolio',
+      setup_status: 'Setup required',
+      provider_status: `Provider: ${humanizeProvider(config.provider.provider_id)} not ready yet`,
+      strategy_status: 'Strategy: Buffett-Munger certified',
+      shariah_status: config.shariah.enabled ? 'Shariah: enabled by default' : 'Shariah: disabled',
+      ledger_status: 'Ledger: not initialized yet',
+      pipeline_counts: {
+        research_cases: 0,
+        watchlist_drafts: 0,
+        pending_user_actions: 0,
+      },
+      next_recommended_action: 'Complete onboarding and initialize the personal local ledger',
+      recent_activity: ['No durable ledger events yet'],
+      primary_action: { href: '/onboarding', label: 'Continue setup' },
+    }
+  }
+
+  let ownedStore: SQLiteEventStore | undefined
+  try {
+    const activeStore = store ?? (ownedStore = new SQLiteEventStore(config.ledger_path))
+    const events = await activeStore.list()
+    const summary = projectCommandCenterSummary(events)
+
+    return {
+      product_name: 'Owlfolio',
+      setup_status: 'Personal local mode initialized',
+      provider_status: `Provider: ${humanizeProvider(config.provider.provider_id)} personal local mode`,
+      strategy_status: 'Strategy: Buffett-Munger certified',
+      shariah_status: config.shariah.enabled ? 'Shariah: enabled by default' : 'Shariah: disabled',
+      ledger_status: 'Ledger: SQLite durable event source',
+      pipeline_counts: summary.pipeline_counts,
+      next_recommended_action: summary.pipeline_counts.research_cases === 0
+        ? 'Create or import your first research case'
+        : summary.next_recommended_action,
+      recent_activity: summary.recent_activity.length === 0 ? ['No ledger events yet'] : summary.recent_activity,
+      primary_action: { href: '/onboarding', label: 'Review setup choices' },
+    }
+  } finally {
+    ownedStore?.close()
+  }
+}
+
+function buildDemoCommandCenter(summary: ReturnType<typeof projectCommandCenterSummary>): DemoCommandCenter {
   return {
     product_name: 'Owlfolio',
     setup_status: 'Setup ready',
@@ -128,8 +196,26 @@ export async function getDemoCommandCenterFromStore(store: EventStore): Promise<
     ledger_status: 'Ledger: SQLite durable event source',
     pipeline_counts: summary.pipeline_counts,
     next_recommended_action: summary.next_recommended_action,
-    demo_research_case_id: summary.primary_research_case_id ?? DEMO_RESEARCH_CASE_ID,
     recent_activity: summary.recent_activity,
+    primary_action: {
+      href: `/research/${summary.primary_research_case_id ?? DEMO_RESEARCH_CASE_ID}`,
+      label: 'View demo research case',
+    },
+    secondary_action: {
+      href: '/watchlist',
+      label: 'Open watchlist drafts',
+    },
+  }
+}
+
+function humanizeProvider(providerId: AppConfig['provider']['provider_id']): string {
+  switch (providerId) {
+    case 'claude':
+      return 'Claude'
+    case 'openai':
+      return 'OpenAI'
+    case 'mock-provider':
+      return 'Mock provider'
   }
 }
 
@@ -175,4 +261,3 @@ function projectDemoResearchCases(events: LedgerEventEnvelope<unknown>[]): DemoR
     }
   })
 }
-

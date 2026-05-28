@@ -64,7 +64,10 @@ describe('durable demo ledger read models', () => {
         'decision_drafted by system',
         'buffett_munger_analysis_drafted by provider:mock-provider',
       ])
-      expect(dashboard.demo_research_case_id).toBe('rc_cost_001')
+      expect(dashboard.primary_action).toEqual({
+        href: '/research/rc_cost_001',
+        label: 'View demo research case',
+      })
       expect(summarySpy).toHaveBeenCalledTimes(1)
 
       const html = renderToStaticMarkup(createElement(CommandCenter, { dashboard }))

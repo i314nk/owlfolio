@@ -1,7 +1,7 @@
 import { createElement, type CSSProperties } from 'react'
 
 import { StatusBadge } from './StatusBadge'
-import type { DemoCommandCenter } from '../lib/demo'
+import type { AppCommandCenter } from '../lib/demo'
 
 const linkStyle: CSSProperties = {
   background: '#047857',
@@ -15,7 +15,7 @@ const linkStyle: CSSProperties = {
 }
 
 export type CommandCenterProps = {
-  dashboard: DemoCommandCenter
+  dashboard: AppCommandCenter
 }
 
 export function CommandCenter({ dashboard }: CommandCenterProps) {
@@ -52,16 +52,16 @@ export function CommandCenter({ dashboard }: CommandCenterProps) {
       createElement(
         'p',
         { style: { color: '#475569', fontSize: '1.15rem', maxWidth: '720px' } },
-        'Local, Shariah-by-design investment workflow dashboard for a deterministic v0.2 demo slice.',
+        'Local, Shariah-by-design investment workflow dashboard for the current Owlfolio v0.2 slice.',
       ),
       createElement(
         'div',
         { style: { display: 'flex', flexWrap: 'wrap', gap: '0.75rem', margin: '1.5rem 0 2rem' } },
-        createElement(StatusBadge, { tone: 'success' }, dashboard.setup_status),
+        createElement(StatusBadge, { tone: dashboard.setup_status.toLowerCase().includes('ready') || dashboard.setup_status.toLowerCase().includes('initialized') ? 'success' : 'warning' }, dashboard.setup_status),
         createElement(StatusBadge, null, dashboard.provider_status),
         createElement(StatusBadge, { tone: 'success' }, dashboard.strategy_status),
-        createElement(StatusBadge, { tone: 'warning' }, dashboard.shariah_status),
-        createElement(StatusBadge, { tone: 'success' }, dashboard.ledger_status),
+        createElement(StatusBadge, { tone: dashboard.shariah_status.toLowerCase().includes('disabled') ? 'warning' : 'success' }, dashboard.shariah_status),
+        createElement(StatusBadge, { tone: dashboard.ledger_status.toLowerCase().includes('not initialized') ? 'warning' : 'success' }, dashboard.ledger_status),
       ),
       createElement(
         'section',
@@ -102,12 +102,10 @@ export function CommandCenter({ dashboard }: CommandCenterProps) {
         createElement(
           'div',
           { style: { display: 'flex', flexWrap: 'wrap', gap: '0.75rem' } },
-          createElement(
-            'a',
-            { href: `/research/${dashboard.demo_research_case_id}`, style: linkStyle },
-            'View demo research case',
-          ),
-          createElement('a', { href: '/watchlist', style: linkStyle }, 'Open watchlist drafts'),
+          createElement('a', { href: dashboard.primary_action.href, style: linkStyle }, dashboard.primary_action.label),
+          dashboard.secondary_action === undefined
+            ? null
+            : createElement('a', { href: dashboard.secondary_action.href, style: linkStyle }, dashboard.secondary_action.label),
         ),
         createElement(
           'section',
