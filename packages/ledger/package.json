@@ -9,6 +9,7 @@
   "exports": {
     "./eventEnvelope": "./src/eventEnvelope.ts",
     "./eventStore": "./src/eventStore.ts",
+    "./sqliteEventStore": "./src/sqliteEventStore.ts",
     "./projections/researchCaseProjection": "./src/projections/researchCaseProjection.ts",
     "./projections/watchlistProjection": "./src/projections/watchlistProjection.ts"
   }

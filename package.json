@@ -4,13 +4,13 @@
   "type": "module",
   "packageManager": "pnpm@11.3.0",
   "scripts": {
-    "dev": "corepack pnpm --filter @owlfolio/web dev",
+    "dev": "NODE_OPTIONS=--disable-warning=ExperimentalWarning corepack pnpm --filter @owlfolio/web dev",
     "worker": "corepack pnpm --filter @owlfolio/worker dev",
-    "test": "vitest run --passWithNoTests",
-    "test:watch": "vitest --passWithNoTests",
+    "test": "NODE_OPTIONS=--disable-warning=ExperimentalWarning vitest run --passWithNoTests",
+    "test:watch": "NODE_OPTIONS=--disable-warning=ExperimentalWarning vitest --passWithNoTests",
     "lint": "corepack pnpm -r lint",
     "typecheck": "tsc --noEmit -p tsconfig.json && corepack pnpm -r typecheck",
-    "e2e": "playwright test"
+    "e2e": "NODE_OPTIONS=--disable-warning=ExperimentalWarning playwright test"
   },
   "devDependencies": {
     "@playwright/test": "1.60.0",

@@ -110,6 +110,33 @@ export function ResearchCasePanel({ researchCase }: ResearchCasePanelProps) {
     createElement(
       'section',
       { style: cardStyle },
+      createElement('h2', { style: { fontSize: '1.25rem', margin: '0 0 0.35rem' } }, 'Ledger Timeline'),
+      createElement(
+        'p',
+        { style: { color: '#64748b', fontSize: '0.95rem', margin: '0 0 1rem' } },
+        'How did this state come to exist?',
+      ),
+      createElement(
+        'ol',
+        { style: { color: '#334155', display: 'grid', gap: '0.85rem', margin: 0, paddingLeft: '1.25rem' } },
+        ...researchCase.ledger_timeline.map((entry) =>
+          createElement(
+            'li',
+            { key: entry.event_id },
+            createElement('p', { style: { fontWeight: 900, margin: 0 } }, entry.event_type),
+            createElement('p', { style: { margin: '0.2rem 0 0' } }, entry.summary),
+            createElement(
+              'p',
+              { style: { color: '#64748b', fontSize: '0.85rem', margin: '0.2rem 0 0' } },
+              `${entry.actor_label} • ${entry.created_at}`,
+            ),
+          ),
+        ),
+      ),
+    ),
+    createElement(
+      'section',
+      { style: cardStyle },
       createElement('p', { style: labelStyle }, 'Next required action'),
       createElement(
         'p',

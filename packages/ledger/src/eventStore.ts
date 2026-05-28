@@ -1,6 +1,12 @@
 import type { AggregateType, LedgerEventEnvelope } from './eventEnvelope'
 
-function deepFreeze<T>(value: T): T {
+export interface EventStore<TEvent extends LedgerEventEnvelope<unknown> = LedgerEventEnvelope<unknown>> {
+  append(event: TEvent): Promise<TEvent>
+  list(): Promise<TEvent[]>
+  listByAggregate(aggregateType: AggregateType, aggregateId: string): Promise<TEvent[]>
+}
+
+export function deepFreeze<T>(value: T): T {
   if (value !== null && (typeof value === 'object' || typeof value === 'function')) {
     for (const key of Reflect.ownKeys(value)) {
       deepFreeze((value as Record<PropertyKey, unknown>)[key])
@@ -12,11 +18,13 @@ function deepFreeze<T>(value: T): T {
   return value
 }
 
-function cloneAndFreeze<T>(value: T): T {
+export function cloneAndFreeze<T>(value: T): T {
   return deepFreeze(structuredClone(value))
 }
 
-export class InMemoryEventStore<TEvent extends LedgerEventEnvelope<unknown> = LedgerEventEnvelope<unknown>> {
+export class InMemoryEventStore<TEvent extends LedgerEventEnvelope<unknown> = LedgerEventEnvelope<unknown>>
+  implements EventStore<TEvent>
+{
   private readonly events: TEvent[] = []
   private readonly eventsByIdempotencyKey = new Map<string, TEvent>()
 

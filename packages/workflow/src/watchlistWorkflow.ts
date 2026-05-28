@@ -1,7 +1,7 @@
-import type { InMemoryEventStore } from '@owlfolio/ledger/eventStore'
+import type { EventStore } from '@owlfolio/ledger/eventStore'
 import type { ActorType, LedgerEventEnvelope } from '@owlfolio/ledger/eventEnvelope'
 
-type EventStore = InMemoryEventStore<LedgerEventEnvelope<unknown>>
+type WatchlistEventStore = EventStore<LedgerEventEnvelope<unknown>>
 
 type WatchlistDraftCreatedPayload = {
   watchlist_item_id: string
@@ -41,7 +41,7 @@ function mergeEventPayload<TPayload extends object>(
 }
 
 export async function confirmWatchlistDraft(
-  store: EventStore,
+  store: WatchlistEventStore,
   command: ConfirmWatchlistDraftCommand,
 ): Promise<WatchlistDraftCreated> {
   const payload: WatchlistDraftCreatedPayload = {

@@ -1,4 +1,4 @@
-import type { InMemoryEventStore } from '@owlfolio/ledger/eventStore'
+import type { EventStore } from '@owlfolio/ledger/eventStore'
 import type { LedgerEventEnvelope } from '@owlfolio/ledger/eventEnvelope'
 import type { Provider } from '@owlfolio/providers/providerContract'
 
@@ -7,7 +7,7 @@ export type StrategyCompliance = 'COMPLIANT' | 'CONDITIONAL' | 'NON_COMPLIANT' |
 export type ShariahStatus = 'COMPLIANT' | 'CONDITIONAL' | 'NON_COMPLIANT' | 'UNKNOWN'
 export type ValuationStatus = 'ATTRACTIVE' | 'FAIR' | 'EXPENSIVE' | 'INSUFFICIENT_DATA'
 
-type EventStore = InMemoryEventStore<LedgerEventEnvelope<unknown>>
+type ResearchEventStore = EventStore<LedgerEventEnvelope<unknown>>
 
 type ResearchCaseCreatedPayload = {
   research_case_id: string
@@ -111,7 +111,7 @@ function sourceIdsFrom(payload: Record<string, unknown>): string[] {
   return value
 }
 
-export async function createResearchCase(store: EventStore, command: CreateResearchCaseCommand): Promise<ResearchCaseCreated> {
+export async function createResearchCase(store: ResearchEventStore, command: CreateResearchCaseCommand): Promise<ResearchCaseCreated> {
   const payload: ResearchCaseCreatedPayload = {
     research_case_id: command.research_case_id,
     company_id: command.company_id,
@@ -139,7 +139,7 @@ export async function createResearchCase(store: EventStore, command: CreateResea
 }
 
 export async function runDemoBuffettMungerAnalysis(
-  store: EventStore,
+  store: ResearchEventStore,
   provider: Provider,
   command: RunDemoBuffettMungerAnalysisCommand,
 ): Promise<BuffettMungerAnalysisDrafted> {
@@ -188,7 +188,7 @@ export async function runDemoBuffettMungerAnalysis(
   return mergeEventPayload(storedEvent as LedgerEventEnvelope<BuffettMungerAnalysisPayload>)
 }
 
-export async function draftDecision(store: EventStore, command: DraftDecisionCommand): Promise<DecisionDrafted> {
+export async function draftDecision(store: ResearchEventStore, command: DraftDecisionCommand): Promise<DecisionDrafted> {
   const payload: DecisionDraftedPayload = {
     research_case_id: command.research_case_id,
     decision_id: command.decision_id,

@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "next dev",
+    "dev": "NODE_OPTIONS=--disable-warning=ExperimentalWarning next dev",
     "lint": "node -e \"console.log('Lint not configured yet for @owlfolio/web')\"",
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },

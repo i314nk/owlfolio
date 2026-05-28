@@ -1,7 +1,9 @@
 import { WatchlistPanel } from '../../components/WatchlistPanel'
 import { getDemoWatchlistItems } from '../../lib/demo'
 
-export default function WatchlistPage() {
+export default async function WatchlistPage() {
+  const watchlistItems = await getDemoWatchlistItems()
+
   return (
     <main style={{ color: '#0f172a', minHeight: '100vh', padding: '3rem clamp(1rem, 4vw, 4rem)' }}>
       <div style={{ margin: '0 auto', maxWidth: '1040px' }}>
@@ -10,7 +12,7 @@ export default function WatchlistPage() {
             ← Back to command center
           </a>
         </p>
-        <WatchlistPanel items={getDemoWatchlistItems()} />
+        <WatchlistPanel items={watchlistItems} />
       </div>
     </main>
   )

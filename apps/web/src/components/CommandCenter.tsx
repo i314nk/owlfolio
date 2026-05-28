@@ -61,6 +61,7 @@ export function CommandCenter({ dashboard }: CommandCenterProps) {
         createElement(StatusBadge, null, dashboard.provider_status),
         createElement(StatusBadge, { tone: 'success' }, dashboard.strategy_status),
         createElement(StatusBadge, { tone: 'warning' }, dashboard.shariah_status),
+        createElement(StatusBadge, { tone: 'success' }, dashboard.ledger_status),
       ),
       createElement(
         'section',
@@ -107,6 +108,20 @@ export function CommandCenter({ dashboard }: CommandCenterProps) {
             'View demo research case',
           ),
           createElement('a', { href: '/watchlist', style: linkStyle }, 'Open watchlist drafts'),
+        ),
+        createElement(
+          'section',
+          { style: { marginTop: '1.25rem' } },
+          createElement(
+            'p',
+            { style: { color: '#64748b', fontSize: '0.85rem', fontWeight: 800, margin: '0 0 0.5rem', textTransform: 'uppercase' } },
+            'Recent ledger activity',
+          ),
+          createElement(
+            'ul',
+            { style: { color: '#334155', display: 'grid', gap: '0.4rem', margin: 0, paddingLeft: '1.25rem' } },
+            ...dashboard.recent_activity.map((activity) => createElement('li', { key: activity }, activity)),
+          ),
         ),
       ),
     ),
