@@ -4,6 +4,7 @@ import { DatabaseSync } from 'node:sqlite'
 
 import type { AggregateType, LedgerEventEnvelope } from './eventEnvelope'
 import { cloneAndFreeze, type EventStore } from './eventStore'
+import { runLedgerMigrations } from './sqliteMigrations'
 
 type LedgerEventRow = {
   event_id: string
@@ -55,31 +56,7 @@ export class SQLiteEventStore<TEvent extends LedgerEventEnvelope<unknown> = Ledg
   constructor(dbPath = ':memory:') {
     ensureParentDirectory(dbPath)
     this.db = new DatabaseSync(dbPath)
-    this.db.exec(`
-      CREATE TABLE IF NOT EXISTS ledger_events (
-        sequence INTEGER PRIMARY KEY AUTOINCREMENT,
-        event_id TEXT NOT NULL UNIQUE,
-        event_type TEXT NOT NULL,
-        aggregate_type TEXT NOT NULL,
-        aggregate_id TEXT NOT NULL,
-        causation_id TEXT,
-        correlation_id TEXT,
-        idempotency_key TEXT,
-        actor_type TEXT NOT NULL,
-        actor_id TEXT,
-        payload_json TEXT NOT NULL,
-        source_ids_json TEXT NOT NULL,
-        created_at TEXT NOT NULL,
-        schema_version INTEGER NOT NULL
-      );
-
-      CREATE UNIQUE INDEX IF NOT EXISTS ledger_events_idempotency_key_unique
-      ON ledger_events(idempotency_key)
-      WHERE idempotency_key IS NOT NULL;
-
-      CREATE INDEX IF NOT EXISTS ledger_events_aggregate_idx
-      ON ledger_events(aggregate_type, aggregate_id, sequence);
-    `)
+    runLedgerMigrations(this.db)
   }
 
   async append(event: TEvent): Promise<TEvent> {
