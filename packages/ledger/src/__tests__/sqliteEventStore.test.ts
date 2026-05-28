@@ -86,4 +86,22 @@ describe('SQLiteEventStore', () => {
       }
     })
   })
+
+  it('rejects invalid runtime event shapes before writing an unreadable row', async () => {
+    await withTempDb(async (dbPath) => {
+      const store = new SQLiteEventStore<ResearchEvent>(dbPath)
+      try {
+        const invalidEvent = {
+          ...researchCaseEvent({ event_id: 'evt_bad_write' }),
+          actor_type: 'hacker',
+        } as unknown as ResearchEvent
+
+        await expect(store.append(invalidEvent)).rejects.toThrow(/evt_bad_write/)
+        await expect(store.append(invalidEvent)).rejects.toThrow(/actor_type/)
+        expect(await store.list()).toEqual([])
+      } finally {
+        store.close()
+      }
+    })
+  })
 })

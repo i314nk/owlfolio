@@ -35,6 +35,24 @@ function rowToEvent<TEvent extends LedgerEventEnvelope<unknown>>(row: LedgerEven
   return cloneAndFreeze(validateLedgerEventRow(row as unknown as Record<string, unknown>)) as TEvent
 }
 
+function eventToValidatedEvent<TEvent extends LedgerEventEnvelope<unknown>>(event: TEvent): TEvent {
+  return rowToEvent({
+    event_id: event.event_id,
+    event_type: event.event_type,
+    aggregate_type: event.aggregate_type,
+    aggregate_id: event.aggregate_id,
+    causation_id: event.causation_id ?? null,
+    correlation_id: event.correlation_id ?? null,
+    idempotency_key: event.idempotency_key ?? null,
+    actor_type: event.actor_type,
+    actor_id: event.actor_id ?? null,
+    payload_json: JSON.stringify(event.payload),
+    source_ids_json: JSON.stringify(event.source_ids),
+    created_at: event.created_at,
+    schema_version: event.schema_version,
+  } as unknown as LedgerEventRow)
+}
+
 export class SQLiteEventStore<TEvent extends LedgerEventEnvelope<unknown> = LedgerEventEnvelope<unknown>>
   implements EventStore<TEvent>
 {
@@ -53,8 +71,10 @@ export class SQLiteEventStore<TEvent extends LedgerEventEnvelope<unknown> = Ledg
   }
 
   async append(event: TEvent): Promise<TEvent> {
-    if (event.idempotency_key !== undefined) {
-      const existing = this.findByIdempotencyKey(event.idempotency_key)
+    const validatedEvent = eventToValidatedEvent(event)
+
+    if (validatedEvent.idempotency_key !== undefined) {
+      const existing = this.findByIdempotencyKey(validatedEvent.idempotency_key)
       if (existing !== undefined) {
         return existing
       }
@@ -80,23 +100,23 @@ export class SQLiteEventStore<TEvent extends LedgerEventEnvelope<unknown> = Ledg
           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `)
         .run(
-          event.event_id,
-          event.event_type,
-          event.aggregate_type,
-          event.aggregate_id,
-          event.causation_id ?? null,
-          event.correlation_id ?? null,
-          event.idempotency_key ?? null,
-          event.actor_type,
-          event.actor_id ?? null,
-          JSON.stringify(event.payload),
-          JSON.stringify(event.source_ids),
-          event.created_at,
-          event.schema_version,
+          validatedEvent.event_id,
+          validatedEvent.event_type,
+          validatedEvent.aggregate_type,
+          validatedEvent.aggregate_id,
+          validatedEvent.causation_id ?? null,
+          validatedEvent.correlation_id ?? null,
+          validatedEvent.idempotency_key ?? null,
+          validatedEvent.actor_type,
+          validatedEvent.actor_id ?? null,
+          JSON.stringify(validatedEvent.payload),
+          JSON.stringify(validatedEvent.source_ids),
+          validatedEvent.created_at,
+          validatedEvent.schema_version,
         )
     } catch (error) {
-      if (event.idempotency_key !== undefined) {
-        const existing = this.findByIdempotencyKey(event.idempotency_key)
+      if (validatedEvent.idempotency_key !== undefined) {
+        const existing = this.findByIdempotencyKey(validatedEvent.idempotency_key)
         if (existing !== undefined) {
           return existing
         }
@@ -105,7 +125,7 @@ export class SQLiteEventStore<TEvent extends LedgerEventEnvelope<unknown> = Ledg
       throw error
     }
 
-    return cloneAndFreeze(event)
+    return validatedEvent
   }
 
   async list(): Promise<TEvent[]> {
