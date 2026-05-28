@@ -22,6 +22,7 @@ describe('CommandCenter', () => {
       expect(html).toContain('Research cases')
       expect(html).toContain('Watchlist drafts')
       expect(html).toContain('Review COST research case and confirm the watchlist draft')
+      expect(html).toContain('watchlist_draft_created by user:user_local')
     } finally {
       store.close()
     }

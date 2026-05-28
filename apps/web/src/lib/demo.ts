@@ -1,9 +1,14 @@
 import { existsSync } from 'node:fs'
 import { dirname, join, parse } from 'node:path'
 
-import type { EventStore } from '@owlfolio/ledger/eventStore'
+import { projectCommandCenterSummary } from '@owlfolio/ledger/projections/commandCenterProjection'
 import type { LedgerEventEnvelope } from '@owlfolio/ledger/eventEnvelope'
+import type { EventStore } from '@owlfolio/ledger/eventStore'
 import { projectResearchCases, type ResearchCaseProjection } from '@owlfolio/ledger/projections/researchCaseProjection'
+import {
+  projectResearchCaseTimeline,
+  type ResearchCaseTimelineEntry,
+} from '@owlfolio/ledger/projections/researchCaseTimelineProjection'
 import { projectWatchlist, type WatchlistProjection } from '@owlfolio/ledger/projections/watchlistProjection'
 import { SQLiteEventStore } from '@owlfolio/ledger/sqliteEventStore'
 
@@ -123,10 +128,7 @@ export async function getDemoCommandCenter(): Promise<DemoCommandCenter> {
 
 export async function getDemoCommandCenterFromStore(store: EventStore): Promise<DemoCommandCenter> {
   const events = await getDemoEventsFromStore(store)
-  const researchCases = projectDemoResearchCases(events)
-  const watchlist = projectWatchlist(events)
-  const pendingDrafts = watchlist.filter((item) => !item.user_approved).length
-  const nextRequiredAction = researchCases[0]?.next_required_action ?? 'Review the demo workflow status'
+  const summary = projectCommandCenterSummary(events)
 
   return {
     product_name: 'Owlfolio',
@@ -135,17 +137,10 @@ export async function getDemoCommandCenterFromStore(store: EventStore): Promise<
     strategy_status: 'Strategy: Buffett-Munger certified',
     shariah_status: 'Shariah: enabled by default',
     ledger_status: 'Ledger: SQLite durable event source',
-    pipeline_counts: {
-      research_cases: researchCases.length,
-      watchlist_drafts: watchlist.length,
-      pending_user_actions: pendingDrafts,
-    },
-    next_recommended_action: nextRequiredAction,
-    demo_research_case_id: researchCases[0]?.research_case_id ?? DEMO_RESEARCH_CASE_ID,
-    recent_activity: events
-      .slice(-3)
-      .reverse()
-      .map((event) => `${event.event_type} by ${actorLabel(event)}`),
+    pipeline_counts: summary.pipeline_counts,
+    next_recommended_action: summary.next_recommended_action,
+    demo_research_case_id: summary.primary_research_case_id ?? DEMO_RESEARCH_CASE_ID,
+    recent_activity: summary.recent_activity,
   }
 }
 
@@ -180,99 +175,15 @@ export async function getDemoWatchlistItemsFromStore(store: EventStore): Promise
 }
 
 function projectDemoResearchCases(events: LedgerEventEnvelope<unknown>[]): DemoResearchCase[] {
-  return projectResearchCases(events).map((researchCase) => ({
-    ...researchCase,
-    gate_checklist: demoGateChecklist.map((gate) => ({ ...gate })),
-    source_ids: sourceIdsForResearchCase(events, researchCase.research_case_id),
-    ledger_timeline: timelineForResearchCase(events, researchCase.research_case_id),
-  }))
-}
+  return projectResearchCases(events).map((researchCase) => {
+    const timeline = projectResearchCaseTimeline(events, researchCase.research_case_id)
 
-function timelineForResearchCase(
-  events: LedgerEventEnvelope<unknown>[],
-  researchCaseId: string,
-): ResearchCaseTimelineEntry[] {
-  return events.filter((event) => eventBelongsToResearchCase(event, researchCaseId)).map((event) => ({
-    event_id: event.event_id,
-    event_type: event.event_type,
-    actor_type: event.actor_type,
-    ...(event.actor_id === undefined ? {} : { actor_id: event.actor_id }),
-    actor_label: actorLabel(event),
-    created_at: event.created_at,
-    summary: summarizeEvent(event),
-    source_ids: [...event.source_ids],
-  }))
-}
-
-function sourceIdsForResearchCase(events: LedgerEventEnvelope<unknown>[], researchCaseId: string): string[] {
-  const sourceIds = new Set<string>()
-
-  for (const event of events) {
-    if (!eventBelongsToResearchCase(event, researchCaseId)) {
-      continue
+    return {
+      ...researchCase,
+      gate_checklist: demoGateChecklist.map((gate) => ({ ...gate })),
+      source_ids: [...new Set(timeline.flatMap((entry) => entry.source_ids))],
+      ledger_timeline: timeline,
     }
-
-    for (const sourceId of event.source_ids) {
-      sourceIds.add(sourceId)
-    }
-  }
-
-  return [...sourceIds]
+  })
 }
 
-function eventBelongsToResearchCase(event: LedgerEventEnvelope<unknown>, researchCaseId: string): boolean {
-  if (event.aggregate_type === 'research_case' && event.aggregate_id === researchCaseId) {
-    return true
-  }
-
-  if (event.correlation_id === researchCaseId) {
-    return true
-  }
-
-  if (isRecord(event.payload) && event.payload.research_case_id === researchCaseId) {
-    return true
-  }
-
-  return false
-}
-
-function actorLabel(event: LedgerEventEnvelope<unknown>): string {
-  return event.actor_id === undefined ? event.actor_type : `${event.actor_type}:${event.actor_id}`
-}
-
-function summarizeEvent(event: LedgerEventEnvelope<unknown>): string {
-  if (!isRecord(event.payload)) {
-    return event.event_type
-  }
-
-  if (event.event_type === 'research_case_created') {
-    const ticker = getString(event.payload, 'ticker') ?? event.aggregate_id
-    return `Created research case for ${ticker}`
-  }
-
-  if (event.event_type === 'buffett_munger_analysis_drafted') {
-    return `${getString(event.payload, 'investment_verdict') ?? 'UNKNOWN'} / ${
-      getString(event.payload, 'strategy_compliance') ?? 'UNKNOWN'
-    } / Shariah ${getString(event.payload, 'shariah_status') ?? 'UNKNOWN'}`
-  }
-
-  if (event.event_type === 'decision_drafted') {
-    return `Drafted ${getString(event.payload, 'decision') ?? 'UNKNOWN'} decision`
-  }
-
-  if (event.event_type === 'watchlist_draft_created') {
-    const ticker = getString(event.payload, 'ticker') ?? event.aggregate_id
-    return `Created watchlist draft for ${ticker}`
-  }
-
-  return event.event_type
-}
-
-function getString(payload: Record<string, unknown>, key: string): string | undefined {
-  const value = payload[key]
-  return typeof value === 'string' ? value : undefined
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === 'object' && !Array.isArray(value)
-}

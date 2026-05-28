@@ -1,7 +1,8 @@
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
+import * as researchCaseTimelineProjection from '@owlfolio/ledger/projections/researchCaseTimelineProjection'
 import { SQLiteEventStore } from '@owlfolio/ledger/sqliteEventStore'
 import { CommandCenter } from '../CommandCenter'
 import { ResearchCasePanel } from '../ResearchCasePanel'
@@ -25,8 +26,23 @@ async function withSeededStore<T>(fn: (store: SQLiteEventStore) => Promise<T>): 
 
 describe('research and watchlist workflow pages', () => {
   it('renders a complete demo research case with gates, sources, and next action', async () => {
+    const timelineSpy = vi.spyOn(researchCaseTimelineProjection, 'projectResearchCaseTimeline')
+
     await withSeededStore(async (store) => {
       const researchCase = await getDemoResearchCaseFromStore(store, 'rc_cost_001')
+
+      expect(researchCase.ledger_timeline.map((entry) => entry.event_type)).toEqual([
+        'research_case_created',
+        'buffett_munger_analysis_drafted',
+        'decision_drafted',
+        'watchlist_draft_created',
+      ])
+      expect(researchCase.ledger_timeline[1]).toMatchObject({
+        actor_label: 'provider:mock-provider',
+        summary: 'WATCH / CONDITIONAL / Shariah COMPLIANT',
+      })
+      expect(researchCase.source_ids).toContain('src_cost_10k_2025')
+      expect(timelineSpy).toHaveBeenCalledTimes(1)
 
       const html = renderToStaticMarkup(createElement(ResearchCasePanel, { researchCase }))
 

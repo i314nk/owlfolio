@@ -3,8 +3,9 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
+import * as commandCenterProjection from '@owlfolio/ledger/projections/commandCenterProjection'
 import { SQLiteEventStore } from '@owlfolio/ledger/sqliteEventStore'
 import { CommandCenter } from '../CommandCenter'
 import { ResearchCasePanel } from '../ResearchCasePanel'
@@ -44,6 +45,8 @@ describe('durable demo ledger read models', () => {
   })
 
   it('seeds demo events into a durable idempotent ledger and reads command-center projection summaries', async () => {
+    const summarySpy = vi.spyOn(commandCenterProjection, 'projectCommandCenterSummary')
+
     await withSeededStore(async (store) => {
       const events = await store.list()
       const dashboard = await getDemoCommandCenterFromStore(store)
@@ -61,6 +64,8 @@ describe('durable demo ledger read models', () => {
         'decision_drafted by system',
         'buffett_munger_analysis_drafted by provider:mock-provider',
       ])
+      expect(dashboard.demo_research_case_id).toBe('rc_cost_001')
+      expect(summarySpy).toHaveBeenCalledTimes(1)
 
       const html = renderToStaticMarkup(createElement(CommandCenter, { dashboard }))
       expect(html).toContain('Ledger: SQLite durable event source')
