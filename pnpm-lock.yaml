@@ -29,6 +29,9 @@ importers:
       '@owlfolio/ledger':
         specifier: workspace:*
         version: link:../../packages/ledger
+      '@owlfolio/shared':
+        specifier: workspace:*
+        version: link:../../packages/shared
       next:
         specifier: 16.2.6
         version: 16.2.6(@playwright/test@1.60.0)(react-dom@19.2.1(react@19.2.1))(react@19.2.1)
