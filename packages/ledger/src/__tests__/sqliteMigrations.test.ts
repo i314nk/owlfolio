@@ -137,4 +137,35 @@ describe('SQLite ledger migrations', () => {
       }
     })
   })
+
+  it('rejects a database whose PRAGMA user_version is newer than this code supports', async () => {
+    await withTempDb(async (dbPath) => {
+      const db = new DatabaseSync(dbPath)
+      try {
+        db.exec(`
+          CREATE TABLE ledger_events (
+            sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+            event_id TEXT NOT NULL UNIQUE,
+            event_type TEXT NOT NULL,
+            aggregate_type TEXT NOT NULL,
+            aggregate_id TEXT NOT NULL,
+            causation_id TEXT,
+            correlation_id TEXT,
+            idempotency_key TEXT,
+            actor_type TEXT NOT NULL,
+            actor_id TEXT,
+            payload_json TEXT NOT NULL,
+            source_ids_json TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            schema_version INTEGER NOT NULL
+          );
+          PRAGMA user_version = 999;
+        `)
+      } finally {
+        db.close()
+      }
+
+      expect(() => new SQLiteEventStore(dbPath)).toThrow(/user_version/)
+    })
+  })
 })

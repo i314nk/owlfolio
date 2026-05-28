@@ -44,6 +44,12 @@ export function runLedgerMigrations(db: DatabaseSync): void {
   const pragma = db.prepare('PRAGMA user_version').get() as { user_version: number }
   let currentVersion = Number(pragma.user_version ?? 0)
 
+  if (currentVersion > LEDGER_SCHEMA_VERSION) {
+    throw new Error(
+      `Unsupported ledger database user_version ${currentVersion}: this code only supports up to ${LEDGER_SCHEMA_VERSION}`,
+    )
+  }
+
   for (const migration of migrations) {
     if (migration.version <= currentVersion) {
       continue
