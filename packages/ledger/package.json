@@ -11,6 +11,8 @@
     "./eventStore": "./src/eventStore.ts",
     "./sqliteEventStore": "./src/sqliteEventStore.ts",
     "./projections/researchCaseProjection": "./src/projections/researchCaseProjection.ts",
-    "./projections/watchlistProjection": "./src/projections/watchlistProjection.ts"
+    "./projections/researchCaseTimelineProjection": "./src/projections/researchCaseTimelineProjection.ts",
+    "./projections/watchlistProjection": "./src/projections/watchlistProjection.ts",
+    "./projections/commandCenterProjection": "./src/projections/commandCenterProjection.ts"
   }
 }
