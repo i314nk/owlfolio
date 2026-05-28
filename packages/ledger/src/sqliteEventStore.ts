@@ -5,6 +5,7 @@ import { DatabaseSync } from 'node:sqlite'
 import type { AggregateType, LedgerEventEnvelope } from './eventEnvelope'
 import { cloneAndFreeze, type EventStore } from './eventStore'
 import { runLedgerMigrations } from './sqliteMigrations'
+import { validateLedgerEventRow } from './validateLedgerEvent'
 
 type LedgerEventRow = {
   event_id: string
@@ -31,21 +32,7 @@ function ensureParentDirectory(dbPath: string): void {
 }
 
 function rowToEvent<TEvent extends LedgerEventEnvelope<unknown>>(row: LedgerEventRow): TEvent {
-  return cloneAndFreeze({
-    event_id: row.event_id,
-    event_type: row.event_type,
-    aggregate_type: row.aggregate_type,
-    aggregate_id: row.aggregate_id,
-    ...(row.causation_id === null ? {} : { causation_id: row.causation_id }),
-    ...(row.correlation_id === null ? {} : { correlation_id: row.correlation_id }),
-    ...(row.idempotency_key === null ? {} : { idempotency_key: row.idempotency_key }),
-    actor_type: row.actor_type,
-    ...(row.actor_id === null ? {} : { actor_id: row.actor_id }),
-    payload: JSON.parse(row.payload_json) as unknown,
-    source_ids: JSON.parse(row.source_ids_json) as string[],
-    created_at: row.created_at,
-    schema_version: row.schema_version,
-  } satisfies LedgerEventEnvelope<unknown>) as TEvent
+  return cloneAndFreeze(validateLedgerEventRow(row as unknown as Record<string, unknown>)) as TEvent
 }
 
 export class SQLiteEventStore<TEvent extends LedgerEventEnvelope<unknown> = LedgerEventEnvelope<unknown>>
