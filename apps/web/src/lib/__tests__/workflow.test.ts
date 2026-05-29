@@ -21,17 +21,24 @@ describe('workflow helpers', () => {
     dirs.length = 0
   })
 
-  it('creates the first personal-local research case in the configured durable ledger', async () => {
+  it('creates and drafts the first personal-local research case in the configured durable ledger', async () => {
     const projectDir = await mkdtemp(join(tmpdir(), 'owlfolio-workflow-'))
     dirs.push(projectDir)
 
     const ledgerPath = join(projectDir, 'data', 'personal-ledger.sqlite')
+    const sourceLedgerPath = join(projectDir, 'data', 'source-ledger')
     const created = await createPersonalResearchCase(
       {
         config: {
           ...defaultPersonalLocalAppConfig(),
+          provider: {
+            provider_id: 'mock-provider',
+            support_level: 'certified',
+            model_id: 'mock-buffett-munger-demo',
+          },
           initialized_at: '2026-05-29T12:00:00.000Z',
           ledger_path: ledgerPath,
+          source_ledger_path: sourceLedgerPath,
         },
         is_initialized: true,
       },
@@ -40,14 +47,19 @@ describe('workflow helpers', () => {
 
     const store = new SQLiteEventStore(ledgerPath)
     try {
-      expect(created.research_case_id).toMatch(/^rc_msft_/) 
+      expect(created.research_case_id).toMatch(/^rc_msft_/)
       const researchCase = await getAppResearchCaseFromStore(store, 'personal-local', created.research_case_id)
       expect(researchCase).toMatchObject({
         ticker: 'MSFT',
         company_id: 'company_msft',
-        stage: 'created',
-        next_required_action: 'Start Buffett-Munger research for MSFT',
+        stage: 'decision_drafted',
+        investment_verdict: 'WATCH',
+        strategy_compliance: 'CONDITIONAL',
+        shariah_status: 'COMPLIANT',
+        valuation_status: 'EXPENSIVE',
       })
+      expect(researchCase.next_required_action).toMatch(/margin of safety/i)
+      expect(researchCase.source_ids).toEqual(['src_cost_10k_2025', 'src_cost_proxy_2025', 'src_cost_q1_2026'])
     } finally {
       store.close()
     }

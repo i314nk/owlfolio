@@ -8,8 +8,9 @@ import type { WatchlistProjection } from '@owlfolio/ledger/projections/watchlist
 import { projectWatchlist } from '@owlfolio/ledger/projections/watchlistProjection'
 import type { EventStore } from '@owlfolio/ledger/eventStore'
 import { SQLiteEventStore } from '@owlfolio/ledger/sqliteEventStore'
+import { resolveProvider } from '@owlfolio/providers'
 import type { AppConfig } from '@owlfolio/shared'
-import { createResearchCase } from '@owlfolio/workflow'
+import { runClaudeBuffettMungerResearch } from '@owlfolio/workflow'
 
 import type { StatusBadgeTone } from '../components/StatusBadge'
 import { getDemoResearchCaseFromStore, getDemoWatchlistItemsFromStore } from './demo'
@@ -47,7 +48,12 @@ export async function createPersonalResearchCase(
   state: OnboardingState,
   input: { ticker: string; company_id?: string },
 ) {
-  if (!state.is_initialized || state.config.mode !== 'personal-local' || state.config.ledger_path === undefined) {
+  if (
+    !state.is_initialized
+    || state.config.mode !== 'personal-local'
+    || state.config.ledger_path === undefined
+    || state.config.source_ledger_path === undefined
+  ) {
     throw new Error('Personal-local workflow is not initialized')
   }
 
@@ -58,17 +64,26 @@ export async function createPersonalResearchCase(
 
   const companyId = input.company_id?.trim() || `company_${ticker.toLowerCase()}`
   const researchCaseId = `rc_${ticker.toLowerCase()}_${Date.now()}`
+  const decisionId = `decision_${ticker.toLowerCase()}_${Date.now()}`
+  const provider = resolveProvider({ provider_id: state.config.provider.provider_id })
 
   const store = new SQLiteEventStore(state.config.ledger_path)
   try {
-    return await createResearchCase(store, {
+    const result = await runClaudeBuffettMungerResearch(store, provider, {
       research_case_id: researchCaseId,
       company_id: companyId,
       ticker,
       strategy_id: state.config.strategy_id,
       actor_id: 'user_local',
       idempotency_key: `personal:create:${ticker}:${researchCaseId}`,
+      model_id: resolveModelId(state.config),
+      source_ledger_path: state.config.source_ledger_path,
+      analysis_idempotency_key: `analysis:${researchCaseId}:${provider.provider_id}:v1`,
+      decision_id: decisionId,
+      decision_idempotency_key: `decision:${researchCaseId}:${decisionId}:v1`,
     })
+
+    return result.research_case
   } finally {
     store.close()
   }
@@ -116,4 +131,20 @@ function buildPersonalResearchCase(
     ledger_timeline: timeline,
     next_required_action: researchCase.next_required_action ?? `Start Buffett-Munger research for ${researchCase.ticker ?? researchCase.research_case_id}`,
   }
+}
+
+function resolveModelId(config: Pick<AppConfig, 'provider'>): string {
+  if (config.provider.model_id !== undefined && config.provider.model_id.length > 0) {
+    return config.provider.model_id
+  }
+
+  if (config.provider.provider_id === 'mock-provider') {
+    return 'mock-buffett-munger-demo'
+  }
+
+  if (config.provider.provider_id === 'claude') {
+    return 'claude-sonnet-4-6'
+  }
+
+  return 'gpt-4.1'
 }

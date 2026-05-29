@@ -8,6 +8,7 @@ test.beforeEach(async ({ request }) => {
 test('personal-local mode can create the first research case from the command center', async ({ page }) => {
   await page.goto('/onboarding')
   await page.getByRole('radio', { name: /personal local mode/i }).click()
+  await page.getByRole('combobox').selectOption('mock-provider')
   await page.getByRole('button', { name: /start workflow/i }).click()
 
   await expect(page).toHaveURL('/')
@@ -17,8 +18,9 @@ test('personal-local mode can create the first research case from the command ce
   await page.getByLabel('Ticker').fill('MSFT')
   await page.getByRole('button', { name: /create research case/i }).click()
 
-  await expect(page).toHaveURL(/\/research\/rc_msft_/) 
+  await expect(page).toHaveURL(/\/research\/rc_msft_/)
   await expect(page.getByRole('heading', { name: 'MSFT' })).toBeVisible()
-  await expect(page.getByText(/created/i).first()).toBeVisible()
-  await expect(page.getByText(/start buffett-munger research for msft/i)).toBeVisible()
+  await expect(page.getByText(/decision_drafted/i).first()).toBeVisible()
+  await expect(page.getByText(/watch/i).first()).toBeVisible()
+  await expect(page.getByText(/conditional/i).first()).toBeVisible()
 })

@@ -18,7 +18,28 @@ const cannedBuffettMungerAnalysis = {
   shariah_status: 'COMPLIANT',
   valuation_status: 'EXPENSIVE',
   next_required_action: 'Wait for a wider margin of safety and refresh Costco source coverage after the next quarterly filing.',
+  decision_reason: 'Durable quality business, but current valuation does not yet provide a sufficient margin of safety.',
   source_ids: ['src_cost_10k_2025', 'src_cost_proxy_2025', 'src_cost_q1_2026'],
+  source_records: [
+    {
+      source_id: 'src_cost_10k_2025',
+      title: 'Costco FY2025 10-K',
+      url: 'https://example.test/costco-10k-2025',
+      excerpt: 'Membership renewal economics remained resilient across regions.',
+    },
+    {
+      source_id: 'src_cost_proxy_2025',
+      title: 'Costco 2025 Proxy Statement',
+      url: 'https://example.test/costco-proxy-2025',
+      excerpt: 'Executive incentives remained aligned with long-term operating metrics.',
+    },
+    {
+      source_id: 'src_cost_q1_2026',
+      title: 'Costco Q1 2026 Shareholder Letter',
+      url: 'https://example.test/costco-q1-2026',
+      excerpt: 'Comparable-sales momentum stayed healthy while valuation remained elevated.',
+    },
+  ],
 } as const
 
 export class MockProvider implements Provider {
