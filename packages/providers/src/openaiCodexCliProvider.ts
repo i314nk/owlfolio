@@ -13,13 +13,13 @@ import type {
   ProviderToolRun,
 } from './providerContract'
 
-export type CommandRunResult = {
+type CommandRunResult = {
   exitCode: number
   stdout: string
   stderr: string
 }
 
-export type CommandRunner = (
+type CommandRunner = (
   command: string,
   args: string[],
   env: NodeJS.ProcessEnv,

@@ -53,12 +53,20 @@ describe('OpenAICodexCliProvider', () => {
         expect(args).toContain(request.prompt)
         expect(env.CODEX_ACCESS_TOKEN).toBe('test-access-token')
 
-        const outputPath = args[args.indexOf('-o') + 1]
-        const schemaPath = args[args.indexOf('--output-schema') + 1]
-        const schemaJson = JSON.parse(await readFile(schemaPath, 'utf8')) as { type?: string }
+        const outputIndex = args.indexOf('-o')
+        const schemaIndex = args.indexOf('--output-schema')
+        expect(outputIndex).toBeGreaterThanOrEqual(0)
+        expect(schemaIndex).toBeGreaterThanOrEqual(0)
+
+        const outputPath = args[outputIndex + 1]
+        const schemaPath = args[schemaIndex + 1]
+        expect(outputPath).toBeDefined()
+        expect(schemaPath).toBeDefined()
+
+        const schemaJson = JSON.parse(await readFile(schemaPath!, 'utf8')) as { type?: string }
         expect(schemaJson.type).toBe('object')
 
-        await writeFile(outputPath, JSON.stringify({
+        await writeFile(outputPath!, JSON.stringify({
           investment_verdict: 'WATCH',
           strategy_compliance: 'CONDITIONAL',
           shariah_status: 'COMPLIANT',
