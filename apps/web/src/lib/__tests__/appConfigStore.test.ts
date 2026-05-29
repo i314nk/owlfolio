@@ -6,7 +6,7 @@ import { describe, expect, it } from 'vitest'
 
 import { defaultPersonalLocalAppConfig } from '@owlfolio/shared'
 
-import { loadAppConfig, resolveAppConfigPath, saveAppConfig } from '../appConfigStore'
+import { loadAppConfig, resolveAppConfigPath, resolveProjectRootFromCwd, saveAppConfig } from '../appConfigStore'
 
 describe('appConfigStore', () => {
   async function withTempProject(assertion: (projectDir: string) => Promise<void>) {
@@ -56,5 +56,21 @@ describe('appConfigStore', () => {
       expect(resolveAppConfigPath({ env: { OWLFOLIO_APP_CONFIG_PATH: explicitPath, OWLFOLIO_PROJECT_DIR: projectDir } })).toBe(explicitPath)
       expect(loaded.mode).toBe('personal-local')
     })
+  })
+
+  it('walks upward from nested app directories to the workspace root', async () => {
+    await withTempProject(async (projectDir) => {
+      const nestedDir = join(projectDir, 'apps', 'web', 'src')
+      await mkdir(nestedDir, { recursive: true })
+      await writeFile(join(projectDir, 'pnpm-workspace.yaml'), 'packages:\n  - apps/*\n', 'utf8')
+
+      expect(resolveProjectRootFromCwd(nestedDir)).toBe(projectDir)
+      expect(resolveAppConfigPath({ cwd: nestedDir })).toBe(join(projectDir, 'data', 'app-config.json'))
+    })
+  })
+
+  it('preserves filesystem root paths instead of collapsing to a relative data directory', () => {
+    expect(resolveProjectRootFromCwd('/')).toBe('/')
+    expect(resolveAppConfigPath({ cwd: '/' })).toBe('/data/app-config.json')
   })
 })

@@ -1,10 +1,11 @@
+import { rm } from 'node:fs/promises'
 import { join } from 'node:path'
 
 import { SQLiteEventStore } from '@owlfolio/ledger/sqliteEventStore'
 import type { AppConfig, MarketUniverseConfig, ProviderSelection, ShariahDefaults } from '@owlfolio/shared'
 
-import { loadAppConfig, saveAppConfig } from './appConfigStore'
-import { resolveDemoLedgerPath } from './demo'
+import { loadAppConfig, resolveProjectRootFromCwd, saveAppConfig } from './appConfigStore'
+import { resetDefaultDemoStore, resolveDemoLedgerPath } from './demo'
 import { seedDemoLedger } from './demoSeed'
 import { getProviderOptions, getProviderReadiness, type ProviderReadiness } from './providerReadiness'
 
@@ -101,11 +102,34 @@ export function getOnboardingProviderOptions() {
   return getProviderOptions()
 }
 
+export async function resetOnboardingRuntime(options: OnboardingOptions = {}): Promise<void> {
+  await resetDefaultDemoStore()
+
+  const appConfigPath = resolveAppConfigPathForReset(options)
+  const demoLedgerPath = resolveDemoLedgerPath(options)
+  const personalLedgerPath = resolvePersonalLedgerPath(options)
+
+  await Promise.all([
+    rm(appConfigPath, { force: true }),
+    rm(demoLedgerPath, { force: true }),
+    rm(personalLedgerPath, { force: true }),
+  ])
+}
+
 function resolvePersonalLedgerPath({ cwd = process.cwd(), env = process.env as OnboardingEnv }: OnboardingOptions = {}): string {
   if (env.OWLFOLIO_PERSONAL_LEDGER_PATH !== undefined && env.OWLFOLIO_PERSONAL_LEDGER_PATH.length > 0) {
     return env.OWLFOLIO_PERSONAL_LEDGER_PATH
   }
 
-  const projectRoot = env.OWLFOLIO_PROJECT_DIR ?? cwd
+  const projectRoot = env.OWLFOLIO_PROJECT_DIR ?? resolveProjectRootFromCwd(cwd)
   return join(projectRoot, 'data', 'personal-ledger.sqlite')
+}
+
+function resolveAppConfigPathForReset({ cwd = process.cwd(), env = process.env as OnboardingEnv }: OnboardingOptions = {}): string {
+  if (env.OWLFOLIO_APP_CONFIG_PATH !== undefined && env.OWLFOLIO_APP_CONFIG_PATH.length > 0) {
+    return env.OWLFOLIO_APP_CONFIG_PATH
+  }
+
+  const projectRoot = env.OWLFOLIO_PROJECT_DIR ?? resolveProjectRootFromCwd(cwd)
+  return join(projectRoot, 'data', 'app-config.json')
 }

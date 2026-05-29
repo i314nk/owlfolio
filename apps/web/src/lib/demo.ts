@@ -111,6 +111,11 @@ function findWorkspaceRoot(start: string): string | undefined {
   }
 }
 
+export async function resetDefaultDemoStore(): Promise<void> {
+  defaultDemoStore?.close()
+  defaultDemoStore = undefined
+}
+
 async function getDefaultDemoStore(): Promise<EventStore> {
   defaultDemoStore ??= new SQLiteEventStore(resolveDemoLedgerPath())
   await seedDemoLedger(defaultDemoStore)

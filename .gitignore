@@ -48,6 +48,7 @@ secrets/anthropic_key
 # Screenshots / scratch dirs
 .screenshots/
 .superpowers/
+.playwright-runtime/
 .worktrees/
 
 # User config (keep strategies/ presets, ignore user's own)

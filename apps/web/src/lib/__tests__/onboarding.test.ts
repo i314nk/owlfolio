@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -6,7 +6,7 @@ import { describe, expect, it } from 'vitest'
 
 import { SQLiteEventStore } from '@owlfolio/ledger/sqliteEventStore'
 import { getDemoSeedEvents } from '../../lib/demoSeed'
-import { getOnboardingState, initializeSelectedMode, updateOnboardingConfig } from '../onboarding'
+import { getOnboardingState, initializeSelectedMode, resetOnboardingRuntime, updateOnboardingConfig } from '../onboarding'
 
 describe('onboarding helpers', () => {
   async function withTempProject(assertion: (projectDir: string) => Promise<void>) {
@@ -94,6 +94,45 @@ describe('onboarding helpers', () => {
       } finally {
         store.close()
       }
+    })
+  })
+
+  it('resolves personal local runtime paths from a nested app cwd back to the workspace root', async () => {
+    await withTempProject(async (projectDir) => {
+      const nestedDir = join(projectDir, 'apps', 'web', 'src')
+      await rm(join(projectDir, 'data'), { force: true, recursive: true })
+      await mkdir(nestedDir, { recursive: true })
+      await writeFile(join(projectDir, 'pnpm-workspace.yaml'), 'packages:\n  - apps/*\n', 'utf8')
+      await initializeSelectedMode(
+        {
+          mode: 'personal-local',
+          provider: { provider_id: 'claude', support_level: 'certified' },
+        },
+        { cwd: nestedDir },
+      )
+
+      const state = await getOnboardingState({ cwd: nestedDir })
+      expect(state.config.ledger_path).toBe(join(projectDir, 'data', 'personal-ledger.sqlite'))
+    })
+  })
+
+  it('resets onboarding runtime state back to defaults', async () => {
+    await withTempProject(async (projectDir) => {
+      await initializeSelectedMode(
+        {
+          mode: 'demo',
+          provider: { provider_id: 'mock-provider', support_level: 'certified', model_id: 'mock-buffett-munger-demo' },
+        },
+        { env: { OWLFOLIO_PROJECT_DIR: projectDir } },
+      )
+
+      await resetOnboardingRuntime({ env: { OWLFOLIO_PROJECT_DIR: projectDir } })
+
+      const state = await getOnboardingState({ env: { OWLFOLIO_PROJECT_DIR: projectDir } })
+      expect(state.config.mode).toBe('demo')
+      expect(state.is_initialized).toBe(false)
+      expect(state.config.ledger_path).toBeUndefined()
+      expect(state.config.initialized_at).toBeUndefined()
     })
   })
 })
