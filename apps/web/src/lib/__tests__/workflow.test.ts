@@ -11,6 +11,7 @@ import {
   getAppResearchCaseFromStore,
   getAppWatchlistItemsFromStore,
   resolveActiveWorkflowMode,
+  resolveModelIdForProvider,
 } from '../workflow'
 
 describe('workflow helpers', () => {
@@ -63,6 +64,15 @@ describe('workflow helpers', () => {
     } finally {
       store.close()
     }
+  })
+
+  it('defaults openai provider runs to a Codex model id', () => {
+    expect(resolveModelIdForProvider({
+      provider: {
+        provider_id: 'openai',
+        support_level: 'experimental',
+      },
+    })).toBe('codex-mini-latest')
   })
 
   it('returns an empty watchlist for a newly initialized personal ledger', async () => {

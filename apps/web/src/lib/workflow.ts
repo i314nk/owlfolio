@@ -76,7 +76,7 @@ export async function createPersonalResearchCase(
       strategy_id: state.config.strategy_id,
       actor_id: 'user_local',
       idempotency_key: `personal:create:${ticker}:${researchCaseId}`,
-      model_id: resolveModelId(state.config),
+      model_id: resolveModelIdForProvider(state.config),
       source_ledger_path: state.config.source_ledger_path,
       analysis_idempotency_key: `analysis:${researchCaseId}:${provider.provider_id}:v1`,
       decision_id: decisionId,
@@ -133,7 +133,7 @@ function buildPersonalResearchCase(
   }
 }
 
-function resolveModelId(config: Pick<AppConfig, 'provider'>): string {
+export function resolveModelIdForProvider(config: Pick<AppConfig, 'provider'>): string {
   if (config.provider.model_id !== undefined && config.provider.model_id.length > 0) {
     return config.provider.model_id
   }
@@ -146,5 +146,5 @@ function resolveModelId(config: Pick<AppConfig, 'provider'>): string {
     return 'claude-sonnet-4-6'
   }
 
-  return 'gpt-4.1'
+  return 'codex-mini-latest'
 }
