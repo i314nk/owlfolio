@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { SQLiteEventStore } from '@owlfolio/ledger/sqliteEventStore'
 import type { AppConfig, MarketUniverseConfig, ProviderSelection, ShariahDefaults } from '@owlfolio/shared'
 
-import { loadAppConfig, resolveProjectRootFromCwd, saveAppConfig } from './appConfigStore'
+import { loadAppConfig, resolveProjectRootFromCwd, resolveSourceLedgerPath, saveAppConfig } from './appConfigStore'
 import { resetDefaultDemoStore, resolveDemoLedgerPath } from './demo'
 import { seedDemoLedger } from './demoSeed'
 import { getProviderOptions, getProviderReadiness, type ProviderReadiness } from './providerReadiness'
@@ -78,10 +78,12 @@ export async function initializeSelectedMode(update: OnboardingConfigUpdate = {}
         ...(options.env !== undefined ? { env: options.env } : {}),
       })
     : resolvePersonalLedgerPath(options)
+  const sourceLedgerPath = resolveSourceLedgerPath(options)
 
   const initializedConfig: AppConfig = {
     ...config,
     ledger_path: ledgerPath,
+    source_ledger_path: sourceLedgerPath,
     initialized_at: new Date().toISOString(),
   }
 
@@ -108,11 +110,13 @@ export async function resetOnboardingRuntime(options: OnboardingOptions = {}): P
   const appConfigPath = resolveAppConfigPathForReset(options)
   const demoLedgerPath = resolveDemoLedgerPath(options)
   const personalLedgerPath = resolvePersonalLedgerPath(options)
+  const sourceLedgerPath = resolveSourceLedgerPath(options)
 
   await Promise.all([
     rm(appConfigPath, { force: true }),
     rm(demoLedgerPath, { force: true }),
     rm(personalLedgerPath, { force: true }),
+    rm(sourceLedgerPath, { force: true, recursive: true }),
   ])
 }
 

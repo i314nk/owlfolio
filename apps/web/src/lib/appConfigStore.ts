@@ -24,6 +24,11 @@ export function resolveAppConfigPath({ cwd = process.cwd(), env = process.env as
   return join(projectRoot, 'data', 'app-config.json')
 }
 
+export function resolveSourceLedgerPath({ cwd = process.cwd(), env = process.env as AppConfigEnv }: AppConfigStoreOptions = {}): string {
+  const projectRoot = env.OWLFOLIO_PROJECT_DIR ?? resolveProjectRootFromCwd(cwd)
+  return join(projectRoot, 'data', 'source-ledger')
+}
+
 export async function appConfigExists(options: AppConfigStoreOptions = {}): Promise<boolean> {
   try {
     await access(resolveAppConfigPath(options))

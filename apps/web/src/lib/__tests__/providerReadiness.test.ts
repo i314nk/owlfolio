@@ -67,7 +67,10 @@ describe('providerReadiness', () => {
     expect(readiness.status_label).toMatch(/missing/i)
   })
 
-  it('lists provider options in onboarding order', () => {
-    expect(getProviderOptions().map((provider) => provider.provider_id)).toEqual(['mock-provider', 'claude', 'openai'])
+  it('lists provider options in onboarding order with frozen support semantics', () => {
+    const options = getProviderOptions()
+
+    expect(options.map((provider) => provider.provider_id)).toEqual(['mock-provider', 'claude', 'openai'])
+    expect(options.map((provider) => provider.support_level)).toEqual(['certified', 'certified', 'experimental'])
   })
 })

@@ -6,7 +6,13 @@ import { describe, expect, it } from 'vitest'
 
 import { defaultPersonalLocalAppConfig } from '@owlfolio/shared'
 
-import { loadAppConfig, resolveAppConfigPath, resolveProjectRootFromCwd, saveAppConfig } from '../appConfigStore'
+import {
+  loadAppConfig,
+  resolveAppConfigPath,
+  resolveProjectRootFromCwd,
+  resolveSourceLedgerPath,
+  saveAppConfig,
+} from '../appConfigStore'
 
 describe('appConfigStore', () => {
   async function withTempProject(assertion: (projectDir: string) => Promise<void>) {
@@ -34,6 +40,7 @@ describe('appConfigStore', () => {
       const config = {
         ...defaultPersonalLocalAppConfig(),
         ledger_path: join(projectDir, 'data', 'personal-ledger.sqlite'),
+        source_ledger_path: join(projectDir, 'data', 'source-ledger'),
         initialized_at: '2026-05-28T12:00:00.000Z',
       }
 
@@ -41,6 +48,7 @@ describe('appConfigStore', () => {
       const reloaded = await loadAppConfig({ env: { OWLFOLIO_PROJECT_DIR: projectDir } })
 
       expect(resolveAppConfigPath({ env: { OWLFOLIO_PROJECT_DIR: projectDir } })).toBe(join(projectDir, 'data', 'app-config.json'))
+      expect(resolveSourceLedgerPath({ env: { OWLFOLIO_PROJECT_DIR: projectDir } })).toBe(join(projectDir, 'data', 'source-ledger'))
       expect(reloaded).toEqual(config)
     })
   })
@@ -66,11 +74,13 @@ describe('appConfigStore', () => {
 
       expect(resolveProjectRootFromCwd(nestedDir)).toBe(projectDir)
       expect(resolveAppConfigPath({ cwd: nestedDir })).toBe(join(projectDir, 'data', 'app-config.json'))
+      expect(resolveSourceLedgerPath({ cwd: nestedDir })).toBe(join(projectDir, 'data', 'source-ledger'))
     })
   })
 
   it('preserves filesystem root paths instead of collapsing to a relative data directory', () => {
     expect(resolveProjectRootFromCwd('/')).toBe('/')
     expect(resolveAppConfigPath({ cwd: '/' })).toBe('/data/app-config.json')
+    expect(resolveSourceLedgerPath({ cwd: '/' })).toBe('/data/source-ledger')
   })
 })

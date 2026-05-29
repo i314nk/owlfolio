@@ -1,5 +1,6 @@
 import { access } from 'node:fs/promises'
 
+import { getProviderCatalog, type ProviderCatalogEntry } from '@owlfolio/providers'
 import type { ProviderId, ProviderSupportLevel } from '@owlfolio/shared'
 
 import { defaultClaudeCredentialsPath } from './appConfigStore'
@@ -25,89 +26,59 @@ export type ProviderReadiness = {
   status_label: string
 }
 
-const providerOptions: ProviderOption[] = [
-  {
-    provider_id: 'mock-provider',
-    label: 'Mock provider',
-    support_level: 'certified',
-    description: 'Deterministic demo provider for the audited Buffett-Munger vertical slice.',
-  },
-  {
-    provider_id: 'claude',
-    label: 'Claude',
-    support_level: 'certified',
-    description: 'Primary real provider target for personal local mode.',
-  },
-  {
-    provider_id: 'openai',
-    label: 'OpenAI',
-    support_level: 'experimental',
-    description: 'Planned provider path behind readiness and certification checks.',
-  },
-]
-
 export function getProviderOptions(): ProviderOption[] {
-  return providerOptions.map((provider) => ({ ...provider }))
+  return getProviderCatalog()
+    .filter((provider) => provider.visible_in_onboarding)
+    .map((provider) => ({
+      provider_id: provider.provider_id,
+      label: provider.label,
+      support_level: provider.support_level,
+      description: provider.description,
+    }))
 }
 
 export async function getProviderReadiness(providerId: ProviderId, env: ProviderReadinessEnv): Promise<ProviderReadiness> {
+  const provider = getProviderCatalog().find((entry) => entry.provider_id === providerId)
+  if (provider === undefined) {
+    throw new Error(`Unknown provider: ${providerId}`)
+  }
+
   if (providerId === 'mock-provider') {
-    return {
-      provider_id: 'mock-provider',
-      support_level: 'certified',
-      is_ready: true,
-      auth_source: 'built-in demo mode',
-      status_label: 'Ready for deterministic demo mode',
-    }
+    return readinessFrom(provider, true, 'built-in demo mode', 'Ready for deterministic demo mode')
   }
 
   if (providerId === 'claude') {
     if (env.ANTHROPIC_API_KEY !== undefined && env.ANTHROPIC_API_KEY.length > 0) {
-      return {
-        provider_id: 'claude',
-        support_level: 'certified',
-        is_ready: true,
-        auth_source: 'ANTHROPIC_API_KEY',
-        status_label: 'Ready via Anthropic API key',
-      }
+      return readinessFrom(provider, true, 'ANTHROPIC_API_KEY', 'Ready via Anthropic API key')
     }
 
     const credentialsPath = env.OWLFOLIO_CLAUDE_CREDENTIALS_PATH ?? defaultClaudeCredentialsPath()
     if (await fileExists(credentialsPath)) {
-      return {
-        provider_id: 'claude',
-        support_level: 'certified',
-        is_ready: true,
-        auth_source: 'Claude subscription credentials',
-        status_label: 'Ready via Claude subscription credentials',
-      }
+      return readinessFrom(provider, true, 'Claude subscription credentials', 'Ready via Claude subscription credentials')
     }
 
-    return {
-      provider_id: 'claude',
-      support_level: 'certified',
-      is_ready: false,
-      auth_source: 'missing',
-      status_label: 'Missing Claude credentials',
-    }
+    return readinessFrom(provider, false, 'missing', 'Missing Claude credentials')
   }
 
   if (env.OPENAI_API_KEY !== undefined && env.OPENAI_API_KEY.length > 0) {
-    return {
-      provider_id: 'openai',
-      support_level: 'experimental',
-      is_ready: true,
-      auth_source: 'OPENAI_API_KEY',
-      status_label: 'Ready via OpenAI API key',
-    }
+    return readinessFrom(provider, true, 'OPENAI_API_KEY', 'Ready via OpenAI API key')
   }
 
+  return readinessFrom(provider, false, 'missing', 'Missing OpenAI credentials')
+}
+
+function readinessFrom(
+  provider: ProviderCatalogEntry,
+  isReady: boolean,
+  authSource: string,
+  statusLabel: string,
+): ProviderReadiness {
   return {
-    provider_id: 'openai',
-    support_level: 'experimental',
-    is_ready: false,
-    auth_source: 'missing',
-    status_label: 'Missing OpenAI credentials',
+    provider_id: provider.provider_id,
+    support_level: provider.support_level,
+    is_ready: isReady,
+    auth_source: authSource,
+    status_label: statusLabel,
   }
 }
 

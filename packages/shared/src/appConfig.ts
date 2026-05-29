@@ -37,6 +37,7 @@ export type AppConfig = {
   shariah: ShariahDefaults
   market_universe: MarketUniverseConfig
   ledger_path?: string
+  source_ledger_path?: string
   initialized_at?: string
 }
 

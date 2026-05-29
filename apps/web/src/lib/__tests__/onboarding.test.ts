@@ -61,9 +61,10 @@ describe('onboarding helpers', () => {
 
       expect(updated.mode).toBe('demo')
       expect(updated.ledger_path).toBeDefined()
+      expect(updated.source_ledger_path).toBe(join(projectDir, 'data', 'source-ledger'))
       expect(updated.initialized_at).toBeDefined()
 
-      const store = new SQLiteEventStore(updated.ledger_path)
+      const store = new SQLiteEventStore(updated.ledger_path!)
       try {
         const events = await store.list()
         expect(events).toHaveLength(getDemoSeedEvents().length)
@@ -85,9 +86,10 @@ describe('onboarding helpers', () => {
 
       expect(updated.mode).toBe('personal-local')
       expect(updated.ledger_path).toBeDefined()
+      expect(updated.source_ledger_path).toBe(join(projectDir, 'data', 'source-ledger'))
       expect(updated.initialized_at).toBeDefined()
 
-      const store = new SQLiteEventStore(updated.ledger_path)
+      const store = new SQLiteEventStore(updated.ledger_path!)
       try {
         const events = await store.list()
         expect(events).toEqual([])
@@ -113,6 +115,7 @@ describe('onboarding helpers', () => {
 
       const state = await getOnboardingState({ cwd: nestedDir })
       expect(state.config.ledger_path).toBe(join(projectDir, 'data', 'personal-ledger.sqlite'))
+      expect(state.config.source_ledger_path).toBe(join(projectDir, 'data', 'source-ledger'))
     })
   })
 
@@ -132,6 +135,7 @@ describe('onboarding helpers', () => {
       expect(state.config.mode).toBe('demo')
       expect(state.is_initialized).toBe(false)
       expect(state.config.ledger_path).toBeUndefined()
+      expect(state.config.source_ledger_path).toBeUndefined()
       expect(state.config.initialized_at).toBeUndefined()
     })
   })
