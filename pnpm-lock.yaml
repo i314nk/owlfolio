@@ -29,6 +29,9 @@ importers:
       '@owlfolio/ledger':
         specifier: workspace:*
         version: link:../../packages/ledger
+      '@owlfolio/providers':
+        specifier: workspace:*
+        version: link:../../packages/providers
       '@owlfolio/shared':
         specifier: workspace:*
         version: link:../../packages/shared
@@ -58,6 +61,9 @@ importers:
 
   packages/providers:
     dependencies:
+      '@owlfolio/shared':
+        specifier: workspace:*
+        version: link:../shared
       zod:
         specifier: ^4.4.3
         version: 4.4.3
