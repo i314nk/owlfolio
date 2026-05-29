@@ -9,9 +9,11 @@
   "exports": {
     ".": "./src/index.ts",
     "./certificationContract": "./src/certificationContract.ts",
+    "./claudeCliProvider": "./src/claudeCliProvider.ts",
     "./mockProvider": "./src/mockProvider.ts",
     "./providerCatalog": "./src/providerCatalog.ts",
     "./providerContract": "./src/providerContract.ts",
+    "./providerFactory": "./src/providerFactory.ts",
     "./runProviderTask": "./src/runProviderTask.ts"
   },
   "dependencies": {

@@ -1,5 +1,7 @@
 export * from './providerContract'
 export * from './providerCatalog'
 export * from './certificationContract'
+export * from './claudeCliProvider'
+export * from './providerFactory'
 export * from './mockProvider'
 export * from './runProviderTask'
