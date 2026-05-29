@@ -55,8 +55,50 @@ describe('providerReadiness', () => {
     })
   })
 
-  it('reports openai as experimental and not ready without an api key', async () => {
-    const readiness = await getProviderReadiness('openai', {})
+  it('reports openai as ready when an api key is configured', async () => {
+    const readiness = await getProviderReadiness('openai', { OPENAI_API_KEY: 'test-key' })
+
+    expect(readiness).toMatchObject({
+      provider_id: 'openai',
+      is_ready: true,
+      support_level: 'experimental',
+      auth_source: 'OPENAI_API_KEY',
+    })
+    expect(readiness.status_label).toMatch(/api key/i)
+  })
+
+  it('reports openai as ready when a Codex access token is configured', async () => {
+    const readiness = await getProviderReadiness('openai', { CODEX_ACCESS_TOKEN: 'test-access-token' })
+
+    expect(readiness).toMatchObject({
+      provider_id: 'openai',
+      is_ready: true,
+      support_level: 'experimental',
+      auth_source: 'CODEX_ACCESS_TOKEN',
+    })
+    expect(readiness.status_label).toMatch(/access token/i)
+  })
+
+  it('reports openai as ready when Codex OAuth credentials exist', async () => {
+    await withTempDir(async (dir) => {
+      const authPath = join(dir, '.codex', 'auth.json')
+      await mkdir(join(dir, '.codex'), { recursive: true })
+      await writeFile(authPath, '{"access_token":"oauth-token"}', 'utf8')
+
+      const readiness = await getProviderReadiness('openai', { OWLFOLIO_CODEX_AUTH_PATH: authPath })
+
+      expect(readiness).toMatchObject({
+        provider_id: 'openai',
+        is_ready: true,
+        support_level: 'experimental',
+        auth_source: 'Codex OAuth credentials',
+      })
+      expect(readiness.status_label).toMatch(/oauth/i)
+    })
+  })
+
+  it('reports openai as experimental and not ready without api key, access token, or oauth credentials', async () => {
+    const readiness = await getProviderReadiness('openai', { OWLFOLIO_CODEX_AUTH_PATH: '/definitely/missing/auth.json' })
 
     expect(readiness).toMatchObject({
       provider_id: 'openai',

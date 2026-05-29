@@ -17,6 +17,9 @@ type OnboardingEnv = {
   ANTHROPIC_API_KEY?: string
   OPENAI_API_KEY?: string
   OWLFOLIO_CLAUDE_CREDENTIALS_PATH?: string
+  CODEX_ACCESS_TOKEN?: string
+  OWLFOLIO_CODEX_AUTH_PATH?: string
+  CODEX_HOME?: string
 }
 
 type OnboardingOptions = {

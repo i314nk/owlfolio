@@ -1,4 +1,6 @@
 import { access } from 'node:fs/promises'
+import { homedir } from 'node:os'
+import { join } from 'node:path'
 
 import { getProviderCatalog, type ProviderCatalogEntry } from '@owlfolio/providers'
 import type { ProviderId, ProviderSupportLevel } from '@owlfolio/shared'
@@ -8,7 +10,10 @@ import { defaultClaudeCredentialsPath } from './appConfigStore'
 type ProviderReadinessEnv = {
   ANTHROPIC_API_KEY?: string
   OPENAI_API_KEY?: string
+  CODEX_ACCESS_TOKEN?: string
   OWLFOLIO_CLAUDE_CREDENTIALS_PATH?: string
+  OWLFOLIO_CODEX_AUTH_PATH?: string
+  CODEX_HOME?: string
 }
 
 export type ProviderOption = {
@@ -64,7 +69,16 @@ export async function getProviderReadiness(providerId: ProviderId, env: Provider
     return readinessFrom(provider, true, 'OPENAI_API_KEY', 'Ready via OpenAI API key')
   }
 
-  return readinessFrom(provider, false, 'missing', 'Missing OpenAI credentials')
+  if (env.CODEX_ACCESS_TOKEN !== undefined && env.CODEX_ACCESS_TOKEN.length > 0) {
+    return readinessFrom(provider, true, 'CODEX_ACCESS_TOKEN', 'Ready via Codex access token')
+  }
+
+  const codexAuthPath = env.OWLFOLIO_CODEX_AUTH_PATH ?? defaultCodexAuthPath(env)
+  if (await fileExists(codexAuthPath)) {
+    return readinessFrom(provider, true, 'Codex OAuth credentials', 'Ready via Codex OAuth credentials')
+  }
+
+  return readinessFrom(provider, false, 'missing', 'Missing OpenAI / Codex credentials')
 }
 
 function readinessFrom(
@@ -80,6 +94,14 @@ function readinessFrom(
     auth_source: authSource,
     status_label: statusLabel,
   }
+}
+
+function defaultCodexAuthPath(env: Pick<ProviderReadinessEnv, 'CODEX_HOME'>): string {
+  if (env.CODEX_HOME !== undefined && env.CODEX_HOME.length > 0) {
+    return join(env.CODEX_HOME, 'auth.json')
+  }
+
+  return join(homedir(), '.codex', 'auth.json')
 }
 
 async function fileExists(path: string): Promise<boolean> {
