@@ -172,8 +172,10 @@ export async function runClaudeBuffettMungerResearch(
     decision: structured.investment_verdict,
     reason: structured.decision_reason,
     causation_id: analysis.event_id,
-    idempotency_key: command.decision_idempotency_key,
     source_ids: sourceBundle.records.map((record) => record.source_id),
+    ...(command.decision_idempotency_key === undefined
+      ? {}
+      : { idempotency_key: command.decision_idempotency_key }),
   })
 
   return {

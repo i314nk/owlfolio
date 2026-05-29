@@ -84,6 +84,9 @@ importers:
       '@owlfolio/providers':
         specifier: workspace:*
         version: link:../providers
+      zod:
+        specifier: ^4.4.3
+        version: 4.4.3
 
 packages:
 

@@ -33,7 +33,10 @@ describe('runClaudeBuffettMungerResearch', () => {
       async complete() {
         throw new Error('not used in this test')
       },
-      structured: async <T>(_request, schema) => schema.parse({
+      structured: async <T>(
+        _request: import('@owlfolio/providers').ProviderRunRequest,
+        schema: import('zod').ZodType<T>,
+      ) => schema.parse({
         investment_verdict: 'WATCH',
         strategy_compliance: 'CONDITIONAL',
         shariah_status: 'COMPLIANT',
