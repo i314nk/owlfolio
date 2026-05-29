@@ -1,10 +1,10 @@
 import { createElement } from 'react'
 
 import { StatusBadge } from './StatusBadge'
-import type { DemoResearchCase } from '../lib/demo'
+import type { AppResearchCase } from '../lib/workflow'
 
 export type ResearchCasePanelProps = {
-  researchCase: DemoResearchCase
+  researchCase: AppResearchCase
 }
 
 const cardStyle = {

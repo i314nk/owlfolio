@@ -9,5 +9,10 @@
   "dependencies": {
     "@owlfolio/ledger": "workspace:*",
     "@owlfolio/providers": "workspace:*"
+  },
+  "exports": {
+    ".": "./src/index.ts",
+    "./researchWorkflow": "./src/researchWorkflow.ts",
+    "./watchlistWorkflow": "./src/watchlistWorkflow.ts"
   }
 }

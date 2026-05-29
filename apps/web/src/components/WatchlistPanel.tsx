@@ -1,10 +1,10 @@
 import { createElement } from 'react'
 
 import { StatusBadge } from './StatusBadge'
-import type { DemoWatchlistItem } from '../lib/demo'
+import type { AppWatchlistItem } from '../lib/workflow'
 
 export type WatchlistPanelProps = {
-  items: DemoWatchlistItem[]
+  items: AppWatchlistItem[]
 }
 
 const cardStyle = {
@@ -39,25 +39,37 @@ export function WatchlistPanel({ items }: WatchlistPanelProps) {
       createElement(
         'p',
         { style: { color: '#475569', fontSize: '1rem', margin: 0 } },
-        'User-confirmed watchlist workflow state from the deterministic demo ledger.',
+        'Personal local ledger watchlist state.',
       ),
     ),
-    ...items.map((item) =>
-      createElement(
-        'article',
-        { key: item.watchlist_item_id, style: cardStyle },
-        createElement(
-          'div',
-          { style: { alignItems: 'center', display: 'flex', flexWrap: 'wrap', gap: '0.75rem', justifyContent: 'space-between' } },
-          createElement('h2', { style: { fontSize: '1.75rem', margin: 0 } }, item.ticker ?? item.company_id ?? item.watchlist_item_id),
-          createElement(StatusBadge, { tone: item.user_approved ? 'success' : 'warning' }, item.user_approved ? 'User confirmed' : 'Draft — awaiting user confirmation'),
-        ),
-        createDetail('Strategy', item.strategy_id ?? 'Unknown'),
-        createDetail('Thesis summary', item.thesis_summary ?? 'No thesis recorded'),
-        createDetail('Buy-zone status', item.buy_zone_status ?? 'Not set'),
-        createDetail('Research case', item.research_case_id),
-      ),
-    ),
+    ...(items.length === 0
+      ? [
+          createElement(
+            'article',
+            { key: 'watchlist-empty-state', style: cardStyle },
+            createElement(
+              'p',
+              { style: { color: '#475569', margin: 0 } },
+              'No watchlist drafts yet. Create a research case first.',
+            ),
+          ),
+        ]
+      : items.map((item) =>
+          createElement(
+            'article',
+            { key: item.watchlist_item_id, style: cardStyle },
+            createElement(
+              'div',
+              { style: { alignItems: 'center', display: 'flex', flexWrap: 'wrap', gap: '0.75rem', justifyContent: 'space-between' } },
+              createElement('h2', { style: { fontSize: '1.75rem', margin: 0 } }, item.ticker ?? item.company_id ?? item.watchlist_item_id),
+              createElement(StatusBadge, { tone: item.user_approved ? 'success' : 'warning' }, item.user_approved ? 'User confirmed' : 'Draft — awaiting user confirmation'),
+            ),
+            createDetail('Strategy', item.strategy_id ?? 'Unknown'),
+            createDetail('Thesis summary', item.thesis_summary ?? 'No thesis recorded'),
+            createDetail('Buy-zone status', item.buy_zone_status ?? 'Not set'),
+            createDetail('Research case', item.research_case_id),
+          ),
+        )),
   )
 }
 

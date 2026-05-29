@@ -1,7 +1,11 @@
 import { notFound } from 'next/navigation'
 
+import { SQLiteEventStore } from '@owlfolio/ledger/sqliteEventStore'
+
 import { ResearchCasePanel } from '../../../components/ResearchCasePanel'
-import { getDemoResearchCase } from '../../../lib/demo'
+import { getDemoResearchCase, resolveDemoLedgerPath } from '../../../lib/demo'
+import { getOnboardingState } from '../../../lib/onboarding'
+import { getAppResearchCaseFromStore } from '../../../lib/workflow'
 
 export type ResearchCasePageProps = {
   params: Promise<{ caseId: string }>
@@ -9,9 +13,12 @@ export type ResearchCasePageProps = {
 
 export default async function ResearchCasePage({ params }: ResearchCasePageProps) {
   const { caseId } = await params
+  const state = await getOnboardingState()
 
   try {
-    const researchCase = await getDemoResearchCase(caseId)
+    const researchCase = state.config.mode === 'demo'
+      ? await getDemoResearchCase(caseId)
+      : await loadPersonalResearchCase(caseId, state.config.ledger_path)
 
     return (
       <main style={{ color: '#0f172a', minHeight: '100vh', padding: '3rem clamp(1rem, 4vw, 4rem)' }}>
@@ -26,10 +33,23 @@ export default async function ResearchCasePage({ params }: ResearchCasePageProps
       </main>
     )
   } catch (error) {
-    if (error instanceof Error && error.message.startsWith('Unknown demo research case:')) {
+    if (error instanceof Error && (error.message.startsWith('Unknown demo research case:') || error.message.startsWith('Unknown research case:'))) {
       notFound()
     }
 
     throw error
+  }
+}
+
+async function loadPersonalResearchCase(caseId: string, ledgerPath: string | undefined) {
+  if (ledgerPath === undefined) {
+    notFound()
+  }
+
+  const store = new SQLiteEventStore(ledgerPath ?? resolveDemoLedgerPath())
+  try {
+    return await getAppResearchCaseFromStore(store, 'personal-local', caseId)
+  } finally {
+    store.close()
   }
 }

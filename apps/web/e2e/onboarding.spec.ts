@@ -35,5 +35,6 @@ test('personal local onboarding shows missing readiness and initializes an empty
   await expect(page.getByText(/personal local mode initialized/i)).toBeVisible()
   await expect(page.getByText(/provider: claude personal local mode/i)).toBeVisible()
   await expect(page.getByText(/create or import your first research case/i)).toBeVisible()
-  await expect(page.getByRole('link', { name: /review setup choices/i })).toBeVisible()
+  await expect(page.getByRole('link', { name: /start first research case/i })).toBeVisible()
+  await expect(page.getByRole('link', { name: /open watchlist drafts/i })).toBeVisible()
 })

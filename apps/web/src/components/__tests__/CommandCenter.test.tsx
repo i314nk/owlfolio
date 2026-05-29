@@ -64,7 +64,10 @@ describe('CommandCenter', () => {
       expect(html).toContain('Research cases')
       expect(html).toContain('0')
       expect(html).toContain('Create or import your first research case')
-      expect(html).toContain('Review setup choices')
+      expect(html).toContain('href="/research/new"')
+      expect(html).toContain('Start first research case')
+      expect(html).toContain('href="/watchlist"')
+      expect(html).toContain('Open watchlist drafts')
     } finally {
       store.close()
     }

@@ -7,6 +7,7 @@ import { SQLiteEventStore } from '@owlfolio/ledger/sqliteEventStore'
 import { CommandCenter } from '../CommandCenter'
 import { ResearchCasePanel } from '../ResearchCasePanel'
 import { WatchlistPanel } from '../WatchlistPanel'
+import { getAppWatchlistItemsFromStore } from '../../lib/workflow'
 import {
   getDemoCommandCenterFromStore,
   getDemoResearchCaseFromStore,
@@ -80,6 +81,20 @@ describe('research and watchlist workflow pages', () => {
       expect(html).toContain('Not set')
       expect(html).toContain('Draft — awaiting user confirmation')
     })
+  })
+
+  it('renders an empty personal-local watchlist state', async () => {
+    const store = new SQLiteEventStore()
+    try {
+      const watchlistItems = await getAppWatchlistItemsFromStore(store, 'personal-local')
+      const html = renderToStaticMarkup(createElement(WatchlistPanel, { items: watchlistItems }))
+
+      expect(html).toContain('Watchlist drafts')
+      expect(html).toContain('Personal local ledger watchlist state.')
+      expect(html).toContain('No watchlist drafts yet. Create a research case first.')
+    } finally {
+      store.close()
+    }
   })
 
   it('links the command center to the demo research case and watchlist', async () => {

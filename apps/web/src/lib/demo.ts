@@ -184,7 +184,10 @@ export async function getSetupAwareCommandCenter({ config, is_initialized, store
         ? 'Create or import your first research case'
         : summary.next_recommended_action,
       recent_activity: summary.recent_activity.length === 0 ? ['No ledger events yet'] : summary.recent_activity,
-      primary_action: { href: '/onboarding', label: 'Review setup choices' },
+      primary_action: summary.pipeline_counts.research_cases === 0
+        ? { href: '/research/new', label: 'Start first research case' }
+        : { href: `/research/${summary.primary_research_case_id ?? ''}`, label: 'Open latest research case' },
+      secondary_action: { href: '/watchlist', label: 'Open watchlist drafts' },
     }
   } finally {
     ownedStore?.close()
