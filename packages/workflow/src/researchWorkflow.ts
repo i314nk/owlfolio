@@ -64,6 +64,7 @@ export type DraftDecisionCommand = {
   reason: string
   causation_id: string
   idempotency_key?: string
+  source_ids?: string[]
 }
 
 function nowIso(): string {
@@ -213,7 +214,7 @@ export async function draftDecision(store: ResearchEventStore, command: DraftDec
     correlation_id: command.research_case_id,
     actor_type: 'system',
     payload,
-    source_ids: [],
+    source_ids: command.source_ids ?? [],
     created_at: nowIso(),
     schema_version: 1,
     ...(command.idempotency_key === undefined ? {} : { idempotency_key: command.idempotency_key }),

@@ -8,10 +8,12 @@
   },
   "dependencies": {
     "@owlfolio/ledger": "workspace:*",
-    "@owlfolio/providers": "workspace:*"
+    "@owlfolio/providers": "workspace:*",
+    "zod": "^4.4.3"
   },
   "exports": {
     ".": "./src/index.ts",
+    "./claudeResearchWorkflow": "./src/claudeResearchWorkflow.ts",
     "./researchWorkflow": "./src/researchWorkflow.ts",
     "./sourceLedger": "./src/sourceLedger.ts",
     "./watchlistWorkflow": "./src/watchlistWorkflow.ts",
