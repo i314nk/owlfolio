@@ -7,11 +7,15 @@
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "exports": {
+    ".": "./src/index.ts",
+    "./certificationContract": "./src/certificationContract.ts",
     "./mockProvider": "./src/mockProvider.ts",
+    "./providerCatalog": "./src/providerCatalog.ts",
     "./providerContract": "./src/providerContract.ts",
     "./runProviderTask": "./src/runProviderTask.ts"
   },
   "dependencies": {
+    "@owlfolio/shared": "workspace:*",
     "zod": "^4.4.3"
   }
 }
