@@ -63,8 +63,30 @@ describe('OpenAICodexCliProvider', () => {
         expect(outputPath).toBeDefined()
         expect(schemaPath).toBeDefined()
 
-        const schemaJson = JSON.parse(await readFile(schemaPath!, 'utf8')) as { type?: string }
+        const schemaJson = JSON.parse(await readFile(schemaPath!, 'utf8')) as {
+          type?: string
+          properties?: {
+            source_records?: {
+              items?: {
+                properties?: {
+                  url?: {
+                    type?: string
+                    format?: string
+                  }
+                  citation_locator?: unknown
+                  content_hash?: unknown
+                }
+                required?: string[]
+              }
+            }
+          }
+        }
         expect(schemaJson.type).toBe('object')
+        expect(schemaJson.properties?.source_records?.items?.properties?.url?.type).toBe('string')
+        expect(schemaJson.properties?.source_records?.items?.properties?.url?.format).toBeUndefined()
+        expect(schemaJson.properties?.source_records?.items?.properties?.citation_locator).toBeUndefined()
+        expect(schemaJson.properties?.source_records?.items?.properties?.content_hash).toBeUndefined()
+        expect(schemaJson.properties?.source_records?.items?.required).toEqual(['source_id', 'title', 'url', 'excerpt'])
 
         await writeFile(outputPath!, JSON.stringify({
           investment_verdict: 'WATCH',

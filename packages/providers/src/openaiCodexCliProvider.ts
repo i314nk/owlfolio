@@ -1,4 +1,4 @@
-import { execFile } from 'node:child_process'
+import { spawn } from 'node:child_process'
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -41,26 +41,70 @@ type CodexJsonEvent = {
 }
 
 const defaultRunner: CommandRunner = (command, args, env, timeoutMs) => new Promise((resolve, reject) => {
-  execFile(command, args, { env, timeout: timeoutMs, maxBuffer: 4 * 1024 * 1024 }, (error, stdout, stderr) => {
-    if (error !== null) {
-      const exitCode = typeof error.code === 'number' ? error.code : -1
-      if ('code' in error && error.code === 'ENOENT') {
-        reject(new Error(`Codex CLI not available: ${command}`))
-        return
-      }
+  const child = spawn(command, args, {
+    env,
+    stdio: ['ignore', 'pipe', 'pipe'],
+  })
 
-      resolve({
-        exitCode,
-        stdout: stdout.toString(),
-        stderr: stderr.toString() || error.message,
+  let stdout = ''
+  let stderr = ''
+  let settled = false
+  let timedOut = false
+
+  const finish = (result: CommandRunResult) => {
+    if (settled) {
+      return
+    }
+    settled = true
+    resolve(result)
+  }
+
+  const fail = (error: Error) => {
+    if (settled) {
+      return
+    }
+    settled = true
+    reject(error)
+  }
+
+  const timer = setTimeout(() => {
+    timedOut = true
+    child.kill('SIGTERM')
+  }, timeoutMs)
+
+  child.stdout.on('data', (chunk) => {
+    stdout += chunk.toString()
+  })
+
+  child.stderr.on('data', (chunk) => {
+    stderr += chunk.toString()
+  })
+
+  child.on('error', (error) => {
+    clearTimeout(timer)
+    if ('code' in error && error.code === 'ENOENT') {
+      fail(new Error(`Codex CLI not available: ${command}`))
+      return
+    }
+    fail(error)
+  })
+
+  child.on('close', (code, signal) => {
+    clearTimeout(timer)
+
+    if (timedOut) {
+      finish({
+        exitCode: -1,
+        stdout,
+        stderr: stderr.trim().length > 0 ? stderr : `Codex CLI timed out after ${timeoutMs}ms`,
       })
       return
     }
 
-    resolve({
-      exitCode: 0,
-      stdout: stdout.toString(),
-      stderr: stderr.toString(),
+    finish({
+      exitCode: code ?? (signal === null ? 0 : -1),
+      stdout,
+      stderr,
     })
   })
 })
@@ -123,7 +167,7 @@ export class OpenAICodexCliProvider implements Provider {
     const observations = this.observationsFor('running', 'Codex CLI started the structured request.')
     const output = await this.withTempOutput(async (dir, outputPath) => {
       const schemaPath = join(dir, 'schema.json')
-      await writeFile(schemaPath, JSON.stringify(z.toJSONSchema(schema)), 'utf8')
+      await writeFile(schemaPath, JSON.stringify(this.codexCompatibleJsonSchema(z.toJSONSchema(schema))), 'utf8')
       const runResult = await this.runOrThrow(
         request,
         [
@@ -184,6 +228,43 @@ export class OpenAICodexCliProvider implements Provider {
     } finally {
       await rm(dir, { recursive: true, force: true })
     }
+  }
+
+  private codexCompatibleJsonSchema(schema: unknown): unknown {
+    if (Array.isArray(schema)) {
+      return schema.map((item) => this.codexCompatibleJsonSchema(item))
+    }
+
+    if (schema === null || typeof schema !== 'object') {
+      return schema
+    }
+
+    const normalized = Object.fromEntries(
+      Object.entries(schema).flatMap(([key, value]) => {
+        if (key === 'format' && value === 'uri') {
+          return []
+        }
+        return [[key, this.codexCompatibleJsonSchema(value)] as const]
+      }),
+    ) as Record<string, unknown>
+
+    const properties = normalized.properties
+    const required = normalized.required
+    if (
+      properties !== undefined
+      && required !== undefined
+      && !Array.isArray(properties)
+      && properties !== null
+      && typeof properties === 'object'
+      && Array.isArray(required)
+    ) {
+      const allowed = new Set(required.filter((item): item is string => typeof item === 'string'))
+      normalized.properties = Object.fromEntries(
+        Object.entries(properties).filter(([key]) => allowed.has(key)),
+      )
+    }
+
+    return normalized
   }
 
   private async readOutputOrThrow(outputPath: string): Promise<string> {
