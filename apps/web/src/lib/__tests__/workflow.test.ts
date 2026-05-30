@@ -66,13 +66,13 @@ describe('workflow helpers', () => {
     }
   })
 
-  it('defaults openai provider runs to a Codex model id', () => {
+  it('defaults openai provider runs to a ChatGPT-backed Codex-supported model id', () => {
     expect(resolveModelIdForProvider({
       provider: {
         provider_id: 'openai',
         support_level: 'experimental',
       },
-    })).toBe('codex-mini-latest')
+    })).toBe('gpt-5.5')
   })
 
   it('returns an empty watchlist for a newly initialized personal ledger', async () => {

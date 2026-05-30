@@ -146,5 +146,5 @@ export function resolveModelIdForProvider(config: Pick<AppConfig, 'provider'>): 
     return 'claude-sonnet-4-6'
   }
 
-  return 'codex-mini-latest'
+  return 'gpt-5.5'
 }
