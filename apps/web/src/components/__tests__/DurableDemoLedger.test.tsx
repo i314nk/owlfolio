@@ -60,9 +60,9 @@ describe('durable demo ledger read models', () => {
         pending_user_actions: 1,
       })
       expect(dashboard.recent_activity).toEqual([
-        'watchlist_draft_created by user:user_local',
-        'decision_drafted by system',
-        'buffett_munger_analysis_drafted by provider:mock-provider',
+        { event_id: 'evt_demo_watchlist_001', label: 'watchlist_draft_created by user:user_local' },
+        { event_id: 'evt_demo_decision_001', label: 'decision_drafted by system' },
+        { event_id: 'evt_demo_analysis_001', label: 'buffett_munger_analysis_drafted by provider:mock-provider' },
       ])
       expect(dashboard.primary_action).toEqual({
         href: '/research/rc_cost_001',

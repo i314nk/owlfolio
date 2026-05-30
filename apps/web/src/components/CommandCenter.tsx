@@ -118,7 +118,7 @@ export function CommandCenter({ dashboard }: CommandCenterProps) {
           createElement(
             'ul',
             { style: { color: '#334155', display: 'grid', gap: '0.4rem', margin: 0, paddingLeft: '1.25rem' } },
-            ...dashboard.recent_activity.map((activity) => createElement('li', { key: activity }, activity)),
+            ...dashboard.recent_activity.map((activity) => createElement('li', { key: activity.event_id }, activity.label)),
           ),
         ),
       ),

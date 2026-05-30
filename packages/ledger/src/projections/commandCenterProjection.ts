@@ -2,6 +2,11 @@ import type { LedgerEventEnvelope } from '../eventEnvelope'
 import { projectResearchCases } from './researchCaseProjection'
 import { projectWatchlist } from './watchlistProjection'
 
+export type CommandCenterRecentActivity = {
+  event_id: string
+  label: string
+}
+
 export type CommandCenterSummary = {
   pipeline_counts: {
     research_cases: number
@@ -10,7 +15,7 @@ export type CommandCenterSummary = {
   }
   primary_research_case_id?: string
   next_recommended_action: string
-  recent_activity: string[]
+  recent_activity: CommandCenterRecentActivity[]
 }
 
 function actorLabel(event: LedgerEventEnvelope<unknown>): string {
@@ -33,6 +38,9 @@ export function projectCommandCenterSummary(events: LedgerEventEnvelope<unknown>
     recent_activity: events
       .slice(-3)
       .reverse()
-      .map((event) => `${event.event_type} by ${actorLabel(event)}`),
+      .map((event) => ({
+        event_id: event.event_id,
+        label: `${event.event_type} by ${actorLabel(event)}`,
+      })),
   }
 }

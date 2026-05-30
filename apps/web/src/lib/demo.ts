@@ -1,7 +1,7 @@
 import { existsSync } from 'node:fs'
 import { dirname, join, parse } from 'node:path'
 
-import { projectCommandCenterSummary } from '@owlfolio/ledger/projections/commandCenterProjection'
+import { projectCommandCenterSummary, type CommandCenterRecentActivity } from '@owlfolio/ledger/projections/commandCenterProjection'
 import type { LedgerEventEnvelope } from '@owlfolio/ledger/eventEnvelope'
 import type { EventStore } from '@owlfolio/ledger/eventStore'
 import { projectResearchCases, type ResearchCaseProjection } from '@owlfolio/ledger/projections/researchCaseProjection'
@@ -38,7 +38,7 @@ export type AppCommandCenter = {
   ledger_status: string
   pipeline_counts: PipelineCounts
   next_recommended_action: string
-  recent_activity: string[]
+  recent_activity: CommandCenterRecentActivity[]
   primary_action: CommandCenterAction
   secondary_action?: CommandCenterAction
 }
@@ -161,7 +161,7 @@ export async function getSetupAwareCommandCenter({ config, is_initialized, store
         pending_user_actions: 0,
       },
       next_recommended_action: 'Complete onboarding and initialize the personal local ledger',
-      recent_activity: ['No durable ledger events yet'],
+      recent_activity: [{ event_id: 'placeholder:no-durable-ledger-events-yet', label: 'No durable ledger events yet' }],
       primary_action: { href: '/onboarding', label: 'Continue setup' },
     }
   }
@@ -183,7 +183,9 @@ export async function getSetupAwareCommandCenter({ config, is_initialized, store
       next_recommended_action: summary.pipeline_counts.research_cases === 0
         ? 'Create or import your first research case'
         : summary.next_recommended_action,
-      recent_activity: summary.recent_activity.length === 0 ? ['No ledger events yet'] : summary.recent_activity,
+      recent_activity: summary.recent_activity.length === 0
+        ? [{ event_id: 'placeholder:no-ledger-events-yet', label: 'No ledger events yet' }]
+        : summary.recent_activity,
       primary_action: summary.pipeline_counts.research_cases === 0
         ? { href: '/research/new', label: 'Start first research case' }
         : { href: `/research/${summary.primary_research_case_id ?? ''}`, label: 'Open latest research case' },

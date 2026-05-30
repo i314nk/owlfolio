@@ -67,10 +67,46 @@ describe('projectCommandCenterSummary', () => {
       primary_research_case_id: 'rc_cost_001',
       next_recommended_action: 'Review COST research case and confirm the watchlist draft',
       recent_activity: [
-        'watchlist_draft_created by user:user_local',
-        'buffett_munger_analysis_drafted by provider:mock-provider',
-        'research_case_created by user:user_local',
+        { event_id: 'evt_watchlist', label: 'watchlist_draft_created by user:user_local' },
+        { event_id: 'evt_analysis', label: 'buffett_munger_analysis_drafted by provider:mock-provider' },
+        { event_id: 'evt_created', label: 'research_case_created by user:user_local' },
       ],
     })
+  })
+
+  it('preserves unique event ids even when recent-activity labels repeat', () => {
+    const repeated = projectCommandCenterSummary([
+      ...events,
+      {
+        event_id: 'evt_created_again',
+        event_type: 'research_case_created',
+        aggregate_type: 'research_case',
+        aggregate_id: 'rc_cost_002',
+        actor_type: 'user',
+        actor_id: 'user_local',
+        payload: { ticker: 'MSFT', strategy_id: 'buffett-munger' },
+        source_ids: [],
+        created_at: '2026-05-28T00:11:00.000Z',
+        schema_version: 1,
+      },
+      {
+        event_id: 'evt_created_third',
+        event_type: 'research_case_created',
+        aggregate_type: 'research_case',
+        aggregate_id: 'rc_cost_003',
+        actor_type: 'user',
+        actor_id: 'user_local',
+        payload: { ticker: 'GOOG', strategy_id: 'buffett-munger' },
+        source_ids: [],
+        created_at: '2026-05-28T00:12:00.000Z',
+        schema_version: 1,
+      },
+    ])
+
+    expect(repeated.recent_activity).toEqual([
+      { event_id: 'evt_created_third', label: 'research_case_created by user:user_local' },
+      { event_id: 'evt_created_again', label: 'research_case_created by user:user_local' },
+      { event_id: 'evt_watchlist', label: 'watchlist_draft_created by user:user_local' },
+    ])
   })
 })
