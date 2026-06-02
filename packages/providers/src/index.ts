@@ -1,6 +1,7 @@
 export * from './providerContract'
 export * from './providerCatalog'
 export * from './certificationContract'
+export * from './certificationRunner'
 export * from './claudeCliProvider'
 export * from './openaiCodexCliProvider'
 export * from './providerFactory'

@@ -24,6 +24,7 @@ type CommandRunner = (
   args: string[],
   env: NodeJS.ProcessEnv,
   timeoutMs: number,
+  stdin?: string,
 ) => Promise<CommandRunResult>
 
 export type OpenAICodexCliProviderOptions = {
@@ -40,10 +41,10 @@ type CodexJsonEvent = {
   }
 }
 
-const defaultRunner: CommandRunner = (command, args, env, timeoutMs) => new Promise((resolve, reject) => {
+const defaultRunner: CommandRunner = (command, args, env, timeoutMs, stdin) => new Promise((resolve, reject) => {
   const child = spawn(command, args, {
     env,
-    stdio: ['ignore', 'pipe', 'pipe'],
+    stdio: ['pipe', 'pipe', 'pipe'],
   })
 
   let stdout = ''
@@ -79,6 +80,20 @@ const defaultRunner: CommandRunner = (command, args, env, timeoutMs) => new Prom
   child.stderr.on('data', (chunk) => {
     stderr += chunk.toString()
   })
+
+  child.stdin.on('error', (error) => {
+    fail(new Error(`Codex CLI stdin write failed: ${error.message}`))
+  })
+
+  try {
+    if (stdin !== undefined) {
+      child.stdin.write(stdin)
+    }
+    child.stdin.end()
+  } catch (error) {
+    fail(error instanceof Error ? error : new Error(String(error)))
+    child.kill('SIGTERM')
+  }
 
   child.on('error', (error) => {
     clearTimeout(timer)
@@ -144,9 +159,10 @@ export class OpenAICodexCliProvider implements Provider {
           '--json',
           '-o',
           outputPath,
-          request.prompt,
+          '-',
         ],
         observations,
+        request.prompt,
       )
       const text = await this.readOutputOrThrow(outputPath)
       return { runResult, text, dir }
@@ -182,9 +198,10 @@ export class OpenAICodexCliProvider implements Provider {
           schemaPath,
           '-o',
           outputPath,
-          request.prompt,
+          '-',
         ],
         observations,
+        request.prompt,
       )
       const text = await this.readOutputOrThrow(outputPath)
       return { runResult, text }
@@ -279,10 +296,11 @@ export class OpenAICodexCliProvider implements Provider {
     request: ProviderRunRequest,
     args: string[],
     observations: ProviderObservation[],
+    stdin?: string,
   ): Promise<CommandRunResult> {
     observations.push(this.observation('queued', 'Codex CLI queued the request.'))
 
-    const result = await this.runCommand(this.command, args, this.env, request.timeout_ms)
+    const result = await this.runCommand(this.command, args, this.env, request.timeout_ms, stdin)
     if (result.exitCode !== 0) {
       const message = this.failureMessageFrom(result)
       observations.push(this.observation('failed', `Codex CLI failed with exit code ${result.exitCode}.`))

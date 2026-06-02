@@ -7,13 +7,15 @@ import type { AppConfig, MarketUniverseConfig, ProviderSelection, ShariahDefault
 import { loadAppConfig, resolveProjectRootFromCwd, resolveSourceLedgerPath, saveAppConfig } from './appConfigStore'
 import { resetDefaultDemoStore, resolveDemoLedgerPath } from './demo'
 import { seedDemoLedger } from './demoSeed'
-import { getProviderOptions, getProviderReadiness, type ProviderReadiness } from './providerReadiness'
+import { getProviderOptions, type ProviderReadiness } from './providerReadiness'
+import { buildProviderStatusRows } from './providerStatus'
 
 type OnboardingEnv = {
   OWLFOLIO_PROJECT_DIR?: string
   OWLFOLIO_APP_CONFIG_PATH?: string
   OWLFOLIO_DEMO_LEDGER_PATH?: string
   OWLFOLIO_PERSONAL_LEDGER_PATH?: string
+  OWLFOLIO_PROVIDER_CERTIFICATION_DIR?: string
   ANTHROPIC_API_KEY?: string
   OPENAI_API_KEY?: string
   OWLFOLIO_CLAUDE_CREDENTIALS_PATH?: string
@@ -70,7 +72,23 @@ export async function updateOnboardingConfig(update: OnboardingConfigUpdate, opt
 }
 
 export async function getProviderReadinessSnapshot(config: AppConfig, options: OnboardingOptions = {}): Promise<ProviderReadiness> {
-  return getProviderReadiness(config.provider.provider_id, options.env ?? {})
+  const rows = await buildProviderStatusRows({
+    ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
+    ...(options.env === undefined ? {} : { env: options.env }),
+  })
+  const row = rows.find((provider) => provider.provider_id === config.provider.provider_id)
+
+  if (row === undefined) {
+    throw new Error(`Unknown provider: ${config.provider.provider_id}`)
+  }
+
+  return {
+    provider_id: row.provider_id,
+    support_level: row.effective_support_level,
+    is_ready: row.is_ready,
+    auth_source: row.auth_source,
+    status_label: row.status_label,
+  }
 }
 
 export async function initializeSelectedMode(update: OnboardingConfigUpdate = {}, options: OnboardingOptions = {}): Promise<AppConfig> {
@@ -103,8 +121,23 @@ export async function initializeSelectedMode(update: OnboardingConfigUpdate = {}
   return initializedConfig
 }
 
-export function getOnboardingProviderOptions() {
-  return getProviderOptions()
+export async function getOnboardingProviderOptions(options: OnboardingOptions = {}) {
+  const rowsByProvider = new Map((await buildProviderStatusRows({
+    ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
+    ...(options.env === undefined ? {} : { env: options.env }),
+  })).map((row) => [row.provider_id, row]))
+
+  return getProviderOptions().map((provider) => {
+    const status = rowsByProvider.get(provider.provider_id)
+
+    return {
+      ...provider,
+      support_level: status?.effective_support_level ?? provider.support_level,
+      description: status === undefined
+        ? provider.description
+        : `${provider.description} Latest status: ${status.status_label}.`,
+    }
+  })
 }
 
 export async function resetOnboardingRuntime(options: OnboardingOptions = {}): Promise<void> {

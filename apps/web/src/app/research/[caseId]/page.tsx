@@ -28,7 +28,7 @@ export default async function ResearchCasePage({ params }: ResearchCasePageProps
               ← Back to command center
             </a>
           </p>
-          <ResearchCasePanel researchCase={researchCase} />
+          <ResearchCasePanel researchCase={researchCase} mode={state.config.mode} />
         </div>
       </main>
     )

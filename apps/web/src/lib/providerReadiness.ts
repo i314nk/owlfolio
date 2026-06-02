@@ -7,7 +7,7 @@ import type { ProviderId, ProviderSupportLevel } from '@owlfolio/shared'
 
 import { defaultClaudeCredentialsPath } from './appConfigStore'
 
-type ProviderReadinessEnv = {
+export type ProviderReadinessEnv = {
   ANTHROPIC_API_KEY?: string
   OPENAI_API_KEY?: string
   CODEX_ACCESS_TOKEN?: string

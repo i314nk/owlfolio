@@ -19,7 +19,7 @@ export default async function WatchlistPage() {
             ← Back to command center
           </a>
         </p>
-        <WatchlistPanel items={watchlistItems} />
+        <WatchlistPanel items={watchlistItems} mode={state.config.mode} />
       </div>
     </main>
   )

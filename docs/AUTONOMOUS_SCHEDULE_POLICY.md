@@ -1,43 +1,60 @@
-# Owlfolio Autonomous Schedule Policy
+# Owlfolio autonomous schedule policy
 
-Owlfolio should keep working when the user is away, but autonomy must be explicit about cost. The scheduler therefore separates low-cost monitoring from Claude-powered research.
+This file describes the active Owlfolio v2 alpha worker policy. The older Python/CLI/Claude scheduler note was moved to `docs/archive/AUTONOMOUS_SCHEDULE_POLICY.v0.1.md` and is historical only.
 
-## Policy
+## Alpha policy
 
-### 1. Safe monitoring tasks may be enabled by default
+Owlfolio v2 may observe and remind, but it must not autonomously create irreversible investment, accounting, or purification actions.
 
-Safe tasks are deterministic CLI checks that do not call Claude and should be cheap to run on weekdays:
+Allowed alpha worker behavior:
 
-| Task | Command | Cadence | Why it is safe |
-|---|---|---|---|
-| `daily-watchlist-check` | `owlfolio watchlist-check --no-llm-price` | 30 minutes before primary market open, Monday-Friday | Uses market-data price sources only; no Claude fallback. |
-| `daily-portfolio-check` | `owlfolio portfolio --no-llm-price` | At primary market open, Monday-Friday | Refreshes holdings/P&L view using price sources only; no Claude fallback. |
+- Define default scheduled tasks idempotently.
+- Append scheduled-task run lifecycle events to the local SQLite ledger.
+- Project due/upcoming holding reviews and confirmed watchlist items.
+- Record dry-run/mock-safe observations for `review_reminder` and `watchlist_monitor`.
 
-These tasks preserve the core “autonomous portfolio monitor” behavior without surprise Agent SDK credit usage.
+Disallowed alpha worker behavior:
 
-### 2. Claude research tasks are opt-in
+- Auto-approve provider recommendations.
+- Confirm watchlist items or open holdings.
+- Buy, sell, rebalance, or place orders.
+- Override Shariah status.
+- Close accounting periods or create tax/accounting filings.
+- Mark purification obligations as paid or execute payments.
+- Run real provider research on a schedule without explicit future cost/timeout/approval controls.
 
-Research/discovery/deep-analysis tasks use Claude specialist agents and may take minutes to hours. They should exist as documented policy/templates, but they should only be enabled after the operator intentionally accepts the cadence and credit/runtime expectations.
+## Current commands
 
-Recommended opt-in ladder:
+Run one dry-run tick:
 
-| Task | Command | Suggested cadence | Expected cost/runtime |
-|---|---|---|---|
-| `weekly-discovery` | `owlfolio find` | Monday at market open | Claude WebSearch discovery; slow, credit-using. |
-| `weekly-news-check` | `owlfolio review-holdings --mode news` | Tuesday before market open | Claude review for every holding; scales with holdings count. |
-| `weekly-candidate-screening` | `owlfolio analyze-list --auto --next 3` | Wednesday at market open | Full specialist analysis for up to 3 candidates; high credit/runtime use. |
-| `quarterly-10q-review` | `owlfolio review-holdings --mode review --thorough` | Mid-quarter | Thorough holding review; high credit/runtime use. |
-| `annual-full-reanalysis` | `owlfolio review-holdings --mode full` | Feb/May/Aug/Nov after reporting cycles | Full holding re-analysis; highest recurring cost. |
+```bash
+corepack pnpm worker -- --once --dry-run --define-defaults
+```
 
-### 3. Daemon execution rules
+Limit a tick to a specific supported handler:
 
-- Scheduled commands must be `owlfolio ...` commands only; the daemon rejects shell/metacharacter commands.
-- Safe monitoring tasks should use `--no-llm-price` so price-source outages do not silently trigger Claude usage.
-- Agentic jobs need a long timeout; the daemon timeout is intentionally long enough for discovery and batch analysis.
-- The Schedule tab / `task_runs` history must show executions so autonomy is auditable.
+```bash
+corepack pnpm --filter @owlfolio/worker dev -- --task-kind review_reminder
+corepack pnpm --filter @owlfolio/worker dev -- --task-kind watchlist_monitor
+```
 
-## Applied production stance for the patched runtime
+Use isolated local state when testing:
 
-For `/home/hermes_agent/code/owlfolio/data/portfolio.db`, enable only the two safe monitoring tasks while credentials, portfolio holdings, watchlist, and imported historical state are still empty. Insert the Claude research tasks as disabled opt-in entries so the system is not left with zero automation and the intended autonomous ladder remains visible.
+```bash
+OWLFOLIO_PROJECT_DIR=$PWD \
+OWLFOLIO_LEDGER_PATH=$PWD/.data/local-worker-ledger.sqlite \
+corepack pnpm worker -- --once --dry-run --define-defaults
+```
 
-Once credentials and portfolio/watchlist state are restored, the operator can enable specific research tasks from the Schedule tab or CLI after choosing an acceptable cadence.
+## Future requirements before higher autonomy
+
+Before scheduled provider research or portfolio-changing automation becomes eligible for certification, Owlfolio needs:
+
+- provider role certification for the scheduled task,
+- explicit user opt-in and cadence/cost controls,
+- timeout/retry/circuit-breaker limits,
+- source-ledger provenance for provider evidence,
+- approval queues for proposed ledger transitions,
+- audit UI that explains what was observed, proposed, approved, rejected, or skipped.
+
+See `docs/WORKER.md` and `docs/ALPHA_READINESS.md` for current worker safety and release boundaries.

@@ -7,12 +7,17 @@
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "exports": {
+    "./domainEventContracts": "./src/domainEventContracts.ts",
     "./eventEnvelope": "./src/eventEnvelope.ts",
     "./eventStore": "./src/eventStore.ts",
     "./sqliteEventStore": "./src/sqliteEventStore.ts",
+    "./projections/holdingProjection": "./src/projections/holdingProjection.ts",
+    "./projections/accountingProjection": "./src/projections/accountingProjection.ts",
+    "./projections/purificationProjection": "./src/projections/purificationProjection.ts",
     "./projections/researchCaseProjection": "./src/projections/researchCaseProjection.ts",
     "./projections/researchCaseTimelineProjection": "./src/projections/researchCaseTimelineProjection.ts",
     "./projections/watchlistProjection": "./src/projections/watchlistProjection.ts",
-    "./projections/commandCenterProjection": "./src/projections/commandCenterProjection.ts"
+    "./projections/commandCenterProjection": "./src/projections/commandCenterProjection.ts",
+    "./projections/scheduledTaskProjection": "./src/projections/scheduledTaskProjection.ts"
   }
 }

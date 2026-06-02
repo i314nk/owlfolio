@@ -1,4 +1,4 @@
-import { execFile } from 'node:child_process'
+import { spawn } from 'node:child_process'
 import { z, type ZodType } from 'zod'
 
 import type {
@@ -30,26 +30,70 @@ export type ClaudeCliProviderOptions = {
 }
 
 const defaultRunner: CommandRunner = (command, args, env, timeoutMs) => new Promise((resolve, reject) => {
-  execFile(command, args, { env, timeout: timeoutMs, maxBuffer: 2 * 1024 * 1024 }, (error, stdout, stderr) => {
-    if (error !== null) {
-      const exitCode = typeof error.code === 'number' ? error.code : -1
-      if ('code' in error && error.code === 'ENOENT') {
-        reject(new Error(`Claude CLI not available: ${command}`))
-        return
-      }
+  const child = spawn(command, args, {
+    env,
+    stdio: ['ignore', 'pipe', 'pipe'],
+  })
 
-      resolve({
-        exitCode,
-        stdout: stdout.toString(),
-        stderr: stderr.toString() || error.message,
+  let stdout = ''
+  let stderr = ''
+  let settled = false
+  let timedOut = false
+
+  const finish = (result: CommandRunResult) => {
+    if (settled) {
+      return
+    }
+    settled = true
+    resolve(result)
+  }
+
+  const fail = (error: Error) => {
+    if (settled) {
+      return
+    }
+    settled = true
+    reject(error)
+  }
+
+  const timer = setTimeout(() => {
+    timedOut = true
+    child.kill('SIGTERM')
+  }, timeoutMs)
+
+  child.stdout.on('data', (chunk) => {
+    stdout += chunk.toString()
+  })
+
+  child.stderr.on('data', (chunk) => {
+    stderr += chunk.toString()
+  })
+
+  child.on('error', (error) => {
+    clearTimeout(timer)
+    if ('code' in error && error.code === 'ENOENT') {
+      fail(new Error(`Claude CLI not available: ${command}`))
+      return
+    }
+    fail(error)
+  })
+
+  child.on('close', (code, signal) => {
+    clearTimeout(timer)
+
+    if (timedOut) {
+      finish({
+        exitCode: -1,
+        stdout,
+        stderr: stderr.trim().length > 0 ? stderr : `Claude CLI timed out after ${timeoutMs}ms`,
       })
       return
     }
 
-    resolve({
-      exitCode: 0,
-      stdout: stdout.toString(),
-      stderr: stderr.toString(),
+    finish({
+      exitCode: code ?? (signal === null ? 0 : -1),
+      stdout,
+      stderr,
     })
   })
 })
@@ -149,10 +193,16 @@ export class ClaudeCliProvider implements Provider {
     const result = await this.runCommand(this.command, args, this.env, request.timeout_ms)
     if (result.exitCode !== 0) {
       observations.push(this.observation('failed', `Claude CLI failed with exit code ${result.exitCode}.`))
-      throw new Error(`Claude CLI failed with exit code ${result.exitCode}: ${result.stderr.trim() || 'unknown error'}`)
+      throw new Error(`Claude CLI failed with exit code ${result.exitCode}: ${this.failureMessageFrom(result)}`)
     }
 
     return result
+  }
+
+  private failureMessageFrom(result: CommandRunResult): string {
+    return result.stderr.trim()
+      || result.stdout.trim()
+      || 'unknown error'
   }
 
   private metadataFor(request: ProviderRunRequest): ProviderRunMetadata {

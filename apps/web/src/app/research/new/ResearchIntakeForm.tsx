@@ -1,5 +1,6 @@
 'use client'
 
+import type { FormEvent } from 'react'
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 
@@ -33,7 +34,15 @@ export function ResearchIntakeForm() {
   const [isSubmitting, setIsSubmitting] = useState(false)
   const router = useRouter()
 
-  async function submit() {
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+
+    const formData = new FormData(event.currentTarget)
+    const submittedTicker = String(formData.get('ticker') ?? '').trim().toUpperCase()
+    const submittedCompanyId = String(formData.get('company_id') ?? '').trim()
+
+    setTicker(submittedTicker)
+    setCompanyId(submittedCompanyId)
     setIsSubmitting(true)
     setError(undefined)
 
@@ -41,7 +50,7 @@ export function ResearchIntakeForm() {
       const response = await fetch('/api/research/start', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ ticker, company_id: companyId || undefined }),
+        body: JSON.stringify({ ticker: submittedTicker, company_id: submittedCompanyId || undefined }),
       })
       const body = await response.json()
 
@@ -75,12 +84,13 @@ export function ResearchIntakeForm() {
           <p style={{ color: '#475569', fontSize: '1rem', margin: '0 0 1.5rem' }}>
             Create a durable research-case record in the personal local ledger before any provider analysis runs.
           </p>
-          <div style={{ display: 'grid', gap: '1rem' }}>
+          <form onSubmit={(event) => void submit(event)} style={{ display: 'grid', gap: '1rem' }}>
             <label style={{ display: 'grid', gap: '0.4rem', fontWeight: 700 }}>
               <span>Ticker</span>
               <input
                 aria-label="Ticker"
                 autoComplete="off"
+                name="ticker"
                 onChange={(event) => setTicker(event.target.value.toUpperCase())}
                 placeholder="MSFT"
                 style={inputStyle}
@@ -92,6 +102,7 @@ export function ResearchIntakeForm() {
               <input
                 aria-label="Company ID"
                 autoComplete="off"
+                name="company_id"
                 onChange={(event) => setCompanyId(event.target.value)}
                 placeholder="company_msft"
                 style={inputStyle}
@@ -104,7 +115,6 @@ export function ResearchIntakeForm() {
             <div style={{ display: 'flex', gap: '0.75rem', marginTop: '0.5rem' }}>
               <button
                 disabled={isSubmitting}
-                onClick={() => void submit()}
                 style={{
                   background: '#047857',
                   border: 'none',
@@ -115,12 +125,12 @@ export function ResearchIntakeForm() {
                   fontWeight: 800,
                   padding: '0.8rem 1rem',
                 }}
-                type="button"
+                type="submit"
               >
                 {isSubmitting ? 'Creating…' : 'Create research case'}
               </button>
             </div>
-          </div>
+          </form>
         </section>
       </div>
     </main>

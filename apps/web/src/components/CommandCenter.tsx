@@ -76,6 +76,8 @@ export function CommandCenter({ dashboard }: CommandCenterProps) {
         },
         createElement(MetricCard, { label: 'Research cases', value: counts.research_cases }),
         createElement(MetricCard, { label: 'Watchlist drafts', value: counts.watchlist_drafts }),
+        createElement(MetricCard, { label: 'Confirmed watchlist', value: counts.confirmed_watchlist_items }),
+        createElement(MetricCard, { label: 'Open holdings', value: counts.open_holdings }),
         createElement(MetricCard, { label: 'Pending user actions', value: counts.pending_user_actions }),
       ),
       createElement(
@@ -107,6 +109,8 @@ export function CommandCenter({ dashboard }: CommandCenterProps) {
             ? null
             : createElement('a', { href: dashboard.secondary_action.href, style: linkStyle }, dashboard.secondary_action.label),
         ),
+        createAccountingAlert(dashboard),
+        createHoldingReviewSchedule(dashboard),
         createElement(
           'section',
           { style: { marginTop: '1.25rem' } },
@@ -124,6 +128,110 @@ export function CommandCenter({ dashboard }: CommandCenterProps) {
       ),
     ),
   )
+}
+
+function createAccountingAlert(dashboard: AppCommandCenter) {
+  if (dashboard.accounting_alert === undefined) {
+    return null
+  }
+
+  return createElement(
+    'section',
+    {
+      'aria-label': 'Accounting alert',
+      style: {
+        background: '#eef2ff',
+        border: '1px solid #c7d2fe',
+        borderRadius: '0.9rem',
+        display: 'grid',
+        gap: '0.5rem',
+        marginTop: '1.25rem',
+        padding: '1rem',
+      },
+    },
+    createElement(
+      'p',
+      { style: { color: '#4338ca', fontSize: '0.85rem', fontWeight: 900, margin: 0, textTransform: 'uppercase' } },
+      'Accounting',
+    ),
+    createElement('p', { style: { color: '#0f172a', fontWeight: 900, margin: 0 } }, dashboard.accounting_alert.label),
+    createElement('p', { style: { color: '#334155', margin: 0 } }, dashboard.accounting_alert.message),
+    createElement('a', { href: dashboard.accounting_alert.href, style: { ...linkStyle, alignSelf: 'flex-start' } }, `Open ${dashboard.accounting_alert.label.toLowerCase()}`),
+  )
+}
+
+function createHoldingReviewSchedule(dashboard: AppCommandCenter) {
+  if (dashboard.holding_review_prompts.length === 0) {
+    return null
+  }
+
+  return createElement(
+    'section',
+    {
+      'aria-label': 'Holding review schedule',
+      style: {
+        borderTop: '1px solid #e2e8f0',
+        display: 'grid',
+        gap: '0.75rem',
+        marginTop: '1.25rem',
+        paddingTop: '1.25rem',
+      },
+    },
+    createElement(
+      'p',
+      { style: { color: '#64748b', fontSize: '0.85rem', fontWeight: 800, margin: 0, textTransform: 'uppercase' } },
+      'Holding review schedule',
+    ),
+    createElement(
+      'div',
+      { style: { display: 'grid', gap: '0.75rem', gridTemplateColumns: 'repeat(auto-fit, minmax(14rem, 1fr))' } },
+      ...dashboard.holding_review_prompts.map((prompt) => createElement(
+        'article',
+        {
+          key: prompt.holding_id,
+          style: {
+            background: prompt.status === 'due' ? '#fef2f2' : '#f8fafc',
+            border: prompt.status === 'due' ? '1px solid #fecaca' : '1px solid #e2e8f0',
+            borderRadius: '0.85rem',
+            padding: '1rem',
+          },
+        },
+        createElement('p', { style: { color: '#0f172a', fontWeight: 900, margin: 0 } }, prompt.label),
+        createElement(
+          'p',
+          { style: { color: prompt.status === 'due' ? '#b91c1c' : '#475569', fontSize: '0.85rem', fontWeight: 800, margin: '0.35rem 0' } },
+          prompt.status === 'due' ? 'Due now' : 'Upcoming',
+        ),
+        createElement('p', { style: { color: '#334155', margin: 0 } }, `Next review: ${prompt.next_review_at}`),
+        createElement('p', { style: { color: '#64748b', fontSize: '0.9rem', margin: '0.25rem 0 0' } }, formatReviewDistance(prompt.days_until_review)),
+        createElement(
+          'a',
+          {
+            href: `/portfolio#${prompt.holding_id}`,
+            style: {
+              ...linkStyle,
+              alignSelf: 'flex-start',
+              marginTop: '0.75rem',
+            },
+          },
+          `Review ${prompt.label} in portfolio`,
+        ),
+      )),
+    ),
+  )
+}
+
+function formatReviewDistance(daysUntilReview: number): string {
+  if (daysUntilReview < 0) {
+    const daysOverdue = Math.abs(daysUntilReview)
+    return `${daysOverdue} ${daysOverdue === 1 ? 'day' : 'days'} overdue`
+  }
+
+  if (daysUntilReview === 0) {
+    return '0 days'
+  }
+
+  return `${daysUntilReview} ${daysUntilReview === 1 ? 'day' : 'days'}`
 }
 
 function MetricCard({ label, value }: { label: string; value: number }) {

@@ -11,6 +11,6 @@ export default async function OnboardingPage() {
     initialConfig: state.config,
     initialIsInitialized: state.is_initialized,
     initialReadiness: readiness,
-    providerOptions: getOnboardingProviderOptions(),
+    providerOptions: await getOnboardingProviderOptions(),
   })
 }

@@ -1,5 +1,8 @@
 import type { ProviderId, ProviderSupportLevel } from '@owlfolio/shared'
 
+import { ClaudeCliProvider } from './claudeCliProvider'
+import { MockProvider } from './mockProvider'
+import { OpenAICodexCliProvider } from './openaiCodexCliProvider'
 import type { ProviderCapabilities } from './providerContract'
 
 export type ProviderCatalogEntry = {
@@ -11,13 +14,9 @@ export type ProviderCatalogEntry = {
   capabilities: ProviderCapabilities
 }
 
-const sharedCertifiedCapabilities: ProviderCapabilities = {
-  'text-generation': 'native',
-  'structured-output': 'native',
-  'tool-function-calling': 'native',
-  'streaming-observability': 'native',
-  'multi-step-tool-loop': 'native',
-}
+const mockCapabilities = new MockProvider().capabilities
+const claudeCapabilities = new ClaudeCliProvider().capabilities
+const openAICapabilities = new OpenAICodexCliProvider().capabilities
 
 const catalog: ProviderCatalogEntry[] = [
   {
@@ -27,17 +26,17 @@ const catalog: ProviderCatalogEntry[] = [
     visible_in_onboarding: true,
     description: 'Deterministic demo provider for the audited Buffett-Munger vertical slice.',
     capabilities: {
-      ...sharedCertifiedCapabilities,
+      ...mockCapabilities,
     },
   },
   {
     provider_id: 'claude',
     label: 'Claude',
-    support_level: 'certified',
+    support_level: 'experimental',
     visible_in_onboarding: true,
-    description: 'Primary real provider target for personal local mode.',
+    description: 'CLI-backed real provider path behind readiness and certification checks.',
     capabilities: {
-      ...sharedCertifiedCapabilities,
+      ...claudeCapabilities,
     },
   },
   {
@@ -45,9 +44,9 @@ const catalog: ProviderCatalogEntry[] = [
     label: 'OpenAI',
     support_level: 'experimental',
     visible_in_onboarding: true,
-    description: 'Planned provider path behind readiness and certification checks.',
+    description: 'CLI-backed Codex provider path behind readiness and certification checks.',
     capabilities: {
-      ...sharedCertifiedCapabilities,
+      ...openAICapabilities,
     },
   },
 ]

@@ -49,6 +49,7 @@ secrets/anthropic_key
 .screenshots/
 .superpowers/
 .playwright-runtime/
+.live-openai-runtime/
 .worktrees/
 
 # User config (keep strategies/ presets, ignore user's own)

@@ -1,0 +1,16 @@
+{
+  "name": "@owlfolio/shariah",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "lint": "node -e \"console.log('Lint not configured yet for @owlfolio/shariah')\"",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@owlfolio/shared": "workspace:*"
+  },
+  "exports": {
+    ".": "./src/index.ts",
+    "./policy": "./src/policy.ts"
+  }
+}

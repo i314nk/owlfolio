@@ -10,7 +10,8 @@
     "test:watch": "NODE_OPTIONS=--disable-warning=ExperimentalWarning vitest --passWithNoTests",
     "lint": "corepack pnpm -r lint",
     "typecheck": "tsc --noEmit -p tsconfig.json && corepack pnpm -r typecheck",
-    "e2e": "NODE_OPTIONS=--disable-warning=ExperimentalWarning playwright test"
+    "e2e": "NODE_OPTIONS=--disable-warning=ExperimentalWarning playwright test",
+    "certify:providers": "tsx scripts/certify-providers.mjs"
   },
   "devDependencies": {
     "@playwright/test": "1.60.0",

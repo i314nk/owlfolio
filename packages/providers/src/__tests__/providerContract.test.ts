@@ -22,7 +22,7 @@ describe('provider contract freeze', () => {
     const catalog = getProviderCatalog()
 
     expect(catalog.find((provider) => provider.provider_id === 'claude')).toMatchObject({
-      support_level: 'certified',
+      support_level: 'experimental',
       visible_in_onboarding: true,
     })
     expect(catalog.find((provider) => provider.provider_id === 'openai')).toMatchObject({

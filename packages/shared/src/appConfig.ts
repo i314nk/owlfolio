@@ -72,7 +72,7 @@ export const defaultPersonalLocalAppConfig = (): AppConfig => ({
   mode: 'personal-local',
   provider: {
     provider_id: 'claude',
-    support_level: 'certified',
+    support_level: 'experimental',
   },
   strategy_id: 'buffett-munger',
   shariah: defaultShariahDefaults(),

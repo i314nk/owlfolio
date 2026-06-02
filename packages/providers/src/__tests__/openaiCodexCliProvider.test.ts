@@ -45,12 +45,14 @@ describe('OpenAICodexCliProvider', () => {
   it('runs a structured request through the Codex CLI transport', async () => {
     const provider = new OpenAICodexCliProvider({
       env: { CODEX_ACCESS_TOKEN: 'test-access-token' },
-      runCommand: async (command: string, args: string[], env: NodeJS.ProcessEnv) => {
+      runCommand: async (command: string, args: string[], env: NodeJS.ProcessEnv, _timeoutMs: number, stdin?: string) => {
         expect(command).toBe('codex')
         expect(args).toContain('exec')
         expect(args).toContain('--output-schema')
         expect(args).toContain('--json')
-        expect(args).toContain(request.prompt)
+        expect(args).toContain('-')
+        expect(args).not.toContain(request.prompt)
+        expect(stdin).toBe(request.prompt)
         expect(env.CODEX_ACCESS_TOKEN).toBe('test-access-token')
 
         const outputIndex = args.indexOf('-o')

@@ -34,7 +34,7 @@ describe('providerReadiness', () => {
     expect(readiness).toMatchObject({
       provider_id: 'claude',
       is_ready: true,
-      support_level: 'certified',
+      support_level: 'experimental',
       auth_source: 'ANTHROPIC_API_KEY',
     })
   })
@@ -113,6 +113,6 @@ describe('providerReadiness', () => {
     const options = getProviderOptions()
 
     expect(options.map((provider) => provider.provider_id)).toEqual(['mock-provider', 'claude', 'openai'])
-    expect(options.map((provider) => provider.support_level)).toEqual(['certified', 'certified', 'experimental'])
+    expect(options.map((provider) => provider.support_level)).toEqual(['certified', 'experimental', 'experimental'])
   })
 })

@@ -1,10 +1,11 @@
 import { createElement } from 'react'
 
 import { StatusBadge } from './StatusBadge'
-import type { AppResearchCase } from '../lib/workflow'
+import type { AppResearchCase, WorkflowMode } from '../lib/workflow'
 
 export type ResearchCasePanelProps = {
   researchCase: AppResearchCase
+  mode?: WorkflowMode
 }
 
 const cardStyle = {
@@ -30,7 +31,12 @@ const valueStyle = {
   margin: '0.35rem 0 0',
 }
 
-export function ResearchCasePanel({ researchCase }: ResearchCasePanelProps) {
+export function ResearchCasePanel({ researchCase, mode = 'demo' }: ResearchCasePanelProps) {
+  const canPromoteToWatchlist = mode === 'personal-local'
+    && researchCase.stage === 'decision_drafted'
+    && researchCase.decision !== undefined
+    && researchCase.decision_id !== undefined
+
   return createElement(
     'section',
     {
@@ -61,6 +67,7 @@ export function ResearchCasePanel({ researchCase }: ResearchCasePanelProps) {
         `Company: ${researchCase.company_id ?? 'Unknown company'}`,
       ),
     ),
+    canPromoteToWatchlist ? createWatchlistPromotionAction(researchCase.research_case_id) : null,
     createElement(
       'div',
       {
@@ -142,6 +149,46 @@ export function ResearchCasePanel({ researchCase }: ResearchCasePanelProps) {
         'p',
         { style: { color: '#0f172a', fontSize: '1.2rem', fontWeight: 800, margin: '0.4rem 0 0' } },
         researchCase.next_required_action ?? 'Continue the review workflow',
+      ),
+    ),
+  )
+}
+
+function createWatchlistPromotionAction(researchCaseId: string) {
+  return createElement(
+    'section',
+    {
+      style: {
+        ...cardStyle,
+        border: '1px solid #bbf7d0',
+        background: '#f0fdf4',
+      },
+    },
+    createElement('p', { style: labelStyle }, 'User confirmation'),
+    createElement(
+      'p',
+      { style: { color: '#166534', fontSize: '1rem', fontWeight: 700, margin: '0.35rem 0 1rem' } },
+      'Advance this drafted decision into durable personal-local watchlist state.',
+    ),
+    createElement(
+      'form',
+      { action: `/api/research/${researchCaseId}/watchlist`, method: 'post' },
+      createElement(
+        'button',
+        {
+          type: 'submit',
+          style: {
+            background: '#047857',
+            border: 0,
+            borderRadius: '999px',
+            color: '#ffffff',
+            cursor: 'pointer',
+            fontSize: '0.95rem',
+            fontWeight: 900,
+            padding: '0.75rem 1rem',
+          },
+        },
+        'Promote to watchlist',
       ),
     ),
   )

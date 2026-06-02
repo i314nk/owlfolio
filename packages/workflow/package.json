@@ -9,12 +9,17 @@
   "dependencies": {
     "@owlfolio/ledger": "workspace:*",
     "@owlfolio/providers": "workspace:*",
+    "@owlfolio/shared": "workspace:*",
+    "@owlfolio/shariah": "workspace:*",
     "zod": "^4.4.3"
   },
   "exports": {
     ".": "./src/index.ts",
     "./claudeResearchWorkflow": "./src/claudeResearchWorkflow.ts",
+    "./holdingWorkflow": "./src/holdingWorkflow.ts",
+    "./holdingReviewWorkflow": "./src/holdingReviewWorkflow.ts",
     "./researchWorkflow": "./src/researchWorkflow.ts",
+    "./shariahGateWorkflow": "./src/shariahGateWorkflow.ts",
     "./sourceLedger": "./src/sourceLedger.ts",
     "./watchlistWorkflow": "./src/watchlistWorkflow.ts",
     "./workflowContract": "./src/workflowContract.ts"

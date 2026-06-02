@@ -16,6 +16,21 @@ export async function GET(request: Request) {
         },
       }
 
-  const readiness = await getProviderReadinessSnapshot(config)
-  return NextResponse.json({ readiness })
+  try {
+    const readiness = await getProviderReadinessSnapshot(config)
+    return NextResponse.json({ readiness })
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Unknown provider readiness error'
+    const isUnknownProvider = message.startsWith('Unknown provider:')
+
+    return NextResponse.json(
+      {
+        error: {
+          code: isUnknownProvider ? 'unknown_provider' : 'provider_readiness_error',
+          message,
+        },
+      },
+      { status: isUnknownProvider ? 400 : 500 },
+    )
+  }
 }

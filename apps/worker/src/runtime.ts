@@ -1,0 +1,706 @@
+import { existsSync } from 'node:fs'
+import { mkdir, readFile } from 'node:fs/promises'
+import { dirname, join, parse } from 'node:path'
+
+import { type EventStore } from '@owlfolio/ledger/eventStore'
+import type { LedgerEventEnvelope } from '@owlfolio/ledger/eventEnvelope'
+import { projectCommandCenterSummary } from '@owlfolio/ledger/projections/commandCenterProjection'
+import { projectHoldings } from '@owlfolio/ledger/projections/holdingProjection'
+import { projectScheduledTasks, type ScheduledTaskProjection } from '@owlfolio/ledger/projections/scheduledTaskProjection'
+import { projectWatchlist } from '@owlfolio/ledger/projections/watchlistProjection'
+import { runProviderTask, type CertificationReport, type Provider, type ProviderRunResult } from '@owlfolio/providers'
+import { defaultDemoAppConfig, type AppConfig } from '@owlfolio/shared'
+
+export type WorkerRuntimeEnv = {
+  OWLFOLIO_APP_CONFIG_PATH?: string
+  OWLFOLIO_PROJECT_DIR?: string
+  OWLFOLIO_LEDGER_PATH?: string
+  OWLFOLIO_SOURCE_LEDGER_PATH?: string
+  OWLFOLIO_PROVIDER_CERTIFICATION_DIR?: string
+}
+
+export type WorkerRuntimePathsOptions = {
+  cwd?: string
+  env?: WorkerRuntimeEnv
+}
+
+export type WorkerRuntimePaths = {
+  project_dir: string
+  config_path: string
+  ledger_path: string
+  source_ledger_path: string
+  provider_certification_dir: string
+  config: AppConfig
+}
+
+export type ProviderExecutionReadiness = {
+  provider_id: string
+  is_ready: boolean
+  status_label: string
+}
+
+export type WorkerClock = {
+  now?: () => string
+}
+
+export type DefineDefaultScheduledTasksOptions = WorkerClock
+
+export type RunScheduledTasksOptions = WorkerClock & {
+  as_of?: string
+  dry_run?: boolean
+  task_kind?: string
+  provider?: Provider
+  provider_readiness?: ProviderExecutionReadiness
+  provider_model_id?: string
+  run_id?: (task: ScheduledTaskProjection) => string
+}
+
+export type RunScheduledTasksResult = {
+  considered: number
+  completed: number
+  failed: number
+  skipped: number
+  events_appended: number
+  summaries: string[]
+}
+
+type TaskResult = {
+  result_summary: string
+  observations: string[]
+  provider_run_ids?: string[]
+  approval_gates?: string[]
+  human_approval_required?: boolean
+  events_appended?: number
+}
+
+type TaskHandlerOptions = RunScheduledTasksOptions & {
+  scheduled_task_run_id: string
+}
+
+type ScheduledTaskPayload = {
+  scheduled_task_id: string
+  task_kind: string
+  cadence: string
+  enabled: boolean
+  dry_run: true
+  retry_policy: { max_attempts: number; retry_delay_ms: number }
+  safety: {
+    mock_safe: true
+    auto_approve_investment_actions: false
+    auto_approve_portfolio_actions: false
+  }
+}
+
+const WORKER_ACTOR_ID = 'owlfolio-worker'
+const DEFAULT_RETRY_DELAY_MS = 5 * 60 * 1000
+const HOLDING_REVIEW_APPROVAL_GATE = 'holding_review_requires_user_confirmation'
+const OPEN_HOLDING_APPROVAL_GATE = 'open_holding_requires_user_confirmation'
+
+function nowIso(): string {
+  return new Date().toISOString()
+}
+
+function currentDate(): string {
+  return new Date().toISOString().slice(0, 10)
+}
+
+function resolveProjectRootFromCwd(cwd: string): string {
+  const normalized = cwd.replace(/\/+$/, '') || cwd
+  let current = normalized
+  const { root } = parse(normalized)
+
+  while (true) {
+    if (existsSync(join(current, 'pnpm-workspace.yaml'))) {
+      return current
+    }
+
+    if (current === root) {
+      return normalized
+    }
+
+    const parent = dirname(current)
+    if (parent === current) {
+      return normalized
+    }
+
+    current = parent
+  }
+}
+
+function resolveConfigPath(projectDir: string, env: WorkerRuntimeEnv): string {
+  if (env.OWLFOLIO_APP_CONFIG_PATH !== undefined && env.OWLFOLIO_APP_CONFIG_PATH.length > 0) {
+    return env.OWLFOLIO_APP_CONFIG_PATH
+  }
+
+  return join(projectDir, 'data', 'app-config.json')
+}
+
+async function loadConfig(configPath: string): Promise<AppConfig> {
+  if (!existsSync(configPath)) {
+    return defaultDemoAppConfig()
+  }
+
+  return JSON.parse(await readFile(configPath, 'utf8')) as AppConfig
+}
+
+export async function resolveWorkerRuntimePaths({
+  cwd = process.cwd(),
+  env = process.env as WorkerRuntimeEnv,
+}: WorkerRuntimePathsOptions = {}): Promise<WorkerRuntimePaths> {
+  const projectDir = env.OWLFOLIO_PROJECT_DIR ?? resolveProjectRootFromCwd(cwd)
+  const configPath = resolveConfigPath(projectDir, env)
+  const config = await loadConfig(configPath)
+  const ledgerPath = env.OWLFOLIO_LEDGER_PATH
+    ?? config.ledger_path
+    ?? join(projectDir, 'data', 'owlfolio-ledger.sqlite')
+  const sourceLedgerPath = env.OWLFOLIO_SOURCE_LEDGER_PATH
+    ?? config.source_ledger_path
+    ?? join(projectDir, 'data', 'source-ledger')
+  const providerCertificationDir = env.OWLFOLIO_PROVIDER_CERTIFICATION_DIR
+    ?? join(projectDir, 'data', 'provider-certifications')
+
+  await mkdir(dirname(ledgerPath), { recursive: true })
+  await mkdir(sourceLedgerPath, { recursive: true })
+  await mkdir(providerCertificationDir, { recursive: true })
+
+  return {
+    project_dir: projectDir,
+    config_path: configPath,
+    ledger_path: ledgerPath,
+    source_ledger_path: sourceLedgerPath,
+    provider_certification_dir: providerCertificationDir,
+    config,
+  }
+}
+
+export async function resolveWorkerProviderReadiness({
+  provider_id,
+  provider_certification_dir,
+}: {
+  provider_id: string
+  provider_certification_dir: string
+}): Promise<ProviderExecutionReadiness> {
+  const report = await readLatestCertificationReport(provider_certification_dir, provider_id)
+  if (report?.support_level === 'unsupported') {
+    return {
+      provider_id,
+      is_ready: false,
+      status_label: report.not_run_reason ?? report.summary,
+    }
+  }
+
+  return {
+    provider_id,
+    is_ready: true,
+    status_label: report === undefined ? 'No unsupported certification report found.' : report.summary,
+  }
+}
+
+async function readLatestCertificationReport(
+  providerCertificationDir: string,
+  providerId: string,
+): Promise<CertificationReport | undefined> {
+  try {
+    return JSON.parse(await readFile(join(providerCertificationDir, `${providerId}.latest.json`), 'utf8')) as CertificationReport
+  } catch (error) {
+    if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
+      return undefined
+    }
+    throw error
+  }
+}
+
+function assertProviderReadyForExecution(provider: Provider, readiness: ProviderExecutionReadiness | undefined): void {
+  if (readiness === undefined) {
+    throw new Error(`Provider ${provider.provider_id} is not ready: provider readiness was not checked`)
+  }
+  if (readiness.provider_id !== provider.provider_id) {
+    throw new Error(`Provider ${provider.provider_id} is not ready: readiness was checked for ${readiness.provider_id}`)
+  }
+  if (!readiness.is_ready) {
+    throw new Error(`Provider ${provider.provider_id} is not ready: ${readiness.status_label}`)
+  }
+}
+
+function scheduledTaskEvent<TPayload extends Record<string, unknown>>(
+  eventType: 'scheduled_task_defined' | 'scheduled_task_run_started' | 'scheduled_task_run_completed' | 'scheduled_task_run_failed',
+  scheduledTaskId: string,
+  payload: TPayload,
+  createdAt: string,
+  options: {
+    event_id: string
+    actor_type: LedgerEventEnvelope<unknown>['actor_type']
+    actor_id: string
+    causation_id?: string
+    correlation_id?: string
+    idempotency_key?: string
+  },
+): LedgerEventEnvelope<TPayload> {
+  return {
+    event_id: options.event_id,
+    event_type: eventType,
+    aggregate_type: 'scheduled_task',
+    aggregate_id: scheduledTaskId,
+    ...(options.causation_id === undefined ? {} : { causation_id: options.causation_id }),
+    ...(options.correlation_id === undefined ? {} : { correlation_id: options.correlation_id }),
+    ...(options.idempotency_key === undefined ? {} : { idempotency_key: options.idempotency_key }),
+    actor_type: options.actor_type,
+    actor_id: options.actor_id,
+    payload,
+    source_ids: [],
+    created_at: createdAt,
+    schema_version: 1,
+  }
+}
+
+function providerRunEvent<TPayload extends Record<string, unknown>>(
+  eventType: 'provider_run_started' | 'provider_run_completed' | 'provider_run_failed',
+  providerRunId: string,
+  payload: TPayload,
+  createdAt: string,
+  options: {
+    event_id: string
+    actor_type: LedgerEventEnvelope<unknown>['actor_type']
+    actor_id: string
+    causation_id?: string
+    correlation_id?: string
+    idempotency_key?: string
+  },
+): LedgerEventEnvelope<TPayload> {
+  return {
+    event_id: options.event_id,
+    event_type: eventType,
+    aggregate_type: 'provider_run',
+    aggregate_id: providerRunId,
+    ...(options.causation_id === undefined ? {} : { causation_id: options.causation_id }),
+    ...(options.correlation_id === undefined ? {} : { correlation_id: options.correlation_id }),
+    ...(options.idempotency_key === undefined ? {} : { idempotency_key: options.idempotency_key }),
+    actor_type: options.actor_type,
+    actor_id: options.actor_id,
+    payload,
+    source_ids: [],
+    created_at: createdAt,
+    schema_version: 1,
+  }
+}
+
+function defaultTaskDefinitions(): ScheduledTaskPayload[] {
+  return [
+    {
+      scheduled_task_id: 'task_review_reminders_daily',
+      task_kind: 'review_reminder',
+      cadence: '0 8 * * 1-5',
+      enabled: true,
+      dry_run: true,
+      retry_policy: { max_attempts: 2, retry_delay_ms: DEFAULT_RETRY_DELAY_MS },
+      safety: {
+        mock_safe: true,
+        auto_approve_investment_actions: false,
+        auto_approve_portfolio_actions: false,
+      },
+    },
+    {
+      scheduled_task_id: 'task_watchlist_monitor_daily',
+      task_kind: 'watchlist_monitor',
+      cadence: '0 9 * * 1-5',
+      enabled: true,
+      dry_run: true,
+      retry_policy: { max_attempts: 2, retry_delay_ms: DEFAULT_RETRY_DELAY_MS },
+      safety: {
+        mock_safe: true,
+        auto_approve_investment_actions: false,
+        auto_approve_portfolio_actions: false,
+      },
+    },
+  ]
+}
+
+export async function defineDefaultScheduledTasks(
+  store: EventStore<LedgerEventEnvelope<unknown>>,
+  { now = nowIso }: DefineDefaultScheduledTasksOptions = {},
+): Promise<LedgerEventEnvelope<unknown>[]> {
+  const createdAt = now()
+  const events: LedgerEventEnvelope<unknown>[] = []
+
+  for (const payload of defaultTaskDefinitions()) {
+    const event = scheduledTaskEvent(
+      'scheduled_task_defined',
+      payload.scheduled_task_id,
+      payload,
+      createdAt,
+      {
+        event_id: `evt_scheduled_task_defined_${payload.scheduled_task_id}`,
+        actor_type: 'user',
+        actor_id: 'system-defaults',
+        idempotency_key: `scheduled-task-definition:${payload.scheduled_task_id}:v1`,
+      },
+    )
+    events.push(await store.append(event as LedgerEventEnvelope<unknown>))
+  }
+
+  return events
+}
+
+function runIdFor(task: ScheduledTaskProjection, now: string): string {
+  return `run_${task.scheduled_task_id}_${now.replace(/[^0-9]/g, '').slice(0, 14)}`
+}
+
+function labelForWatchlistItem(item: ReturnType<typeof projectWatchlist>[number]): string {
+  return item.ticker ?? item.company_id ?? item.watchlist_item_id
+}
+
+async function runReviewReminderTask(
+  store: EventStore<LedgerEventEnvelope<unknown>>,
+  options: RunScheduledTasksOptions,
+): Promise<TaskResult> {
+  const events = await store.list()
+  const asOf = options.as_of ?? currentDate()
+  const summary = projectCommandCenterSummary(events, { as_of: asOf })
+  const holdings = projectHoldings(events)
+  const heldWatchlistItemIds = new Set(holdings.map((holding) => holding.watchlist_item_id))
+  const confirmedWatchlistItems = projectWatchlist(events).filter(
+    (item) => item.user_approved && !heldWatchlistItemIds.has(item.watchlist_item_id),
+  )
+  const duePrompts = summary.holding_review_prompts.filter((prompt) => prompt.status === 'due')
+  const upcomingPrompts = summary.holding_review_prompts.filter((prompt) => prompt.status === 'upcoming')
+  const observations = [
+    ...duePrompts.map((prompt) => `holding ${prompt.label} is due for review`),
+    ...upcomingPrompts.map((prompt) => `holding ${prompt.label} review is upcoming on ${prompt.next_review_at}`),
+    ...confirmedWatchlistItems.map((item) => `watchlist ${labelForWatchlistItem(item)} should be reviewed for buy-zone/thesis changes; opening a holding requires user approval`),
+  ]
+
+  return {
+    result_summary: `review_reminder dry-run: ${duePrompts.length} due holding review(s), ${upcomingPrompts.length} upcoming holding review(s), ${confirmedWatchlistItems.length} confirmed watchlist review reminder(s); no investment action taken`,
+    observations,
+    approval_gates: [HOLDING_REVIEW_APPROVAL_GATE, OPEN_HOLDING_APPROVAL_GATE],
+    human_approval_required: observations.length > 0,
+  }
+}
+
+function providerRunIdFor(scheduledTaskRunId: string, watchlistItemId: string): string {
+  return `provider_${scheduledTaskRunId}_${watchlistItemId}`
+}
+
+function buildWatchlistMonitorPrompt(item: ReturnType<typeof projectWatchlist>[number]): string {
+  const label = labelForWatchlistItem(item)
+  return [
+    `Review ticker ${label} for Owlfolio watchlist monitoring.`,
+    'Assess buy-zone, thesis drift, valuation status, and material source updates.',
+    'Do not recommend or execute any portfolio action without explicit human approval.',
+  ].join(' ')
+}
+
+async function appendProviderRun(
+  store: EventStore<LedgerEventEnvelope<unknown>>,
+  provider: Provider,
+  item: ReturnType<typeof projectWatchlist>[number],
+  options: TaskHandlerOptions,
+): Promise<ProviderRunResult> {
+  const providerRunId = providerRunIdFor(options.scheduled_task_run_id, item.watchlist_item_id)
+  const modelId = options.provider_model_id ?? 'mock-buffett-munger-monitor'
+  const startedAt = options.now?.() ?? nowIso()
+  const request = {
+    run_id: providerRunId,
+    provider_id: provider.provider_id,
+    model_id: modelId,
+    task_kind: 'tool-loop' as const,
+    prompt: buildWatchlistMonitorPrompt(item),
+    timeout_ms: 120_000,
+    budget: { max_tool_calls: 3, max_tokens: 1_200 },
+    tool_allowlist: ['source.fetch'],
+    response_format: { kind: 'text' as const },
+  }
+
+  await store.append(providerRunEvent(
+    'provider_run_started',
+    providerRunId,
+    {
+      provider_run_id: providerRunId,
+      provider_id: provider.provider_id,
+      model_id: modelId,
+      task_kind: request.task_kind,
+      watchlist_item_id: item.watchlist_item_id,
+      started_at: startedAt,
+      dry_run: true,
+    },
+    startedAt,
+    {
+      event_id: `evt_provider_run_started_${providerRunId}`,
+      actor_type: 'worker',
+      actor_id: WORKER_ACTOR_ID,
+      correlation_id: options.scheduled_task_run_id,
+      idempotency_key: `provider-run:${providerRunId}:started`,
+    },
+  ) as LedgerEventEnvelope<unknown>)
+
+  try {
+    const providerResult = await runProviderTask(provider, request)
+    const completedAt = options.now?.() ?? nowIso()
+    await store.append(providerRunEvent(
+      'provider_run_completed',
+      providerRunId,
+      {
+        provider_run_id: providerRunId,
+        provider_id: provider.provider_id,
+        model_id: modelId,
+        watchlist_item_id: item.watchlist_item_id,
+        completed_at: completedAt,
+        finish_reason: providerResult.finish_reason,
+        observations: providerResult.observations.map((observation) => observation.message),
+        tool_call_count: providerResult.tool_calls.length,
+        approval_gates: [OPEN_HOLDING_APPROVAL_GATE],
+        human_approval_required: true,
+        auto_approved_actions: 0,
+        dry_run: true,
+      },
+      completedAt,
+      {
+        event_id: `evt_provider_run_completed_${providerRunId}`,
+        actor_type: 'provider',
+        actor_id: provider.provider_id,
+        causation_id: `evt_provider_run_started_${providerRunId}`,
+        correlation_id: options.scheduled_task_run_id,
+        idempotency_key: `provider-run:${providerRunId}:completed`,
+      },
+    ) as LedgerEventEnvelope<unknown>)
+    return providerResult
+  } catch (error) {
+    const failedAt = options.now?.() ?? nowIso()
+    await store.append(providerRunEvent(
+      'provider_run_failed',
+      providerRunId,
+      {
+        provider_run_id: providerRunId,
+        provider_id: provider.provider_id,
+        model_id: modelId,
+        watchlist_item_id: item.watchlist_item_id,
+        failed_at: failedAt,
+        error_summary: error instanceof Error ? error.message : String(error),
+        approval_gates: [OPEN_HOLDING_APPROVAL_GATE],
+        human_approval_required: true,
+        auto_approved_actions: 0,
+        dry_run: true,
+      },
+      failedAt,
+      {
+        event_id: `evt_provider_run_failed_${providerRunId}`,
+        actor_type: 'provider',
+        actor_id: provider.provider_id,
+        causation_id: `evt_provider_run_started_${providerRunId}`,
+        correlation_id: options.scheduled_task_run_id,
+        idempotency_key: `provider-run:${providerRunId}:failed`,
+      },
+    ) as LedgerEventEnvelope<unknown>)
+    throw error
+  }
+}
+
+async function runWatchlistMonitorTask(
+  store: EventStore<LedgerEventEnvelope<unknown>>,
+  options: TaskHandlerOptions,
+): Promise<TaskResult> {
+  const events = await store.list()
+  const holdings = projectHoldings(events)
+  const heldWatchlistItemIds = new Set(holdings.map((holding) => holding.watchlist_item_id))
+  const confirmedWatchlistItems = projectWatchlist(events).filter(
+    (item) => item.user_approved && !heldWatchlistItemIds.has(item.watchlist_item_id),
+  )
+  const observations = confirmedWatchlistItems.map(
+    (item) => `${labelForWatchlistItem(item)} remains on the confirmed watchlist for mock-safe monitoring`,
+  )
+  const providerRunIds: string[] = []
+  let providerEventsAppended = 0
+
+  if (options.provider !== undefined) {
+    assertProviderReadyForExecution(options.provider, options.provider_readiness)
+    for (const item of confirmedWatchlistItems) {
+      const providerResult = await appendProviderRun(store, options.provider, item, options)
+      const providerRunId = providerRunIdFor(options.scheduled_task_run_id, item.watchlist_item_id)
+      providerRunIds.push(providerRunId)
+      providerEventsAppended += 2
+      observations.push(`${labelForWatchlistItem(item)} provider monitor completed with ${providerResult.tool_calls.length} source tool call(s); portfolio action requires user approval`)
+    }
+  }
+
+  return {
+    result_summary: `watchlist_monitor dry-run: ${confirmedWatchlistItems.length} confirmed watchlist item(s) monitored; no buy/sell/portfolio action taken`,
+    observations,
+    ...(providerRunIds.length === 0 ? {} : { provider_run_ids: providerRunIds }),
+    approval_gates: [OPEN_HOLDING_APPROVAL_GATE],
+    human_approval_required: confirmedWatchlistItems.length > 0,
+    events_appended: providerEventsAppended,
+  }
+}
+
+async function runTaskHandler(
+  store: EventStore<LedgerEventEnvelope<unknown>>,
+  task: ScheduledTaskProjection,
+  options: TaskHandlerOptions,
+): Promise<TaskResult> {
+  if (task.task_kind === 'review_reminder') {
+    return runReviewReminderTask(store, options)
+  }
+
+  if (task.task_kind === 'watchlist_monitor') {
+    return runWatchlistMonitorTask(store, options)
+  }
+
+  throw new Error(`Unsupported scheduled task kind: ${task.task_kind}`)
+}
+
+function retryDelayMs(task: ScheduledTaskProjection): number {
+  return task.retry_policy?.retry_delay_ms ?? DEFAULT_RETRY_DELAY_MS
+}
+
+function maxAttempts(task: ScheduledTaskProjection): number {
+  return task.retry_policy?.max_attempts ?? task.max_attempts ?? 1
+}
+
+function retryAfter(failedAt: string, task: ScheduledTaskProjection): string | undefined {
+  const attempt = task.failure_count + 1
+  const max = maxAttempts(task)
+  if (attempt >= max) {
+    return undefined
+  }
+
+  return new Date(new Date(failedAt).getTime() + retryDelayMs(task)).toISOString()
+}
+
+function retrySkipReason(task: ScheduledTaskProjection, now: string): string | undefined {
+  if (task.last_run_status !== 'failed') {
+    return undefined
+  }
+
+  const max = maxAttempts(task)
+  if (task.failure_count >= max) {
+    return `${task.scheduled_task_id} skipped: retry attempts exhausted after ${task.failure_count} failure(s)`
+  }
+
+  if (task.retry_after !== undefined && new Date(now).getTime() < new Date(task.retry_after).getTime()) {
+    return `${task.scheduled_task_id} skipped: retry opens at ${task.retry_after}`
+  }
+
+  return undefined
+}
+
+export async function runScheduledTasks(
+  store: EventStore<LedgerEventEnvelope<unknown>>,
+  options: RunScheduledTasksOptions = {},
+): Promise<RunScheduledTasksResult> {
+  const dryRun = options.dry_run ?? true
+  const eventsBefore = await store.list()
+  const tasks = projectScheduledTasks(eventsBefore).filter(
+    (task) => task.enabled && (options.task_kind === undefined || task.task_kind === options.task_kind),
+  )
+  const result: RunScheduledTasksResult = {
+    considered: tasks.length,
+    completed: 0,
+    failed: 0,
+    skipped: 0,
+    events_appended: 0,
+    summaries: [],
+  }
+
+  for (const task of tasks) {
+    const startedAt = options.now?.() ?? nowIso()
+    const retryReason = retrySkipReason(task, startedAt)
+    if (retryReason !== undefined) {
+      result.skipped += 1
+      result.summaries.push(retryReason)
+      continue
+    }
+
+    if (!dryRun || !task.dry_run) {
+      result.skipped += 1
+      result.summaries.push(`${task.scheduled_task_id} skipped: worker currently allows only dry-run scheduled tasks`)
+      continue
+    }
+
+    const runId = options.run_id?.(task) ?? runIdFor(task, startedAt)
+    const attempt = task.failure_count + 1
+    await store.append(scheduledTaskEvent(
+      'scheduled_task_run_started',
+      task.scheduled_task_id,
+      {
+        scheduled_task_id: task.scheduled_task_id,
+        run_id: runId,
+        started_at: startedAt,
+        attempt,
+        dry_run: true,
+      },
+      startedAt,
+      {
+        event_id: `evt_scheduled_task_run_started_${runId}`,
+        actor_type: 'worker',
+        actor_id: WORKER_ACTOR_ID,
+        correlation_id: task.scheduled_task_id,
+        idempotency_key: `scheduled-task-run:${runId}:started`,
+      },
+    ) as LedgerEventEnvelope<unknown>)
+    result.events_appended += 1
+
+    try {
+      const taskResult = await runTaskHandler(store, task, { ...options, scheduled_task_run_id: runId })
+      const completedAt = options.now?.() ?? nowIso()
+      await store.append(scheduledTaskEvent(
+        'scheduled_task_run_completed',
+        task.scheduled_task_id,
+        {
+          scheduled_task_id: task.scheduled_task_id,
+          run_id: runId,
+          completed_at: completedAt,
+          result_summary: taskResult.result_summary,
+          observations: taskResult.observations,
+          ...(taskResult.provider_run_ids === undefined ? {} : { provider_run_ids: taskResult.provider_run_ids }),
+          ...(taskResult.approval_gates === undefined ? {} : { approval_gates: taskResult.approval_gates }),
+          human_approval_required: taskResult.human_approval_required ?? false,
+          auto_approved_actions: 0,
+          dry_run: true,
+        },
+        completedAt,
+        {
+          event_id: `evt_scheduled_task_run_completed_${runId}`,
+          actor_type: 'worker',
+          actor_id: WORKER_ACTOR_ID,
+          causation_id: `evt_scheduled_task_run_started_${runId}`,
+          correlation_id: task.scheduled_task_id,
+          idempotency_key: `scheduled-task-run:${runId}:completed`,
+        },
+      ) as LedgerEventEnvelope<unknown>)
+      result.completed += 1
+      result.events_appended += 1 + (taskResult.events_appended ?? 0)
+      result.summaries.push(taskResult.result_summary)
+    } catch (error) {
+      const failedAt = options.now?.() ?? nowIso()
+      const retryAt = retryAfter(failedAt, task)
+      await store.append(scheduledTaskEvent(
+        'scheduled_task_run_failed',
+        task.scheduled_task_id,
+        {
+          scheduled_task_id: task.scheduled_task_id,
+          run_id: runId,
+          failed_at: failedAt,
+          error_summary: error instanceof Error ? error.message : String(error),
+          attempt,
+          max_attempts: maxAttempts(task),
+          ...(retryAt === undefined ? {} : { retry_after: retryAt }),
+          dry_run: true,
+        },
+        failedAt,
+        {
+          event_id: `evt_scheduled_task_run_failed_${runId}`,
+          actor_type: 'worker',
+          actor_id: WORKER_ACTOR_ID,
+          causation_id: `evt_scheduled_task_run_started_${runId}`,
+          correlation_id: task.scheduled_task_id,
+          idempotency_key: `scheduled-task-run:${runId}:failed`,
+        },
+      ) as LedgerEventEnvelope<unknown>)
+      result.failed += 1
+      result.events_appended += 1
+      result.summaries.push(error instanceof Error ? error.message : String(error))
+    }
+  }
+
+  return result
+}

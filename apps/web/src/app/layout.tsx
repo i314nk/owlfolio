@@ -1,5 +1,7 @@
+import { createElement, type ReactNode } from 'react'
 import type { Metadata } from 'next'
-import type { ReactNode } from 'react'
+
+import { AppNavigation } from '../components/AppNavigation'
 
 export const metadata: Metadata = {
   title: 'Owlfolio Command Center',
@@ -7,9 +9,14 @@ export const metadata: Metadata = {
 }
 
 export default function RootLayout({ children }: { children: ReactNode }) {
-  return (
-    <html lang="en">
-      <body style={{ margin: 0 }}>{children}</body>
-    </html>
+  return createElement(
+    'html',
+    { lang: 'en' },
+    createElement(
+      'body',
+      { style: { margin: 0 } },
+      createElement(AppNavigation),
+      children,
+    ),
   )
 }

@@ -104,6 +104,11 @@ export function OnboardingWizard({ initialConfig, initialIsInitialized, initialR
     [config.provider.provider_id, config.provider.support_level, providerOptions],
   )
 
+  const personalProviderFallback = useMemo<ProviderOption | undefined>(
+    () => providerOptions.find((provider) => provider.provider_id !== 'mock-provider'),
+    [providerOptions],
+  )
+
   function updateMode(mode: AppConfig['mode']) {
     setConfig((current) => {
       if (mode === 'demo') {
@@ -121,8 +126,11 @@ export function OnboardingWizard({ initialConfig, initialIsInitialized, initialR
       return {
         ...current,
         mode,
-        provider: current.provider.provider_id === 'mock-provider'
-          ? { provider_id: 'claude', support_level: 'certified' }
+        provider: current.provider.provider_id === 'mock-provider' && personalProviderFallback !== undefined
+          ? {
+              provider_id: personalProviderFallback.provider_id,
+              support_level: personalProviderFallback.support_level,
+            }
           : current.provider,
       }
     })
@@ -148,7 +156,9 @@ export function OnboardingWizard({ initialConfig, initialIsInitialized, initialR
       })
 
       if (!response.ok) {
-        throw new Error('Failed to initialize onboarding state')
+        const payload = (await response.json().catch(() => undefined)) as { error?: { message?: string } | string } | undefined
+        const serverMessage = typeof payload?.error === 'string' ? payload.error : payload?.error?.message
+        throw new Error(serverMessage ?? 'Failed to initialize onboarding state')
       }
 
       const payload = (await response.json()) as { config: AppConfig; next_destination: string }

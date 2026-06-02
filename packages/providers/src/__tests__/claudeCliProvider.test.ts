@@ -97,6 +97,22 @@ describe('ClaudeCliProvider', () => {
     )
   })
 
+  it('uses stdout as the failure message when Claude CLI reports account errors there', async () => {
+    const provider = new ClaudeCliProvider({
+      env: {},
+      runCommand: async () => ({
+        exitCode: 1,
+        stdout: 'Your organization has disabled Claude subscription access for Claude Code',
+        stderr: '',
+      }),
+    })
+
+    await expect(provider.complete({
+      ...request,
+      response_format: { kind: 'text' },
+    })).rejects.toThrow('disabled Claude subscription access')
+  })
+
   it('resolves Claude through the provider factory', () => {
     const provider = resolveProvider({
       provider_id: 'claude',

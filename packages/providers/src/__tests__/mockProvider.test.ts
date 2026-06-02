@@ -12,6 +12,16 @@ const AnalysisSchema = z.object({
   source_ids: z.array(z.string()).min(1),
 })
 
+const HoldingReviewSchema = z.object({
+  thesis_health: z.enum(['HEALTHY', 'WATCH', 'IMPAIRED', 'EXIT_CANDIDATE']),
+  action_stance: z.enum(['HOLD', 'ADD_ON_PULLBACK', 'REDUCE', 'EXIT_REVIEW_NEEDED', 'RESEARCH_MORE']),
+  rationale: z.string().min(1),
+  evidence_summary: z.string().min(1),
+  uncertainty: z.string().min(1),
+  next_review_at: z.string().min(1),
+  source_ids: z.array(z.string()).min(1),
+})
+
 describe('MockProvider', () => {
   it('returns structured Buffett-Munger analysis matching schema', async () => {
     const provider = new MockProvider()
@@ -31,6 +41,48 @@ describe('MockProvider', () => {
     )
     expect(result).toMatchObject({ investment_verdict: 'WATCH', strategy_compliance: 'CONDITIONAL', shariah_status: 'COMPLIANT' })
     expect(result.source_ids).toContain('src_cost_10k_2025')
+  })
+
+  it('keeps non-COST research output ticker-aware instead of leaking Costco sources', async () => {
+    const provider = new MockProvider()
+    const result = await provider.structured(
+      {
+        run_id: 'run_mock_msft_001',
+        provider_id: 'mock-provider',
+        model_id: 'mock-research-v1',
+        task_kind: 'structured-output',
+        prompt: 'Analyze MSFT with Buffett-Munger policy',
+        timeout_ms: 1000,
+        budget: { max_tool_calls: 2, max_tokens: 2000 },
+        tool_allowlist: ['source.fetch'],
+        response_format: { kind: 'json-schema', schema_name: 'BuffettMungerAnalysis' },
+      },
+      AnalysisSchema,
+    )
+
+    expect(result.next_required_action).toContain('MSFT')
+    expect(result.next_required_action).not.toMatch(/Costco|COST\b/)
+    expect(result.source_ids).toEqual(['src_msft_10k_2025', 'src_msft_proxy_2025', 'src_msft_q1_2026'])
+  })
+
+  it('keeps non-COST holding review sources aligned with the reviewed ticker', async () => {
+    const provider = new MockProvider()
+    const result = await provider.structured(
+      {
+        run_id: 'run_review_msft_001',
+        provider_id: 'mock-provider',
+        model_id: 'mock-research-v1',
+        task_kind: 'structured-output',
+        prompt: 'Review ticker MSFT under the certified Buffett-Munger strategy buffett-munger.',
+        timeout_ms: 1000,
+        budget: { max_tool_calls: 0, max_tokens: 2000 },
+        tool_allowlist: [],
+        response_format: { kind: 'json-schema', schema_name: 'BuffettMungerHoldingReview' },
+      },
+      HoldingReviewSchema,
+    )
+
+    expect(result.source_ids).toEqual(['src_msft_10k_2025', 'src_msft_proxy_2025', 'src_msft_q1_2026'])
   })
 
   it('records provider run metadata and tool allowlist', async () => {

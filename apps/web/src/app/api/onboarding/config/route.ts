@@ -6,7 +6,7 @@ export async function GET() {
   const state = await getOnboardingState()
   return NextResponse.json({
     ...state,
-    provider_options: getOnboardingProviderOptions(),
+    provider_options: await getOnboardingProviderOptions(),
   })
 }
 
@@ -18,6 +18,6 @@ export async function PUT(request: Request) {
   return NextResponse.json({
     config,
     is_initialized: state.is_initialized,
-    provider_options: getOnboardingProviderOptions(),
+    provider_options: await getOnboardingProviderOptions(),
   })
 }
