@@ -127,6 +127,63 @@ describe('generic audit activity', () => {
     expect(view.filterOptions.entities).toContain('MSFT')
   })
 
+  it('filters by trace IDs, schema version, and date range while explaining active filters', async () => {
+    const events = await getAuditActivityEventsFromStore(storeWith([
+      event({
+        event_id: 'evt_old_msft_source',
+        correlation_id: 'corr_msft_research',
+        payload: { ticker: 'MSFT' },
+        source_ids: ['src_msft_10k'],
+        created_at: '2026-05-29T08:00:00.000Z',
+      }),
+      event({
+        event_id: 'evt_target_msft_decision',
+        event_type: 'decision_drafted',
+        aggregate_type: 'decision',
+        aggregate_id: 'decision_msft_001',
+        correlation_id: 'corr_msft_research',
+        causation_id: 'evt_old_msft_source',
+        payload: { ticker: 'MSFT' },
+        source_ids: ['src_msft_10k'],
+        created_at: '2026-06-01T08:00:00.000Z',
+        schema_version: 2,
+      }),
+      event({
+        event_id: 'evt_other_corr',
+        event_type: 'decision_drafted',
+        aggregate_type: 'decision',
+        aggregate_id: 'decision_aapl_001',
+        correlation_id: 'corr_aapl_research',
+        payload: { ticker: 'AAPL' },
+        source_ids: ['src_aapl_10k'],
+        created_at: '2026-06-02T08:00:00.000Z',
+        schema_version: 2,
+      }),
+    ]))
+
+    const view = deriveAuditActivityView(events, {
+      correlationId: 'corr_msft',
+      dateFrom: '2026-06-01',
+      dateTo: '2026-06-01',
+      eventId: 'target',
+      schemaVersion: '2',
+      sourceId: 'src_msft_10k',
+      timeOrder: 'desc',
+    })
+
+    expect(view.events.map((activityEvent) => activityEvent.event_id)).toEqual(['evt_target_msft_decision'])
+    expect(view.filterOptions.schemaVersions).toEqual(['1', '2'])
+    expect(view.activeFilters).toEqual([
+      'Event ID contains target',
+      'Correlation ID contains corr_msft',
+      'Source ID contains src_msft_10k',
+      'Schema v2',
+      'From 2026-06-01',
+      'To 2026-06-01',
+      'Newest first',
+    ])
+  })
+
   it('renders search controls and expandable evidence with stable event identity', async () => {
     const events = await getAuditActivityEventsFromStore(storeWith([
       event({
@@ -139,23 +196,60 @@ describe('generic audit activity', () => {
       event({ event_id: 'evt_same_label_b', aggregate_id: 'rc_duplicate_b' }),
     ]))
 
-    const html = renderToStaticMarkup(createElement(AuditActivityPanel, { events, filters: { entity: 'MSFT' }, mode: 'personal-local' }))
+    const html = renderToStaticMarkup(createElement(AuditActivityPanel, {
+      events,
+      filters: {
+        dateFrom: '2026-05-31',
+        entity: 'MSFT',
+        eventId: 'same_label_a',
+        schemaVersion: '1',
+        sourceId: 'evt_source',
+        timeOrder: 'desc',
+      },
+      mode: 'personal-local',
+    }))
 
     expect(html).toContain('Audit activity')
     expect(html).toContain('Personal local ledger event stream')
     expect(html).toContain('name="event_type"')
     expect(html).toContain('name="actor"')
     expect(html).toContain('name="entity"')
+    expect(html).toContain('name="q"')
+    expect(html).toContain('name="event_id"')
+    expect(html).toContain('name="correlation_id"')
+    expect(html).toContain('name="source_id"')
+    expect(html).toContain('name="schema_version"')
+    expect(html).toContain('name="date_from"')
+    expect(html).toContain('name="date_to"')
     expect(html).toContain('name="time_order"')
+    expect(html).toContain('Active audit filters')
+    expect(html).toContain('Event ID contains same_label_a')
+    expect(html).toContain('Source ID contains evt_source')
+    expect(html).toContain('Newest first')
     expect(html).toContain('data-event-id="evt_same_label_a"')
     expect(html).not.toContain('data-event-id="evt_same_label_b"')
     expect(html).toContain('Research case created for MSFT')
+    expect(html).toContain('Event ID')
+    expect(html).toContain('evt_same_label_a')
     expect(html).toContain('Raw event type')
     expect(html).toContain('research_case_created')
+    expect(html).toContain('Aggregate ID')
+    expect(html).toContain('rc_duplicate_a')
+    expect(html).toContain('Causation / parent event')
+    expect(html).toContain('Source / parent links')
+    expect(html).toContain('Schema version')
     expect(html).toContain('<details')
     expect(html).toContain('aria-label="Copyable event ID evt_same_label_a"')
-    expect(html).toContain('href="#evt_source"')
-    expect(html).toContain('href="#evt_parent"')
+    expect(html).toContain('aria-label="Copyable source ID evt_source"')
+    expect(html).toContain('href="/audit?source_id=evt_source"')
+    expect(html).toContain('href="/audit?event_id=evt_parent#evt_parent"')
+    expect(html).not.toContain('href="#evt_source"')
+    expect(html).not.toContain('href="#evt_parent"')
     expect(html).toContain('Raw ledger event JSON')
+    expect(html).toContain('Audit copy kit')
+    expect(html).not.toContain('payload value, source ID, schema')
+    expect(html).not.toContain('#047857')
+    expect(html).not.toContain('#ecfdf5')
+    expect(html).not.toContain('#f0fdf4')
   })
 })

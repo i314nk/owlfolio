@@ -9,7 +9,7 @@ test('monthly accounting report renders projected current period after a valuati
   await page.goto('/onboarding')
   await page.getByRole('radio', { name: /personal local mode/i }).click()
   await page.getByRole('combobox').selectOption('mock-provider')
-  await page.getByRole('button', { name: /start workflow/i }).click()
+  await page.getByRole('button', { name: /initialize owlfolio workflow/i }).click()
 
   await page.getByRole('link', { name: /start first research case/i }).first().click()
   await page.getByLabel('Ticker').fill('MSFT')

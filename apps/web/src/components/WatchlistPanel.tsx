@@ -1,5 +1,6 @@
 import { createElement } from 'react'
 
+import { SourceChip } from './designSystem'
 import { StatusBadge } from './StatusBadge'
 import type { AppWatchlistItem, WorkflowMode } from '../lib/workflow'
 
@@ -9,10 +10,10 @@ export type WatchlistPanelProps = {
 }
 
 const cardStyle = {
-  background: '#ffffff',
-  border: '1px solid #e2e8f0',
+  background: 'rgba(255, 255, 255, 0.035)',
+  border: '1px solid rgba(148, 163, 184, 0.16)',
   borderRadius: '1rem',
-  boxShadow: '0 12px 30px rgba(15, 23, 42, 0.06)',
+  boxShadow: '0 18px 50px rgba(0, 0, 0, 0.18)',
   padding: '1.25rem',
 }
 
@@ -29,17 +30,17 @@ export function WatchlistPanel({ items, mode = 'demo' }: WatchlistPanelProps) {
       'header',
       {
         style: {
-          background: 'linear-gradient(135deg, #f8fafc 0%, #ecfdf5 100%)',
-          border: '1px solid #dbeafe',
+          background: 'linear-gradient(135deg, rgba(124, 140, 255, 0.12) 0%, rgba(10, 132, 255, 0.08) 100%)',
+          border: '1px solid rgba(148, 163, 184, 0.18)',
           borderRadius: '1.25rem',
           padding: '1.5rem',
         },
       },
-      createElement('p', { style: { color: '#047857', fontWeight: 800, letterSpacing: '0.08em', margin: 0 } }, 'OWLFOLIO'),
+      createElement('p', { style: { color: '#6366f1', fontWeight: 800, letterSpacing: '0.08em', margin: 0 } }, 'OWLFOLIO'),
       createElement('h1', { style: { fontSize: 'clamp(2rem, 5vw, 3.5rem)', lineHeight: 1, margin: '0.5rem 0' } }, 'Watchlist drafts'),
       createElement(
         'p',
-        { style: { color: '#475569', fontSize: '1rem', margin: 0 } },
+        { style: { color: '#9aa4b7', fontSize: '1rem', margin: 0 } },
         'Personal local ledger watchlist state.',
       ),
     ),
@@ -50,7 +51,7 @@ export function WatchlistPanel({ items, mode = 'demo' }: WatchlistPanelProps) {
             { key: 'watchlist-empty-state', style: cardStyle },
             createElement(
               'p',
-              { style: { color: '#475569', margin: 0 } },
+              { style: { color: '#9aa4b7', margin: 0 } },
               'No watchlist drafts yet. Create a research case first.',
             ),
           ),
@@ -87,14 +88,17 @@ function createWatchlistCard(item: AppWatchlistItem, mode: WorkflowMode) {
         createDetail('Strategy', item.strategy_id ?? 'Unknown'),
         createDetail('Thesis summary', item.thesis_summary ?? 'No thesis recorded'),
         createDetail('Buy-zone status', item.buy_zone_status ?? 'Not set'),
-        createDetail('Research case', item.research_case_id),
+        createDetail('Created by actor', formatActor(item.created_by_actor_type, item.created_by_actor_id)),
+        createDetail('Last updated', item.updated_at),
+        createResearchCaseLink(item.research_case_id),
       ),
       createElement(
         'section',
         { className: 'owl-workflow-panel owl-workflow-panel-user' },
-        createElement('h3', { style: { fontSize: '1rem', margin: 0 } }, 'User-confirmed state'),
-        createDetail('Confirmation status', item.user_approved ? 'Confirmed by user' : 'Awaiting user confirmation'),
-        item.holding_id === undefined ? createDetail('Holding', 'Not opened yet') : createDetail('Holding', item.holding_id),
+        createElement('h3', { style: { fontSize: '1rem', margin: 0 } }, 'User decision checkpoint'),
+        createDetail('Confirmation status', item.user_approved ? 'User-confirmed watchlist decision' : 'Awaiting user confirmation'),
+        createDetail('Confirmed by actor', item.user_approved ? formatActor(item.confirmed_by_actor_type, item.confirmed_by_actor_id) : 'Not user-confirmed yet'),
+        item.holding_id === undefined ? createDetail('Position status', 'Not opened yet') : createDetail('Position status', item.holding_id),
       ),
     ),
     ...createShariahGateDetails(item),
@@ -115,7 +119,7 @@ function createWatchlistConfirmForm(item: AppWatchlistItem) {
     createElement('h3', { style: { fontSize: '1rem', margin: 0 } }, 'Confirm user watchlist state'),
     createElement(
       'p',
-      { style: { color: '#475569', margin: '0.35rem 0 0.8rem' } },
+      { style: { color: '#9aa4b7', margin: '0.35rem 0 0.8rem' } },
       'Review Shariah gate evidence, then confirm this watchlist draft as user-authored state.',
     ),
     createElement(
@@ -154,10 +158,26 @@ function createOpenHoldingForm(item: AppWatchlistItem) {
   )
 }
 
+function createResearchCaseLink(researchCaseId: string) {
+  const href = `/research/${researchCaseId}`
+
+  return createElement(
+    'div',
+    { style: { color: '#cbd5e1', display: 'grid', gap: '0.45rem', margin: '0.75rem 0 0' } },
+    createElement('strong', null, 'Research case link'),
+    createElement(
+      'div',
+      { style: { alignItems: 'center', display: 'flex', flexWrap: 'wrap', gap: '0.55rem' } },
+      createElement('a', { className: 'owl-focusable', href, style: { color: '#c7d2fe', fontWeight: 900, textDecoration: 'none' } }, 'View research dossier'),
+      createElement(SourceChip, { href, id: researchCaseId, label: 'Research case' }),
+    ),
+  )
+}
+
 function createDetail(label: string, value: string) {
   return createElement(
     'p',
-    { style: { color: '#334155', margin: '0.75rem 0 0' } },
+    { style: { color: '#cbd5e1', margin: '0.75rem 0 0' } },
     createElement('strong', null, `${label}: `),
     value,
   )
@@ -169,7 +189,8 @@ function createShariahGateDetails(item: AppWatchlistItem) {
   }
 
   return [
-    createDetail('Shariah gate', `${item.shariah_gate_status ?? 'UNKNOWN'} — ${item.shariah_gate_allowed === false ? 'blocked' : 'allowed'}`),
+    createDetail('Gate decision', item.shariah_gate_decision_id),
+    createDetail('Shariah gate', `${item.shariah_gate_status ?? 'UNKNOWN'} — ${describeGateAllowance(item.shariah_gate_allowed)}`),
     ...(item.shariah_gate_reasons === undefined || item.shariah_gate_reasons.length === 0
       ? []
       : [createDetail('Shariah gate reasons', item.shariah_gate_reasons.join(' '))]),
@@ -182,6 +203,25 @@ function createShariahGateDetails(item: AppWatchlistItem) {
   ]
 }
 
+function formatActor(actorType: string | undefined, actorId: string | undefined): string {
+  if (actorType === undefined || actorId === undefined) {
+    return 'Not recorded'
+  }
+
+  return `${actorType}:${actorId}`
+}
+
+function describeGateAllowance(allowed: boolean | undefined): string {
+  if (allowed === true) {
+    return 'allowed'
+  }
+  if (allowed === false) {
+    return 'blocked'
+  }
+
+  return 'gate decision pending'
+}
+
 function createLotInput(
   label: string,
   name: string,
@@ -191,7 +231,7 @@ function createLotInput(
 ) {
   return createElement(
     'label',
-    { style: { color: '#334155', display: 'grid', fontSize: '0.85rem', fontWeight: 700, gap: '0.25rem' } },
+    { style: { color: '#cbd5e1', display: 'grid', fontSize: '0.85rem', fontWeight: 700, gap: '0.25rem' } },
     label,
     createElement('input', {
       ...extraProps,
@@ -200,9 +240,10 @@ function createLotInput(
       required: true,
       type,
       style: {
-        border: '1px solid #cbd5e1',
+        background: 'rgba(148, 163, 184, 0.08)',
+        border: '1px solid rgba(148, 163, 184, 0.24)',
         borderRadius: '0.75rem',
-        color: '#0f172a',
+        color: '#f7f8ff',
         padding: '0.55rem 0.7rem',
       },
     }),

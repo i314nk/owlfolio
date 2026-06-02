@@ -96,9 +96,13 @@ describe('CommandCenter', () => {
       expect(html).toContain('Confirmed watchlist')
       expect(html).toContain('Open holdings')
       expect(html).toContain('class="owl-financial-number"')
+      expect(html).toContain('Daily local operating cockpit for autonomous research, user approvals, accounting reminders, purification follow-up, and audit review.')
+      expect(html).not.toContain('current Owlfolio v0.2 slice')
       expect(html).toContain('Review COST watchlist draft and confirm it')
       expect(html).toContain('Watchlist draft created')
-      expect(html).toContain('Audit event evt_demo_watchlist_001')
+      expect(html).toContain('class="owl-source-chip-label"')
+      expect(html).toContain('Audit event')
+      expect(html).toContain('evt_demo_watchlist_001')
       expect(html).not.toContain('watchlist_draft_created by user:user_local')
     } finally {
       store.close()
@@ -136,14 +140,21 @@ describe('CommandCenter', () => {
 
       expect(html).toContain('Personal local mode initialized')
       expect(html).toContain('Provider: Claude unsupported')
-      expect(html).toContain('Provider readiness warning')
+      expect(html).toContain('Production/live provider readiness incomplete')
       expect(html).toContain('Research cases')
       expect(html).toContain('0')
+      expect(html).toContain('Start a research case to seed the durable workflow ledger.')
+      expect(html).toContain('No confirmed monitoring yet — confirm a watchlist draft before automation treats a company as actively monitored.')
+      expect(html).toContain('No open holdings yet — open a holding from a confirmed watchlist item before portfolio accounting starts.')
+      expect(html).toContain('No pending approvals; automation is waiting for new provider drafts or due reviews.')
       expect(html).toContain('Create or import your first research case')
       expect(html).toContain('href="/research/new"')
       expect(html).toContain('Start first research case')
       expect(html).toContain('href="/watchlist"')
       expect(html).toContain('Open watchlist drafts')
+      expect(html).toContain('Operational awareness')
+      expect(html).toContain('Provider readiness blocked')
+      expect(html).toContain('User approval boundary')
       expect(html).toContain('Operating ledger is empty')
       expect(html).toContain('No research, watchlist, holding, accounting, or purification activity has been recorded yet.')
     } finally {
@@ -151,7 +162,27 @@ describe('CommandCenter', () => {
     }
   })
 
-  it('surfaces effective provider readiness in initialized personal local mode', async () => {
+  it('suppresses production-readiness warnings when the mock provider is sufficient for demo mode', () => {
+    const providerStatuses = [
+      'Provider: Mock provider experimental — Ready for deterministic demo mode',
+      'Provider: Mock provider experimental — Locally runnable through built-in deterministic demo mode',
+    ]
+
+    for (const provider_status of providerStatuses) {
+      const html = renderToStaticMarkup(createElement(CommandCenter, {
+        dashboard: makeDashboard({ provider_status }),
+      }))
+
+      expect(html).toContain(provider_status)
+      expect(html).not.toContain('Provider readiness warning')
+      expect(html).not.toContain('Production/live provider readiness incomplete')
+      expect(html).not.toContain('Resolve provider readiness')
+      expect(html).not.toContain('Resolve production/live provider readiness')
+      expect(html).toContain('Open latest research case')
+    }
+  })
+
+  it('surfaces production/live provider readiness in initialized personal local mode', async () => {
     const store = new SQLiteEventStore()
     try {
       const dashboard = await getSetupAwareCommandCenter({
@@ -181,6 +212,14 @@ describe('CommandCenter', () => {
               'text-generation': 'native',
               'tool-function-calling': 'unsupported',
             },
+            status_rows: [
+              { label: 'Local availability', value: 'Locally runnable', tone: 'success', description: 'Locally runnable via Claude subscription credentials' },
+              { label: 'Credential status', value: 'Credentials blocked by latest certification report', tone: 'danger', description: 'Claude subscription access disabled' },
+              { label: 'Catalog support', value: 'experimental', tone: 'warning', description: 'Static provider matrix claim.' },
+              { label: 'Effective support', value: 'unsupported', tone: 'danger', description: 'Gating source of truth from latest certification evidence.' },
+              { label: 'Workflow certification', value: 'No certification report recorded', tone: 'warning', description: 'No persisted certification evidence exists for this provider.' },
+              { label: 'Allowed use', value: 'Blocked for provider-backed workflow starts', tone: 'danger', description: 'Fail-closed until local availability and effective workflow support are both present.' },
+            ],
             last_certification_report: undefined,
           },
         ],
@@ -189,8 +228,9 @@ describe('CommandCenter', () => {
       const html = renderToStaticMarkup(createElement(CommandCenter, { dashboard }))
 
       expect(html).toContain('Provider: Claude unsupported — Claude subscription access disabled')
-      expect(html).toContain('Provider readiness warning')
-      expect(html).toContain('Resolve provider readiness')
+      expect(html).toContain('Production/live provider readiness incomplete')
+      expect(html).toContain('Resolve production/live provider readiness')
+      expect(html).toContain('Open provider setup evidence')
       expect(html).toContain('href="/providers"')
     } finally {
       store.close()
@@ -228,7 +268,7 @@ describe('CommandCenter', () => {
     }))
 
     const pendingIndex = html.indexOf('Review pending watchlist drafts')
-    const providerIndex = html.indexOf('Resolve provider readiness')
+    const providerIndex = html.indexOf('Resolve production/live provider readiness')
     const reviewIndex = html.indexOf('Run due holding review')
     const accountingIndex = html.indexOf('Review monthly accounting')
     const purificationIndex = html.indexOf('Check purification obligations')
@@ -237,7 +277,7 @@ describe('CommandCenter', () => {
     expect(html).toContain('Priority 1')
     expect(html).toContain('2 drafts need explicit user confirmation before monitoring or portfolio actions.')
     expect(html).toContain('href="/watchlist"')
-    expect(html).toContain('Provider readiness warning')
+    expect(html).toContain('Production/live provider readiness incomplete')
     expect(html).toContain('href="/providers"')
     expect(html).toContain('MSFT is 2 days overdue')
     expect(html).toContain('href="/portfolio#holding_msft_001"')
@@ -248,6 +288,49 @@ describe('CommandCenter', () => {
     expect(reviewIndex).toBeGreaterThan(providerIndex)
     expect(accountingIndex).toBeGreaterThan(reviewIndex)
     expect(purificationIndex).toBeGreaterThan(accountingIndex)
+  })
+
+  it('separates the operating action surface from lower-priority reference modules', () => {
+    const html = renderToStaticMarkup(createElement(CommandCenter, {
+      dashboard: makeDashboard({
+        pipeline_counts: {
+          research_cases: 2,
+          watchlist_drafts: 1,
+          confirmed_watchlist_items: 1,
+          open_holdings: 1,
+          pending_user_actions: 1,
+        },
+        holding_review_prompts: [
+          {
+            holding_id: 'holding_msft_001',
+            label: 'MSFT',
+            next_review_at: '2026-10-31',
+            status: 'upcoming',
+            days_until_review: 153,
+          },
+        ],
+        accounting_alert: {
+          label: 'Monthly accounting report',
+          message: 'June 2026 NAV: $2,925.00; 0 holdings missing valuations.',
+          href: '/accounting/monthly',
+        },
+        recent_activity: [{ event_id: 'evt_review_override', label: 'holding_review_overridden by user:user_local' }],
+        secondary_action: { href: '/watchlist', label: 'Open watchlist drafts' },
+      }),
+    }))
+
+    expect(html).toContain('aria-label="Operating action surface"')
+    expect(html).toContain('aria-label="Secondary reference modules"')
+    expect(html).toContain('aria-label="Accounting reference module"')
+    expect(html).toContain('aria-label="Review schedule reference module"')
+    expect(html).toContain('aria-label="Operational awareness module"')
+    expect(html).toContain('aria-label="Ledger activity reference module"')
+    expect(html).toContain('Automated monitoring')
+    expect(html).toContain('Dry-run worker observations stay local and require user confirmation before portfolio-impacting state changes.')
+    expect(html.indexOf('aria-label="Secondary reference modules"')).toBeGreaterThan(html.indexOf('aria-label="Operating action surface"'))
+    expect(html).toContain('href="/watchlist"')
+    expect(html).toContain('href="/accounting/monthly"')
+    expect(html).toContain('href="/portfolio#holding_msft_001"')
   })
 
   it('renders a direct action card for pending holding review drafts', () => {
@@ -286,10 +369,13 @@ describe('CommandCenter', () => {
     expect(html).toContain('Watchlist draft created')
     expect(html).toContain('Holding review overridden')
     expect(html).toContain('Custom event seen')
+    expect(html).toContain('class="owl-source-chip-label"')
+    expect(html).toContain('class="owl-source-chip-id"')
     expect(html).toContain('user:user_local')
     expect(html).toContain('worker:workflow')
-    expect(html).toContain('Audit event evt_watchlist')
-    expect(html).toContain('Audit event evt_review_override')
+    expect(html).toContain('Audit event')
+    expect(html).toContain('evt_watchlist')
+    expect(html).toContain('evt_review_override')
     expect(html).not.toContain('watchlist_draft_created by user:user_local')
   })
 

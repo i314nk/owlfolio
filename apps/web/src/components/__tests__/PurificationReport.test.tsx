@@ -52,6 +52,8 @@ describe('PurificationReport', () => {
     const html = renderToStaticMarkup(createElement(PurificationReport, { report }))
 
     expect(html).toContain('Purification ledger')
+    expect(html).toContain('Tracking aid, not a ruling or payment service')
+    expect(html).toContain('Manual payment status')
     expect(html).toContain('manual user payment tracking')
     expect(html).toContain('Owed')
     expect(html).toContain('$14.63')
@@ -67,9 +69,18 @@ describe('PurificationReport', () => {
     expect(html).toContain('NAV: $2,925.00')
     expect(html).toContain('Payment action: record only after the user confirms an external payment')
     expect(html).toContain('Audit/source links preview')
+    expect(html).toContain('Evidence checklist')
+    expect(html).toContain('Policy/source evidence')
+    expect(html).toContain('Accounting snapshot')
+    expect(html).toContain('Calculation basis linked')
+    expect(html).toContain('Payment receipt')
+    expect(html).toContain('receipt_2026_07_03')
     expect(html).toContain('Local zakat charity')
     expect(html).toContain('User-recorded payment receipt')
     expect(html).toContain('never marks an obligation paid automatically')
+    expect(html).not.toContain('#047857')
+    expect(html).not.toContain('#ecfdf5')
+    expect(html).not.toContain('#f0fdf4')
   })
 
   it('renders a zero-obligation empty state with next steps and manual-payment limits', () => {
@@ -85,6 +96,11 @@ describe('PurificationReport', () => {
     }))
 
     expect(html).toContain('No purification obligations have been recorded yet.')
+    expect(html).toContain('Create sourced obligation')
+    expect(html).toContain('Link Shariah/accounting evidence')
+    expect(html).toContain('Record external payment (disabled until obligation exists)')
+    expect(html).toContain('aria-disabled="true"')
+    expect(html).toContain('disabled=""')
     expect(html).toContain('$0.00 owed, $0.00 paid, and $0.00 remaining until an auditable obligation exists.')
     expect(html).toContain('Next step: create a sourced obligation from Shariah/accounting evidence, then record the charity payment manually.')
     expect(html).toContain('Source/audit preview: Shariah evidence, accounting snapshot, and payment receipt links will appear here.')
@@ -103,5 +119,46 @@ describe('PurificationReport', () => {
     expect(html).toContain('Payment action: record only after the user confirms an external payment')
     expect(html).toContain('No payments have been recorded for this obligation yet. Make the external payment first, then record it manually.')
     expect(html).not.toContain('Payment action stays disabled in the UI until the user has an external payment to record.')
+  })
+
+  it('does not imply purification evidence is linked when obligation records lack evidence fields', () => {
+    const html = renderToStaticMarkup(createElement(PurificationReport, {
+      report: {
+        summary_cards: [{ currency: 'USD', owed: 3.5, paid: 0, remaining: 3.5 }],
+        obligations: [
+          {
+            obligation_id: 'purify_unlinked_2026_06',
+            holding_id: 'holding_unlinked_001',
+            amount: 3.5,
+            currency: 'USD',
+            period_start: '2026-06-01',
+            period_end: '2026-06-30',
+            recorded_at: '2026-07-01T00:05:00.000Z',
+            shariah_source_ids: [],
+            audit_source_ids: [],
+            paid_amount: 0,
+            remaining_amount: 3.5,
+            status: 'unpaid',
+          },
+        ],
+        payments: [],
+        limitations: [],
+      },
+    }))
+
+    expect(html).toContain('Policy/source evidence missing')
+    expect(html).toContain('policy_source_missing')
+    expect(html).toContain('Accounting snapshot missing')
+    expect(html).toContain('accounting_snapshot_missing')
+    expect(html).toContain('Calculation basis missing')
+    expect(html).toContain('calculation_basis_missing')
+    expect(html).toContain('Payment receipt missing')
+    expect(html).toContain('payment_receipt_awaiting')
+    expect(html).toContain('Audit link missing')
+    expect(html).toContain('audit_link_missing')
+    expect(html).not.toContain('linked_policy_sources')
+    expect(html).not.toContain('linked_accounting_snapshot')
+    expect(html).not.toContain('linked_calculation_basis')
+    expect(html).not.toContain('ledger_audit_linked')
   })
 })

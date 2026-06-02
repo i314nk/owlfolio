@@ -43,6 +43,7 @@ describe('onboarding helpers', () => {
       expect(updated.mode).toBe('personal-local')
       expect(updated.provider.provider_id).toBe('openai')
       expect(updated.provider.support_level).toBe('experimental')
+      expect(updated.provider.model_id).toBeUndefined()
       expect(updated.shariah.enabled).toBe(false)
 
       const state = await getOnboardingState({ env: { OWLFOLIO_PROJECT_DIR: projectDir } })

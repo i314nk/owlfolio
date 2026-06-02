@@ -3,6 +3,8 @@ import { createElement, type CSSProperties } from 'react'
 import type { AccountingHoldingSnapshot, AccountingSnapshotProjection } from '@owlfolio/ledger/projections/accountingProjection'
 
 import type { AppAccountingReport } from '../lib/accounting'
+import { OwlButtonLink, SourceChip } from './designSystem'
+import { StatusBadge } from './StatusBadge'
 
 export type AccountingMonthlyReportProps = {
   report: AppAccountingReport
@@ -14,17 +16,17 @@ const shellStyle: CSSProperties = {
 }
 
 const heroStyle: CSSProperties = {
-  background: 'linear-gradient(135deg, #f8fafc 0%, #eef2ff 100%)',
-  border: '1px solid #dbeafe',
+  background: 'linear-gradient(135deg, rgba(124, 140, 255, 0.12) 0%, rgba(10, 132, 255, 0.08) 100%)',
+  border: '1px solid rgba(148, 163, 184, 0.18)',
   borderRadius: '1.25rem',
   padding: '1.5rem',
 }
 
 const cardStyle: CSSProperties = {
-  background: '#ffffff',
-  border: '1px solid #e2e8f0',
+  background: 'rgba(255, 255, 255, 0.035)',
+  border: '1px solid rgba(148, 163, 184, 0.16)',
   borderRadius: '1rem',
-  boxShadow: '0 12px 30px rgba(15, 23, 42, 0.06)',
+  boxShadow: '0 18px 50px rgba(0, 0, 0, 0.18)',
   padding: '1.25rem',
 }
 
@@ -48,10 +50,11 @@ export function AccountingMonthlyReport({ report }: AccountingMonthlyReportProps
       createElement('h1', { style: { fontSize: 'clamp(2rem, 5vw, 3.5rem)', lineHeight: 1, margin: '0.5rem 0' } }, 'Monthly accounting report'),
       createElement(
         'p',
-        { style: { color: '#475569', fontSize: '1rem', margin: 0 } },
+        { style: { color: '#9aa4b7', fontSize: '1rem', margin: 0 } },
         `Current period summary for ${formatMonth(current.period_end)}. Projected NAV is shown as of ${current.period_end} from manual valuations and placeholder cash in the durable event ledger.`,
       ),
     ),
+    createAccountingStatusPanel(current),
     missingCount === 0 ? null : createMissingValuationAlert(missingCount),
     createElement(
       'section',
@@ -71,8 +74,9 @@ export function AccountingMonthlyReport({ report }: AccountingMonthlyReportProps
         metric('Fees (untracked)', `${formatMoney(0, current.currency)} placeholder`),
         metric('Dividends (untracked)', `${formatMoney(0, current.currency)} placeholder`),
       ),
-      createElement('p', { style: { color: '#475569', fontSize: '0.92rem', margin: '1rem 0 0' } }, 'Fees and dividends are not modeled yet; treat all cash-flow totals as manual placeholders until dedicated ledger events exist.'),
+      createElement('p', { style: { color: '#9aa4b7', fontSize: '0.92rem', margin: '1rem 0 0' } }, 'Fees and dividends are not modeled yet; treat all cash-flow totals as manual placeholders until dedicated ledger events exist.'),
     ),
+    createAccountingDataCoverage(current),
     createElement(
       'section',
       { 'aria-label': 'Accounting holdings', style: cardStyle },
@@ -88,13 +92,72 @@ export function AccountingMonthlyReport({ report }: AccountingMonthlyReportProps
     createSnapshotHistory(report.snapshot_history),
     createElement(
       'section',
-      { 'aria-label': 'Accounting limitations', style: { ...cardStyle, background: '#fffbeb', borderColor: '#fde68a' } },
+      { 'aria-label': 'Accounting limitations', style: { ...cardStyle, background: 'rgba(251, 191, 36, 0.1)', borderColor: 'rgba(251, 191, 36, 0.32)' } },
       createElement('h2', { style: { fontSize: '1.1rem', margin: '0 0 0.75rem' } }, 'Current limitations'),
       createElement(
         'ul',
-        { style: { color: '#92400e', display: 'grid', gap: '0.4rem', margin: 0, paddingLeft: '1.25rem' } },
+        { style: { color: '#fbbf24', display: 'grid', gap: '0.4rem', margin: 0, paddingLeft: '1.25rem' } },
         ...report.limitations.map((limitation) => createElement('li', { key: limitation }, limitation)),
       ),
+    ),
+  )
+}
+
+function createAccountingStatusPanel(current: AccountingSnapshotProjection) {
+  const valuationBadge = getValuationCoverageBadge(current)
+
+  return createElement(
+    'section',
+    { 'aria-label': 'Accounting report status', style: { ...cardStyle, background: 'rgba(251, 191, 36, 0.08)', borderColor: 'rgba(251, 191, 36, 0.28)' } },
+    createElement(
+      'div',
+      { style: { alignItems: 'center', display: 'flex', flexWrap: 'wrap', gap: '0.6rem', marginBottom: '0.75rem' } },
+      createElement('h2', { style: { fontSize: '1.15rem', margin: 0 } }, 'Draft accounting report'),
+      createElement(StatusBadge, { tone: 'draft' }, 'Manual / projected'),
+      createElement(StatusBadge, { tone: valuationBadge.tone }, valuationBadge.label),
+    ),
+    createElement('p', { style: { color: '#f8fafc', fontWeight: 800, margin: '0 0 0.45rem' } }, `NAV freshness: as of ${current.period_end}`),
+    createElement(
+      'p',
+      { style: { color: '#9aa4b7', lineHeight: 1.55, margin: '0 0 0.75rem' } },
+      'This report is projection-derived from the local ledger. Calculated valuation totals are separated from cash-flow inputs that are still untracked, placeholder, or manual-only in the alpha.',
+    ),
+    createElement(
+      'div',
+      { style: { alignItems: 'center', display: 'flex', flexWrap: 'wrap', gap: '0.55rem' } },
+      createElement(SourceChip, { id: current.snapshot_id, label: 'Snapshot ID' }),
+      createElement('span', { style: { color: '#9aa4b7', fontFamily: 'var(--owl-font-mono)', fontSize: '0.72rem' } }, `Generated ${current.updated_at}`),
+    ),
+  )
+}
+
+function getValuationCoverageBadge(current: AccountingSnapshotProjection): { label: string; tone: 'manual' | 'neutral' | 'warning' } {
+  if (current.holdings.length === 0) {
+    return { label: 'No holdings yet', tone: 'neutral' }
+  }
+
+  if (current.missing_valuation_holding_ids.length > 0) {
+    return { label: 'Valuations incomplete', tone: 'warning' }
+  }
+
+  return { label: 'Valuations current', tone: 'manual' }
+}
+
+function createAccountingDataCoverage(current: AccountingSnapshotProjection) {
+  const missingCount = current.missing_valuation_holding_ids.length
+
+  return createElement(
+    'section',
+    { 'aria-label': 'Accounting data provenance', style: cardStyle },
+    createElement('h2', { style: { fontSize: '1.35rem', margin: '0 0 0.75rem' } }, 'Data provenance'),
+    createElement(
+      'ul',
+      { style: { color: '#cbd5e1', display: 'grid', gap: '0.55rem', lineHeight: 1.5, margin: 0, paddingLeft: '1.25rem' } },
+      createElement('li', null, `Manual valuation event coverage: ${current.holdings.length} ${current.holdings.length === 1 ? 'holding' : 'holdings'} in snapshot; ${missingCount} missing ${missingCount === 1 ? 'valuation' : 'valuations'}.`),
+      createElement('li', null, `Cash ledger events: not modeled yet — cash balance is marked ${current.cash_ledger_status}.`),
+      createElement('li', null, 'Deposits and withdrawals: untracked manual placeholder totals until dedicated cash-flow ledger events exist.'),
+      createElement('li', null, 'Dividends and fees: not modeled yet; $0.00 is a placeholder, not a confirmed economic zero.'),
+      createElement('li', null, 'Broker sync: not connected for this local alpha; values are user-entered or projected from ledger events.'),
     ),
   )
 }
@@ -102,22 +165,29 @@ export function AccountingMonthlyReport({ report }: AccountingMonthlyReportProps
 function createEmptyHoldingsState(current: AccountingSnapshotProjection) {
   return createElement(
     'div',
-    { style: { color: '#475569', display: 'grid', gap: '0.5rem' } },
+    { style: { color: '#9aa4b7', display: 'grid', gap: '0.5rem' } },
+    createElement('p', { style: { color: '#fbbf24', fontWeight: 900, letterSpacing: '0.08em', margin: 0, textTransform: 'uppercase' } }, 'Zero-total empty state'),
     createElement('p', { style: { margin: 0 } }, 'No holdings are present for this accounting period yet.'),
     createElement('p', { style: { fontWeight: 800, margin: 0 } }, `Zero totals are expected until you open a holding and record a manual valuation. Current projected NAV: ${formatMoney(current.nav, current.currency)}.`),
     createElement('p', { style: { margin: 0 } }, 'Next step: open a holding, record lot data, then add a manual valuation snapshot.'),
-    createElement('p', { style: { color: '#64748b', margin: 0 } }, 'Source/audit preview: future cash, dividend, fee, and valuation events will appear here with ledger links.'),
+    createElement('p', { style: { color: '#9aa4b7', margin: 0 } }, 'Source/audit preview: future cash, dividend, fee, and valuation events will appear here with ledger links.'),
+    createElement(
+      'div',
+      { style: { display: 'flex', flexWrap: 'wrap', gap: '0.6rem', marginTop: '0.25rem' } },
+      createElement(OwlButtonLink, { href: '/portfolio', variant: 'primary' }, 'Open portfolio'),
+      createElement(OwlButtonLink, { href: '/audit', variant: 'secondary' }, 'View audit trail'),
+    ),
   )
 }
 
 function createMissingValuationAlert(missingCount: number) {
   return createElement(
     'section',
-    { 'aria-label': 'Missing valuations', style: { ...cardStyle, background: '#fef2f2', borderColor: '#fecaca' } },
-    createElement('h2', { style: { color: '#991b1b', fontSize: '1.1rem', margin: '0 0 0.4rem' } }, 'Missing valuations'),
+    { 'aria-label': 'Missing valuations', style: { ...cardStyle, background: 'rgba(239, 68, 68, 0.1)', borderColor: '#fecaca' } },
+    createElement('h2', { style: { color: '#fecaca', fontSize: '1.1rem', margin: '0 0 0.4rem' } }, 'Missing valuations'),
     createElement(
       'p',
-      { style: { color: '#7f1d1d', fontWeight: 800, margin: 0 } },
+      { style: { color: '#fca5a5', fontWeight: 800, margin: 0 } },
       `${missingCount} ${missingCount === 1 ? 'holding needs' : 'holdings need'} a valuation before NAV is complete`,
     ),
   )
@@ -131,7 +201,7 @@ function createSnapshotHistory(snapshots: AccountingSnapshotProjection[]) {
     snapshots.length === 0
       ? createElement(
         'div',
-        { style: { color: '#475569', display: 'grid', gap: '0.4rem' } },
+        { style: { color: '#9aa4b7', display: 'grid', gap: '0.4rem' } },
         createElement('p', { style: { margin: 0 } }, 'No accounting snapshots have been recorded yet.'),
         createElement('p', { style: { margin: 0 } }, 'Audit/source links preview: recorded monthly snapshots, valuation sources, and future cash-flow events will appear here.'),
       )
@@ -151,28 +221,28 @@ function holdingCard(holding: AccountingHoldingSnapshot) {
   const label = holding.ticker ?? holding.holding_id
   return createElement(
     'article',
-    { style: { border: '1px solid #e2e8f0', borderRadius: '0.85rem', padding: '1rem' } },
+    { style: { border: '1px solid rgba(148, 163, 184, 0.16)', borderRadius: '0.85rem', padding: '1rem' } },
     createElement('h3', { style: { fontSize: '1.2rem', margin: '0 0 0.5rem' } }, label),
-    createElement('p', { style: { color: '#334155', margin: '0.25rem 0' } }, `Shares: ${formatNumber(holding.shares)}`),
-    createElement('p', { style: { color: '#334155', margin: '0.25rem 0' } }, `Cost basis: ${formatMoney(holding.cost_basis, holding.currency)}`),
+    createElement('p', { style: { color: '#cbd5e1', margin: '0.25rem 0' } }, `Shares: ${formatNumber(holding.shares)}`),
+    createElement('p', { style: { color: '#cbd5e1', margin: '0.25rem 0' } }, `Cost basis: ${formatMoney(holding.cost_basis, holding.currency)}`),
     holding.valuation_status === 'valued'
-      ? createElement('p', { style: { color: '#334155', margin: '0.25rem 0' } }, `Current value: ${formatMoney(holding.current_value ?? 0, holding.currency)}`)
-      : createElement('p', { style: { color: '#b91c1c', fontWeight: 800, margin: '0.25rem 0' } }, 'Valuation missing'),
+      ? createElement('p', { style: { color: '#cbd5e1', margin: '0.25rem 0' } }, `Current value: ${formatMoney(holding.current_value ?? 0, holding.currency)}`)
+      : createElement('p', { style: { color: '#fca5a5', fontWeight: 800, margin: '0.25rem 0' } }, 'Valuation missing'),
     holding.unrealized_gain_loss === undefined
       ? null
-      : createElement('p', { style: { color: '#334155', margin: '0.25rem 0' } }, `Unrealized P&L: ${formatMoney(holding.unrealized_gain_loss, holding.currency)}`),
+      : createElement('p', { style: { color: '#cbd5e1', margin: '0.25rem 0' } }, `Unrealized P&L: ${formatMoney(holding.unrealized_gain_loss, holding.currency)}`),
     holding.latest_valuation_at === undefined
       ? null
-      : createElement('p', { style: { color: '#64748b', margin: '0.25rem 0 0' } }, `Manual valuation freshness: ${holding.latest_valuation_at}`),
+      : createElement('p', { style: { color: '#9aa4b7', margin: '0.25rem 0 0' } }, `Manual valuation freshness: ${holding.latest_valuation_at}`),
   )
 }
 
 function metric(label: string, value: string) {
   return createElement(
     'article',
-    { style: { background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '0.85rem', padding: '1rem' } },
-    createElement('p', { style: { color: '#64748b', fontSize: '0.78rem', fontWeight: 900, margin: 0, textTransform: 'uppercase' } }, label),
-    createElement('p', { style: { color: '#0f172a', fontSize: '1.25rem', fontWeight: 900, margin: '0.35rem 0 0' } }, value),
+    { style: { background: 'rgba(148, 163, 184, 0.08)', border: '1px solid rgba(148, 163, 184, 0.16)', borderRadius: '0.85rem', padding: '1rem' } },
+    createElement('p', { style: { color: '#9aa4b7', fontSize: '0.78rem', fontWeight: 900, margin: 0, textTransform: 'uppercase' } }, label),
+    createElement('p', { style: { color: '#f7f8ff', fontSize: '1.25rem', fontWeight: 900, margin: '0.35rem 0 0' } }, value),
   )
 }
 

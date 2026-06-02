@@ -26,7 +26,7 @@ test('personal-local mode can create the first research case from the command ce
   await page.goto('/onboarding')
   await page.getByRole('radio', { name: /personal local mode/i }).click()
   await page.getByRole('combobox').selectOption('mock-provider')
-  await page.getByRole('button', { name: /start workflow/i }).click()
+  await page.getByRole('button', { name: /initialize owlfolio workflow/i }).click()
 
   await expect(page).toHaveURL('/')
   const primaryNav = page.getByRole('navigation', { name: /primary owlfolio navigation/i })
@@ -50,7 +50,7 @@ test('personal-local mode can create the first research case from the command ce
   await expect(page.getByText('No watchlist drafts yet. Create a research case first.')).toBeVisible()
   await page.getByRole('navigation', { name: /primary owlfolio navigation/i }).getByRole('link', { name: /portfolio/i }).click()
   await expect(page).toHaveURL('/portfolio')
-  await expect(page.getByText('No holdings recorded yet. Confirm a watchlist item and record an initial holding lot first.')).toBeVisible()
+  await expect(page.getByRole('heading', { name: /no holdings are open yet/i })).toBeVisible()
   await page.getByRole('navigation', { name: /primary owlfolio navigation/i }).getByRole('link', { name: 'Audit', exact: true }).click()
   await expect(page).toHaveURL('/audit')
   await expect(page.getByRole('heading', { name: /audit activity/i })).toBeVisible()
@@ -58,9 +58,9 @@ test('personal-local mode can create the first research case from the command ce
   await expect(page).toHaveURL('/providers')
   await expect(page.getByRole('heading', { name: /provider status/i })).toBeVisible()
   await expect(page.getByText('Mock provider', { exact: true })).toBeVisible()
-  await expect(page.getByText('Effective support: certified', { exact: true })).toBeVisible()
+  await expect(page.getByText('Effective support (gating source of truth): certified', { exact: true })).toBeVisible()
   await expect(page.getByText('Claude', { exact: true })).toBeVisible()
-  await expect(page.getByText('Effective support: unsupported', { exact: true })).toBeVisible()
+  await expect(page.getByText('Effective support (gating source of truth): unsupported', { exact: true })).toBeVisible()
   await page.getByRole('navigation', { name: /primary owlfolio navigation/i }).getByRole('link', { name: 'Command Center', exact: true }).click()
   await expect(page).toHaveURL('/')
 
@@ -89,7 +89,7 @@ test('personal-local mode can create the first research case from the command ce
   await expect(page.getByText('Draft — awaiting user confirmation')).toBeVisible()
   await expect(page.getByText('Shariah gate: COMPLIANT')).toBeVisible()
   await expect(page.getByText('Required Shariah sources: src_msft_10k_2025, src_msft_proxy_2025, src_msft_q1_2026')).toBeVisible()
-  await expect(page.getByText(`Research case: ${researchCaseId}`)).toBeVisible()
+  await expect(page.getByRole('link', { name: `Research case ${researchCaseId}` })).toHaveAttribute('href', `/research/${researchCaseId}`)
 
   await page.getByRole('button', { name: /confirm watchlist draft/i }).click()
 
@@ -97,7 +97,7 @@ test('personal-local mode can create the first research case from the command ce
   await expect(page.getByRole('heading', { name: 'MSFT' })).toBeVisible()
   await expect(page.getByText('User confirmed')).toBeVisible()
   await expect(page.getByRole('button', { name: /confirm watchlist draft/i })).toHaveCount(0)
-  await expect(page.getByText(`Research case: ${researchCaseId}`)).toBeVisible()
+  await expect(page.getByRole('link', { name: `Research case ${researchCaseId}` })).toHaveAttribute('href', `/research/${researchCaseId}`)
 
   await page.goto('/')
   await expect(page.getByRole('heading', { name: 'Monitor confirmed watchlist items for buy-zone and thesis updates' })).toBeVisible()
@@ -115,7 +115,7 @@ test('personal-local mode can create the first research case from the command ce
   await expect(page).toHaveURL('/watchlist')
   await expect(page.getByRole('heading', { name: 'MSFT' })).toBeVisible()
   await expect(page.getByText('Holding recorded')).toBeVisible()
-  await expect(page.getByText(/Holding: holding_msft_/)).toBeVisible()
+  await expect(page.getByText(/holding_msft_/)).toBeVisible()
   await expect(page.getByRole('button', { name: /record initial holding/i })).toHaveCount(0)
 
   await page.goto('/portfolio')

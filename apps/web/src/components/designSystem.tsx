@@ -27,28 +27,49 @@ export type FinancialNumberProps = {
   value: number
 }
 
+export type PageHeaderProps = {
+  actions?: ReactNode
+  description?: ReactNode
+  eyebrow?: string
+  title: string
+}
+
+export type EmptyStateProps = {
+  description?: ReactNode
+  primaryAction?: ReactNode
+  provenance?: ReactNode
+  secondaryAction?: ReactNode
+  title: string
+}
+
+export type SourceChipProps = {
+  href?: string
+  id: string
+  label?: string
+}
+
 const shellStatusItems = [
-  { label: 'Local workspace', value: 'status shown below' },
-  { label: 'Shariah context', value: 'mode-dependent' },
-  { label: 'Provider readiness', value: 'route-specific' },
+  { label: 'Local ledger', value: 'Route-aware' },
+  { label: 'Shariah context', value: 'Policy visible' },
+  { label: 'Provider readiness', value: 'Shown inline' },
 ]
 
 export function AppShell({ children }: AppShellProps) {
   return createElement(
     'div',
-    { className: 'owl-app-shell', 'data-owl-shell': 'phase2-professional' },
+    { className: 'owl-app-shell', 'data-owl-shell': 'phase3-professional' },
     createElement(AppNavigation),
     createElement(
       'div',
       { className: 'owl-app-frame' },
       createElement(
         'div',
-        { 'aria-label': 'Owlfolio operating status', className: 'owl-status-strip' },
+        { 'aria-label': 'Owlfolio operating context', className: 'owl-shell-context-bar' },
         ...shellStatusItems.map((item) => createElement(
           'span',
-          { key: item.label },
-          createElement('strong', null, item.label),
-          ` · ${item.value}`,
+          { className: 'owl-shell-context-chip', key: item.label },
+          createElement('span', { className: 'owl-shell-context-label' }, item.label),
+          createElement('span', { className: 'owl-shell-context-value' }, item.value),
         )),
       ),
       createElement('div', { className: 'owl-main-region' }, children),
@@ -89,4 +110,46 @@ export function FinancialNumber({
   }).format(value)
 
   return createElement('span', { className: 'owl-financial-number' }, `${prefix}${formatted}${suffix}`)
+}
+
+export function PageHeader({ actions, description, eyebrow, title }: PageHeaderProps) {
+  return createElement(
+    'header',
+    { className: 'owl-page-header' },
+    createElement(
+      'div',
+      { className: 'owl-page-header-copy' },
+      eyebrow === undefined ? null : createElement('p', { className: 'owl-page-eyebrow' }, eyebrow),
+      createElement('h1', { className: 'owl-page-title' }, title),
+      description === undefined ? null : createElement('p', { className: 'owl-page-description' }, description),
+    ),
+    actions === undefined ? null : createElement('div', { className: 'owl-page-actions' }, actions),
+  )
+}
+
+export function EmptyState({ description, primaryAction, provenance, secondaryAction, title }: EmptyStateProps) {
+  const actions = [primaryAction, secondaryAction].filter((action): action is ReactNode => action !== undefined)
+
+  return createElement(
+    'section',
+    { className: 'owl-empty-state' },
+    createElement('p', { className: 'owl-empty-state-kicker' }, 'Awaiting setup'),
+    createElement('h2', { className: 'owl-empty-state-title' }, title),
+    description === undefined ? null : createElement('p', { className: 'owl-empty-state-description' }, description),
+    provenance === undefined ? null : createElement('div', { className: 'owl-empty-state-provenance' }, provenance),
+    actions.length === 0 ? null : createElement('div', { className: 'owl-empty-state-actions' }, ...actions),
+  )
+}
+
+export function SourceChip({ href, id, label = 'Source' }: SourceChipProps) {
+  const content = [
+    createElement('span', { className: 'owl-source-chip-label', key: 'label' }, label),
+    createElement('span', { className: 'owl-source-chip-id', key: 'id' }, id),
+  ]
+
+  if (href === undefined) {
+    return createElement('span', { className: 'owl-source-chip' }, ...content)
+  }
+
+  return createElement('a', { className: 'owl-source-chip owl-focusable', href }, ...content)
 }

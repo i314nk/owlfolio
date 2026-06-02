@@ -15,15 +15,13 @@ export default async function AuditPage({ searchParams }: AuditPageProps) {
   const filters = parseAuditActivityFilters(await searchParams)
 
   return (
-    <main style={{ background: 'linear-gradient(135deg, #f8fafc 0%, #eff6ff 100%)', color: '#0f172a', minHeight: '100vh', padding: '3rem clamp(1rem, 4vw, 4rem)' }}>
-      <div style={{ margin: '0 auto', maxWidth: '1040px' }}>
-        <p style={{ margin: '0 0 1rem' }}>
-          <a href="/" style={{ color: '#047857', fontWeight: 800, textDecoration: 'none' }}>
-            ← Back to command center
-          </a>
-        </p>
-        <AuditActivityPanel events={events} filters={filters} mode={state.config.mode} />
-      </div>
+    <main className="owl-route-frame">
+      <p className="owl-route-back-row">
+        <a className="owl-back-link owl-focusable" href="/">
+          ← Back to command center
+        </a>
+      </p>
+      <AuditActivityPanel events={events} filters={filters} mode={state.config.mode} />
     </main>
   )
 }
@@ -46,13 +44,31 @@ async function loadAuditActivity(state: OnboardingState) {
 }
 
 function parseAuditActivityFilters(params: Record<string, string | string[] | undefined> | undefined): AuditActivityFilters {
+  const correlationId = firstParam(params?.correlation_id)
+  const dateFrom = firstParam(params?.date_from)
+  const dateTo = firstParam(params?.date_to)
+  const eventId = firstParam(params?.event_id)
   const eventType = firstParam(params?.event_type)
   const actor = firstParam(params?.actor)
   const entity = firstParam(params?.entity)
   const query = firstParam(params?.q)
+  const schemaVersion = firstParam(params?.schema_version)
+  const sourceId = firstParam(params?.source_id)
   const timeOrder = firstParam(params?.time_order) === 'desc' ? 'desc' : 'asc'
 
   const filters: AuditActivityFilters = { timeOrder }
+  if (correlationId !== undefined) {
+    filters.correlationId = correlationId
+  }
+  if (dateFrom !== undefined) {
+    filters.dateFrom = dateFrom
+  }
+  if (dateTo !== undefined) {
+    filters.dateTo = dateTo
+  }
+  if (eventId !== undefined) {
+    filters.eventId = eventId
+  }
   if (eventType !== undefined) {
     filters.eventType = eventType
   }
@@ -64,6 +80,12 @@ function parseAuditActivityFilters(params: Record<string, string | string[] | un
   }
   if (query !== undefined) {
     filters.query = query
+  }
+  if (schemaVersion !== undefined) {
+    filters.schemaVersion = schemaVersion
+  }
+  if (sourceId !== undefined) {
+    filters.sourceId = sourceId
   }
 
   return filters

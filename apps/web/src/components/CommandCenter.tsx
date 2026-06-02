@@ -1,6 +1,6 @@
 import { createElement } from 'react'
 
-import { FinancialNumber, OwlButtonLink, OwlCard } from './designSystem'
+import { FinancialNumber, OwlButtonLink, OwlCard, SourceChip } from './designSystem'
 import { StatusBadge } from './StatusBadge'
 import type { AppCommandCenter } from '../lib/demo'
 
@@ -23,6 +23,20 @@ type ActivitySummary = {
   title: string
 }
 
+type MetricCardProps = {
+  actionLabel: string
+  helper: string
+  href: string
+  label: string
+  value: number
+}
+
+type OperationalSignal = {
+  description: string
+  label: string
+  tone: 'blocked' | 'draft' | 'manual' | 'success'
+}
+
 export function CommandCenter({ dashboard }: CommandCenterProps) {
   const counts = dashboard.pipeline_counts
 
@@ -31,7 +45,6 @@ export function CommandCenter({ dashboard }: CommandCenterProps) {
     {
       style: {
         color: '#f7f8ff',
-        minHeight: '100vh',
         padding: '2rem 0 3rem',
       },
     },
@@ -56,7 +69,7 @@ export function CommandCenter({ dashboard }: CommandCenterProps) {
       createElement(
         'p',
         { style: { color: '#9aa4b7', fontSize: '1.15rem', maxWidth: '720px' } },
-        'Local, Shariah-by-design investment workflow dashboard for the current Owlfolio v0.2 slice.',
+        'Daily local operating cockpit for autonomous research, user approvals, accounting reminders, purification follow-up, and audit review.',
       ),
       createStatusStrip(dashboard),
       createElement(
@@ -70,39 +83,52 @@ export function CommandCenter({ dashboard }: CommandCenterProps) {
             marginBottom: '1.5rem',
           },
         },
-        createElement(MetricCard, { label: 'Research cases', value: counts.research_cases }),
-        createElement(MetricCard, { label: 'Watchlist drafts', value: counts.watchlist_drafts }),
-        createElement(MetricCard, { label: 'Confirmed watchlist', value: counts.confirmed_watchlist_items }),
-        createElement(MetricCard, { label: 'Open holdings', value: counts.open_holdings }),
-        createElement(MetricCard, { label: 'Pending user actions', value: counts.pending_user_actions }),
+        ...buildMetricCards(counts).map((metric) => createElement(MetricCard, { key: metric.label, ...metric })),
+      ),
+      createOperatingSurface(dashboard),
+      createSecondaryReferenceModules(dashboard),
+    ),
+  )
+}
+
+function createOperatingSurface(dashboard: AppCommandCenter) {
+  return createElement(
+    'section',
+    { 'aria-label': 'Operating action surface', className: 'owl-command-operating-surface' },
+    createElement(
+      OwlCard,
+      { className: 'owl-command-action-card', eyebrow: 'Operating priority' },
+      createElement(
+        'p',
+        { style: { color: '#f7f8ff', fontSize: '1.35rem', fontWeight: 700, letterSpacing: '-0.02em', margin: '0.45rem 0 0.35rem' } },
+        dashboard.next_recommended_action,
       ),
       createElement(
-        OwlCard,
-        { className: 'owl-command-action-card', eyebrow: 'Operating priority' },
-        createElement(
-          'p',
-          { style: { color: '#f7f8ff', fontSize: '1.35rem', fontWeight: 700, letterSpacing: '-0.02em', margin: '0.45rem 0 0.35rem' } },
-          dashboard.next_recommended_action,
-        ),
-        createElement(
-          'p',
-          { style: { color: '#9aa4b7', margin: '0 0 1rem' } },
-          'Every item below is an explicit workflow action with an audit or setup destination.',
-        ),
-        createElement(
-          'div',
-          { style: { display: 'flex', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '1rem' } },
-          createElement(OwlButtonLink, { href: dashboard.primary_action.href }, dashboard.primary_action.label),
-          dashboard.secondary_action === undefined
-            ? null
-            : createElement(OwlButtonLink, { href: dashboard.secondary_action.href, variant: 'secondary' }, dashboard.secondary_action.label),
-        ),
-        createNextActionQueue(dashboard),
-        createAccountingAlert(dashboard),
-        createHoldingReviewSchedule(dashboard),
-        createRecentActivity(dashboard),
+        'p',
+        { style: { color: '#9aa4b7', margin: '0 0 1rem' } },
+        'Primary decisions stay on top; lower-priority accounting, review, and audit references are separated below.',
       ),
+      createElement(
+        'div',
+        { style: { display: 'flex', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '1rem' } },
+        createElement(OwlButtonLink, { href: dashboard.primary_action.href }, dashboard.primary_action.label),
+        dashboard.secondary_action === undefined
+          ? null
+          : createElement(OwlButtonLink, { href: dashboard.secondary_action.href, variant: 'secondary' }, dashboard.secondary_action.label),
+      ),
+      createNextActionQueue(dashboard),
     ),
+  )
+}
+
+function createSecondaryReferenceModules(dashboard: AppCommandCenter) {
+  return createElement(
+    'section',
+    { 'aria-label': 'Secondary reference modules', className: 'owl-command-reference-grid' },
+    createAccountingAlert(dashboard),
+    createHoldingReviewSchedule(dashboard),
+    createOperationalAwareness(dashboard),
+    createRecentActivity(dashboard),
   )
 }
 
@@ -160,6 +186,56 @@ function countsText(value: number): string {
   return new Intl.NumberFormat('en-US').format(value)
 }
 
+function buildMetricCards(counts: AppCommandCenter['pipeline_counts']): MetricCardProps[] {
+  return [
+    {
+      actionLabel: counts.research_cases === 0 ? 'Start research' : 'Open research intake',
+      helper: counts.research_cases === 0
+        ? 'Start a research case to seed the durable workflow ledger.'
+        : 'Research dossiers with auditable provider/source evidence.',
+      href: '/research/new',
+      label: 'Research cases',
+      value: counts.research_cases,
+    },
+    {
+      actionLabel: 'Open watchlist',
+      helper: counts.watchlist_drafts === 0
+        ? 'No provider drafts waiting for user confirmation.'
+        : 'Provider-authored drafts waiting for explicit user confirmation.',
+      href: '/watchlist',
+      label: 'Watchlist drafts',
+      value: counts.watchlist_drafts,
+    },
+    {
+      actionLabel: 'Review monitoring',
+      helper: counts.confirmed_watchlist_items === 0
+        ? 'No confirmed monitoring yet — confirm a watchlist draft before automation treats a company as actively monitored.'
+        : 'User-confirmed monitoring items are eligible for scheduled review observations.',
+      href: '/watchlist',
+      label: 'Confirmed watchlist',
+      value: counts.confirmed_watchlist_items,
+    },
+    {
+      actionLabel: 'Open portfolio',
+      helper: counts.open_holdings === 0
+        ? 'No open holdings yet — open a holding from a confirmed watchlist item before portfolio accounting starts.'
+        : 'Open holdings feed valuation, review schedule, accounting, and purification prompts.',
+      href: '/portfolio',
+      label: 'Open holdings',
+      value: counts.open_holdings,
+    },
+    {
+      actionLabel: 'Resolve actions',
+      helper: counts.pending_user_actions === 0
+        ? 'No pending approvals; automation is waiting for new provider drafts or due reviews.'
+        : `${counts.pending_user_actions} approval ${counts.pending_user_actions === 1 ? 'task needs' : 'tasks need'} user confirmation before state changes.`,
+      href: counts.watchlist_drafts > 0 ? '/watchlist' : '/portfolio',
+      label: 'Pending user actions',
+      value: counts.pending_user_actions,
+    },
+  ]
+}
+
 function createNextActionQueue(dashboard: AppCommandCenter) {
   const cards = buildActionCards(dashboard)
 
@@ -208,11 +284,11 @@ function buildActionCards(dashboard: AppCommandCenter): ActionCard[] {
 
   if (isProviderReadinessWarning(dashboard.provider_status)) {
     cards.push({
-      category: 'Provider readiness warning',
-      description: `${dashboard.provider_status}. Resolve credentials or certification evidence before relying on provider-authored workflow runs.`,
+      category: 'Production/live provider readiness incomplete',
+      description: `${dashboard.provider_status}. Review credentials, support level, and certification evidence before relying on live provider-authored workflow runs.`,
       href: '/providers',
-      label: 'Open provider readiness',
-      title: 'Resolve provider readiness',
+      label: 'Open provider setup evidence',
+      title: 'Resolve production/live provider readiness',
       tone: 'warning',
     })
   }
@@ -294,7 +370,7 @@ function createActionCard(card: ActionCard, priority: number) {
     : card.tone === 'warning'
       ? '#fbbf24'
       : card.tone === 'success'
-        ? '#22c55e'
+        ? 'var(--owl-color-shariah)'
         : '#0a84ff'
 
   return createElement(
@@ -325,6 +401,15 @@ function hasPendingHoldingReviewDraft(dashboard: AppCommandCenter): boolean {
 
 function isProviderReadinessWarning(providerStatus: string): boolean {
   const status = providerStatus.toLowerCase()
+
+  if (
+    status.includes('ready for deterministic demo mode')
+    || status.includes('locally runnable through built-in deterministic demo mode')
+    || status.includes('mock provider personal local mode')
+  ) {
+    return false
+  }
+
   return status.includes('not ready')
     || status.includes('not configured')
     || status.includes('unsupported')
@@ -340,15 +425,11 @@ function createAccountingAlert(dashboard: AppCommandCenter) {
   return createElement(
     'section',
     {
-      'aria-label': 'Accounting alert',
+      'aria-label': 'Accounting reference module',
+      className: 'owl-command-reference-module owl-command-reference-module-accent',
       style: {
-        background: 'rgba(10, 132, 255, 0.09)',
-        border: '1px solid rgba(125, 211, 252, 0.22)',
-        borderRadius: '0.9rem',
         display: 'grid',
         gap: '0.5rem',
-        marginTop: '1.25rem',
-        padding: '1rem',
       },
     },
     createElement(
@@ -370,13 +451,11 @@ function createHoldingReviewSchedule(dashboard: AppCommandCenter) {
   return createElement(
     'section',
     {
-      'aria-label': 'Holding review schedule',
+      'aria-label': 'Review schedule reference module',
+      className: 'owl-command-reference-module',
       style: {
-        borderTop: '1px solid rgba(148, 163, 184, 0.18)',
         display: 'grid',
         gap: '0.75rem',
-        marginTop: '1.25rem',
-        paddingTop: '1.25rem',
       },
     },
     createElement(
@@ -412,12 +491,69 @@ function createHoldingReviewSchedule(dashboard: AppCommandCenter) {
   )
 }
 
+function createOperationalAwareness(dashboard: AppCommandCenter) {
+  const signals = buildOperationalSignals(dashboard)
+
+  return createElement(
+    'section',
+    {
+      'aria-label': 'Operational awareness module',
+      className: 'owl-command-reference-module owl-command-awareness-module',
+    },
+    createElement('p', { className: 'owl-command-module-eyebrow' }, 'Operational awareness'),
+    createElement(
+      'div',
+      { className: 'owl-command-awareness-list' },
+      ...signals.map((signal) => createElement(
+        'article',
+        { className: 'owl-command-awareness-item', key: signal.label },
+        createElement(StatusBadge, { tone: signal.tone }, signal.label),
+        createElement('p', { className: 'owl-command-awareness-copy' }, signal.description),
+      )),
+    ),
+  )
+}
+
+function buildOperationalSignals(dashboard: AppCommandCenter): OperationalSignal[] {
+  const providerBlocked = isProviderReadinessWarning(dashboard.provider_status)
+  const pendingApprovals = dashboard.pipeline_counts.pending_user_actions
+  const watchlistDrafts = dashboard.pipeline_counts.watchlist_drafts
+  const pendingHoldingReviewDraft = hasPendingHoldingReviewDraft(dashboard)
+
+  return [
+    {
+      description: providerBlocked
+        ? 'Live/provider-backed workflows fail closed until setup, support level, and certification evidence are ready.'
+        : 'Provider evidence is acceptable for the current local workflow mode.',
+      label: providerBlocked ? 'Provider readiness blocked' : 'Provider readiness clear',
+      tone: providerBlocked ? 'blocked' : 'success',
+    },
+    {
+      description: 'Dry-run worker observations stay local and require user confirmation before portfolio-impacting state changes.',
+      label: 'Automated monitoring',
+      tone: 'manual',
+    },
+    {
+      description: pendingApprovals === 0
+        ? 'No provider draft is currently waiting for a user-authored confirmation, override, or rejection.'
+        : `${pendingApprovals} pending ${pendingApprovals === 1 ? 'approval is' : 'approvals are'} waiting; ${watchlistDrafts} ${watchlistDrafts === 1 ? 'watchlist draft is' : 'watchlist drafts are'} separate from ${pendingHoldingReviewDraft ? 'holding review drafts' : 'confirmed portfolio state'}.`,
+      label: 'User approval boundary',
+      tone: pendingApprovals === 0 ? 'success' : 'draft',
+    },
+    {
+      description: dashboard.ledger_status,
+      label: 'Audit ledger traceability',
+      tone: dashboard.ledger_status.toLowerCase().includes('not initialized') ? 'blocked' : 'success',
+    },
+  ]
+}
+
 function createRecentActivity(dashboard: AppCommandCenter) {
   const activities = dashboard.recent_activity
 
   return createElement(
     'section',
-    { style: { marginTop: '1.25rem' } },
+    { 'aria-label': 'Ledger activity reference module', className: 'owl-command-reference-module' },
     createElement(
       'p',
       { style: { color: '#9aa4b7', fontSize: '0.82rem', fontWeight: 700, margin: '0 0 0.5rem', textTransform: 'uppercase' } },
@@ -452,9 +588,10 @@ function createActivityCard(activity: AppCommandCenter['recent_activity'][number
     },
     createElement('p', { style: { color: '#f7f8ff', fontWeight: 750, margin: 0 } }, summary.title),
     createElement(
-      'p',
-      { style: { color: '#9aa4b7', fontFamily: 'var(--owl-font-mono)', fontSize: '0.72rem', letterSpacing: '0.02em', margin: '0.3rem 0 0' } },
-      summary.actor === undefined ? `Audit event ${activity.event_id}` : `${summary.actor} · Audit event ${activity.event_id}`,
+      'div',
+      { className: 'owl-activity-meta' },
+      summary.actor === undefined ? null : createElement(SourceChip, { id: summary.actor, label: 'Actor' }),
+      createElement(SourceChip, { id: activity.event_id, label: 'Audit event' }),
     ),
   )
 }
@@ -511,7 +648,7 @@ function formatReviewDistance(daysUntilReview: number): string {
   return `${daysUntilReview} ${daysUntilReview === 1 ? 'day' : 'days'}`
 }
 
-function MetricCard({ label, value }: { label: string; value: number }) {
+function MetricCard({ actionLabel, helper, href, label, value }: MetricCardProps) {
   return createElement(
     OwlCard,
     { className: 'owl-metric-card' },
@@ -521,5 +658,7 @@ function MetricCard({ label, value }: { label: string; value: number }) {
       label,
     ),
     createElement('p', { className: 'owl-metric-value' }, createElement(FinancialNumber, { value })),
+    createElement('p', { className: 'owl-metric-helper' }, helper),
+    createElement('a', { className: 'owl-metric-link owl-focusable', href }, actionLabel, createElement('span', { 'aria-hidden': true }, ' →')),
   )
 }

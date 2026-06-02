@@ -23,10 +23,16 @@ export type AuditActivityEvent = {
 }
 
 export type AuditActivityFilters = {
+  correlationId?: string
+  dateFrom?: string
+  dateTo?: string
+  eventId?: string
   eventType?: string
   actor?: string
   entity?: string
   query?: string
+  schemaVersion?: string
+  sourceId?: string
   timeOrder?: 'asc' | 'desc'
 }
 
@@ -34,9 +40,11 @@ export type AuditActivityFilterOptions = {
   eventTypes: string[]
   actors: string[]
   entities: string[]
+  schemaVersions: string[]
 }
 
 export type AuditActivityView = {
+  activeFilters: string[]
   events: AuditActivityEvent[]
   filterOptions: AuditActivityFilterOptions
 }
@@ -83,21 +91,62 @@ export function deriveAuditActivityView(
     eventTypes: uniqueSorted(events.map((event) => event.event_type)),
     actors: uniqueSorted(events.map((event) => event.actor_label)),
     entities: uniqueSorted(events.map((event) => event.entity_label)),
+    schemaVersions: uniqueSorted(events.map((event) => String(event.schema_version))),
   }
 
+  const correlationId = normalizeFilter(filters.correlationId)
+  const dateFrom = normalizeFilter(filters.dateFrom)
+  const dateTo = normalizeFilter(filters.dateTo)
+  const eventId = normalizeFilter(filters.eventId)
   const eventType = normalizeFilter(filters.eventType)
   const actor = normalizeFilter(filters.actor)
   const entity = normalizeFilter(filters.entity)
   const query = normalizeFilter(filters.query)
+  const schemaVersion = normalizeFilter(filters.schemaVersion)
+  const sourceId = normalizeFilter(filters.sourceId)
 
   const filteredEvents = events
+    .filter((event) => eventId === undefined || includesCaseInsensitive(event.event_id, eventId))
+    .filter((event) => correlationId === undefined || includesCaseInsensitive(event.correlation_id ?? '', correlationId))
+    .filter((event) => sourceId === undefined || event.source_ids.some((source) => includesCaseInsensitive(source, sourceId)))
+    .filter((event) => schemaVersion === undefined || String(event.schema_version) === schemaVersion)
+    .filter((event) => dateFrom === undefined || event.created_at.slice(0, 10) >= dateFrom)
+    .filter((event) => dateTo === undefined || event.created_at.slice(0, 10) <= dateTo)
     .filter((event) => eventType === undefined || event.event_type === eventType)
     .filter((event) => actor === undefined || event.actor_label === actor)
     .filter((event) => entity === undefined || matchesSearch(event, entity))
     .filter((event) => query === undefined || matchesSearch(event, query))
     .sort(filters.timeOrder === 'desc' ? compareAuditEventsDesc : compareAuditEventsAsc)
 
-  return { events: filteredEvents, filterOptions }
+  return { activeFilters: activeFilterLabels(filters), events: filteredEvents, filterOptions }
+}
+
+function activeFilterLabels(filters: AuditActivityFilters): string[] {
+  const labels: string[] = []
+  const eventId = normalizeFilter(filters.eventId)
+  const correlationId = normalizeFilter(filters.correlationId)
+  const sourceId = normalizeFilter(filters.sourceId)
+  const schemaVersion = normalizeFilter(filters.schemaVersion)
+  const dateFrom = normalizeFilter(filters.dateFrom)
+  const dateTo = normalizeFilter(filters.dateTo)
+  const eventType = normalizeFilter(filters.eventType)
+  const actor = normalizeFilter(filters.actor)
+  const entity = normalizeFilter(filters.entity)
+  const query = normalizeFilter(filters.query)
+
+  if (eventId !== undefined) labels.push(`Event ID contains ${eventId}`)
+  if (correlationId !== undefined) labels.push(`Correlation ID contains ${correlationId}`)
+  if (sourceId !== undefined) labels.push(`Source ID contains ${sourceId}`)
+  if (schemaVersion !== undefined) labels.push(`Schema v${schemaVersion}`)
+  if (dateFrom !== undefined) labels.push(`From ${dateFrom}`)
+  if (dateTo !== undefined) labels.push(`To ${dateTo}`)
+  if (eventType !== undefined) labels.push(`Event type ${eventType}`)
+  if (actor !== undefined) labels.push(`Actor ${actor}`)
+  if (entity !== undefined) labels.push(`Entity/search ${entity}`)
+  if (query !== undefined) labels.push(`Raw evidence contains ${query}`)
+  if (filters.timeOrder === 'desc') labels.push('Newest first')
+
+  return labels
 }
 
 function compareAuditEventsAsc(left: AuditActivityEvent, right: AuditActivityEvent) {
@@ -185,7 +234,6 @@ function contextExplanation(
 }
 
 function matchesSearch(event: AuditActivityEvent, searchValue: string): boolean {
-  const needle = searchValue.toLowerCase()
   return [
     event.event_id,
     event.event_type,
@@ -195,8 +243,15 @@ function matchesSearch(event: AuditActivityEvent, searchValue: string): boolean 
     event.aggregate_label,
     event.entity_label,
     event.actor_label,
+    event.causation_id ?? '',
+    event.correlation_id ?? '',
+    ...event.source_ids,
     event.raw_event_json,
-  ].some((value) => value.toLowerCase().includes(needle))
+  ].some((value) => includesCaseInsensitive(value, searchValue))
+}
+
+function includesCaseInsensitive(value: string, searchValue: string): boolean {
+  return value.toLowerCase().includes(searchValue.toLowerCase())
 }
 
 function normalizeFilter(value: string | undefined): string | undefined {

@@ -49,33 +49,33 @@ export async function getProviderReadiness(providerId: ProviderId, env: Provider
   }
 
   if (providerId === 'mock-provider') {
-    return readinessFrom(provider, true, 'built-in demo mode', 'Ready for deterministic demo mode')
+    return readinessFrom(provider, true, 'built-in demo mode', 'Locally runnable through built-in deterministic demo mode')
   }
 
   if (providerId === 'claude') {
     if (env.ANTHROPIC_API_KEY !== undefined && env.ANTHROPIC_API_KEY.length > 0) {
-      return readinessFrom(provider, true, 'ANTHROPIC_API_KEY', 'Ready via Anthropic API key')
+      return readinessFrom(provider, true, 'ANTHROPIC_API_KEY', 'Locally runnable via Anthropic API key')
     }
 
     const credentialsPath = env.OWLFOLIO_CLAUDE_CREDENTIALS_PATH ?? defaultClaudeCredentialsPath()
     if (await fileExists(credentialsPath)) {
-      return readinessFrom(provider, true, 'Claude subscription credentials', 'Ready via Claude subscription credentials')
+      return readinessFrom(provider, true, 'Claude subscription credentials', 'Locally runnable via Claude subscription credentials')
     }
 
     return readinessFrom(provider, false, 'missing', 'Missing Claude credentials')
   }
 
   if (env.OPENAI_API_KEY !== undefined && env.OPENAI_API_KEY.length > 0) {
-    return readinessFrom(provider, true, 'OPENAI_API_KEY', 'Ready via OpenAI API key')
+    return readinessFrom(provider, true, 'OPENAI_API_KEY', 'Locally runnable via OpenAI API key')
   }
 
   if (env.CODEX_ACCESS_TOKEN !== undefined && env.CODEX_ACCESS_TOKEN.length > 0) {
-    return readinessFrom(provider, true, 'CODEX_ACCESS_TOKEN', 'Ready via Codex access token')
+    return readinessFrom(provider, true, 'CODEX_ACCESS_TOKEN', 'Locally runnable via Codex access token')
   }
 
   const codexAuthPath = env.OWLFOLIO_CODEX_AUTH_PATH ?? defaultCodexAuthPath(env)
   if (await fileExists(codexAuthPath)) {
-    return readinessFrom(provider, true, 'Codex OAuth credentials', 'Ready via Codex OAuth credentials')
+    return readinessFrom(provider, true, 'Codex OAuth credentials', 'Locally runnable via Codex OAuth credentials')
   }
 
   return readinessFrom(provider, false, 'missing', 'Missing OpenAI / Codex credentials')

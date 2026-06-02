@@ -1,6 +1,16 @@
 import { createElement } from 'react'
 
-export type StatusBadgeTone = 'neutral' | 'success' | 'warning' | 'danger'
+export type StatusBadgeTone =
+  | 'neutral'
+  | 'success'
+  | 'warning'
+  | 'danger'
+  | 'certified'
+  | 'experimental'
+  | 'blocked'
+  | 'draft'
+  | 'manual'
+  | 'compliance'
 
 export type StatusBadgeProps = {
   children?: string

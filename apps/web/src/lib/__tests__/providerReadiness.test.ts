@@ -25,7 +25,8 @@ describe('providerReadiness', () => {
       support_level: 'certified',
       auth_source: 'built-in demo mode',
     })
-    expect(readiness.status_label).toMatch(/ready/i)
+    expect(readiness.status_label).toBe('Locally runnable through built-in deterministic demo mode')
+    expect(readiness.status_label).not.toMatch(/\bready\b/i)
   })
 
   it('reports claude as ready when an api key is configured', async () => {
@@ -36,6 +37,7 @@ describe('providerReadiness', () => {
       is_ready: true,
       support_level: 'experimental',
       auth_source: 'ANTHROPIC_API_KEY',
+      status_label: 'Locally runnable via Anthropic API key',
     })
   })
 
@@ -51,6 +53,7 @@ describe('providerReadiness', () => {
         provider_id: 'claude',
         is_ready: true,
         auth_source: 'Claude subscription credentials',
+        status_label: 'Locally runnable via Claude subscription credentials',
       })
     })
   })
@@ -63,6 +66,7 @@ describe('providerReadiness', () => {
       is_ready: true,
       support_level: 'experimental',
       auth_source: 'OPENAI_API_KEY',
+      status_label: 'Locally runnable via OpenAI API key',
     })
     expect(readiness.status_label).toMatch(/api key/i)
   })
@@ -75,6 +79,7 @@ describe('providerReadiness', () => {
       is_ready: true,
       support_level: 'experimental',
       auth_source: 'CODEX_ACCESS_TOKEN',
+      status_label: 'Locally runnable via Codex access token',
     })
     expect(readiness.status_label).toMatch(/access token/i)
   })
@@ -92,6 +97,7 @@ describe('providerReadiness', () => {
         is_ready: true,
         support_level: 'experimental',
         auth_source: 'Codex OAuth credentials',
+        status_label: 'Locally runnable via Codex OAuth credentials',
       })
       expect(readiness.status_label).toMatch(/oauth/i)
     })

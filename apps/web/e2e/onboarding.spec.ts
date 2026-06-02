@@ -11,9 +11,9 @@ test('demo onboarding initializes the durable demo workflow', async ({ page }) =
   await expect(page.getByRole('heading', { name: /set up owlfolio/i })).toBeVisible()
   await expect(page.getByText(/choose mode/i)).toBeVisible()
   await expect(page.getByRole('radio', { name: /demo mode/i })).toBeChecked()
-  await expect(page.getByText(/ready for deterministic demo mode/i).first()).toBeVisible()
+  await expect(page.getByText(/locally runnable through built-in deterministic demo mode/i).first()).toBeVisible()
 
-  await page.getByRole('button', { name: /start workflow/i }).click()
+  await page.getByRole('button', { name: /initialize owlfolio workflow/i }).click()
 
   await expect(page.getByRole('heading', { name: /command center/i })).toBeVisible()
   await expect(page.getByText(/setup ready/i)).toBeVisible()
@@ -29,8 +29,9 @@ test('personal local onboarding shows unready provider status and disables workf
   await expect(page.getByText(/subscription access|missing claude credentials/i).first()).toBeVisible()
   await expect(page.getByText(/auth source: certification report|auth source: missing/i).first()).toBeVisible()
   await expect(page.getByText('Provider cannot start yet', { exact: true })).toBeVisible()
-  await expect(page.getByText(/start workflow disabled until claude is ready/i)).toBeVisible()
-  await expect(page.getByRole('button', { name: /start workflow disabled until claude is ready/i })).toBeDisabled()
+  await expect(page.getByText(/start blocked: claude not locally runnable/i)).toBeVisible()
+  await expect(page.getByText(/oauth\/session not signed in or credential path missing|certification report blocked this provider session/i).first()).toBeVisible()
+  await expect(page.getByRole('button', { name: /start blocked: claude not locally runnable/i })).toBeDisabled()
   await expect(page.getByRole('heading', { name: /set up owlfolio/i })).toBeVisible()
   await expect(page.getByRole('heading', { name: /command center/i })).not.toBeVisible()
 })

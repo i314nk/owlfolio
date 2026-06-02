@@ -53,10 +53,7 @@ export async function updateOnboardingConfig(update: OnboardingConfigUpdate, opt
   const next: AppConfig = {
     ...current,
     ...update,
-    provider: {
-      ...current.provider,
-      ...update.provider,
-    },
+    provider: mergeProviderSelection(current.provider, update.provider),
     shariah: {
       ...current.shariah,
       ...update.shariah,
@@ -69,6 +66,29 @@ export async function updateOnboardingConfig(update: OnboardingConfigUpdate, opt
 
   await saveAppConfig(next, options)
   return next
+}
+
+function mergeProviderSelection(
+  current: ProviderSelection,
+  update: OnboardingConfigUpdate['provider'],
+): ProviderSelection {
+  if (update === undefined) {
+    return current
+  }
+
+  const providerChanged = update.provider_id !== undefined && update.provider_id !== current.provider_id
+  if (providerChanged && update.model_id === undefined) {
+    const { model_id: _staleModelId, ...currentWithoutModel } = current
+    return {
+      ...currentWithoutModel,
+      ...update,
+    }
+  }
+
+  return {
+    ...current,
+    ...update,
+  }
 }
 
 export async function getProviderReadinessSnapshot(config: AppConfig, options: OnboardingOptions = {}): Promise<ProviderReadiness> {

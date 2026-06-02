@@ -14,6 +14,15 @@ export type ProviderCertificationReportSummary = Pick<CertificationReport,
   'certification_report_id' | 'provider_id' | 'run_status' | 'not_run_reason' | 'support_level' | 'generated_at' | 'summary'
 >
 
+export type ProviderStatusTone = 'neutral' | 'success' | 'warning' | 'danger'
+
+export type ProviderStatusDetail = {
+  label: 'Local availability' | 'Credential status' | 'Catalog support' | 'Effective support' | 'Workflow certification' | 'Allowed use'
+  value: string
+  tone: ProviderStatusTone
+  description: string
+}
+
 export type ProviderStatusRow = {
   provider_id: ProviderId
   label: string
@@ -27,6 +36,7 @@ export type ProviderStatusRow = {
   model_role: string
   limitations: string[]
   capabilities: ProviderCatalogEntry['capabilities']
+  status_rows: ProviderStatusDetail[]
   last_certification_report: ProviderCertificationReportSummary | undefined
 }
 
@@ -123,6 +133,13 @@ export async function buildProviderStatusRows(options: ProviderStatusOptions = {
       model_role: matrix.model_role,
       limitations: matrix.limitations,
       capabilities: { ...provider.capabilities },
+      status_rows: statusRowsFrom({
+        provider,
+        localReadiness: readiness,
+        effectiveReadiness,
+        effectiveSupportLevel,
+        latestReport,
+      }),
       last_certification_report: latestReport === undefined
         ? undefined
         : {
@@ -136,6 +153,169 @@ export async function buildProviderStatusRows(options: ProviderStatusOptions = {
           },
     }
   }))
+}
+
+function statusRowsFrom({
+  provider,
+  localReadiness,
+  effectiveReadiness,
+  effectiveSupportLevel,
+  latestReport,
+}: {
+  provider: ProviderCatalogEntry
+  localReadiness: ProviderReadiness
+  effectiveReadiness: ProviderReadiness
+  effectiveSupportLevel: ProviderSupportLevel
+  latestReport: CertificationReport | undefined
+}): ProviderStatusDetail[] {
+  return [
+    localAvailabilityStatusFrom(provider.provider_id, localReadiness),
+    credentialStatusFrom(provider.provider_id, localReadiness, latestReport),
+    {
+      label: 'Catalog support',
+      value: provider.support_level,
+      tone: supportTone(provider.support_level),
+      description: 'Static provider matrix claim.',
+    },
+    {
+      label: 'Effective support',
+      value: effectiveSupportLevel,
+      tone: supportTone(effectiveSupportLevel),
+      description: 'Gating source of truth from latest certification evidence.',
+    },
+    workflowCertificationStatusFrom(latestReport),
+    allowedUseStatusFrom(provider.provider_id, effectiveReadiness, effectiveSupportLevel),
+  ]
+}
+
+function localAvailabilityStatusFrom(providerId: ProviderId, localReadiness: ProviderReadiness): ProviderStatusDetail {
+  return {
+    label: 'Local availability',
+    value: localReadiness.is_ready ? 'Locally runnable' : 'Not locally runnable',
+    tone: localReadiness.is_ready ? 'success' : 'warning',
+    description: providerId === 'mock-provider'
+      ? 'Locally runnable through built-in deterministic demo mode'
+      : localReadiness.status_label,
+  }
+}
+
+function credentialStatusFrom(
+  providerId: ProviderId,
+  localReadiness: ProviderReadiness,
+  latestReport: CertificationReport | undefined,
+): ProviderStatusDetail {
+  if (providerId === 'mock-provider') {
+    return {
+      label: 'Credential status',
+      value: 'Built-in demo provider',
+      tone: 'success',
+      description: 'No external credentials required.',
+    }
+  }
+
+  if (latestReport?.support_level === 'unsupported' && localReadiness.is_ready) {
+    return {
+      label: 'Credential status',
+      value: 'Credentials blocked by latest certification report',
+      tone: 'danger',
+      description: latestReport.not_run_reason ?? latestReport.summary,
+    }
+  }
+
+  if (localReadiness.is_ready) {
+    return {
+      label: 'Credential status',
+      value: `Credentials detected via ${localReadiness.auth_source}`,
+      tone: 'success',
+      description: localReadiness.status_label,
+    }
+  }
+
+  return {
+    label: 'Credential status',
+    value: 'Credentials missing',
+    tone: 'warning',
+    description: localReadiness.status_label,
+  }
+}
+
+function workflowCertificationStatusFrom(latestReport: CertificationReport | undefined): ProviderStatusDetail {
+  if (latestReport === undefined) {
+    return {
+      label: 'Workflow certification',
+      value: 'No certification report recorded',
+      tone: 'warning',
+      description: 'No persisted certification evidence exists for this provider.',
+    }
+  }
+
+  if (latestReport.run_status === 'not-configured') {
+    return {
+      label: 'Workflow certification',
+      value: 'Report not configured',
+      tone: 'danger',
+      description: latestReport.not_run_reason ?? latestReport.summary,
+    }
+  }
+
+  return {
+    label: 'Workflow certification',
+    value: 'Report completed',
+    tone: supportTone(latestReport.support_level),
+    description: latestReport.summary,
+  }
+}
+
+function allowedUseStatusFrom(
+  providerId: ProviderId,
+  effectiveReadiness: ProviderReadiness,
+  effectiveSupportLevel: ProviderSupportLevel,
+): ProviderStatusDetail {
+  if (!effectiveReadiness.is_ready || effectiveSupportLevel === 'unsupported') {
+    return {
+      label: 'Allowed use',
+      value: 'Blocked for provider-backed workflow starts',
+      tone: 'danger',
+      description: 'Fail-closed until local availability and effective workflow support are both present.',
+    }
+  }
+
+  if (providerId === 'mock-provider') {
+    return {
+      label: 'Allowed use',
+      value: 'Demo/e2e deterministic fixture only',
+      tone: 'neutral',
+      description: 'Certified deterministic demo coverage does not imply live investment readiness.',
+    }
+  }
+
+  if (effectiveSupportLevel === 'experimental') {
+    return {
+      label: 'Allowed use',
+      value: 'Research drafts only; not certified for final investment or Shariah decisions',
+      tone: 'warning',
+      description: 'Experimental support may assist drafts but is not certified workflow authority.',
+    }
+  }
+
+  return {
+    label: 'Allowed use',
+    value: 'Certified provider-backed workflow support',
+    tone: 'success',
+    description: 'Latest evidence supports certified workflow use within Owlfolio policy gates.',
+  }
+}
+
+function supportTone(supportLevel: ProviderSupportLevel): ProviderStatusTone {
+  if (supportLevel === 'certified') {
+    return 'success'
+  }
+
+  if (supportLevel === 'unsupported') {
+    return 'danger'
+  }
+
+  return 'warning'
 }
 
 function effectiveSupportFrom(catalogSupportLevel: ProviderSupportLevel, latestReport: CertificationReport | undefined): ProviderSupportLevel {

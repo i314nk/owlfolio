@@ -4,15 +4,15 @@ import { deriveAuditActivityView, type AuditActivityEvent, type AuditActivityFil
 import type { WorkflowMode } from '../lib/workflow'
 
 const shellStyle: CSSProperties = {
-  background: '#f8fafc',
-  border: '1px solid #dbeafe',
+  background: 'rgba(148, 163, 184, 0.08)',
+  border: '1px solid rgba(148, 163, 184, 0.18)',
   borderRadius: '1.25rem',
-  boxShadow: '0 24px 80px rgba(15, 23, 42, 0.08)',
+  boxShadow: '0 24px 80px rgba(0, 0, 0, 0.24)',
   padding: 'clamp(1.25rem, 4vw, 2rem)',
 }
 
 const eyebrowStyle: CSSProperties = {
-  color: '#047857',
+  color: '#6366f1',
   fontSize: '0.78rem',
   fontWeight: 900,
   letterSpacing: '0.1em',
@@ -21,22 +21,22 @@ const eyebrowStyle: CSSProperties = {
 }
 
 const headingStyle: CSSProperties = {
-  color: '#0f172a',
+  color: '#f7f8ff',
   fontSize: 'clamp(2rem, 4vw, 3rem)',
   lineHeight: 1,
   margin: '0.35rem 0 0.75rem',
 }
 
 const subheadingStyle: CSSProperties = {
-  color: '#475569',
+  color: '#9aa4b7',
   fontSize: '1rem',
   lineHeight: 1.6,
   margin: '0 0 1.5rem',
 }
 
 const filterFormStyle: CSSProperties = {
-  background: '#ffffff',
-  border: '1px solid #dbeafe',
+  background: 'rgba(255, 255, 255, 0.035)',
+  border: '1px solid rgba(148, 163, 184, 0.18)',
   borderRadius: '1rem',
   display: 'grid',
   gap: '0.85rem',
@@ -46,7 +46,7 @@ const filterFormStyle: CSSProperties = {
 }
 
 const filterLabelStyle: CSSProperties = {
-  color: '#334155',
+  color: '#cbd5e1',
   display: 'grid',
   fontSize: '0.78rem',
   fontWeight: 900,
@@ -56,10 +56,10 @@ const filterLabelStyle: CSSProperties = {
 }
 
 const controlStyle: CSSProperties = {
-  background: '#f8fafc',
-  border: '1px solid #cbd5e1',
+  background: 'rgba(148, 163, 184, 0.08)',
+  border: '1px solid rgba(148, 163, 184, 0.24)',
   borderRadius: '0.7rem',
-  color: '#0f172a',
+  color: '#f7f8ff',
   font: 'inherit',
   fontSize: '0.92rem',
   fontWeight: 700,
@@ -74,8 +74,8 @@ const filterActionsStyle: CSSProperties = {
 }
 
 const buttonStyle: CSSProperties = {
-  background: '#047857',
-  border: '1px solid #047857',
+  background: '#6366f1',
+  border: '1px solid #6366f1',
   borderRadius: '0.7rem',
   color: '#ffffff',
   cursor: 'pointer',
@@ -86,14 +86,47 @@ const buttonStyle: CSSProperties = {
 }
 
 const clearLinkStyle: CSSProperties = {
-  color: '#047857',
+  background: 'rgba(255, 255, 255, 0.03)',
+  border: '1px solid rgba(148, 163, 184, 0.28)',
+  borderRadius: '0.7rem',
+  color: '#cbd5e1',
   fontSize: '0.9rem',
   fontWeight: 900,
+  padding: '0.58rem 0.8rem',
   textDecoration: 'none',
 }
 
+const activeFiltersStyle: CSSProperties = {
+  background: 'rgba(99, 102, 241, 0.09)',
+  border: '1px solid rgba(129, 140, 248, 0.22)',
+  borderRadius: '0.9rem',
+  display: 'grid',
+  gap: '0.55rem',
+  margin: '0 0 1rem',
+  padding: '0.85rem',
+}
+
+const activeFilterListStyle: CSSProperties = {
+  display: 'flex',
+  flexWrap: 'wrap',
+  gap: '0.45rem',
+  listStyle: 'none',
+  margin: 0,
+  padding: 0,
+}
+
+const activeFilterChipStyle: CSSProperties = {
+  background: 'rgba(255, 255, 255, 0.055)',
+  border: '1px solid rgba(148, 163, 184, 0.22)',
+  borderRadius: '999px',
+  color: '#e2e8f0',
+  fontSize: '0.78rem',
+  fontWeight: 800,
+  padding: '0.28rem 0.55rem',
+}
+
 const resultCountStyle: CSSProperties = {
-  color: '#475569',
+  color: '#9aa4b7',
   fontSize: '0.9rem',
   fontWeight: 800,
   margin: '0 0 1rem',
@@ -108,8 +141,8 @@ const listStyle: CSSProperties = {
 }
 
 const rowStyle: CSSProperties = {
-  background: '#ffffff',
-  border: '1px solid #e2e8f0',
+  background: 'rgba(255, 255, 255, 0.035)',
+  border: '1px solid rgba(148, 163, 184, 0.16)',
   borderRadius: '1rem',
   padding: '1rem',
 }
@@ -124,23 +157,23 @@ const rowHeaderStyle: CSSProperties = {
 }
 
 const eventSummaryStyle: CSSProperties = {
-  color: '#0f172a',
+  color: '#f7f8ff',
   fontSize: '1.05rem',
   fontWeight: 900,
   margin: 0,
 }
 
 const timestampStyle: CSSProperties = {
-  color: '#64748b',
+  color: '#9aa4b7',
   fontSize: '0.85rem',
   fontWeight: 700,
 }
 
 const contextStyle: CSSProperties = {
-  background: '#f8fafc',
-  border: '1px solid #e2e8f0',
+  background: 'rgba(148, 163, 184, 0.08)',
+  border: '1px solid rgba(148, 163, 184, 0.16)',
   borderRadius: '0.8rem',
-  color: '#334155',
+  color: '#cbd5e1',
   fontSize: '0.9rem',
   fontWeight: 700,
   lineHeight: 1.45,
@@ -156,7 +189,7 @@ const detailListStyle: CSSProperties = {
 }
 
 const detailTermStyle: CSSProperties = {
-  color: '#64748b',
+  color: '#9aa4b7',
   fontSize: '0.72rem',
   fontWeight: 900,
   letterSpacing: '0.06em',
@@ -164,21 +197,30 @@ const detailTermStyle: CSSProperties = {
 }
 
 const detailValueStyle: CSSProperties = {
-  color: '#1e293b',
+  color: '#e2e8f0',
   fontSize: '0.92rem',
   fontWeight: 700,
   margin: '0.1rem 0 0',
   overflowWrap: 'anywhere',
 }
 
+const lineageListStyle: CSSProperties = {
+  display: 'flex',
+  flexWrap: 'wrap',
+  gap: '0.45rem',
+  listStyle: 'none',
+  margin: '0.35rem 0 0',
+  padding: 0,
+}
+
 const evidenceStyle: CSSProperties = {
-  borderTop: '1px solid #e2e8f0',
+  borderTop: '1px solid rgba(148, 163, 184, 0.16)',
   marginTop: '0.9rem',
   paddingTop: '0.9rem',
 }
 
 const evidenceSummaryStyle: CSSProperties = {
-  color: '#047857',
+  color: '#6366f1',
   cursor: 'pointer',
   fontSize: '0.9rem',
   fontWeight: 900,
@@ -188,6 +230,16 @@ const copyInputStyle: CSSProperties = {
   ...controlStyle,
   marginTop: '0.35rem',
   width: '100%',
+}
+
+const copyKitStyle: CSSProperties = {
+  background: 'rgba(15, 23, 42, 0.58)',
+  border: '1px solid rgba(148, 163, 184, 0.18)',
+  borderRadius: '0.8rem',
+  display: 'grid',
+  gap: '0.65rem',
+  marginTop: '0.75rem',
+  padding: '0.75rem',
 }
 
 const preStyle: CSSProperties = {
@@ -203,10 +255,10 @@ const preStyle: CSSProperties = {
 }
 
 const emptyStateStyle: CSSProperties = {
-  background: '#ffffff',
-  border: '1px dashed #cbd5e1',
+  background: 'rgba(255, 255, 255, 0.035)',
+  border: '1px dashed rgba(148, 163, 184, 0.32)',
   borderRadius: '1rem',
-  color: '#475569',
+  color: '#9aa4b7',
   fontWeight: 700,
   margin: 0,
   padding: '1rem',
@@ -235,6 +287,7 @@ export function AuditActivityPanel({ events, filters = {}, mode }: AuditActivity
       `${subtitle}. Search and filter the ledger trace while retaining stable event IDs and raw event evidence.`,
     ),
     createElement(AuditActivityFiltersForm, { filters, filterOptions: view.filterOptions }),
+    createElement(ActiveAuditFilters, { activeFilters: view.activeFilters }),
     createElement('p', { style: resultCountStyle }, `${view.events.length} of ${events.length} ledger events shown`),
     view.events.length === 0
       ? createElement('p', { style: emptyStateStyle }, events.length === 0 ? 'No ledger events recorded yet.' : 'No ledger events match the current filters.')
@@ -254,15 +307,38 @@ function AuditActivityFiltersForm({ filters, filterOptions }: {
     'form',
     { action: '/audit', method: 'get', style: filterFormStyle },
     filterInput('Entity / ticker / text', 'entity', filters.entity ?? '', 'MSFT, holding ID, event ID'),
-    filterInput('Search raw ledger evidence', 'q', filters.query ?? '', 'payload value, source ID, schema'),
+    filterInput('Search raw ledger evidence', 'q', filters.query ?? '', 'event JSON, ticker, report ID, payload field'),
+    filterInput('Event ID', 'event_id', filters.eventId ?? '', 'evt_...'),
+    filterInput('Correlation ID', 'correlation_id', filters.correlationId ?? '', 'corr_...'),
+    filterInput('Source ID', 'source_id', filters.sourceId ?? '', 'src_ or evt_...'),
     filterSelect('Raw event type', 'event_type', filters.eventType ?? '', filterOptions.eventTypes, 'All event types'),
     filterSelect('Actor', 'actor', filters.actor ?? '', filterOptions.actors, 'All actors'),
+    filterSelect('Schema version', 'schema_version', filters.schemaVersion ?? '', filterOptions.schemaVersions, 'All schema versions'),
+    filterInput('Date from', 'date_from', filters.dateFrom ?? '', 'YYYY-MM-DD', 'date'),
+    filterInput('Date to', 'date_to', filters.dateTo ?? '', 'YYYY-MM-DD', 'date'),
     filterSelect('Time ordering', 'time_order', filters.timeOrder ?? 'asc', ['asc', 'desc'], 'Ascending'),
     createElement(
       'div',
       { style: filterActionsStyle },
       createElement('button', { style: buttonStyle, type: 'submit' }, 'Apply filters'),
       createElement('a', { href: '/audit', style: clearLinkStyle }, 'Clear'),
+    ),
+  )
+}
+
+function ActiveAuditFilters({ activeFilters }: { activeFilters: string[] }) {
+  if (activeFilters.length === 0) {
+    return null
+  }
+
+  return createElement(
+    'section',
+    { 'aria-label': 'Active audit filters', style: activeFiltersStyle },
+    createElement('p', { style: { ...detailTermStyle, margin: 0 } }, 'Active audit filters'),
+    createElement(
+      'ul',
+      { style: activeFilterListStyle },
+      ...activeFilters.map((filterLabel) => createElement('li', { key: filterLabel, style: activeFilterChipStyle }, filterLabel)),
     ),
   )
 }
@@ -285,12 +361,17 @@ function AuditActivityRow({ event }: { event: AuditActivityEvent }) {
     createElement(
       'dl',
       { style: detailListStyle },
+      detail('Event ID', event.event_id),
       detail('Raw event type', event.event_type),
-      detail('Aggregate', event.aggregate_label),
+      detail('Aggregate type', event.aggregate_type),
+      detail('Aggregate ID', event.aggregate_id),
       detail('Actor', event.actor_label),
       detail('Entity / ticker', event.entity_label),
       detail('Sources', String(event.source_count)),
-      detail('Schema', `v${event.schema_version}`),
+      detail('Schema version', `v${event.schema_version}`),
+      detail('Correlation ID', event.correlation_id ?? 'Not recorded'),
+      relationshipDetail('Causation / parent event', event.causation_id),
+      sourceLinksDetail('Source / parent links', event.source_ids),
     ),
     createElement(AuditEventEvidence, { event }),
   )
@@ -302,15 +383,12 @@ function AuditEventEvidence({ event }: { event: AuditActivityEvent }) {
     { style: evidenceStyle },
     createElement('summary', { style: evidenceSummaryStyle }, 'Ledger evidence details'),
     createElement(
-      'label',
-      { style: { ...filterLabelStyle, marginTop: '0.75rem', textTransform: 'none' } },
-      'Copyable event ID',
-      createElement('input', {
-        'aria-label': `Copyable event ID ${event.event_id}`,
-        readOnly: true,
-        style: copyInputStyle,
-        value: event.event_id,
-      }),
+      'section',
+      { 'aria-label': 'Audit copy kit', style: copyKitStyle },
+      createElement('p', { style: { ...detailTermStyle, margin: 0 } }, 'Audit copy kit'),
+      copyableValue('Copyable event ID', `Copyable event ID ${event.event_id}`, event.event_id),
+      event.correlation_id === undefined ? null : copyableValue('Copyable correlation ID', `Copyable correlation ID ${event.correlation_id}`, event.correlation_id),
+      ...event.source_ids.map((sourceId) => copyableValue('Copyable source ID', `Copyable source ID ${sourceId}`, sourceId)),
     ),
     event.causation_id === undefined ? null : createElement(RelationshipLine, { label: 'Caused by', relationshipId: event.causation_id }),
     event.correlation_id === undefined ? null : detail('Correlation ID', event.correlation_id),
@@ -320,11 +398,11 @@ function AuditEventEvidence({ event }: { event: AuditActivityEvent }) {
       createElement('p', { style: detailTermStyle }, 'Source event links'),
       createElement(
         'ul',
-        { style: { margin: '0.35rem 0 0', paddingLeft: '1.25rem' } },
+        { style: lineageListStyle },
         ...event.source_ids.map((sourceId) => createElement(
           'li',
           { key: sourceId },
-          createElement('a', { href: `#${sourceId}`, style: clearLinkStyle }, sourceId),
+          createElement('a', { href: auditFilterHref('source_id', sourceId), style: clearLinkStyle }, sourceId),
         )),
       ),
     ),
@@ -338,12 +416,63 @@ function AuditEventEvidence({ event }: { event: AuditActivityEvent }) {
   )
 }
 
+function copyableValue(label: string, ariaLabel: string, value: string) {
+  return createElement(
+    'label',
+    { style: { ...filterLabelStyle, textTransform: 'none' } },
+    label,
+    createElement('input', {
+      'aria-label': ariaLabel,
+      readOnly: true,
+      style: copyInputStyle,
+      value,
+    }),
+  )
+}
+
 function RelationshipLine({ label, relationshipId }: { label: string; relationshipId: string }) {
   return createElement(
     'p',
     { style: detailValueStyle },
     `${label}: `,
-    createElement('a', { href: `#${relationshipId}`, style: clearLinkStyle }, relationshipId),
+    createElement('a', { href: auditFilterHref('event_id', relationshipId, relationshipId), style: clearLinkStyle }, relationshipId),
+  )
+}
+
+function auditFilterHref(param: 'event_id' | 'source_id', value: string, fragment?: string) {
+  const href = `/audit?${param}=${encodeURIComponent(value)}`
+  return fragment === undefined ? href : `${href}#${encodeURIComponent(fragment)}`
+}
+
+function relationshipDetail(term: string, relationshipId: string | undefined) {
+  return createElement(
+    'div',
+    null,
+    createElement('dt', { style: detailTermStyle }, term),
+    relationshipId === undefined
+      ? createElement('dd', { style: detailValueStyle }, 'Root event')
+      : createElement('dd', { style: detailValueStyle }, createElement('a', { href: auditFilterHref('event_id', relationshipId, relationshipId), style: clearLinkStyle }, relationshipId)),
+  )
+}
+
+function sourceLinksDetail(term: string, sourceIds: string[]) {
+  return createElement(
+    'div',
+    null,
+    createElement('dt', { style: detailTermStyle }, term),
+    createElement(
+      'dd',
+      { style: detailValueStyle },
+      sourceIds.length === 0 ? 'No source IDs recorded' : createElement(
+        'ul',
+        { style: lineageListStyle },
+        ...sourceIds.map((sourceId) => createElement(
+          'li',
+          { key: sourceId },
+          createElement('a', { href: auditFilterHref('source_id', sourceId), style: clearLinkStyle }, sourceId),
+        )),
+      ),
+    ),
   )
 }
 
@@ -365,7 +494,7 @@ function detail(term: string, value: string) {
   )
 }
 
-function filterInput(label: string, name: string, value: string, placeholder: string) {
+function filterInput(label: string, name: string, value: string, placeholder: string, type?: string) {
   return createElement(
     'label',
     { style: filterLabelStyle },
@@ -375,7 +504,7 @@ function filterInput(label: string, name: string, value: string, placeholder: st
       name,
       placeholder,
       style: controlStyle,
-      type: name === 'q' || name === 'entity' ? 'search' : 'text',
+      type: type ?? (name === 'q' || name === 'entity' || name.endsWith('_id') ? 'search' : 'text'),
     }),
   )
 }

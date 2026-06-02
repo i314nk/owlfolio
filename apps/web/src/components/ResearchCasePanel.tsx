@@ -1,5 +1,6 @@
 import { createElement } from 'react'
 
+import { SourceChip } from './designSystem'
 import { StatusBadge } from './StatusBadge'
 import type { AppResearchCase, WorkflowMode } from '../lib/workflow'
 
@@ -9,15 +10,15 @@ export type ResearchCasePanelProps = {
 }
 
 const cardStyle = {
-  background: '#ffffff',
-  border: '1px solid #e2e8f0',
+  background: 'rgba(255, 255, 255, 0.035)',
+  border: '1px solid rgba(148, 163, 184, 0.16)',
   borderRadius: '1rem',
-  boxShadow: '0 12px 30px rgba(15, 23, 42, 0.06)',
+  boxShadow: '0 18px 50px rgba(0, 0, 0, 0.18)',
   padding: '1.25rem',
 }
 
 const labelStyle = {
-  color: '#64748b',
+  color: '#9aa4b7',
   fontSize: '0.78rem',
   fontWeight: 800,
   margin: 0,
@@ -25,7 +26,7 @@ const labelStyle = {
 }
 
 const valueStyle = {
-  color: '#0f172a',
+  color: '#f7f8ff',
   fontSize: '1.05rem',
   fontWeight: 800,
   margin: '0.35rem 0 0',
@@ -49,8 +50,8 @@ export function ResearchCasePanel({ researchCase, mode = 'demo' }: ResearchCaseP
       'header',
       {
         style: {
-          background: 'linear-gradient(135deg, #f8fafc 0%, #ecfdf5 100%)',
-          border: '1px solid #dbeafe',
+          background: 'linear-gradient(135deg, rgba(124, 140, 255, 0.12) 0%, rgba(10, 132, 255, 0.08) 100%)',
+          border: '1px solid rgba(148, 163, 184, 0.18)',
           borderRadius: '1.25rem',
           padding: '1.5rem',
         },
@@ -63,11 +64,12 @@ export function ResearchCasePanel({ researchCase, mode = 'demo' }: ResearchCaseP
       ),
       createElement(
         'p',
-        { style: { color: '#475569', fontSize: '1rem', margin: 0 } },
+        { style: { color: '#9aa4b7', fontSize: '1rem', margin: 0 } },
         `Company: ${researchCase.company_id ?? 'Unknown company'}`,
       ),
     ),
     canPromoteToWatchlist ? createWatchlistPromotionAction(researchCase.research_case_id) : null,
+    createCurrentWorkflowStatus(researchCase),
     createElement(
       'div',
       {
@@ -77,7 +79,6 @@ export function ResearchCasePanel({ researchCase, mode = 'demo' }: ResearchCaseP
           gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))',
         },
       },
-      createMetric('Workflow stage', researchCase.stage),
       createMetric('Investment verdict', researchCase.investment_verdict ?? 'Pending'),
       createMetric('Strategy compliance', researchCase.strategy_compliance ?? 'Pending'),
       createMetric('Shariah status', researchCase.shariah_status ?? 'Pending'),
@@ -100,7 +101,12 @@ export function ResearchCasePanel({ researchCase, mode = 'demo' }: ResearchCaseP
               style: { alignItems: 'center', display: 'flex', flexWrap: 'wrap', gap: '0.6rem' },
             },
             createElement(StatusBadge, { tone: gate.tone }, gate.status),
-            createElement('span', { style: { fontWeight: 700 } }, gate.label),
+            createElement(
+              'span',
+              { style: { display: 'grid', gap: '0.25rem' } },
+              createElement('span', { style: { fontWeight: 700 } }, gate.label),
+              createElement('span', { style: { color: '#9aa4b7', fontSize: '0.86rem' } }, `Evidence source context: ${describeGateEvidence(gate.label, researchCase.source_ids)}`),
+            ),
           ),
         ),
       ),
@@ -110,9 +116,9 @@ export function ResearchCasePanel({ researchCase, mode = 'demo' }: ResearchCaseP
       { style: cardStyle },
       createElement('h2', { style: { fontSize: '1.25rem', margin: '0 0 0.75rem' } }, 'Source IDs'),
       createElement(
-        'ul',
-        { style: { color: '#334155', margin: 0, paddingLeft: '1.25rem' } },
-        ...researchCase.source_ids.map((sourceId) => createElement('li', { key: sourceId }, sourceId)),
+        'div',
+        { style: { display: 'flex', flexWrap: 'wrap', gap: '0.5rem' } },
+        ...researchCase.source_ids.map((sourceId) => createElement(SourceChip, { id: sourceId, key: sourceId, label: 'Audit source' })),
       ),
     ),
     createElement(
@@ -121,12 +127,12 @@ export function ResearchCasePanel({ researchCase, mode = 'demo' }: ResearchCaseP
       createElement('h2', { style: { fontSize: '1.25rem', margin: '0 0 0.35rem' } }, 'Ledger Timeline'),
       createElement(
         'p',
-        { style: { color: '#64748b', fontSize: '0.95rem', margin: '0 0 1rem' } },
+        { style: { color: '#9aa4b7', fontSize: '0.95rem', margin: '0 0 1rem' } },
         'How did this state come to exist?',
       ),
       createElement(
         'ol',
-        { style: { color: '#334155', display: 'grid', gap: '0.85rem', margin: 0, paddingLeft: '1.25rem' } },
+        { style: { color: '#cbd5e1', display: 'grid', gap: '0.85rem', margin: 0, paddingLeft: '1.25rem' } },
         ...researchCase.ledger_timeline.map((entry) =>
           createElement(
             'li',
@@ -135,7 +141,7 @@ export function ResearchCasePanel({ researchCase, mode = 'demo' }: ResearchCaseP
             createElement('p', { style: { margin: '0.2rem 0 0' } }, entry.summary),
             createElement(
               'p',
-              { style: { color: '#64748b', fontSize: '0.85rem', margin: '0.2rem 0 0' } },
+              { style: { color: '#9aa4b7', fontSize: '0.85rem', margin: '0.2rem 0 0' } },
               `${entry.actor_label} • ${entry.created_at}`,
             ),
           ),
@@ -148,11 +154,55 @@ export function ResearchCasePanel({ researchCase, mode = 'demo' }: ResearchCaseP
       createElement('p', { style: labelStyle }, 'Next required action'),
       createElement(
         'p',
-        { style: { color: '#0f172a', fontSize: '1.2rem', fontWeight: 800, margin: '0.4rem 0 0' } },
+        { style: { color: '#f7f8ff', fontSize: '1.2rem', fontWeight: 800, margin: '0.4rem 0 0' } },
         researchCase.next_required_action ?? 'Continue the review workflow',
       ),
     ),
   )
+}
+
+function createCurrentWorkflowStatus(researchCase: AppResearchCase) {
+  const statusLabel = describeWorkflowStatus(researchCase)
+
+  return createElement(
+    'section',
+    { className: 'owl-workflow-card', style: cardStyle },
+    createElement('p', { style: labelStyle }, 'Current workflow status'),
+    createElement('p', { style: { color: '#f7f8ff', fontSize: '1.25rem', fontWeight: 900, margin: '0.35rem 0 0' } }, statusLabel),
+    createElement('p', { style: { color: '#9aa4b7', fontSize: '0.9rem', margin: '0.55rem 0 0' } }, `Raw stage token: ${researchCase.stage}`),
+  )
+}
+
+function describeWorkflowStatus(researchCase: AppResearchCase): string {
+  const stageLabel = humanizeToken(researchCase.stage)
+  const actionHint = researchCase.next_required_action === undefined
+    ? 'Workflow review required'
+    : 'User action required'
+
+  return `${stageLabel} · ${actionHint}`
+}
+
+function describeGateEvidence(label: string, sourceIds: string[]) {
+  if (sourceIds.length === 0) {
+    return `${label} is awaiting source-backed evidence.`
+  }
+
+  return `${label} is tied to ${sourceIds.join(', ')}.`
+}
+
+function humanizeToken(value: string): string {
+  const words = value
+    .split('_')
+    .filter((part) => part.length > 0)
+    .map((part) => part.toLowerCase())
+
+  const firstWord = words.at(0)
+
+  if (firstWord === undefined) {
+    return value
+  }
+
+  return [`${firstWord.charAt(0).toUpperCase()}${firstWord.slice(1)}`, ...words.slice(1)].join(' ')
 }
 
 function createWatchlistPromotionAction(researchCaseId: string) {
@@ -161,14 +211,14 @@ function createWatchlistPromotionAction(researchCaseId: string) {
     {
       style: {
         ...cardStyle,
-        border: '1px solid #bbf7d0',
-        background: '#f0fdf4',
+        border: '1px solid #c7d2fe',
+        background: 'rgba(124, 140, 255, 0.12)',
       },
     },
     createElement('p', { style: labelStyle }, 'User confirmation'),
     createElement(
       'p',
-      { style: { color: '#166534', fontSize: '1rem', fontWeight: 700, margin: '0.35rem 0 1rem' } },
+      { style: { color: '#c7d2fe', fontSize: '1rem', fontWeight: 700, margin: '0.35rem 0 1rem' } },
       'Advance this drafted decision into durable personal-local watchlist state.',
     ),
     createElement(
@@ -179,7 +229,7 @@ function createWatchlistPromotionAction(researchCaseId: string) {
         {
           type: 'submit',
           style: {
-            background: '#047857',
+            background: '#6366f1',
             border: 0,
             borderRadius: '999px',
             color: '#ffffff',
@@ -210,7 +260,7 @@ function createResearchTransitionPanel(researchCase: AppResearchCase) {
         'section',
         { className: 'owl-workflow-panel owl-workflow-panel-draft' },
         createElement('h2', { style: { fontSize: '1.05rem', margin: 0 } }, 'Provider draft state'),
-        createElement('p', { style: { color: '#475569', margin: '0.45rem 0 0' } }, latestProviderEntry?.summary ?? 'Provider draft has not been recorded yet.'),
+        createElement('p', { style: { color: '#9aa4b7', margin: '0.45rem 0 0' } }, latestProviderEntry?.summary ?? 'Provider draft has not been recorded yet.'),
         createDetail('Decision', researchCase.decision ?? researchCase.investment_verdict ?? 'Pending'),
         createDetail('Strategy gate', researchCase.strategy_compliance ?? 'Pending'),
       ),
@@ -218,7 +268,7 @@ function createResearchTransitionPanel(researchCase: AppResearchCase) {
         'section',
         { className: 'owl-workflow-panel owl-workflow-panel-gate' },
         createElement('h2', { style: { fontSize: '1.05rem', margin: 0 } }, 'Source-backed Shariah gate'),
-        createElement('p', { style: { color: '#475569', margin: '0.45rem 0 0' } }, `Shariah status: ${researchCase.shariah_status ?? 'Pending'}`),
+        createElement('p', { style: { color: '#9aa4b7', margin: '0.45rem 0 0' } }, `Shariah status: ${researchCase.shariah_status ?? 'Pending'}`),
         createDetail('Source evidence', researchCase.source_ids.length === 0 ? 'No source IDs recorded' : researchCase.source_ids.join(', ')),
         createDetail('Valuation gate', researchCase.valuation_status ?? 'Pending'),
       ),
@@ -226,7 +276,7 @@ function createResearchTransitionPanel(researchCase: AppResearchCase) {
         'section',
         { className: 'owl-workflow-panel owl-workflow-panel-user' },
         createElement('h2', { style: { fontSize: '1.05rem', margin: 0 } }, 'User transition checkpoint'),
-        createElement('p', { style: { color: '#475569', margin: '0.45rem 0 0' } }, latestUserEntry?.summary ?? 'Awaiting user-authored transition.'),
+        createElement('p', { style: { color: '#9aa4b7', margin: '0.45rem 0 0' } }, latestUserEntry?.summary ?? 'Awaiting user-authored transition.'),
         createDetail('Next action', researchCase.next_required_action ?? 'Continue the review workflow'),
       ),
     ),
@@ -245,7 +295,7 @@ function createMetric(label: string, value: string) {
 function createDetail(label: string, value: string) {
   return createElement(
     'p',
-    { style: { color: '#334155', margin: '0.55rem 0 0' } },
+    { style: { color: '#cbd5e1', margin: '0.55rem 0 0' } },
     createElement('strong', null, `${label}: `),
     value,
   )

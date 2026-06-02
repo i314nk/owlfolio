@@ -36,6 +36,14 @@ describe('provider status model', () => {
       run_status: 'completed',
       certification_report_id: expect.stringContaining('mock-provider'),
     })
+    expect((mockProvider as any)?.status_rows).toEqual([
+      { label: 'Local availability', value: 'Locally runnable', tone: 'success', description: 'Locally runnable through built-in deterministic demo mode' },
+      { label: 'Credential status', value: 'Built-in demo provider', tone: 'success', description: 'No external credentials required.' },
+      { label: 'Catalog support', value: 'certified', tone: 'success', description: 'Static provider matrix claim.' },
+      { label: 'Effective support', value: 'certified', tone: 'success', description: 'Gating source of truth from latest certification evidence.' },
+      { label: 'Workflow certification', value: 'Report completed', tone: 'success', description: '13/13 scenarios passed; provider support level is certified.' },
+      { label: 'Allowed use', value: 'Demo/e2e deterministic fixture only', tone: 'neutral', description: 'Certified deterministic demo coverage does not imply live investment readiness.' },
+    ])
 
     await rm(projectDir, { recursive: true, force: true })
   })
@@ -145,6 +153,29 @@ describe('provider status model', () => {
     await rm(projectDir, { recursive: true, force: true })
   })
 
+  it('blocks allowed use when even the mock provider has an unsupported latest certification report', async () => {
+    const projectDir = await writeReportFixture(unsupportedCompletedReport('mock-provider'))
+
+    const rows = await buildProviderStatusRows({ env: { OWLFOLIO_PROJECT_DIR: projectDir } })
+    const mockProvider = rows.find((row) => row.provider_id === 'mock-provider')
+
+    expect(mockProvider).toMatchObject({
+      provider_id: 'mock-provider',
+      readiness_state: 'unready',
+      is_ready: false,
+      auth_source: 'certification report',
+      effective_support_level: 'unsupported',
+    })
+    expect(mockProvider?.status_rows.find((statusRow) => statusRow.label === 'Allowed use')).toEqual({
+      label: 'Allowed use',
+      value: 'Blocked for provider-backed workflow starts',
+      tone: 'danger',
+      description: 'Fail-closed until local availability and effective workflow support are both present.',
+    })
+
+    await rm(projectDir, { recursive: true, force: true })
+  })
+
   it('displays explicit not-configured certification artifacts for unavailable real providers', async () => {
     const projectDir = await writeReportFixture(createNotConfiguredCertificationReport({
       provider_id: 'claude',
@@ -180,13 +211,68 @@ describe('provider status model', () => {
         support_level: 'unsupported',
       },
     })
+    expect((claude as any)?.status_rows.map((statusRow: { label: string; value: string }) => [statusRow.label, statusRow.value])).toEqual([
+      ['Local availability', 'Locally runnable'],
+      ['Credential status', 'Credentials blocked by latest certification report'],
+      ['Catalog support', 'experimental'],
+      ['Effective support', 'unsupported'],
+      ['Workflow certification', 'Report not configured'],
+      ['Allowed use', 'Blocked for provider-backed workflow starts'],
+    ])
     expect(claude?.last_certification_report?.summary).toContain('Certification not run')
+
+    await rm(projectDir, { recursive: true, force: true })
+  })
+
+  it('shows an OpenAI not-configured report as the effective support gate even with credentials present', async () => {
+    const projectDir = await writeReportFixture(createNotConfiguredCertificationReport({
+      provider_id: 'openai',
+      generated_at: '2026-06-01T00:00:00.000Z',
+      capabilities: {
+        'text-generation': 'native',
+        'structured-output': 'adapter',
+        'tool-function-calling': 'unsupported',
+        'streaming-observability': 'adapter',
+        'multi-step-tool-loop': 'unsupported',
+      },
+      reason: 'Codex CLI structured-output schema rejected',
+    }))
+
+    const rows = await buildProviderStatusRows({
+      env: {
+        OPENAI_API_KEY: 'credential-present-but-certification-blocks-workflow',
+        OWLFOLIO_PROJECT_DIR: projectDir,
+      },
+    })
+    const openai = rows.find((row) => row.provider_id === 'openai')
+
+    expect(openai).toMatchObject({
+      provider_id: 'openai',
+      readiness_state: 'unready',
+      is_ready: false,
+      auth_source: 'certification report',
+      status_label: 'Codex CLI structured-output schema rejected',
+      effective_support_level: 'unsupported',
+      last_certification_report: {
+        run_status: 'not-configured',
+        not_run_reason: 'Codex CLI structured-output schema rejected',
+        support_level: 'unsupported',
+      },
+    })
+    expect((openai as any)?.status_rows.map((statusRow: { label: string; value: string }) => [statusRow.label, statusRow.value])).toEqual([
+      ['Local availability', 'Locally runnable'],
+      ['Credential status', 'Credentials blocked by latest certification report'],
+      ['Catalog support', 'experimental'],
+      ['Effective support', 'unsupported'],
+      ['Workflow certification', 'Report not configured'],
+      ['Allowed use', 'Blocked for provider-backed workflow starts'],
+    ])
 
     await rm(projectDir, { recursive: true, force: true })
   })
 })
 
-function unsupportedCompletedReport(providerId: 'claude' | 'openai'): CertificationReport {
+function unsupportedCompletedReport(providerId: 'mock-provider' | 'claude' | 'openai'): CertificationReport {
   return {
     certification_report_id: `cert_${providerId}_unsupported_completed`,
     provider_id: providerId,

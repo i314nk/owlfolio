@@ -14,18 +14,11 @@ type OnboardingWizardProps = {
   providerOptions: ProviderOption[]
 }
 
-const pageStyle: CSSProperties = {
-  background: 'linear-gradient(135deg, #f8fafc 0%, #ecfdf5 100%)',
-  color: '#0f172a',
-  minHeight: '100vh',
-  padding: '3rem clamp(1rem, 4vw, 4rem)',
-}
-
 const sectionStyle: CSSProperties = {
-  background: '#ffffff',
-  border: '1px solid #dbeafe',
+  background: 'rgba(255, 255, 255, 0.035)',
+  border: '1px solid rgba(148, 163, 184, 0.18)',
   borderRadius: '1.25rem',
-  boxShadow: '0 20px 45px rgba(15, 23, 42, 0.08)',
+  boxShadow: '0 20px 45px rgba(0, 0, 0, 0.18)',
   padding: '1.25rem',
 }
 
@@ -36,8 +29,9 @@ const cardGridStyle: CSSProperties = {
 }
 
 const radioCardBaseStyle: CSSProperties = {
-  background: '#ffffff',
-  border: '1px solid #cbd5e1',
+  background: 'rgba(255, 255, 255, 0.035)',
+  border: '1px solid rgba(148, 163, 184, 0.24)',
+  color: '#f7f8ff',
   borderRadius: '1rem',
   cursor: 'pointer',
   display: 'grid',
@@ -45,8 +39,37 @@ const radioCardBaseStyle: CSSProperties = {
   padding: '1rem',
 }
 
+const selectedRadioCardStyle: CSSProperties = {
+  ...radioCardBaseStyle,
+  background: 'rgba(124, 140, 255, 0.1)',
+  border: '1px solid rgba(124, 140, 255, 0.34)',
+  boxShadow: '0 0 0 1px rgba(124, 140, 255, 0.18) inset',
+}
+
+const selectStyle: CSSProperties = {
+  appearance: 'none',
+  background: '#0f172a',
+  border: '1px solid rgba(124, 140, 255, 0.34)',
+  borderRadius: '0.8rem',
+  color: '#f7f8ff',
+  fontSize: '1rem',
+  fontWeight: 700,
+  padding: '0.85rem 1rem',
+}
+
+const readinessActionStyle: CSSProperties = {
+  background: 'rgba(15, 23, 42, 0.72)',
+  border: '1px solid rgba(148, 163, 184, 0.18)',
+  borderRadius: '0.9rem',
+  color: '#e2e8f0',
+  display: 'grid',
+  gap: '0.3rem',
+  marginTop: '0.75rem',
+  padding: '0.85rem',
+}
+
 const actionButtonStyle: CSSProperties = {
-  background: '#047857',
+  background: '#6366f1',
   border: 0,
   borderRadius: '999px',
   color: '#ffffff',
@@ -58,12 +81,12 @@ const actionButtonStyle: CSSProperties = {
 
 const disabledActionButtonStyle: CSSProperties = {
   ...actionButtonStyle,
-  background: '#94a3b8',
+  background: '#475569',
   cursor: 'not-allowed',
 }
 
 const eyebrowStyle: CSSProperties = {
-  color: '#047857',
+  color: '#6366f1',
   fontSize: '0.85rem',
   fontWeight: 800,
   letterSpacing: '0.08em',
@@ -192,13 +215,13 @@ export function OnboardingWizard({ initialConfig, initialIsInitialized, initialR
 
   return createElement(
     'main',
-    { style: pageStyle },
+    { className: 'owl-route-frame owl-route-frame-wide' },
     createElement(
       'section',
-      { style: { margin: '0 auto', maxWidth: '1040px' } },
-      createElement('p', { style: { color: '#047857', fontWeight: 800, letterSpacing: '0.08em', margin: 0, textTransform: 'uppercase' } }, 'Owlfolio'),
+      { style: { display: 'grid', gap: '1rem' } },
+      createElement('p', { style: { color: '#6366f1', fontWeight: 800, letterSpacing: '0.08em', margin: 0, textTransform: 'uppercase' } }, 'Owlfolio'),
       createElement('h1', { style: { fontSize: 'clamp(2.25rem, 5vw, 4.5rem)', lineHeight: 1, margin: '0.5rem 0 1rem' } }, 'Set up Owlfolio'),
-      createElement('p', { style: { color: '#475569', fontSize: '1.1rem', maxWidth: '760px' } }, 'Configure a deterministic demo or a personal local workflow without editing environment files in the UI.'),
+      createElement('p', { style: { color: '#cbd5e1', fontSize: '1.1rem', maxWidth: '760px' } }, 'Configure a deterministic demo or a personal local workflow without editing environment files in the UI.'),
       createElement(
         'div',
         { style: { display: 'flex', flexWrap: 'wrap', gap: '0.75rem', margin: '1.5rem 0 2rem' } },
@@ -218,14 +241,14 @@ export function OnboardingWizard({ initialConfig, initialIsInitialized, initialR
             { style: cardGridStyle },
             createElement(
               'label',
-              { style: { ...radioCardBaseStyle, borderColor: config.mode === 'demo' ? '#047857' : '#cbd5e1' } },
+              { style: config.mode === 'demo' ? selectedRadioCardStyle : radioCardBaseStyle },
               createElement('input', { checked: config.mode === 'demo', name: 'mode', onChange: () => updateMode('demo'), type: 'radio' }),
               createElement('strong', null, 'Demo mode'),
-              createElement('span', null, 'Deterministic vertical slice with the mock provider and durable demo ledger.'),
+              createElement('span', null, 'Deterministic guided demo with the mock provider and a local demo ledger.'),
             ),
             createElement(
               'label',
-              { style: { ...radioCardBaseStyle, borderColor: config.mode === 'personal-local' ? '#047857' : '#cbd5e1' } },
+              { style: config.mode === 'personal-local' ? selectedRadioCardStyle : radioCardBaseStyle },
               createElement('input', { checked: config.mode === 'personal-local', name: 'mode', onChange: () => updateMode('personal-local'), type: 'radio' }),
               createElement('strong', null, 'Personal local mode'),
               createElement('span', null, 'Persist local configuration and initialize a durable personal ledger without seeding demo events.'),
@@ -238,7 +261,7 @@ export function OnboardingWizard({ initialConfig, initialIsInitialized, initialR
           createElement('p', { style: eyebrowStyle }, 'Connect provider'),
           createElement(
             'label',
-            { style: { color: '#334155', display: 'grid', gap: '0.5rem', maxWidth: '420px' } },
+            { style: { color: '#cbd5e1', display: 'grid', gap: '0.5rem', maxWidth: '420px' } },
             createElement('span', null, 'Provider'),
             createElement(
               'select',
@@ -252,13 +275,10 @@ export function OnboardingWizard({ initialConfig, initialIsInitialized, initialR
 
                   setConfig((current) => ({
                     ...current,
-                    provider: {
-                      ...current.provider,
-                      provider_id: nextProvider.provider_id,
-                      support_level: nextProvider.support_level,
-                    },
+                    provider: providerSelectionForOption(current.provider, nextProvider),
                   }))
                 },
+                style: selectStyle,
                 value: config.provider.provider_id,
               },
               ...providerOptions.map((provider) => createElement('option', { key: provider.provider_id, value: provider.provider_id }, provider.label)),
@@ -272,10 +292,19 @@ export function OnboardingWizard({ initialConfig, initialIsInitialized, initialR
               { style: sectionStyle },
               createElement('p', { style: eyebrowStyle }, 'Readiness summary'),
               createElement('p', { style: { fontSize: '1.15rem', fontWeight: 800, margin: '0.5rem 0' } }, selectedProvider.label),
-              createElement('p', { style: { color: '#334155', margin: '0.35rem 0' } }, selectedProvider.description),
-              createElement('p', { style: { color: '#334155', margin: '0.35rem 0' } }, `Auth source: ${readiness.auth_source}`),
-              createElement('p', { style: { color: '#334155', margin: '0.35rem 0' } }, `Support level: ${readiness.support_level}`),
-              createElement('p', { style: { color: '#334155', margin: '0.35rem 0' } }, readiness.status_label),
+              createElement('p', { style: { color: '#cbd5e1', margin: '0.35rem 0' } }, selectedProvider.description),
+              createElement('p', { style: { color: '#cbd5e1', margin: '0.35rem 0' } }, `Auth source: ${readiness.auth_source}`),
+              createElement('p', { style: { color: '#cbd5e1', margin: '0.35rem 0' } }, `Support level: ${readiness.support_level}`),
+              createElement('p', { style: { color: '#cbd5e1', margin: '0.35rem 0' } }, readiness.status_label),
+              createElement(
+                'div',
+                { style: readinessActionStyle },
+                createElement('strong', null, 'Readiness action'),
+                providerCanStart
+                  ? createElement('span', null, 'Action: initialize local ledger and open the Command Center.')
+                  : createElement('span', null, 'Action: configure credentials or choose demo mode before starting.'),
+                createElement('span', null, readinessSessionDetail(readiness)),
+              ),
             ),
           ),
         ),
@@ -284,7 +313,7 @@ export function OnboardingWizard({ initialConfig, initialIsInitialized, initialR
           { style: sectionStyle },
           createElement('p', { style: eyebrowStyle }, 'Strategy'),
           createElement('p', { style: { fontSize: '1.15rem', fontWeight: 800, margin: '0.5rem 0' } }, 'Buffett-Munger certified'),
-          createElement('p', { style: { color: '#334155', margin: 0 } }, 'Certified default workflow for the current Owlfolio v0.2 slice.'),
+          createElement('p', { style: { color: '#cbd5e1', margin: 0 } }, 'Certified default workflow for local demo and personal research workflows.'),
         ),
         createElement(
           'section',
@@ -331,32 +360,65 @@ export function OnboardingWizard({ initialConfig, initialIsInitialized, initialR
           { style: sectionStyle },
           createElement('p', { style: eyebrowStyle }, 'Market universe'),
           createElement('p', { style: { fontSize: '1.15rem', fontWeight: 800, margin: '0.5rem 0' } }, config.market_universe.label),
-          createElement('p', { style: { color: '#334155', margin: 0 } }, 'Broker credential integration stays out of the setup flow; this is a discovery-universe filter only.'),
+          createElement('p', { style: { color: '#cbd5e1', margin: 0 } }, 'Broker credential integration stays out of the setup flow; this is a discovery-universe filter only.'),
         ),
         createElement(
           'section',
           { style: sectionStyle },
           createElement('p', { style: eyebrowStyle }, 'Initialize ledger / start workflow'),
-          createElement('p', { style: { color: '#334155', marginTop: 0 } }, config.mode === 'demo' ? 'Seed the durable demo ledger and open the command center.' : 'Create a durable personal ledger and continue into the command center.'),
+          createElement('p', { style: { color: '#cbd5e1', marginTop: 0 } }, config.mode === 'demo' ? 'Seed the durable demo ledger and open the command center.' : 'Create a durable personal ledger and continue into the command center.'),
           providerCanStart
-            ? createElement('p', { style: { color: '#047857', fontWeight: 700, marginTop: 0 } }, `${selectedProvider.label} is ready to start this workflow.`)
+            ? createElement('p', { style: { color: '#6366f1', fontWeight: 700, marginTop: 0 } }, `${selectedProvider.label} is locally runnable for this workflow.`)
             : createElement(
                 'div',
-                { role: 'alert', style: { background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '0.9rem', color: '#7f1d1d', display: 'grid', gap: '0.25rem', marginBottom: '0.9rem', padding: '0.9rem' } },
+                { role: 'alert', style: { background: 'rgba(248, 113, 113, 0.16)', border: '1px solid rgba(248, 113, 113, 0.35)', borderRadius: '0.9rem', color: '#fecaca', display: 'grid', gap: '0.25rem', marginBottom: '0.9rem', padding: '0.9rem' } },
                 createElement('strong', null, 'Provider cannot start yet'),
                 createElement('span', null, startBlockMessage),
                 createElement('span', null, `Auth source: ${readiness.auth_source}`),
                 createElement('span', null, `Effective support: ${readiness.support_level}`),
+                createElement('span', null, 'Action: configure credentials or choose demo mode before starting.'),
+                readiness.auth_source === 'missing' || readiness.auth_source === 'certification report'
+                  ? createElement('span', null, readinessSessionDetail(readiness))
+                  : null,
               ),
-          errorMessage === undefined ? null : createElement('p', { style: { color: '#b91c1c', fontWeight: 700 } }, errorMessage),
+          errorMessage === undefined ? null : createElement('p', { style: { color: '#fca5a5', fontWeight: 700 } }, errorMessage),
           createElement('button', {
             disabled: startButtonDisabled,
             onClick: () => void startWorkflow(),
             style: startButtonDisabled ? disabledActionButtonStyle : actionButtonStyle,
             type: 'button',
-          }, isStarting ? 'Starting…' : providerCanStart ? 'Start workflow' : `Start workflow disabled until ${selectedProvider.label} is ready`),
+          }, isStarting ? 'Starting…' : providerCanStart ? 'Initialize Owlfolio workflow' : `Start blocked: ${selectedProvider.label} not locally runnable`),
         ),
       ),
     ),
   )
+}
+
+export function providerSelectionForOption(
+  current: AppConfig['provider'],
+  nextProvider: ProviderOption,
+): AppConfig['provider'] {
+  if (current.provider_id === nextProvider.provider_id && current.model_id !== undefined) {
+    return {
+      ...current,
+      support_level: nextProvider.support_level,
+    }
+  }
+
+  return {
+    provider_id: nextProvider.provider_id,
+    support_level: nextProvider.support_level,
+  }
+}
+
+function readinessSessionDetail(readiness: ProviderReadiness): string {
+  if (readiness.auth_source === 'missing') {
+    return 'OAuth/session not signed in or credential path missing'
+  }
+
+  if (readiness.auth_source === 'certification report') {
+    return 'Certification report blocked this provider session'
+  }
+
+  return `Credential/session source: ${readiness.auth_source}`
 }
