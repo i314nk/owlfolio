@@ -6,7 +6,7 @@ import type { EventStore } from '@owlfolio/ledger/eventStore'
 import type { LedgerEventEnvelope } from '@owlfolio/ledger/eventEnvelope'
 
 import { AuditActivityPanel } from '../AuditActivityPanel'
-import { getAuditActivityEventsFromStore } from '../../lib/audit'
+import { deriveAuditActivityView, getAuditActivityEventsFromStore } from '../../lib/audit'
 
 function event(
   overrides: Partial<LedgerEventEnvelope<Record<string, unknown>>>,
@@ -77,21 +77,85 @@ describe('generic audit activity', () => {
     })
   })
 
-  it('renders each row with stable event identity even when human-readable labels repeat', async () => {
+  it('projects human summaries, raw evidence, and causal relationships without inventing state', async () => {
     const events = await getAuditActivityEventsFromStore(storeWith([
-      event({ event_id: 'evt_same_label_a', aggregate_id: 'rc_duplicate_a' }),
+      event({
+        event_id: 'evt_gate_decision',
+        event_type: 'shariah_gate_decision_recorded',
+        aggregate_type: 'decision',
+        aggregate_id: 'decision_msft_001',
+        causation_id: 'evt_analysis_msft',
+        correlation_id: 'corr_msft_research',
+        payload: {
+          ticker: 'MSFT',
+          before: { status: 'draft' },
+          after: { status: 'approved' },
+          allowed: true,
+        },
+        source_ids: ['evt_analysis_msft'],
+      }),
+    ]))
+
+    expect(events[0]).toMatchObject({
+      event_summary: 'Shariah gate decision recorded for MSFT on decision / decision_msft_001',
+      entity_label: 'MSFT',
+      causation_id: 'evt_analysis_msft',
+      correlation_id: 'corr_msft_research',
+      source_ids: ['evt_analysis_msft'],
+    })
+    expect(events[0]?.raw_event_json).toContain('"event_type": "shariah_gate_decision_recorded"')
+    expect(events[0]?.context_explanation).toContain('Before → after payload is present')
+  })
+
+  it('filters by event type, actor, entity search, and reverses time ordering', async () => {
+    const events = await getAuditActivityEventsFromStore(storeWith([
+      event({ event_id: 'evt_early_msft', aggregate_id: 'rc_msft_001', payload: { ticker: 'MSFT' }, created_at: '2026-05-30T08:00:00.000Z' }),
+      event({ event_id: 'evt_late_aapl', aggregate_id: 'rc_aapl_001', payload: { ticker: 'AAPL' }, actor_type: 'worker', created_at: '2026-05-31T08:00:00.000Z' }, { withoutActorId: true }),
+      event({ event_id: 'evt_later_msft', event_type: 'decision_drafted', aggregate_type: 'decision', aggregate_id: 'decision_msft_001', payload: { ticker: 'MSFT' }, created_at: '2026-06-01T08:00:00.000Z' }),
+    ]))
+
+    const view = deriveAuditActivityView(events, {
+      actor: 'user:user_local',
+      entity: 'msft',
+      eventType: 'decision_drafted',
+      timeOrder: 'desc',
+    })
+
+    expect(view.events.map((activityEvent) => activityEvent.event_id)).toEqual(['evt_later_msft'])
+    expect(view.filterOptions.eventTypes).toEqual(['decision_drafted', 'research_case_created'])
+    expect(view.filterOptions.actors).toContain('user:user_local')
+    expect(view.filterOptions.entities).toContain('MSFT')
+  })
+
+  it('renders search controls and expandable evidence with stable event identity', async () => {
+    const events = await getAuditActivityEventsFromStore(storeWith([
+      event({
+        event_id: 'evt_same_label_a',
+        aggregate_id: 'rc_duplicate_a',
+        causation_id: 'evt_parent',
+        source_ids: ['evt_source'],
+        payload: { ticker: 'MSFT' },
+      }),
       event({ event_id: 'evt_same_label_b', aggregate_id: 'rc_duplicate_b' }),
     ]))
 
-    const html = renderToStaticMarkup(createElement(AuditActivityPanel, { events, mode: 'personal-local' }))
+    const html = renderToStaticMarkup(createElement(AuditActivityPanel, { events, filters: { entity: 'MSFT' }, mode: 'personal-local' }))
 
     expect(html).toContain('Audit activity')
     expect(html).toContain('Personal local ledger event stream')
+    expect(html).toContain('name="event_type"')
+    expect(html).toContain('name="actor"')
+    expect(html).toContain('name="entity"')
+    expect(html).toContain('name="time_order"')
     expect(html).toContain('data-event-id="evt_same_label_a"')
-    expect(html).toContain('data-event-id="evt_same_label_b"')
+    expect(html).not.toContain('data-event-id="evt_same_label_b"')
+    expect(html).toContain('Research case created for MSFT')
+    expect(html).toContain('Raw event type')
     expect(html).toContain('research_case_created')
-    expect(html).toContain('research_case / rc_duplicate_a')
-    expect(html).toContain('research_case / rc_duplicate_b')
-    expect(html).toContain('user:user_local')
+    expect(html).toContain('<details')
+    expect(html).toContain('aria-label="Copyable event ID evt_same_label_a"')
+    expect(html).toContain('href="#evt_source"')
+    expect(html).toContain('href="#evt_parent"')
+    expect(html).toContain('Raw ledger event JSON')
   })
 })

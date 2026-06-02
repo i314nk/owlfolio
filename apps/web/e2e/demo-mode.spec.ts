@@ -18,6 +18,6 @@ test('default home page renders the demo command center and research workflow pa
   await expect(page.getByRole('heading', { name: /cost/i })).toBeVisible()
   await expect(page.getByText(/investment verdict.*watch/i)).toBeVisible()
   await expect(page.getByText(/strategy compliance.*conditional/i)).toBeVisible()
-  await expect(page.getByText(/shariah status.*compliant/i)).toBeVisible()
+  await expect(page.getByText('Shariah status: COMPLIANT', { exact: true })).toBeVisible()
   await expect(page.getByText(/valuation status/i)).toBeVisible()
 })

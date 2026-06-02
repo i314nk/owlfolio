@@ -55,90 +55,102 @@ export function WatchlistPanel({ items, mode = 'demo' }: WatchlistPanelProps) {
             ),
           ),
         ]
-      : items.map((item) =>
-          createElement(
-            'article',
-            { key: item.watchlist_item_id, style: cardStyle },
-            createElement(
-              'div',
-              { style: { alignItems: 'center', display: 'flex', flexWrap: 'wrap', gap: '0.75rem', justifyContent: 'space-between' } },
-              createElement('h2', { style: { fontSize: '1.75rem', margin: 0 } }, item.ticker ?? item.company_id ?? item.watchlist_item_id),
-              createElement(
-                StatusBadge,
-                { tone: item.holding_id !== undefined || item.user_approved ? 'success' : 'warning' },
-                item.holding_id !== undefined
-                  ? 'Holding recorded'
-                  : item.user_approved
-                    ? 'User confirmed'
-                    : 'Draft — awaiting user confirmation',
-              ),
-            ),
-            createDetail('Strategy', item.strategy_id ?? 'Unknown'),
-            createDetail('Thesis summary', item.thesis_summary ?? 'No thesis recorded'),
-            createDetail('Buy-zone status', item.buy_zone_status ?? 'Not set'),
-            createDetail('Research case', item.research_case_id),
-            ...createShariahGateDetails(item),
-            item.holding_id === undefined ? null : createDetail('Holding', item.holding_id),
-            mode === 'personal-local' && !item.user_approved
-              ? createElement(
-                  'form',
-                  {
-                    action: `/api/watchlist/${item.watchlist_item_id}/confirm`,
-                    method: 'post',
-                    style: { marginTop: '1rem' },
-                  },
-                  createElement(
-                    'button',
-                    {
-                      type: 'submit',
-                      style: {
-                        background: '#047857',
-                        border: 0,
-                        borderRadius: '999px',
-                        color: '#ffffff',
-                        cursor: 'pointer',
-                        fontSize: '0.9rem',
-                        fontWeight: 800,
-                        padding: '0.65rem 0.9rem',
-                      },
-                    },
-                    'Confirm watchlist draft',
-                  ),
-                )
-              : null,
-            mode === 'personal-local' && item.user_approved && item.holding_id === undefined
-              ? createElement(
-                  'form',
-                  {
-                    action: `/api/watchlist/${item.watchlist_item_id}/open-holding`,
-                    method: 'post',
-                    style: { display: 'grid', gap: '0.75rem', marginTop: '1rem' },
-                  },
-                  createLotInput('Shares', 'shares', 'number', '1', { step: '0.0001', min: '0.0001' }),
-                  createLotInput('Cost basis per share', 'cost_basis_per_share', 'number', '0', { step: '0.01', min: '0' }),
-                  createLotInput('Currency', 'currency', 'text', 'USD', { maxLength: 3 }),
-                  createLotInput('Opened date', 'opened_at', 'date', '', {}),
-                  createElement(
-                    'button',
-                    {
-                      type: 'submit',
-                      style: {
-                        background: '#0f172a',
-                        border: 0,
-                        borderRadius: '999px',
-                        color: '#ffffff',
-                        cursor: 'pointer',
-                        fontSize: '0.9rem',
-                        fontWeight: 800,
-                        padding: '0.65rem 0.9rem',
-                      },
-                    },
-                    'Record initial holding',
-                  ),
-                )
-              : null,
-          ),
-        )),
+      : items.map((item) => createWatchlistCard(item, mode))),
+  )
+}
+
+function createWatchlistCard(item: AppWatchlistItem, mode: WorkflowMode) {
+  return createElement(
+    'article',
+    { key: item.watchlist_item_id, className: 'owl-workflow-card', style: cardStyle },
+    createElement(
+      'div',
+      { style: { alignItems: 'center', display: 'flex', flexWrap: 'wrap', gap: '0.75rem', justifyContent: 'space-between' } },
+      createElement('h2', { style: { fontSize: '1.75rem', margin: 0 } }, item.ticker ?? item.company_id ?? item.watchlist_item_id),
+      createElement(
+        StatusBadge,
+        { tone: item.holding_id !== undefined || item.user_approved ? 'success' : 'warning' },
+        item.holding_id !== undefined
+          ? 'Holding recorded'
+          : item.user_approved
+            ? 'User confirmed'
+            : 'Draft — awaiting user confirmation',
+      ),
+    ),
+    createElement(
+      'div',
+      { className: 'owl-workflow-grid' },
+      createElement(
+        'section',
+        { className: 'owl-workflow-panel owl-workflow-panel-draft' },
+        createElement('h3', { style: { fontSize: '1rem', margin: 0 } }, 'Provider draft state'),
+        createDetail('Strategy', item.strategy_id ?? 'Unknown'),
+        createDetail('Thesis summary', item.thesis_summary ?? 'No thesis recorded'),
+        createDetail('Buy-zone status', item.buy_zone_status ?? 'Not set'),
+        createDetail('Research case', item.research_case_id),
+      ),
+      createElement(
+        'section',
+        { className: 'owl-workflow-panel owl-workflow-panel-user' },
+        createElement('h3', { style: { fontSize: '1rem', margin: 0 } }, 'User-confirmed state'),
+        createDetail('Confirmation status', item.user_approved ? 'Confirmed by user' : 'Awaiting user confirmation'),
+        item.holding_id === undefined ? createDetail('Holding', 'Not opened yet') : createDetail('Holding', item.holding_id),
+      ),
+    ),
+    ...createShariahGateDetails(item),
+    mode === 'personal-local' && !item.user_approved ? createWatchlistConfirmForm(item) : null,
+    mode === 'personal-local' && item.user_approved && item.holding_id === undefined ? createOpenHoldingForm(item) : null,
+  )
+}
+
+function createWatchlistConfirmForm(item: AppWatchlistItem) {
+  return createElement(
+    'form',
+    {
+      action: `/api/watchlist/${item.watchlist_item_id}/confirm`,
+      method: 'post',
+      className: 'owl-action-form owl-action-form-confirm',
+      style: { marginTop: '1rem' },
+    },
+    createElement('h3', { style: { fontSize: '1rem', margin: 0 } }, 'Confirm user watchlist state'),
+    createElement(
+      'p',
+      { style: { color: '#475569', margin: '0.35rem 0 0.8rem' } },
+      'Review Shariah gate evidence, then confirm this watchlist draft as user-authored state.',
+    ),
+    createElement(
+      'button',
+      {
+        type: 'submit',
+        className: 'owl-form-button owl-form-button-primary',
+      },
+      'Confirm watchlist draft',
+    ),
+  )
+}
+
+function createOpenHoldingForm(item: AppWatchlistItem) {
+  return createElement(
+    'form',
+    {
+      action: `/api/watchlist/${item.watchlist_item_id}/open-holding`,
+      method: 'post',
+      className: 'owl-action-form',
+      style: { display: 'grid', gap: '0.75rem', marginTop: '1rem' },
+    },
+    createElement('h3', { style: { fontSize: '1rem', margin: 0 } }, 'Open holding from confirmed watchlist state'),
+    createLotInput('Shares', 'shares', 'number', '1', { step: '0.0001', min: '0.0001' }),
+    createLotInput('Cost basis per share', 'cost_basis_per_share', 'number', '0', { step: '0.01', min: '0' }),
+    createLotInput('Currency', 'currency', 'text', 'USD', { maxLength: 3 }),
+    createLotInput('Opened date', 'opened_at', 'date', '', {}),
+    createElement(
+      'button',
+      {
+        type: 'submit',
+        className: 'owl-form-button owl-form-button-primary',
+      },
+      'Record initial holding',
+    ),
   )
 }
 

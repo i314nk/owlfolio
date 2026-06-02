@@ -52,6 +52,7 @@ describe('PurificationReport', () => {
     const html = renderToStaticMarkup(createElement(PurificationReport, { report }))
 
     expect(html).toContain('Purification ledger')
+    expect(html).toContain('manual user payment tracking')
     expect(html).toContain('Owed')
     expect(html).toContain('$14.63')
     expect(html).toContain('Paid')
@@ -64,7 +65,43 @@ describe('PurificationReport', () => {
     expect(html).toContain('src_msft_10k')
     expect(html).toContain('acct_2026_06')
     expect(html).toContain('NAV: $2,925.00')
+    expect(html).toContain('Payment action: record only after the user confirms an external payment')
+    expect(html).toContain('Audit/source links preview')
     expect(html).toContain('Local zakat charity')
+    expect(html).toContain('User-recorded payment receipt')
     expect(html).toContain('never marks an obligation paid automatically')
+  })
+
+  it('renders a zero-obligation empty state with next steps and manual-payment limits', () => {
+    const html = renderToStaticMarkup(createElement(PurificationReport, {
+      report: {
+        summary_cards: [],
+        obligations: [],
+        payments: [],
+        limitations: [
+          'Purification inputs are manual/accounting-derived placeholders until full dividend and non-compliant revenue modeling is implemented.',
+        ],
+      },
+    }))
+
+    expect(html).toContain('No purification obligations have been recorded yet.')
+    expect(html).toContain('$0.00 owed, $0.00 paid, and $0.00 remaining until an auditable obligation exists.')
+    expect(html).toContain('Next step: create a sourced obligation from Shariah/accounting evidence, then record the charity payment manually.')
+    expect(html).toContain('Source/audit preview: Shariah evidence, accounting snapshot, and payment receipt links will appear here.')
+    expect(html).toContain('No explicit purification payments have been recorded yet.')
+    expect(html).toContain('Payment action appears only after an obligation exists and the user has an external payment to record.')
+  })
+
+  it('keeps unpaid obligations actionable without implying an automatic payment control', () => {
+    const html = renderToStaticMarkup(createElement(PurificationReport, {
+      report: {
+        ...report,
+        payments: [],
+      },
+    }))
+
+    expect(html).toContain('Payment action: record only after the user confirms an external payment')
+    expect(html).toContain('No payments have been recorded for this obligation yet. Make the external payment first, then record it manually.')
+    expect(html).not.toContain('Payment action stays disabled in the UI until the user has an external payment to record.')
   })
 })

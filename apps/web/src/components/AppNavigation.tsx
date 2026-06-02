@@ -1,54 +1,7 @@
-import { createElement, type CSSProperties } from 'react'
+'use client'
 
-const navShellStyle: CSSProperties = {
-  background: '#ffffff',
-  borderBottom: '1px solid #dbeafe',
-  boxShadow: '0 8px 24px rgba(15, 23, 42, 0.06)',
-  position: 'sticky',
-  top: 0,
-  zIndex: 10,
-}
-
-const navInnerStyle: CSSProperties = {
-  alignItems: 'center',
-  display: 'flex',
-  flexWrap: 'wrap',
-  gap: '0.75rem',
-  justifyContent: 'space-between',
-  margin: '0 auto',
-  maxWidth: '1120px',
-  padding: '0.85rem clamp(1rem, 4vw, 4rem)',
-}
-
-const brandStyle: CSSProperties = {
-  color: '#047857',
-  fontSize: '0.95rem',
-  fontWeight: 900,
-  letterSpacing: '0.08em',
-  textDecoration: 'none',
-  textTransform: 'uppercase',
-}
-
-const listStyle: CSSProperties = {
-  alignItems: 'center',
-  display: 'flex',
-  flexWrap: 'wrap',
-  gap: '0.4rem',
-  listStyle: 'none',
-  margin: 0,
-  padding: 0,
-}
-
-const linkStyle: CSSProperties = {
-  border: '1px solid #dbeafe',
-  borderRadius: '999px',
-  color: '#0f172a',
-  display: 'inline-flex',
-  fontSize: '0.88rem',
-  fontWeight: 800,
-  padding: '0.48rem 0.7rem',
-  textDecoration: 'none',
-}
+import { createElement } from 'react'
+import { usePathname } from 'next/navigation'
 
 const navItems = [
   { href: '/', label: 'Command Center' },
@@ -62,25 +15,70 @@ const navItems = [
   { href: '/onboarding', label: 'Onboarding' },
 ]
 
+function isActiveRoute(pathname: string, href: string): boolean {
+  if (href === '/') {
+    return pathname === '/'
+  }
+
+  if (href === '/research/new') {
+    return pathname.startsWith('/research')
+  }
+
+  if (href === '/accounting/monthly') {
+    return pathname.startsWith('/accounting')
+  }
+
+  return pathname === href || pathname.startsWith(`${href}/`)
+}
+
 export function AppNavigation() {
+  const pathname = usePathname() ?? '/'
+
   return createElement(
     'nav',
     {
       'aria-label': 'Primary Owlfolio navigation',
-      style: navShellStyle,
+      className: 'owl-nav-shell',
     },
     createElement(
       'div',
-      { style: navInnerStyle },
-      createElement('a', { href: '/', style: brandStyle }, 'Owlfolio'),
+      { className: 'owl-nav-inner' },
+      createElement(
+        'a',
+        { className: 'owl-brand-mark owl-focusable', href: '/' },
+        createElement('span', { 'aria-hidden': true, className: 'owl-brand-orb' }, 'O'),
+        createElement(
+          'span',
+          { className: 'owl-brand-copy' },
+          createElement('span', { className: 'owl-brand-title' }, 'Owlfolio'),
+          createElement('span', { className: 'owl-brand-kicker' }, 'Fiduciary command center'),
+        ),
+      ),
       createElement(
         'ul',
-        { style: listStyle },
-        ...navItems.map((item) => createElement(
-          'li',
-          { key: item.href },
-          createElement('a', { href: item.href, style: linkStyle }, item.label),
-        )),
+        { className: 'owl-nav-list' },
+        ...navItems.map((item) => {
+          const isActive = isActiveRoute(pathname, item.href)
+          return createElement(
+            'li',
+            { key: item.href },
+            createElement(
+              'a',
+              {
+                className: isActive ? 'owl-nav-link owl-nav-link-active owl-focusable' : 'owl-nav-link owl-focusable',
+                href: item.href,
+                ...(isActive ? { 'aria-current': 'page' } : {}),
+              },
+              item.label,
+            ),
+          )
+        }),
+      ),
+      createElement(
+        'a',
+        { className: 'owl-command-trigger owl-focusable', href: '/audit' },
+        createElement('span', null, 'Audit trail search'),
+        createElement('span', { className: 'owl-command-key' }, '⌘K'),
       ),
     ),
   )

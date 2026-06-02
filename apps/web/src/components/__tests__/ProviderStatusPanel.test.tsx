@@ -85,8 +85,20 @@ describe('ProviderStatusPanel', () => {
     expect(html).toContain('Claude subscription access disabled')
     expect(html).toContain('Effective support: unsupported')
     expect(html).toContain('Run status: not-configured')
-    expect(html).toContain('Not-run reason: Claude subscription access disabled')
+    expect(html).not.toContain('Not-run reason: Claude subscription access disabled')
     expect(html).toContain('Certification not run: Claude subscription access disabled')
     expect(html).toContain('CLI-backed provider; no full workflow certification report recorded.')
+  })
+
+  it('renders a concise readiness glossary for provider status terms', () => {
+    const html = renderToStaticMarkup(createElement(ProviderStatusPanel, { rows }))
+
+    expect(html).toContain('Readiness glossary')
+    expect(html).toContain('Ready means local credentials or built-in demo mode are available.')
+    expect(html).toContain('Certified means the latest persisted certification report passed the full workflow.')
+    expect(html).toContain('Experimental means catalog support exists but full workflow certification is not proven.')
+    expect(html).toContain('Unsupported means the latest report or catalog blocks provider-backed workflow starts.')
+    expect(html).toContain('Catalog support is the static provider matrix claim.')
+    expect(html).toContain('Effective support is the latest certification-bounded support level used for gating.')
   })
 })

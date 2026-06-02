@@ -46,12 +46,12 @@ export function PurificationReport({ report }: PurificationReportProps) {
       createElement(
         'p',
         { style: { color: '#475569', fontSize: '1rem', margin: 0 } },
-        'Tracks purification obligations, explicit user-recorded payments, remaining balances, and audit links back to Shariah and accounting evidence.',
+        'Tracks purification obligations, manual user payment tracking, remaining balances, and audit links back to Shariah and accounting evidence. Owlfolio records user-confirmed payments only; it does not pay or mark obligations complete automatically.',
       ),
     ),
     createSummaryCards(report.summary_cards),
     createObligations(report.obligations),
-    createPayments(report.payments),
+    createPayments(report.payments, report.obligations.length),
     createElement(
       'section',
       { 'aria-label': 'Purification limitations', style: { ...cardStyle, background: '#fffbeb', borderColor: '#fde68a' } },
@@ -71,7 +71,7 @@ function createSummaryCards(cards: PurificationSummaryCard[]) {
     { 'aria-label': 'Purification balance summary', style: cardStyle },
     createElement('h2', { style: { fontSize: '1.35rem', margin: '0 0 1rem' } }, 'Owed / paid / remaining'),
     cards.length === 0
-      ? createElement('p', { style: { color: '#475569', margin: 0 } }, 'No purification obligations have been recorded yet.')
+      ? createPurificationZeroState()
       : createElement(
         'div',
         { style: metricGridStyle },
@@ -84,13 +84,30 @@ function createSummaryCards(cards: PurificationSummaryCard[]) {
   )
 }
 
+function createPurificationZeroState() {
+  return createElement(
+    'div',
+    { style: { color: '#475569', display: 'grid', gap: '0.5rem' } },
+    createElement('p', { style: { margin: 0 } }, 'No purification obligations have been recorded yet.'),
+    createElement('p', { style: { fontWeight: 800, margin: 0 } }, '$0.00 owed, $0.00 paid, and $0.00 remaining until an auditable obligation exists.'),
+    createElement('p', { style: { margin: 0 } }, 'Next step: create a sourced obligation from Shariah/accounting evidence, then record the charity payment manually.'),
+    createElement('p', { style: { color: '#64748b', margin: 0 } }, 'Source/audit preview: Shariah evidence, accounting snapshot, and payment receipt links will appear here.'),
+  )
+}
+
 function createObligations(obligations: PurificationObligationProjection[]) {
   return createElement(
     'section',
     { 'aria-label': 'Purification obligations', style: cardStyle },
     createElement('h2', { style: { fontSize: '1.35rem', margin: '0 0 1rem' } }, 'Obligations'),
     obligations.length === 0
-      ? createElement('p', { style: { color: '#475569', margin: 0 } }, 'No obligations are present yet.')
+      ? createElement(
+        'div',
+        { style: { color: '#475569', display: 'grid', gap: '0.5rem' } },
+        createElement('p', { style: { margin: 0 } }, 'No obligations are present yet.'),
+        createElement('p', { style: { margin: 0 } }, 'Payment action appears only after an obligation exists and the user has an external payment to record.'),
+        createElement('p', { style: { color: '#64748b', margin: 0 } }, 'Audit/source links preview: obligation evidence, accounting snapshots, and policy sources will be linked here.'),
+      )
       : createElement(
         'div',
         { style: { display: 'grid', gap: '0.75rem' } },
@@ -99,20 +116,29 @@ function createObligations(obligations: PurificationObligationProjection[]) {
   )
 }
 
-function createPayments(payments: PurificationPaymentProjection[]) {
+function createPayments(payments: PurificationPaymentProjection[], obligationCount: number) {
+  const emptyPaymentCopy = obligationCount === 0
+    ? 'Payment action appears only after an obligation exists and the user has an external payment to record.'
+    : 'No payments have been recorded for this obligation yet. Make the external payment first, then record it manually.'
+
   return createElement(
     'section',
     { 'aria-label': 'Purification payment history', style: cardStyle },
     createElement('h2', { style: { fontSize: '1.35rem', margin: '0 0 1rem' } }, 'Payment history'),
     payments.length === 0
-      ? createElement('p', { style: { color: '#475569', margin: 0 } }, 'No explicit purification payments have been recorded yet.')
+      ? createElement(
+        'div',
+        { style: { color: '#475569', display: 'grid', gap: '0.5rem' } },
+        createElement('p', { style: { margin: 0 } }, 'No explicit purification payments have been recorded yet.'),
+        createElement('p', { style: { margin: 0 } }, emptyPaymentCopy),
+      )
       : createElement(
         'ol',
         { style: { display: 'grid', gap: '0.6rem', margin: 0, paddingLeft: '1.25rem' } },
         ...payments.map((payment) => createElement(
           'li',
           { key: payment.payment_id },
-          `${payment.paid_at}: ${formatMoney(payment.amount, payment.currency)} paid to ${payment.recipient} (${payment.audit_source_ids.join(', ') || 'no receipt source linked'})`,
+          `${payment.paid_at}: ${formatMoney(payment.amount, payment.currency)} paid to ${payment.recipient}. User-recorded payment receipt: ${payment.audit_source_ids.join(', ') || 'no receipt source linked'}`,
         )),
       ),
   )
@@ -135,7 +161,8 @@ function obligationCard(obligation: PurificationObligationProjection) {
     obligation.accounting_holding_value === undefined
       ? null
       : createElement('p', { style: { color: '#334155', margin: '0.25rem 0' } }, `Holding value: ${formatMoney(obligation.accounting_holding_value, obligation.currency)}`),
-    createElement('p', { style: { color: '#64748b', margin: '0.25rem 0 0' } }, `Audit sources: ${obligation.audit_source_ids.join(', ') || 'none linked'}`),
+    createElement('p', { style: { color: '#334155', fontWeight: 800, margin: '0.25rem 0' } }, 'Payment action: record only after the user confirms an external payment'),
+    createElement('p', { style: { color: '#64748b', margin: '0.25rem 0 0' } }, `Audit/source links preview: ${obligation.audit_source_ids.join(', ') || 'none linked'}`),
   )
 }
 

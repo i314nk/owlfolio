@@ -84,6 +84,7 @@ export function ResearchCasePanel({ researchCase, mode = 'demo' }: ResearchCaseP
       createMetric('Valuation status', researchCase.valuation_status ?? 'Pending'),
       createMetric('Strategy', researchCase.strategy_id ?? 'Unknown'),
     ),
+    createResearchTransitionPanel(researchCase),
     createElement(
       'section',
       { style: cardStyle },
@@ -194,11 +195,58 @@ function createWatchlistPromotionAction(researchCaseId: string) {
   )
 }
 
+function createResearchTransitionPanel(researchCase: AppResearchCase) {
+  const latestProviderEntry = [...researchCase.ledger_timeline].reverse().find((entry) => entry.actor_label.startsWith('provider:'))
+  const latestUserEntry = [...researchCase.ledger_timeline].reverse().find((entry) => entry.actor_label.startsWith('user:'))
+
+  return createElement(
+    'section',
+    { className: 'owl-workflow-card', style: cardStyle },
+    createElement('p', { style: labelStyle }, 'Research transition map'),
+    createElement(
+      'div',
+      { className: 'owl-workflow-grid' },
+      createElement(
+        'section',
+        { className: 'owl-workflow-panel owl-workflow-panel-draft' },
+        createElement('h2', { style: { fontSize: '1.05rem', margin: 0 } }, 'Provider draft state'),
+        createElement('p', { style: { color: '#475569', margin: '0.45rem 0 0' } }, latestProviderEntry?.summary ?? 'Provider draft has not been recorded yet.'),
+        createDetail('Decision', researchCase.decision ?? researchCase.investment_verdict ?? 'Pending'),
+        createDetail('Strategy gate', researchCase.strategy_compliance ?? 'Pending'),
+      ),
+      createElement(
+        'section',
+        { className: 'owl-workflow-panel owl-workflow-panel-gate' },
+        createElement('h2', { style: { fontSize: '1.05rem', margin: 0 } }, 'Source-backed Shariah gate'),
+        createElement('p', { style: { color: '#475569', margin: '0.45rem 0 0' } }, `Shariah status: ${researchCase.shariah_status ?? 'Pending'}`),
+        createDetail('Source evidence', researchCase.source_ids.length === 0 ? 'No source IDs recorded' : researchCase.source_ids.join(', ')),
+        createDetail('Valuation gate', researchCase.valuation_status ?? 'Pending'),
+      ),
+      createElement(
+        'section',
+        { className: 'owl-workflow-panel owl-workflow-panel-user' },
+        createElement('h2', { style: { fontSize: '1.05rem', margin: 0 } }, 'User transition checkpoint'),
+        createElement('p', { style: { color: '#475569', margin: '0.45rem 0 0' } }, latestUserEntry?.summary ?? 'Awaiting user-authored transition.'),
+        createDetail('Next action', researchCase.next_required_action ?? 'Continue the review workflow'),
+      ),
+    ),
+  )
+}
+
 function createMetric(label: string, value: string) {
   return createElement(
     'article',
     { style: cardStyle },
     createElement('p', { style: labelStyle }, label),
     createElement('p', { style: valueStyle }, value),
+  )
+}
+
+function createDetail(label: string, value: string) {
+  return createElement(
+    'p',
+    { style: { color: '#334155', margin: '0.55rem 0 0' } },
+    createElement('strong', null, `${label}: `),
+    value,
   )
 }

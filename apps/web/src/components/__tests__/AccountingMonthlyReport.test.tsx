@@ -56,18 +56,50 @@ describe('AccountingMonthlyReport', () => {
     expect(html).toContain('Monthly accounting report')
     expect(html).toContain('Current period summary')
     expect(html).toContain('June 2026')
-    expect(html).toContain('NAV')
+    expect(html).toContain('Projected NAV (manual valuations)')
+    expect(html).toContain('as of 2026-06-30')
     expect(html).toContain('$2,925.00')
     expect(html).toContain('Invested cost basis')
     expect(html).toContain('$2,640.30')
     expect(html).toContain('Unrealized P&amp;L')
     expect(html).toContain('$284.70')
+    expect(html).toContain('Cash balance (placeholder)')
+    expect(html).toContain('Deposits (untracked)')
+    expect(html).toContain('Withdrawals (untracked)')
+    expect(html).toContain('Fees and dividends are not modeled yet')
     expect(html).toContain('MSFT')
     expect(html).toContain('Shares: 3.25')
-    expect(html).toContain('Latest valuation: 2026-06-01')
+    expect(html).toContain('Manual valuation freshness: 2026-06-01')
     expect(html).toContain('Snapshot history')
     expect(html).toContain('2026-05-31')
+    expect(html).toContain('Audit/source links preview')
     expect(html).toContain('Cash, deposits, and withdrawals are placeholders')
+  })
+
+  it('renders an honest zero-state with next steps and audit affordance previews', () => {
+    const current = snapshot({
+      nav: 125,
+      current_value: 0,
+      invested_cost_basis: 0,
+      unrealized_gain_loss: 0,
+      cash_balance: 125,
+      holdings: [],
+      missing_valuation_holding_ids: [],
+    })
+    const html = renderToStaticMarkup(createElement(AccountingMonthlyReport, {
+      report: {
+        current_period_snapshot: current,
+        snapshot_history: [],
+        limitations: ['Fees, dividends, deposits, and withdrawals remain untracked manual placeholders in this alpha.'],
+      },
+    }))
+
+    expect(html).toContain('No holdings are present for this accounting period yet.')
+    expect(html).toContain('Zero totals are expected until you open a holding and record a manual valuation.')
+    expect(html).toContain('Current projected NAV: $125.00')
+    expect(html).toContain('Next step: open a holding, record lot data, then add a manual valuation snapshot.')
+    expect(html).toContain('Source/audit preview: future cash, dividend, fee, and valuation events will appear here with ledger links.')
+    expect(html).toContain('$0.00')
   })
 
   it('surfaces missing valuations as an accounting alert instead of hiding them from the user', () => {

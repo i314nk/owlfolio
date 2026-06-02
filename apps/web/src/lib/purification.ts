@@ -23,6 +23,7 @@ export type AppPurificationReport = {
 
 const defaultLimitations = [
   'Payments are recorded only from explicit user-entered purification_payment_recorded ledger events; Owlfolio never marks an obligation paid automatically.',
+  'Purification inputs are manual/accounting-derived placeholders until full dividend and non-compliant revenue modeling is implemented.',
   'Obligation amounts depend on the Shariah source evidence and accounting snapshots linked on each ledger event.',
 ]
 

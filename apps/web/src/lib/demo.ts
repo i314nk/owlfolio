@@ -16,6 +16,7 @@ import type { AppConfig } from '@owlfolio/shared'
 import type { StatusBadgeTone } from '../components/StatusBadge'
 import { buildMonthlyAccountingReport } from './accounting'
 import { DEMO_RESEARCH_CASE_ID, seedDemoLedger } from './demoSeed'
+import { buildProviderStatusRows, type ProviderStatusRow } from './providerStatus'
 
 export { seedDemoLedger } from './demoSeed'
 
@@ -93,6 +94,7 @@ type ResolveDemoLedgerPathOptions = {
 export type SetupAwareCommandCenterInput = {
   config: AppConfig
   is_initialized: boolean
+  provider_status_rows?: ProviderStatusRow[]
   store?: EventStore
 }
 
@@ -153,7 +155,7 @@ export async function getDemoCommandCenterFromStore(store: EventStore): Promise<
   return buildDemoCommandCenter(summary, events)
 }
 
-export async function getSetupAwareCommandCenter({ config, is_initialized, store }: SetupAwareCommandCenterInput): Promise<AppCommandCenter> {
+export async function getSetupAwareCommandCenter({ config, is_initialized, provider_status_rows, store }: SetupAwareCommandCenterInput): Promise<AppCommandCenter> {
   if (config.mode === 'demo') {
     return store === undefined ? getDemoCommandCenter() : getDemoCommandCenterFromStore(store)
   }
@@ -180,6 +182,7 @@ export async function getSetupAwareCommandCenter({ config, is_initialized, store
     }
   }
 
+  const providerStatus = await buildCommandCenterProviderStatus(config, provider_status_rows)
   let ownedStore: SQLiteEventStore | undefined
   try {
     const activeStore = store ?? (ownedStore = new SQLiteEventStore(config.ledger_path))
@@ -190,7 +193,7 @@ export async function getSetupAwareCommandCenter({ config, is_initialized, store
     return {
       product_name: 'Owlfolio',
       setup_status: 'Personal local mode initialized',
-      provider_status: `Provider: ${humanizeProvider(config.provider.provider_id)} personal local mode`,
+      provider_status: providerStatus,
       strategy_status: 'Strategy: Buffett-Munger certified',
       shariah_status: config.shariah.enabled ? 'Shariah: enabled by default' : 'Shariah: disabled',
       ledger_status: 'Ledger: SQLite durable event source',
@@ -265,6 +268,37 @@ function formatAccountingMoney(value: number, currency: string): string {
 
 function formatAccountingMonth(date: string): string {
   return new Intl.DateTimeFormat('en-US', { month: 'long', timeZone: 'UTC', year: 'numeric' }).format(new Date(`${date}T00:00:00.000Z`))
+}
+
+async function buildCommandCenterProviderStatus(
+  config: AppConfig,
+  injectedRows: ProviderStatusRow[] | undefined,
+): Promise<string> {
+  const providerLabel = humanizeProvider(config.provider.provider_id)
+  const rows = injectedRows ?? await buildProviderStatusRows()
+  const row = rows.find((candidate) => candidate.provider_id === config.provider.provider_id)
+
+  if (row === undefined) {
+    return `Provider: ${providerLabel} readiness unknown`
+  }
+
+  const supportLabel = supportLevelLabel(row.effective_support_level)
+  if (row.is_ready && row.readiness_state === 'supported') {
+    return `Provider: ${providerLabel} ${supportLabel}`
+  }
+
+  return `Provider: ${providerLabel} ${supportLabel} — ${row.status_label}`
+}
+
+function supportLevelLabel(supportLevel: ProviderStatusRow['effective_support_level']): string {
+  switch (supportLevel) {
+    case 'certified':
+      return 'certified'
+    case 'experimental':
+      return 'experimental'
+    case 'unsupported':
+      return 'unsupported'
+  }
 }
 
 function humanizeProvider(providerId: AppConfig['provider']['provider_id']): string {

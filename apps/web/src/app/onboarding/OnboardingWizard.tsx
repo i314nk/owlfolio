@@ -56,6 +56,12 @@ const actionButtonStyle: CSSProperties = {
   padding: '0.8rem 1.1rem',
 }
 
+const disabledActionButtonStyle: CSSProperties = {
+  ...actionButtonStyle,
+  background: '#94a3b8',
+  cursor: 'not-allowed',
+}
+
 const eyebrowStyle: CSSProperties = {
   color: '#047857',
   fontSize: '0.85rem',
@@ -136,7 +142,19 @@ export function OnboardingWizard({ initialConfig, initialIsInitialized, initialR
     })
   }
 
+  const readinessMatchesSelection = readiness.provider_id === config.provider.provider_id
+  const providerCanStart = readinessMatchesSelection && readiness.is_ready
+  const startBlockMessage = readinessMatchesSelection
+    ? `Provider cannot start yet: ${readiness.status_label}`
+    : 'Checking provider readiness before workflow start.'
+  const startButtonDisabled = isStarting || !providerCanStart
+
   async function startWorkflow() {
+    if (!providerCanStart) {
+      setErrorMessage(startBlockMessage)
+      return
+    }
+
     try {
       setIsStarting(true)
       setErrorMessage(undefined)
@@ -320,8 +338,23 @@ export function OnboardingWizard({ initialConfig, initialIsInitialized, initialR
           { style: sectionStyle },
           createElement('p', { style: eyebrowStyle }, 'Initialize ledger / start workflow'),
           createElement('p', { style: { color: '#334155', marginTop: 0 } }, config.mode === 'demo' ? 'Seed the durable demo ledger and open the command center.' : 'Create a durable personal ledger and continue into the command center.'),
+          providerCanStart
+            ? createElement('p', { style: { color: '#047857', fontWeight: 700, marginTop: 0 } }, `${selectedProvider.label} is ready to start this workflow.`)
+            : createElement(
+                'div',
+                { role: 'alert', style: { background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '0.9rem', color: '#7f1d1d', display: 'grid', gap: '0.25rem', marginBottom: '0.9rem', padding: '0.9rem' } },
+                createElement('strong', null, 'Provider cannot start yet'),
+                createElement('span', null, startBlockMessage),
+                createElement('span', null, `Auth source: ${readiness.auth_source}`),
+                createElement('span', null, `Effective support: ${readiness.support_level}`),
+              ),
           errorMessage === undefined ? null : createElement('p', { style: { color: '#b91c1c', fontWeight: 700 } }, errorMessage),
-          createElement('button', { disabled: isStarting, onClick: () => void startWorkflow(), style: actionButtonStyle, type: 'button' }, isStarting ? 'Starting…' : 'Start workflow'),
+          createElement('button', {
+            disabled: startButtonDisabled,
+            onClick: () => void startWorkflow(),
+            style: startButtonDisabled ? disabledActionButtonStyle : actionButtonStyle,
+            type: 'button',
+          }, isStarting ? 'Starting…' : providerCanStart ? 'Start workflow' : `Start workflow disabled until ${selectedProvider.label} is ready`),
         ),
       ),
     ),

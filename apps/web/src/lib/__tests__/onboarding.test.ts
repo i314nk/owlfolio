@@ -2,11 +2,12 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
+import { createNotConfiguredCertificationReport } from '@owlfolio/providers'
 import { describe, expect, it } from 'vitest'
 
 import { SQLiteEventStore } from '@owlfolio/ledger/sqliteEventStore'
 import { getDemoSeedEvents } from '../../lib/demoSeed'
-import { getOnboardingState, initializeSelectedMode, resetOnboardingRuntime, updateOnboardingConfig } from '../onboarding'
+import { getOnboardingProviderOptions, getOnboardingState, getProviderReadinessSnapshot, initializeSelectedMode, resetOnboardingRuntime, updateOnboardingConfig } from '../onboarding'
 
 describe('onboarding helpers', () => {
   async function withTempProject(assertion: (projectDir: string) => Promise<void>) {
@@ -46,6 +47,40 @@ describe('onboarding helpers', () => {
 
       const state = await getOnboardingState({ env: { OWLFOLIO_PROJECT_DIR: projectDir } })
       expect(state.config).toEqual(updated)
+    })
+  })
+
+  it('keeps provider option descriptions concise while readiness evidence stays in the readiness snapshot', async () => {
+    await withTempProject(async (projectDir) => {
+      const reportDir = join(projectDir, 'data', 'provider-certifications')
+      await mkdir(reportDir, { recursive: true })
+      await writeFile(join(reportDir, 'claude.latest.json'), JSON.stringify(createNotConfiguredCertificationReport({
+        provider_id: 'claude',
+        generated_at: '2026-06-02T00:00:00.000Z',
+        capabilities: {
+          'text-generation': 'native',
+          'structured-output': 'native',
+          'tool-function-calling': 'unsupported',
+          'streaming-observability': 'adapter',
+          'multi-step-tool-loop': 'unsupported',
+        },
+        reason: 'Claude subscription access disabled',
+      })), 'utf8')
+
+      const options = await getOnboardingProviderOptions({ env: { OWLFOLIO_PROJECT_DIR: projectDir } })
+      const claudeOption = options.find((provider) => provider.provider_id === 'claude')
+      const state = await getOnboardingState({ env: { OWLFOLIO_PROJECT_DIR: projectDir } })
+      const readiness = await getProviderReadinessSnapshot(
+        {
+          ...state.config,
+          mode: 'personal-local',
+          provider: { provider_id: 'claude', support_level: 'experimental' },
+        },
+        { env: { OWLFOLIO_PROJECT_DIR: projectDir } },
+      )
+
+      expect(claudeOption?.description).toBe('CLI-backed real provider path behind readiness and certification checks.')
+      expect(readiness.status_label).toBe('Claude subscription access disabled')
     })
   })
 

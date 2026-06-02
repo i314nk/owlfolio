@@ -49,7 +49,7 @@ export function AccountingMonthlyReport({ report }: AccountingMonthlyReportProps
       createElement(
         'p',
         { style: { color: '#475569', fontSize: '1rem', margin: 0 } },
-        `Current period summary for ${formatMonth(current.period_end)}. Uses the accounting snapshot projection from the durable event ledger.`,
+        `Current period summary for ${formatMonth(current.period_end)}. Projected NAV is shown as of ${current.period_end} from manual valuations and placeholder cash in the durable event ledger.`,
       ),
     ),
     missingCount === 0 ? null : createMissingValuationAlert(missingCount),
@@ -61,21 +61,24 @@ export function AccountingMonthlyReport({ report }: AccountingMonthlyReportProps
         'div',
         { style: metricGridStyle },
         metric('Period', `${current.period_start} → ${current.period_end}`),
-        metric('NAV', formatMoney(current.nav, current.currency)),
-        metric('Current value', formatMoney(current.current_value, current.currency)),
+        metric('Projected NAV (manual valuations)', `${formatMoney(current.nav, current.currency)} as of ${current.period_end}`),
+        metric('Current value (manual valuations)', formatMoney(current.current_value, current.currency)),
         metric('Invested cost basis', formatMoney(current.invested_cost_basis, current.currency)),
         metric('Unrealized P&L', formatMoney(current.unrealized_gain_loss, current.currency)),
-        metric('Cash balance', `${formatMoney(current.cash_balance, current.currency)} (${current.cash_ledger_status})`),
-        metric('Deposits', formatMoney(current.deposits, current.currency)),
-        metric('Withdrawals', formatMoney(current.withdrawals, current.currency)),
+        metric('Cash balance (placeholder)', `${formatMoney(current.cash_balance, current.currency)} (${current.cash_ledger_status})`),
+        metric('Deposits (untracked)', formatMoney(current.deposits, current.currency)),
+        metric('Withdrawals (untracked)', formatMoney(current.withdrawals, current.currency)),
+        metric('Fees (untracked)', `${formatMoney(0, current.currency)} placeholder`),
+        metric('Dividends (untracked)', `${formatMoney(0, current.currency)} placeholder`),
       ),
+      createElement('p', { style: { color: '#475569', fontSize: '0.92rem', margin: '1rem 0 0' } }, 'Fees and dividends are not modeled yet; treat all cash-flow totals as manual placeholders until dedicated ledger events exist.'),
     ),
     createElement(
       'section',
       { 'aria-label': 'Accounting holdings', style: cardStyle },
       createElement('h2', { style: { fontSize: '1.35rem', margin: '0 0 1rem' } }, 'Holdings in current snapshot'),
       current.holdings.length === 0
-        ? createElement('p', { style: { color: '#475569', margin: 0 } }, 'No holdings are present for this accounting period yet.')
+        ? createEmptyHoldingsState(current)
         : createElement(
           'div',
           { style: { display: 'grid', gap: '0.75rem' } },
@@ -93,6 +96,17 @@ export function AccountingMonthlyReport({ report }: AccountingMonthlyReportProps
         ...report.limitations.map((limitation) => createElement('li', { key: limitation }, limitation)),
       ),
     ),
+  )
+}
+
+function createEmptyHoldingsState(current: AccountingSnapshotProjection) {
+  return createElement(
+    'div',
+    { style: { color: '#475569', display: 'grid', gap: '0.5rem' } },
+    createElement('p', { style: { margin: 0 } }, 'No holdings are present for this accounting period yet.'),
+    createElement('p', { style: { fontWeight: 800, margin: 0 } }, `Zero totals are expected until you open a holding and record a manual valuation. Current projected NAV: ${formatMoney(current.nav, current.currency)}.`),
+    createElement('p', { style: { margin: 0 } }, 'Next step: open a holding, record lot data, then add a manual valuation snapshot.'),
+    createElement('p', { style: { color: '#64748b', margin: 0 } }, 'Source/audit preview: future cash, dividend, fee, and valuation events will appear here with ledger links.'),
   )
 }
 
@@ -115,14 +129,19 @@ function createSnapshotHistory(snapshots: AccountingSnapshotProjection[]) {
     { 'aria-label': 'Snapshot history', style: cardStyle },
     createElement('h2', { style: { fontSize: '1.35rem', margin: '0 0 1rem' } }, 'Snapshot history'),
     snapshots.length === 0
-      ? createElement('p', { style: { color: '#475569', margin: 0 } }, 'No accounting snapshots have been recorded yet.')
+      ? createElement(
+        'div',
+        { style: { color: '#475569', display: 'grid', gap: '0.4rem' } },
+        createElement('p', { style: { margin: 0 } }, 'No accounting snapshots have been recorded yet.'),
+        createElement('p', { style: { margin: 0 } }, 'Audit/source links preview: recorded monthly snapshots, valuation sources, and future cash-flow events will appear here.'),
+      )
       : createElement(
         'ol',
         { style: { display: 'grid', gap: '0.6rem', margin: 0, paddingLeft: '1.25rem' } },
         ...snapshots.map((snapshot) => createElement(
           'li',
           { key: snapshot.snapshot_id },
-          `${snapshot.period_end}: ${formatMoney(snapshot.nav, snapshot.currency)} NAV, ${snapshot.missing_valuation_holding_ids.length} missing valuations`,
+          `${snapshot.period_end}: ${formatMoney(snapshot.nav, snapshot.currency)} projected NAV, ${snapshot.missing_valuation_holding_ids.length} missing valuations. Audit/source links preview: ${snapshot.snapshot_id}`,
         )),
       ),
   )
@@ -144,7 +163,7 @@ function holdingCard(holding: AccountingHoldingSnapshot) {
       : createElement('p', { style: { color: '#334155', margin: '0.25rem 0' } }, `Unrealized P&L: ${formatMoney(holding.unrealized_gain_loss, holding.currency)}`),
     holding.latest_valuation_at === undefined
       ? null
-      : createElement('p', { style: { color: '#64748b', margin: '0.25rem 0 0' } }, `Latest valuation: ${holding.latest_valuation_at}`),
+      : createElement('p', { style: { color: '#64748b', margin: '0.25rem 0 0' } }, `Manual valuation freshness: ${holding.latest_valuation_at}`),
   )
 }
 

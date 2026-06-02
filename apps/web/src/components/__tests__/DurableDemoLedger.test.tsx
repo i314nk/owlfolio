@@ -72,7 +72,9 @@ describe('durable demo ledger read models', () => {
 
       const html = renderToStaticMarkup(createElement(CommandCenter, { dashboard }))
       expect(html).toContain('Ledger: SQLite durable event source')
-      expect(html).toContain('watchlist_draft_created by user:user_local')
+      expect(html).toContain('Watchlist draft created')
+      expect(html).toContain('Audit event evt_demo_watchlist_001')
+      expect(html).not.toContain('watchlist_draft_created by user:user_local')
     })
   })
 

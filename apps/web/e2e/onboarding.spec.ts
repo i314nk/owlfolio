@@ -21,17 +21,16 @@ test('demo onboarding initializes the durable demo workflow', async ({ page }) =
   await expect(page.getByRole('link', { name: /view demo research case/i })).toBeVisible()
 })
 
-test('personal local onboarding shows unready provider status and fails closed', async ({ page }) => {
+test('personal local onboarding shows unready provider status and disables workflow start', async ({ page }) => {
   await page.goto('/onboarding')
 
   await page.getByRole('radio', { name: /personal local mode/i }).click()
 
   await expect(page.getByText(/subscription access|missing claude credentials/i).first()).toBeVisible()
-  await expect(page.getByText(/auth source: certification report|auth source: missing/i)).toBeVisible()
-
-  await page.getByRole('button', { name: /start workflow/i }).click()
-
-  await expect(page.getByText(/provider claude is not ready/i)).toBeVisible()
+  await expect(page.getByText(/auth source: certification report|auth source: missing/i).first()).toBeVisible()
+  await expect(page.getByText('Provider cannot start yet', { exact: true })).toBeVisible()
+  await expect(page.getByText(/start workflow disabled until claude is ready/i)).toBeVisible()
+  await expect(page.getByRole('button', { name: /start workflow disabled until claude is ready/i })).toBeDisabled()
   await expect(page.getByRole('heading', { name: /set up owlfolio/i })).toBeVisible()
   await expect(page.getByRole('heading', { name: /command center/i })).not.toBeVisible()
 })

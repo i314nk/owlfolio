@@ -49,6 +49,15 @@ const subtleTextStyle: CSSProperties = {
   margin: 0,
 }
 
+const glossaryEntries: Array<{ term: string; definition: string }> = [
+  { term: 'Ready', definition: 'Ready means local credentials or built-in demo mode are available.' },
+  { term: 'Certified', definition: 'Certified means the latest persisted certification report passed the full workflow.' },
+  { term: 'Experimental', definition: 'Experimental means catalog support exists but full workflow certification is not proven.' },
+  { term: 'Unsupported', definition: 'Unsupported means the latest report or catalog blocks provider-backed workflow starts.' },
+  { term: 'Catalog support', definition: 'Catalog support is the static provider matrix claim.' },
+  { term: 'Effective support', definition: 'Effective support is the latest certification-bounded support level used for gating.' },
+]
+
 export function ProviderStatusPanel({ rows }: ProviderStatusPanelProps) {
   return createElement(
     'main',
@@ -62,6 +71,19 @@ export function ProviderStatusPanel({ rows }: ProviderStatusPanelProps) {
         'p',
         { style: { ...subtleTextStyle, fontSize: '1.05rem', marginBottom: '2rem', maxWidth: '820px' } },
         'Readiness, role suitability, certification evidence, and limitations are shown separately so a local credential does not imply certified investment-decision support. Evidence comes from the T2 provider certification report format and the T3 provider/model support matrix; the latest persisted report below is the source of truth for effective support.',
+      ),
+      createElement(
+        'section',
+        { style: { ...cardStyle, marginBottom: '1rem' } },
+        createElement('h2', { style: { fontSize: '1.25rem', margin: 0 } }, 'Readiness glossary'),
+        createElement(
+          'dl',
+          { style: { color: '#334155', display: 'grid', gap: '0.5rem', margin: 0 } },
+          ...glossaryEntries.flatMap((entry) => [
+            createElement('dt', { key: `${entry.term}-term`, style: { fontWeight: 900 } }, entry.term),
+            createElement('dd', { key: `${entry.term}-definition`, style: { margin: 0 } }, entry.definition),
+          ]),
+        ),
       ),
       createElement(
         'div',
@@ -94,7 +116,7 @@ export function ProviderStatusPanel({ rows }: ProviderStatusPanelProps) {
                   { style: { display: 'grid', gap: '0.25rem' } },
                   createElement('p', { style: subtleTextStyle }, row.last_certification_report.certification_report_id),
                   createElement('p', { style: subtleTextStyle }, `Run status: ${row.last_certification_report.run_status}`),
-                  row.last_certification_report.not_run_reason === undefined
+                  row.last_certification_report.not_run_reason === undefined || row.last_certification_report.not_run_reason === row.status_label
                     ? null
                     : createElement('p', { style: subtleTextStyle }, `Not-run reason: ${row.last_certification_report.not_run_reason}`),
                   createElement('p', { style: subtleTextStyle }, `Generated: ${row.last_certification_report.generated_at}`),

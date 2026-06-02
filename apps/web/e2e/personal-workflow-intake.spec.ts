@@ -13,6 +13,14 @@ test.beforeEach(async ({ request }) => {
 })
 
 test('personal-local mode can create the first research case from the command center', async ({ page }) => {
+  const browserErrors: string[] = []
+  page.on('pageerror', (error) => browserErrors.push(error.message))
+  page.on('console', (message) => {
+    if (message.type() === 'error') {
+      browserErrors.push(message.text())
+    }
+  })
+
   const nextReviewDate = isoDateDaysFromToday(153)
 
   await page.goto('/onboarding')
@@ -22,12 +30,13 @@ test('personal-local mode can create the first research case from the command ce
 
   await expect(page).toHaveURL('/')
   const primaryNav = page.getByRole('navigation', { name: /primary owlfolio navigation/i })
-  await expect(primaryNav.getByRole('link', { name: /command center/i })).toHaveAttribute('href', '/')
+  await expect(primaryNav.getByRole('link', { name: 'Command Center', exact: true })).toHaveAttribute('href', '/')
   await expect(primaryNav.getByRole('link', { name: /research/i })).toHaveAttribute('href', '/research/new')
   await expect(primaryNav.getByRole('link', { name: /watchlist/i })).toHaveAttribute('href', '/watchlist')
   await expect(primaryNav.getByRole('link', { name: /portfolio/i })).toHaveAttribute('href', '/portfolio')
   await expect(primaryNav.getByRole('link', { name: /accounting/i })).toHaveAttribute('href', '/accounting/monthly')
-  await expect(primaryNav.getByRole('link', { name: /audit/i })).toHaveAttribute('href', '/audit')
+  await expect(primaryNav.getByRole('link', { name: 'Audit', exact: true })).toHaveAttribute('href', '/audit')
+  await expect(primaryNav.getByRole('link', { name: /providers/i })).toHaveAttribute('href', '/providers')
   await expect(primaryNav.getByRole('link', { name: /onboarding/i })).toHaveAttribute('href', '/onboarding')
 
   await primaryNav.getByRole('link', { name: /research/i }).click()
@@ -42,13 +51,20 @@ test('personal-local mode can create the first research case from the command ce
   await page.getByRole('navigation', { name: /primary owlfolio navigation/i }).getByRole('link', { name: /portfolio/i }).click()
   await expect(page).toHaveURL('/portfolio')
   await expect(page.getByText('No holdings recorded yet. Confirm a watchlist item and record an initial holding lot first.')).toBeVisible()
-  await page.getByRole('navigation', { name: /primary owlfolio navigation/i }).getByRole('link', { name: /audit/i }).click()
+  await page.getByRole('navigation', { name: /primary owlfolio navigation/i }).getByRole('link', { name: 'Audit', exact: true }).click()
   await expect(page).toHaveURL('/audit')
   await expect(page.getByRole('heading', { name: /audit activity/i })).toBeVisible()
-  await page.getByRole('navigation', { name: /primary owlfolio navigation/i }).getByRole('link', { name: /command center/i }).click()
+  await page.getByRole('navigation', { name: /primary owlfolio navigation/i }).getByRole('link', { name: /providers/i }).click()
+  await expect(page).toHaveURL('/providers')
+  await expect(page.getByRole('heading', { name: /provider status/i })).toBeVisible()
+  await expect(page.getByText('Mock provider', { exact: true })).toBeVisible()
+  await expect(page.getByText('Effective support: certified', { exact: true })).toBeVisible()
+  await expect(page.getByText('Claude', { exact: true })).toBeVisible()
+  await expect(page.getByText('Effective support: unsupported', { exact: true })).toBeVisible()
+  await page.getByRole('navigation', { name: /primary owlfolio navigation/i }).getByRole('link', { name: 'Command Center', exact: true }).click()
   await expect(page).toHaveURL('/')
 
-  await page.getByRole('link', { name: /start first research case/i }).click()
+  await page.getByRole('link', { name: /start first research case/i }).first().click()
   await expect(page).toHaveURL('/research/new')
 
   await page.getByLabel('Ticker').fill('MSFT')
@@ -59,9 +75,9 @@ test('personal-local mode can create the first research case from the command ce
   await expect(page.getByText(/decision_drafted/i).first()).toBeVisible()
   await expect(page.getByText('WATCH', { exact: true }).first()).toBeVisible()
   await expect(page.getByText(/conditional/i).first()).toBeVisible()
-  await expect(page.getByText('src_msft_10k_2025')).toBeVisible()
-  await expect(page.getByText('src_msft_proxy_2025')).toBeVisible()
-  await expect(page.getByText('src_msft_q1_2026')).toBeVisible()
+  await expect(page.getByText('src_msft_10k_2025', { exact: true })).toBeVisible()
+  await expect(page.getByText('src_msft_proxy_2025', { exact: true })).toBeVisible()
+  await expect(page.getByText('src_msft_q1_2026', { exact: true })).toBeVisible()
   await expect(page.getByText(/Costco|src_cost_/)).toHaveCount(0)
   const researchCaseId = new URL(page.url()).pathname.split('/').at(-1)
   expect(researchCaseId).toMatch(/^rc_msft_/)
@@ -84,7 +100,7 @@ test('personal-local mode can create the first research case from the command ce
   await expect(page.getByText(`Research case: ${researchCaseId}`)).toBeVisible()
 
   await page.goto('/')
-  await expect(page.getByText('Monitor confirmed watchlist items for buy-zone and thesis updates')).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Monitor confirmed watchlist items for buy-zone and thesis updates' })).toBeVisible()
   await expect(page.locator('article').filter({ hasText: 'Watchlist drafts' }).getByText('0', { exact: true })).toBeVisible()
   await expect(page.locator('article').filter({ hasText: 'Confirmed watchlist' }).getByText('1', { exact: true })).toBeVisible()
   await expect(page.locator('article').filter({ hasText: 'Open holdings' }).getByText('0', { exact: true })).toBeVisible()
@@ -103,7 +119,7 @@ test('personal-local mode can create the first research case from the command ce
   await expect(page.getByRole('button', { name: /record initial holding/i })).toHaveCount(0)
 
   await page.goto('/portfolio')
-  await expect(page.getByRole('heading', { name: /portfolio/i })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Portfolio', exact: true })).toBeVisible()
   await expect(page.getByRole('heading', { name: 'MSFT' })).toBeVisible()
   await expect(page.getByText('Shares: 3.25')).toBeVisible()
   await expect(page.getByText('Shariah gate: COMPLIANT')).toBeVisible()
@@ -188,4 +204,20 @@ test('personal-local mode can create the first research case from the command ce
   await expect(page.locator('article').filter({ hasText: 'Confirmed watchlist' }).getByText('0', { exact: true })).toBeVisible()
   await expect(page.locator('article').filter({ hasText: 'Open holdings' }).getByText('1', { exact: true })).toBeVisible()
   await expect(page.locator('article').filter({ hasText: 'Pending user actions' }).getByText('0', { exact: true })).toBeVisible()
+
+  await page.goto('/accounting/monthly')
+  await expect(page.getByRole('heading', { name: /monthly accounting report/i })).toBeVisible()
+  await expect(page.getByText('$2,925.00').first()).toBeVisible()
+  await expect(page.getByText('MSFT').first()).toBeVisible()
+
+  await page.goto('/purification')
+  await expect(page.getByRole('heading', { name: /purification ledger/i })).toBeVisible()
+  await expect(page.getByText(/No purification obligations have been recorded yet/i).or(page.getByText(/Unpaid obligations/i))).toBeVisible()
+
+  await page.goto('/audit')
+  await expect(page.getByRole('heading', { name: /audit activity/i })).toBeVisible()
+  await expect(page.locator('li').filter({ hasText: 'research_case_created' }).first()).toBeVisible()
+  await expect(page.locator('li').filter({ hasText: /holding_review_rejected|holding_review_overridden/ }).first()).toBeVisible()
+
+  await expect(browserErrors).toEqual([])
 })

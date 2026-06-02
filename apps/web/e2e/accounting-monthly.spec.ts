@@ -11,7 +11,7 @@ test('monthly accounting report renders projected current period after a valuati
   await page.getByRole('combobox').selectOption('mock-provider')
   await page.getByRole('button', { name: /start workflow/i }).click()
 
-  await page.getByRole('link', { name: /start first research case/i }).click()
+  await page.getByRole('link', { name: /start first research case/i }).first().click()
   await page.getByLabel('Ticker').fill('MSFT')
   await page.getByRole('button', { name: /create research case/i }).click()
   await expect(page).toHaveURL(/\/research\/rc_msft_/)
@@ -33,10 +33,10 @@ test('monthly accounting report renders projected current period after a valuati
   await page.goto('/accounting/monthly')
   await expect(page.getByRole('heading', { name: /monthly accounting report/i })).toBeVisible()
   await expect(page.getByRole('heading', { name: 'Current period summary' })).toBeVisible()
-  await expect(page.getByText('NAV', { exact: true })).toBeVisible()
+  await expect(page.getByText('Projected NAV (manual valuations)', { exact: true })).toBeVisible()
   await expect(page.getByText('$2,925.00').first()).toBeVisible()
   await expect(page.getByText('MSFT').first()).toBeVisible()
-  await expect(page.getByText('Latest valuation: 2026-06-01')).toBeVisible()
+  await expect(page.getByText('Manual valuation freshness: 2026-06-01')).toBeVisible()
   await expect(page.getByRole('heading', { name: 'Snapshot history' })).toBeVisible()
   await expect(page.getByText(/Cash, deposits, and withdrawals are placeholders/)).toBeVisible()
 

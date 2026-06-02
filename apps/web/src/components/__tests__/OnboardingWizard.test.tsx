@@ -56,4 +56,39 @@ describe('OnboardingWizard', () => {
     expect(html).toContain('Public equities discovery universe')
     expect(html).toContain('Start workflow')
   })
+
+  it('disables start workflow with a concise inline explanation when the selected provider is unready', () => {
+    const html = renderToStaticMarkup(
+      createElement(OnboardingWizard, {
+        initialConfig: defaultPersonalLocalAppConfig(),
+        initialIsInitialized: false,
+        initialReadiness: {
+          provider_id: 'claude',
+          support_level: 'experimental',
+          is_ready: false,
+          auth_source: 'missing',
+          status_label: 'Missing Claude credentials',
+        },
+        providerOptions: [
+          {
+            provider_id: 'mock-provider',
+            label: 'Mock provider',
+            support_level: 'certified',
+            description: 'Deterministic demo provider',
+          },
+          {
+            provider_id: 'claude',
+            label: 'Claude',
+            support_level: 'experimental',
+            description: 'Primary real provider target',
+          },
+        ],
+      }),
+    )
+
+    expect(html).toContain('Provider cannot start yet')
+    expect(html).toContain('Missing Claude credentials')
+    expect(html).toContain('Start workflow disabled until Claude is ready')
+    expect(html).toContain('disabled=""')
+  })
 })

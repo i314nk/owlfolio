@@ -19,6 +19,7 @@ export type AccountingPeriodClock = {
 
 const defaultLimitations = [
   'Cash, deposits, and withdrawals are placeholders until cash ledger events are modeled.',
+  'Fees and dividends are not modeled yet; they remain untracked manual placeholders in this alpha.',
   'NAV currently equals valued holdings plus placeholder cash balance; deposits and withdrawals remain $0.00 until cash flows are added to the ledger.',
 ]
 

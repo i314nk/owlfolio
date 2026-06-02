@@ -133,9 +133,7 @@ export async function getOnboardingProviderOptions(options: OnboardingOptions = 
     return {
       ...provider,
       support_level: status?.effective_support_level ?? provider.support_level,
-      description: status === undefined
-        ? provider.description
-        : `${provider.description} Latest status: ${status.status_label}.`,
+      description: provider.description,
     }
   })
 }

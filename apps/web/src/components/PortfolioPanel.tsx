@@ -86,28 +86,8 @@ function createHoldingCard(holding: AppHolding, mode: WorkflowMode) {
       createElement('h2', { style: { fontSize: '1.75rem', margin: 0 } }, ticker),
       createElement(StatusBadge, { tone: holding.pending_review_id !== undefined ? 'warning' : holding.thesis_health === undefined ? 'neutral' : 'success' }, holding.pending_review_id !== undefined ? 'Strategy review drafted' : holding.thesis_health ?? 'Thesis review pending'),
     ),
-    createDetail('Shares', formatNumber(holding.shares)),
-    createDetail('Cost basis / share', formatMoney(holding.cost_basis_per_share, holding.currency)),
-    createDetail('Total cost basis', formatMoney(holding.total_cost_basis, holding.currency)),
-    ...(holding.latest_market_value === undefined
-      ? [createDetail('Current value', 'No valuation snapshot recorded')]
-      : [
-          createDetail('Current value', formatMoney(holding.latest_market_value, holding.currency)),
-          createDetail('Current price / share', formatMoney(holding.latest_price_per_share ?? 0, holding.currency)),
-          createDetail('Unrealized P&L', `${formatMoney(holding.unrealized_gain_loss ?? 0, holding.currency)} (${formatPercent(holding.unrealized_gain_loss_percent ?? 0)})`),
-          createDetail('Concentration', formatPercent(holding.portfolio_weight ?? 0)),
-          createDetail('Valuation date', holding.latest_valuation_at ?? 'Unknown'),
-        ]),
-    createDetail('Opened', holding.opened_at),
-    createDetail('Strategy', holding.strategy_id ?? 'Unknown'),
-    createDetail('Research case', holding.research_case_id),
-    createDetail('Watchlist item', holding.watchlist_item_id),
-    createDetail('Thesis health', holding.thesis_health ?? 'Pending strategy review confirmation'),
-    ...(holding.action_stance === undefined ? [] : [createDetail('Action stance', holding.action_stance)]),
-    ...(holding.latest_review_rationale === undefined ? [] : [createDetail('Review rationale', holding.latest_review_rationale)]),
-    ...(holding.latest_review_evidence_summary === undefined ? [] : [createDetail('Review evidence', holding.latest_review_evidence_summary)]),
-    ...(holding.latest_review_uncertainty === undefined ? [] : [createDetail('Review uncertainty', holding.latest_review_uncertainty)]),
-    ...(holding.next_review_at === undefined ? [] : [createDetail('Next review', holding.next_review_at)]),
+    createPositionEconomicsTable(holding),
+    createConfirmedPortfolioState(holding),
     ...createShariahGateDetails(holding),
     ...(holding.pending_review_id === undefined
       ? []
@@ -119,6 +99,40 @@ function createHoldingCard(holding: AppHolding, mode: WorkflowMode) {
         ]),
     createDetail('Thesis summary', holding.thesis_summary ?? 'No thesis recorded'),
     ...(mode === 'personal-local' ? [createValuationForm(holding), createReviewForm(holding)] : []),
+  )
+}
+
+function createPositionEconomicsTable(holding: AppHolding) {
+  return createElement(
+    'section',
+    { className: 'owl-financial-table', style: { ...cardStyle, boxShadow: 'none', marginTop: '1rem' } },
+    createElement('h3', { style: { fontSize: '1rem', margin: '0 0 0.75rem' } }, 'Position economics'),
+    createDetail('Shares', formatNumber(holding.shares)),
+    createDetail('Cost basis / share', formatMoney(holding.cost_basis_per_share, holding.currency)),
+    createDetail('Total cost basis', formatMoney(holding.total_cost_basis, holding.currency)),
+    createDetail('Current value', holding.latest_market_value === undefined ? 'No valuation snapshot recorded' : formatMoney(holding.latest_market_value, holding.currency)),
+    ...(holding.latest_price_per_share === undefined ? [] : [createDetail('Current price / share', formatMoney(holding.latest_price_per_share, holding.currency))]),
+    ...(holding.unrealized_gain_loss === undefined ? [] : [createDetail('Unrealized P&L', `${formatMoney(holding.unrealized_gain_loss, holding.currency)} (${formatPercent(holding.unrealized_gain_loss_percent ?? 0)})`)]),
+    ...(holding.portfolio_weight === undefined ? [] : [createDetail('Concentration', formatPercent(holding.portfolio_weight))]),
+    ...(holding.latest_valuation_at === undefined ? [] : [createDetail('Valuation date', holding.latest_valuation_at)]),
+    createDetail('Opened', holding.opened_at),
+  )
+}
+
+function createConfirmedPortfolioState(holding: AppHolding) {
+  return createElement(
+    'section',
+    { className: 'owl-workflow-card', style: { ...cardStyle, boxShadow: 'none', marginTop: '1rem' } },
+    createElement('h3', { style: { fontSize: '1rem', margin: '0 0 0.75rem' } }, 'Confirmed portfolio state'),
+    createDetail('Strategy', holding.strategy_id ?? 'Strategy not recorded'),
+    createDetail('Research case', holding.research_case_id),
+    createDetail('Watchlist item', holding.watchlist_item_id),
+    ...(holding.thesis_health === undefined ? [] : [createDetail('Thesis health', holding.thesis_health)]),
+    ...(holding.action_stance === undefined ? [] : [createDetail('Action stance', holding.action_stance)]),
+    ...(holding.latest_review_rationale === undefined ? [] : [createDetail('Review rationale', holding.latest_review_rationale)]),
+    ...(holding.latest_review_evidence_summary === undefined ? [] : [createDetail('Review evidence', holding.latest_review_evidence_summary)]),
+    ...(holding.latest_review_uncertainty === undefined ? [] : [createDetail('Review uncertainty', holding.latest_review_uncertainty)]),
+    ...(holding.next_review_at === undefined ? [] : [createDetail('Next review', holding.next_review_at)]),
   )
 }
 
@@ -153,13 +167,14 @@ function createReviewForm(holding: AppHolding) {
         createElement(
           'section',
           { style: { ...decisionPanelStyle, background: '#fffbeb' } },
-          createElement('h4', { style: { fontSize: '0.95rem', margin: 0 } }, 'Provider draft'),
+          createElement('h4', { style: { fontSize: '0.95rem', margin: 0 } }, 'Provider-authored review draft'),
           createDetail('Pending thesis health', holding.pending_review_thesis_health ?? 'Unknown'),
           createDetail('Pending action stance', holding.pending_review_action_stance ?? 'Unknown'),
           createDetail('Pending review rationale', holding.pending_review_rationale ?? 'No rationale recorded'),
           createDetail('Pending next review', holding.pending_review_next_review_at ?? 'Unknown'),
         ),
       ),
+      createElement('p', { style: { color: '#475569', fontWeight: 800, margin: 0 } }, 'User decision path'),
       createElement(
         'form',
         {
@@ -169,22 +184,7 @@ function createReviewForm(holding: AppHolding) {
         },
         createElement('h4', { style: { fontSize: '0.95rem', margin: 0 } }, 'Apply provider draft'),
         createElement('p', { style: { color: '#475569', margin: 0 } }, 'Applies the provider-authored thesis health, action stance, and next review date to portfolio state.'),
-        createElement(
-          'button',
-          {
-            type: 'submit',
-            style: {
-              background: '#047857',
-              border: 0,
-              borderRadius: '0.75rem',
-              color: '#ffffff',
-              cursor: 'pointer',
-              fontWeight: 800,
-              padding: '0.75rem 1rem',
-            },
-          },
-          'Apply provider draft',
-        ),
+        createSubmitButton('Apply provider draft', '#047857'),
       ),
       createElement(
         'form',
@@ -201,22 +201,7 @@ function createReviewForm(holding: AppHolding) {
         createReviewTextarea('Override evidence summary (required)', 'evidence_summary', 'User reviewed provider draft against the local ledger and available evidence.'),
         createReviewTextarea('Override uncertainty (required)', 'uncertainty', 'User override records uncertainty before the next scheduled review.'),
         createReviewInput('Override next review date (required)', 'next_review_at', holding.pending_review_next_review_at ?? new Date().toISOString().slice(0, 10)),
-        createElement(
-          'button',
-          {
-            type: 'submit',
-            style: {
-              background: '#7c3aed',
-              border: 0,
-              borderRadius: '0.75rem',
-              color: '#ffffff',
-              cursor: 'pointer',
-              fontWeight: 800,
-              padding: '0.75rem 1rem',
-            },
-          },
-          'Apply user override',
-        ),
+        createSubmitButton('Apply user override', '#7c3aed'),
       ),
       createElement(
         'form',
@@ -228,22 +213,7 @@ function createReviewForm(holding: AppHolding) {
         createElement('h4', { style: { fontSize: '0.95rem', margin: 0 } }, 'Reject provider draft'),
         createElement('p', { style: { color: '#475569', margin: 0 } }, 'Leaves the current confirmed portfolio thesis unchanged and clears this pending draft.'),
         createReviewTextarea('Rejection reason (required)', 'rejection_reason', 'Reject this draft and wait for fresher evidence.'),
-        createElement(
-          'button',
-          {
-            type: 'submit',
-            style: {
-              background: '#b91c1c',
-              border: 0,
-              borderRadius: '0.75rem',
-              color: '#ffffff',
-              cursor: 'pointer',
-              fontWeight: 800,
-              padding: '0.75rem 1rem',
-            },
-          },
-          'Reject strategy review',
-        ),
+        createSubmitButton('Reject strategy review', '#b91c1c'),
       ),
     )
   }
@@ -263,22 +233,26 @@ function createReviewForm(holding: AppHolding) {
     },
     createElement('h3', { style: { fontSize: '1rem', margin: 0 } }, 'Strategy-driven holding review'),
     createElement('p', { style: { color: '#475569', margin: 0 } }, 'Ask Owlfolio to draft a Buffett-Munger thesis-health review for this holding.'),
-    createElement(
-      'button',
-      {
-        type: 'submit',
-        style: {
-          background: '#1d4ed8',
-          border: 0,
-          borderRadius: '0.75rem',
-          color: '#ffffff',
-          cursor: 'pointer',
-          fontWeight: 800,
-          padding: '0.75rem 1rem',
-        },
+    createSubmitButton('Run Buffett-Munger review', '#1d4ed8'),
+  )
+}
+
+function createSubmitButton(label: string, background: string) {
+  return createElement(
+    'button',
+    {
+      type: 'submit',
+      style: {
+        background,
+        border: 0,
+        borderRadius: '0.75rem',
+        color: '#ffffff',
+        cursor: 'pointer',
+        fontWeight: 800,
+        padding: '0.75rem 1rem',
       },
-      'Run Buffett-Munger review',
-    ),
+    },
+    label,
   )
 }
 
@@ -338,7 +312,7 @@ function createValuationForm(holding: AppHolding) {
         paddingTop: '1rem',
       },
     },
-    createElement('h3', { style: { fontSize: '1rem', margin: 0 } }, 'Manual valuation snapshot'),
+    createElement('h3', { style: { fontSize: '1rem', margin: 0 } }, 'Manual valuation checkpoint'),
     createElement(
       'label',
       { style: { color: '#334155', display: 'grid', fontWeight: 700, gap: '0.35rem' } },
