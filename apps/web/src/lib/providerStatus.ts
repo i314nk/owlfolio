@@ -99,8 +99,8 @@ const roleMatrix: Record<ProviderId, { model_role: string; limitations: string[]
   'openai-api': {
     model_role: 'Direct API candidate',
     limitations: [
-      'Direct OpenAI API adapter is modeled for future certification but is not implemented yet.',
-      'Must remain hidden from normal onboarding until adapter and certification evidence exist.',
+      'Direct OpenAI API adapter supports structured research drafts and tool-call requests through the API surface, but remains certification-gated.',
+      'Must remain hidden from normal onboarding until direct API certification evidence exists.',
     ],
   },
   'gemini-developer-api': {
@@ -496,7 +496,7 @@ function supportTone(supportLevel: ProviderSupportLevel): ProviderStatusTone {
 
 function effectiveSupportFrom(provider: ProviderCatalogEntry, latestReport: CertificationReport | undefined): ProviderSupportLevel {
   if (latestReport !== undefined) {
-    return certificationReportBlocksExecution(latestReport) ? 'unsupported' : latestReport.support_level
+    return certificationReportBlocksExecution(latestReport) || certificationReportPrivacyBlocksExecution(provider, latestReport) ? 'unsupported' : latestReport.support_level
   }
 
   if (!provider.visible_in_onboarding) {
@@ -514,6 +514,28 @@ function certificationReportBlocksExecution(report: CertificationReport): boolea
   return report.run_status !== 'completed' || report.support_level === 'unsupported'
 }
 
+function certificationReportPrivacyBlocksExecution(provider: ProviderCatalogEntry, report: CertificationReport): boolean {
+  return report.run_status === 'completed'
+    && report.support_level === 'certified'
+    && certificationPrivacyBlocker(provider) !== undefined
+}
+
+function certificationPrivacyBlocker(provider: ProviderCatalogEntry): string | undefined {
+  if (provider.privacy.data_policy_source === 'api_free_training_possible') {
+    return `Certified/production support is blocked until the ${provider.label} privacy posture is policy-accepted or paid/ZDR verified.`
+  }
+
+  if (provider.privacy.data_policy_source === 'unknown') {
+    return `Certified/production support is blocked until the ${provider.label} privacy posture is known and policy-accepted.`
+  }
+
+  if (provider.privacy.retention_or_zdr_status === 'not_verified') {
+    return `Certified/production support is blocked until the ${provider.label} retention/ZDR posture is verified or policy-accepted.`
+  }
+
+  return undefined
+}
+
 function effectiveReadinessFrom(provider: ProviderCatalogEntry, readiness: ProviderReadiness, latestReport: CertificationReport | undefined): ProviderReadiness {
   if (latestReport === undefined) {
     if (!provider.visible_in_onboarding) {
@@ -527,6 +549,16 @@ function effectiveReadinessFrom(provider: ProviderCatalogEntry, readiness: Provi
     }
 
     return readiness
+  }
+
+  if (certificationReportPrivacyBlocksExecution(provider, latestReport)) {
+    return {
+      ...readiness,
+      is_ready: false,
+      readiness_state: 'certification_blocked',
+      auth_source: 'certification report',
+      status_label: certificationPrivacyBlocker(provider) ?? latestReport.summary,
+    }
   }
 
   if (!certificationReportBlocksExecution(latestReport)) {

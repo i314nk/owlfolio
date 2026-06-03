@@ -155,6 +155,43 @@ describe('GeminiDeveloperApiProvider', () => {
     expect(run.finish_reason).toBe('tool-calls')
   })
 
+  it('uses Gemini-safe function declaration names and maps returned calls back to Owlfolio tool ids', async () => {
+    let body: any
+    const provider = new GeminiDeveloperApiProvider({
+      apiKey: 'secret-gemini-key',
+      fetch: async (_url, init) => {
+        body = JSON.parse(String(init?.body))
+        return Response.json(geminiResponse('Tool request prepared.', {
+          content: {
+            parts: [
+              { functionCall: { name: 'source_fetch', args: { ticker: 'COST' } } },
+              { functionCall: { name: 'ledger_write', args: { event: 'unauthorized' } } },
+            ],
+          },
+        }))
+      },
+    })
+
+    const run = await provider.runWithTools({ ...baseRequest, tool_allowlist: ['source.fetch'], task_kind: 'tool-loop', response_format: { kind: 'text' } })
+
+    expect(body.tools).toEqual(expect.arrayContaining([
+      {
+        functionDeclarations: [expect.objectContaining({
+          name: 'source_fetch',
+          description: expect.stringContaining('source.fetch'),
+        })],
+      },
+    ]))
+    expect(run.tool_calls).toEqual([
+      expect.objectContaining({
+        tool_name: 'source.fetch',
+        input: { ticker: 'COST' },
+      }),
+    ])
+    expect(JSON.stringify(run.tool_calls)).not.toContain('ledger.write')
+    expect(run.ledger_events_written).toBe(0)
+  })
+
   it('classifies auth, quota, and generic API errors with redacted diagnostics', async () => {
     const provider = new GeminiDeveloperApiProvider({
       apiKey: 'secret-gemini-key',
@@ -165,5 +202,22 @@ describe('GeminiDeveloperApiProvider', () => {
       .rejects.toThrow(/authentication failed/i)
     await expect(provider.complete({ ...baseRequest, task_kind: 'text-generation', response_format: { kind: 'text' } }))
       .rejects.not.toThrow(/secret-gemini-key|\/tmp\/provider/i)
+  })
+
+  it('redacts thrown network diagnostics and passes timeout signals to fetch', async () => {
+    let signal: AbortSignal | undefined
+    const provider = new GeminiDeveloperApiProvider({
+      apiKey: 'secret-gemini-key',
+      fetch: async (_url, init) => {
+        signal = init.signal as AbortSignal | undefined
+        throw new Error('proxy failed for secret-gemini-key via /tmp/provider/proxy.json with Authorization: Bearer secret-token')
+      },
+    })
+
+    await expect(provider.complete({ ...baseRequest, timeout_ms: 25, task_kind: 'text-generation', response_format: { kind: 'text' } }))
+      .rejects.toThrow(/Gemini Developer API request failed/i)
+    await expect(provider.complete({ ...baseRequest, timeout_ms: 25, task_kind: 'text-generation', response_format: { kind: 'text' } }))
+      .rejects.not.toThrow(/secret-gemini-key|\/tmp\/provider|secret-token/i)
+    expect(signal).toBeInstanceOf(AbortSignal)
   })
 })

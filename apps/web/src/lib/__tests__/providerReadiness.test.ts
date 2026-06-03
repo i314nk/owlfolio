@@ -228,7 +228,7 @@ describe('providerReadiness', () => {
     expect(serialized).not.toContain('signed-in-browser-session')
   })
 
-  it('classifies Gemini CLI cached session and API-key readiness as personal-local without certifying Developer API or Vertex', async () => {
+  it('classifies Gemini CLI cached session as discovered but unexecutable until a CLI adapter exists', async () => {
     await withTempDir(async (dir) => {
       const authPath = join(dir, '.gemini', 'oauth_creds.json')
       await mkdir(join(dir, '.gemini'), { recursive: true })
@@ -243,22 +243,22 @@ describe('providerReadiness', () => {
         provider_id: 'gemini-cli',
         provider_surface_id: 'gemini-cli',
         support_level: 'experimental',
-        is_ready: true,
+        is_ready: false,
         auth_mode: 'cli_cached_session',
-        readiness_state: 'ready',
+        readiness_state: 'unsupported_surface',
         credential_source_category: 'configured_secret_file',
         credential_source_label: 'Gemini CLI Google sign-in session',
-        status_label: 'Locally runnable via Gemini CLI Google sign-in session; Developer API and Vertex certification remain separate.',
+        status_label: 'Gemini CLI Google sign-in session detected, but Owlfolio has not implemented a Gemini CLI execution adapter yet; Developer API and Vertex certification remain separate.',
       })
       expect(apiKey).toMatchObject({
         provider_id: 'gemini-cli',
         provider_surface_id: 'gemini-cli',
-        is_ready: true,
+        is_ready: false,
         auth_mode: 'api_key',
-        readiness_state: 'ready',
+        readiness_state: 'unsupported_surface',
         credential_source_category: 'env_var',
         credential_source_label: 'GEMINI_API_KEY',
-        status_label: 'Locally runnable through Gemini CLI with GEMINI_API_KEY; Developer API and Vertex certification remain separate.',
+        status_label: 'GEMINI_API_KEY belongs to Gemini Developer API, not Gemini CLI Google sign-in; Developer API and Vertex certification remain separate.',
       })
       expect(serialized).not.toContain(authPath)
       expect(serialized).not.toContain('secret-gemini-oauth-token')

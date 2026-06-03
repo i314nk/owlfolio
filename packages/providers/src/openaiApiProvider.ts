@@ -124,7 +124,7 @@ export class OpenAIAPIProvider implements Provider {
       })),
       tool_choice: request.tool_allowlist.length > 0 ? 'auto' : undefined,
     })
-    const toolCalls = this.toolCallsFrom(response)
+    const toolCalls = this.toolCallsFrom(response, new Set(request.tool_allowlist))
 
     return {
       text: this.outputTextFrom(response).trim(),
@@ -229,9 +229,9 @@ export class OpenAIAPIProvider implements Provider {
       .join('\n')
   }
 
-  private toolCallsFrom(body: OpenAIResponseBody): ProviderToolCall[] {
+  private toolCallsFrom(body: OpenAIResponseBody, allowedToolNames: ReadonlySet<string>): ProviderToolCall[] {
     return (body.output ?? [])
-      .filter((item) => item.type === 'function_call' && typeof item.name === 'string')
+      .filter((item) => item.type === 'function_call' && typeof item.name === 'string' && allowedToolNames.has(item.name))
       .map((item, index) => ({
         tool_call_id: item.call_id ?? item.id ?? `openai_api_tool_call_${index + 1}`,
         tool_name: item.name!,

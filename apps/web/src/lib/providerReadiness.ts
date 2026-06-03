@@ -259,13 +259,13 @@ async function geminiCliReadiness(provider: ProviderCatalogEntry, env: ProviderR
   const geminiAuthPath = env.OWLFOLIO_GEMINI_CLI_AUTH_PATH ?? defaultGeminiCliAuthPath(env)
   if (await fileExists(geminiAuthPath)) {
     return readinessFrom(provider, {
-      isReady: true,
+      isReady: false,
       authMode: 'cli_cached_session',
-      readinessState: 'ready',
+      readinessState: 'unsupported_surface',
       credentialSourceCategory: 'configured_secret_file',
       credentialSourceLabel: 'Gemini CLI Google sign-in session',
       authSource: 'Gemini CLI Google sign-in session',
-      statusLabel: 'Locally runnable via Gemini CLI Google sign-in session; Developer API and Vertex certification remain separate.',
+      statusLabel: 'Gemini CLI Google sign-in session detected, but Owlfolio has not implemented a Gemini CLI execution adapter yet; Developer API and Vertex certification remain separate.',
     })
   }
 
@@ -276,13 +276,13 @@ async function geminiCliReadiness(provider: ProviderCatalogEntry, env: ProviderR
       : undefined
   if (apiKeyLabel !== undefined) {
     return readinessFrom(provider, {
-      isReady: true,
+      isReady: false,
       authMode: 'api_key',
-      readinessState: 'ready',
+      readinessState: 'unsupported_surface',
       credentialSourceCategory: 'env_var',
       credentialSourceLabel: apiKeyLabel,
       authSource: apiKeyLabel,
-      statusLabel: `Locally runnable through Gemini CLI with ${apiKeyLabel}; Developer API and Vertex certification remain separate.`,
+      statusLabel: `${apiKeyLabel} belongs to Gemini Developer API, not Gemini CLI Google sign-in; Developer API and Vertex certification remain separate.`,
     })
   }
 

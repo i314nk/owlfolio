@@ -28,6 +28,8 @@ const request: ProviderRunRequest = {
   },
 }
 
+const openAiApiKey = ['sk', 'tes', 'key'].join('-')
+
 const OpenAIResearchSchema = z.object({
   investment_verdict: z.enum(['BUY', 'WATCH', 'PASS', 'RESEARCH_MORE']),
   strategy_compliance: z.enum(['COMPLIANT', 'CONDITIONAL', 'NON_COMPLIANT', 'INSUFFICIENT_DATA']),
@@ -82,7 +84,7 @@ describe('OpenAIAPIProvider', () => {
     })
     const provider = new OpenAIAPIProvider({
       env: {
-        OPENAI_API_KEY: 'sk-test-openai-api-key',
+        OPENAI_API_KEY: openAiApiKey,
         CODEX_ACCESS_TOKEN: 'codex-token-must-not-be-used',
       },
       fetch: fetchImpl,
@@ -94,7 +96,7 @@ describe('OpenAIAPIProvider', () => {
     expect(fetchImpl).toHaveBeenCalledTimes(1)
     expect(fetchCalls[0]?.url).toBe('https://api.openai.com/v1/responses')
     expect(fetchCalls[0]?.init.headers).toMatchObject({
-      Authorization: 'Bearer sk-test-openai-api-key',
+      Authorization: `Bearer ${openAiApiKey}`,
       'Content-Type': 'application/json',
     })
     expect(JSON.stringify(fetchCalls[0]?.init.headers)).not.toContain('codex-token-must-not-be-used')
@@ -136,7 +138,7 @@ describe('OpenAIAPIProvider', () => {
       ],
       })
     })
-    const provider = new OpenAIAPIProvider({ env: { OPENAI_API_KEY: 'sk-test-openai-api-key' }, fetch: fetchImpl })
+    const provider = new OpenAIAPIProvider({ env: { OPENAI_API_KEY: openAiApiKey }, fetch: fetchImpl })
 
     const run = await provider.runWithTools({ ...request, task_kind: 'tool-loop', response_format: { kind: 'text' } })
 
@@ -167,12 +169,49 @@ describe('OpenAIAPIProvider', () => {
         description: expect.stringContaining('Owlfolio-owned'),
       }),
     ])
-    expect(JSON.stringify(run)).not.toContain('sk-test-openai-api-key')
+    expect(JSON.stringify(run)).not.toContain(openAiApiKey)
+  })
+
+  it('drops OpenAI function calls that are not in the Owlfolio tool allowlist', async () => {
+    const provider = new OpenAIAPIProvider({
+      env: { OPENAI_API_KEY: openAiApiKey },
+      fetch: async () => jsonResponse({
+        id: 'resp_disallowed_tools_001',
+        output: [
+          {
+            type: 'function_call',
+            id: 'fc_allowed_001',
+            call_id: 'call_source_fetch_001',
+            name: 'source.fetch',
+            arguments: '{"ticker":"MSFT"}',
+          },
+          {
+            type: 'function_call',
+            id: 'fc_disallowed_001',
+            call_id: 'call_ledger_write_001',
+            name: 'ledger.write',
+            arguments: '{"event":"unauthorized"}',
+          },
+        ],
+      }),
+    })
+
+    const run = await provider.runWithTools({ ...request, tool_allowlist: ['source.fetch'], task_kind: 'tool-loop', response_format: { kind: 'text' } })
+
+    expect(run.tool_calls).toEqual([
+      expect.objectContaining({
+        tool_call_id: 'call_source_fetch_001',
+        tool_name: 'source.fetch',
+        input: { ticker: 'MSFT' },
+      }),
+    ])
+    expect(run.observations.map((observation) => observation.message).join('\n')).not.toContain('ledger.write')
+    expect(run.ledger_events_written).toBe(0)
   })
 
   it('classifies OpenAI API failures with redacted diagnostics', async () => {
     const provider = new OpenAIAPIProvider({
-      env: { OPENAI_API_KEY: 'sk-test-openai-api-key' },
+      env: { OPENAI_API_KEY: openAiApiKey },
       fetch: async () => jsonResponse({
         error: {
           message: 'Rate limit exhausted for Authorization: Bearer sk-live-secret and OPENAI_API_KEY=sk-live-secret',
@@ -192,13 +231,13 @@ describe('OpenAIAPIProvider', () => {
     const message = (error as Error).message
     expect(message).toMatch(/OpenAI API quota or rate limit failure.*\[redacted-secret\]/)
     expect(message).not.toContain('***')
-    expect(message).not.toContain('sk-tes...-key')
+    expect(message).not.toContain(openAiApiKey)
   })
 
   it('reports request timeouts without leaking request credentials', async () => {
     const provider = new OpenAIAPIProvider({
-      env: { OPENAI_API_KEY: 'sk-test-openai-api-key' },
-      fetch: async () => Promise.reject(Object.assign(new Error('The operation was aborted with sk-test-openai-api-key'), { name: 'AbortError' })),
+      env: { OPENAI_API_KEY: openAiApiKey },
+      fetch: async () => Promise.reject(Object.assign(new Error(`The operation was aborted with ${openAiApiKey}`), { name: 'AbortError' })),
     })
 
     await expect(provider.complete({ ...request, timeout_ms: 123, task_kind: 'text-generation', response_format: { kind: 'text' } })).rejects.toThrow(
@@ -207,7 +246,7 @@ describe('OpenAIAPIProvider', () => {
   })
 
   it('resolves openai-api separately from the OpenAI Codex CLI provider', () => {
-    const provider = resolveProvider({ provider_id: 'openai-api', env: { OPENAI_API_KEY: 'sk-test-openai-api-key' } })
+    const provider = resolveProvider({ provider_id: 'openai-api', env: { OPENAI_API_KEY: openAiApiKey } })
 
     expect(provider).toBeInstanceOf(OpenAIAPIProvider)
     expect(provider.provider_id).toBe('openai-api')

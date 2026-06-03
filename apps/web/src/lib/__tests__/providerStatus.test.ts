@@ -119,6 +119,11 @@ describe('provider status model', () => {
       workflow_role: 'research_draft',
       is_ready: false,
       effective_support_level: 'unsupported',
+      model_role: 'Direct API candidate',
+      limitations: expect.arrayContaining([
+        'Direct OpenAI API adapter supports structured research drafts and tool-call requests through the API surface, but remains certification-gated.',
+        'Must remain hidden from normal onboarding until direct API certification evidence exists.',
+      ]),
     })
     expect(geminiDeveloperApi).toMatchObject({
       provider_surface_id: 'gemini-developer-api',
@@ -431,6 +436,39 @@ describe('provider status model', () => {
     await rm(projectDir, { recursive: true, force: true })
   })
 
+  it('blocks certified Gemini Developer API reports when free-tier privacy posture is not accepted', async () => {
+    const projectDir = await writeReportFixture(certifiedGeminiDeveloperApiReport())
+
+    const rows = await buildProviderStatusRows({
+      env: {
+        GEMINI_API_KEY: 'credential-present-but-privacy-policy-blocks-certified-claim',
+        OWLFOLIO_PROJECT_DIR: projectDir,
+      },
+    })
+    const geminiDeveloperApi = rows.find((row) => row.provider_id === 'gemini-developer-api')
+
+    expect(geminiDeveloperApi).toMatchObject({
+      provider_id: 'gemini-developer-api',
+      readiness_state: 'unready',
+      is_ready: false,
+      auth_source: 'certification report',
+      effective_support_level: 'unsupported',
+      status_label: 'Certified/production support is blocked until the Gemini Developer API privacy posture is policy-accepted or paid/ZDR verified.',
+      last_certification_report: {
+        run_status: 'completed',
+        support_level: 'certified',
+      },
+    })
+    expect(geminiDeveloperApi?.status_rows.find((statusRow) => statusRow.label === 'Allowed use')).toEqual({
+      label: 'Allowed use',
+      value: 'Blocked for provider-backed workflow starts',
+      tone: 'danger',
+      description: 'Fail-closed until local availability and effective workflow support are both present.',
+    })
+
+    await rm(projectDir, { recursive: true, force: true })
+  })
+
   it('displays explicit not-configured certification artifacts for unavailable real providers', async () => {
     const projectDir = await writeReportFixture(createNotConfiguredCertificationReport({
       provider_id: 'claude',
@@ -572,6 +610,42 @@ function unsupportedCompletedReport(providerId: 'mock-provider' | 'claude' | 'op
     },
     cases: [],
     summary: '0/13 scenarios passed; provider support level is unsupported.',
+  }
+}
+
+function certifiedGeminiDeveloperApiReport(): CertificationReport {
+  return {
+    certification_report_id: 'cert_gemini-developer-api_api_key_research_draft_gemini-2-5-pro_2026-06-02T00-00-00-000Z',
+    provider_id: 'gemini-developer-api',
+    target: {
+      provider_surface_id: 'gemini-developer-api',
+      vendor_id: 'google-gemini',
+      runtime_kind: 'direct_api',
+      auth_mode: 'api_key',
+      model_id: 'gemini-2.5-pro',
+      workflow_role: 'research_draft',
+      schema_version: 1,
+    },
+    run_status: 'completed',
+    support_level: 'certified',
+    generated_at: '2026-06-02T00:00:00.000Z',
+    capabilities: {
+      'text-generation': 'native',
+      'structured-output': 'native',
+      'tool-function-calling': 'native',
+      'streaming-observability': 'adapter',
+      'multi-step-tool-loop': 'unsupported',
+      'source-grounding': 'native',
+      'citation-metadata': 'native',
+      'url-context': 'native',
+      'file-context': 'unsupported',
+      'source-bundle-production': 'adapter',
+      'code-execution': 'unsupported',
+      'computer-use': 'unsupported',
+      'browser-use': 'unsupported',
+    },
+    cases: [],
+    summary: '13/13 scenarios passed; provider support level is certified.',
   }
 }
 

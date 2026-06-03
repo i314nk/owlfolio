@@ -108,7 +108,7 @@ export class GeminiDeveloperApiProvider implements Provider {
   async runWithTools(request: ProviderRunRequest): Promise<ProviderToolRun> {
     const observations = this.observationsFor('Gemini Developer API queued the tool request.')
     const response = await this.generateContent(request, { includeGrounding: true })
-    const toolCalls = this.toolCallsFrom(response)
+    const toolCalls = this.toolCallsFrom(response, request)
     observations.push(this.observation(toolCalls.length > 0 ? 'tool-call' : 'completed', `Gemini Developer API returned ${toolCalls.length} tool call(s).`))
 
     return {
@@ -129,14 +129,28 @@ export class GeminiDeveloperApiProvider implements Provider {
       throw new Error('Gemini Developer API authentication failed: missing GEMINI_API_KEY or GOOGLE_API_KEY')
     }
 
-    const response = await this.fetchImpl(`${this.endpoint}/models/${encodeURIComponent(request.model_id)}:generateContent`, {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        'x-goog-api-key': this.apiKey,
-      },
-      body: JSON.stringify(this.bodyFor(request, options)),
-    })
+    const abortController = new AbortController()
+    const timeout = request.timeout_ms > 0
+      ? setTimeout(() => abortController.abort(), request.timeout_ms)
+      : undefined
+    let response: Response
+    try {
+      response = await this.fetchImpl(`${this.endpoint}/models/${encodeURIComponent(request.model_id)}:generateContent`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'x-goog-api-key': this.apiKey,
+        },
+        body: JSON.stringify(this.bodyFor(request, options)),
+        signal: abortController.signal,
+      })
+    } catch (error) {
+      throw new Error(`Gemini Developer API request failed: ${this.redact(error)}`)
+    } finally {
+      if (timeout !== undefined) {
+        clearTimeout(timeout)
+      }
+    }
 
     const payload = await this.parsePayload(response)
     if (!response.ok) {
@@ -174,7 +188,7 @@ export class GeminiDeveloperApiProvider implements Provider {
         functionDeclarations: request.tool_allowlist
           .filter((toolName) => toolName.includes('.'))
           .map((toolName) => ({
-            name: toolName,
+            name: this.geminiFunctionNameFor(toolName),
             description: `Owlfolio-controlled tool ${toolName}; provider must not write ledger events directly.`,
             parameters: { type: 'object', properties: {} },
           })),
@@ -208,20 +222,35 @@ export class GeminiDeveloperApiProvider implements Provider {
     return parts.map((part) => part.text ?? '').join('').trim()
   }
 
-  private toolCallsFrom(response: GeminiResponse): ProviderToolCall[] {
+  private toolCallsFrom(response: GeminiResponse, request: ProviderRunRequest): ProviderToolCall[] {
     const parts = response.candidates?.[0]?.content?.parts ?? []
+    const toolNamesByGeminiName = new Map(request.tool_allowlist.flatMap((toolName) => {
+      if (!toolName.includes('.')) {
+        return []
+      }
+      return [[this.geminiFunctionNameFor(toolName), toolName], [toolName, toolName]]
+    }))
     return parts.flatMap((part, index) => {
       const functionCall = part.functionCall
       if (functionCall?.name === undefined) {
         return []
       }
+      const toolName = toolNamesByGeminiName.get(functionCall.name)
+      if (toolName === undefined) {
+        return []
+      }
       return [{
         tool_call_id: `gemini_tool_${index + 1}`,
-        tool_name: functionCall.name,
+        tool_name: toolName,
         input: functionCall.args ?? {},
         output: { status: 'not_executed_by_provider_adapter' },
       }]
     })
+  }
+
+  private geminiFunctionNameFor(toolName: string): string {
+    const safeName = toolName.replace(/[^A-Za-z0-9_]/g, '_')
+    return /^[A-Za-z_]/.test(safeName) ? safeName : `owlfolio_${safeName}`
   }
 
   private withGroundingCitations(value: unknown, response: GeminiResponse): unknown {
