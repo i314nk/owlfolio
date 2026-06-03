@@ -7,11 +7,20 @@
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "exports": {
+    ".": "./src/index.ts",
+    "./certificationContract": "./src/certificationContract.ts",
+    "./certificationRunner": "./src/certificationRunner.ts",
+    "./claudeCliProvider": "./src/claudeCliProvider.ts",
+    "./geminiDeveloperApiProvider": "./src/geminiDeveloperApiProvider.ts",
     "./mockProvider": "./src/mockProvider.ts",
+    "./openaiApiProvider": "./src/openaiApiProvider.ts",
+    "./providerCatalog": "./src/providerCatalog.ts",
     "./providerContract": "./src/providerContract.ts",
+    "./providerFactory": "./src/providerFactory.ts",
     "./runProviderTask": "./src/runProviderTask.ts"
   },
   "dependencies": {
+    "@owlfolio/shared": "workspace:*",
     "zod": "^4.4.3"
   }
 }

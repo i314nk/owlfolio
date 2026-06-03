@@ -1,6 +1,12 @@
 import type { LedgerEventEnvelope } from '../eventEnvelope'
 
-export type ResearchCaseStage = 'created' | 'analysis_drafted' | 'decision_drafted' | 'watchlist_draft'
+export type ResearchCaseStage =
+  | 'created'
+  | 'analysis_drafted'
+  | 'decision_drafted'
+  | 'watchlist_draft'
+  | 'watchlist_confirmed'
+  | 'holding_opened'
 
 export type ResearchCaseProjection = {
   research_case_id: string
@@ -8,6 +14,7 @@ export type ResearchCaseProjection = {
   company_id?: string
   ticker?: string
   strategy_id?: string
+  decision_id?: string
   investment_verdict?: string
   strategy_compliance?: string
   shariah_status?: string
@@ -40,6 +47,7 @@ function applyString(
     | 'company_id'
     | 'ticker'
     | 'strategy_id'
+    | 'decision_id'
     | 'investment_verdict'
     | 'strategy_compliance'
     | 'shariah_status'
@@ -133,6 +141,7 @@ export function projectResearchCases(events: LedgerEventEnvelope<unknown>[]): Re
       }
 
       const researchCase = upsertCase(researchCases, researchCaseId, 'decision_drafted', event.created_at)
+      applyString(researchCase, 'decision_id', getString(event.payload, 'decision_id') ?? event.aggregate_id)
       applyString(researchCase, 'decision', getString(event.payload, 'decision'))
       applyBoolean(researchCase, 'user_approved', getBoolean(event.payload, 'user_approved'))
       applyString(researchCase, 'reason', getString(event.payload, 'reason'))
@@ -150,6 +159,31 @@ export function projectResearchCases(events: LedgerEventEnvelope<unknown>[]): Re
       applyString(researchCase, 'ticker', getString(event.payload, 'ticker'))
       applyString(researchCase, 'strategy_id', getString(event.payload, 'strategy_id'))
       applyBoolean(researchCase, 'user_approved', getBoolean(event.payload, 'user_approved'))
+      continue
+    }
+
+    if (event.event_type === 'watchlist_draft_confirmed') {
+      const researchCaseId = researchCaseIdFor(event, event.payload)
+      if (researchCaseId === undefined) {
+        continue
+      }
+
+      const researchCase = upsertCase(researchCases, researchCaseId, 'watchlist_confirmed', event.created_at)
+      applyBoolean(researchCase, 'user_approved', true)
+      continue
+    }
+
+    if (event.event_type === 'holding_opened') {
+      const researchCaseId = researchCaseIdFor(event, event.payload)
+      if (researchCaseId === undefined) {
+        continue
+      }
+
+      const researchCase = upsertCase(researchCases, researchCaseId, 'holding_opened', event.created_at)
+      applyString(researchCase, 'company_id', getString(event.payload, 'company_id'))
+      applyString(researchCase, 'ticker', getString(event.payload, 'ticker'))
+      applyString(researchCase, 'strategy_id', getString(event.payload, 'strategy_id'))
+      applyBoolean(researchCase, 'user_approved', true)
     }
   }
 

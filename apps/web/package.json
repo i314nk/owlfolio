@@ -9,6 +9,9 @@
   },
   "dependencies": {
     "@owlfolio/ledger": "workspace:*",
+    "@owlfolio/providers": "workspace:*",
+    "@owlfolio/shared": "workspace:*",
+    "@owlfolio/workflow": "workspace:*",
     "next": "16.2.6",
     "react": "19.2.1",
     "react-dom": "19.2.1"

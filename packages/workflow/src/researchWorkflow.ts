@@ -1,6 +1,6 @@
 import type { EventStore } from '@owlfolio/ledger/eventStore'
 import type { LedgerEventEnvelope } from '@owlfolio/ledger/eventEnvelope'
-import type { Provider } from '@owlfolio/providers/providerContract'
+import type { Provider, ProviderRunRequest } from '@owlfolio/providers/providerContract'
 
 export type InvestmentVerdict = 'BUY' | 'WATCH' | 'PASS' | 'RESEARCH_MORE'
 export type StrategyCompliance = 'COMPLIANT' | 'CONDITIONAL' | 'NON_COMPLIANT' | 'INSUFFICIENT_DATA'
@@ -64,6 +64,7 @@ export type DraftDecisionCommand = {
   reason: string
   causation_id: string
   idempotency_key?: string
+  source_ids?: string[]
 }
 
 function nowIso(): string {
@@ -111,6 +112,20 @@ function sourceIdsFrom(payload: Record<string, unknown>): string[] {
   return value
 }
 
+function buildDemoProviderRequest(command: RunDemoBuffettMungerAnalysisCommand, provider: Provider): ProviderRunRequest {
+  return {
+    run_id: `run_${command.research_case_id}_buffett_munger_demo`,
+    provider_id: provider.provider_id,
+    model_id: 'mock-research-v1',
+    task_kind: 'structured-output',
+    prompt: `Analyze ${command.ticker} with the Buffett-Munger policy for research case ${command.research_case_id}.`,
+    timeout_ms: 1000,
+    budget: { max_tool_calls: 0, max_tokens: 2000 },
+    tool_allowlist: [],
+    response_format: { kind: 'json-schema', schema_name: 'BuffettMungerAnalysis' },
+  }
+}
+
 export async function createResearchCase(store: ResearchEventStore, command: CreateResearchCaseCommand): Promise<ResearchCaseCreated> {
   const payload: ResearchCaseCreatedPayload = {
     research_case_id: command.research_case_id,
@@ -143,14 +158,7 @@ export async function runDemoBuffettMungerAnalysis(
   provider: Provider,
   command: RunDemoBuffettMungerAnalysisCommand,
 ): Promise<BuffettMungerAnalysisDrafted> {
-  const completion = await provider.complete({
-    run_id: `run_${command.research_case_id}_buffett_munger_demo`,
-    model_id: 'mock-research-v1',
-    prompt: `Analyze ${command.ticker} with the Buffett-Munger policy for research case ${command.research_case_id}.`,
-    timeout_ms: 1000,
-    budget: { max_tool_calls: 0, max_tokens: 2000 },
-    tool_allowlist: [],
-  })
+  const completion = await provider.complete(buildDemoProviderRequest(command, provider))
 
   const parsed: unknown = JSON.parse(completion.text)
   if (!isRecord(parsed)) {
@@ -206,7 +214,7 @@ export async function draftDecision(store: ResearchEventStore, command: DraftDec
     correlation_id: command.research_case_id,
     actor_type: 'system',
     payload,
-    source_ids: [],
+    source_ids: command.source_ids ?? [],
     created_at: nowIso(),
     schema_version: 1,
     ...(command.idempotency_key === undefined ? {} : { idempotency_key: command.idempotency_key }),

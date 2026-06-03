@@ -1,413 +1,197 @@
 <div align="center">
 
-# Owlfolio
+# Owlfolio v2
 
-**Your investment philosophy, automated.**
+**A local-first investment workflow dashboard with a Shariah-by-design ledger.**
 
-An open-source, methodology-driven investment research agent that runs the full lifecycle:
-source candidates, research, value, size, decide, audit.
-
-Your investing philosophy is defined as configuration, not code.
-
-[![CI](https://github.com/i314nk/owlfolio/actions/workflows/ci.yml/badge.svg)](https://github.com/i314nk/owlfolio/actions/workflows/ci.yml)
-[![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Claude SDK](https://img.shields.io/badge/LLM-Claude%20Agent%20SDK-blueviolet.svg)](https://docs.anthropic.com/en/docs/agents-and-tools/claude-agent-sdk)
+Owlfolio v2 is a TypeScript rewrite focused on the full investment workflow:
+research cases, watchlist decisions, holdings, reviews, monthly accounting,
+purification tracking, provider certification, scheduled worker runs, and an
+immutable audit trail.
 
 </div>
 
 ---
 
-Ships with 7 preset strategies (Buffett, Graham, Lynch, Terry Smith, and more). Bring your own methodology.
+## Current alpha status
 
-<div align="center">
-<img src="docs/assets/owlfolio-demo.gif" alt="Owlfolio Web Dashboard" width="800">
-<br><em>Web UI — chat with your AI analyst, track portfolio, manage watchlists, schedule automated tasks</em>
-</div>
+This branch is an alpha hardening slice, not the older Python/FastAPI product.
+The primary app is a local Next.js web UI backed by a SQLite event ledger. The
+CLI is secondary; the local worker handles dry-run scheduled task ticks.
+
+Built alpha surfaces:
+
+- Command Center with setup-aware status, next actions, accounting prompts, and recent ledger activity.
+- Browser onboarding for demo and personal-local mode.
+- Research case intake and provider-authored draft recommendations.
+- Watchlist draft, explicit user confirmation, and open-holding transitions.
+- Portfolio page for holdings, lot entry, manual valuation, and holding review actions.
+- Monthly accounting snapshot projection and report page.
+- Purification obligations/payments projection and report page.
+- Shariah workflow gates and policy projections in the ledger layer.
+- Audit activity page over append-only ledger events.
+- Provider status page using latest certification reports.
+- Local worker for dry-run scheduled `review_reminder` and `watchlist_monitor` tasks.
+
+Full-v2 gaps are tracked honestly in `docs/ALPHA_READINESS.md`: certified direct API
+provider parity, autonomous discovery/research at production quality, broker
+sync/trading, cash/dividend ingestion, tax-grade accounting, formal Shariah
+scholar review, and non-Buffett strategy certification are not complete.
+
+---
+
+## Quick start
+
+Requires Node/Corepack. From the repo root:
 
 ```bash
-owlfolio serve                      # launch the web dashboard
+corepack enable
+corepack pnpm install
+corepack pnpm dev
 ```
 
-The Web UI is the primary interface — chat with your portfolio manager, run analyses, manage scheduled tasks, and browse your audit trail, all from the browser. A full CLI is also available for power users who prefer the terminal.
+Open `http://127.0.0.1:3000` and complete onboarding. The app stores runtime
+state locally under `data/` by default; `data/` is ignored by git.
 
-<details>
-<summary><b>Architecture at a glance</b></summary>
-
-```
-                    ┌──────────────────────────────┐
-                    │        Strategy YAML          │
-                    │   (your philosophy as config) │
-                    └──────────┬───────────────────┘
-                               │
-              ┌────────────────┼────────────────┐
-              ▼                ▼                ▼
-     ┌──────────────┐ ┌──────────────┐ ┌──────────────┐
-     │  Financial    │ │  Moat        │ │  Risk        │  ← 3-5 specialist
-     │  Analyst      │ │  Analyst     │ │  Analyst     │    subagents per
-     │  (Claude)     │ │  (Claude)    │ │  (Claude)    │    strategy
-     └──────┬───────┘ └──────┬───────┘ └──────┬───────┘
-            │                │                │
-            └────────────────┼────────────────┘
-                             ▼
-                    ┌──────────────────┐
-                    │  Synthesis Agent │  ← reconciles findings
-                    │  BUY / WATCH /   │    against your strategy
-                    │  PASS            │
-                    └────────┬─────────┘
-                             │
-                    ┌────────▼─────────┐
-                    │   SQLite (local)  │  ← analyses, portfolio,
-                    │   portfolio.db    │    decisions, audit trail
-                    └──────────────────┘
-```
-
-</details>
-
----
-
-## Vision
-
-Investing well is not a tooling problem. The hard part is having a coherent
-philosophy and applying it consistently — through your own biases, through
-noisy headlines, through years of compounding decisions. Most investors who
-underperform aren't lacking data; they're lacking a written, repeatable
-process.
-
-**Owlfolio is an attempt to give every investor a senior analyst on staff
-who follows their methodology, not a generic LLM's intuition.**
-
-The principles that fall out of that goal:
-
-- **Strategy is configuration, not code.** Your philosophy lives in a YAML
-  file you can read, edit, fork, and version-control. The runtime adapts.
-  Switching from Buffett to GARP is one command, not a fork.
-- **Specialists, not a single LLM.** A real analyst team has roles: someone
-  who reads the financials, someone who scores the moat, someone who hunts
-  for risks. Owlfolio spawns those roles in parallel, each with its own
-  brief, then a synthesis agent reconciles them into a single decision.
-  Same shape as a real research team, same separation of concerns.
-- **Synthesis owns the decision.** No mechanical formulas pick BUY/WATCH/PASS.
-  The synthesis agent reads the strategy's plain-English methodology and
-  every specialist's findings, then judges. Strategy YAMLs change behavior
-  without changing code; mistakes are visible because the reasoning is
-  written down.
-- **Personal, local, and yours.** Owlfolio runs on your laptop. Your
-  portfolio, your memory, your decision journal — all in a SQLite file you
-  own. No SaaS dashboard, no telemetry, no portfolio data leaving the box
-  unless you mount it on the public internet on purpose.
-- **Claude-only, by design.** Owlfolio is not a multi-LLM abstraction layer.
-  It is a Claude Agent SDK portfolio-research system: specialist subagents,
-  tool-bounded web research, adaptive extended thinking, and synthesis are
-  tuned as one coherent agentic workflow. Avoiding provider abstraction is
-  intentional; it keeps the codebase focused and the prompt engineering
-  consistent.
-- **Honest about what it isn't.** Not a robo-advisor. Not a backtesting
-  suite (yet). Not a substitute for thinking. Not a deterministic
-  numeric screener. It's a disciplined *agentic* research pipeline
-  that follows the rules you wrote down and tells you what those rules
-  say about a stock. The decisions are still yours.
-
-> **Non-determinism is by design.** Owlfolio's analyses are produced by
-> Claude Agent SDK subagents reasoning in natural language — not by
-> formula evaluation. The same ticker analyzed twice under the same
-> strategy will give two slightly different syntheses (different
-> specialist findings, different score nudges, different prose). The
-> *decision logic* is consistent because it lives in your strategy
-> YAML; the *judgment* fluctuates because that's what an analyst team
-> looks like. If you want deterministic screens, use Finviz. If you
-> want a written-down philosophy applied with judgment and an audit
-> trail, that's the design.
-
-The long arc: a tool you can hand to a thoughtful first-time investor, who
-can pick a preset strategy, run their first analysis, and learn what
-disciplined value investing actually looks like in practice — and a tool
-that scales up to a serious investor running their own custom methodology
-across hundreds of analyses, with the audit trail and consistency that
-implies.
-
----
-
-## Quick Start
-
-### Option A: Claude Code (recommended)
-
-If you have [Claude Code](https://docs.anthropic.com/en/docs/claude-code) installed, it can set up everything for you:
+Useful isolated local run:
 
 ```bash
-git clone https://github.com/i314nk/owlfolio && cd owlfolio
-claude
-# Then say: "set up owlfolio"
+OWLFOLIO_PROJECT_DIR=$PWD \
+OWLFOLIO_APP_CONFIG_PATH=$PWD/.playwright-runtime/app-config.json \
+OWLFOLIO_DEMO_LEDGER_PATH=$PWD/.playwright-runtime/demo-ledger.sqlite \
+OWLFOLIO_PERSONAL_LEDGER_PATH=$PWD/.playwright-runtime/personal-ledger.sqlite \
+OWLFOLIO_CLAUDE_CREDENTIALS_PATH=$PWD/.playwright-runtime/missing-claude.json \
+OWLFOLIO_CODEX_AUTH_PATH=$PWD/.playwright-runtime/missing-codex-auth.json \
+ANTHROPIC_API_KEY= OPENAI_API_KEY= \
+corepack pnpm dev
 ```
 
-Claude Code reads the project's `CLAUDE.md` and handles the full setup — Python venv, dependencies, credentials, strategy selection, and verification. No manual steps.
+---
 
-### Option B: Install script
+## Repository map
+
+```text
+apps/
+  web/       Next.js web app and API routes
+  worker/    local scheduled-task worker
+packages/
+  ledger/    SQLite event store, event contracts, projections
+  providers/ provider catalog, adapters, certification runner
+  shared/    app config and shared domain/provider types
+  shariah/   Shariah policy helpers
+  strategies/ strategy package placeholder/reference surface
+  workflow/  workflow helpers for research, watchlist, holdings, reviews
+scripts/
+  certify-providers.mjs
+```
+
+Important docs:
+
+- `CLAUDE.md` — current agent/development instructions for this TypeScript branch.
+- `docs/ALPHA_READINESS.md` — release gate, verification status, limitations, remaining v2 gaps.
+- `docs/WORKER.md` — worker safety model and commands.
+- `docs/architecture/owlfolio-v2-domain-boundaries.md` — ledger event families and route ownership.
+- `docs/architecture/owlfolio-v2-provider-model-support.md` — provider support matrix and latest certification evidence.
+- `docs/superpowers/specs/2026-05-27-owlfolio-v02-typescript-design.md` — original v2 design target.
+
+---
+
+## Provider support
+
+Owlfolio distinguishes provider readiness from provider certification.
+
+| Provider id | Current role | Latest alpha support |
+| --- | --- | --- |
+| `mock-provider` | Deterministic demo/test provider | Certified; latest report passes 13/13 scenarios. |
+| `openai` / `openai-codex-cli` | OpenAI Codex CLI-backed development path | Experimental personal-local path; latest report passes 9/13 scenarios and lacks certified tool-loop parity. |
+| `claude` | Claude CLI-backed development path | Unsupported/not-configured in this environment; latest report says Claude Code subscription access is disabled. |
+| `openai-api` | Direct OpenAI API candidate | Experimental and fail-closed until a target-specific latest certification report is recorded. |
+| `gemini-developer-api` | Direct Gemini Developer API candidate | Experimental and fail-closed until privacy posture and target-specific certification are recorded. |
+| `gemini-cli` | Google/Gemini CLI sign-in onboarding lane | Setup-only personal-local lane; execution adapter/certification is not implemented yet. |
+
+Direct OpenAI and Gemini API adapters are present as bounded candidates, not
+certified Owlfolio providers, until target-specific latest certification reports
+exist. Direct Anthropic/Perplexity/OpenRouter/xAI/DeepSeek/Qwen/local API
+adapters remain future candidates until implemented and certified.
+
+Readiness inputs:
+
+- Claude: `ANTHROPIC_API_KEY` or Claude credential file (`OWLFOLIO_CLAUDE_CREDENTIALS_PATH`).
+- OpenAI/Codex: `OPENAI_API_KEY`, `CODEX_ACCESS_TOKEN`, `OWLFOLIO_CODEX_AUTH_PATH`, or `CODEX_HOME`.
+- Gemini: `GEMINI_API_KEY`/`GOOGLE_API_KEY` for the Developer API candidate, or `GEMINI_HOME`/`OWLFOLIO_GEMINI_CLI_AUTH_PATH` plus status flags for the setup-only CLI lane.
+
+Latest reports live in `data/provider-certifications/*.latest.json` and are the
+source of truth for support labels surfaced in docs/UI.
+
+---
+
+## Worker
+
+Run one dry-run tick:
 
 ```bash
-git clone https://github.com/i314nk/owlfolio && cd owlfolio
-./install.sh                 # sets up Python venv and installs deps
+corepack pnpm worker -- --once --dry-run --define-defaults
 ```
 
-### Then use it
+Run a specific handler:
 
 ```bash
-owlfolio doctor                      # confirm credentials, strategy, DB, daemon
-owlfolio serve                       # launch the web dashboard (primary interface)
+corepack pnpm --filter @owlfolio/worker dev -- --task-kind review_reminder
+corepack pnpm --filter @owlfolio/worker dev -- --task-kind watchlist_monitor
 ```
 
-Open `http://localhost:8000` and you're in — chat with your AI analyst, run analyses, manage your portfolio, and configure scheduled tasks, all from the browser. First-run setup creates only safe price/P&L checks; slow Claude research jobs are opt-in so onboarding stays predictable.
+The alpha worker is intentionally conservative. It records scheduled-task run
+lifecycle events and observations, but it does not auto-approve investment
+decisions, trades, watchlist confirmations, holding opens, Shariah overrides,
+or purification payments.
 
-**Prefer the CLI?** Everything in the Web UI is also available from the terminal:
+---
+
+## Verification
+
+Final release gate commands:
 
 ```bash
-owlfolio analyze AAPL                # full specialist analysis
-owlfolio analyze AAPL --shariah      # add Shariah compliance specialist
-owlfolio find --count 15             # agentic discovery for the active strategy
-owlfolio import tickers.csv --name watch-q2     # import your own ticker list
-owlfolio analyze-list watch-q2       # batch analyze a saved list (concurrency-capped)
-owlfolio portfolio                   # holdings + live P&L
-owlfolio chat                        # CLI chat with your portfolio manager
-owlfolio strategy --use buffett-munger   # switch active strategy
-owlfolio doctor                      # one-stop health report when something's off
+git diff --check
+corepack pnpm typecheck
+corepack pnpm test
+corepack pnpm lint
+corepack pnpm audit --filter @owlfolio/web --prod --audit-level moderate
+NODE_OPTIONS=--disable-warning=ExperimentalWarning corepack pnpm --filter @owlfolio/web exec next build
+corepack pnpm e2e
 ```
 
----
-
-## How It Works
-
-Your investment methodology lives in a YAML strategy file. Three ways to configure:
-
-1. **Conversational** (recommended) -- `owlfolio setup` walks you through it
-2. **Manual** -- edit `methodology.yaml` directly
-3. **Presets** -- `owlfolio strategy --use buffett-munger`
-
-When you run `owlfolio analyze TICKER`, the system spawns specialist subagents in parallel (3-5 per strategy), each independently researching the company from a different angle. A synthesis agent combines their findings into a final decision (BUY / WATCH / PASS). Every analysis — including the per-specialist findings — is persisted with an integer id you can quote later as `#42`.
-
-Each strategy defines its own specialist roster. A Buffett strategy spawns financial, moat, and risk analysts. A growth strategy spawns TAM, unit economics, and competitive dynamics analysts. The specialists adapt to the philosophy.
-
-### Sourcing candidates
-
-Two complementary paths for getting tickers into the analysis pipeline — Owlfolio doesn't ship a Finviz-style numeric screener (deliberately):
-
-- **Agentic discovery** (`owlfolio find`) reads the strategy's natural-language discovery brief (Russell 3000, Dividend Aristocrats, etc.) and uses WebSearch to compile a ranked candidate list. Slow (3-10 min), costs API credits, on-vision for the "AI analyst on staff" goal. Each ticker is yfinance-validated to drop hallucinations.
-- **External import** (`owlfolio import`) takes whatever ticker list you have — pasted CSV, a file path, comma-separated string — from any external screener, paid subscription, or hand-curated list. Same yfinance-validation against typos.
-
-Both paths persist as named candidate lists. Run `owlfolio analyze-list NAME` to deep-analyze every ticker in the list (concurrency-capped at 2 to avoid rate-limit / billing surprises).
-
-### Scheduled Tasks — Automation That Runs While You Sleep
-
-Owlfolio's background daemon runs scheduled tasks on cron schedules, so your investment process keeps working when you're not at the keyboard. First-run setup intentionally creates only safe, non-LLM monitoring tasks (`watchlist-check` and `portfolio`). Credit-burning Claude research jobs like discovery, holding reviews, and list analysis are opt-in from the Web UI's Schedule tab or via CLI. See [`docs/AUTONOMOUS_SCHEDULE_POLICY.md`](docs/AUTONOMOUS_SCHEDULE_POLICY.md) for the safe-vs-research cadence policy.
-
-**Built-in examples:**
-
-| Task | What it does | Typical schedule |
-|------|-------------|-----------------|
-| Price alerts | Scans watchlist for tickers entering buy zones | Safe default: weekdays |
-| Portfolio check | Refreshes holdings / P&L view | Safe default: weekdays |
-| Holdings review | Re-runs analysis on current holdings to catch thesis drift | Opt-in |
-| Candidate screening | Batch-analyzes a saved ticker list overnight | Opt-in |
-| Agentic discovery | Finds new strategy-fit candidates with Claude WebSearch | Opt-in |
-
-**Custom tasks:** Schedule any Owlfolio command to run on a cron cadence:
+Provider certification:
 
 ```bash
-owlfolio schedule "earnings-check" "owlfolio watchlist-check" "0 7 * * 1-5"   # weekday mornings
-owlfolio schedule "quarterly-review" "owlfolio review-holdings" "0 9 1 */3 *" # first of each quarter
-owlfolio tasks                                                                 # view all scheduled tasks
+corepack pnpm certify:providers
 ```
 
-Every task run is logged with start time, exit code, and output excerpts — visible in the Web UI's Activity tab and Alerts tab. Silent failures become visible failures.
-
-### Audit trail
-
-Every meaningful action — analyses, candidate lists, recorded buy/sell decisions, daemon-fired scheduled task runs — lands in a unified Activity feed. The Web UI's Activity tab shows the chronological view; the chat agent reads the same feed via the `get_activity` MCP tool. Each row carries a reference (`#42` for analyses, `d#7` for decisions, `r#12` for task runs, the list name for candidate lists) you can quote in chat to drill into details.
-
----
-
-## Commands
-
-| Command | Description |
-|---------|-------------|
-| `owlfolio setup` | First-time setup (auth, strategy, test) — usually invoked by `install.sh` |
-| `owlfolio doctor` | Single colored health report (credentials, strategy, DB, port, daemon, runtime) |
-| `owlfolio analyze TICKER` | Full specialist-driven analysis |
-| `owlfolio analyze TICKER --shariah` | Analysis with Shariah compliance specialist |
-| `owlfolio analyze TICKER --skip-llm` | Show last saved analysis (no new run) |
-| `owlfolio find` | Agentic discovery for the active strategy (slow, on-vision) |
-| `owlfolio import SOURCE --name LIST` | Import a CSV / inline ticker string into a named list |
-| `owlfolio lists` | Show every saved candidate list with progress |
-| `owlfolio list-show NAME` | Show all candidates in a named list |
-| `owlfolio list-delete NAME` | Delete a candidate list (cascade) |
-| `owlfolio analyze-list NAME` | Batch-analyze every ticker in a list (concurrency-capped) |
-| `owlfolio compare TICKER1 TICKER2` | Side-by-side comparison from saved analyses |
-| `owlfolio portfolio` | View holdings with live P&L |
-| `owlfolio add TICKER SHARES PRICE` | Record a purchase |
-| `owlfolio sell TICKER SHARES PRICE` | Record a sale |
-| `owlfolio watch TICKER` | Add to watchlist |
-| `owlfolio snapshot` | Take a portfolio snapshot |
-| `owlfolio performance` | Portfolio performance over time |
-| `owlfolio strategy --list` | List all 7 preset strategies |
-| `owlfolio strategy --use NAME` | Switch active strategy |
-| `owlfolio strategy --info NAME` | Detailed strategy summary |
-| `owlfolio specialists` | Show the specialist roster for the active strategy |
-| `owlfolio config show` | View active strategy config |
-| `owlfolio config validate` | Validate strategy file |
-| `owlfolio analyses` | View saved analysis history |
-| `owlfolio history` | Decision journal |
-| `owlfolio alerts` | Recent alerts and task results |
-| `owlfolio tasks` | View scheduled tasks |
-| `owlfolio schedule NAME CMD CRON` | Create a scheduled task |
-| `owlfolio daemon` | Run background daemon for scheduled tasks |
-| `owlfolio chat` | Chat with your AI portfolio manager (CLI) |
-| `owlfolio shariah TICKER` | Standalone Shariah compliance check (persists as a `#NN` audit row) |
-| `owlfolio serve` | Start web UI (native mode) |
-| `owlfolio serve --restart` / `--stop` | Refresh or stop the running web UI |
-| `owlfolio status` | System status (auth, strategy, version) |
+Known warning: Next/Turbopack can emit an NFT/import-trace warning involving
+local filesystem helpers in `next.config.mjs` / `appConfigStore` / `onboarding`.
+The build is only acceptable if it exits 0 and no generated/runtime artifacts
+remain in git status.
 
 ---
 
-## Preset Strategies (7 built-in)
+## Shariah/accounting/purification limitations
 
-Each preset names its tiers after what it actually scores — so the synthesis
-prompt and CLI output read naturally in the strategy's own vocabulary. See
-`docs/STRATEGY_GUIDE.md` for the full convention.
+Owlfolio is Shariah-by-design, but the alpha is not a fatwa engine, broker, tax
+system, or accounting firm:
 
-- `buffett-munger` -- Buffett/Munger, wonderful businesses at fair prices (moat tiers: inevitable / monopoly / wide / narrow)
-- `quality-compounder` -- Terry Smith, highest-quality companies at fair prices (quality tiers: generational / exceptional / high / inconsistent)
-- `100-bagger` -- Chris Mayer, small compounders held for decades (compounder tiers: generational / exceptional / proven / unproven)
-- `garp` -- Peter Lynch, growth at a reasonable price (growth-quality tiers: exceptional / high-quality / steady / fragile grower)
-- `growth` -- Lynch/Fisher, fast growers (growth tiers: hypergrower / leader / contender / fading)
-- `dividend-income` -- Aristocrat investing, reliable growing dividends (dividend tiers: aristocrat / achiever / contender)
-- `deep-value` -- Graham/Schloss, statistical bargains below tangible book value (safety tiers: fortress / safe / risky / dangerous)
-- Custom -- define your own via `owlfolio setup --create`
+- Shariah screens are local policy/audit aids and may require human scholar review.
+- Purification obligations and payments are tracked as auditable ledger events; users remain responsible for final calculation and payment decisions.
+- Monthly accounting is bounded by local ledger events and manual valuation/cash inputs; it is not a broker statement or tax filing substitute.
+- Provider outputs are drafts/observations. User-authored transitions are required for watchlist confirmations, holding opens, review overrides, payments, and any portfolio action.
 
 ---
 
-## Features
+## Development rules
 
-- **Web UI (primary interface)** -- browser-based dashboard with live token streaming, specialist progress cards, and sidebar tabs for Portfolio / Watchlist / Lists / Activity / Alerts / Schedule (`owlfolio serve`). Chat with your AI analyst, run analyses, and manage everything from the browser.
-- **Scheduled tasks** -- cron-based background automation for earnings checks, price alerts, holdings reviews, and batch screening. Every run is logged with exit codes and output excerpts. Configure from the Web UI's Schedule tab or CLI.
-- **Specialist subagents** -- 3-5 AI analysts per strategy, running in parallel, each fetching its own data
-- **Saved specialist findings** -- every analysis persists the per-specialist output (not just the synthesis result), so the audit trail can answer "why BUY?" with the underlying evidence — and a future synthesis-prompt change can re-synthesize against saved findings without re-paying for the research phase
-- **Configurable methodology** -- your philosophy, your rules, defined in YAML (two-zone shape: structured contract + prompt corpus)
-- **Activity feed** -- unified chronological audit across analyses, candidate lists, recorded decisions, and daemon-fired task runs. Each row carries a `#NN` reference you can quote in chat to drill into details.
-- **Adaptive extended thinking** -- every specialist, the synthesis agent, and both chat surfaces use Claude's adaptive thinking budget
-- **Portfolio tracking** -- holdings, cost basis, performance snapshots, alpha vs SPY
-- **Candidate sourcing** -- agentic discovery (`find`) for the natural-language path; CSV / inline import (`import`) for whatever external screener you already use
-- **Alert system** -- price alerts, task results, watchlist notifications
-- **Decision journal** -- every decision logged with reasoning
-- **Memory system** -- persistent context across chat sessions
-- **Shariah screening** -- optional Islamic finance compliance with any strategy (also persists as a `#NN` audit row)
-- **Add-on pattern** -- Shariah works with any strategy via `--shariah` flag (ESG / Insider trading planned)
-- **Full CLI** -- every Web UI action has a CLI equivalent for power users and scripting
-- **Free data** -- yfinance + LLM web-search fallback (see [`docs/ARCHITECTURE.md` → Market Data](docs/ARCHITECTURE.md) for reliability tradeoffs and hardening options). No paid market-data API required.
+- Use TypeScript/pnpm commands, not the retired Python `owlfolio` CLI instructions.
+- Write tests before behavior changes; confirm RED before implementation.
+- Keep runtime/generated artifacts out of commits: `data/`, `.next/`, `test-results/`, `playwright-report/`, `*.tsbuildinfo`, `.playwright-runtime/`, `.live-openai-runtime/`, `.worktrees/`.
+- Do not raise provider support claims above the latest certification report.
+- Keep provider/worker-authored drafts separate from explicit user-authored ledger transitions.
 
----
-
-## Requirements
-
-- Python 3.12+
-- **Claude access** — Owlfolio is built exclusively on the [Claude Agent SDK](https://docs.anthropic.com/en/docs/agents-and-tools/claude-agent-sdk). It is Claude-only by design. There is no multi-LLM support and none is planned.
-
-**Authentication (pick one):**
-
-| Method | Best for | How |
-|--------|----------|-----|
-| **Claude Pro / Max subscription** (recommended) | Individual investors | Install [Claude Code](https://docs.anthropic.com/en/docs/claude-code), run `claude` once to log in. Credentials are stored at `~/.claude/.credentials.json`. Claude Agent SDK usage is covered by Anthropic's subscription Agent SDK credit model, with usage credits/API billing required after the monthly credit is exhausted. |
-| **API key** | Developers, teams, CI/CD | Set `export ANTHROPIC_API_KEY=sk-ant-...` in your shell profile. Standard API billing per token. |
-
-> **Cost note:** Owlfolio is token-heavy. A single analysis spawns 3-5 specialist subagents in parallel, each running web research with adaptive extended thinking. A full analysis can consume significant tokens. Subscription auth is convenient for personal use, but Agent SDK usage has its own monthly credit budget; heavy usage may require usage credits or API-key billing.
-
----
-
-## Why Python
-
-Honest answer: **for the current product, the Python advantage is
-weak.** Today's stack — Agent SDK orchestration, FastAPI + htmx +
-Alpine Web UI, SQLite for state — is essentially language-agnostic,
-and every dependency we actually use has a direct TypeScript
-equivalent. We chose Python because the project started in Python; we
-*stay* on Python because of one specific bet on the future.
-
-> **The research pipeline is agentic by design.** Analyses are
-> produced by Claude Agent SDK subagents reasoning in natural
-> language. They are **non-deterministic** — the same ticker analyzed
-> twice under the same strategy will give two slightly different
-> syntheses. That's not a bug to engineer away; it IS the
-> architecture. If you want deterministic numeric screens, use Finviz.
-> Owlfolio is "an LLM analyst team applies your written-down
-> philosophy."
-
-The Python bet rests entirely on the `docs/FUTURE_PLAN.md`
-*measurement* layer: backtesting (`pandas` + `quantstats`), portfolio
-analytics, correlation/exposure math. These sit **above** the agentic
-pipeline (measuring what it produced), not inside it (the LLM keeps
-doing the research). The Python financial-library ecosystem is
-genuinely deeper than any TS alternative — `pandas`, `quantstats`,
-`vectorbt`, `statsmodels` have no real TS equivalents, and the broker
-SDKs / paper implementations / EDGAR helpers are Python-first.
-
-**If that measurement layer ships, Python pays for itself.** If it
-doesn't, the Python case becomes hollow retroactively, and a rewrite
-to TS would be defensible (better typing, faster startup, cleaner Web
-UI, single-source types between server and browser).
-
-For the full analysis — including the dependency-by-dependency
-TS-equivalent map, what TS would buy us, what staying on Python costs,
-and the explicit tripwires for reconsidering — see
-[`docs/ARCHITECTURE.md` → Language Choice](docs/ARCHITECTURE.md).
-
----
-
-## Project Status
-
-Owlfolio is in active development and ready for daily personal use. The core pipeline (discovery → specialist analysis → synthesis → portfolio tracking → scheduled automation) is complete and running in production.
-
-*What's built:*
-
-- **Strategy-driven pipeline** — 7 preset strategies, two-zone YAML schema (structured contract + prompt corpus), custom strategy creation
-- **Specialist subagent architecture** — 3-5 Claude subagents per analysis, running in parallel with independent web research, reconciled by a synthesis agent
-- **Agentic discovery** — strategy-aware candidate sourcing with hard gates per strategy, yfinance validation, Shariah-aware filtering
-- **Web dashboard** — FastAPI + htmx with live token streaming, specialist progress cards, sidebar tabs (Portfolio / Watchlist / Lists / Activity / Alerts / Schedule)
-- **Background automation** — daemon with cron scheduling, full execution history (exit codes, stdout/stderr), resumable batch analysis
-- **Audit trail** — every analysis, decision, candidate list, and task run persisted with `#NN` references you can quote in chat
-- **Add-on pattern** — Shariah compliance works with any strategy via `--shariah` (discovery + analysis); ESG/Insider planned
-- **298 tests** across 14 test files, CI via GitHub Actions
-
-*What's next:* interactive Plotly charts, portfolio analytics dashboard (quantstats + agent narrative), quarterly report generator. See [`docs/FUTURE_PLAN.md`](docs/FUTURE_PLAN.md) for the roadmap.
-
----
-
-## Documentation
-
-**Active:**
-
-- [Architecture](docs/ARCHITECTURE.md) — pipeline, security model, market data, key design decisions
-- [Strategy Guide](docs/STRATEGY_GUIDE.md) — two-zone YAML schema reference + tier-naming convention
-- [Future Plan](docs/FUTURE_PLAN.md) — what's been built (Phase 3a-3d) and what's potentially next (backtesting, ESG add-on, form-based strategy editor, etc.)
-
-**Historical (`docs/archive/`):** earlier phase logs are kept for context but
-describe architecture that has been replaced. See [`docs/archive/README.md`](docs/archive/README.md) for the index.
-
----
-
-## Contributing
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, PR guidelines, and how to add strategies or specialists.
-
-## Credits
-
-Owlfolio's specialist subagent pipeline, the strategy library, the portfolio model, and the CLI/web UI are original to Owlfolio. Full attribution: [`CREDITS.md`](CREDITS.md).
-
-## License
-
-MIT — see [LICENSE](LICENSE).
-
----
-
-<div align="center">
-
-Built by [Sultan Al Aryani](https://github.com/i314nk)
-
-</div>
+MIT — see `LICENSE`.

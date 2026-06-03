@@ -1,88 +1,71 @@
 # Credits
 
-Owlfolio (renamed from OwlClaw on 2026-04-26) is an investment-research application built on
-the Claude Agent SDK. Most of the project — the strategy library, the
-specialist + synthesis pipeline, the portfolio model, the CLI, and the web
-UI — is original work. This file lists the projects whose patterns,
-infrastructure, or prior art Owlfolio adopts, and credits them
-unambiguously.
+Owlfolio (renamed from OwlClaw on 2026-04-26) is a local-first investment workflow application. The active v2 branch is a TypeScript/pnpm monorepo with a Next.js web app, local SQLite ledger, provider certification harness, and dry-run worker. This file lists the projects whose patterns, infrastructure, or prior art Owlfolio adopts, and credits them unambiguously.
 
 ---
 
-## Agent runtime — Claude Agent SDK (Anthropic)
+## Active v2 stack
 
-Owlfolio is built end-to-end on the **[Claude Agent SDK](https://docs.claude.com/en/api/agent-sdk/overview)**.
-Every specialist subagent, the synthesis agent, and both chat surfaces
-(CLI and Web) run as `sdk_query()` / `ClaudeSDKClient` calls with adaptive
-extended thinking enabled. The SDK provides:
+- **Next.js / React / TypeScript** — the primary local web app, route handlers, and UI component model.
+- **pnpm workspaces** — monorepo package management for `apps/*` and `packages/*`.
+- **SQLite** — append-only local ledger storage and projection source.
+- **Playwright** — browser end-to-end verification for onboarding and workflow surfaces.
+- **Vitest / Testing Library** — package, helper, projection, and component tests.
+- **Zod** — runtime schema validation for provider/workflow/config surfaces where used.
 
-- The `query()` and `ClaudeSDKClient` agent loop primitives.
-- Tool dispatch (`WebSearch`, `WebFetch`, `Read`, etc.).
-- The streaming events Owlfolio's web UI consumes for token-level
-  rendering and tool-use indicators (`StreamEvent`,
-  `include_partial_messages=True`).
-- Adaptive thinking budget control (`thinking={"type": "adaptive"}`).
+---
 
-Owlfolio is Claude-only by design; the Agent SDK is the sole supported
-runtime. See `docs/ARCHITECTURE.md` → **Key Design Decisions** for the
-rationale.
+## Provider runtimes and certification candidates
+
+Owlfolio v2 is provider-neutral at the workflow boundary: provider outputs are drafts or observations, while portfolio/accounting/purification transitions remain explicit user-authored ledger events.
+
+Current alpha provider evidence is bounded by `data/provider-certifications/*.latest.json` and `docs/architecture/owlfolio-v2-provider-model-support.md`:
+
+- **Mock provider** — deterministic demo/test provider used for certified alpha regression coverage. It is not real investment intelligence.
+- **OpenAI Codex CLI** — experimental local/dev provider path. Codex/OpenAI trademarks and terms belong to OpenAI.
+- **Claude CLI / Anthropic** — experimental local/dev provider path, currently unsupported/not-configured in this environment when the latest certification report says Claude Code subscription access is disabled. Anthropic/Claude trademarks and terms belong to Anthropic.
+
+Direct Anthropic/OpenAI/Gemini/Perplexity/OpenRouter/xAI/DeepSeek/Qwen/local OpenAI-compatible API providers are future candidates unless and until Owlfolio implements adapters and records passing certification reports.
 
 ---
 
 ## Investment methodology prior art
 
-The seven preset strategy YAMLs are original to Owlfolio in their
-implementation, but each is built on the published thinking of well-known
-investors. The strategies don't quote any of these sources directly; they
-distill the public-domain core ideas of each philosophy into a
-machine-readable specialist roster + criteria + valuation methodology.
+Owlfolio's strategy references are original implementation/prose, but they are inspired by well-known investment traditions. Buffett-Munger is the primary alpha strategy direction; other strategy concepts require additional policy/audit gates before they become first-class certified workflows.
 
-| Strategy | Inspired by |
-|---|---|
-| `buffett-munger` | Warren Buffett & Charlie Munger (Berkshire Hathaway shareholder letters; Munger's *Almanack*) |
-| `quality-compounder` | Terry Smith (Fundsmith); Nick Sleep (Nomad Partnership Letters) |
-| `100-bagger` | Chris Mayer (*100 Baggers*); Thomas Phelps (*100 to 1 in the Stock Market*) |
-| `garp` | Peter Lynch (*One Up on Wall Street*) |
-| `growth` | Peter Lynch (PEG ratio); modern growth investing principles (Rule of 40) |
-| `dividend-income` | Dividend Aristocrat methodology; long-form dividend-growth investing tradition |
-| `deep-value` | Benjamin Graham (*The Intelligent Investor*); Walter Schloss; Seth Klarman (*Margin of Safety*) |
+| Strategy concept | Inspired by |
+| --- | --- |
+| Buffett-Munger / quality compounders | Warren Buffett, Charlie Munger, Berkshire Hathaway letters, Munger's *Almanack* |
+| Quality compounder | Terry Smith, Nick Sleep, long-term quality investing writing |
+| 100-bagger | Chris Mayer's *100 Baggers*, Thomas Phelps's *100 to 1 in the Stock Market* |
+| GARP / growth | Peter Lynch and modern growth-investing heuristics |
+| Dividend income | Dividend-growth investing traditions |
+| Deep value | Benjamin Graham, Walter Schloss, Seth Klarman |
 
-Owlfolio's strategy prose paraphrases these traditions in its own words.
-Anyone improving a preset is encouraged to keep the prose original and
-attribution-style — link to the underlying source in the YAML's header
-comment when relevant.
+Owlfolio's methodology prose should paraphrase and attribute traditions rather than quote source material directly.
+
+---
+
+## Shariah/accounting/purification domain caveat
+
+Owlfolio is Shariah-by-design at the workflow and audit-boundary level, but the alpha is not a fatwa engine, broker statement, tax filing system, accounting firm, or payment processor. Shariah policy helpers, accounting projections, and purification reports are decision-support and audit artifacts that require human review.
 
 ---
 
 ## Other inspirations and prior art
 
-- **Typer** (`tiangolo/typer`) — Owlfolio's CLI is built on Typer's
-  type-annotated argument model.
-- **FastAPI + Pydantic + htmx + Alpine.js + Tailwind CSS** — the
-  web UI stack. None of these need attribution beyond their licenses,
-  but they are core to how Owlfolio looks and feels.
-- **The "specialists + synthesis" multi-agent pattern** is similar in
-  spirit to multi-agent research patterns explored by LangGraph, CrewAI,
-  and others. Owlfolio's implementation is independent and tuned for the
-  investment-research domain, but the broader idea of "fan out to
-  domain-expert agents, fan in to a synthesizer" is shared community
-  knowledge by 2026.
-- **External reviewer** — produced the original `docs/FLAGS.md` review of Owlfolio's Phase 3a code, used as an external reviewer during this project's development.
+- **The “specialists + synthesis” multi-agent pattern** — Owlfolio's provider workflow resembles broader multi-agent research patterns explored by LangGraph, CrewAI, Claude/Agent SDKs, OpenAI Agents/Codex, and related systems. Owlfolio's implementation is independent and tuned for ledger-audited investment workflow boundaries.
+- **External reviewer** — produced the original `docs/FLAGS.md` review of Owlfolio's early code and informed later verification discipline.
 
 ---
 
 ## Licenses
 
-- **Claude Agent SDK** — Anthropic's SDK terms apply. See
-  https://docs.claude.com.
-- **Owlfolio** itself: see `LICENSE` in this repository.
+- Owlfolio itself: see `LICENSE` in this repository.
+- Third-party frameworks/tools listed above remain governed by their respective licenses and service terms.
 
 ---
 
 ## How to add to this file
 
-If you contribute a feature that adopts a meaningful pattern, design, or
-substantial idea from another project, please add an entry here naming
-the source and linking to it. The principle: **make the lineage
-visible.** It's how a small open-source project earns trust and how a
-contributor's original work is distinguishable from prior art.
+If you contribute a feature that adopts a meaningful pattern, design, or substantial idea from another project, please add an entry naming the source and linking to it. The principle: make the lineage visible, keep support claims evidence-bounded, and keep contributor work distinguishable from prior art.

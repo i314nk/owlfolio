@@ -1,0 +1,85 @@
+'use client'
+
+import { createElement } from 'react'
+import { usePathname } from 'next/navigation'
+
+const navItems = [
+  { href: '/', label: 'Command Center' },
+  { href: '/research/new', label: 'Research' },
+  { href: '/watchlist', label: 'Watchlist' },
+  { href: '/portfolio', label: 'Portfolio' },
+  { href: '/accounting/monthly', label: 'Accounting' },
+  { href: '/purification', label: 'Purification' },
+  { href: '/audit', label: 'Audit' },
+  { href: '/providers', label: 'Providers' },
+  { href: '/onboarding', label: 'Onboarding' },
+]
+
+function isActiveRoute(pathname: string, href: string): boolean {
+  if (href === '/') {
+    return pathname === '/'
+  }
+
+  if (href === '/research/new') {
+    return pathname.startsWith('/research')
+  }
+
+  if (href === '/accounting/monthly') {
+    return pathname.startsWith('/accounting')
+  }
+
+  return pathname === href || pathname.startsWith(`${href}/`)
+}
+
+export function AppNavigation() {
+  const pathname = usePathname() ?? '/'
+
+  return createElement(
+    'nav',
+    {
+      'aria-label': 'Primary Owlfolio navigation',
+      className: 'owl-nav-shell',
+    },
+    createElement(
+      'div',
+      { className: 'owl-nav-inner' },
+      createElement(
+        'a',
+        { className: 'owl-brand-mark owl-focusable', href: '/' },
+        createElement('span', { 'aria-hidden': true, className: 'owl-brand-orb' }, 'O'),
+        createElement(
+          'span',
+          { className: 'owl-brand-copy' },
+          createElement('span', { className: 'owl-brand-title' }, 'Owlfolio'),
+          createElement('span', { className: 'owl-brand-kicker' }, 'Fiduciary command center'),
+        ),
+      ),
+      createElement(
+        'ul',
+        { className: 'owl-nav-list' },
+        ...navItems.map((item) => {
+          const isActive = isActiveRoute(pathname, item.href)
+          return createElement(
+            'li',
+            { key: item.href },
+            createElement(
+              'a',
+              {
+                className: isActive ? 'owl-nav-link owl-nav-link-active owl-focusable' : 'owl-nav-link owl-focusable',
+                href: item.href,
+                ...(isActive ? { 'aria-current': 'page' } : {}),
+              },
+              item.label,
+            ),
+          )
+        }),
+      ),
+      createElement(
+        'a',
+        { className: 'owl-command-trigger owl-focusable', href: '/audit' },
+        createElement('span', null, 'Audit trail search'),
+        createElement('span', { className: 'owl-command-key' }, '⌘K'),
+      ),
+    ),
+  )
+}

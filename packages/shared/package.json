@@ -5,5 +5,9 @@
   "scripts": {
     "lint": "node -e \"console.log('Lint not configured yet for @owlfolio/shared')\"",
     "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "exports": {
+    ".": "./src/index.ts",
+    "./appConfig": "./src/appConfig.ts"
   }
 }

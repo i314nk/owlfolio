@@ -3,8 +3,9 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
+import * as commandCenterProjection from '@owlfolio/ledger/projections/commandCenterProjection'
 import { SQLiteEventStore } from '@owlfolio/ledger/sqliteEventStore'
 import { CommandCenter } from '../CommandCenter'
 import { ResearchCasePanel } from '../ResearchCasePanel'
@@ -44,6 +45,8 @@ describe('durable demo ledger read models', () => {
   })
 
   it('seeds demo events into a durable idempotent ledger and reads command-center projection summaries', async () => {
+    const summarySpy = vi.spyOn(commandCenterProjection, 'projectCommandCenterSummary')
+
     await withSeededStore(async (store) => {
       const events = await store.list()
       const dashboard = await getDemoCommandCenterFromStore(store)
@@ -57,14 +60,22 @@ describe('durable demo ledger read models', () => {
         pending_user_actions: 1,
       })
       expect(dashboard.recent_activity).toEqual([
-        'watchlist_draft_created by user:user_local',
-        'decision_drafted by system',
-        'buffett_munger_analysis_drafted by provider:mock-provider',
+        { event_id: 'evt_demo_watchlist_001', label: 'watchlist_draft_created by user:user_local' },
+        { event_id: 'evt_demo_decision_001', label: 'decision_drafted by system' },
+        { event_id: 'evt_demo_analysis_001', label: 'buffett_munger_analysis_drafted by provider:mock-provider' },
       ])
+      expect(dashboard.primary_action).toEqual({
+        href: '/research/rc_cost_001',
+        label: 'View demo research case',
+      })
+      expect(summarySpy).toHaveBeenCalledTimes(1)
 
       const html = renderToStaticMarkup(createElement(CommandCenter, { dashboard }))
       expect(html).toContain('Ledger: SQLite durable event source')
-      expect(html).toContain('watchlist_draft_created by user:user_local')
+      expect(html).toContain('Watchlist draft created')
+      expect(html).toContain('Audit event')
+      expect(html).toContain('evt_demo_watchlist_001')
+      expect(html).not.toContain('watchlist_draft_created by user:user_local')
     })
   })
 

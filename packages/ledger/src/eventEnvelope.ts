@@ -8,6 +8,7 @@ export type AggregateType =
   | 'decision'
   | 'accounting_snapshot'
   | 'purification_entry'
+  | 'cash_account'
   | 'provider_run'
   | 'scheduled_task'
 

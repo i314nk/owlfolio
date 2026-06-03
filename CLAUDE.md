@@ -1,153 +1,125 @@
-# Owlfolio
+# Owlfolio v2
 
-Methodology-driven investment research agent built on the Claude Agent SDK.
+Owlfolio v2 is a TypeScript/pnpm monorepo for a local-first, web-first investment workflow system. The old Python/FastAPI/Claude-only instructions are historical and should not be used for this branch.
 
-## Setup
+## Current stack
 
-When a user asks you to set up Owlfolio, run these steps:
+- TypeScript workspace managed by `pnpm@11.3.0` through Corepack.
+- `apps/web`: local Next.js app; primary product surface at `http://127.0.0.1:3000`.
+- `apps/worker`: local scheduled-task worker; currently one-tick/dry-run oriented.
+- `packages/ledger`: append-only SQLite event store, event contracts, projections.
+- `packages/workflow`: research/watchlist/holding/review/Shariah workflow helpers.
+- `packages/providers`: provider catalog, adapters, certification runner.
+- `packages/shared`: shared app config and provider/domain types.
+- `packages/shariah`: Shariah policy helpers.
 
-### 1. Python environment
-
-```bash
-# Requires Python 3.12+
-python3 --version
-
-# Create venv and install
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -e ".[web]"
-```
-
-### 2. Credentials
-
-Owlfolio is **Claude-only** — it uses the Claude Agent SDK exclusively.
-
-**Recommended: Claude subscription (Pro/Max)**
-- If the user already has Claude Code running, credentials exist at `~/.claude/.credentials.json`
-- No API costs — analyses run against the subscription
-- This is the best path for individual investors
-
-**Alternative: API key**
-- Set `export ANTHROPIC_API_KEY=sk-ant-...` in shell profile
-- Standard per-token billing (analyses are token-heavy — 3-5 specialists in parallel with extended thinking)
-
-Check which is available:
-```bash
-ls ~/.claude/.credentials.json 2>/dev/null && echo "Subscription credentials found" || echo "No subscription credentials"
-echo ${ANTHROPIC_API_KEY:+"API key is set"}
-```
-
-### 3. Default strategy
+## Setup and local run
 
 ```bash
-# Copy a preset strategy (Buffett-Munger is the default)
-cp strategies/buffett-munger.yaml methodology.yaml
+corepack enable
+corepack pnpm install
+corepack pnpm dev
 ```
 
-Or let the user choose:
-```bash
-owlfolio strategy --list           # show all 7 presets
-owlfolio strategy --use <name>     # switch to a preset
-owlfolio setup --create            # create a custom strategy via conversation
-```
+Open `http://127.0.0.1:3000`. The browser onboarding flow writes local app config and ledger paths; normal setup should not require editing `.env`.
 
-### 4. Create data directories
+Useful runtime path overrides:
 
 ```bash
-mkdir -p data logs
+OWLFOLIO_PROJECT_DIR=$PWD
+OWLFOLIO_APP_CONFIG_PATH=$PWD/data/app-config.json
+OWLFOLIO_DEMO_LEDGER_PATH=$PWD/data/demo-ledger.sqlite
+OWLFOLIO_PERSONAL_LEDGER_PATH=$PWD/data/personal-ledger.sqlite
+OWLFOLIO_LEDGER_PATH=$PWD/data/owlfolio-ledger.sqlite
+OWLFOLIO_SOURCE_LEDGER_PATH=$PWD/data/source-ledger
+OWLFOLIO_PROVIDER_CERTIFICATION_DIR=$PWD/data/provider-certifications
 ```
 
-### 5. Verify
+`data/`, `.next/`, `test-results/`, `playwright-report/`, `*.tsbuildinfo`, `.playwright-runtime/`, `.live-openai-runtime/`, and `.worktrees/` are runtime/generated artifacts and must not be committed unless a tracked fixture or certification report is intentionally updated.
+
+## Providers
+
+Current provider IDs:
+
+- `mock-provider`: certified deterministic demo/test provider.
+- `openai` / `openai-codex-cli`: experimental OpenAI Codex CLI-backed personal-local path.
+- `claude`: experimental Claude CLI-backed path, but the latest local certification report marks it unsupported/not-configured in this environment.
+- `openai-api`: direct OpenAI API candidate; locally runnable with `OPENAI_API_KEY` but fail-closed until target-specific latest certification is recorded.
+- `gemini-developer-api`: direct Gemini Developer API candidate; experimental/fail-closed until privacy posture and target-specific latest certification are recorded.
+- `gemini-cli`: Google/Gemini CLI sign-in onboarding lane; setup-only until an execution adapter and certification report exist.
+
+Provider claims must be bounded by `data/provider-certifications/*.latest.json` and `docs/architecture/owlfolio-v2-provider-model-support.md`. Do not describe any direct API or CLI surface as certified/live/autonomous until a corresponding target-specific latest report exists and passes the required scenarios.
+
+Credential/readiness checks use:
+
+- Claude: `ANTHROPIC_API_KEY` or `OWLFOLIO_CLAUDE_CREDENTIALS_PATH` / default Claude credentials.
+- OpenAI/Codex: `OPENAI_API_KEY`, `CODEX_ACCESS_TOKEN`, `OWLFOLIO_CODEX_AUTH_PATH`, or `CODEX_HOME`.
+- Gemini: `GEMINI_API_KEY` / `GOOGLE_API_KEY` for the Developer API candidate; `GEMINI_HOME`, `OWLFOLIO_GEMINI_CLI_AUTH_PATH`, and `OWLFOLIO_GEMINI_CLI_STATUS` for the setup-only CLI lane.
+
+Readiness is not certification. If a latest certification report is `not-configured`, `unsupported`, or `experimental`, UI/docs should say so even if a credential file exists.
+
+## Worker
+
+Run one dry-run tick from the repo root:
 
 ```bash
-owlfolio doctor    # comprehensive health check
-owlfolio status    # quick status
+corepack pnpm worker -- --once --dry-run --define-defaults
 ```
 
-### 6. Start
+Limit to one task kind:
 
 ```bash
-owlfolio serve     # web dashboard at http://127.0.0.1:8000
-# or
-owlfolio analyze AAPL   # CLI analysis
+corepack pnpm --filter @owlfolio/worker dev -- --task-kind review_reminder
+corepack pnpm --filter @owlfolio/worker dev -- --task-kind watchlist_monitor
 ```
 
-## Architecture
+The worker is dry-run/mock-safe for the alpha. It records scheduled-task lifecycle events and observations, but it must not auto-approve investment decisions, buy/sell actions, watchlist confirmations, holding opens, Shariah overrides, or purification payments.
 
-- **Strategy YAML** defines the investment methodology (7 presets + custom)
-- **Specialist subagents** (3-5 per strategy) run in parallel, each researching independently
-- **Synthesis agent** reconciles specialist findings into BUY / WATCH / PASS
-- **SQLite** stores analyses, portfolio, decisions, audit trail
-- **Web UI** (FastAPI + htmx) provides chat interface with live streaming
+## Verification
 
-## Key Files
-
-| Path | Purpose |
-|------|---------|
-| `src/main.py` | CLI entry point (Typer, 47 commands) |
-| `src/web/app.py` | FastAPI web UI + WebSocket chat |
-| `src/specialists/runner.py` | Specialist subagent orchestration |
-| `src/specialists/synthesis.py` | Synthesis agent (final decision) |
-| `src/mcp_server.py` | MCP tools for web chat agent |
-| `src/db/` | SQLite schema + operations |
-| `src/operations/` | Business logic (portfolio, analysis, etc.) |
-| `src/strategy/` | Strategy YAML loading + validation |
-| `strategies/` | 7 preset strategy YAMLs |
-| `methodology.yaml` | Active strategy (user's choice, gitignored) |
-
-## Commands
+Use these gates on the final tree:
 
 ```bash
-owlfolio analyze TICKER          # full analysis
-owlfolio analyze TICKER --shariah # with Shariah screening
-owlfolio find --count 15         # agentic candidate discovery
-owlfolio serve                   # web dashboard
-owlfolio chat                    # CLI chat
-owlfolio portfolio               # view holdings
-owlfolio doctor                  # diagnose issues
-owlfolio strategy --list         # show presets
+git diff --check
+corepack pnpm typecheck
+corepack pnpm test
+corepack pnpm lint
+corepack pnpm audit --filter @owlfolio/web --prod --audit-level moderate
+NODE_OPTIONS=--disable-warning=ExperimentalWarning corepack pnpm --filter @owlfolio/web exec next build
+corepack pnpm e2e
 ```
 
-## Development
+For provider certification:
 
 ```bash
-source .venv/bin/activate
-pip install -e ".[web,dev]"      # install with dev dependencies
-pytest tests/ -x -q              # run tests
-owlfolio serve --restart         # restart after code changes
+corepack pnpm certify:providers
 ```
 
-## Coding Conventions
+For a dry-run worker smoke test with isolated state:
 
-- **Type hints everywhere.** All function signatures use type annotations. Use `X | None` over `Optional[X]`.
-- **Pydantic for data models.** Schemas in `src/specialists/schemas.py`. Nullable fields use `float | None = None` — prefer null over placeholder values.
-- **Async by default.** All agent-facing code is async. Use `asyncio.gather()` for parallel work. Always pass `return_exceptions=True` to avoid one failure cancelling siblings.
-- **Logging over print.** Use `logging.getLogger("owlfolio.<module>")`. Never print to stdout in library code.
-- **Imports:** absolute imports from `src.` — no relative imports.
+```bash
+OWLFOLIO_PROJECT_DIR=$PWD \
+OWLFOLIO_LEDGER_PATH=$PWD/.data/local-worker-ledger.sqlite \
+corepack pnpm worker -- --once --dry-run --define-defaults
+```
 
-## Error Handling Philosophy
+Known warning: Next/Turbopack may print an NFT/import-trace warning around local filesystem helpers (`next.config.mjs`, `appConfigStore`, `onboarding`). Treat new warnings or generated-file churn as release blockers, but do not claim this known warning is a functional failure without reproducing a failing build/test.
 
-- **Classify errors:** Transient (retry) vs business (flag to user) vs permission (escalate). See `_is_transient()` in runner.py.
-- **Never silently swallow.** Log every error, even if handled. `logger.warning` for recoverable, `logger.error` for failures.
-- **MCP tools wrap all exceptions.** Every MCP tool in `mcp_server.py` catches exceptions and returns `_err(message)` with `is_error: True`. The agent loop never crashes from a bad tool call.
-- **Specialists are fault-tolerant.** If 1 of 5 specialists fails, the other 4 still complete. Synthesis works with partial data.
-- **Retry transient errors.** Rate limits, timeouts, 5xx → retry with exponential backoff (30s base, 2x per attempt, max 2 retries). Non-transient errors fail immediately.
+## Product boundaries for v2 alpha
 
-## Security Model
+- Alpha is a local workflow demo and personal-local ledger slice, not a complete robo-advisor.
+- Web workflow is primary; CLI is for developer/admin operations.
+- Buffett-Munger is the main certified strategy direction; other strategy concepts remain experimental until policy/audit gates are complete.
+- Shariah, accounting, and purification are first-class domains, but current screens are local-ledger/accounting aids, not professional legal/tax/Shariah rulings.
+- Broker credentials, broker sync, live trading, automatic portfolio actions, tax filing, and production-grade direct API provider parity are out of scope unless explicitly requested.
 
-- **Chat agent has no shell.** `allowed_tools` restricts to `mcp__owlfolio__*` only. Bash, Read, Write, Edit, Glob, Grep are all removed.
-- **Specialist subagents have no filesystem.** Only `WebSearch` + `WebFetch`. Prompt injection from web content cannot escalate.
-- **Tool inputs are untrusted.** They come from the LLM, not the user. Validate all inputs at the operations layer.
+## Coding conventions
 
-## Testing
-
-- Tests live in `tests/`. Run with `pytest tests/ -x -q`.
-- Use `pytest-asyncio` for async tests.
-- Mock the Agent SDK — don't make real API calls in tests.
-- Test specialist JSON parsing edge cases (malformed JSON, missing fields, null values).
-
-## Important
-
-- Claude-only: no multi-LLM support. Uses Claude Agent SDK with adaptive extended thinking.
-- Subscription (Pro/Max) auth is convenient for personal use, but Agent SDK usage is token-intensive and draws from Anthropic's Agent SDK credit/usage-credit model.
-- All data stays local in SQLite (`data/portfolio.db`). No telemetry, no external services except Claude API and yfinance for market data.
+- Prefer small, verified vertical slices.
+- Use TDD for behavior changes: write a failing test, confirm RED, implement, rerun targeted and broad verification.
+- Keep user-authored transitions separate from provider/worker-authored drafts and observations.
+- Preserve stable `event_id`s and causation/correlation IDs in ledger projections.
+- Do not infer holdings from watchlist drafts or provider recommendations; user confirmation/open-holding events are explicit ledger transitions.
+- Monthly accounting projections must be bounded by the snapshot period/as-of date.
+- Purification obligations and payments are separate auditable events.
+- No secrets in git, logs, Kanban metadata, README examples, or provider reports.

@@ -1,24 +1,45 @@
 import { existsSync } from 'node:fs'
 import { dirname, join, parse } from 'node:path'
 
-import type { EventStore } from '@owlfolio/ledger/eventStore'
+import { projectCommandCenterSummary, type CommandCenterHoldingReviewPrompt, type CommandCenterRecentActivity } from '@owlfolio/ledger/projections/commandCenterProjection'
 import type { LedgerEventEnvelope } from '@owlfolio/ledger/eventEnvelope'
+import type { EventStore } from '@owlfolio/ledger/eventStore'
 import { projectResearchCases, type ResearchCaseProjection } from '@owlfolio/ledger/projections/researchCaseProjection'
+import {
+  projectResearchCaseTimeline,
+  type ResearchCaseTimelineEntry,
+} from '@owlfolio/ledger/projections/researchCaseTimelineProjection'
 import { projectWatchlist, type WatchlistProjection } from '@owlfolio/ledger/projections/watchlistProjection'
 import { SQLiteEventStore } from '@owlfolio/ledger/sqliteEventStore'
+import type { AppConfig } from '@owlfolio/shared'
 
 import type { StatusBadgeTone } from '../components/StatusBadge'
+import { buildMonthlyAccountingReport } from './accounting'
 import { DEMO_RESEARCH_CASE_ID, seedDemoLedger } from './demoSeed'
+import { buildProviderStatusRows, type ProviderStatusRow } from './providerStatus'
 
 export { seedDemoLedger } from './demoSeed'
 
 export type PipelineCounts = {
   research_cases: number
   watchlist_drafts: number
+  confirmed_watchlist_items: number
+  open_holdings: number
   pending_user_actions: number
 }
 
-export type DemoCommandCenter = {
+export type CommandCenterAction = {
+  href: string
+  label: string
+}
+
+export type CommandCenterAccountingAlert = {
+  label: string
+  message: string
+  href: string
+}
+
+export type AppCommandCenter = {
   product_name: string
   setup_status: string
   provider_status: string
@@ -27,25 +48,19 @@ export type DemoCommandCenter = {
   ledger_status: string
   pipeline_counts: PipelineCounts
   next_recommended_action: string
-  demo_research_case_id: string
-  recent_activity: string[]
+  holding_review_prompts: CommandCenterHoldingReviewPrompt[]
+  accounting_alert?: CommandCenterAccountingAlert
+  recent_activity: CommandCenterRecentActivity[]
+  primary_action: CommandCenterAction
+  secondary_action?: CommandCenterAction
 }
+
+export type DemoCommandCenter = AppCommandCenter
 
 export type DemoGateChecklistItem = {
   label: string
   status: string
   tone: StatusBadgeTone
-}
-
-export type ResearchCaseTimelineEntry = {
-  event_id: string
-  event_type: string
-  actor_type: LedgerEventEnvelope<unknown>['actor_type']
-  actor_id?: string
-  actor_label: string
-  created_at: string
-  summary: string
-  source_ids: string[]
 }
 
 export type DemoResearchCase = ResearchCaseProjection & {
@@ -76,6 +91,13 @@ type ResolveDemoLedgerPathOptions = {
   env?: DemoLedgerEnv
 }
 
+export type SetupAwareCommandCenterInput = {
+  config: AppConfig
+  is_initialized: boolean
+  provider_status_rows?: ProviderStatusRow[]
+  store?: EventStore
+}
+
 export function resolveDemoLedgerPath({ cwd = process.cwd(), env = process.env as DemoLedgerEnv }: ResolveDemoLedgerPathOptions = {}): string {
   if (env.OWLFOLIO_DEMO_LEDGER_PATH !== undefined && env.OWLFOLIO_DEMO_LEDGER_PATH.length > 0) {
     return env.OWLFOLIO_DEMO_LEDGER_PATH
@@ -102,6 +124,11 @@ function findWorkspaceRoot(start: string): string | undefined {
   }
 }
 
+export async function resetDefaultDemoStore(): Promise<void> {
+  defaultDemoStore?.close()
+  defaultDemoStore = undefined
+}
+
 async function getDefaultDemoStore(): Promise<EventStore> {
   defaultDemoStore ??= new SQLiteEventStore(resolveDemoLedgerPath())
   await seedDemoLedger(defaultDemoStore)
@@ -123,10 +150,79 @@ export async function getDemoCommandCenter(): Promise<DemoCommandCenter> {
 
 export async function getDemoCommandCenterFromStore(store: EventStore): Promise<DemoCommandCenter> {
   const events = await getDemoEventsFromStore(store)
-  const researchCases = projectDemoResearchCases(events)
-  const watchlist = projectWatchlist(events)
-  const pendingDrafts = watchlist.filter((item) => !item.user_approved).length
-  const nextRequiredAction = researchCases[0]?.next_required_action ?? 'Review the demo workflow status'
+  const summary = projectCommandCenterSummary(events)
+
+  return buildDemoCommandCenter(summary, events)
+}
+
+export async function getSetupAwareCommandCenter({ config, is_initialized, provider_status_rows, store }: SetupAwareCommandCenterInput): Promise<AppCommandCenter> {
+  if (config.mode === 'demo') {
+    return store === undefined ? getDemoCommandCenter() : getDemoCommandCenterFromStore(store)
+  }
+
+  if (!is_initialized || config.ledger_path === undefined) {
+    return {
+      product_name: 'Owlfolio',
+      setup_status: 'Setup required',
+      provider_status: `Provider: ${humanizeProvider(config.provider.provider_id)} not ready yet`,
+      strategy_status: 'Strategy: Buffett-Munger certified',
+      shariah_status: config.shariah.enabled ? 'Shariah: enabled by default' : 'Shariah: disabled',
+      ledger_status: 'Ledger: not initialized yet',
+      pipeline_counts: {
+        research_cases: 0,
+        watchlist_drafts: 0,
+        confirmed_watchlist_items: 0,
+        open_holdings: 0,
+        pending_user_actions: 0,
+      },
+      next_recommended_action: 'Complete onboarding and initialize the personal local ledger',
+      holding_review_prompts: [],
+      recent_activity: [{ event_id: 'placeholder:no-durable-ledger-events-yet', label: 'No durable ledger events yet' }],
+      primary_action: { href: '/onboarding', label: 'Continue setup' },
+    }
+  }
+
+  const providerStatus = await buildCommandCenterProviderStatus(config, provider_status_rows)
+  let ownedStore: SQLiteEventStore | undefined
+  try {
+    const activeStore = store ?? (ownedStore = new SQLiteEventStore(config.ledger_path))
+    const events = await activeStore.list()
+    const summary = projectCommandCenterSummary(events)
+    const accountingAlert = buildAccountingAlert(events)
+
+    return {
+      product_name: 'Owlfolio',
+      setup_status: 'Personal local mode initialized',
+      provider_status: providerStatus,
+      strategy_status: 'Strategy: Buffett-Munger certified',
+      shariah_status: config.shariah.enabled ? 'Shariah: enabled by default' : 'Shariah: disabled',
+      ledger_status: 'Ledger: SQLite durable event source',
+      pipeline_counts: summary.pipeline_counts,
+      next_recommended_action: summary.pipeline_counts.research_cases === 0
+        ? 'Create or import your first research case'
+        : summary.next_recommended_action,
+      holding_review_prompts: summary.holding_review_prompts,
+      ...(accountingAlert === undefined ? {} : { accounting_alert: accountingAlert }),
+      recent_activity: summary.recent_activity.length === 0
+        ? [{ event_id: 'placeholder:no-ledger-events-yet', label: 'No ledger events yet' }]
+        : summary.recent_activity,
+      primary_action: summary.pipeline_counts.research_cases === 0
+        ? { href: '/research/new', label: 'Start first research case' }
+        : summary.pipeline_counts.open_holdings > 0
+          ? { href: '/portfolio', label: 'Open portfolio' }
+          : { href: `/research/${summary.primary_research_case_id ?? ''}`, label: 'Open latest research case' },
+      secondary_action: { href: '/watchlist', label: 'Open watchlist drafts' },
+    }
+  } finally {
+    ownedStore?.close()
+  }
+}
+
+function buildDemoCommandCenter(
+  summary: ReturnType<typeof projectCommandCenterSummary>,
+  events: LedgerEventEnvelope<unknown>[],
+): DemoCommandCenter {
+  const accountingAlert = buildAccountingAlert(events)
 
   return {
     product_name: 'Owlfolio',
@@ -135,17 +231,90 @@ export async function getDemoCommandCenterFromStore(store: EventStore): Promise<
     strategy_status: 'Strategy: Buffett-Munger certified',
     shariah_status: 'Shariah: enabled by default',
     ledger_status: 'Ledger: SQLite durable event source',
-    pipeline_counts: {
-      research_cases: researchCases.length,
-      watchlist_drafts: watchlist.length,
-      pending_user_actions: pendingDrafts,
+    pipeline_counts: summary.pipeline_counts,
+    next_recommended_action: summary.next_recommended_action,
+    holding_review_prompts: summary.holding_review_prompts,
+    ...(accountingAlert === undefined ? {} : { accounting_alert: accountingAlert }),
+    recent_activity: summary.recent_activity,
+    primary_action: {
+      href: `/research/${summary.primary_research_case_id ?? DEMO_RESEARCH_CASE_ID}`,
+      label: 'View demo research case',
     },
-    next_recommended_action: nextRequiredAction,
-    demo_research_case_id: researchCases[0]?.research_case_id ?? DEMO_RESEARCH_CASE_ID,
-    recent_activity: events
-      .slice(-3)
-      .reverse()
-      .map((event) => `${event.event_type} by ${actorLabel(event)}`),
+    secondary_action: {
+      href: '/watchlist',
+      label: 'Open watchlist drafts',
+    },
+  }
+}
+
+function buildAccountingAlert(events: LedgerEventEnvelope<unknown>[]): CommandCenterAccountingAlert | undefined {
+  const hasAccountingSource = events.some((event) => event.event_type === 'holding_opened' || event.event_type === 'accounting_snapshot_recorded')
+  if (!hasAccountingSource) {
+    return undefined
+  }
+
+  const report = buildMonthlyAccountingReport(events)
+  const snapshot = report.current_period_snapshot
+  return {
+    label: 'Monthly accounting report',
+    message: `${formatAccountingMonth(snapshot.period_end)} NAV: ${formatAccountingMoney(snapshot.nav, snapshot.currency)}; ${snapshot.missing_valuation_holding_ids.length} holdings missing valuations.`,
+    href: '/accounting/monthly',
+  }
+}
+
+function formatAccountingMoney(value: number, currency: string): string {
+  return new Intl.NumberFormat('en-US', { currency, style: 'currency' }).format(value)
+}
+
+function formatAccountingMonth(date: string): string {
+  return new Intl.DateTimeFormat('en-US', { month: 'long', timeZone: 'UTC', year: 'numeric' }).format(new Date(`${date}T00:00:00.000Z`))
+}
+
+async function buildCommandCenterProviderStatus(
+  config: AppConfig,
+  injectedRows: ProviderStatusRow[] | undefined,
+): Promise<string> {
+  const providerLabel = humanizeProvider(config.provider.provider_id)
+  const rows = injectedRows ?? await buildProviderStatusRows()
+  const row = rows.find((candidate) => candidate.provider_id === config.provider.provider_id)
+
+  if (row === undefined) {
+    return `Provider: ${providerLabel} readiness unknown`
+  }
+
+  const supportLabel = supportLevelLabel(row.effective_support_level)
+  if (row.is_ready && row.readiness_state === 'supported') {
+    return `Provider: ${providerLabel} ${supportLabel}`
+  }
+
+  return `Provider: ${providerLabel} ${supportLabel} — ${row.status_label}`
+}
+
+function supportLevelLabel(supportLevel: ProviderStatusRow['effective_support_level']): string {
+  switch (supportLevel) {
+    case 'certified':
+      return 'certified'
+    case 'experimental':
+      return 'experimental'
+    case 'unsupported':
+      return 'unsupported'
+  }
+}
+
+function humanizeProvider(providerId: AppConfig['provider']['provider_id']): string {
+  switch (providerId) {
+    case 'claude':
+      return 'Claude'
+    case 'openai':
+      return 'OpenAI Codex CLI'
+    case 'openai-api':
+      return 'OpenAI API'
+    case 'gemini-developer-api':
+      return 'Gemini Developer API'
+    case 'gemini-cli':
+      return 'Gemini CLI'
+    case 'mock-provider':
+      return 'Mock provider'
   }
 }
 
@@ -180,99 +349,14 @@ export async function getDemoWatchlistItemsFromStore(store: EventStore): Promise
 }
 
 function projectDemoResearchCases(events: LedgerEventEnvelope<unknown>[]): DemoResearchCase[] {
-  return projectResearchCases(events).map((researchCase) => ({
-    ...researchCase,
-    gate_checklist: demoGateChecklist.map((gate) => ({ ...gate })),
-    source_ids: sourceIdsForResearchCase(events, researchCase.research_case_id),
-    ledger_timeline: timelineForResearchCase(events, researchCase.research_case_id),
-  }))
-}
+  return projectResearchCases(events).map((researchCase) => {
+    const timeline = projectResearchCaseTimeline(events, researchCase.research_case_id)
 
-function timelineForResearchCase(
-  events: LedgerEventEnvelope<unknown>[],
-  researchCaseId: string,
-): ResearchCaseTimelineEntry[] {
-  return events.filter((event) => eventBelongsToResearchCase(event, researchCaseId)).map((event) => ({
-    event_id: event.event_id,
-    event_type: event.event_type,
-    actor_type: event.actor_type,
-    ...(event.actor_id === undefined ? {} : { actor_id: event.actor_id }),
-    actor_label: actorLabel(event),
-    created_at: event.created_at,
-    summary: summarizeEvent(event),
-    source_ids: [...event.source_ids],
-  }))
-}
-
-function sourceIdsForResearchCase(events: LedgerEventEnvelope<unknown>[], researchCaseId: string): string[] {
-  const sourceIds = new Set<string>()
-
-  for (const event of events) {
-    if (!eventBelongsToResearchCase(event, researchCaseId)) {
-      continue
+    return {
+      ...researchCase,
+      gate_checklist: demoGateChecklist.map((gate) => ({ ...gate })),
+      source_ids: [...new Set(timeline.flatMap((entry) => entry.source_ids))],
+      ledger_timeline: timeline,
     }
-
-    for (const sourceId of event.source_ids) {
-      sourceIds.add(sourceId)
-    }
-  }
-
-  return [...sourceIds]
-}
-
-function eventBelongsToResearchCase(event: LedgerEventEnvelope<unknown>, researchCaseId: string): boolean {
-  if (event.aggregate_type === 'research_case' && event.aggregate_id === researchCaseId) {
-    return true
-  }
-
-  if (event.correlation_id === researchCaseId) {
-    return true
-  }
-
-  if (isRecord(event.payload) && event.payload.research_case_id === researchCaseId) {
-    return true
-  }
-
-  return false
-}
-
-function actorLabel(event: LedgerEventEnvelope<unknown>): string {
-  return event.actor_id === undefined ? event.actor_type : `${event.actor_type}:${event.actor_id}`
-}
-
-function summarizeEvent(event: LedgerEventEnvelope<unknown>): string {
-  if (!isRecord(event.payload)) {
-    return event.event_type
-  }
-
-  if (event.event_type === 'research_case_created') {
-    const ticker = getString(event.payload, 'ticker') ?? event.aggregate_id
-    return `Created research case for ${ticker}`
-  }
-
-  if (event.event_type === 'buffett_munger_analysis_drafted') {
-    return `${getString(event.payload, 'investment_verdict') ?? 'UNKNOWN'} / ${
-      getString(event.payload, 'strategy_compliance') ?? 'UNKNOWN'
-    } / Shariah ${getString(event.payload, 'shariah_status') ?? 'UNKNOWN'}`
-  }
-
-  if (event.event_type === 'decision_drafted') {
-    return `Drafted ${getString(event.payload, 'decision') ?? 'UNKNOWN'} decision`
-  }
-
-  if (event.event_type === 'watchlist_draft_created') {
-    const ticker = getString(event.payload, 'ticker') ?? event.aggregate_id
-    return `Created watchlist draft for ${ticker}`
-  }
-
-  return event.event_type
-}
-
-function getString(payload: Record<string, unknown>, key: string): string | undefined {
-  const value = payload[key]
-  return typeof value === 'string' ? value : undefined
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === 'object' && !Array.isArray(value)
+  })
 }
