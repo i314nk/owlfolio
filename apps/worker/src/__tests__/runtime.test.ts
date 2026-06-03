@@ -6,12 +6,13 @@ import { InMemoryEventStore } from '@owlfolio/ledger/eventStore'
 import type { LedgerEventEnvelope } from '@owlfolio/ledger/eventEnvelope'
 import { projectScheduledTasks } from '@owlfolio/ledger/projections/scheduledTaskProjection'
 import { SQLiteEventStore } from '@owlfolio/ledger/sqliteEventStore'
-import type { CertificationReport } from '@owlfolio/providers'
+import type { CertificationReport, Provider } from '@owlfolio/providers'
+import type { ProviderRunRequest, ProviderToolRun } from '@owlfolio/providers/providerContract'
 import { MockProvider } from '@owlfolio/providers/mockProvider'
 import { describe, expect, it, vi } from 'vitest'
 
 import { main } from '../index'
-import { defineDefaultScheduledTasks, resolveWorkerRuntimePaths, runScheduledTasks } from '../runtime'
+import { defineDefaultScheduledTasks, resolveWorkerProviderReadiness, resolveWorkerRuntimePaths, runScheduledTasks } from '../runtime'
 
 function ledgerEvent(
   event_type: string,
@@ -38,6 +39,15 @@ function unsupportedCompletedReport(providerId: string): CertificationReport {
   return {
     certification_report_id: `cert_${providerId}_unsupported_completed`,
     provider_id: providerId,
+    target: {
+      provider_surface_id: 'mock-provider',
+      vendor_id: 'mock',
+      runtime_kind: 'built_in',
+      auth_mode: 'built_in_demo',
+      model_id: 'mock-research-v2',
+      workflow_role: 'scheduled_monitoring_dry_run',
+      schema_version: 1,
+    },
     run_status: 'completed',
     support_level: 'unsupported',
     generated_at: '2026-06-01T00:00:00.000Z',
@@ -47,9 +57,62 @@ function unsupportedCompletedReport(providerId: string): CertificationReport {
       'tool-function-calling': 'unsupported',
       'streaming-observability': 'unsupported',
       'multi-step-tool-loop': 'unsupported',
+      'source-grounding': 'adapter',
+      'citation-metadata': 'adapter',
+      'url-context': 'unsupported',
+      'file-context': 'adapter',
+      'source-bundle-production': 'adapter',
+      'code-execution': 'unsupported',
+      'computer-use': 'unsupported',
+      'browser-use': 'unsupported',
     },
     cases: [],
     summary: 'Provider certification completed but is unsupported for execution.',
+  }
+}
+
+function nonCompletedReport(runStatus: CertificationReport['run_status'], reason: string): CertificationReport {
+  return {
+    ...unsupportedCompletedReport('mock-provider'),
+    certification_report_id: `cert_mock_provider_${runStatus}`,
+    run_status: runStatus,
+    support_level: 'certified',
+    not_run_reason: reason,
+    summary: `Certification did not complete: ${reason}`,
+  }
+}
+
+function completedCertifiedReport(workflowRole: CertificationReport['target']['workflow_role'], modelId = 'mock-research-v2'): CertificationReport {
+  return {
+    ...unsupportedCompletedReport('mock-provider'),
+    certification_report_id: `cert_mock_provider_${workflowRole}_${modelId}`,
+    target: {
+      ...unsupportedCompletedReport('mock-provider').target,
+      model_id: modelId,
+      workflow_role: workflowRole,
+    },
+    run_status: 'completed',
+    support_level: 'certified',
+    summary: `Mock provider certified for ${workflowRole}.`,
+  }
+}
+
+class SecretLeakingProvider implements Provider {
+  readonly provider_id = 'mock-provider'
+  readonly capabilities = new MockProvider().capabilities
+
+  private readonly delegate = new MockProvider()
+
+  complete(request: ProviderRunRequest) {
+    return this.delegate.complete(request)
+  }
+
+  structured<T>(request: ProviderRunRequest, schema: Parameters<Provider['structured']>[1]) {
+    return this.delegate.structured(request, schema) as Promise<T>
+  }
+
+  runWithTools(_request: ProviderRunRequest): Promise<ProviderToolRun> {
+    throw new Error('auth failed OPENAI_API_KEY=*** at /tmp/secret/codex/auth.json using Bearer bearer-secret-token Cookie: owl_session=fake-cookie-value session_token=fake-session-token')
   }
 }
 
@@ -241,6 +304,166 @@ describe('worker runtime', () => {
           process.env[key] = value
         }
       }
+    }
+  })
+
+  it('worker readiness fails closed for non-completed certification statuses and scheduled-unsupported providers', async () => {
+    const projectDir = await mkdtemp(join(tmpdir(), 'owlfolio-worker-readiness-gates-'))
+    const reportDir = join(projectDir, 'data', 'provider-certifications')
+    await mkdir(reportDir, { recursive: true })
+
+    await writeFile(join(reportDir, 'mock-provider.latest.json'), JSON.stringify(nonCompletedReport(
+      'reauth-required',
+      'reauth failed at /tmp/secret/codex/auth.json with CODEX_ACCESS_TOKEN=***',
+    )), 'utf8')
+    const reauthReadiness = await resolveWorkerProviderReadiness({
+      provider_id: 'mock-provider',
+      provider_certification_dir: reportDir,
+    })
+    expect(reauthReadiness).toMatchObject({ is_ready: false, auth_mode: 'built_in_demo' })
+    expect(reauthReadiness.status_label).toContain('[redacted-path]')
+    expect(reauthReadiness.status_label).not.toContain('/tmp/secret/codex/auth.json')
+    expect(reauthReadiness.status_label).not.toContain('***')
+
+    await writeFile(join(reportDir, 'mock-provider.latest.json'), JSON.stringify(nonCompletedReport(
+      'quota-limited',
+      'quota exhausted for Bearer bearer-secret-token',
+    )), 'utf8')
+    const quotaReadiness = await resolveWorkerProviderReadiness({
+      provider_id: 'mock-provider',
+      provider_certification_dir: reportDir,
+    })
+    expect(quotaReadiness).toMatchObject({ is_ready: false })
+    expect(quotaReadiness.status_label).not.toContain('bearer-secret-token')
+
+    const cliReadiness = await resolveWorkerProviderReadiness({
+      provider_id: 'openai',
+      provider_certification_dir: reportDir,
+    })
+    expect(cliReadiness).toMatchObject({
+      is_ready: false,
+      provider_surface_id: 'openai-codex-cli',
+      runtime_kind: 'cli',
+      auth_mode: 'cli_cached_session',
+    })
+    expect(cliReadiness.status_label).toMatch(/not certified for scheduled workflows/i)
+  })
+
+  it('worker readiness requires certification target to match scheduled monitoring execution', async () => {
+    const projectDir = await mkdtemp(join(tmpdir(), 'owlfolio-worker-target-match-'))
+    const reportDir = join(projectDir, 'data', 'provider-certifications')
+    await mkdir(reportDir, { recursive: true })
+
+    await writeFile(
+      join(reportDir, 'mock-provider.latest.json'),
+      JSON.stringify(completedCertifiedReport('research_draft')),
+      'utf8',
+    )
+    const wrongRoleReadiness = await resolveWorkerProviderReadiness({
+      provider_id: 'mock-provider',
+      provider_certification_dir: reportDir,
+    })
+    expect(wrongRoleReadiness).toMatchObject({
+      is_ready: false,
+      workflow_role: 'research_draft',
+    })
+    expect(wrongRoleReadiness.status_label).toMatch(/scheduled_monitoring_dry_run/i)
+
+    await writeFile(
+      join(reportDir, 'mock-provider.latest.json'),
+      JSON.stringify(completedCertifiedReport('scheduled_monitoring_dry_run')),
+      'utf8',
+    )
+    const scheduledReadiness = await resolveWorkerProviderReadiness({
+      provider_id: 'mock-provider',
+      provider_certification_dir: reportDir,
+    })
+    expect(scheduledReadiness).toMatchObject({
+      is_ready: true,
+      workflow_role: 'scheduled_monitoring_dry_run',
+    })
+  })
+
+  it('worker readiness blocks certification reports for a mismatched scheduled model target', async () => {
+    const projectDir = await mkdtemp(join(tmpdir(), 'owlfolio-worker-model-target-'))
+    const reportDir = join(projectDir, 'data', 'provider-certifications')
+    await mkdir(reportDir, { recursive: true })
+    await writeFile(
+      join(reportDir, 'mock-provider.latest.json'),
+      JSON.stringify(completedCertifiedReport('scheduled_monitoring_dry_run', 'different-model')),
+      'utf8',
+    )
+
+    const readiness = await resolveWorkerProviderReadiness({
+      provider_id: 'mock-provider',
+      provider_certification_dir: reportDir,
+      provider_model_id: 'mock-research-v2',
+    })
+    expect(readiness).toMatchObject({ is_ready: false })
+    expect(readiness.status_label).toMatch(/model/i)
+    expect(readiness.status_label).toMatch(/scheduled provider execution is blocked/i)
+  })
+
+  it('redacts provider errors in scheduled run ledger payloads and result summaries', async () => {
+    const store = new InMemoryEventStore<LedgerEventEnvelope<unknown>>()
+    await store.append(ledgerEvent('watchlist_draft_created', 'watchlist_item', 'wl_cost_001', {
+      watchlist_item_id: 'wl_cost_001',
+      research_case_id: 'rc_cost_001',
+      ticker: 'COST',
+      user_approved: false,
+      thesis_summary: 'Quality compounder; wait for margin of safety.',
+    }))
+    await store.append(ledgerEvent('watchlist_draft_confirmed', 'watchlist_item', 'wl_cost_001', {
+      watchlist_item_id: 'wl_cost_001',
+      research_case_id: 'rc_cost_001',
+      ticker: 'COST',
+      user_approved: true,
+    }))
+    await defineDefaultScheduledTasks(store, { now: () => '2026-06-01T09:00:00.000Z' })
+
+    const result = await runScheduledTasks(store, {
+      dry_run: true,
+      task_kind: 'watchlist_monitor',
+      provider: new SecretLeakingProvider(),
+      provider_readiness: {
+        provider_id: 'mock-provider',
+        is_ready: true,
+        status_label: 'Mock provider certified for scheduled monitoring.',
+        provider_surface_id: 'mock-provider',
+        vendor_id: 'mock',
+        runtime_kind: 'built_in',
+        auth_mode: 'built_in_demo',
+        workflow_role: 'scheduled_monitoring_dry_run',
+      },
+      provider_model_id: 'mock-buffett-munger-monitor',
+      now: () => '2026-06-01T09:00:00.000Z',
+      run_id: () => 'run_watchlist_monitor_redaction_001',
+    })
+
+    expect(result).toMatchObject({ failed: 1 })
+    const serializedResult = JSON.stringify(result)
+    const events = await store.list()
+    const serializedEvents = JSON.stringify(events)
+    const providerFailed = events.find((event) => event.event_type === 'provider_run_failed')
+    const scheduledFailed = events.find((event) => event.event_type === 'scheduled_task_run_failed')
+
+    expect(providerFailed?.payload).toMatchObject({
+      provider_surface_id: 'mock-provider',
+      vendor_id: 'mock',
+      runtime_kind: 'built_in',
+      auth_mode: 'built_in_demo',
+      workflow_role: 'scheduled_monitoring_dry_run',
+      error_summary: expect.stringContaining('[redacted-secret]'),
+    })
+    expect(scheduledFailed?.payload).toMatchObject({
+      error_summary: expect.stringContaining('[redacted-secret]'),
+    })
+    for (const serialized of [serializedResult, serializedEvents]) {
+      expect(serialized).not.toContain('/tmp/secret/codex/auth.json')
+      expect(serialized).not.toContain('***')
+      expect(serialized).not.toContain('bearer-secret-token')
+      expect(serialized).not.toContain('fake-cookie-value')
+      expect(serialized).not.toContain('fake-session-token')
     }
   })
 
@@ -439,6 +662,11 @@ describe('worker runtime', () => {
         provider_id: 'mock-provider',
         is_ready: true,
         status_label: 'Mock provider certified for test execution.',
+        provider_surface_id: 'mock-provider',
+        vendor_id: 'mock',
+        runtime_kind: 'built_in',
+        auth_mode: 'built_in_demo',
+        workflow_role: 'scheduled_monitoring_dry_run',
       },
       provider_model_id: 'mock-buffett-munger-monitor',
       now: () => '2026-06-01T09:00:00.000Z',
@@ -464,6 +692,11 @@ describe('worker runtime', () => {
       actor_id: 'mock-provider',
       payload: expect.objectContaining({
         provider_id: 'mock-provider',
+        provider_surface_id: 'mock-provider',
+        vendor_id: 'mock',
+        runtime_kind: 'built_in',
+        auth_mode: 'built_in_demo',
+        workflow_role: 'scheduled_monitoring_dry_run',
         model_id: 'mock-buffett-munger-monitor',
         finish_reason: 'tool-calls',
         human_approval_required: true,

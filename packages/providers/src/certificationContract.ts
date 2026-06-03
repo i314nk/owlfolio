@@ -1,4 +1,12 @@
-import type { ProviderCapabilities, ProviderCapabilityId } from './providerContract'
+import type {
+  ProviderAuthMode,
+  ProviderCapabilities,
+  ProviderCapabilityId,
+  ProviderRuntimeKind,
+  ProviderSurfaceId,
+  ProviderVendorId,
+  ProviderWorkflowRole,
+} from './providerContract'
 
 export const certificationScenarioIds = [
   'auth-setup-and-status-detection',
@@ -7,6 +15,11 @@ export const certificationScenarioIds = [
   'tool-call-round-trip',
   'multi-step-tool-loop',
   'source-grounded-research-task',
+  'redaction-no-secret-leak',
+  'no-direct-ledger-writes',
+  'scheduled-headless-suitability',
+  'quota-rate-limit-classification',
+  'reauth-classification',
   'specialist-parallel-run',
   'synthesis-output',
   'buffett-munger-strategy-compliance-audit',
@@ -27,7 +40,17 @@ export type CertificationScenario = {
 
 export type CertificationCaseStatus = 'passed' | 'failed' | 'skipped' | 'not-run'
 export type CertificationSupportLevel = 'certified' | 'experimental' | 'unsupported'
-export type CertificationReportRunStatus = 'completed' | 'not-configured'
+export type CertificationReportRunStatus = 'completed' | 'not-configured' | 'reauth-required' | 'quota-limited'
+
+export type CertificationTarget = {
+  provider_surface_id: ProviderSurfaceId
+  vendor_id: ProviderVendorId
+  runtime_kind: ProviderRuntimeKind
+  auth_mode: ProviderAuthMode
+  model_id: string
+  workflow_role: ProviderWorkflowRole
+  schema_version: 1
+}
 
 export type CertificationCaseResult = {
   scenario_id: CertificationScenarioId
@@ -43,6 +66,7 @@ export type CertificationCaseResult = {
 export type CertificationReport = {
   certification_report_id: string
   provider_id: string
+  target: CertificationTarget
   run_status: CertificationReportRunStatus
   not_run_reason?: string
   support_level: CertificationSupportLevel
@@ -53,7 +77,7 @@ export type CertificationReport = {
 }
 
 export type CertificationLedgerPayload = Pick<CertificationReport,
-  'certification_report_id' | 'provider_id' | 'run_status' | 'support_level' | 'generated_at'
+  'certification_report_id' | 'provider_id' | 'target' | 'run_status' | 'support_level' | 'generated_at'
 > & {
   cases: Pick<CertificationCaseResult, 'scenario_id' | 'status' | 'passed' | 'details'>[]
 }
@@ -65,4 +89,33 @@ export function getCertificationScenarios(): CertificationScenario[] {
     description: `Certification scenario for ${scenarioId}`,
     required_for_support_level: scenarioId === 'auth-setup-and-status-detection' ? 'experimental' : 'certified',
   }))
+}
+
+export function certificationTargetKey(target: CertificationTarget): string {
+  return [
+    `schema-v${target.schema_version}`,
+    target.provider_surface_id,
+    target.vendor_id,
+    target.runtime_kind,
+    target.auth_mode,
+    target.workflow_role,
+    target.model_id,
+  ].join(':')
+}
+
+export function certificationReportTargetKey(report: CertificationReport): string {
+  const target = (report as Partial<CertificationReport>).target
+  if (target === undefined) {
+    return `legacy:${report.provider_id}`
+  }
+
+  return certificationTargetKey(target)
+}
+
+export function certificationReportTargetFileStem(report: CertificationReport): string {
+  return safeIdentifier(certificationReportTargetKey(report))
+}
+
+function safeIdentifier(value: string): string {
+  return value.replace(/[^a-zA-Z0-9_-]+/g, '-').replace(/[-_]+$/g, '')
 }

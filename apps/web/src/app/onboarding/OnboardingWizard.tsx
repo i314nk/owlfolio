@@ -1,6 +1,6 @@
 'use client'
 
-import { createElement, useEffect, useMemo, useState, type CSSProperties } from 'react'
+import { createElement, useEffect, useMemo, useState, type CSSProperties, type ReactNode } from 'react'
 
 import type { AppConfig } from '@owlfolio/shared'
 
@@ -293,6 +293,7 @@ export function OnboardingWizard({ initialConfig, initialIsInitialized, initialR
               createElement('p', { style: eyebrowStyle }, 'Readiness summary'),
               createElement('p', { style: { fontSize: '1.15rem', fontWeight: 800, margin: '0.5rem 0' } }, selectedProvider.label),
               createElement('p', { style: { color: '#cbd5e1', margin: '0.35rem 0' } }, selectedProvider.description),
+              ...renderProviderSignInContract(selectedProvider, readiness),
               createElement('p', { style: { color: '#cbd5e1', margin: '0.35rem 0' } }, `Auth source: ${readiness.auth_source}`),
               createElement('p', { style: { color: '#cbd5e1', margin: '0.35rem 0' } }, `Support level: ${readiness.support_level}`),
               createElement('p', { style: { color: '#cbd5e1', margin: '0.35rem 0' } }, readiness.status_label),
@@ -421,4 +422,48 @@ function readinessSessionDetail(readiness: ProviderReadiness): string {
   }
 
   return `Credential/session source: ${readiness.auth_source}`
+}
+
+function renderProviderSignInContract(selectedProvider: ProviderOption, readiness: ProviderReadiness): ReactNode[] {
+  const nodes: ReactNode[] = []
+
+  if (selectedProvider.provider_family_label !== undefined) {
+    nodes.push(createElement('p', { key: 'provider-family', style: { color: '#cbd5e1', margin: '0.35rem 0' } }, `Provider family: ${selectedProvider.provider_family_label}`))
+  }
+
+  if (selectedProvider.recommended_sign_in_label !== undefined || selectedProvider.recommended_sign_in_description !== undefined) {
+    nodes.push(createElement(
+      'section',
+      { key: 'recommended-sign-in', style: readinessActionStyle },
+      createElement('strong', null, 'Recommended sign-in'),
+      createElement('span', null, 'One-screen flow: choose provider family → recommended sign-in → verify readiness → start workflow.'),
+      selectedProvider.recommended_sign_in_label === undefined
+        ? null
+        : createElement('span', null, selectedProvider.recommended_sign_in_label),
+      selectedProvider.recommended_sign_in_description === undefined
+        ? null
+        : createElement('span', null, selectedProvider.recommended_sign_in_description),
+      createElement('span', null, `Next step: ${readiness.reauth_action ?? selectedProvider.simple_next_step ?? 'Verify provider readiness, then start the workflow.'}`),
+    ))
+  }
+
+  if (selectedProvider.advanced_auth_options !== undefined && selectedProvider.advanced_auth_options.length > 0) {
+    nodes.push(createElement(
+      'details',
+      { key: 'advanced-auth-options', style: { ...readinessActionStyle, marginTop: '0.75rem' } },
+      createElement('summary', { style: { cursor: 'pointer', fontWeight: 900 } }, 'Advanced auth and certification options'),
+      createElement(
+        'ul',
+        { style: { display: 'grid', gap: '0.5rem', margin: '0.75rem 0 0', paddingLeft: '1.2rem' } },
+        ...selectedProvider.advanced_auth_options.map((option) => createElement(
+          'li',
+          { key: option.label },
+          createElement('strong', null, option.label),
+          createElement('span', null, ` — ${option.description} ${option.certification_note}`),
+        )),
+      ),
+    ))
+  }
+
+  return nodes
 }

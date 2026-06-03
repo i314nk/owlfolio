@@ -8,6 +8,19 @@ import type { ProviderStatusRow } from '../../lib/providerStatus'
 const rows: ProviderStatusRow[] = [
   {
     provider_id: 'mock-provider',
+    provider_surface_id: 'mock-provider',
+    vendor_id: 'mock',
+    runtime_kind: 'built_in',
+    auth_mode: 'built_in_demo',
+    workflow_role: 'research_draft',
+    billing_mode: 'built_in_demo',
+    quota_source: 'built_in',
+    quota_status: 'available',
+    data_policy_source: 'built_in_demo',
+    retention_or_zdr_status: 'not_applicable',
+    headless_supported: true,
+    scheduled_workflow_supported: true,
+    automation_suitability: 'production_headless',
     label: 'Mock provider',
     description: 'Deterministic demo provider for the audited Buffett-Munger vertical slice.',
     catalog_support_level: 'certified',
@@ -24,8 +37,21 @@ const rows: ProviderStatusRow[] = [
       'tool-function-calling': 'native',
       'streaming-observability': 'adapter',
       'multi-step-tool-loop': 'native',
+      'source-grounding': 'native',
+      'citation-metadata': 'native',
+      'url-context': 'native',
+      'file-context': 'adapter',
+      'source-bundle-production': 'native',
+      'code-execution': 'unsupported',
+      'computer-use': 'unsupported',
+      'browser-use': 'unsupported',
     },
     status_rows: [
+      { label: 'Surface', value: 'mock-provider', tone: 'neutral', description: 'Mock provider uses vendor mock through the built_in runtime; provider-family claims do not transfer to sibling surfaces.' },
+      { label: 'Auth mode', value: 'built_in_demo', tone: 'success', description: 'Credential source category: built_in.' },
+      { label: 'Billing/quota', value: 'built_in_demo; quota available', tone: 'success', description: 'Quota source: built_in. Subscription, API billing, and built-in demo quotas are separate readiness claims.' },
+      { label: 'Privacy posture', value: 'built_in_demo; not_applicable', tone: 'neutral', description: 'Privacy posture is surface-specific and must not include credential values, raw local paths, cookies, or browser sessions.' },
+      { label: 'Role certification', value: 'research_draft: certified', tone: 'success', description: 'Latest target mock-provider / built_in_demo / mock-research-v2 finished with run status completed.' },
       { label: 'Local availability', value: 'Locally runnable', tone: 'success', description: 'Locally runnable through built-in deterministic demo mode' },
       { label: 'Credential status', value: 'Built-in demo provider', tone: 'success', description: 'No external credentials required.' },
       { label: 'Catalog support', value: 'certified', tone: 'success', description: 'Static provider matrix claim.' },
@@ -36,6 +62,15 @@ const rows: ProviderStatusRow[] = [
     last_certification_report: {
       certification_report_id: 'cert_mock-provider_2026-06-01T00:00:00.000Z',
       provider_id: 'mock-provider',
+      target: {
+        provider_surface_id: 'mock-provider',
+        vendor_id: 'mock',
+        runtime_kind: 'built_in',
+        auth_mode: 'built_in_demo',
+        model_id: 'mock-research-v2',
+        workflow_role: 'research_draft',
+        schema_version: 1,
+      },
       run_status: 'completed',
       support_level: 'certified',
       generated_at: '2026-06-01T00:00:00.000Z',
@@ -44,6 +79,19 @@ const rows: ProviderStatusRow[] = [
   },
   {
     provider_id: 'claude',
+    provider_surface_id: 'claude-cli',
+    vendor_id: 'anthropic',
+    runtime_kind: 'cli',
+    auth_mode: 'cli_cached_session',
+    workflow_role: 'research_draft',
+    billing_mode: 'subscription_entitlement',
+    quota_source: 'subscription_tier',
+    quota_status: 'unknown',
+    data_policy_source: 'subscription_workspace_policy',
+    retention_or_zdr_status: 'not_verified',
+    headless_supported: false,
+    scheduled_workflow_supported: false,
+    automation_suitability: 'personal_local_interactive',
     label: 'Claude',
     description: 'CLI-backed real provider path behind readiness and certification checks.',
     catalog_support_level: 'experimental',
@@ -60,8 +108,21 @@ const rows: ProviderStatusRow[] = [
       'tool-function-calling': 'unsupported',
       'streaming-observability': 'adapter',
       'multi-step-tool-loop': 'unsupported',
+      'source-grounding': 'adapter',
+      'citation-metadata': 'adapter',
+      'url-context': 'unsupported',
+      'file-context': 'adapter',
+      'source-bundle-production': 'adapter',
+      'code-execution': 'unsupported',
+      'computer-use': 'unsupported',
+      'browser-use': 'unsupported',
     },
     status_rows: [
+      { label: 'Surface', value: 'claude-cli', tone: 'neutral', description: 'Claude uses vendor anthropic through the cli runtime; provider-family claims do not transfer to sibling surfaces.' },
+      { label: 'Auth mode', value: 'cli_cached_session', tone: 'warning', description: 'Credential source category: configured_secret_file (Claude subscription credentials).' },
+      { label: 'Billing/quota', value: 'subscription_entitlement; quota unknown', tone: 'warning', description: 'Quota source: subscription_tier. Subscription, API billing, and built-in demo quotas are separate readiness claims.' },
+      { label: 'Privacy posture', value: 'subscription_workspace_policy; not_verified', tone: 'warning', description: 'Privacy posture is surface-specific and must not include credential values, raw local paths, cookies, or browser sessions.' },
+      { label: 'Role certification', value: 'research_draft: unsupported', tone: 'danger', description: 'Latest target claude-cli / cli_cached_session / claude-sonnet-4-6 finished with run status not-configured.' },
       { label: 'Local availability', value: 'Locally runnable', tone: 'success', description: 'Locally runnable via Claude subscription credentials' },
       { label: 'Credential status', value: 'Credentials blocked by latest certification report', tone: 'danger', description: 'Claude subscription access disabled' },
       { label: 'Catalog support', value: 'experimental', tone: 'warning', description: 'Static provider matrix claim.' },
@@ -72,6 +133,15 @@ const rows: ProviderStatusRow[] = [
     last_certification_report: {
       certification_report_id: 'cert_claude_2026-06-01T00-00-00-000Z_not-configured',
       provider_id: 'claude',
+      target: {
+        provider_surface_id: 'claude-cli',
+        vendor_id: 'anthropic',
+        runtime_kind: 'cli',
+        auth_mode: 'cli_cached_session',
+        model_id: 'claude-sonnet-4-6',
+        workflow_role: 'research_draft',
+        schema_version: 1,
+      },
       run_status: 'not-configured',
       not_run_reason: 'Claude subscription access disabled',
       support_level: 'unsupported',
@@ -81,6 +151,19 @@ const rows: ProviderStatusRow[] = [
   },
   {
     provider_id: 'openai',
+    provider_surface_id: 'openai-codex-cli',
+    vendor_id: 'openai',
+    runtime_kind: 'cli',
+    auth_mode: 'cli_cached_session',
+    workflow_role: 'research_draft',
+    billing_mode: 'subscription_entitlement',
+    quota_source: 'subscription_tier',
+    quota_status: 'unknown',
+    data_policy_source: 'subscription_workspace_policy',
+    retention_or_zdr_status: 'not_verified',
+    headless_supported: false,
+    scheduled_workflow_supported: false,
+    automation_suitability: 'personal_local_interactive',
     label: 'OpenAI Codex',
     description: 'Codex CLI-backed real provider path behind readiness and certification checks.',
     catalog_support_level: 'experimental',
@@ -97,8 +180,21 @@ const rows: ProviderStatusRow[] = [
       'tool-function-calling': 'unsupported',
       'streaming-observability': 'adapter',
       'multi-step-tool-loop': 'unsupported',
+      'source-grounding': 'adapter',
+      'citation-metadata': 'adapter',
+      'url-context': 'unsupported',
+      'file-context': 'adapter',
+      'source-bundle-production': 'adapter',
+      'code-execution': 'unsupported',
+      'computer-use': 'unsupported',
+      'browser-use': 'unsupported',
     },
     status_rows: [
+      { label: 'Surface', value: 'openai-codex-cli', tone: 'neutral', description: 'OpenAI Codex CLI uses vendor openai through the cli runtime; provider-family claims do not transfer to sibling surfaces.' },
+      { label: 'Auth mode', value: 'cli_cached_session', tone: 'success', description: 'Credential source category: configured_secret_file (Codex OAuth credentials).' },
+      { label: 'Billing/quota', value: 'subscription_entitlement; quota unknown', tone: 'warning', description: 'Quota source: subscription_tier. Subscription, API billing, and built-in demo quotas are separate readiness claims.' },
+      { label: 'Privacy posture', value: 'subscription_workspace_policy; not_verified', tone: 'warning', description: 'Privacy posture is surface-specific and must not include credential values, raw local paths, cookies, or browser sessions.' },
+      { label: 'Role certification', value: 'research_draft: no matching report', tone: 'warning', description: 'No latest certification report matches this surface/auth/model/workflow role target.' },
       { label: 'Local availability', value: 'Locally runnable', tone: 'success', description: 'Locally runnable via Codex OAuth credentials' },
       { label: 'Credential status', value: 'Credentials detected via Codex OAuth credentials', tone: 'success', description: 'Locally runnable via Codex OAuth credentials' },
       { label: 'Catalog support', value: 'experimental', tone: 'warning', description: 'Static provider matrix claim.' },
@@ -123,6 +219,7 @@ describe('ProviderStatusPanel', () => {
     expect(html).toContain('Demo/e2e deterministic fixture')
     expect(html).toContain('cert_mock-provider_2026-06-01T00:00:00.000Z')
     expect(html).toContain('Run status: completed')
+    expect(html).toContain('Certified target: mock-provider / built_in_demo / research_draft / mock-research-v2')
     expect(html).toContain('12/12 scenarios passed')
     expect(html).toContain('Never present as real research intelligence.')
 
@@ -146,6 +243,12 @@ describe('ProviderStatusPanel', () => {
     const html = renderToStaticMarkup(createElement(ProviderStatusPanel, { rows }))
 
     expect(html).toContain('Local availability: Locally runnable')
+    expect(html).toContain('Surface: mock-provider')
+    expect(html).toContain('Surface: openai-codex-cli')
+    expect(html).toContain('Auth mode: cli_cached_session')
+    expect(html).toContain('Billing/quota: subscription_entitlement; quota unknown')
+    expect(html).toContain('Privacy posture: subscription_workspace_policy; not_verified')
+    expect(html).toContain('Role certification: research_draft: no matching report')
     expect(html).toContain('Credential status: Built-in demo provider')
     expect(html).toContain('Credential status: Credentials blocked by latest certification report')
     expect(html).toContain('Credential status: Credentials detected via Codex OAuth credentials')

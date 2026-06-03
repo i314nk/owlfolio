@@ -8,7 +8,20 @@ import { projectCommandCenterSummary } from '@owlfolio/ledger/projections/comman
 import { projectHoldings } from '@owlfolio/ledger/projections/holdingProjection'
 import { projectScheduledTasks, type ScheduledTaskProjection } from '@owlfolio/ledger/projections/scheduledTaskProjection'
 import { projectWatchlist } from '@owlfolio/ledger/projections/watchlistProjection'
-import { runProviderTask, type CertificationReport, type Provider, type ProviderRunResult } from '@owlfolio/providers'
+import {
+  getProviderCatalog,
+  redactProviderDiagnostic,
+  runProviderTask,
+  type CertificationReport,
+  type CertificationTarget,
+  type Provider,
+  type ProviderAuthMode,
+  type ProviderRunResult,
+  type ProviderRuntimeKind,
+  type ProviderSurfaceId,
+  type ProviderVendorId,
+  type ProviderWorkflowRole,
+} from '@owlfolio/providers'
 import { defaultDemoAppConfig, type AppConfig } from '@owlfolio/shared'
 
 export type WorkerRuntimeEnv = {
@@ -37,6 +50,11 @@ export type ProviderExecutionReadiness = {
   provider_id: string
   is_ready: boolean
   status_label: string
+  provider_surface_id?: ProviderSurfaceId
+  vendor_id?: ProviderVendorId
+  runtime_kind?: ProviderRuntimeKind
+  auth_mode?: ProviderAuthMode
+  workflow_role?: ProviderWorkflowRole
 }
 
 export type WorkerClock = {
@@ -176,24 +194,97 @@ export async function resolveWorkerRuntimePaths({
 export async function resolveWorkerProviderReadiness({
   provider_id,
   provider_certification_dir,
+  provider_model_id,
 }: {
   provider_id: string
   provider_certification_dir: string
+  provider_model_id?: string
 }): Promise<ProviderExecutionReadiness> {
-  const report = await readLatestCertificationReport(provider_certification_dir, provider_id)
-  if (report?.support_level === 'unsupported') {
+  const provider = getProviderCatalog().find((entry) => entry.provider_id === provider_id)
+  if (provider === undefined) {
     return {
       provider_id,
       is_ready: false,
-      status_label: report.not_run_reason ?? report.summary,
+      status_label: `Unknown provider ${provider_id}; scheduled workflow execution is blocked`,
+    }
+  }
+
+  const expectedTarget: CertificationTarget = {
+    provider_surface_id: provider.provider_surface_id,
+    vendor_id: provider.vendor_id,
+    runtime_kind: provider.runtime_kind,
+    auth_mode: provider.auth_mode,
+    model_id: provider_model_id ?? provider.default_model_id,
+    workflow_role: 'scheduled_monitoring_dry_run',
+    schema_version: 1,
+  }
+  const report = await readLatestCertificationReport(provider_certification_dir, provider_id)
+  const target = report?.target ?? expectedTarget
+  const base = {
+    provider_id,
+    provider_surface_id: target.provider_surface_id,
+    vendor_id: target.vendor_id,
+    runtime_kind: target.runtime_kind,
+    auth_mode: target.auth_mode,
+    workflow_role: target.workflow_role,
+  }
+
+  if (!provider.automation.scheduled_workflow_supported) {
+    return {
+      ...base,
+      is_ready: false,
+      status_label: `${provider.label} is not certified for scheduled workflows (${provider.automation.automation_suitability})`,
+    }
+  }
+
+  if (report === undefined && provider.auth_mode !== 'built_in_demo') {
+    return {
+      ...base,
+      is_ready: false,
+      status_label: `No certification report found for ${provider.label}; scheduled provider execution is blocked until current readiness is certified`,
+    }
+  }
+
+  if (report !== undefined && report.run_status !== 'completed') {
+    return {
+      ...base,
+      is_ready: false,
+      status_label: redactProviderDiagnostic(report.not_run_reason ?? report.summary ?? `certification run status is ${report.run_status}`),
+    }
+  }
+
+  if (report?.support_level === 'unsupported') {
+    return {
+      ...base,
+      is_ready: false,
+      status_label: redactProviderDiagnostic(report.not_run_reason ?? report.summary),
+    }
+  }
+
+  if (report !== undefined) {
+    const mismatchedFields = certificationTargetMismatches(report.target, expectedTarget)
+    if (mismatchedFields.length > 0) {
+      return {
+        ...base,
+        is_ready: false,
+        status_label: `${provider.label} certification target mismatch for ${mismatchedFields.join(', ')}; expected workflow_role scheduled_monitoring_dry_run and matching provider surface/auth/runtime/model before scheduled provider execution is blocked`,
+      }
     }
   }
 
   return {
-    provider_id,
+    ...base,
     is_ready: true,
-    status_label: report === undefined ? 'No unsupported certification report found.' : report.summary,
+    status_label: report === undefined ? `${provider.label} uses built-in demo execution.` : report.summary,
   }
+}
+
+function certificationTargetMismatches(actual: CertificationTarget, expected: CertificationTarget): string[] {
+  const fields: (keyof Pick<CertificationTarget,
+    'provider_surface_id' | 'vendor_id' | 'runtime_kind' | 'auth_mode' | 'model_id' | 'workflow_role'
+  >)[] = ['provider_surface_id', 'vendor_id', 'runtime_kind', 'auth_mode', 'model_id', 'workflow_role']
+
+  return fields.filter((field) => actual[field] !== expected[field])
 }
 
 async function readLatestCertificationReport(
@@ -381,6 +472,22 @@ function providerRunIdFor(scheduledTaskRunId: string, watchlistItemId: string): 
   return `provider_${scheduledTaskRunId}_${watchlistItemId}`
 }
 
+function providerExecutionMetadata(readiness: ProviderExecutionReadiness | undefined): Partial<Pick<ProviderExecutionReadiness,
+  'provider_surface_id' | 'vendor_id' | 'runtime_kind' | 'auth_mode' | 'workflow_role'
+>> {
+  if (readiness === undefined) {
+    return {}
+  }
+
+  return {
+    ...(readiness.provider_surface_id === undefined ? {} : { provider_surface_id: readiness.provider_surface_id }),
+    ...(readiness.vendor_id === undefined ? {} : { vendor_id: readiness.vendor_id }),
+    ...(readiness.runtime_kind === undefined ? {} : { runtime_kind: readiness.runtime_kind }),
+    ...(readiness.auth_mode === undefined ? {} : { auth_mode: readiness.auth_mode }),
+    ...(readiness.workflow_role === undefined ? {} : { workflow_role: readiness.workflow_role }),
+  }
+}
+
 function buildWatchlistMonitorPrompt(item: ReturnType<typeof projectWatchlist>[number]): string {
   const label = labelForWatchlistItem(item)
   return [
@@ -398,10 +505,12 @@ async function appendProviderRun(
 ): Promise<ProviderRunResult> {
   const providerRunId = providerRunIdFor(options.scheduled_task_run_id, item.watchlist_item_id)
   const modelId = options.provider_model_id ?? 'mock-buffett-munger-monitor'
+  const providerMetadata = providerExecutionMetadata(options.provider_readiness)
   const startedAt = options.now?.() ?? nowIso()
   const request = {
     run_id: providerRunId,
     provider_id: provider.provider_id,
+    ...providerMetadata,
     model_id: modelId,
     task_kind: 'tool-loop' as const,
     prompt: buildWatchlistMonitorPrompt(item),
@@ -417,6 +526,7 @@ async function appendProviderRun(
     {
       provider_run_id: providerRunId,
       provider_id: provider.provider_id,
+      ...providerMetadata,
       model_id: modelId,
       task_kind: request.task_kind,
       watchlist_item_id: item.watchlist_item_id,
@@ -442,6 +552,7 @@ async function appendProviderRun(
       {
         provider_run_id: providerRunId,
         provider_id: provider.provider_id,
+        ...providerMetadata,
         model_id: modelId,
         watchlist_item_id: item.watchlist_item_id,
         completed_at: completedAt,
@@ -472,10 +583,11 @@ async function appendProviderRun(
       {
         provider_run_id: providerRunId,
         provider_id: provider.provider_id,
+        ...providerMetadata,
         model_id: modelId,
         watchlist_item_id: item.watchlist_item_id,
         failed_at: failedAt,
-        error_summary: error instanceof Error ? error.message : String(error),
+        error_summary: redactProviderDiagnostic(error),
         approval_gates: [OPEN_HOLDING_APPROVAL_GATE],
         human_approval_required: true,
         auto_approved_actions: 0,
@@ -680,7 +792,7 @@ export async function runScheduledTasks(
           scheduled_task_id: task.scheduled_task_id,
           run_id: runId,
           failed_at: failedAt,
-          error_summary: error instanceof Error ? error.message : String(error),
+          error_summary: redactProviderDiagnostic(error),
           attempt,
           max_attempts: maxAttempts(task),
           ...(retryAt === undefined ? {} : { retry_after: retryAt }),
@@ -698,7 +810,7 @@ export async function runScheduledTasks(
       ) as LedgerEventEnvelope<unknown>)
       result.failed += 1
       result.events_appended += 1
-      result.summaries.push(error instanceof Error ? error.message : String(error))
+      result.summaries.push(redactProviderDiagnostic(error))
     }
   }
 

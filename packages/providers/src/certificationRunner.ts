@@ -1,24 +1,57 @@
 import { z } from 'zod'
 
 import {
+  certificationReportTargetFileStem,
   getCertificationScenarios,
   type CertificationCaseResult,
   type CertificationLedgerPayload,
   type CertificationReport,
+  type CertificationReportRunStatus,
   type CertificationScenario,
   type CertificationScenarioId,
+  type CertificationTarget,
 } from './certificationContract'
-import type {
-  Provider,
-  ProviderCapabilities,
-  ProviderCapabilityId,
-  ProviderRunRequest,
+import { getProviderCatalog } from './providerCatalog'
+import { redactProviderDiagnostic } from './providerSecurity'
+import {
+  providerCapabilityIds,
+  type ProviderAuthMode,
+  type Provider,
+  type ProviderCapabilities,
+  type ProviderCapabilityId,
+  type ProviderRunRequest,
+  type ProviderRuntimeKind,
+  type ProviderSurfaceId,
+  type ProviderVendorId,
+  type ProviderWorkflowRole,
 } from './providerContract'
 
 export type CertificationRunnerOptions = {
   generated_at?: string
   model_id: string
   timeout_ms?: number
+  provider_surface_id?: ProviderSurfaceId
+  vendor_id?: ProviderVendorId
+  runtime_kind?: ProviderRuntimeKind
+  auth_mode?: ProviderAuthMode
+  workflow_role?: ProviderWorkflowRole
+}
+
+type UnavailableCertificationReportOptions = {
+  provider_id: string
+  generated_at: string
+  capabilities: Partial<ProviderCapabilities>
+  reason: string
+  model_id?: string
+  provider_surface_id?: ProviderSurfaceId
+  vendor_id?: ProviderVendorId
+  runtime_kind?: ProviderRuntimeKind
+  auth_mode?: ProviderAuthMode
+  workflow_role?: ProviderWorkflowRole
+}
+
+type ResolvedCertificationRunnerOptions = Required<Pick<CertificationRunnerOptions, 'generated_at' | 'model_id' | 'timeout_ms' | 'workflow_role'>> & {
+  target: CertificationTarget
 }
 
 const ResearchSchema = z.object({
@@ -44,6 +77,11 @@ const scenarioCapabilityGates: Record<CertificationScenarioId, ProviderCapabilit
   'tool-call-round-trip': ['tool-function-calling'],
   'multi-step-tool-loop': ['multi-step-tool-loop'],
   'source-grounded-research-task': ['structured-output'],
+  'redaction-no-secret-leak': [],
+  'no-direct-ledger-writes': ['tool-function-calling'],
+  'scheduled-headless-suitability': [],
+  'quota-rate-limit-classification': [],
+  'reauth-classification': [],
   'specialist-parallel-run': ['structured-output'],
   'synthesis-output': ['structured-output'],
   'buffett-munger-strategy-compliance-audit': ['structured-output'],
@@ -58,27 +96,33 @@ export async function runProviderCertification(
   options: CertificationRunnerOptions,
 ): Promise<CertificationReport> {
   const generatedAt = options.generated_at ?? new Date().toISOString()
+  const workflowRole = options.workflow_role ?? 'research_draft'
+  const target = certificationTargetFor(provider.provider_id, options.model_id, workflowRole, options)
+  const resolvedOptions: ResolvedCertificationRunnerOptions = {
+    generated_at: generatedAt,
+    model_id: options.model_id,
+    timeout_ms: options.timeout_ms ?? 30_000,
+    workflow_role: workflowRole,
+    target,
+  }
   const scenarios = getCertificationScenarios()
   const cases: CertificationCaseResult[] = []
 
   for (const scenario of scenarios) {
-    cases.push(await runCertificationScenario(provider, scenario, {
-      generated_at: generatedAt,
-      model_id: options.model_id,
-      timeout_ms: options.timeout_ms ?? 30_000,
-    }))
+    cases.push(await runCertificationScenario(provider, scenario, resolvedOptions))
   }
 
   const passed = cases.filter((caseResult) => caseResult.passed).length
   const supportLevel = supportLevelFromCases(cases)
 
   return {
-    certification_report_id: certificationReportId(provider.provider_id, generatedAt),
+    certification_report_id: certificationReportId(target, generatedAt),
     provider_id: provider.provider_id,
+    target,
     run_status: 'completed',
     support_level: supportLevel,
     generated_at: generatedAt,
-    capabilities: { ...provider.capabilities },
+    capabilities: normalizeCapabilities(provider.capabilities),
     cases,
     summary: `${passed}/${cases.length} scenarios passed; provider support level is ${supportLevel}.`,
   }
@@ -88,6 +132,7 @@ export function toCertificationLedgerPayload(report: CertificationReport): Certi
   return {
     certification_report_id: report.certification_report_id,
     provider_id: report.provider_id,
+    target: report.target,
     run_status: report.run_status,
     support_level: report.support_level,
     generated_at: report.generated_at,
@@ -105,35 +150,152 @@ export function createNotConfiguredCertificationReport({
   generated_at,
   capabilities,
   reason,
+  ...targetOptions
+}: UnavailableCertificationReportOptions): CertificationReport {
+  return createUnavailableCertificationReport({
+    provider_id,
+    generated_at,
+    capabilities,
+    reason,
+    ...targetOptions,
+    run_status: 'not-configured',
+    observed_provider_behavior: 'not configured',
+    details_prefix: 'Certification not run because provider is not configured',
+    summary_prefix: 'Certification not run',
+  })
+}
+
+export function createReauthRequiredCertificationReport({
+  provider_id,
+  generated_at,
+  capabilities,
+  reason,
+  ...targetOptions
+}: UnavailableCertificationReportOptions): CertificationReport {
+  return createUnavailableCertificationReport({
+    provider_id,
+    generated_at,
+    capabilities,
+    reason,
+    ...targetOptions,
+    run_status: 'reauth-required',
+    observed_provider_behavior: 'reauth required',
+    details_prefix: 'Certification not run because provider requires reauthentication',
+    summary_prefix: 'Certification requires reauthentication',
+  })
+}
+
+export function createQuotaLimitedCertificationReport({
+  provider_id,
+  generated_at,
+  capabilities,
+  reason,
+  ...targetOptions
+}: UnavailableCertificationReportOptions): CertificationReport {
+  return createUnavailableCertificationReport({
+    provider_id,
+    generated_at,
+    capabilities,
+    reason,
+    ...targetOptions,
+    run_status: 'quota-limited',
+    observed_provider_behavior: 'quota limited',
+    details_prefix: 'Certification not run because provider quota or rate limit blocked execution',
+    summary_prefix: 'Certification quota limited',
+  })
+}
+
+function createUnavailableCertificationReport({
+  provider_id,
+  generated_at,
+  capabilities,
+  reason,
+  model_id,
+  provider_surface_id,
+  vendor_id,
+  runtime_kind,
+  auth_mode,
+  workflow_role,
+  run_status,
+  observed_provider_behavior,
+  details_prefix,
+  summary_prefix,
 }: {
   provider_id: string
   generated_at: string
-  capabilities: ProviderCapabilities
+  capabilities: Partial<ProviderCapabilities>
   reason: string
+  model_id?: string
+  provider_surface_id?: ProviderSurfaceId
+  vendor_id?: ProviderVendorId
+  runtime_kind?: ProviderRuntimeKind
+  auth_mode?: ProviderAuthMode
+  workflow_role?: ProviderWorkflowRole
+  run_status: Exclude<CertificationReportRunStatus, 'completed'>
+  observed_provider_behavior: string
+  details_prefix: string
+  summary_prefix: string
 }): CertificationReport {
+  const redactedReason = redactProviderDiagnostic(reason)
+  const target = certificationTargetFor(provider_id, model_id ?? defaultModelIdFor(provider_id), workflow_role ?? 'research_draft', {
+    ...(provider_surface_id === undefined ? {} : { provider_surface_id }),
+    ...(vendor_id === undefined ? {} : { vendor_id }),
+    ...(runtime_kind === undefined ? {} : { runtime_kind }),
+    ...(auth_mode === undefined ? {} : { auth_mode }),
+  })
   const cases = getCertificationScenarios().map((scenario) => caseResult(scenario, {
     passed: false,
     status: 'not-run',
-    details: `Certification not run because provider is not configured: ${reason}`,
+    details: `${details_prefix}: ${redactedReason}`,
     capability_gates: scenarioCapabilityGates[scenario.scenario_id],
-    observed_provider_behavior: 'not configured',
+    observed_provider_behavior,
   }))
 
   return {
-    certification_report_id: `${certificationReportId(provider_id, generated_at)}_not-configured`,
+    certification_report_id: `${certificationReportId(target, generated_at)}_${run_status}`,
     provider_id,
-    run_status: 'not-configured',
-    not_run_reason: reason,
+    target,
+    run_status,
+    not_run_reason: redactedReason,
     support_level: 'unsupported',
     generated_at,
-    capabilities: { ...capabilities },
+    capabilities: normalizeCapabilities(capabilities),
     cases,
-    summary: `Certification not run: ${reason}. Provider support level is unsupported.`,
+    summary: `${summary_prefix}: ${redactedReason}. Provider support level is unsupported.`,
   }
 }
 
-function certificationReportId(providerId: string, generatedAt: string): string {
-  return `cert_${safeIdentifier(providerId)}_${safeIdentifier(generatedAt)}`
+export { certificationReportTargetFileStem }
+
+function certificationReportId(target: CertificationTarget, generatedAt: string): string {
+  return `cert_${safeIdentifier(target.provider_surface_id)}_${safeIdentifier(target.auth_mode)}_${safeIdentifier(target.workflow_role)}_${safeIdentifier(target.model_id)}_${safeIdentifier(generatedAt)}`
+}
+
+function certificationTargetFor(
+  providerId: string,
+  modelId: string,
+  workflowRole: ProviderWorkflowRole,
+  overrides: Partial<Pick<CertificationRunnerOptions, 'provider_surface_id' | 'vendor_id' | 'runtime_kind' | 'auth_mode'>> = {},
+): CertificationTarget {
+  const provider = getProviderCatalog().find((entry) => entry.provider_id === providerId || entry.provider_surface_id === providerId)
+
+  return {
+    provider_surface_id: overrides.provider_surface_id ?? provider?.provider_surface_id ?? (providerId as CertificationTarget['provider_surface_id']),
+    vendor_id: overrides.vendor_id ?? provider?.vendor_id ?? 'unknown',
+    runtime_kind: overrides.runtime_kind ?? provider?.runtime_kind ?? 'built_in',
+    auth_mode: overrides.auth_mode ?? provider?.auth_mode ?? 'built_in_demo',
+    model_id: modelId,
+    workflow_role: workflowRole,
+    schema_version: 1,
+  }
+}
+
+function defaultModelIdFor(providerId: string): string {
+  return getProviderCatalog().find((entry) => entry.provider_id === providerId || entry.provider_surface_id === providerId)?.default_model_id ?? 'unknown-model'
+}
+
+function normalizeCapabilities(capabilities: Partial<ProviderCapabilities>): ProviderCapabilities {
+  return Object.fromEntries(providerCapabilityIds.map((capabilityId) => [capabilityId, capabilities[capabilityId] ?? 'unsupported'])) as ProviderCapabilities
 }
 
 function safeIdentifier(value: string): string {
@@ -143,7 +305,7 @@ function safeIdentifier(value: string): string {
 async function runCertificationScenario(
   provider: Provider,
   scenario: CertificationScenario,
-  options: Required<CertificationRunnerOptions> & { generated_at: string },
+  options: ResolvedCertificationRunnerOptions,
 ): Promise<CertificationCaseResult> {
   const capabilityGates = scenarioCapabilityGates[scenario.scenario_id]
   const unsupportedCapability = capabilityGates.find((capability) => provider.capabilities[capability] === 'unsupported')
@@ -211,6 +373,7 @@ async function runCertificationScenario(
         if (!run.tool_calls.some((toolCall) => toolCall.tool_name === 'source.fetch')) {
           throw new Error('Provider did not perform the required source.fetch tool call')
         }
+        assertNoDirectLedgerWrites(run)
         return passedCase(scenario, `Observed ${run.tool_calls.length} tool call(s).`, capabilityGates)
       }
       case 'multi-step-tool-loop':
@@ -225,6 +388,7 @@ async function runCertificationScenario(
         if (run.tool_calls.length < 2) {
           throw new Error(`Provider returned ${run.tool_calls.length} tool call(s), but multi-step certification requires at least 2`)
         }
+        assertNoDirectLedgerWrites(run)
         return passedCase(scenario, `Observed ${run.tool_calls.length} tool call(s) with finish reason ${run.finish_reason}.`, capabilityGates)
       }
       case 'specialist-parallel-run': {
@@ -242,7 +406,59 @@ async function runCertificationScenario(
         if ((result.source_records?.length ?? 0) === 0) {
           throw new Error('Structured result did not include source records')
         }
+        assertSourceCitationEvidence(result)
         return passedCase(scenario, `Validated ${result.source_records?.length ?? 0} source record(s).`, capabilityGates)
+      }
+      case 'redaction-no-secret-leak': {
+        const diagnostic = redactProviderDiagnostic('OPENAI_API_KEY=*** at /tmp/secret/codex/auth.json using Bearer bearer-secret-token Cookie: owl_session=fake-cookie-value')
+        if (diagnostic.includes('/tmp/secret') || diagnostic.includes('***') || diagnostic.includes('bearer-secret-token') || diagnostic.includes('fake-cookie-value')) {
+          throw new Error('Provider diagnostic redaction left secret material in certification output')
+        }
+        return passedCase(scenario, 'Provider diagnostic redaction removed secret-looking values and paths.', capabilityGates)
+      }
+      case 'no-direct-ledger-writes': {
+        const run = await provider.runWithTools(baseRequest(provider, scenario.scenario_id, options, {
+          task_kind: 'tool-loop',
+          prompt: 'Use source.fetch while proving certification does not write Owlfolio ledger events directly.',
+          budget: { max_tool_calls: 1, max_tokens: 1_000 },
+          tool_allowlist: ['source.fetch'],
+          response_format: { kind: 'text' },
+        }))
+        assertNoDirectLedgerWrites(run)
+        return passedCase(scenario, 'Provider tool run reported zero direct ledger events written.', capabilityGates)
+      }
+      case 'scheduled-headless-suitability': {
+        const providerEntry = getProviderCatalog().find((entry) => entry.provider_id === provider.provider_id || entry.provider_surface_id === options.target.provider_surface_id)
+        if (options.target.workflow_role === 'scheduled_monitoring_dry_run') {
+          if (providerEntry === undefined || !providerEntry.automation.headless_supported || !providerEntry.automation.scheduled_workflow_supported) {
+            throw new Error('Scheduled monitoring certification requires a headless-supported scheduled workflow surface')
+          }
+        }
+        return passedCase(scenario, `Target workflow role ${options.target.workflow_role} is compatible with scheduled/headless suitability gates.`, capabilityGates)
+      }
+      case 'quota-rate-limit-classification': {
+        const report = createQuotaLimitedCertificationReport({
+          provider_id: provider.provider_id,
+          generated_at: options.generated_at,
+          capabilities: provider.capabilities,
+          reason: 'quota exhausted for Bearer sample-token',
+        })
+        if (report.run_status !== 'quota-limited' || report.support_level !== 'unsupported') {
+          throw new Error('Quota/rate-limit classification did not produce an unsupported quota-limited report')
+        }
+        return passedCase(scenario, 'Quota and rate-limit failures classify as quota-limited unsupported reports.', capabilityGates)
+      }
+      case 'reauth-classification': {
+        const report = createReauthRequiredCertificationReport({
+          provider_id: provider.provider_id,
+          generated_at: options.generated_at,
+          capabilities: provider.capabilities,
+          reason: 'cached session expired at /tmp/provider/auth.json',
+        })
+        if (report.run_status !== 'reauth-required' || report.support_level !== 'unsupported') {
+          throw new Error('Reauthentication classification did not produce an unsupported reauth-required report')
+        }
+        return passedCase(scenario, 'Expired or invalid sessions classify as reauth-required unsupported reports.', capabilityGates)
       }
       case 'synthesis-output': {
         const result = await structuredResearch(provider, 'COST', scenario.scenario_id, options)
@@ -286,7 +502,7 @@ async function runCertificationScenario(
     return caseResult(scenario, {
       passed: false,
       status: 'failed',
-      details: error instanceof Error ? error.message : String(error),
+      details: redactProviderDiagnostic(error),
       capability_gates: capabilityGates,
     })
   }
@@ -296,7 +512,7 @@ async function structuredResearch(
   provider: Provider,
   ticker: string,
   scenarioId: CertificationScenarioId,
-  options: Required<CertificationRunnerOptions> & { generated_at: string },
+  options: ResolvedCertificationRunnerOptions,
 ): Promise<z.infer<typeof ResearchSchema>> {
   return provider.structured(
     baseRequest(provider, scenarioId, options, {
@@ -308,15 +524,37 @@ async function structuredResearch(
   )
 }
 
+function assertSourceCitationEvidence(result: z.infer<typeof ResearchSchema>): void {
+  const sourceRecords = result.source_records ?? []
+  const recordIds = new Set(sourceRecords.map((sourceRecord) => sourceRecord.source_id))
+  const missingRecords = result.source_ids.filter((sourceId) => !recordIds.has(sourceId))
+  if (missingRecords.length > 0) {
+    throw new Error(`Structured source citation evidence is missing source records for: ${missingRecords.join(', ')}`)
+  }
+}
+
+function assertNoDirectLedgerWrites(run: { ledger_events_written?: number }): void {
+  if ((run.ledger_events_written ?? 0) !== 0) {
+    throw new Error(`Provider certification scenario directly wrote ${run.ledger_events_written} ledger events`)
+  }
+}
+
 function baseRequest(
   provider: Provider,
   scenarioId: CertificationScenarioId,
-  options: Required<CertificationRunnerOptions> & { generated_at: string },
+  options: ResolvedCertificationRunnerOptions,
   overrides: Partial<ProviderRunRequest>,
 ): ProviderRunRequest {
+  const target = options.target
+
   return {
     run_id: `cert_${scenarioId}`,
     provider_id: provider.provider_id,
+    provider_surface_id: target.provider_surface_id,
+    vendor_id: target.vendor_id,
+    runtime_kind: target.runtime_kind,
+    auth_mode: target.auth_mode,
+    workflow_role: target.workflow_role,
     model_id: options.model_id,
     task_kind: 'structured-output',
     prompt: `Run certification scenario ${scenarioId}.`,

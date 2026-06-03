@@ -2,7 +2,7 @@
 import { pathToFileURL } from 'node:url'
 
 import { SQLiteEventStore } from '@owlfolio/ledger/sqliteEventStore'
-import { resolveProvider } from '@owlfolio/providers'
+import { redactProviderDiagnostic, resolveProvider } from '@owlfolio/providers'
 
 import { defineDefaultScheduledTasks, resolveWorkerProviderReadiness, resolveWorkerRuntimePaths, runScheduledTasks } from './runtime.ts'
 
@@ -87,6 +87,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     const providerReadiness = await resolveWorkerProviderReadiness({
       provider_id: runtime.config.provider.provider_id,
       provider_certification_dir: runtime.provider_certification_dir,
+      ...(runtime.config.provider.model_id === undefined ? {} : { provider_model_id: runtime.config.provider.model_id }),
     })
     const result = await runScheduledTasks(store, {
       dry_run: options.dry_run,
@@ -108,7 +109,7 @@ if (process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.a
       process.exitCode = exitCode
     },
     (error: unknown) => {
-      console.error(error instanceof Error ? error.message : String(error))
+      console.error(redactProviderDiagnostic(error))
       process.exitCode = 1
     },
   )

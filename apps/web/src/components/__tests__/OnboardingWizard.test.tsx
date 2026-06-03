@@ -37,6 +37,17 @@ describe('OnboardingWizard', () => {
             label: 'OpenAI',
             support_level: 'experimental',
             description: 'Experimental provider path',
+            provider_family_label: 'OpenAI',
+            recommended_sign_in_label: 'Connect ChatGPT via Codex CLI',
+            recommended_sign_in_description: 'Run codex login outside Owlfolio so the local Codex CLI session can be verified without browser cookies.',
+            simple_next_step: 'Run codex login outside Owlfolio, then refresh readiness.',
+            advanced_auth_options: [
+              {
+                label: 'OpenAI API key',
+                description: 'Direct API key path for certification-oriented provider runs.',
+                certification_note: 'Separate direct API certification is required before production/headless use.',
+              },
+            ],
           },
         ],
       }),
@@ -62,6 +73,82 @@ describe('OnboardingWizard', () => {
     expect(html).toContain('Market universe')
     expect(html).toContain('Public equities discovery universe')
     expect(html).toContain('Initialize Owlfolio workflow')
+  })
+
+  it('renders provider families as a simple recommended sign-in path with progressive advanced options', () => {
+    const html = renderToStaticMarkup(
+      createElement(OnboardingWizard, {
+        initialConfig: {
+          ...defaultPersonalLocalAppConfig(),
+          provider: { provider_id: 'openai', support_level: 'experimental' },
+        },
+        initialIsInitialized: false,
+        initialReadiness: {
+          provider_id: 'openai',
+          provider_surface_id: 'openai-codex-cli',
+          support_level: 'experimental',
+          is_ready: false,
+          auth_source: 'missing',
+          status_label: 'Missing OpenAI / Codex credentials',
+          reauth_action: 'Run codex login outside Owlfolio, then retry readiness.',
+        },
+        providerOptions: [
+          {
+            provider_id: 'openai',
+            provider_surface_id: 'openai-codex-cli',
+            label: 'OpenAI',
+            support_level: 'experimental',
+            description: 'Recommended ChatGPT/Codex personal-local path; direct API certification remains advanced.',
+            provider_family_label: 'OpenAI',
+            recommended_sign_in_label: 'Connect ChatGPT via Codex CLI',
+            recommended_sign_in_description: 'Run codex login outside Owlfolio; Owlfolio verifies the CLI session and never uses browser cookies as provider credentials.',
+            simple_next_step: 'Run codex login outside Owlfolio, then refresh readiness.',
+            advanced_auth_options: [
+              {
+                label: 'OpenAI API key',
+                description: 'Use a direct OpenAI API key for certification-oriented provider runs.',
+                certification_note: 'Direct API certification remains separate from Codex CLI personal-local readiness.',
+              },
+            ],
+          },
+          {
+            provider_id: 'gemini-cli' as any,
+            provider_surface_id: 'gemini-cli',
+            label: 'Gemini',
+            support_level: 'unsupported',
+            description: 'Recommended Google/Gemini CLI personal-local path; adapter certification is not complete.',
+            provider_family_label: 'Gemini',
+            recommended_sign_in_label: 'Sign in with Google via Gemini CLI',
+            recommended_sign_in_description: 'Run gemini login outside Owlfolio; Owlfolio verifies the CLI session and never uses browser cookies as provider credentials.',
+            simple_next_step: 'Run gemini login outside Owlfolio, then refresh readiness.',
+            advanced_auth_options: [
+              {
+                label: 'Gemini Developer API key',
+                description: 'Use a Gemini Developer API key for future direct API certification.',
+                certification_note: 'Certification is required before provider-backed workflow starts.',
+              },
+              {
+                label: 'Vertex AI / service account',
+                description: 'Use Google Cloud Vertex credentials for enterprise certification lanes.',
+                certification_note: 'Enterprise/headless certification is separate from personal-local CLI sign-in.',
+              },
+            ],
+          },
+        ],
+      }),
+    )
+
+    expect(html).toContain('Provider family: OpenAI')
+    expect(html).toContain('Recommended sign-in')
+    expect(html).toContain('Connect ChatGPT via Codex CLI')
+    expect(html).toContain('Run codex login outside Owlfolio')
+    expect(html).toContain('never uses browser cookies as provider credentials')
+    expect(html).toContain('One-screen flow: choose provider family → recommended sign-in → verify readiness → start workflow.')
+    expect(html).toContain('Advanced auth and certification options')
+    expect(html).toContain('OpenAI API key')
+    expect(html).toContain('Direct API certification remains separate from Codex CLI personal-local readiness')
+    expect(html).toContain('Next step: Run codex login outside Owlfolio, then retry readiness.')
+    expect(html).not.toContain('/.codex/')
   })
 
   it('disables start workflow with a concise inline explanation when the selected provider is unready', () => {

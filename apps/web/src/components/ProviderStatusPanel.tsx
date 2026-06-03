@@ -273,6 +273,9 @@ function renderCertificationReport(row: ProviderStatusRow) {
     { style: { display: 'grid', gap: '0.25rem', overflowWrap: 'anywhere' } },
     createElement('p', { style: subtleTextStyle }, `Report ID: ${report.certification_report_id}`),
     createElement('p', { style: subtleTextStyle }, `Run status: ${report.run_status}`),
+    report.target === undefined
+      ? null
+      : createElement('p', { style: subtleTextStyle }, `Certified target: ${report.target.provider_surface_id} / ${report.target.auth_mode} / ${report.target.workflow_role} / ${report.target.model_id}`),
     createElement('p', { style: subtleTextStyle }, `Generated: ${report.generated_at}`),
     report.not_run_reason === undefined
       ? createElement('p', { style: subtleTextStyle }, report.summary)

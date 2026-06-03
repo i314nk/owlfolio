@@ -29,6 +29,14 @@ describe('runClaudeBuffettMungerResearch', () => {
         'tool-function-calling': 'unsupported',
         'streaming-observability': 'adapter',
         'multi-step-tool-loop': 'unsupported',
+        'source-grounding': 'adapter',
+        'citation-metadata': 'adapter',
+        'url-context': 'unsupported',
+        'file-context': 'adapter',
+        'source-bundle-production': 'adapter',
+        'code-execution': 'unsupported',
+        'computer-use': 'unsupported',
+        'browser-use': 'unsupported',
       },
       async complete() {
         throw new Error('not used in this test')

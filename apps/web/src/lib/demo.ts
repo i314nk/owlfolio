@@ -306,7 +306,13 @@ function humanizeProvider(providerId: AppConfig['provider']['provider_id']): str
     case 'claude':
       return 'Claude'
     case 'openai':
-      return 'OpenAI'
+      return 'OpenAI Codex CLI'
+    case 'openai-api':
+      return 'OpenAI API'
+    case 'gemini-developer-api':
+      return 'Gemini Developer API'
+    case 'gemini-cli':
+      return 'Gemini CLI'
     case 'mock-provider':
       return 'Mock provider'
   }

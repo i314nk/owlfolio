@@ -132,6 +132,14 @@ export class OpenAICodexCliProvider implements Provider {
     'tool-function-calling': 'unsupported',
     'streaming-observability': 'adapter',
     'multi-step-tool-loop': 'unsupported',
+    'source-grounding': 'adapter',
+    'citation-metadata': 'adapter',
+    'url-context': 'unsupported',
+    'file-context': 'adapter',
+    'source-bundle-production': 'adapter',
+    'code-execution': 'unsupported',
+    'computer-use': 'unsupported',
+    'browser-use': 'unsupported',
   } as const
 
   private readonly env: NodeJS.ProcessEnv
@@ -357,6 +365,11 @@ export class OpenAICodexCliProvider implements Provider {
   private metadataFor(request: ProviderRunRequest): ProviderRunMetadata {
     return {
       provider_id: this.provider_id,
+      ...(request.provider_surface_id === undefined ? {} : { provider_surface_id: request.provider_surface_id }),
+      ...(request.vendor_id === undefined ? {} : { vendor_id: request.vendor_id }),
+      ...(request.runtime_kind === undefined ? {} : { runtime_kind: request.runtime_kind }),
+      ...(request.auth_mode === undefined ? {} : { auth_mode: request.auth_mode }),
+      ...(request.workflow_role === undefined ? {} : { workflow_role: request.workflow_role }),
       run_id: request.run_id,
       model_id: request.model_id,
       timeout_ms: request.timeout_ms,
