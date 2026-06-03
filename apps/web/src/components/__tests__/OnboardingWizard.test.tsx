@@ -151,6 +151,99 @@ describe('OnboardingWizard', () => {
     expect(html).not.toContain('/.codex/')
   })
 
+  it('renders OpenAI Codex CLI allowed use as personal-local only with scheduled workflows blocked', () => {
+    const html = renderToStaticMarkup(
+      createElement(OnboardingWizard, {
+        initialConfig: {
+          ...defaultPersonalLocalAppConfig(),
+          provider: { provider_id: 'openai', support_level: 'experimental' },
+        },
+        initialIsInitialized: false,
+        initialReadiness: {
+          provider_id: 'openai',
+          provider_surface_id: 'openai-codex-cli',
+          support_level: 'experimental',
+          is_ready: true,
+          auth_source: 'Codex OAuth credentials',
+          status_label: 'Locally runnable via Codex OAuth credentials',
+          runtime_kind: 'cli',
+          auth_mode: 'cli_cached_session',
+          readiness_state: 'ready',
+          credential_source_category: 'configured_secret_file',
+          credential_source_label: 'Codex OAuth credentials',
+          headless_supported: false,
+          scheduled_workflow_supported: false,
+          automation_suitability: 'personal_local_interactive',
+        },
+        providerOptions: [
+          {
+            provider_id: 'openai',
+            provider_surface_id: 'openai-codex-cli',
+            label: 'OpenAI',
+            support_level: 'experimental',
+            description: 'Recommended ChatGPT/Codex personal-local path; direct API certification remains advanced.',
+            provider_family_label: 'OpenAI',
+            recommended_sign_in_label: 'Connect ChatGPT via Codex CLI',
+            recommended_sign_in_description: 'Run codex login outside Owlfolio; Owlfolio verifies the CLI session and never uses browser cookies as provider credentials.',
+            simple_next_step: 'Run codex login outside Owlfolio, then refresh readiness.',
+          },
+        ],
+      }),
+    )
+
+    expect(html).toContain('Allowed use: Personal-local research drafts only')
+    expect(html).toContain('Scheduled/headless workflows stay blocked until certification proves support.')
+    expect(html).toContain('Certification truth: experimental Codex CLI readiness does not certify direct OpenAI API or production automation.')
+    expect(html).toContain('Credential/session source: Codex OAuth credentials')
+  })
+
+  it('renders Gemini CLI allowed use as personal-local without implying Developer API or Vertex certification', () => {
+    const html = renderToStaticMarkup(
+      createElement(OnboardingWizard, {
+        initialConfig: {
+          ...defaultPersonalLocalAppConfig(),
+          provider: { provider_id: 'gemini-cli' as any, support_level: 'experimental' },
+        },
+        initialIsInitialized: false,
+        initialReadiness: {
+          provider_id: 'gemini-cli' as any,
+          provider_surface_id: 'gemini-cli',
+          support_level: 'experimental',
+          is_ready: true,
+          auth_source: 'Gemini CLI Google sign-in session',
+          status_label: 'Locally runnable via Gemini CLI Google sign-in session; Developer API and Vertex certification remain separate.',
+          runtime_kind: 'cli',
+          auth_mode: 'cli_cached_session',
+          readiness_state: 'ready',
+          credential_source_category: 'configured_secret_file',
+          credential_source_label: 'Gemini CLI Google sign-in session',
+          headless_supported: false,
+          scheduled_workflow_supported: false,
+          automation_suitability: 'personal_local_interactive',
+        },
+        providerOptions: [
+          {
+            provider_id: 'gemini-cli' as any,
+            provider_surface_id: 'gemini-cli',
+            label: 'Gemini',
+            support_level: 'experimental',
+            description: 'Recommended Google/Gemini CLI personal-local path; adapter certification is not complete.',
+            provider_family_label: 'Gemini',
+            recommended_sign_in_label: 'Sign in with Google via Gemini CLI',
+            recommended_sign_in_description: 'Run gemini login outside Owlfolio; Owlfolio verifies the CLI session and never uses browser cookies as provider credentials.',
+            simple_next_step: 'Run gemini login outside Owlfolio, then refresh readiness.',
+          },
+        ],
+      }),
+    )
+
+    expect(html).toContain('Gemini CLI use boundary')
+    expect(html).toContain('Allowed use: Personal-local research drafts only')
+    expect(html).toContain('Scheduled/headless workflows stay blocked until certification proves support.')
+    expect(html).toContain('Certification truth: experimental Gemini CLI readiness does not certify Gemini Developer API, Vertex, or production automation.')
+    expect(html).toContain('Credential/session source: Gemini CLI Google sign-in session')
+  })
+
   it('disables start workflow with a concise inline explanation when the selected provider is unready', () => {
     const html = renderToStaticMarkup(
       createElement(OnboardingWizard, {

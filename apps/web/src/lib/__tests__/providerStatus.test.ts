@@ -126,8 +126,15 @@ describe('provider status model', () => {
       auth_mode: 'api_key',
       billing_mode: 'platform_api_billing',
       quota_source: 'api_project',
+      data_policy_source: 'api_free_training_possible',
+      retention_or_zdr_status: 'not_verified',
       workflow_role: 'research_draft',
       is_ready: false,
+      model_role: 'Direct API candidate',
+      limitations: expect.arrayContaining([
+        'Gemini Developer API adapter supports structured research drafts, tool-call requests, and source-grounded citations through the direct API surface.',
+        'Free-tier/privacy posture remains not verified, so certified/production claims stay blocked until policy accepts the posture or a paid/ZDR posture is proven.',
+      ]),
     })
     expect(geminiCli).toMatchObject({
       provider_surface_id: 'gemini-cli',

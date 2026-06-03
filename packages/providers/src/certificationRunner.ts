@@ -113,7 +113,7 @@ export async function runProviderCertification(
   }
 
   const passed = cases.filter((caseResult) => caseResult.passed).length
-  const supportLevel = supportLevelFromCases(cases)
+  const supportLevel = supportLevelFromCases(cases, target)
 
   return {
     certification_report_id: certificationReportId(target, generatedAt),
@@ -124,7 +124,7 @@ export async function runProviderCertification(
     generated_at: generatedAt,
     capabilities: normalizeCapabilities(provider.capabilities),
     cases,
-    summary: `${passed}/${cases.length} scenarios passed; provider support level is ${supportLevel}.`,
+    summary: certificationSummary({ passed, total: cases.length, supportLevel, target }),
   }
 }
 
@@ -407,7 +407,13 @@ async function runCertificationScenario(
           throw new Error('Structured result did not include source records')
         }
         assertSourceCitationEvidence(result)
-        return passedCase(scenario, `Validated ${result.source_records?.length ?? 0} source record(s).`, capabilityGates)
+        return caseResult(scenario, {
+          passed: true,
+          status: 'passed',
+          details: `Validated ${result.source_records?.length ?? 0} source record(s).`,
+          observed_provider_behavior: `Validated grounding/citation evidence with ${result.source_records?.length ?? 0} source record(s).`,
+          capability_gates: capabilityGates,
+        })
       }
       case 'redaction-no-secret-leak': {
         const diagnostic = redactProviderDiagnostic('OPENAI_API_KEY=*** at /tmp/secret/codex/auth.json using Bearer bearer-secret-token Cookie: owl_session=fake-cookie-value')
@@ -566,11 +572,14 @@ function baseRequest(
   }
 }
 
-function supportLevelFromCases(cases: CertificationCaseResult[]): CertificationReport['support_level'] {
+function supportLevelFromCases(cases: CertificationCaseResult[], target: CertificationTarget): CertificationReport['support_level'] {
   const experimentalCases = cases.filter((caseResult) => caseResult.required_for_support_level === 'experimental')
   const certifiedCases = cases.filter((caseResult) => caseResult.required_for_support_level === 'certified')
 
   if (certifiedCases.length > 0 && certifiedCases.every((caseResult) => caseResult.passed)) {
+    if (certificationPrivacyBlocker(target) !== undefined) {
+      return 'experimental'
+    }
     return 'certified'
   }
 
@@ -579,6 +588,47 @@ function supportLevelFromCases(cases: CertificationCaseResult[]): CertificationR
   }
 
   return 'unsupported'
+}
+
+function certificationSummary({
+  passed,
+  total,
+  supportLevel,
+  target,
+}: {
+  passed: number
+  total: number
+  supportLevel: CertificationReport['support_level']
+  target: CertificationTarget
+}): string {
+  const privacyBlocker = certificationPrivacyBlocker(target)
+  const base = `${passed}/${total} scenarios passed; provider support level is ${supportLevel}.`
+  if (privacyBlocker === undefined) {
+    return base
+  }
+
+  return `${base} Certified/production support remains blocked because ${privacyBlocker}.`
+}
+
+function certificationPrivacyBlocker(target: CertificationTarget): string | undefined {
+  const provider = getProviderCatalog().find((entry) => entry.provider_surface_id === target.provider_surface_id)
+  if (provider === undefined) {
+    return undefined
+  }
+
+  if (provider.privacy.data_policy_source === 'api_free_training_possible') {
+    return 'privacy posture is free-tier training-possible and retention/ZDR status is not verified'
+  }
+
+  if (provider.privacy.data_policy_source === 'unknown') {
+    return 'privacy posture is unknown and retention/ZDR status is not verified'
+  }
+
+  if (provider.privacy.retention_or_zdr_status === 'not_verified') {
+    return 'privacy retention/ZDR status is not verified'
+  }
+
+  return undefined
 }
 
 function passedCase(

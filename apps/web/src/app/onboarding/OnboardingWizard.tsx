@@ -447,6 +447,19 @@ function renderProviderSignInContract(selectedProvider: ProviderOption, readines
     ))
   }
 
+  const cliUseBoundary = cliUseBoundaryFor(selectedProvider, readiness)
+  if (cliUseBoundary !== undefined) {
+    nodes.push(createElement(
+      'section',
+      { key: 'cli-use-boundary', style: { ...readinessActionStyle, marginTop: '0.75rem' } },
+      createElement('strong', null, cliUseBoundary.heading),
+      createElement('span', null, 'Allowed use: Personal-local research drafts only'),
+      createElement('span', null, 'Scheduled/headless workflows stay blocked until certification proves support.'),
+      createElement('span', null, cliUseBoundary.certificationTruth),
+      createElement('span', null, `Credential/session source: ${readiness.credential_source_label ?? readiness.auth_source}`),
+    ))
+  }
+
   if (selectedProvider.advanced_auth_options !== undefined && selectedProvider.advanced_auth_options.length > 0) {
     nodes.push(createElement(
       'details',
@@ -466,4 +479,27 @@ function renderProviderSignInContract(selectedProvider: ProviderOption, readines
   }
 
   return nodes
+}
+
+function cliUseBoundaryFor(
+  selectedProvider: ProviderOption,
+  readiness: ProviderReadiness,
+): { heading: string; certificationTruth: string } | undefined {
+  const surfaceId = selectedProvider.provider_surface_id ?? readiness.provider_surface_id
+
+  if (surfaceId === 'openai-codex-cli') {
+    return {
+      heading: 'Codex CLI use boundary',
+      certificationTruth: 'Certification truth: experimental Codex CLI readiness does not certify direct OpenAI API or production automation.',
+    }
+  }
+
+  if (surfaceId === 'gemini-cli') {
+    return {
+      heading: 'Gemini CLI use boundary',
+      certificationTruth: 'Certification truth: experimental Gemini CLI readiness does not certify Gemini Developer API, Vertex, or production automation.',
+    }
+  }
+
+  return undefined
 }

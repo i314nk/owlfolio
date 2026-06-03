@@ -3,6 +3,8 @@ import { describe, expect, it } from 'vitest'
 import { ClaudeCliProvider } from '../claudeCliProvider'
 import { getProviderCatalog } from '../providerCatalog'
 import { MockProvider } from '../mockProvider'
+import { GeminiDeveloperApiProvider } from '../geminiDeveloperApiProvider'
+import { OpenAIAPIProvider } from '../openaiApiProvider'
 import { OpenAICodexCliProvider } from '../openaiCodexCliProvider'
 import { providerCapabilityIds } from '../providerContract'
 
@@ -27,6 +29,8 @@ describe('provider catalog support semantics', () => {
     expect(catalogEntry('mock-provider').capabilities).toEqual(new MockProvider().capabilities)
     expect(catalogEntry('claude').capabilities).toEqual(new ClaudeCliProvider().capabilities)
     expect(catalogEntry('openai').capabilities).toEqual(new OpenAICodexCliProvider().capabilities)
+    expect(catalogEntry('openai-api').capabilities).toEqual(new OpenAIAPIProvider().capabilities)
+    expect(catalogEntry('gemini-developer-api').capabilities).toEqual(new GeminiDeveloperApiProvider({ apiKey: 'test-key' }).capabilities)
   })
 
   it('keeps CLI-backed real providers experimental until certification proves full workflow parity', () => {
@@ -42,7 +46,7 @@ describe('provider catalog support semantics', () => {
       provider_family_id: 'openai',
       runtime_kind: 'direct_api',
       auth_mode: 'api_key',
-      support_level: 'unsupported',
+      support_level: 'experimental',
       visible_in_onboarding: false,
     })
     expect(surfaceEntry('openai-api')).not.toHaveProperty('compatibility_provider_id')
@@ -60,15 +64,20 @@ describe('provider catalog support semantics', () => {
       vendor_id: 'google-gemini',
       runtime_kind: 'direct_api',
       auth_mode: 'api_key',
+      support_level: 'experimental',
       visible_in_onboarding: false,
+      privacy: { data_policy_source: 'api_free_training_possible', retention_or_zdr_status: 'not_verified' },
     })
     expect(surfaceEntry('gemini-cli')).toMatchObject({
+      provider_id: 'gemini-cli',
       provider_surface_id: 'gemini-cli',
       vendor_id: 'google-gemini',
       runtime_kind: 'cli',
       auth_mode: 'cli_cached_session',
+      support_level: 'experimental',
       visible_in_onboarding: true,
     })
+    expect(surfaceEntry('gemini-cli')).not.toHaveProperty('compatibility_provider_id')
   })
 
   it('carries auth, billing, quota, privacy, automation, and workflow-role metadata without capability overclaims', () => {
@@ -97,10 +106,26 @@ describe('provider catalog support semantics', () => {
     })
 
     expect(surfaceEntry('openai-api').capabilities).toMatchObject({
-      'tool-function-calling': 'unsupported',
+      'structured-output': 'native',
+      'tool-function-calling': 'native',
       'multi-step-tool-loop': 'unsupported',
     })
-    expect(surfaceEntry('gemini-developer-api').support_level).toBe('unsupported')
-    expect(surfaceEntry('gemini-cli').support_level).toBe('unsupported')
+    expect(surfaceEntry('gemini-developer-api')).toMatchObject({
+      support_level: 'experimental',
+      capabilities: expect.objectContaining({
+        'structured-output': 'native',
+        'tool-function-calling': 'native',
+        'source-grounding': 'native',
+        'citation-metadata': 'native',
+        'url-context': 'native',
+      }),
+      privacy: { data_policy_source: 'api_free_training_possible', retention_or_zdr_status: 'not_verified' },
+      automation: { headless_supported: true, scheduled_workflow_supported: false, automation_suitability: 'production_headless' },
+    })
+    expect(surfaceEntry('gemini-cli')).toMatchObject({
+      support_level: 'experimental',
+      privacy: { data_policy_source: 'unknown', retention_or_zdr_status: 'not_verified' },
+      automation: { headless_supported: false, scheduled_workflow_supported: false, automation_suitability: 'personal_local_interactive' },
+    })
   })
 })

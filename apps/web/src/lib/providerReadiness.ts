@@ -23,8 +23,13 @@ export type ProviderReadinessEnv = {
   OWLFOLIO_CODEX_AUTH_PATH?: string
   CODEX_HOME?: string
   GEMINI_HOME?: string
+  OWLFOLIO_GEMINI_CLI_AUTH_PATH?: string
+  OWLFOLIO_GEMINI_CLI_STATUS?: string
+  GOOGLE_OAUTH_ACCESS_TOKEN?: string
+  GOOGLE_APPLICATION_CREDENTIALS?: string
+  OWLFOLIO_GOOGLE_SERVICE_ACCOUNT_PATH?: string
+  GOOGLE_CLOUD_PROJECT?: string
 }
-
 export type ProviderOption = {
   provider_id: ProviderId
   provider_surface_id?: ProviderCatalogEntry['provider_surface_id']
@@ -80,10 +85,6 @@ export async function getProviderReadiness(providerId: ProviderId, env: Provider
     throw new Error(`Unknown provider: ${providerId}`)
   }
 
-  if (provider.support_level === 'unsupported') {
-    return unsupportedSurfaceReadiness(provider, env)
-  }
-
   if (providerId === 'mock-provider') {
     return readinessFrom(provider, {
       isReady: true,
@@ -96,41 +97,92 @@ export async function getProviderReadiness(providerId: ProviderId, env: Provider
   }
 
   if (providerId === 'claude') {
-    if (env.ANTHROPIC_API_KEY !== undefined && env.ANTHROPIC_API_KEY.length > 0) {
-      return readinessFrom(provider, {
-        isReady: true,
-        authMode: 'api_key',
-        readinessState: 'ready',
-        credentialSourceCategory: 'env_var',
-        credentialSourceLabel: 'ANTHROPIC_API_KEY',
-        authSource: 'ANTHROPIC_API_KEY',
-        statusLabel: 'Locally runnable via Anthropic API key',
-      })
-    }
+    return claudeReadiness(provider, env)
+  }
 
-    const credentialsPath = env.OWLFOLIO_CLAUDE_CREDENTIALS_PATH ?? defaultClaudeCredentialsPath()
-    if (await fileExists(credentialsPath)) {
-      return readinessFrom(provider, {
-        isReady: true,
-        authMode: 'cli_cached_session',
-        readinessState: 'ready',
-        credentialSourceCategory: 'configured_secret_file',
-        credentialSourceLabel: 'Claude subscription credentials',
-        authSource: 'Claude subscription credentials',
-        statusLabel: 'Locally runnable via Claude subscription credentials',
-      })
-    }
+  if (provider.provider_surface_id === 'openai-api') {
+    return openAIApiReadiness(provider, env)
+  }
 
+  if (provider.provider_surface_id === 'openai-codex-cli') {
+    return openAICodexCliReadiness(provider, env)
+  }
+
+  if (provider.provider_surface_id === 'gemini-developer-api') {
+    return geminiDeveloperApiReadiness(provider, env)
+  }
+
+  if (provider.provider_surface_id === 'gemini-cli') {
+    return geminiCliReadiness(provider, env)
+  }
+
+  if (provider.support_level === 'unsupported') {
+    return unsupportedSurfaceReadiness(provider, env)
+  }
+
+  throw new Error(`Readiness not implemented for provider: ${providerId}`)
+}
+
+async function claudeReadiness(provider: ProviderCatalogEntry, env: ProviderReadinessEnv): Promise<ProviderReadiness> {
+  if (env.ANTHROPIC_API_KEY !== undefined && env.ANTHROPIC_API_KEY.length > 0) {
     return readinessFrom(provider, {
-      isReady: false,
-      authMode: provider.auth_mode,
-      readinessState: 'missing_credentials',
-      credentialSourceCategory: 'missing',
-      authSource: 'missing',
-      statusLabel: 'Missing Claude credentials',
+      isReady: true,
+      authMode: 'api_key',
+      readinessState: 'ready',
+      credentialSourceCategory: 'env_var',
+      credentialSourceLabel: 'ANTHROPIC_API_KEY',
+      authSource: 'ANTHROPIC_API_KEY',
+      statusLabel: 'Locally runnable via Anthropic API key',
     })
   }
 
+  const credentialsPath = env.OWLFOLIO_CLAUDE_CREDENTIALS_PATH ?? defaultClaudeCredentialsPath()
+  if (await fileExists(credentialsPath)) {
+    return readinessFrom(provider, {
+      isReady: true,
+      authMode: 'cli_cached_session',
+      readinessState: 'ready',
+      credentialSourceCategory: 'configured_secret_file',
+      credentialSourceLabel: 'Claude subscription credentials',
+      authSource: 'Claude subscription credentials',
+      statusLabel: 'Locally runnable via Claude subscription credentials',
+    })
+  }
+
+  return readinessFrom(provider, {
+    isReady: false,
+    authMode: provider.auth_mode,
+    readinessState: 'missing_credentials',
+    credentialSourceCategory: 'missing',
+    authSource: 'missing',
+    statusLabel: 'Missing Claude credentials',
+  })
+}
+
+async function openAIApiReadiness(provider: ProviderCatalogEntry, env: ProviderReadinessEnv): Promise<ProviderReadiness> {
+  if (env.OPENAI_API_KEY !== undefined && env.OPENAI_API_KEY.length > 0) {
+    return readinessFrom(provider, {
+      isReady: true,
+      authMode: 'api_key',
+      readinessState: 'ready',
+      credentialSourceCategory: 'env_var',
+      credentialSourceLabel: 'OPENAI_API_KEY',
+      authSource: 'OPENAI_API_KEY',
+      statusLabel: 'Locally runnable via OpenAI API key; Codex CLI certification remains separate.',
+    })
+  }
+
+  return readinessFrom(provider, {
+    isReady: false,
+    authMode: 'api_key',
+    readinessState: 'missing_credentials',
+    credentialSourceCategory: 'missing',
+    authSource: 'missing',
+    statusLabel: 'Missing OpenAI API key; Codex CLI credentials do not certify the direct OpenAI API surface.',
+  })
+}
+
+async function openAICodexCliReadiness(provider: ProviderCatalogEntry, env: ProviderReadinessEnv): Promise<ProviderReadiness> {
   if (env.OPENAI_API_KEY !== undefined && env.OPENAI_API_KEY.length > 0) {
     return readinessFrom(provider, {
       isReady: true,
@@ -175,6 +227,137 @@ export async function getProviderReadiness(providerId: ProviderId, env: Provider
     credentialSourceCategory: 'missing',
     authSource: 'missing',
     statusLabel: 'Missing OpenAI / Codex credentials',
+  })
+}
+
+async function geminiCliReadiness(provider: ProviderCatalogEntry, env: ProviderReadinessEnv): Promise<ProviderReadiness> {
+  if (env.OWLFOLIO_GEMINI_CLI_STATUS === 'reauth-required') {
+    return readinessFrom(provider, {
+      isReady: false,
+      authMode: 'cli_cached_session',
+      readinessState: 'reauth_required',
+      credentialSourceCategory: 'default_cli_config',
+      credentialSourceLabel: 'Gemini CLI cached session',
+      authSource: 'Gemini CLI cached session',
+      statusLabel: 'Gemini CLI session requires reauthentication outside Owlfolio',
+    })
+  }
+
+  if (env.OWLFOLIO_GEMINI_CLI_STATUS === 'quota-limited') {
+    return readinessFrom(provider, {
+      isReady: false,
+      authMode: 'cli_cached_session',
+      readinessState: 'quota_limited',
+      credentialSourceCategory: 'default_cli_config',
+      credentialSourceLabel: 'Gemini CLI cached session',
+      authSource: 'Gemini CLI cached session',
+      statusLabel: 'Gemini CLI quota is limited or exhausted for this local session',
+      quotaStatus: 'limited',
+    })
+  }
+
+  const geminiAuthPath = env.OWLFOLIO_GEMINI_CLI_AUTH_PATH ?? defaultGeminiCliAuthPath(env)
+  if (await fileExists(geminiAuthPath)) {
+    return readinessFrom(provider, {
+      isReady: true,
+      authMode: 'cli_cached_session',
+      readinessState: 'ready',
+      credentialSourceCategory: 'configured_secret_file',
+      credentialSourceLabel: 'Gemini CLI Google sign-in session',
+      authSource: 'Gemini CLI Google sign-in session',
+      statusLabel: 'Locally runnable via Gemini CLI Google sign-in session; Developer API and Vertex certification remain separate.',
+    })
+  }
+
+  const apiKeyLabel = env.GEMINI_API_KEY !== undefined && env.GEMINI_API_KEY.length > 0
+    ? 'GEMINI_API_KEY'
+    : env.GOOGLE_API_KEY !== undefined && env.GOOGLE_API_KEY.length > 0
+      ? 'GOOGLE_API_KEY'
+      : undefined
+  if (apiKeyLabel !== undefined) {
+    return readinessFrom(provider, {
+      isReady: true,
+      authMode: 'api_key',
+      readinessState: 'ready',
+      credentialSourceCategory: 'env_var',
+      credentialSourceLabel: apiKeyLabel,
+      authSource: apiKeyLabel,
+      statusLabel: `Locally runnable through Gemini CLI with ${apiKeyLabel}; Developer API and Vertex certification remain separate.`,
+    })
+  }
+
+  return readinessFrom(provider, {
+    isReady: false,
+    authMode: 'cli_cached_session',
+    readinessState: 'missing_credentials',
+    credentialSourceCategory: 'missing',
+    authSource: 'missing',
+    statusLabel: 'Missing Gemini CLI Google sign-in session',
+    dataPolicySource: 'unknown',
+  })
+}
+
+async function geminiDeveloperApiReadiness(provider: ProviderCatalogEntry, env: ProviderReadinessEnv): Promise<ProviderReadiness> {
+  const apiKeyLabel = env.GEMINI_API_KEY !== undefined && env.GEMINI_API_KEY.length > 0
+    ? 'GEMINI_API_KEY'
+    : env.GOOGLE_API_KEY !== undefined && env.GOOGLE_API_KEY.length > 0
+      ? 'GOOGLE_API_KEY'
+      : undefined
+  if (apiKeyLabel !== undefined) {
+    return readinessFrom(provider, {
+      isReady: true,
+      authMode: 'api_key',
+      readinessState: 'ready',
+      credentialSourceCategory: 'env_var',
+      credentialSourceLabel: apiKeyLabel,
+      authSource: apiKeyLabel,
+      statusLabel: 'Locally runnable via Gemini Developer API key; separate from Gemini CLI / Google AI Pro sign-in and Vertex certification.',
+    })
+  }
+
+  if (env.GOOGLE_OAUTH_ACCESS_TOKEN !== undefined && env.GOOGLE_OAUTH_ACCESS_TOKEN.length > 0) {
+    return readinessFrom(provider, {
+      isReady: false,
+      authMode: 'oauth_browser_login',
+      readinessState: 'unsupported_surface',
+      credentialSourceCategory: 'env_var',
+      credentialSourceLabel: 'GOOGLE_OAUTH_ACCESS_TOKEN',
+      authSource: 'GOOGLE_OAUTH_ACCESS_TOKEN',
+      statusLabel: 'Google OAuth testing tokens are not accepted as Owlfolio provider credentials for Gemini Developer API certification.',
+    })
+  }
+
+  if (env.GOOGLE_APPLICATION_CREDENTIALS !== undefined && env.GOOGLE_APPLICATION_CREDENTIALS.length > 0) {
+    return readinessFrom(provider, {
+      isReady: false,
+      authMode: 'application_default_credentials',
+      readinessState: 'unsupported_surface',
+      credentialSourceCategory: 'application_default_credentials',
+      credentialSourceLabel: 'GOOGLE_APPLICATION_CREDENTIALS',
+      authSource: 'GOOGLE_APPLICATION_CREDENTIALS',
+      statusLabel: 'Google Application Default Credentials belong to the Vertex or cloud lane and do not certify the Gemini Developer API key surface.',
+    })
+  }
+
+  if (env.OWLFOLIO_GOOGLE_SERVICE_ACCOUNT_PATH !== undefined && env.OWLFOLIO_GOOGLE_SERVICE_ACCOUNT_PATH.length > 0) {
+    return readinessFrom(provider, {
+      isReady: false,
+      authMode: 'service_account',
+      readinessState: 'unsupported_surface',
+      credentialSourceCategory: 'service_account',
+      credentialSourceLabel: 'OWLFOLIO_GOOGLE_SERVICE_ACCOUNT_PATH',
+      authSource: 'OWLFOLIO_GOOGLE_SERVICE_ACCOUNT_PATH',
+      statusLabel: 'Google service-account credentials belong to the Vertex or enterprise lane and do not certify the Gemini Developer API key surface.',
+    })
+  }
+
+  return readinessFrom(provider, {
+    isReady: false,
+    authMode: 'api_key',
+    readinessState: 'missing_credentials',
+    credentialSourceCategory: 'missing',
+    authSource: 'missing',
+    statusLabel: 'Missing Gemini Developer API key; Gemini CLI sign-in, Vertex, and service-account credentials are separate surfaces.',
   })
 }
 
@@ -243,6 +426,8 @@ function readinessFrom(
     credentialSourceLabel?: string | undefined
     authSource: string
     statusLabel: string
+    quotaStatus?: ProviderCatalogEntry['billing']['quota_status']
+    dataPolicySource?: ProviderCatalogEntry['privacy']['data_policy_source']
   },
 ): ProviderReadiness {
   return {
@@ -260,8 +445,8 @@ function readinessFrom(
     status_label: values.statusLabel,
     billing_mode: provider.billing.billing_mode,
     quota_source: provider.billing.quota_source,
-    quota_status: provider.billing.quota_status,
-    data_policy_source: provider.privacy.data_policy_source,
+    quota_status: values.quotaStatus ?? provider.billing.quota_status,
+    data_policy_source: values.dataPolicySource ?? provider.privacy.data_policy_source,
     retention_or_zdr_status: provider.privacy.retention_or_zdr_status,
     headless_supported: provider.automation.headless_supported,
     scheduled_workflow_supported: provider.automation.scheduled_workflow_supported,
@@ -296,6 +481,14 @@ function defaultCodexAuthPath(env: Pick<ProviderReadinessEnv, 'CODEX_HOME'>): st
   }
 
   return join(homedir(), '.codex', 'auth.json')
+}
+
+function defaultGeminiCliAuthPath(env: Pick<ProviderReadinessEnv, 'GEMINI_HOME'>): string {
+  if (env.GEMINI_HOME !== undefined && env.GEMINI_HOME.length > 0) {
+    return join(env.GEMINI_HOME, '.gemini', 'oauth_creds.json')
+  }
+
+  return join(homedir(), '.gemini', 'oauth_creds.json')
 }
 
 async function fileExists(path: string): Promise<boolean> {

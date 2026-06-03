@@ -48,9 +48,13 @@ export type ProviderStatusRow = {
   catalog_support_level: ProviderSupportLevel
   effective_support_level: ProviderSupportLevel
   readiness_state: ProviderReadinessState
+  provider_readiness_state?: ProviderReadiness['readiness_state']
   is_ready: boolean
   auth_source: string
+  credential_source_category?: ProviderReadiness['credential_source_category']
+  credential_source_label?: ProviderReadiness['credential_source_label']
   status_label: string
+  reauth_action?: ProviderReadiness['reauth_action']
   model_role: string
   limitations: string[]
   capabilities: ProviderCatalogEntry['capabilities']
@@ -102,8 +106,8 @@ const roleMatrix: Record<ProviderId, { model_role: string; limitations: string[]
   'gemini-developer-api': {
     model_role: 'Direct API candidate',
     limitations: [
-      'Gemini Developer API adapter is modeled for future certification but is not implemented yet.',
-      'Must remain hidden from normal onboarding until adapter and certification evidence exist.',
+      'Gemini Developer API adapter supports structured research drafts, tool-call requests, and source-grounded citations through the direct API surface.',
+      'Free-tier/privacy posture remains not verified, so certified/production claims stay blocked until policy accepts the posture or a paid/ZDR posture is proven.',
     ],
   },
   'gemini-cli': {
@@ -162,8 +166,8 @@ export async function buildProviderStatusRows(options: ProviderStatusOptions = {
     const workflowRole = workflowRoleFor(provider)
     const latestReport = reportsByTarget.get(readinessTargetKey(provider, readiness, workflowRole))
       ?? legacyReportsByProvider.get(provider.provider_id)
-    const effectiveSupportLevel = effectiveSupportFrom(provider.support_level, latestReport)
-    const effectiveReadiness = effectiveReadinessFrom(readiness, latestReport)
+    const effectiveSupportLevel = effectiveSupportFrom(provider, latestReport)
+    const effectiveReadiness = effectiveReadinessFrom(provider, readiness, latestReport)
     const matrix = roleMatrix[provider.provider_id]
 
     return {
@@ -171,24 +175,28 @@ export async function buildProviderStatusRows(options: ProviderStatusOptions = {
       provider_surface_id: readiness.provider_surface_id ?? provider.provider_surface_id,
       vendor_id: readiness.vendor_id ?? provider.vendor_id,
       runtime_kind: readiness.runtime_kind ?? provider.runtime_kind,
-      auth_mode: readiness.auth_mode,
+      auth_mode: effectiveReadiness.auth_mode,
       workflow_role: workflowRole,
-      billing_mode: readiness.billing_mode ?? provider.billing.billing_mode,
-      quota_source: readiness.quota_source ?? provider.billing.quota_source,
-      quota_status: readiness.quota_status ?? provider.billing.quota_status,
-      data_policy_source: readiness.data_policy_source ?? provider.privacy.data_policy_source,
-      retention_or_zdr_status: readiness.retention_or_zdr_status ?? provider.privacy.retention_or_zdr_status,
-      headless_supported: readiness.headless_supported ?? provider.automation.headless_supported,
-      scheduled_workflow_supported: readiness.scheduled_workflow_supported ?? provider.automation.scheduled_workflow_supported,
-      automation_suitability: readiness.automation_suitability ?? provider.automation.automation_suitability,
+      billing_mode: effectiveReadiness.billing_mode ?? provider.billing.billing_mode,
+      quota_source: effectiveReadiness.quota_source ?? provider.billing.quota_source,
+      quota_status: effectiveReadiness.quota_status ?? provider.billing.quota_status,
+      data_policy_source: effectiveReadiness.data_policy_source ?? provider.privacy.data_policy_source,
+      retention_or_zdr_status: effectiveReadiness.retention_or_zdr_status ?? provider.privacy.retention_or_zdr_status,
+      headless_supported: effectiveReadiness.headless_supported ?? provider.automation.headless_supported,
+      scheduled_workflow_supported: effectiveReadiness.scheduled_workflow_supported ?? provider.automation.scheduled_workflow_supported,
+      automation_suitability: effectiveReadiness.automation_suitability ?? provider.automation.automation_suitability,
       label: provider.label,
       description: provider.description,
       catalog_support_level: provider.support_level,
       effective_support_level: effectiveSupportLevel,
       readiness_state: readinessStateFrom(effectiveReadiness, effectiveSupportLevel),
+      provider_readiness_state: effectiveReadiness.readiness_state,
       is_ready: effectiveReadiness.is_ready,
       auth_source: effectiveReadiness.auth_source,
+      credential_source_category: effectiveReadiness.credential_source_category,
+      credential_source_label: effectiveReadiness.credential_source_label,
       status_label: effectiveReadiness.status_label,
+      reauth_action: effectiveReadiness.reauth_action,
       model_role: matrix.model_role,
       limitations: matrix.limitations,
       capabilities: { ...provider.capabilities },
@@ -486,33 +494,74 @@ function supportTone(supportLevel: ProviderSupportLevel): ProviderStatusTone {
   return 'warning'
 }
 
-function effectiveSupportFrom(catalogSupportLevel: ProviderSupportLevel, latestReport: CertificationReport | undefined): ProviderSupportLevel {
+function effectiveSupportFrom(provider: ProviderCatalogEntry, latestReport: CertificationReport | undefined): ProviderSupportLevel {
   if (latestReport !== undefined) {
     return certificationReportBlocksExecution(latestReport) ? 'unsupported' : latestReport.support_level
   }
 
-  if (catalogSupportLevel === 'certified') {
+  if (!provider.visible_in_onboarding) {
+    return 'unsupported'
+  }
+
+  if (provider.support_level === 'certified') {
     return 'experimental'
   }
 
-  return catalogSupportLevel
+  return provider.support_level
 }
 
 function certificationReportBlocksExecution(report: CertificationReport): boolean {
   return report.run_status !== 'completed' || report.support_level === 'unsupported'
 }
 
-function effectiveReadinessFrom(readiness: ProviderReadiness, latestReport: CertificationReport | undefined): ProviderReadiness {
-  if (latestReport === undefined || !certificationReportBlocksExecution(latestReport)) {
+function effectiveReadinessFrom(provider: ProviderCatalogEntry, readiness: ProviderReadiness, latestReport: CertificationReport | undefined): ProviderReadiness {
+  if (latestReport === undefined) {
+    if (!provider.visible_in_onboarding) {
+      return {
+        ...readiness,
+        is_ready: false,
+        readiness_state: 'certification_blocked',
+        auth_source: readiness.auth_source === 'missing' ? readiness.auth_source : 'certification report',
+        status_label: 'No certification report recorded for this hidden/advanced provider surface.',
+      }
+    }
+
+    return readiness
+  }
+
+  if (!certificationReportBlocksExecution(latestReport)) {
     return readiness
   }
 
   return {
     ...readiness,
     is_ready: false,
+    readiness_state: readinessStateFromCertificationReport(latestReport),
+    ...(latestReport.run_status === 'quota-limited'
+      ? {
+          quota_status: 'limited' as const,
+          quota_source: readiness.quota_source ?? 'subscription_tier' as const,
+        }
+      : {}),
     auth_source: 'certification report',
     status_label: latestReport.not_run_reason ?? latestReport.summary,
   }
+}
+
+function readinessStateFromCertificationReport(report: CertificationReport): NonNullable<ProviderReadiness['readiness_state']> {
+  if (report.run_status === 'reauth-required') {
+    return 'reauth_required'
+  }
+
+  if (report.run_status === 'quota-limited') {
+    return 'quota_limited'
+  }
+
+  if (report.run_status === 'not-configured') {
+    return 'not_configured'
+  }
+
+  return 'certification_blocked'
 }
 
 function readinessStateFrom(readiness: ProviderReadiness, effectiveSupportLevel: ProviderSupportLevel): ProviderReadinessState {

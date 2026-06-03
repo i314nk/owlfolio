@@ -10,7 +10,9 @@ import {
   toCertificationLedgerPayload,
 } from '../certificationRunner'
 import { certificationScenarioIds } from '../certificationContract'
+import { GeminiDeveloperApiProvider } from '../geminiDeveloperApiProvider'
 import { MockProvider } from '../mockProvider'
+import { OpenAIAPIProvider } from '../openaiApiProvider'
 import { OpenAICodexCliProvider } from '../openaiCodexCliProvider'
 import type { Provider, ProviderCapabilities, ProviderCompletion, ProviderRunRequest, ProviderToolRun } from '../providerContract'
 
@@ -274,6 +276,161 @@ describe('provider certification runner', () => {
     expect(report.cases).toHaveLength(certificationScenarioIds.length)
     expect(report.cases.every((caseResult) => caseResult.status === 'not-run' && caseResult.passed === false)).toBe(true)
     expect(report.summary).toContain('Certification not run: Missing Claude credentials')
+  })
+
+  it('records Gemini Developer API target and grounding evidence but blocks certified support while privacy posture is free-tier or not verified', async () => {
+    const provider = new GeminiDeveloperApiProvider({
+      apiKey: 'secret-gemini-key',
+      fetch: async (_url, init) => {
+        const body = JSON.parse(String(init?.body ?? '{}'))
+        const wantsTools = Array.isArray(body.tools) && body.tools.some((tool: any) => Array.isArray(tool.functionDeclarations))
+        if (wantsTools) {
+          return Response.json({
+            candidates: [{
+              content: {
+                parts: [
+                  { functionCall: { name: 'source.fetch', args: { ticker: 'COST', url: 'https://example.test/cost' } } },
+                  { functionCall: { name: 'source.fetch', args: { ticker: 'MSFT', url: 'https://example.test/msft' } } },
+                ],
+              },
+              finishReason: 'STOP',
+            }],
+          })
+        }
+
+        const responseMimeType = body.generationConfig?.responseMimeType
+        if (responseMimeType === 'application/json') {
+          return Response.json({
+            candidates: [{
+              content: {
+                parts: [{ text: JSON.stringify({
+                  investment_verdict: body.contents?.[0]?.parts?.[0]?.text?.includes('MSFT') ? 'BUY' : 'WATCH',
+                  strategy_compliance: 'CONDITIONAL',
+                  shariah_status: 'COMPLIANT',
+                  valuation_status: 'FAIR',
+                  next_required_action: 'Review cited primary filings before watchlist confirmation.',
+                  source_ids: ['src_gemini_1'],
+                  source_records: [{ source_id: 'src_gemini_1', title: 'Costco FY2025 10-K', url: 'https://example.test/cost-10k-2025', excerpt: 'Costco filing excerpt.' }],
+                }) }],
+              },
+              groundingMetadata: {
+                groundingChunks: [{ web: { uri: 'https://example.test/cost-10k-2025', title: 'Costco FY2025 10-K' } }],
+                groundingSupports: [{ segment: { text: 'Costco filing excerpt.' }, groundingChunkIndices: [0] }],
+              },
+              finishReason: 'STOP',
+            }],
+          })
+        }
+
+        return Response.json({ candidates: [{ content: { parts: [{ text: 'Gemini certification heartbeat ok.' }] }, finishReason: 'STOP' }] })
+      },
+    })
+
+    const report = await runProviderCertification(provider, {
+      generated_at: fixedGeneratedAt,
+      model_id: 'gemini-2.5-pro',
+      timeout_ms: 1_000,
+      provider_surface_id: 'gemini-developer-api',
+      vendor_id: 'google-gemini',
+      runtime_kind: 'direct_api',
+      auth_mode: 'api_key',
+      workflow_role: 'research_draft',
+    })
+
+    expect(report).toMatchObject({
+      provider_id: 'gemini-developer-api',
+      target: {
+        provider_surface_id: 'gemini-developer-api',
+        vendor_id: 'google-gemini',
+        runtime_kind: 'direct_api',
+        auth_mode: 'api_key',
+        model_id: 'gemini-2.5-pro',
+        workflow_role: 'research_draft',
+        schema_version: 1,
+      },
+      run_status: 'completed',
+      support_level: 'experimental',
+    })
+    const sourceGroundedCase = report.cases.find((caseResult) => caseResult.scenario_id === 'source-grounded-research-task')
+    expect(sourceGroundedCase).toMatchObject({
+      passed: true,
+      observed_provider_behavior: expect.stringContaining('grounding/citation evidence'),
+    })
+    expect(report.summary).toMatch(/privacy posture.*not verified|free-tier/i)
+    expect(JSON.stringify(report)).not.toContain('secret-gemini-key')
+  })
+
+  it('certifies OpenAI direct API with a target identity that cannot be confused with Codex CLI', async () => {
+    const provider = new OpenAIAPIProvider({
+      apiKey: 'secret-openai-api-key',
+      fetch: async (_url, init) => {
+        const body = JSON.parse(String(init?.body ?? '{}'))
+        const prompt = String(body.input ?? '')
+        const ticker = prompt.includes('MSFT') ? 'MSFT' : 'COST'
+        const sourceId = `src_openai_${ticker.toLowerCase()}_10k`
+
+        if (Array.isArray(body.tools) && body.tools.some((tool: any) => tool.name === 'source.fetch')) {
+          return Response.json({
+            id: `resp_openai_tool_${ticker.toLowerCase()}`,
+            output: [
+              { type: 'function_call', call_id: `call_${ticker.toLowerCase()}_source_fetch`, name: 'source.fetch', arguments: JSON.stringify({ ticker, filing: '10-K' }) },
+              { type: 'message', content: [{ type: 'output_text', text: 'OpenAI API requested Owlfolio-owned source fetching.' }] },
+            ],
+          })
+        }
+
+        if (body.text?.format?.type === 'json_schema') {
+          return Response.json({
+            id: `resp_openai_structured_${ticker.toLowerCase()}`,
+            output_text: JSON.stringify({
+              investment_verdict: ticker === 'MSFT' ? 'BUY' : 'WATCH',
+              strategy_compliance: 'CONDITIONAL',
+              shariah_status: 'COMPLIANT',
+              valuation_status: 'FAIR',
+              next_required_action: 'Review cited primary filings before watchlist confirmation.',
+              source_ids: [sourceId],
+              source_records: [{ source_id: sourceId, title: `${ticker} FY2025 10-K`, url: `https://example.test/${ticker.toLowerCase()}-10k-2025`, excerpt: `${ticker} filing excerpt.` }],
+            }),
+          })
+        }
+
+        return Response.json({ id: 'resp_openai_heartbeat', output_text: 'OpenAI direct API heartbeat ok.' })
+      },
+    })
+
+    const report = await runProviderCertification(provider, {
+      generated_at: fixedGeneratedAt,
+      model_id: 'gpt-4.1-mini',
+      timeout_ms: 1_000,
+      provider_surface_id: 'openai-api',
+      vendor_id: 'openai',
+      runtime_kind: 'direct_api',
+      auth_mode: 'api_key',
+      workflow_role: 'research_draft',
+    })
+    const serialized = JSON.stringify(report)
+
+    expect(report).toMatchObject({
+      certification_report_id: 'cert_openai-api_api_key_research_draft_gpt-4-1-mini_2026-06-01T00-00-00-000Z',
+      provider_id: 'openai-api',
+      target: {
+        provider_surface_id: 'openai-api',
+        vendor_id: 'openai',
+        runtime_kind: 'direct_api',
+        auth_mode: 'api_key',
+        model_id: 'gpt-4.1-mini',
+        workflow_role: 'research_draft',
+        schema_version: 1,
+      },
+      run_status: 'completed',
+      support_level: 'experimental',
+    })
+    expect(report.cases.find((caseResult) => caseResult.scenario_id === 'tool-call-round-trip')).toMatchObject({
+      passed: true,
+      details: expect.stringContaining('1 tool call'),
+    })
+    expect(serialized).not.toContain('openai-codex-cli')
+    expect(serialized).not.toContain('secret-openai-api-key')
   })
 
   it('redacts raw credential paths and secret-like values from not-configured certification reports', () => {

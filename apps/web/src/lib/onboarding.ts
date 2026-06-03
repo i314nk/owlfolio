@@ -104,10 +104,26 @@ export async function getProviderReadinessSnapshot(config: AppConfig, options: O
 
   return {
     provider_id: row.provider_id,
+    provider_surface_id: row.provider_surface_id,
+    vendor_id: row.vendor_id,
+    runtime_kind: row.runtime_kind,
+    ...(row.auth_mode === undefined ? {} : { auth_mode: row.auth_mode }),
+    ...(row.provider_readiness_state === undefined ? {} : { readiness_state: row.provider_readiness_state }),
+    ...(row.credential_source_category === undefined ? {} : { credential_source_category: row.credential_source_category }),
+    ...(row.credential_source_label === undefined ? {} : { credential_source_label: row.credential_source_label }),
     support_level: row.effective_support_level,
     is_ready: row.is_ready,
     auth_source: row.auth_source,
     status_label: row.status_label,
+    billing_mode: row.billing_mode,
+    quota_source: row.quota_source,
+    quota_status: row.quota_status,
+    data_policy_source: row.data_policy_source,
+    retention_or_zdr_status: row.retention_or_zdr_status,
+    headless_supported: row.headless_supported,
+    scheduled_workflow_supported: row.scheduled_workflow_supported,
+    automation_suitability: row.automation_suitability,
+    ...(row.reauth_action === undefined ? {} : { reauth_action: row.reauth_action }),
   }
 }
 

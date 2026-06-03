@@ -1,7 +1,9 @@
 import type { ProviderId, ProviderSupportLevel } from '@owlfolio/shared'
 
 import { ClaudeCliProvider } from './claudeCliProvider'
+import { GeminiDeveloperApiProvider } from './geminiDeveloperApiProvider'
 import { MockProvider } from './mockProvider'
+import { OpenAIAPIProvider } from './openaiApiProvider'
 import { OpenAICodexCliProvider } from './openaiCodexCliProvider'
 import type {
   ProviderAuthMode,
@@ -56,6 +58,8 @@ export type ProviderCatalogEntry = {
 const mockCapabilities = new MockProvider().capabilities
 const claudeCapabilities = new ClaudeCliProvider().capabilities
 const openAICapabilities = new OpenAICodexCliProvider().capabilities
+const openAIAPICapabilities = new OpenAIAPIProvider().capabilities
+const geminiDeveloperApiCapabilities = new GeminiDeveloperApiProvider({ apiKey: 'catalog-capability-placeholder' }).capabilities
 
 const unsupportedCapabilities: ProviderCapabilities = {
   'text-generation': 'unsupported',
@@ -176,19 +180,19 @@ const catalog: ProviderCatalogEntry[] = [
     vendor_id: 'openai',
     provider_family_id: 'openai',
     label: 'OpenAI API',
-    support_level: 'unsupported',
+    support_level: 'experimental',
     visible_in_onboarding: false,
-    description: 'Direct OpenAI API candidate modeled for future certification; adapter not implemented yet.',
+    description: 'Direct OpenAI API provider candidate behind separate certification gates from the Codex CLI surface.',
     runtime_kind: 'direct_api',
     auth_mode: 'api_key',
-    default_model_id: 'gpt-5.5',
+    default_model_id: 'gpt-4.1-mini',
     credential_source_categories: ['env_var'],
     billing: { billing_mode: 'platform_api_billing', quota_source: 'api_project', quota_status: 'unknown' },
     privacy: { data_policy_source: 'api_paid_no_training', retention_or_zdr_status: 'available_if_configured' },
-    automation: { headless_supported: true, scheduled_workflow_supported: false, automation_suitability: 'unsupported' },
+    automation: { headless_supported: true, scheduled_workflow_supported: false, automation_suitability: 'production_headless' },
     workflow_roles: ['research_draft', 'source_bundle_draft'],
-    role_capabilities: unsupportedRoleCapabilities,
-    capabilities: { ...unsupportedCapabilities },
+    role_capabilities: draftRoleCapabilities,
+    capabilities: { ...openAIAPICapabilities },
   },
   {
     provider_id: 'gemini-developer-api',
@@ -196,19 +200,26 @@ const catalog: ProviderCatalogEntry[] = [
     vendor_id: 'google-gemini',
     provider_family_id: 'google-gemini',
     label: 'Gemini Developer API',
-    support_level: 'unsupported',
+    support_level: 'experimental',
     visible_in_onboarding: false,
-    description: 'Gemini Developer API candidate modeled for future certification; adapter not implemented yet.',
+    description: 'Direct Gemini Developer API candidate with structured output, function calling, Google Search grounding, and URL context behind privacy/certification gates.',
     runtime_kind: 'direct_api',
     auth_mode: 'api_key',
     default_model_id: 'gemini-2.5-pro',
     credential_source_categories: ['env_var', 'application_default_credentials', 'service_account'],
     billing: { billing_mode: 'platform_api_billing', quota_source: 'api_project', quota_status: 'unknown' },
-    privacy: { data_policy_source: 'unknown', retention_or_zdr_status: 'not_verified' },
-    automation: { headless_supported: true, scheduled_workflow_supported: false, automation_suitability: 'unsupported' },
+    privacy: { data_policy_source: 'api_free_training_possible', retention_or_zdr_status: 'not_verified' },
+    automation: { headless_supported: true, scheduled_workflow_supported: false, automation_suitability: 'production_headless' },
     workflow_roles: ['research_draft', 'source_bundle_draft'],
-    role_capabilities: unsupportedRoleCapabilities,
-    capabilities: { ...unsupportedCapabilities },
+    role_capabilities: {
+      ...draftRoleCapabilities,
+      source_grounding: 'native',
+      citation_metadata: 'native',
+      url_context: 'native',
+      file_context: 'unsupported',
+      source_bundle_production: 'adapter',
+    },
+    capabilities: { ...geminiDeveloperApiCapabilities },
   },
   {
     provider_id: 'gemini-cli',
@@ -216,7 +227,7 @@ const catalog: ProviderCatalogEntry[] = [
     vendor_id: 'google-gemini',
     provider_family_id: 'google-gemini',
     label: 'Gemini CLI',
-    support_level: 'unsupported',
+    support_level: 'experimental',
     visible_in_onboarding: true,
     description: 'Gemini CLI Google sign-in surface modeled as a personal-local experimental lane; adapter not implemented yet.',
     runtime_kind: 'cli',
@@ -224,7 +235,7 @@ const catalog: ProviderCatalogEntry[] = [
     default_model_id: 'gemini-2.5-pro',
     credential_source_categories: ['default_cli_config', 'configured_secret_file'],
     billing: { billing_mode: 'subscription_entitlement', quota_source: 'subscription_tier', quota_status: 'unknown' },
-    privacy: { data_policy_source: 'subscription_workspace_policy', retention_or_zdr_status: 'not_verified' },
+    privacy: { data_policy_source: 'unknown', retention_or_zdr_status: 'not_verified' },
     automation: { headless_supported: false, scheduled_workflow_supported: false, automation_suitability: 'personal_local_interactive' },
     workflow_roles: ['research_draft', 'source_bundle_draft'],
     role_capabilities: unsupportedRoleCapabilities,

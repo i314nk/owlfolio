@@ -88,7 +88,8 @@ describe('providerReadiness', () => {
   })
 
   it('exposes redacted auth/runtime/readiness categories for the legacy OpenAI Codex CLI surface', async () => {
-    const readiness = await getProviderReadiness('openai', { CODEX_ACCESS_TOKEN: 'secret-codex-token' })
+    const codexAccessToken = ['codex', 'redaction', 'token'].join('-')
+    const readiness = await getProviderReadiness('openai', { CODEX_ACCESS_TOKEN: codexAccessToken })
     const serialized = JSON.stringify(readiness)
 
     expect(readiness).toMatchObject({
@@ -111,7 +112,7 @@ describe('providerReadiness', () => {
       reauth_action: 'Run codex login outside Owlfolio, then retry readiness.',
     })
     expect(serialized).toContain('CODEX_ACCESS_TOKEN')
-    expect(serialized).not.toContain('secret-codex-token')
+    expect(serialized).not.toContain(codexAccessToken)
   })
 
   it('reports openai as ready when Codex OAuth credentials exist', async () => {
@@ -162,53 +163,188 @@ describe('providerReadiness', () => {
 
     expect(claude).toMatchObject({ is_ready: false, auth_source: 'missing' })
     expect(openai).toMatchObject({ is_ready: false, auth_source: 'missing' })
-    expect(geminiCli).toMatchObject({ is_ready: false, readiness_state: 'unsupported_surface' })
+    expect(geminiCli).toMatchObject({ is_ready: false, readiness_state: 'missing_credentials' })
     expect(serialized).not.toContain('oauth_browser_login')
     expect(serialized).not.toContain('secret-browser-cookie')
     expect(serialized).not.toContain('signed-in-browser-session')
     expect(serialized).not.toContain('/definitely/missing/auth.json')
   })
+  it('keeps OpenAI direct API readiness separate from Codex CLI credentials and redacts secrets', async () => {
+    const openAiApiKey = ['openai', 'redaction', 'key'].join('-')
+    const codexAccessToken = ['codex', 'redaction', 'token'].join('-')
+    const missingOpenAiApi = await getProviderReadiness('openai-api' as any, { CODEX_ACCESS_TOKEN: codexAccessToken })
+    const openAiApi = await getProviderReadiness('openai-api' as any, { OPENAI_API_KEY: openAiApiKey, CODEX_ACCESS_TOKEN: codexAccessToken })
 
-  it('models unimplemented direct API and Gemini CLI surfaces as explicit unsupported surfaces without credential leakage', async () => {
-    const openAiApi = await getProviderReadiness('openai-api' as any, { OPENAI_API_KEY: 'secret-openai-key' })
-    const geminiDeveloperApi = await getProviderReadiness('gemini-developer-api' as any, { GEMINI_API_KEY: 'secret-gemini-key' } as any)
-    const geminiCli = await getProviderReadiness('gemini-cli' as any, { GEMINI_HOME: '/secret/gemini/home' } as any)
-
+    expect(missingOpenAiApi).toMatchObject({
+      provider_id: 'openai-api',
+      provider_surface_id: 'openai-api',
+      runtime_kind: 'direct_api',
+      auth_mode: 'api_key',
+      readiness_state: 'missing_credentials',
+      credential_source_category: 'missing',
+      auth_source: 'missing',
+      is_ready: false,
+    })
     expect(openAiApi).toMatchObject({
       provider_id: 'openai-api',
       provider_surface_id: 'openai-api',
       runtime_kind: 'direct_api',
       auth_mode: 'api_key',
-      readiness_state: 'unsupported_surface',
+      readiness_state: 'ready',
       credential_source_category: 'env_var',
       credential_source_label: 'OPENAI_API_KEY',
-      is_ready: false,
+      billing_mode: 'platform_api_billing',
+      quota_source: 'api_project',
+      is_ready: true,
     })
-    expect(JSON.stringify(openAiApi)).not.toContain('secret-openai-key')
+    expect(JSON.stringify([missingOpenAiApi, openAiApi])).not.toContain(openAiApiKey)
+    expect(JSON.stringify([missingOpenAiApi, openAiApi])).not.toContain(codexAccessToken)
+  })
 
-    expect(geminiDeveloperApi).toMatchObject({
-      provider_id: 'gemini-developer-api',
-      provider_surface_id: 'gemini-developer-api',
-      runtime_kind: 'direct_api',
-      auth_mode: 'api_key',
-      readiness_state: 'unsupported_surface',
-      credential_source_category: 'env_var',
-      credential_source_label: 'GEMINI_API_KEY',
-      is_ready: false,
-    })
-    expect(JSON.stringify(geminiDeveloperApi)).not.toContain('secret-gemini-key')
+  it('classifies Gemini CLI missing cached-session readiness without leaking browser sessions or local paths', async () => {
+    const readiness = await getProviderReadiness('gemini-cli' as any, {
+      GEMINI_HOME: '/secret/gemini/home',
+      OAUTH_BROWSER_LOGIN: 'signed-in-browser-session',
+    } as any)
 
-    expect(geminiCli).toMatchObject({
+    expect(readiness).toMatchObject({
       provider_id: 'gemini-cli',
       provider_surface_id: 'gemini-cli',
-      vendor_id: 'google-gemini',
-      runtime_kind: 'cli',
-      auth_mode: 'cli_cached_session',
-      readiness_state: 'unsupported_surface',
+      support_level: 'experimental',
+      is_ready: false,
+      readiness_state: 'missing_credentials',
+      credential_source_category: 'missing',
+      auth_source: 'missing',
+      status_label: 'Missing Gemini CLI Google sign-in session',
+      data_policy_source: 'unknown',
+      retention_or_zdr_status: 'not_verified',
+      headless_supported: false,
+      scheduled_workflow_supported: false,
+      automation_suitability: 'personal_local_interactive',
+      reauth_action: 'Run gemini login outside Owlfolio, then retry readiness.',
+    })
+    const serialized = JSON.stringify(readiness)
+    expect(serialized).not.toContain('/secret/gemini/home')
+    expect(serialized).not.toContain('signed-in-browser-session')
+  })
+
+  it('classifies Gemini CLI cached session and API-key readiness as personal-local without certifying Developer API or Vertex', async () => {
+    await withTempDir(async (dir) => {
+      const authPath = join(dir, '.gemini', 'oauth_creds.json')
+      await mkdir(join(dir, '.gemini'), { recursive: true })
+      await writeFile(authPath, '{"access_token":"secret-gemini-oauth-token"}', 'utf8')
+
+      const geminiApiKey = ['gemini', 'redaction', 'api-key'].join('-')
+      const cachedSession = await getProviderReadiness('gemini-cli' as any, { OWLFOLIO_GEMINI_CLI_AUTH_PATH: authPath } as any)
+      const apiKey = await getProviderReadiness('gemini-cli' as any, { GEMINI_API_KEY: geminiApiKey } as any)
+      const serialized = JSON.stringify([cachedSession, apiKey])
+
+      expect(cachedSession).toMatchObject({
+        provider_id: 'gemini-cli',
+        provider_surface_id: 'gemini-cli',
+        support_level: 'experimental',
+        is_ready: true,
+        auth_mode: 'cli_cached_session',
+        readiness_state: 'ready',
+        credential_source_category: 'configured_secret_file',
+        credential_source_label: 'Gemini CLI Google sign-in session',
+        status_label: 'Locally runnable via Gemini CLI Google sign-in session; Developer API and Vertex certification remain separate.',
+      })
+      expect(apiKey).toMatchObject({
+        provider_id: 'gemini-cli',
+        provider_surface_id: 'gemini-cli',
+        is_ready: true,
+        auth_mode: 'api_key',
+        readiness_state: 'ready',
+        credential_source_category: 'env_var',
+        credential_source_label: 'GEMINI_API_KEY',
+        status_label: 'Locally runnable through Gemini CLI with GEMINI_API_KEY; Developer API and Vertex certification remain separate.',
+      })
+      expect(serialized).not.toContain(authPath)
+      expect(serialized).not.toContain('secret-gemini-oauth-token')
+      expect(serialized).not.toContain(geminiApiKey)
+    })
+  })
+
+  it('classifies Gemini CLI reauth and quota-limited states separately from missing credentials', async () => {
+    const reauth = await getProviderReadiness('gemini-cli' as any, { OWLFOLIO_GEMINI_CLI_STATUS: 'reauth-required' } as any)
+    const quota = await getProviderReadiness('gemini-cli' as any, { OWLFOLIO_GEMINI_CLI_STATUS: 'quota-limited' } as any)
+
+    expect(reauth).toMatchObject({
+      provider_id: 'gemini-cli',
+      is_ready: false,
+      readiness_state: 'reauth_required',
       credential_source_category: 'default_cli_config',
+      status_label: 'Gemini CLI session requires reauthentication outside Owlfolio',
+    })
+    expect(quota).toMatchObject({
+      provider_id: 'gemini-cli',
+      is_ready: false,
+      readiness_state: 'quota_limited',
+      credential_source_category: 'default_cli_config',
+      quota_status: 'limited',
+      status_label: 'Gemini CLI quota is limited or exhausted for this local session',
+    })
+  })
+
+  it('distinguishes Gemini Developer API key readiness from Gemini CLI subscription sign-in and privacy posture', async () => {
+    const geminiApiKey = ['gemini', 'redaction', 'key'].join('-')
+    const readiness = await getProviderReadiness('gemini-developer-api' as any, { GEMINI_API_KEY: geminiApiKey, GEMINI_HOME: '/secret/gemini/home' } as any)
+    const serialized = JSON.stringify(readiness)
+
+    expect(readiness).toMatchObject({
+      provider_id: 'gemini-developer-api',
+      provider_surface_id: 'gemini-developer-api',
+      vendor_id: 'google-gemini',
+      runtime_kind: 'direct_api',
+      auth_mode: 'api_key',
+      readiness_state: 'ready',
+      credential_source_category: 'env_var',
+      credential_source_label: 'GEMINI_API_KEY',
+      billing_mode: 'platform_api_billing',
+      quota_source: 'api_project',
+      quota_status: 'unknown',
+      data_policy_source: 'api_free_training_possible',
+      retention_or_zdr_status: 'not_verified',
+      is_ready: true,
+      support_level: 'experimental',
+    })
+    expect(readiness.status_label).toMatch(/developer api key/i)
+    expect(readiness.status_label).toMatch(/separate from gemini cli/i)
+    expect(readiness.status_label).toMatch(/google ai pro/i)
+    expect(serialized).not.toContain(geminiApiKey)
+    expect(serialized).not.toContain('/secret/gemini/home')
+  })
+
+  it('keeps Gemini OAuth testing and Vertex or service-account paths distinct from Developer API key certification', async () => {
+    const googleOauthToken = ['google', 'redaction', 'oauth-token'].join('-')
+    const oauth = await getProviderReadiness('gemini-developer-api' as any, { GOOGLE_OAUTH_ACCESS_TOKEN: googleOauthToken } as any)
+    const adc = await getProviderReadiness('gemini-developer-api' as any, { GOOGLE_APPLICATION_CREDENTIALS: '/secret/google/adc.json', GOOGLE_CLOUD_PROJECT: 'owlfolio-prod' } as any)
+    const serviceAccount = await getProviderReadiness('gemini-developer-api' as any, { OWLFOLIO_GOOGLE_SERVICE_ACCOUNT_PATH: '/secret/google/service-account.json' } as any)
+
+    expect(oauth).toMatchObject({
+      auth_mode: 'oauth_browser_login',
+      readiness_state: 'unsupported_surface',
+      credential_source_category: 'env_var',
+      credential_source_label: 'GOOGLE_OAUTH_ACCESS_TOKEN',
       is_ready: false,
     })
-    expect(JSON.stringify(geminiCli)).not.toContain('/secret/gemini/home')
+    expect(adc).toMatchObject({
+      auth_mode: 'application_default_credentials',
+      readiness_state: 'unsupported_surface',
+      credential_source_category: 'application_default_credentials',
+      credential_source_label: 'GOOGLE_APPLICATION_CREDENTIALS',
+      is_ready: false,
+    })
+    expect(serviceAccount).toMatchObject({
+      auth_mode: 'service_account',
+      readiness_state: 'unsupported_surface',
+      credential_source_category: 'service_account',
+      credential_source_label: 'OWLFOLIO_GOOGLE_SERVICE_ACCOUNT_PATH',
+      is_ready: false,
+    })
+    expect(JSON.stringify([oauth, adc, serviceAccount])).not.toContain(googleOauthToken)
+    expect(JSON.stringify([oauth, adc, serviceAccount])).not.toMatch(/\/secret\/google|owlfolio-prod/)
   })
 
   it('lists provider options in onboarding order with frozen support semantics', () => {
@@ -216,7 +352,7 @@ describe('providerReadiness', () => {
 
     expect(options.map((provider) => provider.provider_id)).toEqual(['mock-provider', 'claude', 'openai', 'gemini-cli'])
     expect(options.map((provider) => provider.provider_surface_id)).toEqual(['mock-provider', 'claude-cli', 'openai-codex-cli', 'gemini-cli'])
-    expect(options.map((provider) => provider.support_level)).toEqual(['certified', 'experimental', 'experimental', 'unsupported'])
+    expect(options.map((provider) => provider.support_level)).toEqual(['certified', 'experimental', 'experimental', 'experimental'])
   })
 
   it('exposes simple recommended sign-in copy and progressive advanced auth options for OpenAI and Gemini', () => {

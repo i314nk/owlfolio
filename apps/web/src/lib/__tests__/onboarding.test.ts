@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { createNotConfiguredCertificationReport } from '@owlfolio/providers'
+import { createNotConfiguredCertificationReport, createQuotaLimitedCertificationReport, createReauthRequiredCertificationReport } from '@owlfolio/providers'
 import { describe, expect, it } from 'vitest'
 
 import { SQLiteEventStore } from '@owlfolio/ledger/sqliteEventStore'
@@ -82,6 +82,106 @@ describe('onboarding helpers', () => {
 
       expect(claudeOption?.description).toBe('CLI-backed real provider path behind readiness and certification checks.')
       expect(readiness.status_label).toBe('Claude subscription access disabled')
+    })
+  })
+
+  it('classifies OpenAI Codex CLI cached-session reauthentication from target certification without leaking secrets', async () => {
+    await withTempProject(async (projectDir) => {
+      const reportDir = join(projectDir, 'data', 'provider-certifications')
+      const authPath = join(projectDir, '.codex', 'auth.json')
+      await mkdir(reportDir, { recursive: true })
+      await mkdir(join(projectDir, '.codex'), { recursive: true })
+      await writeFile(authPath, '{"access_token":"real-cached-token"}', 'utf8')
+      await writeFile(join(reportDir, 'openai-codex-cli-reauth.latest.json'), JSON.stringify(createReauthRequiredCertificationReport({
+        provider_id: 'openai',
+        generated_at: '2026-06-03T00:00:00.000Z',
+        capabilities: unavailableProviderCapabilities(),
+        reason: 'cached session expired at /tmp/secret/codex/auth.json with CODEX_ACCESS_TOKEN=secret-token',
+        auth_mode: 'cli_cached_session',
+      })), 'utf8')
+
+      const readiness = await getProviderReadinessSnapshot(
+        {
+          ...(await getOnboardingState({ env: { OWLFOLIO_PROJECT_DIR: projectDir } })).config,
+          mode: 'personal-local',
+          provider: { provider_id: 'openai', support_level: 'experimental' },
+        },
+        {
+          env: {
+            OWLFOLIO_PROJECT_DIR: projectDir,
+            OWLFOLIO_CODEX_AUTH_PATH: authPath,
+          },
+        },
+      )
+
+      expect(readiness).toMatchObject({
+        provider_id: 'openai',
+        provider_surface_id: 'openai-codex-cli',
+        vendor_id: 'openai',
+        runtime_kind: 'cli',
+        auth_mode: 'cli_cached_session',
+        readiness_state: 'reauth_required',
+        credential_source_category: 'configured_secret_file',
+        credential_source_label: 'Codex OAuth credentials',
+        support_level: 'unsupported',
+        is_ready: false,
+        auth_source: 'certification report',
+        quota_status: 'unknown',
+        headless_supported: false,
+        scheduled_workflow_supported: false,
+        automation_suitability: 'personal_local_interactive',
+        reauth_action: 'Run codex login outside Owlfolio, then retry readiness.',
+      })
+      expect(readiness.status_label).toContain('[redacted-path]')
+      expect(JSON.stringify(readiness)).not.toContain('/tmp/secret/codex/auth.json')
+      expect(JSON.stringify(readiness)).not.toContain('secret-token')
+      expect(JSON.stringify(readiness)).not.toContain(authPath)
+      expect(JSON.stringify(readiness)).not.toContain('real-cached-token')
+    })
+  })
+
+  it('classifies OpenAI Codex CLI access-token quota limits as unready without leaking token values', async () => {
+    await withTempProject(async (projectDir) => {
+      const reportDir = join(projectDir, 'data', 'provider-certifications')
+      await mkdir(reportDir, { recursive: true })
+      await writeFile(join(reportDir, 'openai-codex-cli-quota.latest.json'), JSON.stringify(createQuotaLimitedCertificationReport({
+        provider_id: 'openai',
+        generated_at: '2026-06-03T00:00:00.000Z',
+        capabilities: unavailableProviderCapabilities(),
+        reason: 'quota exhausted for Bearer bearer-secret-token',
+        auth_mode: 'cli_access_token',
+      })), 'utf8')
+
+      const codexAccessToken = ['codex', 'redaction', 'token'].join('-')
+      const readiness = await getProviderReadinessSnapshot(
+        {
+          ...(await getOnboardingState({ env: { OWLFOLIO_PROJECT_DIR: projectDir } })).config,
+          mode: 'personal-local',
+          provider: { provider_id: 'openai', support_level: 'experimental' },
+        },
+        {
+          env: {
+            OWLFOLIO_PROJECT_DIR: projectDir,
+            CODEX_ACCESS_TOKEN: codexAccessToken,
+          },
+        },
+      )
+
+      expect(readiness).toMatchObject({
+        provider_id: 'openai',
+        provider_surface_id: 'openai-codex-cli',
+        auth_mode: 'cli_access_token',
+        readiness_state: 'quota_limited',
+        credential_source_category: 'env_var',
+        credential_source_label: 'CODEX_ACCESS_TOKEN',
+        is_ready: false,
+        auth_source: 'certification report',
+        quota_source: 'subscription_tier',
+        quota_status: 'limited',
+      })
+      expect(readiness.status_label).toContain('[redacted-secret]')
+      expect(JSON.stringify(readiness)).not.toContain('bearer-secret-token')
+      expect(JSON.stringify(readiness)).not.toContain(codexAccessToken)
     })
   })
 
@@ -176,3 +276,13 @@ describe('onboarding helpers', () => {
     })
   })
 })
+
+function unavailableProviderCapabilities() {
+  return {
+    'text-generation': 'native',
+    'structured-output': 'adapter',
+    'tool-function-calling': 'unsupported',
+    'streaming-observability': 'adapter',
+    'multi-step-tool-loop': 'unsupported',
+  } as const
+}
