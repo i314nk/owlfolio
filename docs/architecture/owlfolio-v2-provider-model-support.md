@@ -1,18 +1,21 @@
 # Owlfolio v2 provider/model support matrix
 
-Verified: 2026-06-01, from public provider documentation and the OpenRouter models API.
+Verified: 2026-06-03, from public provider documentation, OpenRouter model inventory, and Owlfolio phase-4 provider-surface implementation closeout.
 
 This document is a planning and certification handoff for the Owlfolio v2 provider-status UI, live certification lane, and alpha documentation. It does not certify a provider by itself. Owlfolio support labels must still be bounded by adapter implementation plus the latest certification report.
 
 ## Current implementation baseline
 
-The current v2 repo only has these catalog/runtime paths:
+The current v2 repo has these catalog/runtime paths:
 
 | Owlfolio provider id | Runtime path | Current catalog label | Current certification stance |
 |---|---|---:|---|
 | `mock-provider` | deterministic in-process provider | `certified` | Certified for the audited local/demo vertical slice and regression tests. |
 | `claude` | Claude CLI-backed adapter | `experimental` | Personal-local/dev path only until certification proves full workflow parity. |
-| `openai` | OpenAI Codex CLI-backed adapter | `experimental` | Personal-local/dev path only until certification proves full workflow parity. |
+| `openai` / `openai-codex-cli` | OpenAI Codex CLI-backed adapter | `experimental` | Personal-local/dev path only until certification proves full workflow parity. |
+| `openai-api` | Direct OpenAI API candidate | `experimental` | Adapter exists and is separate from Codex CLI; fail-closed until a target-specific latest certification report exists. |
+| `gemini-developer-api` | Direct Gemini Developer API candidate | `experimental` | Adapter exists and is separate from Gemini CLI; fail-closed until privacy/ZDR posture and target-specific certification are recorded. |
+| `gemini-cli` | Google/Gemini CLI onboarding lane | `experimental` | Setup/sign-in lane only; no execution adapter/certification yet. |
 
 ## Latest live certification evidence
 
@@ -22,11 +25,14 @@ Live harness run: 2026-06-02T05:58:15.260Z. Reports are persisted under `data/pr
 |---|---|---:|---|
 | `mock-provider` | `mock-provider.latest.json` | `certified` | Completed: 13/13 scenarios passed. |
 | `claude` | `claude.latest.json` | `unsupported` | Not configured: local Claude credentials exist, but live heartbeat reports Claude subscription access is disabled for Claude Code; use an Anthropic API key or enable access before rerunning certification. |
-| `openai` | `openai.latest.json` | `experimental` | Completed: 9/13 scenarios passed with Codex OAuth and `gpt-5.5`; unsupported tool-loop capabilities and one source-grounded timeout prevent certified status. |
+| `openai` / `openai-codex-cli` | `openai.latest.json` | `experimental` | Completed: 9/13 scenarios passed with Codex OAuth and `gpt-5.5`; unsupported tool-loop capabilities and one source-grounded timeout prevent certified status. |
+| `openai-api` | none recorded yet | `experimental` / fail-closed | Direct OpenAI API candidate must run target-specific certification before any certified/live support claim. |
+| `gemini-developer-api` | none recorded yet | `experimental` / fail-closed | Gemini Developer API candidate must run target-specific certification and record privacy/ZDR posture before any certified/live support claim. |
+| `gemini-cli` | none recorded yet | setup-only | No execution adapter/certification exists yet; onboarding must not imply runnable workflow execution. |
 
-Do not upgrade catalog/docs above this evidence: only the deterministic mock provider is certified; OpenAI Codex CLI is experimental; Claude CLI is currently unavailable in this environment despite credential-file presence.
+Do not upgrade catalog/docs above this evidence: only the deterministic mock provider is certified; OpenAI Codex CLI is experimental; Claude CLI is currently unavailable in this environment despite credential-file presence; OpenAI/Gemini direct API candidates and Gemini CLI remain fail-closed until target-specific reports exist.
 
-Direct API adapters such as `anthropic`, `openai-api`, `google`, `perplexity`, `openrouter`, `xai`, `deepseek`, `qwen`, or `local-openai-compatible` are candidates, not current certified Owlfolio providers.
+Additional direct API adapters such as `anthropic`, `perplexity`, `openrouter`, `xai`, `deepseek`, `qwen`, or `local-openai-compatible` are candidates, not current certified Owlfolio providers.
 
 ## Recommended support tiers
 
@@ -34,7 +40,7 @@ Direct API adapters such as `anthropic`, `openai-api`, `google`, `perplexity`, `
 |---|---|---|---|
 | Certified default now | `mock-provider` | Demo, tests, e2e regression, certification harness sanity checks. | Keep certified only because behavior is deterministic and covered by tests. |
 | Certified candidate, direct API | Anthropic direct API; OpenAI direct API | Core production candidates after adapters land: structured workflow, evidence analysis, final memo, Shariah/policy review. | Must pass all certified certification scenarios before catalog support is raised above experimental. |
-| Supported candidate | Google Gemini direct API; Perplexity/Sonar; OpenRouter | Complementary roles: long-document analysis, web/finance search/evidence bundles, fallback/benchmark routing. | May be shown as supported for specific roles only after role-specific harness reports pass. |
+| Supported candidate | Google Gemini direct API; Perplexity/Sonar; OpenRouter | Complementary roles: long-document analysis, web/finance search/evidence bundles, fallback/benchmark routing. | May be shown as supported for specific roles only after role-specific harness reports pass and privacy posture is recorded. |
 | Experimental/plugin | Claude CLI, OpenAI Codex CLI, xAI, DeepSeek, Qwen, local OpenAI-compatible stacks such as Ollama/vLLM | Personal-local/dev, comparison runs, cost-sensitive extraction, local/offline experiments. | Do not certify for final investment outputs or Shariah conclusions until direct adapter + role certification evidence exists. |
 
 ## Role suitability matrix

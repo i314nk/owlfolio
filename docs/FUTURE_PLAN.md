@@ -14,14 +14,16 @@ The v2 alpha establishes a local-first workflow spine:
 - Provider catalog, provider readiness checks, and latest certification reports as the support-label source of truth.
 - Mock provider certified for deterministic demo/test/e2e use.
 - OpenAI Codex CLI path experimental; Claude CLI path unsupported/not-configured in the current environment per latest certification evidence.
+- OpenAI and Gemini direct API candidates are modeled as separate experimental/fail-closed surfaces; they need target-specific latest certification reports before any certified/live execution claim.
+- Gemini CLI onboarding is modeled as a personal-local sign-in lane, but remains setup-only until an execution adapter and certification report exist.
 - Dry-run/mock-safe worker handlers for `review_reminder` and `watchlist_monitor`.
 - User-authored transitions for watchlist confirmations, holding opens, review decisions, purification payments, and other irreversible workflow actions.
 
 ## Near-term hardening priorities
 
 1. Production provider parity
-   - Implement direct API adapters for the highest-value production candidates.
-   - Certify providers by role, not by brand-level optimism.
+   - Run and record target-specific certification reports for the implemented OpenAI/Gemini direct API candidates before raising support claims.
+   - Certify providers by role/surface/auth/model, not by brand-level optimism.
    - Keep provider-authored drafts separate from user-authored ledger decisions.
    - Record provider id, model id/version, support tier, run id, source ids, and certification evidence on provider-authored proposals.
 

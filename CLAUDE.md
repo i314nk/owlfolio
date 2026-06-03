@@ -42,15 +42,19 @@ OWLFOLIO_PROVIDER_CERTIFICATION_DIR=$PWD/data/provider-certifications
 Current provider IDs:
 
 - `mock-provider`: certified deterministic demo/test provider.
-- `openai`: experimental OpenAI Codex CLI-backed path.
+- `openai` / `openai-codex-cli`: experimental OpenAI Codex CLI-backed personal-local path.
 - `claude`: experimental Claude CLI-backed path, but the latest local certification report marks it unsupported/not-configured in this environment.
+- `openai-api`: direct OpenAI API candidate; locally runnable with `OPENAI_API_KEY` but fail-closed until target-specific latest certification is recorded.
+- `gemini-developer-api`: direct Gemini Developer API candidate; experimental/fail-closed until privacy posture and target-specific latest certification are recorded.
+- `gemini-cli`: Google/Gemini CLI sign-in onboarding lane; setup-only until an execution adapter and certification report exist.
 
-Provider claims must be bounded by `data/provider-certifications/*.latest.json` and `docs/architecture/owlfolio-v2-provider-model-support.md`. Do not describe direct Anthropic/OpenAI/Gemini/etc. API adapters as implemented or certified until corresponding adapters and reports exist.
+Provider claims must be bounded by `data/provider-certifications/*.latest.json` and `docs/architecture/owlfolio-v2-provider-model-support.md`. Do not describe any direct API or CLI surface as certified/live/autonomous until a corresponding target-specific latest report exists and passes the required scenarios.
 
 Credential/readiness checks use:
 
 - Claude: `ANTHROPIC_API_KEY` or `OWLFOLIO_CLAUDE_CREDENTIALS_PATH` / default Claude credentials.
 - OpenAI/Codex: `OPENAI_API_KEY`, `CODEX_ACCESS_TOKEN`, `OWLFOLIO_CODEX_AUTH_PATH`, or `CODEX_HOME`.
+- Gemini: `GEMINI_API_KEY` / `GOOGLE_API_KEY` for the Developer API candidate; `GEMINI_HOME`, `OWLFOLIO_GEMINI_CLI_AUTH_PATH`, and `OWLFOLIO_GEMINI_CLI_STATUS` for the setup-only CLI lane.
 
 Readiness is not certification. If a latest certification report is `not-configured`, `unsupported`, or `experimental`, UI/docs should say so even if a credential file exists.
 

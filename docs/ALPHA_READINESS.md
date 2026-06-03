@@ -1,7 +1,7 @@
 # Owlfolio v2 alpha readiness
 
-Date: 2026-06-02
-Scope: final alpha-readiness gate for the TypeScript/pnpm Owlfolio v2 branch.
+Date: 2026-06-03
+Scope: final alpha-readiness gate for the TypeScript/pnpm Owlfolio v2 branch after phase-4 provider-surface closeout.
 
 ## Release position
 
@@ -27,13 +27,16 @@ Owlfolio v2 alpha is a local-first workflow demo and personal-local operating-le
 
 Latest persisted reports are under `data/provider-certifications/` and are summarized in `docs/architecture/owlfolio-v2-provider-model-support.md`.
 
-| Provider id | Latest report | Effective alpha status | Notes |
+| Provider id / surface | Latest report | Effective alpha status | Notes |
 | --- | --- | --- | --- |
 | `mock-provider` | `mock-provider.latest.json` | Certified | Completed; 13/13 scenarios passed. Deterministic provider for demo/test/e2e only, not real research intelligence. |
-| `openai` | `openai.latest.json` | Experimental | Completed; 9/13 scenarios passed with Codex CLI/OAuth. Unsupported tool-loop capabilities and a source-grounded timeout block certified status. |
+| `openai` / `openai-codex-cli` | `openai.latest.json` | Experimental | Completed; 9/13 scenarios passed with Codex CLI/OAuth. Unsupported tool-loop capabilities and a source-grounded timeout block certified status. Personal-local only; not production/headless certification. |
 | `claude` | `claude.latest.json` | Unsupported/not configured in this environment | Latest report says Claude Code subscription access is disabled. A credential-file presence check is not enough to claim readiness. |
+| `openai-api` | none recorded yet | Experimental candidate / fail-closed | Direct OpenAI API adapter is modeled separately from Codex CLI and can be locally runnable with `OPENAI_API_KEY`, but it has no target-specific latest certification report yet. |
+| `gemini-developer-api` | none recorded yet | Experimental candidate / fail-closed | Gemini Developer API adapter is modeled separately from Gemini CLI; privacy/ZDR posture and target-specific certification must be recorded before production/autonomous claims. |
+| `gemini-cli` | none recorded yet | Setup-only personal-local lane | UI/onboarding models Google/Gemini CLI sign-in as an experimental local lane, but no execution adapter/certification exists yet. |
 
-Provider claims must not exceed this evidence. Direct API adapters for Anthropic/OpenAI/Gemini/Perplexity/OpenRouter/xAI/DeepSeek/Qwen/local OpenAI-compatible servers remain future candidates until implemented and certified.
+Provider claims must not exceed this evidence. OpenAI and Gemini direct API candidates are implemented as bounded experimental surfaces, not certified live providers. Anthropic, Perplexity/OpenRouter/xAI/DeepSeek/Qwen/local OpenAI-compatible servers remain future candidates until implemented and certified.
 
 ## Shariah, accounting, and purification boundaries
 
@@ -68,11 +71,11 @@ NODE_OPTIONS=--disable-warning=ExperimentalWarning corepack pnpm --filter @owlfo
 corepack pnpm e2e
 ```
 
-Current gate result from this release task: green with a documented known warning.
+Current gate result from the 2026-06-03 phase-4 closeout: green with a documented known warning.
 
 - `git diff --check`: passed.
 - `corepack pnpm typecheck`: passed across the workspace.
-- `corepack pnpm test`: passed, 46 test files / 173 tests.
+- `corepack pnpm test`: passed, 49 test files / 258 tests.
 - `corepack pnpm lint`: passed; package lint scripts are placeholders where noted by the workspace.
 - `corepack pnpm audit --filter @owlfolio/web --prod --audit-level moderate`: passed, no known vulnerabilities.
 - `NODE_OPTIONS=--disable-warning=ExperimentalWarning corepack pnpm --filter @owlfolio/web exec next build`: passed.
@@ -84,7 +87,7 @@ Known warning observed during `next build`: Next/Turbopack emitted one NFT/impor
 
 Against the larger autonomous, Shariah-by-design investment workflow vision, these gaps remain after alpha:
 
-1. Production provider parity: direct API adapters and full workflow certification for real providers are not complete.
+1. Production provider parity: OpenAI/Gemini direct API candidates exist, but target-specific latest certification reports, privacy posture decisions, and full workflow certification for real providers are not complete.
 2. Autonomous discovery/research: the worker does not yet run production-grade discovery, research, valuation, or review jobs with real provider cost/timeout controls.
 3. Evidence ingestion: filings, broker statements, dividends, market data freshness, and source-ledger provenance need hardened ingestion paths beyond current local/demo flows.
 4. Broker/account integration: no broker credentials, broker sync, order placement, settlement tracking, dividend import, or cash reconciliation.

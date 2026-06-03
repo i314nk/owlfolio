@@ -33,7 +33,7 @@ Built alpha surfaces:
 - Provider status page using latest certification reports.
 - Local worker for dry-run scheduled `review_reminder` and `watchlist_monitor` tasks.
 
-Full-v2 gaps are tracked honestly in `docs/ALPHA_READINESS.md`: real direct API
+Full-v2 gaps are tracked honestly in `docs/ALPHA_READINESS.md`: certified direct API
 provider parity, autonomous discovery/research at production quality, broker
 sync/trading, cash/dividend ingestion, tax-grade accounting, formal Shariah
 scholar review, and non-Buffett strategy certification are not complete.
@@ -103,17 +103,22 @@ Owlfolio distinguishes provider readiness from provider certification.
 | Provider id | Current role | Latest alpha support |
 | --- | --- | --- |
 | `mock-provider` | Deterministic demo/test provider | Certified; latest report passes 13/13 scenarios. |
-| `openai` | OpenAI Codex CLI-backed development path | Experimental; latest report passes 9/13 scenarios and lacks certified tool-loop parity. |
+| `openai` / `openai-codex-cli` | OpenAI Codex CLI-backed development path | Experimental personal-local path; latest report passes 9/13 scenarios and lacks certified tool-loop parity. |
 | `claude` | Claude CLI-backed development path | Unsupported/not-configured in this environment; latest report says Claude Code subscription access is disabled. |
+| `openai-api` | Direct OpenAI API candidate | Experimental and fail-closed until a target-specific latest certification report is recorded. |
+| `gemini-developer-api` | Direct Gemini Developer API candidate | Experimental and fail-closed until privacy posture and target-specific certification are recorded. |
+| `gemini-cli` | Google/Gemini CLI sign-in onboarding lane | Setup-only personal-local lane; execution adapter/certification is not implemented yet. |
 
-Direct Anthropic/OpenAI/Gemini/Perplexity/OpenRouter/xAI/DeepSeek/Qwen/local
-API adapters are candidates, not certified Owlfolio providers, until adapters
-and certification reports exist.
+Direct OpenAI and Gemini API adapters are present as bounded candidates, not
+certified Owlfolio providers, until target-specific latest certification reports
+exist. Direct Anthropic/Perplexity/OpenRouter/xAI/DeepSeek/Qwen/local API
+adapters remain future candidates until implemented and certified.
 
 Readiness inputs:
 
 - Claude: `ANTHROPIC_API_KEY` or Claude credential file (`OWLFOLIO_CLAUDE_CREDENTIALS_PATH`).
 - OpenAI/Codex: `OPENAI_API_KEY`, `CODEX_ACCESS_TOKEN`, `OWLFOLIO_CODEX_AUTH_PATH`, or `CODEX_HOME`.
+- Gemini: `GEMINI_API_KEY`/`GOOGLE_API_KEY` for the Developer API candidate, or `GEMINI_HOME`/`OWLFOLIO_GEMINI_CLI_AUTH_PATH` plus status flags for the setup-only CLI lane.
 
 Latest reports live in `data/provider-certifications/*.latest.json` and are the
 source of truth for support labels surfaced in docs/UI.
