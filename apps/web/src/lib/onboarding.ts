@@ -11,6 +11,7 @@ import { getProviderOptions, type ProviderReadiness } from './providerReadiness'
 import { buildProviderStatusRows } from './providerStatus'
 
 type OnboardingEnv = {
+  [key: string]: string | undefined
   OWLFOLIO_PROJECT_DIR?: string
   OWLFOLIO_APP_CONFIG_PATH?: string
   OWLFOLIO_DEMO_LEDGER_PATH?: string
@@ -18,10 +19,15 @@ type OnboardingEnv = {
   OWLFOLIO_PROVIDER_CERTIFICATION_DIR?: string
   ANTHROPIC_API_KEY?: string
   OPENAI_API_KEY?: string
+  GEMINI_API_KEY?: string
+  GOOGLE_API_KEY?: string
   OWLFOLIO_CLAUDE_CREDENTIALS_PATH?: string
   CODEX_ACCESS_TOKEN?: string
   OWLFOLIO_CODEX_AUTH_PATH?: string
   CODEX_HOME?: string
+  GEMINI_HOME?: string
+  OWLFOLIO_GEMINI_CLI_AUTH_PATH?: string
+  OWLFOLIO_GEMINI_CLI_STATUS?: string
 }
 
 type OnboardingOptions = {

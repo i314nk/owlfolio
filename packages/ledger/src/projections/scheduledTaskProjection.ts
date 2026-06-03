@@ -10,6 +10,8 @@ export type ScheduledTaskProjection = {
   enabled: boolean
   dry_run: boolean
   retry_policy?: { max_attempts?: number; retry_delay_ms?: number }
+  timeout_ms?: number
+  max_cost_usd?: number
   last_run_id?: string
   last_run_status: ScheduledTaskRunStatus
   last_started_at?: string
@@ -93,6 +95,14 @@ function newTaskFromDefinition(event: LedgerEventEnvelope<unknown>, payload: Rec
   if (retryPolicy !== undefined) {
     task.retry_policy = retryPolicy
   }
+  const timeoutMs = getNumber(payload, 'timeout_ms')
+  if (timeoutMs !== undefined) {
+    task.timeout_ms = timeoutMs
+  }
+  const maxCostUsd = getNumber(payload, 'max_cost_usd')
+  if (maxCostUsd !== undefined) {
+    task.max_cost_usd = maxCostUsd
+  }
   return task
 }
 
@@ -130,6 +140,14 @@ function applyDefinition(task: ScheduledTaskProjection, event: LedgerEventEnvelo
   const retryPolicy = getRetryPolicy(payload)
   if (retryPolicy !== undefined) {
     task.retry_policy = retryPolicy
+  }
+  const timeoutMs = getNumber(payload, 'timeout_ms')
+  if (timeoutMs !== undefined) {
+    task.timeout_ms = timeoutMs
+  }
+  const maxCostUsd = getNumber(payload, 'max_cost_usd')
+  if (maxCostUsd !== undefined) {
+    task.max_cost_usd = maxCostUsd
   }
   task.updated_at = event.created_at
 }

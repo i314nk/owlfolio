@@ -124,6 +124,62 @@ describe('purification ledger projection', () => {
     ])
   })
 
+  it('links obligations to dividend evidence without auto-paying them', () => {
+    const dividend = event({
+      event_id: 'evt_dividend_msft_june',
+      event_type: 'dividend_income_recorded',
+      aggregate_type: 'cash_account',
+      aggregate_id: 'cash_usd',
+      actor_type: 'user',
+      actor_id: 'user_local',
+      payload: {
+        dividend_id: 'div_msft_2026_06',
+        holding_id: 'holding_msft_001',
+        cash_account_id: 'cash_usd',
+        amount: 40,
+        currency: 'USD',
+        received_at: '2026-06-15',
+        taxable_status: 'unclassified',
+      },
+      source_ids: ['broker_dividend_notice_2026_06'],
+      created_at: '2026-06-15T09:00:00.000Z',
+    })
+    const obligation = buildPurificationObligationRecordedEvent({
+      obligation_id: 'purify_msft_dividend_2026_06',
+      holding_id: 'holding_msft_001',
+      amount: 2,
+      currency: 'USD',
+      period_start: '2026-06-01',
+      period_end: '2026-06-30',
+      reason: 'Manual dividend impurity estimate for tracking; not a fatwa or tax calculation.',
+      shariah_evaluation_id: 'shariah_msft_june',
+      accounting_snapshot_id: 'acct_2026_06',
+      dividend_event_id: 'evt_dividend_msft_june',
+      impurity_rate: 0.05,
+    }, {
+      event_id: 'evt_purify_msft_dividend_june',
+      actor_id: 'purification-worker',
+      created_at: '2026-07-01T00:05:00.000Z',
+      source_ids: ['acct_2026_06'],
+    })
+
+    const ledger = projectPurificationLedger([shariahEvaluation, accountingSnapshot, dividend, obligation])
+
+    expect(ledger.obligations[0]).toMatchObject({
+      obligation_id: 'purify_msft_dividend_2026_06',
+      dividend_event_id: 'evt_dividend_msft_june',
+      dividend_income_amount: 40,
+      impurity_rate: 0.05,
+      status: 'unpaid',
+      paid_amount: 0,
+      remaining_amount: 2,
+      audit_source_ids: ['acct_2026_06', 'src_msft_10k', 'src_shariah_screen', 'broker_dividend_notice_2026_06'],
+    })
+    expect(ledger.summary_by_currency).toEqual({
+      USD: { owed: 2, paid: 0, remaining: 2 },
+    })
+  })
+
   it('records explicit user payments and projects the remaining balance', () => {
     const obligation = buildPurificationObligationRecordedEvent({
       obligation_id: 'purify_msft_2026_06',

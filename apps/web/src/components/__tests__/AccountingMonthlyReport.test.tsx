@@ -19,7 +19,11 @@ function snapshot(overrides: Partial<AccountingSnapshotProjection> = {}): Accoun
     cash_balance: 0,
     deposits: 0,
     withdrawals: 0,
+    dividends: 0,
+    fees: 0,
+    net_cash_flow: 0,
     cash_ledger_status: 'placeholder',
+    cash_flows: [],
     missing_valuation_holding_ids: [],
     holdings: [
       {
@@ -84,6 +88,65 @@ describe('AccountingMonthlyReport', () => {
     expect(html).not.toContain('#047857')
     expect(html).not.toContain('#ecfdf5')
     expect(html).not.toContain('#f0fdf4')
+  })
+
+  it('renders ledger-backed cash, dividend, and fee flows separately from valuation state', () => {
+    const current = snapshot({
+      nav: 1457.5,
+      current_value: 250,
+      invested_cost_basis: 200,
+      unrealized_gain_loss: 50,
+      cash_balance: 1207.5,
+      deposits: 200,
+      withdrawals: 0,
+      dividends: 8.75,
+      fees: 1.25,
+      net_cash_flow: 207.5,
+      cash_ledger_status: 'ledger_backed',
+      cash_flows: [
+        { event_id: 'evt_cash_deposit_june', flow_type: 'deposit', amount: 200, currency: 'USD', occurred_at: '2026-06-05', cash_account_id: 'cash_usd', source_ids: [] },
+        { event_id: 'evt_dividend_cost_june', flow_type: 'dividend', amount: 8.75, currency: 'USD', occurred_at: '2026-06-15', cash_account_id: 'cash_usd', holding_id: 'holding_msft_001', source_ids: ['broker_dividend_notice_2026_06'] },
+        { event_id: 'evt_fee_june', flow_type: 'fee', amount: -1.25, currency: 'USD', occurred_at: '2026-06-20', cash_account_id: 'cash_usd', source_ids: [] },
+      ],
+      holdings: [
+        {
+          holding_id: 'holding_msft_001',
+          ticker: 'MSFT',
+          currency: 'USD',
+          shares: 2,
+          cost_basis: 200,
+          current_value: 250,
+          unrealized_gain_loss: 50,
+          valuation_status: 'valued',
+          latest_valuation_at: '2026-06-30',
+        },
+      ],
+    })
+
+    const html = renderToStaticMarkup(createElement(AccountingMonthlyReport, {
+      report: {
+        current_period_snapshot: current,
+        snapshot_history: [current],
+        limitations: ['Cash, dividends, and fees are ledger-backed local tracking aids, not broker statements or tax reports.'],
+      },
+    }))
+
+    expect(html).toContain('Cash balance (ledger-backed)')
+    expect(html).toContain('$1,207.50 (ledger_backed)')
+    expect(html).toContain('Deposits')
+    expect(html).toContain('$200.00')
+    expect(html).toContain('Dividends')
+    expect(html).toContain('$8.75')
+    expect(html).toContain('Fees')
+    expect(html).toContain('$1.25')
+    expect(html).toContain('Net cash flow')
+    expect(html).toContain('$207.50')
+    expect(html).toContain('Cash-flow ledger events')
+    expect(html).toContain('evt_dividend_cost_june')
+    expect(html).toContain('Dividend')
+    expect(html).toContain('broker_dividend_notice_2026_06')
+    expect(html).toContain('Cash ledger events: 3 period events linked')
+    expect(html).not.toContain('Fees and dividends are not modeled yet')
   })
 
   it('renders an honest zero-state with next steps and audit affordance previews', () => {

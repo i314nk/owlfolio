@@ -12,6 +12,8 @@ export type PurificationObligationInput = {
   reason?: string
   shariah_evaluation_id?: string
   accounting_snapshot_id?: string
+  dividend_event_id?: string
+  impurity_rate?: number
 }
 
 export type PurificationPaymentInput = {
@@ -32,6 +34,7 @@ export type PurificationObligationProjection = PurificationObligationInput & {
   accounting_nav?: number
   accounting_period_end?: string
   accounting_holding_value?: number
+  dividend_income_amount?: number
   audit_source_ids: string[]
   paid_amount: number
   remaining_amount: number
@@ -68,6 +71,15 @@ type AccountingSnapshotReference = {
   nav?: number
   period_end?: string
   holdings: Record<string, { current_value?: number }>
+}
+
+type DividendIncomeReference = {
+  event_id: string
+  dividend_id: string
+  holding_id?: string
+  amount?: number
+  currency?: string
+  source_ids: string[]
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -181,6 +193,38 @@ function accountingReferences(events: LedgerEventEnvelope<unknown>[]): Map<strin
   return references
 }
 
+function dividendReferences(events: LedgerEventEnvelope<unknown>[]): Map<string, DividendIncomeReference> {
+  const references = new Map<string, DividendIncomeReference>()
+
+  for (const event of events) {
+    if (event.event_type !== 'dividend_income_recorded' || !isRecord(event.payload)) {
+      continue
+    }
+    const dividendId = getString(event.payload, 'dividend_id') ?? event.aggregate_id
+    const reference: DividendIncomeReference = {
+      event_id: event.event_id,
+      dividend_id: dividendId,
+      source_ids: [...event.source_ids],
+    }
+    const holdingId = getString(event.payload, 'holding_id')
+    if (holdingId !== undefined) {
+      reference.holding_id = holdingId
+    }
+    const amount = getNumber(event.payload, 'amount')
+    if (amount !== undefined) {
+      reference.amount = amount
+    }
+    const currency = getString(event.payload, 'currency')
+    if (currency !== undefined) {
+      reference.currency = currency
+    }
+    references.set(event.event_id, reference)
+    references.set(dividendId, reference)
+  }
+
+  return references
+}
+
 function projectPayment(event: LedgerEventEnvelope<unknown>): PurificationPaymentProjection | undefined {
   if (event.event_type !== 'purification_payment_recorded' || !isRecord(event.payload)) {
     return undefined
@@ -211,6 +255,7 @@ function projectPayment(event: LedgerEventEnvelope<unknown>): PurificationPaymen
 export function projectPurificationLedger(events: LedgerEventEnvelope<unknown>[]): PurificationLedgerProjection {
   const shariahByEvaluationId = shariahReferences(events)
   const accountingBySnapshotId = accountingReferences(events)
+  const dividendById = dividendReferences(events)
   const payments = events.flatMap((event) => {
     const payment = projectPayment(event)
     return payment === undefined ? [] : [payment]
@@ -238,8 +283,11 @@ export function projectPurificationLedger(events: LedgerEventEnvelope<unknown>[]
 
     const shariahEvaluationId = getString(event.payload, 'shariah_evaluation_id')
     const accountingSnapshotId = getString(event.payload, 'accounting_snapshot_id')
+    const dividendEventId = getString(event.payload, 'dividend_event_id')
+    const impurityRate = getNumber(event.payload, 'impurity_rate')
     const shariahReference = shariahEvaluationId === undefined ? undefined : shariahByEvaluationId.get(shariahEvaluationId)
     const accountingReference = accountingSnapshotId === undefined ? undefined : accountingBySnapshotId.get(accountingSnapshotId)
+    const dividendReference = dividendEventId === undefined ? undefined : dividendById.get(dividendEventId)
     const paidAmount = roundMoney((paymentsByObligation.get(obligationId) ?? [])
       .filter((payment) => payment.currency === currency)
       .reduce((sum, payment) => sum + payment.amount, 0))
@@ -256,6 +304,8 @@ export function projectPurificationLedger(events: LedgerEventEnvelope<unknown>[]
       ...(reason === undefined ? {} : { reason }),
       ...(shariahEvaluationId === undefined ? {} : { shariah_evaluation_id: shariahEvaluationId }),
       ...(accountingSnapshotId === undefined ? {} : { accounting_snapshot_id: accountingSnapshotId }),
+      ...(dividendEventId === undefined ? {} : { dividend_event_id: dividendEventId }),
+      ...(impurityRate === undefined ? {} : { impurity_rate: impurityRate }),
       recorded_at: event.created_at,
       ...(shariahReference?.status === undefined ? {} : { shariah_status: shariahReference.status }),
       ...(shariahReference?.policy_basis === undefined ? {} : { shariah_policy_basis: shariahReference.policy_basis }),
@@ -263,7 +313,8 @@ export function projectPurificationLedger(events: LedgerEventEnvelope<unknown>[]
       ...(accountingReference?.nav === undefined ? {} : { accounting_nav: accountingReference.nav }),
       ...(accountingReference?.period_end === undefined ? {} : { accounting_period_end: accountingReference.period_end }),
       ...(accountingReference?.holdings[holdingId]?.current_value === undefined ? {} : { accounting_holding_value: accountingReference.holdings[holdingId].current_value }),
-      audit_source_ids: unique([...event.source_ids, ...(shariahReference?.source_ids ?? [])]),
+      ...(dividendReference?.amount === undefined ? {} : { dividend_income_amount: dividendReference.amount }),
+      audit_source_ids: unique([...event.source_ids, ...(shariahReference?.source_ids ?? []), ...(dividendReference?.source_ids ?? [])]),
       paid_amount: paidAmount,
       remaining_amount: remainingAmount,
       status: statusFor(amount, paidAmount),

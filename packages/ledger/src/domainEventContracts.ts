@@ -39,6 +39,8 @@ export const domainEventTypes = [
   'accounting_snapshot_recorded',
   'cash_deposited',
   'cash_withdrawn',
+  'dividend_income_recorded',
+  'fee_charged',
 ] as const
 
 export type DomainEventType = (typeof domainEventTypes)[number]
@@ -161,6 +163,9 @@ export const domainEventContracts: readonly DomainEventContract[] = [
       'cash_balance',
       'deposits',
       'withdrawals',
+      'dividends',
+      'fees',
+      'net_cash_flow',
       'currency',
     ],
   },
@@ -177,6 +182,20 @@ export const domainEventContracts: readonly DomainEventContract[] = [
     actor_type: 'user',
     projection_owner: 'accounting',
     payload_fields: ['cash_account_id', 'amount', 'currency', 'withdrawn_at'],
+  },
+  {
+    event_type: 'dividend_income_recorded',
+    aggregate_type: 'cash_account',
+    actor_type: 'user',
+    projection_owner: 'accounting',
+    payload_fields: ['dividend_id', 'holding_id', 'cash_account_id', 'amount', 'currency', 'received_at', 'taxable_status'],
+  },
+  {
+    event_type: 'fee_charged',
+    aggregate_type: 'cash_account',
+    actor_type: 'user',
+    projection_owner: 'accounting',
+    payload_fields: ['fee_id', 'cash_account_id', 'amount', 'currency', 'charged_at', 'fee_type'],
   },
 ] as const
 

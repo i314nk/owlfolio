@@ -23,6 +23,7 @@ import {
   type ProviderWorkflowRole,
 } from '@owlfolio/providers'
 import { defaultDemoAppConfig, type AppConfig } from '@owlfolio/shared'
+import { draftHoldingReview } from '@owlfolio/workflow/holdingReviewWorkflow'
 
 export type WorkerRuntimeEnv = {
   OWLFOLIO_APP_CONFIG_PATH?: string
@@ -86,6 +87,7 @@ type TaskResult = {
   result_summary: string
   observations: string[]
   provider_run_ids?: string[]
+  proposal_event_ids?: string[]
   approval_gates?: string[]
   human_approval_required?: boolean
   events_appended?: number
@@ -102,6 +104,8 @@ type ScheduledTaskPayload = {
   enabled: boolean
   dry_run: true
   retry_policy: { max_attempts: number; retry_delay_ms: number }
+  timeout_ms?: number
+  max_cost_usd?: number
   safety: {
     mock_safe: true
     auto_approve_investment_actions: false
@@ -111,6 +115,8 @@ type ScheduledTaskPayload = {
 
 const WORKER_ACTOR_ID = 'owlfolio-worker'
 const DEFAULT_RETRY_DELAY_MS = 5 * 60 * 1000
+const HOLDING_REVIEW_TIMEOUT_MS = 120_000
+const HOLDING_REVIEW_MAX_COST_USD = 0.25
 const HOLDING_REVIEW_APPROVAL_GATE = 'holding_review_requires_user_confirmation'
 const OPEN_HOLDING_APPROVAL_GATE = 'open_holding_requires_user_confirmation'
 
@@ -403,6 +409,21 @@ function defaultTaskDefinitions(): ScheduledTaskPayload[] {
         auto_approve_portfolio_actions: false,
       },
     },
+    {
+      scheduled_task_id: 'task_holding_review_drafts_daily',
+      task_kind: 'holding_review_draft',
+      cadence: '0 10 * * 1-5',
+      enabled: true,
+      dry_run: true,
+      retry_policy: { max_attempts: 2, retry_delay_ms: DEFAULT_RETRY_DELAY_MS },
+      timeout_ms: HOLDING_REVIEW_TIMEOUT_MS,
+      max_cost_usd: HOLDING_REVIEW_MAX_COST_USD,
+      safety: {
+        mock_safe: true,
+        auto_approve_investment_actions: false,
+        auto_approve_portfolio_actions: false,
+      },
+    },
   ]
 }
 
@@ -644,6 +665,53 @@ async function runWatchlistMonitorTask(
   }
 }
 
+function reviewIdFor(holdingId: string, asOf: string): string {
+  return `review_${holdingId}_${asOf.replace(/[^0-9]/g, '')}`
+}
+
+async function runHoldingReviewDraftTask(
+  store: EventStore<LedgerEventEnvelope<unknown>>,
+  options: TaskHandlerOptions,
+): Promise<TaskResult> {
+  if (options.provider === undefined || options.provider_readiness === undefined) {
+    throw new Error('holding_review_draft requires a certified provider readiness check before creating proposal events')
+  }
+  assertProviderReadyForExecution(options.provider, options.provider_readiness)
+
+  const events = await store.list()
+  const asOf = options.as_of ?? currentDate()
+  const dueHoldings = projectHoldings(events).filter((holding) => {
+    if (holding.pending_review_id !== undefined) {
+      return false
+    }
+    return holding.next_review_at !== undefined && holding.next_review_at <= asOf
+  })
+  const proposalEventIds: string[] = []
+  const observations: string[] = []
+  const modelId = options.provider_model_id ?? 'mock-buffett-munger-monitor'
+
+  for (const holding of dueHoldings) {
+    const draft = await draftHoldingReview(store, options.provider, {
+      holding_id: holding.holding_id,
+      review_id: reviewIdFor(holding.holding_id, asOf),
+      model_id: modelId,
+      causation_id: `evt_scheduled_task_run_started_${options.scheduled_task_run_id}`,
+      idempotency_key: `holding-review-draft:${holding.holding_id}:${asOf}`,
+    })
+    proposalEventIds.push(draft.event_id)
+    observations.push(`${holding.ticker ?? holding.company_id ?? holding.holding_id} holding review draft proposal created; confirmation requires user approval`)
+  }
+
+  return {
+    result_summary: `holding_review_draft dry-run: ${proposalEventIds.length} holding review draft proposal(s) created; no holding review confirmation or portfolio action taken`,
+    observations,
+    ...(proposalEventIds.length === 0 ? {} : { proposal_event_ids: proposalEventIds }),
+    approval_gates: [HOLDING_REVIEW_APPROVAL_GATE],
+    human_approval_required: proposalEventIds.length > 0,
+    events_appended: proposalEventIds.length,
+  }
+}
+
 async function runTaskHandler(
   store: EventStore<LedgerEventEnvelope<unknown>>,
   task: ScheduledTaskProjection,
@@ -655,6 +723,10 @@ async function runTaskHandler(
 
   if (task.task_kind === 'watchlist_monitor') {
     return runWatchlistMonitorTask(store, options)
+  }
+
+  if (task.task_kind === 'holding_review_draft') {
+    return runHoldingReviewDraftTask(store, options)
   }
 
   throw new Error(`Unsupported scheduled task kind: ${task.task_kind}`)
@@ -738,6 +810,8 @@ export async function runScheduledTasks(
         run_id: runId,
         started_at: startedAt,
         attempt,
+        ...(task.timeout_ms === undefined ? {} : { timeout_ms: task.timeout_ms }),
+        ...(task.max_cost_usd === undefined ? {} : { max_cost_usd: task.max_cost_usd }),
         dry_run: true,
       },
       startedAt,
@@ -764,6 +838,7 @@ export async function runScheduledTasks(
           result_summary: taskResult.result_summary,
           observations: taskResult.observations,
           ...(taskResult.provider_run_ids === undefined ? {} : { provider_run_ids: taskResult.provider_run_ids }),
+          ...(taskResult.proposal_event_ids === undefined ? {} : { proposal_event_ids: taskResult.proposal_event_ids }),
           ...(taskResult.approval_gates === undefined ? {} : { approval_gates: taskResult.approval_gates }),
           human_approval_required: taskResult.human_approval_required ?? false,
           auto_approved_actions: 0,

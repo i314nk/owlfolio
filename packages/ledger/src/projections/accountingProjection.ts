@@ -1,8 +1,20 @@
 import type { LedgerEventEnvelope } from '../eventEnvelope'
 import { projectHoldings, type HoldingProjection } from './holdingProjection'
 
-export type CashLedgerStatus = 'placeholder'
+export type CashLedgerStatus = 'placeholder' | 'ledger_backed'
 export type AccountingHoldingValuationStatus = 'valued' | 'missing_valuation'
+export type AccountingCashFlowType = 'deposit' | 'withdrawal' | 'dividend' | 'fee'
+
+export type AccountingCashFlow = {
+  event_id: string
+  flow_type: AccountingCashFlowType
+  amount: number
+  currency: string
+  occurred_at: string
+  cash_account_id?: string
+  holding_id?: string
+  source_ids: string[]
+}
 
 export type AccountingSnapshotInput = {
   snapshot_id: string
@@ -36,7 +48,11 @@ export type AccountingSnapshotProjection = {
   cash_balance: number
   deposits: number
   withdrawals: number
+  dividends: number
+  fees: number
+  net_cash_flow: number
   cash_ledger_status: CashLedgerStatus
+  cash_flows: AccountingCashFlow[]
   missing_valuation_holding_ids: string[]
   holdings: AccountingHoldingSnapshot[]
   updated_at: string
@@ -57,6 +73,11 @@ function getString(payload: Record<string, unknown>, key: string): string | unde
   return typeof value === 'string' && value.length > 0 ? value : undefined
 }
 
+function getNumber(payload: Record<string, unknown>, key: string): number | undefined {
+  const value = payload[key]
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined
+}
+
 function eventDateForAccounting(event: LedgerEventEnvelope<unknown>): string {
   if (!isRecord(event.payload)) {
     return event.created_at.slice(0, 10)
@@ -70,7 +91,61 @@ function eventDateForAccounting(event: LedgerEventEnvelope<unknown>): string {
     return getString(event.payload, 'opened_at') ?? event.created_at.slice(0, 10)
   }
 
+  if (event.event_type === 'cash_deposited') {
+    return getString(event.payload, 'deposited_at') ?? event.created_at.slice(0, 10)
+  }
+
+  if (event.event_type === 'cash_withdrawn') {
+    return getString(event.payload, 'withdrawn_at') ?? event.created_at.slice(0, 10)
+  }
+
+  if (event.event_type === 'dividend_income_recorded') {
+    return getString(event.payload, 'received_at') ?? event.created_at.slice(0, 10)
+  }
+
+  if (event.event_type === 'fee_charged') {
+    return getString(event.payload, 'charged_at') ?? event.created_at.slice(0, 10)
+  }
+
   return event.created_at.slice(0, 10)
+}
+
+function cashFlowFromEvent(event: LedgerEventEnvelope<unknown>): AccountingCashFlow | undefined {
+  if (!isRecord(event.payload)) {
+    return undefined
+  }
+
+  const amount = getNumber(event.payload, 'amount')
+  const currency = getString(event.payload, 'currency')
+  if (amount === undefined || currency === undefined) {
+    return undefined
+  }
+
+  const cashAccountId = getString(event.payload, 'cash_account_id') ?? event.aggregate_id
+  const holdingId = getString(event.payload, 'holding_id')
+  const base = {
+    event_id: event.event_id,
+    currency,
+    occurred_at: eventDateForAccounting(event),
+    ...(cashAccountId === undefined ? {} : { cash_account_id: cashAccountId }),
+    ...(holdingId === undefined ? {} : { holding_id: holdingId }),
+    source_ids: [...event.source_ids],
+  }
+
+  if (event.event_type === 'cash_deposited') {
+    return { ...base, flow_type: 'deposit', amount: roundMoney(amount) }
+  }
+  if (event.event_type === 'cash_withdrawn') {
+    return { ...base, flow_type: 'withdrawal', amount: -roundMoney(amount) }
+  }
+  if (event.event_type === 'dividend_income_recorded') {
+    return { ...base, flow_type: 'dividend', amount: roundMoney(amount) }
+  }
+  if (event.event_type === 'fee_charged') {
+    return { ...base, flow_type: 'fee', amount: -roundMoney(amount) }
+  }
+
+  return undefined
 }
 
 function accountingHoldingFrom(holding: HoldingProjection): AccountingHoldingSnapshot {
@@ -112,20 +187,43 @@ export function projectAccountingSnapshot(
   const currentValue = roundMoney(holdings.reduce((sum, holding) => sum + (holding.current_value ?? 0), 0))
   const investedCostBasis = roundMoney(holdings.reduce((sum, holding) => sum + holding.cost_basis, 0))
   const unrealizedGainLoss = roundMoney(holdings.reduce((sum, holding) => sum + (holding.unrealized_gain_loss ?? 0), 0))
+  const asOfCashFlows = asOfEvents
+    .map(cashFlowFromEvent)
+    .filter((flow): flow is AccountingCashFlow => flow !== undefined && flow.currency === input.currency)
+  const cashFlows = asOfCashFlows.filter((flow) => flow.occurred_at >= input.period_start && flow.occurred_at <= input.period_end)
+  const cashBalance = roundMoney(asOfCashFlows.reduce((sum, flow) => sum + flow.amount, 0))
+  const deposits = roundMoney(cashFlows
+    .filter((flow) => flow.flow_type === 'deposit')
+    .reduce((sum, flow) => sum + flow.amount, 0))
+  const withdrawals = roundMoney(cashFlows
+    .filter((flow) => flow.flow_type === 'withdrawal')
+    .reduce((sum, flow) => sum + Math.abs(flow.amount), 0))
+  const dividends = roundMoney(cashFlows
+    .filter((flow) => flow.flow_type === 'dividend')
+    .reduce((sum, flow) => sum + flow.amount, 0))
+  const fees = roundMoney(cashFlows
+    .filter((flow) => flow.flow_type === 'fee')
+    .reduce((sum, flow) => sum + Math.abs(flow.amount), 0))
+  const netCashFlow = roundMoney(deposits - withdrawals + dividends - fees)
+  const nav = roundMoney(currentValue + cashBalance)
 
   return {
     snapshot_id: input.snapshot_id,
     period_start: input.period_start,
     period_end: input.period_end,
     currency: input.currency,
-    nav: currentValue,
+    nav,
     current_value: currentValue,
     invested_cost_basis: investedCostBasis,
     unrealized_gain_loss: unrealizedGainLoss,
-    cash_balance: 0,
-    deposits: 0,
-    withdrawals: 0,
-    cash_ledger_status: 'placeholder',
+    cash_balance: cashBalance,
+    deposits,
+    withdrawals,
+    dividends,
+    fees,
+    net_cash_flow: netCashFlow,
+    cash_ledger_status: asOfCashFlows.length > 0 ? 'ledger_backed' : 'placeholder',
+    cash_flows: cashFlows,
     missing_valuation_holding_ids: holdings
       .filter((holding) => holding.valuation_status === 'missing_valuation')
       .map((holding) => holding.holding_id),

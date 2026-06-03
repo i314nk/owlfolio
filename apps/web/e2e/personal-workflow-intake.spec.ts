@@ -91,6 +91,17 @@ test('personal-local mode can create the first research case from the command ce
   await expect(page.getByText('Required Shariah sources: src_msft_10k_2025, src_msft_proxy_2025, src_msft_q1_2026')).toBeVisible()
   await expect(page.getByRole('link', { name: `Research case ${researchCaseId}` })).toHaveAttribute('href', `/research/${researchCaseId}`)
 
+  await page.goto('/')
+  await expect(page.getByText('Approval queue')).toBeVisible()
+  await expect(page.getByText('1 pending proposal grouped by decision type')).toBeVisible()
+  await expect(page.getByText('Watchlist confirmations')).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'MSFT watchlist draft' })).toBeVisible()
+  await expect(page.getByText('Confirm MSFT as a user-approved watchlist item before worker monitoring or portfolio actions.')).toBeVisible()
+  await expect(page.getByRole('link', { name: /review and confirm watchlist draft/i })).toHaveAttribute('href', /\/watchlist#watch_msft_/)
+  await expect(page.getByRole('link', { name: /Audit event evt_watchlist_draft_created_watch_msft_/ })).toHaveAttribute('href', /\/audit\?event_id=evt_watchlist_draft_created_watch_msft_.*#evt_watchlist_draft_created_watch_msft_/)
+
+  await page.goto('/watchlist')
+
   await page.getByRole('button', { name: /confirm watchlist draft/i }).click()
 
   await expect(page).toHaveURL('/watchlist')
@@ -153,6 +164,13 @@ test('personal-local mode can create the first research case from the command ce
   await page.goto('/')
   await expect(page.getByText('Confirm the drafted strategy review for MSFT')).toBeVisible()
   await expect(page.locator('article').filter({ hasText: 'Pending user actions' }).getByText('1', { exact: true })).toBeVisible()
+  await expect(page.getByText('Approval queue')).toBeVisible()
+  await expect(page.getByText('Holding review decisions')).toBeVisible()
+  await expect(page.getByText('MSFT strategy review draft')).toBeVisible()
+  await expect(page.getByText('Provider proposes thesis health HEALTHY, action stance HOLD, next review 2026-09-30.')).toBeVisible()
+  await expect(page.getByRole('link', { name: /apply provider draft/i })).toHaveAttribute('href', /\/portfolio#holding_msft_/)
+  await expect(page.getByRole('link', { name: /reject provider draft/i })).toHaveAttribute('href', /\/portfolio#holding_msft_/)
+  await expect(page.getByRole('link', { name: /apply user override/i })).toHaveAttribute('href', /\/portfolio#holding_msft_/)
 
   await page.goto('/portfolio')
   await page.getByRole('button', { name: /apply provider draft/i }).click()

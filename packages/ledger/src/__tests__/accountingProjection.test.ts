@@ -185,6 +185,140 @@ describe('accounting snapshot projection', () => {
     })
   })
 
+  it('projects period-bounded cash, dividend, and fee ledger events into NAV without future leakage', () => {
+    const snapshot = projectAccountingSnapshot([
+      openedHolding,
+      event({
+        event_id: 'evt_cash_deposit_may',
+        event_type: 'cash_deposited',
+        aggregate_type: 'cash_account',
+        aggregate_id: 'cash_usd',
+        actor_type: 'user',
+        actor_id: 'user_local',
+        payload: {
+          cash_account_id: 'cash_usd',
+          amount: 1000,
+          currency: 'USD',
+          deposited_at: '2026-05-20',
+        },
+        created_at: '2026-05-20T09:00:00.000Z',
+      }),
+      event({
+        event_id: 'evt_cash_deposit_june',
+        event_type: 'cash_deposited',
+        aggregate_type: 'cash_account',
+        aggregate_id: 'cash_usd',
+        actor_type: 'user',
+        actor_id: 'user_local',
+        payload: {
+          cash_account_id: 'cash_usd',
+          amount: 200,
+          currency: 'USD',
+          deposited_at: '2026-06-05',
+        },
+        created_at: '2026-06-05T09:00:00.000Z',
+      }),
+      event({
+        event_id: 'evt_dividend_cost_june',
+        event_type: 'dividend_income_recorded',
+        aggregate_type: 'cash_account',
+        aggregate_id: 'cash_usd',
+        actor_type: 'user',
+        actor_id: 'user_local',
+        payload: {
+          dividend_id: 'div_cost_2026_06',
+          holding_id: 'holding_cost',
+          cash_account_id: 'cash_usd',
+          amount: 8.75,
+          currency: 'USD',
+          received_at: '2026-06-15',
+          taxable_status: 'unclassified',
+        },
+        source_ids: ['broker_dividend_notice_2026_06'],
+        created_at: '2026-06-15T09:00:00.000Z',
+      }),
+      event({
+        event_id: 'evt_fee_june',
+        event_type: 'fee_charged',
+        aggregate_type: 'cash_account',
+        aggregate_id: 'cash_usd',
+        actor_type: 'user',
+        actor_id: 'user_local',
+        payload: {
+          fee_id: 'fee_platform_2026_06',
+          cash_account_id: 'cash_usd',
+          amount: 1.25,
+          currency: 'USD',
+          charged_at: '2026-06-20',
+          fee_type: 'platform',
+        },
+        created_at: '2026-06-20T09:00:00.000Z',
+      }),
+      event({
+        event_id: 'evt_holding_valuation_cost_june',
+        event_type: 'holding_valuation_recorded',
+        aggregate_type: 'holding',
+        aggregate_id: 'holding_cost',
+        actor_type: 'user',
+        actor_id: 'user_local',
+        payload: {
+          snapshot_id: 'valuation_cost_june',
+          holding_id: 'holding_cost',
+          price_per_share: 125,
+          shares: 2,
+          market_value: 250,
+          currency: 'USD',
+          valued_at: '2026-06-30',
+          valuation_source: 'manual',
+        },
+        created_at: '2026-06-30T12:00:00.000Z',
+      }),
+      event({
+        event_id: 'evt_dividend_cost_july',
+        event_type: 'dividend_income_recorded',
+        aggregate_type: 'cash_account',
+        aggregate_id: 'cash_usd',
+        actor_type: 'user',
+        actor_id: 'user_local',
+        payload: {
+          dividend_id: 'div_cost_2026_07',
+          holding_id: 'holding_cost',
+          cash_account_id: 'cash_usd',
+          amount: 10,
+          currency: 'USD',
+          received_at: '2026-07-01',
+          taxable_status: 'unclassified',
+        },
+        created_at: '2026-07-01T09:00:00.000Z',
+      }),
+    ], {
+      snapshot_id: 'acct_2026_06',
+      period_start: '2026-06-01',
+      period_end: '2026-06-30',
+      currency: 'USD',
+      recorded_at: '2026-06-30T23:59:00.000Z',
+    })
+
+    expect(snapshot).toMatchObject({
+      current_value: 250,
+      cash_balance: 1207.5,
+      deposits: 200,
+      withdrawals: 0,
+      dividends: 8.75,
+      fees: 1.25,
+      net_cash_flow: 207.5,
+      cash_ledger_status: 'ledger_backed',
+      nav: 1457.5,
+      cash_flows: [
+        expect.objectContaining({ event_id: 'evt_cash_deposit_june', flow_type: 'deposit', amount: 200 }),
+        expect.objectContaining({ event_id: 'evt_dividend_cost_june', flow_type: 'dividend', holding_id: 'holding_cost', amount: 8.75, source_ids: ['broker_dividend_notice_2026_06'] }),
+        expect.objectContaining({ event_id: 'evt_fee_june', flow_type: 'fee', amount: -1.25 }),
+      ],
+    })
+    expect(snapshot.cash_flows.map((flow) => flow.event_id)).not.toContain('evt_cash_deposit_may')
+    expect(snapshot.cash_flows.map((flow) => flow.event_id)).not.toContain('evt_dividend_cost_july')
+  })
+
   it('records and replays accounting snapshot events without mixing purification calculations', () => {
     const snapshot = projectAccountingSnapshot([openedHolding], {
       snapshot_id: 'acct_2026_06',

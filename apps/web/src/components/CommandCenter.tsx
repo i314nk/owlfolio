@@ -117,8 +117,145 @@ function createOperatingSurface(dashboard: AppCommandCenter) {
           : createElement(OwlButtonLink, { href: dashboard.secondary_action.href, variant: 'secondary' }, dashboard.secondary_action.label),
       ),
       createNextActionQueue(dashboard),
+      createApprovalQueue(dashboard),
     ),
   )
+}
+
+function createApprovalQueue(dashboard: AppCommandCenter) {
+  if (dashboard.approval_queue.length === 0) {
+    return null
+  }
+
+  const groups = groupApprovalQueue(dashboard.approval_queue)
+
+  return createElement(
+    'section',
+    {
+      'aria-label': 'Approval queue',
+      style: {
+        borderTop: '1px solid rgba(148, 163, 184, 0.18)',
+        display: 'grid',
+        gap: '1rem',
+        marginTop: '1.2rem',
+        paddingTop: '1.2rem',
+      },
+    },
+    createElement(
+      'div',
+      null,
+      createElement('p', { style: { color: '#7c8cff', fontFamily: 'var(--owl-font-mono)', fontSize: '0.78rem', fontWeight: 800, letterSpacing: '0.08em', margin: 0, textTransform: 'uppercase' } }, 'Approval queue'),
+      createElement(
+        'p',
+        { style: { color: '#9aa4b7', margin: '0.35rem 0 0' } },
+        `${dashboard.approval_queue.length} pending ${dashboard.approval_queue.length === 1 ? 'proposal' : 'proposals'} grouped by decision type`,
+      ),
+    ),
+    ...groups.map(([groupLabel, items]) => createApprovalGroup(groupLabel, items)),
+  )
+}
+
+function groupApprovalQueue(items: AppCommandCenter['approval_queue']): [string, AppCommandCenter['approval_queue']][] {
+  const groups = new Map<string, AppCommandCenter['approval_queue']>()
+  for (const item of items) {
+    const groupItems = groups.get(item.group_label) ?? []
+    groupItems.push(item)
+    groups.set(item.group_label, groupItems)
+  }
+  return [...groups.entries()]
+}
+
+function createApprovalGroup(groupLabel: string, items: AppCommandCenter['approval_queue']) {
+  return createElement(
+    'section',
+    {
+      key: groupLabel,
+      style: {
+        background: 'rgba(255, 255, 255, 0.026)',
+        border: '1px solid rgba(148, 163, 184, 0.14)',
+        borderRadius: '0.9rem',
+        display: 'grid',
+        gap: '0.75rem',
+        padding: '0.9rem',
+      },
+    },
+    createElement('h2', { style: { color: '#f7f8ff', fontSize: '1rem', margin: 0 } }, groupLabel),
+    ...items.map((item) => createApprovalQueueCard(item)),
+  )
+}
+
+function createApprovalQueueCard(item: AppCommandCenter['approval_queue'][number]) {
+  return createElement(
+    'article',
+    {
+      key: item.id,
+      style: {
+        background: 'rgba(5, 8, 15, 0.52)',
+        border: '1px solid rgba(124, 140, 255, 0.18)',
+        borderRadius: '0.85rem',
+        display: 'grid',
+        gap: '0.75rem',
+        padding: '0.9rem',
+      },
+    },
+    createElement('h3', { style: { color: '#f7f8ff', fontSize: '1.02rem', margin: 0 } }, item.title),
+    createElement(
+      'div',
+      { className: 'owl-activity-meta' },
+      createElement(SourceChip, { id: item.actor_label, label: 'Actor' }),
+      item.provider_report_id === undefined ? null : createElement(SourceChip, { id: item.provider_report_id, label: 'Provider report' }),
+      createElement(SourceChip, { href: auditEventHref(item.audit_event_id), id: item.audit_event_id, label: 'Audit event' }),
+      ...(item.source_ids.length === 0 ? [] : item.source_ids.map((sourceId) => createElement(SourceChip, { id: sourceId, key: `source:${sourceId}`, label: 'Source' }))),
+      ...((item.provider_run_ids ?? []).map((providerRunId) => createElement(SourceChip, { id: providerRunId, key: `provider-run:${providerRunId}`, label: 'Provider run' }))),
+    ),
+    createElement(
+      'div',
+      { style: { display: 'grid', gap: '0.55rem', gridTemplateColumns: 'repeat(auto-fit, minmax(14rem, 1fr))' } },
+      createApprovalDetail('Before', item.before_summary),
+      createApprovalDetail('After', item.after_summary),
+      createApprovalDetail('Shariah impact', item.shariah_impact),
+      createApprovalDetail('Accounting impact', item.accounting_impact),
+    ),
+    createApprovalActions(item),
+  )
+}
+
+function createApprovalDetail(label: string, value: string) {
+  return createElement(
+    'div',
+    {
+      style: {
+        background: 'rgba(255, 255, 255, 0.028)',
+        border: '1px solid rgba(148, 163, 184, 0.12)',
+        borderRadius: '0.7rem',
+        padding: '0.7rem',
+      },
+    },
+    createElement('p', { style: { color: '#9aa4b7', fontFamily: 'var(--owl-font-mono)', fontSize: '0.7rem', fontWeight: 800, letterSpacing: '0.08em', margin: '0 0 0.25rem', textTransform: 'uppercase' } }, label),
+    createElement('p', { style: { color: '#cbd5e1', margin: 0 } }, value),
+  )
+}
+
+function createApprovalActions(item: AppCommandCenter['approval_queue'][number]) {
+  const actions = [
+    item.approve_action_label === undefined ? undefined : { label: item.approve_action_label, variant: 'primary' as const },
+    item.reject_action_label === undefined ? undefined : { label: item.reject_action_label, variant: 'secondary' as const },
+    item.override_action_label === undefined ? undefined : { label: item.override_action_label, variant: 'secondary' as const },
+  ].filter((action): action is { label: string; variant: 'primary' | 'secondary' } => action !== undefined)
+
+  if (actions.length === 0) {
+    return createElement('div', { style: { display: 'flex', justifyContent: 'flex-start' } }, createElement(OwlButtonLink, { href: item.href, variant: 'secondary' }, 'Open audit details'))
+  }
+
+  return createElement(
+    'div',
+    { style: { display: 'flex', flexWrap: 'wrap', gap: '0.6rem' } },
+    ...actions.map((action) => createElement(OwlButtonLink, { href: item.href, key: action.label, variant: action.variant }, action.label)),
+  )
+}
+
+function auditEventHref(eventId: string): string {
+  return `/audit?event_id=${eventId}#${eventId}`
 }
 
 function createSecondaryReferenceModules(dashboard: AppCommandCenter) {

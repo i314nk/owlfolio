@@ -24,7 +24,10 @@ const report: AppPurificationReport = {
       accounting_nav: 2925,
       accounting_period_end: '2026-06-30',
       accounting_holding_value: 2925,
-      audit_source_ids: ['src_msft_10k', 'src_shariah_screen', 'acct_2026_06'],
+      dividend_event_id: 'evt_dividend_msft_june',
+      dividend_income_amount: 40,
+      impurity_rate: 0.05,
+      audit_source_ids: ['src_msft_10k', 'src_shariah_screen', 'acct_2026_06', 'broker_dividend_notice_2026_06'],
       paid_amount: 10,
       remaining_amount: 4.63,
       status: 'partially_paid',
@@ -67,6 +70,9 @@ describe('PurificationReport', () => {
     expect(html).toContain('src_msft_10k')
     expect(html).toContain('acct_2026_06')
     expect(html).toContain('NAV: $2,925.00')
+    expect(html).toContain('Dividend basis: $40.00 from evt_dividend_msft_june')
+    expect(html).toContain('Impurity rate: 5%')
+    expect(html).toContain('broker_dividend_notice_2026_06')
     expect(html).toContain('Payment action: record only after the user confirms an external payment')
     expect(html).toContain('Audit/source links preview')
     expect(html).toContain('Evidence checklist')

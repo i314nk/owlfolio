@@ -29,6 +29,8 @@ describe('Owlfolio v2 domain event boundary contracts', () => {
       'accounting_snapshot_recorded',
       'cash_deposited',
       'cash_withdrawn',
+      'dividend_income_recorded',
+      'fee_charged',
     ])
   })
 
@@ -57,6 +59,18 @@ describe('Owlfolio v2 domain event boundary contracts', () => {
     expect(contract('purification_payment_recorded')).toMatchObject({ aggregate_type: 'purification_entry', actor_type: 'user', projection_owner: 'purification' })
     expect(contract('accounting_snapshot_recorded')).toMatchObject({ aggregate_type: 'accounting_snapshot', actor_type: 'worker', projection_owner: 'accounting' })
     expect(contract('cash_deposited')).toMatchObject({ aggregate_type: 'cash_account', actor_type: 'user', projection_owner: 'accounting' })
+    expect(contract('dividend_income_recorded')).toMatchObject({
+      aggregate_type: 'cash_account',
+      actor_type: 'user',
+      projection_owner: 'accounting',
+      payload_fields: ['dividend_id', 'holding_id', 'cash_account_id', 'amount', 'currency', 'received_at', 'taxable_status'],
+    })
+    expect(contract('fee_charged')).toMatchObject({
+      aggregate_type: 'cash_account',
+      actor_type: 'user',
+      projection_owner: 'accounting',
+      payload_fields: ['fee_id', 'cash_account_id', 'amount', 'currency', 'charged_at', 'fee_type'],
+    })
     expect(contract('accounting_snapshot_recorded')?.payload_fields).toEqual([
       'snapshot_id',
       'period_start',
@@ -67,6 +81,9 @@ describe('Owlfolio v2 domain event boundary contracts', () => {
       'cash_balance',
       'deposits',
       'withdrawals',
+      'dividends',
+      'fees',
+      'net_cash_flow',
       'currency',
     ])
   })

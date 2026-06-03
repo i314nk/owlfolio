@@ -24,9 +24,10 @@ function parseRequestBody(body: unknown): { ticker: string; company_id?: string 
 
 export async function POST(request: Request) {
   try {
+    const runtimeOptions = { env: process.env }
     const state = await getOnboardingState()
     const parsed = parseRequestBody(await request.json())
-    const readiness = await getProviderReadinessSnapshot(state.config)
+    const readiness = await getProviderReadinessSnapshot(state.config, runtimeOptions)
 
     if (!readiness.is_ready) {
       return NextResponse.json(

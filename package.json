@@ -11,12 +11,20 @@
     "lint": "corepack pnpm -r lint",
     "typecheck": "tsc --noEmit -p tsconfig.json && corepack pnpm -r typecheck",
     "e2e": "NODE_OPTIONS=--disable-warning=ExperimentalWarning playwright test",
-    "certify:providers": "tsx scripts/certify-providers.mjs"
+    "certify:providers": "tsx scripts/certify-providers.mjs",
+    "ops:backup:inventory": "tsx scripts/owlfolio-local-backup-cli.ts inventory",
+    "ops:backup:manifest": "tsx scripts/owlfolio-local-backup-cli.ts manifest",
+    "ops:restore:dry-run": "tsx scripts/owlfolio-local-backup-cli.ts restore-dry-run",
+    "ops:restore:verify": "tsx scripts/owlfolio-local-backup-cli.ts verify-restore"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "@playwright/test": "1.60.0",
     "@types/node": "25.9.1",
+    "eslint": "^10.4.1",
+    "globals": "^17.6.0",
     "typescript": "6.0.3",
+    "typescript-eslint": "^8.60.1",
     "vitest": "4.1.7"
   }
 }

@@ -1,7 +1,12 @@
 import { existsSync } from 'node:fs'
 import { dirname, join, parse } from 'node:path'
 
-import { projectCommandCenterSummary, type CommandCenterHoldingReviewPrompt, type CommandCenterRecentActivity } from '@owlfolio/ledger/projections/commandCenterProjection'
+import {
+  projectCommandCenterSummary,
+  type CommandCenterApprovalQueueItem,
+  type CommandCenterHoldingReviewPrompt,
+  type CommandCenterRecentActivity,
+} from '@owlfolio/ledger/projections/commandCenterProjection'
 import type { LedgerEventEnvelope } from '@owlfolio/ledger/eventEnvelope'
 import type { EventStore } from '@owlfolio/ledger/eventStore'
 import { projectResearchCases, type ResearchCaseProjection } from '@owlfolio/ledger/projections/researchCaseProjection'
@@ -48,6 +53,7 @@ export type AppCommandCenter = {
   ledger_status: string
   pipeline_counts: PipelineCounts
   next_recommended_action: string
+  approval_queue: CommandCenterApprovalQueueItem[]
   holding_review_prompts: CommandCenterHoldingReviewPrompt[]
   accounting_alert?: CommandCenterAccountingAlert
   recent_activity: CommandCenterRecentActivity[]
@@ -176,6 +182,7 @@ export async function getSetupAwareCommandCenter({ config, is_initialized, provi
         pending_user_actions: 0,
       },
       next_recommended_action: 'Complete onboarding and initialize the personal local ledger',
+      approval_queue: [],
       holding_review_prompts: [],
       recent_activity: [{ event_id: 'placeholder:no-durable-ledger-events-yet', label: 'No durable ledger events yet' }],
       primary_action: { href: '/onboarding', label: 'Continue setup' },
@@ -201,6 +208,7 @@ export async function getSetupAwareCommandCenter({ config, is_initialized, provi
       next_recommended_action: summary.pipeline_counts.research_cases === 0
         ? 'Create or import your first research case'
         : summary.next_recommended_action,
+      approval_queue: summary.approval_queue,
       holding_review_prompts: summary.holding_review_prompts,
       ...(accountingAlert === undefined ? {} : { accounting_alert: accountingAlert }),
       recent_activity: summary.recent_activity.length === 0
@@ -233,6 +241,7 @@ function buildDemoCommandCenter(
     ledger_status: 'Ledger: SQLite durable event source',
     pipeline_counts: summary.pipeline_counts,
     next_recommended_action: summary.next_recommended_action,
+    approval_queue: summary.approval_queue,
     holding_review_prompts: summary.holding_review_prompts,
     ...(accountingAlert === undefined ? {} : { accounting_alert: accountingAlert }),
     recent_activity: summary.recent_activity,

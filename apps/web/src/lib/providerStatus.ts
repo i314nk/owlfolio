@@ -160,7 +160,6 @@ export async function buildProviderStatusRows(options: ProviderStatusOptions = {
   const legacyReportsByProvider = new Map(reports
     .filter((report) => (report as Partial<CertificationReport>).target === undefined)
     .map((report) => [report.provider_id, report]))
-
   return Promise.all(getProviderCatalog().map(async (provider) => {
     const readiness = await getProviderReadiness(provider.provider_id, options.env ?? {})
     const workflowRole = workflowRoleFor(provider)

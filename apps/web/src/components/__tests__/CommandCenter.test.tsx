@@ -35,6 +35,7 @@ function makeDashboard(overrides: Partial<AppCommandCenter> = {}): AppCommandCen
       pending_user_actions: 0,
     },
     next_recommended_action: 'Open latest research case',
+    approval_queue: [],
     holding_review_prompts: [],
     recent_activity: [],
     primary_action: { href: '/research/rc_cost_001', label: 'Open latest research case' },
@@ -376,6 +377,99 @@ describe('CommandCenter', () => {
     expect(html).toContain('Open holding review draft')
   })
 
+  it('renders a grouped approval queue with diffs, actors, evidence, and supported decisions', () => {
+    const dashboard: AppCommandCenter = {
+      ...makeDashboard({
+        pipeline_counts: {
+          research_cases: 2,
+          watchlist_drafts: 1,
+          confirmed_watchlist_items: 0,
+          open_holdings: 1,
+          pending_user_actions: 3,
+        },
+        next_recommended_action: 'Review pending proposals',
+        primary_action: { href: '/watchlist', label: 'Open watchlist drafts' },
+      }),
+      approval_queue: [
+        {
+          id: 'watchlist:wl_msft_001',
+          decision_type: 'watchlist_confirmation',
+          group_label: 'Watchlist confirmations',
+          title: 'MSFT watchlist draft',
+          actor_label: 'provider:mock-provider',
+          target_label: 'MSFT',
+          provider_report_id: 'report_mock_msft_2026_05',
+          href: '/watchlist#wl_msft_001',
+          audit_event_id: 'evt_watchlist_msft',
+          source_ids: ['src_msft_10k_2025', 'src_msft_proxy_2025'],
+          before_summary: 'MSFT is not user-confirmed for monitoring yet.',
+          after_summary: 'Confirm MSFT as a user-approved watchlist item before worker monitoring or portfolio actions.',
+          shariah_impact: 'COMPLIANT — allowed.',
+          accounting_impact: 'No accounting or holding state changes until a user opens a holding.',
+          approve_action_label: 'Review and confirm watchlist draft',
+        },
+        {
+          id: 'holding-review:holding_msft_001:review_msft_001',
+          decision_type: 'holding_review',
+          group_label: 'Holding review decisions',
+          title: 'MSFT strategy review draft',
+          actor_label: 'provider:mock-provider',
+          target_label: 'MSFT',
+          href: '/portfolio#holding_msft_001',
+          audit_event_id: 'evt_holding_review_msft',
+          source_ids: ['src_msft_10k_2025'],
+          before_summary: 'Current thesis health: WATCH; current action stance: RESEARCH_MORE.',
+          after_summary: 'Provider proposes thesis health HEALTHY, action stance HOLD, next review 2026-09-30.',
+          shariah_impact: 'COMPLIANT — allowed.',
+          accounting_impact: 'No accounting values change; only confirmed thesis/review schedule can change after user approval.',
+          approve_action_label: 'Apply provider draft',
+          reject_action_label: 'Reject provider draft',
+          override_action_label: 'Apply user override',
+        },
+        {
+          id: 'worker:task_watchlist_monitor:run_watchlist_monitor_001',
+          decision_type: 'worker_proposal',
+          group_label: 'Worker proposals',
+          title: 'watchlist_monitor worker proposal',
+          actor_label: 'worker:watchlist-monitor',
+          target_label: 'task_watchlist_monitor',
+          href: '/audit?event_id=evt_worker_run_completed#evt_worker_run_completed',
+          audit_event_id: 'evt_worker_run_completed',
+          source_ids: ['evt_watchlist_msft'],
+          provider_run_ids: ['provider_run_watchlist_001'],
+          before_summary: 'Worker dry-run did not change portfolio, watchlist, accounting, or trading state.',
+          after_summary: 'watchlist_monitor dry-run: 1 confirmed watchlist item monitored; no buy/sell/portfolio action taken',
+          shariah_impact: 'Approval gates: open_holding_requires_user_confirmation.',
+          accounting_impact: 'Auto-approved actions recorded by the worker: 0.',
+        },
+      ],
+    }
+
+    const html = renderToStaticMarkup(createElement(CommandCenter, { dashboard }))
+
+    expect(html).toContain('Approval queue')
+    expect(html).toContain('3 pending proposals grouped by decision type')
+    expect(html).toContain('Watchlist confirmations')
+    expect(html).toContain('Holding review decisions')
+    expect(html).toContain('Worker proposals')
+    expect(html).toContain('Actor')
+    expect(html).toContain('provider:mock-provider')
+    expect(html).toContain('Provider report')
+    expect(html).toContain('report_mock_msft_2026_05')
+    expect(html).toContain('Before')
+    expect(html).toContain('After')
+    expect(html).toContain('Shariah impact')
+    expect(html).toContain('Accounting impact')
+    expect(html).toContain('href="/audit?event_id=evt_watchlist_msft#evt_watchlist_msft"')
+    expect(html).toContain('src_msft_10k_2025')
+    expect(html).toContain('provider_run_watchlist_001')
+    expect(html).toContain('Review and confirm watchlist draft')
+    expect(html).toContain('Apply provider draft')
+    expect(html).toContain('Reject provider draft')
+    expect(html).toContain('Apply user override')
+    expect(html).not.toContain('<form')
+  })
+
   it('humanizes recent ledger activity while preserving audit event traceability', () => {
     const html = renderToStaticMarkup(createElement(CommandCenter, {
       dashboard: makeDashboard({
@@ -417,6 +511,7 @@ describe('CommandCenter', () => {
           pending_user_actions: 0,
         },
         next_recommended_action: 'Next scheduled strategy review for MSFT is 2026-10-31',
+        approval_queue: [],
         holding_review_prompts: [],
         accounting_alert: {
           label: 'Monthly accounting report',
@@ -451,6 +546,7 @@ describe('CommandCenter', () => {
           pending_user_actions: 0,
         },
         next_recommended_action: 'Next scheduled strategy review for MSFT is 2026-10-31',
+        approval_queue: [],
         holding_review_prompts: [
           {
             holding_id: 'holding_msft_001',

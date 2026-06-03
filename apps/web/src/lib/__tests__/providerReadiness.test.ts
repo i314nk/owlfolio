@@ -248,7 +248,7 @@ describe('providerReadiness', () => {
         readiness_state: 'unsupported_surface',
         credential_source_category: 'configured_secret_file',
         credential_source_label: 'Gemini CLI Google sign-in session',
-        status_label: 'Gemini CLI Google sign-in session detected, but Owlfolio has not implemented a Gemini CLI execution adapter yet; Developer API and Vertex certification remain separate.',
+        status_label: 'Gemini CLI Google sign-in session detected for setup only; Owlfolio cannot execute Gemini CLI workflows until a safe adapter and target-specific certification exist. Developer API and Vertex certification remain separate.',
       })
       expect(apiKey).toMatchObject({
         provider_id: 'gemini-cli',

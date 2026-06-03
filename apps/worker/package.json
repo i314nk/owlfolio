@@ -4,13 +4,14 @@
   "type": "module",
   "scripts": {
     "dev": "tsx src/index.ts --once --dry-run --define-defaults",
-    "lint": "node -e \"console.log('Lint not configured yet for @owlfolio/worker')\"",
+    "lint": "eslint . --max-warnings=0",
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
     "@owlfolio/ledger": "workspace:*",
     "@owlfolio/providers": "workspace:*",
-    "@owlfolio/shared": "workspace:*"
+    "@owlfolio/shared": "workspace:*",
+    "@owlfolio/workflow": "workspace:*"
   },
   "devDependencies": {
     "tsx": "4.21.0"

@@ -13,24 +13,24 @@ The current v2 repo has these catalog/runtime paths:
 | `mock-provider` | deterministic in-process provider | `certified` | Certified for the audited local/demo vertical slice and regression tests. |
 | `claude` | Claude CLI-backed adapter | `experimental` | Personal-local/dev path only until certification proves full workflow parity. |
 | `openai` / `openai-codex-cli` | OpenAI Codex CLI-backed adapter | `experimental` | Personal-local/dev path only until certification proves full workflow parity. |
-| `openai-api` | Direct OpenAI API candidate | `experimental` | Adapter exists and is separate from Codex CLI; fail-closed until a target-specific latest certification report exists. |
-| `gemini-developer-api` | Direct Gemini Developer API candidate | `experimental` | Adapter exists and is separate from Gemini CLI; fail-closed until privacy/ZDR posture and target-specific certification are recorded. |
+| `openai-api` | Direct OpenAI API candidate | `experimental` | Adapter exists and is separate from Codex CLI; latest target-specific report is unsupported/not-configured until a direct API credential is available. |
+| `gemini-developer-api` | Direct Gemini Developer API candidate | `experimental` | Adapter exists and is separate from Gemini CLI; latest target-specific report is unsupported/not-configured; paid Developer API remains an experimental candidate behind privacy/security gates, while free/unpaid posture is unsuitable for production autonomous private-investment workflows. |
 | `gemini-cli` | Google/Gemini CLI onboarding lane | `experimental` | Setup/sign-in lane only; no execution adapter/certification yet. |
 
 ## Latest live certification evidence
 
-Live harness run: 2026-06-02T05:58:15.260Z. Reports are persisted under `data/provider-certifications/` and surfaced by the Provider status page.
+Live harness run: 2026-06-02T05:58:15.260Z. Gemini Developer API targeted run: 2026-06-03T10:10:15.745Z. Reports are persisted under `data/provider-certifications/` and surfaced by the Provider status page.
 
 | Owlfolio provider id | Latest report | Effective support | Evidence summary |
 |---|---|---:|---|
 | `mock-provider` | `mock-provider.latest.json` | `certified` | Completed: 13/13 scenarios passed. |
 | `claude` | `claude.latest.json` | `unsupported` | Not configured: local Claude credentials exist, but live heartbeat reports Claude subscription access is disabled for Claude Code; use an Anthropic API key or enable access before rerunning certification. |
 | `openai` / `openai-codex-cli` | `openai.latest.json` | `experimental` | Completed: 9/13 scenarios passed with Codex OAuth and `gpt-5.5`; unsupported tool-loop capabilities and one source-grounded timeout prevent certified status. |
-| `openai-api` | none recorded yet | `experimental` / fail-closed | Direct OpenAI API candidate must run target-specific certification before any certified/live support claim. |
-| `gemini-developer-api` | none recorded yet | `experimental` / fail-closed | Gemini Developer API candidate must run target-specific certification and record privacy/ZDR posture before any certified/live support claim. |
+| `openai-api` | `openai-api.latest.json` | `unsupported` / not configured | Target-specific report recorded for `openai-api` / `api_key` / `research_draft` / `gpt-4.1-mini`; certification was not run because no direct API credential was available in this environment. |
+| `gemini-developer-api` | `gemini-developer-api.latest.json` | `unsupported` / not configured | Target-specific report recorded for `gemini-developer-api` / `api_key` / `research_draft` / `gemini-2.5-pro`; certification was skipped as not configured because no Gemini Developer API key was available in this environment. Privacy posture remains a blocker: free/unpaid Developer API is unsuitable for production/autonomous private-investment workflows, paid Developer API remains experimental behind privacy/security gates, and Vertex/Gemini Enterprise is a separate ZDR/data-residency candidate. |
 | `gemini-cli` | none recorded yet | setup-only | No execution adapter/certification exists yet; onboarding must not imply runnable workflow execution. |
 
-Do not upgrade catalog/docs above this evidence: only the deterministic mock provider is certified; OpenAI Codex CLI is experimental; Claude CLI is currently unavailable in this environment despite credential-file presence; OpenAI/Gemini direct API candidates and Gemini CLI remain fail-closed until target-specific reports exist.
+Do not upgrade catalog/docs above this evidence: only the deterministic mock provider is certified; OpenAI Codex CLI is experimental; Claude CLI is currently unavailable in this environment despite credential-file presence; OpenAI/Gemini direct API candidates and Gemini CLI remain fail-closed until target-specific reports pass and their privacy/support caveats are accepted.
 
 Additional direct API adapters such as `anthropic`, `perplexity`, `openrouter`, `xai`, `deepseek`, `qwen`, or `local-openai-compatible` are candidates, not current certified Owlfolio providers.
 
