@@ -34,6 +34,25 @@ const decisionPanelStyle = {
   padding: '1rem',
 }
 
+const reviewActionShellStyle = {
+  border: '1px solid rgba(148, 163, 184, 0.2)',
+  borderRadius: '0.85rem',
+  display: 'grid',
+  gap: '0.7rem',
+  padding: '0.9rem 1rem',
+}
+
+const decisionQuickLinkStyle = {
+  background: 'rgba(148, 163, 184, 0.08)',
+  border: '1px solid rgba(148, 163, 184, 0.24)',
+  borderRadius: '0.75rem',
+  color: '#cbd5e1',
+  display: 'inline-flex',
+  gap: '0.4rem',
+  padding: '0.55rem 0.72rem',
+  textDecoration: 'none',
+}
+
 export function PortfolioPanel({ holdings, mode = 'demo' }: PortfolioPanelProps) {
   const totalCostBasis = holdings.reduce((sum, holding) => sum + holding.total_cost_basis, 0)
   const totalCurrentValue = holdings.reduce((sum, holding) => sum + (holding.latest_market_value ?? 0), 0)
@@ -167,6 +186,9 @@ function createReviewForm(holding: AppHolding) {
       ? 'No confirmed review yet — rejecting this draft leaves thesis review pending.'
       : `Current thesis health: ${holding.thesis_health}. Current action stance: ${holding.action_stance ?? 'Not set'}. Rejecting this draft leaves these values unchanged.`
 
+    const normalizedPendingReviewDate = normalizeDateForInput(holding.pending_review_next_review_at)
+    const normalizedLatestReviewedAt = holding.latest_reviewed_at === undefined ? 'Not reviewed' : normalizeDateForDisplay(holding.latest_reviewed_at)
+
     return createElement(
       'div',
       {
@@ -182,27 +204,101 @@ function createReviewForm(holding: AppHolding) {
       createElement('p', { style: { color: '#9aa4b7', margin: 0 } }, 'Choose one auditable decision path for this provider-authored Buffett-Munger review before it becomes portfolio state.'),
       createElement(
         'div',
-        { style: { display: 'grid', gap: '0.75rem', gridTemplateColumns: 'repeat(auto-fit, minmax(16rem, 1fr))' } },
+        {
+          style: {
+            ...reviewActionShellStyle,
+            background: 'rgba(148, 163, 184, 0.06)',
+            position: 'sticky',
+            top: '0.85rem',
+            zIndex: 10,
+          },
+        },
+        createElement('h4', { style: { fontSize: '0.95rem', margin: 0 } }, 'Pending review decision summary'),
+        createElement(
+          'p',
+          {
+            style: {
+              color: '#9aa4b7',
+              margin: '0.15rem 0 0',
+              maxWidth: '82ch',
+            },
+          },
+          'Compare these paths quickly: provider draft keeps the AI recommendation, override captures your own thesis values, and reject keeps existing confirmed state. Sticky quick-links jump to each form.',
+        ),
+        createElement(
+          'div',
+          {
+            style: {
+              display: 'grid',
+              gap: '0.55rem',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(12rem, 1fr))',
+              marginTop: '0.4rem',
+            },
+          },
+          createElement(
+            'a',
+            {
+              href: '#holding-review-path-confirm',
+              style: decisionQuickLinkStyle,
+            },
+            'Apply provider draft',
+          ),
+          createElement(
+            'a',
+            {
+              href: '#holding-review-path-override',
+              style: decisionQuickLinkStyle,
+            },
+            'Apply user override',
+          ),
+          createElement(
+            'a',
+            {
+              href: '#holding-review-path-reject',
+              style: decisionQuickLinkStyle,
+            },
+            'Reject provider draft',
+          ),
+        ),
+      ),
+      createElement(
+        'div',
+        {
+          style: {
+            alignItems: 'start',
+            display: 'grid',
+            gap: '0.75rem',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(15rem, 1fr))',
+          },
+        },
         createElement(
           'section',
-          { style: { ...decisionPanelStyle, background: 'rgba(148, 163, 184, 0.08)' } },
+          { id: 'review-comparison-confirmed', style: { ...decisionPanelStyle, background: 'rgba(148, 163, 184, 0.08)' } },
           createElement('h4', { style: { fontSize: '0.95rem', margin: 0 } }, 'Current confirmed thesis'),
           createElement('p', { style: { color: '#9aa4b7', margin: 0 } }, currentThesisCopy),
         ),
         createElement(
           'section',
-          { style: { ...decisionPanelStyle, background: 'rgba(251, 191, 36, 0.1)' } },
+          { id: 'review-comparison-draft', style: { ...decisionPanelStyle, background: 'rgba(251, 191, 36, 0.1)' } },
           createElement('h4', { style: { fontSize: '0.95rem', margin: 0 } }, 'Provider-authored review draft'),
           createDetail('Pending thesis health', holding.pending_review_thesis_health ?? 'Unknown'),
           createDetail('Pending action stance', holding.pending_review_action_stance ?? 'Unknown'),
           createDetail('Pending review rationale', holding.pending_review_rationale ?? 'No rationale recorded'),
           createDetail('Pending next review', holding.pending_review_next_review_at ?? 'Unknown'),
+          createElement('p', { style: { color: '#9aa4b7', margin: '0.2rem 0 0' } }, `Last reviewed stamp: ${normalizedLatestReviewedAt}`),
+        ),
+        createElement(
+          'section',
+          { id: 'review-comparison-bounds', style: { ...decisionPanelStyle, background: 'rgba(124, 58, 237, 0.08)' } },
+          createElement('h4', { style: { fontSize: '0.95rem', margin: 0 } }, 'Audit boundary rules'),
+          createElement('p', { style: { color: '#9aa4b7', margin: 0 } }, 'Overrides require all four required fields below and produce an explicit user-authored audit event; reject keeps current confirmed thesis and clears the pending draft.'),
+          createElement('p', { style: { color: '#9aa4b7', margin: '0.35rem 0 0', fontSize: '0.82rem' } }, 'Date fields expect YYYY-MM-DD format for consistency with ledger-aware display.'),
         ),
       ),
-      createElement('p', { style: { color: '#9aa4b7', fontWeight: 800, margin: 0 } }, 'User decision path'),
       createElement(
         'form',
         {
+          id: 'holding-review-path-confirm',
           action: `/api/portfolio/${holding.holding_id}/review/${holding.pending_review_id}/confirm`,
           method: 'post',
           style: { ...decisionPanelStyle, background: 'rgba(124, 140, 255, 0.12)' },
@@ -214,6 +310,7 @@ function createReviewForm(holding: AppHolding) {
       createElement(
         'form',
         {
+          id: 'holding-review-path-override',
           action: `/api/portfolio/${holding.holding_id}/review/${holding.pending_review_id}/override`,
           method: 'post',
           style: { ...decisionPanelStyle, background: 'rgba(124, 58, 237, 0.12)' },
@@ -225,12 +322,14 @@ function createReviewForm(holding: AppHolding) {
         createReviewTextarea('Override rationale (required)', 'rationale', holding.pending_review_rationale ?? ''),
         createReviewTextarea('Override evidence summary (required)', 'evidence_summary', 'User reviewed provider draft against the local ledger and available evidence.'),
         createReviewTextarea('Override uncertainty (required)', 'uncertainty', 'User override records uncertainty before the next scheduled review.'),
-        createReviewInput('Override next review date (required)', 'next_review_at', holding.pending_review_next_review_at ?? new Date().toISOString().slice(0, 10)),
+        createReviewInput('Override next review date (required)', 'next_review_at', normalizedPendingReviewDate),
+        createElement('p', { style: { color: '#9aa4b7', margin: 0, fontSize: '0.82rem' } }, 'Date fields use YYYY-MM-DD format (ISO date without time).'),
         createSubmitButton('Apply user override', '#7c3aed'),
       ),
       createElement(
         'form',
         {
+          id: 'holding-review-path-reject',
           action: `/api/portfolio/${holding.holding_id}/review/${holding.pending_review_id}/reject`,
           method: 'post',
           style: { ...decisionPanelStyle, background: 'rgba(239, 68, 68, 0.1)' },
@@ -360,7 +459,7 @@ function createValuationForm(holding: AppHolding) {
         name: 'valued_at',
         required: true,
         type: 'date',
-        defaultValue: holding.latest_valuation_at ?? new Date().toISOString().slice(0, 10),
+        defaultValue: normalizeDateForInput(holding.latest_valuation_at),
         style: inputStyle,
       }),
     ),
@@ -445,4 +544,44 @@ function formatNumber(value: number): string {
 
 function formatPercent(value: number): string {
   return `${value.toFixed(2)}%`
+}
+
+function normalizeDateForInput(value: string | undefined): string {
+  if (value === undefined) {
+    return new Date().toISOString().slice(0, 10)
+  }
+
+  const trimmed = value.trim()
+
+  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+    return trimmed
+  }
+
+  if (/^\d{4}-\d{2}-\d{2}T/.test(trimmed)) {
+    return trimmed.slice(0, 10)
+  }
+
+  const parsed = new Date(trimmed)
+  if (!Number.isNaN(parsed.getTime())) {
+    return parsed.toISOString().slice(0, 10)
+  }
+
+  return new Date().toISOString().slice(0, 10)
+}
+
+function normalizeDateForDisplay(value: string): string {
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    return value
+  }
+
+  if (/^\d{4}-\d{2}-\d{2}T/.test(value)) {
+    return value.slice(0, 10)
+  }
+
+  const parsed = new Date(value)
+  if (!Number.isNaN(parsed.getTime())) {
+    return parsed.toISOString().slice(0, 10)
+  }
+
+  return value
 }

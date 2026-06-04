@@ -1,6 +1,7 @@
 import { SQLiteEventStore } from '@owlfolio/ledger/sqliteEventStore'
 
 import { AuditActivityPanel } from '../../components/AuditActivityPanel'
+import { AuditSearchFocusBridge } from '../../components/AuditSearchFocusBridge'
 import { getDemoEvents } from '../../lib/demo'
 import { getOnboardingState, type OnboardingState } from '../../lib/onboarding'
 import { getAuditActivityEventsFromStore, projectAuditActivityEvents, type AuditActivityFilters } from '../../lib/audit'
@@ -12,7 +13,9 @@ type AuditPageProps = {
 export default async function AuditPage({ searchParams }: AuditPageProps) {
   const state = await getOnboardingState()
   const events = await loadAuditActivity(state)
-  const filters = parseAuditActivityFilters(await searchParams)
+  const params = await searchParams
+  const filters = parseAuditActivityFilters(params)
+  const focusSearchInput = isFocusSearchParam(params?.focus)
 
   return (
     <main className="owl-route-frame">
@@ -21,6 +24,7 @@ export default async function AuditPage({ searchParams }: AuditPageProps) {
           ← Back to command center
         </a>
       </p>
+      <AuditSearchFocusBridge focusSearchInput={focusSearchInput} />
       <AuditActivityPanel events={events} filters={filters} mode={state.config.mode} />
     </main>
   )
@@ -95,4 +99,10 @@ function firstParam(value: string | string[] | undefined): string | undefined {
   const rawValue = Array.isArray(value) ? value[0] : value
   const trimmed = rawValue?.trim()
   return trimmed === undefined || trimmed.length === 0 ? undefined : trimmed
+}
+
+function isFocusSearchParam(value: string | string[] | undefined): boolean {
+  const rawValue = firstParam(value)
+  const normalized = rawValue?.toLowerCase()
+  return normalized === '1' || normalized === 'true' || normalized === 'yes' || normalized === 'on'
 }

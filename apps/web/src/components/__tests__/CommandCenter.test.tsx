@@ -11,7 +11,7 @@ vi.mock('next/navigation', () => ({
   usePathname: () => mockedNavigation.pathname,
 }))
 
-import { AppNavigation } from '../AppNavigation'
+import { AppNavigation, isAuditSearchShortcut } from '../AppNavigation'
 import { CommandCenter } from '../CommandCenter'
 import { getDemoCommandCenterFromStore, getSetupAwareCommandCenter, seedDemoLedger, type AppCommandCenter } from '../../lib/demo'
 
@@ -62,11 +62,14 @@ describe('AppNavigation', () => {
     expect(html).toContain('Purification')
     expect(html).toContain('href="/audit"')
     expect(html).toContain('Audit')
+    expect(html).toContain('href="/audit?focus=1"')
+    expect(html).toContain('Audit trail search')
     expect(html).toContain('href="/providers"')
     expect(html).toContain('Providers')
     expect(html).toContain('href="/onboarding"')
     expect(html).toContain('Onboarding')
   })
+
 
   it('marks the current route as the active navigation destination', () => {
     mockedNavigation.pathname = '/portfolio'
@@ -76,6 +79,27 @@ describe('AppNavigation', () => {
     expect(html).toContain('href="/portfolio" aria-current="page"')
     expect(html).toContain('class="owl-nav-link owl-nav-link-active owl-focusable"')
     expect(html).not.toContain('href="/" aria-current="page"')
+  })
+
+  it('matches the audit search keyboard shortcut for ctrl or cmd with K', () => {
+    expect(
+      isAuditSearchShortcut({
+        key: 'k',
+        ctrlKey: true,
+      }),
+    ).toBe(true)
+
+    expect(
+      isAuditSearchShortcut({
+        key: 'k',
+        metaKey: true,
+      }),
+    ).toBe(true)
+  })
+
+  it('ignores non-shortcut key combinations for the audit search trigger', () => {
+    expect(isAuditSearchShortcut({ key: 'k' })).toBe(false)
+    expect(isAuditSearchShortcut({ key: 's', ctrlKey: true })).toBe(false)
   })
 })
 

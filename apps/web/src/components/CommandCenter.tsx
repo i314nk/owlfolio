@@ -263,9 +263,43 @@ function createSecondaryReferenceModules(dashboard: AppCommandCenter) {
     'section',
     { 'aria-label': 'Secondary reference modules', className: 'owl-command-reference-grid' },
     createAccountingAlert(dashboard),
+    createDataSafetyCaveat(dashboard),
     createHoldingReviewSchedule(dashboard),
     createOperationalAwareness(dashboard),
     createRecentActivity(dashboard),
+  )
+}
+
+function createDataSafetyCaveat(dashboard: AppCommandCenter) {
+  return createElement(
+    'section',
+    {
+      'aria-label': 'Data safety caveat module',
+      className: 'owl-command-reference-module',
+      style: {
+        background: 'rgba(251, 146, 60, 0.08)',
+        borderColor: 'rgba(251, 146, 60, 0.32)',
+        display: 'grid',
+        gap: '0.5rem',
+      },
+    },
+    createElement('p', { style: { color: '#f97316', fontFamily: 'var(--owl-font-mono)', fontSize: '0.78rem', fontWeight: 800, letterSpacing: '0.08em', margin: 0, textTransform: 'uppercase' } }, 'Data safety caveat'),
+    createElement('p', { style: { color: '#f7f8ff', fontWeight: 900, margin: 0 } }, 'Ledger backup and restore for this flow is operator-first and CLI-assisted today.'),
+    createElement(
+      'p',
+      { style: { color: '#f1f5f9', margin: 0 } },
+      'There is no in-app backup/restore wizard yet. Keep your own offline export/restore workflow and runbook for the local runtime files that power this workspace.',
+    ),
+    createElement(
+      'p',
+      { style: { color: '#9aa4b7', margin: 0, fontSize: '0.92rem' } },
+      `${dashboard.product_name} surfaces local-only operational state and does not replace explicit backup/restore drill commands.`,
+    ),
+    createElement(
+      'p',
+      { style: { color: '#eab308', fontFamily: 'var(--owl-font-mono)', fontSize: '0.8rem', fontWeight: 700, margin: '0.2rem 0 0' } },
+      'Use `corepack pnpm ops:backup:manifest` and `corepack pnpm ops:restore:dry-run` for operator-safe backup verification before rotating environments.',
+    ),
   )
 }
 

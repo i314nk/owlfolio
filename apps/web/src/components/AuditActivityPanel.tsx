@@ -501,6 +501,7 @@ function filterInput(label: string, name: string, value: string, placeholder: st
     label,
     createElement('input', {
       defaultValue: value,
+      id: name === 'q' ? 'audit-search-query' : undefined,
       name,
       placeholder,
       style: controlStyle,
@@ -508,6 +509,7 @@ function filterInput(label: string, name: string, value: string, placeholder: st
     }),
   )
 }
+
 
 function filterSelect(label: string, name: string, value: string, options: string[], allLabel: string) {
   return createElement(

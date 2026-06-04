@@ -58,9 +58,14 @@ test('personal-local mode can create the first research case from the command ce
   await expect(page).toHaveURL('/providers')
   await expect(page.getByRole('heading', { name: /provider status/i })).toBeVisible()
   await expect(page.getByText('Mock provider', { exact: true })).toBeVisible()
-  await expect(page.getByLabel('Mock provider provider readiness categories').getByText('Effective support (gating source of truth): certified', { exact: true })).toBeVisible()
+  await expect(
+    page.getByLabel('Mock provider provider primary status', { exact: true }).getByText('Effective support (gating source of truth): certified', { exact: true }),
+  ).toBeVisible()
   await expect(page.getByText('Claude', { exact: true })).toBeVisible()
-  await expect(page.getByLabel('Claude provider readiness categories').getByText('Effective support (gating source of truth): unsupported', { exact: true })).toBeVisible()
+  await expect(
+    page.getByLabel('Claude provider primary status', { exact: true }).getByText('Effective support (gating source of truth): unsupported', { exact: true }),
+  ).toBeVisible()
+
   await page.getByRole('navigation', { name: /primary owlfolio navigation/i }).getByRole('link', { name: 'Command Center', exact: true }).click()
   await expect(page).toHaveURL('/')
 
