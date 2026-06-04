@@ -463,8 +463,8 @@ export function buildRestoreDryRunPlan({
       OWLFOLIO_PROVIDER_CERTIFICATION_DIR: providerCertificationDir,
     },
     verification_commands: [
-      'ANTHROPIC_API_KEY= OPENAI_API_KEY= GEMINI_API_KEY= GOOGLE_API_KEY= corepack pnpm test packages/ledger/src/__tests__/commandCenterProjection.test.ts packages/ledger/src/__tests__/holdingProjection.test.ts packages/ledger/src/__tests__/watchlistProjection.test.ts packages/ledger/src/__tests__/accountingProjection.test.ts packages/ledger/src/__tests__/purificationProjection.test.ts packages/ledger/src/__tests__/scheduledTaskProjection.test.ts apps/worker/src/__tests__/runtime.test.ts',
-      'ANTHROPIC_API_KEY= OPENAI_API_KEY= GEMINI_API_KEY= GOOGLE_API_KEY= corepack pnpm worker -- --once --dry-run --define-defaults',
+      'env -u ANTHROPIC_API_KEY -u OPENAI_API_KEY -u GEMINI_API_KEY -u GOOGLE_API_KEY corepack pnpm test packages/ledger/src/__tests__/commandCenterProjection.test.ts packages/ledger/src/__tests__/holdingProjection.test.ts packages/ledger/src/__tests__/watchlistProjection.test.ts packages/ledger/src/__tests__/accountingProjection.test.ts packages/ledger/src/__tests__/purificationProjection.test.ts packages/ledger/src/__tests__/scheduledTaskProjection.test.ts',
+      'env -u ANTHROPIC_API_KEY -u OPENAI_API_KEY -u GEMINI_API_KEY -u GOOGLE_API_KEY corepack pnpm worker -- --once --dry-run --define-defaults',
     ],
   }
 }

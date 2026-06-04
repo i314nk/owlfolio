@@ -1,6 +1,6 @@
 # Owlfolio local backup and restore runbook
 
-Last verified: 2026-06-03 by Kanban task `t_adabc810` against repo state `bf29b3c`.
+Last verified: 2026-06-03 by Kanban task `t_5e88b75c` against checkpoint `0b54de0` using an isolated temporary runtime.
 
 ## Purpose
 
@@ -150,16 +150,20 @@ export OWLFOLIO_SOURCE_LEDGER_PATH=$RESTORE_ROOT/runtime/data/source-ledger
 export OWLFOLIO_PROVIDER_CERTIFICATION_DIR=$RESTORE_ROOT/runtime/data/provider-certifications
 
 # Verification gates. Keep auth blank unless intentionally re-authenticating after restore.
-ANTHROPIC_API_KEY= OPENAI_API_KEY= GEMINI_API_KEY= GOOGLE_API_KEY= \
+env -u ANTHROPIC_API_KEY -u OPENAI_API_KEY -u GEMINI_API_KEY -u GOOGLE_API_KEY \
   corepack pnpm test packages/ledger/src/__tests__/commandCenterProjection.test.ts \
     packages/ledger/src/__tests__/holdingProjection.test.ts \
     packages/ledger/src/__tests__/watchlistProjection.test.ts \
     packages/ledger/src/__tests__/accountingProjection.test.ts \
     packages/ledger/src/__tests__/purificationProjection.test.ts \
-    packages/ledger/src/__tests__/scheduledTaskProjection.test.ts \
-    apps/worker/src/__tests__/runtime.test.ts
+    packages/ledger/src/__tests__/scheduledTaskProjection.test.ts
 
-ANTHROPIC_API_KEY= OPENAI_API_KEY= GEMINI_API_KEY= GOOGLE_API_KEY= \
+# Do not add apps/worker/src/__tests__/runtime.test.ts to the restore-env command above.
+# That unit test creates its own temporary runtime and can inherit restored provider
+# certification paths from the parent environment; the worker dry-run below is the
+# restored-runtime verification gate.
+
+env -u ANTHROPIC_API_KEY -u OPENAI_API_KEY -u GEMINI_API_KEY -u GOOGLE_API_KEY \
   corepack pnpm worker -- --once --dry-run --define-defaults
 
 git status --short --branch
@@ -169,7 +173,7 @@ Expected restore evidence:
 
 - Projection tests pass against the restored ledger contract.
 - Worker dry-run resolves `config_path`, `ledger_path`, `source_ledger_path`, and `provider_certification_dir` from restored paths and does not require provider secrets.
-- Provider status remains bounded by restored certification reports; no unsupported/experimental provider becomes certified only because credentials exist.
+- Provider status remains bounded by restored certification reports; no unsupported/experimental provider becomes certified only because credentials exist. If a legacy certification report lacks current `target` metadata, regenerate provider certification before using scheduled provider execution.
 - Source bundles are present and still referenced by ledger `source_ids` where applicable.
 - `git status --short --branch` shows only intentional source/doc changes, not restored `data/`, restore temp directories, `.playwright-runtime/`, `.live-openai-runtime/`, `.worktrees/`, SQLite sidecars, or provider reports.
 
