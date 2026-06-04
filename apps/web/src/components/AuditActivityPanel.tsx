@@ -63,7 +63,9 @@ const controlStyle: CSSProperties = {
   font: 'inherit',
   fontSize: '0.92rem',
   fontWeight: 700,
+  minWidth: 0,
   padding: '0.55rem 0.65rem',
+  width: '100%',
 }
 
 const filterActionsStyle: CSSProperties = {
