@@ -69,7 +69,7 @@ export function CommandCenter({ dashboard }: CommandCenterProps) {
       createElement(
         'p',
         { style: { color: '#9aa4b7', fontSize: '1.15rem', maxWidth: '720px' } },
-        'Daily local operating cockpit for autonomous research, user approvals, accounting reminders, purification follow-up, and audit review.',
+        'Owlfolio prepares evidence-backed recommendations and automation reminders; you confirm the decisions that change portfolio state.',
       ),
       createStatusStrip(dashboard),
       createElement(
@@ -106,7 +106,7 @@ function createOperatingSurface(dashboard: AppCommandCenter) {
       createElement(
         'p',
         { style: { color: '#9aa4b7', margin: '0 0 1rem' } },
-        'Primary decisions stay on top; lower-priority accounting, review, and audit references are separated below.',
+        'Primary actions stay on top; monitoring and audit references stay visible but unobtrusive.',
       ),
       createElement(
         'div',
@@ -270,36 +270,27 @@ function createSecondaryReferenceModules(dashboard: AppCommandCenter) {
   )
 }
 
-function createDataSafetyCaveat(dashboard: AppCommandCenter) {
+function createDataSafetyCaveat(_dashboard: AppCommandCenter) {
   return createElement(
     'section',
     {
-      'aria-label': 'Data safety caveat module',
+      'aria-label': 'Operator fallback module',
       className: 'owl-command-reference-module',
       style: {
-        background: 'rgba(251, 146, 60, 0.08)',
-        borderColor: 'rgba(251, 146, 60, 0.32)',
+        background: 'rgba(59, 130, 246, 0.08)',
+        borderColor: 'rgba(96, 165, 250, 0.32)',
         display: 'grid',
         gap: '0.5rem',
       },
     },
-    createElement('p', { style: { color: '#f97316', fontFamily: 'var(--owl-font-mono)', fontSize: '0.78rem', fontWeight: 800, letterSpacing: '0.08em', margin: 0, textTransform: 'uppercase' } }, 'Data safety caveat'),
-    createElement('p', { style: { color: '#f7f8ff', fontWeight: 900, margin: 0 } }, 'Ledger backup and restore for this flow is operator-first and CLI-assisted today.'),
+    createElement('p', { style: { color: '#60a5fa', fontFamily: 'var(--owl-font-mono)', fontSize: '0.78rem', fontWeight: 800, letterSpacing: '0.08em', margin: 0, textTransform: 'uppercase' } }, 'Operator fallback'),
+    createElement('p', { style: { color: '#f7f8ff', fontWeight: 900, margin: 0 } }, 'Backup/restore and environment handoff remain operator/manual today.'),
     createElement(
       'p',
       { style: { color: '#f1f5f9', margin: 0 } },
-      'There is no in-app backup/restore wizard yet. Keep your own offline export/restore workflow and runbook for the local runtime files that power this workspace.',
+      'Keep deep backup/restore details in Learn to avoid overloading the main operating queue.',
     ),
-    createElement(
-      'p',
-      { style: { color: '#9aa4b7', margin: 0, fontSize: '0.92rem' } },
-      `${dashboard.product_name} surfaces local-only operational state and does not replace explicit backup/restore drill commands.`,
-    ),
-    createElement(
-      'p',
-      { style: { color: '#eab308', fontFamily: 'var(--owl-font-mono)', fontSize: '0.8rem', fontWeight: 700, margin: '0.2rem 0 0' } },
-      'Use `corepack pnpm ops:backup:manifest` and `corepack pnpm ops:restore:dry-run` for operator-safe backup verification before rotating environments.',
-    ),
+    createElement('div', { style: { display: 'flex', justifyContent: 'flex-start' } }, createElement(OwlButtonLink, { href: '/learn#fallback', variant: 'secondary' }, 'Learn fallback runbook')),
   )
 }
 

@@ -1,4 +1,5 @@
 import { createElement } from 'react'
+import { readFileSync } from 'node:fs'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -66,6 +67,8 @@ describe('AppNavigation', () => {
     expect(html).toContain('Audit trail search')
     expect(html).toContain('href="/providers"')
     expect(html).toContain('Providers')
+    expect(html).toContain('href="/learn"')
+    expect(html).toContain('Learn')
     expect(html).toContain('href="/onboarding"')
     expect(html).toContain('Onboarding')
   })
@@ -102,7 +105,6 @@ describe('AppNavigation', () => {
     expect(isAuditSearchShortcut({ key: 's', ctrlKey: true })).toBe(false)
   })
 })
-
 describe('CommandCenter', () => {
   it('renders demo workflow status and the next recommended action', async () => {
     const store = new SQLiteEventStore()
@@ -121,7 +123,7 @@ describe('CommandCenter', () => {
       expect(html).toContain('Confirmed watchlist')
       expect(html).toContain('Open holdings')
       expect(html).toContain('class="owl-financial-number"')
-      expect(html).toContain('Daily local operating cockpit for autonomous research, user approvals, accounting reminders, purification follow-up, and audit review.')
+      expect(html).toContain('Owlfolio prepares evidence-backed recommendations and automation reminders; you confirm the decisions that change portfolio state.')
       expect(html).not.toContain('current Owlfolio v0.2 slice')
       expect(html).toContain('Review COST watchlist draft and confirm it')
       expect(html).toContain('Watchlist draft created')
@@ -593,5 +595,21 @@ describe('CommandCenter', () => {
     expect(html).toContain('153 days')
     expect(html).toContain('href="/portfolio#holding_msft_001"')
     expect(html).toContain('Review MSFT in portfolio')
+  })
+
+  it('documents Learn page source copy and fallback anchors', () => {
+    const learnPageSource = readFileSync('apps/web/src/app/learn/page.tsx', 'utf8')
+
+    expect(learnPageSource).toContain('Learn')
+    expect(learnPageSource).toContain('Operator documentation')
+    expect(learnPageSource).toContain('Automation boundaries')
+    expect(learnPageSource).toContain('What changes and what you confirm')
+    expect(learnPageSource).toContain('Provider readiness in one place')
+    expect(learnPageSource).toContain('Auditability and traceability')
+    expect(learnPageSource).toContain('Shariah screening')
+    expect(learnPageSource).toContain('Backup/restore and environment handoff are operator/manual today.')
+    expect(learnPageSource).toContain('href="/onboarding"')
+    expect(learnPageSource).toContain('href="/providers"')
+    expect(learnPageSource).toContain('id="fallback"')
   })
 })

@@ -13,6 +13,7 @@ const navItems = [
   { href: '/purification', label: 'Purification' },
   { href: '/audit', label: 'Audit' },
   { href: '/providers', label: 'Providers' },
+  { href: '/learn', label: 'Learn' },
   { href: '/onboarding', label: 'Onboarding' },
 ]
 
