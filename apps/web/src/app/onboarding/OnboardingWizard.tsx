@@ -453,8 +453,8 @@ function renderProviderSignInContract(selectedProvider: ProviderOption, readines
       'section',
       { key: 'cli-use-boundary', style: { ...readinessActionStyle, marginTop: '0.75rem' } },
       createElement('strong', null, cliUseBoundary.heading),
-      createElement('span', null, 'Allowed use: Personal-local research drafts only'),
-      createElement('span', null, 'Scheduled/headless workflows stay blocked until certification proves support.'),
+      createElement('span', null, cliUseBoundary.allowedUse),
+      createElement('span', null, cliUseBoundary.executionBoundary),
       createElement('span', null, cliUseBoundary.certificationTruth),
       createElement('span', null, `Credential/session source: ${readiness.credential_source_label ?? readiness.auth_source}`),
     ))
@@ -484,12 +484,14 @@ function renderProviderSignInContract(selectedProvider: ProviderOption, readines
 function cliUseBoundaryFor(
   selectedProvider: ProviderOption,
   readiness: ProviderReadiness,
-): { heading: string; certificationTruth: string } | undefined {
+): { heading: string; allowedUse: string; executionBoundary: string; certificationTruth: string } | undefined {
   const surfaceId = selectedProvider.provider_surface_id ?? readiness.provider_surface_id
 
   if (surfaceId === 'openai-codex-cli') {
     return {
       heading: 'Codex CLI use boundary',
+      allowedUse: 'Allowed use: Personal-local research drafts only',
+      executionBoundary: 'Scheduled/headless workflows stay blocked until certification proves support.',
       certificationTruth: 'Certification truth: experimental Codex CLI readiness does not certify direct OpenAI API or production automation.',
     }
   }
@@ -497,6 +499,8 @@ function cliUseBoundaryFor(
   if (surfaceId === 'gemini-cli') {
     return {
       heading: 'Gemini CLI use boundary',
+      allowedUse: 'Allowed use: Setup and readiness discovery only',
+      executionBoundary: 'Workflow execution stays blocked until a Gemini CLI adapter and certification exist.',
       certificationTruth: 'Certification truth: experimental Gemini CLI readiness does not certify Gemini Developer API, Vertex, or production automation.',
     }
   }

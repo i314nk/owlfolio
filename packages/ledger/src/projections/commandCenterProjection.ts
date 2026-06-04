@@ -16,6 +16,27 @@ export type CommandCenterHoldingReviewPrompt = {
   days_until_review: number
 }
 
+export type CommandCenterApprovalQueueItem = {
+  id: string
+  decision_type: 'watchlist_confirmation' | 'holding_review' | 'worker_proposal'
+  group_label: string
+  title: string
+  actor_label: string
+  target_label?: string
+  provider_report_id?: string
+  provider_run_ids?: string[]
+  href: string
+  audit_event_id: string
+  source_ids: string[]
+  before_summary: string
+  after_summary: string
+  shariah_impact: string
+  accounting_impact: string
+  approve_action_label?: string
+  reject_action_label?: string
+  override_action_label?: string
+}
+
 export type CommandCenterSummary = {
   pipeline_counts: {
     research_cases: number
@@ -26,6 +47,7 @@ export type CommandCenterSummary = {
   }
   primary_research_case_id?: string
   next_recommended_action: string
+  approval_queue: CommandCenterApprovalQueueItem[]
   holding_review_prompts: CommandCenterHoldingReviewPrompt[]
   recent_activity: CommandCenterRecentActivity[]
 }
@@ -34,16 +56,66 @@ export type CommandCenterProjectionOptions = {
   as_of?: string
 }
 
+type WatchlistItem = ReturnType<typeof projectWatchlist>[number]
+type HoldingItem = ReturnType<typeof projectHoldings>[number]
+
 function actorLabel(event: LedgerEventEnvelope<unknown>): string {
   return event.actor_id === undefined ? event.actor_type : `${event.actor_type}:${event.actor_id}`
 }
 
-function watchlistItemLabel(item: ReturnType<typeof projectWatchlist>[number]): string {
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+}
+
+function getString(payload: Record<string, unknown>, key: string): string | undefined {
+  const value = payload[key]
+  return typeof value === 'string' ? value : undefined
+}
+
+function getBoolean(payload: Record<string, unknown>, key: string): boolean | undefined {
+  const value = payload[key]
+  return typeof value === 'boolean' ? value : undefined
+}
+
+function getNumber(payload: Record<string, unknown>, key: string): number | undefined {
+  const value = payload[key]
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined
+}
+
+function getStringArray(payload: Record<string, unknown>, key: string): string[] {
+  const value = payload[key]
+  if (!Array.isArray(value)) {
+    return []
+  }
+  return value.filter((entry): entry is string => typeof entry === 'string')
+}
+
+function watchlistItemLabel(item: WatchlistItem): string {
   return item.ticker ?? item.company_id ?? item.watchlist_item_id
 }
 
-function holdingLabel(holding: ReturnType<typeof projectHoldings>[number]): string {
+function holdingLabel(holding: HoldingItem): string {
   return holding.ticker ?? holding.company_id ?? holding.holding_id
+}
+
+function shariahImpact(status: string | undefined, allowed: boolean | undefined): string {
+  if (status === undefined) {
+    return 'Shariah gate decision pending.'
+  }
+
+  if (allowed === true) {
+    return `${status} — allowed.`
+  }
+
+  if (allowed === false) {
+    return `${status} — blocked.`
+  }
+
+  return `${status}.`
+}
+
+function auditHref(eventId: string): string {
+  return `/audit?event_id=${eventId}#${eventId}`
 }
 
 function dateToUtcDay(date: string): number | undefined {
@@ -93,6 +165,137 @@ function buildHoldingReviewPrompts(
     .sort((left, right) => left.days_until_review - right.days_until_review || left.label.localeCompare(right.label))
 }
 
+function buildWatchlistApprovalItems(
+  pendingDraftItems: WatchlistItem[],
+  events: LedgerEventEnvelope<unknown>[],
+): CommandCenterApprovalQueueItem[] {
+  return pendingDraftItems.map((item) => {
+    const draftEvent = events.find((event) => event.event_type === 'watchlist_draft_created' && event.aggregate_id === item.watchlist_item_id)
+    const label = watchlistItemLabel(item)
+    const providerReportId = isRecord(draftEvent?.payload) ? getString(draftEvent.payload, 'provider_report_id') : undefined
+    const fallbackActor = item.created_by_actor_id === undefined
+      ? item.created_by_actor_type ?? 'unknown'
+      : `${item.created_by_actor_type ?? 'unknown'}:${item.created_by_actor_id}`
+
+    return {
+      id: `watchlist:${item.watchlist_item_id}`,
+      decision_type: 'watchlist_confirmation',
+      group_label: 'Watchlist confirmations',
+      title: `${label} watchlist draft`,
+      actor_label: draftEvent === undefined ? fallbackActor : actorLabel(draftEvent),
+      target_label: label,
+      ...(providerReportId === undefined ? {} : { provider_report_id: providerReportId }),
+      href: `/watchlist#${item.watchlist_item_id}`,
+      audit_event_id: draftEvent?.event_id ?? item.watchlist_item_id,
+      source_ids: draftEvent?.source_ids ?? [],
+      before_summary: `${label} is not user-confirmed for monitoring yet.`,
+      after_summary: `Confirm ${label} as a user-approved watchlist item before worker monitoring or portfolio actions.`,
+      shariah_impact: shariahImpact(item.shariah_gate_status, item.shariah_gate_allowed),
+      accounting_impact: 'No accounting or holding state changes until a user opens a holding.',
+      approve_action_label: 'Review and confirm watchlist draft',
+    }
+  })
+}
+
+function buildHoldingReviewApprovalItems(
+  pendingHoldingReviewDrafts: HoldingItem[],
+  events: LedgerEventEnvelope<unknown>[],
+): CommandCenterApprovalQueueItem[] {
+  return pendingHoldingReviewDrafts.map((holding) => {
+    const reviewEvent = events.find((event) => {
+      if (event.event_type !== 'holding_review_drafted' || !isRecord(event.payload)) {
+        return false
+      }
+      const reviewId = getString(event.payload, 'review_id') ?? event.aggregate_id
+      const holdingId = getString(event.payload, 'holding_id') ?? event.correlation_id
+      return reviewId === holding.pending_review_id && holdingId === holding.holding_id
+    })
+    const payload = isRecord(reviewEvent?.payload) ? reviewEvent.payload : undefined
+    const label = holdingLabel(holding)
+    const providerReportId = payload === undefined ? undefined : getString(payload, 'provider_report_id')
+    const thesisHealth = holding.pending_review_thesis_health ?? 'UNKNOWN'
+    const actionStance = holding.pending_review_action_stance ?? 'UNKNOWN'
+    const nextReviewAt = holding.pending_review_next_review_at
+    const beforeSummary = holding.thesis_health === undefined && holding.action_stance === undefined
+      ? 'No confirmed thesis review exists yet.'
+      : `Current thesis health: ${holding.thesis_health ?? 'UNKNOWN'}; current action stance: ${holding.action_stance ?? 'UNKNOWN'}.`
+    const afterSummary = nextReviewAt === undefined
+      ? `Provider proposes thesis health ${thesisHealth}, action stance ${actionStance}.`
+      : `Provider proposes thesis health ${thesisHealth}, action stance ${actionStance}, next review ${nextReviewAt}.`
+
+    return {
+      id: `holding-review:${holding.holding_id}:${holding.pending_review_id ?? 'pending'}`,
+      decision_type: 'holding_review',
+      group_label: 'Holding review decisions',
+      title: `${label} strategy review draft`,
+      actor_label: reviewEvent === undefined ? 'provider' : actorLabel(reviewEvent),
+      target_label: label,
+      ...(providerReportId === undefined ? {} : { provider_report_id: providerReportId }),
+      href: `/portfolio#${holding.holding_id}`,
+      audit_event_id: reviewEvent?.event_id ?? holding.pending_review_id ?? holding.holding_id,
+      source_ids: reviewEvent?.source_ids ?? [],
+      before_summary: beforeSummary,
+      after_summary: afterSummary,
+      shariah_impact: shariahImpact(holding.shariah_gate_status, holding.shariah_gate_allowed),
+      accounting_impact: 'No accounting values change; only confirmed thesis/review schedule can change after user approval.',
+      approve_action_label: 'Apply provider draft',
+      reject_action_label: 'Reject provider draft',
+      override_action_label: 'Apply user override',
+    }
+  })
+}
+
+function buildWorkerProposalApprovalItems(events: LedgerEventEnvelope<unknown>[]): CommandCenterApprovalQueueItem[] {
+  return events.flatMap((event) => {
+    if (event.event_type !== 'scheduled_task_run_completed' || !isRecord(event.payload)) {
+      return []
+    }
+
+    if (getBoolean(event.payload, 'human_approval_required') !== true) {
+      return []
+    }
+
+    const scheduledTaskId = getString(event.payload, 'scheduled_task_id') ?? event.aggregate_id
+    const taskKind = getString(event.payload, 'task_kind') ?? 'scheduled_task'
+    const runId = getString(event.payload, 'run_id') ?? event.event_id
+    const resultSummary = getString(event.payload, 'result_summary') ?? `${taskKind} dry-run completed and requires user approval before state changes.`
+    const approvalGates = getStringArray(event.payload, 'approval_gates')
+    const autoApprovedActions = getNumber(event.payload, 'auto_approved_actions') ?? 0
+    const providerRunIds = getStringArray(event.payload, 'provider_run_ids')
+
+    return [{
+      id: `worker:${scheduledTaskId}:${runId}`,
+      decision_type: 'worker_proposal',
+      group_label: 'Worker proposals',
+      title: `${taskKind} worker proposal`,
+      actor_label: actorLabel(event),
+      target_label: scheduledTaskId,
+      href: auditHref(event.event_id),
+      audit_event_id: event.event_id,
+      source_ids: event.source_ids,
+      ...(providerRunIds.length === 0 ? {} : { provider_run_ids: providerRunIds }),
+      before_summary: 'Worker dry-run did not change portfolio, watchlist, accounting, or trading state.',
+      after_summary: resultSummary,
+      shariah_impact: approvalGates.length === 0
+        ? 'No approval gates were reported by the worker.'
+        : `Approval gates: ${approvalGates.join(', ')}.`,
+      accounting_impact: `Auto-approved actions recorded by the worker: ${autoApprovedActions}.`,
+    }]
+  })
+}
+
+function buildApprovalQueue(
+  pendingDraftItems: WatchlistItem[],
+  pendingHoldingReviewDrafts: HoldingItem[],
+  events: LedgerEventEnvelope<unknown>[],
+): CommandCenterApprovalQueueItem[] {
+  return [
+    ...buildWatchlistApprovalItems(pendingDraftItems, events),
+    ...buildHoldingReviewApprovalItems(pendingHoldingReviewDrafts, events),
+    ...buildWorkerProposalApprovalItems(events),
+  ]
+}
+
 export function projectCommandCenterSummary(
   events: LedgerEventEnvelope<unknown>[],
   { as_of: asOf = currentDate() }: CommandCenterProjectionOptions = {},
@@ -103,6 +306,7 @@ export function projectCommandCenterSummary(
   const heldWatchlistItemIds = new Set(holdings.map((holding) => holding.watchlist_item_id))
   const pendingDraftItems = watchlist.filter((item) => !item.user_approved)
   const pendingHoldingReviewDrafts = holdings.filter((holding) => holding.pending_review_id !== undefined)
+  const approvalQueue = buildApprovalQueue(pendingDraftItems, pendingHoldingReviewDrafts, events)
   const holdingReviewPrompts = buildHoldingReviewPrompts(holdings, asOf)
   const dueHoldingReviewPrompt = holdingReviewPrompts.find((prompt) => prompt.status === 'due')
   const upcomingHoldingReviewPrompt = holdingReviewPrompts.find((prompt) => prompt.status === 'upcoming')
@@ -120,7 +324,7 @@ export function projectCommandCenterSummary(
             : holdings.length > 0
               ? 'Review opened holdings for thesis health and sizing'
               : researchCases[0]?.next_required_action ?? 'Review the demo workflow status'
-  const pendingUserActionCount = pendingDraftItems.length + pendingHoldingReviewDrafts.length
+  const pendingUserActionCount = approvalQueue.length
 
   return {
     pipeline_counts: {
@@ -132,6 +336,7 @@ export function projectCommandCenterSummary(
     },
     ...(researchCases[0] === undefined ? {} : { primary_research_case_id: researchCases[0].research_case_id }),
     next_recommended_action: nextRecommendedAction,
+    approval_queue: approvalQueue,
     holding_review_prompts: holdingReviewPrompts,
     recent_activity: events
       .slice(-3)

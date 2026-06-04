@@ -72,6 +72,7 @@ describe('/api/research/start', () => {
     await writeFile(join(reportDir, 'claude.latest.json'), JSON.stringify(createNotConfiguredCertificationReport({
       provider_id: 'claude',
       generated_at: '2026-06-02T00:00:00.000Z',
+      auth_mode: 'api_key',
       capabilities: {
         'text-generation': 'native',
         'structured-output': 'native',

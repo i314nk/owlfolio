@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -114,6 +114,35 @@ class SecretLeakingProvider implements Provider {
   runWithTools(_request: ProviderRunRequest): Promise<ProviderToolRun> {
     throw new Error('auth failed OPENAI_API_KEY=*** at /tmp/secret/codex/auth.json using Bearer bearer-secret-token Cookie: owl_session=fake-cookie-value session_token=fake-session-token')
   }
+}
+
+async function appendCostHolding(store: InMemoryEventStore<LedgerEventEnvelope<unknown>>): Promise<void> {
+  await store.append(ledgerEvent('holding_opened', 'holding', 'holding_cost_001', {
+    holding_id: 'holding_cost_001',
+    watchlist_item_id: 'wl_cost_001',
+    research_case_id: 'rc_cost_001',
+    ticker: 'COST',
+    strategy_id: 'buffett-munger',
+    thesis_summary: 'Membership warehouse compounder with durable unit economics.',
+    shares: 1,
+    cost_basis_per_share: 812.4,
+    currency: 'USD',
+    opened_at: '2026-05-28',
+  }))
+  await store.append(ledgerEvent('holding_review_confirmed', 'holding', 'holding_cost_001', {
+    review_id: 'review_cost_001',
+    holding_id: 'holding_cost_001',
+    research_case_id: 'rc_cost_001',
+    ticker: 'COST',
+    strategy_id: 'buffett-munger',
+    thesis_health: 'HEALTHY',
+    action_stance: 'HOLD',
+    rationale: 'Thesis remains intact.',
+    evidence_summary: 'Reviewed source ledger references.',
+    uncertainty: 'Refresh after next filing.',
+    next_review_at: '2026-06-01',
+    user_approved: true,
+  }))
 }
 
 describe('worker runtime', () => {
@@ -474,10 +503,17 @@ describe('worker runtime', () => {
     await defineDefaultScheduledTasks(store, { now: () => '2026-06-01T08:00:00.000Z' })
 
     const definitions = (await store.list()).filter((event) => event.event_type === 'scheduled_task_defined')
-    expect(definitions).toHaveLength(2)
+    expect(definitions).toHaveLength(3)
     expect(definitions.map((event) => event.payload)).toEqual([
       expect.objectContaining({ task_kind: 'review_reminder', dry_run: true, enabled: true }),
       expect.objectContaining({ task_kind: 'watchlist_monitor', dry_run: true, enabled: true }),
+      expect.objectContaining({
+        task_kind: 'holding_review_draft',
+        dry_run: true,
+        enabled: true,
+        timeout_ms: 120_000,
+        max_cost_usd: 0.25,
+      }),
     ])
   })
 
@@ -718,6 +754,98 @@ describe('worker runtime', () => {
       approval_gates: ['open_holding_requires_user_confirmation'],
       human_approval_required: true,
       auto_approved_actions: 0,
+    })
+  })
+
+  it('creates provider-authored holding review draft proposals without approval writes', async () => {
+    const store = new InMemoryEventStore<LedgerEventEnvelope<unknown>>()
+    await appendCostHolding(store)
+    await defineDefaultScheduledTasks(store, { now: () => '2026-06-01T10:00:00.000Z' })
+
+    const result = await runScheduledTasks(store, {
+      as_of: '2026-06-01',
+      dry_run: true,
+      task_kind: 'holding_review_draft',
+      provider: new MockProvider(),
+      provider_readiness: {
+        provider_id: 'mock-provider',
+        is_ready: true,
+        status_label: 'Mock provider certified for scheduled monitoring.',
+        provider_surface_id: 'mock-provider',
+        vendor_id: 'mock',
+        runtime_kind: 'built_in',
+        auth_mode: 'built_in_demo',
+        workflow_role: 'scheduled_monitoring_dry_run',
+      },
+      provider_model_id: 'mock-buffett-munger-monitor',
+      now: () => '2026-06-01T10:00:00.000Z',
+      run_id: () => 'run_holding_review_draft_001',
+    })
+
+    expect(result).toMatchObject({ completed: 1, failed: 0 })
+    const events = await store.list()
+    const reviewDrafted = events.find((event) => event.event_type === 'holding_review_drafted')
+    expect(reviewDrafted).toMatchObject({
+      aggregate_type: 'holding',
+      aggregate_id: 'holding_cost_001',
+      actor_type: 'provider',
+      actor_id: 'mock-provider',
+      causation_id: 'evt_scheduled_task_run_started_run_holding_review_draft_001',
+      correlation_id: 'holding_cost_001',
+      payload: expect.objectContaining({
+        holding_id: 'holding_cost_001',
+        user_approved: false,
+        reviewed_by_actor_type: 'provider',
+        reviewed_by_actor_id: 'mock-provider',
+      }),
+    })
+    expect(events).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ event_type: 'holding_review_confirmed', actor_type: 'worker' }),
+      expect.objectContaining({ event_type: 'holding_review_overridden', actor_type: 'worker' }),
+      expect.objectContaining({ event_type: 'holding_opened', actor_type: 'worker' }),
+      expect.objectContaining({ event_type: 'watchlist_draft_confirmed', actor_type: 'worker' }),
+      expect.objectContaining({ event_type: 'shariah_gate_decision_recorded', actor_type: 'worker' }),
+      expect.objectContaining({ event_type: 'purification_payment_recorded', actor_type: 'worker' }),
+    ]))
+    const started = events.find((event) => event.event_type === 'scheduled_task_run_started')
+    expect(started?.payload).toMatchObject({
+      timeout_ms: 120_000,
+      max_cost_usd: 0.25,
+      dry_run: true,
+    })
+    const completed = events.find((event) => event.event_type === 'scheduled_task_run_completed')
+    expect(completed?.payload).toMatchObject({
+      result_summary: 'holding_review_draft dry-run: 1 holding review draft proposal(s) created; no holding review confirmation or portfolio action taken',
+      proposal_event_ids: ['evt_holding_review_drafted_review_holding_cost_001_20260601'],
+      approval_gates: ['holding_review_requires_user_confirmation'],
+      human_approval_required: true,
+      auto_approved_actions: 0,
+      dry_run: true,
+    })
+  })
+
+  it('fails closed before holding review draft proposals when provider readiness is missing', async () => {
+    const store = new InMemoryEventStore<LedgerEventEnvelope<unknown>>()
+    await appendCostHolding(store)
+    await defineDefaultScheduledTasks(store, { now: () => '2026-06-01T10:00:00.000Z' })
+
+    const result = await runScheduledTasks(store, {
+      as_of: '2026-06-01',
+      dry_run: true,
+      task_kind: 'holding_review_draft',
+      now: () => '2026-06-01T10:00:00.000Z',
+      run_id: () => 'run_holding_review_draft_missing_provider_001',
+    })
+
+    expect(result).toMatchObject({ completed: 0, failed: 1 })
+    const events = await store.list()
+    expect(events.map((event) => event.event_type)).not.toContain('holding_review_drafted')
+    expect(events.map((event) => event.event_type)).not.toContain('provider_run_started')
+    const failed = events.find((event) => event.event_type === 'scheduled_task_run_failed')
+    expect(failed?.payload).toMatchObject({
+      error_summary: expect.stringContaining('holding_review_draft requires a certified provider readiness check'),
+      retry_after: '2026-06-01T10:05:00.000Z',
+      dry_run: true,
     })
   })
 

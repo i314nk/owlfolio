@@ -4,6 +4,7 @@ import { getOnboardingState, getProviderReadinessSnapshot, initializeSelectedMod
 
 export async function POST(request: Request) {
   try {
+    const runtimeOptions = { env: process.env }
     const update = (await request.json()) as OnboardingConfigUpdate
     const state = await getOnboardingState()
     const config = {
@@ -22,7 +23,7 @@ export async function POST(request: Request) {
         ...update.market_universe,
       },
     }
-    const readiness = await getProviderReadinessSnapshot(config)
+    const readiness = await getProviderReadinessSnapshot(config, runtimeOptions)
     if (!readiness.is_ready) {
       return NextResponse.json(
         {

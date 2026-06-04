@@ -18,7 +18,11 @@ function recordedSnapshot(overrides: Partial<AccountingSnapshotProjection> = {})
     cash_balance: 0,
     deposits: 0,
     withdrawals: 0,
+    dividends: 0,
+    fees: 0,
+    net_cash_flow: 0,
     cash_ledger_status: 'placeholder',
+    cash_flows: [],
     missing_valuation_holding_ids: [],
     holdings: [
       {

@@ -35,3 +35,17 @@ test('personal local onboarding shows unready provider status and disables workf
   await expect(page.getByRole('heading', { name: /set up owlfolio/i })).toBeVisible()
   await expect(page.getByRole('heading', { name: /command center/i })).not.toBeVisible()
 })
+
+test('Gemini CLI onboarding is visibly setup-only and cannot start workflow execution', async ({ page }) => {
+  await page.goto('/onboarding')
+
+  await page.getByRole('radio', { name: /personal local mode/i }).click()
+  await page.getByRole('combobox').selectOption('gemini-cli')
+
+  await expect(page.getByText(/recommended google\/gemini cli setup-only sign-in path/i)).toBeVisible()
+  const geminiBoundary = page.locator('section').filter({ hasText: 'Gemini CLI use boundary' })
+  await expect(geminiBoundary.getByText('Gemini CLI use boundary', { exact: true })).toBeVisible()
+  await expect(geminiBoundary.getByText('Allowed use: Setup and readiness discovery only', { exact: true })).toBeVisible()
+  await expect(geminiBoundary.locator('span').filter({ hasText: /^Workflow execution stays blocked until a Gemini CLI adapter and certification exist\.$/ })).toBeVisible()
+  await expect(page.getByRole('button', { name: /start blocked: gemini not locally runnable/i })).toBeDisabled()
+})

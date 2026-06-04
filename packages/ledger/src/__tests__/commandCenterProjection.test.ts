@@ -73,6 +73,24 @@ describe('projectCommandCenterSummary', () => {
         { event_id: 'evt_analysis', label: 'buffett_munger_analysis_drafted by provider:mock-provider' },
         { event_id: 'evt_created', label: 'research_case_created by user:user_local' },
       ],
+      approval_queue: [
+        {
+          id: 'watchlist:wl_cost_001',
+          decision_type: 'watchlist_confirmation',
+          group_label: 'Watchlist confirmations',
+          title: 'COST watchlist draft',
+          actor_label: 'user:user_local',
+          target_label: 'COST',
+          href: '/watchlist#wl_cost_001',
+          audit_event_id: 'evt_watchlist',
+          source_ids: ['src_cost_10k_2025'],
+          before_summary: 'COST is not user-confirmed for monitoring yet.',
+          after_summary: 'Confirm COST as a user-approved watchlist item before worker monitoring or portfolio actions.',
+          shariah_impact: 'Shariah gate decision pending.',
+          accounting_impact: 'No accounting or holding state changes until a user opens a holding.',
+          approve_action_label: 'Review and confirm watchlist draft',
+        },
+      ],
     })
   })
 
@@ -238,6 +256,7 @@ describe('projectCommandCenterSummary', () => {
           holding_id: 'holding_cost_001',
           research_case_id: 'rc_cost_001',
           ticker: 'COST',
+          provider_report_id: 'report_mock_cost_2026_05',
           strategy_id: 'buffett-munger',
           thesis_health: 'HEALTHY',
           action_stance: 'HOLD',
@@ -262,7 +281,72 @@ describe('projectCommandCenterSummary', () => {
         pending_user_actions: 1,
       },
       next_recommended_action: 'Confirm the drafted strategy review for COST',
+      approval_queue: [
+        {
+          id: 'holding-review:holding_cost_001:review_cost_001',
+          decision_type: 'holding_review',
+          group_label: 'Holding review decisions',
+          title: 'COST strategy review draft',
+          actor_label: 'provider:mock-provider',
+          target_label: 'COST',
+          provider_report_id: 'report_mock_cost_2026_05',
+          href: '/portfolio#holding_cost_001',
+          audit_event_id: 'evt_holding_review_drafted_review_cost_001',
+          source_ids: ['src_cost_10k_2025'],
+          before_summary: 'No confirmed thesis review exists yet.',
+          after_summary: 'Provider proposes thesis health HEALTHY, action stance HOLD, next review 2026-09-30.',
+          shariah_impact: 'Shariah gate decision pending.',
+          accounting_impact: 'No accounting values change; only confirmed thesis/review schedule can change after user approval.',
+          approve_action_label: 'Apply provider draft',
+          reject_action_label: 'Reject provider draft',
+          override_action_label: 'Apply user override',
+        },
+      ],
     })
+  })
+
+  it('adds worker proposals that require human approval without counting auto-approved actions', () => {
+    const summary = projectCommandCenterSummary([
+      ...events,
+      {
+        event_id: 'evt_worker_run_completed',
+        event_type: 'scheduled_task_run_completed',
+        aggregate_type: 'scheduled_task',
+        aggregate_id: 'task_watchlist_monitor',
+        actor_type: 'worker',
+        actor_id: 'watchlist-monitor',
+        payload: {
+          scheduled_task_id: 'task_watchlist_monitor',
+          task_kind: 'watchlist_monitor',
+          run_id: 'run_watchlist_monitor_001',
+          result_summary: 'watchlist_monitor dry-run: 1 confirmed watchlist item monitored; no buy/sell/portfolio action taken',
+          observations: ['COST remains in watchlist monitor queue'],
+          provider_run_ids: ['provider_run_watchlist_001'],
+          approval_gates: ['open_holding_requires_user_confirmation'],
+          human_approval_required: true,
+          auto_approved_actions: 0,
+        },
+        source_ids: ['evt_watchlist'],
+        created_at: '2026-05-28T00:20:00.000Z',
+        schema_version: 1,
+      },
+    ])
+
+    expect(summary.approval_queue).toContainEqual(expect.objectContaining({
+      id: 'worker:task_watchlist_monitor:run_watchlist_monitor_001',
+      decision_type: 'worker_proposal',
+      group_label: 'Worker proposals',
+      title: 'watchlist_monitor worker proposal',
+      actor_label: 'worker:watchlist-monitor',
+      href: '/audit?event_id=evt_worker_run_completed#evt_worker_run_completed',
+      audit_event_id: 'evt_worker_run_completed',
+      source_ids: ['evt_watchlist'],
+      provider_run_ids: ['provider_run_watchlist_001'],
+      before_summary: 'Worker dry-run did not change portfolio, watchlist, accounting, or trading state.',
+      after_summary: 'watchlist_monitor dry-run: 1 confirmed watchlist item monitored; no buy/sell/portfolio action taken',
+      shariah_impact: 'Approval gates: open_holding_requires_user_confirmation.',
+      accounting_impact: 'Auto-approved actions recorded by the worker: 0.',
+    }))
   })
 
   it('surfaces a due confirmed holding review as the next scheduled portfolio action', () => {

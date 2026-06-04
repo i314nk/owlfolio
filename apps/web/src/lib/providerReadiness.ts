@@ -265,7 +265,7 @@ async function geminiCliReadiness(provider: ProviderCatalogEntry, env: ProviderR
       credentialSourceCategory: 'configured_secret_file',
       credentialSourceLabel: 'Gemini CLI Google sign-in session',
       authSource: 'Gemini CLI Google sign-in session',
-      statusLabel: 'Gemini CLI Google sign-in session detected, but Owlfolio has not implemented a Gemini CLI execution adapter yet; Developer API and Vertex certification remain separate.',
+      statusLabel: 'Gemini CLI Google sign-in session detected for setup only; Owlfolio cannot execute Gemini CLI workflows until a safe adapter and target-specific certification exist. Developer API and Vertex certification remain separate.',
     })
   }
 
@@ -579,7 +579,7 @@ function onboardingDescriptionFor(provider: ProviderCatalogEntry): string {
   }
 
   if (provider.provider_surface_id === 'gemini-cli') {
-    return 'Recommended Google/Gemini CLI personal-local sign-in path; adapter and certification are not complete yet.'
+    return 'Recommended Google/Gemini CLI setup-only sign-in path; workflow execution stays blocked until a Gemini CLI adapter and certification exist.'
   }
 
   return provider.description

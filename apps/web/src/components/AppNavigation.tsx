@@ -1,5 +1,6 @@
 'use client'
 
+import { useEffect } from 'react'
 import { createElement } from 'react'
 import { usePathname } from 'next/navigation'
 
@@ -14,6 +15,20 @@ const navItems = [
   { href: '/providers', label: 'Providers' },
   { href: '/onboarding', label: 'Onboarding' },
 ]
+
+const SEARCH_TRIGGER_HREF = '/audit?focus=1'
+
+export function isAuditSearchShortcut(event: {
+  ctrlKey?: boolean
+  metaKey?: boolean
+  key?: string
+}): boolean {
+  if (!(event.ctrlKey || event.metaKey)) {
+    return false
+  }
+
+  return typeof event.key === 'string' && event.key.toLowerCase() === 'k'
+}
 
 function isActiveRoute(pathname: string, href: string): boolean {
   if (href === '/') {
@@ -33,6 +48,37 @@ function isActiveRoute(pathname: string, href: string): boolean {
 
 export function AppNavigation() {
   const pathname = usePathname() ?? '/'
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (!isAuditSearchShortcut(event)) {
+        return
+      }
+
+      const target = event.target as Element | null
+      if (
+        target instanceof HTMLElement
+        && (
+          target.tagName === 'INPUT'
+          || target.tagName === 'TEXTAREA'
+          || target.tagName === 'SELECT'
+          || target.isContentEditable
+          || target.closest('[contenteditable="true"]') !== null
+        )
+      ) {
+        return
+      }
+
+      event.preventDefault()
+      window.location.href = SEARCH_TRIGGER_HREF
+    }
+
+    window.addEventListener('keydown', onKeyDown)
+
+    return () => {
+      window.removeEventListener('keydown', onKeyDown)
+    }
+  }, [])
 
   return createElement(
     'nav',
@@ -76,7 +122,7 @@ export function AppNavigation() {
       ),
       createElement(
         'a',
-        { className: 'owl-command-trigger owl-focusable', href: '/audit' },
+        { className: 'owl-command-trigger owl-focusable', href: SEARCH_TRIGGER_HREF, 'aria-label': 'Audit trail search with keyboard shortcut ⌘K' },
         createElement('span', null, 'Audit trail search'),
         createElement('span', { className: 'owl-command-key' }, '⌘K'),
       ),

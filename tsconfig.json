@@ -6,6 +6,6 @@
     "noEmit": true,
     "types": ["node"]
   },
-  "include": ["vitest.config.ts", "package.json"],
+  "include": ["vitest.config.ts", "scripts/**/*.ts", "package.json"],
   "exclude": ["node_modules", "dist", "build", "coverage", "playwright-report", "test-results"]
 }

@@ -3,6 +3,7 @@ import { NextResponse } from 'next/server'
 import { getOnboardingState, getProviderReadinessSnapshot } from '../../../../lib/onboarding'
 
 export async function GET(request: Request) {
+  const runtimeOptions = { env: process.env }
   const { searchParams } = new URL(request.url)
   const providerId = searchParams.get('provider')
   const state = await getOnboardingState()
@@ -17,7 +18,7 @@ export async function GET(request: Request) {
       }
 
   try {
-    const readiness = await getProviderReadinessSnapshot(config)
+    const readiness = await getProviderReadinessSnapshot(config, runtimeOptions)
     return NextResponse.json({ readiness })
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown provider readiness error'

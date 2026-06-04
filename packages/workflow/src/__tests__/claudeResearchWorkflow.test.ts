@@ -81,6 +81,18 @@ describe('runClaudeBuffettMungerResearch', () => {
     expect(result.analysis.investment_verdict).toBe('WATCH')
     expect(result.decision.decision).toBe('WATCH')
     expect(result.source_bundle.records).toHaveLength(1)
+    expect(result.source_bundle.records[0]).toMatchObject({
+      source_id: 'src_msft_10k_2025',
+      source_type: 'url',
+      proposed_by_actor_type: 'provider',
+      proposed_by_actor_id: 'claude',
+      ingested_by_actor_type: 'system',
+      ingested_by_actor_id: 'research_workflow',
+      metadata: {
+        ticker: 'MSFT',
+        strategy_id: 'buffett-munger',
+      },
+    })
 
     const bundleText = await readFile(result.source_bundle.bundle_path, 'utf8')
     expect(bundleText).toContain('src_msft_10k_2025')

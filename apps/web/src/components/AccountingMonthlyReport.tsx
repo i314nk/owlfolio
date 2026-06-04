@@ -51,7 +51,7 @@ export function AccountingMonthlyReport({ report }: AccountingMonthlyReportProps
       createElement(
         'p',
         { style: { color: '#9aa4b7', fontSize: '1rem', margin: 0 } },
-        `Current period summary for ${formatMonth(current.period_end)}. Projected NAV is shown as of ${current.period_end} from manual valuations and placeholder cash in the durable event ledger.`,
+        `Current period summary for ${formatMonth(current.period_end)}. Projected NAV is shown as of ${current.period_end} from manual valuations and period-bounded cash-flow events in the durable event ledger.`,
       ),
     ),
     createAccountingStatusPanel(current),
@@ -68,13 +68,16 @@ export function AccountingMonthlyReport({ report }: AccountingMonthlyReportProps
         metric('Current value (manual valuations)', formatMoney(current.current_value, current.currency)),
         metric('Invested cost basis', formatMoney(current.invested_cost_basis, current.currency)),
         metric('Unrealized P&L', formatMoney(current.unrealized_gain_loss, current.currency)),
-        metric('Cash balance (placeholder)', `${formatMoney(current.cash_balance, current.currency)} (${current.cash_ledger_status})`),
-        metric('Deposits (untracked)', formatMoney(current.deposits, current.currency)),
-        metric('Withdrawals (untracked)', formatMoney(current.withdrawals, current.currency)),
-        metric('Fees (untracked)', `${formatMoney(0, current.currency)} placeholder`),
-        metric('Dividends (untracked)', `${formatMoney(0, current.currency)} placeholder`),
+        metric(current.cash_ledger_status === 'ledger_backed' ? 'Cash balance (ledger-backed)' : 'Cash balance (placeholder)', `${formatMoney(current.cash_balance, current.currency)} (${current.cash_ledger_status})`),
+        metric(current.cash_ledger_status === 'ledger_backed' ? 'Deposits' : 'Deposits (untracked)', formatMoney(current.deposits, current.currency)),
+        metric(current.cash_ledger_status === 'ledger_backed' ? 'Withdrawals' : 'Withdrawals (untracked)', formatMoney(current.withdrawals, current.currency)),
+        metric(current.cash_ledger_status === 'ledger_backed' ? 'Dividends' : 'Dividends (untracked)', current.cash_ledger_status === 'ledger_backed' ? formatMoney(current.dividends, current.currency) : `${formatMoney(0, current.currency)} placeholder`),
+        metric(current.cash_ledger_status === 'ledger_backed' ? 'Fees' : 'Fees (untracked)', current.cash_ledger_status === 'ledger_backed' ? formatMoney(current.fees, current.currency) : `${formatMoney(0, current.currency)} placeholder`),
+        current.cash_ledger_status === 'ledger_backed' ? metric('Net cash flow', formatMoney(current.net_cash_flow, current.currency)) : null,
       ),
-      createElement('p', { style: { color: '#9aa4b7', fontSize: '0.92rem', margin: '1rem 0 0' } }, 'Fees and dividends are not modeled yet; treat all cash-flow totals as manual placeholders until dedicated ledger events exist.'),
+      current.cash_ledger_status === 'ledger_backed'
+        ? createCashFlowLedgerEvents(current)
+        : createElement('p', { style: { color: '#9aa4b7', fontSize: '0.92rem', margin: '1rem 0 0' } }, 'Fees and dividends are not modeled yet; treat all cash-flow totals as manual placeholders until dedicated ledger events exist.'),
     ),
     createAccountingDataCoverage(current),
     createElement(
@@ -145,6 +148,15 @@ function getValuationCoverageBadge(current: AccountingSnapshotProjection): { lab
 
 function createAccountingDataCoverage(current: AccountingSnapshotProjection) {
   const missingCount = current.missing_valuation_holding_ids.length
+  const cashLedgerCopy = current.cash_ledger_status === 'ledger_backed'
+    ? `Cash ledger events: ${current.cash_flows.length} period events linked.`
+    : `Cash ledger events: not modeled yet — cash balance is marked ${current.cash_ledger_status}.`
+  const cashFlowCopy = current.cash_ledger_status === 'ledger_backed'
+    ? 'Deposits, withdrawals, dividends, and fees are separated from manual valuation state and linked to ledger events where available.'
+    : 'Deposits and withdrawals: untracked manual placeholder totals until dedicated cash-flow ledger events exist.'
+  const dividendFeeCopy = current.cash_ledger_status === 'ledger_backed'
+    ? 'Dividends and fees: ledger-backed local tracking aids; amounts are not broker statements or tax reports.'
+    : 'Dividends and fees: not modeled yet; $0.00 is a placeholder, not a confirmed economic zero.'
 
   return createElement(
     'section',
@@ -154,11 +166,30 @@ function createAccountingDataCoverage(current: AccountingSnapshotProjection) {
       'ul',
       { style: { color: '#cbd5e1', display: 'grid', gap: '0.55rem', lineHeight: 1.5, margin: 0, paddingLeft: '1.25rem' } },
       createElement('li', null, `Manual valuation event coverage: ${current.holdings.length} ${current.holdings.length === 1 ? 'holding' : 'holdings'} in snapshot; ${missingCount} missing ${missingCount === 1 ? 'valuation' : 'valuations'}.`),
-      createElement('li', null, `Cash ledger events: not modeled yet — cash balance is marked ${current.cash_ledger_status}.`),
-      createElement('li', null, 'Deposits and withdrawals: untracked manual placeholder totals until dedicated cash-flow ledger events exist.'),
-      createElement('li', null, 'Dividends and fees: not modeled yet; $0.00 is a placeholder, not a confirmed economic zero.'),
+      createElement('li', null, cashLedgerCopy),
+      createElement('li', null, cashFlowCopy),
+      createElement('li', null, dividendFeeCopy),
       createElement('li', null, 'Broker sync: not connected for this local alpha; values are user-entered or projected from ledger events.'),
     ),
+  )
+}
+
+function createCashFlowLedgerEvents(current: AccountingSnapshotProjection) {
+  return createElement(
+    'section',
+    { 'aria-label': 'Cash-flow ledger events', style: { marginTop: '1rem' } },
+    createElement('h3', { style: { fontSize: '1rem', margin: '0 0 0.6rem' } }, 'Cash-flow ledger events'),
+    current.cash_flows.length === 0
+      ? createElement('p', { style: { color: '#9aa4b7', margin: 0 } }, 'No period cash-flow ledger events are linked yet.')
+      : createElement(
+        'ol',
+        { style: { color: '#cbd5e1', display: 'grid', gap: '0.45rem', margin: 0, paddingLeft: '1.25rem' } },
+        ...current.cash_flows.map((flow) => createElement(
+          'li',
+          { key: flow.event_id },
+          `${capitalize(flow.flow_type)} ${formatMoney(Math.abs(flow.amount), flow.currency)} on ${flow.occurred_at}: ${flow.event_id}${flow.source_ids.length === 0 ? '' : `; sources ${flow.source_ids.join(', ')}`}`,
+        )),
+      ),
   )
 }
 
@@ -244,6 +275,10 @@ function metric(label: string, value: string) {
     createElement('p', { style: { color: '#9aa4b7', fontSize: '0.78rem', fontWeight: 900, margin: 0, textTransform: 'uppercase' } }, label),
     createElement('p', { style: { color: '#f7f8ff', fontSize: '1.25rem', fontWeight: 900, margin: '0.35rem 0 0' } }, value),
   )
+}
+
+function capitalize(value: string): string {
+  return `${value.charAt(0).toUpperCase()}${value.slice(1)}`
 }
 
 function formatMoney(value: number, currency: string): string {

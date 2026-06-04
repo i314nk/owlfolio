@@ -387,12 +387,18 @@ describe('research and watchlist workflow pages', () => {
     expect(html).toContain('Current confirmed thesis')
     expect(html).toContain('No confirmed review yet')
     expect(html).toContain('Provider-authored review draft')
-    expect(html).toContain('User decision path')
     expect(html).toContain('Pending thesis health')
     expect(html).toContain('HEALTHY')
     expect(html).toContain('Pending action stance')
     expect(html).toContain('HOLD')
     expect(html).toContain('Choose one auditable decision path')
+    expect(html).toContain('Pending review decision summary')
+    expect(html).toContain('Compare these paths quickly')
+    expect(html).toContain('href="#holding-review-path-confirm"')
+    expect(html).toContain('id="holding-review-path-confirm"')
+    expect(html).toContain('href="#holding-review-path-override"')
+    expect(html).toContain('id="holding-review-path-override"')
+    expect(html).toContain('id="holding-review-path-reject"')
     expect(html).toContain('Apply provider draft')
     expect(html).toContain('Applies the provider-authored thesis health, action stance, and next review date to portfolio state.')
     expect(html).toContain('action="/api/portfolio/holding_msft_001/review/review_holding_msft_001/confirm"')
@@ -405,6 +411,7 @@ describe('research and watchlist workflow pages', () => {
     expect(html).toContain('Override evidence summary (required)')
     expect(html).toContain('Override uncertainty (required)')
     expect(html).toContain('Override next review date (required)')
+    expect(html).toContain('Date fields use YYYY-MM-DD format')
     expect(html).not.toContain('Save override')
     expect(html).toContain('Reject provider draft')
     expect(html).toContain('Leaves the current confirmed portfolio thesis unchanged and clears this pending draft.')
@@ -414,6 +421,7 @@ describe('research and watchlist workflow pages', () => {
     expect(html).not.toContain('#ecfdf5')
     expect(html).not.toContain('#047857')
   })
+
 
   it('surfaces conditional and blocked Shariah gate details on watchlist and holding cards', () => {
     const conditionalWatchlistHtml = renderToStaticMarkup(createElement(WatchlistPanel, {

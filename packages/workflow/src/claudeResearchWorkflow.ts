@@ -14,7 +14,7 @@ import {
   type StrategyCompliance,
   type ValuationStatus,
 } from './researchWorkflow'
-import { writeSourceLedgerBundle, type SourceLedgerBundle } from './sourceLedger'
+import { ingestManualSourceBundle, type SourceLedgerBundle } from './sourceLedger'
 
 const ClaudeBuffettMungerResearchSchema = z.object({
   investment_verdict: z.enum(['BUY', 'WATCH', 'PASS', 'RESEARCH_MORE']),
@@ -130,12 +130,19 @@ export async function runClaudeBuffettMungerResearch(
   const researchCase = await createResearchCase(store, command)
   const structured = await provider.structured(buildRequest(command, provider), ClaudeBuffettMungerResearchSchema)
 
-  const sourceBundle = await writeSourceLedgerBundle({
+  const sourceBundle = await ingestManualSourceBundle({
     source_ledger_path: command.source_ledger_path,
     research_case_id: command.research_case_id,
+    ticker: command.ticker,
+    strategy_id: command.strategy_id,
     provider_id: provider.provider_id,
-    records: structured.source_records.map((record) => ({
+    proposed_by_actor_type: 'provider',
+    proposed_by_actor_id: provider.provider_id,
+    ingested_by_actor_type: 'system',
+    ingested_by_actor_id: 'research_workflow',
+    sources: structured.source_records.map((record) => ({
       source_id: record.source_id,
+      kind: 'url',
       title: record.title,
       url: record.url,
       excerpt: record.excerpt,
@@ -143,8 +150,6 @@ export async function runClaudeBuffettMungerResearch(
       ...(record.content_hash === undefined ? {} : { content_hash: record.content_hash }),
       metadata: {
         research_case_id: command.research_case_id,
-        ticker: command.ticker,
-        strategy_id: command.strategy_id,
       },
     })),
   })

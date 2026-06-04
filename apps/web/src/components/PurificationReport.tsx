@@ -255,6 +255,12 @@ function obligationCard(obligation: PurificationObligationProjection) {
     obligation.accounting_holding_value === undefined
       ? null
       : createElement('p', { style: { color: '#cbd5e1', margin: '0.25rem 0' } }, `Holding value: ${formatMoney(obligation.accounting_holding_value, obligation.currency)}`),
+    obligation.dividend_income_amount === undefined || obligation.dividend_event_id === undefined
+      ? null
+      : createElement('p', { style: { color: '#cbd5e1', margin: '0.25rem 0' } }, `Dividend basis: ${formatMoney(obligation.dividend_income_amount, obligation.currency)} from ${obligation.dividend_event_id}`),
+    obligation.impurity_rate === undefined
+      ? null
+      : createElement('p', { style: { color: '#cbd5e1', margin: '0.25rem 0' } }, `Impurity rate: ${formatPercent(obligation.impurity_rate)}`),
     createElement('p', { style: { color: '#cbd5e1', fontWeight: 800, margin: '0.25rem 0' } }, 'Payment action: record only after the user confirms an external payment'),
     createElement('p', { style: { color: '#9aa4b7', margin: '0.25rem 0 0' } }, `Audit/source links preview: ${obligation.audit_source_ids.join(', ') || 'none linked'}`),
   )
@@ -267,6 +273,10 @@ function metric(label: string, value: string) {
     createElement('p', { style: { color: '#9aa4b7', fontSize: '0.78rem', fontWeight: 900, margin: 0, textTransform: 'uppercase' } }, label),
     createElement('p', { style: { color: '#f7f8ff', fontSize: '1.25rem', fontWeight: 900, margin: '0.35rem 0 0' } }, value),
   )
+}
+
+function formatPercent(value: number): string {
+  return new Intl.NumberFormat('en-US', { maximumFractionDigits: 2, style: 'percent' }).format(value)
 }
 
 function formatMoney(value: number, currency: string): string {
