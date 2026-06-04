@@ -151,6 +151,54 @@ describe('CommandCenter', () => {
     expect(html).toContain('Continue setup')
   })
 
+  it('frames the landing page as a premium local command cockpit with obvious workflow routes and trust signals', () => {
+    const html = renderToStaticMarkup(createElement(CommandCenter, {
+      dashboard: makeDashboard({
+        pipeline_counts: {
+          research_cases: 3,
+          watchlist_drafts: 2,
+          confirmed_watchlist_items: 1,
+          open_holdings: 1,
+          pending_user_actions: 2,
+        },
+        next_recommended_action: 'Review COST watchlist draft and confirm it',
+        primary_action: { href: '/watchlist', label: 'Open watchlist drafts' },
+        secondary_action: { href: '/research/new', label: 'Start research case' },
+      }),
+    }))
+
+    expect(html).toContain('Private command cockpit')
+    expect(html).toContain('Investment workflow OS for local research, watchlist, and portfolio decisions.')
+    expect(html).toContain('aria-label="Command cockpit overview"')
+    expect(html).toContain('Main operating priority')
+    expect(html).toContain('Decision gate')
+    expect(html).toContain('Approval required before state changes')
+    expect(html).toContain('Workflow launchpad')
+    expect(html).toContain('Research lab')
+    expect(html).toContain('Watchlist desk')
+    expect(html).toContain('Portfolio cockpit')
+    expect(html).toContain('Audit trail')
+    expect(html).toContain('href="/research/new"')
+    expect(html).toContain('href="/watchlist"')
+    expect(html).toContain('href="/portfolio"')
+    expect(html).toContain('href="/audit"')
+    expect(html).toContain('Shariah-aware')
+    expect(html).toContain('Fiduciary confirmation')
+    expect(html).toContain('Evidence-backed automation')
+  })
+
+  it('keeps backup and restore positioned as a Learn-linked operator runbook rather than a dashboard workflow', () => {
+    const html = renderToStaticMarkup(createElement(CommandCenter, { dashboard: makeDashboard() }))
+
+    expect(html).toContain('Operator fallback')
+    expect(html).toContain('Runbook-only backup/restore')
+    expect(html).toContain('Operator-managed backups stay outside the main decision queue.')
+    expect(html).toContain('href="/learn#fallback"')
+    expect(html).toContain('Learn fallback runbook')
+    expect(html).not.toContain('Restore portfolio data')
+    expect(html).not.toContain('Start restore')
+  })
+
   it('renders an empty-state command center for initialized personal local mode', async () => {
     const store = new SQLiteEventStore()
     try {
@@ -611,5 +659,14 @@ describe('CommandCenter', () => {
     expect(learnPageSource).toContain('href="/onboarding"')
     expect(learnPageSource).toContain('href="/providers"')
     expect(learnPageSource).toContain('id="fallback"')
+  })
+
+  it('documents the /research landing route as a smoke-testable workflow entrypoint', () => {
+    const researchPageSource = readFileSync('apps/web/src/app/research/page.tsx', 'utf8')
+
+    expect(researchPageSource).toContain('Research workflow')
+    expect(researchPageSource).toContain('Start research intake')
+    expect(researchPageSource).toContain('href="/research/new"')
+    expect(researchPageSource).toContain('Learn workflow boundaries')
   })
 })

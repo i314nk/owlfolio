@@ -37,51 +37,34 @@ type OperationalSignal = {
   tone: 'blocked' | 'draft' | 'manual' | 'success'
 }
 
+type WorkflowLaunchpadItem = {
+  description: string
+  href: string
+  label: string
+  title: string
+}
+
+type TrustSignal = {
+  description: string
+  label: string
+}
+
 export function CommandCenter({ dashboard }: CommandCenterProps) {
   const counts = dashboard.pipeline_counts
 
   return createElement(
     'main',
-    {
-      style: {
-        color: '#f7f8ff',
-        padding: '2rem 0 3rem',
-      },
-    },
+    { className: 'owl-command-main' },
     createElement(
       'section',
-      {
-        style: {
-          margin: '0 auto',
-          maxWidth: '1040px',
-        },
-      },
-      createElement(
-        'p',
-        { style: { color: '#7c8cff', fontFamily: 'var(--owl-font-mono)', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase' } },
-        dashboard.product_name,
-      ),
-      createElement(
-        'h1',
-        { style: { fontSize: 'clamp(2.25rem, 5vw, 4.5rem)', lineHeight: 1, margin: '0.5rem 0 1rem' } },
-        'Command Center',
-      ),
-      createElement(
-        'p',
-        { style: { color: '#9aa4b7', fontSize: '1.15rem', maxWidth: '720px' } },
-        'Owlfolio prepares evidence-backed recommendations and automation reminders; you confirm the decisions that change portfolio state.',
-      ),
-      createStatusStrip(dashboard),
+      { className: 'owl-command-container' },
+      createCommandHero(dashboard),
+      createCockpitOverview(dashboard),
       createElement(
         'section',
         {
           'aria-label': 'Pipeline counts',
-          style: {
-            display: 'grid',
-            gap: '1rem',
-            gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))',
-            marginBottom: '1.5rem',
-          },
+          className: 'owl-command-metric-grid',
         },
         ...buildMetricCards(counts).map((metric) => createElement(MetricCard, { key: metric.label, ...metric })),
       ),
@@ -89,6 +72,161 @@ export function CommandCenter({ dashboard }: CommandCenterProps) {
       createSecondaryReferenceModules(dashboard),
     ),
   )
+}
+
+function createCommandHero(dashboard: AppCommandCenter) {
+  return createElement(
+    'header',
+    { className: 'owl-command-hero' },
+    createElement(
+      'div',
+      { className: 'owl-command-hero-copy' },
+      createElement('p', { className: 'owl-command-kicker' }, `${dashboard.product_name} · Private command cockpit`),
+      createElement('h1', { className: 'owl-command-title' }, 'Command Center'),
+      createElement(
+        'p',
+        { className: 'owl-command-subtitle' },
+        'Investment workflow OS for local research, watchlist, and portfolio decisions.',
+      ),
+      createElement(
+        'p',
+        { className: 'owl-command-description' },
+        'Owlfolio prepares evidence-backed recommendations and automation reminders; you confirm the decisions that change portfolio state.',
+      ),
+    ),
+    createStatusStrip(dashboard),
+  )
+}
+
+function createCockpitOverview(dashboard: AppCommandCenter) {
+  return createElement(
+    'section',
+    { 'aria-label': 'Command cockpit overview', className: 'owl-command-hero-grid' },
+    createElement(
+      'article',
+      { className: 'owl-command-primary-panel' },
+      createElement('p', { className: 'owl-command-panel-eyebrow' }, 'Main operating priority'),
+      createElement('p', { className: 'owl-command-priority-title' }, getPrimaryPriorityHeadline(dashboard)),
+      createElement(
+        'p',
+        { className: 'owl-command-panel-copy' },
+        'Automation queues evidence, reminders, and provider drafts; portfolio state changes only after explicit user approval.',
+      ),
+      createElement(
+        'div',
+        { className: 'owl-command-action-row' },
+        createElement(OwlButtonLink, { href: dashboard.primary_action.href }, dashboard.primary_action.label),
+        dashboard.secondary_action === undefined
+          ? null
+          : createElement(OwlButtonLink, { href: dashboard.secondary_action.href, variant: 'secondary' }, dashboard.secondary_action.label),
+      ),
+      createDecisionGate(dashboard),
+    ),
+    createWorkflowLaunchpad(),
+    createTrustSignalPanel(),
+  )
+}
+
+function getPrimaryPriorityHeadline(dashboard: AppCommandCenter): string {
+  const pendingActions = dashboard.pipeline_counts.pending_user_actions
+
+  if (pendingActions > 0) {
+    return `${pendingActions} ${pendingActions === 1 ? 'user decision is' : 'user decisions are'} waiting`
+  }
+
+  if (isProviderReadinessWarning(dashboard.provider_status)) {
+    return 'Provider readiness needs attention'
+  }
+
+  if (dashboard.pipeline_counts.research_cases === 0) {
+    return 'Start the first research workflow'
+  }
+
+  return 'Continue the highest-priority workflow'
+}
+
+function createDecisionGate(dashboard: AppCommandCenter) {
+  const pendingActions = dashboard.pipeline_counts.pending_user_actions
+
+  return createElement(
+    'div',
+    { className: 'owl-command-decision-gate' },
+    createElement('p', { className: 'owl-command-panel-eyebrow' }, 'Decision gate'),
+    createElement('p', { className: 'owl-command-decision-title' }, 'Approval required before state changes'),
+    createElement(
+      'p',
+      { className: 'owl-command-panel-copy' },
+      pendingActions === 0
+        ? 'No approval task is currently blocking watchlist, holding, accounting, or purification state.'
+        : `${pendingActions} ${pendingActions === 1 ? 'proposal needs' : 'proposals need'} a user-authored confirmation, rejection, or override.`,
+    ),
+  )
+}
+
+function createWorkflowLaunchpad() {
+  return createElement(
+    'section',
+    { 'aria-label': 'Workflow launchpad', className: 'owl-command-launchpad' },
+    createElement('p', { className: 'owl-command-panel-eyebrow' }, 'Workflow launchpad'),
+    ...buildWorkflowLaunchpadItems().map((item) => createElement(
+      'a',
+      { className: 'owl-command-launchpad-link owl-focusable', href: item.href, key: item.title },
+      createElement('span', { className: 'owl-command-launchpad-title' }, item.title),
+      createElement('span', { className: 'owl-command-launchpad-copy' }, item.description),
+      createElement('span', { className: 'owl-command-launchpad-action' }, item.label),
+    )),
+  )
+}
+
+function buildWorkflowLaunchpadItems(): WorkflowLaunchpadItem[] {
+  return [
+    {
+      description: 'Start or resume source-backed company research.',
+      href: '/research/new',
+      label: 'Open research intake',
+      title: 'Research lab',
+    },
+    {
+      description: 'Confirm provider drafts before monitoring begins.',
+      href: '/watchlist',
+      label: 'Review watchlist drafts',
+      title: 'Watchlist desk',
+    },
+    {
+      description: 'Review holdings, valuations, and strategy cadence.',
+      href: '/portfolio',
+      label: 'Open portfolio workflow',
+      title: 'Portfolio cockpit',
+    },
+    {
+      description: 'Trace decisions, actors, source IDs, and approvals.',
+      href: '/audit',
+      label: 'Open audit evidence',
+      title: 'Audit trail',
+    },
+  ]
+}
+
+function createTrustSignalPanel() {
+  return createElement(
+    'section',
+    { 'aria-label': 'Trust signals', className: 'owl-command-trust-panel' },
+    createElement('p', { className: 'owl-command-panel-eyebrow' }, 'Trust layer'),
+    ...buildTrustSignals().map((signal) => createElement(
+      'article',
+      { className: 'owl-command-trust-item', key: signal.label },
+      createElement('h2', { className: 'owl-command-trust-title' }, signal.label),
+      createElement('p', { className: 'owl-command-trust-copy' }, signal.description),
+    )),
+  )
+}
+
+function buildTrustSignals(): TrustSignal[] {
+  return [
+    { label: 'Shariah-aware', description: 'Screening and purification prompts stay visible without becoming trading advice.' },
+    { label: 'Fiduciary confirmation', description: 'Provider and worker proposals remain drafts until a user confirms the state change.' },
+    { label: 'Evidence-backed automation', description: 'Research outputs, worker observations, and decision queues point back to durable source and audit evidence.' },
+  ]
 }
 
 function createOperatingSurface(dashboard: AppCommandCenter) {
@@ -111,10 +249,10 @@ function createOperatingSurface(dashboard: AppCommandCenter) {
       createElement(
         'div',
         { style: { display: 'flex', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '1rem' } },
-        createElement(OwlButtonLink, { href: dashboard.primary_action.href }, dashboard.primary_action.label),
+        createElement(OwlButtonLink, { href: dashboard.primary_action.href }, 'Open operating priority'),
         dashboard.secondary_action === undefined
           ? null
-          : createElement(OwlButtonLink, { href: dashboard.secondary_action.href, variant: 'secondary' }, dashboard.secondary_action.label),
+          : createElement(OwlButtonLink, { href: dashboard.secondary_action.href, variant: 'secondary' }, 'Open secondary route'),
       ),
       createNextActionQueue(dashboard),
       createApprovalQueue(dashboard),
@@ -284,11 +422,11 @@ function createDataSafetyCaveat(_dashboard: AppCommandCenter) {
       },
     },
     createElement('p', { style: { color: '#60a5fa', fontFamily: 'var(--owl-font-mono)', fontSize: '0.78rem', fontWeight: 800, letterSpacing: '0.08em', margin: 0, textTransform: 'uppercase' } }, 'Operator fallback'),
-    createElement('p', { style: { color: '#f7f8ff', fontWeight: 900, margin: 0 } }, 'Backup/restore and environment handoff remain operator/manual today.'),
+    createElement('p', { style: { color: '#f7f8ff', fontWeight: 900, margin: 0 } }, 'Runbook-only backup/restore'),
     createElement(
       'p',
       { style: { color: '#f1f5f9', margin: 0 } },
-      'Keep deep backup/restore details in Learn to avoid overloading the main operating queue.',
+      'Operator-managed backups stay outside the main decision queue. Keep deep backup/restore details in Learn to avoid implying a dashboard restore workflow.',
     ),
     createElement('div', { style: { display: 'flex', justifyContent: 'flex-start' } }, createElement(OwlButtonLink, { href: '/learn#fallback', variant: 'secondary' }, 'Learn fallback runbook')),
   )
