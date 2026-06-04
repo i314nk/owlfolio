@@ -1,25 +1,27 @@
 :root {
   color-scheme: dark;
-  --owl-color-canvas: #07080d;
-  --owl-color-canvas-soft: #0a0d14;
-  --owl-color-shell: #0d111a;
-  --owl-color-panel: rgba(255, 255, 255, 0.035);
-  --owl-color-panel-elevated: rgba(255, 255, 255, 0.06);
-  --owl-color-border: rgba(255, 255, 255, 0.08);
-  --owl-color-border-strong: rgba(132, 145, 255, 0.28);
-  --owl-color-text: #f7f8ff;
-  --owl-color-muted: #9aa4b7;
-  --owl-color-quiet: #687085;
-  --owl-color-accent: #6366f1;
-  --owl-color-accent-bright: #7c8cff;
-  --owl-color-finance-blue: #0a84ff;
+  --owl-color-canvas: #050705;
+  --owl-color-canvas-soft: #080d0a;
+  --owl-color-shell: #0c120f;
+  --owl-color-panel: rgba(243, 223, 177, 0.035);
+  --owl-color-panel-elevated: rgba(243, 223, 177, 0.06);
+  --owl-color-border: rgba(182, 201, 173, 0.11);
+  --owl-color-border-strong: rgba(52, 211, 153, 0.32);
+  --owl-color-text: #fff8ea;
+  --owl-color-muted: #a8b8ad;
+  --owl-color-quiet: #6f7f73;
+  --owl-color-accent: #16a34a;
+  --owl-color-accent-bright: #34d399;
+  --owl-color-finance-blue: #0f766e;
   --owl-color-shariah: #22c55e;
-  --owl-color-warning: #fbbf24;
+  --owl-color-fiduciary: #d6b25e;
+  --owl-color-sand: #f3dfb1;
+  --owl-color-warning: #d6b25e;
   --owl-color-risk: #ef4444;
   --owl-color-status-certified: rgba(34, 197, 94, 0.14);
   --owl-color-status-certified-border: rgba(134, 239, 172, 0.34);
-  --owl-color-status-experimental: rgba(99, 102, 241, 0.14);
-  --owl-color-status-experimental-border: rgba(165, 180, 252, 0.32);
+  --owl-color-status-experimental: rgba(214, 178, 94, 0.12);
+  --owl-color-status-experimental-border: rgba(243, 223, 177, 0.3);
   --owl-color-status-blocked: rgba(239, 68, 68, 0.13);
   --owl-color-status-blocked-border: rgba(252, 165, 165, 0.34);
   --owl-color-status-draft: rgba(251, 191, 36, 0.12);
@@ -28,8 +30,8 @@
   --owl-color-status-manual-border: rgba(203, 213, 225, 0.24);
   --owl-color-status-compliance: rgba(20, 184, 166, 0.12);
   --owl-color-status-compliance-border: rgba(94, 234, 212, 0.28);
-  --owl-color-source-bg: rgba(15, 23, 42, 0.86);
-  --owl-color-source-border: rgba(125, 211, 252, 0.22);
+  --owl-color-source-bg: rgba(8, 13, 10, 0.9);
+  --owl-color-source-border: rgba(52, 211, 153, 0.22);
   --owl-font-sans: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --owl-font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
   --owl-radius-control: 0.45rem;
@@ -48,9 +50,9 @@ html {
 
 body {
   background:
-    radial-gradient(circle at 16% 0%, rgba(99, 102, 241, 0.2), transparent 28rem),
-    radial-gradient(circle at 88% 12%, rgba(10, 132, 255, 0.13), transparent 24rem),
-    linear-gradient(135deg, var(--owl-color-canvas) 0%, #090b12 52%, #05060a 100%);
+    radial-gradient(circle at 16% 0%, rgba(22, 163, 74, 0.16), transparent 28rem),
+    radial-gradient(circle at 88% 12%, rgba(214, 178, 94, 0.12), transparent 24rem),
+    linear-gradient(135deg, var(--owl-color-canvas) 0%, #08100c 52%, #030604 100%);
   color: var(--owl-color-text);
   font-family: var(--owl-font-sans);
   font-feature-settings: "cv01", "ss03";
@@ -71,7 +73,7 @@ textarea:focus-visible,
 a:focus-visible {
   outline: 2px solid var(--owl-color-accent-bright);
   outline-offset: 3px;
-  box-shadow: 0 0 0 6px rgba(99, 102, 241, 0.18);
+  box-shadow: 0 0 0 6px rgba(52, 211, 153, 0.18);
 }
 
 .owl-app-shell {
@@ -80,7 +82,7 @@ a:focus-visible {
 }
 
 .owl-app-shell::before {
-  background: linear-gradient(90deg, transparent, rgba(124, 140, 255, 0.36), transparent);
+  background: linear-gradient(90deg, transparent, rgba(52, 211, 153, 0.36), transparent);
   content: "";
   display: block;
   height: 1px;
@@ -195,9 +197,9 @@ a:focus-visible {
 }
 
 .owl-brand-orb {
-  background: linear-gradient(135deg, var(--owl-color-accent-bright), var(--owl-color-finance-blue));
-  border-radius: 0.75rem;
-  box-shadow: 0 0 26px rgba(99, 102, 241, 0.4);
+  background: linear-gradient(135deg, var(--owl-color-accent-bright), var(--owl-color-fiduciary));
+  border-radius: 0.6rem;
+  box-shadow: 0 0 26px rgba(22, 163, 74, 0.32);
   color: #fff;
   display: inline-grid;
   font-weight: 700;
@@ -254,13 +256,13 @@ a:focus-visible {
 
 .owl-nav-link:hover,
 .owl-nav-link-active {
-  background: rgba(124, 140, 255, 0.14);
+  background: rgba(22, 163, 74, 0.13);
   border-color: var(--owl-color-border-strong);
   color: var(--owl-color-text);
 }
 
 .owl-nav-link-active {
-  box-shadow: inset 0 0 0 1px rgba(124, 140, 255, 0.16);
+  box-shadow: inset 0 0 0 1px rgba(52, 211, 153, 0.14);
 }
 
 .owl-command-trigger {
@@ -372,6 +374,54 @@ a:focus-visible {
   max-width: 48rem;
 }
 
+.owl-command-status-shell {
+  display: grid;
+  gap: 0.72rem;
+  margin: 1.35rem 0 1.85rem;
+}
+
+.owl-command-status-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+}
+
+.owl-command-status-summary {
+  align-items: stretch;
+  background: rgba(8, 13, 10, 0.78);
+  border: 1px solid rgba(182, 201, 173, 0.14);
+  border-radius: var(--owl-radius-card);
+  color: var(--owl-color-muted);
+  display: grid;
+  gap: 0.5rem;
+  grid-template-columns: repeat(auto-fit, minmax(8rem, 1fr));
+  padding: 0.62rem;
+}
+
+.owl-command-status-summary-item {
+  align-items: baseline;
+  background: rgba(243, 223, 177, 0.032);
+  border: 1px solid rgba(182, 201, 173, 0.12);
+  border-radius: var(--owl-radius-control);
+  display: flex;
+  gap: 0.5rem;
+  justify-content: space-between;
+  padding: 0.55rem 0.65rem;
+}
+
+.owl-command-status-summary-item strong {
+  color: var(--owl-color-muted);
+  font-size: 0.76rem;
+  font-weight: 650;
+}
+
+.owl-command-status-summary-item span {
+  color: var(--owl-color-text);
+  font-family: var(--owl-font-mono);
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+}
+
 .owl-command-hero-grid {
   align-items: stretch;
   display: grid;
@@ -383,10 +433,10 @@ a:focus-visible {
 .owl-command-launchpad,
 .owl-command-trust-panel {
   background:
-    radial-gradient(circle at top left, rgba(124, 140, 255, 0.18), transparent 22rem),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.07), rgba(255, 255, 255, 0.032));
-  border: 1px solid rgba(132, 145, 255, 0.22);
-  border-radius: calc(var(--owl-radius-panel) + 0.25rem);
+    radial-gradient(circle at top left, rgba(22, 163, 74, 0.16), transparent 22rem),
+    linear-gradient(180deg, rgba(243, 223, 177, 0.065), rgba(243, 223, 177, 0.028));
+  border: 1px solid rgba(52, 211, 153, 0.2);
+  border-radius: var(--owl-radius-panel);
   box-shadow: var(--owl-shadow-panel);
   color: var(--owl-color-text);
   padding: clamp(1rem, 2vw, 1.35rem);
@@ -418,16 +468,16 @@ a:focus-visible {
 
 .owl-command-decision-gate {
   align-self: end;
-  background: rgba(251, 191, 36, 0.09);
-  border: 1px solid rgba(251, 191, 36, 0.26);
-  border-radius: var(--owl-radius-panel);
+  background: rgba(214, 178, 94, 0.1);
+  border: 1px solid rgba(214, 178, 94, 0.28);
+  border-radius: var(--owl-radius-card);
   display: grid;
   gap: 0.45rem;
   padding: 1rem;
 }
 
 .owl-command-decision-title {
-  color: #fef3c7;
+  color: var(--owl-color-sand);
   font-size: 1.02rem;
   font-weight: 850;
   margin: 0;
@@ -452,8 +502,8 @@ a:focus-visible {
 }
 
 .owl-command-launchpad-link:hover {
-  background: rgba(124, 140, 255, 0.1);
-  border-color: rgba(124, 140, 255, 0.3);
+  background: rgba(22, 163, 74, 0.1);
+  border-color: rgba(52, 211, 153, 0.3);
   transform: translateY(-1px);
 }
 
@@ -516,24 +566,31 @@ a:focus-visible {
 }
 
 .owl-command-reference-grid {
-  align-items: start;
+  align-items: stretch;
   display: grid;
   gap: 1rem;
-  grid-template-columns: minmax(0, 1.05fr) minmax(18rem, 0.95fr);
+  grid-auto-rows: 1fr;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .owl-command-reference-module {
-  background: rgba(255, 255, 255, 0.024);
-  border: 1px solid rgba(148, 163, 184, 0.14);
+  background: rgba(243, 223, 177, 0.024);
+  border: 1px solid rgba(182, 201, 173, 0.14);
   border-radius: var(--owl-radius-card);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.025);
+  box-shadow: inset 0 1px 0 rgba(243, 223, 177, 0.025);
   color: var(--owl-color-text);
+  height: 100%;
   padding: 1rem;
 }
 
 .owl-command-reference-module-accent {
-  background: rgba(10, 132, 255, 0.06);
-  border-color: rgba(125, 211, 252, 0.18);
+  background: rgba(214, 178, 94, 0.07);
+  border-color: rgba(214, 178, 94, 0.22);
+}
+
+.owl-command-reference-wide-module,
+.owl-command-recent-activity-module {
+  grid-column: 1 / -1;
 }
 
 .owl-card-title {
@@ -596,8 +653,8 @@ a:focus-visible {
 
 .owl-empty-state {
   background:
-    radial-gradient(circle at top left, rgba(99, 102, 241, 0.11), transparent 18rem),
-    rgba(255, 255, 255, 0.026);
+    radial-gradient(circle at top left, rgba(22, 163, 74, 0.1), transparent 18rem),
+    rgba(243, 223, 177, 0.026);
   border: 1px dashed rgba(148, 163, 184, 0.24);
   border-radius: var(--owl-radius-panel);
   color: var(--owl-color-text);
@@ -634,7 +691,7 @@ a:focus-visible {
   background: var(--owl-color-source-bg);
   border: 1px solid var(--owl-color-source-border);
   border-radius: 999px;
-  color: #dbeafe;
+  color: #d1fae5;
   display: inline-flex;
   font-family: var(--owl-font-mono);
   font-size: 0.7rem;
@@ -666,8 +723,8 @@ a:focus-visible {
 }
 
 .owl-button-primary {
-  background: linear-gradient(135deg, var(--owl-color-accent), var(--owl-color-finance-blue));
-  border: 1px solid rgba(124, 140, 255, 0.46);
+  background: linear-gradient(135deg, var(--owl-color-accent), #0f766e);
+  border: 1px solid rgba(52, 211, 153, 0.46);
   color: #fff;
 }
 
@@ -694,9 +751,9 @@ a:focus-visible {
 }
 
 .owl-status-neutral {
-  background: #1d4ed8;
-  border: 1px solid rgba(191, 219, 254, 0.42);
-  color: #eff6ff;
+  background: rgba(15, 118, 110, 0.18);
+  border: 1px solid rgba(94, 234, 212, 0.26);
+  color: #ccfbf1;
 }
 
 .owl-status-success {
@@ -726,7 +783,7 @@ a:focus-visible {
 .owl-status-experimental {
   background: var(--owl-color-status-experimental);
   border: 1px solid var(--owl-color-status-experimental-border);
-  color: #c7d2fe;
+  color: #f3dfb1;
 }
 
 .owl-status-blocked {
@@ -769,7 +826,7 @@ a:focus-visible {
 }
 
 .owl-metric-card:hover {
-  border-color: rgba(124, 140, 255, 0.24);
+  border-color: rgba(52, 211, 153, 0.26);
 }
 
 .owl-metric-label {
@@ -916,13 +973,13 @@ a:focus-visible {
 }
 
 .owl-workflow-panel-gate {
-  background: rgba(10, 132, 255, 0.08);
-  border-color: rgba(125, 211, 252, 0.18);
+  background: rgba(214, 178, 94, 0.08);
+  border-color: rgba(214, 178, 94, 0.22);
 }
 
 .owl-workflow-panel-user {
-  background: rgba(124, 140, 255, 0.08);
-  border-color: rgba(124, 140, 255, 0.22);
+  background: rgba(22, 163, 74, 0.08);
+  border-color: rgba(52, 211, 153, 0.22);
 }
 
 .owl-financial-table {
@@ -967,8 +1024,8 @@ a:focus-visible {
 }
 
 .owl-action-form-confirm {
-  background: rgba(124, 140, 255, 0.08);
-  border-color: rgba(124, 140, 255, 0.22);
+  background: rgba(22, 163, 74, 0.08);
+  border-color: rgba(52, 211, 153, 0.22);
 }
 
 .owl-form-button {
@@ -982,7 +1039,7 @@ a:focus-visible {
 }
 
 .owl-form-button-primary {
-  background: #6366f1;
+  background: linear-gradient(135deg, var(--owl-color-accent), #0f766e);
 }
 
 @media (max-width: 760px) {

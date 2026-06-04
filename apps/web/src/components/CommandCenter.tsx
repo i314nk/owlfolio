@@ -238,12 +238,12 @@ function createOperatingSurface(dashboard: AppCommandCenter) {
       { className: 'owl-command-action-card', eyebrow: 'Operating priority' },
       createElement(
         'p',
-        { style: { color: '#f7f8ff', fontSize: '1.35rem', fontWeight: 700, letterSpacing: '-0.02em', margin: '0.45rem 0 0.35rem' } },
+        { style: { color: 'var(--owl-color-text)', fontSize: '1.35rem', fontWeight: 700, letterSpacing: '-0.02em', margin: '0.45rem 0 0.35rem' } },
         dashboard.next_recommended_action,
       ),
       createElement(
         'p',
-        { style: { color: '#9aa4b7', margin: '0 0 1rem' } },
+        { style: { color: 'var(--owl-color-muted)', margin: '0 0 1rem' } },
         'Primary actions stay on top; monitoring and audit references stay visible but unobtrusive.',
       ),
       createElement(
@@ -282,10 +282,10 @@ function createApprovalQueue(dashboard: AppCommandCenter) {
     createElement(
       'div',
       null,
-      createElement('p', { style: { color: '#7c8cff', fontFamily: 'var(--owl-font-mono)', fontSize: '0.78rem', fontWeight: 800, letterSpacing: '0.08em', margin: 0, textTransform: 'uppercase' } }, 'Approval queue'),
+      createElement('p', { style: { color: 'var(--owl-color-accent-bright)', fontFamily: 'var(--owl-font-mono)', fontSize: '0.78rem', fontWeight: 800, letterSpacing: '0.08em', margin: 0, textTransform: 'uppercase' } }, 'Approval queue'),
       createElement(
         'p',
-        { style: { color: '#9aa4b7', margin: '0.35rem 0 0' } },
+        { style: { color: 'var(--owl-color-muted)', margin: '0.35rem 0 0' } },
         `${dashboard.approval_queue.length} pending ${dashboard.approval_queue.length === 1 ? 'proposal' : 'proposals'} grouped by decision type`,
       ),
     ),
@@ -317,7 +317,7 @@ function createApprovalGroup(groupLabel: string, items: AppCommandCenter['approv
         padding: '0.9rem',
       },
     },
-    createElement('h2', { style: { color: '#f7f8ff', fontSize: '1rem', margin: 0 } }, groupLabel),
+    createElement('h2', { style: { color: 'var(--owl-color-text)', fontSize: '1rem', margin: 0 } }, groupLabel),
     ...items.map((item) => createApprovalQueueCard(item)),
   )
 }
@@ -329,14 +329,14 @@ function createApprovalQueueCard(item: AppCommandCenter['approval_queue'][number
       key: item.id,
       style: {
         background: 'rgba(5, 8, 15, 0.52)',
-        border: '1px solid rgba(124, 140, 255, 0.18)',
+        border: '1px solid rgba(52, 211, 153, 0.18)',
         borderRadius: '0.85rem',
         display: 'grid',
         gap: '0.75rem',
         padding: '0.9rem',
       },
     },
-    createElement('h3', { style: { color: '#f7f8ff', fontSize: '1.02rem', margin: 0 } }, item.title),
+    createElement('h3', { style: { color: 'var(--owl-color-text)', fontSize: '1.02rem', margin: 0 } }, item.title),
     createElement(
       'div',
       { className: 'owl-activity-meta' },
@@ -369,8 +369,8 @@ function createApprovalDetail(label: string, value: string) {
         padding: '0.7rem',
       },
     },
-    createElement('p', { style: { color: '#9aa4b7', fontFamily: 'var(--owl-font-mono)', fontSize: '0.7rem', fontWeight: 800, letterSpacing: '0.08em', margin: '0 0 0.25rem', textTransform: 'uppercase' } }, label),
-    createElement('p', { style: { color: '#cbd5e1', margin: 0 } }, value),
+    createElement('p', { style: { color: 'var(--owl-color-muted)', fontFamily: 'var(--owl-font-mono)', fontSize: '0.7rem', fontWeight: 800, letterSpacing: '0.08em', margin: '0 0 0.25rem', textTransform: 'uppercase' } }, label),
+    createElement('p', { style: { color: '#d7e2d7', margin: 0 } }, value),
   )
 }
 
@@ -401,8 +401,8 @@ function createSecondaryReferenceModules(dashboard: AppCommandCenter) {
     'section',
     { 'aria-label': 'Secondary reference modules', className: 'owl-command-reference-grid' },
     createAccountingAlert(dashboard),
-    createDataSafetyCaveat(dashboard),
     createHoldingReviewSchedule(dashboard),
+    createDataSafetyCaveat(dashboard),
     createOperationalAwareness(dashboard),
     createRecentActivity(dashboard),
   )
@@ -415,17 +415,17 @@ function createDataSafetyCaveat(_dashboard: AppCommandCenter) {
       'aria-label': 'Operator fallback module',
       className: 'owl-command-reference-module',
       style: {
-        background: 'rgba(59, 130, 246, 0.08)',
-        borderColor: 'rgba(96, 165, 250, 0.32)',
+        background: 'rgba(214, 178, 94, 0.08)',
+        borderColor: 'rgba(214, 178, 94, 0.28)',
         display: 'grid',
         gap: '0.5rem',
       },
     },
-    createElement('p', { style: { color: '#60a5fa', fontFamily: 'var(--owl-font-mono)', fontSize: '0.78rem', fontWeight: 800, letterSpacing: '0.08em', margin: 0, textTransform: 'uppercase' } }, 'Operator fallback'),
-    createElement('p', { style: { color: '#f7f8ff', fontWeight: 900, margin: 0 } }, 'Runbook-only backup/restore'),
+    createElement('p', { style: { color: 'var(--owl-color-sand)', fontFamily: 'var(--owl-font-mono)', fontSize: '0.78rem', fontWeight: 800, letterSpacing: '0.08em', margin: 0, textTransform: 'uppercase' } }, 'Operator fallback'),
+    createElement('p', { style: { color: 'var(--owl-color-text)', fontWeight: 900, margin: 0 } }, 'Runbook-only backup/restore'),
     createElement(
       'p',
-      { style: { color: '#f1f5f9', margin: 0 } },
+      { style: { color: '#f3ead8', margin: 0 } },
       'Operator-managed backups stay outside the main decision queue. Keep deep backup/restore details in Learn to avoid implying a dashboard restore workflow.',
     ),
     createElement('div', { style: { display: 'flex', justifyContent: 'flex-start' } }, createElement(OwlButtonLink, { href: '/learn#fallback', variant: 'secondary' }, 'Learn fallback runbook')),
@@ -435,10 +435,10 @@ function createDataSafetyCaveat(_dashboard: AppCommandCenter) {
 function createStatusStrip(dashboard: AppCommandCenter) {
   return createElement(
     'div',
-    { style: { display: 'grid', gap: '0.75rem', margin: '1.5rem 0 2rem' } },
+    { className: 'owl-command-status-shell' },
     createElement(
       'div',
-      { style: { display: 'flex', flexWrap: 'wrap', gap: '0.75rem' } },
+      { className: 'owl-command-status-badges' },
       createElement(StatusBadge, { tone: dashboard.setup_status.toLowerCase().includes('ready') || dashboard.setup_status.toLowerCase().includes('initialized') ? 'success' : 'warning' }, dashboard.setup_status),
       createElement(StatusBadge, { tone: isProviderReadinessWarning(dashboard.provider_status) ? 'warning' : 'neutral' }, dashboard.provider_status),
       createElement(StatusBadge, { tone: 'success' }, dashboard.strategy_status),
@@ -448,27 +448,13 @@ function createStatusStrip(dashboard: AppCommandCenter) {
     createElement(
       'div',
       {
-        'aria-label': 'Workflow ticker strip',
-        style: {
-          alignItems: 'center',
-          background: 'rgba(5, 8, 15, 0.72)',
-          border: '1px solid rgba(132, 145, 255, 0.18)',
-          borderRadius: '999px',
-          color: '#9aa4b7',
-          display: 'flex',
-          flexWrap: 'wrap',
-          fontFamily: 'var(--owl-font-mono)',
-          fontSize: '0.72rem',
-          gap: '0.45rem 0.9rem',
-          letterSpacing: '0.04em',
-          padding: '0.55rem 0.8rem',
-          textTransform: 'uppercase',
-        },
+        'aria-label': 'Workflow status summary',
+        className: 'owl-command-status-summary',
       },
-      createTickerItem('DRAFTS', countsText(dashboard.pipeline_counts.watchlist_drafts)),
-      createTickerItem('CONFIRMED', countsText(dashboard.pipeline_counts.confirmed_watchlist_items)),
-      createTickerItem('HOLDINGS', countsText(dashboard.pipeline_counts.open_holdings)),
-      createTickerItem('USER-ACTIONS', countsText(dashboard.pipeline_counts.pending_user_actions)),
+      createTickerItem('Drafts', countsText(dashboard.pipeline_counts.watchlist_drafts)),
+      createTickerItem('Confirmed', countsText(dashboard.pipeline_counts.confirmed_watchlist_items)),
+      createTickerItem('Holdings', countsText(dashboard.pipeline_counts.open_holdings)),
+      createTickerItem('User actions', countsText(dashboard.pipeline_counts.pending_user_actions)),
     ),
   )
 }
@@ -476,9 +462,9 @@ function createStatusStrip(dashboard: AppCommandCenter) {
 function createTickerItem(label: string, value: string) {
   return createElement(
     'span',
-    { key: label },
-    createElement('strong', { style: { color: '#f7f8ff' } }, label),
-    ` ${value}`,
+    { className: 'owl-command-status-summary-item', key: label },
+    createElement('strong', null, label),
+    createElement('span', null, value),
   )
 }
 
@@ -554,8 +540,8 @@ function createNextActionQueue(dashboard: AppCommandCenter) {
     createElement(
       'div',
       null,
-      createElement('p', { style: { color: '#7c8cff', fontFamily: 'var(--owl-font-mono)', fontSize: '0.78rem', fontWeight: 800, letterSpacing: '0.08em', margin: 0, textTransform: 'uppercase' } }, 'Next action queue'),
-      createElement('p', { style: { color: '#9aa4b7', margin: '0.35rem 0 0' } }, 'Prioritized by user confirmation, readiness blockers, due reviews, then operating hygiene.'),
+      createElement('p', { style: { color: 'var(--owl-color-accent-bright)', fontFamily: 'var(--owl-font-mono)', fontSize: '0.78rem', fontWeight: 800, letterSpacing: '0.08em', margin: 0, textTransform: 'uppercase' } }, 'Next action queue'),
+      createElement('p', { style: { color: 'var(--owl-color-muted)', margin: '0.35rem 0 0' } }, 'Prioritized by user confirmation, readiness blockers, due reviews, then operating hygiene.'),
     ),
     createElement(
       'div',
@@ -668,10 +654,10 @@ function createActionCard(card: ActionCard, priority: number) {
   const toneColor = card.tone === 'critical'
     ? '#ef4444'
     : card.tone === 'warning'
-      ? '#fbbf24'
+      ? 'var(--owl-color-fiduciary)'
       : card.tone === 'success'
         ? 'var(--owl-color-shariah)'
-        : '#0a84ff'
+        : 'var(--owl-color-finance-blue)'
 
   return createElement(
     'article',
@@ -687,8 +673,8 @@ function createActionCard(card: ActionCard, priority: number) {
       },
     },
     createElement('p', { style: { color: toneColor, fontFamily: 'var(--owl-font-mono)', fontSize: '0.72rem', fontWeight: 800, letterSpacing: '0.08em', margin: 0, textTransform: 'uppercase' } }, `Priority ${priority} · ${card.category}`),
-    createElement('h2', { style: { color: '#f7f8ff', fontSize: '1.05rem', margin: 0 } }, card.title),
-    createElement('p', { style: { color: '#cbd5e1', margin: 0 } }, card.description),
+    createElement('h2', { style: { color: 'var(--owl-color-text)', fontSize: '1.05rem', margin: 0 } }, card.title),
+    createElement('p', { style: { color: '#d7e2d7', margin: 0 } }, card.description),
     createElement('div', { style: { display: 'flex', justifyContent: 'flex-start' } }, createElement(OwlButtonLink, { href: card.href, variant: card.tone === 'critical' ? 'danger' : 'secondary' }, card.label)),
   )
 }
@@ -726,7 +712,7 @@ function createAccountingAlert(dashboard: AppCommandCenter) {
     'section',
     {
       'aria-label': 'Accounting reference module',
-      className: 'owl-command-reference-module owl-command-reference-module-accent',
+      className: 'owl-command-reference-module owl-command-reference-module-accent owl-command-reference-wide-module',
       style: {
         display: 'grid',
         gap: '0.5rem',
@@ -734,11 +720,11 @@ function createAccountingAlert(dashboard: AppCommandCenter) {
     },
     createElement(
       'p',
-      { style: { color: '#7dd3fc', fontSize: '0.85rem', fontWeight: 900, margin: 0, textTransform: 'uppercase' } },
+      { style: { color: 'var(--owl-color-sand)', fontSize: '0.85rem', fontWeight: 900, margin: 0, textTransform: 'uppercase' } },
       'Accounting',
     ),
-    createElement('p', { style: { color: '#f7f8ff', fontWeight: 900, margin: 0 } }, dashboard.accounting_alert.label),
-    createElement('p', { style: { color: '#cbd5e1', margin: 0 } }, dashboard.accounting_alert.message),
+    createElement('p', { style: { color: 'var(--owl-color-text)', fontWeight: 900, margin: 0 } }, dashboard.accounting_alert.label),
+    createElement('p', { style: { color: '#d7e2d7', margin: 0 } }, dashboard.accounting_alert.message),
     createElement('div', { style: { display: 'flex', justifyContent: 'flex-start' } }, createElement(OwlButtonLink, { href: dashboard.accounting_alert.href, variant: 'secondary' }, `Open ${dashboard.accounting_alert.label.toLowerCase()}`)),
   )
 }
@@ -752,7 +738,7 @@ function createHoldingReviewSchedule(dashboard: AppCommandCenter) {
     'section',
     {
       'aria-label': 'Review schedule reference module',
-      className: 'owl-command-reference-module',
+      className: 'owl-command-reference-module owl-command-review-schedule-module owl-command-reference-wide-module',
       style: {
         display: 'grid',
         gap: '0.75rem',
@@ -760,7 +746,7 @@ function createHoldingReviewSchedule(dashboard: AppCommandCenter) {
     },
     createElement(
       'p',
-      { style: { color: '#9aa4b7', fontSize: '0.85rem', fontWeight: 800, margin: 0, textTransform: 'uppercase' } },
+      { style: { color: 'var(--owl-color-muted)', fontSize: '0.85rem', fontWeight: 800, margin: 0, textTransform: 'uppercase' } },
       'Holding review schedule',
     ),
     createElement(
@@ -771,20 +757,20 @@ function createHoldingReviewSchedule(dashboard: AppCommandCenter) {
         {
           key: prompt.holding_id,
           style: {
-            background: prompt.status === 'due' ? 'rgba(239, 68, 68, 0.12)' : 'rgba(255, 255, 255, 0.035)',
+            background: prompt.status === 'due' ? 'rgba(239, 68, 68, 0.12)' : 'rgba(243, 223, 177, 0.035)',
             border: prompt.status === 'due' ? '1px solid rgba(239, 68, 68, 0.34)' : '1px solid rgba(148, 163, 184, 0.18)',
             borderRadius: '0.85rem',
             padding: '1rem',
           },
         },
-        createElement('p', { style: { color: '#f7f8ff', fontWeight: 900, margin: 0 } }, prompt.label),
+        createElement('p', { style: { color: 'var(--owl-color-text)', fontWeight: 900, margin: 0 } }, prompt.label),
         createElement(
           'p',
-          { style: { color: prompt.status === 'due' ? '#fecaca' : '#cbd5e1', fontSize: '0.85rem', fontWeight: 800, margin: '0.35rem 0' } },
+          { style: { color: prompt.status === 'due' ? '#fecaca' : '#d7e2d7', fontSize: '0.85rem', fontWeight: 800, margin: '0.35rem 0' } },
           prompt.status === 'due' ? 'Due now' : 'Upcoming',
         ),
-        createElement('p', { style: { color: '#cbd5e1', margin: 0 } }, `Next review: ${prompt.next_review_at}`),
-        createElement('p', { style: { color: '#9aa4b7', fontSize: '0.9rem', margin: '0.25rem 0 0.75rem' } }, formatReviewDistance(prompt.days_until_review)),
+        createElement('p', { style: { color: '#d7e2d7', margin: 0 } }, `Next review: ${prompt.next_review_at}`),
+        createElement('p', { style: { color: 'var(--owl-color-muted)', fontSize: '0.9rem', margin: '0.25rem 0 0.75rem' } }, formatReviewDistance(prompt.days_until_review)),
         createElement(OwlButtonLink, { href: `/portfolio#${prompt.holding_id}`, variant: prompt.status === 'due' ? 'danger' : 'secondary' }, `Review ${prompt.label} in portfolio`),
       )),
     ),
@@ -853,10 +839,10 @@ function createRecentActivity(dashboard: AppCommandCenter) {
 
   return createElement(
     'section',
-    { 'aria-label': 'Ledger activity reference module', className: 'owl-command-reference-module' },
+    { 'aria-label': 'Ledger activity reference module', className: 'owl-command-reference-module owl-command-recent-activity-module' },
     createElement(
       'p',
-      { style: { color: '#9aa4b7', fontSize: '0.82rem', fontWeight: 700, margin: '0 0 0.5rem', textTransform: 'uppercase' } },
+      { style: { color: 'var(--owl-color-muted)', fontSize: '0.82rem', fontWeight: 700, margin: '0 0 0.5rem', textTransform: 'uppercase' } },
       'Recent ledger activity',
     ),
     activities.length === 0
@@ -886,7 +872,7 @@ function createActivityCard(activity: AppCommandCenter['recent_activity'][number
         padding: '0.7rem 0.8rem',
       },
     },
-    createElement('p', { style: { color: '#f7f8ff', fontWeight: 750, margin: 0 } }, summary.title),
+    createElement('p', { style: { color: 'var(--owl-color-text)', fontWeight: 750, margin: 0 } }, summary.title),
     createElement(
       'div',
       { className: 'owl-activity-meta' },
@@ -901,14 +887,14 @@ function createEmptyActivityCard(title: string, description: string) {
     'article',
     {
       style: {
-        background: 'rgba(124, 140, 255, 0.08)',
-        border: '1px dashed rgba(124, 140, 255, 0.26)',
+        background: 'rgba(22, 163, 74, 0.08)',
+        border: '1px dashed rgba(52, 211, 153, 0.24)',
         borderRadius: '0.75rem',
         padding: '0.9rem',
       },
     },
-    createElement('h2', { style: { color: '#f7f8ff', fontSize: '1rem', margin: 0 } }, title),
-    createElement('p', { style: { color: '#cbd5e1', margin: '0.35rem 0 0' } }, description),
+    createElement('h2', { style: { color: 'var(--owl-color-text)', fontSize: '1rem', margin: 0 } }, title),
+    createElement('p', { style: { color: '#d7e2d7', margin: '0.35rem 0 0' } }, description),
   )
 }
 

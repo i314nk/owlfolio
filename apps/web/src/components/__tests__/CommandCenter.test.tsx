@@ -421,12 +421,74 @@ describe('CommandCenter', () => {
     expect(html).toContain('aria-label="Review schedule reference module"')
     expect(html).toContain('aria-label="Operational awareness module"')
     expect(html).toContain('aria-label="Ledger activity reference module"')
+    expect(html).toContain('class="owl-command-reference-module owl-command-reference-module-accent owl-command-reference-wide-module"')
+    expect(html).toContain('class="owl-command-reference-module owl-command-review-schedule-module owl-command-reference-wide-module"')
+    expect(html).toContain('class="owl-command-reference-module owl-command-recent-activity-module"')
     expect(html).toContain('Automated monitoring')
     expect(html).toContain('Dry-run worker observations stay local and require user confirmation before portfolio-impacting state changes.')
     expect(html.indexOf('aria-label="Secondary reference modules"')).toBeGreaterThan(html.indexOf('aria-label="Operating action surface"'))
+    expect(html.indexOf('aria-label="Review schedule reference module"')).toBeGreaterThan(html.indexOf('aria-label="Accounting reference module"'))
+    expect(html.indexOf('aria-label="Operator fallback module"')).toBeGreaterThan(html.indexOf('aria-label="Review schedule reference module"'))
+    expect(html.indexOf('aria-label="Operational awareness module"')).toBeGreaterThan(html.indexOf('aria-label="Operator fallback module"'))
+    expect(html.indexOf('aria-label="Ledger activity reference module"')).toBeGreaterThan(html.indexOf('aria-label="Operational awareness module"'))
     expect(html).toContain('href="/watchlist"')
     expect(html).toContain('href="/accounting/monthly"')
     expect(html).toContain('href="/portfolio#holding_msft_001"')
+  })
+
+  it('uses a calm workflow status summary instead of a terminal ticker strip', () => {
+    const html = renderToStaticMarkup(createElement(CommandCenter, { dashboard: makeDashboard() }))
+
+    expect(html).toContain('aria-label="Workflow status summary"')
+    expect(html).toContain('class="owl-command-status-summary"')
+    expect(html).toContain('class="owl-command-status-summary-item"')
+    expect(html).not.toContain('Workflow ticker strip')
+  })
+
+  it('keeps Command Center accent markup in the Wahed x Hermes palette', () => {
+    const html = renderToStaticMarkup(createElement(CommandCenter, {
+      dashboard: makeDashboard({
+        accounting_alert: {
+          href: '/accounting/monthly',
+          label: 'Monthly accounting report',
+          message: 'June 2026 NAV: $2,925.00; 0 holdings missing valuations.',
+        },
+        recent_activity: [],
+      }),
+    }))
+
+    expect(html).toContain('Operator fallback')
+    expect(html).toContain('rgba(214, 178, 94, 0.08)')
+    expect(html).toContain('var(--owl-color-accent-bright)')
+    expect(html).not.toContain('#7c8cff')
+    expect(html).not.toContain('#0a84ff')
+    expect(html).not.toContain('#60a5fa')
+    expect(html).not.toContain('#7dd3fc')
+    expect(html).not.toContain('rgba(124,140,255')
+    expect(html).not.toContain('rgba(124, 140, 255')
+    expect(html).not.toContain('rgba(59,130,246')
+    expect(html).not.toContain('rgba(59, 130, 246')
+    expect(html).not.toContain('rgba(96,165,250')
+    expect(html).not.toContain('rgba(96, 165, 250')
+  })
+
+  it('documents the Wahed x Hermes command cockpit visual tokens and lower-module alignment CSS', () => {
+    const css = readFileSync('apps/web/src/app/globals.css', 'utf8')
+
+    expect(css).toContain('--owl-color-accent: #16a34a;')
+    expect(css).toContain('--owl-color-accent-bright: #34d399;')
+    expect(css).toContain('--owl-color-fiduciary: #d6b25e;')
+    expect(css).toContain('--owl-color-sand: #f3dfb1;')
+    expect(css).toContain('radial-gradient(circle at 16% 0%, rgba(22, 163, 74, 0.16), transparent 28rem)')
+    expect(css).toContain('.owl-command-reference-grid')
+    expect(css).toContain('align-items: stretch;')
+    expect(css).toContain('grid-template-columns: repeat(2, minmax(0, 1fr));')
+    expect(css).toContain('grid-auto-rows: 1fr;')
+    expect(css).toContain('.owl-command-reference-module {')
+    expect(css).toContain('height: 100%;')
+    expect(css).toContain('.owl-command-reference-wide-module,')
+    expect(css).toContain('.owl-command-recent-activity-module')
+    expect(css).toContain('grid-column: 1 / -1;')
   })
 
   it('renders a direct action card for pending holding review drafts', () => {
