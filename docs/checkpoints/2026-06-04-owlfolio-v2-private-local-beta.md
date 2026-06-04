@@ -4,14 +4,16 @@ Date: 2026-06-04
 
 Status: private/local beta candidate
 
-Checkpoint commit on local `main`:
+Checkpoint commits on local `main`:
 
 - `b6da4a50fde921265e0a55c765b0c2f5c6246b3a` — `merge: Owlfolio v2 private beta checkpoint`
+- `86f18f0e0c976b9cc576afb030773b3eb9bf84aa` — `checkpoint: add clean cockpit learn surface`
 
 Remote publish status at time of writing:
 
-- Local `main` contains the checkpoint merge.
-- Push to `origin/main` is pending because the local environment does not currently have GitHub credentials available.
+- Local `main` contains the checkpoint merge and the clean cockpit/Learn surface polish commit.
+- Push to `origin/main` is pending explicit user approval.
+- Project-agent GitHub auth requires the normal-home pattern: `HOME=/home/hermes_agent git push origin main`.
 - Intended remote target: `https://github.com/i314nk/owlfolio.git`, branch `main`.
 
 ## What this checkpoint includes
@@ -55,6 +57,12 @@ Major included areas:
   - portfolio review ergonomics
   - relevant component/e2e tests updated
 
+- Clean cockpit/Learn polish
+  - adds an in-app `/learn` route for deeper operator documentation
+  - adds Learn to the primary navigation
+  - moves backup/restore detail out of the Command Center into an operator fallback Learn section
+  - keeps primary workflow surfaces focused on automation proposals, approvals, and auditability
+
 ## Validation evidence
 
 The merge-prep task reported the following validation passed on both the checkpoint branch and `main`:
@@ -71,6 +79,20 @@ The merge-prep task reported the following validation passed on both the checkpo
   - passed with a known Turbopack/NFT trace warning
 - `PLAYWRIGHT_BROWSERS_PATH=/home/hermes_agent/.hermes/profiles/code-agent/home/.cache/ms-playwright corepack pnpm e2e`
   - 7/7 passed
+
+The clean cockpit/Learn follow-up checkpoint was also reviewed and verified on local `main`:
+
+- `git diff --check`
+- `corepack pnpm typecheck`
+- `corepack pnpm test`
+  - 52 test files
+  - 285 tests
+- `corepack pnpm lint`
+- `PLAYWRIGHT_BROWSERS_PATH=/home/hermes_agent/.hermes/profiles/code-agent/home/.cache/ms-playwright corepack pnpm e2e`
+  - 9/9 passed
+- Browser smoke:
+  - `/`
+  - `/learn`
 
 ## Supported label
 
