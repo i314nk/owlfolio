@@ -34,6 +34,7 @@ describe('phase 3 design system primitives', () => {
     expect(html).toContain('class="owl-nav-link owl-focusable"')
     expect(html).toContain('Command Center')
     expect(html).toContain('Watchlist')
+    expect(html).toContain('Settings')
     expect(html).toContain('⌘K')
     expect(html).toContain('Audit trail search')
   })
@@ -130,6 +131,7 @@ describe('phase 3 design system primitives', () => {
       'apps/web/src/app/providers/page.tsx',
       'apps/web/src/app/purification/page.tsx',
       'apps/web/src/app/research/[caseId]/page.tsx',
+      'apps/web/src/app/settings/data-safety/page.tsx',
       'apps/web/src/app/research/new/ResearchIntakeForm.tsx',
       'apps/web/src/app/watchlist/page.tsx',
       'apps/web/src/app/onboarding/OnboardingWizard.tsx',

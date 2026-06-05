@@ -14,6 +14,7 @@ const navItems = [
   { href: '/audit', label: 'Audit' },
   { href: '/providers', label: 'Providers' },
   { href: '/learn', label: 'Learn' },
+  { href: '/settings/data-safety', label: 'Settings' },
   { href: '/onboarding', label: 'Onboarding' },
 ]
 

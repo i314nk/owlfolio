@@ -69,6 +69,8 @@ describe('AppNavigation', () => {
     expect(html).toContain('Providers')
     expect(html).toContain('href="/learn"')
     expect(html).toContain('Learn')
+    expect(html).toContain('href="/settings/data-safety"')
+    expect(html).toContain('Settings')
     expect(html).toContain('href="/onboarding"')
     expect(html).toContain('Onboarding')
   })
