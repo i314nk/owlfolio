@@ -225,7 +225,8 @@ export async function resolveWorkerProviderReadiness({
     schema_version: 1,
   }
   const report = await readLatestCertificationReport(provider_certification_dir, provider_id)
-  const target = report?.target ?? expectedTarget
+  const reportTarget = report?.target
+  const target = reportTarget ?? expectedTarget
   const base = {
     provider_id,
     provider_surface_id: target.provider_surface_id,
@@ -267,8 +268,16 @@ export async function resolveWorkerProviderReadiness({
     }
   }
 
-  if (report !== undefined) {
-    const mismatchedFields = certificationTargetMismatches(report.target, expectedTarget)
+  if (report !== undefined && reportTarget === undefined && provider.auth_mode !== 'built_in_demo') {
+    return {
+      ...base,
+      is_ready: false,
+      status_label: `${provider.label} certification report is missing target metadata; scheduled provider execution is blocked until target-specific certification is recorded`,
+    }
+  }
+
+  if (report !== undefined && reportTarget !== undefined) {
+    const mismatchedFields = certificationTargetMismatches(reportTarget, expectedTarget)
     if (mismatchedFields.length > 0) {
       return {
         ...base,

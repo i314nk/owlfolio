@@ -413,6 +413,38 @@ describe('worker runtime', () => {
     })
   })
 
+  it('worker readiness backfills target metadata for legacy built-in demo certification reports', async () => {
+    const projectDir = await mkdtemp(join(tmpdir(), 'owlfolio-worker-legacy-certification-'))
+    const reportDir = join(projectDir, 'data', 'provider-certifications')
+    await mkdir(reportDir, { recursive: true })
+    const { target: _target, ...legacyReport } = completedCertifiedReport(
+      'scheduled_monitoring_dry_run',
+      'mock-buffett-munger-demo',
+    )
+
+    await writeFile(
+      join(reportDir, 'mock-provider.latest.json'),
+      JSON.stringify(legacyReport),
+      'utf8',
+    )
+
+    const readiness = await resolveWorkerProviderReadiness({
+      provider_id: 'mock-provider',
+      provider_certification_dir: reportDir,
+      provider_model_id: 'mock-buffett-munger-demo',
+    })
+
+    expect(readiness).toMatchObject({
+      is_ready: true,
+      provider_surface_id: 'mock-provider',
+      vendor_id: 'mock',
+      runtime_kind: 'built_in',
+      auth_mode: 'built_in_demo',
+      workflow_role: 'scheduled_monitoring_dry_run',
+    })
+    expect(readiness.status_label).toBe('Mock provider certified for scheduled_monitoring_dry_run.')
+  })
+
   it('worker readiness blocks certification reports for a mismatched scheduled model target', async () => {
     const projectDir = await mkdtemp(join(tmpdir(), 'owlfolio-worker-model-target-'))
     const reportDir = join(projectDir, 'data', 'provider-certifications')
