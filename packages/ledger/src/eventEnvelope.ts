@@ -2,6 +2,7 @@ export type ActorType = 'user' | 'system' | 'provider' | 'worker'
 export type AggregateType =
   | 'strategy'
   | 'company'
+  | 'discovery_candidate'
   | 'research_case'
   | 'watchlist_item'
   | 'holding'

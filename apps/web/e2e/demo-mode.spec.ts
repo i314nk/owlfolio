@@ -5,7 +5,7 @@ test.beforeEach(async ({ request }) => {
   expect(response.ok()).toBe(true)
 })
 
-test('research nav in default mode shows setup gate instead of redirecting home', async ({ page }) => {
+test('research nav in default mode opens the strategy pipeline cockpit with manual intake secondary', async ({ page }) => {
   await page.goto('/')
 
   await page
@@ -13,11 +13,23 @@ test('research nav in default mode shows setup gate instead of redirecting home'
     .getByRole('link', { name: /research/i })
     .click()
 
-  await expect(page).toHaveURL('/research/new')
-  await expect(page.getByRole('heading', { name: /research intake unavailable in current mode/i })).toBeVisible()
-  await expect(
-    page.getByRole('link', { name: /open onboarding and enable personal-local setup/i }),
-  ).toBeVisible()
+  await expect(page).toHaveURL('/research')
+  await expect(page.getByRole('heading', { name: /strategy pipeline cockpit/i })).toBeVisible()
+  await expect(page.getByText(/selected strategy: buffett-munger/i)).toBeVisible()
+  for (const sectionName of [
+    'Discovered',
+    'Quick Screen',
+    'Deep Dive Queue',
+    'In Deep Dive',
+    'Synthesis / Decision Pending',
+    'Watchlist',
+    'Rejected / Passed',
+  ]) {
+    await expect(page.getByRole('heading', { name: sectionName })).toBeVisible()
+  }
+  await expect(page.getByRole('link', { name: /manual ticker intake/i })).toBeVisible()
+  await expect(page.getByRole('link', { name: /open learn guide/i })).toBeVisible()
+  await expect(page.getByText(/Buffett-Munger certified/i)).toHaveCount(0)
 })
 
 test('default home page renders the demo command center and research demo workflow link', async ({ page }) => {
@@ -25,7 +37,7 @@ test('default home page renders the demo command center and research demo workfl
 
   await expect(page.getByRole('heading', { name: /command center/i })).toBeVisible()
   await expect(page.getByText(/provider: mock provider \/ demo mode/i)).toBeVisible()
-  await expect(page.getByText(/strategy: buffett-munger certified/i)).toBeVisible()
+  await expect(page.getByText(/strategy: buffett-munger default/i)).toBeVisible()
   await expect(page.getByText(/view demo research case/i)).toBeVisible()
 
   await page.getByRole('link', { name: /view demo research case/i }).click()

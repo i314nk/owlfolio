@@ -50,7 +50,7 @@ describe('SQLiteEventStore', () => {
         expect(await reopened.list()).toEqual([event])
         expect(await reopened.listByAggregate('research_case', 'rc_cost_001')).toEqual([event])
         expect(projectResearchCases(await reopened.list())).toMatchObject([
-          { research_case_id: 'rc_cost_001', stage: 'created', ticker: 'COST', strategy_id: 'buffett-munger' },
+          { research_case_id: 'rc_cost_001', stage: 'discovered', ticker: 'COST', strategy_id: 'buffett-munger' },
         ])
       } finally {
         reopened?.close()

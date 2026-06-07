@@ -1,8 +1,8 @@
-# Owlfolio v2 Private/Local Beta Checkpoint
+# Owlfolio v2 Automation-First Local-Use Candidate Checkpoint
 
 Date: 2026-06-04
 
-Status: private/local beta candidate
+Status: automation-first local-use candidate
 
 Checkpoint commits on local `main`:
 
@@ -18,7 +18,7 @@ Remote publish status at time of writing:
 
 ## What this checkpoint includes
 
-This checkpoint turns Owlfolio v2 into a local-first investment workflow cockpit centered on a certified demo/personal-local mock-provider path. It consolidates the recent provider-readiness, source-evidence, worker-safety, approval, accounting, purification, backup/restore, and beta UX stabilization work.
+This checkpoint turns Owlfolio v2 into an automation-first local-use candidate centered on a certified demo/mock-provider path and personal-local ledger workflow. It consolidates the recent provider-readiness, source-evidence, worker-safety, approval, accounting, purification, backup/restore, Data Safety, and local UX stabilization work.
 
 Major included areas:
 
@@ -27,6 +27,11 @@ Major included areas:
   - treats mock provider as the certified demo/local path
   - keeps real provider paths gated by explicit readiness/certification evidence
   - keeps Gemini CLI setup-only rather than implying execution capability
+
+- Strategy pipeline and workflow state
+  - default Buffett-Munger strategy posture without claiming strategy certification
+  - future selectable strategies remain experimental until policy/audit/provider gates pass
+  - research flow covers discovery, quick screen, deep dive, decision drafts, watchlist, and holding transitions
 
 - Durable source/evidence workflow
   - source ledger ingestion and source-bundle provenance
@@ -41,10 +46,13 @@ Major included areas:
   - operational state and queue awareness
   - provider and data-safety caveats surfaced in the product shell
 
-- Accounting and purification
+- Accounting, purification, and Data Safety
+  - automatic local portfolio/accounting/purification projections from ledger events and manual/source-backed inputs
   - monthly accounting projection
   - purification obligation/payment tracking
   - clearer distinction between ledger-backed cash flow and valuation/manual updates
+  - local backup inventory excludes credentials, provider auth homes, build outputs, and runtime caches
+  - web Data Safety remains status/proposal evidence, not destructive restore control
 
 - Backup/restore CLI and runbook
   - local backup manifest/inventory and restore verification support
@@ -98,9 +106,9 @@ The clean cockpit/Learn follow-up checkpoint was also reviewed and verified on l
 
 Use this label:
 
-- Owlfolio v2 private/local beta candidate
+- Owlfolio v2 automation-first local-use candidate
 
-This means the checkpoint is suitable for trusted local/private usage around the certified demo/mock-provider workflow.
+This means the checkpoint is suitable for trusted local usage around the certified demo/mock-provider workflow and personal-local ledger workflow. It does not imply public beta readiness, production SaaS operation, live trading, broker integration, or real-provider certified autonomy.
 
 ## Explicit non-goals / not yet supported
 
@@ -115,32 +123,32 @@ Do not describe this checkpoint as:
 
 Real provider paths remain experimental/candidate unless target-specific certification evidence says otherwise.
 
-Backup/restore remains CLI/operator/runbook-only. The web app may surface caveats, but it does not yet provide a full Settings/Data Safety panel or destructive restore workflow.
+Backup/restore remains CLI/operator/runbook-only. The web app surfaces Settings / Data Safety status and restore proposals, but it does not provide destructive restore controls.
 
-## Remaining blocked beta-hardening card
+## Remaining blocked local-user hardening card
 
 Open blocked Kanban card:
 
 - `t_8b9bc6d6` — `web: add Settings data safety panel for backup/restore manifest UX`
 
-This card is not critical for private/local developer beta, but it becomes critical for broader user-facing beta.
+This card is not critical for the local-use candidate checkpoint, but it becomes critical for broader user-facing hardening.
 
 Recommended treatment:
 
-- keep blocked for private/local beta checkpoint
-- unblock and scope as next beta-hardening milestone before broader tester/user distribution
+- keep blocked for the local-use candidate checkpoint
+- unblock and scope as next local-user hardening milestone before broader tester/user distribution
 - keep destructive restore out of web UX until an operator-confirmed restore flow is explicitly designed and reviewed
 
 ## Recommended next milestone
 
 After remote publish is completed, choose one of:
 
-1. Private/local beta polish
+1. Local-use candidate polish
    - manual UI clickthrough
    - screenshots/checklist
    - release/readme note alignment
 
-2. Broader beta hardening
+2. Broader local-user hardening
    - unblock `t_8b9bc6d6`
    - implement Settings/Data Safety panel
    - run security/product review on backup manifest UX and user-facing privacy copy

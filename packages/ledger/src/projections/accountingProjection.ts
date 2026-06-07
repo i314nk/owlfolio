@@ -16,6 +16,13 @@ export type AccountingCashFlow = {
   source_ids: string[]
 }
 
+export type AccountingDataWarning = {
+  code: 'missing_valuation' | 'valuation_missing_data'
+  message: string
+  holding_id?: string
+  event_id?: string
+}
+
 export type AccountingSnapshotInput = {
   snapshot_id: string
   period_start: string
@@ -34,6 +41,9 @@ export type AccountingHoldingSnapshot = {
   unrealized_gain_loss?: number
   valuation_status: AccountingHoldingValuationStatus
   latest_valuation_at?: string
+  valuation_event_id?: string
+  valuation_source?: string
+  valuation_source_ids?: string[]
 }
 
 export type AccountingSnapshotProjection = {
@@ -45,6 +55,7 @@ export type AccountingSnapshotProjection = {
   current_value: number
   invested_cost_basis: number
   unrealized_gain_loss: number
+  realized_gain_loss: number
   cash_balance: number
   deposits: number
   withdrawals: number
@@ -53,6 +64,9 @@ export type AccountingSnapshotProjection = {
   net_cash_flow: number
   cash_ledger_status: CashLedgerStatus
   cash_flows: AccountingCashFlow[]
+  audit_event_ids: string[]
+  source_ids: string[]
+  missing_data_warnings: AccountingDataWarning[]
   missing_valuation_holding_ids: string[]
   holdings: AccountingHoldingSnapshot[]
   updated_at: string
@@ -76,6 +90,18 @@ function getString(payload: Record<string, unknown>, key: string): string | unde
 function getNumber(payload: Record<string, unknown>, key: string): number | undefined {
   const value = payload[key]
   return typeof value === 'number' && Number.isFinite(value) ? value : undefined
+}
+
+function getStringArray(payload: Record<string, unknown>, key: string): string[] {
+  const value = payload[key]
+  if (!Array.isArray(value)) {
+    return []
+  }
+  return value.filter((entry): entry is string => typeof entry === 'string' && entry.length > 0)
+}
+
+function uniqueStrings(values: string[]): string[] {
+  return [...new Set(values)]
 }
 
 function eventDateForAccounting(event: LedgerEventEnvelope<unknown>): string {
@@ -105,6 +131,10 @@ function eventDateForAccounting(event: LedgerEventEnvelope<unknown>): string {
 
   if (event.event_type === 'fee_charged') {
     return getString(event.payload, 'charged_at') ?? event.created_at.slice(0, 10)
+  }
+
+  if (event.event_type === 'holding_realized_gain_loss_recorded') {
+    return getString(event.payload, 'realized_at') ?? event.created_at.slice(0, 10)
   }
 
   return event.created_at.slice(0, 10)
@@ -148,6 +178,72 @@ function cashFlowFromEvent(event: LedgerEventEnvelope<unknown>): AccountingCashF
   return undefined
 }
 
+function realizedGainLossFromEvent(event: LedgerEventEnvelope<unknown>, currency: string): number | undefined {
+  if (event.event_type !== 'holding_realized_gain_loss_recorded' || !isRecord(event.payload)) {
+    return undefined
+  }
+  if (getString(event.payload, 'currency') !== currency) {
+    return undefined
+  }
+  const amount = getNumber(event.payload, 'amount')
+  return amount === undefined ? undefined : roundMoney(amount)
+}
+
+function isAccountingAuditEvent(event: LedgerEventEnvelope<unknown>, currency: string): boolean {
+  if (!isRecord(event.payload)) {
+    return false
+  }
+  const eventCurrency = getString(event.payload, 'currency')
+  if (eventCurrency !== undefined && eventCurrency !== currency) {
+    return false
+  }
+  return event.event_type === 'holding_opened'
+    || event.event_type === 'holding_valuation_recorded'
+    || event.event_type === 'holding_realized_gain_loss_recorded'
+    || event.event_type === 'cash_deposited'
+    || event.event_type === 'cash_withdrawn'
+    || event.event_type === 'dividend_income_recorded'
+    || event.event_type === 'fee_charged'
+}
+
+function warningLabelForHolding(holding: AccountingHoldingSnapshot): string {
+  return holding.ticker ?? holding.holding_id
+}
+
+function valuationMissingDataWarnings(
+  events: LedgerEventEnvelope<unknown>[],
+  currency: string,
+  holdings: AccountingHoldingSnapshot[],
+): AccountingDataWarning[] {
+  const currentValuationEventIds = new Set(holdings
+    .map((holding) => holding.valuation_event_id)
+    .filter((eventId): eventId is string => eventId !== undefined))
+
+  return events.flatMap((event) => {
+    if (!currentValuationEventIds.has(event.event_id)) {
+      return []
+    }
+    if (event.event_type !== 'holding_valuation_recorded' || !isRecord(event.payload)) {
+      return []
+    }
+    if (getString(event.payload, 'currency') !== currency) {
+      return []
+    }
+    const missingData = getStringArray(event.payload, 'missing_data')
+    if (missingData.length === 0) {
+      return []
+    }
+    const holdingId = getString(event.payload, 'holding_id') ?? event.aggregate_id
+    const label = getString(event.payload, 'ticker') ?? holdings.find((holding) => holding.holding_id === holdingId)?.ticker ?? holdingId
+    return [{
+      code: 'valuation_missing_data' as const,
+      holding_id: holdingId,
+      event_id: event.event_id,
+      message: `${label} valuation source reported missing data: ${missingData.join(', ')}`,
+    }]
+  })
+}
+
 function accountingHoldingFrom(holding: HoldingProjection): AccountingHoldingSnapshot {
   const base: Pick<AccountingHoldingSnapshot, 'holding_id' | 'currency' | 'shares' | 'cost_basis'> & { ticker?: string } = {
     holding_id: holding.holding_id,
@@ -173,6 +269,9 @@ function accountingHoldingFrom(holding: HoldingProjection): AccountingHoldingSna
     unrealized_gain_loss: unrealizedGainLoss,
     valuation_status: 'valued',
     ...(holding.latest_valuation_at === undefined ? {} : { latest_valuation_at: holding.latest_valuation_at }),
+    ...(holding.latest_valuation_event_id === undefined ? {} : { valuation_event_id: holding.latest_valuation_event_id }),
+    ...(holding.latest_valuation_source === undefined ? {} : { valuation_source: holding.latest_valuation_source }),
+    ...(holding.latest_valuation_source_ids === undefined ? {} : { valuation_source_ids: [...holding.latest_valuation_source_ids] }),
   }
 }
 
@@ -181,6 +280,13 @@ export function projectAccountingSnapshot(
   input: AccountingSnapshotInput,
 ): AccountingSnapshotProjection {
   const asOfEvents = events.filter((event) => eventDateForAccounting(event) <= input.period_end)
+  const auditEvents = asOfEvents
+    .filter((event) => isAccountingAuditEvent(event, input.currency))
+    .sort((left, right) => (
+      eventDateForAccounting(left).localeCompare(eventDateForAccounting(right))
+      || left.created_at.localeCompare(right.created_at)
+      || left.event_id.localeCompare(right.event_id)
+    ))
   const holdings = projectHoldings(asOfEvents)
     .filter((holding) => holding.currency === input.currency)
     .map(accountingHoldingFrom)
@@ -204,8 +310,29 @@ export function projectAccountingSnapshot(
   const fees = roundMoney(cashFlows
     .filter((flow) => flow.flow_type === 'fee')
     .reduce((sum, flow) => sum + Math.abs(flow.amount), 0))
+  const realizedGainLoss = roundMoney(auditEvents
+    .filter((event) => eventDateForAccounting(event) >= input.period_start && eventDateForAccounting(event) <= input.period_end)
+    .map((event) => realizedGainLossFromEvent(event, input.currency))
+    .filter((amount): amount is number => amount !== undefined)
+    .reduce((sum, amount) => sum + amount, 0))
   const netCashFlow = roundMoney(deposits - withdrawals + dividends - fees)
   const nav = roundMoney(currentValue + cashBalance)
+  const missingValuationHoldingIds = holdings
+    .filter((holding) => holding.valuation_status === 'missing_valuation')
+    .map((holding) => holding.holding_id)
+  const missingValuationWarnings = holdings
+    .filter((holding) => holding.valuation_status === 'missing_valuation')
+    .map((holding): AccountingDataWarning => ({
+      code: 'missing_valuation',
+      holding_id: holding.holding_id,
+      message: `${warningLabelForHolding(holding)} is missing a valuation; NAV excludes current value.`,
+    }))
+  const missingDataWarnings = [
+    ...missingValuationWarnings,
+    ...valuationMissingDataWarnings(auditEvents, input.currency, holdings),
+  ]
+  const auditEventIds = auditEvents.map((event) => event.event_id)
+  const sourceIds = uniqueStrings(auditEvents.flatMap((event) => event.source_ids))
 
   return {
     snapshot_id: input.snapshot_id,
@@ -216,6 +343,7 @@ export function projectAccountingSnapshot(
     current_value: currentValue,
     invested_cost_basis: investedCostBasis,
     unrealized_gain_loss: unrealizedGainLoss,
+    realized_gain_loss: realizedGainLoss,
     cash_balance: cashBalance,
     deposits,
     withdrawals,
@@ -224,9 +352,10 @@ export function projectAccountingSnapshot(
     net_cash_flow: netCashFlow,
     cash_ledger_status: asOfCashFlows.length > 0 ? 'ledger_backed' : 'placeholder',
     cash_flows: cashFlows,
-    missing_valuation_holding_ids: holdings
-      .filter((holding) => holding.valuation_status === 'missing_valuation')
-      .map((holding) => holding.holding_id),
+    audit_event_ids: auditEventIds,
+    source_ids: sourceIds,
+    missing_data_warnings: missingDataWarnings,
+    missing_valuation_holding_ids: missingValuationHoldingIds,
     holdings,
     updated_at: input.recorded_at,
   }
@@ -255,6 +384,20 @@ export function buildAccountingSnapshotRecordedEvent(
   }
 }
 
+function normalizeRecordedAccountingSnapshot(payload: Record<string, unknown>): AccountingSnapshotProjection {
+  const snapshot = payload as AccountingSnapshotProjection
+  return {
+    ...snapshot,
+    realized_gain_loss: getNumber(payload, 'realized_gain_loss') ?? 0,
+    cash_flows: Array.isArray(payload.cash_flows) ? snapshot.cash_flows : [],
+    audit_event_ids: getStringArray(payload, 'audit_event_ids'),
+    source_ids: getStringArray(payload, 'source_ids'),
+    missing_data_warnings: Array.isArray(payload.missing_data_warnings) ? snapshot.missing_data_warnings : [],
+    missing_valuation_holding_ids: getStringArray(payload, 'missing_valuation_holding_ids'),
+    holdings: Array.isArray(payload.holdings) ? snapshot.holdings : [],
+  }
+}
+
 export function projectRecordedAccountingSnapshots(
   events: LedgerEventEnvelope<unknown>[],
 ): AccountingSnapshotProjection[] {
@@ -262,6 +405,6 @@ export function projectRecordedAccountingSnapshots(
     if (event.event_type !== 'accounting_snapshot_recorded' || !isRecord(event.payload)) {
       return []
     }
-    return [event.payload as AccountingSnapshotProjection]
+    return [normalizeRecordedAccountingSnapshot(event.payload)]
   })
 }

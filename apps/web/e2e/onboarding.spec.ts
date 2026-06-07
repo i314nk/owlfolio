@@ -8,12 +8,18 @@ test.beforeEach(async ({ request }) => {
 test('demo onboarding initializes the durable demo workflow', async ({ page }) => {
   await page.goto('/onboarding')
 
-  await expect(page.getByRole('heading', { name: /set up owlfolio/i })).toBeVisible()
-  await expect(page.getByText(/choose mode/i)).toBeVisible()
-  await expect(page.getByRole('radio', { name: /demo mode/i })).toBeChecked()
-  await expect(page.getByText(/locally runnable through built-in deterministic demo mode/i).first()).toBeVisible()
+  await expect(page.getByRole('heading', { name: /connect owlfolio/i })).toBeVisible()
+  await expect(page.getByRole('button', { name: /connect codex/i })).toBeVisible()
+  await expect(page.getByRole('button', { name: /connect gemini/i })).toBeVisible()
+  await expect(page.getByRole('button', { name: /try demo locally/i })).toBeVisible()
 
-  await page.getByRole('button', { name: /initialize owlfolio workflow/i }).click()
+  await page.getByRole('button', { name: /connect codex/i }).click()
+  await expect(page.getByText('Start blocked', { exact: true }).first()).toBeVisible()
+
+  await page.getByRole('button', { name: /try demo locally/i }).click()
+  await expect(page.getByText(/ready to start/i).first()).toBeVisible()
+
+  await page.getByRole('button', { name: /start owlfolio/i }).click()
 
   await expect(page.getByRole('heading', { name: /command center/i })).toBeVisible()
   await expect(page.getByText(/setup ready/i)).toBeVisible()
@@ -21,31 +27,26 @@ test('demo onboarding initializes the durable demo workflow', async ({ page }) =
   await expect(page.getByRole('link', { name: /view demo research case/i })).toBeVisible()
 })
 
-test('personal local onboarding shows unready provider status and disables workflow start', async ({ page }) => {
+test('Codex onboarding shows a concise blocked state when the local session is unready', async ({ page }) => {
   await page.goto('/onboarding')
 
-  await page.getByRole('radio', { name: /personal local mode/i }).click()
+  await page.getByRole('button', { name: /connect codex/i }).click()
 
-  await expect(page.getByText(/subscription access|missing claude credentials/i).first()).toBeVisible()
-  await expect(page.getByText(/auth source: certification report|auth source: missing/i).first()).toBeVisible()
-  await expect(page.getByText('Provider cannot start yet', { exact: true })).toBeVisible()
-  await expect(page.getByText(/start blocked: claude not locally runnable/i)).toBeVisible()
-  await expect(page.getByText(/oauth\/session not signed in or credential path missing|certification report blocked this provider session/i).first()).toBeVisible()
-  await expect(page.getByRole('button', { name: /start blocked: claude not locally runnable/i })).toBeDisabled()
-  await expect(page.getByRole('heading', { name: /set up owlfolio/i })).toBeVisible()
+  await expect(page.getByRole('heading', { name: /connect owlfolio/i })).toBeVisible()
+  await expect(page.getByText('Start blocked', { exact: true }).first()).toBeVisible()
+  await expect(page.getByText(/missing openai \/ codex credentials|run codex login outside owlfolio/i).first()).toBeVisible()
+  await expect(page.getByRole('link', { name: /learn provider setup/i })).toHaveAttribute('href', '/learn#providers')
+  await expect(page.getByRole('button', { name: /^start blocked$/i })).toBeDisabled()
   await expect(page.getByRole('heading', { name: /command center/i })).not.toBeVisible()
 })
 
 test('Gemini CLI onboarding is visibly setup-only and cannot start workflow execution', async ({ page }) => {
   await page.goto('/onboarding')
 
-  await page.getByRole('radio', { name: /personal local mode/i }).click()
-  await page.getByRole('combobox').selectOption('gemini-cli')
+  await page.getByRole('button', { name: /connect gemini/i }).click()
 
-  await expect(page.getByText(/recommended google\/gemini cli setup-only sign-in path/i)).toBeVisible()
-  const geminiBoundary = page.locator('section').filter({ hasText: 'Gemini CLI use boundary' })
-  await expect(geminiBoundary.getByText('Gemini CLI use boundary', { exact: true })).toBeVisible()
-  await expect(geminiBoundary.getByText('Allowed use: Setup and readiness discovery only', { exact: true })).toBeVisible()
-  await expect(geminiBoundary.locator('span').filter({ hasText: /^Workflow execution stays blocked until a Gemini CLI adapter and certification exist\.$/ })).toBeVisible()
-  await expect(page.getByRole('button', { name: /start blocked: gemini not locally runnable/i })).toBeDisabled()
+  await expect(page.getByText('Setup only', { exact: true }).first()).toBeVisible()
+  await expect(page.getByText(/missing gemini cli sign-in session|gemini cli is setup-only/i).first()).toBeVisible()
+  await expect(page.getByRole('button', { name: /^start blocked$/i })).toBeDisabled()
+  await expect(page.getByText(/gemini developer api, vertex, or production automation/i)).toHaveCount(0)
 })

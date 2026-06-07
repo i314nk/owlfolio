@@ -2,10 +2,10 @@ import { describe, expect, it } from 'vitest'
 import { buffettMungerStrategy } from '../buffettMunger'
 import { evaluateGates } from '../evaluateGates'
 
-describe('Buffett-Munger certified strategy', () => {
-  it('defines the certified core policy', () => {
+describe('Buffett-Munger default strategy', () => {
+  it('defines the default core policy', () => {
     expect(buffettMungerStrategy.id).toBe('buffett-munger')
-    expect(buffettMungerStrategy.certification_status).toBe('certified')
+    expect(buffettMungerStrategy.certification_status).toBe('draft')
     expect(buffettMungerStrategy.shariah.required).toBe(true)
     expect(buffettMungerStrategy.research.required_specialists.map((s) => s.id)).toEqual(['moat', 'financials', 'risk', 'management', 'valuation', 'synthesis'])
     expect(buffettMungerStrategy.valuation.hurdle_rates).toEqual({ inevitable: 0.12, monopoly: 0.13, wide_moat: 0.15 })

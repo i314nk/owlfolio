@@ -20,6 +20,26 @@ function getString(payload: Record<string, unknown>, key: string): string | unde
   return typeof value === 'string' ? value : undefined
 }
 
+function getStringArray(payload: Record<string, unknown>, key: string): string[] | undefined {
+  const value = payload[key]
+  if (!Array.isArray(value) || value.some((entry) => typeof entry !== 'string')) {
+    return undefined
+  }
+
+  return value
+}
+
+function strategyLabel(payload: Record<string, unknown>): string | undefined {
+  const strategyId = getString(payload, 'strategy_id')
+  const strategyVersion = getString(payload, 'strategy_version')
+
+  if (strategyId === undefined || strategyVersion === undefined) {
+    return undefined
+  }
+
+  return `${strategyId}@${strategyVersion}`
+}
+
 function eventBelongsToResearchCase(event: LedgerEventEnvelope<unknown>, researchCaseId: string): boolean {
   if (event.aggregate_type === 'research_case' && event.aggregate_id === researchCaseId) {
     return true
@@ -42,7 +62,41 @@ function summarizeEvent(event: LedgerEventEnvelope<unknown>): string {
   }
 
   if (event.event_type === 'research_case_created') {
+    const selectedStrategy = strategyLabel(event.payload)
+    if (selectedStrategy !== undefined) {
+      return `Discovered research case for ${getString(event.payload, 'ticker') ?? event.aggregate_id} using strategy ${selectedStrategy}`
+    }
+
     return `Created research case for ${getString(event.payload, 'ticker') ?? event.aggregate_id}`
+  }
+
+  if (event.event_type === 'quick_screen_drafted') {
+    return `Quick screen drafted: ${getString(event.payload, 'screening_result') ?? 'UNKNOWN'}`
+  }
+
+  if (event.event_type === 'queued_for_deep_dive') {
+    return 'Queued for deep dive'
+  }
+
+  if (event.event_type === 'deep_dive_started') {
+    const specialistCount = getStringArray(event.payload, 'specialist_lanes')?.length ?? 0
+    return `Deep dive started for ${specialistCount} ${specialistCount === 1 ? 'specialist' : 'specialists'}`
+  }
+
+  if (event.event_type === 'specialist_finding_recorded') {
+    return `Specialist finding recorded: ${getString(event.payload, 'specialist_lane') ?? 'UNKNOWN'}`
+  }
+
+  if (event.event_type === 'deep_dive_synthesis_drafted') {
+    return 'Deep dive synthesis drafted'
+  }
+
+  if (event.event_type === 'deep_dive_completed') {
+    return 'Deep dive completed'
+  }
+
+  if (event.event_type === 'strategy_decision_drafted') {
+    return `Strategy decision drafted: ${getString(event.payload, 'decision') ?? 'UNKNOWN'}`
   }
 
   if (event.event_type === 'buffett_munger_analysis_drafted') {

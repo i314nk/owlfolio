@@ -7,6 +7,7 @@ export type HoldingProjection = {
   company_id?: string
   ticker?: string
   strategy_id?: string
+  strategy_version?: string
   thesis_summary?: string
   shares: number
   cost_basis_per_share: number
@@ -16,7 +17,13 @@ export type HoldingProjection = {
   latest_price_per_share?: number
   latest_market_value?: number
   latest_valuation_at?: string
+  latest_valuation_event_id?: string
   latest_valuation_source?: string
+  latest_price_checked_at?: string
+  latest_valuation_confidence?: string
+  latest_valuation_caveat?: string
+  latest_valuation_source_ids?: string[]
+  latest_valuation_missing_data?: string[]
   unrealized_gain_loss?: number
   unrealized_gain_loss_percent?: number
   portfolio_weight?: number
@@ -146,7 +153,7 @@ function roundPercent(value: number): number {
 
 function applyString(
   target: HoldingProjection,
-  key: keyof Pick<HoldingProjection, 'company_id' | 'ticker' | 'strategy_id' | 'thesis_summary'>,
+  key: keyof Pick<HoldingProjection, 'company_id' | 'ticker' | 'strategy_id' | 'strategy_version' | 'thesis_summary'>,
   value: string | undefined,
 ): void {
   if (value !== undefined) {
@@ -188,6 +195,7 @@ export function projectHoldings(events: LedgerEventEnvelope<unknown>[]): Holding
       applyString(holding, 'company_id', getString(event.payload, 'company_id'))
       applyString(holding, 'ticker', getString(event.payload, 'ticker'))
       applyString(holding, 'strategy_id', getString(event.payload, 'strategy_id'))
+      applyString(holding, 'strategy_version', getString(event.payload, 'strategy_version'))
       applyString(holding, 'thesis_summary', getString(event.payload, 'thesis_summary'))
       holding.opened_by_actor_type = getString(event.payload, 'opened_by_actor_type') ?? event.actor_type
       const openedByActorId = getString(event.payload, 'opened_by_actor_id') ?? event.actor_id
@@ -216,7 +224,28 @@ export function projectHoldings(events: LedgerEventEnvelope<unknown>[]): Holding
       holding.latest_price_per_share = pricePerShare
       holding.latest_market_value = marketValue
       holding.latest_valuation_at = getString(event.payload, 'valued_at') ?? event.created_at.slice(0, 10)
+      holding.latest_valuation_event_id = event.event_id
       holding.latest_valuation_source = getString(event.payload, 'valuation_source') ?? 'manual'
+      const priceCheckedAt = getString(event.payload, 'price_checked_at')
+      if (priceCheckedAt === undefined) {
+        delete holding.latest_price_checked_at
+      } else {
+        holding.latest_price_checked_at = priceCheckedAt
+      }
+      const valuationConfidence = getString(event.payload, 'confidence')
+      if (valuationConfidence === undefined) {
+        delete holding.latest_valuation_confidence
+      } else {
+        holding.latest_valuation_confidence = valuationConfidence
+      }
+      const valuationCaveat = getString(event.payload, 'caveat')
+      if (valuationCaveat === undefined) {
+        delete holding.latest_valuation_caveat
+      } else {
+        holding.latest_valuation_caveat = valuationCaveat
+      }
+      holding.latest_valuation_source_ids = [...event.source_ids]
+      holding.latest_valuation_missing_data = getStringArray(event.payload, 'missing_data')
       const unrealizedGainLoss = roundMoney(marketValue - holding.total_cost_basis)
       holding.unrealized_gain_loss = unrealizedGainLoss
       if (holding.total_cost_basis !== 0) {

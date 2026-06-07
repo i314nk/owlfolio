@@ -1,6 +1,6 @@
 'use client'
 
-import { createElement, useEffect, useMemo, useState, type CSSProperties, type ReactNode } from 'react'
+import { createElement, useEffect, useMemo, useState, type CSSProperties } from 'react'
 
 import type { AppConfig } from '@owlfolio/shared'
 
@@ -28,22 +28,23 @@ const cardGridStyle: CSSProperties = {
   gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))',
 }
 
-const radioCardBaseStyle: CSSProperties = {
+const connectionCardBaseStyle: CSSProperties = {
   background: 'rgba(255, 255, 255, 0.035)',
   border: '1px solid rgba(148, 163, 184, 0.24)',
-  color: '#f7f8ff',
   borderRadius: '1rem',
+  color: '#f7f8ff',
   cursor: 'pointer',
   display: 'grid',
-  gap: '0.5rem',
+  gap: '0.65rem',
   padding: '1rem',
+  textAlign: 'left',
 }
 
-const selectedRadioCardStyle: CSSProperties = {
-  ...radioCardBaseStyle,
+const selectedConnectionCardStyle: CSSProperties = {
+  ...connectionCardBaseStyle,
   background: 'rgba(124, 140, 255, 0.1)',
-  border: '1px solid rgba(124, 140, 255, 0.34)',
-  boxShadow: '0 0 0 1px rgba(124, 140, 255, 0.18) inset',
+  border: '1px solid rgba(124, 140, 255, 0.4)',
+  boxShadow: '0 0 0 1px rgba(124, 140, 255, 0.2) inset',
 }
 
 const selectStyle: CSSProperties = {
@@ -55,17 +56,6 @@ const selectStyle: CSSProperties = {
   fontSize: '1rem',
   fontWeight: 700,
   padding: '0.85rem 1rem',
-}
-
-const readinessActionStyle: CSSProperties = {
-  background: 'rgba(15, 23, 42, 0.72)',
-  border: '1px solid rgba(148, 163, 184, 0.18)',
-  borderRadius: '0.9rem',
-  color: '#e2e8f0',
-  display: 'grid',
-  gap: '0.3rem',
-  marginTop: '0.75rem',
-  padding: '0.85rem',
 }
 
 const actionButtonStyle: CSSProperties = {
@@ -92,6 +82,29 @@ const eyebrowStyle: CSSProperties = {
   letterSpacing: '0.08em',
   margin: 0,
   textTransform: 'uppercase',
+}
+
+const helpLinkStyle: CSSProperties = {
+  color: '#a5b4fc',
+  fontWeight: 800,
+  textDecoration: 'none',
+}
+
+type ConnectionOption = {
+  key: 'codex' | 'gemini' | 'demo'
+  provider: ProviderOption
+  mode: AppConfig['mode']
+  title: string
+  badge: string
+  description: string
+}
+
+function conciseNextStepFor(selectedProvider: ProviderOption, readiness: ProviderReadiness): string {
+  if (readiness.provider_surface_id === 'gemini-cli' && readiness.readiness_state === 'unsupported_surface') {
+    return 'Review provider states for Gemini adapter/certification availability; Gemini CLI is setup-only today.'
+  }
+
+  return readiness.reauth_action ?? selectedProvider.simple_next_step ?? 'Finish the provider sign-in outside Owlfolio, then retry readiness.'
 }
 
 export function OnboardingWizard({ initialConfig, initialIsInitialized, initialReadiness, providerOptions }: OnboardingWizardProps) {
@@ -133,48 +146,49 @@ export function OnboardingWizard({ initialConfig, initialIsInitialized, initialR
     [config.provider.provider_id, config.provider.support_level, providerOptions],
   )
 
-  const personalProviderFallback = useMemo<ProviderOption | undefined>(
-    () => providerOptions.find((provider) => provider.provider_id !== 'mock-provider'),
-    [providerOptions],
-  )
+  const connectionOptions = useMemo<ConnectionOption[]>(() => buildConnectionOptions(providerOptions), [providerOptions])
+  const readinessMatchesSelection = readiness.provider_id === config.provider.provider_id
+  const providerCanStart = readinessMatchesSelection && readiness.is_ready
+  const statusLabel = readinessMatchesSelection ? conciseReadinessLabel(selectedProvider, readiness) : 'Checking readiness…'
+  const nextStep = readinessMatchesSelection ? conciseNextStepFor(selectedProvider, readiness) : 'Wait for Owlfolio to refresh the selected provider readiness.'
+  const startButtonDisabled = isStarting || !providerCanStart
 
-  function updateMode(mode: AppConfig['mode']) {
-    setConfig((current) => {
-      if (mode === 'demo') {
-        return {
-          ...current,
-          mode,
-          provider: {
+  function selectConnection(option: ConnectionOption) {
+    setErrorMessage(undefined)
+    setConfig((current) => ({
+      ...current,
+      mode: option.mode,
+      provider: option.mode === 'demo'
+        ? {
             provider_id: 'mock-provider',
             support_level: 'certified',
             model_id: 'mock-buffett-munger-demo',
-          },
-        }
-      }
+          }
+        : providerSelectionForOption(current.provider, option.provider),
+    }))
+  }
 
+  function selectProvider(nextProvider: ProviderOption) {
+    setErrorMessage(undefined)
+    setConfig((current) => {
+      const nextMode = nextProvider.provider_id === 'mock-provider' ? current.mode : 'personal-local'
       return {
         ...current,
-        mode,
-        provider: current.provider.provider_id === 'mock-provider' && personalProviderFallback !== undefined
+        mode: nextMode,
+        provider: nextProvider.provider_id === 'mock-provider' && nextMode === 'demo'
           ? {
-              provider_id: personalProviderFallback.provider_id,
-              support_level: personalProviderFallback.support_level,
+              provider_id: 'mock-provider',
+              support_level: 'certified',
+              model_id: 'mock-buffett-munger-demo',
             }
-          : current.provider,
+          : providerSelectionForOption(current.provider, nextProvider),
       }
     })
   }
 
-  const readinessMatchesSelection = readiness.provider_id === config.provider.provider_id
-  const providerCanStart = readinessMatchesSelection && readiness.is_ready
-  const startBlockMessage = readinessMatchesSelection
-    ? `Provider cannot start yet: ${readiness.status_label}`
-    : 'Checking provider readiness before workflow start.'
-  const startButtonDisabled = isStarting || !providerCanStart
-
   async function startWorkflow() {
     if (!providerCanStart) {
-      setErrorMessage(startBlockMessage)
+      setErrorMessage(`Start blocked: ${statusLabel}`)
       return
     }
 
@@ -220,175 +234,113 @@ export function OnboardingWizard({ initialConfig, initialIsInitialized, initialR
       'section',
       { style: { display: 'grid', gap: '1rem' } },
       createElement('p', { style: { color: '#6366f1', fontWeight: 800, letterSpacing: '0.08em', margin: 0, textTransform: 'uppercase' } }, 'Owlfolio'),
-      createElement('h1', { style: { fontSize: 'clamp(2.25rem, 5vw, 4.5rem)', lineHeight: 1, margin: '0.5rem 0 1rem' } }, 'Set up Owlfolio'),
-      createElement('p', { style: { color: '#cbd5e1', fontSize: '1.1rem', maxWidth: '760px' } }, 'Configure a deterministic demo or a personal local workflow without editing environment files in the UI.'),
+      createElement('h1', { style: { fontSize: 'clamp(2.25rem, 5vw, 4.5rem)', lineHeight: 1, margin: '0.5rem 0 1rem' } }, 'Connect Owlfolio'),
+      createElement('p', { style: { color: '#cbd5e1', fontSize: '1.1rem', maxWidth: '720px' } }, 'Pick the local provider path you want to use. Owlfolio checks the existing CLI/session state and keeps advanced setup details in Learn.'),
       createElement(
         'div',
         { style: { display: 'flex', flexWrap: 'wrap', gap: '0.75rem', margin: '1.5rem 0 2rem' } },
         createElement(StatusBadge, { tone: isInitialized ? 'success' : 'warning' }, isInitialized ? 'Initialized' : 'Not initialized yet'),
-        createElement(StatusBadge, { tone: readiness.is_ready ? 'success' : 'warning' }, readiness.status_label),
-        createElement(StatusBadge, null, selectedProvider.support_level),
+        createElement(StatusBadge, { tone: providerCanStart ? 'success' : 'warning' }, providerCanStart ? 'Ready to start' : 'Start blocked'),
+        createElement(StatusBadge, null, selectedProvider.label),
       ),
       createElement(
         'div',
         { style: { display: 'grid', gap: '1rem' } },
         createElement(
           'section',
-          { style: sectionStyle },
-          createElement('p', { style: eyebrowStyle }, 'Choose mode'),
+          { style: sectionStyle, 'aria-labelledby': 'provider-connection-heading' },
+          createElement('p', { style: eyebrowStyle }, 'Provider connection'),
+          createElement('h2', { id: 'provider-connection-heading', style: { margin: '0.35rem 0 0.25rem' } }, 'Connect a provider'),
+          createElement('p', { style: { color: '#cbd5e1', marginTop: 0 } }, 'Codex and Gemini use local CLI sign-in checks today; there is no production OAuth handoff inside Owlfolio yet.'),
           createElement(
             'div',
             { style: cardGridStyle },
-            createElement(
-              'label',
-              { style: config.mode === 'demo' ? selectedRadioCardStyle : radioCardBaseStyle },
-              createElement('input', { checked: config.mode === 'demo', name: 'mode', onChange: () => updateMode('demo'), type: 'radio' }),
-              createElement('strong', null, 'Demo mode'),
-              createElement('span', null, 'Deterministic guided demo with the mock provider and a local demo ledger.'),
-            ),
-            createElement(
-              'label',
-              { style: config.mode === 'personal-local' ? selectedRadioCardStyle : radioCardBaseStyle },
-              createElement('input', { checked: config.mode === 'personal-local', name: 'mode', onChange: () => updateMode('personal-local'), type: 'radio' }),
-              createElement('strong', null, 'Personal local mode'),
-              createElement('span', null, 'Persist local configuration and initialize a durable personal ledger without seeding demo events.'),
-            ),
-          ),
-        ),
-        createElement(
-          'section',
-          { style: sectionStyle },
-          createElement('p', { style: eyebrowStyle }, 'Connect provider'),
-          createElement(
-            'label',
-            { style: { color: '#cbd5e1', display: 'grid', gap: '0.5rem', maxWidth: '420px' } },
-            createElement('span', null, 'Provider'),
-            createElement(
-              'select',
+            ...connectionOptions.map((option) => createElement(
+              'button',
               {
-                onChange: (event: Event) => {
-                  const target = event.target as HTMLSelectElement
-                  const nextProvider = providerOptions.find((provider) => provider.provider_id === target.value)
-                  if (nextProvider === undefined) {
-                    return
-                  }
-
-                  setConfig((current) => ({
-                    ...current,
-                    provider: providerSelectionForOption(current.provider, nextProvider),
-                  }))
-                },
-                style: selectStyle,
-                value: config.provider.provider_id,
+                key: option.key,
+                onClick: () => selectConnection(option),
+                style: isConnectionSelected(option, config.provider.provider_id) ? selectedConnectionCardStyle : connectionCardBaseStyle,
+                type: 'button',
               },
-              ...providerOptions.map((provider) => createElement('option', { key: provider.provider_id, value: provider.provider_id }, provider.label)),
-            ),
+              createElement('span', { style: { color: '#a5b4fc', fontSize: '0.78rem', fontWeight: 900, letterSpacing: '0.06em', textTransform: 'uppercase' } }, option.badge),
+              createElement('strong', { style: { fontSize: '1.08rem' } }, option.title),
+              createElement('span', { style: { color: '#cbd5e1', lineHeight: 1.45 } }, option.description),
+            )),
           ),
           createElement(
-            'div',
-            { style: { ...cardGridStyle, marginTop: '1rem' } },
-            createElement(
-              'article',
-              { style: sectionStyle },
-              createElement('p', { style: eyebrowStyle }, 'Readiness summary'),
-              createElement('p', { style: { fontSize: '1.15rem', fontWeight: 800, margin: '0.5rem 0' } }, selectedProvider.label),
-              createElement('p', { style: { color: '#cbd5e1', margin: '0.35rem 0' } }, selectedProvider.description),
-              ...renderProviderSignInContract(selectedProvider, readiness),
-              createElement('p', { style: { color: '#cbd5e1', margin: '0.35rem 0' } }, `Auth source: ${readiness.auth_source}`),
-              createElement('p', { style: { color: '#cbd5e1', margin: '0.35rem 0' } }, `Support level: ${readiness.support_level}`),
-              createElement('p', { style: { color: '#cbd5e1', margin: '0.35rem 0' } }, readiness.status_label),
-              createElement(
-                'div',
-                { style: readinessActionStyle },
-                createElement('strong', null, 'Readiness action'),
-                providerCanStart
-                  ? createElement('span', null, 'Action: initialize local ledger and open the Command Center.')
-                  : createElement('span', null, 'Action: configure credentials or choose demo mode before starting.'),
-                createElement('span', null, readinessSessionDetail(readiness)),
-              ),
-            ),
-          ),
-        ),
-        createElement(
-          'section',
-          { style: sectionStyle },
-          createElement('p', { style: eyebrowStyle }, 'Strategy'),
-          createElement('p', { style: { fontSize: '1.15rem', fontWeight: 800, margin: '0.5rem 0' } }, 'Buffett-Munger certified'),
-          createElement('p', { style: { color: '#cbd5e1', margin: 0 } }, 'Certified default workflow for local demo and personal research workflows.'),
-        ),
-        createElement(
-          'section',
-          { style: sectionStyle },
-          createElement('p', { style: eyebrowStyle }, 'Shariah defaults'),
-          createElement(
-            'div',
-            { style: cardGridStyle },
+            'details',
+            { style: { marginTop: '1rem' } },
+            createElement('summary', { style: { color: '#cbd5e1', cursor: 'pointer', fontWeight: 800 } }, 'Other provider / advanced selector'),
             createElement(
               'label',
-              { style: radioCardBaseStyle },
+              { style: { color: '#cbd5e1', display: 'grid', gap: '0.5rem', marginTop: '0.75rem', maxWidth: '420px' } },
+              createElement('span', null, 'Provider'),
               createElement(
-                'span',
-                null,
-                createElement('input', {
-                  checked: config.shariah.enabled,
+                'select',
+                {
                   onChange: (event: Event) => {
-                    const enabled = (event.target as HTMLInputElement).checked
-                    setConfig((current) => ({
-                      ...current,
-                      shariah: {
-                        ...current.shariah,
-                        enabled,
-                      },
-                    }))
+                    const target = event.target as HTMLSelectElement
+                    const nextProvider = providerOptions.find((provider) => provider.provider_id === target.value)
+                    if (nextProvider !== undefined) {
+                      selectProvider(nextProvider)
+                    }
                   },
-                  type: 'checkbox',
-                }),
-                ' Enable Shariah guardrails',
+                  style: selectStyle,
+                  value: config.provider.provider_id,
+                },
+                ...providerOptions.map((provider) => createElement('option', { key: provider.provider_id, value: provider.provider_id }, provider.label)),
               ),
-              createElement('span', null, 'AAOIFI policy defaults remain on by default for both demo and personal local mode.'),
-            ),
-            createElement(
-              'article',
-              { style: radioCardBaseStyle },
-              createElement('strong', null, 'AAOIFI'),
-              createElement('span', null, `Allow conditional status: ${config.shariah.allow_conditional ? 'Yes' : 'No'}`),
-              createElement('span', null, `Non-compliant income threshold: ${(config.shariah.non_compliant_income_threshold * 100).toFixed(0)}%`),
             ),
           ),
         ),
         createElement(
           'section',
-          { style: sectionStyle },
-          createElement('p', { style: eyebrowStyle }, 'Market universe'),
-          createElement('p', { style: { fontSize: '1.15rem', fontWeight: 800, margin: '0.5rem 0' } }, config.market_universe.label),
-          createElement('p', { style: { color: '#cbd5e1', margin: 0 } }, 'Broker credential integration stays out of the setup flow; this is a discovery-universe filter only.'),
-        ),
-        createElement(
-          'section',
-          { style: sectionStyle },
-          createElement('p', { style: eyebrowStyle }, 'Initialize ledger / start workflow'),
-          createElement('p', { style: { color: '#cbd5e1', marginTop: 0 } }, config.mode === 'demo' ? 'Seed the durable demo ledger and open the command center.' : 'Create a durable personal ledger and continue into the command center.'),
-          providerCanStart
-            ? createElement('p', { style: { color: '#6366f1', fontWeight: 700, marginTop: 0 } }, `${selectedProvider.label} is locally runnable for this workflow.`)
-            : createElement(
-                'div',
-                { role: 'alert', style: { background: 'rgba(248, 113, 113, 0.16)', border: '1px solid rgba(248, 113, 113, 0.35)', borderRadius: '0.9rem', color: '#fecaca', display: 'grid', gap: '0.25rem', marginBottom: '0.9rem', padding: '0.9rem' } },
-                createElement('strong', null, 'Provider cannot start yet'),
-                createElement('span', null, startBlockMessage),
-                createElement('span', null, `Auth source: ${readiness.auth_source}`),
-                createElement('span', null, `Effective support: ${readiness.support_level}`),
-                createElement('span', null, 'Action: configure credentials or choose demo mode before starting.'),
-                readiness.auth_source === 'missing' || readiness.auth_source === 'certification report'
-                  ? createElement('span', null, readinessSessionDetail(readiness))
-                  : null,
-              ),
+          { style: sectionStyle, 'aria-labelledby': 'readiness-heading' },
+          createElement('p', { style: eyebrowStyle }, 'Readiness check'),
+          createElement('h2', { id: 'readiness-heading', style: { margin: '0.35rem 0 0.25rem' } }, selectedProvider.label),
+          createElement('p', { style: { color: '#cbd5e1', marginTop: 0 } }, selectedProvider.description),
+          createElement(
+            'div',
+            {
+              role: providerCanStart ? undefined : 'alert',
+              style: {
+                background: providerCanStart ? 'rgba(34, 197, 94, 0.12)' : 'rgba(248, 113, 113, 0.14)',
+                border: providerCanStart ? '1px solid rgba(34, 197, 94, 0.28)' : '1px solid rgba(248, 113, 113, 0.32)',
+                borderRadius: '0.9rem',
+                color: providerCanStart ? '#bbf7d0' : '#fecaca',
+                display: 'grid',
+                gap: '0.35rem',
+                padding: '0.9rem',
+              },
+            },
+            createElement('strong', null, providerCanStart ? 'Ready to start' : 'Start blocked'),
+            createElement('span', null, statusLabel),
+            providerCanStart
+              ? createElement('span', null, config.mode === 'demo' ? 'Action: seed the local demo ledger and open the Command Center.' : 'Action: create the personal local ledger and open the Command Center.')
+              : createElement('span', null, `Next step: ${nextStep}`),
+          ),
+          createElement(
+            'p',
+            { style: { color: '#cbd5e1', marginBottom: 0 } },
+            createElement('a', { className: 'owl-focusable', href: '/learn#providers', style: helpLinkStyle }, 'Learn provider setup'),
+            ' or ',
+            createElement('a', { className: 'owl-focusable', href: '/providers', style: helpLinkStyle }, 'review provider states'),
+            '.',
+          ),
           errorMessage === undefined ? null : createElement('p', { style: { color: '#fca5a5', fontWeight: 700 } }, errorMessage),
           createElement('button', {
             disabled: startButtonDisabled,
             onClick: () => void startWorkflow(),
-            style: startButtonDisabled ? disabledActionButtonStyle : actionButtonStyle,
+            style: { ...(startButtonDisabled ? disabledActionButtonStyle : actionButtonStyle), marginTop: '1rem' },
             type: 'button',
-          }, isStarting ? 'Starting…' : providerCanStart ? 'Initialize Owlfolio workflow' : `Start blocked: ${selectedProvider.label} not locally runnable`),
+          }, isStarting ? 'Starting…' : providerCanStart ? 'Start Owlfolio' : 'Start blocked'),
+        ),
+        createElement(
+          'details',
+          { style: sectionStyle },
+          createElement('summary', { style: { cursor: 'pointer', fontWeight: 900 } }, 'Default workflow settings'),
+          createElement('p', { style: { color: '#cbd5e1' } }, 'Owlfolio starts with the Buffett-Munger workflow, Shariah guardrails enabled, and the public-equities discovery universe. You can tune these after setup; broker credentials are not part of onboarding.'),
         ),
       ),
     ),
@@ -412,98 +364,66 @@ export function providerSelectionForOption(
   }
 }
 
-function readinessSessionDetail(readiness: ProviderReadiness): string {
-  if (readiness.auth_source === 'missing') {
-    return 'OAuth/session not signed in or credential path missing'
+function buildConnectionOptions(providerOptions: ProviderOption[]): ConnectionOption[] {
+  const mockProvider = providerOptions.find((provider) => provider.provider_id === 'mock-provider')
+  const codexProvider = providerOptions.find((provider) => provider.provider_surface_id === 'openai-codex-cli' || provider.provider_id === 'openai')
+  const geminiProvider = providerOptions.find((provider) => provider.provider_surface_id === 'gemini-cli' || provider.provider_id === 'gemini-cli')
+  const options: ConnectionOption[] = []
+
+  if (codexProvider !== undefined) {
+    options.push({
+      key: 'codex',
+      provider: codexProvider,
+      mode: 'personal-local',
+      title: 'Connect Codex',
+      badge: 'OpenAI / ChatGPT',
+      description: 'Use the local Codex CLI session when present. Direct OpenAI API setup stays in advanced provider docs.',
+    })
   }
 
-  if (readiness.auth_source === 'certification report') {
-    return 'Certification report blocked this provider session'
+  if (geminiProvider !== undefined) {
+    options.push({
+      key: 'gemini',
+      provider: geminiProvider,
+      mode: 'personal-local',
+      title: 'Connect Gemini',
+      badge: 'Setup only',
+      description: 'Detect a local Gemini CLI sign-in for setup readiness. Workflow execution remains blocked until an adapter is certified.',
+    })
   }
 
-  return `Credential/session source: ${readiness.auth_source}`
+  if (mockProvider !== undefined) {
+    options.push({
+      key: 'demo',
+      provider: mockProvider,
+      mode: 'demo',
+      title: 'Try demo locally',
+      badge: 'Mock/demo',
+      description: 'Seed the deterministic local demo ledger and explore the workflow without external credentials.',
+    })
+  }
+
+  return options
 }
 
-function renderProviderSignInContract(selectedProvider: ProviderOption, readiness: ProviderReadiness): ReactNode[] {
-  const nodes: ReactNode[] = []
-
-  if (selectedProvider.provider_family_label !== undefined) {
-    nodes.push(createElement('p', { key: 'provider-family', style: { color: '#cbd5e1', margin: '0.35rem 0' } }, `Provider family: ${selectedProvider.provider_family_label}`))
-  }
-
-  if (selectedProvider.recommended_sign_in_label !== undefined || selectedProvider.recommended_sign_in_description !== undefined) {
-    nodes.push(createElement(
-      'section',
-      { key: 'recommended-sign-in', style: readinessActionStyle },
-      createElement('strong', null, 'Recommended sign-in'),
-      createElement('span', null, 'One-screen flow: choose provider family → recommended sign-in → verify readiness → start workflow.'),
-      selectedProvider.recommended_sign_in_label === undefined
-        ? null
-        : createElement('span', null, selectedProvider.recommended_sign_in_label),
-      selectedProvider.recommended_sign_in_description === undefined
-        ? null
-        : createElement('span', null, selectedProvider.recommended_sign_in_description),
-      createElement('span', null, `Next step: ${readiness.reauth_action ?? selectedProvider.simple_next_step ?? 'Verify provider readiness, then start the workflow.'}`),
-    ))
-  }
-
-  const cliUseBoundary = cliUseBoundaryFor(selectedProvider, readiness)
-  if (cliUseBoundary !== undefined) {
-    nodes.push(createElement(
-      'section',
-      { key: 'cli-use-boundary', style: { ...readinessActionStyle, marginTop: '0.75rem' } },
-      createElement('strong', null, cliUseBoundary.heading),
-      createElement('span', null, cliUseBoundary.allowedUse),
-      createElement('span', null, cliUseBoundary.executionBoundary),
-      createElement('span', null, cliUseBoundary.certificationTruth),
-      createElement('span', null, `Credential/session source: ${readiness.credential_source_label ?? readiness.auth_source}`),
-    ))
-  }
-
-  if (selectedProvider.advanced_auth_options !== undefined && selectedProvider.advanced_auth_options.length > 0) {
-    nodes.push(createElement(
-      'details',
-      { key: 'advanced-auth-options', style: { ...readinessActionStyle, marginTop: '0.75rem' } },
-      createElement('summary', { style: { cursor: 'pointer', fontWeight: 900 } }, 'Advanced auth and certification options'),
-      createElement(
-        'ul',
-        { style: { display: 'grid', gap: '0.5rem', margin: '0.75rem 0 0', paddingLeft: '1.2rem' } },
-        ...selectedProvider.advanced_auth_options.map((option) => createElement(
-          'li',
-          { key: option.label },
-          createElement('strong', null, option.label),
-          createElement('span', null, ` — ${option.description} ${option.certification_note}`),
-        )),
-      ),
-    ))
-  }
-
-  return nodes
+function isConnectionSelected(option: ConnectionOption, providerId: AppConfig['provider']['provider_id']): boolean {
+  return option.provider.provider_id === providerId
 }
 
-function cliUseBoundaryFor(
-  selectedProvider: ProviderOption,
-  readiness: ProviderReadiness,
-): { heading: string; allowedUse: string; executionBoundary: string; certificationTruth: string } | undefined {
+function conciseReadinessLabel(selectedProvider: ProviderOption, readiness: ProviderReadiness): string {
   const surfaceId = selectedProvider.provider_surface_id ?? readiness.provider_surface_id
 
-  if (surfaceId === 'openai-codex-cli') {
-    return {
-      heading: 'Codex CLI use boundary',
-      allowedUse: 'Allowed use: Personal-local research drafts only',
-      executionBoundary: 'Scheduled/headless workflows stay blocked until certification proves support.',
-      certificationTruth: 'Certification truth: experimental Codex CLI readiness does not certify direct OpenAI API or production automation.',
+  if (surfaceId === 'gemini-cli' && readiness.is_ready === false) {
+    if (readiness.credential_source_category === 'missing' || readiness.auth_source === 'missing') {
+      return 'Missing Gemini CLI sign-in session'
     }
+
+    return 'Gemini CLI is setup-only until a workflow adapter is certified.'
   }
 
-  if (surfaceId === 'gemini-cli') {
-    return {
-      heading: 'Gemini CLI use boundary',
-      allowedUse: 'Allowed use: Setup and readiness discovery only',
-      executionBoundary: 'Workflow execution stays blocked until a Gemini CLI adapter and certification exist.',
-      certificationTruth: 'Certification truth: experimental Gemini CLI readiness does not certify Gemini Developer API, Vertex, or production automation.',
-    }
+  if (surfaceId === 'openai-codex-cli' && readiness.is_ready === false && readiness.auth_source === 'missing') {
+    return 'Missing OpenAI / Codex credentials'
   }
 
-  return undefined
+  return readiness.status_label
 }

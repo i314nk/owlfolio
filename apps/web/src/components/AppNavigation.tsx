@@ -6,7 +6,7 @@ import { usePathname } from 'next/navigation'
 
 const navItems = [
   { href: '/', label: 'Command Center' },
-  { href: '/research/new', label: 'Research' },
+  { href: '/research', label: 'Research' },
   { href: '/watchlist', label: 'Watchlist' },
   { href: '/portfolio', label: 'Portfolio' },
   { href: '/accounting/monthly', label: 'Accounting' },
@@ -37,7 +37,7 @@ function isActiveRoute(pathname: string, href: string): boolean {
     return pathname === '/'
   }
 
-  if (href === '/research/new') {
+  if (href === '/research') {
     return pathname.startsWith('/research')
   }
 

@@ -204,7 +204,7 @@ git commit -m "feat(web): add onboarding api and initialization flow"
 Cover:
 - mode step offers demo and personal-local modes
 - provider step shows support badge and readiness text
-- strategy step defaults to Buffett-Munger certified
+- strategy step defaults to Buffett-Munger default posture
 - Shariah defaults are visible and enabled by default
 - start button posts to `/api/onboarding/start` and redirects to `/`
 

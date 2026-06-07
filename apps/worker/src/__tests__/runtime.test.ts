@@ -4,6 +4,8 @@ import { join } from 'node:path'
 
 import { InMemoryEventStore } from '@owlfolio/ledger/eventStore'
 import type { LedgerEventEnvelope } from '@owlfolio/ledger/eventEnvelope'
+import { projectHoldings } from '@owlfolio/ledger/projections/holdingProjection'
+import { projectPurificationLedger } from '@owlfolio/ledger/projections/purificationProjection'
 import { projectScheduledTasks } from '@owlfolio/ledger/projections/scheduledTaskProjection'
 import { SQLiteEventStore } from '@owlfolio/ledger/sqliteEventStore'
 import type { CertificationReport, Provider } from '@owlfolio/providers'
@@ -535,7 +537,7 @@ describe('worker runtime', () => {
     await defineDefaultScheduledTasks(store, { now: () => '2026-06-01T08:00:00.000Z' })
 
     const definitions = (await store.list()).filter((event) => event.event_type === 'scheduled_task_defined')
-    expect(definitions).toHaveLength(3)
+    expect(definitions).toHaveLength(5)
     expect(definitions.map((event) => event.payload)).toEqual([
       expect.objectContaining({ task_kind: 'review_reminder', dry_run: true, enabled: true }),
       expect.objectContaining({ task_kind: 'watchlist_monitor', dry_run: true, enabled: true }),
@@ -546,7 +548,352 @@ describe('worker runtime', () => {
         timeout_ms: 120_000,
         max_cost_usd: 0.25,
       }),
+      expect.objectContaining({
+        task_kind: 'portfolio_valuation_refresh',
+        dry_run: true,
+        enabled: true,
+        safety: expect.objectContaining({
+          auto_approve_investment_actions: false,
+          auto_approve_portfolio_actions: false,
+        }),
+      }),
+      expect.objectContaining({
+        task_kind: 'purification_projection',
+        cadence: '0 6 1 */3 *',
+        dry_run: true,
+        enabled: true,
+        safety: expect.objectContaining({
+          auto_approve_investment_actions: false,
+          auto_approve_portfolio_actions: false,
+        }),
+      }),
     ])
+  })
+
+  it('skips the quarterly purification projection when the scheduled tick is not due', async () => {
+    const store = new InMemoryEventStore<LedgerEventEnvelope<unknown>>()
+    await store.append(ledgerEvent('scheduled_task_defined', 'scheduled_task', 'task_purification_projection_quarterly', {
+      scheduled_task_id: 'task_purification_projection_quarterly',
+      task_kind: 'purification_projection',
+      cadence: '0 6 1 */3 *',
+      enabled: true,
+      dry_run: true,
+      retry_policy: { max_attempts: 2, retry_delay_ms: 300_000 },
+      safety: {
+        mock_safe: true,
+        auto_approve_investment_actions: false,
+        auto_approve_portfolio_actions: false,
+      },
+    }))
+
+    const result = await runScheduledTasks(store, {
+      as_of: '2026-06-15',
+      dry_run: true,
+      now: () => '2026-06-15T06:00:00.000Z',
+    })
+
+    expect(result).toMatchObject({ considered: 1, completed: 0, failed: 0, skipped: 1, events_appended: 0 })
+    expect(result.summaries).toEqual([
+      'task_purification_projection_quarterly skipped: not due until quarterly cadence 0 6 1 */3 *',
+    ])
+  })
+
+  it('runs the quarterly purification projection when the scheduled worker tick is delayed within the due quarter', async () => {
+    const store = new InMemoryEventStore<LedgerEventEnvelope<unknown>>()
+    await store.append(ledgerEvent('scheduled_task_defined', 'scheduled_task', 'task_purification_projection_quarterly', {
+      scheduled_task_id: 'task_purification_projection_quarterly',
+      task_kind: 'purification_projection',
+      cadence: '0 6 1 */3 *',
+      enabled: true,
+      dry_run: true,
+      retry_policy: { max_attempts: 2, retry_delay_ms: 300_000 },
+    }))
+
+    const result = await runScheduledTasks(store, {
+      dry_run: true,
+      now: () => '2026-07-01T06:01:00.000Z',
+      run_id: () => 'run_purification_projection_delayed_tick',
+    })
+
+    expect(result).toMatchObject({ considered: 1, completed: 1, failed: 0, skipped: 0, events_appended: 2 })
+    expect(result.summaries).toEqual([
+      'purification_projection dry-run: calculated 0 estimated purification obligation(s), 0 pending dividend(s) need evidence; no payment or resolution marked',
+    ])
+  })
+
+  it('refreshes portfolio valuations from the scheduled mock price source without approving actions', async () => {
+    const store = new InMemoryEventStore<LedgerEventEnvelope<unknown>>()
+    await appendCostHolding(store)
+    await store.append(ledgerEvent('holding_opened', 'holding', 'holding_unknown_001', {
+      holding_id: 'holding_unknown_001',
+      watchlist_item_id: 'wl_unknown_001',
+      research_case_id: 'rc_unknown_001',
+      ticker: 'ZZZZ',
+      strategy_id: 'buffett-munger',
+      shares: 2,
+      cost_basis_per_share: 50,
+      currency: 'USD',
+      opened_at: '2026-05-30',
+    }))
+    await defineDefaultScheduledTasks(store, { now: () => '2026-06-01T07:00:00.000Z' })
+
+    const result = await runScheduledTasks(store, {
+      as_of: '2026-06-01',
+      dry_run: true,
+      task_kind: 'portfolio_valuation_refresh',
+      now: () => '2026-06-01T07:00:00.000Z',
+      run_id: () => 'run_portfolio_valuation_refresh_001',
+    })
+
+    expect(result).toMatchObject({ completed: 1, failed: 0 })
+    const events = await store.list()
+    const valuation = events.find((event) => event.event_type === 'holding_valuation_recorded')
+    expect(valuation).toMatchObject({
+      aggregate_type: 'holding',
+      aggregate_id: 'holding_cost_001',
+      actor_type: 'worker',
+      actor_id: 'owlfolio-worker',
+      causation_id: 'evt_scheduled_task_run_started_run_portfolio_valuation_refresh_001',
+      payload: expect.objectContaining({
+        snapshot_id: 'scheduled_holding_cost_001_20260601',
+        holding_id: 'holding_cost_001',
+        price_per_share: 912.34,
+        market_value: 912.34,
+        valuation_source: 'mock-local-price-feed',
+        price_checked_at: '2026-06-01T07:00:00.000Z',
+        confidence: 'mock',
+        caveat: 'Deterministic local price source for scheduled workflow verification.',
+        valued_by_actor_type: 'worker',
+        valued_by_actor_id: 'owlfolio-worker',
+      }),
+      source_ids: ['mock-price:COST:2026-06-01'],
+    })
+    expect(projectHoldings(events).find((holding) => holding.holding_id === 'holding_cost_001')).toMatchObject({
+      latest_valuation_source: 'mock-local-price-feed',
+      latest_price_checked_at: '2026-06-01T07:00:00.000Z',
+      latest_valuation_confidence: 'mock',
+      latest_valuation_source_ids: ['mock-price:COST:2026-06-01'],
+    })
+    const completed = events.find((event) => event.event_type === 'scheduled_task_run_completed')
+    expect(completed?.payload).toMatchObject({
+      result_summary: 'portfolio_valuation_refresh dry-run: refreshed 1 holding valuation(s), 1 holding(s) missing price data; no investment decision or portfolio action taken',
+      observations: [
+        'COST valuation refreshed from mock-local-price-feed at $912.34; factual valuation update only',
+        'ZZZZ missing price data from mock-local-price-feed; manual/provider source review required',
+      ],
+      approval_gates: [],
+      human_approval_required: false,
+      auto_approved_actions: 0,
+      missing_data_holding_ids: ['holding_unknown_001'],
+    })
+    expect(events).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ event_type: 'holding_opened', actor_type: 'worker' }),
+      expect.objectContaining({ event_type: 'holding_review_confirmed', actor_type: 'worker' }),
+      expect.objectContaining({ event_type: 'watchlist_draft_confirmed', actor_type: 'worker' }),
+      expect.objectContaining({ event_type: 'purification_payment_recorded', actor_type: 'worker' }),
+    ]))
+  })
+
+  it('does not count same-day idempotent valuation refresh reruns as new snapshot events', async () => {
+    const store = new InMemoryEventStore<LedgerEventEnvelope<unknown>>()
+    await appendCostHolding(store)
+    await defineDefaultScheduledTasks(store, { now: () => '2026-06-01T07:00:00.000Z' })
+
+    await runScheduledTasks(store, {
+      as_of: '2026-06-01',
+      dry_run: true,
+      task_kind: 'portfolio_valuation_refresh',
+      now: () => '2026-06-01T07:00:00.000Z',
+      run_id: () => 'run_portfolio_valuation_refresh_001',
+    })
+    const rerun = await runScheduledTasks(store, {
+      as_of: '2026-06-01',
+      dry_run: true,
+      task_kind: 'portfolio_valuation_refresh',
+      now: () => '2026-06-01T08:00:00.000Z',
+      run_id: () => 'run_portfolio_valuation_refresh_002',
+    })
+
+    const events = await store.list()
+    expect(events.filter((event) => event.event_type === 'holding_valuation_recorded')).toHaveLength(1)
+    expect(rerun).toMatchObject({ completed: 1, failed: 0, events_appended: 2 })
+    expect(rerun.summaries).toEqual([
+      'portfolio_valuation_refresh dry-run: refreshed 0 holding valuation(s), 0 holding(s) missing price data; no investment decision or portfolio action taken',
+    ])
+    expect(events.find((event) => event.event_id === 'evt_scheduled_task_run_completed_run_portfolio_valuation_refresh_002')?.payload).toMatchObject({
+      observations: ['COST valuation already refreshed from mock-local-price-feed for 2026-06-01; no duplicate valuation event appended'],
+    })
+  })
+
+  it('projects AAOIFI-aware purification obligations from dividend and Shariah evidence without marking payments resolved', async () => {
+    const store = new InMemoryEventStore<LedgerEventEnvelope<unknown>>()
+    await store.append(ledgerEvent('holding_opened', 'holding', 'holding_cost_001', {
+      holding_id: 'holding_cost_001',
+      watchlist_item_id: 'wl_cost_001',
+      research_case_id: 'rc_cost_001',
+      company_id: 'company_cost',
+      company_name: 'Costco Wholesale Corporation',
+      ticker: 'COST',
+      strategy_id: 'buffett-munger',
+      shares: 1,
+      cost_basis_per_share: 812.4,
+      currency: 'USD',
+      opened_at: '2026-05-28',
+    }))
+    await store.append({
+      ...ledgerEvent('dividend_income_recorded', 'cash_account', 'cash_usd', {
+        dividend_id: 'div_cost_2026_06',
+        holding_id: 'holding_cost_001',
+        cash_account_id: 'cash_usd',
+        amount: 40,
+        currency: 'USD',
+        received_at: '2026-06-15',
+        taxable_status: 'unclassified',
+      }),
+      source_ids: ['broker_dividend_notice_cost_2026_06'],
+    } satisfies LedgerEventEnvelope<Record<string, unknown>>)
+    await store.append({
+      ...ledgerEvent('shariah_evaluation_recorded', 'holding', 'holding_cost_001', {
+        evaluation_id: 'shariah_cost_q2',
+        holding_id: 'holding_cost_001',
+        status: 'CONDITIONAL',
+        policy_basis: 'AAOIFI',
+        policy_version: 'AAOIFI_SS21_APP_POLICY_2026_06',
+        standard_reference: 'AAOIFI SS 21 (secondary-source mapped)',
+        non_compliant_income_ratio: 0.05,
+        source_filing_period_start: '2026-01-01',
+        source_filing_period_end: '2026-03-31',
+        source_filing_type: '10-Q',
+        source_filing_date: '2026-04-25',
+        evidence_summary: 'Mock provider ratio from company filing.',
+        policy_source_ids: ['policy_aaoifi_ss21_secondary'],
+        source_ids: ['src_cost_10q', 'src_cost_shariah_screen'],
+      }, 'provider'),
+      source_ids: ['src_cost_10q', 'src_cost_shariah_screen'],
+      created_at: '2026-06-14T12:00:00.000Z',
+    } satisfies LedgerEventEnvelope<Record<string, unknown>>)
+    await defineDefaultScheduledTasks(store, { now: () => '2026-07-01T06:00:00.000Z' })
+
+    const result = await runScheduledTasks(store, {
+      dry_run: true,
+      task_kind: 'purification_projection',
+      now: () => '2026-07-01T06:00:00.000Z',
+      run_id: () => 'run_purification_projection_001',
+    })
+
+    expect(result).toMatchObject({ completed: 1, failed: 0 })
+    const events = await store.list()
+    const obligation = events.find((event) => event.event_type === 'purification_obligation_recorded')
+    expect(obligation).toMatchObject({
+      aggregate_type: 'purification_entry',
+      aggregate_id: expect.stringMatching(/^purify_calc_holding_cost_001_div_cost_2026_06_AAOIFI_SS21_APP_POLICY_2026_06_[a-z0-9]+$/),
+      actor_type: 'worker',
+      actor_id: 'owlfolio-worker',
+      causation_id: 'evt_scheduled_task_run_started_run_purification_projection_001',
+      correlation_id: 'run_purification_projection_001',
+      idempotency_key: expect.stringMatching(/^purification-obligation:calc_holding_cost_001_div_cost_2026_06_AAOIFI_SS21_APP_POLICY_2026_06_[a-z0-9]+$/),
+      payload: expect.objectContaining({
+        calculation_id: expect.stringMatching(/^calc_holding_cost_001_div_cost_2026_06_AAOIFI_SS21_APP_POLICY_2026_06_[a-z0-9]+$/),
+        holding_id: 'holding_cost_001',
+        company_id: 'company_cost',
+        ticker: 'COST',
+        company_name: 'Costco Wholesale Corporation',
+        period_start: '2026-06-15',
+        period_end: '2026-06-15',
+        policy_basis: 'AAOIFI',
+        policy_version: 'AAOIFI_SS21_APP_POLICY_2026_06',
+        dividend_income_amount: 40,
+        non_compliant_income_ratio: 0.05,
+        purification_ratio: 0.05,
+        holding_period_basis: 'dividend_received_during_open_holding_period',
+        amount: 2,
+        purification_amount: 2,
+        calculated_at: '2026-07-01T06:00:00.000Z',
+        next_calculation_at: '2026-10-01T06:00:00.000Z',
+        requires_user_confirmation: true,
+        requires_scholar_review: true,
+      }),
+    })
+    expect(projectPurificationLedger(events).summary_by_currency).toEqual({
+      USD: { owed: 2, paid: 0, remaining: 2 },
+    })
+    const completed = events.find((event) => event.event_id === 'evt_scheduled_task_run_completed_run_purification_projection_001')
+    expect(completed?.payload).toMatchObject({
+      result_summary: 'purification_projection dry-run: calculated 1 estimated purification obligation(s), 0 pending dividend(s) need evidence; no payment or resolution marked',
+      approval_gates: ['purification_payment_requires_user_confirmation'],
+      human_approval_required: true,
+      auto_approved_actions: 0,
+    })
+    expect(events).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ event_type: 'purification_payment_recorded', actor_type: 'worker' }),
+    ]))
+  })
+
+  it('does not duplicate purification obligations on idempotent scheduler reruns', async () => {
+    const store = new InMemoryEventStore<LedgerEventEnvelope<unknown>>()
+    await store.append(ledgerEvent('holding_opened', 'holding', 'holding_cost_001', {
+      holding_id: 'holding_cost_001',
+      watchlist_item_id: 'wl_cost_001',
+      research_case_id: 'rc_cost_001',
+      company_id: 'company_cost',
+      company_name: 'Costco Wholesale Corporation',
+      ticker: 'COST',
+      shares: 1,
+      cost_basis_per_share: 812.4,
+      currency: 'USD',
+      opened_at: '2026-05-28',
+    }))
+    await store.append({
+      ...ledgerEvent('dividend_income_recorded', 'cash_account', 'cash_usd', {
+        dividend_id: 'div_cost_2026_06',
+        holding_id: 'holding_cost_001',
+        amount: 40,
+        currency: 'USD',
+        received_at: '2026-06-15',
+      }),
+      source_ids: ['broker_dividend_notice_cost_2026_06'],
+    } satisfies LedgerEventEnvelope<Record<string, unknown>>)
+    await store.append({
+      ...ledgerEvent('shariah_evaluation_recorded', 'holding', 'holding_cost_001', {
+        evaluation_id: 'shariah_cost_q2',
+        holding_id: 'holding_cost_001',
+        status: 'CONDITIONAL',
+        policy_basis: 'AAOIFI',
+        policy_version: 'AAOIFI_SS21_APP_POLICY_2026_06',
+        standard_reference: 'AAOIFI SS 21 (secondary-source mapped)',
+        non_compliant_income_ratio: 0.05,
+        source_filing_period_start: '2026-01-01',
+        source_filing_period_end: '2026-03-31',
+        policy_source_ids: ['policy_aaoifi_ss21_secondary'],
+        source_ids: ['src_cost_10q'],
+      }, 'provider'),
+      source_ids: ['src_cost_10q'],
+    } satisfies LedgerEventEnvelope<Record<string, unknown>>)
+    await defineDefaultScheduledTasks(store, { now: () => '2026-07-01T06:00:00.000Z' })
+
+    await runScheduledTasks(store, {
+      as_of: '2026-06-30',
+      dry_run: true,
+      task_kind: 'purification_projection',
+      now: () => '2026-07-01T06:00:00.000Z',
+      run_id: () => 'run_purification_projection_001',
+    })
+    const rerun = await runScheduledTasks(store, {
+      as_of: '2026-06-30',
+      dry_run: true,
+      task_kind: 'purification_projection',
+      now: () => '2026-07-01T07:00:00.000Z',
+      run_id: () => 'run_purification_projection_002',
+    })
+
+    const events = await store.list()
+    expect(events.filter((event) => event.event_type === 'purification_obligation_recorded')).toHaveLength(1)
+    expect(rerun).toMatchObject({ completed: 1, failed: 0, events_appended: 2 })
+    expect(events.find((event) => event.event_id === 'evt_scheduled_task_run_completed_run_purification_projection_002')?.payload).toMatchObject({
+      observations: [expect.stringMatching(/^holding_cost_001 purification calculation calc_holding_cost_001_div_cost_2026_06_AAOIFI_SS21_APP_POLICY_2026_06_[a-z0-9]+ already projected; no duplicate obligation appended$/)],
+      approval_gates: [],
+      human_approval_required: false,
+    })
   })
 
   it('runs due review reminder tasks as dry-runs without auto-approving investment actions', async () => {

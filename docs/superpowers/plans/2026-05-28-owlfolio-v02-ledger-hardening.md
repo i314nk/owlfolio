@@ -1041,7 +1041,7 @@ export async function getDemoCommandCenterFromStore(store: EventStore): Promise<
     product_name: 'Owlfolio',
     setup_status: 'Setup ready',
     provider_status: 'Provider: Mock provider / demo mode',
-    strategy_status: 'Strategy: Buffett-Munger certified',
+    strategy_status: 'Strategy: Buffett-Munger default',
     shariah_status: 'Shariah: enabled by default',
     ledger_status: 'Ledger: SQLite durable event source',
     pipeline_counts: summary.pipeline_counts,

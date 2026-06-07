@@ -133,4 +133,115 @@ describe('projectHoldings', () => {
       pending_review_rationale: 'Draft review_new',
     })
   })
+
+  it('projects scheduled price-check metadata from valuation snapshots', () => {
+    const holdings = projectHoldings([
+      openedHolding,
+      {
+        event_id: 'evt_holding_valuation_recorded_scheduled_cost_20260601',
+        event_type: 'holding_valuation_recorded',
+        aggregate_type: 'holding',
+        aggregate_id: 'holding_cost_001',
+        actor_type: 'worker',
+        actor_id: 'owlfolio-worker',
+        payload: {
+          snapshot_id: 'scheduled_cost_20260601',
+          holding_id: 'holding_cost_001',
+          price_per_share: 912.34,
+          shares: 3,
+          market_value: 2737.02,
+          currency: 'USD',
+          valued_at: '2026-06-01',
+          valuation_source: 'mock-local-price-feed',
+          price_checked_at: '2026-06-01T07:00:00.000Z',
+          confidence: 'mock',
+          caveat: 'Deterministic mock price for local workflow verification.',
+          missing_data: [],
+          valued_by_actor_type: 'worker',
+          valued_by_actor_id: 'owlfolio-worker',
+        },
+        source_ids: ['mock-price:COST:2026-06-01'],
+        created_at: '2026-06-01T07:00:00.000Z',
+        schema_version: 1,
+      },
+    ])
+
+    expect(holdings[0]).toMatchObject({
+      latest_market_value: 2737.02,
+      latest_price_per_share: 912.34,
+      latest_valuation_source: 'mock-local-price-feed',
+      latest_price_checked_at: '2026-06-01T07:00:00.000Z',
+      latest_valuation_confidence: 'mock',
+      latest_valuation_caveat: 'Deterministic mock price for local workflow verification.',
+      latest_valuation_source_ids: ['mock-price:COST:2026-06-01'],
+      latest_valuation_missing_data: [],
+    })
+  })
+
+  it('clears scheduled price-check metadata when a later manual valuation becomes latest', () => {
+    const holdings = projectHoldings([
+      openedHolding,
+      {
+        event_id: 'evt_holding_valuation_recorded_scheduled_cost_20260601',
+        event_type: 'holding_valuation_recorded',
+        aggregate_type: 'holding',
+        aggregate_id: 'holding_cost_001',
+        actor_type: 'worker',
+        actor_id: 'owlfolio-worker',
+        payload: {
+          snapshot_id: 'scheduled_cost_20260601',
+          holding_id: 'holding_cost_001',
+          price_per_share: 912.34,
+          shares: 3,
+          market_value: 2737.02,
+          currency: 'USD',
+          valued_at: '2026-06-01',
+          valuation_source: 'mock-local-price-feed',
+          price_checked_at: '2026-06-01T07:00:00.000Z',
+          confidence: 'mock',
+          caveat: 'Deterministic mock price for local workflow verification.',
+          missing_data: [],
+          valued_by_actor_type: 'worker',
+          valued_by_actor_id: 'owlfolio-worker',
+        },
+        source_ids: ['mock-price:COST:2026-06-01'],
+        created_at: '2026-06-01T07:00:00.000Z',
+        schema_version: 1,
+      },
+      {
+        event_id: 'evt_holding_valuation_recorded_manual_cost_20260602',
+        event_type: 'holding_valuation_recorded',
+        aggregate_type: 'holding',
+        aggregate_id: 'holding_cost_001',
+        actor_type: 'user',
+        actor_id: 'user_local',
+        payload: {
+          snapshot_id: 'manual_cost_20260602',
+          holding_id: 'holding_cost_001',
+          price_per_share: 920,
+          shares: 3,
+          market_value: 2760,
+          currency: 'USD',
+          valued_at: '2026-06-02',
+          valuation_source: 'manual',
+          valued_by_actor_type: 'user',
+          valued_by_actor_id: 'user_local',
+        },
+        source_ids: [],
+        created_at: '2026-06-02T07:00:00.000Z',
+        schema_version: 1,
+      },
+    ])
+
+    expect(holdings[0]).toMatchObject({
+      latest_market_value: 2760,
+      latest_price_per_share: 920,
+      latest_valuation_source: 'manual',
+      latest_valuation_source_ids: [],
+      latest_valuation_missing_data: [],
+    })
+    expect(holdings[0]).not.toHaveProperty('latest_price_checked_at')
+    expect(holdings[0]).not.toHaveProperty('latest_valuation_confidence')
+    expect(holdings[0]).not.toHaveProperty('latest_valuation_caveat')
+  })
 })

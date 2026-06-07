@@ -215,6 +215,60 @@ describe('research and watchlist workflow pages', () => {
     }
   })
 
+  it('renders selected-strategy quick screen evidence as a first-class company screen before watchlist mutation', () => {
+    const quickScreenedResearchCase: AppResearchCase = {
+      research_case_id: 'rc_msft_quick_001',
+      stage: 'quick_screened',
+      company_id: 'company_msft',
+      ticker: 'MSFT',
+      strategy_id: 'quality-growth',
+      strategy_version: '2026.06',
+      quick_screen_id: 'quick_msft_001',
+      screening_result: 'deep_dive_candidate',
+      business_quality: 'Recurring cloud revenue and enterprise retention support a quality screen.',
+      moat: 'Switching costs and ecosystem depth are relevant moat evidence.',
+      management_capital_allocation: 'Capital allocation appears disciplined but needs a deeper buyback review.',
+      financial_quality: 'Margins and free cash flow pass the selected strategy quick screen.',
+      valuation_sanity: 'Valuation needs margin-of-safety review before watchlist promotion.',
+      shariah_status: 'PENDING',
+      red_flags: ['Valuation may be demanding', 'Needs current Shariah ratio evidence'],
+      confidence: 'medium',
+      caveats: ['Single-agent quick screen only'],
+      next_required_action: 'Recommend deep dive, but do not mutate watchlist without approval.',
+      updated_at: '2026-06-06T12:00:00.000Z',
+      gate_checklist: [],
+      source_ids: ['src_msft_10k_2025', 'src_msft_proxy_2025'],
+      ledger_timeline: [],
+    }
+
+    const html = renderToStaticMarkup(createElement(ResearchCasePanel, {
+      researchCase: quickScreenedResearchCase,
+      mode: 'personal-local',
+    }))
+
+    expect(html).toContain('Quick screen')
+    expect(html).toContain('Selected strategy')
+    expect(html).toContain('quality-growth@2026.06')
+    expect(html).toContain('Screening result')
+    expect(html).toContain('deep_dive_candidate')
+    expect(html).toContain('Business quality')
+    expect(html).toContain('Recurring cloud revenue and enterprise retention support a quality screen.')
+    expect(html).toContain('Moat')
+    expect(html).toContain('Management / capital allocation')
+    expect(html).toContain('Financial quality')
+    expect(html).toContain('Valuation sanity')
+    expect(html).toContain('Shariah status')
+    expect(html).toContain('PENDING')
+    expect(html).toContain('Red flags')
+    expect(html).toContain('Valuation may be demanding')
+    expect(html).toContain('Confidence / caveats')
+    expect(html).toContain('medium')
+    expect(html).toContain('src_msft_10k_2025')
+    expect(html).toContain('Recommend deep dive, but do not mutate watchlist without approval.')
+    expect(html).not.toContain('Promote to watchlist')
+    expect(html).not.toContain('/api/research/rc_msft_quick_001/watchlist')
+  })
+
   it('renders the personal-local watchlist promotion action only for drafted decisions', () => {
     const decisionDraftedResearchCase: AppResearchCase = {
       research_case_id: 'rc_msft_001',
@@ -293,7 +347,12 @@ describe('research and watchlist workflow pages', () => {
         latest_price_per_share: 900,
         latest_market_value: 2925,
         latest_valuation_at: '2026-06-01',
-        latest_valuation_source: 'manual',
+        latest_valuation_source: 'mock-local-price-feed',
+        latest_price_checked_at: '2026-06-01T07:00:00.000Z',
+        latest_valuation_confidence: 'mock',
+        latest_valuation_caveat: 'Deterministic local price source for scheduled workflow verification.',
+        latest_valuation_source_ids: ['mock-price:MSFT:2026-06-01'],
+        latest_valuation_missing_data: [],
         unrealized_gain_loss: 284.7,
         unrealized_gain_loss_percent: 10.78,
         portfolio_weight: 100,
@@ -308,9 +367,22 @@ describe('research and watchlist workflow pages', () => {
         updated_at: '2026-06-30T12:00:00.000Z',
       }],
       mode: 'personal-local',
+      valuationRefresh: {
+        last_price_check_at: '2026-06-01T07:00:00.000Z',
+        next_scheduled_check: '0 7 * * 1-5',
+        data_source: 'mock-local-price-feed',
+        confidence_caveat: 'Mock/local confidence — deterministic prices for local workflow verification.',
+        holdings_missing_data: ['MISSING'],
+      },
     }))
 
     expect(html).toContain('Portfolio')
+    expect(html).toContain('Portfolio operations cockpit')
+    expect(html).toContain('Current state')
+    expect(html).toContain('1 open holding · $2,925.00 current value')
+    expect(html).toContain('Last automation check')
+    expect(html).toContain('User action required')
+    expect(html).toContain('Resolve 1 holding with missing valuation data: MISSING')
     expect(html).toContain('id="holding_msft_001"')
     expect(html).toContain('MSFT')
     expect(html).toContain('Shares')
@@ -334,12 +406,31 @@ describe('research and watchlist workflow pages', () => {
     expect(html).toContain('Concentration')
     expect(html).toContain('100.00%')
     expect(html).toContain('Valuation source')
-    expect(html).toContain('manual')
+    expect(html).toContain('mock-local-price-feed')
+    expect(html).toContain('Scheduled valuation refresh')
+    expect(html).toContain('Last price check')
+    expect(html).toContain('2026-06-01T07:00:00.000Z')
+    expect(html).toContain('Next scheduled check')
+    expect(html).toContain('0 7 * * 1-5')
+    expect(html).toContain('Data source')
+    expect(html).toContain('Confidence / caveat')
+    expect(html).toContain('Mock/local confidence — deterministic prices for local workflow verification.')
+    expect(html).toContain('Holdings missing data')
+    expect(html).toContain('MISSING')
+    expect(html).toContain('Latest price check')
+    expect(html).toContain('Valuation confidence')
+    expect(html).toContain('mock')
+    expect(html).toContain('Valuation caveat')
+    expect(html).toContain('Deterministic local price source for scheduled workflow verification.')
+    expect(html).toContain('Valuation source IDs')
+    expect(html).toContain('mock-price:MSFT:2026-06-01')
     expect(html).toContain('Opened by actor')
     expect(html).toContain('user:user_local')
     expect(html).toContain('Last reviewed')
     expect(html).toContain('2026-06-30T12:00:00.000Z')
     expect(html).toContain('action="/api/portfolio/holding_msft_001/valuation"')
+    expect(html).toContain('Manual fallback actions')
+    expect(html).toContain('<summary')
     expect(html).toContain('Manual valuation checkpoint')
     expect(html).toContain('name="price_per_share"')
     expect(html).toContain('name="valued_at"')

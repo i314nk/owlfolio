@@ -4,9 +4,18 @@ import { OwlButtonLink } from './designSystem'
 import type { AppHolding, WorkflowMode } from '../lib/workflow'
 import { StatusBadge } from './StatusBadge'
 
+export type PortfolioValuationRefreshSummary = {
+  last_price_check_at?: string
+  next_scheduled_check: string
+  data_source: string
+  confidence_caveat: string
+  holdings_missing_data: string[]
+}
+
 export type PortfolioPanelProps = {
   holdings: AppHolding[]
   mode?: WorkflowMode
+  valuationRefresh?: PortfolioValuationRefreshSummary
 }
 
 const cardStyle = {
@@ -53,7 +62,7 @@ const decisionQuickLinkStyle = {
   textDecoration: 'none',
 }
 
-export function PortfolioPanel({ holdings, mode = 'demo' }: PortfolioPanelProps) {
+export function PortfolioPanel({ holdings, mode = 'demo', valuationRefresh }: PortfolioPanelProps) {
   const totalCostBasis = holdings.reduce((sum, holding) => sum + holding.total_cost_basis, 0)
   const totalCurrentValue = holdings.reduce((sum, holding) => sum + (holding.latest_market_value ?? 0), 0)
 
@@ -80,9 +89,25 @@ export function PortfolioPanel({ holdings, mode = 'demo' }: PortfolioPanelProps)
           : `Projected demo holdings. Total cost basis: ${formatMoney(totalCostBasis, 'USD')}. Current value: ${formatMoney(totalCurrentValue, 'USD')}`,
       ),
     ),
+    createPortfolioOperationsCockpit(holdings, totalCurrentValue, valuationRefresh),
+    ...(valuationRefresh === undefined ? [] : [createScheduledValuationRefreshCard(valuationRefresh)]),
     ...(holdings.length === 0
       ? [createPortfolioEmptyState()]
       : holdings.map((holding) => createHoldingCard(holding, mode))),
+  )
+}
+
+function createScheduledValuationRefreshCard(summary: PortfolioValuationRefreshSummary) {
+  return createElement(
+    'section',
+    { className: 'owl-workflow-card', style: cardStyle },
+    createElement('h2', { style: { fontSize: '1.25rem', margin: 0 } }, 'Scheduled valuation refresh'),
+    createElement('p', { style: { color: '#9aa4b7', margin: '0.5rem 0 0' } }, 'Factual price checks can update valuation snapshots automatically; investment actions remain approval-gated.'),
+    createDetail('Last price check', summary.last_price_check_at ?? 'No scheduled price check recorded'),
+    createDetail('Next scheduled check', summary.next_scheduled_check),
+    createDetail('Data source', summary.data_source),
+    createDetail('Confidence / caveat', summary.confidence_caveat),
+    createDetail('Holdings missing data', summary.holdings_missing_data.length === 0 ? 'None' : summary.holdings_missing_data.join(', ')),
   )
 }
 
@@ -138,7 +163,52 @@ function createHoldingCard(holding: AppHolding, mode: WorkflowMode) {
           createDetail('Pending next review', holding.pending_review_next_review_at ?? 'Unknown'),
         ]),
     createDetail('Thesis summary', holding.thesis_summary ?? 'No thesis recorded'),
-    ...(mode === 'personal-local' ? [createValuationForm(holding), createReviewForm(holding)] : []),
+    ...(mode === 'personal-local'
+      ? [
+          ...(holding.pending_review_id === undefined ? [] : [createReviewForm(holding)]),
+          createManualFallbackActions(holding),
+        ]
+      : []),
+  )
+}
+
+function createPortfolioOperationsCockpit(holdings: AppHolding[], totalCurrentValue: number, valuationRefresh: PortfolioValuationRefreshSummary | undefined) {
+  const missingData = valuationRefresh?.holdings_missing_data ?? holdings
+    .filter((holding) => holding.latest_price_checked_at === undefined)
+    .map((holding) => holding.ticker ?? holding.company_id ?? holding.holding_id)
+  const pendingReviews = holdings
+    .filter((holding) => holding.pending_review_id !== undefined)
+    .map((holding) => holding.ticker ?? holding.company_id ?? holding.holding_id)
+  const currentState = `${holdings.length} ${holdings.length === 1 ? 'open holding' : 'open holdings'} · ${formatMoney(totalCurrentValue, 'USD')} current value`
+  const userActionRequired = missingData.length > 0
+    ? `Resolve ${missingData.length} ${missingData.length === 1 ? 'holding' : 'holdings'} with missing valuation data: ${missingData.join(', ')}`
+    : pendingReviews.length > 0
+      ? `Review provider draft for ${pendingReviews.join(', ')}`
+      : 'No user action required — valuation automation is current'
+
+  return createElement(
+    'section',
+    { 'aria-label': 'Portfolio operations cockpit', className: 'owl-workflow-card', style: { ...cardStyle, background: 'rgba(15, 23, 42, 0.74)', borderColor: 'rgba(124, 140, 255, 0.34)' } },
+    createElement('h2', { style: { fontSize: '1.25rem', margin: 0 } }, 'Portfolio operations cockpit'),
+    createElement('p', { style: { color: '#9aa4b7', margin: '0.45rem 0 0' } }, 'Automatically maintained valuation state stays above manual fallbacks; buys, sells, and thesis changes remain user-approved audit events.'),
+    createElement(
+      'div',
+      { style: { display: 'grid', gap: '0.75rem', gridTemplateColumns: 'repeat(auto-fit, minmax(15rem, 1fr))', marginTop: '1rem' } },
+      operationMetric('Current state', currentState),
+      operationMetric('Last automation check', valuationRefresh?.last_price_check_at ?? 'No scheduled price check recorded'),
+      operationMetric('Next scheduled check', valuationRefresh?.next_scheduled_check ?? '0 7 * * 1-5'),
+      operationMetric('Source / caveat / confidence', `${valuationRefresh?.data_source ?? 'mock-local-price-feed'} · ${valuationRefresh?.confidence_caveat ?? 'Mock/local confidence — deterministic prices for local workflow verification.'}`),
+      operationMetric('User action required', userActionRequired),
+    ),
+  )
+}
+
+function operationMetric(label: string, value: string) {
+  return createElement(
+    'article',
+    { style: { background: 'rgba(148, 163, 184, 0.08)', border: '1px solid rgba(148, 163, 184, 0.18)', borderRadius: '0.85rem', padding: '0.9rem' } },
+    createElement('p', { style: { color: '#9aa4b7', fontSize: '0.76rem', fontWeight: 900, letterSpacing: '0.06em', margin: 0, textTransform: 'uppercase' } }, label),
+    createElement('p', { style: { color: '#f8fafc', fontWeight: 850, lineHeight: 1.4, margin: '0.35rem 0 0' } }, value),
   )
 }
 
@@ -156,6 +226,11 @@ function createPositionEconomicsTable(holding: AppHolding) {
     ...(holding.portfolio_weight === undefined ? [] : [createDetail('Concentration', formatPercent(holding.portfolio_weight))]),
     ...(holding.latest_valuation_at === undefined ? [] : [createDetail('Valuation date', holding.latest_valuation_at)]),
     ...(holding.latest_valuation_source === undefined ? [] : [createDetail('Valuation source', holding.latest_valuation_source)]),
+    ...(holding.latest_price_checked_at === undefined ? [] : [createDetail('Latest price check', holding.latest_price_checked_at)]),
+    ...(holding.latest_valuation_confidence === undefined ? [] : [createDetail('Valuation confidence', holding.latest_valuation_confidence)]),
+    ...(holding.latest_valuation_caveat === undefined ? [] : [createDetail('Valuation caveat', holding.latest_valuation_caveat)]),
+    ...(holding.latest_valuation_source_ids === undefined || holding.latest_valuation_source_ids.length === 0 ? [] : [createDetail('Valuation source IDs', holding.latest_valuation_source_ids.join(', '))]),
+    ...(holding.latest_valuation_missing_data === undefined || holding.latest_valuation_missing_data.length === 0 ? [] : [createDetail('Valuation missing data', holding.latest_valuation_missing_data.join(', '))]),
     createDetail('Opened', holding.opened_at),
   )
 }
@@ -358,6 +433,23 @@ function createReviewForm(holding: AppHolding) {
     createElement('h3', { style: { fontSize: '1rem', margin: 0 } }, 'Strategy-driven holding review'),
     createElement('p', { style: { color: '#9aa4b7', margin: 0 } }, 'Ask Owlfolio to draft a Buffett-Munger thesis-health review for this holding.'),
     createSubmitButton('Run Buffett-Munger review', '#1d4ed8'),
+  )
+}
+
+function createManualFallbackActions(holding: AppHolding) {
+  return createElement(
+    'details',
+    {
+      style: {
+        borderTop: '1px solid rgba(148, 163, 184, 0.16)',
+        marginTop: '1rem',
+        paddingTop: '1rem',
+      },
+    },
+    createElement('summary', { style: { color: '#c7d2fe', cursor: 'pointer', fontWeight: 900 } }, 'Manual fallback actions'),
+    createElement('p', { style: { color: '#9aa4b7', margin: '0.65rem 0 0' } }, 'Use these only when scheduled valuation or provider review automation cannot supply a sourced draft. Submitted values still create auditable ledger events.'),
+    createValuationForm(holding),
+    ...(holding.pending_review_id === undefined ? [createReviewForm(holding)] : []),
   )
 }
 

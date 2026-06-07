@@ -51,20 +51,66 @@ export function PurificationReport({ report }: PurificationReportProps) {
         'Tracks purification obligations, manual user payment tracking, remaining balances, and audit links back to Shariah and accounting evidence. Owlfolio records user-confirmed payments only; it does not pay or mark obligations complete automatically.',
       ),
     ),
+    createPurificationOperationsCockpit(report),
     createPurificationTrustNotice(),
     createSummaryCards(report.summary_cards),
     createObligations(report.obligations),
     createEvidenceChecklist(report.obligations, report.payments),
     createPayments(report.payments, report.obligations.length),
+    createPurificationLearnPanel(report.limitations),
+  )
+}
+
+function createPurificationOperationsCockpit(report: AppPurificationReport) {
+  const remainingByCurrency = report.summary_cards.map((card) => `${formatMoney(card.remaining, card.currency)} remaining`).join(', ') || '$0.00 remaining'
+  const remainingAmount = report.summary_cards.reduce((sum, card) => sum + card.remaining, 0)
+  const obligationCount = report.obligations.length
+  const lastCalculation = report.obligations
+    .map((obligation) => obligation.recorded_at)
+    .sort()
+    .at(-1) ?? 'No purification calculation recorded'
+  const currentState = `${remainingByCurrency} across ${obligationCount} ${obligationCount === 1 ? 'obligation' : 'obligations'}`
+  const userActionRequired = remainingAmount > 0
+    ? `Record external payment evidence for ${remainingByCurrency}`
+    : obligationCount === 0
+      ? 'No user action required until a sourced purification obligation exists'
+      : 'No user action required — obligations are covered'
+
+  return createElement(
+    'section',
+    { 'aria-label': 'Purification operations cockpit', style: { ...cardStyle, background: 'rgba(15, 23, 42, 0.74)', borderColor: 'rgba(20, 184, 166, 0.34)' } },
+    createElement('h2', { style: { fontSize: '1.25rem', margin: 0 } }, 'Purification operations cockpit'),
+    createElement('p', { style: { color: '#9aa4b7', margin: '0.45rem 0 0' } }, 'Quarterly calculations can surface obligations automatically from Shariah and accounting evidence; only the user records external charity payments.'),
     createElement(
-      'section',
-      { 'aria-label': 'Purification limitations', style: { ...cardStyle, background: 'rgba(251, 191, 36, 0.1)', borderColor: 'rgba(251, 191, 36, 0.32)' } },
-      createElement('h2', { style: { fontSize: '1.1rem', margin: '0 0 0.75rem' } }, 'Controls and limitations'),
-      createElement(
-        'ul',
-        { style: { color: '#fbbf24', display: 'grid', gap: '0.4rem', margin: 0, paddingLeft: '1.25rem' } },
-        ...report.limitations.map((limitation) => createElement('li', { key: limitation }, limitation)),
-      ),
+      'div',
+      { style: { display: 'grid', gap: '0.75rem', gridTemplateColumns: 'repeat(auto-fit, minmax(15rem, 1fr))', marginTop: '1rem' } },
+      statusMetric('Current state', currentState),
+      statusMetric('Last automation calculation', lastCalculation),
+      statusMetric('Next scheduled calculation', 'quarterly purification review cadence 0 8 1 */3 *'),
+      statusMetric('Source / caveat / confidence', 'AAOIFI-aware local ledger projection · Shariah/accounting evidence required · not a ruling, tax record, or payment service'),
+      statusMetric('User action required', userActionRequired),
+    ),
+  )
+}
+
+function statusMetric(label: string, value: string) {
+  return createElement(
+    'article',
+    { style: { background: 'rgba(148, 163, 184, 0.08)', border: '1px solid rgba(148, 163, 184, 0.18)', borderRadius: '0.85rem', padding: '0.9rem' } },
+    createElement('p', { style: { color: '#9aa4b7', fontSize: '0.76rem', fontWeight: 900, letterSpacing: '0.06em', margin: 0, textTransform: 'uppercase' } }, label),
+    createElement('p', { style: { color: '#f8fafc', fontWeight: 850, lineHeight: 1.4, margin: '0.35rem 0 0' } }, value),
+  )
+}
+
+function createPurificationLearnPanel(limitations: string[]) {
+  return createElement(
+    'details',
+    { 'aria-label': 'Purification limitations', style: { ...cardStyle, background: 'rgba(251, 191, 36, 0.08)', borderColor: 'rgba(251, 191, 36, 0.28)' } },
+    createElement('summary', { style: { color: '#fbbf24', cursor: 'pointer', fontSize: '1.05rem', fontWeight: 900 } }, 'Learn: purification controls and caveats'),
+    createElement(
+      'ul',
+      { style: { color: '#fbbf24', display: 'grid', gap: '0.4rem', margin: '0.8rem 0 0', paddingLeft: '1.25rem' } },
+      ...limitations.map((limitation) => createElement('li', { key: limitation }, limitation)),
     ),
   )
 }

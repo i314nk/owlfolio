@@ -73,7 +73,7 @@ describe('MockProvider', () => {
         provider_id: 'mock-provider',
         model_id: 'mock-research-v1',
         task_kind: 'structured-output',
-        prompt: 'Review ticker MSFT under the certified Buffett-Munger strategy buffett-munger.',
+        prompt: 'Review ticker MSFT under the default Buffett-Munger strategy buffett-munger.',
         timeout_ms: 1000,
         budget: { max_tool_calls: 0, max_tokens: 2000 },
         tool_allowlist: [],

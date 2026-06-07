@@ -203,7 +203,7 @@ describe('v0.2 vertical research workflow', () => {
       rejected_by_actor_id: 'user_local',
       rejection_reason: 'Rejecting stale draft after manual override; wait for fresh evidence.',
     })
-    expect(projectedCases[0]).toMatchObject({ research_case_id: 'rc_cost_001', stage: 'holding_opened', investment_verdict: 'WATCH', strategy_compliance: 'CONDITIONAL', shariah_status: 'COMPLIANT', user_approved: true })
+    expect(projectedCases[0]).toMatchObject({ research_case_id: 'rc_cost_001', stage: 'holding', investment_verdict: 'WATCH', strategy_compliance: 'CONDITIONAL', shariah_status: 'COMPLIANT', user_approved: true })
     expect(projectedWatchlist[0]).toMatchObject({ watchlist_item_id: 'watch_cost_001', user_approved: true, created_by_actor_type: 'user', created_by_actor_id: 'user_local', confirmed_by_actor_type: 'user', confirmed_by_actor_id: 'user_local' })
     expect(projectedHoldings[0]).toMatchObject({
       holding_id: 'holding_cost_001',

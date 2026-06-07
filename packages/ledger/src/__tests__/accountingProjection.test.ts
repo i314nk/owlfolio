@@ -319,6 +319,180 @@ describe('accounting snapshot projection', () => {
     expect(snapshot.cash_flows.map((flow) => flow.event_id)).not.toContain('evt_dividend_cost_july')
   })
 
+  it('links valuation and realized gain/loss events as accounting audit sources with missing-data warnings', () => {
+    const snapshot = projectAccountingSnapshot([
+      openedHolding,
+      event({
+        event_id: 'evt_holding_valuation_cost_june',
+        event_type: 'holding_valuation_recorded',
+        aggregate_type: 'holding',
+        aggregate_id: 'holding_cost',
+        actor_type: 'worker',
+        actor_id: 'portfolio-valuation-worker',
+        payload: {
+          snapshot_id: 'valuation_cost_june',
+          holding_id: 'holding_cost',
+          price_per_share: 125,
+          shares: 2,
+          market_value: 250,
+          currency: 'USD',
+          valued_at: '2026-06-30',
+          valuation_source: 'mock-local-price-feed',
+          missing_data: ['stale_fx_rate'],
+        },
+        source_ids: ['mock-price:COST:2026-06-30'],
+        created_at: '2026-06-30T12:00:00.000Z',
+      }),
+      event({
+        event_id: 'evt_realized_gain_cost_june',
+        event_type: 'holding_realized_gain_loss_recorded',
+        aggregate_type: 'holding',
+        aggregate_id: 'holding_cost',
+        actor_type: 'user',
+        actor_id: 'user_local',
+        payload: {
+          realized_gain_loss_id: 'realized_cost_2026_06',
+          holding_id: 'holding_cost',
+          amount: 15.25,
+          currency: 'USD',
+          realized_at: '2026-06-21',
+        },
+        source_ids: ['broker-trade:cost-partial-sale'],
+        created_at: '2026-06-21T12:00:00.000Z',
+      }),
+    ], {
+      snapshot_id: 'acct_2026_06',
+      period_start: '2026-06-01',
+      period_end: '2026-06-30',
+      currency: 'USD',
+      recorded_at: '2026-06-30T23:59:00.000Z',
+    })
+
+    expect(snapshot).toMatchObject({
+      realized_gain_loss: 15.25,
+      audit_event_ids: ['evt_holding_opened_cost', 'evt_realized_gain_cost_june', 'evt_holding_valuation_cost_june'],
+      source_ids: ['broker-trade:cost-partial-sale', 'mock-price:COST:2026-06-30'],
+      missing_data_warnings: [
+        {
+          code: 'valuation_missing_data',
+          holding_id: 'holding_cost',
+          event_id: 'evt_holding_valuation_cost_june',
+          message: 'COST valuation source reported missing data: stale_fx_rate',
+        },
+      ],
+      holdings: [
+        expect.objectContaining({
+          holding_id: 'holding_cost',
+          valuation_event_id: 'evt_holding_valuation_cost_june',
+          valuation_source: 'mock-local-price-feed',
+          valuation_source_ids: ['mock-price:COST:2026-06-30'],
+        }),
+      ],
+    })
+  })
+
+  it('only surfaces missing-data warnings from the current valuation per holding', () => {
+    const snapshot = projectAccountingSnapshot([
+      openedHolding,
+      event({
+        event_id: 'evt_holding_valuation_cost_stale',
+        event_type: 'holding_valuation_recorded',
+        aggregate_type: 'holding',
+        aggregate_id: 'holding_cost',
+        actor_type: 'worker',
+        actor_id: 'portfolio-valuation-worker',
+        payload: {
+          snapshot_id: 'valuation_cost_stale',
+          holding_id: 'holding_cost',
+          price_per_share: 110,
+          shares: 2,
+          market_value: 220,
+          currency: 'USD',
+          valued_at: '2026-06-10',
+          valuation_source: 'mock-local-price-feed',
+          missing_data: ['stale_fx_rate'],
+        },
+        source_ids: ['mock-price:COST:2026-06-10'],
+        created_at: '2026-06-10T12:00:00.000Z',
+      }),
+      event({
+        event_id: 'evt_holding_valuation_cost_clean',
+        event_type: 'holding_valuation_recorded',
+        aggregate_type: 'holding',
+        aggregate_id: 'holding_cost',
+        actor_type: 'worker',
+        actor_id: 'portfolio-valuation-worker',
+        payload: {
+          snapshot_id: 'valuation_cost_clean',
+          holding_id: 'holding_cost',
+          price_per_share: 125,
+          shares: 2,
+          market_value: 250,
+          currency: 'USD',
+          valued_at: '2026-06-30',
+          valuation_source: 'mock-local-price-feed',
+        },
+        source_ids: ['mock-price:COST:2026-06-30'],
+        created_at: '2026-06-30T12:00:00.000Z',
+      }),
+    ], {
+      snapshot_id: 'acct_2026_06',
+      period_start: '2026-06-01',
+      period_end: '2026-06-30',
+      currency: 'USD',
+      recorded_at: '2026-06-30T23:59:00.000Z',
+    })
+
+    expect(snapshot.holdings[0]).toMatchObject({
+      valuation_event_id: 'evt_holding_valuation_cost_clean',
+      current_value: 250,
+    })
+    expect(snapshot.missing_data_warnings).toEqual([])
+  })
+
+  it('normalizes legacy recorded snapshot payloads when replaying them', () => {
+    const legacyRecorded = event({
+      event_id: 'evt_accounting_snapshot_legacy',
+      event_type: 'accounting_snapshot_recorded',
+      aggregate_type: 'accounting_snapshot',
+      aggregate_id: 'acct_legacy',
+      actor_type: 'worker',
+      actor_id: 'monthly-accounting-worker',
+      payload: {
+        snapshot_id: 'acct_legacy',
+        period_start: '2026-05-01',
+        period_end: '2026-05-31',
+        currency: 'USD',
+        nav: 10,
+        current_value: 10,
+        invested_cost_basis: 8,
+        unrealized_gain_loss: 2,
+        cash_balance: 0,
+        deposits: 0,
+        withdrawals: 0,
+        dividends: 0,
+        fees: 0,
+        net_cash_flow: 0,
+        cash_ledger_status: 'placeholder',
+        cash_flows: [],
+        missing_valuation_holding_ids: [],
+        holdings: [],
+        updated_at: '2026-05-31T23:59:00.000Z',
+      },
+      created_at: '2026-05-31T23:59:00.000Z',
+    })
+
+    expect(projectRecordedAccountingSnapshots([legacyRecorded])).toEqual([
+      expect.objectContaining({
+        snapshot_id: 'acct_legacy',
+        realized_gain_loss: 0,
+        audit_event_ids: [],
+        source_ids: [],
+        missing_data_warnings: [],
+      }),
+    ])
+  })
+
   it('records and replays accounting snapshot events without mixing purification calculations', () => {
     const snapshot = projectAccountingSnapshot([openedHolding], {
       snapshot_id: 'acct_2026_06',

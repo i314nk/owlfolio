@@ -6,6 +6,10 @@ import { type EventStore } from '@owlfolio/ledger/eventStore'
 import type { LedgerEventEnvelope } from '@owlfolio/ledger/eventEnvelope'
 import { projectCommandCenterSummary } from '@owlfolio/ledger/projections/commandCenterProjection'
 import { projectHoldings } from '@owlfolio/ledger/projections/holdingProjection'
+import {
+  projectAaoifiDividendPurificationCalculations,
+  type AaoifiDividendPurificationCalculation,
+} from '@owlfolio/ledger/projections/purificationProjection'
 import { projectScheduledTasks, type ScheduledTaskProjection } from '@owlfolio/ledger/projections/scheduledTaskProjection'
 import { projectWatchlist } from '@owlfolio/ledger/projections/watchlistProjection'
 import {
@@ -91,6 +95,7 @@ type TaskResult = {
   approval_gates?: string[]
   human_approval_required?: boolean
   events_appended?: number
+  missing_data_holding_ids?: string[]
 }
 
 type TaskHandlerOptions = RunScheduledTasksOptions & {
@@ -119,6 +124,7 @@ const HOLDING_REVIEW_TIMEOUT_MS = 120_000
 const HOLDING_REVIEW_MAX_COST_USD = 0.25
 const HOLDING_REVIEW_APPROVAL_GATE = 'holding_review_requires_user_confirmation'
 const OPEN_HOLDING_APPROVAL_GATE = 'open_holding_requires_user_confirmation'
+const PURIFICATION_PAYMENT_APPROVAL_GATE = 'purification_payment_requires_user_confirmation'
 
 function nowIso(): string {
   return new Date().toISOString()
@@ -126,6 +132,16 @@ function nowIso(): string {
 
 function currentDate(): string {
   return new Date().toISOString().slice(0, 10)
+}
+
+function previousQuarterEndDate(now: string): string {
+  const date = new Date(now)
+  const quarterStartMonth = Math.floor(date.getUTCMonth() / 3) * 3
+  return new Date(Date.UTC(date.getUTCFullYear(), quarterStartMonth, 0)).toISOString().slice(0, 10)
+}
+
+function roundMoney(value: number): number {
+  return Number(value.toFixed(2))
 }
 
 function resolveProjectRootFromCwd(cwd: string): string {
@@ -433,6 +449,32 @@ function defaultTaskDefinitions(): ScheduledTaskPayload[] {
         auto_approve_portfolio_actions: false,
       },
     },
+    {
+      scheduled_task_id: 'task_portfolio_valuation_refresh_daily',
+      task_kind: 'portfolio_valuation_refresh',
+      cadence: '0 7 * * 1-5',
+      enabled: true,
+      dry_run: true,
+      retry_policy: { max_attempts: 2, retry_delay_ms: DEFAULT_RETRY_DELAY_MS },
+      safety: {
+        mock_safe: true,
+        auto_approve_investment_actions: false,
+        auto_approve_portfolio_actions: false,
+      },
+    },
+    {
+      scheduled_task_id: 'task_purification_projection_quarterly',
+      task_kind: 'purification_projection',
+      cadence: '0 6 1 */3 *',
+      enabled: true,
+      dry_run: true,
+      retry_policy: { max_attempts: 2, retry_delay_ms: DEFAULT_RETRY_DELAY_MS },
+      safety: {
+        mock_safe: true,
+        auto_approve_investment_actions: false,
+        auto_approve_portfolio_actions: false,
+      },
+    },
   ]
 }
 
@@ -721,6 +763,200 @@ async function runHoldingReviewDraftTask(
   }
 }
 
+const MOCK_VALUATION_SOURCE = 'mock-local-price-feed'
+const MOCK_VALUATION_CAVEAT = 'Deterministic local price source for scheduled workflow verification.'
+const MOCK_PRICES_BY_TICKER: Record<string, number> = {
+  COST: 912.34,
+  MSFT: 900,
+}
+
+function normalizeTicker(ticker: string | undefined): string | undefined {
+  const normalized = ticker?.trim().toUpperCase()
+  return normalized === undefined || normalized.length === 0 ? undefined : normalized
+}
+
+function valuationSnapshotId(holdingId: string, asOf: string): string {
+  return `scheduled_${holdingId}_${asOf.replace(/[^0-9]/g, '')}`
+}
+
+function mockPriceForHolding(holding: ReturnType<typeof projectHoldings>[number]): number | undefined {
+  const ticker = normalizeTicker(holding.ticker)
+  return ticker === undefined ? undefined : MOCK_PRICES_BY_TICKER[ticker]
+}
+
+async function runPortfolioValuationRefreshTask(
+  store: EventStore<LedgerEventEnvelope<unknown>>,
+  options: TaskHandlerOptions,
+): Promise<TaskResult> {
+  const events = await store.list()
+  const holdings = projectHoldings(events)
+  const asOf = options.as_of ?? currentDate()
+  const checkedAt = options.now?.() ?? nowIso()
+  const observations: string[] = []
+  const missingDataHoldingIds: string[] = []
+  const existingValuationKeys = new Set(events.map((event) => event.idempotency_key).filter((key): key is string => key !== undefined))
+  let refreshed = 0
+
+  for (const holding of holdings) {
+    const ticker = normalizeTicker(holding.ticker)
+    const price = mockPriceForHolding(holding)
+    if (ticker === undefined || price === undefined) {
+      missingDataHoldingIds.push(holding.holding_id)
+      observations.push(`${ticker ?? holding.company_id ?? holding.holding_id} missing price data from ${MOCK_VALUATION_SOURCE}; manual/provider source review required`)
+      continue
+    }
+
+    const snapshotId = valuationSnapshotId(holding.holding_id, asOf)
+    const valuationKey = `holding-valuation:${holding.holding_id}:${asOf}:${MOCK_VALUATION_SOURCE}`
+    if (existingValuationKeys.has(valuationKey)) {
+      observations.push(`${ticker} valuation already refreshed from ${MOCK_VALUATION_SOURCE} for ${asOf}; no duplicate valuation event appended`)
+      continue
+    }
+
+    const marketValue = roundMoney(price * holding.shares)
+    await store.append({
+      event_id: `evt_holding_valuation_recorded_${snapshotId}`,
+      event_type: 'holding_valuation_recorded',
+      aggregate_type: 'holding',
+      aggregate_id: holding.holding_id,
+      causation_id: `evt_scheduled_task_run_started_${options.scheduled_task_run_id}`,
+      correlation_id: options.scheduled_task_run_id,
+      idempotency_key: valuationKey,
+      actor_type: 'worker',
+      actor_id: WORKER_ACTOR_ID,
+      payload: {
+        snapshot_id: snapshotId,
+        holding_id: holding.holding_id,
+        price_per_share: price,
+        shares: holding.shares,
+        market_value: marketValue,
+        currency: holding.currency,
+        valued_at: asOf,
+        valuation_source: MOCK_VALUATION_SOURCE,
+        price_checked_at: checkedAt,
+        confidence: 'mock',
+        caveat: MOCK_VALUATION_CAVEAT,
+        missing_data: [],
+        valued_by_actor_type: 'worker',
+        valued_by_actor_id: WORKER_ACTOR_ID,
+      },
+      source_ids: [`mock-price:${ticker}:${asOf}`],
+      created_at: checkedAt,
+      schema_version: 1,
+    } satisfies LedgerEventEnvelope<Record<string, unknown>>)
+    existingValuationKeys.add(valuationKey)
+    refreshed += 1
+    observations.push(`${ticker} valuation refreshed from ${MOCK_VALUATION_SOURCE} at $${price.toFixed(2)}; factual valuation update only`)
+  }
+
+  return {
+    result_summary: `portfolio_valuation_refresh dry-run: refreshed ${refreshed} holding valuation(s), ${missingDataHoldingIds.length} holding(s) missing price data; no investment decision or portfolio action taken`,
+    observations,
+    approval_gates: [],
+    human_approval_required: false,
+    events_appended: refreshed,
+    missing_data_holding_ids: missingDataHoldingIds,
+  }
+}
+
+function purificationObligationId(calculation: AaoifiDividendPurificationCalculation): string {
+  return `purify_${calculation.calculation_id}`
+}
+
+function purificationObligationEventId(calculation: AaoifiDividendPurificationCalculation): string {
+  return `evt_purification_obligation_recorded_${purificationObligationId(calculation)}`
+}
+
+async function runPurificationProjectionTask(
+  store: EventStore<LedgerEventEnvelope<unknown>>,
+  options: TaskHandlerOptions,
+): Promise<TaskResult> {
+  const events = await store.list()
+  const calculatedAt = options.now?.() ?? nowIso()
+  const asOf = options.as_of ?? previousQuarterEndDate(calculatedAt)
+  const projection = projectAaoifiDividendPurificationCalculations(events, { as_of: asOf, calculated_at: calculatedAt })
+  const existingKeys = new Set(events.map((event) => event.idempotency_key).filter((key): key is string => key !== undefined))
+  const observations: string[] = []
+  let appended = 0
+
+  for (const calculation of projection.calculations) {
+    const idempotencyKey = `purification-obligation:${calculation.calculation_id}`
+    if (existingKeys.has(idempotencyKey)) {
+      observations.push(`${calculation.holding_id} purification calculation ${calculation.calculation_id} already projected; no duplicate obligation appended`)
+      continue
+    }
+
+    const obligationId = purificationObligationId(calculation)
+    await store.append({
+      event_id: purificationObligationEventId(calculation),
+      event_type: 'purification_obligation_recorded',
+      aggregate_type: 'purification_entry',
+      aggregate_id: obligationId,
+      causation_id: `evt_scheduled_task_run_started_${options.scheduled_task_run_id}`,
+      correlation_id: options.scheduled_task_run_id,
+      idempotency_key: idempotencyKey,
+      actor_type: 'worker',
+      actor_id: WORKER_ACTOR_ID,
+      payload: {
+        obligation_id: obligationId,
+        calculation_id: calculation.calculation_id,
+        holding_id: calculation.holding_id,
+        ...(calculation.company_id === undefined ? {} : { company_id: calculation.company_id }),
+        ...(calculation.ticker === undefined ? {} : { ticker: calculation.ticker }),
+        ...(calculation.company_name === undefined ? {} : { company_name: calculation.company_name }),
+        amount: calculation.purification_amount,
+        purification_amount: calculation.purification_amount,
+        currency: calculation.currency,
+        period_start: calculation.period_start,
+        period_end: calculation.period_end,
+        policy_basis: calculation.policy_basis,
+        policy_version: calculation.policy_version,
+        ...(calculation.standard_reference === undefined ? {} : { standard_reference: calculation.standard_reference }),
+        calculation_method: calculation.calculation_method,
+        reason: 'AAOIFI dividend non-compliant income purification estimate; payment requires explicit user confirmation.',
+        shariah_evaluation_id: calculation.shariah_evaluation_id,
+        dividend_event_id: calculation.dividend_event_id,
+        dividend_id: calculation.dividend_id,
+        dividend_income_amount: calculation.dividend_income_amount,
+        non_compliant_income_ratio: calculation.non_compliant_income_ratio,
+        impurity_rate: calculation.purification_ratio,
+        purification_ratio: calculation.purification_ratio,
+        holding_period_basis: calculation.holding_period_basis,
+        source_filing_period_start: calculation.source_filing_period_start,
+        source_filing_period_end: calculation.source_filing_period_end,
+        ...(calculation.source_filing_type === undefined ? {} : { source_filing_type: calculation.source_filing_type }),
+        ...(calculation.source_filing_date === undefined ? {} : { source_filing_date: calculation.source_filing_date }),
+        ...(calculation.evidence_summary === undefined ? {} : { evidence_summary: calculation.evidence_summary }),
+        policy_source_ids: calculation.policy_source_ids,
+        source_ids: calculation.source_ids,
+        caveats: calculation.caveats,
+        calculated_at: calculation.calculated_at,
+        next_calculation_at: calculation.next_calculation_at,
+        requires_user_confirmation: calculation.requires_user_confirmation,
+        requires_scholar_review: calculation.requires_scholar_review,
+      },
+      source_ids: calculation.source_ids,
+      created_at: calculatedAt,
+      schema_version: 1,
+    } satisfies LedgerEventEnvelope<Record<string, unknown>>)
+    existingKeys.add(idempotencyKey)
+    appended += 1
+    observations.push(`${calculation.ticker ?? calculation.holding_id} purification obligation ${obligationId} projected from dividend ${calculation.dividend_id}; payment requires user confirmation`)
+  }
+
+  for (const pending of projection.pending) {
+    observations.push(`${pending.holding_id ?? pending.dividend_id ?? pending.dividend_event_id ?? 'dividend'} purification calculation pending evidence: ${pending.missing_evidence.join(', ')}`)
+  }
+
+  return {
+    result_summary: `purification_projection dry-run: calculated ${appended} estimated purification obligation(s), ${projection.pending.length} pending dividend(s) need evidence; no payment or resolution marked`,
+    observations,
+    approval_gates: appended > 0 || projection.pending.length > 0 ? [PURIFICATION_PAYMENT_APPROVAL_GATE] : [],
+    human_approval_required: appended > 0 || projection.pending.length > 0,
+    events_appended: appended,
+  }
+}
+
 async function runTaskHandler(
   store: EventStore<LedgerEventEnvelope<unknown>>,
   task: ScheduledTaskProjection,
@@ -736,6 +972,14 @@ async function runTaskHandler(
 
   if (task.task_kind === 'holding_review_draft') {
     return runHoldingReviewDraftTask(store, options)
+  }
+
+  if (task.task_kind === 'portfolio_valuation_refresh') {
+    return runPortfolioValuationRefreshTask(store, options)
+  }
+
+  if (task.task_kind === 'purification_projection') {
+    return runPurificationProjectionTask(store, options)
   }
 
   throw new Error(`Unsupported scheduled task kind: ${task.task_kind}`)
@@ -776,6 +1020,42 @@ function retrySkipReason(task: ScheduledTaskProjection, now: string): string | u
   return undefined
 }
 
+function latestQuarterlyCadenceDueAt(now: string, taskDefinedAt: string): string | undefined {
+  const nowDate = new Date(now)
+  const definedDate = new Date(taskDefinedAt)
+  if (!Number.isFinite(nowDate.getTime()) || !Number.isFinite(definedDate.getTime())) {
+    return undefined
+  }
+
+  const currentQuarterMonth = Math.floor(nowDate.getUTCMonth() / 3) * 3
+  const currentQuarterRun = new Date(Date.UTC(nowDate.getUTCFullYear(), currentQuarterMonth, 1, 6))
+  const candidate = nowDate.getTime() >= currentQuarterRun.getTime()
+    ? currentQuarterRun
+    : new Date(Date.UTC(nowDate.getUTCFullYear(), currentQuarterMonth - 3, 1, 6))
+
+  if (candidate.getTime() < definedDate.getTime()) {
+    return undefined
+  }
+
+  return candidate.toISOString()
+}
+
+function cadenceSkipReason(task: ScheduledTaskProjection, now: string, explicitlyRequested: boolean): string | undefined {
+  if (explicitlyRequested) {
+    return undefined
+  }
+
+  if (task.task_kind === 'purification_projection' && task.cadence === '0 6 1 */3 *') {
+    const dueAt = latestQuarterlyCadenceDueAt(now, task.updated_at)
+    const lastCompletedAt = task.last_completed_at === undefined ? undefined : new Date(task.last_completed_at)
+    if (dueAt === undefined || (lastCompletedAt !== undefined && Number.isFinite(lastCompletedAt.getTime()) && lastCompletedAt.getTime() >= new Date(dueAt).getTime())) {
+      return `${task.scheduled_task_id} skipped: not due until quarterly cadence ${task.cadence}`
+    }
+  }
+
+  return undefined
+}
+
 export async function runScheduledTasks(
   store: EventStore<LedgerEventEnvelope<unknown>>,
   options: RunScheduledTasksOptions = {},
@@ -800,6 +1080,13 @@ export async function runScheduledTasks(
     if (retryReason !== undefined) {
       result.skipped += 1
       result.summaries.push(retryReason)
+      continue
+    }
+
+    const cadenceReason = cadenceSkipReason(task, startedAt, options.task_kind !== undefined)
+    if (cadenceReason !== undefined) {
+      result.skipped += 1
+      result.summaries.push(cadenceReason)
       continue
     }
 
@@ -849,6 +1136,7 @@ export async function runScheduledTasks(
           ...(taskResult.provider_run_ids === undefined ? {} : { provider_run_ids: taskResult.provider_run_ids }),
           ...(taskResult.proposal_event_ids === undefined ? {} : { proposal_event_ids: taskResult.proposal_event_ids }),
           ...(taskResult.approval_gates === undefined ? {} : { approval_gates: taskResult.approval_gates }),
+          ...(taskResult.missing_data_holding_ids === undefined ? {} : { missing_data_holding_ids: taskResult.missing_data_holding_ids }),
           human_approval_required: taskResult.human_approval_required ?? false,
           auto_approved_actions: 0,
           dry_run: true,

@@ -25,7 +25,7 @@ function makeDashboard(overrides: Partial<AppCommandCenter> = {}): AppCommandCen
     product_name: 'Owlfolio',
     setup_status: 'Personal local mode initialized',
     provider_status: 'Provider: Mock provider personal local mode',
-    strategy_status: 'Strategy: Buffett-Munger certified',
+    strategy_status: 'Strategy: Buffett-Munger default',
     shariah_status: 'Shariah: enabled by default',
     ledger_status: 'Ledger: SQLite durable event source',
     pipeline_counts: {
@@ -51,7 +51,7 @@ describe('AppNavigation', () => {
     expect(html).toContain('aria-label="Primary Owlfolio navigation"')
     expect(html).toContain('href="/"')
     expect(html).toContain('Command Center')
-    expect(html).toContain('href="/research/new"')
+    expect(html).toContain('href="/research"')
     expect(html).toContain('Research')
     expect(html).toContain('href="/watchlist"')
     expect(html).toContain('Watchlist')
@@ -118,7 +118,7 @@ describe('CommandCenter', () => {
       expect(html).toContain('Owlfolio')
       expect(html).toContain('Setup ready')
       expect(html).toContain('Mock provider / demo mode')
-      expect(html).toContain('Buffett-Munger certified')
+      expect(html).toContain('Buffett-Munger default')
       expect(html).toContain('SQLite durable event source')
       expect(html).toContain('Research cases')
       expect(html).toContain('Watchlist drafts')
@@ -147,13 +147,13 @@ describe('CommandCenter', () => {
 
     expect(html).toContain('Setup required')
     expect(html).toContain('Provider: Claude not ready yet')
-    expect(html).toContain('Strategy: Buffett-Munger certified')
+    expect(html).toContain('Strategy: Buffett-Munger default')
     expect(html).toContain('Ledger: not initialized yet')
     expect(html).toContain('Complete onboarding and initialize the personal local ledger')
     expect(html).toContain('Continue setup')
   })
 
-  it('frames the landing page as a premium local command cockpit with obvious workflow routes and trust signals', () => {
+  it('frames the landing page as an automation-first local candidate with obvious workflow routes and trust signals', () => {
     const html = renderToStaticMarkup(createElement(CommandCenter, {
       dashboard: makeDashboard({
         pipeline_counts: {
@@ -165,12 +165,12 @@ describe('CommandCenter', () => {
         },
         next_recommended_action: 'Review COST watchlist draft and confirm it',
         primary_action: { href: '/watchlist', label: 'Open watchlist drafts' },
-        secondary_action: { href: '/research/new', label: 'Start research case' },
+        secondary_action: { href: '/research', label: 'Open research cockpit' },
       }),
     }))
 
-    expect(html).toContain('Private command cockpit')
-    expect(html).toContain('Investment workflow OS for local research, watchlist, and portfolio decisions.')
+    expect(html).toContain('Automation-first local candidate')
+    expect(html).toContain('Local-first investment workflow OS for strategy research, watchlist, and portfolio decisions.')
     expect(html).toContain('aria-label="Command cockpit overview"')
     expect(html).toContain('Main operating priority')
     expect(html).toContain('Decision gate')
@@ -180,7 +180,7 @@ describe('CommandCenter', () => {
     expect(html).toContain('Watchlist desk')
     expect(html).toContain('Portfolio cockpit')
     expect(html).toContain('Audit trail')
-    expect(html).toContain('href="/research/new"')
+    expect(html).toContain('href="/research"')
     expect(html).toContain('href="/watchlist"')
     expect(html).toContain('href="/portfolio"')
     expect(html).toContain('href="/audit"')
@@ -217,16 +217,16 @@ describe('CommandCenter', () => {
 
       expect(html).toContain('Personal local mode initialized')
       expect(html).toContain('Provider: Claude unsupported')
-      expect(html).toContain('Production/live provider readiness incomplete')
+      expect(html).toContain('Real-provider readiness incomplete')
       expect(html).toContain('Research cases')
       expect(html).toContain('0')
-      expect(html).toContain('Start a research case to seed the durable workflow ledger.')
+      expect(html).toContain('Review discovery, quick screen, and manual intake options before seeding the durable workflow ledger.')
       expect(html).toContain('No confirmed monitoring yet — confirm a watchlist draft before automation treats a company as actively monitored.')
       expect(html).toContain('No open holdings yet — open a holding from a confirmed watchlist item before portfolio accounting starts.')
       expect(html).toContain('No pending approvals; automation is waiting for new provider drafts or due reviews.')
-      expect(html).toContain('Create or import your first research case')
-      expect(html).toContain('href="/research/new"')
-      expect(html).toContain('Start first research case')
+      expect(html).toContain('Open the selected-strategy research cockpit')
+      expect(html).toContain('href="/research"')
+      expect(html).toContain('Open research cockpit')
       expect(html).toContain('href="/watchlist"')
       expect(html).toContain('Open watchlist drafts')
       expect(html).toContain('Operational awareness')
@@ -252,14 +252,14 @@ describe('CommandCenter', () => {
 
       expect(html).toContain(provider_status)
       expect(html).not.toContain('Provider readiness warning')
-      expect(html).not.toContain('Production/live provider readiness incomplete')
+      expect(html).not.toContain('Real-provider readiness incomplete')
       expect(html).not.toContain('Resolve provider readiness')
-      expect(html).not.toContain('Resolve production/live provider readiness')
+      expect(html).not.toContain('Resolve real-provider readiness')
       expect(html).toContain('Open latest research case')
     }
   })
 
-  it('surfaces production/live provider readiness in initialized personal local mode', async () => {
+  it('surfaces real-provider readiness in initialized personal local mode', async () => {
     const store = new SQLiteEventStore()
     try {
       const dashboard = await getSetupAwareCommandCenter({
@@ -326,8 +326,8 @@ describe('CommandCenter', () => {
       const html = renderToStaticMarkup(createElement(CommandCenter, { dashboard }))
 
       expect(html).toContain('Provider: Claude unsupported — Claude subscription access disabled')
-      expect(html).toContain('Production/live provider readiness incomplete')
-      expect(html).toContain('Resolve production/live provider readiness')
+      expect(html).toContain('Real-provider readiness incomplete')
+      expect(html).toContain('Resolve real-provider readiness')
       expect(html).toContain('Open provider setup evidence')
       expect(html).toContain('href="/providers"')
     } finally {
@@ -366,7 +366,7 @@ describe('CommandCenter', () => {
     }))
 
     const pendingIndex = html.indexOf('Review pending watchlist drafts')
-    const providerIndex = html.indexOf('Resolve production/live provider readiness')
+    const providerIndex = html.indexOf('Resolve real-provider readiness')
     const reviewIndex = html.indexOf('Run due holding review')
     const accountingIndex = html.indexOf('Review monthly accounting')
     const purificationIndex = html.indexOf('Check purification obligations')
@@ -375,7 +375,7 @@ describe('CommandCenter', () => {
     expect(html).toContain('Priority 1')
     expect(html).toContain('2 drafts need explicit user confirmation before monitoring or portfolio actions.')
     expect(html).toContain('href="/watchlist"')
-    expect(html).toContain('Production/live provider readiness incomplete')
+    expect(html).toContain('Real-provider readiness incomplete')
     expect(html).toContain('href="/providers"')
     expect(html).toContain('MSFT is 2 days overdue')
     expect(html).toContain('href="/portfolio#holding_msft_001"')
@@ -638,7 +638,7 @@ describe('CommandCenter', () => {
         product_name: 'Owlfolio',
         setup_status: 'Personal local mode initialized',
         provider_status: 'Provider: Mock provider personal local mode',
-        strategy_status: 'Strategy: Buffett-Munger certified',
+        strategy_status: 'Strategy: Buffett-Munger default',
         shariah_status: 'Shariah: enabled by default',
         ledger_status: 'Ledger: SQLite durable event source',
         pipeline_counts: {
@@ -673,7 +673,7 @@ describe('CommandCenter', () => {
         product_name: 'Owlfolio',
         setup_status: 'Personal local mode initialized',
         provider_status: 'Provider: Mock provider personal local mode',
-        strategy_status: 'Strategy: Buffett-Munger certified',
+        strategy_status: 'Strategy: Buffett-Munger default',
         shariah_status: 'Shariah: enabled by default',
         ledger_status: 'Ledger: SQLite durable event source',
         pipeline_counts: {
@@ -715,22 +715,29 @@ describe('CommandCenter', () => {
     expect(learnPageSource).toContain('Learn')
     expect(learnPageSource).toContain('Operator documentation')
     expect(learnPageSource).toContain('Automation boundaries')
+    expect(learnPageSource).toContain('automation-first local-use candidate')
+    expect(learnPageSource).toContain('default Buffett-Munger strategy')
+    expect(learnPageSource).toContain('future selectable strategies')
+    expect(learnPageSource).toContain('discovery to quick screen, deep dive, decision, watchlist, and holding state')
+    expect(learnPageSource).toContain('automatic portfolio, accounting, and purification projections')
+    expect(learnPageSource).toContain('Data Safety boundaries')
     expect(learnPageSource).toContain('What changes and what you confirm')
     expect(learnPageSource).toContain('Provider readiness in one place')
     expect(learnPageSource).toContain('Auditability and traceability')
     expect(learnPageSource).toContain('Shariah screening')
-    expect(learnPageSource).toContain('Backup/restore and environment handoff are operator/manual today.')
+    expect(learnPageSource).toContain('credentials and provider auth homes stay out of backups')
     expect(learnPageSource).toContain('href="/onboarding"')
     expect(learnPageSource).toContain('href="/providers"')
     expect(learnPageSource).toContain('id="fallback"')
   })
 
-  it('documents the /research landing route as a smoke-testable workflow entrypoint', () => {
+  it('documents the /research landing route as a strategy pipeline cockpit entrypoint', () => {
     const researchPageSource = readFileSync('apps/web/src/app/research/page.tsx', 'utf8')
 
-    expect(researchPageSource).toContain('Research workflow')
-    expect(researchPageSource).toContain('Start research intake')
-    expect(researchPageSource).toContain('href="/research/new"')
-    expect(researchPageSource).toContain('Learn workflow boundaries')
+    expect(researchPageSource).toContain('ResearchPipelineCockpit')
+    expect(researchPageSource).toContain('getAppResearchPipelineFromStore')
+    expect(researchPageSource).toContain('selectedStrategyLabel')
+    expect(researchPageSource).not.toContain('Start research intake')
+    expect(researchPageSource).not.toContain('Buffett-Munger default')
   })
 })

@@ -85,7 +85,7 @@ function buildRequest(command: RunClaudeBuffettMungerResearchCommand, provider: 
     task_kind: 'structured-output',
     prompt: [
       `You are the Buffett-Munger research specialist for Owlfolio research case ${command.research_case_id}.`,
-      `Analyze ticker ${command.ticker} (${command.company_id}) under the certified Buffett-Munger policy.`,
+      `Analyze ticker ${command.ticker} (${command.company_id}) under the default Buffett-Munger policy.`,
       'Return only the structured fields requested by the JSON schema.',
       'Use source_records for the concrete primary/secondary sources that support the draft.',
     ].join(' '),

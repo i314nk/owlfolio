@@ -362,7 +362,7 @@ describe('providerReadiness', () => {
 
     expect(openai).toMatchObject({
       provider_family_label: 'OpenAI',
-      recommended_sign_in_label: 'Connect ChatGPT via Codex CLI',
+      recommended_sign_in_label: 'Connect Codex',
       recommended_sign_in_description: expect.stringContaining('codex login'),
       simple_next_step: 'Run codex login outside Owlfolio, then refresh readiness.',
     })
@@ -372,7 +372,7 @@ describe('providerReadiness', () => {
 
     expect(gemini).toMatchObject({
       provider_family_label: 'Gemini',
-      recommended_sign_in_label: 'Sign in with Google via Gemini CLI',
+      recommended_sign_in_label: 'Connect Gemini',
       recommended_sign_in_description: expect.stringContaining('gemini login'),
       simple_next_step: 'Run gemini login outside Owlfolio, then refresh readiness.',
     })

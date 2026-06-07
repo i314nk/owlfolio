@@ -9,9 +9,10 @@ type FilterCollisionCheck = {
 
 async function initializeDemoWorkflow(page: Page): Promise<void> {
   await page.goto('/onboarding')
-  await page.getByRole('radio', { name: /personal local mode/i }).click()
+  await page.getByRole('button', { name: /connect codex/i }).click()
+  await page.getByText('Other provider / advanced selector').click()
   await page.getByRole('combobox').selectOption('mock-provider')
-  await page.getByRole('button', { name: /initialize owlfolio workflow/i }).click()
+  await page.getByRole('button', { name: /start owlfolio/i }).click()
   await expect(page).toHaveURL('/')
 }
 

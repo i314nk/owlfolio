@@ -1,12 +1,12 @@
 # Owlfolio strategy guide
 
-This is the active Owlfolio v2 alpha strategy guidance. The older Python/Pydantic strategy-YAML runtime guide was moved to `docs/archive/STRATEGY_GUIDE.v0.1.md` and is historical only.
+This is the active Owlfolio v2 local-use candidate strategy guidance. The older Python/Pydantic strategy-YAML runtime guide was moved to `docs/archive/STRATEGY_GUIDE.v0.1.md` and is historical only.
 
-## Alpha stance
+## Local-use candidate stance
 
-Buffett-Munger is the primary certified strategy direction for the v2 alpha. Other strategy concepts and custom/manual strategy YAML support remain advanced or experimental until they have policy gates, valuation rules, Shariah handling, provider role certification, and ledger/audit coverage.
+Buffett-Munger is the default strategy direction for the v2 local-use candidate. Other strategy concepts and custom/manual strategy YAML support remain advanced or experimental until they have policy gates, valuation rules, Shariah handling, provider role certification, and ledger/audit coverage.
 
-Do not present custom strategy creation as the main UI path. The primary product flow should guide users through preset/certified strategy defaults and explicit review decisions.
+Do not present custom strategy creation as the main UI path. The primary product flow should guide users through default/preset strategy choices and explicit review decisions.
 
 ## Strategy workflow boundaries
 

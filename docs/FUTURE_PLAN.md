@@ -48,8 +48,8 @@ The v2 alpha establishes a local-first workflow spine:
    - Add formal methodology review and audit notes before claiming scholar-reviewed compliance.
    - Improve purification obligation calculation, evidence attachment, payment workflow, and period-close UX.
 
-6. Strategy certification
-   - Keep Buffett-Munger as the primary certified strategy direction.
+6. Strategy maturity
+   - Keep Buffett-Munger as the default strategy direction until any strategy-level certification program is defined and reviewed.
    - Gate additional strategies behind valuation rules, Shariah handling, provider role certification, and audit-policy review.
    - Treat custom strategy YAML/manual methods as advanced configuration, not the main UI path.
 

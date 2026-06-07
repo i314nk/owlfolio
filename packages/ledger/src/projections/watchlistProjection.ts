@@ -6,6 +6,7 @@ export type WatchlistProjection = {
   company_id?: string
   ticker?: string
   strategy_id?: string
+  strategy_version?: string
   user_approved: boolean
   created_by_actor_type?: string
   created_by_actor_id?: string
@@ -109,7 +110,7 @@ function applyShariahGateDecision(target: WatchlistProjection, decision: Shariah
 
 function applyString(
   target: WatchlistProjection,
-  key: keyof Pick<WatchlistProjection, 'company_id' | 'ticker' | 'strategy_id' | 'thesis_summary'>,
+  key: keyof Pick<WatchlistProjection, 'company_id' | 'ticker' | 'strategy_id' | 'strategy_version' | 'thesis_summary'>,
   value: string | undefined,
 ): void {
   if (value !== undefined) {
@@ -157,6 +158,7 @@ export function projectWatchlist(events: LedgerEventEnvelope<unknown>[]): Watchl
     applyString(watchlistItem, 'company_id', getString(event.payload, 'company_id'))
     applyString(watchlistItem, 'ticker', getString(event.payload, 'ticker'))
     applyString(watchlistItem, 'strategy_id', getString(event.payload, 'strategy_id'))
+    applyString(watchlistItem, 'strategy_version', getString(event.payload, 'strategy_version'))
     applyString(watchlistItem, 'thesis_summary', getString(event.payload, 'thesis_summary'))
 
     if (event.event_type === 'watchlist_draft_created') {

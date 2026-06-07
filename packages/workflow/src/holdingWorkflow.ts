@@ -1,5 +1,6 @@
 import type { EventStore } from '@owlfolio/ledger/eventStore'
 import type { ActorType, LedgerEventEnvelope } from '@owlfolio/ledger/eventEnvelope'
+import { resolveResearchStrategyRef } from './researchStrategyRef'
 
 type HoldingEventStore = EventStore<LedgerEventEnvelope<unknown>>
 
@@ -10,6 +11,7 @@ export type HoldingOpenedPayload = {
   company_id: string
   ticker: string
   strategy_id: string
+  strategy_version: string
   thesis_summary: string
   shares: number
   cost_basis_per_share: number
@@ -44,6 +46,7 @@ export type OpenHoldingFromWatchlistCommand = {
   company_id: string
   ticker: string
   strategy_id: string
+  strategy_version?: string
   thesis_summary: string
   shares: number
   cost_basis_per_share: number
@@ -110,6 +113,7 @@ export async function openHoldingFromWatchlist(
   command: OpenHoldingFromWatchlistCommand,
 ): Promise<HoldingOpened> {
   assertValidLotEconomics(command)
+  const selectedStrategy = resolveResearchStrategyRef(command)
   const totalCostBasis = roundMoney(command.shares * command.cost_basis_per_share)
   const payload: HoldingOpenedPayload = {
     holding_id: command.holding_id,
@@ -117,7 +121,7 @@ export async function openHoldingFromWatchlist(
     research_case_id: command.research_case_id,
     company_id: command.company_id,
     ticker: command.ticker,
-    strategy_id: command.strategy_id,
+    ...selectedStrategy,
     thesis_summary: command.thesis_summary,
     shares: command.shares,
     cost_basis_per_share: command.cost_basis_per_share,

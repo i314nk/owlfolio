@@ -7,6 +7,7 @@ type LedgerEventRecord = Record<string, unknown>
 const supportedAggregateTypes = new Set<AggregateType>([
   'strategy',
   'company',
+  'discovery_candidate',
   'research_case',
   'watchlist_item',
   'holding',

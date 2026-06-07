@@ -6,7 +6,7 @@ Branch: `v02-typescript-rewrite`
 
 ## 1. Purpose
 
-Owlfolio v0.2 is a clean TypeScript rewrite of Owlfolio as a polished, web-first, Shariah-by-design investment operating system. The current Python application remains the stable v0.1.x reference implementation. v0.2 should not be a line-by-line port. It should preserve the validated product ideas while simplifying the architecture around a workflow-centered web app, a hybrid memory ledger, provider-neutral research orchestration, and a certified Buffett-Munger strategy.
+Owlfolio v0.2 is a clean TypeScript rewrite of Owlfolio as a polished, web-first, Shariah-by-design investment operating system. The current Python application remains the stable v0.1.x reference implementation. v0.2 should not be a line-by-line port. It should preserve the validated product ideas while simplifying the architecture around a workflow-centered web app, a hybrid memory ledger, provider-neutral research orchestration, and a default Buffett-Munger strategy posture.
 
 The product center is the full investment workflow, not chat:
 
@@ -30,8 +30,8 @@ The app should feel like an operating dashboard for investment decisions, not a 
    - Shariah screening, compliance history, and purification accounting are first-class product concepts.
    - Shariah should not be an optional afterthought bolted onto generic research.
 
-3. Buffett-Munger as the main certified strategy.
-   - Buffett-Munger is the only fully certified strategy for the initial v0.2 release.
+3. Buffett-Munger as the default strategy direction.
+   - Buffett-Munger is the default strategy posture for the initial v0.2 local-use candidate.
    - All other strategies are experimental until their hard gates, valuation methods, Shariah policy, compliance audit, and tests are complete.
 
 4. Provider-neutral full workflow.
@@ -485,9 +485,9 @@ Every final research result should separately report:
 
 This prevents optimistic synthesis from overriding missing data or failed hard gates.
 
-## 13. Buffett-Munger certified strategy
+## 13. Buffett-Munger default strategy
 
-Buffett-Munger is the main strategy and first certified policy.
+Buffett-Munger is the default strategy direction and policy reference. Treat workflow support as evidence-bounded by provider/certification reports rather than claiming the strategy itself is certified.
 
 Required changes from current strategy files:
 
@@ -648,7 +648,7 @@ First-run onboarding wizard:
    - show certified/experimental status
 
 4. Choose strategy
-   - Buffett-Munger certified default
+   - Buffett-Munger default posture
    - experimental strategies hidden behind advanced/discovery option
 
 5. Configure Shariah defaults
@@ -798,7 +798,7 @@ Disallowed AI/system actions by default:
 Default approval rules:
 
 - Buy/sell/pass/watch decisions are drafts until user-approved.
-- Watchlist promotion requires confirmation in the certified default mode.
+- Watchlist promotion requires explicit user confirmation in the default local mode.
 - Holding changes require manual user entry of an external transaction.
 - Research schedules may create drafts and alerts, not final portfolio decisions.
 - Every portfolio-impacting event must include actor attribution and an audit trail.
@@ -950,7 +950,7 @@ Suggested epics:
 3. hybrid memory ledger
 4. workflow UI
 5. provider-neutral engine
-6. Buffett-Munger certified strategy
+6. Buffett-Munger default strategy
 7. research workflow
 8. Shariah-by-design
 9. monthly accounting

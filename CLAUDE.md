@@ -109,7 +109,7 @@ Known warning: Next/Turbopack may print an NFT/import-trace warning around local
 
 - Alpha is a local workflow demo and personal-local ledger slice, not a complete robo-advisor.
 - Web workflow is primary; CLI is for developer/admin operations.
-- Buffett-Munger is the main certified strategy direction; other strategy concepts remain experimental until policy/audit gates are complete.
+- Buffett-Munger is the default strategy direction; other strategy concepts remain experimental until policy/audit gates are complete.
 - Shariah, accounting, and purification are first-class domains, but current screens are local-ledger/accounting aids, not professional legal/tax/Shariah rulings.
 - Broker credentials, broker sync, live trading, automatic portfolio actions, tax filing, and production-grade direct API provider parity are out of scope unless explicitly requested.
 

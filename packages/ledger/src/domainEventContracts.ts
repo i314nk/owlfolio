@@ -1,6 +1,7 @@
 import type { ActorType, AggregateType } from './eventEnvelope'
 
 export type DomainProjectionOwner =
+  | 'discovery'
   | 'shariah_status'
   | 'purification'
   | 'accounting'
@@ -12,6 +13,7 @@ export type DomainEventContract = {
   event_type: DomainEventType
   aggregate_type: AggregateType
   actor_type: ActorType
+  actor_types?: readonly ActorType[]
   projection_owner: DomainProjectionOwner
   payload_fields: readonly string[]
 }
@@ -23,6 +25,16 @@ export type DomainProjectionContract = {
 }
 
 export const domainEventTypes = [
+  'discovery_candidate_discovered',
+  'discovery_candidate_queued_for_quick_screen',
+  'discovery_candidate_rejected',
+  'discovery_candidate_promoted_to_research_case',
+  'queued_for_deep_dive',
+  'deep_dive_started',
+  'specialist_finding_recorded',
+  'deep_dive_synthesis_drafted',
+  'deep_dive_completed',
+  'holding_valuation_recorded',
   'scheduled_task_defined',
   'scheduled_task_run_started',
   'scheduled_task_run_completed',
@@ -41,11 +53,148 @@ export const domainEventTypes = [
   'cash_withdrawn',
   'dividend_income_recorded',
   'fee_charged',
+  'holding_realized_gain_loss_recorded',
 ] as const
 
 export type DomainEventType = (typeof domainEventTypes)[number]
 
 export const domainEventContracts: readonly DomainEventContract[] = [
+  {
+    event_type: 'discovery_candidate_discovered',
+    aggregate_type: 'discovery_candidate',
+    actor_type: 'provider',
+    projection_owner: 'discovery',
+    payload_fields: [
+      'candidate_id',
+      'ticker',
+      'company_name',
+      'market',
+      'strategy_id',
+      'strategy_version',
+      'discovery_source',
+      'source_ids',
+      'discovered_at',
+      'status',
+      'dedupe_key',
+    ],
+  },
+  {
+    event_type: 'discovery_candidate_queued_for_quick_screen',
+    aggregate_type: 'discovery_candidate',
+    actor_type: 'system',
+    projection_owner: 'discovery',
+    payload_fields: ['candidate_id', 'queue_id', 'status'],
+  },
+  {
+    event_type: 'discovery_candidate_rejected',
+    aggregate_type: 'discovery_candidate',
+    actor_type: 'user',
+    projection_owner: 'discovery',
+    payload_fields: ['candidate_id', 'reason', 'status'],
+  },
+  {
+    event_type: 'discovery_candidate_promoted_to_research_case',
+    aggregate_type: 'discovery_candidate',
+    actor_type: 'user',
+    projection_owner: 'discovery',
+    payload_fields: ['candidate_id', 'research_case_id', 'research_case_event_id', 'status'],
+  },
+  {
+    event_type: 'queued_for_deep_dive',
+    aggregate_type: 'research_case',
+    actor_type: 'system',
+    projection_owner: 'discovery',
+    payload_fields: ['research_case_id', 'queue_id', 'candidate_id', 'strategy_id', 'strategy_version', 'source_ids'],
+  },
+  {
+    event_type: 'deep_dive_started',
+    aggregate_type: 'research_case',
+    actor_type: 'worker',
+    projection_owner: 'discovery',
+    payload_fields: ['research_case_id', 'deep_dive_id', 'candidate_id', 'strategy_id', 'strategy_version', 'specialist_lanes', 'source_ids'],
+  },
+  {
+    event_type: 'specialist_finding_recorded',
+    aggregate_type: 'research_case',
+    actor_type: 'provider',
+    projection_owner: 'discovery',
+    payload_fields: [
+      'research_case_id',
+      'finding_id',
+      'deep_dive_id',
+      'candidate_id',
+      'strategy_id',
+      'strategy_version',
+      'specialist_lane',
+      'finding_summary',
+      'source_ids',
+      'confidence',
+      'caveats',
+      'provider_run_id',
+    ],
+  },
+  {
+    event_type: 'deep_dive_synthesis_drafted',
+    aggregate_type: 'research_case',
+    actor_type: 'system',
+    projection_owner: 'discovery',
+    payload_fields: [
+      'research_case_id',
+      'synthesis_id',
+      'deep_dive_id',
+      'candidate_id',
+      'strategy_id',
+      'strategy_version',
+      'synthesis_summary',
+      'specialist_finding_ids',
+      'source_ids',
+      'confidence',
+      'caveats',
+      'provider_run_id',
+    ],
+  },
+  {
+    event_type: 'deep_dive_completed',
+    aggregate_type: 'research_case',
+    actor_type: 'system',
+    projection_owner: 'discovery',
+    payload_fields: [
+      'research_case_id',
+      'completion_id',
+      'deep_dive_id',
+      'candidate_id',
+      'synthesis_id',
+      'strategy_id',
+      'strategy_version',
+      'source_ids',
+      'confidence',
+      'caveats',
+      'provider_run_id',
+    ],
+  },
+  {
+    event_type: 'holding_valuation_recorded',
+    aggregate_type: 'holding',
+    actor_type: 'worker',
+    actor_types: ['user', 'worker'],
+    projection_owner: 'accounting',
+    payload_fields: [
+      'snapshot_id',
+      'holding_id',
+      'price_per_share',
+      'shares',
+      'market_value',
+      'currency',
+      'valued_at',
+      'valuation_source',
+      'price_checked_at',
+      'confidence',
+      'caveat',
+      'missing_data',
+      'valued_by_actor_type',
+      'valued_by_actor_id',
+    ],
+  },
   {
     event_type: 'scheduled_task_defined',
     aggregate_type: 'scheduled_task',
@@ -160,12 +309,16 @@ export const domainEventContracts: readonly DomainEventContract[] = [
       'nav',
       'current_value',
       'unrealized_gain_loss',
+      'realized_gain_loss',
       'cash_balance',
       'deposits',
       'withdrawals',
       'dividends',
       'fees',
       'net_cash_flow',
+      'audit_event_ids',
+      'source_ids',
+      'missing_data_warnings',
       'currency',
     ],
   },
@@ -197,9 +350,17 @@ export const domainEventContracts: readonly DomainEventContract[] = [
     projection_owner: 'accounting',
     payload_fields: ['fee_id', 'cash_account_id', 'amount', 'currency', 'charged_at', 'fee_type'],
   },
+  {
+    event_type: 'holding_realized_gain_loss_recorded',
+    aggregate_type: 'holding',
+    actor_type: 'user',
+    projection_owner: 'accounting',
+    payload_fields: ['realized_gain_loss_id', 'holding_id', 'amount', 'currency', 'realized_at'],
+  },
 ] as const
 
 export const domainProjectionContracts: readonly DomainProjectionContract[] = [
+  { projection_owner: 'discovery', package_owner: '@owlfolio/ledger', route_owner: '/research/discovery' },
   { projection_owner: 'shariah_status', package_owner: '@owlfolio/ledger', route_owner: '/shariah' },
   { projection_owner: 'purification', package_owner: '@owlfolio/ledger', route_owner: '/purification' },
   { projection_owner: 'accounting', package_owner: '@owlfolio/ledger', route_owner: '/accounting' },

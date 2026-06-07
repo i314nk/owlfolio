@@ -81,12 +81,12 @@ function createCommandHero(dashboard: AppCommandCenter) {
     createElement(
       'div',
       { className: 'owl-command-hero-copy' },
-      createElement('p', { className: 'owl-command-kicker' }, `${dashboard.product_name} · Private command cockpit`),
+      createElement('p', { className: 'owl-command-kicker' }, `${dashboard.product_name} · Automation-first local candidate`),
       createElement('h1', { className: 'owl-command-title' }, 'Command Center'),
       createElement(
         'p',
         { className: 'owl-command-subtitle' },
-        'Investment workflow OS for local research, watchlist, and portfolio decisions.',
+        'Local-first investment workflow OS for strategy research, watchlist, and portfolio decisions.',
       ),
       createElement(
         'p',
@@ -181,9 +181,9 @@ function createWorkflowLaunchpad() {
 function buildWorkflowLaunchpadItems(): WorkflowLaunchpadItem[] {
   return [
     {
-      description: 'Start or resume source-backed company research.',
-      href: '/research/new',
-      label: 'Open research intake',
+      description: 'Open the selected-strategy research pipeline.',
+      href: '/research',
+      label: 'Open research cockpit',
       title: 'Research lab',
     },
     {
@@ -475,11 +475,11 @@ function countsText(value: number): string {
 function buildMetricCards(counts: AppCommandCenter['pipeline_counts']): MetricCardProps[] {
   return [
     {
-      actionLabel: counts.research_cases === 0 ? 'Start research' : 'Open research intake',
+      actionLabel: 'Open research cockpit',
       helper: counts.research_cases === 0
-        ? 'Start a research case to seed the durable workflow ledger.'
+        ? 'Review discovery, quick screen, and manual intake options before seeding the durable workflow ledger.'
         : 'Research dossiers with auditable provider/source evidence.',
-      href: '/research/new',
+      href: '/research',
       label: 'Research cases',
       value: counts.research_cases,
     },
@@ -570,11 +570,11 @@ function buildActionCards(dashboard: AppCommandCenter): ActionCard[] {
 
   if (isProviderReadinessWarning(dashboard.provider_status)) {
     cards.push({
-      category: 'Production/live provider readiness incomplete',
-      description: `${dashboard.provider_status}. Review credentials, support level, and certification evidence before relying on live provider-authored workflow runs.`,
+      category: 'Real-provider readiness incomplete',
+      description: `${dashboard.provider_status}. Review credentials, support level, and certification evidence before relying on real-provider-authored workflow runs.`,
       href: '/providers',
       label: 'Open provider setup evidence',
-      title: 'Resolve production/live provider readiness',
+      title: 'Resolve real-provider readiness',
       tone: 'warning',
     })
   }
@@ -638,7 +638,7 @@ function buildActionCards(dashboard: AppCommandCenter): ActionCard[] {
     cards.push({
       category: counts.research_cases === 0 ? 'Zero state' : 'Workflow continuation',
       description: counts.research_cases === 0
-        ? 'No durable research workflow exists yet. Start with a provider-scoped research case.'
+        ? 'No durable research workflow exists yet. Open the selected-strategy cockpit, then use manual intake only when needed.'
         : 'No urgent blockers are open. Continue from the latest research, watchlist, or portfolio workflow.',
       href: dashboard.primary_action.href,
       label: dashboard.primary_action.label,
@@ -809,7 +809,7 @@ function buildOperationalSignals(dashboard: AppCommandCenter): OperationalSignal
   return [
     {
       description: providerBlocked
-        ? 'Live/provider-backed workflows fail closed until setup, support level, and certification evidence are ready.'
+        ? 'Real-provider-backed workflows fail closed until setup, support level, and certification evidence are ready.'
         : 'Provider evidence is acceptable for the current local workflow mode.',
       label: providerBlocked ? 'Provider readiness blocked' : 'Provider readiness clear',
       tone: providerBlocked ? 'blocked' : 'success',

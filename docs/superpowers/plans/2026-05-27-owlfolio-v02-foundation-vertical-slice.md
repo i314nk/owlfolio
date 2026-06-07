@@ -505,10 +505,10 @@ import { describe, expect, it } from 'vitest'
 import { buffettMungerStrategy } from '../buffettMunger'
 import { evaluateGates } from '../evaluateGates'
 
-describe('Buffett-Munger certified strategy', () => {
-  it('defines the certified core policy', () => {
+describe('Buffett-Munger default strategy', () => {
+  it('defines the default core policy', () => {
     expect(buffettMungerStrategy.id).toBe('buffett-munger')
-    expect(buffettMungerStrategy.certification_status).toBe('certified')
+    expect(buffettMungerStrategy.certification_status).toBe('draft')
     expect(buffettMungerStrategy.shariah.required).toBe(true)
     expect(buffettMungerStrategy.research.required_specialists.map((s) => s.id)).toEqual([
       'moat',
@@ -839,7 +839,7 @@ Implement a local dashboard that renders:
 - product name
 - setup status
 - provider status: Mock provider / demo mode
-- strategy: Buffett-Munger certified
+- strategy: Buffett-Munger default
 - pipeline counts
 - next recommended action
 

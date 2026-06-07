@@ -1,3 +1,7 @@
+import {
+  projectDiscoveryCandidates,
+  type DiscoveryCandidateProjection,
+} from '@owlfolio/ledger/projections/discoveryCandidateProjection'
 import type { ResearchCaseProjection } from '@owlfolio/ledger/projections/researchCaseProjection'
 import { projectResearchCases } from '@owlfolio/ledger/projections/researchCaseProjection'
 import {
@@ -51,6 +55,27 @@ export type AppWatchlistItem = WatchlistProjection & {
 }
 
 export type AppHolding = HoldingProjection
+
+export type AppResearchPipelineItem = {
+  id: string
+  label: string
+  status: string
+  next_action: string
+  href?: string
+  meta?: string
+}
+
+export type AppResearchPipelineSection = {
+  key: string
+  title: string
+  empty_message: string
+  items: AppResearchPipelineItem[]
+}
+
+export type AppResearchPipeline = {
+  selectedStrategyLabel: string
+  sections: AppResearchPipelineSection[]
+}
 
 export type OpenPersonalHoldingInput = {
   shares?: FormDataEntryValue | number | string | null
@@ -163,6 +188,99 @@ export async function getAppWatchlistItemsFromStore(
   return buildPersonalWatchlistItems(await store.list())
 }
 
+export async function getAppResearchPipelineFromStore(
+  store: EventStore,
+  mode: WorkflowMode,
+  selectedStrategyId: string,
+): Promise<AppResearchPipeline> {
+  const events = await store.list()
+  const researchCases = projectResearchCases(events)
+  const watchlistItems = mode === 'demo'
+    ? await getDemoWatchlistItemsFromStore(store)
+    : buildPersonalWatchlistItems(events)
+  const discoveryCandidates = projectDiscoveryCandidates(events)
+  const selectedResearchCases = researchCases.filter((researchCase) => belongsToStrategy(researchCase, selectedStrategyId))
+  const selectedWatchlistItems = watchlistItems.filter((item) => item.strategy_id === undefined || item.strategy_id === selectedStrategyId)
+  const selectedDiscoveryCandidates = discoveryCandidates.filter((candidate) => candidate.strategy_id === selectedStrategyId)
+
+  return {
+    selectedStrategyLabel: `Selected strategy: ${selectedStrategyId}`,
+    sections: [
+      {
+        key: 'discovered',
+        title: 'Discovered',
+        empty_message: 'No new discovery candidates for the selected strategy.',
+        items: selectedDiscoveryCandidates
+          .filter((candidate) => candidate.status === 'discovered')
+          .map(candidateToPipelineItem),
+      },
+      {
+        key: 'quick-screen',
+        title: 'Quick Screen',
+        empty_message: 'No companies are waiting in or exiting quick screen.',
+        items: [
+          ...selectedDiscoveryCandidates
+            .filter((candidate) => candidate.status === 'queued_for_quick_screen')
+            .map(candidateToPipelineItem),
+          ...selectedResearchCases
+            .filter((researchCase) => researchCase.stage === 'quick_screened')
+            .map(researchCaseToPipelineItem),
+        ],
+      },
+      {
+        key: 'deep-dive-queue',
+        title: 'Deep Dive Queue',
+        empty_message: 'No candidates are queued for deep dive.',
+        items: selectedResearchCases
+          .filter((researchCase) => researchCase.stage === 'queued_for_deep_dive')
+          .map(researchCaseToPipelineItem),
+      },
+      {
+        key: 'in-deep-dive',
+        title: 'In Deep Dive',
+        empty_message: 'No research cases are currently in deep dive.',
+        items: selectedResearchCases
+          .filter((researchCase) => ['deep_dive_started', 'specialist_finding_recorded', 'deep_dive_in_progress'].includes(researchCase.stage))
+          .map(researchCaseToPipelineItem),
+      },
+      {
+        key: 'synthesis-decision-pending',
+        title: 'Synthesis / Decision Pending',
+        empty_message: 'No research cases are awaiting synthesis or a decision gate.',
+        items: selectedResearchCases
+          .filter((researchCase) => [
+            'analysis_drafted',
+            'deep_dive_synthesis_drafted',
+            'deep_dive_completed',
+            'deep_dive_complete',
+            'decision_pending',
+            'decision_drafted',
+          ].includes(researchCase.stage))
+          .map(researchCaseToPipelineItem),
+      },
+      {
+        key: 'watchlist',
+        title: 'Watchlist',
+        empty_message: 'No selected-strategy watchlist items yet.',
+        items: selectedWatchlistItems.map(watchlistItemToPipelineItem),
+      },
+      {
+        key: 'rejected-passed',
+        title: 'Rejected / Passed',
+        empty_message: 'No rejected or passed candidates are recorded yet.',
+        items: [
+          ...selectedResearchCases
+            .filter((researchCase) => researchCase.stage === 'rejected' || researchCase.stage === 'pass')
+            .map(researchCaseToPipelineItem),
+          ...selectedDiscoveryCandidates
+            .filter((candidate) => candidate.status === 'rejected' || candidate.status === 'duplicate' || candidate.status === 'promoted_to_research_case')
+            .map(candidateToPipelineItem),
+        ],
+      },
+    ].map((section) => ({ ...section, items: sortPipelineItems(section.items) })),
+  }
+}
+
 export async function getAppHoldingsFromStore(
   store: EventStore,
   _mode: WorkflowMode,
@@ -210,6 +328,7 @@ export async function promoteResearchCaseToWatchlist(
       company_id: researchCase.company_id ?? `company_${ticker.toLowerCase()}`,
       ticker,
       strategy_id: researchCase.strategy_id ?? state.config.strategy_id,
+      ...(researchCase.strategy_version === undefined ? {} : { strategy_version: researchCase.strategy_version }),
       thesis_summary: thesisSummary,
       actor_id: 'user_local',
       idempotency_key: `decision:${researchCase.research_case_id}:watchlist:v1`,
@@ -293,6 +412,7 @@ export async function openPersonalHoldingFromWatchlist(
       company_id: watchlistItem.company_id ?? `company_${ticker.toLowerCase()}`,
       ticker,
       strategy_id: watchlistItem.strategy_id ?? state.config.strategy_id,
+      ...(watchlistItem.strategy_version === undefined ? {} : { strategy_version: watchlistItem.strategy_version }),
       thesis_summary: watchlistItem.thesis_summary ?? `Initial holding opened from watchlist item ${watchlistItem.watchlist_item_id}`,
       shares: lot.shares,
       cost_basis_per_share: lot.cost_basis_per_share,
@@ -562,6 +682,117 @@ function parseCurrency(value: FormDataEntryValue | string | null | undefined, la
   return parsed
 }
 
+function belongsToStrategy(
+  item: Pick<ResearchCaseProjection, 'strategy_id'>,
+  selectedStrategyId: string,
+): boolean {
+  return item.strategy_id === undefined || item.strategy_id === selectedStrategyId
+}
+
+function candidateToPipelineItem(candidate: DiscoveryCandidateProjection): AppResearchPipelineItem {
+  return {
+    id: candidate.candidate_id,
+    label: `${candidate.ticker} — ${candidate.company_name}`,
+    status: candidate.status,
+    next_action: nextActionForDiscoveryCandidate(candidate),
+    ...(candidate.research_case_id === undefined ? {} : { href: `/research/${candidate.research_case_id}` }),
+    meta: `${candidate.market} • ${candidate.strategy_id}@${candidate.strategy_version}`,
+  }
+}
+
+function researchCaseToPipelineItem(researchCase: ResearchCaseProjection): AppResearchPipelineItem {
+  const label = researchCase.ticker ?? researchCase.company_id ?? researchCase.research_case_id
+
+  return {
+    id: researchCase.research_case_id,
+    label,
+    status: researchCase.screening_result ?? researchCase.decision ?? researchCase.stage,
+    next_action: researchCase.next_required_action ?? nextActionForResearchCase(researchCase),
+    href: `/research/${researchCase.research_case_id}`,
+    meta: `${strategyLabelFor(researchCase)} • Updated ${researchCase.updated_at}`,
+  }
+}
+
+function watchlistItemToPipelineItem(item: AppWatchlistItem): AppResearchPipelineItem {
+  const label = item.ticker ?? item.company_id ?? item.watchlist_item_id
+  const status = item.user_approved ? 'confirmed_watchlist' : 'watchlist_draft'
+
+  return {
+    id: item.watchlist_item_id,
+    label,
+    status,
+    next_action: item.holding_id !== undefined
+      ? 'Review in portfolio'
+      : item.user_approved
+        ? 'Monitor and open a holding only after user decision'
+        : 'Confirm watchlist draft',
+    href: item.holding_id !== undefined ? `/portfolio#${item.holding_id}` : '/watchlist',
+    meta: `${item.strategy_id ?? 'strategy pending'} • Updated ${item.updated_at}`,
+  }
+}
+
+function nextActionForDiscoveryCandidate(candidate: DiscoveryCandidateProjection): string {
+  switch (candidate.status) {
+    case 'discovered':
+      return 'Queue for quick screen'
+    case 'queued_for_quick_screen':
+      return 'Run selected-strategy quick screen'
+    case 'duplicate':
+      return `Review duplicate target ${candidate.duplicate_target_id ?? 'record'}`
+    case 'promoted_to_research_case':
+      return 'Continue from the promoted research case'
+    case 'rejected':
+      return 'No action required'
+  }
+}
+
+function nextActionForResearchCase(researchCase: ResearchCaseProjection): string {
+  switch (researchCase.stage) {
+    case 'discovered':
+      return 'Run selected-strategy quick screen'
+    case 'quick_screened':
+      return researchCase.screening_result === 'deep_dive_candidate'
+        ? 'Send to deep dive queue'
+        : 'Review quick screen outcome'
+    case 'queued_for_deep_dive':
+      return 'Start deep dive'
+    case 'deep_dive_started':
+    case 'specialist_finding_recorded':
+    case 'deep_dive_in_progress':
+      return 'Record specialist findings and draft synthesis'
+    case 'deep_dive_synthesis_drafted':
+    case 'deep_dive_completed':
+    case 'deep_dive_complete':
+      return 'Draft strategy decision'
+    case 'analysis_drafted':
+      return 'Draft auditable decision'
+    case 'decision_pending':
+    case 'decision_drafted':
+      return 'Review decision and confirm the next user-authored transition'
+    case 'watchlist_draft':
+      return 'Confirm watchlist draft'
+    case 'watchlist':
+      return 'Monitor watchlist thesis'
+    case 'holding':
+      return 'Review holding in portfolio'
+    case 'rejected':
+    case 'pass':
+      return 'No action required'
+  }
+}
+
+function strategyLabelFor(item: Pick<ResearchCaseProjection, 'strategy_id' | 'strategy_version'>): string {
+  if (item.strategy_id === undefined) {
+    return 'strategy pending'
+  }
+
+  return item.strategy_version === undefined ? item.strategy_id : `${item.strategy_id}@${item.strategy_version}`
+}
+
+function sortPipelineItems(items: AppResearchPipelineItem[]): AppResearchPipelineItem[] {
+  return [...items].sort((left, right) => left.label.localeCompare(right.label))
+}
+
 function buildPersonalWatchlistItems(events: Awaited<ReturnType<EventStore['list']>>): AppWatchlistItem[] {
   const holdingsByWatchlistId = new Map(projectHoldings(events).map((holding) => [holding.watchlist_item_id, holding]))
 
@@ -585,7 +816,7 @@ function buildPersonalResearchCase(
     gate_checklist: pendingChecklist.map((gate) => ({ ...gate })),
     source_ids: [...new Set(timeline.flatMap((entry) => entry.source_ids))],
     ledger_timeline: timeline,
-    next_required_action: researchCase.next_required_action ?? `Start Buffett-Munger research for ${researchCase.ticker ?? researchCase.research_case_id}`,
+    next_required_action: researchCase.next_required_action ?? `Start selected-strategy research for ${researchCase.ticker ?? researchCase.research_case_id}`,
   }
 }
 

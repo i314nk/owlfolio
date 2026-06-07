@@ -4,8 +4,8 @@ const rawBuffettMungerStrategy = {
   id: 'buffett-munger',
   name: 'Buffett-Munger Quality Compounder',
   version: '1.0.0',
-  certification_status: 'certified',
-  description: 'Certified long-term quality investing policy requiring Shariah screening, owner earnings durability, balance-sheet safety, and valuation discipline.',
+  certification_status: 'draft',
+  description: 'Default long-term quality investing policy requiring Shariah screening, owner earnings durability, balance-sheet safety, and valuation discipline.',
   research: {
     required_specialists: [
       {

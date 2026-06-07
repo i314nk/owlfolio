@@ -1,0 +1,175 @@
+import type { LedgerEventEnvelope } from '../eventEnvelope'
+
+export type DiscoveryCandidateStatus =
+  | 'discovered'
+  | 'duplicate'
+  | 'queued_for_quick_screen'
+  | 'rejected'
+  | 'promoted_to_research_case'
+
+export type DiscoveryDuplicateTargetType = 'discovery_candidate' | 'research_case' | 'watchlist_item' | 'holding'
+
+export type DiscoveryCandidateProjection = {
+  candidate_id: string
+  ticker: string
+  company_name: string
+  market: string
+  strategy_id: string
+  strategy_version: string
+  discovery_source: string
+  source_ids: string[]
+  discovered_at: string
+  status: DiscoveryCandidateStatus
+  dedupe_key: string
+  duplicate_target_type?: DiscoveryDuplicateTargetType
+  duplicate_target_id?: string
+  queue_id?: string
+  reason?: string
+  research_case_id?: string
+  research_case_event_id?: string
+  updated_at: string
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+}
+
+function getString(payload: Record<string, unknown>, key: string): string | undefined {
+  const value = payload[key]
+  return typeof value === 'string' ? value : undefined
+}
+
+function getStringArray(payload: Record<string, unknown>, key: string): string[] {
+  const value = payload[key]
+  if (!Array.isArray(value)) {
+    return []
+  }
+
+  return value.filter((entry): entry is string => typeof entry === 'string')
+}
+
+function candidateIdFor(event: LedgerEventEnvelope<unknown>, payload: Record<string, unknown>): string {
+  return getString(payload, 'candidate_id') ?? event.aggregate_id
+}
+
+function upsertCandidate(
+  candidates: Map<string, DiscoveryCandidateProjection>,
+  event: LedgerEventEnvelope<unknown>,
+  payload: Record<string, unknown>,
+  status: DiscoveryCandidateStatus,
+): DiscoveryCandidateProjection | undefined {
+  const candidateId = candidateIdFor(event, payload)
+  const existing = candidates.get(candidateId)
+  if (existing !== undefined) {
+    existing.status = status
+    existing.updated_at = event.created_at
+    return existing
+  }
+
+  const ticker = getString(payload, 'ticker')
+  const companyName = getString(payload, 'company_name')
+  const market = getString(payload, 'market')
+  const strategyId = getString(payload, 'strategy_id')
+  const strategyVersion = getString(payload, 'strategy_version')
+  const discoverySource = getString(payload, 'discovery_source')
+  const discoveredAt = getString(payload, 'discovered_at') ?? event.created_at
+  const dedupeKey = getString(payload, 'dedupe_key')
+  if (
+    ticker === undefined
+    || companyName === undefined
+    || market === undefined
+    || strategyId === undefined
+    || strategyVersion === undefined
+    || discoverySource === undefined
+    || dedupeKey === undefined
+  ) {
+    return undefined
+  }
+
+  const created: DiscoveryCandidateProjection = {
+    candidate_id: candidateId,
+    ticker,
+    company_name: companyName,
+    market,
+    strategy_id: strategyId,
+    strategy_version: strategyVersion,
+    discovery_source: discoverySource,
+    source_ids: getStringArray(payload, 'source_ids').length > 0 ? getStringArray(payload, 'source_ids') : [...event.source_ids],
+    discovered_at: discoveredAt,
+    status,
+    dedupe_key: dedupeKey,
+    updated_at: event.created_at,
+  }
+  candidates.set(candidateId, created)
+  return created
+}
+
+function isDuplicateTargetType(value: string | undefined): value is DiscoveryDuplicateTargetType {
+  return value === 'discovery_candidate' || value === 'research_case' || value === 'watchlist_item' || value === 'holding'
+}
+
+function applyString(
+  candidate: DiscoveryCandidateProjection,
+  key: keyof Pick<
+    DiscoveryCandidateProjection,
+    'duplicate_target_id' | 'queue_id' | 'reason' | 'research_case_id' | 'research_case_event_id'
+  >,
+  value: string | undefined,
+): void {
+  if (value !== undefined) {
+    candidate[key] = value
+  }
+}
+
+export function projectDiscoveryCandidates(events: LedgerEventEnvelope<unknown>[]): DiscoveryCandidateProjection[] {
+  const candidates = new Map<string, DiscoveryCandidateProjection>()
+
+  for (const event of events) {
+    if (!event.event_type.startsWith('discovery_candidate_') || !isRecord(event.payload)) {
+      continue
+    }
+
+    if (event.event_type === 'discovery_candidate_discovered') {
+      const status = getString(event.payload, 'status') === 'duplicate' ? 'duplicate' : 'discovered'
+      const candidate = upsertCandidate(candidates, event, event.payload, status)
+      if (candidate === undefined) {
+        continue
+      }
+      const duplicateTargetType = getString(event.payload, 'duplicate_target_type')
+      if (isDuplicateTargetType(duplicateTargetType)) {
+        candidate.duplicate_target_type = duplicateTargetType
+      }
+      applyString(candidate, 'duplicate_target_id', getString(event.payload, 'duplicate_target_id'))
+      continue
+    }
+
+    if (event.event_type === 'discovery_candidate_queued_for_quick_screen') {
+      const candidate = upsertCandidate(candidates, event, event.payload, 'queued_for_quick_screen')
+      if (candidate === undefined) {
+        continue
+      }
+      applyString(candidate, 'queue_id', getString(event.payload, 'queue_id'))
+      continue
+    }
+
+    if (event.event_type === 'discovery_candidate_rejected') {
+      const candidate = upsertCandidate(candidates, event, event.payload, 'rejected')
+      if (candidate === undefined) {
+        continue
+      }
+      applyString(candidate, 'reason', getString(event.payload, 'reason'))
+      continue
+    }
+
+    if (event.event_type === 'discovery_candidate_promoted_to_research_case') {
+      const candidate = upsertCandidate(candidates, event, event.payload, 'promoted_to_research_case')
+      if (candidate === undefined) {
+        continue
+      }
+      applyString(candidate, 'research_case_id', getString(event.payload, 'research_case_id'))
+      applyString(candidate, 'research_case_event_id', getString(event.payload, 'research_case_event_id'))
+    }
+  }
+
+  return [...candidates.values()]
+}

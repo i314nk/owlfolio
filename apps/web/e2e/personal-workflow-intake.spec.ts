@@ -24,14 +24,15 @@ test('personal-local mode can create the first research case from the command ce
   const nextReviewDate = isoDateDaysFromToday(153)
 
   await page.goto('/onboarding')
-  await page.getByRole('radio', { name: /personal local mode/i }).click()
+  await page.getByRole('button', { name: /connect codex/i }).click()
+  await page.getByText('Other provider / advanced selector').click()
   await page.getByRole('combobox').selectOption('mock-provider')
-  await page.getByRole('button', { name: /initialize owlfolio workflow/i }).click()
+  await page.getByRole('button', { name: /start owlfolio/i }).click()
 
   await expect(page).toHaveURL('/')
   const primaryNav = page.getByRole('navigation', { name: /primary owlfolio navigation/i })
   await expect(primaryNav.getByRole('link', { name: 'Command Center', exact: true })).toHaveAttribute('href', '/')
-  await expect(primaryNav.getByRole('link', { name: /research/i })).toHaveAttribute('href', '/research/new')
+  await expect(primaryNav.getByRole('link', { name: /research/i })).toHaveAttribute('href', '/research')
   await expect(primaryNav.getByRole('link', { name: /watchlist/i })).toHaveAttribute('href', '/watchlist')
   await expect(primaryNav.getByRole('link', { name: /portfolio/i })).toHaveAttribute('href', '/portfolio')
   await expect(primaryNav.getByRole('link', { name: /accounting/i })).toHaveAttribute('href', '/accounting/monthly')
@@ -40,11 +41,15 @@ test('personal-local mode can create the first research case from the command ce
   await expect(primaryNav.getByRole('link', { name: /onboarding/i })).toHaveAttribute('href', '/onboarding')
 
   await primaryNav.getByRole('link', { name: /research/i }).click()
+  await expect(page).toHaveURL('/research')
+  await expect(page.getByRole('heading', { name: /strategy pipeline cockpit/i })).toBeVisible()
+  await expect(page.getByRole('link', { name: /manual ticker intake/i })).toBeVisible()
+  await page.getByRole('link', { name: /manual ticker intake/i }).click()
   await expect(page).toHaveURL('/research/new')
   await expect(page.getByRole('button', { name: /create research case/i })).toBeVisible()
   await page.getByRole('navigation', { name: /primary owlfolio navigation/i }).getByRole('link', { name: /onboarding/i }).click()
   await expect(page).toHaveURL('/onboarding')
-  await expect(page.getByRole('heading', { name: /set up owlfolio/i })).toBeVisible()
+  await expect(page.getByRole('heading', { name: /connect owlfolio/i })).toBeVisible()
   await page.getByRole('navigation', { name: /primary owlfolio navigation/i }).getByRole('link', { name: /watchlist/i }).click()
   await expect(page).toHaveURL('/watchlist')
   await expect(page.getByText('No watchlist drafts yet. Create a research case first.')).toBeVisible()
@@ -69,7 +74,10 @@ test('personal-local mode can create the first research case from the command ce
   await page.getByRole('navigation', { name: /primary owlfolio navigation/i }).getByRole('link', { name: 'Command Center', exact: true }).click()
   await expect(page).toHaveURL('/')
 
-  await page.getByRole('link', { name: /start first research case/i }).first().click()
+  await page.getByRole('link', { name: /open research cockpit/i }).first().click()
+  await expect(page).toHaveURL('/research')
+  await expect(page.getByRole('heading', { name: /strategy pipeline cockpit/i })).toBeVisible()
+  await page.getByRole('link', { name: /manual ticker intake/i }).click()
   await expect(page).toHaveURL('/research/new')
 
   await page.getByLabel('Ticker').fill('MSFT')
@@ -144,6 +152,7 @@ test('personal-local mode can create the first research case from the command ce
   await expect(page.getByText('Total cost basis: $2,640.30', { exact: true })).toBeVisible()
   await expect(page.getByText('Opened: 2026-05-31')).toBeVisible()
 
+  await page.getByText('Manual fallback actions', { exact: true }).click()
   await page.getByLabel('Current price per share').fill('900')
   await page.getByLabel('Valuation date').fill('2026-06-01')
   await page.getByRole('button', { name: /record valuation snapshot/i }).click()
@@ -155,6 +164,7 @@ test('personal-local mode can create the first research case from the command ce
   await expect(page.getByText('Concentration: 100.00%')).toBeVisible()
   await expect(page.getByText('Valuation date: 2026-06-01')).toBeVisible()
 
+  await page.getByText('Manual fallback actions', { exact: true }).click()
   await page.getByRole('button', { name: /run buffett-munger review/i }).click()
 
   await expect(page).toHaveURL('/portfolio')
@@ -186,6 +196,7 @@ test('personal-local mode can create the first research case from the command ce
   await expect(page.getByText('Next review: 2026-09-30')).toBeVisible()
   await expect(page.getByRole('button', { name: /apply provider draft/i })).toHaveCount(0)
 
+  await page.getByText('Manual fallback actions', { exact: true }).click()
   await page.getByRole('button', { name: /run buffett-munger review/i }).click()
 
   await expect(page).toHaveURL('/portfolio')
@@ -204,6 +215,7 @@ test('personal-local mode can create the first research case from the command ce
   await expect(page.getByText(`Next review: ${nextReviewDate}`)).toBeVisible()
   await expect(page.getByRole('button', { name: /apply user override/i })).toHaveCount(0)
 
+  await page.getByText('Manual fallback actions', { exact: true }).click()
   await page.getByRole('button', { name: /run buffett-munger review/i }).click()
 
   await expect(page).toHaveURL('/portfolio')

@@ -1,5 +1,6 @@
 import type { EventStore } from '@owlfolio/ledger/eventStore'
 import type { ActorType, LedgerEventEnvelope } from '@owlfolio/ledger/eventEnvelope'
+import { resolveResearchStrategyRef } from './researchStrategyRef'
 
 type WatchlistEventStore = EventStore<LedgerEventEnvelope<unknown>>
 
@@ -10,6 +11,7 @@ type WatchlistDraftCreatedPayload = {
   company_id: string
   ticker: string
   strategy_id: string
+  strategy_version: string
   thesis_summary: string
   user_approved: false
   created_by_actor_type: ActorType
@@ -25,6 +27,7 @@ export type ConfirmWatchlistDraftCommand = {
   company_id: string
   ticker: string
   strategy_id: string
+  strategy_version?: string
   thesis_summary: string
   actor_id: string
   idempotency_key?: string
@@ -62,13 +65,14 @@ export async function confirmWatchlistDraft(
   store: WatchlistEventStore,
   command: ConfirmWatchlistDraftCommand,
 ): Promise<WatchlistDraftCreated> {
+  const selectedStrategy = resolveResearchStrategyRef(command)
   const payload: WatchlistDraftCreatedPayload = {
     watchlist_item_id: command.watchlist_item_id,
     research_case_id: command.research_case_id,
     decision_id: command.decision_id,
     company_id: command.company_id,
     ticker: command.ticker,
-    strategy_id: command.strategy_id,
+    ...selectedStrategy,
     thesis_summary: command.thesis_summary,
     user_approved: false,
     created_by_actor_type: 'user',

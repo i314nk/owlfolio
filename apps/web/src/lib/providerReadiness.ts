@@ -513,8 +513,8 @@ function providerOptionFromCatalogEntry(provider: ProviderCatalogEntry): Provide
     return {
       ...base,
       provider_family_label: 'OpenAI',
-      recommended_sign_in_label: 'Connect ChatGPT via Codex CLI',
-      recommended_sign_in_description: 'Run codex login outside Owlfolio so the local Codex CLI or ChatGPT subscription session can be verified; browser cookies and signed-in browser app sessions are not provider credentials.',
+      recommended_sign_in_label: 'Connect Codex',
+      recommended_sign_in_description: 'Run codex login outside Owlfolio; Owlfolio verifies the local CLI session and does not claim a browser OAuth handoff.',
       simple_next_step: 'Run codex login outside Owlfolio, then refresh readiness.',
       advanced_auth_options: [
         {
@@ -530,8 +530,8 @@ function providerOptionFromCatalogEntry(provider: ProviderCatalogEntry): Provide
     return {
       ...base,
       provider_family_label: 'Gemini',
-      recommended_sign_in_label: 'Sign in with Google via Gemini CLI',
-      recommended_sign_in_description: 'Run gemini login outside Owlfolio so the local Gemini CLI session can be verified; browser cookies and signed-in browser app sessions are not provider credentials.',
+      recommended_sign_in_label: 'Connect Gemini',
+      recommended_sign_in_description: 'Run gemini login outside Owlfolio; Owlfolio checks the local CLI session for setup readiness only.',
       simple_next_step: 'Run gemini login outside Owlfolio, then refresh readiness.',
       advanced_auth_options: [
         {
@@ -575,11 +575,11 @@ function onboardingLabelFor(provider: ProviderCatalogEntry): string {
 
 function onboardingDescriptionFor(provider: ProviderCatalogEntry): string {
   if (provider.provider_surface_id === 'openai-codex-cli') {
-    return 'Recommended ChatGPT/Codex personal-local sign-in path; direct API certification remains an advanced option.'
+    return 'Recommended Codex CLI personal-local sign-in path; direct API certification remains an advanced option.'
   }
 
   if (provider.provider_surface_id === 'gemini-cli') {
-    return 'Recommended Google/Gemini CLI setup-only sign-in path; workflow execution stays blocked until a Gemini CLI adapter and certification exist.'
+    return 'Recommended Gemini CLI setup-only sign-in path; workflow execution waits for adapter certification.'
   }
 
   return provider.description

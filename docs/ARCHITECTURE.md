@@ -4,21 +4,23 @@ This document describes the active TypeScript/pnpm Owlfolio v2 alpha branch. Ear
 
 ## Product shape
 
-Owlfolio v2 is a local-first investment workflow application. The product center is a workflow UI and append-only investment ledger, not a chat-first assistant.
+Owlfolio v2 is an automation-first local investment workflow OS. The product center is a workflow UI and append-only investment ledger, not a chat-first assistant, public SaaS, broker connector, or trading bot.
 
 Target workflow:
 
 ```text
 Onboarding
-  -> Research case
-  -> Provider-authored recommendation draft
+  -> Default Buffett-Munger strategy posture (future selectable strategies remain experimental until gated)
+  -> Discovery queue
+  -> Quick screen
+  -> Deep dive
+  -> Synthesis / decision draft
   -> User-confirmed watchlist item
   -> User-opened holding
   -> Lot entry / valuation
   -> Holding review draft and user decision
-  -> Monthly accounting snapshot
-  -> Purification obligation/payment tracking
-  -> Audit timeline / provider status / worker observations
+  -> Automatic local portfolio/accounting/purification projections
+  -> Audit timeline / provider status / Data Safety / worker observations
 ```
 
 Provider and worker outputs are drafts or observations. Irreversible portfolio/accounting/purification transitions remain explicit user-authored ledger events.
@@ -63,7 +65,8 @@ Primary routes:
 | --- | --- |
 | `/` | Command Center with setup status, workflow counts, next action, accounting/review prompts, recent activity. |
 | `/onboarding` | Demo/personal-local setup and provider readiness flow. |
-| `/research/new` | Create a research case. |
+| `/research/new` | Secondary manual ticker intake into the strategy pipeline. |
+| `/research` | Strategy pipeline cockpit: discovery, quick screen, deep dive, decision drafts, watchlist, and outcomes. |
 | `/research/[caseId]` | Review a research case and draft watchlist recommendation. |
 | `/watchlist` | Confirm watchlist drafts and open holdings. |
 | `/portfolio` | Holdings, lot entry, valuations, holding review decisions. |
@@ -71,6 +74,7 @@ Primary routes:
 | `/purification` | Purification obligation/payment report. |
 | `/audit` | Cross-domain ledger timeline. |
 | `/providers` | Provider readiness, catalog support, latest certification reports. |
+| `/settings/data-safety` | Local backup inventory and restore-proposal visibility; credentials/auth homes excluded. |
 
 API routes are colocated under `apps/web/src/app/api/**` and are local-app routes, not public SaaS endpoints.
 
@@ -80,7 +84,7 @@ API routes are colocated under `apps/web/src/app/api/**` and are local-app route
 
 Key event families:
 
-- Research/watchlist/holding workflow events.
+- Research/watchlist/holding workflow events, including discovery candidates, quick screens, deep dives, decision drafts, and explicit user transitions.
 - Holding valuation and review events.
 - Scheduled task definition/run lifecycle events.
 - Provider run and certification report events.
@@ -106,17 +110,25 @@ Current alpha support:
 | Provider id | Adapter path | Effective support |
 | --- | --- | --- |
 | `mock-provider` | Deterministic in-process provider | Certified for demo/test/e2e; not real research intelligence. |
-| `openai` | OpenAI Codex CLI-backed adapter | Experimental; latest report passes 9/13 scenarios. |
+| `openai` / `openai-codex-cli` | OpenAI Codex CLI-backed adapter | Experimental personal-local path; latest report passes 9/13 scenarios. |
 | `claude` | Claude CLI-backed adapter | Unsupported/not-configured in this environment per latest report. |
+| `openai-api` | Direct OpenAI API candidate | Unsupported/not-configured locally until target-specific certification passes. |
+| `gemini-developer-api` | Direct Gemini Developer API candidate | Unsupported/not-configured locally until privacy posture and target-specific certification pass. |
+| `gemini-cli` | Gemini CLI sign-in discovery lane | Setup-only; no execution adapter/certification yet. |
 
-Direct Anthropic/OpenAI/Gemini/Perplexity/OpenRouter/xAI/DeepSeek/Qwen/local OpenAI-compatible API adapters are future candidates until implemented and certified.
+Direct Anthropic/Perplexity/OpenRouter/xAI/DeepSeek/Qwen/local OpenAI-compatible API adapters are future candidates until implemented and certified.
 
 Readiness inputs:
 
 - Claude: `ANTHROPIC_API_KEY` or Claude credentials path.
 - OpenAI/Codex: `OPENAI_API_KEY`, `CODEX_ACCESS_TOKEN`, `OWLFOLIO_CODEX_AUTH_PATH`, or `CODEX_HOME`.
+- Gemini: `GEMINI_API_KEY`/`GOOGLE_API_KEY` for the Developer API candidate, or Gemini CLI auth/status paths for the setup-only CLI lane.
 
-Readiness is not certification. A credential file cannot override a latest `not-configured`, `unsupported`, or partial certification report.
+Readiness is not certification. A credential file cannot override a latest `not-configured`, `unsupported`, or partial certification report, and no real-provider path should be described as live/autonomous until the target-specific report says it is supported.
+
+## Data Safety model
+
+Runtime data is local and sensitive. Backup manifests may include ledgers, source bundles, app config metadata, provider reports, and Shariah/accounting/purification context, but must exclude credentials, API keys, provider auth homes, CLI sessions, generated builds, test artifacts, caches, and local browser state. The web Data Safety route is status/proposal evidence only; destructive restore remains operator-managed until a reviewed restore workflow exists.
 
 ## Worker model
 

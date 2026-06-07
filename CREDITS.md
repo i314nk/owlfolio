@@ -31,7 +31,7 @@ Direct Anthropic/OpenAI/Gemini/Perplexity/OpenRouter/xAI/DeepSeek/Qwen/local Ope
 
 ## Investment methodology prior art
 
-Owlfolio's strategy references are original implementation/prose, but they are inspired by well-known investment traditions. Buffett-Munger is the primary alpha strategy direction; other strategy concepts require additional policy/audit gates before they become first-class certified workflows.
+Owlfolio's strategy references are original implementation/prose, but they are inspired by well-known investment traditions. Buffett-Munger is the default strategy direction; other strategy concepts require additional policy/audit/provider gates before they become first-class workflows.
 
 | Strategy concept | Inspired by |
 | --- | --- |

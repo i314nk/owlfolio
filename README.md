@@ -2,41 +2,47 @@
 
 # Owlfolio v2
 
-**A local-first investment workflow dashboard with a Shariah-by-design ledger.**
+**An automation-first local investment workflow OS with a Shariah-by-design ledger.**
 
-Owlfolio v2 is a TypeScript rewrite focused on the full investment workflow:
-research cases, watchlist decisions, holdings, reviews, monthly accounting,
-purification tracking, provider certification, scheduled worker runs, and an
+Owlfolio v2 is a TypeScript rewrite for local-first investment workflows:
+strategy-based discovery, quick screens, deep dives, decision drafts, watchlist
+and holding transitions, automatic portfolio/accounting/purification
+projections, provider readiness evidence, scheduled worker observations, and an
 immutable audit trail.
 
 </div>
 
 ---
 
-## Current alpha status
+## Current local-use candidate status
 
-This branch is an alpha hardening slice, not the older Python/FastAPI product.
-The primary app is a local Next.js web UI backed by a SQLite event ledger. The
-CLI is secondary; the local worker handles dry-run scheduled task ticks.
+This branch is an automation-first local-use candidate, not the older
+Python/FastAPI product, a public beta, or a production SaaS. The primary app is
+a local Next.js web UI backed by a SQLite event ledger. The CLI is secondary;
+the local worker handles dry-run scheduled task ticks and records observations
+without taking portfolio actions.
 
-Built alpha surfaces:
+Built local-use surfaces:
 
 - Command Center with setup-aware status, next actions, accounting prompts, and recent ledger activity.
 - Browser onboarding for demo and personal-local mode.
-- Research case intake and provider-authored draft recommendations.
+- Strategy-based research cockpit for discovery, quick screen, deep dive, decision draft, watchlist, and holding outcomes.
+- Default Buffett-Munger strategy posture with future selectable strategies treated as experimental until policy/audit/provider gates are complete.
+- Provider-authored draft recommendations with source/audit evidence.
 - Watchlist draft, explicit user confirmation, and open-holding transitions.
 - Portfolio page for holdings, lot entry, manual valuation, and holding review actions.
-- Monthly accounting snapshot projection and report page.
+- Automatic local portfolio, monthly accounting, and purification projections from ledger events.
 - Purification obligations/payments projection and report page.
 - Shariah workflow gates and policy projections in the ledger layer.
 - Audit activity page over append-only ledger events.
 - Provider status page using latest certification reports.
 - Local worker for dry-run scheduled `review_reminder` and `watchlist_monitor` tasks.
 
-Full-v2 gaps are tracked honestly in `docs/ALPHA_READINESS.md`: certified direct API
-provider parity, autonomous discovery/research at production quality, broker
-sync/trading, cash/dividend ingestion, tax-grade accounting, formal Shariah
-scholar review, and non-Buffett strategy certification are not complete.
+Full-v2 gaps are tracked honestly in `docs/ALPHA_READINESS.md`: direct API
+provider parity certification, production-grade autonomous discovery/research, broker sync or
+live trading, hardened market/broker-statement ingestion, tax-grade accounting,
+formal Shariah scholar review, and non-default strategy certification are not
+complete.
 
 ---
 
@@ -100,7 +106,7 @@ Important docs:
 
 Owlfolio distinguishes provider readiness from provider certification.
 
-| Provider id | Current role | Latest alpha support |
+| Provider id | Current role | Latest local-use support |
 | --- | --- | --- |
 | `mock-provider` | Deterministic demo/test provider | Certified; latest report passes 13/13 scenarios. |
 | `openai` / `openai-codex-cli` | OpenAI Codex CLI-backed development path | Experimental personal-local path; latest report passes 9/13 scenarios and lacks certified tool-loop parity. |
@@ -122,6 +128,18 @@ Readiness inputs:
 
 Latest reports live in `data/provider-certifications/*.latest.json` and are the
 source of truth for support labels surfaced in docs/UI.
+
+---
+
+## Data Safety boundary
+
+Owlfolio local-use runtime data can include sensitive investment research,
+source bundles, holdings, valuations, Shariah/accounting/purification context,
+and provider certification metadata. The app and runbooks keep credentials,
+provider auth homes, API keys, CLI session files, build outputs, and test
+artifacts out of backup manifests. Web Data Safety surfaces are status/proposal
+views only; destructive restore remains operator-managed until a reviewed flow
+exists.
 
 ---
 

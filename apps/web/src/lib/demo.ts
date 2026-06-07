@@ -171,7 +171,7 @@ export async function getSetupAwareCommandCenter({ config, is_initialized, provi
       product_name: 'Owlfolio',
       setup_status: 'Setup required',
       provider_status: `Provider: ${humanizeProvider(config.provider.provider_id)} not ready yet`,
-      strategy_status: 'Strategy: Buffett-Munger certified',
+      strategy_status: 'Strategy: Buffett-Munger default',
       shariah_status: config.shariah.enabled ? 'Shariah: enabled by default' : 'Shariah: disabled',
       ledger_status: 'Ledger: not initialized yet',
       pipeline_counts: {
@@ -201,12 +201,12 @@ export async function getSetupAwareCommandCenter({ config, is_initialized, provi
       product_name: 'Owlfolio',
       setup_status: 'Personal local mode initialized',
       provider_status: providerStatus,
-      strategy_status: 'Strategy: Buffett-Munger certified',
+      strategy_status: 'Strategy: Buffett-Munger default',
       shariah_status: config.shariah.enabled ? 'Shariah: enabled by default' : 'Shariah: disabled',
       ledger_status: 'Ledger: SQLite durable event source',
       pipeline_counts: summary.pipeline_counts,
       next_recommended_action: summary.pipeline_counts.research_cases === 0
-        ? 'Create or import your first research case'
+        ? 'Open the selected-strategy research cockpit'
         : summary.next_recommended_action,
       approval_queue: summary.approval_queue,
       holding_review_prompts: summary.holding_review_prompts,
@@ -215,7 +215,7 @@ export async function getSetupAwareCommandCenter({ config, is_initialized, provi
         ? [{ event_id: 'placeholder:no-ledger-events-yet', label: 'No ledger events yet' }]
         : summary.recent_activity,
       primary_action: summary.pipeline_counts.research_cases === 0
-        ? { href: '/research/new', label: 'Start first research case' }
+        ? { href: '/research', label: 'Open research cockpit' }
         : summary.pipeline_counts.open_holdings > 0
           ? { href: '/portfolio', label: 'Open portfolio' }
           : { href: `/research/${summary.primary_research_case_id ?? ''}`, label: 'Open latest research case' },
@@ -236,7 +236,7 @@ function buildDemoCommandCenter(
     product_name: 'Owlfolio',
     setup_status: 'Setup ready',
     provider_status: 'Provider: Mock provider / demo mode',
-    strategy_status: 'Strategy: Buffett-Munger certified',
+    strategy_status: 'Strategy: Buffett-Munger default',
     shariah_status: 'Shariah: enabled by default',
     ledger_status: 'Ledger: SQLite durable event source',
     pipeline_counts: summary.pipeline_counts,

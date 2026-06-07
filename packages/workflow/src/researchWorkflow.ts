@@ -1,6 +1,7 @@
 import type { EventStore } from '@owlfolio/ledger/eventStore'
 import type { LedgerEventEnvelope } from '@owlfolio/ledger/eventEnvelope'
 import type { Provider, ProviderRunRequest } from '@owlfolio/providers/providerContract'
+import { resolveResearchStrategyRef } from './researchStrategyRef'
 
 export type InvestmentVerdict = 'BUY' | 'WATCH' | 'PASS' | 'RESEARCH_MORE'
 export type StrategyCompliance = 'COMPLIANT' | 'CONDITIONAL' | 'NON_COMPLIANT' | 'INSUFFICIENT_DATA'
@@ -14,6 +15,7 @@ type ResearchCaseCreatedPayload = {
   company_id: string
   ticker: string
   strategy_id: string
+  strategy_version: string
 }
 
 export type ResearchCaseCreated = LedgerEventEnvelope<ResearchCaseCreatedPayload> & ResearchCaseCreatedPayload
@@ -23,6 +25,7 @@ export type CreateResearchCaseCommand = {
   company_id: string
   ticker: string
   strategy_id: string
+  strategy_version?: string
   actor_id: string
   idempotency_key?: string
 }
@@ -127,11 +130,12 @@ function buildDemoProviderRequest(command: RunDemoBuffettMungerAnalysisCommand, 
 }
 
 export async function createResearchCase(store: ResearchEventStore, command: CreateResearchCaseCommand): Promise<ResearchCaseCreated> {
+  const selectedStrategy = resolveResearchStrategyRef(command)
   const payload: ResearchCaseCreatedPayload = {
     research_case_id: command.research_case_id,
     company_id: command.company_id,
     ticker: command.ticker,
-    strategy_id: command.strategy_id,
+    ...selectedStrategy,
   }
 
   const event: LedgerEventEnvelope<ResearchCaseCreatedPayload> = {

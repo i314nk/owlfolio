@@ -11,6 +11,7 @@
     "./eventEnvelope": "./src/eventEnvelope.ts",
     "./eventStore": "./src/eventStore.ts",
     "./sqliteEventStore": "./src/sqliteEventStore.ts",
+    "./projections/discoveryCandidateProjection": "./src/projections/discoveryCandidateProjection.ts",
     "./projections/holdingProjection": "./src/projections/holdingProjection.ts",
     "./projections/accountingProjection": "./src/projections/accountingProjection.ts",
     "./projections/purificationProjection": "./src/projections/purificationProjection.ts",

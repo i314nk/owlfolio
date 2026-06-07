@@ -51,10 +51,10 @@ export function AccountingMonthlyReport({ report }: AccountingMonthlyReportProps
       createElement(
         'p',
         { style: { color: '#9aa4b7', fontSize: '1rem', margin: 0 } },
-        `Current period summary for ${formatMonth(current.period_end)}. Projected NAV is shown as of ${current.period_end} from manual valuations and period-bounded cash-flow events in the durable event ledger.`,
+        `Current period summary for ${formatMonth(current.period_end)}. Automatically maintained accounting projection derives current NAV from valuation, cash-flow, dividend, fee, and realized gain/loss events in the durable event ledger.`,
       ),
     ),
-    createAccountingStatusPanel(current),
+    createAccountingStatusPanel(current, report.next_scheduled_update ?? 'valuation refresh cadence 0 7 * * 1-5; accounting recalculates from ledger events on load'),
     missingCount === 0 ? null : createMissingValuationAlert(missingCount),
     createElement(
       'section',
@@ -64,10 +64,12 @@ export function AccountingMonthlyReport({ report }: AccountingMonthlyReportProps
         'div',
         { style: metricGridStyle },
         metric('Period', `${current.period_start} → ${current.period_end}`),
-        metric('Projected NAV (manual valuations)', `${formatMoney(current.nav, current.currency)} as of ${current.period_end}`),
-        metric('Current value (manual valuations)', formatMoney(current.current_value, current.currency)),
+        metric('Current NAV', `${formatMoney(current.nav, current.currency)} as of ${current.period_end}`),
+        metric('Period NAV', `${formatMoney(current.nav, current.currency)} as of ${current.period_end}`),
+        metric('Current value', formatMoney(current.current_value, current.currency)),
         metric('Invested cost basis', formatMoney(current.invested_cost_basis, current.currency)),
         metric('Unrealized P&L', formatMoney(current.unrealized_gain_loss, current.currency)),
+        metric('Realized P&L', formatMoney(current.realized_gain_loss, current.currency)),
         metric(current.cash_ledger_status === 'ledger_backed' ? 'Cash balance (ledger-backed)' : 'Cash balance (placeholder)', `${formatMoney(current.cash_balance, current.currency)} (${current.cash_ledger_status})`),
         metric(current.cash_ledger_status === 'ledger_backed' ? 'Deposits' : 'Deposits (untracked)', formatMoney(current.deposits, current.currency)),
         metric(current.cash_ledger_status === 'ledger_backed' ? 'Withdrawals' : 'Withdrawals (untracked)', formatMoney(current.withdrawals, current.currency)),
@@ -75,9 +77,7 @@ export function AccountingMonthlyReport({ report }: AccountingMonthlyReportProps
         metric(current.cash_ledger_status === 'ledger_backed' ? 'Fees' : 'Fees (untracked)', current.cash_ledger_status === 'ledger_backed' ? formatMoney(current.fees, current.currency) : `${formatMoney(0, current.currency)} placeholder`),
         current.cash_ledger_status === 'ledger_backed' ? metric('Net cash flow', formatMoney(current.net_cash_flow, current.currency)) : null,
       ),
-      current.cash_ledger_status === 'ledger_backed'
-        ? createCashFlowLedgerEvents(current)
-        : createElement('p', { style: { color: '#9aa4b7', fontSize: '0.92rem', margin: '1rem 0 0' } }, 'Fees and dividends are not modeled yet; treat all cash-flow totals as manual placeholders until dedicated ledger events exist.'),
+      createCashFlowLedgerEvents(current),
     ),
     createAccountingDataCoverage(current),
     createElement(
@@ -93,21 +93,15 @@ export function AccountingMonthlyReport({ report }: AccountingMonthlyReportProps
         ),
     ),
     createSnapshotHistory(report.snapshot_history),
-    createElement(
-      'section',
-      { 'aria-label': 'Accounting limitations', style: { ...cardStyle, background: 'rgba(251, 191, 36, 0.1)', borderColor: 'rgba(251, 191, 36, 0.32)' } },
-      createElement('h2', { style: { fontSize: '1.1rem', margin: '0 0 0.75rem' } }, 'Current limitations'),
-      createElement(
-        'ul',
-        { style: { color: '#fbbf24', display: 'grid', gap: '0.4rem', margin: 0, paddingLeft: '1.25rem' } },
-        ...report.limitations.map((limitation) => createElement('li', { key: limitation }, limitation)),
-      ),
-    ),
+    createAccountingLearnPanel(report.limitations),
   )
 }
 
-function createAccountingStatusPanel(current: AccountingSnapshotProjection) {
+function createAccountingStatusPanel(current: AccountingSnapshotProjection, nextScheduledUpdate: string) {
   const valuationBadge = getValuationCoverageBadge(current)
+  const userActionRequired = current.missing_valuation_holding_ids.length === 0
+    ? 'No user action required for current NAV coverage'
+    : `Resolve ${current.missing_valuation_holding_ids.length} missing valuation ${current.missing_valuation_holding_ids.length === 1 ? 'record' : 'records'}: ${current.missing_valuation_holding_ids.join(', ')}`
 
   return createElement(
     'section',
@@ -115,21 +109,54 @@ function createAccountingStatusPanel(current: AccountingSnapshotProjection) {
     createElement(
       'div',
       { style: { alignItems: 'center', display: 'flex', flexWrap: 'wrap', gap: '0.6rem', marginBottom: '0.75rem' } },
-      createElement('h2', { style: { fontSize: '1.15rem', margin: 0 } }, 'Draft accounting report'),
-      createElement(StatusBadge, { tone: 'draft' }, 'Manual / projected'),
+      createElement('h2', { style: { fontSize: '1.15rem', margin: 0 } }, 'Automatically maintained accounting projection'),
+      createElement(StatusBadge, { tone: 'neutral' }, 'Ledger-derived'),
       createElement(StatusBadge, { tone: valuationBadge.tone }, valuationBadge.label),
     ),
-    createElement('p', { style: { color: '#f8fafc', fontWeight: 800, margin: '0 0 0.45rem' } }, `NAV freshness: as of ${current.period_end}`),
+    createElement(
+      'div',
+      { style: { display: 'grid', gap: '0.75rem', gridTemplateColumns: 'repeat(auto-fit, minmax(15rem, 1fr))', margin: '0.75rem 0 1rem' } },
+      statusMetric('Current state', `${formatMoney(current.nav, current.currency)} NAV for ${formatMonth(current.period_end)}`),
+      statusMetric('Last automation calculation', current.updated_at),
+      statusMetric('Next scheduled calculation', nextScheduledUpdate),
+      statusMetric('Source / caveat / confidence', 'Local ledger projection · valuation/cash-flow event coverage only · not a broker statement or tax report'),
+      statusMetric('User action required', userActionRequired),
+    ),
+    createElement('p', { style: { color: '#f8fafc', fontWeight: 800, margin: '0 0 0.45rem' } }, `Last ledger update: ${current.updated_at}`),
+    createElement('p', { style: { color: '#f8fafc', fontWeight: 800, margin: '0 0 0.45rem' } }, `Next scheduled update: ${nextScheduledUpdate}`),
     createElement(
       'p',
       { style: { color: '#9aa4b7', lineHeight: 1.55, margin: '0 0 0.75rem' } },
-      'This report is projection-derived from the local ledger. Calculated valuation totals are separated from cash-flow inputs that are still untracked, placeholder, or manual-only in the alpha.',
+      'This report is projection-derived from the local ledger. Manual corrections are audited fallback or override records; valuation, cash-flow, dividend, fee, and realized gain/loss events remain the primary accounting inputs.',
     ),
     createElement(
       'div',
       { style: { alignItems: 'center', display: 'flex', flexWrap: 'wrap', gap: '0.55rem' } },
       createElement(SourceChip, { id: current.snapshot_id, label: 'Snapshot ID' }),
-      createElement('span', { style: { color: '#9aa4b7', fontFamily: 'var(--owl-font-mono)', fontSize: '0.72rem' } }, `Generated ${current.updated_at}`),
+      ...current.audit_event_ids.slice(0, 4).map((eventId) => createElement(SourceChip, { href: auditEventHref(eventId), id: eventId, key: `audit:${eventId}`, label: 'Audit event' })),
+      ...current.source_ids.slice(0, 4).map((sourceId) => createElement(SourceChip, { id: sourceId, key: `source:${sourceId}`, label: 'Source' })),
+    ),
+  )
+}
+
+function statusMetric(label: string, value: string) {
+  return createElement(
+    'article',
+    { style: { background: 'rgba(15, 23, 42, 0.52)', border: '1px solid rgba(148, 163, 184, 0.18)', borderRadius: '0.85rem', padding: '0.9rem' } },
+    createElement('p', { style: { color: '#9aa4b7', fontSize: '0.76rem', fontWeight: 900, letterSpacing: '0.06em', margin: 0, textTransform: 'uppercase' } }, label),
+    createElement('p', { style: { color: '#f8fafc', fontWeight: 850, lineHeight: 1.4, margin: '0.35rem 0 0' } }, value),
+  )
+}
+
+function createAccountingLearnPanel(limitations: string[]) {
+  return createElement(
+    'details',
+    { 'aria-label': 'Accounting limitations', style: { ...cardStyle, background: 'rgba(251, 191, 36, 0.08)', borderColor: 'rgba(251, 191, 36, 0.28)' } },
+    createElement('summary', { style: { color: '#fbbf24', cursor: 'pointer', fontSize: '1.05rem', fontWeight: 900 } }, 'Learn: accounting controls and caveats'),
+    createElement(
+      'ul',
+      { style: { color: '#fbbf24', display: 'grid', gap: '0.4rem', margin: '0.8rem 0 0', paddingLeft: '1.25rem' } },
+      ...limitations.map((limitation) => createElement('li', { key: limitation }, limitation)),
     ),
   )
 }
@@ -148,15 +175,10 @@ function getValuationCoverageBadge(current: AccountingSnapshotProjection): { lab
 
 function createAccountingDataCoverage(current: AccountingSnapshotProjection) {
   const missingCount = current.missing_valuation_holding_ids.length
-  const cashLedgerCopy = current.cash_ledger_status === 'ledger_backed'
+  const cashLedgerCopy = current.cash_flows.length > 0
     ? `Cash ledger events: ${current.cash_flows.length} period events linked.`
-    : `Cash ledger events: not modeled yet — cash balance is marked ${current.cash_ledger_status}.`
-  const cashFlowCopy = current.cash_ledger_status === 'ledger_backed'
-    ? 'Deposits, withdrawals, dividends, and fees are separated from manual valuation state and linked to ledger events where available.'
-    : 'Deposits and withdrawals: untracked manual placeholder totals until dedicated cash-flow ledger events exist.'
-  const dividendFeeCopy = current.cash_ledger_status === 'ledger_backed'
-    ? 'Dividends and fees: ledger-backed local tracking aids; amounts are not broker statements or tax reports.'
-    : 'Dividends and fees: not modeled yet; $0.00 is a placeholder, not a confirmed economic zero.'
+    : 'Cash ledger events: no period deposit, withdrawal, dividend, or fee events linked.'
+  const warnings = accountingWarnings(current)
 
   return createElement(
     'section',
@@ -165,11 +187,21 @@ function createAccountingDataCoverage(current: AccountingSnapshotProjection) {
     createElement(
       'ul',
       { style: { color: '#cbd5e1', display: 'grid', gap: '0.55rem', lineHeight: 1.5, margin: 0, paddingLeft: '1.25rem' } },
-      createElement('li', null, `Manual valuation event coverage: ${current.holdings.length} ${current.holdings.length === 1 ? 'holding' : 'holdings'} in snapshot; ${missingCount} missing ${missingCount === 1 ? 'valuation' : 'valuations'}.`),
+      createElement('li', null, `Valuation event coverage: ${current.holdings.length} ${current.holdings.length === 1 ? 'holding' : 'holdings'} in snapshot; ${missingCount} missing ${missingCount === 1 ? 'valuation' : 'valuations'}.`),
       createElement('li', null, cashLedgerCopy),
-      createElement('li', null, cashFlowCopy),
-      createElement('li', null, dividendFeeCopy),
-      createElement('li', null, 'Broker sync: not connected for this local alpha; values are user-entered or projected from ledger events.'),
+      createElement('li', null, 'Cash, deposit, withdrawal, dividend, and fee totals appear only when matching ledger events exist for the period.'),
+      createElement('li', null, 'Deposits, withdrawals, dividends, fees, and realized P&L are separated from valuation state and linked to ledger events where available.'),
+      createElement('li', null, 'Broker sync: not connected for this local alpha; values are user-entered, worker-recorded, or projected from ledger events.'),
+    ),
+    warnings.length === 0 ? null : createElement(
+      'section',
+      { 'aria-label': 'Missing-data warnings', style: { marginTop: '1rem' } },
+      createElement('h3', { style: { color: '#fecaca', fontSize: '1rem', margin: '0 0 0.5rem' } }, 'Missing-data warnings'),
+      createElement(
+        'ul',
+        { style: { color: '#fca5a5', display: 'grid', gap: '0.35rem', margin: 0, paddingLeft: '1.25rem' } },
+        ...warnings.map((warning) => createElement('li', { key: `${warning.code}:${warning.holding_id ?? warning.event_id ?? warning.message}` }, warning.message)),
+      ),
     ),
   )
 }
@@ -187,7 +219,9 @@ function createCashFlowLedgerEvents(current: AccountingSnapshotProjection) {
         ...current.cash_flows.map((flow) => createElement(
           'li',
           { key: flow.event_id },
-          `${capitalize(flow.flow_type)} ${formatMoney(Math.abs(flow.amount), flow.currency)} on ${flow.occurred_at}: ${flow.event_id}${flow.source_ids.length === 0 ? '' : `; sources ${flow.source_ids.join(', ')}`}`,
+          `${capitalize(flow.flow_type)} ${formatMoney(Math.abs(flow.amount), flow.currency)} on ${flow.occurred_at}: `,
+          createElement(SourceChip, { href: auditEventHref(flow.event_id), id: flow.event_id, label: 'Audit event' }),
+          ...flow.source_ids.map((sourceId) => createElement(SourceChip, { id: sourceId, key: `${flow.event_id}:${sourceId}`, label: 'Source' })),
         )),
       ),
   )
@@ -199,8 +233,8 @@ function createEmptyHoldingsState(current: AccountingSnapshotProjection) {
     { style: { color: '#9aa4b7', display: 'grid', gap: '0.5rem' } },
     createElement('p', { style: { color: '#fbbf24', fontWeight: 900, letterSpacing: '0.08em', margin: 0, textTransform: 'uppercase' } }, 'Zero-total empty state'),
     createElement('p', { style: { margin: 0 } }, 'No holdings are present for this accounting period yet.'),
-    createElement('p', { style: { fontWeight: 800, margin: 0 } }, `Zero totals are expected until you open a holding and record a manual valuation. Current projected NAV: ${formatMoney(current.nav, current.currency)}.`),
-    createElement('p', { style: { margin: 0 } }, 'Next step: open a holding, record lot data, then add a manual valuation snapshot.'),
+    createElement('p', { style: { fontWeight: 800, margin: 0 } }, `Zero totals are expected until ledger valuation or cash-flow events exist for an opened holding. Current projected NAV: ${formatMoney(current.nav, current.currency)}.`),
+    createElement('p', { style: { margin: 0 } }, 'Next step: open a holding, record lot data, then let valuation/cash-flow events feed accounting automatically.'),
     createElement('p', { style: { color: '#9aa4b7', margin: 0 } }, 'Source/audit preview: future cash, dividend, fee, and valuation events will appear here with ledger links.'),
     createElement(
       'div',
@@ -264,7 +298,11 @@ function holdingCard(holding: AccountingHoldingSnapshot) {
       : createElement('p', { style: { color: '#cbd5e1', margin: '0.25rem 0' } }, `Unrealized P&L: ${formatMoney(holding.unrealized_gain_loss, holding.currency)}`),
     holding.latest_valuation_at === undefined
       ? null
-      : createElement('p', { style: { color: '#9aa4b7', margin: '0.25rem 0 0' } }, `Manual valuation freshness: ${holding.latest_valuation_at}`),
+      : createElement('p', { style: { color: '#9aa4b7', margin: '0.25rem 0 0' } }, `Valuation freshness: ${holding.latest_valuation_at}`),
+    holding.valuation_event_id === undefined
+      ? null
+      : createElement('p', { style: { margin: '0.5rem 0 0' } }, createElement(SourceChip, { href: auditEventHref(holding.valuation_event_id), id: holding.valuation_event_id, label: 'Valuation event' })),
+    ...(holding.valuation_source_ids ?? []).map((sourceId) => createElement(SourceChip, { id: sourceId, key: `${holding.holding_id}:${sourceId}`, label: 'Source' })),
   )
 }
 
@@ -279,6 +317,23 @@ function metric(label: string, value: string) {
 
 function capitalize(value: string): string {
   return `${value.charAt(0).toUpperCase()}${value.slice(1)}`
+}
+
+function accountingWarnings(current: AccountingSnapshotProjection): AccountingSnapshotProjection['missing_data_warnings'] {
+  if (current.missing_data_warnings.length > 0) {
+    return current.missing_data_warnings
+  }
+  return current.holdings
+    .filter((holding) => holding.valuation_status === 'missing_valuation')
+    .map((holding) => ({
+      code: 'missing_valuation' as const,
+      holding_id: holding.holding_id,
+      message: `${holding.ticker ?? holding.holding_id} is missing a valuation; NAV excludes current value.`,
+    }))
+}
+
+function auditEventHref(eventId: string): string {
+  return `/audit?event_id=${encodeURIComponent(eventId)}#${encodeURIComponent(eventId)}`
 }
 
 function formatMoney(value: number, currency: string): string {

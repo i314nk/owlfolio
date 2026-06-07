@@ -1,33 +1,37 @@
-# Owlfolio v2 alpha readiness
+# Owlfolio v2 local-use candidate readiness
 
-Date: 2026-06-03
-Scope: final alpha-readiness gate for the TypeScript/pnpm Owlfolio v2 branch after phase-4 provider-surface closeout.
+Date: 2026-06-07
+Scope: automation-first local-use candidate readiness for the TypeScript/pnpm Owlfolio v2 branch after provider-surface, research-pipeline, accounting, purification, and Data Safety hardening.
 
 ## Release position
 
-Owlfolio v2 alpha is a local-first workflow demo and personal-local operating-ledger slice. It is not yet a complete autonomous investment operating system. The alpha is suitable for demonstrating the intended product direction and validating the local ledger workflow, provider certification boundaries, Shariah/accounting/purification surfaces, and dry-run worker safety model.
+Owlfolio v2 is an automation-first local-use candidate and personal-local operating-ledger slice. It is not a public beta, production SaaS, broker connection, live trading system, or complete autonomous investment operating system. The current app is suitable for trusted local use and product validation around the local ledger workflow, strategy-based research pipeline, provider readiness boundaries, Shariah/accounting/purification projections, Data Safety surfaces, and dry-run worker safety model.
 
-## What is in the alpha
+## What is in the local-use candidate
 
 - Local Next.js web app as the primary interface.
 - Browser onboarding for deterministic demo mode and personal-local mode.
 - Command Center with setup-aware status, workflow counts, next actions, accounting prompts, holding-review prompts, and recent ledger activity.
-- Research intake and provider-authored research/watchlist drafts.
+- Strategy-based research cockpit from discovery to quick screen, deep dive, synthesis/decision, watchlist, and holding transitions.
+- Default Buffett-Munger strategy posture; future selectable strategies remain experimental until policy, audit, Shariah, valuation, and provider-certification gates are complete.
+- Provider-authored research/watchlist drafts with explicit source/audit evidence.
 - Explicit user confirmation for watchlist items.
 - Explicit user transition from confirmed watchlist item to open holding.
 - Portfolio lot entry, manual valuation, holding review draft/confirm/reject/override flows.
-- Monthly accounting projection and report page from ledger events.
-- Purification obligation/payment projection and report page from ledger events.
+- Automatic local portfolio, monthly accounting, and purification projections from ledger events and manual/source-backed inputs.
+- Monthly accounting report page from period-bounded ledger projections.
+- Purification obligation/payment report page from ledger projections.
 - Shariah gate/policy helpers and ledger projection tests.
 - Audit activity page over append-only event envelopes.
 - Provider status page bounded by catalog capabilities plus latest certification reports.
+- Settings / Data Safety visibility for local backup contents, excluded credential/auth material, and restore-proposal boundaries.
 - Local worker for mock-safe/dry-run `review_reminder` and `watchlist_monitor` scheduled tasks.
 
 ## Provider certification evidence
 
 Latest persisted reports are under `data/provider-certifications/` and are summarized in `docs/architecture/owlfolio-v2-provider-model-support.md`.
 
-| Provider id / surface | Latest report | Effective alpha status | Notes |
+| Provider id / surface | Latest report | Effective local-use status | Notes |
 | --- | --- | --- | --- |
 | `mock-provider` | `mock-provider.latest.json` | Certified | Completed; 13/13 scenarios passed. Deterministic provider for demo/test/e2e only, not real research intelligence. |
 | `openai` / `openai-codex-cli` | `openai.latest.json` | Experimental | Completed; 9/13 scenarios passed with Codex CLI/OAuth. Unsupported tool-loop capabilities and a source-grounded timeout block certified status. Personal-local only; not production/headless certification. |
@@ -40,11 +44,18 @@ Provider claims must not exceed this evidence. OpenAI and Gemini direct API cand
 
 ## Shariah, accounting, and purification boundaries
 
-- Owlfolio is Shariah-by-design at the workflow/domain level, but alpha outputs are decision-support artifacts, not fatwas or professional rulings.
+- Owlfolio is Shariah-by-design at the workflow/domain level, but local-use outputs are decision-support artifacts, not fatwas or professional rulings.
 - Shariah results must remain source-grounded and conservative; user-authored overrides/status changes are explicit ledger events.
 - Purification obligations and payments are separate auditable events; the app tracks them but does not make the charitable payment or guarantee final compliance.
 - Monthly accounting is based on local ledger events, manual lot/valuation/cash inputs, and period-bounded projections; it is not a broker statement, custodian record, or tax filing system.
-- Broker credentials, broker synchronization, live trading, order placement, tax reporting, and portfolio rebalancing automation are out of scope for this alpha.
+- Broker credentials, broker synchronization, live trading, order placement, tax reporting, and portfolio rebalancing automation are out of scope for this local-use candidate.
+
+## Data Safety boundaries
+
+- Local backups may include sensitive investment ledgers, source bundles, app configuration metadata, provider certification metadata, and Shariah/accounting/purification context.
+- Credentials, API keys, provider auth homes, CLI session files, build outputs, test artifacts, and browser/runtime caches must stay out of backup manifests and git.
+- The web Data Safety panel is status/proposal evidence only. Destructive restore remains an operator-confirmed runbook flow until a separate reviewed restore UX exists.
+- Provider readiness after restore still requires re-authentication and certification evidence; a restored config must not imply real-provider readiness.
 
 ## Worker safety boundary
 
@@ -94,7 +105,7 @@ Against the larger autonomous, Shariah-by-design investment workflow vision, the
 5. Shariah certification: policy helpers and tests exist, but formal scholar-reviewed methodology, issuer-specific source coverage, and audited override policy are not complete.
 6. Accounting completeness: monthly snapshots exist, but tax lots, corporate actions, realized gains, FX, dividends, fees, benchmark performance, and statement reconciliation remain incomplete.
 7. Purification automation: obligation/payment tracking exists, but automatic dividend impurity calculation, payment execution, evidence upload, and period close workflows remain incomplete.
-8. Strategy certification: Buffett-Munger remains the primary certified direction; other strategies need policy gates, valuation rules, Shariah handling, and provider certification before being first-class.
+8. Strategy certification: Buffett-Munger is the default strategy direction; other strategies need policy gates, valuation rules, Shariah handling, and provider certification before being first-class.
 9. Packaging/operations: no signed desktop package, hosted deployment story, multi-user auth, backup/restore UX, or production observability story.
 10. Human review UX: provider proposals remain safer than autonomous writes, but the UI still needs richer approval queues, diff explanations, and decision-review ergonomics before full autonomy.
 

@@ -98,7 +98,7 @@ For Owlfolio v0.2 to count as a working app, all of the following must be true:
 
 ---
 
-### Milestone 3: Real Claude-certified Buffett-Munger workflow
+### Milestone 3: Real Claude-backed default Buffett-Munger workflow
 
 **Depends on:** Milestone 2
 

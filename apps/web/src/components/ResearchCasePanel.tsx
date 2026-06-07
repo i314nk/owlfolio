@@ -70,6 +70,7 @@ export function ResearchCasePanel({ researchCase, mode = 'demo' }: ResearchCaseP
     ),
     canPromoteToWatchlist ? createWatchlistPromotionAction(researchCase.research_case_id) : null,
     createCurrentWorkflowStatus(researchCase),
+    createQuickScreenPanel(researchCase),
     createElement(
       'div',
       {
@@ -180,6 +181,53 @@ function describeWorkflowStatus(researchCase: AppResearchCase): string {
     : 'User action required'
 
   return `${stageLabel} · ${actionHint}`
+}
+
+function createQuickScreenPanel(researchCase: AppResearchCase) {
+  if (researchCase.quick_screen_id === undefined && researchCase.screening_result === undefined) {
+    return null
+  }
+
+  const strategyLabel = researchCase.strategy_version === undefined
+    ? researchCase.strategy_id ?? 'Unknown strategy'
+    : `${researchCase.strategy_id ?? 'unknown'}@${researchCase.strategy_version}`
+  const redFlags = researchCase.red_flags === undefined || researchCase.red_flags.length === 0
+    ? ['No red flags recorded']
+    : researchCase.red_flags
+  const caveats = researchCase.caveats === undefined || researchCase.caveats.length === 0
+    ? ['No caveats recorded']
+    : researchCase.caveats
+
+  return createElement(
+    'section',
+    { className: 'owl-workflow-card', style: cardStyle },
+    createElement('p', { style: labelStyle }, 'Quick screen'),
+    createElement(
+      'h2',
+      { style: { fontSize: '1.35rem', margin: '0.35rem 0 0.6rem' } },
+      'Single-agent company screen',
+    ),
+    createElement(
+      'p',
+      { style: { color: '#9aa4b7', margin: '0 0 1rem' } },
+      'A selected-strategy first pass can recommend deep dive, pass, reject, or request more data. It does not mutate watchlist or holding state without explicit approval.',
+    ),
+    createElement(
+      'div',
+      { style: { display: 'grid', gap: '0.75rem', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' } },
+      createDetail('Selected strategy', strategyLabel),
+      createDetail('Screening result', researchCase.screening_result ?? 'Pending'),
+      createDetail('Business quality', researchCase.business_quality ?? 'Pending'),
+      createDetail('Moat', researchCase.moat ?? 'Pending'),
+      createDetail('Management / capital allocation', researchCase.management_capital_allocation ?? 'Pending'),
+      createDetail('Financial quality', researchCase.financial_quality ?? 'Pending'),
+      createDetail('Valuation sanity', researchCase.valuation_sanity ?? 'Pending'),
+      createDetail('Shariah status', researchCase.shariah_status ?? 'Pending'),
+      createDetail('Red flags', redFlags.join('; ')),
+      createDetail('Confidence / caveats', `${researchCase.confidence ?? 'Pending'} — ${caveats.join('; ')}`),
+      createDetail('Source ids', researchCase.source_ids.length === 0 ? 'No source IDs recorded' : researchCase.source_ids.join(', ')),
+    ),
+  )
 }
 
 function describeGateEvidence(label: string, sourceIds: string[]) {

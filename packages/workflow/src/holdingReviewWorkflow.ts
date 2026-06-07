@@ -138,7 +138,7 @@ function buildReviewRequest(command: DraftHoldingReviewCommand, provider: Provid
     task_kind: 'structured-output',
     prompt: [
       `You are the Buffett-Munger holding review agent for Owlfolio holding ${holding.holding_id}.`,
-      `Review ticker ${ticker} under the certified Buffett-Munger strategy ${holding.strategy_id ?? 'buffett-munger'}.`,
+      `Review ticker ${ticker} under the default Buffett-Munger strategy ${holding.strategy_id ?? 'buffett-munger'}.`,
       `Original thesis: ${holding.thesis_summary ?? 'No thesis summary recorded.'}`,
       `Cost basis: ${holding.total_cost_basis} ${holding.currency} for ${holding.shares} shares.`,
       valuationSummary,
