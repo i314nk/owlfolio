@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { assertPublicHttpUrl } from '../sourceGrounding'
+import { assertPublicHttpUrl, fetchAndCaptureSource, type ProposedSource } from '../sourceGrounding'
 
 describe('assertPublicHttpUrl', () => {
   it('accepts public https urls', () => {
@@ -23,5 +23,43 @@ describe('assertPublicHttpUrl', () => {
     ]) {
       expect(() => assertPublicHttpUrl(url), url).toThrow(/not allowed|private|loopback/i)
     }
+  })
+})
+
+const proposed = (over: Partial<ProposedSource> = {}): ProposedSource => ({
+  source_id: 'msft_10k', title: 'MSFT 10-K', url: 'https://www.sec.gov/msft-10k',
+  excerpt: 'claimed excerpt', ...over,
+})
+
+function fakeFetch(body: string, status = 200): typeof fetch {
+  return (async () => new Response(body, { status })) as unknown as typeof fetch
+}
+
+describe('fetchAndCaptureSource', () => {
+  it('marks available with a sha256 hash when fetch succeeds', async () => {
+    const out = await fetchAndCaptureSource(proposed(), { fetchImpl: fakeFetch('annual report body text') })
+    expect(out.availability).toBe('available')
+    expect(out.content_hash).toMatch(/^sha256:[0-9a-f]{64}$/)
+    expect(out.http_status).toBe(200)
+  })
+
+  it('marks unavailable (no hash) on non-2xx', async () => {
+    const out = await fetchAndCaptureSource(proposed(), { fetchImpl: fakeFetch('not found', 404) })
+    expect(out.availability).toBe('unavailable')
+    expect(out.content_hash).toBeUndefined()
+  })
+
+  it('marks unavailable on network error instead of throwing', async () => {
+    const throwing = (async () => { throw new Error('ECONNREFUSED') }) as unknown as typeof fetch
+    const out = await fetchAndCaptureSource(proposed(), { fetchImpl: throwing })
+    expect(out.availability).toBe('unavailable')
+  })
+
+  it('marks unavailable for a disallowed (private) url without fetching', async () => {
+    let called = false
+    const spy = (async () => { called = true; return new Response('x') }) as unknown as typeof fetch
+    const out = await fetchAndCaptureSource(proposed({ url: 'http://169.254.169.254/' }), { fetchImpl: spy })
+    expect(out.availability).toBe('unavailable')
+    expect(called).toBe(false)
   })
 })
