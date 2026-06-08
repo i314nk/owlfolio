@@ -61,3 +61,44 @@ export async function runGroundedAgent<T extends { proposed_sources: z.infer<typ
   )
   return { analysis, captured, verified_ids }
 }
+
+export type LaneOutcome = {
+  lane: string
+  finding_summary: string
+  confidence: 'low' | 'medium' | 'high'
+  caveats: string[]
+  verified_ids: string[]
+}
+
+export type LaneSwarmResult = LaneOutcome & { status: 'complete' | 'incomplete' }
+
+export async function runLaneSwarm(
+  lanes: readonly string[],
+  runLane: (lane: string) => Promise<LaneOutcome>,
+  opts: { concurrency?: number } = {},
+): Promise<LaneSwarmResult[]> {
+  const concurrency = Math.max(1, opts.concurrency ?? 4)
+  const results: LaneSwarmResult[] = new Array(lanes.length)
+  let cursor = 0
+  async function worker(): Promise<void> {
+    while (cursor < lanes.length) {
+      const index = cursor++
+      const lane = lanes[index]
+      if (lane === undefined) continue
+      try {
+        results[index] = { ...(await runLane(lane)), status: 'complete' }
+      } catch (error) {
+        results[index] = {
+          lane,
+          finding_summary: `${lane} lane did not complete: ${(error as Error).message}. Verify before any user decision.`,
+          confidence: 'low',
+          caveats: ['Lane incomplete — not investment-grade; re-run before relying on it.'],
+          verified_ids: [],
+          status: 'incomplete',
+        }
+      }
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(concurrency, lanes.length) }, worker))
+  return results
+}
