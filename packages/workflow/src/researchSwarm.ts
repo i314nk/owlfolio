@@ -1,6 +1,20 @@
 import { z, type ZodType } from 'zod'
+import type { EventStore } from '@owlfolio/ledger/eventStore'
+import type { LedgerEventEnvelope } from '@owlfolio/ledger/eventEnvelope'
 import type { Provider } from '@owlfolio/providers'
 import { groundProposedSources, type CapturedSource, type GroundingDeps, type ProposedSource } from './sourceGrounding'
+import { createResearchCase, draftDecision } from './researchWorkflow'
+import {
+  buffettMungerDeepDiveLanes,
+  draftQuickScreen,
+  queueDeepDive,
+  startDeepDive,
+  recordSpecialistFinding,
+  draftDeepDiveSynthesis,
+  completeDeepDive,
+} from './strategyResearchPipeline'
+import { ingestManualSourceBundle } from './sourceLedger'
+import { resolveResearchStrategyRef } from './researchStrategyRef'
 
 export const ProposedSourceSchema = z.object({
   source_id: z.string().min(1),
@@ -11,7 +25,7 @@ export const ProposedSourceSchema = z.object({
 })
 export const ProposedSourcesSchema = z.array(ProposedSourceSchema).min(1)
 
-type GroundFn = (
+export type GroundFn = (
   sources: z.infer<typeof ProposedSourcesSchema>,
   deps?: GroundingDeps,
 ) => Promise<{
@@ -101,4 +115,295 @@ export async function runLaneSwarm(
   }
   await Promise.all(Array.from({ length: Math.min(concurrency, lanes.length) }, worker))
   return results
+}
+
+// ---------------------------------------------------------------------------
+// Swarm orchestrator type aliases
+// ---------------------------------------------------------------------------
+
+type SwarmStore = EventStore<LedgerEventEnvelope<unknown>>
+
+// ---------------------------------------------------------------------------
+// Per-stage Zod schemas (each includes proposed_sources for grounding)
+// ---------------------------------------------------------------------------
+
+const QuickScreenAgentSchema = z.object({
+  summary: z.string().min(1),
+  business_quality: z.string().min(1),
+  moat: z.string().min(1),
+  management_capital_allocation: z.string().min(1),
+  financial_quality: z.string().min(1),
+  valuation_sanity: z.string().min(1),
+  shariah_status: z.enum(['COMPLIANT', 'CONDITIONAL', 'NON_COMPLIANT', 'PENDING']),
+  red_flags: z.array(z.string().min(1)).min(1),
+  confidence: z.enum(['low', 'medium', 'high']),
+  caveats: z.array(z.string().min(1)).min(1),
+  screening_result: z.enum(['pass', 'reject', 'needs_data', 'deep_dive_candidate']),
+  proposed_sources: ProposedSourcesSchema,
+})
+
+const LaneAgentSchema = z.object({
+  finding_summary: z.string().min(1),
+  confidence: z.enum(['low', 'medium', 'high']),
+  caveats: z.array(z.string().min(1)).min(1),
+  proposed_sources: ProposedSourcesSchema,
+})
+
+const DecisionAgentSchema = z.object({
+  investment_verdict: z.enum(['BUY', 'WATCH', 'PASS', 'RESEARCH_MORE']),
+  decision_reason: z.string().min(1),
+  thesis_summary: z.string().min(1),
+  evidence_summary: z.string().min(1),
+  valuation_rationale: z.string().min(1),
+  shariah_rationale: z.string().min(1),
+  synthesis_summary: z.string().min(1),
+  risks: z.array(z.string().min(1)).min(1),
+  open_questions: z.array(z.string().min(1)).min(1),
+  proposed_sources: ProposedSourcesSchema,
+})
+
+// ---------------------------------------------------------------------------
+// Command type
+// ---------------------------------------------------------------------------
+
+export type RunStrategyResearchSwarmCommand = {
+  research_case_id: string
+  company_id: string
+  ticker: string
+  strategy_id: string
+  strategy_version?: string
+  actor_id: string
+  idempotency_key?: string
+  model_id: string
+  decision_id: string
+  source_ledger_path: string
+}
+
+// ---------------------------------------------------------------------------
+// Helper
+// ---------------------------------------------------------------------------
+
+function swarmSeg(value: string): string {
+  return value.trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '')
+}
+
+// ---------------------------------------------------------------------------
+// Orchestrator
+// ---------------------------------------------------------------------------
+
+export async function runStrategyResearchSwarm(
+  store: SwarmStore,
+  provider: Provider,
+  command: RunStrategyResearchSwarmCommand,
+  deps: { ground?: GroundFn; grounding?: GroundingDeps; laneConcurrency?: number } = {},
+) {
+  const strategyRef = resolveResearchStrategyRef(command)
+  const accumulated = new Map<string, CapturedSource>()
+  const remember = (captured: CapturedSource[]) => captured.forEach((c) => accumulated.set(c.source_id, c))
+
+  // ---- Create research case ----
+  const researchCase = await createResearchCase(store, {
+    research_case_id: command.research_case_id,
+    company_id: command.company_id,
+    ticker: command.ticker,
+    strategy_id: command.strategy_id,
+    ...(command.strategy_version === undefined ? {} : { strategy_version: command.strategy_version }),
+    actor_id: command.actor_id,
+    ...(command.idempotency_key === undefined ? {} : { idempotency_key: command.idempotency_key }),
+  })
+
+  // ---- Quick screen agent ----
+  const qs = await runGroundedAgent(provider, {
+    run_id: `run_${command.research_case_id}_quick_screen`,
+    model_id: command.model_id,
+    prompt: `You are the Buffett-Munger quick-screen agent for ${command.ticker} (${command.company_id}). `
+      + `Assess business quality, moat, management/capital allocation, financial quality, Shariah/data availability, red flags, and a deep-dive recommendation. `
+      + `Gather your own primary/secondary sources and return them in proposed_sources with real URLs.`,
+    timeout_ms: 180_000,
+  }, QuickScreenAgentSchema, deps)
+  remember(qs.captured)
+
+  const quickScreen = await draftQuickScreen(store, {
+    research_case_id: command.research_case_id,
+    quick_screen_id: `quick_${swarmSeg(command.research_case_id)}`,
+    company_id: command.company_id,
+    ticker: command.ticker,
+    ...strategyRef,
+    screening_result: qs.analysis.screening_result,
+    summary: qs.analysis.summary,
+    business_quality: qs.analysis.business_quality,
+    moat: qs.analysis.moat,
+    management_capital_allocation: qs.analysis.management_capital_allocation,
+    financial_quality: qs.analysis.financial_quality,
+    valuation_sanity: qs.analysis.valuation_sanity,
+    shariah_status: qs.analysis.shariah_status,
+    red_flags: qs.analysis.red_flags,
+    confidence: qs.analysis.confidence,
+    caveats: qs.analysis.caveats,
+    source_ids: qs.verified_ids,
+    actor_id: provider.provider_id,
+    idempotency_key: `quick-screen:${command.research_case_id}:v1`,
+  })
+
+  // ---- Queue and start deep dive ----
+  const lanes = buffettMungerDeepDiveLanes
+
+  const queued = await queueDeepDive(store, {
+    research_case_id: command.research_case_id,
+    queue_id: `queue_${swarmSeg(command.research_case_id)}`,
+    ...strategyRef,
+    source_ids: qs.verified_ids,
+    causation_id: quickScreen.event_id,
+    actor_id: 'research_workflow',
+    idempotency_key: `deep-dive-queue:${command.research_case_id}:v1`,
+  })
+
+  const started = await startDeepDive(store, {
+    research_case_id: command.research_case_id,
+    deep_dive_id: `deep_${swarmSeg(command.research_case_id)}`,
+    ...strategyRef,
+    specialist_lanes: lanes,
+    source_ids: qs.verified_ids,
+    causation_id: queued.event_id,
+    actor_id: 'research_workflow',
+    idempotency_key: `deep-dive-start:${command.research_case_id}:v1`,
+  })
+
+  // ---- Per-lane swarm ----
+  const laneResults = await runLaneSwarm(lanes, async (lane) => {
+    const agent = await runGroundedAgent(provider, {
+      run_id: `run_${command.research_case_id}_${swarmSeg(lane)}`,
+      model_id: command.model_id,
+      prompt: `You are the Buffett-Munger ${lane} specialist agent for ${command.ticker}. `
+        + `Produce a source-backed finding for the ${lane} lane only. Gather your own sources; return them in proposed_sources with real URLs.`,
+      timeout_ms: 180_000,
+    }, LaneAgentSchema, deps)
+    remember(agent.captured)
+    return {
+      lane,
+      finding_summary: agent.analysis.finding_summary,
+      confidence: agent.analysis.confidence,
+      caveats: agent.analysis.caveats,
+      verified_ids: agent.verified_ids,
+    }
+  }, { concurrency: deps.laneConcurrency ?? 4 })
+
+  // ---- Record specialist findings ----
+  const findings: Awaited<ReturnType<typeof recordSpecialistFinding>>[] = []
+  for (const lane of laneResults) {
+    findings.push(await recordSpecialistFinding(store, {
+      research_case_id: command.research_case_id,
+      finding_id: `finding_${swarmSeg(command.research_case_id)}_${swarmSeg(lane.lane)}`,
+      deep_dive_id: started.deep_dive_id,
+      ...strategyRef,
+      specialist_lane: lane.lane,
+      finding_summary: lane.finding_summary,
+      confidence: lane.confidence,
+      caveats: lane.status === 'incomplete' ? [...lane.caveats, 'status:incomplete'] : lane.caveats,
+      source_ids: lane.verified_ids,
+      causation_id: started.event_id,
+      actor_id: provider.provider_id,
+      idempotency_key: `specialist-finding:${command.research_case_id}:${lane.lane}:v1`,
+    }))
+  }
+
+  // ---- Synthesis + decision agent ----
+  const dec = await runGroundedAgent(provider, {
+    run_id: `run_${command.research_case_id}_synthesis`,
+    model_id: command.model_id,
+    prompt: `You are the Buffett-Munger synthesis+decision agent for ${command.ticker}. `
+      + `Using the lane findings, produce a verdict, thesis, evidence, valuation rationale, Shariah rationale, risks, open questions, and a synthesis summary. `
+      + `Cite sources in proposed_sources with real URLs.`,
+    timeout_ms: 180_000,
+  }, DecisionAgentSchema, deps)
+  remember(dec.captured)
+
+  const allVerified = [
+    ...new Set([
+      ...qs.verified_ids,
+      ...findings.flatMap((f) => f.source_ids),
+      ...dec.verified_ids,
+    ]),
+  ]
+
+  const synthesis = await draftDeepDiveSynthesis(store, {
+    research_case_id: command.research_case_id,
+    synthesis_id: `synthesis_${swarmSeg(command.research_case_id)}`,
+    deep_dive_id: started.deep_dive_id,
+    ...strategyRef,
+    synthesis_summary: dec.analysis.synthesis_summary,
+    confidence: 'medium',
+    caveats: dec.analysis.open_questions,
+    source_ids: allVerified,
+    specialist_finding_ids: findings.map((f) => f.finding_id),
+    causation_id: findings.at(-1)?.event_id ?? started.event_id,
+    actor_id: 'research_workflow',
+    idempotency_key: `deep-dive-synthesis:${command.research_case_id}:v1`,
+  })
+
+  const completed = await completeDeepDive(store, {
+    research_case_id: command.research_case_id,
+    completion_id: `complete_${swarmSeg(command.research_case_id)}`,
+    deep_dive_id: started.deep_dive_id,
+    ...strategyRef,
+    synthesis_id: synthesis.synthesis_id,
+    confidence: 'medium',
+    caveats: dec.analysis.open_questions,
+    source_ids: allVerified,
+    causation_id: synthesis.event_id,
+    actor_id: 'research_workflow',
+    idempotency_key: `deep-dive-complete:${command.research_case_id}:v1`,
+  })
+
+  const decision = await draftDecision(store, {
+    research_case_id: command.research_case_id,
+    decision_id: command.decision_id,
+    decision: dec.analysis.investment_verdict,
+    reason: dec.analysis.decision_reason,
+    thesis_summary: dec.analysis.thesis_summary,
+    evidence_summary: dec.analysis.evidence_summary,
+    valuation_rationale: dec.analysis.valuation_rationale,
+    shariah_rationale: dec.analysis.shariah_rationale,
+    risks: dec.analysis.risks,
+    open_questions: dec.analysis.open_questions,
+    causation_id: completed.event_id,
+    source_ids: allVerified,
+    idempotency_key: `decision:${command.research_case_id}:v1`,
+  })
+
+  // ---- Persist source bundle ----
+  const captured = [...accumulated.values()]
+  if (captured.length > 0) {
+    await ingestManualSourceBundle({
+      source_ledger_path: command.source_ledger_path,
+      research_case_id: command.research_case_id,
+      ticker: command.ticker,
+      strategy_id: command.strategy_id,
+      provider_id: provider.provider_id,
+      proposed_by_actor_type: 'provider',
+      proposed_by_actor_id: provider.provider_id,
+      ingested_by_actor_type: 'system',
+      ingested_by_actor_id: 'research_workflow',
+      sources: captured.map((c) => ({
+        source_id: c.source_id,
+        kind: 'url' as const,
+        title: c.title,
+        url: c.url,
+        excerpt: c.excerpt,
+        availability: c.availability,
+        ...(c.content_hash === undefined ? {} : { content_hash: c.content_hash }),
+        metadata: {
+          research_case_id: command.research_case_id,
+          ...(c.http_status === undefined ? {} : { http_status: c.http_status }),
+        },
+      })),
+    })
+  }
+
+  return {
+    research_case: researchCase,
+    quick_screen: quickScreen,
+    deep_dive: { queued, started, findings, synthesis, completed },
+    decision,
+  }
 }
