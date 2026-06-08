@@ -248,26 +248,152 @@ describe('research and watchlist workflow pages', () => {
     }))
 
     expect(html).toContain('Quick screen')
+    expect(html).toContain('Single-agent business-quality gate')
     expect(html).toContain('Selected strategy')
     expect(html).toContain('quality-growth@2026.06')
-    expect(html).toContain('Screening result')
+    expect(html).toContain('Deep-dive recommendation')
     expect(html).toContain('deep_dive_candidate')
     expect(html).toContain('Business quality')
     expect(html).toContain('Recurring cloud revenue and enterprise retention support a quality screen.')
     expect(html).toContain('Moat')
     expect(html).toContain('Management / capital allocation')
     expect(html).toContain('Financial quality')
-    expect(html).toContain('Valuation sanity')
-    expect(html).toContain('Shariah status')
+    expect(html).toContain('Shariah / data availability')
     expect(html).toContain('PENDING')
     expect(html).toContain('Red flags')
     expect(html).toContain('Valuation may be demanding')
-    expect(html).toContain('Confidence / caveats')
+    expect(html).toContain('Uncertainty / caveats')
     expect(html).toContain('medium')
+    expect(html).toContain('Valuation belongs in deep dive')
+    expect(html).toContain('Valuation needs margin-of-safety review before watchlist promotion.')
     expect(html).toContain('src_msft_10k_2025')
     expect(html).toContain('Recommend deep dive, but do not mutate watchlist without approval.')
+    expect(html).not.toContain('Valuation sanity')
+    expect(html).not.toContain('Valuation gate')
     expect(html).not.toContain('Promote to watchlist')
     expect(html).not.toContain('/api/research/rc_msft_quick_001/watchlist')
+  })
+
+  it('renders deep-dive lanes with an owner-earnings valuation card', () => {
+    const deepDiveResearchCase = {
+      research_case_id: 'rc_msft_deep_001',
+      stage: 'deep_dive_completed',
+      company_id: 'company_msft',
+      ticker: 'MSFT',
+      strategy_id: 'buffett-munger',
+      strategy_version: '2026.06',
+      deep_dive_id: 'deep_msft_001',
+      synthesis_id: 'synthesis_msft_001',
+      specialist_findings: [
+        {
+          finding_id: 'finding_business_quality',
+          deep_dive_id: 'deep_msft_001',
+          specialist_lane: 'business_quality',
+          finding_summary: 'Sticky enterprise software revenue and Azure scale support a durable business-quality case.',
+          confidence: 'high',
+          caveats: ['Needs updated segment margin evidence'],
+          source_ids: ['src_msft_10k_2025'],
+        },
+        {
+          finding_id: 'finding_moat',
+          deep_dive_id: 'deep_msft_001',
+          specialist_lane: 'moat',
+          finding_summary: 'Switching costs, developer ecosystem, and enterprise distribution support a widening moat.',
+          confidence: 'high',
+          caveats: [],
+          source_ids: ['src_msft_10k_2025'],
+        },
+        {
+          finding_id: 'finding_management',
+          deep_dive_id: 'deep_msft_001',
+          specialist_lane: 'management',
+          finding_summary: 'Capital allocation appears disciplined; verify buyback valuation discipline separately.',
+          confidence: 'medium',
+          caveats: ['Proxy refresh pending'],
+          source_ids: ['src_msft_proxy_2025'],
+        },
+        {
+          finding_id: 'finding_financial_quality',
+          deep_dive_id: 'deep_msft_001',
+          specialist_lane: 'financial_quality',
+          finding_summary: 'High operating margins and free-cash-flow conversion support financial quality.',
+          confidence: 'high',
+          caveats: [],
+          source_ids: ['src_msft_10k_2025'],
+        },
+        {
+          finding_id: 'finding_shariah',
+          deep_dive_id: 'deep_msft_001',
+          specialist_lane: 'shariah',
+          finding_summary: 'Needs refreshed ratio evidence before user transition.',
+          confidence: 'medium',
+          caveats: ['Latest ratios missing'],
+          source_ids: ['src_msft_10k_2025'],
+        },
+        {
+          finding_id: 'finding_risks',
+          deep_dive_id: 'deep_msft_001',
+          specialist_lane: 'risks',
+          finding_summary: 'AI capex and antitrust scrutiny remain material risk lanes.',
+          confidence: 'medium',
+          caveats: ['Scenario sizing pending'],
+          source_ids: ['src_msft_10k_2025'],
+        },
+        {
+          finding_id: 'finding_owner_earnings_valuation',
+          deep_dive_id: 'deep_msft_001',
+          specialist_lane: 'valuation',
+          finding_summary: 'Owner-earnings valuation points to a buy-price range below the current market quote.',
+          confidence: 'medium',
+          caveats: ['Owner earnings normalization depends on AI capex treatment'],
+          source_ids: ['src_msft_cashflow_2025'],
+        },
+      ],
+      owner_earnings_valuation: {
+        normalized_owner_earnings: '$85B normalized owner earnings',
+        assumptions: ['5% ten-year growth', '10% discount rate', '25x terminal owner-earnings multiple'],
+        fair_value_range: '$360–$420/share',
+        buy_price_range: '$260–$300/share',
+        margin_of_safety: '25%–35%',
+        sources: ['src_msft_cashflow_2025'],
+        confidence: 'medium',
+        caveats: ['Treat AI capex normalization as the key swing factor'],
+      },
+      confidence: 'medium',
+      caveats: ['Deep dive still needs refreshed Shariah ratio evidence'],
+      next_required_action: 'Wait for owner-earnings margin of safety before watchlist promotion.',
+      updated_at: '2026-06-06T12:00:00.000Z',
+      gate_checklist: [],
+      source_ids: ['src_msft_10k_2025', 'src_msft_cashflow_2025'],
+      ledger_timeline: [],
+    } as AppResearchCase
+
+    const html = renderToStaticMarkup(createElement(ResearchCasePanel, {
+      researchCase: deepDiveResearchCase,
+      mode: 'personal-local',
+    }))
+
+    expect(html).toContain('Deep dive dossier')
+    expect(html).toContain('Business quality lane')
+    expect(html).toContain('Sticky enterprise software revenue')
+    expect(html).toContain('Moat lane')
+    expect(html).toContain('Management lane')
+    expect(html).toContain('Financial quality lane')
+    expect(html).toContain('Shariah lane')
+    expect(html).toContain('Risk lane')
+    expect(html).toContain('Owner-earnings valuation lane')
+    expect(html).toContain('Normalized owner earnings')
+    expect(html).toContain('$85B normalized owner earnings')
+    expect(html).toContain('Fair value range')
+    expect(html).toContain('$360–$420/share')
+    expect(html).toContain('Buy-price range')
+    expect(html).toContain('$260–$300/share')
+    expect(html).toContain('Margin of safety')
+    expect(html).toContain('25%–35%')
+    expect(html).toContain('5% ten-year growth')
+    expect(html).toContain('Owner earnings normalization depends on AI capex treatment')
+    expect(html).toContain('src_msft_cashflow_2025')
+    expect(html).toContain('Wait for owner-earnings margin of safety before watchlist promotion.')
   })
 
   it('renders a first-class investment brief and safe source evidence for drafted decisions', () => {
@@ -313,6 +439,9 @@ describe('research and watchlist workflow pages', () => {
     expect(html).toContain('Research dossier')
     expect(html).toContain('Verdict summary')
     expect(html).toContain('WATCH')
+    expect(html).toContain('Verdict is a drafted strategy decision')
+    expect(html).toContain('Valuation status EXPENSIVE is tracked inside the deep-dive valuation workstream, not treated as a Quick Screen pass/fail gate.')
+    expect(html).not.toContain('WATCH based on valuation EXPENSIVE')
     expect(html).toContain('Next action')
     expect(html).toContain('Thesis')
     const thesisCardStart = html.indexOf('data-testid="research-dossier-card-thesis"')
@@ -328,12 +457,22 @@ describe('research and watchlist workflow pages', () => {
     expect(html).toContain('align-items:start')
     expect(html).toContain('Valuation')
     expect(html).toContain('EXPENSIVE')
-    expect(html).toContain('Needs structured valuation detail')
+    expect(html).toContain('Legacy dossier lacks structured owner-earnings assumptions; treat EXPENSIVE as a deep-dive valuation status, not a Quick Screen gate.')
+    expect(html).not.toContain('Current valuation gate')
     expect(html).toContain('Shariah / compliance')
     expect(html).toContain('CONDITIONAL')
     expect(html).toContain('Needs structured Shariah detail')
     expect(html).toContain('Risks / open questions')
     expect(html).toContain('No separately structured risks are recorded yet')
+    expect(html).toContain('Single-agent business-quality gate')
+    expect(html).toContain('Legacy decision has no standalone Quick Screen event; use this as a business-quality digest of the existing dossier before spending more analysis budget.')
+    expect(html).toContain('Deep-dive recommendation')
+    expect(html).toContain('Review existing decision draft')
+    expect(html).toContain('Valuation belongs in deep dive')
+    expect(html).toContain('Swarm lane findings')
+    expect(html).toContain('Owner-earnings valuation lane')
+    expect(html).toContain('Legacy dossier has valuation status EXPENSIVE but no owner-earnings buy-price range recorded.')
+    expect(html).toContain('Missing owner-earnings assumptions are a deep-dive gap, not a Quick Screen failure.')
     expect(html).toContain('Evidence and audit details')
     expect(html).toContain('<details')
     expect(html).toContain('Microsoft Form 10-K for Fiscal Year 2025')

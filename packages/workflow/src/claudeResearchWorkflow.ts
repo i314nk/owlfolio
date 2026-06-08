@@ -32,6 +32,31 @@ import {
 } from './strategyResearchPipeline'
 import { ingestManualSourceBundle, type SourceLedgerBundle } from './sourceLedger'
 
+const QuickScreenSchema = z.object({
+  summary: z.string().min(1),
+  business_quality: z.string().min(1),
+  moat: z.string().min(1),
+  management_capital_allocation: z.string().min(1),
+  financial_quality: z.string().min(1),
+  shariah_data_availability: z.string().min(1),
+  red_flags: z.array(z.string().min(1)).min(1),
+  confidence: z.enum(['low', 'medium', 'high']),
+  caveats: z.array(z.string().min(1)).min(1),
+  deep_dive_recommendation: z.enum(['pass', 'reject', 'needs_data', 'deep_dive_candidate']),
+})
+
+const OwnerEarningsValuationSchema = z.object({
+  summary: z.string().min(1),
+  normalized_owner_earnings: z.string().min(1),
+  assumptions: z.array(z.string().min(1)).min(1),
+  fair_value_range: z.string().min(1),
+  buy_price_range: z.string().min(1),
+  margin_of_safety: z.string().min(1),
+  sources: z.array(z.string().min(1)).min(1),
+  confidence: z.enum(['low', 'medium', 'high']),
+  caveats: z.array(z.string().min(1)).min(1),
+})
+
 const ClaudeBuffettMungerResearchSchema = z.object({
   investment_verdict: z.enum(['BUY', 'WATCH', 'PASS', 'RESEARCH_MORE']),
   strategy_compliance: z.enum(['COMPLIANT', 'CONDITIONAL', 'NON_COMPLIANT', 'INSUFFICIENT_DATA']),
@@ -43,6 +68,8 @@ const ClaudeBuffettMungerResearchSchema = z.object({
   evidence_summary: z.string().min(1),
   valuation_rationale: z.string().min(1),
   shariah_rationale: z.string().min(1),
+  quick_screen: QuickScreenSchema.optional(),
+  owner_earnings_valuation: OwnerEarningsValuationSchema.optional(),
   risks: z.array(z.string().min(1)).min(1),
   open_questions: z.array(z.string().min(1)).min(1),
   source_records: z.array(
@@ -59,6 +86,9 @@ const ClaudeBuffettMungerResearchSchema = z.object({
 
 type ResearchEventStore = EventStore<LedgerEventEnvelope<unknown>>
 
+type QuickScreenStructured = z.infer<typeof QuickScreenSchema>
+type OwnerEarningsValuationStructured = z.infer<typeof OwnerEarningsValuationSchema>
+
 type ClaudeAnalysisPayload = {
   research_case_id: string
   company_id: string
@@ -72,6 +102,8 @@ type ClaudeAnalysisPayload = {
   evidence_summary: string
   valuation_rationale: string
   shariah_rationale: string
+  quick_screen: QuickScreenStructured
+  owner_earnings_valuation: OwnerEarningsValuationStructured
   risks: string[]
   open_questions: string[]
 }
@@ -122,6 +154,9 @@ function buildRequest(command: RunClaudeBuffettMungerResearchCommand, provider: 
     prompt: [
       `You are the Buffett-Munger research specialist for Owlfolio research case ${command.research_case_id}.`,
       `Analyze ticker ${command.ticker} (${command.company_id}) under the default Buffett-Munger policy.`,
+      'Quick Screen is a single-agent business-quality gate only: cover business quality, moat, management/capital allocation, financial quality, red flags, Shariah/data availability, and a deep-dive recommendation.',
+      'Do not reject or pass primarily on valuation in quick screen. Main valuation belongs in the swarm deep dive.',
+      'Deep Dive must include digestible lane outputs for business quality, moat, management, financial quality, Shariah, risks, and valuation, including an owner-earnings buy-price lane with assumptions, fair value or buy-price range, margin of safety, sources, confidence, and caveats.',
       'Return a useful investment brief, not status labels only: explain the business/moat thesis, source-backed evidence, valuation rationale, Shariah rationale or missing evidence, risks, and open questions.',
       'Return only the structured fields requested by the JSON schema and avoid unsupported claims.',
       'Use source_records for the concrete primary/secondary sources that support the draft; include useful titles and excerpts for audit display.',
@@ -133,7 +168,7 @@ function buildRequest(command: RunClaudeBuffettMungerResearchCommand, provider: 
   }
 }
 
-const providerBackedSpecialistLanes = buffettMungerDeepDiveLanes.filter((lane) => lane !== 'synthesis')
+const providerBackedSpecialistLanes = buffettMungerDeepDiveLanes
 
 function stableIdSegment(value: string): string {
   return value.trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '')
@@ -151,23 +186,26 @@ function confidenceFor(payload: ClaudeAnalysisPayload): 'low' | 'medium' | 'high
 }
 
 function laneSummary(lane: string, payload: ClaudeAnalysisPayload): string {
-  if (lane === 'moat') {
-    return payload.thesis_summary
+  if (lane === 'business_quality') {
+    return payload.quick_screen.business_quality
   }
-  if (lane === 'financial_quality') {
-    return payload.evidence_summary
+  if (lane === 'moat') {
+    return payload.quick_screen.moat
   }
   if (lane === 'management') {
-    return `Management and capital allocation evidence remains part of the provider-backed diligence record for ${payload.ticker}; verify capital allocation specifics before approval.`
+    return payload.quick_screen.management_capital_allocation
   }
-  if (lane === 'risk') {
+  if (lane === 'financial_quality') {
+    return payload.quick_screen.financial_quality
+  }
+  if (lane === 'risks') {
     return payload.risks.join(' ')
   }
   if (lane === 'valuation') {
-    return payload.valuation_rationale
+    return payload.owner_earnings_valuation.summary
   }
   if (lane === 'shariah') {
-    return payload.shariah_rationale
+    return `${payload.quick_screen.shariah_data_availability} ${payload.shariah_rationale}`
   }
 
   return payload.evidence_summary
@@ -234,6 +272,34 @@ export async function runClaudeBuffettMungerResearch(
 
   const sourceIds = sourceBundle.records.map((record) => record.source_id)
   const selectedStrategy = resolveResearchStrategyRef(command)
+  const fallbackConfidence = structured.strategy_compliance === 'INSUFFICIENT_DATA' || structured.valuation_status === 'INSUFFICIENT_DATA'
+    ? 'low'
+    : structured.strategy_compliance === 'COMPLIANT' && structured.valuation_status === 'ATTRACTIVE'
+      ? 'high'
+      : 'medium'
+  const quickScreenStructured: QuickScreenStructured = structured.quick_screen ?? {
+    summary: structured.thesis_summary,
+    business_quality: structured.thesis_summary,
+    moat: structured.thesis_summary,
+    management_capital_allocation: `Management and capital allocation require verification before user approval for ${command.ticker}.`,
+    financial_quality: structured.evidence_summary,
+    shariah_data_availability: structured.shariah_rationale,
+    red_flags: structured.risks,
+    confidence: fallbackConfidence,
+    caveats: structured.open_questions,
+    deep_dive_recommendation: 'deep_dive_candidate' as const,
+  }
+  const ownerEarningsValuation: OwnerEarningsValuationStructured = structured.owner_earnings_valuation ?? {
+    summary: structured.valuation_rationale,
+    normalized_owner_earnings: 'Needs normalized owner-earnings estimate from deep-dive evidence.',
+    assumptions: ['Owner-earnings assumptions were not separately structured by the provider.'],
+    fair_value_range: structured.valuation_status,
+    buy_price_range: 'Pending owner-earnings buy-price workstream.',
+    margin_of_safety: 'Pending',
+    sources: sourceIds,
+    confidence: fallbackConfidence,
+    caveats: structured.open_questions,
+  }
   const analysisPayload: ClaudeAnalysisPayload = {
     research_case_id: command.research_case_id,
     company_id: command.company_id,
@@ -247,6 +313,8 @@ export async function runClaudeBuffettMungerResearch(
     evidence_summary: structured.evidence_summary,
     valuation_rationale: structured.valuation_rationale,
     shariah_rationale: structured.shariah_rationale,
+    quick_screen: quickScreenStructured,
+    owner_earnings_valuation: ownerEarningsValuation,
     risks: structured.risks,
     open_questions: structured.open_questions,
   }
@@ -256,17 +324,17 @@ export async function runClaudeBuffettMungerResearch(
     company_id: command.company_id,
     ticker: command.ticker,
     ...selectedStrategy,
-    screening_result: 'deep_dive_candidate',
-    summary: structured.thesis_summary,
-    business_quality: structured.thesis_summary,
-    moat: structured.thesis_summary,
-    management_capital_allocation: `Management and capital allocation require verification before user approval for ${command.ticker}.`,
-    financial_quality: structured.evidence_summary,
-    valuation_sanity: structured.valuation_rationale,
+    screening_result: quickScreenStructured.deep_dive_recommendation,
+    summary: quickScreenStructured.summary,
+    business_quality: quickScreenStructured.business_quality,
+    moat: quickScreenStructured.moat,
+    management_capital_allocation: quickScreenStructured.management_capital_allocation,
+    financial_quality: quickScreenStructured.financial_quality,
+    valuation_sanity: `Valuation belongs in deep dive: ${structured.valuation_rationale}`,
     shariah_status: structured.shariah_status,
-    red_flags: structured.risks,
-    confidence: confidenceFor(analysisPayload),
-    caveats: structured.open_questions,
+    red_flags: quickScreenStructured.red_flags,
+    confidence: quickScreenStructured.confidence,
+    caveats: quickScreenStructured.caveats,
     source_ids: sourceIds,
     actor_id: provider.provider_id,
     idempotency_key: `quick-screen:${command.research_case_id}:${provider.provider_id}:v1`,
@@ -300,7 +368,8 @@ export async function runClaudeBuffettMungerResearch(
       specialist_lane: lane,
       finding_summary: laneSummary(lane, analysisPayload),
       confidence: confidenceFor(analysisPayload),
-      caveats: structured.open_questions,
+      caveats: lane === 'valuation' ? ownerEarningsValuation.caveats : structured.open_questions,
+      ...(lane === 'valuation' ? { owner_earnings_valuation: ownerEarningsValuation } : {}),
       provider_run_id: request.run_id,
       source_ids: sourceIds,
       causation_id: started.event_id,

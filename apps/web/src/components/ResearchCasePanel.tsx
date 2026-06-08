@@ -109,6 +109,7 @@ export function ResearchCasePanel({ researchCase, mode = 'demo' }: ResearchCaseP
     canPromoteToWatchlist ? createWatchlistPromotionAction(researchCase.research_case_id) : null,
     createResearchDossier(researchCase),
     createQuickScreenPanel(researchCase),
+    createDeepDivePanel(researchCase),
     createEvidenceAndAuditDetails(researchCase),
   )
 }
@@ -120,15 +121,18 @@ function createVerdictReason(researchCase: AppResearchCase): string {
   const strategy = researchCase.strategy_compliance
 
   if (verdict !== undefined) {
-    const gates = [
-      valuation === undefined ? undefined : `valuation ${valuation}`,
-      shariah === undefined ? undefined : `Shariah ${shariah}`,
+    const qualityContext = [
       strategy === undefined ? undefined : `strategy ${strategy}`,
+      shariah === undefined ? undefined : `Shariah ${shariah}`,
     ].filter((gate): gate is string => gate !== undefined)
+    const qualitySentence = qualityContext.length === 0
+      ? 'Review the dossier evidence before any user-authored transition.'
+      : `Quality/compliance context: ${qualityContext.join(', ')}.`
+    const valuationSentence = valuation === undefined
+      ? 'Owner-earnings valuation should be handled in the deep-dive workstream when available.'
+      : `Valuation status ${valuation} is tracked inside the deep-dive valuation workstream, not treated as a Quick Screen pass/fail gate.`
 
-    if (gates.length > 0) {
-      return `${verdict} based on ${gates.join(', ')}.`
-    }
+    return `Verdict is a drafted strategy decision: ${verdict}. ${qualitySentence} ${valuationSentence}`
   }
 
   return firstNonEmpty([
@@ -147,7 +151,7 @@ function createResearchDossier(researchCase: AppResearchCase) {
   const thesis = createConciseDossierSummary(fullThesis, researchCase.ticker ?? researchCase.company_id)
   const valuationRationale = researchCase.valuation_rationale?.trim().length
     ? researchCase.valuation_rationale
-    : `Needs structured valuation detail. Current valuation gate: ${researchCase.valuation_status ?? 'Pending'}.`
+    : createLegacyValuationRationale(researchCase)
   const shariahRationale = researchCase.shariah_rationale?.trim().length
     ? researchCase.shariah_rationale
     : `Needs structured Shariah detail. Current compliance gate: ${researchCase.shariah_status ?? 'Pending'}.`
@@ -182,6 +186,16 @@ function createResearchDossier(researchCase: AppResearchCase) {
     ),
     createFullThesisDisclosure(fullThesis, thesis),
   )
+}
+
+function createLegacyValuationRationale(researchCase: AppResearchCase): string {
+  if (researchCase.owner_earnings_valuation !== undefined) {
+    return researchCase.owner_earnings_valuation.summary
+      ?? 'Owner-earnings valuation details are available in the deep-dive valuation lane below.'
+  }
+
+  const valuationStatus = researchCase.valuation_status ?? 'Pending'
+  return `Legacy dossier lacks structured owner-earnings assumptions; treat ${valuationStatus} as a deep-dive valuation status, not a Quick Screen gate.`
 }
 
 function createDossierCard(label: string, content: string | string[], status?: string, options?: { note?: string }) {
@@ -465,8 +479,132 @@ function describeWorkflowStatus(researchCase: AppResearchCase): string {
   return `${stageLabel} · ${actionHint}`
 }
 
+type ResearchFindingCard = NonNullable<AppResearchCase['specialist_findings']>[number]
+
+function isLegacyDecisionDossier(researchCase: AppResearchCase): boolean {
+  const hasStandaloneResearchPipeline = researchCase.quick_screen_id !== undefined
+    || researchCase.screening_result !== undefined
+    || researchCase.deep_dive_id !== undefined
+    || researchCase.specialist_findings !== undefined
+    || researchCase.owner_earnings_valuation !== undefined
+
+  return !hasStandaloneResearchPipeline
+    && ['analysis_drafted', 'decision_pending', 'decision_drafted'].includes(researchCase.stage)
+    && (researchCase.investment_verdict !== undefined || researchCase.decision !== undefined || researchCase.reason !== undefined)
+}
+
+function legacyBusinessQualityDigest(researchCase: AppResearchCase): string {
+  const source = firstNonEmpty([researchCase.thesis_summary, researchCase.evidence_summary, researchCase.reason])
+  return source === undefined
+    ? 'No standalone business-quality lane was recorded; inspect source evidence before continuing.'
+    : `Legacy digest from dossier thesis: ${createConciseDossierSummary(source, researchCase.ticker ?? researchCase.company_id)}`
+}
+
+function legacyMoatDigest(researchCase: AppResearchCase): string {
+  return firstNonEmpty([researchCase.evidence_summary, researchCase.reason]) === undefined
+    ? 'No standalone moat lane was recorded.'
+    : 'Review the thesis and source evidence for durable moat signals; no standalone moat lane was recorded.'
+}
+
+function legacyManagementDigest(_researchCase: AppResearchCase): string {
+  return 'No standalone management/capital-allocation lane was recorded; require source-backed follow-up before action.'
+}
+
+function legacyFinancialQualityDigest(researchCase: AppResearchCase): string {
+  return researchCase.evidence_summary?.trim().length
+    ? researchCase.evidence_summary
+    : 'No standalone financial-quality lane was recorded; require updated financial evidence before action.'
+}
+
+function legacyQuickScreenRedFlags(researchCase: AppResearchCase): string[] {
+  return [
+    ...(researchCase.risks ?? []),
+    ...(researchCase.open_questions ?? []),
+    researchCase.valuation_status === undefined
+      ? 'Owner-earnings valuation is missing from this legacy dossier'
+      : `Valuation status ${researchCase.valuation_status} must stay in deep dive, not Quick Screen`,
+  ]
+}
+
+function createLegacyDeepDiveFindings(researchCase: AppResearchCase): ResearchFindingCard[] {
+  const sourceIds = researchCase.source_ids
+  return [
+    {
+      finding_id: `${researchCase.research_case_id}:legacy-business-quality`,
+      specialist_lane: 'business_quality',
+      finding_summary: legacyBusinessQualityDigest(researchCase),
+      confidence: 'legacy fallback',
+      caveats: ['No standalone swarm lane was recorded for this older dossier.'],
+      source_ids: sourceIds,
+    },
+    {
+      finding_id: `${researchCase.research_case_id}:legacy-moat`,
+      specialist_lane: 'moat',
+      finding_summary: legacyMoatDigest(researchCase),
+      confidence: 'legacy fallback',
+      caveats: ['Convert this to a source-backed specialist lane on rerun.'],
+      source_ids: sourceIds,
+    },
+    {
+      finding_id: `${researchCase.research_case_id}:legacy-management`,
+      specialist_lane: 'management',
+      finding_summary: legacyManagementDigest(researchCase),
+      confidence: 'legacy fallback',
+      caveats: ['No management/capital-allocation specialist output recorded.'],
+      source_ids: sourceIds,
+    },
+    {
+      finding_id: `${researchCase.research_case_id}:legacy-financial-quality`,
+      specialist_lane: 'financial_quality',
+      finding_summary: legacyFinancialQualityDigest(researchCase),
+      confidence: 'legacy fallback',
+      caveats: ['No normalized financial-quality specialist lane recorded.'],
+      source_ids: sourceIds,
+    },
+    {
+      finding_id: `${researchCase.research_case_id}:legacy-shariah`,
+      specialist_lane: 'shariah',
+      finding_summary: researchCase.shariah_rationale ?? `Shariah status: ${researchCase.shariah_status ?? 'Pending'}.`,
+      confidence: 'legacy fallback',
+      caveats: ['Needs source-backed Shariah ratio evidence if not already attached.'],
+      source_ids: sourceIds,
+    },
+    {
+      finding_id: `${researchCase.research_case_id}:legacy-risks`,
+      specialist_lane: 'risks',
+      finding_summary: (researchCase.risks ?? researchCase.open_questions ?? researchCase.caveats)?.join('; ')
+        ?? 'No separately structured risks are recorded yet; review the thesis and source evidence before action.',
+      confidence: 'legacy fallback',
+      caveats: ['Legacy risk/open-question data may be incomplete.'],
+      source_ids: sourceIds,
+    },
+    {
+      finding_id: `${researchCase.research_case_id}:legacy-valuation`,
+      specialist_lane: 'valuation',
+      finding_summary: `Legacy dossier has valuation status ${researchCase.valuation_status ?? 'Pending'} but no owner-earnings buy-price range recorded.`,
+      confidence: 'legacy fallback',
+      caveats: ['Missing owner-earnings assumptions are a deep-dive gap, not a Quick Screen failure.'],
+      source_ids: sourceIds,
+    },
+  ]
+}
+
+function createLegacyOwnerEarningsValuation(researchCase: AppResearchCase): NonNullable<AppResearchCase['owner_earnings_valuation']> {
+  return {
+    summary: `Legacy dossier has valuation status ${researchCase.valuation_status ?? 'Pending'} but no owner-earnings buy-price range recorded.`,
+    assumptions: ['No owner-earnings assumptions were recorded for this legacy dossier.'],
+    fair_value_range: 'Not recorded',
+    buy_price_range: 'Not recorded',
+    margin_of_safety: 'Not recorded',
+    sources: researchCase.source_ids,
+    confidence: 'legacy fallback',
+    caveats: ['Missing owner-earnings assumptions are a deep-dive gap, not a Quick Screen failure.'],
+  }
+}
+
 function createQuickScreenPanel(researchCase: AppResearchCase) {
-  if (researchCase.quick_screen_id === undefined && researchCase.screening_result === undefined) {
+  const legacyDossier = isLegacyDecisionDossier(researchCase)
+  if (researchCase.quick_screen_id === undefined && researchCase.screening_result === undefined && !legacyDossier) {
     return null
   }
 
@@ -474,11 +612,18 @@ function createQuickScreenPanel(researchCase: AppResearchCase) {
     ? researchCase.strategy_id ?? 'Unknown strategy'
     : `${researchCase.strategy_id ?? 'unknown'}@${researchCase.strategy_version}`
   const redFlags = researchCase.red_flags === undefined || researchCase.red_flags.length === 0
-    ? ['No red flags recorded']
+    ? legacyDossier
+      ? legacyQuickScreenRedFlags(researchCase)
+      : ['No red flags recorded']
     : researchCase.red_flags
   const caveats = researchCase.caveats === undefined || researchCase.caveats.length === 0
-    ? ['No caveats recorded']
+    ? legacyDossier
+      ? ['Legacy dossier only; no standalone Quick Screen caveats were recorded.']
+      : ['No caveats recorded']
     : researchCase.caveats
+  const intro = legacyDossier
+    ? 'Legacy decision has no standalone Quick Screen event; use this as a business-quality digest of the existing dossier before spending more analysis budget.'
+    : 'Quick Screen is a selected-strategy first pass for business quality, moat, management, financial quality, red flags, and Shariah/data availability. Valuation belongs in deep dive and this card never mutates watchlist or holding state without explicit approval.'
 
   return createElement(
     'section',
@@ -487,29 +632,193 @@ function createQuickScreenPanel(researchCase: AppResearchCase) {
     createElement(
       'h2',
       { style: { fontSize: '1.35rem', margin: '0.35rem 0 0.6rem' } },
-      'Single-agent company screen',
+      'Single-agent business-quality gate',
     ),
     createElement(
       'p',
       { style: { color: '#9aa4b7', margin: '0 0 1rem' } },
-      'A selected-strategy first pass can recommend deep dive, pass, reject, or request more data. It does not mutate watchlist or holding state without explicit approval.',
+      intro,
     ),
     createElement(
       'div',
       { style: { display: 'grid', gap: '0.75rem', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' } },
       createDetail('Selected strategy', strategyLabel),
-      createDetail('Screening result', researchCase.screening_result ?? 'Pending'),
-      createDetail('Business quality', researchCase.business_quality ?? 'Pending'),
-      createDetail('Moat', researchCase.moat ?? 'Pending'),
-      createDetail('Management / capital allocation', researchCase.management_capital_allocation ?? 'Pending'),
-      createDetail('Financial quality', researchCase.financial_quality ?? 'Pending'),
-      createDetail('Valuation sanity', researchCase.valuation_sanity ?? 'Pending'),
-      createDetail('Shariah status', researchCase.shariah_status ?? 'Pending'),
+      createDetail('Deep-dive recommendation', researchCase.screening_result ?? (legacyDossier ? 'Review existing decision draft' : 'Pending')),
+      createDetail('Business quality', researchCase.business_quality ?? legacyBusinessQualityDigest(researchCase)),
+      createDetail('Moat', researchCase.moat ?? legacyMoatDigest(researchCase)),
+      createDetail('Management / capital allocation', researchCase.management_capital_allocation ?? legacyManagementDigest(researchCase)),
+      createDetail('Financial quality', researchCase.financial_quality ?? legacyFinancialQualityDigest(researchCase)),
+      createDetail('Shariah / data availability', researchCase.shariah_status ?? 'Pending'),
       createDetail('Red flags', redFlags.join('; ')),
-      createDetail('Confidence / caveats', `${researchCase.confidence ?? 'Pending'} — ${caveats.join('; ')}`),
+      createDetail('Uncertainty / caveats', `${researchCase.confidence ?? 'Pending'} — ${caveats.join('; ')}`),
+      createDetail('Valuation belongs in deep dive', researchCase.valuation_sanity ?? 'Owner-earnings valuation runs in deep dive.'),
       createDetail('Source ids', researchCase.source_ids.length === 0 ? 'No source IDs recorded' : researchCase.source_ids.join(', ')),
     ),
   )
+}
+
+function createDeepDivePanel(researchCase: AppResearchCase) {
+  const legacyDossier = isLegacyDecisionDossier(researchCase)
+  const findings = researchCase.specialist_findings ?? []
+  const displayFindings = findings.length === 0 && legacyDossier
+    ? createLegacyDeepDiveFindings(researchCase)
+    : findings
+  const ownerValuation = researchCase.owner_earnings_valuation
+    ?? findings.find((finding) => finding.specialist_lane === 'valuation')?.owner_earnings_valuation
+    ?? (legacyDossier ? createLegacyOwnerEarningsValuation(researchCase) : undefined)
+
+  if (displayFindings.length === 0 && ownerValuation === undefined && researchCase.deep_dive_id === undefined) {
+    return null
+  }
+
+  const orderedLanes = ['business_quality', 'moat', 'management', 'financial_quality', 'shariah', 'risks', 'valuation']
+  const cards = orderedLanes
+    .map((lane) => displayFindings.find((finding) => finding.specialist_lane === lane))
+    .filter((finding): finding is NonNullable<typeof finding> => finding !== undefined)
+
+  return createElement(
+    'section',
+    { className: 'owl-workflow-card', style: { ...cardStyle, display: 'grid', gap: '1rem' } },
+    createElement('p', { style: labelStyle }, 'Deep dive dossier'),
+    createElement(
+      'h2',
+      { style: { fontSize: '1.35rem', margin: 0 } },
+      'Swarm lane findings',
+    ),
+    createElement(
+      'p',
+      { style: { color: '#9aa4b7', margin: 0 } },
+      'Deep dive separates business quality from valuation. The valuation lane is the owner-earnings buy-price workstream and should carry assumptions, sources, confidence, and caveats when available.',
+    ),
+    cards.length === 0
+      ? createElement('p', { style: { color: '#cbd5e1', margin: 0 } }, 'No lane findings have been recorded yet.')
+      : createElement(
+        'div',
+        { style: { display: 'grid', gap: '0.85rem', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))' } },
+        ...cards.map((finding) => createDeepDiveFindingCard(finding)),
+      ),
+    ownerValuation === undefined ? null : createOwnerEarningsValuationCard(ownerValuation),
+  )
+}
+
+function createDeepDiveFindingCard(finding: NonNullable<AppResearchCase['specialist_findings']>[number]) {
+  const laneLabel = deepDiveLaneLabel(finding.specialist_lane)
+  const caveats = finding.caveats ?? []
+  const sourceIds = finding.source_ids ?? []
+
+  return createElement(
+    'article',
+    {
+      key: finding.finding_id,
+      style: {
+        background: 'rgba(15, 23, 42, 0.34)',
+        border: '1px solid rgba(148, 163, 184, 0.14)',
+        borderRadius: '0.95rem',
+        display: 'grid',
+        gap: '0.65rem',
+        padding: '1rem',
+      },
+    },
+    createElement(
+      'div',
+      { style: { alignItems: 'center', display: 'flex', flexWrap: 'wrap', gap: '0.55rem', justifyContent: 'space-between' } },
+      createElement('h3', { style: { color: '#f7f8ff', fontSize: '1rem', margin: 0 } }, laneLabel),
+      finding.confidence === undefined ? null : createElement('span', { style: { color: '#c7d2fe', fontSize: '0.82rem', fontWeight: 900 } }, finding.confidence),
+    ),
+    createElement('p', { style: { color: '#dbe3ef', lineHeight: 1.55, margin: 0 } }, finding.finding_summary ?? 'No lane summary recorded.'),
+    caveats.length === 0
+      ? null
+      : createElement(
+        'ul',
+        { style: { color: '#9aa4b7', display: 'grid', gap: '0.35rem', lineHeight: 1.45, margin: 0, paddingLeft: '1.1rem' } },
+        ...caveats.map((caveat) => createElement('li', { key: caveat }, caveat)),
+      ),
+    sourceIds.length === 0 ? null : createDetail('Source ids', sourceIds.join(', ')),
+  )
+}
+
+function createOwnerEarningsValuationCard(ownerValuation: NonNullable<AppResearchCase['owner_earnings_valuation']>) {
+  const assumptions = ownerValuation.assumptions ?? []
+  const caveats = ownerValuation.caveats ?? []
+  const sources = ownerValuation.sources ?? []
+
+  return createElement(
+    'article',
+    {
+      style: {
+        background: 'rgba(124, 140, 255, 0.1)',
+        border: '1px solid rgba(199, 210, 254, 0.22)',
+        borderRadius: '1rem',
+        display: 'grid',
+        gap: '0.75rem',
+        padding: '1rem',
+      },
+    },
+    createElement('p', { style: labelStyle }, 'Owner-earnings valuation lane'),
+    ownerValuation.summary === undefined
+      ? null
+      : createElement('p', { style: { color: '#dbe3ef', lineHeight: 1.55, margin: 0 } }, ownerValuation.summary),
+    createElement(
+      'div',
+      { style: { display: 'grid', gap: '0.65rem', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' } },
+      createDetail('Normalized owner earnings', ownerValuation.normalized_owner_earnings ?? 'Pending'),
+      createDetail('Fair value range', ownerValuation.fair_value_range ?? 'Pending'),
+      createDetail('Buy-price range', ownerValuation.buy_price_range ?? 'Pending'),
+      createDetail('Margin of safety', ownerValuation.margin_of_safety ?? 'Pending'),
+      createDetail('Confidence', ownerValuation.confidence ?? 'Pending'),
+      createDetail('Sources', sources.length === 0 ? 'No source IDs recorded' : sources.join(', ')),
+    ),
+    assumptions.length === 0
+      ? null
+      : createElement(
+        'section',
+        { style: { display: 'grid', gap: '0.45rem' } },
+        createElement('h3', { style: { color: '#f7f8ff', fontSize: '1rem', margin: 0 } }, 'Assumptions'),
+        createElement(
+          'ul',
+          { style: { color: '#dbe3ef', display: 'grid', gap: '0.35rem', lineHeight: 1.45, margin: 0, paddingLeft: '1.1rem' } },
+          ...assumptions.map((assumption) => createElement('li', { key: assumption }, assumption)),
+        ),
+      ),
+    caveats.length === 0
+      ? null
+      : createElement(
+        'section',
+        { style: { display: 'grid', gap: '0.45rem' } },
+        createElement('h3', { style: { color: '#f7f8ff', fontSize: '1rem', margin: 0 } }, 'Caveats'),
+        createElement(
+          'ul',
+          { style: { color: '#dbe3ef', display: 'grid', gap: '0.35rem', lineHeight: 1.45, margin: 0, paddingLeft: '1.1rem' } },
+          ...caveats.map((caveat) => createElement('li', { key: caveat }, caveat)),
+        ),
+      ),
+  )
+}
+
+function deepDiveLaneLabel(lane?: string): string {
+  if (lane === 'business_quality') {
+    return 'Business quality lane'
+  }
+  if (lane === 'moat') {
+    return 'Moat lane'
+  }
+  if (lane === 'management') {
+    return 'Management lane'
+  }
+  if (lane === 'financial_quality') {
+    return 'Financial quality lane'
+  }
+  if (lane === 'shariah') {
+    return 'Shariah lane'
+  }
+  if (lane === 'risks' || lane === 'risk') {
+    return 'Risk lane'
+  }
+  if (lane === 'valuation') {
+    return 'Owner earnings buy-price lane'
+  }
+
+  return `${humanizeToken(lane ?? 'unknown')} lane`
 }
 
 function createConciseDossierSummary(thesis: string, subject?: string): string {
@@ -654,7 +963,7 @@ function createResearchTransitionPanel(researchCase: AppResearchCase) {
         createElement('h2', { style: { fontSize: '1.05rem', margin: 0 } }, 'Source-backed Shariah gate'),
         createElement('p', { style: { color: '#9aa4b7', margin: '0.45rem 0 0' } }, `Shariah status: ${researchCase.shariah_status ?? 'Pending'}`),
         createDetail('Source evidence', researchCase.source_ids.length === 0 ? 'No source IDs recorded' : researchCase.source_ids.join(', ')),
-        createDetail('Valuation gate', researchCase.valuation_status ?? 'Pending'),
+        createDetail('Valuation status', researchCase.valuation_status ?? 'Pending'),
       ),
       createElement(
         'section',

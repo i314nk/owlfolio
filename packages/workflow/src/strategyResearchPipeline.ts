@@ -12,14 +12,26 @@ export type DeepDiveConfidence = QuickScreenConfidence
 export type DeepDiveSpecialistLane = string
 
 export const buffettMungerDeepDiveLanes = [
+  'business_quality',
   'moat',
-  'financial_quality',
   'management',
-  'risk',
-  'valuation',
+  'financial_quality',
   'shariah',
-  'synthesis',
+  'risks',
+  'valuation',
 ] as const satisfies readonly DeepDiveSpecialistLane[]
+
+export type OwnerEarningsValuationPayload = {
+  summary?: string
+  normalized_owner_earnings?: string
+  assumptions?: string[]
+  fair_value_range?: string
+  buy_price_range?: string
+  margin_of_safety?: string
+  sources?: string[]
+  confidence?: DeepDiveConfidence
+  caveats?: string[]
+}
 
 type ResearchPipelineEventStore = EventStore<LedgerEventEnvelope<unknown>>
 
@@ -111,6 +123,7 @@ type SpecialistFindingRecordedPayload = StrategyPipelinePayloadBase & {
   finding_summary: string
   confidence: DeepDiveConfidence
   caveats: string[]
+  owner_earnings_valuation?: OwnerEarningsValuationPayload
 }
 
 export type SpecialistFindingRecorded = LedgerEventEnvelope<SpecialistFindingRecordedPayload> & SpecialistFindingRecordedPayload
@@ -124,6 +137,7 @@ export type RecordSpecialistFindingCommand = ResearchStrategyRef & {
   finding_summary: string
   confidence: DeepDiveConfidence
   caveats: string[]
+  owner_earnings_valuation?: OwnerEarningsValuationPayload
   provider_run_id?: string
   source_ids: string[]
   causation_id: string
@@ -666,6 +680,9 @@ export async function recordSpecialistFinding(
     finding_summary: requireNonEmptyString(command.finding_summary, 'finding_summary'),
     confidence: command.confidence,
     caveats: normalizeStringList(command.caveats, 'caveats'),
+    ...(command.owner_earnings_valuation === undefined
+      ? {}
+      : { owner_earnings_valuation: command.owner_earnings_valuation }),
   }
 
   return await appendPipelineEvent(store, {

@@ -19,6 +19,18 @@ export type ResearchCaseStage =
   | 'decision_drafted'
   | 'watchlist_draft'
 
+export type ResearchCaseOwnerEarningsValuationProjection = {
+  summary?: string
+  normalized_owner_earnings?: string
+  assumptions?: string[]
+  fair_value_range?: string
+  buy_price_range?: string
+  margin_of_safety?: string
+  sources?: string[]
+  confidence?: string
+  caveats?: string[]
+}
+
 export type ResearchCaseSpecialistFindingProjection = {
   finding_id: string
   deep_dive_id?: string
@@ -28,6 +40,7 @@ export type ResearchCaseSpecialistFindingProjection = {
   caveats?: string[]
   source_ids?: string[]
   provider_run_id?: string
+  owner_earnings_valuation?: ResearchCaseOwnerEarningsValuationProjection
 }
 
 export type ResearchCaseProjection = {
@@ -52,6 +65,7 @@ export type ResearchCaseProjection = {
   finding_id?: string
   specialist_lane?: string
   specialist_findings?: ResearchCaseSpecialistFindingProjection[]
+  owner_earnings_valuation?: ResearchCaseOwnerEarningsValuationProjection
   synthesis_id?: string
   decision_id?: string
   investment_verdict?: string
@@ -92,6 +106,43 @@ function getStringArray(payload: Record<string, unknown>, key: string): string[]
   }
 
   return [...value]
+}
+
+function getOwnerEarningsValuation(payload: Record<string, unknown>): ResearchCaseOwnerEarningsValuationProjection | undefined {
+  const value = payload.owner_earnings_valuation
+  if (!isRecord(value)) {
+    return undefined
+  }
+
+  const projected: ResearchCaseOwnerEarningsValuationProjection = {}
+  const stringKeys = [
+    'summary',
+    'normalized_owner_earnings',
+    'fair_value_range',
+    'buy_price_range',
+    'margin_of_safety',
+    'confidence',
+  ] as const
+  for (const key of stringKeys) {
+    const stringValue = getString(value, key)
+    if (stringValue !== undefined) {
+      projected[key] = stringValue
+    }
+  }
+  const assumptions = getStringArray(value, 'assumptions')
+  if (assumptions !== undefined) {
+    projected.assumptions = assumptions
+  }
+  const sources = getStringArray(value, 'sources')
+  if (sources !== undefined) {
+    projected.sources = sources
+  }
+  const caveats = getStringArray(value, 'caveats')
+  if (caveats !== undefined) {
+    projected.caveats = caveats
+  }
+
+  return Object.keys(projected).length === 0 ? undefined : projected
 }
 
 function applyString(
@@ -174,6 +225,7 @@ function recordSpecialistFinding(
   const caveats = getStringArray(payload, 'caveats')
   const sourceIds = getStringArray(payload, 'source_ids')
   const providerRunId = getString(payload, 'provider_run_id')
+  const ownerEarningsValuation = getOwnerEarningsValuation(payload)
 
   if (deepDiveId !== undefined) {
     finding.deep_dive_id = deepDiveId
@@ -195,6 +247,10 @@ function recordSpecialistFinding(
   }
   if (providerRunId !== undefined) {
     finding.provider_run_id = providerRunId
+  }
+  if (ownerEarningsValuation !== undefined) {
+    finding.owner_earnings_valuation = ownerEarningsValuation
+    target.owner_earnings_valuation = ownerEarningsValuation
   }
 
   const previousFindings = target.specialist_findings ?? []
