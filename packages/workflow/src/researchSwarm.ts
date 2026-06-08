@@ -180,6 +180,12 @@ export type RunStrategyResearchSwarmCommand = {
 }
 
 // ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
+
+const AGENT_TIMEOUT_MS = 180_000
+
+// ---------------------------------------------------------------------------
 // Helper
 // ---------------------------------------------------------------------------
 
@@ -219,9 +225,14 @@ export async function runStrategyResearchSwarm(
     prompt: `You are the Buffett-Munger quick-screen agent for ${command.ticker} (${command.company_id}). `
       + `Assess business quality, moat, management/capital allocation, financial quality, Shariah/data availability, red flags, and a deep-dive recommendation. `
       + `Gather your own primary/secondary sources and return them in proposed_sources with real URLs.`,
-    timeout_ms: 180_000,
+    timeout_ms: AGENT_TIMEOUT_MS,
   }, QuickScreenAgentSchema, deps)
   remember(qs.captured)
+
+  // I1: fail-closed if quick screen produced no verifiable sources
+  if (qs.verified_ids.length === 0) {
+    throw new Error(`Quick screen for ${command.ticker} produced no verifiable sources (fail-closed).`)
+  }
 
   const quickScreen = await draftQuickScreen(store, {
     research_case_id: command.research_case_id,
@@ -276,7 +287,7 @@ export async function runStrategyResearchSwarm(
       model_id: command.model_id,
       prompt: `You are the Buffett-Munger ${lane} specialist agent for ${command.ticker}. `
         + `Produce a source-backed finding for the ${lane} lane only. Gather your own sources; return them in proposed_sources with real URLs.`,
-      timeout_ms: 180_000,
+      timeout_ms: AGENT_TIMEOUT_MS,
     }, LaneAgentSchema, deps)
     remember(agent.captured)
     return {
@@ -289,8 +300,17 @@ export async function runStrategyResearchSwarm(
   }, { concurrency: deps.laneConcurrency ?? 4 })
 
   // ---- Record specialist findings ----
+  // C1: only record findings for lanes with at least one verified source id;
+  // lanes with zero verified ids (incomplete or all-sources-unverified) are
+  // skipped and noted so incompleteness surfaces in synthesis caveats.
   const findings: Awaited<ReturnType<typeof recordSpecialistFinding>>[] = []
+  const laneNotes: string[] = []
   for (const lane of laneResults) {
+    if (lane.verified_ids.length === 0) {
+      const reason = lane.status === 'incomplete' ? 'incomplete' : 'no verifiable sources'
+      laneNotes.push(`${lane.lane}: skipped (${reason})`)
+      continue
+    }
     findings.push(await recordSpecialistFinding(store, {
       research_case_id: command.research_case_id,
       finding_id: `finding_${swarmSeg(command.research_case_id)}_${swarmSeg(lane.lane)}`,
@@ -307,6 +327,11 @@ export async function runStrategyResearchSwarm(
     }))
   }
 
+  // C1 edge case: if NO lane produced a recorded finding, abort before synthesis
+  if (findings.length === 0) {
+    throw new Error(`No specialist lane produced a verifiable source for ${command.ticker}; research aborted (fail-closed).`)
+  }
+
   // ---- Synthesis + decision agent ----
   const dec = await runGroundedAgent(provider, {
     run_id: `run_${command.research_case_id}_synthesis`,
@@ -314,7 +339,7 @@ export async function runStrategyResearchSwarm(
     prompt: `You are the Buffett-Munger synthesis+decision agent for ${command.ticker}. `
       + `Using the lane findings, produce a verdict, thesis, evidence, valuation rationale, Shariah rationale, risks, open questions, and a synthesis summary. `
       + `Cite sources in proposed_sources with real URLs.`,
-    timeout_ms: 180_000,
+    timeout_ms: AGENT_TIMEOUT_MS,
   }, DecisionAgentSchema, deps)
   remember(dec.captured)
 
@@ -326,14 +351,27 @@ export async function runStrategyResearchSwarm(
     ]),
   ]
 
+  // I1: fail-closed if synthesis has no verifiable sources
+  if (allVerified.length === 0) {
+    throw new Error(`Synthesis for ${command.ticker} has no verifiable sources (fail-closed).`)
+  }
+
+  // I3: derive synthesis confidence from lane outcomes
+  const synthesisConfidence = (laneNotes.length > 0 || findings.some((f) => f.confidence === 'low')) ? 'low' : 'medium'
+
+  // I3: append lane notes to caveats so incompleteness is not silently dropped
+  const synthesisCaveats = laneNotes.length > 0
+    ? [...dec.analysis.open_questions, ...laneNotes]
+    : dec.analysis.open_questions
+
   const synthesis = await draftDeepDiveSynthesis(store, {
     research_case_id: command.research_case_id,
     synthesis_id: `synthesis_${swarmSeg(command.research_case_id)}`,
     deep_dive_id: started.deep_dive_id,
     ...strategyRef,
     synthesis_summary: dec.analysis.synthesis_summary,
-    confidence: 'medium',
-    caveats: dec.analysis.open_questions,
+    confidence: synthesisConfidence,
+    caveats: synthesisCaveats,
     source_ids: allVerified,
     specialist_finding_ids: findings.map((f) => f.finding_id),
     causation_id: findings.at(-1)?.event_id ?? started.event_id,
@@ -347,8 +385,8 @@ export async function runStrategyResearchSwarm(
     deep_dive_id: started.deep_dive_id,
     ...strategyRef,
     synthesis_id: synthesis.synthesis_id,
-    confidence: 'medium',
-    caveats: dec.analysis.open_questions,
+    confidence: synthesisConfidence,
+    caveats: synthesisCaveats,
     source_ids: allVerified,
     causation_id: synthesis.event_id,
     actor_id: 'research_workflow',

@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
 import { InMemoryEventStore } from '@owlfolio/ledger/eventStore'
 import { runGroundedAgent, ProposedSourcesSchema, runLaneSwarm, runStrategyResearchSwarm } from '../researchSwarm'
+import { buffettMungerDeepDiveLanes } from '../strategyResearchPipeline'
 import type { CapturedSource } from '../sourceGrounding'
 
 function fakeProvider(payload: unknown) {
@@ -116,6 +117,69 @@ function swarmFakeProvider() {
   }
 }
 
+// Fake provider where each lane agent call encodes the lane name in its proposed source_id.
+// This allows the ground function to single out a specific lane (e.g., 'moat') and return
+// verified_ids: [] for that lane's sources to exercise the C1 partial-lane skip path.
+function swarmFakeProviderWithLaneIds(lanes: readonly string[]) {
+  let callCount = 0
+  const src = (id: string) => ({
+    source_id: id,
+    title: 'Test source',
+    url: 'https://example.com/src',
+    excerpt: 'Test excerpt',
+  })
+  return {
+    provider_id: 'fake-swarm-partial',
+    capabilities: {} as never,
+    complete: vi.fn(),
+    runWithTools: vi.fn(),
+    structured: vi.fn(async (_req: unknown) => {
+      const call = callCount++
+      if (call === 0) {
+        // Quick screen — source id does not contain any lane name
+        return {
+          summary: 'Good business',
+          business_quality: 'Strong',
+          moat: 'Wide moat',
+          management_capital_allocation: 'Excellent',
+          financial_quality: 'Solid',
+          valuation_sanity: 'Reasonable',
+          shariah_status: 'COMPLIANT',
+          red_flags: ['None identified'],
+          confidence: 'high',
+          caveats: ['Mock caveat'],
+          screening_result: 'deep_dive_candidate',
+          proposed_sources: [src('src_qs_partial_1')],
+        }
+      }
+      // Lane agent calls — source id encodes the lane name so ground can filter by lane
+      const laneIndex = call - 1
+      if (laneIndex >= 0 && laneIndex < lanes.length) {
+        const lane = lanes[laneIndex] ?? `lane_${laneIndex}`
+        return {
+          finding_summary: `${lane} lane finding`,
+          confidence: 'medium' as const,
+          caveats: ['Mock lane caveat'],
+          proposed_sources: [src(`src_${lane}_1`)],
+        }
+      }
+      // Synthesis + decision — source id does not contain any lane name
+      return {
+        investment_verdict: 'WATCH',
+        decision_reason: 'Solid business, needs margin of safety',
+        thesis_summary: 'Quality compounder',
+        evidence_summary: 'Covered by mock sources',
+        valuation_rationale: 'Elevated valuation',
+        shariah_rationale: 'No prohibited activities detected',
+        synthesis_summary: 'All lanes reviewed; watch for better entry',
+        risks: ['Valuation risk'],
+        open_questions: ['Margin of safety needed'],
+        proposed_sources: [src('src_dec_partial_1')],
+      }
+    }),
+  }
+}
+
 describe('runStrategyResearchSwarm', () => {
   it('drives quick screen, a per-lane swarm, synthesis and a grounded decision', async () => {
     const store = new InMemoryEventStore()
@@ -157,5 +221,62 @@ describe('runStrategyResearchSwarm', () => {
     expect(types).toContain('deep_dive_synthesis_drafted')
     expect(types).toContain('decision_drafted')
     expect(result.decision).toBeDefined()
+  })
+
+  it('skips findings for lanes with no verified sources and still completes', async () => {
+    const store = new InMemoryEventStore()
+    const provider = swarmFakeProviderWithLaneIds(buffettMungerDeepDiveLanes)
+    // Ground verifies all sources EXCEPT those belonging to the 'moat' lane
+    // (identified by source_id containing 'moat'). The moat lane will have
+    // verified_ids: [] and its specialist finding must be skipped — not crash the swarm.
+    const ground = async (sources: { source_id: string }[]) => {
+      const verified = sources.filter((s) => !s.source_id.includes('moat'))
+      return {
+        captured: sources.map((s) => ({
+          source_id: s.source_id,
+          title: 't',
+          url: 'https://example.com/x',
+          excerpt: 'e',
+          availability: (s.source_id.includes('moat') ? 'unavailable' : 'available') as 'available' | 'unavailable',
+          fetched_at: 'x',
+          ...(s.source_id.includes('moat') ? {} : { content_hash: 'sha256:1' }),
+        })),
+        verified_ids: verified.map((s) => s.source_id),
+      }
+    }
+    const result = await runStrategyResearchSwarm(
+      store,
+      provider as never,
+      {
+        research_case_id: 'rc_partial',
+        company_id: 'c',
+        ticker: 'PART',
+        strategy_id: 'buffett-munger',
+        actor_id: 'user_local',
+        idempotency_key: 'k',
+        model_id: 'mock',
+        decision_id: 'd_partial',
+        source_ledger_path: '/tmp/owlfolio-swarm-partial',
+      },
+      { ground, laneConcurrency: 3 },
+    )
+
+    const events = await store.list()
+    const types = events.map((e) => e.event_type)
+    // Moat lane has no verified source — its finding is skipped, but the swarm completes
+    expect(types).toContain('deep_dive_synthesis_drafted')
+    expect(types).toContain('decision_drafted')
+    expect(result.decision).toBeDefined()
+
+    // Moat finding must NOT be recorded
+    const findingEvents = events.filter((e) => e.event_type === 'specialist_finding_recorded')
+    const moatFinding = findingEvents.find((e) => {
+      const p = e.payload as Record<string, unknown>
+      return p['specialist_lane'] === 'moat'
+    })
+    expect(moatFinding).toBeUndefined()
+
+    // All other lanes (6 of 7) must have their findings recorded
+    expect(findingEvents.length).toBe(buffettMungerDeepDiveLanes.length - 1)
   })
 })
