@@ -22,6 +22,7 @@
     "./shariahGateWorkflow": "./src/shariahGateWorkflow.ts",
     "./sourceLedger": "./src/sourceLedger.ts",
     "./sourceGrounding": "./src/sourceGrounding.ts",
+    "./researchSwarm": "./src/researchSwarm.ts",
     "./strategyResearchPipeline": "./src/strategyResearchPipeline.ts",
     "./watchlistWorkflow": "./src/watchlistWorkflow.ts",
     "./workflowContract": "./src/workflowContract.ts"

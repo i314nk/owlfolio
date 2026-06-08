@@ -12,6 +12,7 @@ import {
 } from '@owlfolio/ledger/projections/purificationProjection'
 import { projectScheduledTasks, type ScheduledTaskProjection } from '@owlfolio/ledger/projections/scheduledTaskProjection'
 import { projectWatchlist } from '@owlfolio/ledger/projections/watchlistProjection'
+import { projectPendingResearchRuns } from '@owlfolio/ledger/projections/researchRunQueueProjection'
 import {
   getProviderCatalog,
   redactProviderDiagnostic,
@@ -28,6 +29,8 @@ import {
 } from '@owlfolio/providers'
 import { defaultDemoAppConfig, type AppConfig } from '@owlfolio/shared'
 import { draftHoldingReview } from '@owlfolio/workflow/holdingReviewWorkflow'
+import { runStrategyResearchSwarm, type GroundFn } from '@owlfolio/workflow/researchSwarm'
+import { groundProposedSources, groundProposedSourcesDeterministic } from '@owlfolio/workflow/sourceGrounding'
 
 export type WorkerRuntimeEnv = {
   OWLFOLIO_APP_CONFIG_PATH?: string
@@ -1054,6 +1057,74 @@ function cadenceSkipReason(task: ScheduledTaskProjection, now: string, explicitl
   }
 
   return undefined
+}
+
+export async function runProcessResearchQueueTask(
+  store: EventStore<LedgerEventEnvelope<unknown>>,
+  options: {
+    provider: Provider
+    source_ledger_path: string
+    ground?: GroundFn
+    now?: () => Date
+  },
+): Promise<{ processed: number; summaries: string[] }> {
+  const now = options.now ?? (() => new Date())
+  const events = await store.list()
+  const pending = projectPendingResearchRuns(events as LedgerEventEnvelope<Record<string, unknown>>[])
+  // Cast: groundProposedSources/groundProposedSourcesDeterministic accept `ProposedSource[]`
+  // (with exactOptionalPropertyTypes), while GroundFn is typed over z.infer<ProposedSourcesSchema>
+  // which infers `citation_locator?: string | undefined`. The runtime shapes are identical.
+  const ground: GroundFn = options.ground ?? (
+    options.provider.provider_id === 'mock-provider'
+      ? groundProposedSourcesDeterministic as unknown as GroundFn
+      : groundProposedSources as unknown as GroundFn
+  )
+  const summaries: string[] = []
+
+  for (const run of pending) {
+    const claimedAt = now().toISOString()
+    await store.append({
+      event_id: `evt_research_run_claimed_${run.research_case_id}`,
+      event_type: 'research_run_claimed',
+      aggregate_type: 'research_case',
+      aggregate_id: run.research_case_id,
+      causation_id: run.requested_event_id,
+      correlation_id: run.research_case_id,
+      idempotency_key: `research-run-claim:${run.research_case_id}:v1`,
+      actor_type: 'worker',
+      actor_id: WORKER_ACTOR_ID,
+      payload: {
+        research_case_id: run.research_case_id,
+        run_id: `run_${run.research_case_id}`,
+        claimed_at: claimedAt,
+        worker_id: WORKER_ACTOR_ID,
+      },
+      source_ids: [],
+      created_at: claimedAt,
+      schema_version: 1,
+    } satisfies LedgerEventEnvelope<Record<string, unknown>>)
+
+    await runStrategyResearchSwarm(
+      store,
+      options.provider,
+      {
+        research_case_id: run.research_case_id,
+        company_id: run.company_id ?? `company_${run.ticker.toLowerCase()}`,
+        ticker: run.ticker,
+        strategy_id: run.strategy_id ?? 'buffett-munger',
+        actor_id: 'user_local',
+        idempotency_key: `swarm:${run.research_case_id}:v1`,
+        model_id: run.model_id ?? 'mock',
+        decision_id: run.decision_id ?? `decision_${run.research_case_id}`,
+        source_ledger_path: options.source_ledger_path,
+      },
+      { ground },
+    )
+
+    summaries.push(`process_research_queue: ran swarm for ${run.ticker} (${run.research_case_id}); decision draft created; no investment action taken`)
+  }
+
+  return { processed: pending.length, summaries }
 }
 
 export async function runScheduledTasks(

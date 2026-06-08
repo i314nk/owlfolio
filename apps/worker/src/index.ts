@@ -4,7 +4,7 @@ import { pathToFileURL } from 'node:url'
 import { SQLiteEventStore } from '@owlfolio/ledger/sqliteEventStore'
 import { redactProviderDiagnostic, resolveProvider } from '@owlfolio/providers'
 
-import { defineDefaultScheduledTasks, resolveWorkerProviderReadiness, resolveWorkerRuntimePaths, runScheduledTasks } from './runtime.ts'
+import { defineDefaultScheduledTasks, resolveWorkerProviderReadiness, resolveWorkerRuntimePaths, runProcessResearchQueueTask, runScheduledTasks } from './runtime.ts'
 
 type CliOptions = {
   help: boolean
@@ -87,6 +87,16 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     }
 
     const provider = resolveProvider({ provider_id: runtime.config.provider.provider_id })
+
+    if (options.task_kind === 'process_research_queue') {
+      const result = await runProcessResearchQueueTask(store, {
+        provider,
+        source_ledger_path: runtime.source_ledger_path,
+      })
+      console.log(JSON.stringify({ runtime, result }, null, 2))
+      return 0
+    }
+
     const providerReadiness = await resolveWorkerProviderReadiness({
       provider_id: runtime.config.provider.provider_id,
       provider_certification_dir: runtime.provider_certification_dir,
