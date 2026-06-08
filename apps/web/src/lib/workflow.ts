@@ -1,3 +1,6 @@
+import { readFile } from 'node:fs/promises'
+import { join } from 'node:path'
+
 import {
   projectDiscoveryCandidates,
   type DiscoveryCandidateProjection,
@@ -28,6 +31,8 @@ import {
   recordHoldingValuationSnapshot,
   rejectHoldingReviewDraft,
   runClaudeBuffettMungerResearch,
+  defaultSourceLedgerStorage,
+  type SourceLedgerBundle,
 } from '@owlfolio/workflow'
 
 import type { StatusBadgeTone } from '../components/StatusBadge'
@@ -46,7 +51,16 @@ export type AppGateChecklistItem = {
 export type AppResearchCase = ResearchCaseProjection & {
   gate_checklist: AppGateChecklistItem[]
   source_ids: string[]
+  source_evidence?: AppSourceEvidence[]
   ledger_timeline: ResearchCaseTimelineEntry[]
+}
+
+export type AppSourceEvidence = {
+  source_id: string
+  title: string
+  excerpt: string
+  url?: string
+  citation_locator?: string
 }
 
 export type AppWatchlistItem = WatchlistProjection & {
@@ -63,6 +77,7 @@ export type AppResearchPipelineItem = {
   next_action: string
   href?: string
   meta?: string
+  summary?: string
 }
 
 export type AppResearchPipelineSection = {
@@ -163,6 +178,7 @@ export async function getAppResearchCaseFromStore(
   store: EventStore,
   mode: WorkflowMode,
   caseId: string,
+  sourceLedgerPath?: string,
 ): Promise<AppResearchCase> {
   if (mode === 'demo') {
     return getDemoResearchCaseFromStore(store, caseId)
@@ -174,7 +190,7 @@ export async function getAppResearchCaseFromStore(
     throw new Error(`Unknown research case: ${caseId}`)
   }
 
-  return buildPersonalResearchCase(events, researchCase)
+  return buildPersonalResearchCase(events, researchCase, sourceLedgerPath)
 }
 
 export async function getAppWatchlistItemsFromStore(
@@ -702,6 +718,7 @@ function candidateToPipelineItem(candidate: DiscoveryCandidateProjection): AppRe
 
 function researchCaseToPipelineItem(researchCase: ResearchCaseProjection): AppResearchPipelineItem {
   const label = researchCase.ticker ?? researchCase.company_id ?? researchCase.research_case_id
+  const summary = researchCaseSummarySnippet(researchCase)
 
   return {
     id: researchCase.research_case_id,
@@ -710,6 +727,7 @@ function researchCaseToPipelineItem(researchCase: ResearchCaseProjection): AppRe
     next_action: researchCase.next_required_action ?? nextActionForResearchCase(researchCase),
     href: `/research/${researchCase.research_case_id}`,
     meta: `${strategyLabelFor(researchCase)} • Updated ${researchCase.updated_at}`,
+    ...(summary === undefined ? {} : { summary }),
   }
 }
 
@@ -805,19 +823,180 @@ function buildPersonalWatchlistItems(events: Awaited<ReturnType<EventStore['list
   })
 }
 
-function buildPersonalResearchCase(
+async function buildPersonalResearchCase(
   events: Awaited<ReturnType<EventStore['list']>>,
   researchCase: ResearchCaseProjection,
-): AppResearchCase {
+  sourceLedgerPath?: string,
+): Promise<AppResearchCase> {
   const timeline = projectResearchCaseTimeline(events, researchCase.research_case_id)
+  const sourceIds = [...new Set(timeline.flatMap((entry) => entry.source_ids))]
 
   return {
     ...researchCase,
     gate_checklist: pendingChecklist.map((gate) => ({ ...gate })),
-    source_ids: [...new Set(timeline.flatMap((entry) => entry.source_ids))],
+    source_ids: sourceIds,
+    source_evidence: await loadSourceEvidenceForResearchCase(sourceLedgerPath, researchCase.research_case_id, sourceIds),
     ledger_timeline: timeline,
     next_required_action: researchCase.next_required_action ?? `Start selected-strategy research for ${researchCase.ticker ?? researchCase.research_case_id}`,
   }
+}
+
+function researchCaseSummarySnippet(researchCase: ResearchCaseProjection): string | undefined {
+  const source = [
+    researchCase.thesis_summary,
+    researchCase.evidence_summary,
+    researchCase.reason,
+    researchCase.next_required_action,
+  ].find((value) => value !== undefined && value.trim().length > 0)
+
+  if (source === undefined) {
+    return undefined
+  }
+
+  return truncateSentence(source, 180)
+}
+
+function truncateSentence(value: string, maxLength: number): string {
+  const normalized = value.replace(/\s+/g, ' ').trim()
+  if (normalized.length <= maxLength) {
+    return normalized
+  }
+
+  return `${normalized.slice(0, Math.max(0, maxLength - 1)).trimEnd()}…`
+}
+
+async function loadSourceEvidenceForResearchCase(
+  sourceLedgerPath: string | undefined,
+  researchCaseId: string,
+  sourceIds: string[],
+): Promise<AppSourceEvidence[]> {
+  if (sourceLedgerPath === undefined || sourceLedgerPath.trim().length === 0) {
+    return sourceIds.map(sourceIdToFallbackEvidence)
+  }
+
+  const bundle = await readSourceBundle(sourceLedgerPath, researchCaseId)
+  if (bundle === undefined) {
+    return sourceIds.map(sourceIdToFallbackEvidence)
+  }
+
+  const recordsBySourceId = new Map(bundle.records.map((record) => [record.source_id, record]))
+  const orderedSourceIds = sourceIds.length === 0
+    ? bundle.records.map((record) => record.source_id)
+    : sourceIds
+
+  return orderedSourceIds.map((sourceId) => {
+    const record = recordsBySourceId.get(sourceId)
+    if (record === undefined) {
+      return sourceIdToFallbackEvidence(sourceId)
+    }
+
+    const safeUrl = safeEvidenceUrl(record.url)
+    const safeCitationLocator = safeDisplayText(record.citation_locator)
+
+    return {
+      source_id: sourceId,
+      title: safeDisplayText(record.title) ?? 'Source evidence recorded',
+      excerpt: safeDisplayText(record.excerpt) ?? fallbackExcerptForRecord(record),
+      ...(safeUrl === undefined ? {} : { url: safeUrl }),
+      ...(safeCitationLocator === undefined ? {} : { citation_locator: safeCitationLocator }),
+    }
+  })
+}
+
+async function readSourceBundle(sourceLedgerPath: string, researchCaseId: string): Promise<SourceLedgerBundle | undefined> {
+  const bundlePath = join(sourceLedgerPath, `${defaultSourceLedgerStorage.file_prefix}-${researchCaseId}.json`)
+  try {
+    const raw = JSON.parse(await readFile(bundlePath, 'utf8')) as Omit<SourceLedgerBundle, 'bundle_path'> & { bundle_path?: string }
+    if (!Array.isArray(raw.records)) {
+      return undefined
+    }
+
+    return {
+      bundle_path: bundlePath,
+      research_case_id: raw.research_case_id,
+      provider_id: raw.provider_id,
+      captured_at: raw.captured_at,
+      records: raw.records,
+    }
+  } catch {
+    return undefined
+  }
+}
+
+function sourceIdToFallbackEvidence(sourceId: string): AppSourceEvidence {
+  return {
+    source_id: sourceId,
+    title: humanizeAuditSourceId(sourceId),
+    excerpt: 'No source excerpt was recorded for this legacy event; keep the audit source ID for ledger traceability.',
+  }
+}
+
+function humanizeAuditSourceId(sourceId: string): string {
+  const tokens = sourceId
+    .replace(/^src_/, '')
+    .split(/[_\s-]+/)
+    .filter((token) => token.length > 0)
+
+  if (tokens.length === 0) {
+    return 'Audit source recorded'
+  }
+
+  return tokens.map((token, index) => {
+    if (/^(?:fy\d+|q\d+|\d+k|\d{4})$/i.test(token)) {
+      return token.toUpperCase()
+    }
+
+    const nextToken = tokens[index + 1]
+    const looksLikeTickerPrefix = index === 0 && /^(?:fy\d+|q\d+|\d+k|proxy|market)$/i.test(nextToken ?? '')
+    if (looksLikeTickerPrefix) {
+      return token.toUpperCase()
+    }
+
+    return token.charAt(0).toUpperCase() + token.slice(1).toLowerCase()
+  }).join(' ')
+}
+
+function fallbackExcerptForRecord(record: SourceLedgerBundle['records'][number]): string {
+  if (record.source_type === 'local-file') {
+    return 'Local source evidence was recorded with private path details redacted.'
+  }
+
+  return 'No source excerpt was recorded; use the audit source ID and citation metadata for traceability.'
+}
+
+function safeDisplayText(value: string | undefined): string | undefined {
+  const text = value?.replace(/\s+/g, ' ').trim()
+  if (text === undefined || text.length === 0 || looksLikePrivatePath(text)) {
+    return undefined
+  }
+
+  return text
+}
+
+function safeEvidenceUrl(value: string | undefined): string | undefined {
+  if (value === undefined || value.trim().length === 0) {
+    return undefined
+  }
+
+  try {
+    const url = new URL(value)
+    if (url.protocol !== 'https:' && url.protocol !== 'http:') {
+      return undefined
+    }
+
+    url.username = ''
+    url.password = ''
+    url.search = ''
+    url.hash = ''
+
+    return url.toString()
+  } catch {
+    return undefined
+  }
+}
+
+function looksLikePrivatePath(value: string): boolean {
+  return /(?:^|\s)(?:\/\S|[A-Za-z]:[\\/]|\\\\|file:\/\/|\.\.?[\\/]|~[\\/])/.test(value)
 }
 
 async function assertConfiguredProviderIsReady(state: OnboardingState): Promise<void> {

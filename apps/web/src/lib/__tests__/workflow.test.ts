@@ -70,7 +70,7 @@ describe('workflow helpers', () => {
     const store = new SQLiteEventStore(ledgerPath)
     try {
       expect(created.research_case_id).toMatch(/^rc_msft_/)
-      const researchCase = await getAppResearchCaseFromStore(store, 'personal-local', created.research_case_id)
+      const researchCase = await getAppResearchCaseFromStore(store, 'personal-local', created.research_case_id, sourceLedgerPath)
       expect(researchCase).toMatchObject({
         ticker: 'MSFT',
         company_id: 'company_msft',
@@ -83,6 +83,85 @@ describe('workflow helpers', () => {
       expect(researchCase.next_required_action).toMatch(/MSFT source coverage/i)
       expect(researchCase.next_required_action).not.toMatch(/Costco|COST\b/)
       expect(researchCase.source_ids).toEqual(['src_msft_10k_2025', 'src_msft_proxy_2025', 'src_msft_q1_2026'])
+      expect(researchCase.source_evidence).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          source_id: 'src_msft_10k_2025',
+          title: 'Microsoft FY2025 10-K',
+          excerpt: expect.stringContaining('reported durable operating performance'),
+        }),
+      ]))
+      expect(JSON.stringify(researchCase.source_evidence)).not.toContain(sourceLedgerPath)
+      const eventTypes = (await store.list()).map((event) => event.event_type)
+      expect(eventTypes.slice(0, 4)).toEqual([
+        'research_case_created',
+        'quick_screen_drafted',
+        'queued_for_deep_dive',
+        'deep_dive_started',
+      ])
+      expect(eventTypes).toContain('specialist_finding_recorded')
+      expect(eventTypes.slice(-4)).toEqual([
+        'deep_dive_synthesis_drafted',
+        'deep_dive_completed',
+        'buffett_munger_analysis_drafted',
+        'decision_drafted',
+      ])
+    } finally {
+      store.close()
+    }
+  })
+
+  it('sanitizes legacy source bundle paths and secret-bearing URLs before UI projection', async () => {
+    const projectDir = await mkdtemp(join(tmpdir(), 'owlfolio-source-privacy-'))
+    dirs.push(projectDir)
+
+    const sourceLedgerPath = join(projectDir, 'data', 'source-ledger')
+    await mkdir(sourceLedgerPath, { recursive: true })
+    const store = new SQLiteEventStore()
+    try {
+      const created = await createResearchCase(store, {
+        research_case_id: 'rc_privacy_001',
+        company_id: 'company_privacy',
+        ticker: 'PRIV',
+        strategy_id: 'buffett-munger',
+        strategy_version: '1.0.0',
+        actor_id: 'user_local',
+      })
+      await draftDecision(store, {
+        research_case_id: created.research_case_id,
+        decision_id: 'decision_privacy_001',
+        decision: 'WATCH',
+        reason: 'Privacy fixture decision.',
+        source_ids: ['src_private_fixture'],
+        causation_id: created.event_id,
+      })
+      await writeFile(join(sourceLedgerPath, 'research-source-bundle-rc_privacy_001.json'), JSON.stringify({
+        research_case_id: 'rc_privacy_001',
+        provider_id: 'legacy-provider',
+        captured_at: '2026-06-07T14:00:00.000Z',
+        records: [
+          {
+            source_id: 'src_private_fixture',
+            source_type: 'local-file',
+            title: '/root/private-source.txt',
+            excerpt: 'Loaded from /workspace/private/secrets/model-output.txt and /srv/owlfolio/private-note.md',
+            url: 'https://user:pass@example.test/research/source?token=secret#private',
+            citation_locator: '/data/private-notes/source.md',
+            captured_at: '2026-06-07T14:00:00.000Z',
+          },
+        ],
+      }))
+
+      const researchCase = await getAppResearchCaseFromStore(store, 'personal-local', 'rc_privacy_001', sourceLedgerPath)
+
+      expect(researchCase.source_evidence).toEqual([
+        {
+          source_id: 'src_private_fixture',
+          title: 'Source evidence recorded',
+          excerpt: 'Local source evidence was recorded with private path details redacted.',
+          url: 'https://example.test/research/source',
+        },
+      ])
+      expect(JSON.stringify(researchCase.source_evidence)).not.toMatch(/token|secret|user:pass|\/root|\/workspace|\/srv|\/data/i)
     } finally {
       store.close()
     }
@@ -704,6 +783,10 @@ describe('workflow helpers', () => {
       expect(sectionItems['Deep Dive Queue']).toEqual(['QDVE'])
       expect(sectionItems['In Deep Dive']).toEqual(['DEEP'])
       expect(sectionItems['Synthesis / Decision Pending']).toEqual(['DCSN'])
+      const decisionItem = pipeline.sections
+        .flatMap((section) => section.items)
+        .find((item) => item.id === 'rc_decision_001')
+      expect(decisionItem?.summary).toBe('Draft decision is waiting for user review.')
       expect(sectionItems.Watchlist).toEqual(['WTCH'])
       expect(sectionItems['Rejected / Passed']).toEqual(['PASS'])
       expect(pipeline.sections.flatMap((section) => section.items.map((item) => item.label))).not.toContain('OTHR — Other Strategy Co')

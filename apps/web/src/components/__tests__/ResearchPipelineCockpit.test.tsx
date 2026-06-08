@@ -26,7 +26,7 @@ describe('ResearchPipelineCockpit', () => {
         section('Quick Screen', [{ id: 'rc_msft_quick', label: 'MSFT', status: 'deep_dive_candidate', href: '/research/rc_msft_quick', next_action: 'Send to deep dive queue' }]),
         section('Deep Dive Queue', [{ id: 'rc_adbe_queue', label: 'ADBE', status: 'queued_for_deep_dive', href: '/research/rc_adbe_queue', next_action: 'Start deep dive' }]),
         section('In Deep Dive', [{ id: 'rc_asml_deep', label: 'ASML', status: 'specialist_finding_recorded', href: '/research/rc_asml_deep', next_action: 'Draft synthesis' }]),
-        section('Synthesis / Decision Pending', [{ id: 'rc_cost_decision', label: 'COST', status: 'decision_pending', href: '/research/rc_cost_decision', next_action: 'Review draft decision' }]),
+        section('Synthesis / Decision Pending', [{ id: 'rc_cost_decision', label: 'COST', status: 'decision_pending', href: '/research/rc_cost_decision', next_action: 'Review draft decision', summary: 'Durable membership economics remain attractive, but valuation still requires patience.' }]),
         section('Watchlist', [{ id: 'watch_cost', label: 'COST', status: 'watchlist_draft', href: '/watchlist', next_action: 'Confirm watchlist draft' }]),
         section('Rejected / Passed', [{ id: 'rc_old_pass', label: 'OLD', status: 'pass', href: '/research/rc_old_pass', next_action: 'No action required' }]),
       ],
@@ -45,6 +45,8 @@ describe('ResearchPipelineCockpit', () => {
     for (const action of ['Queue for quick screen', 'Send to deep dive queue', 'Start deep dive', 'Draft synthesis', 'Review draft decision', 'Confirm watchlist draft', 'No action required']) {
       expect(html).toContain(action)
     }
+    expect(html).toContain('Investment brief')
+    expect(html).toContain('Durable membership economics remain attractive, but valuation still requires patience.')
     expect(html).not.toContain('certified')
     expect(html).not.toContain('Certified')
   })

@@ -22,7 +22,14 @@ function sourceSlugForTicker(ticker: string): string {
 }
 
 function companyLabelForTicker(ticker: string): string {
-  return ticker === 'COST' ? 'Costco' : ticker
+  if (ticker === 'COST') {
+    return 'Costco'
+  }
+  if (ticker === 'MSFT') {
+    return 'Microsoft'
+  }
+
+  return ticker
 }
 
 function sourceIdsForTicker(ticker: string): string[] {
@@ -40,8 +47,14 @@ function buffettMungerAnalysisForTicker(ticker: string) {
     strategy_compliance: 'CONDITIONAL',
     shariah_status: 'COMPLIANT',
     valuation_status: 'EXPENSIVE',
-    next_required_action: `Wait for a wider margin of safety and refresh ${companyLabel} source coverage after the next quarterly filing.`,
+    next_required_action: `Wait for a wider margin of safety and refresh ${ticker} source coverage after the next quarterly filing.`,
     decision_reason: 'Durable quality business, but current valuation does not yet provide a sufficient margin of safety.',
+    thesis_summary: `${companyLabel} screens as a durable quality compounder, but remains a watchlist candidate until valuation provides a wider margin of safety.`,
+    evidence_summary: `${companyLabel} source records cover the latest annual report, proxy governance context, and recent quarterly operating momentum.`,
+    valuation_rationale: 'Current valuation remains elevated versus the required Buffett-Munger margin of safety.',
+    shariah_rationale: 'Mock source coverage did not identify prohibited-business evidence; final Shariah treatment remains subject to sourced ratio review.',
+    risks: ['Valuation compression', 'Source coverage may need refreshing after the next filing'],
+    open_questions: ['Refresh owner-earnings and Shariah ratio evidence after the next quarterly filing'],
     source_ids: [annualReportId, proxyId, quarterlyId],
     source_records: [
       {

@@ -269,6 +269,64 @@ describe('research and watchlist workflow pages', () => {
     expect(html).not.toContain('/api/research/rc_msft_quick_001/watchlist')
   })
 
+  it('renders a first-class investment brief and safe source evidence for drafted decisions', () => {
+    const decisionDraftedResearchCase: AppResearchCase = {
+      research_case_id: 'rc_msft_001',
+      stage: 'decision_drafted',
+      company_id: 'company_msft',
+      ticker: 'MSFT',
+      strategy_id: 'buffett-munger',
+      decision_id: 'decision_msft_001',
+      decision: 'WATCH',
+      reason: 'Microsoft remains a high-quality compounder with durable cloud economics, but the current valuation leaves too little margin of safety and Shariah evidence still needs a documented ratio review.',
+      investment_verdict: 'WATCH',
+      strategy_compliance: 'CONDITIONAL',
+      shariah_status: 'CONDITIONAL',
+      valuation_status: 'EXPENSIVE',
+      next_required_action: 'Wait for a better entry point and refresh Shariah ratio evidence after the next filing.',
+      updated_at: '2026-05-31T12:00:00.000Z',
+      gate_checklist: [],
+      source_ids: ['msft_fy2025_10k', 'local_private_note'],
+      source_evidence: [
+        {
+          source_id: 'msft_fy2025_10k',
+          title: 'Microsoft Form 10-K for Fiscal Year 2025',
+          excerpt: 'FY2025 revenue was $281.724B, operating income $128.528B, net income $101.832B, and diluted EPS $13.64.',
+          url: 'https://microsoft.example/10k',
+        },
+        {
+          source_id: 'local_private_note',
+          title: 'Local source recorded',
+          excerpt: 'Local file evidence was recorded with path metadata redacted.',
+        },
+      ],
+      ledger_timeline: [],
+    }
+
+    const html = renderToStaticMarkup(createElement(ResearchCasePanel, {
+      researchCase: decisionDraftedResearchCase,
+      mode: 'personal-local',
+    }))
+
+    expect(html).toContain('Research brief')
+    expect(html).toContain('Investment thesis')
+    expect(html).toContain('Microsoft remains a high-quality compounder')
+    expect(html).toContain('Business / moat rationale')
+    expect(html).toContain('Valuation rationale')
+    expect(html).toContain('EXPENSIVE')
+    expect(html).toContain('Shariah rationale')
+    expect(html).toContain('CONDITIONAL')
+    expect(html).toContain('Risks and caveats')
+    expect(html).toContain('Evidence and sources')
+    expect(html).toContain('Microsoft Form 10-K for Fiscal Year 2025')
+    expect(html).toContain('FY2025 revenue was $281.724B')
+    expect(html).toContain('Audit source id')
+    expect(html).toContain('msft_fy2025_10k')
+    expect(html).toContain('local_private_note')
+    expect(html).not.toContain('/home/hermes_agent')
+    expect(html).not.toContain('private/local/path')
+  })
+
   it('renders the personal-local watchlist promotion action only for drafted decisions', () => {
     const decisionDraftedResearchCase: AppResearchCase = {
       research_case_id: 'rc_msft_001',

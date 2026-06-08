@@ -2,7 +2,7 @@ import { createElement } from 'react'
 
 import { SourceChip } from './designSystem'
 import { StatusBadge } from './StatusBadge'
-import type { AppResearchCase, WorkflowMode } from '../lib/workflow'
+import type { AppResearchCase, AppSourceEvidence, WorkflowMode } from '../lib/workflow'
 
 export type ResearchCasePanelProps = {
   researchCase: AppResearchCase
@@ -70,6 +70,7 @@ export function ResearchCasePanel({ researchCase, mode = 'demo' }: ResearchCaseP
     ),
     canPromoteToWatchlist ? createWatchlistPromotionAction(researchCase.research_case_id) : null,
     createCurrentWorkflowStatus(researchCase),
+    createResearchBrief(researchCase),
     createQuickScreenPanel(researchCase),
     createElement(
       'div',
@@ -87,6 +88,7 @@ export function ResearchCasePanel({ researchCase, mode = 'demo' }: ResearchCaseP
       createMetric('Strategy', researchCase.strategy_id ?? 'Unknown'),
     ),
     createResearchTransitionPanel(researchCase),
+    createEvidenceAndSourcesPanel(researchCase),
     createElement(
       'section',
       { style: cardStyle },
@@ -159,6 +161,152 @@ export function ResearchCasePanel({ researchCase, mode = 'demo' }: ResearchCaseP
         researchCase.next_required_action ?? 'Continue the review workflow',
       ),
     ),
+  )
+}
+
+function createResearchBrief(researchCase: AppResearchCase) {
+  const thesis = firstNonEmpty([
+    researchCase.thesis_summary,
+    researchCase.reason,
+    researchCase.next_required_action,
+  ]) ?? 'No investment thesis has been drafted yet.'
+  const businessRationale = firstNonEmpty([
+    researchCase.thesis_summary,
+    researchCase.evidence_summary,
+    researchCase.reason,
+  ]) ?? 'Business and moat rationale is awaiting provider research.'
+  const valuationRationale = firstNonEmpty([
+    researchCase.valuation_rationale,
+    researchCase.reason,
+  ]) ?? `Valuation status: ${researchCase.valuation_status ?? 'Pending'}`
+  const shariahRationale = firstNonEmpty([
+    researchCase.shariah_rationale,
+    researchCase.reason,
+  ]) ?? `Shariah status: ${researchCase.shariah_status ?? 'Pending'}`
+  const risks = researchCase.risks !== undefined && researchCase.risks.length > 0
+    ? researchCase.risks
+    : researchCase.caveats !== undefined && researchCase.caveats.length > 0
+      ? researchCase.caveats
+      : ['No separately structured risks are recorded yet; review the thesis and source evidence before action.']
+  const openQuestions = researchCase.open_questions !== undefined && researchCase.open_questions.length > 0
+    ? researchCase.open_questions
+    : [researchCase.next_required_action ?? 'Continue source-backed review before any user-authored transition.']
+
+  return createElement(
+    'section',
+    { className: 'owl-workflow-card', style: cardStyle },
+    createElement('p', { style: labelStyle }, 'Research brief'),
+    createElement('h2', { style: { fontSize: '1.45rem', margin: '0.35rem 0 0.75rem' } }, 'Investment thesis'),
+    createElement('p', { style: { color: '#f7f8ff', fontSize: '1.05rem', lineHeight: 1.65, margin: 0 } }, thesis),
+    createElement(
+      'div',
+      { style: { display: 'grid', gap: '0.8rem', gridTemplateColumns: 'repeat(auto-fit, minmax(230px, 1fr))', marginTop: '1rem' } },
+      createBriefDetail('Business / moat rationale', businessRationale),
+      createBriefDetail('Valuation rationale', `${researchCase.valuation_status ?? 'Pending'} — ${valuationRationale}`),
+      createBriefDetail('Shariah rationale', `${researchCase.shariah_status ?? 'Pending'} — ${shariahRationale}`),
+      createBriefDetail('Risks and caveats', risks.join('; ')),
+      createBriefDetail('Open questions', openQuestions.join('; ')),
+    ),
+  )
+}
+
+function createEvidenceAndSourcesPanel(researchCase: AppResearchCase) {
+  const recordedEvidence = researchCase.source_evidence ?? []
+  const sourceEvidence = recordedEvidence.length === 0
+    ? researchCase.source_ids.map((sourceId) => ({
+      source_id: sourceId,
+      title: humanizeAuditSourceId(sourceId),
+      excerpt: 'No source excerpt was recorded for this legacy event; keep the audit source ID for ledger traceability.',
+    }))
+    : recordedEvidence
+
+  return createElement(
+    'section',
+    { style: cardStyle },
+    createElement('h2', { style: { fontSize: '1.25rem', margin: '0 0 0.35rem' } }, 'Evidence and sources'),
+    createElement(
+      'p',
+      { style: { color: '#9aa4b7', fontSize: '0.95rem', margin: '0 0 1rem' } },
+      'Human-readable source context appears first; raw audit source IDs remain available for ledger traceability.',
+    ),
+    sourceEvidence.length === 0
+      ? createElement('p', { style: { color: '#cbd5e1', margin: 0 } }, 'No source evidence has been recorded yet.')
+      : createElement(
+        'div',
+        { style: { display: 'grid', gap: '0.85rem' } },
+        ...sourceEvidence.map((source) => createEvidenceCard(source)),
+      ),
+  )
+}
+
+function createEvidenceCard(source: AppSourceEvidence) {
+  return createElement(
+    'article',
+    {
+      key: source.source_id,
+      style: {
+        background: 'rgba(15, 23, 42, 0.36)',
+        border: '1px solid rgba(148, 163, 184, 0.14)',
+        borderRadius: '0.9rem',
+        display: 'grid',
+        gap: '0.45rem',
+        padding: '0.95rem',
+      },
+    },
+    createElement('h3', { style: { color: '#f7f8ff', fontSize: '1rem', margin: 0 } }, source.title),
+    createElement('p', { style: { color: '#cbd5e1', lineHeight: 1.55, margin: 0 } }, source.excerpt),
+    source.url === undefined
+      ? null
+      : createElement('a', { href: source.url, rel: 'noreferrer', style: { color: '#c7d2fe', fontSize: '0.9rem', fontWeight: 800 } }, 'Open source URL'),
+    source.citation_locator === undefined
+      ? null
+      : createElement('p', { style: { color: '#9aa4b7', fontSize: '0.86rem', margin: 0 } }, `Citation: ${source.citation_locator}`),
+    createElement(SourceChip, { id: source.source_id, label: 'Audit source id' }),
+  )
+}
+
+function humanizeAuditSourceId(sourceId: string): string {
+  const tokens = sourceId
+    .replace(/^src_/, '')
+    .split(/[_\s-]+/)
+    .filter((token) => token.length > 0)
+
+  if (tokens.length === 0) {
+    return 'Audit source recorded'
+  }
+
+  return tokens.map((token, index) => {
+    if (/^(?:fy\d+|q\d+|\d+k|\d{4})$/i.test(token)) {
+      return token.toUpperCase()
+    }
+
+    const nextToken = tokens[index + 1]
+    const looksLikeTickerPrefix = index === 0 && /^(?:fy\d+|q\d+|\d+k|proxy|market)$/i.test(nextToken ?? '')
+    if (looksLikeTickerPrefix) {
+      return token.toUpperCase()
+    }
+
+    return token.charAt(0).toUpperCase() + token.slice(1).toLowerCase()
+  }).join(' ')
+}
+
+function firstNonEmpty(values: Array<string | undefined>): string | undefined {
+  return values.find((value) => value !== undefined && value.trim().length > 0)
+}
+
+function createBriefDetail(label: string, value: string) {
+  return createElement(
+    'article',
+    {
+      style: {
+        background: 'rgba(15, 23, 42, 0.34)',
+        border: '1px solid rgba(148, 163, 184, 0.14)',
+        borderRadius: '0.85rem',
+        padding: '0.9rem',
+      },
+    },
+    createElement('p', { style: labelStyle }, label),
+    createElement('p', { style: { color: '#e2e8f0', lineHeight: 1.5, margin: '0.35rem 0 0' } }, value),
   )
 }
 

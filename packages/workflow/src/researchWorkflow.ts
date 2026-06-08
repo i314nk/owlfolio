@@ -39,6 +39,12 @@ type BuffettMungerAnalysisPayload = {
   shariah_status: ShariahStatus
   valuation_status: ValuationStatus
   next_required_action: string
+  thesis_summary?: string
+  evidence_summary?: string
+  valuation_rationale?: string
+  shariah_rationale?: string
+  risks?: string[]
+  open_questions?: string[]
 }
 
 export type BuffettMungerAnalysisDrafted = LedgerEventEnvelope<BuffettMungerAnalysisPayload> & BuffettMungerAnalysisPayload
@@ -56,6 +62,12 @@ type DecisionDraftedPayload = {
   decision: InvestmentVerdict
   user_approved: false
   reason: string
+  thesis_summary?: string
+  evidence_summary?: string
+  valuation_rationale?: string
+  shariah_rationale?: string
+  risks?: string[]
+  open_questions?: string[]
 }
 
 export type DecisionDrafted = LedgerEventEnvelope<DecisionDraftedPayload> & DecisionDraftedPayload
@@ -65,6 +77,12 @@ export type DraftDecisionCommand = {
   decision_id: string
   decision: InvestmentVerdict
   reason: string
+  thesis_summary?: string
+  evidence_summary?: string
+  valuation_rationale?: string
+  shariah_rationale?: string
+  risks?: string[]
+  open_questions?: string[]
   causation_id: string
   idempotency_key?: string
   source_ids?: string[]
@@ -207,6 +225,12 @@ export async function draftDecision(store: ResearchEventStore, command: DraftDec
     decision: command.decision,
     user_approved: false,
     reason: command.reason,
+    ...(command.thesis_summary === undefined ? {} : { thesis_summary: command.thesis_summary }),
+    ...(command.evidence_summary === undefined ? {} : { evidence_summary: command.evidence_summary }),
+    ...(command.valuation_rationale === undefined ? {} : { valuation_rationale: command.valuation_rationale }),
+    ...(command.shariah_rationale === undefined ? {} : { shariah_rationale: command.shariah_rationale }),
+    ...(command.risks === undefined ? {} : { risks: command.risks }),
+    ...(command.open_questions === undefined ? {} : { open_questions: command.open_questions }),
   }
 
   const event: LedgerEventEnvelope<DecisionDraftedPayload> = {

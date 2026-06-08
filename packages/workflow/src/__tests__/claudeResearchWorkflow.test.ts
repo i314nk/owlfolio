@@ -51,6 +51,12 @@ describe('runClaudeBuffettMungerResearch', () => {
         valuation_status: 'FAIR',
         next_required_action: 'Refresh valuation after the next filing.',
         decision_reason: 'High quality business, but wait for a wider margin of safety.',
+        thesis_summary: 'Microsoft is a durable compounder but currently belongs on watchlist, not buy list.',
+        evidence_summary: 'Source records point to resilient cloud growth and strong cash generation.',
+        valuation_rationale: 'Market price appears fair to expensive versus required margin of safety.',
+        shariah_rationale: 'No prohibited-business evidence was identified in the cited source set.',
+        risks: ['Valuation compression', 'Cloud growth deceleration'],
+        open_questions: ['Refresh valuation after the next filing'],
         source_records: [
           {
             source_id: 'src_msft_10k_2025',
@@ -79,7 +85,11 @@ describe('runClaudeBuffettMungerResearch', () => {
     })
 
     expect(result.analysis.investment_verdict).toBe('WATCH')
+    expect(result.analysis.thesis_summary).toBe('Microsoft is a durable compounder but currently belongs on watchlist, not buy list.')
+    expect(result.analysis.valuation_rationale).toBe('Market price appears fair to expensive versus required margin of safety.')
+    expect(result.analysis.risks).toEqual(['Valuation compression', 'Cloud growth deceleration'])
     expect(result.decision.decision).toBe('WATCH')
+    expect(result.decision.thesis_summary).toBe('Microsoft is a durable compounder but currently belongs on watchlist, not buy list.')
     expect(result.source_bundle.records).toHaveLength(1)
     expect(result.source_bundle.records[0]).toMatchObject({
       source_id: 'src_msft_10k_2025',
@@ -100,6 +110,17 @@ describe('runClaudeBuffettMungerResearch', () => {
     const events = await store.list()
     expect(events.map((event) => event.event_type)).toEqual([
       'research_case_created',
+      'quick_screen_drafted',
+      'queued_for_deep_dive',
+      'deep_dive_started',
+      'specialist_finding_recorded',
+      'specialist_finding_recorded',
+      'specialist_finding_recorded',
+      'specialist_finding_recorded',
+      'specialist_finding_recorded',
+      'specialist_finding_recorded',
+      'deep_dive_synthesis_drafted',
+      'deep_dive_completed',
       'buffett_munger_analysis_drafted',
       'decision_drafted',
     ])
@@ -107,10 +128,35 @@ describe('runClaudeBuffettMungerResearch', () => {
       actor_type: 'provider',
       actor_id: 'claude',
       source_ids: ['src_msft_10k_2025'],
+      payload: expect.objectContaining({
+        screening_result: 'deep_dive_candidate',
+        summary: 'Microsoft is a durable compounder but currently belongs on watchlist, not buy list.',
+      }),
     })
-    expect(events[2]).toMatchObject({
+    expect(events[4]).toMatchObject({
+      event_type: 'specialist_finding_recorded',
+      actor_type: 'provider',
+      actor_id: 'claude',
+      payload: expect.objectContaining({ specialist_lane: 'moat' }),
+    })
+    const deepDiveCompletedEvent = events[11]
+    if (deepDiveCompletedEvent === undefined) {
+      throw new Error('expected deep_dive_completed event at index 11')
+    }
+    expect(events[11]).toMatchObject({
+      event_type: 'deep_dive_completed',
       actor_type: 'system',
       source_ids: ['src_msft_10k_2025'],
+    })
+    expect(events[12]).toMatchObject({
+      actor_type: 'provider',
+      actor_id: 'claude',
+      source_ids: ['src_msft_10k_2025'],
+    })
+    expect(events[13]).toMatchObject({
+      actor_type: 'system',
+      source_ids: ['src_msft_10k_2025'],
+      causation_id: deepDiveCompletedEvent.event_id,
     })
   })
 })

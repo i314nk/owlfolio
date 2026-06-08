@@ -62,6 +62,12 @@ export type ResearchCaseProjection = {
   decision?: string
   user_approved?: boolean
   reason?: string
+  thesis_summary?: string
+  evidence_summary?: string
+  valuation_rationale?: string
+  shariah_rationale?: string
+  risks?: string[]
+  open_questions?: string[]
   updated_at: string
 }
 
@@ -116,6 +122,10 @@ function applyString(
     | 'next_required_action'
     | 'decision'
     | 'reason'
+    | 'thesis_summary'
+    | 'evidence_summary'
+    | 'valuation_rationale'
+    | 'shariah_rationale'
     | 'confidence'
   >,
   value: string | undefined,
@@ -137,7 +147,7 @@ function applyBoolean(
 
 function applyStringArray(
   target: ResearchCaseProjection,
-  key: keyof Pick<ResearchCaseProjection, 'red_flags' | 'caveats'>,
+  key: keyof Pick<ResearchCaseProjection, 'red_flags' | 'caveats' | 'risks' | 'open_questions'>,
   value: string[] | undefined,
 ): void {
   if (value !== undefined) {
@@ -377,6 +387,12 @@ export function projectResearchCases(events: LedgerEventEnvelope<unknown>[]): Re
       applyString(researchCase, 'shariah_status', getString(event.payload, 'shariah_status'))
       applyString(researchCase, 'valuation_status', getString(event.payload, 'valuation_status'))
       applyString(researchCase, 'next_required_action', getString(event.payload, 'next_required_action'))
+      applyString(researchCase, 'thesis_summary', getString(event.payload, 'thesis_summary'))
+      applyString(researchCase, 'evidence_summary', getString(event.payload, 'evidence_summary'))
+      applyString(researchCase, 'valuation_rationale', getString(event.payload, 'valuation_rationale'))
+      applyString(researchCase, 'shariah_rationale', getString(event.payload, 'shariah_rationale'))
+      applyStringArray(researchCase, 'risks', getStringArray(event.payload, 'risks'))
+      applyStringArray(researchCase, 'open_questions', getStringArray(event.payload, 'open_questions'))
       continue
     }
 
@@ -391,6 +407,12 @@ export function projectResearchCases(events: LedgerEventEnvelope<unknown>[]): Re
       applyString(researchCase, 'decision', getString(event.payload, 'decision'))
       applyBoolean(researchCase, 'user_approved', getBoolean(event.payload, 'user_approved'))
       applyString(researchCase, 'reason', getString(event.payload, 'reason'))
+      applyString(researchCase, 'thesis_summary', getString(event.payload, 'thesis_summary'))
+      applyString(researchCase, 'evidence_summary', getString(event.payload, 'evidence_summary'))
+      applyString(researchCase, 'valuation_rationale', getString(event.payload, 'valuation_rationale'))
+      applyString(researchCase, 'shariah_rationale', getString(event.payload, 'shariah_rationale'))
+      applyStringArray(researchCase, 'risks', getStringArray(event.payload, 'risks'))
+      applyStringArray(researchCase, 'open_questions', getStringArray(event.payload, 'open_questions'))
       continue
     }
 

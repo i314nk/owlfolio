@@ -42,7 +42,7 @@ test('default home page renders the demo command center and research demo workfl
 
   await page.getByRole('link', { name: /view demo research case/i }).click()
 
-  await expect(page.getByRole('heading', { name: /cost/i })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'COST', exact: true })).toBeVisible()
   await expect(page.getByText(/investment verdict.*watch/i)).toBeVisible()
   await expect(page.getByText(/strategy compliance.*conditional/i)).toBeVisible()
   await expect(page.getByText('Shariah status: COMPLIANT', { exact: true })).toBeVisible()

@@ -72,6 +72,7 @@ export type DemoGateChecklistItem = {
 export type DemoResearchCase = ResearchCaseProjection & {
   gate_checklist: DemoGateChecklistItem[]
   source_ids: string[]
+  source_evidence: []
   ledger_timeline: ResearchCaseTimelineEntry[]
 }
 
@@ -365,6 +366,7 @@ function projectDemoResearchCases(events: LedgerEventEnvelope<unknown>[]): DemoR
       ...researchCase,
       gate_checklist: demoGateChecklist.map((gate) => ({ ...gate })),
       source_ids: [...new Set(timeline.flatMap((entry) => entry.source_ids))],
+      source_evidence: [],
       ledger_timeline: timeline,
     }
   })

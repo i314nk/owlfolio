@@ -9,6 +9,7 @@ export type ResearchPipelineItem = {
   next_action: string
   href?: string
   meta?: string
+  summary?: string
 }
 
 export type ResearchPipelineSection = {
@@ -197,6 +198,14 @@ function createPipelineItem(item: ResearchPipelineItem) {
       createElement('span', { style: pillStyle }, item.status),
     ),
     item.meta === undefined ? null : createElement('p', { style: { ...mutedStyle, fontSize: '0.86rem' } }, item.meta),
+    item.summary === undefined
+      ? null
+      : createElement(
+        'p',
+        { style: { color: '#e2e8f0', fontSize: '0.9rem', lineHeight: 1.45, margin: 0 } },
+        createElement('strong', null, 'Investment brief: '),
+        item.summary,
+      ),
     createElement('p', { style: { color: '#cbd5e1', fontSize: '0.9rem', fontWeight: 700, margin: 0 } }, `Next action: ${item.next_action}`),
   )
 }

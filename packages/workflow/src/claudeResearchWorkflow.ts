@@ -14,6 +14,22 @@ import {
   type StrategyCompliance,
   type ValuationStatus,
 } from './researchWorkflow'
+import { resolveResearchStrategyRef } from './researchStrategyRef'
+import {
+  buffettMungerDeepDiveLanes,
+  completeDeepDive,
+  draftDeepDiveSynthesis,
+  draftQuickScreen,
+  queueDeepDive,
+  recordSpecialistFinding,
+  startDeepDive,
+  type DeepDiveCompleted,
+  type DeepDiveQueued,
+  type DeepDiveStarted,
+  type DeepDiveSynthesisDrafted,
+  type QuickScreenDrafted,
+  type SpecialistFindingRecorded,
+} from './strategyResearchPipeline'
 import { ingestManualSourceBundle, type SourceLedgerBundle } from './sourceLedger'
 
 const ClaudeBuffettMungerResearchSchema = z.object({
@@ -23,6 +39,12 @@ const ClaudeBuffettMungerResearchSchema = z.object({
   valuation_status: z.enum(['ATTRACTIVE', 'FAIR', 'EXPENSIVE', 'INSUFFICIENT_DATA']),
   next_required_action: z.string().min(1),
   decision_reason: z.string().min(1),
+  thesis_summary: z.string().min(1),
+  evidence_summary: z.string().min(1),
+  valuation_rationale: z.string().min(1),
+  shariah_rationale: z.string().min(1),
+  risks: z.array(z.string().min(1)).min(1),
+  open_questions: z.array(z.string().min(1)).min(1),
   source_records: z.array(
     z.object({
       source_id: z.string().min(1),
@@ -46,6 +68,12 @@ type ClaudeAnalysisPayload = {
   shariah_status: Exclude<ShariahStatus, 'UNKNOWN'>
   valuation_status: ValuationStatus
   next_required_action: string
+  thesis_summary: string
+  evidence_summary: string
+  valuation_rationale: string
+  shariah_rationale: string
+  risks: string[]
+  open_questions: string[]
 }
 
 export type RunClaudeBuffettMungerResearchCommand = CreateResearchCaseCommand & {
@@ -58,6 +86,14 @@ export type RunClaudeBuffettMungerResearchCommand = CreateResearchCaseCommand & 
 
 export type ClaudeResearchWorkflowResult = {
   research_case: Awaited<ReturnType<typeof createResearchCase>>
+  quick_screen: QuickScreenDrafted
+  deep_dive: {
+    queued: DeepDiveQueued
+    started: DeepDiveStarted
+    findings: SpecialistFindingRecorded[]
+    synthesis: DeepDiveSynthesisDrafted
+    completed: DeepDiveCompleted
+  }
   analysis: BuffettMungerAnalysisDrafted
   decision: DecisionDrafted
   source_bundle: SourceLedgerBundle
@@ -86,14 +122,55 @@ function buildRequest(command: RunClaudeBuffettMungerResearchCommand, provider: 
     prompt: [
       `You are the Buffett-Munger research specialist for Owlfolio research case ${command.research_case_id}.`,
       `Analyze ticker ${command.ticker} (${command.company_id}) under the default Buffett-Munger policy.`,
-      'Return only the structured fields requested by the JSON schema.',
-      'Use source_records for the concrete primary/secondary sources that support the draft.',
+      'Return a useful investment brief, not status labels only: explain the business/moat thesis, source-backed evidence, valuation rationale, Shariah rationale or missing evidence, risks, and open questions.',
+      'Return only the structured fields requested by the JSON schema and avoid unsupported claims.',
+      'Use source_records for the concrete primary/secondary sources that support the draft; include useful titles and excerpts for audit display.',
     ].join(' '),
     timeout_ms: 120_000,
     budget: { max_tool_calls: 0, max_tokens: 8_000 },
     tool_allowlist: [],
     response_format: { kind: 'json-schema', schema_name: 'ClaudeBuffettMungerResearch' },
   }
+}
+
+const providerBackedSpecialistLanes = buffettMungerDeepDiveLanes.filter((lane) => lane !== 'synthesis')
+
+function stableIdSegment(value: string): string {
+  return value.trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '')
+}
+
+function confidenceFor(payload: ClaudeAnalysisPayload): 'low' | 'medium' | 'high' {
+  if (payload.strategy_compliance === 'INSUFFICIENT_DATA' || payload.valuation_status === 'INSUFFICIENT_DATA') {
+    return 'low'
+  }
+  if (payload.strategy_compliance === 'COMPLIANT' && payload.valuation_status === 'ATTRACTIVE') {
+    return 'high'
+  }
+
+  return 'medium'
+}
+
+function laneSummary(lane: string, payload: ClaudeAnalysisPayload): string {
+  if (lane === 'moat') {
+    return payload.thesis_summary
+  }
+  if (lane === 'financial_quality') {
+    return payload.evidence_summary
+  }
+  if (lane === 'management') {
+    return `Management and capital allocation evidence remains part of the provider-backed diligence record for ${payload.ticker}; verify capital allocation specifics before approval.`
+  }
+  if (lane === 'risk') {
+    return payload.risks.join(' ')
+  }
+  if (lane === 'valuation') {
+    return payload.valuation_rationale
+  }
+  if (lane === 'shariah') {
+    return payload.shariah_rationale
+  }
+
+  return payload.evidence_summary
 }
 
 async function appendAnalysisDraft(
@@ -128,7 +205,8 @@ export async function runClaudeBuffettMungerResearch(
   command: RunClaudeBuffettMungerResearchCommand,
 ): Promise<ClaudeResearchWorkflowResult> {
   const researchCase = await createResearchCase(store, command)
-  const structured = await provider.structured(buildRequest(command, provider), ClaudeBuffettMungerResearchSchema)
+  const request = buildRequest(command, provider)
+  const structured = await provider.structured(request, ClaudeBuffettMungerResearchSchema)
 
   const sourceBundle = await ingestManualSourceBundle({
     source_ledger_path: command.source_ledger_path,
@@ -154,21 +232,119 @@ export async function runClaudeBuffettMungerResearch(
     })),
   })
 
+  const sourceIds = sourceBundle.records.map((record) => record.source_id)
+  const selectedStrategy = resolveResearchStrategyRef(command)
+  const analysisPayload: ClaudeAnalysisPayload = {
+    research_case_id: command.research_case_id,
+    company_id: command.company_id,
+    ticker: command.ticker,
+    investment_verdict: structured.investment_verdict,
+    strategy_compliance: structured.strategy_compliance,
+    shariah_status: structured.shariah_status,
+    valuation_status: structured.valuation_status,
+    next_required_action: structured.next_required_action,
+    thesis_summary: structured.thesis_summary,
+    evidence_summary: structured.evidence_summary,
+    valuation_rationale: structured.valuation_rationale,
+    shariah_rationale: structured.shariah_rationale,
+    risks: structured.risks,
+    open_questions: structured.open_questions,
+  }
+  const quickScreen = await draftQuickScreen(store, {
+    research_case_id: command.research_case_id,
+    quick_screen_id: `quick_${stableIdSegment(command.research_case_id)}`,
+    company_id: command.company_id,
+    ticker: command.ticker,
+    ...selectedStrategy,
+    screening_result: 'deep_dive_candidate',
+    summary: structured.thesis_summary,
+    business_quality: structured.thesis_summary,
+    moat: structured.thesis_summary,
+    management_capital_allocation: `Management and capital allocation require verification before user approval for ${command.ticker}.`,
+    financial_quality: structured.evidence_summary,
+    valuation_sanity: structured.valuation_rationale,
+    shariah_status: structured.shariah_status,
+    red_flags: structured.risks,
+    confidence: confidenceFor(analysisPayload),
+    caveats: structured.open_questions,
+    source_ids: sourceIds,
+    actor_id: provider.provider_id,
+    idempotency_key: `quick-screen:${command.research_case_id}:${provider.provider_id}:v1`,
+  })
+  const queued = await queueDeepDive(store, {
+    research_case_id: command.research_case_id,
+    queue_id: `queue_${stableIdSegment(command.research_case_id)}`,
+    ...selectedStrategy,
+    source_ids: sourceIds,
+    causation_id: quickScreen.event_id,
+    actor_id: 'research_workflow',
+    idempotency_key: `deep-dive-queue:${command.research_case_id}:v1`,
+  })
+  const started = await startDeepDive(store, {
+    research_case_id: command.research_case_id,
+    deep_dive_id: `deep_${stableIdSegment(command.research_case_id)}`,
+    ...selectedStrategy,
+    specialist_lanes: providerBackedSpecialistLanes,
+    source_ids: sourceIds,
+    causation_id: queued.event_id,
+    actor_id: 'research_workflow',
+    idempotency_key: `deep-dive-start:${command.research_case_id}:v1`,
+  })
+  const findings: SpecialistFindingRecorded[] = []
+  for (const lane of providerBackedSpecialistLanes) {
+    const finding = await recordSpecialistFinding(store, {
+      research_case_id: command.research_case_id,
+      finding_id: `finding_${stableIdSegment(command.research_case_id)}_${stableIdSegment(lane)}`,
+      deep_dive_id: started.deep_dive_id,
+      ...selectedStrategy,
+      specialist_lane: lane,
+      finding_summary: laneSummary(lane, analysisPayload),
+      confidence: confidenceFor(analysisPayload),
+      caveats: structured.open_questions,
+      provider_run_id: request.run_id,
+      source_ids: sourceIds,
+      causation_id: started.event_id,
+      actor_id: provider.provider_id,
+      idempotency_key: `specialist-finding:${command.research_case_id}:${lane}:v1`,
+    })
+    findings.push(finding)
+  }
+  const synthesis = await draftDeepDiveSynthesis(store, {
+    research_case_id: command.research_case_id,
+    synthesis_id: `synthesis_${stableIdSegment(command.research_case_id)}`,
+    deep_dive_id: started.deep_dive_id,
+    ...selectedStrategy,
+    synthesis_summary: structured.decision_reason,
+    confidence: confidenceFor(analysisPayload),
+    caveats: structured.open_questions,
+    provider_run_id: request.run_id,
+    source_ids: sourceIds,
+    specialist_finding_ids: findings.map((finding) => finding.finding_id),
+    causation_id: findings.at(-1)?.event_id ?? started.event_id,
+    actor_id: 'research_workflow',
+    idempotency_key: `deep-dive-synthesis:${command.research_case_id}:v1`,
+  })
+  const completed = await completeDeepDive(store, {
+    research_case_id: command.research_case_id,
+    completion_id: `complete_${stableIdSegment(command.research_case_id)}`,
+    deep_dive_id: started.deep_dive_id,
+    ...selectedStrategy,
+    synthesis_id: synthesis.synthesis_id,
+    confidence: confidenceFor(analysisPayload),
+    caveats: structured.open_questions,
+    provider_run_id: request.run_id,
+    source_ids: sourceIds,
+    causation_id: synthesis.event_id,
+    actor_id: 'research_workflow',
+    idempotency_key: `deep-dive-complete:${command.research_case_id}:v1`,
+  })
+
   const analysis = await appendAnalysisDraft(
     store,
     provider,
     command,
-    {
-      research_case_id: command.research_case_id,
-      company_id: command.company_id,
-      ticker: command.ticker,
-      investment_verdict: structured.investment_verdict,
-      strategy_compliance: structured.strategy_compliance,
-      shariah_status: structured.shariah_status,
-      valuation_status: structured.valuation_status,
-      next_required_action: structured.next_required_action,
-    },
-    sourceBundle.records.map((record) => record.source_id),
+    analysisPayload,
+    sourceIds,
   )
 
   const decision = await draftDecision(store, {
@@ -176,8 +352,14 @@ export async function runClaudeBuffettMungerResearch(
     decision_id: command.decision_id,
     decision: structured.investment_verdict,
     reason: structured.decision_reason,
-    causation_id: analysis.event_id,
-    source_ids: sourceBundle.records.map((record) => record.source_id),
+    thesis_summary: structured.thesis_summary,
+    evidence_summary: structured.evidence_summary,
+    valuation_rationale: structured.valuation_rationale,
+    shariah_rationale: structured.shariah_rationale,
+    risks: structured.risks,
+    open_questions: structured.open_questions,
+    causation_id: completed.event_id,
+    source_ids: sourceIds,
     ...(command.decision_idempotency_key === undefined
       ? {}
       : { idempotency_key: command.decision_idempotency_key }),
@@ -185,6 +367,8 @@ export async function runClaudeBuffettMungerResearch(
 
   return {
     research_case: researchCase,
+    quick_screen: quickScreen,
+    deep_dive: { queued, started, findings, synthesis, completed },
     analysis,
     decision,
     source_bundle: sourceBundle,

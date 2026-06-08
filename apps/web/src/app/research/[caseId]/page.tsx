@@ -18,7 +18,7 @@ export default async function ResearchCasePage({ params }: ResearchCasePageProps
   try {
     const researchCase = state.config.mode === 'demo'
       ? await getDemoResearchCase(caseId)
-      : await loadPersonalResearchCase(caseId, state.config.ledger_path)
+      : await loadPersonalResearchCase(caseId, state.config.ledger_path, state.config.source_ledger_path)
 
     return (
       <main className="owl-route-frame">
@@ -39,14 +39,14 @@ export default async function ResearchCasePage({ params }: ResearchCasePageProps
   }
 }
 
-async function loadPersonalResearchCase(caseId: string, ledgerPath: string | undefined) {
+async function loadPersonalResearchCase(caseId: string, ledgerPath: string | undefined, sourceLedgerPath: string | undefined) {
   if (ledgerPath === undefined) {
     notFound()
   }
 
   const store = new SQLiteEventStore(ledgerPath ?? resolveDemoLedgerPath())
   try {
-    return await getAppResearchCaseFromStore(store, 'personal-local', caseId)
+    return await getAppResearchCaseFromStore(store, 'personal-local', caseId, sourceLedgerPath)
   } finally {
     store.close()
   }
