@@ -554,6 +554,49 @@ describe('provider certification runner', () => {
     expect(report.support_level).not.toBe('certified')
   })
 
+  it('fails source-grounded scenario when injected grounder cannot verify a cited source', async () => {
+    const report = await runProviderCertification(new MockProvider(), {
+      generated_at: fixedGeneratedAt,
+      model_id: 'mock-research-v2',
+      timeout_ms: 1_000,
+      ground_sources: async (sources) => ({
+        verified_ids: [],
+        captured: sources.map((s) => ({ source_id: s.source_id, availability: 'unavailable' as const })),
+      }),
+    })
+
+    const sourceGroundedCase = report.cases.find((caseResult) => caseResult.scenario_id === 'source-grounded-research-task')
+    expect(sourceGroundedCase).toMatchObject({
+      passed: false,
+      status: 'failed',
+      details: expect.stringMatching(/could not be harness-verified/i),
+    })
+    expect(report.support_level).not.toBe('certified')
+  })
+
+  it('passes source-grounded scenario when injected grounder verifies all cited sources with content hashes', async () => {
+    const report = await runProviderCertification(new MockProvider(), {
+      generated_at: fixedGeneratedAt,
+      model_id: 'mock-research-v2',
+      timeout_ms: 1_000,
+      ground_sources: async (sources) => ({
+        verified_ids: sources.map((s) => s.source_id),
+        captured: sources.map((s) => ({
+          source_id: s.source_id,
+          availability: 'available' as const,
+          content_hash: `sha256:stub-${s.source_id}`,
+        })),
+      }),
+    })
+
+    const sourceGroundedCase = report.cases.find((caseResult) => caseResult.scenario_id === 'source-grounded-research-task')
+    expect(sourceGroundedCase).toMatchObject({
+      passed: true,
+      status: 'passed',
+      details: expect.stringMatching(/grounded .+ cited source/i),
+    })
+  })
+
   it('fails certification when a provider tool scenario directly writes ledger events', async () => {
     const report = await runProviderCertification(new LedgerWritingToolProvider(), {
       generated_at: fixedGeneratedAt,

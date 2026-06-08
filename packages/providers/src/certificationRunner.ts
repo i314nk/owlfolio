@@ -26,6 +26,10 @@ import {
   type ProviderWorkflowRole,
 } from './providerContract'
 
+export type CertificationGroundSourcesFn = (
+  sources: { source_id: string; title: string; url: string; excerpt: string; citation_locator?: string }[],
+) => Promise<{ verified_ids: string[]; captured: { source_id: string; availability: 'available' | 'unavailable'; content_hash?: string }[] }>
+
 export type CertificationRunnerOptions = {
   generated_at?: string
   model_id: string
@@ -35,6 +39,7 @@ export type CertificationRunnerOptions = {
   runtime_kind?: ProviderRuntimeKind
   auth_mode?: ProviderAuthMode
   workflow_role?: ProviderWorkflowRole
+  ground_sources?: CertificationGroundSourcesFn
 }
 
 type UnavailableCertificationReportOptions = {
@@ -52,6 +57,7 @@ type UnavailableCertificationReportOptions = {
 
 type ResolvedCertificationRunnerOptions = Required<Pick<CertificationRunnerOptions, 'generated_at' | 'model_id' | 'timeout_ms' | 'workflow_role'>> & {
   target: CertificationTarget
+  ground_sources?: CertificationGroundSourcesFn
 }
 
 const ResearchSchema = z.object({
@@ -104,6 +110,7 @@ export async function runProviderCertification(
     timeout_ms: options.timeout_ms ?? 30_000,
     workflow_role: workflowRole,
     target,
+    ...(options.ground_sources === undefined ? {} : { ground_sources: options.ground_sources }),
   }
   const scenarios = getCertificationScenarios()
   const cases: CertificationCaseResult[] = []
@@ -407,6 +414,35 @@ async function runCertificationScenario(
           throw new Error('Structured result did not include source records')
         }
         assertSourceCitationEvidence(result)
+        if (options.ground_sources !== undefined) {
+          const records = (result.source_records ?? []).map((r) => ({
+            source_id: r.source_id,
+            title: r.title,
+            url: r.url,
+            excerpt: r.excerpt,
+          }))
+          const grounding = await options.ground_sources(records)
+          const verified = new Set(grounding.verified_ids)
+          const ungrounded = result.source_ids.filter(
+            (id) => !verified.has(id) || grounding.captured.find((c) => c.source_id === id)?.content_hash === undefined,
+          )
+          if (ungrounded.length > 0) {
+            return caseResult(scenario, {
+              passed: false,
+              status: 'failed',
+              details: `${ungrounded.length} cited source(s) could not be harness-verified: ${ungrounded.join(', ')}`,
+              observed_provider_behavior: `Grounding failed for ${ungrounded.length} cited source(s).`,
+              capability_gates: capabilityGates,
+            })
+          }
+          return caseResult(scenario, {
+            passed: true,
+            status: 'passed',
+            details: `Grounded ${result.source_ids.length} cited source(s) with content hashes.`,
+            observed_provider_behavior: `Validated grounding/citation evidence with ${result.source_records?.length ?? 0} source record(s).`,
+            capability_gates: capabilityGates,
+          })
+        }
         return caseResult(scenario, {
           passed: true,
           status: 'passed',

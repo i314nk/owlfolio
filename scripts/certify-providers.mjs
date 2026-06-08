@@ -12,6 +12,7 @@ import {
 } from '../packages/providers/src/index.ts'
 
 import { getProviderReadiness } from '../apps/web/src/lib/providerReadiness.ts'
+import { groundProposedSources, groundProposedSourcesDeterministic } from '../packages/workflow/src/sourceGrounding.ts'
 
 const env = process.env
 const generatedAt = env.OWLFOLIO_CERTIFICATION_GENERATED_AT ?? new Date().toISOString()
@@ -32,6 +33,7 @@ for (const providerEntry of getProviderCatalog()) {
           generated_at: generatedAt,
           timeout_ms: Number.isFinite(timeoutMs) ? timeoutMs : 30_000,
           ...targetOptions,
+          ground_sources: providerEntry.provider_id === 'mock-provider' ? groundProposedSourcesDeterministic : groundProposedSources,
         })
       : unavailableReportFor({
           provider_id: providerEntry.provider_id,
