@@ -1,6 +1,6 @@
 # Owlfolio v2 provider/model support matrix
 
-Verified: 2026-06-03, from public provider documentation, OpenRouter model inventory, and Owlfolio phase-4 provider-surface implementation closeout.
+Verified: 2026-06-03, from public provider documentation, OpenRouter model inventory, and Owlfolio phase-4 provider-surface implementation closeout. Updated 2026-06-09 for the multi-agent grounded research swarm and harness-verified source-grounding certification gate (see "Research execution model and grounding contract" below).
 
 This document is a planning and certification handoff for the Owlfolio v2 provider-status UI, live certification lane, and alpha documentation. It does not certify a provider by itself. Owlfolio support labels must still be bounded by adapter implementation plus the latest certification report.
 
@@ -17,20 +17,28 @@ The current v2 repo has these catalog/runtime paths:
 | `gemini-developer-api` | Direct Gemini Developer API candidate | `experimental` | Adapter exists and is separate from Gemini CLI; latest target-specific report is unsupported/not-configured; paid Developer API remains an experimental candidate behind privacy/security gates, while free/unpaid posture is unsuitable for production autonomous private-investment workflows. |
 | `gemini-cli` | Google/Gemini CLI onboarding lane | `experimental` | Setup/sign-in lane only; no execution adapter/certification yet. |
 
+## Research execution model and grounding contract (2026-06-09)
+
+Research no longer runs as a single LLM call. The web app enqueues a `research_run_requested` event and the local worker executes a **strategy-driven multi-agent swarm** (`runStrategyResearchSwarm`): a quick-screen agent, a concurrent per-lane specialist swarm (the Buffett-Munger lanes), and a synthesis/decision agent — each a separate provider call.
+
+Every cited source is subject to a **harness-side grounding invariant**: agents propose citations, and the harness fetches each URL (public sources only, fail-closed, SSRF-guarded) and content-hashes it. Only harness-verified sources are attached to ledger events; unverifiable ones are recorded in the source bundle as `unavailable` and excluded from findings. The mock/demo path uses a deterministic grounder (no network); real providers use the fetching grounder.
+
+The provider certification's `source-grounded-research-task` enforces this same invariant: a provider fails the scenario unless its cited sources are harness-verified (actually fetched and content-hashed). A provider that returns plausible-but-unfetchable or fabricated citations therefore cannot reach certified support for grounded research.
+
 ## Latest live certification evidence
 
-Live harness run: 2026-06-02T05:58:15.260Z. Gemini Developer API targeted run: 2026-06-03T10:10:15.745Z. Reports are persisted under `data/provider-certifications/` and surfaced by the Provider status page.
+Live harness run: 2026-06-09 (multi-agent grounded swarm + harness-verified source grounding enabled). Reports are persisted under `data/provider-certifications/` (gitignored runtime evidence) and surfaced by the Provider status page.
 
 | Owlfolio provider id | Latest report | Effective support | Evidence summary |
 |---|---|---:|---|
-| `mock-provider` | `mock-provider.latest.json` | `certified` | Completed: 13/13 scenarios passed. |
-| `claude` | `claude.latest.json` | `unsupported` | Not configured: local Claude credentials exist, but live heartbeat reports Claude subscription access is disabled for Claude Code; use an Anthropic API key or enable access before rerunning certification. |
-| `openai` / `openai-codex-cli` | `openai.latest.json` | `experimental` | Completed: 9/13 scenarios passed with Codex OAuth and `gpt-5.5`; unsupported tool-loop capabilities and one source-grounded timeout prevent certified status. |
-| `openai-api` | `openai-api.latest.json` | `unsupported` / not configured | Target-specific report recorded for `openai-api` / `api_key` / `research_draft` / `gpt-4.1-mini`; certification was not run because no direct API credential was available in this environment. |
-| `gemini-developer-api` | `gemini-developer-api.latest.json` | `unsupported` / not configured | Target-specific report recorded for `gemini-developer-api` / `api_key` / `research_draft` / `gemini-2.5-pro`; certification was skipped as not configured because no Gemini Developer API key was available in this environment. Privacy posture remains a blocker: free/unpaid Developer API is unsuitable for production/autonomous private-investment workflows, paid Developer API remains experimental behind privacy/security gates, and Vertex/Gemini Enterprise is a separate ZDR/data-residency candidate. |
+| `mock-provider` | `mock-provider.latest.json` | `certified` | Completed: 18/18 scenarios passed (both `research_draft` and `scheduled_monitoring_dry_run` roles), including the source-grounded scenario verified through the deterministic mock grounder. |
+| `claude` | `claude.latest.json` | `unsupported` | Not configured: Claude CLI readiness heartbeat timed out after 180000ms in this environment; enable Claude access or use an Anthropic API key before rerunning certification. |
+| `openai` / `openai-codex-cli` | `openai.latest.json` | `experimental` | Completed: 13/18 scenarios passed with Codex OAuth and `gpt-5.5`. The `source-grounded-research-task` now **fails the grounding gate** (no harness-verifiable source records — Codex in the read-only sandbox cannot return fetchable, content-hashed citations); tool-call / multi-step / end-to-end scenarios are skipped (no tool-function-calling). Certified/production support also remains blocked until privacy retention/ZDR status is verified. |
+| `openai-api` | `openai-api.latest.json` | `unsupported` / not configured | Not run: no direct OpenAI API key in this environment (Codex CLI credentials do not certify the direct API surface). |
+| `gemini-developer-api` | `gemini-developer-api.latest.json` | `unsupported` / not configured | Not run: no Gemini Developer API key. Privacy posture remains a blocker: free/unpaid Developer API is unsuitable for production/autonomous private-investment workflows, paid Developer API remains experimental behind privacy/security gates, and Vertex/Gemini Enterprise is a separate ZDR/data-residency candidate. |
 | `gemini-cli` | none recorded yet | setup-only | No execution adapter/certification exists yet; onboarding must not imply runnable workflow execution. |
 
-Do not upgrade catalog/docs above this evidence: only the deterministic mock provider is certified; OpenAI Codex CLI is experimental; Claude CLI is currently unavailable in this environment despite credential-file presence; OpenAI/Gemini direct API candidates and Gemini CLI remain fail-closed until target-specific reports pass and their privacy/support caveats are accepted.
+Do not upgrade catalog/docs above this evidence: only the deterministic mock provider is certified. The certification's source-grounded scenario now asserts every cited source is **harness-verified**, so a provider cannot be certified for grounded research while returning unverifiable or fabricated citations. OpenAI Codex CLI is experimental and currently fails that grounding gate; Claude CLI is unavailable in this environment despite credential-file presence; OpenAI/Gemini direct API candidates and Gemini CLI remain fail-closed until target-specific reports pass and their privacy/support caveats are accepted.
 
 Additional direct API adapters such as `anthropic`, `perplexity`, `openrouter`, `xai`, `deepseek`, `qwen`, or `local-openai-compatible` are candidates, not current certified Owlfolio providers.
 
