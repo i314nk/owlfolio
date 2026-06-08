@@ -102,6 +102,87 @@ describe('MockProvider', () => {
     expect(run.ledger_events_written).toBe(0)
   })
 
+  it('returns a valid BuffettMungerQuickScreen payload with proposed_sources', async () => {
+    const provider = new MockProvider()
+    const completion = await provider.complete({
+      run_id: 'run_qs_001',
+      model_id: 'mock-research-v1',
+      task_kind: 'structured-output',
+      prompt: 'Analyze COST with Buffett-Munger policy',
+      timeout_ms: 1000,
+      budget: { max_tool_calls: 0, max_tokens: 2000 },
+      tool_allowlist: [],
+      response_format: { kind: 'json-schema', schema_name: 'BuffettMungerQuickScreen' },
+    })
+    const parsed = JSON.parse(completion.text) as Record<string, unknown>
+    expect(parsed).toHaveProperty('summary')
+    expect(parsed).toHaveProperty('screening_result', 'deep_dive_candidate')
+    expect(parsed).toHaveProperty('shariah_status', 'CONDITIONAL')
+    expect(parsed).toHaveProperty('confidence', 'medium')
+    const sources = parsed['proposed_sources']
+    expect(Array.isArray(sources)).toBe(true)
+    expect((sources as unknown[]).length).toBeGreaterThanOrEqual(1)
+    const first = (sources as Record<string, unknown>[])[0]
+    expect(first).toHaveProperty('source_id')
+    expect(first).toHaveProperty('title')
+    expect(first).toHaveProperty('url')
+    expect(first).toHaveProperty('excerpt')
+  })
+
+  it('returns a valid BuffettMungerLaneFinding payload with proposed_sources', async () => {
+    const provider = new MockProvider()
+    const completion = await provider.complete({
+      run_id: 'run_lane_001',
+      model_id: 'mock-research-v1',
+      task_kind: 'structured-output',
+      prompt: 'Analyze MSFT with Buffett-Munger policy',
+      timeout_ms: 1000,
+      budget: { max_tool_calls: 0, max_tokens: 2000 },
+      tool_allowlist: [],
+      response_format: { kind: 'json-schema', schema_name: 'BuffettMungerLaneFinding' },
+    })
+    const parsed = JSON.parse(completion.text) as Record<string, unknown>
+    expect(parsed).toHaveProperty('finding_summary')
+    expect(parsed).toHaveProperty('confidence', 'medium')
+    expect(Array.isArray(parsed['caveats'])).toBe(true)
+    expect((parsed['caveats'] as unknown[]).length).toBeGreaterThanOrEqual(1)
+    const sources = parsed['proposed_sources']
+    expect(Array.isArray(sources)).toBe(true)
+    expect((sources as unknown[]).length).toBeGreaterThanOrEqual(1)
+    const first = (sources as Record<string, unknown>[])[0]
+    expect(first).toHaveProperty('source_id', 'mock_msft_primary')
+    expect(first).toHaveProperty('url')
+  })
+
+  it('returns a valid BuffettMungerSynthesisDecision payload with proposed_sources', async () => {
+    const provider = new MockProvider()
+    const completion = await provider.complete({
+      run_id: 'run_dec_001',
+      model_id: 'mock-research-v1',
+      task_kind: 'structured-output',
+      prompt: 'Analyze COST with Buffett-Munger policy',
+      timeout_ms: 1000,
+      budget: { max_tool_calls: 0, max_tokens: 2000 },
+      tool_allowlist: [],
+      response_format: { kind: 'json-schema', schema_name: 'BuffettMungerSynthesisDecision' },
+    })
+    const parsed = JSON.parse(completion.text) as Record<string, unknown>
+    expect(parsed).toHaveProperty('investment_verdict', 'WATCH')
+    expect(parsed).toHaveProperty('decision_reason')
+    expect(parsed).toHaveProperty('thesis_summary')
+    expect(parsed).toHaveProperty('evidence_summary')
+    expect(parsed).toHaveProperty('valuation_rationale')
+    expect(parsed).toHaveProperty('shariah_rationale')
+    expect(parsed).toHaveProperty('synthesis_summary')
+    expect(Array.isArray(parsed['risks'])).toBe(true)
+    expect((parsed['risks'] as unknown[]).length).toBeGreaterThanOrEqual(1)
+    expect(Array.isArray(parsed['open_questions'])).toBe(true)
+    expect((parsed['open_questions'] as unknown[]).length).toBeGreaterThanOrEqual(1)
+    const sources = parsed['proposed_sources']
+    expect(Array.isArray(sources)).toBe(true)
+    expect((sources as unknown[]).length).toBeGreaterThanOrEqual(1)
+  })
+
   it('fails safely when structured output violates schema', async () => {
     const provider = new MockProvider({ mode: 'invalid-json' })
     await expect(

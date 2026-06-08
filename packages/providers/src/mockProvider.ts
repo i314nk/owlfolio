@@ -79,6 +79,68 @@ function buffettMungerAnalysisForTicker(ticker: string) {
   } as const
 }
 
+function mockSourcesForTicker(ticker: string) {
+  const tslug = sourceSlugForTicker(ticker)
+  return [
+    {
+      source_id: `mock_${tslug}_primary`,
+      title: `${ticker} primary source`,
+      url: `https://mock.local/${tslug}/primary`,
+      excerpt: `${ticker} primary mock source excerpt for deterministic swarm testing.`,
+    },
+    {
+      source_id: `mock_${tslug}_secondary`,
+      title: `${ticker} secondary source`,
+      url: `https://mock.local/${tslug}/secondary`,
+      excerpt: `${ticker} secondary mock source excerpt for deterministic swarm testing.`,
+    },
+  ] as const
+}
+
+function mockQuickScreenForTicker(ticker: string) {
+  const companyLabel = companyLabelForTicker(ticker)
+  return {
+    summary: `${companyLabel} screens as a durable quality business with a wide moat. Valuation is elevated; a deep dive is warranted.`,
+    business_quality: `${companyLabel} operates a durable membership-driven model with consistent earnings power.`,
+    moat: `Wide cost-leadership and switching-cost moat; members renew at high rates.`,
+    management_capital_allocation: `Owner-oriented management with disciplined capital allocation and low leverage.`,
+    financial_quality: `Consistent free cash flow; conservative balance sheet; high return on invested capital.`,
+    valuation_sanity: `Current price is elevated relative to intrinsic value; a margin of safety is not yet present.`,
+    shariah_status: 'CONDITIONAL' as const,
+    red_flags: [`Valuation elevated versus Buffett-Munger margin-of-safety threshold.`],
+    confidence: 'medium' as const,
+    caveats: [`Mock analysis — not investment-grade; run a real provider before any decision.`],
+    screening_result: 'deep_dive_candidate' as const,
+    proposed_sources: mockSourcesForTicker(ticker),
+  }
+}
+
+function mockLaneFindingForTicker(ticker: string) {
+  const companyLabel = companyLabelForTicker(ticker)
+  return {
+    finding_summary: `${companyLabel} lane finding: mock specialist analysis consistent with a WATCH stance.`,
+    confidence: 'medium' as const,
+    caveats: [`Mock lane finding — not investment-grade; run a real provider before any decision.`],
+    proposed_sources: mockSourcesForTicker(ticker),
+  }
+}
+
+function mockSynthesisDecisionForTicker(ticker: string) {
+  const companyLabel = companyLabelForTicker(ticker)
+  return {
+    investment_verdict: 'WATCH' as const,
+    decision_reason: `${companyLabel} is a durable quality compounder but current valuation does not yet provide a sufficient margin of safety.`,
+    thesis_summary: `${companyLabel} screens as a wide-moat compounder with aligned management and Shariah-conditional status; watchlist until valuation is attractive.`,
+    evidence_summary: `Mock source coverage reviewed primary and secondary references for ${ticker}.`,
+    valuation_rationale: `Current valuation remains elevated versus the required Buffett-Munger margin of safety.`,
+    shariah_rationale: `Mock source coverage did not identify prohibited-business evidence; final Shariah treatment requires sourced ratio review.`,
+    synthesis_summary: `All mock lanes reviewed; ${companyLabel} is a WATCH candidate pending a wider margin of safety.`,
+    risks: [`Valuation compression risk if earnings disappoint.`],
+    open_questions: [`Refresh owner-earnings and Shariah ratio evidence after the next quarterly filing.`],
+    proposed_sources: mockSourcesForTicker(ticker),
+  }
+}
+
 function buffettMungerHoldingReviewForTicker(ticker: string) {
   return {
     thesis_health: 'HEALTHY',
@@ -205,8 +267,20 @@ export class MockProvider implements Provider {
       }
     }
 
-    if (request.response_format.kind === 'json-schema' && request.response_format.schema_name === 'BuffettMungerHoldingReview') {
-      return buffettMungerHoldingReviewForTicker(extractTicker(request.prompt))
+    if (request.response_format.kind === 'json-schema') {
+      const ticker = extractTicker(request.prompt)
+      switch (request.response_format.schema_name) {
+        case 'BuffettMungerHoldingReview':
+          return buffettMungerHoldingReviewForTicker(ticker)
+        case 'BuffettMungerQuickScreen':
+          return mockQuickScreenForTicker(ticker)
+        case 'BuffettMungerLaneFinding':
+          return mockLaneFindingForTicker(ticker)
+        case 'BuffettMungerSynthesisDecision':
+          return mockSynthesisDecisionForTicker(ticker)
+        default:
+          return buffettMungerAnalysisForTicker(ticker)
+      }
     }
 
     return buffettMungerAnalysisForTicker(extractTicker(request.prompt))

@@ -5,9 +5,10 @@ import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
 import { InMemoryEventStore } from '@owlfolio/ledger/eventStore'
-import { runGroundedAgent, ProposedSourcesSchema, runLaneSwarm, runStrategyResearchSwarm } from '../researchSwarm'
+import { MockProvider } from '@owlfolio/providers/mockProvider'
+import { runGroundedAgent, ProposedSourcesSchema, runLaneSwarm, runStrategyResearchSwarm, type GroundFn } from '../researchSwarm'
 import { buffettMungerDeepDiveLanes } from '../strategyResearchPipeline'
-import type { CapturedSource } from '../sourceGrounding'
+import { groundProposedSourcesDeterministic, type CapturedSource } from '../sourceGrounding'
 
 function fakeProvider(payload: unknown) {
   return {
@@ -407,5 +408,40 @@ describe('runStrategyResearchSwarm', () => {
     const goodRecord = bundle.records.find((r) => r.source_id.includes('good'))
     expect(goodRecord).toBeDefined()
     expect(goodRecord?.availability).toBe('available')
+  })
+})
+
+describe('runStrategyResearchSwarm with MockProvider + deterministic grounder', () => {
+  it('completes end-to-end: research_case_created, quick_screen_drafted, >=7 specialist_finding_recorded, deep_dive_synthesis_drafted, decision_drafted', async () => {
+    const sourceLedgerPath = await mkdtemp(join(tmpdir(), 'owlfolio-mock-swarm-'))
+    const store = new InMemoryEventStore()
+    const provider = new MockProvider()
+
+    const result = await runStrategyResearchSwarm(
+      store,
+      provider,
+      {
+        research_case_id: 'rc_mock_e2e',
+        company_id: 'company_mock',
+        ticker: 'COST',
+        strategy_id: 'buffett-munger',
+        actor_id: 'user_local',
+        idempotency_key: 'mock_e2e_k',
+        model_id: 'mock-research-v1',
+        decision_id: 'decision_mock_e2e',
+        source_ledger_path: sourceLedgerPath,
+      },
+      { ground: groundProposedSourcesDeterministic as GroundFn, laneConcurrency: 4 },
+    )
+
+    const events = await store.list()
+    const types = events.map((e) => e.event_type)
+
+    expect(types).toContain('research_case_created')
+    expect(types).toContain('quick_screen_drafted')
+    expect(types.filter((t) => t === 'specialist_finding_recorded').length).toBeGreaterThanOrEqual(7)
+    expect(types).toContain('deep_dive_synthesis_drafted')
+    expect(types).toContain('decision_drafted')
+    expect(result.decision).toBeDefined()
   })
 })

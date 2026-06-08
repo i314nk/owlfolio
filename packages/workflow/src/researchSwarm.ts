@@ -38,6 +38,7 @@ export type GroundedAgentRequest = {
   model_id: string
   prompt: string
   timeout_ms: number
+  schema_name?: string
 }
 
 export type GroundedAgentResult<T> = {
@@ -62,7 +63,7 @@ export async function runGroundedAgent<T extends { proposed_sources: z.infer<typ
       timeout_ms: request.timeout_ms,
       budget: { max_tool_calls: 0, max_tokens: 8_000 },
       tool_allowlist: [],
-      response_format: { kind: 'json-schema', schema_name: 'GroundedAgent' },
+      response_format: { kind: 'json-schema', schema_name: request.schema_name ?? 'GroundedAgent' },
     },
     schema,
   )
@@ -226,6 +227,7 @@ export async function runStrategyResearchSwarm(
       + `Assess business quality, moat, management/capital allocation, financial quality, Shariah/data availability, red flags, and a deep-dive recommendation. `
       + `Gather your own primary/secondary sources and return them in proposed_sources with real URLs.`,
     timeout_ms: AGENT_TIMEOUT_MS,
+    schema_name: 'BuffettMungerQuickScreen',
   }, QuickScreenAgentSchema, deps)
   remember(qs.captured)
 
@@ -288,6 +290,7 @@ export async function runStrategyResearchSwarm(
       prompt: `You are the Buffett-Munger ${lane} specialist agent for ${command.ticker}. `
         + `Produce a source-backed finding for the ${lane} lane only. Gather your own sources; return them in proposed_sources with real URLs.`,
       timeout_ms: AGENT_TIMEOUT_MS,
+      schema_name: 'BuffettMungerLaneFinding',
     }, LaneAgentSchema, deps)
     remember(agent.captured)
     return {
@@ -340,6 +343,7 @@ export async function runStrategyResearchSwarm(
       + `Using the lane findings, produce a verdict, thesis, evidence, valuation rationale, Shariah rationale, risks, open questions, and a synthesis summary. `
       + `Cite sources in proposed_sources with real URLs.`,
     timeout_ms: AGENT_TIMEOUT_MS,
+    schema_name: 'BuffettMungerSynthesisDecision',
   }, DecisionAgentSchema, deps)
   remember(dec.captured)
 

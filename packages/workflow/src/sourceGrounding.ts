@@ -104,6 +104,24 @@ export type GroundingResult = {
   verified_ids: string[]
 }
 
+export async function groundProposedSourcesDeterministic(
+  sources: ProposedSource[],
+  deps: GroundingDeps = {},
+): Promise<GroundingResult> {
+  const now = deps.now ?? (() => new Date())
+  const captured: CapturedSource[] = sources.map((s): CapturedSource => ({
+    source_id: s.source_id,
+    title: s.title,
+    url: s.url,
+    excerpt: s.excerpt,
+    availability: 'available' as const,
+    fetched_at: now().toISOString(),
+    content_hash: `sha256:mock-${s.source_id}`,
+    ...(s.citation_locator === undefined ? {} : { citation_locator: s.citation_locator }),
+  }))
+  return { captured, verified_ids: captured.map((c) => c.source_id) }
+}
+
 export async function groundProposedSources(
   sources: ProposedSource[],
   deps: GroundingDeps = {},
