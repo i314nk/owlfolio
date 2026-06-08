@@ -21,7 +21,7 @@ import {
   confirmPersonalHoldingReviewDraft,
   confirmPersonalWatchlistDraft,
   createPersonalHoldingReviewDraft,
-  createPersonalResearchCase,
+  enqueueResearchRun,
   getAppHoldingsFromStore,
   getAppResearchCaseFromStore,
   getAppResearchPipelineFromStore,
@@ -43,68 +43,52 @@ describe('workflow helpers', () => {
     dirs.length = 0
   })
 
-  it('creates and drafts the first personal-local research case in the configured durable ledger', async () => {
-    const projectDir = await mkdtemp(join(tmpdir(), 'owlfolio-workflow-'))
+  it('enqueues a research run and appends a research_run_requested event to the durable ledger', async () => {
+    const projectDir = await mkdtemp(join(tmpdir(), 'owlfolio-enqueue-research-'))
     dirs.push(projectDir)
 
     const ledgerPath = join(projectDir, 'data', 'personal-ledger.sqlite')
     const sourceLedgerPath = join(projectDir, 'data', 'source-ledger')
-    const created = await createPersonalResearchCase(
-      {
-        config: {
-          ...defaultPersonalLocalAppConfig(),
-          provider: {
-            provider_id: 'mock-provider',
-            support_level: 'certified',
-            model_id: 'mock-buffett-munger-demo',
-          },
-          initialized_at: '2026-05-29T12:00:00.000Z',
-          ledger_path: ledgerPath,
-          source_ledger_path: sourceLedgerPath,
+    const state = {
+      config: {
+        ...defaultPersonalLocalAppConfig(),
+        provider: {
+          provider_id: 'mock-provider' as const,
+          support_level: 'certified' as const,
+          model_id: 'mock-buffett-munger-demo',
         },
-        is_initialized: true,
+        initialized_at: '2026-05-29T12:00:00.000Z',
+        ledger_path: ledgerPath,
+        source_ledger_path: sourceLedgerPath,
       },
-      { ticker: 'MSFT', company_id: 'company_msft' },
-    )
+      is_initialized: true,
+    }
+
+    const result = await enqueueResearchRun(state, { ticker: 'MSFT', company_id: 'company_msft' }, { spawn: () => {} })
+
+    expect(result.research_case_id).toMatch(/^rc_msft_/)
 
     const store = new SQLiteEventStore(ledgerPath)
     try {
-      expect(created.research_case_id).toMatch(/^rc_msft_/)
-      const researchCase = await getAppResearchCaseFromStore(store, 'personal-local', created.research_case_id, sourceLedgerPath)
-      expect(researchCase).toMatchObject({
-        ticker: 'MSFT',
-        company_id: 'company_msft',
-        stage: 'decision_drafted',
-        investment_verdict: 'WATCH',
-        strategy_compliance: 'CONDITIONAL',
-        shariah_status: 'COMPLIANT',
-        valuation_status: 'EXPENSIVE',
+      const events = await store.list()
+      expect(events).toHaveLength(1)
+      expect(events[0]).toMatchObject({
+        event_id: `evt_research_run_requested_${result.research_case_id}`,
+        event_type: 'research_run_requested',
+        aggregate_type: 'research_case',
+        aggregate_id: result.research_case_id,
+        correlation_id: result.research_case_id,
+        actor_type: 'user',
+        actor_id: 'user_local',
+        source_ids: [],
+        schema_version: 1,
+        idempotency_key: `research-run-request:${result.research_case_id}:v1`,
       })
-      expect(researchCase.next_required_action).toMatch(/MSFT source coverage/i)
-      expect(researchCase.next_required_action).not.toMatch(/Costco|COST\b/)
-      expect(researchCase.source_ids).toEqual(['src_msft_10k_2025', 'src_msft_proxy_2025', 'src_msft_q1_2026'])
-      expect(researchCase.source_evidence).toEqual(expect.arrayContaining([
-        expect.objectContaining({
-          source_id: 'src_msft_10k_2025',
-          title: 'Microsoft FY2025 10-K',
-          excerpt: expect.stringContaining('reported durable operating performance'),
-        }),
-      ]))
-      expect(JSON.stringify(researchCase.source_evidence)).not.toContain(sourceLedgerPath)
-      const eventTypes = (await store.list()).map((event) => event.event_type)
-      expect(eventTypes.slice(0, 4)).toEqual([
-        'research_case_created',
-        'quick_screen_drafted',
-        'queued_for_deep_dive',
-        'deep_dive_started',
-      ])
-      expect(eventTypes).toContain('specialist_finding_recorded')
-      expect(eventTypes.slice(-4)).toEqual([
-        'deep_dive_synthesis_drafted',
-        'deep_dive_completed',
-        'buffett_munger_analysis_drafted',
-        'decision_drafted',
-      ])
+      expect(events[0]?.payload).toMatchObject({
+        research_case_id: result.research_case_id,
+        ticker: 'MSFT',
+        requested_by: 'user_local',
+      })
     } finally {
       store.close()
     }
@@ -188,7 +172,7 @@ describe('workflow helpers', () => {
       is_initialized: true,
     }
 
-    const created = await createPersonalResearchCase(state, { ticker: 'MSFT', company_id: 'company_msft' })
+    const created = await setupMsftResearchCaseInLedger(ledgerPath)
     const promoted = await promoteResearchCaseToWatchlist(state, created.research_case_id)
     const confirmed = await confirmPersonalWatchlistDraft(state, promoted.watchlist_item_id)
     const openedHolding = await openPersonalHoldingFromWatchlist(state, promoted.watchlist_item_id, {
@@ -382,7 +366,7 @@ describe('workflow helpers', () => {
         is_initialized: true,
       }
 
-      const created = await createPersonalResearchCase(state, { ticker: 'MSFT', company_id: 'company_msft' })
+      const created = await setupMsftResearchCaseInLedger(ledgerPath)
       const promoted = await promoteResearchCaseToWatchlist(state, created.research_case_id)
       await confirmPersonalWatchlistDraft(state, promoted.watchlist_item_id)
       const openedHolding = await openPersonalHoldingFromWatchlist(state, promoted.watchlist_item_id)
@@ -507,7 +491,7 @@ describe('workflow helpers', () => {
       is_initialized: true,
     }
 
-    const created = await createPersonalResearchCase(state, { ticker: 'MSFT', company_id: 'company_msft' })
+    const created = await setupMsftResearchCaseInLedger(ledgerPath)
     const promoted = await promoteResearchCaseToWatchlist(state, created.research_case_id)
     await confirmPersonalWatchlistDraft(state, promoted.watchlist_item_id)
 
@@ -844,4 +828,91 @@ function unsupportedCompletedReport(providerId: 'claude' | 'openai'): Certificat
     cases: [],
     summary: '0/13 scenarios passed; provider support level is unsupported.',
   }
+}
+
+/**
+ * Sets up a minimal MSFT research case directly in the SQLite ledger at ledgerPath,
+ * producing a `decision_drafted` stage with the standard mock-provider source IDs.
+ * Use this in tests that need a pre-existing research case to test downstream workflow steps
+ * (watchlist promotion, holding open, etc.) without calling the now-retired synchronous
+ * `createPersonalResearchCase` / `runClaudeBuffettMungerResearch` path.
+ */
+async function setupMsftResearchCaseInLedger(
+  ledgerPath: string,
+): Promise<{ research_case_id: string; decision_id: string }> {
+  const researchCaseId = `rc_msft_${Date.now()}`
+  const decisionId = `decision_msft_${Date.now()}`
+  const sourceIds = ['src_msft_10k_2025', 'src_msft_proxy_2025', 'src_msft_q1_2026']
+  const store = new SQLiteEventStore(ledgerPath)
+  try {
+    const researchCase = await createResearchCase(store, {
+      research_case_id: researchCaseId,
+      company_id: 'company_msft',
+      ticker: 'MSFT',
+      strategy_id: 'buffett-munger',
+      actor_id: 'user_local',
+    })
+    await store.append({
+      event_id: `evt_buffett_munger_analysis_drafted_${researchCaseId}`,
+      event_type: 'buffett_munger_analysis_drafted',
+      aggregate_type: 'research_case',
+      aggregate_id: researchCaseId,
+      correlation_id: researchCaseId,
+      actor_type: 'provider',
+      actor_id: 'mock-provider',
+      payload: {
+        research_case_id: researchCaseId,
+        company_id: 'company_msft',
+        ticker: 'MSFT',
+        investment_verdict: 'WATCH',
+        strategy_compliance: 'CONDITIONAL',
+        shariah_status: 'COMPLIANT',
+        valuation_status: 'EXPENSIVE',
+        next_required_action: 'Wait for a wider margin of safety and refresh MSFT source coverage after the next quarterly filing.',
+        thesis_summary: 'Microsoft screens as a durable quality compounder, but remains a watchlist candidate until valuation provides a wider margin of safety.',
+        evidence_summary: 'Microsoft source records cover the latest annual report, proxy governance context, and recent quarterly operating momentum.',
+        valuation_rationale: 'Current valuation remains elevated versus the required Buffett-Munger margin of safety.',
+        shariah_rationale: 'Mock source coverage did not identify prohibited-business evidence; final Shariah treatment remains subject to sourced ratio review.',
+        risks: ['Valuation compression', 'Source coverage may need refreshing after the next filing'],
+        open_questions: ['Refresh owner-earnings and Shariah ratio evidence after the next quarterly filing'],
+        quick_screen: {
+          summary: 'Quality screen recommends deep dive.',
+          business_quality: 'Sticky enterprise demand.',
+          moat: 'Switching costs and ecosystem breadth.',
+          management_capital_allocation: 'Capital allocation requires diligence.',
+          financial_quality: 'High margins and FCF conversion.',
+          shariah_data_availability: 'Source records exist; ratio refresh required.',
+          red_flags: ['Valuation deferred to deep dive'],
+          confidence: 'medium',
+          caveats: ['Single-agent screen only'],
+          deep_dive_recommendation: 'deep_dive_candidate',
+        },
+        owner_earnings_valuation: {
+          summary: 'Owner-earnings valuation points to a watchlist posture.',
+          normalized_owner_earnings: '$85B normalized owner earnings',
+          assumptions: ['5% ten-year growth', '10% discount rate'],
+          fair_value_range: '$360–$420/share',
+          buy_price_range: '$260–$300/share',
+          margin_of_safety: '25%–35%',
+          sources: sourceIds,
+          confidence: 'medium',
+          caveats: ['AI capex normalization is the key swing factor'],
+        },
+      },
+      source_ids: sourceIds,
+      created_at: new Date().toISOString(),
+      schema_version: 1,
+    })
+    await draftDecision(store, {
+      research_case_id: researchCaseId,
+      decision_id: decisionId,
+      decision: 'WATCH',
+      reason: 'Durable quality business, but current valuation does not yet provide a sufficient margin of safety.',
+      causation_id: researchCase.event_id,
+      source_ids: sourceIds,
+    })
+  } finally {
+    store.close()
+  }
+  return { research_case_id: researchCaseId, decision_id: decisionId }
 }

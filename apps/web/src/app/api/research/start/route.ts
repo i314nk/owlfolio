@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 
 import { getOnboardingState, getProviderReadinessSnapshot } from '../../../../lib/onboarding'
-import { createPersonalResearchCase } from '../../../../lib/workflow'
+import { enqueueResearchRun } from '../../../../lib/workflow'
 
 function parseRequestBody(body: unknown): { ticker: string; company_id?: string } {
   if (body === null || typeof body !== 'object' || Array.isArray(body)) {
@@ -41,9 +41,9 @@ export async function POST(request: Request) {
       )
     }
 
-    const created = await createPersonalResearchCase(state, parsed)
+    const { research_case_id } = await enqueueResearchRun(state, parsed)
 
-    return NextResponse.json({ research_case_id: created.research_case_id }, { status: 201 })
+    return NextResponse.json({ research_case_id }, { status: 202 })
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error'
     const isUnknownProvider = message.startsWith('Unknown provider:')

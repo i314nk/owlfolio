@@ -1,5 +1,6 @@
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
+import { spawn } from 'node:child_process'
 
 import {
   projectDiscoveryCandidates,
@@ -30,7 +31,6 @@ import {
   overrideHoldingReviewDraft,
   recordHoldingValuationSnapshot,
   rejectHoldingReviewDraft,
-  runClaudeBuffettMungerResearch,
   defaultSourceLedgerStorage,
   type SourceLedgerBundle,
 } from '@owlfolio/workflow'
@@ -128,10 +128,21 @@ export function resolveActiveWorkflowMode(config: Pick<AppConfig, 'mode'>): Work
   return config.mode
 }
 
-export async function createPersonalResearchCase(
+function defaultSpawnWorker(ledgerPath: string): void {
+  const child = spawn('corepack', ['pnpm', '--filter', '@owlfolio/worker', 'dev', '--', '--once', '--task-kind', 'process_research_queue'], {
+    cwd: process.env.OWLFOLIO_PROJECT_DIR ?? process.cwd(),
+    env: { ...process.env, OWLFOLIO_LEDGER_PATH: ledgerPath },
+    detached: true,
+    stdio: 'ignore',
+  })
+  child.unref()
+}
+
+export async function enqueueResearchRun(
   state: OnboardingState,
   input: { ticker: string; company_id?: string },
-) {
+  deps: { spawn?: (ledgerPath: string) => void } = {},
+): Promise<{ research_case_id: string }> {
   if (
     !state.is_initialized
     || state.config.mode !== 'personal-local'
@@ -150,28 +161,38 @@ export async function createPersonalResearchCase(
   const researchCaseId = `rc_${ticker.toLowerCase()}_${Date.now()}`
   const decisionId = `decision_${ticker.toLowerCase()}_${Date.now()}`
   await assertConfiguredProviderIsReady(state)
-  const provider = resolveProvider({ provider_id: state.config.provider.provider_id })
 
   const store = new SQLiteEventStore(state.config.ledger_path)
   try {
-    const result = await runClaudeBuffettMungerResearch(store, provider, {
-      research_case_id: researchCaseId,
-      company_id: companyId,
-      ticker,
-      strategy_id: state.config.strategy_id,
+    await store.append({
+      event_id: `evt_research_run_requested_${researchCaseId}`,
+      event_type: 'research_run_requested',
+      aggregate_type: 'research_case',
+      aggregate_id: researchCaseId,
+      correlation_id: researchCaseId,
+      actor_type: 'user',
       actor_id: 'user_local',
-      idempotency_key: `personal:create:${ticker}:${researchCaseId}`,
-      model_id: resolveModelIdForProvider(state.config),
-      source_ledger_path: state.config.source_ledger_path,
-      analysis_idempotency_key: `analysis:${researchCaseId}:${provider.provider_id}:v1`,
-      decision_id: decisionId,
-      decision_idempotency_key: `decision:${researchCaseId}:${decisionId}:v1`,
+      payload: {
+        research_case_id: researchCaseId,
+        ticker,
+        company_id: companyId,
+        strategy_id: state.config.strategy_id,
+        model_id: resolveModelIdForProvider(state.config),
+        requested_by: 'user_local',
+        decision_id: decisionId,
+      },
+      source_ids: [],
+      created_at: new Date().toISOString(),
+      schema_version: 1,
+      idempotency_key: `research-run-request:${researchCaseId}:v1`,
     })
-
-    return result.research_case
   } finally {
     store.close()
   }
+
+  ;(deps.spawn ?? defaultSpawnWorker)(state.config.ledger_path)
+
+  return { research_case_id: researchCaseId }
 }
 
 export async function getAppResearchCaseFromStore(
