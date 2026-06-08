@@ -1,3 +1,7 @@
+import { readFile } from 'node:fs/promises'
+import { mkdtemp } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
 import { InMemoryEventStore } from '@owlfolio/ledger/eventStore'
@@ -278,5 +282,130 @@ describe('runStrategyResearchSwarm', () => {
 
     // All other lanes (6 of 7) must have their findings recorded
     expect(findingEvents.length).toBe(buffettMungerDeepDiveLanes.length - 1)
+  })
+
+  it('excludes unverified sources from ledger events but records them as unavailable in the bundle', async () => {
+    // Each stage proposes TWO sources: one whose id contains 'good' (verified) and one
+    // containing 'bad' (unverified). The ground function verifies only the good ones.
+    // The invariant is:
+    //   (1) No ledger event's source_ids contains 'bad'.
+    //   (2) The consolidated bundle file records the bad source with availability 'unavailable'.
+
+    function swarmFakeProviderGoodBad() {
+      let callCount = 0
+      const src = (id: string) => ({
+        source_id: id,
+        title: 'Test source',
+        url: 'https://example.com/src',
+        excerpt: 'Test excerpt',
+      })
+      return {
+        provider_id: 'fake-swarm-good-bad',
+        capabilities: {} as never,
+        complete: vi.fn(),
+        runWithTools: vi.fn(),
+        structured: vi.fn(async (_req: unknown) => {
+          const call = callCount++
+          if (call === 0) {
+            // Quick screen — one good, one bad source
+            return {
+              summary: 'Good business',
+              business_quality: 'Strong',
+              moat: 'Wide moat',
+              management_capital_allocation: 'Excellent',
+              financial_quality: 'Solid',
+              valuation_sanity: 'Reasonable',
+              shariah_status: 'COMPLIANT',
+              red_flags: ['None identified'],
+              confidence: 'high',
+              caveats: ['Mock caveat'],
+              screening_result: 'deep_dive_candidate',
+              proposed_sources: [src('src_qs_good_1'), src('src_qs_bad_1')],
+            }
+          }
+          // Lane agent calls (7 lanes)
+          if (call >= 1 && call <= 7) {
+            return {
+              finding_summary: `Lane ${call} finding`,
+              confidence: 'medium',
+              caveats: ['Mock lane caveat'],
+              proposed_sources: [src(`src_lane${call}_good_1`), src(`src_lane${call}_bad_1`)],
+            }
+          }
+          // Synthesis + decision (call 8)
+          return {
+            investment_verdict: 'WATCH',
+            decision_reason: 'Solid business, needs margin of safety',
+            thesis_summary: 'Quality compounder',
+            evidence_summary: 'Covered by mock sources',
+            valuation_rationale: 'Elevated valuation',
+            shariah_rationale: 'No prohibited activities detected',
+            synthesis_summary: 'All lanes reviewed; watch for better entry',
+            risks: ['Valuation risk'],
+            open_questions: ['Margin of safety needed'],
+            proposed_sources: [src('src_dec_good_1'), src('src_dec_bad_1')],
+          }
+        }),
+      }
+    }
+
+    const store = new InMemoryEventStore()
+    const provider = swarmFakeProviderGoodBad()
+    const ground = async (sources: { source_id: string }[]) => ({
+      captured: sources.map((s) => {
+        const ok = s.source_id.includes('good')
+        return {
+          source_id: s.source_id,
+          title: 't',
+          url: 'https://example.com/x',
+          excerpt: 'e',
+          availability: (ok ? 'available' : 'unavailable') as 'available' | 'unavailable',
+          fetched_at: 'x',
+          ...(ok ? { content_hash: 'sha256:1' } : {}),
+        }
+      }),
+      verified_ids: sources.filter((s) => s.source_id.includes('good')).map((s) => s.source_id),
+    })
+
+    const sourceLedgerPath = await mkdtemp(join(tmpdir(), 'owlfolio-swarm-invariant-'))
+
+    await runStrategyResearchSwarm(
+      store,
+      provider as never,
+      {
+        research_case_id: 'rc_invariant',
+        company_id: 'company_invariant',
+        ticker: 'INV',
+        strategy_id: 'buffett-munger',
+        actor_id: 'user_local',
+        idempotency_key: 'k_inv',
+        model_id: 'mock',
+        decision_id: 'decision_invariant',
+        source_ledger_path: sourceLedgerPath,
+      },
+      { ground, laneConcurrency: 3 },
+    )
+
+    const events = await store.list()
+
+    // (1) No event's source_ids must contain any 'bad' id
+    expect(events.every((e) => (e.source_ids ?? []).every((id) => !id.includes('bad')))).toBe(true)
+
+    // (1b) Sanity: at least one event does carry a 'good' source id (test not vacuous)
+    expect(events.some((e) => (e.source_ids ?? []).some((id) => id.includes('good')))).toBe(true)
+
+    // (2) Bundle file records bad source as unavailable and good source as available
+    const bundlePath = join(sourceLedgerPath, 'research-source-bundle-rc_invariant.json')
+    const bundle = JSON.parse(await readFile(bundlePath, 'utf8')) as {
+      records: Array<{ source_id: string; availability: string }>
+    }
+
+    const badRecord = bundle.records.find((r) => r.source_id.includes('bad'))
+    expect(badRecord).toBeDefined()
+    expect(badRecord?.availability).toBe('unavailable')
+
+    const goodRecord = bundle.records.find((r) => r.source_id.includes('good'))
+    expect(goodRecord).toBeDefined()
+    expect(goodRecord?.availability).toBe('available')
   })
 })
