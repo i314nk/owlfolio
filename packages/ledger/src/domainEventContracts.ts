@@ -54,6 +54,8 @@ export const domainEventTypes = [
   'dividend_income_recorded',
   'fee_charged',
   'holding_realized_gain_loss_recorded',
+  'research_run_requested',
+  'research_run_claimed',
 ] as const
 
 export type DomainEventType = (typeof domainEventTypes)[number]
@@ -356,6 +358,20 @@ export const domainEventContracts: readonly DomainEventContract[] = [
     actor_type: 'user',
     projection_owner: 'accounting',
     payload_fields: ['realized_gain_loss_id', 'holding_id', 'amount', 'currency', 'realized_at'],
+  },
+  {
+    event_type: 'research_run_requested',
+    aggregate_type: 'research_case',
+    actor_type: 'system',
+    projection_owner: 'worker_status',
+    payload_fields: ['research_case_id', 'ticker', 'company_id', 'strategy_id', 'model_id', 'requested_by', 'decision_id'],
+  },
+  {
+    event_type: 'research_run_claimed',
+    aggregate_type: 'research_case',
+    actor_type: 'worker',
+    projection_owner: 'worker_status',
+    payload_fields: ['research_case_id', 'run_id', 'claimed_at', 'worker_id'],
   },
 ] as const
 
