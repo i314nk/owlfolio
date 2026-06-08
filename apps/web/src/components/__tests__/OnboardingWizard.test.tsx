@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest'
 
 import { defaultPersonalLocalAppConfig } from '@owlfolio/shared'
 
-import { OnboardingWizard, providerSelectionForOption } from '../../app/onboarding/OnboardingWizard'
+import { OnboardingWizard, providerModeForOption, providerSelectionForOption } from '../../app/onboarding/OnboardingWizard'
 import type { ProviderOption, ProviderReadiness } from '../../lib/providerReadiness'
 
 const providerOptions: ProviderOption[] = [
@@ -77,7 +77,7 @@ function renderWizard(readiness: ProviderReadiness, providerId: string = readine
 }
 
 describe('OnboardingWizard', () => {
-  it('renders Codex, Gemini, and demo as the primary provider connection actions', () => {
+  it('renders a short non-technical setup flow with demo first and local assistant choices', () => {
     const html = renderWizard({
       provider_id: 'openai',
       provider_surface_id: 'openai-codex-cli',
@@ -88,20 +88,25 @@ describe('OnboardingWizard', () => {
       reauth_action: 'Run codex login outside Owlfolio, then retry readiness.',
     })
 
-    expect(html).toContain('Connect Codex')
-    expect(html).toContain('Connect Gemini')
-    expect(html).toContain('Try demo locally')
-    expect(html).toContain('Provider connection')
-    expect(html).toContain('Readiness check')
-    expect(html).toContain('Learn provider setup')
-    expect(html).not.toContain('Choose mode')
+    expect(html).toContain('Start setup')
+    expect(html).toContain('1. Choose how to explore')
+    expect(html).toContain('2. Connect a local AI assistant')
+    expect(html).toContain('3. Start using Owlfolio')
+    expect(html).toContain('Try demo mode')
+    expect(html).toContain('Use ChatGPT/Codex')
+    expect(html).toContain('Use Gemini')
+    expect(html.indexOf('Try demo mode')).toBeLessThan(html.indexOf('Use ChatGPT/Codex'))
+    expect(html).toContain('Learn setup guide')
+    expect(html).not.toContain('Provider connection')
+    expect(html).not.toContain('Readiness check')
+    expect(html).not.toContain('Start blocked')
     expect(html).not.toContain('Strategy')
     expect(html).not.toContain('Shariah defaults')
     expect(html).not.toContain('Market universe')
     expect(html).not.toContain('One-screen flow: choose provider family')
   })
 
-  it('keeps blocked provider states concise without exposing advanced auth/certification prose inline', () => {
+  it('keeps blocked provider states plain-language without exposing advanced auth/certification prose inline', () => {
     const html = renderWizard({
       provider_id: 'openai',
       provider_surface_id: 'openai-codex-cli',
@@ -112,10 +117,14 @@ describe('OnboardingWizard', () => {
       reauth_action: 'Run codex login outside Owlfolio, then retry readiness.',
     })
 
-    expect(html).toContain('Start blocked')
-    expect(html).toContain('Missing OpenAI / Codex credentials')
-    expect(html).toContain('Run codex login outside Owlfolio, then retry readiness.')
-    expect(html).toContain('Learn provider setup')
+    expect(html).toContain('Needs setup')
+    expect(html).toContain('Owlfolio cannot find your ChatGPT/Codex login yet.')
+    expect(html).toContain('Sign in to ChatGPT/Codex on this computer, then come back and check again.')
+    expect(html).toContain('You can keep exploring with demo mode while setup is incomplete.')
+    expect(html).toContain('Learn setup guide')
+    expect(html).not.toContain('Missing OpenAI / Codex credentials')
+    expect(html).not.toContain('Run codex login outside Owlfolio')
+    expect(html).not.toContain('credentials')
     expect(html).not.toContain('Provider cannot start yet')
     expect(html).not.toContain('Auth source:')
     expect(html).not.toContain('Effective support:')
@@ -142,10 +151,12 @@ describe('OnboardingWizard', () => {
       automation_suitability: 'personal_local_interactive',
     }, 'gemini-cli')
 
-    expect(html).toContain('Connect Gemini')
-    expect(html).toContain('Setup only')
-    expect(html).toContain('Start blocked')
-    expect(html).toContain('Review provider states for Gemini adapter/certification availability; Gemini CLI is setup-only today.')
+    expect(html).toContain('Use Gemini')
+    expect(html).toContain('Local AI preview')
+    expect(html).toContain('Needs setup')
+    expect(html).toContain('Gemini sign-in can be detected, but Owlfolio cannot run the full workflow with Gemini yet.')
+    expect(html).toContain('You can keep exploring with demo mode while Gemini workflow support is incomplete.')
+    expect(html).not.toContain('Review provider states for Gemini adapter/certification availability')
     expect(html).not.toContain('Run gemini login outside Owlfolio, then retry readiness.')
     expect(html).not.toContain('Initialize Owlfolio workflow')
     expect(html).not.toContain('Workflow execution stays blocked until a Gemini CLI adapter and certification exist.')
@@ -161,10 +172,20 @@ describe('OnboardingWizard', () => {
       status_label: 'Locally runnable through built-in deterministic demo mode',
     }, 'mock-provider')
 
-    expect(html).toContain('Try demo locally')
+    expect(html).toContain('Try demo mode')
     expect(html).toContain('Ready to start')
-    expect(html).toContain('Start Owlfolio')
+    expect(html).toContain('Start using Owlfolio')
     expect(html).toContain('Mock provider')
+  })
+
+  it('forces advanced mock-provider selection back to demo mode outside Playwright test mode', () => {
+    const mockProvider = providerOptions.find((provider) => provider.provider_id === 'mock-provider')
+    if (mockProvider === undefined) {
+      throw new Error('mock provider fixture missing')
+    }
+
+    expect(providerModeForOption('personal-local', mockProvider)).toBe('demo')
+    expect(providerModeForOption('personal-local', mockProvider, true)).toBe('personal-local')
   })
 
   it('clears stale provider model ids when the provider selection changes', () => {

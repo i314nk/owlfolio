@@ -12,5 +12,6 @@ export default async function OnboardingPage() {
     initialIsInitialized: state.is_initialized,
     initialReadiness: readiness,
     providerOptions: await getOnboardingProviderOptions(),
+    allowAdvancedPersonalMockProvider: process.env.OWLFOLIO_TEST_MODE === 'playwright',
   })
 }

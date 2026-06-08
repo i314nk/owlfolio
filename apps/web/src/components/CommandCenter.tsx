@@ -570,11 +570,11 @@ function buildActionCards(dashboard: AppCommandCenter): ActionCard[] {
 
   if (isProviderReadinessWarning(dashboard.provider_status)) {
     cards.push({
-      category: 'Real-provider readiness incomplete',
-      description: `${dashboard.provider_status}. Review credentials, support level, and certification evidence before relying on real-provider-authored workflow runs.`,
+      category: 'Local assistant setup needed',
+      description: 'Owlfolio cannot use the selected local assistant yet. Open provider details for the technical checks, or keep using demo mode while setup is incomplete.',
       href: '/providers',
-      label: 'Open provider setup evidence',
-      title: 'Resolve real-provider readiness',
+      label: 'Open setup details',
+      title: 'Finish local assistant setup',
       tone: 'warning',
     })
   }
@@ -809,9 +809,9 @@ function buildOperationalSignals(dashboard: AppCommandCenter): OperationalSignal
   return [
     {
       description: providerBlocked
-        ? 'Real-provider-backed workflows fail closed until setup, support level, and certification evidence are ready.'
+        ? 'Owlfolio will not run local-assistant workflows until setup checks pass. Use demo mode or open provider details for the technical reason.'
         : 'Provider evidence is acceptable for the current local workflow mode.',
-      label: providerBlocked ? 'Provider readiness blocked' : 'Provider readiness clear',
+      label: providerBlocked ? 'Local assistant setup needed' : 'Provider readiness clear',
       tone: providerBlocked ? 'blocked' : 'success',
     },
     {

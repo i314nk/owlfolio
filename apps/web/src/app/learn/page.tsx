@@ -39,7 +39,7 @@ export default function LearnPage() {
         <p className="owl-card-eyebrow">Provider context</p>
         <h2>Provider readiness in one place</h2>
         <p className="owl-card-body">
-          Onboarding now stays focused on three actions: Connect Codex, Connect Gemini, or try the local demo. Owlfolio does not run a production OAuth handoff today; it verifies existing local CLI/session or credential readiness and keeps provider-backed workflow starts fail-closed when certification says the surface is not ready.
+          Onboarding now stays focused on three plain-language actions: try demo mode, use ChatGPT/Codex, or use Gemini. Owlfolio does not run a production OAuth handoff today; it checks existing local sign-in state and keeps provider-backed workflow starts fail-closed when certification says the surface is not ready.
         </p>
         <ul>
           <li>Codex: run <code>codex login</code> outside Owlfolio, then return to onboarding so readiness can check the local Codex CLI session or configured token/API key.</li>

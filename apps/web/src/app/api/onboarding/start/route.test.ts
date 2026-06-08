@@ -3,9 +3,10 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { createNotConfiguredCertificationReport } from '@owlfolio/providers'
+import { defaultPersonalLocalAppConfig } from '@owlfolio/shared'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
-import { POST } from './route'
+import { POST, normalizeOnboardingStartUpdate } from './route'
 
 const originalEnv = {
   OWLFOLIO_APP_CONFIG_PATH: process.env.OWLFOLIO_APP_CONFIG_PATH,
@@ -18,6 +19,7 @@ const originalEnv = {
   GEMINI_API_KEY: process.env.GEMINI_API_KEY,
   GOOGLE_API_KEY: process.env.GOOGLE_API_KEY,
   ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY,
+  OWLFOLIO_TEST_MODE: process.env.OWLFOLIO_TEST_MODE,
 }
 
 describe('/api/onboarding/start', () => {
@@ -35,6 +37,7 @@ describe('/api/onboarding/start', () => {
     delete process.env.GEMINI_API_KEY
     delete process.env.GOOGLE_API_KEY
     delete process.env.ANTHROPIC_API_KEY
+    delete process.env.OWLFOLIO_TEST_MODE
   })
 
   afterEach(async () => {
@@ -101,6 +104,25 @@ describe('/api/onboarding/start', () => {
         message: 'Provider claude is not ready: Claude Code subscription access disabled',
       },
     })
+  })
+
+  it('normalizes personal-local mock-provider starts back to demo outside Playwright test mode', () => {
+    const current = defaultPersonalLocalAppConfig()
+
+    expect(normalizeOnboardingStartUpdate({
+      mode: 'personal-local',
+      provider: { provider_id: 'mock-provider', support_level: 'certified' },
+    }, current)).toMatchObject({ mode: 'demo' })
+    expect(normalizeOnboardingStartUpdate({
+      mode: 'personal-local',
+      provider: { provider_id: 'mock-provider', support_level: 'certified' },
+    }, current, { OWLFOLIO_TEST_MODE: 'playwright' })).toMatchObject({ mode: 'personal-local' })
+  })
+
+  it('normalizes partial mock-provider starts when the saved config is already personal-local', () => {
+    expect(normalizeOnboardingStartUpdate({
+      provider: { provider_id: 'mock-provider', support_level: 'certified' },
+    }, defaultPersonalLocalAppConfig())).toMatchObject({ mode: 'demo' })
   })
 
   it('allows initializing demo mode with the certified mock provider', async () => {

@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect } from 'react'
-import { createElement } from 'react'
+import { createElement, type FunctionComponent, type ReactNode } from 'react'
 import { usePathname } from 'next/navigation'
 
 const navItems = [
@@ -15,8 +15,14 @@ const navItems = [
   { href: '/providers', label: 'Providers' },
   { href: '/learn', label: 'Learn' },
   { href: '/settings/data-safety', label: 'Settings' },
-  { href: '/onboarding', label: 'Onboarding' },
 ]
+
+export type AppNavigationProps = {
+  isSetupComplete?: boolean
+}
+
+const primaryNavItems = navItems.slice(0, 6)
+const referenceNavItems = navItems.slice(6)
 
 const SEARCH_TRIGGER_HREF = '/audit?focus=1'
 
@@ -48,7 +54,7 @@ function isActiveRoute(pathname: string, href: string): boolean {
   return pathname === href || pathname.startsWith(`${href}/`)
 }
 
-export function AppNavigation() {
+export const AppNavigation: FunctionComponent<AppNavigationProps> = function AppNavigation({ isSetupComplete = true }: AppNavigationProps) {
   const pathname = usePathname() ?? '/'
 
   useEffect(() => {
@@ -103,25 +109,12 @@ export function AppNavigation() {
         ),
       ),
       createElement(
-        'ul',
-        { className: 'owl-nav-list' },
-        ...navItems.map((item) => {
-          const isActive = isActiveRoute(pathname, item.href)
-          return createElement(
-            'li',
-            { key: item.href },
-            createElement(
-              'a',
-              {
-                className: isActive ? 'owl-nav-link owl-nav-link-active owl-focusable' : 'owl-nav-link owl-focusable',
-                href: item.href,
-                ...(isActive ? { 'aria-current': 'page' } : {}),
-              },
-              item.label,
-            ),
-          )
-        }),
+        'div',
+        { className: 'owl-nav-sections' },
+        renderNavSection('Main workflow', primaryNavItems, pathname),
+        renderNavSection('Evidence and settings', referenceNavItems, pathname),
       ),
+      isSetupComplete ? null : createElement(SetupCard),
       createElement(
         'a',
         { className: 'owl-command-trigger owl-focusable', href: SEARCH_TRIGGER_HREF, 'aria-label': 'Audit trail search with keyboard shortcut ⌘K' },
@@ -129,5 +122,48 @@ export function AppNavigation() {
         createElement('span', { className: 'owl-command-key' }, '⌘K'),
       ),
     ),
+  )
+}
+
+function renderNavSection(
+  title: string,
+  items: typeof navItems,
+  pathname: string,
+): ReactNode {
+  return createElement(
+    'section',
+    { className: 'owl-nav-section', key: title },
+    createElement('p', { className: 'owl-nav-section-title' }, title),
+    createElement(
+      'ul',
+      { className: 'owl-nav-list' },
+      ...items.map((item) => {
+        const isActive = isActiveRoute(pathname, item.href)
+        return createElement(
+          'li',
+          { key: item.href },
+          createElement(
+            'a',
+            {
+              className: isActive ? 'owl-nav-link owl-nav-link-active owl-focusable' : 'owl-nav-link owl-focusable',
+              href: item.href,
+              ...(isActive ? { 'aria-current': 'page' } : {}),
+            },
+            item.label,
+          ),
+        )
+      }),
+    ),
+  )
+}
+
+function SetupCard() {
+  return createElement(
+    'section',
+    { 'aria-label': 'Owlfolio setup status', className: 'owl-setup-card' },
+    createElement('p', { className: 'owl-setup-card-kicker' }, 'Setup needed'),
+    createElement('h2', { className: 'owl-setup-card-title' }, 'Start your local workspace'),
+    createElement('p', { className: 'owl-setup-card-copy' }, 'Choose demo mode or connect a local AI assistant before personal ledger workflows begin.'),
+    createElement('a', { className: 'owl-setup-card-action owl-focusable', href: '/onboarding' }, 'Start setup'),
   )
 }

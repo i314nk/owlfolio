@@ -12,6 +12,7 @@ type OnboardingWizardProps = {
   initialIsInitialized: boolean
   initialReadiness: ProviderReadiness
   providerOptions: ProviderOption[]
+  allowAdvancedPersonalMockProvider?: boolean
 }
 
 const sectionStyle: CSSProperties = {
@@ -100,14 +101,30 @@ type ConnectionOption = {
 }
 
 function conciseNextStepFor(selectedProvider: ProviderOption, readiness: ProviderReadiness): string {
-  if (readiness.provider_surface_id === 'gemini-cli' && readiness.readiness_state === 'unsupported_surface') {
-    return 'Review provider states for Gemini adapter/certification availability; Gemini CLI is setup-only today.'
+  const surfaceId = selectedProvider.provider_surface_id ?? readiness.provider_surface_id
+
+  if (surfaceId === 'gemini-cli' && readiness.readiness_state === 'unsupported_surface') {
+    return 'You can keep exploring with demo mode while Gemini workflow support is incomplete.'
   }
 
-  return readiness.reauth_action ?? selectedProvider.simple_next_step ?? 'Finish the provider sign-in outside Owlfolio, then retry readiness.'
+  if (surfaceId === 'gemini-cli') {
+    return 'Sign in to Gemini on this computer, then come back and check again.'
+  }
+
+  if (surfaceId === 'openai-codex-cli') {
+    return 'Sign in to ChatGPT/Codex on this computer, then come back and check again.'
+  }
+
+  return selectedProvider.simple_next_step ?? 'Finish the local sign-in on this computer, then come back and check again.'
 }
 
-export function OnboardingWizard({ initialConfig, initialIsInitialized, initialReadiness, providerOptions }: OnboardingWizardProps) {
+export function OnboardingWizard({
+  initialConfig,
+  initialIsInitialized,
+  initialReadiness,
+  providerOptions,
+  allowAdvancedPersonalMockProvider = false,
+}: OnboardingWizardProps) {
   const [config, setConfig] = useState<AppConfig>(initialConfig)
   const [readiness, setReadiness] = useState<ProviderReadiness>(initialReadiness)
   const [isInitialized, setIsInitialized] = useState(initialIsInitialized)
@@ -171,7 +188,7 @@ export function OnboardingWizard({ initialConfig, initialIsInitialized, initialR
   function selectProvider(nextProvider: ProviderOption) {
     setErrorMessage(undefined)
     setConfig((current) => {
-      const nextMode = nextProvider.provider_id === 'mock-provider' ? current.mode : 'personal-local'
+      const nextMode = providerModeForOption(current.mode, nextProvider, allowAdvancedPersonalMockProvider)
       return {
         ...current,
         mode: nextMode,
@@ -188,7 +205,7 @@ export function OnboardingWizard({ initialConfig, initialIsInitialized, initialR
 
   async function startWorkflow() {
     if (!providerCanStart) {
-      setErrorMessage(`Start blocked: ${statusLabel}`)
+      setErrorMessage(`Owlfolio cannot start yet: ${statusLabel}`)
       return
     }
 
@@ -234,13 +251,14 @@ export function OnboardingWizard({ initialConfig, initialIsInitialized, initialR
       'section',
       { style: { display: 'grid', gap: '1rem' } },
       createElement('p', { style: { color: '#6366f1', fontWeight: 800, letterSpacing: '0.08em', margin: 0, textTransform: 'uppercase' } }, 'Owlfolio'),
-      createElement('h1', { style: { fontSize: 'clamp(2.25rem, 5vw, 4.5rem)', lineHeight: 1, margin: '0.5rem 0 1rem' } }, 'Connect Owlfolio'),
-      createElement('p', { style: { color: '#cbd5e1', fontSize: '1.1rem', maxWidth: '720px' } }, 'Pick the local provider path you want to use. Owlfolio checks the existing CLI/session state and keeps advanced setup details in Learn.'),
+      createElement('h1', { style: { fontSize: 'clamp(2.25rem, 5vw, 4.5rem)', lineHeight: 1, margin: '0.5rem 0 1rem' } }, 'Start setup'),
+      createElement('p', { style: { color: '#cbd5e1', fontSize: '1.1rem', maxWidth: '760px' } }, 'Choose a safe demo workspace or connect a local AI assistant already signed in on this computer. Owlfolio stays local and only starts when the selected path is ready.'),
       createElement(
         'div',
         { style: { display: 'flex', flexWrap: 'wrap', gap: '0.75rem', margin: '1.5rem 0 2rem' } },
-        createElement(StatusBadge, { tone: isInitialized ? 'success' : 'warning' }, isInitialized ? 'Initialized' : 'Not initialized yet'),
-        createElement(StatusBadge, { tone: providerCanStart ? 'success' : 'warning' }, providerCanStart ? 'Ready to start' : 'Start blocked'),
+        createElement(StatusBadge, { tone: isInitialized ? 'success' : 'warning' }, isInitialized ? 'Setup complete' : 'Setup needed'),
+        createElement(StatusBadge, { tone: providerCanStart ? 'success' : 'warning' }, providerCanStart ? 'Ready to start' : 'Needs setup'),
+        createElement(StatusBadge, null, config.mode === 'demo' ? 'Demo mode' : 'Local AI assistant'),
         createElement(StatusBadge, null, selectedProvider.label),
       ),
       createElement(
@@ -248,10 +266,10 @@ export function OnboardingWizard({ initialConfig, initialIsInitialized, initialR
         { style: { display: 'grid', gap: '1rem' } },
         createElement(
           'section',
-          { style: sectionStyle, 'aria-labelledby': 'provider-connection-heading' },
-          createElement('p', { style: eyebrowStyle }, 'Provider connection'),
-          createElement('h2', { id: 'provider-connection-heading', style: { margin: '0.35rem 0 0.25rem' } }, 'Connect a provider'),
-          createElement('p', { style: { color: '#cbd5e1', marginTop: 0 } }, 'Codex and Gemini use local CLI sign-in checks today; there is no production OAuth handoff inside Owlfolio yet.'),
+          { style: sectionStyle, 'aria-labelledby': 'setup-mode-heading' },
+          createElement('p', { style: eyebrowStyle }, '1. Choose how to explore'),
+          createElement('h2', { id: 'setup-mode-heading', style: { margin: '0.35rem 0 0.25rem' } }, 'Try demo or use a local assistant'),
+          createElement('p', { style: { color: '#cbd5e1', marginTop: 0 } }, 'Demo mode is the fastest way in. Local assistant setup checks this computer for an existing ChatGPT/Codex or Gemini sign-in.'),
           createElement(
             'div',
             { style: cardGridStyle },
@@ -271,11 +289,11 @@ export function OnboardingWizard({ initialConfig, initialIsInitialized, initialR
           createElement(
             'details',
             { style: { marginTop: '1rem' } },
-            createElement('summary', { style: { color: '#cbd5e1', cursor: 'pointer', fontWeight: 800 } }, 'Other provider / advanced selector'),
+            createElement('summary', { style: { color: '#cbd5e1', cursor: 'pointer', fontWeight: 800 } }, 'Advanced: choose a different provider'),
             createElement(
               'label',
               { style: { color: '#cbd5e1', display: 'grid', gap: '0.5rem', marginTop: '0.75rem', maxWidth: '420px' } },
-              createElement('span', null, 'Provider'),
+              createElement('span', null, 'Provider family'),
               createElement(
                 'select',
                 {
@@ -296,10 +314,10 @@ export function OnboardingWizard({ initialConfig, initialIsInitialized, initialR
         ),
         createElement(
           'section',
-          { style: sectionStyle, 'aria-labelledby': 'readiness-heading' },
-          createElement('p', { style: eyebrowStyle }, 'Readiness check'),
-          createElement('h2', { id: 'readiness-heading', style: { margin: '0.35rem 0 0.25rem' } }, selectedProvider.label),
-          createElement('p', { style: { color: '#cbd5e1', marginTop: 0 } }, selectedProvider.description),
+          { style: sectionStyle, 'aria-labelledby': 'assistant-connection-heading' },
+          createElement('p', { style: eyebrowStyle }, '2. Connect a local AI assistant'),
+          createElement('h2', { id: 'assistant-connection-heading', style: { margin: '0.35rem 0 0.25rem' } }, selectedProvider.label),
+          createElement('p', { style: { color: '#cbd5e1', marginTop: 0 } }, plainProviderSummary(selectedProvider, readiness)),
           createElement(
             'div',
             {
@@ -314,37 +332,57 @@ export function OnboardingWizard({ initialConfig, initialIsInitialized, initialR
                 padding: '0.9rem',
               },
             },
-            createElement('strong', null, providerCanStart ? 'Ready to start' : 'Start blocked'),
+            createElement('strong', null, providerCanStart ? 'Ready to start' : 'Needs setup'),
             createElement('span', null, statusLabel),
             providerCanStart
-              ? createElement('span', null, config.mode === 'demo' ? 'Action: seed the local demo ledger and open the Command Center.' : 'Action: create the personal local ledger and open the Command Center.')
+              ? createElement('span', null, config.mode === 'demo' ? 'Action: open the local demo workspace and Command Center.' : 'Action: create the personal local ledger and open the Command Center.')
               : createElement('span', null, `Next step: ${nextStep}`),
+            providerCanStart ? null : createElement('span', null, 'You can keep exploring with demo mode while setup is incomplete.'),
           ),
           createElement(
             'p',
             { style: { color: '#cbd5e1', marginBottom: 0 } },
-            createElement('a', { className: 'owl-focusable', href: '/learn#providers', style: helpLinkStyle }, 'Learn provider setup'),
+            createElement('a', { className: 'owl-focusable', href: '/learn#providers', style: helpLinkStyle }, 'Learn setup guide'),
             ' or ',
-            createElement('a', { className: 'owl-focusable', href: '/providers', style: helpLinkStyle }, 'review provider states'),
+            createElement('a', { className: 'owl-focusable', href: '/providers', style: helpLinkStyle }, 'open advanced provider status'),
             '.',
           ),
           errorMessage === undefined ? null : createElement('p', { style: { color: '#fca5a5', fontWeight: 700 } }, errorMessage),
+        ),
+        createElement(
+          'section',
+          { style: sectionStyle, 'aria-labelledby': 'start-owlfolio-heading' },
+          createElement('p', { style: eyebrowStyle }, '3. Start using Owlfolio'),
+          createElement('h2', { id: 'start-owlfolio-heading', style: { margin: '0.35rem 0 0.25rem' } }, providerCanStart ? 'Ready when you are' : 'Finish setup first'),
+          createElement('p', { style: { color: '#cbd5e1', marginTop: 0 } }, providerCanStart ? 'Owlfolio will create local state for the selected mode and then open the Command Center.' : 'Pick demo mode for an immediate local walkthrough, or finish the selected assistant sign-in before starting personal-local workflows.'),
           createElement('button', {
             disabled: startButtonDisabled,
             onClick: () => void startWorkflow(),
-            style: { ...(startButtonDisabled ? disabledActionButtonStyle : actionButtonStyle), marginTop: '1rem' },
+            style: { ...(startButtonDisabled ? disabledActionButtonStyle : actionButtonStyle), marginTop: '0.25rem' },
             type: 'button',
-          }, isStarting ? 'Starting…' : providerCanStart ? 'Start Owlfolio' : 'Start blocked'),
+          }, isStarting ? 'Starting…' : providerCanStart ? 'Start using Owlfolio' : 'Finish setup first'),
         ),
         createElement(
           'details',
           { style: sectionStyle },
           createElement('summary', { style: { cursor: 'pointer', fontWeight: 900 } }, 'Default workflow settings'),
-          createElement('p', { style: { color: '#cbd5e1' } }, 'Owlfolio starts with the Buffett-Munger workflow, Shariah guardrails enabled, and the public-equities discovery universe. You can tune these after setup; broker credentials are not part of onboarding.'),
+          createElement('p', { style: { color: '#cbd5e1' } }, 'Owlfolio starts with the Buffett-Munger workflow, Shariah guardrails enabled, and the public-equities discovery universe. You can tune these after setup; broker accounts are not part of onboarding.'),
         ),
       ),
     ),
   )
+}
+
+export function providerModeForOption(
+  currentMode: AppConfig['mode'],
+  nextProvider: ProviderOption,
+  allowAdvancedPersonalMockProvider = false,
+): AppConfig['mode'] {
+  if (nextProvider.provider_id !== 'mock-provider') {
+    return 'personal-local'
+  }
+
+  return allowAdvancedPersonalMockProvider ? currentMode : 'demo'
 }
 
 export function providerSelectionForOption(
@@ -370,14 +408,25 @@ function buildConnectionOptions(providerOptions: ProviderOption[]): ConnectionOp
   const geminiProvider = providerOptions.find((provider) => provider.provider_surface_id === 'gemini-cli' || provider.provider_id === 'gemini-cli')
   const options: ConnectionOption[] = []
 
+  if (mockProvider !== undefined) {
+    options.push({
+      key: 'demo',
+      provider: mockProvider,
+      mode: 'demo',
+      title: 'Try demo mode',
+      badge: 'Demo',
+      description: 'Open a safe sample workspace with local mock data. No account is required.',
+    })
+  }
+
   if (codexProvider !== undefined) {
     options.push({
       key: 'codex',
       provider: codexProvider,
       mode: 'personal-local',
-      title: 'Connect Codex',
-      badge: 'OpenAI / ChatGPT',
-      description: 'Use the local Codex CLI session when present. Direct OpenAI API setup stays in advanced provider docs.',
+      title: 'Use ChatGPT/Codex',
+      badge: 'Local AI',
+      description: 'Use a ChatGPT/Codex sign-in that already exists on this computer.',
     })
   }
 
@@ -386,20 +435,9 @@ function buildConnectionOptions(providerOptions: ProviderOption[]): ConnectionOp
       key: 'gemini',
       provider: geminiProvider,
       mode: 'personal-local',
-      title: 'Connect Gemini',
-      badge: 'Setup only',
-      description: 'Detect a local Gemini CLI sign-in for setup readiness. Workflow execution remains blocked until an adapter is certified.',
-    })
-  }
-
-  if (mockProvider !== undefined) {
-    options.push({
-      key: 'demo',
-      provider: mockProvider,
-      mode: 'demo',
-      title: 'Try demo locally',
-      badge: 'Mock/demo',
-      description: 'Seed the deterministic local demo ledger and explore the workflow without external credentials.',
+      title: 'Use Gemini',
+      badge: 'Local AI preview',
+      description: 'Check Gemini sign-in here. Full Gemini workflow runs are not available yet.',
     })
   }
 
@@ -410,20 +448,46 @@ function isConnectionSelected(option: ConnectionOption, providerId: AppConfig['p
   return option.provider.provider_id === providerId
 }
 
+function plainProviderSummary(selectedProvider: ProviderOption, readiness: ProviderReadiness): string {
+  const surfaceId = selectedProvider.provider_surface_id ?? readiness.provider_surface_id
+
+  if (selectedProvider.provider_id === 'mock-provider') {
+    return 'Demo mode uses safe sample data on this computer. No account is required.'
+  }
+
+  if (surfaceId === 'openai-codex-cli') {
+    return 'Owlfolio checks for a ChatGPT/Codex sign-in that already exists on this computer.'
+  }
+
+  if (surfaceId === 'gemini-cli') {
+    return 'Owlfolio can detect Gemini sign-in for setup, but Gemini workflow runs stay unavailable until a safe adapter is ready.'
+  }
+
+  return `Owlfolio checks ${selectedProvider.label} on this computer before starting local workflows.`
+}
+
 function conciseReadinessLabel(selectedProvider: ProviderOption, readiness: ProviderReadiness): string {
   const surfaceId = selectedProvider.provider_surface_id ?? readiness.provider_surface_id
 
+  if (selectedProvider.provider_id === 'mock-provider') {
+    return readiness.is_ready ? 'Demo mode is ready on this computer.' : 'Demo mode is not ready yet.'
+  }
+
   if (surfaceId === 'gemini-cli' && readiness.is_ready === false) {
     if (readiness.credential_source_category === 'missing' || readiness.auth_source === 'missing') {
-      return 'Missing Gemini CLI sign-in session'
+      return 'Owlfolio cannot find your Gemini sign-in yet.'
     }
 
-    return 'Gemini CLI is setup-only until a workflow adapter is certified.'
+    return 'Gemini sign-in can be detected, but Owlfolio cannot run the full workflow with Gemini yet.'
   }
 
-  if (surfaceId === 'openai-codex-cli' && readiness.is_ready === false && readiness.auth_source === 'missing') {
-    return 'Missing OpenAI / Codex credentials'
+  if (surfaceId === 'openai-codex-cli') {
+    if (readiness.is_ready === false) {
+      return 'Owlfolio cannot find your ChatGPT/Codex login yet.'
+    }
+
+    return 'ChatGPT/Codex is ready for local Owlfolio runs.'
   }
 
-  return readiness.status_label
+  return readiness.status_label.replace(/credentials/gi, 'sign-in').replace(/credential/gi, 'sign-in')
 }

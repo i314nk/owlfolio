@@ -16,7 +16,7 @@ describe('phase 3 design system primitives', () => {
   it('renders the global app shell with product-grade operating context chips', () => {
     const html = renderToStaticMarkup(createElement(AppShell, null, createElement('main', null, 'Workflow content')))
 
-    expect(html).toContain('data-owl-shell="phase3-professional"')
+    expect(html).toContain('data-owl-shell="clean-sidebar"')
     expect(html).toContain('owl-shell-context-bar')
     expect(html).toContain('Local ledger')
     expect(html).toContain('Provider readiness')
@@ -37,6 +37,17 @@ describe('phase 3 design system primitives', () => {
     expect(html).toContain('Settings')
     expect(html).toContain('⌘K')
     expect(html).toContain('Audit trail search')
+    expect(html).not.toContain('>Onboarding</a>')
+  })
+
+  it('renders setup status in the sidebar when personal-local setup is incomplete', () => {
+    const html = renderToStaticMarkup(createElement(AppShell, { isSetupComplete: false }, createElement('main', null, 'Setup needed content')))
+
+    expect(html).toContain('class="owl-setup-card"')
+    expect(html).toContain('Setup needed')
+    expect(html).toContain('Start setup')
+    expect(html).toContain('href="/onboarding"')
+    expect(html).toContain('Setup needed content')
   })
 
   it('renders reusable card, button, status, source, and financial-number treatments', () => {
@@ -119,7 +130,9 @@ describe('phase 3 design system primitives', () => {
     expect(css).toContain('overflow-wrap: anywhere')
     expect(css).toContain('.owl-empty-state')
     expect(css).toContain('.owl-page-header')
-    expect(css).toContain('@media (max-width: 760px)')
+    expect(css).toContain('grid-template-columns: minmax(15rem, 17.5rem) minmax(0, 1fr)')
+    expect(css).toContain('.owl-nav-shell')
+    expect(css).toContain('@media (max-width: 900px)')
     expect(css).toContain('overflow-x: auto')
   })
 

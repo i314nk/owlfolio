@@ -4,6 +4,7 @@ import { AppNavigation } from './AppNavigation'
 
 export type AppShellProps = {
   children?: ReactNode
+  isSetupComplete?: boolean
 }
 
 export type OwlCardProps = {
@@ -54,11 +55,11 @@ const shellStatusItems = [
   { label: 'Provider readiness', value: 'Shown inline' },
 ]
 
-export function AppShell({ children }: AppShellProps) {
+export function AppShell({ children, isSetupComplete = true }: AppShellProps) {
   return createElement(
     'div',
-    { className: 'owl-app-shell', 'data-owl-shell': 'phase3-professional' },
-    createElement(AppNavigation),
+    { className: 'owl-app-shell', 'data-owl-shell': 'clean-sidebar' },
+    createElement(AppNavigation, { isSetupComplete }),
     createElement(
       'div',
       { className: 'owl-app-frame' },

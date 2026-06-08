@@ -7,10 +7,10 @@ test.beforeEach(async ({ request }) => {
 
 test('monthly accounting report renders projected current period after a valuation snapshot', async ({ page }) => {
   await page.goto('/onboarding')
-  await page.getByRole('button', { name: /connect codex/i }).click()
-  await page.getByText('Other provider / advanced selector').click()
+  await page.getByRole('button', { name: /use chatgpt\/codex/i }).click()
+  await page.getByText('Advanced: choose a different provider').click()
   await page.getByRole('combobox').selectOption('mock-provider')
-  await page.getByRole('button', { name: /start owlfolio/i }).click()
+  await page.getByRole('button', { name: /start using owlfolio/i }).click()
 
   await page.getByRole('link', { name: /open research cockpit/i }).first().click()
   await expect(page).toHaveURL('/research')

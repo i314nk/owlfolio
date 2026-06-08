@@ -45,10 +45,11 @@ function makeDashboard(overrides: Partial<AppCommandCenter> = {}): AppCommandCen
 }
 
 describe('AppNavigation', () => {
-  it('renders persistent navigation for first-class app areas', () => {
+  it('renders desktop sidebar navigation for first-class app areas without permanent onboarding', () => {
     const html = renderToStaticMarkup(createElement(AppNavigation))
 
     expect(html).toContain('aria-label="Primary Owlfolio navigation"')
+    expect(html).toContain('class="owl-nav-section-title"')
     expect(html).toContain('href="/"')
     expect(html).toContain('Command Center')
     expect(html).toContain('href="/research"')
@@ -71,8 +72,17 @@ describe('AppNavigation', () => {
     expect(html).toContain('Learn')
     expect(html).toContain('href="/settings/data-safety"')
     expect(html).toContain('Settings')
+    expect(html).not.toContain('class="owl-nav-link owl-focusable" href="/onboarding"')
+    expect(html).not.toContain('>Onboarding</a>')
+  })
+
+  it('surfaces setup as a sidebar CTA when onboarding is incomplete', () => {
+    const html = renderToStaticMarkup(createElement(AppNavigation, { isSetupComplete: false }))
+
+    expect(html).toContain('class="owl-setup-card"')
+    expect(html).toContain('Setup needed')
+    expect(html).toContain('Start setup')
     expect(html).toContain('href="/onboarding"')
-    expect(html).toContain('Onboarding')
   })
 
 
@@ -217,7 +227,7 @@ describe('CommandCenter', () => {
 
       expect(html).toContain('Personal local mode initialized')
       expect(html).toContain('Provider: Claude unsupported')
-      expect(html).toContain('Real-provider readiness incomplete')
+      expect(html).toContain('Local assistant setup needed')
       expect(html).toContain('Research cases')
       expect(html).toContain('0')
       expect(html).toContain('Review discovery, quick screen, and manual intake options before seeding the durable workflow ledger.')
@@ -230,7 +240,7 @@ describe('CommandCenter', () => {
       expect(html).toContain('href="/watchlist"')
       expect(html).toContain('Open watchlist drafts')
       expect(html).toContain('Operational awareness')
-      expect(html).toContain('Provider readiness blocked')
+      expect(html).toContain('Local assistant setup needed')
       expect(html).toContain('User approval boundary')
       expect(html).toContain('Operating ledger is empty')
       expect(html).toContain('No research, watchlist, holding, accounting, or purification activity has been recorded yet.')
@@ -326,10 +336,14 @@ describe('CommandCenter', () => {
       const html = renderToStaticMarkup(createElement(CommandCenter, { dashboard }))
 
       expect(html).toContain('Provider: Claude unsupported — Claude subscription access disabled')
-      expect(html).toContain('Real-provider readiness incomplete')
-      expect(html).toContain('Resolve real-provider readiness')
-      expect(html).toContain('Open provider setup evidence')
+      expect(html).toContain('Local assistant setup needed')
+      expect(html).toContain('Finish local assistant setup')
+      expect(html).toContain('Open setup details')
+      expect(html).toContain('Owlfolio cannot use the selected local assistant yet. Open provider details for the technical checks, or keep using demo mode while setup is incomplete.')
       expect(html).toContain('href="/providers"')
+      expect(html).not.toContain('Review credentials, support level, and certification evidence')
+      expect(html).not.toContain('support level, and certification evidence')
+      expect(html).not.toContain('Resolve real-provider readiness')
     } finally {
       store.close()
     }
@@ -366,7 +380,7 @@ describe('CommandCenter', () => {
     }))
 
     const pendingIndex = html.indexOf('Review pending watchlist drafts')
-    const providerIndex = html.indexOf('Resolve real-provider readiness')
+    const providerIndex = html.indexOf('Finish local assistant setup')
     const reviewIndex = html.indexOf('Run due holding review')
     const accountingIndex = html.indexOf('Review monthly accounting')
     const purificationIndex = html.indexOf('Check purification obligations')
@@ -375,7 +389,7 @@ describe('CommandCenter', () => {
     expect(html).toContain('Priority 1')
     expect(html).toContain('2 drafts need explicit user confirmation before monitoring or portfolio actions.')
     expect(html).toContain('href="/watchlist"')
-    expect(html).toContain('Real-provider readiness incomplete')
+    expect(html).toContain('Local assistant setup needed')
     expect(html).toContain('href="/providers"')
     expect(html).toContain('MSFT is 2 days overdue')
     expect(html).toContain('href="/portfolio#holding_msft_001"')

@@ -25,18 +25,15 @@ const labelStyle = {
   textTransform: 'uppercase' as const,
 }
 
-const valueStyle = {
-  color: '#f7f8ff',
-  fontSize: '1.05rem',
-  fontWeight: 800,
-  margin: '0.35rem 0 0',
-}
-
 export function ResearchCasePanel({ researchCase, mode = 'demo' }: ResearchCasePanelProps) {
   const canPromoteToWatchlist = mode === 'personal-local'
     && researchCase.stage === 'decision_drafted'
     && researchCase.decision !== undefined
     && researchCase.decision_id !== undefined
+  const displayName = researchCase.ticker ?? researchCase.company_id ?? researchCase.research_case_id
+  const verdict = researchCase.investment_verdict ?? researchCase.decision ?? 'Research pending'
+  const verdictReason = createVerdictReason(researchCase)
+  const nextAction = researchCase.next_required_action ?? 'Continue the review workflow'
 
   return createElement(
     'section',
@@ -50,139 +47,110 @@ export function ResearchCasePanel({ researchCase, mode = 'demo' }: ResearchCaseP
       'header',
       {
         style: {
-          background: 'linear-gradient(135deg, rgba(124, 140, 255, 0.12) 0%, rgba(10, 132, 255, 0.08) 100%)',
+          background: 'linear-gradient(135deg, rgba(124, 140, 255, 0.14) 0%, rgba(10, 132, 255, 0.08) 100%)',
           border: '1px solid rgba(148, 163, 184, 0.18)',
           borderRadius: '1.25rem',
+          display: 'grid',
+          gap: '1rem',
           padding: '1.5rem',
         },
       },
-      createElement('p', { style: labelStyle }, 'Research case'),
+      createElement('p', { style: labelStyle }, 'Research dossier'),
       createElement(
-        'h1',
-        { style: { fontSize: 'clamp(2rem, 5vw, 3.5rem)', lineHeight: 1, margin: '0.5rem 0' } },
-        researchCase.ticker ?? researchCase.company_id ?? researchCase.research_case_id,
+        'div',
+        { style: { alignItems: 'start', display: 'flex', flexWrap: 'wrap', gap: '1rem', justifyContent: 'space-between' } },
+        createElement(
+          'div',
+          { style: { display: 'grid', gap: '0.5rem', maxWidth: '48rem' } },
+          createElement(
+            'h1',
+            { style: { fontSize: 'clamp(2rem, 5vw, 3.5rem)', lineHeight: 1, margin: 0 } },
+            displayName,
+          ),
+          createElement(
+            'p',
+            { style: { color: '#9aa4b7', fontSize: '1rem', margin: 0 } },
+            `Company: ${researchCase.company_id ?? 'Unknown company'}`,
+          ),
+        ),
+        createElement(
+          'span',
+          {
+            style: {
+              background: 'rgba(124, 140, 255, 0.18)',
+              border: '1px solid rgba(199, 210, 254, 0.42)',
+              borderRadius: '999px',
+              color: '#f7f8ff',
+              fontSize: '0.9rem',
+              fontWeight: 900,
+              padding: '0.5rem 0.8rem',
+            },
+          },
+          verdict,
+        ),
       ),
       createElement(
-        'p',
-        { style: { color: '#9aa4b7', fontSize: '1rem', margin: 0 } },
-        `Company: ${researchCase.company_id ?? 'Unknown company'}`,
+        'section',
+        { style: { display: 'grid', gap: '0.85rem' } },
+        createElement('p', { style: labelStyle }, 'Verdict summary'),
+        createElement(
+          'p',
+          { style: { color: '#f7f8ff', fontSize: '1.1rem', lineHeight: 1.6, margin: 0 } },
+          verdictReason,
+        ),
+        createElement(
+          'p',
+          { style: { color: '#c7d2fe', fontSize: '1rem', fontWeight: 850, margin: 0 } },
+          createElement('strong', null, 'Next action: '),
+          nextAction,
+        ),
       ),
     ),
     canPromoteToWatchlist ? createWatchlistPromotionAction(researchCase.research_case_id) : null,
-    createCurrentWorkflowStatus(researchCase),
-    createResearchBrief(researchCase),
+    createResearchDossier(researchCase),
     createQuickScreenPanel(researchCase),
-    createElement(
-      'div',
-      {
-        style: {
-          display: 'grid',
-          gap: '1rem',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))',
-        },
-      },
-      createMetric('Investment verdict', researchCase.investment_verdict ?? 'Pending'),
-      createMetric('Strategy compliance', researchCase.strategy_compliance ?? 'Pending'),
-      createMetric('Shariah status', researchCase.shariah_status ?? 'Pending'),
-      createMetric('Valuation status', researchCase.valuation_status ?? 'Pending'),
-      createMetric('Strategy', researchCase.strategy_id ?? 'Unknown'),
-    ),
-    createResearchTransitionPanel(researchCase),
-    createEvidenceAndSourcesPanel(researchCase),
-    createElement(
-      'section',
-      { style: cardStyle },
-      createElement('h2', { style: { fontSize: '1.25rem', margin: '0 0 1rem' } }, 'Gate checklist'),
-      createElement(
-        'ul',
-        { style: { display: 'grid', gap: '0.75rem', listStyle: 'none', margin: 0, padding: 0 } },
-        ...researchCase.gate_checklist.map((gate) =>
-          createElement(
-            'li',
-            {
-              key: gate.label,
-              style: { alignItems: 'center', display: 'flex', flexWrap: 'wrap', gap: '0.6rem' },
-            },
-            createElement(StatusBadge, { tone: gate.tone }, gate.status),
-            createElement(
-              'span',
-              { style: { display: 'grid', gap: '0.25rem' } },
-              createElement('span', { style: { fontWeight: 700 } }, gate.label),
-              createElement('span', { style: { color: '#9aa4b7', fontSize: '0.86rem' } }, `Evidence source context: ${describeGateEvidence(gate.label, researchCase.source_ids)}`),
-            ),
-          ),
-        ),
-      ),
-    ),
-    createElement(
-      'section',
-      { style: cardStyle },
-      createElement('h2', { style: { fontSize: '1.25rem', margin: '0 0 0.75rem' } }, 'Source IDs'),
-      createElement(
-        'div',
-        { style: { display: 'flex', flexWrap: 'wrap', gap: '0.5rem' } },
-        ...researchCase.source_ids.map((sourceId) => createElement(SourceChip, { id: sourceId, key: sourceId, label: 'Audit source' })),
-      ),
-    ),
-    createElement(
-      'section',
-      { style: cardStyle },
-      createElement('h2', { style: { fontSize: '1.25rem', margin: '0 0 0.35rem' } }, 'Ledger Timeline'),
-      createElement(
-        'p',
-        { style: { color: '#9aa4b7', fontSize: '0.95rem', margin: '0 0 1rem' } },
-        'How did this state come to exist?',
-      ),
-      createElement(
-        'ol',
-        { style: { color: '#cbd5e1', display: 'grid', gap: '0.85rem', margin: 0, paddingLeft: '1.25rem' } },
-        ...researchCase.ledger_timeline.map((entry) =>
-          createElement(
-            'li',
-            { key: entry.event_id },
-            createElement('p', { style: { fontWeight: 900, margin: 0 } }, entry.event_type),
-            createElement('p', { style: { margin: '0.2rem 0 0' } }, entry.summary),
-            createElement(
-              'p',
-              { style: { color: '#9aa4b7', fontSize: '0.85rem', margin: '0.2rem 0 0' } },
-              `${entry.actor_label} • ${entry.created_at}`,
-            ),
-          ),
-        ),
-      ),
-    ),
-    createElement(
-      'section',
-      { style: cardStyle },
-      createElement('p', { style: labelStyle }, 'Next required action'),
-      createElement(
-        'p',
-        { style: { color: '#f7f8ff', fontSize: '1.2rem', fontWeight: 800, margin: '0.4rem 0 0' } },
-        researchCase.next_required_action ?? 'Continue the review workflow',
-      ),
-    ),
+    createEvidenceAndAuditDetails(researchCase),
   )
 }
 
-function createResearchBrief(researchCase: AppResearchCase) {
-  const thesis = firstNonEmpty([
-    researchCase.thesis_summary,
-    researchCase.reason,
-    researchCase.next_required_action,
-  ]) ?? 'No investment thesis has been drafted yet.'
-  const businessRationale = firstNonEmpty([
-    researchCase.thesis_summary,
+function createVerdictReason(researchCase: AppResearchCase): string {
+  const verdict = researchCase.investment_verdict ?? researchCase.decision
+  const valuation = researchCase.valuation_status
+  const shariah = researchCase.shariah_status
+  const strategy = researchCase.strategy_compliance
+
+  if (verdict !== undefined) {
+    const gates = [
+      valuation === undefined ? undefined : `valuation ${valuation}`,
+      shariah === undefined ? undefined : `Shariah ${shariah}`,
+      strategy === undefined ? undefined : `strategy ${strategy}`,
+    ].filter((gate): gate is string => gate !== undefined)
+
+    if (gates.length > 0) {
+      return `${verdict} based on ${gates.join(', ')}.`
+    }
+  }
+
+  return firstNonEmpty([
     researchCase.evidence_summary,
     researchCase.reason,
-  ]) ?? 'Business and moat rationale is awaiting provider research.'
-  const valuationRationale = firstNonEmpty([
-    researchCase.valuation_rationale,
+    researchCase.thesis_summary,
+  ]) ?? 'This dossier is waiting for a source-backed investment reason.'
+}
+
+function createResearchDossier(researchCase: AppResearchCase) {
+  const fullThesis = firstNonEmpty([
+    researchCase.thesis_summary,
     researchCase.reason,
-  ]) ?? `Valuation status: ${researchCase.valuation_status ?? 'Pending'}`
-  const shariahRationale = firstNonEmpty([
-    researchCase.shariah_rationale,
-    researchCase.reason,
-  ]) ?? `Shariah status: ${researchCase.shariah_status ?? 'Pending'}`
+    researchCase.evidence_summary,
+  ]) ?? 'No investment thesis has been drafted yet.'
+  const thesis = createConciseDossierSummary(fullThesis, researchCase.ticker ?? researchCase.company_id)
+  const valuationRationale = researchCase.valuation_rationale?.trim().length
+    ? researchCase.valuation_rationale
+    : `Needs structured valuation detail. Current valuation gate: ${researchCase.valuation_status ?? 'Pending'}.`
+  const shariahRationale = researchCase.shariah_rationale?.trim().length
+    ? researchCase.shariah_rationale
+    : `Needs structured Shariah detail. Current compliance gate: ${researchCase.shariah_status ?? 'Pending'}.`
   const risks = researchCase.risks !== undefined && researchCase.risks.length > 0
     ? researchCase.risks
     : researchCase.caveats !== undefined && researchCase.caveats.length > 0
@@ -194,18 +162,129 @@ function createResearchBrief(researchCase: AppResearchCase) {
 
   return createElement(
     'section',
-    { className: 'owl-workflow-card', style: cardStyle },
-    createElement('p', { style: labelStyle }, 'Research brief'),
-    createElement('h2', { style: { fontSize: '1.45rem', margin: '0.35rem 0 0.75rem' } }, 'Investment thesis'),
-    createElement('p', { style: { color: '#f7f8ff', fontSize: '1.05rem', lineHeight: 1.65, margin: 0 } }, thesis),
+    { className: 'owl-workflow-card', style: { ...cardStyle, display: 'grid', gap: '1rem' } },
+    createElement('p', { style: labelStyle }, 'Dossier cards'),
+    createElement('h2', { style: { fontSize: '1.45rem', margin: 0 } }, 'Decision evidence'),
     createElement(
       'div',
-      { style: { display: 'grid', gap: '0.8rem', gridTemplateColumns: 'repeat(auto-fit, minmax(230px, 1fr))', marginTop: '1rem' } },
-      createBriefDetail('Business / moat rationale', businessRationale),
-      createBriefDetail('Valuation rationale', `${researchCase.valuation_status ?? 'Pending'} — ${valuationRationale}`),
-      createBriefDetail('Shariah rationale', `${researchCase.shariah_status ?? 'Pending'} — ${shariahRationale}`),
-      createBriefDetail('Risks and caveats', risks.join('; ')),
-      createBriefDetail('Open questions', openQuestions.join('; ')),
+      {
+        style: {
+          alignItems: 'start',
+          display: 'grid',
+          gap: '0.85rem',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
+        },
+      },
+      createDossierCard('Thesis', thesis, undefined, { note: 'Full thesis available in the disclosure below.' }),
+      createDossierCard('Valuation', valuationRationale, researchCase.valuation_status),
+      createDossierCard('Shariah / compliance', shariahRationale, researchCase.shariah_status),
+      createDossierCard('Risks / open questions', [...risks, ...openQuestions]),
+    ),
+    createFullThesisDisclosure(fullThesis, thesis),
+  )
+}
+
+function createDossierCard(label: string, content: string | string[], status?: string, options?: { note?: string }) {
+  const contentItems = Array.isArray(content) ? content : [content]
+
+  return createElement(
+    'article',
+    {
+      'data-testid': `research-dossier-card-${slugifyDossierLabel(label)}`,
+      style: {
+        background: 'rgba(15, 23, 42, 0.34)',
+        border: '1px solid rgba(148, 163, 184, 0.14)',
+        borderRadius: '0.95rem',
+        display: 'grid',
+        gap: '0.65rem',
+        padding: '1rem',
+      },
+    },
+    createElement(
+      'div',
+      { style: { alignItems: 'center', display: 'flex', flexWrap: 'wrap', gap: '0.55rem', justifyContent: 'space-between' } },
+      createElement('h3', { style: { color: '#f7f8ff', fontSize: '1rem', margin: 0 } }, label),
+      status === undefined ? null : createElement('span', { style: { color: '#c7d2fe', fontSize: '0.82rem', fontWeight: 900 } }, status),
+    ),
+    contentItems.length === 1
+      ? createElement('p', { style: { color: '#dbe3ef', lineHeight: 1.55, margin: 0 } }, contentItems[0])
+      : createElement(
+        'ul',
+        { style: { color: '#dbe3ef', display: 'grid', gap: '0.45rem', lineHeight: 1.45, margin: 0, paddingLeft: '1.1rem' } },
+        ...contentItems.map((item) => createElement('li', { key: item }, item)),
+      ),
+    options?.note === undefined
+      ? null
+      : createElement('p', { style: { color: '#9aa4b7', fontSize: '0.86rem', fontWeight: 750, lineHeight: 1.45, margin: 0 } }, options.note),
+  )
+}
+
+function createFullThesisDisclosure(fullThesis: string, conciseThesis: string) {
+  if (fullThesis === conciseThesis) {
+    return null
+  }
+
+  return createElement(
+    'details',
+    {
+      style: {
+        background: 'rgba(15, 23, 42, 0.24)',
+        border: '1px solid rgba(148, 163, 184, 0.12)',
+        borderRadius: '0.95rem',
+        padding: '1rem',
+      },
+    },
+    createElement(
+      'summary',
+      {
+        style: {
+          color: '#c7d2fe',
+          cursor: 'pointer',
+          fontSize: '0.95rem',
+          fontWeight: 900,
+        },
+      },
+      'Full thesis',
+    ),
+    createElement(
+      'p',
+      { style: { color: '#dbe3ef', lineHeight: 1.6, margin: '0.85rem 0 0' } },
+      fullThesis,
+    ),
+  )
+}
+
+function createEvidenceAndAuditDetails(researchCase: AppResearchCase) {
+  return createElement(
+    'details',
+    {
+      style: {
+        ...cardStyle,
+        display: 'grid',
+        gap: '1rem',
+      },
+    },
+    createElement(
+      'summary',
+      {
+        style: {
+          color: '#f7f8ff',
+          cursor: 'pointer',
+          fontSize: '1.05rem',
+          fontWeight: 900,
+        },
+      },
+      'Evidence and audit details',
+    ),
+    createElement(
+      'div',
+      { style: { display: 'grid', gap: '1rem', marginTop: '1rem' } },
+      createCurrentWorkflowStatus(researchCase),
+      createEvidenceAndSourcesPanel(researchCase),
+      createGateChecklistPanel(researchCase),
+      createResearchTransitionPanel(researchCase),
+      createSourceIdsPanel(researchCase),
+      createLedgerTimelinePanel(researchCase),
     ),
   )
 }
@@ -236,6 +315,77 @@ function createEvidenceAndSourcesPanel(researchCase: AppResearchCase) {
         { style: { display: 'grid', gap: '0.85rem' } },
         ...sourceEvidence.map((source) => createEvidenceCard(source)),
       ),
+  )
+}
+
+function createGateChecklistPanel(researchCase: AppResearchCase) {
+  return createElement(
+    'section',
+    { style: cardStyle },
+    createElement('h2', { style: { fontSize: '1.25rem', margin: '0 0 1rem' } }, 'Gate checklist'),
+    createElement(
+      'ul',
+      { style: { display: 'grid', gap: '0.75rem', listStyle: 'none', margin: 0, padding: 0 } },
+      ...researchCase.gate_checklist.map((gate) =>
+        createElement(
+          'li',
+          {
+            key: gate.label,
+            style: { alignItems: 'center', display: 'flex', flexWrap: 'wrap', gap: '0.6rem' },
+          },
+          createElement(StatusBadge, { tone: gate.tone }, gate.status),
+          createElement(
+            'span',
+            { style: { display: 'grid', gap: '0.25rem' } },
+            createElement('span', { style: { fontWeight: 700 } }, gate.label),
+            createElement('span', { style: { color: '#9aa4b7', fontSize: '0.86rem' } }, `Evidence source context: ${describeGateEvidence(gate.label, researchCase.source_ids)}`),
+          ),
+        ),
+      ),
+    ),
+  )
+}
+
+function createSourceIdsPanel(researchCase: AppResearchCase) {
+  return createElement(
+    'section',
+    { style: cardStyle },
+    createElement('h2', { style: { fontSize: '1.25rem', margin: '0 0 0.75rem' } }, 'Source IDs'),
+    createElement(
+      'div',
+      { style: { display: 'flex', flexWrap: 'wrap', gap: '0.5rem' } },
+      ...researchCase.source_ids.map((sourceId) => createElement(SourceChip, { id: sourceId, key: sourceId, label: 'Audit source' })),
+    ),
+  )
+}
+
+function createLedgerTimelinePanel(researchCase: AppResearchCase) {
+  return createElement(
+    'section',
+    { style: cardStyle },
+    createElement('h2', { style: { fontSize: '1.25rem', margin: '0 0 0.35rem' } }, 'Ledger Timeline'),
+    createElement(
+      'p',
+      { style: { color: '#9aa4b7', fontSize: '0.95rem', margin: '0 0 1rem' } },
+      'How did this state come to exist?',
+    ),
+    createElement(
+      'ol',
+      { style: { color: '#cbd5e1', display: 'grid', gap: '0.85rem', margin: 0, paddingLeft: '1.25rem' } },
+      ...researchCase.ledger_timeline.map((entry) =>
+        createElement(
+          'li',
+          { key: entry.event_id },
+          createElement('p', { style: { fontWeight: 900, margin: 0 } }, entry.event_type),
+          createElement('p', { style: { margin: '0.2rem 0 0' } }, entry.summary),
+          createElement(
+            'p',
+            { style: { color: '#9aa4b7', fontSize: '0.85rem', margin: '0.2rem 0 0' } },
+            `${entry.actor_label} • ${entry.created_at}`,
+          ),
+        ),
+      ),
+    ),
   )
 }
 
@@ -294,31 +444,15 @@ function firstNonEmpty(values: Array<string | undefined>): string | undefined {
   return values.find((value) => value !== undefined && value.trim().length > 0)
 }
 
-function createBriefDetail(label: string, value: string) {
-  return createElement(
-    'article',
-    {
-      style: {
-        background: 'rgba(15, 23, 42, 0.34)',
-        border: '1px solid rgba(148, 163, 184, 0.14)',
-        borderRadius: '0.85rem',
-        padding: '0.9rem',
-      },
-    },
-    createElement('p', { style: labelStyle }, label),
-    createElement('p', { style: { color: '#e2e8f0', lineHeight: 1.5, margin: '0.35rem 0 0' } }, value),
-  )
-}
-
 function createCurrentWorkflowStatus(researchCase: AppResearchCase) {
   const statusLabel = describeWorkflowStatus(researchCase)
 
   return createElement(
     'section',
     { className: 'owl-workflow-card', style: cardStyle },
-    createElement('p', { style: labelStyle }, 'Current workflow status'),
+    createElement('p', { style: labelStyle }, 'Workflow audit status'),
     createElement('p', { style: { color: '#f7f8ff', fontSize: '1.25rem', fontWeight: 900, margin: '0.35rem 0 0' } }, statusLabel),
-    createElement('p', { style: { color: '#9aa4b7', fontSize: '0.9rem', margin: '0.55rem 0 0' } }, `Raw stage token: ${researchCase.stage}`),
+    createElement('p', { style: { color: '#9aa4b7', fontSize: '0.9rem', margin: '0.55rem 0 0' } }, `Audit stage: ${researchCase.stage}`),
   )
 }
 
@@ -376,6 +510,60 @@ function createQuickScreenPanel(researchCase: AppResearchCase) {
       createDetail('Source ids', researchCase.source_ids.length === 0 ? 'No source IDs recorded' : researchCase.source_ids.join(', ')),
     ),
   )
+}
+
+function createConciseDossierSummary(thesis: string, subject?: string): string {
+  const compact = thesis.trim().replace(/\s+/g, ' ')
+  if (compact.length <= 110) {
+    return compact
+  }
+
+  const withoutSubject = removeSubjectLeadIn(compact, subject)
+  const firstContrast = withoutSubject.split(/,\s+but\s+/i)[0]?.trim()
+  const firstSentence = withoutSubject.split(/\.\s+/)[0]?.trim()
+  const summaryCandidate = firstContrast !== undefined && firstContrast.length >= 24
+    ? firstContrast
+    : firstSentence !== undefined && firstSentence.length >= 24
+      ? firstSentence
+      : withoutSubject
+
+  if (summaryCandidate.length <= 110) {
+    return ensureTerminalPunctuation(capitalizeSentence(summaryCandidate))
+  }
+
+  const clipped = summaryCandidate.slice(0, 105).replace(/\s+\S*$/, '').trim()
+  return `${capitalizeSentence(clipped)}…`
+}
+
+function removeSubjectLeadIn(value: string, subject?: string): string {
+  if (subject === undefined || subject.trim().length === 0) {
+    return value
+  }
+
+  const pattern = new RegExp(`^${escapeRegExp(subject.trim())}\\s+(remains|is|appears|looks)\\s+(an?|the)?\\s*`, 'i')
+  const withoutKnownSubject = value.replace(pattern, '')
+  if (withoutKnownSubject !== value) {
+    return withoutKnownSubject
+  }
+
+  return value.replace(/^[A-Z][\w.&-]*(?:\s+[A-Z][\w.&-]*){0,3}\s+(remains|is|appears|looks)\s+(an?|the)?\s*/i, '')
+}
+
+function capitalizeSentence(value: string): string {
+  const trimmed = value.trim()
+  return trimmed.length === 0 ? trimmed : `${trimmed.charAt(0).toUpperCase()}${trimmed.slice(1)}`
+}
+
+function ensureTerminalPunctuation(value: string): string {
+  return /[.!?…]$/.test(value) ? value : `${value}.`
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+function slugifyDossierLabel(label: string): string {
+  return label.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
 }
 
 function describeGateEvidence(label: string, sourceIds: string[]) {
@@ -476,15 +664,6 @@ function createResearchTransitionPanel(researchCase: AppResearchCase) {
         createDetail('Next action', researchCase.next_required_action ?? 'Continue the review workflow'),
       ),
     ),
-  )
-}
-
-function createMetric(label: string, value: string) {
-  return createElement(
-    'article',
-    { style: cardStyle },
-    createElement('p', { style: labelStyle }, label),
-    createElement('p', { style: valueStyle }, value),
   )
 }
 

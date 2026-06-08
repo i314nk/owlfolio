@@ -49,18 +49,19 @@ describe('research and watchlist workflow pages', () => {
       const html = renderToStaticMarkup(createElement(ResearchCasePanel, { researchCase }))
 
       expect(html).toContain('COST')
-      expect(html).toContain('Current workflow status')
-      expect(html).toContain('Watchlist draft · User action required')
-      expect(html).toContain('Raw stage token')
-      expect(html).toContain('watchlist_draft')
-      expect(html).toContain('Investment verdict')
+      expect(html).toContain('Research dossier')
+      expect(html).toContain('Verdict summary')
       expect(html).toContain('WATCH')
-      expect(html).toContain('Strategy compliance')
-      expect(html).toContain('CONDITIONAL')
-      expect(html).toContain('Shariah status')
-      expect(html).toContain('COMPLIANT')
-      expect(html).toContain('Valuation status')
+      expect(html).toContain('Workflow audit status')
+      expect(html).toContain('Watchlist draft · User action required')
+      expect(html).toContain('Audit stage')
+      expect(html).toContain('watchlist_draft')
+      expect(html).toContain('Thesis')
+      expect(html).toContain('Valuation')
       expect(html).toContain('FAIR')
+      expect(html).toContain('Shariah / compliance')
+      expect(html).toContain('COMPLIANT')
+      expect(html).toContain('Risks / open questions')
       expect(html).toContain('Gate checklist')
       expect(html).toContain('Quality business')
       expect(html).toContain('Evidence source context')
@@ -270,6 +271,7 @@ describe('research and watchlist workflow pages', () => {
   })
 
   it('renders a first-class investment brief and safe source evidence for drafted decisions', () => {
+    const fullThesis = 'Microsoft remains a high-quality Buffett-Munger business: durable ecosystem moats across Microsoft 365, Azure, Windows, GitHub/LinkedIn/Gaming, very high profitability, strong balance sheet, and resilient cash generation, but the current valuation leaves too little margin of safety and Shariah evidence still needs a documented ratio review.'
     const decisionDraftedResearchCase: AppResearchCase = {
       research_case_id: 'rc_msft_001',
       stage: 'decision_drafted',
@@ -278,7 +280,7 @@ describe('research and watchlist workflow pages', () => {
       strategy_id: 'buffett-munger',
       decision_id: 'decision_msft_001',
       decision: 'WATCH',
-      reason: 'Microsoft remains a high-quality compounder with durable cloud economics, but the current valuation leaves too little margin of safety and Shariah evidence still needs a documented ratio review.',
+      reason: fullThesis,
       investment_verdict: 'WATCH',
       strategy_compliance: 'CONDITIONAL',
       shariah_status: 'CONDITIONAL',
@@ -308,23 +310,41 @@ describe('research and watchlist workflow pages', () => {
       mode: 'personal-local',
     }))
 
-    expect(html).toContain('Research brief')
-    expect(html).toContain('Investment thesis')
-    expect(html).toContain('Microsoft remains a high-quality compounder')
-    expect(html).toContain('Business / moat rationale')
-    expect(html).toContain('Valuation rationale')
+    expect(html).toContain('Research dossier')
+    expect(html).toContain('Verdict summary')
+    expect(html).toContain('WATCH')
+    expect(html).toContain('Next action')
+    expect(html).toContain('Thesis')
+    const thesisCardStart = html.indexOf('data-testid="research-dossier-card-thesis"')
+    const valuationCardStart = html.indexOf('data-testid="research-dossier-card-valuation"')
+    expect(thesisCardStart).toBeGreaterThan(-1)
+    expect(valuationCardStart).toBeGreaterThan(thesisCardStart)
+    const thesisCardHtml = html.slice(thesisCardStart, valuationCardStart)
+    expect(thesisCardHtml).toContain('High-quality Buffett-Munger business')
+    expect(thesisCardHtml).not.toContain('very high')
+    expect(thesisCardHtml).toContain('Full thesis')
+    expect(thesisCardHtml).not.toContain(fullThesis)
+    expect(html).toContain(fullThesis)
+    expect(html).toContain('align-items:start')
+    expect(html).toContain('Valuation')
     expect(html).toContain('EXPENSIVE')
-    expect(html).toContain('Shariah rationale')
+    expect(html).toContain('Needs structured valuation detail')
+    expect(html).toContain('Shariah / compliance')
     expect(html).toContain('CONDITIONAL')
-    expect(html).toContain('Risks and caveats')
-    expect(html).toContain('Evidence and sources')
+    expect(html).toContain('Needs structured Shariah detail')
+    expect(html).toContain('Risks / open questions')
+    expect(html).toContain('No separately structured risks are recorded yet')
+    expect(html).toContain('Evidence and audit details')
+    expect(html).toContain('<details')
     expect(html).toContain('Microsoft Form 10-K for Fiscal Year 2025')
     expect(html).toContain('FY2025 revenue was $281.724B')
     expect(html).toContain('Audit source id')
     expect(html).toContain('msft_fy2025_10k')
     expect(html).toContain('local_private_note')
+    expect(html).not.toContain('Raw stage token')
     expect(html).not.toContain('/home/hermes_agent')
     expect(html).not.toContain('private/local/path')
+    expect([...html.matchAll(/Microsoft remains a high-quality Buffett-Munger business/g)]).toHaveLength(1)
   })
 
   it('renders the personal-local watchlist promotion action only for drafted decisions', () => {
@@ -357,7 +377,7 @@ describe('research and watchlist workflow pages', () => {
     }))
 
     expect(personalHtml).toContain('action="/api/research/rc_msft_001/watchlist"')
-    expect(personalHtml).toContain('Current workflow status')
+    expect(personalHtml).toContain('Workflow audit status')
     expect(personalHtml).toContain('Decision drafted · User action required')
     expect(personalHtml).toContain('method="post"')
     expect(personalHtml).toContain('Promote to watchlist')
