@@ -19,6 +19,7 @@
     "./projections/researchCaseTimelineProjection": "./src/projections/researchCaseTimelineProjection.ts",
     "./projections/watchlistProjection": "./src/projections/watchlistProjection.ts",
     "./projections/commandCenterProjection": "./src/projections/commandCenterProjection.ts",
-    "./projections/scheduledTaskProjection": "./src/projections/scheduledTaskProjection.ts"
+    "./projections/scheduledTaskProjection": "./src/projections/scheduledTaskProjection.ts",
+    "./projections/researchRunQueueProjection": "./src/projections/researchRunQueueProjection.ts"
   }
 }
