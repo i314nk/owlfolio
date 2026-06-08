@@ -98,3 +98,30 @@ export async function fetchAndCaptureSource(
     clearTimeout(timer)
   }
 }
+
+export type GroundingResult = {
+  captured: CapturedSource[]
+  verified_ids: string[]
+}
+
+export async function groundProposedSources(
+  sources: ProposedSource[],
+  deps: GroundingDeps = {},
+): Promise<GroundingResult> {
+  const concurrency = Math.max(1, deps.concurrency ?? 4)
+  const captured: CapturedSource[] = new Array(sources.length)
+  let cursor = 0
+  async function worker(): Promise<void> {
+    while (cursor < sources.length) {
+      const index = cursor++
+      const source = sources[index]
+      if (source === undefined) continue
+      captured[index] = await fetchAndCaptureSource(source, deps)
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(concurrency, sources.length) }, worker))
+  return {
+    captured,
+    verified_ids: captured.filter((c) => c.availability === 'available').map((c) => c.source_id),
+  }
+}

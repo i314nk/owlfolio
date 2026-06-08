@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { assertPublicHttpUrl, fetchAndCaptureSource, type ProposedSource } from '../sourceGrounding'
+import { assertPublicHttpUrl, fetchAndCaptureSource, groundProposedSources, type ProposedSource } from '../sourceGrounding'
 
 describe('assertPublicHttpUrl', () => {
   it('accepts public https urls', () => {
@@ -61,5 +61,24 @@ describe('fetchAndCaptureSource', () => {
     const out = await fetchAndCaptureSource(proposed({ url: 'http://169.254.169.254/' }), { fetchImpl: spy })
     expect(out.availability).toBe('unavailable')
     expect(called).toBe(false)
+  })
+})
+
+describe('groundProposedSources', () => {
+  it('returns verified ids only for fetched sources and captures all attempts', async () => {
+    const fetchImpl = (async (input: string | URL) => {
+      const u = String(input)
+      return u.includes('good') ? new Response('real body') : new Response('x', { status: 500 })
+    }) as unknown as typeof fetch
+    const result = await groundProposedSources(
+      [
+        proposed({ source_id: 'a', url: 'https://example.com/good' }),
+        proposed({ source_id: 'b', url: 'https://example.com/bad' }),
+      ],
+      { fetchImpl, concurrency: 2 },
+    )
+    expect(result.verified_ids).toEqual(['a'])
+    expect(result.captured).toHaveLength(2)
+    expect(result.captured.find((c) => c.source_id === 'b')?.availability).toBe('unavailable')
   })
 })
