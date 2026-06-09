@@ -234,9 +234,9 @@ body::before {
   content: "";
   position: fixed;
   inset: 0;
-  z-index: -1;
+  z-index: 0;
   pointer-events: none;
-  opacity: 0.05;
+  opacity: 0.11;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160' viewBox='0 0 160 160'%3E%3Cg fill='none' stroke='%23d6b25e' stroke-width='1'%3E%3Cpath d='M80 12 96 48 132 48 110 80 132 112 96 112 80 148 64 112 28 112 50 80 28 48 64 48Z'/%3E%3Cpath d='M80 36 92 60 116 56 104 80 116 104 92 100 80 124 68 100 44 104 56 80 44 56 68 60Z'/%3E%3Cpath d='M0 0 16 36 0 72'/%3E%3Cpath d='M160 0 144 36 160 72'/%3E%3Cpath d='M0 160 16 124 0 88'/%3E%3Cpath d='M160 160 144 124 160 88'/%3E%3C/g%3E%3C/svg%3E");
   background-repeat: repeat;
   background-size: 160px 160px;
@@ -262,6 +262,8 @@ a:focus-visible {
   grid-template-columns: minmax(15rem, 17.5rem) minmax(0, 1fr);
   min-height: 100vh;
   overflow-x: clip;
+  position: relative;
+  z-index: 1;
 }
 
 .owl-app-shell::before {
