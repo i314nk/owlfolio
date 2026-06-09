@@ -27,6 +27,7 @@ import {
   confirmWatchlistDraft,
   draftHoldingReview,
   evaluateResearchCaseShariahGate,
+  lookupExistingShariahGateDecision,
   openHoldingFromWatchlist,
   overrideHoldingReviewDraft,
   recordHoldingValuationSnapshot,
@@ -446,7 +447,11 @@ export async function confirmPersonalWatchlistDraft(
       throw new Error(`Unknown watchlist item: ${watchlistItemId}`)
     }
 
-    const gateDecision = await evaluateResearchCaseShariahGate(store, {
+    // Reuse the existing promotion gate decision rather than recording a duplicate evaluation.
+    // A prior decision already exists from watchlist_promotion (same target_id = watchlist_item_id).
+    // Only fall back to a full evaluation if no prior decision is found (e.g. legacy ledger items).
+    const existingDecision = await lookupExistingShariahGateDecision(store, watchlistItem.watchlist_item_id)
+    const gateDecision = existingDecision ?? await evaluateResearchCaseShariahGate(store, {
       research_case_id: watchlistItem.research_case_id,
       target_transition: 'watchlist_confirmation',
       target_id: watchlistItem.watchlist_item_id,

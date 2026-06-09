@@ -224,3 +224,73 @@ export function assertShariahGateAllowsTransition(decision: ShariahGateDecision)
   const sourceText = decision.required_source_ids.length > 0 ? ` Required sources: ${decision.required_source_ids.join(', ')}.` : ''
   throw new Error(`Shariah gate blocked ${decision.target_transition} for ${decision.target_id}: ${reasonText}${missingText}${sourceText}`)
 }
+
+/**
+ * Looks up the most recent existing shariah_gate_decision_recorded event for the given
+ * target_id (watchlist_item_id) in the ledger, returning it as a ShariahGateDecision
+ * without appending any new events. Returns undefined if no prior decision exists.
+ */
+export async function lookupExistingShariahGateDecision(
+  store: WorkflowEventStore,
+  targetId: string,
+): Promise<ShariahGateDecision | undefined> {
+  const events = await store.list()
+  const gateEvents = events
+    .filter((event) => {
+      if (event.event_type !== 'shariah_gate_decision_recorded' || !isRecord(event.payload)) {
+        return false
+      }
+      const tid = getString(event.payload as Record<string, unknown>, 'target_id')
+      return tid === targetId
+    })
+    .sort((left, right) => right.created_at.localeCompare(left.created_at))
+
+  const latest = gateEvents[0]
+  if (latest === undefined || !isRecord(latest.payload)) {
+    return undefined
+  }
+
+  const payload = latest.payload as Record<string, unknown>
+  const gateDecisionId = getString(payload, 'gate_decision_id')
+  const targetTransitionRaw = getString(payload, 'target_transition')
+  const researchCaseId = getString(payload, 'research_case_id')
+  const status = getString(payload, 'status') as ShariahGateStatus | undefined
+  const allowed = typeof payload['allowed'] === 'boolean' ? payload['allowed'] : false
+  const requiresUserConfirmation = typeof payload['requires_user_confirmation'] === 'boolean' ? payload['requires_user_confirmation'] : false
+  const conditionalAllowed = typeof payload['conditional_allowed'] === 'boolean' ? payload['conditional_allowed'] : false
+
+  if (
+    gateDecisionId === undefined
+    || targetTransitionRaw === undefined
+    || researchCaseId === undefined
+    || status === undefined
+  ) {
+    return undefined
+  }
+
+  const targetTransition = targetTransitionRaw as ShariahGateTransition
+
+  const reasons: string[] = Array.isArray(payload['reasons'])
+    ? (payload['reasons'] as unknown[]).filter((r): r is string => typeof r === 'string')
+    : []
+  const requiredSourceIds: string[] = Array.isArray(payload['required_source_ids'])
+    ? (payload['required_source_ids'] as unknown[]).filter((r): r is string => typeof r === 'string')
+    : []
+  const missingEvidence: string[] = Array.isArray(payload['missing_evidence'])
+    ? (payload['missing_evidence'] as unknown[]).filter((r): r is string => typeof r === 'string')
+    : []
+
+  return {
+    gate_decision_id: gateDecisionId,
+    target_transition: targetTransition,
+    target_id: targetId,
+    research_case_id: researchCaseId,
+    status,
+    allowed,
+    requires_user_confirmation: requiresUserConfirmation,
+    reasons,
+    required_source_ids: requiredSourceIds,
+    missing_evidence: missingEvidence,
+    conditional_allowed: conditionalAllowed,
+  }
+}

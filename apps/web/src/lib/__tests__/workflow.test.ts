@@ -415,11 +415,18 @@ describe('workflow helpers', () => {
         },
       ])
       const gateEvents = (await store.list()).filter((event) => event.event_type === 'shariah_gate_decision_recorded')
+      // Confirmation reuses the promotion decision — no duplicate gate event for watchlist_confirmation.
       expect(gateEvents.map((event) => event.payload)).toEqual(expect.arrayContaining([
         expect.objectContaining({ target_transition: 'watchlist_promotion', target_id: promoted.watchlist_item_id, allowed: true }),
-        expect.objectContaining({ target_transition: 'watchlist_confirmation', target_id: promoted.watchlist_item_id, allowed: true }),
         expect.objectContaining({ target_transition: 'holding_open', target_id: openedHolding.holding_id, allowed: true }),
       ]))
+      // Exactly ONE gate decision for the watchlist_item_id (the promotion one; no confirmation duplicate).
+      const watchlistItemGatePayloads = gateEvents
+        .map((event) => event.payload)
+        .filter((p): p is Record<string, unknown> => p !== null && typeof p === 'object' && !Array.isArray(p))
+        .filter((p) => p['target_id'] === promoted.watchlist_item_id)
+      expect(watchlistItemGatePayloads).toHaveLength(1)
+      expect(watchlistItemGatePayloads[0]).toMatchObject({ target_transition: 'watchlist_promotion' })
       const [projectedHolding] = await getAppHoldingsFromStore(store, 'personal-local')
       expect(projectedHolding?.pending_review_id).toBeUndefined()
     } finally {
