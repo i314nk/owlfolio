@@ -44,10 +44,13 @@ function buildValuationRefreshSummary(holdings: AppHolding[]): PortfolioValuatio
     .map((holding) => holding.ticker ?? holding.company_id ?? holding.holding_id)
 
   const lastPriceCheckAt = priceChecks.at(-1)
+  const hasPriceCheck = lastPriceCheckAt !== undefined
   const summary: PortfolioValuationRefreshSummary = {
     next_scheduled_check: '0 7 * * 1-5',
-    data_source: 'mock-local-price-feed',
-    confidence_caveat: 'Mock/local confidence — deterministic prices for local workflow verification.',
+    data_source: hasPriceCheck ? 'mock-local-price-feed' : 'awaiting-first-price-check',
+    confidence_caveat: hasPriceCheck
+      ? 'Mock/local confidence — deterministic prices for local workflow verification.'
+      : 'No price check has run yet — record a manual valuation snapshot or wait for the scheduled check.',
     holdings_missing_data: missing,
   }
   if (lastPriceCheckAt !== undefined) {

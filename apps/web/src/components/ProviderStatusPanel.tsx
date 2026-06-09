@@ -1,6 +1,7 @@
 import { createElement, type CSSProperties } from 'react'
 
 import type { ProviderStatusRow } from '../lib/providerStatus'
+import { OwlKpiStat, OwlRingGauge } from './designSystem'
 
 export type ProviderStatusPanelProps = {
   rows: ProviderStatusRow[]
@@ -77,6 +78,7 @@ export function ProviderStatusPanel({ rows }: ProviderStatusPanelProps) {
         { style: { ...subtleTextStyle, fontSize: '1.05rem', marginBottom: '2rem', maxWidth: '820px' } },
         'Readiness, role suitability, certification evidence, and limitations are shown separately so a local credential does not imply certified investment-decision support. Evidence comes from the T2 provider certification report format and the T3 provider/model support matrix; the latest persisted report below is the source of truth for effective support.',
       ),
+      createProviderKpiRow(summary, rows.length),
       createElement(
         'section',
         { style: { ...cardStyle, marginBottom: '1rem' } },
@@ -194,6 +196,51 @@ export function ProviderStatusPanel({ rows }: ProviderStatusPanelProps) {
           )
         }),
       ),
+    ),
+  )
+}
+
+function createProviderKpiRow(summary: ProviderSummary, totalProviders: number) {
+  const certified = summary.effectiveBuckets.certified
+  const experimental = summary.effectiveBuckets.experimental
+  const unsupported = summary.effectiveBuckets.unsupported
+  const certifiedPct = totalProviders === 0 ? 0 : Math.round((certified / totalProviders) * 100)
+
+  return createElement(
+    'section',
+    { 'aria-label': 'Provider effective-support summary', className: 'owl-kpi-row', style: { marginBottom: '1rem' } },
+    createElement(
+      'div',
+      { className: 'owl-kpi-panel owl-kpi-panel-gold' },
+      createElement(OwlKpiStat, {
+        label: 'Certified (effective)',
+        value: String(certified),
+        tone: 'emerald',
+      }),
+      createElement(OwlRingGauge, {
+        value: certifiedPct,
+        label: 'Certified',
+        tone: certified === 0 ? 'amber' : 'emerald',
+        size: 64,
+      }),
+    ),
+    createElement(
+      'div',
+      { className: 'owl-kpi-panel' },
+      createElement(OwlKpiStat, {
+        label: 'Experimental',
+        value: String(experimental),
+        tone: 'gold',
+      }),
+    ),
+    createElement(
+      'div',
+      { className: 'owl-kpi-panel' },
+      createElement(OwlKpiStat, {
+        label: 'Unsupported',
+        value: String(unsupported),
+        tone: unsupported > 0 ? 'risk' : 'gold',
+      }),
     ),
   )
 }

@@ -36,7 +36,7 @@ test('monthly accounting report renders projected current period after a valuati
   await page.goto('/portfolio')
   await expect(page.getByRole('heading', { name: 'Scheduled valuation refresh' })).toBeVisible()
   await expect(page.getByText('Next scheduled check: 0 7 * * 1-5')).toBeVisible()
-  await expect(page.getByText('Data source: mock-local-price-feed')).toBeVisible()
+  await expect(page.getByText('Data source: awaiting-first-price-check')).toBeVisible()
   await expect(page.getByText('Holdings missing data: MSFT')).toBeVisible()
   await page.getByText('Manual fallback actions', { exact: true }).click()
   await page.getByLabel('Current price per share').fill('900')

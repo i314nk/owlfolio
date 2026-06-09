@@ -2,6 +2,7 @@ import { createElement, type CSSProperties } from 'react'
 
 import { deriveAuditActivityView, type AuditActivityEvent, type AuditActivityFilters } from '../lib/audit'
 import type { WorkflowMode } from '../lib/workflow'
+import { OwlKpiStat } from './designSystem'
 
 const shellStyle: CSSProperties = {
   background: 'rgba(148, 163, 184, 0.08)',
@@ -288,6 +289,7 @@ export function AuditActivityPanel({ events, filters = {}, mode }: AuditActivity
       { style: subheadingStyle },
       `${subtitle}. Search and filter the ledger trace while retaining stable event IDs and raw event evidence.`,
     ),
+    createElement(AuditActivityKpiRow, { events, filterOptions: view.filterOptions }),
     createElement(AuditActivityFiltersForm, { filters, filterOptions: view.filterOptions }),
     createElement(ActiveAuditFilters, { activeFilters: view.activeFilters }),
     createElement('p', { style: resultCountStyle }, `${view.events.length} of ${events.length} ledger events shown`),
@@ -298,6 +300,55 @@ export function AuditActivityPanel({ events, filters = {}, mode }: AuditActivity
         { style: listStyle },
         ...view.events.map((event) => createElement(AuditActivityRow, { event, key: event.event_id })),
       ),
+  )
+}
+
+function AuditActivityKpiRow({ events, filterOptions }: {
+  events: AuditActivityEvent[]
+  filterOptions: ReturnType<typeof deriveAuditActivityView>['filterOptions']
+}) {
+  const hasEvents = events.length > 0
+  const sourcedCount = events.filter((event) => event.source_count > 0).length
+
+  return createElement(
+    'section',
+    { 'aria-label': 'Audit summary', className: 'owl-kpi-row', style: { margin: '0 0 1rem' } },
+    createElement(
+      'div',
+      { className: 'owl-kpi-panel owl-kpi-panel-gold' },
+      createElement(OwlKpiStat, {
+        label: 'Ledger events',
+        value: hasEvents ? String(events.length) : '—',
+        tone: 'gold',
+      }),
+    ),
+    createElement(
+      'div',
+      { className: 'owl-kpi-panel' },
+      createElement(OwlKpiStat, {
+        label: 'Event types',
+        value: hasEvents ? String(filterOptions.eventTypes.length) : '—',
+        tone: 'gold',
+      }),
+    ),
+    createElement(
+      'div',
+      { className: 'owl-kpi-panel' },
+      createElement(OwlKpiStat, {
+        label: 'Actors',
+        value: hasEvents ? String(filterOptions.actors.length) : '—',
+        tone: 'gold',
+      }),
+    ),
+    createElement(
+      'div',
+      { className: 'owl-kpi-panel' },
+      createElement(OwlKpiStat, {
+        label: 'Sourced events',
+        value: hasEvents ? `${sourcedCount}/${events.length}` : '—',
+        tone: 'emerald',
+      }),
+    ),
   )
 }
 

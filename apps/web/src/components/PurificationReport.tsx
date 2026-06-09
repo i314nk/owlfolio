@@ -3,7 +3,7 @@ import { createElement, type CSSProperties } from 'react'
 import type { PurificationObligationProjection, PurificationPaymentProjection } from '@owlfolio/ledger/projections/purificationProjection'
 
 import type { AppPurificationReport, PurificationSummaryCard } from '../lib/purification'
-import { OwlButtonLink, SourceChip } from './designSystem'
+import { OwlButtonLink, OwlKpiStat, OwlRingGauge, SourceChip } from './designSystem'
 import { StatusBadge } from './StatusBadge'
 
 export type PurificationReportProps = {
@@ -52,12 +52,61 @@ export function PurificationReport({ report }: PurificationReportProps) {
       ),
     ),
     createPurificationOperationsCockpit(report),
+    createPurificationKpiRow(report.summary_cards),
     createPurificationTrustNotice(),
     createSummaryCards(report.summary_cards),
     createObligations(report.obligations),
     createEvidenceChecklist(report.obligations, report.payments),
     createPayments(report.payments, report.obligations.length),
     createPurificationLearnPanel(report.limitations),
+  )
+}
+
+function createPurificationKpiRow(cards: PurificationSummaryCard[]) {
+  const hasCards = cards.length > 0
+  const currency = cards[0]?.currency ?? 'USD'
+  const owed = cards.reduce((sum, card) => sum + card.owed, 0)
+  const paid = cards.reduce((sum, card) => sum + card.paid, 0)
+  const remaining = cards.reduce((sum, card) => sum + card.remaining, 0)
+  const paidPct = owed > 0 ? Math.round((paid / owed) * 100) : 0
+  const remainingTone = remaining > 0 ? 'risk' : 'emerald'
+
+  return createElement(
+    'section',
+    { 'aria-label': 'Purification summary', className: 'owl-kpi-row' },
+    createElement(
+      'div',
+      { className: 'owl-kpi-panel owl-kpi-panel-gold' },
+      createElement(OwlKpiStat, {
+        label: 'Owed',
+        value: hasCards ? formatMoney(owed, currency) : '—',
+        tone: 'gold',
+      }),
+    ),
+    createElement(
+      'div',
+      { className: 'owl-kpi-panel' },
+      createElement(OwlKpiStat, {
+        label: 'Paid',
+        value: hasCards ? formatMoney(paid, currency) : '—',
+        tone: 'emerald',
+      }),
+    ),
+    createElement(
+      'div',
+      { className: 'owl-kpi-panel' },
+      createElement(OwlKpiStat, {
+        label: 'Remaining',
+        value: hasCards ? formatMoney(remaining, currency) : '—',
+        tone: remainingTone,
+      }),
+      createElement(OwlRingGauge, {
+        value: paidPct,
+        label: 'Paid',
+        tone: !hasCards ? 'amber' : remaining === 0 ? 'emerald' : 'amber',
+        size: 64,
+      }),
+    ),
   )
 }
 

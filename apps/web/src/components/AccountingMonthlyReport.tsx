@@ -3,7 +3,7 @@ import { createElement, type CSSProperties } from 'react'
 import type { AccountingHoldingSnapshot, AccountingSnapshotProjection } from '@owlfolio/ledger/projections/accountingProjection'
 
 import type { AppAccountingReport } from '../lib/accounting'
-import { OwlButtonLink, SourceChip } from './designSystem'
+import { OwlButtonLink, OwlKpiStat, OwlRingGauge, SourceChip } from './designSystem'
 import { StatusBadge } from './StatusBadge'
 
 export type AccountingMonthlyReportProps = {
@@ -54,6 +54,7 @@ export function AccountingMonthlyReport({ report }: AccountingMonthlyReportProps
         `Current period summary for ${formatMonth(current.period_end)}. Automatically maintained accounting projection derives current NAV from valuation, cash-flow, dividend, fee, and realized gain/loss events in the durable event ledger.`,
       ),
     ),
+    createAccountingKpiRow(current),
     createAccountingStatusPanel(current, report.next_scheduled_update ?? 'valuation refresh cadence 0 7 * * 1-5; accounting recalculates from ledger events on load'),
     missingCount === 0 ? null : createMissingValuationAlert(missingCount),
     createElement(
@@ -94,6 +95,61 @@ export function AccountingMonthlyReport({ report }: AccountingMonthlyReportProps
     ),
     createSnapshotHistory(report.snapshot_history),
     createAccountingLearnPanel(report.limitations),
+  )
+}
+
+function createAccountingKpiRow(current: AccountingSnapshotProjection) {
+  const hasHoldings = current.holdings.length > 0
+  const valuedCount = current.holdings.filter((holding) => holding.valuation_status === 'valued').length
+  const coveragePct = hasHoldings ? Math.round((valuedCount / current.holdings.length) * 100) : 0
+  const unrealized = current.unrealized_gain_loss
+  const unrealizedTone = unrealized > 0 ? 'emerald' : unrealized < 0 ? 'risk' : 'gold'
+
+  return createElement(
+    'section',
+    { 'aria-label': 'Accounting summary', className: 'owl-kpi-row' },
+    createElement(
+      'div',
+      { className: 'owl-kpi-panel owl-kpi-panel-gold' },
+      createElement(OwlKpiStat, {
+        label: 'NAV (current period)',
+        value: formatMoney(current.nav, current.currency),
+        tone: 'gold',
+      }),
+    ),
+    createElement(
+      'div',
+      { className: 'owl-kpi-panel' },
+      createElement(OwlKpiStat, {
+        label: 'Unrealized P&L',
+        value: hasHoldings ? formatMoney(unrealized, current.currency) : '—',
+        tone: unrealizedTone,
+      }),
+    ),
+    createElement(
+      'div',
+      { className: 'owl-kpi-panel' },
+      createElement(OwlKpiStat, {
+        label: 'Cost basis',
+        value: hasHoldings ? formatMoney(current.invested_cost_basis, current.currency) : '—',
+        tone: 'gold',
+      }),
+    ),
+    createElement(
+      'div',
+      { className: 'owl-kpi-panel' },
+      createElement(OwlKpiStat, {
+        label: 'Valued holdings',
+        value: hasHoldings ? `${valuedCount}/${current.holdings.length}` : '—',
+        tone: 'emerald',
+      }),
+      createElement(OwlRingGauge, {
+        value: coveragePct,
+        label: 'Valued',
+        tone: !hasHoldings ? 'amber' : coveragePct === 100 ? 'emerald' : 'amber',
+        size: 64,
+      }),
+    ),
   )
 }
 
