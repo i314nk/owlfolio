@@ -633,7 +633,7 @@ describe('worker runtime', () => {
     ])
   })
 
-  it('refreshes portfolio valuations via injected price source (stooq) without approving actions', async () => {
+  it('refreshes portfolio valuations via injected price source (yahoo) without approving actions', async () => {
     const store = new InMemoryEventStore<LedgerEventEnvelope<unknown>>()
     await appendCostHolding(store)
     await store.append(ledgerEvent('holding_opened', 'holding', 'holding_unknown_001', {
@@ -650,7 +650,7 @@ describe('worker runtime', () => {
     await defineDefaultScheduledTasks(store, { now: () => '2026-06-01T07:00:00.000Z' })
 
     const priceSource = makeMockPriceSource({
-      COST: { available: true, price_per_share: 912.34, currency: 'USD', as_of: '2026-06-01', source: 'stooq' },
+      COST: { available: true, price_per_share: 912.34, currency: 'USD', as_of: '2026-06-01', source: 'yahoo' },
       // ZZZZ is not in the map → unavailable
     })
 
@@ -677,26 +677,26 @@ describe('worker runtime', () => {
         holding_id: 'holding_cost_001',
         price_per_share: 912.34,
         market_value: 912.34,
-        valuation_source: 'stooq',
+        valuation_source: 'yahoo',
         price_checked_at: '2026-06-01',
         confidence: 'market',
-        caveat: 'Live market close from Stooq',
+        caveat: 'Live market price from Yahoo Finance',
         valued_by_actor_type: 'worker',
         valued_by_actor_id: 'owlfolio-worker',
       }),
-      source_ids: ['stooq:COST:2026-06-01'],
+      source_ids: ['yahoo:COST:2026-06-01'],
     })
     expect(projectHoldings(events).find((holding) => holding.holding_id === 'holding_cost_001')).toMatchObject({
-      latest_valuation_source: 'stooq',
+      latest_valuation_source: 'yahoo',
       latest_price_checked_at: '2026-06-01',
       latest_valuation_confidence: 'market',
-      latest_valuation_source_ids: ['stooq:COST:2026-06-01'],
+      latest_valuation_source_ids: ['yahoo:COST:2026-06-01'],
     })
     const completed = events.find((event) => event.event_type === 'scheduled_task_run_completed')
     expect(completed?.payload).toMatchObject({
       result_summary: 'portfolio_valuation_refresh dry-run: refreshed 1 holding valuation(s), 1 holding(s) missing price data; no investment decision or portfolio action taken',
       observations: [
-        'COST valuation refreshed from stooq at $912.34; factual valuation update only',
+        'COST valuation refreshed from yahoo at $912.34; factual valuation update only',
         'ZZZZ: no auto price (manual valuation required) — no mock price',
       ],
       approval_gates: [],
@@ -718,7 +718,7 @@ describe('worker runtime', () => {
     await defineDefaultScheduledTasks(store, { now: () => '2026-06-01T07:00:00.000Z' })
 
     const priceSource = makeMockPriceSource({
-      COST: { available: true, price_per_share: 912.34, currency: 'USD', as_of: '2026-06-01', source: 'stooq' },
+      COST: { available: true, price_per_share: 912.34, currency: 'USD', as_of: '2026-06-01', source: 'yahoo' },
     })
 
     await runScheduledTasks(store, {
@@ -745,7 +745,7 @@ describe('worker runtime', () => {
       'portfolio_valuation_refresh dry-run: refreshed 0 holding valuation(s), 0 holding(s) missing price data; no investment decision or portfolio action taken',
     ])
     expect(events.find((event) => event.event_id === 'evt_scheduled_task_run_completed_run_portfolio_valuation_refresh_002')?.payload).toMatchObject({
-      observations: ['COST valuation already refreshed from stooq for 2026-06-01; no duplicate valuation event appended'],
+      observations: ['COST valuation already refreshed from yahoo for 2026-06-01; no duplicate valuation event appended'],
     })
   })
 
@@ -1344,13 +1344,13 @@ describe('worker runtime', () => {
     expect((await store.list()).filter((event) => event.event_type === 'scheduled_task_run_started')).toHaveLength(2)
   })
 
-  it('appends holding_valuation_recorded with valuation_source stooq when injected price source returns available', async () => {
+  it('appends holding_valuation_recorded with valuation_source yahoo when injected price source returns available', async () => {
     const store = new InMemoryEventStore<LedgerEventEnvelope<unknown>>()
     await appendCostHolding(store)
     await defineDefaultScheduledTasks(store, { now: () => '2026-06-02T07:00:00.000Z' })
 
     const priceSource = makeMockPriceSource({
-      COST: { available: true, price_per_share: 905.00, currency: 'USD', as_of: '2026-06-02', source: 'stooq' },
+      COST: { available: true, price_per_share: 905.00, currency: 'USD', as_of: '2026-06-02', source: 'yahoo' },
     })
 
     const result = await runScheduledTasks(store, {
@@ -1358,7 +1358,7 @@ describe('worker runtime', () => {
       dry_run: true,
       task_kind: 'portfolio_valuation_refresh',
       now: () => '2026-06-02T07:00:00.000Z',
-      run_id: () => 'run_portfolio_valuation_stooq_001',
+      run_id: () => 'run_portfolio_valuation_yahoo_001',
       priceSource,
     })
 
@@ -1370,13 +1370,13 @@ describe('worker runtime', () => {
       holding_id: 'holding_cost_001',
       price_per_share: 905.00,
       market_value: 905.00,
-      valuation_source: 'stooq',
+      valuation_source: 'yahoo',
       confidence: 'market',
-      caveat: 'Live market close from Stooq',
+      caveat: 'Live market price from Yahoo Finance',
       valued_by_actor_type: 'worker',
       valued_by_actor_id: 'owlfolio-worker',
     })
-    expect(valuation?.source_ids).toEqual(['stooq:COST:2026-06-02'])
+    expect(valuation?.source_ids).toEqual(['yahoo:COST:2026-06-02'])
     const completed = events.find((event) => event.event_type === 'scheduled_task_run_completed')
     expect(completed?.payload).toMatchObject({
       result_summary: expect.stringContaining('refreshed 1 holding valuation(s)'),

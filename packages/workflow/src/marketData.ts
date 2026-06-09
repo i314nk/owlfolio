@@ -1,3 +1,7 @@
+// Yahoo Finance chart endpoint (unofficial / keyless, gray-area ToS — acceptable for local personal use only).
+// The PriceSource interface allows swapping in an official/keyed provider (and a separate Gulf source for
+// ADX / Abu Dhabi) later without touching any callers of resolveCurrentPrice.
+
 import { assertPublicHttpUrl } from './sourceGrounding.js'
 
 export type PriceQuoteSymbol = {
@@ -21,58 +25,72 @@ export interface PriceSource {
 }
 
 /**
- * Map a PriceQuoteSymbol to the Stooq symbol string, or return undefined
- * for exchanges not covered by Stooq (AE-DFM, AE-ADX, SA-TADAWUL, etc.).
+ * Map a PriceQuoteSymbol to the Yahoo Finance symbol string, or return undefined
+ * for exchanges not covered by Yahoo (AE-ADX and other unmapped markets).
+ *
+ * Coverage:
+ *   US / undefined  → TICKER          (e.g. MSFT)
+ *   AE-DFM          → TICKER.AE       (e.g. EMAAR.AE → AED)
+ *   SA-TADAWUL      → TICKER.SR       (e.g. 2222.SR → SAR)
+ *   UK              → TICKER.L        (e.g. BARC.L)
+ *   AE-ADX          → not covered (ADX symbols are NOT available on Yahoo Finance)
  */
-function toStooqSymbol(symbol: PriceQuoteSymbol): string | undefined {
-  const ticker = symbol.ticker.toLowerCase()
+function toYahooSymbol(symbol: PriceQuoteSymbol): string | undefined {
+  const ticker = symbol.ticker.toUpperCase()
   const market = symbol.market?.toUpperCase()
 
-  // Unsupported exchanges — return early without fetching
-  const unsupported = new Set(['AE-DFM', 'AE-ADX', 'SA-TADAWUL'])
-  if (market !== undefined && unsupported.has(market)) {
-    return undefined
-  }
-
   if (market === undefined || market === 'US') {
-    return `${ticker}.us`
+    return ticker
+  }
+  if (market === 'AE-DFM') {
+    return `${ticker}.AE`
+  }
+  if (market === 'SA-TADAWUL') {
+    return `${ticker}.SR`
   }
   if (market === 'UK') {
-    return `${ticker}.uk`
-  }
-  if (market === 'DE') {
-    return `${ticker}.de`
-  }
-  if (market === 'JP') {
-    return `${ticker}.jp`
-  }
-  if (market === 'HK') {
-    return `${ticker}.hk`
+    return `${ticker}.L`
   }
 
-  // All other markets not explicitly mapped → unsupported
+  // AE-ADX and all other unmapped markets → not covered
   return undefined
 }
 
-const STOOQ_DEFAULT_TIMEOUT_MS = 12_000
+const YAHOO_DEFAULT_TIMEOUT_MS = 12_000
+
+type YahooChartMeta = {
+  regularMarketPrice?: number
+  currency?: string
+  regularMarketTime?: number
+  fullExchangeName?: string
+}
+
+type YahooChartResponse = {
+  chart?: {
+    result?: Array<{ meta: YahooChartMeta }>
+    error?: { code?: string; description?: string } | null
+  }
+}
 
 /**
- * Keyless CSV price source backed by Stooq (https://stooq.com).
+ * Keyless JSON price source backed by Yahoo Finance chart API.
+ * Covers US equities, DFM (.AE), Saudi Tadawul (.SR), and UK (.L).
+ * ADX (Abu Dhabi) is not covered — returns available:false without fetching.
  * Fail-closed: any fetch/parse error returns available:false, never throws.
  * SSRF-guarded via assertPublicHttpUrl.
  */
-export class StooqPriceSource implements PriceSource {
-  readonly id = 'stooq'
+export class YahooPriceSource implements PriceSource {
+  readonly id = 'yahoo'
 
   async getQuote(symbol: PriceQuoteSymbol, deps?: MarketDataDeps): Promise<PriceQuote> {
-    const stooqSym = toStooqSymbol(symbol)
-    if (stooqSym === undefined) {
-      return { available: false, reason: 'exchange not covered by stooq', source: 'stooq' }
+    const yahooSym = toYahooSymbol(symbol)
+    if (yahooSym === undefined) {
+      return { available: false, reason: 'exchange not covered by yahoo', source: 'yahoo' }
     }
 
-    const rawUrl = `https://stooq.com/q/l/?s=${encodeURIComponent(stooqSym)}&f=sd2t2ohlcv&h&e=csv`
+    const rawUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(yahooSym)}?interval=1d&range=1d`
 
-    // SSRF guard — stooq.com is a public host but we still assert to maintain the pattern
+    // SSRF guard — query1.finance.yahoo.com is a public host but we still assert to maintain the pattern
     let url: URL
     try {
       url = assertPublicHttpUrl(rawUrl)
@@ -80,25 +98,31 @@ export class StooqPriceSource implements PriceSource {
       return {
         available: false,
         reason: `url guard failed: ${err instanceof Error ? err.message : String(err)}`,
-        source: 'stooq',
+        source: 'yahoo',
       }
     }
 
-    const timeoutMs = deps?.timeoutMs ?? STOOQ_DEFAULT_TIMEOUT_MS
+    const timeoutMs = deps?.timeoutMs ?? YAHOO_DEFAULT_TIMEOUT_MS
     const fetchFn = deps?.fetchImpl ?? fetch
     const controller = new AbortController()
     const timer = setTimeout(() => { controller.abort() }, timeoutMs)
 
     try {
-      const response = await fetchFn(url.toString(), { signal: controller.signal })
+      const response = await fetchFn(url.toString(), {
+        signal: controller.signal,
+        headers: {
+          'User-Agent': 'Mozilla/5.0',
+          'Accept': 'application/json',
+        },
+      })
       if (!response.ok) {
-        return { available: false, reason: `http ${response.status}`, source: 'stooq' }
+        return { available: false, reason: `http ${response.status}`, source: 'yahoo' }
       }
-      const text = await response.text()
-      return parseStooqCsv(text, symbol.ticker)
+      const json = await response.json() as YahooChartResponse
+      return parseYahooChart(json, symbol.ticker)
     } catch (err) {
       const reason = err instanceof Error ? err.message : String(err)
-      return { available: false, reason: `fetch error: ${reason}`, source: 'stooq' }
+      return { available: false, reason: `fetch error: ${reason}`, source: 'yahoo' }
     } finally {
       clearTimeout(timer)
     }
@@ -106,67 +130,51 @@ export class StooqPriceSource implements PriceSource {
 }
 
 /**
- * Parse the Stooq CSV response.
+ * Parse the Yahoo Finance chart JSON response.
  *
- * Header: Symbol,Date,Time,Open,High,Low,Close,Volume
- * Valid data row has a numeric Close != N/D and a real Date != N/D.
+ * Shape: chart.result[0].meta.{ regularMarketPrice, currency, regularMarketTime }
  */
-function parseStooqCsv(csv: string, ticker: string): PriceQuote {
-  const lines = csv.trim().split(/\r?\n/)
-  // lines[0] = header, lines[1] = data row (typically)
-  if (lines.length < 2) {
-    return { available: false, reason: 'symbol not found', source: 'stooq' }
+function parseYahooChart(json: YahooChartResponse, ticker: string): PriceQuote {
+  const chart = json?.chart
+  if (chart?.error != null) {
+    const desc = chart.error.description ?? chart.error.code ?? 'api error'
+    return { available: false, reason: `yahoo error: ${desc}`, source: 'yahoo' }
   }
 
-  const header = lines[0]
-  if (header === undefined) {
-    return { available: false, reason: 'symbol not found', source: 'stooq' }
+  const result = chart?.result
+  if (!Array.isArray(result) || result.length === 0) {
+    return { available: false, reason: `symbol not found: ${ticker}`, source: 'yahoo' }
   }
 
-  const cols = header.split(',').map((c) => c.trim().toLowerCase())
-  const dateIdx = cols.indexOf('date')
-  const closeIdx = cols.indexOf('close')
-
-  if (dateIdx === -1 || closeIdx === -1) {
-    return { available: false, reason: 'unexpected csv format', source: 'stooq' }
+  const meta = result[0]?.meta
+  if (meta === undefined) {
+    return { available: false, reason: `no meta for ${ticker}`, source: 'yahoo' }
   }
 
-  const dataLine = lines[1]
-  if (dataLine === undefined || dataLine.trim() === '') {
-    return { available: false, reason: 'symbol not found', source: 'stooq' }
+  const price = meta.regularMarketPrice
+  if (typeof price !== 'number' || !Number.isFinite(price) || price <= 0) {
+    return { available: false, reason: `missing or non-positive price for ${ticker}`, source: 'yahoo' }
   }
 
-  const cells = dataLine.split(',')
-  const dateCell = cells[dateIdx]?.trim()
-  const closeCell = cells[closeIdx]?.trim()
-
-  if (dateCell === undefined || closeCell === undefined || dateCell === 'N/D' || closeCell === 'N/D') {
-    return { available: false, reason: `symbol not found: ${ticker}`, source: 'stooq' }
-  }
-
-  const price = Number(closeCell)
-  if (!Number.isFinite(price) || price <= 0) {
-    return { available: false, reason: `non-numeric close for ${ticker}: ${closeCell}`, source: 'stooq' }
-  }
-
-  // Stooq always returns USD for US symbols; for others we'd need mapping.
-  // For now, currency is 'USD' for .us symbols — caller can override if needed.
-  const currency = 'USD'
+  const currency = typeof meta.currency === 'string' && meta.currency.length > 0 ? meta.currency : 'USD'
+  const asOf = typeof meta.regularMarketTime === 'number'
+    ? new Date(meta.regularMarketTime * 1000).toISOString()
+    : new Date().toISOString()
 
   return {
     available: true,
     price_per_share: price,
     currency,
-    as_of: dateCell,
-    source: 'stooq',
+    as_of: asOf,
+    source: 'yahoo',
   }
 }
 
-export const defaultPriceSource: PriceSource = new StooqPriceSource()
+export const defaultPriceSource: PriceSource = new YahooPriceSource()
 
 /**
  * Convenience wrapper: resolve current price for a symbol using the given
- * source (defaults to defaultPriceSource / StooqPriceSource).
+ * source (defaults to defaultPriceSource / YahooPriceSource).
  */
 export async function resolveCurrentPrice(
   symbol: PriceQuoteSymbol,

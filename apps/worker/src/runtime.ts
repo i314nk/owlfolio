@@ -837,7 +837,7 @@ async function runPortfolioValuationRefreshTask(
         valuation_source: valuationSource,
         price_checked_at: quote.as_of,
         confidence: 'market',
-        caveat: 'Live market close from Stooq',
+        caveat: 'Live market price from Yahoo Finance',
         missing_data: [],
         valued_by_actor_type: 'worker',
         valued_by_actor_id: WORKER_ACTOR_ID,
