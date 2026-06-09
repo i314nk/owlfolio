@@ -390,4 +390,25 @@ describe('ProviderStatusPanel', () => {
     expect(html).not.toContain('Certification not run: Claude subscription access disabled')
     expect(html).toContain('Technical detail: latest report marked provider support unsupported.')
   })
+
+  it('groups providers by investment-grade and renders honest per-provider badges', () => {
+    const gradedRows: ProviderStatusRow[] = [
+      { ...rows[0]!, investment_grade: 'suitable', investment_grade_candidate: true },
+      { ...rows[1]!, investment_grade: 'candidate', investment_grade_candidate: true },
+      { ...rows[3]!, provider_id: 'gemini-cli', investment_grade: 'not-suitable', investment_grade_candidate: false },
+    ]
+    const html = renderToStaticMarkup(createElement(ProviderStatusPanel, { rows: gradedRows }))
+
+    expect(html).toContain('Investment-grade (certified)')
+    expect(html).toContain('Frontier candidates (experimental)')
+    expect(html).toContain('Other / unsupported')
+    expect(html).toContain('Investment-grade: ✓ suitable for research')
+    expect(html).toContain('Investment-grade: candidate — not certified')
+    expect(html).toContain('Investment-grade: not suitable for research')
+    // e2e-asserted strings must survive grouping
+    expect(html).toContain('Mock provider')
+    expect(html).toContain('Claude')
+    expect(html).toContain('Effective support (gating source of truth): certified')
+    expect(html).toContain('Effective support (gating source of truth): unsupported')
+  })
 })

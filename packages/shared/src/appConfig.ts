@@ -1,7 +1,7 @@
 export const owlfolioModeValues = ['demo', 'personal-local'] as const
 export type OwlfolioMode = (typeof owlfolioModeValues)[number]
 
-export const providerIdValues = ['mock-provider', 'claude', 'openai', 'openai-api', 'gemini-developer-api', 'gemini-cli'] as const
+export const providerIdValues = ['mock-provider', 'claude', 'openai', 'openai-api', 'gemini-developer-api', 'gemini-cli', 'openrouter', 'deepseek', 'qwen', 'mistral'] as const
 export type ProviderId = (typeof providerIdValues)[number]
 
 export const providerSupportLevelValues = ['certified', 'experimental', 'unsupported'] as const

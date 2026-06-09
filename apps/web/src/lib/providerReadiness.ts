@@ -29,6 +29,10 @@ export type ProviderReadinessEnv = {
   GOOGLE_APPLICATION_CREDENTIALS?: string
   OWLFOLIO_GOOGLE_SERVICE_ACCOUNT_PATH?: string
   GOOGLE_CLOUD_PROJECT?: string
+  OPENROUTER_API_KEY?: string
+  DEEPSEEK_API_KEY?: string
+  DASHSCOPE_API_KEY?: string
+  MISTRAL_API_KEY?: string
 }
 export type ProviderOption = {
   provider_id: ProviderId
@@ -114,6 +118,22 @@ export async function getProviderReadiness(providerId: ProviderId, env: Provider
 
   if (provider.provider_surface_id === 'gemini-cli') {
     return geminiCliReadiness(provider, env)
+  }
+
+  if (provider.provider_surface_id === 'openrouter-api') {
+    return apiKeyCandidateReadiness(provider, env.OPENROUTER_API_KEY, 'OPENROUTER_API_KEY')
+  }
+
+  if (provider.provider_surface_id === 'deepseek-api') {
+    return apiKeyCandidateReadiness(provider, env.DEEPSEEK_API_KEY, 'DEEPSEEK_API_KEY')
+  }
+
+  if (provider.provider_surface_id === 'qwen-dashscope-api') {
+    return apiKeyCandidateReadiness(provider, env.DASHSCOPE_API_KEY, 'DASHSCOPE_API_KEY')
+  }
+
+  if (provider.provider_surface_id === 'mistral-api') {
+    return apiKeyCandidateReadiness(provider, env.MISTRAL_API_KEY, 'MISTRAL_API_KEY')
   }
 
   if (provider.support_level === 'unsupported') {
@@ -358,6 +378,36 @@ async function geminiDeveloperApiReadiness(provider: ProviderCatalogEntry, env: 
     credentialSourceCategory: 'missing',
     authSource: 'missing',
     statusLabel: 'Missing Gemini Developer API key; Gemini CLI sign-in, Vertex, and service-account credentials are separate surfaces.',
+  })
+}
+
+function apiKeyCandidateReadiness(
+  provider: ProviderCatalogEntry,
+  apiKey: string | undefined,
+  envVarLabel: string,
+): ProviderReadiness {
+  // Curated frontier candidates (OpenRouter meta + DeepSeek/Qwen/Mistral): a present API key is a
+  // credential signal only. The surface stays fail-closed (not runnable) until an adapter and a
+  // target-specific certification report exist. Readiness is never certification.
+  if (apiKey !== undefined && apiKey.length > 0) {
+    return readinessFrom(provider, {
+      isReady: false,
+      authMode: 'api_key',
+      readinessState: 'unsupported_surface',
+      credentialSourceCategory: 'env_var',
+      credentialSourceLabel: envVarLabel,
+      authSource: envVarLabel,
+      statusLabel: `${envVarLabel} detected, but ${provider.label} is an experimental candidate without a live adapter or certification report; provider-backed workflows stay blocked.`,
+    })
+  }
+
+  return readinessFrom(provider, {
+    isReady: false,
+    authMode: 'api_key',
+    readinessState: 'missing_credentials',
+    credentialSourceCategory: 'missing',
+    authSource: 'missing',
+    statusLabel: `Missing ${envVarLabel}; ${provider.label} remains an experimental candidate that is fail-closed until adapter and certification evidence exist.`,
   })
 }
 

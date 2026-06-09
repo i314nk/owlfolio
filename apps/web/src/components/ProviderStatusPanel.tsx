@@ -1,6 +1,6 @@
 import { createElement, type CSSProperties } from 'react'
 
-import type { ProviderStatusRow } from '../lib/providerStatus'
+import type { ProviderInvestmentGrade, ProviderStatusRow } from '../lib/providerStatus'
 import { OwlKpiStat, OwlRingGauge, RouteHeader } from './designSystem'
 
 export type ProviderStatusPanelProps = {
@@ -124,17 +124,86 @@ export function ProviderStatusPanel({ rows }: ProviderStatusPanelProps) {
           ]),
         ),
       ),
-      createElement(
-        'div',
-        { style: cardGridStyle },
-        ...rows.map((row) => {
-          const [primaryStatusRows, secondaryStatusRows] = prioritizeStatusRows(row.status_rows)
+      ...renderProviderGroups(rows),
+    ),
+  )
+}
 
-          return createElement(
-            'article',
-            { key: row.provider_id, style: providerCardStyle(row) },
-            createElement('h2', { style: { fontSize: 'var(--owl-text-lg)', fontWeight: 800, color: 'var(--owl-color-gold-bright)', margin: 0 } }, row.label),
-            createElement('p', { style: subtleTextStyle }, row.description),
+const investmentGradeGroups: Array<{ key: ProviderInvestmentGrade; title: string; description: string }> = [
+  {
+    key: 'suitable',
+    title: 'Investment-grade (certified)',
+    description: 'Candidates whose latest certification report passes the grounded-research gate. Today this is the audited demo slice only; no live research provider is certified yet.',
+  },
+  {
+    key: 'candidate',
+    title: 'Frontier candidates (experimental)',
+    description: 'Curated frontier reasoning/grounding providers that could become investment-grade once a certification report passes. They stay experimental and fail-closed until then.',
+  },
+  {
+    key: 'not-suitable',
+    title: 'Other / unsupported',
+    description: 'Providers not flagged as investment-grade candidates, or otherwise unsupported for research.',
+  },
+]
+
+function investmentGradeOf(row: ProviderStatusRow): ProviderInvestmentGrade {
+  if (row.investment_grade !== undefined) {
+    return row.investment_grade
+  }
+  return row.investment_grade_candidate === true ? 'candidate' : 'not-suitable'
+}
+
+function renderProviderGroups(rows: ProviderStatusRow[]) {
+  return investmentGradeGroups
+    .map((group) => ({ group, groupRows: rows.filter((row) => investmentGradeOf(row) === group.key) }))
+    .filter(({ groupRows }) => groupRows.length > 0)
+    .map(({ group, groupRows }) =>
+      createElement(
+        'section',
+        { key: `group-${group.key}`, 'aria-label': `${group.title} providers`, style: { display: 'grid', gap: '0.75rem' } },
+        createElement('h2', { className: 'owl-section-title', style: { color: 'var(--owl-color-gold-bright)' } }, group.title),
+        createElement('p', { style: subtleTextStyle }, group.description),
+        createElement('div', { style: cardGridStyle }, ...groupRows.map(renderProviderCard)),
+      ),
+    )
+}
+
+function investmentGradeBadge(row: ProviderStatusRow) {
+  const grade = investmentGradeOf(row)
+  const presentation: Record<ProviderInvestmentGrade, { label: string; background: string; border: string; color: string }> = {
+    suitable: { label: '✓ suitable for research', background: 'rgba(16, 185, 129, 0.16)', border: '1px solid rgba(16, 185, 129, 0.4)', color: '#bbf7d0' },
+    candidate: { label: 'candidate — not certified', background: 'rgba(251, 191, 36, 0.16)', border: '1px solid rgba(251, 191, 36, 0.4)', color: '#fde68a' },
+    'not-suitable': { label: 'not suitable for research', background: 'rgba(148, 163, 184, 0.12)', border: '1px solid rgba(148, 163, 184, 0.28)', color: 'var(--owl-color-muted)' },
+  }
+  const { label, ...tone } = presentation[grade]
+
+  return createElement(
+    'span',
+    {
+      'aria-label': `${row.label} investment-grade status`,
+      style: {
+        ...tone,
+        borderRadius: '999px',
+        fontSize: 'var(--owl-text-base)',
+        fontWeight: 800,
+        justifySelf: 'start',
+        padding: '0.2rem 0.7rem',
+      },
+    },
+    `Investment-grade: ${label}`,
+  )
+}
+
+function renderProviderCard(row: ProviderStatusRow) {
+  const [primaryStatusRows, secondaryStatusRows] = prioritizeStatusRows(row.status_rows)
+
+  return createElement(
+    'article',
+    { key: row.provider_id, style: providerCardStyle(row) },
+    createElement('h2', { style: { fontSize: 'var(--owl-text-lg)', fontWeight: 800, color: 'var(--owl-color-gold-bright)', margin: 0 } }, row.label),
+    investmentGradeBadge(row),
+    createElement('p', { style: subtleTextStyle }, row.description),
             createElement(
               'section',
               { style: providerGuardrailStyle(row) },
@@ -179,10 +248,6 @@ export function ProviderStatusPanel({ rows }: ProviderStatusPanelProps) {
               ),
             ),
             createElement('p', { style: { ...subtleTextStyle, fontWeight: 800 } }, `Model role: ${row.model_role}`),
-          )
-        }),
-      ),
-    ),
   )
 }
 

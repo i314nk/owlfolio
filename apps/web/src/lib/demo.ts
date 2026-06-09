@@ -327,6 +327,14 @@ function humanizeProvider(providerId: AppConfig['provider']['provider_id']): str
       return 'Gemini CLI'
     case 'mock-provider':
       return 'Mock provider'
+    case 'openrouter':
+      return 'OpenRouter'
+    case 'deepseek':
+      return 'DeepSeek'
+    case 'qwen':
+      return 'Qwen (DashScope)'
+    case 'mistral':
+      return 'Mistral'
   }
 }
 

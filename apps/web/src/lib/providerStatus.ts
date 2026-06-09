@@ -7,7 +7,7 @@ import {
   type CertificationReport,
   type CertificationTarget,
 } from '@owlfolio/providers'
-import { getProviderCatalog, type ProviderCatalogEntry, type ProviderWorkflowRole } from '@owlfolio/providers'
+import { getProviderCatalog, isInvestmentGradeSuitable, type ProviderCatalogEntry, type ProviderWorkflowRole } from '@owlfolio/providers'
 import type { ProviderId, ProviderSupportLevel } from '@owlfolio/shared'
 
 import { getProviderReadiness, type ProviderReadiness, type ProviderReadinessEnv } from './providerReadiness'
@@ -20,6 +20,8 @@ export type ProviderCertificationReportSummary = Pick<CertificationReport,
 >
 
 export type ProviderStatusTone = 'neutral' | 'success' | 'warning' | 'danger'
+
+export type ProviderInvestmentGrade = 'suitable' | 'candidate' | 'not-suitable'
 
 export type ProviderStatusDetail = {
   label: string
@@ -60,6 +62,8 @@ export type ProviderStatusRow = {
   capabilities: ProviderCatalogEntry['capabilities']
   status_rows: ProviderStatusDetail[]
   last_certification_report: ProviderCertificationReportSummary | undefined
+  investment_grade?: ProviderInvestmentGrade
+  investment_grade_candidate?: boolean
 }
 
 type ProviderStatusEnv = ProviderReadinessEnv & {
@@ -117,6 +121,34 @@ const roleMatrix: Record<ProviderId, { model_role: string; limitations: string[]
       'Must not be treated as scheduled-workflow certified or production-headless.',
     ],
   },
+  openrouter: {
+    model_role: 'Meta-aggregator candidate',
+    limitations: [
+      'OpenRouter routes one API key to many models; per-routed-model certification is still required and no live execution path is enabled yet.',
+      'Fail-closed: experimental candidate with no certification report, so it must not produce certified investment or Shariah outputs.',
+    ],
+  },
+  deepseek: {
+    model_role: 'Frontier reasoning candidate',
+    limitations: [
+      'DeepSeek direct API candidate without an implemented adapter or certification report yet.',
+      'Fail-closed experimental candidate; capability varies per model (e.g. reasoner tool-call limits), so it must not produce certified investment or Shariah outputs.',
+    ],
+  },
+  qwen: {
+    model_role: 'Frontier long-context candidate',
+    limitations: [
+      'Qwen (DashScope) direct API candidate without an implemented adapter or certification report yet; data-region posture is unverified.',
+      'Fail-closed experimental candidate, so it must not produce certified investment or Shariah outputs.',
+    ],
+  },
+  mistral: {
+    model_role: 'Frontier candidate',
+    limitations: [
+      'Mistral direct API candidate without an implemented adapter or certification report yet.',
+      'Fail-closed experimental candidate, so it must not produce certified investment or Shariah outputs.',
+    ],
+  },
 }
 
 export async function getLatestProviderCertificationReports(options: ProviderStatusOptions = {}): Promise<CertificationReport[]> {
@@ -168,6 +200,11 @@ export async function buildProviderStatusRows(options: ProviderStatusOptions = {
     const effectiveSupportLevel = effectiveSupportFrom(provider, latestReport)
     const effectiveReadiness = effectiveReadinessFrom(provider, readiness, latestReport)
     const matrix = roleMatrix[provider.provider_id]
+    const investmentGrade: ProviderInvestmentGrade = isInvestmentGradeSuitable(provider, latestReport)
+      ? 'suitable'
+      : provider.investment_grade_candidate === true
+        ? 'candidate'
+        : 'not-suitable'
 
     return {
       provider_id: provider.provider_id,
@@ -207,6 +244,8 @@ export async function buildProviderStatusRows(options: ProviderStatusOptions = {
         latestReport,
         workflowRole,
       }),
+      investment_grade: investmentGrade,
+      investment_grade_candidate: provider.investment_grade_candidate === true,
       last_certification_report: latestReport === undefined
         ? undefined
         : {

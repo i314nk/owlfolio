@@ -42,6 +42,29 @@ Do not upgrade catalog/docs above this evidence: only the deterministic mock pro
 
 Additional direct API adapters such as `anthropic`, `perplexity`, `openrouter`, `xai`, `deepseek`, `qwen`, or `local-openai-compatible` are candidates, not current certified Owlfolio providers.
 
+## Expanded pluggable catalog (2026-06-09): OpenRouter meta + curated frontier candidates
+
+The catalog now lists a broader, curated set of frontier providers so Owlfolio can route to investment-grade-capable models once they are certified. Breadth is curated, not a free-for-all: only frontier reasoning + grounding-capable providers are added, and every new entry is `experimental`, fail-closed, and hidden from normal onboarding (`visible_in_onboarding: false`).
+
+| Owlfolio provider id | Surface | Default model | Catalog support | Investment-grade candidate | Status |
+|---|---|---|---:|:--:|---|
+| `openrouter` | `openrouter-api` | `openrouter/auto` | `experimental` | yes (frontier) | Meta-aggregator: one OpenAI-compatible API key routes to many models. Adapter is a fail-closed skeleton (`OpenRouterProvider`): readiness detects `OPENROUTER_API_KEY`, but execution throws until a target-specific certification report exists. Per-routed-model certification is required; OpenRouter cannot be certified provider-wide. |
+| `deepseek` | `deepseek-api` | `deepseek-reasoner` | `experimental` | yes (frontier) | Direct API candidate; no adapter/certification yet. Capability varies per model (e.g. `deepseek-reasoner` tool-call limits). |
+| `qwen` | `qwen-dashscope-api` | `qwen-max` | `experimental` | yes (frontier) | Alibaba Qwen via DashScope direct API candidate; no adapter/certification yet, and data-region posture is unverified. |
+| `mistral` | `mistral-api` | `mistral-large-latest` | `experimental` | yes (frontier) | Direct API candidate (OpenAI-compatible); no adapter/certification yet. |
+
+The existing real providers (`claude`, `openai`/Codex CLI, `openai-api`, `gemini-developer-api`, `gemini-cli`) are also flagged as frontier investment-grade candidates. The `mock-provider` is certified for the demo slice but is not an investment-grade candidate for live research.
+
+### Investment-grade suitability rule (certification-bounded)
+
+A `catalog.investment_grade_candidate` flag plus an `isInvestmentGradeSuitable(provider, latestCertification?)` helper derive an honest, certification-bounded suitability signal that the Providers UI badges and the research path consult:
+
+- **`suitable for research`** — returned ONLY when the provider is an investment-grade candidate AND its latest certification report is `run_status: completed`, `support_level: certified`, and the `source-grounded-research-task` scenario passed (harness-verified citations). Today no live research provider meets this; the only `certified` catalog entry is `mock-provider`, which is not a candidate, so no provider is `suitable` in live research.
+- **`candidate — not certified`** — the provider is a flagged frontier candidate but lacks a passing certified report. This is the state of every real provider and every newly-added entry today.
+- **`not suitable for research`** — the provider is not an investment-grade candidate (or is otherwise unsupported).
+
+Readiness is still not certification: a present `OPENROUTER_API_KEY`/`DEEPSEEK_API_KEY`/`DASHSCOPE_API_KEY`/`MISTRAL_API_KEY` is a credential signal only; the surface stays `is_ready: false` / `unsupported_surface` and fail-closed until an adapter and a target-specific certification report exist. The Providers page groups providers into **Investment-grade (certified)**, **Frontier candidates (experimental)**, and **Other / unsupported**, with a per-provider investment-grade badge alongside the certification-bounded effective-support label.
+
 ## Recommended support tiers
 
 | Tier | Providers | Owlfolio role | Certification rule |

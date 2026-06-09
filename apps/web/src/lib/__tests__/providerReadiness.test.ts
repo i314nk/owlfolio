@@ -381,4 +381,42 @@ describe('providerReadiness', () => {
       expect.objectContaining({ label: 'Vertex AI / service account', certification_note: expect.stringContaining('enterprise') }),
     ]))
   })
+
+  it('keeps OpenRouter fail-closed even when OPENROUTER_API_KEY is present', async () => {
+    const withKey = await getProviderReadiness('openrouter', { OPENROUTER_API_KEY: 'test-key' })
+    expect(withKey).toMatchObject({
+      provider_id: 'openrouter',
+      is_ready: false,
+      auth_source: 'OPENROUTER_API_KEY',
+      readiness_state: 'unsupported_surface',
+    })
+    expect(withKey.status_label).toMatch(/without a live adapter or certification report/)
+
+    const withoutKey = await getProviderReadiness('openrouter', {})
+    expect(withoutKey).toMatchObject({
+      provider_id: 'openrouter',
+      is_ready: false,
+      auth_source: 'missing',
+      readiness_state: 'missing_credentials',
+    })
+  })
+
+  it('keeps curated frontier candidates fail-closed with honest credential hints', async () => {
+    const deepseek = await getProviderReadiness('deepseek', { DEEPSEEK_API_KEY: 'test-key' })
+    expect(deepseek).toMatchObject({ provider_id: 'deepseek', is_ready: false, auth_source: 'DEEPSEEK_API_KEY', readiness_state: 'unsupported_surface' })
+
+    const qwen = await getProviderReadiness('qwen', {})
+    expect(qwen).toMatchObject({ provider_id: 'qwen', is_ready: false, auth_source: 'missing', readiness_state: 'missing_credentials' })
+
+    const mistral = await getProviderReadiness('mistral', { MISTRAL_API_KEY: 'test-key' })
+    expect(mistral).toMatchObject({ provider_id: 'mistral', is_ready: false, auth_source: 'MISTRAL_API_KEY' })
+  })
+
+  it('does not surface the new fail-closed candidates in onboarding options', () => {
+    const optionIds = getProviderOptions().map((option) => option.provider_id)
+    expect(optionIds).not.toContain('openrouter')
+    expect(optionIds).not.toContain('deepseek')
+    expect(optionIds).not.toContain('qwen')
+    expect(optionIds).not.toContain('mistral')
+  })
 })

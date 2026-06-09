@@ -5,9 +5,10 @@ import { GeminiDeveloperApiProvider, type GeminiDeveloperApiProviderOptions } fr
 import { MockProvider, type MockProviderOptions } from './mockProvider'
 import { OpenAIAPIProvider, type OpenAIAPIProviderOptions } from './openaiApiProvider'
 import { OpenAICodexCliProvider, type OpenAICodexCliProviderOptions } from './openaiCodexCliProvider'
+import { OpenRouterProvider, type OpenRouterProviderOptions } from './openRouterProvider'
 import type { Provider } from './providerContract'
 
-export type ResolveProviderOptions = ClaudeCliProviderOptions & OpenAICodexCliProviderOptions & OpenAIAPIProviderOptions & GeminiDeveloperApiProviderOptions & {
+export type ResolveProviderOptions = ClaudeCliProviderOptions & OpenAICodexCliProviderOptions & OpenAIAPIProviderOptions & GeminiDeveloperApiProviderOptions & OpenRouterProviderOptions & {
   provider_id: ProviderId
   mockOptions?: MockProviderOptions
 }
@@ -31,6 +32,10 @@ export function resolveProvider(options: ResolveProviderOptions): Provider {
 
   if (options.provider_id === 'gemini-developer-api') {
     return new GeminiDeveloperApiProvider(options)
+  }
+
+  if (options.provider_id === 'openrouter') {
+    return new OpenRouterProvider(options)
   }
 
   throw new Error(`Unsupported provider: ${options.provider_id}`)

@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
 
 import { ClaudeCliProvider } from '../claudeCliProvider'
-import { getProviderCatalog } from '../providerCatalog'
+import type { CertificationReport } from '../certificationContract'
+import { getProviderCatalog, isInvestmentGradeSuitable } from '../providerCatalog'
 import { MockProvider } from '../mockProvider'
 import { GeminiDeveloperApiProvider } from '../geminiDeveloperApiProvider'
 import { OpenAIAPIProvider } from '../openaiApiProvider'
@@ -127,5 +128,72 @@ describe('provider catalog support semantics', () => {
       privacy: { data_policy_source: 'unknown', retention_or_zdr_status: 'not_verified' },
       automation: { headless_supported: false, scheduled_workflow_supported: false, automation_suitability: 'personal_local_interactive' },
     })
+  })
+
+  it('adds an OpenRouter meta-provider and curated frontier candidates as experimental/fail-closed entries', () => {
+    expect(catalogEntry('openrouter')).toMatchObject({
+      provider_id: 'openrouter',
+      provider_surface_id: 'openrouter-api',
+      support_level: 'experimental',
+      visible_in_onboarding: false,
+      investment_grade_candidate: true,
+      model_tier: 'frontier',
+    })
+    expect(catalogEntry('openrouter').description).toContain('per-model certification still required')
+
+    for (const providerId of ['deepseek', 'qwen', 'mistral'] as const) {
+      expect(catalogEntry(providerId)).toMatchObject({
+        support_level: 'experimental',
+        runtime_kind: 'direct_api',
+        investment_grade_candidate: true,
+        model_tier: 'frontier',
+      })
+    }
+
+    // None of the newly added providers are certified in the catalog.
+    expect(getProviderCatalog().filter((entry) => entry.support_level === 'certified').map((entry) => entry.provider_id)).toEqual(['mock-provider'])
+  })
+})
+
+describe('isInvestmentGradeSuitable gate', () => {
+  function completedCertifiedReport(groundedPassed: boolean): Pick<CertificationReport, 'run_status' | 'support_level' | 'cases'> {
+    return {
+      run_status: 'completed',
+      support_level: 'certified',
+      cases: [
+        {
+          scenario_id: 'source-grounded-research-task',
+          title: 'Source grounded research task',
+          required_for_support_level: 'certified',
+          passed: groundedPassed,
+          status: groundedPassed ? 'passed' : 'failed',
+          details: 'test',
+          capability_gates: [],
+        },
+      ],
+    }
+  }
+
+  it('marks a candidate suitable only when a certified report passes the grounded-research scenario', () => {
+    expect(isInvestmentGradeSuitable({ investment_grade_candidate: true }, completedCertifiedReport(true))).toBe(true)
+  })
+
+  it('does not mark an experimental candidate suitable without a certified report', () => {
+    expect(isInvestmentGradeSuitable({ investment_grade_candidate: true }, undefined)).toBe(false)
+    expect(isInvestmentGradeSuitable({ investment_grade_candidate: true }, { run_status: 'completed', support_level: 'experimental', cases: [] })).toBe(false)
+    expect(isInvestmentGradeSuitable({ investment_grade_candidate: true }, completedCertifiedReport(false))).toBe(false)
+  })
+
+  it('does not mark a non-candidate suitable even with a certified grounded report', () => {
+    expect(isInvestmentGradeSuitable({ investment_grade_candidate: false }, completedCertifiedReport(true))).toBe(false)
+    expect(isInvestmentGradeSuitable({}, completedCertifiedReport(true))).toBe(false)
+  })
+
+  it('keeps every newly-added provider non-suitable today (no certified reports exist)', () => {
+    for (const providerId of ['openrouter', 'deepseek', 'qwen', 'mistral'] as const) {
+      const entry = getProviderCatalog().find((candidate) => candidate.provider_id === providerId)
+      expect(entry).toBeDefined()
+      expect(isInvestmentGradeSuitable(entry!, undefined)).toBe(false)
+    }
   })
 })
