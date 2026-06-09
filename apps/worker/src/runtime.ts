@@ -13,6 +13,7 @@ import {
 import { projectScheduledTasks, type ScheduledTaskProjection } from '@owlfolio/ledger/projections/scheduledTaskProjection'
 import { projectWatchlist } from '@owlfolio/ledger/projections/watchlistProjection'
 import { projectPendingResearchRuns, projectPendingDeepDiveRuns } from '@owlfolio/ledger/projections/researchRunQueueProjection'
+import { findLatestResearchCaseForTicker } from '@owlfolio/ledger/projections/researchCaseProjection'
 import {
   getProviderCatalog,
   redactProviderDiagnostic,
@@ -28,8 +29,9 @@ import {
   type ProviderWorkflowRole,
 } from '@owlfolio/providers'
 import { defaultDemoAppConfig, mergeAutomationSettings, type AppConfig, type AutomationSettings } from '@owlfolio/shared'
-import { draftHoldingReview } from '@owlfolio/workflow/holdingReviewWorkflow'
+import { draftHoldingReview, type ThesisHealth } from '@owlfolio/workflow/holdingReviewWorkflow'
 import { resolveCurrentPrice, type PriceSource } from '@owlfolio/workflow/marketData'
+import { selectResearchCaseAction } from '@owlfolio/workflow/researchCasePolicy'
 import { runStrategyResearchSwarm, runResearchDeepDivePhase, type GroundFn } from '@owlfolio/workflow/researchSwarm'
 import { groundProposedSources, groundProposedSourcesDeterministic } from '@owlfolio/workflow/sourceGrounding'
 
@@ -83,6 +85,7 @@ export type RunScheduledTasksOptions = WorkerClock & {
   provider_model_id?: string
   run_id?: (task: ScheduledTaskProjection) => string
   priceSource?: PriceSource
+  automation?: AutomationSettings
 }
 
 export type RunScheduledTasksResult = {
@@ -127,6 +130,9 @@ type ScheduledTaskPayload = {
 
 const WORKER_ACTOR_ID = 'owlfolio-worker'
 const DEFAULT_RETRY_DELAY_MS = 5 * 60 * 1000
+
+/** thesis_health values that indicate the thesis is broken and warrant a full reanalysis */
+const THESIS_BROKEN_HEALTH: ReadonlySet<ThesisHealth> = new Set<ThesisHealth>(['IMPAIRED', 'EXIT_CANDIDATE'])
 const HOLDING_REVIEW_TIMEOUT_MS = 120_000
 const HOLDING_REVIEW_MAX_COST_USD = 0.25
 const HOLDING_REVIEW_APPROVAL_GATE = 'holding_review_requires_user_confirmation'
@@ -792,6 +798,7 @@ async function runHoldingReviewDraftTask(
   const proposalEventIds: string[] = []
   const observations: string[] = []
   const modelId = options.provider_model_id ?? 'mock-buffett-munger-monitor'
+  let escalationEventsAppended = 0
 
   for (const holding of dueHoldings) {
     const draft = await draftHoldingReview(store, options.provider, {
@@ -803,6 +810,27 @@ async function runHoldingReviewDraftTask(
     })
     proposalEventIds.push(draft.event_id)
     observations.push(`${holding.ticker ?? holding.company_id ?? holding.holding_id} holding review draft proposal created; confirmation requires user approval`)
+
+    // Escalation: when thesis is IMPAIRED or EXIT_CANDIDATE, enqueue a new versioned
+    // full swarm reanalysis (draft only — the human still decides).
+    if (THESIS_BROKEN_HEALTH.has(draft.thesis_health)) {
+      const ticker = holding.ticker
+      if (ticker !== undefined && ticker.length > 0) {
+        const escalationResult = await maybeEnqueueEscalationReanalysis(store, {
+          ticker,
+          holding,
+          reviewDraftEventId: draft.event_id,
+          thesisHealth: draft.thesis_health,
+          scheduledTaskRunId: options.scheduled_task_run_id,
+          ...(options.now === undefined ? {} : { now: options.now }),
+          ...(options.automation?.research_engine_enabled === undefined
+            ? {}
+            : { researchEngineEnabled: options.automation.research_engine_enabled }),
+        })
+        observations.push(escalationResult.observation)
+        escalationEventsAppended += escalationResult.eventsAppended
+      }
+    }
   }
 
   return {
@@ -811,7 +839,96 @@ async function runHoldingReviewDraftTask(
     ...(proposalEventIds.length === 0 ? {} : { proposal_event_ids: proposalEventIds }),
     approval_gates: [HOLDING_REVIEW_APPROVAL_GATE],
     human_approval_required: proposalEventIds.length > 0,
-    events_appended: proposalEventIds.length,
+    events_appended: proposalEventIds.length + escalationEventsAppended,
+  }
+}
+
+type EscalationOptions = {
+  ticker: string
+  holding: ReturnType<typeof projectHoldings>[number]
+  reviewDraftEventId: string
+  thesisHealth: ThesisHealth
+  scheduledTaskRunId: string
+  now?: () => string
+  researchEngineEnabled?: boolean
+}
+
+async function maybeEnqueueEscalationReanalysis(
+  store: EventStore<LedgerEventEnvelope<unknown>>,
+  options: EscalationOptions,
+): Promise<{ observation: string; eventsAppended: number }> {
+  const { ticker, thesisHealth, reviewDraftEventId, researchEngineEnabled } = options
+
+  // Master switch: if research engine is explicitly off, record observation but do NOT escalate.
+  if (researchEngineEnabled === false) {
+    return {
+      observation: `${ticker}: thesis ${thesisHealth} detected — auto-reanalysis is off (research_engine_enabled=false); review manually`,
+      eventsAppended: 0,
+    }
+  }
+
+  // Re-read events (include the holding_review_drafted just appended) for dedup.
+  const currentEvents = await store.list()
+
+  // Dedup guard: if there is already an unclaimed research_run_requested for this ticker,
+  // skip enqueuing to avoid stacking duplicate reanalysis requests per review tick.
+  const pendingRuns = projectPendingResearchRuns(currentEvents as LedgerEventEnvelope<Record<string, unknown>>[])
+  const alreadyPending = pendingRuns.some((run) => run.ticker.toUpperCase() === ticker.toUpperCase())
+  if (alreadyPending) {
+    return {
+      observation: `${ticker}: thesis ${thesisHealth} detected — reanalysis already pending; skipping duplicate escalation`,
+      eventsAppended: 0,
+    }
+  }
+
+  // Version the new research case: supersede the latest case if one exists.
+  const latestCase = findLatestResearchCaseForTicker(currentEvents, ticker)
+  const action = selectResearchCaseAction({
+    trigger: 'scheduled_reanalysis',
+    now: new Date(options.now?.() ?? nowIso()),
+    ...(latestCase !== undefined ? { latestCase: { research_case_id: latestCase.research_case_id, created_at: latestCase.updated_at, version: latestCase.version } } : {}),
+  })
+  const version = action === 'create_first' ? 1 : (latestCase?.version ?? 0) + 1
+  const supersedesId = action === 'create_version' ? latestCase?.research_case_id : undefined
+
+  const companyId = options.holding.company_id ?? `company_${ticker.toLowerCase()}`
+  const researchCaseId = `rc_${ticker.toLowerCase()}_escalation_${options.scheduledTaskRunId}`
+  const decisionId = `decision_${ticker.toLowerCase()}_escalation_${options.scheduledTaskRunId}`
+  const requestedAt = options.now?.() ?? nowIso()
+
+  await store.append({
+    event_id: `evt_research_run_requested_${researchCaseId}`,
+    event_type: 'research_run_requested',
+    aggregate_type: 'research_case',
+    aggregate_id: researchCaseId,
+    causation_id: reviewDraftEventId,
+    correlation_id: researchCaseId,
+    actor_type: 'worker',
+    actor_id: WORKER_ACTOR_ID,
+    payload: {
+      research_case_id: researchCaseId,
+      ticker,
+      company_id: companyId,
+      strategy_id: options.holding.strategy_id ?? 'buffett-munger',
+      decision_id: decisionId,
+      version,
+      ...(supersedesId === undefined ? {} : { supersedes_research_case_id: supersedesId }),
+      escalation_trigger: 'thesis_impaired_holding_review',
+      escalation_thesis_health: thesisHealth,
+      escalation_holding_review_event_id: reviewDraftEventId,
+      escalation_holding_id: options.holding.holding_id,
+      requested_by: WORKER_ACTOR_ID,
+    },
+    source_ids: [],
+    created_at: requestedAt,
+    schema_version: 1,
+    idempotency_key: `escalation-reanalysis:${researchCaseId}:v1`,
+  } satisfies LedgerEventEnvelope<Record<string, unknown>>)
+
+  const versionLabel = supersedesId !== undefined ? ` v${version} (supersedes ${supersedesId})` : ` v${version}`
+  return {
+    observation: `${ticker}: thesis ${thesisHealth} — escalated to full reanalysis (${researchCaseId}${versionLabel}); swarm will draft, human decides`,
+    eventsAppended: 1,
   }
 }
 

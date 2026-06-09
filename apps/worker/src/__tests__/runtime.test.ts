@@ -7,6 +7,7 @@ import type { LedgerEventEnvelope } from '@owlfolio/ledger/eventEnvelope'
 import { projectHoldings } from '@owlfolio/ledger/projections/holdingProjection'
 import { projectPurificationLedger } from '@owlfolio/ledger/projections/purificationProjection'
 import { projectScheduledTasks } from '@owlfolio/ledger/projections/scheduledTaskProjection'
+import { projectPendingResearchRuns } from '@owlfolio/ledger/projections/researchRunQueueProjection'
 import { SQLiteEventStore } from '@owlfolio/ledger/sqliteEventStore'
 import type { CertificationReport, Provider } from '@owlfolio/providers'
 import type { ProviderRunRequest, ProviderToolRun } from '@owlfolio/providers/providerContract'
@@ -117,6 +118,34 @@ class SecretLeakingProvider implements Provider {
 
   runWithTools(_request: ProviderRunRequest): Promise<ProviderToolRun> {
     throw new Error('auth failed OPENAI_API_KEY=*** at /tmp/secret/codex/auth.json using Bearer bearer-secret-token Cookie: owl_session=fake-cookie-value session_token=fake-session-token')
+  }
+}
+
+/**
+ * Provider whose structured() always returns thesis_health: 'IMPAIRED' for holding reviews.
+ * All other structured outputs delegate to MockProvider.
+ */
+class ImpairedReviewProvider implements Provider {
+  readonly provider_id = 'mock-provider'
+  readonly capabilities = new MockProvider().capabilities
+
+  private readonly delegate = new MockProvider()
+
+  complete(request: ProviderRunRequest) {
+    return this.delegate.complete(request)
+  }
+
+  async structured<T>(request: ProviderRunRequest, schema: Parameters<Provider['structured']>[1]): Promise<T> {
+    const result = await (this.delegate.structured(request, schema) as Promise<T>)
+    // Detect holding review requests by schema name and override thesis_health.
+    if (request.response_format?.kind === 'json-schema' && request.response_format.schema_name === 'BuffettMungerHoldingReview') {
+      return { ...(result as object), thesis_health: 'IMPAIRED', action_stance: 'REDUCE' } as T
+    }
+    return result
+  }
+
+  runWithTools(request: ProviderRunRequest): Promise<ProviderToolRun> {
+    return this.delegate.runWithTools(request)
   }
 }
 
@@ -1504,5 +1533,180 @@ describe('worker runtime', () => {
     expect(defaultTasks.map((t) => ({ kind: t.task_kind, enabled: t.enabled, cadence: t.cadence }))).toEqual(
       explicitTasks.map((t) => ({ kind: t.task_kind, enabled: t.enabled, cadence: t.cadence })),
     )
+  })
+
+  // --- Escalation: thesis-impaired review → enqueue full reanalysis ---
+
+  it('thesis IMPAIRED + research_engine ON → appends research_run_requested (versioned, supersedes prior, causation linked)', async () => {
+    const store = new InMemoryEventStore<LedgerEventEnvelope<unknown>>()
+    // Seed a prior research case for COST so the escalation creates a versioned superseding run
+    await store.append(ledgerEvent('research_run_requested', 'research_case', 'rc_cost_001', {
+      research_case_id: 'rc_cost_001',
+      ticker: 'COST',
+      company_id: 'company_cost',
+      strategy_id: 'buffett-munger',
+      decision_id: 'decision_cost_001',
+      version: 1,
+      requested_by: 'user_local',
+    }))
+    // Mark the prior case as claimed so projectPendingResearchRuns returns empty
+    await store.append(ledgerEvent('research_run_claimed', 'research_case', 'rc_cost_001', {
+      research_case_id: 'rc_cost_001',
+      run_id: 'run_rc_cost_001',
+      claimed_at: '2026-06-01T08:00:00.000Z',
+      worker_id: 'owlfolio-worker',
+    }, 'worker'))
+    // Mark case as having a quick_screen_drafted so the projection picks up ticker
+    await store.append(ledgerEvent('quick_screen_drafted', 'research_case', 'rc_cost_001', {
+      research_case_id: 'rc_cost_001',
+      ticker: 'COST',
+      company_id: 'company_cost',
+      strategy_id: 'buffett-munger',
+      screening_result: 'deep_dive_candidate',
+      version: 1,
+    }))
+    await appendCostHolding(store)
+    await defineDefaultScheduledTasks(store, { now: () => '2026-06-01T10:00:00.000Z' })
+
+    const result = await runScheduledTasks(store, {
+      as_of: '2026-06-01',
+      dry_run: true,
+      task_kind: 'holding_review_draft',
+      provider: new ImpairedReviewProvider(),
+      provider_readiness: {
+        provider_id: 'mock-provider',
+        is_ready: true,
+        status_label: 'Mock provider certified for scheduled monitoring.',
+        provider_surface_id: 'mock-provider',
+        vendor_id: 'mock',
+        runtime_kind: 'built_in',
+        auth_mode: 'built_in_demo',
+        workflow_role: 'scheduled_monitoring_dry_run',
+      },
+      provider_model_id: 'mock-buffett-munger-monitor',
+      now: () => '2026-06-01T10:00:00.000Z',
+      run_id: () => 'run_holding_review_draft_escalation_001',
+      automation: { ...defaultAutomationSettings(), research_engine_enabled: true },
+    })
+
+    expect(result).toMatchObject({ completed: 1, failed: 0 })
+    const events = await store.list()
+
+    // The holding_review_drafted event must exist
+    const reviewDrafted = events.find((e) => e.event_type === 'holding_review_drafted')
+    expect(reviewDrafted).toBeDefined()
+    expect(reviewDrafted?.payload).toMatchObject({ thesis_health: 'IMPAIRED' })
+
+    // A research_run_requested must have been appended for the escalation
+    const allRequested = events.filter((e) => e.event_type === 'research_run_requested')
+    // The new one (not the seeded rc_cost_001)
+    const escalationRequested = allRequested.find((e) => e.aggregate_id !== 'rc_cost_001')
+    expect(escalationRequested).toBeDefined()
+    expect(escalationRequested?.payload).toMatchObject({
+      ticker: 'COST',
+      version: 2,
+      supersedes_research_case_id: 'rc_cost_001',
+      escalation_trigger: 'thesis_impaired_holding_review',
+      escalation_thesis_health: 'IMPAIRED',
+      escalation_holding_review_event_id: reviewDrafted?.event_id,
+      escalation_holding_id: 'holding_cost_001',
+    })
+    // Causation must link the escalation to the holding_review_drafted event
+    expect(escalationRequested?.causation_id).toBe(reviewDrafted?.event_id)
+    expect(escalationRequested?.actor_type).toBe('worker')
+
+    // The pending queue now holds the new escalation run (no duplicate)
+    const pending = projectPendingResearchRuns(events as LedgerEventEnvelope<Record<string, unknown>>[])
+    expect(pending).toHaveLength(1)
+    expect(pending[0]?.ticker).toBe('COST')
+
+    // The escalation observation must appear in the task completed payload
+    const completed = events.find((e) => e.event_type === 'scheduled_task_run_completed')
+    expect(completed?.payload).toMatchObject({
+      observations: expect.arrayContaining([
+        expect.stringMatching(/COST.*thesis IMPAIRED.*escalated.*reanalysis/i),
+      ]),
+    })
+
+    // Safety: no auto-confirmed actions
+    expect(events).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ event_type: 'holding_review_confirmed', actor_type: 'worker' }),
+      expect.objectContaining({ event_type: 'research_run_claimed', actor_type: 'worker', aggregate_id: escalationRequested?.aggregate_id }),
+    ]))
+  })
+
+  it('thesis HEALTHY → NO research_run_requested enqueued', async () => {
+    const store = new InMemoryEventStore<LedgerEventEnvelope<unknown>>()
+    await appendCostHolding(store)
+    await defineDefaultScheduledTasks(store, { now: () => '2026-06-01T10:00:00.000Z' })
+
+    await runScheduledTasks(store, {
+      as_of: '2026-06-01',
+      dry_run: true,
+      task_kind: 'holding_review_draft',
+      provider: new MockProvider(), // MockProvider always returns HEALTHY
+      provider_readiness: {
+        provider_id: 'mock-provider',
+        is_ready: true,
+        status_label: 'Mock provider certified for scheduled monitoring.',
+        provider_surface_id: 'mock-provider',
+        vendor_id: 'mock',
+        runtime_kind: 'built_in',
+        auth_mode: 'built_in_demo',
+        workflow_role: 'scheduled_monitoring_dry_run',
+      },
+      provider_model_id: 'mock-buffett-munger-monitor',
+      now: () => '2026-06-01T10:00:00.000Z',
+      run_id: () => 'run_holding_review_draft_healthy_001',
+      automation: { ...defaultAutomationSettings(), research_engine_enabled: true },
+    })
+
+    const events = await store.list()
+    const reviewDrafted = events.find((e) => e.event_type === 'holding_review_drafted')
+    expect(reviewDrafted?.payload).toMatchObject({ thesis_health: 'HEALTHY' })
+    // No research_run_requested should have been appended
+    expect(events.filter((e) => e.event_type === 'research_run_requested')).toHaveLength(0)
+    const pending = projectPendingResearchRuns(events as LedgerEventEnvelope<Record<string, unknown>>[])
+    expect(pending).toHaveLength(0)
+  })
+
+  it('thesis IMPAIRED + research_engine_enabled=false → NO escalation, master-switch observation recorded', async () => {
+    const store = new InMemoryEventStore<LedgerEventEnvelope<unknown>>()
+    await appendCostHolding(store)
+    await defineDefaultScheduledTasks(store, { now: () => '2026-06-01T10:00:00.000Z' })
+
+    await runScheduledTasks(store, {
+      as_of: '2026-06-01',
+      dry_run: true,
+      task_kind: 'holding_review_draft',
+      provider: new ImpairedReviewProvider(),
+      provider_readiness: {
+        provider_id: 'mock-provider',
+        is_ready: true,
+        status_label: 'Mock provider certified for scheduled monitoring.',
+        provider_surface_id: 'mock-provider',
+        vendor_id: 'mock',
+        runtime_kind: 'built_in',
+        auth_mode: 'built_in_demo',
+        workflow_role: 'scheduled_monitoring_dry_run',
+      },
+      provider_model_id: 'mock-buffett-munger-monitor',
+      now: () => '2026-06-01T10:00:00.000Z',
+      run_id: () => 'run_holding_review_draft_engine_off_001',
+      automation: { ...defaultAutomationSettings(), research_engine_enabled: false },
+    })
+
+    const events = await store.list()
+    const reviewDrafted = events.find((e) => e.event_type === 'holding_review_drafted')
+    expect(reviewDrafted?.payload).toMatchObject({ thesis_health: 'IMPAIRED' })
+    // No research_run_requested should have been appended
+    expect(events.filter((e) => e.event_type === 'research_run_requested')).toHaveLength(0)
+    // The master-switch observation must appear
+    const completed = events.find((e) => e.event_type === 'scheduled_task_run_completed')
+    expect(completed?.payload).toMatchObject({
+      observations: expect.arrayContaining([
+        expect.stringMatching(/COST.*IMPAIRED.*research_engine_enabled=false/i),
+      ]),
+    })
   })
 })
