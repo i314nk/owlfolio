@@ -11,6 +11,7 @@
     "@owlfolio/providers": "workspace:*",
     "@owlfolio/shared": "workspace:*",
     "@owlfolio/shariah": "workspace:*",
+    "@owlfolio/strategies": "workspace:*",
     "zod": "^4.4.3"
   },
   "exports": {

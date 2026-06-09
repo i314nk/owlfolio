@@ -34,12 +34,17 @@ export const hardGateSchema = z.object({
   description: z.string().min(1),
 })
 
+export const moatClassSchema = z.enum(['narrow', 'moderate', 'wide', 'monopoly'])
+export type MoatClass = z.infer<typeof moatClassSchema>
+
 export const valuationPolicySchema = z.object({
   hurdle_rates: z.object({
-    inevitable: z.number().positive(),
+    narrow: z.number().positive(),
+    moderate: z.number().positive(),
+    wide: z.number().positive(),
     monopoly: z.number().positive(),
-    wide_moat: z.number().positive(),
   }),
+  margin_of_safety: z.number().positive().max(1),
   margin_of_safety_required: z.boolean(),
   valuation_required: z.boolean(),
 })

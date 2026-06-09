@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buffettMungerStrategy } from '../buffettMunger'
+import { buffettMungerStrategy, hurdleRateForMoatClass } from '../buffettMunger'
 import { evaluateGates } from '../evaluateGates'
 
 describe('Buffett-Munger default strategy', () => {
@@ -8,7 +8,15 @@ describe('Buffett-Munger default strategy', () => {
     expect(buffettMungerStrategy.certification_status).toBe('draft')
     expect(buffettMungerStrategy.shariah.required).toBe(true)
     expect(buffettMungerStrategy.research.required_specialists.map((s) => s.id)).toEqual(['moat', 'financials', 'risk', 'management', 'valuation', 'synthesis'])
-    expect(buffettMungerStrategy.valuation.hurdle_rates).toEqual({ inevitable: 0.12, monopoly: 0.13, wide_moat: 0.15 })
+    expect(buffettMungerStrategy.valuation.hurdle_rates).toEqual({ narrow: 0.15, moderate: 0.13, wide: 0.11, monopoly: 0.10 })
+    expect(buffettMungerStrategy.valuation.margin_of_safety).toBe(0.25)
+  })
+
+  it('looks up hurdle rate by moat class', () => {
+    expect(hurdleRateForMoatClass(buffettMungerStrategy, 'narrow')).toBe(0.15)
+    expect(hurdleRateForMoatClass(buffettMungerStrategy, 'moderate')).toBe(0.13)
+    expect(hurdleRateForMoatClass(buffettMungerStrategy, 'wide')).toBe(0.11)
+    expect(hurdleRateForMoatClass(buffettMungerStrategy, 'monopoly')).toBe(0.10)
   })
 
   it('includes required blocking gates', () => {

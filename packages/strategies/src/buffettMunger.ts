@@ -1,4 +1,4 @@
-import { strategyContractSchema, type StrategyContract } from './strategyContract'
+import { strategyContractSchema, type MoatClass, type StrategyContract } from './strategyContract'
 
 const rawBuffettMungerStrategy = {
   id: 'buffett-munger',
@@ -90,10 +90,12 @@ const rawBuffettMungerStrategy = {
   ],
   valuation: {
     hurdle_rates: {
-      inevitable: 0.12,
-      monopoly: 0.13,
-      wide_moat: 0.15,
+      narrow: 0.15,
+      moderate: 0.13,
+      wide: 0.11,
+      monopoly: 0.10,
     },
+    margin_of_safety: 0.25,
     margin_of_safety_required: true,
     valuation_required: true,
   },
@@ -112,3 +114,12 @@ const rawBuffettMungerStrategy = {
 } satisfies StrategyContract
 
 export const buffettMungerStrategy = strategyContractSchema.parse(rawBuffettMungerStrategy)
+
+/**
+ * Look up the hurdle rate for a given moat class from the strategy contract.
+ * The harness (not the model) calls this to deterministically derive hurdle_rate
+ * from the model-supplied moat_class.
+ */
+export function hurdleRateForMoatClass(strategy: StrategyContract, moatClass: MoatClass): number {
+  return strategy.valuation.hurdle_rates[moatClass]
+}

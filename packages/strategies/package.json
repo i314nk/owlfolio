@@ -8,5 +8,11 @@
   },
   "dependencies": {
     "zod": "^4.4.3"
+  },
+  "exports": {
+    ".": "./src/strategyContract.ts",
+    "./buffettMunger": "./src/buffettMunger.ts",
+    "./evaluateGates": "./src/evaluateGates.ts",
+    "./strategyContract": "./src/strategyContract.ts"
   }
 }

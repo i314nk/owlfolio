@@ -15,6 +15,7 @@ import {
 } from './strategyResearchPipeline'
 import { ingestManualSourceBundle } from './sourceLedger'
 import { resolveResearchStrategyRef } from './researchStrategyRef'
+import { buffettMungerStrategy, hurdleRateForMoatClass } from '@owlfolio/strategies/buffettMunger'
 
 export const ProposedSourceSchema = z.object({
   source_id: z.string().min(1),
@@ -163,6 +164,10 @@ const DecisionAgentSchema = z.object({
   synthesis_summary: z.string().min(1),
   risks: z.array(z.string().min(1)).min(1),
   open_questions: z.array(z.string().min(1)).min(1),
+  // Model-supplied valuation judgment fields (harness computes hurdle_rate and buy_price from these)
+  moat_class: z.enum(['narrow', 'moderate', 'wide', 'monopoly']),
+  growth_assumptions: z.string().min(1),
+  fair_value_per_share: z.number().positive(),
   proposed_sources: ProposedSourcesSchema,
 })
 
@@ -535,6 +540,12 @@ export async function runStrategyResearchSwarm(
     idempotency_key: `deep-dive-complete:${command.research_case_id}:v1`,
   })
 
+  // ---- Harness-computed valuation (agent judges moat class + fair value; harness computes hurdle + buy price) ----
+  const moatClass = dec.analysis.moat_class
+  const hurdle_rate = hurdleRateForMoatClass(buffettMungerStrategy, moatClass)
+  const margin_of_safety = buffettMungerStrategy.valuation.margin_of_safety
+  const buy_price_per_share = Math.round(dec.analysis.fair_value_per_share * (1 - margin_of_safety) * 100) / 100
+
   // ---- Emit buffett_munger_analysis_drafted ----
   const analysisEvent: LedgerEventEnvelope<unknown> = {
     event_id: `evt_buffett_munger_analysis_drafted_${command.research_case_id}`,
@@ -563,6 +574,14 @@ export async function runStrategyResearchSwarm(
         valuation_sanity: qs.analysis.valuation_sanity,
         screening_result: qs.analysis.screening_result,
         confidence: qs.analysis.confidence,
+      },
+      valuation: {
+        moat_class: moatClass,
+        hurdle_rate,
+        growth_assumptions: dec.analysis.growth_assumptions,
+        fair_value_per_share: dec.analysis.fair_value_per_share,
+        margin_of_safety,
+        buy_price_per_share,
       },
     },
     source_ids: allVerified,

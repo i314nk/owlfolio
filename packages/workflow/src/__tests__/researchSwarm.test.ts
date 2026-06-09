@@ -120,6 +120,9 @@ function swarmFakeProvider() {
         synthesis_summary: 'All lanes reviewed; watch for better entry',
         risks: ['Valuation risk'],
         open_questions: ['Margin of safety needed'],
+        moat_class: 'wide',
+        growth_assumptions: 'Steady 8% owner earnings growth for 10 years, 3% terminal.',
+        fair_value_per_share: 200,
         proposed_sources: [src('src_dec_1')],
       }
     }),
@@ -186,6 +189,9 @@ function swarmFakeProviderWithLaneIds(lanes: readonly string[]) {
         synthesis_summary: 'All lanes reviewed; watch for better entry',
         risks: ['Valuation risk'],
         open_questions: ['Margin of safety needed'],
+        moat_class: 'wide',
+        growth_assumptions: 'Steady 8% owner earnings growth for 10 years, 3% terminal.',
+        fair_value_per_share: 200,
         proposed_sources: [src('src_dec_partial_1')],
       }
     }),
@@ -354,6 +360,9 @@ describe('runStrategyResearchSwarm', () => {
             synthesis_summary: 'All lanes reviewed; watch for better entry',
             risks: ['Valuation risk'],
             open_questions: ['Margin of safety needed'],
+            moat_class: 'wide',
+            growth_assumptions: 'Steady 8% owner earnings growth for 10 years, 3% terminal.',
+            fair_value_per_share: 200,
             proposed_sources: [src('src_dec_good_1'), src('src_dec_bad_1')],
           }
         }),
@@ -586,5 +595,49 @@ describe('runStrategyResearchSwarm with MockProvider + deterministic grounder', 
     expect(caseProjection?.strategy_compliance).toBeDefined()
     expect(caseProjection?.valuation_status).toBeDefined()
     expect(caseProjection?.shariah_status).toBeDefined()
+  })
+
+  it('projects moat_class, hurdle_rate, and buy_price_per_share from the analysis event', async () => {
+    const sourceLedgerPath = await mkdtemp(join(tmpdir(), 'owlfolio-mock-swarm-valuation-'))
+    const store = new InMemoryEventStore()
+    const provider = new MockProvider()
+
+    await runStrategyResearchSwarm(
+      store,
+      provider,
+      {
+        research_case_id: 'rc_mock_valuation',
+        company_id: 'company_mock',
+        ticker: 'MSFT',
+        strategy_id: 'buffett-munger',
+        actor_id: 'user_local',
+        idempotency_key: 'mock_valuation_k',
+        model_id: 'mock-research-v1',
+        decision_id: 'decision_mock_valuation',
+        source_ledger_path: sourceLedgerPath,
+      },
+      { ground: groundProposedSourcesDeterministic as GroundFn, laneConcurrency: 4 },
+    )
+
+    const events = await store.list()
+    const projections = projectResearchCases(events as Parameters<typeof projectResearchCases>[0])
+    const caseProjection = projections.find((c) => c.research_case_id === 'rc_mock_valuation')
+
+    expect(caseProjection).toBeDefined()
+    // moat_class comes from the model
+    expect(caseProjection?.valuation?.moat_class).toBe('wide')
+    // hurdle_rate is deterministically computed: wide => 0.11
+    expect(caseProjection?.valuation?.hurdle_rate).toBe(0.11)
+    // growth_assumptions is a non-empty string
+    expect(typeof caseProjection?.valuation?.growth_assumptions).toBe('string')
+    expect((caseProjection?.valuation?.growth_assumptions ?? '').length).toBeGreaterThan(0)
+    // fair_value_per_share from mock is 380
+    expect(caseProjection?.valuation?.fair_value_per_share).toBe(380)
+    // margin_of_safety from strategy contract is 0.25
+    expect(caseProjection?.valuation?.margin_of_safety).toBe(0.25)
+    // buy_price_per_share = 380 * (1 - 0.25) = 285
+    expect(caseProjection?.valuation?.buy_price_per_share).toBe(285)
+    // hurdle_rate matches wide moat class
+    expect(caseProjection?.valuation?.hurdle_rate).toBe(0.11)
   })
 })

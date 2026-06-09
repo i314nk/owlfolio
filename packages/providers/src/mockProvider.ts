@@ -144,6 +144,9 @@ function mockSynthesisDecisionForTicker(ticker: string) {
     synthesis_summary: `All mock lanes reviewed; ${companyLabel} is a WATCH candidate pending a wider margin of safety.`,
     risks: [`Valuation compression risk if earnings disappoint.`],
     open_questions: [`Refresh owner-earnings and Shariah ratio evidence after the next quarterly filing.`],
+    moat_class: 'wide' as const,
+    growth_assumptions: `${companyLabel} is assumed to grow normalized owner earnings at 8–10% per year over the next decade, decelerating to 3% in terminal growth, supported by durable pricing power and reinvestment runway.`,
+    fair_value_per_share: 380,
     proposed_sources: mockSourcesForTicker(ticker),
   }
 }

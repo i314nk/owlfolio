@@ -43,6 +43,15 @@ export type ResearchCaseSpecialistFindingProjection = {
   owner_earnings_valuation?: ResearchCaseOwnerEarningsValuationProjection
 }
 
+export type ResearchCaseValuationProjection = {
+  moat_class?: string
+  hurdle_rate?: number
+  growth_assumptions?: string
+  fair_value_per_share?: number
+  margin_of_safety?: number
+  buy_price_per_share?: number
+}
+
 export type ResearchCaseProjection = {
   research_case_id: string
   stage: ResearchCaseStage
@@ -66,6 +75,7 @@ export type ResearchCaseProjection = {
   specialist_lane?: string
   specialist_findings?: ResearchCaseSpecialistFindingProjection[]
   owner_earnings_valuation?: ResearchCaseOwnerEarningsValuationProjection
+  valuation?: ResearchCaseValuationProjection
   synthesis_id?: string
   decision_id?: string
   investment_verdict?: string
@@ -106,6 +116,34 @@ function getStringArray(payload: Record<string, unknown>, key: string): string[]
   }
 
   return [...value]
+}
+
+function getNumber(payload: Record<string, unknown>, key: string): number | undefined {
+  const value = payload[key]
+  return typeof value === 'number' && isFinite(value) ? value : undefined
+}
+
+function getValuation(payload: Record<string, unknown>): ResearchCaseValuationProjection | undefined {
+  const value = payload['valuation']
+  if (!isRecord(value)) {
+    return undefined
+  }
+
+  const projected: ResearchCaseValuationProjection = {}
+  const moat_class = getString(value, 'moat_class')
+  if (moat_class !== undefined) projected.moat_class = moat_class
+  const growth_assumptions = getString(value, 'growth_assumptions')
+  if (growth_assumptions !== undefined) projected.growth_assumptions = growth_assumptions
+  const hurdle_rate = getNumber(value, 'hurdle_rate')
+  if (hurdle_rate !== undefined) projected.hurdle_rate = hurdle_rate
+  const fair_value_per_share = getNumber(value, 'fair_value_per_share')
+  if (fair_value_per_share !== undefined) projected.fair_value_per_share = fair_value_per_share
+  const margin_of_safety = getNumber(value, 'margin_of_safety')
+  if (margin_of_safety !== undefined) projected.margin_of_safety = margin_of_safety
+  const buy_price_per_share = getNumber(value, 'buy_price_per_share')
+  if (buy_price_per_share !== undefined) projected.buy_price_per_share = buy_price_per_share
+
+  return Object.keys(projected).length === 0 ? undefined : projected
 }
 
 function getOwnerEarningsValuation(payload: Record<string, unknown>): ResearchCaseOwnerEarningsValuationProjection | undefined {
@@ -443,6 +481,10 @@ export function projectResearchCases(events: LedgerEventEnvelope<unknown>[]): Re
       applyString(researchCase, 'shariah_status', getString(event.payload, 'shariah_status'))
       applyString(researchCase, 'valuation_status', getString(event.payload, 'valuation_status'))
       applyString(researchCase, 'next_required_action', getString(event.payload, 'next_required_action'))
+      const valuation = getValuation(event.payload)
+      if (valuation !== undefined) {
+        researchCase.valuation = valuation
+      }
       continue
     }
 
