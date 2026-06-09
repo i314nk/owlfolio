@@ -16,11 +16,33 @@ export function assertPublicHttpUrl(rawUrl: string): URL {
   if (url.protocol !== 'http:' && url.protocol !== 'https:') {
     throw new Error(`Source URL protocol not allowed: ${url.protocol}`)
   }
-  const host = url.hostname.toLowerCase()
-  if (host === 'localhost' || host === '::1' || host.endsWith('.localhost')) {
+  // Node.js URL keeps brackets around IPv6 hostnames (e.g. "[::1]"), strip them for matching
+  const rawHost = url.hostname.toLowerCase()
+  const host = rawHost.startsWith('[') && rawHost.endsWith(']')
+    ? rawHost.slice(1, -1)
+    : rawHost
+
+  if (host === 'localhost' || host.endsWith('.localhost')) {
     throw new Error(`Source URL host not allowed (loopback): ${host}`)
   }
   if (PRIVATE_V4.some((re) => re.test(host))) {
+    throw new Error(`Source URL host not allowed (private): ${host}`)
+  }
+  // IPv6: loopback (::1) and unspecified (::)
+  if (host === '::1' || host === '::') {
+    throw new Error(`Source URL host not allowed (loopback): ${host}`)
+  }
+  // IPv6: link-local (fe80::/10)
+  if (host.startsWith('fe80:')) {
+    throw new Error(`Source URL host not allowed (private): ${host}`)
+  }
+  // IPv6: ULA (fc00::/7 — fc and fd prefixes)
+  if (/^f[cd][0-9a-f]{2}:/i.test(host)) {
+    throw new Error(`Source URL host not allowed (private): ${host}`)
+  }
+  // IPv6: IPv4-mapped (::ffff:...) — Node normalises dotted-decimal to hex so we always see hex.
+  // Block all ::ffff: prefixed addresses conservatively (they map to IPv4 space).
+  if (/^::ffff:/i.test(host)) {
     throw new Error(`Source URL host not allowed (private): ${host}`)
   }
   return url
@@ -76,22 +98,41 @@ export async function fetchAndCaptureSource(
   } catch {
     return base
   }
+  const MAX_REDIRECTS = 3
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), timeoutMs)
   try {
-    const response = await fetchImpl(source.url, { signal: controller.signal, redirect: 'follow' })
-    if (!response.ok) {
-      return { ...base, http_status: response.status }
+    let currentUrl = source.url
+    for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
+      // Re-validate on every hop (initial URL already validated above, but re-checking is safe and covers redirect targets)
+      assertPublicHttpUrl(currentUrl)
+      const response = await fetchImpl(currentUrl, { signal: controller.signal, redirect: 'manual' })
+      const isRedirect = response.status === 301 || response.status === 302 || response.status === 303
+        || response.status === 307 || response.status === 308
+      const location = response.headers.get('location')
+      if (isRedirect && location !== null) {
+        if (hop === MAX_REDIRECTS) {
+          // Too many redirects — fail closed
+          return base
+        }
+        currentUrl = new URL(location, currentUrl).toString()
+        continue
+      }
+      if (!response.ok) {
+        return { ...base, http_status: response.status }
+      }
+      const body = await response.text()
+      const hash = createHash('sha256').update(body).digest('hex')
+      return {
+        ...base,
+        availability: 'available',
+        http_status: response.status,
+        content_hash: `sha256:${hash}`,
+        excerpt: body.replace(/\s+/g, ' ').trim().slice(0, maxExcerpt) || source.excerpt,
+      }
     }
-    const body = await response.text()
-    const hash = createHash('sha256').update(body).digest('hex')
-    return {
-      ...base,
-      availability: 'available',
-      http_status: response.status,
-      content_hash: `sha256:${hash}`,
-      excerpt: body.replace(/\s+/g, ' ').trim().slice(0, maxExcerpt) || source.excerpt,
-    }
+    // Exhausted hops without a final response — fail closed
+    return base
   } catch {
     return base
   } finally {

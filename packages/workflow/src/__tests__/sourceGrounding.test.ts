@@ -82,3 +82,90 @@ describe('groundProposedSources', () => {
     expect(result.captured.find((c) => c.source_id === 'b')?.availability).toBe('unavailable')
   })
 })
+
+describe('assertPublicHttpUrl — IPv6 private/mapped forms', () => {
+  it('rejects IPv6 loopback ::1', () => {
+    expect(() => assertPublicHttpUrl('http://[::1]/')).toThrow(/not allowed|private|loopback/i)
+  })
+
+  it('rejects IPv6 ULA fc00::/7 (fc prefix)', () => {
+    expect(() => assertPublicHttpUrl('http://[fc00::1]/')).toThrow(/not allowed|private|loopback/i)
+  })
+
+  it('rejects IPv6 ULA fc00::/7 (fd prefix)', () => {
+    expect(() => assertPublicHttpUrl('http://[fd12:3456::1]/')).toThrow(/not allowed|private|loopback/i)
+  })
+
+  it('rejects IPv6 link-local fe80::/10', () => {
+    expect(() => assertPublicHttpUrl('http://[fe80::1]/')).toThrow(/not allowed|private|loopback/i)
+  })
+
+  it('rejects IPv4-mapped IPv6 ::ffff:127.0.0.1 (loopback)', () => {
+    expect(() => assertPublicHttpUrl('http://[::ffff:127.0.0.1]/')).toThrow(/not allowed|private|loopback/i)
+  })
+
+  it('rejects IPv4-mapped IPv6 ::ffff:169.254.169.254 (link-local metadata)', () => {
+    expect(() => assertPublicHttpUrl('http://[::ffff:169.254.169.254]/')).toThrow(/not allowed|private|loopback/i)
+  })
+
+  it('rejects IPv4-mapped IPv6 hex form conservatively', () => {
+    expect(() => assertPublicHttpUrl('http://[::ffff:7f00:1]/')).toThrow(/not allowed|private|loopback/i)
+  })
+})
+
+describe('fetchAndCaptureSource — redirect handling', () => {
+  it('follows a redirect to a public URL and returns available', async () => {
+    let callCount = 0
+    const fetchImpl = (async (input: string | URL) => {
+      callCount++
+      const u = String(input)
+      if (u === 'https://www.sec.gov/msft-10k') {
+        return new Response(null, {
+          status: 302,
+          headers: { location: 'https://example.com/final' },
+        })
+      }
+      // Second hop: the redirect target
+      return new Response('final body content', { status: 200 })
+    }) as unknown as typeof fetch
+    const out = await fetchAndCaptureSource(proposed(), { fetchImpl })
+    expect(out.availability).toBe('available')
+    expect(out.content_hash).toMatch(/^sha256:[0-9a-f]{64}$/)
+    expect(callCount).toBe(2)
+  })
+
+  it('does NOT follow a redirect to a private URL (fail-closed)', async () => {
+    let privateHostFetched = false
+    const fetchImpl = (async (input: string | URL) => {
+      const u = String(input)
+      if (u.includes('169.254')) {
+        // Should never be reached — guard should throw before fetching
+        privateHostFetched = true
+        return new Response('secret metadata', { status: 200 })
+      }
+      // First fetch: redirect to private address
+      return new Response(null, {
+        status: 302,
+        headers: { location: 'http://169.254.169.254/' },
+      })
+    }) as unknown as typeof fetch
+    const out = await fetchAndCaptureSource(proposed(), { fetchImpl })
+    expect(out.availability).toBe('unavailable')
+    expect(privateHostFetched).toBe(false)
+  })
+
+  it('returns unavailable when redirects exceed the max limit', async () => {
+    let hopCount = 0
+    const fetchImpl = (async () => {
+      hopCount++
+      return new Response(null, {
+        status: 302,
+        headers: { location: 'https://example.com/redirect' },
+      })
+    }) as unknown as typeof fetch
+    const out = await fetchAndCaptureSource(proposed({ url: 'https://example.com/redirect' }), { fetchImpl })
+    expect(out.availability).toBe('unavailable')
+    // Should stop after MAX_REDIRECTS (3) + 1 initial = 4 fetches total
+    expect(hopCount).toBeLessThanOrEqual(4)
+  })
+})
