@@ -13,7 +13,11 @@ export interface MockProviderOptions {
 }
 
 function extractTicker(prompt: string): string {
-  const match = prompt.match(/\b(?:Analyze(?:\s+ticker)?|Review\s+ticker)\s+([A-Z][A-Z0-9.-]{0,9})\b/i)
+  // Match patterns like "for MSFT", "for MSFT (", "ticker MSFT", "Analyze MSFT", "Review ticker MSFT"
+  // Covers both legacy prompts (Analyze/Review ticker) and swarm prompts (specialist agent for MSFT)
+  const match =
+    prompt.match(/\b(?:for\s+ticker|Review\s+ticker|Analyze(?:\s+ticker)?)\s+([A-Z][A-Z0-9.-]{0,5})\b/) ??
+    prompt.match(/\bfor\s+([A-Z][A-Z0-9.-]{0,5})\b/)
   return (match?.[1] ?? 'COST').toUpperCase()
 }
 
@@ -129,6 +133,9 @@ function mockSynthesisDecisionForTicker(ticker: string) {
   const companyLabel = companyLabelForTicker(ticker)
   return {
     investment_verdict: 'WATCH' as const,
+    strategy_compliance: 'CONDITIONAL' as const,
+    valuation_status: 'EXPENSIVE' as const,
+    next_required_action: `Wait for a wider margin of safety and refresh ${ticker} source coverage after the next quarterly filing.`,
     decision_reason: `${companyLabel} is a durable quality compounder but current valuation does not yet provide a sufficient margin of safety.`,
     thesis_summary: `${companyLabel} screens as a wide-moat compounder with aligned management and Shariah-conditional status; watchlist until valuation is attractive.`,
     evidence_summary: `Mock source coverage reviewed primary and secondary references for ${ticker}.`,

@@ -152,6 +152,9 @@ const LaneAgentSchema = z.object({
 
 const DecisionAgentSchema = z.object({
   investment_verdict: z.enum(['BUY', 'WATCH', 'PASS', 'RESEARCH_MORE']),
+  strategy_compliance: z.enum(['COMPLIANT', 'CONDITIONAL', 'NON_COMPLIANT', 'INSUFFICIENT_DATA']),
+  valuation_status: z.enum(['ATTRACTIVE', 'FAIR', 'EXPENSIVE', 'INSUFFICIENT_DATA']),
+  next_required_action: z.string().min(1),
   decision_reason: z.string().min(1),
   thesis_summary: z.string().min(1),
   evidence_summary: z.string().min(1),
@@ -397,6 +400,58 @@ export async function runStrategyResearchSwarm(
     idempotency_key: `deep-dive-complete:${command.research_case_id}:v1`,
   })
 
+  // ---- Emit buffett_munger_analysis_drafted ----
+  // Map qs.analysis.shariah_status (which may be 'PENDING') to the valid analysis set
+  // (COMPLIANT | CONDITIONAL | NON_COMPLIANT | UNKNOWN). PENDING -> CONDITIONAL.
+  const rawShariahStatus = qs.analysis.shariah_status
+  const analysisShariahStatus: 'COMPLIANT' | 'CONDITIONAL' | 'NON_COMPLIANT' | 'UNKNOWN' =
+    rawShariahStatus === 'COMPLIANT' ? 'COMPLIANT'
+    : rawShariahStatus === 'NON_COMPLIANT' ? 'NON_COMPLIANT'
+    : rawShariahStatus === 'CONDITIONAL' ? 'CONDITIONAL'
+    : 'CONDITIONAL' // PENDING maps to CONDITIONAL (data available but not yet resolved)
+
+  const analysisEvent: LedgerEventEnvelope<unknown> = {
+    event_id: `evt_buffett_munger_analysis_drafted_${command.research_case_id}`,
+    event_type: 'buffett_munger_analysis_drafted',
+    aggregate_type: 'research_case',
+    aggregate_id: command.research_case_id,
+    correlation_id: command.research_case_id,
+    causation_id: completed.event_id,
+    actor_type: 'provider',
+    actor_id: provider.provider_id,
+    payload: {
+      research_case_id: command.research_case_id,
+      company_id: command.company_id,
+      ticker: command.ticker,
+      investment_verdict: dec.analysis.investment_verdict,
+      strategy_compliance: dec.analysis.strategy_compliance,
+      shariah_status: analysisShariahStatus,
+      valuation_status: dec.analysis.valuation_status,
+      next_required_action: dec.analysis.next_required_action,
+      thesis_summary: dec.analysis.thesis_summary,
+      evidence_summary: dec.analysis.evidence_summary,
+      valuation_rationale: dec.analysis.valuation_rationale,
+      shariah_rationale: dec.analysis.shariah_rationale,
+      risks: dec.analysis.risks,
+      open_questions: dec.analysis.open_questions,
+      quick_screen: {
+        summary: qs.analysis.summary,
+        business_quality: qs.analysis.business_quality,
+        moat: qs.analysis.moat,
+        management_capital_allocation: qs.analysis.management_capital_allocation,
+        financial_quality: qs.analysis.financial_quality,
+        valuation_sanity: qs.analysis.valuation_sanity,
+        screening_result: qs.analysis.screening_result,
+        confidence: qs.analysis.confidence,
+      },
+    },
+    source_ids: allVerified,
+    created_at: new Date().toISOString(),
+    schema_version: 1,
+    idempotency_key: `analysis:${command.research_case_id}:v1`,
+  }
+  const analysis = await store.append(analysisEvent)
+
   const decision = await draftDecision(store, {
     research_case_id: command.research_case_id,
     decision_id: command.decision_id,
@@ -446,6 +501,7 @@ export async function runStrategyResearchSwarm(
     research_case: researchCase,
     quick_screen: quickScreen,
     deep_dive: { queued, started, findings, synthesis, completed },
+    analysis,
     decision,
   }
 }

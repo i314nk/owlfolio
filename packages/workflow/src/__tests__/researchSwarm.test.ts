@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
 import { InMemoryEventStore } from '@owlfolio/ledger/eventStore'
+import { projectResearchCases } from '@owlfolio/ledger/projections/researchCaseProjection'
 import { MockProvider } from '@owlfolio/providers/mockProvider'
 import { runGroundedAgent, ProposedSourcesSchema, runLaneSwarm, runStrategyResearchSwarm, type GroundFn } from '../researchSwarm'
 import { buffettMungerDeepDiveLanes } from '../strategyResearchPipeline'
@@ -108,6 +109,9 @@ function swarmFakeProvider() {
       // Synthesis + decision (call 8)
       return {
         investment_verdict: 'WATCH',
+        strategy_compliance: 'CONDITIONAL',
+        valuation_status: 'EXPENSIVE',
+        next_required_action: 'Await margin of safety before buying.',
         decision_reason: 'Solid business, needs margin of safety',
         thesis_summary: 'Quality compounder',
         evidence_summary: 'Covered by mock sources',
@@ -171,6 +175,9 @@ function swarmFakeProviderWithLaneIds(lanes: readonly string[]) {
       // Synthesis + decision — source id does not contain any lane name
       return {
         investment_verdict: 'WATCH',
+        strategy_compliance: 'CONDITIONAL',
+        valuation_status: 'EXPENSIVE',
+        next_required_action: 'Await margin of safety before buying.',
         decision_reason: 'Solid business, needs margin of safety',
         thesis_summary: 'Quality compounder',
         evidence_summary: 'Covered by mock sources',
@@ -336,6 +343,9 @@ describe('runStrategyResearchSwarm', () => {
           // Synthesis + decision (call 8)
           return {
             investment_verdict: 'WATCH',
+            strategy_compliance: 'CONDITIONAL',
+            valuation_status: 'EXPENSIVE',
+            next_required_action: 'Await margin of safety before buying.',
             decision_reason: 'Solid business, needs margin of safety',
             thesis_summary: 'Quality compounder',
             evidence_summary: 'Covered by mock sources',
@@ -443,5 +453,42 @@ describe('runStrategyResearchSwarm with MockProvider + deterministic grounder', 
     expect(types).toContain('deep_dive_synthesis_drafted')
     expect(types).toContain('decision_drafted')
     expect(result.decision).toBeDefined()
+  })
+
+  it('emits buffett_munger_analysis_drafted and projection has defined investment_verdict', async () => {
+    const sourceLedgerPath = await mkdtemp(join(tmpdir(), 'owlfolio-mock-swarm-analysis-'))
+    const store = new InMemoryEventStore()
+    const provider = new MockProvider()
+
+    await runStrategyResearchSwarm(
+      store,
+      provider,
+      {
+        research_case_id: 'rc_mock_analysis',
+        company_id: 'company_mock',
+        ticker: 'COST',
+        strategy_id: 'buffett-munger',
+        actor_id: 'user_local',
+        idempotency_key: 'mock_analysis_k',
+        model_id: 'mock-research-v1',
+        decision_id: 'decision_mock_analysis',
+        source_ledger_path: sourceLedgerPath,
+      },
+      { ground: groundProposedSourcesDeterministic as GroundFn, laneConcurrency: 4 },
+    )
+
+    const events = await store.list()
+
+    // buffett_munger_analysis_drafted must be emitted
+    expect(events.some((e) => e.event_type === 'buffett_munger_analysis_drafted')).toBe(true)
+
+    // projection must reflect the analysis fields
+    const projections = projectResearchCases(events as Parameters<typeof projectResearchCases>[0])
+    const caseProjection = projections.find((c) => c.research_case_id === 'rc_mock_analysis')
+    expect(caseProjection).toBeDefined()
+    expect(caseProjection?.investment_verdict).toBeDefined()
+    expect(caseProjection?.strategy_compliance).toBeDefined()
+    expect(caseProjection?.valuation_status).toBeDefined()
+    expect(caseProjection?.shariah_status).toBeDefined()
   })
 })
