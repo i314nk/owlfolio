@@ -1,6 +1,30 @@
 import { createElement, type ReactNode } from 'react'
+import { Fraunces, Hanken_Grotesk, JetBrains_Mono } from 'next/font/google'
 
 import { AppNavigation } from './AppNavigation'
+
+// Self-hosted (no runtime CDN) refined-luxury type system.
+// Display serif for titles/section headings, warm grotesk body, mono for labels/figures.
+const fraunces = Fraunces({
+  subsets: ['latin'],
+  variable: '--font-fraunces',
+  display: 'swap',
+  axes: ['opsz'],
+})
+
+const hanken = Hanken_Grotesk({
+  subsets: ['latin'],
+  variable: '--font-hanken',
+  display: 'swap',
+})
+
+const jetbrains = JetBrains_Mono({
+  subsets: ['latin'],
+  variable: '--font-jetbrains',
+  display: 'swap',
+})
+
+const fontVariableClassName = `${fraunces.variable} ${hanken.variable} ${jetbrains.variable}`
 
 export type AppShellProps = {
   children?: ReactNode
@@ -58,7 +82,7 @@ const shellStatusItems = [
 export function AppShell({ children, isSetupComplete = true }: AppShellProps) {
   return createElement(
     'div',
-    { className: 'owl-app-shell', 'data-owl-shell': 'clean-sidebar' },
+    { className: `owl-app-shell ${fontVariableClassName}`, 'data-owl-shell': 'clean-sidebar' },
     createElement(AppNavigation, { isSetupComplete }),
     createElement(
       'div',

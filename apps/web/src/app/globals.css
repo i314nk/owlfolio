@@ -45,10 +45,16 @@
   --owl-color-status-compliance-border: rgba(94, 234, 212, 0.28);
   --owl-color-source-bg: rgba(8, 13, 10, 0.9);
   --owl-color-source-border: rgba(52, 211, 153, 0.22);
-  --owl-font-sans: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  --owl-font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
-  /* Font rule: --owl-font-mono is ONLY for labels/kickers/eyebrows and numeric figures.
-     --owl-font-sans is used for body text, headings, and page titles. */
+  /* Refined-luxury type system (self-hosted via next/font, wired in AppShell).
+     The next/font .variable classNames are applied on .owl-app-shell, so
+     --font-fraunces / --font-hanken / --font-jetbrains resolve within the shell;
+     the fallbacks below cover any pre-hydration / outside-shell render. */
+  --owl-font-display: var(--font-fraunces), Georgia, "Times New Roman", serif;
+  --owl-font-sans: var(--font-hanken), ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --owl-font-mono: var(--font-jetbrains), "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  /* Font rule: --owl-font-display (Fraunces serif) is for page titles + section headings only;
+     --owl-font-mono is ONLY for labels/kickers/eyebrows and numeric figures;
+     --owl-font-sans (Hanken Grotesk) is body text and dense data. */
   --owl-radius-control: 0.45rem;
   --owl-radius-card: 0.9rem;
   --owl-radius-panel: 1.1rem;
@@ -146,8 +152,11 @@
 /* Clean section heading sitting under a kicker. */
 .owl-section-title {
   color: var(--owl-color-gold-bright);
-  font-size: var(--owl-text-md);
-  font-weight: 800;
+  font-family: var(--owl-font-display);
+  font-optical-sizing: auto;
+  font-size: var(--owl-text-lg);
+  font-weight: 540;
+  letter-spacing: -0.02em;
   margin: 0;
 }
 
@@ -216,6 +225,21 @@ body {
   margin: 0;
   min-height: 100vh;
   text-rendering: geometricPrecision;
+}
+
+/* ── Atmosphere: faint gold khatam / 8-point-star (girih) lattice ───────────
+   Fixed, behind everything, non-interactive. Whisper-subtle (~5% opacity)
+   tiled SVG — atmosphere, not wallpaper. Content sits above via isolation. */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  opacity: 0.05;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160' viewBox='0 0 160 160'%3E%3Cg fill='none' stroke='%23d6b25e' stroke-width='1'%3E%3Cpath d='M80 12 96 48 132 48 110 80 132 112 96 112 80 148 64 112 28 112 50 80 28 48 64 48Z'/%3E%3Cpath d='M80 36 92 60 116 56 104 80 116 104 92 100 80 124 68 100 44 104 56 80 44 56 68 60Z'/%3E%3Cpath d='M0 0 16 36 0 72'/%3E%3Cpath d='M160 0 144 36 160 72'/%3E%3Cpath d='M0 160 16 124 0 88'/%3E%3Cpath d='M160 160 144 124 160 88'/%3E%3C/g%3E%3C/svg%3E");
+  background-repeat: repeat;
+  background-size: 160px 160px;
 }
 
 a {
@@ -303,6 +327,52 @@ a:focus-visible {
 
 .owl-main-region {
   isolation: isolate;
+}
+
+/* ── Restrained page-load reveal ────────────────────────────────────────────
+   A single gentle fade + 8px rise on the top-level route sections, lightly
+   staggered. Reduced-motion users get none (guarded below). No layout shift. */
+@media (prefers-reduced-motion: no-preference) {
+  @keyframes owl-reveal {
+    from {
+      opacity: 0;
+      transform: translateY(8px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  .owl-route-frame > *,
+  .owl-command-container > * {
+    animation: owl-reveal 0.5s ease both;
+  }
+
+  .owl-route-frame > :nth-child(1),
+  .owl-command-container > :nth-child(1) {
+    animation-delay: 0ms;
+  }
+
+  .owl-route-frame > :nth-child(2),
+  .owl-command-container > :nth-child(2) {
+    animation-delay: 60ms;
+  }
+
+  .owl-route-frame > :nth-child(3),
+  .owl-command-container > :nth-child(3) {
+    animation-delay: 120ms;
+  }
+
+  .owl-route-frame > :nth-child(4),
+  .owl-command-container > :nth-child(4) {
+    animation-delay: 180ms;
+  }
+
+  .owl-route-frame > :nth-child(n + 5),
+  .owl-command-container > :nth-child(n + 5) {
+    animation-delay: 240ms;
+  }
 }
 
 .owl-route-frame {
@@ -772,10 +842,12 @@ a:focus-visible {
 
 .owl-command-priority-title {
   color: var(--owl-color-text);
+  font-family: var(--owl-font-display);
+  font-optical-sizing: auto;
   font-size: clamp(1.65rem, 3.6vw, 2.65rem);
-  font-weight: 560;
-  letter-spacing: -0.06em;
-  line-height: 1.02;
+  font-weight: 540;
+  letter-spacing: -0.02em;
+  line-height: 1.06;
   margin: 0;
   max-width: 40rem;
 }
@@ -916,9 +988,11 @@ a:focus-visible {
 
 .owl-card-title {
   color: var(--owl-color-text);
-  font-size: 1.2rem;
-  font-weight: 640;
-  letter-spacing: -0.03em;
+  font-family: var(--owl-font-display);
+  font-optical-sizing: auto;
+  font-size: 1.25rem;
+  font-weight: 540;
+  letter-spacing: -0.02em;
   margin: 0 0 0.75rem;
 }
 
@@ -949,9 +1023,11 @@ a:focus-visible {
 
 .owl-page-title {
   color: var(--owl-color-text);
+  font-family: var(--owl-font-display);
+  font-optical-sizing: auto;
   font-size: var(--owl-text-title);
-  font-weight: var(--owl-weight-title);
-  letter-spacing: -0.04em;
+  font-weight: 540;
+  letter-spacing: -0.02em;
   line-height: var(--owl-leading-tight);
   margin: 0;
 }
@@ -986,9 +1062,11 @@ a:focus-visible {
 
 .owl-empty-state-title {
   color: var(--owl-color-text);
-  font-size: 1.35rem;
-  font-weight: 590;
-  letter-spacing: -0.035em;
+  font-family: var(--owl-font-display);
+  font-optical-sizing: auto;
+  font-size: 1.4rem;
+  font-weight: 540;
+  letter-spacing: -0.02em;
   margin: 0;
 }
 
