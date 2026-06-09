@@ -47,6 +47,7 @@ describe('Owlfolio v2 domain event boundary contracts', () => {
       'research_run_failed',
       'deep_dive_approval_pending',
       'deep_dive_run_requested',
+      'investable_capital_set',
     ])
   })
 
@@ -242,6 +243,7 @@ describe('Owlfolio v2 domain event boundary contracts', () => {
       { projection_owner: 'provider_status', package_owner: '@owlfolio/providers', route_owner: '/providers' },
       { projection_owner: 'audit', package_owner: '@owlfolio/ledger', route_owner: '/audit' },
       { projection_owner: 'worker_status', package_owner: '@owlfolio/ledger', route_owner: '/worker' },
+      { projection_owner: 'portfolio', package_owner: '@owlfolio/ledger', route_owner: '/portfolio' },
     ])
   })
 })

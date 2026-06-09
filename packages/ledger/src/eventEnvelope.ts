@@ -12,6 +12,7 @@ export type AggregateType =
   | 'cash_account'
   | 'provider_run'
   | 'scheduled_task'
+  | 'portfolio'
 
 export type LedgerEventEnvelope<TPayload> = {
   event_id: string

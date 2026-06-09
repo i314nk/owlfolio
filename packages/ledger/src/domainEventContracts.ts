@@ -8,6 +8,7 @@ export type DomainProjectionOwner =
   | 'provider_status'
   | 'audit'
   | 'worker_status'
+  | 'portfolio'
 
 export type DomainEventContract = {
   event_type: DomainEventType
@@ -59,6 +60,7 @@ export const domainEventTypes = [
   'research_run_failed',
   'deep_dive_approval_pending',
   'deep_dive_run_requested',
+  'investable_capital_set',
 ] as const
 
 export type DomainEventType = (typeof domainEventTypes)[number]
@@ -411,6 +413,13 @@ export const domainEventContracts: readonly DomainEventContract[] = [
       'requested_by',
     ],
   },
+  {
+    event_type: 'investable_capital_set',
+    aggregate_type: 'portfolio',
+    actor_type: 'user',
+    projection_owner: 'portfolio',
+    payload_fields: ['amount', 'currency', 'as_of'],
+  },
 ] as const
 
 export const domainProjectionContracts: readonly DomainProjectionContract[] = [
@@ -421,4 +430,5 @@ export const domainProjectionContracts: readonly DomainProjectionContract[] = [
   { projection_owner: 'provider_status', package_owner: '@owlfolio/providers', route_owner: '/providers' },
   { projection_owner: 'audit', package_owner: '@owlfolio/ledger', route_owner: '/audit' },
   { projection_owner: 'worker_status', package_owner: '@owlfolio/ledger', route_owner: '/worker' },
+  { projection_owner: 'portfolio', package_owner: '@owlfolio/ledger', route_owner: '/portfolio' },
 ]

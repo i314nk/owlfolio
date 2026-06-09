@@ -13,6 +13,7 @@
     ".": "./src/strategyContract.ts",
     "./buffettMunger": "./src/buffettMunger.ts",
     "./evaluateGates": "./src/evaluateGates.ts",
-    "./strategyContract": "./src/strategyContract.ts"
+    "./strategyContract": "./src/strategyContract.ts",
+    "./positionSizing": "./src/positionSizing.ts"
   }
 }
