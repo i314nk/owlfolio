@@ -106,6 +106,10 @@ export function ResearchCasePanel({ researchCase, mode = 'demo', marketQuote }: 
     return createGatedDossier(researchCase)
   }
 
+  if (researchCase.stage === 'awaiting_deep_dive_approval') {
+    return createAwaitingDeepDiveDossier(researchCase)
+  }
+
   return createElement(
     'section',
     { style: { display: 'grid', gap: '1rem' } },
@@ -270,6 +274,138 @@ function createGatedDossier(researchCase: AppResearchCase) {
             },
           },
           'Re-run research (new version)',
+        ),
+      ),
+    ),
+    // Still render evidence for audit trail visibility
+    createEvidenceAndAuditDetails(researchCase),
+  )
+}
+
+// ── Awaiting deep-dive approval state ────────────────────────────────────────
+
+function createAwaitingDeepDiveDossier(researchCase: AppResearchCase) {
+  const displayName = researchCase.ticker ?? researchCase.company_id ?? researchCase.research_case_id
+
+  return createElement(
+    'section',
+    { style: { display: 'grid', gap: '1rem' } },
+    createElement(
+      'div',
+      {
+        style: {
+          ...cardStyle,
+          borderLeft: '3px solid #6366f1',
+          background: 'rgba(99, 102, 241, 0.07)',
+        },
+      },
+      // kicker label
+      createElement('p', { style: labelStyle }, 'Research dossier'),
+      createElement(
+        'h1',
+        { style: { fontSize: 'clamp(2rem, 5vw, 2.8rem)', letterSpacing: '-0.02em', lineHeight: 1, margin: '0.1rem 0 0.15rem' } },
+        displayName,
+      ),
+      createElement(
+        'p',
+        { style: { color: 'var(--owl-color-muted)', fontSize: '0.95rem', margin: '0 0 1rem' } },
+        `${researchCase.company_id ?? 'Unknown company'} · awaiting deep-dive approval`,
+      ),
+      // Status row
+      createElement(
+        'div',
+        { style: { alignItems: 'center', display: 'flex', flexWrap: 'wrap', gap: '0.7rem', marginBottom: '0.75rem' } },
+        createElement(
+          'span',
+          {
+            style: {
+              background: 'rgba(99, 102, 241, 0.18)',
+              border: '1px solid rgba(99, 102, 241, 0.5)',
+              borderRadius: '999px',
+              color: '#c7d2fe',
+              fontSize: '0.78rem',
+              fontWeight: 700,
+              padding: '0.28rem 0.7rem',
+            },
+          },
+          'Quick screen passed',
+        ),
+        createElement(
+          'span',
+          {
+            style: {
+              background: 'rgba(148, 163, 184, 0.1)',
+              border: '1px solid var(--owl-color-border)',
+              borderRadius: '999px',
+              color: 'var(--owl-color-muted)',
+              fontSize: '0.78rem',
+              fontWeight: 700,
+              padding: '0.28rem 0.7rem',
+            },
+          },
+          'Deep dive pending approval',
+        ),
+      ),
+      // Verdict summary label
+      createElement('p', { style: labelStyle }, 'Verdict summary'),
+      createElement(
+        'h2',
+        { style: { color: '#c7d2fe', fontSize: '1.15rem', margin: '0 0 0.4rem' } },
+        'Quick screen passed — review and run the deep dive when ready',
+      ),
+      createElement(
+        'p',
+        { style: { color: '#dbe3ef', fontSize: '0.95rem', lineHeight: 1.55, margin: '0 0 1rem' } },
+        'The quick screen found this company worth investigating. No deep-dive swarm has run yet — click "Run deep dive" to start the expensive swarm analysis.',
+      ),
+      // Quick-screen summary if available
+      researchCase.screening_result !== undefined ? createElement(
+        'div',
+        { style: { display: 'grid', gap: '0.5rem', marginBottom: '0.75rem' } },
+        researchCase.moat !== undefined ? createElement(
+          'div',
+          { style: { alignItems: 'center', display: 'flex', gap: '0.6rem', fontSize: '0.9rem', color: 'var(--owl-color-muted)' } },
+          createElement('span', { style: { color: '#34d399', fontWeight: 800 } }, '✓'),
+          createElement('span', null, `Quick screen result: ${researchCase.screening_result ?? 'deep_dive_candidate'}`),
+        ) : null,
+        researchCase.shariah_status !== undefined ? createElement(
+          'div',
+          { style: { alignItems: 'center', display: 'flex', gap: '0.6rem', fontSize: '0.9rem', color: 'var(--owl-color-muted)' } },
+          createElement('span', { style: { color: '#34d399', fontWeight: 800 } }, '✓'),
+          createElement('span', null, `Shariah: ${researchCase.shariah_status}`),
+        ) : null,
+        createElement(
+          'div',
+          { style: { alignItems: 'center', display: 'flex', gap: '0.6rem', fontSize: '0.9rem', color: 'var(--owl-color-quiet)' } },
+          createElement('span', null, '—'),
+          createElement('span', { style: { color: 'var(--owl-color-quiet)' } }, 'Deep-dive swarm (7 lanes) — not yet started'),
+        ),
+      ) : null,
+      // Run deep dive action
+      createElement(
+        'div',
+        { style: { marginTop: '0.5rem' } },
+        createElement(
+          'form',
+          { action: `/api/research/${researchCase.research_case_id}/deep-dive`, method: 'post' },
+          createElement(
+            'button',
+            {
+              type: 'submit',
+              style: {
+                background: '#6366f1',
+                border: 0,
+                borderRadius: '999px',
+                color: '#ffffff',
+                cursor: 'pointer',
+                font: 'inherit',
+                fontSize: '0.95rem',
+                fontWeight: 900,
+                padding: '0.75rem 1.2rem',
+              },
+            },
+            'Run deep dive',
+          ),
         ),
       ),
     ),

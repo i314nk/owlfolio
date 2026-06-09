@@ -3,6 +3,7 @@ import type { LedgerEventEnvelope } from '../eventEnvelope'
 export type ResearchCaseStage =
   | 'discovered'
   | 'quick_screened'
+  | 'awaiting_deep_dive_approval'
   | 'queued_for_deep_dive'
   | 'deep_dive_started'
   | 'specialist_finding_recorded'
@@ -387,6 +388,38 @@ export function projectResearchCases(events: LedgerEventEnvelope<unknown>[]): Re
       applyString(researchCase, 'confidence', getString(event.payload, 'confidence'))
       applyStringArray(researchCase, 'caveats', getStringArray(event.payload, 'caveats'))
       applyString(researchCase, 'next_required_action', getString(event.payload, 'summary'))
+      continue
+    }
+
+    if (event.event_type === 'deep_dive_approval_pending') {
+      const researchCaseId = researchCaseIdFor(event, event.payload)
+      if (researchCaseId === undefined) {
+        continue
+      }
+
+      // Only set stage to awaiting_deep_dive_approval if no queued_for_deep_dive or decision has happened yet.
+      // (If the deep dive was subsequently triggered, the queued_for_deep_dive event supersedes this.)
+      const existing = researchCases.get(researchCaseId)
+      const alreadyProgressed = existing !== undefined && (
+        existing.stage === 'queued_for_deep_dive'
+        || existing.stage === 'deep_dive_started'
+        || existing.stage === 'specialist_finding_recorded'
+        || existing.stage === 'deep_dive_in_progress'
+        || existing.stage === 'deep_dive_synthesis_drafted'
+        || existing.stage === 'deep_dive_completed'
+        || existing.stage === 'deep_dive_complete'
+        || existing.stage === 'analysis_drafted'
+        || existing.stage === 'decision_drafted'
+        || existing.stage === 'decision_pending'
+        || existing.stage === 'watchlist_draft'
+        || existing.stage === 'watchlist'
+        || existing.stage === 'holding'
+        || existing.stage === 'rejected'
+        || existing.stage === 'pass'
+      )
+      if (!alreadyProgressed) {
+        upsertCase(researchCases, researchCaseId, 'awaiting_deep_dive_approval', event.created_at)
+      }
       continue
     }
 

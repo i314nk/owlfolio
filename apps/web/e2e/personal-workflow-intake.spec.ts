@@ -12,7 +12,7 @@ test.beforeEach(async ({ request }) => {
   expect(response.ok()).toBe(true)
 })
 
-test('personal-local mode can create the first research case from the command center', async ({ page }) => {
+test('personal-local mode can create the first research case from the command center', async ({ page, request }) => {
   const browserErrors: string[] = []
   page.on('pageerror', (error) => browserErrors.push(error.message))
   page.on('console', (message) => {
@@ -85,6 +85,13 @@ test('personal-local mode can create the first research case from the command ce
   await expect(page.getByRole('heading', { name: /strategy pipeline cockpit/i })).toBeVisible()
   await page.getByRole('link', { name: /manual ticker intake/i }).click()
   await expect(page).toHaveURL('/research/new')
+
+  // Set quick_screen_approval to 'automatic' so this run completes straight through
+  // (default is 'review' which pauses after quick screen; the e2e needs the full run)
+  const automationResponse = await request.post('/api/settings/automation', {
+    data: { quick_screen_approval: 'automatic' },
+  })
+  expect(automationResponse.ok()).toBe(true)
 
   await page.getByLabel('Ticker').fill('MSFT')
   await page.getByRole('button', { name: /create research case/i }).click()

@@ -12,7 +12,7 @@ import {
 } from '@owlfolio/ledger/projections/purificationProjection'
 import { projectScheduledTasks, type ScheduledTaskProjection } from '@owlfolio/ledger/projections/scheduledTaskProjection'
 import { projectWatchlist } from '@owlfolio/ledger/projections/watchlistProjection'
-import { projectPendingResearchRuns } from '@owlfolio/ledger/projections/researchRunQueueProjection'
+import { projectPendingResearchRuns, projectPendingDeepDiveRuns } from '@owlfolio/ledger/projections/researchRunQueueProjection'
 import {
   getProviderCatalog,
   redactProviderDiagnostic,
@@ -30,7 +30,7 @@ import {
 import { defaultDemoAppConfig, mergeAutomationSettings, type AppConfig, type AutomationSettings } from '@owlfolio/shared'
 import { draftHoldingReview } from '@owlfolio/workflow/holdingReviewWorkflow'
 import { resolveCurrentPrice, type PriceSource } from '@owlfolio/workflow/marketData'
-import { runStrategyResearchSwarm, type GroundFn } from '@owlfolio/workflow/researchSwarm'
+import { runStrategyResearchSwarm, runResearchDeepDivePhase, type GroundFn } from '@owlfolio/workflow/researchSwarm'
 import { groundProposedSources, groundProposedSourcesDeterministic } from '@owlfolio/workflow/sourceGrounding'
 
 export type WorkerRuntimeEnv = {
@@ -1198,6 +1198,76 @@ export async function runProcessResearchQueueTask(
       failed += 1
       summaries.push(`process_research_queue: swarm failed for ${run.ticker} (${run.research_case_id}): ${(error as Error).message.slice(0, 200)}`)
       // Do NOT rethrow — one failed run must not abort the remaining pending runs.
+    }
+  }
+
+  return { processed: pending.length, failed, summaries }
+}
+
+export async function runProcessDeepDiveQueueTask(
+  store: EventStore<LedgerEventEnvelope<unknown>>,
+  options: {
+    provider: Provider
+    source_ledger_path: string
+    ground?: GroundFn
+    now?: () => Date
+  },
+): Promise<{ processed: number; failed: number; summaries: string[] }> {
+  const now = options.now ?? (() => new Date())
+  const events = await store.list()
+  const pending = projectPendingDeepDiveRuns(events as LedgerEventEnvelope<Record<string, unknown>>[])
+  const ground: GroundFn = options.ground ?? (
+    options.provider.provider_id === 'mock-provider'
+      ? groundProposedSourcesDeterministic as unknown as GroundFn
+      : groundProposedSources as unknown as GroundFn
+  )
+  const summaries: string[] = []
+  let failed = 0
+
+  for (const run of pending) {
+    try {
+      await runResearchDeepDivePhase(
+        store,
+        options.provider,
+        {
+          research_case_id: run.research_case_id,
+          company_id: run.company_id ?? `company_${run.ticker.toLowerCase()}`,
+          ticker: run.ticker,
+          strategy_id: run.strategy_id ?? 'buffett-munger',
+          model_id: run.model_id ?? 'mock',
+          decision_id: run.decision_id ?? `decision_${run.research_case_id}`,
+          source_ledger_path: run.source_ledger_path ?? options.source_ledger_path,
+          quick_screen_source_ids: run.quick_screen_source_ids,
+          quick_screen_event_id: run.quick_screen_event_id,
+        },
+        { ground },
+      )
+
+      summaries.push(`process_deep_dive_queue: ran deep-dive swarm for ${run.ticker} (${run.research_case_id}); decision draft created; no investment action taken`)
+    } catch (error) {
+      const failedAt = now().toISOString()
+      await store.append({
+        event_id: `evt_research_run_failed_${run.research_case_id}_deep_dive`,
+        event_type: 'research_run_failed',
+        aggregate_type: 'research_case',
+        aggregate_id: run.research_case_id,
+        causation_id: run.requested_event_id,
+        correlation_id: run.research_case_id,
+        idempotency_key: `research-run-failed:${run.research_case_id}:deep-dive:v1`,
+        actor_type: 'worker',
+        actor_id: WORKER_ACTOR_ID,
+        payload: {
+          research_case_id: run.research_case_id,
+          run_id: `run_${run.research_case_id}_deep_dive`,
+          failed_at: failedAt,
+          error_summary: (error as Error).message.slice(0, 500),
+        },
+        source_ids: [],
+        created_at: failedAt,
+        schema_version: 1,
+      } satisfies LedgerEventEnvelope<Record<string, unknown>>)
+      failed += 1
+      summaries.push(`process_deep_dive_queue: deep-dive swarm failed for ${run.ticker} (${run.research_case_id}): ${(error as Error).message.slice(0, 200)}`)
     }
   }
 

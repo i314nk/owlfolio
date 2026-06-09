@@ -45,6 +45,8 @@ describe('Owlfolio v2 domain event boundary contracts', () => {
       'research_run_requested',
       'research_run_claimed',
       'research_run_failed',
+      'deep_dive_approval_pending',
+      'deep_dive_run_requested',
     ])
   })
 
@@ -227,6 +229,8 @@ describe('Owlfolio v2 domain event boundary contracts', () => {
     expect(domainEventContracts.map((entry) => entry.event_type)).toContain('research_run_requested')
     expect(domainEventContracts.map((entry) => entry.event_type)).toContain('research_run_claimed')
     expect(domainEventContracts.map((entry) => entry.event_type)).toContain('research_run_failed')
+    expect(domainEventContracts.map((entry) => entry.event_type)).toContain('deep_dive_approval_pending')
+    expect(domainEventContracts.map((entry) => entry.event_type)).toContain('deep_dive_run_requested')
   })
 
   it('defines route/page ownership for downstream UI lanes without requiring implementation yet', () => {

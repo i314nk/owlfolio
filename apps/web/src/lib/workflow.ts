@@ -36,8 +36,9 @@ import {
   type SourceLedgerBundle,
 } from '@owlfolio/workflow'
 import { selectResearchCaseAction } from '@owlfolio/workflow/researchCasePolicy'
-import { runStrategyResearchSwarm, type GroundFn } from '@owlfolio/workflow/researchSwarm'
+import { runStrategyResearchSwarm, runResearchDeepDivePhase, type GroundFn } from '@owlfolio/workflow/researchSwarm'
 import { groundProposedSources, groundProposedSourcesDeterministic } from '@owlfolio/workflow/sourceGrounding'
+import { projectPendingDeepDiveRuns } from '@owlfolio/ledger/projections/researchRunQueueProjection'
 
 import type { StatusBadgeTone } from '../components/StatusBadge'
 import { getDemoResearchCaseFromStore, getDemoWatchlistItemsFromStore } from './demo'
@@ -136,6 +137,21 @@ type SpawnWorkerPaths = { ledgerPath: string; sourceLedgerPath: string }
 
 function defaultSpawnWorker({ ledgerPath, sourceLedgerPath }: SpawnWorkerPaths): void {
   const child = spawn('corepack', ['pnpm', '--filter', '@owlfolio/worker', 'dev', '--', '--once', '--task-kind', 'process_research_queue'], {
+    cwd: process.env.OWLFOLIO_PROJECT_DIR ?? process.cwd(),
+    env: {
+      ...process.env,
+      OWLFOLIO_LEDGER_PATH: ledgerPath,
+      OWLFOLIO_SOURCE_LEDGER_PATH: sourceLedgerPath,
+      OWLFOLIO_PROJECT_DIR: process.env.OWLFOLIO_PROJECT_DIR ?? process.cwd(),
+    },
+    detached: true,
+    stdio: 'ignore',
+  })
+  child.unref()
+}
+
+function defaultSpawnDeepDiveWorker({ ledgerPath, sourceLedgerPath }: SpawnWorkerPaths): void {
+  const child = spawn('corepack', ['pnpm', '--filter', '@owlfolio/worker', 'dev', '--', '--once', '--task-kind', 'process_deep_dive_queue'], {
     cwd: process.env.OWLFOLIO_PROJECT_DIR ?? process.cwd(),
     env: {
       ...process.env,
@@ -256,6 +272,7 @@ export async function enqueueResearchRun(
           source_ledger_path: state.config.source_ledger_path,
           version,
           ...(supersedesId === undefined ? {} : { supersedes_research_case_id: supersedesId }),
+          quick_screen_approval: state.config.automation?.quick_screen_approval ?? 'review',
         },
         { ground },
       )
@@ -266,6 +283,98 @@ export async function enqueueResearchRun(
   }
 
   ;(deps.spawn ?? defaultSpawnWorker)({ ledgerPath: state.config.ledger_path, sourceLedgerPath: state.config.source_ledger_path })
+
+  return { research_case_id: researchCaseId }
+}
+
+export async function requestDeepDiveRun(
+  state: OnboardingState,
+  researchCaseId: string,
+  deps: { spawn?: (paths: SpawnWorkerPaths) => void } = {},
+): Promise<{ research_case_id: string }> {
+  if (
+    !state.is_initialized
+    || state.config.mode !== 'personal-local'
+    || state.config.ledger_path === undefined
+    || state.config.source_ledger_path === undefined
+  ) {
+    throw new Error('Personal-local workflow is not initialized')
+  }
+
+  const store = new SQLiteEventStore(state.config.ledger_path)
+  try {
+    const events = await store.list()
+    const researchCase = projectResearchCases(events).find((c) => c.research_case_id === researchCaseId)
+    if (researchCase === undefined) {
+      throw new Error(`Unknown research case: ${researchCaseId}`)
+    }
+    if (researchCase.stage !== 'awaiting_deep_dive_approval') {
+      throw new Error(`Research case ${researchCaseId} is not awaiting deep-dive approval (stage: ${researchCase.stage})`)
+    }
+
+    const ticker = researchCase.ticker ?? researchCaseId
+
+    // Append the deep_dive_run_requested event
+    const requestedEvent = await store.append({
+      event_id: `evt_deep_dive_run_requested_${researchCaseId}`,
+      event_type: 'deep_dive_run_requested',
+      aggregate_type: 'research_case',
+      aggregate_id: researchCaseId,
+      correlation_id: researchCaseId,
+      actor_type: 'user',
+      actor_id: 'user_local',
+      payload: {
+        research_case_id: researchCaseId,
+        ticker,
+        requested_by: 'user_local',
+      },
+      source_ids: [],
+      created_at: new Date().toISOString(),
+      schema_version: 1,
+      idempotency_key: `deep-dive-run-request:${researchCaseId}:v1`,
+    })
+
+    if (process.env.OWLFOLIO_TEST_MODE === 'playwright') {
+      const provider = resolveProvider({ provider_id: state.config.provider.provider_id })
+      const ground: GroundFn = (
+        provider.provider_id === 'mock-provider'
+          ? groundProposedSourcesDeterministic as unknown as GroundFn
+          : groundProposedSources as unknown as GroundFn
+      )
+
+      // Find the pending deep dive run details from the ledger
+      const updatedEvents = await store.list()
+      const pendingRuns = projectPendingDeepDiveRuns(updatedEvents as Parameters<typeof projectPendingDeepDiveRuns>[0])
+      const pendingRun = pendingRuns.find((r) => r.research_case_id === researchCaseId)
+
+      if (pendingRun !== undefined) {
+        await runResearchDeepDivePhase(
+          store,
+          provider,
+          {
+            research_case_id: researchCaseId,
+            company_id: pendingRun.company_id ?? `company_${ticker.toLowerCase()}`,
+            ticker,
+            strategy_id: pendingRun.strategy_id ?? state.config.strategy_id,
+            model_id: pendingRun.model_id ?? resolveModelIdForProvider(state.config),
+            decision_id: pendingRun.decision_id ?? `decision_${researchCaseId}`,
+            source_ledger_path: pendingRun.source_ledger_path ?? state.config.source_ledger_path,
+            quick_screen_source_ids: pendingRun.quick_screen_source_ids,
+            quick_screen_event_id: pendingRun.quick_screen_event_id,
+          },
+          { ground },
+        )
+      }
+
+      return { research_case_id: researchCaseId }
+    }
+
+    void requestedEvent // suppress unused warning in non-test path
+  } finally {
+    store.close()
+  }
+
+  ;(deps.spawn ?? defaultSpawnDeepDiveWorker)({ ledgerPath: state.config.ledger_path, sourceLedgerPath: state.config.source_ledger_path })
 
   return { research_case_id: researchCaseId }
 }
@@ -335,7 +444,7 @@ export async function getAppResearchPipelineFromStore(
             .filter((candidate) => candidate.status === 'queued_for_quick_screen')
             .map(candidateToPipelineItem),
           ...selectedResearchCases
-            .filter((researchCase) => researchCase.stage === 'quick_screened')
+            .filter((researchCase) => researchCase.stage === 'quick_screened' || researchCase.stage === 'awaiting_deep_dive_approval')
             .map(researchCaseToPipelineItem),
         ],
       },
@@ -872,6 +981,8 @@ function nextActionForResearchCase(researchCase: ResearchCaseProjection): string
       return researchCase.screening_result === 'deep_dive_candidate'
         ? 'Send to deep dive queue'
         : 'Review quick screen outcome'
+    case 'awaiting_deep_dive_approval':
+      return 'Review quick screen and click "Run deep dive" to start the swarm'
     case 'queued_for_deep_dive':
       return 'Start deep dive'
     case 'deep_dive_started':

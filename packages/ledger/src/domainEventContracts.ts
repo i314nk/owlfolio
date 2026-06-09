@@ -57,6 +57,8 @@ export const domainEventTypes = [
   'research_run_requested',
   'research_run_claimed',
   'research_run_failed',
+  'deep_dive_approval_pending',
+  'deep_dive_run_requested',
 ] as const
 
 export type DomainEventType = (typeof domainEventTypes)[number]
@@ -380,6 +382,34 @@ export const domainEventContracts: readonly DomainEventContract[] = [
     actor_type: 'worker',
     projection_owner: 'worker_status',
     payload_fields: ['research_case_id', 'run_id', 'failed_at', 'error_summary'],
+  },
+  {
+    event_type: 'deep_dive_approval_pending',
+    aggregate_type: 'research_case',
+    actor_type: 'system',
+    projection_owner: 'worker_status',
+    payload_fields: [
+      'research_case_id',
+      'ticker',
+      'company_id',
+      'quick_screen_source_ids',
+      'quick_screen_event_id',
+      'decision_id',
+      'source_ledger_path',
+      'strategy_id',
+      'model_id',
+    ],
+  },
+  {
+    event_type: 'deep_dive_run_requested',
+    aggregate_type: 'research_case',
+    actor_type: 'user',
+    projection_owner: 'worker_status',
+    payload_fields: [
+      'research_case_id',
+      'ticker',
+      'requested_by',
+    ],
   },
 ] as const
 

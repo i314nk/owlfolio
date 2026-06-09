@@ -189,6 +189,26 @@ export type RunStrategyResearchSwarmCommand = {
   source_ledger_path: string
   version?: number
   supersedes_research_case_id?: string
+  /** Controls deep-dive gating.
+   *  'automatic' (default): quick screen → deep dive → decision in one run.
+   *  'review': quick screen → pause (deep_dive_approval_pending) → return without running deep dive.
+   */
+  quick_screen_approval?: 'automatic' | 'review'
+}
+
+export type RunResearchDeepDivePhaseCommand = {
+  research_case_id: string
+  company_id: string
+  ticker: string
+  strategy_id: string
+  strategy_version?: string
+  model_id: string
+  decision_id: string
+  source_ledger_path: string
+  /** Source ids from the quick screen — used to seed queueDeepDive */
+  quick_screen_source_ids: string[]
+  /** event_id of the quick_screen_drafted event — used as causation_id */
+  quick_screen_event_id: string
 }
 
 // ---------------------------------------------------------------------------
@@ -406,15 +426,114 @@ export async function runStrategyResearchSwarm(
     }
   }
 
-  // ---- Queue and start deep dive (only for deep_dive_candidate) ----
+  // ---- Review gate: if quick_screen_approval === 'review', pause here ----
+  if ((command.quick_screen_approval ?? 'automatic') === 'review') {
+    // Persist quick-screen sources before pausing
+    const capturedSoFar = [...accumulated.values()]
+    if (capturedSoFar.length > 0) {
+      await ingestManualSourceBundle({
+        source_ledger_path: command.source_ledger_path,
+        research_case_id: command.research_case_id,
+        ticker: command.ticker,
+        strategy_id: command.strategy_id,
+        provider_id: provider.provider_id,
+        proposed_by_actor_type: 'provider',
+        proposed_by_actor_id: provider.provider_id,
+        ingested_by_actor_type: 'system',
+        ingested_by_actor_id: 'research_workflow',
+        sources: capturedSoFar.map((c) => ({
+          source_id: c.source_id,
+          kind: 'url' as const,
+          title: c.title,
+          url: c.url,
+          excerpt: c.excerpt,
+          availability: c.availability,
+          ...(c.content_hash === undefined ? {} : { content_hash: c.content_hash }),
+          metadata: {
+            research_case_id: command.research_case_id,
+            ...(c.http_status === undefined ? {} : { http_status: c.http_status }),
+          },
+        })),
+      })
+    }
+
+    const pendingEvent: LedgerEventEnvelope<unknown> = {
+      event_id: `evt_deep_dive_approval_pending_${command.research_case_id}`,
+      event_type: 'deep_dive_approval_pending',
+      aggregate_type: 'research_case',
+      aggregate_id: command.research_case_id,
+      correlation_id: command.research_case_id,
+      causation_id: quickScreen.event_id,
+      actor_type: 'system',
+      actor_id: 'research_workflow',
+      payload: {
+        research_case_id: command.research_case_id,
+        ticker: command.ticker,
+        company_id: command.company_id,
+        quick_screen_source_ids: qs.verified_ids,
+        quick_screen_event_id: quickScreen.event_id,
+        decision_id: command.decision_id,
+        source_ledger_path: command.source_ledger_path,
+        strategy_id: command.strategy_id,
+        model_id: command.model_id,
+      },
+      source_ids: qs.verified_ids,
+      created_at: new Date().toISOString(),
+      schema_version: 1,
+      idempotency_key: `deep-dive-approval-pending:${command.research_case_id}:v1`,
+    }
+    await store.append(pendingEvent)
+
+    return {
+      research_case: researchCase,
+      quick_screen: quickScreen,
+      awaiting_deep_dive_approval: true,
+    }
+  }
+
+  // ---- Automatic mode: run deep dive immediately ----
+  const deepDiveResult = await runResearchDeepDivePhase(store, provider, {
+    research_case_id: command.research_case_id,
+    company_id: command.company_id,
+    ticker: command.ticker,
+    strategy_id: command.strategy_id,
+    ...(command.strategy_version === undefined ? {} : { strategy_version: command.strategy_version }),
+    model_id: command.model_id,
+    decision_id: command.decision_id,
+    source_ledger_path: command.source_ledger_path,
+    quick_screen_source_ids: qs.verified_ids,
+    quick_screen_event_id: quickScreen.event_id,
+  }, { ...deps, accumulated })
+
+  return {
+    research_case: researchCase,
+    quick_screen: quickScreen,
+    ...deepDiveResult,
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Deep-dive phase (extracted so it can be called independently)
+// ---------------------------------------------------------------------------
+
+export async function runResearchDeepDivePhase(
+  store: SwarmStore,
+  provider: Provider,
+  command: RunResearchDeepDivePhaseCommand,
+  deps: { ground?: GroundFn; grounding?: GroundingDeps; laneConcurrency?: number; accumulated?: Map<string, CapturedSource> } = {},
+) {
+  const strategyRef = resolveResearchStrategyRef(command)
+  const accumulated = deps.accumulated ?? new Map<string, CapturedSource>()
+  const remember = (captured: CapturedSource[]) => captured.forEach((c) => accumulated.set(c.source_id, c))
+
   const lanes = buffettMungerDeepDiveLanes
 
   const queued = await queueDeepDive(store, {
     research_case_id: command.research_case_id,
     queue_id: `queue_${swarmSeg(command.research_case_id)}`,
     ...strategyRef,
-    source_ids: qs.verified_ids,
-    causation_id: quickScreen.event_id,
+    source_ids: command.quick_screen_source_ids,
+    causation_id: command.quick_screen_event_id,
     actor_id: 'research_workflow',
     idempotency_key: `deep-dive-queue:${command.research_case_id}:v1`,
   })
@@ -424,7 +543,7 @@ export async function runStrategyResearchSwarm(
     deep_dive_id: `deep_${swarmSeg(command.research_case_id)}`,
     ...strategyRef,
     specialist_lanes: lanes,
-    source_ids: qs.verified_ids,
+    source_ids: command.quick_screen_source_ids,
     causation_id: queued.event_id,
     actor_id: 'research_workflow',
     idempotency_key: `deep-dive-start:${command.research_case_id}:v1`,
@@ -497,7 +616,7 @@ export async function runStrategyResearchSwarm(
 
   const allVerified = [
     ...new Set([
-      ...qs.verified_ids,
+      ...command.quick_screen_source_ids,
       ...findings.flatMap((f) => f.source_ids),
       ...dec.verified_ids,
     ]),
@@ -596,19 +715,10 @@ export async function runStrategyResearchSwarm(
       ticker: command.ticker,
       investment_verdict: gatedVerdict,
       strategy_compliance: dec.analysis.strategy_compliance,
-      shariah_status: analysisShariahStatus,
+      shariah_status: undefined, // will be set below
       valuation_status: dec.analysis.valuation_status,
       next_required_action: moat_passes_gate ? dec.analysis.next_required_action : gatedReason,
-      quick_screen: {
-        summary: qs.analysis.summary,
-        business_quality: qs.analysis.business_quality,
-        moat: qs.analysis.moat,
-        management_capital_allocation: qs.analysis.management_capital_allocation,
-        financial_quality: qs.analysis.financial_quality,
-        valuation_sanity: qs.analysis.valuation_sanity,
-        screening_result: qs.analysis.screening_result,
-        confidence: qs.analysis.confidence,
-      },
+      quick_screen: undefined, // populated below
       valuation: {
         moat_class: moatClass,
         moat_passes_gate,
@@ -626,7 +736,37 @@ export async function runStrategyResearchSwarm(
     schema_version: 1,
     idempotency_key: `analysis:${command.research_case_id}:v1`,
   }
-  const analysis = await store.append(analysisEvent)
+
+  // Resolve shariah status from ledger (quick screen event stored there)
+  // We need to recover the quick-screen analysis — re-read from ledger or use an in-memory flag.
+  // Since this function can be called independently, we re-read the quick-screen event.
+  const qsEventFromStore = (await store.list()).find(
+    (e) => e.event_id === command.quick_screen_event_id,
+  )
+  const qsPayload = qsEventFromStore?.payload as Record<string, unknown> | undefined
+  const rawShariahStatus = qsPayload?.['shariah_status'] as 'COMPLIANT' | 'CONDITIONAL' | 'NON_COMPLIANT' | 'PENDING' | undefined
+  const analysisShariahStatusForPhase: 'COMPLIANT' | 'CONDITIONAL' | 'NON_COMPLIANT' | 'UNKNOWN' =
+    rawShariahStatus === 'COMPLIANT' ? 'COMPLIANT'
+    : rawShariahStatus === 'NON_COMPLIANT' ? 'NON_COMPLIANT'
+    : rawShariahStatus === 'CONDITIONAL' ? 'CONDITIONAL'
+    : 'CONDITIONAL'
+
+  const analysisFinalPayload = {
+    ...(analysisEvent.payload as Record<string, unknown>),
+    shariah_status: analysisShariahStatusForPhase,
+    quick_screen: {
+      summary: String(qsPayload?.['summary'] ?? ''),
+      business_quality: String(qsPayload?.['business_quality'] ?? ''),
+      moat: String(qsPayload?.['moat'] ?? ''),
+      management_capital_allocation: String(qsPayload?.['management_capital_allocation'] ?? ''),
+      financial_quality: String(qsPayload?.['financial_quality'] ?? ''),
+      valuation_sanity: String(qsPayload?.['valuation_sanity'] ?? ''),
+      screening_result: String(qsPayload?.['screening_result'] ?? ''),
+      confidence: String(qsPayload?.['confidence'] ?? ''),
+    },
+  }
+
+  const analysis = await store.append({ ...analysisEvent, payload: analysisFinalPayload })
 
   const decision = await draftDecision(store, {
     research_case_id: command.research_case_id,
@@ -674,8 +814,6 @@ export async function runStrategyResearchSwarm(
   }
 
   return {
-    research_case: researchCase,
-    quick_screen: quickScreen,
     deep_dive: { queued, started, findings, synthesis, completed },
     analysis,
     decision,

@@ -31,6 +31,7 @@ import {
   promoteResearchCaseToWatchlist,
   recordPersonalHoldingValuation,
   rejectPersonalHoldingReviewDraft,
+  requestDeepDiveRun,
   resolveActiveWorkflowMode,
   resolveModelIdForProvider,
 } from '../workflow'
@@ -131,6 +132,10 @@ describe('workflow helpers', () => {
           initialized_at: '2026-05-29T12:00:00.000Z',
           ledger_path: ledgerPath,
           source_ledger_path: sourceLedgerPath,
+          automation: {
+            ...defaultPersonalLocalAppConfig().automation!,
+            quick_screen_approval: 'automatic' as const,
+          },
         },
         is_initialized: true,
       }
@@ -963,6 +968,183 @@ describe('workflow helpers', () => {
 
       const result = await enqueueResearchRun(state, { ticker: 'GOOG' }, { spawn: (_paths) => {} })
       expect(result.research_case_id).toMatch(/^rc_goog_/)
+    } finally {
+      if (previousTestMode === undefined) {
+        delete process.env.OWLFOLIO_TEST_MODE
+      } else {
+        process.env.OWLFOLIO_TEST_MODE = previousTestMode
+      }
+    }
+  })
+
+  it('stops the inline swarm after quick screen when quick_screen_approval is review (awaiting_deep_dive_approval)', async () => {
+    const previousTestMode = process.env.OWLFOLIO_TEST_MODE
+    process.env.OWLFOLIO_TEST_MODE = 'playwright'
+
+    try {
+      const projectDir = await mkdtemp(join(tmpdir(), 'owlfolio-review-gate-'))
+      dirs.push(projectDir)
+
+      const ledgerPath = join(projectDir, 'data', 'personal-ledger.sqlite')
+      const sourceLedgerPath = join(projectDir, 'data', 'source-ledger')
+      await mkdir(sourceLedgerPath, { recursive: true })
+
+      const state = {
+        config: {
+          ...defaultPersonalLocalAppConfig(),
+          provider: {
+            provider_id: 'mock-provider' as const,
+            support_level: 'certified' as const,
+            model_id: 'mock-buffett-munger-demo',
+          },
+          initialized_at: '2026-06-09T12:00:00.000Z',
+          ledger_path: ledgerPath,
+          source_ledger_path: sourceLedgerPath,
+          // 'review' is the default but we set it explicitly to test the gate
+          automation: {
+            ...defaultPersonalLocalAppConfig().automation!,
+            quick_screen_approval: 'review' as const,
+          },
+        },
+        is_initialized: true,
+      }
+
+      const result = await enqueueResearchRun(state, { ticker: 'AMZN' })
+      expect(result.research_case_id).toMatch(/^rc_amzn_/)
+
+      const store = new SQLiteEventStore(ledgerPath)
+      try {
+        const events = await store.list()
+        const eventTypes = events.map((e) => e.event_type)
+
+        // Quick screen ran
+        expect(eventTypes).toContain('research_run_requested')
+        expect(eventTypes).toContain('research_run_claimed')
+
+        // Gate fired — case is now awaiting deep-dive approval
+        expect(eventTypes).toContain('deep_dive_approval_pending')
+
+        // Deep dive did NOT run
+        expect(eventTypes).not.toContain('deep_dive_started')
+        expect(eventTypes).not.toContain('decision_drafted')
+
+        // Stage must be awaiting_deep_dive_approval
+        const { projectResearchCases } = await import('@owlfolio/ledger/projections/researchCaseProjection')
+        const cases = projectResearchCases(events as Parameters<typeof projectResearchCases>[0])
+        const researchCase = cases.find((c) => c.research_case_id === result.research_case_id)
+        expect(researchCase?.stage).toBe('awaiting_deep_dive_approval')
+      } finally {
+        store.close()
+      }
+    } finally {
+      if (previousTestMode === undefined) {
+        delete process.env.OWLFOLIO_TEST_MODE
+      } else {
+        process.env.OWLFOLIO_TEST_MODE = previousTestMode
+      }
+    }
+  })
+
+  it('requestDeepDiveRun in playwright mode runs the deep dive inline and produces a decision', async () => {
+    const previousTestMode = process.env.OWLFOLIO_TEST_MODE
+    process.env.OWLFOLIO_TEST_MODE = 'playwright'
+
+    try {
+      const projectDir = await mkdtemp(join(tmpdir(), 'owlfolio-deep-dive-trigger-'))
+      dirs.push(projectDir)
+
+      const ledgerPath = join(projectDir, 'data', 'personal-ledger.sqlite')
+      const sourceLedgerPath = join(projectDir, 'data', 'source-ledger')
+      await mkdir(sourceLedgerPath, { recursive: true })
+
+      const state = {
+        config: {
+          ...defaultPersonalLocalAppConfig(),
+          provider: {
+            provider_id: 'mock-provider' as const,
+            support_level: 'certified' as const,
+            model_id: 'mock-buffett-munger-demo',
+          },
+          initialized_at: '2026-06-09T12:00:00.000Z',
+          ledger_path: ledgerPath,
+          source_ledger_path: sourceLedgerPath,
+          automation: {
+            ...defaultPersonalLocalAppConfig().automation!,
+            quick_screen_approval: 'review' as const,
+          },
+        },
+        is_initialized: true,
+      }
+
+      // Enqueue with 'review' — stops at awaiting_deep_dive_approval
+      const { research_case_id } = await enqueueResearchRun(state, { ticker: 'TSLA' })
+
+      // Trigger deep dive — must run inline in playwright mode and complete
+      const triggered = await requestDeepDiveRun(state, research_case_id)
+      expect(triggered.research_case_id).toBe(research_case_id)
+
+      const store = new SQLiteEventStore(ledgerPath)
+      try {
+        const events = await store.list()
+        const eventTypes = events.map((e) => e.event_type)
+
+        // Gate fired
+        expect(eventTypes).toContain('deep_dive_approval_pending')
+        // User triggered deep dive
+        expect(eventTypes).toContain('deep_dive_run_requested')
+        // Deep dive completed inline
+        expect(eventTypes).toContain('decision_drafted')
+        expect(eventTypes).toContain('buffett_munger_analysis_drafted')
+      } finally {
+        store.close()
+      }
+    } finally {
+      if (previousTestMode === undefined) {
+        delete process.env.OWLFOLIO_TEST_MODE
+      } else {
+        process.env.OWLFOLIO_TEST_MODE = previousTestMode
+      }
+    }
+  })
+
+  it('requestDeepDiveRun throws when the case is not awaiting_deep_dive_approval', async () => {
+    const previousTestMode = process.env.OWLFOLIO_TEST_MODE
+    process.env.OWLFOLIO_TEST_MODE = 'playwright'
+
+    try {
+      const projectDir = await mkdtemp(join(tmpdir(), 'owlfolio-deep-dive-wrong-stage-'))
+      dirs.push(projectDir)
+
+      const ledgerPath = join(projectDir, 'data', 'personal-ledger.sqlite')
+      const sourceLedgerPath = join(projectDir, 'data', 'source-ledger')
+      await mkdir(sourceLedgerPath, { recursive: true })
+
+      const state = {
+        config: {
+          ...defaultPersonalLocalAppConfig(),
+          provider: {
+            provider_id: 'mock-provider' as const,
+            support_level: 'certified' as const,
+            model_id: 'mock-buffett-munger-demo',
+          },
+          initialized_at: '2026-06-09T12:00:00.000Z',
+          ledger_path: ledgerPath,
+          source_ledger_path: sourceLedgerPath,
+          automation: {
+            ...defaultPersonalLocalAppConfig().automation!,
+            // 'automatic' — the case will already have a decision; not awaiting approval
+            quick_screen_approval: 'automatic' as const,
+          },
+        },
+        is_initialized: true,
+      }
+
+      // Enqueue with 'automatic' — runs straight through to decision
+      const { research_case_id } = await enqueueResearchRun(state, { ticker: 'META' })
+
+      // requestDeepDiveRun must throw — case is not in the awaiting stage
+      await expect(requestDeepDiveRun(state, research_case_id))
+        .rejects.toThrow(/not awaiting deep-dive approval/)
     } finally {
       if (previousTestMode === undefined) {
         delete process.env.OWLFOLIO_TEST_MODE
