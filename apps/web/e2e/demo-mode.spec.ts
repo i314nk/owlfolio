@@ -5,7 +5,7 @@ test.beforeEach(async ({ request }) => {
   expect(response.ok()).toBe(true)
 })
 
-test('research nav in default mode opens the strategy pipeline cockpit with manual intake secondary', async ({ page }) => {
+test('research nav in default mode opens the research library with manual intake', async ({ page }) => {
   await page.goto('/')
 
   await page
@@ -14,21 +14,10 @@ test('research nav in default mode opens the strategy pipeline cockpit with manu
     .click()
 
   await expect(page).toHaveURL('/research')
-  await expect(page.getByRole('heading', { name: /strategy pipeline cockpit/i })).toBeVisible()
-  await expect(page.getByText(/selected strategy: buffett-munger/i)).toBeVisible()
-  for (const sectionName of [
-    'Discovered',
-    'Quick Screen',
-    'Deep Dive Queue',
-    'In Deep Dive',
-    'Synthesis / Decision Pending',
-    'Watchlist',
-    'Rejected / Passed',
-  ]) {
-    await expect(page.getByRole('heading', { name: sectionName })).toBeVisible()
-  }
+  await expect(page.getByRole('heading', { name: /research library/i })).toBeVisible()
+  // The live stage/execution view now lives on the Pipeline page, not here.
+  await expect(page.getByRole('link', { name: /watch live execution on the pipeline/i })).toBeVisible()
   await expect(page.getByRole('link', { name: /manual ticker intake/i })).toBeVisible()
-  await expect(page.getByRole('link', { name: /open learn guide/i })).toBeVisible()
   await expect(page.getByText(/Buffett-Munger certified/i)).toHaveCount(0)
 })
 
