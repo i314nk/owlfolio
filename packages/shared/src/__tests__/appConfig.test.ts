@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 
 import {
+  type AutomationCadenceReanalysis,
+  type AutomationSettings,
   defaultAutomationSettings,
   defaultDemoAppConfig,
   defaultPersonalLocalAppConfig,
@@ -13,12 +15,15 @@ describe('defaultAutomationSettings', () => {
     expect(settings.research_engine_enabled).toBe(true)
     expect(settings.discovery).toEqual({ enabled: false, cadence: 'off' })
     expect(settings.quick_screen_approval).toBe('review')
-    expect(settings.deep_dive_mode).toBe('swarm')
     expect(settings.watchlist_monitoring).toEqual({ enabled: true, cadence: 'daily' })
-    expect(settings.holding_reviews).toEqual({ enabled: true, cadence: 'quarterly' })
-    expect(settings.reanalysis).toEqual({ cadence: 'quarterly' })
+    expect(settings.thesis_review).toEqual({ enabled: true, cadence: 'quarterly' })
+    expect(settings.reanalysis).toEqual({ cadence: 'annual' })
     expect(settings.purification).toEqual({ enabled: true, cadence: 'quarterly' })
-    expect(settings.valuation_refresh).toEqual({ enabled: true, cadence: 'daily' })
+    expect(settings.price_refresh).toEqual({ enabled: true, cadence: 'daily' })
+    // Removed fields must not be present on the default
+    expect((settings as Record<string, unknown>).deep_dive_mode).toBeUndefined()
+    expect((settings as Record<string, unknown>).holding_reviews).toBeUndefined()
+    expect((settings as Record<string, unknown>).valuation_refresh).toBeUndefined()
   })
 })
 
@@ -43,12 +48,50 @@ describe('mergeAutomationSettings', () => {
   it('overrides nested cadence fields when provided', () => {
     const merged = mergeAutomationSettings({
       watchlist_monitoring: { enabled: false, cadence: 'off' },
-      holding_reviews: { enabled: true, cadence: 'monthly' },
+      thesis_review: { enabled: true, cadence: 'monthly' },
     })
     expect(merged.watchlist_monitoring).toEqual({ enabled: false, cadence: 'off' })
-    expect(merged.holding_reviews).toEqual({ enabled: true, cadence: 'monthly' })
+    expect(merged.thesis_review).toEqual({ enabled: true, cadence: 'monthly' })
     // Untouched field stays default
-    expect(merged.valuation_refresh).toEqual({ enabled: true, cadence: 'daily' })
+    expect(merged.price_refresh).toEqual({ enabled: true, cadence: 'daily' })
+  })
+
+  // --- Back-compat tests ---
+
+  it('back-compat: maps legacy holding_reviews to thesis_review when thesis_review absent', () => {
+    const merged = mergeAutomationSettings({ holding_reviews: { enabled: true, cadence: 'monthly' } })
+    expect(merged.thesis_review).toEqual({ enabled: true, cadence: 'monthly' })
+    expect((merged as Record<string, unknown>).holding_reviews).toBeUndefined()
+  })
+
+  it('back-compat: prefers explicit thesis_review over legacy holding_reviews', () => {
+    const merged = mergeAutomationSettings({
+      holding_reviews: { enabled: false, cadence: 'off' },
+      thesis_review: { enabled: true, cadence: 'quarterly' },
+    })
+    expect(merged.thesis_review).toEqual({ enabled: true, cadence: 'quarterly' })
+  })
+
+  it('back-compat: ignores deep_dive_mode field (removed)', () => {
+    const merged = mergeAutomationSettings({ deep_dive_mode: 'single_agent' } as Record<string, unknown>)
+    expect((merged as Record<string, unknown>).deep_dive_mode).toBeUndefined()
+    expect(merged.research_engine_enabled).toBe(true)
+  })
+
+  it('back-compat: clamps auto_skip quick_screen_approval to review', () => {
+    const merged = mergeAutomationSettings({ quick_screen_approval: 'auto_skip' as AutomationSettings['quick_screen_approval'] })
+    expect(merged.quick_screen_approval).toBe('review')
+  })
+
+  it('back-compat: clamps removed reanalysis quarterly cadence to annual', () => {
+    const merged = mergeAutomationSettings({ reanalysis: { cadence: 'quarterly' as AutomationCadenceReanalysis } })
+    expect(merged.reanalysis).toEqual({ cadence: 'annual' })
+  })
+
+  it('back-compat: ignores valuation_refresh field (replaced by price_refresh)', () => {
+    const merged = mergeAutomationSettings({ valuation_refresh: { enabled: true, cadence: 'daily' } } as Record<string, unknown>)
+    expect((merged as Record<string, unknown>).valuation_refresh).toBeUndefined()
+    expect(merged.price_refresh).toEqual({ enabled: true, cadence: 'daily' })
   })
 })
 

@@ -3,10 +3,10 @@ import { NextResponse } from 'next/server'
 import type { AutomationSettings } from '@owlfolio/shared'
 import {
   AutomationCadenceDiscoveryValues,
+  AutomationCadencePriceRefreshValues,
   AutomationCadencePurificationValues,
   AutomationCadenceReanalysisValues,
-  AutomationCadenceReviewsValues,
-  AutomationCadenceValuationValues,
+  AutomationCadenceThesisReviewValues,
   AutomationCadenceWatchlistValues,
   mergeAutomationSettings,
 } from '@owlfolio/shared'
@@ -24,11 +24,7 @@ function isValidPartialAutomation(body: unknown): body is Partial<AutomationSett
     return false
   }
 
-  if ('quick_screen_approval' in b && !(['automatic', 'review', 'auto_skip'] as string[]).includes(b.quick_screen_approval as string)) {
-    return false
-  }
-
-  if ('deep_dive_mode' in b && !(['swarm', 'single_agent'] as string[]).includes(b.deep_dive_mode as string)) {
+  if ('quick_screen_approval' in b && !(['automatic', 'review'] as string[]).includes(b.quick_screen_approval as string)) {
     return false
   }
 
@@ -46,11 +42,11 @@ function isValidPartialAutomation(body: unknown): body is Partial<AutomationSett
     if ('cadence' in w && !(AutomationCadenceWatchlistValues as readonly string[]).includes(w.cadence as string)) return false
   }
 
-  if ('holding_reviews' in b) {
-    const h = b.holding_reviews as Record<string, unknown>
+  if ('thesis_review' in b) {
+    const h = b.thesis_review as Record<string, unknown>
     if (typeof h !== 'object' || h === null) return false
     if ('enabled' in h && typeof h.enabled !== 'boolean') return false
-    if ('cadence' in h && !(AutomationCadenceReviewsValues as readonly string[]).includes(h.cadence as string)) return false
+    if ('cadence' in h && !(AutomationCadenceThesisReviewValues as readonly string[]).includes(h.cadence as string)) return false
   }
 
   if ('reanalysis' in b) {
@@ -66,11 +62,11 @@ function isValidPartialAutomation(body: unknown): body is Partial<AutomationSett
     if ('cadence' in p && !(AutomationCadencePurificationValues as readonly string[]).includes(p.cadence as string)) return false
   }
 
-  if ('valuation_refresh' in b) {
-    const v = b.valuation_refresh as Record<string, unknown>
+  if ('price_refresh' in b) {
+    const v = b.price_refresh as Record<string, unknown>
     if (typeof v !== 'object' || v === null) return false
     if ('enabled' in v && typeof v.enabled !== 'boolean') return false
-    if ('cadence' in v && !(AutomationCadenceValuationValues as readonly string[]).includes(v.cadence as string)) return false
+    if ('cadence' in v && !(AutomationCadencePriceRefreshValues as readonly string[]).includes(v.cadence as string)) return false
   }
 
   return true

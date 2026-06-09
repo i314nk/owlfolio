@@ -73,7 +73,8 @@ describe('POST /api/settings/automation', () => {
     expect(body.automation.research_engine_enabled).toBe(false)
     // Other defaults remain
     expect(body.automation.quick_screen_approval).toBe(defaultAutomationSettings().quick_screen_approval)
-    expect(body.automation.deep_dive_mode).toBe(defaultAutomationSettings().deep_dive_mode)
+    expect(body.automation.thesis_review).toEqual(defaultAutomationSettings().thesis_review)
+    expect((body.automation as Record<string, unknown>).deep_dive_mode).toBeUndefined()
   })
 
   it('merges a nested discovery update', async () => {
@@ -88,16 +89,16 @@ describe('POST /api/settings/automation', () => {
     expect(body.automation.discovery).toEqual({ enabled: true, cadence: 'weekly' })
   })
 
-  it('persists the update so a subsequent GET reflects the change', async () => {
+  it('persists the update so a subsequent GET reflects the new price_refresh setting', async () => {
     await POST(new Request('http://localhost/api/settings/automation', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ deep_dive_mode: 'single_agent' }),
+      body: JSON.stringify({ price_refresh: { enabled: true, cadence: 'weekly' } }),
     }))
 
     const getResponse = await GET()
     const getBody = await getResponse.json()
-    expect(getBody.automation.deep_dive_mode).toBe('single_agent')
+    expect(getBody.automation.price_refresh).toEqual({ enabled: true, cadence: 'weekly' })
   })
 
   it('rejects an invalid quick_screen_approval value with 400', async () => {
@@ -105,6 +106,18 @@ describe('POST /api/settings/automation', () => {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ quick_screen_approval: 'invalid_value' }),
+    }))
+
+    expect(response.status).toBe(400)
+    const body = await response.json()
+    expect(body.error.code).toBe('invalid_automation_update')
+  })
+
+  it('rejects removed auto_skip quick_screen_approval value with 400', async () => {
+    const response = await POST(new Request('http://localhost/api/settings/automation', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ quick_screen_approval: 'auto_skip' }),
     }))
 
     expect(response.status).toBe(400)

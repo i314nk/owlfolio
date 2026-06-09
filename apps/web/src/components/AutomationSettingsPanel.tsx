@@ -4,10 +4,10 @@ import { createElement, type CSSProperties, useCallback, useState } from 'react'
 
 import type {
   AutomationCadenceDiscovery,
+  AutomationCadencePriceRefresh,
   AutomationCadencePurification,
   AutomationCadenceReanalysis,
-  AutomationCadenceReviews,
-  AutomationCadenceValuation,
+  AutomationCadenceThesisReview,
   AutomationCadenceWatchlist,
   AutomationSettings,
 } from '@owlfolio/shared'
@@ -384,26 +384,8 @@ export function AutomationSettingsPanel({ initialAutomation }: AutomationSetting
             options: [
               { value: 'review', label: 'Review before deep dive' },
               { value: 'automatic', label: 'Automatic — queue deep dive immediately' },
-              { value: 'auto_skip', label: 'Auto-skip — skip deep dive' },
             ],
             onChange: (v) => update('quick_screen_approval', v),
-          }),
-        ),
-
-        createElement(
-          ControlRow,
-          {
-            label: 'Deep-dive mode',
-            helper: 'Swarm uses multiple parallel analysis agents; Single-agent uses one sequential pass.',
-          },
-          createElement(ControlSelect<AutomationSettings['deep_dive_mode']>, {
-            label: 'Deep-dive mode',
-            value: pendingSettings.deep_dive_mode,
-            options: [
-              { value: 'swarm', label: 'Swarm (parallel agents)' },
-              { value: 'single_agent', label: 'Single-agent (sequential)' },
-            ],
-            onChange: (v) => update('deep_dive_mode', v),
           }),
         ),
 
@@ -468,39 +450,38 @@ export function AutomationSettingsPanel({ initialAutomation }: AutomationSetting
         createElement(
           ControlRow,
           {
-            label: 'Holding reviews',
-            helper: 'Scheduled re-review of open holdings for sell/hold decisions.',
+            label: 'Thesis-intact review',
+            helper: 'Checks if the thesis still holds; can trigger a full re-deep-dive (escalation coming soon).',
             workerNote: 'Cadence takes effect when the local worker runs.',
           },
           createElement(Toggle, {
-            enabled: pendingSettings.holding_reviews.enabled,
-            onChange: (v) => update('holding_reviews', { ...pendingSettings.holding_reviews, enabled: v }),
+            enabled: pendingSettings.thesis_review.enabled,
+            onChange: (v) => update('thesis_review', { ...pendingSettings.thesis_review, enabled: v }),
           }),
-          createElement(ControlSelect<AutomationCadenceReviews>, {
-            label: 'Holding reviews cadence',
-            value: pendingSettings.holding_reviews.cadence,
+          createElement(ControlSelect<AutomationCadenceThesisReview>, {
+            label: 'Thesis-intact review cadence',
+            value: pendingSettings.thesis_review.cadence,
             options: [
               { value: 'off', label: 'Off' },
               { value: 'monthly', label: 'Monthly' },
               { value: 'quarterly', label: 'Quarterly' },
             ],
-            onChange: (v) => update('holding_reviews', { ...pendingSettings.holding_reviews, cadence: v }),
+            onChange: (v) => update('thesis_review', { ...pendingSettings.thesis_review, cadence: v }),
           }),
         ),
 
         createElement(
           ControlRow,
           {
-            label: 'Reanalysis cadence',
-            helper: 'How often the research engine re-analyses existing watchlist entries.',
+            label: 'Annual full reanalysis',
+            helper: 'Full swarm deep dive on this cadence (or on demand).',
             workerNote: 'Cadence takes effect when the local worker runs.',
           },
           createElement(ControlSelect<AutomationCadenceReanalysis>, {
-            label: 'Reanalysis cadence',
+            label: 'Annual full reanalysis cadence',
             value: pendingSettings.reanalysis.cadence,
             options: [
               { value: 'off', label: 'Off' },
-              { value: 'quarterly', label: 'Quarterly' },
               { value: 'annual', label: 'Annual' },
             ],
             onChange: (v) => update('reanalysis', { cadence: v }),
@@ -510,23 +491,23 @@ export function AutomationSettingsPanel({ initialAutomation }: AutomationSetting
         createElement(
           ControlRow,
           {
-            label: 'Valuation refresh',
-            helper: 'Refresh estimated fair-value calculations for held stocks.',
+            label: 'Market price refresh',
+            helper: 'Frequent market-price poll for buy-zone monitoring of held and watched stocks.',
             workerNote: 'Cadence takes effect when the local worker runs.',
           },
           createElement(Toggle, {
-            enabled: pendingSettings.valuation_refresh.enabled,
-            onChange: (v) => update('valuation_refresh', { ...pendingSettings.valuation_refresh, enabled: v }),
+            enabled: pendingSettings.price_refresh.enabled,
+            onChange: (v) => update('price_refresh', { ...pendingSettings.price_refresh, enabled: v }),
           }),
-          createElement(ControlSelect<AutomationCadenceValuation>, {
-            label: 'Valuation refresh cadence',
-            value: pendingSettings.valuation_refresh.cadence,
+          createElement(ControlSelect<AutomationCadencePriceRefresh>, {
+            label: 'Market price refresh cadence',
+            value: pendingSettings.price_refresh.cadence,
             options: [
               { value: 'off', label: 'Off' },
               { value: 'daily', label: 'Daily' },
               { value: 'weekly', label: 'Weekly' },
             ],
-            onChange: (v) => update('valuation_refresh', { ...pendingSettings.valuation_refresh, cadence: v }),
+            onChange: (v) => update('price_refresh', { ...pendingSettings.price_refresh, cadence: v }),
           }),
         ),
       ),

@@ -1438,11 +1438,11 @@ describe('worker runtime', () => {
     expect(watchlistTask?.enabled).toBe(false)
   })
 
-  it('automation settings: disabling holding_reviews sets holding_review_draft and review_reminder tasks enabled=false', async () => {
+  it('automation settings: disabling thesis_review sets holding_review_draft and review_reminder tasks enabled=false', async () => {
     const store = new InMemoryEventStore<LedgerEventEnvelope<unknown>>()
     const disabledReviews = {
       ...defaultAutomationSettings(),
-      holding_reviews: { enabled: false, cadence: 'off' as const },
+      thesis_review: { enabled: false, cadence: 'off' as const },
     }
     await defineDefaultScheduledTasks(store, {
       now: () => '2026-06-08T08:00:00.000Z',
@@ -1472,11 +1472,11 @@ describe('worker runtime', () => {
     expect(purificationTask?.enabled).toBe(false)
   })
 
-  it('automation settings: changing valuation_refresh cadence to weekly updates the task cadence', async () => {
+  it('automation settings: changing price_refresh cadence to weekly updates the portfolio_valuation_refresh task cadence', async () => {
     const store = new InMemoryEventStore<LedgerEventEnvelope<unknown>>()
     const weeklyCadence = {
       ...defaultAutomationSettings(),
-      valuation_refresh: { enabled: true, cadence: 'weekly' as const },
+      price_refresh: { enabled: true, cadence: 'weekly' as const },
     }
     await defineDefaultScheduledTasks(store, {
       now: () => '2026-06-08T08:00:00.000Z',

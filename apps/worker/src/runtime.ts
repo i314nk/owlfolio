@@ -451,17 +451,20 @@ function cadenceToCron(cadence: CadenceWithOff, dailyCron: string): { enabled: b
 function defaultTaskDefinitions(automation?: AutomationSettings): ScheduledTaskPayload[] {
   const cfg = mergeAutomationSettings(automation)
   const watchlistCron = cadenceToCron(cfg.watchlist_monitoring.cadence, CRON_DAILY_WATCHLIST)
-  const holdingReviewsCron = cadenceToCron(cfg.holding_reviews.cadence, CRON_DAILY_HOLDING_REVIEW)
-  const valuationCron = cadenceToCron(cfg.valuation_refresh.cadence, CRON_DAILY_VALUATION)
+  // thesis_review drives holding_review_draft + review_reminder
+  const thesisReviewCron = cadenceToCron(cfg.thesis_review.cadence, CRON_DAILY_HOLDING_REVIEW)
+  // price_refresh drives portfolio_valuation_refresh (frequent market-price poll)
+  const priceRefreshCron = cadenceToCron(cfg.price_refresh.cadence, CRON_DAILY_VALUATION)
   const purificationCron = cadenceToCron(cfg.purification.cadence, CRON_QUARTERLY)
+  // TODO: annual reanalysis task (follow-up) — cfg.reanalysis drives the annual full-swarm; no worker task yet
 
   return [
     {
       scheduled_task_id: 'task_review_reminders_daily',
       task_kind: 'review_reminder',
-      // review_reminder follows holding_reviews cadence — it's the reminder counterpart
-      cadence: holdingReviewsCron.cadence,
-      enabled: cfg.holding_reviews.enabled && holdingReviewsCron.enabled,
+      // review_reminder follows thesis_review cadence — it's the reminder counterpart
+      cadence: thesisReviewCron.cadence,
+      enabled: cfg.thesis_review.enabled && thesisReviewCron.enabled,
       dry_run: true,
       retry_policy: { max_attempts: 2, retry_delay_ms: DEFAULT_RETRY_DELAY_MS },
       safety: {
@@ -486,8 +489,8 @@ function defaultTaskDefinitions(automation?: AutomationSettings): ScheduledTaskP
     {
       scheduled_task_id: 'task_holding_review_drafts_daily',
       task_kind: 'holding_review_draft',
-      cadence: holdingReviewsCron.cadence,
-      enabled: cfg.holding_reviews.enabled && holdingReviewsCron.enabled,
+      cadence: thesisReviewCron.cadence,
+      enabled: cfg.thesis_review.enabled && thesisReviewCron.enabled,
       dry_run: true,
       retry_policy: { max_attempts: 2, retry_delay_ms: DEFAULT_RETRY_DELAY_MS },
       timeout_ms: HOLDING_REVIEW_TIMEOUT_MS,
@@ -501,8 +504,8 @@ function defaultTaskDefinitions(automation?: AutomationSettings): ScheduledTaskP
     {
       scheduled_task_id: 'task_portfolio_valuation_refresh_daily',
       task_kind: 'portfolio_valuation_refresh',
-      cadence: valuationCron.cadence,
-      enabled: cfg.valuation_refresh.enabled && valuationCron.enabled,
+      cadence: priceRefreshCron.cadence,
+      enabled: cfg.price_refresh.enabled && priceRefreshCron.enabled,
       dry_run: true,
       retry_policy: { max_attempts: 2, retry_delay_ms: DEFAULT_RETRY_DELAY_MS },
       safety: {
