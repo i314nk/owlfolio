@@ -43,54 +43,145 @@ describe('workflow helpers', () => {
     dirs.length = 0
   })
 
-  it('enqueues a research run and appends a research_run_requested event to the durable ledger', async () => {
-    const projectDir = await mkdtemp(join(tmpdir(), 'owlfolio-enqueue-research-'))
-    dirs.push(projectDir)
+  it('enqueues a research run and appends a research_run_requested event to the durable ledger (production spawn path)', async () => {
+    const previousTestMode = process.env.OWLFOLIO_TEST_MODE
+    delete process.env.OWLFOLIO_TEST_MODE
 
-    const ledgerPath = join(projectDir, 'data', 'personal-ledger.sqlite')
-    const sourceLedgerPath = join(projectDir, 'data', 'source-ledger')
-    const state = {
-      config: {
-        ...defaultPersonalLocalAppConfig(),
-        provider: {
-          provider_id: 'mock-provider' as const,
-          support_level: 'certified' as const,
-          model_id: 'mock-buffett-munger-demo',
-        },
-        initialized_at: '2026-05-29T12:00:00.000Z',
-        ledger_path: ledgerPath,
-        source_ledger_path: sourceLedgerPath,
-      },
-      is_initialized: true,
-    }
-
-    const result = await enqueueResearchRun(state, { ticker: 'MSFT', company_id: 'company_msft' }, { spawn: (_paths) => {} })
-
-    expect(result.research_case_id).toMatch(/^rc_msft_/)
-
-    const store = new SQLiteEventStore(ledgerPath)
     try {
-      const events = await store.list()
-      expect(events).toHaveLength(1)
-      expect(events[0]).toMatchObject({
-        event_id: `evt_research_run_requested_${result.research_case_id}`,
-        event_type: 'research_run_requested',
-        aggregate_type: 'research_case',
-        aggregate_id: result.research_case_id,
-        correlation_id: result.research_case_id,
-        actor_type: 'user',
-        actor_id: 'user_local',
-        source_ids: [],
-        schema_version: 1,
-        idempotency_key: `research-run-request:${result.research_case_id}:v1`,
-      })
-      expect(events[0]?.payload).toMatchObject({
-        research_case_id: result.research_case_id,
-        ticker: 'MSFT',
-        requested_by: 'user_local',
-      })
+      const projectDir = await mkdtemp(join(tmpdir(), 'owlfolio-enqueue-research-'))
+      dirs.push(projectDir)
+
+      const ledgerPath = join(projectDir, 'data', 'personal-ledger.sqlite')
+      const sourceLedgerPath = join(projectDir, 'data', 'source-ledger')
+      const state = {
+        config: {
+          ...defaultPersonalLocalAppConfig(),
+          provider: {
+            provider_id: 'mock-provider' as const,
+            support_level: 'certified' as const,
+            model_id: 'mock-buffett-munger-demo',
+          },
+          initialized_at: '2026-05-29T12:00:00.000Z',
+          ledger_path: ledgerPath,
+          source_ledger_path: sourceLedgerPath,
+        },
+        is_initialized: true,
+      }
+
+      const result = await enqueueResearchRun(state, { ticker: 'MSFT', company_id: 'company_msft' }, { spawn: (_paths) => {} })
+
+      expect(result.research_case_id).toMatch(/^rc_msft_/)
+
+      const store = new SQLiteEventStore(ledgerPath)
+      try {
+        const events = await store.list()
+        expect(events).toHaveLength(1)
+        expect(events[0]).toMatchObject({
+          event_id: `evt_research_run_requested_${result.research_case_id}`,
+          event_type: 'research_run_requested',
+          aggregate_type: 'research_case',
+          aggregate_id: result.research_case_id,
+          correlation_id: result.research_case_id,
+          actor_type: 'user',
+          actor_id: 'user_local',
+          source_ids: [],
+          schema_version: 1,
+          idempotency_key: `research-run-request:${result.research_case_id}:v1`,
+        })
+        expect(events[0]?.payload).toMatchObject({
+          research_case_id: result.research_case_id,
+          ticker: 'MSFT',
+          requested_by: 'user_local',
+        })
+        // Production path: swarm is NOT run inline; only the requested event is present
+        expect(events.some((e) => e.event_type === 'research_run_claimed')).toBe(false)
+        expect(events.some((e) => e.event_type === 'decision_drafted')).toBe(false)
+      } finally {
+        store.close()
+      }
     } finally {
-      store.close()
+      if (previousTestMode === undefined) {
+        delete process.env.OWLFOLIO_TEST_MODE
+      } else {
+        process.env.OWLFOLIO_TEST_MODE = previousTestMode
+      }
+    }
+  })
+
+  it('runs the research swarm inline (playwright test mode) and produces a complete decision in the same store', async () => {
+    const previousTestMode = process.env.OWLFOLIO_TEST_MODE
+    process.env.OWLFOLIO_TEST_MODE = 'playwright'
+
+    try {
+      const projectDir = await mkdtemp(join(tmpdir(), 'owlfolio-enqueue-inline-'))
+      dirs.push(projectDir)
+
+      const ledgerPath = join(projectDir, 'data', 'personal-ledger.sqlite')
+      const sourceLedgerPath = join(projectDir, 'data', 'source-ledger')
+      await mkdir(sourceLedgerPath, { recursive: true })
+
+      const state = {
+        config: {
+          ...defaultPersonalLocalAppConfig(),
+          provider: {
+            provider_id: 'mock-provider' as const,
+            support_level: 'certified' as const,
+            model_id: 'mock-buffett-munger-demo',
+          },
+          initialized_at: '2026-05-29T12:00:00.000Z',
+          ledger_path: ledgerPath,
+          source_ledger_path: sourceLedgerPath,
+        },
+        is_initialized: true,
+      }
+
+      // No spawn dep needed — inline path must not spawn
+      const result = await enqueueResearchRun(state, { ticker: 'MSFT' })
+
+      expect(result.research_case_id).toMatch(/^rc_msft_/)
+
+      const store = new SQLiteEventStore(ledgerPath)
+      try {
+        const events = await store.list()
+        const eventTypes = events.map((e) => e.event_type)
+
+        // research_run_requested was appended
+        expect(eventTypes).toContain('research_run_requested')
+
+        // research_run_claimed was appended inline
+        const claimedEvent = events.find((e) => e.event_type === 'research_run_claimed')
+        expect(claimedEvent).toBeDefined()
+        expect(claimedEvent).toMatchObject({
+          event_type: 'research_run_claimed',
+          aggregate_type: 'research_case',
+          aggregate_id: result.research_case_id,
+          correlation_id: result.research_case_id,
+          actor_type: 'worker',
+          actor_id: 'owlfolio-worker',
+          source_ids: [],
+          schema_version: 1,
+          idempotency_key: `research-run-claim:${result.research_case_id}:v1`,
+        })
+        expect(claimedEvent?.payload).toMatchObject({
+          research_case_id: result.research_case_id,
+          run_id: `run_${result.research_case_id}`,
+          worker_id: 'owlfolio-worker',
+        })
+
+        // The swarm ran inline: decision_drafted must be present
+        expect(eventTypes).toContain('decision_drafted')
+
+        // The buffett-munger analysis event must be present
+        expect(eventTypes).toContain('buffett_munger_analysis_drafted')
+      } finally {
+        store.close()
+      }
+    } finally {
+      if (previousTestMode === undefined) {
+        delete process.env.OWLFOLIO_TEST_MODE
+      } else {
+        process.env.OWLFOLIO_TEST_MODE = previousTestMode
+      }
     }
   })
 

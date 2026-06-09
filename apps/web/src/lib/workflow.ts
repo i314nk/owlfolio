@@ -34,6 +34,8 @@ import {
   defaultSourceLedgerStorage,
   type SourceLedgerBundle,
 } from '@owlfolio/workflow'
+import { runStrategyResearchSwarm, type GroundFn } from '@owlfolio/workflow/researchSwarm'
+import { groundProposedSources, groundProposedSourcesDeterministic } from '@owlfolio/workflow/sourceGrounding'
 
 import type { StatusBadgeTone } from '../components/StatusBadge'
 import { getDemoResearchCaseFromStore, getDemoWatchlistItemsFromStore } from './demo'
@@ -171,7 +173,7 @@ export async function enqueueResearchRun(
 
   const store = new SQLiteEventStore(state.config.ledger_path)
   try {
-    await store.append({
+    const requestedEvent = await store.append({
       event_id: `evt_research_run_requested_${researchCaseId}`,
       event_type: 'research_run_requested',
       aggregate_type: 'research_case',
@@ -193,6 +195,53 @@ export async function enqueueResearchRun(
       schema_version: 1,
       idempotency_key: `research-run-request:${researchCaseId}:v1`,
     })
+
+    if (process.env.OWLFOLIO_TEST_MODE === 'playwright') {
+      const provider = resolveProvider({ provider_id: state.config.provider.provider_id })
+      const ground: GroundFn = (
+        provider.provider_id === 'mock-provider'
+          ? groundProposedSourcesDeterministic as unknown as GroundFn
+          : groundProposedSources as unknown as GroundFn
+      )
+      const claimedAt = new Date().toISOString()
+      await store.append({
+        event_id: `evt_research_run_claimed_${researchCaseId}`,
+        event_type: 'research_run_claimed',
+        aggregate_type: 'research_case',
+        aggregate_id: researchCaseId,
+        causation_id: requestedEvent.event_id,
+        correlation_id: researchCaseId,
+        idempotency_key: `research-run-claim:${researchCaseId}:v1`,
+        actor_type: 'worker',
+        actor_id: 'owlfolio-worker',
+        payload: {
+          research_case_id: researchCaseId,
+          run_id: `run_${researchCaseId}`,
+          claimed_at: claimedAt,
+          worker_id: 'owlfolio-worker',
+        },
+        source_ids: [],
+        created_at: claimedAt,
+        schema_version: 1,
+      })
+      await runStrategyResearchSwarm(
+        store,
+        provider,
+        {
+          research_case_id: researchCaseId,
+          company_id: companyId,
+          ticker,
+          strategy_id: state.config.strategy_id,
+          actor_id: 'user_local',
+          idempotency_key: `swarm:${researchCaseId}:v1`,
+          model_id: resolveModelIdForProvider(state.config),
+          decision_id: decisionId,
+          source_ledger_path: state.config.source_ledger_path,
+        },
+        { ground },
+      )
+      return { research_case_id: researchCaseId }
+    }
   } finally {
     store.close()
   }
