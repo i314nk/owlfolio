@@ -568,7 +568,6 @@ a:focus-visible {
   max-width: 820px;
 }
 
-.owl-command-kicker,
 .owl-command-panel-eyebrow {
   color: var(--owl-color-accent-bright);
   font-family: var(--owl-font-mono);
@@ -577,35 +576,6 @@ a:focus-visible {
   letter-spacing: 0.09em;
   margin: 0;
   text-transform: uppercase;
-}
-
-/* The hero kicker is gold to match the gold mono kicker used by the
-   Strategy/Pipeline page-title family; panel eyebrows stay emerald. */
-.owl-command-kicker {
-  color: var(--owl-color-gold);
-  letter-spacing: 0.08em;
-}
-
-.owl-command-title {
-  color: var(--owl-color-text);
-  /* Aligned to the refined owl-page-title character (weight/letter-spacing/
-     line-height) so the Command Center hero reads as one family with the
-     Strategy/Pipeline page titles, kept at hero scale. */
-  font-size: clamp(2.45rem, 6vw, 5.35rem);
-  font-weight: 590;
-  letter-spacing: -0.055em;
-  line-height: 1;
-  margin: 0;
-}
-
-.owl-command-subtitle {
-  color: var(--owl-color-text);
-  font-size: clamp(1.1rem, 2.2vw, 1.45rem);
-  font-weight: 590;
-  letter-spacing: -0.035em;
-  line-height: 1.25;
-  margin: 0;
-  max-width: 54rem;
 }
 
 .owl-command-description,

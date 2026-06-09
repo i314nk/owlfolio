@@ -8,5 +8,9 @@ export default async function HomePage() {
   const state = await getOnboardingState()
   const dashboard = await getSetupAwareCommandCenter(state)
 
-  return createElement(CommandCenter, { dashboard })
+  return createElement(
+    'main',
+    { className: 'owl-route-frame owl-route-frame-wide' },
+    createElement(CommandCenter, { dashboard }),
+  )
 }

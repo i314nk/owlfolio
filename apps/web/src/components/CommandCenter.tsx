@@ -1,6 +1,6 @@
 import { createElement } from 'react'
 
-import { FinancialNumber, OwlButtonLink, OwlCard, OwlKpiStat, SourceChip } from './designSystem'
+import { FinancialNumber, OwlButtonLink, OwlCard, OwlKpiStat, RouteHeader, SourceChip } from './designSystem'
 import { StatusBadge } from './StatusBadge'
 import type { AppCommandCenter } from '../lib/demo'
 
@@ -53,7 +53,7 @@ export function CommandCenter({ dashboard }: CommandCenterProps) {
   const counts = dashboard.pipeline_counts
 
   return createElement(
-    'main',
+    'div',
     { className: 'owl-command-main' },
     createElement(
       'section',
@@ -82,13 +82,11 @@ function createCommandHero(dashboard: AppCommandCenter) {
     createElement(
       'div',
       { className: 'owl-command-hero-copy' },
-      createElement('p', { className: 'owl-command-kicker' }, `${dashboard.product_name} · Automation-first local candidate`),
-      createElement('h1', { className: 'owl-command-title' }, 'Command Center'),
-      createElement(
-        'p',
-        { className: 'owl-command-subtitle' },
-        'Local-first investment workflow OS for strategy research, watchlist, and portfolio decisions.',
-      ),
+      createElement(RouteHeader, {
+        kicker: `${dashboard.product_name} · Automation-first local candidate`,
+        title: 'Command Center',
+        description: 'Local-first investment workflow OS for strategy research, watchlist, and portfolio decisions.',
+      }),
       createElement(
         'p',
         { className: 'owl-command-description' },
