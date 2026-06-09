@@ -64,7 +64,7 @@ describe('workflow helpers', () => {
       is_initialized: true,
     }
 
-    const result = await enqueueResearchRun(state, { ticker: 'MSFT', company_id: 'company_msft' }, { spawn: () => {} })
+    const result = await enqueueResearchRun(state, { ticker: 'MSFT', company_id: 'company_msft' }, { spawn: (_paths) => {} })
 
     expect(result.research_case_id).toMatch(/^rc_msft_/)
 

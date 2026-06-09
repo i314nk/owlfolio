@@ -1067,7 +1067,7 @@ export async function runProcessResearchQueueTask(
     ground?: GroundFn
     now?: () => Date
   },
-): Promise<{ processed: number; summaries: string[] }> {
+): Promise<{ processed: number; failed: number; summaries: string[] }> {
   const now = options.now ?? (() => new Date())
   const events = await store.list()
   const pending = projectPendingResearchRuns(events as LedgerEventEnvelope<Record<string, unknown>>[])
@@ -1080,10 +1080,11 @@ export async function runProcessResearchQueueTask(
       : groundProposedSources as unknown as GroundFn
   )
   const summaries: string[] = []
+  let failed = 0
 
   for (const run of pending) {
     const claimedAt = now().toISOString()
-    await store.append({
+    const claimedEvent = await store.append({
       event_id: `evt_research_run_claimed_${run.research_case_id}`,
       event_type: 'research_run_claimed',
       aggregate_type: 'research_case',
@@ -1104,27 +1105,57 @@ export async function runProcessResearchQueueTask(
       schema_version: 1,
     } satisfies LedgerEventEnvelope<Record<string, unknown>>)
 
-    await runStrategyResearchSwarm(
-      store,
-      options.provider,
-      {
-        research_case_id: run.research_case_id,
-        company_id: run.company_id ?? `company_${run.ticker.toLowerCase()}`,
-        ticker: run.ticker,
-        strategy_id: run.strategy_id ?? 'buffett-munger',
-        actor_id: 'user_local',
-        idempotency_key: `swarm:${run.research_case_id}:v1`,
-        model_id: run.model_id ?? 'mock',
-        decision_id: run.decision_id ?? `decision_${run.research_case_id}`,
-        source_ledger_path: options.source_ledger_path,
-      },
-      { ground },
-    )
+    try {
+      await runStrategyResearchSwarm(
+        store,
+        options.provider,
+        {
+          research_case_id: run.research_case_id,
+          company_id: run.company_id ?? `company_${run.ticker.toLowerCase()}`,
+          ticker: run.ticker,
+          strategy_id: run.strategy_id ?? 'buffett-munger',
+          actor_id: 'user_local',
+          idempotency_key: `swarm:${run.research_case_id}:v1`,
+          model_id: run.model_id ?? 'mock',
+          decision_id: run.decision_id ?? `decision_${run.research_case_id}`,
+          source_ledger_path: options.source_ledger_path,
+        },
+        { ground },
+      )
 
-    summaries.push(`process_research_queue: ran swarm for ${run.ticker} (${run.research_case_id}); decision draft created; no investment action taken`)
+      summaries.push(`process_research_queue: ran swarm for ${run.ticker} (${run.research_case_id}); decision draft created; no investment action taken`)
+    } catch (error) {
+      // The run was already claimed above and stays claimed (no auto-retry).
+      // A re-run requires a new research_run_requested event; this is acceptable
+      // for the alpha — fail-closed real providers are the common case.
+      const failedAt = now().toISOString()
+      await store.append({
+        event_id: `evt_research_run_failed_${run.research_case_id}`,
+        event_type: 'research_run_failed',
+        aggregate_type: 'research_case',
+        aggregate_id: run.research_case_id,
+        causation_id: claimedEvent.event_id,
+        correlation_id: run.research_case_id,
+        idempotency_key: `research-run-failed:${run.research_case_id}:v1`,
+        actor_type: 'worker',
+        actor_id: WORKER_ACTOR_ID,
+        payload: {
+          research_case_id: run.research_case_id,
+          run_id: `run_${run.research_case_id}`,
+          failed_at: failedAt,
+          error_summary: (error as Error).message.slice(0, 500),
+        },
+        source_ids: [],
+        created_at: failedAt,
+        schema_version: 1,
+      } satisfies LedgerEventEnvelope<Record<string, unknown>>)
+      failed += 1
+      summaries.push(`process_research_queue: swarm failed for ${run.ticker} (${run.research_case_id}): ${(error as Error).message.slice(0, 200)}`)
+      // Do NOT rethrow — one failed run must not abort the remaining pending runs.
+    }
   }
 
-  return { processed: pending.length, summaries }
+  return { processed: pending.length, failed, summaries }
 }
 
 export async function runScheduledTasks(

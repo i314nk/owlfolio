@@ -44,6 +44,7 @@ describe('Owlfolio v2 domain event boundary contracts', () => {
       'holding_realized_gain_loss_recorded',
       'research_run_requested',
       'research_run_claimed',
+      'research_run_failed',
     ])
   })
 
@@ -225,6 +226,7 @@ describe('Owlfolio v2 domain event boundary contracts', () => {
   it('includes research run queue event types', () => {
     expect(domainEventContracts.map((entry) => entry.event_type)).toContain('research_run_requested')
     expect(domainEventContracts.map((entry) => entry.event_type)).toContain('research_run_claimed')
+    expect(domainEventContracts.map((entry) => entry.event_type)).toContain('research_run_failed')
   })
 
   it('defines route/page ownership for downstream UI lanes without requiring implementation yet', () => {

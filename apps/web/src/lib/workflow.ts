@@ -128,10 +128,17 @@ export function resolveActiveWorkflowMode(config: Pick<AppConfig, 'mode'>): Work
   return config.mode
 }
 
-function defaultSpawnWorker(ledgerPath: string): void {
+type SpawnWorkerPaths = { ledgerPath: string; sourceLedgerPath: string }
+
+function defaultSpawnWorker({ ledgerPath, sourceLedgerPath }: SpawnWorkerPaths): void {
   const child = spawn('corepack', ['pnpm', '--filter', '@owlfolio/worker', 'dev', '--', '--once', '--task-kind', 'process_research_queue'], {
     cwd: process.env.OWLFOLIO_PROJECT_DIR ?? process.cwd(),
-    env: { ...process.env, OWLFOLIO_LEDGER_PATH: ledgerPath },
+    env: {
+      ...process.env,
+      OWLFOLIO_LEDGER_PATH: ledgerPath,
+      OWLFOLIO_SOURCE_LEDGER_PATH: sourceLedgerPath,
+      OWLFOLIO_PROJECT_DIR: process.env.OWLFOLIO_PROJECT_DIR ?? process.cwd(),
+    },
     detached: true,
     stdio: 'ignore',
   })
@@ -141,7 +148,7 @@ function defaultSpawnWorker(ledgerPath: string): void {
 export async function enqueueResearchRun(
   state: OnboardingState,
   input: { ticker: string; company_id?: string },
-  deps: { spawn?: (ledgerPath: string) => void } = {},
+  deps: { spawn?: (paths: SpawnWorkerPaths) => void } = {},
 ): Promise<{ research_case_id: string }> {
   if (
     !state.is_initialized
@@ -190,7 +197,7 @@ export async function enqueueResearchRun(
     store.close()
   }
 
-  ;(deps.spawn ?? defaultSpawnWorker)(state.config.ledger_path)
+  ;(deps.spawn ?? defaultSpawnWorker)({ ledgerPath: state.config.ledger_path, sourceLedgerPath: state.config.source_ledger_path })
 
   return { research_case_id: researchCaseId }
 }
