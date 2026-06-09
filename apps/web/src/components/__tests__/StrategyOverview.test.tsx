@@ -1,0 +1,74 @@
+import { createElement } from 'react'
+import { renderToStaticMarkup } from 'react-dom/server'
+import { describe, expect, it, vi } from 'vitest'
+
+vi.mock('next/navigation', () => ({
+  usePathname: () => '/strategy',
+}))
+
+import { StrategyOverview } from '../StrategyOverview'
+import {
+  buffettMungerStrategy,
+  discountRate,
+  marginOfSafetyForMoat,
+} from '@owlfolio/strategies/buffettMunger'
+import { buffettMungerDeepDiveLanes } from '@owlfolio/workflow/strategyResearchPipeline'
+
+function render(): string {
+  return renderToStaticMarkup(createElement(StrategyOverview))
+}
+
+describe('StrategyOverview', () => {
+  it('renders all seven specialist lanes from the live lane list', () => {
+    const html = render()
+    expect(buffettMungerDeepDiveLanes).toHaveLength(7)
+    for (const lane of buffettMungerDeepDiveLanes) {
+      expect(html).toContain(`data-lane="${lane}"`)
+    }
+  })
+
+  it('describes what each lane assesses and that lanes are grounded agents', () => {
+    const html = render()
+    // a representative assessment phrase per the real lane focus
+    expect(html).toContain('Durable competitive advantage')
+    expect(html).toContain('owner-earnings bridge')
+    // grounding statement appears on the lane cards
+    expect(html).toContain('grounded agent')
+    expect(html).toContain('cited to a harness-captured source')
+  })
+
+  it('renders the flat discount rate from the contract', () => {
+    const html = render()
+    const discountPct = `${discountRate(buffettMungerStrategy) * 100}%` // 10%
+    expect(discountPct).toBe('10%')
+    expect(html).toContain('10%')
+  })
+
+  it('renders the moat-tiered margin of safety from the contract', () => {
+    const html = render()
+    const wide = `${marginOfSafetyForMoat(buffettMungerStrategy, 'wide') * 100}%` // 30%
+    const monopoly = `${marginOfSafetyForMoat(buffettMungerStrategy, 'monopoly') * 100}%` // 10%
+    expect(wide).toBe('30%')
+    expect(monopoly).toBe('10%')
+    expect(html).toContain('30%')
+    expect(html).toContain('10%')
+  })
+
+  it('renders the wide-moat gate and rejects sub-wide moats', () => {
+    const html = render()
+    expect(buffettMungerStrategy.valuation.min_investable_moat).toBe('wide')
+    expect(html).toContain(buffettMungerStrategy.valuation.min_investable_moat)
+    // narrow/moderate shown as rejected
+    expect(html).toContain('No — rejected')
+  })
+
+  it('renders the position-sizing target weights and entry tranches from the contract', () => {
+    const html = render()
+    const targetMonopoly = `${buffettMungerStrategy.portfolio.target_weight_by_moat.monopoly * 100}%` // 10%
+    expect(targetMonopoly).toBe('10%')
+    expect(html).toContain('6%') // wide target weight
+    for (const tranche of buffettMungerStrategy.portfolio.entry_tranches) {
+      expect(html).toContain(tranche.id)
+    }
+  })
+})

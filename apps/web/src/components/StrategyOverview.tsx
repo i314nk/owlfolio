@@ -1,0 +1,473 @@
+import { createElement, type CSSProperties, type ReactNode } from 'react'
+
+import {
+  buffettMungerStrategy,
+  discountRate,
+  marginOfSafetyForMoat,
+} from '@owlfolio/strategies/buffettMunger'
+import { buffettMungerDeepDiveLanes } from '@owlfolio/workflow/strategyResearchPipeline'
+
+import { PageHeader, OwlValuationChip } from './designSystem'
+
+// ── Live contract values (rendered, never hard-coded) ───────────────────────
+const strategy = buffettMungerStrategy
+const DISCOUNT = discountRate(strategy)
+const TERMINAL_GROWTH_CAP = strategy.valuation.terminal_growth_cap
+const MULTIPLE_CEILING = strategy.valuation.valuation_multiple_ceiling
+const MIN_INVESTABLE_MOAT = strategy.valuation.min_investable_moat
+const MOS_WIDE = marginOfSafetyForMoat(strategy, 'wide')
+const MOS_MONOPOLY = marginOfSafetyForMoat(strategy, 'monopoly')
+const TARGET_WIDE = strategy.portfolio.target_weight_by_moat.wide
+const TARGET_MONOPOLY = strategy.portfolio.target_weight_by_moat.monopoly
+const TRANCHES = strategy.portfolio.entry_tranches
+
+function pct(value: number, digits = 0): string {
+  return `${(value * 100).toFixed(digits).replace(/\.0+$/, '')}%`
+}
+
+// ── Shared inline styles (gold-forward tokens; no hard-coded blue/purple) ────
+const cardStyle: CSSProperties = {
+  background: 'var(--owl-color-panel)',
+  border: '1px solid var(--owl-color-border)',
+  borderRadius: 'var(--owl-radius-panel)',
+  padding: '1.2rem 1.35rem',
+  boxShadow: 'var(--owl-shadow-panel)',
+}
+
+const monoLabel: CSSProperties = {
+  fontFamily: 'var(--owl-font-mono)',
+  fontSize: '0.66rem',
+  letterSpacing: '0.07em',
+  textTransform: 'uppercase',
+  color: 'var(--owl-color-quiet)',
+}
+
+const sectionTitleStyle: CSSProperties = {
+  fontSize: '1.05rem',
+  fontWeight: 800,
+  color: 'var(--owl-color-gold-bright)',
+  margin: '0 0 0.3rem',
+}
+
+const sectionLeadStyle: CSSProperties = {
+  color: 'var(--owl-color-muted)',
+  fontSize: '0.92rem',
+  lineHeight: 1.55,
+  margin: '0 0 1rem',
+}
+
+const bodyStyle: CSSProperties = {
+  color: 'var(--owl-color-muted)',
+  fontSize: '0.9rem',
+  lineHeight: 1.55,
+}
+
+const goldText: CSSProperties = { color: 'var(--owl-color-gold-bright)', fontWeight: 700 }
+const monoValue: CSSProperties = {
+  fontFamily: 'var(--owl-font-mono)',
+  color: 'var(--owl-color-gold-vivid)',
+  fontWeight: 700,
+  fontVariantNumeric: 'tabular-nums',
+}
+
+function Section({
+  eyebrow,
+  title,
+  lead,
+  children,
+}: {
+  eyebrow: string
+  title: string
+  lead?: ReactNode
+  children: ReactNode
+}): ReactNode {
+  return createElement(
+    'section',
+    { style: { ...cardStyle, marginTop: '1.1rem' } },
+    createElement('p', { style: { ...monoLabel, color: 'var(--owl-color-gold)', marginBottom: '0.35rem' } }, eyebrow),
+    createElement('h2', { style: sectionTitleStyle }, title),
+    lead === undefined ? null : createElement('p', { style: sectionLeadStyle }, lead),
+    children,
+  )
+}
+
+// ── 2. Pipeline flow ─────────────────────────────────────────────────────────
+const PIPELINE_STEPS: { key: string; label: string; detail: string }[] = [
+  { key: 'discovery', label: 'Discovery', detail: 'Candidate enters research' },
+  { key: 'quick_screen', label: 'Quick screen', detail: 'Shariah gate + worth-it read' },
+  { key: 'gate', label: 'Automatic | Review', detail: 'Run now, or pause for approval' },
+  { key: 'deep_dive', label: 'Deep-dive swarm', detail: `${buffettMungerDeepDiveLanes.length} grounded lanes, parallel` },
+  { key: 'synthesis', label: 'Synthesis', detail: 'Reconcile + ≥wide moat gate' },
+  { key: 'decision', label: 'Decision', detail: 'BUY / WATCH / PASS draft' },
+  { key: 'watchlist', label: 'Watchlist', detail: 'User-confirmed entry' },
+  { key: 'holding', label: 'Holding', detail: 'Explicit open transition' },
+  { key: 'review', label: 'Reviews / reanalysis', detail: 'Re-run supersedes prior case' },
+]
+
+function PipelineFlow(): ReactNode {
+  const nodes: ReactNode[] = []
+  PIPELINE_STEPS.forEach((step, index) => {
+    nodes.push(
+      createElement(
+        'div',
+        {
+          key: step.key,
+          style: {
+            flex: '1 1 130px',
+            minWidth: '130px',
+            background: 'var(--owl-color-panel-elevated)',
+            border: '1px solid var(--owl-color-border)',
+            borderRadius: '0.7rem',
+            padding: '0.65rem 0.75rem',
+          },
+        },
+        createElement('div', { style: { ...monoLabel, color: 'var(--owl-color-muted)' } }, step.label),
+        createElement('div', { style: { fontSize: '0.74rem', color: 'var(--owl-color-quiet)', marginTop: '0.25rem' } }, step.detail),
+      ),
+    )
+    if (index < PIPELINE_STEPS.length - 1) {
+      nodes.push(
+        createElement(
+          'div',
+          { key: `arrow-${step.key}`, 'aria-hidden': 'true', style: { alignSelf: 'center', color: 'var(--owl-color-quiet)' } },
+          '→',
+        ),
+      )
+    }
+  })
+  return createElement(
+    'div',
+    { style: { display: 'flex', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'stretch' } },
+    ...nodes,
+  )
+}
+
+// ── 3. Specialist swarm lanes (real lanes + what each assesses) ──────────────
+type LaneCard = { lane: string; name: string; assesses: string }
+
+const LANE_DETAILS: Record<string, { name: string; assesses: string }> = {
+  business_quality: {
+    name: 'Business quality',
+    assesses: 'How the business actually makes money, its economics, and whether the franchise is understandable and durable.',
+  },
+  moat: {
+    name: 'Moat',
+    assesses: 'Durable competitive advantage, reinvestment runway, pricing power, and the evidence behind the moat class it assigns.',
+  },
+  management: {
+    name: 'Management',
+    assesses: 'Capital allocation, incentives, candor, insider alignment, and the stewardship track record of the people running it.',
+  },
+  financial_quality: {
+    name: 'Financial quality',
+    assesses: 'Owner-earnings normalization (NI + D&A − maintenance capex − SBC − ΔNWC), ROIC, reinvestment, cash conversion, and accounting quality.',
+  },
+  shariah: {
+    name: 'Shariah',
+    assesses: 'Whether the core business and financial ratios are permissible — a local screening aid, not a professional Shariah ruling.',
+  },
+  risks: {
+    name: 'Risks',
+    assesses: 'Permanent-capital-loss risks, leverage fragility, disruption, regulation, and the specific events that would break the thesis.',
+  },
+  valuation: {
+    name: 'Valuation',
+    assesses: 'The owner-earnings bridge, ROIC and reinvestment inputs the harness needs; the deterministic harness then computes fair value and buy price.',
+  },
+}
+
+const LANE_CARDS: LaneCard[] = buffettMungerDeepDiveLanes.map((lane) => {
+  const detail = LANE_DETAILS[lane]
+  return {
+    lane,
+    name: detail?.name ?? lane,
+    assesses: detail?.assesses ?? '',
+  }
+})
+
+function LaneGrid(): ReactNode {
+  return createElement(
+    'div',
+    {
+      style: {
+        display: 'grid',
+        gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))',
+        gap: '0.75rem',
+      },
+    },
+    ...LANE_CARDS.map((card) =>
+      createElement(
+        'article',
+        {
+          key: card.lane,
+          'data-lane': card.lane,
+          style: {
+            background: 'var(--owl-color-panel-elevated)',
+            border: '1px solid var(--owl-color-border)',
+            borderRadius: '0.8rem',
+            padding: '0.85rem 0.95rem',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '0.4rem',
+          },
+        },
+        createElement('p', { style: { ...monoLabel, color: 'var(--owl-color-gold)' } }, card.lane),
+        createElement('h3', { style: { fontSize: '0.96rem', fontWeight: 800, color: 'var(--owl-color-gold-bright)', margin: 0 } }, card.name),
+        createElement('p', { style: { ...bodyStyle, fontSize: '0.85rem', margin: 0 } }, card.assesses),
+        createElement(
+          'p',
+          { style: { fontSize: '0.72rem', color: 'var(--owl-color-quiet)', margin: 0 } },
+          'Runs as its own grounded agent — every claim cited to a harness-captured source.',
+        ),
+      ),
+    ),
+  )
+}
+
+// ── Small table helper ───────────────────────────────────────────────────────
+function Table({ headings, rows }: { headings: string[]; rows: ReactNode[][] }): ReactNode {
+  const thStyle: CSSProperties = {
+    ...monoLabel,
+    textAlign: 'left',
+    padding: '0.5rem 0.7rem',
+    borderBottom: '1px solid var(--owl-color-border)',
+    color: 'var(--owl-color-gold)',
+  }
+  const tdStyle: CSSProperties = {
+    padding: '0.55rem 0.7rem',
+    borderBottom: '1px solid var(--owl-color-border)',
+    color: 'var(--owl-color-muted)',
+    fontSize: '0.88rem',
+  }
+  return createElement(
+    'table',
+    { style: { width: '100%', borderCollapse: 'collapse' } },
+    createElement(
+      'thead',
+      null,
+      createElement('tr', null, ...headings.map((h) => createElement('th', { key: h, style: thStyle }, h))),
+    ),
+    createElement(
+      'tbody',
+      null,
+      ...rows.map((row, ri) =>
+        createElement(
+          'tr',
+          { key: `row-${ri}` },
+          ...row.map((cell, ci) => createElement('td', { key: `cell-${ri}-${ci}`, style: tdStyle }, cell)),
+        ),
+      ),
+    ),
+  )
+}
+
+function trancheTriggerLabel(tranche: (typeof TRANCHES)[number]): string {
+  if (tranche.trigger === 'at_buy_price') {
+    return 'At buy price'
+  }
+  return `${pct(tranche.pct)} below buy price`
+}
+
+// ── Component ────────────────────────────────────────────────────────────────
+export function StrategyOverview(): ReactNode {
+  return createElement(
+    'main',
+    { className: 'owl-route-frame owl-route-frame-wide' },
+    createElement(
+      'p',
+      { className: 'owl-route-back-row' },
+      createElement('a', { className: 'owl-back-link owl-focusable', href: '/' }, '← Back to command center'),
+    ),
+
+    // 1. Header + thesis
+    createElement(PageHeader, {
+      eyebrow: `${strategy.name} · v${strategy.version}`,
+      title: 'The strategy',
+      description:
+        'Owlfolio runs a single default strategy: a concentrated, quality-value, Shariah-aware approach in the Buffett-Munger tradition. The core principle is a strict division of labour — grounded specialist agents propose evidence, deterministic projections compute the numbers, and a human makes every irreversible decision.',
+    }),
+
+    createElement(
+      'section',
+      { style: { ...cardStyle, marginTop: '0.6rem' } },
+      createElement('p', { style: { ...monoLabel, color: 'var(--owl-color-gold)', marginBottom: '0.35rem' } }, 'Thesis'),
+      createElement(
+        'p',
+        { style: bodyStyle },
+        'Buy a small number of understandable businesses with durable economic moats and honest, capable management, only when the price offers a margin of safety against a conservative estimate of intrinsic value — then hold. ',
+        createElement('span', { style: goldText }, 'Agents propose; the harness computes; you decide.'),
+        ' Nothing the swarm produces becomes a watchlist entry or a holding without an explicit, user-authored ledger transition.',
+      ),
+    ),
+
+    // 2. Pipeline
+    Section({
+      eyebrow: 'How a case moves',
+      title: 'The pipeline',
+      lead: 'Each candidate flows through a fixed sequence. The quick screen is a lightweight Shariah-first gate; the expensive multi-agent deep dive only runs for cases worth it.',
+      children: PipelineFlow(),
+    }),
+
+    // 3. Specialist swarm — the centerpiece
+    Section({
+      eyebrow: 'The deep-dive swarm',
+      title: `The specialist swarm — ${buffettMungerDeepDiveLanes.length} grounded lanes`,
+      lead:
+        'The deep dive is swarm-only by design: holding the whole framework in one model call degrades quality, so each dimension runs as its own focused, grounded agent in parallel. Every lane gathers its own sources, and every cited source is fetched and content-hashed by the harness — not trusted from the model.',
+      children: LaneGrid(),
+    }),
+
+    // 4. Moat taxonomy & gate
+    Section({
+      eyebrow: 'Quality gate',
+      title: 'Moat taxonomy & the wide-moat gate',
+      lead: createElement(
+        'span',
+        null,
+        'A candidate is investable only when its moat class is at least ',
+        createElement('span', { style: monoValue }, MIN_INVESTABLE_MOAT),
+        '. Narrow and moderate moats are rejected and the verdict is forced to PASS before sizing is ever considered.',
+      ),
+      children: Table({
+        headings: ['Moat class', 'Meaning', 'Investable?'],
+        rows: [
+          ['narrow', 'Weak or short-duration advantage', createElement('span', { style: { color: 'var(--owl-color-risk-bright)' } }, 'No — rejected')],
+          ['moderate', 'Meaningful but not durable enough', createElement('span', { style: { color: 'var(--owl-color-risk-bright)' } }, 'No — rejected')],
+          [createElement('span', { style: goldText }, 'wide'), 'Durable multi-year advantage, pricing power', createElement(OwlValuationChip, { kind: 'approved', label: 'Yes — minimum' })],
+          [createElement('span', { style: goldText }, 'monopoly'), 'Near-exclusive position or platform lock-in', createElement(OwlValuationChip, { kind: 'approved', label: 'Yes' })],
+        ],
+      }),
+    }),
+
+    // 5. Valuation method (equity bond)
+    Section({
+      eyebrow: 'Value',
+      title: 'Valuation — the equity bond',
+      lead: createElement(
+        'span',
+        null,
+        'A quality business is treated like a bond whose coupon is its owner earnings. Fair value capitalizes owner earnings at a flat ',
+        createElement('span', { style: monoValue }, pct(DISCOUNT)),
+        ' discount rate; the certainty difference between moat classes is expressed through a moat-tiered margin of safety, not the discount rate. The discount rate is a static floor.',
+      ),
+      children: createElement(
+        'div',
+        { style: { display: 'flex', flexDirection: 'column', gap: '0.9rem' } },
+
+        // Formula block
+        createElement(
+          'div',
+          {
+            style: {
+              background: 'var(--owl-color-panel-deep)',
+              border: '1px solid var(--owl-color-border)',
+              borderRadius: '0.7rem',
+              padding: '0.9rem 1rem',
+              fontFamily: 'var(--owl-font-mono)',
+              fontSize: '0.82rem',
+              color: 'var(--owl-color-gold-vivid)',
+              lineHeight: 1.9,
+              overflowX: 'auto',
+            },
+          },
+          createElement('div', null, 'OE  = NI + D&A − maintenance capex (20/50/80% proxy) − SBC − ΔNWC'),
+          createElement('div', null, `g   = min(reinvestment × ROIC, ${pct(TERMINAL_GROWTH_CAP)})   — credited only when ROIC > ${pct(DISCOUNT)}`),
+          createElement('div', null, `fair = min( OE / (${pct(DISCOUNT)} − g),  ${MULTIPLE_CEILING}× OE )`),
+          createElement('div', null, 'buy  = fair × (1 − margin of safety)'),
+        ),
+
+        // MoS table
+        createElement('p', { style: { ...monoLabel, color: 'var(--owl-color-gold)', margin: 0 } }, 'Moat-tiered margin of safety'),
+        Table({
+          headings: ['Moat class', 'Discount rate', 'Margin of safety'],
+          rows: [
+            [createElement('span', { style: goldText }, 'wide'), createElement('span', { style: monoValue }, pct(DISCOUNT)), createElement('span', { style: monoValue }, pct(MOS_WIDE))],
+            [createElement('span', { style: goldText }, 'monopoly'), createElement('span', { style: monoValue }, pct(DISCOUNT)), createElement('span', { style: monoValue }, pct(MOS_MONOPOLY))],
+          ],
+        }),
+
+        // Worked example
+        createElement(
+          'div',
+          { style: { ...bodyStyle, background: 'var(--owl-color-panel-elevated)', border: '1px solid var(--owl-color-border)', borderRadius: '0.7rem', padding: '0.85rem 1rem' } },
+          createElement('p', { style: { ...monoLabel, color: 'var(--owl-color-gold)', marginBottom: '0.4rem' } }, 'Worked example — a monopoly compounder'),
+          createElement(
+            'p',
+            { style: { margin: 0 } },
+            'Owner earnings of ',
+            createElement('span', { style: monoValue }, '14'),
+            ' per share with no credited growth capitalize at ',
+            createElement('span', { style: monoValue }, `14 / ${pct(DISCOUNT)} = 200`),
+            ' fair value. A monopoly moat carries a ',
+            createElement('span', { style: monoValue }, pct(MOS_MONOPOLY)),
+            ' margin of safety, so the buy price is ',
+            createElement('span', { style: monoValue }, `200 × (1 − ${pct(MOS_MONOPOLY)}) = 180`),
+            '. A wide-moat business with the same earnings would demand a ',
+            createElement('span', { style: monoValue }, pct(MOS_WIDE)),
+            ' buffer instead.',
+          ),
+        ),
+      ),
+    }),
+
+    // 6. Hard gates / overrides
+    Section({
+      eyebrow: 'Non-negotiable',
+      title: 'Hard gates & overrides',
+      lead: 'These conditions are applied regardless of how attractive the price looks. A failure on any blocking gate stops the case.',
+      children: createElement(
+        'ul',
+        { style: { ...bodyStyle, margin: 0, paddingLeft: '1.1rem', display: 'flex', flexDirection: 'column', gap: '0.35rem' } },
+        createElement('li', null, createElement('span', { style: goldText }, 'Moat ≥ wide'), ' — narrow/moderate are rejected and forced to PASS.'),
+        createElement('li', null, createElement('span', { style: goldText }, 'ROIC above hurdle'), ' — growth is credited only when ROIC exceeds the discount rate.'),
+        createElement('li', null, createElement('span', { style: goldText }, 'Positive owner earnings'), ' — normalized owner earnings must be positive.'),
+        createElement('li', null, createElement('span', { style: goldText }, 'Safe balance sheet'), ' — leverage must not create unacceptable fragility.'),
+        createElement('li', null, createElement('span', { style: goldText }, 'Shariah compliant or conditional'), ' — non-compliant cases stop at the quick screen.'),
+      ),
+    }),
+
+    // 7. Position sizing
+    Section({
+      eyebrow: 'Sizing',
+      title: 'Position sizing',
+      lead: createElement(
+        'span',
+        null,
+        'Conviction-tiered target weights scale with moat class, and entry is laddered across three price tranches. ',
+        createElement('span', { style: goldText }, 'Sizing is documented policy; automated enforcement/execution is future work.'),
+      ),
+      children: createElement(
+        'div',
+        { style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '0.9rem' } },
+        Table({
+          headings: ['Moat class', 'Target weight'],
+          rows: [
+            [createElement('span', { style: goldText }, 'wide'), createElement('span', { style: monoValue }, pct(TARGET_WIDE))],
+            [createElement('span', { style: goldText }, 'monopoly'), createElement('span', { style: monoValue }, pct(TARGET_MONOPOLY))],
+          ],
+        }),
+        Table({
+          headings: ['Tranche', 'Fraction', 'Trigger'],
+          rows: TRANCHES.map((t) => [
+            createElement('span', { style: goldText }, t.id),
+            createElement('span', { style: monoValue }, pct(t.fraction)),
+            trancheTriggerLabel(t),
+          ]),
+        }),
+      ),
+    }),
+
+    // 8. Boundaries
+    Section({
+      eyebrow: 'Honest boundaries',
+      title: 'What this is — and is not',
+      children: createElement(
+        'ul',
+        { style: { ...bodyStyle, margin: 0, paddingLeft: '1.1rem', display: 'flex', flexDirection: 'column', gap: '0.35rem' } },
+        createElement('li', null, 'Experimental until certified — automated output is a draft or observation, never a recommendation to act.'),
+        createElement('li', null, 'Every irreversible transition — watchlist confirmation, opening a holding, Shariah overrides — is human-authored and recorded in the local ledger.'),
+        createElement('li', null, 'Shariah screens are local accounting/research aids, not professional legal, tax, or Shariah rulings.'),
+      ),
+    }),
+  )
+}

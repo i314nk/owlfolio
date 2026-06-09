@@ -7,6 +7,7 @@ import { usePathname } from 'next/navigation'
 const navItems = [
   { href: '/', label: 'Command Center' },
   { href: '/research', label: 'Research' },
+  { href: '/strategy', label: 'Strategy' },
   { href: '/watchlist', label: 'Watchlist' },
   { href: '/portfolio', label: 'Portfolio' },
   { href: '/accounting/monthly', label: 'Accounting' },
@@ -23,8 +24,8 @@ export type AppNavigationProps = {
   isSetupComplete?: boolean
 }
 
-const primaryNavItems = navItems.slice(0, 6)
-const referenceNavItems = navItems.slice(6)
+const primaryNavItems = navItems.slice(0, 7)
+const referenceNavItems = navItems.slice(7)
 
 const SEARCH_TRIGGER_HREF = '/audit?focus=1'
 
