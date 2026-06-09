@@ -18,14 +18,34 @@ Buffett-Munger is the default strategy for the Owlfolio v2 local-use candidate. 
 ### Pipeline
 
 ```
-discovery
-  → quick screen (Shariah + moat preliminary)
-  → deep-dive swarm (moat / financials / risk / management / valuation / synthesis specialists in parallel)
-  → synthesis & decision
-  → versioned investment case (ledger event)
+Discovery
+  → Quick screen (focused gate: Shariah permissibility + rough business-quality read)
+       ↓ rejected: Shariah non-compliant or clearly not worth investigating
+       ↓ passed: [Automatic | Review-before-deep-dive]
+  → Swarm deep dive (moat / financials / risk / management / valuation / synthesis specialists — parallel)
+  → Synthesis & decision (moat ≥ wide gate enforced here)
+  → User-confirmed watchlist entry
+  → Holding open (separate explicit ledger transition)
 ```
 
-Research runs as a **strategy-driven multi-agent swarm** (`runStrategyResearchSwarm`): a quick-screen agent, concurrent per-lane specialist agents, and a synthesis/decision agent, each a separate provider call. Every cited source is subject to the harness-side grounding invariant (fetched and content-hashed by the harness, not by the model). See `docs/architecture/owlfolio-v2-provider-model-support.md` for the grounding contract.
+**Research-case versioning.** The company is the aggregate; each user-initiated re-run supersedes the previous research case and records a new versioned investment-case ledger event. Earlier versions are retained in the ledger for audit.
+
+Research runs as a **strategy-driven multi-agent swarm** (`runStrategyResearchSwarm`): a quick-screen agent, concurrent per-lane specialist agents, and a synthesis/decision agent — each a separate provider call. Every cited source is subject to the harness-side grounding invariant (fetched and content-hashed by the harness, not by the model). See `docs/architecture/owlfolio-v2-provider-model-support.md` for the grounding contract.
+
+### Quick-screen approval gate (`quick_screen_approval`)
+
+After the quick screen passes there are two modes:
+
+| Mode | Behaviour | When used |
+|---|---|---|
+| **Automatic** | Quick screen passes → deep-dive swarm runs immediately in the same job | Scheduled / automated runs |
+| **Review** | Quick screen passes → research case pauses in an "awaiting deep-dive approval" state; user triggers the swarm when ready | Default for user-initiated runs |
+
+The mode is configured in the `automation` settings (app config / Settings page). This is consistent with the "experimental until certified" boundary: automated output is a draft or observation until the user explicitly confirms the watchlist or holding transition.
+
+### Why deep dive is swarm-only
+
+A single-agent deep dive was evaluated and **rejected**. Holding the full Buffett-Munger multi-lane context (moat taxonomy, financials, risk, management quality, valuation, Shariah synthesis) in one model call degrades output quality — the model cannot hold that much focused, grounded context reliably. Reliability therefore lives entirely in the parallel specialist swarm, where each agent operates with a narrow, focused context. This is also why the quick screen is kept intentionally lightweight: it is a focused gate (not the full framework), so it can be a single agent call without quality loss.
 
 ---
 
@@ -87,7 +107,7 @@ Gates are evaluated by `evaluateGates()` from the facts bundle assembled by the 
 | `valuation_complete` | blocking | A complete valuation and margin-of-safety assessment is available | Reject |
 | `source_coverage_complete` | warning | Primary-source coverage is sufficient | Does not block; recorded as a warning in the evaluation result |
 
-Shariah is intentionally the **first** blocking gate so a non-compliant result stops the deep-dive swarm before any provider cost is incurred.
+Shariah is intentionally the **first** check at the quick-screen stage so a non-compliant result stops the pipeline before the expensive swarm is launched. The quick-screen agent assesses Shariah permissibility first; then makes a rough "worth investigating?" business-quality read. It is a focused gate, not the full Buffett-Munger framework — full rigorous analysis is deferred to the swarm specialists.
 
 ---
 
@@ -142,6 +162,39 @@ In all cases the deployed weight is bounded by `target_weight_by_moat[moatClass]
 
 ---
 
+## 8. Reanalysis cadence and data tiers
+
+Not all data ages at the same rate. The pipeline distinguishes three concerns:
+
+### Market price — frequent poll (buy-zone monitoring)
+
+Market price is polled frequently (daily or weekly, depending on the automation settings). Its **sole purpose** is buy-zone monitoring: is the current price ≤ the stored `buy_below` threshold? It does **not** trigger a revaluation — intrinsic value is not recomputed on every price tick.
+
+### Intrinsic valuation — annual full reanalysis or on demand
+
+The Gordon-capitalization buy price (Section 4) depends on `normalized_owner_earnings_per_share` and the sustainable growth rate `g`, both of which come from company filings. These inputs are only refreshed during:
+
+- **Annual full reanalysis** — a complete swarm deep dive run on cadence (or triggered on demand); this is the only event that produces a fresh intrinsic-valuation and updated `buy_below`.
+- **On-demand re-run** — a user-initiated re-run at any time supersedes the current research case and records a new versioned investment-case ledger event.
+
+Intrinsic valuation is **not** recomputed on every price tick or on every thesis-intact check.
+
+### Thesis-intact review — periodic lightweight check (escalates to full swarm if thesis breaks)
+
+A periodic (e.g. quarterly) lightweight review checks whether the investment thesis still holds — moat durability, business quality, no material adverse developments — without running a full swarm. If the check reveals a thesis breach (moat erosion, material negative event, Shariah status change), it **escalates to a full swarm reanalysis**. Escalation logic is a planned follow-up; the current worker supports dry-run thesis-intact check scaffolding.
+
+### Summary
+
+| Data tier | Frequency | Trigger | Effect |
+|---|---|---|---|
+| Market price | Daily / weekly | Automated poll | Buy-zone alert only; no revaluation |
+| Thesis-intact review | Quarterly (configurable) | Scheduled worker task | Lightweight check; escalates to full swarm if thesis breaks |
+| Intrinsic valuation + full reanalysis | Annual (or on demand) | Annual schedule or user-initiated re-run | Full swarm deep dive; new versioned investment-case ledger event; refreshed `buy_below` |
+
+Cadence settings are configured in the `automation` block of app config (Settings page). Automated tasks are observations and drafts; watchlist and holding transitions require explicit user confirmation.
+
+---
+
 ## Implementation references
 
 | Concern | Location |
@@ -150,6 +203,8 @@ In all cases the deployed weight is bounded by `target_weight_by_moat[moatClass]
 | Buffett-Munger contract object + helpers | `packages/strategies/src/buffettMunger.ts` |
 | Gate evaluation | `packages/strategies/src/evaluateGates.ts` |
 | Contract tests | `packages/strategies/src/__tests__/buffettMunger.test.ts` |
+| Research swarm entry point | `packages/workflow/src/researchSwarm.ts` (or nearest equivalent) |
 | Strategy workflow boundaries | `docs/STRATEGY_GUIDE.md` |
 | Provider/model support + grounding contract | `docs/architecture/owlfolio-v2-provider-model-support.md` |
 | Domain and event families | `docs/architecture/owlfolio-v2-domain-boundaries.md` |
+| Automation settings (cadence, approval mode) | App config / Settings page (`automation` block) |
