@@ -52,9 +52,9 @@ async function loadHoldings(ledgerPath: string | undefined, mode: 'demo' | 'pers
         if (moatClass !== undefined) {
           enriched.moatClass = moatClass
         }
-        const hurdleRate = valuationCase?.valuation?.hurdle_rate
-        if (hurdleRate !== undefined) {
-          enriched.hurdleRate = hurdleRate
+        const discountRate = valuationCase?.valuation?.discount_rate
+        if (discountRate !== undefined) {
+          enriched.hurdleRate = discountRate
         }
       }
       return enriched

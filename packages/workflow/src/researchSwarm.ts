@@ -15,7 +15,7 @@ import {
 } from './strategyResearchPipeline'
 import { ingestManualSourceBundle } from './sourceLedger'
 import { resolveResearchStrategyRef } from './researchStrategyRef'
-import { buffettMungerStrategy, hurdleRateForMoatClass, moatPassesGate } from '@owlfolio/strategies/buffettMunger'
+import { buffettMungerStrategy, discountRate, marginOfSafetyForMoat, moatPassesGate } from '@owlfolio/strategies/buffettMunger'
 
 export const ProposedSourceSchema = z.object({
   source_id: z.string().min(1),
@@ -151,6 +151,17 @@ const LaneAgentSchema = z.object({
   proposed_sources: ProposedSourcesSchema,
 })
 
+const OwnerEarningsBridgeSchema = z.object({
+  // All per-share, judgment-grounded by the valuation specialist.
+  net_income: z.number(),
+  depreciation_amortization: z.number(),
+  maintenance_capex: z.number(),
+  maintenance_capex_proxy_tier: z.enum(['20', '50', '80']),
+  stock_based_comp: z.number(),
+  // SIGNED: positive = WC is a use of cash (reduces OE); negative = structural WC release (adds to OE)
+  normalized_working_capital_change: z.number(),
+})
+
 const DecisionAgentSchema = z.object({
   investment_verdict: z.enum(['BUY', 'WATCH', 'PASS', 'RESEARCH_MORE']),
   strategy_compliance: z.enum(['COMPLIANT', 'CONDITIONAL', 'NON_COMPLIANT', 'INSUFFICIENT_DATA']),
@@ -164,11 +175,14 @@ const DecisionAgentSchema = z.object({
   synthesis_summary: z.string().min(1),
   risks: z.array(z.string().min(1)).min(1),
   open_questions: z.array(z.string().min(1)).min(1),
-  // Model-supplied valuation judgment fields (harness computes hurdle_rate and buy_price from these)
-  moat_class: z.enum(['narrow', 'moderate', 'wide', 'monopoly', 'inevitable']),
+  // Model-supplied valuation judgment fields (harness computes fair value and buy_price from these)
+  moat_class: z.enum(['narrow', 'moderate', 'wide', 'monopoly']),
   growth_assumptions: z.string().min(1),
-  normalized_owner_earnings_per_share: z.number().positive(),
-  growth_rate: z.number(),
+  // Owner-earnings bridge — per-share, judgment-grounded
+  owner_earnings_bridge: OwnerEarningsBridgeSchema,
+  // ROIC inputs
+  roic: z.number(),
+  reinvestment_rate: z.number(),
   proposed_sources: ProposedSourcesSchema,
 })
 
@@ -664,31 +678,47 @@ export async function runResearchDeepDivePhase(
     idempotency_key: `deep-dive-complete:${command.research_case_id}:v1`,
   })
 
-  // ---- Harness-computed valuation (agent judges moat class + OE inputs; harness computes buy price) ----
-  // MoS is embedded in the hurdle rate — no separate multiplier.
-  // Buy price = OE * (1 + g) / (hurdle - g)  [Gordon capitalization at the required return]
+  // ---- Harness-computed valuation (Design B: equity-bond capitalization with ROIC-gated growth) ----
+  // OE = NI + D&A - maint_capex - SBC - dNWC  (dNWC is signed: positive=use of cash reduces OE)
+  // g = (ROIC > discount) ? min(reinvestment_rate * ROIC, terminal_growth_cap) : 0
+  // fair_value = min(OE / (discount - g), valuation_multiple_ceiling * OE)
+  // buy_price = round(fair_value * (1 - MoS), 2)  where MoS = marginOfSafetyForMoat(strategy, moat)
   const moatClass = dec.analysis.moat_class
   const moat_passes_gate = moatPassesGate(buffettMungerStrategy, moatClass)
 
+  const bridge = dec.analysis.owner_earnings_bridge
+  const normalized_owner_earnings_per_share =
+    bridge.net_income
+    + bridge.depreciation_amortization
+    - bridge.maintenance_capex
+    - bridge.stock_based_comp
+    - bridge.normalized_working_capital_change  // signed: subtract (positive = use of cash, negative = release)
+
+  const discount = discountRate(buffettMungerStrategy)
+  const roic = dec.analysis.roic
+  const reinvestment_rate = dec.analysis.reinvestment_rate
+  const terminal_growth_cap = buffettMungerStrategy.valuation.terminal_growth_cap
+  const valuation_multiple_ceiling = buffettMungerStrategy.valuation.valuation_multiple_ceiling
+
   let buy_price_per_share: number | undefined
-  let hurdle_rate: number | undefined
+  let fair_value_per_share: number | undefined
   let effective_growth_rate: number
-  let growth_rate_clamped = false
+  let margin_of_safety: number | undefined
+
+  // Compute g: credit growth only when ROIC > discount rate
+  if (roic > discount) {
+    effective_growth_rate = Math.min(reinvestment_rate * roic, terminal_growth_cap)
+  } else {
+    effective_growth_rate = 0
+  }
 
   if (moat_passes_gate) {
-    hurdle_rate = hurdleRateForMoatClass(buffettMungerStrategy, moatClass)
-    const raw_g = dec.analysis.growth_rate
-    if (raw_g >= hurdle_rate) {
-      // Clamp growth rate so Gordon denominator is positive
-      effective_growth_rate = hurdle_rate - 0.02
-      growth_rate_clamped = true
-    } else {
-      effective_growth_rate = raw_g
-    }
-    const oe = dec.analysis.normalized_owner_earnings_per_share
-    buy_price_per_share = Math.round((oe * (1 + effective_growth_rate)) / (hurdle_rate - effective_growth_rate) * 100) / 100
-  } else {
-    effective_growth_rate = dec.analysis.growth_rate
+    // Equity-bond capitalization: OE / (discount - g), floored at discount > g (guaranteed since g <= 3% < 10%)
+    const capitalizedValue = normalized_owner_earnings_per_share / (discount - effective_growth_rate)
+    const ceilingValue = valuation_multiple_ceiling * normalized_owner_earnings_per_share
+    fair_value_per_share = Math.min(capitalizedValue, ceilingValue)
+    margin_of_safety = marginOfSafetyForMoat(buffettMungerStrategy, moatClass)
+    buy_price_per_share = Math.round(fair_value_per_share * (1 - margin_of_safety) * 100) / 100
   }
 
   // Apply moat gate: if moat is below wide, override verdict to PASS regardless of model output
@@ -722,13 +752,17 @@ export async function runResearchDeepDivePhase(
       valuation: {
         moat_class: moatClass,
         moat_passes_gate,
-        hurdle_rate,
+        discount_rate: discount,
         growth_assumptions: dec.analysis.growth_assumptions,
         growth_rate: effective_growth_rate,
-        ...(growth_rate_clamped ? { growth_rate_caveats: [`Growth rate clamped from ${dec.analysis.growth_rate} to ${effective_growth_rate} (must be < hurdle_rate ${hurdle_rate}).`] } : {}),
-        normalized_owner_earnings_per_share: dec.analysis.normalized_owner_earnings_per_share,
+        roic,
+        reinvestment_rate,
+        owner_earnings_bridge: bridge,
+        normalized_owner_earnings_per_share,
+        ...(fair_value_per_share !== undefined ? { fair_value_per_share } : {}),
+        ...(margin_of_safety !== undefined ? { margin_of_safety } : {}),
         ...(buy_price_per_share !== undefined ? { buy_price_per_share } : {}),
-        value_basis: 'owner_earnings_at_hurdle',
+        value_basis: 'equity_bond',
       },
     },
     source_ids: allVerified,
@@ -775,7 +809,7 @@ export async function runResearchDeepDivePhase(
     reason: gatedReason,
     thesis_summary: dec.analysis.thesis_summary,
     evidence_summary: dec.analysis.evidence_summary,
-    valuation_rationale: moat_passes_gate ? dec.analysis.valuation_rationale : `Moat gate rejected: ${moatClass} is below the minimum investable moat (wide).`,
+    valuation_rationale: moat_passes_gate ? dec.analysis.valuation_rationale : `Moat gate rejected: ${moatClass} is below the minimum investable moat (wide). No buy price computed.`,
     shariah_rationale: dec.analysis.shariah_rationale,
     risks: dec.analysis.risks,
     open_questions: dec.analysis.open_questions,

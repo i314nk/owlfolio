@@ -1,21 +1,40 @@
 import { strategyContractSchema, type MoatClass, type StrategyContract, type TargetWeightByMoat } from './strategyContract'
 
 /** Moat classes that pass the wide-moat gate (investable). */
-const INVESTABLE_MOAT_CLASSES = new Set<MoatClass>(['wide', 'monopoly', 'inevitable'])
+const INVESTABLE_MOAT_CLASSES = new Set<MoatClass>(['wide', 'monopoly'])
 
 /**
  * Returns true when the given moat class meets the strategy's minimum investable moat gate.
- * narrow and moderate are rejected; wide, monopoly, and inevitable are investable.
+ * narrow and moderate are rejected; wide and monopoly are investable.
  */
 export function moatPassesGate(strategy: StrategyContract, moatClass: MoatClass): boolean {
   const min = strategy.valuation.min_investable_moat
-  // Use the ordered investable set relative to the configured minimum
   const investable = INVESTABLE_MOAT_CLASSES
-  // If the minimum is not in the investable set, fall back to set membership check
   if (!investable.has(min)) {
     return false
   }
   return investable.has(moatClass)
+}
+
+/**
+ * Returns the flat discount rate (10%) for all investable moat classes.
+ * The certainty difference between wide and monopoly is captured by the moat-tiered margin of safety, not the discount rate.
+ */
+export function discountRate(strategy: StrategyContract): number {
+  return strategy.valuation.discount_rate
+}
+
+/**
+ * Returns the margin of safety for the given investable moat class.
+ * wide → 30%, monopoly → 10%.
+ * Throws if called for a non-investable moat class (narrow, moderate).
+ */
+export function marginOfSafetyForMoat(strategy: StrategyContract, moatClass: MoatClass): number {
+  const mos = (strategy.valuation.margin_of_safety_by_moat as Record<string, number>)[moatClass]
+  if (mos === undefined) {
+    throw new Error(`No margin of safety for moat class '${moatClass}' — only investable classes (wide, monopoly) have margin of safety values.`)
+  }
+  return mos
 }
 
 const rawBuffettMungerStrategy = {
@@ -29,13 +48,13 @@ const rawBuffettMungerStrategy = {
       {
         id: 'moat',
         name: 'Moat specialist',
-        mandate: 'Assess durable competitive advantage, reinvestment runway, pricing power, and evidence of business inevitability.',
+        mandate: 'Assess durable competitive advantage, reinvestment runway, pricing power, and evidence of business quality.',
         required: true,
       },
       {
         id: 'financials',
         name: 'Financial quality specialist',
-        mandate: 'Normalize owner earnings, returns on capital, free cash conversion, cyclicality, and accounting quality.',
+        mandate: 'Normalize owner earnings (NI+D&A−maint capex−SBC−ΔWC), ROIC, reinvestment rate, free cash conversion, cyclicality, and accounting quality.',
         required: true,
       },
       {
@@ -53,7 +72,7 @@ const rawBuffettMungerStrategy = {
       {
         id: 'valuation',
         name: 'Valuation specialist',
-        mandate: 'Estimate conservative intrinsic value, margin of safety, and hurdle-rate fit by moat class.',
+        mandate: 'Estimate owner-earnings bridge (NI+D&A−maint capex−SBC−ΔWC), ROIC, reinvestment rate; harness computes fair value at flat 10% discount with moat-tiered margin of safety.',
         required: true,
       },
       {
@@ -107,11 +126,19 @@ const rawBuffettMungerStrategy = {
     },
   ],
   valuation: {
-    hurdle_rates: {
-      wide: 0.15,
-      monopoly: 0.12,
-      inevitable: 0.10,
+    // Flat 10% discount rate for all investable moat classes (Design B: Buffett-literal).
+    // The certainty difference is captured by the moat-tiered margin of safety below, not the discount rate.
+    discount_rate: 0.10,
+    // Moat-tiered margin of safety:
+    //   monopoly (highest certainty) → 10% MoS (high certainty = less haircut needed)
+    //   wide (base investable) → 30% MoS (less certain = larger safety buffer)
+    margin_of_safety_by_moat: {
+      wide: 0.30,
+      monopoly: 0.10,
     },
+    // Equity-bond capitalization params
+    terminal_growth_cap: 0.03,
+    valuation_multiple_ceiling: 20,
     min_investable_moat: 'wide',
     valuation_required: true,
   },
@@ -131,8 +158,7 @@ const rawBuffettMungerStrategy = {
     // narrow/moderate are rejected before sizing, so only investable classes appear here.
     target_weight_by_moat: {
       wide: 0.06,
-      monopoly: 0.09,
-      inevitable: 0.12,
+      monopoly: 0.10,
     },
     // Price-laddered entry tranches: scale into a position across three price levels.
     // Fractions are proportions of the target_weight_by_moat weight; they sum to 1.0.
@@ -149,7 +175,7 @@ export const buffettMungerStrategy = strategyContractSchema.parse(rawBuffettMung
 
 /**
  * Look up the conviction-tiered target full position weight for a given moat class.
- * Only investable moat classes (wide, monopoly, inevitable) have target weights.
+ * Only investable moat classes (wide, monopoly) have target weights.
  * narrow and moderate are rejected before sizing is considered.
  * Throws if called for a non-investable moat class.
  */
@@ -160,22 +186,7 @@ export function targetWeightForMoatClass(strategy: StrategyContract, moatClass: 
   }
   const weight = (weights as Record<string, number>)[moatClass]
   if (weight === undefined) {
-    throw new Error(`No target weight for moat class '${moatClass}' — only investable classes (wide, monopoly, inevitable) have target weights.`)
+    throw new Error(`No target weight for moat class '${moatClass}' — only investable classes (wide, monopoly) have target weights.`)
   }
   return weight
-}
-
-/**
- * Look up the hurdle rate for a given moat class from the strategy contract.
- * The harness (not the model) calls this to deterministically derive hurdle_rate
- * from the model-supplied moat_class.
- * Only investable moat classes (wide, monopoly, inevitable) have hurdle rates.
- * Throws if called for a non-investable moat class (narrow, moderate).
- */
-export function hurdleRateForMoatClass(strategy: StrategyContract, moatClass: MoatClass): number {
-  const rate = (strategy.valuation.hurdle_rates as Record<string, number>)[moatClass]
-  if (rate === undefined) {
-    throw new Error(`No hurdle rate for moat class '${moatClass}' — only investable classes (wide, monopoly, inevitable) have hurdle rates.`)
-  }
-  return rate
 }

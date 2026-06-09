@@ -144,10 +144,19 @@ function mockSynthesisDecisionForTicker(ticker: string) {
     synthesis_summary: `All mock lanes reviewed; ${companyLabel} is a WATCH candidate pending a wider margin of safety.`,
     risks: [`Valuation compression risk if earnings disappoint.`],
     open_questions: [`Refresh owner-earnings and Shariah ratio evidence after the next quarterly filing.`],
-    moat_class: 'wide' as const,
-    growth_assumptions: `${companyLabel} is assumed to grow normalized owner earnings at 8–10% per year over the next decade, decelerating to 3% in terminal growth, supported by durable pricing power and reinvestment runway.`,
-    normalized_owner_earnings_per_share: 18,
-    growth_rate: 0.08,
+    moat_class: 'monopoly' as const,
+    growth_assumptions: `${companyLabel} is assumed to compound owner earnings at the terminal growth rate (3%) — ROIC 25% > 10% discount, reinvestment rate 40%, g = min(0.40×0.25, 0.03) = 3%. Fair value: OE/(disc−g) = 14/(0.10−0.03) = 200. Monopoly MoS 10% → buy below $180.`,
+    owner_earnings_bridge: {
+      // Per-share, judgment-grounded. OE = 14+4−3−2−(−1) = 14
+      net_income: 14,
+      depreciation_amortization: 4,
+      maintenance_capex: 3,
+      maintenance_capex_proxy_tier: '50' as const,
+      stock_based_comp: 2,
+      normalized_working_capital_change: -1,  // negative = structural WC release, adds to OE
+    },
+    roic: 0.25,
+    reinvestment_rate: 0.40,
     proposed_sources: mockSourcesForTicker(ticker),
   }
 }

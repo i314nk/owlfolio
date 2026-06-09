@@ -578,11 +578,26 @@ function createValuationPanel(researchCase: AppResearchCase, marketQuote?: Marke
   if (valuation === undefined) return null
 
   const buyPrice = valuation.buy_price_per_share
-  const hurdleRate = valuation.hurdle_rate
+  const fairValue = valuation.fair_value_per_share
+  const discountRateVal = valuation.discount_rate
+  const mosVal = valuation.margin_of_safety
   const moatClass = valuation.moat_class ?? 'unknown'
-  const growthAssumptions = valuation.growth_assumptions
-  const hurdleLabel = hurdleRate !== undefined ? `${Math.round(hurdleRate * 100)}%` : 'hurdle'
-  const moatLabel = `${moatClass.toUpperCase()} MOAT · ${hurdleLabel} HURDLE`
+  const roic = valuation.roic
+  const growthRate = valuation.growth_rate
+  const reinvestmentRate = valuation.reinvestment_rate
+
+  const discountLabel = discountRateVal !== undefined ? `${Math.round(discountRateVal * 100)}%` : '10%'
+  const mosLabel = mosVal !== undefined ? `${Math.round(mosVal * 100)}%` : undefined
+  const moatLabel = mosLabel !== undefined
+    ? `${moatClass.toUpperCase()} MOAT · ${discountLabel} DISCOUNT · ${mosLabel} MOS`
+    : `${moatClass.toUpperCase()} MOAT · ${discountLabel} DISCOUNT`
+
+  // Build the ROIC gate label for growth display
+  const roicGateLabel = roic !== undefined && discountRateVal !== undefined
+    ? roic > discountRateVal
+      ? `g=${growthRate !== undefined ? `${(growthRate * 100).toFixed(0)}%` : '?'} · ROIC ${(roic * 100).toFixed(0)}% > ${(discountRateVal * 100).toFixed(0)}% hurdle`
+      : `g=0% · ROIC ${(roic * 100).toFixed(0)}% ≤ ${(discountRateVal * 100).toFixed(0)}% hurdle (no growth credit)`
+    : growthRate !== undefined ? `g=${(growthRate * 100).toFixed(0)}%` : undefined
 
   // Bar layout:
   //   Buy-below tick is anchored at 46% of the bar width.
@@ -612,6 +627,22 @@ function createValuationPanel(researchCase: AppResearchCase, marketQuote?: Marke
   const marketPriceNote = marketQuote !== undefined
     ? `Yahoo Finance · as of ${new Date(marketQuote.as_of).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`
     : 'market price unavailable / manual'
+
+  // Build fair value → buy price summary line
+  const fairValueSummary = (fairValue !== undefined && buyPrice !== undefined && mosLabel !== undefined)
+    ? `fair value $${fairValue.toFixed(2)} · less ${mosLabel} margin of safety (${moatClass.toLowerCase()}) · buy below $${buyPrice}`
+    : fairValue !== undefined
+      ? `fair value $${fairValue.toFixed(2)}`
+      : undefined
+
+  // Owner-earnings bridge summary for collapsible
+  const bridge = valuation.owner_earnings_bridge
+  const hasBridge = bridge !== undefined
+    && bridge.net_income !== undefined
+    && bridge.depreciation_amortization !== undefined
+    && bridge.maintenance_capex !== undefined
+    && bridge.stock_based_comp !== undefined
+    && bridge.normalized_working_capital_change !== undefined
 
   return createElement(
     'div',
@@ -684,7 +715,7 @@ function createValuationPanel(researchCase: AppResearchCase, marketQuote?: Marke
                 whiteSpace: 'nowrap',
               },
             },
-            `Buy below (${hurdleLabel} hurdle)`,
+            `Buy below (${discountLabel} discount)`,
           ),
           // value below
           createElement(
@@ -771,33 +802,42 @@ function createValuationPanel(researchCase: AppResearchCase, marketQuote?: Marke
         ),
       ),
     ),
-    // Buy line summary
-    buyPrice !== undefined ? createElement(
+    // Fair value → buy below summary line
+    fairValueSummary !== undefined ? createElement(
+      'p',
+      { style: { color: '#d7e2d7', fontSize: '0.92rem', lineHeight: 1.5, margin: 0 } },
+      createElement('strong', { style: { color: 'var(--owl-color-accent-bright)' } }, fairValueSummary),
+    ) : buyPrice !== undefined ? createElement(
       'p',
       { style: { color: '#d7e2d7', fontSize: '0.92rem', lineHeight: 1.5, margin: 0 } },
       'Buy below ',
       createElement('strong', { style: { color: 'var(--owl-color-accent-bright)' } }, `$${buyPrice}`),
-      ` · value at the ${hurdleLabel} ${moatClass.toLowerCase()}-moat hurdle (margin of safety embedded)`,
-      growthAssumptions !== undefined ? ` · ${growthAssumptions}` : null,
     ) : createElement(
       'p',
       { style: { color: 'var(--owl-color-muted)', fontSize: '0.9rem', lineHeight: 1.5, margin: 0 } },
       'Buy-price target not yet computed — run the valuation lane.',
     ),
-    // Metrics row: buy-below, hurdle, growth est., and market/gap when available
+    // ROIC gate / growth note
+    roicGateLabel !== undefined ? createElement(
+      'p',
+      { style: { color: 'var(--owl-color-muted)', fontFamily: 'var(--owl-font-mono)', fontSize: '0.78rem', lineHeight: 1.4, margin: '0.2rem 0 0' } },
+      roicGateLabel,
+    ) : null,
+    // Metrics row: fair value, buy-below, discount, MoS, growth, and market/gap when available
     createElement(
       'div',
       {
         style: {
           display: 'grid',
           gap: '0.7rem',
-          gridTemplateColumns: marketQuote !== undefined ? 'repeat(4, 1fr)' : 'repeat(3, 1fr)',
+          gridTemplateColumns: marketQuote !== undefined ? 'repeat(5, 1fr)' : 'repeat(4, 1fr)',
           marginTop: '1rem',
         },
       },
-      createMetricCell('Value @ hurdle', buyPrice !== undefined ? `$${buyPrice}` : 'Pending', true),
-      createMetricCell('Hurdle', hurdleRate !== undefined ? `${Math.round(hurdleRate * 100)}%` : 'Pending', false),
-      createMetricCell('Growth est.', valuation.growth_rate !== undefined ? `${Math.round(valuation.growth_rate * 100)}%` : 'Pending', false),
+      createMetricCell('Fair value', fairValue !== undefined ? `$${fairValue.toFixed(2)}` : 'Pending', true),
+      createMetricCell('Buy below', buyPrice !== undefined ? `$${buyPrice}` : 'Pending', true),
+      createMetricCell('Discount', discountLabel, false),
+      createMetricCell('Margin of safety', mosLabel !== undefined ? mosLabel : 'Pending', false),
       ...(marketQuote !== undefined ? [
         createMetricCell(
           `Market (${marketQuote.currency})`,
@@ -818,6 +858,42 @@ function createValuationPanel(researchCase: AppResearchCase, marketQuote?: Marke
         },
       },
       gapIsGood ? `Market is ${gapLabel}` : `Market is +${gapLabel}`,
+    ) : null,
+    // Collapsible owner-earnings bridge
+    hasBridge && bridge !== undefined ? createElement(
+      'details',
+      { style: { marginTop: '0.5rem' } },
+      createElement(
+        'summary',
+        { style: { color: 'var(--owl-color-gold-bright)', cursor: 'pointer', fontSize: '0.85rem', fontWeight: 800 } },
+        'Owner-earnings bridge',
+      ),
+      createElement(
+        'div',
+        {
+          style: {
+            background: 'var(--owl-color-panel-deep)',
+            border: '1px solid rgba(148, 163, 184, 0.12)',
+            borderRadius: '0.7rem',
+            fontFamily: 'var(--owl-font-mono)',
+            fontSize: '0.8rem',
+            marginTop: '0.5rem',
+            padding: '0.75rem 1rem',
+          },
+        },
+        createElement('p', { style: { color: '#dbe3ef', margin: '0 0 0.4rem' } },
+          `NI $${bridge.net_income} + D&A $${bridge.depreciation_amortization} − maint capex $${bridge.maintenance_capex} − SBC $${bridge.stock_based_comp} − ΔWC ${bridge.normalized_working_capital_change !== undefined ? (bridge.normalized_working_capital_change < 0 ? `($${bridge.normalized_working_capital_change})` : `$${bridge.normalized_working_capital_change}`) : '?'}`,
+        ),
+        createElement('p', { style: { color: '#bbf7d0', fontWeight: 800, margin: 0 } },
+          `= OE $${valuation.normalized_owner_earnings_per_share?.toFixed(2) ?? '?'}/sh`,
+        ),
+        reinvestmentRate !== undefined && roic !== undefined ? createElement('p', { style: { color: '#9aa4b7', margin: '0.4rem 0 0' } },
+          `ROIC ${(roic * 100).toFixed(0)}% · reinvestment rate ${(reinvestmentRate * 100).toFixed(0)}%`,
+        ) : null,
+        bridge.maintenance_capex_proxy_tier !== undefined ? createElement('p', { style: { color: '#9aa4b7', fontSize: '0.73rem', margin: '0.25rem 0 0' } },
+          `Maint. capex proxy tier: ${bridge.maintenance_capex_proxy_tier}th percentile of D&A`,
+        ) : null,
+      ),
     ) : null,
   )
 }
@@ -923,8 +999,10 @@ function createDecisionEvidence(researchCase: AppResearchCase) {
 function createFallbackValuationText(researchCase: AppResearchCase): string {
   const valuation = researchCase.valuation
   if (valuation?.buy_price_per_share !== undefined) {
-    const hurdle = valuation.hurdle_rate !== undefined ? `${Math.round(valuation.hurdle_rate * 100)}%` : 'hurdle'
-    return `Owner-earnings value at the ${hurdle} ${(valuation.moat_class ?? 'wide')}-moat hurdle ≈ $${valuation.buy_price_per_share}/sh. Quality is not in question; price is.`
+    const discount = valuation.discount_rate !== undefined ? `${Math.round(valuation.discount_rate * 100)}%` : '10%'
+    const mos = valuation.margin_of_safety !== undefined ? ` · ${Math.round(valuation.margin_of_safety * 100)}% margin of safety (${(valuation.moat_class ?? 'wide').toLowerCase()})` : ''
+    const fair = valuation.fair_value_per_share !== undefined ? `fair value $${valuation.fair_value_per_share.toFixed(2)} → ` : ''
+    return `${fair}buy below $${valuation.buy_price_per_share}/sh · ${discount} flat discount${mos}. Quality is not in question; price is.`
   }
   if (researchCase.owner_earnings_valuation !== undefined) {
     return researchCase.owner_earnings_valuation.summary

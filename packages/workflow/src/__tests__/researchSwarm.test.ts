@@ -121,9 +121,14 @@ function swarmFakeProvider() {
         risks: ['Valuation risk'],
         open_questions: ['Margin of safety needed'],
         moat_class: 'wide',
-        growth_assumptions: 'Steady 8% owner earnings growth for 10 years, 3% terminal.',
-        normalized_owner_earnings_per_share: 18,
-        growth_rate: 0.08,
+        growth_assumptions: 'Steady growth; ROIC 20% > 10% discount; terminal g=3%.',
+        owner_earnings_bridge: {
+          net_income: 18, depreciation_amortization: 4, maintenance_capex: 3,
+          maintenance_capex_proxy_tier: '50', stock_based_comp: 2,
+          normalized_working_capital_change: 0,
+        },
+        roic: 0.20,
+        reinvestment_rate: 0.40,
         proposed_sources: [src('src_dec_1')],
       }
     }),
@@ -191,9 +196,14 @@ function swarmFakeProviderWithLaneIds(lanes: readonly string[]) {
         risks: ['Valuation risk'],
         open_questions: ['Margin of safety needed'],
         moat_class: 'wide',
-        growth_assumptions: 'Steady 8% owner earnings growth for 10 years, 3% terminal.',
-        normalized_owner_earnings_per_share: 18,
-        growth_rate: 0.08,
+        growth_assumptions: 'Steady growth; ROIC 20% > 10% discount; terminal g=3%.',
+        owner_earnings_bridge: {
+          net_income: 18, depreciation_amortization: 4, maintenance_capex: 3,
+          maintenance_capex_proxy_tier: '50', stock_based_comp: 2,
+          normalized_working_capital_change: 0,
+        },
+        roic: 0.20,
+        reinvestment_rate: 0.40,
         proposed_sources: [src('src_dec_partial_1')],
       }
     }),
@@ -363,9 +373,14 @@ describe('runStrategyResearchSwarm', () => {
             risks: ['Valuation risk'],
             open_questions: ['Margin of safety needed'],
             moat_class: 'wide',
-            growth_assumptions: 'Steady 8% owner earnings growth for 10 years, 3% terminal.',
-            normalized_owner_earnings_per_share: 18,
-            growth_rate: 0.08,
+            growth_assumptions: 'Steady growth; ROIC 20% > 10% discount; terminal g=3%.',
+            owner_earnings_bridge: {
+              net_income: 18, depreciation_amortization: 4, maintenance_capex: 3,
+              maintenance_capex_proxy_tier: '50', stock_based_comp: 2,
+              normalized_working_capital_change: 0,
+            },
+            roic: 0.20,
+            reinvestment_rate: 0.40,
             proposed_sources: [src('src_dec_good_1'), src('src_dec_bad_1')],
           }
         }),
@@ -600,7 +615,13 @@ describe('runStrategyResearchSwarm with MockProvider + deterministic grounder', 
     expect(caseProjection?.shariah_status).toBeDefined()
   })
 
-  it('projects moat_class, hurdle_rate, and buy_price_per_share from the analysis event', async () => {
+  it('projects moat_class, discount_rate, roic, reinvestment_rate, OE bridge, fair_value, MoS, and buy_price from the analysis event (Design B)', async () => {
+    // MockProvider emits monopoly moat with:
+    //   bridge: NI=14, D&A=4, maint=3, SBC=2, dNWC=-1 → OE = 14+4-3-2-(-1) = 14
+    //   roic=0.25, reinvestment_rate=0.40
+    // Harness computes:
+    //   discount=0.10, g=min(0.40*0.25, 0.03)=0.03, fair=min(14/(0.10-0.03), 20*14)=min(200,280)=200
+    //   MoS(monopoly)=0.10, buy=round(200*0.90,2)=180
     const sourceLedgerPath = await mkdtemp(join(tmpdir(), 'owlfolio-mock-swarm-valuation-'))
     const store = new InMemoryEventStore()
     const provider = new MockProvider()
@@ -627,22 +648,34 @@ describe('runStrategyResearchSwarm with MockProvider + deterministic grounder', 
     const caseProjection = projections.find((c) => c.research_case_id === 'rc_mock_valuation')
 
     expect(caseProjection).toBeDefined()
-    // moat_class comes from the model
-    expect(caseProjection?.valuation?.moat_class).toBe('wide')
-    // moat_passes_gate: wide passes
+    // moat_class: mock emits monopoly
+    expect(caseProjection?.valuation?.moat_class).toBe('monopoly')
+    // moat_passes_gate: monopoly passes
     expect(caseProjection?.valuation?.moat_passes_gate).toBe(true)
-    // hurdle_rate is deterministically computed: wide => 0.15 (MoS embedded)
-    expect(caseProjection?.valuation?.hurdle_rate).toBe(0.15)
+    // discount_rate: flat 10% (Design B)
+    expect(caseProjection?.valuation?.discount_rate).toBe(0.10)
     // growth_assumptions is a non-empty string
     expect(typeof caseProjection?.valuation?.growth_assumptions).toBe('string')
     expect((caseProjection?.valuation?.growth_assumptions ?? '').length).toBeGreaterThan(0)
-    // normalized_owner_earnings_per_share from mock is 18
-    expect(caseProjection?.valuation?.normalized_owner_earnings_per_share).toBe(18)
-    // growth_rate from mock is 0.08
-    expect(caseProjection?.valuation?.growth_rate).toBe(0.08)
-    // buy_price_per_share = 18 * 1.08 / (0.15 - 0.08) = 19.44 / 0.07 = 277.71
-    expect(caseProjection?.valuation?.buy_price_per_share).toBe(277.71)
+    // harness-computed OE from bridge: 14+4-3-2-(-1) = 14
+    expect(caseProjection?.valuation?.normalized_owner_earnings_per_share).toBe(14)
+    // roic from mock: 0.25
+    expect(caseProjection?.valuation?.roic).toBe(0.25)
+    // reinvestment_rate from mock: 0.40
+    expect(caseProjection?.valuation?.reinvestment_rate).toBe(0.40)
+    // g = min(0.40*0.25, 0.03) = 0.03
+    expect(caseProjection?.valuation?.growth_rate).toBe(0.03)
+    // fair_value = min(14/(0.10-0.03), 20*14) = min(200, 280) = 200
+    expect(caseProjection?.valuation?.fair_value_per_share).toBeCloseTo(200, 5)
+    // margin_of_safety (monopoly): 0.10
+    expect(caseProjection?.valuation?.margin_of_safety).toBe(0.10)
+    // buy_price = round(200 * 0.90, 2) = 180
+    expect(caseProjection?.valuation?.buy_price_per_share).toBe(180)
     // value_basis
-    expect(caseProjection?.valuation?.value_basis).toBe('owner_earnings_at_hurdle')
+    expect(caseProjection?.valuation?.value_basis).toBe('equity_bond')
+    // owner_earnings_bridge projected
+    expect(caseProjection?.valuation?.owner_earnings_bridge).toBeDefined()
+    expect(caseProjection?.valuation?.owner_earnings_bridge?.net_income).toBe(14)
+    expect(caseProjection?.valuation?.owner_earnings_bridge?.normalized_working_capital_change).toBe(-1)
   })
 })

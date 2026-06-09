@@ -44,13 +44,27 @@ export type ResearchCaseSpecialistFindingProjection = {
   owner_earnings_valuation?: ResearchCaseOwnerEarningsValuationProjection
 }
 
+export type OwnerEarningsBridgeProjection = {
+  net_income?: number
+  depreciation_amortization?: number
+  maintenance_capex?: number
+  maintenance_capex_proxy_tier?: string
+  stock_based_comp?: number
+  normalized_working_capital_change?: number
+}
+
 export type ResearchCaseValuationProjection = {
   moat_class?: string
   moat_passes_gate?: boolean
-  hurdle_rate?: number
+  discount_rate?: number
   growth_assumptions?: string
   growth_rate?: number
+  roic?: number
+  reinvestment_rate?: number
+  owner_earnings_bridge?: OwnerEarningsBridgeProjection
   normalized_owner_earnings_per_share?: number
+  fair_value_per_share?: number
+  margin_of_safety?: number
   buy_price_per_share?: number
   value_basis?: string
 }
@@ -129,6 +143,27 @@ function getNumber(payload: Record<string, unknown>, key: string): number | unde
   return typeof value === 'number' && isFinite(value) ? value : undefined
 }
 
+function getOwnerEarningsBridgeProjection(val: Record<string, unknown>): OwnerEarningsBridgeProjection | undefined {
+  const bridge = val['owner_earnings_bridge']
+  if (!isRecord(bridge)) return undefined
+
+  const projected: OwnerEarningsBridgeProjection = {}
+  const net_income = getNumber(bridge, 'net_income')
+  if (net_income !== undefined) projected.net_income = net_income
+  const depreciation_amortization = getNumber(bridge, 'depreciation_amortization')
+  if (depreciation_amortization !== undefined) projected.depreciation_amortization = depreciation_amortization
+  const maintenance_capex = getNumber(bridge, 'maintenance_capex')
+  if (maintenance_capex !== undefined) projected.maintenance_capex = maintenance_capex
+  const maintenance_capex_proxy_tier = getString(bridge, 'maintenance_capex_proxy_tier')
+  if (maintenance_capex_proxy_tier !== undefined) projected.maintenance_capex_proxy_tier = maintenance_capex_proxy_tier
+  const stock_based_comp = getNumber(bridge, 'stock_based_comp')
+  if (stock_based_comp !== undefined) projected.stock_based_comp = stock_based_comp
+  const normalized_working_capital_change = getNumber(bridge, 'normalized_working_capital_change')
+  if (normalized_working_capital_change !== undefined) projected.normalized_working_capital_change = normalized_working_capital_change
+
+  return Object.keys(projected).length === 0 ? undefined : projected
+}
+
 function getValuation(payload: Record<string, unknown>): ResearchCaseValuationProjection | undefined {
   const value = payload['valuation']
   if (!isRecord(value)) {
@@ -140,14 +175,24 @@ function getValuation(payload: Record<string, unknown>): ResearchCaseValuationPr
   if (moat_class !== undefined) projected.moat_class = moat_class
   const moat_passes_gate = typeof value['moat_passes_gate'] === 'boolean' ? value['moat_passes_gate'] : undefined
   if (moat_passes_gate !== undefined) projected.moat_passes_gate = moat_passes_gate
+  const discount_rate = getNumber(value, 'discount_rate')
+  if (discount_rate !== undefined) projected.discount_rate = discount_rate
   const growth_assumptions = getString(value, 'growth_assumptions')
   if (growth_assumptions !== undefined) projected.growth_assumptions = growth_assumptions
-  const hurdle_rate = getNumber(value, 'hurdle_rate')
-  if (hurdle_rate !== undefined) projected.hurdle_rate = hurdle_rate
   const growth_rate = getNumber(value, 'growth_rate')
   if (growth_rate !== undefined) projected.growth_rate = growth_rate
+  const roic = getNumber(value, 'roic')
+  if (roic !== undefined) projected.roic = roic
+  const reinvestment_rate = getNumber(value, 'reinvestment_rate')
+  if (reinvestment_rate !== undefined) projected.reinvestment_rate = reinvestment_rate
+  const owner_earnings_bridge = getOwnerEarningsBridgeProjection(value)
+  if (owner_earnings_bridge !== undefined) projected.owner_earnings_bridge = owner_earnings_bridge
   const normalized_owner_earnings_per_share = getNumber(value, 'normalized_owner_earnings_per_share')
   if (normalized_owner_earnings_per_share !== undefined) projected.normalized_owner_earnings_per_share = normalized_owner_earnings_per_share
+  const fair_value_per_share = getNumber(value, 'fair_value_per_share')
+  if (fair_value_per_share !== undefined) projected.fair_value_per_share = fair_value_per_share
+  const margin_of_safety = getNumber(value, 'margin_of_safety')
+  if (margin_of_safety !== undefined) projected.margin_of_safety = margin_of_safety
   const buy_price_per_share = getNumber(value, 'buy_price_per_share')
   if (buy_price_per_share !== undefined) projected.buy_price_per_share = buy_price_per_share
   const value_basis = getString(value, 'value_basis')
