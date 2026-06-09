@@ -495,7 +495,7 @@ describe('CommandCenter', () => {
     expect(css).toContain('--owl-color-accent-bright: #34d399;')
     expect(css).toContain('--owl-color-fiduciary: #d6b25e;')
     expect(css).toContain('--owl-color-sand: #f3dfb1;')
-    expect(css).toContain('radial-gradient(circle at 16% 0%, rgba(22, 163, 74, 0.16), transparent 28rem)')
+    expect(css).toContain('radial-gradient(circle at 14% 0%, rgba(22, 163, 74, 0.14), transparent 26rem)')
     expect(css).toContain('.owl-command-reference-grid')
     expect(css).toContain('align-items: stretch;')
     expect(css).toContain('grid-template-columns: repeat(2, minmax(0, 1fr));')
