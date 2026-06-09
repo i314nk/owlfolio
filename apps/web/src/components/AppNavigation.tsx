@@ -4,28 +4,48 @@ import { useEffect } from 'react'
 import { createElement, type FunctionComponent, type ReactNode } from 'react'
 import { usePathname } from 'next/navigation'
 
-const navItems = [
-  { href: '/', label: 'Command Center' },
-  { href: '/research', label: 'Research' },
-  { href: '/strategy', label: 'Strategy' },
-  { href: '/watchlist', label: 'Watchlist' },
-  { href: '/portfolio', label: 'Portfolio' },
-  { href: '/accounting/monthly', label: 'Accounting' },
-  { href: '/purification', label: 'Purification' },
-  { href: '/pipeline', label: 'Pipeline' },
-  { href: '/audit', label: 'Audit' },
-  { href: '/providers', label: 'Providers' },
-  { href: '/learn', label: 'Learn' },
-  { href: '/settings/automation', label: 'Settings' },
-  { href: '/settings/data-safety', label: 'Advanced / Data Safety' },
+type NavItem = { href: string; label: string }
+
+type NavSection = { title: string; items: NavItem[] }
+
+const navSections: NavSection[] = [
+  {
+    title: 'Workflow',
+    items: [
+      { href: '/', label: 'Command Center' },
+      { href: '/research', label: 'Research' },
+      { href: '/watchlist', label: 'Watchlist' },
+      { href: '/portfolio', label: 'Portfolio' },
+    ],
+  },
+  {
+    title: 'Books & compliance',
+    items: [
+      { href: '/accounting/monthly', label: 'Accounting' },
+      { href: '/purification', label: 'Purification' },
+    ],
+  },
+  {
+    title: 'Operations & evidence',
+    items: [
+      { href: '/pipeline', label: 'Pipeline' },
+      { href: '/audit', label: 'Audit' },
+      { href: '/providers', label: 'Providers' },
+    ],
+  },
+  {
+    title: 'Reference',
+    items: [
+      { href: '/learn', label: 'Learn' },
+      { href: '/settings/automation', label: 'Settings' },
+      { href: '/settings/data-safety', label: 'Advanced / Data Safety' },
+    ],
+  },
 ]
 
 export type AppNavigationProps = {
   isSetupComplete?: boolean
 }
-
-const primaryNavItems = navItems.slice(0, 7)
-const referenceNavItems = navItems.slice(7)
 
 const SEARCH_TRIGGER_HREF = '/audit?focus=1'
 
@@ -114,8 +134,7 @@ export const AppNavigation: FunctionComponent<AppNavigationProps> = function App
       createElement(
         'div',
         { className: 'owl-nav-sections' },
-        renderNavSection('Main workflow', primaryNavItems, pathname),
-        renderNavSection('Evidence and settings', referenceNavItems, pathname),
+        ...navSections.map((section) => renderNavSection(section.title, section.items, pathname)),
       ),
       isSetupComplete ? null : createElement(SetupCard),
       createElement(
@@ -130,7 +149,7 @@ export const AppNavigation: FunctionComponent<AppNavigationProps> = function App
 
 function renderNavSection(
   title: string,
-  items: typeof navItems,
+  items: NavItem[],
   pathname: string,
 ): ReactNode {
   return createElement(

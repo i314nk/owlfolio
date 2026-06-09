@@ -14,6 +14,17 @@ export default function LearnPage() {
         description="Owlfolio is an automation-first local-use candidate. Deep process details belong here so the primary screens stay action-oriented and honest about local/provider boundaries."
       />
 
+      <section className="owl-card" id="strategy-overview">
+        <p className="owl-card-eyebrow">Investing approach</p>
+        <h2>The Buffett-Munger strategy</h2>
+        <p className="owl-card-body">
+          Owlfolio runs the Buffett-Munger quality-and-margin-of-safety strategy as its default direction. The dedicated strategy page explains how the screen, thesis gates, and review cadence translate that philosophy into the research and watchlist pipeline.
+        </p>
+        <div style={{ display: 'flex', justifyContent: 'flex-start', marginTop: '0.8rem' }}>
+          <OwlButtonLink href="/strategy">The Buffett-Munger strategy in detail →</OwlButtonLink>
+        </div>
+      </section>
+
       <section className="owl-card" id="automation">
         <p className="owl-card-eyebrow">Automation boundaries</p>
         <h2>What changes and what you confirm</h2>

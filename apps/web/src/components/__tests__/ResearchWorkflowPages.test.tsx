@@ -87,7 +87,7 @@ describe('research and watchlist workflow pages', () => {
 
       const html = renderToStaticMarkup(createElement(WatchlistPanel, { items: watchlistItems }))
 
-      expect(html).toContain('Watchlist drafts')
+      expect(html).toContain('Watchlist')
       expect(html).toContain('COST')
       expect(html).toContain('buffett-munger')
       expect(html).toContain('Durable quality compounder; wait for better margin of safety.')
@@ -210,9 +210,9 @@ describe('research and watchlist workflow pages', () => {
       const watchlistItems = await getAppWatchlistItemsFromStore(store, 'personal-local')
       const html = renderToStaticMarkup(createElement(WatchlistPanel, { items: watchlistItems }))
 
-      expect(html).toContain('Watchlist drafts')
+      expect(html).toContain('Watchlist')
       expect(html).toContain('Personal local ledger watchlist state.')
-      expect(html).toContain('No watchlist drafts yet. Create a research case first.')
+      expect(html).toContain('No watchlist items yet. Create a research case first.')
     } finally {
       store.close()
     }

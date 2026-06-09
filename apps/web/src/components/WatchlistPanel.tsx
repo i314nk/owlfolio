@@ -28,7 +28,7 @@ export function WatchlistPanel({ items, mode = 'demo' }: WatchlistPanelProps) {
     },
     createElement(RouteHeader, {
       kicker: 'Watchlist desk',
-      title: 'Watchlist drafts',
+      title: 'Watchlist',
       description: 'Personal local ledger watchlist state.',
     }),
     ...(items.length === 0
@@ -39,7 +39,7 @@ export function WatchlistPanel({ items, mode = 'demo' }: WatchlistPanelProps) {
             createElement(
               'p',
               { style: { color: 'var(--owl-color-muted)', margin: 0 } },
-              'No watchlist drafts yet. Create a research case first.',
+              'No watchlist items yet. Create a research case first.',
             ),
           ),
         ]

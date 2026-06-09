@@ -179,11 +179,29 @@ function createCockpitOverview(dashboard: AppCommandCenter) {
   )
 }
 
+function describeTopQueueItem(item: AppCommandCenter['approval_queue'][number]): string {
+  switch (item.decision_type) {
+    case 'watchlist_confirmation': {
+      const shariah = item.shariah_impact.toLowerCase()
+      if (shariah.includes('blocked') || shariah.includes('pending')) {
+        return `${item.target_label ?? item.title}: clear the Shariah gate`
+      }
+      return `Confirm ${item.target_label ?? item.title}`
+    }
+    case 'holding_review':
+      return `Review ${item.target_label ?? item.title}`
+    default:
+      return item.title
+  }
+}
+
 function getPrimaryPriorityHeadline(dashboard: AppCommandCenter): string {
   const pendingActions = dashboard.pipeline_counts.pending_user_actions
+  const topItem = dashboard.approval_queue[0]
 
   if (pendingActions > 0) {
-    return `${pendingActions} ${pendingActions === 1 ? 'user decision is' : 'user decisions are'} waiting`
+    const waiting = `${pendingActions} ${pendingActions === 1 ? 'user decision is' : 'user decisions are'} waiting`
+    return topItem === undefined ? waiting : `${describeTopQueueItem(topItem)} — ${waiting}`
   }
 
   if (isProviderReadinessWarning(dashboard.provider_status)) {

@@ -284,16 +284,47 @@ function buildWorkerProposalApprovalItems(events: LedgerEventEnvelope<unknown>[]
   })
 }
 
+/**
+ * Explicit urgency rank for the operating-priority queue (ascending = more urgent):
+ *   1. Blocking gates — a Shariah gate that blocks/pends and stops a state change.
+ *   2. Confirmations — watchlist confirmations, holding opens.
+ *   3. Reviews — holding reviews / reanalysis.
+ *   4. Reminders / informational — worker proposals and other informational drafts.
+ */
+export function priorityRank(item: CommandCenterApprovalQueueItem): number {
+  if (item.decision_type === 'watchlist_confirmation') {
+    // A blocked or pending Shariah gate must be cleared before the state change.
+    const shariah = item.shariah_impact.toLowerCase()
+    if (shariah.includes('blocked') || shariah.includes('pending')) {
+      return 1
+    }
+    return 2
+  }
+
+  if (item.decision_type === 'holding_review') {
+    return 3
+  }
+
+  // worker_proposal and anything else: reminders / informational.
+  return 4
+}
+
 function buildApprovalQueue(
   pendingDraftItems: WatchlistItem[],
   pendingHoldingReviewDrafts: HoldingItem[],
   events: LedgerEventEnvelope<unknown>[],
 ): CommandCenterApprovalQueueItem[] {
-  return [
+  const items = [
     ...buildWatchlistApprovalItems(pendingDraftItems, events),
     ...buildHoldingReviewApprovalItems(pendingHoldingReviewDrafts, events),
     ...buildWorkerProposalApprovalItems(events),
   ]
+
+  // Stable sort by urgency rank; insertion order (recency within a rank) is preserved.
+  return items
+    .map((item, index) => ({ item, index }))
+    .sort((left, right) => priorityRank(left.item) - priorityRank(right.item) || left.index - right.index)
+    .map((entry) => entry.item)
 }
 
 export function projectCommandCenterSummary(

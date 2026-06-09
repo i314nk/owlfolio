@@ -1,7 +1,26 @@
 import { describe, expect, it } from 'vitest'
 
 import type { LedgerEventEnvelope } from '../eventEnvelope'
-import { projectCommandCenterSummary } from '../projections/commandCenterProjection'
+import type { CommandCenterApprovalQueueItem } from '../projections/commandCenterProjection'
+import { priorityRank, projectCommandCenterSummary } from '../projections/commandCenterProjection'
+
+function makeQueueItem(
+  overrides: Partial<CommandCenterApprovalQueueItem> & Pick<CommandCenterApprovalQueueItem, 'id' | 'decision_type'>,
+): CommandCenterApprovalQueueItem {
+  return {
+    group_label: 'group',
+    title: overrides.id,
+    actor_label: 'provider',
+    href: '/',
+    audit_event_id: overrides.id,
+    source_ids: [],
+    before_summary: 'before',
+    after_summary: 'after',
+    shariah_impact: 'PASS — allowed.',
+    accounting_impact: 'none',
+    ...overrides,
+  }
+}
 
 const events: LedgerEventEnvelope<unknown>[] = [
   {
@@ -532,5 +551,36 @@ describe('projectCommandCenterSummary', () => {
       { event_id: 'evt_created_again', label: 'research_case_created by user:user_local' },
       { event_id: 'evt_watchlist', label: 'watchlist_draft_created by user:user_local' },
     ])
+  })
+})
+
+describe('priorityRank', () => {
+  it('ranks blocking Shariah gates above confirmations, reviews, and reminders', () => {
+    const blockingGate = makeQueueItem({ id: 'gate', decision_type: 'watchlist_confirmation', shariah_impact: 'HARAM — blocked.' })
+    const pendingGate = makeQueueItem({ id: 'pending-gate', decision_type: 'watchlist_confirmation', shariah_impact: 'Shariah gate decision pending.' })
+    const confirmation = makeQueueItem({ id: 'confirm', decision_type: 'watchlist_confirmation', shariah_impact: 'PASS — allowed.' })
+    const review = makeQueueItem({ id: 'review', decision_type: 'holding_review' })
+    const reminder = makeQueueItem({ id: 'reminder', decision_type: 'worker_proposal' })
+
+    expect(priorityRank(blockingGate)).toBe(1)
+    expect(priorityRank(pendingGate)).toBe(1)
+    expect(priorityRank(confirmation)).toBe(2)
+    expect(priorityRank(review)).toBe(3)
+    expect(priorityRank(reminder)).toBe(4)
+  })
+
+  it('sorts a mixed queue gates -> confirmations -> reviews -> reminders (stable within a rank)', () => {
+    const reminder = makeQueueItem({ id: 'reminder', decision_type: 'worker_proposal' })
+    const review = makeQueueItem({ id: 'review', decision_type: 'holding_review' })
+    const confirmationA = makeQueueItem({ id: 'confirm-a', decision_type: 'watchlist_confirmation', shariah_impact: 'PASS — allowed.' })
+    const confirmationB = makeQueueItem({ id: 'confirm-b', decision_type: 'watchlist_confirmation', shariah_impact: 'PASS — allowed.' })
+    const gate = makeQueueItem({ id: 'gate', decision_type: 'watchlist_confirmation', shariah_impact: 'HARAM — blocked.' })
+
+    const sorted = [reminder, review, confirmationA, confirmationB, gate]
+      .map((item, index) => ({ item, index }))
+      .sort((left, right) => priorityRank(left.item) - priorityRank(right.item) || left.index - right.index)
+      .map((entry) => entry.item.id)
+
+    expect(sorted).toEqual(['gate', 'confirm-a', 'confirm-b', 'review', 'reminder'])
   })
 })

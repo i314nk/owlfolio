@@ -58,7 +58,7 @@ test('personal-local mode can create the first research case from the command ce
   await expect(page.getByRole('heading', { name: /start setup/i })).toBeVisible()
   await page.getByRole('navigation', { name: /primary owlfolio navigation/i }).getByRole('link', { name: /watchlist/i }).click()
   await expect(page).toHaveURL('/watchlist')
-  await expect(page.getByText('No watchlist drafts yet. Create a research case first.')).toBeVisible()
+  await expect(page.getByText('No watchlist items yet. Create a research case first.')).toBeVisible()
   await page.getByRole('navigation', { name: /primary owlfolio navigation/i }).getByRole('link', { name: /portfolio/i }).click()
   await expect(page).toHaveURL('/portfolio')
   await expect(page.getByRole('heading', { name: /no holdings are open yet/i })).toBeVisible()
