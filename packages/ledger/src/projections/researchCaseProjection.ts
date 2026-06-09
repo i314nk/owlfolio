@@ -54,6 +54,9 @@ export type ResearchCaseValuationProjection = {
 
 export type ResearchCaseProjection = {
   research_case_id: string
+  version: number
+  supersedes_research_case_id?: string
+  superseded: boolean
   stage: ResearchCaseStage
   candidate_id?: string
   company_id?: string
@@ -216,6 +219,7 @@ function applyString(
     | 'valuation_rationale'
     | 'shariah_rationale'
     | 'confidence'
+    | 'supersedes_research_case_id'
   >,
   value: string | undefined,
 ): void {
@@ -321,6 +325,8 @@ function upsertCase(
 
   const created: ResearchCaseProjection = {
     research_case_id: researchCaseId,
+    version: 1,
+    superseded: false,
     stage,
     updated_at: updatedAt,
   }
@@ -342,6 +348,11 @@ export function projectResearchCases(events: LedgerEventEnvelope<unknown>[]): Re
       applyString(researchCase, 'ticker', getString(event.payload, 'ticker'))
       applyString(researchCase, 'strategy_id', getString(event.payload, 'strategy_id'))
       applyString(researchCase, 'strategy_version', getString(event.payload, 'strategy_version'))
+      const version = getNumber(event.payload, 'version')
+      if (version !== undefined) {
+        researchCase.version = version
+      }
+      applyString(researchCase, 'supersedes_research_case_id', getString(event.payload, 'supersedes_research_case_id'))
       continue
     }
 
@@ -549,5 +560,42 @@ export function projectResearchCases(events: LedgerEventEnvelope<unknown>[]): Re
     }
   }
 
+  // Compute superseded: a case is superseded if any other case has supersedes_research_case_id pointing to it.
+  const supersededIds = new Set<string>()
+  for (const researchCase of researchCases.values()) {
+    if (researchCase.supersedes_research_case_id !== undefined) {
+      supersededIds.add(researchCase.supersedes_research_case_id)
+    }
+  }
+  for (const researchCase of researchCases.values()) {
+    researchCase.superseded = supersededIds.has(researchCase.research_case_id)
+  }
+
   return [...researchCases.values()]
+}
+
+/**
+ * Returns all versions of research cases for a given ticker, ordered by version ascending.
+ * The last entry (highest version) is the canonical latest.
+ */
+export function projectResearchCaseVersionsForTicker(events: LedgerEventEnvelope<unknown>[], ticker: string): ResearchCaseProjection[] {
+  const all = projectResearchCases(events)
+  return all
+    .filter((researchCase) => researchCase.ticker?.toUpperCase() === ticker.toUpperCase())
+    .sort((a, b) => a.version - b.version)
+}
+
+/**
+ * Returns the latest non-superseded research case for the given ticker, or undefined if none exists.
+ */
+export function findLatestResearchCaseForTicker(events: LedgerEventEnvelope<unknown>[], ticker: string): ResearchCaseProjection | undefined {
+  const versions = projectResearchCaseVersionsForTicker(events, ticker)
+  // The latest version is the one with the highest version number and not superseded
+  // (which by definition is the last in sorted order since superseded means a newer one points to it)
+  const nonSuperseded = versions.filter((researchCase) => !researchCase.superseded)
+  if (nonSuperseded.length === 0) {
+    return undefined
+  }
+  // Return the highest version among non-superseded (should be exactly one in normal flow)
+  return nonSuperseded.reduce((best, current) => current.version > best.version ? current : best)
 }

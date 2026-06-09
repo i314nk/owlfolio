@@ -26,6 +26,7 @@
     "./researchSwarm": "./src/researchSwarm.ts",
     "./strategyResearchPipeline": "./src/strategyResearchPipeline.ts",
     "./watchlistWorkflow": "./src/watchlistWorkflow.ts",
-    "./workflowContract": "./src/workflowContract.ts"
+    "./workflowContract": "./src/workflowContract.ts",
+    "./researchCasePolicy": "./src/researchCasePolicy.ts"
   }
 }

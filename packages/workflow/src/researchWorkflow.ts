@@ -16,6 +16,8 @@ type ResearchCaseCreatedPayload = {
   ticker: string
   strategy_id: string
   strategy_version: string
+  version: number
+  supersedes_research_case_id?: string
 }
 
 export type ResearchCaseCreated = LedgerEventEnvelope<ResearchCaseCreatedPayload> & ResearchCaseCreatedPayload
@@ -28,6 +30,8 @@ export type CreateResearchCaseCommand = {
   strategy_version?: string
   actor_id: string
   idempotency_key?: string
+  version?: number
+  supersedes_research_case_id?: string
 }
 
 type BuffettMungerAnalysisPayload = {
@@ -154,6 +158,8 @@ export async function createResearchCase(store: ResearchEventStore, command: Cre
     company_id: command.company_id,
     ticker: command.ticker,
     ...selectedStrategy,
+    version: command.version ?? 1,
+    ...(command.supersedes_research_case_id === undefined ? {} : { supersedes_research_case_id: command.supersedes_research_case_id }),
   }
 
   const event: LedgerEventEnvelope<ResearchCaseCreatedPayload> = {

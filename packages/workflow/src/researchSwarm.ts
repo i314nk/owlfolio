@@ -186,6 +186,8 @@ export type RunStrategyResearchSwarmCommand = {
   model_id: string
   decision_id: string
   source_ledger_path: string
+  version?: number
+  supersedes_research_case_id?: string
 }
 
 // ---------------------------------------------------------------------------
@@ -240,6 +242,8 @@ export async function runStrategyResearchSwarm(
     ...(command.strategy_version === undefined ? {} : { strategy_version: command.strategy_version }),
     actor_id: command.actor_id,
     ...(command.idempotency_key === undefined ? {} : { idempotency_key: command.idempotency_key }),
+    ...(command.version === undefined ? {} : { version: command.version }),
+    ...(command.supersedes_research_case_id === undefined ? {} : { supersedes_research_case_id: command.supersedes_research_case_id }),
   })
 
   // ---- Quick screen agent (Shariah-first gate) ----

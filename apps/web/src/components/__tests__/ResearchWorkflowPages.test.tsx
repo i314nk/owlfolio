@@ -219,6 +219,8 @@ describe('research and watchlist workflow pages', () => {
   it('renders selected-strategy quick screen evidence as a first-class company screen before watchlist mutation', () => {
     const quickScreenedResearchCase: AppResearchCase = {
       research_case_id: 'rc_msft_quick_001',
+      version: 1,
+      superseded: false,
       stage: 'quick_screened',
       company_id: 'company_msft',
       ticker: 'MSFT',
@@ -277,6 +279,8 @@ describe('research and watchlist workflow pages', () => {
   it('renders deep-dive lanes with an owner-earnings valuation card', () => {
     const deepDiveResearchCase = {
       research_case_id: 'rc_msft_deep_001',
+      version: 1,
+      superseded: false,
       stage: 'deep_dive_completed',
       company_id: 'company_msft',
       ticker: 'MSFT',
@@ -400,6 +404,8 @@ describe('research and watchlist workflow pages', () => {
     const fullThesis = 'Microsoft remains a high-quality Buffett-Munger business: durable ecosystem moats across Microsoft 365, Azure, Windows, GitHub/LinkedIn/Gaming, very high profitability, strong balance sheet, and resilient cash generation, but the current valuation leaves too little margin of safety and Shariah evidence still needs a documented ratio review.'
     const decisionDraftedResearchCase: AppResearchCase = {
       research_case_id: 'rc_msft_001',
+      version: 1,
+      superseded: false,
       stage: 'decision_drafted',
       company_id: 'company_msft',
       ticker: 'MSFT',
@@ -489,6 +495,8 @@ describe('research and watchlist workflow pages', () => {
   it('renders the personal-local watchlist promotion action only for drafted decisions', () => {
     const decisionDraftedResearchCase: AppResearchCase = {
       research_case_id: 'rc_msft_001',
+      version: 1,
+      superseded: false,
       stage: 'decision_drafted',
       company_id: 'company_msft',
       ticker: 'MSFT',

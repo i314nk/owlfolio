@@ -7,7 +7,7 @@ import {
   type DiscoveryCandidateProjection,
 } from '@owlfolio/ledger/projections/discoveryCandidateProjection'
 import type { ResearchCaseProjection } from '@owlfolio/ledger/projections/researchCaseProjection'
-import { projectResearchCases } from '@owlfolio/ledger/projections/researchCaseProjection'
+import { findLatestResearchCaseForTicker, projectResearchCases } from '@owlfolio/ledger/projections/researchCaseProjection'
 import {
   projectResearchCaseTimeline,
   type ResearchCaseTimelineEntry,
@@ -35,6 +35,7 @@ import {
   defaultSourceLedgerStorage,
   type SourceLedgerBundle,
 } from '@owlfolio/workflow'
+import { selectResearchCaseAction } from '@owlfolio/workflow/researchCasePolicy'
 import { runStrategyResearchSwarm, type GroundFn } from '@owlfolio/workflow/researchSwarm'
 import { groundProposedSources, groundProposedSourcesDeterministic } from '@owlfolio/workflow/sourceGrounding'
 
@@ -173,6 +174,15 @@ export async function enqueueResearchRun(
   await assertConfiguredProviderIsReady(state)
 
   const store = new SQLiteEventStore(state.config.ledger_path)
+  // Look up prior case for versioning before appending.
+  const priorCase = findLatestResearchCaseForTicker(await store.list(), ticker)
+  const action = selectResearchCaseAction({
+    trigger: 'user',
+    now: new Date(),
+    ...(priorCase !== undefined ? { latestCase: { research_case_id: priorCase.research_case_id, created_at: priorCase.updated_at, version: priorCase.version } } : {}),
+  })
+  const version = action === 'create_first' ? 1 : (priorCase?.version ?? 0) + 1
+  const supersedesId = action === 'create_version' ? priorCase?.research_case_id : undefined
   try {
     const requestedEvent = await store.append({
       event_id: `evt_research_run_requested_${researchCaseId}`,
@@ -238,6 +248,8 @@ export async function enqueueResearchRun(
           model_id: resolveModelIdForProvider(state.config),
           decision_id: decisionId,
           source_ledger_path: state.config.source_ledger_path,
+          version,
+          ...(supersedesId === undefined ? {} : { supersedes_research_case_id: supersedesId }),
         },
         { ground },
       )
