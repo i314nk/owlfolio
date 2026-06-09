@@ -1,0 +1,140 @@
+import { createElement } from 'react'
+import { renderToStaticMarkup } from 'react-dom/server'
+import { describe, expect, it } from 'vitest'
+
+import type { ResearchCaseProjection } from '@owlfolio/ledger/projections/researchCaseProjection'
+
+import { ResearchLibrary } from '../ResearchLibrary'
+
+function researchCase(overrides: Partial<ResearchCaseProjection> & Pick<ResearchCaseProjection, 'research_case_id'>): ResearchCaseProjection {
+  return {
+    version: 1,
+    superseded: false,
+    stage: 'discovered',
+    updated_at: '2026-06-01T00:00:00.000Z',
+    ...overrides,
+  }
+}
+
+describe('ResearchLibrary', () => {
+  it('renders the library header, the new-research action, and the live pipeline link', () => {
+    const html = renderToStaticMarkup(
+      createElement(ResearchLibrary, {
+        mode: 'personal-local',
+        selectedStrategyLabel: 'Selected strategy: buffett-munger',
+        cases: [],
+      }),
+    )
+
+    expect(html).toContain('Research library')
+    expect(html).toContain('New research')
+    expect(html).toContain('Manual ticker intake')
+    expect(html).toContain('href="/research/new"')
+    expect(html).toContain('href="/pipeline"')
+    expect(html).toContain('Selected strategy: buffett-munger')
+  })
+
+  it('shows an honest empty state when there are no cases', () => {
+    const html = renderToStaticMarkup(
+      createElement(ResearchLibrary, {
+        mode: 'personal-local',
+        selectedStrategyLabel: 'Selected strategy: buffett-munger',
+        cases: [],
+      }),
+    )
+
+    expect(html).toContain('No research yet — start with Manual ticker intake.')
+    expect(html).not.toContain('Buy candidates')
+    expect(html).not.toContain('In progress')
+  })
+
+  it('groups cases by verdict and renders dossier links with verdict chips', () => {
+    const html = renderToStaticMarkup(
+      createElement(ResearchLibrary, {
+        mode: 'personal-local',
+        selectedStrategyLabel: 'Selected strategy: buffett-munger',
+        cases: [
+          researchCase({
+            research_case_id: 'rc_cost_1',
+            ticker: 'COST',
+            company_id: 'Costco Wholesale',
+            stage: 'decision_drafted',
+            decision: 'WATCH',
+            moat: 'wide',
+            shariah_status: 'conditional',
+            updated_at: '2026-06-05T00:00:00.000Z',
+          }),
+          researchCase({
+            research_case_id: 'rc_msft_1',
+            ticker: 'MSFT',
+            stage: 'holding',
+            investment_verdict: 'BUY',
+            updated_at: '2026-06-04T00:00:00.000Z',
+          }),
+          researchCase({
+            research_case_id: 'rc_xyz_1',
+            ticker: 'XYZ',
+            stage: 'rejected',
+            updated_at: '2026-06-03T00:00:00.000Z',
+          }),
+          researchCase({
+            research_case_id: 'rc_abc_1',
+            ticker: 'ABC',
+            stage: 'deep_dive_started',
+            updated_at: '2026-06-02T00:00:00.000Z',
+          }),
+        ],
+      }),
+    )
+
+    expect(html).toContain('In progress')
+    expect(html).toContain('Buy candidates')
+    expect(html).toContain('Watch')
+    expect(html).toContain('Avoided')
+
+    expect(html).toContain('href="/research/rc_cost_1"')
+    expect(html).toContain('href="/research/rc_msft_1"')
+    expect(html).toContain('COST')
+    expect(html).toContain('Costco Wholesale')
+
+    expect(html).toContain('>BUY<')
+    expect(html).toContain('>WATCH<')
+    expect(html).toContain('>AVOID<')
+    expect(html).toContain('>IN PROGRESS<')
+
+    // verdict-relevant meta chips
+    expect(html).toContain('wide')
+    expect(html).toContain('conditional')
+  })
+
+  it('keeps only the latest non-superseded version per ticker', () => {
+    const html = renderToStaticMarkup(
+      createElement(ResearchLibrary, {
+        mode: 'personal-local',
+        selectedStrategyLabel: 'Selected strategy: buffett-munger',
+        cases: [
+          researchCase({
+            research_case_id: 'rc_nvda_v1',
+            ticker: 'NVDA',
+            version: 1,
+            superseded: true,
+            stage: 'decision_drafted',
+            decision: 'PASS',
+          }),
+          researchCase({
+            research_case_id: 'rc_nvda_v2',
+            ticker: 'NVDA',
+            version: 2,
+            superseded: false,
+            stage: 'decision_drafted',
+            decision: 'WATCH',
+          }),
+        ],
+      }),
+    )
+
+    expect(html).toContain('href="/research/rc_nvda_v2"')
+    expect(html).not.toContain('href="/research/rc_nvda_v1"')
+    expect(html).toContain('v2')
+  })
+})

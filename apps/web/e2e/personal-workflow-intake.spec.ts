@@ -48,7 +48,7 @@ test('personal-local mode can create the first research case from the command ce
 
   await primaryNav.getByRole('link', { name: /research/i }).click()
   await expect(page).toHaveURL('/research')
-  await expect(page.getByRole('heading', { name: /strategy pipeline cockpit/i })).toBeVisible()
+  await expect(page.getByRole('heading', { name: /research library/i })).toBeVisible()
   await expect(page.getByRole('link', { name: /manual ticker intake/i })).toBeVisible()
   await page.getByRole('link', { name: /manual ticker intake/i }).click()
   await expect(page).toHaveURL('/research/new')
@@ -82,7 +82,7 @@ test('personal-local mode can create the first research case from the command ce
 
   await page.getByRole('link', { name: /open research cockpit/i }).first().click()
   await expect(page).toHaveURL('/research')
-  await expect(page.getByRole('heading', { name: /strategy pipeline cockpit/i })).toBeVisible()
+  await expect(page.getByRole('heading', { name: /research library/i })).toBeVisible()
   await page.getByRole('link', { name: /manual ticker intake/i }).click()
   await expect(page).toHaveURL('/research/new')
 

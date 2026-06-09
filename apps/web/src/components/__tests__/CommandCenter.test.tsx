@@ -745,12 +745,14 @@ describe('CommandCenter', () => {
     expect(learnPageSource).toContain('id="fallback"')
   })
 
-  it('documents the /research landing route as a strategy pipeline cockpit entrypoint', () => {
+  it('documents the /research landing route as a research library entrypoint', () => {
     const researchPageSource = readFileSync('apps/web/src/app/research/page.tsx', 'utf8')
 
-    expect(researchPageSource).toContain('ResearchPipelineCockpit')
-    expect(researchPageSource).toContain('getAppResearchPipelineFromStore')
+    expect(researchPageSource).toContain('ResearchLibrary')
+    expect(researchPageSource).toContain('projectResearchCases')
     expect(researchPageSource).toContain('selectedStrategyLabel')
+    // The live stage board now lives on /pipeline; /research must not duplicate it.
+    expect(researchPageSource).not.toContain('ResearchPipelineCockpit')
     expect(researchPageSource).not.toContain('Start research intake')
     expect(researchPageSource).not.toContain('Buffett-Munger default')
   })

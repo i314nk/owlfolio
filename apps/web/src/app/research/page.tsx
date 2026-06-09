@@ -1,11 +1,9 @@
-import Link from 'next/link'
-
+import { projectResearchCases } from '@owlfolio/ledger/projections/researchCaseProjection'
 import { SQLiteEventStore } from '@owlfolio/ledger/sqliteEventStore'
 
-import { ResearchPipelineCockpit } from '../../components/ResearchPipelineCockpit'
+import { ResearchLibrary } from '../../components/ResearchLibrary'
 import { resolveDemoLedgerPath, seedDemoLedger } from '../../lib/demo'
 import { getOnboardingState } from '../../lib/onboarding'
-import { getAppResearchPipelineFromStore } from '../../lib/workflow'
 
 export default async function ResearchLandingPage() {
   const state = await getOnboardingState()
@@ -19,20 +17,20 @@ export default async function ResearchLandingPage() {
       await seedDemoLedger(store)
     }
 
-    const pipeline = await getAppResearchPipelineFromStore(store, state.config.mode, selectedStrategyId)
-    const selectedStrategyLabel = pipeline.selectedStrategyLabel
+    const events = await store.list()
+    const cases = projectResearchCases(events)
 
     return (
       <main className="owl-route-frame owl-route-frame-wide">
         <p className="owl-route-back-row">
-          <Link className="owl-back-link owl-focusable" href="/">
+          <a className="owl-back-link owl-focusable" href="/">
             ← Back to command center
-          </Link>
+          </a>
         </p>
-        <ResearchPipelineCockpit
+        <ResearchLibrary
           mode={state.config.mode}
-          sections={pipeline.sections}
-          selectedStrategyLabel={selectedStrategyLabel}
+          selectedStrategyLabel={`Selected strategy: ${selectedStrategyId}`}
+          cases={cases}
         />
       </main>
     )
