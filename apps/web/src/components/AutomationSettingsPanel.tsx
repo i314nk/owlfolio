@@ -28,11 +28,11 @@ const panelStyle: CSSProperties = {
 }
 
 const sectionStyle: CSSProperties = {
-  background: 'linear-gradient(180deg, rgba(243, 223, 177, 0.06), rgba(243, 223, 177, 0.035))',
-  border: '1px solid rgba(182, 201, 173, 0.11)',
-  borderRadius: '0.9rem',
-  boxShadow: '0 24px 80px rgba(0, 0, 0, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.04)',
-  padding: 'clamp(1rem, 2vw, 1.35rem)',
+  background: 'var(--owl-color-panel-elevated)',
+  border: '1px solid var(--owl-color-border)',
+  borderRadius: 'var(--owl-radius-panel)',
+  boxShadow: 'var(--owl-shadow-panel)',
+  padding: 'clamp(1.15rem, 2vw, 1.3rem)',
   display: 'grid',
   gap: '0.9rem',
 }
@@ -44,32 +44,31 @@ const pausedSectionStyle: CSSProperties = {
 }
 
 const sectionEyebrowStyle: CSSProperties = {
-  color: 'var(--owl-color-accent-bright)',
+  color: 'var(--owl-color-gold)',
   fontFamily: 'var(--owl-font-mono)',
   fontSize: '0.72rem',
-  fontWeight: 600,
+  fontWeight: 800,
   letterSpacing: '0.08em',
   margin: '0 0 0.15rem',
   textTransform: 'uppercase',
 }
 
 const sectionTitleStyle: CSSProperties = {
-  color: 'var(--owl-color-text)',
-  fontSize: '1.2rem',
-  fontWeight: 640,
-  letterSpacing: '-0.03em',
+  color: 'var(--owl-color-gold-bright)',
+  fontSize: '1.05rem',
+  fontWeight: 800,
   margin: '0 0 0.4rem',
 }
 
 const controlRowStyle: CSSProperties = {
   alignItems: 'start',
-  background: 'rgba(255, 255, 255, 0.026)',
-  border: '1px solid rgba(182, 201, 173, 0.11)',
-  borderRadius: '0.85rem',
+  background: 'var(--owl-color-panel)',
+  border: '1px solid var(--owl-color-border)',
+  borderRadius: 'var(--owl-radius-card)',
   display: 'grid',
   gap: '0.35rem',
   gridTemplateColumns: 'minmax(0, 1fr) auto',
-  padding: '0.72rem',
+  padding: '0.9rem 1rem',
 }
 
 const controlLabelStyle: CSSProperties = {

@@ -14,17 +14,19 @@ const cardGridStyle: CSSProperties = {
 }
 
 const cardStyle: CSSProperties = {
-  background: 'rgba(255, 255, 255, 0.035)',
-  border: '1px solid rgba(148, 163, 184, 0.18)',
-  borderRadius: '1.25rem',
-  boxShadow: '0 20px 45px rgba(0, 0, 0, 0.18)',
+  background: 'var(--owl-color-panel-elevated)',
+  border: '1px solid var(--owl-color-border)',
+  borderRadius: 'var(--owl-radius-panel)',
+  boxShadow: 'var(--owl-shadow-panel)',
   display: 'grid',
   gap: '0.75rem',
-  padding: '1.25rem',
+  padding: '1.15rem 1.3rem',
 }
 
 const subtleTextStyle: CSSProperties = {
-  color: '#cbd5e1',
+  color: 'var(--owl-color-muted)',
+  fontSize: '0.88rem',
+  lineHeight: 1.5,
   margin: 0,
 }
 
@@ -66,14 +68,14 @@ export function ProviderStatusPanel({ rows }: ProviderStatusPanelProps) {
       createElement(
         'section',
         { style: { ...cardStyle, marginBottom: '1rem' } },
-        createElement('h2', { style: { fontSize: '1.25rem', margin: 0 } }, 'Provider readiness summary'),
+        createElement('h2', { className: 'owl-section-title' }, 'Provider readiness summary'),
         createElement(
           'div',
           { style: { display: 'grid', gap: '0.75rem', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' } },
           createElement(
             'section',
-            { style: { background: 'var(--owl-color-panel-deep)', border: '1px solid rgba(148, 163, 184, 0.18)', borderRadius: '0.9rem', display: 'grid', gap: '0.5rem', padding: '0.8rem' } },
-            createElement('h3', { style: { fontSize: '1rem', margin: 0 } }, 'Allowed-use buckets'),
+            { style: { background: 'var(--owl-color-panel-deep)', border: '1px solid var(--owl-color-border)', borderRadius: '0.9rem', display: 'grid', gap: '0.5rem', padding: '0.8rem' } },
+            createElement('h3', { className: 'owl-section-title', style: { fontSize: '0.95rem' } }, 'Allowed-use buckets'),
             ...[
               ['Demo-only', summary.allowedBuckets.demoOnly],
               ['Blocked', summary.allowedBuckets.blocked],
@@ -84,8 +86,8 @@ export function ProviderStatusPanel({ rows }: ProviderStatusPanelProps) {
           ),
           createElement(
             'section',
-            { style: { background: 'var(--owl-color-panel-deep)', border: '1px solid rgba(148, 163, 184, 0.18)', borderRadius: '0.9rem', display: 'grid', gap: '0.5rem', padding: '0.8rem' } },
-            createElement('h3', { style: { fontSize: '1rem', margin: 0 } }, 'Catalog support buckets'),
+            { style: { background: 'var(--owl-color-panel-deep)', border: '1px solid var(--owl-color-border)', borderRadius: '0.9rem', display: 'grid', gap: '0.5rem', padding: '0.8rem' } },
+            createElement('h3', { className: 'owl-section-title', style: { fontSize: '0.95rem' } }, 'Catalog support buckets'),
             ...[
               ['Certified', summary.catalogBuckets.certified],
               ['Experimental', summary.catalogBuckets.experimental],
@@ -95,7 +97,7 @@ export function ProviderStatusPanel({ rows }: ProviderStatusPanelProps) {
           createElement(
             'section',
             { style: { background: 'var(--owl-color-panel-deep)', border: '1px solid var(--owl-color-border)', borderRadius: '0.9rem', display: 'grid', gap: '0.5rem', padding: '0.8rem' } },
-            createElement('h3', { style: { fontSize: '1rem', margin: 0 } }, 'Effective support buckets'),
+            createElement('h3', { className: 'owl-section-title', style: { fontSize: '0.95rem' } }, 'Effective support buckets'),
             ...[
               ['Certified', summary.effectiveBuckets.certified],
               ['Experimental', summary.effectiveBuckets.experimental],
@@ -112,10 +114,10 @@ export function ProviderStatusPanel({ rows }: ProviderStatusPanelProps) {
       createElement(
         'section',
         { style: { ...cardStyle, marginBottom: '1rem' } },
-        createElement('h2', { style: { fontSize: '1.25rem', margin: 0 } }, 'Readiness glossary'),
+        createElement('h2', { className: 'owl-section-title' }, 'Readiness glossary'),
         createElement(
           'dl',
-          { style: { color: '#cbd5e1', display: 'grid', gap: '0.5rem', margin: 0 } },
+          { style: { color: 'var(--owl-color-muted)', display: 'grid', gap: '0.5rem', margin: 0 } },
           ...glossaryEntries.flatMap((entry) => [
             createElement('dt', { key: `${entry.term}-term`, style: { fontWeight: 900 } }, entry.term),
             createElement('dd', { key: `${entry.term}-definition`, style: { margin: 0 } }, entry.definition),
@@ -131,7 +133,7 @@ export function ProviderStatusPanel({ rows }: ProviderStatusPanelProps) {
           return createElement(
             'article',
             { key: row.provider_id, style: providerCardStyle(row) },
-            createElement('h2', { style: { fontSize: '1.4rem', margin: 0 } }, row.label),
+            createElement('h2', { style: { fontSize: '1.3rem', fontWeight: 800, color: 'var(--owl-color-gold-bright)', margin: 0 } }, row.label),
             createElement('p', { style: subtleTextStyle }, row.description),
             createElement(
               'section',
@@ -145,7 +147,7 @@ export function ProviderStatusPanel({ rows }: ProviderStatusPanelProps) {
             createElement(
               'section',
               { 'aria-label': `${row.label} provider primary status`, style: { display: 'grid', gap: '0.5rem' } },
-              createElement('h3', { style: { fontSize: '1rem', margin: '0 0 0.35rem' } }, 'Primary status and action'),
+              createElement('h3', { className: 'owl-section-title', style: { fontSize: '0.95rem', margin: '0 0 0.35rem' } }, 'Primary status and action'),
               ...renderStatusRows(primaryStatusRows),
             ),
             createElement(
@@ -160,7 +162,7 @@ export function ProviderStatusPanel({ rows }: ProviderStatusPanelProps) {
               createElement(
                 'section',
                 null,
-                createElement('h3', { style: { fontSize: '1rem', margin: '0.5rem 0 0.35rem' } }, 'Latest certification report'),
+                createElement('h3', { className: 'owl-section-title', style: { fontSize: '0.95rem', margin: '0.5rem 0 0.35rem' } }, 'Latest certification report'),
                 row.last_certification_report === undefined
                   ? createElement('p', { style: subtleTextStyle }, 'Workflow certification: No certification report recorded')
                   : renderCertificationReport(row),
@@ -168,10 +170,10 @@ export function ProviderStatusPanel({ rows }: ProviderStatusPanelProps) {
               createElement(
                 'section',
                 null,
-                createElement('h3', { style: { fontSize: '1rem', margin: '0.5rem 0 0.35rem' } }, 'Limitations'),
+                createElement('h3', { className: 'owl-section-title', style: { fontSize: '0.95rem', margin: '0.5rem 0 0.35rem' } }, 'Limitations'),
                 createElement(
                   'ul',
-                  { style: { color: '#cbd5e1', margin: 0, paddingLeft: '1.2rem' } },
+                  { style: { color: 'var(--owl-color-muted)', margin: 0, paddingLeft: '1.2rem' } },
                   ...row.limitations.map((limitation) => createElement('li', { key: limitation }, limitation)),
                 ),
               ),
@@ -448,7 +450,7 @@ function renderStatusRows(statusRows: Array<ProviderStatusRow['status_rows'][num
       },
       createElement(
         'p',
-        { style: { color: '#f7f8ff', fontWeight: 900, margin: 0 } },
+        { style: { color: 'var(--owl-color-text)', fontWeight: 900, margin: 0 } },
         `${status.label}${status.label === 'Effective support' ? ' (gating source of truth)' : ''}: ${status.value}`,
       ),
       createElement('p', { style: { ...subtleTextStyle, fontSize: '0.9rem' } }, status.description),

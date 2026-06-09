@@ -16,16 +16,16 @@ const shellStyle: CSSProperties = {
 }
 
 const cardStyle: CSSProperties = {
-  background: 'rgba(255, 255, 255, 0.035)',
-  border: '1px solid rgba(148, 163, 184, 0.16)',
-  borderRadius: '1rem',
-  boxShadow: '0 18px 50px rgba(0, 0, 0, 0.18)',
-  padding: '1.25rem',
+  background: 'var(--owl-color-panel-elevated)',
+  border: '1px solid var(--owl-color-border)',
+  borderRadius: 'var(--owl-radius-panel)',
+  boxShadow: 'var(--owl-shadow-panel)',
+  padding: '1.15rem 1.3rem',
 }
 
 const metricGridStyle: CSSProperties = {
   display: 'grid',
-  gap: '1rem',
+  gap: '0.8rem',
   gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
 }
 
@@ -115,8 +115,8 @@ function createPurificationOperationsCockpit(report: AppPurificationReport) {
   return createElement(
     'section',
     { 'aria-label': 'Purification operations cockpit', style: { ...cardStyle, background: 'var(--owl-color-panel-deep)', borderColor: 'rgba(20, 184, 166, 0.34)' } },
-    createElement('h2', { style: { fontSize: '1.25rem', margin: 0 } }, 'Purification operations cockpit'),
-    createElement('p', { style: { color: '#9aa4b7', margin: '0.45rem 0 0' } }, 'Quarterly calculations can surface obligations automatically from Shariah and accounting evidence; only the user records external charity payments.'),
+    createElement('h2', { className: 'owl-section-title' }, 'Purification operations cockpit'),
+    createElement('p', { style: { color: 'var(--owl-color-muted)', margin: '0.45rem 0 0' } }, 'Quarterly calculations can surface obligations automatically from Shariah and accounting evidence; only the user records external charity payments.'),
     createElement(
       'div',
       { style: { display: 'grid', gap: '0.75rem', gridTemplateColumns: 'repeat(auto-fit, minmax(15rem, 1fr))', marginTop: '1rem' } },
@@ -132,9 +132,9 @@ function createPurificationOperationsCockpit(report: AppPurificationReport) {
 function statusMetric(label: string, value: string) {
   return createElement(
     'article',
-    { style: { background: 'rgba(148, 163, 184, 0.08)', border: '1px solid rgba(148, 163, 184, 0.18)', borderRadius: '0.85rem', padding: '0.9rem' } },
-    createElement('p', { style: { color: '#9aa4b7', fontSize: '0.76rem', fontWeight: 900, letterSpacing: '0.06em', margin: 0, textTransform: 'uppercase' } }, label),
-    createElement('p', { style: { color: '#f8fafc', fontWeight: 850, lineHeight: 1.4, margin: '0.35rem 0 0' } }, value),
+    { style: { background: 'var(--owl-color-panel)', border: '1px solid var(--owl-color-border)', borderRadius: 'var(--owl-radius-card)', padding: '0.9rem 1rem' } },
+    createElement('p', { className: 'owl-label' }, label),
+    createElement('p', { style: { color: 'var(--owl-color-text)', fontWeight: 700, lineHeight: 1.4, margin: '0.35rem 0 0', fontSize: '0.95rem' } }, value),
   )
 }
 
@@ -142,10 +142,10 @@ function createPurificationLearnPanel(limitations: string[]) {
   return createElement(
     'details',
     { 'aria-label': 'Purification limitations', style: { ...cardStyle, background: 'rgba(251, 191, 36, 0.08)', borderColor: 'rgba(251, 191, 36, 0.28)' } },
-    createElement('summary', { style: { color: '#fbbf24', cursor: 'pointer', fontSize: '1.05rem', fontWeight: 900 } }, 'Learn: purification controls and caveats'),
+    createElement('summary', { style: { color: 'var(--owl-color-amber)', cursor: 'pointer', fontSize: '1.05rem', fontWeight: 900 } }, 'Learn: purification controls and caveats'),
     createElement(
       'ul',
-      { style: { color: '#fbbf24', display: 'grid', gap: '0.4rem', margin: '0.8rem 0 0', paddingLeft: '1.25rem' } },
+      { style: { color: 'var(--owl-color-amber)', display: 'grid', gap: '0.4rem', margin: '0.8rem 0 0', paddingLeft: '1.25rem' } },
       ...limitations.map((limitation) => createElement('li', { key: limitation }, limitation)),
     ),
   )
@@ -158,13 +158,13 @@ function createPurificationTrustNotice() {
     createElement(
       'div',
       { style: { alignItems: 'center', display: 'flex', flexWrap: 'wrap', gap: '0.6rem', marginBottom: '0.7rem' } },
-      createElement('h2', { style: { fontSize: '1.15rem', margin: 0 } }, 'Tracking aid, not a ruling or payment service'),
+      createElement('h2', { className: 'owl-section-title' }, 'Tracking aid, not a ruling or payment service'),
       createElement(StatusBadge, { tone: 'compliance' }, 'Shariah-by-design'),
       createElement(StatusBadge, { tone: 'manual' }, 'Manual payment status'),
     ),
     createElement(
       'p',
-      { style: { color: '#9aa4b7', lineHeight: 1.55, margin: 0 } },
+      { style: { color: 'var(--owl-color-muted)', lineHeight: 1.55, margin: 0 } },
       'Purification data is an auditable local tracking aid. It does not replace a qualified Shariah ruling, legal/tax advice, a broker statement, or an external charity payment receipt.',
     ),
   )
@@ -174,7 +174,7 @@ function createSummaryCards(cards: PurificationSummaryCard[]) {
   return createElement(
     'section',
     { 'aria-label': 'Purification balance summary', style: cardStyle },
-    createElement('h2', { style: { fontSize: '1.35rem', margin: '0 0 1rem' } }, 'Owed / paid / remaining'),
+    createElement('h2', { className: 'owl-section-title', style: { margin: '0 0 0.8rem' } }, 'Owed / paid / remaining'),
     cards.length === 0
       ? createPurificationZeroState()
       : createElement(
@@ -192,11 +192,11 @@ function createSummaryCards(cards: PurificationSummaryCard[]) {
 function createPurificationZeroState() {
   return createElement(
     'div',
-    { style: { color: '#9aa4b7', display: 'grid', gap: '0.5rem' } },
+    { style: { color: 'var(--owl-color-muted)', display: 'grid', gap: '0.5rem' } },
     createElement('p', { style: { margin: 0 } }, 'No purification obligations have been recorded yet.'),
     createElement('p', { style: { fontWeight: 800, margin: 0 } }, '$0.00 owed, $0.00 paid, and $0.00 remaining until an auditable obligation exists.'),
     createElement('p', { style: { margin: 0 } }, 'Next step: create a sourced obligation from Shariah/accounting evidence, then record the charity payment manually.'),
-    createElement('p', { style: { color: '#9aa4b7', margin: 0 } }, 'Source/audit preview: Shariah evidence, accounting snapshot, and payment receipt links will appear here.'),
+    createElement('p', { style: { color: 'var(--owl-color-muted)', margin: 0 } }, 'Source/audit preview: Shariah evidence, accounting snapshot, and payment receipt links will appear here.'),
     createElement(
       'div',
       { style: { display: 'flex', flexWrap: 'wrap', gap: '0.6rem', marginTop: '0.25rem' } },
@@ -211,14 +211,14 @@ function createObligations(obligations: PurificationObligationProjection[]) {
   return createElement(
     'section',
     { 'aria-label': 'Purification obligations', style: cardStyle },
-    createElement('h2', { style: { fontSize: '1.35rem', margin: '0 0 1rem' } }, 'Obligations'),
+    createElement('h2', { className: 'owl-section-title', style: { margin: '0 0 0.8rem' } }, 'Obligations'),
     obligations.length === 0
       ? createElement(
         'div',
-        { style: { color: '#9aa4b7', display: 'grid', gap: '0.5rem' } },
+        { style: { color: 'var(--owl-color-muted)', display: 'grid', gap: '0.5rem' } },
         createElement('p', { style: { margin: 0 } }, 'No obligations are present yet.'),
         createElement('p', { style: { margin: 0 } }, 'Payment action appears only after an obligation exists and the user has an external payment to record.'),
-        createElement('p', { style: { color: '#9aa4b7', margin: 0 } }, 'Audit/source links preview: obligation evidence, accounting snapshots, and policy sources will be linked here.'),
+        createElement('p', { style: { color: 'var(--owl-color-muted)', margin: 0 } }, 'Audit/source links preview: obligation evidence, accounting snapshots, and policy sources will be linked here.'),
       )
       : createElement(
         'div',
@@ -245,10 +245,10 @@ function createEvidenceChecklist(obligations: PurificationObligationProjection[]
   return createElement(
     'section',
     { 'aria-label': 'Purification evidence checklist', style: cardStyle },
-    createElement('h2', { style: { fontSize: '1.35rem', margin: '0 0 0.75rem' } }, 'Evidence checklist'),
+    createElement('h2', { className: 'owl-section-title', style: { margin: '0 0 0.75rem' } }, 'Evidence checklist'),
     createElement(
       'p',
-      { style: { color: '#9aa4b7', lineHeight: 1.55, margin: '0 0 0.85rem' } },
+      { style: { color: 'var(--owl-color-muted)', lineHeight: 1.55, margin: '0 0 0.85rem' } },
       obligationCount === 0
         ? 'Future obligations need sourced policy evidence, an accounting snapshot, a calculation basis, and a user payment receipt before they can be treated as auditable.'
         : 'Each obligation should remain traceable from Shariah policy evidence through accounting context and user-recorded external payment receipts.',
@@ -300,11 +300,11 @@ function createPayments(payments: PurificationPaymentProjection[], obligationCou
   return createElement(
     'section',
     { 'aria-label': 'Purification payment history', style: cardStyle },
-    createElement('h2', { style: { fontSize: '1.35rem', margin: '0 0 1rem' } }, 'Payment history'),
+    createElement('h2', { className: 'owl-section-title', style: { margin: '0 0 0.8rem' } }, 'Payment history'),
     payments.length === 0
       ? createElement(
         'div',
-        { style: { color: '#9aa4b7', display: 'grid', gap: '0.5rem' } },
+        { style: { color: 'var(--owl-color-muted)', display: 'grid', gap: '0.5rem' } },
         createElement('p', { style: { margin: 0 } }, 'No explicit purification payments have been recorded yet.'),
         createElement('p', { style: { margin: 0 } }, emptyPaymentCopy),
       )
@@ -324,36 +324,36 @@ function obligationCard(obligation: PurificationObligationProjection) {
   return createElement(
     'article',
     { style: { border: '1px solid rgba(148, 163, 184, 0.16)', borderRadius: '0.85rem', padding: '1rem' } },
-    createElement('h3', { style: { fontSize: '1.2rem', margin: '0 0 0.5rem' } }, obligation.holding_id),
-    createElement('p', { style: { color: '#cbd5e1', margin: '0.25rem 0' } }, `Period: ${obligation.period_start} → ${obligation.period_end}`),
-    createElement('p', { style: { color: '#cbd5e1', margin: '0.25rem 0' } }, `Status: ${obligation.status}`),
-    createElement('p', { style: { color: '#cbd5e1', margin: '0.25rem 0' } }, `Owed: ${formatMoney(obligation.amount, obligation.currency)}; paid: ${formatMoney(obligation.paid_amount, obligation.currency)}; remaining: ${formatMoney(obligation.remaining_amount, obligation.currency)}`),
+    createElement('h3', { className: 'owl-section-title', style: { fontSize: '1.05rem', margin: '0 0 0.5rem' } }, obligation.holding_id),
+    createElement('p', { style: { color: 'var(--owl-color-muted)', margin: '0.25rem 0' } }, `Period: ${obligation.period_start} → ${obligation.period_end}`),
+    createElement('p', { style: { color: 'var(--owl-color-muted)', margin: '0.25rem 0' } }, `Status: ${obligation.status}`),
+    createElement('p', { style: { color: 'var(--owl-color-muted)', margin: '0.25rem 0' } }, `Owed: ${formatMoney(obligation.amount, obligation.currency)}; paid: ${formatMoney(obligation.paid_amount, obligation.currency)}; remaining: ${formatMoney(obligation.remaining_amount, obligation.currency)}`),
     obligation.shariah_status === undefined
       ? null
-      : createElement('p', { style: { color: '#cbd5e1', margin: '0.25rem 0' } }, `Shariah: ${obligation.shariah_status}${obligation.shariah_policy_basis === undefined ? '' : ` (${obligation.shariah_policy_basis})`}`),
+      : createElement('p', { style: { color: 'var(--owl-color-muted)', margin: '0.25rem 0' } }, `Shariah: ${obligation.shariah_status}${obligation.shariah_policy_basis === undefined ? '' : ` (${obligation.shariah_policy_basis})`}`),
     obligation.accounting_nav === undefined
       ? null
-      : createElement('p', { style: { color: '#cbd5e1', margin: '0.25rem 0' } }, `Accounting snapshot ${obligation.accounting_snapshot_id ?? 'unknown'} NAV: ${formatMoney(obligation.accounting_nav, obligation.currency)}`),
+      : createElement('p', { style: { color: 'var(--owl-color-muted)', margin: '0.25rem 0' } }, `Accounting snapshot ${obligation.accounting_snapshot_id ?? 'unknown'} NAV: ${formatMoney(obligation.accounting_nav, obligation.currency)}`),
     obligation.accounting_holding_value === undefined
       ? null
-      : createElement('p', { style: { color: '#cbd5e1', margin: '0.25rem 0' } }, `Holding value: ${formatMoney(obligation.accounting_holding_value, obligation.currency)}`),
+      : createElement('p', { style: { color: 'var(--owl-color-muted)', margin: '0.25rem 0' } }, `Holding value: ${formatMoney(obligation.accounting_holding_value, obligation.currency)}`),
     obligation.dividend_income_amount === undefined || obligation.dividend_event_id === undefined
       ? null
-      : createElement('p', { style: { color: '#cbd5e1', margin: '0.25rem 0' } }, `Dividend basis: ${formatMoney(obligation.dividend_income_amount, obligation.currency)} from ${obligation.dividend_event_id}`),
+      : createElement('p', { style: { color: 'var(--owl-color-muted)', margin: '0.25rem 0' } }, `Dividend basis: ${formatMoney(obligation.dividend_income_amount, obligation.currency)} from ${obligation.dividend_event_id}`),
     obligation.impurity_rate === undefined
       ? null
-      : createElement('p', { style: { color: '#cbd5e1', margin: '0.25rem 0' } }, `Impurity rate: ${formatPercent(obligation.impurity_rate)}`),
-    createElement('p', { style: { color: '#cbd5e1', fontWeight: 800, margin: '0.25rem 0' } }, 'Payment action: record only after the user confirms an external payment'),
-    createElement('p', { style: { color: '#9aa4b7', margin: '0.25rem 0 0' } }, `Audit/source links preview: ${obligation.audit_source_ids.join(', ') || 'none linked'}`),
+      : createElement('p', { style: { color: 'var(--owl-color-muted)', margin: '0.25rem 0' } }, `Impurity rate: ${formatPercent(obligation.impurity_rate)}`),
+    createElement('p', { style: { color: 'var(--owl-color-muted)', fontWeight: 800, margin: '0.25rem 0' } }, 'Payment action: record only after the user confirms an external payment'),
+    createElement('p', { style: { color: 'var(--owl-color-muted)', margin: '0.25rem 0 0' } }, `Audit/source links preview: ${obligation.audit_source_ids.join(', ') || 'none linked'}`),
   )
 }
 
 function metric(label: string, value: string) {
   return createElement(
     'article',
-    { style: { background: 'rgba(148, 163, 184, 0.08)', border: '1px solid rgba(148, 163, 184, 0.16)', borderRadius: '0.85rem', padding: '1rem' } },
-    createElement('p', { style: { color: '#9aa4b7', fontSize: '0.78rem', fontWeight: 900, margin: 0, textTransform: 'uppercase' } }, label),
-    createElement('p', { style: { color: '#f7f8ff', fontSize: '1.25rem', fontWeight: 900, margin: '0.35rem 0 0' } }, value),
+    { style: { background: 'var(--owl-color-panel)', border: '1px solid var(--owl-color-border)', borderRadius: 'var(--owl-radius-card)', padding: '0.9rem 1rem' } },
+    createElement('p', { className: 'owl-label' }, label),
+    createElement('p', { className: 'owl-value', style: { margin: '0.35rem 0 0' } }, value),
   )
 }
 

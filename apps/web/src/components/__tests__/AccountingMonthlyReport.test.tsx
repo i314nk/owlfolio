@@ -231,7 +231,6 @@ describe('AccountingMonthlyReport', () => {
     expect(html).toContain('1 holding needs a valuation before NAV is complete')
     expect(html).toContain('Missing-data warnings')
     expect(html).toContain('Valuation missing')
-    expect(html).toContain('color:#fecaca')
-    expect(html).toContain('color:#fca5a5')
+    expect(html).toContain('color:var(--owl-color-risk-bright)')
   })
 })

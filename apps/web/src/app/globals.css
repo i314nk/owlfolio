@@ -88,6 +88,71 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* ── Shared content primitives — unify page body to Strategy/Pipeline style ── */
+
+/* Standard content box: matches the panel-elevated card used on Strategy/Pipeline. */
+.owl-section-card {
+  background: var(--owl-color-panel-elevated);
+  border: 1px solid var(--owl-color-border);
+  border-radius: var(--owl-radius-panel);
+  box-shadow: var(--owl-shadow-panel);
+  padding: 1.15rem 1.3rem;
+  display: grid;
+  gap: 0.6rem;
+}
+
+/* Gold mono uppercase section kicker — aliases the route kicker. */
+.owl-section-kicker {
+  color: var(--owl-color-gold);
+  font-family: var(--owl-font-mono);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  margin: 0;
+  text-transform: uppercase;
+}
+
+/* Clean section heading sitting under a kicker. */
+.owl-section-title {
+  color: var(--owl-color-gold-bright);
+  font-size: 1.05rem;
+  font-weight: 800;
+  margin: 0;
+}
+
+/* Text scale — keep the page to a few consistent sizes. */
+.owl-label {
+  color: var(--owl-color-quiet);
+  font-family: var(--owl-font-mono);
+  font-size: 0.7rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  margin: 0;
+}
+
+.owl-value {
+  color: var(--owl-color-text);
+  font-family: var(--owl-font-mono);
+  font-size: 1.05rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  margin: 0;
+}
+
+.owl-body {
+  color: var(--owl-color-muted);
+  font-size: 0.88rem;
+  line-height: 1.5;
+  margin: 0;
+}
+
+/* Responsive auto-fit card grid. */
+.owl-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 0.8rem;
+}
+
 * {
   box-sizing: border-box;
 }

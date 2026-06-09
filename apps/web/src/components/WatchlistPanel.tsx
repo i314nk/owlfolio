@@ -10,11 +10,11 @@ export type WatchlistPanelProps = {
 }
 
 const cardStyle = {
-  background: 'rgba(255, 255, 255, 0.035)',
-  border: '1px solid rgba(148, 163, 184, 0.16)',
-  borderRadius: '1rem',
-  boxShadow: '0 18px 50px rgba(0, 0, 0, 0.18)',
-  padding: '1.25rem',
+  background: 'var(--owl-color-panel-elevated)',
+  border: '1px solid var(--owl-color-border)',
+  borderRadius: 'var(--owl-radius-panel)',
+  boxShadow: 'var(--owl-shadow-panel)',
+  padding: '1.15rem 1.3rem',
 }
 
 export function WatchlistPanel({ items, mode = 'demo' }: WatchlistPanelProps) {
@@ -38,7 +38,7 @@ export function WatchlistPanel({ items, mode = 'demo' }: WatchlistPanelProps) {
             { key: 'watchlist-empty-state', style: cardStyle },
             createElement(
               'p',
-              { style: { color: '#9aa4b7', margin: 0 } },
+              { style: { color: 'var(--owl-color-muted)', margin: 0 } },
               'No watchlist drafts yet. Create a research case first.',
             ),
           ),
@@ -54,7 +54,7 @@ function createWatchlistCard(item: AppWatchlistItem, mode: WorkflowMode) {
     createElement(
       'div',
       { style: { alignItems: 'center', display: 'flex', flexWrap: 'wrap', gap: '0.75rem', justifyContent: 'space-between' } },
-      createElement('h2', { style: { fontSize: '1.75rem', margin: 0 } }, item.ticker ?? item.company_id ?? item.watchlist_item_id),
+      createElement('h2', { style: { fontSize: '1.45rem', fontWeight: 800, color: 'var(--owl-color-gold-bright)', margin: 0 } }, item.ticker ?? item.company_id ?? item.watchlist_item_id),
       createElement(
         'div',
         { style: { alignItems: 'center', display: 'flex', flexWrap: 'wrap', gap: '0.55rem' } },
@@ -76,7 +76,7 @@ function createWatchlistCard(item: AppWatchlistItem, mode: WorkflowMode) {
       createElement(
         'section',
         { className: 'owl-workflow-panel owl-workflow-panel-draft' },
-        createElement('h3', { style: { fontSize: '1rem', margin: 0 } }, 'Provider draft state'),
+        createElement('h3', { className: 'owl-section-title', style: { fontSize: '0.95rem' } }, 'Provider draft state'),
         createDetail('Strategy', item.strategy_id ?? 'Unknown'),
         createDetail('Thesis summary', item.thesis_summary ?? 'No thesis recorded'),
         createDetail('Buy-zone status', item.buy_zone_status ?? 'Not set'),
@@ -87,7 +87,7 @@ function createWatchlistCard(item: AppWatchlistItem, mode: WorkflowMode) {
       createElement(
         'section',
         { className: 'owl-workflow-panel owl-workflow-panel-user' },
-        createElement('h3', { style: { fontSize: '1rem', margin: 0 } }, 'User decision checkpoint'),
+        createElement('h3', { className: 'owl-section-title', style: { fontSize: '0.95rem' } }, 'User decision checkpoint'),
         createDetail('Confirmation status', item.user_approved ? 'User-confirmed watchlist decision' : 'Awaiting user confirmation'),
         createDetail('Confirmed by actor', item.user_approved ? formatActor(item.confirmed_by_actor_type, item.confirmed_by_actor_id) : 'Not user-confirmed yet'),
         item.holding_id === undefined ? createDetail('Position status', 'Not opened yet') : createDetail('Position status', item.holding_id),
@@ -129,10 +129,10 @@ function createWatchlistConfirmForm(item: AppWatchlistItem) {
       className: 'owl-action-form owl-action-form-confirm',
       style: { marginTop: '1rem' },
     },
-    createElement('h3', { style: { fontSize: '1rem', margin: 0 } }, 'Confirm user watchlist state'),
+    createElement('h3', { className: 'owl-section-title', style: { fontSize: '0.95rem' } }, 'Confirm user watchlist state'),
     createElement(
       'p',
-      { style: { color: '#9aa4b7', margin: '0.35rem 0 0.8rem' } },
+      { style: { color: 'var(--owl-color-muted)', margin: '0.35rem 0 0.8rem' } },
       'Review Shariah gate evidence, then confirm this watchlist draft as user-authored state.',
     ),
     createElement(
@@ -155,7 +155,7 @@ function createOpenHoldingForm(item: AppWatchlistItem) {
       className: 'owl-action-form',
       style: { display: 'grid', gap: '0.75rem', marginTop: '1rem' },
     },
-    createElement('h3', { style: { fontSize: '1rem', margin: 0 } }, 'Open holding from confirmed watchlist state'),
+    createElement('h3', { className: 'owl-section-title', style: { fontSize: '0.95rem' } }, 'Open holding from confirmed watchlist state'),
     createLotInput('Shares', 'shares', 'number', '1', { step: '0.0001', min: '0.0001' }),
     createLotInput('Cost basis per share', 'cost_basis_per_share', 'number', '0', { step: '0.01', min: '0' }),
     createLotInput('Currency', 'currency', 'text', 'USD', { maxLength: 3 }),
@@ -176,7 +176,7 @@ function createResearchCaseLink(researchCaseId: string) {
 
   return createElement(
     'div',
-    { style: { color: '#cbd5e1', display: 'grid', gap: '0.45rem', margin: '0.75rem 0 0' } },
+    { style: { color: 'var(--owl-color-muted)', display: 'grid', gap: '0.45rem', margin: '0.75rem 0 0' } },
     createElement('strong', null, 'Research case link'),
     createElement(
       'div',
@@ -190,8 +190,8 @@ function createResearchCaseLink(researchCaseId: string) {
 function createDetail(label: string, value: string) {
   return createElement(
     'p',
-    { style: { color: '#cbd5e1', margin: '0.75rem 0 0' } },
-    createElement('strong', null, `${label}: `),
+    { className: 'owl-body', style: { margin: '0.55rem 0 0' } },
+    createElement('strong', { style: { color: 'var(--owl-color-text)', fontWeight: 700 } }, `${label}: `),
     value,
   )
 }
@@ -244,7 +244,7 @@ function createLotInput(
 ) {
   return createElement(
     'label',
-    { style: { color: '#cbd5e1', display: 'grid', fontSize: '0.85rem', fontWeight: 700, gap: '0.25rem' } },
+    { style: { color: 'var(--owl-color-muted)', display: 'grid', fontSize: '0.85rem', fontWeight: 700, gap: '0.25rem' } },
     label,
     createElement('input', {
       ...extraProps,

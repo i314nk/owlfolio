@@ -5,17 +5,17 @@ import type { WorkflowMode } from '../lib/workflow'
 import { OwlKpiStat, RouteHeader } from './designSystem'
 
 const shellStyle: CSSProperties = {
-  background: 'rgba(148, 163, 184, 0.08)',
-  border: '1px solid rgba(148, 163, 184, 0.18)',
-  borderRadius: '1.25rem',
-  boxShadow: '0 24px 80px rgba(0, 0, 0, 0.24)',
-  padding: 'clamp(1.25rem, 4vw, 2rem)',
+  background: 'var(--owl-color-panel-elevated)',
+  border: '1px solid var(--owl-color-border)',
+  borderRadius: 'var(--owl-radius-panel)',
+  boxShadow: 'var(--owl-shadow-panel)',
+  padding: 'clamp(1.15rem, 4vw, 1.9rem)',
 }
 
 const filterFormStyle: CSSProperties = {
-  background: 'rgba(255, 255, 255, 0.035)',
-  border: '1px solid rgba(148, 163, 184, 0.18)',
-  borderRadius: '1rem',
+  background: 'var(--owl-color-panel-elevated)',
+  border: '1px solid var(--owl-color-border)',
+  borderRadius: 'var(--owl-radius-card)',
   display: 'grid',
   gap: '0.85rem',
   gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
@@ -24,7 +24,7 @@ const filterFormStyle: CSSProperties = {
 }
 
 const filterLabelStyle: CSSProperties = {
-  color: '#cbd5e1',
+  color: 'var(--owl-color-muted)',
   display: 'grid',
   fontSize: '0.78rem',
   fontWeight: 900,
@@ -34,10 +34,10 @@ const filterLabelStyle: CSSProperties = {
 }
 
 const controlStyle: CSSProperties = {
-  background: 'rgba(148, 163, 184, 0.08)',
-  border: '1px solid rgba(148, 163, 184, 0.24)',
+  background: 'var(--owl-color-panel)',
+  border: '1px solid var(--owl-color-border)',
   borderRadius: '0.7rem',
-  color: '#f7f8ff',
+  color: 'var(--owl-color-text)',
   font: 'inherit',
   fontSize: '0.92rem',
   fontWeight: 700,
@@ -66,10 +66,10 @@ const buttonStyle: CSSProperties = {
 }
 
 const clearLinkStyle: CSSProperties = {
-  background: 'rgba(255, 255, 255, 0.03)',
-  border: '1px solid rgba(148, 163, 184, 0.28)',
+  background: 'var(--owl-color-panel)',
+  border: '1px solid var(--owl-color-border)',
   borderRadius: '0.7rem',
-  color: '#cbd5e1',
+  color: 'var(--owl-color-muted)',
   fontSize: '0.9rem',
   fontWeight: 900,
   padding: '0.58rem 0.8rem',
@@ -96,17 +96,17 @@ const activeFilterListStyle: CSSProperties = {
 }
 
 const activeFilterChipStyle: CSSProperties = {
-  background: 'rgba(255, 255, 255, 0.055)',
-  border: '1px solid rgba(148, 163, 184, 0.22)',
+  background: 'var(--owl-color-panel-elevated)',
+  border: '1px solid var(--owl-color-border)',
   borderRadius: '999px',
-  color: '#e2e8f0',
+  color: 'var(--owl-color-muted)',
   fontSize: '0.78rem',
   fontWeight: 800,
   padding: '0.28rem 0.55rem',
 }
 
 const resultCountStyle: CSSProperties = {
-  color: '#9aa4b7',
+  color: 'var(--owl-color-muted)',
   fontSize: '0.9rem',
   fontWeight: 800,
   margin: '0 0 1rem',
@@ -121,10 +121,10 @@ const listStyle: CSSProperties = {
 }
 
 const rowStyle: CSSProperties = {
-  background: 'rgba(255, 255, 255, 0.035)',
-  border: '1px solid rgba(148, 163, 184, 0.16)',
-  borderRadius: '1rem',
-  padding: '1rem',
+  background: 'var(--owl-color-panel-elevated)',
+  border: '1px solid var(--owl-color-border)',
+  borderRadius: 'var(--owl-radius-card)',
+  padding: '1.15rem 1.3rem',
 }
 
 const rowHeaderStyle: CSSProperties = {
@@ -137,23 +137,23 @@ const rowHeaderStyle: CSSProperties = {
 }
 
 const eventSummaryStyle: CSSProperties = {
-  color: '#f7f8ff',
+  color: 'var(--owl-color-gold-bright)',
   fontSize: '1.05rem',
-  fontWeight: 900,
+  fontWeight: 800,
   margin: 0,
 }
 
 const timestampStyle: CSSProperties = {
-  color: '#9aa4b7',
+  color: 'var(--owl-color-muted)',
   fontSize: '0.85rem',
   fontWeight: 700,
 }
 
 const contextStyle: CSSProperties = {
-  background: 'rgba(148, 163, 184, 0.08)',
-  border: '1px solid rgba(148, 163, 184, 0.16)',
+  background: 'var(--owl-color-panel)',
+  border: '1px solid var(--owl-color-border)',
   borderRadius: '0.8rem',
-  color: '#cbd5e1',
+  color: 'var(--owl-color-muted)',
   fontSize: '0.9rem',
   fontWeight: 700,
   lineHeight: 1.45,
@@ -169,16 +169,17 @@ const detailListStyle: CSSProperties = {
 }
 
 const detailTermStyle: CSSProperties = {
-  color: '#9aa4b7',
-  fontSize: '0.72rem',
-  fontWeight: 900,
+  color: 'var(--owl-color-quiet)',
+  fontFamily: 'var(--owl-font-mono)',
+  fontSize: '0.7rem',
+  fontWeight: 700,
   letterSpacing: '0.06em',
   textTransform: 'uppercase',
 }
 
 const detailValueStyle: CSSProperties = {
-  color: '#e2e8f0',
-  fontSize: '0.92rem',
+  color: 'var(--owl-color-muted)',
+  fontSize: '0.88rem',
   fontWeight: 700,
   margin: '0.1rem 0 0',
   overflowWrap: 'anywhere',
@@ -194,7 +195,7 @@ const lineageListStyle: CSSProperties = {
 }
 
 const evidenceStyle: CSSProperties = {
-  borderTop: '1px solid rgba(148, 163, 184, 0.16)',
+  borderTop: '1px solid var(--owl-color-border)',
   marginTop: '0.9rem',
   paddingTop: '0.9rem',
 }
@@ -214,7 +215,7 @@ const copyInputStyle: CSSProperties = {
 
 const copyKitStyle: CSSProperties = {
   background: 'var(--owl-color-panel-deep)',
-  border: '1px solid rgba(148, 163, 184, 0.18)',
+  border: '1px solid var(--owl-color-border)',
   borderRadius: '0.8rem',
   display: 'grid',
   gap: '0.65rem',
@@ -225,7 +226,7 @@ const copyKitStyle: CSSProperties = {
 const preStyle: CSSProperties = {
   background: 'var(--owl-color-canvas)',
   borderRadius: '0.8rem',
-  color: '#e2e8f0',
+  color: 'var(--owl-color-muted)',
   fontSize: '0.78rem',
   lineHeight: 1.45,
   margin: '0.5rem 0 0',
@@ -235,10 +236,10 @@ const preStyle: CSSProperties = {
 }
 
 const emptyStateStyle: CSSProperties = {
-  background: 'rgba(255, 255, 255, 0.035)',
-  border: '1px dashed rgba(148, 163, 184, 0.32)',
+  background: 'var(--owl-color-panel-elevated)',
+  border: '1px dashed var(--owl-color-border)',
   borderRadius: '1rem',
-  color: '#9aa4b7',
+  color: 'var(--owl-color-muted)',
   fontWeight: 700,
   margin: 0,
   padding: '1rem',
