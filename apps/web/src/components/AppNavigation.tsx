@@ -11,6 +11,7 @@ const navItems = [
   { href: '/portfolio', label: 'Portfolio' },
   { href: '/accounting/monthly', label: 'Accounting' },
   { href: '/purification', label: 'Purification' },
+  { href: '/pipeline', label: 'Pipeline' },
   { href: '/audit', label: 'Audit' },
   { href: '/providers', label: 'Providers' },
   { href: '/learn', label: 'Learn' },
