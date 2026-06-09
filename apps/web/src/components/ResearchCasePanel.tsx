@@ -25,6 +25,22 @@ const labelStyle = {
   textTransform: 'uppercase' as const,
 }
 
+const collapsibleSummaryStyle = {
+  color: '#c7d2fe',
+  cursor: 'pointer',
+  fontSize: '0.95rem',
+  fontWeight: 900,
+  padding: '0.15rem 0',
+  userSelect: 'none' as const,
+}
+
+const collapsibleDetailsStyle = {
+  background: 'rgba(15, 23, 42, 0.24)',
+  border: '1px solid rgba(148, 163, 184, 0.12)',
+  borderRadius: '0.95rem',
+  padding: '1rem',
+}
+
 export function ResearchCasePanel({ researchCase, mode = 'demo' }: ResearchCasePanelProps) {
   const canPromoteToWatchlist = mode === 'personal-local'
     && researchCase.stage === 'decision_drafted'
@@ -40,9 +56,10 @@ export function ResearchCasePanel({ researchCase, mode = 'demo' }: ResearchCaseP
     {
       style: {
         display: 'grid',
-        gap: '1rem',
+        gap: '0.85rem',
       },
     },
+    // ── 1. Verdict hero ──────────────────────────────────────────────────
     createElement(
       'header',
       {
@@ -51,17 +68,18 @@ export function ResearchCasePanel({ researchCase, mode = 'demo' }: ResearchCaseP
           border: '1px solid rgba(148, 163, 184, 0.18)',
           borderRadius: '1.25rem',
           display: 'grid',
-          gap: '1rem',
-          padding: '1.5rem',
+          gap: '0.75rem',
+          padding: '1.25rem 1.5rem',
         },
       },
       createElement('p', { style: labelStyle }, 'Research dossier'),
+      // Ticker + verdict badge row
       createElement(
         'div',
-        { style: { alignItems: 'start', display: 'flex', flexWrap: 'wrap', gap: '1rem', justifyContent: 'space-between' } },
+        { style: { alignItems: 'center', display: 'flex', flexWrap: 'wrap', gap: '0.75rem', justifyContent: 'space-between' } },
         createElement(
           'div',
-          { style: { display: 'grid', gap: '0.5rem', maxWidth: '48rem' } },
+          { style: { display: 'grid', gap: '0.35rem', maxWidth: '48rem' } },
           createElement(
             'h1',
             { style: { fontSize: 'clamp(2rem, 5vw, 3.5rem)', lineHeight: 1, margin: 0 } },
@@ -69,50 +87,136 @@ export function ResearchCasePanel({ researchCase, mode = 'demo' }: ResearchCaseP
           ),
           createElement(
             'p',
-            { style: { color: '#9aa4b7', fontSize: '1rem', margin: 0 } },
+            { style: { color: '#9aa4b7', fontSize: '0.95rem', margin: 0 } },
             `Company: ${researchCase.company_id ?? 'Unknown company'}`,
           ),
         ),
+        // Verdict chip — prominent
         createElement(
           'span',
           {
             style: {
-              background: 'rgba(124, 140, 255, 0.18)',
-              border: '1px solid rgba(199, 210, 254, 0.42)',
+              background: 'rgba(52, 211, 153, 0.16)',
+              border: '1px solid rgba(52, 211, 153, 0.42)',
               borderRadius: '999px',
               color: '#f7f8ff',
-              fontSize: '0.9rem',
+              fontSize: '1.05rem',
               fontWeight: 900,
-              padding: '0.5rem 0.8rem',
+              letterSpacing: '0.04em',
+              padding: '0.55rem 1rem',
             },
           },
           verdict,
         ),
       ),
+      // One-line thesis
+      createElement(
+        'p',
+        {
+          style: {
+            color: '#dbe3ef',
+            fontSize: '0.97rem',
+            lineHeight: 1.5,
+            margin: 0,
+            maxWidth: '70ch',
+          },
+        },
+        createConciseDossierSummary(
+          firstNonEmpty([
+            researchCase.thesis_summary,
+            researchCase.reason,
+            researchCase.evidence_summary,
+          ]) ?? 'No investment thesis drafted yet.',
+          researchCase.ticker ?? researchCase.company_id,
+        ),
+      ),
+      // Status chip row
+      createElement(
+        'div',
+        { style: { display: 'flex', flexWrap: 'wrap', gap: '0.45rem' } },
+        createStatusChip('Shariah', researchCase.shariah_status ?? 'Pending', resolveShariahChipColor(researchCase.shariah_status)),
+        createStatusChip('Strategy', researchCase.strategy_compliance ?? 'Pending', resolveComplianceChipColor(researchCase.strategy_compliance)),
+        createStatusChip('Valuation', researchCase.valuation_status ?? 'Pending', resolveValuationChipColor(researchCase.valuation_status)),
+        createStatusChip('Next', nextAction.length > 55 ? `${nextAction.slice(0, 52).replace(/\s+\S*$/, '')}…` : nextAction, { bg: 'rgba(148, 163, 184, 0.1)', border: 'rgba(148, 163, 184, 0.28)', text: '#c7d2fe' }),
+      ),
+      // Verdict summary sub-section
       createElement(
         'section',
-        { style: { display: 'grid', gap: '0.85rem' } },
+        { style: { borderTop: '1px solid rgba(148, 163, 184, 0.12)', display: 'grid', gap: '0.55rem', paddingTop: '0.65rem' } },
         createElement('p', { style: labelStyle }, 'Verdict summary'),
         createElement(
           'p',
-          { style: { color: '#f7f8ff', fontSize: '1.1rem', lineHeight: 1.6, margin: 0 } },
+          { style: { color: '#f7f8ff', fontSize: '1rem', lineHeight: 1.55, margin: 0 } },
           verdictReason,
         ),
         createElement(
           'p',
-          { style: { color: '#c7d2fe', fontSize: '1rem', fontWeight: 850, margin: 0 } },
+          { style: { color: '#c7d2fe', fontSize: '0.95rem', fontWeight: 850, margin: 0 } },
           createElement('strong', null, 'Next action: '),
           nextAction,
         ),
       ),
     ),
+    // ── 2. Watchlist promotion (personal-local only) ─────────────────────
     canPromoteToWatchlist ? createWatchlistPromotionAction(researchCase.research_case_id) : null,
+    // ── 3. Four summary cards (always visible) ───────────────────────────
     createResearchDossier(researchCase),
-    createQuickScreenPanel(researchCase),
-    createDeepDivePanel(researchCase),
+    // ── 4. Specialist details (collapsed) ────────────────────────────────
+    createQuickScreenCollapsible(researchCase),
+    createDeepDiveCollapsible(researchCase),
+    // ── 5. Evidence and audit details (collapsed, e2e anchor preserved) ──
     createEvidenceAndAuditDetails(researchCase),
   )
 }
+
+// ── Status chip helpers ──────────────────────────────────────────────────────
+
+type ChipColors = { bg: string; border: string; text: string }
+
+function resolveShariahChipColor(status?: string): ChipColors {
+  if (status === 'COMPLIANT') return { bg: 'rgba(34, 197, 94, 0.14)', border: 'rgba(134, 239, 172, 0.38)', text: '#bbf7d0' }
+  if (status === 'CONDITIONAL') return { bg: 'rgba(214, 178, 94, 0.14)', border: 'rgba(243, 223, 177, 0.36)', text: '#f3dfb1' }
+  if (status === 'NON_COMPLIANT') return { bg: 'rgba(239, 68, 68, 0.14)', border: 'rgba(252, 165, 165, 0.36)', text: '#fecaca' }
+  return { bg: 'rgba(148, 163, 184, 0.1)', border: 'rgba(148, 163, 184, 0.28)', text: '#c7d2fe' }
+}
+
+function resolveComplianceChipColor(status?: string): ChipColors {
+  if (status === 'COMPLIANT' || status === 'PASS') return { bg: 'rgba(34, 197, 94, 0.14)', border: 'rgba(134, 239, 172, 0.38)', text: '#bbf7d0' }
+  if (status === 'CONDITIONAL') return { bg: 'rgba(214, 178, 94, 0.14)', border: 'rgba(243, 223, 177, 0.36)', text: '#f3dfb1' }
+  if (status === 'FAIL') return { bg: 'rgba(239, 68, 68, 0.14)', border: 'rgba(252, 165, 165, 0.36)', text: '#fecaca' }
+  return { bg: 'rgba(148, 163, 184, 0.1)', border: 'rgba(148, 163, 184, 0.28)', text: '#c7d2fe' }
+}
+
+function resolveValuationChipColor(status?: string): ChipColors {
+  if (status === 'FAIR' || status === 'UNDERVALUED') return { bg: 'rgba(34, 197, 94, 0.14)', border: 'rgba(134, 239, 172, 0.38)', text: '#bbf7d0' }
+  if (status === 'EXPENSIVE') return { bg: 'rgba(239, 68, 68, 0.14)', border: 'rgba(252, 165, 165, 0.36)', text: '#fecaca' }
+  return { bg: 'rgba(148, 163, 184, 0.1)', border: 'rgba(148, 163, 184, 0.28)', text: '#c7d2fe' }
+}
+
+function createStatusChip(label: string, value: string, colors: ChipColors) {
+  return createElement(
+    'span',
+    {
+      key: label,
+      style: {
+        alignItems: 'baseline',
+        background: colors.bg,
+        border: `1px solid ${colors.border}`,
+        borderRadius: '999px',
+        color: colors.text,
+        display: 'inline-flex',
+        fontSize: '0.78rem',
+        fontWeight: 700,
+        gap: '0.32rem',
+        padding: '0.3rem 0.65rem',
+      },
+    },
+    createElement('span', { style: { color: '#9aa4b7', fontWeight: 600 } }, `${label}:`),
+    value,
+  )
+}
+
+// ── Verdict reason ────────────────────────────────────────────────────────────
 
 function createVerdictReason(researchCase: AppResearchCase): string {
   const verdict = researchCase.investment_verdict ?? researchCase.decision
@@ -142,6 +246,8 @@ function createVerdictReason(researchCase: AppResearchCase): string {
   ]) ?? 'This dossier is waiting for a source-backed investment reason.'
 }
 
+// ── Four summary cards (always visible) ──────────────────────────────────────
+
 function createResearchDossier(researchCase: AppResearchCase) {
   const fullThesis = firstNonEmpty([
     researchCase.thesis_summary,
@@ -166,17 +272,17 @@ function createResearchDossier(researchCase: AppResearchCase) {
 
   return createElement(
     'section',
-    { className: 'owl-workflow-card', style: { ...cardStyle, display: 'grid', gap: '1rem' } },
+    { className: 'owl-workflow-card', style: { ...cardStyle, display: 'grid', gap: '0.75rem' } },
     createElement('p', { style: labelStyle }, 'Dossier cards'),
-    createElement('h2', { style: { fontSize: '1.45rem', margin: 0 } }, 'Decision evidence'),
+    createElement('h2', { style: { fontSize: '1.25rem', margin: 0 } }, 'Decision evidence'),
     createElement(
       'div',
       {
         style: {
           alignItems: 'start',
           display: 'grid',
-          gap: '0.85rem',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
+          gap: '0.65rem',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
         },
       },
       createDossierCard('Thesis', thesis, undefined, { note: 'Full thesis available in the disclosure below.' }),
@@ -208,28 +314,28 @@ function createDossierCard(label: string, content: string | string[], status?: s
       style: {
         background: 'rgba(15, 23, 42, 0.34)',
         border: '1px solid rgba(148, 163, 184, 0.14)',
-        borderRadius: '0.95rem',
+        borderRadius: '0.85rem',
         display: 'grid',
-        gap: '0.65rem',
-        padding: '1rem',
+        gap: '0.5rem',
+        padding: '0.85rem',
       },
     },
     createElement(
       'div',
-      { style: { alignItems: 'center', display: 'flex', flexWrap: 'wrap', gap: '0.55rem', justifyContent: 'space-between' } },
-      createElement('h3', { style: { color: '#f7f8ff', fontSize: '1rem', margin: 0 } }, label),
-      status === undefined ? null : createElement('span', { style: { color: '#c7d2fe', fontSize: '0.82rem', fontWeight: 900 } }, status),
+      { style: { alignItems: 'center', display: 'flex', flexWrap: 'wrap', gap: '0.45rem', justifyContent: 'space-between' } },
+      createElement('h3', { style: { color: '#f7f8ff', fontSize: '0.95rem', margin: 0 } }, label),
+      status === undefined ? null : createElement('span', { style: { color: '#c7d2fe', fontSize: '0.78rem', fontWeight: 900 } }, status),
     ),
     contentItems.length === 1
-      ? createElement('p', { style: { color: '#dbe3ef', lineHeight: 1.55, margin: 0 } }, contentItems[0])
+      ? createElement('p', { style: { color: '#dbe3ef', fontSize: '0.9rem', lineHeight: 1.5, margin: 0 } }, contentItems[0])
       : createElement(
         'ul',
-        { style: { color: '#dbe3ef', display: 'grid', gap: '0.45rem', lineHeight: 1.45, margin: 0, paddingLeft: '1.1rem' } },
+        { style: { color: '#dbe3ef', display: 'grid', fontSize: '0.9rem', gap: '0.35rem', lineHeight: 1.4, margin: 0, paddingLeft: '1rem' } },
         ...contentItems.map((item) => createElement('li', { key: item }, item)),
       ),
     options?.note === undefined
       ? null
-      : createElement('p', { style: { color: '#9aa4b7', fontSize: '0.86rem', fontWeight: 750, lineHeight: 1.45, margin: 0 } }, options.note),
+      : createElement('p', { style: { color: '#9aa4b7', fontSize: '0.82rem', fontWeight: 750, lineHeight: 1.4, margin: 0 } }, options.note),
   )
 }
 
@@ -244,8 +350,8 @@ function createFullThesisDisclosure(fullThesis: string, conciseThesis: string) {
       style: {
         background: 'rgba(15, 23, 42, 0.24)',
         border: '1px solid rgba(148, 163, 184, 0.12)',
-        borderRadius: '0.95rem',
-        padding: '1rem',
+        borderRadius: '0.85rem',
+        padding: '0.85rem',
       },
     },
     createElement(
@@ -254,7 +360,7 @@ function createFullThesisDisclosure(fullThesis: string, conciseThesis: string) {
         style: {
           color: '#c7d2fe',
           cursor: 'pointer',
-          fontSize: '0.95rem',
+          fontSize: '0.92rem',
           fontWeight: 900,
         },
       },
@@ -262,11 +368,41 @@ function createFullThesisDisclosure(fullThesis: string, conciseThesis: string) {
     ),
     createElement(
       'p',
-      { style: { color: '#dbe3ef', lineHeight: 1.6, margin: '0.85rem 0 0' } },
+      { style: { color: '#dbe3ef', lineHeight: 1.6, margin: '0.75rem 0 0' } },
       fullThesis,
     ),
   )
 }
+
+// ── Quick screen collapsible ──────────────────────────────────────────────────
+
+function createQuickScreenCollapsible(researchCase: AppResearchCase) {
+  const inner = createQuickScreenPanel(researchCase)
+  if (inner === null) return null
+
+  return createElement(
+    'details',
+    { style: collapsibleDetailsStyle },
+    createElement('summary', { style: collapsibleSummaryStyle }, 'Quick screen details'),
+    createElement('div', { style: { marginTop: '0.85rem' } }, inner),
+  )
+}
+
+// ── Deep dive collapsible ─────────────────────────────────────────────────────
+
+function createDeepDiveCollapsible(researchCase: AppResearchCase) {
+  const inner = createDeepDivePanel(researchCase)
+  if (inner === null) return null
+
+  return createElement(
+    'details',
+    { style: collapsibleDetailsStyle },
+    createElement('summary', { style: collapsibleSummaryStyle }, 'Deep-dive lane findings'),
+    createElement('div', { style: { marginTop: '0.85rem' } }, inner),
+  )
+}
+
+// ── Evidence and audit details (keeps existing label for e2e) ─────────────────
 
 function createEvidenceAndAuditDetails(researchCase: AppResearchCase) {
   return createElement(
