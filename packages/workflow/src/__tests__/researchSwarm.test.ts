@@ -421,6 +421,102 @@ describe('runStrategyResearchSwarm', () => {
   })
 })
 
+describe('runStrategyResearchSwarm short-circuit on Shariah NON_COMPLIANT', () => {
+  it('skips deep dive and emits a PASS decision when quick screen returns NON_COMPLIANT', async () => {
+    const store = new InMemoryEventStore()
+
+    // Fake provider that returns NON_COMPLIANT + reject at quick screen; should never be called for lane/synthesis
+    const nonCompliantProvider = {
+      provider_id: 'fake-non-compliant',
+      capabilities: {} as never,
+      complete: vi.fn(),
+      runWithTools: vi.fn(),
+      structured: vi.fn(async () => ({
+        summary: 'Primary business involves conventional interest-based banking.',
+        business_quality: 'Large bank; well-capitalised.',
+        moat: 'Wide network moat, but business model is riba-based.',
+        management_capital_allocation: 'Shareholder-friendly but irrelevant given non-compliance.',
+        financial_quality: 'Strong balance sheet.',
+        valuation_sanity: 'Not assessed.',
+        shariah_status: 'NON_COMPLIANT',
+        red_flags: ['Core business is conventional interest-based banking (riba)'],
+        confidence: 'high',
+        caveats: ['Mock non-compliant quick screen'],
+        screening_result: 'reject',
+        proposed_sources: [
+          {
+            source_id: 'src_bank_non_compliant_1',
+            title: 'Bank Non-Compliant Source',
+            url: 'https://example.com/bank-non-compliant',
+            excerpt: 'Bank operates conventional interest-based products.',
+          },
+        ],
+      })),
+    }
+
+    const ground = async (sources: { source_id: string }[]) => ({
+      captured: sources.map((s) => ({
+        source_id: s.source_id,
+        title: 't',
+        url: 'https://example.com/x',
+        excerpt: 'e',
+        availability: 'available' as const,
+        fetched_at: 'x',
+        content_hash: 'sha256:1',
+      })),
+      verified_ids: sources.map((s) => s.source_id),
+    })
+
+    const sourceLedgerPath = await mkdtemp(join(tmpdir(), 'owlfolio-short-circuit-'))
+
+    const result = await runStrategyResearchSwarm(
+      store,
+      nonCompliantProvider as never,
+      {
+        research_case_id: 'rc_non_compliant',
+        company_id: 'bank_corp',
+        ticker: 'BANK',
+        strategy_id: 'buffett-munger',
+        actor_id: 'user_local',
+        idempotency_key: 'nc_k',
+        model_id: 'mock',
+        decision_id: 'decision_non_compliant',
+        source_ledger_path: sourceLedgerPath,
+      },
+      { ground },
+    )
+
+    const events = await store.list()
+    const types = events.map((e) => e.event_type)
+
+    // Deep-dive events must NOT be present
+    expect(types).not.toContain('specialist_finding_recorded')
+    expect(types).not.toContain('deep_dive_started')
+    expect(types).not.toContain('queued_for_deep_dive')
+    expect(types).not.toContain('deep_dive_synthesis_drafted')
+
+    // Quick screen and decision must be present
+    expect(types).toContain('quick_screen_drafted')
+    expect(types).toContain('buffett_munger_analysis_drafted')
+    expect(types).toContain('decision_drafted')
+
+    // Decision must be PASS
+    const decisionEvent = events.find((e) => e.event_type === 'decision_drafted')
+    expect(decisionEvent).toBeDefined()
+    const decisionPayload = decisionEvent?.payload as Record<string, unknown>
+    expect(decisionPayload?.['decision']).toBe('PASS')
+
+    // Provider must have been called exactly once (for the quick screen only)
+    expect(nonCompliantProvider.structured).toHaveBeenCalledTimes(1)
+
+    // The result must have a decision defined and no deep_dive field
+    expect(result.decision).toBeDefined()
+    expect((result as { deep_dive?: unknown }).deep_dive).toBeUndefined()
+
+    // Run must complete without throwing
+  })
+})
+
 describe('runStrategyResearchSwarm with MockProvider + deterministic grounder', () => {
   it('completes end-to-end: research_case_created, quick_screen_drafted, >=7 specialist_finding_recorded, deep_dive_synthesis_drafted, decision_drafted', async () => {
     const sourceLedgerPath = await mkdtemp(join(tmpdir(), 'owlfolio-mock-swarm-'))

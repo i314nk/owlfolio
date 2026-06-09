@@ -198,6 +198,21 @@ function swarmSeg(value: string): string {
 }
 
 // ---------------------------------------------------------------------------
+// Helpers for mapping shariah status
+// ---------------------------------------------------------------------------
+
+function toAnalysisShariahStatus(
+  rawShariahStatus: 'COMPLIANT' | 'CONDITIONAL' | 'NON_COMPLIANT' | 'PENDING',
+): 'COMPLIANT' | 'CONDITIONAL' | 'NON_COMPLIANT' | 'UNKNOWN' {
+  // Map qs.analysis.shariah_status (which may be 'PENDING') to the valid analysis set
+  // (COMPLIANT | CONDITIONAL | NON_COMPLIANT | UNKNOWN). PENDING -> CONDITIONAL.
+  if (rawShariahStatus === 'COMPLIANT') return 'COMPLIANT'
+  if (rawShariahStatus === 'NON_COMPLIANT') return 'NON_COMPLIANT'
+  if (rawShariahStatus === 'CONDITIONAL') return 'CONDITIONAL'
+  return 'CONDITIONAL' // PENDING maps to CONDITIONAL (data available but not yet resolved)
+}
+
+// ---------------------------------------------------------------------------
 // Orchestrator
 // ---------------------------------------------------------------------------
 
@@ -222,13 +237,27 @@ export async function runStrategyResearchSwarm(
     ...(command.idempotency_key === undefined ? {} : { idempotency_key: command.idempotency_key }),
   })
 
-  // ---- Quick screen agent ----
+  // ---- Quick screen agent (Shariah-first gate) ----
+  // The quick screen is a two-step gate:
+  //   1. Shariah compliance: if NON_COMPLIANT, reject immediately — do not run the deep dive.
+  //   2. Business quality: if clearly not worth investigating, reject.
+  // Only 'deep_dive_candidate' cases with non-NON_COMPLIANT Shariah status proceed to the expensive deep dive.
   const qs = await runGroundedAgent(provider, {
     run_id: `run_${command.research_case_id}_quick_screen`,
     model_id: command.model_id,
-    prompt: `You are the Buffett-Munger quick-screen agent for ${command.ticker} (${command.company_id}). `
-      + `Assess business quality, moat, management/capital allocation, financial quality, Shariah/data availability, red flags, and a deep-dive recommendation. `
-      + `Gather your own primary/secondary sources and return them in proposed_sources with real URLs.`,
+    prompt: `You are the Buffett-Munger quick-screen gate agent for ${command.ticker} (${command.company_id}). `
+      + `This is a two-step gate — NOT a full analysis. Keep responses brief; the deep dive handles detail.\n\n`
+      + `STEP 1 — Shariah permissibility: assess whether the company's primary business is permissible under `
+      + `Islamic finance principles. If the core business is clearly haram (e.g. conventional banking, alcohol, `
+      + `weapons, tobacco, adult content), set shariah_status to 'NON_COMPLIANT' and screening_result to 'reject'. `
+      + `If the business is clearly halal or the status is uncertain/conditional, set shariah_status accordingly `
+      + `('COMPLIANT', 'CONDITIONAL', or 'PENDING') and continue to step 2.\n\n`
+      + `STEP 2 (only if not NON_COMPLIANT) — Business quality worth-investigating check: is this company `
+      + `worth a deep dive under Buffett-Munger criteria? If clearly inadequate (e.g. no durable business, `
+      + `chronic losses, terminal industry), set screening_result to 'reject'. Otherwise set screening_result `
+      + `to 'deep_dive_candidate'.\n\n`
+      + `Return a brief assessment in each field. Do NOT perform per-dimension deep analysis — that is the deep dive's job. `
+      + `Gather primary/secondary sources and return them in proposed_sources with real URLs.`,
     timeout_ms: AGENT_TIMEOUT_MS,
     schema_name: 'BuffettMungerQuickScreen',
   }, QuickScreenAgentSchema, deps)
@@ -261,7 +290,119 @@ export async function runStrategyResearchSwarm(
     idempotency_key: `quick-screen:${command.research_case_id}:v1`,
   })
 
-  // ---- Queue and start deep dive ----
+  const analysisShariahStatus = toAnalysisShariahStatus(qs.analysis.shariah_status)
+
+  // ---- Shariah-first gate: short-circuit if rejected at quick screen ----
+  // Reject if: Shariah NON_COMPLIANT OR business quality clearly inadequate (screening_result = 'reject').
+  const isRejected =
+    qs.analysis.screening_result === 'reject' || qs.analysis.shariah_status === 'NON_COMPLIANT'
+
+  if (isRejected) {
+    // Determine the rejection reason for the brief thesis/evidence/rationale
+    const rejectionReason = qs.analysis.shariah_status === 'NON_COMPLIANT'
+      ? `Rejected at quick screen: Shariah non-compliant — ${qs.analysis.summary}`
+      : `Rejected at quick screen: business quality insufficient — ${qs.analysis.summary}`
+
+    // Strategy compliance on the analysis: NON_COMPLIANT if Shariah rejected, else INSUFFICIENT_DATA
+    const strategyCompliance: 'NON_COMPLIANT' | 'INSUFFICIENT_DATA' =
+      qs.analysis.shariah_status === 'NON_COMPLIANT' ? 'NON_COMPLIANT' : 'INSUFFICIENT_DATA'
+
+    const shortCircuitAnalysisEvent: LedgerEventEnvelope<unknown> = {
+      event_id: `evt_buffett_munger_analysis_drafted_${command.research_case_id}`,
+      event_type: 'buffett_munger_analysis_drafted',
+      aggregate_type: 'research_case',
+      aggregate_id: command.research_case_id,
+      correlation_id: command.research_case_id,
+      causation_id: quickScreen.event_id,
+      actor_type: 'provider',
+      actor_id: provider.provider_id,
+      payload: {
+        research_case_id: command.research_case_id,
+        company_id: command.company_id,
+        ticker: command.ticker,
+        investment_verdict: 'PASS',
+        strategy_compliance: strategyCompliance,
+        shariah_status: analysisShariahStatus,
+        valuation_status: 'INSUFFICIENT_DATA',
+        next_required_action: 'No further research required; case rejected at quick screen.',
+        thesis_summary: rejectionReason,
+        evidence_summary: rejectionReason,
+        valuation_rationale: 'Not assessed — case rejected at quick screen.',
+        shariah_rationale: qs.analysis.summary,
+        risks: qs.analysis.red_flags,
+        open_questions: qs.analysis.caveats,
+        quick_screen: {
+          summary: qs.analysis.summary,
+          business_quality: qs.analysis.business_quality,
+          moat: qs.analysis.moat,
+          management_capital_allocation: qs.analysis.management_capital_allocation,
+          financial_quality: qs.analysis.financial_quality,
+          valuation_sanity: qs.analysis.valuation_sanity,
+          screening_result: qs.analysis.screening_result,
+          confidence: qs.analysis.confidence,
+        },
+      },
+      source_ids: qs.verified_ids,
+      created_at: new Date().toISOString(),
+      schema_version: 1,
+      idempotency_key: `analysis:${command.research_case_id}:v1`,
+    }
+    const shortCircuitAnalysis = await store.append(shortCircuitAnalysisEvent)
+
+    const shortCircuitDecision = await draftDecision(store, {
+      research_case_id: command.research_case_id,
+      decision_id: command.decision_id,
+      decision: 'PASS',
+      reason: rejectionReason,
+      thesis_summary: rejectionReason,
+      evidence_summary: rejectionReason,
+      valuation_rationale: 'Not assessed — case rejected at quick screen.',
+      shariah_rationale: qs.analysis.summary,
+      risks: qs.analysis.red_flags,
+      open_questions: qs.analysis.caveats,
+      causation_id: quickScreen.event_id,
+      source_ids: qs.verified_ids,
+      idempotency_key: `decision:${command.research_case_id}:v1`,
+    })
+
+    // Persist source bundle for the quick-screen-only captured sources
+    const capturedSoFar = [...accumulated.values()]
+    if (capturedSoFar.length > 0) {
+      await ingestManualSourceBundle({
+        source_ledger_path: command.source_ledger_path,
+        research_case_id: command.research_case_id,
+        ticker: command.ticker,
+        strategy_id: command.strategy_id,
+        provider_id: provider.provider_id,
+        proposed_by_actor_type: 'provider',
+        proposed_by_actor_id: provider.provider_id,
+        ingested_by_actor_type: 'system',
+        ingested_by_actor_id: 'research_workflow',
+        sources: capturedSoFar.map((c) => ({
+          source_id: c.source_id,
+          kind: 'url' as const,
+          title: c.title,
+          url: c.url,
+          excerpt: c.excerpt,
+          availability: c.availability,
+          ...(c.content_hash === undefined ? {} : { content_hash: c.content_hash }),
+          metadata: {
+            research_case_id: command.research_case_id,
+            ...(c.http_status === undefined ? {} : { http_status: c.http_status }),
+          },
+        })),
+      })
+    }
+
+    return {
+      research_case: researchCase,
+      quick_screen: quickScreen,
+      analysis: shortCircuitAnalysis,
+      decision: shortCircuitDecision,
+    }
+  }
+
+  // ---- Queue and start deep dive (only for deep_dive_candidate) ----
   const lanes = buffettMungerDeepDiveLanes
 
   const queued = await queueDeepDive(store, {
@@ -401,15 +542,6 @@ export async function runStrategyResearchSwarm(
   })
 
   // ---- Emit buffett_munger_analysis_drafted ----
-  // Map qs.analysis.shariah_status (which may be 'PENDING') to the valid analysis set
-  // (COMPLIANT | CONDITIONAL | NON_COMPLIANT | UNKNOWN). PENDING -> CONDITIONAL.
-  const rawShariahStatus = qs.analysis.shariah_status
-  const analysisShariahStatus: 'COMPLIANT' | 'CONDITIONAL' | 'NON_COMPLIANT' | 'UNKNOWN' =
-    rawShariahStatus === 'COMPLIANT' ? 'COMPLIANT'
-    : rawShariahStatus === 'NON_COMPLIANT' ? 'NON_COMPLIANT'
-    : rawShariahStatus === 'CONDITIONAL' ? 'CONDITIONAL'
-    : 'CONDITIONAL' // PENDING maps to CONDITIONAL (data available but not yet resolved)
-
   const analysisEvent: LedgerEventEnvelope<unknown> = {
     event_id: `evt_buffett_munger_analysis_drafted_${command.research_case_id}`,
     event_type: 'buffett_munger_analysis_drafted',
