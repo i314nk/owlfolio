@@ -154,3 +154,233 @@ export function SourceChip({ href, id, label = 'Source' }: SourceChipProps) {
 
   return createElement('a', { className: 'owl-source-chip owl-focusable', href }, ...content)
 }
+
+// ── New gold-forward dashboard components ─────────────────────────────────────
+
+export type OwlRingGaugeTone = 'gold' | 'emerald' | 'risk' | 'amber'
+
+export type OwlRingGaugeProps = {
+  /** 0..1 or 0..100 — normalised internally to 0..1 */
+  value: number
+  label?: string
+  tone?: OwlRingGaugeTone
+  size?: number
+}
+
+const RING_TONE_COLORS: Record<OwlRingGaugeTone, { stroke: string; text: string }> = {
+  gold: { stroke: '#e8c97a', text: '#e8c97a' },
+  emerald: { stroke: '#34d399', text: '#34d399' },
+  risk: { stroke: '#f87171', text: '#f87171' },
+  amber: { stroke: '#f0b429', text: '#f0b429' },
+}
+
+/**
+ * SVG donut/ring gauge.  Renders the percentage in the centre.
+ * Dependency-free; SSR-safe (no client-only APIs).
+ */
+export function OwlRingGauge({ value, label, tone = 'gold', size = 80 }: OwlRingGaugeProps) {
+  const norm = value > 1 ? Math.min(value / 100, 1) : Math.min(Math.max(value, 0), 1)
+  const pct = Math.round(norm * 100)
+
+  const r = 34
+  const cx = 44
+  const cy = 44
+  const strokeWidth = 7
+  const circumference = 2 * Math.PI * r
+  const dashOffset = circumference * (1 - norm)
+
+  const { stroke, text } = RING_TONE_COLORS[tone]
+  const trackColor = 'rgba(182,201,173,0.12)'
+
+  // Font size scales with the container
+  const pctFontSize = size * 0.22
+  const labelFontSize = size * 0.13
+
+  const svgSize = 88 // viewBox units
+  const ariaLabel = label !== undefined ? `${label}: ${pct}%` : `${pct}%`
+
+  return createElement(
+    'span',
+    { className: 'owl-ring-gauge', style: { width: size, height: size } },
+    createElement(
+      'svg',
+      {
+        'aria-label': ariaLabel,
+        className: 'owl-ring-gauge-svg',
+        height: size,
+        role: 'img',
+        viewBox: `0 0 ${svgSize} ${svgSize}`,
+        width: size,
+      },
+      // Track ring
+      createElement('circle', {
+        cx,
+        cy,
+        fill: 'none',
+        r,
+        stroke: trackColor,
+        strokeWidth,
+      }),
+      // Progress arc
+      createElement('circle', {
+        cx,
+        cy,
+        fill: 'none',
+        r,
+        stroke,
+        strokeDasharray: circumference,
+        strokeDashoffset: dashOffset,
+        strokeLinecap: 'round',
+        strokeWidth,
+        style: { transform: 'rotate(-90deg)', transformOrigin: `${cx}px ${cy}px` },
+      }),
+    ),
+    // Centre text (absolute overlay)
+    createElement(
+      'span',
+      { className: 'owl-ring-gauge-center', 'aria-hidden': 'true' },
+      createElement(
+        'span',
+        {
+          className: 'owl-ring-gauge-pct',
+          style: { color: text, fontSize: pctFontSize },
+        },
+        `${pct}%`,
+      ),
+      label !== undefined
+        ? createElement(
+            'span',
+            { className: 'owl-ring-gauge-label', style: { fontSize: labelFontSize } },
+            label,
+          )
+        : null,
+    ),
+  )
+}
+
+export type OwlKpiStatTone = 'gold' | 'emerald' | 'risk'
+export type OwlKpiStatDeltaTone = 'up' | 'down' | 'neutral'
+
+export type OwlKpiStatProps = {
+  label: string
+  value: string
+  delta?: string
+  deltaTone?: OwlKpiStatDeltaTone
+  tone?: OwlKpiStatTone
+}
+
+const DELTA_ARROWS: Record<OwlKpiStatDeltaTone, string> = {
+  up: '▲',
+  down: '▼',
+  neutral: '–',
+}
+
+/**
+ * Dashboard KPI block: small uppercase label, big GOLD value, optional delta.
+ */
+export function OwlKpiStat({ label, value, delta, deltaTone = 'neutral', tone = 'gold' }: OwlKpiStatProps) {
+  const valueClass = `owl-kpi-stat-value owl-kpi-stat-value-${tone}`
+  const deltaClass = `owl-kpi-stat-delta owl-kpi-stat-delta-${deltaTone}`
+
+  return createElement(
+    'div',
+    { className: 'owl-kpi-stat' },
+    createElement('p', { className: 'owl-kpi-stat-label' }, label),
+    createElement('p', { className: valueClass }, value),
+    delta !== undefined
+      ? createElement(
+          'span',
+          { className: deltaClass, 'aria-label': `Change: ${delta}` },
+          createElement('span', { 'aria-hidden': 'true' }, DELTA_ARROWS[deltaTone]),
+          delta,
+        )
+      : null,
+  )
+}
+
+export type OwlValuationKind = 'undervalued' | 'overvalued' | 'fair' | 'approved' | 'watch'
+
+export type OwlValuationChipProps = {
+  kind: OwlValuationKind
+  label?: string
+}
+
+const VALUATION_DEFAULTS: Record<OwlValuationKind, { dot: string; text: string }> = {
+  undervalued: { dot: '#86efac', text: 'UNDERVALUED' },
+  overvalued: { dot: '#fca5a5', text: 'OVERVALUED' },
+  fair: { dot: '#e8c97a', text: 'FAIR VALUE' },
+  approved: { dot: '#86efac', text: 'WAHED-APPROVED' },
+  watch: { dot: '#f0b429', text: 'WATCH' },
+}
+
+/**
+ * alphaspread-style valuation status chip.
+ * undervalued/approved → emerald, overvalued → red, fair → gold, watch → amber.
+ */
+export function OwlValuationChip({ kind, label }: OwlValuationChipProps) {
+  const { dot, text } = VALUATION_DEFAULTS[kind]
+  const displayLabel = label ?? text
+
+  return createElement(
+    'span',
+    {
+      className: `owl-valuation-chip owl-valuation-chip-${kind}`,
+      role: 'status',
+      'aria-label': displayLabel,
+    },
+    createElement('span', {
+      className: 'owl-valuation-chip-dot',
+      style: { background: dot },
+      'aria-hidden': 'true',
+    }),
+    displayLabel,
+  )
+}
+
+export type OwlGaugeBarProps = {
+  /** 0..1 or 0..100 */
+  value: number
+  label?: string
+  height?: number
+}
+
+/**
+ * Horizontal gradient bar (emerald→amber→red) with a marker.
+ * For risk/sentiment visualisation.
+ */
+export function OwlGaugeBar({ value, label, height = 8 }: OwlGaugeBarProps) {
+  const norm = value > 1 ? Math.min(value / 100, 1) : Math.min(Math.max(value, 0), 1)
+  const pct = Math.round(norm * 100)
+
+  // Marker colour transitions: emerald < 40 %, amber 40–65 %, red > 65 %
+  let markerColor: string
+  if (norm < 0.4) {
+    markerColor = '#34d399'
+  } else if (norm < 0.65) {
+    markerColor = '#f0b429'
+  } else {
+    markerColor = '#f87171'
+  }
+
+  return createElement(
+    'div',
+    { className: 'owl-gauge-bar', 'aria-label': label !== undefined ? `${label}: ${pct}%` : `${pct}%` },
+    createElement(
+      'div',
+      { className: 'owl-gauge-bar-track-wrap', style: { height } },
+      createElement('div', { className: 'owl-gauge-bar-track' }),
+      createElement('div', {
+        className: 'owl-gauge-bar-marker',
+        style: { left: `${norm * 100}%`, background: markerColor },
+      }),
+    ),
+    createElement(
+      'div',
+      { className: 'owl-gauge-bar-meta' },
+      label !== undefined
+        ? createElement('span', { className: 'owl-gauge-bar-label' }, label)
+        : createElement('span', {}),
+      createElement('span', { className: 'owl-gauge-bar-value' }, `${pct}%`),
+    ),
+  )
+}

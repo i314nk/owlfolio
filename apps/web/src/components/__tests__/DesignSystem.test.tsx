@@ -8,7 +8,19 @@ vi.mock('next/navigation', () => ({
   usePathname: () => '/',
 }))
 
-import { AppShell, EmptyState, FinancialNumber, OwlButtonLink, OwlCard, PageHeader, SourceChip } from '../designSystem'
+import {
+  AppShell,
+  EmptyState,
+  FinancialNumber,
+  OwlButtonLink,
+  OwlCard,
+  OwlGaugeBar,
+  OwlKpiStat,
+  OwlRingGauge,
+  OwlValuationChip,
+  PageHeader,
+  SourceChip,
+} from '../designSystem'
 import { AppNavigation } from '../AppNavigation'
 import { StatusBadge } from '../StatusBadge'
 
@@ -134,6 +146,120 @@ describe('phase 3 design system primitives', () => {
     expect(css).toContain('.owl-nav-shell')
     expect(css).toContain('@media (max-width: 900px)')
     expect(css).toContain('overflow-x: auto')
+  })
+
+  it('defines gold-forward token and utility CSS invariants', () => {
+    const css = readFileSync(join(process.cwd(), 'apps/web/src/app/globals.css'), 'utf8')
+
+    // Semantic gold tokens
+    expect(css).toContain('--owl-color-gold:')
+    expect(css).toContain('--owl-color-gold-bright:')
+    expect(css).toContain('--owl-color-gold-vivid:')
+    // Amber tokens
+    expect(css).toContain('--owl-color-amber:')
+    expect(css).toContain('--owl-color-amber-muted:')
+    // Risk bright
+    expect(css).toContain('--owl-color-risk-bright:')
+    // Utility classes
+    expect(css).toContain('.owl-figure-gold')
+    expect(css).toContain('.owl-figure-emerald')
+    expect(css).toContain('.owl-figure-risk')
+    expect(css).toContain('.owl-figure-amber')
+    // New component classes
+    expect(css).toContain('.owl-ring-gauge')
+    expect(css).toContain('.owl-kpi-stat')
+    expect(css).toContain('.owl-valuation-chip')
+    expect(css).toContain('.owl-gauge-bar')
+  })
+
+  it('renders OwlRingGauge with correct aria-label and percentage text', () => {
+    const html75 = renderToStaticMarkup(createElement(OwlRingGauge, { value: 0.75, label: 'Health', tone: 'gold' }))
+    expect(html75).toContain('75%')
+    expect(html75).toContain('aria-label="Health: 75%"')
+    expect(html75).toContain('owl-ring-gauge')
+    expect(html75).toContain('role="img"')
+
+    // 0..100 form
+    const html50 = renderToStaticMarkup(createElement(OwlRingGauge, { value: 50, tone: 'emerald' }))
+    expect(html50).toContain('50%')
+
+    // Tones are reflected in stroke colour
+    const htmlRisk = renderToStaticMarkup(createElement(OwlRingGauge, { value: 0.2, tone: 'risk' }))
+    expect(htmlRisk).toContain('#f87171')
+
+    const htmlAmber = renderToStaticMarkup(createElement(OwlRingGauge, { value: 0.6, tone: 'amber' }))
+    expect(htmlAmber).toContain('#f0b429')
+  })
+
+  it('renders OwlKpiStat with label, gold value, and optional delta', () => {
+    const html = renderToStaticMarkup(createElement(OwlKpiStat, {
+      label: 'Portfolio NAV',
+      value: '$124,500',
+      delta: '+2.4%',
+      deltaTone: 'up',
+      tone: 'gold',
+    }))
+    expect(html).toContain('Portfolio NAV')
+    expect(html).toContain('$124,500')
+    expect(html).toContain('+2.4%')
+    expect(html).toContain('owl-kpi-stat-value-gold')
+    expect(html).toContain('owl-kpi-stat-delta-up')
+    expect(html).toContain('▲')
+
+    // Down delta
+    const htmlDown = renderToStaticMarkup(createElement(OwlKpiStat, {
+      label: 'Loss',
+      value: '-$300',
+      delta: '-1.2%',
+      deltaTone: 'down',
+      tone: 'risk',
+    }))
+    expect(htmlDown).toContain('owl-kpi-stat-value-risk')
+    expect(htmlDown).toContain('owl-kpi-stat-delta-down')
+    expect(htmlDown).toContain('▼')
+
+    // No delta renders cleanly
+    const htmlNoDelta = renderToStaticMarkup(createElement(OwlKpiStat, { label: 'Cash', value: '$10,000' }))
+    expect(htmlNoDelta).toContain('Cash')
+    expect(htmlNoDelta).not.toContain('owl-kpi-stat-delta')
+  })
+
+  it('renders OwlValuationChip with correct class and aria-label for every kind', () => {
+    const kinds = ['undervalued', 'overvalued', 'fair', 'approved', 'watch'] as const
+
+    for (const kind of kinds) {
+      const html = renderToStaticMarkup(createElement(OwlValuationChip, { kind }))
+      expect(html, kind).toContain(`owl-valuation-chip-${kind}`)
+      expect(html, kind).toContain('role="status"')
+      expect(html, kind).toContain('owl-valuation-chip-dot')
+    }
+
+    // Custom label
+    const htmlCustom = renderToStaticMarkup(createElement(OwlValuationChip, { kind: 'overvalued', label: 'OVERVALUED 38%' }))
+    expect(htmlCustom).toContain('OVERVALUED 38%')
+    expect(htmlCustom).toContain('aria-label="OVERVALUED 38%"')
+
+    // Default labels
+    const htmlApproved = renderToStaticMarkup(createElement(OwlValuationChip, { kind: 'approved' }))
+    expect(htmlApproved).toContain('WAHED-APPROVED')
+
+    const htmlFair = renderToStaticMarkup(createElement(OwlValuationChip, { kind: 'fair' }))
+    expect(htmlFair).toContain('FAIR VALUE')
+  })
+
+  it('renders OwlGaugeBar with label, value text, and marker', () => {
+    const html = renderToStaticMarkup(createElement(OwlGaugeBar, { value: 0.35, label: 'Risk' }))
+    expect(html).toContain('Risk')
+    expect(html).toContain('35%')
+    expect(html).toContain('owl-gauge-bar-track')
+    expect(html).toContain('owl-gauge-bar-marker')
+    // Low value → emerald marker
+    expect(html).toContain('#34d399')
+
+    // High value → red marker
+    const htmlHigh = renderToStaticMarkup(createElement(OwlGaugeBar, { value: 0.8 }))
+    expect(htmlHigh).toContain('#f87171')
+    expect(htmlHigh).toContain('80%')
   })
 
   it('keeps workflow route pages inside the phase-3 dark shell instead of legacy full-page light/green surfaces', () => {
