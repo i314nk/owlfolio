@@ -2,12 +2,17 @@ import { notFound } from 'next/navigation'
 
 import { SQLiteEventStore } from '@owlfolio/ledger/sqliteEventStore'
 import { resolveCurrentPrice } from '@owlfolio/workflow/marketData'
+import { buffettMungerStrategy } from '@owlfolio/strategies/buffettMunger'
+import { computePositionPlan, type PositionPlan } from '@owlfolio/strategies/positionSizing'
+import type { MoatClass } from '@owlfolio/strategies/strategyContract'
 
 import { ResearchCasePanel } from '../../../components/ResearchCasePanel'
 import { getDemoResearchCase, resolveDemoLedgerPath } from '../../../lib/demo'
 import { getOnboardingState } from '../../../lib/onboarding'
-import { getAppResearchCaseFromStore } from '../../../lib/workflow'
+import { getAppResearchCaseFromStore, getInvestableCapital } from '../../../lib/workflow'
 import type { MarketQuote } from '../../../components/ResearchCasePanel'
+
+const INVESTABLE_MOAT_CLASSES: ReadonlySet<string> = new Set(['wide', 'monopoly'])
 
 export type ResearchCasePageProps = {
   params: Promise<{ caseId: string }>
@@ -42,6 +47,30 @@ export default async function ResearchCasePage({ params }: ResearchCasePageProps
       }
     }
 
+    // Advisory position plan: only when the case has an investable moat + a buy price.
+    // When investable capital is set, compute the draft plan; otherwise flag a prompt so
+    // the panel can nudge the user to set capital on the Portfolio page.
+    const moatClass = researchCase.valuation?.moat_class
+    const buyPrice = researchCase.valuation?.buy_price_per_share
+    const moatIsInvestable = moatClass !== undefined && INVESTABLE_MOAT_CLASSES.has(moatClass)
+
+    let positionPlan: PositionPlan | undefined
+    let promptForCapital = false
+    if (moatIsInvestable && buyPrice !== undefined && state.config.mode === 'personal-local') {
+      const investableCapital = await getInvestableCapital(state.config.ledger_path)
+      if (investableCapital !== undefined) {
+        positionPlan = computePositionPlan({
+          strategy: buffettMungerStrategy,
+          moatClass: moatClass as MoatClass,
+          buyPricePerShare: buyPrice,
+          investableCapital: investableCapital.amount,
+          currency: investableCapital.currency,
+        })
+      } else {
+        promptForCapital = true
+      }
+    }
+
     return (
       <main className="owl-route-frame">
         <p className="owl-route-back-row">
@@ -49,7 +78,13 @@ export default async function ResearchCasePage({ params }: ResearchCasePageProps
             ← Back to command center
           </a>
         </p>
-        <ResearchCasePanel researchCase={researchCase} mode={state.config.mode} {...(marketQuote !== undefined ? { marketQuote } : {})} />
+        <ResearchCasePanel
+          researchCase={researchCase}
+          mode={state.config.mode}
+          {...(marketQuote !== undefined ? { marketQuote } : {})}
+          {...(positionPlan !== undefined ? { positionPlan } : {})}
+          promptForCapital={promptForCapital}
+        />
       </main>
     )
   } catch (error) {

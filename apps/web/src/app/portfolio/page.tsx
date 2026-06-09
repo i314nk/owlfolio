@@ -3,12 +3,15 @@ import { SQLiteEventStore } from '@owlfolio/ledger/sqliteEventStore'
 
 import { PortfolioPanel, type PortfolioHolding, type PortfolioValuationRefreshSummary } from '../../components/PortfolioPanel'
 import { getOnboardingState } from '../../lib/onboarding'
-import { getAppHoldingsFromStore } from '../../lib/workflow'
+import { getAppHoldingsFromStore, getInvestableCapital } from '../../lib/workflow'
 
 export default async function PortfolioPage() {
   const state = await getOnboardingState()
   const holdings = await loadHoldings(state.config.ledger_path, state.config.mode)
   const valuationRefresh = buildValuationRefreshSummary(holdings)
+  const investableCapital = state.config.mode === 'personal-local'
+    ? await getInvestableCapital(state.config.ledger_path)
+    : undefined
 
   return (
     <main className="owl-route-frame">
@@ -17,7 +20,12 @@ export default async function PortfolioPage() {
           ← Back to command center
         </a>
       </p>
-      <PortfolioPanel holdings={holdings} mode={state.config.mode} valuationRefresh={valuationRefresh} />
+      <PortfolioPanel
+        holdings={holdings}
+        mode={state.config.mode}
+        valuationRefresh={valuationRefresh}
+        {...(investableCapital !== undefined ? { investableCapital } : {})}
+      />
     </main>
   )
 }

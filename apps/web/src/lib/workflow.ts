@@ -39,6 +39,10 @@ import { selectResearchCaseAction } from '@owlfolio/workflow/researchCasePolicy'
 import { runStrategyResearchSwarm, runResearchDeepDivePhase, type GroundFn } from '@owlfolio/workflow/researchSwarm'
 import { groundProposedSources, groundProposedSourcesDeterministic } from '@owlfolio/workflow/sourceGrounding'
 import { projectPendingDeepDiveRuns } from '@owlfolio/ledger/projections/researchRunQueueProjection'
+import {
+  projectInvestableCapital,
+  type InvestableCapitalSnapshot,
+} from '@owlfolio/ledger/projections/investableCapitalProjection'
 
 import type { StatusBadgeTone } from '../components/StatusBadge'
 import { getDemoResearchCaseFromStore, getDemoWatchlistItemsFromStore } from './demo'
@@ -792,6 +796,75 @@ export async function rejectPersonalHoldingReviewDraft(
       rejection_reason: rejectionReason,
       idempotency_key: `holding:${holdingId}:review:${reviewId}:reject`,
     })
+  } finally {
+    store.close()
+  }
+}
+
+export type SetInvestableCapitalInput = {
+  amount?: FormDataEntryValue | number | string | null
+  currency?: FormDataEntryValue | string | null
+}
+
+/**
+ * Appends a user-authored `investable_capital_set` event to the durable ledger.
+ *
+ * Investable capital is ADVISORY: it is used to size positions on the dossier, but
+ * the user authors all actual buys. The worker never trades. `as_of` is server time.
+ */
+export async function setInvestableCapital(
+  state: OnboardingState,
+  input: SetInvestableCapitalInput,
+) {
+  if (!state.is_initialized || state.config.mode !== 'personal-local' || state.config.ledger_path === undefined) {
+    throw new Error('Personal-local workflow is not initialized')
+  }
+
+  const amount = parseRequiredNumber(input.amount, 'Investable capital amount')
+  if (amount <= 0) {
+    throw new Error('Investable capital amount must be greater than zero')
+  }
+  const currency = parseCurrency(input.currency, 'Investable capital currency', 'USD')
+  const asOf = new Date().toISOString()
+
+  const store = new SQLiteEventStore(state.config.ledger_path)
+  try {
+    return await store.append({
+      event_id: `evt_investable_capital_set_${Date.now()}`,
+      event_type: 'investable_capital_set',
+      aggregate_type: 'portfolio',
+      aggregate_id: 'portfolio_local',
+      actor_type: 'user',
+      actor_id: 'user_local',
+      payload: {
+        amount,
+        currency,
+        as_of: asOf,
+      },
+      source_ids: [],
+      created_at: asOf,
+      schema_version: 1,
+      idempotency_key: `investable-capital-set:${asOf}`,
+    })
+  } finally {
+    store.close()
+  }
+}
+
+/**
+ * Projects the latest user-set investable capital snapshot from the durable ledger.
+ * Returns undefined when the ledger is not configured or no capital has been set.
+ */
+export async function getInvestableCapital(
+  ledgerPath: string | undefined,
+): Promise<InvestableCapitalSnapshot | undefined> {
+  if (ledgerPath === undefined) {
+    return undefined
+  }
+
+  const store = new SQLiteEventStore(ledgerPath)
+  try {
+    return projectInvestableCapital(await store.list())
   } finally {
     store.close()
   }

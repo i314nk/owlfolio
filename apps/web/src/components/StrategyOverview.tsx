@@ -20,6 +20,8 @@ const MOS_MONOPOLY = marginOfSafetyForMoat(strategy, 'monopoly')
 const TARGET_WIDE = strategy.portfolio.target_weight_by_moat.wide
 const TARGET_MONOPOLY = strategy.portfolio.target_weight_by_moat.monopoly
 const TRANCHES = strategy.portfolio.entry_tranches
+const MAX_POSITION_WEIGHT = strategy.portfolio.max_position_weight
+const MAX_POSITIONS = strategy.portfolio.max_positions
 
 function pct(value: number, digits = 0): string {
   return `${(value * 100).toFixed(digits).replace(/\.0+$/, '')}%`
@@ -433,8 +435,13 @@ export function StrategyOverview(): ReactNode {
       lead: createElement(
         'span',
         null,
-        'Conviction-tiered target weights scale with moat class, and entry is laddered across three price tranches. ',
-        createElement('span', { style: goldText }, 'Sizing is documented policy; automated enforcement/execution is future work.'),
+        'Diversified, conviction-tiered target weights scale with moat class (wide ',
+        createElement('span', { style: goldText }, pct(TARGET_WIDE)),
+        ' / monopoly ',
+        createElement('span', { style: goldText }, pct(TARGET_MONOPOLY)),
+        `, each ≤ the ${pct(MAX_POSITION_WEIGHT)} max, across ~${MAX_POSITIONS} names), and entry is laddered across three price tranches. `,
+        createElement('span', { style: goldText }, 'Sizing is capital-driven and advisory: it uses the investable capital you set, and you author the buys — the worker never trades.'),
+        ' The target weight is an entry cap — winners run, never force-trimmed. T2/T3 are thesis-gated: deploy only if the thesis still holds (tied to the thesis-review escalation), never mechanical averaging-down.',
       ),
       children: createElement(
         'div',
@@ -447,11 +454,12 @@ export function StrategyOverview(): ReactNode {
           ],
         }),
         Table({
-          headings: ['Tranche', 'Fraction', 'Trigger'],
+          headings: ['Tranche', 'Fraction', 'Trigger', 'Gate'],
           rows: TRANCHES.map((t) => [
             createElement('span', { style: goldText }, t.id),
             createElement('span', { style: monoValue }, pct(t.fraction)),
             trancheTriggerLabel(t),
+            t.id === 'T1' ? 'Entry' : createElement('span', { style: goldText }, 'Thesis re-check'),
           ]),
         }),
       ),

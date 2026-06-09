@@ -1,5 +1,7 @@
 import { createElement } from 'react'
 
+import type { InvestableCapitalSnapshot } from '@owlfolio/ledger/projections/investableCapitalProjection'
+
 import { OwlButtonLink, OwlKpiStat, OwlRingGauge, OwlValuationChip, type OwlValuationKind } from './designSystem'
 import type { AppHolding, WorkflowMode } from '../lib/workflow'
 import { StatusBadge } from './StatusBadge'
@@ -28,6 +30,7 @@ export type PortfolioPanelProps = {
   holdings: PortfolioHolding[]
   mode?: WorkflowMode
   valuationRefresh?: PortfolioValuationRefreshSummary
+  investableCapital?: InvestableCapitalSnapshot
 }
 
 const cardStyle = {
@@ -74,7 +77,7 @@ const decisionQuickLinkStyle = {
   textDecoration: 'none',
 }
 
-export function PortfolioPanel({ holdings, mode = 'demo', valuationRefresh }: PortfolioPanelProps) {
+export function PortfolioPanel({ holdings, mode = 'demo', valuationRefresh, investableCapital }: PortfolioPanelProps) {
   const totalCostBasis = holdings.reduce((sum, holding) => sum + holding.total_cost_basis, 0)
   const totalCurrentValue = holdings.reduce((sum, holding) => sum + (holding.latest_market_value ?? 0), 0)
 
@@ -102,6 +105,7 @@ export function PortfolioPanel({ holdings, mode = 'demo', valuationRefresh }: Po
       ),
     ),
     createPortfolioKpiRow(holdings, totalCurrentValue),
+    ...(mode === 'personal-local' ? [createInvestableCapitalPanel(investableCapital)] : []),
     createPortfolioOperationsCockpit(holdings, totalCurrentValue, valuationRefresh),
     ...(valuationRefresh === undefined ? [] : [createScheduledValuationRefreshCard(valuationRefresh)]),
     ...(holdings.length === 0
@@ -580,6 +584,68 @@ function createReviewInput(label: string, name: string, defaultValue: string) {
       defaultValue,
       style: inputStyle,
     }),
+  )
+}
+
+function createInvestableCapitalPanel(investableCapital?: InvestableCapitalSnapshot) {
+  const currentLabel = investableCapital === undefined
+    ? 'Not set yet'
+    : formatMoney(investableCapital.amount, investableCapital.currency)
+
+  return createElement(
+    'section',
+    { style: { ...cardStyle, display: 'grid', gap: '0.85rem' } },
+    createElement('h2', { style: { fontSize: '1.15rem', margin: 0 } }, 'Investable capital'),
+    createElement(
+      'p',
+      { style: { color: '#9aa4b7', fontSize: '0.92rem', margin: 0 } },
+      'Used to size positions; advisory only. You author the actual buys.',
+    ),
+    createElement(
+      'p',
+      { style: { color: '#cbd5e1', fontSize: '1rem', margin: 0 } },
+      createElement('strong', null, 'Current investable capital: '),
+      createElement('span', { style: { color: 'var(--owl-color-gold-bright)', fontWeight: 800 } }, currentLabel),
+    ),
+    createElement(
+      'form',
+      {
+        action: '/api/portfolio/investable-capital',
+        method: 'post',
+        style: { display: 'grid', gap: '0.75rem' },
+      },
+      createElement(
+        'label',
+        { style: { color: '#cbd5e1', display: 'grid', fontWeight: 700, gap: '0.35rem' } },
+        'Investable capital',
+        createElement('input', {
+          name: 'amount',
+          required: true,
+          step: '0.01',
+          min: '0',
+          type: 'number',
+          defaultValue: investableCapital?.amount.toString() ?? '',
+          style: inputStyle,
+        }),
+      ),
+      createElement('input', { name: 'currency', type: 'hidden', value: investableCapital?.currency ?? 'USD' }),
+      createElement(
+        'button',
+        {
+          type: 'submit',
+          style: {
+            background: 'var(--owl-color-gold)',
+            border: 0,
+            borderRadius: '0.75rem',
+            color: '#ffffff',
+            cursor: 'pointer',
+            fontWeight: 800,
+            padding: '0.75rem 1rem',
+          },
+        },
+        'Save investable capital',
+      ),
+    ),
   )
 }
 

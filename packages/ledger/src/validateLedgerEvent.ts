@@ -17,6 +17,7 @@ const supportedAggregateTypes = new Set<AggregateType>([
   'cash_account',
   'provider_run',
   'scheduled_task',
+  'portfolio',
 ])
 
 const supportedActorTypes = new Set<ActorType>(['user', 'system', 'provider', 'worker'])

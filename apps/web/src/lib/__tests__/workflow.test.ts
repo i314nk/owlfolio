@@ -34,6 +34,8 @@ import {
   requestDeepDiveRun,
   resolveActiveWorkflowMode,
   resolveModelIdForProvider,
+  setInvestableCapital,
+  getInvestableCapital,
 } from '../workflow'
 
 describe('workflow helpers', () => {
@@ -1192,6 +1194,73 @@ describe('workflow helpers', () => {
         process.env.OWLFOLIO_TEST_MODE = previousTestMode
       }
     }
+  })
+
+  it('appends investable_capital_set (user) and round-trips through projectInvestableCapital', async () => {
+    const projectDir = await mkdtemp(join(tmpdir(), 'owlfolio-investable-capital-'))
+    dirs.push(projectDir)
+
+    const ledgerPath = join(projectDir, 'data', 'personal-ledger.sqlite')
+    const state = {
+      config: {
+        ...defaultPersonalLocalAppConfig(),
+        provider: {
+          provider_id: 'mock-provider' as const,
+          support_level: 'certified' as const,
+          model_id: 'mock-buffett-munger-demo',
+        },
+        initialized_at: '2026-05-31T12:00:00.000Z',
+        ledger_path: ledgerPath,
+        source_ledger_path: join(projectDir, 'data', 'source-ledger'),
+      },
+      is_initialized: true,
+    }
+
+    // No capital set yet → undefined.
+    expect(await getInvestableCapital(ledgerPath)).toBeUndefined()
+
+    const appended = await setInvestableCapital(state, { amount: '50000', currency: 'usd' })
+    expect(appended).toMatchObject({
+      event_type: 'investable_capital_set',
+      aggregate_type: 'portfolio',
+      actor_type: 'user',
+      actor_id: 'user_local',
+    })
+    expect(appended.payload).toMatchObject({ amount: 50000, currency: 'USD' })
+
+    const projected = await getInvestableCapital(ledgerPath)
+    expect(projected).toMatchObject({ amount: 50000, currency: 'USD' })
+    expect(typeof projected?.as_of).toBe('string')
+
+    // Last-write-wins on update.
+    await setInvestableCapital(state, { amount: '75000', currency: 'USD' })
+    expect((await getInvestableCapital(ledgerPath))?.amount).toBe(75000)
+  })
+
+  it('rejects non-positive or invalid investable-capital input before appending', async () => {
+    const projectDir = await mkdtemp(join(tmpdir(), 'owlfolio-investable-capital-invalid-'))
+    dirs.push(projectDir)
+
+    const ledgerPath = join(projectDir, 'data', 'personal-ledger.sqlite')
+    const state = {
+      config: {
+        ...defaultPersonalLocalAppConfig(),
+        provider: {
+          provider_id: 'mock-provider' as const,
+          support_level: 'certified' as const,
+          model_id: 'mock-buffett-munger-demo',
+        },
+        initialized_at: '2026-05-31T12:00:00.000Z',
+        ledger_path: ledgerPath,
+        source_ledger_path: join(projectDir, 'data', 'source-ledger'),
+      },
+      is_initialized: true,
+    }
+
+    await expect(setInvestableCapital(state, { amount: '0', currency: 'USD' }))
+      .rejects.toThrow('Investable capital amount must be greater than zero')
+    await expect(setInvestableCapital(state, { amount: '1000', currency: 'ZZZZ' }))
+      .rejects.toThrow('Investable capital currency must be a valid ISO 4217 currency code')
   })
 })
 

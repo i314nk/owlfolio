@@ -158,26 +158,30 @@ Shariah is intentionally the **first** check at the quick-screen stage so a non-
 
 ## 6. Position sizing — conviction-tiered × price-laddered
 
-Position sizing is **config only** at this stage. The parameters are encoded in the strategy contract for documentation and future enforcement.
+Position sizing is **capital-driven and advisory**, and it is now **wired**: when you set your investable capital on the Portfolio page and a research case clears the wide-moat gate with a buy-below price, the dossier shows a draft position plan (`computePositionPlan` in `@owlfolio/strategies/positionSizing`). It is advisory — **you author the actual buys, and the worker never trades.**
 
-### Conviction-tiered target full position weight
+### Diversified, conviction-tiered target full position weight
 
 | Moat class | Target full weight |
 |---|---|
 | `wide` | 6 % |
 | `monopoly` | 10 % |
 
-All values are at or below the `max_position_weight` of 15 %. `narrow` and `moderate` are not present because they are rejected before sizing is considered.
+All values are at or below the `max_position_weight` of 15 %, and the portfolio targets ~20 names — the weights are deliberately diversified, not concentrated. `narrow` and `moderate` are not present because they are rejected before sizing is considered.
+
+The target weight is an **entry cap, not a rebalancing target**: it caps how much you deploy on the way in. Once a compounder is owned, **winners run** — the strategy never force-trims a position just because it has grown past its entry weight.
+
+Target dollar value is `target_weight × investable_capital`, so the plan scales with the capital you have actually set.
 
 ### Price-laddered entry tranches
 
-| Tranche | Fraction of target weight | Trigger |
-|---|---|---|
-| T1 | 40 % | At the buy price |
-| T2 | 30 % | ~10 % below the buy price |
-| T3 | 30 % | ~20 % below the buy price |
+| Tranche | Fraction of target weight | Trigger | Gate |
+|---|---|---|---|
+| T1 | 40 % | At the buy price | Entry |
+| T2 | 30 % | ~10 % below the buy price | Thesis re-check |
+| T3 | 30 % | ~20 % below the buy price | Thesis re-check |
 
-Fractions sum to 100 % of the target weight. The helper `targetWeightForMoatClass(strategy, moatClass)` returns the target weight for an investable moat class and throws for `narrow`/`moderate`.
+Fractions sum to 100 % of the target weight. **T2 and T3 are thesis-gated**: a lower price only justifies adding if the thesis still holds, so each lower tranche requires a fresh thesis re-check (tied to the thesis-review escalation) before deploying. This is explicitly **not** mechanical averaging-down — a broken thesis on the way down cancels the lower tranches rather than triggering an automatic add. The helper `targetWeightForMoatClass(strategy, moatClass)` returns the target weight for an investable moat class and throws for `narrow`/`moderate`.
 
 ---
 

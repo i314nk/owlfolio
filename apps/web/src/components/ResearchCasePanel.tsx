@@ -1,5 +1,7 @@
 import { createElement } from 'react'
 
+import type { PositionPlan, PositionTranche } from '@owlfolio/strategies/positionSizing'
+
 import { SourceChip } from './designSystem'
 import { StatusBadge } from './StatusBadge'
 import type { AppResearchCase, AppSourceEvidence, WorkflowMode } from '../lib/workflow'
@@ -15,6 +17,8 @@ export type ResearchCasePanelProps = {
   researchCase: AppResearchCase
   mode?: WorkflowMode
   marketQuote?: MarketQuote
+  positionPlan?: PositionPlan
+  promptForCapital?: boolean
 }
 
 // ── Shared style tokens ───────────────────────────────────────────────────────
@@ -94,7 +98,7 @@ function gatedReason(researchCase: AppResearchCase): { title: string; reason: st
 
 // ── Main component ────────────────────────────────────────────────────────────
 
-export function ResearchCasePanel({ researchCase, mode = 'demo', marketQuote }: ResearchCasePanelProps) {
+export function ResearchCasePanel({ researchCase, mode = 'demo', marketQuote, positionPlan, promptForCapital = false }: ResearchCasePanelProps) {
   const canPromoteToWatchlist = mode === 'personal-local'
     && researchCase.stage === 'decision_drafted'
     && researchCase.decision !== undefined
@@ -117,6 +121,8 @@ export function ResearchCasePanel({ researchCase, mode = 'demo', marketQuote }: 
     createVerdictHero(researchCase),
     // ── 2. Valuation panel ──────────────────────────────────────────────────
     createValuationPanel(researchCase, marketQuote),
+    // ── 2b. Position plan (advisory) ─────────────────────────────────────────
+    createPositionPlanPanel(positionPlan, promptForCapital),
     // ── 3. Four summary cards (always visible) ───────────────────────────────
     createDecisionEvidence(researchCase),
     // ── 4. Visible specialist lanes ──────────────────────────────────────────
@@ -895,6 +901,193 @@ function createValuationPanel(researchCase: AppResearchCase, marketQuote?: Marke
         ) : null,
       ),
     ) : null,
+  )
+}
+
+// ── Position plan (advisory) ──────────────────────────────────────────────────
+
+function formatPlanMoney(value: number, currency: string): string {
+  try {
+    return new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency,
+      maximumFractionDigits: 0,
+    }).format(value)
+  } catch {
+    return `$${Math.round(value)}`
+  }
+}
+
+/**
+ * Renders the advisory position plan near the valuation panel.
+ * - When a plan exists: target weight + target value, the T1/T2/T3 tranches as rows
+ *   (T2/T3 carry a "thesis re-check" badge), and the advisory notes.
+ * - When capital is unset (but the case is otherwise sizeable): a prompt to set capital.
+ * - Otherwise (no plan, no prompt): nothing — consistent with the gated dossier.
+ */
+function createPositionPlanPanel(plan: PositionPlan | undefined, promptForCapital: boolean) {
+  if (plan === undefined) {
+    if (!promptForCapital) return null
+    return createElement(
+      'div',
+      { style: { ...cardStyle, borderLeft: '3px solid var(--owl-color-gold)', display: 'grid', gap: '0.5rem' } },
+      createElement('p', { style: labelStyle }, 'Position plan · advisory'),
+      createElement(
+        'p',
+        { style: { color: 'var(--owl-color-muted)', fontSize: '0.95rem', margin: 0 } },
+        'Set your investable capital on the Portfolio page to see position sizing.',
+      ),
+    )
+  }
+
+  if (!plan.investable) return null
+
+  const currency = 'USD'
+
+  return createElement(
+    'div',
+    { style: { ...cardStyle, borderLeft: '3px solid var(--owl-color-gold)', display: 'grid', gap: '0.75rem' } },
+    // Header
+    createElement(
+      'div',
+      { style: { alignItems: 'baseline', display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.5rem' } },
+      createElement('p', { style: labelStyle }, 'Position plan · advisory'),
+      createElement(
+        'span',
+        {
+          style: {
+            color: 'var(--owl-color-gold-bright)',
+            fontFamily: 'var(--owl-font-mono)',
+            fontSize: '0.76rem',
+            fontWeight: 800,
+            letterSpacing: '0.06em',
+          },
+        },
+        `${plan.moat_class.toUpperCase()} MOAT · ENTRY CAP`,
+      ),
+    ),
+    // Target weight + target value
+    createElement(
+      'div',
+      { style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '0.6rem' } },
+      createPlanMetric('Target weight', `${(plan.target_weight * 100).toFixed(0)}%`),
+      createPlanMetric('Target value', formatPlanMoney(plan.target_value, currency)),
+    ),
+    // Tranche rows
+    createElement(
+      'div',
+      { style: { display: 'grid', gap: '0.5rem' } },
+      ...plan.tranches.map((tranche) => createTrancheRow(tranche, currency)),
+    ),
+    // Advisory notes
+    createElement(
+      'ul',
+      {
+        style: {
+          color: 'var(--owl-color-muted)',
+          display: 'flex',
+          flexDirection: 'column',
+          fontSize: '0.82rem',
+          gap: '0.3rem',
+          lineHeight: 1.45,
+          margin: 0,
+          paddingLeft: '1.1rem',
+        },
+      },
+      ...plan.notes.map((note, index) => createElement('li', { key: `plan-note-${index}` }, note)),
+    ),
+  )
+}
+
+function createPlanMetric(label: string, value: string) {
+  return createElement(
+    'div',
+    {
+      key: label,
+      style: {
+        background: 'var(--owl-color-panel-elevated)',
+        border: '1px solid var(--owl-color-border)',
+        borderRadius: '0.7rem',
+        padding: '0.7rem 0.8rem',
+      },
+    },
+    createElement(
+      'div',
+      {
+        style: {
+          color: 'var(--owl-color-quiet)',
+          fontFamily: 'var(--owl-font-mono)',
+          fontSize: '0.68rem',
+          letterSpacing: '0.05em',
+          textTransform: 'uppercase' as const,
+        },
+      },
+      label,
+    ),
+    createElement(
+      'div',
+      { style: { color: 'var(--owl-color-gold-bright)', fontSize: '1.1rem', fontWeight: 800, marginTop: '0.15rem' } },
+      value,
+    ),
+  )
+}
+
+function createTrancheRow(tranche: PositionTranche, currency: string) {
+  return createElement(
+    'div',
+    {
+      key: tranche.id,
+      style: {
+        alignItems: 'center',
+        background: 'var(--owl-color-panel-deep)',
+        border: '1px solid var(--owl-color-border)',
+        borderRadius: '0.7rem',
+        display: 'flex',
+        flexWrap: 'wrap',
+        gap: '0.5rem 0.9rem',
+        justifyContent: 'space-between',
+        padding: '0.6rem 0.8rem',
+      },
+    },
+    // Tranche id + trigger
+    createElement(
+      'div',
+      { style: { display: 'flex', alignItems: 'center', gap: '0.6rem', flexWrap: 'wrap' } },
+      createElement(
+        'span',
+        { style: { color: 'var(--owl-color-gold-bright)', fontFamily: 'var(--owl-font-mono)', fontSize: '0.95rem', fontWeight: 800 } },
+        tranche.id,
+      ),
+      createElement(
+        'span',
+        { style: { color: 'var(--owl-color-muted)', fontSize: '0.85rem' } },
+        `${tranche.trigger_label} · $${tranche.trigger_price_per_share}`,
+      ),
+      tranche.thesis_gate ? createElement(
+        'span',
+        {
+          style: {
+            background: 'rgba(214, 178, 94, 0.15)',
+            border: '1px solid rgba(214, 178, 94, 0.4)',
+            borderRadius: '0.5rem',
+            color: '#f0d999',
+            fontFamily: 'var(--owl-font-mono)',
+            fontSize: '0.68rem',
+            fontWeight: 800,
+            letterSpacing: '0.04em',
+            padding: '0.15rem 0.5rem',
+            whiteSpace: 'nowrap' as const,
+          },
+        },
+        'thesis re-check',
+      ) : null,
+    ),
+    // Value + shares
+    createElement(
+      'div',
+      { style: { color: 'var(--owl-color-text)', fontFamily: 'var(--owl-font-mono)', fontSize: '0.85rem', textAlign: 'right' as const } },
+      `${formatPlanMoney(tranche.target_value, currency)} · ~${tranche.approx_shares} sh`,
+    ),
   )
 }
 

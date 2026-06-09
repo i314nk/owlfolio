@@ -4,6 +4,8 @@ import { describe, expect, it, vi } from 'vitest'
 
 import * as researchCaseTimelineProjection from '@owlfolio/ledger/projections/researchCaseTimelineProjection'
 import { SQLiteEventStore } from '@owlfolio/ledger/sqliteEventStore'
+import { buffettMungerStrategy } from '@owlfolio/strategies/buffettMunger'
+import { computePositionPlan } from '@owlfolio/strategies/positionSizing'
 import { CommandCenter } from '../CommandCenter'
 import { PortfolioPanel } from '../PortfolioPanel'
 import { ResearchCasePanel } from '../ResearchCasePanel'
@@ -906,5 +908,75 @@ describe('research and watchlist workflow pages', () => {
       expect(html).toContain('href="/watchlist"')
       expect(html).toContain('Open watchlist drafts')
     })
+  })
+
+  function sizeableResearchCase(): AppResearchCase {
+    return {
+      research_case_id: 'rc_msft_sizeable',
+      version: 1,
+      superseded: false,
+      stage: 'decision_drafted',
+      company_id: 'company_msft',
+      ticker: 'MSFT',
+      strategy_id: 'buffett-munger',
+      decision_id: 'decision_msft_sizeable',
+      decision: 'BUY',
+      investment_verdict: 'BUY',
+      valuation_status: 'FAIR',
+      valuation: {
+        moat_class: 'wide',
+        moat_passes_gate: true,
+        buy_price_per_share: 300,
+      },
+      next_required_action: 'Confirm the next user-authored transition.',
+      updated_at: '2026-06-08T12:00:00.000Z',
+      gate_checklist: [],
+      source_ids: [],
+      ledger_timeline: [],
+    }
+  }
+
+  it('renders the advisory position plan with T1 ungated and T2/T3 thesis-gated when capital + buy price + investable moat exist', () => {
+    const plan = computePositionPlan({
+      strategy: buffettMungerStrategy,
+      moatClass: 'wide',
+      buyPricePerShare: 300,
+      investableCapital: 100000,
+      currency: 'USD',
+    })
+
+    const html = renderToStaticMarkup(createElement(ResearchCasePanel, {
+      researchCase: sizeableResearchCase(),
+      mode: 'personal-local',
+      positionPlan: plan,
+    }))
+
+    expect(html).toContain('Position plan · advisory')
+    expect(html).toContain('Target weight')
+    expect(html).toContain('Target value')
+    expect(html).toContain('T1')
+    expect(html).toContain('T2')
+    expect(html).toContain('T3')
+    // T2/T3 are thesis-gated; the badge must appear (exactly twice, not on T1).
+    const badgeCount = html.split('thesis re-check').length - 1
+    expect(badgeCount).toBe(2)
+    // Advisory notes mention the worker never trades and the entry cap.
+    expect(html).toContain('the worker never trades')
+    expect(html).toContain('entry cap')
+    // No hardcoded blue/purple.
+    expect(html).not.toContain('#4338ca')
+    expect(html).not.toContain('purple')
+  })
+
+  it('prompts to set investable capital when the case is sizeable but no capital is set', () => {
+    const html = renderToStaticMarkup(createElement(ResearchCasePanel, {
+      researchCase: sizeableResearchCase(),
+      mode: 'personal-local',
+      promptForCapital: true,
+    }))
+
+    expect(html).toContain('Position plan · advisory')
+    expect(html).toContain('Set your investable capital on the Portfolio page to see position sizing.')
+    expect(html).not.toContain('thesis re-check')
   })
 })
