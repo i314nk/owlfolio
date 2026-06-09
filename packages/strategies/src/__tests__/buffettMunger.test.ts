@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buffettMungerStrategy, hurdleRateForMoatClass, moatPassesGate } from '../buffettMunger'
+import { buffettMungerStrategy, hurdleRateForMoatClass, moatPassesGate, targetWeightForMoatClass } from '../buffettMunger'
 import { evaluateGates } from '../evaluateGates'
 
 describe('Buffett-Munger default strategy', () => {
@@ -74,5 +74,43 @@ describe('Buffett-Munger default strategy', () => {
     const result = evaluateGates(buffettMungerStrategy, { shariah_status: 'COMPLIANT', owner_earnings_positive: true })
     expect(result.status).toBe('INSUFFICIENT_DATA')
     expect(result.unknown_gates).toEqual(expect.arrayContaining(['leverage_safe', 'valuation_complete']))
+  })
+})
+
+describe('Buffett-Munger position sizing params', () => {
+  it('entry_tranches fractions sum to 1.0', () => {
+    const tranches = buffettMungerStrategy.portfolio.entry_tranches
+    const total = tranches.reduce((sum, t) => sum + t.fraction, 0)
+    // Use approximate equality to handle floating-point arithmetic
+    expect(total).toBeCloseTo(1.0, 10)
+  })
+
+  it('all target_weight_by_moat values are ≤ max_position_weight', () => {
+    const maxWeight = buffettMungerStrategy.portfolio.max_position_weight
+    const weights = buffettMungerStrategy.portfolio.target_weight_by_moat
+    expect(weights.wide).toBeLessThanOrEqual(maxWeight)
+    expect(weights.monopoly).toBeLessThanOrEqual(maxWeight)
+    expect(weights.inevitable).toBeLessThanOrEqual(maxWeight)
+  })
+
+  it('targetWeightForMoatClass returns correct weights', () => {
+    expect(targetWeightForMoatClass(buffettMungerStrategy, 'wide')).toBe(0.06)
+    expect(targetWeightForMoatClass(buffettMungerStrategy, 'monopoly')).toBe(0.09)
+    expect(targetWeightForMoatClass(buffettMungerStrategy, 'inevitable')).toBe(0.12)
+  })
+
+  it('targetWeightForMoatClass throws for non-investable moat classes', () => {
+    expect(() => targetWeightForMoatClass(buffettMungerStrategy, 'narrow')).toThrow()
+    expect(() => targetWeightForMoatClass(buffettMungerStrategy, 'moderate')).toThrow()
+  })
+
+  it('entry_tranches have correct trigger types and pct values', () => {
+    const tranches = buffettMungerStrategy.portfolio.entry_tranches
+    expect(tranches).toHaveLength(3)
+
+    const [t1, t2, t3] = tranches
+    expect(t1).toMatchObject({ id: 'T1', fraction: 0.40, trigger: 'at_buy_price' })
+    expect(t2).toMatchObject({ id: 'T2', fraction: 0.30, trigger: 'pct_below_buy_price', pct: 0.10 })
+    expect(t3).toMatchObject({ id: 'T3', fraction: 0.30, trigger: 'pct_below_buy_price', pct: 0.20 })
   })
 })

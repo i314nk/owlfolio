@@ -1,4 +1,4 @@
-import { strategyContractSchema, type MoatClass, type StrategyContract } from './strategyContract'
+import { strategyContractSchema, type MoatClass, type StrategyContract, type TargetWeightByMoat } from './strategyContract'
 
 /** Moat classes that pass the wide-moat gate (investable). */
 const INVESTABLE_MOAT_CLASSES = new Set<MoatClass>(['wide', 'monopoly', 'inevitable'])
@@ -126,10 +126,44 @@ const rawBuffettMungerStrategy = {
     max_position_weight: 0.15,
     cash_buffer_minimum: 0.03,
     concentration_style: 'concentrated',
+    // Conviction-tiered full position size by investable moat class.
+    // All values are ≤ max_position_weight (0.15).
+    // narrow/moderate are rejected before sizing, so only investable classes appear here.
+    target_weight_by_moat: {
+      wide: 0.06,
+      monopoly: 0.09,
+      inevitable: 0.12,
+    },
+    // Price-laddered entry tranches: scale into a position across three price levels.
+    // Fractions are proportions of the target_weight_by_moat weight; they sum to 1.0.
+    // CONFIG ONLY — enforcement/execution logic is future work.
+    entry_tranches: [
+      { id: 'T1', fraction: 0.40, trigger: 'at_buy_price' },
+      { id: 'T2', fraction: 0.30, trigger: 'pct_below_buy_price', pct: 0.10 },
+      { id: 'T3', fraction: 0.30, trigger: 'pct_below_buy_price', pct: 0.20 },
+    ],
   },
 } satisfies StrategyContract
 
 export const buffettMungerStrategy = strategyContractSchema.parse(rawBuffettMungerStrategy)
+
+/**
+ * Look up the conviction-tiered target full position weight for a given moat class.
+ * Only investable moat classes (wide, monopoly, inevitable) have target weights.
+ * narrow and moderate are rejected before sizing is considered.
+ * Throws if called for a non-investable moat class.
+ */
+export function targetWeightForMoatClass(strategy: StrategyContract, moatClass: MoatClass): number {
+  const weights = strategy.portfolio.target_weight_by_moat as TargetWeightByMoat | undefined
+  if (!weights) {
+    throw new Error(`Strategy '${strategy.id}' has no target_weight_by_moat in its portfolio policy.`)
+  }
+  const weight = (weights as Record<string, number>)[moatClass]
+  if (weight === undefined) {
+    throw new Error(`No target weight for moat class '${moatClass}' — only investable classes (wide, monopoly, inevitable) have target weights.`)
+  }
+  return weight
+}
 
 /**
  * Look up the hurdle rate for a given moat class from the strategy contract.

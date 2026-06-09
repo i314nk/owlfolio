@@ -54,11 +54,39 @@ export const shariahPolicySchema = z.object({
   prohibited_statuses: z.array(z.enum(['NON_COMPLIANT'])).min(1),
 })
 
+/** Conviction-tiered target full position weight by investable moat class. */
+export const targetWeightByMoatSchema = z.object({
+  wide: z.number().positive().max(1),
+  monopoly: z.number().positive().max(1),
+  inevitable: z.number().positive().max(1),
+})
+
+export type TargetWeightByMoat = z.infer<typeof targetWeightByMoatSchema>
+
+/** A single price-laddered entry tranche. */
+export const entryTrancheSchema = z.discriminatedUnion('trigger', [
+  z.object({
+    id: z.string().min(1),
+    fraction: z.number().positive().max(1),
+    trigger: z.literal('at_buy_price'),
+  }),
+  z.object({
+    id: z.string().min(1),
+    fraction: z.number().positive().max(1),
+    trigger: z.literal('pct_below_buy_price'),
+    pct: z.number().positive().max(1),
+  }),
+])
+
+export type EntryTranche = z.infer<typeof entryTrancheSchema>
+
 export const portfolioPolicySchema = z.object({
   max_positions: z.number().int().positive(),
   max_position_weight: z.number().positive().max(1),
   cash_buffer_minimum: z.number().min(0).max(1),
   concentration_style: z.enum(['concentrated', 'diversified']),
+  target_weight_by_moat: targetWeightByMoatSchema,
+  entry_tranches: z.array(entryTrancheSchema).min(1),
 })
 
 export const strategyContractSchema = strategyMetadataSchema.extend({
