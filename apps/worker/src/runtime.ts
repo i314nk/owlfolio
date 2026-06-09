@@ -29,6 +29,7 @@ import {
 } from '@owlfolio/providers'
 import { defaultDemoAppConfig, type AppConfig } from '@owlfolio/shared'
 import { draftHoldingReview } from '@owlfolio/workflow/holdingReviewWorkflow'
+import { resolveCurrentPrice, type PriceSource } from '@owlfolio/workflow/marketData'
 import { runStrategyResearchSwarm, type GroundFn } from '@owlfolio/workflow/researchSwarm'
 import { groundProposedSources, groundProposedSourcesDeterministic } from '@owlfolio/workflow/sourceGrounding'
 
@@ -79,6 +80,7 @@ export type RunScheduledTasksOptions = WorkerClock & {
   provider_readiness?: ProviderExecutionReadiness
   provider_model_id?: string
   run_id?: (task: ScheduledTaskProjection) => string
+  priceSource?: PriceSource
 }
 
 export type RunScheduledTasksResult = {
@@ -766,13 +768,6 @@ async function runHoldingReviewDraftTask(
   }
 }
 
-const MOCK_VALUATION_SOURCE = 'mock-local-price-feed'
-const MOCK_VALUATION_CAVEAT = 'Deterministic local price source for scheduled workflow verification.'
-const MOCK_PRICES_BY_TICKER: Record<string, number> = {
-  COST: 912.34,
-  MSFT: 900,
-}
-
 function normalizeTicker(ticker: string | undefined): string | undefined {
   const normalized = ticker?.trim().toUpperCase()
   return normalized === undefined || normalized.length === 0 ? undefined : normalized
@@ -780,11 +775,6 @@ function normalizeTicker(ticker: string | undefined): string | undefined {
 
 function valuationSnapshotId(holdingId: string, asOf: string): string {
   return `scheduled_${holdingId}_${asOf.replace(/[^0-9]/g, '')}`
-}
-
-function mockPriceForHolding(holding: ReturnType<typeof projectHoldings>[number]): number | undefined {
-  const ticker = normalizeTicker(holding.ticker)
-  return ticker === undefined ? undefined : MOCK_PRICES_BY_TICKER[ticker]
 }
 
 async function runPortfolioValuationRefreshTask(
@@ -802,21 +792,30 @@ async function runPortfolioValuationRefreshTask(
 
   for (const holding of holdings) {
     const ticker = normalizeTicker(holding.ticker)
-    const price = mockPriceForHolding(holding)
-    if (ticker === undefined || price === undefined) {
+    if (ticker === undefined) {
       missingDataHoldingIds.push(holding.holding_id)
-      observations.push(`${ticker ?? holding.company_id ?? holding.holding_id} missing price data from ${MOCK_VALUATION_SOURCE}; manual/provider source review required`)
+      observations.push(`${holding.company_id ?? holding.holding_id}: no ticker; manual valuation required`)
+      continue
+    }
+
+    // TODO: thread exchange/market from holding intake
+    const quote = await resolveCurrentPrice({ ticker }, undefined, options.priceSource)
+
+    if (!quote.available) {
+      missingDataHoldingIds.push(holding.holding_id)
+      observations.push(`${ticker}: no auto price (manual valuation required) — ${quote.reason}`)
+      continue
+    }
+
+    const valuationSource = quote.source
+    const valuationKey = `holding-valuation:${holding.holding_id}:${asOf}:${valuationSource}`
+    if (existingValuationKeys.has(valuationKey)) {
+      observations.push(`${ticker} valuation already refreshed from ${valuationSource} for ${asOf}; no duplicate valuation event appended`)
       continue
     }
 
     const snapshotId = valuationSnapshotId(holding.holding_id, asOf)
-    const valuationKey = `holding-valuation:${holding.holding_id}:${asOf}:${MOCK_VALUATION_SOURCE}`
-    if (existingValuationKeys.has(valuationKey)) {
-      observations.push(`${ticker} valuation already refreshed from ${MOCK_VALUATION_SOURCE} for ${asOf}; no duplicate valuation event appended`)
-      continue
-    }
-
-    const marketValue = roundMoney(price * holding.shares)
+    const marketValue = roundMoney(quote.price_per_share * holding.shares)
     await store.append({
       event_id: `evt_holding_valuation_recorded_${snapshotId}`,
       event_type: 'holding_valuation_recorded',
@@ -830,26 +829,26 @@ async function runPortfolioValuationRefreshTask(
       payload: {
         snapshot_id: snapshotId,
         holding_id: holding.holding_id,
-        price_per_share: price,
+        price_per_share: quote.price_per_share,
         shares: holding.shares,
         market_value: marketValue,
         currency: holding.currency,
         valued_at: asOf,
-        valuation_source: MOCK_VALUATION_SOURCE,
-        price_checked_at: checkedAt,
-        confidence: 'mock',
-        caveat: MOCK_VALUATION_CAVEAT,
+        valuation_source: valuationSource,
+        price_checked_at: quote.as_of,
+        confidence: 'market',
+        caveat: 'Live market close from Stooq',
         missing_data: [],
         valued_by_actor_type: 'worker',
         valued_by_actor_id: WORKER_ACTOR_ID,
       },
-      source_ids: [`mock-price:${ticker}:${asOf}`],
+      source_ids: [`${valuationSource}:${ticker}:${quote.as_of}`],
       created_at: checkedAt,
       schema_version: 1,
     } satisfies LedgerEventEnvelope<Record<string, unknown>>)
     existingValuationKeys.add(valuationKey)
     refreshed += 1
-    observations.push(`${ticker} valuation refreshed from ${MOCK_VALUATION_SOURCE} at $${price.toFixed(2)}; factual valuation update only`)
+    observations.push(`${ticker} valuation refreshed from ${valuationSource} at $${quote.price_per_share.toFixed(2)}; factual valuation update only`)
   }
 
   return {

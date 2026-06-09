@@ -11,6 +11,7 @@ import { SQLiteEventStore } from '@owlfolio/ledger/sqliteEventStore'
 import type { CertificationReport, Provider } from '@owlfolio/providers'
 import type { ProviderRunRequest, ProviderToolRun } from '@owlfolio/providers/providerContract'
 import { MockProvider } from '@owlfolio/providers/mockProvider'
+import type { PriceQuote, PriceQuoteSymbol, PriceSource } from '@owlfolio/workflow/marketData'
 import { describe, expect, it, vi } from 'vitest'
 
 import { main } from '../index'
@@ -115,6 +116,17 @@ class SecretLeakingProvider implements Provider {
 
   runWithTools(_request: ProviderRunRequest): Promise<ProviderToolRun> {
     throw new Error('auth failed OPENAI_API_KEY=*** at /tmp/secret/codex/auth.json using Bearer bearer-secret-token Cookie: owl_session=fake-cookie-value session_token=fake-session-token')
+  }
+}
+
+function makeMockPriceSource(prices: Record<string, PriceQuote>): PriceSource {
+  return {
+    id: 'mock-price-source',
+    getQuote(symbol: PriceQuoteSymbol): Promise<PriceQuote> {
+      const key = symbol.ticker.toUpperCase()
+      const quote = prices[key] ?? { available: false as const, reason: 'no mock price', source: 'mock-price-source' }
+      return Promise.resolve(quote)
+    },
   }
 }
 
@@ -621,7 +633,7 @@ describe('worker runtime', () => {
     ])
   })
 
-  it('refreshes portfolio valuations from the scheduled mock price source without approving actions', async () => {
+  it('refreshes portfolio valuations via injected price source (stooq) without approving actions', async () => {
     const store = new InMemoryEventStore<LedgerEventEnvelope<unknown>>()
     await appendCostHolding(store)
     await store.append(ledgerEvent('holding_opened', 'holding', 'holding_unknown_001', {
@@ -637,12 +649,18 @@ describe('worker runtime', () => {
     }))
     await defineDefaultScheduledTasks(store, { now: () => '2026-06-01T07:00:00.000Z' })
 
+    const priceSource = makeMockPriceSource({
+      COST: { available: true, price_per_share: 912.34, currency: 'USD', as_of: '2026-06-01', source: 'stooq' },
+      // ZZZZ is not in the map → unavailable
+    })
+
     const result = await runScheduledTasks(store, {
       as_of: '2026-06-01',
       dry_run: true,
       task_kind: 'portfolio_valuation_refresh',
       now: () => '2026-06-01T07:00:00.000Z',
       run_id: () => 'run_portfolio_valuation_refresh_001',
+      priceSource,
     })
 
     expect(result).toMatchObject({ completed: 1, failed: 0 })
@@ -659,27 +677,27 @@ describe('worker runtime', () => {
         holding_id: 'holding_cost_001',
         price_per_share: 912.34,
         market_value: 912.34,
-        valuation_source: 'mock-local-price-feed',
-        price_checked_at: '2026-06-01T07:00:00.000Z',
-        confidence: 'mock',
-        caveat: 'Deterministic local price source for scheduled workflow verification.',
+        valuation_source: 'stooq',
+        price_checked_at: '2026-06-01',
+        confidence: 'market',
+        caveat: 'Live market close from Stooq',
         valued_by_actor_type: 'worker',
         valued_by_actor_id: 'owlfolio-worker',
       }),
-      source_ids: ['mock-price:COST:2026-06-01'],
+      source_ids: ['stooq:COST:2026-06-01'],
     })
     expect(projectHoldings(events).find((holding) => holding.holding_id === 'holding_cost_001')).toMatchObject({
-      latest_valuation_source: 'mock-local-price-feed',
-      latest_price_checked_at: '2026-06-01T07:00:00.000Z',
-      latest_valuation_confidence: 'mock',
-      latest_valuation_source_ids: ['mock-price:COST:2026-06-01'],
+      latest_valuation_source: 'stooq',
+      latest_price_checked_at: '2026-06-01',
+      latest_valuation_confidence: 'market',
+      latest_valuation_source_ids: ['stooq:COST:2026-06-01'],
     })
     const completed = events.find((event) => event.event_type === 'scheduled_task_run_completed')
     expect(completed?.payload).toMatchObject({
       result_summary: 'portfolio_valuation_refresh dry-run: refreshed 1 holding valuation(s), 1 holding(s) missing price data; no investment decision or portfolio action taken',
       observations: [
-        'COST valuation refreshed from mock-local-price-feed at $912.34; factual valuation update only',
-        'ZZZZ missing price data from mock-local-price-feed; manual/provider source review required',
+        'COST valuation refreshed from stooq at $912.34; factual valuation update only',
+        'ZZZZ: no auto price (manual valuation required) — no mock price',
       ],
       approval_gates: [],
       human_approval_required: false,
@@ -699,12 +717,17 @@ describe('worker runtime', () => {
     await appendCostHolding(store)
     await defineDefaultScheduledTasks(store, { now: () => '2026-06-01T07:00:00.000Z' })
 
+    const priceSource = makeMockPriceSource({
+      COST: { available: true, price_per_share: 912.34, currency: 'USD', as_of: '2026-06-01', source: 'stooq' },
+    })
+
     await runScheduledTasks(store, {
       as_of: '2026-06-01',
       dry_run: true,
       task_kind: 'portfolio_valuation_refresh',
       now: () => '2026-06-01T07:00:00.000Z',
       run_id: () => 'run_portfolio_valuation_refresh_001',
+      priceSource,
     })
     const rerun = await runScheduledTasks(store, {
       as_of: '2026-06-01',
@@ -712,6 +735,7 @@ describe('worker runtime', () => {
       task_kind: 'portfolio_valuation_refresh',
       now: () => '2026-06-01T08:00:00.000Z',
       run_id: () => 'run_portfolio_valuation_refresh_002',
+      priceSource,
     })
 
     const events = await store.list()
@@ -721,7 +745,7 @@ describe('worker runtime', () => {
       'portfolio_valuation_refresh dry-run: refreshed 0 holding valuation(s), 0 holding(s) missing price data; no investment decision or portfolio action taken',
     ])
     expect(events.find((event) => event.event_id === 'evt_scheduled_task_run_completed_run_portfolio_valuation_refresh_002')?.payload).toMatchObject({
-      observations: ['COST valuation already refreshed from mock-local-price-feed for 2026-06-01; no duplicate valuation event appended'],
+      observations: ['COST valuation already refreshed from stooq for 2026-06-01; no duplicate valuation event appended'],
     })
   })
 
@@ -1318,5 +1342,81 @@ describe('worker runtime', () => {
       'task_experimental_live_trade skipped: retry attempts exhausted after 2 failure(s)',
     ])
     expect((await store.list()).filter((event) => event.event_type === 'scheduled_task_run_started')).toHaveLength(2)
+  })
+
+  it('appends holding_valuation_recorded with valuation_source stooq when injected price source returns available', async () => {
+    const store = new InMemoryEventStore<LedgerEventEnvelope<unknown>>()
+    await appendCostHolding(store)
+    await defineDefaultScheduledTasks(store, { now: () => '2026-06-02T07:00:00.000Z' })
+
+    const priceSource = makeMockPriceSource({
+      COST: { available: true, price_per_share: 905.00, currency: 'USD', as_of: '2026-06-02', source: 'stooq' },
+    })
+
+    const result = await runScheduledTasks(store, {
+      as_of: '2026-06-02',
+      dry_run: true,
+      task_kind: 'portfolio_valuation_refresh',
+      now: () => '2026-06-02T07:00:00.000Z',
+      run_id: () => 'run_portfolio_valuation_stooq_001',
+      priceSource,
+    })
+
+    expect(result).toMatchObject({ completed: 1, failed: 0 })
+    const events = await store.list()
+    const valuation = events.find((event) => event.event_type === 'holding_valuation_recorded')
+    expect(valuation).toBeDefined()
+    expect(valuation?.payload).toMatchObject({
+      holding_id: 'holding_cost_001',
+      price_per_share: 905.00,
+      market_value: 905.00,
+      valuation_source: 'stooq',
+      confidence: 'market',
+      caveat: 'Live market close from Stooq',
+      valued_by_actor_type: 'worker',
+      valued_by_actor_id: 'owlfolio-worker',
+    })
+    expect(valuation?.source_ids).toEqual(['stooq:COST:2026-06-02'])
+    const completed = events.find((event) => event.event_type === 'scheduled_task_run_completed')
+    expect(completed?.payload).toMatchObject({
+      result_summary: expect.stringContaining('refreshed 1 holding valuation(s)'),
+      approval_gates: [],
+      human_approval_required: false,
+      auto_approved_actions: 0,
+    })
+  })
+
+  it('skips holding_valuation_recorded and notes manual required when injected price source returns unavailable', async () => {
+    const store = new InMemoryEventStore<LedgerEventEnvelope<unknown>>()
+    await appendCostHolding(store)
+    await defineDefaultScheduledTasks(store, { now: () => '2026-06-02T07:00:00.000Z' })
+
+    // Price source returns unavailable for all tickers (simulates uncovered exchange / network error)
+    const priceSource = makeMockPriceSource({})
+
+    const result = await runScheduledTasks(store, {
+      as_of: '2026-06-02',
+      dry_run: true,
+      task_kind: 'portfolio_valuation_refresh',
+      now: () => '2026-06-02T07:00:00.000Z',
+      run_id: () => 'run_portfolio_valuation_unavailable_001',
+      priceSource,
+    })
+
+    expect(result).toMatchObject({ completed: 1, failed: 0 })
+    const events = await store.list()
+    // No holding_valuation_recorded events appended
+    expect(events.filter((event) => event.event_type === 'holding_valuation_recorded')).toHaveLength(0)
+    const completed = events.find((event) => event.event_type === 'scheduled_task_run_completed')
+    expect(completed?.payload).toMatchObject({
+      result_summary: 'portfolio_valuation_refresh dry-run: refreshed 0 holding valuation(s), 1 holding(s) missing price data; no investment decision or portfolio action taken',
+      missing_data_holding_ids: ['holding_cost_001'],
+      approval_gates: [],
+      human_approval_required: false,
+    })
+    // Observation must mention manual valuation required
+    const observations = (completed?.payload as Record<string, unknown>)?.observations
+    expect(Array.isArray(observations)).toBe(true)
+    expect((observations as string[]).some((obs) => obs.includes('manual valuation required'))).toBe(true)
   })
 })

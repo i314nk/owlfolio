@@ -27,6 +27,7 @@
     "./strategyResearchPipeline": "./src/strategyResearchPipeline.ts",
     "./watchlistWorkflow": "./src/watchlistWorkflow.ts",
     "./workflowContract": "./src/workflowContract.ts",
-    "./researchCasePolicy": "./src/researchCasePolicy.ts"
+    "./researchCasePolicy": "./src/researchCasePolicy.ts",
+    "./marketData": "./src/marketData.ts"
   }
 }
