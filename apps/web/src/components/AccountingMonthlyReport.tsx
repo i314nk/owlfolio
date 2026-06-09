@@ -3,7 +3,7 @@ import { createElement, type CSSProperties } from 'react'
 import type { AccountingHoldingSnapshot, AccountingSnapshotProjection } from '@owlfolio/ledger/projections/accountingProjection'
 
 import type { AppAccountingReport } from '../lib/accounting'
-import { OwlButtonLink, OwlKpiStat, OwlRingGauge, SourceChip } from './designSystem'
+import { OwlButtonLink, OwlKpiStat, OwlRingGauge, RouteHeader, SourceChip } from './designSystem'
 import { StatusBadge } from './StatusBadge'
 
 export type AccountingMonthlyReportProps = {
@@ -13,13 +13,6 @@ export type AccountingMonthlyReportProps = {
 const shellStyle: CSSProperties = {
   display: 'grid',
   gap: '1rem',
-}
-
-const heroStyle: CSSProperties = {
-  background: 'linear-gradient(135deg, rgba(214, 178, 94, 0.10) 0%, rgba(22, 163, 74, 0.06) 100%)',
-  border: '1px solid rgba(148, 163, 184, 0.18)',
-  borderRadius: '1.25rem',
-  padding: '1.5rem',
 }
 
 const cardStyle: CSSProperties = {
@@ -43,17 +36,11 @@ export function AccountingMonthlyReport({ report }: AccountingMonthlyReportProps
   return createElement(
     'section',
     { style: shellStyle },
-    createElement(
-      'header',
-      { style: heroStyle },
-      createElement('p', { style: { color: '#4338ca', fontWeight: 900, letterSpacing: '0.08em', margin: 0, textTransform: 'uppercase' } }, 'Accounting'),
-      createElement('h1', { style: { fontSize: 'clamp(2rem, 5vw, 3.5rem)', lineHeight: 1, margin: '0.5rem 0' } }, 'Monthly accounting report'),
-      createElement(
-        'p',
-        { style: { color: '#9aa4b7', fontSize: '1rem', margin: 0 } },
-        `Current period summary for ${formatMonth(current.period_end)}. Automatically maintained accounting projection derives current NAV from valuation, cash-flow, dividend, fee, and realized gain/loss events in the durable event ledger.`,
-      ),
-    ),
+    createElement(RouteHeader, {
+      kicker: 'Accounting',
+      title: 'Monthly accounting report',
+      description: `Current period summary for ${formatMonth(current.period_end)}. Automatically maintained accounting projection derives current NAV from valuation, cash-flow, dividend, fee, and realized gain/loss events in the durable event ledger.`,
+    }),
     createAccountingKpiRow(current),
     createAccountingStatusPanel(current, report.next_scheduled_update ?? 'valuation refresh cadence 0 7 * * 1-5; accounting recalculates from ledger events on load'),
     missingCount === 0 ? null : createMissingValuationAlert(missingCount),

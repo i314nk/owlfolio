@@ -94,6 +94,9 @@
 
 html {
   background: var(--owl-color-canvas);
+  /* Slight global type-scale nudge (~5%): 16px → ~16.8px base so the whole
+     rem-based app scales up subtly without altering individual components. */
+  font-size: 105%;
 }
 
 body {
@@ -214,6 +217,22 @@ a:focus-visible {
 
 .owl-route-back-row {
   margin: 0 0 0.15rem;
+}
+
+.owl-route-header {
+  display: grid;
+  gap: 0.4rem;
+  margin: 0 0 0.4rem;
+}
+
+.owl-route-kicker {
+  color: var(--owl-color-gold);
+  font-family: var(--owl-font-mono);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  margin: 0;
+  text-transform: uppercase;
 }
 
 .owl-back-link {
@@ -560,12 +579,22 @@ a:focus-visible {
   text-transform: uppercase;
 }
 
+/* The hero kicker is gold to match the gold mono kicker used by the
+   Strategy/Pipeline page-title family; panel eyebrows stay emerald. */
+.owl-command-kicker {
+  color: var(--owl-color-gold);
+  letter-spacing: 0.08em;
+}
+
 .owl-command-title {
   color: var(--owl-color-text);
+  /* Aligned to the refined owl-page-title character (weight/letter-spacing/
+     line-height) so the Command Center hero reads as one family with the
+     Strategy/Pipeline page titles, kept at hero scale. */
   font-size: clamp(2.45rem, 6vw, 5.35rem);
-  font-weight: 560;
-  letter-spacing: -0.075em;
-  line-height: 0.95;
+  font-weight: 590;
+  letter-spacing: -0.055em;
+  line-height: 1;
   margin: 0;
 }
 
@@ -845,7 +874,7 @@ a:focus-visible {
 
 .owl-page-title {
   color: var(--owl-color-text);
-  font-size: clamp(1.8rem, 4vw, 2.6rem);
+  font-size: clamp(1.95rem, 4.2vw, 2.8rem);
   font-weight: 590;
   letter-spacing: -0.055em;
   line-height: 1;

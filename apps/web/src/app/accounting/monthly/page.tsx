@@ -10,7 +10,7 @@ export default async function AccountingMonthlyPage() {
   const report = await loadAccountingReport(state)
 
   return (
-    <main className="owl-route-frame">
+    <main className="owl-route-frame owl-route-frame-wide">
       <p className="owl-route-back-row">
         <a className="owl-back-link owl-focusable" href="/">
           ← Back to command center

@@ -2,7 +2,7 @@ import { createElement } from 'react'
 
 import type { InvestableCapitalSnapshot } from '@owlfolio/ledger/projections/investableCapitalProjection'
 
-import { OwlButtonLink, OwlKpiStat, OwlRingGauge, OwlValuationChip, type OwlValuationKind } from './designSystem'
+import { OwlButtonLink, OwlKpiStat, OwlRingGauge, OwlValuationChip, RouteHeader, type OwlValuationKind } from './designSystem'
 import type { AppHolding, WorkflowMode } from '../lib/workflow'
 import { StatusBadge } from './StatusBadge'
 
@@ -84,26 +84,13 @@ export function PortfolioPanel({ holdings, mode = 'demo', valuationRefresh, inve
   return createElement(
     'section',
     { style: { display: 'grid', gap: '1rem' } },
-    createElement(
-      'header',
-      {
-        style: {
-          background: 'linear-gradient(135deg, rgba(214, 178, 94, 0.10) 0%, rgba(22, 163, 74, 0.06) 100%)',
-          border: '1px solid rgba(148, 163, 184, 0.18)',
-          borderRadius: '1.25rem',
-          padding: '1.5rem',
-        },
-      },
-      createElement('p', { style: { color: '#4338ca', fontWeight: 800, letterSpacing: '0.08em', margin: 0 } }, 'OWLFOLIO'),
-      createElement('h1', { style: { fontSize: 'clamp(2rem, 5vw, 3.5rem)', lineHeight: 1, margin: '0.5rem 0' } }, 'Portfolio'),
-      createElement(
-        'p',
-        { style: { color: '#9aa4b7', fontSize: '1rem', margin: 0 } },
-        mode === 'personal-local'
-          ? `Personal local ledger holdings. Total cost basis: ${formatMoney(totalCostBasis, 'USD')}. Current value: ${formatMoney(totalCurrentValue, 'USD')}`
-          : `Projected demo holdings. Total cost basis: ${formatMoney(totalCostBasis, 'USD')}. Current value: ${formatMoney(totalCurrentValue, 'USD')}`,
-      ),
-    ),
+    createElement(RouteHeader, {
+      kicker: 'Portfolio cockpit',
+      title: 'Portfolio',
+      description: mode === 'personal-local'
+        ? `Personal local ledger holdings. Total cost basis: ${formatMoney(totalCostBasis, 'USD')}. Current value: ${formatMoney(totalCurrentValue, 'USD')}`
+        : `Projected demo holdings. Total cost basis: ${formatMoney(totalCostBasis, 'USD')}. Current value: ${formatMoney(totalCurrentValue, 'USD')}`,
+    }),
     createPortfolioKpiRow(holdings, totalCurrentValue),
     ...(mode === 'personal-local' ? [createInvestableCapitalPanel(investableCapital)] : []),
     createPortfolioOperationsCockpit(holdings, totalCurrentValue, valuationRefresh),

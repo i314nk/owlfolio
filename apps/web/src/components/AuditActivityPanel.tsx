@@ -2,7 +2,7 @@ import { createElement, type CSSProperties } from 'react'
 
 import { deriveAuditActivityView, type AuditActivityEvent, type AuditActivityFilters } from '../lib/audit'
 import type { WorkflowMode } from '../lib/workflow'
-import { OwlKpiStat } from './designSystem'
+import { OwlKpiStat, RouteHeader } from './designSystem'
 
 const shellStyle: CSSProperties = {
   background: 'rgba(148, 163, 184, 0.08)',
@@ -10,29 +10,6 @@ const shellStyle: CSSProperties = {
   borderRadius: '1.25rem',
   boxShadow: '0 24px 80px rgba(0, 0, 0, 0.24)',
   padding: 'clamp(1.25rem, 4vw, 2rem)',
-}
-
-const eyebrowStyle: CSSProperties = {
-  color: 'var(--owl-color-gold)',
-  fontSize: '0.78rem',
-  fontWeight: 900,
-  letterSpacing: '0.1em',
-  margin: 0,
-  textTransform: 'uppercase',
-}
-
-const headingStyle: CSSProperties = {
-  color: '#f7f8ff',
-  fontSize: 'clamp(2rem, 4vw, 3rem)',
-  lineHeight: 1,
-  margin: '0.35rem 0 0.75rem',
-}
-
-const subheadingStyle: CSSProperties = {
-  color: '#9aa4b7',
-  fontSize: '1rem',
-  lineHeight: 1.6,
-  margin: '0 0 1.5rem',
 }
 
 const filterFormStyle: CSSProperties = {
@@ -282,13 +259,11 @@ export function AuditActivityPanel({ events, filters = {}, mode }: AuditActivity
   return createElement(
     'section',
     { style: shellStyle },
-    createElement('p', { style: eyebrowStyle }, 'Traceability'),
-    createElement('h1', { style: headingStyle }, 'Audit activity'),
-    createElement(
-      'p',
-      { style: subheadingStyle },
-      `${subtitle}. Search and filter the ledger trace while retaining stable event IDs and raw event evidence.`,
-    ),
+    createElement(RouteHeader, {
+      kicker: 'Traceability',
+      title: 'Audit activity',
+      description: `${subtitle}. Search and filter the ledger trace while retaining stable event IDs and raw event evidence.`,
+    }),
     createElement(AuditActivityKpiRow, { events, filterOptions: view.filterOptions }),
     createElement(AuditActivityFiltersForm, { filters, filterOptions: view.filterOptions }),
     createElement(ActiveAuditFilters, { activeFilters: view.activeFilters }),

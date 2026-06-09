@@ -128,6 +128,26 @@ export function PageHeader({ actions, description, eyebrow, title }: PageHeaderP
   )
 }
 
+export type RouteHeaderProps = {
+  description?: ReactNode
+  kicker: string
+  title: string
+}
+
+/**
+ * Unified page header matching the Strategy/Pipeline page chrome: a gold mono
+ * kicker above the refined `owl-page-title`, with an optional description.
+ */
+export function RouteHeader({ description, kicker, title }: RouteHeaderProps) {
+  return createElement(
+    'header',
+    { className: 'owl-route-header' },
+    createElement('p', { className: 'owl-route-kicker' }, kicker),
+    createElement('h1', { className: 'owl-page-title' }, title),
+    description === undefined ? null : createElement('p', { className: 'owl-page-description' }, description),
+  )
+}
+
 export function EmptyState({ description, primaryAction, provenance, secondaryAction, title }: EmptyStateProps) {
   const actions = [primaryAction, secondaryAction].filter((action): action is ReactNode => action !== undefined)
 

@@ -3,7 +3,7 @@ import { createElement, type CSSProperties } from 'react'
 import type { PurificationObligationProjection, PurificationPaymentProjection } from '@owlfolio/ledger/projections/purificationProjection'
 
 import type { AppPurificationReport, PurificationSummaryCard } from '../lib/purification'
-import { OwlButtonLink, OwlKpiStat, OwlRingGauge, SourceChip } from './designSystem'
+import { OwlButtonLink, OwlKpiStat, OwlRingGauge, RouteHeader, SourceChip } from './designSystem'
 import { StatusBadge } from './StatusBadge'
 
 export type PurificationReportProps = {
@@ -13,13 +13,6 @@ export type PurificationReportProps = {
 const shellStyle: CSSProperties = {
   display: 'grid',
   gap: '1rem',
-}
-
-const heroStyle: CSSProperties = {
-  background: 'linear-gradient(135deg, rgba(214, 178, 94, 0.10) 0%, rgba(22, 163, 74, 0.06) 100%)',
-  border: '1px solid rgba(148, 163, 184, 0.18)',
-  borderRadius: '1.25rem',
-  padding: '1.5rem',
 }
 
 const cardStyle: CSSProperties = {
@@ -40,17 +33,11 @@ export function PurificationReport({ report }: PurificationReportProps) {
   return createElement(
     'section',
     { style: shellStyle },
-    createElement(
-      'header',
-      { style: heroStyle },
-      createElement('p', { style: { color: 'var(--owl-color-gold)', fontWeight: 900, letterSpacing: '0.08em', margin: 0, textTransform: 'uppercase' } }, 'Shariah purification'),
-      createElement('h1', { style: { fontSize: 'clamp(2rem, 5vw, 3.5rem)', lineHeight: 1, margin: '0.5rem 0' } }, 'Purification ledger'),
-      createElement(
-        'p',
-        { style: { color: '#9aa4b7', fontSize: '1rem', margin: 0 } },
-        'Tracks purification obligations, manual user payment tracking, remaining balances, and audit links back to Shariah and accounting evidence. Owlfolio records user-confirmed payments only; it does not pay or mark obligations complete automatically.',
-      ),
-    ),
+    createElement(RouteHeader, {
+      kicker: 'Shariah purification',
+      title: 'Purification ledger',
+      description: 'Tracks purification obligations, manual user payment tracking, remaining balances, and audit links back to Shariah and accounting evidence. Owlfolio records user-confirmed payments only; it does not pay or mark obligations complete automatically.',
+    }),
     createPurificationOperationsCockpit(report),
     createPurificationKpiRow(report.summary_cards),
     createPurificationTrustNotice(),

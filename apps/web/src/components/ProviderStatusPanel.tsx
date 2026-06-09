@@ -1,20 +1,10 @@
 import { createElement, type CSSProperties } from 'react'
 
 import type { ProviderStatusRow } from '../lib/providerStatus'
-import { OwlKpiStat, OwlRingGauge } from './designSystem'
+import { OwlKpiStat, OwlRingGauge, RouteHeader } from './designSystem'
 
 export type ProviderStatusPanelProps = {
   rows: ProviderStatusRow[]
-}
-
-const pageStyle: CSSProperties = {
-  color: '#f7f8ff',
-  padding: '2rem 0 3rem',
-}
-
-const shellStyle: CSSProperties = {
-  margin: '0 auto',
-  maxWidth: '1120px',
 }
 
 const cardGridStyle: CSSProperties = {
@@ -31,15 +21,6 @@ const cardStyle: CSSProperties = {
   display: 'grid',
   gap: '0.75rem',
   padding: '1.25rem',
-}
-
-const eyebrowStyle: CSSProperties = {
-  color: 'var(--owl-color-gold)',
-  fontSize: '0.85rem',
-  fontWeight: 800,
-  letterSpacing: '0.08em',
-  margin: 0,
-  textTransform: 'uppercase',
 }
 
 const subtleTextStyle: CSSProperties = {
@@ -67,17 +48,20 @@ export function ProviderStatusPanel({ rows }: ProviderStatusPanelProps) {
 
   return createElement(
     'main',
-    { style: pageStyle },
+    { className: 'owl-route-frame owl-route-frame-wide' },
+    createElement(
+      'p',
+      { className: 'owl-route-back-row' },
+      createElement('a', { className: 'owl-back-link owl-focusable', href: '/' }, '← Back to command center'),
+    ),
+    createElement(RouteHeader, {
+      kicker: 'Owlfolio',
+      title: 'Provider status',
+      description: 'Readiness, role suitability, certification evidence, and limitations are shown separately so a local credential does not imply certified investment-decision support. Evidence comes from the T2 provider certification report format and the T3 provider/model support matrix; the latest persisted report below is the source of truth for effective support.',
+    }),
     createElement(
       'section',
-      { style: shellStyle },
-      createElement('p', { style: eyebrowStyle }, 'Owlfolio'),
-      createElement('h1', { style: { fontSize: 'clamp(2.25rem, 5vw, 4rem)', lineHeight: 1, margin: '0.5rem 0 1rem' } }, 'Provider status'),
-      createElement(
-        'p',
-        { style: { ...subtleTextStyle, fontSize: '1.05rem', marginBottom: '2rem', maxWidth: '820px' } },
-        'Readiness, role suitability, certification evidence, and limitations are shown separately so a local credential does not imply certified investment-decision support. Evidence comes from the T2 provider certification report format and the T3 provider/model support matrix; the latest persisted report below is the source of truth for effective support.',
-      ),
+      { style: { display: 'grid', gap: '1rem' } },
       createProviderKpiRow(summary, rows.length),
       createElement(
         'section',

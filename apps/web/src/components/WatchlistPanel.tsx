@@ -1,6 +1,6 @@
 import { createElement } from 'react'
 
-import { OwlValuationChip, SourceChip } from './designSystem'
+import { OwlValuationChip, RouteHeader, SourceChip } from './designSystem'
 import { StatusBadge } from './StatusBadge'
 import type { AppWatchlistItem, WorkflowMode } from '../lib/workflow'
 
@@ -26,24 +26,11 @@ export function WatchlistPanel({ items, mode = 'demo' }: WatchlistPanelProps) {
         gap: '1rem',
       },
     },
-    createElement(
-      'header',
-      {
-        style: {
-          background: 'linear-gradient(135deg, rgba(214, 178, 94, 0.10) 0%, rgba(22, 163, 74, 0.06) 100%)',
-          border: '1px solid rgba(148, 163, 184, 0.18)',
-          borderRadius: '1.25rem',
-          padding: '1.5rem',
-        },
-      },
-      createElement('p', { style: { color: 'var(--owl-color-gold)', fontWeight: 800, letterSpacing: '0.08em', margin: 0 } }, 'OWLFOLIO'),
-      createElement('h1', { style: { fontSize: 'clamp(2rem, 5vw, 3.5rem)', lineHeight: 1, margin: '0.5rem 0' } }, 'Watchlist drafts'),
-      createElement(
-        'p',
-        { style: { color: '#9aa4b7', fontSize: '1rem', margin: 0 } },
-        'Personal local ledger watchlist state.',
-      ),
-    ),
+    createElement(RouteHeader, {
+      kicker: 'Watchlist desk',
+      title: 'Watchlist drafts',
+      description: 'Personal local ledger watchlist state.',
+    }),
     ...(items.length === 0
       ? [
           createElement(
