@@ -54,7 +54,7 @@ function createWatchlistCard(item: AppWatchlistItem, mode: WorkflowMode) {
     createElement(
       'div',
       { style: { alignItems: 'center', display: 'flex', flexWrap: 'wrap', gap: '0.75rem', justifyContent: 'space-between' } },
-      createElement('h2', { style: { fontSize: '1.45rem', fontWeight: 800, color: 'var(--owl-color-gold-bright)', margin: 0 } }, item.ticker ?? item.company_id ?? item.watchlist_item_id),
+      createElement('h2', { style: { fontSize: 'var(--owl-text-lg)', fontWeight: 800, color: 'var(--owl-color-gold-bright)', margin: 0 } }, item.ticker ?? item.company_id ?? item.watchlist_item_id),
       createElement(
         'div',
         { style: { alignItems: 'center', display: 'flex', flexWrap: 'wrap', gap: '0.55rem' } },
@@ -76,7 +76,7 @@ function createWatchlistCard(item: AppWatchlistItem, mode: WorkflowMode) {
       createElement(
         'section',
         { className: 'owl-workflow-panel owl-workflow-panel-draft' },
-        createElement('h3', { className: 'owl-section-title', style: { fontSize: '0.95rem' } }, 'Provider draft state'),
+        createElement('h3', { className: 'owl-section-title', style: { fontSize: 'var(--owl-text-base)' } }, 'Provider draft state'),
         createDetail('Strategy', item.strategy_id ?? 'Unknown'),
         createDetail('Thesis summary', item.thesis_summary ?? 'No thesis recorded'),
         createDetail('Buy-zone status', item.buy_zone_status ?? 'Not set'),
@@ -87,7 +87,7 @@ function createWatchlistCard(item: AppWatchlistItem, mode: WorkflowMode) {
       createElement(
         'section',
         { className: 'owl-workflow-panel owl-workflow-panel-user' },
-        createElement('h3', { className: 'owl-section-title', style: { fontSize: '0.95rem' } }, 'User decision checkpoint'),
+        createElement('h3', { className: 'owl-section-title', style: { fontSize: 'var(--owl-text-base)' } }, 'User decision checkpoint'),
         createDetail('Confirmation status', item.user_approved ? 'User-confirmed watchlist decision' : 'Awaiting user confirmation'),
         createDetail('Confirmed by actor', item.user_approved ? formatActor(item.confirmed_by_actor_type, item.confirmed_by_actor_id) : 'Not user-confirmed yet'),
         item.holding_id === undefined ? createDetail('Position status', 'Not opened yet') : createDetail('Position status', item.holding_id),
@@ -129,7 +129,7 @@ function createWatchlistConfirmForm(item: AppWatchlistItem) {
       className: 'owl-action-form owl-action-form-confirm',
       style: { marginTop: '1rem' },
     },
-    createElement('h3', { className: 'owl-section-title', style: { fontSize: '0.95rem' } }, 'Confirm user watchlist state'),
+    createElement('h3', { className: 'owl-section-title', style: { fontSize: 'var(--owl-text-base)' } }, 'Confirm user watchlist state'),
     createElement(
       'p',
       { style: { color: 'var(--owl-color-muted)', margin: '0.35rem 0 0.8rem' } },
@@ -155,7 +155,7 @@ function createOpenHoldingForm(item: AppWatchlistItem) {
       className: 'owl-action-form',
       style: { display: 'grid', gap: '0.75rem', marginTop: '1rem' },
     },
-    createElement('h3', { className: 'owl-section-title', style: { fontSize: '0.95rem' } }, 'Open holding from confirmed watchlist state'),
+    createElement('h3', { className: 'owl-section-title', style: { fontSize: 'var(--owl-text-base)' } }, 'Open holding from confirmed watchlist state'),
     createLotInput('Shares', 'shares', 'number', '1', { step: '0.0001', min: '0.0001' }),
     createLotInput('Cost basis per share', 'cost_basis_per_share', 'number', '0', { step: '0.01', min: '0' }),
     createLotInput('Currency', 'currency', 'text', 'USD', { maxLength: 3 }),
@@ -244,7 +244,7 @@ function createLotInput(
 ) {
   return createElement(
     'label',
-    { style: { color: 'var(--owl-color-muted)', display: 'grid', fontSize: '0.85rem', fontWeight: 700, gap: '0.25rem' } },
+    { style: { color: 'var(--owl-color-muted)', display: 'grid', fontSize: 'var(--owl-text-base)', fontWeight: 700, gap: '0.25rem' } },
     label,
     createElement('input', {
       ...extraProps,

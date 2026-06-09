@@ -73,7 +73,7 @@ export function ResearchIntakeForm() {
       </p>
       <section style={cardStyle}>
         <p style={{ color: '#7c8cff', fontWeight: 800, letterSpacing: '0.08em', margin: 0 }}>OWLFOLIO</p>
-        <h1 style={{ fontSize: 'clamp(2rem, 5vw, 3.5rem)', lineHeight: 1, margin: '0.5rem 0 1rem' }}>
+        <h1 className="owl-page-title" style={{ lineHeight: 1, margin: '0.5rem 0 1rem' }}>
           Start your first research case
         </h1>
         <p style={{ color: '#cbd5e1', fontSize: '1rem', margin: '0 0 1.5rem' }}>

@@ -52,7 +52,7 @@ const cardStyle = {
 
 const eyebrowStyle = {
   color: 'var(--owl-color-gold)',
-  fontSize: '0.75rem',
+  fontSize: 'var(--owl-text-xs)',
   fontWeight: 900,
   letterSpacing: '0.08em',
   margin: 0,
@@ -69,7 +69,7 @@ const pillStyle = {
   borderRadius: '999px',
   color: '#cbd5e1',
   display: 'inline-flex',
-  fontSize: '0.82rem',
+  fontSize: 'var(--owl-text-sm)',
   fontWeight: 800,
   padding: '0.32rem 0.55rem',
 }
@@ -96,7 +96,8 @@ export function ResearchPipelineCockpit({
         'h1',
         {
           id: 'research-pipeline-cockpit-title',
-          style: { color: '#f7f8ff', fontSize: 'clamp(2rem, 5vw, 3.4rem)', lineHeight: 1, margin: 0 },
+          className: 'owl-page-title',
+          style: { color: '#f7f8ff', lineHeight: 1, margin: 0 },
         },
         'Strategy pipeline cockpit',
       ),
@@ -162,7 +163,7 @@ function createPipelineSection(section: ResearchPipelineSection) {
     createElement(
       'header',
       { style: { alignItems: 'baseline', display: 'flex', gap: '0.75rem', justifyContent: 'space-between' } },
-      createElement('h2', { style: { color: '#f7f8ff', fontSize: '1.05rem', margin: 0 } }, section.title),
+      createElement('h2', { style: { color: '#f7f8ff', fontSize: 'var(--owl-text-md)', margin: 0 } }, section.title),
       createElement('span', { style: pillStyle }, `${section.items.length}`),
     ),
     section.items.length === 0
@@ -197,15 +198,15 @@ function createPipelineItem(item: ResearchPipelineItem) {
       label,
       createElement('span', { style: pillStyle }, item.status),
     ),
-    item.meta === undefined ? null : createElement('p', { style: { ...mutedStyle, fontSize: '0.86rem' } }, item.meta),
+    item.meta === undefined ? null : createElement('p', { style: { ...mutedStyle, fontSize: 'var(--owl-text-base)' } }, item.meta),
     item.summary === undefined
       ? null
       : createElement(
         'p',
-        { style: { color: '#e2e8f0', fontSize: '0.9rem', lineHeight: 1.45, margin: 0 } },
+        { style: { color: '#e2e8f0', fontSize: 'var(--owl-text-base)', lineHeight: 1.45, margin: 0 } },
         createElement('strong', null, 'Investment brief: '),
         item.summary,
       ),
-    createElement('p', { style: { color: '#cbd5e1', fontSize: '0.9rem', fontWeight: 700, margin: 0 } }, `Next action: ${item.next_action}`),
+    createElement('p', { style: { color: '#cbd5e1', fontSize: 'var(--owl-text-base)', fontWeight: 700, margin: 0 } }, `Next action: ${item.next_action}`),
   )
 }

@@ -166,7 +166,7 @@ function createPortfolioEmptyState() {
   return createElement(
     'article',
     { key: 'portfolio-empty-state', className: 'owl-workflow-card', style: cardStyle },
-    createElement('h2', { className: 'owl-section-title', style: { fontSize: '1.2rem' } }, 'No holdings are open yet'),
+    createElement('h2', { className: 'owl-section-title', style: { fontSize: 'var(--owl-text-lg)' } }, 'No holdings are open yet'),
     createElement(
       'p',
       { className: 'owl-body', style: { margin: '0.3rem 0 0' } },
@@ -181,7 +181,7 @@ function createPortfolioEmptyState() {
     createElement(
       'section',
       { 'aria-label': 'Empty holdings table', style: { ...decisionPanelStyle, background: 'rgba(148, 163, 184, 0.08)', marginTop: '1rem' } },
-      createElement('h3', { className: 'owl-section-title', style: { fontSize: '0.95rem' } }, 'Empty holdings table'),
+      createElement('h3', { className: 'owl-section-title', style: { fontSize: 'var(--owl-text-base)' } }, 'Empty holdings table'),
       createDetail('Portfolio state', 'No portfolio events recorded'),
       createDetail('Provider sync', 'Provider sync not connected'),
       createDetail('Last updated', 'none'),
@@ -200,7 +200,7 @@ function createHoldingCard(holding: PortfolioHolding, mode: WorkflowMode) {
     createElement(
       'div',
       { style: { alignItems: 'center', display: 'flex', flexWrap: 'wrap', gap: '0.75rem', justifyContent: 'space-between' } },
-      createElement('h2', { style: { fontSize: '1.45rem', fontWeight: 800, color: 'var(--owl-color-gold-bright)', margin: 0 } }, ticker),
+      createElement('h2', { style: { fontSize: 'var(--owl-text-lg)', fontWeight: 800, color: 'var(--owl-color-gold-bright)', margin: 0 } }, ticker),
       createElement(
         'div',
         { style: { alignItems: 'center', display: 'flex', flexWrap: 'wrap', gap: '0.55rem' } },
@@ -210,7 +210,7 @@ function createHoldingCard(holding: PortfolioHolding, mode: WorkflowMode) {
     ),
     ...(chip === undefined
       ? []
-      : [createElement('p', { className: 'owl-body', style: { fontSize: '0.85rem', margin: '0.45rem 0 0' } }, chip.reference)]),
+      : [createElement('p', { className: 'owl-body', style: { fontSize: 'var(--owl-text-base)', margin: '0.45rem 0 0' } }, chip.reference)]),
     createPositionEconomicsTable(holding),
     createConfirmedPortfolioState(holding),
     ...createShariahGateDetails(holding),
@@ -269,7 +269,7 @@ function operationMetric(label: string, value: string) {
     'article',
     { style: { background: 'var(--owl-color-panel)', border: '1px solid var(--owl-color-border)', borderRadius: 'var(--owl-radius-card)', padding: '0.9rem 1rem' } },
     createElement('p', { className: 'owl-label' }, label),
-    createElement('p', { style: { color: 'var(--owl-color-text)', fontWeight: 700, lineHeight: 1.4, margin: '0.35rem 0 0', fontSize: '0.95rem' } }, value),
+    createElement('p', { style: { color: 'var(--owl-color-text)', fontWeight: 700, lineHeight: 1.4, margin: '0.35rem 0 0', fontSize: 'var(--owl-text-base)' } }, value),
   )
 }
 
@@ -277,7 +277,7 @@ function createPositionEconomicsTable(holding: AppHolding) {
   return createElement(
     'section',
     { className: 'owl-financial-table', style: { ...cardStyle, boxShadow: 'none', marginTop: '1rem' } },
-    createElement('h3', { className: 'owl-section-title', style: { fontSize: '0.95rem', margin: '0 0 0.6rem' } }, 'Position economics'),
+    createElement('h3', { className: 'owl-section-title', style: { fontSize: 'var(--owl-text-base)', margin: '0 0 0.6rem' } }, 'Position economics'),
     createDetail('Shares', formatNumber(holding.shares)),
     createDetail('Cost basis / share', formatMoney(holding.cost_basis_per_share, holding.currency)),
     createDetail('Total cost basis', formatMoney(holding.total_cost_basis, holding.currency)),
@@ -301,7 +301,7 @@ function createConfirmedPortfolioState(holding: AppHolding) {
   return createElement(
     'section',
     { className: 'owl-workflow-card', style: { ...cardStyle, boxShadow: 'none', marginTop: '1rem' } },
-    createElement('h3', { className: 'owl-section-title', style: { fontSize: '0.95rem', margin: '0 0 0.6rem' } }, 'Confirmed portfolio state'),
+    createElement('h3', { className: 'owl-section-title', style: { fontSize: 'var(--owl-text-base)', margin: '0 0 0.6rem' } }, 'Confirmed portfolio state'),
     createDetail('Strategy', holding.strategy_id ?? 'Strategy not recorded'),
     createDetail('Research case', holding.research_case_id),
     createDetail('Watchlist item', holding.watchlist_item_id),
@@ -337,7 +337,7 @@ function createReviewForm(holding: AppHolding) {
           paddingTop: '1rem',
         },
       },
-      createElement('h3', { className: 'owl-section-title', style: { fontSize: '0.95rem' } }, 'Strategy review drafted'),
+      createElement('h3', { className: 'owl-section-title', style: { fontSize: 'var(--owl-text-base)' } }, 'Strategy review drafted'),
       createElement('p', { className: 'owl-body', style: { margin: 0 } }, 'Choose one auditable decision path for this provider-authored Buffett-Munger review before it becomes portfolio state.'),
       createElement(
         'div',
@@ -350,7 +350,7 @@ function createReviewForm(holding: AppHolding) {
             zIndex: 10,
           },
         },
-        createElement('h4', { className: 'owl-section-title', style: { fontSize: '0.88rem' } }, 'Pending review decision summary'),
+        createElement('h4', { className: 'owl-section-title', style: { fontSize: 'var(--owl-text-base)' } }, 'Pending review decision summary'),
         createElement(
           'p',
           {
@@ -411,13 +411,13 @@ function createReviewForm(holding: AppHolding) {
         createElement(
           'section',
           { id: 'review-comparison-confirmed', style: { ...decisionPanelStyle, background: 'rgba(148, 163, 184, 0.08)' } },
-          createElement('h4', { className: 'owl-section-title', style: { fontSize: '0.88rem' } }, 'Current confirmed thesis'),
+          createElement('h4', { className: 'owl-section-title', style: { fontSize: 'var(--owl-text-base)' } }, 'Current confirmed thesis'),
           createElement('p', { className: 'owl-body', style: { margin: 0 } }, currentThesisCopy),
         ),
         createElement(
           'section',
           { id: 'review-comparison-draft', style: { ...decisionPanelStyle, background: 'rgba(251, 191, 36, 0.1)' } },
-          createElement('h4', { className: 'owl-section-title', style: { fontSize: '0.88rem' } }, 'Provider-authored review draft'),
+          createElement('h4', { className: 'owl-section-title', style: { fontSize: 'var(--owl-text-base)' } }, 'Provider-authored review draft'),
           createDetail('Pending thesis health', holding.pending_review_thesis_health ?? 'Unknown'),
           createDetail('Pending action stance', holding.pending_review_action_stance ?? 'Unknown'),
           createDetail('Pending review rationale', holding.pending_review_rationale ?? 'No rationale recorded'),
@@ -427,9 +427,9 @@ function createReviewForm(holding: AppHolding) {
         createElement(
           'section',
           { id: 'review-comparison-bounds', style: { ...decisionPanelStyle, background: 'rgba(214, 178, 94, 0.08)' } },
-          createElement('h4', { className: 'owl-section-title', style: { fontSize: '0.88rem' } }, 'Audit boundary rules'),
+          createElement('h4', { className: 'owl-section-title', style: { fontSize: 'var(--owl-text-base)' } }, 'Audit boundary rules'),
           createElement('p', { className: 'owl-body', style: { margin: 0 } }, 'Overrides require all four required fields below and produce an explicit user-authored audit event; reject keeps current confirmed thesis and clears the pending draft.'),
-          createElement('p', { style: { color: 'var(--owl-color-muted)', margin: '0.35rem 0 0', fontSize: '0.82rem' } }, 'Date fields expect YYYY-MM-DD format for consistency with ledger-aware display.'),
+          createElement('p', { style: { color: 'var(--owl-color-muted)', margin: '0.35rem 0 0', fontSize: 'var(--owl-text-sm)' } }, 'Date fields expect YYYY-MM-DD format for consistency with ledger-aware display.'),
         ),
       ),
       createElement(
@@ -440,7 +440,7 @@ function createReviewForm(holding: AppHolding) {
           method: 'post',
           style: { ...decisionPanelStyle, background: 'rgba(22, 163, 74, 0.10)' },
         },
-        createElement('h4', { className: 'owl-section-title', style: { fontSize: '0.88rem' } }, 'Apply provider draft'),
+        createElement('h4', { className: 'owl-section-title', style: { fontSize: 'var(--owl-text-base)' } }, 'Apply provider draft'),
         createElement('p', { className: 'owl-body', style: { margin: 0 } }, 'Applies the provider-authored thesis health, action stance, and next review date to portfolio state.'),
         createSubmitButton('Apply provider draft', 'var(--owl-color-accent)'),
       ),
@@ -452,7 +452,7 @@ function createReviewForm(holding: AppHolding) {
           method: 'post',
           style: { ...decisionPanelStyle, background: 'rgba(214, 178, 94, 0.12)' },
         },
-        createElement('h4', { className: 'owl-section-title', style: { fontSize: '0.88rem' } }, 'Apply user override'),
+        createElement('h4', { className: 'owl-section-title', style: { fontSize: 'var(--owl-text-base)' } }, 'Apply user override'),
         createElement('p', { className: 'owl-body', style: { margin: 0 } }, 'Applies your edited values instead of the provider draft and records a user-authored audit event.'),
         createReviewSelect('Override thesis health', 'thesis_health', ['HEALTHY', 'WATCH', 'IMPAIRED', 'EXIT_CANDIDATE'], holding.pending_review_thesis_health ?? 'WATCH'),
         createReviewSelect('Override action stance', 'action_stance', ['HOLD', 'ADD_ON_PULLBACK', 'REDUCE', 'EXIT_REVIEW_NEEDED', 'RESEARCH_MORE'], holding.pending_review_action_stance ?? 'RESEARCH_MORE'),
@@ -460,7 +460,7 @@ function createReviewForm(holding: AppHolding) {
         createReviewTextarea('Override evidence summary (required)', 'evidence_summary', 'User reviewed provider draft against the local ledger and available evidence.'),
         createReviewTextarea('Override uncertainty (required)', 'uncertainty', 'User override records uncertainty before the next scheduled review.'),
         createReviewInput('Override next review date (required)', 'next_review_at', normalizedPendingReviewDate),
-        createElement('p', { style: { color: 'var(--owl-color-muted)', margin: 0, fontSize: '0.82rem' } }, 'Date fields use YYYY-MM-DD format (ISO date without time).'),
+        createElement('p', { style: { color: 'var(--owl-color-muted)', margin: 0, fontSize: 'var(--owl-text-sm)' } }, 'Date fields use YYYY-MM-DD format (ISO date without time).'),
         createSubmitButton('Apply user override', 'var(--owl-color-gold)'),
       ),
       createElement(
@@ -471,7 +471,7 @@ function createReviewForm(holding: AppHolding) {
           method: 'post',
           style: { ...decisionPanelStyle, background: 'rgba(239, 68, 68, 0.1)' },
         },
-        createElement('h4', { className: 'owl-section-title', style: { fontSize: '0.88rem' } }, 'Reject provider draft'),
+        createElement('h4', { className: 'owl-section-title', style: { fontSize: 'var(--owl-text-base)' } }, 'Reject provider draft'),
         createElement('p', { className: 'owl-body', style: { margin: 0 } }, 'Leaves the current confirmed portfolio thesis unchanged and clears this pending draft.'),
         createReviewTextarea('Rejection reason (required)', 'rejection_reason', 'Reject this draft and wait for fresher evidence.'),
         createSubmitButton('Reject strategy review', '#b91c1c'),
@@ -492,7 +492,7 @@ function createReviewForm(holding: AppHolding) {
         paddingTop: '1rem',
       },
     },
-    createElement('h3', { className: 'owl-section-title', style: { fontSize: '0.95rem' } }, 'Strategy-driven holding review'),
+    createElement('h3', { className: 'owl-section-title', style: { fontSize: 'var(--owl-text-base)' } }, 'Strategy-driven holding review'),
     createElement('p', { className: 'owl-body', style: { margin: 0 } }, 'Ask Owlfolio to draft a Buffett-Munger thesis-health review for this holding.'),
     createSubmitButton('Run Buffett-Munger review', 'var(--owl-color-accent)'),
   )
@@ -653,7 +653,7 @@ function createValuationForm(holding: AppHolding) {
         paddingTop: '1rem',
       },
     },
-    createElement('h3', { className: 'owl-section-title', style: { fontSize: '0.95rem' } }, 'Manual valuation checkpoint'),
+    createElement('h3', { className: 'owl-section-title', style: { fontSize: 'var(--owl-text-base)' } }, 'Manual valuation checkpoint'),
     createElement(
       'label',
       { style: { color: 'var(--owl-color-muted)', display: 'grid', fontWeight: 700, gap: '0.35rem' } },

@@ -38,14 +38,14 @@ const cardStyle: CSSProperties = {
 
 const monoLabel: CSSProperties = {
   fontFamily: 'var(--owl-font-mono)',
-  fontSize: '0.66rem',
+  fontSize: 'var(--owl-text-2xs)',
   letterSpacing: '0.07em',
   textTransform: 'uppercase',
   color: 'var(--owl-color-quiet)',
 }
 
 const sectionTitleStyle: CSSProperties = {
-  fontSize: '1.05rem',
+  fontSize: 'var(--owl-text-md)',
   fontWeight: 800,
   color: 'var(--owl-color-gold-bright)',
   margin: '0 0 0.3rem',
@@ -53,14 +53,14 @@ const sectionTitleStyle: CSSProperties = {
 
 const sectionLeadStyle: CSSProperties = {
   color: 'var(--owl-color-muted)',
-  fontSize: '0.92rem',
+  fontSize: 'var(--owl-text-base)',
   lineHeight: 1.55,
   margin: '0 0 1rem',
 }
 
 const bodyStyle: CSSProperties = {
   color: 'var(--owl-color-muted)',
-  fontSize: '0.9rem',
+  fontSize: 'var(--owl-text-base)',
   lineHeight: 1.55,
 }
 
@@ -124,7 +124,7 @@ function PipelineFlow(): ReactNode {
           },
         },
         createElement('div', { style: { ...monoLabel, color: 'var(--owl-color-muted)' } }, step.label),
-        createElement('div', { style: { fontSize: '0.74rem', color: 'var(--owl-color-quiet)', marginTop: '0.25rem' } }, step.detail),
+        createElement('div', { style: { fontSize: 'var(--owl-text-xs)', color: 'var(--owl-color-quiet)', marginTop: '0.25rem' } }, step.detail),
       ),
     )
     if (index < PIPELINE_STEPS.length - 1) {
@@ -214,11 +214,11 @@ function LaneGrid(): ReactNode {
           },
         },
         createElement('p', { style: { ...monoLabel, color: 'var(--owl-color-gold)' } }, card.lane),
-        createElement('h3', { style: { fontSize: '0.96rem', fontWeight: 800, color: 'var(--owl-color-gold-bright)', margin: 0 } }, card.name),
-        createElement('p', { style: { ...bodyStyle, fontSize: '0.85rem', margin: 0 } }, card.assesses),
+        createElement('h3', { style: { fontSize: 'var(--owl-text-base)', fontWeight: 800, color: 'var(--owl-color-gold-bright)', margin: 0 } }, card.name),
+        createElement('p', { style: { ...bodyStyle, fontSize: 'var(--owl-text-base)', margin: 0 } }, card.assesses),
         createElement(
           'p',
-          { style: { fontSize: '0.72rem', color: 'var(--owl-color-quiet)', margin: 0 } },
+          { style: { fontSize: 'var(--owl-text-xs)', color: 'var(--owl-color-quiet)', margin: 0 } },
           'Runs as its own grounded agent — every claim cited to a harness-captured source.',
         ),
       ),
@@ -239,7 +239,7 @@ function Table({ headings, rows }: { headings: string[]; rows: ReactNode[][] }):
     padding: '0.55rem 0.7rem',
     borderBottom: '1px solid var(--owl-color-border)',
     color: 'var(--owl-color-muted)',
-    fontSize: '0.88rem',
+    fontSize: 'var(--owl-text-base)',
   }
   return createElement(
     'table',
@@ -366,7 +366,7 @@ export function StrategyOverview(): ReactNode {
               borderRadius: '0.7rem',
               padding: '0.9rem 1rem',
               fontFamily: 'var(--owl-font-mono)',
-              fontSize: '0.82rem',
+              fontSize: 'var(--owl-text-sm)',
               color: 'var(--owl-color-gold-vivid)',
               lineHeight: 1.9,
               overflowX: 'auto',

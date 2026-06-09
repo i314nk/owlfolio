@@ -61,7 +61,7 @@ export default async function ResearchIntakePage() {
       </p>
       <section aria-labelledby="research-intake-gate" style={panelStyle}>
         <p style={{ color: '#7c8cff', fontWeight: 800, letterSpacing: '0.08em', margin: 0 }}>OWLFOLIO</p>
-        <h1 id="research-intake-gate" style={{ fontSize: 'clamp(1.9rem, 5vw, 2.7rem)', lineHeight: 1.1, margin: '0.4rem 0 0' }}>
+        <h1 id="research-intake-gate" className="owl-page-title" style={{ lineHeight: 1.1, margin: '0.4rem 0 0' }}>
           Research intake unavailable in current mode
         </h1>
         <p style={{ color: '#cbd5e1', fontSize: '1rem', margin: '0' }}>{getResearchBlockMessage(state.config.mode, state.is_initialized)}</p>

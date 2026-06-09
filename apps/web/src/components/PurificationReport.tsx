@@ -134,7 +134,7 @@ function statusMetric(label: string, value: string) {
     'article',
     { style: { background: 'var(--owl-color-panel)', border: '1px solid var(--owl-color-border)', borderRadius: 'var(--owl-radius-card)', padding: '0.9rem 1rem' } },
     createElement('p', { className: 'owl-label' }, label),
-    createElement('p', { style: { color: 'var(--owl-color-text)', fontWeight: 700, lineHeight: 1.4, margin: '0.35rem 0 0', fontSize: '0.95rem' } }, value),
+    createElement('p', { style: { color: 'var(--owl-color-text)', fontWeight: 700, lineHeight: 1.4, margin: '0.35rem 0 0', fontSize: 'var(--owl-text-base)' } }, value),
   )
 }
 
@@ -142,7 +142,7 @@ function createPurificationLearnPanel(limitations: string[]) {
   return createElement(
     'details',
     { 'aria-label': 'Purification limitations', style: { ...cardStyle, background: 'rgba(251, 191, 36, 0.08)', borderColor: 'rgba(251, 191, 36, 0.28)' } },
-    createElement('summary', { style: { color: 'var(--owl-color-amber)', cursor: 'pointer', fontSize: '1.05rem', fontWeight: 900 } }, 'Learn: purification controls and caveats'),
+    createElement('summary', { style: { color: 'var(--owl-color-amber)', cursor: 'pointer', fontSize: 'var(--owl-text-md)', fontWeight: 900 } }, 'Learn: purification controls and caveats'),
     createElement(
       'ul',
       { style: { color: 'var(--owl-color-amber)', display: 'grid', gap: '0.4rem', margin: '0.8rem 0 0', paddingLeft: '1.25rem' } },
@@ -324,7 +324,7 @@ function obligationCard(obligation: PurificationObligationProjection) {
   return createElement(
     'article',
     { style: { border: '1px solid rgba(148, 163, 184, 0.16)', borderRadius: '0.85rem', padding: '1rem' } },
-    createElement('h3', { className: 'owl-section-title', style: { fontSize: '1.05rem', margin: '0 0 0.5rem' } }, obligation.holding_id),
+    createElement('h3', { className: 'owl-section-title', style: { fontSize: 'var(--owl-text-md)', margin: '0 0 0.5rem' } }, obligation.holding_id),
     createElement('p', { style: { color: 'var(--owl-color-muted)', margin: '0.25rem 0' } }, `Period: ${obligation.period_start} → ${obligation.period_end}`),
     createElement('p', { style: { color: 'var(--owl-color-muted)', margin: '0.25rem 0' } }, `Status: ${obligation.status}`),
     createElement('p', { style: { color: 'var(--owl-color-muted)', margin: '0.25rem 0' } }, `Owed: ${formatMoney(obligation.amount, obligation.currency)}; paid: ${formatMoney(obligation.paid_amount, obligation.currency)}; remaining: ${formatMoney(obligation.remaining_amount, obligation.currency)}`),

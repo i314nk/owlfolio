@@ -34,7 +34,7 @@ const cardStyle = {
 const labelStyle = {
   color: 'var(--owl-color-accent-bright)',
   fontFamily: 'var(--owl-font-mono)',
-  fontSize: '0.72rem',
+  fontSize: 'var(--owl-text-xs)',
   fontWeight: 800,
   letterSpacing: '0.1em',
   margin: '0 0 0.5rem',
@@ -44,7 +44,7 @@ const labelStyle = {
 const collapsibleSummaryStyle = {
   color: 'var(--owl-color-gold-bright)',
   cursor: 'pointer',
-  fontSize: '0.95rem',
+  fontSize: 'var(--owl-text-base)',
   fontWeight: 900,
   padding: '0.15rem 0',
   userSelect: 'none' as const,
@@ -158,12 +158,12 @@ function createGatedDossier(researchCase: AppResearchCase) {
       createElement('p', { style: labelStyle }, 'Research dossier'),
       createElement(
         'h1',
-        { style: { fontSize: 'clamp(2rem, 5vw, 2.8rem)', letterSpacing: '-0.02em', lineHeight: 1, margin: '0.1rem 0 0.15rem' } },
+        { className: 'owl-page-title', style: { letterSpacing: '-0.02em', lineHeight: 1, margin: '0.1rem 0 0.15rem' } },
         displayName,
       ),
       createElement(
         'p',
-        { style: { color: 'var(--owl-color-muted)', fontSize: '0.95rem', margin: '0 0 1rem' } },
+        { style: { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-base)', margin: '0 0 1rem' } },
         `${researchCase.company_id ?? 'Unknown company'} · quick screen gate`,
       ),
       // reject header row
@@ -179,7 +179,7 @@ function createGatedDossier(researchCase: AppResearchCase) {
               borderRadius: '0.6rem',
               color: 'var(--owl-color-muted)',
               fontFamily: 'var(--owl-font-mono)',
-              fontSize: '1rem',
+              fontSize: 'var(--owl-text-md)',
               fontWeight: 800,
               letterSpacing: '0.06em',
               padding: '0.3rem 0.8rem',
@@ -195,7 +195,7 @@ function createGatedDossier(researchCase: AppResearchCase) {
               border: '1px solid rgba(239, 68, 68, 0.4)',
               borderRadius: '999px',
               color: '#fca5a5',
-              fontSize: '0.78rem',
+              fontSize: 'var(--owl-text-sm)',
               fontWeight: 700,
               padding: '0.28rem 0.7rem',
             },
@@ -210,7 +210,7 @@ function createGatedDossier(researchCase: AppResearchCase) {
               border: '1px solid var(--owl-color-border)',
               borderRadius: '999px',
               color: 'var(--owl-color-muted)',
-              fontSize: '0.78rem',
+              fontSize: 'var(--owl-text-sm)',
               fontWeight: 700,
               padding: '0.28rem 0.7rem',
             },
@@ -222,12 +222,12 @@ function createGatedDossier(researchCase: AppResearchCase) {
       createElement('p', { style: labelStyle }, 'Verdict summary'),
       createElement(
         'h2',
-        { style: { color: '#fecaca', fontSize: '1.15rem', margin: '0 0 0.4rem' } },
+        { style: { color: '#fecaca', fontSize: 'var(--owl-text-md)', margin: '0 0 0.4rem' } },
         title,
       ),
       createElement(
         'p',
-        { style: { color: '#f3d7d7', fontSize: '0.95rem', lineHeight: 1.55, margin: '0 0 1rem' } },
+        { style: { color: '#f3d7d7', fontSize: 'var(--owl-text-base)', lineHeight: 1.55, margin: '0 0 1rem' } },
         createElement('strong', null, 'Reason: '),
         reason,
       ),
@@ -237,26 +237,26 @@ function createGatedDossier(researchCase: AppResearchCase) {
         { style: { display: 'grid', gap: '0.5rem', marginBottom: '0.75rem' } },
         createElement(
           'div',
-          { style: { alignItems: 'center', display: 'flex', gap: '0.6rem', fontSize: '0.9rem', color: 'var(--owl-color-muted)' } },
+          { style: { alignItems: 'center', display: 'flex', gap: '0.6rem', fontSize: 'var(--owl-text-base)', color: 'var(--owl-color-muted)' } },
           createElement('span', { style: { color: 'var(--owl-color-risk)', fontWeight: 800 } }, '✕'),
           createElement('strong', null, failingGate),
         ),
         createElement(
           'div',
-          { style: { alignItems: 'center', display: 'flex', gap: '0.6rem', fontSize: '0.9rem', color: 'var(--owl-color-quiet)' } },
+          { style: { alignItems: 'center', display: 'flex', gap: '0.6rem', fontSize: 'var(--owl-text-base)', color: 'var(--owl-color-quiet)' } },
           createElement('span', null, '—'),
           createElement('span', { style: { color: 'var(--owl-color-quiet)' } }, 'Business-quality check — skipped (gated)'),
         ),
         createElement(
           'div',
-          { style: { alignItems: 'center', display: 'flex', gap: '0.6rem', fontSize: '0.9rem', color: 'var(--owl-color-quiet)' } },
+          { style: { alignItems: 'center', display: 'flex', gap: '0.6rem', fontSize: 'var(--owl-text-base)', color: 'var(--owl-color-quiet)' } },
           createElement('span', null, '—'),
           createElement('span', { style: { color: 'var(--owl-color-quiet)' } }, 'Deep-dive swarm (7 lanes) — skipped'),
         ),
       ),
       createElement(
         'p',
-        { style: { color: 'var(--owl-color-quiet)', fontSize: '0.82rem', margin: '0 0 1rem' } },
+        { style: { color: 'var(--owl-color-quiet)', fontSize: 'var(--owl-text-sm)', margin: '0 0 1rem' } },
         'Evidence and the quick-screen assessment are recorded in the audit trail.',
       ),
       // Re-run action
@@ -274,7 +274,7 @@ function createGatedDossier(researchCase: AppResearchCase) {
               color: 'var(--owl-color-text)',
               cursor: 'pointer',
               font: 'inherit',
-              fontSize: '0.9rem',
+              fontSize: 'var(--owl-text-base)',
               fontWeight: 700,
               padding: '0.55rem 1rem',
             },
@@ -309,12 +309,12 @@ function createAwaitingDeepDiveDossier(researchCase: AppResearchCase) {
       createElement('p', { style: labelStyle }, 'Research dossier'),
       createElement(
         'h1',
-        { style: { fontSize: 'clamp(2rem, 5vw, 2.8rem)', letterSpacing: '-0.02em', lineHeight: 1, margin: '0.1rem 0 0.15rem' } },
+        { className: 'owl-page-title', style: { letterSpacing: '-0.02em', lineHeight: 1, margin: '0.1rem 0 0.15rem' } },
         displayName,
       ),
       createElement(
         'p',
-        { style: { color: 'var(--owl-color-muted)', fontSize: '0.95rem', margin: '0 0 1rem' } },
+        { style: { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-base)', margin: '0 0 1rem' } },
         `${researchCase.company_id ?? 'Unknown company'} · awaiting deep-dive approval`,
       ),
       // Status row
@@ -329,7 +329,7 @@ function createAwaitingDeepDiveDossier(researchCase: AppResearchCase) {
               border: '1px solid rgba(214, 178, 94, 0.5)',
               borderRadius: '999px',
               color: 'var(--owl-color-gold-bright)',
-              fontSize: '0.78rem',
+              fontSize: 'var(--owl-text-sm)',
               fontWeight: 700,
               padding: '0.28rem 0.7rem',
             },
@@ -344,7 +344,7 @@ function createAwaitingDeepDiveDossier(researchCase: AppResearchCase) {
               border: '1px solid var(--owl-color-border)',
               borderRadius: '999px',
               color: 'var(--owl-color-muted)',
-              fontSize: '0.78rem',
+              fontSize: 'var(--owl-text-sm)',
               fontWeight: 700,
               padding: '0.28rem 0.7rem',
             },
@@ -356,12 +356,12 @@ function createAwaitingDeepDiveDossier(researchCase: AppResearchCase) {
       createElement('p', { style: labelStyle }, 'Verdict summary'),
       createElement(
         'h2',
-        { style: { color: 'var(--owl-color-gold-bright)', fontSize: '1.15rem', margin: '0 0 0.4rem' } },
+        { style: { color: 'var(--owl-color-gold-bright)', fontSize: 'var(--owl-text-md)', margin: '0 0 0.4rem' } },
         'Quick screen passed — review and run the deep dive when ready',
       ),
       createElement(
         'p',
-        { style: { color: '#dbe3ef', fontSize: '0.95rem', lineHeight: 1.55, margin: '0 0 1rem' } },
+        { style: { color: '#dbe3ef', fontSize: 'var(--owl-text-base)', lineHeight: 1.55, margin: '0 0 1rem' } },
         'The quick screen found this company worth investigating. No deep-dive swarm has run yet — click "Run deep dive" to start the expensive swarm analysis.',
       ),
       // Quick-screen summary if available
@@ -370,19 +370,19 @@ function createAwaitingDeepDiveDossier(researchCase: AppResearchCase) {
         { style: { display: 'grid', gap: '0.5rem', marginBottom: '0.75rem' } },
         researchCase.moat !== undefined ? createElement(
           'div',
-          { style: { alignItems: 'center', display: 'flex', gap: '0.6rem', fontSize: '0.9rem', color: 'var(--owl-color-muted)' } },
+          { style: { alignItems: 'center', display: 'flex', gap: '0.6rem', fontSize: 'var(--owl-text-base)', color: 'var(--owl-color-muted)' } },
           createElement('span', { style: { color: '#34d399', fontWeight: 800 } }, '✓'),
           createElement('span', null, `Quick screen result: ${researchCase.screening_result ?? 'deep_dive_candidate'}`),
         ) : null,
         researchCase.shariah_status !== undefined ? createElement(
           'div',
-          { style: { alignItems: 'center', display: 'flex', gap: '0.6rem', fontSize: '0.9rem', color: 'var(--owl-color-muted)' } },
+          { style: { alignItems: 'center', display: 'flex', gap: '0.6rem', fontSize: 'var(--owl-text-base)', color: 'var(--owl-color-muted)' } },
           createElement('span', { style: { color: '#34d399', fontWeight: 800 } }, '✓'),
           createElement('span', null, `Shariah: ${researchCase.shariah_status}`),
         ) : null,
         createElement(
           'div',
-          { style: { alignItems: 'center', display: 'flex', gap: '0.6rem', fontSize: '0.9rem', color: 'var(--owl-color-quiet)' } },
+          { style: { alignItems: 'center', display: 'flex', gap: '0.6rem', fontSize: 'var(--owl-text-base)', color: 'var(--owl-color-quiet)' } },
           createElement('span', null, '—'),
           createElement('span', { style: { color: 'var(--owl-color-quiet)' } }, 'Deep-dive swarm (7 lanes) — not yet started'),
         ),
@@ -405,7 +405,7 @@ function createAwaitingDeepDiveDossier(researchCase: AppResearchCase) {
                 color: '#ffffff',
                 cursor: 'pointer',
                 font: 'inherit',
-                fontSize: '0.95rem',
+                fontSize: 'var(--owl-text-base)',
                 fontWeight: 900,
                 padding: '0.75rem 1.2rem',
               },
@@ -452,7 +452,7 @@ function createVerdictHero(researchCase: AppResearchCase) {
           style: {
             color: 'var(--owl-color-quiet)',
             fontFamily: 'var(--owl-font-mono)',
-            fontSize: '0.72rem',
+            fontSize: 'var(--owl-text-xs)',
           },
         },
         versionBadge,
@@ -461,13 +461,13 @@ function createVerdictHero(researchCase: AppResearchCase) {
     // Ticker
     createElement(
       'h1',
-      { style: { fontSize: 'clamp(2rem, 5vw, 3.5rem)', letterSpacing: '-0.02em', lineHeight: 1, margin: 0 } },
+      { className: 'owl-page-title', style: { letterSpacing: '-0.02em', lineHeight: 1, margin: 0 } },
       displayName,
     ),
     // Company
     createElement(
       'p',
-      { style: { color: 'var(--owl-color-muted)', fontSize: '0.95rem', margin: 0 } },
+      { style: { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-base)', margin: 0 } },
       researchCase.company_id ?? 'Unknown company',
     ),
     // Verdict + valuation chip row
@@ -484,7 +484,7 @@ function createVerdictHero(researchCase: AppResearchCase) {
             borderRadius: '0.6rem',
             color: verdictColors.text,
             fontFamily: 'var(--owl-font-mono)',
-            fontSize: '1.05rem',
+            fontSize: 'var(--owl-text-md)',
             fontWeight: 800,
             letterSpacing: '0.06em',
             padding: '0.3rem 0.8rem',
@@ -521,13 +521,13 @@ function createVerdictHero(researchCase: AppResearchCase) {
       createElement('p', { style: labelStyle }, 'Verdict summary'),
       createElement(
         'p',
-        { style: { color: 'var(--owl-color-text)', fontSize: '1rem', lineHeight: 1.55, margin: 0 } },
+        { style: { color: 'var(--owl-color-text)', fontSize: 'var(--owl-text-md)', lineHeight: 1.55, margin: 0 } },
         createVerdictSummaryText(researchCase),
       ),
       // Next action
       createElement(
         'p',
-        { style: { borderTop: '1px solid var(--owl-color-border)', color: '#d7e2d7', fontSize: '0.92rem', lineHeight: 1.5, margin: 0, paddingTop: '0.8rem' } },
+        { style: { borderTop: '1px solid var(--owl-color-border)', color: '#d7e2d7', fontSize: 'var(--owl-text-base)', lineHeight: 1.5, margin: 0, paddingTop: '0.8rem' } },
         createElement('strong', { style: { color: 'var(--owl-color-sand)' } }, 'Next action: '),
         nextAction,
       ),
@@ -670,7 +670,7 @@ function createValuationPanel(researchCase: AppResearchCase, marketQuote?: Marke
           style: {
             color: '#bbf7d0',
             fontFamily: 'var(--owl-font-mono)',
-            fontSize: '0.76rem',
+            fontSize: 'var(--owl-text-xs)',
             fontWeight: 800,
             letterSpacing: '0.06em',
           },
@@ -713,7 +713,7 @@ function createValuationPanel(researchCase: AppResearchCase, marketQuote?: Marke
               style: {
                 color: 'var(--owl-color-accent-bright)',
                 fontFamily: 'var(--owl-font-mono)',
-                fontSize: '0.7rem',
+                fontSize: 'var(--owl-text-2xs)',
                 left: '50%',
                 position: 'absolute',
                 top: '-26px',
@@ -731,7 +731,7 @@ function createValuationPanel(researchCase: AppResearchCase, marketQuote?: Marke
                 bottom: '-28px',
                 color: 'var(--owl-color-accent-bright)',
                 fontFamily: 'var(--owl-font-mono)',
-                fontSize: '0.8rem',
+                fontSize: 'var(--owl-text-sm)',
                 fontWeight: 800,
                 left: '50%',
                 position: 'absolute',
@@ -762,7 +762,7 @@ function createValuationPanel(researchCase: AppResearchCase, marketQuote?: Marke
               style: {
                 color: gapIsGood ? '#34d399' : '#f87171',
                 fontFamily: 'var(--owl-font-mono)',
-                fontSize: '0.7rem',
+                fontSize: 'var(--owl-text-2xs)',
                 left: '50%',
                 position: 'absolute',
                 top: '-26px',
@@ -780,7 +780,7 @@ function createValuationPanel(researchCase: AppResearchCase, marketQuote?: Marke
                 bottom: '-28px',
                 color: gapIsGood ? '#34d399' : '#f87171',
                 fontFamily: 'var(--owl-font-mono)',
-                fontSize: '0.8rem',
+                fontSize: 'var(--owl-text-sm)',
                 fontWeight: 800,
                 left: '50%',
                 position: 'absolute',
@@ -798,7 +798,7 @@ function createValuationPanel(researchCase: AppResearchCase, marketQuote?: Marke
             style: {
               color: 'var(--owl-color-quiet)',
               fontFamily: 'var(--owl-font-mono)',
-              fontSize: '0.66rem',
+              fontSize: 'var(--owl-text-2xs)',
               position: 'absolute',
               right: '0.6rem',
               top: '-22px',
@@ -811,22 +811,22 @@ function createValuationPanel(researchCase: AppResearchCase, marketQuote?: Marke
     // Fair value → buy below summary line
     fairValueSummary !== undefined ? createElement(
       'p',
-      { style: { color: '#d7e2d7', fontSize: '0.92rem', lineHeight: 1.5, margin: 0 } },
+      { style: { color: '#d7e2d7', fontSize: 'var(--owl-text-base)', lineHeight: 1.5, margin: 0 } },
       createElement('strong', { style: { color: 'var(--owl-color-accent-bright)' } }, fairValueSummary),
     ) : buyPrice !== undefined ? createElement(
       'p',
-      { style: { color: '#d7e2d7', fontSize: '0.92rem', lineHeight: 1.5, margin: 0 } },
+      { style: { color: '#d7e2d7', fontSize: 'var(--owl-text-base)', lineHeight: 1.5, margin: 0 } },
       'Buy below ',
       createElement('strong', { style: { color: 'var(--owl-color-accent-bright)' } }, `$${buyPrice}`),
     ) : createElement(
       'p',
-      { style: { color: 'var(--owl-color-muted)', fontSize: '0.9rem', lineHeight: 1.5, margin: 0 } },
+      { style: { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-base)', lineHeight: 1.5, margin: 0 } },
       'Buy-price target not yet computed — run the valuation lane.',
     ),
     // ROIC gate / growth note
     roicGateLabel !== undefined ? createElement(
       'p',
-      { style: { color: 'var(--owl-color-muted)', fontFamily: 'var(--owl-font-mono)', fontSize: '0.78rem', lineHeight: 1.4, margin: '0.2rem 0 0' } },
+      { style: { color: 'var(--owl-color-muted)', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-sm)', lineHeight: 1.4, margin: '0.2rem 0 0' } },
       roicGateLabel,
     ) : null,
     // Metrics row: fair value, buy-below, discount, MoS, growth, and market/gap when available
@@ -859,7 +859,7 @@ function createValuationPanel(researchCase: AppResearchCase, marketQuote?: Marke
         style: {
           color: gapIsGood ? '#34d399' : '#f87171',
           fontFamily: 'var(--owl-font-mono)',
-          fontSize: '0.82rem',
+          fontSize: 'var(--owl-text-sm)',
           margin: 0,
         },
       },
@@ -871,7 +871,7 @@ function createValuationPanel(researchCase: AppResearchCase, marketQuote?: Marke
       { style: { marginTop: '0.5rem' } },
       createElement(
         'summary',
-        { style: { color: 'var(--owl-color-gold-bright)', cursor: 'pointer', fontSize: '0.85rem', fontWeight: 800 } },
+        { style: { color: 'var(--owl-color-gold-bright)', cursor: 'pointer', fontSize: 'var(--owl-text-base)', fontWeight: 800 } },
         'Owner-earnings bridge',
       ),
       createElement(
@@ -882,7 +882,7 @@ function createValuationPanel(researchCase: AppResearchCase, marketQuote?: Marke
             border: '1px solid rgba(148, 163, 184, 0.12)',
             borderRadius: '0.7rem',
             fontFamily: 'var(--owl-font-mono)',
-            fontSize: '0.8rem',
+            fontSize: 'var(--owl-text-sm)',
             marginTop: '0.5rem',
             padding: '0.75rem 1rem',
           },
@@ -896,7 +896,7 @@ function createValuationPanel(researchCase: AppResearchCase, marketQuote?: Marke
         reinvestmentRate !== undefined && roic !== undefined ? createElement('p', { style: { color: '#9aa4b7', margin: '0.4rem 0 0' } },
           `ROIC ${(roic * 100).toFixed(0)}% · reinvestment rate ${(reinvestmentRate * 100).toFixed(0)}%`,
         ) : null,
-        bridge.maintenance_capex_proxy_tier !== undefined ? createElement('p', { style: { color: '#9aa4b7', fontSize: '0.73rem', margin: '0.25rem 0 0' } },
+        bridge.maintenance_capex_proxy_tier !== undefined ? createElement('p', { style: { color: '#9aa4b7', fontSize: 'var(--owl-text-xs)', margin: '0.25rem 0 0' } },
           `Maint. capex proxy tier: ${bridge.maintenance_capex_proxy_tier}th percentile of D&A`,
         ) : null,
       ),
@@ -934,7 +934,7 @@ function createPositionPlanPanel(plan: PositionPlan | undefined, promptForCapita
       createElement('p', { style: labelStyle }, 'Position plan · advisory'),
       createElement(
         'p',
-        { style: { color: 'var(--owl-color-muted)', fontSize: '0.95rem', margin: 0 } },
+        { style: { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-base)', margin: 0 } },
         'Set your investable capital on the Portfolio page to see position sizing.',
       ),
     )
@@ -958,7 +958,7 @@ function createPositionPlanPanel(plan: PositionPlan | undefined, promptForCapita
           style: {
             color: 'var(--owl-color-gold-bright)',
             fontFamily: 'var(--owl-font-mono)',
-            fontSize: '0.76rem',
+            fontSize: 'var(--owl-text-xs)',
             fontWeight: 800,
             letterSpacing: '0.06em',
           },
@@ -987,7 +987,7 @@ function createPositionPlanPanel(plan: PositionPlan | undefined, promptForCapita
           color: 'var(--owl-color-muted)',
           display: 'flex',
           flexDirection: 'column',
-          fontSize: '0.82rem',
+          fontSize: 'var(--owl-text-sm)',
           gap: '0.3rem',
           lineHeight: 1.45,
           margin: 0,
@@ -1017,7 +1017,7 @@ function createPlanMetric(label: string, value: string) {
         style: {
           color: 'var(--owl-color-quiet)',
           fontFamily: 'var(--owl-font-mono)',
-          fontSize: '0.68rem',
+          fontSize: 'var(--owl-text-2xs)',
           letterSpacing: '0.05em',
           textTransform: 'uppercase' as const,
         },
@@ -1026,7 +1026,7 @@ function createPlanMetric(label: string, value: string) {
     ),
     createElement(
       'div',
-      { style: { color: 'var(--owl-color-gold-bright)', fontSize: '1.1rem', fontWeight: 800, marginTop: '0.15rem' } },
+      { style: { color: 'var(--owl-color-gold-bright)', fontSize: 'var(--owl-text-md)', fontWeight: 800, marginTop: '0.15rem' } },
       value,
     ),
   )
@@ -1055,12 +1055,12 @@ function createTrancheRow(tranche: PositionTranche, currency: string) {
       { style: { display: 'flex', alignItems: 'center', gap: '0.6rem', flexWrap: 'wrap' } },
       createElement(
         'span',
-        { style: { color: 'var(--owl-color-gold-bright)', fontFamily: 'var(--owl-font-mono)', fontSize: '0.95rem', fontWeight: 800 } },
+        { style: { color: 'var(--owl-color-gold-bright)', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-base)', fontWeight: 800 } },
         tranche.id,
       ),
       createElement(
         'span',
-        { style: { color: 'var(--owl-color-muted)', fontSize: '0.85rem' } },
+        { style: { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-base)' } },
         `${tranche.trigger_label} · $${tranche.trigger_price_per_share}`,
       ),
       tranche.thesis_gate ? createElement(
@@ -1072,7 +1072,7 @@ function createTrancheRow(tranche: PositionTranche, currency: string) {
             borderRadius: '0.5rem',
             color: '#f0d999',
             fontFamily: 'var(--owl-font-mono)',
-            fontSize: '0.68rem',
+            fontSize: 'var(--owl-text-2xs)',
             fontWeight: 800,
             letterSpacing: '0.04em',
             padding: '0.15rem 0.5rem',
@@ -1085,7 +1085,7 @@ function createTrancheRow(tranche: PositionTranche, currency: string) {
     // Value + shares
     createElement(
       'div',
-      { style: { color: 'var(--owl-color-text)', fontFamily: 'var(--owl-font-mono)', fontSize: '0.85rem', textAlign: 'right' as const } },
+      { style: { color: 'var(--owl-color-text)', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-base)', textAlign: 'right' as const } },
       `${formatPlanMoney(tranche.target_value, currency)} · ~${tranche.approx_shares} sh`,
     ),
   )
@@ -1109,7 +1109,7 @@ function createMetricCell(label: string, value: string, accent: boolean) {
         style: {
           color: 'var(--owl-color-quiet)',
           fontFamily: 'var(--owl-font-mono)',
-          fontSize: '0.68rem',
+          fontSize: 'var(--owl-text-2xs)',
           letterSpacing: '0.05em',
           textTransform: 'uppercase' as const,
         },
@@ -1121,7 +1121,7 @@ function createMetricCell(label: string, value: string, accent: boolean) {
       {
         style: {
           color: accent ? 'var(--owl-color-accent-bright)' : 'var(--owl-color-text)',
-          fontSize: '1.1rem',
+          fontSize: 'var(--owl-text-md)',
           fontWeight: 800,
           marginTop: '0.15rem',
         },
@@ -1224,19 +1224,19 @@ function createDossierCard(label: string, content: string | string[], status?: s
     createElement(
       'div',
       { style: { alignItems: 'center', display: 'flex', flexWrap: 'wrap', gap: '0.45rem', justifyContent: 'space-between' } },
-      createElement('h3', { style: { color: '#f7f8ff', fontSize: '0.95rem', margin: 0 } }, label),
-      status === undefined ? null : createElement('span', { style: { color: 'var(--owl-color-gold-bright)', fontSize: '0.78rem', fontWeight: 900 } }, status),
+      createElement('h3', { style: { color: '#f7f8ff', fontSize: 'var(--owl-text-base)', margin: 0 } }, label),
+      status === undefined ? null : createElement('span', { style: { color: 'var(--owl-color-gold-bright)', fontSize: 'var(--owl-text-sm)', fontWeight: 900 } }, status),
     ),
     contentItems.length === 1
-      ? createElement('p', { style: { color: '#dbe3ef', fontSize: '0.9rem', lineHeight: 1.5, margin: 0 } }, contentItems[0])
+      ? createElement('p', { style: { color: '#dbe3ef', fontSize: 'var(--owl-text-base)', lineHeight: 1.5, margin: 0 } }, contentItems[0])
       : createElement(
         'ul',
-        { style: { color: '#dbe3ef', display: 'grid', fontSize: '0.9rem', gap: '0.35rem', lineHeight: 1.4, margin: 0, paddingLeft: '1rem' } },
+        { style: { color: '#dbe3ef', display: 'grid', fontSize: 'var(--owl-text-base)', gap: '0.35rem', lineHeight: 1.4, margin: 0, paddingLeft: '1rem' } },
         ...contentItems.map((item) => createElement('li', { key: item }, item)),
       ),
     options?.note === undefined
       ? null
-      : createElement('p', { style: { color: '#9aa4b7', fontSize: '0.82rem', fontWeight: 750, lineHeight: 1.4, margin: 0 } }, options.note),
+      : createElement('p', { style: { color: '#9aa4b7', fontSize: 'var(--owl-text-sm)', fontWeight: 750, lineHeight: 1.4, margin: 0 } }, options.note),
   )
 }
 
@@ -1259,7 +1259,7 @@ function createFullThesisDisclosure(fullThesis: string, conciseThesis: string) {
         style: {
           color: 'var(--owl-color-gold-bright)',
           cursor: 'pointer',
-          fontSize: '0.92rem',
+          fontSize: 'var(--owl-text-base)',
           fontWeight: 900,
         },
       },
@@ -1306,7 +1306,7 @@ function createSpecialistLanesGrid(researchCase: AppResearchCase) {
       createElement('p', { style: labelStyle }, 'Deep-dive specialist lanes'),
       createElement(
         'span',
-        { style: { color: 'var(--owl-color-muted)', fontSize: '0.78rem' } },
+        { style: { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-sm)' } },
         `${allFindings.length} lane${allFindings.length !== 1 ? 's' : ''} · source-backed`,
       ),
     ),
@@ -1356,7 +1356,7 @@ function createSpecialistLaneCard(finding: ResearchFindingCard) {
           style: {
             color: 'var(--owl-color-sand)',
             fontFamily: 'var(--owl-font-mono)',
-            fontSize: '0.72rem',
+            fontSize: 'var(--owl-text-xs)',
             fontWeight: 800,
             letterSpacing: '0.05em',
             textTransform: 'uppercase' as const,
@@ -1371,7 +1371,7 @@ function createSpecialistLaneCard(finding: ResearchFindingCard) {
             border: `1px solid ${confidenceClass === 'high' ? 'rgba(52, 211, 153, 0.34)' : 'var(--owl-color-border)'}`,
             borderRadius: '999px',
             color: confidenceClass === 'high' ? '#bbf7d0' : 'var(--owl-color-muted)',
-            fontSize: '0.64rem',
+            fontSize: 'var(--owl-text-2xs)',
             padding: '0.12rem 0.45rem',
           },
         },
@@ -1381,7 +1381,7 @@ function createSpecialistLaneCard(finding: ResearchFindingCard) {
     // Finding summary
     createElement(
       'p',
-      { style: { color: 'var(--owl-color-muted)', fontSize: '0.83rem', lineHeight: 1.45, margin: 0 } },
+      { style: { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-sm)', lineHeight: 1.45, margin: 0 } },
       finding.finding_summary ?? 'No lane summary recorded.',
     ),
     // Source count
@@ -1391,7 +1391,7 @@ function createSpecialistLaneCard(finding: ResearchFindingCard) {
         style: {
           color: 'var(--owl-color-quiet)',
           fontFamily: 'var(--owl-font-mono)',
-          fontSize: '0.66rem',
+          fontSize: 'var(--owl-text-2xs)',
           marginTop: '0.2rem',
         },
       },
@@ -1418,7 +1418,7 @@ function createEvidenceAndAuditDetails(researchCase: AppResearchCase) {
         style: {
           color: '#f7f8ff',
           cursor: 'pointer',
-          fontSize: '1.05rem',
+          fontSize: 'var(--owl-text-md)',
           fontWeight: 900,
         },
       },
@@ -1453,10 +1453,10 @@ function createEvidenceAndSourcesPanel(researchCase: AppResearchCase) {
   return createElement(
     'section',
     { style: cardStyle },
-    createElement('h2', { style: { fontSize: '1.25rem', margin: '0 0 0.35rem' } }, 'Evidence and sources'),
+    createElement('h2', { style: { fontSize: 'var(--owl-text-lg)', margin: '0 0 0.35rem' } }, 'Evidence and sources'),
     createElement(
       'p',
-      { style: { color: '#9aa4b7', fontSize: '0.95rem', margin: '0 0 1rem' } },
+      { style: { color: '#9aa4b7', fontSize: 'var(--owl-text-base)', margin: '0 0 1rem' } },
       'Human-readable source context appears first; raw audit source IDs remain available for ledger traceability.',
     ),
     sourceEvidence.length === 0
@@ -1473,7 +1473,7 @@ function createGateChecklistPanel(researchCase: AppResearchCase) {
   return createElement(
     'section',
     { style: cardStyle },
-    createElement('h2', { style: { fontSize: '1.25rem', margin: '0 0 1rem' } }, 'Gate checklist'),
+    createElement('h2', { style: { fontSize: 'var(--owl-text-lg)', margin: '0 0 1rem' } }, 'Gate checklist'),
     createElement(
       'ul',
       { style: { display: 'grid', gap: '0.75rem', listStyle: 'none', margin: 0, padding: 0 } },
@@ -1489,7 +1489,7 @@ function createGateChecklistPanel(researchCase: AppResearchCase) {
             'span',
             { style: { display: 'grid', gap: '0.25rem' } },
             createElement('span', { style: { fontWeight: 700 } }, gate.label),
-            createElement('span', { style: { color: '#9aa4b7', fontSize: '0.86rem' } }, `Evidence source context: ${describeGateEvidence(gate.label, researchCase.source_ids)}`),
+            createElement('span', { style: { color: '#9aa4b7', fontSize: 'var(--owl-text-base)' } }, `Evidence source context: ${describeGateEvidence(gate.label, researchCase.source_ids)}`),
           ),
         ),
       ),
@@ -1501,7 +1501,7 @@ function createSourceIdsPanel(researchCase: AppResearchCase) {
   return createElement(
     'section',
     { style: cardStyle },
-    createElement('h2', { style: { fontSize: '1.25rem', margin: '0 0 0.75rem' } }, 'Source IDs'),
+    createElement('h2', { style: { fontSize: 'var(--owl-text-lg)', margin: '0 0 0.75rem' } }, 'Source IDs'),
     createElement(
       'div',
       { style: { display: 'flex', flexWrap: 'wrap', gap: '0.5rem' } },
@@ -1514,10 +1514,10 @@ function createLedgerTimelinePanel(researchCase: AppResearchCase) {
   return createElement(
     'section',
     { style: cardStyle },
-    createElement('h2', { style: { fontSize: '1.25rem', margin: '0 0 0.35rem' } }, 'Ledger Timeline'),
+    createElement('h2', { style: { fontSize: 'var(--owl-text-lg)', margin: '0 0 0.35rem' } }, 'Ledger Timeline'),
     createElement(
       'p',
-      { style: { color: '#9aa4b7', fontSize: '0.95rem', margin: '0 0 1rem' } },
+      { style: { color: '#9aa4b7', fontSize: 'var(--owl-text-base)', margin: '0 0 1rem' } },
       'How did this state come to exist?',
     ),
     createElement(
@@ -1531,7 +1531,7 @@ function createLedgerTimelinePanel(researchCase: AppResearchCase) {
           createElement('p', { style: { margin: '0.2rem 0 0' } }, entry.summary),
           createElement(
             'p',
-            { style: { color: '#9aa4b7', fontSize: '0.85rem', margin: '0.2rem 0 0' } },
+            { style: { color: '#9aa4b7', fontSize: 'var(--owl-text-base)', margin: '0.2rem 0 0' } },
             `${entry.actor_label} • ${entry.created_at}`,
           ),
         ),
@@ -1554,14 +1554,14 @@ function createEvidenceCard(source: AppSourceEvidence) {
         padding: '0.95rem',
       },
     },
-    createElement('h3', { style: { color: '#f7f8ff', fontSize: '1rem', margin: 0 } }, source.title),
+    createElement('h3', { style: { color: '#f7f8ff', fontSize: 'var(--owl-text-md)', margin: 0 } }, source.title),
     createElement('p', { style: { color: '#cbd5e1', lineHeight: 1.55, margin: 0 } }, source.excerpt),
     source.url === undefined
       ? null
-      : createElement('a', { href: source.url, rel: 'noreferrer', style: { color: 'var(--owl-color-gold-bright)', fontSize: '0.9rem', fontWeight: 800 } }, 'Open source URL'),
+      : createElement('a', { href: source.url, rel: 'noreferrer', style: { color: 'var(--owl-color-gold-bright)', fontSize: 'var(--owl-text-base)', fontWeight: 800 } }, 'Open source URL'),
     source.citation_locator === undefined
       ? null
-      : createElement('p', { style: { color: '#9aa4b7', fontSize: '0.86rem', margin: 0 } }, `Citation: ${source.citation_locator}`),
+      : createElement('p', { style: { color: '#9aa4b7', fontSize: 'var(--owl-text-base)', margin: 0 } }, `Citation: ${source.citation_locator}`),
     createElement(SourceChip, { id: source.source_id, label: 'Audit source id' }),
   )
 }
@@ -1579,8 +1579,8 @@ function createCurrentWorkflowStatus(researchCase: AppResearchCase) {
     'section',
     { className: 'owl-workflow-card', style: cardStyle },
     createElement('p', { style: labelStyle }, 'Workflow audit status'),
-    createElement('p', { style: { color: '#f7f8ff', fontSize: '1.25rem', fontWeight: 900, margin: '0.35rem 0 0' } }, statusLabel),
-    createElement('p', { style: { color: '#9aa4b7', fontSize: '0.9rem', margin: '0.55rem 0 0' } }, `Audit stage: ${researchCase.stage}`),
+    createElement('p', { style: { color: '#f7f8ff', fontSize: 'var(--owl-text-lg)', fontWeight: 900, margin: '0.35rem 0 0' } }, statusLabel),
+    createElement('p', { style: { color: '#9aa4b7', fontSize: 'var(--owl-text-base)', margin: '0.55rem 0 0' } }, `Audit stage: ${researchCase.stage}`),
   )
 }
 
@@ -1600,7 +1600,7 @@ function createResearchTransitionPanel(researchCase: AppResearchCase) {
       createElement(
         'section',
         { className: 'owl-workflow-panel owl-workflow-panel-draft' },
-        createElement('h2', { style: { fontSize: '1.05rem', margin: 0 } }, 'Provider draft state'),
+        createElement('h2', { style: { fontSize: 'var(--owl-text-md)', margin: 0 } }, 'Provider draft state'),
         createElement('p', { style: { color: '#9aa4b7', margin: '0.45rem 0 0' } }, latestProviderEntry?.summary ?? 'Provider draft has not been recorded yet.'),
         createDetail('Decision', researchCase.decision ?? researchCase.investment_verdict ?? 'Pending'),
         createDetail('Strategy gate', researchCase.strategy_compliance ?? 'Pending'),
@@ -1608,7 +1608,7 @@ function createResearchTransitionPanel(researchCase: AppResearchCase) {
       createElement(
         'section',
         { className: 'owl-workflow-panel owl-workflow-panel-gate' },
-        createElement('h2', { style: { fontSize: '1.05rem', margin: 0 } }, 'Source-backed Shariah gate'),
+        createElement('h2', { style: { fontSize: 'var(--owl-text-md)', margin: 0 } }, 'Source-backed Shariah gate'),
         createElement('p', { style: { color: '#9aa4b7', margin: '0.45rem 0 0' } }, `Shariah status: ${researchCase.shariah_status ?? 'Pending'}`),
         createDetail('Source evidence', researchCase.source_ids.length === 0 ? 'No source IDs recorded' : researchCase.source_ids.join(', ')),
         createDetail('Valuation status', researchCase.valuation_status ?? 'Pending'),
@@ -1616,7 +1616,7 @@ function createResearchTransitionPanel(researchCase: AppResearchCase) {
       createElement(
         'section',
         { className: 'owl-workflow-panel owl-workflow-panel-user' },
-        createElement('h2', { style: { fontSize: '1.05rem', margin: 0 } }, 'User transition checkpoint'),
+        createElement('h2', { style: { fontSize: 'var(--owl-text-md)', margin: 0 } }, 'User transition checkpoint'),
         createElement('p', { style: { color: '#9aa4b7', margin: '0.45rem 0 0' } }, latestUserEntry?.summary ?? 'Awaiting user-authored transition.'),
         createDetail('Next action', researchCase.next_required_action ?? 'Continue the review workflow'),
       ),
@@ -1667,7 +1667,7 @@ function createQuickScreenPanel(researchCase: AppResearchCase) {
     createElement('p', { style: labelStyle }, 'Quick screen'),
     createElement(
       'h2',
-      { style: { fontSize: '1.35rem', margin: '0.35rem 0 0.6rem' } },
+      { style: { fontSize: 'var(--owl-text-lg)', margin: '0.35rem 0 0.6rem' } },
       'Single-agent business-quality gate',
     ),
     createElement(
@@ -1732,7 +1732,7 @@ function createDeepDivePanel(researchCase: AppResearchCase) {
     createElement('p', { style: labelStyle }, 'Deep dive dossier'),
     createElement(
       'h2',
-      { style: { fontSize: '1.35rem', margin: 0 } },
+      { style: { fontSize: 'var(--owl-text-lg)', margin: 0 } },
       'Swarm lane findings',
     ),
     createElement(
@@ -1772,8 +1772,8 @@ function createDeepDiveFindingCard(finding: ResearchFindingCard) {
     createElement(
       'div',
       { style: { alignItems: 'center', display: 'flex', flexWrap: 'wrap', gap: '0.55rem', justifyContent: 'space-between' } },
-      createElement('h3', { style: { color: '#f7f8ff', fontSize: '1rem', margin: 0 } }, laneLabel),
-      finding.confidence === undefined ? null : createElement('span', { style: { color: 'var(--owl-color-gold-bright)', fontSize: '0.82rem', fontWeight: 900 } }, finding.confidence),
+      createElement('h3', { style: { color: '#f7f8ff', fontSize: 'var(--owl-text-md)', margin: 0 } }, laneLabel),
+      finding.confidence === undefined ? null : createElement('span', { style: { color: 'var(--owl-color-gold-bright)', fontSize: 'var(--owl-text-sm)', fontWeight: 900 } }, finding.confidence),
     ),
     createElement('p', { style: { color: '#dbe3ef', lineHeight: 1.55, margin: 0 } }, finding.finding_summary ?? 'No lane summary recorded.'),
     caveats.length === 0
@@ -1823,7 +1823,7 @@ function createOwnerEarningsValuationCard(ownerValuation: NonNullable<AppResearc
       : createElement(
         'section',
         { style: { display: 'grid', gap: '0.45rem' } },
-        createElement('h3', { style: { color: '#f7f8ff', fontSize: '1rem', margin: 0 } }, 'Assumptions'),
+        createElement('h3', { style: { color: '#f7f8ff', fontSize: 'var(--owl-text-md)', margin: 0 } }, 'Assumptions'),
         createElement(
           'ul',
           { style: { color: '#dbe3ef', display: 'grid', gap: '0.35rem', lineHeight: 1.45, margin: 0, paddingLeft: '1.1rem' } },
@@ -1835,7 +1835,7 @@ function createOwnerEarningsValuationCard(ownerValuation: NonNullable<AppResearc
       : createElement(
         'section',
         { style: { display: 'grid', gap: '0.45rem' } },
-        createElement('h3', { style: { color: '#f7f8ff', fontSize: '1rem', margin: 0 } }, 'Caveats'),
+        createElement('h3', { style: { color: '#f7f8ff', fontSize: 'var(--owl-text-md)', margin: 0 } }, 'Caveats'),
         createElement(
           'ul',
           { style: { color: '#dbe3ef', display: 'grid', gap: '0.35rem', lineHeight: 1.45, margin: 0, paddingLeft: '1.1rem' } },
@@ -1860,7 +1860,7 @@ function createWatchlistPromotionAction(researchCaseId: string) {
     createElement('p', { style: labelStyle }, 'User confirmation'),
     createElement(
       'p',
-      { style: { color: 'var(--owl-color-gold-bright)', fontSize: '1rem', fontWeight: 700, margin: '0.35rem 0 1rem' } },
+      { style: { color: 'var(--owl-color-gold-bright)', fontSize: 'var(--owl-text-md)', fontWeight: 700, margin: '0.35rem 0 1rem' } },
       'Advance this drafted decision into durable personal-local watchlist state.',
     ),
     createElement(
@@ -1876,7 +1876,7 @@ function createWatchlistPromotionAction(researchCaseId: string) {
             borderRadius: '999px',
             color: '#ffffff',
             cursor: 'pointer',
-            fontSize: '0.95rem',
+            fontSize: 'var(--owl-text-base)',
             fontWeight: 900,
             padding: '0.75rem 1rem',
           },
@@ -1902,7 +1902,7 @@ function createActionsRow() {
           color: 'var(--owl-color-text)',
           cursor: 'pointer',
           font: 'inherit',
-          fontSize: '0.9rem',
+          fontSize: 'var(--owl-text-base)',
           fontWeight: 700,
           padding: '0.55rem 1rem',
         },
@@ -1927,7 +1927,7 @@ function createPill(label: string, colors: ChipColors) {
         borderRadius: '999px',
         color: colors.text,
         display: 'inline-flex',
-        fontSize: '0.74rem',
+        fontSize: 'var(--owl-text-xs)',
         fontWeight: 700,
         gap: '0.4rem',
         padding: '0.28rem 0.7rem',
@@ -1970,7 +1970,7 @@ function createStatusChip(label: string, value: string, colors: ChipColors) {
         borderRadius: '999px',
         color: colors.text,
         display: 'inline-flex',
-        fontSize: '0.78rem',
+        fontSize: 'var(--owl-text-sm)',
         fontWeight: 700,
         gap: '0.32rem',
         padding: '0.3rem 0.65rem',

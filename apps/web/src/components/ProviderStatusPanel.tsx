@@ -25,7 +25,7 @@ const cardStyle: CSSProperties = {
 
 const subtleTextStyle: CSSProperties = {
   color: 'var(--owl-color-muted)',
-  fontSize: '0.88rem',
+  fontSize: 'var(--owl-text-base)',
   lineHeight: 1.5,
   margin: 0,
 }
@@ -75,7 +75,7 @@ export function ProviderStatusPanel({ rows }: ProviderStatusPanelProps) {
           createElement(
             'section',
             { style: { background: 'var(--owl-color-panel-deep)', border: '1px solid var(--owl-color-border)', borderRadius: '0.9rem', display: 'grid', gap: '0.5rem', padding: '0.8rem' } },
-            createElement('h3', { className: 'owl-section-title', style: { fontSize: '0.95rem' } }, 'Allowed-use buckets'),
+            createElement('h3', { className: 'owl-section-title', style: { fontSize: 'var(--owl-text-base)' } }, 'Allowed-use buckets'),
             ...[
               ['Demo-only', summary.allowedBuckets.demoOnly],
               ['Blocked', summary.allowedBuckets.blocked],
@@ -87,7 +87,7 @@ export function ProviderStatusPanel({ rows }: ProviderStatusPanelProps) {
           createElement(
             'section',
             { style: { background: 'var(--owl-color-panel-deep)', border: '1px solid var(--owl-color-border)', borderRadius: '0.9rem', display: 'grid', gap: '0.5rem', padding: '0.8rem' } },
-            createElement('h3', { className: 'owl-section-title', style: { fontSize: '0.95rem' } }, 'Catalog support buckets'),
+            createElement('h3', { className: 'owl-section-title', style: { fontSize: 'var(--owl-text-base)' } }, 'Catalog support buckets'),
             ...[
               ['Certified', summary.catalogBuckets.certified],
               ['Experimental', summary.catalogBuckets.experimental],
@@ -97,7 +97,7 @@ export function ProviderStatusPanel({ rows }: ProviderStatusPanelProps) {
           createElement(
             'section',
             { style: { background: 'var(--owl-color-panel-deep)', border: '1px solid var(--owl-color-border)', borderRadius: '0.9rem', display: 'grid', gap: '0.5rem', padding: '0.8rem' } },
-            createElement('h3', { className: 'owl-section-title', style: { fontSize: '0.95rem' } }, 'Effective support buckets'),
+            createElement('h3', { className: 'owl-section-title', style: { fontSize: 'var(--owl-text-base)' } }, 'Effective support buckets'),
             ...[
               ['Certified', summary.effectiveBuckets.certified],
               ['Experimental', summary.effectiveBuckets.experimental],
@@ -133,7 +133,7 @@ export function ProviderStatusPanel({ rows }: ProviderStatusPanelProps) {
           return createElement(
             'article',
             { key: row.provider_id, style: providerCardStyle(row) },
-            createElement('h2', { style: { fontSize: '1.3rem', fontWeight: 800, color: 'var(--owl-color-gold-bright)', margin: 0 } }, row.label),
+            createElement('h2', { style: { fontSize: 'var(--owl-text-lg)', fontWeight: 800, color: 'var(--owl-color-gold-bright)', margin: 0 } }, row.label),
             createElement('p', { style: subtleTextStyle }, row.description),
             createElement(
               'section',
@@ -147,7 +147,7 @@ export function ProviderStatusPanel({ rows }: ProviderStatusPanelProps) {
             createElement(
               'section',
               { 'aria-label': `${row.label} provider primary status`, style: { display: 'grid', gap: '0.5rem' } },
-              createElement('h3', { className: 'owl-section-title', style: { fontSize: '0.95rem', margin: '0 0 0.35rem' } }, 'Primary status and action'),
+              createElement('h3', { className: 'owl-section-title', style: { fontSize: 'var(--owl-text-base)', margin: '0 0 0.35rem' } }, 'Primary status and action'),
               ...renderStatusRows(primaryStatusRows),
             ),
             createElement(
@@ -162,7 +162,7 @@ export function ProviderStatusPanel({ rows }: ProviderStatusPanelProps) {
               createElement(
                 'section',
                 null,
-                createElement('h3', { className: 'owl-section-title', style: { fontSize: '0.95rem', margin: '0.5rem 0 0.35rem' } }, 'Latest certification report'),
+                createElement('h3', { className: 'owl-section-title', style: { fontSize: 'var(--owl-text-base)', margin: '0.5rem 0 0.35rem' } }, 'Latest certification report'),
                 row.last_certification_report === undefined
                   ? createElement('p', { style: subtleTextStyle }, 'Workflow certification: No certification report recorded')
                   : renderCertificationReport(row),
@@ -170,7 +170,7 @@ export function ProviderStatusPanel({ rows }: ProviderStatusPanelProps) {
               createElement(
                 'section',
                 null,
-                createElement('h3', { className: 'owl-section-title', style: { fontSize: '0.95rem', margin: '0.5rem 0 0.35rem' } }, 'Limitations'),
+                createElement('h3', { className: 'owl-section-title', style: { fontSize: 'var(--owl-text-base)', margin: '0.5rem 0 0.35rem' } }, 'Limitations'),
                 createElement(
                   'ul',
                   { style: { color: 'var(--owl-color-muted)', margin: 0, paddingLeft: '1.2rem' } },
@@ -453,7 +453,7 @@ function renderStatusRows(statusRows: Array<ProviderStatusRow['status_rows'][num
         { style: { color: 'var(--owl-color-text)', fontWeight: 900, margin: 0 } },
         `${status.label}${status.label === 'Effective support' ? ' (gating source of truth)' : ''}: ${status.value}`,
       ),
-      createElement('p', { style: { ...subtleTextStyle, fontSize: '0.9rem' } }, status.description),
+      createElement('p', { style: { ...subtleTextStyle, fontSize: 'var(--owl-text-base)' } }, status.description),
     ),
   )
 }

@@ -26,7 +26,7 @@ const filterFormStyle: CSSProperties = {
 const filterLabelStyle: CSSProperties = {
   color: 'var(--owl-color-muted)',
   display: 'grid',
-  fontSize: '0.78rem',
+  fontSize: 'var(--owl-text-sm)',
   fontWeight: 900,
   gap: '0.35rem',
   letterSpacing: '0.04em',
@@ -39,7 +39,7 @@ const controlStyle: CSSProperties = {
   borderRadius: '0.7rem',
   color: 'var(--owl-color-text)',
   font: 'inherit',
-  fontSize: '0.92rem',
+  fontSize: 'var(--owl-text-base)',
   fontWeight: 700,
   minWidth: 0,
   padding: '0.55rem 0.65rem',
@@ -60,7 +60,7 @@ const buttonStyle: CSSProperties = {
   color: '#ffffff',
   cursor: 'pointer',
   font: 'inherit',
-  fontSize: '0.9rem',
+  fontSize: 'var(--owl-text-base)',
   fontWeight: 900,
   padding: '0.58rem 0.8rem',
 }
@@ -70,7 +70,7 @@ const clearLinkStyle: CSSProperties = {
   border: '1px solid var(--owl-color-border)',
   borderRadius: '0.7rem',
   color: 'var(--owl-color-muted)',
-  fontSize: '0.9rem',
+  fontSize: 'var(--owl-text-base)',
   fontWeight: 900,
   padding: '0.58rem 0.8rem',
   textDecoration: 'none',
@@ -100,14 +100,14 @@ const activeFilterChipStyle: CSSProperties = {
   border: '1px solid var(--owl-color-border)',
   borderRadius: '999px',
   color: 'var(--owl-color-muted)',
-  fontSize: '0.78rem',
+  fontSize: 'var(--owl-text-sm)',
   fontWeight: 800,
   padding: '0.28rem 0.55rem',
 }
 
 const resultCountStyle: CSSProperties = {
   color: 'var(--owl-color-muted)',
-  fontSize: '0.9rem',
+  fontSize: 'var(--owl-text-base)',
   fontWeight: 800,
   margin: '0 0 1rem',
 }
@@ -138,14 +138,14 @@ const rowHeaderStyle: CSSProperties = {
 
 const eventSummaryStyle: CSSProperties = {
   color: 'var(--owl-color-gold-bright)',
-  fontSize: '1.05rem',
+  fontSize: 'var(--owl-text-md)',
   fontWeight: 800,
   margin: 0,
 }
 
 const timestampStyle: CSSProperties = {
   color: 'var(--owl-color-muted)',
-  fontSize: '0.85rem',
+  fontSize: 'var(--owl-text-base)',
   fontWeight: 700,
 }
 
@@ -154,7 +154,7 @@ const contextStyle: CSSProperties = {
   border: '1px solid var(--owl-color-border)',
   borderRadius: '0.8rem',
   color: 'var(--owl-color-muted)',
-  fontSize: '0.9rem',
+  fontSize: 'var(--owl-text-base)',
   fontWeight: 700,
   lineHeight: 1.45,
   margin: '0 0 0.85rem',
@@ -171,7 +171,7 @@ const detailListStyle: CSSProperties = {
 const detailTermStyle: CSSProperties = {
   color: 'var(--owl-color-quiet)',
   fontFamily: 'var(--owl-font-mono)',
-  fontSize: '0.7rem',
+  fontSize: 'var(--owl-text-2xs)',
   fontWeight: 700,
   letterSpacing: '0.06em',
   textTransform: 'uppercase',
@@ -179,7 +179,7 @@ const detailTermStyle: CSSProperties = {
 
 const detailValueStyle: CSSProperties = {
   color: 'var(--owl-color-muted)',
-  fontSize: '0.88rem',
+  fontSize: 'var(--owl-text-base)',
   fontWeight: 700,
   margin: '0.1rem 0 0',
   overflowWrap: 'anywhere',
@@ -203,7 +203,7 @@ const evidenceStyle: CSSProperties = {
 const evidenceSummaryStyle: CSSProperties = {
   color: 'var(--owl-color-gold)',
   cursor: 'pointer',
-  fontSize: '0.9rem',
+  fontSize: 'var(--owl-text-base)',
   fontWeight: 900,
 }
 
@@ -227,7 +227,7 @@ const preStyle: CSSProperties = {
   background: 'var(--owl-color-canvas)',
   borderRadius: '0.8rem',
   color: 'var(--owl-color-muted)',
-  fontSize: '0.78rem',
+  fontSize: 'var(--owl-text-sm)',
   lineHeight: 1.45,
   margin: '0.5rem 0 0',
   overflowX: 'auto',

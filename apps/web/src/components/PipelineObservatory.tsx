@@ -30,7 +30,7 @@ const cardStyle: CSSProperties = {
 
 const monoLabel: CSSProperties = {
   fontFamily: 'var(--owl-font-mono)',
-  fontSize: '0.66rem',
+  fontSize: 'var(--owl-text-2xs)',
   letterSpacing: '0.06em',
   textTransform: 'uppercase',
   color: 'var(--owl-color-quiet)',
@@ -92,7 +92,7 @@ function runChip(run: PipelineRun): ReactNode {
         gap: '0.35rem',
         padding: '0.2rem 0.55rem',
         borderRadius: '999px',
-        fontSize: '0.68rem',
+        fontSize: 'var(--owl-text-2xs)',
         fontWeight: 700,
         background: chip.bg,
         border: `1px solid ${chip.border}`,
@@ -128,7 +128,7 @@ function StageFlowMap({ stages }: { stages: PipelineStageCount[] }): ReactNode {
           'div',
           {
             style: {
-              fontSize: '1.45rem',
+              fontSize: 'var(--owl-text-lg)',
               fontWeight: 800,
               marginTop: '0.2rem',
               fontVariantNumeric: 'tabular-nums',
@@ -147,7 +147,7 @@ function StageFlowMap({ stages }: { stages: PipelineStageCount[] }): ReactNode {
       nodes.push(
         createElement(
           'div',
-          { key: `arrow-${stage.key}`, 'aria-hidden': 'true', style: { alignSelf: 'center', color: 'var(--owl-color-quiet)', fontSize: '1rem' } },
+          { key: `arrow-${stage.key}`, 'aria-hidden': 'true', style: { alignSelf: 'center', color: 'var(--owl-color-quiet)', fontSize: 'var(--owl-text-md)' } },
           '→',
         ),
       )
@@ -194,7 +194,7 @@ function RunsTable({ runs, selectedCaseId }: { runs: PipelineRun[]; selectedCase
     { style: { ...cardStyle, padding: '0.4rem 0.6rem' } },
     createElement(
       'table',
-      { style: { width: '100%', borderCollapse: 'collapse', fontSize: '0.86rem' } },
+      { style: { width: '100%', borderCollapse: 'collapse', fontSize: 'var(--owl-text-base)' } },
       createElement(
         'thead',
         null,
@@ -271,11 +271,11 @@ function DrillDown({ drillDown }: { drillDown: PipelineDrillDown }): ReactNode {
       },
       createElement(
         'span',
-        { style: { fontFamily: 'var(--owl-font-mono)', fontSize: '0.68rem', textTransform: 'uppercase', letterSpacing: '0.04em' } },
+        { style: { fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-2xs)', textTransform: 'uppercase', letterSpacing: '0.04em' } },
         statusDot(LANE_DOT_COLOR[lane.status]),
         lane.label,
       ),
-      createElement('span', { style: { fontSize: '0.66rem', color: 'var(--owl-color-quiet)' } }, laneMeta(lane)),
+      createElement('span', { style: { fontSize: 'var(--owl-text-2xs)', color: 'var(--owl-color-quiet)' } }, laneMeta(lane)),
     ),
   )
 
@@ -303,17 +303,17 @@ function DrillDown({ drillDown }: { drillDown: PipelineDrillDown }): ReactNode {
           { style: { ...monoLabel, color: 'var(--owl-color-gold)', fontWeight: 800, margin: '0.9rem 0 0.4rem' } },
           `Grounded sources (${drillDown.grounded_source_ids.length})`,
         ),
-        createElement('div', { style: { fontFamily: 'var(--owl-font-mono)', fontSize: '0.7rem', color: 'var(--owl-color-accent-bright)' } }, sourceText),
+        createElement('div', { style: { fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-2xs)', color: 'var(--owl-color-accent-bright)' } }, sourceText),
       ),
       createElement(
         'div',
         null,
         createElement('p', { style: { ...monoLabel, color: 'var(--owl-color-gold)', fontWeight: 800, marginBottom: '0.4rem' } }, 'Event timeline'),
         drillDown.timeline.length === 0
-          ? createElement('p', { style: { fontSize: '0.8rem', color: 'var(--owl-color-muted)' } }, 'No swarm events recorded for this run yet.')
+          ? createElement('p', { style: { fontSize: 'var(--owl-text-sm)', color: 'var(--owl-color-muted)' } }, 'No swarm events recorded for this run yet.')
           : createElement(
               'ul',
-              { style: { listStyle: 'none', margin: '0.3rem 0 0', padding: 0, fontSize: '0.8rem' } },
+              { style: { listStyle: 'none', margin: '0.3rem 0 0', padding: 0, fontSize: 'var(--owl-text-sm)' } },
               ...drillDown.timeline.map((entry, index) =>
                 createElement(
                   'li',
@@ -330,7 +330,7 @@ function DrillDown({ drillDown }: { drillDown: PipelineDrillDown }): ReactNode {
                   createElement('span', { style: { color: 'var(--owl-color-text)' } }, entry.label),
                   createElement(
                     'span',
-                    { style: { color: 'var(--owl-color-quiet)', fontFamily: 'var(--owl-font-mono)', fontSize: '0.7rem', whiteSpace: 'nowrap' } },
+                    { style: { color: 'var(--owl-color-quiet)', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-2xs)', whiteSpace: 'nowrap' } },
                     new Date(entry.at).toISOString().slice(11, 19),
                   ),
                 ),
@@ -351,7 +351,7 @@ export function PipelineObservatory({ pipeline, drillDown, selectedCaseId }: Pip
     createElement('h1', { className: 'owl-page-title', style: { margin: '0.1rem 0 0.2rem' } }, 'Strategy pipeline observatory'),
     createElement(
       'p',
-      { style: { color: 'var(--owl-color-muted)', margin: '0 0 1.2rem', fontSize: '0.95rem' } },
+      { style: { color: 'var(--owl-color-muted)', margin: '0 0 1.2rem', fontSize: 'var(--owl-text-base)' } },
       'Live view of the autonomous research swarm and the whole workflow — projection-driven from the audit ledger.',
     ),
 
@@ -372,8 +372,8 @@ export function PipelineObservatory({ pipeline, drillDown, selectedCaseId }: Pip
       createElement(
         'div',
         { style: { ...sectionHeaderStyle, marginTop: 0 } },
-        createElement('h2', { style: { fontSize: '1.05rem', margin: 0 } }, 'Pipeline flow'),
-        createElement('span', { style: { color: 'var(--owl-color-quiet)', fontSize: '0.78rem' } }, 'counts = cases currently at / passed each stage'),
+        createElement('h2', { style: { fontSize: 'var(--owl-text-md)', margin: 0 } }, 'Pipeline flow'),
+        createElement('span', { style: { color: 'var(--owl-color-quiet)', fontSize: 'var(--owl-text-sm)' } }, 'counts = cases currently at / passed each stage'),
       ),
       createElement(StageFlowMap, { stages: stage_counts }),
     ),
@@ -382,8 +382,8 @@ export function PipelineObservatory({ pipeline, drillDown, selectedCaseId }: Pip
     createElement(
       'div',
       { style: sectionHeaderStyle },
-      createElement('h2', { style: { fontSize: '1.05rem', margin: 0 } }, 'Active & recent runs'),
-      createElement('span', { style: { color: 'var(--owl-color-quiet)', fontSize: '0.78rem' } }, 'select a run to drill into the swarm'),
+      createElement('h2', { style: { fontSize: 'var(--owl-text-md)', margin: 0 } }, 'Active & recent runs'),
+      createElement('span', { style: { color: 'var(--owl-color-quiet)', fontSize: 'var(--owl-text-sm)' } }, 'select a run to drill into the swarm'),
     ),
     createElement(RunsTable, { runs, ...(selectedCaseId !== undefined ? { selectedCaseId } : {}) }),
 
@@ -395,8 +395,8 @@ export function PipelineObservatory({ pipeline, drillDown, selectedCaseId }: Pip
           createElement(
             'div',
             { style: sectionHeaderStyle },
-            createElement('h2', { style: { fontSize: '1.05rem', margin: 0 } }, `${drillDown.ticker} · v${drillDown.version} — swarm drill-down`),
-            createElement('span', { style: { color: 'var(--owl-color-quiet)', fontSize: '0.78rem' } }, RUN_CHIP[drillDown.status].label),
+            createElement('h2', { style: { fontSize: 'var(--owl-text-md)', margin: 0 } }, `${drillDown.ticker} · v${drillDown.version} — swarm drill-down`),
+            createElement('span', { style: { color: 'var(--owl-color-quiet)', fontSize: 'var(--owl-text-sm)' } }, RUN_CHIP[drillDown.status].label),
           ),
           createElement(DrillDown, { drillDown }),
         )
@@ -404,7 +404,7 @@ export function PipelineObservatory({ pipeline, drillDown, selectedCaseId }: Pip
         ? createElement(
             'div',
             { style: { ...sectionHeaderStyle } },
-            createElement('span', { style: { color: 'var(--owl-color-quiet)', fontSize: '0.78rem' } }, 'Select a run above to inspect its specialist swarm.'),
+            createElement('span', { style: { color: 'var(--owl-color-quiet)', fontSize: 'var(--owl-text-sm)' } }, 'Select a run above to inspect its specialist swarm.'),
           )
         : null,
   )

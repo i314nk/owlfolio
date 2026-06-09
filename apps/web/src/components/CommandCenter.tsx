@@ -143,7 +143,7 @@ function createKpiSummaryRow(dashboard: AppCommandCenter) {
       createElement(
         'div',
         { style: { alignItems: 'center', display: 'flex', gap: '0.5rem', marginTop: '0.6rem' } },
-        createElement('span', { style: { color: 'var(--owl-color-muted)', fontSize: '0.78rem', fontWeight: 800, letterSpacing: '0.04em', textTransform: 'uppercase' } }, 'Shariah'),
+        createElement('span', { style: { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-sm)', fontWeight: 800, letterSpacing: '0.04em', textTransform: 'uppercase' } }, 'Shariah'),
         createElement(StatusBadge, { tone: shariahEnabled ? 'compliance' : 'warning' }, shariahEnabled ? 'Enabled by policy' : 'Disabled'),
       ),
     ),
@@ -290,7 +290,7 @@ function createOperatingSurface(dashboard: AppCommandCenter) {
       { className: 'owl-command-action-card', eyebrow: 'Operating priority' },
       createElement(
         'p',
-        { style: { color: 'var(--owl-color-text)', fontSize: '1.35rem', fontWeight: 700, letterSpacing: '-0.02em', margin: '0.45rem 0 0.35rem' } },
+        { style: { color: 'var(--owl-color-text)', fontSize: 'var(--owl-text-lg)', fontWeight: 700, letterSpacing: '-0.02em', margin: '0.45rem 0 0.35rem' } },
         dashboard.next_recommended_action,
       ),
       createElement(
@@ -334,7 +334,7 @@ function createApprovalQueue(dashboard: AppCommandCenter) {
     createElement(
       'div',
       null,
-      createElement('p', { style: { color: 'var(--owl-color-accent-bright)', fontFamily: 'var(--owl-font-mono)', fontSize: '0.78rem', fontWeight: 800, letterSpacing: '0.08em', margin: 0, textTransform: 'uppercase' } }, 'Approval queue'),
+      createElement('p', { style: { color: 'var(--owl-color-accent-bright)', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-sm)', fontWeight: 800, letterSpacing: '0.08em', margin: 0, textTransform: 'uppercase' } }, 'Approval queue'),
       createElement(
         'p',
         { style: { color: 'var(--owl-color-muted)', margin: '0.35rem 0 0' } },
@@ -369,7 +369,7 @@ function createApprovalGroup(groupLabel: string, items: AppCommandCenter['approv
         padding: '0.9rem',
       },
     },
-    createElement('h2', { style: { color: 'var(--owl-color-text)', fontSize: '1rem', margin: 0 } }, groupLabel),
+    createElement('h2', { style: { color: 'var(--owl-color-text)', fontSize: 'var(--owl-text-md)', margin: 0 } }, groupLabel),
     ...items.map((item) => createApprovalQueueCard(item)),
   )
 }
@@ -388,7 +388,7 @@ function createApprovalQueueCard(item: AppCommandCenter['approval_queue'][number
         padding: '0.9rem',
       },
     },
-    createElement('h3', { style: { color: 'var(--owl-color-text)', fontSize: '1.02rem', margin: 0 } }, item.title),
+    createElement('h3', { style: { color: 'var(--owl-color-text)', fontSize: 'var(--owl-text-md)', margin: 0 } }, item.title),
     createElement(
       'div',
       { className: 'owl-activity-meta' },
@@ -421,7 +421,7 @@ function createApprovalDetail(label: string, value: string) {
         padding: '0.7rem',
       },
     },
-    createElement('p', { style: { color: 'var(--owl-color-muted)', fontFamily: 'var(--owl-font-mono)', fontSize: '0.7rem', fontWeight: 800, letterSpacing: '0.08em', margin: '0 0 0.25rem', textTransform: 'uppercase' } }, label),
+    createElement('p', { style: { color: 'var(--owl-color-muted)', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-2xs)', fontWeight: 800, letterSpacing: '0.08em', margin: '0 0 0.25rem', textTransform: 'uppercase' } }, label),
     createElement('p', { style: { color: 'var(--owl-color-muted)', margin: 0 } }, value),
   )
 }
@@ -473,7 +473,7 @@ function createDataSafetyCaveat(_dashboard: AppCommandCenter) {
         gap: '0.5rem',
       },
     },
-    createElement('p', { style: { color: 'var(--owl-color-sand)', fontFamily: 'var(--owl-font-mono)', fontSize: '0.78rem', fontWeight: 800, letterSpacing: '0.08em', margin: 0, textTransform: 'uppercase' } }, 'Operator fallback'),
+    createElement('p', { style: { color: 'var(--owl-color-sand)', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-sm)', fontWeight: 800, letterSpacing: '0.08em', margin: 0, textTransform: 'uppercase' } }, 'Operator fallback'),
     createElement('p', { style: { color: 'var(--owl-color-text)', fontWeight: 900, margin: 0 } }, 'Runbook-only backup/restore'),
     createElement(
       'p',
@@ -592,7 +592,7 @@ function createNextActionQueue(dashboard: AppCommandCenter) {
     createElement(
       'div',
       null,
-      createElement('p', { style: { color: 'var(--owl-color-accent-bright)', fontFamily: 'var(--owl-font-mono)', fontSize: '0.78rem', fontWeight: 800, letterSpacing: '0.08em', margin: 0, textTransform: 'uppercase' } }, 'Next action queue'),
+      createElement('p', { style: { color: 'var(--owl-color-accent-bright)', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-sm)', fontWeight: 800, letterSpacing: '0.08em', margin: 0, textTransform: 'uppercase' } }, 'Next action queue'),
       createElement('p', { style: { color: 'var(--owl-color-muted)', margin: '0.35rem 0 0' } }, 'Prioritized by user confirmation, readiness blockers, due reviews, then operating hygiene.'),
     ),
     createElement(
@@ -724,8 +724,8 @@ function createActionCard(card: ActionCard, priority: number) {
         padding: '0.9rem',
       },
     },
-    createElement('p', { style: { color: toneColor, fontFamily: 'var(--owl-font-mono)', fontSize: '0.72rem', fontWeight: 800, letterSpacing: '0.08em', margin: 0, textTransform: 'uppercase' } }, `Priority ${priority} · ${card.category}`),
-    createElement('h2', { style: { color: 'var(--owl-color-text)', fontSize: '1.05rem', margin: 0 } }, card.title),
+    createElement('p', { style: { color: toneColor, fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-xs)', fontWeight: 800, letterSpacing: '0.08em', margin: 0, textTransform: 'uppercase' } }, `Priority ${priority} · ${card.category}`),
+    createElement('h2', { style: { color: 'var(--owl-color-text)', fontSize: 'var(--owl-text-md)', margin: 0 } }, card.title),
     createElement('p', { style: { color: 'var(--owl-color-muted)', margin: 0 } }, card.description),
     createElement('div', { style: { display: 'flex', justifyContent: 'flex-start' } }, createElement(OwlButtonLink, { href: card.href, variant: card.tone === 'critical' ? 'danger' : 'secondary' }, card.label)),
   )
@@ -772,7 +772,7 @@ function createAccountingAlert(dashboard: AppCommandCenter) {
     },
     createElement(
       'p',
-      { style: { color: 'var(--owl-color-sand)', fontFamily: 'var(--owl-font-mono)', fontSize: '0.7rem', fontWeight: 800, letterSpacing: '0.06em', margin: 0, textTransform: 'uppercase' } },
+      { style: { color: 'var(--owl-color-sand)', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-2xs)', fontWeight: 800, letterSpacing: '0.06em', margin: 0, textTransform: 'uppercase' } },
       'Accounting',
     ),
     createElement('p', { style: { color: 'var(--owl-color-text)', fontWeight: 900, margin: 0 } }, dashboard.accounting_alert.label),
@@ -798,7 +798,7 @@ function createHoldingReviewSchedule(dashboard: AppCommandCenter) {
     },
     createElement(
       'p',
-      { style: { color: 'var(--owl-color-muted)', fontFamily: 'var(--owl-font-mono)', fontSize: '0.7rem', fontWeight: 800, letterSpacing: '0.06em', margin: 0, textTransform: 'uppercase' } },
+      { style: { color: 'var(--owl-color-muted)', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-2xs)', fontWeight: 800, letterSpacing: '0.06em', margin: 0, textTransform: 'uppercase' } },
       'Holding review schedule',
     ),
     createElement(
@@ -818,11 +818,11 @@ function createHoldingReviewSchedule(dashboard: AppCommandCenter) {
         createElement('p', { style: { color: 'var(--owl-color-text)', fontWeight: 900, margin: 0 } }, prompt.label),
         createElement(
           'p',
-          { style: { color: prompt.status === 'due' ? '#fecaca' : 'var(--owl-color-muted)', fontSize: '0.85rem', fontWeight: 800, margin: '0.35rem 0' } },
+          { style: { color: prompt.status === 'due' ? '#fecaca' : 'var(--owl-color-muted)', fontSize: 'var(--owl-text-base)', fontWeight: 800, margin: '0.35rem 0' } },
           prompt.status === 'due' ? 'Due now' : 'Upcoming',
         ),
         createElement('p', { style: { color: 'var(--owl-color-muted)', margin: 0 } }, `Next review: ${prompt.next_review_at}`),
-        createElement('p', { style: { color: 'var(--owl-color-muted)', fontSize: '0.9rem', margin: '0.25rem 0 0.75rem' } }, formatReviewDistance(prompt.days_until_review)),
+        createElement('p', { style: { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-base)', margin: '0.25rem 0 0.75rem' } }, formatReviewDistance(prompt.days_until_review)),
         createElement(OwlButtonLink, { href: `/portfolio#${prompt.holding_id}`, variant: prompt.status === 'due' ? 'danger' : 'secondary' }, `Review ${prompt.label} in portfolio`),
       )),
     ),
@@ -894,7 +894,7 @@ function createRecentActivity(dashboard: AppCommandCenter) {
     { 'aria-label': 'Ledger activity reference module', className: 'owl-command-reference-module owl-command-recent-activity-module' },
     createElement(
       'p',
-      { style: { color: 'var(--owl-color-muted)', fontFamily: 'var(--owl-font-mono)', fontSize: '0.7rem', fontWeight: 800, letterSpacing: '0.06em', margin: '0 0 0.5rem', textTransform: 'uppercase' } },
+      { style: { color: 'var(--owl-color-muted)', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-2xs)', fontWeight: 800, letterSpacing: '0.06em', margin: '0 0 0.5rem', textTransform: 'uppercase' } },
       'Recent ledger activity',
     ),
     activities.length === 0
@@ -945,7 +945,7 @@ function createEmptyActivityCard(title: string, description: string) {
         padding: '0.9rem',
       },
     },
-    createElement('h2', { style: { color: 'var(--owl-color-text)', fontSize: '1rem', margin: 0 } }, title),
+    createElement('h2', { style: { color: 'var(--owl-color-text)', fontSize: 'var(--owl-text-md)', margin: 0 } }, title),
     createElement('p', { style: { color: 'var(--owl-color-muted)', margin: '0.35rem 0 0' } }, description),
   )
 }

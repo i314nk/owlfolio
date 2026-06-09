@@ -187,7 +187,7 @@ function statusMetric(label: string, value: string) {
     'article',
     { style: { background: 'var(--owl-color-panel-deep)', border: '1px solid var(--owl-color-border)', borderRadius: 'var(--owl-radius-card)', padding: '0.9rem 1rem' } },
     createElement('p', { className: 'owl-label' }, label),
-    createElement('p', { style: { color: 'var(--owl-color-text)', fontWeight: 700, lineHeight: 1.4, margin: '0.35rem 0 0', fontSize: '0.95rem' } }, value),
+    createElement('p', { style: { color: 'var(--owl-color-text)', fontWeight: 700, lineHeight: 1.4, margin: '0.35rem 0 0', fontSize: 'var(--owl-text-base)' } }, value),
   )
 }
 
@@ -195,7 +195,7 @@ function createAccountingLearnPanel(limitations: string[]) {
   return createElement(
     'details',
     { 'aria-label': 'Accounting limitations', style: { ...cardStyle, background: 'rgba(251, 191, 36, 0.08)', borderColor: 'rgba(251, 191, 36, 0.28)' } },
-    createElement('summary', { style: { color: 'var(--owl-color-amber)', cursor: 'pointer', fontSize: '1.05rem', fontWeight: 900 } }, 'Learn: accounting controls and caveats'),
+    createElement('summary', { style: { color: 'var(--owl-color-amber)', cursor: 'pointer', fontSize: 'var(--owl-text-md)', fontWeight: 900 } }, 'Learn: accounting controls and caveats'),
     createElement(
       'ul',
       { style: { color: 'var(--owl-color-amber)', display: 'grid', gap: '0.4rem', margin: '0.8rem 0 0', paddingLeft: '1.25rem' } },
@@ -239,7 +239,7 @@ function createAccountingDataCoverage(current: AccountingSnapshotProjection) {
     warnings.length === 0 ? null : createElement(
       'section',
       { 'aria-label': 'Missing-data warnings', style: { marginTop: '1rem' } },
-      createElement('h3', { style: { color: 'var(--owl-color-risk-bright)', fontSize: '1rem', margin: '0 0 0.5rem' } }, 'Missing-data warnings'),
+      createElement('h3', { style: { color: 'var(--owl-color-risk-bright)', fontSize: 'var(--owl-text-md)', margin: '0 0 0.5rem' } }, 'Missing-data warnings'),
       createElement(
         'ul',
         { style: { color: 'var(--owl-color-risk-bright)', display: 'grid', gap: '0.35rem', margin: 0, paddingLeft: '1.25rem' } },
@@ -253,7 +253,7 @@ function createCashFlowLedgerEvents(current: AccountingSnapshotProjection) {
   return createElement(
     'section',
     { 'aria-label': 'Cash-flow ledger events', style: { marginTop: '1rem' } },
-    createElement('h3', { className: 'owl-section-title', style: { fontSize: '0.95rem', margin: '0 0 0.6rem' } }, 'Cash-flow ledger events'),
+    createElement('h3', { className: 'owl-section-title', style: { fontSize: 'var(--owl-text-base)', margin: '0 0 0.6rem' } }, 'Cash-flow ledger events'),
     current.cash_flows.length === 0
       ? createElement('p', { style: { color: 'var(--owl-color-muted)', margin: 0 } }, 'No period cash-flow ledger events are linked yet.')
       : createElement(
@@ -292,7 +292,7 @@ function createMissingValuationAlert(missingCount: number) {
   return createElement(
     'section',
     { 'aria-label': 'Missing valuations', style: { ...cardStyle, background: 'rgba(239, 68, 68, 0.1)', borderColor: 'var(--owl-color-risk-bright)' } },
-    createElement('h2', { style: { color: 'var(--owl-color-risk-bright)', fontSize: '1.1rem', margin: '0 0 0.4rem' } }, 'Missing valuations'),
+    createElement('h2', { style: { color: 'var(--owl-color-risk-bright)', fontSize: 'var(--owl-text-md)', margin: '0 0 0.4rem' } }, 'Missing valuations'),
     createElement(
       'p',
       { style: { color: 'var(--owl-color-risk-bright)', fontWeight: 800, margin: 0 } },
@@ -330,7 +330,7 @@ function holdingCard(holding: AccountingHoldingSnapshot) {
   return createElement(
     'article',
     { style: { border: '1px solid rgba(148, 163, 184, 0.16)', borderRadius: '0.85rem', padding: '1rem' } },
-    createElement('h3', { className: 'owl-section-title', style: { fontSize: '1.05rem', margin: '0 0 0.5rem' } }, label),
+    createElement('h3', { className: 'owl-section-title', style: { fontSize: 'var(--owl-text-md)', margin: '0 0 0.5rem' } }, label),
     createElement('p', { style: { color: 'var(--owl-color-muted)', margin: '0.25rem 0' } }, `Shares: ${formatNumber(holding.shares)}`),
     createElement('p', { style: { color: 'var(--owl-color-muted)', margin: '0.25rem 0' } }, `Cost basis: ${formatMoney(holding.cost_basis, holding.currency)}`),
     holding.valuation_status === 'valued'

@@ -46,7 +46,7 @@ const pausedSectionStyle: CSSProperties = {
 const sectionEyebrowStyle: CSSProperties = {
   color: 'var(--owl-color-gold)',
   fontFamily: 'var(--owl-font-mono)',
-  fontSize: '0.72rem',
+  fontSize: 'var(--owl-text-xs)',
   fontWeight: 800,
   letterSpacing: '0.08em',
   margin: '0 0 0.15rem',
@@ -55,7 +55,7 @@ const sectionEyebrowStyle: CSSProperties = {
 
 const sectionTitleStyle: CSSProperties = {
   color: 'var(--owl-color-gold-bright)',
-  fontSize: '1.05rem',
+  fontSize: 'var(--owl-text-md)',
   fontWeight: 800,
   margin: '0 0 0.4rem',
 }
@@ -73,14 +73,14 @@ const controlRowStyle: CSSProperties = {
 
 const controlLabelStyle: CSSProperties = {
   color: 'var(--owl-color-text)',
-  fontSize: '0.9rem',
+  fontSize: 'var(--owl-text-base)',
   fontWeight: 650,
   letterSpacing: '-0.01em',
 }
 
 const controlHelperStyle: CSSProperties = {
   color: 'var(--owl-color-muted)',
-  fontSize: '0.79rem',
+  fontSize: 'var(--owl-text-sm)',
   lineHeight: 1.45,
   margin: 0,
 }
@@ -97,7 +97,7 @@ const selectStyle: CSSProperties = {
   border: '1px solid rgba(52, 211, 153, 0.28)',
   borderRadius: '0.6rem',
   color: 'var(--owl-color-text)',
-  fontSize: '0.86rem',
+  fontSize: 'var(--owl-text-base)',
   fontWeight: 650,
   padding: '0.48rem 0.75rem',
   cursor: 'pointer',
@@ -166,7 +166,7 @@ const pausedNoticeBannerStyle: CSSProperties = {
   border: '1px solid rgba(239, 68, 68, 0.22)',
   borderRadius: '0.7rem',
   color: '#fca5a5',
-  fontSize: '0.86rem',
+  fontSize: 'var(--owl-text-base)',
   fontWeight: 650,
   lineHeight: 1.45,
   padding: '0.65rem 0.85rem',
@@ -186,7 +186,7 @@ const saveButtonStyle: CSSProperties = {
   borderRadius: '999px',
   color: '#fff',
   cursor: 'pointer',
-  fontSize: '0.86rem',
+  fontSize: 'var(--owl-text-base)',
   fontWeight: 650,
   padding: '0.6rem 1.05rem',
 }
@@ -202,20 +202,20 @@ const saveButtonDisabledStyle: CSSProperties = {
 const savedFeedbackStyle: CSSProperties = {
   color: 'var(--owl-color-accent-bright)',
   fontFamily: 'var(--owl-font-mono)',
-  fontSize: '0.76rem',
+  fontSize: 'var(--owl-text-xs)',
   fontWeight: 600,
   letterSpacing: '0.05em',
 }
 
 const errorFeedbackStyle: CSSProperties = {
   color: '#fca5a5',
-  fontSize: '0.79rem',
+  fontSize: 'var(--owl-text-sm)',
 }
 
 const workerNoteStyle: CSSProperties = {
   color: 'var(--owl-color-quiet)',
   fontFamily: 'var(--owl-font-mono)',
-  fontSize: '0.68rem',
+  fontSize: 'var(--owl-text-2xs)',
   letterSpacing: '0.04em',
   marginTop: '0.1rem',
 }
