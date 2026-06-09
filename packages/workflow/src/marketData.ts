@@ -2,7 +2,7 @@
 // The PriceSource interface allows swapping in an official/keyed provider (and a separate Gulf source for
 // ADX / Abu Dhabi) later without touching any callers of resolveCurrentPrice.
 
-import { assertPublicHttpUrl } from './sourceGrounding.js'
+import { assertPublicHttpUrl } from './sourceGrounding'
 
 export type PriceQuoteSymbol = {
   ticker: string
