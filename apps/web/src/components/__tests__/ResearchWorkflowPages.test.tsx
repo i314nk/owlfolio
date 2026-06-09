@@ -675,6 +675,93 @@ describe('research and watchlist workflow pages', () => {
     expect(html).not.toContain('#047857')
   })
 
+  it('renders a TRUE research buy-below valuation chip + reference line', () => {
+    const baseHolding = {
+      holding_id: 'holding_msft_001',
+      watchlist_item_id: 'watch_msft_001',
+      research_case_id: 'rc_msft_001',
+      ticker: 'MSFT',
+      strategy_id: 'buffett-munger',
+      shares: 1,
+      total_cost_basis: 800,
+      cost_basis_per_share: 800,
+      currency: 'USD',
+      opened_at: '2026-05-31',
+      updated_at: '2026-06-30T12:00:00.000Z',
+    }
+
+    // Current price well above buy-below → OVERVALUED verdict.
+    const overvaluedHtml = renderToStaticMarkup(createElement(PortfolioPanel, {
+      holdings: [{
+        ...baseHolding,
+        latest_price_per_share: 900,
+        latest_market_value: 900,
+        buyBelowPricePerShare: 600,
+        moatClass: 'Wide',
+        hurdleRate: 0.12,
+      }],
+      mode: 'personal-local',
+    }))
+    expect(overvaluedHtml).toContain('OVERVALUED 50%')
+    expect(overvaluedHtml).toContain('Buy below $600.00 · Wide · 12% hurdle')
+    expect(overvaluedHtml).not.toContain('entry-vs-market')
+
+    // Current price at/under buy-below → IN BUY ZONE (undervalued).
+    const buyZoneHtml = renderToStaticMarkup(createElement(PortfolioPanel, {
+      holdings: [{
+        ...baseHolding,
+        latest_price_per_share: 500,
+        latest_market_value: 500,
+        buyBelowPricePerShare: 600,
+        moatClass: 'Wide',
+        hurdleRate: 0.12,
+      }],
+      mode: 'personal-local',
+    }))
+    expect(buyZoneHtml).toContain('owl-valuation-chip-undervalued')
+    expect(buyZoneHtml).toMatch(/UNDERVALUED 17%|IN BUY ZONE/)
+    expect(buyZoneHtml).toContain('Buy below $600.00')
+
+    // Current price within ±3% of buy-below → fair / IN BUY ZONE.
+    const fairHtml = renderToStaticMarkup(createElement(PortfolioPanel, {
+      holdings: [{
+        ...baseHolding,
+        latest_price_per_share: 605,
+        latest_market_value: 605,
+        buyBelowPricePerShare: 600,
+      }],
+      mode: 'personal-local',
+    }))
+    expect(fairHtml).toContain('owl-valuation-chip-fair')
+    expect(fairHtml).toContain('IN BUY ZONE')
+    expect(fairHtml).toContain('Buy below $600.00')
+  })
+
+  it('falls back to a clearly-labeled entry-vs-market chip when there is no research buy-below', () => {
+    const html = renderToStaticMarkup(createElement(PortfolioPanel, {
+      holdings: [{
+        holding_id: 'holding_msft_001',
+        watchlist_item_id: 'watch_msft_001',
+        research_case_id: 'rc_msft_001',
+        ticker: 'MSFT',
+        strategy_id: 'buffett-munger',
+        shares: 1,
+        total_cost_basis: 800,
+        cost_basis_per_share: 800,
+        currency: 'USD',
+        opened_at: '2026-05-31',
+        latest_price_per_share: 900,
+        latest_market_value: 900,
+        updated_at: '2026-06-30T12:00:00.000Z',
+      }],
+      mode: 'personal-local',
+    }))
+
+    expect(html).toContain('UP 13% VS ENTRY')
+    expect(html).toContain('Entry-vs-market move (no research buy-below recorded) — not a valuation verdict.')
+    expect(html).not.toContain('Buy below $')
+  })
+
   it('renders a pending strategy review confirmation action', () => {
     const html = renderToStaticMarkup(createElement(PortfolioPanel, {
       holdings: [{

@@ -1,8 +1,9 @@
+import { findLatestResearchCaseForTicker, projectResearchCases } from '@owlfolio/ledger/projections/researchCaseProjection'
 import { SQLiteEventStore } from '@owlfolio/ledger/sqliteEventStore'
 
-import { PortfolioPanel, type PortfolioValuationRefreshSummary } from '../../components/PortfolioPanel'
+import { PortfolioPanel, type PortfolioHolding, type PortfolioValuationRefreshSummary } from '../../components/PortfolioPanel'
 import { getOnboardingState } from '../../lib/onboarding'
-import { getAppHoldingsFromStore, type AppHolding } from '../../lib/workflow'
+import { getAppHoldingsFromStore } from '../../lib/workflow'
 
 export default async function PortfolioPage() {
   const state = await getOnboardingState()
@@ -21,20 +22,49 @@ export default async function PortfolioPage() {
   )
 }
 
-async function loadHoldings(ledgerPath: string | undefined, mode: 'demo' | 'personal-local') {
+async function loadHoldings(ledgerPath: string | undefined, mode: 'demo' | 'personal-local'): Promise<PortfolioHolding[]> {
   if (ledgerPath === undefined && mode === 'personal-local') {
     return []
   }
 
   const store = new SQLiteEventStore(ledgerPath)
   try {
-    return await getAppHoldingsFromStore(store, mode)
+    const holdings = await getAppHoldingsFromStore(store, mode)
+    const events = await store.list()
+    const researchCasesById = new Map(
+      projectResearchCases(events).map((researchCase) => [researchCase.research_case_id, researchCase]),
+    )
+
+    return holdings.map((holding) => {
+      // Prefer the holding's own linked research case; fall back to the latest
+      // non-superseded case for the same ticker when that case has no valuation.
+      const linkedCase = researchCasesById.get(holding.research_case_id)
+      const linkedBuyBelow = linkedCase?.valuation?.buy_price_per_share
+      const valuationCase = linkedBuyBelow !== undefined && linkedCase !== undefined
+        ? linkedCase
+        : (holding.ticker === undefined ? undefined : findLatestResearchCaseForTicker(events, holding.ticker)) ?? linkedCase
+      const buyBelow = valuationCase?.valuation?.buy_price_per_share
+
+      const enriched: PortfolioHolding = { ...holding }
+      if (buyBelow !== undefined) {
+        enriched.buyBelowPricePerShare = buyBelow
+        const moatClass = valuationCase?.valuation?.moat_class
+        if (moatClass !== undefined) {
+          enriched.moatClass = moatClass
+        }
+        const hurdleRate = valuationCase?.valuation?.hurdle_rate
+        if (hurdleRate !== undefined) {
+          enriched.hurdleRate = hurdleRate
+        }
+      }
+      return enriched
+    })
   } finally {
     store.close()
   }
 }
 
-function buildValuationRefreshSummary(holdings: AppHolding[]): PortfolioValuationRefreshSummary {
+function buildValuationRefreshSummary(holdings: PortfolioHolding[]): PortfolioValuationRefreshSummary {
   const priceChecks = holdings
     .map((holding) => holding.latest_price_checked_at)
     .filter((checkedAt): checkedAt is string => checkedAt !== undefined)

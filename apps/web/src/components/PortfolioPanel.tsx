@@ -12,8 +12,20 @@ export type PortfolioValuationRefreshSummary = {
   holdings_missing_data: string[]
 }
 
+/**
+ * A holding enriched with its linked research-case buy-below price (value at the
+ * moat-class hurdle). When `buyBelowPricePerShare` is present, the valuation chip
+ * is a TRUE current-vs-buy-below verdict; otherwise the chip falls back to a
+ * clearly-labeled entry-vs-market (cost-basis) comparison.
+ */
+export type PortfolioHolding = AppHolding & {
+  buyBelowPricePerShare?: number
+  moatClass?: string
+  hurdleRate?: number
+}
+
 export type PortfolioPanelProps = {
-  holdings: AppHolding[]
+  holdings: PortfolioHolding[]
   mode?: WorkflowMode
   valuationRefresh?: PortfolioValuationRefreshSummary
 }
@@ -186,8 +198,9 @@ function createPortfolioEmptyState() {
   )
 }
 
-function createHoldingCard(holding: AppHolding, mode: WorkflowMode) {
+function createHoldingCard(holding: PortfolioHolding, mode: WorkflowMode) {
   const ticker = holding.ticker ?? holding.company_id ?? holding.holding_id
+  const chip = holdingValuationChip(holding)
 
   return createElement(
     'article',
@@ -199,10 +212,13 @@ function createHoldingCard(holding: AppHolding, mode: WorkflowMode) {
       createElement(
         'div',
         { style: { alignItems: 'center', display: 'flex', flexWrap: 'wrap', gap: '0.55rem' } },
-        ...(holdingValuationChip(holding) === undefined ? [] : [createElement(OwlValuationChip, { kind: holdingValuationChip(holding) as OwlValuationKind })]),
+        ...(chip === undefined ? [] : [createElement(OwlValuationChip, { kind: chip.kind, label: chip.label })]),
         createElement(StatusBadge, { tone: holding.pending_review_id !== undefined ? 'warning' : holding.thesis_health === undefined ? 'neutral' : 'success' }, holding.pending_review_id !== undefined ? 'Strategy review drafted' : holding.thesis_health ?? 'Thesis review pending'),
       ),
     ),
+    ...(chip === undefined
+      ? []
+      : [createElement('p', { style: { color: '#9aa4b7', fontSize: '0.85rem', margin: '0.45rem 0 0' } }, chip.reference)]),
     createPositionEconomicsTable(holding),
     createConfirmedPortfolioState(holding),
     ...createShariahGateDetails(holding),
@@ -703,21 +719,72 @@ function priceSourceLabel(holding: AppHolding): string {
   return holding.latest_valuation_source ?? 'Manual'
 }
 
-function holdingValuationChip(holding: AppHolding): OwlValuationKind | undefined {
-  // alphaspread-style market-vs-buy gap: compare current price to the recorded
-  // cost basis (the price the lot was opened at). Honest "fair" band of ±3 %.
-  if (holding.latest_price_per_share === undefined || holding.cost_basis_per_share <= 0) {
+type HoldingValuationChip = {
+  kind: OwlValuationKind
+  label: string
+  reference: string
+}
+
+/**
+ * The valuation chip is TRUTHFUL: when the holding's linked research case supplies
+ * a buy-below price (value at the moat-class hurdle), it compares the current price
+ * to that buy-below threshold and renders an undervalued/fair/overvalued verdict
+ * plus a "Buy below $X · <moat> <hurdle>%" reference line.
+ *
+ * When there is NO research buy-below (older/gated cases), it falls back to the
+ * legacy current-vs-cost-basis gap, clearly labeled as an entry-vs-market move —
+ * NOT a valuation verdict. It never fabricates a verdict.
+ */
+function holdingValuationChip(holding: PortfolioHolding): HoldingValuationChip | undefined {
+  const currentPrice = holding.latest_price_per_share
+  if (currentPrice === undefined) {
     return undefined
   }
 
-  const gap = (holding.latest_price_per_share - holding.cost_basis_per_share) / holding.cost_basis_per_share
+  const buyBelow = holding.buyBelowPricePerShare
+  if (buyBelow !== undefined && buyBelow > 0) {
+    // TRUE valuation verdict: current price vs research buy-below (value at hurdle).
+    const reference = buyBelowReferenceLine(holding, buyBelow)
+    // Within ±3% of the buy-below is the honest "fair" band.
+    const gap = (currentPrice - buyBelow) / buyBelow
+    if (gap <= -0.03) {
+      const discount = Math.round(-gap * 100)
+      return { kind: 'undervalued', label: discount <= 0 ? 'IN BUY ZONE' : `UNDERVALUED ${discount}%`, reference }
+    }
+    if (gap >= 0.03) {
+      const premium = Math.round(gap * 100)
+      return { kind: 'overvalued', label: `OVERVALUED ${premium}%`, reference }
+    }
+    return { kind: 'fair', label: 'IN BUY ZONE', reference }
+  }
+
+  // Fallback: no research buy-below recorded. Compare current price to the recorded
+  // cost basis (the price the lot was opened at) and label it as entry-vs-market,
+  // NOT a valuation verdict.
+  if (holding.cost_basis_per_share <= 0) {
+    return undefined
+  }
+  const reference = 'Entry-vs-market move (no research buy-below recorded) — not a valuation verdict.'
+  const gap = (currentPrice - holding.cost_basis_per_share) / holding.cost_basis_per_share
   if (gap <= -0.03) {
-    return 'undervalued'
+    return { kind: 'undervalued', label: `DOWN ${Math.round(-gap * 100)}% VS ENTRY`, reference }
   }
   if (gap >= 0.03) {
-    return 'overvalued'
+    return { kind: 'overvalued', label: `UP ${Math.round(gap * 100)}% VS ENTRY`, reference }
   }
-  return 'fair'
+  return { kind: 'fair', label: 'NEAR ENTRY', reference }
+}
+
+function buyBelowReferenceLine(holding: PortfolioHolding, buyBelow: number): string {
+  const parts = [`Buy below ${formatMoney(buyBelow, holding.currency)}`]
+  const moat = holding.moatClass?.trim()
+  if (moat !== undefined && moat.length > 0) {
+    parts.push(moat)
+  }
+  if (holding.hurdleRate !== undefined && Number.isFinite(holding.hurdleRate)) {
+    parts.push(`${Math.round(holding.hurdleRate * 100)}% hurdle`)
+  }
+  return parts.join(' · ')
 }
 
 function formatMoney(value: number, currency: string): string {
