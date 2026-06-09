@@ -47,10 +47,41 @@
   --owl-color-source-border: rgba(52, 211, 153, 0.22);
   --owl-font-sans: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --owl-font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  /* Font rule: --owl-font-mono is ONLY for labels/kickers/eyebrows and numeric figures.
+     --owl-font-sans is used for body text, headings, and page titles. */
   --owl-radius-control: 0.45rem;
   --owl-radius-card: 0.9rem;
   --owl-radius-panel: 1.1rem;
   --owl-shadow-panel: 0 24px 80px rgba(0, 0, 0, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+
+  /* ── Type scale ──────────────────────────────────────────────────────────── */
+  --owl-text-2xs: 0.68rem;   /* footnotes */
+  --owl-text-xs: 0.72rem;    /* labels / kickers (mono uppercase) */
+  --owl-text-sm: 0.8rem;     /* secondary / captions */
+  --owl-text-base: 0.9rem;   /* body default */
+  --owl-text-md: 1.05rem;    /* values / lead numbers */
+  --owl-text-lg: 1.3rem;     /* sub-headings */
+  --owl-text-xl: 1.6rem;     /* large section heads */
+  /* THE single page-title size — every page uses this one clamp */
+  --owl-text-title: clamp(1.95rem, 4.2vw, 2.8rem);
+
+  /* ── Weight tokens ───────────────────────────────────────────────────────── */
+  --owl-weight-title: 590;   /* all page titles + major headings */
+  --owl-weight-label: 800;   /* mono labels/kickers */
+  --owl-weight-value: 700;   /* figures */
+  --owl-weight-body: 450;    /* body */
+
+  /* ── Line-height tokens ──────────────────────────────────────────────────── */
+  --owl-leading-tight: 1.15;
+  --owl-leading-body: 1.5;
+
+  /* ── Spacing scale ───────────────────────────────────────────────────────── */
+  --owl-space-1: 0.4rem;
+  --owl-space-2: 0.6rem;
+  --owl-space-3: 0.8rem;
+  --owl-space-4: 1.15rem;
+  --owl-space-5: 1.4rem;
+  --owl-space-6: 1.9rem;
 }
 
 /* ── Gold-forward semantic utility classes ─────────────────────────────────── */
@@ -96,17 +127,17 @@
   border: 1px solid var(--owl-color-border);
   border-radius: var(--owl-radius-panel);
   box-shadow: var(--owl-shadow-panel);
-  padding: 1.15rem 1.3rem;
+  padding: var(--owl-space-4) var(--owl-space-5);
   display: grid;
-  gap: 0.6rem;
+  gap: var(--owl-space-2);
 }
 
 /* Gold mono uppercase section kicker — aliases the route kicker. */
 .owl-section-kicker {
   color: var(--owl-color-gold);
   font-family: var(--owl-font-mono);
-  font-size: 0.72rem;
-  font-weight: 800;
+  font-size: var(--owl-text-xs);
+  font-weight: var(--owl-weight-label);
   letter-spacing: 0.08em;
   margin: 0;
   text-transform: uppercase;
@@ -115,7 +146,7 @@
 /* Clean section heading sitting under a kicker. */
 .owl-section-title {
   color: var(--owl-color-gold-bright);
-  font-size: 1.05rem;
+  font-size: var(--owl-text-md);
   font-weight: 800;
   margin: 0;
 }
@@ -124,7 +155,8 @@
 .owl-label {
   color: var(--owl-color-quiet);
   font-family: var(--owl-font-mono);
-  font-size: 0.7rem;
+  font-size: var(--owl-text-xs);
+  font-weight: var(--owl-weight-label);
   letter-spacing: 0.06em;
   text-transform: uppercase;
   margin: 0;
@@ -133,16 +165,17 @@
 .owl-value {
   color: var(--owl-color-text);
   font-family: var(--owl-font-mono);
-  font-size: 1.05rem;
-  font-weight: 700;
+  font-size: var(--owl-text-md);
+  font-weight: var(--owl-weight-value);
   font-variant-numeric: tabular-nums;
   margin: 0;
 }
 
 .owl-body {
   color: var(--owl-color-muted);
-  font-size: 0.88rem;
-  line-height: 1.5;
+  font-family: var(--owl-font-sans);
+  font-size: var(--owl-text-base);
+  line-height: var(--owl-leading-body);
   margin: 0;
 }
 
@@ -152,6 +185,13 @@
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   gap: 0.8rem;
 }
+
+/* ── Convenience text-size utilities (map to the type scale tokens) ──────── */
+/* The component sweep can use these instead of inline font-size values. */
+.owl-text-base { font-size: var(--owl-text-base); }
+.owl-text-sm   { font-size: var(--owl-text-sm); }
+.owl-text-md   { font-size: var(--owl-text-md); }
+.owl-text-lg   { font-size: var(--owl-text-lg); }
 
 * {
   box-sizing: border-box;
@@ -293,8 +333,8 @@ a:focus-visible {
 .owl-route-kicker {
   color: var(--owl-color-gold);
   font-family: var(--owl-font-mono);
-  font-size: 0.72rem;
-  font-weight: 800;
+  font-size: var(--owl-text-xs);
+  font-weight: var(--owl-weight-label);
   letter-spacing: 0.08em;
   margin: 0;
   text-transform: uppercase;
@@ -909,10 +949,10 @@ a:focus-visible {
 
 .owl-page-title {
   color: var(--owl-color-text);
-  font-size: clamp(1.95rem, 4.2vw, 2.8rem);
-  font-weight: 590;
-  letter-spacing: -0.055em;
-  line-height: 1;
+  font-size: var(--owl-text-title);
+  font-weight: var(--owl-weight-title);
+  letter-spacing: -0.04em;
+  line-height: var(--owl-leading-tight);
   margin: 0;
 }
 
