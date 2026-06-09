@@ -443,12 +443,6 @@ export function projectResearchCases(events: LedgerEventEnvelope<unknown>[]): Re
       applyString(researchCase, 'shariah_status', getString(event.payload, 'shariah_status'))
       applyString(researchCase, 'valuation_status', getString(event.payload, 'valuation_status'))
       applyString(researchCase, 'next_required_action', getString(event.payload, 'next_required_action'))
-      applyString(researchCase, 'thesis_summary', getString(event.payload, 'thesis_summary'))
-      applyString(researchCase, 'evidence_summary', getString(event.payload, 'evidence_summary'))
-      applyString(researchCase, 'valuation_rationale', getString(event.payload, 'valuation_rationale'))
-      applyString(researchCase, 'shariah_rationale', getString(event.payload, 'shariah_rationale'))
-      applyStringArray(researchCase, 'risks', getStringArray(event.payload, 'risks'))
-      applyStringArray(researchCase, 'open_questions', getStringArray(event.payload, 'open_questions'))
       continue
     }
 
