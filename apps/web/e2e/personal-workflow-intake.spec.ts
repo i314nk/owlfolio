@@ -128,7 +128,7 @@ test('personal-local mode can create the first research case from the command ce
   await expect(page.getByText('Watchlist confirmations')).toBeVisible()
   await expect(page.getByRole('heading', { name: 'MSFT watchlist draft' })).toBeVisible()
   await expect(page.getByText('Confirm MSFT as a user-approved watchlist item before worker monitoring or portfolio actions.')).toBeVisible()
-  await expect(page.getByRole('link', { name: /review and confirm watchlist draft/i })).toHaveAttribute('href', /\/watchlist#watch_msft_/)
+  await expect(page.getByRole('link', { name: /review and confirm watchlist draft/i }).first()).toHaveAttribute('href', /\/watchlist#watch_msft_/)
   await expect(page.getByRole('link', { name: /Audit event evt_watchlist_draft_created_watch_msft_/ })).toHaveAttribute('href', /\/audit\?event_id=evt_watchlist_draft_created_watch_msft_.*#evt_watchlist_draft_created_watch_msft_/)
 
   await page.goto('/watchlist')

@@ -216,7 +216,7 @@ export async function getSetupAwareCommandCenter({ config, is_initialized, provi
         ? [{ event_id: 'placeholder:no-ledger-events-yet', label: 'No ledger events yet' }]
         : summary.recent_activity,
       primary_action: summary.approval_queue[0] !== undefined
-        ? { href: summary.approval_queue[0].href, label: summary.approval_queue[0].approve_action_label ?? 'Open highest-priority decision' }
+        ? { href: summary.approval_queue[0].href, label: 'Review the highest-priority decision' }
         : summary.pipeline_counts.research_cases === 0
           ? { href: '/research', label: 'Open research cockpit' }
           : summary.pipeline_counts.open_holdings > 0
