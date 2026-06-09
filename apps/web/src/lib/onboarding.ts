@@ -2,7 +2,8 @@ import { rm } from 'node:fs/promises'
 import { join } from 'node:path'
 
 import { SQLiteEventStore } from '@owlfolio/ledger/sqliteEventStore'
-import type { AppConfig, MarketUniverseConfig, ProviderSelection, ShariahDefaults } from '@owlfolio/shared'
+import type { AppConfig, AutomationSettings, MarketUniverseConfig, ProviderSelection, ShariahDefaults } from '@owlfolio/shared'
+import { mergeAutomationSettings } from '@owlfolio/shared'
 
 import { loadAppConfig, resolveProjectRootFromCwd, resolveSourceLedgerPath, saveAppConfig } from './appConfigStore'
 import { resetDefaultDemoStore, resolveDemoLedgerPath } from './demo'
@@ -95,6 +96,16 @@ function mergeProviderSelection(
     ...current,
     ...update,
   }
+}
+
+export async function updateAutomationSettings(partial: Partial<AutomationSettings>, options: OnboardingOptions = {}): Promise<AppConfig> {
+  const current = await loadAppConfig(options)
+  const next: AppConfig = {
+    ...current,
+    automation: mergeAutomationSettings({ ...current.automation, ...partial }),
+  }
+  await saveAppConfig(next, options)
+  return next
 }
 
 export async function getProviderReadinessSnapshot(config: AppConfig, options: OnboardingOptions = {}): Promise<ProviderReadiness> {

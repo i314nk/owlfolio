@@ -29,12 +29,23 @@ export type MarketUniverseConfig = {
   broker_required: false
 }
 
-export type AutomationCadenceDiscovery = 'off' | 'weekly' | 'monthly'
-export type AutomationCadenceWatchlist = 'off' | 'daily' | 'weekly'
-export type AutomationCadenceReviews = 'off' | 'monthly' | 'quarterly'
-export type AutomationCadenceReanalysis = 'off' | 'quarterly' | 'annual'
-export type AutomationCadencePurification = 'off' | 'quarterly' | 'annual'
-export type AutomationCadenceValuation = 'off' | 'daily' | 'weekly'
+export const AutomationCadenceDiscoveryValues = ['off', 'weekly', 'monthly'] as const
+export type AutomationCadenceDiscovery = (typeof AutomationCadenceDiscoveryValues)[number]
+
+export const AutomationCadenceWatchlistValues = ['off', 'daily', 'weekly'] as const
+export type AutomationCadenceWatchlist = (typeof AutomationCadenceWatchlistValues)[number]
+
+export const AutomationCadenceReviewsValues = ['off', 'monthly', 'quarterly'] as const
+export type AutomationCadenceReviews = (typeof AutomationCadenceReviewsValues)[number]
+
+export const AutomationCadenceReanalysisValues = ['off', 'quarterly', 'annual'] as const
+export type AutomationCadenceReanalysis = (typeof AutomationCadenceReanalysisValues)[number]
+
+export const AutomationCadencePurificationValues = ['off', 'quarterly', 'annual'] as const
+export type AutomationCadencePurification = (typeof AutomationCadencePurificationValues)[number]
+
+export const AutomationCadenceValuationValues = ['off', 'daily', 'weekly'] as const
+export type AutomationCadenceValuation = (typeof AutomationCadenceValuationValues)[number]
 
 export type AutomationSettings = {
   research_engine_enabled: boolean

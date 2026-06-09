@@ -14,7 +14,8 @@ const navItems = [
   { href: '/audit', label: 'Audit' },
   { href: '/providers', label: 'Providers' },
   { href: '/learn', label: 'Learn' },
-  { href: '/settings/data-safety', label: 'Settings' },
+  { href: '/settings/automation', label: 'Settings' },
+  { href: '/settings/data-safety', label: 'Advanced / Data Safety' },
 ]
 
 export type AppNavigationProps = {
