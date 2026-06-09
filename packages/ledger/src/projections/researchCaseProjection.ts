@@ -45,11 +45,13 @@ export type ResearchCaseSpecialistFindingProjection = {
 
 export type ResearchCaseValuationProjection = {
   moat_class?: string
+  moat_passes_gate?: boolean
   hurdle_rate?: number
   growth_assumptions?: string
-  fair_value_per_share?: number
-  margin_of_safety?: number
+  growth_rate?: number
+  normalized_owner_earnings_per_share?: number
   buy_price_per_share?: number
+  value_basis?: string
 }
 
 export type ResearchCaseProjection = {
@@ -135,16 +137,20 @@ function getValuation(payload: Record<string, unknown>): ResearchCaseValuationPr
   const projected: ResearchCaseValuationProjection = {}
   const moat_class = getString(value, 'moat_class')
   if (moat_class !== undefined) projected.moat_class = moat_class
+  const moat_passes_gate = typeof value['moat_passes_gate'] === 'boolean' ? value['moat_passes_gate'] : undefined
+  if (moat_passes_gate !== undefined) projected.moat_passes_gate = moat_passes_gate
   const growth_assumptions = getString(value, 'growth_assumptions')
   if (growth_assumptions !== undefined) projected.growth_assumptions = growth_assumptions
   const hurdle_rate = getNumber(value, 'hurdle_rate')
   if (hurdle_rate !== undefined) projected.hurdle_rate = hurdle_rate
-  const fair_value_per_share = getNumber(value, 'fair_value_per_share')
-  if (fair_value_per_share !== undefined) projected.fair_value_per_share = fair_value_per_share
-  const margin_of_safety = getNumber(value, 'margin_of_safety')
-  if (margin_of_safety !== undefined) projected.margin_of_safety = margin_of_safety
+  const growth_rate = getNumber(value, 'growth_rate')
+  if (growth_rate !== undefined) projected.growth_rate = growth_rate
+  const normalized_owner_earnings_per_share = getNumber(value, 'normalized_owner_earnings_per_share')
+  if (normalized_owner_earnings_per_share !== undefined) projected.normalized_owner_earnings_per_share = normalized_owner_earnings_per_share
   const buy_price_per_share = getNumber(value, 'buy_price_per_share')
   if (buy_price_per_share !== undefined) projected.buy_price_per_share = buy_price_per_share
+  const value_basis = getString(value, 'value_basis')
+  if (value_basis !== undefined) projected.value_basis = value_basis
 
   return Object.keys(projected).length === 0 ? undefined : projected
 }

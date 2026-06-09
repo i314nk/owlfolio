@@ -122,7 +122,8 @@ function swarmFakeProvider() {
         open_questions: ['Margin of safety needed'],
         moat_class: 'wide',
         growth_assumptions: 'Steady 8% owner earnings growth for 10 years, 3% terminal.',
-        fair_value_per_share: 200,
+        normalized_owner_earnings_per_share: 18,
+        growth_rate: 0.08,
         proposed_sources: [src('src_dec_1')],
       }
     }),
@@ -191,7 +192,8 @@ function swarmFakeProviderWithLaneIds(lanes: readonly string[]) {
         open_questions: ['Margin of safety needed'],
         moat_class: 'wide',
         growth_assumptions: 'Steady 8% owner earnings growth for 10 years, 3% terminal.',
-        fair_value_per_share: 200,
+        normalized_owner_earnings_per_share: 18,
+        growth_rate: 0.08,
         proposed_sources: [src('src_dec_partial_1')],
       }
     }),
@@ -362,7 +364,8 @@ describe('runStrategyResearchSwarm', () => {
             open_questions: ['Margin of safety needed'],
             moat_class: 'wide',
             growth_assumptions: 'Steady 8% owner earnings growth for 10 years, 3% terminal.',
-            fair_value_per_share: 200,
+            normalized_owner_earnings_per_share: 18,
+            growth_rate: 0.08,
             proposed_sources: [src('src_dec_good_1'), src('src_dec_bad_1')],
           }
         }),
@@ -626,18 +629,20 @@ describe('runStrategyResearchSwarm with MockProvider + deterministic grounder', 
     expect(caseProjection).toBeDefined()
     // moat_class comes from the model
     expect(caseProjection?.valuation?.moat_class).toBe('wide')
-    // hurdle_rate is deterministically computed: wide => 0.11
-    expect(caseProjection?.valuation?.hurdle_rate).toBe(0.11)
+    // moat_passes_gate: wide passes
+    expect(caseProjection?.valuation?.moat_passes_gate).toBe(true)
+    // hurdle_rate is deterministically computed: wide => 0.15 (MoS embedded)
+    expect(caseProjection?.valuation?.hurdle_rate).toBe(0.15)
     // growth_assumptions is a non-empty string
     expect(typeof caseProjection?.valuation?.growth_assumptions).toBe('string')
     expect((caseProjection?.valuation?.growth_assumptions ?? '').length).toBeGreaterThan(0)
-    // fair_value_per_share from mock is 380
-    expect(caseProjection?.valuation?.fair_value_per_share).toBe(380)
-    // margin_of_safety from strategy contract is 0.25
-    expect(caseProjection?.valuation?.margin_of_safety).toBe(0.25)
-    // buy_price_per_share = 380 * (1 - 0.25) = 285
-    expect(caseProjection?.valuation?.buy_price_per_share).toBe(285)
-    // hurdle_rate matches wide moat class
-    expect(caseProjection?.valuation?.hurdle_rate).toBe(0.11)
+    // normalized_owner_earnings_per_share from mock is 18
+    expect(caseProjection?.valuation?.normalized_owner_earnings_per_share).toBe(18)
+    // growth_rate from mock is 0.08
+    expect(caseProjection?.valuation?.growth_rate).toBe(0.08)
+    // buy_price_per_share = 18 * 1.08 / (0.15 - 0.08) = 19.44 / 0.07 = 277.71
+    expect(caseProjection?.valuation?.buy_price_per_share).toBe(277.71)
+    // value_basis
+    expect(caseProjection?.valuation?.value_basis).toBe('owner_earnings_at_hurdle')
   })
 })

@@ -15,7 +15,7 @@ import {
 } from './strategyResearchPipeline'
 import { ingestManualSourceBundle } from './sourceLedger'
 import { resolveResearchStrategyRef } from './researchStrategyRef'
-import { buffettMungerStrategy, hurdleRateForMoatClass } from '@owlfolio/strategies/buffettMunger'
+import { buffettMungerStrategy, hurdleRateForMoatClass, moatPassesGate } from '@owlfolio/strategies/buffettMunger'
 
 export const ProposedSourceSchema = z.object({
   source_id: z.string().min(1),
@@ -165,9 +165,10 @@ const DecisionAgentSchema = z.object({
   risks: z.array(z.string().min(1)).min(1),
   open_questions: z.array(z.string().min(1)).min(1),
   // Model-supplied valuation judgment fields (harness computes hurdle_rate and buy_price from these)
-  moat_class: z.enum(['narrow', 'moderate', 'wide', 'monopoly']),
+  moat_class: z.enum(['narrow', 'moderate', 'wide', 'monopoly', 'inevitable']),
   growth_assumptions: z.string().min(1),
-  fair_value_per_share: z.number().positive(),
+  normalized_owner_earnings_per_share: z.number().positive(),
+  growth_rate: z.number(),
   proposed_sources: ProposedSourcesSchema,
 })
 
@@ -544,11 +545,40 @@ export async function runStrategyResearchSwarm(
     idempotency_key: `deep-dive-complete:${command.research_case_id}:v1`,
   })
 
-  // ---- Harness-computed valuation (agent judges moat class + fair value; harness computes hurdle + buy price) ----
+  // ---- Harness-computed valuation (agent judges moat class + OE inputs; harness computes buy price) ----
+  // MoS is embedded in the hurdle rate — no separate multiplier.
+  // Buy price = OE * (1 + g) / (hurdle - g)  [Gordon capitalization at the required return]
   const moatClass = dec.analysis.moat_class
-  const hurdle_rate = hurdleRateForMoatClass(buffettMungerStrategy, moatClass)
-  const margin_of_safety = buffettMungerStrategy.valuation.margin_of_safety
-  const buy_price_per_share = Math.round(dec.analysis.fair_value_per_share * (1 - margin_of_safety) * 100) / 100
+  const moat_passes_gate = moatPassesGate(buffettMungerStrategy, moatClass)
+
+  let buy_price_per_share: number | undefined
+  let hurdle_rate: number | undefined
+  let effective_growth_rate: number
+  let growth_rate_clamped = false
+
+  if (moat_passes_gate) {
+    hurdle_rate = hurdleRateForMoatClass(buffettMungerStrategy, moatClass)
+    const raw_g = dec.analysis.growth_rate
+    if (raw_g >= hurdle_rate) {
+      // Clamp growth rate so Gordon denominator is positive
+      effective_growth_rate = hurdle_rate - 0.02
+      growth_rate_clamped = true
+    } else {
+      effective_growth_rate = raw_g
+    }
+    const oe = dec.analysis.normalized_owner_earnings_per_share
+    buy_price_per_share = Math.round((oe * (1 + effective_growth_rate)) / (hurdle_rate - effective_growth_rate) * 100) / 100
+  } else {
+    effective_growth_rate = dec.analysis.growth_rate
+  }
+
+  // Apply moat gate: if moat is below wide, override verdict to PASS regardless of model output
+  const gatedVerdict = moat_passes_gate
+    ? dec.analysis.investment_verdict
+    : 'PASS' as const
+  const gatedReason = moat_passes_gate
+    ? dec.analysis.decision_reason
+    : `Moat below the wide-moat gate (${moatClass}) — pass.`
 
   // ---- Emit buffett_munger_analysis_drafted ----
   const analysisEvent: LedgerEventEnvelope<unknown> = {
@@ -564,11 +594,11 @@ export async function runStrategyResearchSwarm(
       research_case_id: command.research_case_id,
       company_id: command.company_id,
       ticker: command.ticker,
-      investment_verdict: dec.analysis.investment_verdict,
+      investment_verdict: gatedVerdict,
       strategy_compliance: dec.analysis.strategy_compliance,
       shariah_status: analysisShariahStatus,
       valuation_status: dec.analysis.valuation_status,
-      next_required_action: dec.analysis.next_required_action,
+      next_required_action: moat_passes_gate ? dec.analysis.next_required_action : gatedReason,
       quick_screen: {
         summary: qs.analysis.summary,
         business_quality: qs.analysis.business_quality,
@@ -581,11 +611,14 @@ export async function runStrategyResearchSwarm(
       },
       valuation: {
         moat_class: moatClass,
+        moat_passes_gate,
         hurdle_rate,
         growth_assumptions: dec.analysis.growth_assumptions,
-        fair_value_per_share: dec.analysis.fair_value_per_share,
-        margin_of_safety,
-        buy_price_per_share,
+        growth_rate: effective_growth_rate,
+        ...(growth_rate_clamped ? { growth_rate_caveats: [`Growth rate clamped from ${dec.analysis.growth_rate} to ${effective_growth_rate} (must be < hurdle_rate ${hurdle_rate}).`] } : {}),
+        normalized_owner_earnings_per_share: dec.analysis.normalized_owner_earnings_per_share,
+        ...(buy_price_per_share !== undefined ? { buy_price_per_share } : {}),
+        value_basis: 'owner_earnings_at_hurdle',
       },
     },
     source_ids: allVerified,
@@ -598,11 +631,11 @@ export async function runStrategyResearchSwarm(
   const decision = await draftDecision(store, {
     research_case_id: command.research_case_id,
     decision_id: command.decision_id,
-    decision: dec.analysis.investment_verdict,
-    reason: dec.analysis.decision_reason,
+    decision: gatedVerdict,
+    reason: gatedReason,
     thesis_summary: dec.analysis.thesis_summary,
     evidence_summary: dec.analysis.evidence_summary,
-    valuation_rationale: dec.analysis.valuation_rationale,
+    valuation_rationale: moat_passes_gate ? dec.analysis.valuation_rationale : `Moat gate rejected: ${moatClass} is below the minimum investable moat (wide).`,
     shariah_rationale: dec.analysis.shariah_rationale,
     risks: dec.analysis.risks,
     open_questions: dec.analysis.open_questions,

@@ -1,5 +1,23 @@
 import { strategyContractSchema, type MoatClass, type StrategyContract } from './strategyContract'
 
+/** Moat classes that pass the wide-moat gate (investable). */
+const INVESTABLE_MOAT_CLASSES = new Set<MoatClass>(['wide', 'monopoly', 'inevitable'])
+
+/**
+ * Returns true when the given moat class meets the strategy's minimum investable moat gate.
+ * narrow and moderate are rejected; wide, monopoly, and inevitable are investable.
+ */
+export function moatPassesGate(strategy: StrategyContract, moatClass: MoatClass): boolean {
+  const min = strategy.valuation.min_investable_moat
+  // Use the ordered investable set relative to the configured minimum
+  const investable = INVESTABLE_MOAT_CLASSES
+  // If the minimum is not in the investable set, fall back to set membership check
+  if (!investable.has(min)) {
+    return false
+  }
+  return investable.has(moatClass)
+}
+
 const rawBuffettMungerStrategy = {
   id: 'buffett-munger',
   name: 'Buffett-Munger Quality Compounder',
@@ -90,13 +108,11 @@ const rawBuffettMungerStrategy = {
   ],
   valuation: {
     hurdle_rates: {
-      narrow: 0.15,
-      moderate: 0.13,
-      wide: 0.11,
-      monopoly: 0.10,
+      wide: 0.15,
+      monopoly: 0.12,
+      inevitable: 0.10,
     },
-    margin_of_safety: 0.25,
-    margin_of_safety_required: true,
+    min_investable_moat: 'wide',
     valuation_required: true,
   },
   shariah: {
@@ -119,7 +135,13 @@ export const buffettMungerStrategy = strategyContractSchema.parse(rawBuffettMung
  * Look up the hurdle rate for a given moat class from the strategy contract.
  * The harness (not the model) calls this to deterministically derive hurdle_rate
  * from the model-supplied moat_class.
+ * Only investable moat classes (wide, monopoly, inevitable) have hurdle rates.
+ * Throws if called for a non-investable moat class (narrow, moderate).
  */
 export function hurdleRateForMoatClass(strategy: StrategyContract, moatClass: MoatClass): number {
-  return strategy.valuation.hurdle_rates[moatClass]
+  const rate = (strategy.valuation.hurdle_rates as Record<string, number>)[moatClass]
+  if (rate === undefined) {
+    throw new Error(`No hurdle rate for moat class '${moatClass}' — only investable classes (wide, monopoly, inevitable) have hurdle rates.`)
+  }
+  return rate
 }

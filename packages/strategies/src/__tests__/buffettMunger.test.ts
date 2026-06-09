@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buffettMungerStrategy, hurdleRateForMoatClass } from '../buffettMunger'
+import { buffettMungerStrategy, hurdleRateForMoatClass, moatPassesGate } from '../buffettMunger'
 import { evaluateGates } from '../evaluateGates'
 
 describe('Buffett-Munger default strategy', () => {
@@ -8,15 +8,27 @@ describe('Buffett-Munger default strategy', () => {
     expect(buffettMungerStrategy.certification_status).toBe('draft')
     expect(buffettMungerStrategy.shariah.required).toBe(true)
     expect(buffettMungerStrategy.research.required_specialists.map((s) => s.id)).toEqual(['moat', 'financials', 'risk', 'management', 'valuation', 'synthesis'])
-    expect(buffettMungerStrategy.valuation.hurdle_rates).toEqual({ narrow: 0.15, moderate: 0.13, wide: 0.11, monopoly: 0.10 })
-    expect(buffettMungerStrategy.valuation.margin_of_safety).toBe(0.25)
+    expect(buffettMungerStrategy.valuation.hurdle_rates).toEqual({ wide: 0.15, monopoly: 0.12, inevitable: 0.10 })
+    expect(buffettMungerStrategy.valuation.min_investable_moat).toBe('wide')
   })
 
-  it('looks up hurdle rate by moat class', () => {
-    expect(hurdleRateForMoatClass(buffettMungerStrategy, 'narrow')).toBe(0.15)
-    expect(hurdleRateForMoatClass(buffettMungerStrategy, 'moderate')).toBe(0.13)
-    expect(hurdleRateForMoatClass(buffettMungerStrategy, 'wide')).toBe(0.11)
-    expect(hurdleRateForMoatClass(buffettMungerStrategy, 'monopoly')).toBe(0.10)
+  it('looks up hurdle rate by investable moat class', () => {
+    expect(hurdleRateForMoatClass(buffettMungerStrategy, 'wide')).toBe(0.15)
+    expect(hurdleRateForMoatClass(buffettMungerStrategy, 'monopoly')).toBe(0.12)
+    expect(hurdleRateForMoatClass(buffettMungerStrategy, 'inevitable')).toBe(0.10)
+  })
+
+  it('throws for non-investable moat classes (narrow, moderate)', () => {
+    expect(() => hurdleRateForMoatClass(buffettMungerStrategy, 'narrow')).toThrow()
+    expect(() => hurdleRateForMoatClass(buffettMungerStrategy, 'moderate')).toThrow()
+  })
+
+  it('moatPassesGate: wide/monopoly/inevitable pass; narrow/moderate reject', () => {
+    expect(moatPassesGate(buffettMungerStrategy, 'wide')).toBe(true)
+    expect(moatPassesGate(buffettMungerStrategy, 'monopoly')).toBe(true)
+    expect(moatPassesGate(buffettMungerStrategy, 'inevitable')).toBe(true)
+    expect(moatPassesGate(buffettMungerStrategy, 'narrow')).toBe(false)
+    expect(moatPassesGate(buffettMungerStrategy, 'moderate')).toBe(false)
   })
 
   it('includes required blocking gates', () => {
