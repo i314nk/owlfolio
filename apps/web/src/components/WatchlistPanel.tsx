@@ -1,6 +1,6 @@
 import { createElement } from 'react'
 
-import { SourceChip } from './designSystem'
+import { OwlValuationChip, SourceChip } from './designSystem'
 import { StatusBadge } from './StatusBadge'
 import type { AppWatchlistItem, WorkflowMode } from '../lib/workflow'
 
@@ -69,13 +69,18 @@ function createWatchlistCard(item: AppWatchlistItem, mode: WorkflowMode) {
       { style: { alignItems: 'center', display: 'flex', flexWrap: 'wrap', gap: '0.75rem', justifyContent: 'space-between' } },
       createElement('h2', { style: { fontSize: '1.75rem', margin: 0 } }, item.ticker ?? item.company_id ?? item.watchlist_item_id),
       createElement(
-        StatusBadge,
-        { tone: item.holding_id !== undefined || item.user_approved ? 'success' : 'warning' },
-        item.holding_id !== undefined
-          ? 'Holding recorded'
-          : item.user_approved
-            ? 'User confirmed'
-            : 'Draft — awaiting user confirmation',
+        'div',
+        { style: { alignItems: 'center', display: 'flex', flexWrap: 'wrap', gap: '0.55rem' } },
+        ...(shariahChip(item) === undefined ? [] : [shariahChip(item)]),
+        createElement(
+          StatusBadge,
+          { tone: item.holding_id !== undefined || item.user_approved ? 'success' : 'warning' },
+          item.holding_id !== undefined
+            ? 'Holding recorded'
+            : item.user_approved
+              ? 'User confirmed'
+              : 'Draft — awaiting user confirmation',
+        ),
       ),
     ),
     createElement(
@@ -105,6 +110,27 @@ function createWatchlistCard(item: AppWatchlistItem, mode: WorkflowMode) {
     mode === 'personal-local' && !item.user_approved ? createWatchlistConfirmForm(item) : null,
     mode === 'personal-local' && item.user_approved && item.holding_id === undefined ? createOpenHoldingForm(item) : null,
   )
+}
+
+function shariahChip(item: AppWatchlistItem) {
+  if (item.shariah_gate_decision_id === undefined) {
+    return undefined
+  }
+
+  const status = (item.shariah_gate_status ?? '').toUpperCase()
+
+  if (item.shariah_gate_allowed === true) {
+    if (status === 'CONDITIONAL') {
+      return createElement(OwlValuationChip, { kind: 'watch', label: 'CONDITIONAL' })
+    }
+    return createElement(OwlValuationChip, { kind: 'approved' })
+  }
+
+  if (item.shariah_gate_allowed === false) {
+    return createElement(OwlValuationChip, { kind: 'overvalued', label: 'BLOCKED' })
+  }
+
+  return createElement(OwlValuationChip, { kind: 'watch', label: 'GATE PENDING' })
 }
 
 function createWatchlistConfirmForm(item: AppWatchlistItem) {

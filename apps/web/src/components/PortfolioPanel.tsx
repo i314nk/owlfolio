@@ -1,6 +1,6 @@
 import { createElement } from 'react'
 
-import { OwlButtonLink } from './designSystem'
+import { OwlButtonLink, OwlKpiStat, OwlRingGauge, OwlValuationChip, type OwlValuationKind } from './designSystem'
 import type { AppHolding, WorkflowMode } from '../lib/workflow'
 import { StatusBadge } from './StatusBadge'
 
@@ -89,11 +89,58 @@ export function PortfolioPanel({ holdings, mode = 'demo', valuationRefresh }: Po
           : `Projected demo holdings. Total cost basis: ${formatMoney(totalCostBasis, 'USD')}. Current value: ${formatMoney(totalCurrentValue, 'USD')}`,
       ),
     ),
+    createPortfolioKpiRow(holdings, totalCurrentValue),
     createPortfolioOperationsCockpit(holdings, totalCurrentValue, valuationRefresh),
     ...(valuationRefresh === undefined ? [] : [createScheduledValuationRefreshCard(valuationRefresh)]),
     ...(holdings.length === 0
       ? [createPortfolioEmptyState()]
       : holdings.map((holding) => createHoldingCard(holding, mode))),
+  )
+}
+
+function createPortfolioKpiRow(holdings: AppHolding[], totalCurrentValue: number) {
+  const hasHoldings = holdings.length > 0
+  const hasValuation = holdings.some((holding) => holding.latest_market_value !== undefined)
+  const gated = holdings.filter((holding) => holding.shariah_gate_decision_id !== undefined)
+  const allowed = gated.filter((holding) => holding.shariah_gate_allowed === true).length
+  const compliancePct = gated.length === 0 ? 0 : Math.round((allowed / gated.length) * 100)
+
+  return createElement(
+    'section',
+    { 'aria-label': 'Portfolio summary', className: 'owl-kpi-row' },
+    createElement(
+      'div',
+      { className: 'owl-kpi-panel owl-kpi-panel-gold' },
+      createElement(OwlKpiStat, {
+        label: 'Total value',
+        value: hasValuation ? formatMoney(totalCurrentValue, 'USD') : '—',
+        tone: 'gold',
+      }),
+    ),
+    createElement(
+      'div',
+      { className: 'owl-kpi-panel' },
+      createElement(OwlKpiStat, {
+        label: 'Open holdings',
+        value: hasHoldings ? String(holdings.length) : '—',
+        tone: 'gold',
+      }),
+    ),
+    createElement(
+      'div',
+      { className: 'owl-kpi-panel' },
+      createElement(OwlKpiStat, {
+        label: 'Shariah-gated',
+        value: gated.length === 0 ? '—' : `${allowed}/${gated.length}`,
+        tone: 'emerald',
+      }),
+      createElement(OwlRingGauge, {
+        value: compliancePct,
+        label: 'Compliant',
+        tone: gated.length === 0 ? 'amber' : compliancePct === 100 ? 'emerald' : 'amber',
+        size: 64,
+      }),
+    ),
   )
 }
 
@@ -149,7 +196,12 @@ function createHoldingCard(holding: AppHolding, mode: WorkflowMode) {
       'div',
       { style: { alignItems: 'center', display: 'flex', flexWrap: 'wrap', gap: '0.75rem', justifyContent: 'space-between' } },
       createElement('h2', { style: { fontSize: '1.75rem', margin: 0 } }, ticker),
-      createElement(StatusBadge, { tone: holding.pending_review_id !== undefined ? 'warning' : holding.thesis_health === undefined ? 'neutral' : 'success' }, holding.pending_review_id !== undefined ? 'Strategy review drafted' : holding.thesis_health ?? 'Thesis review pending'),
+      createElement(
+        'div',
+        { style: { alignItems: 'center', display: 'flex', flexWrap: 'wrap', gap: '0.55rem' } },
+        ...(holdingValuationChip(holding) === undefined ? [] : [createElement(OwlValuationChip, { kind: holdingValuationChip(holding) as OwlValuationKind })]),
+        createElement(StatusBadge, { tone: holding.pending_review_id !== undefined ? 'warning' : holding.thesis_health === undefined ? 'neutral' : 'success' }, holding.pending_review_id !== undefined ? 'Strategy review drafted' : holding.thesis_health ?? 'Thesis review pending'),
+      ),
     ),
     createPositionEconomicsTable(holding),
     createConfirmedPortfolioState(holding),
@@ -197,7 +249,7 @@ function createPortfolioOperationsCockpit(holdings: AppHolding[], totalCurrentVa
       operationMetric('Current state', currentState),
       operationMetric('Last automation check', valuationRefresh?.last_price_check_at ?? 'No scheduled price check recorded'),
       operationMetric('Next scheduled check', valuationRefresh?.next_scheduled_check ?? '0 7 * * 1-5'),
-      operationMetric('Source / caveat / confidence', `${valuationRefresh?.data_source ?? 'mock-local-price-feed'} · ${valuationRefresh?.confidence_caveat ?? 'Mock/local confidence — deterministic prices for local workflow verification.'}`),
+      operationMetric('Price source', aggregatePriceSource(holdings)),
       operationMetric('User action required', userActionRequired),
     ),
   )
@@ -221,6 +273,7 @@ function createPositionEconomicsTable(holding: AppHolding) {
     createDetail('Cost basis / share', formatMoney(holding.cost_basis_per_share, holding.currency)),
     createDetail('Total cost basis', formatMoney(holding.total_cost_basis, holding.currency)),
     createDetail('Current value', holding.latest_market_value === undefined ? 'No valuation snapshot recorded' : formatMoney(holding.latest_market_value, holding.currency)),
+    createDetail('Price source', priceSourceLabel(holding)),
     ...(holding.latest_price_per_share === undefined ? [] : [createDetail('Current price / share', formatMoney(holding.latest_price_per_share, holding.currency))]),
     ...(holding.unrealized_gain_loss === undefined ? [] : [createDetail('Unrealized P&L', `${formatMoney(holding.unrealized_gain_loss, holding.currency)} (${formatPercent(holding.unrealized_gain_loss_percent ?? 0)})`)]),
     ...(holding.portfolio_weight === undefined ? [] : [createDetail('Concentration', formatPercent(holding.portfolio_weight))]),
@@ -621,6 +674,50 @@ function describeGateAllowance(allowed: boolean | undefined): string {
   }
 
   return 'gate decision pending'
+}
+
+function aggregatePriceSource(holdings: AppHolding[]): string {
+  const sources = new Set(
+    holdings
+      .filter((holding) => holding.latest_market_value !== undefined)
+      .map((holding) => priceSourceLabel(holding)),
+  )
+  if (sources.size === 0) {
+    return '—'
+  }
+  return [...sources].join(', ')
+}
+
+function priceSourceLabel(holding: AppHolding): string {
+  if (holding.latest_market_value === undefined) {
+    return '—'
+  }
+
+  const raw = holding.latest_valuation_source?.toLowerCase()
+  if (raw === 'yahoo') {
+    return 'Yahoo Finance'
+  }
+  if (raw === 'manual' || raw === undefined) {
+    return 'Manual'
+  }
+  return holding.latest_valuation_source ?? 'Manual'
+}
+
+function holdingValuationChip(holding: AppHolding): OwlValuationKind | undefined {
+  // alphaspread-style market-vs-buy gap: compare current price to the recorded
+  // cost basis (the price the lot was opened at). Honest "fair" band of ±3 %.
+  if (holding.latest_price_per_share === undefined || holding.cost_basis_per_share <= 0) {
+    return undefined
+  }
+
+  const gap = (holding.latest_price_per_share - holding.cost_basis_per_share) / holding.cost_basis_per_share
+  if (gap <= -0.03) {
+    return 'undervalued'
+  }
+  if (gap >= 0.03) {
+    return 'overvalued'
+  }
+  return 'fair'
 }
 
 function formatMoney(value: number, currency: string): string {

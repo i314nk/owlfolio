@@ -1,6 +1,6 @@
 import { createElement } from 'react'
 
-import { FinancialNumber, OwlButtonLink, OwlCard, SourceChip } from './designSystem'
+import { FinancialNumber, OwlButtonLink, OwlCard, OwlKpiStat, OwlRingGauge, SourceChip } from './designSystem'
 import { StatusBadge } from './StatusBadge'
 import type { AppCommandCenter } from '../lib/demo'
 
@@ -59,6 +59,7 @@ export function CommandCenter({ dashboard }: CommandCenterProps) {
       'section',
       { className: 'owl-command-container' },
       createCommandHero(dashboard),
+      createKpiSummaryRow(dashboard),
       createCockpitOverview(dashboard),
       createElement(
         'section',
@@ -95,6 +96,59 @@ function createCommandHero(dashboard: AppCommandCenter) {
       ),
     ),
     createStatusStrip(dashboard),
+  )
+}
+
+function createKpiSummaryRow(dashboard: AppCommandCenter) {
+  const counts = dashboard.pipeline_counts
+  const shariahEnabled = !dashboard.shariah_status.toLowerCase().includes('disabled')
+  const hasHoldings = counts.open_holdings > 0
+
+  return createElement(
+    'section',
+    { 'aria-label': 'Workflow summary', className: 'owl-kpi-row' },
+    createElement(
+      'div',
+      { className: 'owl-kpi-panel owl-kpi-panel-gold' },
+      createElement(OwlKpiStat, {
+        label: 'Open holdings',
+        value: hasHoldings ? countsText(counts.open_holdings) : '—',
+        tone: 'gold',
+      }),
+    ),
+    createElement(
+      'div',
+      { className: 'owl-kpi-panel' },
+      createElement(OwlKpiStat, {
+        label: 'Confirmed watchlist',
+        value: countsText(counts.confirmed_watchlist_items),
+        tone: 'emerald',
+      }),
+    ),
+    createElement(
+      'div',
+      { className: 'owl-kpi-panel' },
+      createElement(OwlKpiStat, {
+        label: 'Pending user actions',
+        value: countsText(counts.pending_user_actions),
+        tone: counts.pending_user_actions > 0 ? 'risk' : 'emerald',
+      }),
+    ),
+    createElement(
+      'div',
+      { className: 'owl-kpi-panel' },
+      createElement(OwlKpiStat, {
+        label: 'Watchlist drafts',
+        value: countsText(counts.watchlist_drafts),
+        tone: 'gold',
+      }),
+      createElement(OwlRingGauge, {
+        value: shariahEnabled ? 100 : 0,
+        label: 'Shariah',
+        tone: shariahEnabled ? 'emerald' : 'amber',
+        size: 64,
+      }),
+    ),
   )
 }
 

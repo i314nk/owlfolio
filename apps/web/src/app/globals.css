@@ -1462,6 +1462,29 @@ a:focus-visible {
   font-weight: 650;
 }
 
+/* ── KPI / gauge summary row (Command Center / Portfolio / Watchlist) ───────── */
+
+.owl-kpi-row {
+  display: grid;
+  gap: 0.85rem;
+  grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
+}
+
+.owl-kpi-panel {
+  align-items: center;
+  background: rgba(255, 255, 255, 0.035);
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  border-radius: 1rem;
+  display: flex;
+  gap: 1rem;
+  justify-content: space-between;
+  padding: 1.05rem 1.15rem;
+}
+
+.owl-kpi-panel-gold {
+  border-color: rgba(232, 201, 122, 0.3);
+}
+
 @media (max-width: 900px) {
   .owl-app-shell {
     display: block;
