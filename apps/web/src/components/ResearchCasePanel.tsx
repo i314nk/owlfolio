@@ -577,7 +577,7 @@ function createValuationPanel(researchCase: AppResearchCase) {
       },
       createMetricCell('Value @ hurdle', buyPrice !== undefined ? `$${buyPrice}` : 'Pending', true),
       createMetricCell('Hurdle', hurdleRate !== undefined ? `${Math.round(hurdleRate * 100)}%` : 'Pending', false),
-      createMetricCell('Growth est.', growthAssumptions ?? (valuation.growth_rate !== undefined ? `${valuation.growth_rate * 100}%` : 'Pending'), false),
+      createMetricCell('Growth est.', valuation.growth_rate !== undefined ? `${Math.round(valuation.growth_rate * 100)}%` : 'Pending', false),
     ),
   )
 }
