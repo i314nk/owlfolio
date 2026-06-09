@@ -30,13 +30,13 @@ export function WatchlistPanel({ items, mode = 'demo' }: WatchlistPanelProps) {
       'header',
       {
         style: {
-          background: 'linear-gradient(135deg, rgba(124, 140, 255, 0.12) 0%, rgba(10, 132, 255, 0.08) 100%)',
+          background: 'linear-gradient(135deg, rgba(214, 178, 94, 0.10) 0%, rgba(22, 163, 74, 0.06) 100%)',
           border: '1px solid rgba(148, 163, 184, 0.18)',
           borderRadius: '1.25rem',
           padding: '1.5rem',
         },
       },
-      createElement('p', { style: { color: '#6366f1', fontWeight: 800, letterSpacing: '0.08em', margin: 0 } }, 'OWLFOLIO'),
+      createElement('p', { style: { color: 'var(--owl-color-gold)', fontWeight: 800, letterSpacing: '0.08em', margin: 0 } }, 'OWLFOLIO'),
       createElement('h1', { style: { fontSize: 'clamp(2rem, 5vw, 3.5rem)', lineHeight: 1, margin: '0.5rem 0' } }, 'Watchlist drafts'),
       createElement(
         'p',
@@ -194,7 +194,7 @@ function createResearchCaseLink(researchCaseId: string) {
     createElement(
       'div',
       { style: { alignItems: 'center', display: 'flex', flexWrap: 'wrap', gap: '0.55rem' } },
-      createElement('a', { className: 'owl-focusable', href, style: { color: '#c7d2fe', fontWeight: 900, textDecoration: 'none' } }, 'View research dossier'),
+      createElement('a', { className: 'owl-focusable', href, style: { color: 'var(--owl-color-gold-bright)', fontWeight: 900, textDecoration: 'none' } }, 'View research dossier'),
       createElement(SourceChip, { href, id: researchCaseId, label: 'Research case' }),
     ),
   )

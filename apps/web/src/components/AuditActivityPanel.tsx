@@ -13,7 +13,7 @@ const shellStyle: CSSProperties = {
 }
 
 const eyebrowStyle: CSSProperties = {
-  color: '#6366f1',
+  color: 'var(--owl-color-gold)',
   fontSize: '0.78rem',
   fontWeight: 900,
   letterSpacing: '0.1em',
@@ -77,8 +77,8 @@ const filterActionsStyle: CSSProperties = {
 }
 
 const buttonStyle: CSSProperties = {
-  background: '#6366f1',
-  border: '1px solid #6366f1',
+  background: 'var(--owl-color-accent)',
+  border: '1px solid var(--owl-color-accent)',
   borderRadius: '0.7rem',
   color: '#ffffff',
   cursor: 'pointer',
@@ -100,8 +100,8 @@ const clearLinkStyle: CSSProperties = {
 }
 
 const activeFiltersStyle: CSSProperties = {
-  background: 'rgba(99, 102, 241, 0.09)',
-  border: '1px solid rgba(129, 140, 248, 0.22)',
+  background: 'rgba(214, 178, 94, 0.09)',
+  border: '1px solid var(--owl-color-border)',
   borderRadius: '0.9rem',
   display: 'grid',
   gap: '0.55rem',
@@ -223,7 +223,7 @@ const evidenceStyle: CSSProperties = {
 }
 
 const evidenceSummaryStyle: CSSProperties = {
-  color: '#6366f1',
+  color: 'var(--owl-color-gold)',
   cursor: 'pointer',
   fontSize: '0.9rem',
   fontWeight: 900,
@@ -236,7 +236,7 @@ const copyInputStyle: CSSProperties = {
 }
 
 const copyKitStyle: CSSProperties = {
-  background: 'rgba(15, 23, 42, 0.58)',
+  background: 'var(--owl-color-panel-deep)',
   border: '1px solid rgba(148, 163, 184, 0.18)',
   borderRadius: '0.8rem',
   display: 'grid',
@@ -246,7 +246,7 @@ const copyKitStyle: CSSProperties = {
 }
 
 const preStyle: CSSProperties = {
-  background: '#0f172a',
+  background: 'var(--owl-color-canvas)',
   borderRadius: '0.8rem',
   color: '#e2e8f0',
   fontSize: '0.78rem',

@@ -73,7 +73,7 @@ export function PortfolioPanel({ holdings, mode = 'demo', valuationRefresh }: Po
       'header',
       {
         style: {
-          background: 'linear-gradient(135deg, rgba(124, 140, 255, 0.12) 0%, rgba(10, 132, 255, 0.08) 100%)',
+          background: 'linear-gradient(135deg, rgba(214, 178, 94, 0.10) 0%, rgba(22, 163, 74, 0.06) 100%)',
           border: '1px solid rgba(148, 163, 184, 0.18)',
           borderRadius: '1.25rem',
           padding: '1.5rem',
@@ -240,7 +240,7 @@ function createPortfolioOperationsCockpit(holdings: AppHolding[], totalCurrentVa
 
   return createElement(
     'section',
-    { 'aria-label': 'Portfolio operations cockpit', className: 'owl-workflow-card', style: { ...cardStyle, background: 'rgba(15, 23, 42, 0.74)', borderColor: 'rgba(124, 140, 255, 0.34)' } },
+    { 'aria-label': 'Portfolio operations cockpit', className: 'owl-workflow-card', style: { ...cardStyle, background: 'var(--owl-color-panel-deep)', borderColor: 'var(--owl-color-border-strong)' } },
     createElement('h2', { style: { fontSize: '1.25rem', margin: 0 } }, 'Portfolio operations cockpit'),
     createElement('p', { style: { color: '#9aa4b7', margin: '0.45rem 0 0' } }, 'Automatically maintained valuation state stays above manual fallbacks; buys, sells, and thesis changes remain user-approved audit events.'),
     createElement(
@@ -417,7 +417,7 @@ function createReviewForm(holding: AppHolding) {
         ),
         createElement(
           'section',
-          { id: 'review-comparison-bounds', style: { ...decisionPanelStyle, background: 'rgba(124, 58, 237, 0.08)' } },
+          { id: 'review-comparison-bounds', style: { ...decisionPanelStyle, background: 'rgba(214, 178, 94, 0.08)' } },
           createElement('h4', { style: { fontSize: '0.95rem', margin: 0 } }, 'Audit boundary rules'),
           createElement('p', { style: { color: '#9aa4b7', margin: 0 } }, 'Overrides require all four required fields below and produce an explicit user-authored audit event; reject keeps current confirmed thesis and clears the pending draft.'),
           createElement('p', { style: { color: '#9aa4b7', margin: '0.35rem 0 0', fontSize: '0.82rem' } }, 'Date fields expect YYYY-MM-DD format for consistency with ledger-aware display.'),
@@ -429,11 +429,11 @@ function createReviewForm(holding: AppHolding) {
           id: 'holding-review-path-confirm',
           action: `/api/portfolio/${holding.holding_id}/review/${holding.pending_review_id}/confirm`,
           method: 'post',
-          style: { ...decisionPanelStyle, background: 'rgba(124, 140, 255, 0.12)' },
+          style: { ...decisionPanelStyle, background: 'rgba(22, 163, 74, 0.10)' },
         },
         createElement('h4', { style: { fontSize: '0.95rem', margin: 0 } }, 'Apply provider draft'),
         createElement('p', { style: { color: '#9aa4b7', margin: 0 } }, 'Applies the provider-authored thesis health, action stance, and next review date to portfolio state.'),
-        createSubmitButton('Apply provider draft', '#6366f1'),
+        createSubmitButton('Apply provider draft', 'var(--owl-color-accent)'),
       ),
       createElement(
         'form',
@@ -441,7 +441,7 @@ function createReviewForm(holding: AppHolding) {
           id: 'holding-review-path-override',
           action: `/api/portfolio/${holding.holding_id}/review/${holding.pending_review_id}/override`,
           method: 'post',
-          style: { ...decisionPanelStyle, background: 'rgba(124, 58, 237, 0.12)' },
+          style: { ...decisionPanelStyle, background: 'rgba(214, 178, 94, 0.12)' },
         },
         createElement('h4', { style: { fontSize: '0.95rem', margin: 0 } }, 'Apply user override'),
         createElement('p', { style: { color: '#9aa4b7', margin: 0 } }, 'Applies your edited values instead of the provider draft and records a user-authored audit event.'),
@@ -452,7 +452,7 @@ function createReviewForm(holding: AppHolding) {
         createReviewTextarea('Override uncertainty (required)', 'uncertainty', 'User override records uncertainty before the next scheduled review.'),
         createReviewInput('Override next review date (required)', 'next_review_at', normalizedPendingReviewDate),
         createElement('p', { style: { color: '#9aa4b7', margin: 0, fontSize: '0.82rem' } }, 'Date fields use YYYY-MM-DD format (ISO date without time).'),
-        createSubmitButton('Apply user override', '#7c3aed'),
+        createSubmitButton('Apply user override', 'var(--owl-color-gold)'),
       ),
       createElement(
         'form',
@@ -485,7 +485,7 @@ function createReviewForm(holding: AppHolding) {
     },
     createElement('h3', { style: { fontSize: '1rem', margin: 0 } }, 'Strategy-driven holding review'),
     createElement('p', { style: { color: '#9aa4b7', margin: 0 } }, 'Ask Owlfolio to draft a Buffett-Munger thesis-health review for this holding.'),
-    createSubmitButton('Run Buffett-Munger review', '#1d4ed8'),
+    createSubmitButton('Run Buffett-Munger review', 'var(--owl-color-accent)'),
   )
 }
 
@@ -499,7 +499,7 @@ function createManualFallbackActions(holding: AppHolding) {
         paddingTop: '1rem',
       },
     },
-    createElement('summary', { style: { color: '#c7d2fe', cursor: 'pointer', fontWeight: 900 } }, 'Manual fallback actions'),
+    createElement('summary', { style: { color: 'var(--owl-color-gold-bright)', cursor: 'pointer', fontWeight: 900 } }, 'Manual fallback actions'),
     createElement('p', { style: { color: '#9aa4b7', margin: '0.65rem 0 0' } }, 'Use these only when scheduled valuation or provider review automation cannot supply a sourced draft. Submitted values still create auditable ledger events.'),
     createValuationForm(holding),
     ...(holding.pending_review_id === undefined ? [createReviewForm(holding)] : []),
@@ -614,7 +614,7 @@ function createValuationForm(holding: AppHolding) {
       {
         type: 'submit',
         style: {
-          background: '#6366f1',
+          background: 'var(--owl-color-gold)',
           border: 0,
           borderRadius: '0.75rem',
           color: '#ffffff',

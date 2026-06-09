@@ -38,7 +38,7 @@ const labelStyle = {
 }
 
 const collapsibleSummaryStyle = {
-  color: '#c7d2fe',
+  color: 'var(--owl-color-gold-bright)',
   cursor: 'pointer',
   fontSize: '0.95rem',
   fontWeight: 900,
@@ -47,7 +47,7 @@ const collapsibleSummaryStyle = {
 }
 
 const collapsibleDetailsStyle = {
-  background: 'rgba(15, 23, 42, 0.24)',
+  background: 'var(--owl-color-panel-deep)',
   border: '1px solid rgba(148, 163, 184, 0.12)',
   borderRadius: '0.95rem',
   padding: '1rem',
@@ -295,8 +295,8 @@ function createAwaitingDeepDiveDossier(researchCase: AppResearchCase) {
       {
         style: {
           ...cardStyle,
-          borderLeft: '3px solid #6366f1',
-          background: 'rgba(99, 102, 241, 0.07)',
+          borderLeft: '3px solid var(--owl-color-gold)',
+          background: 'rgba(214, 178, 94, 0.07)',
         },
       },
       // kicker label
@@ -319,10 +319,10 @@ function createAwaitingDeepDiveDossier(researchCase: AppResearchCase) {
           'span',
           {
             style: {
-              background: 'rgba(99, 102, 241, 0.18)',
-              border: '1px solid rgba(99, 102, 241, 0.5)',
+              background: 'rgba(214, 178, 94, 0.18)',
+              border: '1px solid rgba(214, 178, 94, 0.5)',
               borderRadius: '999px',
-              color: '#c7d2fe',
+              color: 'var(--owl-color-gold-bright)',
               fontSize: '0.78rem',
               fontWeight: 700,
               padding: '0.28rem 0.7rem',
@@ -350,7 +350,7 @@ function createAwaitingDeepDiveDossier(researchCase: AppResearchCase) {
       createElement('p', { style: labelStyle }, 'Verdict summary'),
       createElement(
         'h2',
-        { style: { color: '#c7d2fe', fontSize: '1.15rem', margin: '0 0 0.4rem' } },
+        { style: { color: 'var(--owl-color-gold-bright)', fontSize: '1.15rem', margin: '0 0 0.4rem' } },
         'Quick screen passed — review and run the deep dive when ready',
       ),
       createElement(
@@ -393,7 +393,7 @@ function createAwaitingDeepDiveDossier(researchCase: AppResearchCase) {
             {
               type: 'submit',
               style: {
-                background: '#6366f1',
+                background: 'var(--owl-color-accent)',
                 border: 0,
                 borderRadius: '999px',
                 color: '#ffffff',
@@ -541,7 +541,7 @@ function resolveVerdictColors(verdict: string): { bg: string; border: string; te
   if (v === 'BUY' || v === 'STRONG_BUY') return { bg: 'rgba(34, 197, 94, 0.14)', border: 'rgba(52, 211, 153, 0.4)', text: '#bbf7d0' }
   if (v === 'WATCH') return { bg: 'rgba(214, 178, 94, 0.15)', border: 'rgba(214, 178, 94, 0.4)', text: '#f0d999' }
   if (v === 'AVOID' || v === 'SELL') return { bg: 'rgba(239, 68, 68, 0.14)', border: 'rgba(239, 68, 68, 0.4)', text: '#fca5a5' }
-  return { bg: 'rgba(148, 163, 184, 0.12)', border: 'rgba(148, 163, 184, 0.28)', text: '#c7d2fe' }
+  return { bg: 'rgba(148, 163, 184, 0.12)', border: 'rgba(148, 163, 184, 0.28)', text: 'var(--owl-color-muted)' }
 }
 
 function createVerdictSummaryText(researchCase: AppResearchCase): string {
@@ -942,7 +942,7 @@ function createDossierCard(label: string, content: string | string[], status?: s
     {
       'data-testid': `research-dossier-card-${slugifyDossierLabel(label)}`,
       style: {
-        background: 'rgba(15, 23, 42, 0.34)',
+        background: 'var(--owl-color-panel-deep)',
         border: '1px solid rgba(148, 163, 184, 0.14)',
         borderRadius: '0.85rem',
         display: 'grid',
@@ -954,7 +954,7 @@ function createDossierCard(label: string, content: string | string[], status?: s
       'div',
       { style: { alignItems: 'center', display: 'flex', flexWrap: 'wrap', gap: '0.45rem', justifyContent: 'space-between' } },
       createElement('h3', { style: { color: '#f7f8ff', fontSize: '0.95rem', margin: 0 } }, label),
-      status === undefined ? null : createElement('span', { style: { color: '#c7d2fe', fontSize: '0.78rem', fontWeight: 900 } }, status),
+      status === undefined ? null : createElement('span', { style: { color: 'var(--owl-color-gold-bright)', fontSize: '0.78rem', fontWeight: 900 } }, status),
     ),
     contentItems.length === 1
       ? createElement('p', { style: { color: '#dbe3ef', fontSize: '0.9rem', lineHeight: 1.5, margin: 0 } }, contentItems[0])
@@ -976,7 +976,7 @@ function createFullThesisDisclosure(fullThesis: string, conciseThesis: string) {
     'details',
     {
       style: {
-        background: 'rgba(15, 23, 42, 0.24)',
+        background: 'var(--owl-color-panel-deep)',
         border: '1px solid rgba(148, 163, 184, 0.12)',
         borderRadius: '0.85rem',
         padding: '0.85rem',
@@ -986,7 +986,7 @@ function createFullThesisDisclosure(fullThesis: string, conciseThesis: string) {
       'summary',
       {
         style: {
-          color: '#c7d2fe',
+          color: 'var(--owl-color-gold-bright)',
           cursor: 'pointer',
           fontSize: '0.92rem',
           fontWeight: 900,
@@ -1275,7 +1275,7 @@ function createEvidenceCard(source: AppSourceEvidence) {
     {
       key: source.source_id,
       style: {
-        background: 'rgba(15, 23, 42, 0.36)',
+        background: 'var(--owl-color-panel-deep)',
         border: '1px solid rgba(148, 163, 184, 0.14)',
         borderRadius: '0.9rem',
         display: 'grid',
@@ -1287,7 +1287,7 @@ function createEvidenceCard(source: AppSourceEvidence) {
     createElement('p', { style: { color: '#cbd5e1', lineHeight: 1.55, margin: 0 } }, source.excerpt),
     source.url === undefined
       ? null
-      : createElement('a', { href: source.url, rel: 'noreferrer', style: { color: '#c7d2fe', fontSize: '0.9rem', fontWeight: 800 } }, 'Open source URL'),
+      : createElement('a', { href: source.url, rel: 'noreferrer', style: { color: 'var(--owl-color-gold-bright)', fontSize: '0.9rem', fontWeight: 800 } }, 'Open source URL'),
     source.citation_locator === undefined
       ? null
       : createElement('p', { style: { color: '#9aa4b7', fontSize: '0.86rem', margin: 0 } }, `Citation: ${source.citation_locator}`),
@@ -1490,7 +1490,7 @@ function createDeepDiveFindingCard(finding: ResearchFindingCard) {
     {
       key: finding.finding_id,
       style: {
-        background: 'rgba(15, 23, 42, 0.34)',
+        background: 'var(--owl-color-panel-deep)',
         border: '1px solid rgba(148, 163, 184, 0.14)',
         borderRadius: '0.95rem',
         display: 'grid',
@@ -1502,7 +1502,7 @@ function createDeepDiveFindingCard(finding: ResearchFindingCard) {
       'div',
       { style: { alignItems: 'center', display: 'flex', flexWrap: 'wrap', gap: '0.55rem', justifyContent: 'space-between' } },
       createElement('h3', { style: { color: '#f7f8ff', fontSize: '1rem', margin: 0 } }, laneLabel),
-      finding.confidence === undefined ? null : createElement('span', { style: { color: '#c7d2fe', fontSize: '0.82rem', fontWeight: 900 } }, finding.confidence),
+      finding.confidence === undefined ? null : createElement('span', { style: { color: 'var(--owl-color-gold-bright)', fontSize: '0.82rem', fontWeight: 900 } }, finding.confidence),
     ),
     createElement('p', { style: { color: '#dbe3ef', lineHeight: 1.55, margin: 0 } }, finding.finding_summary ?? 'No lane summary recorded.'),
     caveats.length === 0
@@ -1525,8 +1525,8 @@ function createOwnerEarningsValuationCard(ownerValuation: NonNullable<AppResearc
     'article',
     {
       style: {
-        background: 'rgba(124, 140, 255, 0.1)',
-        border: '1px solid rgba(199, 210, 254, 0.22)',
+        background: 'rgba(22, 163, 74, 0.08)',
+        border: '1px solid var(--owl-color-border-strong)',
         borderRadius: '1rem',
         display: 'grid',
         gap: '0.75rem',
@@ -1582,14 +1582,14 @@ function createWatchlistPromotionAction(researchCaseId: string) {
     {
       style: {
         ...cardStyle,
-        border: '1px solid #c7d2fe',
-        background: 'rgba(124, 140, 255, 0.12)',
+        border: '1px solid var(--owl-color-gold)',
+        background: 'rgba(214, 178, 94, 0.12)',
       },
     },
     createElement('p', { style: labelStyle }, 'User confirmation'),
     createElement(
       'p',
-      { style: { color: '#c7d2fe', fontSize: '1rem', fontWeight: 700, margin: '0.35rem 0 1rem' } },
+      { style: { color: 'var(--owl-color-gold-bright)', fontSize: '1rem', fontWeight: 700, margin: '0.35rem 0 1rem' } },
       'Advance this drafted decision into durable personal-local watchlist state.',
     ),
     createElement(
@@ -1600,7 +1600,7 @@ function createWatchlistPromotionAction(researchCaseId: string) {
         {
           type: 'submit',
           style: {
-            background: '#6366f1',
+            background: 'var(--owl-color-gold)',
             border: 0,
             borderRadius: '999px',
             color: '#ffffff',
@@ -1670,21 +1670,21 @@ function resolveShariahChipColor(status?: string): ChipColors {
   if (status === 'COMPLIANT') return { bg: 'rgba(34, 197, 94, 0.14)', border: 'rgba(134, 239, 172, 0.38)', text: '#bbf7d0' }
   if (status === 'CONDITIONAL') return { bg: 'rgba(20, 184, 166, 0.12)', border: 'rgba(94, 234, 212, 0.28)', text: '#99f6e4' }
   if (status === 'NON_COMPLIANT') return { bg: 'rgba(239, 68, 68, 0.14)', border: 'rgba(252, 165, 165, 0.36)', text: '#fecaca' }
-  return { bg: 'rgba(148, 163, 184, 0.1)', border: 'rgba(148, 163, 184, 0.28)', text: '#c7d2fe' }
+  return { bg: 'rgba(148, 163, 184, 0.1)', border: 'rgba(148, 163, 184, 0.28)', text: 'var(--owl-color-muted)' }
 }
 
 function resolveComplianceChipColor(status?: string): ChipColors {
   if (status === 'COMPLIANT' || status === 'PASS') return { bg: 'rgba(34, 197, 94, 0.14)', border: 'rgba(134, 239, 172, 0.38)', text: '#bbf7d0' }
   if (status === 'CONDITIONAL') return { bg: 'rgba(214, 178, 94, 0.14)', border: 'rgba(243, 223, 177, 0.36)', text: '#f3dfb1' }
   if (status === 'FAIL') return { bg: 'rgba(239, 68, 68, 0.14)', border: 'rgba(252, 165, 165, 0.36)', text: '#fecaca' }
-  return { bg: 'rgba(148, 163, 184, 0.1)', border: 'rgba(148, 163, 184, 0.28)', text: '#c7d2fe' }
+  return { bg: 'rgba(148, 163, 184, 0.1)', border: 'rgba(148, 163, 184, 0.28)', text: 'var(--owl-color-muted)' }
 }
 
 function resolveValuationChipColor(status?: string): ChipColors {
   if (status === 'FAIR' || status === 'UNDERVALUED') return { bg: 'rgba(34, 197, 94, 0.14)', border: 'rgba(134, 239, 172, 0.38)', text: '#bbf7d0' }
   if (status === 'EXPENSIVE') return { bg: 'rgba(214, 178, 94, 0.14)', border: 'rgba(243, 223, 177, 0.36)', text: '#f0d999' }
   if (status === 'OVERVALUED') return { bg: 'rgba(239, 68, 68, 0.14)', border: 'rgba(252, 165, 165, 0.36)', text: '#fecaca' }
-  return { bg: 'rgba(148, 163, 184, 0.1)', border: 'rgba(148, 163, 184, 0.28)', text: '#c7d2fe' }
+  return { bg: 'rgba(148, 163, 184, 0.1)', border: 'rgba(148, 163, 184, 0.28)', text: 'var(--owl-color-muted)' }
 }
 
 function createStatusChip(label: string, value: string, colors: ChipColors) {

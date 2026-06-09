@@ -528,7 +528,7 @@ describe('research and watchlist workflow pages', () => {
     expect(personalHtml).toContain('Decision drafted · User action required')
     expect(personalHtml).toContain('method="post"')
     expect(personalHtml).toContain('Promote to watchlist')
-    expect(personalHtml).toContain('color:#c7d2fe')
+    expect(personalHtml).toContain('color:var(--owl-color-gold-bright)')
     expect(personalHtml).not.toContain('color:#3730a3')
     expect(demoHtml).not.toContain('Promote to watchlist')
     expect(demoHtml).not.toContain('/api/research/rc_msft_001/watchlist')

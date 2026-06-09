@@ -16,7 +16,7 @@ const shellStyle: CSSProperties = {
 }
 
 const heroStyle: CSSProperties = {
-  background: 'linear-gradient(135deg, rgba(124, 140, 255, 0.12) 0%, rgba(10, 132, 255, 0.08) 100%)',
+  background: 'linear-gradient(135deg, rgba(214, 178, 94, 0.10) 0%, rgba(22, 163, 74, 0.06) 100%)',
   border: '1px solid rgba(148, 163, 184, 0.18)',
   borderRadius: '1.25rem',
   padding: '1.5rem',
@@ -198,7 +198,7 @@ function createAccountingStatusPanel(current: AccountingSnapshotProjection, next
 function statusMetric(label: string, value: string) {
   return createElement(
     'article',
-    { style: { background: 'rgba(15, 23, 42, 0.52)', border: '1px solid rgba(148, 163, 184, 0.18)', borderRadius: '0.85rem', padding: '0.9rem' } },
+    { style: { background: 'var(--owl-color-panel-deep)', border: '1px solid rgba(148, 163, 184, 0.18)', borderRadius: '0.85rem', padding: '0.9rem' } },
     createElement('p', { style: { color: '#9aa4b7', fontSize: '0.76rem', fontWeight: 900, letterSpacing: '0.06em', margin: 0, textTransform: 'uppercase' } }, label),
     createElement('p', { style: { color: '#f8fafc', fontWeight: 850, lineHeight: 1.4, margin: '0.35rem 0 0' } }, value),
   )

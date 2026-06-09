@@ -34,7 +34,7 @@ const cardStyle: CSSProperties = {
 }
 
 const eyebrowStyle: CSSProperties = {
-  color: '#7c8cff',
+  color: 'var(--owl-color-gold)',
   fontSize: '0.85rem',
   fontWeight: 800,
   letterSpacing: '0.08em',
@@ -88,7 +88,7 @@ export function ProviderStatusPanel({ rows }: ProviderStatusPanelProps) {
           { style: { display: 'grid', gap: '0.75rem', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' } },
           createElement(
             'section',
-            { style: { background: 'rgba(15, 23, 42, 0.72)', border: '1px solid rgba(148, 163, 184, 0.18)', borderRadius: '0.9rem', display: 'grid', gap: '0.5rem', padding: '0.8rem' } },
+            { style: { background: 'var(--owl-color-panel-deep)', border: '1px solid rgba(148, 163, 184, 0.18)', borderRadius: '0.9rem', display: 'grid', gap: '0.5rem', padding: '0.8rem' } },
             createElement('h3', { style: { fontSize: '1rem', margin: 0 } }, 'Allowed-use buckets'),
             ...[
               ['Demo-only', summary.allowedBuckets.demoOnly],
@@ -100,7 +100,7 @@ export function ProviderStatusPanel({ rows }: ProviderStatusPanelProps) {
           ),
           createElement(
             'section',
-            { style: { background: 'rgba(15, 23, 42, 0.72)', border: '1px solid rgba(148, 163, 184, 0.18)', borderRadius: '0.9rem', display: 'grid', gap: '0.5rem', padding: '0.8rem' } },
+            { style: { background: 'var(--owl-color-panel-deep)', border: '1px solid rgba(148, 163, 184, 0.18)', borderRadius: '0.9rem', display: 'grid', gap: '0.5rem', padding: '0.8rem' } },
             createElement('h3', { style: { fontSize: '1rem', margin: 0 } }, 'Catalog support buckets'),
             ...[
               ['Certified', summary.catalogBuckets.certified],
@@ -110,7 +110,7 @@ export function ProviderStatusPanel({ rows }: ProviderStatusPanelProps) {
           ),
           createElement(
             'section',
-            { style: { background: 'rgba(15, 23, 42, 0.72)', border: '1px solid rgba(124, 140, 255, 0.18)', borderRadius: '0.9rem', display: 'grid', gap: '0.5rem', padding: '0.8rem' } },
+            { style: { background: 'var(--owl-color-panel-deep)', border: '1px solid var(--owl-color-border)', borderRadius: '0.9rem', display: 'grid', gap: '0.5rem', padding: '0.8rem' } },
             createElement('h3', { style: { fontSize: '1rem', margin: 0 } }, 'Effective support buckets'),
             ...[
               ['Certified', summary.effectiveBuckets.certified],
@@ -481,7 +481,7 @@ function statusRowStyle(status: ProviderStatusRow['status_rows'][number]): CSSPr
     warning: { background: 'rgba(251, 191, 36, 0.1)', border: '1px solid rgba(251, 191, 36, 0.26)' },
   }
   const base = status.label === 'Effective support'
-    ? { background: 'rgba(124, 140, 255, 0.1)', border: '1px solid rgba(124, 140, 255, 0.28)' }
+    ? { background: 'rgba(22, 163, 74, 0.08)', border: '1px solid var(--owl-color-border-strong)' }
     : toneStyle[status.tone]
 
   return {

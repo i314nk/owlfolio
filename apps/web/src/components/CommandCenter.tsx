@@ -1,6 +1,6 @@
 import { createElement } from 'react'
 
-import { FinancialNumber, OwlButtonLink, OwlCard, OwlKpiStat, OwlRingGauge, SourceChip } from './designSystem'
+import { FinancialNumber, OwlButtonLink, OwlCard, OwlKpiStat, SourceChip } from './designSystem'
 import { StatusBadge } from './StatusBadge'
 import type { AppCommandCenter } from '../lib/demo'
 
@@ -142,12 +142,12 @@ function createKpiSummaryRow(dashboard: AppCommandCenter) {
         value: countsText(counts.watchlist_drafts),
         tone: 'gold',
       }),
-      createElement(OwlRingGauge, {
-        value: shariahEnabled ? 100 : 0,
-        label: 'Shariah',
-        tone: shariahEnabled ? 'emerald' : 'amber',
-        size: 64,
-      }),
+      createElement(
+        'div',
+        { style: { alignItems: 'center', display: 'flex', gap: '0.5rem', marginTop: '0.6rem' } },
+        createElement('span', { style: { color: 'var(--owl-color-muted)', fontSize: '0.78rem', fontWeight: 800, letterSpacing: '0.04em', textTransform: 'uppercase' } }, 'Shariah'),
+        createElement(StatusBadge, { tone: shariahEnabled ? 'compliance' : 'warning' }, shariahEnabled ? 'Enabled by policy' : 'Disabled'),
+      ),
     ),
   )
 }

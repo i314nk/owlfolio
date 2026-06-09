@@ -31,7 +31,7 @@ const shellStyle = {
 }
 
 const heroStyle = {
-  background: 'linear-gradient(135deg, rgba(124, 140, 255, 0.14) 0%, rgba(10, 132, 255, 0.08) 100%)',
+  background: 'linear-gradient(135deg, rgba(214, 178, 94, 0.10) 0%, rgba(22, 163, 74, 0.06) 100%)',
   border: '1px solid rgba(148, 163, 184, 0.18)',
   borderRadius: '1.35rem',
   boxShadow: '0 22px 55px rgba(0, 0, 0, 0.2)',
@@ -51,7 +51,7 @@ const cardStyle = {
 }
 
 const eyebrowStyle = {
-  color: '#7c8cff',
+  color: 'var(--owl-color-gold)',
   fontSize: '0.75rem',
   fontWeight: 900,
   letterSpacing: '0.08em',
@@ -75,7 +75,7 @@ const pillStyle = {
 }
 
 const actionLinkStyle = {
-  color: '#c7d2fe',
+  color: 'var(--owl-color-gold-bright)',
   fontWeight: 900,
   textDecoration: 'none',
 }
@@ -127,7 +127,7 @@ export function ResearchPipelineCockpit({
       ),
       createElement(
         'details',
-        { style: { ...cardStyle, background: 'rgba(15, 23, 42, 0.46)', boxShadow: 'none' } },
+        { style: { ...cardStyle, background: 'var(--owl-color-panel-deep)', boxShadow: 'none' } },
         createElement('summary', { style: { color: '#f7f8ff', cursor: 'pointer', fontWeight: 900 } }, 'How this pipeline works'),
         createElement(
           'p',

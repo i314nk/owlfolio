@@ -16,7 +16,7 @@ const shellStyle: CSSProperties = {
 }
 
 const heroStyle: CSSProperties = {
-  background: 'linear-gradient(135deg, rgba(124, 140, 255, 0.12) 0%, rgba(10, 132, 255, 0.08) 100%)',
+  background: 'linear-gradient(135deg, rgba(214, 178, 94, 0.10) 0%, rgba(22, 163, 74, 0.06) 100%)',
   border: '1px solid rgba(148, 163, 184, 0.18)',
   borderRadius: '1.25rem',
   padding: '1.5rem',
@@ -43,7 +43,7 @@ export function PurificationReport({ report }: PurificationReportProps) {
     createElement(
       'header',
       { style: heroStyle },
-      createElement('p', { style: { color: '#6366f1', fontWeight: 900, letterSpacing: '0.08em', margin: 0, textTransform: 'uppercase' } }, 'Shariah purification'),
+      createElement('p', { style: { color: 'var(--owl-color-gold)', fontWeight: 900, letterSpacing: '0.08em', margin: 0, textTransform: 'uppercase' } }, 'Shariah purification'),
       createElement('h1', { style: { fontSize: 'clamp(2rem, 5vw, 3.5rem)', lineHeight: 1, margin: '0.5rem 0' } }, 'Purification ledger'),
       createElement(
         'p',
@@ -127,7 +127,7 @@ function createPurificationOperationsCockpit(report: AppPurificationReport) {
 
   return createElement(
     'section',
-    { 'aria-label': 'Purification operations cockpit', style: { ...cardStyle, background: 'rgba(15, 23, 42, 0.74)', borderColor: 'rgba(20, 184, 166, 0.34)' } },
+    { 'aria-label': 'Purification operations cockpit', style: { ...cardStyle, background: 'var(--owl-color-panel-deep)', borderColor: 'rgba(20, 184, 166, 0.34)' } },
     createElement('h2', { style: { fontSize: '1.25rem', margin: 0 } }, 'Purification operations cockpit'),
     createElement('p', { style: { color: '#9aa4b7', margin: '0.45rem 0 0' } }, 'Quarterly calculations can surface obligations automatically from Shariah and accounting evidence; only the user records external charity payments.'),
     createElement(
