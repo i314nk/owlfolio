@@ -890,6 +890,127 @@ describe('workflow helpers', () => {
     expect(resolveActiveWorkflowMode({ mode: 'demo' })).toBe('demo')
     expect(resolveActiveWorkflowMode({ mode: 'personal-local' })).toBe('personal-local')
   })
+
+  it('enqueueResearchRun throws when research_engine_enabled is false (master switch off)', async () => {
+    const previousTestMode = process.env.OWLFOLIO_TEST_MODE
+    delete process.env.OWLFOLIO_TEST_MODE
+
+    try {
+      const projectDir = await mkdtemp(join(tmpdir(), 'owlfolio-master-switch-off-'))
+      dirs.push(projectDir)
+
+      const ledgerPath = join(projectDir, 'data', 'personal-ledger.sqlite')
+      const sourceLedgerPath = join(projectDir, 'data', 'source-ledger')
+      const state = {
+        config: {
+          ...defaultPersonalLocalAppConfig(),
+          provider: {
+            provider_id: 'mock-provider' as const,
+            support_level: 'certified' as const,
+            model_id: 'mock-buffett-munger-demo',
+          },
+          initialized_at: '2026-06-08T12:00:00.000Z',
+          ledger_path: ledgerPath,
+          source_ledger_path: sourceLedgerPath,
+          automation: {
+            ...defaultPersonalLocalAppConfig().automation!,
+            research_engine_enabled: false,
+          },
+        },
+        is_initialized: true,
+      }
+
+      await expect(
+        enqueueResearchRun(state, { ticker: 'AAPL' }, { spawn: (_paths) => {} }),
+      ).rejects.toThrow('Research engine is turned off in Settings. Enable it to run research.')
+    } finally {
+      if (previousTestMode === undefined) {
+        delete process.env.OWLFOLIO_TEST_MODE
+      } else {
+        process.env.OWLFOLIO_TEST_MODE = previousTestMode
+      }
+    }
+  })
+
+  it('enqueueResearchRun proceeds normally when research_engine_enabled is true', async () => {
+    const previousTestMode = process.env.OWLFOLIO_TEST_MODE
+    delete process.env.OWLFOLIO_TEST_MODE
+
+    try {
+      const projectDir = await mkdtemp(join(tmpdir(), 'owlfolio-master-switch-on-'))
+      dirs.push(projectDir)
+
+      const ledgerPath = join(projectDir, 'data', 'personal-ledger.sqlite')
+      const sourceLedgerPath = join(projectDir, 'data', 'source-ledger')
+      const state = {
+        config: {
+          ...defaultPersonalLocalAppConfig(),
+          provider: {
+            provider_id: 'mock-provider' as const,
+            support_level: 'certified' as const,
+            model_id: 'mock-buffett-munger-demo',
+          },
+          initialized_at: '2026-06-08T12:00:00.000Z',
+          ledger_path: ledgerPath,
+          source_ledger_path: sourceLedgerPath,
+          automation: {
+            ...defaultPersonalLocalAppConfig().automation!,
+            research_engine_enabled: true,
+          },
+        },
+        is_initialized: true,
+      }
+
+      const result = await enqueueResearchRun(state, { ticker: 'GOOG' }, { spawn: (_paths) => {} })
+      expect(result.research_case_id).toMatch(/^rc_goog_/)
+    } finally {
+      if (previousTestMode === undefined) {
+        delete process.env.OWLFOLIO_TEST_MODE
+      } else {
+        process.env.OWLFOLIO_TEST_MODE = previousTestMode
+      }
+    }
+  })
+
+  it('enqueueResearchRun proceeds normally when automation field is absent (legacy config)', async () => {
+    const previousTestMode = process.env.OWLFOLIO_TEST_MODE
+    delete process.env.OWLFOLIO_TEST_MODE
+
+    try {
+      const projectDir = await mkdtemp(join(tmpdir(), 'owlfolio-master-switch-legacy-'))
+      dirs.push(projectDir)
+
+      const ledgerPath = join(projectDir, 'data', 'personal-ledger.sqlite')
+      const sourceLedgerPath = join(projectDir, 'data', 'source-ledger')
+      const baseConfig = defaultPersonalLocalAppConfig()
+      // Simulate a legacy config without automation field
+      const { automation: _dropped, ...configWithoutAutomation } = baseConfig
+      const state = {
+        config: {
+          ...configWithoutAutomation,
+          provider: {
+            provider_id: 'mock-provider' as const,
+            support_level: 'certified' as const,
+            model_id: 'mock-buffett-munger-demo',
+          },
+          initialized_at: '2026-06-08T12:00:00.000Z',
+          ledger_path: ledgerPath,
+          source_ledger_path: sourceLedgerPath,
+        },
+        is_initialized: true,
+      }
+
+      // automation is undefined → research_engine_enabled defaults to true → should not throw
+      const result = await enqueueResearchRun(state, { ticker: 'NVDA' }, { spawn: (_paths) => {} })
+      expect(result.research_case_id).toMatch(/^rc_nvda_/)
+    } finally {
+      if (previousTestMode === undefined) {
+        delete process.env.OWLFOLIO_TEST_MODE
+      } else {
+        process.env.OWLFOLIO_TEST_MODE = previousTestMode
+      }
+    }
+  })
 })
 
 function unsupportedCompletedReport(providerId: 'claude' | 'openai'): CertificationReport {

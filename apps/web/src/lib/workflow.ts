@@ -163,6 +163,12 @@ export async function enqueueResearchRun(
     throw new Error('Personal-local workflow is not initialized')
   }
 
+  // Master switch: block research when disabled in automation settings.
+  // NOTE: discovery-trigger paths (if added in the future) must check the same gate.
+  if (state.config.automation?.research_engine_enabled === false) {
+    throw new Error('Research engine is turned off in Settings. Enable it to run research.')
+  }
+
   const ticker = input.ticker.trim().toUpperCase()
   if (ticker.length === 0) {
     throw new Error('Ticker is required')

@@ -12,6 +12,7 @@ import type { CertificationReport, Provider } from '@owlfolio/providers'
 import type { ProviderRunRequest, ProviderToolRun } from '@owlfolio/providers/providerContract'
 import { MockProvider } from '@owlfolio/providers/mockProvider'
 import type { PriceQuote, PriceQuoteSymbol, PriceSource } from '@owlfolio/workflow/marketData'
+import { defaultAutomationSettings } from '@owlfolio/shared'
 import { describe, expect, it, vi } from 'vitest'
 
 import { main } from '../index'
@@ -1418,5 +1419,90 @@ describe('worker runtime', () => {
     const observations = (completed?.payload as Record<string, unknown>)?.observations
     expect(Array.isArray(observations)).toBe(true)
     expect((observations as string[]).some((obs) => obs.includes('manual valuation required'))).toBe(true)
+  })
+
+  it('automation settings: disabling watchlist_monitoring sets watchlist_monitor task enabled=false', async () => {
+    const store = new InMemoryEventStore<LedgerEventEnvelope<unknown>>()
+    const disabledWatchlist = {
+      ...defaultAutomationSettings(),
+      watchlist_monitoring: { enabled: false, cadence: 'off' as const },
+    }
+    await defineDefaultScheduledTasks(store, {
+      now: () => '2026-06-08T08:00:00.000Z',
+      automation: disabledWatchlist,
+    })
+
+    const tasks = projectScheduledTasks(await store.list())
+    const watchlistTask = tasks.find((t) => t.task_kind === 'watchlist_monitor')
+    expect(watchlistTask).toBeDefined()
+    expect(watchlistTask?.enabled).toBe(false)
+  })
+
+  it('automation settings: disabling holding_reviews sets holding_review_draft and review_reminder tasks enabled=false', async () => {
+    const store = new InMemoryEventStore<LedgerEventEnvelope<unknown>>()
+    const disabledReviews = {
+      ...defaultAutomationSettings(),
+      holding_reviews: { enabled: false, cadence: 'off' as const },
+    }
+    await defineDefaultScheduledTasks(store, {
+      now: () => '2026-06-08T08:00:00.000Z',
+      automation: disabledReviews,
+    })
+
+    const tasks = projectScheduledTasks(await store.list())
+    const reviewDraftTask = tasks.find((t) => t.task_kind === 'holding_review_draft')
+    const reviewReminderTask = tasks.find((t) => t.task_kind === 'review_reminder')
+    expect(reviewDraftTask?.enabled).toBe(false)
+    expect(reviewReminderTask?.enabled).toBe(false)
+  })
+
+  it('automation settings: disabling purification sets purification_projection task enabled=false', async () => {
+    const store = new InMemoryEventStore<LedgerEventEnvelope<unknown>>()
+    const disabledPurification = {
+      ...defaultAutomationSettings(),
+      purification: { enabled: false, cadence: 'off' as const },
+    }
+    await defineDefaultScheduledTasks(store, {
+      now: () => '2026-06-08T08:00:00.000Z',
+      automation: disabledPurification,
+    })
+
+    const tasks = projectScheduledTasks(await store.list())
+    const purificationTask = tasks.find((t) => t.task_kind === 'purification_projection')
+    expect(purificationTask?.enabled).toBe(false)
+  })
+
+  it('automation settings: changing valuation_refresh cadence to weekly updates the task cadence', async () => {
+    const store = new InMemoryEventStore<LedgerEventEnvelope<unknown>>()
+    const weeklyCadence = {
+      ...defaultAutomationSettings(),
+      valuation_refresh: { enabled: true, cadence: 'weekly' as const },
+    }
+    await defineDefaultScheduledTasks(store, {
+      now: () => '2026-06-08T08:00:00.000Z',
+      automation: weeklyCadence,
+    })
+
+    const tasks = projectScheduledTasks(await store.list())
+    const valuationTask = tasks.find((t) => t.task_kind === 'portfolio_valuation_refresh')
+    expect(valuationTask?.enabled).toBe(true)
+    // Weekly cron is '0 8 * * 1'
+    expect(valuationTask?.cadence).toBe('0 8 * * 1')
+  })
+
+  it('automation settings: defaults produce the same tasks as calling without options (back-compat)', async () => {
+    const storeDefault = new InMemoryEventStore<LedgerEventEnvelope<unknown>>()
+    const storeExplicit = new InMemoryEventStore<LedgerEventEnvelope<unknown>>()
+
+    const now = () => '2026-06-08T08:00:00.000Z'
+    await defineDefaultScheduledTasks(storeDefault, { now })
+    await defineDefaultScheduledTasks(storeExplicit, { now, automation: defaultAutomationSettings() })
+
+    const defaultTasks = projectScheduledTasks(await storeDefault.list())
+    const explicitTasks = projectScheduledTasks(await storeExplicit.list())
+
+    expect(defaultTasks.map((t) => ({ kind: t.task_kind, enabled: t.enabled, cadence: t.cadence }))).toEqual(
+      explicitTasks.map((t) => ({ kind: t.task_kind, enabled: t.enabled, cadence: t.cadence })),
+    )
   })
 })

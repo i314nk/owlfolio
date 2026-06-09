@@ -83,7 +83,9 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   const store = new SQLiteEventStore<import('@owlfolio/ledger/eventEnvelope').LedgerEventEnvelope<unknown>>(runtime.ledger_path)
   try {
     if (options.define_defaults) {
-      await defineDefaultScheduledTasks(store)
+      await defineDefaultScheduledTasks(store, {
+        ...(runtime.config.automation !== undefined ? { automation: runtime.config.automation } : {}),
+      })
     }
 
     const provider = resolveProvider({ provider_id: runtime.config.provider.provider_id })

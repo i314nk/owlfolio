@@ -27,7 +27,7 @@ import {
   type ProviderVendorId,
   type ProviderWorkflowRole,
 } from '@owlfolio/providers'
-import { defaultDemoAppConfig, type AppConfig } from '@owlfolio/shared'
+import { defaultDemoAppConfig, mergeAutomationSettings, type AppConfig, type AutomationSettings } from '@owlfolio/shared'
 import { draftHoldingReview } from '@owlfolio/workflow/holdingReviewWorkflow'
 import { resolveCurrentPrice, type PriceSource } from '@owlfolio/workflow/marketData'
 import { runStrategyResearchSwarm, type GroundFn } from '@owlfolio/workflow/researchSwarm'
@@ -70,7 +70,9 @@ export type WorkerClock = {
   now?: () => string
 }
 
-export type DefineDefaultScheduledTasksOptions = WorkerClock
+export type DefineDefaultScheduledTasksOptions = WorkerClock & {
+  automation?: AutomationSettings
+}
 
 export type RunScheduledTasksOptions = WorkerClock & {
   as_of?: string
@@ -411,13 +413,55 @@ function providerRunEvent<TPayload extends Record<string, unknown>>(
   }
 }
 
-function defaultTaskDefinitions(): ScheduledTaskPayload[] {
+// Concrete cron strings for each friendly cadence value.
+// The daily/weekly expressions match the existing per-task defaults.
+const CRON_DAILY_REVIEW_REMINDER = '0 8 * * 1-5'
+const CRON_DAILY_WATCHLIST = '0 9 * * 1-5'
+const CRON_DAILY_HOLDING_REVIEW = '0 10 * * 1-5'
+const CRON_DAILY_VALUATION = '0 7 * * 1-5'
+const CRON_WEEKLY = '0 8 * * 1'
+const CRON_MONTHLY = '0 6 1 * *'
+const CRON_QUARTERLY = '0 6 1 */3 *'
+const CRON_ANNUAL = '0 6 1 1 *'
+
+type CadenceWithOff = 'off' | 'daily' | 'weekly' | 'monthly' | 'quarterly' | 'annual'
+
+/**
+ * Maps a friendly cadence string to a cron expression and an enabled flag.
+ * 'off' disables the task.  The `dailyCron` parameter lets each task keep its
+ * own per-task daily schedule (e.g. watchlist at 09:00, valuation at 07:00).
+ */
+function cadenceToCron(cadence: CadenceWithOff, dailyCron: string): { enabled: boolean; cadence: string } {
+  switch (cadence) {
+    case 'off':
+      return { enabled: false, cadence: dailyCron }
+    case 'daily':
+      return { enabled: true, cadence: dailyCron }
+    case 'weekly':
+      return { enabled: true, cadence: CRON_WEEKLY }
+    case 'monthly':
+      return { enabled: true, cadence: CRON_MONTHLY }
+    case 'quarterly':
+      return { enabled: true, cadence: CRON_QUARTERLY }
+    case 'annual':
+      return { enabled: true, cadence: CRON_ANNUAL }
+  }
+}
+
+function defaultTaskDefinitions(automation?: AutomationSettings): ScheduledTaskPayload[] {
+  const cfg = mergeAutomationSettings(automation)
+  const watchlistCron = cadenceToCron(cfg.watchlist_monitoring.cadence, CRON_DAILY_WATCHLIST)
+  const holdingReviewsCron = cadenceToCron(cfg.holding_reviews.cadence, CRON_DAILY_HOLDING_REVIEW)
+  const valuationCron = cadenceToCron(cfg.valuation_refresh.cadence, CRON_DAILY_VALUATION)
+  const purificationCron = cadenceToCron(cfg.purification.cadence, CRON_QUARTERLY)
+
   return [
     {
       scheduled_task_id: 'task_review_reminders_daily',
       task_kind: 'review_reminder',
-      cadence: '0 8 * * 1-5',
-      enabled: true,
+      // review_reminder follows holding_reviews cadence — it's the reminder counterpart
+      cadence: holdingReviewsCron.cadence,
+      enabled: cfg.holding_reviews.enabled && holdingReviewsCron.enabled,
       dry_run: true,
       retry_policy: { max_attempts: 2, retry_delay_ms: DEFAULT_RETRY_DELAY_MS },
       safety: {
@@ -429,8 +473,8 @@ function defaultTaskDefinitions(): ScheduledTaskPayload[] {
     {
       scheduled_task_id: 'task_watchlist_monitor_daily',
       task_kind: 'watchlist_monitor',
-      cadence: '0 9 * * 1-5',
-      enabled: true,
+      cadence: watchlistCron.cadence,
+      enabled: cfg.watchlist_monitoring.enabled && watchlistCron.enabled,
       dry_run: true,
       retry_policy: { max_attempts: 2, retry_delay_ms: DEFAULT_RETRY_DELAY_MS },
       safety: {
@@ -442,8 +486,8 @@ function defaultTaskDefinitions(): ScheduledTaskPayload[] {
     {
       scheduled_task_id: 'task_holding_review_drafts_daily',
       task_kind: 'holding_review_draft',
-      cadence: '0 10 * * 1-5',
-      enabled: true,
+      cadence: holdingReviewsCron.cadence,
+      enabled: cfg.holding_reviews.enabled && holdingReviewsCron.enabled,
       dry_run: true,
       retry_policy: { max_attempts: 2, retry_delay_ms: DEFAULT_RETRY_DELAY_MS },
       timeout_ms: HOLDING_REVIEW_TIMEOUT_MS,
@@ -457,8 +501,8 @@ function defaultTaskDefinitions(): ScheduledTaskPayload[] {
     {
       scheduled_task_id: 'task_portfolio_valuation_refresh_daily',
       task_kind: 'portfolio_valuation_refresh',
-      cadence: '0 7 * * 1-5',
-      enabled: true,
+      cadence: valuationCron.cadence,
+      enabled: cfg.valuation_refresh.enabled && valuationCron.enabled,
       dry_run: true,
       retry_policy: { max_attempts: 2, retry_delay_ms: DEFAULT_RETRY_DELAY_MS },
       safety: {
@@ -470,8 +514,8 @@ function defaultTaskDefinitions(): ScheduledTaskPayload[] {
     {
       scheduled_task_id: 'task_purification_projection_quarterly',
       task_kind: 'purification_projection',
-      cadence: '0 6 1 */3 *',
-      enabled: true,
+      cadence: purificationCron.cadence,
+      enabled: cfg.purification.enabled && purificationCron.enabled,
       dry_run: true,
       retry_policy: { max_attempts: 2, retry_delay_ms: DEFAULT_RETRY_DELAY_MS },
       safety: {
@@ -485,12 +529,12 @@ function defaultTaskDefinitions(): ScheduledTaskPayload[] {
 
 export async function defineDefaultScheduledTasks(
   store: EventStore<LedgerEventEnvelope<unknown>>,
-  { now = nowIso }: DefineDefaultScheduledTasksOptions = {},
+  { now = nowIso, automation }: DefineDefaultScheduledTasksOptions = {},
 ): Promise<LedgerEventEnvelope<unknown>[]> {
   const createdAt = now()
   const events: LedgerEventEnvelope<unknown>[] = []
 
-  for (const payload of defaultTaskDefinitions()) {
+  for (const payload of defaultTaskDefinitions(automation)) {
     const event = scheduledTaskEvent(
       'scheduled_task_defined',
       payload.scheduled_task_id,
