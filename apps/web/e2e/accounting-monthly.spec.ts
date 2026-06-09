@@ -5,7 +5,7 @@ test.beforeEach(async ({ request }) => {
   expect(response.ok()).toBe(true)
 })
 
-test('monthly accounting report renders projected current period after a valuation snapshot', async ({ page }) => {
+test('monthly accounting report renders projected current period after a valuation snapshot', async ({ page, request }) => {
   await page.goto('/onboarding')
   await page.getByRole('button', { name: /use chatgpt\/codex/i }).click()
   await page.getByText('Advanced: choose a different provider').click()
@@ -15,6 +15,11 @@ test('monthly accounting report renders projected current period after a valuati
   await page.getByRole('link', { name: /open research cockpit/i }).first().click()
   await expect(page).toHaveURL('/research')
   await page.getByRole('link', { name: /manual ticker intake/i }).click()
+  // Run research straight through (default 'review' would pause after the quick screen)
+  const automationResponse = await request.post('/api/settings/automation', {
+    data: { quick_screen_approval: 'automatic' },
+  })
+  expect(automationResponse.ok()).toBe(true)
   await page.getByLabel('Ticker').fill('MSFT')
   await page.getByRole('button', { name: /create research case/i }).click()
   await expect(page).toHaveURL(/\/research\/rc_msft_/)
