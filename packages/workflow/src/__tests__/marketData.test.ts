@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 
-import { resolveCurrentPrice, YahooPriceSource, type MarketDataDeps, type PriceQuoteSymbol } from '../marketData.js'
+import { fetchPriceHistory, resolveCurrentPrice, YahooPriceSource, type MarketDataDeps, type PriceQuoteSymbol } from '../marketData.js'
 
 type FetchImpl = NonNullable<MarketDataDeps['fetchImpl']>
 
@@ -230,5 +230,104 @@ describe('YahooPriceSource', () => {
     const calledUrl = String((fetchImpl as ReturnType<typeof vi.fn>).mock.calls[0]?.[0])
     expect(calledUrl).toContain('COST')
     expect(calledUrl).not.toContain('COST.')
+  })
+})
+
+/** Build a well-formed Yahoo chart history response */
+function yahooSeriesResponse(opts: {
+  currency: string
+  timestamps: number[]
+  closes: Array<number | null>
+}): unknown {
+  return {
+    chart: {
+      result: [
+        {
+          meta: { currency: opts.currency },
+          timestamp: opts.timestamps,
+          indicators: { quote: [{ close: opts.closes }] },
+        },
+      ],
+      error: null,
+    },
+  }
+}
+
+describe('fetchPriceHistory', () => {
+  // 2026-06-04, 2026-06-05, 2026-06-06 (UTC) close timestamps
+  const TS_A = Math.floor(Date.UTC(2026, 5, 4, 20) / 1000)
+  const TS_B = Math.floor(Date.UTC(2026, 5, 5, 20) / 1000)
+  const TS_C = Math.floor(Date.UTC(2026, 5, 6, 20) / 1000)
+
+  it('valid series → available:true with parsed {date, close} points and currency', async () => {
+    const body = yahooSeriesResponse({
+      currency: 'USD',
+      timestamps: [TS_A, TS_B, TS_C],
+      closes: [30.0, 31.5, 32.25],
+    })
+    const fetchImpl = makeOkFetch(body)
+    const result = await fetchPriceHistory({ ticker: 'SPUS' }, { range: '1mo' }, withFetch(fetchImpl))
+
+    expect(result.available).toBe(true)
+    if (!result.available) throw new Error('expected available')
+    expect(result.currency).toBe('USD')
+    expect(result.points).toHaveLength(3)
+    expect(result.points[0]).toEqual({ date: '2026-06-04', close: 30.0 })
+    expect(result.points[2]).toEqual({ date: '2026-06-06', close: 32.25 })
+
+    const calledUrl = String((fetchImpl as ReturnType<typeof vi.fn>).mock.calls[0]?.[0])
+    expect(calledUrl).toContain('SPUS')
+    expect(calledUrl).toContain('range=1mo')
+    expect(calledUrl).toContain('query1.finance.yahoo.com')
+    const calledInit = (fetchImpl as ReturnType<typeof vi.fn>).mock.calls[0]?.[1] as RequestInit | undefined
+    const headers = calledInit?.headers as Record<string, string> | undefined
+    expect(headers?.['User-Agent']).toBe('Mozilla/5.0')
+  })
+
+  it('skips null closes (Yahoo gaps)', async () => {
+    const body = yahooSeriesResponse({
+      currency: 'USD',
+      timestamps: [TS_A, TS_B, TS_C],
+      closes: [30.0, null, 32.25],
+    })
+    const result = await fetchPriceHistory({ ticker: 'SPUS' }, undefined, withFetch(makeOkFetch(body)))
+
+    expect(result.available).toBe(true)
+    if (!result.available) throw new Error('expected available')
+    expect(result.points).toHaveLength(2)
+    expect(result.points.map((p) => p.date)).toEqual(['2026-06-04', '2026-06-06'])
+  })
+
+  it('empty series → available:false', async () => {
+    const body = yahooSeriesResponse({ currency: 'USD', timestamps: [], closes: [] })
+    const result = await fetchPriceHistory({ ticker: 'SPUS' }, undefined, withFetch(makeOkFetch(body)))
+
+    expect(result.available).toBe(false)
+    if (result.available) throw new Error('expected unavailable')
+    expect(result.reason).toContain('no history')
+  })
+
+  it('fetch throws → available:false (fail-closed), never throws', async () => {
+    const result = await fetchPriceHistory({ ticker: 'SPUS' }, undefined, withFetch(makeFailFetch(new Error('network down'))))
+
+    expect(result.available).toBe(false)
+    if (result.available) throw new Error('expected unavailable')
+    expect(result.reason).toContain('fetch error')
+  })
+
+  it('http error → available:false', async () => {
+    const result = await fetchPriceHistory({ ticker: 'SPUS' }, undefined, withFetch(makeHttpErrorFetch(503)))
+
+    expect(result.available).toBe(false)
+    if (result.available) throw new Error('expected unavailable')
+    expect(result.reason).toBe('http 503')
+  })
+
+  it('uncovered exchange (AE-ADX) → available:false, fetch NOT called', async () => {
+    const fetchImpl = makeOkFetch({})
+    const result = await fetchPriceHistory({ ticker: 'FAB', market: 'AE-ADX' }, undefined, withFetch(fetchImpl))
+
+    expect(result.available).toBe(false)
+    expect(fetchImpl).not.toHaveBeenCalled()
   })
 })

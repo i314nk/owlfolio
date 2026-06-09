@@ -170,6 +170,139 @@ function parseYahooChart(json: YahooChartResponse, ticker: string): PriceQuote {
   }
 }
 
+export type PriceHistoryPoint = { date: string; close: number }
+
+export type PriceHistoryResult =
+  | { available: true; currency: string; points: PriceHistoryPoint[] }
+  | { available: false; reason: string }
+
+export type PriceHistoryOptions = {
+  range?: string
+  interval?: string
+}
+
+type YahooChartSeriesResponse = {
+  chart?: {
+    result?: Array<{
+      meta?: { currency?: string }
+      timestamp?: number[]
+      indicators?: {
+        quote?: Array<{ close?: Array<number | null> }>
+      }
+    }>
+    error?: { code?: string; description?: string } | null
+  }
+}
+
+const YAHOO_HISTORY_DEFAULT_RANGE = '1y'
+const YAHOO_HISTORY_DEFAULT_INTERVAL = '1d'
+
+/**
+ * Fetch a daily historical close series for a symbol from the Yahoo Finance
+ * chart endpoint. Same symbol mapping / fail-closed / SSRF-guard posture as the
+ * quote path. Null closes (Yahoo gaps) are skipped. Never throws.
+ *
+ *   fetchPriceHistory({ ticker: 'SPUS' }, { range: '1y' })
+ */
+export async function fetchPriceHistory(
+  symbol: PriceQuoteSymbol,
+  opts?: PriceHistoryOptions,
+  deps?: MarketDataDeps,
+): Promise<PriceHistoryResult> {
+  const yahooSym = toYahooSymbol(symbol)
+  if (yahooSym === undefined) {
+    return { available: false, reason: 'exchange not covered by yahoo' }
+  }
+
+  const range = opts?.range ?? YAHOO_HISTORY_DEFAULT_RANGE
+  const interval = opts?.interval ?? YAHOO_HISTORY_DEFAULT_INTERVAL
+  const rawUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(yahooSym)}?interval=${encodeURIComponent(interval)}&range=${encodeURIComponent(range)}`
+
+  let url: URL
+  try {
+    url = assertPublicHttpUrl(rawUrl)
+  } catch (err) {
+    return {
+      available: false,
+      reason: `url guard failed: ${err instanceof Error ? err.message : String(err)}`,
+    }
+  }
+
+  const timeoutMs = deps?.timeoutMs ?? YAHOO_DEFAULT_TIMEOUT_MS
+  const fetchFn = deps?.fetchImpl ?? fetch
+  const controller = new AbortController()
+  const timer = setTimeout(() => { controller.abort() }, timeoutMs)
+
+  try {
+    const response = await fetchFn(url.toString(), {
+      signal: controller.signal,
+      headers: {
+        'User-Agent': 'Mozilla/5.0',
+        'Accept': 'application/json',
+      },
+    })
+    if (!response.ok) {
+      return { available: false, reason: `http ${response.status}` }
+    }
+    const json = await response.json() as YahooChartSeriesResponse
+    return parseYahooChartSeries(json, symbol.ticker)
+  } catch (err) {
+    const reason = err instanceof Error ? err.message : String(err)
+    return { available: false, reason: `fetch error: ${reason}` }
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+/**
+ * Parse the Yahoo Finance chart JSON into a `{ date, close }[]` series.
+ *
+ * Shape: chart.result[0].{ timestamp[], indicators.quote[0].close[] }
+ * Null closes are skipped; timestamps are UTC date (YYYY-MM-DD).
+ */
+function parseYahooChartSeries(json: YahooChartSeriesResponse, ticker: string): PriceHistoryResult {
+  const chart = json?.chart
+  if (chart?.error != null) {
+    const desc = chart.error.description ?? chart.error.code ?? 'api error'
+    return { available: false, reason: `yahoo error: ${desc}` }
+  }
+
+  const result = chart?.result
+  if (!Array.isArray(result) || result.length === 0) {
+    return { available: false, reason: `symbol not found: ${ticker}` }
+  }
+
+  const series = result[0]
+  const timestamps = series?.timestamp
+  const closes = series?.indicators?.quote?.[0]?.close
+  if (!Array.isArray(timestamps) || !Array.isArray(closes) || timestamps.length === 0) {
+    return { available: false, reason: `no history for ${ticker}` }
+  }
+
+  const points: PriceHistoryPoint[] = []
+  for (let i = 0; i < timestamps.length; i += 1) {
+    const ts = timestamps[i]
+    const close = closes[i]
+    if (typeof ts !== 'number' || !Number.isFinite(ts)) {
+      continue
+    }
+    if (typeof close !== 'number' || !Number.isFinite(close) || close <= 0) {
+      continue
+    }
+    points.push({ date: new Date(ts * 1000).toISOString().slice(0, 10), close })
+  }
+
+  if (points.length === 0) {
+    return { available: false, reason: `no usable closes for ${ticker}` }
+  }
+
+  const currency = typeof series?.meta?.currency === 'string' && series.meta.currency.length > 0
+    ? series.meta.currency
+    : 'USD'
+
+  return { available: true, currency, points }
+}
+
 export const defaultPriceSource: PriceSource = new YahooPriceSource()
 
 /**

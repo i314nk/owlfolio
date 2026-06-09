@@ -28,6 +28,7 @@
     "./watchlistWorkflow": "./src/watchlistWorkflow.ts",
     "./workflowContract": "./src/workflowContract.ts",
     "./researchCasePolicy": "./src/researchCasePolicy.ts",
-    "./marketData": "./src/marketData.ts"
+    "./marketData": "./src/marketData.ts",
+    "./performanceProjection": "./src/performanceProjection.ts"
   }
 }
