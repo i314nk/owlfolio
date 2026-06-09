@@ -4,9 +4,17 @@ import { SourceChip } from './designSystem'
 import { StatusBadge } from './StatusBadge'
 import type { AppResearchCase, AppSourceEvidence, WorkflowMode } from '../lib/workflow'
 
+export type MarketQuote = {
+  price_per_share: number
+  currency: string
+  as_of: string
+  source: string
+}
+
 export type ResearchCasePanelProps = {
   researchCase: AppResearchCase
   mode?: WorkflowMode
+  marketQuote?: MarketQuote
 }
 
 // ── Shared style tokens ───────────────────────────────────────────────────────
@@ -86,7 +94,7 @@ function gatedReason(researchCase: AppResearchCase): { title: string; reason: st
 
 // ── Main component ────────────────────────────────────────────────────────────
 
-export function ResearchCasePanel({ researchCase, mode = 'demo' }: ResearchCasePanelProps) {
+export function ResearchCasePanel({ researchCase, mode = 'demo', marketQuote }: ResearchCasePanelProps) {
   const canPromoteToWatchlist = mode === 'personal-local'
     && researchCase.stage === 'decision_drafted'
     && researchCase.decision !== undefined
@@ -104,7 +112,7 @@ export function ResearchCasePanel({ researchCase, mode = 'demo' }: ResearchCaseP
     // ── 1. Verdict hero ─────────────────────────────────────────────────────
     createVerdictHero(researchCase),
     // ── 2. Valuation panel ──────────────────────────────────────────────────
-    createValuationPanel(researchCase),
+    createValuationPanel(researchCase, marketQuote),
     // ── 3. Four summary cards (always visible) ───────────────────────────────
     createDecisionEvidence(researchCase),
     // ── 4. Visible specialist lanes ──────────────────────────────────────────
@@ -429,7 +437,7 @@ function createVerdictSummaryText(researchCase: AppResearchCase): string {
 
 // ── Valuation panel ───────────────────────────────────────────────────────────
 
-function createValuationPanel(researchCase: AppResearchCase) {
+function createValuationPanel(researchCase: AppResearchCase, marketQuote?: MarketQuote) {
   const valuation = researchCase.valuation
   if (valuation === undefined) return null
 
@@ -440,8 +448,34 @@ function createValuationPanel(researchCase: AppResearchCase) {
   const hurdleLabel = hurdleRate !== undefined ? `${Math.round(hurdleRate * 100)}%` : 'hurdle'
   const moatLabel = `${moatClass.toUpperCase()} MOAT · ${hurdleLabel} HURDLE`
 
-  // Bar: buy price tick at ~46% of the bar, no market price tick
+  // Bar layout:
+  //   Buy-below tick is anchored at 46% of the bar width.
+  //   Market tick is scaled relative to buy-below:
+  //     - If market ≤ buy-below: tick is left of buy-below (green zone)
+  //     - If market > buy-below: tick shifts proportionally right (red zone)
+  //   We cap the market tick position between 2% and 96% so labels stay visible.
   const buyTickPercent = 46
+  const marketTickPercent = (marketQuote !== undefined && buyPrice !== undefined && buyPrice > 0)
+    ? Math.min(96, Math.max(2, buyTickPercent * (marketQuote.price_per_share / buyPrice)))
+    : null
+
+  // Gap computation: how far market is from buy-below, as a signed %
+  const gapPercent = (marketQuote !== undefined && buyPrice !== undefined && buyPrice > 0)
+    ? ((marketQuote.price_per_share - buyPrice) / buyPrice) * 100
+    : null
+
+  const gapLabel = gapPercent !== null
+    ? gapPercent <= 0
+      ? `${Math.abs(gapPercent).toFixed(1)}% below buy-below — in the buy zone`
+      : `${gapPercent.toFixed(1)}% above buy-below`
+    : null
+
+  const gapIsGood = gapPercent !== null && gapPercent <= 0
+
+  // Market price annotation for the bar
+  const marketPriceNote = marketQuote !== undefined
+    ? `Yahoo Finance · as of ${new Date(marketQuote.as_of).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`
+    : 'market price unavailable / manual'
 
   return createElement(
     'div',
@@ -486,6 +520,7 @@ function createValuationPanel(researchCase: AppResearchCase) {
             position: 'relative',
           },
         },
+        // Buy-below tick
         buyPrice !== undefined ? createElement(
           'div',
           {
@@ -534,7 +569,56 @@ function createValuationPanel(researchCase: AppResearchCase) {
             `$${buyPrice}`,
           ),
         ) : null,
-        // Market price pending note
+        // Market tick (only when quote is available)
+        marketTickPercent !== null && marketQuote !== undefined ? createElement(
+          'div',
+          {
+            style: {
+              background: gapIsGood ? '#34d399' : '#f87171',
+              bottom: '-8px',
+              left: `${marketTickPercent}%`,
+              position: 'absolute',
+              top: '-8px',
+              width: '2px',
+            },
+          },
+          // label above
+          createElement(
+            'span',
+            {
+              style: {
+                color: gapIsGood ? '#34d399' : '#f87171',
+                fontFamily: 'var(--owl-font-mono)',
+                fontSize: '0.7rem',
+                left: '50%',
+                position: 'absolute',
+                top: '-26px',
+                transform: 'translateX(-50%)',
+                whiteSpace: 'nowrap',
+              },
+            },
+            'Market',
+          ),
+          // value below
+          createElement(
+            'span',
+            {
+              style: {
+                bottom: '-28px',
+                color: gapIsGood ? '#34d399' : '#f87171',
+                fontFamily: 'var(--owl-font-mono)',
+                fontSize: '0.8rem',
+                fontWeight: 800,
+                left: '50%',
+                position: 'absolute',
+                transform: 'translateX(-50%)',
+                whiteSpace: 'nowrap',
+              },
+            },
+            `$${marketQuote.price_per_share.toFixed(2)}`,
+          ),
+        ) : null,
+        // Market price source / unavailable note
         createElement(
           'span',
           {
@@ -547,7 +631,7 @@ function createValuationPanel(researchCase: AppResearchCase) {
               top: '-22px',
             },
           },
-          'market price pending price feed',
+          marketPriceNote,
         ),
       ),
     ),
@@ -564,21 +648,41 @@ function createValuationPanel(researchCase: AppResearchCase) {
       { style: { color: 'var(--owl-color-muted)', fontSize: '0.9rem', lineHeight: 1.5, margin: 0 } },
       'Buy-price target not yet computed — run the valuation lane.',
     ),
-    // Metrics row
+    // Metrics row: buy-below, hurdle, growth est., and market/gap when available
     createElement(
       'div',
       {
         style: {
           display: 'grid',
           gap: '0.7rem',
-          gridTemplateColumns: 'repeat(3, 1fr)',
+          gridTemplateColumns: marketQuote !== undefined ? 'repeat(4, 1fr)' : 'repeat(3, 1fr)',
           marginTop: '1rem',
         },
       },
       createMetricCell('Value @ hurdle', buyPrice !== undefined ? `$${buyPrice}` : 'Pending', true),
       createMetricCell('Hurdle', hurdleRate !== undefined ? `${Math.round(hurdleRate * 100)}%` : 'Pending', false),
       createMetricCell('Growth est.', valuation.growth_rate !== undefined ? `${Math.round(valuation.growth_rate * 100)}%` : 'Pending', false),
+      ...(marketQuote !== undefined ? [
+        createMetricCell(
+          `Market (${marketQuote.currency})`,
+          `$${marketQuote.price_per_share.toFixed(2)}`,
+          false,
+        ),
+      ] : []),
     ),
+    // Gap summary line (only when market quote is available)
+    gapLabel !== null ? createElement(
+      'p',
+      {
+        style: {
+          color: gapIsGood ? '#34d399' : '#f87171',
+          fontFamily: 'var(--owl-font-mono)',
+          fontSize: '0.82rem',
+          margin: 0,
+        },
+      },
+      gapIsGood ? `Market is ${gapLabel}` : `Market is +${gapLabel}`,
+    ) : null,
   )
 }
 
