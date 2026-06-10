@@ -29,7 +29,7 @@ export {
   type SynthesisResponse,
 }
 import { computeIncrementalRoic, type AnnualFacts, type Fundamentals, type SecEdgarDeps } from './secEdgar'
-import { JUDGMENT_RUBRICS } from '@owlfolio/strategies/judgmentRubrics'
+import { JUDGMENT_RUBRICS, type RubricTier } from '@owlfolio/strategies/judgmentRubrics'
 import {
   computeMoatAnchor,
   computeRunwayAnchor,
@@ -447,33 +447,72 @@ function toAdjustmentEvidence(evidence: LaneRubricInput['adjustment_evidence']):
   return evidence.map((e) => ({ claim: e.claim, citation_hash: e.citation_hash }))
 }
 
+/** Why an axis resolved holistically rather than from a scored rubric (visible degradation, never silent). */
+export type JudgmentDegraded = 'rubric_not_emitted'
+
+/** Conservative explicit defaults when NEITHER a rubric NOR a holistic value exists. These fail the
+ *  moat gate (narrow) / earn no growth credit (none) — never an undefined that silently voids the
+ *  valuation downstream. */
+const DEFAULT_MOAT_CLASS = 'narrow' as const
+const DEFAULT_RUNWAY = 'none' as const
+
 export type JudgmentResolution = {
   moat?: ResolveRubricTierResult & {
-    resolved_moat_class?: 'narrow' | 'moderate' | 'wide' | 'monopoly'
+    /** ALWAYS defined: rubric-resolved tier -> holistic fallback -> conservative default. Never undefined. */
+    resolved_moat_class: 'narrow' | 'moderate' | 'wide' | 'monopoly'
     anchor_note?: string
+    /** Set when the tier was NOT rubric-scored (resolved holistically / by default). Surfaced, not silent. */
+    judgment_degraded?: JudgmentDegraded
   }
   runway?: ResolveRubricTierResult & {
-    resolved_runway?: 'proven' | 'limited' | 'none'
+    /** ALWAYS defined: rubric-resolved tier -> holistic fallback -> conservative default. Never undefined. */
+    resolved_runway: 'proven' | 'limited' | 'none'
     anchor_note?: string
+    /** Set when the tier was NOT rubric-scored (resolved holistically / by default). Surfaced, not silent. */
+    judgment_degraded?: JudgmentDegraded
   }
 }
 
 /**
- * Resolve the moat + runway tiers from the lane rubrics (Mechanisms 1+2). For each rubric the harness
- * computes the mechanical anchor from EDGAR (fail-closed to not-computable), then resolves the final
- * tier with resolveRubricTier (computable-row re-verification, ±1 bound, citation enforcement, upward 2×
- * asymmetry). Returns undefined for an axis when its rubric was not supplied — the caller then falls
- * back to the holistic moat_class/runway (today's behavior; no regression).
+ * Resolve the moat + runway tiers from the lane rubrics (Mechanisms 1+2) — ALWAYS yielding a defined
+ * resolved tier so the omission of an OPTIONAL rubric can never silently void the downstream valuation.
+ *
+ * Precedence (documented, deterministic):
+ *   1. Rubric present + sufficient  -> mechanical anchor (EDGAR) + bounded ±1 adjustment (resolveRubricTier).
+ *   2. Rubric absent OR resolves to a tier not valid downstream -> fall back to the holistic
+ *      moat_class/runway the lane proposes (still emitted on the decision schema), flagged
+ *      `judgment_degraded: 'rubric_not_emitted'` so the holistic substitution is VISIBLE.
+ *   3. Neither rubric nor holistic -> a conservative explicit default (narrow moat / none runway) that
+ *      fails the gate, still flagged degraded. NEVER `undefined`.
+ *
+ * Grounding/citation verification (resolveRubricTier) is unchanged.
  */
 export function resolveJudgmentTiers(args: {
   moatRubric?: LaneRubricInput | undefined
   runwayRubric?: LaneRubricInput | undefined
+  /** Holistic moat_class the synthesis lane proposes (the schema-required field). Used as the fallback. */
+  holisticMoatClass?: 'narrow' | 'moderate' | 'wide' | 'monopoly' | undefined
+  /** Holistic runway the synthesis lane proposes (the schema-required field). Used as the fallback. */
+  holisticRunway?: 'proven' | 'limited' | 'none' | undefined
   series?: AnnualFacts[] | undefined
   verifiedCitationHashes: ReadonlySet<string>
 }): JudgmentResolution {
-  const out: JudgmentResolution = {}
   const series = args.series ?? []
 
+  // A degraded ResolveRubricTierResult skeleton for the holistic/default fallback path (no rubric scored).
+  const degradedResult = (resolved_tier: RubricTier): ResolveRubricTierResult => ({
+    anchor_computable: false,
+    anchor_tier: undefined,
+    proposed_tier: resolved_tier,
+    resolved_tier,
+    resolved_row_scores: {},
+    adjustment_applied: false,
+    verified_evidence_count: 0,
+    violations: [],
+  })
+
+  // --- Moat axis ---
+  let moat: JudgmentResolution['moat']
   if (args.moatRubric !== undefined) {
     const anchor = computeMoatAnchor(series)
     const resolved = resolveRubricTier({
@@ -485,15 +524,35 @@ export function resolveJudgmentTiers(args: {
       adjustmentEvidence: toAdjustmentEvidence(args.moatRubric.adjustment_evidence),
       verifiedCitationHashes: args.verifiedCitationHashes,
     })
-    out.moat = {
-      ...resolved,
-      ...(VALID_MOAT_CLASSES.has(resolved.resolved_tier)
-        ? { resolved_moat_class: resolved.resolved_tier as 'narrow' | 'moderate' | 'wide' | 'monopoly' }
-        : {}),
-      ...(anchor.computable ? { anchor_note: anchor.note } : { anchor_note: `Moat anchor not computable: ${anchor.reason}` }),
+    if (VALID_MOAT_CLASSES.has(resolved.resolved_tier)) {
+      moat = {
+        ...resolved,
+        resolved_moat_class: resolved.resolved_tier as 'narrow' | 'moderate' | 'wide' | 'monopoly',
+        ...(anchor.computable ? { anchor_note: anchor.note } : { anchor_note: `Moat anchor not computable: ${anchor.reason}` }),
+      }
+    } else {
+      // Rubric resolved to a non-downstream tier — fall back to holistic/default, flagged.
+      const fallback = args.holisticMoatClass ?? DEFAULT_MOAT_CLASS
+      moat = {
+        ...resolved,
+        resolved_moat_class: fallback,
+        judgment_degraded: 'rubric_not_emitted',
+        ...(anchor.computable ? { anchor_note: anchor.note } : { anchor_note: `Moat anchor not computable: ${anchor.reason}` }),
+      }
+    }
+  } else {
+    // No rubric supplied — resolve holistically (or conservative default), VISIBLY flagged.
+    const fallback = args.holisticMoatClass ?? DEFAULT_MOAT_CLASS
+    moat = {
+      ...degradedResult(fallback as RubricTier),
+      resolved_moat_class: fallback,
+      judgment_degraded: 'rubric_not_emitted',
+      anchor_note: 'Moat rubric not emitted by the model — resolved from the holistic moat_class (or conservative default).',
     }
   }
 
+  // --- Runway axis ---
+  let runway: JudgmentResolution['runway']
   if (args.runwayRubric !== undefined) {
     const anchor = computeRunwayAnchor(series)
     const resolved = resolveRubricTier({
@@ -505,16 +564,32 @@ export function resolveJudgmentTiers(args: {
       adjustmentEvidence: toAdjustmentEvidence(args.runwayRubric.adjustment_evidence),
       verifiedCitationHashes: args.verifiedCitationHashes,
     })
-    out.runway = {
-      ...resolved,
-      ...(VALID_RUNWAYS.has(resolved.resolved_tier)
-        ? { resolved_runway: resolved.resolved_tier as 'proven' | 'limited' | 'none' }
-        : {}),
-      ...(anchor.computable ? { anchor_note: anchor.note } : { anchor_note: `Runway anchor not computable: ${anchor.reason}` }),
+    if (VALID_RUNWAYS.has(resolved.resolved_tier)) {
+      runway = {
+        ...resolved,
+        resolved_runway: resolved.resolved_tier as 'proven' | 'limited' | 'none',
+        ...(anchor.computable ? { anchor_note: anchor.note } : { anchor_note: `Runway anchor not computable: ${anchor.reason}` }),
+      }
+    } else {
+      const fallback = args.holisticRunway ?? DEFAULT_RUNWAY
+      runway = {
+        ...resolved,
+        resolved_runway: fallback,
+        judgment_degraded: 'rubric_not_emitted',
+        ...(anchor.computable ? { anchor_note: anchor.note } : { anchor_note: `Runway anchor not computable: ${anchor.reason}` }),
+      }
+    }
+  } else {
+    const fallback = args.holisticRunway ?? DEFAULT_RUNWAY
+    runway = {
+      ...degradedResult(fallback as RubricTier),
+      resolved_runway: fallback,
+      judgment_degraded: 'rubric_not_emitted',
+      anchor_note: 'Runway rubric not emitted by the model — resolved from the holistic runway (or conservative default).',
     }
   }
 
-  return out
+  return { moat, runway }
 }
 
 type JudgmentAxisProjection = {
@@ -527,6 +602,8 @@ type JudgmentAxisProjection = {
   rubric_scores: { id: string; score: number }[]
   violations: string[]
   anchor_note?: string
+  /** Set when the axis resolved holistically (rubric not emitted) rather than from scored rubric rows. */
+  judgment_degraded?: JudgmentDegraded
 }
 
 type JudgmentProjection = {
@@ -537,7 +614,7 @@ type JudgmentProjection = {
 
 /** Build the serializable judgment-layer projection (rubric scores + anchor-vs-proposed) for the dossier. */
 function buildJudgmentProjection(judgment: JudgmentResolution): JudgmentProjection | undefined {
-  function axis(r: (ResolveRubricTierResult & { anchor_note?: string }) | undefined): JudgmentAxisProjection | undefined {
+  function axis(r: (ResolveRubricTierResult & { anchor_note?: string; judgment_degraded?: JudgmentDegraded }) | undefined): JudgmentAxisProjection | undefined {
     if (r === undefined) return undefined
     return {
       ...(r.anchor_tier === undefined ? {} : { anchor_tier: r.anchor_tier }),
@@ -549,6 +626,7 @@ function buildJudgmentProjection(judgment: JudgmentResolution): JudgmentProjecti
       rubric_scores: Object.entries(r.resolved_row_scores).map(([id, score]) => ({ id, score })),
       violations: r.violations,
       ...(r.anchor_note === undefined ? {} : { anchor_note: r.anchor_note }),
+      ...(r.judgment_degraded === undefined ? {} : { judgment_degraded: r.judgment_degraded }),
     }
   }
   const moat = axis(judgment.moat)
@@ -1082,9 +1160,11 @@ export async function runResearchDeepDivePhase(
       + `Its STRONGEST OBJECTION (severity ${redTeam.strongest_objection.severity}): "${redTeam.strongest_objection.claim}" `
       + `[cited: ${redTeam.strongest_objection.citations.join(', ') || 'no verified citation'}]. `
       + `Bear case: ${redTeam.strongest_bear_case} Moat-decay: ${redTeam.moat_decay_scenario} Growth-credit attack: ${redTeam.growth_credit_attack}. `
-      + `You MUST set red_team_strongest_objection to the objection text AND synthesis_response: either `
+      + `REQUIRED — do not omit: you MUST set red_team_strongest_objection to the objection text AND synthesis_response: either `
       + `mode 'answered_with_evidence' (rebut it with a CITED claim from the corpus) OR mode 'accepted_downgraded' `
-      + `(accept it and downgrade tier/growth/verdict, supplying downgrade{dimension,from,to}). Silence is not an option.`
+      + `(accept it and downgrade tier/growth/verdict, supplying downgrade{dimension,from,to}). Silence is not an option — `
+      + `omitting synthesis_response flags the dossier as red_team_objection_unaddressed. `
+      + `EXAMPLE synthesis_response (shape only): {"mode":"accepted_downgraded","text":"FY25 capex ≫ D&A confirms a reinvestment treadmill; owner earnings nearer the conservative case","downgrade":{"dimension":"tier","from":"wide","to":"moderate"}}.`
     : `\n\nRED-TEAM PASS: the adversarial red-team pass did not complete (${redTeam.reason}); the case was NOT adversarially tested. `
       + `Proceed, but the harness will surface this gap.`
 
@@ -1101,9 +1181,10 @@ export async function runResearchDeepDivePhase(
     prompt: `You are the Buffett-Munger synthesis+decision agent for ${command.ticker}. `
       + `Using the lane findings, produce a verdict, thesis, evidence, valuation rationale, Shariah rationale, risks, open questions, and a synthesis summary. `
       + `For the owner_earnings_bridge, provide company TOTALS in $millions from the latest 10-K (net_income, depreciation_amortization, maintenance_capex, stock_based_comp, normalized_working_capital_change) AND shares_outstanding (diluted weighted-average shares outstanding, in MILLIONS) so the harness can compute owner earnings per share. `
-      + `Also classify the reinvestment runway as 'proven' | 'limited' | 'none' (a SEPARATE axis from moat width — proven means ≥5 yrs of incremental capital deployed at high ROIC with visible remaining headroom), set runway_exceptional only with explicit headroom evidence, and report incremental_roic (normalized INCREMENTAL ROIC as a fraction, e.g. 0.20) alongside reinvestment_rate. The harness credits growth only when incremental_roic exceeds 10%; historical revenue/EPS growth is never an input. `
-      + `JUDGMENT RUBRICS (required for objectivity): score the MOAT rubric (M1 ROIC>15% in ≥9/10yr [computable], M2 gross-margin band [computable], M3 price increases without share loss, M4 share vs entrant, M5 customer switching, M6 competitor exits) and the RUNWAY rubric (R1 incremental capital at high ROIC [computable], R2 visible headroom, R3 demonstrated reinvestment rate). For EACH item give a score 0/1/2; CITED rows (M3–M6, R2, R3) MUST carry a citation_hash that matches a fetched primary source (the harness scores 0 for any uncited cited row and re-computes M1/M2/R1 from filings itself). Then give proposed_tier (moat: narrow|moderate|wide|monopoly; runway: none|limited|proven) and adjustment_evidence — cited claims the quantitative score cannot see (patent cliff, announced entrant, technology substitution). The harness anchors the tier in the computable rows and accepts your proposed_tier ONLY as a bounded ±1-tier adjustment with verified cited evidence; an UPWARD adjustment needs 2× the cited evidence items of a downward one. `
-      + `For shariah, provide the JUDGMENT only: sector_status ('compliant' | 'conditional' | 'non_compliant') confirmed with segment revenue, and impermissible_income — the dollar amount in $MILLIONS of non-permissible income (interest income on cash, prohibited-segment revenue), 0 if fully permissible. The harness recomputes the AAOIFI debt/cash/impermissible ratios + verdict + purification % from the primary filings + market cap; do NOT compute the ratios yourself. `
+      + `REQUIRED — do not omit: also classify the reinvestment runway as 'proven' | 'limited' | 'none' (a SEPARATE axis from moat width — proven means ≥5 yrs of incremental capital deployed at high ROIC with visible remaining headroom), set runway_exceptional only with explicit headroom evidence, and report incremental_roic (normalized INCREMENTAL ROIC as a fraction, e.g. 0.20) alongside reinvestment_rate. The harness credits growth only when incremental_roic exceeds 10%; historical revenue/EPS growth is never an input. `
+      + `JUDGMENT RUBRICS — REQUIRED, do not omit (omitting them forces the harness to degrade to a holistic tier and flag the dossier as rubric_not_emitted): emit BOTH moat_rubric and runway_rubric. Score the MOAT rubric (M1 ROIC>15% in ≥9/10yr [computable], M2 gross-margin band [computable], M3 price increases without share loss, M4 share vs entrant, M5 customer switching, M6 competitor exits) and the RUNWAY rubric (R1 incremental capital at high ROIC [computable], R2 visible headroom, R3 demonstrated reinvestment rate). For EACH item give a score 0/1/2; CITED rows (M3–M6, R2, R3) MUST carry a citation_hash that matches a fetched primary source (the harness scores 0 for any uncited cited row and re-computes M1/M2/R1 from filings itself). Then give proposed_tier (moat: narrow|moderate|wide|monopoly; runway: none|limited|proven) and adjustment_evidence — cited claims the quantitative score cannot see (patent cliff, announced entrant, technology substitution). The harness anchors the tier in the computable rows and accepts your proposed_tier ONLY as a bounded ±1-tier adjustment with verified cited evidence; an UPWARD adjustment needs 2× the cited evidence items of a downward one. `
+      + `EXAMPLE moat_rubric (shape only): {"rubric_scores":[{"id":"M1","score":2},{"id":"M2","score":2},{"id":"M3","score":2,"citation_hash":"<hash-of-a-fetched-source>"},{"id":"M4","score":1,"citation_hash":"<hash>"},{"id":"M5","score":2,"citation_hash":"<hash>"},{"id":"M6","score":1,"citation_hash":"<hash>"}],"proposed_tier":"wide","adjustment_evidence":[{"claim":"insurer contracts repriced upward with no share loss","citation_hash":"<hash>"}]}. `
+      + `For shariah — REQUIRED, do not omit (omitting it leaves the AAOIFI ratios unverified and flags shariah_ratios_unverified): provide the JUDGMENT only: sector_status ('compliant' | 'conditional' | 'non_compliant') confirmed with segment revenue, and impermissible_income — the dollar amount in $MILLIONS of non-permissible income (interest income on cash, prohibited-segment revenue), 0 if fully permissible. The harness recomputes the AAOIFI debt/cash/impermissible ratios + verdict + purification % from the primary filings + market cap; do NOT compute the ratios yourself. EXAMPLE shariah (shape only): {"sector_status":"compliant","impermissible_income":128.0}. `
       + `Cite sources in proposed_sources with real URLs.`
       + redTeamPromptBlock,
     timeout_ms: AGENT_TIMEOUT_MS,
@@ -1206,11 +1287,28 @@ export async function runResearchDeepDivePhase(
   const judgment = resolveJudgmentTiers({
     moatRubric: dec.analysis.moat_rubric,
     runwayRubric: dec.analysis.runway_rubric,
+    // Holistic fallbacks (the schema-required fields) so the resolved tier is NEVER undefined when the
+    // OPTIONAL rubric is omitted — closing the silent-degradation cascade the live dogfood exposed.
+    holisticMoatClass: dec.analysis.moat_class,
+    holisticRunway: dec.analysis.runway,
     series: fundamentals?.annual_series,
     verifiedCitationHashes,
   })
 
-  const moatClass = judgment.moat?.resolved_moat_class ?? dec.analysis.moat_class
+  // ---- Visible degraded flags (Mechanism: no SILENT skip) ----
+  // Every OPTIONAL structured field the model omitted is recorded as an explicit flag here and appended
+  // to the decision open_questions below (mirroring the working red_team_objection_unaddressed pattern),
+  // so a human (and the next dogfood) SEES exactly what the model failed to provide.
+  const degradedFlags: string[] = []
+  if (judgment.moat?.judgment_degraded === 'rubric_not_emitted' || judgment.runway?.judgment_degraded === 'rubric_not_emitted') {
+    degradedFlags.push(
+      'judgment_degraded: rubric_not_emitted — the model omitted the moat/runway rubric_scores; the moat '
+      + 'class and reinvestment runway were resolved from the holistic lane judgment (or a conservative default), '
+      + 'NOT from scored, citation-verified rubric rows.',
+    )
+  }
+  // resolved_moat_class is guaranteed defined by resolveJudgmentTiers (never undefined).
+  const moatClass = judgment.moat!.resolved_moat_class
   const moat_passes_gate = moatPassesGate(buffettMungerStrategy, moatClass)
 
   const modelBridge = dec.analysis.owner_earnings_bridge
@@ -1313,7 +1411,8 @@ export async function runResearchDeepDivePhase(
     }
   }
   const reinvestment_rate = dec.analysis.reinvestment_rate
-  const runway = judgment.runway?.resolved_runway ?? dec.analysis.runway
+  // resolved_runway is guaranteed defined by resolveJudgmentTiers (never undefined).
+  const runway = judgment.runway!.resolved_runway
   const runway_exceptional = dec.analysis.runway_exceptional ?? false
   const valuation_multiple_ceiling = buffettMungerStrategy.valuation.valuation_multiple_ceiling
 
@@ -1332,6 +1431,22 @@ export async function runResearchDeepDivePhase(
     moat_class: moatClass,
     runway_exceptional,
   })
+
+  // Visible degradation: when the credited-growth inputs are missing/ineligible the harness floors g to
+  // 0 (an honest no-growth floor) rather than skipping the valuation. Surface that the two-stage DCF ran
+  // on a degraded (g=0) input so the dossier reflects WHY the fair value used no growth credit — but only
+  // when the moat passes the gate (i.e. the valuation actually computes; below the gate g is moot).
+  const growthInputsMissing =
+    !Number.isFinite(incremental_roic)
+    || !Number.isFinite(reinvestment_rate)
+    || incremental_roic <= buffettMungerStrategy.valuation.growth_eligibility_incremental_roic
+  if (moat_passes_gate && effective_growth_rate === 0 && growthInputsMissing) {
+    degradedFlags.push(
+      'valuation_degraded: credited_growth_floored_g0 — credited growth was floored to g=0 (honest no-growth '
+      + 'floor) because the incremental-ROIC / reinvestment inputs were missing or below the eligibility '
+      + 'threshold. The two-stage DCF still computed; treat the fair value as a no-growth floor.',
+    )
+  }
 
   // Plausibility ceiling for a per-share fair value. A per-share owner-earnings valuation for any
   // real equity is far below this; anything at/above it signals a units bug (e.g. totals not divided
@@ -1436,6 +1551,18 @@ export async function runResearchDeepDivePhase(
         bridge_source_fiscal_year: la.fiscal_year,
       }
     }
+  }
+
+  // Visible degradation: the model omitted the SHARIAH judgment overlay (sector_status +
+  // impermissible_income), so the harness could NOT recompute the AAOIFI debt/cash/impermissible ratios
+  // and fell back to the lane (quick-screen) verdict. Surface it rather than silently shipping a thinner
+  // Shariah verdict (this is the dogfood's empty shariah_financial -> lane CONDITIONAL fallback).
+  if (shariahJudgment === undefined) {
+    degradedFlags.push(
+      'shariah_ratios_unverified: impermissible_income_not_emitted — the model omitted the Shariah judgment '
+      + 'overlay (sector_status + impermissible_income), so the harness did NOT recompute the AAOIFI '
+      + 'debt/cash/impermissible ratios; the Shariah verdict fell back to the lane (quick-screen) judgment.',
+    )
   }
 
   // ---- Price → verdict band (valuation-recalibration-spec §2: WATCH-FAIR) ----
@@ -1562,6 +1689,9 @@ export async function runResearchDeepDivePhase(
         owner_earnings_bridge: bridge,
         ...(normalized_owner_earnings_per_share !== undefined ? { normalized_owner_earnings_per_share } : {}),
         ...(valuationCaveats.length > 0 ? { valuation_caveats: valuationCaveats } : {}),
+        // Visible degraded flags: each OPTIONAL structured field the model omitted (rubric, Shariah
+        // overlay, growth inputs) is recorded here so the silent skips the live dogfood exposed are SEEN.
+        ...(degradedFlags.length > 0 ? { degraded_flags: degradedFlags } : {}),
         ...(fair_value_per_share !== undefined ? { fair_value_per_share } : {}),
         ...(implied_multiple !== undefined ? { implied_multiple } : {}),
         ...(margin_of_safety !== undefined ? { margin_of_safety } : {}),
@@ -1696,9 +1826,12 @@ export async function runResearchDeepDivePhase(
     // exceptional claim lacking structural evidence is never silently passed to the human.
     // Mechanism 5 conservative hook: an unaddressed red-team objection (or an incomplete red-team pass)
     // is appended to open_questions — silence is not an option; the gap is always surfaced.
+    // Degraded-field hook: every OPTIONAL structured field the model omitted (rubric, Shariah overlay,
+    // g=0 floor) is appended too, so the human sees exactly what the model failed to provide.
     open_questions: [
       ...dec.analysis.open_questions,
       ...baseRateCaveats,
+      ...degradedFlags,
       ...(redTeamOpenQuestion !== undefined ? [redTeamOpenQuestion] : []),
     ],
     causation_id: completed.event_id,

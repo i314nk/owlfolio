@@ -1622,3 +1622,111 @@ describe('resolveJudgmentTiers — EDGAR-anchored moat resolution', () => {
     expect(res.moat?.resolved_moat_class).toBe('wide')
   })
 })
+
+// ---------------------------------------------------------------------------
+// Silent-degradation cascade fix: the model omits the OPTIONAL judgment fields (no rubric, no shariah
+// overlay, no synthesis_response — exactly the live CPRT dogfood). The moat/runway tier MUST still
+// resolve (holistic fallback, never undefined), the two-stage valuation MUST still compute, and every
+// omitted structured field MUST be surfaced as a visible degraded flag (never a silent skip).
+// ---------------------------------------------------------------------------
+describe('resolveJudgmentTiers — holistic fallback when the rubric is omitted (never undefined)', () => {
+  const verified = new Set<string>()
+
+  it('falls back to the holistic moat_class/runway and flags rubric_not_emitted when no rubric is supplied', () => {
+    const res = resolveJudgmentTiers({
+      // No moatRubric / runwayRubric — mirrors the live dogfood (optional fields blank).
+      holisticMoatClass: 'wide',
+      holisticRunway: 'limited',
+      series: tenYearHighRoicSeries(),
+      verifiedCitationHashes: verified,
+    })
+    // moat/runway STILL resolve — to the holistic value the lane proposed.
+    expect(res.moat?.resolved_moat_class).toBe('wide')
+    expect(res.runway?.resolved_runway).toBe('limited')
+    // and the degradation is visible (not a silent holistic substitution).
+    expect(res.moat?.judgment_degraded).toBe('rubric_not_emitted')
+    expect(res.runway?.judgment_degraded).toBe('rubric_not_emitted')
+  })
+
+  it('falls back to a conservative explicit default (narrow / none) when BOTH rubric and holistic are absent', () => {
+    const res = resolveJudgmentTiers({
+      series: tenYearHighRoicSeries(),
+      verifiedCitationHashes: verified,
+    })
+    // never undefined — a conservative default that fails the moat gate.
+    expect(res.moat?.resolved_moat_class).toBe('narrow')
+    expect(res.runway?.resolved_runway).toBe('none')
+    expect(res.moat?.judgment_degraded).toBe('rubric_not_emitted')
+  })
+})
+
+describe('Silent-degradation cascade — fields omitted (live dogfood shape)', () => {
+  // configurableSwarmProvider omits moat_rubric / runway_rubric / shariah / synthesis_response by
+  // default — exactly the optional fields the live model left blank. With a holistic wide moat + OE
+  // available, the harness MUST still compute the two-stage valuation and flag every silent skip.
+  async function runOmitted(opts: { synthesis?: SynthesisOverrides; id: string }) {
+    const store = new InMemoryEventStore()
+    const provider = configurableSwarmProvider({
+      laneCount: buffettMungerDeepDiveLanes.length,
+      ...(opts.synthesis !== undefined ? { synthesis: opts.synthesis } : {}),
+    })
+    const sourceLedgerPath = await mkdtemp(join(tmpdir(), `owlfolio-degrade-${opts.id}-`))
+    await runStrategyResearchSwarm(
+      store, provider as never,
+      {
+        research_case_id: `rc_${opts.id}`, company_id: 'c', ticker: 'TST',
+        strategy_id: 'buffett-munger', actor_id: 'user_local', idempotency_key: `${opts.id}_k`,
+        model_id: 'mock', decision_id: `decision_${opts.id}`, source_ledger_path: sourceLedgerPath,
+      },
+      { ground: allVerifiedGround, laneConcurrency: 4 },
+    )
+    const events = await store.list()
+    const analysisEvent = events.find((e) => e.event_type === 'buffett_munger_analysis_drafted')
+    const decisionEvent = events.find((e) => e.event_type === 'decision_drafted')
+    const projections = projectResearchCases(events as Parameters<typeof projectResearchCases>[0])
+    return {
+      events,
+      cp: projections.find((c) => c.research_case_id === `rc_${opts.id}`),
+      analysisPayload: analysisEvent?.payload as Record<string, unknown>,
+      decisionPayload: decisionEvent?.payload as Record<string, unknown>,
+    }
+  }
+
+  it('still resolves moat_class + computes the two-stage valuation when the rubric is omitted', async () => {
+    const { cp } = await runOmitted({ synthesis: { moat_class: 'wide', runway: 'proven' }, id: 'omit-val' })
+    // moat resolved holistically (wide) — NOT undefined.
+    expect(cp?.valuation?.moat_class).toBe('wide')
+    expect(cp?.valuation?.moat_passes_gate).toBe(true)
+    // the two-stage DCF STILL computes — the omitted rubric must NOT void the valuation.
+    expect(cp?.valuation?.fair_value_per_share).toBeDefined()
+    expect(cp?.valuation?.buy_price_per_share).toBeDefined()
+  })
+
+  it('records judgment_degraded + shariah-unverified flags and surfaces them in open_questions', async () => {
+    const { analysisPayload, decisionPayload } = await runOmitted({
+      synthesis: { moat_class: 'wide', runway: 'proven' }, id: 'omit-flags',
+    })
+    const valuation = analysisPayload?.['valuation'] as Record<string, unknown>
+    const degraded = (valuation?.['degraded_flags'] as string[] | undefined) ?? []
+    // Every omitted structured field is a VISIBLE flag, not a silent skip.
+    expect(degraded.join(' ')).toMatch(/judgment_degraded:\s*rubric_not_emitted/)
+    expect(degraded.join(' ')).toMatch(/shariah_ratios_unverified:\s*impermissible_income_not_emitted/)
+    // and they reach the human via the decision open_questions (mirroring red_team_objection_unaddressed).
+    const openQuestions = (decisionPayload?.['open_questions'] as string[] | undefined) ?? []
+    expect(openQuestions.join(' ')).toMatch(/rubric_not_emitted/)
+    expect(openQuestions.join(' ')).toMatch(/impermissible_income_not_emitted/)
+  })
+
+  it('flags a g=0 credited-growth floor when growth inputs are ineligible (honest floor, valuation still computes)', async () => {
+    const { cp, analysisPayload } = await runOmitted({
+      // incremental_roic <= 10% eligibility threshold -> g floored to 0, but FV must still compute.
+      synthesis: { moat_class: 'wide', runway: 'proven', incremental_roic: 0.05, reinvestment_rate: 0.5 },
+      id: 'omit-g0',
+    })
+    expect(cp?.valuation?.growth_rate).toBe(0)
+    expect(cp?.valuation?.fair_value_per_share).toBeDefined()
+    const valuation = analysisPayload?.['valuation'] as Record<string, unknown>
+    const degraded = (valuation?.['degraded_flags'] as string[] | undefined) ?? []
+    expect(degraded.join(' ')).toMatch(/valuation_degraded:\s*credited_growth_floored_g0/)
+  })
+})
