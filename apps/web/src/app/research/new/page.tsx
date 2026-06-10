@@ -5,7 +5,7 @@ import { getOnboardingState } from '../../../lib/onboarding'
 import { ResearchIntakeForm } from './ResearchIntakeForm'
 
 const panelStyle: CSSProperties = {
-  background: 'rgba(255, 255, 255, 0.045)',
+  background: 'var(--owl-color-panel-elevated)',
   border: '1px solid rgba(148, 163, 184, 0.18)',
   borderRadius: '1.25rem',
   boxShadow: '0 20px 45px rgba(0, 0, 0, 0.18)',

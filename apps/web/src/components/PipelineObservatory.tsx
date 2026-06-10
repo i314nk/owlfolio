@@ -310,7 +310,7 @@ function RunsTable({ runs, selectedCaseId }: { runs: PipelineRun[]; selectedCase
             {
               key: run.research_case_id,
               ...(isSelected ? { 'aria-current': 'true' } : {}),
-              style: isSelected ? { background: 'rgba(214,178,94,0.07)' } : undefined,
+              style: isSelected ? { background: 'var(--owl-color-panel-elevated)' } : undefined,
             },
             createElement(
               'td',

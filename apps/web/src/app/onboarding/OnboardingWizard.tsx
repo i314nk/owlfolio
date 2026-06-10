@@ -16,7 +16,7 @@ type OnboardingWizardProps = {
 }
 
 const sectionStyle: CSSProperties = {
-  background: 'rgba(255, 255, 255, 0.035)',
+  background: 'var(--owl-color-panel-elevated)',
   border: '1px solid rgba(148, 163, 184, 0.18)',
   borderRadius: '1.25rem',
   boxShadow: '0 20px 45px rgba(0, 0, 0, 0.18)',
@@ -30,7 +30,7 @@ const cardGridStyle: CSSProperties = {
 }
 
 const connectionCardBaseStyle: CSSProperties = {
-  background: 'rgba(255, 255, 255, 0.035)',
+  background: 'var(--owl-color-panel)',
   border: '1px solid rgba(148, 163, 184, 0.24)',
   borderRadius: '1rem',
   color: '#f7f8ff',
@@ -50,7 +50,7 @@ const selectedConnectionCardStyle: CSSProperties = {
 
 const selectStyle: CSSProperties = {
   appearance: 'none',
-  background: '#0f172a',
+  background: 'var(--owl-color-panel-deep)',
   border: '1px solid rgba(124, 140, 255, 0.34)',
   borderRadius: '0.8rem',
   color: '#f7f8ff',

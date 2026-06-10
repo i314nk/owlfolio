@@ -83,7 +83,7 @@ const clearLinkStyle: CSSProperties = {
 }
 
 const activeFiltersStyle: CSSProperties = {
-  background: 'rgba(214, 178, 94, 0.09)',
+  background: 'var(--owl-color-panel)',
   border: '1px solid var(--owl-color-border)',
   borderRadius: '0.9rem',
   display: 'grid',
@@ -260,7 +260,7 @@ const caseGroupStyle: CSSProperties = {
 
 const caseGroupHeaderStyle: CSSProperties = {
   alignItems: 'center',
-  background: 'rgba(214, 178, 94, 0.06)',
+  background: 'var(--owl-color-panel)',
   borderBottom: '1px solid var(--owl-color-border)',
   cursor: 'pointer',
   display: 'flex',
@@ -293,7 +293,7 @@ const caseGroupBodyStyle: CSSProperties = {
 
 const otherGroupHeaderStyle: CSSProperties = {
   ...caseGroupHeaderStyle,
-  background: 'rgba(214, 178, 94, 0.02)',
+  background: 'var(--owl-color-panel)',
 }
 
 // Actor badge tones (gold-forward, no blue/purple)

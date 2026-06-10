@@ -41,7 +41,7 @@ const heroStyle = {
 }
 
 const cardStyle = {
-  background: 'rgba(255, 255, 255, 0.04)',
+  background: 'var(--owl-color-panel-elevated)',
   border: '1px solid rgba(148, 163, 184, 0.16)',
   borderRadius: '1rem',
   boxShadow: '0 18px 45px rgba(0, 0, 0, 0.16)',

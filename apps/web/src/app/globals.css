@@ -3,10 +3,11 @@
   --owl-color-canvas: #040804;
   --owl-color-canvas-soft: #070d08;
   --owl-color-shell: #0b120d;
-  /* Opaque panels — the arabesque atmosphere lives in the negative space, not bleeding through content boxes. */
-  --owl-color-panel: #0b0f0b;
-  --owl-color-panel-elevated: #12170f;
-  --owl-color-panel-deep: #050905;
+  /* Semi-opaque panels — the arabesque shows faintly THROUGH content/number boxes (less pronounced than the
+     full pattern in the negative space), while still reading as a distinct lifted surface. */
+  --owl-color-panel: rgba(19, 24, 17, 0.74);
+  --owl-color-panel-elevated: rgba(28, 34, 24, 0.77);
+  --owl-color-panel-deep: rgba(8, 12, 8, 0.82);
   --owl-color-border: rgba(182, 201, 173, 0.11);
   --owl-color-border-strong: rgba(52, 211, 153, 0.32);
   --owl-color-text: #fff8ea;
@@ -290,7 +291,7 @@ a:focus-visible {
 .owl-shell-context-bar,
 .owl-status-strip {
   align-items: center;
-  background: rgba(5, 8, 15, 0.74);
+  background: var(--owl-color-panel-deep);
   border: 1px solid var(--owl-color-border);
   border-radius: 999px;
   color: var(--owl-color-muted);
@@ -305,7 +306,7 @@ a:focus-visible {
 
 .owl-shell-context-chip {
   align-items: center;
-  background: rgba(255, 255, 255, 0.035);
+  background: var(--owl-color-panel-elevated);
   border: 1px solid rgba(148, 163, 184, 0.16);
   border-radius: 999px;
   display: inline-flex;
@@ -512,7 +513,7 @@ a:focus-visible {
 }
 
 .owl-nav-link {
-  background: rgba(255, 255, 255, 0.026);
+  background: var(--owl-color-panel);
   border: 1px solid var(--owl-color-border);
   border-radius: 999px;
   color: var(--owl-color-muted);
@@ -593,7 +594,7 @@ a:focus-visible {
 .owl-command-trigger {
   align-items: center;
   align-self: end;
-  background: rgba(255, 255, 255, 0.035);
+  background: var(--owl-color-panel-elevated);
   border: 1px solid var(--owl-color-border-strong);
   border-radius: 0.7rem;
   color: var(--owl-color-muted);
@@ -610,7 +611,7 @@ a:focus-visible {
 }
 
 .owl-command-key {
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--owl-color-panel-elevated);
   border: 1px solid var(--owl-color-border);
   border-radius: 999px;
   color: var(--owl-color-text);
@@ -663,7 +664,7 @@ a:focus-visible {
 }
 
 .owl-data-safety-metric {
-  background: rgba(255, 255, 255, 0.032);
+  background: var(--owl-color-panel-elevated);
   border: 1px solid var(--owl-color-border);
   border-radius: 0.85rem;
   display: grid;
@@ -694,7 +695,7 @@ a:focus-visible {
 }
 
 .owl-data-safety-list li {
-  background: rgba(255, 255, 255, 0.026);
+  background: var(--owl-color-panel);
   border: 1px solid var(--owl-color-border);
   border-radius: 0.85rem;
   display: grid;
@@ -782,7 +783,7 @@ a:focus-visible {
 
 .owl-command-status-summary {
   align-items: stretch;
-  background: rgba(8, 13, 10, 0.78);
+  background: var(--owl-color-panel-deep);
   border: 1px solid rgba(182, 201, 173, 0.14);
   border-radius: var(--owl-radius-card);
   color: var(--owl-color-muted);
@@ -794,7 +795,7 @@ a:focus-visible {
 
 .owl-command-status-summary-item {
   align-items: baseline;
-  background: rgba(243, 223, 177, 0.032);
+  background: var(--owl-color-panel);
   border: 1px solid rgba(182, 201, 173, 0.12);
   border-radius: var(--owl-radius-control);
   display: flex;
@@ -886,7 +887,7 @@ a:focus-visible {
 }
 
 .owl-command-launchpad-link {
-  background: rgba(5, 8, 15, 0.46);
+  background: var(--owl-color-panel);
   border: 1px solid rgba(148, 163, 184, 0.15);
   border-radius: 0.9rem;
   color: var(--owl-color-text);
@@ -970,7 +971,7 @@ a:focus-visible {
 }
 
 .owl-command-reference-module {
-  background: rgba(243, 223, 177, 0.024);
+  background: var(--owl-color-panel);
   border: 1px solid rgba(182, 201, 173, 0.14);
   border-radius: var(--owl-radius-card);
   box-shadow: inset 0 1px 0 rgba(243, 223, 177, 0.025);
@@ -1054,7 +1055,7 @@ a:focus-visible {
 .owl-empty-state {
   background:
     radial-gradient(circle at top left, rgba(22, 163, 74, 0.1), transparent 18rem),
-    rgba(243, 223, 177, 0.026);
+    var(--owl-color-panel);
   border: 1px dashed rgba(148, 163, 184, 0.24);
   border-radius: var(--owl-radius-panel);
   color: var(--owl-color-text);
@@ -1289,7 +1290,7 @@ a:focus-visible {
 }
 
 .owl-command-awareness-item {
-  background: rgba(255, 255, 255, 0.026);
+  background: var(--owl-color-panel);
   border: 1px solid rgba(148, 163, 184, 0.12);
   border-radius: 0.75rem;
   display: grid;
@@ -1315,7 +1316,7 @@ a:focus-visible {
 .owl-input,
 .owl-select,
 .owl-textarea {
-  background: rgba(255, 255, 255, 0.035);
+  background: var(--owl-color-panel-elevated);
   border: 1px solid var(--owl-color-border);
   border-radius: var(--owl-radius-control);
   color: var(--owl-color-text);
@@ -1362,7 +1363,7 @@ a:focus-visible {
 }
 
 .owl-workflow-panel {
-  background: rgba(255, 255, 255, 0.035);
+  background: var(--owl-color-panel);
   border: 1px solid rgba(148, 163, 184, 0.16);
   border-radius: 0.85rem;
   color: var(--owl-color-text);
@@ -1385,7 +1386,7 @@ a:focus-visible {
 }
 
 .owl-financial-table {
-  background: rgba(255, 255, 255, 0.035);
+  background: var(--owl-color-panel);
   border: 1px solid rgba(148, 163, 184, 0.16);
   border-radius: 0.85rem;
   color: var(--owl-color-text);
@@ -1418,7 +1419,7 @@ a:focus-visible {
 }
 
 .owl-action-form {
-  background: rgba(255, 255, 255, 0.035);
+  background: var(--owl-color-panel);
   border: 1px solid rgba(148, 163, 184, 0.16);
   border-radius: 0.85rem;
   color: var(--owl-color-text);
@@ -1660,7 +1661,7 @@ a:focus-visible {
 
 .owl-kpi-panel {
   align-items: center;
-  background: rgba(255, 255, 255, 0.035);
+  background: var(--owl-color-panel);
   border: 1px solid rgba(148, 163, 184, 0.16);
   border-radius: 1rem;
   display: flex;

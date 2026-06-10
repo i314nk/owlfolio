@@ -42,7 +42,7 @@ const cardStyle = {
 }
 
 const inputStyle = {
-  background: 'rgba(148, 163, 184, 0.08)',
+  background: 'var(--owl-color-panel-elevated)',
   border: '1px solid rgba(148, 163, 184, 0.24)',
   borderRadius: '0.65rem',
   color: '#f7f8ff',
@@ -67,7 +67,7 @@ const reviewActionShellStyle = {
 }
 
 const decisionQuickLinkStyle = {
-  background: 'rgba(148, 163, 184, 0.08)',
+  background: 'var(--owl-color-panel)',
   border: '1px solid rgba(148, 163, 184, 0.24)',
   borderRadius: '0.75rem',
   color: 'var(--owl-color-muted)',
@@ -180,7 +180,7 @@ function createPortfolioEmptyState() {
     ),
     createElement(
       'section',
-      { 'aria-label': 'Empty holdings table', style: { ...decisionPanelStyle, background: 'rgba(148, 163, 184, 0.08)', marginTop: '1rem' } },
+      { 'aria-label': 'Empty holdings table', style: { ...decisionPanelStyle, background: 'var(--owl-color-panel)', marginTop: '1rem' } },
       createElement('h3', { className: 'owl-section-title', style: { fontSize: 'var(--owl-text-base)' } }, 'Empty holdings table'),
       createDetail('Portfolio state', 'No portfolio events recorded'),
       createDetail('Provider sync', 'Provider sync not connected'),
@@ -348,7 +348,7 @@ function createReviewForm(holding: AppHolding) {
         {
           style: {
             ...reviewActionShellStyle,
-            background: 'rgba(148, 163, 184, 0.06)',
+            background: 'var(--owl-color-panel)',
             position: 'sticky',
             top: '0.85rem',
             zIndex: 10,
@@ -414,7 +414,7 @@ function createReviewForm(holding: AppHolding) {
         },
         createElement(
           'section',
-          { id: 'review-comparison-confirmed', style: { ...decisionPanelStyle, background: 'rgba(148, 163, 184, 0.08)' } },
+          { id: 'review-comparison-confirmed', style: { ...decisionPanelStyle, background: 'var(--owl-color-panel)' } },
           createElement('h4', { className: 'owl-section-title', style: { fontSize: 'var(--owl-text-base)' } }, 'Current confirmed thesis'),
           createElement('p', { className: 'owl-body', style: { margin: 0 } }, currentThesisCopy),
         ),

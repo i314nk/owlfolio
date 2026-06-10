@@ -391,7 +391,7 @@ function createApprovalQueueCard(item: AppCommandCenter['approval_queue'][number
     {
       key: item.id,
       style: {
-        background: 'rgba(5, 8, 15, 0.52)',
+        background: 'var(--owl-color-panel-elevated)',
         border: '1px solid rgba(52, 211, 153, 0.18)',
         borderRadius: '0.85rem',
         display: 'grid',
@@ -820,7 +820,7 @@ function createHoldingReviewSchedule(dashboard: AppCommandCenter) {
         {
           key: prompt.holding_id,
           style: {
-            background: prompt.status === 'due' ? 'rgba(239, 68, 68, 0.12)' : 'rgba(243, 223, 177, 0.035)',
+            background: prompt.status === 'due' ? 'rgba(239, 68, 68, 0.12)' : 'var(--owl-color-panel-elevated)',
             border: prompt.status === 'due' ? '1px solid rgba(239, 68, 68, 0.34)' : '1px solid var(--owl-color-border)',
             borderRadius: '0.85rem',
             padding: '1rem',

@@ -277,7 +277,7 @@ function createLotInput(
       required: true,
       type,
       style: {
-        background: 'rgba(148, 163, 184, 0.08)',
+        background: 'var(--owl-color-panel-elevated)',
         border: '1px solid rgba(148, 163, 184, 0.24)',
         borderRadius: '0.75rem',
         color: '#f7f8ff',

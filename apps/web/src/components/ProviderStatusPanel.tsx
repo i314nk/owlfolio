@@ -481,7 +481,7 @@ function renderStatusRows(statusRows: Array<ProviderStatusRow['status_rows'][num
 function statusRowStyle(status: ProviderStatusRow['status_rows'][number]): CSSProperties {
   const toneStyle: Record<string, Pick<CSSProperties, 'background' | 'border'>> = {
     danger: { background: 'rgba(248, 113, 113, 0.12)', border: '1px solid rgba(248, 113, 113, 0.34)' },
-    neutral: { background: 'rgba(148, 163, 184, 0.08)', border: '1px solid rgba(148, 163, 184, 0.16)' },
+    neutral: { background: 'var(--owl-color-panel-elevated)', border: '1px solid rgba(148, 163, 184, 0.16)' },
     success: { background: 'rgba(16, 185, 129, 0.1)', border: '1px solid rgba(16, 185, 129, 0.28)' },
     warning: { background: 'rgba(251, 191, 36, 0.1)', border: '1px solid rgba(251, 191, 36, 0.26)' },
   }
