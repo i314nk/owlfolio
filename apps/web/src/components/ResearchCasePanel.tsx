@@ -259,29 +259,6 @@ function createGatedDossier(researchCase: AppResearchCase) {
         { style: { color: 'var(--owl-color-quiet)', fontSize: 'var(--owl-text-sm)', margin: '0 0 1rem' } },
         'Evidence and the quick-screen assessment are recorded in the audit trail.',
       ),
-      // Re-run action
-      createElement(
-        'div',
-        null,
-        createElement(
-          'button',
-          {
-            type: 'button',
-            style: {
-              background: 'transparent',
-              border: '1px solid var(--owl-color-border)',
-              borderRadius: '0.6rem',
-              color: 'var(--owl-color-text)',
-              cursor: 'pointer',
-              font: 'inherit',
-              fontSize: 'var(--owl-text-base)',
-              fontWeight: 700,
-              padding: '0.55rem 1rem',
-            },
-          },
-          'Re-run research (new version)',
-        ),
-      ),
     ),
     // Still render evidence for audit trail visibility
     createEvidenceAndAuditDetails(researchCase),
@@ -556,6 +533,12 @@ function createVerdictSummaryText(researchCase: AppResearchCase): string {
   const shariah = researchCase.shariah_status
   const strategy = researchCase.strategy_compliance
 
+  const fullThesis = firstNonEmpty([
+    researchCase.thesis_summary,
+    researchCase.evidence_summary,
+    researchCase.reason,
+  ])
+
   if (verdict !== undefined) {
     const qualityContext = [
       strategy === undefined ? undefined : `strategy ${strategy}`,
@@ -567,14 +550,16 @@ function createVerdictSummaryText(researchCase: AppResearchCase): string {
     const valuationSentence = valuation === undefined
       ? 'Owner-earnings valuation should be handled in the deep-dive workstream when available.'
       : `Valuation status ${valuation} is tracked inside the deep-dive valuation workstream, not treated as a Quick Screen pass/fail gate.`
-    return `Verdict is a drafted strategy decision: ${verdict}. ${qualitySentence} ${valuationSentence}`
+    const statusText = `Verdict is a drafted strategy decision: ${verdict}. ${qualitySentence} ${valuationSentence}`
+    if (fullThesis !== undefined) {
+      const subject = researchCase.ticker ?? researchCase.company_id
+      const concise = createConciseDossierSummary(fullThesis, subject)
+      return `${concise} — ${statusText}`
+    }
+    return statusText
   }
 
-  return firstNonEmpty([
-    researchCase.evidence_summary,
-    researchCase.reason,
-    researchCase.thesis_summary,
-  ]) ?? 'This dossier is waiting for a source-backed investment reason.'
+  return fullThesis ?? 'This dossier is waiting for a source-backed investment reason.'
 }
 
 // ── Valuation panel ───────────────────────────────────────────────────────────
@@ -829,17 +814,18 @@ function createValuationPanel(researchCase: AppResearchCase, marketQuote?: Marke
       { style: { color: 'var(--owl-color-muted)', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-sm)', lineHeight: 1.4, margin: '0.2rem 0 0' } },
       roicGateLabel,
     ) : null,
-    // Metrics row: fair value, buy-below, discount, MoS, growth, and market/gap when available
+    // Metrics row: owner earnings/sh, fair value, buy-below, discount, MoS, and market/gap when available
     createElement(
       'div',
       {
         style: {
           display: 'grid',
           gap: '0.7rem',
-          gridTemplateColumns: marketQuote !== undefined ? 'repeat(5, 1fr)' : 'repeat(4, 1fr)',
+          gridTemplateColumns: marketQuote !== undefined ? 'repeat(6, 1fr)' : 'repeat(5, 1fr)',
           marginTop: '1rem',
         },
       },
+      createMetricCell('Owner earnings / sh', valuation.normalized_owner_earnings_per_share !== undefined ? `$${valuation.normalized_owner_earnings_per_share.toFixed(2)}` : 'Pending', false),
       createMetricCell('Fair value', fairValue !== undefined ? `$${fairValue.toFixed(2)}` : 'Pending', true),
       createMetricCell('Buy below', buyPrice !== undefined ? `$${buyPrice}` : 'Pending', true),
       createMetricCell('Discount', discountLabel, false),
@@ -1888,28 +1874,7 @@ function createWatchlistPromotionAction(researchCaseId: string) {
 }
 
 function createActionsRow() {
-  return createElement(
-    'div',
-    { style: { display: 'flex', gap: '0.6rem', flexWrap: 'wrap' } },
-    createElement(
-      'button',
-      {
-        type: 'button',
-        style: {
-          background: 'transparent',
-          border: '1px solid var(--owl-color-border)',
-          borderRadius: '0.6rem',
-          color: 'var(--owl-color-text)',
-          cursor: 'pointer',
-          font: 'inherit',
-          fontSize: 'var(--owl-text-base)',
-          fontWeight: 700,
-          padding: '0.55rem 1rem',
-        },
-      },
-      'Re-run research (new version)',
-    ),
-  )
+  return null
 }
 
 // ── Chip helpers ──────────────────────────────────────────────────────────────

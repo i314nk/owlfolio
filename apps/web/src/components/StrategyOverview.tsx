@@ -216,11 +216,6 @@ function LaneGrid(): ReactNode {
         createElement('p', { style: { ...monoLabel, color: 'var(--owl-color-gold)' } }, card.lane),
         createElement('h3', { style: { fontSize: 'var(--owl-text-base)', fontWeight: 800, color: 'var(--owl-color-gold-bright)', margin: 0 } }, card.name),
         createElement('p', { style: { ...bodyStyle, fontSize: 'var(--owl-text-base)', margin: 0 } }, card.assesses),
-        createElement(
-          'p',
-          { style: { fontSize: 'var(--owl-text-xs)', color: 'var(--owl-color-quiet)', margin: 0 } },
-          'Runs as its own grounded agent — every claim cited to a harness-captured source.',
-        ),
       ),
     ),
   )
@@ -315,7 +310,7 @@ export function StrategyOverview(): ReactNode {
       eyebrow: 'The deep-dive swarm',
       title: `The specialist swarm — ${buffettMungerDeepDiveLanes.length} grounded lanes`,
       lead:
-        'The deep dive is swarm-only by design: holding the whole framework in one model call degrades quality, so each dimension runs as its own focused, grounded agent in parallel. Every lane gathers its own sources, and every cited source is fetched and content-hashed by the harness — not trusted from the model.',
+        'The deep dive is swarm-only by design: holding the whole framework in one model call degrades quality, so each dimension runs as its own focused, grounded agent in parallel. Every lane gathers its own sources, and every cited source is fetched and content-hashed by the harness — not trusted from the model. Each lane runs as its own grounded agent — every claim cited to a harness-captured source.',
       children: LaneGrid(),
     }),
 
@@ -441,7 +436,8 @@ export function StrategyOverview(): ReactNode {
         createElement('span', { style: goldText }, pct(TARGET_MONOPOLY)),
         `, each ≤ the ${pct(MAX_POSITION_WEIGHT)} max, across ~${MAX_POSITIONS} names), and entry is laddered across three price tranches. `,
         createElement('span', { style: goldText }, 'Sizing is capital-driven and advisory: it uses the investable capital you set, and you author the buys — the worker never trades.'),
-        ' The target weight is an entry cap — winners run, never force-trimmed. T2/T3 are thesis-gated: deploy only if the thesis still holds (tied to the thesis-review escalation), never mechanical averaging-down.',
+        ' The target weight is an entry cap — winners run, never force-trimmed. T2/T3 are thesis-gated: deploy only if the thesis still holds (tied to the thesis-review escalation), never mechanical averaging-down. ',
+        createElement('span', { style: { color: 'var(--owl-color-quiet)', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-xs)' } }, `Example: on a $10,000 target position at the T1 buy price, T1 = $${Math.round(TRANCHES[0]?.fraction !== undefined ? 10000 * TRANCHES[0].fraction : 3333)} · T2 = $${Math.round(TRANCHES[1]?.fraction !== undefined ? 10000 * TRANCHES[1].fraction : 3333)} · T3 = $${Math.round(TRANCHES[2]?.fraction !== undefined ? 10000 * TRANCHES[2].fraction : 3334)}.`),
       ),
       children: createElement(
         'div',
@@ -470,11 +466,9 @@ export function StrategyOverview(): ReactNode {
       eyebrow: 'Honest boundaries',
       title: 'What this is — and is not',
       children: createElement(
-        'ul',
-        { style: { ...bodyStyle, margin: 0, paddingLeft: '1.1rem', display: 'flex', flexDirection: 'column', gap: '0.35rem' } },
-        createElement('li', null, 'Experimental until certified — automated output is a draft or observation, never a recommendation to act.'),
-        createElement('li', null, 'Every irreversible transition — watchlist confirmation, opening a holding, Shariah overrides — is human-authored and recorded in the local ledger.'),
-        createElement('li', null, 'Shariah screens are local accounting/research aids, not professional legal, tax, or Shariah rulings.'),
+        'p',
+        { style: bodyStyle },
+        'Automated output is a draft or observation — never a recommendation to act. Every irreversible transition is human-authored and recorded in the local ledger.',
       ),
     }),
   )

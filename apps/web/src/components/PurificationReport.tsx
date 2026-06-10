@@ -40,7 +40,6 @@ export function PurificationReport({ report }: PurificationReportProps) {
     }),
     createPurificationOperationsCockpit(report),
     createPurificationKpiRow(report.summary_cards),
-    createPurificationTrustNotice(),
     createSummaryCards(report.summary_cards),
     createObligations(report.obligations),
     createEvidenceChecklist(report.obligations, report.payments),
@@ -115,8 +114,14 @@ function createPurificationOperationsCockpit(report: AppPurificationReport) {
   return createElement(
     'section',
     { 'aria-label': 'Purification operations cockpit', style: { ...cardStyle, background: 'var(--owl-color-panel-deep)', borderColor: 'rgba(20, 184, 166, 0.34)' } },
-    createElement('h2', { className: 'owl-section-title' }, 'Purification operations cockpit'),
-    createElement('p', { style: { color: 'var(--owl-color-muted)', margin: '0.45rem 0 0' } }, 'Quarterly calculations can surface obligations automatically from Shariah and accounting evidence; only the user records external charity payments.'),
+    createElement(
+      'div',
+      { style: { alignItems: 'center', display: 'flex', flexWrap: 'wrap', gap: '0.6rem', marginBottom: '0.6rem' } },
+      createElement('h2', { className: 'owl-section-title', style: { margin: 0 } }, 'Purification operations cockpit'),
+      createElement(StatusBadge, { tone: 'compliance' }, 'Tracking aid, not a ruling or payment service'),
+      createElement(StatusBadge, { tone: 'manual' }, 'Manual payment status'),
+    ),
+    createElement('p', { style: { color: 'var(--owl-color-muted)', margin: '0 0 0.45rem' } }, 'Quarterly calculations can surface obligations automatically from Shariah and accounting evidence; only the user records external charity payments.'),
     createElement(
       'div',
       { style: { display: 'grid', gap: '0.75rem', gridTemplateColumns: 'repeat(auto-fit, minmax(15rem, 1fr))', marginTop: '1rem' } },
@@ -151,24 +156,6 @@ function createPurificationLearnPanel(limitations: string[]) {
   )
 }
 
-function createPurificationTrustNotice() {
-  return createElement(
-    'section',
-    { 'aria-label': 'Purification trust boundary', style: { ...cardStyle, background: 'rgba(20, 184, 166, 0.08)', borderColor: 'rgba(94, 234, 212, 0.26)' } },
-    createElement(
-      'div',
-      { style: { alignItems: 'center', display: 'flex', flexWrap: 'wrap', gap: '0.6rem', marginBottom: '0.7rem' } },
-      createElement('h2', { className: 'owl-section-title' }, 'Tracking aid, not a ruling or payment service'),
-      createElement(StatusBadge, { tone: 'compliance' }, 'Shariah-by-design'),
-      createElement(StatusBadge, { tone: 'manual' }, 'Manual payment status'),
-    ),
-    createElement(
-      'p',
-      { style: { color: 'var(--owl-color-muted)', lineHeight: 1.55, margin: 0 } },
-      'Purification data is an auditable local tracking aid. It does not replace a qualified Shariah ruling, legal/tax advice, a broker statement, or an external charity payment receipt.',
-    ),
-  )
-}
 
 function createSummaryCards(cards: PurificationSummaryCard[]) {
   return createElement(
@@ -218,7 +205,7 @@ function createObligations(obligations: PurificationObligationProjection[]) {
         { style: { color: 'var(--owl-color-muted)', display: 'grid', gap: '0.5rem' } },
         createElement('p', { style: { margin: 0 } }, 'No obligations are present yet.'),
         createElement('p', { style: { margin: 0 } }, 'Payment action appears only after an obligation exists and the user has an external payment to record.'),
-        createElement('p', { style: { color: 'var(--owl-color-muted)', margin: 0 } }, 'Audit/source links preview: obligation evidence, accounting snapshots, and policy sources will be linked here.'),
+        createElement('p', { style: { color: 'var(--owl-color-muted)', margin: 0, fontSize: 'var(--owl-text-sm)' } }, 'Once obligations exist, Shariah policy evidence, accounting snapshots, and calculation basis will appear here.'),
       )
       : createElement(
         'div',
@@ -321,10 +308,11 @@ function createPayments(payments: PurificationPaymentProjection[], obligationCou
 }
 
 function obligationCard(obligation: PurificationObligationProjection) {
+  const holdingLabel = obligation.ticker ?? obligation.holding_id
   return createElement(
     'article',
     { style: { border: '1px solid rgba(148, 163, 184, 0.16)', borderRadius: '0.85rem', padding: '1rem' } },
-    createElement('h3', { className: 'owl-section-title', style: { fontSize: 'var(--owl-text-md)', margin: '0 0 0.5rem' } }, obligation.holding_id),
+    createElement('h3', { className: 'owl-section-title', style: { fontSize: 'var(--owl-text-md)', margin: '0 0 0.5rem' } }, holdingLabel),
     createElement('p', { style: { color: 'var(--owl-color-muted)', margin: '0.25rem 0' } }, `Period: ${obligation.period_start} → ${obligation.period_end}`),
     createElement('p', { style: { color: 'var(--owl-color-muted)', margin: '0.25rem 0' } }, `Status: ${obligation.status}`),
     createElement('p', { style: { color: 'var(--owl-color-muted)', margin: '0.25rem 0' } }, `Owed: ${formatMoney(obligation.amount, obligation.currency)}; paid: ${formatMoney(obligation.paid_amount, obligation.currency)}; remaining: ${formatMoney(obligation.remaining_amount, obligation.currency)}`),
@@ -344,7 +332,14 @@ function obligationCard(obligation: PurificationObligationProjection) {
       ? null
       : createElement('p', { style: { color: 'var(--owl-color-muted)', margin: '0.25rem 0' } }, `Impurity rate: ${formatPercent(obligation.impurity_rate)}`),
     createElement('p', { style: { color: 'var(--owl-color-muted)', fontWeight: 800, margin: '0.25rem 0' } }, 'Payment action: record only after the user confirms an external payment'),
-    createElement('p', { style: { color: 'var(--owl-color-muted)', margin: '0.25rem 0 0' } }, `Audit/source links preview: ${obligation.audit_source_ids.join(', ') || 'none linked'}`),
+    obligation.audit_source_ids.length === 0
+      ? createElement('p', { style: { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-sm)', margin: '0.5rem 0 0' } }, 'Audit/source links preview: no sources linked yet')
+      : createElement(
+        'div',
+        { style: { display: 'flex', flexWrap: 'wrap', gap: '0.4rem', marginTop: '0.5rem' } },
+        createElement('span', { style: { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-sm)', fontWeight: 700 } }, 'Audit/source links preview:'),
+        ...obligation.audit_source_ids.map((id) => createElement(SourceChip, { id, key: id, label: 'Audit source' })),
+      ),
   )
 }
 

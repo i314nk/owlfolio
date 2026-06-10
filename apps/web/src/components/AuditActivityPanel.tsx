@@ -1,6 +1,12 @@
 import { createElement, type CSSProperties } from 'react'
 
-import { deriveAuditActivityView, type AuditActivityEvent, type AuditActivityFilters } from '../lib/audit'
+import {
+  deriveAuditActivityView,
+  type ActorCategory,
+  type AuditActivityEvent,
+  type AuditActivityFilters,
+  type AuditCaseGroup,
+} from '../lib/audit'
 import type { WorkflowMode } from '../lib/workflow'
 import { OwlKpiStat, RouteHeader } from './designSystem'
 
@@ -245,6 +251,120 @@ const emptyStateStyle: CSSProperties = {
   padding: '1rem',
 }
 
+const caseGroupStyle: CSSProperties = {
+  border: '1px solid var(--owl-color-border)',
+  borderRadius: 'var(--owl-radius-card)',
+  marginBottom: '1rem',
+  overflow: 'hidden',
+}
+
+const caseGroupHeaderStyle: CSSProperties = {
+  alignItems: 'center',
+  background: 'rgba(214, 178, 94, 0.06)',
+  borderBottom: '1px solid var(--owl-color-border)',
+  cursor: 'pointer',
+  display: 'flex',
+  flexWrap: 'wrap',
+  gap: '0.65rem',
+  justifyContent: 'space-between',
+  padding: '0.75rem 1rem',
+}
+
+const caseGroupTitleStyle: CSSProperties = {
+  color: 'var(--owl-color-gold)',
+  fontSize: 'var(--owl-text-base)',
+  fontWeight: 900,
+  margin: 0,
+}
+
+const caseGroupMetaStyle: CSSProperties = {
+  color: 'var(--owl-color-muted)',
+  fontSize: 'var(--owl-text-sm)',
+  fontWeight: 700,
+}
+
+const caseGroupBodyStyle: CSSProperties = {
+  display: 'grid',
+  gap: '0.65rem',
+  listStyle: 'none',
+  margin: 0,
+  padding: '0.75rem 1rem',
+}
+
+const otherGroupHeaderStyle: CSSProperties = {
+  ...caseGroupHeaderStyle,
+  background: 'rgba(214, 178, 94, 0.02)',
+}
+
+// Actor badge tones (gold-forward, no blue/purple)
+const ACTOR_BADGE_STYLES: Record<ActorCategory, CSSProperties> = {
+  user: {
+    background: 'rgba(214, 178, 94, 0.18)',
+    border: '1px solid rgba(214, 178, 94, 0.38)',
+    borderRadius: '999px',
+    color: 'var(--owl-color-gold)',
+    fontSize: 'var(--owl-text-sm)',
+    fontWeight: 900,
+    padding: '0.18rem 0.5rem',
+    textTransform: 'uppercase',
+    letterSpacing: '0.05em',
+  },
+  provider: {
+    background: 'rgba(214, 178, 94, 0.08)',
+    border: '1px solid rgba(214, 178, 94, 0.22)',
+    borderRadius: '999px',
+    color: 'var(--owl-color-gold-bright)',
+    fontSize: 'var(--owl-text-sm)',
+    fontWeight: 900,
+    padding: '0.18rem 0.5rem',
+    textTransform: 'uppercase',
+    letterSpacing: '0.05em',
+  },
+  worker: {
+    background: 'rgba(120, 100, 60, 0.12)',
+    border: '1px solid rgba(140, 120, 70, 0.28)',
+    borderRadius: '999px',
+    color: 'var(--owl-color-muted)',
+    fontSize: 'var(--owl-text-sm)',
+    fontWeight: 900,
+    padding: '0.18rem 0.5rem',
+    textTransform: 'uppercase',
+    letterSpacing: '0.05em',
+  },
+  system: {
+    background: 'rgba(80, 80, 80, 0.10)',
+    border: '1px solid rgba(120, 120, 120, 0.22)',
+    borderRadius: '999px',
+    color: 'var(--owl-color-quiet)',
+    fontSize: 'var(--owl-text-sm)',
+    fontWeight: 900,
+    padding: '0.18rem 0.5rem',
+    textTransform: 'uppercase',
+    letterSpacing: '0.05em',
+  },
+}
+
+const dossierLinkStyle: CSSProperties = {
+  color: 'var(--owl-color-gold)',
+  fontSize: 'var(--owl-text-sm)',
+  fontWeight: 900,
+  textDecoration: 'none',
+  whiteSpace: 'nowrap',
+}
+
+const advancedToggleStyle: CSSProperties = {
+  borderTop: '1px solid var(--owl-color-border)',
+  marginTop: '0.5rem',
+  paddingTop: '0.5rem',
+}
+
+const advancedSummaryStyle: CSSProperties = {
+  color: 'var(--owl-color-muted)',
+  cursor: 'pointer',
+  fontSize: 'var(--owl-text-sm)',
+  fontWeight: 800,
+}
+
 type AuditActivityPanelProps = {
   events: AuditActivityEvent[]
   filters?: AuditActivityFilters
@@ -271,11 +391,68 @@ export function AuditActivityPanel({ events, filters = {}, mode }: AuditActivity
     createElement('p', { style: resultCountStyle }, `${view.events.length} of ${events.length} ledger events shown`),
     view.events.length === 0
       ? createElement('p', { style: emptyStateStyle }, events.length === 0 ? 'No ledger events recorded yet.' : 'No ledger events match the current filters.')
-      : createElement(
-        'ol',
-        { style: listStyle },
-        ...view.events.map((event) => createElement(AuditActivityRow, { event, key: event.event_id })),
+      : createElement(AuditGroupedView, { caseGroups: view.caseGroups, ungroupedEvents: view.ungroupedEvents }),
+  )
+}
+
+function AuditGroupedView({ caseGroups, ungroupedEvents }: {
+  caseGroups: AuditCaseGroup[]
+  ungroupedEvents: AuditActivityEvent[]
+}) {
+  const hasCaseGroups = caseGroups.length > 0
+  const hasUngrouped = ungroupedEvents.length > 0
+
+  if (!hasCaseGroups && !hasUngrouped) {
+    return null
+  }
+
+  return createElement(
+    'div',
+    null,
+    ...caseGroups.map((group) => createElement(AuditCaseGroupSection, { group, key: group.correlation_id })),
+    hasUngrouped ? createElement(AuditOtherGroupSection, { events: ungroupedEvents }) : null,
+  )
+}
+
+function AuditCaseGroupSection({ group }: { group: AuditCaseGroup }) {
+  const dateStr = group.earliest_date.slice(0, 10)
+  return createElement(
+    'details',
+    { open: true, style: caseGroupStyle },
+    createElement(
+      'summary',
+      { style: caseGroupHeaderStyle },
+      createElement(
+        'div',
+        { style: { display: 'flex', gap: '0.55rem', alignItems: 'baseline', flexWrap: 'wrap' as const } },
+        createElement('h3', { style: caseGroupTitleStyle }, group.ticker),
+        createElement('span', { style: caseGroupMetaStyle }, `${group.event_count} events · ${dateStr}`),
       ),
+      createElement('span', { style: { ...caseGroupMetaStyle, fontSize: 'var(--owl-text-2xs)', fontFamily: 'var(--owl-font-mono)' } }, group.correlation_id),
+    ),
+    createElement(
+      'ol',
+      { style: caseGroupBodyStyle },
+      ...group.events.map((event) => createElement(AuditActivityRow, { event, key: event.event_id })),
+    ),
+  )
+}
+
+function AuditOtherGroupSection({ events }: { events: AuditActivityEvent[] }) {
+  return createElement(
+    'details',
+    { open: true, style: caseGroupStyle },
+    createElement(
+      'summary',
+      { style: otherGroupHeaderStyle },
+      createElement('h3', { style: { ...caseGroupTitleStyle, color: 'var(--owl-color-muted)' } }, 'Other / system'),
+      createElement('span', { style: caseGroupMetaStyle }, `${events.length} events`),
+    ),
+    createElement(
+      'ol',
+      { style: caseGroupBodyStyle },
+      ...events.map((event) => createElement(AuditActivityRow, { event, key: event.event_id })),
+    ),
   )
 }
 
@@ -284,7 +461,6 @@ function AuditActivityKpiRow({ events, filterOptions }: {
   filterOptions: ReturnType<typeof deriveAuditActivityView>['filterOptions']
 }) {
   const hasEvents = events.length > 0
-  const sourcedCount = events.filter((event) => event.source_count > 0).length
 
   return createElement(
     'section',
@@ -316,15 +492,6 @@ function AuditActivityKpiRow({ events, filterOptions }: {
         tone: 'gold',
       }),
     ),
-    createElement(
-      'div',
-      { className: 'owl-kpi-panel' },
-      createElement(OwlKpiStat, {
-        label: 'Sourced events',
-        value: hasEvents ? `${sourcedCount}/${events.length}` : '—',
-        tone: 'emerald',
-      }),
-    ),
   )
 }
 
@@ -342,10 +509,15 @@ function AuditActivityFiltersForm({ filters, filterOptions }: {
     filterInput('Source ID', 'source_id', filters.sourceId ?? '', 'src_ or evt_...'),
     filterSelect('Raw event type', 'event_type', filters.eventType ?? '', filterOptions.eventTypes, 'All event types'),
     filterSelect('Actor', 'actor', filters.actor ?? '', filterOptions.actors, 'All actors'),
-    filterSelect('Schema version', 'schema_version', filters.schemaVersion ?? '', filterOptions.schemaVersions, 'All schema versions'),
     filterInput('Date from', 'date_from', filters.dateFrom ?? '', 'YYYY-MM-DD', 'date'),
     filterInput('Date to', 'date_to', filters.dateTo ?? '', 'YYYY-MM-DD', 'date'),
     filterSelect('Time ordering', 'time_order', filters.timeOrder ?? 'asc', ['asc', 'desc'], 'Ascending'),
+    createElement(
+      'details',
+      { style: advancedToggleStyle },
+      createElement('summary', { style: advancedSummaryStyle }, 'Advanced'),
+      filterSelect('Schema version', 'schema_version', filters.schemaVersion ?? '', filterOptions.schemaVersions, 'All schema versions'),
+    ),
     createElement(
       'div',
       { style: filterActionsStyle },
@@ -372,6 +544,11 @@ function ActiveAuditFilters({ activeFilters }: { activeFilters: string[] }) {
   )
 }
 
+function ActorBadge({ category, label }: { category: ActorCategory; label: string }) {
+  const badgeStyle = ACTOR_BADGE_STYLES[category] ?? ACTOR_BADGE_STYLES.system
+  return createElement('span', { style: badgeStyle, title: label }, category)
+}
+
 function AuditActivityRow({ event }: { event: AuditActivityEvent }) {
   return createElement(
     'li',
@@ -383,10 +560,24 @@ function AuditActivityRow({ event }: { event: AuditActivityEvent }) {
     createElement(
       'div',
       { style: rowHeaderStyle },
-      createElement('h2', { style: eventSummaryStyle }, event.event_summary),
-      createElement('time', { dateTime: event.created_at, style: timestampStyle }, event.created_at),
+      createElement(
+        'div',
+        { style: { display: 'flex', gap: '0.5rem', alignItems: 'baseline', flexWrap: 'wrap' as const } },
+        createElement('h2', { style: eventSummaryStyle }, event.event_summary),
+        createElement(ActorBadge, { category: event.actor_category, label: event.actor_label }),
+      ),
+      createElement(
+        'div',
+        { style: { display: 'flex', gap: '0.65rem', alignItems: 'baseline', flexWrap: 'wrap' as const } },
+        event.research_case_id !== undefined
+          ? createElement('a', { href: `/research/${event.research_case_id}`, style: dossierLinkStyle }, 'Open dossier →')
+          : null,
+        createElement('time', { dateTime: event.created_at, style: timestampStyle }, event.created_at_display),
+      ),
     ),
-    createElement('p', { style: contextStyle }, event.context_explanation),
+    event.context_explanation.length > 0
+      ? createElement('p', { style: contextStyle }, event.context_explanation)
+      : null,
     createElement(
       'dl',
       { style: detailListStyle },
@@ -416,25 +607,10 @@ function AuditEventEvidence({ event }: { event: AuditActivityEvent }) {
       { 'aria-label': 'Audit copy kit', style: copyKitStyle },
       createElement('p', { style: { ...detailTermStyle, margin: 0 } }, 'Audit copy kit'),
       copyableValue('Copyable event ID', `Copyable event ID ${event.event_id}`, event.event_id),
-      event.correlation_id === undefined ? null : copyableValue('Copyable correlation ID', `Copyable correlation ID ${event.correlation_id}`, event.correlation_id),
+      event.causation_id !== undefined ? copyableValue('Copyable causation ID', `Copyable causation ID ${event.causation_id}`, event.causation_id) : null,
       ...event.source_ids.map((sourceId) => copyableValue('Copyable source ID', `Copyable source ID ${sourceId}`, sourceId)),
     ),
     event.causation_id === undefined ? null : createElement(RelationshipLine, { label: 'Caused by', relationshipId: event.causation_id }),
-    event.correlation_id === undefined ? null : detail('Correlation ID', event.correlation_id),
-    event.source_ids.length === 0 ? null : createElement(
-      'div',
-      null,
-      createElement('p', { style: detailTermStyle }, 'Source event links'),
-      createElement(
-        'ul',
-        { style: lineageListStyle },
-        ...event.source_ids.map((sourceId) => createElement(
-          'li',
-          { key: sourceId },
-          createElement('a', { href: auditFilterHref('source_id', sourceId), style: clearLinkStyle }, sourceId),
-        )),
-      ),
-    ),
     event.before_json === undefined || event.after_json === undefined ? null : createElement(
       'div',
       { style: { display: 'grid', gap: '0.75rem', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', marginTop: '0.75rem' } },

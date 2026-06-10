@@ -1,6 +1,8 @@
 import type { LedgerEventEnvelope } from '@owlfolio/ledger/eventEnvelope'
 import type { EventStore } from '@owlfolio/ledger/eventStore'
 
+export type ActorCategory = 'user' | 'provider' | 'worker' | 'system'
+
 export type AuditActivityEvent = {
   event_id: string
   event_type: string
@@ -10,11 +12,14 @@ export type AuditActivityEvent = {
   aggregate_label: string
   entity_label: string
   actor_label: string
+  actor_category: ActorCategory
   created_at: string
+  created_at_display: string
   source_count: number
   source_ids: string[]
   causation_id?: string
   correlation_id?: string
+  research_case_id?: string
   schema_version: number
   raw_event_json: string
   context_explanation: string
@@ -43,9 +48,19 @@ export type AuditActivityFilterOptions = {
   schemaVersions: string[]
 }
 
+export type AuditCaseGroup = {
+  correlation_id: string
+  ticker: string
+  earliest_date: string
+  event_count: number
+  events: AuditActivityEvent[]
+}
+
 export type AuditActivityView = {
   activeFilters: string[]
   events: AuditActivityEvent[]
+  caseGroups: AuditCaseGroup[]
+  ungroupedEvents: AuditActivityEvent[]
   filterOptions: AuditActivityFilterOptions
 }
 
@@ -59,21 +74,25 @@ export function projectAuditActivityEvents(events: LedgerEventEnvelope<unknown>[
       const aggregateLabel = `${event.aggregate_type} / ${event.aggregate_id}`
       const entityLabel = entityLabelFor(event)
       const beforeAfter = beforeAfterPayload(event.payload)
+      const researchCaseId = extractResearchCaseId(event)
 
       return {
         event_id: event.event_id,
         event_type: event.event_type,
-        event_summary: `${humanizeEventType(event.event_type)} for ${entityLabel} on ${aggregateLabel}`,
+        event_summary: auditSummarizeEvent(event, entityLabel, aggregateLabel),
         aggregate_type: event.aggregate_type,
         aggregate_id: event.aggregate_id,
         aggregate_label: aggregateLabel,
         entity_label: entityLabel,
         actor_label: actorLabel(event),
+        actor_category: event.actor_type as ActorCategory,
         created_at: event.created_at,
+        created_at_display: formatDisplayTimestamp(event.created_at),
         source_count: event.source_ids.length,
         source_ids: [...event.source_ids],
         ...(event.causation_id === undefined ? {} : { causation_id: event.causation_id }),
         ...(event.correlation_id === undefined ? {} : { correlation_id: event.correlation_id }),
+        ...(researchCaseId === undefined ? {} : { research_case_id: researchCaseId }),
         schema_version: event.schema_version,
         raw_event_json: JSON.stringify(event, null, 2),
         context_explanation: contextExplanation(event, beforeAfter),
@@ -118,7 +137,53 @@ export function deriveAuditActivityView(
     .filter((event) => query === undefined || matchesSearch(event, query))
     .sort(filters.timeOrder === 'desc' ? compareAuditEventsDesc : compareAuditEventsAsc)
 
-  return { activeFilters: activeFilterLabels(filters), events: filteredEvents, filterOptions }
+  const { caseGroups, ungroupedEvents } = groupEventsByCorrelation(filteredEvents)
+
+  return { activeFilters: activeFilterLabels(filters), events: filteredEvents, caseGroups, ungroupedEvents, filterOptions }
+}
+
+export function groupEventsByCorrelation(events: AuditActivityEvent[]): {
+  caseGroups: AuditCaseGroup[]
+  ungroupedEvents: AuditActivityEvent[]
+} {
+  const groupMap = new Map<string, AuditActivityEvent[]>()
+  const ungrouped: AuditActivityEvent[] = []
+
+  for (const event of events) {
+    const key = event.correlation_id
+    if (key === undefined) {
+      ungrouped.push(event)
+    } else {
+      const existing = groupMap.get(key)
+      if (existing === undefined) {
+        groupMap.set(key, [event])
+      } else {
+        existing.push(event)
+      }
+    }
+  }
+
+  const caseGroups: AuditCaseGroup[] = []
+  for (const [correlationId, groupEvents] of groupMap.entries()) {
+    const ticker = groupEvents.find((e) => e.entity_label !== e.aggregate_id)?.entity_label
+      ?? groupEvents[0]?.entity_label
+      ?? correlationId
+    const earliest_date = groupEvents.reduce(
+      (min, e) => (e.created_at < min ? e.created_at : min),
+      groupEvents[0]?.created_at ?? '',
+    )
+    caseGroups.push({
+      correlation_id: correlationId,
+      ticker,
+      earliest_date,
+      event_count: groupEvents.length,
+      events: groupEvents,
+    })
+  }
+
+  caseGroups.sort((a, b) => a.earliest_date.localeCompare(b.earliest_date) || a.correlation_id.localeCompare(b.correlation_id))
+
+  return { caseGroups, ungroupedEvents: ungrouped }
 }
 
 function activeFilterLabels(filters: AuditActivityFilters): string[] {
@@ -230,7 +295,7 @@ function contextExplanation(
     return `Causal chain: ${causalLinks.join('; ')}.`
   }
 
-  return 'No before/after payload or causal links are present; the raw ledger event remains available for auditability.'
+  return ''
 }
 
 function matchesSearch(event: AuditActivityEvent, searchValue: string): boolean {
@@ -265,4 +330,86 @@ function uniqueSorted(values: string[]): string[] {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
+}
+
+function extractResearchCaseId(event: LedgerEventEnvelope<unknown>): string | undefined {
+  if (event.aggregate_type === 'research_case') {
+    return event.aggregate_id
+  }
+
+  return payloadString(event.payload, ['research_case_id'])
+}
+
+function formatDisplayTimestamp(isoString: string): string {
+  try {
+    return new Intl.DateTimeFormat('en-US', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(isoString))
+  } catch {
+    return isoString
+  }
+}
+
+function auditSummarizeEvent(event: LedgerEventEnvelope<unknown>, entityLabel: string, aggregateLabel: string): string {
+  const payload = isRecord(event.payload) ? event.payload : undefined
+
+  if (event.event_type === 'buffett_munger_analysis_drafted' && payload !== undefined) {
+    const verdict = typeof payload.investment_verdict === 'string' ? payload.investment_verdict : undefined
+    const compliance = typeof payload.strategy_compliance === 'string' ? payload.strategy_compliance : undefined
+    const shariah = typeof payload.shariah_status === 'string' ? payload.shariah_status : undefined
+    if (verdict !== undefined || compliance !== undefined || shariah !== undefined) {
+      const parts = [verdict, compliance, shariah !== undefined ? `Shariah ${shariah}` : undefined].filter(Boolean)
+      return `Buffett-Munger analysis: ${parts.join(' / ')} for ${entityLabel}`
+    }
+  }
+
+  if (event.event_type === 'strategy_decision_drafted' && payload !== undefined) {
+    const decision = typeof payload.decision === 'string' ? payload.decision : undefined
+    if (decision !== undefined) {
+      return `Strategy decision drafted: ${decision} for ${entityLabel}`
+    }
+  }
+
+  if (event.event_type === 'decision_drafted' && payload !== undefined) {
+    const decision = typeof payload.decision === 'string' ? payload.decision : undefined
+    if (decision !== undefined) {
+      return `Drafted ${decision} decision for ${entityLabel}`
+    }
+  }
+
+  if (event.event_type === 'specialist_finding_recorded' && payload !== undefined) {
+    const lane = typeof payload.specialist_lane === 'string' ? payload.specialist_lane : undefined
+    if (lane !== undefined) {
+      return `Specialist finding recorded: ${lane} for ${entityLabel}`
+    }
+  }
+
+  if (event.event_type === 'quick_screen_drafted' && payload !== undefined) {
+    const result = typeof payload.screening_result === 'string' ? payload.screening_result : undefined
+    if (result !== undefined) {
+      return `Quick screen drafted: ${result} for ${entityLabel}`
+    }
+  }
+
+  if (event.event_type === 'deep_dive_started' && payload !== undefined) {
+    const lanes = Array.isArray(payload.specialist_lanes) ? (payload.specialist_lanes as unknown[]).filter((l): l is string => typeof l === 'string') : []
+    if (lanes.length > 0) {
+      return `Deep dive started for ${lanes.length} ${lanes.length === 1 ? 'specialist' : 'specialists'} (${entityLabel})`
+    }
+  }
+
+  if (event.event_type === 'watchlist_draft_created' && payload !== undefined) {
+    return `Watchlist draft created for ${entityLabel}`
+  }
+
+  if (event.event_type === 'research_case_created') {
+    if (payload !== undefined) {
+      const strategyId = typeof payload.strategy_id === 'string' ? payload.strategy_id : undefined
+      const strategyVersion = typeof payload.strategy_version === 'string' ? payload.strategy_version : undefined
+      if (strategyId !== undefined && strategyVersion !== undefined) {
+        return `Research case created for ${entityLabel} using strategy ${strategyId}@${strategyVersion}`
+      }
+    }
+    return `Research case created for ${entityLabel}`
+  }
+
+  return `${humanizeEventType(event.event_type)} for ${entityLabel} on ${aggregateLabel}`
 }

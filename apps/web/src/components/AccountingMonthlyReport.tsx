@@ -91,6 +91,10 @@ function createAccountingKpiRow(current: AccountingSnapshotProjection) {
   const coveragePct = hasHoldings ? Math.round((valuedCount / current.holdings.length) * 100) : 0
   const unrealized = current.unrealized_gain_loss
   const unrealizedTone = unrealized > 0 ? 'emerald' : unrealized < 0 ? 'risk' : 'gold'
+  const returnPct = hasHoldings && current.invested_cost_basis > 0
+    ? (current.unrealized_gain_loss / current.invested_cost_basis) * 100
+    : undefined
+  const returnTone = returnPct === undefined ? 'gold' : returnPct > 0 ? 'emerald' : returnPct < 0 ? 'risk' : 'gold'
 
   return createElement(
     'section',
@@ -111,6 +115,15 @@ function createAccountingKpiRow(current: AccountingSnapshotProjection) {
         label: 'Unrealized P&L',
         value: hasHoldings ? formatMoney(unrealized, current.currency) : '—',
         tone: unrealizedTone,
+      }),
+    ),
+    createElement(
+      'div',
+      { className: 'owl-kpi-panel' },
+      createElement(OwlKpiStat, {
+        label: 'Return %',
+        value: returnPct === undefined ? '—' : `${returnPct >= 0 ? '+' : ''}${returnPct.toFixed(2)}%`,
+        tone: returnTone,
       }),
     ),
     createElement(
@@ -319,7 +332,8 @@ function createSnapshotHistory(snapshots: AccountingSnapshotProjection[]) {
         ...snapshots.map((snapshot) => createElement(
           'li',
           { key: snapshot.snapshot_id },
-          `${snapshot.period_end}: ${formatMoney(snapshot.nav, snapshot.currency)} projected NAV, ${snapshot.missing_valuation_holding_ids.length} missing valuations. Audit/source links preview: ${snapshot.snapshot_id}`,
+          `${snapshot.period_end}: ${formatMoney(snapshot.nav, snapshot.currency)} projected NAV, ${snapshot.missing_valuation_holding_ids.length} missing valuations. `,
+          createElement('span', { style: { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-sm)' } }, `Audit/source links preview: ${snapshot.snapshot_id}`),
         )),
       ),
   )

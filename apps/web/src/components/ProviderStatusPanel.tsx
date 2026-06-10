@@ -59,65 +59,19 @@ export function ProviderStatusPanel({ rows }: ProviderStatusPanelProps) {
     createElement(RouteHeader, {
       kicker: 'Owlfolio',
       title: 'Provider status',
-      description: 'Readiness, role suitability, certification evidence, and limitations are shown separately so a local credential does not imply certified investment-decision support. Evidence comes from the T2 provider certification report format and the T3 provider/model support matrix; the latest persisted report below is the source of truth for effective support.',
+      description: 'Readiness, role suitability, certification evidence, and limitations are shown separately so a local credential does not imply certified investment-decision support. The latest persisted certification report is the source of truth for effective support.',
     }),
     createElement(
       'section',
       { style: { display: 'grid', gap: '1rem' } },
       createProviderKpiRow(summary, rows.length),
       createElement(
-        'section',
+        'details',
         { style: { ...cardStyle, marginBottom: '1rem' } },
-        createElement('h2', { className: 'owl-section-title' }, 'Provider readiness summary'),
-        createElement(
-          'div',
-          { style: { display: 'grid', gap: '0.75rem', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' } },
-          createElement(
-            'section',
-            { style: { background: 'var(--owl-color-panel-deep)', border: '1px solid var(--owl-color-border)', borderRadius: '0.9rem', display: 'grid', gap: '0.5rem', padding: '0.8rem' } },
-            createElement('h3', { className: 'owl-section-title', style: { fontSize: 'var(--owl-text-base)' } }, 'Allowed-use buckets'),
-            ...[
-              ['Demo-only', summary.allowedBuckets.demoOnly],
-              ['Blocked', summary.allowedBuckets.blocked],
-              ['Research draft', summary.allowedBuckets.researchDraft],
-              ['Setup-only', summary.allowedBuckets.setupOnly],
-              ['Certified live', summary.allowedBuckets.certifiedLive],
-            ].map(([label, value]) => createElement('p', { key: `allowed-${label}`, style: subtleTextStyle }, `${label}: ${value}`)),
-          ),
-          createElement(
-            'section',
-            { style: { background: 'var(--owl-color-panel-deep)', border: '1px solid var(--owl-color-border)', borderRadius: '0.9rem', display: 'grid', gap: '0.5rem', padding: '0.8rem' } },
-            createElement('h3', { className: 'owl-section-title', style: { fontSize: 'var(--owl-text-base)' } }, 'Catalog support buckets'),
-            ...[
-              ['Certified', summary.catalogBuckets.certified],
-              ['Experimental', summary.catalogBuckets.experimental],
-              ['Unsupported', summary.catalogBuckets.unsupported],
-            ].map(([label, value]) => createElement('p', { key: `catalog-${label}`, style: subtleTextStyle }, `${label}: ${value}`)),
-          ),
-          createElement(
-            'section',
-            { style: { background: 'var(--owl-color-panel-deep)', border: '1px solid var(--owl-color-border)', borderRadius: '0.9rem', display: 'grid', gap: '0.5rem', padding: '0.8rem' } },
-            createElement('h3', { className: 'owl-section-title', style: { fontSize: 'var(--owl-text-base)' } }, 'Effective support buckets'),
-            ...[
-              ['Certified', summary.effectiveBuckets.certified],
-              ['Experimental', summary.effectiveBuckets.experimental],
-              ['Unsupported', summary.effectiveBuckets.unsupported],
-            ].map(([label, value]) => createElement('p', { key: `effective-${label}`, style: subtleTextStyle }, `${label}: ${value}`)),
-          ),
-        ),
-        createElement(
-          'p',
-          { style: subtleTextStyle },
-          'Allowed-use outcomes (left) are the action language per-card. Keep them separate from static catalog claims and certification-bounded effective support (right) to avoid accidental over-trust.',
-        ),
-      ),
-      createElement(
-        'section',
-        { style: { ...cardStyle, marginBottom: '1rem' } },
-        createElement('h2', { className: 'owl-section-title' }, 'Readiness glossary'),
+        createElement('summary', { style: { cursor: 'pointer', fontWeight: 800, fontSize: 'var(--owl-text-lg)' } }, 'Readiness glossary'),
         createElement(
           'dl',
-          { style: { color: 'var(--owl-color-muted)', display: 'grid', gap: '0.5rem', margin: 0 } },
+          { style: { color: 'var(--owl-color-muted)', display: 'grid', gap: '0.5rem', margin: '0.75rem 0 0' } },
           ...glossaryEntries.flatMap((entry) => [
             createElement('dt', { key: `${entry.term}-term`, style: { fontWeight: 900 } }, entry.term),
             createElement('dd', { key: `${entry.term}-definition`, style: { margin: 0 } }, entry.definition),
@@ -210,7 +164,7 @@ function renderProviderCard(row: ProviderStatusRow) {
               createElement('strong', null, providerGuardrailHeadline(row)),
               createElement('span', null, providerGuardrailDescription(row)),
               row.readiness_state === 'unready' || row.effective_support_level === 'unsupported'
-                ? createElement('span', null, 'Action: configure credentials, refresh readiness, or rerun certification after remediation.')
+                ? createElement('span', null, 'To set up credentials, ', createElement('a', { href: '/onboarding', style: { color: 'inherit', textDecoration: 'underline' } }, 'open onboarding'), '.')
                 : null,
             ),
             createElement(

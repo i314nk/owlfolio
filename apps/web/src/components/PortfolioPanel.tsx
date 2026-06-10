@@ -214,14 +214,6 @@ function createHoldingCard(holding: PortfolioHolding, mode: WorkflowMode) {
     createPositionEconomicsTable(holding),
     createConfirmedPortfolioState(holding),
     ...createShariahGateDetails(holding),
-    ...(holding.pending_review_id === undefined
-      ? []
-      : [
-          createDetail('Pending thesis health', holding.pending_review_thesis_health ?? 'Unknown'),
-          createDetail('Pending action stance', holding.pending_review_action_stance ?? 'Unknown'),
-          createDetail('Pending review rationale', holding.pending_review_rationale ?? 'No rationale recorded'),
-          createDetail('Pending next review', holding.pending_review_next_review_at ?? 'Unknown'),
-        ]),
     createDetail('Thesis summary', holding.thesis_summary ?? 'No thesis recorded'),
     ...(mode === 'personal-local'
       ? [
@@ -257,8 +249,6 @@ function createPortfolioOperationsCockpit(holdings: AppHolding[], totalCurrentVa
       { style: { display: 'grid', gap: '0.75rem', gridTemplateColumns: 'repeat(auto-fit, minmax(15rem, 1fr))', marginTop: '1rem' } },
       operationMetric('Current state', currentState),
       operationMetric('Last automation check', valuationRefresh?.last_price_check_at ?? 'No scheduled price check recorded'),
-      operationMetric('Next scheduled check', valuationRefresh?.next_scheduled_check ?? '0 7 * * 1-5'),
-      operationMetric('Price source', aggregatePriceSource(holdings)),
       operationMetric('User action required', userActionRequired),
     ),
   )
@@ -286,25 +276,30 @@ function createPositionEconomicsTable(holding: AppHolding) {
     ...(holding.latest_price_per_share === undefined ? [] : [createDetail('Current price / share', formatMoney(holding.latest_price_per_share, holding.currency))]),
     ...(holding.unrealized_gain_loss === undefined ? [] : [createDetail('Unrealized P&L', `${formatMoney(holding.unrealized_gain_loss, holding.currency)} (${formatPercent(holding.unrealized_gain_loss_percent ?? 0)})`)]),
     ...(holding.portfolio_weight === undefined ? [] : [createDetail('Concentration', formatPercent(holding.portfolio_weight))]),
-    ...(holding.latest_valuation_at === undefined ? [] : [createDetail('Valuation date', holding.latest_valuation_at)]),
-    ...(holding.latest_valuation_source === undefined ? [] : [createDetail('Valuation source', holding.latest_valuation_source)]),
-    ...(holding.latest_price_checked_at === undefined ? [] : [createDetail('Latest price check', holding.latest_price_checked_at)]),
-    ...(holding.latest_valuation_confidence === undefined ? [] : [createDetail('Valuation confidence', holding.latest_valuation_confidence)]),
-    ...(holding.latest_valuation_caveat === undefined ? [] : [createDetail('Valuation caveat', holding.latest_valuation_caveat)]),
-    ...(holding.latest_valuation_source_ids === undefined || holding.latest_valuation_source_ids.length === 0 ? [] : [createDetail('Valuation source IDs', holding.latest_valuation_source_ids.join(', '))]),
-    ...(holding.latest_valuation_missing_data === undefined || holding.latest_valuation_missing_data.length === 0 ? [] : [createDetail('Valuation missing data', holding.latest_valuation_missing_data.join(', '))]),
     createDetail('Opened', holding.opened_at),
+    ...(holding.latest_valuation_at === undefined ? [] : [createDetail('Valuation date', holding.latest_valuation_at)]),
+    createElement(
+      'details',
+      { style: { marginTop: '0.75rem' } },
+      createElement('summary', { style: { color: 'var(--owl-color-gold-bright)', cursor: 'pointer', fontWeight: 700, fontSize: 'var(--owl-text-sm)' } }, 'Valuation provenance'),
+      ...(holding.latest_valuation_source === undefined ? [] : [createDetail('Valuation source', holding.latest_valuation_source)]),
+      ...(holding.latest_price_checked_at === undefined ? [] : [createDetail('Latest price check', holding.latest_price_checked_at)]),
+      ...(holding.latest_valuation_confidence === undefined ? [] : [createDetail('Valuation confidence', holding.latest_valuation_confidence)]),
+      ...(holding.latest_valuation_caveat === undefined ? [] : [createDetail('Valuation caveat', holding.latest_valuation_caveat)]),
+      ...(holding.latest_valuation_source_ids === undefined || holding.latest_valuation_source_ids.length === 0 ? [] : [createDetail('Valuation source IDs', holding.latest_valuation_source_ids.join(', '))]),
+      ...(holding.latest_valuation_missing_data === undefined || holding.latest_valuation_missing_data.length === 0 ? [] : [createDetail('Valuation missing data', holding.latest_valuation_missing_data.join(', '))]),
+    ),
   )
 }
 
 function createConfirmedPortfolioState(holding: AppHolding) {
+  const hasAuditIds = holding.research_case_id !== undefined || holding.watchlist_item_id !== undefined
+
   return createElement(
     'section',
     { className: 'owl-workflow-card', style: { ...cardStyle, boxShadow: 'none', marginTop: '1rem' } },
     createElement('h3', { className: 'owl-section-title', style: { fontSize: 'var(--owl-text-base)', margin: '0 0 0.6rem' } }, 'Confirmed portfolio state'),
     createDetail('Strategy', holding.strategy_id ?? 'Strategy not recorded'),
-    createDetail('Research case', holding.research_case_id),
-    createDetail('Watchlist item', holding.watchlist_item_id),
     createDetail('Opened by actor', formatActor(holding.opened_by_actor_type, holding.opened_by_actor_id)),
     ...(holding.latest_reviewed_at === undefined ? [] : [createDetail('Last reviewed', holding.latest_reviewed_at)]),
     createDetail('Last updated', holding.updated_at),
@@ -314,6 +309,15 @@ function createConfirmedPortfolioState(holding: AppHolding) {
     ...(holding.latest_review_evidence_summary === undefined ? [] : [createDetail('Review evidence', holding.latest_review_evidence_summary)]),
     ...(holding.latest_review_uncertainty === undefined ? [] : [createDetail('Review uncertainty', holding.latest_review_uncertainty)]),
     ...(holding.next_review_at === undefined ? [] : [createDetail('Next review', holding.next_review_at)]),
+    ...(hasAuditIds
+      ? [createElement(
+        'details',
+        { style: { marginTop: '0.75rem' } },
+        createElement('summary', { style: { color: 'var(--owl-color-gold-bright)', cursor: 'pointer', fontWeight: 700, fontSize: 'var(--owl-text-sm)' } }, 'Audit / provenance'),
+        ...(holding.research_case_id === undefined ? [] : [createDetail('Research case', holding.research_case_id)]),
+        ...(holding.watchlist_item_id === undefined ? [] : [createDetail('Watchlist item', holding.watchlist_item_id)]),
+      )]
+      : []),
   )
 }
 
@@ -715,7 +719,6 @@ function createShariahGateDetails(holding: AppHolding) {
   }
 
   return [
-    createDetail('Gate decision', holding.shariah_gate_decision_id),
     createDetail('Shariah gate', `${holding.shariah_gate_status ?? 'UNKNOWN'} — ${describeGateAllowance(holding.shariah_gate_allowed)}`),
     ...(holding.shariah_gate_reasons === undefined || holding.shariah_gate_reasons.length === 0
       ? []
@@ -726,6 +729,12 @@ function createShariahGateDetails(holding: AppHolding) {
     ...(holding.shariah_missing_evidence === undefined || holding.shariah_missing_evidence.length === 0
       ? []
       : [createDetail('Missing Shariah evidence', holding.shariah_missing_evidence.join(', '))]),
+    createElement(
+      'details',
+      { style: { marginTop: '0.5rem' } },
+      createElement('summary', { style: { color: 'var(--owl-color-gold-bright)', cursor: 'pointer', fontWeight: 700, fontSize: 'var(--owl-text-sm)' } }, 'Gate decision (audit)'),
+      createDetail('Gate decision', holding.shariah_gate_decision_id),
+    ),
   ]
 }
 
@@ -746,18 +755,6 @@ function describeGateAllowance(allowed: boolean | undefined): string {
   }
 
   return 'gate decision pending'
-}
-
-function aggregatePriceSource(holdings: AppHolding[]): string {
-  const sources = new Set(
-    holdings
-      .filter((holding) => holding.latest_market_value !== undefined)
-      .map((holding) => priceSourceLabel(holding)),
-  )
-  if (sources.size === 0) {
-    return '—'
-  }
-  return [...sources].join(', ')
 }
 
 function priceSourceLabel(holding: AppHolding): string {

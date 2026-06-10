@@ -144,9 +144,7 @@ function createComparisonBars(portfolio: number, benchmark: number, benchmarkSym
 }
 
 function createBenchmarkPendingCard(report: AppPerformanceReport, reason?: string) {
-  const message = report.benchmark_pending
-    ? 'Benchmark data unavailable / pending price feed.'
-    : (reason ?? 'Benchmark data unavailable / pending price feed.')
+  const message = reason ?? 'Benchmark data unavailable / pending price feed.'
   return createElement(
     'section',
     {
@@ -180,10 +178,11 @@ function createDisclaimer(report: AppPerformanceReport) {
   return createElement(
     'details',
     { 'aria-label': 'Performance limitations', style: { ...cardStyle, background: 'rgba(251, 191, 36, 0.08)', borderColor: 'rgba(251, 191, 36, 0.28)' } },
-    createElement('summary', { style: { color: 'var(--owl-color-amber)', cursor: 'pointer', fontSize: 'var(--owl-text-md)', fontWeight: 900 } }, `Local accounting aid, not a broker statement; benchmark = ${report.benchmark_label}.`),
+    createElement('summary', { style: { color: 'var(--owl-color-amber)', cursor: 'pointer', fontSize: 'var(--owl-text-md)', fontWeight: 900 } }, 'Performance methodology and limitations'),
     createElement(
       'ul',
       { style: { color: 'var(--owl-color-amber)', display: 'grid', gap: '0.4rem', margin: '0.8rem 0 0', paddingLeft: '1.25rem' } },
+      createElement('li', { key: 'benchmark-label' }, `Benchmark: ${report.benchmark_label} (${report.benchmark_symbol}). Local accounting aid, not a broker statement.`),
       ...report.limitations.map((limitation) => createElement('li', { key: limitation }, limitation)),
     ),
   )

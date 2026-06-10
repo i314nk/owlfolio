@@ -283,8 +283,7 @@ describe('ProviderStatusPanel', () => {
     const html = renderToStaticMarkup(createElement(ProviderStatusPanel, { rows }))
 
     expect(html).toContain('Provider status')
-    expect(html).toContain('T2 provider certification report format')
-    expect(html).toContain('T3 provider/model support matrix')
+    expect(html).toContain('a local credential does not imply certified investment-decision support')
     expect(html).toContain('Mock provider')
     expect(html).toContain('Locally runnable through built-in deterministic demo mode')
     expect(html).toContain('Effective support (gating source of truth): certified')
@@ -363,24 +362,14 @@ describe('ProviderStatusPanel', () => {
   it('separates allowed-use buckets from catalog/effective support buckets', () => {
     const html = renderToStaticMarkup(createElement(ProviderStatusPanel, { rows }))
 
-    expect(html).toContain('Provider readiness summary')
-    expect(html).toContain('Demo-only: 1')
-    expect(html).toContain('Blocked: 2')
-    expect(html).toContain('Research draft: 0')
-    expect(html).toContain('Setup-only: 1')
-    expect(html).toContain('Certified live: 0')
-    expect(html).toContain('Catalog support:')
-    expect(html).toContain('Certified: 1')
-    expect(html).toContain('Experimental: 3')
-    expect(html).toContain('Unsupported: 0')
-    expect(html).toContain('Effective support buckets')
-    expect(html).toContain('Certified: 1')
-    expect(html).toContain('Experimental: 1')
-    expect(html).toContain('Unsupported: 2')
+    expect(html).not.toContain('Provider readiness summary')
     expect(html).toContain('OpenAI Codex is blocked: OpenAI workflow support is unsupported until reauthentication and report refresh')
     expect(html).toContain('Claude is blocked: Claude subscription access disabled')
     expect(html).toContain('Gemini CLI is setup-only: Setup and readiness discovery only')
-    expect(html).toContain('Action: configure credentials, refresh readiness, or rerun certification after remediation.')
+    // blocked providers now link to /onboarding instead of generic action text
+    expect(html).toContain('open onboarding')
+    expect(html).toContain('/onboarding')
+    expect(html).not.toContain('Action: configure credentials, refresh readiness, or rerun certification after remediation.')
   })
 
   it('does not repeat not-configured failure prose in report details', () => {

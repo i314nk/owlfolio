@@ -727,22 +727,21 @@ describe('CommandCenter', () => {
     const learnPageSource = readFileSync('apps/web/src/app/learn/page.tsx', 'utf8')
 
     expect(learnPageSource).toContain('Learn')
-    expect(learnPageSource).toContain('Operator documentation')
+    // eyebrow is user-facing "How it works", not internal "Operator documentation"
+    expect(learnPageSource).toContain('How it works')
     expect(learnPageSource).toContain('Automation boundaries')
-    expect(learnPageSource).toContain('automation-first local-use candidate')
-    expect(learnPageSource).toContain('default Buffett-Munger strategy')
-    expect(learnPageSource).toContain('future selectable strategies')
-    expect(learnPageSource).toContain('discovery to quick screen, deep dive, decision, watchlist, and holding state')
-    expect(learnPageSource).toContain('automatic portfolio, accounting, and purification projections')
-    expect(learnPageSource).toContain('Data Safety boundaries')
-    expect(learnPageSource).toContain('What changes and what you confirm')
-    expect(learnPageSource).toContain('Provider readiness in one place')
+    expect(learnPageSource).toContain('What changes automatically and what you confirm')
     expect(learnPageSource).toContain('Auditability and traceability')
     expect(learnPageSource).toContain('Shariah screening')
-    expect(learnPageSource).toContain('credentials and provider auth homes stay out of backups')
-    expect(learnPageSource).toContain('href="/onboarding"')
+    // Provider section is now a concise link, not a duplicated CLI-login list
     expect(learnPageSource).toContain('href="/providers"')
+    // Data safety section links to /settings/data-safety
+    expect(learnPageSource).toContain('href="/settings/data-safety"')
     expect(learnPageSource).toContain('id="fallback"')
+    // Workflow walkthrough is present
+    expect(learnPageSource).toContain('Research')
+    expect(learnPageSource).toContain('Quick screen')
+    expect(learnPageSource).toContain('Watchlist')
   })
 
   it('documents the /research landing route as a research library entrypoint', () => {

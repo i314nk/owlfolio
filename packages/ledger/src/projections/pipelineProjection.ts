@@ -55,6 +55,13 @@ export type PipelineRun = {
   updated_at: string
 }
 
+export type PipelineFailedRun = {
+  case_id: string
+  ticker: string
+  failed_at: string
+  error_summary?: string
+}
+
 export type PipelineSummary = {
   active_runs: number
   awaiting_approval: number
@@ -92,6 +99,8 @@ export type PipelineProjection = {
   stage_counts: PipelineStageCount[]
   summary: PipelineSummary
   runs: PipelineRun[]
+  failed_runs?: PipelineFailedRun[]
+  snapshot_at?: string
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -278,9 +287,10 @@ function buildRuns(researchCases: ResearchCaseProjection[]): PipelineRun[] {
 /**
  * `research_run_failed` events that are not subsequently superseded by a successful
  * claim/progression for the same case are treated as recent failures.
+ * Returns both the count and the structured failed run entries.
  */
-function countRecentFailures(events: LedgerEventEnvelope<unknown>[]): number {
-  const failedCases = new Set<string>()
+function collectRecentFailures(events: LedgerEventEnvelope<unknown>[]): { count: number; failed_runs: PipelineFailedRun[] } {
+  const failedByCase = new Map<string, PipelineFailedRun>()
   const recoveredCases = new Set<string>()
   for (const event of events) {
     if (!isRecord(event.payload)) {
@@ -288,7 +298,10 @@ function countRecentFailures(events: LedgerEventEnvelope<unknown>[]): number {
     }
     const caseId = getString(event.payload, 'research_case_id') ?? event.correlation_id ?? event.aggregate_id
     if (event.event_type === 'research_run_failed') {
-      failedCases.add(caseId)
+      const ticker = getString(event.payload, 'ticker') ?? caseId
+      const errorSummary = getString(event.payload, 'error_summary')
+      const failedAt = getString(event.payload, 'failed_at') ?? event.created_at
+      failedByCase.set(caseId, { case_id: caseId, ticker, failed_at: failedAt, ...(errorSummary !== undefined ? { error_summary: errorSummary } : {}) })
     } else if (
       event.event_type === 'quick_screen_drafted'
       || event.event_type === 'deep_dive_started'
@@ -297,13 +310,13 @@ function countRecentFailures(events: LedgerEventEnvelope<unknown>[]): number {
       recoveredCases.add(caseId)
     }
   }
-  let count = 0
-  for (const caseId of failedCases) {
+  const failed_runs: PipelineFailedRun[] = []
+  for (const [caseId, run] of failedByCase) {
     if (!recoveredCases.has(caseId)) {
-      count += 1
+      failed_runs.push(run)
     }
   }
-  return count
+  return { count: failed_runs.length, failed_runs }
 }
 
 export function projectPipeline(events: LedgerEventEnvelope<unknown>[]): PipelineProjection {
@@ -326,7 +339,7 @@ export function projectPipeline(events: LedgerEventEnvelope<unknown>[]): Pipelin
   ).length
 
   const awaitingApproval = liveCases.filter((c) => c.stage === 'awaiting_deep_dive_approval').length
-  const failedRecent = countRecentFailures(events)
+  const { count: failedRecent, failed_runs } = collectRecentFailures(events)
 
   const stage_counts: PipelineStageCount[] = [
     { key: 'quick_screen', label: 'Quick screen', count: quickScreen, health: 'ok' },
@@ -373,7 +386,7 @@ export function projectPipeline(events: LedgerEventEnvelope<unknown>[]): Pipelin
     grounded_sources: allSourceIds.size,
   }
 
-  return { stage_counts, summary, runs }
+  return { stage_counts, summary, runs, failed_runs, snapshot_at: new Date().toISOString() }
 }
 
 const TIMELINE_LABELS: Record<string, (payload: Record<string, unknown>) => string> = {

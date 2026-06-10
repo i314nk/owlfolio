@@ -80,7 +80,7 @@ function createWatchlistCard(item: AppWatchlistItem, mode: WorkflowMode) {
         createDetail('Strategy', item.strategy_id ?? 'Unknown'),
         createDetail('Thesis summary', item.thesis_summary ?? 'No thesis recorded'),
         createDetail('Buy-zone status', item.buy_zone_status ?? 'Not set'),
-        createDetail('Created by actor', formatActor(item.created_by_actor_type, item.created_by_actor_id)),
+        createDetail('Created by actor', formatActor(item.created_by_actor_type, item.created_by_actor_id, 'created')),
         createDetail('Last updated', item.updated_at),
         createResearchCaseLink(item.research_case_id),
       ),
@@ -89,8 +89,8 @@ function createWatchlistCard(item: AppWatchlistItem, mode: WorkflowMode) {
         { className: 'owl-workflow-panel owl-workflow-panel-user' },
         createElement('h3', { className: 'owl-section-title', style: { fontSize: 'var(--owl-text-base)' } }, 'User decision checkpoint'),
         createDetail('Confirmation status', item.user_approved ? 'User-confirmed watchlist decision' : 'Awaiting user confirmation'),
-        createDetail('Confirmed by actor', item.user_approved ? formatActor(item.confirmed_by_actor_type, item.confirmed_by_actor_id) : 'Not user-confirmed yet'),
-        item.holding_id === undefined ? createDetail('Position status', 'Not opened yet') : createDetail('Position status', item.holding_id),
+        createDetail('Confirmed by actor', item.user_approved ? formatActor(item.confirmed_by_actor_type, item.confirmed_by_actor_id, 'confirmed', item.updated_at) : 'Not user-confirmed yet'),
+        item.holding_id === undefined ? createDetail('Position status', 'Not opened yet') : createDetail('Position status', 'Holding open'),
       ),
     ),
     ...createShariahGateDetails(item),
@@ -202,7 +202,6 @@ function createShariahGateDetails(item: AppWatchlistItem) {
   }
 
   return [
-    createDetail('Gate decision', item.shariah_gate_decision_id),
     createDetail('Shariah gate', `${item.shariah_gate_status ?? 'UNKNOWN'} — ${describeGateAllowance(item.shariah_gate_allowed)}`),
     ...(item.shariah_gate_reasons === undefined || item.shariah_gate_reasons.length === 0
       ? []
@@ -213,12 +212,37 @@ function createShariahGateDetails(item: AppWatchlistItem) {
     ...(item.shariah_missing_evidence === undefined || item.shariah_missing_evidence.length === 0
       ? []
       : [createDetail('Missing Shariah evidence', item.shariah_missing_evidence.join(', '))]),
+    createElement(
+      'details',
+      { key: 'gate-audit-trail', style: { marginTop: '0.55rem' } },
+      createElement(
+        'summary',
+        { style: { color: 'var(--owl-color-quiet)', cursor: 'pointer', fontSize: 'var(--owl-text-sm)', fontWeight: 700 } },
+        'Audit IDs',
+      ),
+      createElement(
+        'p',
+        { style: { color: 'var(--owl-color-quiet)', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-xs)', margin: '0.35rem 0 0' } },
+        `Gate decision: ${item.shariah_gate_decision_id}`,
+      ),
+    ),
   ]
 }
 
-function formatActor(actorType: string | undefined, actorId: string | undefined): string {
+function formatActor(actorType: string | undefined, actorId: string | undefined, role: 'created' | 'confirmed' = 'created', updatedAt?: string): string {
   if (actorType === undefined || actorId === undefined) {
     return 'Not recorded'
+  }
+
+  if (actorType === 'provider') {
+    return 'Proposed by the research harness'
+  }
+  if (role === 'confirmed' && (actorType === 'user' || actorId === 'user_local' || actorId === 'local')) {
+    if (updatedAt !== undefined) {
+      const dateLabel = new Date(updatedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+      return `You confirmed on ${dateLabel}`
+    }
+    return 'You confirmed'
   }
 
   return `${actorType}:${actorId}`

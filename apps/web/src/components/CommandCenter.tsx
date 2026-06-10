@@ -140,12 +140,12 @@ function createKpiSummaryRow(dashboard: AppCommandCenter) {
         value: countsText(counts.watchlist_drafts),
         tone: 'gold',
       }),
-      createElement(
-        'div',
-        { style: { alignItems: 'center', display: 'flex', gap: '0.5rem', marginTop: '0.6rem' } },
-        createElement('span', { style: { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-sm)', fontWeight: 800, letterSpacing: '0.04em', textTransform: 'uppercase' } }, 'Shariah'),
-        createElement(StatusBadge, { tone: shariahEnabled ? 'compliance' : 'warning' }, shariahEnabled ? 'Enabled by policy' : 'Disabled'),
-      ),
+    ),
+    createElement(
+      'div',
+      { className: 'owl-kpi-panel', style: { alignItems: 'center', display: 'flex', gap: '0.5rem' } },
+      createElement('span', { style: { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-sm)', fontWeight: 800, letterSpacing: '0.04em', textTransform: 'uppercase' } }, 'Shariah'),
+      createElement(StatusBadge, { tone: shariahEnabled ? 'compliance' : 'warning' }, shariahEnabled ? 'Enabled by policy' : 'Disabled'),
     ),
   )
 }
@@ -257,6 +257,12 @@ function buildWorkflowLaunchpadItems(): WorkflowLaunchpadItem[] {
       title: 'Research lab',
     },
     {
+      description: 'Watch live swarm execution — stage flow, specialist lanes, grounded sources.',
+      href: '/pipeline',
+      label: 'Open pipeline observatory',
+      title: 'Pipeline',
+    },
+    {
       description: 'Confirm provider drafts before monitoring begins.',
       href: '/watchlist',
       label: 'Review watchlist drafts',
@@ -310,19 +316,6 @@ function createOperatingSurface(dashboard: AppCommandCenter) {
         'p',
         { style: { color: 'var(--owl-color-text)', fontSize: 'var(--owl-text-lg)', fontWeight: 700, letterSpacing: '-0.02em', margin: '0.45rem 0 0.35rem' } },
         dashboard.next_recommended_action,
-      ),
-      createElement(
-        'p',
-        { style: { color: 'var(--owl-color-muted)', margin: '0 0 1rem' } },
-        'Primary actions stay on top; monitoring and audit references stay visible but unobtrusive.',
-      ),
-      createElement(
-        'div',
-        { style: { display: 'flex', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '1rem' } },
-        createElement(OwlButtonLink, { href: dashboard.primary_action.href }, 'Open operating priority'),
-        dashboard.secondary_action === undefined
-          ? null
-          : createElement(OwlButtonLink, { href: dashboard.secondary_action.href, variant: 'secondary' }, 'Open secondary route'),
       ),
       createNextActionQueue(dashboard),
       createApprovalQueue(dashboard),

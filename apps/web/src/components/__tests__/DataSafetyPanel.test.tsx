@@ -42,10 +42,11 @@ describe('DataSafetyPanel', () => {
   it('renders privacy, manifest, category, and restore proposal copy for Settings Data Safety', () => {
     const html = renderToStaticMarkup(createElement(DataSafetyPanel, { dataSafety: makeDataSafety() }))
 
-    expect(html).toContain('Settings / Data Safety')
-    expect(html).toContain('personal-local')
-    expect(html).toContain('mock-provider')
+    expect(html).toContain('Data Safety')
     expect(html).toContain('2026-06-05T11:23:00.000Z')
+    // Mode and Provider are not shown in the backup manifest (they belong on Providers page)
+    expect(html).not.toContain('>personal-local<')
+    expect(html).not.toContain('>mock-provider<')
     expect(html).toContain('Backups contain investment ledgers, source bundles, provider certification metadata, and app configuration metadata')
     expect(html).toContain('They do not include credentials, API keys, provider auth homes, or CLI session files')
     expect(html).toContain('App configuration')

@@ -3,6 +3,7 @@ import { createElement, type CSSProperties, type ReactNode } from 'react'
 import { OwlKpiStat } from './designSystem'
 import type {
   PipelineDrillDown,
+  PipelineFailedRun,
   PipelineLane,
   PipelineLaneStatus,
   PipelineProjection,
@@ -61,6 +62,21 @@ const RUN_CHIP: Record<PipelineRunStatus, { bg: string; border: string; color: s
   done: { bg: 'rgba(34,197,94,0.13)', border: 'var(--owl-color-border-strong)', color: '#bbf7d0', label: 'done' },
   rejected: { bg: 'rgba(239,68,68,0.13)', border: 'rgba(239,68,68,0.4)', color: '#fca5a5', label: 'rejected' },
   failed: { bg: 'rgba(239,68,68,0.13)', border: 'rgba(239,68,68,0.4)', color: '#fca5a5', label: 'failed' },
+}
+
+function relativeTime(isoString: string): string {
+  const diffMs = Date.now() - Date.parse(isoString)
+  if (!Number.isFinite(diffMs) || diffMs < 0) {
+    return isoString.slice(0, 10)
+  }
+  const diffSec = Math.floor(diffMs / 1000)
+  if (diffSec < 60) return `${diffSec}s ago`
+  const diffMin = Math.floor(diffSec / 60)
+  if (diffMin < 60) return `${diffMin} min ago`
+  const diffHr = Math.floor(diffMin / 60)
+  if (diffHr < 24) return `${diffHr}h ago`
+  const diffDays = Math.floor(diffHr / 24)
+  return `${diffDays}d ago`
 }
 
 function statusDot(color: string, size = '0.5rem'): ReactNode {
@@ -169,6 +185,84 @@ function StageFlowMap({ stages }: { stages: PipelineStageCount[] }): ReactNode {
   )
 }
 
+function sourceCountBadge(count: number): ReactNode {
+  return createElement(
+    'span',
+    {
+      style: {
+        display: 'inline-flex',
+        alignItems: 'center',
+        padding: '0.15rem 0.45rem',
+        borderRadius: '999px',
+        fontSize: 'var(--owl-text-2xs)',
+        fontWeight: 700,
+        background: 'var(--owl-color-panel-elevated)',
+        border: '1px solid var(--owl-color-border)',
+        color: count > 0 ? 'var(--owl-color-accent-bright)' : 'var(--owl-color-quiet)',
+      },
+    },
+    `${count} ${count === 1 ? 'source' : 'sources'}`,
+  )
+}
+
+function FailedRunsSection({ failedRuns }: { failedRuns: PipelineFailedRun[] }): ReactNode {
+  if (failedRuns.length === 0) return null
+
+  const thStyle: CSSProperties = {
+    textAlign: 'left',
+    ...monoLabel,
+    padding: '0.5rem 0.6rem',
+    borderBottom: '1px solid var(--owl-color-border)',
+  }
+  const tdStyle: CSSProperties = {
+    padding: '0.6rem 0.6rem',
+    borderBottom: '1px solid rgba(182,201,173,0.08)',
+  }
+
+  return createElement(
+    'div',
+    null,
+    createElement(
+      'div',
+      { style: { ...sectionHeaderStyle } },
+      createElement('h2', { style: { fontSize: 'var(--owl-text-md)', margin: 0, color: 'var(--owl-color-risk)' } }, 'Failed runs'),
+      createElement('span', { style: { color: 'var(--owl-color-quiet)', fontSize: 'var(--owl-text-sm)' } }, 'not recovered by a subsequent claim'),
+    ),
+    createElement(
+      'div',
+      { style: { ...cardStyle, padding: '0.4rem 0.6rem', borderColor: 'rgba(239,68,68,0.28)' } },
+      createElement(
+        'table',
+        { style: { width: '100%', borderCollapse: 'collapse', fontSize: 'var(--owl-text-base)' } },
+        createElement(
+          'thead',
+          null,
+          createElement(
+            'tr',
+            null,
+            ...['Ticker', 'Failed', 'Reason'].map((heading) =>
+              createElement('th', { key: heading, style: thStyle }, heading),
+            ),
+          ),
+        ),
+        createElement(
+          'tbody',
+          null,
+          ...failedRuns.map((run) =>
+            createElement(
+              'tr',
+              { key: run.case_id },
+              createElement('td', { style: { ...tdStyle, fontWeight: 800, color: 'var(--owl-color-gold-bright)' } }, run.ticker),
+              createElement('td', { style: { ...tdStyle, color: 'var(--owl-color-muted)', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-2xs)' } }, relativeTime(run.failed_at)),
+              createElement('td', { style: { ...tdStyle, color: 'var(--owl-color-risk)' } }, run.error_summary ?? '—'),
+            ),
+          ),
+        ),
+      ),
+    ),
+  )
+}
+
 function RunsTable({ runs, selectedCaseId }: { runs: PipelineRun[]; selectedCaseId?: string }): ReactNode {
   if (runs.length === 0) {
     return createElement(
@@ -201,7 +295,7 @@ function RunsTable({ runs, selectedCaseId }: { runs: PipelineRun[]; selectedCase
         createElement(
           'tr',
           null,
-          ...['Ticker', 'Ver', 'Stage', 'Status', 'Sources'].map((heading) =>
+          ...['Ticker', 'Stage', 'Status', 'Started', 'Sources'].map((heading) =>
             createElement('th', { key: heading, style: thStyle }, heading),
           ),
         ),
@@ -231,10 +325,14 @@ function RunsTable({ runs, selectedCaseId }: { runs: PipelineRun[]; selectedCase
                 run.ticker,
               ),
             ),
-            createElement('td', { style: tdStyle }, `v${run.version}`),
             createElement('td', { style: tdStyle }, run.stage_label),
             createElement('td', { style: tdStyle }, runChip(run)),
-            createElement('td', { style: tdStyle }, String(run.source_count)),
+            createElement(
+              'td',
+              { style: { ...tdStyle, color: 'var(--owl-color-quiet)', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-2xs)', whiteSpace: 'nowrap' } },
+              relativeTime(run.started_at),
+            ),
+            createElement('td', { style: tdStyle }, sourceCountBadge(run.source_count)),
           )
         }),
       ),
@@ -279,9 +377,29 @@ function DrillDown({ drillDown }: { drillDown: PipelineDrillDown }): ReactNode {
     ),
   )
 
-  const sourceText = drillDown.grounded_source_ids.length === 0
-    ? 'No grounded sources recorded yet.'
-    : `${drillDown.grounded_source_ids.join(' · ')} (sha-256 verified, replayable)`
+  const sourceCount = drillDown.grounded_source_ids.length
+  const sourceSummary = sourceCount === 0
+    ? createElement('p', { style: { fontSize: 'var(--owl-text-sm)', color: 'var(--owl-color-muted)' } }, 'No grounded sources recorded yet.')
+    : createElement(
+        'div',
+        null,
+        createElement(
+          'div',
+          { style: { display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.4rem' } },
+          sourceCountBadge(sourceCount),
+          createElement('span', { style: { fontSize: 'var(--owl-text-2xs)', color: 'var(--owl-color-quiet)' } }, 'sha-256 verified, replayable'),
+        ),
+        createElement(
+          'details',
+          null,
+          createElement('summary', { style: { cursor: 'pointer', fontSize: 'var(--owl-text-2xs)', color: 'var(--owl-color-quiet)' } }, 'Show source IDs'),
+          createElement(
+            'div',
+            { style: { fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-2xs)', color: 'var(--owl-color-accent-bright)', marginTop: '0.3rem', wordBreak: 'break-all' } },
+            drillDown.grounded_source_ids.join(' · '),
+          ),
+        ),
+      )
 
   return createElement(
     'div',
@@ -301,9 +419,9 @@ function DrillDown({ drillDown }: { drillDown: PipelineDrillDown }): ReactNode {
         createElement(
           'p',
           { style: { ...monoLabel, color: 'var(--owl-color-gold)', fontWeight: 800, margin: '0.9rem 0 0.4rem' } },
-          `Grounded sources (${drillDown.grounded_source_ids.length})`,
+          `Grounded sources (${sourceCount})`,
         ),
-        createElement('div', { style: { fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-2xs)', color: 'var(--owl-color-accent-bright)' } }, sourceText),
+        sourceSummary,
       ),
       createElement(
         'div',
@@ -342,7 +460,11 @@ function DrillDown({ drillDown }: { drillDown: PipelineDrillDown }): ReactNode {
 }
 
 export function PipelineObservatory({ pipeline, drillDown, selectedCaseId }: PipelineObservatoryProps): ReactNode {
-  const { summary, stage_counts, runs } = pipeline
+  const { summary, stage_counts, runs, failed_runs = [], snapshot_at } = pipeline
+
+  const snapshotTime = snapshot_at !== undefined
+    ? new Date(snapshot_at).toISOString().slice(11, 19)
+    : undefined
 
   return createElement(
     'section',
@@ -350,9 +472,20 @@ export function PipelineObservatory({ pipeline, drillDown, selectedCaseId }: Pip
     createElement('p', { style: { ...monoLabel, color: 'var(--owl-color-gold)', fontWeight: 800, margin: '0 0 0.35rem' } }, 'Observability'),
     createElement('h1', { className: 'owl-page-title', style: { margin: '0.1rem 0 0.2rem' } }, 'Strategy pipeline observatory'),
     createElement(
-      'p',
-      { style: { color: 'var(--owl-color-muted)', margin: '0 0 1.2rem', fontSize: 'var(--owl-text-base)' } },
-      'Live view of the autonomous research swarm and the whole workflow — projection-driven from the audit ledger.',
+      'div',
+      { style: { display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: '1rem', margin: '0 0 1.2rem' } },
+      createElement(
+        'p',
+        { style: { color: 'var(--owl-color-muted)', margin: 0, fontSize: 'var(--owl-text-base)' } },
+        'Live view of the autonomous research swarm and the whole workflow — projection-driven from the audit ledger.',
+      ),
+      snapshotTime !== undefined
+        ? createElement(
+            'span',
+            { style: { ...monoLabel, color: 'var(--owl-color-quiet)', whiteSpace: 'nowrap', flexShrink: 0 } },
+            `Snapshot taken at ${snapshotTime}`,
+          )
+        : null,
     ),
 
     // KPI row
@@ -387,6 +520,9 @@ export function PipelineObservatory({ pipeline, drillDown, selectedCaseId }: Pip
     ),
     createElement(RunsTable, { runs, ...(selectedCaseId !== undefined ? { selectedCaseId } : {}) }),
 
+    // Failed runs
+    createElement(FailedRunsSection, { failedRuns: failed_runs }),
+
     // Drill-down
     drillDown !== undefined
       ? createElement(
@@ -395,7 +531,20 @@ export function PipelineObservatory({ pipeline, drillDown, selectedCaseId }: Pip
           createElement(
             'div',
             { style: sectionHeaderStyle },
-            createElement('h2', { style: { fontSize: 'var(--owl-text-md)', margin: 0 } }, `${drillDown.ticker} · v${drillDown.version} — swarm drill-down`),
+            createElement(
+              'div',
+              { style: { display: 'flex', alignItems: 'baseline', gap: '0.75rem' } },
+              createElement('h2', { style: { fontSize: 'var(--owl-text-md)', margin: 0 } }, `${drillDown.ticker} · v${drillDown.version} — swarm drill-down`),
+              createElement(
+                'a',
+                {
+                  className: 'owl-focusable',
+                  href: `/research/${encodeURIComponent(drillDown.research_case_id)}`,
+                  style: { color: 'var(--owl-color-gold-bright)', fontWeight: 700, textDecoration: 'none', fontSize: 'var(--owl-text-sm)', whiteSpace: 'nowrap' },
+                },
+                'Open dossier →',
+              ),
+            ),
             createElement('span', { style: { color: 'var(--owl-color-quiet)', fontSize: 'var(--owl-text-sm)' } }, RUN_CHIP[drillDown.status].label),
           ),
           createElement(DrillDown, { drillDown }),

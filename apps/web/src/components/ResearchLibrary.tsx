@@ -5,6 +5,23 @@ import type { ResearchCaseProjection, ResearchCaseStage } from '@owlfolio/ledger
 import { OwlButtonLink, RouteHeader } from './designSystem'
 import type { WorkflowMode } from '../lib/workflow'
 
+function humanRelativeDate(isoString: string): string {
+  const diffMs = Date.now() - Date.parse(isoString)
+  if (!Number.isFinite(diffMs) || diffMs < 0) {
+    return isoString.slice(0, 10)
+  }
+  const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24))
+  if (diffDays === 0) return 'today'
+  if (diffDays === 1) return 'yesterday'
+  if (diffDays < 7) return `${diffDays} days ago`
+  const diffWeeks = Math.floor(diffDays / 7)
+  if (diffWeeks < 5) return `${diffWeeks} ${diffWeeks === 1 ? 'week' : 'weeks'} ago`
+  const diffMonths = Math.floor(diffDays / 30)
+  if (diffMonths < 13) return `${diffMonths} ${diffMonths === 1 ? 'month' : 'months'} ago`
+  const diffYears = Math.floor(diffDays / 365)
+  return `${diffYears} ${diffYears === 1 ? 'year' : 'years'} ago`
+}
+
 export type ResearchLibraryProps = {
   mode: WorkflowMode
   selectedStrategyLabel: string
@@ -185,7 +202,9 @@ function dossierCard(researchCase: ResearchCaseProjection): ReactNode {
   const ticker = researchCase.ticker ?? 'Untitled case'
   const company = researchCase.company_id
   const verdict = verdictFor(researchCase)
-  const date = researchCase.updated_at.slice(0, 10)
+  const isInProgress = verdict === 'in_progress'
+  const isTerminal = TERMINAL_STAGES.has(researchCase.stage)
+  const relDate = humanRelativeDate(researchCase.updated_at)
 
   const chips: ReactNode[] = []
   if (researchCase.moat !== undefined) {
@@ -201,6 +220,26 @@ function dossierCard(researchCase: ResearchCaseProjection): ReactNode {
   if (researchCase.shariah_status !== undefined) {
     chips.push(metaChip('shariah', researchCase.shariah_status))
   }
+  // In-progress: add screening result + confidence if present
+  if (isInProgress) {
+    if (researchCase.screening_result !== undefined) {
+      chips.push(metaChip('screen', researchCase.screening_result))
+    }
+    if (researchCase.confidence !== undefined) {
+      chips.push(metaChip('confidence', researchCase.confidence))
+    }
+  }
+
+  // Terminal verdict extra info
+  const thesisSummary = isTerminal && researchCase.thesis_summary !== undefined
+    ? researchCase.thesis_summary.length > 120
+      ? `${researchCase.thesis_summary.slice(0, 120)}…`
+      : researchCase.thesis_summary
+    : undefined
+
+  const buyPrice = isTerminal && researchCase.valuation?.buy_price_per_share !== undefined
+    ? researchCase.valuation.buy_price_per_share
+    : undefined
 
   return createElement(
     'article',
@@ -234,16 +273,36 @@ function dossierCard(researchCase: ResearchCaseProjection): ReactNode {
     chips.length > 0
       ? createElement('div', { style: { display: 'flex', flexWrap: 'wrap', gap: '0.4rem' } }, ...chips)
       : null,
+    // Thesis snippet for terminal-verdict cards
+    thesisSummary !== undefined
+      ? createElement('p', { style: { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-sm)', margin: 0, fontStyle: 'italic' } }, thesisSummary)
+      : null,
+    // Buy price for terminal-verdict cards
+    buyPrice !== undefined
+      ? createElement(
+          'div',
+          { style: { display: 'flex', alignItems: 'center', gap: '0.4rem' } },
+          createElement('span', { style: { ...monoLabel } }, 'Buy price'),
+          createElement('span', { style: { color: 'var(--owl-color-accent-bright)', fontWeight: 800, fontVariantNumeric: 'tabular-nums' } }, `$${buyPrice.toFixed(2)}`),
+        )
+      : null,
+    // In-progress: "View in Pipeline →" link
+    isInProgress
+      ? createElement(
+          'a',
+          {
+            className: 'owl-focusable',
+            href: `/pipeline?case=${encodeURIComponent(researchCase.research_case_id)}`,
+            style: { color: 'var(--owl-color-gold-bright)', fontWeight: 700, textDecoration: 'none', fontSize: 'var(--owl-text-sm)' },
+          },
+          'View in Pipeline →',
+        )
+      : null,
     createElement(
       'div',
       { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.6rem', marginTop: 'auto' } },
       createElement('span', { style: { ...monoLabel, color: 'var(--owl-color-quiet)' } }, stageLabel(researchCase.stage)),
-      createElement(
-        'span',
-        { style: { display: 'flex', gap: '0.6rem', alignItems: 'center' } },
-        createElement('span', { style: metaChipStyle }, `v${researchCase.version}`),
-        createElement('span', { style: { ...monoLabel, color: 'var(--owl-color-quiet)' } }, date),
-      ),
+      createElement('span', { style: { ...monoLabel, color: 'var(--owl-color-quiet)' } }, relDate),
     ),
   )
 }
@@ -355,12 +414,7 @@ export function ResearchLibrary({ mode, selectedStrategyLabel, cases }: Research
     createElement(
       'div',
       { style: { display: 'flex', flexWrap: 'wrap', gap: '0.75rem', alignItems: 'center', justifyContent: 'space-between', margin: '0.6rem 0 0' } },
-      createElement(
-        'div',
-        { style: { display: 'flex', flexWrap: 'wrap', gap: '0.55rem' } },
-        createElement('span', { style: metaChipStyle }, selectedStrategyLabel),
-        createElement('span', { style: metaChipStyle }, `Mode: ${mode}`),
-      ),
+      createElement('span', { style: metaChipStyle }, selectedStrategyLabel),
       pipelineLink,
     ),
 

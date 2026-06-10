@@ -157,7 +157,7 @@ test('personal-local mode can create the first research case from the command ce
   await expect(page).toHaveURL('/watchlist')
   await expect(page.getByRole('heading', { name: 'MSFT' })).toBeVisible()
   await expect(page.getByText('Holding recorded')).toBeVisible()
-  await expect(page.getByText(/holding_msft_/)).toBeVisible()
+  await expect(page.getByText('Holding open')).toBeVisible()
   await expect(page.getByRole('button', { name: /record initial holding/i })).toHaveCount(0)
 
   await page.goto('/portfolio')
