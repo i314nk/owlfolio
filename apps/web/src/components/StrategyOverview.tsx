@@ -7,7 +7,7 @@ import {
 } from '@owlfolio/strategies/buffettMunger'
 import { buffettMungerDeepDiveLanes } from '@owlfolio/workflow/strategyResearchPipeline'
 
-import { PageHeader, OwlValuationChip } from './designSystem'
+import { RouteHeader, OwlValuationChip } from './designSystem'
 
 // ── Live contract values (rendered, never hard-coded) ───────────────────────
 const strategy = buffettMungerStrategy
@@ -27,51 +27,48 @@ function pct(value: number, digits = 0): string {
   return `${(value * 100).toFixed(digits).replace(/\.0+$/, '')}%`
 }
 
-// ── Shared inline styles (gold-forward tokens; no hard-coded blue/purple) ────
-const cardStyle: CSSProperties = {
-  background: 'var(--owl-color-panel)',
-  border: '1px solid var(--owl-color-border)',
-  borderRadius: 'var(--owl-radius-panel)',
-  padding: '1.2rem 1.35rem',
-  boxShadow: 'var(--owl-shadow-panel)',
+// ── Editorial figure treatment — mono, tabular, gold-vivid for key numbers ───
+const monoFigure: CSSProperties = {
+  fontFamily: 'var(--owl-font-mono)',
+  color: 'var(--owl-color-gold-vivid)',
+  fontWeight: 700,
+  fontVariantNumeric: 'tabular-nums',
 }
+const goldText: CSSProperties = { color: 'var(--owl-color-gold-bright)', fontWeight: 700 }
+const rejected: CSSProperties = { color: 'var(--owl-color-risk-bright)' }
 
-const monoLabel: CSSProperties = {
+// Mono uppercase micro-label used for table headers and sub-figure captions.
+const microLabel: CSSProperties = {
   fontFamily: 'var(--owl-font-mono)',
   fontSize: 'var(--owl-text-2xs)',
-  letterSpacing: '0.07em',
+  letterSpacing: '0.14em',
   textTransform: 'uppercase',
-  color: 'var(--owl-color-quiet)',
+  color: 'var(--owl-color-gold)',
+  margin: 0,
 }
 
-const sectionTitleStyle: CSSProperties = {
-  fontSize: 'var(--owl-text-md)',
-  fontWeight: 800,
-  color: 'var(--owl-color-gold-bright)',
-  margin: '0 0 0.3rem',
-}
-
-const sectionLeadStyle: CSSProperties = {
+const leadStyle: CSSProperties = {
   color: 'var(--owl-color-muted)',
   fontSize: 'var(--owl-text-base)',
   lineHeight: 1.55,
-  margin: '0 0 1rem',
+  margin: 0,
+  maxWidth: '52rem',
 }
 
 const bodyStyle: CSSProperties = {
   color: 'var(--owl-color-muted)',
   fontSize: 'var(--owl-text-base)',
   lineHeight: 1.55,
+  margin: 0,
 }
 
-const goldText: CSSProperties = { color: 'var(--owl-color-gold-bright)', fontWeight: 700 }
-const monoValue: CSSProperties = {
-  fontFamily: 'var(--owl-font-mono)',
-  color: 'var(--owl-color-gold-vivid)',
-  fontWeight: 700,
-  fontVariantNumeric: 'tabular-nums',
-}
-
+/**
+ * One editorial section of the methodology brief: a gold mono eyebrow
+ * (owl-section-accent), a sans heading (owl-section-title), an optional lead
+ * paragraph, then the figure/table content. The owl-section-card supplies the
+ * panel chrome and vertical rhythm; the route frame gaps sections apart and
+ * inherits the staggered reveal.
+ */
 function Section({
   eyebrow,
   title,
@@ -85,10 +82,10 @@ function Section({
 }): ReactNode {
   return createElement(
     'section',
-    { style: { ...cardStyle, marginTop: '1.1rem' } },
-    createElement('p', { style: { ...monoLabel, color: 'var(--owl-color-gold)', marginBottom: '0.35rem' } }, eyebrow),
-    createElement('h2', { style: sectionTitleStyle }, title),
-    lead === undefined ? null : createElement('p', { style: sectionLeadStyle }, lead),
+    { className: 'owl-section-card', style: { gap: 'var(--owl-space-3)' } },
+    createElement('p', { className: 'owl-section-accent' }, eyebrow),
+    createElement('h2', { className: 'owl-section-title' }, title),
+    lead === undefined ? null : createElement('p', { style: leadStyle }, lead),
     children,
   )
 }
@@ -117,14 +114,14 @@ function PipelineFlow(): ReactNode {
           style: {
             flex: '1 1 130px',
             minWidth: '130px',
-            background: 'var(--owl-color-panel-elevated)',
+            background: 'var(--owl-color-panel)',
             border: '1px solid var(--owl-color-border)',
-            borderRadius: '0.7rem',
+            borderRadius: 'var(--owl-radius-card)',
             padding: '0.65rem 0.75rem',
           },
         },
-        createElement('div', { style: { ...monoLabel, color: 'var(--owl-color-muted)' } }, step.label),
-        createElement('div', { style: { fontSize: 'var(--owl-text-xs)', color: 'var(--owl-color-quiet)', marginTop: '0.25rem' } }, step.detail),
+        createElement('div', { style: { ...microLabel, color: 'var(--owl-color-muted)', letterSpacing: '0.08em' } }, step.label),
+        createElement('div', { style: { fontSize: 'var(--owl-text-xs)', color: 'var(--owl-color-quiet)', marginTop: '0.25rem', lineHeight: 1.4 } }, step.detail),
       ),
     )
     if (index < PIPELINE_STEPS.length - 1) {
@@ -204,37 +201,37 @@ function LaneGrid(): ReactNode {
           key: card.lane,
           'data-lane': card.lane,
           style: {
-            background: 'var(--owl-color-panel-elevated)',
+            background: 'var(--owl-color-panel)',
             border: '1px solid var(--owl-color-border)',
-            borderRadius: '0.8rem',
+            borderRadius: 'var(--owl-radius-card)',
             padding: '0.85rem 0.95rem',
             display: 'flex',
             flexDirection: 'column',
             gap: '0.4rem',
           },
         },
-        createElement('p', { style: { ...monoLabel, color: 'var(--owl-color-gold)' } }, card.lane),
-        createElement('h3', { style: { fontSize: 'var(--owl-text-base)', fontWeight: 800, color: 'var(--owl-color-gold-bright)', margin: 0 } }, card.name),
-        createElement('p', { style: { ...bodyStyle, fontSize: 'var(--owl-text-base)', margin: 0 } }, card.assesses),
+        createElement('p', { style: { ...microLabel } }, card.lane),
+        createElement('h3', { style: { fontSize: 'var(--owl-text-base)', fontWeight: 750, color: 'var(--owl-color-gold-bright)', margin: 0 } }, card.name),
+        createElement('p', { style: { ...bodyStyle } }, card.assesses),
       ),
     ),
   )
 }
 
-// ── Small table helper ───────────────────────────────────────────────────────
+// ── Small table helper — mono tabular figures, hairline rules ────────────────
 function Table({ headings, rows }: { headings: string[]; rows: ReactNode[][] }): ReactNode {
   const thStyle: CSSProperties = {
-    ...monoLabel,
+    ...microLabel,
     textAlign: 'left',
     padding: '0.5rem 0.7rem',
     borderBottom: '1px solid var(--owl-color-border)',
-    color: 'var(--owl-color-gold)',
   }
   const tdStyle: CSSProperties = {
     padding: '0.55rem 0.7rem',
     borderBottom: '1px solid var(--owl-color-border)',
     color: 'var(--owl-color-muted)',
     fontSize: 'var(--owl-text-base)',
+    fontVariantNumeric: 'tabular-nums',
   }
   return createElement(
     'table',
@@ -276,21 +273,23 @@ export function StrategyOverview(): ReactNode {
       createElement('a', { className: 'owl-back-link owl-focusable', href: '/' }, '← Back to command center'),
     ),
 
-    // 1. Header + thesis
-    createElement(PageHeader, {
-      eyebrow: `${strategy.name} · v${strategy.version}`,
+    // 1. Letterhead — serif title + gold mono kicker + hairline rule
+    createElement(RouteHeader, {
+      kicker: `${strategy.name} · v${strategy.version}`,
       title: 'The strategy',
       description:
-        'Owlfolio runs a single default strategy: a concentrated, quality-value, Shariah-aware approach in the Buffett-Munger tradition. The core principle is a strict division of labour — grounded specialist agents propose evidence, deterministic projections compute the numbers, and a human makes every irreversible decision.',
+        'The method your agent follows, end to end: a concentrated, quality-value, Shariah-aware discipline in the Buffett-Munger tradition. One principle holds it together — a strict division of labour. Grounded specialist agents propose evidence, deterministic projections compute the numbers, and a human makes every irreversible decision.',
     }),
+    createElement('hr', { className: 'owl-rule' }),
 
+    // Thesis — the opening statement of method
     createElement(
       'section',
-      { style: { ...cardStyle, marginTop: '0.6rem' } },
-      createElement('p', { style: { ...monoLabel, color: 'var(--owl-color-gold)', marginBottom: '0.35rem' } }, 'Thesis'),
+      { className: 'owl-section-card', style: { gap: 'var(--owl-space-2)' } },
+      createElement('p', { className: 'owl-section-accent' }, 'Thesis'),
       createElement(
         'p',
-        { style: bodyStyle },
+        { style: { ...bodyStyle, fontSize: 'var(--owl-text-md)', lineHeight: 1.6, maxWidth: '54rem' } },
         'Buy a small number of understandable businesses with durable economic moats and honest, capable management, only when the price offers a margin of safety against a conservative estimate of intrinsic value — then hold. ',
         createElement('span', { style: goldText }, 'Agents propose; the harness computes; you decide.'),
         ' Nothing the swarm produces becomes a watchlist entry or a holding without an explicit, user-authored ledger transition.',
@@ -322,14 +321,14 @@ export function StrategyOverview(): ReactNode {
         'span',
         null,
         'A candidate is investable only when its moat class is at least ',
-        createElement('span', { style: monoValue }, MIN_INVESTABLE_MOAT),
+        createElement('span', { style: monoFigure }, MIN_INVESTABLE_MOAT),
         '. Narrow and moderate moats are rejected and the verdict is forced to PASS before sizing is ever considered.',
       ),
       children: Table({
         headings: ['Moat class', 'Meaning', 'Investable?'],
         rows: [
-          ['narrow', 'Weak or short-duration advantage', createElement('span', { style: { color: 'var(--owl-color-risk-bright)' } }, 'No — rejected')],
-          ['moderate', 'Meaningful but not durable enough', createElement('span', { style: { color: 'var(--owl-color-risk-bright)' } }, 'No — rejected')],
+          ['narrow', 'Weak or short-duration advantage', createElement('span', { style: rejected }, 'No — rejected')],
+          ['moderate', 'Meaningful but not durable enough', createElement('span', { style: rejected }, 'No — rejected')],
           [createElement('span', { style: goldText }, 'wide'), 'Durable multi-year advantage, pricing power', createElement(OwlValuationChip, { kind: 'approved', label: 'Yes — minimum' })],
           [createElement('span', { style: goldText }, 'monopoly'), 'Near-exclusive position or platform lock-in', createElement(OwlValuationChip, { kind: 'approved', label: 'Yes' })],
         ],
@@ -344,21 +343,21 @@ export function StrategyOverview(): ReactNode {
         'span',
         null,
         'A quality business is treated like a bond whose coupon is its owner earnings. Fair value capitalizes owner earnings at a flat ',
-        createElement('span', { style: monoValue }, pct(DISCOUNT)),
+        createElement('span', { style: monoFigure }, pct(DISCOUNT)),
         ' discount rate; the certainty difference between moat classes is expressed through a moat-tiered margin of safety, not the discount rate. The discount rate is a static floor.',
       ),
       children: createElement(
         'div',
         { style: { display: 'flex', flexDirection: 'column', gap: '0.9rem' } },
 
-        // Formula block
+        // Formula block — stays mono
         createElement(
           'div',
           {
             style: {
               background: 'var(--owl-color-panel-deep)',
               border: '1px solid var(--owl-color-border)',
-              borderRadius: '0.7rem',
+              borderRadius: 'var(--owl-radius-card)',
               padding: '0.9rem 1rem',
               fontFamily: 'var(--owl-font-mono)',
               fontSize: 'var(--owl-text-sm)',
@@ -374,33 +373,33 @@ export function StrategyOverview(): ReactNode {
         ),
 
         // MoS table
-        createElement('p', { style: { ...monoLabel, color: 'var(--owl-color-gold)', margin: 0 } }, 'Moat-tiered margin of safety'),
+        createElement('p', { style: microLabel }, 'Moat-tiered margin of safety'),
         Table({
           headings: ['Moat class', 'Discount rate', 'Margin of safety'],
           rows: [
-            [createElement('span', { style: goldText }, 'wide'), createElement('span', { style: monoValue }, pct(DISCOUNT)), createElement('span', { style: monoValue }, pct(MOS_WIDE))],
-            [createElement('span', { style: goldText }, 'monopoly'), createElement('span', { style: monoValue }, pct(DISCOUNT)), createElement('span', { style: monoValue }, pct(MOS_MONOPOLY))],
+            [createElement('span', { style: goldText }, 'wide'), createElement('span', { style: monoFigure }, pct(DISCOUNT)), createElement('span', { style: monoFigure }, pct(MOS_WIDE))],
+            [createElement('span', { style: goldText }, 'monopoly'), createElement('span', { style: monoFigure }, pct(DISCOUNT)), createElement('span', { style: monoFigure }, pct(MOS_MONOPOLY))],
           ],
         }),
 
         // Worked example
         createElement(
           'div',
-          { style: { ...bodyStyle, background: 'var(--owl-color-panel-elevated)', border: '1px solid var(--owl-color-border)', borderRadius: '0.7rem', padding: '0.85rem 1rem' } },
-          createElement('p', { style: { ...monoLabel, color: 'var(--owl-color-gold)', marginBottom: '0.4rem' } }, 'Worked example — a monopoly compounder'),
+          { style: { ...bodyStyle, background: 'var(--owl-color-panel)', border: '1px solid var(--owl-color-border)', borderRadius: 'var(--owl-radius-card)', padding: '0.85rem 1rem' } },
+          createElement('p', { style: { ...microLabel, marginBottom: '0.4rem' } }, 'Worked example — a monopoly compounder'),
           createElement(
             'p',
             { style: { margin: 0 } },
             'Owner earnings of ',
-            createElement('span', { style: monoValue }, '14'),
+            createElement('span', { style: monoFigure }, '14'),
             ' per share with no credited growth capitalize at ',
-            createElement('span', { style: monoValue }, `14 / ${pct(DISCOUNT)} = 200`),
+            createElement('span', { style: monoFigure }, `14 / ${pct(DISCOUNT)} = 200`),
             ' fair value. A monopoly moat carries a ',
-            createElement('span', { style: monoValue }, pct(MOS_MONOPOLY)),
+            createElement('span', { style: monoFigure }, pct(MOS_MONOPOLY)),
             ' margin of safety, so the buy price is ',
-            createElement('span', { style: monoValue }, `200 × (1 − ${pct(MOS_MONOPOLY)}) = 180`),
+            createElement('span', { style: monoFigure }, `200 × (1 − ${pct(MOS_MONOPOLY)}) = 180`),
             '. A wide-moat business with the same earnings would demand a ',
-            createElement('span', { style: monoValue }, pct(MOS_WIDE)),
+            createElement('span', { style: monoFigure }, pct(MOS_WIDE)),
             ' buffer instead.',
           ),
         ),
@@ -414,7 +413,7 @@ export function StrategyOverview(): ReactNode {
       lead: 'These conditions are applied regardless of how attractive the price looks. A failure on any blocking gate stops the case.',
       children: createElement(
         'ul',
-        { style: { ...bodyStyle, margin: 0, paddingLeft: '1.1rem', display: 'flex', flexDirection: 'column', gap: '0.35rem' } },
+        { style: { ...bodyStyle, margin: 0, paddingLeft: '1.1rem', display: 'flex', flexDirection: 'column', gap: '0.4rem' } },
         createElement('li', null, createElement('span', { style: goldText }, 'Moat ≥ wide'), ' — narrow/moderate are rejected and forced to PASS.'),
         createElement('li', null, createElement('span', { style: goldText }, 'ROIC above hurdle'), ' — growth is credited only when ROIC exceeds the discount rate.'),
         createElement('li', null, createElement('span', { style: goldText }, 'Positive owner earnings'), ' — normalized owner earnings must be positive.'),
@@ -445,15 +444,15 @@ export function StrategyOverview(): ReactNode {
         Table({
           headings: ['Moat class', 'Target weight'],
           rows: [
-            [createElement('span', { style: goldText }, 'wide'), createElement('span', { style: monoValue }, pct(TARGET_WIDE))],
-            [createElement('span', { style: goldText }, 'monopoly'), createElement('span', { style: monoValue }, pct(TARGET_MONOPOLY))],
+            [createElement('span', { style: goldText }, 'wide'), createElement('span', { style: monoFigure }, pct(TARGET_WIDE))],
+            [createElement('span', { style: goldText }, 'monopoly'), createElement('span', { style: monoFigure }, pct(TARGET_MONOPOLY))],
           ],
         }),
         Table({
           headings: ['Tranche', 'Fraction', 'Trigger', 'Gate'],
           rows: TRANCHES.map((t) => [
             createElement('span', { style: goldText }, t.id),
-            createElement('span', { style: monoValue }, pct(t.fraction)),
+            createElement('span', { style: monoFigure }, pct(t.fraction)),
             trancheTriggerLabel(t),
             t.id === 'T1' ? 'Entry' : createElement('span', { style: goldText }, 'Thesis re-check'),
           ]),

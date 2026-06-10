@@ -412,17 +412,16 @@ function createVerdictHero(researchCase: AppResearchCase) {
   return createElement(
     'header',
     {
+      className: 'owl-section-card',
       style: {
-        ...cardStyle,
-        display: 'grid',
-        gap: '0.75rem',
+        gap: '0.7rem',
       },
     },
     // kicker + version row
     createElement(
       'div',
       { style: { alignItems: 'baseline', display: 'flex', gap: '0.75rem', justifyContent: 'space-between', flexWrap: 'wrap' } },
-      createElement('p', { style: labelStyle }, 'Research dossier'),
+      createElement('p', { className: 'owl-section-accent' }, 'Research dossier'),
       versionBadge === null ? null : createElement(
         'span',
         {
@@ -435,10 +434,10 @@ function createVerdictHero(researchCase: AppResearchCase) {
         versionBadge,
       ),
     ),
-    // Ticker
+    // Ticker (serif page title — the briefing's subject)
     createElement(
       'h1',
-      { className: 'owl-page-title', style: { letterSpacing: '-0.02em', lineHeight: 1, margin: 0 } },
+      { className: 'owl-page-title', style: { lineHeight: 1, margin: 0 } },
       displayName,
     ),
     // Company
@@ -492,13 +491,14 @@ function createVerdictHero(researchCase: AppResearchCase) {
       createStatusChip('Strategy', researchCase.strategy_compliance ?? 'Pending', resolveComplianceChipColor(researchCase.strategy_compliance)),
     ),
     // Verdict summary section
+    createElement('hr', { className: 'owl-rule', style: { marginTop: '0.15rem' } }),
     createElement(
       'section',
-      { style: { borderTop: '1px solid var(--owl-color-border)', display: 'grid', gap: '0.45rem', paddingTop: '0.7rem' } },
-      createElement('p', { style: labelStyle }, 'Verdict summary'),
+      { style: { display: 'grid', gap: '0.5rem' } },
+      createElement('p', { className: 'owl-section-accent' }, 'Verdict summary'),
       createElement(
         'p',
-        { style: { color: 'var(--owl-color-text)', fontSize: 'var(--owl-text-md)', lineHeight: 1.55, margin: 0 } },
+        { style: { color: 'var(--owl-color-text)', fontSize: 'var(--owl-text-md)', lineHeight: 1.6, margin: 0 } },
         createVerdictSummaryText(researchCase),
       ),
       // Next action
@@ -638,9 +638,8 @@ function createValuationPanel(researchCase: AppResearchCase, marketQuote?: Marke
   return createElement(
     'div',
     {
+      className: 'owl-section-card',
       style: {
-        ...cardStyle,
-        display: 'grid',
         gap: '0.5rem',
       },
     },
@@ -648,12 +647,12 @@ function createValuationPanel(researchCase: AppResearchCase, marketQuote?: Marke
     createElement(
       'div',
       { style: { alignItems: 'baseline', display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.5rem' } },
-      createElement('p', { style: labelStyle }, 'Valuation'),
+      createElement('p', { className: 'owl-section-accent' }, 'Valuation'),
       createElement(
         'span',
         {
           style: {
-            color: '#bbf7d0',
+            color: 'var(--owl-color-accent-bright)',
             fontFamily: 'var(--owl-font-mono)',
             fontSize: 'var(--owl-text-xs)',
             fontWeight: 800,
@@ -814,27 +813,21 @@ function createValuationPanel(researchCase: AppResearchCase, marketQuote?: Marke
       { style: { color: 'var(--owl-color-muted)', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-sm)', lineHeight: 1.4, margin: '0.2rem 0 0' } },
       roicGateLabel,
     ) : null,
-    // Metrics row: owner earnings/sh, fair value, buy-below, discount, MoS, and market/gap when available
+    // Key figures — the ledger-line of the valuation (fair value / buy below /
+    // MoS / owner-earnings·sh / discount, plus market & its read when quoted).
     createElement(
       'div',
-      {
-        style: {
-          display: 'grid',
-          gap: '0.7rem',
-          gridTemplateColumns: marketQuote !== undefined ? 'repeat(6, 1fr)' : 'repeat(5, 1fr)',
-          marginTop: '1rem',
-        },
-      },
-      createMetricCell('Owner earnings / sh', valuation.normalized_owner_earnings_per_share !== undefined ? `$${valuation.normalized_owner_earnings_per_share.toFixed(2)}` : 'Pending', false),
-      createMetricCell('Fair value', fairValue !== undefined ? `$${fairValue.toFixed(2)}` : 'Pending', true),
-      createMetricCell('Buy below', buyPrice !== undefined ? `$${buyPrice}` : 'Pending', true),
-      createMetricCell('Discount', discountLabel, false),
-      createMetricCell('Margin of safety', mosLabel !== undefined ? mosLabel : 'Pending', false),
+      { className: 'owl-ledger-line', style: { marginTop: '1rem' } },
+      createValuationLedgerStat('Fair value', fairValue !== undefined ? `$${fairValue.toFixed(2)}` : 'Pending', 'owl-ledger-figure-money'),
+      createValuationLedgerStat('Buy below', buyPrice !== undefined ? `$${buyPrice}` : 'Pending', 'owl-ledger-figure-money'),
+      createValuationLedgerStat('Margin of safety', mosLabel ?? 'Pending', ''),
+      createValuationLedgerStat('Owner earnings / sh', valuation.normalized_owner_earnings_per_share !== undefined ? `$${valuation.normalized_owner_earnings_per_share.toFixed(2)}` : 'Pending', 'owl-ledger-figure-money'),
+      createValuationLedgerStat('Discount', discountLabel, ''),
       ...(marketQuote !== undefined ? [
-        createMetricCell(
+        createValuationLedgerStat(
           `Market (${marketQuote.currency})`,
           `$${marketQuote.price_per_share.toFixed(2)}`,
-          false,
+          `owl-ledger-figure-money ${gapIsGood ? 'owl-ledger-figure-emerald' : 'owl-ledger-figure-risk'}`,
         ),
       ] : []),
     ),
@@ -1077,43 +1070,16 @@ function createTrancheRow(tranche: PositionTranche, currency: string) {
   )
 }
 
-function createMetricCell(label: string, value: string, accent: boolean) {
+/**
+ * One figure in the valuation ledger-line: a mono uppercase label over a
+ * tabular mono figure. `figureClass` carries the money/emerald/risk modifiers.
+ */
+function createValuationLedgerStat(label: string, value: string, figureClass: string) {
   return createElement(
-    'div',
-    {
-      key: label,
-      style: {
-        background: 'var(--owl-color-panel-elevated)',
-        border: '1px solid var(--owl-color-border)',
-        borderRadius: '0.7rem',
-        padding: '0.7rem 0.8rem',
-      },
-    },
-    createElement(
-      'div',
-      {
-        style: {
-          color: 'var(--owl-color-quiet)',
-          fontFamily: 'var(--owl-font-mono)',
-          fontSize: 'var(--owl-text-2xs)',
-          letterSpacing: '0.05em',
-          textTransform: 'uppercase' as const,
-        },
-      },
-      label,
-    ),
-    createElement(
-      'div',
-      {
-        style: {
-          color: accent ? 'var(--owl-color-accent-bright)' : 'var(--owl-color-text)',
-          fontSize: 'var(--owl-text-md)',
-          fontWeight: 800,
-          marginTop: '0.15rem',
-        },
-      },
-      value,
-    ),
+    'article',
+    { key: label, className: 'owl-ledger-stat' },
+    createElement('p', { className: 'owl-ledger-label' }, label),
+    createElement('p', { className: `owl-ledger-figure ${figureClass}`.trim() }, value),
   )
 }
 
@@ -1148,14 +1114,12 @@ function createDecisionEvidence(researchCase: AppResearchCase) {
   return createElement(
     'section',
     {
-      className: 'owl-workflow-card',
+      className: 'owl-workflow-card owl-section-card',
       style: {
-        ...cardStyle,
-        display: 'grid',
         gap: '0.75rem',
       },
     },
-    createElement('p', { style: labelStyle }, 'Decision evidence'),
+    createElement('p', { className: 'owl-section-accent' }, 'Decision evidence'),
     createElement(
       'div',
       {
@@ -1280,16 +1244,15 @@ function createSpecialistLanesGrid(researchCase: AppResearchCase) {
   return createElement(
     'section',
     {
+      className: 'owl-section-card',
       style: {
-        ...cardStyle,
-        display: 'grid',
         gap: '0.7rem',
       },
     },
     createElement(
       'div',
       { style: { alignItems: 'baseline', display: 'flex', flexWrap: 'wrap', gap: '0.5rem', justifyContent: 'space-between' } },
-      createElement('p', { style: labelStyle }, 'Deep-dive specialist lanes'),
+      createElement('p', { className: 'owl-section-accent' }, 'Deep-dive specialist lanes'),
       createElement(
         'span',
         { style: { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-sm)' } },

@@ -1,7 +1,7 @@
 import { createElement, type CSSProperties } from 'react'
 
 import type { AppPerformanceReport } from '../lib/performance'
-import { OwlKpiStat, RouteHeader } from './designSystem'
+import { RouteHeader } from './designSystem'
 
 export type PerformancePanelProps = {
   report: AppPerformanceReport
@@ -37,10 +37,31 @@ export function PerformancePanel({ report }: PerformancePanelProps) {
       title: 'Performance vs benchmark',
       description: `Time-weighted portfolio return compared with the ${report.benchmark_label} benchmark, derived from local ledger valuation snapshots and cash flows.`,
     }),
+    createElement('hr', { className: 'owl-rule' }),
     performance.sufficient
       ? createSufficientView(report)
       : createInsufficientView(report),
     createDisclaimer(report),
+  )
+}
+
+/** Map a signed return to the ledger-figure tone class (positive→emerald, negative→risk, flat→gold default). */
+function figureClassFor(value: number): string {
+  if (value > 0) {
+    return 'owl-ledger-figure-emerald'
+  }
+  if (value < 0) {
+    return 'owl-ledger-figure-risk'
+  }
+  return ''
+}
+
+function createLedgerStat(label: string, value: string, figureClass: string) {
+  return createElement(
+    'article',
+    { className: 'owl-ledger-stat', key: label },
+    createElement('p', { className: 'owl-ledger-label' }, label),
+    createElement('p', { className: `owl-ledger-figure ${figureClass}`.trim() }, value),
   )
 }
 
@@ -50,51 +71,36 @@ function createSufficientView(report: AppPerformanceReport) {
     return null
   }
 
-  const portfolioTone = performance.portfolio_twr > 0 ? 'emerald' : performance.portfolio_twr < 0 ? 'risk' : 'gold'
   const benchmarkAvailable = performance.benchmark_return !== null
-  const benchmarkTone = !benchmarkAvailable
-    ? 'gold'
-    : (performance.benchmark_return ?? 0) > 0 ? 'emerald' : (performance.benchmark_return ?? 0) < 0 ? 'risk' : 'gold'
-  const excessTone = !benchmarkAvailable
-    ? 'gold'
-    : (performance.excess_return ?? 0) > 0 ? 'emerald' : (performance.excess_return ?? 0) < 0 ? 'risk' : 'gold'
+  const benchmarkReturn = performance.benchmark_return ?? 0
+  const excessReturn = performance.excess_return ?? 0
 
+  // Vital signs: portfolio TWR / benchmark / excess as a hairline ledger line —
+  // emerald when positive, risk when negative, never boxy KPI tiles.
   return createElement(
     'div',
     { style: { display: 'grid', gap: '1rem' } },
     createElement(
       'section',
-      { 'aria-label': 'Performance summary', className: 'owl-kpi-row' },
-      createElement(
-        'div',
-        { className: 'owl-kpi-panel owl-kpi-panel-gold' },
-        createElement(OwlKpiStat, {
-          label: `Portfolio return (${performance.period_start} → ${performance.period_end})`,
-          value: formatPercent(performance.portfolio_twr),
-          tone: portfolioTone,
-        }),
+      { 'aria-label': 'Performance summary', className: 'owl-ledger-line' },
+      createLedgerStat(
+        `Portfolio return (${performance.period_start} → ${performance.period_end})`,
+        formatPercent(performance.portfolio_twr),
+        figureClassFor(performance.portfolio_twr),
       ),
-      createElement(
-        'div',
-        { className: 'owl-kpi-panel' },
-        createElement(OwlKpiStat, {
-          label: `Benchmark (${report.benchmark_symbol}) return`,
-          value: benchmarkAvailable ? formatPercent(performance.benchmark_return ?? 0) : '—',
-          tone: benchmarkTone,
-        }),
+      createLedgerStat(
+        `Benchmark (${report.benchmark_symbol}) return`,
+        benchmarkAvailable ? formatPercent(benchmarkReturn) : '—',
+        benchmarkAvailable ? figureClassFor(benchmarkReturn) : '',
       ),
-      createElement(
-        'div',
-        { className: 'owl-kpi-panel' },
-        createElement(OwlKpiStat, {
-          label: 'Excess return (portfolio − benchmark)',
-          value: benchmarkAvailable ? formatPercent(performance.excess_return ?? 0) : '—',
-          tone: excessTone,
-        }),
+      createLedgerStat(
+        'Excess return (portfolio − benchmark)',
+        benchmarkAvailable ? formatPercent(excessReturn) : '—',
+        benchmarkAvailable ? figureClassFor(excessReturn) : '',
       ),
     ),
     benchmarkAvailable
-      ? createComparisonBars(performance.portfolio_twr, performance.benchmark_return ?? 0, report.benchmark_symbol)
+      ? createComparisonBars(performance.portfolio_twr, benchmarkReturn, report.benchmark_symbol)
       : createBenchmarkPendingCard(report, performance.benchmark_reason),
     createElement(
       'p',
@@ -132,8 +138,9 @@ function createComparisonBars(portfolio: number, benchmark: number, benchmarkSym
 
   return createElement(
     'section',
-    { 'aria-label': 'Portfolio vs benchmark comparison', style: cardStyle },
-    createElement('h2', { className: 'owl-section-title', style: { margin: '0 0 0.9rem' } }, `Portfolio vs ${benchmarkSymbol}`),
+    { 'aria-label': 'Portfolio vs benchmark comparison', className: 'owl-section-card' },
+    createElement('p', { className: 'owl-section-accent' }, 'Relative performance'),
+    createElement('h2', { className: 'owl-section-title', style: { margin: '0 0 0.6rem' } }, `Portfolio vs ${benchmarkSymbol}`),
     createElement(
       'div',
       { style: { display: 'grid', gap: '0.9rem' } },

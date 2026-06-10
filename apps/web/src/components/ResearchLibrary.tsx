@@ -1,4 +1,4 @@
-import { createElement, type CSSProperties, type ReactNode } from 'react'
+import { createElement, Fragment, type CSSProperties, type ReactNode } from 'react'
 
 import type { ResearchCaseProjection, ResearchCaseStage } from '@owlfolio/ledger/projections/researchCaseProjection'
 
@@ -136,13 +136,6 @@ const monoLabel: CSSProperties = {
   letterSpacing: '0.07em',
   textTransform: 'uppercase',
   color: 'var(--owl-color-quiet)',
-}
-
-const groupHeaderStyle: CSSProperties = {
-  display: 'flex',
-  justifyContent: 'space-between',
-  alignItems: 'baseline',
-  margin: '1.4rem 0 0.6rem',
 }
 
 const dossierLinkStyle: CSSProperties = {
@@ -317,20 +310,30 @@ const GROUP_ORDER: LibraryGroup[] = [
   { kind: 'pass', title: 'Passed', description: 'Cases set aside without a watch or buy verdict.' },
 ]
 
+const GROUP_EYEBROW: Record<VerdictKind, string> = {
+  in_progress: 'Open files',
+  buy: 'Conviction',
+  watch: 'Under observation',
+  avoid: 'Set aside',
+  pass: 'Set aside',
+}
+
 function groupCard(group: LibraryGroup, cases: ResearchCaseProjection[]): ReactNode {
+  const count = cases.length
   return createElement(
     'section',
-    { key: group.kind, 'aria-label': group.title },
+    { key: group.kind, 'aria-label': group.title, className: 'owl-section-card', style: { gap: 'var(--owl-space-3)' } },
     createElement(
       'div',
-      { style: groupHeaderStyle },
+      { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: '0.75rem', flexWrap: 'wrap' } },
       createElement(
         'div',
-        null,
-        createElement('h2', { style: { fontSize: 'var(--owl-text-md)', margin: 0, color: 'var(--owl-color-gold-bright)' } }, group.title),
-        createElement('p', { style: { color: 'var(--owl-color-quiet)', fontSize: 'var(--owl-text-sm)', margin: '0.2rem 0 0' } }, group.description),
+        { style: { display: 'grid', gap: '0.2rem' } },
+        createElement('p', { className: 'owl-section-accent' }, GROUP_EYEBROW[group.kind]),
+        createElement('h2', { className: 'owl-section-title' }, group.title),
+        createElement('p', { className: 'owl-row-helper', style: { margin: 0 } }, group.description),
       ),
-      createElement('span', { style: metaChipStyle }, String(cases.length)),
+      createElement('span', { style: metaChipStyle }, `${count} ${count === 1 ? 'case' : 'cases'}`),
     ),
     createElement(
       'div',
@@ -364,6 +367,15 @@ export function ResearchLibrary({ mode, selectedStrategyLabel, cases }: Research
     grouped.set(kind, bucket)
   }
 
+  const countOf = (kind: VerdictKind): number => (grouped.get(kind) ?? []).length
+  const ledgerStats: { figureClass: string; label: string; value: number }[] = [
+    { figureClass: '', label: 'Cases studied', value: latest.length },
+    { figureClass: 'owl-ledger-figure-emerald', label: 'Buys', value: countOf('buy') },
+    { figureClass: '', label: 'On watch', value: countOf('watch') },
+    { figureClass: '', label: 'Open files', value: countOf('in_progress') },
+    { figureClass: 'owl-ledger-figure-risk', label: 'Set aside', value: countOf('avoid') + countOf('pass') },
+  ]
+
   const newResearchAction = createElement(
     OwlButtonLink,
     { href: '/research/new', variant: 'primary' },
@@ -389,45 +401,62 @@ export function ResearchLibrary({ mode, selectedStrategyLabel, cases }: Research
   const populatedGroups = GROUP_ORDER.filter((group) => (grouped.get(group.kind) ?? []).length > 0)
 
   return createElement(
-    'section',
-    { style: { display: 'grid', gap: '0.4rem' } },
+    Fragment,
+    null,
     createElement(RouteHeader, {
-      kicker: 'Research',
+      kicker: 'The archive',
       title: 'Research library',
       description:
-        'Start new research and browse your dossiers. Each company shows its latest, non-superseded research case — grouped by verdict, with in-progress cases called out. Live stage execution lives on the Pipeline.',
+        'Every company your agent has studied, grouped by verdict. Each shows its latest, non-superseded dossier — with in-progress cases called out. Live stage execution lives on the Pipeline.',
     }),
+    createElement('hr', { className: 'owl-rule' }),
 
-    // New research + intake + live pipeline
+    // Vital signs — the shape of the archive at a glance.
     createElement(
-      'div',
-      { style: { ...cardStyle, display: 'flex', flexWrap: 'wrap', gap: '0.9rem', alignItems: 'center', justifyContent: 'space-between', marginTop: '0.6rem' } },
+      'section',
+      { 'aria-label': 'Library summary', className: 'owl-ledger-line', style: { marginTop: 'var(--owl-space-4)' } },
+      ...ledgerStats.map((stat) => createElement(
+        'article',
+        { className: 'owl-ledger-stat', key: stat.label },
+        createElement('p', { className: 'owl-ledger-label' }, stat.label),
+        createElement('p', { className: `owl-ledger-figure ${stat.figureClass}`.trim() }, String(stat.value)),
+      )),
+    ),
+
+    // Start a case — the standing action.
+    createElement(
+      'section',
+      { 'aria-label': 'Start a case', className: 'owl-section-card', style: { gap: 'var(--owl-space-3)', marginTop: 'var(--owl-space-4)' } },
       createElement(
         'div',
-        { style: { display: 'flex', flexDirection: 'column', gap: '0.25rem' } },
-        createElement('p', { style: { ...monoLabel, color: 'var(--owl-color-gold)', margin: 0 } }, 'Start a case'),
-        createElement('p', { style: { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-base)', margin: 0, maxWidth: '40rem' } }, 'Kick off a new research case from a ticker; the harness runs the quick screen and deep-dive swarm.'),
+        { style: { display: 'flex', flexWrap: 'wrap', gap: '0.9rem', alignItems: 'flex-end', justifyContent: 'space-between' } },
+        createElement(
+          'div',
+          { style: { display: 'grid', gap: '0.25rem' } },
+          createElement('p', { className: 'owl-section-accent' }, 'Start a case'),
+          createElement('h2', { className: 'owl-section-title' }, 'Point your agent at a ticker'),
+          createElement('p', { className: 'owl-row-helper', style: { margin: 0, maxWidth: '40rem' } }, 'Kick off a new research case from a ticker; the harness runs the quick screen and deep-dive swarm.'),
+        ),
+        createElement('div', { style: { display: 'flex', flexWrap: 'wrap', gap: '0.6rem', alignItems: 'center' } }, newResearchAction, intakeLink),
       ),
-      createElement('div', { style: { display: 'flex', flexWrap: 'wrap', gap: '0.6rem', alignItems: 'center' } }, newResearchAction, intakeLink),
+      createElement(
+        'div',
+        { style: { display: 'flex', flexWrap: 'wrap', gap: '0.75rem', alignItems: 'center', justifyContent: 'space-between', borderTop: '1px solid var(--owl-color-border)', paddingTop: 'var(--owl-space-3)' } },
+        createElement('span', { style: metaChipStyle }, selectedStrategyLabel),
+        pipelineLink,
+      ),
     ),
 
-    createElement(
-      'div',
-      { style: { display: 'flex', flexWrap: 'wrap', gap: '0.75rem', alignItems: 'center', justifyContent: 'space-between', margin: '0.6rem 0 0' } },
-      createElement('span', { style: metaChipStyle }, selectedStrategyLabel),
-      pipelineLink,
-    ),
-
-    // The library
+    // The dossiers, grouped by verdict.
     latest.length === 0
       ? createElement(
           'div',
-          { style: { ...cardStyle, color: 'var(--owl-color-muted)', marginTop: '0.8rem' } },
+          { style: { ...cardStyle, color: 'var(--owl-color-muted)', marginTop: 'var(--owl-space-4)' } },
           createElement('p', { style: { margin: 0 } }, 'No research yet — start with Manual ticker intake.'),
         )
       : createElement(
           'div',
-          { style: { display: 'grid', gap: '0.2rem' } },
+          { style: { display: 'grid', gap: 'var(--owl-space-4)', marginTop: 'var(--owl-space-4)' } },
           ...populatedGroups.map((group) => groupCard(group, grouped.get(group.kind) ?? [])),
         ),
   )

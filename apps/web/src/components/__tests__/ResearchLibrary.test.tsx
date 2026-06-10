@@ -32,6 +32,10 @@ describe('ResearchLibrary', () => {
     expect(html).toContain('href="/research/new"')
     expect(html).toContain('href="/pipeline"')
     expect(html).toContain('Selected strategy: buffett-munger')
+
+    // The vital-signs summary band leads the page on the Fiduciary Briefing standard.
+    expect(html).toContain('owl-ledger-line')
+    expect(html).toContain('Cases studied')
   })
 
   it('shows an honest empty state when there are no cases', () => {

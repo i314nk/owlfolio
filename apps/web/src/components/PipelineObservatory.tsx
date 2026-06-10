@@ -1,6 +1,6 @@
 import { createElement, type CSSProperties, type ReactNode } from 'react'
 
-import { OwlKpiStat } from './designSystem'
+import { RouteHeader } from './designSystem'
 import type {
   PipelineDrillDown,
   PipelineFailedRun,
@@ -21,27 +21,34 @@ export type PipelineObservatoryProps = {
   mode: WorkflowMode
 }
 
-const cardStyle: CSSProperties = {
-  background: 'var(--owl-color-panel)',
-  border: '1px solid var(--owl-color-border)',
-  borderRadius: 'var(--owl-radius-panel)',
-  padding: '1.15rem 1.3rem',
-  boxShadow: 'var(--owl-shadow-panel)',
-}
+// ── Scoped style vocabulary ───────────────────────────────────────────────────
+// The page leans on the shared editorial classes (owl-route-header, owl-rule,
+// owl-ledger-line, owl-section-card, owl-section-accent, owl-section-title,
+// owl-row*). Only structures with no shared class — the stage-flow nodes, the
+// runs/failed tables, the lane cards and the timeline — keep scoped inline
+// styles. Gold-forward / emerald; no blue or purple.
 
 const monoLabel: CSSProperties = {
+  color: 'var(--owl-color-quiet)',
   fontFamily: 'var(--owl-font-mono)',
   fontSize: 'var(--owl-text-2xs)',
-  letterSpacing: '0.06em',
+  fontWeight: 'var(--owl-weight-label)',
+  letterSpacing: '0.14em',
+  margin: 0,
   textTransform: 'uppercase',
-  color: 'var(--owl-color-quiet)',
 }
 
-const sectionHeaderStyle: CSSProperties = {
-  display: 'flex',
-  justifyContent: 'space-between',
-  alignItems: 'baseline',
-  margin: '1.3rem 0 0.5rem',
+const monoMeta: CSSProperties = {
+  color: 'var(--owl-color-quiet)',
+  fontFamily: 'var(--owl-font-mono)',
+  fontSize: 'var(--owl-text-2xs)',
+  whiteSpace: 'nowrap',
+}
+
+const sectionNoteStyle: CSSProperties = {
+  color: 'var(--owl-color-quiet)',
+  fontSize: 'var(--owl-text-sm)',
+  margin: 0,
 }
 
 const HEALTH_DOT_COLOR: Record<PipelineStageHealth, string> = {
@@ -64,6 +71,19 @@ const RUN_CHIP: Record<PipelineRunStatus, { bg: string; border: string; color: s
   failed: { bg: 'rgba(239,68,68,0.13)', border: 'rgba(239,68,68,0.4)', color: '#fca5a5', label: 'failed' },
 }
 
+const thStyle: CSSProperties = {
+  ...monoLabel,
+  borderBottom: '1px solid var(--owl-color-border)',
+  letterSpacing: '0.08em',
+  padding: '0.55rem 0.7rem',
+  textAlign: 'left',
+}
+
+const tdStyle: CSSProperties = {
+  borderBottom: '1px solid rgba(182,201,173,0.08)',
+  padding: '0.65rem 0.7rem',
+}
+
 function relativeTime(isoString: string): string {
   const diffMs = Date.now() - Date.parse(isoString)
   if (!Number.isFinite(diffMs) || diffMs < 0) {
@@ -83,12 +103,12 @@ function statusDot(color: string, size = '0.5rem'): ReactNode {
   return createElement('span', {
     'aria-hidden': 'true',
     style: {
-      display: 'inline-block',
-      width: size,
-      height: size,
-      borderRadius: '50%',
       background: color,
+      borderRadius: '50%',
+      display: 'inline-block',
+      height: size,
       marginRight: '0.4rem',
+      width: size,
     },
   })
 }
@@ -103,21 +123,67 @@ function runChip(run: PipelineRun): ReactNode {
     {
       role: 'status',
       style: {
-        display: 'inline-flex',
         alignItems: 'center',
-        gap: '0.35rem',
-        padding: '0.2rem 0.55rem',
-        borderRadius: '999px',
-        fontSize: 'var(--owl-text-2xs)',
-        fontWeight: 700,
         background: chip.bg,
         border: `1px solid ${chip.border}`,
+        borderRadius: '999px',
         color: chip.color,
+        display: 'inline-flex',
+        fontFamily: 'var(--owl-font-mono)',
+        fontSize: 'var(--owl-text-2xs)',
+        fontWeight: 700,
+        gap: '0.35rem',
+        letterSpacing: '0.02em',
+        padding: '0.2rem 0.55rem',
       },
     },
     label,
   )
 }
+
+// ── Section header — accent kicker + sans title + a quiet note ─────────────────
+
+function sectionHead(accent: string, title: string, note?: string, titleColor?: string): ReactNode {
+  return createElement(
+    'div',
+    { style: { alignItems: 'baseline', display: 'flex', flexWrap: 'wrap', gap: '0.2rem 0.85rem', justifyContent: 'space-between' } },
+    createElement(
+      'div',
+      { style: { display: 'grid', gap: '0.15rem' } },
+      createElement('p', { className: 'owl-section-accent' }, accent),
+      createElement('h2', { className: 'owl-section-title', style: titleColor !== undefined ? { color: titleColor } : undefined }, title),
+    ),
+    note !== undefined ? createElement('p', { style: sectionNoteStyle }, note) : null,
+  )
+}
+
+// ── The ledger line — vital signs of the swarm ────────────────────────────────
+
+function LedgerLine({ summary }: { summary: PipelineProjection['summary'] }): ReactNode {
+  const stats: { figureClass: string; label: string; value: string }[] = [
+    { figureClass: 'owl-ledger-figure', label: 'Active runs', value: String(summary.active_runs) },
+    { figureClass: 'owl-ledger-figure', label: 'Awaiting approval', value: String(summary.awaiting_approval) },
+    {
+      figureClass: `owl-ledger-figure ${summary.failed_recent > 0 ? 'owl-ledger-figure-risk' : 'owl-ledger-figure-emerald'}`,
+      label: 'Failed (recent)',
+      value: String(summary.failed_recent),
+    },
+    { figureClass: 'owl-ledger-figure owl-ledger-figure-emerald', label: 'Grounded sources', value: String(summary.grounded_sources) },
+  ]
+
+  return createElement(
+    'section',
+    { 'aria-label': 'Swarm vital signs', className: 'owl-ledger-line' },
+    ...stats.map((stat) => createElement(
+      'article',
+      { className: 'owl-ledger-stat', key: stat.label },
+      createElement('p', { className: 'owl-ledger-label' }, stat.label),
+      createElement('p', { className: stat.figureClass }, stat.value),
+    )),
+  )
+}
+
+// ── The stage-flow map ────────────────────────────────────────────────────────
 
 function StageFlowMap({ stages }: { stages: PipelineStageCount[] }): ReactNode {
   const nodes: ReactNode[] = []
@@ -129,30 +195,31 @@ function StageFlowMap({ stages }: { stages: PipelineStageCount[] }): ReactNode {
           key: stage.key,
           'aria-label': `${stage.label}: ${stage.count}`,
           style: {
+            background: 'var(--owl-color-panel)',
+            border: `1px solid ${stage.health === 'warn' ? 'var(--owl-color-border-strong)' : 'var(--owl-color-border)'}`,
+            borderRadius: 'var(--owl-radius-card)',
             flex: 1,
             minWidth: '120px',
-            background: 'var(--owl-color-panel-elevated)',
-            border: `1px solid ${stage.health === 'warn' ? 'var(--owl-color-border-strong)' : 'var(--owl-color-border)'}`,
-            borderRadius: '0.7rem',
-            padding: '0.7rem 0.75rem',
+            padding: '0.7rem 0.8rem',
             position: 'relative',
           },
         },
         statusDot(HEALTH_DOT_COLOR[stage.health]),
-        createElement('div', { style: { ...monoLabel, color: 'var(--owl-color-muted)' } }, stage.label),
+        createElement('span', { style: { ...monoLabel, color: 'var(--owl-color-muted)', letterSpacing: '0.06em' } }, stage.label),
         createElement(
           'div',
           {
             style: {
-              fontSize: 'var(--owl-text-lg)',
-              fontWeight: 800,
-              marginTop: '0.2rem',
-              fontVariantNumeric: 'tabular-nums',
               color: stage.health === 'err'
                 ? 'var(--owl-color-risk)'
                 : stage.health === 'warn'
                   ? 'var(--owl-color-amber)'
                   : 'var(--owl-color-gold-bright)',
+              fontFamily: 'var(--owl-font-mono)',
+              fontSize: 'var(--owl-text-lg)',
+              fontVariantNumeric: 'tabular-nums',
+              fontWeight: 800,
+              marginTop: '0.25rem',
             },
           },
           String(stage.count),
@@ -163,7 +230,7 @@ function StageFlowMap({ stages }: { stages: PipelineStageCount[] }): ReactNode {
       nodes.push(
         createElement(
           'div',
-          { key: `arrow-${stage.key}`, 'aria-hidden': 'true', style: { alignSelf: 'center', color: 'var(--owl-color-quiet)', fontSize: 'var(--owl-text-md)' } },
+          { key: `arrow-${stage.key}`, 'aria-hidden': 'true', style: { alignSelf: 'center', color: 'var(--owl-color-gold)', fontSize: 'var(--owl-text-md)' } },
           '→',
         ),
       )
@@ -172,15 +239,7 @@ function StageFlowMap({ stages }: { stages: PipelineStageCount[] }): ReactNode {
 
   return createElement(
     'div',
-    {
-      style: {
-        display: 'flex',
-        alignItems: 'stretch',
-        gap: '0.4rem',
-        overflowX: 'auto',
-        padding: '0.3rem 0 0.5rem',
-      },
-    },
+    { style: { alignItems: 'stretch', display: 'flex', gap: '0.45rem', overflowX: 'auto', paddingBottom: '0.2rem' } },
     ...nodes,
   )
 }
@@ -190,112 +249,46 @@ function sourceCountBadge(count: number): ReactNode {
     'span',
     {
       style: {
-        display: 'inline-flex',
         alignItems: 'center',
-        padding: '0.15rem 0.45rem',
-        borderRadius: '999px',
-        fontSize: 'var(--owl-text-2xs)',
-        fontWeight: 700,
         background: 'var(--owl-color-panel-elevated)',
         border: '1px solid var(--owl-color-border)',
+        borderRadius: '999px',
         color: count > 0 ? 'var(--owl-color-accent-bright)' : 'var(--owl-color-quiet)',
+        display: 'inline-flex',
+        fontFamily: 'var(--owl-font-mono)',
+        fontSize: 'var(--owl-text-2xs)',
+        fontWeight: 700,
+        padding: '0.15rem 0.5rem',
       },
     },
     `${count} ${count === 1 ? 'source' : 'sources'}`,
   )
 }
 
-function FailedRunsSection({ failedRuns }: { failedRuns: PipelineFailedRun[] }): ReactNode {
-  if (failedRuns.length === 0) return null
-
-  const thStyle: CSSProperties = {
-    textAlign: 'left',
-    ...monoLabel,
-    padding: '0.5rem 0.6rem',
-    borderBottom: '1px solid var(--owl-color-border)',
-  }
-  const tdStyle: CSSProperties = {
-    padding: '0.6rem 0.6rem',
-    borderBottom: '1px solid rgba(182,201,173,0.08)',
-  }
-
-  return createElement(
-    'div',
-    null,
-    createElement(
-      'div',
-      { style: { ...sectionHeaderStyle } },
-      createElement('h2', { style: { fontSize: 'var(--owl-text-md)', margin: 0, color: 'var(--owl-color-risk)' } }, 'Failed runs'),
-      createElement('span', { style: { color: 'var(--owl-color-quiet)', fontSize: 'var(--owl-text-sm)' } }, 'not recovered by a subsequent claim'),
-    ),
-    createElement(
-      'div',
-      { style: { ...cardStyle, padding: '0.4rem 0.6rem', borderColor: 'rgba(239,68,68,0.28)' } },
-      createElement(
-        'table',
-        { style: { width: '100%', borderCollapse: 'collapse', fontSize: 'var(--owl-text-base)' } },
-        createElement(
-          'thead',
-          null,
-          createElement(
-            'tr',
-            null,
-            ...['Ticker', 'Failed', 'Reason'].map((heading) =>
-              createElement('th', { key: heading, style: thStyle }, heading),
-            ),
-          ),
-        ),
-        createElement(
-          'tbody',
-          null,
-          ...failedRuns.map((run) =>
-            createElement(
-              'tr',
-              { key: run.case_id },
-              createElement('td', { style: { ...tdStyle, fontWeight: 800, color: 'var(--owl-color-gold-bright)' } }, run.ticker),
-              createElement('td', { style: { ...tdStyle, color: 'var(--owl-color-muted)', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-2xs)' } }, relativeTime(run.failed_at)),
-              createElement('td', { style: { ...tdStyle, color: 'var(--owl-color-risk)' } }, run.error_summary ?? '—'),
-            ),
-          ),
-        ),
-      ),
-    ),
-  )
-}
+// ── The runs table ────────────────────────────────────────────────────────────
 
 function RunsTable({ runs, selectedCaseId }: { runs: PipelineRun[]; selectedCaseId?: string }): ReactNode {
   if (runs.length === 0) {
     return createElement(
       'div',
-      { style: { ...cardStyle, color: 'var(--owl-color-muted)' } },
+      { className: 'owl-row', style: { color: 'var(--owl-color-muted)', gridTemplateColumns: '1fr' } },
       'No research runs yet — enqueue a research run to populate the swarm pipeline.',
     )
   }
 
-  const thStyle: CSSProperties = {
-    textAlign: 'left',
-    ...monoLabel,
-    padding: '0.5rem 0.6rem',
-    borderBottom: '1px solid var(--owl-color-border)',
-  }
-  const tdStyle: CSSProperties = {
-    padding: '0.6rem 0.6rem',
-    borderBottom: '1px solid rgba(182,201,173,0.08)',
-  }
-
   return createElement(
     'div',
-    { style: { ...cardStyle, padding: '0.4rem 0.6rem' } },
+    { style: { overflowX: 'auto' } },
     createElement(
       'table',
-      { style: { width: '100%', borderCollapse: 'collapse', fontSize: 'var(--owl-text-base)' } },
+      { style: { borderCollapse: 'collapse', fontSize: 'var(--owl-text-base)', width: '100%' } },
       createElement(
         'thead',
         null,
         createElement(
           'tr',
           null,
-          ...['Ticker', 'Stage', 'Status', 'Started', 'Sources'].map((heading) =>
+          ...['Ticker', 'Started', 'Stage', 'Status', 'Sources'].map((heading) =>
             createElement('th', { key: heading, style: thStyle }, heading),
           ),
         ),
@@ -320,18 +313,14 @@ function RunsTable({ runs, selectedCaseId }: { runs: PipelineRun[]; selectedCase
                 {
                   className: 'owl-focusable',
                   href: `/pipeline?case=${encodeURIComponent(run.research_case_id)}`,
-                  style: { fontWeight: 800, color: 'var(--owl-color-gold-bright)', textDecoration: 'none' },
+                  style: { color: 'var(--owl-color-gold-bright)', fontWeight: 800, textDecoration: 'none' },
                 },
                 run.ticker,
               ),
             ),
-            createElement('td', { style: tdStyle }, run.stage_label),
+            createElement('td', { style: { ...tdStyle, ...monoMeta } }, relativeTime(run.started_at)),
+            createElement('td', { style: { ...tdStyle, color: 'var(--owl-color-muted)' } }, run.stage_label),
             createElement('td', { style: tdStyle }, runChip(run)),
-            createElement(
-              'td',
-              { style: { ...tdStyle, color: 'var(--owl-color-quiet)', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-2xs)', whiteSpace: 'nowrap' } },
-              relativeTime(run.started_at),
-            ),
             createElement('td', { style: tdStyle }, sourceCountBadge(run.source_count)),
           )
         }),
@@ -339,6 +328,52 @@ function RunsTable({ runs, selectedCaseId }: { runs: PipelineRun[]; selectedCase
     ),
   )
 }
+
+// ── Failed runs ───────────────────────────────────────────────────────────────
+
+function FailedRunsSection({ failedRuns }: { failedRuns: PipelineFailedRun[] }): ReactNode {
+  if (failedRuns.length === 0) return null
+
+  return createElement(
+    'section',
+    { className: 'owl-section-card', style: { borderColor: 'rgba(239,68,68,0.24)', gap: 'var(--owl-space-3)' } },
+    sectionHead('Faults', 'Failed runs', 'not recovered by a subsequent claim', 'var(--owl-color-risk-bright)'),
+    createElement(
+      'div',
+      { style: { overflowX: 'auto' } },
+      createElement(
+        'table',
+        { style: { borderCollapse: 'collapse', fontSize: 'var(--owl-text-base)', width: '100%' } },
+        createElement(
+          'thead',
+          null,
+          createElement(
+            'tr',
+            null,
+            ...['Ticker', 'Failed', 'Reason'].map((heading) =>
+              createElement('th', { key: heading, style: thStyle }, heading),
+            ),
+          ),
+        ),
+        createElement(
+          'tbody',
+          null,
+          ...failedRuns.map((run) =>
+            createElement(
+              'tr',
+              { key: run.case_id },
+              createElement('td', { style: { ...tdStyle, color: 'var(--owl-color-gold-bright)', fontWeight: 800 } }, run.ticker),
+              createElement('td', { style: { ...tdStyle, ...monoMeta } }, relativeTime(run.failed_at)),
+              createElement('td', { style: { ...tdStyle, color: 'var(--owl-color-risk)' } }, run.error_summary ?? '—'),
+            ),
+          ),
+        ),
+      ),
+    ),
+  )
+}
+
+// ── The per-run drill-down ────────────────────────────────────────────────────
 
 function laneMeta(lane: PipelineLane): string {
   if (lane.status === 'done') {
@@ -358,106 +393,130 @@ function DrillDown({ drillDown }: { drillDown: PipelineDrillDown }): ReactNode {
       {
         key: lane.lane,
         style: {
-          background: 'var(--owl-color-panel-elevated)',
+          alignItems: 'center',
+          background: 'var(--owl-color-panel)',
           border: '1px solid var(--owl-color-border)',
-          borderRadius: '0.6rem',
-          padding: '0.55rem 0.7rem',
+          borderRadius: 'var(--owl-radius-card)',
           display: 'flex',
           justifyContent: 'space-between',
-          alignItems: 'center',
+          padding: '0.55rem 0.7rem',
         },
       },
       createElement(
         'span',
-        { style: { fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-2xs)', textTransform: 'uppercase', letterSpacing: '0.04em' } },
+        { style: { fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-2xs)', letterSpacing: '0.04em', textTransform: 'uppercase' } },
         statusDot(LANE_DOT_COLOR[lane.status]),
         lane.label,
       ),
-      createElement('span', { style: { fontSize: 'var(--owl-text-2xs)', color: 'var(--owl-color-quiet)' } }, laneMeta(lane)),
+      createElement('span', { style: { color: 'var(--owl-color-quiet)', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-2xs)' } }, laneMeta(lane)),
     ),
   )
 
   const sourceCount = drillDown.grounded_source_ids.length
   const sourceSummary = sourceCount === 0
-    ? createElement('p', { style: { fontSize: 'var(--owl-text-sm)', color: 'var(--owl-color-muted)' } }, 'No grounded sources recorded yet.')
+    ? createElement('p', { style: { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-sm)', margin: 0 } }, 'No grounded sources recorded yet.')
     : createElement(
         'div',
         null,
         createElement(
           'div',
-          { style: { display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.4rem' } },
+          { style: { alignItems: 'center', display: 'flex', gap: '0.5rem', marginBottom: '0.4rem' } },
           sourceCountBadge(sourceCount),
-          createElement('span', { style: { fontSize: 'var(--owl-text-2xs)', color: 'var(--owl-color-quiet)' } }, 'sha-256 verified, replayable'),
+          createElement('span', { style: { color: 'var(--owl-color-quiet)', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-2xs)' } }, 'sha-256 verified, replayable'),
         ),
         createElement(
           'details',
           null,
-          createElement('summary', { style: { cursor: 'pointer', fontSize: 'var(--owl-text-2xs)', color: 'var(--owl-color-quiet)' } }, 'Show source IDs'),
+          createElement('summary', { style: { color: 'var(--owl-color-quiet)', cursor: 'pointer', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-2xs)' } }, 'Show source IDs'),
           createElement(
             'div',
-            { style: { fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-2xs)', color: 'var(--owl-color-accent-bright)', marginTop: '0.3rem', wordBreak: 'break-all' } },
+            { style: { color: 'var(--owl-color-accent-bright)', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-2xs)', marginTop: '0.3rem', wordBreak: 'break-all' } },
             drillDown.grounded_source_ids.join(' · '),
           ),
         ),
       )
 
+  const laneLabelStyle: CSSProperties = { ...monoLabel, color: 'var(--owl-color-gold)', letterSpacing: '0.1em' }
+
   return createElement(
     'div',
-    { style: cardStyle },
+    { style: { display: 'grid', gap: '1.1rem', gridTemplateColumns: 'minmax(0, 1.3fr) minmax(0, 0.9fr)' } },
     createElement(
       'div',
-      { style: { display: 'grid', gridTemplateColumns: 'minmax(0, 1.3fr) minmax(0, 0.9fr)', gap: '1rem' } },
+      null,
+      createElement('p', { style: { ...laneLabelStyle, marginBottom: '0.5rem' } }, 'Specialist lanes'),
       createElement(
         'div',
-        null,
-        createElement('p', { style: { ...monoLabel, color: 'var(--owl-color-gold)', fontWeight: 800, marginBottom: '0.5rem' } }, 'Specialist lanes'),
-        createElement(
-          'div',
-          { style: { display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '0.55rem' } },
-          ...laneCards,
-        ),
-        createElement(
-          'p',
-          { style: { ...monoLabel, color: 'var(--owl-color-gold)', fontWeight: 800, margin: '0.9rem 0 0.4rem' } },
-          `Grounded sources (${sourceCount})`,
-        ),
-        sourceSummary,
+        { style: { display: 'grid', gap: '0.55rem', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))' } },
+        ...laneCards,
       ),
-      createElement(
-        'div',
-        null,
-        createElement('p', { style: { ...monoLabel, color: 'var(--owl-color-gold)', fontWeight: 800, marginBottom: '0.4rem' } }, 'Event timeline'),
-        drillDown.timeline.length === 0
-          ? createElement('p', { style: { fontSize: 'var(--owl-text-sm)', color: 'var(--owl-color-muted)' } }, 'No swarm events recorded for this run yet.')
-          : createElement(
-              'ul',
-              { style: { listStyle: 'none', margin: '0.3rem 0 0', padding: 0, fontSize: 'var(--owl-text-sm)' } },
-              ...drillDown.timeline.map((entry, index) =>
-                createElement(
-                  'li',
-                  {
-                    key: `${entry.event_type}-${index}`,
-                    style: {
-                      padding: '0.32rem 0',
-                      borderBottom: '1px solid rgba(182,201,173,0.08)',
-                      display: 'flex',
-                      justifyContent: 'space-between',
-                      gap: '0.6rem',
-                    },
+      createElement('p', { style: { ...laneLabelStyle, margin: '1rem 0 0.4rem' } }, `Grounded sources (${sourceCount})`),
+      sourceSummary,
+    ),
+    createElement(
+      'div',
+      null,
+      createElement('p', { style: { ...laneLabelStyle, marginBottom: '0.4rem' } }, 'Event timeline'),
+      drillDown.timeline.length === 0
+        ? createElement('p', { style: { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-sm)', margin: 0 } }, 'No swarm events recorded for this run yet.')
+        : createElement(
+            'ul',
+            { style: { fontSize: 'var(--owl-text-sm)', listStyle: 'none', margin: '0.3rem 0 0', padding: 0 } },
+            ...drillDown.timeline.map((entry, index) =>
+              createElement(
+                'li',
+                {
+                  key: `${entry.event_type}-${index}`,
+                  style: {
+                    borderBottom: '1px solid rgba(182,201,173,0.08)',
+                    display: 'flex',
+                    gap: '0.6rem',
+                    justifyContent: 'space-between',
+                    padding: '0.34rem 0',
                   },
-                  createElement('span', { style: { color: 'var(--owl-color-text)' } }, entry.label),
-                  createElement(
-                    'span',
-                    { style: { color: 'var(--owl-color-quiet)', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-2xs)', whiteSpace: 'nowrap' } },
-                    new Date(entry.at).toISOString().slice(11, 19),
-                  ),
-                ),
+                },
+                createElement('span', { style: { color: 'var(--owl-color-text)' } }, entry.label),
+                createElement('span', { style: monoMeta }, new Date(entry.at).toISOString().slice(11, 19)),
               ),
             ),
-      ),
+          ),
     ),
   )
 }
+
+function DrillDownSection({ drillDown }: { drillDown: PipelineDrillDown }): ReactNode {
+  return createElement(
+    'section',
+    { className: 'owl-section-card', style: { gap: 'var(--owl-space-3)' } },
+    createElement(
+      'div',
+      { style: { alignItems: 'baseline', display: 'flex', flexWrap: 'wrap', gap: '0.2rem 0.85rem', justifyContent: 'space-between' } },
+      createElement(
+        'div',
+        { style: { display: 'grid', gap: '0.15rem' } },
+        createElement('p', { className: 'owl-section-accent' }, 'Swarm drill-down'),
+        createElement(
+          'h2',
+          { className: 'owl-section-title', style: { alignItems: 'baseline', display: 'flex', flexWrap: 'wrap', gap: '0.6rem' } },
+          `${drillDown.ticker} · v${drillDown.version}`,
+          createElement('span', { style: { ...monoMeta, fontWeight: 600 } }, RUN_CHIP[drillDown.status].label),
+        ),
+      ),
+      createElement(
+        'a',
+        {
+          className: 'owl-focusable',
+          href: `/research/${encodeURIComponent(drillDown.research_case_id)}`,
+          style: { color: 'var(--owl-color-gold-bright)', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-sm)', fontWeight: 700, textDecoration: 'none', whiteSpace: 'nowrap' },
+        },
+        'Open dossier →',
+      ),
+    ),
+    createElement(DrillDown, { drillDown }),
+  )
+}
+
+// ── The page ──────────────────────────────────────────────────────────────────
 
 export function PipelineObservatory({ pipeline, drillDown, selectedCaseId }: PipelineObservatoryProps): ReactNode {
   const { summary, stage_counts, runs, failed_runs = [], snapshot_at } = pipeline
@@ -468,92 +527,47 @@ export function PipelineObservatory({ pipeline, drillDown, selectedCaseId }: Pip
 
   return createElement(
     'section',
-    { style: { display: 'grid', gap: '0.4rem' } },
-    createElement('p', { style: { ...monoLabel, color: 'var(--owl-color-gold)', fontWeight: 800, margin: '0 0 0.35rem' } }, 'Observability'),
-    createElement('h1', { className: 'owl-page-title', style: { margin: '0.1rem 0 0.2rem' } }, 'Strategy pipeline observatory'),
-    createElement(
-      'div',
-      { style: { display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: '1rem', margin: '0 0 1.2rem' } },
-      createElement(
-        'p',
-        { style: { color: 'var(--owl-color-muted)', margin: 0, fontSize: 'var(--owl-text-base)' } },
-        'Live view of the autonomous research swarm and the whole workflow — projection-driven from the audit ledger.',
-      ),
-      snapshotTime !== undefined
-        ? createElement(
-            'span',
-            { style: { ...monoLabel, color: 'var(--owl-color-quiet)', whiteSpace: 'nowrap', flexShrink: 0 } },
-            `Snapshot taken at ${snapshotTime}`,
-          )
-        : null,
-    ),
+    { 'aria-label': 'Pipeline observatory', style: { display: 'grid', gap: 'var(--owl-space-4)' } },
+    createElement(RouteHeader, {
+      kicker: 'Observability',
+      title: 'Strategy pipeline observatory',
+      description: 'Watch your research swarm at work — live. A projection-driven view of every case moving through the workflow, drawn straight from the audit ledger.',
+    }),
+    createElement('hr', { className: 'owl-rule' }),
 
-    // KPI row
-    createElement(
-      'div',
-      { className: 'owl-kpi-row', style: { marginBottom: '1.1rem' } },
-      createElement(OwlKpiStat, { label: 'Active runs', value: String(summary.active_runs), tone: 'gold' }),
-      createElement(OwlKpiStat, { label: 'Awaiting approval', value: String(summary.awaiting_approval), tone: 'gold' }),
-      createElement(OwlKpiStat, { label: 'Failed (recent)', value: String(summary.failed_recent), tone: summary.failed_recent > 0 ? 'risk' : 'emerald' }),
-      createElement(OwlKpiStat, { label: 'Grounded sources', value: String(summary.grounded_sources), tone: 'emerald' }),
-    ),
+    // Vital signs + snapshot
+    createElement(LedgerLine, { summary }),
+    snapshotTime !== undefined
+      ? createElement('p', { style: { ...monoMeta, margin: 0, textAlign: 'right' } }, `Snapshot taken at ${snapshotTime}`)
+      : null,
 
-    // Flow map
+    // Stage-flow map
     createElement(
-      'div',
-      { style: cardStyle },
-      createElement(
-        'div',
-        { style: { ...sectionHeaderStyle, marginTop: 0 } },
-        createElement('h2', { style: { fontSize: 'var(--owl-text-md)', margin: 0 } }, 'Pipeline flow'),
-        createElement('span', { style: { color: 'var(--owl-color-quiet)', fontSize: 'var(--owl-text-sm)' } }, 'counts = cases currently at / passed each stage'),
-      ),
+      'section',
+      { className: 'owl-section-card', style: { gap: 'var(--owl-space-3)' } },
+      sectionHead('Stage flow', 'Pipeline flow', 'counts = cases currently at / passed each stage'),
       createElement(StageFlowMap, { stages: stage_counts }),
     ),
 
-    // Runs
+    // Active & recent runs
     createElement(
-      'div',
-      { style: sectionHeaderStyle },
-      createElement('h2', { style: { fontSize: 'var(--owl-text-md)', margin: 0 } }, 'Active & recent runs'),
-      createElement('span', { style: { color: 'var(--owl-color-quiet)', fontSize: 'var(--owl-text-sm)' } }, 'select a run to drill into the swarm'),
+      'section',
+      { className: 'owl-section-card', style: { gap: 'var(--owl-space-3)' } },
+      sectionHead('Live execution', 'Active & recent runs', 'select a run to drill into the swarm'),
+      createElement(RunsTable, { runs, ...(selectedCaseId !== undefined ? { selectedCaseId } : {}) }),
     ),
-    createElement(RunsTable, { runs, ...(selectedCaseId !== undefined ? { selectedCaseId } : {}) }),
 
     // Failed runs
     createElement(FailedRunsSection, { failedRuns: failed_runs }),
 
-    // Drill-down
+    // Per-run drill-down
     drillDown !== undefined
-      ? createElement(
-          'div',
-          null,
-          createElement(
-            'div',
-            { style: sectionHeaderStyle },
-            createElement(
-              'div',
-              { style: { display: 'flex', alignItems: 'baseline', gap: '0.75rem' } },
-              createElement('h2', { style: { fontSize: 'var(--owl-text-md)', margin: 0 } }, `${drillDown.ticker} · v${drillDown.version} — swarm drill-down`),
-              createElement(
-                'a',
-                {
-                  className: 'owl-focusable',
-                  href: `/research/${encodeURIComponent(drillDown.research_case_id)}`,
-                  style: { color: 'var(--owl-color-gold-bright)', fontWeight: 700, textDecoration: 'none', fontSize: 'var(--owl-text-sm)', whiteSpace: 'nowrap' },
-                },
-                'Open dossier →',
-              ),
-            ),
-            createElement('span', { style: { color: 'var(--owl-color-quiet)', fontSize: 'var(--owl-text-sm)' } }, RUN_CHIP[drillDown.status].label),
-          ),
-          createElement(DrillDown, { drillDown }),
-        )
+      ? createElement(DrillDownSection, { drillDown })
       : runs.length > 0
         ? createElement(
-            'div',
-            { style: { ...sectionHeaderStyle } },
-            createElement('span', { style: { color: 'var(--owl-color-quiet)', fontSize: 'var(--owl-text-sm)' } }, 'Select a run above to inspect its specialist swarm.'),
+            'p',
+            { style: sectionNoteStyle },
+            'Select a run above to inspect its specialist swarm.',
           )
         : null,
   )

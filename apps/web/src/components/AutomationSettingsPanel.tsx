@@ -43,23 +43,6 @@ const pausedSectionStyle: CSSProperties = {
   pointerEvents: 'none' as const,
 }
 
-const sectionEyebrowStyle: CSSProperties = {
-  color: 'var(--owl-color-gold)',
-  fontFamily: 'var(--owl-font-mono)',
-  fontSize: 'var(--owl-text-xs)',
-  fontWeight: 800,
-  letterSpacing: '0.08em',
-  margin: '0 0 0.15rem',
-  textTransform: 'uppercase',
-}
-
-const sectionTitleStyle: CSSProperties = {
-  color: 'var(--owl-color-gold-bright)',
-  fontSize: 'var(--owl-text-md)',
-  fontWeight: 800,
-  margin: '0 0 0.4rem',
-}
-
 const controlRowStyle: CSSProperties = {
   alignItems: 'start',
   background: 'var(--owl-color-panel)',
@@ -336,8 +319,8 @@ export function AutomationSettingsPanel({ initialAutomation }: AutomationSetting
       createElement(
         'div',
         null,
-        createElement('p', { style: sectionEyebrowStyle }, 'Pipeline control'),
-        createElement('h2', { style: sectionTitleStyle }, 'Research engine'),
+        createElement('p', { className: 'owl-section-accent' }, 'Pipeline control'),
+        createElement('h2', { className: 'owl-section-title', style: { margin: '0 0 0.4rem' } }, 'Research engine'),
         createElement(
           'p',
           { style: controlHelperStyle },
@@ -365,8 +348,8 @@ export function AutomationSettingsPanel({ initialAutomation }: AutomationSetting
     createElement(
       'section',
       { style: engineOn ? sectionStyle : pausedSectionStyle, 'aria-label': 'Research pipeline settings', 'aria-disabled': !engineOn },
-      createElement('p', { style: sectionEyebrowStyle }, 'Research'),
-      createElement('h3', { style: sectionTitleStyle }, 'Pipeline behaviour'),
+      createElement('p', { className: 'owl-section-accent' }, 'Research'),
+      createElement('h3', { className: 'owl-section-title', style: { margin: '0 0 0.4rem' } }, 'Pipeline behaviour'),
       createElement(
         'div',
         { style: controlGridStyle },
@@ -417,8 +400,8 @@ export function AutomationSettingsPanel({ initialAutomation }: AutomationSetting
     createElement(
       'section',
       { style: sectionStyle, 'aria-label': 'Monitoring and reviews settings' },
-      createElement('p', { style: sectionEyebrowStyle }, 'Monitoring & reviews'),
-      createElement('h3', { style: sectionTitleStyle }, 'Watchlist and portfolio cadences'),
+      createElement('p', { className: 'owl-section-accent' }, 'Monitoring & reviews'),
+      createElement('h3', { className: 'owl-section-title', style: { margin: '0 0 0.4rem' } }, 'Watchlist and portfolio cadences'),
       createElement(
         'div',
         { style: controlGridStyle },
@@ -516,8 +499,8 @@ export function AutomationSettingsPanel({ initialAutomation }: AutomationSetting
     createElement(
       'section',
       { style: sectionStyle, 'aria-label': 'Compliance settings' },
-      createElement('p', { style: sectionEyebrowStyle }, 'Compliance'),
-      createElement('h3', { style: sectionTitleStyle }, 'Purification'),
+      createElement('p', { className: 'owl-section-accent' }, 'Compliance'),
+      createElement('h3', { className: 'owl-section-title', style: { margin: '0 0 0.4rem' } }, 'Purification'),
       createElement(
         'div',
         { style: controlGridStyle },

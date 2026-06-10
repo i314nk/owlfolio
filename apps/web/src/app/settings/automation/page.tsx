@@ -23,8 +23,9 @@ export default async function AutomationSettingsPage() {
     createElement(RouteHeader, {
       kicker: 'Settings',
       title: 'Settings / Pipeline Automation',
-      description: 'Configure which research-pipeline stages run automatically and at what cadence. Cadence settings take effect when the local worker runs — they do not imply live trading or automatic investment decisions.',
+      description: 'Tune what your agent does autonomously — the research engine, monitoring cadences, and what stays user-confirmed. Cadence settings take effect when the local worker runs; they do not imply live trading or automatic investment decisions.',
     }),
+    createElement('hr', { className: 'owl-rule' }),
     createElement(AutomationSettingsPanel, { initialAutomation: automation }),
   )
 }
