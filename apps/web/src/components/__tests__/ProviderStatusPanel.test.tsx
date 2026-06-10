@@ -75,6 +75,10 @@ const rows: ProviderStatusRow[] = [
       support_level: 'certified',
       generated_at: '2026-06-01T00:00:00.000Z',
       summary: '12/12 scenarios passed; provider support level is certified.',
+      scenarios: [
+        { scenario_id: 'source-grounded-research-task', status: 'passed' },
+        { scenario_id: 'simple-completion', status: 'passed' },
+      ],
     },
   },
   {
@@ -147,6 +151,7 @@ const rows: ProviderStatusRow[] = [
       support_level: 'unsupported',
       generated_at: '2026-06-01T00:00:00.000Z',
       summary: 'Certification not run: Claude subscription access disabled. Provider support level is unsupported.',
+      scenarios: [],
     },
   },
   {
@@ -219,6 +224,7 @@ const rows: ProviderStatusRow[] = [
       support_level: 'unsupported',
       generated_at: '2026-06-01T00:00:00.000Z',
       summary: 'Certification not run: OpenAI credentials reauth required. Provider support level is unsupported.',
+      scenarios: [],
     },
   },
   {
@@ -378,6 +384,25 @@ describe('ProviderStatusPanel', () => {
     expect(html).toContain('Failure cause: Claude subscription access disabled')
     expect(html).not.toContain('Certification not run: Claude subscription access disabled')
     expect(html).toContain('Technical detail: latest report marked provider support unsupported.')
+  })
+
+  it('renders a provider connections section with honest connect paths and no fake OAuth', () => {
+    const html = renderToStaticMarkup(createElement(ProviderStatusPanel, { rows }))
+
+    expect(html).toContain('Provider connections')
+    expect(html).toContain('Connect your models')
+    // honest: CLI providers connect via terminal login, not in-app OAuth
+    expect(html).toContain('Owlfolio has no in-app OAuth')
+    expect(html).toContain('Connect &amp; refresh readiness')
+    expect(html).toContain('No connection needed')
+    // the real connect affordance routes to the onboarding flow
+    expect(html).toContain('/onboarding')
+  })
+
+  it('surfaces the grounded-research certification scenario in the report evidence', () => {
+    const html = renderToStaticMarkup(createElement(ProviderStatusPanel, { rows }))
+
+    expect(html).toContain('Grounded-research scenario (source-grounded-research-task): passed.')
   })
 
   it('groups providers by investment-grade and renders honest per-provider badges', () => {

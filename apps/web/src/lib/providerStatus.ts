@@ -15,9 +15,16 @@ import { resolveProjectRootFromCwd } from './appConfigStore'
 
 export type ProviderReadinessState = 'supported' | 'experimental' | 'unready' | 'unsupported'
 
+export type ProviderCertificationScenarioSummary = {
+  scenario_id: CertificationReport['cases'][number]['scenario_id']
+  status: CertificationReport['cases'][number]['status']
+}
+
 export type ProviderCertificationReportSummary = Pick<CertificationReport,
   'certification_report_id' | 'provider_id' | 'target' | 'run_status' | 'not_run_reason' | 'support_level' | 'generated_at' | 'summary'
->
+> & {
+  scenarios: ProviderCertificationScenarioSummary[]
+}
 
 export type ProviderStatusTone = 'neutral' | 'success' | 'warning' | 'danger'
 
@@ -257,6 +264,10 @@ export async function buildProviderStatusRows(options: ProviderStatusOptions = {
             support_level: latestReport.support_level,
             generated_at: latestReport.generated_at,
             summary: latestReport.summary,
+            scenarios: (latestReport.cases ?? []).map((caseResult) => ({
+              scenario_id: caseResult.scenario_id,
+              status: caseResult.status,
+            })),
           },
     }
   }))

@@ -1,7 +1,8 @@
 import { createElement, type CSSProperties, type ReactNode } from 'react'
 
 import type { ProviderInvestmentGrade, ProviderStatusRow } from '../lib/providerStatus'
-import { RouteHeader } from './designSystem'
+import { RouteHeader, OwlButtonLink } from './designSystem'
+import { StatusBadge, type StatusBadgeTone } from './StatusBadge'
 
 export type ProviderStatusPanelProps = {
   rows: ProviderStatusRow[]
@@ -59,10 +60,13 @@ const glossaryEntries: Array<{ term: string; definition: string }> = [
  *
  * This page answers one question for the principal: which AI models are
  * TRUSTED for investment-grade research, and which are not yet. It leads with
- * certification posture (the vital-signs ledger line), groups candidates by
- * investment grade, and puts each provider's honest effective-support and
- * "suitable for research" verdict front-and-center — with the certification
- * evidence available on demand. Fail-closed honesty throughout.
+ * certification posture (the vital-signs ledger line), then mirrors the
+ * Hermes "Keys/env" UX honestly: a "Provider connections" list (the logins
+ * pattern — connection chip + the real CLI/key connect path, no fake in-app
+ * OAuth) and a per-provider "Models" accordion (the dropdown-per-provider,
+ * grouped by investment grade) whose always-visible summary carries the
+ * gating effective-support verdict and whose body holds the deep certification
+ * evidence. Fail-closed honesty throughout.
  */
 export function ProviderStatusPanel({ rows }: ProviderStatusPanelProps) {
   const summary = providerSummaryFrom(rows)
@@ -78,11 +82,12 @@ export function ProviderStatusPanel({ rows }: ProviderStatusPanelProps) {
     createElement(RouteHeader, {
       kicker: 'Owlfolio · Trust gate',
       title: 'Provider status',
-      description: 'The trust gate for your agent’s brain: which AI models are certified for investment-grade research, and which are not yet. Readiness, role suitability, certification evidence, and limitations are shown separately so a local credential does not imply certified investment-decision support. The latest persisted certification report is the source of truth for effective support.',
+      description: 'The trust gate for your agent’s brain: which AI models are certified for investment-grade research, and which are not yet. Connections are listed first (how each model is signed in on this machine), then each provider opens a per-model dossier. Readiness, role suitability, certification evidence, and limitations are shown separately so a local credential does not imply certified investment-decision support. The latest persisted certification report is the source of truth for effective support.',
     }),
     createElement('hr', { className: 'owl-rule' }),
     createCertificationLedgerLine(summary),
     createGlossary(),
+    createProviderConnectionsSection(rows),
     ...renderProviderGroups(rows),
   )
 }
@@ -128,7 +133,114 @@ function createGlossary() {
   )
 }
 
-// ── Investment-grade groups ───────────────────────────────────────────────────
+// ── Section 1 — Provider connections (the Hermes "logins" pattern) ────────────
+//
+// Honest adaptation: Owlfolio has NO in-app OAuth. CLI providers are connected
+// by running `codex login` / `claude login` / `gemini login` OUTSIDE the app;
+// API providers by setting a key in the environment. We render the real
+// affordance — connection status + the exact connect command/key + a route to
+// the /onboarding flow that verifies (refreshes) readiness — never a fake
+// "Sign in" button that does nothing.
+
+type ConnectionState = {
+  badgeLabel: string
+  badgeTone: StatusBadgeTone
+}
+
+function connectionStateFor(row: ProviderStatusRow): ConnectionState {
+  if (row.provider_id === 'mock-provider') {
+    return { badgeLabel: 'Built in', badgeTone: 'success' }
+  }
+
+  if (row.auth_mode === 'api_key') {
+    return row.is_ready
+      ? { badgeLabel: 'Key detected', badgeTone: 'success' }
+      : { badgeLabel: 'Not connected', badgeTone: 'warning' }
+  }
+
+  // CLI / cached-session surfaces.
+  if (row.is_ready) {
+    return { badgeLabel: 'Cached session', badgeTone: 'success' }
+  }
+
+  if (row.provider_readiness_state === 'reauth_required') {
+    return { badgeLabel: 'Reauth required', badgeTone: 'warning' }
+  }
+
+  return { badgeLabel: 'Not connected', badgeTone: 'warning' }
+}
+
+/** The honest connect path: the real CLI command or where to put the key. */
+function connectPathFor(row: ProviderStatusRow): string {
+  if (row.provider_id === 'mock-provider') {
+    return 'No connection needed — the deterministic demo provider runs locally with no credentials.'
+  }
+
+  if (row.reauth_action !== undefined && row.reauth_action.length > 0) {
+    return row.reauth_action
+  }
+
+  if (row.auth_mode === 'api_key') {
+    return 'Set the provider API key in your environment, then refresh readiness.'
+  }
+
+  return 'Run the provider CLI login outside Owlfolio, then refresh readiness.'
+}
+
+function createProviderConnectionsSection(rows: ProviderStatusRow[]) {
+  // Surfaces a user actually connects: skip the hidden/advanced direct-API
+  // candidates that have no onboarding lane, but always include CLI + the
+  // built-in demo provider.
+  const connectable = rows.filter((row) =>
+    row.provider_id === 'mock-provider' || row.auth_mode !== undefined)
+
+  return createElement(
+    'section',
+    { 'aria-label': 'Provider connections', className: 'owl-section-card', style: { gap: 'var(--owl-space-4)' } },
+    createElement('p', { className: 'owl-section-accent' }, 'Connect your models'),
+    createElement('h2', { className: 'owl-section-title' }, 'Provider connections'),
+    createElement(
+      'p',
+      { className: 'owl-body' },
+      'How each model is signed in on this machine. Owlfolio has no in-app OAuth: CLI providers are connected by running their login command in your terminal, and direct-API providers by setting a key in the environment. Connect, then verify in onboarding to refresh readiness.',
+    ),
+    createElement(
+      'div',
+      { className: 'owl-row-list' },
+      ...connectable.map(renderConnectionRow),
+    ),
+  )
+}
+
+function renderConnectionRow(row: ProviderStatusRow) {
+  const connection = connectionStateFor(row)
+  const isDemo = row.provider_id === 'mock-provider'
+
+  return createElement(
+    'article',
+    { key: `connection-${row.provider_id}`, 'aria-label': `${row.label} connection`, className: 'owl-row owl-row-top' },
+    createElement(
+      'div',
+      { className: 'owl-row-main', style: { gap: 'var(--owl-space-2)' } },
+      createElement(
+        'div',
+        { style: { alignItems: 'center', display: 'flex', flexWrap: 'wrap', gap: 'var(--owl-space-2)' } },
+        createElement('h3', { className: 'owl-row-title', style: { color: 'var(--owl-color-gold-bright)' } }, row.label),
+        createElement(StatusBadge, { tone: connection.badgeTone }, connection.badgeLabel),
+      ),
+      createElement('p', { className: 'owl-row-helper' }, connectPathFor(row)),
+    ),
+    createElement(
+      'div',
+      { className: 'owl-row-aside' },
+      isDemo
+        ? createElement('span', { style: { ...monoLabelStyle, textAlign: 'right' } }, 'No setup required')
+        : createElement(OwlButtonLink, { href: '/onboarding', variant: 'secondary' }, 'Connect & refresh readiness'),
+    ),
+  )
+}
+
+// ── Section 2 — Models (per-provider accordion, grouped by investment grade) ──
 
 const investmentGradeGroups: Array<{ key: ProviderInvestmentGrade; accent: string; title: string; description: string }> = [
   {
@@ -172,7 +284,7 @@ function renderProviderGroups(rows: ProviderStatusRow[]) {
         createElement(
           'div',
           { className: 'owl-row-list' },
-          ...groupRows.map(renderProviderRow),
+          ...groupRows.map(renderProviderAccordion),
         ),
       ),
     )
@@ -241,26 +353,37 @@ function supportPillTone(level: ProviderStatusRow['effective_support_level']): P
   return { background: 'rgba(214, 178, 94, 0.14)', border: '1px solid rgba(214, 178, 94, 0.38)', color: 'var(--owl-color-gold-bright)' }
 }
 
-// ── A single provider entry (owl-row) ─────────────────────────────────────────
+// ── A single provider entry — the per-provider accordion (<details>) ──────────
+//
+// summary (always visible): name + investment-grade badge + effective-support
+//   verdict. The "<label> provider primary status" region — including the
+//   e2e-asserted "Effective support (gating source of truth): <level>" line —
+//   lives in the summary so it is visible without expanding.
+// body (on demand): models / model role, the full status rows, the latest
+//   certification report (id, run status, scenario pass/fail incl. the
+//   grounded-research gate), and limitations.
 
-function renderProviderRow(row: ProviderStatusRow) {
+function renderProviderAccordion(row: ProviderStatusRow) {
   const [primaryStatusRows, secondaryStatusRows] = prioritizeStatusRows(row.status_rows)
 
   return createElement(
-    'article',
-    { key: row.provider_id, className: 'owl-row owl-row-top' },
+    'details',
+    { key: row.provider_id, className: 'owl-row owl-row-top', style: { display: 'block' } },
     createElement(
-      'div',
-      { className: 'owl-row-main', style: { gap: 'var(--owl-space-2)' } },
-      // Name + investment-grade verdict on one line.
+      'summary',
+      { style: { cursor: 'pointer', display: 'grid', gap: 'var(--owl-space-2)', listStyle: 'none' } },
+      // Name + investment-grade verdict + effective-support pill + chevron.
       createElement(
         'div',
         { style: { alignItems: 'center', display: 'flex', flexWrap: 'wrap', gap: 'var(--owl-space-2)' } },
-        createElement('h3', { className: 'owl-row-title', style: { color: 'var(--owl-color-gold-bright)' } }, row.label),
+        createElement('span', { 'aria-hidden': 'true', style: { ...monoLabelStyle, color: 'var(--owl-color-gold-bright)' } }, '▸'),
+        createElement('h3', { className: 'owl-row-title', style: { color: 'var(--owl-color-gold-bright)', margin: 0 } }, row.label),
         investmentGradeBadge(row),
+        effectiveSupportPill(row),
+        createElement('span', { style: { ...monoLabelStyle, marginLeft: 'auto' } }, row.model_role),
       ),
-      createElement('p', { className: 'owl-row-helper' }, row.description),
-      // The honest guardrail line.
+      createElement('p', { className: 'owl-row-helper', style: { margin: 0 } }, row.description),
+      // The honest guardrail line stays visible in the summary.
       createElement(
         'section',
         { style: providerGuardrailStyle(row) },
@@ -270,48 +393,54 @@ function renderProviderRow(row: ProviderStatusRow) {
           ? createElement('span', null, 'To set up credentials, ', createElement('a', { href: '/onboarding', style: { color: 'inherit', textDecoration: 'underline' } }, 'open onboarding'), '.')
           : null,
       ),
-      // Primary status (Allowed use / Effective support / Catalog support) — the gating truth.
+      // Primary status (Allowed use / Effective support / Catalog support) — the
+      // gating truth — MUST be visible (e2e asserts the effective-support line).
       createElement(
         'section',
         { 'aria-label': `${row.label} provider primary status`, style: { display: 'grid', gap: '0.45rem' } },
         ...renderStatusRows(primaryStatusRows),
       ),
-      // Evidence on demand.
-      createElement(
-        'details',
-        { style: { display: 'grid', gap: '0.5rem' } },
-        createElement('summary', { style: summaryStyle }, 'Evidence (readiness rows, certification report, limitations)'),
-        createElement(
-          'section',
-          { 'aria-label': `${row.label} provider evidence readiness rows`, style: { display: 'grid', gap: '0.45rem', marginTop: '0.5rem' } },
-          ...renderStatusRows(secondaryStatusRows),
-        ),
-        createElement(
-          'section',
-          { style: { marginTop: '0.5rem' } },
-          createElement('p', { style: { ...monoLabelStyle, marginBottom: '0.35rem' } }, 'Latest certification report'),
-          row.last_certification_report === undefined
-            ? createElement('p', { style: subtleTextStyle }, 'Workflow certification: No certification report recorded')
-            : renderCertificationReport(row),
-        ),
-        createElement(
-          'section',
-          { style: { marginTop: '0.5rem' } },
-          createElement('p', { style: { ...monoLabelStyle, marginBottom: '0.35rem' } }, 'Limitations'),
-          createElement(
-            'ul',
-            { style: { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-sm)', margin: 0, paddingLeft: '1.2rem' } },
-            ...row.limitations.map((limitation) => createElement('li', { key: limitation }, limitation)),
-          ),
-        ),
-      ),
+      createElement('p', { style: { ...monoLabelStyle, color: 'var(--owl-color-gold-bright)' } }, 'Open the per-model dossier ▾'),
     ),
-    // Right rail: the effective-support verdict + model role, mono.
+    // Expanded body: deep evidence.
     createElement(
       'div',
-      { className: 'owl-row-aside', style: { alignItems: 'flex-end', flexDirection: 'column' } },
-      effectiveSupportPill(row),
-      createElement('p', { style: { ...monoLabelStyle, textAlign: 'right' } }, row.model_role),
+      { style: { display: 'grid', gap: 'var(--owl-space-3)', marginTop: 'var(--owl-space-3)' } },
+      // Models / model role.
+      createElement(
+        'section',
+        { style: { display: 'grid', gap: '0.35rem' } },
+        createElement('p', { style: monoLabelStyle }, 'Model & role'),
+        createElement('p', { style: monoValueStyle }, row.model_role),
+        createElement('p', { style: subtleTextStyle }, `Surface ${row.provider_surface_id} · workflow role ${row.workflow_role} · auth ${row.auth_mode ?? 'unknown'}.`),
+      ),
+      // Full readiness rows.
+      createElement(
+        'section',
+        { 'aria-label': `${row.label} provider evidence readiness rows`, style: { display: 'grid', gap: '0.45rem' } },
+        createElement('p', { style: monoLabelStyle }, 'Readiness rows'),
+        ...renderStatusRows(secondaryStatusRows),
+      ),
+      // Latest certification report (incl. the grounded-research scenario gate).
+      createElement(
+        'section',
+        { style: { display: 'grid', gap: '0.35rem' } },
+        createElement('p', { style: monoLabelStyle }, 'Latest certification report'),
+        row.last_certification_report === undefined
+          ? createElement('p', { style: subtleTextStyle }, 'Workflow certification: No certification report recorded')
+          : renderCertificationReport(row),
+      ),
+      // Limitations.
+      createElement(
+        'section',
+        { style: { display: 'grid', gap: '0.35rem' } },
+        createElement('p', { style: monoLabelStyle }, 'Limitations'),
+        createElement(
+          'ul',
+          { style: { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-sm)', margin: 0, paddingLeft: '1.2rem' } },
+          ...row.limitations.map((limitation) => createElement('li', { key: limitation }, limitation)),
+        ),
+      ),
     ),
   )
 }
@@ -399,6 +528,29 @@ function renderCertificationReport(row: ProviderStatusRow) {
     report.not_run_reason === undefined
       ? null
       : createElement('p', { style: subtleTextStyle }, `Technical detail: latest report marked provider support ${report.support_level}.`),
+    renderScenarioSummary(report),
+  )
+}
+
+function renderScenarioSummary(report: NonNullable<ProviderStatusRow['last_certification_report']>): ReactNode {
+  const scenarios = report.scenarios
+  if (scenarios.length === 0) {
+    return null
+  }
+
+  const passed = scenarios.filter((scenario) => scenario.status === 'passed').length
+  const failed = scenarios.filter((scenario) => scenario.status === 'failed').length
+  const skipped = scenarios.filter((scenario) => scenario.status === 'skipped').length
+  const grounded = scenarios.find((scenario) => scenario.scenario_id === 'source-grounded-research-task')
+  const groundedLine = grounded === undefined
+    ? 'Grounded-research scenario (source-grounded-research-task): not in this report.'
+    : `Grounded-research scenario (source-grounded-research-task): ${grounded.status}.`
+
+  return createElement(
+    'div',
+    { style: { display: 'grid', gap: '0.25rem', marginTop: '0.35rem' } },
+    createElement('p', { style: { ...monoValueStyle, ...subtleTextStyle } }, `Scenarios: ${passed} passed · ${failed} failed · ${skipped} skipped (of ${scenarios.length}).`),
+    createElement('p', { style: { ...subtleTextStyle, color: grounded?.status === 'passed' ? '#bbf7d0' : 'var(--owl-color-muted)' } }, groundedLine),
   )
 }
 
