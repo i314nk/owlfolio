@@ -65,6 +65,13 @@ describe('AccountingMonthlyReport', () => {
     }))
 
     expect(html).toContain('Monthly accounting report')
+    // Editorial chrome: serif route header + gold hairline rule + vital-signs ledger line.
+    expect(html).toContain('owl-page-title')
+    expect(html).toContain('owl-rule')
+    expect(html).toContain('owl-ledger-line')
+    expect(html).toContain('owl-ledger-figure')
+    expect(html).toContain('Period NAV')
+    expect(html).toContain('Return %')
     expect(html).toContain('Automatically maintained accounting projection')
     expect(html).toContain('Current state')
     expect(html).toContain('$2,925.00 NAV for June 2026')

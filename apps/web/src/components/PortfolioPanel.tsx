@@ -1,8 +1,8 @@
-import { createElement } from 'react'
+import { createElement, Fragment } from 'react'
 
 import type { InvestableCapitalSnapshot } from '@owlfolio/ledger/projections/investableCapitalProjection'
 
-import { OwlButtonLink, OwlKpiStat, OwlRingGauge, OwlValuationChip, RouteHeader, type OwlValuationKind } from './designSystem'
+import { OwlButtonLink, OwlRingGauge, OwlValuationChip, RouteHeader, type OwlValuationKind } from './designSystem'
 import type { AppHolding, WorkflowMode } from '../lib/workflow'
 import { StatusBadge } from './StatusBadge'
 
@@ -77,13 +77,22 @@ const decisionQuickLinkStyle = {
   textDecoration: 'none',
 }
 
+/**
+ * The Portfolio — where the user's capital stands. Leads with the vital signs
+ * (total value, open holdings, Shariah-compliant gauge) as the editorial ledger
+ * line, then each holding as a clear position: economics, valuation, thesis
+ * health, and review. Your holdings, valued and monitored.
+ *
+ * Returns a Fragment so each section is a direct child of the route frame and
+ * inherits the app's staggered reveal.
+ */
 export function PortfolioPanel({ holdings, mode = 'demo', valuationRefresh, investableCapital }: PortfolioPanelProps) {
   const totalCostBasis = holdings.reduce((sum, holding) => sum + holding.total_cost_basis, 0)
   const totalCurrentValue = holdings.reduce((sum, holding) => sum + (holding.latest_market_value ?? 0), 0)
 
   return createElement(
-    'section',
-    { style: { display: 'grid', gap: '1rem' } },
+    Fragment,
+    null,
     createElement(RouteHeader, {
       kicker: 'Portfolio cockpit',
       title: 'Portfolio',
@@ -91,7 +100,8 @@ export function PortfolioPanel({ holdings, mode = 'demo', valuationRefresh, inve
         ? `Personal local ledger holdings. Total cost basis: ${formatMoney(totalCostBasis, 'USD')}. Current value: ${formatMoney(totalCurrentValue, 'USD')}`
         : `Projected demo holdings. Total cost basis: ${formatMoney(totalCostBasis, 'USD')}. Current value: ${formatMoney(totalCurrentValue, 'USD')}`,
     }),
-    createPortfolioKpiRow(holdings, totalCurrentValue),
+    createElement('hr', { className: 'owl-rule' }),
+    createPortfolioLedgerLine(holdings, totalCurrentValue),
     ...(mode === 'personal-local' ? [createInvestableCapitalPanel(investableCapital)] : []),
     createPortfolioOperationsCockpit(holdings, totalCurrentValue, valuationRefresh),
     ...(valuationRefresh === undefined ? [] : [createScheduledValuationRefreshCard(valuationRefresh)]),
@@ -101,47 +111,50 @@ export function PortfolioPanel({ holdings, mode = 'demo', valuationRefresh, inve
   )
 }
 
-function createPortfolioKpiRow(holdings: AppHolding[], totalCurrentValue: number) {
+function createPortfolioLedgerLine(holdings: AppHolding[], totalCurrentValue: number) {
   const hasHoldings = holdings.length > 0
   const hasValuation = holdings.some((holding) => holding.latest_market_value !== undefined)
   const gated = holdings.filter((holding) => holding.shariah_gate_decision_id !== undefined)
   const allowed = gated.filter((holding) => holding.shariah_gate_allowed === true).length
   const compliancePct = gated.length === 0 ? 0 : Math.round((allowed / gated.length) * 100)
 
+  const stats: { figureClass: string; label: string; value: string }[] = [
+    {
+      figureClass: 'owl-ledger-figure-money',
+      label: 'Total value',
+      value: hasValuation ? formatMoney(totalCurrentValue, 'USD') : '—',
+    },
+    { figureClass: '', label: 'Open holdings', value: hasHoldings ? String(holdings.length) : '—' },
+    {
+      figureClass: gated.length > 0 && compliancePct === 100 ? 'owl-ledger-figure-emerald' : '',
+      label: 'Shariah-gated',
+      value: gated.length === 0 ? '—' : `${allowed}/${gated.length}`,
+    },
+  ]
+
   return createElement(
     'section',
-    { 'aria-label': 'Portfolio summary', className: 'owl-kpi-row' },
+    { 'aria-label': 'Portfolio summary', className: 'owl-ledger-line' },
+    ...stats.map((stat) => createElement(
+      'article',
+      { className: 'owl-ledger-stat', key: stat.label },
+      createElement('p', { className: 'owl-ledger-label' }, stat.label),
+      createElement('p', { className: `owl-ledger-figure ${stat.figureClass}`.trim() }, stat.value),
+    )),
     createElement(
-      'div',
-      { className: 'owl-kpi-panel owl-kpi-panel-gold' },
-      createElement(OwlKpiStat, {
-        label: 'Total value',
-        value: hasValuation ? formatMoney(totalCurrentValue, 'USD') : '—',
-        tone: 'gold',
-      }),
-    ),
-    createElement(
-      'div',
-      { className: 'owl-kpi-panel' },
-      createElement(OwlKpiStat, {
-        label: 'Open holdings',
-        value: hasHoldings ? String(holdings.length) : '—',
-        tone: 'gold',
-      }),
-    ),
-    createElement(
-      'div',
-      { className: 'owl-kpi-panel' },
-      createElement(OwlKpiStat, {
-        label: 'Shariah-gated',
-        value: gated.length === 0 ? '—' : `${allowed}/${gated.length}`,
-        tone: 'emerald',
-      }),
+      'article',
+      { className: 'owl-ledger-stat', key: 'Shariah compliant', style: { alignItems: 'center', display: 'flex', gap: 'var(--owl-space-3)' } },
+      createElement(
+        'div',
+        { style: { display: 'grid', gap: '0.3rem' } },
+        createElement('p', { className: 'owl-ledger-label' }, 'Shariah compliant'),
+        createElement('p', { className: 'owl-ledger-figure owl-ledger-figure-emerald' }, gated.length === 0 ? '—' : `${compliancePct}%`),
+      ),
       createElement(OwlRingGauge, {
         value: compliancePct,
         label: 'Compliant',
         tone: gated.length === 0 ? 'amber' : compliancePct === 100 ? 'emerald' : 'amber',
-        size: 64,
+        size: 56,
       }),
     ),
   )
@@ -150,22 +163,27 @@ function createPortfolioKpiRow(holdings: AppHolding[], totalCurrentValue: number
 function createScheduledValuationRefreshCard(summary: PortfolioValuationRefreshSummary) {
   return createElement(
     'section',
-    { className: 'owl-workflow-card', style: cardStyle },
-    createElement('p', { className: 'owl-section-kicker' }, 'Valuation'),
+    { 'aria-label': 'Scheduled valuation refresh', className: 'owl-section-card owl-workflow-card' },
+    createElement('p', { className: 'owl-section-accent' }, 'Valuation'),
     createElement('h2', { className: 'owl-section-title' }, 'Scheduled valuation refresh'),
-    createElement('p', { className: 'owl-body', style: { margin: '0.2rem 0 0.3rem' } }, 'Factual price checks can update valuation snapshots automatically; investment actions remain approval-gated.'),
-    createDetail('Last price check', summary.last_price_check_at ?? 'No scheduled price check recorded'),
-    createDetail('Next scheduled check', summary.next_scheduled_check),
-    createDetail('Data source', summary.data_source),
-    createDetail('Confidence / caveat', summary.confidence_caveat),
-    createDetail('Holdings missing data', summary.holdings_missing_data.length === 0 ? 'None' : summary.holdings_missing_data.join(', ')),
+    createElement('p', { className: 'owl-row-helper', style: { margin: '0.2rem 0 0.3rem' } }, 'Factual price checks can update valuation snapshots automatically; investment actions remain approval-gated.'),
+    createElement(
+      'div',
+      { style: { display: 'grid', gap: '0.2rem' } },
+      createDetail('Last price check', summary.last_price_check_at ?? 'No scheduled price check recorded'),
+      createDetail('Next scheduled check', summary.next_scheduled_check),
+      createDetail('Data source', summary.data_source),
+      createDetail('Confidence / caveat', summary.confidence_caveat),
+      createDetail('Holdings missing data', summary.holdings_missing_data.length === 0 ? 'None' : summary.holdings_missing_data.join(', ')),
+    ),
   )
 }
 
 function createPortfolioEmptyState() {
   return createElement(
-    'article',
-    { key: 'portfolio-empty-state', className: 'owl-workflow-card', style: cardStyle },
+    'section',
+    { key: 'portfolio-empty-state', 'aria-label': 'Empty portfolio', className: 'owl-section-card owl-workflow-card' },
+    createElement('p', { className: 'owl-section-accent' }, 'Portfolio cockpit'),
     createElement('h2', { className: 'owl-section-title', style: { fontSize: 'var(--owl-text-lg)' } }, 'No holdings are open yet'),
     createElement(
       'p',
@@ -195,22 +213,27 @@ function createHoldingCard(holding: PortfolioHolding, mode: WorkflowMode) {
   const chip = holdingValuationChip(holding)
 
   return createElement(
-    'article',
-    { key: holding.holding_id, id: holding.holding_id, style: cardStyle },
+    'section',
+    { key: holding.holding_id, id: holding.holding_id, className: 'owl-section-card owl-workflow-card' },
     createElement(
       'div',
-      { style: { alignItems: 'center', display: 'flex', flexWrap: 'wrap', gap: '0.75rem', justifyContent: 'space-between' } },
-      createElement('h2', { style: { fontSize: 'var(--owl-text-lg)', fontWeight: 800, color: 'var(--owl-color-gold-bright)', margin: 0 } }, ticker),
+      { className: 'owl-row owl-row-top' },
       createElement(
         'div',
-        { style: { alignItems: 'center', display: 'flex', flexWrap: 'wrap', gap: '0.55rem' } },
+        { className: 'owl-row-main' },
+        createElement('p', { className: 'owl-section-accent' }, 'Open position'),
+        createElement('h2', { className: 'owl-section-title', style: { fontSize: 'var(--owl-text-lg)' } }, ticker),
+        ...(chip === undefined
+          ? []
+          : [createElement('p', { className: 'owl-row-helper', style: { margin: '0.2rem 0 0' } }, chip.reference)]),
+      ),
+      createElement(
+        'div',
+        { className: 'owl-row-aside' },
         ...(chip === undefined ? [] : [createElement(OwlValuationChip, { kind: chip.kind, label: chip.label })]),
         createElement(StatusBadge, { tone: holding.pending_review_id !== undefined ? 'warning' : holding.thesis_health === undefined ? 'neutral' : 'success' }, holding.pending_review_id !== undefined ? 'Strategy review drafted' : holding.thesis_health ?? 'Thesis review pending'),
       ),
     ),
-    ...(chip === undefined
-      ? []
-      : [createElement('p', { className: 'owl-body', style: { fontSize: 'var(--owl-text-base)', margin: '0.45rem 0 0' } }, chip.reference)]),
     createPositionEconomicsTable(holding),
     createConfirmedPortfolioState(holding),
     ...createShariahGateDetails(holding),
@@ -240,13 +263,13 @@ function createPortfolioOperationsCockpit(holdings: AppHolding[], totalCurrentVa
 
   return createElement(
     'section',
-    { 'aria-label': 'Portfolio operations cockpit', className: 'owl-workflow-card', style: { ...cardStyle, background: 'var(--owl-color-panel-deep)', borderColor: 'var(--owl-color-border-strong)' } },
-    createElement('p', { className: 'owl-section-kicker' }, 'Operations'),
+    { 'aria-label': 'Portfolio operations cockpit', className: 'owl-section-card owl-workflow-card' },
+    createElement('p', { className: 'owl-section-accent' }, 'Operations'),
     createElement('h2', { className: 'owl-section-title' }, 'Portfolio operations cockpit'),
-    createElement('p', { className: 'owl-body', style: { margin: '0.2rem 0 0.3rem' } }, 'Automatically maintained valuation state stays above manual fallbacks; buys, sells, and thesis changes remain user-approved audit events.'),
+    createElement('p', { className: 'owl-row-helper', style: { margin: '0.2rem 0 0.3rem' } }, 'Automatically maintained valuation state stays above manual fallbacks; buys, sells, and thesis changes remain user-approved audit events.'),
     createElement(
       'div',
-      { style: { display: 'grid', gap: '0.75rem', gridTemplateColumns: 'repeat(auto-fit, minmax(15rem, 1fr))', marginTop: '1rem' } },
+      { className: 'owl-row-list' },
       operationMetric('Current state', currentState),
       operationMetric('Last automation check', valuationRefresh?.last_price_check_at ?? 'No scheduled price check recorded'),
       operationMetric('User action required', userActionRequired),
@@ -256,10 +279,14 @@ function createPortfolioOperationsCockpit(holdings: AppHolding[], totalCurrentVa
 
 function operationMetric(label: string, value: string) {
   return createElement(
-    'article',
-    { style: { background: 'var(--owl-color-panel)', border: '1px solid var(--owl-color-border)', borderRadius: 'var(--owl-radius-card)', padding: '0.9rem 1rem' } },
-    createElement('p', { className: 'owl-label' }, label),
-    createElement('p', { style: { color: 'var(--owl-color-text)', fontWeight: 700, lineHeight: 1.4, margin: '0.35rem 0 0', fontSize: 'var(--owl-text-base)' } }, value),
+    'div',
+    { className: 'owl-row owl-row-top' },
+    createElement(
+      'div',
+      { className: 'owl-row-main' },
+      createElement('p', { className: 'owl-row-title' }, label),
+      createElement('p', { className: 'owl-row-helper' }, value),
+    ),
   )
 }
 
@@ -587,8 +614,8 @@ function createInvestableCapitalPanel(investableCapital?: InvestableCapitalSnaps
 
   return createElement(
     'section',
-    { style: { ...cardStyle, display: 'grid', gap: '0.85rem' } },
-    createElement('p', { className: 'owl-section-kicker' }, 'Sizing'),
+    { 'aria-label': 'Investable capital', className: 'owl-section-card owl-workflow-card', style: { gap: '0.85rem' } },
+    createElement('p', { className: 'owl-section-accent' }, 'Sizing'),
     createElement('h2', { className: 'owl-section-title' }, 'Investable capital'),
     createElement(
       'p',
