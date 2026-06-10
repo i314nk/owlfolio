@@ -3,7 +3,7 @@
 // to total return, and the realized/unrealized split. A local accounting aid,
 // never a broker statement; missing data → honest not-computable.
 
-import { computeMoneyWeightedReturn, type MwrCashFlow, type MwrResult } from './mwr.js'
+import { computeMoneyWeightedReturn, type MwrCashFlow, type MwrResult } from './mwr'
 
 export type PortfolioPositionInput = {
   holding_id: string

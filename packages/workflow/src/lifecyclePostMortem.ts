@@ -6,8 +6,8 @@
 
 import type { ActorType, LedgerEventEnvelope } from '@owlfolio/ledger/eventEnvelope'
 
-import { brierScore } from './forecastCalibration.js'
-import { computePositionPostMortem, type PostMortemInput } from './postMortem.js'
+import { brierScore } from './forecastCalibration'
+import { computePositionPostMortem, type PostMortemInput } from './postMortem'
 
 export type BuildPostMortemEventInput = PostMortemInput & {
   ticker?: string

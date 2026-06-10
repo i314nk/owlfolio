@@ -15,7 +15,7 @@
 // The arithmetic is the harness's; a human may annotate the recorded post-mortem.
 // Missing data → honest not-computable, never a fabricated number.
 
-import { brierScore } from './forecastCalibration.js'
+import { brierScore } from './forecastCalibration'
 
 export type PostMortemPredicted = {
   fair_value_per_share?: number
