@@ -1,11 +1,18 @@
 import { createElement, type CSSProperties, type ReactNode } from 'react'
 
-import type { ProviderInvestmentGrade, ProviderStatusRow } from '../lib/providerStatus'
+import type {
+  ModelRegistrySection,
+  ModelRegistryRoleRow,
+  ProviderInvestmentGrade,
+  ProviderQualificationState,
+  ProviderStatusRow,
+} from '../lib/providerStatus'
 import { RouteHeader, OwlButtonLink } from './designSystem'
 import { StatusBadge, type StatusBadgeTone } from './StatusBadge'
 
 export type ProviderStatusPanelProps = {
   rows: ProviderStatusRow[]
+  modelRegistry?: ModelRegistrySection
 }
 
 const subtleTextStyle: CSSProperties = {
@@ -68,7 +75,7 @@ const glossaryEntries: Array<{ term: string; definition: string }> = [
  * gating effective-support verdict and whose body holds the deep certification
  * evidence. Fail-closed honesty throughout.
  */
-export function ProviderStatusPanel({ rows }: ProviderStatusPanelProps) {
+export function ProviderStatusPanel({ rows, modelRegistry }: ProviderStatusPanelProps) {
   const summary = providerSummaryFrom(rows)
 
   return createElement(
@@ -89,6 +96,7 @@ export function ProviderStatusPanel({ rows }: ProviderStatusPanelProps) {
     createGlossary(),
     createProviderConnectionsSection(rows),
     ...renderProviderGroups(rows),
+    ...(modelRegistry === undefined ? [] : [createModelRegistrySection(modelRegistry)]),
   )
 }
 
@@ -320,6 +328,36 @@ function investmentGradeBadge(row: ProviderStatusRow) {
   )
 }
 
+// ── Qualification badge (golden-set qualification verdict — fail-closed) ──────
+
+function qualificationBadge(row: ProviderStatusRow) {
+  const state: ProviderQualificationState = row.qualification?.state ?? 'no-report'
+  const presentation: Record<ProviderQualificationState, { label: string; background: string; border: string; color: string }> = {
+    qualified: { label: '✓ golden-set qualified', background: 'rgba(16, 185, 129, 0.16)', border: '1px solid rgba(16, 185, 129, 0.4)', color: '#bbf7d0' },
+    'not-qualified': { label: 'golden-set: not qualified', background: 'rgba(248, 113, 113, 0.14)', border: '1px solid rgba(248, 113, 113, 0.4)', color: '#fecaca' },
+    'no-report': { label: 'golden-set: no report', background: 'rgba(148, 163, 184, 0.12)', border: '1px solid rgba(148, 163, 184, 0.28)', color: 'var(--owl-color-muted)' },
+  }
+  const { label, ...tone } = presentation[state]
+
+  return createElement(
+    'span',
+    {
+      'aria-label': `${row.label} qualification status`,
+      style: {
+        ...tone,
+        borderRadius: '999px',
+        fontFamily: 'var(--owl-font-mono)',
+        fontSize: 'var(--owl-text-2xs)',
+        fontWeight: 700,
+        letterSpacing: '0.02em',
+        padding: '0.2rem 0.65rem',
+        whiteSpace: 'nowrap',
+      },
+    },
+    `Qualification: ${label}`,
+  )
+}
+
 // ── Effective-support pill (the gating verdict, front-and-center) ─────────────
 
 function effectiveSupportPill(row: ProviderStatusRow) {
@@ -379,6 +417,7 @@ function renderProviderAccordion(row: ProviderStatusRow) {
         createElement('span', { 'aria-hidden': 'true', style: { ...monoLabelStyle, color: 'var(--owl-color-gold-bright)' } }, '▸'),
         createElement('h3', { className: 'owl-row-title', style: { color: 'var(--owl-color-gold-bright)', margin: 0 } }, row.label),
         investmentGradeBadge(row),
+        qualificationBadge(row),
         effectiveSupportPill(row),
         createElement('span', { style: { ...monoLabelStyle, marginLeft: 'auto' } }, row.model_role),
       ),
@@ -429,6 +468,17 @@ function renderProviderAccordion(row: ProviderStatusRow) {
         row.last_certification_report === undefined
           ? createElement('p', { style: subtleTextStyle }, 'Workflow certification: No certification report recorded')
           : renderCertificationReport(row),
+      ),
+      // model-tiering: golden-set qualification status (verified-not-assumed; no report = not qualified).
+      createElement(
+        'section',
+        { 'aria-label': `${row.label} golden-set qualification`, style: { display: 'grid', gap: '0.35rem' } },
+        createElement('p', { style: monoLabelStyle }, 'Golden-set qualification'),
+        createElement('p', { style: monoValueStyle }, qualificationStateLabel(row.qualification?.state ?? 'no-report')),
+        createElement('p', { style: subtleTextStyle }, row.qualification?.detail ?? 'No qualification report — fail-closed (not qualified for production research).'),
+        row.qualification?.golden_set_version === undefined
+          ? null
+          : createElement('p', { style: subtleTextStyle }, `Golden set ${row.qualification.golden_set_version}${row.qualification.generated_at === undefined ? '' : ` · generated ${row.qualification.generated_at}`}.`),
       ),
       // Limitations.
       createElement(
@@ -625,6 +675,94 @@ function providerGuardrailDescription(row: ProviderStatusRow): string {
   }
 
   return 'Latest certification evidence allows provider-backed workflow starts within Owlfolio approval gates.'
+}
+
+function qualificationStateLabel(state: ProviderQualificationState): string {
+  if (state === 'qualified') return 'Qualified (golden-set passed)'
+  if (state === 'not-qualified') return 'Not qualified (golden-set report did not pass)'
+  return 'No qualification report (fail-closed)'
+}
+
+// ── Model registry & tiers (role → resolved provider/model → tier) ────────────
+//
+// model-tiering-spec: "models are config, not code." This section shows how each swarm ROLE resolves to
+// a concrete provider/model + its tier (T1 frontier / T2 mid / T3 cheap-local), plus the low-temperature
+// discipline (0–0.3 everywhere — re-run consistency, not creativity) and the T0 "no model, ever" note.
+
+const tierLabels: Record<ModelRegistryRoleRow['tier'], string> = {
+  T0: 'T0 · No model (code)',
+  T1: 'T1 · Frontier',
+  T2: 'T2 · Mid',
+  T3: 'T3 · Cheap/Local',
+}
+
+function tierTone(tier: ModelRegistryRoleRow['tier']): Pick<CSSProperties, 'background' | 'border' | 'color'> {
+  if (tier === 'T1') return { background: 'rgba(214, 178, 94, 0.16)', border: '1px solid rgba(214, 178, 94, 0.4)', color: 'var(--owl-color-gold-bright)' }
+  if (tier === 'T2') return { background: 'rgba(96, 165, 250, 0.14)', border: '1px solid rgba(96, 165, 250, 0.38)', color: '#bfdbfe' }
+  return { background: 'rgba(148, 163, 184, 0.12)', border: '1px solid rgba(148, 163, 184, 0.28)', color: 'var(--owl-color-muted)' }
+}
+
+function createModelRegistrySection(registry: ModelRegistrySection) {
+  return createElement(
+    'section',
+    { 'aria-label': 'Model registry and tiers', className: 'owl-section-card', style: { gap: 'var(--owl-space-4)' } },
+    createElement('p', { className: 'owl-section-accent' }, 'Models are config, not code'),
+    createElement('h2', { className: 'owl-section-title' }, 'Model registry & tiers'),
+    createElement(
+      'p',
+      { className: 'owl-body' },
+      `The single place that maps each swarm role to a provider/model + tier (registry ${registry.version}). `
+      + 'Every role inherits the active run’s provider/model unless an override pins a different one; '
+      + 'temperature stays low (0–0.3) everywhere for re-run consistency. Swapping a model is one line.',
+    ),
+    createElement(
+      'div',
+      { className: 'owl-row-list' },
+      ...registry.roles.map(renderRegistryRoleRow),
+    ),
+    createElement(
+      'p',
+      { style: { ...subtleTextStyle, marginTop: 'var(--owl-space-2)' } },
+      registry.no_model_note,
+    ),
+  )
+}
+
+function renderRegistryRoleRow(role: ModelRegistryRoleRow) {
+  return createElement(
+    'article',
+    { key: `registry-${role.role}`, 'aria-label': `${role.role} registry role`, className: 'owl-row owl-row-top' },
+    createElement(
+      'div',
+      { className: 'owl-row-main', style: { gap: 'var(--owl-space-2)' } },
+      createElement(
+        'div',
+        { style: { alignItems: 'center', display: 'flex', flexWrap: 'wrap', gap: 'var(--owl-space-2)' } },
+        createElement('h3', { className: 'owl-row-title', style: { color: 'var(--owl-color-gold-bright)', margin: 0 } }, role.role),
+        createElement(
+          'span',
+          {
+            style: {
+              ...tierTone(role.tier),
+              borderRadius: '999px',
+              fontFamily: 'var(--owl-font-mono)',
+              fontSize: 'var(--owl-text-2xs)',
+              fontWeight: 700,
+              letterSpacing: '0.04em',
+              padding: '0.2rem 0.65rem',
+              whiteSpace: 'nowrap',
+            },
+          },
+          tierLabels[role.tier],
+        ),
+        role.overridden
+          ? createElement(StatusBadge, { tone: 'warning' }, 'overridden')
+          : null,
+      ),
+      createElement('p', { style: { ...monoValueStyle, margin: 0 } }, `${role.provider_id} / ${role.model} · temp ${role.temperature.toFixed(1)}`),
+      createElement('p', { className: 'owl-row-helper' }, role.description),
+    ),
+  )
 }
 
 // ── Summary buckets ───────────────────────────────────────────────────────────

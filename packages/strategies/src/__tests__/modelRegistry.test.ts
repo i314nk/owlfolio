@@ -83,6 +83,8 @@ describe('resolveModelForRole', () => {
       'red_team',
       'monitors',
       'entity_resolve',
+      'lane_moat_crosscheck',
+      'lane_shariah_crosscheck',
     ]
     expect([...modelRoleIds].sort()).toEqual([...expected].sort())
   })

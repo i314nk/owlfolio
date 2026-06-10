@@ -9,6 +9,13 @@ import {
 } from '@owlfolio/providers'
 import { getProviderCatalog, isInvestmentGradeSuitable, type ProviderCatalogEntry, type ProviderWorkflowRole } from '@owlfolio/providers'
 import type { ProviderId, ProviderSupportLevel } from '@owlfolio/shared'
+import {
+  MODEL_REGISTRY,
+  modelRoleIds,
+  resolveModelForRole,
+  type ModelRoleId,
+} from '@owlfolio/strategies/modelRegistry'
+import { isModelQualified } from '@owlfolio/workflow/modelQualification'
 
 import { getProviderReadiness, type ProviderReadiness, type ProviderReadinessEnv } from './providerReadiness'
 import { resolveProjectRootFromCwd } from './appConfigStore'
@@ -29,6 +36,90 @@ export type ProviderCertificationReportSummary = Pick<CertificationReport,
 export type ProviderStatusTone = 'neutral' | 'success' | 'warning' | 'danger'
 
 export type ProviderInvestmentGrade = 'suitable' | 'candidate' | 'not-suitable'
+
+// model-tiering-spec: golden-set qualification status surfaced honestly, like the certification display.
+export type ProviderQualificationState = 'qualified' | 'not-qualified' | 'no-report'
+
+export type ProviderQualificationSummary = {
+  state: ProviderQualificationState
+  /** Human-readable reason from the latest qualification report (or its absence — fail-closed). */
+  detail: string
+  golden_set_version?: string
+  generated_at?: string
+}
+
+// model-tiering-spec tiers (T1 frontier / T2 mid / T3 cheap-local / T0 no-model-ever).
+export type ModelTier = 'T0' | 'T1' | 'T2' | 'T3'
+
+export type ModelRegistryRoleRow = {
+  role: ModelRoleId
+  tier: ModelTier
+  provider_id: string
+  model: string
+  temperature: number
+  /** true when a config/env override pinned this role onto a DIFFERENT provider/model than the run's. */
+  overridden: boolean
+  description: string
+}
+
+export type ModelRegistrySection = {
+  version: string
+  roles: ModelRegistryRoleRow[]
+  /** The T0 "no model, ever" note — deterministic-by-constitution components have no registry row. */
+  no_model_note: string
+}
+
+// Each registry role's tier + a one-line "why this tier" (the spec's tier table, condensed). The
+// cross-check roles are T1 extensions (a second frontier model for the highest-stakes classification).
+const MODEL_ROLE_TIERS: Record<ModelRoleId, { tier: ModelTier; description: string }> = {
+  synthesis: { tier: 'T1', description: 'Frontier synthesis — long-context reasoning + disciplined citation; errors here poison verdicts.' },
+  lane_moat: { tier: 'T1', description: 'Frontier — moat classification is the highest-stakes call.' },
+  lane_shariah: { tier: 'T1', description: 'Frontier — Shariah sector status is a hard-stop classification.' },
+  lanes_default: { tier: 'T1', description: 'Deep-dive lanes (T1/T2) — source-backed specialist findings.' },
+  quick_screen: { tier: 'T2', description: 'Mid — kill/continue over one report; a wrong continue dies in deep dive.' },
+  red_team: { tier: 'T2', description: 'Mid — adversarial cross-check; a different model catches shared-narrative error.' },
+  monitors: { tier: 'T3', description: 'Cheap/local — high-volume daily scanning, low judgment.' },
+  entity_resolve: { tier: 'T3', description: 'Cheap/local — near-deterministic entity/ticker resolution (temp 0).' },
+  lane_moat_crosscheck: { tier: 'T1', description: 'Frontier cross-check (off by default) — a second model re-classifies the moat.' },
+  lane_shariah_crosscheck: { tier: 'T1', description: 'Frontier cross-check (off by default) — a second model re-classifies the Shariah sector.' },
+}
+
+/**
+ * Build the "Model registry & tiers" section for /providers: each role → its resolved provider/model
+ * (against the active run's provider/model) + tier + low-temperature note. Defaults pin nothing, so a
+ * role resolves to the active provider/model unless an override is configured — surfaced honestly.
+ */
+export function buildModelRegistrySection(args: {
+  activeProviderId: string
+  activeModel: string
+  env?: Record<string, string | undefined>
+} = { activeProviderId: 'mock-provider', activeModel: 'mock-buffett-munger-demo' }): ModelRegistrySection {
+  const roles: ModelRegistryRoleRow[] = modelRoleIds.map((role) => {
+    const resolved = resolveModelForRole(role, {
+      fallbackProviderId: args.activeProviderId,
+      fallbackModel: args.activeModel,
+      ...(args.env === undefined ? {} : { env: args.env }),
+    })
+    const tier = MODEL_ROLE_TIERS[role]
+    return {
+      role,
+      tier: tier.tier,
+      provider_id: resolved.provider_id,
+      model: resolved.model,
+      temperature: resolved.temperature,
+      overridden: resolved.overridden,
+      description: tier.description,
+    }
+  })
+  return {
+    version: MODEL_REGISTRY.version,
+    roles,
+    no_model_note:
+      'T0 — No model, ever: valuation math, Shariah ratio verification, purification arithmetic, '
+      + 'accounting, scheduling, 13F/EDGAR parsing, and Magic Formula ranking are deterministic by '
+      + 'constitution (pure code) — they have no registry row.',
+  }
+}
 
 export type ProviderStatusDetail = {
   label: string
@@ -71,6 +162,8 @@ export type ProviderStatusRow = {
   last_certification_report: ProviderCertificationReportSummary | undefined
   investment_grade?: ProviderInvestmentGrade
   investment_grade_candidate?: boolean
+  /** model-tiering: golden-set qualification status (fail-closed — no report = not qualified). */
+  qualification?: ProviderQualificationSummary
 }
 
 type ProviderStatusEnv = ProviderReadinessEnv & {
@@ -195,6 +288,8 @@ export function resolveProviderCertificationReportDir({ cwd = process.cwd(), env
 
 export async function buildProviderStatusRows(options: ProviderStatusOptions = {}): Promise<ProviderStatusRow[]> {
   const reports = await getLatestProviderCertificationReports(options)
+  // Qualification reports live in the SAME directory as the certification reports (mirrored plumbing).
+  const qualificationDir = resolveProviderCertificationReportDir(options)
   const reportsByTarget = new Map(reports.map((report) => [certificationReportTargetKey(report), report]))
   const legacyReportsByProvider = new Map(reports
     .filter((report) => (report as Partial<CertificationReport>).target === undefined)
@@ -212,6 +307,15 @@ export async function buildProviderStatusRows(options: ProviderStatusOptions = {
       : provider.investment_grade_candidate === true
         ? 'candidate'
         : 'not-suitable'
+
+    // model-tiering: golden-set qualification status from the latest qualification report (fail-closed).
+    const qualified = await isModelQualified(provider.provider_id, { dir: qualificationDir })
+    const qualification: ProviderQualificationSummary = {
+      state: !qualified.has_report ? 'no-report' : qualified.qualified ? 'qualified' : 'not-qualified',
+      detail: qualified.reason,
+      ...(qualified.report?.golden_set_version === undefined ? {} : { golden_set_version: qualified.report.golden_set_version }),
+      ...(qualified.report?.generated_at === undefined ? {} : { generated_at: qualified.report.generated_at }),
+    }
 
     return {
       provider_id: provider.provider_id,
@@ -253,6 +357,7 @@ export async function buildProviderStatusRows(options: ProviderStatusOptions = {
       }),
       investment_grade: investmentGrade,
       investment_grade_candidate: provider.investment_grade_candidate === true,
+      qualification,
       last_certification_report: latestReport === undefined
         ? undefined
         : {

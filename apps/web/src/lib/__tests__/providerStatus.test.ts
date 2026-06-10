@@ -588,6 +588,72 @@ describe('provider status model', () => {
   })
 })
 
+describe('model-tiering — golden-set qualification on the provider status rows', () => {
+  it('marks every provider no-report (fail-closed) when no qualification report exists', async () => {
+    const projectDir = await mkdtemp(join(tmpdir(), 'owlfolio-qual-status-'))
+    const rows = await buildProviderStatusRows({ env: { OWLFOLIO_PROJECT_DIR: projectDir } })
+    const mock = rows.find((r) => r.provider_id === 'mock-provider')
+    expect(mock?.qualification?.state).toBe('no-report')
+    expect(mock?.qualification?.detail).toContain('No qualification report')
+    await rm(projectDir, { recursive: true, force: true })
+  })
+
+  it('reflects a passing qualification report as qualified', async () => {
+    const projectDir = await mkdtemp(join(tmpdir(), 'owlfolio-qual-status-ok-'))
+    const reportDir = join(projectDir, 'data', 'provider-certifications')
+    await mkdir(reportDir, { recursive: true })
+    await writeFile(join(reportDir, 'mock-provider.qualification.latest.json'), JSON.stringify({
+      qualification_report_id: 'qual_mock_x',
+      provider_id: 'mock-provider',
+      model_id: 'mock-buffett-munger-demo',
+      golden_set_version: 'golden-set-2026-06-1',
+      run_status: 'completed',
+      generated_at: '2026-06-09T00:00:00.000Z',
+      qualified: true,
+      result: { golden_set_version: 'golden-set-2026-06-1', schema_valid_first_attempt_rate: 1, schema_valid_criterion: { pass: true, detail: 'ok' }, companies: [], qualified: true },
+      summary: '3/3 golden-set companies passed.',
+    }), 'utf8')
+    const rows = await buildProviderStatusRows({ env: { OWLFOLIO_PROJECT_DIR: projectDir } })
+    const mock = rows.find((r) => r.provider_id === 'mock-provider')
+    expect(mock?.qualification?.state).toBe('qualified')
+    expect(mock?.qualification?.golden_set_version).toBe('golden-set-2026-06-1')
+    await rm(projectDir, { recursive: true, force: true })
+  })
+})
+
+describe('model-tiering — buildModelRegistrySection', () => {
+  it('maps each role to a resolved provider/model + tier with low temperature, inheriting the active model by default', async () => {
+    const { buildModelRegistrySection } = await import('../providerStatus')
+    const section = buildModelRegistrySection({ activeProviderId: 'mock-provider', activeModel: 'mock-buffett-munger-demo', env: {} })
+    expect(section.version).toMatch(/model-registry/)
+    const synthesis = section.roles.find((r) => r.role === 'synthesis')
+    expect(synthesis?.tier).toBe('T1')
+    expect(synthesis?.provider_id).toBe('mock-provider')
+    expect(synthesis?.model).toBe('mock-buffett-munger-demo')
+    expect(synthesis?.overridden).toBe(false)
+    expect(synthesis!.temperature).toBeLessThanOrEqual(0.3)
+    // Every role's temperature stays in the low band (0–0.3).
+    expect(section.roles.every((r) => r.temperature >= 0 && r.temperature <= 0.3)).toBe(true)
+    // Tiers cover the high-stakes T1 lanes + the T2/T3 roles.
+    expect(section.roles.find((r) => r.role === 'lane_moat')?.tier).toBe('T1')
+    expect(section.roles.find((r) => r.role === 'quick_screen')?.tier).toBe('T2')
+    expect(section.roles.find((r) => r.role === 'monitors')?.tier).toBe('T3')
+    expect(section.no_model_note).toContain('No model, ever')
+  })
+
+  it('flags a role overridden onto a different model via env', async () => {
+    const { buildModelRegistrySection } = await import('../providerStatus')
+    const section = buildModelRegistrySection({
+      activeProviderId: 'mock-provider',
+      activeModel: 'mock-buffett-munger-demo',
+      env: { OWLFOLIO_MODEL_ROLE_LANE_MOAT: 'other-model' },
+    })
+    const moat = section.roles.find((r) => r.role === 'lane_moat')
+    expect(moat?.model).toBe('other-model')
+    expect(moat?.overridden).toBe(true)
+  })
+})
+
 function unsupportedCompletedReport(providerId: 'mock-provider' | 'claude' | 'openai'): CertificationReport {
   return {
     certification_report_id: `cert_${providerId}_unsupported_completed`,

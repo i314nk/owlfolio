@@ -32,6 +32,13 @@ export const modelRoleIds = [
   'red_team',
   'monitors',
   'entity_resolve',
+  // model-tiering-spec "Dual-Model Cross-Check" (high-stakes classifications ONLY): an OPTIONAL second
+  // model for the moat-class + Shariah-sector-status calls. OFF by default — both pin NOTHING, so they
+  // INHERIT the run's active provider/model, which the cross-check treats as "no distinct second model
+  // configured" → single run, unchanged. Configure (override/env) a DISTINCT provider/model on one of
+  // these to trigger the cross-check for that classification. "Don't extend everywhere — it doubles cost."
+  'lane_moat_crosscheck',
+  'lane_shariah_crosscheck',
 ] as const
 export type ModelRoleId = (typeof modelRoleIds)[number]
 
@@ -75,6 +82,11 @@ export const MODEL_REGISTRY: ModelRegistry = Object.freeze({
     red_team: { temperature: 0.2 },
     monitors: { temperature: 0.1 },
     entity_resolve: { temperature: 0.0 },
+    // Cross-check roles default to the SAME low temperature as their primary lanes and pin no
+    // provider/model — so by default they resolve to the run's active model (i.e. NOT distinct) and the
+    // cross-check stays OFF. An override that pins a DIFFERENT provider/model turns it on for that role.
+    lane_moat_crosscheck: { temperature: 0.1 },
+    lane_shariah_crosscheck: { temperature: 0.1 },
   },
 }) as ModelRegistry
 

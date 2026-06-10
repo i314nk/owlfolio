@@ -12,6 +12,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.json && corepack pnpm -r typecheck",
     "e2e": "NODE_OPTIONS=--disable-warning=ExperimentalWarning playwright test",
     "certify:providers": "tsx scripts/certify-providers.mjs",
+    "qualify:models": "tsx scripts/qualify-models.mjs",
     "ops:backup:inventory": "tsx scripts/owlfolio-local-backup-cli.ts inventory",
     "ops:backup:manifest": "tsx scripts/owlfolio-local-backup-cli.ts manifest",
     "ops:restore:dry-run": "tsx scripts/owlfolio-local-backup-cli.ts restore-dry-run",

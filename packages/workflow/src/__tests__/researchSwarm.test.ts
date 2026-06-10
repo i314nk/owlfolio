@@ -1875,3 +1875,161 @@ describe('runStrategyResearchSwarm — schema-validation + retry (harness defens
     expect(events.map((e) => e.event_type)).toContain('decision_drafted')
   })
 })
+
+// ---------------------------------------------------------------------------
+// model-tiering-spec — Dual-Model Cross-Check (moat + Shariah sector ONLY)
+// ---------------------------------------------------------------------------
+
+// A swarm provider that handles every stage AND the focused cross-check schemas. The cross-check
+// classifications are configurable so we can drive agreement/disagreement/degrade. The SAME provider
+// instance serves both models (the override pins a different MODEL on the same provider), so no real
+// resolveProvider call is needed.
+function crossCheckSwarmProvider(opts: {
+  primaryMoat?: 'narrow' | 'moderate' | 'wide' | 'monopoly'
+  crossCheckMoat?: 'narrow' | 'moderate' | 'wide' | 'monopoly'
+  failMoatCrossCheck?: boolean
+  primarySector?: 'compliant' | 'conditional' | 'non_compliant'
+  crossCheckSector?: 'compliant' | 'conditional' | 'non_compliant'
+} = {}) {
+  const src = (id: string) => ({ source_id: id, title: 'T', url: 'https://www.sec.gov/Archives/edgar/data/0/test-10k.htm', excerpt: 'e' })
+  let laneCall = 0
+  const provider = {
+    provider_id: 'fake-xc',
+    capabilities: {} as never,
+    complete: vi.fn(),
+    runWithTools: vi.fn(),
+    structured: vi.fn(async (req: { response_format?: { schema_name?: string } }) => {
+      const schemaName = req.response_format?.schema_name
+      if (schemaName === 'BuffettMungerQuickScreen') {
+        return {
+          summary: 'Good', business_quality: 'Strong', moat: 'Wide', management_capital_allocation: 'Excellent',
+          financial_quality: 'Solid', valuation_sanity: 'Reasonable', shariah_status: 'CONDITIONAL',
+          red_flags: ['None'], confidence: 'high', caveats: ['c'], screening_result: 'deep_dive_candidate',
+          proposed_sources: [src('src_qs_1')],
+        }
+      }
+      if (schemaName === 'BuffettMungerLaneFinding') {
+        const n = laneCall++
+        return { finding_summary: `Lane ${n}`, confidence: 'high', caveats: ['c'], proposed_sources: [src(`src_lane_${n}`)] }
+      }
+      if (schemaName === 'MoatCrossCheck') {
+        if (opts.failMoatCrossCheck === true) throw new Error('cross-check timed out')
+        return { moat_class: opts.crossCheckMoat ?? 'wide', proposed_sources: [src('src_xc_moat')] }
+      }
+      if (schemaName === 'ShariahSectorCrossCheck') {
+        return { sector_status: opts.crossCheckSector ?? 'compliant', proposed_sources: [src('src_xc_shariah')] }
+      }
+      if (schemaName === 'BuffettMungerRedTeam') {
+        return {
+          strongest_bear_case: 'b', weakest_rubric_items: [], moat_decay_scenario: 'd', growth_credit_attack: 'a',
+          shared_narrative_blindspots: [], strongest_objection: { claim: 'c', severity: 'low', citations: ['src_qs_1'] },
+          proposed_sources: [src('src_qs_1')],
+        }
+      }
+      // synthesis/decision
+      return {
+        investment_verdict: 'WATCH', strategy_compliance: 'CONDITIONAL', valuation_status: 'EXPENSIVE',
+        next_required_action: 'a', decision_reason: 'r', thesis_summary: 't', evidence_summary: 'e',
+        valuation_rationale: 'v', shariah_rationale: 's', synthesis_summary: 'ss', risks: ['risk'],
+        open_questions: ['baseline question'],
+        moat_class: opts.primaryMoat ?? 'wide', runway: 'proven',
+        growth_assumptions: 'g', owner_earnings_bridge: {
+          net_income: 8838, depreciation_amortization: 2565, maintenance_capex: 2052,
+          maintenance_capex_proxy_tier: '80', stock_based_comp: 911, normalized_working_capital_change: 0, shares_outstanding: 443,
+        },
+        shariah: { sector_status: opts.primarySector ?? 'compliant', impermissible_income: 0 },
+        roic: 0.30, incremental_roic: 0.20, reinvestment_rate: 0.43, proposed_sources: [src('src_dec_1')],
+      }
+    }),
+  }
+  return provider
+}
+
+function analysisCrosscheckOf(events: Awaited<ReturnType<InMemoryEventStore['list']>>): Record<string, unknown> | undefined {
+  const analysis = events.find((e) => e.event_type === 'buffett_munger_analysis_drafted')
+  return (analysis?.payload as Record<string, unknown> | undefined)?.['dual_model_crosscheck'] as Record<string, unknown> | undefined
+}
+
+async function runXcSwarm(provider: unknown, overrides: Record<string, { provider_id?: string; model?: string }>) {
+  const store = new InMemoryEventStore()
+  const sourceLedgerPath = await mkdtemp(join(tmpdir(), 'owlfolio-xc-'))
+  await runStrategyResearchSwarm(
+    store, provider as never,
+    {
+      research_case_id: 'rc_xc', company_id: 'company_xc', ticker: 'COST',
+      strategy_id: 'buffett-munger', actor_id: 'user_local', idempotency_key: 'xc_k',
+      model_id: 'primary-model', decision_id: 'decision_xc', source_ledger_path: sourceLedgerPath,
+      model_overrides: overrides,
+    },
+    { ground: allVerifiedGround, laneConcurrency: 4 },
+  )
+  return store
+}
+
+describe('runStrategyResearchSwarm — dual-model cross-check (moat + Shariah sector)', () => {
+  it('OFF by default (no cross-check model configured) — single run, no crosscheck layer', async () => {
+    const provider = crossCheckSwarmProvider({ primaryMoat: 'wide' })
+    const store = await runXcSwarm(provider, {})
+    const events = await store.list()
+    expect(analysisCrosscheckOf(events)).toBeUndefined()
+    const projections = projectResearchCases(events as Parameters<typeof projectResearchCases>[0])
+    const cp = projections.find((c) => c.research_case_id === 'rc_xc')
+    expect((cp?.open_questions ?? []).some((q) => q.includes('crosscheck'))).toBe(false)
+  })
+
+  it('AGREEMENT (moat) — proceeds, records crosscheck.agreed=true, no escalation', async () => {
+    const provider = crossCheckSwarmProvider({ primaryMoat: 'wide', crossCheckMoat: 'wide' })
+    const store = await runXcSwarm(provider, { lane_moat_crosscheck: { model: 'second-model' } })
+    const events = await store.list()
+    const xc = analysisCrosscheckOf(events)
+    const moat = xc?.['moat_class'] as { agreed?: boolean; models?: string[] } | undefined
+    expect(moat?.agreed).toBe(true)
+    expect(moat?.models).toEqual(['primary-model', 'second-model'])
+    const projections = projectResearchCases(events as Parameters<typeof projectResearchCases>[0])
+    const cp = projections.find((c) => c.research_case_id === 'rc_xc')
+    expect((cp?.open_questions ?? []).some((q) => q.includes('crosscheck_disagreement'))).toBe(false)
+  })
+
+  it('DISAGREEMENT (moat) — conservative (lower) tier holds + requires_human_escalation in open_questions', async () => {
+    // Primary says wide; cross-check says moderate → conservative (moderate) must hold + escalation.
+    const provider = crossCheckSwarmProvider({ primaryMoat: 'wide', crossCheckMoat: 'moderate' })
+    const store = await runXcSwarm(provider, { lane_moat_crosscheck: { model: 'second-model' } })
+    const events = await store.list()
+    const xc = analysisCrosscheckOf(events)
+    const moat = xc?.['moat_class'] as { agreed?: boolean } | undefined
+    expect(moat?.agreed).toBe(false)
+    const projections = projectResearchCases(events as Parameters<typeof projectResearchCases>[0])
+    const cp = projections.find((c) => c.research_case_id === 'rc_xc')
+    expect((cp?.open_questions ?? []).some((q) => q.includes('dual_model_crosscheck_disagreement') && q.includes('moat_class'))).toBe(true)
+    // Conservative (moderate) is below the wide gate → the verdict is gated to PASS.
+    expect(cp?.valuation?.moat_class).toBe('moderate')
+    expect(cp?.valuation?.moat_passes_gate).toBe(false)
+  })
+
+  it('DISAGREEMENT (Shariah sector) — stricter status holds + escalation', async () => {
+    const provider = crossCheckSwarmProvider({ primarySector: 'compliant', crossCheckSector: 'non_compliant' })
+    const store = await runXcSwarm(provider, { lane_shariah_crosscheck: { model: 'second-model' } })
+    const events = await store.list()
+    const xc = analysisCrosscheckOf(events)
+    const shariah = xc?.['shariah_sector_status'] as { agreed?: boolean; crosscheck?: string } | undefined
+    expect(shariah?.agreed).toBe(false)
+    const analysis = events.find((e) => e.event_type === 'buffett_munger_analysis_drafted')
+    // Stricter (non_compliant) sector status held → recorded sector status is non_compliant.
+    expect((analysis?.payload as Record<string, unknown>)['shariah_sector_status']).toBe('non_compliant')
+    const projections = projectResearchCases(events as Parameters<typeof projectResearchCases>[0])
+    const cp = projections.find((c) => c.research_case_id === 'rc_xc')
+    expect((cp?.open_questions ?? []).some((q) => q.includes('dual_model_crosscheck_disagreement') && q.includes('shariah_sector_status'))).toBe(true)
+  })
+
+  it('DEGRADE (moat cross-check throws) — primary holds, gap surfaced, NOT an escalation', async () => {
+    const provider = crossCheckSwarmProvider({ primaryMoat: 'wide', failMoatCrossCheck: true })
+    const store = await runXcSwarm(provider, { lane_moat_crosscheck: { model: 'second-model' } })
+    const events = await store.list()
+    const projections = projectResearchCases(events as Parameters<typeof projectResearchCases>[0])
+    const cp = projections.find((c) => c.research_case_id === 'rc_xc')
+    expect(cp?.valuation?.moat_class).toBe('wide') // primary held
+    const oq = cp?.open_questions ?? []
+    expect(oq.some((q) => q.includes('dual_model_crosscheck_degraded'))).toBe(true)
+    expect(oq.some((q) => q.includes('dual_model_crosscheck_disagreement'))).toBe(false)
+  })
+})

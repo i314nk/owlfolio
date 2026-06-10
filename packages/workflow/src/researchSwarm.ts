@@ -69,6 +69,14 @@ import { buffettMungerStrategy, creditedGrowth, discountRate, marginOfSafetyForM
 import { computeShariahFinancialRatios } from '@owlfolio/strategies/shariahFinancialRatios'
 import { fetchAverageMarketCap, resolveCurrentPrice, type AverageMarketCapResult, type MarketDataDeps, type PriceQuote } from './marketData'
 import { runRedTeamPass, buildRedTeamLayer, type RedTeamLaneDigest, type RedTeamResult } from './redTeamPass'
+import {
+  resolveCrossCheck,
+  compareMoatClass,
+  compareShariahSectorStatus,
+  type CrossCheckLayer,
+  type MoatClass,
+  type ShariahSectorStatus,
+} from './dualModelCrossCheck'
 
 /**
  * Structured failure raised when a bookend swarm call (quick-screen or synthesis) fails after its
@@ -348,6 +356,49 @@ function resolveRoleRuntime(
   })
   // Reuse the run's provider unless a role pins a genuinely DIFFERENT provider_id (the "different
   // model" hook the judgment spec left as a TODO — now real).
+  const provider =
+    resolved.provider_id === runProvider.provider_id
+      ? runProvider
+      : resolveProvider({ provider_id: resolved.provider_id as Parameters<typeof resolveProvider>[0]['provider_id'] })
+  return { provider, model_id: resolved.model }
+}
+
+// ---------------------------------------------------------------------------
+// model-tiering-spec — Dual-Model Cross-Check (moat class + Shariah sector status ONLY)
+// ---------------------------------------------------------------------------
+
+// A focused classification-only agent for the cross-check: a SECOND model re-classifies the single
+// high-stakes dimension from the lane digest + grounded corpus. It is deliberately narrow (one enum,
+// one cited source) so the doubled cost is minimal — "don't extend everywhere".
+const MoatCrossCheckSchema = z.object({
+  moat_class: z.enum(['narrow', 'moderate', 'wide', 'monopoly']),
+  proposed_sources: ProposedSourcesSchema,
+})
+const ShariahCrossCheckSchema = z.object({
+  sector_status: z.enum(['compliant', 'conditional', 'non_compliant']),
+  proposed_sources: ProposedSourcesSchema,
+})
+
+/**
+ * Resolve a cross-check role to a runtime IFF it pins a DISTINCT provider/model from the run's active
+ * one. Returns undefined when the role inherits the run's model (the default — cross-check OFF). This is
+ * the registry-driven trigger: configuring a distinct provider/model on `lane_moat_crosscheck` /
+ * `lane_shariah_crosscheck` (override or env) turns the cross-check ON for that classification only.
+ */
+function resolveCrossCheckRuntime(
+  role: 'lane_moat_crosscheck' | 'lane_shariah_crosscheck',
+  runProvider: Provider,
+  command: { model_id: string; model_overrides?: Partial<Record<ModelRoleId, ModelRoleOverride>> },
+): { provider: Provider; model_id: string } | undefined {
+  const resolved = resolveModelForRole(role, {
+    fallbackProviderId: runProvider.provider_id,
+    fallbackModel: command.model_id,
+    ...(command.model_overrides === undefined ? {} : { overrides: command.model_overrides }),
+    env: process.env,
+  })
+  // Distinct = a different provider OR a different model than the run's active one.
+  const distinct = resolved.provider_id !== runProvider.provider_id || resolved.model !== command.model_id
+  if (!distinct) return undefined
   const provider =
     resolved.provider_id === runProvider.provider_id
       ? runProvider
@@ -1013,6 +1064,8 @@ export async function runStrategyResearchSwarm(
     source_ledger_path: command.source_ledger_path,
     quick_screen_source_ids: qs.verified_ids,
     quick_screen_event_id: quickScreen.event_id,
+    // model-tiering: forward per-role overrides so the deep-dive lanes + dual-model cross-check honor them.
+    ...(command.model_overrides === undefined ? {} : { model_overrides: command.model_overrides }),
   }, { ...deps, accumulated })
 
   return {
@@ -1410,7 +1463,50 @@ export async function runResearchDeepDivePhase(
     )
   }
   // resolved_moat_class is guaranteed defined by resolveJudgmentTiers (never undefined).
-  const moatClass = judgment.moat!.resolved_moat_class
+  const primaryMoatClass = judgment.moat!.resolved_moat_class
+
+  // ---- model-tiering-spec: Dual-Model Cross-Check (moat class + Shariah sector status ONLY) ----
+  // OFF by default. When the registry pins a DISTINCT model on lane_moat_crosscheck / lane_shariah_
+  // crosscheck, the harness re-classifies that ONE dimension on the second model and compares:
+  //   agreement → proceed (record crosscheck.agreed=true);
+  //   disagreement → take the CONSERVATIVE answer (lower moat tier / stricter Shariah) and flag
+  //                  requires_human_escalation (appended to open_questions); the conservative answer
+  //                  holds in the meantime. A cross-check timeout DEGRADES (primary holds, gap surfaced).
+  // "Don't extend everywhere — it doubles cost." Reuses the lane timeout/degrade guard.
+  const crossCheckOpenQuestions: string[] = []
+  let moatCrossCheckLayer: CrossCheckLayer | undefined
+  let shariahCrossCheckLayer: CrossCheckLayer | undefined
+
+  const moatCrossCheckRuntime = resolveCrossCheckRuntime('lane_moat_crosscheck', provider, command)
+  let resolvedMoatClass: MoatClass = primaryMoatClass
+  if (moatCrossCheckRuntime !== undefined) {
+    const moatXc = await resolveCrossCheck<MoatClass>({
+      dimension: 'moat_class',
+      primary: primaryMoatClass,
+      primaryModel: synthesisRuntime.model_id,
+      crossCheckModel: moatCrossCheckRuntime.model_id,
+      compare: compareMoatClass,
+      runCrossCheck: async () => {
+        const agent = await runGroundedAgent(moatCrossCheckRuntime.provider, {
+          run_id: `run_${command.research_case_id}_moat_crosscheck`,
+          model_id: moatCrossCheckRuntime.model_id,
+          prompt: `You are an INDEPENDENT moat-classification cross-checker for ${command.ticker}. `
+            + `Classify the durable competitive moat as exactly one of: narrow | moderate | wide | monopoly. `
+            + `Reason ONLY from primary filings and cite at least one real, fetchable source in proposed_sources. `
+            + `Be disciplined and conservative — do NOT inflate the moat from narrative.`,
+          timeout_ms: AGENT_TIMEOUT_MS,
+          schema_name: 'MoatCrossCheck',
+        }, MoatCrossCheckSchema, deps, { lane: 'moat' })
+        remember(agent.captured)
+        return agent.analysis.moat_class as MoatClass
+      },
+    })
+    resolvedMoatClass = moatXc.value
+    moatCrossCheckLayer = moatXc.crosscheck
+    if (moatXc.escalation_note !== undefined) crossCheckOpenQuestions.push(moatXc.escalation_note)
+    if (moatXc.degraded_note !== undefined) degradedFlags.push(moatXc.degraded_note)
+  }
+  const moatClass = resolvedMoatClass
   const moat_passes_gate = moatPassesGate(buffettMungerStrategy, moatClass)
 
   const modelBridge = dec.analysis.owner_earnings_bridge
@@ -1636,7 +1732,43 @@ export async function runResearchDeepDivePhase(
   // EDGAR/market-cap/impermissible-income are missing it is not computable and we fall back to the
   // lane's proposed (quick-screen) Shariah verdict. The SECTOR FAIL hard stop is independent of this
   // financial-ratio layer (handled by the quick-screen short-circuit + sector_status below).
-  const shariahJudgment = dec.analysis.shariah
+  // Dual-model cross-check for the SHARIAH SECTOR STATUS (the second high-stakes classification). OFF by
+  // default; when a distinct lane_shariah_crosscheck model is configured AND the synthesis supplied a
+  // sector_status, the second model re-classifies the sector and the conservative (stricter) status
+  // holds on disagreement (+ human escalation). The impermissible_income overlay is untouched (it feeds
+  // the harness ratio recompute, not a model classification).
+  let shariahJudgment = dec.analysis.shariah
+  const shariahCrossCheckRuntime = resolveCrossCheckRuntime('lane_shariah_crosscheck', provider, command)
+  if (shariahCrossCheckRuntime !== undefined && shariahJudgment !== undefined) {
+    const primarySector = shariahJudgment.sector_status as ShariahSectorStatus
+    const shariahXc = await resolveCrossCheck<ShariahSectorStatus>({
+      dimension: 'shariah_sector_status',
+      primary: primarySector,
+      primaryModel: synthesisRuntime.model_id,
+      crossCheckModel: shariahCrossCheckRuntime.model_id,
+      compare: compareShariahSectorStatus,
+      runCrossCheck: async () => {
+        const agent = await runGroundedAgent(shariahCrossCheckRuntime.provider, {
+          run_id: `run_${command.research_case_id}_shariah_crosscheck`,
+          model_id: shariahCrossCheckRuntime.model_id,
+          prompt: `You are an INDEPENDENT Shariah SECTOR-status cross-checker for ${command.ticker}. `
+            + `Classify the company's PRIMARY-BUSINESS sector permissibility as exactly one of: `
+            + `compliant | conditional | non_compliant. Reason ONLY from filings/segment disclosures and `
+            + `cite at least one real, fetchable source in proposed_sources. Be strict — when in doubt, `
+            + `choose the more conservative (stricter) status.`,
+          timeout_ms: AGENT_TIMEOUT_MS,
+          schema_name: 'ShariahSectorCrossCheck',
+        }, ShariahCrossCheckSchema, deps, { lane: 'shariah' })
+        remember(agent.captured)
+        return agent.analysis.sector_status as ShariahSectorStatus
+      },
+    })
+    shariahCrossCheckLayer = shariahXc.crosscheck
+    if (shariahXc.escalation_note !== undefined) crossCheckOpenQuestions.push(shariahXc.escalation_note)
+    if (shariahXc.degraded_note !== undefined) degradedFlags.push(shariahXc.degraded_note)
+    // Hold the conservative (stricter) sector status; impermissible_income overlay unchanged.
+    shariahJudgment = { ...shariahJudgment, sector_status: shariahXc.value }
+  }
   let shariah_financial:
     | {
         computable: true
@@ -1873,6 +2005,17 @@ export async function runResearchDeepDivePhase(
       // vs accepted→downgraded), plus the deterministic red_team_objection_unaddressed / red_team_incomplete
       // flags. Surfaced in the verdict/dossier so an unaddressed strong objection is never silently dropped.
       red_team: redTeamLayer,
+      // model-tiering-spec dual-model cross-check (moat + Shariah sector only). Present only when a
+      // distinct cross-check model was configured for that dimension (off by default). Records the two
+      // models + agreement; disagreement also raised requires_human_escalation in open_questions above.
+      ...((moatCrossCheckLayer !== undefined || shariahCrossCheckLayer !== undefined)
+        ? {
+            dual_model_crosscheck: {
+              ...(moatCrossCheckLayer !== undefined ? { moat_class: moatCrossCheckLayer } : {}),
+              ...(shariahCrossCheckLayer !== undefined ? { shariah_sector_status: shariahCrossCheckLayer } : {}),
+            },
+          }
+        : {}),
     },
     source_ids: allVerified,
     created_at: new Date().toISOString(),
@@ -1959,6 +2102,8 @@ export async function runResearchDeepDivePhase(
       ...dec.analysis.open_questions,
       ...baseRateCaveats,
       ...degradedFlags,
+      // Dual-model cross-check disagreements → automatic human escalation (conservative answer holds).
+      ...crossCheckOpenQuestions,
       ...(redTeamOpenQuestion !== undefined ? [redTeamOpenQuestion] : []),
     ],
     causation_id: completed.event_id,
