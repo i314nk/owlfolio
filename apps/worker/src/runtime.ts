@@ -13,7 +13,7 @@ import {
 import { projectScheduledTasks, type ScheduledTaskProjection } from '@owlfolio/ledger/projections/scheduledTaskProjection'
 import { projectWatchlist } from '@owlfolio/ledger/projections/watchlistProjection'
 import { projectPendingResearchRuns, projectPendingDeepDiveRuns } from '@owlfolio/ledger/projections/researchRunQueueProjection'
-import { findLatestResearchCaseForTicker } from '@owlfolio/ledger/projections/researchCaseProjection'
+import { findLatestResearchCaseForTicker, projectResearchCases, type ResearchCaseProjection } from '@owlfolio/ledger/projections/researchCaseProjection'
 import {
   getProviderCatalog,
   redactProviderDiagnostic,
@@ -31,6 +31,19 @@ import {
 import { defaultDemoAppConfig, mergeAutomationSettings, type AppConfig, type AutomationSettings } from '@owlfolio/shared'
 import { draftHoldingReview, type ThesisHealth } from '@owlfolio/workflow/holdingReviewWorkflow'
 import { resolveCurrentPrice, type PriceSource } from '@owlfolio/workflow/marketData'
+import {
+  evaluateWatchlistBuyWindow,
+  evaluateTrancheTriggers,
+  evaluateConcentration,
+  evaluateAnnualRerun,
+  evaluateShariahRescreen,
+  evaluateShariahGrace,
+  SHARIAH_GRACE_DAYS,
+  type MonitorResearchCaseInput,
+  type MonitorHoldingInput,
+} from '@owlfolio/workflow/lifecycleMonitors'
+import { buffettMungerStrategy } from '@owlfolio/strategies/buffettMunger'
+import type { ShariahFinancialRatioInputs } from '@owlfolio/strategies/shariahFinancialRatios'
 import { selectResearchCaseAction } from '@owlfolio/workflow/researchCasePolicy'
 import { runStrategyResearchSwarm, runResearchDeepDivePhase, type GroundFn } from '@owlfolio/workflow/researchSwarm'
 import { runDiscovery13f } from '@owlfolio/workflow/discovery13f'
@@ -77,6 +90,14 @@ export type DefineDefaultScheduledTasksOptions = WorkerClock & {
   automation?: AutomationSettings
 }
 
+/**
+ * Injectable Shariah-ratio input source for the quarterly re-screen / grace monitors. Returns the AAOIFI
+ * financial-ratio inputs (EDGAR fundamentals + 36-mo-avg market cap) for a ticker, or undefined when the
+ * data is unavailable. Fail-closed + test-mode-gated: when no source is injected, the worker degrades to
+ * an observation-only "no re-screen data" note and never fetches live EDGAR data on a tick.
+ */
+export type ShariahRatioSource = (args: { ticker: string }) => Promise<ShariahFinancialRatioInputs | undefined>
+
 export type RunScheduledTasksOptions = WorkerClock & {
   as_of?: string
   dry_run?: boolean
@@ -87,6 +108,8 @@ export type RunScheduledTasksOptions = WorkerClock & {
   run_id?: (task: ScheduledTaskProjection) => string
   priceSource?: PriceSource
   automation?: AutomationSettings
+  /** Optional injectable Shariah-ratio source for the quarterly re-screen / grace monitors. */
+  shariahRatioSource?: ShariahRatioSource
 }
 
 export type RunScheduledTasksResult = {
@@ -139,6 +162,8 @@ const HOLDING_REVIEW_MAX_COST_USD = 0.25
 const HOLDING_REVIEW_APPROVAL_GATE = 'holding_review_requires_user_confirmation'
 const OPEN_HOLDING_APPROVAL_GATE = 'open_holding_requires_user_confirmation'
 const PURIFICATION_PAYMENT_APPROVAL_GATE = 'purification_payment_requires_user_confirmation'
+const SELL_REVIEW_APPROVAL_GATE = 'sell_review_requires_user_authoring'
+const WATCHLIST_REMOVAL_APPROVAL_GATE = 'watchlist_removal_requires_user_confirmation'
 
 function nowIso(): string {
   return new Date().toISOString()
@@ -494,6 +519,39 @@ function defaultTaskDefinitions(automation?: AutomationSettings): ScheduledTaskP
       },
     },
     {
+      // Holdings Monitor (lifecycle-spec-v3 Module 7) daily pass: tranche-review (T2/T3, thesis-gated),
+      // >15% concentration trim-review, annual deep-re-run flag. Records holding_monitor_alert_recorded
+      // OBSERVATIONS only — advisory, never an auto-trade/-trim/-advance. Follows the watchlist cadence.
+      scheduled_task_id: 'task_holdings_monitor_daily',
+      task_kind: 'holdings_monitor',
+      cadence: watchlistCron.cadence,
+      enabled: cfg.watchlist_monitoring.enabled && watchlistCron.enabled,
+      dry_run: true,
+      retry_policy: { max_attempts: 2, retry_delay_ms: DEFAULT_RETRY_DELAY_MS },
+      safety: {
+        mock_safe: true,
+        auto_approve_investment_actions: false,
+        auto_approve_portfolio_actions: false,
+      },
+    },
+    {
+      // Quarterly Shariah financial-ratio re-screen (lifecycle-spec-v3 Module 6 + 7). Fail-closed: with
+      // no injected Shariah-ratio source it emits an observation-only note and does NOT fetch live EDGAR
+      // data. On a breach: watchlist FAIL → propose removal (draft); holding FAIL → 90-day grace; grace
+      // expiry → DIVEST-REQUIRED draft. All human-gated; never an auto-removal/-exit/-advance.
+      scheduled_task_id: 'task_shariah_rescreen_quarterly',
+      task_kind: 'shariah_rescreen',
+      cadence: purificationCron.cadence,
+      enabled: cfg.purification.enabled && purificationCron.enabled,
+      dry_run: true,
+      retry_policy: { max_attempts: 2, retry_delay_ms: DEFAULT_RETRY_DELAY_MS },
+      safety: {
+        mock_safe: true,
+        auto_approve_investment_actions: false,
+        auto_approve_portfolio_actions: false,
+      },
+    },
+    {
       scheduled_task_id: 'task_holding_review_drafts_daily',
       task_kind: 'holding_review_draft',
       cadence: thesisReviewCron.cadence,
@@ -782,14 +840,511 @@ async function runWatchlistMonitorTask(
     }
   }
 
+  // Deterministic buy-window pass (Module 6): records buy-window / staleness-suppression observations.
+  const buyWindow = await runWatchlistBuyWindowPass(store, options)
+  observations.push(...buyWindow.observations)
+
   return {
-    result_summary: `watchlist_monitor dry-run: ${confirmedWatchlistItems.length} confirmed watchlist item(s) monitored; no buy/sell/portfolio action taken`,
+    result_summary: `watchlist_monitor dry-run: ${confirmedWatchlistItems.length} confirmed watchlist item(s) monitored; ${buyWindow.alerts} buy-window alert(s), ${buyWindow.appended} monitor observation(s); no buy/sell/portfolio action taken`,
     observations,
     ...(providerRunIds.length === 0 ? {} : { provider_run_ids: providerRunIds }),
-    approval_gates: [OPEN_HOLDING_APPROVAL_GATE],
-    human_approval_required: confirmedWatchlistItems.length > 0,
-    events_appended: providerEventsAppended,
+    approval_gates: [OPEN_HOLDING_APPROVAL_GATE, ...buyWindow.approvalGates],
+    human_approval_required: confirmedWatchlistItems.length > 0 || buyWindow.appended > 0,
+    events_appended: providerEventsAppended + buyWindow.appended,
   }
+}
+
+// ---------------------------------------------------------------------------
+// Lifecycle Monitors — Module 6 (Watchlist buy-window) + Module 7 (Holdings) deterministic passes.
+// Every output is an OBSERVATION or a human-authored-decision DRAFT — never an auto-trade, an
+// auto-trim, a watchlist removal, a holding open, or any state advance.
+// ---------------------------------------------------------------------------
+
+function eventTimestamp(options: TaskHandlerOptions): string {
+  return options.now?.() ?? nowIso()
+}
+
+/** Build the deterministic monitor view of a watchlist item's linked research case. */
+function monitorCaseForWatchlist(
+  item: ReturnType<typeof projectWatchlist>[number],
+  researchCase: ResearchCaseProjection | undefined,
+): MonitorResearchCaseInput | undefined {
+  if (researchCase === undefined) {
+    return undefined
+  }
+  const valuation = researchCase.valuation
+  const input: MonitorResearchCaseInput = {
+    research_case_id: researchCase.research_case_id,
+    updated_at: researchCase.updated_at,
+    superseded: researchCase.superseded,
+    ...(researchCase.ticker === undefined ? {} : { ticker: researchCase.ticker }),
+    ...(valuation?.buy_price_per_share === undefined ? {} : { buy_price_per_share: valuation.buy_price_per_share }),
+    ...(valuation?.fair_value_per_share === undefined ? {} : { fair_value_per_share: valuation.fair_value_per_share }),
+    ...(valuation?.moat_class === undefined ? {} : { moat_class: valuation.moat_class }),
+    ...(valuation?.verdict_state?.state === undefined ? {} : { verdict_state: valuation.verdict_state.state }),
+    ...(researchCase.investment_verdict === undefined ? {} : { investment_verdict: researchCase.investment_verdict }),
+    ...(researchCase.shariah_status === undefined ? {} : { shariah_status: researchCase.shariah_status }),
+  }
+  return input
+}
+
+function findResearchCaseById(cases: ResearchCaseProjection[], researchCaseId: string): ResearchCaseProjection | undefined {
+  return cases.find((entry) => entry.research_case_id === researchCaseId)
+}
+
+/**
+ * Daily watchlist buy-window pass (Module 6). For each confirmed watchlist item with a linked research
+ * case that carries a buy price, fetches the current price (injected priceSource, fail-closed) and
+ * records a `watchlist_monitor_alert_recorded` OBSERVATION: a BUY-WINDOW alert ONLY on a fresh,
+ * gate-clean, cheap case; otherwise a suppressed/re-run-needed observation. Never opens a holding.
+ */
+async function runWatchlistBuyWindowPass(
+  store: EventStore<LedgerEventEnvelope<unknown>>,
+  options: TaskHandlerOptions,
+): Promise<{ observations: string[]; appended: number; alerts: number; approvalGates: string[] }> {
+  const events = await store.list()
+  const holdings = projectHoldings(events)
+  const heldWatchlistItemIds = new Set(holdings.map((holding) => holding.watchlist_item_id))
+  const cases = projectResearchCases(events)
+  const items = projectWatchlist(events).filter(
+    (item) => item.user_approved && !heldWatchlistItemIds.has(item.watchlist_item_id),
+  )
+  const existingKeys = new Set(events.map((event) => event.idempotency_key).filter((key): key is string => key !== undefined))
+  const now = new Date(eventTimestamp(options))
+  const asOf = options.as_of ?? now.toISOString().slice(0, 10)
+  const observations: string[] = []
+  const approvalGates = new Set<string>()
+  let appended = 0
+  let alerts = 0
+
+  for (const item of items) {
+    const monitorCase = monitorCaseForWatchlist(item, findResearchCaseById(cases, item.research_case_id))
+    if (monitorCase === undefined || monitorCase.buy_price_per_share === undefined) {
+      observations.push(`${labelForWatchlistItem(item)}: no linked research case buy price — buy-window not evaluated`)
+      continue
+    }
+    const ticker = monitorCase.ticker
+    if (ticker === undefined) {
+      observations.push(`${labelForWatchlistItem(item)}: no ticker — buy-window not evaluated`)
+      continue
+    }
+
+    const quote = await resolveCurrentPrice({ ticker }, undefined, options.priceSource)
+    if (!quote.available) {
+      observations.push(`${ticker}: no auto price for buy-window (${quote.reason})`)
+      continue
+    }
+
+    const result = evaluateWatchlistBuyWindow(monitorCase, { current_price: quote.price_per_share, now })
+    const alertKind = result.buy_window_alert ? 'buy_window' : result.suppressed ? 'buy_window_suppressed' : 'no_signal'
+    const alertId = `wmon_${item.watchlist_item_id}_${asOf.replace(/[^0-9]/g, '')}`
+    const idempotencyKey = `watchlist-monitor-alert:${alertId}:${quote.source}`
+    if (existingKeys.has(idempotencyKey)) {
+      observations.push(`${ticker}: watchlist monitor alert already recorded for ${asOf}; no duplicate`)
+      continue
+    }
+
+    await store.append({
+      event_id: `evt_watchlist_monitor_alert_recorded_${alertId}`,
+      event_type: 'watchlist_monitor_alert_recorded',
+      aggregate_type: 'watchlist_item',
+      aggregate_id: item.watchlist_item_id,
+      causation_id: `evt_scheduled_task_run_started_${options.scheduled_task_run_id}`,
+      correlation_id: options.scheduled_task_run_id,
+      idempotency_key: idempotencyKey,
+      actor_type: 'worker',
+      actor_id: WORKER_ACTOR_ID,
+      payload: {
+        alert_id: alertId,
+        watchlist_item_id: item.watchlist_item_id,
+        research_case_id: monitorCase.research_case_id,
+        ticker,
+        alert_kind: alertKind,
+        buy_window_alert: result.buy_window_alert,
+        suppressed: result.suppressed,
+        ...(result.suppression_reason === undefined ? {} : { suppression_reason: result.suppression_reason }),
+        rerun_needed: result.rerun_needed,
+        ...(result.discount_to_buy_pct === undefined ? {} : { discount_to_buy_pct: result.discount_to_buy_pct }),
+        case_age_months: result.freshness.age_months,
+        is_observation: true,
+        is_recommendation: false,
+        message: result.message,
+      },
+      source_ids: [`${quote.source}:${ticker}:${quote.as_of}`],
+      created_at: eventTimestamp(options),
+      schema_version: 1,
+    } satisfies LedgerEventEnvelope<Record<string, unknown>>)
+    existingKeys.add(idempotencyKey)
+    appended += 1
+    observations.push(result.message)
+    if (result.buy_window_alert) {
+      alerts += 1
+      approvalGates.add(OPEN_HOLDING_APPROVAL_GATE)
+    }
+  }
+
+  return { observations, appended, alerts, approvalGates: [...approvalGates] }
+}
+
+/**
+ * Daily holdings monitor pass (Module 7): per open holding, tranche-review triggers (T2/T3, thesis-gated),
+ * >15% concentration trim-review, and the annual deep-re-run flag. Records `holding_monitor_alert_recorded`
+ * OBSERVATIONS. Advisory only — never an auto-trade, auto-trim, or state advance.
+ */
+async function runHoldingsMonitorTask(
+  store: EventStore<LedgerEventEnvelope<unknown>>,
+  options: TaskHandlerOptions,
+): Promise<TaskResult> {
+  const events = await store.list()
+  const holdings = projectHoldings(events)
+  const cases = projectResearchCases(events)
+  const existingKeys = new Set(events.map((event) => event.idempotency_key).filter((key): key is string => key !== undefined))
+  const now = new Date(eventTimestamp(options))
+  const asOf = options.as_of ?? now.toISOString().slice(0, 10)
+  const portfolioNav = holdings.reduce((sum, holding) => sum + (holding.latest_market_value ?? 0), 0)
+  const observations: string[] = []
+  const approvalGates = new Set<string>()
+  let appended = 0
+
+  for (const holding of holdings) {
+    const ticker = normalizeTicker(holding.ticker)
+    const researchCase = findResearchCaseById(cases, holding.research_case_id)
+    const monitorHolding: MonitorHoldingInput = {
+      holding_id: holding.holding_id,
+      ...(holding.ticker === undefined ? {} : { ticker: holding.ticker }),
+      research_case_id: holding.research_case_id,
+      // Entry buy price reference: the research case buy price, else the holding's cost basis.
+      entry_buy_price: researchCase?.valuation?.buy_price_per_share ?? holding.cost_basis_per_share,
+      ...(holding.latest_market_value === undefined ? {} : { market_value: holding.latest_market_value }),
+      ...(researchCase?.updated_at === undefined ? {} : { case_updated_at: researchCase.updated_at }),
+    }
+
+    // Concentration uses the latest recorded valuation (no live fetch required).
+    const concentration = evaluateConcentration(monitorHolding, { portfolio_nav: portfolioNav })
+
+    // Tranche triggers need a current price; fail-closed if unavailable.
+    let trancheTriggered: string[] = []
+    let trancheAlert = false
+    let trancheNote: string | undefined
+    if (ticker !== undefined) {
+      const quote = await resolveCurrentPrice({ ticker }, undefined, options.priceSource)
+      if (quote.available) {
+        const tranche = evaluateTrancheTriggers(buffettMungerStrategy, monitorHolding, { current_price: quote.price_per_share })
+        trancheTriggered = tranche.triggered_tranches
+        trancheAlert = tranche.tranche_review_alert
+        trancheNote = tranche.thesis_gated_note
+        if (tranche.tranche_review_alert) {
+          observations.push(tranche.message)
+        }
+      } else {
+        observations.push(`${ticker}: no auto price for tranche triggers (${quote.reason})`)
+      }
+    }
+
+    const annual = monitorHolding.case_updated_at === undefined
+      ? { rerun_needed: false, age_months: 0 }
+      : evaluateAnnualRerun(monitorHolding.case_updated_at, { now })
+
+    if (concentration.trim_review_alert) {
+      observations.push(concentration.message)
+    }
+    if (annual.rerun_needed) {
+      observations.push(`${holding.ticker ?? holding.holding_id}: research case is ${annual.age_months} months old — annual deep re-run needed (supersedes the prior case)`)
+    }
+
+    const hasSignal = trancheAlert || concentration.trim_review_alert || annual.rerun_needed
+    if (!hasSignal) {
+      observations.push(`${holding.ticker ?? holding.holding_id}: no holding monitor signal (no tranche/concentration/annual flag)`)
+      continue
+    }
+
+    const alertId = `hmon_${holding.holding_id}_${asOf.replace(/[^0-9]/g, '')}`
+    const idempotencyKey = `holding-monitor-alert:${alertId}`
+    if (existingKeys.has(idempotencyKey)) {
+      observations.push(`${holding.ticker ?? holding.holding_id}: holding monitor alert already recorded for ${asOf}; no duplicate`)
+      continue
+    }
+    const alertKinds = [
+      trancheAlert ? 'tranche_review' : undefined,
+      concentration.trim_review_alert ? 'concentration_trim_review' : undefined,
+      annual.rerun_needed ? 'annual_rerun' : undefined,
+    ].filter((kind): kind is string => kind !== undefined)
+
+    await store.append({
+      event_id: `evt_holding_monitor_alert_recorded_${alertId}`,
+      event_type: 'holding_monitor_alert_recorded',
+      aggregate_type: 'holding',
+      aggregate_id: holding.holding_id,
+      causation_id: `evt_scheduled_task_run_started_${options.scheduled_task_run_id}`,
+      correlation_id: options.scheduled_task_run_id,
+      idempotency_key: idempotencyKey,
+      actor_type: 'worker',
+      actor_id: WORKER_ACTOR_ID,
+      payload: {
+        alert_id: alertId,
+        holding_id: holding.holding_id,
+        research_case_id: holding.research_case_id,
+        ...(holding.ticker === undefined ? {} : { ticker: holding.ticker }),
+        alert_kind: alertKinds.join('+'),
+        tranche_review_alert: trancheAlert,
+        triggered_tranches: trancheTriggered,
+        ...(trancheNote === undefined ? {} : { thesis_gated_note: trancheNote }),
+        trim_review_alert: concentration.trim_review_alert,
+        ...(concentration.weight_pct === undefined ? {} : { weight_pct: concentration.weight_pct }),
+        rerun_needed: annual.rerun_needed,
+        case_age_months: annual.age_months,
+        is_observation: true,
+        is_recommendation: false,
+        message: `${holding.ticker ?? holding.holding_id}: holding monitor — ${alertKinds.join(', ')}; advisory only, no auto-trade/-trim/-advance.`,
+      },
+      source_ids: [],
+      created_at: eventTimestamp(options),
+      schema_version: 1,
+    } satisfies LedgerEventEnvelope<Record<string, unknown>>)
+    existingKeys.add(idempotencyKey)
+    appended += 1
+  }
+
+  return {
+    result_summary: `holdings_monitor dry-run: monitored ${holdings.length} holding(s), recorded ${appended} monitor alert(s) (tranche/concentration/annual re-run); advisory observations only, no buy/sell/trim/portfolio action taken`,
+    observations,
+    approval_gates: [...approvalGates],
+    human_approval_required: appended > 0,
+    events_appended: appended,
+  }
+}
+
+/**
+ * Quarterly Shariah re-screen pass (Module 6 + 7). Recomputes the AAOIFI ratios via the injected
+ * ShariahRatioSource (fail-closed: no source → observation-only note, no live EDGAR fetch). On the
+ * watchlist a breach flags a re-screen (FAIL → propose removal); on a holding a FAIL starts a 90-day
+ * grace period, and an open grace unresolved past its deadline emits a DIVEST-REQUIRED draft (a
+ * human-authored exit proposal — never an execution).
+ */
+async function runShariahRescreenTask(
+  store: EventStore<LedgerEventEnvelope<unknown>>,
+  options: TaskHandlerOptions,
+): Promise<TaskResult> {
+  const source = options.shariahRatioSource
+  const events = await store.list()
+  const holdings = projectHoldings(events)
+  const heldWatchlistItemIds = new Set(holdings.map((holding) => holding.watchlist_item_id))
+  const watchlistItems = projectWatchlist(events).filter(
+    (item) => item.user_approved && !heldWatchlistItemIds.has(item.watchlist_item_id),
+  )
+  const existingKeys = new Set(events.map((event) => event.idempotency_key).filter((key): key is string => key !== undefined))
+  const now = new Date(eventTimestamp(options))
+  const asOf = options.as_of ?? now.toISOString().slice(0, 10)
+  const observations: string[] = []
+  const approvalGates = new Set<string>()
+  let appended = 0
+
+  if (source === undefined) {
+    observations.push('shariah_rescreen: no Shariah-ratio source injected (fail-closed) — no live EDGAR re-screen performed this tick')
+    return {
+      result_summary: 'shariah_rescreen dry-run: no Shariah-ratio source injected; fail-closed observation only, no re-screen/grace/divest action taken',
+      observations,
+      approval_gates: [],
+      human_approval_required: false,
+      events_appended: 0,
+    }
+  }
+
+  // Watchlist re-screen.
+  for (const item of watchlistItems) {
+    const ticker = normalizeTicker(item.ticker)
+    if (ticker === undefined) {
+      continue
+    }
+    const ratios = await source({ ticker })
+    if (ratios === undefined) {
+      observations.push(`${ticker}: no Shariah-ratio data available for watchlist re-screen`)
+      continue
+    }
+    const result = evaluateShariahRescreen(ratios)
+    if (!result.flagged) {
+      observations.push(`${ticker}: watchlist Shariah re-screen ${result.verdict ?? 'not computable'} — no flag`)
+      continue
+    }
+    const alertId = `wshariah_${item.watchlist_item_id}_${asOf.replace(/[^0-9]/g, '')}`
+    const idempotencyKey = `watchlist-shariah-rescreen:${alertId}`
+    if (existingKeys.has(idempotencyKey)) {
+      continue
+    }
+    await store.append({
+      event_id: `evt_watchlist_monitor_alert_recorded_${alertId}`,
+      event_type: 'watchlist_monitor_alert_recorded',
+      aggregate_type: 'watchlist_item',
+      aggregate_id: item.watchlist_item_id,
+      causation_id: `evt_scheduled_task_run_started_${options.scheduled_task_run_id}`,
+      correlation_id: options.scheduled_task_run_id,
+      idempotency_key: idempotencyKey,
+      actor_type: 'worker',
+      actor_id: WORKER_ACTOR_ID,
+      payload: {
+        alert_id: alertId,
+        watchlist_item_id: item.watchlist_item_id,
+        research_case_id: item.research_case_id,
+        ticker,
+        alert_kind: 'shariah_rescreen',
+        buy_window_alert: false,
+        suppressed: false,
+        rerun_needed: false,
+        shariah_verdict: result.verdict,
+        propose_removal: result.propose_removal,
+        is_observation: true,
+        is_recommendation: false,
+        message: `${ticker}: Shariah re-screen ${result.verdict} — ${result.reason}`,
+      },
+      source_ids: [],
+      created_at: eventTimestamp(options),
+      schema_version: 1,
+    } satisfies LedgerEventEnvelope<Record<string, unknown>>)
+    existingKeys.add(idempotencyKey)
+    appended += 1
+    observations.push(`${ticker}: Shariah re-screen ${result.verdict} — ${result.reason}`)
+    if (result.propose_removal) {
+      approvalGates.add(WATCHLIST_REMOVAL_APPROVAL_GATE)
+    }
+  }
+
+  // Holdings grace clock + divest draft.
+  for (const holding of holdings) {
+    const ticker = normalizeTicker(holding.ticker)
+    if (ticker === undefined) {
+      continue
+    }
+    const ratios = await source({ ticker })
+    if (ratios === undefined) {
+      observations.push(`${ticker}: no Shariah-ratio data available for holding re-screen`)
+      continue
+    }
+    const openGrace = findOpenShariahGrace(events, holding.holding_id)
+    const result = evaluateShariahGrace(
+      { holding_id: holding.holding_id, ...(holding.ticker === undefined ? {} : { ticker: holding.ticker }), research_case_id: holding.research_case_id },
+      { ratios, now, ...(openGrace === undefined ? {} : { open_grace: openGrace }) },
+    )
+
+    if (result.start_grace && result.grace_deadline !== undefined) {
+      const graceId = `grace_${holding.holding_id}_${asOf.replace(/[^0-9]/g, '')}`
+      const idempotencyKey = `holding-shariah-grace:${graceId}`
+      if (!existingKeys.has(idempotencyKey)) {
+        await store.append({
+          event_id: `evt_holding_shariah_grace_started_${graceId}`,
+          event_type: 'holding_shariah_grace_started',
+          aggregate_type: 'holding',
+          aggregate_id: holding.holding_id,
+          causation_id: `evt_scheduled_task_run_started_${options.scheduled_task_run_id}`,
+          correlation_id: options.scheduled_task_run_id,
+          idempotency_key: idempotencyKey,
+          actor_type: 'worker',
+          actor_id: WORKER_ACTOR_ID,
+          payload: {
+            grace_id: graceId,
+            holding_id: holding.holding_id,
+            ...(holding.ticker === undefined ? {} : { ticker: holding.ticker }),
+            started_at: eventTimestamp(options),
+            deadline: result.grace_deadline,
+            grace_days: SHARIAH_GRACE_DAYS,
+            shariah_verdict: result.verdict,
+            reason: 'AAOIFI financial-ratio breach — 90-day grace period started; resolve or author a divest before the deadline.',
+            is_observation: true,
+            message: result.message,
+          },
+          source_ids: [],
+          created_at: eventTimestamp(options),
+          schema_version: 1,
+        } satisfies LedgerEventEnvelope<Record<string, unknown>>)
+        existingKeys.add(idempotencyKey)
+        appended += 1
+        observations.push(result.message)
+      }
+    } else if (result.divest_required_draft && result.draft !== undefined) {
+      const draft = result.draft
+      const sellReviewId = `sellreview_${holding.holding_id}_${asOf.replace(/[^0-9]/g, '')}`
+      const idempotencyKey = `holding-sell-review:${sellReviewId}`
+      if (!existingKeys.has(idempotencyKey)) {
+        await store.append({
+          event_id: `evt_holding_sell_review_drafted_${sellReviewId}`,
+          event_type: 'holding_sell_review_drafted',
+          aggregate_type: 'holding',
+          aggregate_id: holding.holding_id,
+          causation_id: `evt_scheduled_task_run_started_${options.scheduled_task_run_id}`,
+          correlation_id: options.scheduled_task_run_id,
+          idempotency_key: idempotencyKey,
+          actor_type: 'worker',
+          actor_id: WORKER_ACTOR_ID,
+          payload: {
+            sell_review_id: sellReviewId,
+            holding_id: holding.holding_id,
+            research_case_id: holding.research_case_id,
+            ...(holding.ticker === undefined ? {} : { ticker: holding.ticker }),
+            reason_code: draft.reason_code,
+            detail: draft.detail,
+            reasons: draft.reasons,
+            weakest_reason: draft.weakest_reason,
+            weakest_reason_note: draft.weakest_reason_note,
+            is_execution: false,
+            is_recommendation: false,
+            requires_user_authoring: true,
+            ...(draft.deferred_detection_note === undefined ? {} : { deferred_detection_note: draft.deferred_detection_note }),
+            message: result.message,
+          },
+          source_ids: [],
+          created_at: eventTimestamp(options),
+          schema_version: 1,
+        } satisfies LedgerEventEnvelope<Record<string, unknown>>)
+        existingKeys.add(idempotencyKey)
+        appended += 1
+        approvalGates.add(SELL_REVIEW_APPROVAL_GATE)
+        observations.push(result.message)
+      }
+    } else {
+      observations.push(result.message)
+    }
+  }
+
+  return {
+    result_summary: `shariah_rescreen dry-run: re-screened ${watchlistItems.length} watchlist item(s) + ${holdings.length} holding(s), recorded ${appended} observation/draft event(s); FAIL→removal proposals/grace/divest are drafts, no removal/exit/portfolio action taken`,
+    observations,
+    approval_gates: [...approvalGates],
+    human_approval_required: appended > 0,
+    events_appended: appended,
+  }
+}
+
+/**
+ * Returns the most recent OPEN Shariah grace for a holding (a grace_started not yet resolved by a
+ * holding_review_confirmed/overridden or a sell_review draft superseding it). For the alpha we treat the
+ * latest grace_started as the open grace; resolution is a human action recorded elsewhere.
+ */
+function findOpenShariahGrace(
+  events: LedgerEventEnvelope<unknown>[],
+  holdingId: string,
+): { started_at: string; deadline: string } | undefined {
+  let latest: { started_at: string; deadline: string } | undefined
+  for (const event of events) {
+    if (event.event_type !== 'holding_shariah_grace_started') {
+      continue
+    }
+    const payload = event.payload
+    if (payload === null || typeof payload !== 'object') {
+      continue
+    }
+    const record = payload as Record<string, unknown>
+    if (record['holding_id'] !== holdingId) {
+      continue
+    }
+    const startedAt = typeof record['started_at'] === 'string' ? record['started_at'] : event.created_at
+    const deadline = typeof record['deadline'] === 'string' ? record['deadline'] : undefined
+    if (deadline === undefined) {
+      continue
+    }
+    if (latest === undefined || startedAt > latest.started_at) {
+      latest = { started_at: startedAt, deadline }
+    }
+  }
+  return latest
 }
 
 function reviewIdFor(holdingId: string, asOf: string): string {
@@ -1176,6 +1731,14 @@ async function runTaskHandler(
 
   if (task.task_kind === 'watchlist_monitor') {
     return runWatchlistMonitorTask(store, options)
+  }
+
+  if (task.task_kind === 'holdings_monitor') {
+    return runHoldingsMonitorTask(store, options)
+  }
+
+  if (task.task_kind === 'shariah_rescreen') {
+    return runShariahRescreenTask(store, options)
   }
 
   if (task.task_kind === 'holding_review_draft') {

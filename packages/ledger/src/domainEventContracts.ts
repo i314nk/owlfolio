@@ -63,6 +63,10 @@ export const domainEventTypes = [
   'investable_capital_set',
   'valuation_config',
   'calibration_run',
+  'watchlist_monitor_alert_recorded',
+  'holding_monitor_alert_recorded',
+  'holding_shariah_grace_started',
+  'holding_sell_review_drafted',
 ] as const
 
 export type DomainEventType = (typeof domainEventTypes)[number]
@@ -446,6 +450,108 @@ export const domainEventContracts: readonly DomainEventContract[] = [
     actor_type: 'user',
     projection_owner: 'audit',
     payload_fields: ['params_version', 'params', 'universe', 'summaries', 'target'],
+  },
+  {
+    // Watchlist Monitor (lifecycle-spec-v3 Module 6) observation: buy-window / staleness-suppression /
+    // re-run-needed / quarterly Shariah re-screen. Worker-authored OBSERVATION — never a recommendation
+    // to act and never a state advance. A BUY-WINDOW alert is only valid on a fresh, gate-clean case;
+    // stale cheapness is suppressed (buy_window_alert=false, rerun_needed=true).
+    event_type: 'watchlist_monitor_alert_recorded',
+    aggregate_type: 'watchlist_item',
+    actor_type: 'worker',
+    projection_owner: 'portfolio',
+    payload_fields: [
+      'alert_id',
+      'watchlist_item_id',
+      'research_case_id',
+      'ticker',
+      'alert_kind',
+      'buy_window_alert',
+      'suppressed',
+      'suppression_reason',
+      'rerun_needed',
+      'discount_to_buy_pct',
+      'case_age_months',
+      'shariah_verdict',
+      'propose_removal',
+      'is_observation',
+      'is_recommendation',
+      'message',
+    ],
+  },
+  {
+    // Holdings Monitor (lifecycle-spec-v3 Module 7) observation: tranche-review (thesis-gated) /
+    // concentration trim-review / annual re-run flag / Shariah re-screen. Worker-authored OBSERVATION —
+    // advisory only; never an auto-trade, auto-trim, or state advance.
+    event_type: 'holding_monitor_alert_recorded',
+    aggregate_type: 'holding',
+    actor_type: 'worker',
+    projection_owner: 'portfolio',
+    payload_fields: [
+      'alert_id',
+      'holding_id',
+      'research_case_id',
+      'ticker',
+      'alert_kind',
+      'tranche_review_alert',
+      'triggered_tranches',
+      'thesis_gated_note',
+      'trim_review_alert',
+      'weight_pct',
+      'rerun_needed',
+      'case_age_months',
+      'shariah_verdict',
+      'is_observation',
+      'is_recommendation',
+      'message',
+    ],
+  },
+  {
+    // Holdings Monitor Shariah-breach grace clock start (lifecycle-spec-v3 Module 7 / AAOIFI practice).
+    // Worker-authored OBSERVATION recording the 90-day grace deadline; the breach must be resolved or the
+    // human authors a divest before the deadline. Not a state advance.
+    event_type: 'holding_shariah_grace_started',
+    aggregate_type: 'holding',
+    actor_type: 'worker',
+    projection_owner: 'portfolio',
+    payload_fields: [
+      'grace_id',
+      'holding_id',
+      'ticker',
+      'started_at',
+      'deadline',
+      'grace_days',
+      'shariah_verdict',
+      'reason',
+      'is_observation',
+      'message',
+    ],
+  },
+  {
+    // SELL-REVIEW / DIVEST-REQUIRED draft scaffold (lifecycle-spec-v3 Module 7 sell discipline).
+    // Worker-authored DRAFT — a human-authored-exit PROPOSAL, never an execution and never a
+    // recommendation. requires_user_authoring=true gates the exit; the event-driven thesis-break trigger
+    // DETECTION is the deferred T3 piece (deferred_detection_note carries the seam).
+    event_type: 'holding_sell_review_drafted',
+    aggregate_type: 'holding',
+    actor_type: 'worker',
+    projection_owner: 'portfolio',
+    payload_fields: [
+      'sell_review_id',
+      'holding_id',
+      'research_case_id',
+      'ticker',
+      'reason_code',
+      'detail',
+      'reasons',
+      'weakest_reason',
+      'weakest_reason_note',
+      'is_execution',
+      'is_recommendation',
+      'requires_user_authoring',
+      'deferred_detection_note',
+      'message',
+    ],
   },
 ] as const
 

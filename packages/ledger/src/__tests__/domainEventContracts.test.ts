@@ -50,7 +50,50 @@ describe('Owlfolio v2 domain event boundary contracts', () => {
       'investable_capital_set',
       'valuation_config',
       'calibration_run',
+      'watchlist_monitor_alert_recorded',
+      'holding_monitor_alert_recorded',
+      'holding_shariah_grace_started',
+      'holding_sell_review_drafted',
     ])
+  })
+
+  it('freezes the lifecycle-monitor (Module 6/7) observation + draft contracts as worker-authored, never auto-trade', () => {
+    expect(contract('watchlist_monitor_alert_recorded')).toMatchObject({
+      aggregate_type: 'watchlist_item',
+      actor_type: 'worker',
+      projection_owner: 'portfolio',
+    })
+    expect(contract('holding_monitor_alert_recorded')).toMatchObject({
+      aggregate_type: 'holding',
+      actor_type: 'worker',
+      projection_owner: 'portfolio',
+    })
+    expect(contract('holding_shariah_grace_started')).toMatchObject({
+      aggregate_type: 'holding',
+      actor_type: 'worker',
+      projection_owner: 'portfolio',
+    })
+    expect(contract('holding_sell_review_drafted')).toMatchObject({
+      aggregate_type: 'holding',
+      actor_type: 'worker',
+      projection_owner: 'portfolio',
+      payload_fields: [
+        'sell_review_id',
+        'holding_id',
+        'research_case_id',
+        'ticker',
+        'reason_code',
+        'detail',
+        'reasons',
+        'weakest_reason',
+        'weakest_reason_note',
+        'is_execution',
+        'is_recommendation',
+        'requires_user_authoring',
+        'deferred_detection_note',
+        'message',
+      ],
+    })
   })
 
   it('assigns each frozen event to a stable aggregate, actor, and projection owner', () => {

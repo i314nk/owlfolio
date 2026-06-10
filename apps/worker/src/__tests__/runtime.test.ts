@@ -579,10 +579,21 @@ describe('worker runtime', () => {
     await defineDefaultScheduledTasks(store, { now: () => '2026-06-01T08:00:00.000Z' })
 
     const definitions = (await store.list()).filter((event) => event.event_type === 'scheduled_task_defined')
-    expect(definitions).toHaveLength(5)
+    expect(definitions).toHaveLength(8)
     expect(definitions.map((event) => event.payload)).toEqual([
       expect.objectContaining({ task_kind: 'review_reminder', dry_run: true, enabled: true }),
       expect.objectContaining({ task_kind: 'watchlist_monitor', dry_run: true, enabled: true }),
+      expect.objectContaining({ task_kind: 'holdings_monitor', dry_run: true, enabled: true }),
+      expect.objectContaining({
+        task_kind: 'shariah_rescreen',
+        cadence: '0 6 1 */3 *',
+        dry_run: true,
+        enabled: true,
+        safety: expect.objectContaining({
+          auto_approve_investment_actions: false,
+          auto_approve_portfolio_actions: false,
+        }),
+      }),
       expect.objectContaining({
         task_kind: 'holding_review_draft',
         dry_run: true,
@@ -608,6 +619,11 @@ describe('worker runtime', () => {
           auto_approve_investment_actions: false,
           auto_approve_portfolio_actions: false,
         }),
+      }),
+      expect.objectContaining({
+        task_kind: 'discovery_13f',
+        cadence: '0 6 1 */3 *',
+        dry_run: true,
       }),
     ])
   })
@@ -1098,8 +1114,12 @@ describe('worker runtime', () => {
 
     const completed = (await store.list()).find((event) => event.event_type === 'scheduled_task_run_completed')
     expect(completed?.payload).toMatchObject({
-      result_summary: 'watchlist_monitor dry-run: 1 confirmed watchlist item(s) monitored; no buy/sell/portfolio action taken',
-      observations: ['MSFT remains on the confirmed watchlist for mock-safe monitoring'],
+      // The buy-window pass adds an observation but emits no alert event (no linked research-case buy price).
+      result_summary: 'watchlist_monitor dry-run: 1 confirmed watchlist item(s) monitored; 0 buy-window alert(s), 0 monitor observation(s); no buy/sell/portfolio action taken',
+      observations: [
+        'MSFT remains on the confirmed watchlist for mock-safe monitoring',
+        'MSFT: no linked research case buy price — buy-window not evaluated',
+      ],
       approval_gates: ['open_holding_requires_user_confirmation'],
       human_approval_required: true,
       auto_approved_actions: 0,
@@ -1708,5 +1728,271 @@ describe('worker runtime', () => {
         expect.stringMatching(/COST.*IMPAIRED.*research_engine_enabled=false/i),
       ]),
     })
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Lifecycle Monitors — worker wiring (Module 6 buy-window + Module 7 holdings)
+// ---------------------------------------------------------------------------
+
+function watchlistWithBuyPrice(
+  store: InMemoryEventStore<LedgerEventEnvelope<unknown>>,
+  args: { ticker: string; buyPrice: number; fairValue: number; caseUpdatedAt: string },
+): Promise<unknown> {
+  const itemId = `wl_${args.ticker.toLowerCase()}_001`
+  const caseId = `rc_${args.ticker.toLowerCase()}_001`
+  return (async () => {
+    // A research-case analysis carrying the buy price + a gate-clean verdict.
+    await store.append({
+      ...ledgerEvent('buffett_munger_analysis_drafted', 'research_case', caseId, {
+        research_case_id: caseId,
+        ticker: args.ticker,
+        investment_verdict: 'WATCH',
+        shariah_status: 'PASS',
+        valuation: {
+          moat_class: 'wide',
+          buy_price_per_share: args.buyPrice,
+          fair_value_per_share: args.fairValue,
+          verdict_state: { state: 'BUY-WINDOW' },
+        },
+      }, 'system'),
+      created_at: args.caseUpdatedAt,
+    })
+    await store.append({
+      ...ledgerEvent('watchlist_draft_created', 'watchlist_item', itemId, {
+        watchlist_item_id: itemId,
+        research_case_id: caseId,
+        ticker: args.ticker,
+        user_approved: false,
+      }),
+      created_at: args.caseUpdatedAt,
+    })
+    await store.append({
+      ...ledgerEvent('watchlist_draft_confirmed', 'watchlist_item', itemId, {
+        watchlist_item_id: itemId,
+        research_case_id: caseId,
+        ticker: args.ticker,
+        user_approved: true,
+      }),
+      created_at: args.caseUpdatedAt,
+    })
+  })()
+}
+
+describe('worker runtime — lifecycle monitors', () => {
+  it('records a BUY-WINDOW alert on a fresh, gate-clean, cheap watchlist case and never opens a holding', async () => {
+    const store = new InMemoryEventStore<LedgerEventEnvelope<unknown>>()
+    await watchlistWithBuyPrice(store, { ticker: 'CPRT', buyPrice: 100, fairValue: 140, caseUpdatedAt: '2026-03-01T00:00:00.000Z' })
+    await defineDefaultScheduledTasks(store, { now: () => '2026-06-10T09:00:00.000Z' })
+
+    await runScheduledTasks(store, {
+      dry_run: true,
+      task_kind: 'watchlist_monitor',
+      now: () => '2026-06-10T09:00:00.000Z',
+      run_id: () => 'run_watchlist_monitor_bw_001',
+      priceSource: makeMockPriceSource({ CPRT: { available: true, price_per_share: 90, currency: 'USD', as_of: '2026-06-10T00:00:00.000Z', source: 'mock-price-source' } }),
+    })
+
+    const events = await store.list()
+    const alert = events.find((event) => event.event_type === 'watchlist_monitor_alert_recorded')
+    expect(alert?.payload).toMatchObject({
+      ticker: 'CPRT',
+      alert_kind: 'buy_window',
+      buy_window_alert: true,
+      suppressed: false,
+      discount_to_buy_pct: 10,
+      is_observation: true,
+      is_recommendation: false,
+    })
+    expect(alert?.actor_type).toBe('worker')
+    // No state advance / no holding opened.
+    expect(events.map((event) => event.event_type)).not.toContain('holding_opened')
+  })
+
+  it('SUPPRESSES the buy alert when the case is stale (>12mo) even though price is cheap', async () => {
+    const store = new InMemoryEventStore<LedgerEventEnvelope<unknown>>()
+    await watchlistWithBuyPrice(store, { ticker: 'STALE', buyPrice: 100, fairValue: 140, caseUpdatedAt: '2024-12-01T00:00:00.000Z' })
+    await defineDefaultScheduledTasks(store, { now: () => '2026-06-10T09:00:00.000Z' })
+
+    await runScheduledTasks(store, {
+      dry_run: true,
+      task_kind: 'watchlist_monitor',
+      now: () => '2026-06-10T09:00:00.000Z',
+      run_id: () => 'run_watchlist_monitor_stale_001',
+      priceSource: makeMockPriceSource({ STALE: { available: true, price_per_share: 80, currency: 'USD', as_of: '2026-06-10T00:00:00.000Z', source: 'mock-price-source' } }),
+    })
+
+    const alert = (await store.list()).find((event) => event.event_type === 'watchlist_monitor_alert_recorded')
+    expect(alert?.payload).toMatchObject({
+      alert_kind: 'buy_window_suppressed',
+      buy_window_alert: false,
+      suppressed: true,
+      rerun_needed: true,
+    })
+    expect((alert?.payload as { suppression_reason?: string }).suppression_reason).toMatch(/stale cheapness is not a signal/)
+  })
+
+  it('records a thesis-gated tranche-review + concentration alert and never auto-trades', async () => {
+    const store = new InMemoryEventStore<LedgerEventEnvelope<unknown>>()
+    // Research case for the holding with a buy price anchoring the tranche ladder.
+    await store.append({
+      ...ledgerEvent('buffett_munger_analysis_drafted', 'research_case', 'rc_cost_001', {
+        research_case_id: 'rc_cost_001',
+        ticker: 'COST',
+        investment_verdict: 'WATCH',
+        shariah_status: 'PASS',
+        valuation: { moat_class: 'wide', buy_price_per_share: 100, fair_value_per_share: 140 },
+      }, 'system'),
+      created_at: '2026-05-01T00:00:00.000Z',
+    })
+    await store.append(ledgerEvent('holding_opened', 'holding', 'holding_cost_001', {
+      holding_id: 'holding_cost_001',
+      watchlist_item_id: 'wl_cost_001',
+      research_case_id: 'rc_cost_001',
+      ticker: 'COST',
+      strategy_id: 'buffett-munger',
+      shares: 100,
+      cost_basis_per_share: 100,
+      currency: 'USD',
+      opened_at: '2026-05-01',
+    }))
+    // Latest valuation: 100 shares × $90 = $9,000 market value; sole holding → 100% NAV (>15%).
+    await store.append(ledgerEvent('holding_valuation_recorded', 'holding', 'holding_cost_001', {
+      snapshot_id: 'snap_cost_001',
+      holding_id: 'holding_cost_001',
+      price_per_share: 90,
+      shares: 100,
+      market_value: 9000,
+      currency: 'USD',
+      valued_at: '2026-06-09',
+      valuation_source: 'mock-price-source',
+      missing_data: [],
+    }, 'worker'))
+    await defineDefaultScheduledTasks(store, { now: () => '2026-06-10T09:00:00.000Z' })
+
+    await runScheduledTasks(store, {
+      dry_run: true,
+      task_kind: 'holdings_monitor',
+      now: () => '2026-06-10T09:00:00.000Z',
+      run_id: () => 'run_holdings_monitor_001',
+      // $90 ≤ T2 trigger ($90 = 100 × (1 − 0.10)).
+      priceSource: makeMockPriceSource({ COST: { available: true, price_per_share: 90, currency: 'USD', as_of: '2026-06-10T00:00:00.000Z', source: 'mock-price-source' } }),
+    })
+
+    const events = await store.list()
+    const alert = events.find((event) => event.event_type === 'holding_monitor_alert_recorded')
+    expect(alert?.payload).toMatchObject({
+      ticker: 'COST',
+      tranche_review_alert: true,
+      triggered_tranches: ['T2'],
+      trim_review_alert: true,
+      is_observation: true,
+      is_recommendation: false,
+    })
+    expect((alert?.payload as { thesis_gated_note?: string }).thesis_gated_note).toMatch(/thesis re-check FIRST/)
+    expect((alert?.payload as { weight_pct?: number }).weight_pct).toBeCloseTo(100, 1)
+    // No trade / no review confirmation auto-authored.
+    expect(events.map((event) => event.event_type)).not.toContain('holding_realized_gain_loss_recorded')
+  })
+
+  it('starts a 90-day Shariah grace on a FAIL breach, then emits a DIVEST-REQUIRED draft once expired — never an execution', async () => {
+    const store = new InMemoryEventStore<LedgerEventEnvelope<unknown>>()
+    await store.append(ledgerEvent('holding_opened', 'holding', 'holding_brk_001', {
+      holding_id: 'holding_brk_001',
+      watchlist_item_id: 'wl_brk_001',
+      research_case_id: 'rc_brk_001',
+      ticker: 'BRK',
+      strategy_id: 'buffett-munger',
+      shares: 10,
+      cost_basis_per_share: 100,
+      currency: 'USD',
+      opened_at: '2026-01-01',
+    }))
+
+    // A FAIL ratio set: interest-bearing debt / market cap = 0.40 (> 0.30).
+    const failRatios = { interest_bearing_debt: 400, cash_and_securities: 100, total_revenue: 1000, market_cap: 1000, impermissible_income: 0 }
+    const shariahRatioSource = () => Promise.resolve(failRatios)
+
+    // First quarterly tick → starts a grace period.
+    await store.append(ledgerEvent('scheduled_task_defined', 'scheduled_task', 'task_shariah_rescreen_quarterly', {
+      scheduled_task_id: 'task_shariah_rescreen_quarterly',
+      task_kind: 'shariah_rescreen',
+      cadence: '0 6 1 */3 *',
+      enabled: true,
+      dry_run: true,
+      retry_policy: { max_attempts: 2, retry_delay_ms: 300_000 },
+      safety: { mock_safe: true, auto_approve_investment_actions: false, auto_approve_portfolio_actions: false },
+    }))
+
+    await runScheduledTasks(store, {
+      dry_run: true,
+      task_kind: 'shariah_rescreen',
+      now: () => '2026-03-01T06:00:00.000Z',
+      run_id: () => 'run_shariah_rescreen_001',
+      shariahRatioSource,
+    })
+
+    let events = await store.list()
+    const grace = events.find((event) => event.event_type === 'holding_shariah_grace_started')
+    expect(grace?.payload).toMatchObject({ holding_id: 'holding_brk_001', grace_days: 90, deadline: '2026-05-30', is_observation: true })
+    expect(events.map((event) => event.event_type)).not.toContain('holding_sell_review_drafted')
+
+    // Second tick, now PAST the deadline → DIVEST-REQUIRED draft.
+    await runScheduledTasks(store, {
+      dry_run: true,
+      task_kind: 'shariah_rescreen',
+      now: () => '2026-06-10T06:00:00.000Z',
+      run_id: () => 'run_shariah_rescreen_002',
+      shariahRatioSource,
+    })
+
+    events = await store.list()
+    const sellReview = events.find((event) => event.event_type === 'holding_sell_review_drafted')
+    expect(sellReview?.payload).toMatchObject({
+      holding_id: 'holding_brk_001',
+      reason_code: 'unresolvable_shariah_breach',
+      weakest_reason: 'overvaluation_alone',
+      is_execution: false,
+      is_recommendation: false,
+      requires_user_authoring: true,
+    })
+    expect(sellReview?.actor_type).toBe('worker')
+    // No exit / realized-gain / state-advance was auto-authored.
+    expect(events.map((event) => event.event_type)).not.toContain('holding_realized_gain_loss_recorded')
+  })
+
+  it('shariah_rescreen is fail-closed with no injected ratio source (no live fetch, no events)', async () => {
+    const store = new InMemoryEventStore<LedgerEventEnvelope<unknown>>()
+    await store.append(ledgerEvent('holding_opened', 'holding', 'holding_cost_001', {
+      holding_id: 'holding_cost_001',
+      watchlist_item_id: 'wl_cost_001',
+      research_case_id: 'rc_cost_001',
+      ticker: 'COST',
+      shares: 1,
+      cost_basis_per_share: 100,
+      currency: 'USD',
+      opened_at: '2026-05-01',
+    }))
+    await store.append(ledgerEvent('scheduled_task_defined', 'scheduled_task', 'task_shariah_rescreen_quarterly', {
+      scheduled_task_id: 'task_shariah_rescreen_quarterly',
+      task_kind: 'shariah_rescreen',
+      cadence: '0 6 1 */3 *',
+      enabled: true,
+      dry_run: true,
+      retry_policy: { max_attempts: 2, retry_delay_ms: 300_000 },
+      safety: { mock_safe: true, auto_approve_investment_actions: false, auto_approve_portfolio_actions: false },
+    }))
+
+    const result = await runScheduledTasks(store, {
+      dry_run: true,
+      task_kind: 'shariah_rescreen',
+      now: () => '2026-06-10T06:00:00.000Z',
+      run_id: () => 'run_shariah_rescreen_failclosed',
+    })
+
+    expect(result.summaries.join(' ')).toMatch(/no Shariah-ratio source injected/)
+    const events = await store.list()
+    expect(events.map((event) => event.event_type)).not.toContain('holding_shariah_grace_started')
+    expect(events.map((event) => event.event_type)).not.toContain('holding_sell_review_drafted')
   })
 })

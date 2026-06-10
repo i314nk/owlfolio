@@ -47,6 +47,9 @@ importers:
       '@owlfolio/shared':
         specifier: workspace:*
         version: link:../../packages/shared
+      '@owlfolio/strategies':
+        specifier: workspace:*
+        version: link:../../packages/strategies
       '@owlfolio/workflow':
         specifier: workspace:*
         version: link:../../packages/workflow
@@ -78,6 +81,9 @@ importers:
       '@owlfolio/shared':
         specifier: workspace:*
         version: link:../../packages/shared
+      '@owlfolio/strategies':
+        specifier: workspace:*
+        version: link:../../packages/strategies
       '@owlfolio/workflow':
         specifier: workspace:*
         version: link:../../packages/workflow
@@ -125,6 +131,9 @@ importers:
       '@owlfolio/shariah':
         specifier: workspace:*
         version: link:../shariah
+      '@owlfolio/strategies':
+        specifier: workspace:*
+        version: link:../strategies
       zod:
         specifier: ^4.4.3
         version: 4.4.3

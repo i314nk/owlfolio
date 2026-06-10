@@ -30,6 +30,7 @@
     "./workflowContract": "./src/workflowContract.ts",
     "./researchCasePolicy": "./src/researchCasePolicy.ts",
     "./marketData": "./src/marketData.ts",
-    "./performanceProjection": "./src/performanceProjection.ts"
+    "./performanceProjection": "./src/performanceProjection.ts",
+    "./lifecycleMonitors": "./src/lifecycleMonitors.ts"
   }
 }

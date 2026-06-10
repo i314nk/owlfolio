@@ -11,6 +11,7 @@
     "@owlfolio/ledger": "workspace:*",
     "@owlfolio/providers": "workspace:*",
     "@owlfolio/shared": "workspace:*",
+    "@owlfolio/strategies": "workspace:*",
     "@owlfolio/workflow": "workspace:*"
   },
   "devDependencies": {
