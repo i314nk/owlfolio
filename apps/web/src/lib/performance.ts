@@ -4,11 +4,23 @@ import {
   projectAccountingSnapshot,
   type AccountingCashFlow,
 } from '@owlfolio/ledger/projections/accountingProjection'
+import { projectHoldings } from '@owlfolio/ledger/projections/holdingProjection'
+import { projectResearchCases } from '@owlfolio/ledger/projections/researchCaseProjection'
 import {
   computePerformance,
   type PerformanceBenchmarkPoint,
   type PerformanceResult,
 } from '@owlfolio/workflow/performanceProjection'
+import {
+  computePortfolioAnalytics,
+  type PortfolioAnalytics,
+} from '@owlfolio/workflow/portfolioAnalytics'
+import {
+  computeDisciplineReports,
+  type DisciplineReports,
+  type DisciplineHoldingInput,
+  type GateOverrideCheckInput,
+} from '@owlfolio/workflow/disciplineReports'
 
 import { monthPeriodFor } from './accounting'
 
@@ -23,6 +35,10 @@ export type AppPerformanceReport = {
   benchmark_pending: boolean
   /** Number of monthly NAV snapshots that fed the computation. */
   snapshot_count: number
+  /** Module 8: money-weighted return + per-position contribution + realized/unrealized split. */
+  analytics: PortfolioAnalytics
+  /** Module 8: discount-at-purchase, gate-override integrity count, thesis-review latency. */
+  discipline: DisciplineReports
   limitations: string[]
 }
 
@@ -106,6 +122,140 @@ function monthlyPeriods(events: LedgerEventEnvelope<unknown>[], now: Date, curre
   return periods
 }
 
+function payloadRecord(event: LedgerEventEnvelope<unknown>): Record<string, unknown> | undefined {
+  const payload = event.payload
+  if (payload === null || typeof payload !== 'object' || Array.isArray(payload)) return undefined
+  return payload as Record<string, unknown>
+}
+
+function numberField(record: Record<string, unknown>, key: string): number | undefined {
+  const value = record[key]
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined
+}
+
+function stringField(record: Record<string, unknown>, key: string): string | undefined {
+  const value = record[key]
+  return typeof value === 'string' ? value : undefined
+}
+
+/** Sum realized gains and dividends per holding_id from the ledger. */
+function realizedAndDividendsByHolding(
+  events: LedgerEventEnvelope<unknown>[],
+  currency: string,
+): Map<string, { realized: number; dividends: number }> {
+  const byHolding = new Map<string, { realized: number; dividends: number }>()
+  for (const event of events) {
+    const record = payloadRecord(event)
+    if (record === undefined) continue
+    if (stringField(record, 'currency') !== currency) continue
+    const holdingId = stringField(record, 'holding_id')
+    if (holdingId === undefined) continue
+    const amount = numberField(record, 'amount')
+    if (amount === undefined) continue
+    const entry = byHolding.get(holdingId) ?? { realized: 0, dividends: 0 }
+    if (event.event_type === 'holding_realized_gain_loss_recorded') {
+      entry.realized += amount
+    } else if (event.event_type === 'dividend_income_recorded') {
+      entry.dividends += amount
+    }
+    byHolding.set(holdingId, entry)
+  }
+  return byHolding
+}
+
+/**
+ * Integrity check (Module 8 discipline): a hard-gate-failing dimension on a case
+ * whose authored verdict is BUY. Deterministic and conservative — derived from
+ * the projected case (moat gate failed, Shariah FAIL, non-positive normalized OE).
+ * Expected to be EMPTY (count 0 = green).
+ */
+function gateOverrideChecks(events: LedgerEventEnvelope<unknown>[]): GateOverrideCheckInput[] {
+  return projectResearchCases(events).map((researchCase) => {
+    const failing: string[] = []
+    if (researchCase.valuation?.moat_passes_gate === false) failing.push('moat')
+    const shariah = (researchCase.shariah_status ?? researchCase.shariah_financial?.verdict ?? '').toUpperCase()
+    if (shariah === 'FAIL' || shariah === 'NON_COMPLIANT') failing.push('shariah')
+    const oePs = researchCase.valuation?.normalized_owner_earnings_per_share
+    if (oePs !== undefined && oePs <= 0) failing.push('oe_positive')
+
+    const check: GateOverrideCheckInput = {
+      research_case_id: researchCase.research_case_id,
+      failing_hard_gates: failing,
+    }
+    if (researchCase.investment_verdict !== undefined) check.investment_verdict = researchCase.investment_verdict
+    if (researchCase.ticker !== undefined) check.ticker = researchCase.ticker
+    return check
+  })
+}
+
+function buildAnalyticsAndDiscipline(
+  events: LedgerEventEnvelope<unknown>[],
+  allCashFlows: AccountingCashFlow[],
+  now: Date,
+  currency: string,
+): { analytics: PortfolioAnalytics; discipline: DisciplineReports } {
+  const holdings = projectHoldings(events)
+  const researchCases = projectResearchCases(events)
+  const caseById = new Map(researchCases.map((entry) => [entry.research_case_id, entry]))
+  const realizedByHolding = realizedAndDividendsByHolding(events, currency)
+  const asOf = now.toISOString().slice(0, 10)
+
+  // Per-position contribution + realized/unrealized inputs.
+  const positions = holdings.map((holding) => {
+    const realized = realizedByHolding.get(holding.holding_id) ?? { realized: 0, dividends: 0 }
+    return {
+      holding_id: holding.holding_id,
+      ...(holding.ticker === undefined ? {} : { ticker: holding.ticker }),
+      total_cost_basis: holding.total_cost_basis,
+      market_value: holding.latest_market_value ?? 0,
+      realized_gain_loss: realized.realized,
+      dividends_received: realized.dividends,
+    }
+  })
+
+  // MWR cash flows: external flows (deposits/withdrawals neutral to MWR are
+  // excluded — we measure the investment IRR), buys (negative cost basis at
+  // open) + dividends/sells (positive). We reuse the accounting cash flows
+  // (dividends positive, fees negative) plus position cost-basis outflows.
+  const mwrFlows = holdings.map((holding) => ({ occurred_at: holding.opened_at, amount: -holding.total_cost_basis }))
+  for (const flow of allCashFlows) {
+    if (flow.flow_type === 'dividend') {
+      mwrFlows.push({ occurred_at: flow.occurred_at, amount: flow.amount })
+    }
+  }
+  const endingMarketValue = holdings.reduce((sum, holding) => sum + (holding.latest_market_value ?? 0), 0)
+
+  const analytics = computePortfolioAnalytics({
+    as_of: asOf,
+    cashFlows: mwrFlows,
+    endingMarketValue,
+    positions,
+  })
+
+  // Discount-at-purchase: entry cost vs the case's fair value / buy price.
+  const disciplineHoldings: DisciplineHoldingInput[] = holdings.map((holding) => {
+    const researchCase = caseById.get(holding.research_case_id)
+    const input: DisciplineHoldingInput = {
+      holding_id: holding.holding_id,
+      entry_cost_basis_per_share: holding.cost_basis_per_share,
+    }
+    if (holding.ticker !== undefined) input.ticker = holding.ticker
+    const fv = researchCase?.valuation?.fair_value_per_share
+    if (fv !== undefined) input.fair_value_per_share = fv
+    const buy = researchCase?.valuation?.buy_price_per_share
+    if (buy !== undefined) input.buy_price_per_share = buy
+    if (holding.latest_price_per_share !== undefined) input.latest_price_per_share = holding.latest_price_per_share
+    return input
+  })
+
+  const discipline = computeDisciplineReports({
+    holdings: disciplineHoldings,
+    cases: gateOverrideChecks(events),
+  })
+
+  return { analytics, discipline }
+}
+
 export function buildPerformanceReport(
   events: LedgerEventEnvelope<unknown>[],
   benchmarkSeries: PerformanceBenchmarkPoint[] | undefined,
@@ -146,12 +296,16 @@ export function buildPerformanceReport(
     ...(benchmarkSeries === undefined ? {} : { benchmarkSeries }),
   })
 
+  const { analytics, discipline } = buildAnalyticsAndDiscipline(events, allCashFlows, now, currency)
+
   return {
     performance,
     benchmark_symbol: DEFAULT_BENCHMARK_SYMBOL,
     benchmark_label: 'SP Funds S&P 500 Sharia (SPUS)',
     benchmark_pending: benchmarkSeries === undefined,
     snapshot_count: snapshots.length,
+    analytics,
+    discipline,
     limitations,
   }
 }

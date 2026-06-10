@@ -7,7 +7,10 @@ import {
   type DiscoveryCandidateProjection,
 } from '@owlfolio/ledger/projections/discoveryCandidateProjection'
 import type { ResearchCaseProjection } from '@owlfolio/ledger/projections/researchCaseProjection'
-import { findLatestResearchCaseForTicker, projectResearchCases } from '@owlfolio/ledger/projections/researchCaseProjection'
+import { findLatestResearchCaseForTicker, projectResearchCases, projectResearchCaseVersionsForTicker } from '@owlfolio/ledger/projections/researchCaseProjection'
+import { projectForecasts, type ForecastProjection } from '@owlfolio/ledger/projections/forecastCalibrationProjection'
+import { findPostMortemForResearchCase, type PositionPostMortemProjection } from '@owlfolio/ledger/projections/positionPostMortemProjection'
+import { computeReAnalysisDiff, type ReAnalysisDiff } from '@owlfolio/workflow/reAnalysisDiff'
 import {
   projectResearchCaseTimeline,
   type ResearchCaseTimelineEntry,
@@ -62,6 +65,12 @@ export type AppResearchCase = ResearchCaseProjection & {
   source_ids: string[]
   source_evidence?: AppSourceEvidence[]
   ledger_timeline: ResearchCaseTimelineEntry[]
+  /** Module 10 / judgment Mechanism 4: falsifiable forecasts attached to this case. */
+  forecasts?: ForecastProjection[]
+  /** Module 10: structured "what changed since last case" vs the prior superseded version. */
+  reanalysis_diff?: ReAnalysisDiff
+  /** Module 10: exit post-mortem for the position this case opened (if exited). */
+  post_mortem?: PositionPostMortemProjection
 }
 
 export type AppSourceEvidence = {
@@ -1115,14 +1124,57 @@ async function buildPersonalResearchCase(
   const timeline = projectResearchCaseTimeline(events, researchCase.research_case_id)
   const sourceIds = [...new Set(timeline.flatMap((entry) => entry.source_ids))]
 
+  const forecasts = projectForecasts(events).filter((forecast) => forecast.research_case_id === researchCase.research_case_id)
+  const reanalysisDiff = buildReAnalysisDiff(events, researchCase)
+  const postMortem = findPostMortemForResearchCase(events, researchCase.research_case_id)
+
   return {
     ...researchCase,
     gate_checklist: pendingChecklist.map((gate) => ({ ...gate })),
     source_ids: sourceIds,
     source_evidence: await loadSourceEvidenceForResearchCase(sourceLedgerPath, researchCase.research_case_id, sourceIds),
     ledger_timeline: timeline,
+    ...(forecasts.length === 0 ? {} : { forecasts }),
+    ...(reanalysisDiff === undefined ? {} : { reanalysis_diff: reanalysisDiff }),
+    ...(postMortem === undefined ? {} : { post_mortem: postMortem }),
     next_required_action: researchCase.next_required_action ?? `Start selected-strategy research for ${researchCase.ticker ?? researchCase.research_case_id}`,
   }
+}
+
+/** Map a projected case to the re-analysis-diff snapshot shape. */
+function reAnalysisSnapshot(researchCase: ResearchCaseProjection): Parameters<typeof computeReAnalysisDiff>[0] {
+  const snapshot: Parameters<typeof computeReAnalysisDiff>[0] = { research_case_id: researchCase.research_case_id }
+  if (researchCase.investment_verdict !== undefined) snapshot.investment_verdict = researchCase.investment_verdict
+  if (researchCase.valuation?.verdict_state?.state !== undefined) snapshot.verdict_state = researchCase.valuation.verdict_state.state
+  if (researchCase.valuation?.moat_class !== undefined) snapshot.moat_class = researchCase.valuation.moat_class
+  if (researchCase.valuation?.growth_rate !== undefined) snapshot.credited_g = researchCase.valuation.growth_rate
+  if (researchCase.valuation?.fair_value_per_share !== undefined) snapshot.fair_value_per_share = researchCase.valuation.fair_value_per_share
+  if (researchCase.valuation?.buy_price_per_share !== undefined) snapshot.buy_price_per_share = researchCase.valuation.buy_price_per_share
+  const shariah = researchCase.shariah_status ?? researchCase.shariah_financial?.verdict
+  if (shariah !== undefined) snapshot.shariah_status = shariah
+  return snapshot
+}
+
+/**
+ * Compute the "what changed since last case" diff: the prior version is the case
+ * this one supersedes (or, failing an explicit link, the immediately prior version
+ * for the same ticker). Undefined when there is no prior case.
+ */
+function buildReAnalysisDiff(
+  events: Awaited<ReturnType<EventStore['list']>>,
+  researchCase: ResearchCaseProjection,
+): ReAnalysisDiff | undefined {
+  let prior: ResearchCaseProjection | undefined
+  if (researchCase.supersedes_research_case_id !== undefined) {
+    prior = projectResearchCases(events).find((candidate) => candidate.research_case_id === researchCase.supersedes_research_case_id)
+  }
+  if (prior === undefined && researchCase.ticker !== undefined) {
+    const versions = projectResearchCaseVersionsForTicker(events, researchCase.ticker)
+    const index = versions.findIndex((candidate) => candidate.research_case_id === researchCase.research_case_id)
+    if (index > 0) prior = versions[index - 1]
+  }
+  if (prior === undefined) return undefined
+  return computeReAnalysisDiff(reAnalysisSnapshot(prior), reAnalysisSnapshot(researchCase))
 }
 
 function researchCaseSummarySnippet(researchCase: ResearchCaseProjection): string | undefined {

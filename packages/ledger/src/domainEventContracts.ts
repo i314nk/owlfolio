@@ -67,6 +67,9 @@ export const domainEventTypes = [
   'holding_monitor_alert_recorded',
   'holding_shariah_grace_started',
   'holding_sell_review_drafted',
+  'position_post_mortem_recorded',
+  'forecast_recorded',
+  'forecast_resolved',
 ] as const
 
 export type DomainEventType = (typeof domainEventTypes)[number]
@@ -551,6 +554,73 @@ export const domainEventContracts: readonly DomainEventContract[] = [
       'requires_user_authoring',
       'deferred_detection_note',
       'message',
+    ],
+  },
+  {
+    // Exit post-mortem (lifecycle-spec-v3 Module 10 + strategy-additions-spec #5).
+    // Deterministic predicted-vs-realized record locked into the position on EXIT:
+    // MOS protection, credited-g vs actual, which lane was most wrong. Worker-authored
+    // ARITHMETIC (the harness computes; a human may annotate). Feeds calibration.
+    event_type: 'position_post_mortem_recorded',
+    aggregate_type: 'holding',
+    actor_type: 'worker',
+    actor_types: ['user', 'worker'],
+    projection_owner: 'portfolio',
+    payload_fields: [
+      'post_mortem_id',
+      'holding_id',
+      'research_case_id',
+      'ticker',
+      'moat_class',
+      'holding_period_days',
+      'total_realized_pl',
+      'mos_protection',
+      'credited_g_vs_actual',
+      'most_wrong_lane',
+      'is_observation',
+      'message',
+    ],
+  },
+  {
+    // Falsifiable forecast attached to a completed case (judgment-objectivity-layer
+    // Mechanism 4). SCAFFOLD: the field exists + is storable from day one; the swarm
+    // emit-wiring is a follow-up the judgment spec completes. A claim + stated p +
+    // resolves_on + lane; resolves on annual reports.
+    event_type: 'forecast_recorded',
+    aggregate_type: 'research_case',
+    actor_type: 'provider',
+    actor_types: ['provider', 'system', 'user', 'worker'],
+    projection_owner: 'portfolio',
+    payload_fields: [
+      'forecast_id',
+      'research_case_id',
+      'ticker',
+      'lane',
+      'claim',
+      'p',
+      'resolves_on',
+    ],
+  },
+  {
+    // Forecast resolution (judgment-objectivity-layer Mechanism 4). On the annual
+    // report / re-run cadence the human/worker resolves a due forecast true/false and
+    // the harness records the Brier score. Feeds the per-lane calibration curve; the
+    // >=30-resolved shading is wired into Synthesis by the judgment spec later.
+    event_type: 'forecast_resolved',
+    aggregate_type: 'research_case',
+    actor_type: 'worker',
+    actor_types: ['user', 'worker'],
+    projection_owner: 'portfolio',
+    payload_fields: [
+      'resolution_id',
+      'forecast_id',
+      'research_case_id',
+      'ticker',
+      'lane',
+      'p',
+      'outcome',
+      'brier_score',
+      'resolved_on',
     ],
   },
 ] as const

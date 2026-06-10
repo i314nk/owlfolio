@@ -31,6 +31,13 @@
     "./researchCasePolicy": "./src/researchCasePolicy.ts",
     "./marketData": "./src/marketData.ts",
     "./performanceProjection": "./src/performanceProjection.ts",
+    "./portfolioAnalytics": "./src/portfolioAnalytics.ts",
+    "./mwr": "./src/mwr.ts",
+    "./postMortem": "./src/postMortem.ts",
+    "./forecastCalibration": "./src/forecastCalibration.ts",
+    "./reAnalysisDiff": "./src/reAnalysisDiff.ts",
+    "./disciplineReports": "./src/disciplineReports.ts",
+    "./lifecyclePostMortem": "./src/lifecyclePostMortem.ts",
     "./lifecycleMonitors": "./src/lifecycleMonitors.ts"
   }
 }

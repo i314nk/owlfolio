@@ -119,6 +119,10 @@ export function ResearchCasePanel({ researchCase, mode = 'demo', marketQuote, po
     { style: { display: 'grid', gap: '1rem' } },
     // ── 1. Verdict hero ─────────────────────────────────────────────────────
     createVerdictHero(researchCase),
+    // ── 1b. What changed since last case (re-analysis diff) ──────────────────
+    createReAnalysisDiffPanel(researchCase),
+    // ── 1c. Exit post-mortem (predicted vs realized) ─────────────────────────
+    createPostMortemPanel(researchCase),
     // ── 2. Valuation panel ──────────────────────────────────────────────────
     createValuationPanel(researchCase, marketQuote),
     // ── 2b. Position plan (advisory) ─────────────────────────────────────────
@@ -127,12 +131,118 @@ export function ResearchCasePanel({ researchCase, mode = 'demo', marketQuote, po
     createDecisionEvidence(researchCase),
     // ── 4. Visible specialist lanes ──────────────────────────────────────────
     createSpecialistLanesGrid(researchCase),
+    // ── 4b. Falsifiable forecasts (calibration scaffold) ─────────────────────
+    createForecastsPanel(researchCase),
     // ── 5. Watchlist promotion (personal-local only) ─────────────────────────
     canPromoteToWatchlist ? createWatchlistPromotionAction(researchCase.research_case_id) : null,
     // ── 6. Actions row ──────────────────────────────────────────────────────
     createActionsRow(),
     // ── 7. Evidence and audit details (collapsed, e2e anchor) ────────────────
     createEvidenceAndAuditDetails(researchCase),
+  )
+}
+
+// ── Module 10: re-analysis diff / post-mortem / forecasts ─────────────────────
+
+function formatDiffValue(value: string | number | null | undefined): string {
+  if (value === null || value === undefined) return '—'
+  if (typeof value === 'number') return String(value)
+  return value
+}
+
+/** "What changed since last case" — the re-analysis diff vs the prior superseded version. */
+function createReAnalysisDiffPanel(researchCase: AppResearchCase) {
+  const diff = researchCase.reanalysis_diff
+  if (diff === undefined || !diff.has_changes) {
+    return null
+  }
+  return createElement(
+    'details',
+    { 'aria-label': 'What changed since last case', style: { ...collapsibleDetailsStyle }, open: true },
+    createElement('summary', { style: collapsibleSummaryStyle }, 'What changed since last case'),
+    createElement('p', { style: { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-sm)', margin: '0.5rem 0' } }, `Re-analysis supersedes ${diff.prior_research_case_id}. The harness records the field-level diff.`),
+    createElement(
+      'ul',
+      { style: { display: 'grid', gap: '0.35rem', margin: 0, paddingLeft: '1.1rem' } },
+      ...diff.changes.map((change) => createElement(
+        'li',
+        { key: change.field, style: { color: 'var(--owl-color-text)', fontSize: 'var(--owl-text-base)' } },
+        createElement('strong', null, `${change.field}: `),
+        `${formatDiffValue(change.from)} → ${formatDiffValue(change.to)}`,
+        change.note === undefined ? null : createElement('span', { style: { color: 'var(--owl-color-muted)' } }, ` (${change.note})`),
+      )),
+    ),
+  )
+}
+
+/** Exit post-mortem summary (predicted vs realized) for an exited position. */
+function createPostMortemPanel(researchCase: AppResearchCase) {
+  const pm = researchCase.post_mortem
+  if (pm === undefined) return null
+
+  const mos = pm.mos_protection
+  const mosText = mos.held === undefined
+    ? 'Not computable'
+    : `${mos.held ? 'Held' : 'Failed'}${mos.entry_discount_to_fv === undefined ? '' : ` — entry discount ${(mos.entry_discount_to_fv * 100).toFixed(1)}% vs required ${mos.required_mos === undefined ? '—' : `${(mos.required_mos * 100).toFixed(0)}%`}`}`
+
+  const g = pm.credited_g_vs_actual
+  const gText = g.computable
+    ? `predicted ${g.predicted_g === undefined ? '—' : `${(g.predicted_g * 100).toFixed(1)}%`} vs actual ${g.actual_g === undefined ? '—' : `${(g.actual_g * 100).toFixed(1)}%`}`
+    : (g.reason ?? 'Not computable')
+
+  const laneText = pm.most_wrong_lane.lane !== undefined
+    ? `${pm.most_wrong_lane.lane}${pm.most_wrong_lane.brier === undefined ? '' : ` (Brier ${pm.most_wrong_lane.brier.toFixed(2)})`}`
+    : 'Pending forecast resolutions'
+
+  const row = (label: string, value: string) => createElement(
+    'div',
+    { key: label, style: { display: 'flex', gap: '0.6rem', flexWrap: 'wrap' } },
+    createElement('span', { style: { color: 'var(--owl-color-muted)', fontWeight: 700, minWidth: '12rem' } }, label),
+    createElement('span', { style: { color: 'var(--owl-color-text)' } }, value),
+  )
+
+  return createElement(
+    'section',
+    { 'aria-label': 'Exit post-mortem', style: { ...cardStyle, borderLeft: '3px solid var(--owl-color-accent-bright)' } },
+    createElement('p', { style: labelStyle }, 'Exit post-mortem'),
+    createElement('p', { style: { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-sm)', margin: '0 0 0.7rem' } }, 'Predicted vs realized — the arithmetic is the harness’s; a human may annotate. The system learns through its parameters, not loosened judgment.'),
+    createElement(
+      'div',
+      { style: { display: 'grid', gap: '0.4rem' } },
+      row('MOS protection', mosText),
+      row('Credited-g vs actual', gText),
+      row('Which lane was most wrong', laneText),
+      pm.holding_period_days === undefined ? null : row('Holding period', `${pm.holding_period_days} days`),
+      pm.total_realized_pl === undefined ? null : row('Total realized P&L', `$${pm.total_realized_pl.toLocaleString('en-US')}`),
+    ),
+  )
+}
+
+/** Falsifiable forecasts attached to the case (calibration scaffold, accrues from day one). */
+function createForecastsPanel(researchCase: AppResearchCase) {
+  const forecasts = researchCase.forecasts
+  if (forecasts === undefined || forecasts.length === 0) {
+    return null
+  }
+  return createElement(
+    'details',
+    { 'aria-label': 'Falsifiable forecasts', style: { ...collapsibleDetailsStyle } },
+    createElement('summary', { style: collapsibleSummaryStyle }, `Falsifiable forecasts (${forecasts.length})`),
+    createElement('p', { style: { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-sm)', margin: '0.5rem 0' } }, 'Resolvable claims with probabilities; they resolve on annual reports and accrue a per-lane calibration (Brier) score over time.'),
+    createElement(
+      'ul',
+      { style: { display: 'grid', gap: '0.4rem', margin: 0, paddingLeft: '1.1rem' } },
+      ...forecasts.map((forecast) => createElement(
+        'li',
+        { key: forecast.forecast_id, style: { color: 'var(--owl-color-text)', fontSize: 'var(--owl-text-base)' } },
+        createElement('span', { style: { color: 'var(--owl-color-accent-bright)', fontFamily: 'var(--owl-font-mono)', fontWeight: 800 } }, `${forecast.lane ?? 'LANE'} · p=${forecast.p === undefined ? '—' : forecast.p.toFixed(2)} `),
+        forecast.claim ?? 'forecast',
+        createElement('span', { style: { color: 'var(--owl-color-muted)' } }, ` — resolves ${forecast.resolves_on ?? 'on next annual report'}`),
+        forecast.resolved
+          ? createElement('span', { style: { color: forecast.outcome ? 'var(--owl-color-emerald, #34d399)' : 'var(--owl-color-risk, #f87171)', fontWeight: 700 } }, ` · resolved ${forecast.outcome ? 'TRUE' : 'FALSE'}${forecast.brier_score === undefined ? '' : ` (Brier ${forecast.brier_score.toFixed(2)})`}`)
+          : createElement('span', { style: { color: 'var(--owl-color-muted)' } }, ' · pending'),
+      )),
+    ),
   )
 }
 

@@ -17,6 +17,7 @@ import {
 import { projectZakatStatement, type ZakatBaseMethod } from '@owlfolio/ledger/projections/zakatModule'
 import { projectScheduledTasks, type ScheduledTaskProjection } from '@owlfolio/ledger/projections/scheduledTaskProjection'
 import { projectWatchlist } from '@owlfolio/ledger/projections/watchlistProjection'
+import { projectForecasts, projectForecastCalibration } from '@owlfolio/ledger/projections/forecastCalibrationProjection'
 import { projectPendingResearchRuns, projectPendingDeepDiveRuns } from '@owlfolio/ledger/projections/researchRunQueueProjection'
 import { findLatestResearchCaseForTicker, projectResearchCases, type ResearchCaseProjection } from '@owlfolio/ledger/projections/researchCaseProjection'
 import {
@@ -617,6 +618,22 @@ function defaultTaskDefinitions(automation?: AutomationSettings): ScheduledTaskP
       },
     },
     {
+      // Forecast resolution (lifecycle-spec-v3 Module 10 / judgment Mechanism 4). Annual cadence,
+      // piggybacking the annual-report / re-run window. Surfaces DUE-but-unresolved forecasts as
+      // observations; never fabricates an outcome (the human/EDGAR resolves true/false). Mock-safe.
+      scheduled_task_id: 'task_forecast_resolution_annual',
+      task_kind: 'forecast_resolution',
+      cadence: CRON_ANNUAL,
+      enabled: true,
+      dry_run: true,
+      retry_policy: { max_attempts: 2, retry_delay_ms: DEFAULT_RETRY_DELAY_MS },
+      safety: {
+        mock_safe: true,
+        auto_approve_investment_actions: false,
+        auto_approve_portfolio_actions: false,
+      },
+    },
+    {
       // Discovery Module 1 — 13F cloning (Pabrai engine). Quarterly cadence (~2 weeks after the 13F
       // deadline). Records source:'13f_clone' CANDIDATE observations; the human/quick-screen gates entry
       // to research. Disabled by default — opt-in via OWLFOLIO_DISCOVERY_13F_ENABLED to keep the alpha
@@ -695,6 +712,49 @@ async function runReviewReminderTask(
     observations,
     approval_gates: [HOLDING_REVIEW_APPROVAL_GATE, OPEN_HOLDING_APPROVAL_GATE],
     human_approval_required: observations.length > 0,
+  }
+}
+
+/**
+ * Forecast-resolution task (lifecycle-spec-v3 Module 10 / judgment Mechanism 4).
+ * Piggybacks the annual-report / re-run cadence — no new cron. T0-honest: it
+ * surfaces which recorded forecasts are DUE (their resolution year has arrived)
+ * but is NOT yet resolved, as OBSERVATIONS. It never fabricates a true/false
+ * outcome — the human/EDGAR resolves the claim (a `forecast_resolved` event with
+ * a real outcome), which the harness then scores with a Brier value. Also reports
+ * the running per-lane calibration sample size + whether the >=30-resolved shading
+ * threshold has been reached (the judgment spec wires shading into Synthesis).
+ */
+async function runForecastResolutionTask(
+  store: EventStore<LedgerEventEnvelope<unknown>>,
+  options: RunScheduledTasksOptions,
+): Promise<TaskResult> {
+  const events = await store.list()
+  const asOf = options.as_of ?? currentDate()
+  const currentYear = Number(asOf.slice(0, 4))
+
+  const forecasts = projectForecasts(events)
+  const dueUnresolved = forecasts.filter((forecast) => {
+    if (forecast.resolved) return false
+    const match = (forecast.resolves_on ?? '').match(/(\d{4})/)
+    if (match === null) return false
+    const resolutionYear = Number(match[1])
+    // Annual reports land in the year AFTER the fiscal year; treat due at year+1.
+    return Number.isFinite(currentYear) && currentYear >= resolutionYear + 1
+  })
+
+  const calibration = projectForecastCalibration(events)
+  const observations = [
+    ...dueUnresolved.map((forecast) =>
+      `forecast ${forecast.forecast_id} (${forecast.lane ?? 'lane'}, p=${forecast.p ?? '?'}) is DUE to resolve on "${forecast.resolves_on}" — awaiting a human/EDGAR true/false; no outcome fabricated`,
+    ),
+    `calibration sample: ${calibration.total_resolved} resolved forecast(s); shading ${calibration.shading_active ? 'ELIGIBLE (>=30 resolved)' : 'not yet active (<30 resolved)'}`,
+  ]
+
+  return {
+    result_summary: `forecast_resolution dry-run: ${dueUnresolved.length} forecast(s) due for resolution; ${calibration.total_resolved} resolved to date; no outcome fabricated, no investment action taken`,
+    observations,
+    human_approval_required: dueUnresolved.length > 0,
   }
 }
 
@@ -1813,6 +1873,10 @@ async function runTaskHandler(
 
   if (task.task_kind === 'purification_projection') {
     return runPurificationProjectionTask(store, options)
+  }
+
+  if (task.task_kind === 'forecast_resolution') {
+    return runForecastResolutionTask(store, options)
   }
 
   throw new Error(`Unsupported scheduled task kind: ${task.task_kind}`)

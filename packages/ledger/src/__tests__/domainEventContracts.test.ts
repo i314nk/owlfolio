@@ -54,7 +54,56 @@ describe('Owlfolio v2 domain event boundary contracts', () => {
       'holding_monitor_alert_recorded',
       'holding_shariah_grace_started',
       'holding_sell_review_drafted',
+      'position_post_mortem_recorded',
+      'forecast_recorded',
+      'forecast_resolved',
     ])
+  })
+
+  it('freezes the Module 10 post-mortem + forecast-calibration contracts as harness-arithmetic, never auto-trade', () => {
+    expect(contract('position_post_mortem_recorded')).toMatchObject({
+      aggregate_type: 'holding',
+      actor_type: 'worker',
+      actor_types: ['user', 'worker'],
+      projection_owner: 'portfolio',
+      payload_fields: [
+        'post_mortem_id',
+        'holding_id',
+        'research_case_id',
+        'ticker',
+        'moat_class',
+        'holding_period_days',
+        'total_realized_pl',
+        'mos_protection',
+        'credited_g_vs_actual',
+        'most_wrong_lane',
+        'is_observation',
+        'message',
+      ],
+    })
+    expect(contract('forecast_recorded')).toMatchObject({
+      aggregate_type: 'research_case',
+      actor_type: 'provider',
+      projection_owner: 'portfolio',
+      payload_fields: ['forecast_id', 'research_case_id', 'ticker', 'lane', 'claim', 'p', 'resolves_on'],
+    })
+    expect(contract('forecast_resolved')).toMatchObject({
+      aggregate_type: 'research_case',
+      actor_type: 'worker',
+      actor_types: ['user', 'worker'],
+      projection_owner: 'portfolio',
+      payload_fields: [
+        'resolution_id',
+        'forecast_id',
+        'research_case_id',
+        'ticker',
+        'lane',
+        'p',
+        'outcome',
+        'brier_score',
+        'resolved_on',
+      ],
+    })
   })
 
   it('freezes the lifecycle-monitor (Module 6/7) observation + draft contracts as worker-authored, never auto-trade', () => {

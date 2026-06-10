@@ -26,6 +26,11 @@ function formatPercent(value: number): string {
   return `${sign}${pct.toFixed(2)}%`
 }
 
+function formatMoney(value: number): string {
+  const sign = value < 0 ? '-' : ''
+  return `${sign}$${Math.abs(value).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+}
+
 export function PerformancePanel({ report }: PerformancePanelProps) {
   const { performance } = report
 
@@ -41,7 +46,142 @@ export function PerformancePanel({ report }: PerformancePanelProps) {
     performance.sufficient
       ? createSufficientView(report)
       : createInsufficientView(report),
+    createAnalyticsView(report),
+    createDisciplineView(report),
     createDisclaimer(report),
+  )
+}
+
+/** Module 8: money-weighted return + per-position contribution + realized/unrealized split. */
+function createAnalyticsView(report: AppPerformanceReport) {
+  const { analytics } = report
+  const mwr = analytics.mwr
+
+  const mwrStat = mwr.computable
+    ? createLedgerStat('Money-weighted return (IRR)', formatPercent(mwr.mwr), figureClassFor(mwr.mwr))
+    : createLedgerStat('Money-weighted return (IRR)', 'Not computable', '')
+
+  const split = analytics.realized_unrealized
+  const splitLine = createElement(
+    'section',
+    { 'aria-label': 'Realized vs unrealized', className: 'owl-ledger-line' },
+    createLedgerStat('Realized (incl. dividends)', formatMoney(split.realized_gain_loss), figureClassFor(split.realized_gain_loss)),
+    createLedgerStat('Unrealized', formatMoney(split.unrealized_gain_loss), figureClassFor(split.unrealized_gain_loss)),
+    createLedgerStat('Total gain / loss', formatMoney(split.total_gain_loss), figureClassFor(split.total_gain_loss)),
+  )
+
+  const contributionRows = analytics.contributions.length === 0
+    ? createElement('p', { style: { color: 'var(--owl-color-muted)', margin: 0 } }, 'No positions to attribute yet.')
+    : createElement(
+        'table',
+        { className: 'owl-table', style: { width: '100%' } },
+        createElement(
+          'thead',
+          null,
+          createElement(
+            'tr',
+            null,
+            createElement('th', { style: { textAlign: 'left' } }, 'Position'),
+            createElement('th', { style: { textAlign: 'right' } }, 'Unrealized'),
+            createElement('th', { style: { textAlign: 'right' } }, 'Total P&L'),
+            createElement('th', { style: { textAlign: 'right' } }, 'Contribution'),
+          ),
+        ),
+        createElement(
+          'tbody',
+          null,
+          ...analytics.contributions.map((contribution) => createElement(
+            'tr',
+            { key: contribution.holding_id },
+            createElement('td', null, contribution.ticker ?? contribution.holding_id),
+            createElement('td', { style: { textAlign: 'right', color: contribution.unrealized_gain_loss >= 0 ? 'var(--owl-color-emerald, #34d399)' : 'var(--owl-color-risk, #f87171)' } }, formatMoney(contribution.unrealized_gain_loss)),
+            createElement('td', { style: { textAlign: 'right' } }, formatMoney(contribution.total_gain_loss)),
+            createElement('td', { style: { textAlign: 'right' } }, contribution.contribution_share === undefined ? '—' : formatPercent(contribution.contribution_share)),
+          )),
+        ),
+      )
+
+  return createElement(
+    'section',
+    { 'aria-label': 'Portfolio analytics', className: 'owl-section-card' },
+    createElement('p', { className: 'owl-section-accent' }, 'Money-weighted & attribution'),
+    createElement('h2', { className: 'owl-section-title', style: { margin: '0 0 0.6rem' } }, 'Return composition'),
+    createElement('section', { 'aria-label': 'MWR', className: 'owl-ledger-line' }, mwrStat),
+    createElement('p', { style: { color: 'var(--owl-color-muted)', margin: '0.2rem 0 0.8rem', fontSize: 'var(--owl-text-sm)' } }, 'Money-weighted return reflects the timing of your buys, dividends, and ending value; it answers a different question than the time-weighted return above. Not computable until there is an offsetting inflow (sale or ending value).'),
+    splitLine,
+    createElement('h3', { className: 'owl-section-title', style: { fontSize: 'var(--owl-text-md)', margin: '1rem 0 0.5rem' } }, 'Per-position contribution'),
+    contributionRows,
+  )
+}
+
+/** Module 8 discipline reports: discount-at-purchase, gate-override integrity, thesis-review latency. */
+function createDisciplineView(report: AppPerformanceReport) {
+  const { discipline } = report
+
+  const override = discipline.gate_override
+  const overrideTone = override.integrity_ok ? 'var(--owl-color-emerald, #34d399)' : 'var(--owl-color-risk, #f87171)'
+  const overrideCard = createElement(
+    'div',
+    { 'aria-label': 'Gate-override integrity', style: { display: 'flex', alignItems: 'baseline', gap: '0.6rem', margin: '0 0 0.8rem' } },
+    createElement('span', { style: { color: 'var(--owl-color-muted)', fontWeight: 700 } }, 'Gate-override attempts (BUY despite a failing hard gate)'),
+    createElement('span', { style: { color: overrideTone, fontWeight: 900, fontSize: 'var(--owl-text-lg)' } }, String(override.count)),
+    createElement('span', { style: { color: overrideTone, fontWeight: 700 } }, override.integrity_ok ? 'green — no gate was price-overridden' : 'INTEGRITY ALERT'),
+  )
+
+  const discountRows = discipline.discount_at_purchase.length === 0
+    ? createElement('p', { style: { color: 'var(--owl-color-muted)', margin: 0 } }, 'No holdings with a recorded entry yet.')
+    : createElement(
+        'table',
+        { className: 'owl-table', style: { width: '100%' } },
+        createElement(
+          'thead',
+          null,
+          createElement(
+            'tr',
+            null,
+            createElement('th', { style: { textAlign: 'left' } }, 'Position'),
+            createElement('th', { style: { textAlign: 'right' } }, 'Discount to fair value'),
+            createElement('th', { style: { textAlign: 'right' } }, '1-yr outcome'),
+            createElement('th', { style: { textAlign: 'right' } }, 'Since entry'),
+          ),
+        ),
+        createElement(
+          'tbody',
+          null,
+          ...discipline.discount_at_purchase.map((row) => createElement(
+            'tr',
+            { key: row.holding_id },
+            createElement('td', null, row.ticker ?? row.holding_id),
+            createElement('td', { style: { textAlign: 'right' } }, row.entry_discount_to_fv === undefined ? '—' : formatPercent(row.entry_discount_to_fv)),
+            createElement('td', { style: { textAlign: 'right' } }, row.one_year_outcome === undefined ? '—' : formatPercent(row.one_year_outcome)),
+            createElement('td', { style: { textAlign: 'right' } }, row.since_outcome === undefined ? '—' : formatPercent(row.since_outcome)),
+          )),
+        ),
+      )
+
+  const latencyRows = discipline.thesis_review_latency.length === 0
+    ? createElement('p', { style: { color: 'var(--owl-color-muted)', margin: '0.4rem 0 0' } }, 'No thesis-review triggers recorded.')
+    : createElement(
+        'ul',
+        { style: { color: 'var(--owl-color-muted)', display: 'grid', gap: '0.3rem', margin: '0.4rem 0 0', paddingLeft: '1.1rem' } },
+        ...discipline.thesis_review_latency.map((row) => createElement(
+          'li',
+          { key: `${row.holding_id}_${row.triggered_at}` },
+          `${row.ticker ?? row.holding_id}: ${row.resolved ? `${row.latency_days} days to review` : 'review still open'}`,
+        )),
+      )
+
+  return createElement(
+    'section',
+    { 'aria-label': 'Discipline reports', className: 'owl-section-card' },
+    createElement('p', { className: 'owl-section-accent' }, 'Discipline'),
+    createElement('h2', { className: 'owl-section-title', style: { margin: '0 0 0.6rem' } }, 'Calibration & integrity'),
+    overrideCard,
+    createElement('h3', { className: 'owl-section-title', style: { fontSize: 'var(--owl-text-md)', margin: '0.5rem 0 0.4rem' } }, 'Discount-at-purchase vs subsequent outcome'),
+    createElement('p', { style: { color: 'var(--owl-color-muted)', margin: '0 0 0.5rem', fontSize: 'var(--owl-text-sm)' } }, 'The data that, over time, calibrates whether the margin-of-safety levels are right.'),
+    discountRows,
+    createElement('h3', { className: 'owl-section-title', style: { fontSize: 'var(--owl-text-md)', margin: '1rem 0 0' } }, 'Thesis-review latency'),
+    latencyRows,
   )
 }
 

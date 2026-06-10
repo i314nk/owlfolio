@@ -24,6 +24,8 @@
     "./projections/scheduledTaskProjection": "./src/projections/scheduledTaskProjection.ts",
     "./projections/researchRunQueueProjection": "./src/projections/researchRunQueueProjection.ts",
     "./projections/pipelineProjection": "./src/projections/pipelineProjection.ts",
-    "./projections/investableCapitalProjection": "./src/projections/investableCapitalProjection.ts"
+    "./projections/investableCapitalProjection": "./src/projections/investableCapitalProjection.ts",
+    "./projections/positionPostMortemProjection": "./src/projections/positionPostMortemProjection.ts",
+    "./projections/forecastCalibrationProjection": "./src/projections/forecastCalibrationProjection.ts"
   }
 }
