@@ -7,7 +7,7 @@ import { z } from 'zod'
 import { InMemoryEventStore } from '@owlfolio/ledger/eventStore'
 import { projectResearchCases } from '@owlfolio/ledger/projections/researchCaseProjection'
 import { MockProvider } from '@owlfolio/providers/mockProvider'
-import { runGroundedAgent, ProposedSourcesSchema, runLaneSwarm, runStrategyResearchSwarm, type GroundFn } from '../researchSwarm'
+import { runGroundedAgent, ProposedSourcesSchema, runLaneSwarm, runStrategyResearchSwarm, ResearchSwarmStageError, type GroundFn } from '../researchSwarm'
 import { buffettMungerDeepDiveLanes } from '../strategyResearchPipeline'
 import { groundProposedSourcesDeterministic, type CapturedSource } from '../sourceGrounding'
 
@@ -125,7 +125,7 @@ function swarmFakeProvider() {
         owner_earnings_bridge: {
           net_income: 18, depreciation_amortization: 4, maintenance_capex: 3,
           maintenance_capex_proxy_tier: '50', stock_based_comp: 2,
-          normalized_working_capital_change: 0,
+          normalized_working_capital_change: 0, shares_outstanding: 1,
         },
         roic: 0.20,
         reinvestment_rate: 0.40,
@@ -200,7 +200,7 @@ function swarmFakeProviderWithLaneIds(lanes: readonly string[]) {
         owner_earnings_bridge: {
           net_income: 18, depreciation_amortization: 4, maintenance_capex: 3,
           maintenance_capex_proxy_tier: '50', stock_based_comp: 2,
-          normalized_working_capital_change: 0,
+          normalized_working_capital_change: 0, shares_outstanding: 1,
         },
         roic: 0.20,
         reinvestment_rate: 0.40,
@@ -377,7 +377,7 @@ describe('runStrategyResearchSwarm', () => {
             owner_earnings_bridge: {
               net_income: 18, depreciation_amortization: 4, maintenance_capex: 3,
               maintenance_capex_proxy_tier: '50', stock_based_comp: 2,
-              normalized_working_capital_change: 0,
+              normalized_working_capital_change: 0, shares_outstanding: 1,
             },
             roic: 0.20,
             reinvestment_rate: 0.40,
@@ -616,8 +616,9 @@ describe('runStrategyResearchSwarm with MockProvider + deterministic grounder', 
   })
 
   it('projects moat_class, discount_rate, roic, reinvestment_rate, OE bridge, fair_value, MoS, and buy_price from the analysis event (Design B)', async () => {
-    // MockProvider emits monopoly moat with:
-    //   bridge: NI=14, D&A=4, maint=3, SBC=2, dNWC=-1 → OE = 14+4-3-2-(-1) = 14
+    // MockProvider emits monopoly moat with bridge TOTALS in $millions:
+    //   NI=14000, D&A=4000, maint=3000, SBC=2000, dNWC=-1000 → OE_total = 14000 ($M)
+    //   shares_outstanding=1000 (M) → OE/sh = 14000/1000 = 14
     //   roic=0.25, reinvestment_rate=0.40
     // Harness computes:
     //   discount=0.10, g=min(0.40*0.25, 0.03)=0.03, fair=min(14/(0.10-0.03), 20*14)=min(200,280)=200
@@ -657,7 +658,7 @@ describe('runStrategyResearchSwarm with MockProvider + deterministic grounder', 
     // growth_assumptions is a non-empty string
     expect(typeof caseProjection?.valuation?.growth_assumptions).toBe('string')
     expect((caseProjection?.valuation?.growth_assumptions ?? '').length).toBeGreaterThan(0)
-    // harness-computed OE from bridge: 14+4-3-2-(-1) = 14
+    // harness-computed OE/sh from bridge totals: (14000+4000-3000-2000-(-1000))/1000 = 14000/1000 = 14
     expect(caseProjection?.valuation?.normalized_owner_earnings_per_share).toBe(14)
     // roic from mock: 0.25
     expect(caseProjection?.valuation?.roic).toBe(0.25)
@@ -673,9 +674,254 @@ describe('runStrategyResearchSwarm with MockProvider + deterministic grounder', 
     expect(caseProjection?.valuation?.buy_price_per_share).toBe(180)
     // value_basis
     expect(caseProjection?.valuation?.value_basis).toBe('equity_bond')
-    // owner_earnings_bridge projected
+    // owner_earnings_bridge projected (totals in $millions + shares_outstanding in millions)
     expect(caseProjection?.valuation?.owner_earnings_bridge).toBeDefined()
-    expect(caseProjection?.valuation?.owner_earnings_bridge?.net_income).toBe(14)
-    expect(caseProjection?.valuation?.owner_earnings_bridge?.normalized_working_capital_change).toBe(-1)
+    expect(caseProjection?.valuation?.owner_earnings_bridge?.net_income).toBe(14000)
+    expect(caseProjection?.valuation?.owner_earnings_bridge?.normalized_working_capital_change).toBe(-1000)
+    expect(caseProjection?.valuation?.owner_earnings_bridge?.shares_outstanding).toBe(1000)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Configurable swarm fake provider for the valuation-units + resilience bug tests.
+// stageBehaviors lets a test inject a custom synthesis bridge or force failures per stage.
+// ---------------------------------------------------------------------------
+type SynthesisOverrides = Partial<{
+  moat_class: 'narrow' | 'moderate' | 'wide' | 'monopoly'
+  roic: number
+  reinvestment_rate: number
+  owner_earnings_bridge: Record<string, number | string>
+}>
+
+function configurableSwarmProvider(opts: {
+  laneCount: number
+  synthesis?: SynthesisOverrides
+  // Per-stage failure injection: returns the number of times to throw before succeeding.
+  failQuickScreen?: number
+  failSynthesis?: number
+}) {
+  const src = (id: string) => ({ source_id: id, title: 'T', url: 'https://example.com/src', excerpt: 'e' })
+  let laneCall = 0
+  let qsFails = opts.failQuickScreen ?? 0
+  let synthFails = opts.failSynthesis ?? 0
+  const baseBridge = {
+    net_income: 8838, depreciation_amortization: 2565, maintenance_capex: 2052,
+    maintenance_capex_proxy_tier: '80' as const, stock_based_comp: 911,
+    normalized_working_capital_change: 0, shares_outstanding: 443,
+  }
+  const provider = {
+    provider_id: 'fake-configurable',
+    capabilities: {} as never,
+    complete: vi.fn(),
+    runWithTools: vi.fn(),
+    // Stage is derived from the request schema_name so retries (which re-issue the same stage call)
+    // are handled correctly regardless of ordering.
+    structured: vi.fn(async (req: { response_format?: { schema_name?: string } }) => {
+      const schemaName = req.response_format?.schema_name
+      if (schemaName === 'BuffettMungerQuickScreen') {
+        if (qsFails > 0) { qsFails--; throw new Error('Codex CLI timed out') }
+        return {
+          summary: 'Good business', business_quality: 'Strong', moat: 'Wide moat',
+          management_capital_allocation: 'Excellent', financial_quality: 'Solid',
+          valuation_sanity: 'Reasonable', shariah_status: 'CONDITIONAL',
+          red_flags: ['None identified'], confidence: 'high', caveats: ['Mock caveat'],
+          screening_result: 'deep_dive_candidate', proposed_sources: [src('src_qs_1')],
+        }
+      }
+      if (schemaName === 'BuffettMungerLaneFinding') {
+        const n = laneCall++
+        return {
+          finding_summary: `Lane ${n} finding`, confidence: 'high',
+          caveats: ['Mock lane caveat'], proposed_sources: [src(`src_lane_${n}`)],
+        }
+      }
+      // synthesis/decision (BuffettMungerSynthesisDecision)
+      if (synthFails > 0) { synthFails--; throw new Error('Codex CLI timed out') }
+      return {
+        investment_verdict: 'WATCH', strategy_compliance: 'CONDITIONAL', valuation_status: 'EXPENSIVE',
+        next_required_action: 'Await margin of safety.', decision_reason: 'Quality but pricey',
+        thesis_summary: 'Quality compounder', evidence_summary: 'Covered',
+        valuation_rationale: 'Elevated', shariah_rationale: 'No prohibited activities',
+        synthesis_summary: 'All lanes reviewed', risks: ['Valuation risk'],
+        open_questions: ['Margin of safety needed'],
+        moat_class: opts.synthesis?.moat_class ?? 'wide',
+        growth_assumptions: 'ROIC>discount; terminal g capped at 3%.',
+        owner_earnings_bridge: opts.synthesis?.owner_earnings_bridge ?? baseBridge,
+        roic: opts.synthesis?.roic ?? 0.30,
+        reinvestment_rate: opts.synthesis?.reinvestment_rate ?? 0.10,
+        proposed_sources: [src('src_dec_1')],
+      }
+    }),
+  }
+  return provider
+}
+
+const allVerifiedGround = async (sources: { source_id: string }[]) => ({
+  captured: sources.map((s) => ({
+    source_id: s.source_id, title: 't', url: 'https://example.com/x', excerpt: 'e',
+    availability: 'available' as const, fetched_at: 'x', content_hash: 'sha256:1',
+  })),
+  verified_ids: sources.map((s) => s.source_id),
+})
+
+describe('BUG 1 — valuation per-share units (÷ shares_outstanding)', () => {
+  it('divides total owner earnings by shares_outstanding (COST inputs: OE/sh ≈ $19, fair ≈ $272, buy ≈ $190)', async () => {
+    // Captured COST inputs: NI 8838, D&A 2565, maint_capex 2052, SBC 911, dNWC 0 ($M),
+    // shares_outstanding 443 (M), discount 0.10, ROIC>discount → g capped at 0.03, moat wide → MoS 0.30.
+    //   OE_total = 8838 + 2565 - 2052 - 911 - 0 = 8440 ($M)
+    //   OE/sh    = 8440 / 443 ≈ 19.05
+    //   capitalized = 19.05 / (0.10 - 0.03) ≈ 272.16 ; ceiling = 20 * 19.05 ≈ 381 → fair = min = 272.16
+    //   buy = round(272.16 * 0.70, 2) ≈ 190.51
+    const store = new InMemoryEventStore()
+    const provider = configurableSwarmProvider({ laneCount: buffettMungerDeepDiveLanes.length })
+    const sourceLedgerPath = await mkdtemp(join(tmpdir(), 'owlfolio-bug1-'))
+    await runStrategyResearchSwarm(
+      store, provider as never,
+      {
+        research_case_id: 'rc_bug1', company_id: 'company_cost', ticker: 'COST',
+        strategy_id: 'buffett-munger', actor_id: 'user_local', idempotency_key: 'bug1_k',
+        model_id: 'mock', decision_id: 'decision_bug1', source_ledger_path: sourceLedgerPath,
+      },
+      { ground: allVerifiedGround, laneConcurrency: 4 },
+    )
+    const events = await store.list()
+    const projections = projectResearchCases(events as Parameters<typeof projectResearchCases>[0])
+    const cp = projections.find((c) => c.research_case_id === 'rc_bug1')
+    expect(cp?.valuation?.normalized_owner_earnings_per_share).toBeCloseTo(19.05, 1)
+    expect(cp?.valuation?.fair_value_per_share).toBeCloseTo(272.16, 0)
+    expect(cp?.valuation?.buy_price_per_share).toBeCloseTo(190.51, 0)
+    // Sanity: must NOT be the buggy ~100x value
+    expect(cp?.valuation?.fair_value_per_share ?? 0).toBeLessThan(1000)
+    // valuation_status must still read EXPENSIVE vs a ~$968 price
+    expect(cp?.valuation_status).toBe('EXPENSIVE')
+    // bridge totals + shares projected
+    expect(cp?.valuation?.owner_earnings_bridge?.shares_outstanding).toBe(443)
+  })
+
+  it('degrades gracefully (no fair/buy price) when shares_outstanding is missing/zero', async () => {
+    const store = new InMemoryEventStore()
+    const provider = configurableSwarmProvider({
+      laneCount: buffettMungerDeepDiveLanes.length,
+      synthesis: {
+        owner_earnings_bridge: {
+          net_income: 8838, depreciation_amortization: 2565, maintenance_capex: 2052,
+          maintenance_capex_proxy_tier: '80', stock_based_comp: 911,
+          normalized_working_capital_change: 0, shares_outstanding: 0,
+        },
+      },
+    })
+    const sourceLedgerPath = await mkdtemp(join(tmpdir(), 'owlfolio-bug1-degrade-'))
+    await runStrategyResearchSwarm(
+      store, provider as never,
+      {
+        research_case_id: 'rc_bug1_degrade', company_id: 'company_cost', ticker: 'COST',
+        strategy_id: 'buffett-munger', actor_id: 'user_local', idempotency_key: 'bug1d_k',
+        model_id: 'mock', decision_id: 'decision_bug1d', source_ledger_path: sourceLedgerPath,
+      },
+      { ground: allVerifiedGround, laneConcurrency: 4 },
+    )
+    const events = await store.list()
+    const projections = projectResearchCases(events as Parameters<typeof projectResearchCases>[0])
+    const cp = projections.find((c) => c.research_case_id === 'rc_bug1_degrade')
+    // No bogus huge fair value persisted
+    expect(cp?.valuation?.fair_value_per_share).toBeUndefined()
+    expect(cp?.valuation?.buy_price_per_share).toBeUndefined()
+    expect(cp?.valuation?.normalized_owner_earnings_per_share).toBeUndefined()
+    // A valuation caveat must be recorded on the analysis event
+    const analysisEvent = events.find((e) => e.event_type === 'buffett_munger_analysis_drafted')
+    const valuation = (analysisEvent?.payload as Record<string, unknown>)?.['valuation'] as Record<string, unknown>
+    expect((valuation?.['valuation_caveats'] as string[])?.join(' ')).toMatch(/shares_outstanding/i)
+    // The run still completes with a decision
+    expect(events.some((e) => e.event_type === 'decision_drafted')).toBe(true)
+  })
+})
+
+describe('BUG 2 — resilient bookend swarm calls (retry + clean failure)', () => {
+  it('recovers when quick-screen times out once then succeeds (single retry)', async () => {
+    const store = new InMemoryEventStore()
+    const provider = configurableSwarmProvider({ laneCount: buffettMungerDeepDiveLanes.length, failQuickScreen: 1 })
+    const sourceLedgerPath = await mkdtemp(join(tmpdir(), 'owlfolio-bug2-qs-recover-'))
+    const result = await runStrategyResearchSwarm(
+      store, provider as never,
+      {
+        research_case_id: 'rc_bug2_qs', company_id: 'c', ticker: 'AAPL',
+        strategy_id: 'buffett-munger', actor_id: 'user_local', idempotency_key: 'bug2qs_k',
+        model_id: 'mock', decision_id: 'decision_bug2qs', source_ledger_path: sourceLedgerPath,
+      },
+      { ground: allVerifiedGround, laneConcurrency: 4 },
+    )
+    // One retry happened: the run completed with a decision despite the first quick-screen timeout.
+    expect(result.decision).toBeDefined()
+    const events = await store.list()
+    expect(events.some((e) => e.event_type === 'decision_drafted')).toBe(true)
+  })
+
+  it('fails cleanly (ResearchSwarmStageError, quick_screen) when quick-screen times out persistently', async () => {
+    const store = new InMemoryEventStore()
+    const provider = configurableSwarmProvider({ laneCount: buffettMungerDeepDiveLanes.length, failQuickScreen: 99 })
+    const sourceLedgerPath = await mkdtemp(join(tmpdir(), 'owlfolio-bug2-qs-fail-'))
+    let caught: unknown
+    try {
+      await runStrategyResearchSwarm(
+        store, provider as never,
+        {
+          research_case_id: 'rc_bug2_qsfail', company_id: 'c', ticker: 'AAPL',
+          strategy_id: 'buffett-munger', actor_id: 'user_local', idempotency_key: 'bug2qsf_k',
+          model_id: 'mock', decision_id: 'decision_bug2qsf', source_ledger_path: sourceLedgerPath,
+        },
+        { ground: allVerifiedGround, laneConcurrency: 4 },
+      )
+    } catch (e) { caught = e }
+    expect(caught).toBeInstanceOf(ResearchSwarmStageError)
+    expect((caught as ResearchSwarmStageError).stage).toBe('quick_screen')
+    expect((caught as ResearchSwarmStageError).lanes_completed).toBe(false)
+    // Exactly two structured() attempts (initial + one retry) before failing.
+    expect(provider.structured).toHaveBeenCalledTimes(2)
+  })
+
+  it('recovers when synthesis times out once then succeeds (single retry); lanes are not re-run', async () => {
+    const store = new InMemoryEventStore()
+    const provider = configurableSwarmProvider({ laneCount: buffettMungerDeepDiveLanes.length, failSynthesis: 1 })
+    const sourceLedgerPath = await mkdtemp(join(tmpdir(), 'owlfolio-bug2-syn-recover-'))
+    const result = await runStrategyResearchSwarm(
+      store, provider as never,
+      {
+        research_case_id: 'rc_bug2_syn', company_id: 'c', ticker: 'AAPL',
+        strategy_id: 'buffett-munger', actor_id: 'user_local', idempotency_key: 'bug2syn_k',
+        model_id: 'mock', decision_id: 'decision_bug2syn', source_ledger_path: sourceLedgerPath,
+      },
+      { ground: allVerifiedGround, laneConcurrency: 4 },
+    )
+    expect(result.decision).toBeDefined()
+    const events = await store.list()
+    expect(events.some((e) => e.event_type === 'decision_drafted')).toBe(true)
+  })
+
+  it('fails cleanly (ResearchSwarmStageError, synthesis, lanes_completed) when synthesis times out persistently — lane findings preserved', async () => {
+    const store = new InMemoryEventStore()
+    const provider = configurableSwarmProvider({ laneCount: buffettMungerDeepDiveLanes.length, failSynthesis: 99 })
+    const sourceLedgerPath = await mkdtemp(join(tmpdir(), 'owlfolio-bug2-syn-fail-'))
+    let caught: unknown
+    try {
+      await runStrategyResearchSwarm(
+        store, provider as never,
+        {
+          research_case_id: 'rc_bug2_synfail', company_id: 'c', ticker: 'AAPL',
+          strategy_id: 'buffett-munger', actor_id: 'user_local', idempotency_key: 'bug2synf_k',
+          model_id: 'mock', decision_id: 'decision_bug2synf', source_ledger_path: sourceLedgerPath,
+        },
+        { ground: allVerifiedGround, laneConcurrency: 4 },
+      )
+    } catch (e) { caught = e }
+    expect(caught).toBeInstanceOf(ResearchSwarmStageError)
+    expect((caught as ResearchSwarmStageError).stage).toBe('synthesis')
+    expect((caught as ResearchSwarmStageError).lanes_completed).toBe(true)
+    // Lane findings were persisted BEFORE synthesis and must survive the failure.
+    const events = await store.list()
+    const findingCount = events.filter((e) => e.event_type === 'specialist_finding_recorded').length
+    expect(findingCount).toBeGreaterThanOrEqual(buffettMungerDeepDiveLanes.length)
+    // ...but synthesis/decision were NOT drafted (synthesis never succeeded).
+    expect(events.some((e) => e.event_type === 'deep_dive_synthesis_drafted')).toBe(false)
+    expect(events.some((e) => e.event_type === 'decision_drafted')).toBe(false)
   })
 })

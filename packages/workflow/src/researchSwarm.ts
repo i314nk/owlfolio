@@ -78,6 +78,55 @@ export async function runGroundedAgent<T extends { proposed_sources: z.infer<typ
   return { analysis, captured, verified_ids }
 }
 
+/**
+ * Resilient wrapper around {@link runGroundedAgent} for the bookend calls (quick-screen and
+ * synthesis/decision) that are NOT covered by the per-lane try/catch. A single 180s provider
+ * timeout on either bookend would otherwise abort the entire run; this adds a single retry on a
+ * transient error so a flaky timeout recovers. On the final (post-retry) failure it rethrows so the
+ * caller can record a clean failed-run outcome.
+ */
+export async function runGroundedAgentWithRetry<T extends { proposed_sources: z.infer<typeof ProposedSourcesSchema> }>(
+  provider: Provider,
+  request: GroundedAgentRequest,
+  schema: ZodType<T>,
+  deps: { ground?: GroundFn; grounding?: GroundingDeps } = {},
+  opts: { retries?: number } = {},
+): Promise<GroundedAgentResult<T>> {
+  const retries = opts.retries ?? 1
+  let lastError: unknown
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      return await runGroundedAgent(provider, request, schema, deps)
+    } catch (error) {
+      lastError = error
+      // One more attempt on a transient failure (e.g. a 180s timeout). No backoff needed for the
+      // alpha — the provider call itself is the slow part.
+    }
+  }
+  throw lastError
+}
+
+/**
+ * Structured failure raised when a bookend swarm call (quick-screen or synthesis) fails after its
+ * retry. Carries the stage and whether lane findings were already persisted so the caller / worker
+ * can record a clean `research_run_failed` and (for synthesis) know the lanes are resumable.
+ */
+export class ResearchSwarmStageError extends Error {
+  readonly stage: 'quick_screen' | 'synthesis'
+  readonly lanes_completed: boolean
+  constructor(stage: 'quick_screen' | 'synthesis', cause: unknown, opts: { lanes_completed?: boolean } = {}) {
+    const reason = cause instanceof Error ? cause.message : String(cause)
+    const laneNote = opts.lanes_completed
+      ? ' Lane findings were persisted before synthesis and can be resumed/retried.'
+      : ''
+    super(`Research swarm ${stage} stage failed after retry: ${reason}.${laneNote}`)
+    this.name = 'ResearchSwarmStageError'
+    this.stage = stage
+    this.lanes_completed = opts.lanes_completed ?? false
+    if (cause instanceof Error) this.cause = cause
+  }
+}
+
 export type LaneOutcome = {
   lane: string
   finding_summary: string
@@ -152,7 +201,9 @@ const LaneAgentSchema = z.object({
 })
 
 const OwnerEarningsBridgeSchema = z.object({
-  // All per-share, judgment-grounded by the valuation specialist.
+  // Company TOTALS in $MILLIONS, judgment-grounded by the valuation specialist from the latest 10-K.
+  // These are aggregate amounts, NOT per-share — the harness divides total owner earnings by
+  // shares_outstanding to get owner earnings per share.
   net_income: z.number(),
   depreciation_amortization: z.number(),
   maintenance_capex: z.number(),
@@ -160,6 +211,9 @@ const OwnerEarningsBridgeSchema = z.object({
   stock_based_comp: z.number(),
   // SIGNED: positive = WC is a use of cash (reduces OE); negative = structural WC release (adds to OE)
   normalized_working_capital_change: z.number(),
+  // Diluted weighted-average shares outstanding, in MILLIONS, from the latest 10-K — same scale as
+  // the $-millions amounts above. Required to convert total owner earnings to a per-share figure.
+  shares_outstanding: z.number(),
 })
 
 const DecisionAgentSchema = z.object({
@@ -286,7 +340,9 @@ export async function runStrategyResearchSwarm(
   //   1. Shariah compliance: if NON_COMPLIANT, reject immediately — do not run the deep dive.
   //   2. Business quality: if clearly not worth investigating, reject.
   // Only 'deep_dive_candidate' cases with non-NON_COMPLIANT Shariah status proceed to the expensive deep dive.
-  const qs = await runGroundedAgent(provider, {
+  let qs: GroundedAgentResult<z.infer<typeof QuickScreenAgentSchema>>
+  try {
+    qs = await runGroundedAgentWithRetry(provider, {
     run_id: `run_${command.research_case_id}_quick_screen`,
     model_id: command.model_id,
     prompt: `You are the Buffett-Munger quick-screen gate agent for ${command.ticker} (${command.company_id}). `
@@ -304,7 +360,12 @@ export async function runStrategyResearchSwarm(
       + `Gather primary/secondary sources and return them in proposed_sources with real URLs.`,
     timeout_ms: AGENT_TIMEOUT_MS,
     schema_name: 'BuffettMungerQuickScreen',
-  }, QuickScreenAgentSchema, deps)
+    }, QuickScreenAgentSchema, deps)
+  } catch (error) {
+    // Quick-screen retry exhausted: fail the run cleanly (no lanes ran yet) rather than throw a raw
+    // provider/timeout error past the swarm boundary. The worker records this as research_run_failed.
+    throw new ResearchSwarmStageError('quick_screen', error, { lanes_completed: false })
+  }
   remember(qs.captured)
 
   // I1: fail-closed if quick screen produced no verifiable sources
@@ -617,15 +678,27 @@ export async function runResearchDeepDivePhase(
   }
 
   // ---- Synthesis + decision agent ----
-  const dec = await runGroundedAgent(provider, {
+  // Resilient bookend: a single 180s timeout here would otherwise discard all completed lane
+  // findings. We retry once on a transient failure; on final failure we raise a structured
+  // ResearchSwarmStageError noting the lanes already completed (so the run can be resumed/retried)
+  // — the lane findings are already persisted to the ledger above and are NOT lost.
+  let dec: GroundedAgentResult<z.infer<typeof DecisionAgentSchema>>
+  try {
+    dec = await runGroundedAgentWithRetry(provider, {
     run_id: `run_${command.research_case_id}_synthesis`,
     model_id: command.model_id,
     prompt: `You are the Buffett-Munger synthesis+decision agent for ${command.ticker}. `
       + `Using the lane findings, produce a verdict, thesis, evidence, valuation rationale, Shariah rationale, risks, open questions, and a synthesis summary. `
+      + `For the owner_earnings_bridge, provide company TOTALS in $millions from the latest 10-K (net_income, depreciation_amortization, maintenance_capex, stock_based_comp, normalized_working_capital_change) AND shares_outstanding (diluted weighted-average shares outstanding, in MILLIONS) so the harness can compute owner earnings per share. `
       + `Cite sources in proposed_sources with real URLs.`,
     timeout_ms: AGENT_TIMEOUT_MS,
     schema_name: 'BuffettMungerSynthesisDecision',
-  }, DecisionAgentSchema, deps)
+    }, DecisionAgentSchema, deps)
+  } catch (error) {
+    // Synthesis retry exhausted: lane findings are already persisted (lanes_completed: true) so the
+    // run is resumable. Fail cleanly instead of throwing a raw provider/timeout error.
+    throw new ResearchSwarmStageError('synthesis', error, { lanes_completed: true })
+  }
   remember(dec.captured)
 
   const allVerified = [
@@ -679,20 +752,32 @@ export async function runResearchDeepDivePhase(
   })
 
   // ---- Harness-computed valuation (Design B: equity-bond capitalization with ROIC-gated growth) ----
-  // OE = NI + D&A - maint_capex - SBC - dNWC  (dNWC is signed: positive=use of cash reduces OE)
+  // The bridge fields are company TOTALS in $millions; shares_outstanding is in millions. We compute
+  // TOTAL owner earnings, then divide by shares_outstanding to get a PER-SHARE figure before capitalizing.
+  // OE_total = NI + D&A - maint_capex - SBC - dNWC  (dNWC signed: positive=use of cash reduces OE)
+  // OE/sh    = OE_total / shares_outstanding
   // g = (ROIC > discount) ? min(reinvestment_rate * ROIC, terminal_growth_cap) : 0
-  // fair_value = min(OE / (discount - g), valuation_multiple_ceiling * OE)
-  // buy_price = round(fair_value * (1 - MoS), 2)  where MoS = marginOfSafetyForMoat(strategy, moat)
+  // fair_value_per_share = min(OE/sh / (discount - g), valuation_multiple_ceiling * OE/sh)
+  // buy_price = round(fair_value_per_share * (1 - MoS), 2)  where MoS = marginOfSafetyForMoat(strategy, moat)
   const moatClass = dec.analysis.moat_class
   const moat_passes_gate = moatPassesGate(buffettMungerStrategy, moatClass)
 
   const bridge = dec.analysis.owner_earnings_bridge
-  const normalized_owner_earnings_per_share =
+  const owner_earnings_total =
     bridge.net_income
     + bridge.depreciation_amortization
     - bridge.maintenance_capex
     - bridge.stock_based_comp
     - bridge.normalized_working_capital_change  // signed: subtract (positive = use of cash, negative = release)
+
+  // Convert total owner earnings ($M) to per-share using diluted shares outstanding (M).
+  // Guard: shares_outstanding must be a positive, finite number — otherwise we cannot compute a
+  // meaningful per-share figure and must degrade gracefully (no bogus huge fair value).
+  const shares_outstanding = bridge.shares_outstanding
+  const shares_valid = Number.isFinite(shares_outstanding) && shares_outstanding > 0
+  const normalized_owner_earnings_per_share = shares_valid
+    ? owner_earnings_total / shares_outstanding
+    : undefined
 
   const discount = discountRate(buffettMungerStrategy)
   const roic = dec.analysis.roic
@@ -700,6 +785,7 @@ export async function runResearchDeepDivePhase(
   const terminal_growth_cap = buffettMungerStrategy.valuation.terminal_growth_cap
   const valuation_multiple_ceiling = buffettMungerStrategy.valuation.valuation_multiple_ceiling
 
+  const valuationCaveats: string[] = []
   let buy_price_per_share: number | undefined
   let fair_value_per_share: number | undefined
   let effective_growth_rate: number
@@ -712,13 +798,30 @@ export async function runResearchDeepDivePhase(
     effective_growth_rate = 0
   }
 
-  if (moat_passes_gate) {
-    // Equity-bond capitalization: OE / (discount - g), floored at discount > g (guaranteed since g <= 3% < 10%)
+  // Plausibility ceiling for a per-share fair value. A per-share owner-earnings valuation for any
+  // real equity is far below this; anything at/above it signals a units bug (e.g. totals not divided
+  // by shares) and must be discarded rather than persisted.
+  const MAX_PLAUSIBLE_FAIR_VALUE_PER_SHARE = 1_000_000
+
+  if (!shares_valid) {
+    valuationCaveats.push(
+      'Valuation not computed: shares_outstanding missing or non-positive — cannot derive owner earnings per share. Re-run with grounded share count before relying on any buy price.',
+    )
+  } else if (moat_passes_gate && normalized_owner_earnings_per_share !== undefined) {
+    // Equity-bond capitalization: OE/sh / (discount - g), floored at discount > g (guaranteed since g <= 3% < 10%)
     const capitalizedValue = normalized_owner_earnings_per_share / (discount - effective_growth_rate)
     const ceilingValue = valuation_multiple_ceiling * normalized_owner_earnings_per_share
-    fair_value_per_share = Math.min(capitalizedValue, ceilingValue)
-    margin_of_safety = marginOfSafetyForMoat(buffettMungerStrategy, moatClass)
-    buy_price_per_share = Math.round(fair_value_per_share * (1 - margin_of_safety) * 100) / 100
+    const computedFairValue = Math.min(capitalizedValue, ceilingValue)
+    // Sanity guard: degrade gracefully if the per-share fair value is non-finite, <= 0, or implausibly large.
+    if (!Number.isFinite(computedFairValue) || computedFairValue <= 0 || computedFairValue > MAX_PLAUSIBLE_FAIR_VALUE_PER_SHARE) {
+      valuationCaveats.push(
+        `Valuation discarded: computed fair value per share (${Number.isFinite(computedFairValue) ? computedFairValue.toFixed(2) : 'non-finite'}) is implausible — owner-earnings inputs likely mis-scaled. No buy price emitted.`,
+      )
+    } else {
+      fair_value_per_share = computedFairValue
+      margin_of_safety = marginOfSafetyForMoat(buffettMungerStrategy, moatClass)
+      buy_price_per_share = Math.round(fair_value_per_share * (1 - margin_of_safety) * 100) / 100
+    }
   }
 
   // Apply moat gate: if moat is below wide, override verdict to PASS regardless of model output
@@ -758,7 +861,8 @@ export async function runResearchDeepDivePhase(
         roic,
         reinvestment_rate,
         owner_earnings_bridge: bridge,
-        normalized_owner_earnings_per_share,
+        ...(normalized_owner_earnings_per_share !== undefined ? { normalized_owner_earnings_per_share } : {}),
+        ...(valuationCaveats.length > 0 ? { valuation_caveats: valuationCaveats } : {}),
         ...(fair_value_per_share !== undefined ? { fair_value_per_share } : {}),
         ...(margin_of_safety !== undefined ? { margin_of_safety } : {}),
         ...(buy_price_per_share !== undefined ? { buy_price_per_share } : {}),
@@ -809,7 +913,8 @@ export async function runResearchDeepDivePhase(
     reason: gatedReason,
     thesis_summary: dec.analysis.thesis_summary,
     evidence_summary: dec.analysis.evidence_summary,
-    valuation_rationale: moat_passes_gate ? dec.analysis.valuation_rationale : `Moat gate rejected: ${moatClass} is below the minimum investable moat (wide). No buy price computed.`,
+    valuation_rationale: (moat_passes_gate ? dec.analysis.valuation_rationale : `Moat gate rejected: ${moatClass} is below the minimum investable moat (wide). No buy price computed.`)
+      + (valuationCaveats.length > 0 ? ` ${valuationCaveats.join(' ')}` : ''),
     shariah_rationale: dec.analysis.shariah_rationale,
     risks: dec.analysis.risks,
     open_questions: dec.analysis.open_questions,

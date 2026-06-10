@@ -51,6 +51,8 @@ export type OwnerEarningsBridgeProjection = {
   maintenance_capex_proxy_tier?: string
   stock_based_comp?: number
   normalized_working_capital_change?: number
+  /** Diluted weighted-average shares outstanding, in MILLIONS (same scale as the $-millions amounts). */
+  shares_outstanding?: number
 }
 
 export type ResearchCaseValuationProjection = {
@@ -160,6 +162,8 @@ function getOwnerEarningsBridgeProjection(val: Record<string, unknown>): OwnerEa
   if (stock_based_comp !== undefined) projected.stock_based_comp = stock_based_comp
   const normalized_working_capital_change = getNumber(bridge, 'normalized_working_capital_change')
   if (normalized_working_capital_change !== undefined) projected.normalized_working_capital_change = normalized_working_capital_change
+  const shares_outstanding = getNumber(bridge, 'shares_outstanding')
+  if (shares_outstanding !== undefined) projected.shares_outstanding = shares_outstanding
 
   return Object.keys(projected).length === 0 ? undefined : projected
 }

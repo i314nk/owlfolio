@@ -160,15 +160,17 @@ function mockSynthesisDecisionForTicker(ticker: string) {
     risks: [`Valuation compression risk if earnings disappoint.`],
     open_questions: [`Refresh owner-earnings and Shariah ratio evidence after the next quarterly filing.`],
     moat_class: 'monopoly' as const,
-    growth_assumptions: `${companyLabel} is assumed to compound owner earnings at the terminal growth rate (3%) — ROIC 25% > 10% discount, reinvestment rate 40%, g = min(0.40×0.25, 0.03) = 3%. Fair value: OE/(disc−g) = 14/(0.10−0.03) = 200. Monopoly MoS 10% → buy below $180.`,
+    growth_assumptions: `${companyLabel} is assumed to compound owner earnings at the terminal growth rate (3%) — ROIC 25% > 10% discount, reinvestment rate 40%, g = min(0.40×0.25, 0.03) = 3%. Owner earnings $14,000M ÷ 1,000M shares = $14/sh. Fair value: OE/sh/(disc−g) = 14/(0.10−0.03) = 200. Monopoly MoS 10% → buy below $180.`,
     owner_earnings_bridge: {
-      // Per-share, judgment-grounded. OE = 14+4−3−2−(−1) = 14
-      net_income: 14,
-      depreciation_amortization: 4,
-      maintenance_capex: 3,
+      // Company TOTALS in $millions, judgment-grounded. OE_total = 14000+4000−3000−2000−(−1000) = 14000.
+      // shares_outstanding 1000M → OE/sh = 14000/1000 = 14.
+      net_income: 14000,
+      depreciation_amortization: 4000,
+      maintenance_capex: 3000,
       maintenance_capex_proxy_tier: '50' as const,
-      stock_based_comp: 2,
-      normalized_working_capital_change: -1,  // negative = structural WC release, adds to OE
+      stock_based_comp: 2000,
+      normalized_working_capital_change: -1000,  // negative = structural WC release, adds to OE
+      shares_outstanding: 1000,
     },
     roic: 0.25,
     reinvestment_rate: 0.40,
