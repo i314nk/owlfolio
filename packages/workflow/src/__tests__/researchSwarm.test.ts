@@ -1015,3 +1015,166 @@ describe('BUG 2 — resilient bookend swarm calls (retry + clean failure)', () =
     expect(events.some((e) => e.event_type === 'decision_drafted')).toBe(false)
   })
 })
+
+// ---------------------------------------------------------------------------
+// SEC EDGAR primary-filing integration (fail-closed, test-mode-gated)
+// ---------------------------------------------------------------------------
+
+import type { Fundamentals } from '../secEdgar'
+import { runResearchDeepDivePhase } from '../researchSwarm'
+import { createResearchCase } from '../researchWorkflow'
+
+async function seedDeepDivePrereqs(store: InMemoryEventStore): Promise<void> {
+  await createResearchCase(store, {
+    research_case_id: 'rc_edgar', company_id: 'company_cost', ticker: 'COST',
+    strategy_id: 'buffett-munger', actor_id: 'user_local',
+  })
+  await store.append({
+    event_id: 'evt_qs_1', event_type: 'quick_screen_drafted', aggregate_type: 'research_case',
+    aggregate_id: 'rc_edgar', correlation_id: 'rc_edgar', actor_type: 'provider', actor_id: 'fake-swarm',
+    payload: { shariah_status: 'COMPLIANT', summary: 's', business_quality: 'b', moat: 'm', management_capital_allocation: 'mc', financial_quality: 'fq', valuation_sanity: 'vs', screening_result: 'deep_dive_candidate', confidence: 'high' },
+    source_ids: ['src_qs_1'], created_at: 'x', schema_version: 1,
+  })
+}
+
+const costFundamentals: Fundamentals = {
+  cik: '0000909832',
+  entity_name: 'COSTCO WHOLESALE CORP /NEW',
+  latest_annual: {
+    fiscal_year: 2025,
+    net_income_musd: 8099,
+    revenue_musd: 275235,
+    d_and_a_musd: 2426,
+    capex_musd: 5498,
+    sbc_musd: 860,
+    diluted_shares_m: 444.8,
+    shares_outstanding_m: 443.2,
+    total_debt_musd: 5788,
+    cash_and_securities_musd: 15284,
+    interest_expense_musd: 154,
+  },
+  annual_series: [
+    { fiscal_year: 2025, net_income_musd: 8099, revenue_musd: 275235, d_and_a_musd: 2426, capex_musd: 5498, sbc_musd: 860, diluted_shares_m: 444.8 },
+    { fiscal_year: 2024, net_income_musd: 7367, revenue_musd: 254453, d_and_a_musd: 2237, capex_musd: 4710, sbc_musd: 800, diluted_shares_m: 444.2 },
+  ],
+  filings: [
+    { form: '10-K', filed: '2025-10-08', url: 'https://www.sec.gov/Archives/edgar/data/909832/000090983225000101/cost-20250831.htm' },
+  ],
+}
+
+// Ground fn that verifies every proposed source (including the injected EDGAR 10-K).
+function verifyAllGround(): GroundFn {
+  return (async (sources: { source_id: string }[]) => ({
+    captured: sources.map((s) => ({
+      source_id: s.source_id,
+      title: 't',
+      url: 'https://example.com/x',
+      excerpt: 'e',
+      availability: 'available' as const,
+      fetched_at: 'x',
+      content_hash: 'sha256:1',
+    })),
+    verified_ids: sources.map((s) => s.source_id),
+  })) as unknown as GroundFn
+}
+
+function deepDiveCommand() {
+  return {
+    research_case_id: 'rc_edgar',
+    company_id: 'company_cost',
+    ticker: 'COST',
+    strategy_id: 'buffett-munger',
+    model_id: 'mock',
+    decision_id: 'decision_edgar',
+    source_ledger_path: '/tmp/owlfolio-edgar-test-sources',
+    quick_screen_source_ids: ['src_qs_1'],
+    quick_screen_event_id: 'evt_qs_1',
+  }
+}
+
+describe('SEC EDGAR primary-filing wiring', () => {
+  it('grounds the 10-K and injects primary numbers into financial_quality/valuation/shariah lanes', async () => {
+    const store = new InMemoryEventStore()
+    await seedDeepDivePrereqs(store)
+
+    const provider = swarmFakeProvider()
+    // skip the quick-screen call (call 0) so lane/synthesis payloads line up
+    await provider.structured({} as never)
+
+    await runResearchDeepDivePhase(store, provider as never, deepDiveCommand(), {
+      ground: verifyAllGround(),
+      laneConcurrency: 7,
+      fundamentals: costFundamentals,
+    })
+
+    // The structured() prompts for the three financial lanes must contain the primary-filing block.
+    const prompts = provider.structured.mock.calls.map((c: unknown[]) => (c[0] as { prompt?: string }).prompt).filter((p): p is string => typeof p === "string")
+    const financialLanePrompt = prompts.find((p) => p.includes('financial_quality specialist'))
+    const valuationLanePrompt = prompts.find((p) => p.includes('valuation specialist'))
+    const shariahLanePrompt = prompts.find((p) => p.includes('shariah specialist'))
+    const moatLanePrompt = prompts.find((p) => p.includes('moat specialist'))
+
+    for (const p of [financialLanePrompt, valuationLanePrompt, shariahLanePrompt]) {
+      expect(p).toBeDefined()
+      expect(p).toContain('Primary filing data (SEC EDGAR, FY2025')
+      expect(p).toContain('$8,099M') // net income, $millions
+      expect(p).toContain('sec_edgar_10k_0000909832_fy2025')
+    }
+    // Non-financial lanes (e.g. moat) must NOT receive the injection.
+    expect(moatLanePrompt).toBeDefined()
+    expect(moatLanePrompt).not.toContain('Primary filing data (SEC EDGAR')
+
+    // The grounded EDGAR 10-K must be persisted as a verified source on the financial lane findings.
+    const events = await store.list()
+    const finFinding = events.find((e) => e.event_type === 'specialist_finding_recorded'
+      && (e.payload as { specialist_lane?: string }).specialist_lane === 'financial_quality')
+    expect((finFinding?.payload as { source_ids: string[] }).source_ids)
+      .toContain('sec_edgar_10k_0000909832_fy2025')
+  })
+
+  it('runs exactly as today (no injection) when fundamentals are undefined — fail-closed', async () => {
+    const store = new InMemoryEventStore()
+    await seedDeepDivePrereqs(store)
+
+    const provider = swarmFakeProvider()
+    await provider.structured({} as never) // skip quick screen call
+
+    // fetchFundamentals returns undefined (EDGAR down / non-US ticker).
+    const result = await runResearchDeepDivePhase(store, provider as never, deepDiveCommand(), {
+      ground: verifyAllGround(),
+      laneConcurrency: 7,
+      fetchFundamentals: async () => undefined,
+    })
+
+    const prompts = provider.structured.mock.calls.map((c: unknown[]) => (c[0] as { prompt?: string }).prompt).filter((p): p is string => typeof p === "string")
+    expect(prompts.every((p) => !p.includes('Primary filing data (SEC EDGAR'))).toBe(true)
+    // Swarm still completes normally.
+    expect(result.decision).toBeDefined()
+    const events = await store.list()
+    expect(events.some((e) => e.event_type === 'deep_dive_synthesis_drafted')).toBe(true)
+  })
+
+  it('does not hit SEC live in playwright test mode without injection (fail-closed gate)', async () => {
+    const store = new InMemoryEventStore()
+    await seedDeepDivePrereqs(store)
+
+    const provider = swarmFakeProvider()
+    await provider.structured({} as never)
+
+    const prior = process.env.OWLFOLIO_TEST_MODE
+    process.env.OWLFOLIO_TEST_MODE = 'playwright'
+    try {
+      await runResearchDeepDivePhase(store, provider as never, deepDiveCommand(), {
+        ground: verifyAllGround(),
+        laneConcurrency: 7,
+        // No injection provided: outside test mode the live SEC path would run. In playwright test
+        // mode the gate must skip it — we prove it never hit live by asserting no SEC prompt injection.
+      })
+    } finally {
+      if (prior === undefined) delete process.env.OWLFOLIO_TEST_MODE
+      else process.env.OWLFOLIO_TEST_MODE = prior
+    }
+    const prompts = provider.structured.mock.calls.map((c: unknown[]) => (c[0] as { prompt?: string }).prompt).filter((p): p is string => typeof p === "string")
+    expect(prompts.every((p) => !p.includes('Primary filing data (SEC EDGAR'))).toBe(true)
+  })
+})

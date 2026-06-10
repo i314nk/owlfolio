@@ -3,6 +3,7 @@ import type { EventStore } from '@owlfolio/ledger/eventStore'
 import type { LedgerEventEnvelope } from '@owlfolio/ledger/eventEnvelope'
 import type { Provider } from '@owlfolio/providers'
 import { groundProposedSources, type CapturedSource, type GroundingDeps, type ProposedSource } from './sourceGrounding'
+import { fetchCompanyFundamentals, type Fundamentals, type SecEdgarDeps } from './secEdgar'
 import { createResearchCase, draftDecision } from './researchWorkflow'
 import {
   buffettMungerDeepDiveLanes,
@@ -304,6 +305,78 @@ function swarmSeg(value: string): string {
 }
 
 // ---------------------------------------------------------------------------
+// SEC EDGAR primary-filing grounding (fail-closed, test-mode-gated)
+// ---------------------------------------------------------------------------
+
+/**
+ * Dependency surface for pre-fetching SEC EDGAR fundamentals. Lets the web layer inject a fixture (so
+ * e2e stays deterministic + offline) or override the fetcher. When neither is provided AND the run is
+ * in playwright test mode, the swarm does NOT hit SEC live — it proceeds with no fundamentals (exactly
+ * as today). Outside test mode with no override, the live adapter is used.
+ */
+export type FundamentalsDeps = {
+  /** Pre-resolved fundamentals (e.g. an e2e/test fixture). Takes precedence over fetchFundamentals. */
+  fundamentals?: Fundamentals
+  /** Override fetcher. Defaults to the live SEC EDGAR adapter outside playwright test mode. */
+  fetchFundamentals?: (ticker: string, deps?: SecEdgarDeps) => Promise<Fundamentals | undefined>
+}
+
+/**
+ * Resolve fundamentals for a ticker, fail-closed and test-mode-gated. Never throws — any error yields
+ * undefined so the swarm runs exactly as today (no regression when EDGAR is down / ticker is non-US).
+ */
+async function resolveFundamentals(ticker: string, deps: FundamentalsDeps): Promise<Fundamentals | undefined> {
+  try {
+    if (deps.fundamentals !== undefined) return deps.fundamentals
+    if (deps.fetchFundamentals !== undefined) return await deps.fetchFundamentals(ticker)
+    // No injection: in playwright test mode, do NOT hit SEC live (offline/deterministic e2e).
+    if (process.env['OWLFOLIO_TEST_MODE'] === 'playwright') return undefined
+    return await fetchCompanyFundamentals(ticker)
+  } catch {
+    return undefined
+  }
+}
+
+function fmtMusd(v: number | undefined): string {
+  return v === undefined ? 'n/a' : `$${Math.round(v).toLocaleString('en-US')}M`
+}
+
+function fmtShares(v: number | undefined): string {
+  return v === undefined ? 'n/a' : `${v.toFixed(1)}M`
+}
+
+/**
+ * Build a compact, grounded primary-filing context block for injection into a lane prompt. Includes
+ * the OE-bridge raw inputs, revenue, debt, cash, interest expense, the multi-year series, and the
+ * grounded EDGAR source_id the lane MUST cite.
+ */
+function buildPrimaryFilingBlock(f: Fundamentals, sourceId: string): string {
+  const la = f.latest_annual
+  const series = f.annual_series.slice(0, 11) // latest + up to 10 prior years
+  const seriesLines = series.map((a) =>
+    `  FY${a.fiscal_year}: NI ${fmtMusd(a.net_income_musd)}, rev ${fmtMusd(a.revenue_musd)}, `
+    + `D&A ${fmtMusd(a.d_and_a_musd)}, capex ${fmtMusd(a.capex_musd)}, SBC ${fmtMusd(a.sbc_musd)}, `
+    + `diluted shares ${fmtShares(a.diluted_shares_m)}`,
+  ).join('\n')
+
+  return (
+    `\n\nPrimary filing data (SEC EDGAR, FY${la.fiscal_year}, source ${sourceId}) — ${f.entity_name} (CIK ${f.cik}). `
+    + `These are RAW values from the latest 10-K, in $millions and share-millions. USE these primary numbers `
+    + `as the authoritative basis for your finding (you may still normalize, e.g. estimate the maintenance-capex `
+    + `fraction of total capex), and CITE source ${sourceId} (the EDGAR 10-K) in proposed_sources.\n`
+    + `Latest annual (FY${la.fiscal_year}): net_income ${fmtMusd(la.net_income_musd)}, revenue ${fmtMusd(la.revenue_musd)}, `
+    + `D&A ${fmtMusd(la.d_and_a_musd)}, total_capex ${fmtMusd(la.capex_musd)}, SBC ${fmtMusd(la.sbc_musd)}, `
+    + `diluted_shares ${fmtShares(la.diluted_shares_m)}, shares_outstanding ${fmtShares(la.shares_outstanding_m)}, `
+    + `total_debt ${fmtMusd(la.total_debt_musd)}, cash_and_securities ${fmtMusd(la.cash_and_securities_musd)}, `
+    + `interest_expense ${fmtMusd(la.interest_expense_musd)}.\n`
+    + `Multi-year annual series (newest first, ${series.length} of ${f.annual_series.length} yrs):\n${seriesLines}`
+  )
+}
+
+// Lanes that receive the primary-filing data injection (they consume hard financials).
+const PRIMARY_FILING_LANES: ReadonlySet<string> = new Set(['financial_quality', 'valuation', 'shariah'])
+
+// ---------------------------------------------------------------------------
 // Helpers for mapping shariah status
 // ---------------------------------------------------------------------------
 
@@ -326,7 +399,7 @@ export async function runStrategyResearchSwarm(
   store: SwarmStore,
   provider: Provider,
   command: RunStrategyResearchSwarmCommand,
-  deps: { ground?: GroundFn; grounding?: GroundingDeps; laneConcurrency?: number } = {},
+  deps: { ground?: GroundFn; grounding?: GroundingDeps; laneConcurrency?: number } & FundamentalsDeps = {},
 ) {
   const strategyRef = resolveResearchStrategyRef(command)
   const accumulated = new Map<string, CapturedSource>()
@@ -605,7 +678,7 @@ export async function runResearchDeepDivePhase(
   store: SwarmStore,
   provider: Provider,
   command: RunResearchDeepDivePhaseCommand,
-  deps: { ground?: GroundFn; grounding?: GroundingDeps; laneConcurrency?: number; accumulated?: Map<string, CapturedSource> } = {},
+  deps: { ground?: GroundFn; grounding?: GroundingDeps; laneConcurrency?: number; accumulated?: Map<string, CapturedSource> } & FundamentalsDeps = {},
 ) {
   const strategyRef = resolveResearchStrategyRef(command)
   const accumulated = deps.accumulated ?? new Map<string, CapturedSource>()
@@ -634,23 +707,63 @@ export async function runResearchDeepDivePhase(
     idempotency_key: `deep-dive-start:${command.research_case_id}:v1`,
   })
 
+  // ---- Pre-fetch SEC EDGAR primary-filing fundamentals (fail-closed, test-mode-gated) ----
+  // When fundamentals resolve, we ground the latest 10-K as a verified primary source and inject the
+  // raw filing numbers into the financial_quality / valuation / shariah lanes so those lanes ground on
+  // filings instead of dropping when IR/news is blocked. When they do not resolve (non-US ticker,
+  // EDGAR down, test mode w/o injection), the lanes run EXACTLY as today — no regression.
+  const fundamentals = await resolveFundamentals(command.ticker, deps)
+  let primaryFilingBlock: string | undefined
+  let primaryFilingSourceId: string | undefined
+  if (fundamentals !== undefined) {
+    const tenK = fundamentals.filings.find((x) => x.form === '10-K')
+    if (tenK !== undefined) {
+      const sourceId = `sec_edgar_10k_${fundamentals.cik}_fy${fundamentals.latest_annual.fiscal_year}`
+      const proposed: ProposedSource = {
+        source_id: sourceId,
+        title: `${fundamentals.entity_name} 10-K (FY${fundamentals.latest_annual.fiscal_year}) — SEC EDGAR`,
+        url: tenK.url,
+        excerpt: `Primary SEC EDGAR 10-K filing for ${fundamentals.entity_name} (CIK ${fundamentals.cik}), filed ${tenK.filed}.`,
+      }
+      // Ground the 10-K through the same path as model-proposed sources (content-hash + SSRF guard).
+      const ground = deps.ground ?? groundProposedSources
+      const grounded = await ground([proposed], deps.grounding)
+      const captured = grounded.captured[0]
+      if (captured !== undefined && grounded.verified_ids.includes(sourceId)) {
+        remember([captured])
+        primaryFilingSourceId = sourceId
+        primaryFilingBlock = buildPrimaryFilingBlock(fundamentals, sourceId)
+      }
+    }
+  }
+
   // ---- Per-lane swarm ----
   const laneResults = await runLaneSwarm(lanes, async (lane) => {
+    // Inject the grounded primary-filing block into the financial-heavy lanes so they have a
+    // guaranteed primary citation + real numbers. The lane MUST cite the EDGAR source_id.
+    const injectFiling = primaryFilingBlock !== undefined && PRIMARY_FILING_LANES.has(lane)
     const agent = await runGroundedAgent(provider, {
       run_id: `run_${command.research_case_id}_${swarmSeg(lane)}`,
       model_id: command.model_id,
       prompt: `You are the Buffett-Munger ${lane} specialist agent for ${command.ticker}. `
-        + `Produce a source-backed finding for the ${lane} lane only. Gather your own sources; return them in proposed_sources with real URLs.`,
+        + `Produce a source-backed finding for the ${lane} lane only. Gather your own sources; return them in proposed_sources with real URLs.`
+        + (injectFiling ? primaryFilingBlock : ''),
       timeout_ms: AGENT_TIMEOUT_MS,
       schema_name: 'BuffettMungerLaneFinding',
     }, LaneAgentSchema, deps)
     remember(agent.captured)
+    // The grounded EDGAR 10-K is a guaranteed verified primary citation for the injected lanes —
+    // include it in the lane's verified_ids so the lane records a finding even if the model proposed
+    // no other verifiable source (this is what fixes the lane-drop when IR/news is blocked).
+    const verified_ids = injectFiling && primaryFilingSourceId !== undefined
+      ? [...new Set([primaryFilingSourceId, ...agent.verified_ids])]
+      : agent.verified_ids
     return {
       lane,
       finding_summary: agent.analysis.finding_summary,
       confidence: agent.analysis.confidence,
       caveats: agent.analysis.caveats,
-      verified_ids: agent.verified_ids,
+      verified_ids,
     }
   }, { concurrency: deps.laneConcurrency ?? 4 })
 
