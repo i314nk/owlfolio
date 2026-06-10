@@ -1,8 +1,33 @@
-import { z, type ZodType } from 'zod'
+import { z } from 'zod'
 import type { EventStore } from '@owlfolio/ledger/eventStore'
 import type { LedgerEventEnvelope } from '@owlfolio/ledger/eventEnvelope'
 import type { Provider } from '@owlfolio/providers'
-import { groundProposedSources, groundProposedSourcesForLane, type CapturedSource, type GroundingDeps, type ProposedSource, type SourcePolicyRejection } from './sourceGrounding'
+import { groundProposedSources, type CapturedSource, type GroundingDeps, type ProposedSource, type SourcePolicyRejection } from './sourceGrounding'
+// Grounded-agent primitives live in a cycle-free module (groundedAgent) so BOTH this orchestrator AND
+// the red-team pass can import them without a circular module-evaluation dependency. Re-exported below
+// for existing importers (tests + workers import these from researchSwarm).
+import {
+  ProposedSourceSchema,
+  ProposedSourcesSchema,
+  runGroundedAgent,
+  runGroundedAgentWithRetry,
+  SynthesisResponseSchema,
+  type GroundFn,
+  type GroundedAgentRequest,
+  type GroundedAgentResult,
+  type SynthesisResponse,
+} from './groundedAgent'
+export {
+  ProposedSourceSchema,
+  ProposedSourcesSchema,
+  runGroundedAgent,
+  runGroundedAgentWithRetry,
+  SynthesisResponseSchema,
+  type GroundFn,
+  type GroundedAgentRequest,
+  type GroundedAgentResult,
+  type SynthesisResponse,
+}
 import { computeIncrementalRoic, type AnnualFacts, type Fundamentals, type SecEdgarDeps } from './secEdgar'
 import { JUDGMENT_RUBRICS } from '@owlfolio/strategies/judgmentRubrics'
 import {
@@ -32,110 +57,7 @@ import { resolveResearchStrategyRef } from './researchStrategyRef'
 import { buffettMungerStrategy, creditedGrowth, discountRate, marginOfSafetyForMoat, moatPassesGate, stage1HorizonForMoat, terminalGrowthForMoat, twoStageFairValuePerShare } from '@owlfolio/strategies/buffettMunger'
 import { computeShariahFinancialRatios } from '@owlfolio/strategies/shariahFinancialRatios'
 import { fetchAverageMarketCap, resolveCurrentPrice, type AverageMarketCapResult, type MarketDataDeps, type PriceQuote } from './marketData'
-
-export const ProposedSourceSchema = z.object({
-  source_id: z.string().min(1),
-  title: z.string().min(1),
-  url: z.string().url(),
-  excerpt: z.string().min(1),
-  citation_locator: z.string().optional(),
-})
-export const ProposedSourcesSchema = z.array(ProposedSourceSchema).min(1)
-
-export type GroundFn = (
-  sources: z.infer<typeof ProposedSourcesSchema>,
-  deps?: GroundingDeps,
-) => Promise<{
-  captured: CapturedSource[]
-  verified_ids: string[]
-}>
-
-export type GroundedAgentRequest = {
-  run_id: string
-  model_id: string
-  prompt: string
-  timeout_ms: number
-  schema_name?: string
-}
-
-export type GroundedAgentResult<T> = {
-  analysis: T & { proposed_sources: z.infer<typeof ProposedSourcesSchema> }
-  captured: CapturedSource[]
-  verified_ids: string[]
-  /** Mechanism 6: sources rejected by the per-lane source whitelist (only set when `lane` is passed). */
-  policy_rejections: SourcePolicyRejection[]
-}
-
-export async function runGroundedAgent<T extends { proposed_sources: z.infer<typeof ProposedSourcesSchema> }>(
-  provider: Provider,
-  request: GroundedAgentRequest,
-  schema: ZodType<T>,
-  deps: { ground?: GroundFn; grounding?: GroundingDeps } = {},
-  /**
-   * Mechanism 6: when a `lane` id is supplied, the proposed sources are first gated by that lane's
-   * source-discipline whitelist (classification lanes admit only primary docs; risks admits all),
-   * then grounded through the SAME fetcher. Rejections are recorded (never silently dropped). When
-   * omitted, grounding is unchanged (the bookend quick-screen/synthesis calls span all lanes).
-   */
-  opts: { lane?: string } = {},
-): Promise<GroundedAgentResult<T>> {
-  const ground = deps.ground ?? groundProposedSources
-  const analysis = await provider.structured(
-    {
-      run_id: request.run_id,
-      model_id: request.model_id,
-      task_kind: 'structured-output',
-      prompt: request.prompt,
-      timeout_ms: request.timeout_ms,
-      budget: { max_tool_calls: 0, max_tokens: 8_000 },
-      tool_allowlist: [],
-      response_format: { kind: 'json-schema', schema_name: request.schema_name ?? 'GroundedAgent' },
-    },
-    schema,
-  )
-  // Cast: Zod infers `citation_locator?: string | undefined` but ProposedSource uses
-  // exactOptionalPropertyTypes (`citation_locator?: string`). The runtime shapes are
-  // identical — absent vs. explicitly undefined is only a type distinction.
-  const proposed = analysis.proposed_sources as ProposedSource[]
-  if (opts.lane !== undefined) {
-    const { captured, verified_ids, policy_rejections } = await groundProposedSourcesForLane(
-      opts.lane,
-      proposed,
-      { ...deps.grounding, ground },
-    )
-    return { analysis, captured, verified_ids, policy_rejections }
-  }
-  const { captured, verified_ids } = await ground(proposed, deps.grounding)
-  return { analysis, captured, verified_ids, policy_rejections: [] }
-}
-
-/**
- * Resilient wrapper around {@link runGroundedAgent} for the bookend calls (quick-screen and
- * synthesis/decision) that are NOT covered by the per-lane try/catch. A single 180s provider
- * timeout on either bookend would otherwise abort the entire run; this adds a single retry on a
- * transient error so a flaky timeout recovers. On the final (post-retry) failure it rethrows so the
- * caller can record a clean failed-run outcome.
- */
-export async function runGroundedAgentWithRetry<T extends { proposed_sources: z.infer<typeof ProposedSourcesSchema> }>(
-  provider: Provider,
-  request: GroundedAgentRequest,
-  schema: ZodType<T>,
-  deps: { ground?: GroundFn; grounding?: GroundingDeps } = {},
-  opts: { retries?: number } = {},
-): Promise<GroundedAgentResult<T>> {
-  const retries = opts.retries ?? 1
-  let lastError: unknown
-  for (let attempt = 0; attempt <= retries; attempt++) {
-    try {
-      return await runGroundedAgent(provider, request, schema, deps)
-    } catch (error) {
-      lastError = error
-      // One more attempt on a transient failure (e.g. a 180s timeout). No backoff needed for the
-      // alpha — the provider call itself is the slow part.
-    }
-  }
-  throw lastError
-}
+import { runRedTeamPass, buildRedTeamLayer, type RedTeamLaneDigest, type RedTeamResult } from './redTeamPass'
 
 /**
  * Structured failure raised when a bookend swarm call (quick-screen or synthesis) fails after its
@@ -321,6 +243,14 @@ const DecisionAgentSchema = z.object({
   roic: z.number(),
   incremental_roic: z.number(),
   reinvestment_rate: z.number(),
+  // judgment-objectivity-layer-spec Mechanism 5 — Red-Team Pass synthesis obligation. The synthesis
+  // agent receives the red team's strongest objection and MUST address it: either answer it with cited
+  // evidence (mode 'answered_with_evidence') or accept it and downgrade (mode 'accepted_downgraded' +
+  // a downgrade dimension/from/to). OPTIONAL on the schema so the swarm parses unchanged when the red
+  // team was incomplete (no objection to answer); the HARNESS deterministically flags a missing
+  // response when a live objection exists (red_team_objection_unaddressed) — silence is not an option.
+  red_team_strongest_objection: z.string().optional(),
+  synthesis_response: SynthesisResponseSchema.optional(),
   proposed_sources: ProposedSourcesSchema,
 })
 
@@ -1108,6 +1038,56 @@ export async function runResearchDeepDivePhase(
     throw new Error(`No specialist lane produced a verifiable source for ${command.ticker}; research aborted (fail-closed).`)
   }
 
+  // ---- Mechanism 5: Red-Team Pass (after the 7 lanes, BEFORE synthesis) ----
+  // One adversarial grounded agent whose ONLY mandate is to break the case. It receives a compact
+  // digest of the lane findings + the mechanically-computed anchor tiers + the verified source corpus,
+  // and cites the SAME corpus (it is the consensus-knowing lane — allowed all source categories). Its
+  // strongest objection is cite-checked; synthesis is then OBLIGED to answer it or downgrade. A
+  // red-team timeout DEGRADES (red_team_incomplete) — the run continues so a completed 7-lane deep dive
+  // is never discarded. TODO(model-tiering-spec): run on a DIFFERENT model than the lanes (one-line
+  // model_id swap) once a model registry exists — catches shared-narrative error.
+  const corpusBeforeSynthesis = [...accumulated.values()]
+  const corpusHashesBeforeSynthesis = new Set<string>()
+  for (const s of corpusBeforeSynthesis) {
+    if (s.content_hash !== undefined) corpusHashesBeforeSynthesis.add(s.content_hash)
+    corpusHashesBeforeSynthesis.add(s.source_id)
+  }
+  // Mechanical anchor tiers (computable pre-synthesis from EDGAR) give the red team a concrete target.
+  const preMoatAnchor = computeMoatAnchor(fundamentals?.annual_series ?? [])
+  const preRunwayAnchor = computeRunwayAnchor(fundamentals?.annual_series ?? [])
+  const laneDigest: RedTeamLaneDigest[] = laneResults
+    .filter((l) => l.verified_ids.length > 0)
+    .map((l) => ({ lane: l.lane, finding_summary: l.finding_summary, confidence: l.confidence }))
+  const redTeam: RedTeamResult = await runRedTeamPass(
+    provider,
+    {
+      research_case_id: command.research_case_id,
+      ticker: command.ticker,
+      // Defaults to the lanes' model; model-tiering will swap this for a different model.
+      model_id: command.model_id,
+      laneDigest,
+      caseDigest: {
+        moat_class: preMoatAnchor.computable ? preMoatAnchor.anchor_tier : 'pending (synthesis-resolved)',
+        runway: preRunwayAnchor.computable ? preRunwayAnchor.anchor_tier : 'pending (synthesis-resolved)',
+      },
+      corpusSourceIds: corpusBeforeSynthesis.map((s) => s.source_id),
+      verifiedCitationHashes: corpusHashesBeforeSynthesis,
+    },
+    { ...(deps.ground === undefined ? {} : { ground: deps.ground }), ...(deps.grounding === undefined ? {} : { grounding: deps.grounding }) },
+  )
+
+  // Compact red-team digest injected into the synthesis prompt so synthesis can answer the objection.
+  const redTeamPromptBlock = redTeam.status === 'complete'
+    ? `\n\nRED-TEAM PASS (Mechanism 5 — you MUST address this): an adversarial agent attacked this case. `
+      + `Its STRONGEST OBJECTION (severity ${redTeam.strongest_objection.severity}): "${redTeam.strongest_objection.claim}" `
+      + `[cited: ${redTeam.strongest_objection.citations.join(', ') || 'no verified citation'}]. `
+      + `Bear case: ${redTeam.strongest_bear_case} Moat-decay: ${redTeam.moat_decay_scenario} Growth-credit attack: ${redTeam.growth_credit_attack}. `
+      + `You MUST set red_team_strongest_objection to the objection text AND synthesis_response: either `
+      + `mode 'answered_with_evidence' (rebut it with a CITED claim from the corpus) OR mode 'accepted_downgraded' `
+      + `(accept it and downgrade tier/growth/verdict, supplying downgrade{dimension,from,to}). Silence is not an option.`
+    : `\n\nRED-TEAM PASS: the adversarial red-team pass did not complete (${redTeam.reason}); the case was NOT adversarially tested. `
+      + `Proceed, but the harness will surface this gap.`
+
   // ---- Synthesis + decision agent ----
   // Resilient bookend: a single 180s timeout here would otherwise discard all completed lane
   // findings. We retry once on a transient failure; on final failure we raise a structured
@@ -1124,7 +1104,8 @@ export async function runResearchDeepDivePhase(
       + `Also classify the reinvestment runway as 'proven' | 'limited' | 'none' (a SEPARATE axis from moat width — proven means ≥5 yrs of incremental capital deployed at high ROIC with visible remaining headroom), set runway_exceptional only with explicit headroom evidence, and report incremental_roic (normalized INCREMENTAL ROIC as a fraction, e.g. 0.20) alongside reinvestment_rate. The harness credits growth only when incremental_roic exceeds 10%; historical revenue/EPS growth is never an input. `
       + `JUDGMENT RUBRICS (required for objectivity): score the MOAT rubric (M1 ROIC>15% in ≥9/10yr [computable], M2 gross-margin band [computable], M3 price increases without share loss, M4 share vs entrant, M5 customer switching, M6 competitor exits) and the RUNWAY rubric (R1 incremental capital at high ROIC [computable], R2 visible headroom, R3 demonstrated reinvestment rate). For EACH item give a score 0/1/2; CITED rows (M3–M6, R2, R3) MUST carry a citation_hash that matches a fetched primary source (the harness scores 0 for any uncited cited row and re-computes M1/M2/R1 from filings itself). Then give proposed_tier (moat: narrow|moderate|wide|monopoly; runway: none|limited|proven) and adjustment_evidence — cited claims the quantitative score cannot see (patent cliff, announced entrant, technology substitution). The harness anchors the tier in the computable rows and accepts your proposed_tier ONLY as a bounded ±1-tier adjustment with verified cited evidence; an UPWARD adjustment needs 2× the cited evidence items of a downward one. `
       + `For shariah, provide the JUDGMENT only: sector_status ('compliant' | 'conditional' | 'non_compliant') confirmed with segment revenue, and impermissible_income — the dollar amount in $MILLIONS of non-permissible income (interest income on cash, prohibited-segment revenue), 0 if fully permissible. The harness recomputes the AAOIFI debt/cash/impermissible ratios + verdict + purification % from the primary filings + market cap; do NOT compute the ratios yourself. `
-      + `Cite sources in proposed_sources with real URLs.`,
+      + `Cite sources in proposed_sources with real URLs.`
+      + redTeamPromptBlock,
     timeout_ms: AGENT_TIMEOUT_MS,
     schema_name: 'BuffettMungerSynthesisDecision',
     }, DecisionAgentSchema, deps)
@@ -1134,6 +1115,18 @@ export async function runResearchDeepDivePhase(
     throw new ResearchSwarmStageError('synthesis', error, { lanes_completed: true })
   }
   remember(dec.captured)
+
+  // ---- Mechanism 5: synthesis obligation enforcement (deterministic — "silence is not an option") ----
+  // The red team handed synthesis its strongest objection; synthesis MUST have answered it with cited
+  // evidence or accepted it and downgraded. The harness builds the red-team layer and — when the red
+  // team completed with a LIVE (cite-checked) objection and synthesis supplied NO usable response —
+  // flags red_team_objection_unaddressed + appends it to open_questions (conservative: never silently
+  // dropped). A red-team-incomplete state is also surfaced as an open question (case not adversarially
+  // tested). The downgrade (mode 'accepted_downgraded') is recorded in the layer for the verdict.
+  const { layer: redTeamLayer, openQuestion: redTeamOpenQuestion } = buildRedTeamLayer({
+    redTeam,
+    synthesisResponse: dec.analysis.synthesis_response,
+  })
 
   const allVerified = [
     ...new Set([
@@ -1619,6 +1612,10 @@ export async function runResearchDeepDivePhase(
             },
           }
         : {}),
+      // Mechanism 5: red-team layer — strongest objection + the synthesis response (answered-with-evidence
+      // vs accepted→downgraded), plus the deterministic red_team_objection_unaddressed / red_team_incomplete
+      // flags. Surfaced in the verdict/dossier so an unaddressed strong objection is never silently dropped.
+      red_team: redTeamLayer,
     },
     source_ids: allVerified,
     created_at: new Date().toISOString(),
@@ -1673,11 +1670,22 @@ export async function runResearchDeepDivePhase(
 
   const analysis = await store.append({ ...analysisEvent, payload: analysisFinalPayload })
 
+  // Mechanism 5: when synthesis ACCEPTED the red-team objection and downgraded, record the downgrade in
+  // the verdict rationale (the verdict format gains the red-team objection + the synthesis response).
+  const redTeamDowngrade = redTeamLayer.synthesis_response?.mode === 'accepted_downgraded'
+    ? redTeamLayer.synthesis_response.downgrade
+    : undefined
+  const redTeamReasonNote = redTeamDowngrade !== undefined
+    ? ` Red-team accepted → downgraded ${redTeamDowngrade.dimension} (${redTeamDowngrade.from} → ${redTeamDowngrade.to}): ${redTeamLayer.synthesis_response?.text ?? ''}`
+    : redTeamLayer.objection_unaddressed === true
+      ? ` Red-team strongest objection UNADDRESSED by synthesis — see open questions.`
+      : ''
+
   const decision = await draftDecision(store, {
     research_case_id: command.research_case_id,
     decision_id: command.decision_id,
     decision: gatedVerdict,
-    reason: gatedReason,
+    reason: gatedReason + redTeamReasonNote,
     thesis_summary: dec.analysis.thesis_summary,
     evidence_summary: dec.analysis.evidence_summary,
     valuation_rationale: (moat_passes_gate ? dec.analysis.valuation_rationale : `Moat gate rejected: ${moatClass} is below the minimum investable moat (wide). No buy price computed.`)
@@ -1686,9 +1694,13 @@ export async function runResearchDeepDivePhase(
     risks: dec.analysis.risks,
     // Mechanism 3 conservative hook: unmet base-rate burdens are surfaced as open questions so an
     // exceptional claim lacking structural evidence is never silently passed to the human.
-    open_questions: baseRateCaveats.length > 0
-      ? [...dec.analysis.open_questions, ...baseRateCaveats]
-      : dec.analysis.open_questions,
+    // Mechanism 5 conservative hook: an unaddressed red-team objection (or an incomplete red-team pass)
+    // is appended to open_questions — silence is not an option; the gap is always surfaced.
+    open_questions: [
+      ...dec.analysis.open_questions,
+      ...baseRateCaveats,
+      ...(redTeamOpenQuestion !== undefined ? [redTeamOpenQuestion] : []),
+    ],
     causation_id: completed.event_id,
     source_ids: allVerified,
     idempotency_key: `decision:${command.research_case_id}:v1`,

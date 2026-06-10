@@ -215,7 +215,43 @@ function mockSynthesisDecisionForTicker(ticker: string) {
     // Normalized INCREMENTAL ROIC (fraction) drives the credited-growth band.
     incremental_roic: 0.20,
     reinvestment_rate: 0.40,
+    // judgment-objectivity-layer-spec Mechanism 5: synthesis MUST answer the red team's strongest
+    // objection or downgrade. The mock answers it with evidence cited to the grounded corpus so the
+    // demo + tests render an addressed objection (no red_team_objection_unaddressed flag).
+    red_team_strongest_objection: `${companyLabel} revenue is concentrated in a few categories — a shock could compress the moat.`,
+    synthesis_response: {
+      mode: 'answered_with_evidence' as const,
+      text: `Concentration is real but diversified across regions and members per the 10-K; renewal rates and pricing power (cited) keep the moat intact. No downgrade warranted.`,
+    },
     proposed_sources: mockSourcesForTicker(ticker),
+  }
+}
+
+// judgment-objectivity-layer-spec Mechanism 5 — Red-Team Pass. The mock emits a plausible adversarial
+// output whose strongest objection is cited to the GROUNDED corpus (the same source_ids the harness
+// verifies), so the cite-check passes and the demo/tests render a real objection + synthesis response.
+function mockRedTeamForTicker(ticker: string) {
+  const companyLabel = companyLabelForTicker(ticker)
+  const groundedSources = mockSourcesForTicker(ticker)
+  const primaryCite = groundedSources[0].source_id
+  const secondaryCite = groundedSources[1].source_id
+  return {
+    strongest_bear_case: `${companyLabel}'s premium valuation already prices in a decade of flawless execution; any reinvestment-runway disappointment compresses the multiple hard.`,
+    weakest_rubric_items: [
+      { lane: 'moat', item: 'M5', why: 'Customer-switching evidence rests on renewal rates, not contractual lock-in.' },
+      { lane: 'valuation', item: 'R2', why: 'Visible-headroom claim is qualitative, not quantified against TAM.' },
+    ],
+    moat_decay_scenario: `A well-funded entrant undercuts on price and erodes ${companyLabel}'s share over 5-7 years as switching costs prove softer than the lanes assume.`,
+    growth_credit_attack: `The credited incremental ROIC assumes reinvestment at historical rates; if it mean-reverts toward the cost of capital, the credited growth and the fair value both fall sharply.`,
+    shared_narrative_blindspots: [
+      `Every lane read the same filings and inherited management's framing of the moat as durable; none stress-tested a demand shock.`,
+    ],
+    strongest_objection: {
+      claim: `${companyLabel}'s growth credit depends on incremental ROIC staying above cost of capital, which most high-ROIC firms fail to sustain for a decade.`,
+      severity: 'high' as const,
+      citations: [primaryCite, secondaryCite],
+    },
+    proposed_sources: groundedSources,
   }
 }
 
@@ -356,6 +392,8 @@ export class MockProvider implements Provider {
           return mockLaneFindingForTicker(ticker)
         case 'BuffettMungerSynthesisDecision':
           return mockSynthesisDecisionForTicker(ticker)
+        case 'BuffettMungerRedTeam':
+          return mockRedTeamForTicker(ticker)
         case 'BuffettMungerGroundedResearch':
           return mockGroundedResearchForTicker(ticker)
         default:

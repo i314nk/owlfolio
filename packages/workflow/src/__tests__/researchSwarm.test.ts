@@ -758,11 +758,18 @@ function configurableSwarmProvider(opts: {
   // Per-stage failure injection: returns the number of times to throw before succeeding.
   failQuickScreen?: number
   failSynthesis?: number
+  // Mechanism 5 red-team controls. failRedTeam: throw N times (exercises degrade-on-timeout).
+  failRedTeam?: number
+  // synthesisResponse: what the synthesis returns for the red-team obligation (undefined = silent).
+  synthesisResponse?: { mode: 'answered_with_evidence' | 'accepted_downgraded'; text: string; downgrade?: { dimension: 'tier' | 'growth' | 'verdict'; from: string; to: string } }
+  // redTeamCitations: which corpus source_ids the red team's strongest objection cites.
+  redTeamCitations?: string[]
 }) {
   const src = (id: string) => ({ source_id: id, title: 'T', url: 'https://www.sec.gov/Archives/edgar/data/0/test-10k.htm', excerpt: 'e' })
   let laneCall = 0
   let qsFails = opts.failQuickScreen ?? 0
   let synthFails = opts.failSynthesis ?? 0
+  let rtFails = opts.failRedTeam ?? 0
   const baseBridge = {
     net_income: 8838, depreciation_amortization: 2565, maintenance_capex: 2052,
     maintenance_capex_proxy_tier: '80' as const, stock_based_comp: 911,
@@ -794,6 +801,22 @@ function configurableSwarmProvider(opts: {
           caveats: ['Mock lane caveat'], proposed_sources: [src(`src_lane_${n}`)],
         }
       }
+      if (schemaName === 'BuffettMungerRedTeam') {
+        if (rtFails > 0) { rtFails--; throw new Error('Codex CLI timed out') }
+        return {
+          strongest_bear_case: 'Valuation prices in flawless execution.',
+          weakest_rubric_items: [{ lane: 'moat', item: 'M5', why: 'thin switching evidence' }],
+          moat_decay_scenario: 'A funded entrant erodes share over 5 years.',
+          growth_credit_attack: 'Incremental ROIC mean-reverts below cost of capital.',
+          shared_narrative_blindspots: ['All lanes read the same 10-K.'],
+          strongest_objection: {
+            claim: 'Growth credit depends on incremental ROIC the firm likely cannot sustain.',
+            severity: 'high',
+            citations: opts.redTeamCitations ?? ['src_qs_1'],
+          },
+          proposed_sources: [src('src_qs_1')],
+        }
+      }
       // synthesis/decision (BuffettMungerSynthesisDecision)
       if (synthFails > 0) { synthFails--; throw new Error('Codex CLI timed out') }
       return {
@@ -811,6 +834,9 @@ function configurableSwarmProvider(opts: {
         roic: opts.synthesis?.roic ?? 0.30,
         incremental_roic: opts.synthesis?.incremental_roic ?? 0.20,
         reinvestment_rate: opts.synthesis?.reinvestment_rate ?? 0.43,
+        ...(opts.synthesisResponse !== undefined
+          ? { red_team_strongest_objection: 'echoed', synthesis_response: opts.synthesisResponse }
+          : {}),
         proposed_sources: [src('src_dec_1')],
       }
     }),
@@ -1115,6 +1141,94 @@ describe('BUG 2 — resilient bookend swarm calls (retry + clean failure)', () =
     // ...but synthesis/decision were NOT drafted (synthesis never succeeded).
     expect(events.some((e) => e.event_type === 'deep_dive_synthesis_drafted')).toBe(false)
     expect(events.some((e) => e.event_type === 'decision_drafted')).toBe(false)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Mechanism 5 — Red-Team Pass (orchestrator integration): runs after the 7 lanes, before synthesis;
+// synthesis must answer the strongest objection or downgrade; the harness enforces the response
+// deterministically (red_team_objection_unaddressed + open_questions) and degrades on timeout.
+// ---------------------------------------------------------------------------
+describe('Mechanism 5 — red-team pass + synthesis obligation', () => {
+  async function runRedTeam(opts: Omit<Parameters<typeof configurableSwarmProvider>[0], 'laneCount'>, id: string) {
+    const store = new InMemoryEventStore()
+    const provider = configurableSwarmProvider({ laneCount: buffettMungerDeepDiveLanes.length, ...opts })
+    const sourceLedgerPath = await mkdtemp(join(tmpdir(), `owlfolio-rt-${id}-`))
+    const result = await runStrategyResearchSwarm(
+      store, provider as never,
+      {
+        research_case_id: `rc_${id}`, company_id: 'c', ticker: 'TST',
+        strategy_id: 'buffett-munger', actor_id: 'user_local', idempotency_key: `${id}_k`,
+        model_id: 'mock', decision_id: `decision_${id}`, source_ledger_path: sourceLedgerPath,
+      },
+      { ground: allVerifiedGround, laneConcurrency: 4 },
+    )
+    const events = await store.list()
+    const projections = projectResearchCases(events as Parameters<typeof projectResearchCases>[0])
+    return { events, result, cp: projections.find((c) => c.research_case_id === `rc_${id}`) }
+  }
+
+  it('runs the red team and records its output on the analysis; no flag when synthesis answers with evidence', async () => {
+    const { cp, result } = await runRedTeam(
+      { synthesisResponse: { mode: 'answered_with_evidence', text: 'Top customer <10% of revenue per the 10-K.' } },
+      'answered',
+    )
+    expect(result.decision).toBeDefined()
+    expect(cp?.red_team?.status).toBe('complete')
+    expect(cp?.red_team?.strongest_objection?.claim).toMatch(/incremental ROIC/i)
+    // Cite-checked against the corpus (src_qs_1 is verified).
+    expect(cp?.red_team?.strongest_objection?.citations).toEqual(['src_qs_1'])
+    expect(cp?.red_team?.synthesis_response?.mode).toBe('answered_with_evidence')
+    expect(cp?.red_team?.objection_unaddressed).toBeUndefined()
+    // No red_team_objection_unaddressed open question.
+    expect((cp?.open_questions ?? []).some((q) => /red_team_objection_unaddressed/.test(q))).toBe(false)
+  })
+
+  it('flags red_team_objection_unaddressed + appends to open_questions when synthesis is silent', async () => {
+    const { cp } = await runRedTeam({ /* synthesisResponse undefined → silent */ }, 'unaddressed')
+    expect(cp?.red_team?.status).toBe('complete')
+    expect(cp?.red_team?.objection_unaddressed).toBe(true)
+    expect(cp?.red_team?.synthesis_response).toBeUndefined()
+    expect((cp?.open_questions ?? []).some((q) => /red_team_objection_unaddressed/.test(q))).toBe(true)
+  })
+
+  it('records the downgrade when synthesis accepts the objection (mode accepted_downgraded)', async () => {
+    const { cp } = await runRedTeam(
+      {
+        synthesisResponse: {
+          mode: 'accepted_downgraded', text: 'Concentration justifies a tier cut.',
+          downgrade: { dimension: 'tier', from: 'wide', to: 'moderate' },
+        },
+      },
+      'downgraded',
+    )
+    expect(cp?.red_team?.synthesis_response?.mode).toBe('accepted_downgraded')
+    expect(cp?.red_team?.synthesis_response?.downgrade?.to).toBe('moderate')
+    expect(cp?.red_team?.objection_unaddressed).toBeUndefined()
+    // The downgrade is recorded in the verdict rationale.
+    expect(cp?.reason ?? '').toMatch(/downgraded tier \(wide → moderate\)/)
+  })
+
+  it('degrades to red_team_incomplete on red-team timeout — run still completes through synthesis', async () => {
+    const { cp, events, result } = await runRedTeam({ failRedTeam: 99 }, 'incomplete')
+    // The run completed: synthesis + decision were still drafted.
+    expect(result.decision).toBeDefined()
+    expect(events.some((e) => e.event_type === 'deep_dive_synthesis_drafted')).toBe(true)
+    expect(events.some((e) => e.event_type === 'decision_drafted')).toBe(true)
+    // Red team recorded as incomplete (case not adversarially tested) + surfaced as an open question.
+    expect(cp?.red_team?.status).toBe('red_team_incomplete')
+    expect(cp?.red_team?.objection_unaddressed).toBeUndefined()
+    expect((cp?.open_questions ?? []).some((q) => /red_team_incomplete/.test(q))).toBe(true)
+  })
+
+  it('drops an objection whose citations are not in the verified corpus (no synthesis obligation, no flag)', async () => {
+    // The red team cites a fabricated source id; cite-check strips it → no live objection → no flag even
+    // though synthesis is silent (we never force the synthesis to answer a fabricated objection).
+    const { cp } = await runRedTeam({ redTeamCitations: ['src_fabricated'] }, 'fabricated')
+    expect(cp?.red_team?.strongest_objection?.citations ?? []).toEqual([])
+    expect(cp?.red_team?.uncited_objection_refs).toEqual(['src_fabricated'])
+    expect(cp?.red_team?.objection_unaddressed).toBeUndefined()
+    expect((cp?.open_questions ?? []).some((q) => /red_team_objection_unaddressed/.test(q))).toBe(false)
   })
 })
 

@@ -131,6 +131,33 @@ export type ResearchCaseSourceDisciplineProjection = {
   rejections?: ResearchCaseSourceRejectionProjection[]
 }
 
+/**
+ * Mechanism 5 (Red-Team Pass): the adversarial pre-synthesis run + the synthesis obligation. Carries
+ * the strongest objection (cited to the corpus) and the synthesis response (answered-with-evidence vs
+ * accepted→downgraded), plus the deterministic flags: `objection_unaddressed` (synthesis was silent on
+ * a live objection — surfaced, never dropped) and the `red_team_incomplete` status (the case was not
+ * adversarially tested because the red-team agent timed out/failed).
+ */
+export type ResearchCaseRedTeamSynthesisResponseProjection = {
+  mode?: string
+  text?: string
+  downgrade?: { dimension?: string; from?: string; to?: string }
+}
+
+export type ResearchCaseRedTeamProjection = {
+  status?: string
+  reason?: string
+  strongest_bear_case?: string
+  weakest_rubric_items?: { lane?: string; item?: string; why?: string }[]
+  moat_decay_scenario?: string
+  growth_credit_attack?: string
+  shared_narrative_blindspots?: string[]
+  strongest_objection?: { claim?: string; severity?: string; citations?: string[] }
+  uncited_objection_refs?: string[]
+  synthesis_response?: ResearchCaseRedTeamSynthesisResponseProjection
+  objection_unaddressed?: boolean
+}
+
 export type ResearchCaseValuationProjection = {
   moat_class?: string
   moat_passes_gate?: boolean
@@ -229,6 +256,8 @@ export type ResearchCaseProjection = {
   shariah_sector_status?: string
   /** Mechanism 6: source-discipline rejections (lane-proposed sources the whitelist excluded). */
   source_discipline?: ResearchCaseSourceDisciplineProjection
+  /** Mechanism 5: red-team pass — strongest objection + the synthesis response + the deterministic flags. */
+  red_team?: ResearchCaseRedTeamProjection
   synthesis_id?: string
   decision_id?: string
   investment_verdict?: string
@@ -411,6 +440,66 @@ function getSourceDiscipline(payload: Record<string, unknown>): ResearchCaseSour
     })
     if (rejections.length > 0) projected.rejections = rejections
   }
+  return Object.keys(projected).length === 0 ? undefined : projected
+}
+
+function getRedTeam(payload: Record<string, unknown>): ResearchCaseRedTeamProjection | undefined {
+  const value = payload['red_team']
+  if (!isRecord(value)) return undefined
+  const projected: ResearchCaseRedTeamProjection = {}
+  const status = getString(value, 'status')
+  if (status !== undefined) projected.status = status
+  const reason = getString(value, 'reason')
+  if (reason !== undefined) projected.reason = reason
+  const strongest_bear_case = getString(value, 'strongest_bear_case')
+  if (strongest_bear_case !== undefined) projected.strongest_bear_case = strongest_bear_case
+  const moat_decay_scenario = getString(value, 'moat_decay_scenario')
+  if (moat_decay_scenario !== undefined) projected.moat_decay_scenario = moat_decay_scenario
+  const growth_credit_attack = getString(value, 'growth_credit_attack')
+  if (growth_credit_attack !== undefined) projected.growth_credit_attack = growth_credit_attack
+  const blindspots = getStringArray(value, 'shared_narrative_blindspots')
+  if (blindspots !== undefined) projected.shared_narrative_blindspots = blindspots
+  const uncited = getStringArray(value, 'uncited_objection_refs')
+  if (uncited !== undefined) projected.uncited_objection_refs = uncited
+  if (typeof value['objection_unaddressed'] === 'boolean') projected.objection_unaddressed = value['objection_unaddressed']
+
+  const rawWeak = value['weakest_rubric_items']
+  if (Array.isArray(rawWeak)) {
+    const items = rawWeak.filter(isRecord).map((w) => {
+      const item: { lane?: string; item?: string; why?: string } = {}
+      const lane = getString(w, 'lane'); if (lane !== undefined) item.lane = lane
+      const it = getString(w, 'item'); if (it !== undefined) item.item = it
+      const why = getString(w, 'why'); if (why !== undefined) item.why = why
+      return item
+    }).filter((w) => Object.keys(w).length > 0)
+    if (items.length > 0) projected.weakest_rubric_items = items
+  }
+
+  const rawObj = value['strongest_objection']
+  if (isRecord(rawObj)) {
+    const obj: { claim?: string; severity?: string; citations?: string[] } = {}
+    const claim = getString(rawObj, 'claim'); if (claim !== undefined) obj.claim = claim
+    const severity = getString(rawObj, 'severity'); if (severity !== undefined) obj.severity = severity
+    const citations = getStringArray(rawObj, 'citations'); if (citations !== undefined) obj.citations = citations
+    if (Object.keys(obj).length > 0) projected.strongest_objection = obj
+  }
+
+  const rawResp = value['synthesis_response']
+  if (isRecord(rawResp)) {
+    const resp: ResearchCaseRedTeamSynthesisResponseProjection = {}
+    const mode = getString(rawResp, 'mode'); if (mode !== undefined) resp.mode = mode
+    const text = getString(rawResp, 'text'); if (text !== undefined) resp.text = text
+    const rawDown = rawResp['downgrade']
+    if (isRecord(rawDown)) {
+      const down: { dimension?: string; from?: string; to?: string } = {}
+      const dimension = getString(rawDown, 'dimension'); if (dimension !== undefined) down.dimension = dimension
+      const from = getString(rawDown, 'from'); if (from !== undefined) down.from = from
+      const to = getString(rawDown, 'to'); if (to !== undefined) down.to = to
+      if (Object.keys(down).length > 0) resp.downgrade = down
+    }
+    if (Object.keys(resp).length > 0) projected.synthesis_response = resp
+  }
+
   return Object.keys(projected).length === 0 ? undefined : projected
 }
 
@@ -888,6 +977,10 @@ export function projectResearchCases(events: LedgerEventEnvelope<unknown>[]): Re
       const sourceDiscipline = getSourceDiscipline(event.payload)
       if (sourceDiscipline !== undefined) {
         researchCase.source_discipline = sourceDiscipline
+      }
+      const redTeam = getRedTeam(event.payload)
+      if (redTeam !== undefined) {
+        researchCase.red_team = redTeam
       }
       continue
     }

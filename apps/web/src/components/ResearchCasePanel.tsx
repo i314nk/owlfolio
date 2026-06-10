@@ -717,6 +717,16 @@ function createValuationPanel(researchCase: AppResearchCase, marketQuote?: Marke
   const sourceDiscipline = researchCase.source_discipline
   const rejectedSourceCount = sourceDiscipline?.rejected_count ?? 0
 
+  // Mechanism 5 (Red-Team Pass): the adversarial pre-synthesis run + the synthesis obligation. We
+  // surface the strongest objection + the synthesis response (answered-with-evidence vs accepted→
+  // downgraded), and the deterministic flags: objection_unaddressed (synthesis was silent — never
+  // dropped) and red_team_incomplete (the case was not adversarially tested).
+  const redTeam = researchCase.red_team
+  const redTeamIncomplete = redTeam?.status === 'red_team_incomplete'
+  const redTeamObjection = redTeam?.strongest_objection
+  const redTeamResponse = redTeam?.synthesis_response
+  const redTeamUnaddressed = redTeam?.objection_unaddressed === true
+
   const discountLabel = discountRateVal !== undefined ? `${Math.round(discountRateVal * 100)}%` : '10%'
   const mosLabel = mosVal !== undefined ? `${Math.round(mosVal * 100)}%` : undefined
   const moatLabel = mosLabel !== undefined
@@ -1063,6 +1073,45 @@ function createValuationPanel(researchCase: AppResearchCase, marketQuote?: Marke
       `Source discipline: ${rejectedSourceCount} lane source${rejectedSourceCount === 1 ? '' : 's'} excluded by lane policy `
       + `(${[...new Set((sourceDiscipline?.rejections ?? []).map((r) => r.reason).filter((r): r is string => r !== undefined))].join(', ')}). `
       + `Classification lanes reason from primary documents only.`,
+    ) : null,
+    // Mechanism 5: red-team section — strongest objection + the synthesis response (or the incomplete /
+    // unaddressed flags). The border colour flags an unaddressed objection or an untested case in red.
+    redTeam !== undefined ? createElement(
+      'div',
+      {
+        style: {
+          background: (redTeamUnaddressed || redTeamIncomplete) ? 'rgba(248, 113, 113, 0.08)' : 'rgba(148, 163, 184, 0.06)',
+          border: `1px solid ${(redTeamUnaddressed || redTeamIncomplete) ? 'rgba(248, 113, 113, 0.3)' : 'rgba(148, 163, 184, 0.18)'}`,
+          borderRadius: '0.7rem',
+          marginTop: '0.6rem',
+          padding: '0.6rem 0.9rem',
+        },
+      },
+      createElement('p', {
+        style: {
+          color: (redTeamUnaddressed || redTeamIncomplete) ? '#f87171' : 'var(--owl-color-gold-bright)',
+          fontWeight: 800, fontSize: 'var(--owl-text-sm)', margin: '0 0 0.3rem',
+        },
+      }, 'Red-team'),
+      redTeamIncomplete ? createElement('p', {
+        style: { color: '#fca5a5', fontSize: 'var(--owl-text-xs)', fontFamily: 'var(--owl-font-mono)', margin: 0 },
+      }, `red_team_incomplete — the adversarial pass did not complete${redTeam.reason !== undefined ? ` (${redTeam.reason})` : ''}. The case was NOT adversarially tested; re-run before relying on the verdict.`)
+        : createElement(
+          'div',
+          null,
+          redTeamObjection?.claim !== undefined ? createElement('p', {
+            style: { color: '#dbe3ef', fontSize: 'var(--owl-text-sm)', margin: '0 0 0.3rem' },
+          }, `Strongest objection${redTeamObjection.severity !== undefined ? ` (${redTeamObjection.severity})` : ''}: ${redTeamObjection.claim}`) : null,
+          redTeamUnaddressed ? createElement('p', {
+            style: { color: '#fca5a5', fontSize: 'var(--owl-text-xs)', fontFamily: 'var(--owl-font-mono)', margin: 0 },
+          }, 'red_team_objection_unaddressed — synthesis neither answered with evidence nor downgraded. Silence is not an option; surfaced in open questions.')
+            : redTeamResponse !== undefined ? createElement('p', {
+              style: { color: '#bbf7d0', fontSize: 'var(--owl-text-xs)', margin: 0 },
+            }, redTeamResponse.mode === 'accepted_downgraded'
+              ? `Synthesis response: accepted → downgraded${redTeamResponse.downgrade !== undefined ? ` ${redTeamResponse.downgrade.dimension} (${redTeamResponse.downgrade.from} → ${redTeamResponse.downgrade.to})` : ''}. ${redTeamResponse.text ?? ''}`
+              : `Synthesis response: answered with evidence. ${redTeamResponse.text ?? ''}`)
+              : null,
+        ),
     ) : null,
     // Collapsible owner-earnings bridge
     hasBridge && bridge !== undefined ? createElement(
