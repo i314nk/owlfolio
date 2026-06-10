@@ -88,6 +88,7 @@ describe('computeIncrementalRoic (from the EDGAR multi-year series)', () => {
   function year(fy: number, op: number, tax: number, equity: number, debt: number, cash: number): AnnualFacts {
     return {
       fiscal_year: fy,
+      currency: 'USD',
       operating_income_musd: op,
       income_tax_expense_musd: tax,
       stockholders_equity_musd: equity,

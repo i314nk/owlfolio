@@ -1,13 +1,19 @@
 // SEC EDGAR fundamentals feed.
 //
-// Pulls PRIMARY-filing data (structured XBRL companyfacts + the latest 10-K filing URL) for a US
+// Pulls PRIMARY-filing data (structured XBRL companyfacts + the latest annual-report filing URL) for a
 // company so the research swarm can ground on raw filings instead of dropping when IR/news is
 // blocked. Mirrors marketData.ts conventions: injectable fetch, SSRF guard (here narrowed to the
 // two SEC hosts), explicit timeouts, and FAIL-CLOSED behaviour — any error returns undefined and
 // never throws to the caller, so the swarm runs exactly as today when EDGAR is unavailable.
 //
-// Values are converted to Owlfolio's owner-earnings-bridge convention: dollars -> MILLIONS (/1e6),
-// shares -> MILLIONS (/1e6).
+// Taxonomy + currency: a US domestic filer reports under the `us-gaap` taxonomy in USD on a 10-K; a
+// foreign private issuer (e.g. Novo Nordisk) reports under `ifrs-full` in its functional currency
+// (e.g. DKK) on a 20-F (or 40-F for Canadian filers). This adapter reads whichever taxonomy is
+// populated, detects the reporting CURRENCY from the XBRL unit key (e.g. 'USD', 'DKK'), and surfaces it
+// on the result so a caller never silently mixes a non-USD fundamental with a USD price.
+//
+// Values are converted to Owlfolio's owner-earnings-bridge convention: monetary amounts -> MILLIONS of
+// the REPORTING CURRENCY (/1e6), shares -> MILLIONS (/1e6). The `currency` field carries the unit.
 
 import { assertPublicHttpUrl } from './sourceGrounding'
 
@@ -21,8 +27,17 @@ export type SecEdgarDeps = {
   userAgent?: string
 }
 
+/**
+ * Reporting currency ISO code as carried by the XBRL unit key (e.g. 'USD', 'DKK', 'EUR'). Kept as a
+ * plain string (not a closed union) so any ISO code an EDGAR filer uses round-trips; common values are
+ * 'USD' for us-gaap filers and the functional currency for ifrs-full foreign private issuers.
+ */
+export type ReportingCurrency = string
+
 export type AnnualFacts = {
   fiscal_year: number
+  /** Reporting currency for the monetary fields (e.g. 'USD', 'DKK'). Shares are always counts. */
+  currency: ReportingCurrency
   /**
    * The date (YYYY-MM-DD) the 10-K reporting this fiscal year was filed with the SEC — i.e. the date
    * an analyst would first have had this annual data. Derived from the NetIncomeLoss filed date for the
@@ -60,6 +75,13 @@ export type FilingRef = {
 export type Fundamentals = {
   cik: string
   entity_name: string
+  /**
+   * Reporting currency for all monetary fields in `latest_annual`/`annual_series` (e.g. 'USD' for a
+   * us-gaap 10-K filer, 'DKK' for an ifrs-full 20-F filer like Novo Nordisk). A caller that values the
+   * fundamentals against a market price MUST use a price quoted in the SAME currency (see backtest's
+   * price_currency caveat) — never mix a non-USD fundamental with a USD ADR price.
+   */
+  currency: ReportingCurrency
   latest_annual: AnnualFacts
   annual_series: AnnualFacts[]
   filings: FilingRef[]
@@ -168,12 +190,74 @@ type XbrlFact = {
   filed?: string
 }
 
+type TaxonomyConcepts = Record<string, { units?: Record<string, XbrlFact[]> }>
+
 type CompanyFacts = {
   cik?: number
   entityName?: string
   facts?: {
-    'us-gaap'?: Record<string, { units?: Record<string, XbrlFact[]> }>
+    'us-gaap'?: TaxonomyConcepts
+    'ifrs-full'?: TaxonomyConcepts
   }
+}
+
+/**
+ * SEC XBRL taxonomies this adapter reads. A US domestic filer populates `us-gaap`; a foreign private
+ * issuer populates `ifrs-full`. We prefer whichever is non-empty.
+ */
+type Taxonomy = 'us-gaap' | 'ifrs-full'
+
+/** Annual-report form types we treat as the primary annual filing (10-K US, 20-F / 40-F foreign). */
+const ANNUAL_FORMS = new Set(['10-K', '20-F', '40-F'])
+
+function isAnnualForm(form: string | undefined): boolean {
+  return typeof form === 'string' && ANNUAL_FORMS.has(form)
+}
+
+/** True when a taxonomy bucket has at least one concept with data. */
+function taxonomyPopulated(t: TaxonomyConcepts | undefined): boolean {
+  return t !== undefined && Object.keys(t).length > 0
+}
+
+/**
+ * Pick the populated taxonomy (prefer us-gaap when both are present — US domestic filers occasionally
+ * carry a few ifrs-full tags but us-gaap is canonical for them). Returns undefined when neither has data.
+ */
+function pickTaxonomy(facts: CompanyFacts): Taxonomy | undefined {
+  if (taxonomyPopulated(facts.facts?.['us-gaap'])) return 'us-gaap'
+  if (taxonomyPopulated(facts.facts?.['ifrs-full'])) return 'ifrs-full'
+  return undefined
+}
+
+const NON_CURRENCY_UNITS = new Set(['shares', 'pure'])
+
+/**
+ * Detect the reporting currency from a concept's unit map: the first unit key that is not a count/ratio
+ * unit (e.g. 'USD', 'DKK', 'EUR'). Returns undefined when only share/pure units are present.
+ */
+function currencyFromUnitMap(unitMap: Record<string, XbrlFact[]> | undefined): ReportingCurrency | undefined {
+  if (unitMap === undefined) return undefined
+  for (const unit of Object.keys(unitMap)) {
+    if (!NON_CURRENCY_UNITS.has(unit)) return unit
+  }
+  return undefined
+}
+
+/**
+ * Detect the filer's reporting currency by scanning the income/revenue concepts of the chosen taxonomy
+ * for the first monetary unit key. Fail-closed: defaults to 'USD' only as a last resort so a us-gaap
+ * filer with an oddly-shaped facts blob still behaves as today.
+ */
+function detectCurrency(facts: CompanyFacts, taxonomy: Taxonomy): ReportingCurrency {
+  const concepts = taxonomy === 'us-gaap'
+    ? ['NetIncomeLoss', 'Revenues', 'RevenueFromContractWithCustomerExcludingAssessedTax']
+    : ['ProfitLoss', 'Revenue']
+  const bucket = facts.facts?.[taxonomy]
+  for (const c of concepts) {
+    const cur = currencyFromUnitMap(bucket?.[c]?.units)
+    if (cur !== undefined) return cur
+  }
+  return 'USD'
 }
 
 const ONE_DAY_MS = 86_400_000
@@ -198,11 +282,11 @@ function periodDays(start: string, end: string): number | undefined {
  * filtered to ~annual durations so quarterly/YTD comparatives are excluded. When multiple filings
  * report the same period END (restatements / re-filings), the entry with the LATEST `filed` date wins.
  */
-function annualByFiscalYear(facts: CompanyFacts, concept: string): Map<number, number> {
+function annualByFiscalYear(facts: CompanyFacts, taxonomy: Taxonomy, concept: string): Map<number, number> {
   const out = new Map<number, number>()
-  const unitMap = facts.facts?.['us-gaap']?.[concept]?.units
+  const unitMap = facts.facts?.[taxonomy]?.[concept]?.units
   if (unitMap === undefined) return out
-  // pick the first unit bucket (USD or shares — each concept has a single relevant unit)
+  // pick the first unit bucket (the reporting currency or shares — each concept has a single relevant unit)
   const entries: XbrlFact[] = []
   for (const bucket of Object.values(unitMap)) {
     if (Array.isArray(bucket)) entries.push(...bucket)
@@ -211,7 +295,7 @@ function annualByFiscalYear(facts: CompanyFacts, concept: string): Map<number, n
   // end-date -> {val, filed}; latest filed wins for a given period end.
   const byEnd = new Map<string, { val: number; filed: string }>()
   for (const e of entries) {
-    if (e.form !== '10-K') continue
+    if (!isAnnualForm(e.form)) continue
     if (typeof e.end !== 'string' || typeof e.val !== 'number' || !Number.isFinite(e.val)) continue
     // Flow facts have a start; require an annual duration. Instant facts have no start; keep them.
     if (typeof e.start === 'string') {
@@ -248,10 +332,11 @@ function annualByFiscalYear(facts: CompanyFacts, concept: string): Map<number, n
  */
 function annualFiledMetaByFiscalYear(
   facts: CompanyFacts,
+  taxonomy: Taxonomy,
   concept: string,
 ): Map<number, { filed: string; period_end: string }> {
   const out = new Map<number, { filed: string; period_end: string }>()
-  const unitMap = facts.facts?.['us-gaap']?.[concept]?.units
+  const unitMap = facts.facts?.[taxonomy]?.[concept]?.units
   if (unitMap === undefined) return out
   const entries: XbrlFact[] = []
   for (const bucket of Object.values(unitMap)) {
@@ -260,7 +345,7 @@ function annualFiledMetaByFiscalYear(
 
   const byEnd = new Map<string, { filed: string }>()
   for (const e of entries) {
-    if (e.form !== '10-K') continue
+    if (!isAnnualForm(e.form)) continue
     if (typeof e.end !== 'string' || typeof e.val !== 'number' || !Number.isFinite(e.val)) continue
     if (typeof e.start === 'string') {
       const days = periodDays(e.start, e.end)
@@ -286,11 +371,11 @@ function annualFiledMetaByFiscalYear(
   return out
 }
 
-const USD_TO_MUSD = 1e6
+const CURRENCY_TO_MILLIONS = 1e6
 const SHARES_TO_M = 1e6
 
 function toMusd(raw: number | undefined): number | undefined {
-  return raw === undefined ? undefined : raw / USD_TO_MUSD
+  return raw === undefined ? undefined : raw / CURRENCY_TO_MILLIONS
 }
 
 function toMshares(raw: number | undefined): number | undefined {
@@ -306,52 +391,151 @@ function sumOptional(a: number | undefined, b: number | undefined): number | und
   return (a ?? 0) + (b ?? 0)
 }
 
-function buildAnnualSeries(facts: CompanyFacts): AnnualFacts[] {
-  const netIncome = annualByFiscalYear(facts, 'NetIncomeLoss')
-  const revenueContract = annualByFiscalYear(facts, 'RevenueFromContractWithCustomerExcludingAssessedTax')
-  const revenues = annualByFiscalYear(facts, 'Revenues')
-  const dAndA = annualByFiscalYear(facts, 'DepreciationDepletionAndAmortization')
-  const capex = annualByFiscalYear(facts, 'PaymentsToAcquirePropertyPlantAndEquipment')
-  const sbc = annualByFiscalYear(facts, 'ShareBasedCompensation')
-  const dilutedShares = annualByFiscalYear(facts, 'WeightedAverageNumberOfDilutedSharesOutstanding')
-  const sharesOut = annualByFiscalYear(facts, 'CommonStockSharesOutstanding')
-  const ltDebtNoncurrent = annualByFiscalYear(facts, 'LongTermDebtNoncurrent')
-  const ltDebtCurrent = annualByFiscalYear(facts, 'LongTermDebtCurrent')
-  const debtCombined = annualByFiscalYear(facts, 'DebtLongtermAndShorttermCombinedAmount')
-  const cash = annualByFiscalYear(facts, 'CashAndCashEquivalentsAtCarryingValue')
-  const shortTermInv = annualByFiscalYear(facts, 'ShortTermInvestments')
-  const marketableCurrent = annualByFiscalYear(facts, 'MarketableSecuritiesCurrent')
-  const interest = annualByFiscalYear(facts, 'InterestExpense')
-  const stockholdersEquity = annualByFiscalYear(facts, 'StockholdersEquity')
-  const operatingIncome = annualByFiscalYear(facts, 'OperatingIncomeLoss')
-  const incomeTax = annualByFiscalYear(facts, 'IncomeTaxExpenseBenefit')
+/**
+ * Per-taxonomy concept name mapping. Each OE-bridge / incremental-ROIC input maps to a list of candidate
+ * concept names tried in order (first populated wins). Some inputs are summed across multiple concepts
+ * (handled explicitly in buildAnnualSeries, not here): total debt, cash+securities, capex (PPE + intangibles).
+ */
+type ConceptMap = {
+  netIncome: string
+  revenue: string[]
+  dAndA: string[]
+  /** Capex components summed together (PPE purchases + intangible purchases for IFRS). */
+  capex: string[]
+  sbc: string[]
+  dilutedShares: string[]
+  sharesOut: string[]
+  /** Total interest-bearing debt: prefer the first combined concept; else sum the rest. */
+  debtCombined: string[]
+  debtComponents: string[]
+  cash: string[]
+  shortTermInvestments: string[]
+  interest: string
+  stockholdersEquity: string
+  operatingIncome: string
+  incomeTax: string
+}
+
+const US_GAAP_CONCEPTS: ConceptMap = {
+  netIncome: 'NetIncomeLoss',
+  revenue: ['RevenueFromContractWithCustomerExcludingAssessedTax', 'Revenues'],
+  dAndA: ['DepreciationDepletionAndAmortization'],
+  capex: ['PaymentsToAcquirePropertyPlantAndEquipment'],
+  sbc: ['ShareBasedCompensation'],
+  dilutedShares: ['WeightedAverageNumberOfDilutedSharesOutstanding'],
+  sharesOut: ['CommonStockSharesOutstanding'],
+  debtCombined: ['DebtLongtermAndShorttermCombinedAmount'],
+  debtComponents: ['LongTermDebtNoncurrent', 'LongTermDebtCurrent'],
+  cash: ['CashAndCashEquivalentsAtCarryingValue'],
+  shortTermInvestments: ['ShortTermInvestments', 'MarketableSecuritiesCurrent'],
+  interest: 'InterestExpense',
+  stockholdersEquity: 'StockholdersEquity',
+  operatingIncome: 'OperatingIncomeLoss',
+  incomeTax: 'IncomeTaxExpenseBenefit',
+}
+
+// IFRS (ifrs-full) equivalents for a foreign private issuer's 20-F/40-F. Mapped per the probe of Novo
+// Nordisk's companyfacts; concepts that may be absent for other filers degrade gracefully (-> undefined).
+const IFRS_CONCEPTS: ConceptMap = {
+  netIncome: 'ProfitLoss',
+  revenue: ['Revenue'],
+  // prefer the combined D&A expense; fall back to the depreciation/amortisation split if absent.
+  dAndA: [
+    'DepreciationAndAmortisationExpense',
+    'DepreciationAmortisationAndImpairmentLossReversalOfImpairmentLossRecognisedInProfitOrLoss',
+  ],
+  // capex = PPE purchases + intangible purchases (both summed in buildAnnualSeries).
+  capex: [
+    'PurchaseOfPropertyPlantAndEquipmentClassifiedAsInvestingActivities',
+    'PurchaseOfIntangibleAssetsClassifiedAsInvestingActivities',
+  ],
+  sbc: ['ExpenseFromSharebasedPaymentTransactionsWithEmployees'],
+  // IFRS reports a basic (WeightedAverageShares) and a diluted (AdjustedWeightedAverageShares) count.
+  dilutedShares: ['AdjustedWeightedAverageShares', 'WeightedAverageShares'],
+  sharesOut: ['NumberOfSharesOutstanding'],
+  // Total interest-bearing debt: prefer the single Borrowings rollup; else sum the LT/ST components.
+  debtCombined: ['Borrowings'],
+  debtComponents: ['LongtermBorrowings', 'ShorttermBorrowings'],
+  cash: ['CashAndCashEquivalents'],
+  shortTermInvestments: [],
+  interest: 'InterestExpense',
+  stockholdersEquity: 'Equity',
+  operatingIncome: 'ProfitLossFromOperatingActivities',
+  incomeTax: 'IncomeTaxExpenseContinuingOperations',
+}
+
+function conceptMapFor(taxonomy: Taxonomy): ConceptMap {
+  return taxonomy === 'ifrs-full' ? IFRS_CONCEPTS : US_GAAP_CONCEPTS
+}
+
+/** First concept in the candidate list whose annual map is non-empty (else an empty map). */
+function firstPopulated(facts: CompanyFacts, taxonomy: Taxonomy, concepts: string[]): Map<number, number> {
+  for (const c of concepts) {
+    const m = annualByFiscalYear(facts, taxonomy, c)
+    if (m.size > 0) return m
+  }
+  return new Map<number, number>()
+}
+
+/** Sum, per fiscal year, the annual maps of every concept in the list (capex PPE + intangibles). */
+function sumConcepts(facts: CompanyFacts, taxonomy: Taxonomy, concepts: string[]): Map<number, number> {
+  const out = new Map<number, number>()
+  let any = false
+  for (const c of concepts) {
+    const m = annualByFiscalYear(facts, taxonomy, c)
+    if (m.size > 0) any = true
+    for (const [fy, v] of m) out.set(fy, (out.get(fy) ?? 0) + v)
+  }
+  return any ? out : new Map<number, number>()
+}
+
+function buildAnnualSeries(facts: CompanyFacts, taxonomy: Taxonomy, currency: ReportingCurrency): AnnualFacts[] {
+  const cm = conceptMapFor(taxonomy)
+  const netIncome = annualByFiscalYear(facts, taxonomy, cm.netIncome)
+  const revenue = firstPopulated(facts, taxonomy, cm.revenue)
+  const dAndA = firstPopulated(facts, taxonomy, cm.dAndA)
+  // capex: sum PPE + intangible purchases (IFRS); for us-gaap the single PPE concept.
+  const capex = sumConcepts(facts, taxonomy, cm.capex)
+  const sbc = firstPopulated(facts, taxonomy, cm.sbc)
+  const dilutedShares = firstPopulated(facts, taxonomy, cm.dilutedShares)
+  const sharesOut = firstPopulated(facts, taxonomy, cm.sharesOut)
+  const debtCombined = firstPopulated(facts, taxonomy, cm.debtCombined)
+  const debtComponents = sumConcepts(facts, taxonomy, cm.debtComponents)
+  const cash = firstPopulated(facts, taxonomy, cm.cash)
+  const shortTermInv = firstPopulated(facts, taxonomy, cm.shortTermInvestments)
+  const interest = annualByFiscalYear(facts, taxonomy, cm.interest)
+  const stockholdersEquity = annualByFiscalYear(facts, taxonomy, cm.stockholdersEquity)
+  const operatingIncome = annualByFiscalYear(facts, taxonomy, cm.operatingIncome)
+  const incomeTax = annualByFiscalYear(facts, taxonomy, cm.incomeTax)
   // Filing metadata (filed date + period end) per fiscal year. Prefer the income-statement fact; fall
-  // back to revenue/D&A so a year still carries a filed date if NetIncomeLoss was tagged differently.
-  const filedMetaNi = annualFiledMetaByFiscalYear(facts, 'NetIncomeLoss')
-  const filedMetaRevC = annualFiledMetaByFiscalYear(facts, 'RevenueFromContractWithCustomerExcludingAssessedTax')
-  const filedMetaRev = annualFiledMetaByFiscalYear(facts, 'Revenues')
-  const filedMetaDa = annualFiledMetaByFiscalYear(facts, 'DepreciationDepletionAndAmortization')
+  // back to revenue/D&A so a year still carries a filed date if the income fact was tagged differently.
+  const filedMetaNi = annualFiledMetaByFiscalYear(facts, taxonomy, cm.netIncome)
+  const filedMetaRev = cm.revenue.map((c) => annualFiledMetaByFiscalYear(facts, taxonomy, c))
+  const filedMetaDa = cm.dAndA.map((c) => annualFiledMetaByFiscalYear(facts, taxonomy, c))
 
   // Union of all fiscal years observed across the OE-bridge concepts.
   const allYears = new Set<number>()
-  for (const m of [netIncome, revenueContract, revenues, dAndA, capex, sbc, dilutedShares]) {
+  for (const m of [netIncome, revenue, dAndA, capex, sbc, dilutedShares]) {
     for (const fy of m.keys()) allYears.add(fy)
   }
 
   const series: AnnualFacts[] = []
   for (const fy of [...allYears].sort((a, b) => b - a)) {
-    // total debt: prefer combined; else sum the long-term components.
-    const totalDebtRaw = debtCombined.get(fy) ?? sumOptional(ltDebtNoncurrent.get(fy), ltDebtCurrent.get(fy))
+    // total debt: prefer combined; else sum the long-term/short-term components.
+    const totalDebtRaw = debtCombined.get(fy) ?? (debtComponents.get(fy))
     // cash + securities: cash plus whichever short-term-securities concept is present.
-    const cashRaw = sumOptional(cash.get(fy), shortTermInv.get(fy) ?? marketableCurrent.get(fy))
-    const filedMeta = filedMetaNi.get(fy) ?? filedMetaRevC.get(fy) ?? filedMetaRev.get(fy) ?? filedMetaDa.get(fy)
+    const cashRaw = sumOptional(cash.get(fy), shortTermInv.get(fy))
+    const filedMeta = filedMetaNi.get(fy)
+      ?? filedMetaRev.map((m) => m.get(fy)).find((v) => v !== undefined)
+      ?? filedMetaDa.map((m) => m.get(fy)).find((v) => v !== undefined)
 
     series.push({
       fiscal_year: fy,
+      currency,
       ...optional('filed', filedMeta?.filed),
       ...optional('period_end', filedMeta?.period_end),
       ...optional('net_income_musd', toMusd(netIncome.get(fy))),
-      ...optional('revenue_musd', toMusd(revenueContract.get(fy) ?? revenues.get(fy))),
+      ...optional('revenue_musd', toMusd(revenue.get(fy))),
       ...optional('d_and_a_musd', toMusd(dAndA.get(fy))),
       ...optional('capex_musd', toMusd(capex.get(fy))),
       ...optional('sbc_musd', toMusd(sbc.get(fy))),
@@ -401,14 +585,15 @@ function buildFilings(subs: Submissions | undefined, cik10: string): FilingRef[]
 
   const filings: FilingRef[] = []
   for (let i = 0; i < forms.length; i++) {
-    if (forms[i] !== '10-K') continue
+    const form = forms[i]
+    if (!isAnnualForm(form)) continue
     const accession = accessions[i]
     const doc = docs[i]
     const filed = dates[i]
     if (typeof accession !== 'string' || typeof doc !== 'string') continue
     const accNoDashes = accession.replace(/-/g, '')
     filings.push({
-      form: '10-K',
+      form: form as string,
       filed: typeof filed === 'string' ? filed : '',
       url: `https://www.sec.gov/Archives/edgar/data/${cikInt}/${accNoDashes}/${doc}`,
     })
@@ -445,7 +630,13 @@ export async function fetchCompanyFundamentals(
   )
   if (facts === undefined) return undefined
 
-  const annual_series = buildAnnualSeries(facts)
+  // Choose the populated taxonomy (us-gaap for US filers, ifrs-full for foreign private issuers) and
+  // detect the reporting currency from the XBRL unit key. Fail-closed when neither taxonomy has data.
+  const taxonomy = pickTaxonomy(facts)
+  if (taxonomy === undefined) return undefined
+  const currency = detectCurrency(facts, taxonomy)
+
+  const annual_series = buildAnnualSeries(facts, taxonomy, currency)
   const latest_annual = annual_series[0]
   if (latest_annual === undefined) return undefined
 
@@ -459,6 +650,7 @@ export async function fetchCompanyFundamentals(
   return {
     cik: cik10,
     entity_name: typeof facts.entityName === 'string' ? facts.entityName : trimmed.toUpperCase(),
+    currency,
     latest_annual,
     annual_series,
     filings,

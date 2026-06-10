@@ -3,7 +3,8 @@ import type { EventStore } from '@owlfolio/ledger/eventStore'
 import type { LedgerEventEnvelope } from '@owlfolio/ledger/eventEnvelope'
 import type { Provider } from '@owlfolio/providers'
 import { groundProposedSources, type CapturedSource, type GroundingDeps, type ProposedSource } from './sourceGrounding'
-import { computeIncrementalRoic, fetchCompanyFundamentals, type Fundamentals, type SecEdgarDeps } from './secEdgar'
+import { computeIncrementalRoic, type Fundamentals, type SecEdgarDeps } from './secEdgar'
+import { resolveFundamentalsForTicker } from './fundamentalsProvider'
 import { createResearchCase, draftDecision } from './researchWorkflow'
 import {
   buffettMungerDeepDiveLanes,
@@ -370,9 +371,12 @@ async function resolveFundamentals(ticker: string, deps: FundamentalsDeps): Prom
   try {
     if (deps.fundamentals !== undefined) return deps.fundamentals
     if (deps.fetchFundamentals !== undefined) return await deps.fetchFundamentals(ticker)
-    // No injection: in offline test mode, do NOT hit SEC live (offline/deterministic tests).
+    // No injection: in offline test mode, do NOT hit SEC live (offline/deterministic tests). The
+    // local-manual store is also skipped offline so unit tests stay hermetic (they inject explicitly).
     if (isOfflineTestMode()) return undefined
-    return await fetchCompanyFundamentals(ticker)
+    // Resolve through the pluggable provider chain: local-manual store (operator override, covers
+    // non-EDGAR GCC names) -> EDGAR (us-gaap/USD + ifrs-full/non-USD, 10-K/20-F/40-F) -> undefined.
+    return await resolveFundamentalsForTicker(ticker)
   } catch {
     return undefined
   }

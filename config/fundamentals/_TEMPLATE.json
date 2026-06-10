@@ -1,0 +1,66 @@
+{
+  "_README": "TEMPLATE / PLACEHOLDER — copy to {TICKER}.json (uppercase ticker) and replace every value with figures TRANSCRIBED BY THE OPERATOR from the issuer's AUDITED ANNUAL REPORT. This file is the local-manual fundamentals adapter for names NOT on SEC EDGAR (e.g. GCC issuers on the DFM/ADX: DEWA, TABREED, EMPOWER, TALABAT). There is NO free, reliable structured API for those exchanges, and Owlfolio is fail-closed/local-first — so their primary data is an operator data-entry step, not a scrape. DO NOT fabricate figures. The resolver skips any file whose ticker starts with '_', so this template is never resolved as a real name.",
+  "_units": "All *_musd fields are in MILLIONS of the document `currency` (e.g. for AED, a value of 1000 means AED 1,000,000,000 = 1bn). All *_m share counts are in MILLIONS of shares. `diluted_shares_m` should be the weighted-average DILUTED share count for the fiscal year. Use the SAME currency the financial statements are presented in.",
+  "_currency_caveat": "The backtest values OE-per-share (in this currency) against a market price. The price MUST be quoted in the SAME currency (the local listing), never a USD ADR — otherwise OE_ps and price are mixed currencies and the verdict is meaningless.",
+
+  "ticker": "TICKER",
+  "entity_name": "Full legal entity name (e.g. National Central Cooling Company PJSC (Tabreed))",
+  "currency": "AED",
+  "source": {
+    "annual_report_url": "https://issuer.example/investors/annual-report-2024.pdf",
+    "filed": "2025-03-01",
+    "note": "Operator-entered from the audited consolidated financial statements (income statement + balance sheet + cash-flow statement) in the FY2024 annual report. `filed` is the report publication date used as the backtest as-of date."
+  },
+
+  "latest_annual": {
+    "fiscal_year": 2024,
+    "filed": "2025-03-01",
+    "period_end": "2024-12-31",
+    "net_income_musd": 0,
+    "revenue_musd": 0,
+    "d_and_a_musd": 0,
+    "capex_musd": 0,
+    "sbc_musd": 0,
+    "diluted_shares_m": 0,
+    "shares_outstanding_m": 0,
+    "total_debt_musd": 0,
+    "cash_and_securities_musd": 0,
+    "interest_expense_musd": 0,
+    "stockholders_equity_musd": 0,
+    "operating_income_musd": 0,
+    "income_tax_expense_musd": 0
+  },
+
+  "annual_series": [
+    {
+      "fiscal_year": 2024,
+      "filed": "2025-03-01",
+      "period_end": "2024-12-31",
+      "net_income_musd": 0,
+      "revenue_musd": 0,
+      "d_and_a_musd": 0,
+      "capex_musd": 0,
+      "diluted_shares_m": 0,
+      "stockholders_equity_musd": 0,
+      "operating_income_musd": 0,
+      "income_tax_expense_musd": 0,
+      "total_debt_musd": 0,
+      "cash_and_securities_musd": 0
+    },
+    {
+      "fiscal_year": 2023,
+      "filed": "2024-03-01",
+      "period_end": "2023-12-31",
+      "net_income_musd": 0,
+      "revenue_musd": 0,
+      "d_and_a_musd": 0,
+      "capex_musd": 0,
+      "diluted_shares_m": 0,
+      "stockholders_equity_musd": 0,
+      "operating_income_musd": 0,
+      "income_tax_expense_musd": 0,
+      "total_debt_musd": 0,
+      "cash_and_securities_musd": 0
+    }
+  ]
+}

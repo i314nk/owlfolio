@@ -26,7 +26,8 @@ import {
 } from '@owlfolio/strategies/buffettMunger'
 import type { MoatClass, Runway, StrategyContract } from '@owlfolio/strategies/strategyContract'
 import type { ValuationParams } from '@owlfolio/strategies/valuationParams'
-import { computeIncrementalRoic, fetchCompanyFundamentals, type AnnualFacts, type Fundamentals, type SecEdgarDeps } from './secEdgar'
+import { computeIncrementalRoic, type AnnualFacts, type Fundamentals, type SecEdgarDeps } from './secEdgar'
+import { resolveFundamentalsForTicker, type ResolveFundamentalsDeps } from './fundamentalsProvider'
 import { fetchMonthEndPriceSeries, type MarketDataDeps, type PriceHistoryPoint } from './marketData'
 import { buffettMungerStrategy } from '@owlfolio/strategies/buffettMunger'
 import { VALUATION_PARAMS } from '@owlfolio/strategies/valuationParams'
@@ -345,12 +346,28 @@ export type BacktestNameArgs = {
   runway_exceptional?: boolean
   fallback_incremental_roic?: number
   reinvestment_rate?: number
-  /** Optional non-US market hint for Yahoo (EDGAR is US-only regardless). */
+  /** Optional non-US market hint for Yahoo (e.g. for an ambiguous symbol). */
   market?: string
+  /**
+   * Explicit Yahoo price SYMBOL to fetch instead of `ticker`. Required for currency consistency when a
+   * name's fundamentals are non-USD: e.g. Novo Nordisk reports in DKK (ifrs-full 20-F), so pass the
+   * Copenhagen listing `NOVO-B.CO` (DKK) rather than letting Yahoo default to the USD `NVO` ADR. OE_ps
+   * (fundamentals currency) and price MUST be the same currency or the verdict is meaningless.
+   */
+  price_symbol?: string
+  /**
+   * Expected price currency. When set, the backtest asserts the fetched price series currency AND the
+   * fundamentals currency both equal this — fail-closed (returns { ok:false }) on any mismatch so a DKK
+   * fundamental is never silently valued against a USD ADR price. When unset, the backtest still rejects
+   * a mismatch between the fundamentals currency and the price-series currency.
+   */
+  price_currency?: string
   strategy?: StrategyContract
   params?: ValuationParams
   secDeps?: SecEdgarDeps
   marketDeps?: MarketDataDeps
+  /** Override the fundamentals resolver chain (tests inject offline fixtures). */
+  fundamentalsDeps?: ResolveFundamentalsDeps
 }
 
 export type BacktestNameResult =
@@ -358,23 +375,45 @@ export type BacktestNameResult =
   | { ok: false; reason: string }
 
 /**
- * Runner: fetch EDGAR fundamentals + ~10yr Yahoo month-end prices for one US reference name and run the
- * pure backtest. Fail-closed: returns { ok: false } when EDGAR (US-only) or Yahoo data is unavailable —
- * NOTE international names (Novo Nordisk DK, the GCC names) have NO EDGAR coverage and will fail here;
- * the full ~50-name calibration needs an international fundamentals feed (future work).
+ * Runner: resolve fundamentals (local-manual store -> EDGAR: us-gaap/USD + ifrs-full/non-USD, 10-K/20-F/
+ * 40-F) + ~10yr Yahoo month-end prices for one reference name and run the pure backtest. Fail-closed:
+ * returns { ok: false } when fundamentals or price data is unavailable, OR when the price currency does
+ * not match the fundamentals currency (no silent DKK-fundamentals vs USD-ADR-price mixing).
+ *
+ * Currency consistency: international names report in their functional currency (Novo Nordisk = DKK).
+ * Pass `price_symbol` (e.g. 'NOVO-B.CO') so the price is fetched in the SAME currency as the
+ * fundamentals; the runner asserts currency equality and rejects a mismatch.
  */
 export async function backtestName(args: BacktestNameArgs): Promise<BacktestNameResult> {
-  const fundamentals = await fetchCompanyFundamentals(args.ticker, args.secDeps)
+  const fundamentals = await resolveFundamentalsForTicker(args.ticker, {
+    ...(args.secDeps === undefined ? {} : { secDeps: args.secDeps }),
+    ...(args.fundamentalsDeps ?? {}),
+  })
   if (fundamentals === undefined) {
-    return { ok: false, reason: `no EDGAR fundamentals for ${args.ticker} (EDGAR is US-only)` }
+    return { ok: false, reason: `no fundamentals for ${args.ticker} (no local-manual entry + no EDGAR coverage)` }
   }
   const hasFiled = fundamentals.annual_series.some((a) => typeof a.filed === 'string' && a.filed !== '')
   if (!hasFiled) {
-    return { ok: false, reason: `EDGAR series for ${args.ticker} carries no per-year filed dates` }
+    return { ok: false, reason: `fundamentals series for ${args.ticker} carries no per-year filed dates` }
   }
-  const priceSeries = await fetchMonthEndPriceSeries(args.ticker, args.years ?? 10, args.marketDeps, args.market)
+  const priceSymbol = args.price_symbol ?? args.ticker
+  const priceSeries = await fetchMonthEndPriceSeries(priceSymbol, args.years ?? 10, args.marketDeps, args.market)
   if (!priceSeries.available) {
-    return { ok: false, reason: `no month-end price series for ${args.ticker}: ${priceSeries.reason}` }
+    return { ok: false, reason: `no month-end price series for ${priceSymbol}: ${priceSeries.reason}` }
+  }
+
+  // Currency consistency: OE_ps (fundamentals currency) and price MUST be the same currency.
+  if (priceSeries.currency !== fundamentals.currency) {
+    return {
+      ok: false,
+      reason: `currency mismatch: fundamentals in ${fundamentals.currency} but price ${priceSymbol} in ${priceSeries.currency} — pass a price_symbol on the local listing (e.g. NOVO-B.CO for DKK) to match`,
+    }
+  }
+  if (args.price_currency !== undefined && args.price_currency !== fundamentals.currency) {
+    return {
+      ok: false,
+      reason: `expected price_currency ${args.price_currency} but fundamentals are in ${fundamentals.currency}`,
+    }
   }
 
   const result = runValuationBacktest({

@@ -20,6 +20,28 @@ function fixture(name: string): unknown {
 const tickersFixture = fixture('company-tickers.json')
 const factsFixture = fixture('cost-companyfacts.json')
 const subsFixture = fixture('cost-submissions.json')
+const novoFactsFixture = fixture('novo-companyfacts.json')
+const novoSubsFixture = fixture('novo-submissions.json')
+
+/**
+ * Build a fake fetch routing the IFRS/20-F Novo fixtures (companyfacts + submissions). The shared
+ * ticker map fixture already carries NVO -> CIK 0000353278.
+ */
+function fakeNovoFetch(): typeof fetch {
+  return (async (input: RequestInfo | URL) => {
+    const url = typeof input === 'string' ? input : input.toString()
+    if (url.includes('company_tickers.json')) {
+      return { ok: true, status: 200, json: async () => tickersFixture } as Response
+    }
+    if (url.includes('/api/xbrl/companyfacts/')) {
+      return { ok: true, status: 200, json: async () => novoFactsFixture } as Response
+    }
+    if (url.includes('/submissions/')) {
+      return { ok: true, status: 200, json: async () => novoSubsFixture } as Response
+    }
+    throw new Error(`unexpected fetch in test: ${url}`)
+  }) as unknown as typeof fetch
+}
 
 /**
  * Build a fake fetch that routes SEC URLs to the captured fixtures. Any unexpected URL throws so a
@@ -80,8 +102,11 @@ describe('fetchCompanyFundamentals (COST FY2025, fixture-driven)', () => {
     if (f === undefined) return
     expect(f.cik).toBe('0000909832')
     expect(f.entity_name).toBe('COSTCO WHOLESALE CORP /NEW')
+    // us-gaap filer reports in USD.
+    expect(f.currency).toBe('USD')
 
     const la = f.latest_annual
+    expect(la.currency).toBe('USD')
     expect(la.fiscal_year).toBe(2025)
     expect(la.net_income_musd).toBeCloseTo(8099, 1)
     expect(la.revenue_musd).toBeCloseTo(275235, 1)
@@ -164,5 +189,71 @@ describe('fetchCompanyFundamentals (COST FY2025, fixture-driven)', () => {
     expect(f).toBeDefined()
     expect(f?.latest_annual.fiscal_year).toBe(2025)
     expect(f?.filings).toEqual([])
+  })
+})
+
+describe('fetchCompanyFundamentals (NVO / Novo Nordisk — IFRS + DKK + 20-F, fixture-driven)', () => {
+  it('parses ifrs-full concepts in the reporting currency (DKK), values in millions of DKK', async () => {
+    const f = await fetchCompanyFundamentals('NVO', { fetchImpl: fakeNovoFetch() })
+    expect(f).toBeDefined()
+    if (f === undefined) return
+    expect(f.cik).toBe('0000353278')
+    expect(f.entity_name).toBe('NOVO NORDISK A/S')
+    // Reporting currency is detected from the XBRL unit key, not assumed USD.
+    expect(f.currency).toBe('DKK')
+
+    const la = f.latest_annual
+    expect(la.currency).toBe('DKK')
+    expect(la.fiscal_year).toBe(2025)
+    // ifrs-full:ProfitLoss FY2025 = 102,434,000,000 DKK -> 102434 DKK millions.
+    expect(la.net_income_musd).toBeCloseTo(102434, 0)
+    // ifrs-full:Revenue FY2025 = 309,064,000,000 DKK.
+    expect(la.revenue_musd).toBeCloseTo(309064, 0)
+    // ifrs-full:DepreciationAndAmortisationExpense FY2025 = 14,666,000,000 DKK.
+    expect(la.d_and_a_musd).toBeCloseTo(14666, 0)
+    // capex = PPE purchases (60,140) + intangible purchases (29,973) = 90,113 DKK millions.
+    expect(la.capex_musd).toBeCloseTo(90113, 0)
+    // ifrs-full:ExpenseFromSharebasedPaymentTransactionsWithEmployees FY2025 = 1,435,000,000 DKK.
+    expect(la.sbc_musd).toBeCloseTo(1435, 0)
+    // AdjustedWeightedAverageShares FY2025 = 4,447,700,000 -> 4447.7 share-millions.
+    expect(la.diluted_shares_m).toBeCloseTo(4447.7, 1)
+  })
+
+  it('maps the incremental-ROIC inputs from ifrs-full (operating income, tax, equity, debt, cash)', async () => {
+    const f = await fetchCompanyFundamentals('NVO', { fetchImpl: fakeNovoFetch() })
+    expect(f).toBeDefined()
+    if (f === undefined) return
+    const la = f.latest_annual
+    expect(la.operating_income_musd).toBeCloseTo(127658, 0)
+    expect(la.income_tax_expense_musd).toBeCloseTo(28106, 0)
+    expect(la.stockholders_equity_musd).toBeCloseTo(194047, 0)
+    // total interest-bearing debt: ifrs-full:Borrowings = 130,958 DKK millions.
+    expect(la.total_debt_musd).toBeCloseTo(130958, 0)
+    expect(la.cash_and_securities_musd).toBeCloseTo(26464, 0)
+  })
+
+  it('builds the latest 20-F archive URL from submissions', async () => {
+    const f = await fetchCompanyFundamentals('NVO', { fetchImpl: fakeNovoFetch() })
+    expect(f).toBeDefined()
+    if (f === undefined) return
+    const annual = f.filings.find((x) => x.form === '20-F')
+    expect(annual).toBeDefined()
+    expect(annual?.url).toMatch(/nvo-20251231\.htm$/)
+    expect(annual?.url).toContain('https://www.sec.gov/Archives/edgar/data/353278/')
+    expect(annual?.url).toContain('000035327826000012')
+  })
+
+  it('exposes a multi-year annual series (>=5 yrs), newest first, each carrying a filed date', async () => {
+    const f = await fetchCompanyFundamentals('NVO', { fetchImpl: fakeNovoFetch() })
+    expect(f).toBeDefined()
+    if (f === undefined) return
+    expect(f.annual_series.length).toBeGreaterThanOrEqual(5)
+    expect(f.annual_series[0]?.fiscal_year).toBe(2025)
+    const years = f.annual_series.map((a) => a.fiscal_year)
+    for (let i = 1; i < years.length; i++) {
+      expect(years[i]! < years[i - 1]!).toBe(true)
+    }
+    // every year should carry a 20-F filed date (needed for the as-of backtest).
+    expect(f.annual_series.every((a) => typeof a.filed === 'string' && a.filed !== '')).toBe(true)
   })
 })

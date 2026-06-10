@@ -18,6 +18,7 @@ import { groupBuyEpisodes, runValuationBacktest } from '../backtest'
 function annualEntry(fy: number, filed: string, shares: number): AnnualFacts {
   return {
     fiscal_year: fy,
+    currency: 'USD',
     filed,
     period_end: `${fy}-12-31`,
     net_income_musd: 120,
@@ -45,6 +46,7 @@ function buildFundamentals(): Fundamentals {
   return {
     cik: '0000000001',
     entity_name: 'Fixture Co',
+    currency: 'USD',
     latest_annual: annual_series[0]!,
     annual_series,
     filings: [],

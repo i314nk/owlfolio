@@ -1105,8 +1105,10 @@ async function seedDeepDivePrereqs(store: InMemoryEventStore): Promise<void> {
 const costFundamentals: Fundamentals = {
   cik: '0000909832',
   entity_name: 'COSTCO WHOLESALE CORP /NEW',
+  currency: 'USD',
   latest_annual: {
     fiscal_year: 2025,
+    currency: 'USD',
     net_income_musd: 8099,
     revenue_musd: 275235,
     d_and_a_musd: 2426,
@@ -1119,8 +1121,8 @@ const costFundamentals: Fundamentals = {
     interest_expense_musd: 154,
   },
   annual_series: [
-    { fiscal_year: 2025, net_income_musd: 8099, revenue_musd: 275235, d_and_a_musd: 2426, capex_musd: 5498, sbc_musd: 860, diluted_shares_m: 444.8 },
-    { fiscal_year: 2024, net_income_musd: 7367, revenue_musd: 254453, d_and_a_musd: 2237, capex_musd: 4710, sbc_musd: 800, diluted_shares_m: 444.2 },
+    { fiscal_year: 2025, currency: 'USD', net_income_musd: 8099, revenue_musd: 275235, d_and_a_musd: 2426, capex_musd: 5498, sbc_musd: 860, diluted_shares_m: 444.8 },
+    { fiscal_year: 2024, currency: 'USD', net_income_musd: 7367, revenue_musd: 254453, d_and_a_musd: 2237, capex_musd: 4710, sbc_musd: 800, diluted_shares_m: 444.2 },
   ],
   filings: [
     { form: '10-K', filed: '2025-10-08', url: 'https://www.sec.gov/Archives/edgar/data/909832/000090983225000101/cost-20250831.htm' },
