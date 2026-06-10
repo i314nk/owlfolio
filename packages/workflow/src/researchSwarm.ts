@@ -1,7 +1,18 @@
 import { z } from 'zod'
 import type { EventStore } from '@owlfolio/ledger/eventStore'
 import type { LedgerEventEnvelope } from '@owlfolio/ledger/eventEnvelope'
-import type { Provider } from '@owlfolio/providers'
+import { resolveProvider, type Provider } from '@owlfolio/providers'
+import {
+  resolveModelForRole,
+  type ModelRoleId,
+  type ModelRoleOverride,
+} from '@owlfolio/strategies/modelRegistry'
+import {
+  sanitizeRoicLike,
+  sanitizeMaintenanceCapex,
+  sanitizeReinvestmentRate,
+} from './rangeSanity'
+import { runValidatedAgent, ValidatedAgentFailedError, type RequiredFieldCheck } from './runValidatedAgent'
 import { groundProposedSources, type CapturedSource, type GroundingDeps, type ProposedSource, type SourcePolicyRejection } from './sourceGrounding'
 // Grounded-agent primitives live in a cycle-free module (groundedAgent) so BOTH this orchestrator AND
 // the red-team pass can import them without a circular module-evaluation dependency. Re-exported below
@@ -276,6 +287,8 @@ export type RunStrategyResearchSwarmCommand = {
    *  'review': quick screen → pause (deep_dive_approval_pending) → return without running deep dive.
    */
   quick_screen_approval?: 'automatic' | 'review'
+  /** model-tiering: optional per-role provider/model overrides (registry). Omitted = single-provider default. */
+  model_overrides?: Partial<Record<ModelRoleId, ModelRoleOverride>>
 }
 
 export type RunResearchDeepDivePhaseCommand = {
@@ -291,6 +304,8 @@ export type RunResearchDeepDivePhaseCommand = {
   quick_screen_source_ids: string[]
   /** event_id of the quick_screen_drafted event — used as causation_id */
   quick_screen_event_id: string
+  /** model-tiering: optional per-role provider/model overrides (registry). Omitted = single-provider default. */
+  model_overrides?: Partial<Record<ModelRoleId, ModelRoleOverride>>
 }
 
 // ---------------------------------------------------------------------------
@@ -305,6 +320,39 @@ const AGENT_TIMEOUT_MS = 180_000
 
 function swarmSeg(value: string): string {
   return value.trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '')
+}
+
+// ---------------------------------------------------------------------------
+// model-tiering-spec — per-role model/provider resolution (the registry, not hardcoded names)
+// ---------------------------------------------------------------------------
+
+/**
+ * Resolve the provider + model + timeout for a swarm ROLE via the model registry. No hardcoded model
+ * name lives in the pipeline — each stage asks the registry. By DEFAULT every role inherits the run's
+ * active provider/model (so single-provider Codex/mock runs are unchanged), but a per-role override
+ * (command.model_overrides or OWLFOLIO_MODEL_ROLE_<ROLE> env) can pin a role onto a DIFFERENT
+ * provider/model — e.g. running red_team or lane_moat on a second model. When a role resolves to a
+ * provider_id DIFFERENT from the run's, we instantiate that provider (resolveProvider); otherwise we
+ * reuse the run's provider instance (zero behavior change for the default path).
+ */
+function resolveRoleRuntime(
+  role: ModelRoleId,
+  runProvider: Provider,
+  command: { model_id: string; model_overrides?: Partial<Record<ModelRoleId, ModelRoleOverride>> },
+): { provider: Provider; model_id: string } {
+  const resolved = resolveModelForRole(role, {
+    fallbackProviderId: runProvider.provider_id,
+    fallbackModel: command.model_id,
+    ...(command.model_overrides === undefined ? {} : { overrides: command.model_overrides }),
+    env: process.env,
+  })
+  // Reuse the run's provider unless a role pins a genuinely DIFFERENT provider_id (the "different
+  // model" hook the judgment spec left as a TODO — now real).
+  const provider =
+    resolved.provider_id === runProvider.provider_id
+      ? runProvider
+      : resolveProvider({ provider_id: resolved.provider_id as Parameters<typeof resolveProvider>[0]['provider_id'] })
+  return { provider, model_id: resolved.model }
 }
 
 // ---------------------------------------------------------------------------
@@ -726,10 +774,12 @@ export async function runStrategyResearchSwarm(
   //   2. Business quality: if clearly not worth investigating, reject.
   // Only 'deep_dive_candidate' cases with non-NON_COMPLIANT Shariah status proceed to the expensive deep dive.
   let qs: GroundedAgentResult<z.infer<typeof QuickScreenAgentSchema>>
+  // model-tiering: the quick screen runs on the `quick_screen` role (T2). Default = the run's provider/model.
+  const quickScreenRuntime = resolveRoleRuntime('quick_screen', provider, command)
   try {
-    qs = await runGroundedAgentWithRetry(provider, {
+    qs = await runGroundedAgentWithRetry(quickScreenRuntime.provider, {
     run_id: `run_${command.research_case_id}_quick_screen`,
-    model_id: command.model_id,
+    model_id: quickScreenRuntime.model_id,
     prompt: `You are the Buffett-Munger quick-screen gate agent for ${command.ticker} (${command.company_id}). `
       + `This is a two-step gate — NOT a full analysis. Keep responses brief; the deep dive handles detail.\n\n`
       + `STEP 1 — Shariah permissibility: assess whether the company's primary business is permissible under `
@@ -1044,9 +1094,14 @@ export async function runResearchDeepDivePhase(
     // Inject the grounded primary-filing block into the financial-heavy lanes so they have a
     // guaranteed primary citation + real numbers. The lane MUST cite the EDGAR source_id.
     const injectFiling = primaryFilingBlock !== undefined && PRIMARY_FILING_LANES.has(lane)
-    const agent = await runGroundedAgent(provider, {
+    // model-tiering: the highest-stakes lanes resolve their OWN registry role (moat → lane_moat,
+    // shariah → lane_shariah); every other lane uses lanes_default. Default = the run's provider/model
+    // so single-provider runs are unchanged; an override can pin moat/shariah onto a stronger model.
+    const laneRole: ModelRoleId = lane === 'moat' ? 'lane_moat' : lane === 'shariah' ? 'lane_shariah' : 'lanes_default'
+    const laneRuntime = resolveRoleRuntime(laneRole, provider, command)
+    const agent = await runGroundedAgent(laneRuntime.provider, {
       run_id: `run_${command.research_case_id}_${swarmSeg(lane)}`,
-      model_id: command.model_id,
+      model_id: laneRuntime.model_id,
       prompt: `You are the Buffett-Munger ${lane} specialist agent for ${command.ticker}. `
         + `Produce a source-backed finding for the ${lane} lane only. Gather your own sources; return them in proposed_sources with real URLs. `
         + `SOURCE DISCIPLINE (Mechanism 6): this lane reasons from PRIMARY documents. `
@@ -1122,8 +1177,10 @@ export async function runResearchDeepDivePhase(
   // and cites the SAME corpus (it is the consensus-knowing lane — allowed all source categories). Its
   // strongest objection is cite-checked; synthesis is then OBLIGED to answer it or downgrade. A
   // red-team timeout DEGRADES (red_team_incomplete) — the run continues so a completed 7-lane deep dive
-  // is never discarded. TODO(model-tiering-spec): run on a DIFFERENT model than the lanes (one-line
-  // model_id swap) once a model registry exists — catches shared-narrative error.
+  // is never discarded. model-tiering-spec: the red team now resolves the `red_team` registry role —
+  // when an override pins a DIFFERENT provider/model it genuinely runs on a different model than the
+  // lanes (catches shared-narrative error single-model cross-checks cannot). Default = the run's model.
+  const redTeamRuntime = resolveRoleRuntime('red_team', provider, command)
   const corpusBeforeSynthesis = [...accumulated.values()]
   const corpusHashesBeforeSynthesis = new Set<string>()
   for (const s of corpusBeforeSynthesis) {
@@ -1137,12 +1194,12 @@ export async function runResearchDeepDivePhase(
     .filter((l) => l.verified_ids.length > 0)
     .map((l) => ({ lane: l.lane, finding_summary: l.finding_summary, confidence: l.confidence }))
   const redTeam: RedTeamResult = await runRedTeamPass(
-    provider,
+    redTeamRuntime.provider,
     {
       research_case_id: command.research_case_id,
       ticker: command.ticker,
-      // Defaults to the lanes' model; model-tiering will swap this for a different model.
-      model_id: command.model_id,
+      // model-tiering: the red_team registry role — a DIFFERENT model than the lanes when overridden.
+      model_id: redTeamRuntime.model_id,
       laneDigest,
       caseDigest: {
         moat_class: preMoatAnchor.computable ? preMoatAnchor.anchor_tier : 'pending (synthesis-resolved)',
@@ -1168,16 +1225,34 @@ export async function runResearchDeepDivePhase(
     : `\n\nRED-TEAM PASS: the adversarial red-team pass did not complete (${redTeam.reason}); the case was NOT adversarially tested. `
       + `Proceed, but the harness will surface this gap.`
 
-  // ---- Synthesis + decision agent ----
-  // Resilient bookend: a single 180s timeout here would otherwise discard all completed lane
-  // findings. We retry once on a transient failure; on final failure we raise a structured
-  // ResearchSwarmStageError noting the lanes already completed (so the run can be resumed/retried)
-  // — the lane findings are already persisted to the ledger above and are NOT lost.
+  // ---- Synthesis + decision agent (harness defense 1: schema validation + retry) ----
+  // model-tiering-spec: the synthesis runs on the `synthesis` registry role (T1). Default = the run's
+  // provider/model so single-provider runs are unchanged; an override can pin it onto a frontier model.
+  const synthesisRuntime = resolveRoleRuntime('synthesis', provider, command)
+  // A live red-team objection (survived cite-check) makes synthesis_response REQUIRED — synthesis must
+  // answer it or downgrade; silence is not an option.
+  const redTeamObjectionLive = redTeam.status === 'complete' && redTeam.strongest_objection.citations.length > 0
+  // The high-stakes structured fields the live dogfood exposed as silently omitted. They are OPTIONAL on
+  // the Zod schema (so the swarm still PARSES when absent), but the validate→retry wrapper REQUIRES them
+  // here — bouncing the omission back so a capable model is FORCED to emit them. Only after 2 attempts
+  // are exhausted does the existing visible-degradation fallback below apply (retries force compliance;
+  // the fallback prevents an abort; either way the gap is VISIBLE — never silent, never a whole-run abort).
+  const synthesisRequiredFields: RequiredFieldCheck<z.infer<typeof DecisionAgentSchema>>[] = [
+    { name: 'moat_rubric', present: (a) => a.moat_rubric !== undefined, hint: 'scored 0/1/2 rubric_scores + proposed_tier + citation_hash on cited rows' },
+    { name: 'runway_rubric', present: (a) => a.runway_rubric !== undefined, hint: 'scored 0/1/2 rubric_scores + proposed_tier' },
+    { name: 'shariah', present: (a) => a.shariah !== undefined, hint: 'sector_status + impermissible_income ($M)' },
+    ...(redTeamObjectionLive
+      ? ([{ name: 'synthesis_response', present: (a) => a.synthesis_response !== undefined && a.synthesis_response.text.trim().length > 0, hint: "answer the red-team objection with evidence (mode 'answered_with_evidence') OR accept+downgrade (mode 'accepted_downgraded')" }] as RequiredFieldCheck<z.infer<typeof DecisionAgentSchema>>[])
+      : []),
+  ]
   let dec: GroundedAgentResult<z.infer<typeof DecisionAgentSchema>>
+  // Surfaced when the validate→retry wrapper exhausted its attempts and we fell back to the degraded
+  // (still-parsed) payload — recorded as a visible degraded flag below so the gap is never silent.
+  let synthesisValidationDegraded: string | undefined
   try {
-    dec = await runGroundedAgentWithRetry(provider, {
+    const validated = await runValidatedAgent(synthesisRuntime.provider, {
     run_id: `run_${command.research_case_id}_synthesis`,
-    model_id: command.model_id,
+    model_id: synthesisRuntime.model_id,
     prompt: `You are the Buffett-Munger synthesis+decision agent for ${command.ticker}. `
       + `Using the lane findings, produce a verdict, thesis, evidence, valuation rationale, Shariah rationale, risks, open questions, and a synthesis summary. `
       + `For the owner_earnings_bridge, provide company TOTALS in $millions from the latest 10-K (net_income, depreciation_amortization, maintenance_capex, stock_based_comp, normalized_working_capital_change) AND shares_outstanding (diluted weighted-average shares outstanding, in MILLIONS) so the harness can compute owner earnings per share. `
@@ -1189,10 +1264,32 @@ export async function runResearchDeepDivePhase(
       + redTeamPromptBlock,
     timeout_ms: AGENT_TIMEOUT_MS,
     schema_name: 'BuffettMungerSynthesisDecision',
-    }, DecisionAgentSchema, deps)
+    }, DecisionAgentSchema, {
+      ...(deps.ground === undefined ? {} : { ground: deps.ground }),
+      ...(deps.grounding === undefined ? {} : { grounding: deps.grounding }),
+      requiredFields: synthesisRequiredFields,
+    })
+    if (validated.status === 'ok') {
+      dec = validated.result
+    } else if (validated.lastResult !== undefined) {
+      // Retries exhausted but a schema-valid payload parsed (the high-stakes fields are still missing).
+      // Reconcile with the existing stopgap: FALL BACK to the visible-degradation path (resolveJudgmentTiers
+      // → holistic moat/runway; lane Shariah verdict; red_team_objection_unaddressed) so the RUN completes
+      // rather than aborting. Record WHY it degraded so the gap is visible (never silent).
+      dec = validated.lastResult
+      synthesisValidationDegraded =
+        `synthesis_schema_retry_exhausted: the model omitted the required structured field(s) `
+        + `[${validated.missing.join(', ')}] after ${validated.attempts} attempts (${validated.reason}). `
+        + `Proceeded on the degraded payload via the holistic/lane fallback — re-run on a more capable model.`
+    } else {
+      // No payload parsed at all after retries (invalid JSON / schema mismatch). Lane findings are
+      // persisted (lanes_completed: true) so the run is resumable. Fail cleanly.
+      throw new ResearchSwarmStageError('synthesis', new ValidatedAgentFailedError(validated.missing, validated.attempts, validated.reason), { lanes_completed: true })
+    }
   } catch (error) {
-    // Synthesis retry exhausted: lane findings are already persisted (lanes_completed: true) so the
-    // run is resumable. Fail cleanly instead of throwing a raw provider/timeout error.
+    if (error instanceof ResearchSwarmStageError) throw error
+    // Synthesis retry exhausted (transient/provider error): lane findings are already persisted
+    // (lanes_completed: true) so the run is resumable. Fail cleanly instead of a raw provider/timeout error.
     throw new ResearchSwarmStageError('synthesis', error, { lanes_completed: true })
   }
   remember(dec.captured)
@@ -1300,6 +1397,11 @@ export async function runResearchDeepDivePhase(
   // to the decision open_questions below (mirroring the working red_team_objection_unaddressed pattern),
   // so a human (and the next dogfood) SEES exactly what the model failed to provide.
   const degradedFlags: string[] = []
+  // Harness defense 1: when the validate→retry wrapper exhausted its attempts and we fell back to the
+  // degraded payload, surface WHY (the required high-stakes field the model kept omitting) — visible.
+  if (synthesisValidationDegraded !== undefined) {
+    degradedFlags.push(synthesisValidationDegraded)
+  }
   if (judgment.moat?.judgment_degraded === 'rubric_not_emitted' || judgment.runway?.judgment_degraded === 'rubric_not_emitted') {
     degradedFlags.push(
       'judgment_degraded: rubric_not_emitted — the model omitted the moat/runway rubric_scores; the moat '
@@ -1360,7 +1462,17 @@ export async function runResearchDeepDivePhase(
   } else {
     net_income = modelBridge.net_income
     d_and_a = modelBridge.depreciation_amortization
-    maintenance_capex = modelBridge.maintenance_capex
+    // Harness defense 3: a model-proposed maintenance capex that exceeds revenue (or is negative/
+    // non-finite) is implausible — reject it and fall back to D&A as a safe proxy (the OE bridge caps
+    // maintenance capex at D&A anyway), recording a visible flag rather than feeding a garbage number.
+    const revenueForCheck = fundamentals?.latest_annual?.revenue_musd
+    const maintSanity = revenueForCheck !== undefined && Number.isFinite(revenueForCheck)
+      ? sanitizeMaintenanceCapex(modelBridge.maintenance_capex, { revenue: revenueForCheck })
+      : (Number.isFinite(modelBridge.maintenance_capex) && modelBridge.maintenance_capex >= 0
+        ? { value: modelBridge.maintenance_capex, rejected: false as const }
+        : { value: undefined, rejected: true as const, flag: `range_check_rejected: maintenance_capex=${modelBridge.maintenance_capex} is non-finite or negative. Value discarded.` })
+    if (maintSanity.rejected && 'flag' in maintSanity && maintSanity.flag !== undefined) degradedFlags.push(maintSanity.flag)
+    maintenance_capex = maintSanity.value ?? Math.max(0, Number.isFinite(d_and_a) ? d_and_a : 0)
     stock_based_comp = modelBridge.stock_based_comp
     shares_outstanding = modelBridge.shares_outstanding
   }
@@ -1393,14 +1505,26 @@ export async function runResearchDeepDivePhase(
     : undefined
 
   const discount = discountRate(buffettMungerStrategy)
-  const roic = dec.analysis.roic
+  // ---- Harness defense 3: range/sanity checks on model-proposed numerics (BEFORE the valuation) ----
+  // Implausible model numbers are rejected deterministically and never fed into the valuation — a
+  // rejected value falls back to a safe/not-computable value + a VISIBLE flag (mirrors degraded_flags).
+  // "If a component's output can be computed, compute it" — and an implausible input is discarded, not
+  // trusted. The EDGAR-computed incremental ROIC (computeIncrementalRoic, range-guarded) overrides the
+  // model value when available; these checks defend the model-proposed path.
+  const roicSanity = sanitizeRoicLike(dec.analysis.roic, { field: 'roic' })
+  if (roicSanity.rejected && roicSanity.flag !== undefined) degradedFlags.push(roicSanity.flag)
+  // Reported ROIC is context; a rejected value is floored to 0 (no >20% exceptional signal credited).
+  const roic = roicSanity.value ?? 0
   // ---- Incremental ROIC: harness-computed from the EDGAR multi-year series when reliable ----
   // (buffett-valuation-method-v2 Step 3). NOPAT proxy = operating income × (1 − eff. tax) [or NI +
   // after-tax interest]; invested capital proxy = equity + total debt − cash; incremental ROIC ≈
   // Δ(NOPAT)/Δ(invested capital) over ~5 yrs. We use the harness value for growth eligibility/credit
   // and FALL BACK to the lane's proposed incremental_roic when EDGAR data is insufficient or the
   // proxy is unreliable (negative/odd) — keeping it honest with a recorded note.
-  const laneIncrementalRoic = dec.analysis.incremental_roic
+  const laneIncRoicSanity = sanitizeRoicLike(dec.analysis.incremental_roic, { field: 'incremental_roic' })
+  if (laneIncRoicSanity.rejected && laneIncRoicSanity.flag !== undefined) degradedFlags.push(laneIncRoicSanity.flag)
+  // A rejected lane incremental_roic floors to 0 (ineligible for growth credit) — never the garbage value.
+  const laneIncrementalRoic = laneIncRoicSanity.value ?? 0
   let incremental_roic = laneIncrementalRoic
   let incremental_roic_basis: 'sec_edgar' | 'model_proposed' = 'model_proposed'
   if (fundamentals?.annual_series !== undefined && fundamentals.annual_series.length >= 2) {
@@ -1410,7 +1534,10 @@ export async function runResearchDeepDivePhase(
       incremental_roic_basis = 'sec_edgar'
     }
   }
-  const reinvestment_rate = dec.analysis.reinvestment_rate
+  const reinvestmentSanity = sanitizeReinvestmentRate(dec.analysis.reinvestment_rate)
+  if (reinvestmentSanity.rejected && reinvestmentSanity.flag !== undefined) degradedFlags.push(reinvestmentSanity.flag)
+  // A rejected reinvestment_rate floors to 0 (no growth credited from an implausible rate).
+  const reinvestment_rate = reinvestmentSanity.value ?? 0
   // resolved_runway is guaranteed defined by resolveJudgmentTiers (never undefined).
   const runway = judgment.runway!.resolved_runway
   const runway_exceptional = dec.analysis.runway_exceptional ?? false

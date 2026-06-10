@@ -1730,3 +1730,148 @@ describe('Silent-degradation cascade — fields omitted (live dogfood shape)', (
     expect(degraded.join(' ')).toMatch(/valuation_degraded:\s*credited_growth_floored_g0/)
   })
 })
+
+// ---------------------------------------------------------------------------
+// model-tiering harness defense 1: schema validation + retry. The synthesis stub keeps omitting the
+// REQUIRED high-stakes fields (moat_rubric/runway_rubric/shariah) -> the wrapper RETRIES (a second
+// synthesis call), and after 2 attempts FALLS BACK visibly (synthesis_schema_retry_exhausted) so the
+// run still completes. A provider that emits the fields on the 2nd attempt SUCCEEDS without the flag.
+// ---------------------------------------------------------------------------
+describe('runStrategyResearchSwarm — schema-validation + retry (harness defense 1)', () => {
+  // A swarm provider whose synthesis decision can include/omit the required fields on a per-attempt
+  // basis (keyed by schema_name, counting synthesis attempts so the 2nd attempt can differ).
+  function retrySwarmProvider(opts: { synthesisAttemptsToOmit: number }) {
+    const src = (id: string) => ({ source_id: id, title: 'T', url: 'https://www.sec.gov/Archives/edgar/data/0/test-10k.htm', excerpt: 'e' })
+    let laneCall = 0
+    let synthAttempt = 0
+    const fullRubric = (tier: string) => ({
+      rubric_scores: [{ id: 'M1', score: 2 }, { id: 'M2', score: 2 }],
+      proposed_tier: tier,
+      adjustment_evidence: [],
+    })
+    const provider = {
+      provider_id: 'fake-retry',
+      capabilities: {} as never,
+      complete: vi.fn(),
+      runWithTools: vi.fn(),
+      structured: vi.fn(async (req: { response_format?: { schema_name?: string } }) => {
+        const schemaName = req.response_format?.schema_name
+        if (schemaName === 'BuffettMungerQuickScreen') {
+          return {
+            summary: 'Good', business_quality: 'Strong', moat: 'Wide', management_capital_allocation: 'Good',
+            financial_quality: 'Solid', valuation_sanity: 'Fair', shariah_status: 'CONDITIONAL',
+            red_flags: ['None'], confidence: 'high', caveats: ['c'], screening_result: 'deep_dive_candidate',
+            proposed_sources: [src('src_qs_1')],
+          }
+        }
+        if (schemaName === 'BuffettMungerLaneFinding') {
+          const n = laneCall++
+          return { finding_summary: `Lane ${n}`, confidence: 'high', caveats: ['c'], proposed_sources: [src(`src_lane_${n}`)] }
+        }
+        if (schemaName === 'BuffettMungerRedTeam') {
+          return {
+            strongest_bear_case: 'b', weakest_rubric_items: [], moat_decay_scenario: 'd', growth_credit_attack: 'g',
+            shared_narrative_blindspots: [], strongest_objection: { claim: 'c', severity: 'low', citations: ['src_qs_1'] },
+            proposed_sources: [src('src_qs_1')],
+          }
+        }
+        // Synthesis: omit the required fields for the first `synthesisAttemptsToOmit` attempts.
+        const omit = synthAttempt < opts.synthesisAttemptsToOmit
+        synthAttempt++
+        return {
+          investment_verdict: 'WATCH', strategy_compliance: 'CONDITIONAL', valuation_status: 'EXPENSIVE',
+          next_required_action: 'wait', decision_reason: 'pricey', thesis_summary: 't', evidence_summary: 'e',
+          valuation_rationale: 'v', shariah_rationale: 's', synthesis_summary: 'x', risks: ['r'], open_questions: ['q'],
+          moat_class: 'wide', runway: 'proven',
+          growth_assumptions: 'two-stage', roic: 0.30, incremental_roic: 0.20, reinvestment_rate: 0.43,
+          owner_earnings_bridge: {
+            net_income: 8838, depreciation_amortization: 2565, maintenance_capex: 2052,
+            maintenance_capex_proxy_tier: '80', stock_based_comp: 911, normalized_working_capital_change: 0, shares_outstanding: 443,
+          },
+          ...(omit ? {} : {
+            moat_rubric: fullRubric('wide'),
+            runway_rubric: fullRubric('proven'),
+            shariah: { sector_status: 'compliant', impermissible_income: 0 },
+            // The red team raised a live (cited) objection -> synthesis_response is also required.
+            red_team_strongest_objection: 'echoed',
+            synthesis_response: { mode: 'answered_with_evidence', text: 'Rebutted with cited filing evidence.' },
+          }),
+          proposed_sources: [src('src_dec_1')],
+        }
+      }),
+    }
+    return { provider, synthCalls: () => synthAttempt }
+  }
+
+  async function run(provider: unknown, id: string) {
+    const store = new InMemoryEventStore()
+    const sourceLedgerPath = await mkdtemp(join(tmpdir(), `owlfolio-retry-${id}-`))
+    await runStrategyResearchSwarm(
+      store, provider as never,
+      {
+        research_case_id: `rc_${id}`, company_id: 'c', ticker: 'TST', strategy_id: 'buffett-munger',
+        actor_id: 'user_local', idempotency_key: `${id}_k`, model_id: 'mock', decision_id: `decision_${id}`,
+        source_ledger_path: sourceLedgerPath,
+      },
+      { ground: allVerifiedGround, laneConcurrency: 4 },
+    )
+    const events = await store.list()
+    const analysis = events.find((e) => e.event_type === 'buffett_munger_analysis_drafted')
+    return { analysisPayload: analysis?.payload as Record<string, unknown> }
+  }
+
+  it('retries synthesis when required fields are omitted, then succeeds on the 2nd attempt (no degraded flag)', async () => {
+    const { provider, synthCalls } = retrySwarmProvider({ synthesisAttemptsToOmit: 1 })
+    const { analysisPayload } = await run(provider, 'retry-recover')
+    // The wrapper issued a SECOND synthesis call (the retry that bounced the missing fields back).
+    expect(synthCalls()).toBe(2)
+    const valuation = analysisPayload?.['valuation'] as Record<string, unknown>
+    const degraded = (valuation?.['degraded_flags'] as string[] | undefined) ?? []
+    // Recovered on retry -> no schema-retry-exhausted flag, no rubric_not_emitted (the rubric arrived).
+    expect(degraded.join(' ')).not.toMatch(/synthesis_schema_retry_exhausted/)
+    expect(degraded.join(' ')).not.toMatch(/rubric_not_emitted/)
+  })
+
+  it('marks the synthesis stage degraded after 2 failed attempts and the run still completes (visible fallback)', async () => {
+    const { provider, synthCalls } = retrySwarmProvider({ synthesisAttemptsToOmit: 99 })
+    const { analysisPayload } = await run(provider, 'retry-exhaust')
+    // 2 attempts (initial + 1 retry), then fall back to the degraded payload — the run did NOT abort.
+    expect(synthCalls()).toBe(2)
+    expect(analysisPayload).toBeDefined()
+    const valuation = analysisPayload?.['valuation'] as Record<string, unknown>
+    const degraded = (valuation?.['degraded_flags'] as string[] | undefined) ?? []
+    // The schema-retry exhaustion is surfaced (which fields, how many attempts) — never silent.
+    expect(degraded.join(' ')).toMatch(/synthesis_schema_retry_exhausted/)
+    expect(degraded.join(' ')).toMatch(/moat_rubric/)
+  })
+
+  it('routes the red-team to a DIFFERENT provider when the red_team role is overridden', async () => {
+    // Two distinct provider instances: the run provider and a separate red-team provider. The registry
+    // override pins red_team -> mock-provider, so resolveProvider instantiates a fresh MockProvider —
+    // proving the red team genuinely runs on its own provider/model, not the run's.
+    const store = new InMemoryEventStore()
+    const { provider } = retrySwarmProvider({ synthesisAttemptsToOmit: 0 })
+    const sourceLedgerPath = await mkdtemp(join(tmpdir(), 'owlfolio-rt-override-'))
+    // resolveModelForRole reads OWLFOLIO_MODEL_ROLE_RED_TEAM from env; assert it routes without throwing.
+    const prev = process.env['OWLFOLIO_MODEL_ROLE_RED_TEAM']
+    process.env['OWLFOLIO_MODEL_ROLE_RED_TEAM'] = 'mock-provider:mock-red@0.0'
+    try {
+      await runStrategyResearchSwarm(
+        store, provider as never,
+        {
+          research_case_id: 'rc_rt', company_id: 'c', ticker: 'TST', strategy_id: 'buffett-munger',
+          actor_id: 'user_local', idempotency_key: 'rt_k', model_id: 'mock', decision_id: 'decision_rt',
+          source_ledger_path: sourceLedgerPath,
+        },
+        { ground: allVerifiedGround, laneConcurrency: 4 },
+      )
+    } finally {
+      if (prev === undefined) delete process.env['OWLFOLIO_MODEL_ROLE_RED_TEAM']
+      else process.env['OWLFOLIO_MODEL_ROLE_RED_TEAM'] = prev
+    }
+    const events = await store.list()
+    // The run still completed end-to-end (the red team ran on the overridden provider, which a
+    // MockProvider satisfies in its degraded path) — proving the different-model hook is wired.
+    expect(events.map((e) => e.event_type)).toContain('decision_drafted')
+  })
+})

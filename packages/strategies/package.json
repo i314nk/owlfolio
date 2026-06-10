@@ -20,6 +20,7 @@
     "./valuationConfigEvent": "./src/valuationConfigEvent.ts",
     "./calibrationRunEvent": "./src/calibrationRunEvent.ts",
     "./judgmentRubrics": "./src/judgmentRubrics.ts",
+    "./modelRegistry": "./src/modelRegistry.ts",
     "./sourcePolicy": "./src/sourcePolicy.ts",
     "./baseRates": "./src/baseRates.ts"
   }
