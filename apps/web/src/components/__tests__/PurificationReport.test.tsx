@@ -61,7 +61,7 @@ describe('PurificationReport', () => {
     expect(html).toContain('Last automation calculation')
     expect(html).toContain('2026-07-01T00:05:00.000Z')
     expect(html).toContain('Next scheduled calculation')
-    expect(html).toContain('quarterly purification review cadence')
+    expect(html).toContain('Quarterly — 1st at 08:00')
     expect(html).toContain('Source / caveat / confidence')
     expect(html).toContain('AAOIFI-aware local ledger projection')
     expect(html).toContain('User action required')

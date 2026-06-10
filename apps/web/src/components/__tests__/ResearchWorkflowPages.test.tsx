@@ -596,7 +596,7 @@ describe('research and watchlist workflow pages', () => {
       mode: 'personal-local',
       valuationRefresh: {
         last_price_check_at: '2026-06-01T07:00:00.000Z',
-        next_scheduled_check: '0 7 * * 1-5',
+        next_scheduled_check: 'Weekdays at 07:00',
         data_source: 'mock-local-price-feed',
         confidence_caveat: 'Mock/local confidence — deterministic prices for local workflow verification.',
         holdings_missing_data: ['MISSING'],
@@ -638,7 +638,7 @@ describe('research and watchlist workflow pages', () => {
     expect(html).toContain('Last price check')
     expect(html).toContain('2026-06-01T07:00:00.000Z')
     expect(html).toContain('Next scheduled check')
-    expect(html).toContain('0 7 * * 1-5')
+    expect(html).toContain('Weekdays at 07:00')
     expect(html).toContain('Data source')
     expect(html).toContain('Confidence / caveat')
     expect(html).toContain('Mock/local confidence — deterministic prices for local workflow verification.')

@@ -3,6 +3,7 @@ import { createElement, type CSSProperties } from 'react'
 import type { AccountingHoldingSnapshot, AccountingSnapshotProjection } from '@owlfolio/ledger/projections/accountingProjection'
 
 import type { AppAccountingReport } from '../lib/accounting'
+import { humanizeCronProse } from '../lib/schedule'
 import { OwlButtonLink, OwlKpiStat, OwlRingGauge, RouteHeader, SourceChip } from './designSystem'
 import { StatusBadge } from './StatusBadge'
 
@@ -42,7 +43,7 @@ export function AccountingMonthlyReport({ report }: AccountingMonthlyReportProps
       description: `Current period summary for ${formatMonth(current.period_end)}. Automatically maintained accounting projection derives current NAV from valuation, cash-flow, dividend, fee, and realized gain/loss events in the durable event ledger.`,
     }),
     createAccountingKpiRow(current),
-    createAccountingStatusPanel(current, report.next_scheduled_update ?? 'valuation refresh cadence 0 7 * * 1-5; accounting recalculates from ledger events on load'),
+    createAccountingStatusPanel(current, report.next_scheduled_update ?? humanizeCronProse('valuation refresh cadence 0 7 * * 1-5; accounting recalculates from ledger events on load')),
     missingCount === 0 ? null : createMissingValuationAlert(missingCount),
     createElement(
       'section',

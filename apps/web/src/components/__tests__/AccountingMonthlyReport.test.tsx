@@ -74,7 +74,7 @@ describe('AccountingMonthlyReport', () => {
     expect(html).toContain('User action required')
     expect(html).toContain('No user action required for current NAV coverage')
     expect(html).toContain('Last ledger update: 2026-06-30T23:59:00.000Z')
-    expect(html).toContain('Next scheduled update: valuation refresh cadence 0 7 * * 1-5; accounting recalculates from ledger events on load')
+    expect(html).toContain('Next scheduled update: Valuation refresh cadence: Weekdays at 07:00 — accounting recalculates from ledger events on load')
     expect(html).toContain('Snapshot ID')
     expect(html).toContain('acct_2026_06')
     expect(html).toContain('Current period summary')

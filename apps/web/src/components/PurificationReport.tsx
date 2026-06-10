@@ -3,6 +3,7 @@ import { createElement, type CSSProperties } from 'react'
 import type { PurificationObligationProjection, PurificationPaymentProjection } from '@owlfolio/ledger/projections/purificationProjection'
 
 import type { AppPurificationReport, PurificationSummaryCard } from '../lib/purification'
+import { humanizeCronProse } from '../lib/schedule'
 import { OwlButtonLink, OwlKpiStat, OwlRingGauge, RouteHeader, SourceChip } from './designSystem'
 import { StatusBadge } from './StatusBadge'
 
@@ -127,7 +128,7 @@ function createPurificationOperationsCockpit(report: AppPurificationReport) {
       { style: { display: 'grid', gap: '0.75rem', gridTemplateColumns: 'repeat(auto-fit, minmax(15rem, 1fr))', marginTop: '1rem' } },
       statusMetric('Current state', currentState),
       statusMetric('Last automation calculation', lastCalculation),
-      statusMetric('Next scheduled calculation', 'quarterly purification review cadence 0 8 1 */3 *'),
+      statusMetric('Next scheduled calculation', humanizeCronProse('quarterly purification review cadence 0 8 1 */3 *')),
       statusMetric('Source / caveat / confidence', 'AAOIFI-aware local ledger projection · Shariah/accounting evidence required · not a ruling, tax record, or payment service'),
       statusMetric('User action required', userActionRequired),
     ),

@@ -3,6 +3,7 @@ import { SQLiteEventStore } from '@owlfolio/ledger/sqliteEventStore'
 
 import { PortfolioPanel, type PortfolioHolding, type PortfolioValuationRefreshSummary } from '../../components/PortfolioPanel'
 import { getOnboardingState } from '../../lib/onboarding'
+import { humanizeCron } from '../../lib/schedule'
 import { getAppHoldingsFromStore, getInvestableCapital } from '../../lib/workflow'
 
 export default async function PortfolioPage() {
@@ -84,7 +85,7 @@ function buildValuationRefreshSummary(holdings: PortfolioHolding[]): PortfolioVa
   const lastPriceCheckAt = priceChecks.at(-1)
   const hasPriceCheck = lastPriceCheckAt !== undefined
   const summary: PortfolioValuationRefreshSummary = {
-    next_scheduled_check: '0 7 * * 1-5',
+    next_scheduled_check: humanizeCron('0 7 * * 1-5'),
     data_source: hasPriceCheck ? 'mock-local-price-feed' : 'awaiting-first-price-check',
     confidence_caveat: hasPriceCheck
       ? 'Mock/local confidence — deterministic prices for local workflow verification.'

@@ -6,6 +6,8 @@ import {
 } from '@owlfolio/ledger/projections/accountingProjection'
 import type { EventStore } from '@owlfolio/ledger/eventStore'
 
+import { humanizeCronProse } from './schedule'
+
 export type AppAccountingReport = {
   current_period_snapshot: AccountingSnapshotProjection
   snapshot_history: AccountingSnapshotProjection[]
@@ -24,7 +26,7 @@ const defaultLimitations = [
   'Broker sync is not connected for this local alpha; values remain local ledger accounting aids, not broker statements or tax reports.',
 ]
 
-const nextScheduledUpdate = 'valuation refresh cadence 0 7 * * 1-5; accounting recalculates from ledger events on load'
+const nextScheduledUpdate = humanizeCronProse('valuation refresh cadence 0 7 * * 1-5; accounting recalculates from ledger events on load')
 
 const derivedAccountingEventTypes = new Set([
   'holding_opened',
