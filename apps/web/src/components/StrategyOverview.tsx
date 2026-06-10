@@ -2,8 +2,11 @@ import { createElement, type CSSProperties, type ReactNode } from 'react'
 
 import {
   buffettMungerStrategy,
+  creditedGrowth,
   discountRate,
   marginOfSafetyForMoat,
+  terminalGrowthForMoat,
+  twoStageFairValuePerShare,
 } from '@owlfolio/strategies/buffettMunger'
 import { buffettMungerDeepDiveLanes } from '@owlfolio/workflow/strategyResearchPipeline'
 
@@ -12,11 +15,36 @@ import { RouteHeader, OwlValuationChip } from './designSystem'
 // ── Live contract values (rendered, never hard-coded) ───────────────────────
 const strategy = buffettMungerStrategy
 const DISCOUNT = discountRate(strategy)
-const TERMINAL_GROWTH_CAP = strategy.valuation.terminal_growth_cap
 const MULTIPLE_CEILING = strategy.valuation.valuation_multiple_ceiling
 const MIN_INVESTABLE_MOAT = strategy.valuation.min_investable_moat
 const MOS_WIDE = marginOfSafetyForMoat(strategy, 'wide')
 const MOS_MONOPOLY = marginOfSafetyForMoat(strategy, 'monopoly')
+const TERMINAL_G_WIDE = terminalGrowthForMoat(strategy, 'wide')
+const TERMINAL_G_MONOPOLY = terminalGrowthForMoat(strategy, 'monopoly')
+const MAX_GROWTH = strategy.valuation.max_growth
+const GROWTH_ELIGIBILITY_INC_ROIC = strategy.valuation.growth_eligibility_incremental_roic
+const BANDS = strategy.valuation.growth_band_ceilings
+
+// Worked example — a monopoly compounder, computed from the live contract so the prose tracks params.
+const EX_OE = 14
+const EX_RUNWAY = 'proven' as const
+const EX_INC_ROIC = 0.2
+const EX_REINV = 0.4
+const EX_G = creditedGrowth(strategy, {
+  reinvestment_rate: EX_REINV,
+  incremental_roic: EX_INC_ROIC,
+  runway: EX_RUNWAY,
+  moat_class: 'monopoly',
+})
+const EX_FV = twoStageFairValuePerShare({
+  oe_ps: EX_OE,
+  g: EX_G,
+  terminal_g: TERMINAL_G_MONOPOLY,
+  discount: DISCOUNT,
+  ceiling_multiple: MULTIPLE_CEILING,
+})
+const EX_BUY = Math.round(EX_FV * (1 - MOS_MONOPOLY) * 100) / 100
+const EX_IMPLIED = EX_FV / EX_OE
 const TARGET_WIDE = strategy.portfolio.target_weight_by_moat.wide
 const TARGET_MONOPOLY = strategy.portfolio.target_weight_by_moat.monopoly
 const TRANCHES = strategy.portfolio.entry_tranches
@@ -335,16 +363,16 @@ export function StrategyOverview(): ReactNode {
       }),
     }),
 
-    // 5. Valuation method (equity bond)
+    // 5. Valuation method (two-stage DCF)
     Section({
       eyebrow: 'Value',
-      title: 'Valuation — the equity bond',
+      title: 'Valuation — two-stage discounted owner earnings',
       lead: createElement(
         'span',
         null,
-        'A quality business is treated like a bond whose coupon is its owner earnings. Fair value capitalizes owner earnings at a flat ',
+        'Pay for current owner earnings plus modest, evidence-backed reinvestment value — never pay upfront for all future compounding. Owner earnings are discounted in two stages: ten years at a credited growth rate, then a fade to a small terminal rate. The discount is a flat ',
         createElement('span', { style: monoFigure }, pct(DISCOUNT)),
-        ' discount rate; the certainty difference between moat classes is expressed through a moat-tiered margin of safety, not the discount rate. The discount rate is a static floor.',
+        ' — no WACC, no beta, ever. The certainty difference between moat classes lives in the margin of safety, not the discount rate.',
       ),
       children: createElement(
         'div',
@@ -366,23 +394,36 @@ export function StrategyOverview(): ReactNode {
               overflowX: 'auto',
             },
           },
-          createElement('div', null, 'OE  = NI + D&A − maintenance capex (20/50/80% proxy) − SBC − ΔNWC'),
-          createElement('div', null, `g   = min(reinvestment × ROIC, ${pct(TERMINAL_GROWTH_CAP)})   — credited only when ROIC > ${pct(DISCOUNT)}`),
-          createElement('div', null, `fair = min( OE / (${pct(DISCOUNT)} − g),  ${MULTIPLE_CEILING}× OE )`),
+          createElement('div', null, 'OE   = NI + D&A − maintenance capex (20/50/80% proxy) − SBC − ΔNWC'),
+          createElement('div', null, `g    = reinvestment × incremental ROIC, banded by runway — credited only when inc-ROIC > ${pct(GROWTH_ELIGIBILITY_INC_ROIC)}, ${pct(MAX_GROWTH)} max`),
+          createElement('div', null, `gₜ   = terminal fade: monopoly ${pct(TERMINAL_G_MONOPOLY)} / wide ${pct(TERMINAL_G_WIDE)}`),
+          createElement('div', null, `fair = Σ OE(1+g)ᵗ/(1+${pct(DISCOUNT)})ᵗ  [t=1..10]  +  OE(1+g)¹⁰(1+gₜ)/(${pct(DISCOUNT)}−gₜ) / (1+${pct(DISCOUNT)})¹⁰`),
+          createElement('div', null, `fair = min( fair,  ${MULTIPLE_CEILING}× OE )    — a genuine independent brake`),
           createElement('div', null, 'buy  = fair × (1 − margin of safety)'),
         ),
+
+        // Growth bands — runway is the binding axis; moat tier only sets the ceiling.
+        createElement('p', { style: microLabel }, 'Credited growth — runway sets the value, moat tier the ceiling'),
+        Table({
+          headings: ['Runway × moat', 'Band ceiling'],
+          rows: [
+            [createElement('span', { style: goldText }, 'limited / none — any tier'), createElement('span', { style: monoFigure }, pct(BANDS.limited_or_none))],
+            [createElement('span', { style: goldText }, 'wide + proven'), createElement('span', { style: monoFigure }, `${pct(BANDS.wide_proven)} (${pct(BANDS.wide_proven_exceptional)} exceptional)`)],
+            [createElement('span', { style: goldText }, 'monopoly + proven'), createElement('span', { style: monoFigure }, `${pct(BANDS.monopoly_proven)} (${pct(BANDS.monopoly_proven_exceptional)} exceptional)`)],
+          ],
+        }),
 
         // MoS table
         createElement('p', { style: microLabel }, 'Moat-tiered margin of safety'),
         Table({
-          headings: ['Moat class', 'Discount rate', 'Margin of safety'],
+          headings: ['Moat class', 'Discount rate', 'Terminal g', 'Margin of safety'],
           rows: [
-            [createElement('span', { style: goldText }, 'wide'), createElement('span', { style: monoFigure }, pct(DISCOUNT)), createElement('span', { style: monoFigure }, pct(MOS_WIDE))],
-            [createElement('span', { style: goldText }, 'monopoly'), createElement('span', { style: monoFigure }, pct(DISCOUNT)), createElement('span', { style: monoFigure }, pct(MOS_MONOPOLY))],
+            [createElement('span', { style: goldText }, 'wide'), createElement('span', { style: monoFigure }, pct(DISCOUNT)), createElement('span', { style: monoFigure }, pct(TERMINAL_G_WIDE)), createElement('span', { style: monoFigure }, pct(MOS_WIDE))],
+            [createElement('span', { style: goldText }, 'monopoly'), createElement('span', { style: monoFigure }, pct(DISCOUNT)), createElement('span', { style: monoFigure }, pct(TERMINAL_G_MONOPOLY)), createElement('span', { style: monoFigure }, pct(MOS_MONOPOLY))],
           ],
         }),
 
-        // Worked example
+        // Worked example — computed from the live contract.
         createElement(
           'div',
           { style: { ...bodyStyle, background: 'var(--owl-color-panel)', border: '1px solid var(--owl-color-border)', borderRadius: 'var(--owl-radius-card)', padding: '0.85rem 1rem' } },
@@ -391,14 +432,24 @@ export function StrategyOverview(): ReactNode {
             'p',
             { style: { margin: 0 } },
             'Owner earnings of ',
-            createElement('span', { style: monoFigure }, '14'),
-            ' per share with no credited growth capitalize at ',
-            createElement('span', { style: monoFigure }, `14 / ${pct(DISCOUNT)} = 200`),
-            ' fair value. A monopoly moat carries a ',
+            createElement('span', { style: monoFigure }, `$${EX_OE}`),
+            ' per share, a proven reinvestment runway, and incremental ROIC of ',
+            createElement('span', { style: monoFigure }, pct(EX_INC_ROIC)),
+            ' on a ',
+            createElement('span', { style: monoFigure }, pct(EX_REINV)),
+            ' reinvestment rate credit growth of ',
+            createElement('span', { style: monoFigure }, pct(EX_G)),
+            ` (raw ${pct(EX_REINV * EX_INC_ROIC, 1)} clamped to the monopoly+proven band). Discounting ten years of that growth and fading to a `,
+            createElement('span', { style: monoFigure }, pct(TERMINAL_G_MONOPOLY)),
+            ' terminal rate gives a fair value of ',
+            createElement('span', { style: monoFigure }, `$${EX_FV.toFixed(0)}`),
+            ` (${EX_IMPLIED.toFixed(1)}× owner earnings, under the ${MULTIPLE_CEILING}× cap). A monopoly carries a `,
             createElement('span', { style: monoFigure }, pct(MOS_MONOPOLY)),
             ' margin of safety, so the buy price is ',
-            createElement('span', { style: monoFigure }, `200 × (1 − ${pct(MOS_MONOPOLY)}) = 180`),
-            '. A wide-moat business with the same earnings would demand a ',
+            createElement('span', { style: monoFigure }, `$${EX_FV.toFixed(0)} × (1 − ${pct(MOS_MONOPOLY)}) = $${EX_BUY.toFixed(0)}`),
+            '. A wide-moat business would fade to a ',
+            createElement('span', { style: monoFigure }, pct(TERMINAL_G_WIDE)),
+            ' terminal and demand a ',
             createElement('span', { style: monoFigure }, pct(MOS_WIDE)),
             ' buffer instead.',
           ),
@@ -415,7 +466,7 @@ export function StrategyOverview(): ReactNode {
         'ul',
         { style: { ...bodyStyle, margin: 0, paddingLeft: '1.1rem', display: 'flex', flexDirection: 'column', gap: '0.4rem' } },
         createElement('li', null, createElement('span', { style: goldText }, 'Moat ≥ wide'), ' — narrow/moderate are rejected and forced to PASS.'),
-        createElement('li', null, createElement('span', { style: goldText }, 'ROIC above hurdle'), ' — growth is credited only when ROIC exceeds the discount rate.'),
+        createElement('li', null, createElement('span', { style: goldText }, 'Growth eligibility'), ` — growth is credited only when incremental ROIC exceeds ${pct(GROWTH_ELIGIBILITY_INC_ROIC)}, banded by reinvestment runway, ${pct(MAX_GROWTH)} maximum.`),
         createElement('li', null, createElement('span', { style: goldText }, 'Positive owner earnings'), ' — normalized owner earnings must be positive.'),
         createElement('li', null, createElement('span', { style: goldText }, 'Safe balance sheet'), ' — leverage must not create unacceptable fragility.'),
         createElement('li', null, createElement('span', { style: goldText }, 'Shariah compliant or conditional'), ' — non-compliant cases stop at the quick screen.'),

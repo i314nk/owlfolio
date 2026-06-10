@@ -37,13 +37,45 @@ export const hardGateSchema = z.object({
 export const moatClassSchema = z.enum(['narrow', 'moderate', 'wide', 'monopoly'])
 export type MoatClass = z.infer<typeof moatClassSchema>
 
+/** Reinvestment runway axis — a distinct axis from moat width, binding for growth credit. */
+export const runwaySchema = z.enum(['proven', 'limited', 'none'])
+export type Runway = z.infer<typeof runwaySchema>
+
+/**
+ * Banded credited-growth ceilings (buffett-valuation-method-v2 Step 3).
+ * Runway sets the actual value; moat tier sets the ceiling. `_exceptional`
+ * variants allow the top of a band only when evidence flags an exceptional runway.
+ */
+export const growthBandCeilingsSchema = z.object({
+  /** limited/none runway — any moat tier */
+  limited_or_none: z.number().positive(),
+  /** wide moat + proven runway */
+  wide_proven: z.number().positive(),
+  /** wide moat + proven runway, exceptional */
+  wide_proven_exceptional: z.number().positive(),
+  /** monopoly + proven runway */
+  monopoly_proven: z.number().positive(),
+  /** monopoly + proven runway, exceptional */
+  monopoly_proven_exceptional: z.number().positive(),
+})
+
 export const valuationPolicySchema = z.object({
   discount_rate: z.number().positive(),
   margin_of_safety_by_moat: z.object({
     wide: z.number().positive(),
     monopoly: z.number().positive(),
   }),
-  terminal_growth_cap: z.number().positive(),
+  /** Terminal-stage growth (g_t) by moat tier: monopoly fades to 2%, wide to 1%. */
+  terminal_growth_by_moat: z.object({
+    wide: z.number().positive(),
+    monopoly: z.number().positive(),
+  }),
+  /** Banded credited-growth ceilings (runway × moat tier). */
+  growth_band_ceilings: growthBandCeilingsSchema,
+  /** Growth credit is only given when incremental ROIC strictly exceeds this threshold. */
+  growth_eligibility_incremental_roic: z.number().positive(),
+  /** Absolute maximum credited growth — never exceeded by any band. */
+  max_growth: z.number().positive(),
   valuation_multiple_ceiling: z.number().positive(),
   min_investable_moat: moatClassSchema,
   valuation_required: z.boolean(),

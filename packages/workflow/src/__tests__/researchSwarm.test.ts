@@ -121,6 +121,7 @@ function swarmFakeProvider() {
         risks: ['Valuation risk'],
         open_questions: ['Margin of safety needed'],
         moat_class: 'wide',
+        runway: 'proven',
         growth_assumptions: 'Steady growth; ROIC 20% > 10% discount; terminal g=3%.',
         owner_earnings_bridge: {
           net_income: 18, depreciation_amortization: 4, maintenance_capex: 3,
@@ -128,6 +129,7 @@ function swarmFakeProvider() {
           normalized_working_capital_change: 0, shares_outstanding: 1,
         },
         roic: 0.20,
+        incremental_roic: 0.20,
         reinvestment_rate: 0.40,
         proposed_sources: [src('src_dec_1')],
       }
@@ -196,6 +198,7 @@ function swarmFakeProviderWithLaneIds(lanes: readonly string[]) {
         risks: ['Valuation risk'],
         open_questions: ['Margin of safety needed'],
         moat_class: 'wide',
+        runway: 'proven',
         growth_assumptions: 'Steady growth; ROIC 20% > 10% discount; terminal g=3%.',
         owner_earnings_bridge: {
           net_income: 18, depreciation_amortization: 4, maintenance_capex: 3,
@@ -203,6 +206,7 @@ function swarmFakeProviderWithLaneIds(lanes: readonly string[]) {
           normalized_working_capital_change: 0, shares_outstanding: 1,
         },
         roic: 0.20,
+        incremental_roic: 0.20,
         reinvestment_rate: 0.40,
         proposed_sources: [src('src_dec_partial_1')],
       }
@@ -373,6 +377,7 @@ describe('runStrategyResearchSwarm', () => {
             risks: ['Valuation risk'],
             open_questions: ['Margin of safety needed'],
             moat_class: 'wide',
+            runway: 'proven',
             growth_assumptions: 'Steady growth; ROIC 20% > 10% discount; terminal g=3%.',
             owner_earnings_bridge: {
               net_income: 18, depreciation_amortization: 4, maintenance_capex: 3,
@@ -380,6 +385,7 @@ describe('runStrategyResearchSwarm', () => {
               normalized_working_capital_change: 0, shares_outstanding: 1,
             },
             roic: 0.20,
+            incremental_roic: 0.20,
             reinvestment_rate: 0.40,
             proposed_sources: [src('src_dec_good_1'), src('src_dec_bad_1')],
           }
@@ -615,14 +621,15 @@ describe('runStrategyResearchSwarm with MockProvider + deterministic grounder', 
     expect(caseProjection?.shariah_status).toBeDefined()
   })
 
-  it('projects moat_class, discount_rate, roic, reinvestment_rate, OE bridge, fair_value, MoS, and buy_price from the analysis event (Design B)', async () => {
-    // MockProvider emits monopoly moat with bridge TOTALS in $millions:
+  it('projects moat_class, runway, discount_rate, roic, two-stage fair_value, MoS, and buy_price from the analysis event (two-stage DCF)', async () => {
+    // MockProvider emits monopoly moat + proven runway with bridge TOTALS in $millions:
     //   NI=14000, D&A=4000, maint=3000, SBC=2000, dNWC=-1000 → OE_total = 14000 ($M)
     //   shares_outstanding=1000 (M) → OE/sh = 14000/1000 = 14
-    //   roic=0.25, reinvestment_rate=0.40
+    //   roic=0.25, incremental_roic=0.20, reinvestment_rate=0.40
     // Harness computes:
-    //   discount=0.10, g=min(0.40*0.25, 0.03)=0.03, fair=min(14/(0.10-0.03), 20*14)=min(200,280)=200
-    //   MoS(monopoly)=0.10, buy=round(200*0.90,2)=180
+    //   raw_g = 0.40*0.20 = 0.08 → clamped to monopoly+proven band ceiling g = 0.04; g_t (monopoly) = 0.02
+    //   two-stage FV ≈ 206.05 (impl ≈ 14.7×, under the 18× cap of 252)
+    //   MoS(monopoly)=0.20, buy=round(206.05*0.80,2)≈164.84
     const sourceLedgerPath = await mkdtemp(join(tmpdir(), 'owlfolio-mock-swarm-valuation-'))
     const store = new InMemoryEventStore()
     const provider = new MockProvider()
@@ -658,22 +665,31 @@ describe('runStrategyResearchSwarm with MockProvider + deterministic grounder', 
     // growth_assumptions is a non-empty string
     expect(typeof caseProjection?.valuation?.growth_assumptions).toBe('string')
     expect((caseProjection?.valuation?.growth_assumptions ?? '').length).toBeGreaterThan(0)
+    // runway: mock emits proven
+    expect(caseProjection?.valuation?.runway).toBe('proven')
     // harness-computed OE/sh from bridge totals: (14000+4000-3000-2000-(-1000))/1000 = 14000/1000 = 14
     expect(caseProjection?.valuation?.normalized_owner_earnings_per_share).toBe(14)
     // roic from mock: 0.25
     expect(caseProjection?.valuation?.roic).toBe(0.25)
+    // incremental_roic from mock: 0.20
+    expect(caseProjection?.valuation?.incremental_roic).toBe(0.20)
     // reinvestment_rate from mock: 0.40
     expect(caseProjection?.valuation?.reinvestment_rate).toBe(0.40)
-    // g = min(0.40*0.25, 0.03) = 0.03
-    expect(caseProjection?.valuation?.growth_rate).toBe(0.03)
-    // fair_value = min(14/(0.10-0.03), 20*14) = min(200, 280) = 200
-    expect(caseProjection?.valuation?.fair_value_per_share).toBeCloseTo(200, 5)
-    // margin_of_safety (monopoly): 0.10
-    expect(caseProjection?.valuation?.margin_of_safety).toBe(0.10)
-    // buy_price = round(200 * 0.90, 2) = 180
-    expect(caseProjection?.valuation?.buy_price_per_share).toBe(180)
+    // g = min(0.40*0.20, monopoly_proven 0.04, max 0.05) = 0.04
+    expect(caseProjection?.valuation?.growth_rate).toBe(0.04)
+    // terminal g (monopoly) = 0.02
+    expect(caseProjection?.valuation?.terminal_growth_rate).toBe(0.02)
+    // two-stage fair value ≈ 206.05 (under the 18× cap of 252)
+    expect(caseProjection?.valuation?.fair_value_per_share).toBeCloseTo(206.05, 0)
+    expect(caseProjection?.valuation?.fair_value_per_share ?? 0).toBeLessThan(18 * 14)
+    // implied multiple ≈ 14.7×
+    expect(caseProjection?.valuation?.implied_multiple).toBeCloseTo(14.7, 1)
+    // margin_of_safety (monopoly): 0.20
+    expect(caseProjection?.valuation?.margin_of_safety).toBe(0.20)
+    // buy_price = round(206.05 * 0.80, 2) ≈ 164.84
+    expect(caseProjection?.valuation?.buy_price_per_share).toBeCloseTo(164.84, 0)
     // value_basis
-    expect(caseProjection?.valuation?.value_basis).toBe('equity_bond')
+    expect(caseProjection?.valuation?.value_basis).toBe('two_stage_dcf')
     // owner_earnings_bridge projected (totals in $millions + shares_outstanding in millions)
     expect(caseProjection?.valuation?.owner_earnings_bridge).toBeDefined()
     expect(caseProjection?.valuation?.owner_earnings_bridge?.net_income).toBe(14000)
@@ -688,7 +704,10 @@ describe('runStrategyResearchSwarm with MockProvider + deterministic grounder', 
 // ---------------------------------------------------------------------------
 type SynthesisOverrides = Partial<{
   moat_class: 'narrow' | 'moderate' | 'wide' | 'monopoly'
+  runway: 'proven' | 'limited' | 'none'
+  runway_exceptional: boolean
   roic: number
+  incremental_roic: number
   reinvestment_rate: number
   owner_earnings_bridge: Record<string, number | string>
 }>
@@ -745,10 +764,13 @@ function configurableSwarmProvider(opts: {
         synthesis_summary: 'All lanes reviewed', risks: ['Valuation risk'],
         open_questions: ['Margin of safety needed'],
         moat_class: opts.synthesis?.moat_class ?? 'wide',
-        growth_assumptions: 'ROIC>discount; terminal g capped at 3%.',
+        runway: opts.synthesis?.runway ?? 'proven',
+        ...(opts.synthesis?.runway_exceptional !== undefined ? { runway_exceptional: opts.synthesis.runway_exceptional } : {}),
+        growth_assumptions: 'Two-stage DCF; credited g banded by incremental ROIC and runway.',
         owner_earnings_bridge: opts.synthesis?.owner_earnings_bridge ?? baseBridge,
         roic: opts.synthesis?.roic ?? 0.30,
-        reinvestment_rate: opts.synthesis?.reinvestment_rate ?? 0.10,
+        incremental_roic: opts.synthesis?.incremental_roic ?? 0.20,
+        reinvestment_rate: opts.synthesis?.reinvestment_rate ?? 0.43,
         proposed_sources: [src('src_dec_1')],
       }
     }),
@@ -765,13 +787,14 @@ const allVerifiedGround = async (sources: { source_id: string }[]) => ({
 })
 
 describe('BUG 1 — valuation per-share units (÷ shares_outstanding)', () => {
-  it('divides total owner earnings by shares_outstanding (COST inputs: OE/sh ≈ $19, fair ≈ $272, buy ≈ $190)', async () => {
+  it('divides total owner earnings by shares_outstanding (COST inputs: OE/sh ≈ $19, two-stage fair ≈ $246, buy ≈ $172)', async () => {
     // Captured COST inputs: NI 8838, D&A 2565, maint_capex 2052, SBC 911, dNWC 0 ($M),
-    // shares_outstanding 443 (M), discount 0.10, ROIC>discount → g capped at 0.03, moat wide → MoS 0.30.
+    // shares_outstanding 443 (M), discount 0.10, moat wide + runway proven, inc-ROIC 0.20, reinv 0.43.
     //   OE_total = 8838 + 2565 - 2052 - 911 - 0 = 8440 ($M)
     //   OE/sh    = 8440 / 443 ≈ 19.05
-    //   capitalized = 19.05 / (0.10 - 0.03) ≈ 272.16 ; ceiling = 20 * 19.05 ≈ 381 → fair = min = 272.16
-    //   buy = round(272.16 * 0.70, 2) ≈ 190.51
+    //   raw_g = 0.43 × 0.20 = 0.086 → clamped to wide+proven band ceiling g = 0.03; g_t (wide) = 0.01
+    //   two-stage FV: Σ OE_ps(1+g)^t/1.1^t (t=1..10) + Gordon terminal ≈ 245.86 (impl ≈ 12.9×, under 18× cap)
+    //   buy = round(245.86 * 0.70, 2) ≈ 172.10
     const store = new InMemoryEventStore()
     const provider = configurableSwarmProvider({ laneCount: buffettMungerDeepDiveLanes.length })
     const sourceLedgerPath = await mkdtemp(join(tmpdir(), 'owlfolio-bug1-'))
@@ -788,10 +811,16 @@ describe('BUG 1 — valuation per-share units (÷ shares_outstanding)', () => {
     const projections = projectResearchCases(events as Parameters<typeof projectResearchCases>[0])
     const cp = projections.find((c) => c.research_case_id === 'rc_bug1')
     expect(cp?.valuation?.normalized_owner_earnings_per_share).toBeCloseTo(19.05, 1)
-    expect(cp?.valuation?.fair_value_per_share).toBeCloseTo(272.16, 0)
-    expect(cp?.valuation?.buy_price_per_share).toBeCloseTo(190.51, 0)
-    // Sanity: must NOT be the buggy ~100x value
+    expect(cp?.valuation?.growth_rate).toBeCloseTo(0.03, 10)
+    expect(cp?.valuation?.terminal_growth_rate).toBe(0.01)
+    expect(cp?.valuation?.fair_value_per_share).toBeCloseTo(245.86, 0)
+    expect(cp?.valuation?.buy_price_per_share).toBeCloseTo(172.10, 0)
+    expect(cp?.valuation?.implied_multiple).toBeCloseTo(12.9, 1)
+    expect(cp?.valuation?.runway).toBe('proven')
+    expect(cp?.valuation?.value_basis).toBe('two_stage_dcf')
+    // Sanity: per-share value, never the buggy ~100x value, and under the 18× OE cap
     expect(cp?.valuation?.fair_value_per_share ?? 0).toBeLessThan(1000)
+    expect(cp?.valuation?.fair_value_per_share ?? 0).toBeLessThan(18 * 19.06)
     // valuation_status must still read EXPENSIVE vs a ~$968 price
     expect(cp?.valuation_status).toBe('EXPENSIVE')
     // bridge totals + shares projected
@@ -832,6 +861,67 @@ describe('BUG 1 — valuation per-share units (÷ shares_outstanding)', () => {
     const valuation = (analysisEvent?.payload as Record<string, unknown>)?.['valuation'] as Record<string, unknown>
     expect((valuation?.['valuation_caveats'] as string[])?.join(' ')).toMatch(/shares_outstanding/i)
     // The run still completes with a decision
+    expect(events.some((e) => e.event_type === 'decision_drafted')).toBe(true)
+  })
+})
+
+describe('Two-stage DCF harness banding (runway axis, eligibility, gates)', () => {
+  async function runWith(synthesis: SynthesisOverrides, id: string) {
+    const store = new InMemoryEventStore()
+    const provider = configurableSwarmProvider({ laneCount: buffettMungerDeepDiveLanes.length, synthesis })
+    const sourceLedgerPath = await mkdtemp(join(tmpdir(), `owlfolio-2s-${id}-`))
+    await runStrategyResearchSwarm(
+      store, provider as never,
+      {
+        research_case_id: `rc_${id}`, company_id: 'c', ticker: 'TST',
+        strategy_id: 'buffett-munger', actor_id: 'user_local', idempotency_key: `${id}_k`,
+        model_id: 'mock', decision_id: `decision_${id}`, source_ledger_path: sourceLedgerPath,
+      },
+      { ground: allVerifiedGround, laneConcurrency: 4 },
+    )
+    const events = await store.list()
+    const projections = projectResearchCases(events as Parameters<typeof projectResearchCases>[0])
+    return { events, cp: projections.find((c) => c.research_case_id === `rc_${id}`) }
+  }
+
+  it('incremental_roic at/below 10% → g = 0 (ineligible; FV is the flat-stage-1 two-stage value)', async () => {
+    // base bridge OE_total = 8838+2565-2052-911-0 = 8440 ($M) ÷ 443 = 19.05/sh, monopoly, proven
+    const { cp } = await runWith({ moat_class: 'monopoly', runway: 'proven', incremental_roic: 0.08, reinvestment_rate: 0.5 }, 'ineligible')
+    expect(cp?.valuation?.growth_rate).toBe(0)
+    // g=0, g_t (monopoly) 0.02: two-stage with flat stage 1
+    expect(cp?.valuation?.fair_value_per_share).toBeGreaterThan(19.05)
+    expect(cp?.valuation?.fair_value_per_share ?? 0).toBeLessThan(18 * 19.06)
+  })
+
+  it("runway 'none' caps credited g at 0.02 for any tier (even monopoly + high inc-ROIC)", async () => {
+    const { cp } = await runWith({ moat_class: 'monopoly', runway: 'none', incremental_roic: 0.30, reinvestment_rate: 0.5 }, 'runway-none')
+    expect(cp?.valuation?.growth_rate).toBe(0.02)
+    expect(cp?.valuation?.runway).toBe('none')
+  })
+
+  it('monopoly + proven + exceptional allows credited g up to 0.05 (absolute max)', async () => {
+    const { cp } = await runWith({ moat_class: 'monopoly', runway: 'proven', runway_exceptional: true, incremental_roic: 0.30, reinvestment_rate: 0.5 }, 'mono-exceptional')
+    expect(cp?.valuation?.growth_rate).toBe(0.05)
+    expect(cp?.valuation?.runway_exceptional).toBe(true)
+    // even at g=5% monopoly the implied multiple stays under the 18× cap
+    expect(cp?.valuation?.implied_multiple ?? 0).toBeLessThan(18)
+  })
+
+  it('negative owner earnings gates the valuation — caveat recorded, no FV/buy, run completes', async () => {
+    // SBC larger than NI+D&A so OE_total goes negative
+    const { events, cp } = await runWith({
+      moat_class: 'monopoly', runway: 'proven', incremental_roic: 0.30, reinvestment_rate: 0.5,
+      owner_earnings_bridge: {
+        net_income: 100, depreciation_amortization: 50, maintenance_capex: 80,
+        maintenance_capex_proxy_tier: '50', stock_based_comp: 200,
+        normalized_working_capital_change: 0, shares_outstanding: 50,
+      },
+    }, 'neg-oe')
+    expect(cp?.valuation?.fair_value_per_share).toBeUndefined()
+    expect(cp?.valuation?.buy_price_per_share).toBeUndefined()
+    const analysisEvent = events.find((e) => e.event_type === 'buffett_munger_analysis_drafted')
+    const valuation = (analysisEvent?.payload as Record<string, unknown>)?.['valuation'] as Record<string, unknown>
+    expect((valuation?.['valuation_caveats'] as string[])?.join(' ')).toMatch(/owner earnings/i)
     expect(events.some((e) => e.event_type === 'decision_drafted')).toBe(true)
   })
 })

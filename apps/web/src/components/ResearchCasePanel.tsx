@@ -574,8 +574,12 @@ function createValuationPanel(researchCase: AppResearchCase, marketQuote?: Marke
   const mosVal = valuation.margin_of_safety
   const moatClass = valuation.moat_class ?? 'unknown'
   const roic = valuation.roic
+  const incrementalRoic = valuation.incremental_roic
   const growthRate = valuation.growth_rate
+  const terminalGrowthRate = valuation.terminal_growth_rate
   const reinvestmentRate = valuation.reinvestment_rate
+  const runway = valuation.runway
+  const impliedMultiple = valuation.implied_multiple
 
   const discountLabel = discountRateVal !== undefined ? `${Math.round(discountRateVal * 100)}%` : '10%'
   const mosLabel = mosVal !== undefined ? `${Math.round(mosVal * 100)}%` : undefined
@@ -583,12 +587,16 @@ function createValuationPanel(researchCase: AppResearchCase, marketQuote?: Marke
     ? `${moatClass.toUpperCase()} MOAT · ${discountLabel} DISCOUNT · ${mosLabel} MOS`
     : `${moatClass.toUpperCase()} MOAT · ${discountLabel} DISCOUNT`
 
-  // Build the ROIC gate label for growth display
-  const roicGateLabel = roic !== undefined && discountRateVal !== undefined
-    ? roic > discountRateVal
-      ? `g=${growthRate !== undefined ? `${(growthRate * 100).toFixed(0)}%` : '?'} · ROIC ${(roic * 100).toFixed(0)}% > ${(discountRateVal * 100).toFixed(0)}% hurdle`
-      : `g=0% · ROIC ${(roic * 100).toFixed(0)}% ≤ ${(discountRateVal * 100).toFixed(0)}% hurdle (no growth credit)`
-    : growthRate !== undefined ? `g=${(growthRate * 100).toFixed(0)}%` : undefined
+  // Two-stage credited-growth label: g (10yr) fading to terminal g_t, gated by incremental ROIC.
+  // Growth credit requires incremental ROIC > 10%; runway is the binding axis, moat tier the ceiling.
+  const eligRoic = incrementalRoic ?? roic
+  const fadeLabel = terminalGrowthRate !== undefined ? ` → terminal ${(terminalGrowthRate * 100).toFixed(0)}%` : ''
+  const runwayLabel = runway !== undefined ? ` · ${runway} runway` : ''
+  const roicGateLabel = growthRate !== undefined
+    ? growthRate > 0
+      ? `g=${(growthRate * 100).toFixed(0)}%${fadeLabel}${eligRoic !== undefined ? ` · incremental ROIC ${(eligRoic * 100).toFixed(0)}% > 10% credited` : ''}${runwayLabel}`
+      : `g=0%${fadeLabel}${eligRoic !== undefined ? ` · incremental ROIC ${(eligRoic * 100).toFixed(0)}% ≤ 10% (no growth credit)` : ' (no growth credit)'}${runwayLabel}`
+    : undefined
 
   // Bar layout:
   //   Buy-below tick is anchored at 46% of the bar width.
@@ -820,8 +828,11 @@ function createValuationPanel(researchCase: AppResearchCase, marketQuote?: Marke
       { className: 'owl-ledger-line', style: { marginTop: '1rem' } },
       createValuationLedgerStat('Fair value', fairValue !== undefined ? `$${fairValue.toFixed(2)}` : 'Pending', 'owl-ledger-figure-money'),
       createValuationLedgerStat('Buy below', buyPrice !== undefined ? `$${buyPrice}` : 'Pending', 'owl-ledger-figure-money'),
+      createValuationLedgerStat('Implied multiple', impliedMultiple !== undefined ? `${impliedMultiple.toFixed(1)}× OE` : 'Pending', ''),
       createValuationLedgerStat('Margin of safety', mosLabel ?? 'Pending', ''),
       createValuationLedgerStat('Owner earnings / sh', valuation.normalized_owner_earnings_per_share !== undefined ? `$${valuation.normalized_owner_earnings_per_share.toFixed(2)}` : 'Pending', 'owl-ledger-figure-money'),
+      createValuationLedgerStat('Terminal g', terminalGrowthRate !== undefined ? `${(terminalGrowthRate * 100).toFixed(0)}%` : 'Pending', ''),
+      createValuationLedgerStat('Runway', runway ?? 'Pending', ''),
       createValuationLedgerStat('Discount', discountLabel, ''),
       ...(marketQuote !== undefined ? [
         createValuationLedgerStat(
@@ -876,7 +887,7 @@ function createValuationPanel(researchCase: AppResearchCase, marketQuote?: Marke
           `= OE $${valuation.normalized_owner_earnings_per_share?.toFixed(2) ?? '?'}/sh`,
         ),
         reinvestmentRate !== undefined && roic !== undefined ? createElement('p', { style: { color: '#9aa4b7', margin: '0.4rem 0 0' } },
-          `ROIC ${(roic * 100).toFixed(0)}% · reinvestment rate ${(reinvestmentRate * 100).toFixed(0)}%`,
+          `ROIC ${(roic * 100).toFixed(0)}%${incrementalRoic !== undefined ? ` · incremental ROIC ${(incrementalRoic * 100).toFixed(0)}%` : ''} · reinvestment rate ${(reinvestmentRate * 100).toFixed(0)}%`,
         ) : null,
         bridge.maintenance_capex_proxy_tier !== undefined ? createElement('p', { style: { color: '#9aa4b7', fontSize: 'var(--owl-text-xs)', margin: '0.25rem 0 0' } },
           `Maint. capex proxy tier: ${bridge.maintenance_capex_proxy_tier}th percentile of D&A`,

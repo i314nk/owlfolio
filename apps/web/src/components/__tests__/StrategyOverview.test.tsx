@@ -47,11 +47,25 @@ describe('StrategyOverview', () => {
   it('renders the moat-tiered margin of safety from the contract', () => {
     const html = render()
     const wide = `${marginOfSafetyForMoat(buffettMungerStrategy, 'wide') * 100}%` // 30%
-    const monopoly = `${marginOfSafetyForMoat(buffettMungerStrategy, 'monopoly') * 100}%` // 10%
+    const monopoly = `${marginOfSafetyForMoat(buffettMungerStrategy, 'monopoly') * 100}%` // 20%
     expect(wide).toBe('30%')
-    expect(monopoly).toBe('10%')
+    expect(monopoly).toBe('20%')
     expect(html).toContain('30%')
-    expect(html).toContain('10%')
+    expect(html).toContain('20%')
+  })
+
+  it('describes the two-stage DCF method (not the old single-stage equity bond)', () => {
+    const html = render()
+    // Two-stage framing + terminal fade + 18× cap
+    expect(html).toContain('two stages')
+    expect(html.toLowerCase()).toContain('terminal')
+    expect(html).toContain(`${buffettMungerStrategy.valuation.valuation_multiple_ceiling}×`)
+    // Incremental-ROIC eligibility threshold + runway axis
+    expect(html).toContain('incremental ROIC')
+    expect(html.toLowerCase()).toContain('runway')
+    // No stale single-stage / equity-bond prose
+    expect(html.toLowerCase()).not.toContain('equity bond')
+    expect(html).not.toContain('OE / (')
   })
 
   it('renders the wide-moat gate and rejects sub-wide moats', () => {

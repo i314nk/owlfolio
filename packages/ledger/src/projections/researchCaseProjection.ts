@@ -58,14 +58,23 @@ export type OwnerEarningsBridgeProjection = {
 export type ResearchCaseValuationProjection = {
   moat_class?: string
   moat_passes_gate?: boolean
+  /** Reinvestment runway axis (separate from moat): proven | limited | none. */
+  runway?: string
+  runway_exceptional?: boolean
   discount_rate?: number
   growth_assumptions?: string
   growth_rate?: number
+  /** Terminal-stage growth (g_t) used by the two-stage DCF: monopoly 2% / wide 1%. */
+  terminal_growth_rate?: number
   roic?: number
+  /** Normalized incremental ROIC (fraction) — drives credited-growth eligibility + magnitude. */
+  incremental_roic?: number
   reinvestment_rate?: number
   owner_earnings_bridge?: OwnerEarningsBridgeProjection
   normalized_owner_earnings_per_share?: number
   fair_value_per_share?: number
+  /** Implied multiple = fair_value_per_share / OE_ps. */
+  implied_multiple?: number
   margin_of_safety?: number
   buy_price_per_share?: number
   value_basis?: string
@@ -179,14 +188,22 @@ function getValuation(payload: Record<string, unknown>): ResearchCaseValuationPr
   if (moat_class !== undefined) projected.moat_class = moat_class
   const moat_passes_gate = typeof value['moat_passes_gate'] === 'boolean' ? value['moat_passes_gate'] : undefined
   if (moat_passes_gate !== undefined) projected.moat_passes_gate = moat_passes_gate
+  const runway = getString(value, 'runway')
+  if (runway !== undefined) projected.runway = runway
+  const runway_exceptional = typeof value['runway_exceptional'] === 'boolean' ? value['runway_exceptional'] : undefined
+  if (runway_exceptional !== undefined) projected.runway_exceptional = runway_exceptional
   const discount_rate = getNumber(value, 'discount_rate')
   if (discount_rate !== undefined) projected.discount_rate = discount_rate
   const growth_assumptions = getString(value, 'growth_assumptions')
   if (growth_assumptions !== undefined) projected.growth_assumptions = growth_assumptions
   const growth_rate = getNumber(value, 'growth_rate')
   if (growth_rate !== undefined) projected.growth_rate = growth_rate
+  const terminal_growth_rate = getNumber(value, 'terminal_growth_rate')
+  if (terminal_growth_rate !== undefined) projected.terminal_growth_rate = terminal_growth_rate
   const roic = getNumber(value, 'roic')
   if (roic !== undefined) projected.roic = roic
+  const incremental_roic = getNumber(value, 'incremental_roic')
+  if (incremental_roic !== undefined) projected.incremental_roic = incremental_roic
   const reinvestment_rate = getNumber(value, 'reinvestment_rate')
   if (reinvestment_rate !== undefined) projected.reinvestment_rate = reinvestment_rate
   const owner_earnings_bridge = getOwnerEarningsBridgeProjection(value)
@@ -195,6 +212,8 @@ function getValuation(payload: Record<string, unknown>): ResearchCaseValuationPr
   if (normalized_owner_earnings_per_share !== undefined) projected.normalized_owner_earnings_per_share = normalized_owner_earnings_per_share
   const fair_value_per_share = getNumber(value, 'fair_value_per_share')
   if (fair_value_per_share !== undefined) projected.fair_value_per_share = fair_value_per_share
+  const implied_multiple = getNumber(value, 'implied_multiple')
+  if (implied_multiple !== undefined) projected.implied_multiple = implied_multiple
   const margin_of_safety = getNumber(value, 'margin_of_safety')
   if (margin_of_safety !== undefined) projected.margin_of_safety = margin_of_safety
   const buy_price_per_share = getNumber(value, 'buy_price_per_share')

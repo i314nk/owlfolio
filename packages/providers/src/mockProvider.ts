@@ -160,7 +160,9 @@ function mockSynthesisDecisionForTicker(ticker: string) {
     risks: [`Valuation compression risk if earnings disappoint.`],
     open_questions: [`Refresh owner-earnings and Shariah ratio evidence after the next quarterly filing.`],
     moat_class: 'monopoly' as const,
-    growth_assumptions: `${companyLabel} is assumed to compound owner earnings at the terminal growth rate (3%) — ROIC 25% > 10% discount, reinvestment rate 40%, g = min(0.40×0.25, 0.03) = 3%. Owner earnings $14,000M ÷ 1,000M shares = $14/sh. Fair value: OE/sh/(disc−g) = 14/(0.10−0.03) = 200. Monopoly MoS 10% → buy below $180.`,
+    // Reinvestment runway is a separate axis from moat width (binding for growth credit).
+    runway: 'proven' as const,
+    growth_assumptions: `${companyLabel} is credited two-stage growth: incremental ROIC 20% > 10% eligibility, reinvestment rate 40% → raw g = 0.40×0.20 = 0.08, clamped to the monopoly+proven band ceiling g = 4%. Owner earnings $14,000M ÷ 1,000M shares = $14/sh. Two-stage DCF (10yr at 4%, terminal fade to 2%, flat 10% discount) → fair value ≈ $206/sh (implied ≈14.7× OE, under the 18× cap). Monopoly MoS 20% → buy below ≈ $165.`,
     owner_earnings_bridge: {
       // Company TOTALS in $millions, judgment-grounded. OE_total = 14000+4000−3000−2000−(−1000) = 14000.
       // shares_outstanding 1000M → OE/sh = 14000/1000 = 14.
@@ -173,6 +175,8 @@ function mockSynthesisDecisionForTicker(ticker: string) {
       shares_outstanding: 1000,
     },
     roic: 0.25,
+    // Normalized INCREMENTAL ROIC (fraction) drives the credited-growth band.
+    incremental_roic: 0.20,
     reinvestment_rate: 0.40,
     proposed_sources: mockSourcesForTicker(ticker),
   }

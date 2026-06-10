@@ -15,7 +15,7 @@ import {
 } from './strategyResearchPipeline'
 import { ingestManualSourceBundle } from './sourceLedger'
 import { resolveResearchStrategyRef } from './researchStrategyRef'
-import { buffettMungerStrategy, discountRate, marginOfSafetyForMoat, moatPassesGate } from '@owlfolio/strategies/buffettMunger'
+import { buffettMungerStrategy, creditedGrowth, discountRate, marginOfSafetyForMoat, moatPassesGate, terminalGrowthForMoat, twoStageFairValuePerShare } from '@owlfolio/strategies/buffettMunger'
 
 export const ProposedSourceSchema = z.object({
   source_id: z.string().min(1),
@@ -231,11 +231,21 @@ const DecisionAgentSchema = z.object({
   open_questions: z.array(z.string().min(1)).min(1),
   // Model-supplied valuation judgment fields (harness computes fair value and buy_price from these)
   moat_class: z.enum(['narrow', 'moderate', 'wide', 'monopoly']),
+  // Reinvestment runway — a SEPARATE axis from moat (MOAT lane). Binding for growth credit.
+  //   proven  — ≥5 yrs incremental capital deployed at high ROIC, visible headroom remaining
+  //   limited — high ROIC but little incremental capital absorbed
+  //   none    — mature/regulated, FCF mostly distributed
+  runway: z.enum(['proven', 'limited', 'none']),
+  // Optional: VALUATION/MOAT lane may flag an exceptional runway (with headroom evidence) to allow
+  // the top of a growth band. Defaults to false when omitted.
+  runway_exceptional: z.boolean().optional(),
   growth_assumptions: z.string().min(1),
-  // Owner-earnings bridge — per-share, judgment-grounded
+  // Owner-earnings bridge — totals in $millions, judgment-grounded
   owner_earnings_bridge: OwnerEarningsBridgeSchema,
-  // ROIC inputs
+  // ROIC inputs. `roic` is reported context; `incremental_roic` (normalized INCREMENTAL ROIC, a
+  // fraction, e.g. 0.20) drives credited growth eligibility + magnitude.
   roic: z.number(),
+  incremental_roic: z.number(),
   reinvestment_rate: z.number(),
   proposed_sources: ProposedSourcesSchema,
 })
@@ -690,6 +700,7 @@ export async function runResearchDeepDivePhase(
     prompt: `You are the Buffett-Munger synthesis+decision agent for ${command.ticker}. `
       + `Using the lane findings, produce a verdict, thesis, evidence, valuation rationale, Shariah rationale, risks, open questions, and a synthesis summary. `
       + `For the owner_earnings_bridge, provide company TOTALS in $millions from the latest 10-K (net_income, depreciation_amortization, maintenance_capex, stock_based_comp, normalized_working_capital_change) AND shares_outstanding (diluted weighted-average shares outstanding, in MILLIONS) so the harness can compute owner earnings per share. `
+      + `Also classify the reinvestment runway as 'proven' | 'limited' | 'none' (a SEPARATE axis from moat width — proven means ≥5 yrs of incremental capital deployed at high ROIC with visible remaining headroom), set runway_exceptional only with explicit headroom evidence, and report incremental_roic (normalized INCREMENTAL ROIC as a fraction, e.g. 0.20) alongside reinvestment_rate. The harness credits growth only when incremental_roic exceeds 10%; historical revenue/EPS growth is never an input. `
       + `Cite sources in proposed_sources with real URLs.`,
     timeout_ms: AGENT_TIMEOUT_MS,
     schema_name: 'BuffettMungerSynthesisDecision',
@@ -751,14 +762,18 @@ export async function runResearchDeepDivePhase(
     idempotency_key: `deep-dive-complete:${command.research_case_id}:v1`,
   })
 
-  // ---- Harness-computed valuation (Design B: equity-bond capitalization with ROIC-gated growth) ----
+  // ---- Harness-computed valuation (two-stage DCF — buffett-valuation-method-v2) ----
   // The bridge fields are company TOTALS in $millions; shares_outstanding is in millions. We compute
-  // TOTAL owner earnings, then divide by shares_outstanding to get a PER-SHARE figure before capitalizing.
-  // OE_total = NI + D&A - maint_capex - SBC - dNWC  (dNWC signed: positive=use of cash reduces OE)
-  // OE/sh    = OE_total / shares_outstanding
-  // g = (ROIC > discount) ? min(reinvestment_rate * ROIC, terminal_growth_cap) : 0
-  // fair_value_per_share = min(OE/sh / (discount - g), valuation_multiple_ceiling * OE/sh)
-  // buy_price = round(fair_value_per_share * (1 - MoS), 2)  where MoS = marginOfSafetyForMoat(strategy, moat)
+  // TOTAL owner earnings, then divide by shares_outstanding to get a PER-SHARE figure (OE_ps).
+  //   OE_total = NI + D&A - maint_capex - SBC - dNWC  (dNWC signed: positive=use of cash reduces OE)
+  //   OE_ps    = OE_total / shares_outstanding
+  // Credited growth g (Step 3): raw_g = reinvestment_rate × incremental_roic, clamped by runway/moat
+  //   band ceiling and the 5% absolute max; g=0 unless incremental_roic > 10%.
+  // Terminal growth g_t (Step 4): monopoly 2% / wide 1%. Flat 10% discount, always.
+  // Two-stage FV (Step 4):
+  //   FV_ps = Σ_{t=1..10} OE_ps(1+g)^t/(1+r)^t + [OE_ps(1+g)^10(1+g_t)/(r−g_t)]/(1+r)^10
+  //   FV_ps = min(FV_ps, 18 × OE_ps)   (sanity cap)
+  // Buy price (Step 5): round(FV_ps × (1 − MoS), 2)  MoS = monopoly 20% / wide 30%.
   const moatClass = dec.analysis.moat_class
   const moat_passes_gate = moatPassesGate(buffettMungerStrategy, moatClass)
 
@@ -781,22 +796,27 @@ export async function runResearchDeepDivePhase(
 
   const discount = discountRate(buffettMungerStrategy)
   const roic = dec.analysis.roic
+  const incremental_roic = dec.analysis.incremental_roic
   const reinvestment_rate = dec.analysis.reinvestment_rate
-  const terminal_growth_cap = buffettMungerStrategy.valuation.terminal_growth_cap
+  const runway = dec.analysis.runway
+  const runway_exceptional = dec.analysis.runway_exceptional ?? false
   const valuation_multiple_ceiling = buffettMungerStrategy.valuation.valuation_multiple_ceiling
 
   const valuationCaveats: string[] = []
   let buy_price_per_share: number | undefined
   let fair_value_per_share: number | undefined
-  let effective_growth_rate: number
+  let implied_multiple: number | undefined
   let margin_of_safety: number | undefined
+  let terminal_growth_rate: number | undefined
 
-  // Compute g: credit growth only when ROIC > discount rate
-  if (roic > discount) {
-    effective_growth_rate = Math.min(reinvestment_rate * roic, terminal_growth_cap)
-  } else {
-    effective_growth_rate = 0
-  }
+  // Credited growth g — deterministic banded clamp (incremental-ROIC gated; runway sets value).
+  const effective_growth_rate = creditedGrowth(buffettMungerStrategy, {
+    reinvestment_rate,
+    incremental_roic,
+    runway,
+    moat_class: moatClass,
+    runway_exceptional,
+  })
 
   // Plausibility ceiling for a per-share fair value. A per-share owner-earnings valuation for any
   // real equity is far below this; anything at/above it signals a units bug (e.g. totals not divided
@@ -807,11 +827,20 @@ export async function runResearchDeepDivePhase(
     valuationCaveats.push(
       'Valuation not computed: shares_outstanding missing or non-positive — cannot derive owner earnings per share. Re-run with grounded share count before relying on any buy price.',
     )
+  } else if (normalized_owner_earnings_per_share !== undefined && normalized_owner_earnings_per_share <= 0) {
+    // Negative/zero owner earnings gate (Step 6 gate 2): record a caveat, emit no fair value.
+    valuationCaveats.push(
+      `Valuation not computed: normalized owner earnings per share (${normalized_owner_earnings_per_share.toFixed(2)}) is not positive after SBC — fails the owner-earnings gate. No fair value or buy price emitted.`,
+    )
   } else if (moat_passes_gate && normalized_owner_earnings_per_share !== undefined) {
-    // Equity-bond capitalization: OE/sh / (discount - g), floored at discount > g (guaranteed since g <= 3% < 10%)
-    const capitalizedValue = normalized_owner_earnings_per_share / (discount - effective_growth_rate)
-    const ceilingValue = valuation_multiple_ceiling * normalized_owner_earnings_per_share
-    const computedFairValue = Math.min(capitalizedValue, ceilingValue)
+    const terminal_g = terminalGrowthForMoat(buffettMungerStrategy, moatClass)
+    const computedFairValue = twoStageFairValuePerShare({
+      oe_ps: normalized_owner_earnings_per_share,
+      g: effective_growth_rate,
+      terminal_g,
+      discount,
+      ceiling_multiple: valuation_multiple_ceiling,
+    })
     // Sanity guard: degrade gracefully if the per-share fair value is non-finite, <= 0, or implausibly large.
     if (!Number.isFinite(computedFairValue) || computedFairValue <= 0 || computedFairValue > MAX_PLAUSIBLE_FAIR_VALUE_PER_SHARE) {
       valuationCaveats.push(
@@ -819,6 +848,8 @@ export async function runResearchDeepDivePhase(
       )
     } else {
       fair_value_per_share = computedFairValue
+      terminal_growth_rate = terminal_g
+      implied_multiple = computedFairValue / normalized_owner_earnings_per_share
       margin_of_safety = marginOfSafetyForMoat(buffettMungerStrategy, moatClass)
       buy_price_per_share = Math.round(fair_value_per_share * (1 - margin_of_safety) * 100) / 100
     }
@@ -855,18 +886,23 @@ export async function runResearchDeepDivePhase(
       valuation: {
         moat_class: moatClass,
         moat_passes_gate,
+        runway,
+        ...(runway_exceptional ? { runway_exceptional } : {}),
         discount_rate: discount,
         growth_assumptions: dec.analysis.growth_assumptions,
         growth_rate: effective_growth_rate,
+        ...(terminal_growth_rate !== undefined ? { terminal_growth_rate } : {}),
         roic,
+        incremental_roic,
         reinvestment_rate,
         owner_earnings_bridge: bridge,
         ...(normalized_owner_earnings_per_share !== undefined ? { normalized_owner_earnings_per_share } : {}),
         ...(valuationCaveats.length > 0 ? { valuation_caveats: valuationCaveats } : {}),
         ...(fair_value_per_share !== undefined ? { fair_value_per_share } : {}),
+        ...(implied_multiple !== undefined ? { implied_multiple } : {}),
         ...(margin_of_safety !== undefined ? { margin_of_safety } : {}),
         ...(buy_price_per_share !== undefined ? { buy_price_per_share } : {}),
-        value_basis: 'equity_bond',
+        value_basis: 'two_stage_dcf',
       },
     },
     source_ids: allVerified,
