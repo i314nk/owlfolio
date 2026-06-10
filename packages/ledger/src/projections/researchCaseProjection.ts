@@ -69,6 +69,30 @@ export type ResearchCaseVerdictStateProjection = {
   note?: string
 }
 
+/**
+ * Judgment-objectivity layer (judgment-objectivity-layer-spec Mechanisms 1+2): per-axis rubric scores
+ * + the mechanical anchor tier vs the lane's proposed tier + the harness-resolved tier. The harness
+ * re-verifies the computable rows, bounds the lane's adjustment to ±1 tier with verified cited evidence
+ * (upward needs 2×), and records any violations rather than averaging them away.
+ */
+export type ResearchCaseJudgmentAxisProjection = {
+  anchor_tier?: string
+  proposed_tier?: string
+  resolved_tier?: string
+  adjustment_applied?: boolean
+  anchor_computable?: boolean
+  verified_evidence_count?: number
+  rubric_scores?: { id: string; score: number }[]
+  violations?: string[]
+  anchor_note?: string
+}
+
+export type ResearchCaseJudgmentProjection = {
+  rubric_version?: string
+  moat?: ResearchCaseJudgmentAxisProjection
+  runway?: ResearchCaseJudgmentAxisProjection
+}
+
 export type ResearchCaseValuationProjection = {
   moat_class?: string
   moat_passes_gate?: boolean
@@ -98,6 +122,8 @@ export type ResearchCaseValuationProjection = {
    * WATCH-FAIR is the "wonderful at fair" human-discretion zone — never a harness buy signal.
    */
   verdict_state?: ResearchCaseVerdictStateProjection
+  /** Judgment-objectivity rubric layer (Mechanisms 1+2): anchor-vs-proposed tier + rubric scores. */
+  judgment?: ResearchCaseJudgmentProjection
   value_basis?: string
   /** OE-bridge provenance: 'sec_edgar' (anchored to the 10-K) or 'model_proposed'. */
   bridge_basis?: string
@@ -246,6 +272,50 @@ function getVerdictState(valuation: Record<string, unknown>): ResearchCaseVerdic
   return Object.keys(projected).length === 0 ? undefined : projected
 }
 
+function getJudgmentAxis(value: unknown): ResearchCaseJudgmentAxisProjection | undefined {
+  if (!isRecord(value)) return undefined
+  const projected: ResearchCaseJudgmentAxisProjection = {}
+  const anchor_tier = getString(value, 'anchor_tier')
+  if (anchor_tier !== undefined) projected.anchor_tier = anchor_tier
+  const proposed_tier = getString(value, 'proposed_tier')
+  if (proposed_tier !== undefined) projected.proposed_tier = proposed_tier
+  const resolved_tier = getString(value, 'resolved_tier')
+  if (resolved_tier !== undefined) projected.resolved_tier = resolved_tier
+  if (typeof value['adjustment_applied'] === 'boolean') projected.adjustment_applied = value['adjustment_applied']
+  if (typeof value['anchor_computable'] === 'boolean') projected.anchor_computable = value['anchor_computable']
+  const verified_evidence_count = getNumber(value, 'verified_evidence_count')
+  if (verified_evidence_count !== undefined) projected.verified_evidence_count = verified_evidence_count
+  const rawScores = value['rubric_scores']
+  if (Array.isArray(rawScores)) {
+    const scores = rawScores
+      .filter(isRecord)
+      .map((s) => ({ id: getString(s, 'id'), score: getNumber(s, 'score') }))
+      .filter((s): s is { id: string; score: number } => s.id !== undefined && s.score !== undefined)
+    if (scores.length > 0) projected.rubric_scores = scores
+  }
+  const rawViolations = value['violations']
+  if (Array.isArray(rawViolations)) {
+    const violations = rawViolations.filter((v): v is string => typeof v === 'string')
+    if (violations.length > 0) projected.violations = violations
+  }
+  const anchor_note = getString(value, 'anchor_note')
+  if (anchor_note !== undefined) projected.anchor_note = anchor_note
+  return Object.keys(projected).length === 0 ? undefined : projected
+}
+
+function getJudgment(valuation: Record<string, unknown>): ResearchCaseJudgmentProjection | undefined {
+  const value = valuation['judgment']
+  if (!isRecord(value)) return undefined
+  const projected: ResearchCaseJudgmentProjection = {}
+  const rubric_version = getString(value, 'rubric_version')
+  if (rubric_version !== undefined) projected.rubric_version = rubric_version
+  const moat = getJudgmentAxis(value['moat'])
+  if (moat !== undefined) projected.moat = moat
+  const runway = getJudgmentAxis(value['runway'])
+  if (runway !== undefined) projected.runway = runway
+  return Object.keys(projected).length === 0 ? undefined : projected
+}
+
 function getValuation(payload: Record<string, unknown>): ResearchCaseValuationProjection | undefined {
   const value = payload['valuation']
   if (!isRecord(value)) {
@@ -291,6 +361,8 @@ function getValuation(payload: Record<string, unknown>): ResearchCaseValuationPr
   if (incremental_roic_basis !== undefined) projected.incremental_roic_basis = incremental_roic_basis
   const verdict_state = getVerdictState(value)
   if (verdict_state !== undefined) projected.verdict_state = verdict_state
+  const judgment = getJudgment(value)
+  if (judgment !== undefined) projected.judgment = judgment
   const value_basis = getString(value, 'value_basis')
   if (value_basis !== undefined) projected.value_basis = value_basis
   const bridge_basis = getString(value, 'bridge_basis')

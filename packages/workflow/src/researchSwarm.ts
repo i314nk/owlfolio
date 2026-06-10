@@ -3,7 +3,16 @@ import type { EventStore } from '@owlfolio/ledger/eventStore'
 import type { LedgerEventEnvelope } from '@owlfolio/ledger/eventEnvelope'
 import type { Provider } from '@owlfolio/providers'
 import { groundProposedSources, type CapturedSource, type GroundingDeps, type ProposedSource } from './sourceGrounding'
-import { computeIncrementalRoic, type Fundamentals, type SecEdgarDeps } from './secEdgar'
+import { computeIncrementalRoic, type AnnualFacts, type Fundamentals, type SecEdgarDeps } from './secEdgar'
+import { JUDGMENT_RUBRICS } from '@owlfolio/strategies/judgmentRubrics'
+import {
+  computeMoatAnchor,
+  computeRunwayAnchor,
+  resolveRubricTier,
+  type LaneRubricScore,
+  type AdjustmentEvidence,
+  type ResolveRubricTierResult,
+} from './judgmentAnchor'
 import { resolveFundamentalsForTicker } from './fundamentalsProvider'
 import { createResearchCase, draftDecision } from './researchWorkflow'
 import {
@@ -230,6 +239,28 @@ const ShariahJudgmentSchema = z.object({
   impermissible_income: z.number().min(0),
 })
 
+// judgment-objectivity-layer-spec Mechanisms 1+2: the lane scores each rubric item (0/1/2) with a
+// citation_hash for the cited rows, proposes a tier, and supplies cited adjustment evidence. The HARNESS
+// re-verifies the computable rows, computes the mechanical anchor, and resolves the final tier under the
+// +-1 bound + citation rules — the lane's claims here are inputs, not the authority.
+const RubricScoreSchema = z.object({
+  id: z.string().min(1),
+  score: z.number().int().min(0).max(2),
+  // Required for CITED rows (verified against the fetched corpus); omitted for computable rows.
+  citation_hash: z.string().min(1).optional(),
+})
+const AdjustmentEvidenceSchema = z.object({
+  claim: z.string().min(1),
+  citation_hash: z.string().min(1),
+})
+const LaneRubricSchema = z.object({
+  rubric_scores: z.array(RubricScoreSchema).min(1),
+  // The lane's proposed tier (its judgment adjustment from the mechanical anchor). The harness bounds it.
+  proposed_tier: z.string().min(1),
+  // Cited evidence the quantitative score cannot see (patent cliff, announced entrant, etc.).
+  adjustment_evidence: z.array(AdjustmentEvidenceSchema).default([]),
+})
+
 const DecisionAgentSchema = z.object({
   investment_verdict: z.enum(['BUY', 'WATCH', 'PASS', 'RESEARCH_MORE']),
   strategy_compliance: z.enum(['COMPLIANT', 'CONDITIONAL', 'NON_COMPLIANT', 'INSUFFICIENT_DATA']),
@@ -250,6 +281,12 @@ const DecisionAgentSchema = z.object({
   //   limited — high ROIC but little incremental capital absorbed
   //   none    — mature/regulated, FCF mostly distributed
   runway: z.enum(['proven', 'limited', 'none']),
+  // Judgment-objectivity rubrics (Mechanisms 1+2). OPTIONAL so the swarm runs unchanged when a model
+  // omits them (the harness then falls back to the holistic moat_class/runway above). When present, the
+  // harness RE-VERIFIES the computable rows, computes the mechanical anchor, and resolves the final tier
+  // under the +-1 bound + citation rules — superseding moat_class/runway for the valuation.
+  moat_rubric: LaneRubricSchema.optional(),
+  runway_rubric: LaneRubricSchema.optional(),
   // Optional: VALUATION/MOAT lane may flag an exceptional runway (with headroom evidence) to allow
   // the top of a growth band. Defaults to false when omitted.
   runway_exceptional: z.boolean().optional(),
@@ -432,6 +469,146 @@ async function resolveAverageMarketCapValue(
  */
 function maintenanceFractionForTier(tier: '20' | '50' | '80'): number {
   return Number(tier) / 100
+}
+
+// ---------------------------------------------------------------------------
+// Judgment objectivity (Mechanisms 1+2): rubric → mechanical anchor → bounded ±1 adjustment
+// ---------------------------------------------------------------------------
+
+type LaneRubricInput = {
+  rubric_scores: { id: string; score: number; citation_hash?: string | undefined }[]
+  proposed_tier: string
+  adjustment_evidence: { claim: string; citation_hash: string }[]
+}
+
+const VALID_MOAT_CLASSES = new Set(['narrow', 'moderate', 'wide', 'monopoly'])
+const VALID_RUNWAYS = new Set(['proven', 'limited', 'none'])
+
+/** Map the lane rubric payload shape onto the harness resolver's input shape. */
+function toLaneRubricScores(scores: LaneRubricInput['rubric_scores']): LaneRubricScore[] {
+  return scores.map((s) => ({
+    id: s.id,
+    score: s.score,
+    ...(s.citation_hash === undefined ? {} : { citation_hash: s.citation_hash }),
+  }))
+}
+
+function toAdjustmentEvidence(evidence: LaneRubricInput['adjustment_evidence']): AdjustmentEvidence[] {
+  return evidence.map((e) => ({ claim: e.claim, citation_hash: e.citation_hash }))
+}
+
+export type JudgmentResolution = {
+  moat?: ResolveRubricTierResult & {
+    resolved_moat_class?: 'narrow' | 'moderate' | 'wide' | 'monopoly'
+    anchor_note?: string
+  }
+  runway?: ResolveRubricTierResult & {
+    resolved_runway?: 'proven' | 'limited' | 'none'
+    anchor_note?: string
+  }
+}
+
+/**
+ * Resolve the moat + runway tiers from the lane rubrics (Mechanisms 1+2). For each rubric the harness
+ * computes the mechanical anchor from EDGAR (fail-closed to not-computable), then resolves the final
+ * tier with resolveRubricTier (computable-row re-verification, ±1 bound, citation enforcement, upward 2×
+ * asymmetry). Returns undefined for an axis when its rubric was not supplied — the caller then falls
+ * back to the holistic moat_class/runway (today's behavior; no regression).
+ */
+export function resolveJudgmentTiers(args: {
+  moatRubric?: LaneRubricInput | undefined
+  runwayRubric?: LaneRubricInput | undefined
+  series?: AnnualFacts[] | undefined
+  verifiedCitationHashes: ReadonlySet<string>
+}): JudgmentResolution {
+  const out: JudgmentResolution = {}
+  const series = args.series ?? []
+
+  if (args.moatRubric !== undefined) {
+    const anchor = computeMoatAnchor(series)
+    const resolved = resolveRubricTier({
+      rubric: JUDGMENT_RUBRICS.moat,
+      anchorScores: anchor.computable ? anchor.row_scores : undefined,
+      laneRubricScores: toLaneRubricScores(args.moatRubric.rubric_scores),
+      anchorTier: anchor.computable ? anchor.anchor_tier : undefined,
+      proposedTier: args.moatRubric.proposed_tier,
+      adjustmentEvidence: toAdjustmentEvidence(args.moatRubric.adjustment_evidence),
+      verifiedCitationHashes: args.verifiedCitationHashes,
+    })
+    out.moat = {
+      ...resolved,
+      ...(VALID_MOAT_CLASSES.has(resolved.resolved_tier)
+        ? { resolved_moat_class: resolved.resolved_tier as 'narrow' | 'moderate' | 'wide' | 'monopoly' }
+        : {}),
+      ...(anchor.computable ? { anchor_note: anchor.note } : { anchor_note: `Moat anchor not computable: ${anchor.reason}` }),
+    }
+  }
+
+  if (args.runwayRubric !== undefined) {
+    const anchor = computeRunwayAnchor(series)
+    const resolved = resolveRubricTier({
+      rubric: JUDGMENT_RUBRICS.runway,
+      anchorScores: anchor.computable ? anchor.row_scores : undefined,
+      laneRubricScores: toLaneRubricScores(args.runwayRubric.rubric_scores),
+      anchorTier: anchor.computable ? anchor.anchor_tier : undefined,
+      proposedTier: args.runwayRubric.proposed_tier,
+      adjustmentEvidence: toAdjustmentEvidence(args.runwayRubric.adjustment_evidence),
+      verifiedCitationHashes: args.verifiedCitationHashes,
+    })
+    out.runway = {
+      ...resolved,
+      ...(VALID_RUNWAYS.has(resolved.resolved_tier)
+        ? { resolved_runway: resolved.resolved_tier as 'proven' | 'limited' | 'none' }
+        : {}),
+      ...(anchor.computable ? { anchor_note: anchor.note } : { anchor_note: `Runway anchor not computable: ${anchor.reason}` }),
+    }
+  }
+
+  return out
+}
+
+type JudgmentAxisProjection = {
+  anchor_tier?: string
+  proposed_tier: string
+  resolved_tier: string
+  adjustment_applied: boolean
+  anchor_computable: boolean
+  verified_evidence_count: number
+  rubric_scores: { id: string; score: number }[]
+  violations: string[]
+  anchor_note?: string
+}
+
+type JudgmentProjection = {
+  rubric_version: string
+  moat?: JudgmentAxisProjection
+  runway?: JudgmentAxisProjection
+}
+
+/** Build the serializable judgment-layer projection (rubric scores + anchor-vs-proposed) for the dossier. */
+function buildJudgmentProjection(judgment: JudgmentResolution): JudgmentProjection | undefined {
+  function axis(r: (ResolveRubricTierResult & { anchor_note?: string }) | undefined): JudgmentAxisProjection | undefined {
+    if (r === undefined) return undefined
+    return {
+      ...(r.anchor_tier === undefined ? {} : { anchor_tier: r.anchor_tier }),
+      proposed_tier: r.proposed_tier,
+      resolved_tier: r.resolved_tier,
+      adjustment_applied: r.adjustment_applied,
+      anchor_computable: r.anchor_computable,
+      verified_evidence_count: r.verified_evidence_count,
+      rubric_scores: Object.entries(r.resolved_row_scores).map(([id, score]) => ({ id, score })),
+      violations: r.violations,
+      ...(r.anchor_note === undefined ? {} : { anchor_note: r.anchor_note }),
+    }
+  }
+  const moat = axis(judgment.moat)
+  const runway = axis(judgment.runway)
+  if (moat === undefined && runway === undefined) return undefined
+  return {
+    rubric_version: JUDGMENT_RUBRICS.version,
+    ...(moat === undefined ? {} : { moat }),
+    ...(runway === undefined ? {} : { runway }),
+  }
 }
 
 function fmtMusd(v: number | undefined): string {
@@ -911,6 +1088,7 @@ export async function runResearchDeepDivePhase(
       + `Using the lane findings, produce a verdict, thesis, evidence, valuation rationale, Shariah rationale, risks, open questions, and a synthesis summary. `
       + `For the owner_earnings_bridge, provide company TOTALS in $millions from the latest 10-K (net_income, depreciation_amortization, maintenance_capex, stock_based_comp, normalized_working_capital_change) AND shares_outstanding (diluted weighted-average shares outstanding, in MILLIONS) so the harness can compute owner earnings per share. `
       + `Also classify the reinvestment runway as 'proven' | 'limited' | 'none' (a SEPARATE axis from moat width — proven means ≥5 yrs of incremental capital deployed at high ROIC with visible remaining headroom), set runway_exceptional only with explicit headroom evidence, and report incremental_roic (normalized INCREMENTAL ROIC as a fraction, e.g. 0.20) alongside reinvestment_rate. The harness credits growth only when incremental_roic exceeds 10%; historical revenue/EPS growth is never an input. `
+      + `JUDGMENT RUBRICS (required for objectivity): score the MOAT rubric (M1 ROIC>15% in ≥9/10yr [computable], M2 gross-margin band [computable], M3 price increases without share loss, M4 share vs entrant, M5 customer switching, M6 competitor exits) and the RUNWAY rubric (R1 incremental capital at high ROIC [computable], R2 visible headroom, R3 demonstrated reinvestment rate). For EACH item give a score 0/1/2; CITED rows (M3–M6, R2, R3) MUST carry a citation_hash that matches a fetched primary source (the harness scores 0 for any uncited cited row and re-computes M1/M2/R1 from filings itself). Then give proposed_tier (moat: narrow|moderate|wide|monopoly; runway: none|limited|proven) and adjustment_evidence — cited claims the quantitative score cannot see (patent cliff, announced entrant, technology substitution). The harness anchors the tier in the computable rows and accepts your proposed_tier ONLY as a bounded ±1-tier adjustment with verified cited evidence; an UPWARD adjustment needs 2× the cited evidence items of a downward one. `
       + `For shariah, provide the JUDGMENT only: sector_status ('compliant' | 'conditional' | 'non_compliant') confirmed with segment revenue, and impermissible_income — the dollar amount in $MILLIONS of non-permissible income (interest income on cash, prohibited-segment revenue), 0 if fully permissible. The harness recomputes the AAOIFI debt/cash/impermissible ratios + verdict + purification % from the primary filings + market cap; do NOT compute the ratios yourself. `
       + `Cite sources in proposed_sources with real URLs.`,
     timeout_ms: AGENT_TIMEOUT_MS,
@@ -985,7 +1163,27 @@ export async function runResearchDeepDivePhase(
   //   FV_ps = Σ_{t=1..10} OE_ps(1+g)^t/(1+r)^t + [OE_ps(1+g)^10(1+g_t)/(r−g_t)]/(1+r)^10
   //   FV_ps = min(FV_ps, 18 × OE_ps)   (sanity cap)
   // Buy price (Step 5): round(FV_ps × (1 − MoS), 2)  MoS = monopoly 20% / wide 30%.
-  const moatClass = dec.analysis.moat_class
+
+  // ---- Judgment objectivity (Mechanisms 1+2): rubric → mechanical anchor → bounded ±1 adjustment ----
+  // When the synthesis lane supplied a moat/runway rubric, the harness RE-VERIFIES the computable rows
+  // from EDGAR, computes the mechanical anchor, and resolves the final tier under the ±1 bound + citation
+  // rules (uncited/over-range rejected, not averaged; upward needs 2× evidence). The RESOLVED tier
+  // supersedes the holistic moat_class/runway for the valuation. When no rubric is supplied OR the
+  // resolved tier is not a valid downstream class, we fall back to the holistic moat_class/runway —
+  // exactly today's behavior (no regression). Grounding/citation verification is unchanged.
+  const verifiedCitationHashes = new Set<string>()
+  for (const s of accumulated.values()) {
+    if (s.content_hash !== undefined) verifiedCitationHashes.add(s.content_hash)
+    verifiedCitationHashes.add(s.source_id) // a lane may cite by source_id; both are corpus-verified
+  }
+  const judgment = resolveJudgmentTiers({
+    moatRubric: dec.analysis.moat_rubric,
+    runwayRubric: dec.analysis.runway_rubric,
+    series: fundamentals?.annual_series,
+    verifiedCitationHashes,
+  })
+
+  const moatClass = judgment.moat?.resolved_moat_class ?? dec.analysis.moat_class
   const moat_passes_gate = moatPassesGate(buffettMungerStrategy, moatClass)
 
   const modelBridge = dec.analysis.owner_earnings_bridge
@@ -1088,7 +1286,7 @@ export async function runResearchDeepDivePhase(
     }
   }
   const reinvestment_rate = dec.analysis.reinvestment_rate
-  const runway = dec.analysis.runway
+  const runway = judgment.runway?.resolved_runway ?? dec.analysis.runway
   const runway_exceptional = dec.analysis.runway_exceptional ?? false
   const valuation_multiple_ceiling = buffettMungerStrategy.valuation.valuation_multiple_ceiling
 
@@ -1262,6 +1460,10 @@ export async function runResearchDeepDivePhase(
       ? `Wonderful at fair — human-discretion zone. No harness buy signal. ${dec.analysis.decision_reason}`
       : dec.analysis.decision_reason
 
+  // ---- Project the judgment-rubric layer for the verdict/dossier (spec verdict-format additions) ----
+  // rubric scores + anchor-vs-proposed tier + whether the bounded adjustment was applied + violations.
+  const judgmentProjection = buildJudgmentProjection(judgment)
+
   // ---- Emit buffett_munger_analysis_drafted ----
   const analysisEvent: LedgerEventEnvelope<unknown> = {
     event_id: `evt_buffett_munger_analysis_drafted_${command.research_case_id}`,
@@ -1305,6 +1507,8 @@ export async function runResearchDeepDivePhase(
         // Price → verdict band (BUY-WINDOW | WATCH-FAIR | WATCH) when a current price + buy/fair exist.
         ...(verdict_state !== undefined ? { verdict_state } : {}),
         value_basis: 'two_stage_dcf',
+        // Judgment-objectivity layer (Mechanisms 1+2): rubric scores + anchor-vs-proposed tier per axis.
+        ...(judgmentProjection !== undefined ? { judgment: judgmentProjection } : {}),
         // OE-bridge provenance: 'sec_edgar' (anchored to the 10-K) vs 'model_proposed'.
         bridge_basis,
         ...(bridge_fiscal_year !== undefined ? { bridge_fiscal_year } : {}),

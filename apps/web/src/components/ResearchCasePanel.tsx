@@ -697,6 +697,14 @@ function createValuationPanel(researchCase: AppResearchCase, marketQuote?: Marke
   const runway = valuation.runway
   const impliedMultiple = valuation.implied_multiple
   const verdictState = valuation.verdict_state
+  // Judgment-objectivity layer (Mechanisms 1+2): mechanical anchor vs the lane's proposed tier vs the
+  // harness-resolved tier. Surfaced so the dossier shows where judgment moved the tier (and by how much).
+  const moatJudgment = valuation.judgment?.moat
+  const moatAnchorLabel = moatJudgment !== undefined
+    ? (moatJudgment.anchor_computable === false
+        ? `${(moatJudgment.proposed_tier ?? '?').toUpperCase()} (anchor n/a → lane rubric)`
+        : `${(moatJudgment.anchor_tier ?? '?').toUpperCase()} anchor → ${(moatJudgment.resolved_tier ?? '?').toUpperCase()}${moatJudgment.adjustment_applied ? ` (±1 from ${(moatJudgment.proposed_tier ?? '?').toUpperCase()})` : ''}`)
+    : undefined
 
   const discountLabel = discountRateVal !== undefined ? `${Math.round(discountRateVal * 100)}%` : '10%'
   const mosLabel = mosVal !== undefined ? `${Math.round(mosVal * 100)}%` : undefined
@@ -985,6 +993,7 @@ function createValuationPanel(researchCase: AppResearchCase, marketQuote?: Marke
       createValuationLedgerStat('Owner earnings / sh', valuation.normalized_owner_earnings_per_share !== undefined ? `$${valuation.normalized_owner_earnings_per_share.toFixed(2)}` : 'Pending', 'owl-ledger-figure-money'),
       createValuationLedgerStat('Terminal g', terminalGrowthRate !== undefined ? `${(terminalGrowthRate * 100).toFixed(0)}%` : 'Pending', ''),
       createValuationLedgerStat('Runway', runway ?? 'Pending', ''),
+      ...(moatAnchorLabel !== undefined ? [createValuationLedgerStat('Moat anchor', moatAnchorLabel, '')] : []),
       createValuationLedgerStat('Discount', discountLabel, ''),
       ...(marketQuote !== undefined ? [
         createValuationLedgerStat(

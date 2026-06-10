@@ -7,7 +7,8 @@ import { z } from 'zod'
 import { InMemoryEventStore } from '@owlfolio/ledger/eventStore'
 import { projectResearchCases } from '@owlfolio/ledger/projections/researchCaseProjection'
 import { MockProvider } from '@owlfolio/providers/mockProvider'
-import { runGroundedAgent, ProposedSourcesSchema, runLaneSwarm, runStrategyResearchSwarm, ResearchSwarmStageError, type GroundFn } from '../researchSwarm'
+import { runGroundedAgent, ProposedSourcesSchema, runLaneSwarm, runStrategyResearchSwarm, ResearchSwarmStageError, resolveJudgmentTiers, type GroundFn } from '../researchSwarm'
+import type { AnnualFacts } from '../secEdgar'
 import { buffettMungerDeepDiveLanes } from '../strategyResearchPipeline'
 import { groundProposedSourcesDeterministic, type CapturedSource } from '../sourceGrounding'
 
@@ -696,6 +697,42 @@ describe('runStrategyResearchSwarm with MockProvider + deterministic grounder', 
     expect(caseProjection?.valuation?.owner_earnings_bridge?.normalized_working_capital_change).toBe(-1000)
     expect(caseProjection?.valuation?.owner_earnings_bridge?.shares_outstanding).toBe(1000)
   })
+
+  it('projects the judgment-objectivity layer (Mechanisms 1+2): rubric scores + anchor-vs-proposed-vs-resolved', async () => {
+    // No EDGAR fundamentals injected -> moat anchor not computable -> the lane full-rubric score stands.
+    // Mock cites all 6 moat rows (12 -> monopoly). The dossier surfaces the rubric scores + that the
+    // anchor was not computable.
+    const sourceLedgerPath = await mkdtemp(join(tmpdir(), 'owlfolio-mock-judgment-'))
+    const store = new InMemoryEventStore()
+    await runStrategyResearchSwarm(
+      store,
+      new MockProvider(),
+      {
+        research_case_id: 'rc_judgment',
+        company_id: 'company_mock',
+        ticker: 'MSFT',
+        strategy_id: 'buffett-munger',
+        actor_id: 'user_local',
+        idempotency_key: 'judgment_k',
+        model_id: 'mock-research-v1',
+        decision_id: 'decision_judgment',
+        source_ledger_path: sourceLedgerPath,
+      },
+      { ground: groundProposedSourcesDeterministic as GroundFn, laneConcurrency: 4 },
+    )
+    const projections = projectResearchCases((await store.list()) as Parameters<typeof projectResearchCases>[0])
+    const c = projections.find((p) => p.research_case_id === 'rc_judgment')
+    const judgment = c?.valuation?.judgment
+    expect(judgment).toBeDefined()
+    expect(judgment?.rubric_version).toBeDefined()
+    // moat axis: anchor not computable -> lane full rubric stands -> resolved monopoly.
+    expect(judgment?.moat?.anchor_computable).toBe(false)
+    expect(judgment?.moat?.proposed_tier).toBe('monopoly')
+    expect(judgment?.moat?.resolved_tier).toBe('monopoly')
+    expect((judgment?.moat?.rubric_scores ?? []).length).toBe(6)
+    // resolved moat_class fed downstream is monopoly.
+    expect(c?.valuation?.moat_class).toBe('monopoly')
+  })
 })
 
 // ---------------------------------------------------------------------------
@@ -1383,5 +1420,91 @@ describe('EDGAR-anchored OE bridge + harness AAOIFI Shariah ratios', () => {
     expect(cp?.shariah_financial?.verdict).toBe('PASS')
     expect(cp?.shariah_status).toBe('NON_COMPLIANT')
     expect(cp?.shariah_sector_status).toBe('non_compliant')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// resolveJudgmentTiers — EDGAR-anchored bounded +-1 adjustment (Mechanisms 1+2)
+// ---------------------------------------------------------------------------
+function tenYearHighRoicSeries(): AnnualFacts[] {
+  const out: AnnualFacts[] = []
+  for (let i = 0; i < 10; i += 1) {
+    const scale = Math.pow(1.10, 9 - i)
+    const revenue = 1000 * scale
+    const op = revenue * 0.30
+    out.push({
+      fiscal_year: 2025 - i,
+      currency: 'USD',
+      net_income_musd: op * 0.79,
+      revenue_musd: revenue,
+      operating_income_musd: op,
+      income_tax_expense_musd: op * 0.21,
+      stockholders_equity_musd: 1000 * scale,
+      total_debt_musd: 0,
+      cash_and_securities_musd: 0,
+    })
+  }
+  return out
+}
+
+describe('resolveJudgmentTiers — EDGAR-anchored moat resolution', () => {
+  const verified = new Set(['sha256:a', 'sha256:b'])
+
+  it('anchor wide + proposed monopoly with 2x verified evidence -> monopoly applied', () => {
+    const res = resolveJudgmentTiers({
+      moatRubric: {
+        rubric_scores: [
+          { id: 'M1', score: 2 }, { id: 'M2', score: 2 },
+          { id: 'M3', score: 2, citation_hash: 'sha256:a' },
+          { id: 'M4', score: 2, citation_hash: 'sha256:b' },
+          { id: 'M5', score: 2, citation_hash: 'sha256:a' },
+          { id: 'M6', score: 2, citation_hash: 'sha256:b' },
+        ],
+        proposed_tier: 'monopoly',
+        adjustment_evidence: [
+          { claim: 'failed entrant exited', citation_hash: 'sha256:a' },
+          { claim: 'documented pricing power', citation_hash: 'sha256:b' },
+        ],
+      },
+      series: tenYearHighRoicSeries(),
+      verifiedCitationHashes: verified,
+    })
+    expect(res.moat?.anchor_computable).toBe(true)
+    expect(res.moat?.anchor_tier).toBe('wide')
+    expect(res.moat?.adjustment_applied).toBe(true)
+    expect(res.moat?.resolved_moat_class).toBe('monopoly')
+  })
+
+  it('anchor wide + proposed monopoly with only 1 evidence item -> rejected (anchor stands wide)', () => {
+    const res = resolveJudgmentTiers({
+      moatRubric: {
+        rubric_scores: [{ id: 'M1', score: 2 }, { id: 'M2', score: 2 }],
+        proposed_tier: 'monopoly',
+        adjustment_evidence: [{ claim: 'one thing', citation_hash: 'sha256:a' }],
+      },
+      series: tenYearHighRoicSeries(),
+      verifiedCitationHashes: verified,
+    })
+    expect(res.moat?.anchor_tier).toBe('wide')
+    expect(res.moat?.adjustment_applied).toBe(false)
+    expect(res.moat?.resolved_moat_class).toBe('wide')
+  })
+
+  it('lane inflates M1/M2 but EDGAR overrides them with the computed anchor scores', () => {
+    // Low-ROIC short windows would not compute; here the series is high-ROIC so anchor M1/M2 = 2 each.
+    // Even if the lane had claimed otherwise, the harness uses its computed values for M1/M2.
+    const res = resolveJudgmentTiers({
+      moatRubric: {
+        rubric_scores: [{ id: 'M1', score: 0 }, { id: 'M2', score: 0 }],
+        proposed_tier: 'wide',
+        adjustment_evidence: [],
+      },
+      series: tenYearHighRoicSeries(),
+      verifiedCitationHashes: verified,
+    })
+    expect(res.moat?.resolved_row_scores['M1']).toBe(2)
+    expect(res.moat?.resolved_row_scores['M2']).toBe(2)
+    // proposed wide == anchor wide -> no adjustment needed, resolved wide.
+    expect(res.moat?.resolved_moat_class).toBe('wide')
   })
 })

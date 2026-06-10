@@ -146,6 +146,11 @@ function mockLaneFindingForTicker(ticker: string) {
 
 function mockSynthesisDecisionForTicker(ticker: string) {
   const companyLabel = companyLabelForTicker(ticker)
+  // Cite by the GROUNDED source ids (the same ones mockSourcesForTicker emits + the harness verifies),
+  // so the rubric cited rows + adjustment evidence verify against the corpus.
+  const groundedSources = mockSourcesForTicker(ticker)
+  const primaryCite = groundedSources[0].source_id
+  const secondaryCite = groundedSources[1].source_id
   return {
     investment_verdict: 'WATCH' as const,
     strategy_compliance: 'CONDITIONAL' as const,
@@ -162,6 +167,34 @@ function mockSynthesisDecisionForTicker(ticker: string) {
     moat_class: 'monopoly' as const,
     // Reinvestment runway is a separate axis from moat width (binding for growth credit).
     runway: 'proven' as const,
+    // Judgment-objectivity rubrics (Mechanisms 1+2). Computable rows (M1/M2/R1) are re-verified by the
+    // harness from EDGAR; cited rows carry a citation_hash that matches a grounded mock source_id. The
+    // proposed_tier is accepted only as a bounded ±1 adjustment with verified cited evidence (upward
+    // needs 2×). Upward to monopoly carries 2 cited adjustment-evidence items.
+    moat_rubric: {
+      rubric_scores: [
+        { id: 'M1', score: 2 },
+        { id: 'M2', score: 2 },
+        { id: 'M3', score: 2, citation_hash: primaryCite },
+        { id: 'M4', score: 2, citation_hash: secondaryCite },
+        { id: 'M5', score: 2, citation_hash: primaryCite },
+        { id: 'M6', score: 2, citation_hash: secondaryCite },
+      ],
+      proposed_tier: 'monopoly' as const,
+      adjustment_evidence: [
+        { claim: `${companyLabel} sustained share gains vs funded entrants over the last decade.`, citation_hash: primaryCite },
+        { claim: `${companyLabel} shows documented pricing power without volume loss.`, citation_hash: secondaryCite },
+      ],
+    },
+    runway_rubric: {
+      rubric_scores: [
+        { id: 'R1', score: 2 },
+        { id: 'R2', score: 2, citation_hash: primaryCite },
+        { id: 'R3', score: 2, citation_hash: secondaryCite },
+      ],
+      proposed_tier: 'proven' as const,
+      adjustment_evidence: [],
+    },
     growth_assumptions: `${companyLabel} is credited two-stage growth: incremental ROIC 20% > 10% eligibility, reinvestment rate 40% → raw g = 0.40×0.20 = 0.08, clamped to the monopoly+proven band ceiling g = 4%. Owner earnings $14,000M ÷ 1,000M shares = $14/sh. Two-stage DCF (10yr at 4%, terminal fade to 2%, flat 10% discount) → fair value ≈ $206/sh (implied ≈14.7× OE, under the 18× cap). Monopoly MoS 20% → buy below ≈ $165.`,
     owner_earnings_bridge: {
       // Company TOTALS in $millions, judgment-grounded. OE_total = 14000+4000−3000−2000−(−1000) = 14000.

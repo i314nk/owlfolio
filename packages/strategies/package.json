@@ -18,6 +18,7 @@
     "./positionSizing": "./src/positionSizing.ts",
     "./valuationParams": "./src/valuationParams.ts",
     "./valuationConfigEvent": "./src/valuationConfigEvent.ts",
-    "./calibrationRunEvent": "./src/calibrationRunEvent.ts"
+    "./calibrationRunEvent": "./src/calibrationRunEvent.ts",
+    "./judgmentRubrics": "./src/judgmentRubrics.ts"
   }
 }
