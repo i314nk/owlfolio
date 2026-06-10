@@ -140,6 +140,59 @@
   gap: var(--owl-space-2);
 }
 
+/* Calm info/action row — the Settings/Research vocabulary: title + helper on the left,
+   value / control / action on the right. Flat, no colored borders. Use inside .owl-section-card. */
+.owl-row {
+  align-items: center;
+  background: var(--owl-color-panel);
+  border: 1px solid var(--owl-color-border);
+  border-radius: var(--owl-radius-card);
+  display: grid;
+  gap: var(--owl-space-3);
+  grid-template-columns: minmax(0, 1fr) auto;
+  padding: 0.85rem 1.05rem;
+}
+
+/* Top-aligned variant for rows whose left column has more than one line / a disclosure. */
+.owl-row-top {
+  align-items: start;
+}
+
+.owl-row-main {
+  display: grid;
+  gap: 0.25rem;
+  min-width: 0;
+}
+
+.owl-row-title {
+  color: var(--owl-color-text);
+  font-size: var(--owl-text-base);
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  margin: 0;
+}
+
+.owl-row-helper {
+  color: var(--owl-color-muted);
+  font-size: var(--owl-text-sm);
+  line-height: 1.45;
+  margin: 0;
+}
+
+.owl-row-aside {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--owl-space-2);
+  justify-content: flex-end;
+}
+
+/* Vertical stack of rows inside a section. */
+.owl-row-list {
+  display: grid;
+  gap: var(--owl-space-2);
+}
+
 /* Gold mono uppercase section kicker — aliases the route kicker. */
 .owl-section-kicker {
   color: var(--owl-color-gold);
@@ -151,14 +204,14 @@
   text-transform: uppercase;
 }
 
-/* Clean section heading sitting under a kicker. */
+/* Clean section heading sitting under a kicker. Sans (Hanken) like Research/Settings —
+   the Fraunces serif is reserved for the big page titles (owl-route-title) only. */
 .owl-section-title {
   color: var(--owl-color-gold-bright);
-  font-family: var(--owl-font-display);
-  font-optical-sizing: auto;
-  font-size: var(--owl-text-lg);
-  font-weight: 540;
-  letter-spacing: -0.02em;
+  font-family: var(--owl-font-sans);
+  font-size: var(--owl-text-md);
+  font-weight: 750;
+  letter-spacing: -0.01em;
   margin: 0;
 }
 
@@ -1755,4 +1808,289 @@ a:focus-visible {
     border-radius: var(--owl-radius-panel);
     justify-content: flex-start;
   }
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Command Center — "The Fiduciary Briefing"
+   An editorial, private-ledger briefing from the steward (agent) to the
+   principal (user). Fraunces hero statement, hairline gold letterhead rules,
+   a horizontal ledger line of vital signs. Gold-forward, emerald for halal/live.
+   ───────────────────────────────────────────────────────────────────────────── */
+
+/* Masthead / letterhead */
+.owl-cc-masthead {
+  display: grid;
+  gap: var(--owl-space-3);
+}
+
+.owl-cc-eyebrow {
+  align-items: baseline;
+  color: var(--owl-color-gold);
+  display: flex;
+  flex-wrap: wrap;
+  font-family: var(--owl-font-mono);
+  font-size: var(--owl-text-xs);
+  font-weight: var(--owl-weight-label);
+  gap: 0.6rem;
+  letter-spacing: 0.22em;
+  margin: 0;
+  text-transform: uppercase;
+}
+
+.owl-cc-eyebrow-sep {
+  color: var(--owl-color-quiet);
+}
+
+.owl-cc-eyebrow-section {
+  color: var(--owl-color-quiet);
+}
+
+/* The masthead h1 is an accessible heading but styled small/editorial. */
+.owl-cc-masthead-title {
+  color: var(--owl-color-quiet);
+  font-family: var(--owl-font-mono);
+  font-size: var(--owl-text-2xs);
+  font-weight: var(--owl-weight-label);
+  letter-spacing: 0.22em;
+  margin: 0;
+  text-transform: uppercase;
+}
+
+/* Thin gold hairline rule — the letterhead / ledger line motif. */
+.owl-cc-rule {
+  background: linear-gradient(
+    90deg,
+    rgba(214, 178, 94, 0.42),
+    rgba(214, 178, 94, 0.12) 70%,
+    rgba(214, 178, 94, 0)
+  );
+  border: 0;
+  height: 1px;
+  margin: 0;
+  width: 100%;
+}
+
+/* The Briefing Hero */
+.owl-cc-briefing {
+  display: grid;
+  gap: var(--owl-space-4);
+  max-width: 60ch;
+  padding: var(--owl-space-3) 0 var(--owl-space-2);
+}
+
+.owl-cc-hero-statement {
+  color: var(--owl-color-text);
+  font-family: var(--owl-font-display);
+  font-size: clamp(2rem, 4.6vw, 3.2rem);
+  font-weight: 560;
+  letter-spacing: -0.012em;
+  line-height: 1.08;
+  margin: 0;
+  text-wrap: balance;
+}
+
+.owl-cc-hero-figure {
+  color: var(--owl-color-gold-bright);
+  font-feature-settings: 'tnum' 1;
+}
+
+.owl-cc-hero-pulse {
+  color: var(--owl-color-muted);
+  font-family: var(--owl-font-sans);
+  font-size: var(--owl-text-base);
+  line-height: var(--owl-leading-body);
+  margin: 0;
+  max-width: 56ch;
+}
+
+.owl-cc-hero-actions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--owl-space-3);
+  margin-top: var(--owl-space-1);
+}
+
+/* The Ledger Line — vital signs as an editorial stat band, not tiles. */
+.owl-cc-ledger-line {
+  border-bottom: 1px solid rgba(214, 178, 94, 0.18);
+  border-top: 1px solid rgba(214, 178, 94, 0.18);
+  display: grid;
+  gap: 0;
+  grid-template-columns: repeat(5, 1fr);
+  margin: 0;
+  padding: 0;
+}
+
+.owl-cc-ledger-stat {
+  display: grid;
+  gap: 0.3rem;
+  padding: var(--owl-space-4) var(--owl-space-4);
+  position: relative;
+}
+
+/* Thin gold vertical hairline rules between figures. */
+.owl-cc-ledger-stat + .owl-cc-ledger-stat::before {
+  background: linear-gradient(
+    180deg,
+    rgba(214, 178, 94, 0),
+    rgba(214, 178, 94, 0.26) 22%,
+    rgba(214, 178, 94, 0.26) 78%,
+    rgba(214, 178, 94, 0)
+  );
+  bottom: 0;
+  content: '';
+  left: 0;
+  position: absolute;
+  top: 0;
+  width: 1px;
+}
+
+.owl-cc-ledger-label {
+  color: var(--owl-color-quiet);
+  font-family: var(--owl-font-mono);
+  font-size: var(--owl-text-2xs);
+  font-weight: var(--owl-weight-label);
+  letter-spacing: 0.14em;
+  margin: 0;
+  text-transform: uppercase;
+}
+
+.owl-cc-ledger-figure {
+  color: var(--owl-color-gold-bright);
+  font-family: var(--owl-font-mono);
+  font-feature-settings: 'tnum' 1;
+  font-size: clamp(1.5rem, 2.6vw, 2.1rem);
+  font-weight: var(--owl-weight-value);
+  line-height: 1;
+  margin: 0;
+}
+
+.owl-cc-ledger-figure-emerald {
+  color: var(--owl-color-accent-bright);
+}
+
+.owl-cc-ledger-figure-risk {
+  color: var(--owl-color-gold-vivid);
+}
+
+/* Section eyebrow accent — small Fraunces-italic flourish for section heads. */
+.owl-cc-section-accent {
+  color: var(--owl-color-gold);
+  font-family: var(--owl-font-display);
+  font-size: var(--owl-text-sm);
+  font-style: italic;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  margin: 0;
+}
+
+/* A recommended action rendered as a heading line in the command panel. */
+.owl-cc-directive {
+  color: var(--owl-color-text);
+  font-family: var(--owl-font-display);
+  font-size: var(--owl-text-lg);
+  font-weight: 540;
+  letter-spacing: -0.005em;
+  line-height: var(--owl-leading-tight);
+  margin: 0;
+}
+
+/* The agent's desk — a "live" steward presence. */
+.owl-cc-desk {
+  background: linear-gradient(135deg, rgba(52, 211, 153, 0.05), var(--owl-color-panel-elevated));
+}
+
+.owl-cc-live {
+  align-items: center;
+  color: var(--owl-color-accent-bright);
+  display: inline-flex;
+  font-family: var(--owl-font-mono);
+  font-size: var(--owl-text-2xs);
+  font-weight: var(--owl-weight-label);
+  gap: 0.45rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.owl-cc-live-dot {
+  background: var(--owl-color-accent-bright);
+  border-radius: 50%;
+  box-shadow: 0 0 0 3px rgba(52, 211, 153, 0.18);
+  height: 7px;
+  width: 7px;
+}
+
+.owl-cc-desk-links {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--owl-space-4);
+  margin-top: var(--owl-space-1);
+}
+
+.owl-cc-desk-link {
+  color: var(--owl-color-gold-bright);
+  font-family: var(--owl-font-mono);
+  font-size: var(--owl-text-sm);
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-decoration: none;
+}
+
+/* The ledger feed — quiet mono chronological reference. */
+.owl-cc-feed {
+  display: grid;
+  gap: 0;
+}
+
+.owl-cc-feed-line {
+  border-top: 1px solid var(--owl-color-border);
+  display: grid;
+  gap: var(--owl-space-2);
+  padding: var(--owl-space-3) 0;
+}
+
+.owl-cc-feed-line:first-child {
+  border-top: 0;
+}
+
+.owl-cc-feed-title {
+  color: var(--owl-color-text);
+  font-family: var(--owl-font-mono);
+  font-size: var(--owl-text-sm);
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  margin: 0;
+}
+
+/* A quiet status line — provider / strategy / ledger, letterhead footnote tone. */
+.owl-cc-status-line {
+  color: var(--owl-color-quiet);
+  font-family: var(--owl-font-mono);
+  font-size: var(--owl-text-2xs);
+  letter-spacing: 0.02em;
+  line-height: 1.8;
+  margin: 0;
+}
+
+@media (max-width: 720px) {
+  .owl-cc-ledger-line {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .owl-cc-ledger-stat:nth-child(2n)::before {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .owl-cc-live-dot {
+    animation: owl-cc-pulse 2.6s ease-in-out infinite;
+  }
+}
+
+@keyframes owl-cc-pulse {
+  0%, 100% { box-shadow: 0 0 0 3px rgba(52, 211, 153, 0.16); }
+  50% { box-shadow: 0 0 0 5px rgba(52, 211, 153, 0.05); }
 }

@@ -126,6 +126,8 @@ describe('CommandCenter', () => {
       const html = renderToStaticMarkup(createElement(CommandCenter, { dashboard }))
 
       expect(html).toContain('Owlfolio')
+      expect(html).toContain('Command Center')
+      expect(html).toContain('Fiduciary briefing')
       expect(html).toContain('Setup ready')
       expect(html).toContain('Mock provider / demo mode')
       expect(html).toContain('Buffett-Munger default')
@@ -134,8 +136,7 @@ describe('CommandCenter', () => {
       expect(html).toContain('Watchlist drafts')
       expect(html).toContain('Confirmed watchlist')
       expect(html).toContain('Open holdings')
-      expect(html).toContain('class="owl-financial-number"')
-      expect(html).toContain('Owlfolio prepares evidence-backed recommendations and automation reminders; you confirm the decisions that change portfolio state.')
+      expect(html).toContain('Pending user actions')
       expect(html).not.toContain('current Owlfolio v0.2 slice')
       expect(html).toContain('Review COST watchlist draft and confirm it')
       expect(html).toContain('Watchlist draft created')
@@ -163,7 +164,7 @@ describe('CommandCenter', () => {
     expect(html).toContain('Continue setup')
   })
 
-  it('frames the landing page as an automation-first local candidate with obvious workflow routes and trust signals', () => {
+  it('opens with an editorial fiduciary briefing hero and a command cockpit', () => {
     const html = renderToStaticMarkup(createElement(CommandCenter, {
       dashboard: makeDashboard({
         pipeline_counts: {
@@ -179,36 +180,33 @@ describe('CommandCenter', () => {
       }),
     }))
 
-    expect(html).toContain('Automation-first local candidate')
-    expect(html).toContain('Local-first investment workflow OS for strategy research, watchlist, and portfolio decisions.')
+    // Masthead carries the required heading as an editorial running head.
+    expect(html).toContain('Command Center')
+    expect(html).toContain('Fiduciary briefing')
+    // Hero statement leads with the pending count emphasized in gold.
+    expect(html).toContain('class="owl-cc-hero-statement"')
+    expect(html).toContain('await your authorization.')
+    expect(html).toContain('2 decisions')
+    expect(html).toContain('Research engine active')
+    // The ledger line of vital signs.
+    expect(html).toContain('class="owl-cc-ledger-line"')
+    // The command cockpit + next-action queue.
     expect(html).toContain('aria-label="Command cockpit overview"')
-    expect(html).toContain('Main operating priority')
-    expect(html).toContain('Decision gate')
-    expect(html).toContain('Approval required before state changes')
-    expect(html).toContain('Workflow launchpad')
-    expect(html).toContain('Research lab')
-    expect(html).toContain('Watchlist desk')
-    expect(html).toContain('Portfolio cockpit')
-    expect(html).toContain('Audit trail')
+    expect(html).toContain('Awaiting your authorization')
+    expect(html).toContain('Review COST watchlist draft and confirm it')
+    expect(html).toContain('aria-label="Next action queue"')
+    // The agent's desk keeps the pipeline-forward links present.
+    expect(html).toContain('aria-label="Your research agent"')
+    expect(html).toContain('Open research cockpit')
     expect(html).toContain('href="/research"')
+    expect(html).toContain('href="/pipeline"')
     expect(html).toContain('href="/watchlist"')
-    expect(html).toContain('href="/portfolio"')
-    expect(html).toContain('href="/audit"')
-    expect(html).toContain('Shariah-aware')
-    expect(html).toContain('Fiduciary confirmation')
-    expect(html).toContain('Evidence-backed automation')
-  })
-
-  it('keeps backup and restore positioned as a Learn-linked operator runbook rather than a dashboard workflow', () => {
-    const html = renderToStaticMarkup(createElement(CommandCenter, { dashboard: makeDashboard() }))
-
-    expect(html).toContain('Operator fallback')
-    expect(html).toContain('Runbook-only backup/restore')
-    expect(html).toContain('Operator-managed backups stay outside the main decision queue.')
-    expect(html).toContain('href="/learn#fallback"')
-    expect(html).toContain('Learn fallback runbook')
-    expect(html).not.toContain('Restore portfolio data')
-    expect(html).not.toContain('Start restore')
+    // Deleted junk modules must not return.
+    expect(html).not.toContain('Workflow launchpad')
+    expect(html).not.toContain('Research lab')
+    expect(html).not.toContain('Decision gate')
+    expect(html).not.toContain('Operator fallback')
+    expect(html).not.toContain('owl-command-status-summary')
   })
 
   it('renders an empty-state command center for initialized personal local mode', async () => {
@@ -227,21 +225,13 @@ describe('CommandCenter', () => {
 
       expect(html).toContain('Personal local mode initialized')
       expect(html).toContain('Provider: Claude unsupported')
-      expect(html).toContain('Local assistant setup needed')
+      expect(html).toContain('Finish local assistant setup')
       expect(html).toContain('Research cases')
       expect(html).toContain('0')
-      expect(html).toContain('Review discovery, quick screen, and manual intake options before seeding the durable workflow ledger.')
-      expect(html).toContain('No confirmed monitoring yet — confirm a watchlist draft before automation treats a company as actively monitored.')
-      expect(html).toContain('No open holdings yet — open a holding from a confirmed watchlist item before portfolio accounting starts.')
-      expect(html).toContain('No pending approvals; automation is waiting for new provider drafts or due reviews.')
       expect(html).toContain('Open the selected-strategy research cockpit')
       expect(html).toContain('href="/research"')
       expect(html).toContain('Open research cockpit')
-      expect(html).toContain('href="/watchlist"')
-      expect(html).toContain('Open watchlist drafts')
-      expect(html).toContain('Operational awareness')
-      expect(html).toContain('Local assistant setup needed')
-      expect(html).toContain('User approval boundary')
+      expect(html).toContain('href="/providers"')
       expect(html).toContain('Operating ledger is empty')
       expect(html).toContain('No research, watchlist, holding, accounting, or purification activity has been recorded yet.')
     } finally {
@@ -336,7 +326,6 @@ describe('CommandCenter', () => {
       const html = renderToStaticMarkup(createElement(CommandCenter, { dashboard }))
 
       expect(html).toContain('Provider: Claude unsupported — Claude subscription access disabled')
-      expect(html).toContain('Local assistant setup needed')
       expect(html).toContain('Finish local assistant setup')
       expect(html).toContain('Open setup details')
       expect(html).toContain('Owlfolio cannot use the selected local assistant yet. Open provider details for the technical checks, or keep using demo mode while setup is incomplete.')
@@ -386,10 +375,9 @@ describe('CommandCenter', () => {
     const purificationIndex = html.indexOf('Check purification obligations')
 
     expect(html).toContain('Next action queue')
-    expect(html).toContain('Priority 1')
     expect(html).toContain('2 drafts need explicit user confirmation before monitoring or portfolio actions.')
     expect(html).toContain('href="/watchlist"')
-    expect(html).toContain('Local assistant setup needed')
+    expect(html).toContain('Finish local assistant setup')
     expect(html).toContain('href="/providers"')
     expect(html).toContain('MSFT is 2 days overdue')
     expect(html).toContain('href="/portfolio#holding_msft_001"')
@@ -402,7 +390,7 @@ describe('CommandCenter', () => {
     expect(purificationIndex).toBeGreaterThan(accountingIndex)
   })
 
-  it('separates the operating action surface from lower-priority reference modules', () => {
+  it('orders the priority cockpit before the activity and reminder modules', () => {
     const html = renderToStaticMarkup(createElement(CommandCenter, {
       dashboard: makeDashboard({
         pipeline_counts: {
@@ -431,33 +419,28 @@ describe('CommandCenter', () => {
       }),
     }))
 
-    expect(html).toContain('aria-label="Operating action surface"')
-    expect(html).toContain('aria-label="Secondary reference modules"')
-    expect(html).toContain('aria-label="Accounting reference module"')
-    expect(html).toContain('aria-label="Review schedule reference module"')
-    expect(html).toContain('aria-label="Operational awareness module"')
+    expect(html).toContain('aria-label="Command cockpit overview"')
+    expect(html).toContain('aria-label="Your research agent"')
+    expect(html).toContain('aria-label="Portfolio and compliance"')
     expect(html).toContain('aria-label="Ledger activity reference module"')
-    expect(html).toContain('class="owl-command-reference-module owl-command-reference-module-accent owl-command-reference-wide-module"')
-    expect(html).toContain('class="owl-command-reference-module owl-command-review-schedule-module owl-command-reference-wide-module"')
-    expect(html).toContain('class="owl-command-reference-module owl-command-recent-activity-module"')
-    expect(html).toContain('Automated monitoring')
-    expect(html).toContain('Dry-run worker observations stay local and require user confirmation before portfolio-impacting state changes.')
-    expect(html.indexOf('aria-label="Secondary reference modules"')).toBeGreaterThan(html.indexOf('aria-label="Operating action surface"'))
-    expect(html.indexOf('aria-label="Review schedule reference module"')).toBeGreaterThan(html.indexOf('aria-label="Accounting reference module"'))
-    expect(html.indexOf('aria-label="Operator fallback module"')).toBeGreaterThan(html.indexOf('aria-label="Review schedule reference module"'))
-    expect(html.indexOf('aria-label="Operational awareness module"')).toBeGreaterThan(html.indexOf('aria-label="Operator fallback module"'))
-    expect(html.indexOf('aria-label="Ledger activity reference module"')).toBeGreaterThan(html.indexOf('aria-label="Operational awareness module"'))
-    expect(html).toContain('href="/watchlist"')
+    // The decisions cockpit leads; the agent and the reference modules follow.
+    expect(html.indexOf('aria-label="Your research agent"')).toBeGreaterThan(html.indexOf('aria-label="Command cockpit overview"'))
+    expect(html.indexOf('aria-label="Portfolio and compliance"')).toBeGreaterThan(html.indexOf('aria-label="Your research agent"'))
+    expect(html.indexOf('aria-label="Ledger activity reference module"')).toBeGreaterThan(html.indexOf('aria-label="Portfolio and compliance"'))
+    // Within Portfolio & compliance, the accounting alert sits above the review schedule.
+    expect(html.indexOf('Holding review schedule')).toBeGreaterThan(html.indexOf('Monthly accounting report'))
     expect(html).toContain('href="/accounting/monthly"')
     expect(html).toContain('href="/portfolio#holding_msft_001"')
   })
 
-  it('uses a calm workflow status summary instead of a terminal ticker strip', () => {
+  it('renders a single clean system status row of chips', () => {
     const html = renderToStaticMarkup(createElement(CommandCenter, { dashboard: makeDashboard() }))
 
-    expect(html).toContain('aria-label="Workflow status summary"')
-    expect(html).toContain('class="owl-command-status-summary"')
-    expect(html).toContain('class="owl-command-status-summary-item"')
+    expect(html).toContain('aria-label="System status"')
+    expect(html).toContain('Provider: Mock provider personal local mode')
+    expect(html).toContain('Strategy: Buffett-Munger default')
+    // The terminal-style ticker counts row is gone; counts live in the KPI row.
+    expect(html).not.toContain('owl-command-status-summary')
     expect(html).not.toContain('Workflow ticker strip')
   })
 
@@ -473,9 +456,11 @@ describe('CommandCenter', () => {
       }),
     }))
 
-    expect(html).toContain('Operator fallback')
-    expect(html).toContain('rgba(214, 178, 94, 0.08)')
-    expect(html).toContain('var(--owl-color-accent-bright)')
+    // Gold-forward accents now live in bespoke briefing classes (hero figure,
+    // ledger figures, hairline rules) rather than inline color tokens.
+    expect(html).toContain('owl-cc-hero-figure')
+    expect(html).toContain('owl-cc-ledger-figure')
+    expect(html).toContain('owl-cc-rule')
     expect(html).not.toContain('#7c8cff')
     expect(html).not.toContain('#0a84ff')
     expect(html).not.toContain('#60a5fa')
@@ -486,25 +471,6 @@ describe('CommandCenter', () => {
     expect(html).not.toContain('rgba(59, 130, 246')
     expect(html).not.toContain('rgba(96,165,250')
     expect(html).not.toContain('rgba(96, 165, 250')
-  })
-
-  it('documents the Wahed x Hermes command cockpit visual tokens and lower-module alignment CSS', () => {
-    const css = readFileSync('apps/web/src/app/globals.css', 'utf8')
-
-    expect(css).toContain('--owl-color-accent: #16a34a;')
-    expect(css).toContain('--owl-color-accent-bright: #34d399;')
-    expect(css).toContain('--owl-color-fiduciary: #d6b25e;')
-    expect(css).toContain('--owl-color-sand: #f3dfb1;')
-    expect(css).toContain('radial-gradient(circle at 14% 0%, rgba(22, 163, 74, 0.14), transparent 26rem)')
-    expect(css).toContain('.owl-command-reference-grid')
-    expect(css).toContain('align-items: stretch;')
-    expect(css).toContain('grid-template-columns: repeat(2, minmax(0, 1fr));')
-    expect(css).toContain('grid-auto-rows: 1fr;')
-    expect(css).toContain('.owl-command-reference-module {')
-    expect(css).toContain('height: 100%;')
-    expect(css).toContain('.owl-command-reference-wide-module,')
-    expect(css).toContain('.owl-command-recent-activity-module')
-    expect(css).toContain('grid-column: 1 / -1;')
   })
 
   it('renders a direct action card for pending holding review drafts', () => {
@@ -522,7 +488,6 @@ describe('CommandCenter', () => {
       }),
     }))
 
-    expect(html).toContain('Pending holding review draft')
     expect(html).toContain('Review pending strategy review draft')
     expect(html).toContain('Confirm, override, or reject the provider-authored draft before changing confirmed portfolio state.')
     expect(html).toContain('href="/portfolio"')
@@ -609,7 +574,7 @@ describe('CommandCenter', () => {
     expect(html).toContain('Provider report')
     expect(html).toContain('report_mock_msft_2026_05')
     expect(html).toContain('Before')
-    expect(html).toContain('After')
+    expect(html).toContain('Confirm MSFT as a user-approved watchlist item before worker monitoring or portfolio actions.')
     expect(html).toContain('Shariah impact')
     expect(html).toContain('Accounting impact')
     expect(html).toContain('href="/audit?event_id=evt_watchlist_msft#evt_watchlist_msft"')
@@ -720,7 +685,7 @@ describe('CommandCenter', () => {
     expect(html).toContain('Next review: 2026-10-31')
     expect(html).toContain('153 days')
     expect(html).toContain('href="/portfolio#holding_msft_001"')
-    expect(html).toContain('Review MSFT in portfolio')
+    expect(html).toContain('Review MSFT')
   })
 
   it('documents Learn page source copy and fallback anchors', () => {
