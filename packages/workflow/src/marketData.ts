@@ -320,6 +320,39 @@ export function monthEndCloses(points: PriceHistoryPoint[]): PriceHistoryPoint[]
   return [...byMonth.values()]
 }
 
+export type MonthEndPriceSeriesResult =
+  | { available: true; currency: string; points: PriceHistoryPoint[] }
+  | { available: false; reason: string }
+
+/**
+ * Fetch a ~`years`-long month-end close series (default 10 years) for the calibration backtest. Uses the
+ * Yahoo chart endpoint with `range=<years>y&interval=1mo`, reduces to one close per calendar month
+ * (last observed close of each YYYY-MM), and returns them in ASCENDING date order (oldest → newest) so
+ * the backtest can walk history forward. Same SSRF-guard / fail-closed posture as fetchPriceHistory:
+ * never throws; returns { available: false } on any failure.
+ *
+ *   fetchMonthEndPriceSeries('CPRT', 10)
+ */
+export async function fetchMonthEndPriceSeries(
+  ticker: string,
+  years = 10,
+  deps?: MarketDataDeps,
+  market?: string,
+): Promise<MonthEndPriceSeriesResult> {
+  const yrs = Number.isFinite(years) && years > 0 ? Math.floor(years) : 10
+  const symbol: PriceQuoteSymbol = market === undefined ? { ticker } : { ticker, market }
+  const history = await fetchPriceHistory(symbol, { range: `${yrs}y`, interval: '1mo' }, deps)
+  if (!history.available) {
+    return { available: false, reason: history.reason }
+  }
+  const monthly = monthEndCloses(history.points)
+  if (monthly.length === 0) {
+    return { available: false, reason: 'no month-end closes' }
+  }
+  const points = [...monthly].sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0))
+  return { available: true, currency: history.currency, points }
+}
+
 export type AverageMarketCapResult =
   | {
       available: true

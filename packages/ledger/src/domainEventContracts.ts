@@ -62,6 +62,7 @@ export const domainEventTypes = [
   'deep_dive_run_requested',
   'investable_capital_set',
   'valuation_config',
+  'calibration_run',
 ] as const
 
 export type DomainEventType = (typeof domainEventTypes)[number]
@@ -429,6 +430,17 @@ export const domainEventContracts: readonly DomainEventContract[] = [
     actor_type: 'user',
     projection_owner: 'audit',
     payload_fields: ['previous_version', 'new_version', 'changes'],
+  },
+  {
+    // Calibration backtest run (valuation-recalibration-spec §3.3): logs the calibration run as a ledger
+    // artifact — the valuation_params version + values used, the universe/name(s) backtested, and the
+    // signal-log summary (buys/yr, BUY episodes, sanity-window results). Append-only audit record so the
+    // §3.4 anti-drift rule is enforceable (post-go-live param changes require a re-run attached).
+    event_type: 'calibration_run',
+    aggregate_type: 'strategy',
+    actor_type: 'user',
+    projection_owner: 'audit',
+    payload_fields: ['params_version', 'params', 'universe', 'summaries', 'target'],
   },
 ] as const
 

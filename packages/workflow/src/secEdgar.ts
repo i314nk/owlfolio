@@ -23,6 +23,16 @@ export type SecEdgarDeps = {
 
 export type AnnualFacts = {
   fiscal_year: number
+  /**
+   * The date (YYYY-MM-DD) the 10-K reporting this fiscal year was filed with the SEC — i.e. the date
+   * an analyst would first have had this annual data. Derived from the NetIncomeLoss filed date for the
+   * fiscal year's period end (the canonical income-statement fact). Used by the calibration backtest to
+   * pick the latest filing available as-of each historical month-end. May be absent if no filed date was
+   * attached to the underlying fact.
+   */
+  filed?: string
+  /** Period END date (YYYY-MM-DD) of the fiscal year, when derivable from the income-statement fact. */
+  period_end?: string
   net_income_musd?: number
   revenue_musd?: number
   d_and_a_musd?: number
@@ -230,6 +240,52 @@ function annualByFiscalYear(facts: CompanyFacts, concept: string): Map<number, n
   return out
 }
 
+/**
+ * For a us-gaap flow concept, return a map of fiscal_year -> { filed, period_end } — the filing date
+ * and period END of the 10-K that reported that fiscal year. Mirrors annualByFiscalYear's period
+ * selection (latest filed wins per period end; latest period end wins per fiscal year) but surfaces the
+ * filing metadata the calibration backtest needs to know which 10-K was available as-of a given month.
+ */
+function annualFiledMetaByFiscalYear(
+  facts: CompanyFacts,
+  concept: string,
+): Map<number, { filed: string; period_end: string }> {
+  const out = new Map<number, { filed: string; period_end: string }>()
+  const unitMap = facts.facts?.['us-gaap']?.[concept]?.units
+  if (unitMap === undefined) return out
+  const entries: XbrlFact[] = []
+  for (const bucket of Object.values(unitMap)) {
+    if (Array.isArray(bucket)) entries.push(...bucket)
+  }
+
+  const byEnd = new Map<string, { filed: string }>()
+  for (const e of entries) {
+    if (e.form !== '10-K') continue
+    if (typeof e.end !== 'string' || typeof e.val !== 'number' || !Number.isFinite(e.val)) continue
+    if (typeof e.start === 'string') {
+      const days = periodDays(e.start, e.end)
+      if (days === undefined || days < ANNUAL_MIN_DAYS || days > ANNUAL_MAX_DAYS) continue
+    }
+    const filed = typeof e.filed === 'string' ? e.filed : ''
+    const prior = byEnd.get(e.end)
+    if (prior === undefined || filed > prior.filed) {
+      byEnd.set(e.end, { filed })
+    }
+  }
+
+  const latestEndForYear = new Map<number, string>()
+  for (const end of byEnd.keys()) {
+    const fy = new Date(end).getUTCFullYear()
+    const prior = latestEndForYear.get(fy)
+    if (prior === undefined || end > prior) latestEndForYear.set(fy, end)
+  }
+  for (const [fy, end] of latestEndForYear) {
+    const v = byEnd.get(end)
+    if (v !== undefined && v.filed !== '') out.set(fy, { filed: v.filed, period_end: end })
+  }
+  return out
+}
+
 const USD_TO_MUSD = 1e6
 const SHARES_TO_M = 1e6
 
@@ -269,6 +325,12 @@ function buildAnnualSeries(facts: CompanyFacts): AnnualFacts[] {
   const stockholdersEquity = annualByFiscalYear(facts, 'StockholdersEquity')
   const operatingIncome = annualByFiscalYear(facts, 'OperatingIncomeLoss')
   const incomeTax = annualByFiscalYear(facts, 'IncomeTaxExpenseBenefit')
+  // Filing metadata (filed date + period end) per fiscal year. Prefer the income-statement fact; fall
+  // back to revenue/D&A so a year still carries a filed date if NetIncomeLoss was tagged differently.
+  const filedMetaNi = annualFiledMetaByFiscalYear(facts, 'NetIncomeLoss')
+  const filedMetaRevC = annualFiledMetaByFiscalYear(facts, 'RevenueFromContractWithCustomerExcludingAssessedTax')
+  const filedMetaRev = annualFiledMetaByFiscalYear(facts, 'Revenues')
+  const filedMetaDa = annualFiledMetaByFiscalYear(facts, 'DepreciationDepletionAndAmortization')
 
   // Union of all fiscal years observed across the OE-bridge concepts.
   const allYears = new Set<number>()
@@ -282,9 +344,12 @@ function buildAnnualSeries(facts: CompanyFacts): AnnualFacts[] {
     const totalDebtRaw = debtCombined.get(fy) ?? sumOptional(ltDebtNoncurrent.get(fy), ltDebtCurrent.get(fy))
     // cash + securities: cash plus whichever short-term-securities concept is present.
     const cashRaw = sumOptional(cash.get(fy), shortTermInv.get(fy) ?? marketableCurrent.get(fy))
+    const filedMeta = filedMetaNi.get(fy) ?? filedMetaRevC.get(fy) ?? filedMetaRev.get(fy) ?? filedMetaDa.get(fy)
 
     series.push({
       fiscal_year: fy,
+      ...optional('filed', filedMeta?.filed),
+      ...optional('period_end', filedMeta?.period_end),
       ...optional('net_income_musd', toMusd(netIncome.get(fy))),
       ...optional('revenue_musd', toMusd(revenueContract.get(fy) ?? revenues.get(fy))),
       ...optional('d_and_a_musd', toMusd(dAndA.get(fy))),
@@ -304,8 +369,8 @@ function buildAnnualSeries(facts: CompanyFacts): AnnualFacts[] {
 }
 
 // exactOptionalPropertyTypes helper: only spread the key when the value is defined.
-function optional<K extends string>(key: K, value: number | undefined): Record<K, number> | Record<string, never> {
-  return value === undefined ? {} : ({ [key]: value } as Record<K, number>)
+function optional<K extends string, V>(key: K, value: V | undefined): Record<K, V> | Record<string, never> {
+  return value === undefined ? {} : ({ [key]: value } as Record<K, V>)
 }
 
 // ---------------------------------------------------------------------------
