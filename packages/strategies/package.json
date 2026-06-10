@@ -19,6 +19,8 @@
     "./valuationParams": "./src/valuationParams.ts",
     "./valuationConfigEvent": "./src/valuationConfigEvent.ts",
     "./calibrationRunEvent": "./src/calibrationRunEvent.ts",
-    "./judgmentRubrics": "./src/judgmentRubrics.ts"
+    "./judgmentRubrics": "./src/judgmentRubrics.ts",
+    "./sourcePolicy": "./src/sourcePolicy.ts",
+    "./baseRates": "./src/baseRates.ts"
   }
 }

@@ -2,7 +2,7 @@ import { z, type ZodType } from 'zod'
 import type { EventStore } from '@owlfolio/ledger/eventStore'
 import type { LedgerEventEnvelope } from '@owlfolio/ledger/eventEnvelope'
 import type { Provider } from '@owlfolio/providers'
-import { groundProposedSources, type CapturedSource, type GroundingDeps, type ProposedSource } from './sourceGrounding'
+import { groundProposedSources, groundProposedSourcesForLane, type CapturedSource, type GroundingDeps, type ProposedSource, type SourcePolicyRejection } from './sourceGrounding'
 import { computeIncrementalRoic, type AnnualFacts, type Fundamentals, type SecEdgarDeps } from './secEdgar'
 import { JUDGMENT_RUBRICS } from '@owlfolio/strategies/judgmentRubrics'
 import {
@@ -14,6 +14,9 @@ import {
   type ResolveRubricTierResult,
 } from './judgmentAnchor'
 import { resolveFundamentalsForTicker } from './fundamentalsProvider'
+import { evaluateBaseRateBurden, type BaseRateBurdenFlag } from './baseRateBurden'
+import { BASE_RATES } from '@owlfolio/strategies/baseRates'
+import { SOURCE_POLICY } from '@owlfolio/strategies/sourcePolicy'
 import { createResearchCase, draftDecision } from './researchWorkflow'
 import {
   buffettMungerDeepDiveLanes,
@@ -59,6 +62,8 @@ export type GroundedAgentResult<T> = {
   analysis: T & { proposed_sources: z.infer<typeof ProposedSourcesSchema> }
   captured: CapturedSource[]
   verified_ids: string[]
+  /** Mechanism 6: sources rejected by the per-lane source whitelist (only set when `lane` is passed). */
+  policy_rejections: SourcePolicyRejection[]
 }
 
 export async function runGroundedAgent<T extends { proposed_sources: z.infer<typeof ProposedSourcesSchema> }>(
@@ -66,6 +71,13 @@ export async function runGroundedAgent<T extends { proposed_sources: z.infer<typ
   request: GroundedAgentRequest,
   schema: ZodType<T>,
   deps: { ground?: GroundFn; grounding?: GroundingDeps } = {},
+  /**
+   * Mechanism 6: when a `lane` id is supplied, the proposed sources are first gated by that lane's
+   * source-discipline whitelist (classification lanes admit only primary docs; risks admits all),
+   * then grounded through the SAME fetcher. Rejections are recorded (never silently dropped). When
+   * omitted, grounding is unchanged (the bookend quick-screen/synthesis calls span all lanes).
+   */
+  opts: { lane?: string } = {},
 ): Promise<GroundedAgentResult<T>> {
   const ground = deps.ground ?? groundProposedSources
   const analysis = await provider.structured(
@@ -84,11 +96,17 @@ export async function runGroundedAgent<T extends { proposed_sources: z.infer<typ
   // Cast: Zod infers `citation_locator?: string | undefined` but ProposedSource uses
   // exactOptionalPropertyTypes (`citation_locator?: string`). The runtime shapes are
   // identical — absent vs. explicitly undefined is only a type distinction.
-  const { captured, verified_ids } = await ground(
-    analysis.proposed_sources as ProposedSource[],
-    deps.grounding,
-  )
-  return { analysis, captured, verified_ids }
+  const proposed = analysis.proposed_sources as ProposedSource[]
+  if (opts.lane !== undefined) {
+    const { captured, verified_ids, policy_rejections } = await groundProposedSourcesForLane(
+      opts.lane,
+      proposed,
+      { ...deps.grounding, ground },
+    )
+    return { analysis, captured, verified_ids, policy_rejections }
+  }
+  const { captured, verified_ids } = await ground(proposed, deps.grounding)
+  return { analysis, captured, verified_ids, policy_rejections: [] }
 }
 
 /**
@@ -146,6 +164,8 @@ export type LaneOutcome = {
   confidence: 'low' | 'medium' | 'high'
   caveats: string[]
   verified_ids: string[]
+  /** Mechanism 6: sources this lane proposed that the source-discipline whitelist rejected. */
+  policy_rejections?: SourcePolicyRejection[]
 }
 
 export type LaneSwarmResult = LaneOutcome & { status: 'complete' | 'incomplete' }
@@ -1020,11 +1040,19 @@ export async function runResearchDeepDivePhase(
       run_id: `run_${command.research_case_id}_${swarmSeg(lane)}`,
       model_id: command.model_id,
       prompt: `You are the Buffett-Munger ${lane} specialist agent for ${command.ticker}. `
-        + `Produce a source-backed finding for the ${lane} lane only. Gather your own sources; return them in proposed_sources with real URLs.`
+        + `Produce a source-backed finding for the ${lane} lane only. Gather your own sources; return them in proposed_sources with real URLs. `
+        + `SOURCE DISCIPLINE (Mechanism 6): this lane reasons from PRIMARY documents. `
+        + (lane === 'risks'
+          ? `As the RISKS lane you may cite anything — knowing the consensus IS the job.`
+          : lane === 'management'
+            ? `Cite filings, proxies (DEF 14A), transcripts, and insider-trading data; media profiles will be rejected.`
+            : lane === 'shariah'
+              ? `Cite filings, segment disclosures, and Shariah screening providers; sell-side/media will be rejected.`
+              : `Cite filings, transcripts, regulatory/statistical data, and company disclosures; sell-side research, financial media, investor write-ups, and blogs will be rejected.`)
         + (injectFiling ? primaryFilingBlock : ''),
       timeout_ms: AGENT_TIMEOUT_MS,
       schema_name: 'BuffettMungerLaneFinding',
-    }, LaneAgentSchema, deps)
+    }, LaneAgentSchema, deps, { lane })
     remember(agent.captured)
     // The grounded EDGAR 10-K is a guaranteed verified primary citation for the injected lanes —
     // include it in the lane's verified_ids so the lane records a finding even if the model proposed
@@ -1038,6 +1066,7 @@ export async function runResearchDeepDivePhase(
       confidence: agent.analysis.confidence,
       caveats: agent.analysis.caveats,
       verified_ids,
+      ...(agent.policy_rejections.length > 0 ? { policy_rejections: agent.policy_rejections } : {}),
     }
   }, { concurrency: deps.laneConcurrency ?? 4 })
 
@@ -1047,6 +1076,11 @@ export async function runResearchDeepDivePhase(
   // skipped and noted so incompleteness surfaces in synthesis caveats.
   const findings: Awaited<ReturnType<typeof recordSpecialistFinding>>[] = []
   const laneNotes: string[] = []
+  // Mechanism 6: aggregate the per-lane source-discipline rejections for the dossier (visible —
+  // a classification lane starved of primary docs degrades/fails-closed; it never fabricates).
+  const sourcePolicyRejections = laneResults.flatMap((lane) =>
+    (lane.policy_rejections ?? []).map((r) => ({ lane: lane.lane, ...r })),
+  )
   for (const lane of laneResults) {
     if (lane.verified_ids.length === 0) {
       const reason = lane.status === 'incomplete' ? 'incomplete' : 'no verifiable sources'
@@ -1464,6 +1498,41 @@ export async function runResearchDeepDivePhase(
   // rubric scores + anchor-vs-proposed tier + whether the bounded adjustment was applied + violations.
   const judgmentProjection = buildJudgmentProjection(judgment)
 
+  // ---- Mechanism 3: base-rate burden check (deterministic flag + conservative downgrade hook) ----
+  // Any case that BEATS a base rate (monopoly classification, credited g in the 4-5% band, a >20%
+  // ROIC-sustained forecast, a margin-expansion claim) must carry a STRUCTURAL exceptionality
+  // justification — inside-view narrative ("strong execution") is insufficient. The structural
+  // evidence the synthesis supplied lives in the moat/runway rubric adjustment_evidence (cited
+  // claims) + the EDGAR-anchored rubric rows. The harness FLAGS unmet burdens (base_rate_burden_unmet)
+  // and surfaces them; it does NOT silently pass an unjustified exceptional claim.
+  const exceptionalityJustifications = [
+    ...(dec.analysis.moat_rubric?.adjustment_evidence ?? []),
+    ...(dec.analysis.runway_rubric?.adjustment_evidence ?? []),
+  ]
+  // ROIC>20% sustained signal: high reported/incremental ROIC at a wide+ moat with growth credited.
+  const roicForecastGt20 =
+    moat_passes_gate
+    && effective_growth_rate > 0
+    && (roic >= 0.20 || incremental_roic >= 0.20)
+  // Margin-expansion signal from the growth narrative (a claim, not a harness computation).
+  const marginExpansionClaimed = /margin[s]?\s+(expand|expansion|grow|improv|widen)/i
+    .test(`${dec.analysis.growth_assumptions} ${dec.analysis.valuation_rationale}`)
+  const baseRateBurden = evaluateBaseRateBurden({
+    moat_class: moatClass,
+    credited_growth_rate: effective_growth_rate,
+    roic_forecast_gt_20: roicForecastGt20,
+    margin_expansion_claimed: marginExpansionClaimed,
+    exceptionality_justifications: exceptionalityJustifications,
+  })
+  const baseRateFlagsUnmet: BaseRateBurdenFlag[] = baseRateBurden.flags.filter((f) => f.status === 'unmet')
+  // Conservative downgrade hook: an unmet exceptional burden lowers the synthesis confidence and adds
+  // an explicit caveat so the human sees the unmet structural burden (never silently passed).
+  const baseRateCaveats = baseRateFlagsUnmet.map((f) =>
+    `base_rate_burden_unmet: "${f.claim}" beats the base rate (${f.base_rate_note}) without sufficient `
+    + `structural justification (${f.structural_evidence_count}/${f.required_structural_evidence} structural `
+    + `items). Burden: ${f.burden}. Treat as narrative until structural evidence is supplied.`,
+  )
+
   // ---- Emit buffett_munger_analysis_drafted ----
   const analysisEvent: LedgerEventEnvelope<unknown> = {
     event_id: `evt_buffett_munger_analysis_drafted_${command.research_case_id}`,
@@ -1509,6 +1578,22 @@ export async function runResearchDeepDivePhase(
         value_basis: 'two_stage_dcf',
         // Judgment-objectivity layer (Mechanisms 1+2): rubric scores + anchor-vs-proposed tier per axis.
         ...(judgmentProjection !== undefined ? { judgment: judgmentProjection } : {}),
+        // Mechanism 3: base-rate burden flags (base_rate_burden_unmet) for claims that beat a base rate.
+        ...(baseRateBurden.flags.length > 0
+          ? {
+              base_rate_burden: {
+                version: BASE_RATES.version,
+                unmet_count: baseRateBurden.unmet_count,
+                flags: baseRateBurden.flags.map((f) => ({
+                  base_rate_id: f.base_rate_id,
+                  claim: f.claim,
+                  status: f.status,
+                  required_structural_evidence: f.required_structural_evidence,
+                  structural_evidence_count: f.structural_evidence_count,
+                })),
+              },
+            }
+          : {}),
         // OE-bridge provenance: 'sec_edgar' (anchored to the 10-K) vs 'model_proposed'.
         bridge_basis,
         ...(bridge_fiscal_year !== undefined ? { bridge_fiscal_year } : {}),
@@ -1518,6 +1603,22 @@ export async function runResearchDeepDivePhase(
       // computable (EDGAR/market-cap/impermissible-income missing) — caller falls back to lane verdict.
       ...(shariah_financial !== undefined ? { shariah_financial } : {}),
       ...(shariahJudgment !== undefined ? { shariah_sector_status: shariahJudgment.sector_status } : {}),
+      // Mechanism 6: source-discipline summary — which lane-proposed sources the per-lane whitelist
+      // rejected (count + per-lane/reason). Surfaced so a starved lane is visible, never hidden.
+      ...(sourcePolicyRejections.length > 0
+        ? {
+            source_discipline: {
+              version: SOURCE_POLICY.version,
+              rejected_count: sourcePolicyRejections.length,
+              rejections: sourcePolicyRejections.map((r) => ({
+                lane: r.lane,
+                source_id: r.source_id,
+                category: r.category,
+                reason: r.reason,
+              })),
+            },
+          }
+        : {}),
     },
     source_ids: allVerified,
     created_at: new Date().toISOString(),
@@ -1583,7 +1684,11 @@ export async function runResearchDeepDivePhase(
       + (valuationCaveats.length > 0 ? ` ${valuationCaveats.join(' ')}` : ''),
     shariah_rationale: dec.analysis.shariah_rationale,
     risks: dec.analysis.risks,
-    open_questions: dec.analysis.open_questions,
+    // Mechanism 3 conservative hook: unmet base-rate burdens are surfaced as open questions so an
+    // exceptional claim lacking structural evidence is never silently passed to the human.
+    open_questions: baseRateCaveats.length > 0
+      ? [...dec.analysis.open_questions, ...baseRateCaveats]
+      : dec.analysis.open_questions,
     causation_id: completed.event_id,
     source_ids: allVerified,
     idempotency_key: `decision:${command.research_case_id}:v1`,

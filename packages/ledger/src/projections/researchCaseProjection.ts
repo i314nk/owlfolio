@@ -93,6 +93,44 @@ export type ResearchCaseJudgmentProjection = {
   runway?: ResearchCaseJudgmentAxisProjection
 }
 
+/**
+ * Mechanism 3 (Base-Rate Constraints): claims that BEAT a base rate (monopoly, credited g 4-5%, >20%
+ * ROIC sustained, margin expansion) must carry a STRUCTURAL exceptionality justification. A claim
+ * lacking enough structural evidence is flagged `base_rate_burden_unmet` (status 'unmet') — surfaced,
+ * never silently passed.
+ */
+export type ResearchCaseBaseRateFlagProjection = {
+  base_rate_id?: string
+  claim?: string
+  status?: string
+  required_structural_evidence?: number
+  structural_evidence_count?: number
+}
+
+export type ResearchCaseBaseRateBurdenProjection = {
+  version?: string
+  unmet_count?: number
+  flags?: ResearchCaseBaseRateFlagProjection[]
+}
+
+/**
+ * Mechanism 6 (Source Discipline): lane-proposed sources the per-lane whitelist REJECTED (visible —
+ * a classification lane reasons from primary documents only; an excluded source is recorded, never
+ * silently dropped). reason is `excluded_by_lane_policy:<category>` or `excluded_unknown_source`.
+ */
+export type ResearchCaseSourceRejectionProjection = {
+  lane?: string
+  source_id?: string
+  category?: string
+  reason?: string
+}
+
+export type ResearchCaseSourceDisciplineProjection = {
+  version?: string
+  rejected_count?: number
+  rejections?: ResearchCaseSourceRejectionProjection[]
+}
+
 export type ResearchCaseValuationProjection = {
   moat_class?: string
   moat_passes_gate?: boolean
@@ -124,6 +162,8 @@ export type ResearchCaseValuationProjection = {
   verdict_state?: ResearchCaseVerdictStateProjection
   /** Judgment-objectivity rubric layer (Mechanisms 1+2): anchor-vs-proposed tier + rubric scores. */
   judgment?: ResearchCaseJudgmentProjection
+  /** Mechanism 3: base-rate burden flags for claims that beat a base rate (monopoly, g 4-5%, etc.). */
+  base_rate_burden?: ResearchCaseBaseRateBurdenProjection
   value_basis?: string
   /** OE-bridge provenance: 'sec_edgar' (anchored to the 10-K) or 'model_proposed'. */
   bridge_basis?: string
@@ -187,6 +227,8 @@ export type ResearchCaseProjection = {
   shariah_financial?: ResearchCaseShariahFinancialProjection
   /** SHARIAH lane sector status judgment: compliant | conditional | non_compliant. */
   shariah_sector_status?: string
+  /** Mechanism 6: source-discipline rejections (lane-proposed sources the whitelist excluded). */
+  source_discipline?: ResearchCaseSourceDisciplineProjection
   synthesis_id?: string
   decision_id?: string
   investment_verdict?: string
@@ -316,6 +358,62 @@ function getJudgment(valuation: Record<string, unknown>): ResearchCaseJudgmentPr
   return Object.keys(projected).length === 0 ? undefined : projected
 }
 
+function getBaseRateBurden(valuation: Record<string, unknown>): ResearchCaseBaseRateBurdenProjection | undefined {
+  const value = valuation['base_rate_burden']
+  if (!isRecord(value)) return undefined
+  const projected: ResearchCaseBaseRateBurdenProjection = {}
+  const version = getString(value, 'version')
+  if (version !== undefined) projected.version = version
+  const unmet_count = getNumber(value, 'unmet_count')
+  if (unmet_count !== undefined) projected.unmet_count = unmet_count
+  const rawFlags = value['flags']
+  if (Array.isArray(rawFlags)) {
+    const flags = rawFlags.filter(isRecord).map((f): ResearchCaseBaseRateFlagProjection => {
+      const flag: ResearchCaseBaseRateFlagProjection = {}
+      const base_rate_id = getString(f, 'base_rate_id')
+      if (base_rate_id !== undefined) flag.base_rate_id = base_rate_id
+      const claim = getString(f, 'claim')
+      if (claim !== undefined) flag.claim = claim
+      const status = getString(f, 'status')
+      if (status !== undefined) flag.status = status
+      const required = getNumber(f, 'required_structural_evidence')
+      if (required !== undefined) flag.required_structural_evidence = required
+      const count = getNumber(f, 'structural_evidence_count')
+      if (count !== undefined) flag.structural_evidence_count = count
+      return flag
+    })
+    if (flags.length > 0) projected.flags = flags
+  }
+  return Object.keys(projected).length === 0 ? undefined : projected
+}
+
+function getSourceDiscipline(payload: Record<string, unknown>): ResearchCaseSourceDisciplineProjection | undefined {
+  const value = payload['source_discipline']
+  if (!isRecord(value)) return undefined
+  const projected: ResearchCaseSourceDisciplineProjection = {}
+  const version = getString(value, 'version')
+  if (version !== undefined) projected.version = version
+  const rejected_count = getNumber(value, 'rejected_count')
+  if (rejected_count !== undefined) projected.rejected_count = rejected_count
+  const rawRejections = value['rejections']
+  if (Array.isArray(rawRejections)) {
+    const rejections = rawRejections.filter(isRecord).map((r): ResearchCaseSourceRejectionProjection => {
+      const rej: ResearchCaseSourceRejectionProjection = {}
+      const lane = getString(r, 'lane')
+      if (lane !== undefined) rej.lane = lane
+      const source_id = getString(r, 'source_id')
+      if (source_id !== undefined) rej.source_id = source_id
+      const category = getString(r, 'category')
+      if (category !== undefined) rej.category = category
+      const reason = getString(r, 'reason')
+      if (reason !== undefined) rej.reason = reason
+      return rej
+    })
+    if (rejections.length > 0) projected.rejections = rejections
+  }
+  return Object.keys(projected).length === 0 ? undefined : projected
+}
+
 function getValuation(payload: Record<string, unknown>): ResearchCaseValuationProjection | undefined {
   const value = payload['valuation']
   if (!isRecord(value)) {
@@ -363,6 +461,8 @@ function getValuation(payload: Record<string, unknown>): ResearchCaseValuationPr
   if (verdict_state !== undefined) projected.verdict_state = verdict_state
   const judgment = getJudgment(value)
   if (judgment !== undefined) projected.judgment = judgment
+  const base_rate_burden = getBaseRateBurden(value)
+  if (base_rate_burden !== undefined) projected.base_rate_burden = base_rate_burden
   const value_basis = getString(value, 'value_basis')
   if (value_basis !== undefined) projected.value_basis = value_basis
   const bridge_basis = getString(value, 'bridge_basis')
@@ -785,6 +885,10 @@ export function projectResearchCases(events: LedgerEventEnvelope<unknown>[]): Re
         researchCase.shariah_financial = shariahFinancial
       }
       applyString(researchCase, 'shariah_sector_status', getString(event.payload, 'shariah_sector_status'))
+      const sourceDiscipline = getSourceDiscipline(event.payload)
+      if (sourceDiscipline !== undefined) {
+        researchCase.source_discipline = sourceDiscipline
+      }
       continue
     }
 

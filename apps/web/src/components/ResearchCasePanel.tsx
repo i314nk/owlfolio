@@ -706,6 +706,17 @@ function createValuationPanel(researchCase: AppResearchCase, marketQuote?: Marke
         : `${(moatJudgment.anchor_tier ?? '?').toUpperCase()} anchor → ${(moatJudgment.resolved_tier ?? '?').toUpperCase()}${moatJudgment.adjustment_applied ? ` (±1 from ${(moatJudgment.proposed_tier ?? '?').toUpperCase()})` : ''}`)
     : undefined
 
+  // Mechanism 3 (Base-Rate Constraints): claims that beat a base rate (monopoly, credited g 4-5%, >20%
+  // ROIC, margin expansion) lacking a STRUCTURAL exceptionality justification are flagged
+  // base_rate_burden_unmet — surfaced here so the human sees the unmet structural burden, never hidden.
+  const baseRateBurden = valuation.base_rate_burden
+  const unmetBaseRateFlags = (baseRateBurden?.flags ?? []).filter((f) => f.status === 'unmet')
+
+  // Mechanism 6 (Source Discipline): lane-proposed sources the per-lane whitelist excluded (sell-side,
+  // media, blogs, unknown). Surfaced as a count + reasons so a lane starved of primary docs is visible.
+  const sourceDiscipline = researchCase.source_discipline
+  const rejectedSourceCount = sourceDiscipline?.rejected_count ?? 0
+
   const discountLabel = discountRateVal !== undefined ? `${Math.round(discountRateVal * 100)}%` : '10%'
   const mosLabel = mosVal !== undefined ? `${Math.round(mosVal * 100)}%` : undefined
   const moatLabel = mosLabel !== undefined
@@ -1015,6 +1026,43 @@ function createValuationPanel(researchCase: AppResearchCase, marketQuote?: Marke
         },
       },
       gapIsGood ? `Market is ${gapLabel}` : `Market is +${gapLabel}`,
+    ) : null,
+    // Mechanism 3: base-rate burden — exceptional claims lacking structural evidence (surfaced, never passed).
+    unmetBaseRateFlags.length > 0 ? createElement(
+      'div',
+      {
+        style: {
+          background: 'rgba(248, 113, 113, 0.08)',
+          border: '1px solid rgba(248, 113, 113, 0.3)',
+          borderRadius: '0.7rem',
+          marginTop: '0.6rem',
+          padding: '0.6rem 0.9rem',
+        },
+      },
+      createElement('p', { style: { color: '#f87171', fontWeight: 800, fontSize: 'var(--owl-text-sm)', margin: '0 0 0.3rem' } },
+        `Base-rate burden unmet (${unmetBaseRateFlags.length})`,
+      ),
+      ...unmetBaseRateFlags.map((f) => createElement('p', {
+        key: f.base_rate_id ?? f.claim,
+        style: { color: '#fca5a5', fontSize: 'var(--owl-text-xs)', fontFamily: 'var(--owl-font-mono)', margin: '0 0 0.2rem' },
+      },
+        `${f.claim ?? f.base_rate_id} — ${f.structural_evidence_count ?? 0}/${f.required_structural_evidence ?? 0} structural items. Beats a base rate without structural evidence; treat as narrative until evidenced.`,
+      )),
+    ) : null,
+    // Mechanism 6: source-discipline note — lane-proposed sources the per-lane whitelist excluded.
+    rejectedSourceCount > 0 ? createElement(
+      'p',
+      {
+        style: {
+          color: 'var(--owl-color-muted)',
+          fontFamily: 'var(--owl-font-mono)',
+          fontSize: 'var(--owl-text-xs)',
+          margin: '0.5rem 0 0',
+        },
+      },
+      `Source discipline: ${rejectedSourceCount} lane source${rejectedSourceCount === 1 ? '' : 's'} excluded by lane policy `
+      + `(${[...new Set((sourceDiscipline?.rejections ?? []).map((r) => r.reason).filter((r): r is string => r !== undefined))].join(', ')}). `
+      + `Classification lanes reason from primary documents only.`,
     ) : null,
     // Collapsible owner-earnings bridge
     hasBridge && bridge !== undefined ? createElement(

@@ -100,17 +100,21 @@ function mockGroundedResearchForTicker(ticker: string) {
 
 function mockSourcesForTicker(ticker: string) {
   const tslug = sourceSlugForTicker(ticker)
+  // URLs are SEC EDGAR-shaped so the per-lane source-discipline whitelist (Mechanism 6) classifies
+  // them as PRIMARY filings (admitted by EVERY lane, including the strict classification lanes) —
+  // otherwise the deterministic demo/test lanes would be (correctly) starved. The source_ids/titles
+  // stay stable (e2e + tests assert on them); only the URL host/path changed.
   return [
     {
       source_id: `mock_${tslug}_primary`,
       title: `${ticker} primary source`,
-      url: `https://mock.local/${tslug}/primary`,
+      url: `https://www.sec.gov/Archives/edgar/data/0/${tslug}-10k-2025.htm`,
       excerpt: `${ticker} primary mock source excerpt for deterministic swarm testing.`,
     },
     {
       source_id: `mock_${tslug}_secondary`,
       title: `${ticker} secondary source`,
-      url: `https://mock.local/${tslug}/secondary`,
+      url: `https://www.sec.gov/Archives/edgar/data/0/${tslug}-10q-2026.htm`,
       excerpt: `${ticker} secondary mock source excerpt for deterministic swarm testing.`,
     },
   ] as const

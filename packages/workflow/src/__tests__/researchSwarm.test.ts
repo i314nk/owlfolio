@@ -71,7 +71,7 @@ function swarmFakeProvider() {
   const src = (id: string) => ({
     source_id: id,
     title: 'Test source',
-    url: 'https://example.com/src',
+    url: 'https://www.sec.gov/Archives/edgar/data/0/test-10k.htm',
     excerpt: 'Test excerpt',
   })
   return {
@@ -146,7 +146,7 @@ function swarmFakeProviderWithLaneIds(lanes: readonly string[]) {
   const src = (id: string) => ({
     source_id: id,
     title: 'Test source',
-    url: 'https://example.com/src',
+    url: 'https://www.sec.gov/Archives/edgar/data/0/test-10k.htm',
     excerpt: 'Test excerpt',
   })
   return {
@@ -327,7 +327,7 @@ describe('runStrategyResearchSwarm', () => {
       const src = (id: string) => ({
         source_id: id,
         title: 'Test source',
-        url: 'https://example.com/src',
+        url: 'https://www.sec.gov/Archives/edgar/data/0/test-10k.htm',
         excerpt: 'Test excerpt',
       })
       return {
@@ -759,7 +759,7 @@ function configurableSwarmProvider(opts: {
   failQuickScreen?: number
   failSynthesis?: number
 }) {
-  const src = (id: string) => ({ source_id: id, title: 'T', url: 'https://example.com/src', excerpt: 'e' })
+  const src = (id: string) => ({ source_id: id, title: 'T', url: 'https://www.sec.gov/Archives/edgar/data/0/test-10k.htm', excerpt: 'e' })
   let laneCall = 0
   let qsFails = opts.failQuickScreen ?? 0
   let synthFails = opts.failSynthesis ?? 0
@@ -1291,7 +1291,7 @@ describe('SEC EDGAR primary-filing wiring', () => {
 // ---------------------------------------------------------------------------
 function swarmFakeProviderWithShariah(impermissible_income: number, sector_status: 'compliant' | 'conditional' | 'non_compliant' = 'conditional') {
   let callCount = 0
-  const src = (id: string) => ({ source_id: id, title: 'T', url: 'https://example.com/src', excerpt: 'e' })
+  const src = (id: string) => ({ source_id: id, title: 'T', url: 'https://www.sec.gov/Archives/edgar/data/0/test-10k.htm', excerpt: 'e' })
   return {
     provider_id: 'fake-swarm-shariah',
     capabilities: {} as never,

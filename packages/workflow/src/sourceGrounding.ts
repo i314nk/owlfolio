@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto'
 import type { SourceLedgerAvailability } from './sourceLedger'
+import { classifySourceCategory, isCategoryAllowedForLane, type SourceCategory } from '@owlfolio/strategies/sourcePolicy'
 
 const PRIVATE_V4 = [
   /^127\./, /^10\./, /^192\.168\./, /^169\.254\./,
@@ -66,6 +67,8 @@ export type CapturedSource = {
   http_status?: number
   fetched_at: string
   citation_locator?: string
+  /** Mechanism 6: the classifier's source category (for dossier visibility). Set by the lane-aware path. */
+  source_category?: SourceCategory
 }
 
 export type GroundingDeps = {
@@ -183,4 +186,81 @@ export async function groundProposedSources(
     captured,
     verified_ids: captured.filter((c) => c.availability === 'available').map((c) => c.source_id),
   }
+}
+
+// ---------------------------------------------------------------------------
+// Mechanism 6 — per-lane source discipline (the whitelist gate, ADDITIONAL to grounding)
+// ---------------------------------------------------------------------------
+
+/** A source rejected by the per-lane whitelist BEFORE it reached the fetcher (recorded, not dropped). */
+export type SourcePolicyRejection = {
+  source_id: string
+  url: string
+  category: SourceCategory
+  /** `excluded_by_lane_policy:<category>` for an excluded category, or `excluded_unknown_source`. */
+  reason: string
+}
+
+export type LaneGroundingResult = GroundingResult & {
+  /** Sources rejected by the lane's source-discipline whitelist (visible, never silently dropped). */
+  policy_rejections: SourcePolicyRejection[]
+}
+
+/** The grounding function signature (the fetcher). Lets callers inject a deterministic stub in tests. */
+export type GroundFn = (
+  sources: ProposedSource[],
+  deps?: GroundingDeps,
+) => Promise<GroundingResult>
+
+/**
+ * Ground a lane's proposed sources under the per-lane source whitelist (judgment-objectivity-layer-spec
+ * Mechanism 6). Each proposed source is classified (classifySourceCategory) and gated by the lane's
+ * policy (isCategoryAllowedForLane) BEFORE it reaches the fetcher:
+ *   - classification lanes (moat/financial_quality/valuation/business_quality) admit only primary docs
+ *     and REJECT sell-side/media/investor-writeups; `unknown` is rejected conservatively.
+ *   - management adds proxies/insider data; risks admits everything; shariah adds screening providers.
+ * A rejected source is RECORDED in `policy_rejections` (reason: `excluded_by_lane_policy:<category>` or
+ * `excluded_unknown_source`) — never silently dropped. The admitted sources flow through the SAME
+ * grounding path (sha256 + SSRF + verified_ids), so the whitelist is an ADDITIONAL gate, not a bypass.
+ * Captured sources carry their `source_category` for dossier visibility.
+ */
+export async function groundProposedSourcesForLane(
+  lane: string,
+  sources: ProposedSource[],
+  deps: GroundingDeps & { ground?: GroundFn } = {},
+): Promise<LaneGroundingResult> {
+  const ground = deps.ground ?? groundProposedSources
+  const admitted: ProposedSource[] = []
+  const admittedCategory = new Map<string, SourceCategory>()
+  const policy_rejections: SourcePolicyRejection[] = []
+
+  for (const source of sources) {
+    const category = classifySourceCategory(source.url)
+    if (isCategoryAllowedForLane(lane, category)) {
+      admitted.push(source)
+      admittedCategory.set(source.source_id, category)
+    } else {
+      policy_rejections.push({
+        source_id: source.source_id,
+        url: source.url,
+        category,
+        reason: category === 'unknown'
+          ? 'excluded_unknown_source'
+          : `excluded_by_lane_policy:${category}`,
+      })
+    }
+  }
+
+  const { ground: _omit, ...groundingDeps } = deps
+  void _omit
+  const grounded = admitted.length > 0
+    ? await ground(admitted, groundingDeps)
+    : { captured: [] as CapturedSource[], verified_ids: [] as string[] }
+
+  const captured = grounded.captured.map((c) => {
+    const category = admittedCategory.get(c.source_id)
+    return category === undefined ? c : { ...c, source_category: category }
+  })
+
+  return { captured, verified_ids: grounded.verified_ids, policy_rejections }
 }
