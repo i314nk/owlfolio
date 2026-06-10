@@ -53,4 +53,28 @@ describe('buildPurificationReport', () => {
     })
     expect(report.limitations).toContain('Payments are recorded only from explicit user-entered purification_payment_recorded ledger events; Owlfolio never marks an obligation paid automatically.')
   })
+
+  it('includes a quarterly purification statement (accrued this period + cumulative unpaid)', () => {
+    const obligation = buildPurificationObligationRecordedEvent({
+      obligation_id: 'purify_msft_2026_05',
+      holding_id: 'holding_msft_001',
+      ticker: 'MSFT',
+      amount: 20,
+      currency: 'USD',
+      period_start: '2026-05-01',
+      period_end: '2026-05-31',
+    }, {
+      event_id: 'evt_purify_obligation_msft_may',
+      actor_id: 'purification-worker',
+      created_at: '2026-06-01T00:05:00.000Z',
+    })
+
+    const report = buildPurificationReport([obligation], {
+      statement_period_start: '2026-04-01',
+      statement_period_end: '2026-06-30',
+    })
+
+    expect(report.quarterly_statement?.summary_by_currency.USD?.accrued_this_period).toBe(20)
+    expect(report.quarterly_statement?.summary_by_currency.USD?.cumulative_unpaid).toBe(20)
+  })
 })

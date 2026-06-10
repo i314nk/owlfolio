@@ -10,6 +10,11 @@ import {
   projectAaoifiDividendPurificationCalculations,
   type AaoifiDividendPurificationCalculation,
 } from '@owlfolio/ledger/projections/purificationProjection'
+import {
+  projectQuarterlyPurificationStatement,
+  projectExitPurificationFinalizations,
+} from '@owlfolio/ledger/projections/purificationStatement'
+import { projectZakatStatement, type ZakatBaseMethod } from '@owlfolio/ledger/projections/zakatModule'
 import { projectScheduledTasks, type ScheduledTaskProjection } from '@owlfolio/ledger/projections/scheduledTaskProjection'
 import { projectWatchlist } from '@owlfolio/ledger/projections/watchlistProjection'
 import { projectPendingResearchRuns, projectPendingDeepDiveRuns } from '@owlfolio/ledger/projections/researchRunQueueProjection'
@@ -110,6 +115,18 @@ export type RunScheduledTasksOptions = WorkerClock & {
   automation?: AutomationSettings
   /** Optional injectable Shariah-ratio source for the quarterly re-screen / grace monitors. */
   shariahRatioSource?: ShariahRatioSource
+  /**
+   * User-authored zakat methodology setting (lifecycle-spec-v3 Module 8). When provided, the quarterly
+   * purification task also emits a read-only zakat statement observation at the ḥawl date. Methodology is a
+   * SETTING the user authors — never an agent judgment. No auto-payment.
+   */
+  zakat?: {
+    hawl_date: string
+    currency?: string
+    base_method?: ZakatBaseMethod
+    net_current_assets?: number
+    rate?: number
+  }
 }
 
 export type RunScheduledTasksResult = {
@@ -177,6 +194,13 @@ function previousQuarterEndDate(now: string): string {
   const date = new Date(now)
   const quarterStartMonth = Math.floor(date.getUTCMonth() / 3) * 3
   return new Date(Date.UTC(date.getUTCFullYear(), quarterStartMonth, 0)).toISOString().slice(0, 10)
+}
+
+/** First day of the quarter that the given quarter-END date belongs to (for the purification statement). */
+function quarterStartDateForEnd(quarterEnd: string): string {
+  const date = new Date(`${quarterEnd}T00:00:00.000Z`)
+  const quarterStartMonth = Math.floor(date.getUTCMonth() / 3) * 3
+  return new Date(Date.UTC(date.getUTCFullYear(), quarterStartMonth, 1)).toISOString().slice(0, 10)
 }
 
 function roundMoney(value: number): number {
@@ -1687,8 +1711,46 @@ async function runPurificationProjectionTask(
     observations.push(`${pending.holding_id ?? pending.dividend_id ?? pending.dividend_event_id ?? 'dividend'} purification calculation pending evidence: ${pending.missing_evidence.join(', ')}`)
   }
 
+  // Quarterly purification statement (Module 9 rule 4): read-only — accrued this period, per holding,
+  // cumulative unpaid. Re-list events so freshly-appended obligations this tick are included.
+  const eventsWithAccruals = await store.list()
+  const statementPeriodStart = quarterStartDateForEnd(asOf)
+  const statement = projectQuarterlyPurificationStatement(eventsWithAccruals, {
+    period_start: statementPeriodStart,
+    period_end: asOf,
+  })
+  for (const [currency, summary] of Object.entries(statement.summary_by_currency)) {
+    observations.push(
+      `purification statement ${statementPeriodStart}..${asOf} (${currency}): accrued this period ${summary.accrued_this_period.toFixed(2)}, cumulative unpaid ${summary.cumulative_unpaid.toFixed(2)} across ${statement.per_holding.filter((line) => line.currency === currency).length} holding(s); human authors any disbursement`,
+    )
+  }
+
+  // Exit finalization (Module 9 rule 5): lock final cumulative purification on closed holdings.
+  const finalizations = projectExitPurificationFinalizations(eventsWithAccruals)
+  for (const finalization of finalizations) {
+    observations.push(
+      `${finalization.ticker ?? finalization.holding_id} exit purification finalized (closed ${finalization.closed_at}): accrued ${finalization.final_purification_accrued.toFixed(2)} ${finalization.currency}, remaining ${finalization.final_purification_remaining.toFixed(2)}; locked into post-mortem, human authors any disbursement`,
+    )
+  }
+
+  // Zakat statement (Module 8): read-only at the ḥawl date, only when a user-authored methodology setting
+  // is provided. 2.5% (default) on a user-set base; the human authors the actual zakat payment.
+  if (options.zakat !== undefined) {
+    const zakatCurrency = options.zakat.currency ?? 'USD'
+    const zakatStatement = projectZakatStatement(eventsWithAccruals, {
+      hawl_date: options.zakat.hawl_date,
+      currency: zakatCurrency,
+      ...(options.zakat.base_method === undefined ? {} : { base_method: options.zakat.base_method }),
+      ...(options.zakat.net_current_assets === undefined ? {} : { net_current_assets: options.zakat.net_current_assets }),
+      ...(options.zakat.rate === undefined ? {} : { rate: options.zakat.rate }),
+    })
+    observations.push(
+      `zakat statement (ḥawl ${zakatStatement.hawl_date}, ${zakatStatement.base_method}): base ${zakatStatement.zakatable_base.toFixed(2)} ${zakatCurrency} x ${(zakatStatement.rate * 100).toFixed(2)}% = ${zakatStatement.zakat_due.toFixed(2)} due; user-authored methodology, human authors the payment`,
+    )
+  }
+
   return {
-    result_summary: `purification_projection dry-run: calculated ${appended} estimated purification obligation(s), ${projection.pending.length} pending dividend(s) need evidence; no payment or resolution marked`,
+    result_summary: `purification_projection dry-run: calculated ${appended} estimated purification obligation(s), ${projection.pending.length} pending dividend(s) need evidence, ${finalizations.length} exit finalization(s); quarterly statement + ${options.zakat === undefined ? 'no ' : ''}zakat statement; no payment or resolution marked`,
     observations,
     approval_gates: appended > 0 || projection.pending.length > 0 ? [PURIFICATION_PAYMENT_APPROVAL_GATE] : [],
     human_approval_required: appended > 0 || projection.pending.length > 0,

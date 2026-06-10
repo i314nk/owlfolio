@@ -34,6 +34,8 @@ export function PurificationReport({ report }: PurificationReportProps) {
     createVitalSigns(report.summary_cards),
     createDutyPanel(report),
     createObligations(report.obligations),
+    createQuarterlyStatement(report),
+    report.zakat_statement === undefined ? null : createZakatStatement(report),
     createEvidenceChecklist(report.obligations, report.payments),
     createPayments(report.payments, report.obligations.length),
     createPurificationLearnPanel(report.limitations),
@@ -241,6 +243,77 @@ function basisLine(label: string, value: string) {
     'p',
     { className: 'owl-row-helper', style: { color: 'var(--owl-color-text)', fontFamily: 'var(--owl-font-mono)', margin: 0 } },
     `${label}: ${value}`,
+  )
+}
+
+// ── 3b. Quarterly purification statement (accrued / cumulative unpaid) ─────────
+
+function createQuarterlyStatement(report: AppPurificationReport) {
+  const statement = report.quarterly_statement
+  const lines: ReactNode[] = []
+
+  if (statement === undefined || statement.per_holding.length === 0) {
+    lines.push(createElement('p', { className: 'owl-row-helper', style: { margin: 0 } }, 'No purification accrued this quarter. On each recorded dividend, purification_due = dividend × purification_pct accrues here automatically.'))
+  } else {
+    for (const [currency, summary] of Object.entries(statement.summary_by_currency)) {
+      lines.push(createElement('p', { className: 'owl-row-title', key: `sum_${currency}`, style: { margin: '0.2rem 0' } }, `${currency}: ${formatMoney(summary.accrued_this_period, currency)} accrued this period · ${formatMoney(summary.cumulative_unpaid, currency)} cumulative unpaid`))
+    }
+    for (const line of statement.per_holding) {
+      lines.push(basisLine(line.ticker ?? line.holding_id, `accrued this period ${formatMoney(line.accrued_this_period, line.currency)} · cumulative unpaid ${formatMoney(line.cumulative_unpaid, line.currency)}`))
+    }
+  }
+
+  const exitFinalizations = report.exit_finalizations ?? []
+  if (exitFinalizations.length > 0) {
+    lines.push(createElement('p', { className: 'owl-section-accent', key: 'exit_head', style: { margin: '0.6rem 0 0.2rem' } }, 'Exit finalizations'))
+    for (const final of exitFinalizations) {
+      lines.push(basisLine(`${final.ticker ?? final.holding_id} (closed ${final.closed_at})`, `final accrued ${formatMoney(final.final_purification_accrued, final.currency)} · remaining ${formatMoney(final.final_purification_remaining, final.currency)} · locked into post-mortem`))
+    }
+  }
+
+  return createElement(
+    'section',
+    { 'aria-label': 'Quarterly purification statement', className: 'owl-section-card', style: { gap: 'var(--owl-space-3)' } },
+    createElement('p', { className: 'owl-section-accent' }, 'Accrued / cumulative unpaid'),
+    createElement('h2', { className: 'owl-section-title' }, 'Quarterly purification statement'),
+    statement === undefined
+      ? null
+      : createElement('p', { className: 'owl-row-helper', style: { maxWidth: '60ch' } }, `Period ${statement.period_start} → ${statement.period_end}. Deterministic projection — the human authors the charitable disbursement; the ledger tracks paid vs accrued.`),
+    createElement('div', { style: { display: 'grid', gap: '0.3rem' } }, ...lines),
+  )
+}
+
+// ── 3c. Zakat statement (Module 8 — user-set methodology) ──────────────────────
+
+function createZakatStatement(report: AppPurificationReport) {
+  const zakat = report.zakat_statement
+  if (zakat === undefined) {
+    return null
+  }
+
+  return createElement(
+    'section',
+    { 'aria-label': 'Zakat statement', className: 'owl-section-card', style: { gap: 'var(--owl-space-3)' } },
+    createElement('p', { className: 'owl-section-accent' }, 'Zakat (2.5% on a user-set base)'),
+    createElement('h2', { className: 'owl-section-title' }, 'Zakat statement'),
+    createElement(
+      'div',
+      { style: { alignItems: 'center', display: 'flex', flexWrap: 'wrap', gap: 'var(--owl-space-2)' } },
+      createElement(StatusBadge, { tone: 'compliance' }, 'Tracking aid, not a ruling or payment service'),
+      createElement(StatusBadge, { tone: 'manual' }, 'User-authored methodology'),
+    ),
+    createElement('div', { className: 'owl-ledger-line', style: { border: 0, margin: '0.35rem 0 0.65rem' } },
+      obligationFigure('Zakatable base', formatMoney(zakat.zakatable_base, zakat.currency), 'owl-ledger-figure-money'),
+      obligationFigure('Rate', formatPercent(zakat.rate), ''),
+      obligationFigure('Zakat due', formatMoney(zakat.zakat_due, zakat.currency), 'owl-ledger-figure-money owl-ledger-figure-risk'),
+    ),
+    createElement('div', { style: { display: 'grid', gap: '0.3rem' } },
+      basisLine('Ḥawl date', zakat.hawl_date),
+      basisLine('Base method', zakat.base_method),
+      basisLine('Holdings market value', formatMoney(zakat.holdings_market_value, zakat.currency)),
+      basisLine('Cash', formatMoney(zakat.cash, zakat.currency)),
+    ),
+    createElement('p', { className: 'owl-row-helper', style: { color: 'var(--owl-color-amber)', margin: '0.55rem 0 0' } }, 'Zakat methodology is a user-authored setting, not an Owlfolio judgment. The human authors the actual zakat payment — Owlfolio never disburses automatically.'),
   )
 }
 

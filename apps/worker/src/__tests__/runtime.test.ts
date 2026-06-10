@@ -675,7 +675,7 @@ describe('worker runtime', () => {
 
     expect(result).toMatchObject({ considered: 1, completed: 1, failed: 0, skipped: 0, events_appended: 2 })
     expect(result.summaries).toEqual([
-      'purification_projection dry-run: calculated 0 estimated purification obligation(s), 0 pending dividend(s) need evidence; no payment or resolution marked',
+      'purification_projection dry-run: calculated 0 estimated purification obligation(s), 0 pending dividend(s) need evidence, 0 exit finalization(s); quarterly statement + no zakat statement; no payment or resolution marked',
     ])
   })
 
@@ -889,7 +889,7 @@ describe('worker runtime', () => {
     })
     const completed = events.find((event) => event.event_id === 'evt_scheduled_task_run_completed_run_purification_projection_001')
     expect(completed?.payload).toMatchObject({
-      result_summary: 'purification_projection dry-run: calculated 1 estimated purification obligation(s), 0 pending dividend(s) need evidence; no payment or resolution marked',
+      result_summary: 'purification_projection dry-run: calculated 1 estimated purification obligation(s), 0 pending dividend(s) need evidence, 0 exit finalization(s); quarterly statement + no zakat statement; no payment or resolution marked',
       approval_gates: ['purification_payment_requires_user_confirmation'],
       human_approval_required: true,
       auto_approved_actions: 0,
@@ -960,7 +960,10 @@ describe('worker runtime', () => {
     expect(events.filter((event) => event.event_type === 'purification_obligation_recorded')).toHaveLength(1)
     expect(rerun).toMatchObject({ completed: 1, failed: 0, events_appended: 2 })
     expect(events.find((event) => event.event_id === 'evt_scheduled_task_run_completed_run_purification_projection_002')?.payload).toMatchObject({
-      observations: [expect.stringMatching(/^holding_cost_001 purification calculation calc_holding_cost_001_div_cost_2026_06_AAOIFI_SS21_APP_POLICY_2026_06_[a-z0-9]+ already projected; no duplicate obligation appended$/)],
+      observations: [
+        expect.stringMatching(/^holding_cost_001 purification calculation calc_holding_cost_001_div_cost_2026_06_AAOIFI_SS21_APP_POLICY_2026_06_[a-z0-9]+ already projected; no duplicate obligation appended$/),
+        expect.stringMatching(/^purification statement 2026-04-01\.\.2026-06-30 \(USD\): accrued this period [0-9.]+, cumulative unpaid [0-9.]+ across 1 holding\(s\); human authors any disbursement$/),
+      ],
       approval_gates: [],
       human_approval_required: false,
     })

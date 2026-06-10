@@ -15,6 +15,8 @@
     "./projections/holdingProjection": "./src/projections/holdingProjection.ts",
     "./projections/accountingProjection": "./src/projections/accountingProjection.ts",
     "./projections/purificationProjection": "./src/projections/purificationProjection.ts",
+    "./projections/purificationStatement": "./src/projections/purificationStatement.ts",
+    "./projections/zakatModule": "./src/projections/zakatModule.ts",
     "./projections/researchCaseProjection": "./src/projections/researchCaseProjection.ts",
     "./projections/researchCaseTimelineProjection": "./src/projections/researchCaseTimelineProjection.ts",
     "./projections/watchlistProjection": "./src/projections/watchlistProjection.ts",
