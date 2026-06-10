@@ -72,6 +72,7 @@ export const domainEventContracts: readonly DomainEventContract[] = [
     event_type: 'discovery_candidate_discovered',
     aggregate_type: 'discovery_candidate',
     actor_type: 'provider',
+    actor_types: ['provider', 'worker'],
     projection_owner: 'discovery',
     payload_fields: [
       'candidate_id',
@@ -85,6 +86,10 @@ export const domainEventContracts: readonly DomainEventContract[] = [
       'discovered_at',
       'status',
       'dedupe_key',
+      // Optional structured provenance for non-mock discovery sources (e.g. source:'13f_clone' carries
+      // signal_type / contributing_managers / conviction_pct / ticker_resolution). Absent for
+      // strategy-screen / user-submitted candidates.
+      'discovery_metadata',
     ],
   },
   {

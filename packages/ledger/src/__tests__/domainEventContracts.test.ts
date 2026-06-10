@@ -57,6 +57,7 @@ describe('Owlfolio v2 domain event boundary contracts', () => {
     expect(contract('discovery_candidate_discovered')).toMatchObject({
       aggregate_type: 'discovery_candidate',
       actor_type: 'provider',
+      actor_types: ['provider', 'worker'],
       projection_owner: 'discovery',
       payload_fields: [
         'candidate_id',
@@ -70,6 +71,7 @@ describe('Owlfolio v2 domain event boundary contracts', () => {
         'discovered_at',
         'status',
         'dedupe_key',
+        'discovery_metadata',
       ],
     })
     expect(contract('discovery_candidate_queued_for_quick_screen')).toMatchObject({ aggregate_type: 'discovery_candidate', actor_type: 'system', projection_owner: 'discovery' })

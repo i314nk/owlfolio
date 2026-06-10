@@ -24,6 +24,7 @@
     "./sourceLedger": "./src/sourceLedger.ts",
     "./sourceGrounding": "./src/sourceGrounding.ts",
     "./researchSwarm": "./src/researchSwarm.ts",
+    "./discovery13f": "./src/discovery13f.ts",
     "./strategyResearchPipeline": "./src/strategyResearchPipeline.ts",
     "./watchlistWorkflow": "./src/watchlistWorkflow.ts",
     "./workflowContract": "./src/workflowContract.ts",

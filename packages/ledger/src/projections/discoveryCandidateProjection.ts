@@ -27,6 +27,12 @@ export type DiscoveryCandidateProjection = {
   reason?: string
   research_case_id?: string
   research_case_event_id?: string
+  /**
+   * Optional structured provenance carried by non-mock discovery sources. For source:'13f_clone' this
+   * holds { signal_type, contributing_managers, conviction_pct, ticker_resolution, … }. Absent for
+   * strategy-screen / user-submitted candidates. Opaque to the projection (recorded as-is).
+   */
+  discovery_metadata?: Record<string, unknown>
   updated_at: string
 }
 
@@ -99,6 +105,10 @@ function upsertCandidate(
     status,
     dedupe_key: dedupeKey,
     updated_at: event.created_at,
+  }
+  const discoveryMetadata = payload['discovery_metadata']
+  if (isRecord(discoveryMetadata)) {
+    created.discovery_metadata = discoveryMetadata
   }
   candidates.set(candidateId, created)
   return created

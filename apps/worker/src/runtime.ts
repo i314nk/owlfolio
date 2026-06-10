@@ -33,6 +33,7 @@ import { draftHoldingReview, type ThesisHealth } from '@owlfolio/workflow/holdin
 import { resolveCurrentPrice, type PriceSource } from '@owlfolio/workflow/marketData'
 import { selectResearchCaseAction } from '@owlfolio/workflow/researchCasePolicy'
 import { runStrategyResearchSwarm, runResearchDeepDivePhase, type GroundFn } from '@owlfolio/workflow/researchSwarm'
+import { runDiscovery13f } from '@owlfolio/workflow/discovery13f'
 import { groundProposedSources, groundProposedSourcesDeterministic } from '@owlfolio/workflow/sourceGrounding'
 
 export type WorkerRuntimeEnv = {
@@ -525,6 +526,23 @@ function defaultTaskDefinitions(automation?: AutomationSettings): ScheduledTaskP
       task_kind: 'purification_projection',
       cadence: purificationCron.cadence,
       enabled: cfg.purification.enabled && purificationCron.enabled,
+      dry_run: true,
+      retry_policy: { max_attempts: 2, retry_delay_ms: DEFAULT_RETRY_DELAY_MS },
+      safety: {
+        mock_safe: true,
+        auto_approve_investment_actions: false,
+        auto_approve_portfolio_actions: false,
+      },
+    },
+    {
+      // Discovery Module 1 — 13F cloning (Pabrai engine). Quarterly cadence (~2 weeks after the 13F
+      // deadline). Records source:'13f_clone' CANDIDATE observations; the human/quick-screen gates entry
+      // to research. Disabled by default — opt-in via OWLFOLIO_DISCOVERY_13F_ENABLED to keep the alpha
+      // dry-run/mock-safe and avoid live SEC fetches on every tick.
+      scheduled_task_id: 'task_discovery_13f_quarterly',
+      task_kind: 'discovery_13f',
+      cadence: CRON_QUARTERLY,
+      enabled: process.env['OWLFOLIO_DISCOVERY_13F_ENABLED'] === '1',
       dry_run: true,
       retry_policy: { max_attempts: 2, retry_delay_ms: DEFAULT_RETRY_DELAY_MS },
       safety: {
@@ -1123,11 +1141,35 @@ async function runPurificationProjectionTask(
   }
 }
 
+async function runDiscovery13fTask(
+  store: EventStore<LedgerEventEnvelope<unknown>>,
+  options: TaskHandlerOptions,
+): Promise<TaskResult> {
+  // Deterministic 13F clone engine over the curated cloner list. Live SEC fetches are deterministic and
+  // allowed; the engine records source:'13f_clone' CANDIDATE observations only — it does NOT auto-advance
+  // past `discovered`, so the human/quick-screen gate still decides what enters research.
+  const result = await runDiscovery13f(store, {
+    ...(options.now === undefined ? {} : { now: () => options.now!() }),
+  })
+
+  return {
+    result_summary: `discovery_13f dry-run: ${result.signals_detected} 13F signal(s) detected, ${result.candidates_created} new source:13f_clone candidate(s) recorded, ${result.sector_excluded} Shariah-sector-excluded, ${result.unresolved} unresolved ticker(s); candidates stay at discovered — human/quick-screen gates entry to research`,
+    observations: result.summaries,
+    approval_gates: [],
+    human_approval_required: result.candidates_created > 0,
+    events_appended: result.candidates_created,
+  }
+}
+
 async function runTaskHandler(
   store: EventStore<LedgerEventEnvelope<unknown>>,
   task: ScheduledTaskProjection,
   options: TaskHandlerOptions,
 ): Promise<TaskResult> {
+  if (task.task_kind === 'discovery_13f') {
+    return runDiscovery13fTask(store, options)
+  }
+
   if (task.task_kind === 'review_reminder') {
     return runReviewReminderTask(store, options)
   }
