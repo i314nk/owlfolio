@@ -1413,11 +1413,8 @@ function createEvidenceAndAuditDetails(researchCase: AppResearchCase) {
     createElement(
       'div',
       { style: { display: 'grid', gap: '1rem', marginTop: '1rem' } },
-      createCurrentWorkflowStatus(researchCase),
       createEvidenceAndSourcesPanel(researchCase),
       createGateChecklistPanel(researchCase),
-      createResearchTransitionPanel(researchCase),
-      createSourceIdsPanel(researchCase),
       createLedgerTimelinePanel(researchCase),
       // Quick screen and deep-dive panels preserved for unit-test assertions
       createQuickScreenCollapsible(researchCase),
@@ -1483,19 +1480,6 @@ function createGateChecklistPanel(researchCase: AppResearchCase) {
   )
 }
 
-function createSourceIdsPanel(researchCase: AppResearchCase) {
-  return createElement(
-    'section',
-    { style: cardStyle },
-    createElement('h2', { style: { fontSize: 'var(--owl-text-lg)', margin: '0 0 0.75rem' } }, 'Source IDs'),
-    createElement(
-      'div',
-      { style: { display: 'flex', flexWrap: 'wrap', gap: '0.5rem' } },
-      ...researchCase.source_ids.map((sourceId) => createElement(SourceChip, { id: sourceId, key: sourceId, label: 'Audit source' })),
-    ),
-  )
-}
-
 function createLedgerTimelinePanel(researchCase: AppResearchCase) {
   return createElement(
     'section',
@@ -1549,64 +1533,6 @@ function createEvidenceCard(source: AppSourceEvidence) {
       ? null
       : createElement('p', { style: { color: '#9aa4b7', fontSize: 'var(--owl-text-base)', margin: 0 } }, `Citation: ${source.citation_locator}`),
     createElement(SourceChip, { id: source.source_id, label: 'Audit source id' }),
-  )
-}
-
-// ── Current workflow status ───────────────────────────────────────────────────
-
-function createCurrentWorkflowStatus(researchCase: AppResearchCase) {
-  const stageLabel = humanizeToken(researchCase.stage)
-  const actionHint = researchCase.next_required_action === undefined
-    ? 'Workflow review required'
-    : 'User action required'
-  const statusLabel = `${stageLabel} · ${actionHint}`
-
-  return createElement(
-    'section',
-    { className: 'owl-workflow-card', style: cardStyle },
-    createElement('p', { style: labelStyle }, 'Workflow audit status'),
-    createElement('p', { style: { color: '#f7f8ff', fontSize: 'var(--owl-text-lg)', fontWeight: 900, margin: '0.35rem 0 0' } }, statusLabel),
-    createElement('p', { style: { color: '#9aa4b7', fontSize: 'var(--owl-text-base)', margin: '0.55rem 0 0' } }, `Audit stage: ${researchCase.stage}`),
-  )
-}
-
-// ── Research transition map ───────────────────────────────────────────────────
-
-function createResearchTransitionPanel(researchCase: AppResearchCase) {
-  const latestProviderEntry = [...researchCase.ledger_timeline].reverse().find((entry) => entry.actor_label.startsWith('provider:'))
-  const latestUserEntry = [...researchCase.ledger_timeline].reverse().find((entry) => entry.actor_label.startsWith('user:'))
-
-  return createElement(
-    'section',
-    { className: 'owl-workflow-card', style: cardStyle },
-    createElement('p', { style: labelStyle }, 'Research transition map'),
-    createElement(
-      'div',
-      { className: 'owl-workflow-grid' },
-      createElement(
-        'section',
-        { className: 'owl-workflow-panel owl-workflow-panel-draft' },
-        createElement('h2', { style: { fontSize: 'var(--owl-text-md)', margin: 0 } }, 'Provider draft state'),
-        createElement('p', { style: { color: '#9aa4b7', margin: '0.45rem 0 0' } }, latestProviderEntry?.summary ?? 'Provider draft has not been recorded yet.'),
-        createDetail('Decision', researchCase.decision ?? researchCase.investment_verdict ?? 'Pending'),
-        createDetail('Strategy gate', researchCase.strategy_compliance ?? 'Pending'),
-      ),
-      createElement(
-        'section',
-        { className: 'owl-workflow-panel owl-workflow-panel-gate' },
-        createElement('h2', { style: { fontSize: 'var(--owl-text-md)', margin: 0 } }, 'Source-backed Shariah gate'),
-        createElement('p', { style: { color: '#9aa4b7', margin: '0.45rem 0 0' } }, `Shariah status: ${researchCase.shariah_status ?? 'Pending'}`),
-        createDetail('Source evidence', researchCase.source_ids.length === 0 ? 'No source IDs recorded' : researchCase.source_ids.join(', ')),
-        createDetail('Valuation status', researchCase.valuation_status ?? 'Pending'),
-      ),
-      createElement(
-        'section',
-        { className: 'owl-workflow-panel owl-workflow-panel-user' },
-        createElement('h2', { style: { fontSize: 'var(--owl-text-md)', margin: 0 } }, 'User transition checkpoint'),
-        createElement('p', { style: { color: '#9aa4b7', margin: '0.45rem 0 0' } }, latestUserEntry?.summary ?? 'Awaiting user-authored transition.'),
-        createDetail('Next action', researchCase.next_required_action ?? 'Continue the review workflow'),
-      ),
-    ),
   )
 }
 

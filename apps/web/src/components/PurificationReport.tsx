@@ -184,7 +184,6 @@ function createPurificationZeroState() {
     createElement('p', { style: { margin: 0 } }, 'No purification obligations have been recorded yet.'),
     createElement('p', { style: { fontWeight: 800, margin: 0 } }, '$0.00 owed, $0.00 paid, and $0.00 remaining until an auditable obligation exists.'),
     createElement('p', { style: { margin: 0 } }, 'Next step: create a sourced obligation from Shariah/accounting evidence, then record the charity payment manually.'),
-    createElement('p', { style: { color: 'var(--owl-color-muted)', margin: 0 } }, 'Source/audit preview: Shariah evidence, accounting snapshot, and payment receipt links will appear here.'),
     createElement(
       'div',
       { style: { display: 'flex', flexWrap: 'wrap', gap: '0.6rem', marginTop: '0.25rem' } },
@@ -206,7 +205,6 @@ function createObligations(obligations: PurificationObligationProjection[]) {
         { style: { color: 'var(--owl-color-muted)', display: 'grid', gap: '0.5rem' } },
         createElement('p', { style: { margin: 0 } }, 'No obligations are present yet.'),
         createElement('p', { style: { margin: 0 } }, 'Payment action appears only after an obligation exists and the user has an external payment to record.'),
-        createElement('p', { style: { color: 'var(--owl-color-muted)', margin: 0, fontSize: 'var(--owl-text-sm)' } }, 'Once obligations exist, Shariah policy evidence, accounting snapshots, and calculation basis will appear here.'),
       )
       : createElement(
         'div',

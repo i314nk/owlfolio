@@ -54,7 +54,6 @@ export function AccountingMonthlyReport({ report }: AccountingMonthlyReportProps
         { style: metricGridStyle },
         metric('Period', `${current.period_start} → ${current.period_end}`),
         metric('Current NAV', `${formatMoney(current.nav, current.currency)} as of ${current.period_end}`),
-        metric('Period NAV', `${formatMoney(current.nav, current.currency)} as of ${current.period_end}`),
         metric('Current value', formatMoney(current.current_value, current.currency)),
         metric('Invested cost basis', formatMoney(current.invested_cost_basis, current.currency)),
         metric('Unrealized P&L', formatMoney(current.unrealized_gain_loss, current.currency)),
@@ -179,8 +178,6 @@ function createAccountingStatusPanel(current: AccountingSnapshotProjection, next
       statusMetric('Source / caveat / confidence', 'Local ledger projection · valuation/cash-flow event coverage only · not a broker statement or tax report'),
       statusMetric('User action required', userActionRequired),
     ),
-    createElement('p', { style: { color: 'var(--owl-color-text)', fontWeight: 800, margin: '0 0 0.45rem' } }, `Last ledger update: ${current.updated_at}`),
-    createElement('p', { style: { color: 'var(--owl-color-text)', fontWeight: 800, margin: '0 0 0.45rem' } }, `Next scheduled update: ${nextScheduledUpdate}`),
     createElement(
       'p',
       { style: { color: 'var(--owl-color-muted)', lineHeight: 1.55, margin: '0 0 0.75rem' } },
@@ -292,7 +289,6 @@ function createEmptyHoldingsState(current: AccountingSnapshotProjection) {
     createElement('p', { style: { margin: 0 } }, 'No holdings are present for this accounting period yet.'),
     createElement('p', { style: { fontWeight: 800, margin: 0 } }, `Zero totals are expected until ledger valuation or cash-flow events exist for an opened holding. Current projected NAV: ${formatMoney(current.nav, current.currency)}.`),
     createElement('p', { style: { margin: 0 } }, 'Next step: open a holding, record lot data, then let valuation/cash-flow events feed accounting automatically.'),
-    createElement('p', { style: { color: 'var(--owl-color-muted)', margin: 0 } }, 'Source/audit preview: future cash, dividend, fee, and valuation events will appear here with ledger links.'),
     createElement(
       'div',
       { style: { display: 'flex', flexWrap: 'wrap', gap: '0.6rem', marginTop: '0.25rem' } },
@@ -325,7 +321,7 @@ function createSnapshotHistory(snapshots: AccountingSnapshotProjection[]) {
         'div',
         { style: { color: 'var(--owl-color-muted)', display: 'grid', gap: '0.4rem' } },
         createElement('p', { style: { margin: 0 } }, 'No accounting snapshots have been recorded yet.'),
-        createElement('p', { style: { margin: 0 } }, 'Audit/source links preview: recorded monthly snapshots, valuation sources, and future cash-flow events will appear here.'),
+        createElement('p', { style: { margin: 0 } }, 'Snapshots will accumulate here after each accounting period closes.'),
       )
       : createElement(
         'ol',

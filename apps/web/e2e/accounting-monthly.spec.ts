@@ -47,7 +47,6 @@ test('monthly accounting report renders projected current period after a valuati
   await expect(page.getByRole('heading', { name: /monthly accounting report/i })).toBeVisible()
   await expect(page.getByRole('heading', { name: 'Current period summary' })).toBeVisible()
   await expect(page.getByText('Current NAV', { exact: true })).toBeVisible()
-  await expect(page.getByText('Period NAV', { exact: true })).toBeVisible()
   await expect(page.getByText('$2,925.00').first()).toBeVisible()
   await expect(page.getByText('MSFT').first()).toBeVisible()
   await expect(page.getByText('Valuation freshness: 2026-06-01')).toBeVisible()

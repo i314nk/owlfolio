@@ -42,5 +42,5 @@ test('default home page renders the demo command center and research demo workfl
   await expect(page.getByText('COMPLIANT', { exact: true }).first()).toBeVisible()
   await expect(page.getByRole('heading', { name: 'Risks / open questions' })).toBeVisible()
   await page.getByText('Evidence and audit details', { exact: true }).click()
-  await expect(page.getByText('Source-backed Shariah gate')).toBeVisible()
+  await expect(page.getByText('Gate checklist')).toBeVisible()
 })

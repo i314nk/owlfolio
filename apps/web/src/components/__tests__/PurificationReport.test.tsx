@@ -122,7 +122,6 @@ describe('PurificationReport', () => {
     expect(html).toContain('disabled=""')
     expect(html).toContain('$0.00 owed, $0.00 paid, and $0.00 remaining until an auditable obligation exists.')
     expect(html).toContain('Next step: create a sourced obligation from Shariah/accounting evidence, then record the charity payment manually.')
-    expect(html).toContain('Source/audit preview: Shariah evidence, accounting snapshot, and payment receipt links will appear here.')
     expect(html).toContain('No explicit purification payments have been recorded yet.')
     expect(html).toContain('Payment action appears only after an obligation exists and the user has an external payment to record.')
   })

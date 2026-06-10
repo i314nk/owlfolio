@@ -29,7 +29,7 @@ export function WatchlistPanel({ items, mode = 'demo' }: WatchlistPanelProps) {
     createElement(RouteHeader, {
       kicker: 'Watchlist desk',
       title: 'Watchlist',
-      description: 'Personal local ledger watchlist state.',
+      description: 'Provider-proposed candidates — nothing enters your portfolio without your explicit confirmation.',
     }),
     ...(items.length === 0
       ? [
