@@ -473,6 +473,12 @@ function createVerdictHero(researchCase: AppResearchCase) {
         `Valuation: ${researchCase.valuation_status}`,
         resolveValuationChipColor(researchCase.valuation_status),
       ),
+      // WATCH-FAIR verdict-band chip (valuation-recalibration-spec §2): the "wonderful at fair"
+      // human-discretion zone. A distinct gold chip so the human sees the quality-at-fair opportunity.
+      valuation?.verdict_state?.state === 'WATCH-FAIR' ? createPill(
+        'WATCH-FAIR',
+        { bg: 'rgba(214, 178, 94, 0.18)', border: 'rgba(214, 178, 94, 0.5)', text: 'var(--owl-color-gold-bright)' },
+      ) : null,
     ),
     // Status chips
     createElement(
@@ -580,6 +586,7 @@ function createValuationPanel(researchCase: AppResearchCase, marketQuote?: Marke
   const reinvestmentRate = valuation.reinvestment_rate
   const runway = valuation.runway
   const impliedMultiple = valuation.implied_multiple
+  const verdictState = valuation.verdict_state
 
   const discountLabel = discountRateVal !== undefined ? `${Math.round(discountRateVal * 100)}%` : '10%'
   const mosLabel = mosVal !== undefined ? `${Math.round(mosVal * 100)}%` : undefined
@@ -820,6 +827,41 @@ function createValuationPanel(researchCase: AppResearchCase, marketQuote?: Marke
       'p',
       { style: { color: 'var(--owl-color-muted)', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-sm)', lineHeight: 1.4, margin: '0.2rem 0 0' } },
       roicGateLabel,
+    ) : null,
+    // WATCH-FAIR callout (valuation-recalibration-spec §2): quality at fair (not deep-discount) — the
+    // human-discretion zone. Shows the discount-to-FV and the editorial line; never a harness buy signal.
+    verdictState?.state === 'WATCH-FAIR' ? createElement(
+      'div',
+      {
+        'data-testid': 'watch-fair-callout',
+        style: {
+          background: 'rgba(214, 178, 94, 0.08)',
+          border: '1px solid rgba(214, 178, 94, 0.4)',
+          borderRadius: '0.7rem',
+          display: 'grid',
+          gap: '0.3rem',
+          margin: '0.6rem 0 0',
+          padding: '0.7rem 0.85rem',
+        },
+      },
+      createElement(
+        'p',
+        { style: { color: 'var(--owl-color-gold-bright)', fontSize: 'var(--owl-text-base)', fontWeight: 800, margin: 0 } },
+        'WATCH-FAIR',
+      ),
+      createElement(
+        'p',
+        { style: { color: '#f0d999', fontSize: 'var(--owl-text-base)', lineHeight: 1.5, margin: 0 } },
+        verdictState.note ?? 'Wonderful at fair — human-discretion zone. No harness buy signal.',
+      ),
+      createElement(
+        'p',
+        { style: { color: 'var(--owl-color-muted)', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-sm)', margin: 0 } },
+        [
+          verdictState.discount_to_fv_pct !== undefined ? `${verdictState.discount_to_fv_pct.toFixed(1)}% discount to fair value` : undefined,
+          verdictState.implied_multiple !== undefined ? `implied ${verdictState.implied_multiple.toFixed(1)}× OE` : undefined,
+        ].filter((s): s is string => s !== undefined).join(' · '),
+      ),
     ) : null,
     // Key figures — the ledger-line of the valuation (fair value / buy below /
     // MoS / owner-earnings·sh / discount, plus market & its read when quoted).

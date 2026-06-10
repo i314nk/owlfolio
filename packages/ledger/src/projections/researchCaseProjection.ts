@@ -55,6 +55,20 @@ export type OwnerEarningsBridgeProjection = {
   shares_outstanding?: number
 }
 
+/**
+ * Price → verdict band for a gate-clean name (valuation-recalibration-spec §2).
+ *   BUY-WINDOW  — price ≤ buy price
+ *   WATCH-FAIR  — buy price < price ≤ fair value (human-discretion zone; never a harness buy signal)
+ *   WATCH       — price > fair value
+ */
+export type ResearchCaseVerdictStateProjection = {
+  state?: string
+  /** Discount to fair value (%), present for WATCH-FAIR. */
+  discount_to_fv_pct?: number
+  implied_multiple?: number
+  note?: string
+}
+
 export type ResearchCaseValuationProjection = {
   moat_class?: string
   moat_passes_gate?: boolean
@@ -77,6 +91,13 @@ export type ResearchCaseValuationProjection = {
   implied_multiple?: number
   margin_of_safety?: number
   buy_price_per_share?: number
+  /** Provenance of the incremental ROIC used: 'sec_edgar' (computed from the series) or 'model_proposed'. */
+  incremental_roic_basis?: string
+  /**
+   * Price → verdict band (valuation-recalibration-spec §2): BUY-WINDOW | WATCH-FAIR | WATCH.
+   * WATCH-FAIR is the "wonderful at fair" human-discretion zone — never a harness buy signal.
+   */
+  verdict_state?: ResearchCaseVerdictStateProjection
   value_basis?: string
   /** OE-bridge provenance: 'sec_edgar' (anchored to the 10-K) or 'model_proposed'. */
   bridge_basis?: string
@@ -210,6 +231,21 @@ function getOwnerEarningsBridgeProjection(val: Record<string, unknown>): OwnerEa
   return Object.keys(projected).length === 0 ? undefined : projected
 }
 
+function getVerdictState(valuation: Record<string, unknown>): ResearchCaseVerdictStateProjection | undefined {
+  const value = valuation['verdict_state']
+  if (!isRecord(value)) return undefined
+  const projected: ResearchCaseVerdictStateProjection = {}
+  const state = getString(value, 'state')
+  if (state !== undefined) projected.state = state
+  const discount_to_fv_pct = getNumber(value, 'discount_to_fv_pct')
+  if (discount_to_fv_pct !== undefined) projected.discount_to_fv_pct = discount_to_fv_pct
+  const implied_multiple = getNumber(value, 'implied_multiple')
+  if (implied_multiple !== undefined) projected.implied_multiple = implied_multiple
+  const note = getString(value, 'note')
+  if (note !== undefined) projected.note = note
+  return Object.keys(projected).length === 0 ? undefined : projected
+}
+
 function getValuation(payload: Record<string, unknown>): ResearchCaseValuationProjection | undefined {
   const value = payload['valuation']
   if (!isRecord(value)) {
@@ -251,6 +287,10 @@ function getValuation(payload: Record<string, unknown>): ResearchCaseValuationPr
   if (margin_of_safety !== undefined) projected.margin_of_safety = margin_of_safety
   const buy_price_per_share = getNumber(value, 'buy_price_per_share')
   if (buy_price_per_share !== undefined) projected.buy_price_per_share = buy_price_per_share
+  const incremental_roic_basis = getString(value, 'incremental_roic_basis')
+  if (incremental_roic_basis !== undefined) projected.incremental_roic_basis = incremental_roic_basis
+  const verdict_state = getVerdictState(value)
+  if (verdict_state !== undefined) projected.verdict_state = verdict_state
   const value_basis = getString(value, 'value_basis')
   if (value_basis !== undefined) projected.value_basis = value_basis
   const bridge_basis = getString(value, 'bridge_basis')

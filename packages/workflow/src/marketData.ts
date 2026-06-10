@@ -303,6 +303,81 @@ function parseYahooChartSeries(json: YahooChartSeriesResponse, ticker: string): 
   return { available: true, currency, points }
 }
 
+/**
+ * Reduce a daily/whatever-interval close series to one close per calendar month (the LAST observed
+ * close of each YYYY-MM), newest-month order not guaranteed. Used to derive a 36-month average from a
+ * monthly (or denser) Yahoo history without over-weighting months with more trading days.
+ */
+export function monthEndCloses(points: PriceHistoryPoint[]): PriceHistoryPoint[] {
+  const byMonth = new Map<string, PriceHistoryPoint>()
+  for (const p of points) {
+    const month = p.date.slice(0, 7) // YYYY-MM
+    const prior = byMonth.get(month)
+    if (prior === undefined || p.date > prior.date) {
+      byMonth.set(month, p)
+    }
+  }
+  return [...byMonth.values()]
+}
+
+export type AverageMarketCapResult =
+  | {
+      available: true
+      /** Average market cap ($) = average month-end price × diluted shares. */
+      market_cap: number
+      /** Average price actually used. */
+      average_price: number
+      /** Number of month-end observations averaged. */
+      months: number
+      basis: 'avg_36mo_month_end_x_diluted_shares'
+      currency: string
+    }
+  | { available: false; reason: string }
+
+/**
+ * Compute the trailing ~36-month AVERAGE market cap (valuation-recalibration-spec / buffett-pipeline
+ * Lane 5: the Shariah debt/cash ratios want the 36-mo average market cap, not a spot price). Fetches
+ * monthly closes, reduces to one close per month, averages them, and multiplies by diluted shares.
+ *
+ * `diluted_shares` is in the caller's share unit (the swarm passes EDGAR diluted shares in MILLIONS,
+ * so the returned market_cap is in $MILLIONS to match the Shariah-ratio inputs). FAIL-CLOSED: returns
+ * { available: false } on any history failure so the caller degrades to the spot-price market cap.
+ */
+export async function fetchAverageMarketCap(
+  symbol: PriceQuoteSymbol,
+  diluted_shares: number,
+  opts?: { months?: number },
+  deps?: MarketDataDeps,
+): Promise<AverageMarketCapResult> {
+  if (!Number.isFinite(diluted_shares) || diluted_shares <= 0) {
+    return { available: false, reason: 'diluted_shares missing or non-positive' }
+  }
+  const history = await fetchPriceHistory(symbol, { range: '3y', interval: '1mo' }, deps)
+  if (!history.available) {
+    return { available: false, reason: history.reason }
+  }
+  const monthly = monthEndCloses(history.points)
+  if (monthly.length === 0) {
+    return { available: false, reason: 'no month-end closes' }
+  }
+  // Keep the most recent N months (default 36) by date.
+  const months = opts?.months ?? 36
+  const sorted = [...monthly].sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0))
+  const window = sorted.slice(0, months)
+  const average_price = window.reduce((sum, p) => sum + p.close, 0) / window.length
+  if (!Number.isFinite(average_price) || average_price <= 0) {
+    return { available: false, reason: 'non-positive average price' }
+  }
+  return {
+    available: true,
+    market_cap: average_price * diluted_shares,
+    average_price,
+    months: window.length,
+    basis: 'avg_36mo_month_end_x_diluted_shares',
+    currency: history.currency,
+  }
+}
+
 export const defaultPriceSource: PriceSource = new YahooPriceSource()
 
 /**

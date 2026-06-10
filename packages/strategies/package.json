@@ -15,6 +15,8 @@
     "./shariahFinancialRatios": "./src/shariahFinancialRatios.ts",
     "./evaluateGates": "./src/evaluateGates.ts",
     "./strategyContract": "./src/strategyContract.ts",
-    "./positionSizing": "./src/positionSizing.ts"
+    "./positionSizing": "./src/positionSizing.ts",
+    "./valuationParams": "./src/valuationParams.ts",
+    "./valuationConfigEvent": "./src/valuationConfigEvent.ts"
   }
 }

@@ -33,6 +33,12 @@ export type AnnualFacts = {
   total_debt_musd?: number
   cash_and_securities_musd?: number
   interest_expense_musd?: number
+  /** Stockholders' equity (instant), $millions — for the invested-capital proxy. */
+  stockholders_equity_musd?: number
+  /** Operating income/loss (annual flow), $millions — for the NOPAT proxy. */
+  operating_income_musd?: number
+  /** Income tax expense/benefit (annual flow), $millions — for the effective-tax-rate NOPAT proxy. */
+  income_tax_expense_musd?: number
 }
 
 export type FilingRef = {
@@ -260,6 +266,9 @@ function buildAnnualSeries(facts: CompanyFacts): AnnualFacts[] {
   const shortTermInv = annualByFiscalYear(facts, 'ShortTermInvestments')
   const marketableCurrent = annualByFiscalYear(facts, 'MarketableSecuritiesCurrent')
   const interest = annualByFiscalYear(facts, 'InterestExpense')
+  const stockholdersEquity = annualByFiscalYear(facts, 'StockholdersEquity')
+  const operatingIncome = annualByFiscalYear(facts, 'OperatingIncomeLoss')
+  const incomeTax = annualByFiscalYear(facts, 'IncomeTaxExpenseBenefit')
 
   // Union of all fiscal years observed across the OE-bridge concepts.
   const allYears = new Set<number>()
@@ -286,6 +295,9 @@ function buildAnnualSeries(facts: CompanyFacts): AnnualFacts[] {
       ...optional('total_debt_musd', toMusd(totalDebtRaw)),
       ...optional('cash_and_securities_musd', toMusd(cashRaw)),
       ...optional('interest_expense_musd', toMusd(interest.get(fy))),
+      ...optional('stockholders_equity_musd', toMusd(stockholdersEquity.get(fy))),
+      ...optional('operating_income_musd', toMusd(operatingIncome.get(fy))),
+      ...optional('income_tax_expense_musd', toMusd(incomeTax.get(fy))),
     })
   }
   return series
@@ -385,6 +397,119 @@ export async function fetchCompanyFundamentals(
     latest_annual,
     annual_series,
     filings,
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Incremental ROIC from the multi-year EDGAR series
+// ---------------------------------------------------------------------------
+
+export type IncrementalRoicResult =
+  | {
+      computable: true
+      /** Normalized incremental ROIC (fraction), e.g. 0.20. */
+      incremental_roic: number
+      /** ΔNOPAT over the window ($millions). */
+      delta_nopat_musd: number
+      /** ΔInvested capital over the window ($millions). */
+      delta_invested_capital_musd: number
+      /** Fiscal years of the earliest and latest observation actually used. */
+      from_fiscal_year: number
+      to_fiscal_year: number
+    }
+  | { computable: false; reason: string }
+
+/**
+ * NOPAT proxy for one year: operating income × (1 − effective tax rate). Falls back to
+ * net income + after-tax interest when operating income is unavailable. Returns undefined when the
+ * inputs needed for any proxy are missing.
+ *
+ *   effective tax rate = income_tax / (operating_income)  clamped to [0, 0.5]; default 0.21 when
+ *   operating income or tax is missing/odd.
+ */
+function nopatProxy(a: AnnualFacts): number | undefined {
+  const op = a.operating_income_musd
+  const tax = a.income_tax_expense_musd
+  if (op !== undefined && Number.isFinite(op)) {
+    let rate = 0.21
+    if (tax !== undefined && Number.isFinite(tax) && op > 0) {
+      const implied = tax / op
+      if (implied >= 0 && implied <= 0.5) rate = implied
+    }
+    return op * (1 - rate)
+  }
+  // Fallback: NI + after-tax interest (interest × (1 − 0.21)).
+  const ni = a.net_income_musd
+  if (ni !== undefined && Number.isFinite(ni)) {
+    const interest = a.interest_expense_musd ?? 0
+    return ni + (Number.isFinite(interest) ? interest * (1 - 0.21) : 0)
+  }
+  return undefined
+}
+
+/** Invested-capital proxy: equity + total debt − cash. Returns undefined when equity is missing. */
+function investedCapitalProxy(a: AnnualFacts): number | undefined {
+  const equity = a.stockholders_equity_musd
+  if (equity === undefined || !Number.isFinite(equity)) return undefined
+  const debt = a.total_debt_musd ?? 0
+  const cash = a.cash_and_securities_musd ?? 0
+  return equity + (Number.isFinite(debt) ? debt : 0) - (Number.isFinite(cash) ? cash : 0)
+}
+
+/**
+ * Compute a normalized INCREMENTAL ROIC from the EDGAR multi-year series over ~`lookbackYears` years
+ * (buffett-valuation-method-v2 Step 3 raw growth capacity = reinvestment_rate × incremental_roic).
+ *
+ *   incremental ROIC ≈ Δ(NOPAT) / Δ(invested capital)   from the earliest to the latest year in the
+ *   window for which both the NOPAT and invested-capital proxies are computable.
+ *
+ * Honest fail-closed: returns { computable: false } when fewer than two usable years exist, when the
+ * change in invested capital is non-positive (incremental ROIC undefined / nonsensical), or when the
+ * result is negative or wildly large (> 1.0). The caller falls back to the lane's proposed value.
+ */
+export function computeIncrementalRoic(
+  series: AnnualFacts[],
+  opts?: { lookbackYears?: number },
+): IncrementalRoicResult {
+  const lookback = opts?.lookbackYears ?? 5
+  // Series is newest-first; build an ascending list of years that have BOTH proxies.
+  const usable = [...series]
+    .map((a) => ({ fy: a.fiscal_year, nopat: nopatProxy(a), ic: investedCapitalProxy(a) }))
+    .filter((x): x is { fy: number; nopat: number; ic: number } => x.nopat !== undefined && x.ic !== undefined)
+    .sort((a, b) => a.fy - b.fy)
+
+  if (usable.length < 2) {
+    return { computable: false, reason: 'fewer than two years with computable NOPAT + invested-capital proxies' }
+  }
+
+  const latest = usable[usable.length - 1]!
+  // Earliest within the lookback window (prefer ~lookback years back, else the oldest usable year).
+  const earliest = usable.find((x) => x.fy >= latest.fy - lookback) ?? usable[0]!
+
+  if (earliest.fy === latest.fy) {
+    return { computable: false, reason: 'no distinct earlier year within the lookback window' }
+  }
+
+  const delta_nopat = latest.nopat - earliest.nopat
+  const delta_ic = latest.ic - earliest.ic
+
+  if (!(delta_ic > 0)) {
+    return { computable: false, reason: 'change in invested capital is non-positive — incremental ROIC undefined' }
+  }
+
+  const incremental_roic = delta_nopat / delta_ic
+  // Reject implausible proxies (negative or > 100%) — prefer the lane value + a note (caller decides).
+  if (!Number.isFinite(incremental_roic) || incremental_roic < 0 || incremental_roic > 1) {
+    return { computable: false, reason: `incremental ROIC proxy out of plausible range (${incremental_roic})` }
+  }
+
+  return {
+    computable: true,
+    incremental_roic,
+    delta_nopat_musd: delta_nopat,
+    delta_invested_capital_musd: delta_ic,
+    from_fiscal_year: earliest.fy,
+    to_fiscal_year: latest.fy,
   }
 }
 

@@ -627,9 +627,9 @@ describe('runStrategyResearchSwarm with MockProvider + deterministic grounder', 
     //   shares_outstanding=1000 (M) → OE/sh = 14000/1000 = 14
     //   roic=0.25, incremental_roic=0.20, reinvestment_rate=0.40
     // Harness computes:
-    //   raw_g = 0.40*0.20 = 0.08 → clamped to monopoly+proven band ceiling g = 0.04; g_t (monopoly) = 0.02
-    //   two-stage FV ≈ 206.05 (impl ≈ 14.7×, under the 18× cap of 252)
-    //   MoS(monopoly)=0.20, buy=round(206.05*0.80,2)≈164.84
+    //   raw_g = 0.40*0.20 = 0.08 → clamped to monopoly+proven band ceiling g = 0.04; g_t (monopoly) = 0.025
+    //   two-stage FV ≈ 220.54 (recalibrated: horizon 15, terminal 2.5%; impl ≈ 15.75×, under the 18× cap of 252)
+    //   MoS(monopoly)=0.15, buy=round(220.54*0.85,2)≈187.45
     const sourceLedgerPath = await mkdtemp(join(tmpdir(), 'owlfolio-mock-swarm-valuation-'))
     const store = new InMemoryEventStore()
     const provider = new MockProvider()
@@ -677,17 +677,17 @@ describe('runStrategyResearchSwarm with MockProvider + deterministic grounder', 
     expect(caseProjection?.valuation?.reinvestment_rate).toBe(0.40)
     // g = min(0.40*0.20, monopoly_proven 0.04, max 0.05) = 0.04
     expect(caseProjection?.valuation?.growth_rate).toBe(0.04)
-    // terminal g (monopoly) = 0.02
-    expect(caseProjection?.valuation?.terminal_growth_rate).toBe(0.02)
-    // two-stage fair value ≈ 206.05 (under the 18× cap of 252)
-    expect(caseProjection?.valuation?.fair_value_per_share).toBeCloseTo(206.05, 0)
+    // terminal g (monopoly, recalibrated) = 0.025
+    expect(caseProjection?.valuation?.terminal_growth_rate).toBe(0.025)
+    // two-stage fair value ≈ 220.54 (recalibrated: monopoly horizon 15, terminal 2.5%; under 18× cap of 252)
+    expect(caseProjection?.valuation?.fair_value_per_share).toBeCloseTo(220.54, 0)
     expect(caseProjection?.valuation?.fair_value_per_share ?? 0).toBeLessThan(18 * 14)
-    // implied multiple ≈ 14.7×
-    expect(caseProjection?.valuation?.implied_multiple).toBeCloseTo(14.7, 1)
-    // margin_of_safety (monopoly): 0.20
-    expect(caseProjection?.valuation?.margin_of_safety).toBe(0.20)
-    // buy_price = round(206.05 * 0.80, 2) ≈ 164.84
-    expect(caseProjection?.valuation?.buy_price_per_share).toBeCloseTo(164.84, 0)
+    // implied multiple ≈ 15.75×
+    expect(caseProjection?.valuation?.implied_multiple).toBeCloseTo(15.75, 1)
+    // margin_of_safety (monopoly, recalibrated): 0.15
+    expect(caseProjection?.valuation?.margin_of_safety).toBe(0.15)
+    // buy_price = round(220.54 * 0.85, 2) ≈ 187.45
+    expect(caseProjection?.valuation?.buy_price_per_share).toBeCloseTo(187.45, 0)
     // value_basis
     expect(caseProjection?.valuation?.value_basis).toBe('two_stage_dcf')
     // owner_earnings_bridge projected (totals in $millions + shares_outstanding in millions)
@@ -715,6 +715,9 @@ type SynthesisOverrides = Partial<{
 function configurableSwarmProvider(opts: {
   laneCount: number
   synthesis?: SynthesisOverrides
+  // Override the model's investment_verdict (default WATCH) — used to test that WATCH-FAIR never
+  // escalates a model BUY when the price sits above the buy window.
+  investmentVerdict?: 'BUY' | 'WATCH' | 'PASS' | 'RESEARCH_MORE'
   // Per-stage failure injection: returns the number of times to throw before succeeding.
   failQuickScreen?: number
   failSynthesis?: number
@@ -757,7 +760,7 @@ function configurableSwarmProvider(opts: {
       // synthesis/decision (BuffettMungerSynthesisDecision)
       if (synthFails > 0) { synthFails--; throw new Error('Codex CLI timed out') }
       return {
-        investment_verdict: 'WATCH', strategy_compliance: 'CONDITIONAL', valuation_status: 'EXPENSIVE',
+        investment_verdict: opts.investmentVerdict ?? 'WATCH', strategy_compliance: 'CONDITIONAL', valuation_status: 'EXPENSIVE',
         next_required_action: 'Await margin of safety.', decision_reason: 'Quality but pricey',
         thesis_summary: 'Quality compounder', evidence_summary: 'Covered',
         valuation_rationale: 'Elevated', shariah_rationale: 'No prohibited activities',
@@ -787,14 +790,14 @@ const allVerifiedGround = async (sources: { source_id: string }[]) => ({
 })
 
 describe('BUG 1 — valuation per-share units (÷ shares_outstanding)', () => {
-  it('divides total owner earnings by shares_outstanding (COST inputs: OE/sh ≈ $19, two-stage fair ≈ $246, buy ≈ $172)', async () => {
+  it('divides total owner earnings by shares_outstanding (COST inputs: OE/sh ≈ $19, two-stage fair ≈ $253, buy ≈ $190)', async () => {
     // Captured COST inputs: NI 8838, D&A 2565, maint_capex 2052, SBC 911, dNWC 0 ($M),
     // shares_outstanding 443 (M), discount 0.10, moat wide + runway proven, inc-ROIC 0.20, reinv 0.43.
     //   OE_total = 8838 + 2565 - 2052 - 911 - 0 = 8440 ($M)
     //   OE/sh    = 8440 / 443 ≈ 19.05
-    //   raw_g = 0.43 × 0.20 = 0.086 → clamped to wide+proven band ceiling g = 0.03; g_t (wide) = 0.01
-    //   two-stage FV: Σ OE_ps(1+g)^t/1.1^t (t=1..10) + Gordon terminal ≈ 245.86 (impl ≈ 12.9×, under 18× cap)
-    //   buy = round(245.86 * 0.70, 2) ≈ 172.10
+    //   raw_g = 0.43 × 0.20 = 0.086 → clamped to wide+proven band ceiling g = 0.03; g_t (wide, recalibrated) = 0.015
+    //   two-stage FV: Σ OE_ps(1+g)^t/1.1^t (t=1..10, wide horizon 10) + Gordon terminal ≈ 252.96 (impl ≈ 13.28×, under 18× cap)
+    //   buy = round(252.96 * 0.75, 2) ≈ 189.72  (wide MoS recalibrated 25%)
     const store = new InMemoryEventStore()
     const provider = configurableSwarmProvider({ laneCount: buffettMungerDeepDiveLanes.length })
     const sourceLedgerPath = await mkdtemp(join(tmpdir(), 'owlfolio-bug1-'))
@@ -812,10 +815,10 @@ describe('BUG 1 — valuation per-share units (÷ shares_outstanding)', () => {
     const cp = projections.find((c) => c.research_case_id === 'rc_bug1')
     expect(cp?.valuation?.normalized_owner_earnings_per_share).toBeCloseTo(19.05, 1)
     expect(cp?.valuation?.growth_rate).toBeCloseTo(0.03, 10)
-    expect(cp?.valuation?.terminal_growth_rate).toBe(0.01)
-    expect(cp?.valuation?.fair_value_per_share).toBeCloseTo(245.86, 0)
-    expect(cp?.valuation?.buy_price_per_share).toBeCloseTo(172.10, 0)
-    expect(cp?.valuation?.implied_multiple).toBeCloseTo(12.9, 1)
+    expect(cp?.valuation?.terminal_growth_rate).toBe(0.015)
+    expect(cp?.valuation?.fair_value_per_share).toBeCloseTo(252.96, 0)
+    expect(cp?.valuation?.buy_price_per_share).toBeCloseTo(189.72, 0)
+    expect(cp?.valuation?.implied_multiple).toBeCloseTo(13.28, 1)
     expect(cp?.valuation?.runway).toBe('proven')
     expect(cp?.valuation?.value_basis).toBe('two_stage_dcf')
     // Sanity: per-share value, never the buggy ~100x value, and under the 18× OE cap
@@ -923,6 +926,68 @@ describe('Two-stage DCF harness banding (runway axis, eligibility, gates)', () =
     const valuation = (analysisEvent?.payload as Record<string, unknown>)?.['valuation'] as Record<string, unknown>
     expect((valuation?.['valuation_caveats'] as string[])?.join(' ')).toMatch(/owner earnings/i)
     expect(events.some((e) => e.event_type === 'decision_drafted')).toBe(true)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Acceptance test #3 (valuation-recalibration-spec §4): WATCH-FAIR verdict band.
+// A gate-clean name with price between buy_price and fair_value → WATCH-FAIR (NEW band). It NEVER
+// escalates to BUY, even when the model proposes BUY. Below buy_price → BUY-WINDOW; above FV → WATCH.
+// ---------------------------------------------------------------------------
+describe('Acceptance #3 — WATCH-FAIR verdict band (never escalates to BUY)', () => {
+  // COST-like wide case: OE/sh ≈ 19.05, g 0.03, wide horizon 10, terminal 0.015 →
+  //   fair ≈ 252.96, buy ≈ 189.72 (wide MoS 25%).
+  async function runAtPrice(price: number, id: string, investmentVerdict: 'BUY' | 'WATCH' = 'BUY') {
+    const store = new InMemoryEventStore()
+    const provider = configurableSwarmProvider({
+      laneCount: buffettMungerDeepDiveLanes.length,
+      synthesis: { moat_class: 'wide', runway: 'proven', incremental_roic: 0.20, reinvestment_rate: 0.43 },
+      investmentVerdict,
+    })
+    const sourceLedgerPath = await mkdtemp(join(tmpdir(), `owlfolio-wf-${id}-`))
+    await runStrategyResearchSwarm(
+      store, provider as never,
+      {
+        research_case_id: `rc_${id}`, company_id: 'c', ticker: 'COST',
+        strategy_id: 'buffett-munger', actor_id: 'user_local', idempotency_key: `${id}_k`,
+        model_id: 'mock', decision_id: `decision_${id}`, source_ledger_path: sourceLedgerPath,
+      },
+      {
+        ground: allVerifiedGround,
+        laneConcurrency: 4,
+        // Inject a deterministic spot price; no EDGAR fundamentals → model bridge is used.
+        resolvePrice: async () => ({ available: true as const, price_per_share: price, currency: 'USD', as_of: '2026-06-01T00:00:00Z', source: 'fixture' }),
+      },
+    )
+    const events = await store.list()
+    const projections = projectResearchCases(events as Parameters<typeof projectResearchCases>[0])
+    return { events, cp: projections.find((c) => c.research_case_id === `rc_${id}`) }
+  }
+
+  it('price between buy (≈190) and fair (≈253) → WATCH-FAIR; model BUY does NOT escalate', async () => {
+    const { cp } = await runAtPrice(220, 'watchfair', 'BUY')
+    expect(cp?.valuation?.fair_value_per_share).toBeCloseTo(252.96, 0)
+    expect(cp?.valuation?.buy_price_per_share).toBeCloseTo(189.72, 0)
+    expect(cp?.valuation?.verdict_state?.state).toBe('WATCH-FAIR')
+    // discount-to-FV ≈ (252.96 − 220) / 252.96 ≈ 13.03%
+    expect(cp?.valuation?.verdict_state?.discount_to_fv_pct).toBeCloseTo(13.03, 0)
+    expect(cp?.valuation?.verdict_state?.implied_multiple).toBeCloseTo(13.28, 1)
+    expect(cp?.valuation?.verdict_state?.note).toMatch(/human-discretion zone/i)
+    // NEVER escalates to BUY: the recorded verdict is WATCH even though the model said BUY.
+    expect(cp?.investment_verdict).toBe('WATCH')
+    expect(cp?.investment_verdict).not.toBe('BUY')
+  })
+
+  it('price below buy (≈190) → BUY-WINDOW', async () => {
+    const { cp } = await runAtPrice(150, 'buywindow', 'BUY')
+    expect(cp?.valuation?.verdict_state?.state).toBe('BUY-WINDOW')
+    // Model BUY is preserved in the buy window (the band does not downgrade it).
+    expect(cp?.investment_verdict).toBe('BUY')
+  })
+
+  it('price above fair (≈253) → plain WATCH', async () => {
+    const { cp } = await runAtPrice(300, 'plainwatch', 'WATCH')
+    expect(cp?.valuation?.verdict_state?.state).toBe('WATCH')
   })
 })
 

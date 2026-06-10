@@ -1,4 +1,5 @@
 import { strategyContractSchema, type MoatClass, type Runway, type StrategyContract, type TargetWeightByMoat } from './strategyContract'
+import { VALUATION_PARAMS } from './valuationParams'
 
 /** Moat classes that pass the wide-moat gate (investable). */
 const INVESTABLE_MOAT_CLASSES = new Set<MoatClass>(['wide', 'monopoly'])
@@ -39,7 +40,7 @@ export function marginOfSafetyForMoat(strategy: StrategyContract, moatClass: Moa
 
 /**
  * Returns the terminal-stage growth rate (g_t) for the given investable moat class.
- * monopoly → 2%, wide → 1%. Used by the two-stage DCF terminal value.
+ * Recalibrated: monopoly → 2.5%, wide → 1.5%. Used by the two-stage DCF terminal value.
  * Throws if called for a non-investable moat class (narrow, moderate).
  */
 export function terminalGrowthForMoat(strategy: StrategyContract, moatClass: MoatClass): number {
@@ -48,6 +49,19 @@ export function terminalGrowthForMoat(strategy: StrategyContract, moatClass: Moa
     throw new Error(`No terminal growth for moat class '${moatClass}' — only investable classes (wide, monopoly) have terminal growth values.`)
   }
   return gt
+}
+
+/**
+ * Returns the moat-dependent stage-1 (explicit) DCF horizon in years.
+ * Recalibrated: monopoly → 15 (a true monopoly earns credit past year 10), wide → 10.
+ * Throws if called for a non-investable moat class (narrow, moderate).
+ */
+export function stage1HorizonForMoat(strategy: StrategyContract, moatClass: MoatClass): number {
+  const horizon = (strategy.valuation.stage1_horizon_by_moat as Record<string, number>)[moatClass]
+  if (horizon === undefined) {
+    throw new Error(`No stage-1 horizon for moat class '${moatClass}' — only investable classes (wide, monopoly) have horizon values.`)
+  }
+  return horizon
 }
 
 /**
@@ -101,14 +115,16 @@ export function creditedGrowth(
 }
 
 /**
- * Two-stage fair value per share (buffett-valuation-method-v2 Step 4).
+ * Two-stage fair value per share (buffett-valuation-method-v2 Step 4, recalibrated per
+ * valuation-recalibration-spec §1 to a moat-dependent stage-1 horizon).
  *
- *   FV_ps = Σ_{t=1..10} [ OE_ps × (1+g)^t / (1+r)^t ]
- *         + [ OE_ps × (1+g)^10 × (1+g_t) / (r − g_t) ] / (1+r)^10
+ *   FV_ps = Σ_{t=1..H} [ OE_ps × (1+g)^t / (1+r)^t ]
+ *         + [ OE_ps × (1+g)^H × (1+g_t) / (r − g_t) ] / (1+r)^H
  *   FV_ps = min(FV_ps, ceiling_multiple × OE_ps)
  *
- * Stage 1 grows OE at credited g for 10 years; Stage 2 fades to terminal g_t.
- * Flat discount r (always 10%). The ceiling is a genuine independent brake.
+ * Stage 1 grows OE at credited g for H years (H = horizon, moat-dependent: monopoly 15, wide 10);
+ * Stage 2 fades to terminal g_t and discounts from year H. Flat discount r (always 10%). The ceiling
+ * is a genuine independent brake. `horizon` defaults to 10 for backward compatibility.
  */
 export function twoStageFairValuePerShare(args: {
   oe_ps: number
@@ -116,13 +132,15 @@ export function twoStageFairValuePerShare(args: {
   terminal_g: number
   discount: number
   ceiling_multiple: number
+  horizon?: number
 }): number {
   const { oe_ps, g, terminal_g, discount: r, ceiling_multiple } = args
+  const horizon = args.horizon ?? 10
   let stage1 = 0
-  for (let t = 1; t <= 10; t += 1) {
+  for (let t = 1; t <= horizon; t += 1) {
     stage1 += (oe_ps * Math.pow(1 + g, t)) / Math.pow(1 + r, t)
   }
-  const terminal = ((oe_ps * Math.pow(1 + g, 10) * (1 + terminal_g)) / (r - terminal_g)) / Math.pow(1 + r, 10)
+  const terminal = ((oe_ps * Math.pow(1 + g, horizon) * (1 + terminal_g)) / (r - terminal_g)) / Math.pow(1 + r, horizon)
   const fv = stage1 + terminal
   return Math.min(fv, ceiling_multiple * oe_ps)
 }
@@ -216,36 +234,33 @@ const rawBuffettMungerStrategy = {
     },
   ],
   valuation: {
-    // Flat 10% discount rate for all investable moat classes (Buffett-literal — no WACC, no beta, ever).
-    // Risk lives in selection and price, never in the discount rate.
-    discount_rate: 0.10,
-    // Moat-tiered margin of safety (buffett-valuation-method-v2 Step 5):
-    //   monopoly → 20% MoS, wide → 30% MoS.
-    //   Monopoly raised 10%→20% deliberately: it shrinks the buy-price gap between tiers so a
-    //   tier-misclassification (the highest-error step) cannot swing the decision 30–40%.
+    // EVERY valuation constant below is sourced from the versioned VALUATION_PARAMS config
+    // (valuation-recalibration-spec §1: one versioned config, no hardcoded valuation constants).
+    // Recalibrated defaults: terminal g 2.5%/1.5%, stage-1 horizon monopoly 15yr/wide 10yr,
+    // MOS 15%/25%, 10% flat discount (constitutional, untouched), 18× FV cap, growth bands untouched.
+    discount_rate: VALUATION_PARAMS.discount_rate,
     margin_of_safety_by_moat: {
-      wide: 0.30,
-      monopoly: 0.20,
+      wide: VALUATION_PARAMS.margin_of_safety_by_moat.wide,
+      monopoly: VALUATION_PARAMS.margin_of_safety_by_moat.monopoly,
     },
-    // Two-stage DCF terminal growth (g_t) by moat tier: monopoly fades to 2%, wide to 1%.
     terminal_growth_by_moat: {
-      wide: 0.01,
-      monopoly: 0.02,
+      wide: VALUATION_PARAMS.terminal_growth_by_moat.wide,
+      monopoly: VALUATION_PARAMS.terminal_growth_by_moat.monopoly,
     },
-    // Banded credited-growth ceilings (Step 3): runway sets the value, moat tier sets the ceiling.
+    stage1_horizon_by_moat: {
+      wide: VALUATION_PARAMS.stage1_horizon_by_moat.wide,
+      monopoly: VALUATION_PARAMS.stage1_horizon_by_moat.monopoly,
+    },
     growth_band_ceilings: {
-      limited_or_none: 0.02,
-      wide_proven: 0.03,
-      wide_proven_exceptional: 0.04,
-      monopoly_proven: 0.04,
-      monopoly_proven_exceptional: 0.05,
+      limited_or_none: VALUATION_PARAMS.growth_band_ceilings.limited_or_none,
+      wide_proven: VALUATION_PARAMS.growth_band_ceilings.wide_proven,
+      wide_proven_exceptional: VALUATION_PARAMS.growth_band_ceilings.wide_proven_exceptional,
+      monopoly_proven: VALUATION_PARAMS.growth_band_ceilings.monopoly_proven,
+      monopoly_proven_exceptional: VALUATION_PARAMS.growth_band_ceilings.monopoly_proven_exceptional,
     },
-    // Growth credit only when incremental ROIC strictly exceeds 10%.
-    growth_eligibility_incremental_roic: 0.10,
-    // Absolute maximum credited growth — never exceeded by any band.
-    max_growth: 0.05,
-    // 18× OE sanity cap on the two-stage fair value (was 20×) — a genuine independent brake.
-    valuation_multiple_ceiling: 18,
+    growth_eligibility_incremental_roic: VALUATION_PARAMS.growth_eligibility_incremental_roic,
+    max_growth: VALUATION_PARAMS.max_growth,
+    valuation_multiple_ceiling: VALUATION_PARAMS.fv_cap_multiple,
     min_investable_moat: 'wide',
     valuation_required: true,
   },

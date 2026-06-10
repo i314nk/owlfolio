@@ -46,12 +46,12 @@ describe('StrategyOverview', () => {
 
   it('renders the moat-tiered margin of safety from the contract', () => {
     const html = render()
-    const wide = `${marginOfSafetyForMoat(buffettMungerStrategy, 'wide') * 100}%` // 30%
-    const monopoly = `${marginOfSafetyForMoat(buffettMungerStrategy, 'monopoly') * 100}%` // 20%
-    expect(wide).toBe('30%')
-    expect(monopoly).toBe('20%')
-    expect(html).toContain('30%')
-    expect(html).toContain('20%')
+    const wide = `${marginOfSafetyForMoat(buffettMungerStrategy, 'wide') * 100}%` // 25% (recalibrated)
+    const monopoly = `${marginOfSafetyForMoat(buffettMungerStrategy, 'monopoly') * 100}%` // 15% (recalibrated)
+    expect(wide).toBe('25%')
+    expect(monopoly).toBe('15%')
+    expect(html).toContain('25%')
+    expect(html).toContain('15%')
   })
 
   it('describes the two-stage DCF method (not the old single-stage equity bond)', () => {

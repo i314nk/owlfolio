@@ -61,6 +61,7 @@ export const domainEventTypes = [
   'deep_dive_approval_pending',
   'deep_dive_run_requested',
   'investable_capital_set',
+  'valuation_config',
 ] as const
 
 export type DomainEventType = (typeof domainEventTypes)[number]
@@ -419,6 +420,15 @@ export const domainEventContracts: readonly DomainEventContract[] = [
     actor_type: 'user',
     projection_owner: 'portfolio',
     payload_fields: ['amount', 'currency', 'as_of'],
+  },
+  {
+    // Versioned valuation-parameter config change (valuation-recalibration-spec §1). Append-only audit
+    // record of which valuation constants changed, enforcing the §3.4 anti-drift rule.
+    event_type: 'valuation_config',
+    aggregate_type: 'strategy',
+    actor_type: 'user',
+    projection_owner: 'audit',
+    payload_fields: ['previous_version', 'new_version', 'changes'],
   },
 ] as const
 

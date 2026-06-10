@@ -48,6 +48,7 @@ describe('Owlfolio v2 domain event boundary contracts', () => {
       'deep_dive_approval_pending',
       'deep_dive_run_requested',
       'investable_capital_set',
+      'valuation_config',
     ])
   })
 

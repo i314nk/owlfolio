@@ -10,10 +10,10 @@ describe('Buffett-Munger default strategy (Design B: 4-class, flat discount, moa
     expect(buffettMungerStrategy.research.required_specialists.map((s) => s.id)).toEqual(['moat', 'financials', 'risk', 'management', 'valuation', 'synthesis'])
     // Flat 10% discount rate for all investable moat classes
     expect(buffettMungerStrategy.valuation.discount_rate).toBe(0.10)
-    // Moat-tiered margin of safety (two-stage DCF: monopoly 20%, wide 30%)
-    expect(buffettMungerStrategy.valuation.margin_of_safety_by_moat).toEqual({ wide: 0.30, monopoly: 0.20 })
-    // Two-stage DCF params
-    expect(buffettMungerStrategy.valuation.terminal_growth_by_moat).toEqual({ wide: 0.01, monopoly: 0.02 })
+    // Moat-tiered margin of safety (recalibrated, spec §1: monopoly 15%, wide 25%)
+    expect(buffettMungerStrategy.valuation.margin_of_safety_by_moat).toEqual({ wide: 0.25, monopoly: 0.15 })
+    // Two-stage DCF params (recalibrated terminal g: monopoly 2.5%, wide 1.5%)
+    expect(buffettMungerStrategy.valuation.terminal_growth_by_moat).toEqual({ wide: 0.015, monopoly: 0.025 })
     expect(buffettMungerStrategy.valuation.valuation_multiple_ceiling).toBe(18)
     expect(buffettMungerStrategy.valuation.min_investable_moat).toBe('wide')
   })
@@ -22,9 +22,9 @@ describe('Buffett-Munger default strategy (Design B: 4-class, flat discount, moa
     expect(discountRate(buffettMungerStrategy)).toBe(0.10)
   })
 
-  it('marginOfSafetyForMoat returns moat-tiered MoS values', () => {
-    expect(marginOfSafetyForMoat(buffettMungerStrategy, 'wide')).toBe(0.30)
-    expect(marginOfSafetyForMoat(buffettMungerStrategy, 'monopoly')).toBe(0.20)
+  it('marginOfSafetyForMoat returns moat-tiered MoS values (recalibrated)', () => {
+    expect(marginOfSafetyForMoat(buffettMungerStrategy, 'wide')).toBe(0.25)
+    expect(marginOfSafetyForMoat(buffettMungerStrategy, 'monopoly')).toBe(0.15)
   })
 
   it('marginOfSafetyForMoat throws for non-investable moat classes (narrow, moderate)', () => {
@@ -91,9 +91,9 @@ describe('Buffett-Munger two-stage DCF (incremental-ROIC banded g)', () => {
     expect(discountRate(buffettMungerStrategy)).toBe(discountRate(buffettMungerStrategy))
   })
 
-  it('marginOfSafetyForMoat: monopoly 20%, wide 30%', () => {
-    expect(marginOfSafetyForMoat(buffettMungerStrategy, 'monopoly')).toBe(0.20)
-    expect(marginOfSafetyForMoat(buffettMungerStrategy, 'wide')).toBe(0.30)
+  it('marginOfSafetyForMoat: monopoly 15%, wide 25% (recalibrated)', () => {
+    expect(marginOfSafetyForMoat(buffettMungerStrategy, 'monopoly')).toBe(0.15)
+    expect(marginOfSafetyForMoat(buffettMungerStrategy, 'wide')).toBe(0.25)
   })
 
   it('signed ΔWC in OE bridge: negative WC change adds to OE', () => {

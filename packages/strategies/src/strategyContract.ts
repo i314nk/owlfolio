@@ -65,10 +65,15 @@ export const valuationPolicySchema = z.object({
     wide: z.number().positive(),
     monopoly: z.number().positive(),
   }),
-  /** Terminal-stage growth (g_t) by moat tier: monopoly fades to 2%, wide to 1%. */
+  /** Terminal-stage growth (g_t) by moat tier: monopoly fades to 2.5%, wide to 1.5%. */
   terminal_growth_by_moat: z.object({
     wide: z.number().positive(),
     monopoly: z.number().positive(),
+  }),
+  /** Stage-1 (explicit) DCF horizon in years by moat tier: monopoly 15, wide 10. */
+  stage1_horizon_by_moat: z.object({
+    wide: z.number().int().positive(),
+    monopoly: z.number().int().positive(),
   }),
   /** Banded credited-growth ceilings (runway × moat tier). */
   growth_band_ceilings: growthBandCeilingsSchema,

@@ -3,7 +3,7 @@ import type { EventStore } from '@owlfolio/ledger/eventStore'
 import type { LedgerEventEnvelope } from '@owlfolio/ledger/eventEnvelope'
 import type { Provider } from '@owlfolio/providers'
 import { groundProposedSources, type CapturedSource, type GroundingDeps, type ProposedSource } from './sourceGrounding'
-import { fetchCompanyFundamentals, type Fundamentals, type SecEdgarDeps } from './secEdgar'
+import { computeIncrementalRoic, fetchCompanyFundamentals, type Fundamentals, type SecEdgarDeps } from './secEdgar'
 import { createResearchCase, draftDecision } from './researchWorkflow'
 import {
   buffettMungerDeepDiveLanes,
@@ -16,9 +16,9 @@ import {
 } from './strategyResearchPipeline'
 import { ingestManualSourceBundle } from './sourceLedger'
 import { resolveResearchStrategyRef } from './researchStrategyRef'
-import { buffettMungerStrategy, creditedGrowth, discountRate, marginOfSafetyForMoat, moatPassesGate, terminalGrowthForMoat, twoStageFairValuePerShare } from '@owlfolio/strategies/buffettMunger'
+import { buffettMungerStrategy, creditedGrowth, discountRate, marginOfSafetyForMoat, moatPassesGate, stage1HorizonForMoat, terminalGrowthForMoat, twoStageFairValuePerShare } from '@owlfolio/strategies/buffettMunger'
 import { computeShariahFinancialRatios } from '@owlfolio/strategies/shariahFinancialRatios'
-import { resolveCurrentPrice, type MarketDataDeps, type PriceQuote } from './marketData'
+import { fetchAverageMarketCap, resolveCurrentPrice, type AverageMarketCapResult, type MarketDataDeps, type PriceQuote } from './marketData'
 
 export const ProposedSourceSchema = z.object({
   source_id: z.string().min(1),
@@ -340,6 +340,17 @@ export type FundamentalsDeps = {
    * playwright test mode; fail-closed + test-mode-gated exactly like fetchFundamentals.
    */
   resolvePrice?: (ticker: string, deps?: MarketDataDeps) => Promise<PriceQuote>
+  /**
+   * Override the trailing 36-month average-market-cap resolver (e.g. an e2e/test fixture). Used for
+   * the Shariah debt/cash ratios (the spec's "36-mo avg"). Defaults to the live Yahoo monthly-history
+   * adapter outside playwright test mode; fail-closed + test-mode-gated like the other resolvers.
+   * `diluted_shares` is in MILLIONS (so the returned market_cap is in $MILLIONS).
+   */
+  resolveAverageMarketCap?: (
+    ticker: string,
+    diluted_shares: number,
+    deps?: MarketDataDeps,
+  ) => Promise<AverageMarketCapResult>
 }
 
 /**
@@ -381,6 +392,30 @@ async function resolveCurrentPriceValue(ticker: string, deps: FundamentalsDeps):
     if (resolver === undefined) return undefined
     const quote = await resolver(ticker)
     return quote.available ? quote.price_per_share : undefined
+  } catch {
+    return undefined
+  }
+}
+
+/**
+ * Resolve the trailing 36-month AVERAGE market cap ($MILLIONS) for a ticker, fail-closed and
+ * test-mode-gated (mirrors resolveCurrentPriceValue). Returns undefined on any failure/unavailable
+ * series so the Shariah ratios degrade to the CURRENT-price market cap. `diluted_shares` is in
+ * MILLIONS so the returned market cap is in $MILLIONS (matching the AAOIFI ratio inputs).
+ */
+async function resolveAverageMarketCapValue(
+  ticker: string,
+  diluted_shares: number,
+  deps: FundamentalsDeps,
+): Promise<{ market_cap: number; months: number } | undefined> {
+  try {
+    const resolver = deps.resolveAverageMarketCap
+      ?? (isOfflineTestMode()
+        ? undefined
+        : ((t: string, shares: number, d?: MarketDataDeps) => fetchAverageMarketCap({ ticker: t }, shares, undefined, d)))
+    if (resolver === undefined) return undefined
+    const result = await resolver(ticker, diluted_shares)
+    return result.available ? { market_cap: result.market_cap, months: result.months } : undefined
   } catch {
     return undefined
   }
@@ -1032,7 +1067,22 @@ export async function runResearchDeepDivePhase(
 
   const discount = discountRate(buffettMungerStrategy)
   const roic = dec.analysis.roic
-  const incremental_roic = dec.analysis.incremental_roic
+  // ---- Incremental ROIC: harness-computed from the EDGAR multi-year series when reliable ----
+  // (buffett-valuation-method-v2 Step 3). NOPAT proxy = operating income × (1 − eff. tax) [or NI +
+  // after-tax interest]; invested capital proxy = equity + total debt − cash; incremental ROIC ≈
+  // Δ(NOPAT)/Δ(invested capital) over ~5 yrs. We use the harness value for growth eligibility/credit
+  // and FALL BACK to the lane's proposed incremental_roic when EDGAR data is insufficient or the
+  // proxy is unreliable (negative/odd) — keeping it honest with a recorded note.
+  const laneIncrementalRoic = dec.analysis.incremental_roic
+  let incremental_roic = laneIncrementalRoic
+  let incremental_roic_basis: 'sec_edgar' | 'model_proposed' = 'model_proposed'
+  if (fundamentals?.annual_series !== undefined && fundamentals.annual_series.length >= 2) {
+    const incRoic = computeIncrementalRoic(fundamentals.annual_series)
+    if (incRoic.computable) {
+      incremental_roic = incRoic.incremental_roic
+      incremental_roic_basis = 'sec_edgar'
+    }
+  }
   const reinvestment_rate = dec.analysis.reinvestment_rate
   const runway = dec.analysis.runway
   const runway_exceptional = dec.analysis.runway_exceptional ?? false
@@ -1070,12 +1120,15 @@ export async function runResearchDeepDivePhase(
     )
   } else if (moat_passes_gate && normalized_owner_earnings_per_share !== undefined) {
     const terminal_g = terminalGrowthForMoat(buffettMungerStrategy, moatClass)
+    // Moat-dependent stage-1 horizon (recalibrated, spec §1): monopoly 15 yrs, wide 10.
+    const horizon = stage1HorizonForMoat(buffettMungerStrategy, moatClass)
     const computedFairValue = twoStageFairValuePerShare({
       oe_ps: normalized_owner_earnings_per_share,
       g: effective_growth_rate,
       terminal_g,
       discount,
       ceiling_multiple: valuation_multiple_ceiling,
+      horizon,
     })
     // Sanity guard: degrade gracefully if the per-share fair value is non-finite, <= 0, or implausibly large.
     if (!Number.isFinite(computedFairValue) || computedFairValue <= 0 || computedFairValue > MAX_PLAUSIBLE_FAIR_VALUE_PER_SHARE) {
@@ -1092,13 +1145,19 @@ export async function runResearchDeepDivePhase(
   }
 
   // ---- Market cap + harness-computed AAOIFI Shariah FINANCIAL ratios ----
-  // Market cap = current price × EDGAR diluted shares. NOTE: buffett-pipeline-spec-v2 Lane 5 wants the
-  // 36-MONTH AVERAGE market cap for the debt/cash ratios; we use the CURRENT price for now.
-  // TODO(follow-up): use fetchPriceHistory to compute the trailing 36-mo average market cap.
+  // buffett-pipeline-spec-v2 Lane 5 / valuation-recalibration-spec want the 36-MONTH AVERAGE market
+  // cap for the debt/cash ratios. We compute avg(month-end price over ~36 mo) × EDGAR diluted shares
+  // and use THAT; FAIL-CLOSED to the current-price market cap when monthly history is unavailable.
   const current_price = await resolveCurrentPriceValue(command.ticker, deps)
-  const market_cap = (current_price !== undefined && shares_valid)
+  const spotMarketCap = (current_price !== undefined && shares_valid)
     ? current_price * shares_outstanding
     : undefined
+  const avgMarketCap = shares_valid
+    ? await resolveAverageMarketCapValue(command.ticker, shares_outstanding, deps)
+    : undefined
+  const market_cap = avgMarketCap?.market_cap ?? spotMarketCap
+  const market_cap_basis: 'avg_36mo_x_diluted_shares' | 'current_price_x_diluted_shares' =
+    avgMarketCap !== undefined ? 'avg_36mo_x_diluted_shares' : 'current_price_x_diluted_shares'
 
   // The SHARIAH lane (LLM) identifies the sector status + impermissible income ($M); the harness
   // RECOMPUTES the three AAOIFI financial ratios + verdict + purification % from EDGAR debt/cash/
@@ -1116,7 +1175,8 @@ export async function runResearchDeepDivePhase(
         verdict: 'PASS' | 'CONDITIONAL' | 'FAIL'
         purification_pct: number
         market_cap: number
-        market_cap_basis: 'current_price_x_diluted_shares'
+        market_cap_basis: 'avg_36mo_x_diluted_shares' | 'current_price_x_diluted_shares'
+        market_cap_months?: number
         bridge_source_fiscal_year?: number
       }
     | undefined
@@ -1142,19 +1202,61 @@ export async function runResearchDeepDivePhase(
         verdict: ratios.verdict,
         purification_pct: ratios.purification_pct,
         market_cap,
-        market_cap_basis: 'current_price_x_diluted_shares',
+        market_cap_basis,
+        ...(avgMarketCap !== undefined ? { market_cap_months: avgMarketCap.months } : {}),
         bridge_source_fiscal_year: la.fiscal_year,
       }
     }
   }
 
-  // Apply moat gate: if moat is below wide, override verdict to PASS regardless of model output
-  const gatedVerdict = moat_passes_gate
-    ? dec.analysis.investment_verdict
-    : 'PASS' as const
-  const gatedReason = moat_passes_gate
-    ? dec.analysis.decision_reason
-    : `Moat below the wide-moat gate (${moatClass}) — pass.`
+  // ---- Price → verdict band (valuation-recalibration-spec §2: WATCH-FAIR) ----
+  // For gate-clean names (moat passes, Shariah not FAIL) with a computed buy/fair price and a current
+  // price, classify the price band:
+  //   price <= buy_price              → BUY-WINDOW
+  //   buy_price < price <= fair_value → WATCH-FAIR  (NEW — human-discretion zone; never a buy signal)
+  //   price > fair_value              → WATCH
+  // WATCH-FAIR carries the discount-to-FV %, the implied multiple, and the editorial line. It NEVER
+  // auto-escalates to BUY. The moat gate / Shariah FAIL still force PASS/STOP above this band.
+  let verdict_state:
+    | { state: 'BUY-WINDOW' | 'WATCH-FAIR' | 'WATCH'; discount_to_fv_pct?: number; implied_multiple?: number; note?: string }
+    | undefined
+  const sectorShariahFail = shariahJudgment?.sector_status === 'non_compliant'
+    || shariah_financial?.verdict === 'FAIL'
+  if (
+    moat_passes_gate
+    && !sectorShariahFail
+    && current_price !== undefined
+    && buy_price_per_share !== undefined
+    && fair_value_per_share !== undefined
+  ) {
+    if (current_price <= buy_price_per_share) {
+      verdict_state = { state: 'BUY-WINDOW', ...(implied_multiple !== undefined ? { implied_multiple } : {}) }
+    } else if (current_price <= fair_value_per_share) {
+      const discount_to_fv_pct = ((fair_value_per_share - current_price) / fair_value_per_share) * 100
+      verdict_state = {
+        state: 'WATCH-FAIR',
+        discount_to_fv_pct,
+        ...(implied_multiple !== undefined ? { implied_multiple } : {}),
+        note: 'Wonderful at fair — human-discretion zone. No harness buy signal.',
+      }
+    } else {
+      verdict_state = { state: 'WATCH', ...(implied_multiple !== undefined ? { implied_multiple } : {}) }
+    }
+  }
+
+  // Apply moat gate: if moat is below wide, override verdict to PASS regardless of model output.
+  // WATCH-FAIR never escalates the verdict to BUY — when the model said BUY but the price sits above
+  // the buy window (WATCH-FAIR), the harness records WATCH so it cannot emit a buy signal.
+  const gatedVerdict = !moat_passes_gate
+    ? ('PASS' as const)
+    : verdict_state?.state === 'WATCH-FAIR'
+      ? ('WATCH' as const)
+      : dec.analysis.investment_verdict
+  const gatedReason = !moat_passes_gate
+    ? `Moat below the wide-moat gate (${moatClass}) — pass.`
+    : verdict_state?.state === 'WATCH-FAIR'
+      ? `Wonderful at fair — human-discretion zone. No harness buy signal. ${dec.analysis.decision_reason}`
+      : dec.analysis.decision_reason
 
   // ---- Emit buffett_munger_analysis_drafted ----
   const analysisEvent: LedgerEventEnvelope<unknown> = {
@@ -1187,6 +1289,7 @@ export async function runResearchDeepDivePhase(
         ...(terminal_growth_rate !== undefined ? { terminal_growth_rate } : {}),
         roic,
         incremental_roic,
+        incremental_roic_basis,
         reinvestment_rate,
         owner_earnings_bridge: bridge,
         ...(normalized_owner_earnings_per_share !== undefined ? { normalized_owner_earnings_per_share } : {}),
@@ -1195,6 +1298,8 @@ export async function runResearchDeepDivePhase(
         ...(implied_multiple !== undefined ? { implied_multiple } : {}),
         ...(margin_of_safety !== undefined ? { margin_of_safety } : {}),
         ...(buy_price_per_share !== undefined ? { buy_price_per_share } : {}),
+        // Price → verdict band (BUY-WINDOW | WATCH-FAIR | WATCH) when a current price + buy/fair exist.
+        ...(verdict_state !== undefined ? { verdict_state } : {}),
         value_basis: 'two_stage_dcf',
         // OE-bridge provenance: 'sec_edgar' (anchored to the 10-K) vs 'model_proposed'.
         bridge_basis,
