@@ -76,6 +76,27 @@ const ResearchSchema = z.object({
   })).min(1).optional(),
 })
 
+// Grounded-research schema: this mirrors the contract the PRODUCT actually runs.
+// The research swarm (runGroundedAgent in packages/workflow/researchSwarm.ts) never asks the
+// model for inline `source_records`. Instead the agent returns `proposed_sources` (real, fetchable
+// URLs) and the harness grounds them POST-HOC via groundProposedSources (HTTP fetch + SSRF guard +
+// sha256). A source only counts when the harness itself fetched and hashed it. The certification
+// must test that same path, not an inline self-attested-citation shape the swarm never emits.
+const GroundedResearchSchema = z.object({
+  investment_verdict: z.enum(['BUY', 'WATCH', 'PASS', 'RESEARCH_MORE']),
+  strategy_compliance: z.enum(['COMPLIANT', 'CONDITIONAL', 'NON_COMPLIANT', 'INSUFFICIENT_DATA']),
+  shariah_status: z.enum(['COMPLIANT', 'CONDITIONAL', 'NON_COMPLIANT', 'UNKNOWN']),
+  valuation_status: z.enum(['ATTRACTIVE', 'FAIR', 'EXPENSIVE', 'INSUFFICIENT_DATA']),
+  next_required_action: z.string().min(1),
+  decision_reason: z.string().min(1).optional(),
+  proposed_sources: z.array(z.object({
+    source_id: z.string().min(1),
+    title: z.string().min(1),
+    url: z.string().url(),
+    excerpt: z.string().min(1),
+  })).min(1),
+})
+
 const scenarioCapabilityGates: Record<CertificationScenarioId, ProviderCapabilityId[]> = {
   'auth-setup-and-status-detection': [],
   'simple-completion': ['text-generation'],
@@ -409,45 +430,42 @@ async function runCertificationScenario(
         return passedCase(scenario, 'Parallel structured research kept source ids ticker-specific.', capabilityGates)
       }
       case 'source-grounded-research-task': {
-        const result = await structuredResearch(provider, 'COST', scenario.scenario_id, options)
-        if ((result.source_records?.length ?? 0) === 0) {
-          throw new Error('Structured result did not include source records')
+        // Test the path the PRODUCT actually runs: the provider returns proposed_sources (real,
+        // fetchable URLs) and the harness grounds them POST-HOC via the SAME groundProposedSources
+        // HTTP-fetch+sha256 verification the swarm uses. This is the hard grounding gate — a cited
+        // source only counts when the harness itself fetched and content-hashed it. We deliberately
+        // do NOT accept inline self-attested `source_records`: the swarm never emits them, so testing
+        // them would certify a contract the product does not run (and would let a model "cite" a URL
+        // it never reached). The grounding invariant (fail-closed on unverifiable URLs) is unchanged.
+        const result = await groundedResearch(provider, 'COST', scenario.scenario_id, options)
+        if (options.ground_sources === undefined) {
+          throw new Error('Source-grounded certification requires a harness grounder to HTTP-verify proposed sources')
         }
-        assertSourceCitationEvidence(result)
-        if (options.ground_sources !== undefined) {
-          const records = (result.source_records ?? []).map((r) => ({
-            source_id: r.source_id,
-            title: r.title,
-            url: r.url,
-            excerpt: r.excerpt,
-          }))
-          const grounding = await options.ground_sources(records)
-          const verified = new Set(grounding.verified_ids)
-          const ungrounded = result.source_ids.filter(
-            (id) => !verified.has(id) || grounding.captured.find((c) => c.source_id === id)?.content_hash === undefined,
-          )
-          if (ungrounded.length > 0) {
-            return caseResult(scenario, {
-              passed: false,
-              status: 'failed',
-              details: `${ungrounded.length} cited source(s) could not be harness-verified: ${ungrounded.join(', ')}`,
-              observed_provider_behavior: `Grounding failed for ${ungrounded.length} cited source(s).`,
-              capability_gates: capabilityGates,
-            })
-          }
+        const grounding = await options.ground_sources(result.proposed_sources)
+        const verified = new Set(grounding.verified_ids)
+        // A proposed source is genuinely grounded only when the harness verified it AND produced a
+        // content hash (i.e. it actually fetched and hashed the body, not just classified the URL).
+        const groundedIds = result.proposed_sources
+          .map((s) => s.source_id)
+          .filter((id) => verified.has(id) && grounding.captured.find((c) => c.source_id === id)?.content_hash !== undefined)
+        if (groundedIds.length === 0) {
           return caseResult(scenario, {
-            passed: true,
-            status: 'passed',
-            details: `Grounded ${result.source_ids.length} cited source(s) with content hashes.`,
-            observed_provider_behavior: `Validated grounding/citation evidence with ${result.source_records?.length ?? 0} source record(s).`,
+            passed: false,
+            status: 'failed',
+            details: `None of the ${result.proposed_sources.length} proposed source(s) could be harness-verified (HTTP-fetched + content-hashed).`,
+            observed_provider_behavior: `Grounding failed for all ${result.proposed_sources.length} proposed source(s).`,
             capability_gates: capabilityGates,
           })
+        }
+        // The structured analysis must actually rest on at least one harness-verified source.
+        if (result.next_required_action.trim().length === 0) {
+          throw new Error('Grounded research result omitted next_required_action')
         }
         return caseResult(scenario, {
           passed: true,
           status: 'passed',
-          details: `Validated ${result.source_records?.length ?? 0} source record(s).`,
-          observed_provider_behavior: `Validated grounding/citation evidence with ${result.source_records?.length ?? 0} source record(s).`,
+          details: `Harness-verified ${groundedIds.length}/${result.proposed_sources.length} proposed source(s) (HTTP-fetched + content-hashed) cited by the ${result.investment_verdict} analysis.`,
+          observed_provider_behavior: `Grounded ${groundedIds.length} proposed source(s) with content hashes via post-hoc HTTP verification.`,
           capability_gates: capabilityGates,
         })
       }
@@ -566,13 +584,25 @@ async function structuredResearch(
   )
 }
 
-function assertSourceCitationEvidence(result: z.infer<typeof ResearchSchema>): void {
-  const sourceRecords = result.source_records ?? []
-  const recordIds = new Set(sourceRecords.map((sourceRecord) => sourceRecord.source_id))
-  const missingRecords = result.source_ids.filter((sourceId) => !recordIds.has(sourceId))
-  if (missingRecords.length > 0) {
-    throw new Error(`Structured source citation evidence is missing source records for: ${missingRecords.join(', ')}`)
-  }
+// Mirrors runGroundedAgent's provider call: ask for proposed_sources with real URLs that the
+// harness then HTTP-verifies. No inline source_records — that is not the product contract.
+async function groundedResearch(
+  provider: Provider,
+  ticker: string,
+  scenarioId: CertificationScenarioId,
+  options: ResolvedCertificationRunnerOptions,
+): Promise<z.infer<typeof GroundedResearchSchema>> {
+  return provider.structured(
+    baseRequest(provider, scenarioId, options, {
+      task_kind: 'structured-output',
+      prompt: `Analyze ${ticker} with Buffett-Munger policy and return structured JSON. `
+        + `Gather your own primary/secondary sources and return them in proposed_sources with REAL, `
+        + `currently-reachable public https URLs (e.g. SEC EDGAR filings, investor-relations pages, `
+        + `or a major reference page). The harness will fetch and content-hash each URL to verify it.`,
+      response_format: { kind: 'json-schema', schema_name: 'BuffettMungerGroundedResearch' },
+    }),
+    GroundedResearchSchema,
+  )
 }
 
 function assertNoDirectLedgerWrites(run: { ledger_events_written?: number }): void {

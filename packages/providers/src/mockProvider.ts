@@ -83,6 +83,21 @@ function buffettMungerAnalysisForTicker(ticker: string) {
   } as const
 }
 
+// Mirrors the grounded-research contract the swarm runs: structured analysis + proposed_sources
+// (real-shaped URLs) that the harness grounds post-hoc. Used by the source-grounded certification.
+function mockGroundedResearchForTicker(ticker: string) {
+  const companyLabel = companyLabelForTicker(ticker)
+  return {
+    investment_verdict: 'WATCH' as const,
+    strategy_compliance: 'CONDITIONAL' as const,
+    shariah_status: 'COMPLIANT' as const,
+    valuation_status: 'EXPENSIVE' as const,
+    next_required_action: `Refresh ${ticker} owner-earnings and Shariah ratio evidence after the next quarterly filing before any watchlist confirmation.`,
+    decision_reason: `${companyLabel} is a durable quality compounder but valuation does not yet offer a sufficient margin of safety.`,
+    proposed_sources: mockSourcesForTicker(ticker),
+  } as const
+}
+
 function mockSourcesForTicker(ticker: string) {
   const tslug = sourceSlugForTicker(ticker)
   return [
@@ -298,6 +313,8 @@ export class MockProvider implements Provider {
           return mockLaneFindingForTicker(ticker)
         case 'BuffettMungerSynthesisDecision':
           return mockSynthesisDecisionForTicker(ticker)
+        case 'BuffettMungerGroundedResearch':
+          return mockGroundedResearchForTicker(ticker)
         default:
           return buffettMungerAnalysisForTicker(ticker)
       }

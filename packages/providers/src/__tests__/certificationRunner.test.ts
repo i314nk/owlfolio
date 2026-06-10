@@ -18,11 +18,22 @@ import type { Provider, ProviderCapabilities, ProviderCompletion, ProviderRunReq
 
 const fixedGeneratedAt = '2026-06-01T00:00:00.000Z'
 
+// Stub harness grounder that verifies every proposed source with a content hash. Stands in for the
+// real groundProposedSources HTTP-fetch+sha256 verification in unit tests (no network). The live
+// certification run uses the real grounder against real URLs.
+const stubAllVerifiedGrounder = async (
+  sources: { source_id: string; title: string; url: string; excerpt: string; citation_locator?: string }[],
+) => ({
+  verified_ids: sources.map((s) => s.source_id),
+  captured: sources.map((s) => ({ source_id: s.source_id, availability: 'available' as const, content_hash: `sha256:stub-${s.source_id}` })),
+})
+
 async function runMockCertification() {
   return runProviderCertification(new MockProvider(), {
     generated_at: fixedGeneratedAt,
     model_id: 'mock-research-v2',
     timeout_ms: 1_000,
+    ground_sources: stubAllVerifiedGrounder,
   })
 }
 
@@ -91,37 +102,6 @@ class SecretLeakingAuthFailingProvider implements Provider {
 
   runWithTools(_request: ProviderRunRequest): Promise<ProviderToolRun> {
     throw new Error('not used')
-  }
-}
-
-class UnmatchedCitationProvider implements Provider {
-  readonly provider_id = 'mock-provider'
-  readonly capabilities = new MockProvider().capabilities
-  private readonly delegate = new MockProvider()
-
-  complete(request: ProviderRunRequest) {
-    return this.delegate.complete(request)
-  }
-
-  async structured<T>(request: ProviderRunRequest, schema: z.ZodType<T>): Promise<T> {
-    const result = await this.delegate.structured(request, schema) as any
-    if (request.run_id === 'cert_source-grounded-research-task') {
-      return {
-        ...result,
-        source_ids: ['src_cost_10k_2025', 'src_cost_proxy_2025'],
-        source_records: [{
-          source_id: 'src_cost_10k_2025',
-          title: 'Costco FY2025 10-K',
-          url: 'https://example.test/cost-10k-2025',
-          excerpt: 'Annual report excerpt.',
-        }],
-      }
-    }
-    return result
-  }
-
-  runWithTools(request: ProviderRunRequest) {
-    return this.delegate.runWithTools(request)
   }
 }
 
@@ -311,6 +291,7 @@ describe('provider certification runner', () => {
                   next_required_action: 'Review cited primary filings before watchlist confirmation.',
                   source_ids: ['src_gemini_1'],
                   source_records: [{ source_id: 'src_gemini_1', title: 'Costco FY2025 10-K', url: 'https://example.test/cost-10k-2025', excerpt: 'Costco filing excerpt.' }],
+                  proposed_sources: [{ source_id: 'src_gemini_1', title: 'Costco FY2025 10-K', url: 'https://example.test/cost-10k-2025', excerpt: 'Costco filing excerpt.' }],
                 }) }],
               },
               groundingMetadata: {
@@ -335,6 +316,7 @@ describe('provider certification runner', () => {
       runtime_kind: 'direct_api',
       auth_mode: 'api_key',
       workflow_role: 'research_draft',
+      ground_sources: stubAllVerifiedGrounder,
     })
 
     expect(report).toMatchObject({
@@ -354,7 +336,7 @@ describe('provider certification runner', () => {
     const sourceGroundedCase = report.cases.find((caseResult) => caseResult.scenario_id === 'source-grounded-research-task')
     expect(sourceGroundedCase).toMatchObject({
       passed: true,
-      observed_provider_behavior: expect.stringContaining('grounding/citation evidence'),
+      observed_provider_behavior: expect.stringContaining('content hashes via post-hoc HTTP verification'),
     })
     expect(report.summary).toMatch(/privacy posture.*not verified|free-tier/i)
     expect(JSON.stringify(report)).not.toContain('secret-gemini-key')
@@ -390,6 +372,7 @@ describe('provider certification runner', () => {
               next_required_action: 'Review cited primary filings before watchlist confirmation.',
               source_ids: [sourceId],
               source_records: [{ source_id: sourceId, title: `${ticker} FY2025 10-K`, url: `https://example.test/${ticker.toLowerCase()}-10k-2025`, excerpt: `${ticker} filing excerpt.` }],
+              proposed_sources: [{ source_id: sourceId, title: `${ticker} FY2025 10-K`, url: `https://example.test/${ticker.toLowerCase()}-10k-2025`, excerpt: `${ticker} filing excerpt.` }],
             }),
           })
         }
@@ -407,6 +390,7 @@ describe('provider certification runner', () => {
       runtime_kind: 'direct_api',
       auth_mode: 'api_key',
       workflow_role: 'research_draft',
+      ground_sources: stubAllVerifiedGrounder,
     })
     const serialized = JSON.stringify(report)
 
@@ -539,8 +523,10 @@ describe('provider certification runner', () => {
     expect(serialized).not.toContain('bearer-secret-token')
   })
 
-  it('fails source-grounding certification when cited source ids do not have source records', async () => {
-    const report = await runProviderCertification(new UnmatchedCitationProvider(), {
+  it('fails source-grounding certification when no harness grounder is available to verify proposed sources', async () => {
+    // The product never accepts model self-attested citations: a source only counts when the harness
+    // itself HTTP-fetches and content-hashes it. With no grounder injected, the case must fail closed.
+    const report = await runProviderCertification(new MockProvider(), {
       generated_at: fixedGeneratedAt,
       model_id: 'mock-research-v2',
       timeout_ms: 1_000,
@@ -549,12 +535,12 @@ describe('provider certification runner', () => {
     expect(report.cases.find((caseResult) => caseResult.scenario_id === 'source-grounded-research-task')).toMatchObject({
       passed: false,
       status: 'failed',
-      details: expect.stringMatching(/source record/i),
+      details: expect.stringMatching(/requires a harness grounder/i),
     })
     expect(report.support_level).not.toBe('certified')
   })
 
-  it('fails source-grounded scenario when injected grounder cannot verify a cited source', async () => {
+  it('fails source-grounded scenario when the harness grounder cannot verify any proposed source', async () => {
     const report = await runProviderCertification(new MockProvider(), {
       generated_at: fixedGeneratedAt,
       model_id: 'mock-research-v2',
@@ -569,31 +555,46 @@ describe('provider certification runner', () => {
     expect(sourceGroundedCase).toMatchObject({
       passed: false,
       status: 'failed',
-      details: expect.stringMatching(/could not be harness-verified/i),
+      details: expect.stringMatching(/could be harness-verified/i),
     })
     expect(report.support_level).not.toBe('certified')
   })
 
-  it('passes source-grounded scenario when injected grounder verifies all cited sources with content hashes', async () => {
+  it('fails source-grounded scenario when the grounder marks a source available but never content-hashes it', async () => {
+    // Availability alone is not enough — the harness must have fetched and hashed the body. A grounder
+    // that returns verified_ids without a content_hash must not pass the grounding gate.
     const report = await runProviderCertification(new MockProvider(), {
       generated_at: fixedGeneratedAt,
       model_id: 'mock-research-v2',
       timeout_ms: 1_000,
       ground_sources: async (sources) => ({
         verified_ids: sources.map((s) => s.source_id),
-        captured: sources.map((s) => ({
-          source_id: s.source_id,
-          availability: 'available' as const,
-          content_hash: `sha256:stub-${s.source_id}`,
-        })),
+        captured: sources.map((s) => ({ source_id: s.source_id, availability: 'available' as const })),
       }),
+    })
+
+    const sourceGroundedCase = report.cases.find((caseResult) => caseResult.scenario_id === 'source-grounded-research-task')
+    expect(sourceGroundedCase).toMatchObject({
+      passed: false,
+      status: 'failed',
+      details: expect.stringMatching(/could be harness-verified/i),
+    })
+    expect(report.support_level).not.toBe('certified')
+  })
+
+  it('passes source-grounded scenario when the harness verifies proposed sources with content hashes', async () => {
+    const report = await runProviderCertification(new MockProvider(), {
+      generated_at: fixedGeneratedAt,
+      model_id: 'mock-research-v2',
+      timeout_ms: 1_000,
+      ground_sources: stubAllVerifiedGrounder,
     })
 
     const sourceGroundedCase = report.cases.find((caseResult) => caseResult.scenario_id === 'source-grounded-research-task')
     expect(sourceGroundedCase).toMatchObject({
       passed: true,
       status: 'passed',
-      details: expect.stringMatching(/grounded .+ cited source/i),
+      details: expect.stringMatching(/harness-verified .+ proposed source/i),
     })
   })
 

@@ -13,12 +13,22 @@ import { describe, expect, it } from 'vitest'
 
 import { buildProviderStatusRows, getLatestProviderCertificationReports } from '../providerStatus'
 
+// Deterministic stand-in for the harness HTTP-fetch+sha256 grounder, mirroring how the real
+// certify script grounds the mock provider's proposed sources for the source-grounded scenario.
+const deterministicGrounder = async (
+  sources: { source_id: string; title: string; url: string; excerpt: string; citation_locator?: string }[],
+) => ({
+  verified_ids: sources.map((s) => s.source_id),
+  captured: sources.map((s) => ({ source_id: s.source_id, availability: 'available' as const, content_hash: `sha256:mock-${s.source_id}` })),
+})
+
 describe('provider status model', () => {
   it('shows the mock provider as certified only because its latest persisted certification report is certified', async () => {
     const projectDir = await writeReportFixture(await runProviderCertification(new MockProvider(), {
       generated_at: '2026-06-01T00:00:00.000Z',
       model_id: 'mock-research-v2',
       timeout_ms: 1_000,
+      ground_sources: deterministicGrounder,
     }))
 
     const rows = await buildProviderStatusRows({ env: { OWLFOLIO_PROJECT_DIR: projectDir } })
@@ -201,6 +211,7 @@ describe('provider status model', () => {
       generated_at: '2026-06-01T00:00:00.000Z',
       model_id: 'mock-research-v2',
       timeout_ms: 1_000,
+      ground_sources: deterministicGrounder,
     }))
     const reports = await getLatestProviderCertificationReports({ env: { OWLFOLIO_PROJECT_DIR: projectDir } })
 
