@@ -17,6 +17,8 @@ import {
 import { ingestManualSourceBundle } from './sourceLedger'
 import { resolveResearchStrategyRef } from './researchStrategyRef'
 import { buffettMungerStrategy, creditedGrowth, discountRate, marginOfSafetyForMoat, moatPassesGate, terminalGrowthForMoat, twoStageFairValuePerShare } from '@owlfolio/strategies/buffettMunger'
+import { computeShariahFinancialRatios } from '@owlfolio/strategies/shariahFinancialRatios'
+import { resolveCurrentPrice, type MarketDataDeps, type PriceQuote } from './marketData'
 
 export const ProposedSourceSchema = z.object({
   source_id: z.string().min(1),
@@ -217,6 +219,16 @@ const OwnerEarningsBridgeSchema = z.object({
   shares_outstanding: z.number(),
 })
 
+// SHARIAH lane JUDGMENT overlay (the LLM identifies; the harness recomputes the financial ratios).
+// sector_status confirms the Stage-0 finding with segment data; impermissible_income is the dollar
+// amount ($MILLIONS) of non-permissible income (interest income, prohibited-segment revenue). The
+// harness divides this by EDGAR revenue — it does NOT trust the model's own ratio arithmetic.
+const ShariahJudgmentSchema = z.object({
+  sector_status: z.enum(['compliant', 'conditional', 'non_compliant']),
+  // Impermissible income in $MILLIONS (same scale as EDGAR revenue). 0 when fully permissible.
+  impermissible_income: z.number().min(0),
+})
+
 const DecisionAgentSchema = z.object({
   investment_verdict: z.enum(['BUY', 'WATCH', 'PASS', 'RESEARCH_MORE']),
   strategy_compliance: z.enum(['COMPLIANT', 'CONDITIONAL', 'NON_COMPLIANT', 'INSUFFICIENT_DATA']),
@@ -243,6 +255,9 @@ const DecisionAgentSchema = z.object({
   growth_assumptions: z.string().min(1),
   // Owner-earnings bridge — totals in $millions, judgment-grounded
   owner_earnings_bridge: OwnerEarningsBridgeSchema,
+  // SHARIAH financial judgment overlay — sector status + impermissible income ($M). Optional so the
+  // swarm runs unchanged when the model omits it (harness falls back to the quick-screen status).
+  shariah: ShariahJudgmentSchema.optional(),
   // ROIC inputs. `roic` is reported context; `incremental_roic` (normalized INCREMENTAL ROIC, a
   // fraction, e.g. 0.20) drives credited growth eligibility + magnitude.
   roic: z.number(),
@@ -319,6 +334,21 @@ export type FundamentalsDeps = {
   fundamentals?: Fundamentals
   /** Override fetcher. Defaults to the live SEC EDGAR adapter outside playwright test mode. */
   fetchFundamentals?: (ticker: string, deps?: SecEdgarDeps) => Promise<Fundamentals | undefined>
+  /**
+   * Override the current-price resolver (e.g. an e2e/test fixture). Used with EDGAR diluted shares to
+   * derive market cap for the AAOIFI debt/cash ratios. Defaults to the live Yahoo adapter outside
+   * playwright test mode; fail-closed + test-mode-gated exactly like fetchFundamentals.
+   */
+  resolvePrice?: (ticker: string, deps?: MarketDataDeps) => Promise<PriceQuote>
+}
+
+/**
+ * True when we must NOT hit live external data feeds (SEC EDGAR, Yahoo): playwright e2e mode and
+ * vitest unit runs. Tests that want EDGAR-anchored behavior inject `fundamentals`/`resolvePrice`
+ * explicitly; tests that omit them get TODAY's offline behavior deterministically.
+ */
+function isOfflineTestMode(): boolean {
+  return process.env['OWLFOLIO_TEST_MODE'] === 'playwright' || process.env['VITEST'] !== undefined
 }
 
 /**
@@ -329,12 +359,40 @@ async function resolveFundamentals(ticker: string, deps: FundamentalsDeps): Prom
   try {
     if (deps.fundamentals !== undefined) return deps.fundamentals
     if (deps.fetchFundamentals !== undefined) return await deps.fetchFundamentals(ticker)
-    // No injection: in playwright test mode, do NOT hit SEC live (offline/deterministic e2e).
-    if (process.env['OWLFOLIO_TEST_MODE'] === 'playwright') return undefined
+    // No injection: in offline test mode, do NOT hit SEC live (offline/deterministic tests).
+    if (isOfflineTestMode()) return undefined
     return await fetchCompanyFundamentals(ticker)
   } catch {
     return undefined
   }
+}
+
+/**
+ * Resolve a current price for a ticker, fail-closed and test-mode-gated (mirrors resolveFundamentals).
+ * Returns undefined on any failure / unavailable quote so the AAOIFI debt/cash ratios degrade to the
+ * lane's proposed Shariah verdict instead of emitting a bogus market cap.
+ */
+async function resolveCurrentPriceValue(ticker: string, deps: FundamentalsDeps): Promise<number | undefined> {
+  try {
+    const resolver = deps.resolvePrice
+      ?? (isOfflineTestMode()
+        ? undefined
+        : ((t: string, d?: MarketDataDeps) => resolveCurrentPrice({ ticker: t }, d)))
+    if (resolver === undefined) return undefined
+    const quote = await resolver(ticker)
+    return quote.available ? quote.price_per_share : undefined
+  } catch {
+    return undefined
+  }
+}
+
+/**
+ * Maintenance-capex fraction implied by the LLM's proxy tier. The model proposes the TIER (judgment);
+ * the harness applies the fraction to EDGAR capex deterministically (per buffett-valuation-method-v2:
+ * maintenance_capex = min(D&A, capex × fraction)).
+ */
+function maintenanceFractionForTier(tier: '20' | '50' | '80'): number {
+  return Number(tier) / 100
 }
 
 function fmtMusd(v: number | undefined): string {
@@ -814,6 +872,7 @@ export async function runResearchDeepDivePhase(
       + `Using the lane findings, produce a verdict, thesis, evidence, valuation rationale, Shariah rationale, risks, open questions, and a synthesis summary. `
       + `For the owner_earnings_bridge, provide company TOTALS in $millions from the latest 10-K (net_income, depreciation_amortization, maintenance_capex, stock_based_comp, normalized_working_capital_change) AND shares_outstanding (diluted weighted-average shares outstanding, in MILLIONS) so the harness can compute owner earnings per share. `
       + `Also classify the reinvestment runway as 'proven' | 'limited' | 'none' (a SEPARATE axis from moat width — proven means ≥5 yrs of incremental capital deployed at high ROIC with visible remaining headroom), set runway_exceptional only with explicit headroom evidence, and report incremental_roic (normalized INCREMENTAL ROIC as a fraction, e.g. 0.20) alongside reinvestment_rate. The harness credits growth only when incremental_roic exceeds 10%; historical revenue/EPS growth is never an input. `
+      + `For shariah, provide the JUDGMENT only: sector_status ('compliant' | 'conditional' | 'non_compliant') confirmed with segment revenue, and impermissible_income — the dollar amount in $MILLIONS of non-permissible income (interest income on cash, prohibited-segment revenue), 0 if fully permissible. The harness recomputes the AAOIFI debt/cash/impermissible ratios + verdict + purification % from the primary filings + market cap; do NOT compute the ratios yourself. `
       + `Cite sources in proposed_sources with real URLs.`,
     timeout_ms: AGENT_TIMEOUT_MS,
     schema_name: 'BuffettMungerSynthesisDecision',
@@ -890,18 +949,82 @@ export async function runResearchDeepDivePhase(
   const moatClass = dec.analysis.moat_class
   const moat_passes_gate = moatPassesGate(buffettMungerStrategy, moatClass)
 
-  const bridge = dec.analysis.owner_earnings_bridge
+  const modelBridge = dec.analysis.owner_earnings_bridge
+
+  // ---- EDGAR-anchored owner-earnings bridge ("judgment proposes, code computes") ----
+  // When EDGAR fundamentals are present, the harness anchors NI/D&A/capex/SBC/diluted-shares to the
+  // PRIMARY 10-K and recomputes maintenance capex from the LLM's proxy tier (its only capex judgment):
+  //   maintenance_capex = min(D&A, capex × maintenance_fraction)   (buffett-valuation-method-v2 Step 2)
+  // The LLM still supplies the JUDGMENT overlay: the maintenance fraction (via tier), the normalized
+  // working-capital change, and any one-off normalization to net income. When EDGAR is absent
+  // (non-US ticker / feed down / test fallback) we keep TODAY's behavior (model-proposed bridge).
+  const edgarAnnual = fundamentals?.latest_annual
+  const edgarBridgeUsable =
+    edgarAnnual !== undefined
+    && Number.isFinite(edgarAnnual.net_income_musd ?? NaN)
+    && Number.isFinite(edgarAnnual.d_and_a_musd ?? NaN)
+    && Number.isFinite(edgarAnnual.capex_musd ?? NaN)
+    && Number.isFinite(edgarAnnual.sbc_musd ?? NaN)
+    && Number.isFinite(edgarAnnual.diluted_shares_m ?? NaN)
+    && (edgarAnnual.diluted_shares_m ?? 0) > 0
+
+  // The model proposes a normalization DELTA to net income (proposed normalized NI − reported NI);
+  // applied to EDGAR's reported NI so the LLM keeps the normalization judgment without restating the
+  // primary figure. The dNWC overlay is taken straight from the model bridge (signed).
+  const bridge_basis: 'sec_edgar' | 'model_proposed' = edgarBridgeUsable ? 'sec_edgar' : 'model_proposed'
+
+  let net_income: number
+  let d_and_a: number
+  let maintenance_capex: number
+  let stock_based_comp: number
+  let shares_outstanding: number
+  let bridge_fiscal_year: number | undefined
+  let bridge_source_id: string | undefined
+  const normalized_working_capital_change = modelBridge.normalized_working_capital_change
+
+  if (edgarBridgeUsable && edgarAnnual !== undefined) {
+    const maintenance_fraction = maintenanceFractionForTier(modelBridge.maintenance_capex_proxy_tier)
+    const edgar_d_and_a = edgarAnnual.d_and_a_musd as number
+    const edgar_capex = edgarAnnual.capex_musd as number
+    // Model's net-income normalization delta carried onto EDGAR's reported NI (judgment overlay).
+    const normalization_delta = modelBridge.net_income - edgarAnnual.net_income_musd!
+    net_income = edgarAnnual.net_income_musd! + normalization_delta
+    d_and_a = edgar_d_and_a
+    maintenance_capex = Math.min(edgar_d_and_a, edgar_capex * maintenance_fraction)
+    stock_based_comp = edgarAnnual.sbc_musd as number  // SBC always subtracted, in full
+    shares_outstanding = edgarAnnual.diluted_shares_m as number  // CURRENT diluted shares
+    bridge_fiscal_year = edgarAnnual.fiscal_year
+    bridge_source_id = primaryFilingSourceId
+  } else {
+    net_income = modelBridge.net_income
+    d_and_a = modelBridge.depreciation_amortization
+    maintenance_capex = modelBridge.maintenance_capex
+    stock_based_comp = modelBridge.stock_based_comp
+    shares_outstanding = modelBridge.shares_outstanding
+  }
+
+  // The recorded bridge reflects what the harness actually used (EDGAR-anchored when available),
+  // preserving the model's tier + working-capital judgment.
+  const bridge = {
+    net_income,
+    depreciation_amortization: d_and_a,
+    maintenance_capex,
+    maintenance_capex_proxy_tier: modelBridge.maintenance_capex_proxy_tier,
+    stock_based_comp,
+    normalized_working_capital_change,
+    shares_outstanding,
+  }
+
   const owner_earnings_total =
-    bridge.net_income
-    + bridge.depreciation_amortization
-    - bridge.maintenance_capex
-    - bridge.stock_based_comp
-    - bridge.normalized_working_capital_change  // signed: subtract (positive = use of cash, negative = release)
+    net_income
+    + d_and_a
+    - maintenance_capex
+    - stock_based_comp
+    - normalized_working_capital_change  // signed: subtract (positive = use of cash, negative = release)
 
   // Convert total owner earnings ($M) to per-share using diluted shares outstanding (M).
   // Guard: shares_outstanding must be a positive, finite number — otherwise we cannot compute a
   // meaningful per-share figure and must degrade gracefully (no bogus huge fair value).
-  const shares_outstanding = bridge.shares_outstanding
   const shares_valid = Number.isFinite(shares_outstanding) && shares_outstanding > 0
   const normalized_owner_earnings_per_share = shares_valid
     ? owner_earnings_total / shares_outstanding
@@ -968,6 +1091,63 @@ export async function runResearchDeepDivePhase(
     }
   }
 
+  // ---- Market cap + harness-computed AAOIFI Shariah FINANCIAL ratios ----
+  // Market cap = current price × EDGAR diluted shares. NOTE: buffett-pipeline-spec-v2 Lane 5 wants the
+  // 36-MONTH AVERAGE market cap for the debt/cash ratios; we use the CURRENT price for now.
+  // TODO(follow-up): use fetchPriceHistory to compute the trailing 36-mo average market cap.
+  const current_price = await resolveCurrentPriceValue(command.ticker, deps)
+  const market_cap = (current_price !== undefined && shares_valid)
+    ? current_price * shares_outstanding
+    : undefined
+
+  // The SHARIAH lane (LLM) identifies the sector status + impermissible income ($M); the harness
+  // RECOMPUTES the three AAOIFI financial ratios + verdict + purification % from EDGAR debt/cash/
+  // revenue + market cap — re-verifying the model rather than trusting its ratio arithmetic. When
+  // EDGAR/market-cap/impermissible-income are missing it is not computable and we fall back to the
+  // lane's proposed (quick-screen) Shariah verdict. The SECTOR FAIL hard stop is independent of this
+  // financial-ratio layer (handled by the quick-screen short-circuit + sector_status below).
+  const shariahJudgment = dec.analysis.shariah
+  let shariah_financial:
+    | {
+        computable: true
+        debt_ratio: number
+        cash_securities_ratio: number
+        impermissible_income_pct: number
+        verdict: 'PASS' | 'CONDITIONAL' | 'FAIL'
+        purification_pct: number
+        market_cap: number
+        market_cap_basis: 'current_price_x_diluted_shares'
+        bridge_source_fiscal_year?: number
+      }
+    | undefined
+  if (
+    fundamentals?.latest_annual !== undefined
+    && market_cap !== undefined
+    && shariahJudgment !== undefined
+  ) {
+    const la = fundamentals.latest_annual
+    const ratios = computeShariahFinancialRatios({
+      interest_bearing_debt: la.total_debt_musd ?? NaN,
+      cash_and_securities: la.cash_and_securities_musd ?? NaN,
+      total_revenue: la.revenue_musd ?? NaN,
+      market_cap,
+      impermissible_income: shariahJudgment.impermissible_income,
+    })
+    if (ratios.computable) {
+      shariah_financial = {
+        computable: true,
+        debt_ratio: ratios.debt_ratio,
+        cash_securities_ratio: ratios.cash_securities_ratio,
+        impermissible_income_pct: ratios.impermissible_income_pct,
+        verdict: ratios.verdict,
+        purification_pct: ratios.purification_pct,
+        market_cap,
+        market_cap_basis: 'current_price_x_diluted_shares',
+        bridge_source_fiscal_year: la.fiscal_year,
+      }
+    }
+  }
+
   // Apply moat gate: if moat is below wide, override verdict to PASS regardless of model output
   const gatedVerdict = moat_passes_gate
     ? dec.analysis.investment_verdict
@@ -1016,7 +1196,15 @@ export async function runResearchDeepDivePhase(
         ...(margin_of_safety !== undefined ? { margin_of_safety } : {}),
         ...(buy_price_per_share !== undefined ? { buy_price_per_share } : {}),
         value_basis: 'two_stage_dcf',
+        // OE-bridge provenance: 'sec_edgar' (anchored to the 10-K) vs 'model_proposed'.
+        bridge_basis,
+        ...(bridge_fiscal_year !== undefined ? { bridge_fiscal_year } : {}),
+        ...(bridge_source_id !== undefined ? { bridge_source_id } : {}),
       },
+      // Harness-computed AAOIFI Shariah financial ratios (re-verifying the model). Absent when not
+      // computable (EDGAR/market-cap/impermissible-income missing) — caller falls back to lane verdict.
+      ...(shariah_financial !== undefined ? { shariah_financial } : {}),
+      ...(shariahJudgment !== undefined ? { shariah_sector_status: shariahJudgment.sector_status } : {}),
     },
     source_ids: allVerified,
     created_at: new Date().toISOString(),
@@ -1032,11 +1220,27 @@ export async function runResearchDeepDivePhase(
   )
   const qsPayload = qsEventFromStore?.payload as Record<string, unknown> | undefined
   const rawShariahStatus = qsPayload?.['shariah_status'] as 'COMPLIANT' | 'CONDITIONAL' | 'NON_COMPLIANT' | 'PENDING' | undefined
-  const analysisShariahStatusForPhase: 'COMPLIANT' | 'CONDITIONAL' | 'NON_COMPLIANT' | 'UNKNOWN' =
+  // Lane-proposed (quick-screen) fallback status.
+  const laneShariahStatus: 'COMPLIANT' | 'CONDITIONAL' | 'NON_COMPLIANT' | 'UNKNOWN' =
     rawShariahStatus === 'COMPLIANT' ? 'COMPLIANT'
     : rawShariahStatus === 'NON_COMPLIANT' ? 'NON_COMPLIANT'
     : rawShariahStatus === 'CONDITIONAL' ? 'CONDITIONAL'
     : 'CONDITIONAL'
+
+  // Recorded Shariah status: SECTOR is a hard stop independent of the financial ratios — a
+  // non_compliant sector forces NON_COMPLIANT even when the balance-sheet ratios pass. Otherwise the
+  // HARNESS-computed financial verdict (when computable) supersedes the lane's proposed status,
+  // re-verifying the model. When not computable, we fall back to the lane-proposed status.
+  const sectorHardStop = shariahJudgment?.sector_status === 'non_compliant'
+  const harnessFinancialStatus: 'COMPLIANT' | 'CONDITIONAL' | 'NON_COMPLIANT' | undefined =
+    shariah_financial !== undefined
+      ? (shariah_financial.verdict === 'PASS' ? 'COMPLIANT'
+        : shariah_financial.verdict === 'CONDITIONAL' ? 'CONDITIONAL'
+        : 'NON_COMPLIANT')
+      : undefined
+  const analysisShariahStatusForPhase: 'COMPLIANT' | 'CONDITIONAL' | 'NON_COMPLIANT' | 'UNKNOWN' =
+    sectorHardStop ? 'NON_COMPLIANT'
+    : harnessFinancialStatus ?? laneShariahStatus
 
   const analysisFinalPayload = {
     ...(analysisEvent.payload as Record<string, unknown>),

@@ -1178,3 +1178,143 @@ describe('SEC EDGAR primary-filing wiring', () => {
     expect(prompts.every((p) => !p.includes('Primary filing data (SEC EDGAR'))).toBe(true)
   })
 })
+
+// ---------------------------------------------------------------------------
+// EDGAR-anchored OE bridge + harness-computed AAOIFI Shariah financial ratios.
+// "Judgment proposes, code computes": the LLM provides only the maintenance-capex tier, the
+// working-capital overlay, and the impermissible-income amount; the harness anchors NI/D&A/capex/SBC/
+// diluted-shares to the 10-K and recomputes the three AAOIFI ratios + verdict + purification %.
+// ---------------------------------------------------------------------------
+function swarmFakeProviderWithShariah(impermissible_income: number, sector_status: 'compliant' | 'conditional' | 'non_compliant' = 'conditional') {
+  let callCount = 0
+  const src = (id: string) => ({ source_id: id, title: 'T', url: 'https://example.com/src', excerpt: 'e' })
+  return {
+    provider_id: 'fake-swarm-shariah',
+    capabilities: {} as never,
+    complete: vi.fn(),
+    runWithTools: vi.fn(),
+    structured: vi.fn(async (_req: unknown) => {
+      const call = callCount++
+      if (call === 0) {
+        return {
+          summary: 's', business_quality: 'b', moat: 'm', management_capital_allocation: 'mc',
+          financial_quality: 'fq', valuation_sanity: 'vs', shariah_status: 'CONDITIONAL',
+          red_flags: ['None'], confidence: 'high', caveats: ['c'],
+          screening_result: 'deep_dive_candidate', proposed_sources: [src('src_qs_1')],
+        }
+      }
+      if (call >= 1 && call <= 7) {
+        return { finding_summary: `Lane ${call}`, confidence: 'medium', caveats: ['c'], proposed_sources: [src(`src_lane_${call}`)] }
+      }
+      return {
+        investment_verdict: 'WATCH', strategy_compliance: 'CONDITIONAL', valuation_status: 'EXPENSIVE',
+        next_required_action: 'Await MoS.', decision_reason: 'Quality but pricey', thesis_summary: 'Compounder',
+        evidence_summary: 'Covered', valuation_rationale: 'Elevated', shariah_rationale: 'Trace interest income',
+        synthesis_summary: 'Reviewed', risks: ['Valuation'], open_questions: ['MoS'],
+        moat_class: 'wide', runway: 'proven',
+        growth_assumptions: 'Two-stage DCF; banded g.',
+        // Model proposes a NORMALIZED net income equal to EDGAR reported NI (delta 0), tier '80', and
+        // a maintenance_capex value the harness IGNORES in favour of min(D&A, capex × 0.80).
+        owner_earnings_bridge: {
+          net_income: 8099, depreciation_amortization: 999, maintenance_capex: 1,
+          maintenance_capex_proxy_tier: '80', stock_based_comp: 1,
+          normalized_working_capital_change: 0, shares_outstanding: 1,
+        },
+        roic: 0.30, incremental_roic: 0.20, reinvestment_rate: 0.43,
+        shariah: { sector_status, impermissible_income },
+        proposed_sources: [src('src_dec_1')],
+      }
+    }),
+  }
+}
+
+describe('EDGAR-anchored OE bridge + harness AAOIFI Shariah ratios', () => {
+  it('anchors the OE bridge to EDGAR and recomputes the AAOIFI ratios → CONDITIONAL (COST-like)', async () => {
+    const store = new InMemoryEventStore()
+    await seedDeepDivePrereqs(store)
+    const provider = swarmFakeProviderWithShariah(0.004 * 275235) // ≈0.4% of revenue
+    await provider.structured({} as never) // skip quick-screen call alignment
+
+    await runResearchDeepDivePhase(store, provider as never, deepDiveCommand(), {
+      ground: verifyAllGround(),
+      laneConcurrency: 7,
+      fundamentals: costFundamentals,
+      // Current price 968; EDGAR diluted shares 444.8 → market cap ≈ 430,646 ($M).
+      resolvePrice: async () => ({ available: true, price_per_share: 968, currency: 'USD', as_of: 'x', source: 'test' }),
+    })
+
+    const events = await store.list()
+    const projections = projectResearchCases(events as Parameters<typeof projectResearchCases>[0])
+    const cp = projections.find((c) => c.research_case_id === 'rc_edgar')
+
+    // OE bridge is EDGAR-anchored: NI 8099, D&A 2426, maint = min(2426, 5498×0.80=4398) = 2426, SBC 860.
+    expect(cp?.valuation?.bridge_basis).toBe('sec_edgar')
+    expect(cp?.valuation?.bridge_fiscal_year).toBe(2025)
+    expect(cp?.valuation?.bridge_source_id).toBe('sec_edgar_10k_0000909832_fy2025')
+    expect(cp?.valuation?.owner_earnings_bridge?.net_income).toBe(8099)
+    expect(cp?.valuation?.owner_earnings_bridge?.depreciation_amortization).toBe(2426)
+    expect(cp?.valuation?.owner_earnings_bridge?.maintenance_capex).toBe(2426)
+    expect(cp?.valuation?.owner_earnings_bridge?.stock_based_comp).toBe(860)
+    expect(cp?.valuation?.owner_earnings_bridge?.shares_outstanding).toBeCloseTo(444.8, 3)
+    // OE_ps = (8099 + 2426 - 2426 - 860 - 0) / 444.8 ≈ 16.27
+    expect(cp?.valuation?.normalized_owner_earnings_per_share).toBeCloseTo(16.27, 1)
+
+    // Harness-computed AAOIFI ratios re-verify the model:
+    expect(cp?.shariah_financial?.debt_ratio).toBeCloseTo(0.0134, 3)
+    expect(cp?.shariah_financial?.cash_securities_ratio).toBeCloseTo(0.0355, 3)
+    expect(cp?.shariah_financial?.impermissible_income_pct).toBeCloseTo(0.004, 4)
+    expect(cp?.shariah_financial?.verdict).toBe('CONDITIONAL')
+    expect(cp?.shariah_financial?.purification_pct).toBeCloseTo(0.004, 4)
+    expect(cp?.shariah_financial?.market_cap).toBeCloseTo(968 * 444.8, 0)
+    // Recorded shariah status reflects the harness CONDITIONAL verdict.
+    expect(cp?.shariah_status).toBe('CONDITIONAL')
+    expect(cp?.shariah_sector_status).toBe('conditional')
+  })
+
+  it('falls back to the model-proposed bridge + lane verdict when EDGAR is absent', async () => {
+    const store = new InMemoryEventStore()
+    await seedDeepDivePrereqs(store)
+    const provider = swarmFakeProviderWithShariah(100)
+    await provider.structured({} as never)
+
+    await runResearchDeepDivePhase(store, provider as never, deepDiveCommand(), {
+      ground: verifyAllGround(),
+      laneConcurrency: 7,
+      fetchFundamentals: async () => undefined, // EDGAR down / non-US
+      resolvePrice: async () => ({ available: false, reason: 'no quote', source: 'test' }),
+    })
+
+    const events = await store.list()
+    const projections = projectResearchCases(events as Parameters<typeof projectResearchCases>[0])
+    const cp = projections.find((c) => c.research_case_id === 'rc_edgar')
+    expect(cp?.valuation?.bridge_basis).toBe('model_proposed')
+    // model-proposed bridge passes through (net_income 8099 from the model)
+    expect(cp?.valuation?.owner_earnings_bridge?.net_income).toBe(8099)
+    // No harness ratios computed → falls back to the lane-proposed (quick-screen) status, which the
+    // deep-dive prereq seeds as COMPLIANT.
+    expect(cp?.shariah_financial).toBeUndefined()
+    expect(cp?.shariah_status).toBe('COMPLIANT')
+  })
+
+  it('sector non_compliant is a hard stop even when financial ratios pass', async () => {
+    const store = new InMemoryEventStore()
+    await seedDeepDivePrereqs(store)
+    const provider = swarmFakeProviderWithShariah(0, 'non_compliant')
+    await provider.structured({} as never)
+
+    await runResearchDeepDivePhase(store, provider as never, deepDiveCommand(), {
+      ground: verifyAllGround(),
+      laneConcurrency: 7,
+      fundamentals: costFundamentals,
+      resolvePrice: async () => ({ available: true, price_per_share: 968, currency: 'USD', as_of: 'x', source: 'test' }),
+    })
+
+    const events = await store.list()
+    const projections = projectResearchCases(events as Parameters<typeof projectResearchCases>[0])
+    const cp = projections.find((c) => c.research_case_id === 'rc_edgar')
+    // financial ratios PASS (zero impermissible) but sector hard stop forces NON_COMPLIANT.
+    expect(cp?.shariah_financial?.verdict).toBe('PASS')
+    expect(cp?.shariah_status).toBe('NON_COMPLIANT')
+    expect(cp?.shariah_sector_status).toBe('non_compliant')
+  })
+})

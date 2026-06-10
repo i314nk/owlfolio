@@ -78,6 +78,35 @@ export type ResearchCaseValuationProjection = {
   margin_of_safety?: number
   buy_price_per_share?: number
   value_basis?: string
+  /** OE-bridge provenance: 'sec_edgar' (anchored to the 10-K) or 'model_proposed'. */
+  bridge_basis?: string
+  /** Fiscal year of the EDGAR 10-K the bridge was anchored to (when bridge_basis === 'sec_edgar'). */
+  bridge_fiscal_year?: number
+  /** EDGAR source_id for the 10-K the bridge was anchored to (when bridge_basis === 'sec_edgar'). */
+  bridge_source_id?: string
+}
+
+/**
+ * Harness-computed AAOIFI Shariah FINANCIAL ratios (re-verifying the model). Present only when
+ * computable from EDGAR primary data + market cap; absent → the lane's proposed verdict was used.
+ */
+export type ResearchCaseShariahFinancialProjection = {
+  /** interest-bearing debt / market cap (threshold < 0.30). */
+  debt_ratio?: number
+  /** (cash + interest-bearing securities) / market cap (threshold < 0.30). */
+  cash_securities_ratio?: number
+  /** impermissible income / total revenue (threshold < 0.05). */
+  impermissible_income_pct?: number
+  /** Harness verdict: PASS | CONDITIONAL | FAIL. */
+  verdict?: string
+  /** Purification % carried into the purification engine (= impermissible_income_pct). */
+  purification_pct?: number
+  /** Market cap ($M) used for the ratios. */
+  market_cap?: number
+  /** Basis of the market cap (currently current price × diluted shares). */
+  market_cap_basis?: string
+  /** Fiscal year of the EDGAR primary data the ratios used. */
+  bridge_source_fiscal_year?: number
 }
 
 export type ResearchCaseProjection = {
@@ -107,6 +136,10 @@ export type ResearchCaseProjection = {
   specialist_findings?: ResearchCaseSpecialistFindingProjection[]
   owner_earnings_valuation?: ResearchCaseOwnerEarningsValuationProjection
   valuation?: ResearchCaseValuationProjection
+  /** Harness-computed AAOIFI Shariah financial ratios (absent → lane-proposed verdict was used). */
+  shariah_financial?: ResearchCaseShariahFinancialProjection
+  /** SHARIAH lane sector status judgment: compliant | conditional | non_compliant. */
+  shariah_sector_status?: string
   synthesis_id?: string
   decision_id?: string
   investment_verdict?: string
@@ -220,7 +253,38 @@ function getValuation(payload: Record<string, unknown>): ResearchCaseValuationPr
   if (buy_price_per_share !== undefined) projected.buy_price_per_share = buy_price_per_share
   const value_basis = getString(value, 'value_basis')
   if (value_basis !== undefined) projected.value_basis = value_basis
+  const bridge_basis = getString(value, 'bridge_basis')
+  if (bridge_basis !== undefined) projected.bridge_basis = bridge_basis
+  const bridge_fiscal_year = getNumber(value, 'bridge_fiscal_year')
+  if (bridge_fiscal_year !== undefined) projected.bridge_fiscal_year = bridge_fiscal_year
+  const bridge_source_id = getString(value, 'bridge_source_id')
+  if (bridge_source_id !== undefined) projected.bridge_source_id = bridge_source_id
 
+  return Object.keys(projected).length === 0 ? undefined : projected
+}
+
+function getShariahFinancial(payload: Record<string, unknown>): ResearchCaseShariahFinancialProjection | undefined {
+  const value = payload['shariah_financial']
+  if (!isRecord(value)) {
+    return undefined
+  }
+  const projected: ResearchCaseShariahFinancialProjection = {}
+  const debt_ratio = getNumber(value, 'debt_ratio')
+  if (debt_ratio !== undefined) projected.debt_ratio = debt_ratio
+  const cash_securities_ratio = getNumber(value, 'cash_securities_ratio')
+  if (cash_securities_ratio !== undefined) projected.cash_securities_ratio = cash_securities_ratio
+  const impermissible_income_pct = getNumber(value, 'impermissible_income_pct')
+  if (impermissible_income_pct !== undefined) projected.impermissible_income_pct = impermissible_income_pct
+  const verdict = getString(value, 'verdict')
+  if (verdict !== undefined) projected.verdict = verdict
+  const purification_pct = getNumber(value, 'purification_pct')
+  if (purification_pct !== undefined) projected.purification_pct = purification_pct
+  const market_cap = getNumber(value, 'market_cap')
+  if (market_cap !== undefined) projected.market_cap = market_cap
+  const market_cap_basis = getString(value, 'market_cap_basis')
+  if (market_cap_basis !== undefined) projected.market_cap_basis = market_cap_basis
+  const bridge_source_fiscal_year = getNumber(value, 'bridge_source_fiscal_year')
+  if (bridge_source_fiscal_year !== undefined) projected.bridge_source_fiscal_year = bridge_source_fiscal_year
   return Object.keys(projected).length === 0 ? undefined : projected
 }
 
@@ -293,6 +357,7 @@ function applyString(
     | 'evidence_summary'
     | 'valuation_rationale'
     | 'shariah_rationale'
+    | 'shariah_sector_status'
     | 'confidence'
     | 'supersedes_research_case_id'
   >,
@@ -603,6 +668,11 @@ export function projectResearchCases(events: LedgerEventEnvelope<unknown>[]): Re
       if (valuation !== undefined) {
         researchCase.valuation = valuation
       }
+      const shariahFinancial = getShariahFinancial(event.payload)
+      if (shariahFinancial !== undefined) {
+        researchCase.shariah_financial = shariahFinancial
+      }
+      applyString(researchCase, 'shariah_sector_status', getString(event.payload, 'shariah_sector_status'))
       continue
     }
 

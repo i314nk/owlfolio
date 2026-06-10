@@ -12,6 +12,7 @@
   "exports": {
     ".": "./src/strategyContract.ts",
     "./buffettMunger": "./src/buffettMunger.ts",
+    "./shariahFinancialRatios": "./src/shariahFinancialRatios.ts",
     "./evaluateGates": "./src/evaluateGates.ts",
     "./strategyContract": "./src/strategyContract.ts",
     "./positionSizing": "./src/positionSizing.ts"

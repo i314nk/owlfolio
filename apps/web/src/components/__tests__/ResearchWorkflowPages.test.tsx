@@ -486,6 +486,88 @@ describe('research and watchlist workflow pages', () => {
     expect([...html.matchAll(/Microsoft remains a high-quality Buffett-Munger business/g)]).toHaveLength(1)
   })
 
+  it('renders harness-computed AAOIFI Shariah ratios + EDGAR OE-bridge provenance when present', () => {
+    const researchCase: AppResearchCase = {
+      research_case_id: 'rc_cost_001',
+      version: 1,
+      superseded: false,
+      stage: 'decision_drafted',
+      company_id: 'company_cost',
+      ticker: 'COST',
+      strategy_id: 'buffett-munger',
+      decision_id: 'decision_cost_001',
+      decision: 'WATCH',
+      reason: 'Quality compounder; price rich.',
+      investment_verdict: 'WATCH',
+      strategy_compliance: 'CONDITIONAL',
+      shariah_status: 'CONDITIONAL',
+      shariah_sector_status: 'conditional',
+      valuation_status: 'EXPENSIVE',
+      next_required_action: 'Await a margin of safety.',
+      updated_at: '2026-06-09T12:00:00.000Z',
+      shariah_financial: {
+        debt_ratio: 0.0134,
+        cash_securities_ratio: 0.0355,
+        impermissible_income_pct: 0.004,
+        verdict: 'CONDITIONAL',
+        purification_pct: 0.004,
+        market_cap: 430646,
+        market_cap_basis: 'current_price_x_diluted_shares',
+        bridge_source_fiscal_year: 2025,
+      },
+      valuation: {
+        moat_class: 'wide',
+        moat_passes_gate: true,
+        runway: 'proven',
+        discount_rate: 0.1,
+        growth_rate: 0.03,
+        terminal_growth_rate: 0.01,
+        roic: 0.3,
+        incremental_roic: 0.2,
+        reinvestment_rate: 0.43,
+        normalized_owner_earnings_per_share: 16.27,
+        fair_value_per_share: 210.0,
+        implied_multiple: 12.9,
+        margin_of_safety: 0.3,
+        buy_price_per_share: 147.0,
+        value_basis: 'two_stage_dcf',
+        bridge_basis: 'sec_edgar',
+        bridge_fiscal_year: 2025,
+        bridge_source_id: 'sec_edgar_10k_0000909832_fy2025',
+        owner_earnings_bridge: {
+          net_income: 8099,
+          depreciation_amortization: 2426,
+          maintenance_capex: 2426,
+          maintenance_capex_proxy_tier: '80',
+          stock_based_comp: 860,
+          normalized_working_capital_change: 0,
+          shares_outstanding: 444.8,
+        },
+      },
+      gate_checklist: [],
+      source_ids: ['sec_edgar_10k_0000909832_fy2025'],
+      source_evidence: [],
+      ledger_timeline: [],
+    }
+
+    const html = renderToStaticMarkup(createElement(ResearchCasePanel, {
+      researchCase,
+      mode: 'personal-local',
+    }))
+
+    // AAOIFI ratio mini-ledger in the Shariah / compliance card.
+    expect(html).toContain('AAOIFI financial ratios (harness-computed)')
+    expect(html).toContain('Debt / market cap')
+    expect(html).toContain('Cash + securities / market cap')
+    expect(html).toContain('Impermissible income / revenue')
+    expect(html).toContain('&lt; 30%')
+    expect(html).toContain('&lt; 5%')
+    expect(html).toContain('Purification: 0.4%')
+    // OE-bridge provenance (note + EDGAR chip).
+    expect(html).toContain('Owner earnings computed from SEC 10-K FY2025')
+    expect(html).toContain('SEC EDGAR')
+  })
+
   it('renders the personal-local watchlist promotion action only for drafted decisions', () => {
     const decisionDraftedResearchCase: AppResearchCase = {
       research_case_id: 'rc_msft_001',

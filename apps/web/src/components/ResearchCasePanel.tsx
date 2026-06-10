@@ -892,8 +892,38 @@ function createValuationPanel(researchCase: AppResearchCase, marketQuote?: Marke
         bridge.maintenance_capex_proxy_tier !== undefined ? createElement('p', { style: { color: '#9aa4b7', fontSize: 'var(--owl-text-xs)', margin: '0.25rem 0 0' } },
           `Maint. capex proxy tier: ${bridge.maintenance_capex_proxy_tier}th percentile of D&A`,
         ) : null,
+        createOwnerEarningsProvenanceLine(valuation),
       ),
     ) : null,
+  )
+}
+
+/**
+ * Provenance line inside the owner-earnings bridge: 'Owner earnings computed from SEC 10-K FY{year}'
+ * with an EDGAR source chip when bridge_basis === 'sec_edgar', else a model-estimated note.
+ */
+function createOwnerEarningsProvenanceLine(
+  valuation: NonNullable<AppResearchCase['valuation']>,
+): ReturnType<typeof createElement> | null {
+  const basis = valuation.bridge_basis
+  if (basis === undefined) return null
+  if (basis === 'sec_edgar') {
+    const fy = valuation.bridge_fiscal_year
+    return createElement(
+      'p',
+      { 'data-testid': 'oe-bridge-provenance', style: { alignItems: 'center', color: '#bbf7d0', display: 'flex', flexWrap: 'wrap', fontSize: 'var(--owl-text-xs)', gap: '0.4rem', margin: '0.4rem 0 0' } },
+      createElement('span', null, fy !== undefined ? `Owner earnings computed from SEC 10-K FY${fy}` : 'Owner earnings computed from SEC 10-K'),
+      createElement(
+        'span',
+        { style: { background: 'rgba(52, 211, 153, 0.14)', borderRadius: '0.4rem', color: 'var(--owl-color-emerald, #34d399)', fontWeight: 800, padding: '0.05rem 0.4rem' } },
+        'SEC EDGAR',
+      ),
+    )
+  }
+  return createElement(
+    'p',
+    { 'data-testid': 'oe-bridge-provenance', style: { color: '#9aa4b7', fontSize: 'var(--owl-text-xs)', margin: '0.4rem 0 0' } },
+    'Owner earnings are model-estimated (no SEC primary filing available).',
   )
 }
 
@@ -1145,12 +1175,31 @@ function createDecisionEvidence(researchCase: AppResearchCase) {
         },
       },
       createDossierCard('Thesis', thesis, undefined, { note: 'Full thesis available in the disclosure below.' }),
-      createDossierCard('Valuation', valuationText, researchCase.valuation_status),
-      createDossierCard('Shariah / compliance', shariahText, researchCase.shariah_status),
+      createDossierCard('Valuation', valuationText, researchCase.valuation_status, { note: valuationProvenanceNote(researchCase) }),
+      createDossierCard('Shariah / compliance', shariahText, researchCase.shariah_status, { extra: createShariahRatioLedger(researchCase) }),
       createDossierCard('Risks / open questions', [...risks, ...openQuestions]),
     ),
     createFullThesisDisclosure(fullThesis, thesis),
   )
+}
+
+/**
+ * OE-bridge provenance note for the Valuation card: when the bridge was anchored to the SEC 10-K we
+ * say so (with the fiscal year); otherwise it is model-estimated. Returns undefined when no bridge
+ * basis was recorded (legacy cases) so the note element is omitted.
+ */
+function valuationProvenanceNote(researchCase: AppResearchCase): string | undefined {
+  const basis = researchCase.valuation?.bridge_basis
+  if (basis === 'sec_edgar') {
+    const fy = researchCase.valuation?.bridge_fiscal_year
+    return fy !== undefined
+      ? `Owner earnings computed from SEC 10-K FY${fy}.`
+      : 'Owner earnings computed from SEC 10-K.'
+  }
+  if (basis === 'model_proposed') {
+    return 'Owner earnings are model-estimated (no SEC primary filing available).'
+  }
+  return undefined
 }
 
 function createFallbackValuationText(researchCase: AppResearchCase): string {
@@ -1169,7 +1218,12 @@ function createFallbackValuationText(researchCase: AppResearchCase): string {
   return `Legacy dossier lacks structured owner-earnings assumptions; treat ${valuationStatus} as a deep-dive valuation status, not a Quick Screen gate.`
 }
 
-function createDossierCard(label: string, content: string | string[], status?: string, options?: { note?: string }) {
+function createDossierCard(
+  label: string,
+  content: string | string[],
+  status?: string,
+  options?: { note?: string | undefined; extra?: ReturnType<typeof createElement> | null | undefined },
+) {
   const contentItems = Array.isArray(content) ? content : [content]
 
   return createElement(
@@ -1198,9 +1252,64 @@ function createDossierCard(label: string, content: string | string[], status?: s
         { style: { color: '#dbe3ef', display: 'grid', fontSize: 'var(--owl-text-base)', gap: '0.35rem', lineHeight: 1.4, margin: 0, paddingLeft: '1rem' } },
         ...contentItems.map((item) => createElement('li', { key: item }, item)),
       ),
+    options?.extra ?? null,
     options?.note === undefined
       ? null
       : createElement('p', { style: { color: '#9aa4b7', fontSize: 'var(--owl-text-sm)', fontWeight: 750, lineHeight: 1.4, margin: 0 } }, options.note),
+  )
+}
+
+/** Format a fraction as a percentage with one decimal (0.0134 → "1.3%"). */
+function formatRatioPct(value: number): string {
+  return `${(value * 100).toFixed(1)}%`
+}
+
+/**
+ * Mini ledger-line of the three AAOIFI financial ratios (harness-computed from SEC primary data +
+ * market cap, re-verifying the LLM), the harness verdict, and the purification %. Emerald when within
+ * threshold, risk colour when breached. Returns null when no harness ratios were computed.
+ */
+function createShariahRatioLedger(researchCase: AppResearchCase): ReturnType<typeof createElement> | null {
+  const sf = researchCase.shariah_financial
+  if (sf === undefined) return null
+  const EMERALD = 'var(--owl-color-emerald, #34d399)'
+  const RISK = 'var(--owl-color-risk)'
+
+  const row = (label: string, ratio: number | undefined, thresholdLabel: string, max: number) => {
+    if (ratio === undefined) return null
+    const within = ratio < max
+    return createElement(
+      'div',
+      { key: label, style: { alignItems: 'baseline', color: '#dbe3ef', display: 'flex', fontSize: 'var(--owl-text-sm)', gap: '0.4rem', justifyContent: 'space-between' } },
+      createElement('span', null, label),
+      createElement(
+        'span',
+        { style: { color: within ? EMERALD : RISK, fontWeight: 800 } },
+        `${formatRatioPct(ratio)} (${thresholdLabel} ${within ? '✓' : '✗'})`,
+      ),
+    )
+  }
+
+  const verdict = sf.verdict ?? 'Pending'
+  const verdictColor = verdict === 'FAIL' ? RISK : verdict === 'PASS' ? EMERALD : 'var(--owl-color-gold-bright)'
+  const purification = sf.purification_pct !== undefined ? formatRatioPct(sf.purification_pct) : '0.0%'
+
+  return createElement(
+    'div',
+    {
+      'data-testid': 'shariah-aaoifi-ledger',
+      style: { borderTop: '1px solid rgba(148, 163, 184, 0.14)', display: 'grid', gap: '0.3rem', marginTop: '0.2rem', paddingTop: '0.45rem' },
+    },
+    createElement('p', { style: { color: '#9aa4b7', fontSize: 'var(--owl-text-sm)', fontWeight: 800, margin: 0 } }, 'AAOIFI financial ratios (harness-computed)'),
+    row('Debt / market cap', sf.debt_ratio, '< 30%', 0.3),
+    row('Cash + securities / market cap', sf.cash_securities_ratio, '< 30%', 0.3),
+    row('Impermissible income / revenue', sf.impermissible_income_pct, '< 5%', 0.05),
+    createElement(
+      'div',
+      { style: { alignItems: 'baseline', color: '#dbe3ef', display: 'flex', fontSize: 'var(--owl-text-sm)', gap: '0.4rem', justifyContent: 'space-between', marginTop: '0.15rem' } },
+      createElement('span', { style: { fontWeight: 800 } }, `Verdict: ${verdict}`),
+      createElement('span', { style: { color: verdictColor, fontWeight: 800 } }, `Purification: ${purification}`),
+    ),
   )
 }
 
