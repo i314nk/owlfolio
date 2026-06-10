@@ -7,6 +7,12 @@ import {
   type CommandCenterHoldingReviewPrompt,
   type CommandCenterRecentActivity,
 } from '@owlfolio/ledger/projections/commandCenterProjection'
+import { projectMonitorAlerts, type MonitorAlert } from '@owlfolio/ledger/projections/monitorAlertProjection'
+import {
+  extractDiscoverySignal,
+  projectDiscoveryCandidates,
+  type DiscoverySignal,
+} from '@owlfolio/ledger/projections/discoveryCandidateProjection'
 import type { LedgerEventEnvelope } from '@owlfolio/ledger/eventEnvelope'
 import type { EventStore } from '@owlfolio/ledger/eventStore'
 import { projectResearchCases, type ResearchCaseProjection } from '@owlfolio/ledger/projections/researchCaseProjection'
@@ -44,6 +50,15 @@ export type CommandCenterAccountingAlert = {
   href: string
 }
 
+/** A strong discovery signal surfaced on the home "needs your attention" rail (CLUSTER_BUY especially). */
+export type CommandCenterDiscoverySignal = {
+  candidate_id: string
+  ticker: string
+  company_name: string
+  signal: DiscoverySignal
+  href: string
+}
+
 export type AppCommandCenter = {
   product_name: string
   setup_status: string
@@ -57,8 +72,46 @@ export type AppCommandCenter = {
   holding_review_prompts: CommandCenterHoldingReviewPrompt[]
   accounting_alert?: CommandCenterAccountingAlert
   recent_activity: CommandCenterRecentActivity[]
+  /** Open agent observations + human-decision drafts (NOT executed) — the "needs your attention" rail. */
+  monitor_alerts: MonitorAlert[]
+  /** The strongest unconverted 13F discovery signals (CLUSTER_BUY first). */
+  discovery_signals: CommandCenterDiscoverySignal[]
   primary_action: CommandCenterAction
   secondary_action?: CommandCenterAction
+}
+
+export type { MonitorAlert } from '@owlfolio/ledger/projections/monitorAlertProjection'
+
+const SIGNAL_RANK: Record<DiscoverySignal['signal_type'], number> = { CLUSTER_BUY: 0, NEW_POSITION: 1, MEANINGFUL_ADD: 2 }
+
+/**
+ * The strongest still-actionable discovery signals for the home rail: candidates that have surfaced but
+ * not yet been promoted/rejected, ranked CLUSTER_BUY > NEW_POSITION > MEANINGFUL_ADD then by conviction.
+ */
+function buildDiscoverySignals(events: LedgerEventEnvelope<unknown>[], limit = 3): CommandCenterDiscoverySignal[] {
+  const out: CommandCenterDiscoverySignal[] = []
+  for (const candidate of projectDiscoveryCandidates(events)) {
+    if (candidate.status === 'rejected' || candidate.status === 'duplicate' || candidate.status === 'promoted_to_research_case') {
+      continue
+    }
+    const signal = extractDiscoverySignal(candidate.discovery_metadata)
+    if (signal === undefined) {
+      continue
+    }
+    out.push({
+      candidate_id: candidate.candidate_id,
+      ticker: candidate.ticker,
+      company_name: candidate.company_name,
+      signal,
+      href: `/research/new?ticker=${encodeURIComponent(candidate.ticker)}`,
+    })
+  }
+  return out
+    .sort((left, right) => {
+      const byKind = SIGNAL_RANK[left.signal.signal_type] - SIGNAL_RANK[right.signal.signal_type]
+      return byKind !== 0 ? byKind : right.signal.conviction_pct - left.signal.conviction_pct
+    })
+    .slice(0, limit)
 }
 
 export type DemoCommandCenter = AppCommandCenter
@@ -186,6 +239,8 @@ export async function getSetupAwareCommandCenter({ config, is_initialized, provi
       approval_queue: [],
       holding_review_prompts: [],
       recent_activity: [{ event_id: 'placeholder:no-durable-ledger-events-yet', label: 'No durable ledger events yet' }],
+      monitor_alerts: [],
+      discovery_signals: [],
       primary_action: { href: '/onboarding', label: 'Continue setup' },
     }
   }
@@ -215,6 +270,8 @@ export async function getSetupAwareCommandCenter({ config, is_initialized, provi
       recent_activity: summary.recent_activity.length === 0
         ? [{ event_id: 'placeholder:no-ledger-events-yet', label: 'No ledger events yet' }]
         : summary.recent_activity,
+      monitor_alerts: projectMonitorAlerts(events),
+      discovery_signals: buildDiscoverySignals(events),
       primary_action: summary.approval_queue[0] !== undefined
         ? { href: summary.approval_queue[0].href, label: 'Review the highest-priority decision' }
         : summary.pipeline_counts.research_cases === 0
@@ -248,6 +305,8 @@ function buildDemoCommandCenter(
     holding_review_prompts: summary.holding_review_prompts,
     ...(accountingAlert === undefined ? {} : { accounting_alert: accountingAlert }),
     recent_activity: summary.recent_activity,
+    monitor_alerts: projectMonitorAlerts(events),
+    discovery_signals: buildDiscoverySignals(events),
     primary_action: {
       href: `/research/${summary.primary_research_case_id ?? DEMO_RESEARCH_CASE_ID}`,
       label: 'View demo research case',
@@ -366,6 +425,10 @@ export async function getDemoWatchlistItems(): Promise<DemoWatchlistItem[]> {
 
 export async function getDemoWatchlistItemsFromStore(store: EventStore): Promise<DemoWatchlistItem[]> {
   return projectWatchlist(await getDemoEventsFromStore(store)).map((item) => ({ ...item }))
+}
+
+export async function getDemoMonitorAlerts(): Promise<MonitorAlert[]> {
+  return projectMonitorAlerts(await getDemoEventsFromStore(await getDefaultDemoStore()))
 }
 
 function projectDemoResearchCases(events: LedgerEventEnvelope<unknown>[]): DemoResearchCase[] {

@@ -3,8 +3,14 @@ import { createElement, Fragment } from 'react'
 import type { InvestableCapitalSnapshot } from '@owlfolio/ledger/projections/investableCapitalProjection'
 
 import { OwlButtonLink, OwlRingGauge, OwlValuationChip, RouteHeader, type OwlValuationKind } from './designSystem'
-import type { AppHolding, WorkflowMode } from '../lib/workflow'
+import type { AppHolding, MonitorAlert, WorkflowMode } from '../lib/workflow'
 import { StatusBadge } from './StatusBadge'
+
+const HOLDING_ALERT_TONE: Record<MonitorAlert['severity'], 'danger' | 'warning' | 'neutral'> = {
+  urgent: 'danger',
+  attention: 'warning',
+  info: 'neutral',
+}
 
 export type PortfolioValuationRefreshSummary = {
   last_price_check_at?: string
@@ -31,6 +37,8 @@ export type PortfolioPanelProps = {
   mode?: WorkflowMode
   valuationRefresh?: PortfolioValuationRefreshSummary
   investableCapital?: InvestableCapitalSnapshot
+  /** Open agent observations + drafts per holding (tranche / concentration / Shariah grace / sell-review). */
+  alerts?: MonitorAlert[]
 }
 
 const cardStyle = {
@@ -86,7 +94,7 @@ const decisionQuickLinkStyle = {
  * Returns a Fragment so each section is a direct child of the route frame and
  * inherits the app's staggered reveal.
  */
-export function PortfolioPanel({ holdings, mode = 'demo', valuationRefresh, investableCapital }: PortfolioPanelProps) {
+export function PortfolioPanel({ holdings, mode = 'demo', valuationRefresh, investableCapital, alerts = [] }: PortfolioPanelProps) {
   const totalCostBasis = holdings.reduce((sum, holding) => sum + holding.total_cost_basis, 0)
   const totalCurrentValue = holdings.reduce((sum, holding) => sum + (holding.latest_market_value ?? 0), 0)
 
@@ -107,7 +115,41 @@ export function PortfolioPanel({ holdings, mode = 'demo', valuationRefresh, inve
     ...(valuationRefresh === undefined ? [] : [createScheduledValuationRefreshCard(valuationRefresh)]),
     ...(holdings.length === 0
       ? [createPortfolioEmptyState()]
-      : holdings.map((holding) => createHoldingCard(holding, mode))),
+      : holdings.map((holding) => createHoldingCard(holding, mode, alerts.filter((alert) => alert.subject.holding_id === holding.holding_id)))),
+  )
+}
+
+/**
+ * Inline agent observations + human-decision drafts for one holding: tranche review (thesis-gated),
+ * concentration trim-review (winners run; not an auto-trim), Shariah grace (days-left; not a ruling),
+ * DIVEST-REQUIRED / SELL-REVIEW drafts (proposals, never executed), and the annual re-run flag. Each
+ * carries the spec's caveat in its detail; nothing here advances state.
+ */
+function createHoldingAlerts(alerts: MonitorAlert[]) {
+  if (alerts.length === 0) {
+    return null
+  }
+
+  return createElement(
+    'section',
+    { className: 'owl-section-card', style: { boxShadow: 'none', display: 'grid', gap: 'var(--owl-space-2)', marginTop: '1rem' } },
+    createElement('p', { className: 'owl-section-accent' }, 'Agent observations & drafts — you decide'),
+    ...alerts.map((alert) => createElement(
+      'div',
+      { key: alert.id, className: 'owl-row owl-row-top' },
+      createElement(
+        'div',
+        { className: 'owl-row-main' },
+        createElement(
+          'div',
+          { className: 'owl-activity-meta', style: { marginBottom: '0.2rem' } },
+          createElement(StatusBadge, { tone: HOLDING_ALERT_TONE[alert.severity] }, alert.severity === 'urgent' ? 'Urgent' : alert.severity === 'attention' ? 'Attention' : 'Watch'),
+          createElement(StatusBadge, { tone: 'neutral' }, alert.is_draft ? 'Draft — you author' : 'Observation'),
+        ),
+        createElement('p', { className: 'owl-row-title' }, alert.headline),
+        createElement('p', { className: 'owl-row-helper' }, alert.detail),
+      ),
+    )),
   )
 }
 
@@ -208,7 +250,7 @@ function createPortfolioEmptyState() {
   )
 }
 
-function createHoldingCard(holding: PortfolioHolding, mode: WorkflowMode) {
+function createHoldingCard(holding: PortfolioHolding, mode: WorkflowMode, alerts: MonitorAlert[]) {
   const ticker = holding.ticker ?? holding.company_id ?? holding.holding_id
   const chip = holdingValuationChip(holding)
 
@@ -235,6 +277,7 @@ function createHoldingCard(holding: PortfolioHolding, mode: WorkflowMode) {
       ),
     ),
     createPositionEconomicsTable(holding),
+    createHoldingAlerts(alerts),
     createConfirmedPortfolioState(holding),
     ...createShariahGateDetails(holding),
     createDetail('Thesis summary', holding.thesis_summary ?? 'No thesis recorded'),

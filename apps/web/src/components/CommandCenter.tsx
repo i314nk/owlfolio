@@ -2,7 +2,7 @@ import { createElement, Fragment, type ReactNode } from 'react'
 
 import { OwlButtonLink, SourceChip } from './designSystem'
 import { StatusBadge } from './StatusBadge'
-import type { AppCommandCenter } from '../lib/demo'
+import type { AppCommandCenter, CommandCenterDiscoverySignal, MonitorAlert } from '../lib/demo'
 
 export type CommandCenterProps = {
   dashboard: AppCommandCenter
@@ -38,6 +38,7 @@ export function CommandCenter({ dashboard }: CommandCenterProps) {
     createMasthead(dashboard),
     createBriefingHero(dashboard),
     createLedgerLine(dashboard),
+    createNeedsAttention(dashboard),
     createCommandPanel(dashboard),
     createAgentsDesk(dashboard),
     createHoldingsAndBooks(dashboard),
@@ -159,6 +160,115 @@ function createLedgerLine(dashboard: AppCommandCenter) {
       createElement('p', { className: 'owl-cc-ledger-label' }, stat.label),
       createElement('p', { className: `owl-cc-ledger-figure ${stat.figureClass}`.trim() }, stat.value),
     )),
+  )
+}
+
+// ── 3b. Needs your attention (agent observations & drafts) ────────────────────
+
+const SEVERITY_TONE: Record<MonitorAlert['severity'], { badge: 'danger' | 'warning' | 'neutral'; label: string }> = {
+  urgent: { badge: 'danger', label: 'Urgent' },
+  attention: { badge: 'warning', label: 'Attention' },
+  info: { badge: 'neutral', label: 'Watch' },
+}
+
+const SIGNAL_BADGE_LABEL: Record<CommandCenterDiscoverySignal['signal']['signal_type'], string> = {
+  CLUSTER_BUY: 'CLUSTER BUY',
+  NEW_POSITION: 'NEW POSITION',
+  MEANINGFUL_ADD: 'MEANINGFUL ADD',
+}
+
+/**
+ * The agent's "needs your attention" rail: open monitor observations (buy-windows, tranche/concentration,
+ * Shariah grace) and human-decision drafts (sell-review / divest), plus the strongest 13F discovery
+ * signals. EVERY row is an observation or a DRAFT — nothing is executed and nothing advances state; each
+ * row is a LINK to where YOU author the decision.
+ */
+function createNeedsAttention(dashboard: AppCommandCenter) {
+  const alerts = dashboard.monitor_alerts
+  const signals = dashboard.discovery_signals
+
+  return createElement(
+    'section',
+    { 'aria-label': 'Needs your attention', className: 'owl-section-card', style: { gap: 'var(--owl-space-4)' } },
+    createElement('p', { className: 'owl-cc-section-accent' }, 'Needs your attention'),
+    createElement('h2', { className: 'owl-section-title' }, 'Agent observations & drafts — you decide'),
+    createElement(
+      'p',
+      { className: 'owl-cc-directive' },
+      'These are what your agent is watching and the exits it has drafted. None are executed and none advance your portfolio — each links to where you author the decision.',
+    ),
+    alerts.length === 0 && signals.length === 0
+      ? createElement('p', { className: 'owl-row-helper', style: { margin: 0 } }, 'No alerts — the agent is watching.')
+      : createElement(
+        'div',
+        { className: 'owl-row-list' },
+        ...alerts.map((alert) => createAttentionRow(alert)),
+        ...signals.map((signal) => createDiscoverySignalRow(signal)),
+      ),
+  )
+}
+
+function createAttentionRow(alert: MonitorAlert) {
+  const tone = SEVERITY_TONE[alert.severity]
+  const label = alert.subject.ticker ?? alert.subject.holding_id ?? alert.subject.watchlist_item_id ?? 'Subject'
+
+  return createElement(
+    'div',
+    { key: alert.id, className: 'owl-row owl-row-top' },
+    createElement(
+      'div',
+      { className: 'owl-row-main' },
+      createElement(
+        'div',
+        { className: 'owl-activity-meta', style: { marginBottom: '0.2rem' } },
+        createElement(StatusBadge, { tone: tone.badge }, tone.label),
+        createElement(StatusBadge, { tone: 'neutral' }, alert.is_draft ? 'Draft — you author' : 'Observation'),
+        createElement(SourceChip, { id: label, label: 'Subject' }),
+      ),
+      createElement('h3', { className: 'owl-row-title' }, alert.headline),
+      createElement('p', { className: 'owl-row-helper' }, alert.detail),
+    ),
+    createElement(
+      'div',
+      { className: 'owl-row-aside' },
+      createElement(OwlButtonLink, { href: alert.human_action.href, variant: alert.severity === 'urgent' ? 'danger' : 'secondary' }, `${alert.human_action.label} →`),
+    ),
+  )
+}
+
+function createDiscoverySignalRow(signal: CommandCenterDiscoverySignal) {
+  const detail = signal.signal
+  const managers = detail.contributing_managers.length === 0
+    ? 'managers not recorded'
+    : detail.contributing_managers.join(', ')
+  const conviction = `${(detail.conviction_pct * 100).toFixed(1)}% conviction`
+
+  return createElement(
+    'div',
+    { key: `signal:${signal.candidate_id}`, className: 'owl-row owl-row-top' },
+    createElement(
+      'div',
+      { className: 'owl-row-main' },
+      createElement(
+        'div',
+        { className: 'owl-activity-meta', style: { marginBottom: '0.2rem' } },
+        createElement(StatusBadge, { tone: detail.signal_type === 'CLUSTER_BUY' ? 'success' : 'neutral' }, SIGNAL_BADGE_LABEL[detail.signal_type]),
+        createElement(StatusBadge, { tone: 'neutral' }, 'Discovery signal'),
+        ...(detail.ticker_unresolved ? [createElement(StatusBadge, { tone: 'warning', key: 'unresolved' }, 'Ticker unresolved')] : []),
+      ),
+      createElement('h3', { className: 'owl-row-title' }, `${signal.ticker} — ${signal.company_name}`),
+      createElement(
+        'p',
+        { className: 'owl-row-helper' },
+        createElement('strong', { style: { fontFamily: 'var(--owl-font-mono)' } }, conviction),
+        ` · ${managers}. A 13F signal — your agent flags it; you decide whether to research it.`,
+      ),
+    ),
+    createElement(
+      'div',
+      { className: 'owl-row-aside' },
+      createElement(OwlButtonLink, { href: signal.href, variant: 'secondary' }, 'Review candidate →'),
+    ),
   )
 }
 

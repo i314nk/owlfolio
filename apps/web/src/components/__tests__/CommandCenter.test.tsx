@@ -39,6 +39,8 @@ function makeDashboard(overrides: Partial<AppCommandCenter> = {}): AppCommandCen
     approval_queue: [],
     holding_review_prompts: [],
     recent_activity: [],
+    monitor_alerts: [],
+    discovery_signals: [],
     primary_action: { href: '/research/rc_cost_001', label: 'Open latest research case' },
     ...overrides,
   }
@@ -636,6 +638,8 @@ describe('CommandCenter', () => {
           href: '/accounting/monthly',
         },
         recent_activity: [{ event_id: 'evt_accounting_snapshot_2026_06', label: 'accounting_snapshot_recorded by worker:monthly-accounting-worker' }],
+        monitor_alerts: [],
+        discovery_signals: [],
         primary_action: { href: '/portfolio', label: 'Open portfolio' },
       },
     }))
@@ -674,6 +678,8 @@ describe('CommandCenter', () => {
           },
         ],
         recent_activity: [{ event_id: 'evt_review_override', label: 'holding_review_overridden by user:user_local' }],
+        monitor_alerts: [],
+        discovery_signals: [],
         primary_action: { href: '/portfolio', label: 'Open portfolio' },
         secondary_action: { href: '/watchlist', label: 'Open watchlist drafts' },
       },
@@ -686,6 +692,57 @@ describe('CommandCenter', () => {
     expect(html).toContain('153 days')
     expect(html).toContain('href="/portfolio#holding_msft_001"')
     expect(html).toContain('Review MSFT')
+  })
+
+  it('renders the "Needs your attention" rail with a monitor alert and a discovery signal as observations/drafts', () => {
+    const html = renderToStaticMarkup(createElement(CommandCenter, {
+      dashboard: makeDashboard({
+        monitor_alerts: [
+          {
+            id: 'sr_hhh',
+            kind: 'divest_required',
+            subject: { ticker: 'HHH', holding_id: 'holding_hhh' },
+            severity: 'urgent',
+            headline: 'HHH: DIVEST-REQUIRED draft',
+            detail: 'AAOIFI breach unresolved past grace deadline. This is a DRAFT exit proposal — never an execution. You author the exit.',
+            recorded_at: '2026-06-08T00:00:00Z',
+            is_observation: false,
+            is_draft: true,
+            human_action: { label: 'Author sell-review', href: '/portfolio#holding_hhh' },
+          },
+        ],
+        discovery_signals: [
+          {
+            candidate_id: 'cand_13f_aapl',
+            ticker: 'AAPL',
+            company_name: 'Apple Inc',
+            signal: {
+              signal_type: 'CLUSTER_BUY',
+              contributing_managers: ['Berkshire Hathaway', 'Pabrai Funds'],
+              conviction_pct: 0.21,
+              ticker_unresolved: false,
+            },
+            href: '/research/new?ticker=AAPL',
+          },
+        ],
+      }),
+    }))
+
+    expect(html).toContain('Needs your attention')
+    expect(html).toContain('Agent observations &amp; drafts — you decide')
+    expect(html).toContain('HHH: DIVEST-REQUIRED draft')
+    expect(html).toContain('Draft — you author')
+    expect(html).toContain('href="/portfolio#holding_hhh"')
+    // Discovery signal detail: CLUSTER_BUY badge + managers + conviction + a research link.
+    expect(html).toContain('CLUSTER BUY')
+    expect(html).toContain('Berkshire Hathaway')
+    expect(html).toContain('21.0% conviction')
+    expect(html).toContain('href="/research/new?ticker=AAPL"')
+  })
+
+  it('shows a calm empty state on the attention rail when there are no alerts or signals', () => {
+    const html = renderToStaticMarkup(createElement(CommandCenter, { dashboard: makeDashboard() }))
+    expect(html).toContain('No alerts — the agent is watching.')
   })
 
   it('documents Learn page source copy and fallback anchors', () => {

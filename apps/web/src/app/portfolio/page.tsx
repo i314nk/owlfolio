@@ -4,11 +4,13 @@ import { SQLiteEventStore } from '@owlfolio/ledger/sqliteEventStore'
 import { PortfolioPanel, type PortfolioHolding, type PortfolioValuationRefreshSummary } from '../../components/PortfolioPanel'
 import { getOnboardingState } from '../../lib/onboarding'
 import { humanizeCron } from '../../lib/schedule'
-import { getAppHoldingsFromStore, getInvestableCapital } from '../../lib/workflow'
+import { projectMonitorAlerts } from '@owlfolio/ledger/projections/monitorAlertProjection'
+
+import { getAppHoldingsFromStore, getInvestableCapital, type MonitorAlert } from '../../lib/workflow'
 
 export default async function PortfolioPage() {
   const state = await getOnboardingState()
-  const holdings = await loadHoldings(state.config.ledger_path, state.config.mode)
+  const { holdings, alerts } = await loadHoldings(state.config.ledger_path, state.config.mode)
   const valuationRefresh = buildValuationRefreshSummary(holdings)
   const investableCapital = state.config.mode === 'personal-local'
     ? await getInvestableCapital(state.config.ledger_path)
@@ -25,26 +27,28 @@ export default async function PortfolioPage() {
         holdings={holdings}
         mode={state.config.mode}
         valuationRefresh={valuationRefresh}
+        alerts={alerts}
         {...(investableCapital !== undefined ? { investableCapital } : {})}
       />
     </main>
   )
 }
 
-async function loadHoldings(ledgerPath: string | undefined, mode: 'demo' | 'personal-local'): Promise<PortfolioHolding[]> {
+async function loadHoldings(ledgerPath: string | undefined, mode: 'demo' | 'personal-local'): Promise<{ holdings: PortfolioHolding[]; alerts: MonitorAlert[] }> {
   if (ledgerPath === undefined && mode === 'personal-local') {
-    return []
+    return { holdings: [], alerts: [] }
   }
 
   const store = new SQLiteEventStore(ledgerPath)
   try {
     const holdings = await getAppHoldingsFromStore(store, mode)
     const events = await store.list()
+    const alerts = projectMonitorAlerts(events)
     const researchCasesById = new Map(
       projectResearchCases(events).map((researchCase) => [researchCase.research_case_id, researchCase]),
     )
 
-    return holdings.map((holding) => {
+    const enrichedHoldings = holdings.map((holding) => {
       // Prefer the holding's own linked research case; fall back to the latest
       // non-superseded case for the same ticker when that case has no valuation.
       const linkedCase = researchCasesById.get(holding.research_case_id)
@@ -68,6 +72,7 @@ async function loadHoldings(ledgerPath: string | undefined, mode: 'demo' | 'pers
       }
       return enriched
     })
+    return { holdings: enrichedHoldings, alerts }
   } finally {
     store.close()
   }

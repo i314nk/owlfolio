@@ -1,5 +1,7 @@
 import { createElement } from 'react'
 
+import type { DiscoverySignal } from '@owlfolio/ledger/projections/discoveryCandidateProjection'
+
 import type { WorkflowMode } from '../lib/workflow'
 
 export type ResearchPipelineItem = {
@@ -10,6 +12,32 @@ export type ResearchPipelineItem = {
   href?: string
   meta?: string
   summary?: string
+  /** 13F discovery signal detail — tells the user WHY a name surfaced. */
+  signal?: DiscoverySignal
+}
+
+const SIGNAL_LABEL: Record<DiscoverySignal['signal_type'], string> = {
+  CLUSTER_BUY: 'CLUSTER BUY',
+  NEW_POSITION: 'NEW POSITION',
+  MEANINGFUL_ADD: 'MEANINGFUL ADD',
+}
+
+const signalBadgeStyle = {
+  border: '1px solid rgba(22, 163, 74, 0.45)',
+  borderRadius: '999px',
+  color: '#86efac',
+  display: 'inline-flex',
+  fontFamily: 'var(--owl-font-mono)',
+  fontSize: 'var(--owl-text-xs)',
+  fontWeight: 900,
+  letterSpacing: '0.06em',
+  padding: '0.2rem 0.5rem',
+}
+
+const unresolvedBadgeStyle = {
+  ...signalBadgeStyle,
+  border: '1px solid rgba(214, 178, 94, 0.5)',
+  color: 'var(--owl-color-gold-bright)',
 }
 
 export type ResearchPipelineSection = {
@@ -198,6 +226,7 @@ function createPipelineItem(item: ResearchPipelineItem) {
       label,
       createElement('span', { style: pillStyle }, item.status),
     ),
+    item.signal === undefined ? null : createSignalDetail(item.signal),
     item.meta === undefined ? null : createElement('p', { style: { ...mutedStyle, fontSize: 'var(--owl-text-base)' } }, item.meta),
     item.summary === undefined
       ? null
@@ -208,5 +237,29 @@ function createPipelineItem(item: ResearchPipelineItem) {
         item.summary,
       ),
     createElement('p', { style: { color: '#cbd5e1', fontSize: 'var(--owl-text-base)', fontWeight: 700, margin: 0 } }, `Next action: ${item.next_action}`),
+  )
+}
+
+/**
+ * The 13F discovery signal: a signal badge (CLUSTER_BUY > NEW_POSITION > MEANINGFUL_ADD), the
+ * contributing managers, the conviction weight, and an unresolved-ticker flag. This tells the user WHY a
+ * name surfaced — it is a discovery observation, not a recommendation to buy.
+ */
+function createSignalDetail(signal: DiscoverySignal) {
+  const managers = signal.contributing_managers.length === 0
+    ? 'managers not recorded'
+    : signal.contributing_managers.join(', ')
+
+  return createElement(
+    'div',
+    { style: { display: 'grid', gap: '0.35rem' } },
+    createElement(
+      'div',
+      { style: { alignItems: 'center', display: 'flex', flexWrap: 'wrap', gap: '0.4rem' } },
+      createElement('span', { style: signalBadgeStyle }, SIGNAL_LABEL[signal.signal_type]),
+      createElement('span', { style: pillStyle }, `${(signal.conviction_pct * 100).toFixed(1)}% conviction`),
+      ...(signal.ticker_unresolved ? [createElement('span', { key: 'unresolved', style: unresolvedBadgeStyle }, 'TICKER UNRESOLVED')] : []),
+    ),
+    createElement('p', { style: { ...mutedStyle, fontSize: 'var(--owl-text-base)' } }, `13F signal · ${managers}`),
   )
 }

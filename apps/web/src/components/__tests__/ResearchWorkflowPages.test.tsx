@@ -10,7 +10,7 @@ import { CommandCenter } from '../CommandCenter'
 import { PortfolioPanel } from '../PortfolioPanel'
 import { ResearchCasePanel } from '../ResearchCasePanel'
 import { WatchlistPanel } from '../WatchlistPanel'
-import { getAppWatchlistItemsFromStore, type AppResearchCase, type AppWatchlistItem } from '../../lib/workflow'
+import { getAppWatchlistItemsFromStore, type AppResearchCase, type AppWatchlistItem, type MonitorAlert } from '../../lib/workflow'
 import {
   getDemoCommandCenterFromStore,
   getDemoResearchCaseFromStore,
@@ -141,6 +141,91 @@ describe('research and watchlist workflow pages', () => {
     expect(personalConfirmedHtml).toContain('User confirmed')
     expect(personalConfirmedHtml).not.toContain('Confirm watchlist draft')
     expect(personalConfirmedHtml).not.toContain('/api/watchlist/watch_msft_001/confirm')
+  })
+
+  it('renders per-item watchlist monitor alerts as observations', () => {
+    const item: AppWatchlistItem = {
+      watchlist_item_id: 'watch_msft_001',
+      research_case_id: 'rc_msft_001',
+      company_id: 'company_msft',
+      ticker: 'MSFT',
+      strategy_id: 'buffett-munger',
+      thesis_summary: 'Watch MSFT.',
+      user_approved: true,
+      created_by_actor_type: 'user',
+      created_by_actor_id: 'user_local',
+      updated_at: '2026-05-31T12:00:00.000Z',
+    }
+    const alerts: MonitorAlert[] = [
+      {
+        id: 'wmon_msft',
+        kind: 'buy_window',
+        subject: { ticker: 'MSFT', watchlist_item_id: 'watch_msft_001' },
+        severity: 'attention',
+        headline: 'MSFT: buy-window open',
+        detail: 'Price is 12% below the case buy price on a fresh, gate-clean case. Observation only — opening a holding is your decision.',
+        recorded_at: '2026-06-08T00:00:00Z',
+        is_observation: true,
+        is_draft: false,
+        human_action: { label: 'Review buy-window', href: '/watchlist' },
+      },
+    ]
+
+    const html = renderToStaticMarkup(createElement(WatchlistPanel, { items: [item], mode: 'personal-local', alerts }))
+    expect(html).toContain('Agent observations — you decide')
+    expect(html).toContain('MSFT: buy-window open')
+    expect(html).toContain('12% below the case buy price')
+  })
+
+  it('renders per-holding monitor alerts and drafts on the portfolio panel', () => {
+    const alerts: MonitorAlert[] = [
+      {
+        id: 'hmon_msft:concentration',
+        kind: 'concentration',
+        subject: { ticker: 'MSFT', holding_id: 'holding_msft_001' },
+        severity: 'attention',
+        headline: 'MSFT: concentration over cap',
+        detail: 'Position is 22% of NAV, over the 15% cap. Winners run; this is a trim-review alert, never an auto-trim. You decide.',
+        recorded_at: '2026-06-08T00:00:00Z',
+        is_observation: true,
+        is_draft: false,
+        human_action: { label: 'Review concentration', href: '/portfolio#holding_msft_001' },
+      },
+      {
+        id: 'sr_msft',
+        kind: 'sell_review',
+        subject: { ticker: 'MSFT', holding_id: 'holding_msft_001' },
+        severity: 'urgent',
+        headline: 'MSFT: sell-review draft',
+        detail: 'Thesis broke. This is a DRAFT exit proposal — never an execution. You author the exit.',
+        recorded_at: '2026-06-08T00:00:00Z',
+        is_observation: false,
+        is_draft: true,
+        human_action: { label: 'Author sell-review', href: '/portfolio#holding_msft_001' },
+      },
+    ]
+    const html = renderToStaticMarkup(createElement(PortfolioPanel, {
+      holdings: [{
+        holding_id: 'holding_msft_001',
+        watchlist_item_id: 'watch_msft_001',
+        research_case_id: 'rc_msft_001',
+        company_id: 'company_msft',
+        ticker: 'MSFT',
+        shares: 10,
+        cost_basis_per_share: 100,
+        total_cost_basis: 1000,
+        currency: 'USD',
+        opened_at: '2026-05-01',
+        updated_at: '2026-05-31T12:00:00.000Z',
+      }],
+      mode: 'personal-local',
+      alerts,
+    }))
+    expect(html).toContain('Agent observations &amp; drafts — you decide')
+    expect(html).toContain('MSFT: concentration over cap')
+    expect(html).toContain('never an auto-trim')
+    expect(html).toContain('MSFT: sell-review draft')
+    expect(html).toContain('Draft — you author')
   })
 
   it('renders a personal-local open-holding action only for confirmed watchlist items without holdings', () => {

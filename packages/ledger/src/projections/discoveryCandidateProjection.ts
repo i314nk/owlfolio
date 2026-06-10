@@ -36,6 +36,51 @@ export type DiscoveryCandidateProjection = {
   updated_at: string
 }
 
+export type DiscoverySignalType = 'CLUSTER_BUY' | 'NEW_POSITION' | 'MEANINGFUL_ADD'
+
+/**
+ * The 13F discovery signal detail surfaced from a candidate's `discovery_metadata`. Tells the user WHY a
+ * name surfaced: the signal class (CLUSTER_BUY > NEW_POSITION > MEANINGFUL_ADD), the managers behind it,
+ * the conviction weight, and whether the ticker was resolved from the CUSIP (an unresolved ticker is
+ * flagged, never guessed).
+ */
+export type DiscoverySignal = {
+  signal_type: DiscoverySignalType
+  contributing_managers: string[]
+  conviction_pct: number
+  ticker_unresolved: boolean
+  rationale?: string
+}
+
+const SIGNAL_TYPES: DiscoverySignalType[] = ['CLUSTER_BUY', 'NEW_POSITION', 'MEANINGFUL_ADD']
+
+/**
+ * Pull the typed 13F signal out of a candidate's opaque `discovery_metadata`. Fail-closed: returns
+ * undefined unless a recognized signal_type is present (so strategy-screen / user-submitted candidates,
+ * which carry no signal, render without a badge).
+ */
+export function extractDiscoverySignal(metadata: Record<string, unknown> | undefined): DiscoverySignal | undefined {
+  if (!isRecord(metadata)) {
+    return undefined
+  }
+  const rawSignal = metadata['signal_type']
+  if (typeof rawSignal !== 'string' || !SIGNAL_TYPES.includes(rawSignal as DiscoverySignalType)) {
+    return undefined
+  }
+  const managers = Array.isArray(metadata['contributing_managers'])
+    ? metadata['contributing_managers'].filter((entry): entry is string => typeof entry === 'string')
+    : []
+  const conviction = metadata['conviction_pct']
+  const rationale = metadata['rationale']
+  return {
+    signal_type: rawSignal as DiscoverySignalType,
+    contributing_managers: managers,
+    conviction_pct: typeof conviction === 'number' && Number.isFinite(conviction) ? conviction : 0,
+    ticker_unresolved: metadata['ticker_resolution'] === 'unresolved',
+    ...(typeof rationale === 'string' ? { rationale } : {}),
+  }
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
 }

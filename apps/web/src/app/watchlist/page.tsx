@@ -1,14 +1,14 @@
 import { SQLiteEventStore } from '@owlfolio/ledger/sqliteEventStore'
 
 import { WatchlistPanel } from '../../components/WatchlistPanel'
-import { getDemoWatchlistItems } from '../../lib/demo'
+import { getDemoMonitorAlerts, getDemoWatchlistItems } from '../../lib/demo'
 import { getOnboardingState } from '../../lib/onboarding'
-import { getAppWatchlistItemsFromStore } from '../../lib/workflow'
+import { getAppMonitorAlertsFromStore, getAppWatchlistItemsFromStore, type AppWatchlistItem, type MonitorAlert } from '../../lib/workflow'
 
 export default async function WatchlistPage() {
   const state = await getOnboardingState()
-  const watchlistItems = state.config.mode === 'demo'
-    ? await getDemoWatchlistItems()
+  const { items: watchlistItems, alerts } = state.config.mode === 'demo'
+    ? { items: await getDemoWatchlistItems(), alerts: await getDemoMonitorAlerts() }
     : await loadPersonalWatchlist(state.config.ledger_path)
 
   return (
@@ -18,19 +18,22 @@ export default async function WatchlistPage() {
           ← Back to command center
         </a>
       </p>
-      <WatchlistPanel items={watchlistItems} mode={state.config.mode} />
+      <WatchlistPanel items={watchlistItems} mode={state.config.mode} alerts={alerts} />
     </main>
   )
 }
 
-async function loadPersonalWatchlist(ledgerPath: string | undefined) {
+async function loadPersonalWatchlist(ledgerPath: string | undefined): Promise<{ items: AppWatchlistItem[]; alerts: MonitorAlert[] }> {
   if (ledgerPath === undefined) {
-    return []
+    return { items: [], alerts: [] }
   }
 
   const store = new SQLiteEventStore(ledgerPath)
   try {
-    return await getAppWatchlistItemsFromStore(store, 'personal-local')
+    return {
+      items: await getAppWatchlistItemsFromStore(store, 'personal-local'),
+      alerts: await getAppMonitorAlertsFromStore(store),
+    }
   } finally {
     store.close()
   }

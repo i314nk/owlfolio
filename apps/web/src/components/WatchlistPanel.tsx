@@ -2,11 +2,19 @@ import { createElement, Fragment } from 'react'
 
 import { OwlValuationChip, RouteHeader, SourceChip } from './designSystem'
 import { StatusBadge } from './StatusBadge'
-import type { AppWatchlistItem, WorkflowMode } from '../lib/workflow'
+import type { AppWatchlistItem, MonitorAlert, WorkflowMode } from '../lib/workflow'
 
 export type WatchlistPanelProps = {
   items: AppWatchlistItem[]
   mode?: WorkflowMode
+  /** Open agent observations per watchlist item (buy-window, staleness re-run, Shariah re-screen). */
+  alerts?: MonitorAlert[]
+}
+
+const WATCHLIST_ALERT_TONE: Record<MonitorAlert['severity'], 'danger' | 'warning' | 'neutral'> = {
+  urgent: 'danger',
+  attention: 'warning',
+  info: 'neutral',
 }
 
 /**
@@ -18,7 +26,7 @@ export type WatchlistPanelProps = {
  * Returns a Fragment so each section is a direct child of the route frame and
  * inherits the app's staggered reveal.
  */
-export function WatchlistPanel({ items, mode = 'demo' }: WatchlistPanelProps) {
+export function WatchlistPanel({ items, mode = 'demo', alerts = [] }: WatchlistPanelProps) {
   return createElement(
     Fragment,
     null,
@@ -31,7 +39,40 @@ export function WatchlistPanel({ items, mode = 'demo' }: WatchlistPanelProps) {
     createLedgerLine(items),
     ...(items.length === 0
       ? [createEmptyState()]
-      : items.map((item) => createWatchlistCard(item, mode))),
+      : items.map((item) => createWatchlistCard(item, mode, alerts.filter((alert) => alert.subject.watchlist_item_id === item.watchlist_item_id)))),
+  )
+}
+
+/**
+ * Inline agent observations for one watchlist item — buy-window, re-run-needed staleness, Shariah
+ * re-screen. Each is an observation, never a recommendation to buy; opening a holding stays a user
+ * decision below.
+ */
+function createWatchlistAlerts(alerts: MonitorAlert[]) {
+  if (alerts.length === 0) {
+    return null
+  }
+
+  return createElement(
+    'div',
+    { style: { display: 'grid', gap: 'var(--owl-space-2)' } },
+    createElement('p', { className: 'owl-section-accent' }, 'Agent observations — you decide'),
+    ...alerts.map((alert) => createElement(
+      'div',
+      { key: alert.id, className: 'owl-row owl-row-top' },
+      createElement(
+        'div',
+        { className: 'owl-row-main' },
+        createElement(
+          'div',
+          { className: 'owl-activity-meta', style: { marginBottom: '0.2rem' } },
+          createElement(StatusBadge, { tone: WATCHLIST_ALERT_TONE[alert.severity] }, alert.severity === 'urgent' ? 'Urgent' : alert.severity === 'attention' ? 'Attention' : 'Watch'),
+          createElement(StatusBadge, { tone: 'neutral' }, 'Observation'),
+        ),
+        createElement('p', { className: 'owl-row-title' }, alert.headline),
+        createElement('p', { className: 'owl-row-helper' }, alert.detail),
+      ),
+    )),
   )
 }
 
@@ -81,7 +122,7 @@ function createEmptyState() {
 
 // ── Candidate card ────────────────────────────────────────────────────────────
 
-function createWatchlistCard(item: AppWatchlistItem, mode: WorkflowMode) {
+function createWatchlistCard(item: AppWatchlistItem, mode: WorkflowMode, alerts: MonitorAlert[]) {
   const ticker = item.ticker ?? item.company_id ?? item.watchlist_item_id
 
   return createElement(
@@ -123,6 +164,8 @@ function createWatchlistCard(item: AppWatchlistItem, mode: WorkflowMode) {
       createDetail('Buy-zone status', item.buy_zone_status ?? 'Not set'),
       ...createShariahGateDetails(item),
     ),
+    // Agent observations on this candidate (buy-window / staleness / Shariah re-screen).
+    createWatchlistAlerts(alerts),
     // The decision checkpoint: provenance + the user's authorization actions.
     createDecisionCheckpoint(item, mode),
   )

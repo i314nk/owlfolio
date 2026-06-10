@@ -3,9 +3,12 @@ import { join } from 'node:path'
 import { spawn } from 'node:child_process'
 
 import {
+  extractDiscoverySignal,
   projectDiscoveryCandidates,
   type DiscoveryCandidateProjection,
+  type DiscoverySignal,
 } from '@owlfolio/ledger/projections/discoveryCandidateProjection'
+import { projectMonitorAlerts, type MonitorAlert } from '@owlfolio/ledger/projections/monitorAlertProjection'
 import type { ResearchCaseProjection } from '@owlfolio/ledger/projections/researchCaseProjection'
 import { findLatestResearchCaseForTicker, projectResearchCases, projectResearchCaseVersionsForTicker } from '@owlfolio/ledger/projections/researchCaseProjection'
 import { projectForecasts, type ForecastProjection } from '@owlfolio/ledger/projections/forecastCalibrationProjection'
@@ -96,7 +99,11 @@ export type AppResearchPipelineItem = {
   href?: string
   meta?: string
   summary?: string
+  /** 13F discovery signal detail (CLUSTER_BUY/NEW/ADD, managers, conviction%, ticker resolution). */
+  signal?: DiscoverySignal
 }
+
+export type { MonitorAlert } from '@owlfolio/ledger/projections/monitorAlertProjection'
 
 export type AppResearchPipelineSection = {
   key: string
@@ -520,6 +527,25 @@ export async function getAppHoldingsFromStore(
   _mode: WorkflowMode,
 ): Promise<AppHolding[]> {
   return projectHoldings(await store.list())
+}
+
+/**
+ * The open monitor alerts (watchlist/holding monitor observations + Shariah-grace + sell-review drafts),
+ * severity-ranked. Every alert is an agent OBSERVATION or a human-decision DRAFT — never executed. The
+ * UI links each one to where the user authors the decision.
+ */
+export async function getAppMonitorAlertsFromStore(store: EventStore): Promise<MonitorAlert[]> {
+  return projectMonitorAlerts(await store.list())
+}
+
+/** Filter the monitor-alerts model to a single watchlist item (for the per-item watchlist view). */
+export function monitorAlertsForWatchlistItem(alerts: MonitorAlert[], watchlistItemId: string): MonitorAlert[] {
+  return alerts.filter((alert) => alert.subject.watchlist_item_id === watchlistItemId)
+}
+
+/** Filter the monitor-alerts model to a single holding (for the per-holding portfolio view). */
+export function monitorAlertsForHolding(alerts: MonitorAlert[], holdingId: string): MonitorAlert[] {
+  return alerts.filter((alert) => alert.subject.holding_id === holdingId)
 }
 
 export async function promoteResearchCaseToWatchlist(
@@ -997,6 +1023,7 @@ function belongsToStrategy(
 }
 
 function candidateToPipelineItem(candidate: DiscoveryCandidateProjection): AppResearchPipelineItem {
+  const signal = extractDiscoverySignal(candidate.discovery_metadata)
   return {
     id: candidate.candidate_id,
     label: `${candidate.ticker} — ${candidate.company_name}`,
@@ -1004,6 +1031,7 @@ function candidateToPipelineItem(candidate: DiscoveryCandidateProjection): AppRe
     next_action: nextActionForDiscoveryCandidate(candidate),
     ...(candidate.research_case_id === undefined ? {} : { href: `/research/${candidate.research_case_id}` }),
     meta: `${candidate.market} • ${candidate.strategy_id}@${candidate.strategy_version}`,
+    ...(signal === undefined ? {} : { signal }),
   }
 }
 
