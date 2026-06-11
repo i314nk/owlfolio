@@ -39,6 +39,7 @@ const navSections: NavSection[] = [
     title: 'Reference',
     items: [
       { href: '/learn', label: 'Learn' },
+      { href: '/settings/providers', label: 'Provider Keys' },
       { href: '/settings/automation', label: 'Settings' },
       { href: '/settings/data-safety', label: 'Advanced / Data Safety' },
     ],

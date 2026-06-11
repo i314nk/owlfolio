@@ -15,6 +15,8 @@ const originalEnv = {
   OWLFOLIO_PROVIDER_CERTIFICATION_DIR: process.env.OWLFOLIO_PROVIDER_CERTIFICATION_DIR,
   OWLFOLIO_CLAUDE_CREDENTIALS_PATH: process.env.OWLFOLIO_CLAUDE_CREDENTIALS_PATH,
   ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY,
+  OWLFOLIO_ENV_FILE: process.env.OWLFOLIO_ENV_FILE,
+  OWLFOLIO_MARKET_DATA_API_KEY: process.env.OWLFOLIO_MARKET_DATA_API_KEY,
 }
 
 describe('/api/research/start', () => {
@@ -29,6 +31,9 @@ describe('/api/research/start', () => {
     delete process.env.OWLFOLIO_PROVIDER_CERTIFICATION_DIR
     process.env.OWLFOLIO_CLAUDE_CREDENTIALS_PATH = join(tempDir, 'missing-claude-credentials.json')
     delete process.env.ANTHROPIC_API_KEY
+    // Isolate the env-key file and market-data signal so the gate is deterministic.
+    process.env.OWLFOLIO_ENV_FILE = join(tempDir, '.env')
+    delete process.env.OWLFOLIO_MARKET_DATA_API_KEY
 
     await writeFile(appConfigPath, JSON.stringify({
       ...defaultPersonalLocalAppConfig(),
@@ -96,6 +101,32 @@ describe('/api/research/start', () => {
         message: 'Provider claude is not ready: Claude Code subscription access disabled',
       },
     })
+  })
+
+  it('refuses to start a deep dive when onboarding is incomplete, naming the missing item', async () => {
+    // mock-provider is ready, so we pass the readiness check and reach the onboarding gate.
+    await writeFile(appConfigPath, JSON.stringify({
+      ...defaultPersonalLocalAppConfig(),
+      provider: {
+        ...defaultPersonalLocalAppConfig().provider,
+        provider_id: 'mock-provider',
+      },
+      ledger_path: join(tempDir, 'personal.sqlite'),
+      source_ledger_path: join(tempDir, 'source-ledger'),
+      initialized_at: '2026-06-01T00:00:00.000Z',
+    }), 'utf8')
+    delete process.env.OWLFOLIO_MARKET_DATA_API_KEY
+
+    const response = await POST(new Request('http://localhost/api/research/start', {
+      method: 'POST',
+      body: JSON.stringify({ ticker: 'MSFT' }),
+    }))
+    const payload = await response.json()
+
+    expect(response.status).toBe(400)
+    expect(payload.error.code).toBe('onboarding_incomplete')
+    expect(payload.error.message).toMatch(/market-data/)
+    expect(payload.error.missing_items).toEqual(expect.arrayContaining([expect.stringMatching(/market-data/)]))
   })
 
   it('returns a clean 400 JSON error when research is requested with an unknown provider', async () => {

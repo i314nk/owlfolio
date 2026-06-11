@@ -1,0 +1,114 @@
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+
+import { describe, expect, it } from 'vitest'
+
+import {
+  isEnvKeyPathGitIgnored,
+  listEnvKeyStatuses,
+  maskSecretTail,
+  readEnvKeyValue,
+  resolveEnvKeyFilePath,
+  setEnvKey,
+} from '../envKeys'
+
+const SECRET = 'sk-ant-supersecret-value-K3jQAA'
+
+async function withTempEnvFile(assertion: (envPath: string) => Promise<void>) {
+  const dir = await mkdtemp(join(tmpdir(), 'owlfolio-envkeys-'))
+  try {
+    await assertion(join(dir, '.env'))
+  } finally {
+    await rm(dir, { force: true, recursive: true })
+  }
+}
+
+describe('maskSecretTail', () => {
+  it('returns only a short tail and never the full secret', () => {
+    const tail = maskSecretTail(SECRET)
+    expect(SECRET.endsWith(tail.replace(/^…/, ''))).toBe(true)
+    expect(tail.length).toBeLessThan(SECRET.length)
+    expect(tail).not.toContain('supersecret')
+  })
+
+  it('fully masks very short secrets', () => {
+    expect(maskSecretTail('abc')).not.toContain('abc')
+  })
+})
+
+describe('resolveEnvKeyFilePath', () => {
+  it('defaults to ~/.owlfolio/.env outside the repo', () => {
+    const path = resolveEnvKeyFilePath({ env: {}, homedir: '/home/test' })
+    expect(path).toBe('/home/test/.owlfolio/.env')
+  })
+
+  it('honors an OWLFOLIO_ENV_FILE override', () => {
+    const path = resolveEnvKeyFilePath({ env: { OWLFOLIO_ENV_FILE: '/custom/keys.env' }, homedir: '/home/test' })
+    expect(path).toBe('/custom/keys.env')
+  })
+})
+
+describe('setEnvKey + listEnvKeyStatuses', () => {
+  it('writes the secret to the env file and reports it as set with only a masked tail', async () => {
+    await withTempEnvFile(async (envPath) => {
+      await setEnvKey('ANTHROPIC_API_KEY', SECRET, { envPath })
+
+      const statuses = await listEnvKeyStatuses(['ANTHROPIC_API_KEY', 'OPENAI_API_KEY'], { envPath })
+      const anthropic = statuses.find((status) => status.name === 'ANTHROPIC_API_KEY')
+      const openai = statuses.find((status) => status.name === 'OPENAI_API_KEY')
+
+      expect(anthropic?.is_set).toBe(true)
+      expect(openai?.is_set).toBe(false)
+
+      // The status object must NEVER carry the raw value — only a masked tail.
+      const serialized = JSON.stringify(statuses)
+      expect(serialized).not.toContain(SECRET)
+      expect(serialized).not.toContain('supersecret')
+      expect(anthropic?.tail).toBeDefined()
+    })
+  })
+
+  it('updates an existing key in place rather than duplicating it', async () => {
+    await withTempEnvFile(async (envPath) => {
+      await setEnvKey('OPENAI_API_KEY', 'first-value-AAAA', { envPath })
+      await setEnvKey('OPENAI_API_KEY', 'second-value-BBBB', { envPath })
+
+      const raw = await readFile(envPath, 'utf8')
+      const occurrences = raw.split('\n').filter((line) => line.startsWith('OPENAI_API_KEY=')).length
+      expect(occurrences).toBe(1)
+      expect(await readEnvKeyValue('OPENAI_API_KEY', { envPath })).toBe('second-value-BBBB')
+    })
+  })
+
+  it('rejects unsafe key names', async () => {
+    await withTempEnvFile(async (envPath) => {
+      await expect(setEnvKey('BAD NAME', 'x', { envPath })).rejects.toThrow()
+      await expect(setEnvKey('lower_case_bad', 'x', { envPath })).rejects.toThrow()
+    })
+  })
+
+  it('preserves other keys and never logs the value through the file format', async () => {
+    await withTempEnvFile(async (envPath) => {
+      await writeFile(envPath, 'EXISTING_KEY=keepme\n', 'utf8')
+      await setEnvKey('GEMINI_API_KEY', SECRET, { envPath })
+      const raw = await readFile(envPath, 'utf8')
+      expect(raw).toContain('EXISTING_KEY=keepme')
+      expect(raw).toContain('GEMINI_API_KEY=')
+    })
+  })
+})
+
+describe('isEnvKeyPathGitIgnored', () => {
+  it('treats a path outside the repo as not committable', () => {
+    expect(isEnvKeyPathGitIgnored('/home/test/.owlfolio/.env', '/repo')).toBe(true)
+  })
+
+  it('treats a .env inside the repo as git-ignored (matched by .gitignore)', () => {
+    expect(isEnvKeyPathGitIgnored('/repo/.env', '/repo')).toBe(true)
+  })
+
+  it('flags a non-ignored in-repo path', () => {
+    expect(isEnvKeyPathGitIgnored('/repo/config/keys.txt', '/repo')).toBe(false)
+  })
+})
