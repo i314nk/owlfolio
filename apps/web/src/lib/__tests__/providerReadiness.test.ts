@@ -154,6 +154,9 @@ describe('providerReadiness', () => {
       BROWSER_COOKIE: 'secret-browser-cookie',
       OAUTH_BROWSER_LOGIN: 'signed-in-browser-session',
       OWLFOLIO_CODEX_AUTH_PATH: '/definitely/missing/auth.json',
+      // Pin a guaranteed-nonexistent Claude credentials path so the assertion is deterministic
+      // regardless of the machine — otherwise real on-disk Claude credentials would report ready.
+      OWLFOLIO_CLAUDE_CREDENTIALS_PATH: '/definitely/missing/claude-credentials.json',
     } as any
 
     const claude = await getProviderReadiness('claude', env)

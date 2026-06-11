@@ -777,12 +777,20 @@ type ProviderSummary = {
 
 function providerSummaryFrom(rows: ProviderStatusRow[]): ProviderSummary {
   return rows.reduce<ProviderSummary>(
-    (summary, row) => ({
-      effectiveBuckets: {
-        ...summary.effectiveBuckets,
-        [row.effective_support_level]: summary.effectiveBuckets[row.effective_support_level] + 1,
-      },
-    }),
+    (summary, row) => {
+      const level = row.effective_support_level
+      // Guard against an unknown bucket key: incrementing `undefined + 1` would silently yield NaN.
+      // Only count rows whose level is one of the known buckets; skip anything unexpected.
+      if (level !== 'certified' && level !== 'experimental' && level !== 'unsupported') {
+        return summary
+      }
+      return {
+        effectiveBuckets: {
+          ...summary.effectiveBuckets,
+          [level]: summary.effectiveBuckets[level] + 1,
+        },
+      }
+    },
     { effectiveBuckets: { certified: 0, experimental: 0, unsupported: 0 } },
   )
 }

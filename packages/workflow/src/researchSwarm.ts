@@ -2142,19 +2142,38 @@ export async function runResearchDeepDivePhase(
     }
   }
 
+  // HIGH safety — clamp a model BUY when no buy band is computable. The deterministic verdict_state
+  // (BUY-WINDOW / WATCH-FAIR / WATCH) is ONLY computed when buy_price, fair_value and current_price are
+  // ALL present. When the moat gate passes but verdict_state is undefined (OE<=0, invalid shares,
+  // implausible FV discarded, or the live price fetch failed), the deterministic buy window NEVER
+  // confirmed the price sits in the buy band — so a model-proposed BUY must NOT be recorded. Force a
+  // safe non-BUY verdict (RESEARCH_MORE — the existing "can't confirm" state) and surface the reason.
+  const buyBandUnconfirmed =
+    moat_passes_gate
+    && verdict_state === undefined
+    && dec.analysis.investment_verdict === 'BUY'
+  const buyClampReason = buyBandUnconfirmed
+    ? 'BUY not recordable: no computable buy band (missing/implausible valuation or price — owner '
+      + 'earnings, shares, fair value, or the live price was unavailable) — defaulting to RESEARCH_MORE.'
+    : undefined
+
   // Apply moat gate: if moat is below wide, override verdict to PASS regardless of model output.
   // WATCH-FAIR never escalates the verdict to BUY — when the model said BUY but the price sits above
   // the buy window (WATCH-FAIR), the harness records WATCH so it cannot emit a buy signal.
   const gatedVerdict = !moat_passes_gate
     ? ('PASS' as const)
-    : verdict_state?.state === 'WATCH-FAIR'
-      ? ('WATCH' as const)
-      : dec.analysis.investment_verdict
+    : buyBandUnconfirmed
+      ? ('RESEARCH_MORE' as const)
+      : verdict_state?.state === 'WATCH-FAIR'
+        ? ('WATCH' as const)
+        : dec.analysis.investment_verdict
   const gatedReason = !moat_passes_gate
     ? `Moat below the wide-moat gate (${moatClass}) — pass.`
-    : verdict_state?.state === 'WATCH-FAIR'
-      ? `Wonderful at fair — human-discretion zone. No harness buy signal. ${dec.analysis.decision_reason}`
-      : dec.analysis.decision_reason
+    : buyBandUnconfirmed
+      ? `${buyClampReason} ${dec.analysis.decision_reason}`
+      : verdict_state?.state === 'WATCH-FAIR'
+        ? `Wonderful at fair — human-discretion zone. No harness buy signal. ${dec.analysis.decision_reason}`
+        : dec.analysis.decision_reason
 
   // ---- Project the judgment-rubric layer for the verdict/dossier (spec verdict-format additions) ----
   // rubric scores + anchor-vs-proposed tier + whether the bounded adjustment was applied + violations.
@@ -2383,6 +2402,9 @@ export async function runResearchDeepDivePhase(
     // g=0 floor) is appended too, so the human sees exactly what the model failed to provide.
     open_questions: [
       ...dec.analysis.open_questions,
+      // HIGH safety: a model BUY clamped to RESEARCH_MORE because no buy band was computable is always
+      // surfaced — the human sees exactly why the BUY was not recorded.
+      ...(buyClampReason !== undefined ? [buyClampReason] : []),
       ...baseRateCaveats,
       ...degradedFlags,
       // Dual-model cross-check disagreements → automatic human escalation (conservative answer holds).

@@ -53,14 +53,6 @@ export type BaseRateBurdenResult = {
   unmet_count: number
 }
 
-// Inside-view narrative markers the spec rejects as insufficient. A justification that reads like one
-// of these (and carries no structural specifics) does NOT count toward the structural burden.
-const NARRATIVE_MARKERS = [
-  'strong execution', 'great management', 'great team', 'best-in-class team', 'visionary',
-  'operating leverage', 'strong brand', 'strong momentum', 'well positioned', 'well-positioned',
-  'industry leader', 'market leader', 'high quality', 'high-quality', 'durable franchise',
-]
-
 // Structural signals: a justification is STRUCTURAL if it cites concrete, checkable structure —
 // contractual revenue, a mapped rubric item, a named quantified driver (a number/percentage/unit),
 // a filing/segment reference, etc. These are presence/structurality signals, not truth judgments.
@@ -74,13 +66,11 @@ const STRUCTURAL_MARKERS = [
 /** A justification counts as STRUCTURAL when it carries a structural signal (and is not pure narrative). */
 function isStructural(j: ExceptionalityJustification): boolean {
   const text = j.claim.toLowerCase()
-  const looksNarrative = NARRATIVE_MARKERS.some((m) => text.includes(m))
   const hasStructuralMarker = STRUCTURAL_MARKERS.some((m) => text.includes(m))
   // A number/percentage adjacent to a noun is a quantified driver signal.
   const hasQuantifiedDriver = /\d/.test(text) && (hasStructuralMarker || /%|\bbps\b|\$/.test(text))
   if (hasStructuralMarker || hasQuantifiedDriver) return true
-  // Pure narrative with no structural anchor never clears the burden.
-  if (looksNarrative) return false
+  // No structural marker (whether the claim is pure narrative or otherwise) never clears the burden.
   return false
 }
 

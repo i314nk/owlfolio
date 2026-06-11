@@ -1197,6 +1197,64 @@ describe('Acceptance #3 — WATCH-FAIR verdict band (never escalates to BUY)', (
   })
 })
 
+// ---------------------------------------------------------------------------
+// HIGH safety — clamp a model BUY when no buy band is computable.
+// When the moat gate passes but verdict_state is undefined (no buy price/fair value/current price —
+// e.g. the live price fetch failed), the harness MUST NOT record the model's raw BUY. It forces a
+// safe non-BUY verdict (RESEARCH_MORE) and records a reason in open_questions.
+// ---------------------------------------------------------------------------
+describe('HIGH safety — BUY clamp when no computable buy band (verdict_state undefined)', () => {
+  async function runGateCleanNoBand(id: string, investmentVerdict: 'BUY' | 'WATCH', priceAvailable: boolean) {
+    const store = new InMemoryEventStore()
+    const provider = configurableSwarmProvider({
+      laneCount: buffettMungerDeepDiveLanes.length,
+      // wide moat passes the gate; the model proposes the supplied verdict.
+      synthesis: { moat_class: 'wide', runway: 'proven', incremental_roic: 0.20, reinvestment_rate: 0.43 },
+      investmentVerdict,
+    })
+    const sourceLedgerPath = await mkdtemp(join(tmpdir(), `owlfolio-clamp-${id}-`))
+    await runStrategyResearchSwarm(
+      store, provider as never,
+      {
+        research_case_id: `rc_${id}`, company_id: 'c', ticker: 'COST',
+        strategy_id: 'buffett-munger', actor_id: 'user_local', idempotency_key: `${id}_k`,
+        model_id: 'mock', decision_id: `decision_${id}`, source_ledger_path: sourceLedgerPath,
+      },
+      {
+        ground: allVerifiedGround,
+        laneConcurrency: 4,
+        // Price fetch FAILS → no current_price → verdict_state stays undefined (no computable band).
+        resolvePrice: priceAvailable
+          ? async () => ({ available: true as const, price_per_share: 220, currency: 'USD', as_of: '2026-06-01T00:00:00Z', source: 'fixture' })
+          : async () => ({ available: false as const, reason: 'no quote', source: 'test' }),
+      },
+    )
+    const events = await store.list()
+    const projections = projectResearchCases(events as Parameters<typeof projectResearchCases>[0])
+    return { events, cp: projections.find((c) => c.research_case_id === `rc_${id}`) }
+  }
+
+  it('moat passes gate but no buy band + model BUY → recorded verdict is NOT BUY + reason recorded', async () => {
+    const { cp } = await runGateCleanNoBand('clamp-buy', 'BUY', false)
+    // No computable band.
+    expect(cp?.valuation?.verdict_state).toBeUndefined()
+    // The model said BUY but the harness must clamp it to a safe non-BUY state.
+    expect(cp?.investment_verdict).not.toBe('BUY')
+    expect(cp?.investment_verdict).toBe('RESEARCH_MORE')
+    // A clear reason is surfaced in open_questions.
+    expect((cp?.open_questions ?? []).some((q) => /no computable buy band/i.test(q))).toBe(true)
+  })
+
+  it('verdict_state IS defined (WATCH-FAIR) → behavior unchanged (no spurious clamp)', async () => {
+    // Price 220 sits between buy (≈190) and fair (≈253) → WATCH-FAIR; the existing band logic owns this.
+    const { cp } = await runGateCleanNoBand('clamp-noop', 'BUY', true)
+    expect(cp?.valuation?.verdict_state?.state).toBe('WATCH-FAIR')
+    expect(cp?.investment_verdict).toBe('WATCH')
+    // The clamp reason must NOT appear when a band exists.
+    expect((cp?.open_questions ?? []).some((q) => /no computable buy band/i.test(q))).toBe(false)
+  })
+})
+
 describe('BUG 2 — resilient bookend swarm calls (retry + clean failure)', () => {
   it('recovers when quick-screen times out once then succeeds (single retry)', async () => {
     const store = new InMemoryEventStore()

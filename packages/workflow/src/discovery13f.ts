@@ -632,15 +632,18 @@ export async function runDiscovery13f(
     if (resolved.resolution === 'unresolved') result.unresolved += 1
     const ticker = resolved.ticker ?? `UNRESOLVED:${signal.cusip}`
 
+    // Normalize the CUSIP ONCE and use the same value for BOTH the dedupe key and the candidate id, so
+    // the id can never collide for two CUSIPs that the dedupe key treats as distinct.
+    const normalizedCusip = signal.cusip.toUpperCase()
     // dedupe/idempotency keyed by (strategy, period, cusip) so a quarter is recorded at most once.
-    const dedupeKey = `13f_clone@${strategyVersion}:${period}:${signal.cusip}`
+    const dedupeKey = `13f_clone@${strategyVersion}:${period}:${normalizedCusip}`
     if (existingDedupe.has(dedupeKey)) {
       result.summaries.push(`${ticker} (${signal.cusip}) already recorded for ${period}; skipping duplicate`)
       continue
     }
     existingDedupe.add(dedupeKey)
 
-    const candidateId = `cand_13f_${period}_${signal.cusip}`.toLowerCase().replace(/[^a-z0-9_]/g, '_')
+    const candidateId = `cand_13f_${period}_${normalizedCusip}`.toLowerCase().replace(/[^a-z0-9_]/g, '_')
     const discoveredAt = now()
     const sourceId = `sec-13f:${period}:${signal.cusip}`
     const discoveryMetadata = {
