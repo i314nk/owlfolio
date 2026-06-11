@@ -10,7 +10,6 @@ import {
   qualificationReportFileStem,
   runModelQualification,
   type ModelQualificationReport,
-  type QualificationLaneRun,
 } from '../modelQualification'
 
 let dir: string
@@ -22,23 +21,6 @@ beforeEach(async () => {
 afterEach(async () => {
   await rm(dir, { recursive: true, force: true })
 })
-
-// A lane run for every golden-set name that exactly matches the reference (a qualifying model).
-function qualifyingRuns(): QualificationLaneRun[] {
-  return GOLDEN_SET.companies.map((c) => ({
-    ticker: c.ticker,
-    moat_class: c.expected_moat_class,
-    shariah_status: c.expected_shariah_status,
-    oe_bridge: {
-      net_income_musd: c.expected_oe_bridge.net_income_musd,
-      d_and_a_musd: c.expected_oe_bridge.d_and_a_musd,
-      sbc_musd: c.expected_oe_bridge.sbc_musd,
-      diluted_shares_m: c.expected_oe_bridge.diluted_shares_m,
-    },
-    fabricated_citation_count: 0,
-    schema_valid_first_attempt: true,
-  }))
-}
 
 describe('runModelQualification', () => {
   it('runs each golden-set name via the injected lane runner and writes a qualified report', async () => {

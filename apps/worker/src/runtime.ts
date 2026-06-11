@@ -472,7 +472,6 @@ function providerRunEvent<TPayload extends Record<string, unknown>>(
 
 // Concrete cron strings for each friendly cadence value.
 // The daily/weekly expressions match the existing per-task defaults.
-const CRON_DAILY_REVIEW_REMINDER = '0 8 * * 1-5'
 const CRON_DAILY_WATCHLIST = '0 9 * * 1-5'
 const CRON_DAILY_HOLDING_REVIEW = '0 10 * * 1-5'
 const CRON_DAILY_VALUATION = '0 7 * * 1-5'

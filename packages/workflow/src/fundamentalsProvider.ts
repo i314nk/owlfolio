@@ -159,7 +159,7 @@ function isResolvableTicker(ticker: string): boolean {
   const t = ticker.trim().toUpperCase()
   if (t.length === 0) return false
   if (t.startsWith('_')) return false // _TEMPLATE and any other placeholder
-  return /^[A-Z0-9.\-]+$/.test(t)
+  return /^[A-Z0-9.-]+$/.test(t)
 }
 
 /**

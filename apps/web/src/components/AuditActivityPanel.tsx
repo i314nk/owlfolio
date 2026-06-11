@@ -8,7 +8,7 @@ import {
   type AuditCaseGroup,
 } from '../lib/audit'
 import type { WorkflowMode } from '../lib/workflow'
-import { RouteHeader, SourceChip } from './designSystem'
+import { RouteHeader } from './designSystem'
 
 // ── Inline styles for surfaces that have no shared class yet ──────────────────
 // The page leans on the shared editorial vocabulary (owl-section-card,

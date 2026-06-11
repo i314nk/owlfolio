@@ -146,14 +146,6 @@ const DECISION_STAGES = new Set<ResearchCaseProjection['stage']>([
   'pass',
 ])
 
-/** Returns true when the research case is at one of the "actively running swarm" stages. */
-function isActiveStage(stage: ResearchCaseProjection['stage']): boolean {
-  return (
-    stage === 'queued_for_deep_dive'
-    || DEEP_DIVE_STAGES.has(stage)
-  )
-}
-
 function runStatusForCase(researchCase: ResearchCaseProjection): PipelineRunStatus {
   const stage = researchCase.stage
   if (stage === 'rejected') {

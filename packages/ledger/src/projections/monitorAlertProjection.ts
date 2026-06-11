@@ -350,7 +350,7 @@ export function projectMonitorAlerts(
     if (!isRecord(event.payload)) {
       continue
     }
-    let produced: MonitorAlert[] = []
+    let produced: MonitorAlert[]
     switch (event.event_type) {
       case 'watchlist_monitor_alert_recorded':
         produced = watchlistAlerts(event, event.payload)

@@ -343,7 +343,7 @@ function groupCard(group: LibraryGroup, cases: ResearchCaseProjection[]): ReactN
   )
 }
 
-export function ResearchLibrary({ mode, selectedStrategyLabel, cases }: ResearchLibraryProps): ReactNode {
+export function ResearchLibrary({ mode: _mode, selectedStrategyLabel, cases }: ResearchLibraryProps): ReactNode {
   // Latest version per company: keep only non-superseded cases, then dedupe by ticker keeping the highest version.
   const latestByTicker = new Map<string, ResearchCaseProjection>()
   for (const researchCase of cases) {

@@ -1,13 +1,10 @@
 import { describe, expect, it } from 'vitest'
 
-import { GOLDEN_SET, goldenSetCompany } from '../goldenSet'
+import { GOLDEN_SET } from '../goldenSet'
 import {
   scoreQualification,
   type LaneQualificationOutput,
 } from '../qualificationEval'
-
-// A reference taken from the frozen golden set (COST: wide / non_compliant / firm OE bridge).
-const COST = goldenSetCompany('COST')!
 
 // A lane output that exactly matches the COST reference. Schema-valid on first attempt 100%.
 function exactCostOutput(overrides: Partial<LaneQualificationOutput> = {}): LaneQualificationOutput {
