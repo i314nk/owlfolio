@@ -11,6 +11,8 @@ import {
   sanitizeRoicLike,
   sanitizeMaintenanceCapex,
   sanitizeReinvestmentRate,
+  sanitizeWorkingCapitalChange,
+  anchorNetIncomeToEdgar,
 } from './rangeSanity'
 import { runValidatedAgent, ValidatedAgentFailedError, type RequiredFieldCheck } from './runValidatedAgent'
 import { groundProposedSources, type CapturedSource, type GroundingDeps, type ProposedSource, type SourcePolicyRejection } from './sourceGrounding'
@@ -1770,15 +1772,19 @@ export async function runResearchDeepDivePhase(
   let shares_outstanding: number
   let bridge_fiscal_year: number | undefined
   let bridge_source_id: string | undefined
-  const normalized_working_capital_change = modelBridge.normalized_working_capital_change
 
   if (edgarBridgeUsable && edgarAnnual !== undefined) {
     const maintenance_fraction = maintenanceFractionForTier(modelBridge.maintenance_capex_proxy_tier)
     const edgar_d_and_a = edgarAnnual.d_and_a_musd as number
     const edgar_capex = edgarAnnual.capex_musd as number
-    // Model's net-income normalization delta carried onto EDGAR's reported NI (judgment overlay).
-    const normalization_delta = modelBridge.net_income - edgarAnnual.net_income_musd!
-    net_income = edgarAnnual.net_income_musd! + normalization_delta
+    // Net income is ANCHORED to EDGAR's reported figure. The model may propose a one-off NORMALIZATION
+    // (buffett-valuation-method-v2 Step 2), but only as a BOUNDED delta (±OE_NORMALIZATION_MAX_FRACTION ×
+    // |edgar NI|). A wild proposal — net_income 0 while EDGAR is substantially positive, non-finite, or a
+    // delta beyond the band — is CLAMPED + flagged so the EDGAR anchor (not the model) owns the figure.
+    // This fixes the prior no-op (edgar + (model − edgar) = model) that let net_income=0 void the valuation.
+    const niAnchor = anchorNetIncomeToEdgar(modelBridge.net_income, edgarAnnual.net_income_musd!)
+    net_income = niAnchor.value
+    if (niAnchor.clamped && niAnchor.flag !== undefined) degradedFlags.push(niAnchor.flag)
     d_and_a = edgar_d_and_a
     maintenance_capex = Math.min(edgar_d_and_a, edgar_capex * maintenance_fraction)
     stock_based_comp = edgarAnnual.sbc_musd as number  // SBC always subtracted, in full
@@ -1802,6 +1808,18 @@ export async function runResearchDeepDivePhase(
     stock_based_comp = modelBridge.stock_based_comp
     shares_outstanding = modelBridge.shares_outstanding
   }
+
+  // The model's signed working-capital overlay is range-sanity'd against revenue: a ΔNWC whose magnitude
+  // exceeds |revenue| (or is non-finite) is implausible (units/scale error) and discarded (→ 0) with a
+  // visible flag, rather than feeding a spurious OE swing. (The sign is preserved when accepted.)
+  const revenueForNwc = fundamentals?.latest_annual?.revenue_musd
+  const nwcSanity = revenueForNwc !== undefined && Number.isFinite(revenueForNwc)
+    ? sanitizeWorkingCapitalChange(modelBridge.normalized_working_capital_change, { revenue: revenueForNwc })
+    : (Number.isFinite(modelBridge.normalized_working_capital_change)
+      ? { value: modelBridge.normalized_working_capital_change, rejected: false as const }
+      : { value: undefined, rejected: true as const, flag: `range_check_rejected: normalized_working_capital_change=${modelBridge.normalized_working_capital_change} is non-finite. Value discarded (treated as 0).` })
+  if (nwcSanity.rejected && 'flag' in nwcSanity && nwcSanity.flag !== undefined) degradedFlags.push(nwcSanity.flag)
+  const normalized_working_capital_change = nwcSanity.value ?? 0
 
   // The recorded bridge reflects what the harness actually used (EDGAR-anchored when available),
   // preserving the model's tier + working-capital judgment.
@@ -2015,6 +2033,10 @@ export async function runResearchDeepDivePhase(
         bridge_source_fiscal_year?: number
       }
     | undefined
+  // When EDGAR + market cap + the Shariah overlay are all present but the ratios still come back
+  // not-computable (e.g. missing revenue → divide-by-zero), capture WHY so the genuinely-not-computable
+  // branch surfaces a visible shariah_ratios_unverified flag (the dogfood had NO flag here).
+  let shariahRatioNotComputableReason: string | undefined
   if (
     fundamentals?.latest_annual !== undefined
     && market_cap !== undefined
@@ -2022,9 +2044,11 @@ export async function runResearchDeepDivePhase(
   ) {
     const la = fundamentals.latest_annual
     const ratios = computeShariahFinancialRatios({
-      interest_bearing_debt: la.total_debt_musd ?? NaN,
-      cash_and_securities: la.cash_and_securities_musd ?? NaN,
-      total_revenue: la.revenue_musd ?? NaN,
+      // Missing interest-bearing debt / cash → treated as 0 (a near-zero-debt firm legitimately has a
+      // 0% debt ratio, not NaN → not-computable). Revenue + market cap are the only required inputs.
+      interest_bearing_debt: la.total_debt_musd,
+      cash_and_securities: la.cash_and_securities_musd,
+      total_revenue: la.revenue_musd,
       market_cap,
       impermissible_income: shariahJudgment.impermissible_income,
     })
@@ -2041,6 +2065,8 @@ export async function runResearchDeepDivePhase(
         ...(avgMarketCap !== undefined ? { market_cap_months: avgMarketCap.months } : {}),
         bridge_source_fiscal_year: la.fiscal_year,
       }
+    } else {
+      shariahRatioNotComputableReason = ratios.reason
     }
   }
 
@@ -2068,6 +2094,16 @@ export async function runResearchDeepDivePhase(
       + 'present, but the live price/market-cap fetch returned nothing (even after a retry), so the harness '
       + 'could NOT recompute the AAOIFI debt/cash ratios. No market cap was fabricated; re-run when the price '
       + 'feed recovers.',
+    )
+  } else if (shariahRatioNotComputableReason !== undefined) {
+    // EDGAR fundamentals + market cap + the Shariah overlay were ALL present, but the AAOIFI recompute
+    // still returned not-computable (a genuinely required input — revenue or market cap — was missing/
+    // zero). Previously this branch surfaced NOTHING (the dogfood's silent shariah_financial: absent).
+    // Surface the concrete reason so the absent ratios are visible, not silent.
+    degradedFlags.push(
+      `shariah_ratios_unverified: ${shariahRatioNotComputableReason} — EDGAR fundamentals and the Shariah `
+      + 'overlay were present, but the harness could NOT recompute the AAOIFI debt/cash/impermissible ratios; '
+      + 'the Shariah verdict fell back to the lane (quick-screen) judgment.',
     )
   }
 

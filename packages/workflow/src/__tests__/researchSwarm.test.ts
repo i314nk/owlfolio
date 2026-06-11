@@ -1601,7 +1601,11 @@ describe('SEC EDGAR primary-filing wiring', () => {
 // working-capital overlay, and the impermissible-income amount; the harness anchors NI/D&A/capex/SBC/
 // diluted-shares to the 10-K and recomputes the three AAOIFI ratios + verdict + purification %.
 // ---------------------------------------------------------------------------
-function swarmFakeProviderWithShariah(impermissible_income: number, sector_status: 'compliant' | 'conditional' | 'non_compliant' = 'conditional') {
+function swarmFakeProviderWithShariah(
+  impermissible_income: number,
+  sector_status: 'compliant' | 'conditional' | 'non_compliant' = 'conditional',
+  bridgeOverride?: Record<string, number | string>,
+) {
   let laneCall = 0
   const src = (id: string) => ({ source_id: id, title: 'T', url: 'https://www.sec.gov/Archives/edgar/data/0/test-10k.htm', excerpt: 'e' })
   const fullRubric = (tier: string) => ({
@@ -1663,7 +1667,7 @@ function swarmFakeProviderWithShariah(impermissible_income: number, sector_statu
         growth_assumptions: 'Two-stage DCF; banded g.',
         // Model proposes a NORMALIZED net income equal to EDGAR reported NI (delta 0), tier '80', and
         // a maintenance_capex value the harness IGNORES in favour of min(D&A, capex × 0.80).
-        owner_earnings_bridge: {
+        owner_earnings_bridge: bridgeOverride ?? {
           net_income: 8099, depreciation_amortization: 999, maintenance_capex: 1,
           maintenance_capex_proxy_tier: '80', stock_based_comp: 1,
           normalized_working_capital_change: 0, shares_outstanding: 1,
@@ -1829,6 +1833,97 @@ describe('EDGAR-anchored OE bridge + harness AAOIFI Shariah ratios', () => {
     expect(degraded.join(' ')).toMatch(/shariah_ratios_unverified:\s*market_cap_unavailable/)
     // It is distinct from the impermissible-income cause (the overlay WAS emitted here).
     expect(degraded.join(' ')).not.toMatch(/impermissible_income_not_emitted/)
+  })
+
+  // ---- Bug 1: the EDGAR net-income anchor is REAL + bounded (was a no-op = full model trust) ----
+  it('model net_income=0 (wild) → net income clamps toward EDGAR, OE positive, flag recorded', async () => {
+    // CPRT-shaped failure: EDGAR reported NI 8099, but the model emits net_income 0. The OLD anchor
+    // (edgar + (model − edgar) = model) produced 0 → spurious negative OE → INSUFFICIENT_DATA. Now NI is
+    // anchored to EDGAR with a bounded ±35% normalization; a proposed 0 (drop of 100% > 35%) is clamped
+    // to EDGAR × (1 − 0.35) = 5264.35 and the clamp is flagged.
+    const store = new InMemoryEventStore()
+    await seedDeepDivePrereqs(store)
+    const provider = swarmFakeProviderWithShariah(0.004 * 275235, 'conditional', {
+      net_income: 0, depreciation_amortization: 999, maintenance_capex: 1,
+      maintenance_capex_proxy_tier: '80', stock_based_comp: 1,
+      normalized_working_capital_change: 0, shares_outstanding: 1,
+    })
+    await provider.structured({} as never)
+
+    await runResearchDeepDivePhase(store, provider as never, deepDiveCommand(), {
+      ground: verifyAllGround(),
+      laneConcurrency: 7,
+      fundamentals: costFundamentals,
+      resolvePrice: async () => ({ available: true, price_per_share: 968, currency: 'USD', as_of: 'x', source: 'test' }),
+    })
+
+    const events = await store.list()
+    const projections = projectResearchCases(events as Parameters<typeof projectResearchCases>[0])
+    const cp = projections.find((c) => c.research_case_id === 'rc_edgar')
+    // NI clamped to the lower normalization bound: 8099 × (1 − 0.35) = 5264.35 (>= 910 floor, > 0).
+    expect(cp?.valuation?.owner_earnings_bridge?.net_income).toBeCloseTo(8099 * 0.65, 2)
+    // OE positive (no spurious negative), valuation computes (not voided).
+    expect(cp?.valuation?.normalized_owner_earnings_per_share).toBeGreaterThan(0)
+    // The clamp is visible.
+    const analysisEvent = events.find((e) => e.event_type === 'buffett_munger_analysis_drafted')
+    const valuation = (analysisEvent?.payload as Record<string, unknown>)?.['valuation'] as Record<string, unknown>
+    const degraded = (valuation?.['degraded_flags'] as string[] | undefined) ?? []
+    expect(degraded.join(' ')).toMatch(/oe_bridge_net_income_clamped/)
+  })
+
+  it('model net_income within ±35% band → used as-is, no clamp flag', async () => {
+    // EDGAR 8099; model proposes 7500 (a ~7.4% normalization, within the band) → used as-is, no flag.
+    const store = new InMemoryEventStore()
+    await seedDeepDivePrereqs(store)
+    const provider = swarmFakeProviderWithShariah(0.004 * 275235, 'conditional', {
+      net_income: 7500, depreciation_amortization: 999, maintenance_capex: 1,
+      maintenance_capex_proxy_tier: '80', stock_based_comp: 1,
+      normalized_working_capital_change: 0, shares_outstanding: 1,
+    })
+    await provider.structured({} as never)
+
+    await runResearchDeepDivePhase(store, provider as never, deepDiveCommand(), {
+      ground: verifyAllGround(),
+      laneConcurrency: 7,
+      fundamentals: costFundamentals,
+      resolvePrice: async () => ({ available: true, price_per_share: 968, currency: 'USD', as_of: 'x', source: 'test' }),
+    })
+
+    const events = await store.list()
+    const projections = projectResearchCases(events as Parameters<typeof projectResearchCases>[0])
+    const cp = projections.find((c) => c.research_case_id === 'rc_edgar')
+    expect(cp?.valuation?.owner_earnings_bridge?.net_income).toBe(7500)
+    const analysisEvent = events.find((e) => e.event_type === 'buffett_munger_analysis_drafted')
+    const valuation = (analysisEvent?.payload as Record<string, unknown>)?.['valuation'] as Record<string, unknown>
+    const degraded = (valuation?.['degraded_flags'] as string[] | undefined) ?? []
+    expect(degraded.join(' ')).not.toMatch(/oe_bridge_net_income_clamped/)
+  })
+
+  it('model restating D&A / SBC / shares is IGNORED — those stay EDGAR-sourced', async () => {
+    // The model emits garbage for D&A/SBC/shares; the bridge must use EDGAR (2426 / 860 / 444.8), not
+    // the model's restatement. (NI within band so the anchor passes it through.)
+    const store = new InMemoryEventStore()
+    await seedDeepDivePrereqs(store)
+    const provider = swarmFakeProviderWithShariah(0.004 * 275235, 'conditional', {
+      net_income: 8099, depreciation_amortization: 99999, maintenance_capex: 1,
+      maintenance_capex_proxy_tier: '80', stock_based_comp: 77777,
+      normalized_working_capital_change: 0, shares_outstanding: 99999,
+    })
+    await provider.structured({} as never)
+
+    await runResearchDeepDivePhase(store, provider as never, deepDiveCommand(), {
+      ground: verifyAllGround(),
+      laneConcurrency: 7,
+      fundamentals: costFundamentals,
+      resolvePrice: async () => ({ available: true, price_per_share: 968, currency: 'USD', as_of: 'x', source: 'test' }),
+    })
+
+    const events = await store.list()
+    const projections = projectResearchCases(events as Parameters<typeof projectResearchCases>[0])
+    const cp = projections.find((c) => c.research_case_id === 'rc_edgar')
+    expect(cp?.valuation?.owner_earnings_bridge?.depreciation_amortization).toBe(2426)
+    expect(cp?.valuation?.owner_earnings_bridge?.stock_based_comp).toBe(860)
+    expect(cp?.valuation?.owner_earnings_bridge?.shares_outstanding).toBeCloseTo(444.8, 3)
   })
 })
 

@@ -23,14 +23,18 @@ export const AAOIFI_CASH_SECURITIES_RATIO_MAX = 0.3
 export const AAOIFI_IMPERMISSIBLE_INCOME_MAX = 0.05
 
 export type ShariahFinancialRatioInputs = {
-  /** Interest-bearing debt, $millions (EDGAR total_debt). */
-  interest_bearing_debt: number
-  /** Cash + interest-bearing securities, $millions (EDGAR cash_and_securities). */
-  cash_and_securities: number
-  /** Total revenue, $millions (EDGAR revenue). */
-  total_revenue: number
-  /** Market cap, $millions (current price × diluted shares; spec wants 36-mo avg — see caller TODO). */
-  market_cap: number
+  /**
+   * Interest-bearing debt, $millions (EDGAR total_debt). MISSING (`undefined`) is treated as 0 — a
+   * company with no reported interest-bearing debt legitimately has a 0% debt ratio. An explicit
+   * non-finite value (NaN) is a data-corruption signal and is rejected.
+   */
+  interest_bearing_debt: number | undefined
+  /** Cash + interest-bearing securities, $millions (EDGAR cash_and_securities). MISSING → 0 (see above). */
+  cash_and_securities: number | undefined
+  /** Total revenue, $millions (EDGAR revenue). REQUIRED — missing/zero → not-computable. */
+  total_revenue: number | undefined
+  /** Market cap, $millions (current price × diluted shares; spec wants 36-mo avg — see caller TODO). REQUIRED. */
+  market_cap: number | undefined
   /** Impermissible income, $millions — the LLM SHARIAH lane's JUDGMENT (interest income etc.). */
   impermissible_income: number
 }
@@ -53,8 +57,8 @@ export type ShariahFinancialRatioResult =
       reason: string
     }
 
-function isPositiveFinite(value: number): boolean {
-  return Number.isFinite(value) && value > 0
+function isPositiveFinite(value: number | undefined): value is number {
+  return value !== undefined && Number.isFinite(value) && value > 0
 }
 
 function isNonNegativeFinite(value: number): boolean {
@@ -81,25 +85,31 @@ export function computeShariahFinancialRatios(
 ): ShariahFinancialRatioResult {
   const { interest_bearing_debt, cash_and_securities, total_revenue, market_cap, impermissible_income } = inputs
 
-  // Denominators must be strictly positive; numerators must be non-negative finite values.
+  // Only revenue + market cap are TRULY required (they are denominators). A missing debt / cash figure
+  // is treated as 0 — a firm with no reported interest-bearing debt legitimately has a 0% debt ratio
+  // (which passes the <30% AAOIFI threshold), NOT NaN → not-computable. An explicit non-finite value
+  // (e.g. NaN injected upstream) is still rejected, as it signals corrupted data rather than "none".
   if (!isPositiveFinite(market_cap)) {
     return { computable: false, reason: 'market_cap is missing or non-positive' }
   }
   if (!isPositiveFinite(total_revenue)) {
     return { computable: false, reason: 'total_revenue is missing or non-positive' }
   }
-  if (!isNonNegativeFinite(interest_bearing_debt)) {
-    return { computable: false, reason: 'interest_bearing_debt is missing or invalid' }
+  // Missing → 0; present-but-non-finite → reject.
+  const debt = interest_bearing_debt === undefined ? 0 : interest_bearing_debt
+  if (!isNonNegativeFinite(debt)) {
+    return { computable: false, reason: 'interest_bearing_debt is invalid (non-finite)' }
   }
-  if (!isNonNegativeFinite(cash_and_securities)) {
-    return { computable: false, reason: 'cash_and_securities is missing or invalid' }
+  const cash = cash_and_securities === undefined ? 0 : cash_and_securities
+  if (!isNonNegativeFinite(cash)) {
+    return { computable: false, reason: 'cash_and_securities is invalid (non-finite)' }
   }
   if (!isNonNegativeFinite(impermissible_income)) {
     return { computable: false, reason: 'impermissible_income is missing or invalid' }
   }
 
-  const debt_ratio = interest_bearing_debt / market_cap
-  const cash_securities_ratio = cash_and_securities / market_cap
+  const debt_ratio = debt / market_cap
+  const cash_securities_ratio = cash / market_cap
   const impermissible_income_pct = impermissible_income / total_revenue
 
   const breaches =

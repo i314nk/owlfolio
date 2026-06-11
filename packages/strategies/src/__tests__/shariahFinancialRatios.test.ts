@@ -93,6 +93,61 @@ describe('computeShariahFinancialRatios', () => {
     expect(result.computable && result.verdict).toBe('FAIL')
   })
 
+  it('near-zero-debt firm (CPRT-like): missing debt + cash → treated as 0, ratios still compute', () => {
+    // Copart-like: EDGAR total_debt undefined (near-zero interest-bearing debt). A legitimate 0% debt
+    // ratio (passes the <30% AAOIFI threshold), NOT NaN → not-computable. Only revenue + market cap are
+    // strictly required.
+    const result = computeShariahFinancialRatios({
+      interest_bearing_debt: undefined,
+      cash_and_securities: 15_000,
+      total_revenue: 275_000,
+      market_cap: 430_000,
+      impermissible_income: 1_100,
+    })
+    expect(result.computable).toBe(true)
+    if (!result.computable) throw new Error('expected computable')
+    expect(result.debt_ratio).toBe(0) // missing debt treated as 0% debt ratio
+    expect(result.cash_securities_ratio).toBeCloseTo(15_000 / 430_000, 6)
+    expect(result.impermissible_income_pct).toBeCloseTo(1_100 / 275_000, 6)
+    // 0% debt, ~3.5% cash, ~0.4% impermissible → all within threshold, impermissible > 0 → CONDITIONAL.
+    expect(result.verdict).toBe('CONDITIONAL')
+  })
+
+  it('missing debt AND cash → both treated as 0 (0% ratios)', () => {
+    const result = computeShariahFinancialRatios({
+      interest_bearing_debt: undefined,
+      cash_and_securities: undefined,
+      total_revenue: 100_000,
+      market_cap: 500_000,
+      impermissible_income: 0,
+    })
+    expect(result.computable).toBe(true)
+    if (!result.computable) throw new Error('expected computable')
+    expect(result.debt_ratio).toBe(0)
+    expect(result.cash_securities_ratio).toBe(0)
+    expect(result.verdict).toBe('PASS')
+  })
+
+  it('missing revenue OR market_cap → genuinely not-computable', () => {
+    const noRevenue = computeShariahFinancialRatios({
+      interest_bearing_debt: undefined,
+      cash_and_securities: 15_000,
+      total_revenue: undefined,
+      market_cap: 430_000,
+      impermissible_income: 1_100,
+    })
+    expect(noRevenue.computable).toBe(false)
+
+    const noMarketCap = computeShariahFinancialRatios({
+      interest_bearing_debt: undefined,
+      cash_and_securities: 15_000,
+      total_revenue: 275_000,
+      market_cap: undefined,
+      impermissible_income: 1_100,
+    })
+    expect(noMarketCap.computable).toBe(false)
+  })
+
   it('divide-by-zero / missing inputs → computable:false (caller falls back to lane verdict)', () => {
     const zeroMarketCap = computeShariahFinancialRatios({
       interest_bearing_debt: 5_000,

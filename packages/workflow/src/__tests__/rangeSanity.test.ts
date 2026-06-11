@@ -6,6 +6,9 @@ import {
   sanitizeTerminalGrowth,
   sanitizeMaintenanceCapex,
   sanitizeShares,
+  sanitizeWorkingCapitalChange,
+  anchorNetIncomeToEdgar,
+  OE_NORMALIZATION_MAX_FRACTION,
 } from '../rangeSanity'
 
 describe('sanitizeRoicLike (incremental_roic / roic > 100% rejected)', () => {
@@ -87,5 +90,57 @@ describe('sanitizeTerminalGrowth [0, 0.05]', () => {
     expect(sanitizeTerminalGrowth(0.025).rejected).toBe(false)
     expect(sanitizeTerminalGrowth(0.08).rejected).toBe(true)
     expect(sanitizeTerminalGrowth(-0.01).rejected).toBe(true)
+  })
+})
+
+describe('anchorNetIncomeToEdgar (bounded ±35% normalization off EDGAR reported)', () => {
+  it('exposes the normalization bound', () => {
+    expect(OE_NORMALIZATION_MAX_FRACTION).toBe(0.35)
+  })
+
+  it('model net_income=0 while EDGAR positive → clamps to lower band edge + flags', () => {
+    const r = anchorNetIncomeToEdgar(0, 8099)
+    expect(r.clamped).toBe(true)
+    expect(r.value).toBeCloseTo(8099 * 0.65, 2)
+    expect(r.flag).toMatch(/oe_bridge_net_income_clamped/)
+  })
+
+  it('proposal within band → used as-is, not clamped, no flag', () => {
+    const r = anchorNetIncomeToEdgar(7500, 8099)
+    expect(r.clamped).toBe(false)
+    expect(r.value).toBe(7500)
+    expect(r.flag).toBeUndefined()
+  })
+
+  it('proposal above band → clamps to upper edge', () => {
+    const r = anchorNetIncomeToEdgar(20000, 8099)
+    expect(r.clamped).toBe(true)
+    expect(r.value).toBeCloseTo(8099 * 1.35, 2)
+  })
+
+  it('non-finite proposal → clamps to lower band edge', () => {
+    const r = anchorNetIncomeToEdgar(Number.NaN, 8099)
+    expect(r.clamped).toBe(true)
+    expect(r.value).toBeCloseTo(8099 * 0.65, 2)
+  })
+
+  it('non-finite EDGAR figure → keeps model proposal (caller uses model path)', () => {
+    const r = anchorNetIncomeToEdgar(1234, Number.NaN)
+    expect(r.clamped).toBe(false)
+    expect(r.value).toBe(1234)
+  })
+})
+
+describe('sanitizeWorkingCapitalChange (|ΔNWC| > |revenue| rejected)', () => {
+  it('accepts a signed change within |revenue|', () => {
+    expect(sanitizeWorkingCapitalChange(-1000, { revenue: 275000 }).rejected).toBe(false)
+    expect(sanitizeWorkingCapitalChange(-1000, { revenue: 275000 }).value).toBe(-1000)
+  })
+  it('rejects a magnitude exceeding |revenue|', () => {
+    expect(sanitizeWorkingCapitalChange(300000, { revenue: 275000 }).rejected).toBe(true)
+    expect(sanitizeWorkingCapitalChange(-300000, { revenue: 275000 }).rejected).toBe(true)
+  })
+  it('rejects non-finite', () => {
+    expect(sanitizeWorkingCapitalChange(Number.NaN, { revenue: 275000 }).rejected).toBe(true)
   })
 })
