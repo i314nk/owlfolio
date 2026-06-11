@@ -220,12 +220,44 @@ function taxonomyPopulated(t: TaxonomyConcepts | undefined): boolean {
 }
 
 /**
- * Pick the populated taxonomy (prefer us-gaap when both are present — US domestic filers occasionally
- * carry a few ifrs-full tags but us-gaap is canonical for them). Returns undefined when neither has data.
+ * Latest annual-form (10-K/20-F/40-F) period-END date carried by ANY concept in a taxonomy bucket — used
+ * to decide which taxonomy is the filer's CURRENT reporting basis. Returns '' when the bucket has no annual
+ * fact. (A filer that converted reporting bases — e.g. Toyota, whose us-gaap facts freeze at FY2020 while its
+ * ifrs-full facts run to FY2025 — must be read from the taxonomy with the more recent data, not whichever is
+ * merely non-empty.)
+ */
+function latestAnnualEnd(bucket: TaxonomyConcepts | undefined): string {
+  if (bucket === undefined) return ''
+  let latest = ''
+  for (const concept of Object.values(bucket)) {
+    for (const facts of Object.values(concept.units ?? {})) {
+      if (!Array.isArray(facts)) continue
+      for (const f of facts) {
+        if (isAnnualForm(f.form) && typeof f.end === 'string' && f.end > latest) latest = f.end
+      }
+    }
+  }
+  return latest
+}
+
+/**
+ * Pick the filer's CURRENT reporting taxonomy. us-gaap is canonical for US domestic filers (who may carry a
+ * few stray ifrs-full tags), so prefer it when its annual data is at least as RECENT as ifrs-full's. But when
+ * ifrs-full carries materially newer annual data (the filer converted bases — Toyota's us-gaap froze at FY2020,
+ * ifrs-full runs to FY2025), pick ifrs-full so the latest-annual is current rather than five years stale.
+ * Returns undefined when neither taxonomy has data.
  */
 function pickTaxonomy(facts: CompanyFacts): Taxonomy | undefined {
-  if (taxonomyPopulated(facts.facts?.['us-gaap'])) return 'us-gaap'
-  if (taxonomyPopulated(facts.facts?.['ifrs-full'])) return 'ifrs-full'
+  const usGaap = facts.facts?.['us-gaap']
+  const ifrs = facts.facts?.['ifrs-full']
+  const usPopulated = taxonomyPopulated(usGaap)
+  const ifrsPopulated = taxonomyPopulated(ifrs)
+  if (usPopulated && ifrsPopulated) {
+    // Prefer the taxonomy with the more recent annual data; ties (or us-gaap newer) keep us-gaap.
+    return latestAnnualEnd(ifrs) > latestAnnualEnd(usGaap) ? 'ifrs-full' : 'us-gaap'
+  }
+  if (usPopulated) return 'us-gaap'
+  if (ifrsPopulated) return 'ifrs-full'
   return undefined
 }
 
@@ -397,13 +429,20 @@ function sumOptional(a: number | undefined, b: number | undefined): number | und
  * (handled explicitly in buildAnnualSeries, not here): total debt, cash+securities, capex (PPE + intangibles).
  */
 type ConceptMap = {
-  netIncome: string
-  revenue: string[]
-  dAndA: string[]
-  /** Capex components summed together (PPE purchases + intangible purchases for IFRS). */
-  capex: string[]
-  sbc: string[]
-  dilutedShares: string[]
+  /**
+   * Net income, PRECEDENCE-ORDERED then latest-fiscal-year-preferring. `NetIncomeLoss` (income attributable
+   * to the PARENT for a us-gaap filer) is tried first so a filer reporting both it and `ProfitLoss` (which
+   * INCLUDES noncontrolling interest — e.g. Exxon) keeps the parent figure. Filers that froze `NetIncomeLoss`
+   * mid-history and now tag the bottom line only under `ProfitLoss`/`...AvailableToCommonStockholdersBasic`
+   * (e.g. Mastercard, Caterpillar) resolve via the later-year fallback.
+   */
+  netIncome: ConceptGroup[]
+  revenue: ConceptGroup[]
+  dAndA: ConceptGroup[]
+  /** Capex candidate groups (PPE purchases, or summed PPE + intangible purchases for IFRS). */
+  capex: ConceptGroup[]
+  sbc: ConceptGroup[]
+  dilutedShares: ConceptGroup[]
   sharesOut: string[]
   /** Total interest-bearing debt: prefer the first combined concept; else sum the rest. */
   debtCombined: string[]
@@ -424,13 +463,22 @@ type ConceptMap = {
 }
 
 const US_GAAP_CONCEPTS: ConceptMap = {
-  netIncome: 'NetIncomeLoss',
-  // Revenue is PRECEDENCE-ORDERED, not Revenues-first. Many filers (e.g. Copart) report the full-company
-  // top line under RevenueFromContractWithCustomer*AssessedTax and tag `Revenues` only with a disaggregated
-  // sub-line (Copart's `Revenues` carries a 525M Q4 partial, not the 4.65B year). Trying the ASC-606
-  // contract-revenue concepts FIRST — Excluding (Costco's variant) then Including (Copart's) — lands on the
-  // canonical full-year figure; `Revenues`/`SalesRevenue*` remain as fallbacks for older/other taxonomies.
-  // (For a filer like Costco where both Excluding and Revenues equal 275235, precedence is a no-op.)
+  // Net income attributable to the parent first (`NetIncomeLoss`); `ProfitLoss` / the available-to-common
+  // variants are latest-year fallbacks for filers that froze `NetIncomeLoss` (Mastercard's stops FY2013,
+  // Caterpillar's FY2010) — resolveLatestYearGroup keeps Exxon (reports both) on the parent figure.
+  netIncome: [
+    'NetIncomeLoss',
+    'NetIncomeLossAvailableToCommonStockholdersBasic',
+    'ProfitLoss',
+  ],
+  // Revenue is PRECEDENCE-ORDERED then latest-year-preferring. Many filers (e.g. Copart) report the full-
+  // company top line under RevenueFromContractWithCustomer*AssessedTax and tag `Revenues` only with a
+  // disaggregated sub-line (Copart's `Revenues` carries a 525M Q4 partial). Trying the ASC-606 contract-
+  // revenue concepts FIRST — Excluding (Costco's variant) then Including (Copart's) — lands on the canonical
+  // full-year figure for those filers; but where the contract concept was DISCONTINUED and only `Revenues`
+  // carries the current year (Alphabet/NVIDIA/Exxon/Mastercard tag the consolidated total under `Revenues`
+  // and froze the contract concept years ago), resolveLatestYearGroup prefers `Revenues` by recency.
+  // (For Costco where Excluding and Revenues both report the same year+value, precedence keeps Excluding.)
   revenue: [
     'RevenueFromContractWithCustomerExcludingAssessedTax',
     'RevenueFromContractWithCustomerIncludingAssessedTax',
@@ -439,10 +487,37 @@ const US_GAAP_CONCEPTS: ConceptMap = {
     'SalesRevenueServicesNet',
     'SalesRevenueGoodsNet',
   ],
-  dAndA: ['DepreciationDepletionAndAmortization'],
-  capex: ['PaymentsToAcquirePropertyPlantAndEquipment'],
-  sbc: ['ShareBasedCompensation'],
-  dilutedShares: ['WeightedAverageNumberOfDilutedSharesOutstanding'],
+  // D&A: the canonical combined cash-flow concepts first; then the split (Depreciation + amortization of
+  // intangibles) SUMMED, for filers (Microsoft, Alphabet) that tag only the components. Latest-year
+  // preference fixes Walmart, whose `DepreciationDepletionAndAmortization` froze FY2019 and is superseded by
+  // `DepreciationAmortizationAndAccretionNet`.
+  dAndA: [
+    'DepreciationDepletionAndAmortization',
+    'DepreciationAmortizationAndAccretionNet',
+    'DepreciationAndAmortization',
+    { sum: ['Depreciation', 'AmortizationOfIntangibleAssets'] },
+  ],
+  // Capex: PP&E purchases first; then `PaymentsToAcquireProductiveAssets` (NVIDIA/Visa tag capex here, not
+  // under the PP&E concept); then REIT real-estate-acquisition variants (Realty Income) summed with capital
+  // improvements. Latest-year preference keeps Exxon on the PP&E concept (current) over stale alternatives.
+  capex: [
+    'PaymentsToAcquirePropertyPlantAndEquipment',
+    'PaymentsToAcquireProductiveAssets',
+    { sum: ['PaymentsToAcquireCommercialRealEstate', 'PaymentsForCapitalImprovements'], requireFirst: true },
+    'PaymentsToAcquireRealEstate',
+  ],
+  // SBC: `ShareBasedCompensation` first; `AllocatedShareBasedCompensationExpense` is the variant Walmart and
+  // Caterpillar tag (the bare concept is absent for them). Both carry the same full-company expense.
+  sbc: [
+    'ShareBasedCompensation',
+    'AllocatedShareBasedCompensationExpense',
+  ],
+  // Diluted weighted-average shares first; basic is a latest-year fallback for filers that stopped tagging the
+  // diluted count (Exxon tags only the basic concept in recent years; basic ≈ diluted for a low-dilution filer).
+  dilutedShares: [
+    'WeightedAverageNumberOfDilutedSharesOutstanding',
+    'WeightedAverageNumberOfSharesOutstandingBasic',
+  ],
   sharesOut: ['CommonStockSharesOutstanding'],
   // Debt: prefer the combined rollup (LongTermDebt = total carrying amount, or the LT+ST combined amount);
   // else sum the noncurrent + current components; else fall back to lease/short-term-borrowing concepts for
@@ -474,19 +549,30 @@ const US_GAAP_CONCEPTS: ConceptMap = {
 // IFRS (ifrs-full) equivalents for a foreign private issuer's 20-F/40-F. Mapped per the probe of Novo
 // Nordisk's companyfacts; concepts that may be absent for other filers degrade gracefully (-> undefined).
 const IFRS_CONCEPTS: ConceptMap = {
-  netIncome: 'ProfitLoss',
-  revenue: ['Revenue'],
-  // prefer the combined D&A expense; fall back to the depreciation/amortisation split if absent.
+  netIncome: ['ProfitLoss'],
+  revenue: ['Revenue', 'RevenueFromContractsWithCustomers'],
+  // prefer the combined D&A expense; then the cash-flow add-back (`AdjustmentsFor...`, which SAP/Toyota tag);
+  // then the impairment-inclusive combined concept.
   dAndA: [
     'DepreciationAndAmortisationExpense',
+    'AdjustmentsForDepreciationAndAmortisationExpense',
     'DepreciationAmortisationAndImpairmentLossReversalOfImpairmentLossRecognisedInProfitOrLoss',
   ],
-  // capex = PPE purchases + intangible purchases (both summed in buildAnnualSeries).
+  // capex: Novo-style PP&E + intangible purchases SUMMED first; then SAP's single combined PP&E+intangibles+
+  // other-noncurrent-assets concept. (Toyota tags no clean PP&E-purchase cash-flow concept under ifrs-full —
+  // an honest miss rather than mislabelling `AdditionsToNoncurrentAssets`, which folds in leased vehicles.)
   capex: [
-    'PurchaseOfPropertyPlantAndEquipmentClassifiedAsInvestingActivities',
-    'PurchaseOfIntangibleAssetsClassifiedAsInvestingActivities',
+    { sum: ['PurchaseOfPropertyPlantAndEquipmentClassifiedAsInvestingActivities', 'PurchaseOfIntangibleAssetsClassifiedAsInvestingActivities'], requireFirst: true },
+    'PurchaseOfPropertyPlantAndEquipmentIntangibleAssetsOtherThanGoodwillInvestmentPropertyAndOtherNoncurrentAssets',
   ],
-  sbc: ['ExpenseFromSharebasedPaymentTransactionsWithEmployees'],
+  // SBC: Novo's employee-share-payment expense first; SAP tags the bottom-line share-based expense under the
+  // longer `ExpenseFromSharebasedPaymentTransactionsInWhichGoodsOrServicesReceivedDidNotQualifyForRecognitionAsAssets`
+  // (and the equivalent cash-flow add-back `AdjustmentsForSharebasedPayments`). Latest-year preference fixes SAP.
+  sbc: [
+    'ExpenseFromSharebasedPaymentTransactionsWithEmployees',
+    'ExpenseFromSharebasedPaymentTransactionsInWhichGoodsOrServicesReceivedDidNotQualifyForRecognitionAsAssets',
+    'AdjustmentsForSharebasedPayments',
+  ],
   // IFRS reports a basic (WeightedAverageShares) and a diluted (AdjustedWeightedAverageShares) count.
   dilutedShares: ['AdjustedWeightedAverageShares', 'WeightedAverageShares'],
   sharesOut: ['NumberOfSharesOutstanding'],
@@ -514,6 +600,75 @@ function firstPopulated(facts: CompanyFacts, taxonomy: Taxonomy, concepts: strin
     if (m.size > 0) return m
   }
   return new Map<number, number>()
+}
+
+/**
+ * A candidate "group" for an OE-bridge flow field: either a single XBRL concept name, or a SUM of
+ * several concepts (e.g. split D&A = Depreciation + AmortizationOfIntangibleAssets; IFRS capex =
+ * PP&E + intangible purchases). A string is shorthand for a single-concept group.
+ */
+type ConceptGroup = string | { sum: string[]; requireFirst?: boolean }
+
+function groupAnnualMap(facts: CompanyFacts, taxonomy: Taxonomy, group: ConceptGroup): Map<number, number> {
+  if (typeof group === 'string') return annualByFiscalYear(facts, taxonomy, group)
+  // requireFirst: only sum YEARS where the FIRST (primary) concept reports — prevents a wrong-magnitude
+  // fill from a secondary-only component (e.g. an IFRS capex group whose PP&E-purchase concept is absent
+  // must NOT resolve to intangibles alone — Toyota — rather than mislabel intangibles as total capex).
+  if (group.requireFirst) {
+    const primary = annualByFiscalYear(facts, taxonomy, group.sum[0]!)
+    if (primary.size === 0) return new Map<number, number>()
+    const rest = sumConcepts(facts, taxonomy, group.sum.slice(1))
+    const out = new Map<number, number>()
+    for (const [fy, v] of primary) out.set(fy, v + (rest.get(fy) ?? 0))
+    return out
+  }
+  return sumConcepts(facts, taxonomy, group.sum)
+}
+
+/** Flatten a candidate-group list to the underlying concept names (for filing-date metadata lookups). */
+function groupNames(groups: ConceptGroup[]): string[] {
+  const out: string[] = []
+  for (const g of groups) {
+    if (typeof g === 'string') out.push(g)
+    else out.push(...g.sum)
+  }
+  return out
+}
+
+/**
+ * Resolve an OE-bridge flow field across PRECEDENCE-ORDERED candidate groups, preferring the group that
+ * reports the MOST RECENT fiscal year. This is the key robustness fix over firstPopulated (which picks the
+ * first non-empty concept regardless of how stale it is): a mega-cap that DISCONTINUED a tag — e.g. Walmart's
+ * old `DepreciationDepletionAndAmortization` (last tagged FY2019) superseded by `DepreciationAmortizationAndAccretionNet`,
+ * or a foreign filer whose `Revenues` carries FY2025 while the ASC-606 contract concept froze at FY2024 — must
+ * resolve to the CURRENT figure, not the stale one. Among groups tied on latest fiscal year (e.g. Costco where
+ * the Excluding variant and `Revenues` both report the same year+value), earlier list order wins, preserving the
+ * disaggregation-avoidance precedence that already keeps Costco/Copart correct.
+ *
+ * Returns the FULL annual map of the chosen group (every year it reports), so the multi-year series is
+ * internally consistent. Falls back per-year is intentionally NOT done here — mixing a current-year value from
+ * one concept with a prior-year value from a different (incompatible) concept would corrupt year-over-year
+ * deltas used by the incremental-ROIC proxy. (Cross-tag-switch per-year fallback remains via firstPopulatedByYear
+ * for balance-sheet items where the magnitude is comparable across tags.)
+ */
+function resolveLatestYearGroup(
+  facts: CompanyFacts,
+  taxonomy: Taxonomy,
+  groups: ConceptGroup[],
+): Map<number, number> {
+  let best: Map<number, number> | undefined
+  let bestYear = -Infinity
+  for (const group of groups) {
+    const m = groupAnnualMap(facts, taxonomy, group)
+    if (m.size === 0) continue
+    const maxYear = Math.max(...m.keys())
+    // strictly-greater so earlier (higher-precedence) groups win ties on the latest fiscal year.
+    if (maxYear > bestYear) {
+      bestYear = maxYear
+      best = m
+    }
+  }
+  return best ?? new Map<number, number>()
 }
 
 /**
@@ -548,13 +703,15 @@ function sumConcepts(facts: CompanyFacts, taxonomy: Taxonomy, concepts: string[]
 
 function buildAnnualSeries(facts: CompanyFacts, taxonomy: Taxonomy, currency: ReportingCurrency): AnnualFacts[] {
   const cm = conceptMapFor(taxonomy)
-  const netIncome = annualByFiscalYear(facts, taxonomy, cm.netIncome)
-  const revenue = firstPopulated(facts, taxonomy, cm.revenue)
-  const dAndA = firstPopulated(facts, taxonomy, cm.dAndA)
-  // capex: sum PPE + intangible purchases (IFRS); for us-gaap the single PPE concept.
-  const capex = sumConcepts(facts, taxonomy, cm.capex)
-  const sbc = firstPopulated(facts, taxonomy, cm.sbc)
-  const dilutedShares = firstPopulated(facts, taxonomy, cm.dilutedShares)
+  // OE-bridge flow fields resolve across precedence-ordered candidate GROUPS, preferring the group that
+  // reports the most recent fiscal year (handles discontinued/superseded tags + segment-vs-consolidated
+  // disambiguation without letting a stale concept shadow the current one — see resolveLatestYearGroup).
+  const netIncome = resolveLatestYearGroup(facts, taxonomy, cm.netIncome)
+  const revenue = resolveLatestYearGroup(facts, taxonomy, cm.revenue)
+  const dAndA = resolveLatestYearGroup(facts, taxonomy, cm.dAndA)
+  const capex = resolveLatestYearGroup(facts, taxonomy, cm.capex)
+  const sbc = resolveLatestYearGroup(facts, taxonomy, cm.sbc)
+  const dilutedShares = resolveLatestYearGroup(facts, taxonomy, cm.dilutedShares)
   const sharesOut = firstPopulated(facts, taxonomy, cm.sharesOut)
   // Per-YEAR fallback for tags a filer may switch mid-history (debt rollup, lease fallback, cash, securities):
   // each year resolves to the first candidate that reports it, so the latest year still resolves even when an
@@ -570,9 +727,9 @@ function buildAnnualSeries(facts: CompanyFacts, taxonomy: Taxonomy, currency: Re
   const incomeTax = annualByFiscalYear(facts, taxonomy, cm.incomeTax)
   // Filing metadata (filed date + period end) per fiscal year. Prefer the income-statement fact; fall
   // back to revenue/D&A so a year still carries a filed date if the income fact was tagged differently.
-  const filedMetaNi = annualFiledMetaByFiscalYear(facts, taxonomy, cm.netIncome)
-  const filedMetaRev = cm.revenue.map((c) => annualFiledMetaByFiscalYear(facts, taxonomy, c))
-  const filedMetaDa = cm.dAndA.map((c) => annualFiledMetaByFiscalYear(facts, taxonomy, c))
+  const filedMetaNi = groupNames(cm.netIncome).map((c) => annualFiledMetaByFiscalYear(facts, taxonomy, c))
+  const filedMetaRev = groupNames(cm.revenue).map((c) => annualFiledMetaByFiscalYear(facts, taxonomy, c))
+  const filedMetaDa = groupNames(cm.dAndA).map((c) => annualFiledMetaByFiscalYear(facts, taxonomy, c))
 
   // Union of all fiscal years observed across the OE-bridge concepts.
   const allYears = new Set<number>()
@@ -588,7 +745,7 @@ function buildAnnualSeries(facts: CompanyFacts, taxonomy: Taxonomy, currency: Re
     const totalDebtRaw = debtCombined.get(fy) ?? debtComponents.get(fy) ?? debtFallback.get(fy)
     // cash + securities: cash plus whichever short-term-securities concept is present.
     const cashRaw = sumOptional(cash.get(fy), shortTermInv.get(fy))
-    const filedMeta = filedMetaNi.get(fy)
+    const filedMeta = filedMetaNi.map((m) => m.get(fy)).find((v) => v !== undefined)
       ?? filedMetaRev.map((m) => m.get(fy)).find((v) => v !== undefined)
       ?? filedMetaDa.map((m) => m.get(fy)).find((v) => v !== undefined)
 

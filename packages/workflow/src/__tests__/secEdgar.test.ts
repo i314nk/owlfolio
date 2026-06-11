@@ -23,6 +23,28 @@ const subsFixture = fixture('cost-submissions.json')
 const novoFactsFixture = fixture('novo-companyfacts.json')
 const novoSubsFixture = fixture('novo-submissions.json')
 const cprtFactsFixture = fixture('cprt-companyfacts.json')
+const wmtFactsFixture = fixture('wmt-companyfacts.json')
+const msftFactsFixture = fixture('msft-companyfacts.json')
+const googlFactsFixture = fixture('googl-companyfacts.json')
+const maFactsFixture = fixture('ma-companyfacts.json')
+const tmFactsFixture = fixture('tm-companyfacts.json')
+
+/** A fetch that serves the given trimmed companyfacts fixture for any CIK lookup + empty submissions. */
+function fakeFactsFetch(factsBlob: unknown): typeof fetch {
+  return (async (input: RequestInfo | URL) => {
+    const url = typeof input === 'string' ? input : input.toString()
+    if (url.includes('/api/xbrl/companyfacts/')) {
+      return { ok: true, status: 200, json: async () => factsBlob } as Response
+    }
+    if (url.includes('/submissions/')) {
+      return { ok: true, status: 200, json: async () => ({ filings: { recent: {} } }) } as Response
+    }
+    if (url.includes('company_tickers.json')) {
+      return { ok: true, status: 200, json: async () => tickersFixture } as Response
+    }
+    throw new Error(`unexpected fetch in test: ${url}`)
+  }) as unknown as typeof fetch
+}
 
 /**
  * Build a fake fetch that serves the trimmed CPRT companyfacts fixture for any CIK lookup and an empty
@@ -333,5 +355,86 @@ describe('fetchCompanyFundamentals (CPRT / Copart FY2025 — broadened concept m
     const la = f.latest_annual
     // cash 2780.531 (CashCashEquivalentsRestricted...) + HTM securities 2008.539 = 4789.07.
     expect(la.cash_and_securities_musd).toBeCloseTo(4789.07, 2)
+  })
+})
+
+describe('fetchCompanyFundamentals — broadened concept coverage (latest-year-aware resolution)', () => {
+  // FIX CLASS 1: D&A variant + latest-year preference. Walmart's `DepreciationDepletionAndAmortization`
+  // FROZE at FY2019; the current D&A sits under `DepreciationAmortizationAndAccretionNet`. firstPopulated
+  // would have returned the stale concept (it is non-empty); resolveLatestYearGroup must prefer the variant
+  // reporting the most recent fiscal year. SBC likewise resolves via AllocatedShareBasedCompensationExpense.
+  it('WMT: D&A resolves via the AccretionNet variant (not the frozen DDA concept), SBC via Allocated', async () => {
+    const f = await fetchCompanyFundamentals('0000104169', { fetchImpl: fakeFactsFetch(wmtFactsFixture) })
+    expect(f).toBeDefined()
+    if (f === undefined) return
+    const la = f.latest_annual
+    expect(la.fiscal_year).toBe(2026)
+    // Walmart FY2026 D&A = 14,203M via DepreciationAmortizationAndAccretionNet (NOT the 10,678M FY2019 stale).
+    expect(la.d_and_a_musd).toBeCloseTo(14203, 0)
+    expect(la.d_and_a_musd).not.toBeCloseTo(10678, 0)
+    // SBC via AllocatedShareBasedCompensationExpense (ShareBasedCompensation is absent for Walmart).
+    expect(la.sbc_musd).toBeCloseTo(3603, 0)
+  })
+
+  // FIX CLASS 2: summed split D&A. Microsoft tags only `Depreciation` (22,000M) and
+  // `AmortizationOfIntangibleAssets` (6,000M), no combined concept. The summed-group fallback must yield
+  // 28,000M — the true cash-flow D&A — rather than leaving the field undefined.
+  it('MSFT: D&A resolves via the summed Depreciation + AmortizationOfIntangibleAssets fallback', async () => {
+    const f = await fetchCompanyFundamentals('0000789019', { fetchImpl: fakeFactsFetch(msftFactsFixture) })
+    expect(f).toBeDefined()
+    if (f === undefined) return
+    const la = f.latest_annual
+    expect(la.fiscal_year).toBe(2025)
+    expect(la.d_and_a_musd).toBeCloseTo(28000, 0)
+    expect(la.revenue_musd).toBeCloseTo(281724, 0)
+  })
+
+  // FIX CLASS 3: revenue via `Revenues` over a frozen ASC-606 contract concept. Alphabet's
+  // `RevenueFromContractWithCustomerExcludingAssessedTax` froze at FY2024 (350,018M); FY2025 (402,836M) is
+  // tagged only under `Revenues`. resolveLatestYearGroup must prefer `Revenues` by recency even though the
+  // contract concept is higher-precedence (it wins ties, not staleness).
+  it('GOOGL: revenue resolves to the current Revenues figure, not the frozen contract concept', async () => {
+    const f = await fetchCompanyFundamentals('0001652044', { fetchImpl: fakeFactsFetch(googlFactsFixture) })
+    expect(f).toBeDefined()
+    if (f === undefined) return
+    const la = f.latest_annual
+    expect(la.fiscal_year).toBe(2025)
+    expect(la.revenue_musd).toBeCloseTo(402836, 0)
+    expect(la.revenue_musd).not.toBeCloseTo(350018, 0)
+    expect(la.net_income_musd).toBeCloseTo(132170, 0)
+  })
+
+  // FIX CLASS 4 (net income fallback): Mastercard's `NetIncomeLoss` froze at FY2013; the current bottom line
+  // is tagged under `ProfitLoss`. The net-income precedence list must fall through to it by recency, AND
+  // revenue must resolve to the current `Revenues` total.
+  it('MA: net income resolves via ProfitLoss when NetIncomeLoss is frozen', async () => {
+    const f = await fetchCompanyFundamentals('0001141391', { fetchImpl: fakeFactsFetch(maFactsFixture) })
+    expect(f).toBeDefined()
+    if (f === undefined) return
+    const la = f.latest_annual
+    expect(la.fiscal_year).toBe(2025)
+    expect(la.net_income_musd).toBeCloseTo(14968, 0)
+    expect(la.revenue_musd).toBeCloseTo(32791, 0)
+  })
+
+  // FIX CLASS 5: latest-annual taxonomy selection (the Toyota stale-FY2020 bug). Toyota's `us-gaap` facts
+  // FREEZE at FY2020 while its `ifrs-full` facts run to FY2025 (it converted reporting bases). pickTaxonomy
+  // must choose the taxonomy with the more RECENT annual data, so latest_annual is FY2025 (JPY) rather than
+  // a five-year-stale FY2020 us-gaap period. Capex/SBC are genuinely untagged under ifrs-full -> undefined
+  // (fail-closed), and must NOT be mislabelled from a partial component.
+  it('TM: picks the current ifrs-full taxonomy over the stale FY2020 us-gaap bucket', async () => {
+    const f = await fetchCompanyFundamentals('0001094517', { fetchImpl: fakeFactsFetch(tmFactsFixture) })
+    expect(f).toBeDefined()
+    if (f === undefined) return
+    expect(f.currency).toBe('JPY')
+    const la = f.latest_annual
+    expect(la.fiscal_year).toBe(2025)
+    expect(la.revenue_musd).toBeCloseTo(48036704, 0)
+    expect(la.net_income_musd).toBeCloseTo(4789755, 0)
+    expect(la.d_and_a_musd).toBeCloseTo(2251233, 0)
+    // No clean PP&E-purchase concept under ifrs-full -> capex honestly undefined (requireFirst guard prevents
+    // a wrong-magnitude intangibles-only fill); SBC likewise untagged.
+    expect(la.capex_musd).toBeUndefined()
+    expect(la.sbc_musd).toBeUndefined()
   })
 })
