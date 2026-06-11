@@ -148,33 +148,20 @@ function mockLaneFindingForTicker(ticker: string) {
   }
 }
 
-function mockSynthesisDecisionForTicker(ticker: string) {
+// MOAT lane (spec-correct decomposition): emits its OWN moat_rubric + runway_rubric (Mechanisms 1+2) +
+// the holistic moat_class/runway fallback. Cited rows cite the grounded mock source_ids so they verify
+// against the corpus. Upward-to-monopoly carries 2 cited adjustment-evidence items (asymmetric burden).
+function mockMoatLaneForTicker(ticker: string) {
   const companyLabel = companyLabelForTicker(ticker)
-  // Cite by the GROUNDED source ids (the same ones mockSourcesForTicker emits + the harness verifies),
-  // so the rubric cited rows + adjustment evidence verify against the corpus.
   const groundedSources = mockSourcesForTicker(ticker)
   const primaryCite = groundedSources[0].source_id
   const secondaryCite = groundedSources[1].source_id
   return {
-    investment_verdict: 'WATCH' as const,
-    strategy_compliance: 'CONDITIONAL' as const,
-    valuation_status: 'EXPENSIVE' as const,
-    next_required_action: `Wait for a wider margin of safety and refresh ${ticker} source coverage after the next quarterly filing.`,
-    decision_reason: `${companyLabel} is a durable quality compounder but current valuation does not yet provide a sufficient margin of safety.`,
-    thesis_summary: `${companyLabel} screens as a wide-moat compounder with aligned management and Shariah-conditional status; watchlist until valuation is attractive.`,
-    evidence_summary: `Mock source coverage reviewed primary and secondary references for ${ticker}.`,
-    valuation_rationale: `Current valuation remains elevated versus the required Buffett-Munger margin of safety.`,
-    shariah_rationale: `Mock source coverage did not identify prohibited-business evidence; final Shariah treatment requires sourced ratio review.`,
-    synthesis_summary: `All mock lanes reviewed; ${companyLabel} is a WATCH candidate pending a wider margin of safety.`,
-    risks: [`Valuation compression risk if earnings disappoint.`],
-    open_questions: [`Refresh owner-earnings and Shariah ratio evidence after the next quarterly filing.`],
+    finding_summary: `${companyLabel} moat lane: wide-to-monopoly durable competitive position with proven reinvestment runway.`,
+    confidence: 'medium' as const,
+    caveats: [`Mock moat finding — not investment-grade; run a real provider before any decision.`],
     moat_class: 'monopoly' as const,
-    // Reinvestment runway is a separate axis from moat width (binding for growth credit).
     runway: 'proven' as const,
-    // Judgment-objectivity rubrics (Mechanisms 1+2). Computable rows (M1/M2/R1) are re-verified by the
-    // harness from EDGAR; cited rows carry a citation_hash that matches a grounded mock source_id. The
-    // proposed_tier is accepted only as a bounded ±1 adjustment with verified cited evidence (upward
-    // needs 2×). Upward to monopoly carries 2 cited adjustment-evidence items.
     moat_rubric: {
       rubric_scores: [
         { id: 'M1', score: 2 },
@@ -199,6 +186,42 @@ function mockSynthesisDecisionForTicker(ticker: string) {
       proposed_tier: 'proven' as const,
       adjustment_evidence: [],
     },
+    proposed_sources: groundedSources,
+  }
+}
+
+// SHARIAH lane (spec-correct decomposition): emits its OWN sector_status + impermissible_income overlay;
+// the harness recomputes the AAOIFI ratios from EDGAR + market cap + this lane-supplied amount.
+function mockShariahLaneForTicker(ticker: string) {
+  const companyLabel = companyLabelForTicker(ticker)
+  return {
+    finding_summary: `${companyLabel} shariah lane: permissible primary business; trace interest income on cash.`,
+    confidence: 'medium' as const,
+    caveats: [`Mock shariah finding — not investment-grade; run a real provider before any decision.`],
+    sector_status: 'compliant' as const,
+    impermissible_income: 0,
+    proposed_sources: mockSourcesForTicker(ticker),
+  }
+}
+
+function mockSynthesisDecisionForTicker(ticker: string) {
+  const companyLabel = companyLabelForTicker(ticker)
+  return {
+    investment_verdict: 'WATCH' as const,
+    strategy_compliance: 'CONDITIONAL' as const,
+    valuation_status: 'EXPENSIVE' as const,
+    next_required_action: `Wait for a wider margin of safety and refresh ${ticker} source coverage after the next quarterly filing.`,
+    decision_reason: `${companyLabel} is a durable quality compounder but current valuation does not yet provide a sufficient margin of safety.`,
+    thesis_summary: `${companyLabel} screens as a wide-moat compounder with aligned management and Shariah-conditional status; watchlist until valuation is attractive.`,
+    evidence_summary: `Mock source coverage reviewed primary and secondary references for ${ticker}.`,
+    valuation_rationale: `Current valuation remains elevated versus the required Buffett-Munger margin of safety.`,
+    shariah_rationale: `Mock source coverage did not identify prohibited-business evidence; final Shariah treatment requires sourced ratio review.`,
+    synthesis_summary: `All mock lanes reviewed; ${companyLabel} is a WATCH candidate pending a wider margin of safety.`,
+    risks: [`Valuation compression risk if earnings disappoint.`],
+    open_questions: [`Refresh owner-earnings and Shariah ratio evidence after the next quarterly filing.`],
+    // NOTE (spec-correct decomposition): moat_class / runway / moat_rubric / runway_rubric now come from
+    // the MOAT lane (mockMoatLaneForTicker) and the sector_status / impermissible_income overlay from the
+    // SHARIAH lane (mockShariahLaneForTicker). The synthesis schema no longer carries them.
     growth_assumptions: `${companyLabel} is credited two-stage growth: incremental ROIC 20% > 10% eligibility, reinvestment rate 40% → raw g = 0.40×0.20 = 0.08, clamped to the monopoly+proven band ceiling g = 4%. Owner earnings $14,000M ÷ 1,000M shares = $14/sh. Two-stage DCF (10yr at 4%, terminal fade to 2%, flat 10% discount) → fair value ≈ $206/sh (implied ≈14.7× OE, under the 18× cap). Monopoly MoS 20% → buy below ≈ $165.`,
     owner_earnings_bridge: {
       // Company TOTALS in $millions, judgment-grounded. OE_total = 14000+4000−3000−2000−(−1000) = 14000.
@@ -390,6 +413,10 @@ export class MockProvider implements Provider {
           return mockQuickScreenForTicker(ticker)
         case 'BuffettMungerLaneFinding':
           return mockLaneFindingForTicker(ticker)
+        case 'BuffettMungerMoatLane':
+          return mockMoatLaneForTicker(ticker)
+        case 'BuffettMungerShariahLane':
+          return mockShariahLaneForTicker(ticker)
         case 'BuffettMungerSynthesisDecision':
           return mockSynthesisDecisionForTicker(ticker)
         case 'BuffettMungerRedTeam':

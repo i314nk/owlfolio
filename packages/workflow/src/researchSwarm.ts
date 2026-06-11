@@ -99,6 +99,21 @@ export class ResearchSwarmStageError extends Error {
   }
 }
 
+/** The MOAT lane's judgment output (Mechanisms 1+2): rubrics + the holistic moat_class/runway fallback. */
+export type MoatLaneJudgment = {
+  moat_class: 'narrow' | 'moderate' | 'wide' | 'monopoly'
+  runway: 'proven' | 'limited' | 'none'
+  runway_exceptional?: boolean
+  moat_rubric?: LaneRubricInput
+  runway_rubric?: LaneRubricInput
+}
+
+/** The SHARIAH lane's judgment overlay (the harness recomputes the AAOIFI ratios from this). */
+export type ShariahLaneJudgment = {
+  sector_status: 'compliant' | 'conditional' | 'non_compliant'
+  impermissible_income: number
+}
+
 export type LaneOutcome = {
   lane: string
   finding_summary: string
@@ -107,6 +122,12 @@ export type LaneOutcome = {
   verified_ids: string[]
   /** Mechanism 6: sources this lane proposed that the source-discipline whitelist rejected. */
   policy_rejections?: SourcePolicyRejection[]
+  /** MOAT lane only: its rubric/holistic judgment (spec-correct: the lane scores its own rubric). */
+  moat_judgment?: MoatLaneJudgment
+  /** SHARIAH lane only: its sector/impermissible-income overlay (harness recomputes the ratios). */
+  shariah_judgment?: ShariahLaneJudgment
+  /** Visible per-lane degradation: the lane omitted its REQUIRED judgment block after schema-retry. */
+  judgment_retry_degraded?: string
 }
 
 export type LaneSwarmResult = LaneOutcome & { status: 'complete' | 'incomplete' }
@@ -174,6 +195,13 @@ const LaneAgentSchema = z.object({
   proposed_sources: ProposedSourcesSchema,
 })
 
+const LaneAgentBaseShape = {
+  finding_summary: z.string().min(1),
+  confidence: z.enum(['low', 'medium', 'high']),
+  caveats: z.array(z.string().min(1)).min(1),
+  proposed_sources: ProposedSourcesSchema,
+}
+
 const OwnerEarningsBridgeSchema = z.object({
   // Company TOTALS in $MILLIONS, judgment-grounded by the valuation specialist from the latest 10-K.
   // These are aggregate amounts, NOT per-share — the harness divides total owner earnings by
@@ -222,6 +250,38 @@ const LaneRubricSchema = z.object({
   adjustment_evidence: z.array(AdjustmentEvidenceSchema).default([]),
 })
 
+// ---------------------------------------------------------------------------
+// Per-lane JUDGMENT schemas (spec-correct decomposition — Integration Point #1).
+// The judgment-objectivity spec says each judgment-heavy LANE scores its OWN rubric. The moat lane
+// therefore emits moat_rubric + runway_rubric as REQUIRED fields (Mechanisms 1+2); the shariah lane
+// emits the sector_status + impermissible_income overlay as REQUIRED. These are small, FOCUSED schemas
+// (the lane's base finding + just its judgment block) so a live model is not asked to fill one giant
+// monolithic synthesis schema (the dogfood failure). Each is run under runValidatedAgent with its
+// judgment fields as requiredFields — the retry FORCES them; only after 2 fails does the visible
+// holistic/unverified fallback apply. The harness still re-verifies the computable rows + citations.
+const MoatLaneSchema = z.object({
+  ...LaneAgentBaseShape,
+  // The MOAT lane's own rubric judgment (REQUIRED on this lane's schema). It also classifies the
+  // holistic moat_class + runway as a fallback the harness uses ONLY when the rubric resolves to a
+  // non-downstream tier.
+  moat_class: z.enum(['narrow', 'moderate', 'wide', 'monopoly']),
+  runway: z.enum(['proven', 'limited', 'none']),
+  // Optional: the lane may flag an exceptional runway (with headroom evidence) to allow the top of a
+  // growth band. Defaults to false when omitted.
+  runway_exceptional: z.boolean().optional(),
+  moat_rubric: LaneRubricSchema,
+  runway_rubric: LaneRubricSchema,
+})
+
+const ShariahLaneSchema = z.object({
+  ...LaneAgentBaseShape,
+  // The SHARIAH lane's own judgment overlay (REQUIRED on this lane's schema): sector_status +
+  // impermissible_income ($M). The harness recomputes the AAOIFI ratios from EDGAR + market cap +
+  // this lane-supplied impermissible_income — it does NOT trust the model's own ratio arithmetic.
+  sector_status: ShariahJudgmentSchema.shape.sector_status,
+  impermissible_income: ShariahJudgmentSchema.shape.impermissible_income,
+})
+
 const DecisionAgentSchema = z.object({
   investment_verdict: z.enum(['BUY', 'WATCH', 'PASS', 'RESEARCH_MORE']),
   strategy_compliance: z.enum(['COMPLIANT', 'CONDITIONAL', 'NON_COMPLIANT', 'INSUFFICIENT_DATA']),
@@ -235,28 +295,16 @@ const DecisionAgentSchema = z.object({
   synthesis_summary: z.string().min(1),
   risks: z.array(z.string().min(1)).min(1),
   open_questions: z.array(z.string().min(1)).min(1),
-  // Model-supplied valuation judgment fields (harness computes fair value and buy_price from these)
-  moat_class: z.enum(['narrow', 'moderate', 'wide', 'monopoly']),
-  // Reinvestment runway — a SEPARATE axis from moat (MOAT lane). Binding for growth credit.
-  //   proven  — ≥5 yrs incremental capital deployed at high ROIC, visible headroom remaining
-  //   limited — high ROIC but little incremental capital absorbed
-  //   none    — mature/regulated, FCF mostly distributed
-  runway: z.enum(['proven', 'limited', 'none']),
-  // Judgment-objectivity rubrics (Mechanisms 1+2). OPTIONAL so the swarm runs unchanged when a model
-  // omits them (the harness then falls back to the holistic moat_class/runway above). When present, the
-  // harness RE-VERIFIES the computable rows, computes the mechanical anchor, and resolves the final tier
-  // under the +-1 bound + citation rules — superseding moat_class/runway for the valuation.
-  moat_rubric: LaneRubricSchema.optional(),
-  runway_rubric: LaneRubricSchema.optional(),
-  // Optional: VALUATION/MOAT lane may flag an exceptional runway (with headroom evidence) to allow
-  // the top of a growth band. Defaults to false when omitted.
-  runway_exceptional: z.boolean().optional(),
+  // NOTE (spec-correct decomposition): the moat_class / runway / runway_exceptional / moat_rubric /
+  // runway_rubric judgment fields now live on the MOAT lane's schema (MoatLaneSchema), and the Shariah
+  // sector_status + impermissible_income overlay lives on the SHARIAH lane's schema (ShariahLaneSchema).
+  // The judgment-objectivity spec assigns rubric scoring to the producing LANE — so the synthesis schema
+  // no longer carries them (the dogfood failure: a live model omitted them from this monolithic schema).
+  // The harness reads moat_class/runway/rubrics from the moat lane output and the Shariah overlay from
+  // the shariah lane output; synthesis keeps only synthesis_response (its red-team obligation).
   growth_assumptions: z.string().min(1),
   // Owner-earnings bridge — totals in $millions, judgment-grounded
   owner_earnings_bridge: OwnerEarningsBridgeSchema,
-  // SHARIAH financial judgment overlay — sector status + impermissible income ($M). Optional so the
-  // swarm runs unchanged when the model omits it (harness falls back to the quick-screen status).
-  shariah: ShariahJudgmentSchema.optional(),
   // ROIC inputs. `roic` is reported context; `incremental_roic` (normalized INCREMENTAL ROIC, a
   // fraction, e.g. 0.20) drives credited growth eligibility + magnitude.
   roic: z.number(),
@@ -321,6 +369,31 @@ export type RunResearchDeepDivePhaseCommand = {
 // ---------------------------------------------------------------------------
 
 const AGENT_TIMEOUT_MS = 180_000
+
+// MOAT-lane judgment instructions (moved here from the synthesis prompt — spec-correct: the LANE scores
+// its own rubric). The moat lane emits moat_rubric + runway_rubric (Mechanisms 1+2) AND a holistic
+// moat_class/runway the harness uses only as a fallback when the rubric resolves to a non-downstream tier.
+const MOAT_RUBRIC_PROMPT =
+  ` As the MOAT lane you ALSO produce the judgment classification + rubrics for this case. `
+  + `Classify the durable competitive moat_class ('narrow' | 'moderate' | 'wide' | 'monopoly') and the `
+  + `reinvestment runway ('proven' | 'limited' | 'none' — a SEPARATE axis from moat width; proven means `
+  + `≥5 yrs of incremental capital deployed at high ROIC with visible remaining headroom). Set `
+  + `runway_exceptional only with explicit headroom evidence. `
+  + `JUDGMENT RUBRICS — REQUIRED, do not omit (omitting them forces the harness to degrade to a holistic tier and flag the dossier as rubric_not_emitted): emit BOTH moat_rubric and runway_rubric. `
+  + `Score the MOAT rubric (M1 ROIC>15% in ≥9/10yr [computable], M2 gross-margin band [computable], M3 price increases without share loss, M4 share vs entrant, M5 customer switching, M6 competitor exits) `
+  + `and the RUNWAY rubric (R1 incremental capital at high ROIC [computable], R2 visible headroom, R3 demonstrated reinvestment rate). `
+  + `For EACH item give a score 0/1/2; CITED rows (M3–M6, R2, R3) MUST carry a citation_hash that matches a fetched primary source (the harness scores 0 for any uncited cited row and re-computes M1/M2/R1 from filings itself). `
+  + `Then give proposed_tier (moat: narrow|moderate|wide|monopoly; runway: none|limited|proven) and adjustment_evidence — cited claims the quantitative score cannot see (patent cliff, announced entrant, technology substitution). `
+  + `The harness anchors the tier in the computable rows and accepts your proposed_tier ONLY as a bounded ±1-tier adjustment with verified cited evidence; an UPWARD adjustment needs 2× the cited evidence items of a downward one. `
+  + `EXAMPLE moat_rubric (shape only): {"rubric_scores":[{"id":"M1","score":2},{"id":"M2","score":2},{"id":"M3","score":2,"citation_hash":"<hash-of-a-fetched-source>"},{"id":"M4","score":1,"citation_hash":"<hash>"},{"id":"M5","score":2,"citation_hash":"<hash>"},{"id":"M6","score":1,"citation_hash":"<hash>"}],"proposed_tier":"wide","adjustment_evidence":[{"claim":"insurer contracts repriced upward with no share loss","citation_hash":"<hash>"}]}.`
+
+// SHARIAH-lane judgment overlay instructions (moved here from the synthesis prompt). The lane supplies
+// the JUDGMENT only; the harness recomputes the AAOIFI ratios + verdict + purification % from filings.
+const SHARIAH_OVERLAY_PROMPT =
+  ` As the SHARIAH lane you ALSO produce the judgment overlay — REQUIRED, do not omit (omitting it leaves the AAOIFI ratios unverified and flags shariah_ratios_unverified): `
+  + `sector_status ('compliant' | 'conditional' | 'non_compliant') confirmed with segment revenue, and impermissible_income — the dollar amount in $MILLIONS of non-permissible income (interest income on cash, prohibited-segment revenue), 0 if fully permissible. `
+  + `The harness recomputes the AAOIFI debt/cash/impermissible ratios + verdict + purification % from the primary filings + market cap; do NOT compute the ratios yourself. `
+  + `EXAMPLE (shape only): {"sector_status":"compliant","impermissible_income":128.0}.`
 
 // ---------------------------------------------------------------------------
 // Helper
@@ -1152,39 +1225,157 @@ export async function runResearchDeepDivePhase(
     // so single-provider runs are unchanged; an override can pin moat/shariah onto a stronger model.
     const laneRole: ModelRoleId = lane === 'moat' ? 'lane_moat' : lane === 'shariah' ? 'lane_shariah' : 'lanes_default'
     const laneRuntime = resolveRoleRuntime(laneRole, provider, command)
+    const sourceDiscipline = lane === 'risks'
+      ? `As the RISKS lane you may cite anything — knowing the consensus IS the job.`
+      : lane === 'management'
+        ? `Cite filings, proxies (DEF 14A), transcripts, and insider-trading data; media profiles will be rejected.`
+        : lane === 'shariah'
+          ? `Cite filings, segment disclosures, and Shariah screening providers; sell-side/media will be rejected.`
+          : `Cite filings, transcripts, regulatory/statistical data, and company disclosures; sell-side research, financial media, investor write-ups, and blogs will be rejected.`
+    const basePrompt = `You are the Buffett-Munger ${lane} specialist agent for ${command.ticker}. `
+      + `Produce a source-backed finding for the ${lane} lane only. Gather your own sources; return them in proposed_sources with real URLs. `
+      + `SOURCE DISCIPLINE (Mechanism 6): this lane reasons from PRIMARY documents. ${sourceDiscipline}`
+      + (injectFiling ? primaryFilingBlock : '')
+
+    const baseRunId = `run_${command.research_case_id}_${swarmSeg(lane)}`
+    // The grounded EDGAR 10-K is a guaranteed verified primary citation for the injected lanes —
+    // include it in the lane's verified_ids so the lane records a finding even if the model proposed
+    // no other verifiable source (this is what fixes the lane-drop when IR/news is blocked).
+    const withFiling = (verified: string[]) =>
+      injectFiling && primaryFilingSourceId !== undefined
+        ? [...new Set([primaryFilingSourceId, ...verified])]
+        : verified
+
+    // ---- MOAT lane: emits its OWN moat_rubric + runway_rubric (spec-correct decomposition) ----
+    // The judgment-objectivity spec assigns rubric scoring to the producing lane. The moat lane runs
+    // under runValidatedAgent with moat_rubric + runway_rubric REQUIRED — the retry FORCES them; only
+    // after 2 fails does the visible holistic fallback (judgment_degraded: rubric_not_emitted) apply.
+    if (lane === 'moat') {
+      const moatRequired: RequiredFieldCheck<z.infer<typeof MoatLaneSchema>>[] = [
+        { name: 'moat_rubric', present: (a) => a.moat_rubric !== undefined, hint: 'scored 0/1/2 rubric_scores + proposed_tier + citation_hash on cited rows' },
+        { name: 'runway_rubric', present: (a) => a.runway_rubric !== undefined, hint: 'scored 0/1/2 rubric_scores + proposed_tier' },
+      ]
+      const validated = await runValidatedAgent(laneRuntime.provider, {
+        run_id: baseRunId,
+        model_id: laneRuntime.model_id,
+        prompt: basePrompt + MOAT_RUBRIC_PROMPT,
+        timeout_ms: AGENT_TIMEOUT_MS,
+        schema_name: 'BuffettMungerMoatLane',
+      }, MoatLaneSchema, { ...deps, lane, requiredFields: moatRequired })
+      const agent = validated.status === 'ok' ? validated.result : validated.lastResult
+      if (agent === undefined) {
+        // No payload parsed even after retries — treat as a failed lane (runLaneSwarm marks it incomplete).
+        throw new Error(`Moat lane produced no parseable output: ${validated.status === 'failed' ? validated.reason : 'unknown'}`)
+      }
+      remember(agent.captured)
+      const a = agent.analysis
+      const moat_judgment: MoatLaneJudgment = {
+        moat_class: a.moat_class,
+        runway: a.runway,
+        ...(a.runway_exceptional !== undefined ? { runway_exceptional: a.runway_exceptional } : {}),
+        ...(a.moat_rubric !== undefined ? { moat_rubric: a.moat_rubric } : {}),
+        ...(a.runway_rubric !== undefined ? { runway_rubric: a.runway_rubric } : {}),
+      }
+      return {
+        lane,
+        finding_summary: a.finding_summary,
+        confidence: a.confidence,
+        caveats: a.caveats,
+        verified_ids: withFiling(agent.verified_ids),
+        moat_judgment,
+        ...(agent.policy_rejections.length > 0 ? { policy_rejections: agent.policy_rejections } : {}),
+        ...(validated.status === 'failed'
+          ? { judgment_retry_degraded: `moat_lane_schema_retry_exhausted: the model omitted [${validated.missing.join(', ')}] after ${validated.attempts} attempts (${validated.reason}). Resolved holistically.` }
+          : {}),
+      }
+    }
+
+    // ---- SHARIAH lane: emits its OWN sector_status + impermissible_income overlay ----
+    // The harness recomputes the AAOIFI ratios from EDGAR + market cap + this lane-supplied
+    // impermissible_income. Required under runValidatedAgent; after 2 fails → shariah_ratios_unverified.
+    if (lane === 'shariah') {
+      const shariahRequired: RequiredFieldCheck<z.infer<typeof ShariahLaneSchema>>[] = [
+        { name: 'sector_status', present: (a) => a.sector_status !== undefined, hint: "'compliant' | 'conditional' | 'non_compliant' confirmed with segment revenue" },
+        { name: 'impermissible_income', present: (a) => a.impermissible_income !== undefined, hint: 'non-permissible income in $MILLIONS (0 if fully permissible)' },
+      ]
+      const validated = await runValidatedAgent(laneRuntime.provider, {
+        run_id: baseRunId,
+        model_id: laneRuntime.model_id,
+        prompt: basePrompt + SHARIAH_OVERLAY_PROMPT,
+        timeout_ms: AGENT_TIMEOUT_MS,
+        schema_name: 'BuffettMungerShariahLane',
+      }, ShariahLaneSchema, { ...deps, lane, requiredFields: shariahRequired })
+      const agent = validated.status === 'ok' ? validated.result : validated.lastResult
+      if (agent === undefined) {
+        throw new Error(`Shariah lane produced no parseable output: ${validated.status === 'failed' ? validated.reason : 'unknown'}`)
+      }
+      remember(agent.captured)
+      const a = agent.analysis
+      // Only surface the overlay when BOTH required fields are present (a schema-valid live model always
+      // has them; the fallback path leaves shariah_judgment undefined → shariah_ratios_unverified flag).
+      const overlayPresent = a.sector_status !== undefined && a.impermissible_income !== undefined
+      return {
+        lane,
+        finding_summary: a.finding_summary,
+        confidence: a.confidence,
+        caveats: a.caveats,
+        verified_ids: withFiling(agent.verified_ids),
+        ...(overlayPresent ? { shariah_judgment: { sector_status: a.sector_status, impermissible_income: a.impermissible_income } } : {}),
+        ...(agent.policy_rejections.length > 0 ? { policy_rejections: agent.policy_rejections } : {}),
+        ...(validated.status === 'failed'
+          ? { judgment_retry_degraded: `shariah_lane_schema_retry_exhausted: the model omitted [${validated.missing.join(', ')}] after ${validated.attempts} attempts (${validated.reason}).` }
+          : {}),
+      }
+    }
+
+    // ---- Generic lanes (financial_quality, valuation, management, risks, …) ----
     const agent = await runGroundedAgent(laneRuntime.provider, {
-      run_id: `run_${command.research_case_id}_${swarmSeg(lane)}`,
+      run_id: baseRunId,
       model_id: laneRuntime.model_id,
-      prompt: `You are the Buffett-Munger ${lane} specialist agent for ${command.ticker}. `
-        + `Produce a source-backed finding for the ${lane} lane only. Gather your own sources; return them in proposed_sources with real URLs. `
-        + `SOURCE DISCIPLINE (Mechanism 6): this lane reasons from PRIMARY documents. `
-        + (lane === 'risks'
-          ? `As the RISKS lane you may cite anything — knowing the consensus IS the job.`
-          : lane === 'management'
-            ? `Cite filings, proxies (DEF 14A), transcripts, and insider-trading data; media profiles will be rejected.`
-            : lane === 'shariah'
-              ? `Cite filings, segment disclosures, and Shariah screening providers; sell-side/media will be rejected.`
-              : `Cite filings, transcripts, regulatory/statistical data, and company disclosures; sell-side research, financial media, investor write-ups, and blogs will be rejected.`)
-        + (injectFiling ? primaryFilingBlock : ''),
+      prompt: basePrompt,
       timeout_ms: AGENT_TIMEOUT_MS,
       schema_name: 'BuffettMungerLaneFinding',
     }, LaneAgentSchema, deps, { lane })
     remember(agent.captured)
-    // The grounded EDGAR 10-K is a guaranteed verified primary citation for the injected lanes —
-    // include it in the lane's verified_ids so the lane records a finding even if the model proposed
-    // no other verifiable source (this is what fixes the lane-drop when IR/news is blocked).
-    const verified_ids = injectFiling && primaryFilingSourceId !== undefined
-      ? [...new Set([primaryFilingSourceId, ...agent.verified_ids])]
-      : agent.verified_ids
     return {
       lane,
       finding_summary: agent.analysis.finding_summary,
       confidence: agent.analysis.confidence,
       caveats: agent.analysis.caveats,
-      verified_ids,
+      verified_ids: withFiling(agent.verified_ids),
       ...(agent.policy_rejections.length > 0 ? { policy_rejections: agent.policy_rejections } : {}),
     }
   }, { concurrency: deps.laneConcurrency ?? 4 })
+
+  // Extract the per-lane judgment outputs the harness now reads (instead of the synthesis schema).
+  const moatLaneResult = laneResults.find((l) => l.lane === 'moat')
+  const shariahLaneResult = laneResults.find((l) => l.lane === 'shariah')
+  const moatJudgment = moatLaneResult?.moat_judgment
+  const shariahLaneJudgment = shariahLaneResult?.shariah_judgment
+
+  // ---- Judgment objectivity (Mechanisms 1+2): rubric → mechanical anchor → bounded ±1 adjustment ----
+  // The MOAT lane supplied the moat/runway rubric (spec-correct decomposition). The harness RE-VERIFIES
+  // the computable rows from EDGAR, computes the mechanical anchor, and resolves the final tier under the
+  // ±1 bound + citation rules (uncited/over-range rejected, not averaged; upward needs 2× evidence). The
+  // RESOLVED tier supersedes the holistic moat_class/runway for the valuation. When no rubric is supplied
+  // OR the resolved tier is not a valid downstream class, we fall back to the moat lane's holistic
+  // moat_class/runway (or a conservative default) — visibly flagged. Grounding/citation verification is
+  // unchanged. Resolved BEFORE the red team so its caseDigest sees the resolved tiers.
+  const verifiedCitationHashes = new Set<string>()
+  for (const s of accumulated.values()) {
+    if (s.content_hash !== undefined) verifiedCitationHashes.add(s.content_hash)
+    verifiedCitationHashes.add(s.source_id) // a lane may cite by source_id; both are corpus-verified
+  }
+  const judgment = resolveJudgmentTiers({
+    ...(moatJudgment?.moat_rubric !== undefined ? { moatRubric: moatJudgment.moat_rubric } : {}),
+    ...(moatJudgment?.runway_rubric !== undefined ? { runwayRubric: moatJudgment.runway_rubric } : {}),
+    // Holistic fallbacks (the moat lane's holistic fields) so the resolved tier is NEVER undefined when
+    // the rubric is omitted — closing the silent-degradation cascade the live dogfood exposed.
+    ...(moatJudgment?.moat_class !== undefined ? { holisticMoatClass: moatJudgment.moat_class } : {}),
+    ...(moatJudgment?.runway !== undefined ? { holisticRunway: moatJudgment.runway } : {}),
+    ...(fundamentals?.annual_series !== undefined ? { series: fundamentals.annual_series } : {}),
+    verifiedCitationHashes,
+  })
 
   // ---- Record specialist findings ----
   // C1: only record findings for lanes with at least one verified source id;
@@ -1240,9 +1431,6 @@ export async function runResearchDeepDivePhase(
     if (s.content_hash !== undefined) corpusHashesBeforeSynthesis.add(s.content_hash)
     corpusHashesBeforeSynthesis.add(s.source_id)
   }
-  // Mechanical anchor tiers (computable pre-synthesis from EDGAR) give the red team a concrete target.
-  const preMoatAnchor = computeMoatAnchor(fundamentals?.annual_series ?? [])
-  const preRunwayAnchor = computeRunwayAnchor(fundamentals?.annual_series ?? [])
   const laneDigest: RedTeamLaneDigest[] = laneResults
     .filter((l) => l.verified_ids.length > 0)
     .map((l) => ({ lane: l.lane, finding_summary: l.finding_summary, confidence: l.confidence }))
@@ -1254,9 +1442,11 @@ export async function runResearchDeepDivePhase(
       // model-tiering: the red_team registry role — a DIFFERENT model than the lanes when overridden.
       model_id: redTeamRuntime.model_id,
       laneDigest,
+      // The moat/runway tiers are now resolved from the MOAT lane's rubric BEFORE the red team runs,
+      // so the red team gets the concrete resolved tiers as its target (not a pending placeholder).
       caseDigest: {
-        moat_class: preMoatAnchor.computable ? preMoatAnchor.anchor_tier : 'pending (synthesis-resolved)',
-        runway: preRunwayAnchor.computable ? preRunwayAnchor.anchor_tier : 'pending (synthesis-resolved)',
+        moat_class: judgment.moat!.resolved_moat_class,
+        runway: judgment.runway!.resolved_runway,
       },
       corpusSourceIds: corpusBeforeSynthesis.map((s) => s.source_id),
       verifiedCitationHashes: corpusHashesBeforeSynthesis,
@@ -1285,19 +1475,15 @@ export async function runResearchDeepDivePhase(
   // A live red-team objection (survived cite-check) makes synthesis_response REQUIRED — synthesis must
   // answer it or downgrade; silence is not an option.
   const redTeamObjectionLive = redTeam.status === 'complete' && redTeam.strongest_objection.citations.length > 0
-  // The high-stakes structured fields the live dogfood exposed as silently omitted. They are OPTIONAL on
-  // the Zod schema (so the swarm still PARSES when absent), but the validate→retry wrapper REQUIRES them
-  // here — bouncing the omission back so a capable model is FORCED to emit them. Only after 2 attempts
-  // are exhausted does the existing visible-degradation fallback below apply (retries force compliance;
-  // the fallback prevents an abort; either way the gap is VISIBLE — never silent, never a whole-run abort).
-  const synthesisRequiredFields: RequiredFieldCheck<z.infer<typeof DecisionAgentSchema>>[] = [
-    { name: 'moat_rubric', present: (a) => a.moat_rubric !== undefined, hint: 'scored 0/1/2 rubric_scores + proposed_tier + citation_hash on cited rows' },
-    { name: 'runway_rubric', present: (a) => a.runway_rubric !== undefined, hint: 'scored 0/1/2 rubric_scores + proposed_tier' },
-    { name: 'shariah', present: (a) => a.shariah !== undefined, hint: 'sector_status + impermissible_income ($M)' },
-    ...(redTeamObjectionLive
-      ? ([{ name: 'synthesis_response', present: (a) => a.synthesis_response !== undefined && a.synthesis_response.text.trim().length > 0, hint: "answer the red-team objection with evidence (mode 'answered_with_evidence') OR accept+downgrade (mode 'accepted_downgraded')" }] as RequiredFieldCheck<z.infer<typeof DecisionAgentSchema>>[])
-      : []),
-  ]
+  // Spec-correct decomposition: the moat/runway rubric + the Shariah overlay are now produced + retried on
+  // their OWN specialist lanes (above) — NOT here. Synthesis keeps ONLY its red-team obligation: when a
+  // live (cite-checked) red-team objection exists, synthesis_response is REQUIRED (answer it or downgrade;
+  // silence is not an option). The validate→retry wrapper bounces the omission back; only after 2 attempts
+  // does the visible-degradation fallback apply (retries force compliance; the fallback prevents an abort).
+  const synthesisRequiredFields: RequiredFieldCheck<z.infer<typeof DecisionAgentSchema>>[] =
+    redTeamObjectionLive
+      ? [{ name: 'synthesis_response', present: (a) => a.synthesis_response !== undefined && a.synthesis_response.text.trim().length > 0, hint: "answer the red-team objection with evidence (mode 'answered_with_evidence') OR accept+downgrade (mode 'accepted_downgraded')" }]
+      : []
   let dec: GroundedAgentResult<z.infer<typeof DecisionAgentSchema>>
   // Surfaced when the validate→retry wrapper exhausted its attempts and we fell back to the degraded
   // (still-parsed) payload — recorded as a visible degraded flag below so the gap is never silent.
@@ -1309,10 +1495,13 @@ export async function runResearchDeepDivePhase(
     prompt: `You are the Buffett-Munger synthesis+decision agent for ${command.ticker}. `
       + `Using the lane findings, produce a verdict, thesis, evidence, valuation rationale, Shariah rationale, risks, open questions, and a synthesis summary. `
       + `For the owner_earnings_bridge, provide company TOTALS in $millions from the latest 10-K (net_income, depreciation_amortization, maintenance_capex, stock_based_comp, normalized_working_capital_change) AND shares_outstanding (diluted weighted-average shares outstanding, in MILLIONS) so the harness can compute owner earnings per share. `
-      + `REQUIRED — do not omit: also classify the reinvestment runway as 'proven' | 'limited' | 'none' (a SEPARATE axis from moat width — proven means ≥5 yrs of incremental capital deployed at high ROIC with visible remaining headroom), set runway_exceptional only with explicit headroom evidence, and report incremental_roic (normalized INCREMENTAL ROIC as a fraction, e.g. 0.20) alongside reinvestment_rate. The harness credits growth only when incremental_roic exceeds 10%; historical revenue/EPS growth is never an input. `
-      + `JUDGMENT RUBRICS — REQUIRED, do not omit (omitting them forces the harness to degrade to a holistic tier and flag the dossier as rubric_not_emitted): emit BOTH moat_rubric and runway_rubric. Score the MOAT rubric (M1 ROIC>15% in ≥9/10yr [computable], M2 gross-margin band [computable], M3 price increases without share loss, M4 share vs entrant, M5 customer switching, M6 competitor exits) and the RUNWAY rubric (R1 incremental capital at high ROIC [computable], R2 visible headroom, R3 demonstrated reinvestment rate). For EACH item give a score 0/1/2; CITED rows (M3–M6, R2, R3) MUST carry a citation_hash that matches a fetched primary source (the harness scores 0 for any uncited cited row and re-computes M1/M2/R1 from filings itself). Then give proposed_tier (moat: narrow|moderate|wide|monopoly; runway: none|limited|proven) and adjustment_evidence — cited claims the quantitative score cannot see (patent cliff, announced entrant, technology substitution). The harness anchors the tier in the computable rows and accepts your proposed_tier ONLY as a bounded ±1-tier adjustment with verified cited evidence; an UPWARD adjustment needs 2× the cited evidence items of a downward one. `
-      + `EXAMPLE moat_rubric (shape only): {"rubric_scores":[{"id":"M1","score":2},{"id":"M2","score":2},{"id":"M3","score":2,"citation_hash":"<hash-of-a-fetched-source>"},{"id":"M4","score":1,"citation_hash":"<hash>"},{"id":"M5","score":2,"citation_hash":"<hash>"},{"id":"M6","score":1,"citation_hash":"<hash>"}],"proposed_tier":"wide","adjustment_evidence":[{"claim":"insurer contracts repriced upward with no share loss","citation_hash":"<hash>"}]}. `
-      + `For shariah — REQUIRED, do not omit (omitting it leaves the AAOIFI ratios unverified and flags shariah_ratios_unverified): provide the JUDGMENT only: sector_status ('compliant' | 'conditional' | 'non_compliant') confirmed with segment revenue, and impermissible_income — the dollar amount in $MILLIONS of non-permissible income (interest income on cash, prohibited-segment revenue), 0 if fully permissible. The harness recomputes the AAOIFI debt/cash/impermissible ratios + verdict + purification % from the primary filings + market cap; do NOT compute the ratios yourself. EXAMPLE shariah (shape only): {"sector_status":"compliant","impermissible_income":128.0}. `
+      + `REQUIRED — do not omit: report incremental_roic (normalized INCREMENTAL ROIC as a fraction, e.g. 0.20) alongside reinvestment_rate. The harness credits growth only when incremental_roic exceeds 10%; historical revenue/EPS growth is never an input. `
+      // The moat/runway classification + rubrics and the Shariah overlay are produced by the MOAT and
+      // SHARIAH specialist lanes — NOT here. The harness has already resolved them; the resolved tiers are
+      // handed to you below for RECONCILIATION only (you do not re-score them).
+      + `The MOAT lane resolved moat_class='${judgment.moat!.resolved_moat_class}' and reinvestment runway='${judgment.runway!.resolved_runway}'`
+      + (shariahLaneJudgment !== undefined ? `; the SHARIAH lane assessed sector_status='${shariahLaneJudgment.sector_status}'` : '')
+      + `. Reconcile your verdict + rationale with these resolved classifications; do NOT re-score the rubrics. `
       + `Cite sources in proposed_sources with real URLs.`
       + redTeamPromptBlock,
     timeout_ms: AGENT_TIMEOUT_MS,
@@ -1422,39 +1611,21 @@ export async function runResearchDeepDivePhase(
   //   FV_ps = min(FV_ps, 18 × OE_ps)   (sanity cap)
   // Buy price (Step 5): round(FV_ps × (1 − MoS), 2)  MoS = monopoly 20% / wide 30%.
 
-  // ---- Judgment objectivity (Mechanisms 1+2): rubric → mechanical anchor → bounded ±1 adjustment ----
-  // When the synthesis lane supplied a moat/runway rubric, the harness RE-VERIFIES the computable rows
-  // from EDGAR, computes the mechanical anchor, and resolves the final tier under the ±1 bound + citation
-  // rules (uncited/over-range rejected, not averaged; upward needs 2× evidence). The RESOLVED tier
-  // supersedes the holistic moat_class/runway for the valuation. When no rubric is supplied OR the
-  // resolved tier is not a valid downstream class, we fall back to the holistic moat_class/runway —
-  // exactly today's behavior (no regression). Grounding/citation verification is unchanged.
-  const verifiedCitationHashes = new Set<string>()
-  for (const s of accumulated.values()) {
-    if (s.content_hash !== undefined) verifiedCitationHashes.add(s.content_hash)
-    verifiedCitationHashes.add(s.source_id) // a lane may cite by source_id; both are corpus-verified
-  }
-  const judgment = resolveJudgmentTiers({
-    moatRubric: dec.analysis.moat_rubric,
-    runwayRubric: dec.analysis.runway_rubric,
-    // Holistic fallbacks (the schema-required fields) so the resolved tier is NEVER undefined when the
-    // OPTIONAL rubric is omitted — closing the silent-degradation cascade the live dogfood exposed.
-    holisticMoatClass: dec.analysis.moat_class,
-    holisticRunway: dec.analysis.runway,
-    series: fundamentals?.annual_series,
-    verifiedCitationHashes,
-  })
-
   // ---- Visible degraded flags (Mechanism: no SILENT skip) ----
   // Every OPTIONAL structured field the model omitted is recorded as an explicit flag here and appended
   // to the decision open_questions below (mirroring the working red_team_objection_unaddressed pattern),
   // so a human (and the next dogfood) SEES exactly what the model failed to provide.
   const degradedFlags: string[] = []
-  // Harness defense 1: when the validate→retry wrapper exhausted its attempts and we fell back to the
-  // degraded payload, surface WHY (the required high-stakes field the model kept omitting) — visible.
+  // Harness defense 1: when the synthesis validate→retry wrapper exhausted its attempts and we fell back
+  // to the degraded payload, surface WHY (the required field — synthesis_response — the model kept
+  // omitting) — visible.
   if (synthesisValidationDegraded !== undefined) {
     degradedFlags.push(synthesisValidationDegraded)
   }
+  // Per-lane schema-retry exhaustion (the moat/shariah lane omitted its REQUIRED judgment block after 2
+  // attempts) — surfaced exactly like the synthesis path so the gap is visible, not silent.
+  if (moatLaneResult?.judgment_retry_degraded !== undefined) degradedFlags.push(moatLaneResult.judgment_retry_degraded)
+  if (shariahLaneResult?.judgment_retry_degraded !== undefined) degradedFlags.push(shariahLaneResult.judgment_retry_degraded)
   if (judgment.moat?.judgment_degraded === 'rubric_not_emitted' || judgment.runway?.judgment_degraded === 'rubric_not_emitted') {
     degradedFlags.push(
       'judgment_degraded: rubric_not_emitted — the model omitted the moat/runway rubric_scores; the moat '
@@ -1636,7 +1807,8 @@ export async function runResearchDeepDivePhase(
   const reinvestment_rate = reinvestmentSanity.value ?? 0
   // resolved_runway is guaranteed defined by resolveJudgmentTiers (never undefined).
   const runway = judgment.runway!.resolved_runway
-  const runway_exceptional = dec.analysis.runway_exceptional ?? false
+  // runway_exceptional is now the MOAT lane's judgment (spec-correct decomposition), defaulting false.
+  const runway_exceptional = moatJudgment?.runway_exceptional ?? false
   const valuation_multiple_ceiling = buffettMungerStrategy.valuation.valuation_multiple_ceiling
 
   const valuationCaveats: string[] = []
@@ -1737,7 +1909,8 @@ export async function runResearchDeepDivePhase(
   // sector_status, the second model re-classifies the sector and the conservative (stricter) status
   // holds on disagreement (+ human escalation). The impermissible_income overlay is untouched (it feeds
   // the harness ratio recompute, not a model classification).
-  let shariahJudgment = dec.analysis.shariah
+  // Spec-correct decomposition: the overlay now comes from the SHARIAH lane output, not the synthesis schema.
+  let shariahJudgment: ShariahLaneJudgment | undefined = shariahLaneJudgment
   const shariahCrossCheckRuntime = resolveCrossCheckRuntime('lane_shariah_crosscheck', provider, command)
   if (shariahCrossCheckRuntime !== undefined && shariahJudgment !== undefined) {
     const primarySector = shariahJudgment.sector_status as ShariahSectorStatus
@@ -1885,8 +2058,8 @@ export async function runResearchDeepDivePhase(
   // claims) + the EDGAR-anchored rubric rows. The harness FLAGS unmet burdens (base_rate_burden_unmet)
   // and surfaces them; it does NOT silently pass an unjustified exceptional claim.
   const exceptionalityJustifications = [
-    ...(dec.analysis.moat_rubric?.adjustment_evidence ?? []),
-    ...(dec.analysis.runway_rubric?.adjustment_evidence ?? []),
+    ...(moatJudgment?.moat_rubric?.adjustment_evidence ?? []),
+    ...(moatJudgment?.runway_rubric?.adjustment_evidence ?? []),
   ]
   // ROIC>20% sustained signal: high reported/incremental ROIC at a wide+ moat with growth credited.
   const roicForecastGt20 =

@@ -66,8 +66,51 @@ describe('runLaneSwarm', () => {
 // does not satisfy the QuickScreenAgentSchema / LaneAgentSchema / DecisionAgentSchema
 // schemas used by the swarm orchestrator. The fake provider below returns minimal valid
 // payloads for each stage.
+// Build a MOAT rubric that, under the no-EDGAR-anchor resolution path (the swarm tests run without an
+// injected series), RESOLVES to the given tier — and a RUNWAY rubric that resolves to the given runway.
+// Computable rows (M1/M2, R1) are honored from the lane when no anchor exists; cited rows carry the
+// supplied verified citation hash (a grounded source_id) so they score. Tier bands (moat): monopoly≥10,
+// wide 7-9, moderate 4-6, narrow<4. Runway: proven≥5, limited≥2, none<2.
+function moatRubricForTier(tier: 'narrow' | 'moderate' | 'wide' | 'monopoly', cite: string) {
+  const scores = tier === 'monopoly'
+    ? [{ id: 'M1', score: 2 }, { id: 'M2', score: 2 }, { id: 'M3', score: 2, citation_hash: cite }, { id: 'M4', score: 2, citation_hash: cite }, { id: 'M5', score: 2, citation_hash: cite }, { id: 'M6', score: 2, citation_hash: cite }]
+    : tier === 'wide'
+      ? [{ id: 'M1', score: 2 }, { id: 'M2', score: 2 }, { id: 'M3', score: 2, citation_hash: cite }, { id: 'M4', score: 2, citation_hash: cite }]
+      : tier === 'moderate'
+        ? [{ id: 'M1', score: 2 }, { id: 'M2', score: 2 }]
+        : [{ id: 'M1', score: 1 }, { id: 'M2', score: 1 }]
+  return { rubric_scores: scores, proposed_tier: tier, adjustment_evidence: [] }
+}
+function runwayRubricForTier(tier: 'none' | 'limited' | 'proven', cite: string) {
+  const scores = tier === 'proven'
+    ? [{ id: 'R1', score: 2 }, { id: 'R2', score: 2, citation_hash: cite }, { id: 'R3', score: 2, citation_hash: cite }]
+    : tier === 'limited'
+      ? [{ id: 'R1', score: 2 }]
+      : [{ id: 'R1', score: 0 }]
+  return { rubric_scores: scores, proposed_tier: tier, adjustment_evidence: [] }
+}
+
+// Shared per-lane judgment payloads for the schema-name-keyed fakes (spec-correct decomposition: the
+// MOAT lane emits its rubric, the SHARIAH lane emits its overlay).
+function fakeMoatLanePayload(src: (id: string) => unknown) {
+  const fullRubric = (tier: string) => ({ rubric_scores: [{ id: 'M1', score: 2 }, { id: 'M2', score: 2 }], proposed_tier: tier, adjustment_evidence: [] })
+  return {
+    finding_summary: 'Moat lane finding', confidence: 'medium' as const, caveats: ['Mock moat caveat'],
+    moat_class: 'wide' as const, runway: 'proven' as const,
+    moat_rubric: fullRubric('wide'), runway_rubric: fullRubric('proven'),
+    proposed_sources: [src('src_lane_moat')],
+  }
+}
+function fakeShariahLanePayload(src: (id: string) => unknown) {
+  return {
+    finding_summary: 'Shariah lane finding', confidence: 'medium' as const, caveats: ['Mock shariah caveat'],
+    sector_status: 'compliant' as const, impermissible_income: 0,
+    proposed_sources: [src('src_lane_shariah')],
+  }
+}
+
 function swarmFakeProvider() {
-  let callCount = 0
+  let laneCall = 0
   const src = (id: string) => ({
     source_id: id,
     title: 'Test source',
@@ -79,10 +122,9 @@ function swarmFakeProvider() {
     capabilities: {} as never,
     complete: vi.fn(),
     runWithTools: vi.fn(),
-    structured: vi.fn(async (_req: unknown) => {
-      const call = callCount++
-      if (call === 0) {
-        // Quick screen
+    structured: vi.fn(async (req: { response_format?: { schema_name?: string } }) => {
+      const schemaName = req.response_format?.schema_name
+      if (schemaName === 'BuffettMungerQuickScreen') {
         return {
           summary: 'Good business',
           business_quality: 'Strong',
@@ -98,16 +140,25 @@ function swarmFakeProvider() {
           proposed_sources: [src('src_qs_1')],
         }
       }
-      // Lane agent calls (7 lanes)
-      if (call >= 1 && call <= 7) {
+      if (schemaName === 'BuffettMungerMoatLane') return fakeMoatLanePayload(src)
+      if (schemaName === 'BuffettMungerShariahLane') return fakeShariahLanePayload(src)
+      if (schemaName === 'BuffettMungerLaneFinding') {
+        const n = laneCall++
         return {
-          finding_summary: `Lane ${call} finding`,
+          finding_summary: `Lane ${n} finding`,
           confidence: 'medium',
           caveats: ['Mock lane caveat'],
-          proposed_sources: [src(`src_lane_${call}`)],
+          proposed_sources: [src(`src_lane_${n}`)],
         }
       }
-      // Synthesis + decision (call 8)
+      if (schemaName === 'BuffettMungerRedTeam') {
+        return {
+          strongest_bear_case: 'b', weakest_rubric_items: [], moat_decay_scenario: 'd', growth_credit_attack: 'g',
+          shared_narrative_blindspots: [], strongest_objection: { claim: 'c', severity: 'low', citations: ['src_qs_1'] },
+          proposed_sources: [src('src_qs_1')],
+        }
+      }
+      // Synthesis + decision
       return {
         investment_verdict: 'WATCH',
         strategy_compliance: 'CONDITIONAL',
@@ -121,8 +172,6 @@ function swarmFakeProvider() {
         synthesis_summary: 'All lanes reviewed; watch for better entry',
         risks: ['Valuation risk'],
         open_questions: ['Margin of safety needed'],
-        moat_class: 'wide',
-        runway: 'proven',
         growth_assumptions: 'Steady growth; ROIC 20% > 10% discount; terminal g=3%.',
         owner_earnings_bridge: {
           net_income: 18, depreciation_amortization: 4, maintenance_capex: 3,
@@ -141,23 +190,27 @@ function swarmFakeProvider() {
 // Fake provider where each lane agent call encodes the lane name in its proposed source_id.
 // This allows the ground function to single out a specific lane (e.g., 'moat') and return
 // verified_ids: [] for that lane's sources to exercise the C1 partial-lane skip path.
-function swarmFakeProviderWithLaneIds(lanes: readonly string[]) {
-  let callCount = 0
+function swarmFakeProviderWithLaneIds(_lanes: readonly string[]) {
   const src = (id: string) => ({
     source_id: id,
     title: 'Test source',
     url: 'https://www.sec.gov/Archives/edgar/data/0/test-10k.htm',
     excerpt: 'Test excerpt',
   })
+  // The lane is identified from the lane prompt ("You are the Buffett-Munger <lane> specialist agent").
+  const laneFromPrompt = (prompt: string | undefined): string => {
+    const m = /Buffett-Munger (\w+) specialist agent/.exec(prompt ?? '')
+    return m?.[1] ?? 'lane'
+  }
+  const fullRubric = (tier: string) => ({ rubric_scores: [{ id: 'M1', score: 2 }, { id: 'M2', score: 2 }], proposed_tier: tier, adjustment_evidence: [] })
   return {
     provider_id: 'fake-swarm-partial',
     capabilities: {} as never,
     complete: vi.fn(),
     runWithTools: vi.fn(),
-    structured: vi.fn(async (_req: unknown) => {
-      const call = callCount++
-      if (call === 0) {
-        // Quick screen — source id does not contain any lane name
+    structured: vi.fn(async (req: { prompt?: string; response_format?: { schema_name?: string } }) => {
+      const schemaName = req.response_format?.schema_name
+      if (schemaName === 'BuffettMungerQuickScreen') {
         return {
           summary: 'Good business',
           business_quality: 'Strong',
@@ -173,15 +226,36 @@ function swarmFakeProviderWithLaneIds(lanes: readonly string[]) {
           proposed_sources: [src('src_qs_partial_1')],
         }
       }
-      // Lane agent calls — source id encodes the lane name so ground can filter by lane
-      const laneIndex = call - 1
-      if (laneIndex >= 0 && laneIndex < lanes.length) {
-        const lane = lanes[laneIndex] ?? `lane_${laneIndex}`
+      // Lane source id encodes the lane name (from the prompt) so ground can filter by lane.
+      if (schemaName === 'BuffettMungerMoatLane') {
+        return {
+          finding_summary: 'moat lane finding', confidence: 'medium' as const, caveats: ['Mock lane caveat'],
+          moat_class: 'wide' as const, runway: 'proven' as const,
+          moat_rubric: fullRubric('wide'), runway_rubric: fullRubric('proven'),
+          proposed_sources: [src('src_moat_1')],
+        }
+      }
+      if (schemaName === 'BuffettMungerShariahLane') {
+        return {
+          finding_summary: 'shariah lane finding', confidence: 'medium' as const, caveats: ['Mock lane caveat'],
+          sector_status: 'compliant' as const, impermissible_income: 0,
+          proposed_sources: [src('src_shariah_1')],
+        }
+      }
+      if (schemaName === 'BuffettMungerLaneFinding') {
+        const lane = laneFromPrompt(req.prompt)
         return {
           finding_summary: `${lane} lane finding`,
           confidence: 'medium' as const,
           caveats: ['Mock lane caveat'],
           proposed_sources: [src(`src_${lane}_1`)],
+        }
+      }
+      if (schemaName === 'BuffettMungerRedTeam') {
+        return {
+          strongest_bear_case: 'b', weakest_rubric_items: [], moat_decay_scenario: 'd', growth_credit_attack: 'g',
+          shared_narrative_blindspots: [], strongest_objection: { claim: 'c', severity: 'low', citations: ['src_qs_partial_1'] },
+          proposed_sources: [src('src_qs_partial_1')],
         }
       }
       // Synthesis + decision — source id does not contain any lane name
@@ -198,8 +272,6 @@ function swarmFakeProviderWithLaneIds(lanes: readonly string[]) {
         synthesis_summary: 'All lanes reviewed; watch for better entry',
         risks: ['Valuation risk'],
         open_questions: ['Margin of safety needed'],
-        moat_class: 'wide',
-        runway: 'proven',
         growth_assumptions: 'Steady growth; ROIC 20% > 10% discount; terminal g=3%.',
         owner_earnings_bridge: {
           net_income: 18, depreciation_amortization: 4, maintenance_capex: 3,
@@ -323,21 +395,22 @@ describe('runStrategyResearchSwarm', () => {
     //   (2) The consolidated bundle file records the bad source with availability 'unavailable'.
 
     function swarmFakeProviderGoodBad() {
-      let callCount = 0
+      let laneCall = 0
       const src = (id: string) => ({
         source_id: id,
         title: 'Test source',
         url: 'https://www.sec.gov/Archives/edgar/data/0/test-10k.htm',
         excerpt: 'Test excerpt',
       })
+      const fullRubric = (tier: string) => ({ rubric_scores: [{ id: 'M1', score: 2 }, { id: 'M2', score: 2 }], proposed_tier: tier, adjustment_evidence: [] })
       return {
         provider_id: 'fake-swarm-good-bad',
         capabilities: {} as never,
         complete: vi.fn(),
         runWithTools: vi.fn(),
-        structured: vi.fn(async (_req: unknown) => {
-          const call = callCount++
-          if (call === 0) {
+        structured: vi.fn(async (req: { response_format?: { schema_name?: string } }) => {
+          const schemaName = req.response_format?.schema_name
+          if (schemaName === 'BuffettMungerQuickScreen') {
             // Quick screen — one good, one bad source
             return {
               summary: 'Good business',
@@ -354,16 +427,38 @@ describe('runStrategyResearchSwarm', () => {
               proposed_sources: [src('src_qs_good_1'), src('src_qs_bad_1')],
             }
           }
-          // Lane agent calls (7 lanes)
-          if (call >= 1 && call <= 7) {
+          if (schemaName === 'BuffettMungerMoatLane') {
             return {
-              finding_summary: `Lane ${call} finding`,
-              confidence: 'medium',
-              caveats: ['Mock lane caveat'],
-              proposed_sources: [src(`src_lane${call}_good_1`), src(`src_lane${call}_bad_1`)],
+              finding_summary: 'moat lane finding', confidence: 'medium' as const, caveats: ['Mock lane caveat'],
+              moat_class: 'wide' as const, runway: 'proven' as const,
+              moat_rubric: fullRubric('wide'), runway_rubric: fullRubric('proven'),
+              proposed_sources: [src('src_moat_good_1'), src('src_moat_bad_1')],
             }
           }
-          // Synthesis + decision (call 8)
+          if (schemaName === 'BuffettMungerShariahLane') {
+            return {
+              finding_summary: 'shariah lane finding', confidence: 'medium' as const, caveats: ['Mock lane caveat'],
+              sector_status: 'compliant' as const, impermissible_income: 0,
+              proposed_sources: [src('src_shariah_good_1'), src('src_shariah_bad_1')],
+            }
+          }
+          if (schemaName === 'BuffettMungerLaneFinding') {
+            const n = laneCall++
+            return {
+              finding_summary: `Lane ${n} finding`,
+              confidence: 'medium',
+              caveats: ['Mock lane caveat'],
+              proposed_sources: [src(`src_lane${n}_good_1`), src(`src_lane${n}_bad_1`)],
+            }
+          }
+          if (schemaName === 'BuffettMungerRedTeam') {
+            return {
+              strongest_bear_case: 'b', weakest_rubric_items: [], moat_decay_scenario: 'd', growth_credit_attack: 'g',
+              shared_narrative_blindspots: [], strongest_objection: { claim: 'c', severity: 'low', citations: ['src_qs_good_1'] },
+              proposed_sources: [src('src_rt_good_1'), src('src_rt_bad_1')],
+            }
+          }
+          // Synthesis + decision
           return {
             investment_verdict: 'WATCH',
             strategy_compliance: 'CONDITIONAL',
@@ -377,8 +472,6 @@ describe('runStrategyResearchSwarm', () => {
             synthesis_summary: 'All lanes reviewed; watch for better entry',
             risks: ['Valuation risk'],
             open_questions: ['Margin of safety needed'],
-            moat_class: 'wide',
-            runway: 'proven',
             growth_assumptions: 'Steady growth; ROIC 20% > 10% discount; terminal g=3%.',
             owner_earnings_bridge: {
               net_income: 18, depreciation_amortization: 4, maintenance_capex: 3,
@@ -764,6 +857,10 @@ function configurableSwarmProvider(opts: {
   synthesisResponse?: { mode: 'answered_with_evidence' | 'accepted_downgraded'; text: string; downgrade?: { dimension: 'tier' | 'growth' | 'verdict'; from: string; to: string } }
   // redTeamCitations: which corpus source_ids the red team's strongest objection cites.
   redTeamCitations?: string[]
+  // Spec-correct decomposition: the MOAT lane omits its rubric (→ rubric_not_emitted holistic fallback)
+  // and/or the SHARIAH lane omits its overlay (→ shariah_ratios_unverified) — the live-dogfood shape.
+  omitMoatRubric?: boolean
+  omitShariahOverlay?: boolean
 }) {
   const src = (id: string) => ({ source_id: id, title: 'T', url: 'https://www.sec.gov/Archives/edgar/data/0/test-10k.htm', excerpt: 'e' })
   let laneCall = 0
@@ -801,6 +898,29 @@ function configurableSwarmProvider(opts: {
           caveats: ['Mock lane caveat'], proposed_sources: [src(`src_lane_${n}`)],
         }
       }
+      if (schemaName === 'BuffettMungerMoatLane') {
+        const moatClass = opts.synthesis?.moat_class ?? 'wide'
+        const runway = opts.synthesis?.runway ?? 'proven'
+        return {
+          finding_summary: 'Moat lane finding', confidence: 'high',
+          caveats: ['Mock moat caveat'],
+          moat_class: moatClass,
+          runway,
+          ...(opts.synthesis?.runway_exceptional !== undefined ? { runway_exceptional: opts.synthesis.runway_exceptional } : {}),
+          // The rubric RESOLVES to the requested moat/runway tier (no-anchor path; cited rows cite the
+          // grounded src_lane_moat so they verify under allVerifiedGround).
+          ...(opts.omitMoatRubric === true ? {} : { moat_rubric: moatRubricForTier(moatClass, 'src_lane_moat'), runway_rubric: runwayRubricForTier(runway, 'src_lane_moat') }),
+          proposed_sources: [src('src_lane_moat')],
+        }
+      }
+      if (schemaName === 'BuffettMungerShariahLane') {
+        return {
+          finding_summary: 'Shariah lane finding', confidence: 'high',
+          caveats: ['Mock shariah caveat'],
+          ...(opts.omitShariahOverlay === true ? {} : { sector_status: 'compliant', impermissible_income: 0 }),
+          proposed_sources: [src('src_lane_shariah')],
+        }
+      }
       if (schemaName === 'BuffettMungerRedTeam') {
         if (rtFails > 0) { rtFails--; throw new Error('Codex CLI timed out') }
         return {
@@ -826,9 +946,7 @@ function configurableSwarmProvider(opts: {
         valuation_rationale: 'Elevated', shariah_rationale: 'No prohibited activities',
         synthesis_summary: 'All lanes reviewed', risks: ['Valuation risk'],
         open_questions: ['Margin of safety needed'],
-        moat_class: opts.synthesis?.moat_class ?? 'wide',
-        runway: opts.synthesis?.runway ?? 'proven',
-        ...(opts.synthesis?.runway_exceptional !== undefined ? { runway_exceptional: opts.synthesis.runway_exceptional } : {}),
+        // moat_class / runway now come from the MOAT lane; the synthesis schema no longer carries them.
         growth_assumptions: 'Two-stage DCF; credited g banded by incremental ROIC and runway.',
         owner_earnings_bridge: opts.synthesis?.owner_earnings_bridge ?? baseBridge,
         roic: opts.synthesis?.roic ?? 0.30,
@@ -1404,16 +1522,19 @@ describe('SEC EDGAR primary-filing wiring', () => {
 // diluted-shares to the 10-K and recomputes the three AAOIFI ratios + verdict + purification %.
 // ---------------------------------------------------------------------------
 function swarmFakeProviderWithShariah(impermissible_income: number, sector_status: 'compliant' | 'conditional' | 'non_compliant' = 'conditional') {
-  let callCount = 0
+  let laneCall = 0
   const src = (id: string) => ({ source_id: id, title: 'T', url: 'https://www.sec.gov/Archives/edgar/data/0/test-10k.htm', excerpt: 'e' })
+  const fullRubric = (tier: string) => ({
+    rubric_scores: [{ id: 'M1', score: 2 }, { id: 'M2', score: 2 }], proposed_tier: tier, adjustment_evidence: [],
+  })
   return {
     provider_id: 'fake-swarm-shariah',
     capabilities: {} as never,
     complete: vi.fn(),
     runWithTools: vi.fn(),
-    structured: vi.fn(async (_req: unknown) => {
-      const call = callCount++
-      if (call === 0) {
+    structured: vi.fn(async (req: { response_format?: { schema_name?: string } }) => {
+      const schemaName = req.response_format?.schema_name
+      if (schemaName === 'BuffettMungerQuickScreen') {
         return {
           summary: 's', business_quality: 'b', moat: 'm', management_capital_allocation: 'mc',
           financial_quality: 'fq', valuation_sanity: 'vs', shariah_status: 'CONDITIONAL',
@@ -1421,15 +1542,38 @@ function swarmFakeProviderWithShariah(impermissible_income: number, sector_statu
           screening_result: 'deep_dive_candidate', proposed_sources: [src('src_qs_1')],
         }
       }
-      if (call >= 1 && call <= 7) {
-        return { finding_summary: `Lane ${call}`, confidence: 'medium', caveats: ['c'], proposed_sources: [src(`src_lane_${call}`)] }
+      if (schemaName === 'BuffettMungerMoatLane') {
+        return {
+          finding_summary: 'Moat lane', confidence: 'medium', caveats: ['c'],
+          moat_class: 'wide', runway: 'proven',
+          moat_rubric: fullRubric('wide'), runway_rubric: fullRubric('proven'),
+          proposed_sources: [src('src_lane_moat')],
+        }
+      }
+      if (schemaName === 'BuffettMungerShariahLane') {
+        // The SHARIAH lane supplies the sector/impermissible-income overlay the harness recomputes from.
+        return {
+          finding_summary: 'Shariah lane', confidence: 'medium', caveats: ['c'],
+          sector_status, impermissible_income,
+          proposed_sources: [src('src_lane_shariah')],
+        }
+      }
+      if (schemaName === 'BuffettMungerLaneFinding') {
+        const n = laneCall++
+        return { finding_summary: `Lane ${n}`, confidence: 'medium', caveats: ['c'], proposed_sources: [src(`src_lane_${n}`)] }
+      }
+      if (schemaName === 'BuffettMungerRedTeam') {
+        return {
+          strongest_bear_case: 'b', weakest_rubric_items: [], moat_decay_scenario: 'd', growth_credit_attack: 'g',
+          shared_narrative_blindspots: [], strongest_objection: { claim: 'c', severity: 'low', citations: ['src_qs_1'] },
+          proposed_sources: [src('src_qs_1')],
+        }
       }
       return {
         investment_verdict: 'WATCH', strategy_compliance: 'CONDITIONAL', valuation_status: 'EXPENSIVE',
         next_required_action: 'Await MoS.', decision_reason: 'Quality but pricey', thesis_summary: 'Compounder',
         evidence_summary: 'Covered', valuation_rationale: 'Elevated', shariah_rationale: 'Trace interest income',
         synthesis_summary: 'Reviewed', risks: ['Valuation'], open_questions: ['MoS'],
-        moat_class: 'wide', runway: 'proven',
         growth_assumptions: 'Two-stage DCF; banded g.',
         // Model proposes a NORMALIZED net income equal to EDGAR reported NI (delta 0), tier '80', and
         // a maintenance_capex value the harness IGNORES in favour of min(D&A, capex × 0.80).
@@ -1439,7 +1583,6 @@ function swarmFakeProviderWithShariah(impermissible_income: number, sector_statu
           normalized_working_capital_change: 0, shares_outstanding: 1,
         },
         roic: 0.30, incremental_roic: 0.20, reinvestment_rate: 0.43,
-        shariah: { sector_status, impermissible_income },
         proposed_sources: [src('src_dec_1')],
       }
     }),
@@ -1661,13 +1804,15 @@ describe('resolveJudgmentTiers — holistic fallback when the rubric is omitted 
 })
 
 describe('Silent-degradation cascade — fields omitted (live dogfood shape)', () => {
-  // configurableSwarmProvider omits moat_rubric / runway_rubric / shariah / synthesis_response by
-  // default — exactly the optional fields the live model left blank. With a holistic wide moat + OE
-  // available, the harness MUST still compute the two-stage valuation and flag every silent skip.
+  // The MOAT lane omits its rubric and the SHARIAH lane omits its overlay — exactly the per-lane
+  // judgment fields a live model leaves blank. With a holistic wide moat + OE available, the harness
+  // MUST still compute the two-stage valuation and flag every silent skip.
   async function runOmitted(opts: { synthesis?: SynthesisOverrides; id: string }) {
     const store = new InMemoryEventStore()
     const provider = configurableSwarmProvider({
       laneCount: buffettMungerDeepDiveLanes.length,
+      omitMoatRubric: true,
+      omitShariahOverlay: true,
       ...(opts.synthesis !== undefined ? { synthesis: opts.synthesis } : {}),
     })
     const sourceLedgerPath = await mkdtemp(join(tmpdir(), `owlfolio-degrade-${opts.id}-`))
@@ -1768,6 +1913,21 @@ describe('runStrategyResearchSwarm — schema-validation + retry (harness defens
           const n = laneCall++
           return { finding_summary: `Lane ${n}`, confidence: 'high', caveats: ['c'], proposed_sources: [src(`src_lane_${n}`)] }
         }
+        if (schemaName === 'BuffettMungerMoatLane') {
+          return {
+            finding_summary: 'Moat lane', confidence: 'high', caveats: ['c'],
+            moat_class: 'wide', runway: 'proven',
+            moat_rubric: fullRubric('wide'), runway_rubric: fullRubric('proven'),
+            proposed_sources: [src('src_lane_moat')],
+          }
+        }
+        if (schemaName === 'BuffettMungerShariahLane') {
+          return {
+            finding_summary: 'Shariah lane', confidence: 'high', caveats: ['c'],
+            sector_status: 'compliant', impermissible_income: 0,
+            proposed_sources: [src('src_lane_shariah')],
+          }
+        }
         if (schemaName === 'BuffettMungerRedTeam') {
           return {
             strongest_bear_case: 'b', weakest_rubric_items: [], moat_decay_scenario: 'd', growth_credit_attack: 'g',
@@ -1775,24 +1935,20 @@ describe('runStrategyResearchSwarm — schema-validation + retry (harness defens
             proposed_sources: [src('src_qs_1')],
           }
         }
-        // Synthesis: omit the required fields for the first `synthesisAttemptsToOmit` attempts.
+        // Synthesis: omit the (now sole) required field — synthesis_response — for the first
+        // `synthesisAttemptsToOmit` attempts (a live cited red-team objection makes it required).
         const omit = synthAttempt < opts.synthesisAttemptsToOmit
         synthAttempt++
         return {
           investment_verdict: 'WATCH', strategy_compliance: 'CONDITIONAL', valuation_status: 'EXPENSIVE',
           next_required_action: 'wait', decision_reason: 'pricey', thesis_summary: 't', evidence_summary: 'e',
           valuation_rationale: 'v', shariah_rationale: 's', synthesis_summary: 'x', risks: ['r'], open_questions: ['q'],
-          moat_class: 'wide', runway: 'proven',
           growth_assumptions: 'two-stage', roic: 0.30, incremental_roic: 0.20, reinvestment_rate: 0.43,
           owner_earnings_bridge: {
             net_income: 8838, depreciation_amortization: 2565, maintenance_capex: 2052,
             maintenance_capex_proxy_tier: '80', stock_based_comp: 911, normalized_working_capital_change: 0, shares_outstanding: 443,
           },
           ...(omit ? {} : {
-            moat_rubric: fullRubric('wide'),
-            runway_rubric: fullRubric('proven'),
-            shariah: { sector_status: 'compliant', impermissible_income: 0 },
-            // The red team raised a live (cited) objection -> synthesis_response is also required.
             red_team_strongest_objection: 'echoed',
             synthesis_response: { mode: 'answered_with_evidence', text: 'Rebutted with cited filing evidence.' },
           }),
@@ -1820,16 +1976,18 @@ describe('runStrategyResearchSwarm — schema-validation + retry (harness defens
     return { analysisPayload: analysis?.payload as Record<string, unknown> }
   }
 
-  it('retries synthesis when required fields are omitted, then succeeds on the 2nd attempt (no degraded flag)', async () => {
+  it('retries synthesis when synthesis_response is omitted, then succeeds on the 2nd attempt (no degraded flag)', async () => {
     const { provider, synthCalls } = retrySwarmProvider({ synthesisAttemptsToOmit: 1 })
     const { analysisPayload } = await run(provider, 'retry-recover')
-    // The wrapper issued a SECOND synthesis call (the retry that bounced the missing fields back).
+    // The wrapper issued a SECOND synthesis call (the retry that bounced the missing field back).
     expect(synthCalls()).toBe(2)
     const valuation = analysisPayload?.['valuation'] as Record<string, unknown>
     const degraded = (valuation?.['degraded_flags'] as string[] | undefined) ?? []
-    // Recovered on retry -> no schema-retry-exhausted flag, no rubric_not_emitted (the rubric arrived).
+    // Recovered on retry -> no schema-retry-exhausted flag. The moat/shariah lanes emitted their
+    // rubric/overlay, so there is also no rubric_not_emitted / shariah_ratios_unverified.
     expect(degraded.join(' ')).not.toMatch(/synthesis_schema_retry_exhausted/)
     expect(degraded.join(' ')).not.toMatch(/rubric_not_emitted/)
+    expect(degraded.join(' ')).not.toMatch(/shariah_ratios_unverified/)
   })
 
   it('marks the synthesis stage degraded after 2 failed attempts and the run still completes (visible fallback)', async () => {
@@ -1840,9 +1998,10 @@ describe('runStrategyResearchSwarm — schema-validation + retry (harness defens
     expect(analysisPayload).toBeDefined()
     const valuation = analysisPayload?.['valuation'] as Record<string, unknown>
     const degraded = (valuation?.['degraded_flags'] as string[] | undefined) ?? []
-    // The schema-retry exhaustion is surfaced (which fields, how many attempts) — never silent.
+    // The schema-retry exhaustion is surfaced (which field, how many attempts) — never silent. The sole
+    // synthesis-required field is now synthesis_response (the red-team obligation).
     expect(degraded.join(' ')).toMatch(/synthesis_schema_retry_exhausted/)
-    expect(degraded.join(' ')).toMatch(/moat_rubric/)
+    expect(degraded.join(' ')).toMatch(/synthesis_response/)
   })
 
   it('routes the red-team to a DIFFERENT provider when the red_team role is overridden', async () => {
@@ -1912,6 +2071,24 @@ function crossCheckSwarmProvider(opts: {
         const n = laneCall++
         return { finding_summary: `Lane ${n}`, confidence: 'high', caveats: ['c'], proposed_sources: [src(`src_lane_${n}`)] }
       }
+      if (schemaName === 'BuffettMungerMoatLane') {
+        // The PRIMARY moat class is the moat lane's judgment (what the cross-check second model checks).
+        const moatClass = opts.primaryMoat ?? 'wide'
+        return {
+          finding_summary: 'Moat lane', confidence: 'high', caveats: ['c'],
+          moat_class: moatClass, runway: 'proven',
+          moat_rubric: moatRubricForTier(moatClass, 'src_lane_moat'), runway_rubric: runwayRubricForTier('proven', 'src_lane_moat'),
+          proposed_sources: [src('src_lane_moat')],
+        }
+      }
+      if (schemaName === 'BuffettMungerShariahLane') {
+        // The PRIMARY sector status is the shariah lane's overlay (what the cross-check second model checks).
+        return {
+          finding_summary: 'Shariah lane', confidence: 'high', caveats: ['c'],
+          sector_status: opts.primarySector ?? 'compliant', impermissible_income: 0,
+          proposed_sources: [src('src_lane_shariah')],
+        }
+      }
       if (schemaName === 'MoatCrossCheck') {
         if (opts.failMoatCrossCheck === true) throw new Error('cross-check timed out')
         return { moat_class: opts.crossCheckMoat ?? 'wide', proposed_sources: [src('src_xc_moat')] }
@@ -1932,12 +2109,10 @@ function crossCheckSwarmProvider(opts: {
         next_required_action: 'a', decision_reason: 'r', thesis_summary: 't', evidence_summary: 'e',
         valuation_rationale: 'v', shariah_rationale: 's', synthesis_summary: 'ss', risks: ['risk'],
         open_questions: ['baseline question'],
-        moat_class: opts.primaryMoat ?? 'wide', runway: 'proven',
         growth_assumptions: 'g', owner_earnings_bridge: {
           net_income: 8838, depreciation_amortization: 2565, maintenance_capex: 2052,
           maintenance_capex_proxy_tier: '80', stock_based_comp: 911, normalized_working_capital_change: 0, shares_outstanding: 443,
         },
-        shariah: { sector_status: opts.primarySector ?? 'compliant', impermissible_income: 0 },
         roic: 0.30, incremental_roic: 0.20, reinvestment_rate: 0.43, proposed_sources: [src('src_dec_1')],
       }
     }),
