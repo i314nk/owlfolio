@@ -438,3 +438,107 @@ describe('fetchCompanyFundamentals — broadened concept coverage (latest-year-a
     expect(la.sbc_musd).toBeUndefined()
   })
 })
+
+describe('annual_series spans concept transitions (per-year per-field resolution)', () => {
+  const M = 1_000_000 // values are stored raw in the XBRL; the adapter divides $ and shares by 1e6.
+  // Build a us-gaap annual fact array for one concept: one full-year (10-K) duration fact per year.
+  // `scale` defaults to 1e6 so the test inputs read in $millions / share-millions; pass 1 for a ratio (EPS).
+  function annualFacts(values: Record<number, number>, unit = 'USD', scale = M): unknown {
+    const units: Record<string, unknown[]> = { [unit]: [] }
+    for (const [yearStr, val] of Object.entries(values)) {
+      const year = Number(yearStr)
+      ;(units[unit] as unknown[]).push({
+        start: `${year}-01-01`,
+        end: `${year}-12-31`,
+        val: val * scale,
+        form: '10-K',
+        fy: year,
+        fp: 'FY',
+        filed: `${year + 1}-02-15`,
+        frame: `CY${year}`,
+      })
+    }
+    return { label: 'x', units }
+  }
+  // Build an instant (balance-sheet) fact array for one concept: one period-end fact per year.
+  function instantFacts(values: Record<number, number>, unit = 'USD', scale = M): unknown {
+    const units: Record<string, unknown[]> = { [unit]: [] }
+    for (const [yearStr, val] of Object.entries(values)) {
+      const year = Number(yearStr)
+      ;(units[unit] as unknown[]).push({ end: `${year}-12-31`, val: val * scale, form: '10-K', fy: year, fp: 'FY', filed: `${year + 1}-02-15` })
+    }
+    return { label: 'x', units }
+  }
+
+  // FIX: a filer that SWITCHED its revenue tag mid-history. The old ASC-606 contract concept carries
+  // 2016-2022; the consolidated `Revenues` total carries 2023-2025 (the current tag). The series must span
+  // the UNION (2016-2025), resolving each year from whichever concept reports it (per-year precedence),
+  // while latest_annual stays the most-recent-year value from the new concept.
+  it('spans the union of years when a filer switches the revenue concept mid-history', async () => {
+    const facts = {
+      entityName: 'TransitionCo',
+      facts: {
+        'us-gaap': {
+          // old concept: 2016-2022
+          RevenueFromContractWithCustomerExcludingAssessedTax: annualFacts({ 2016: 100, 2017: 110, 2018: 120, 2019: 130, 2020: 140, 2021: 150, 2022: 160 }),
+          // new concept: 2023-2025 (the filer moved the consolidated total here)
+          Revenues: annualFacts({ 2023: 200, 2024: 220, 2025: 240 }),
+          NetIncomeLoss: annualFacts({ 2016: 10, 2017: 11, 2018: 12, 2019: 13, 2020: 14, 2021: 15, 2022: 16, 2023: 20, 2024: 22, 2025: 24 }),
+          StockholdersEquity: instantFacts({ 2016: 50, 2017: 55, 2018: 60, 2019: 65, 2020: 70, 2021: 75, 2022: 80, 2023: 90, 2024: 100, 2025: 110 }),
+        },
+      },
+    }
+    const f = await fetchCompanyFundamentals('0000000001', { fetchImpl: fakeFactsFetch(facts) })
+    expect(f).toBeDefined()
+    if (f === undefined) return
+    const years = f.annual_series.map((a) => a.fiscal_year)
+    // Series spans 2016..2025 (the union), newest first.
+    expect(years).toEqual([2025, 2024, 2023, 2022, 2021, 2020, 2019, 2018, 2017, 2016])
+    // latest_annual is the most-recent-year value, from the NEW concept.
+    expect(f.latest_annual.fiscal_year).toBe(2025)
+    expect(f.latest_annual.revenue_musd).toBeCloseTo(240, 0)
+    // An OLD-concept year still carries its revenue (would have been dropped if the series followed only the
+    // recency-winning `Revenues` group, which is the GOOGL 16-month truncation bug).
+    const fy2016 = f.annual_series.find((a) => a.fiscal_year === 2016)
+    expect(fy2016?.revenue_musd).toBeCloseTo(100, 0)
+    const fy2022 = f.annual_series.find((a) => a.fiscal_year === 2022)
+    expect(fy2022?.revenue_musd).toBeCloseTo(160, 0)
+    // The boundary year (2023) is the first new-concept year.
+    const fy2023 = f.annual_series.find((a) => a.fiscal_year === 2023)
+    expect(fy2023?.revenue_musd).toBeCloseTo(200, 0)
+  })
+
+  // FIX: GOOGL-style diluted-share truncation. The weighted-average diluted-share concept is only tagged for
+  // the recent years (2023-2025), but diluted EPS spans the full history (2016-2025). Per-share owner
+  // earnings (the backtest denominator) must be recoverable for the older years by deriving the
+  // weighted-average diluted shares as net_income / diluted_EPS — a consolidated-over-consolidated figure.
+  it('derives diluted shares from net income / diluted EPS for years the weighted-average concept omits', async () => {
+    const facts = {
+      entityName: 'EpsDeriveCo',
+      facts: {
+        'us-gaap': {
+          NetIncomeLoss: annualFacts({ 2016: 1000, 2017: 1100, 2018: 1200, 2023: 2000, 2024: 2200, 2025: 2400 }),
+          Revenues: annualFacts({ 2016: 5000, 2017: 5500, 2018: 6000, 2023: 9000, 2024: 9500, 2025: 10000 }),
+          // weighted-average diluted shares only tagged for the recent years
+          WeightedAverageNumberOfDilutedSharesOutstanding: annualFacts({ 2023: 200, 2024: 205, 2025: 210 }, 'shares'),
+          // diluted EPS spans the full history (so shares can be derived for 2016-2018); a ratio, not $millions.
+          EarningsPerShareDiluted: annualFacts({ 2016: 5, 2017: 5.5, 2018: 6, 2023: 10, 2024: 10.7, 2025: 11.4 }, 'USD/shares', 1),
+        },
+      },
+    }
+    const f = await fetchCompanyFundamentals('0000000002', { fetchImpl: fakeFactsFetch(facts) })
+    expect(f).toBeDefined()
+    if (f === undefined) return
+    // The recent years keep the tagged weighted-average diluted share count (unchanged).
+    expect(f.latest_annual.fiscal_year).toBe(2025)
+    expect(f.latest_annual.diluted_shares_m).toBeCloseTo(210, 0)
+    // 2016: weighted-average concept absent -> derived = NI(1000) / EPS(5) = 200 (millions).
+    const fy2016 = f.annual_series.find((a) => a.fiscal_year === 2016)
+    expect(fy2016?.diluted_shares_m).toBeCloseTo(200, 0)
+    const fy2018 = f.annual_series.find((a) => a.fiscal_year === 2018)
+    expect(fy2018?.diluted_shares_m).toBeCloseTo(200, 0) // 1200 / 6
+    // A tagged year is NOT overwritten by the derived value.
+    const fy2024 = f.annual_series.find((a) => a.fiscal_year === 2024)
+    expect(fy2024?.diluted_shares_m).toBeCloseTo(205, 0)
+  })
+})

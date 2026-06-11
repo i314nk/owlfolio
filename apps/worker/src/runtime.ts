@@ -924,7 +924,20 @@ async function runWatchlistMonitorTask(
   const providerRunIds: string[] = []
   let providerEventsAppended = 0
 
-  if (options.provider !== undefined) {
+  // Deterministic buy-window pass (Module 6) FIRST: it needs NO provider, so it must run on every tick —
+  // including an empty watchlist or a config whose provider is not scheduled-certified
+  // (personal_local_interactive Codex/Claude lanes). Running it before the provider gate guarantees the
+  // observation-only pass is recorded even if provider-requiring work below fails closed.
+  const buyWindow = await runWatchlistBuyWindowPass(store, options)
+  observations.push(...buyWindow.observations)
+
+  // Provider readiness gates ONLY provider-requiring work (drafting a provider monitor run per confirmed
+  // item). With zero confirmed items there is nothing for the provider to do, so we must not assert at all
+  // — that empty-list assert is exactly what hard-failed every real-instance tick under a
+  // personal_local_interactive provider. When there IS confirmed work, the readiness gate still fails
+  // closed (deliberate: an operator who configured an uncertified provider for scheduled provider-backed
+  // monitoring should see that loudly), but the deterministic pass above has already been recorded.
+  if (options.provider !== undefined && confirmedWatchlistItems.length > 0) {
     assertProviderReadyForExecution(options.provider, options.provider_readiness)
     for (const item of confirmedWatchlistItems) {
       const providerResult = await appendProviderRun(store, options.provider, item, options)
@@ -934,10 +947,6 @@ async function runWatchlistMonitorTask(
       observations.push(`${labelForWatchlistItem(item)} provider monitor completed with ${providerResult.tool_calls.length} source tool call(s); portfolio action requires user approval`)
     }
   }
-
-  // Deterministic buy-window pass (Module 6): records buy-window / staleness-suppression observations.
-  const buyWindow = await runWatchlistBuyWindowPass(store, options)
-  observations.push(...buyWindow.observations)
 
   return {
     result_summary: `watchlist_monitor dry-run: ${confirmedWatchlistItems.length} confirmed watchlist item(s) monitored; ${buyWindow.alerts} buy-window alert(s), ${buyWindow.appended} monitor observation(s); no buy/sell/portfolio action taken`,

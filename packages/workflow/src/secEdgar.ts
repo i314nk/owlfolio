@@ -443,6 +443,12 @@ type ConceptMap = {
   capex: ConceptGroup[]
   sbc: ConceptGroup[]
   dilutedShares: ConceptGroup[]
+  /**
+   * Diluted EPS candidate groups: used ONLY to DERIVE the weighted-average diluted-share count
+   * (net_income / diluted_EPS) for years the weighted-average concept omits — recovering the per-share
+   * denominator across a concept transition without overwriting a genuinely tagged share count.
+   */
+  dilutedEps: ConceptGroup[]
   sharesOut: string[]
   /** Total interest-bearing debt: prefer the first combined concept; else sum the rest. */
   debtCombined: string[]
@@ -464,20 +470,23 @@ type ConceptMap = {
 
 const US_GAAP_CONCEPTS: ConceptMap = {
   // Net income attributable to the parent first (`NetIncomeLoss`); `ProfitLoss` / the available-to-common
-  // variants are latest-year fallbacks for filers that froze `NetIncomeLoss` (Mastercard's stops FY2013,
-  // Caterpillar's FY2010) — resolveLatestYearGroup keeps Exxon (reports both) on the parent figure.
+  // variants are per-year fallbacks for filers that froze `NetIncomeLoss` (Mastercard's stops FY2013,
+  // Caterpillar's FY2010) — the frozen concept drops out of later years, so per-year precedence keeps Exxon
+  // (which reports both) on the parent figure while resolving the frozen filers' current years from the fallback.
   netIncome: [
     'NetIncomeLoss',
     'NetIncomeLossAvailableToCommonStockholdersBasic',
     'ProfitLoss',
   ],
-  // Revenue is PRECEDENCE-ORDERED then latest-year-preferring. Many filers (e.g. Copart) report the full-
-  // company top line under RevenueFromContractWithCustomer*AssessedTax and tag `Revenues` only with a
-  // disaggregated sub-line (Copart's `Revenues` carries a 525M Q4 partial). Trying the ASC-606 contract-
-  // revenue concepts FIRST — Excluding (Costco's variant) then Including (Copart's) — lands on the canonical
-  // full-year figure for those filers; but where the contract concept was DISCONTINUED and only `Revenues`
-  // carries the current year (Alphabet/NVIDIA/Exxon/Mastercard tag the consolidated total under `Revenues`
-  // and froze the contract concept years ago), resolveLatestYearGroup prefers `Revenues` by recency.
+  // Revenue is PRECEDENCE-ORDERED and resolved PER YEAR. Many filers (e.g. Copart) report the full-company
+  // top line under RevenueFromContractWithCustomer*AssessedTax and tag `Revenues` only with a disaggregated
+  // sub-line (Copart's `Revenues` carries a 525M Q4 partial — filtered out by the annual-duration guard).
+  // Trying the ASC-606 contract-revenue concepts FIRST — Excluding (Costco's variant) then Including
+  // (Copart's) — lands on the canonical full-year figure for those filers' years; but where the contract
+  // concept was DISCONTINUED and only `Revenues` carries the later years (Alphabet/NVIDIA/Exxon/Mastercard
+  // tag the consolidated total under `Revenues` and froze the contract concept years ago), per-year
+  // precedence resolves those later years from `Revenues` while the contract concept still supplies the
+  // EARLIER years — so the annual series spans the full union across the concept transition (the GOOGL fix).
   // (For Costco where Excluding and Revenues both report the same year+value, precedence keeps Excluding.)
   revenue: [
     'RevenueFromContractWithCustomerExcludingAssessedTax',
@@ -518,6 +527,9 @@ const US_GAAP_CONCEPTS: ConceptMap = {
     'WeightedAverageNumberOfDilutedSharesOutstanding',
     'WeightedAverageNumberOfSharesOutstandingBasic',
   ],
+  // Diluted EPS, to derive the weighted-average diluted share count for years the share concept omits
+  // (Alphabet tags weighted-average shares only from FY2022 but diluted EPS spans the full 10-K history).
+  dilutedEps: ['EarningsPerShareDiluted', 'EarningsPerShareBasic'],
   sharesOut: ['CommonStockSharesOutstanding'],
   // Debt: prefer the combined rollup (LongTermDebt = total carrying amount, or the LT+ST combined amount);
   // else sum the noncurrent + current components; else fall back to lease/short-term-borrowing concepts for
@@ -575,6 +587,8 @@ const IFRS_CONCEPTS: ConceptMap = {
   ],
   // IFRS reports a basic (WeightedAverageShares) and a diluted (AdjustedWeightedAverageShares) count.
   dilutedShares: ['AdjustedWeightedAverageShares', 'WeightedAverageShares'],
+  // IFRS diluted EPS, to derive the diluted-share count for years the weighted-average concept omits.
+  dilutedEps: ['DilutedEarningsLossPerShare', 'BasicEarningsLossPerShare'],
   sharesOut: ['NumberOfSharesOutstanding'],
   // Total interest-bearing debt: prefer the single Borrowings rollup; else sum the LT/ST components.
   debtCombined: ['Borrowings'],
@@ -636,42 +650,6 @@ function groupNames(groups: ConceptGroup[]): string[] {
 }
 
 /**
- * Resolve an OE-bridge flow field across PRECEDENCE-ORDERED candidate groups, preferring the group that
- * reports the MOST RECENT fiscal year. This is the key robustness fix over firstPopulated (which picks the
- * first non-empty concept regardless of how stale it is): a mega-cap that DISCONTINUED a tag — e.g. Walmart's
- * old `DepreciationDepletionAndAmortization` (last tagged FY2019) superseded by `DepreciationAmortizationAndAccretionNet`,
- * or a foreign filer whose `Revenues` carries FY2025 while the ASC-606 contract concept froze at FY2024 — must
- * resolve to the CURRENT figure, not the stale one. Among groups tied on latest fiscal year (e.g. Costco where
- * the Excluding variant and `Revenues` both report the same year+value), earlier list order wins, preserving the
- * disaggregation-avoidance precedence that already keeps Costco/Copart correct.
- *
- * Returns the FULL annual map of the chosen group (every year it reports), so the multi-year series is
- * internally consistent. Falls back per-year is intentionally NOT done here — mixing a current-year value from
- * one concept with a prior-year value from a different (incompatible) concept would corrupt year-over-year
- * deltas used by the incremental-ROIC proxy. (Cross-tag-switch per-year fallback remains via firstPopulatedByYear
- * for balance-sheet items where the magnitude is comparable across tags.)
- */
-function resolveLatestYearGroup(
-  facts: CompanyFacts,
-  taxonomy: Taxonomy,
-  groups: ConceptGroup[],
-): Map<number, number> {
-  let best: Map<number, number> | undefined
-  let bestYear = -Infinity
-  for (const group of groups) {
-    const m = groupAnnualMap(facts, taxonomy, group)
-    if (m.size === 0) continue
-    const maxYear = Math.max(...m.keys())
-    // strictly-greater so earlier (higher-precedence) groups win ties on the latest fiscal year.
-    if (maxYear > bestYear) {
-      bestYear = maxYear
-      best = m
-    }
-  }
-  return best ?? new Map<number, number>()
-}
-
-/**
  * Per-fiscal-year fallback across a candidate list: for EACH year, take the value from the first concept
  * (in list order) that reports that year. Unlike firstPopulated (which picks a single concept for ALL years
  * by whole-concept population), this resolves year-by-year — needed when a filer SWITCHES tags mid-history
@@ -682,6 +660,35 @@ function firstPopulatedByYear(facts: CompanyFacts, taxonomy: Taxonomy, concepts:
   const out = new Map<number, number>()
   for (const c of concepts) {
     const m = annualByFiscalYear(facts, taxonomy, c)
+    for (const [fy, v] of m) {
+      if (!out.has(fy)) out.set(fy, v)
+    }
+  }
+  return out
+}
+
+/**
+ * Group-aware per-fiscal-year resolution across PRECEDENCE-ORDERED candidate GROUPS (a group is a single
+ * concept or a SUM of concepts). For EACH year, the value comes from the FIRST group (in precedence order)
+ * that reports that year — so the returned map spans the UNION of years across all candidates.
+ *
+ * This is the series-correct counterpart to resolveLatestYearGroup (which picks ONE group's whole map by
+ * recency). resolveLatestYearGroup truncated the annual series whenever a filer SWITCHED its concept and the
+ * recency-winning concept had a SHORT history: e.g. Alphabet tags FY2023+ revenue under `Revenues` while the
+ * older ASC-606 contract concept carries the earlier years — picking the `Revenues` group for ALL years
+ * dropped the pre-2023 history (the GOOGL 16-month-of-history bug). Resolving per-year keeps each year on the
+ * canonical (first-precedence) concept that actually reports it, spanning the full union.
+ *
+ * Consistency note: precedence order is hand-tuned so the FIRST concept that reports a year is the canonical
+ * consolidated annual figure, and discontinued concepts simply drop out of later years — so a year resolved
+ * from concept A and the next year from concept B are both the consolidated annual figure (never a mix of a
+ * consolidated total with a disaggregated sub-line). latest_annual therefore still reads the most-recent
+ * year's value from whichever concept currently reports it.
+ */
+function firstPopulatedGroupByYear(facts: CompanyFacts, taxonomy: Taxonomy, groups: ConceptGroup[]): Map<number, number> {
+  const out = new Map<number, number>()
+  for (const group of groups) {
+    const m = groupAnnualMap(facts, taxonomy, group)
     for (const [fy, v] of m) {
       if (!out.has(fy)) out.set(fy, v)
     }
@@ -703,15 +710,33 @@ function sumConcepts(facts: CompanyFacts, taxonomy: Taxonomy, concepts: string[]
 
 function buildAnnualSeries(facts: CompanyFacts, taxonomy: Taxonomy, currency: ReportingCurrency): AnnualFacts[] {
   const cm = conceptMapFor(taxonomy)
-  // OE-bridge flow fields resolve across precedence-ordered candidate GROUPS, preferring the group that
-  // reports the most recent fiscal year (handles discontinued/superseded tags + segment-vs-consolidated
-  // disambiguation without letting a stale concept shadow the current one — see resolveLatestYearGroup).
-  const netIncome = resolveLatestYearGroup(facts, taxonomy, cm.netIncome)
-  const revenue = resolveLatestYearGroup(facts, taxonomy, cm.revenue)
-  const dAndA = resolveLatestYearGroup(facts, taxonomy, cm.dAndA)
-  const capex = resolveLatestYearGroup(facts, taxonomy, cm.capex)
-  const sbc = resolveLatestYearGroup(facts, taxonomy, cm.sbc)
-  const dilutedShares = resolveLatestYearGroup(facts, taxonomy, cm.dilutedShares)
+  // OE-bridge flow fields resolve across precedence-ordered candidate GROUPS, PER YEAR: each fiscal year
+  // takes its value from the first (highest-precedence) group that reports it, so the series spans the UNION
+  // of years across candidates. This handles discontinued/superseded tags + segment-vs-consolidated
+  // disambiguation (the canonical concept is first in precedence; frozen concepts simply drop out of later
+  // years) WITHOUT truncating the history when a filer SWITCHED concepts and the current-year tag has a short
+  // history (the GOOGL 16-month bug — see firstPopulatedGroupByYear). latest_annual stays the most-recent
+  // year's value from whichever concept currently reports it.
+  const netIncome = firstPopulatedGroupByYear(facts, taxonomy, cm.netIncome)
+  const revenue = firstPopulatedGroupByYear(facts, taxonomy, cm.revenue)
+  const dAndA = firstPopulatedGroupByYear(facts, taxonomy, cm.dAndA)
+  const capex = firstPopulatedGroupByYear(facts, taxonomy, cm.capex)
+  const sbc = firstPopulatedGroupByYear(facts, taxonomy, cm.sbc)
+  const dilutedSharesTagged = firstPopulatedGroupByYear(facts, taxonomy, cm.dilutedShares)
+  // Diluted-share fallback: for any year the weighted-average diluted-share concept omits, derive the count
+  // from net income / diluted EPS (both consolidated annual figures — a consistent per-year fill). This
+  // recovers the per-share owner-earnings denominator for filers (e.g. Alphabet) that began tagging the
+  // weighted-average count only in recent years while diluted EPS spans the full history. A genuinely tagged
+  // year is never overwritten.
+  const dilutedEps = firstPopulatedGroupByYear(facts, taxonomy, cm.dilutedEps)
+  const dilutedShares = new Map<number, number>(dilutedSharesTagged)
+  for (const [fy, ni] of netIncome) {
+    if (dilutedShares.has(fy)) continue
+    const eps = dilutedEps.get(fy)
+    if (eps !== undefined && Number.isFinite(eps) && eps !== 0) {
+      dilutedShares.set(fy, ni / eps)
+    }
+  }
   const sharesOut = firstPopulated(facts, taxonomy, cm.sharesOut)
   // Per-YEAR fallback for tags a filer may switch mid-history (debt rollup, lease fallback, cash, securities):
   // each year resolves to the first candidate that reports it, so the latest year still resolves even when an

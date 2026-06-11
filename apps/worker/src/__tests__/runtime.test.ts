@@ -1226,6 +1226,83 @@ describe('worker runtime', () => {
     })
   })
 
+  it('completes watchlist monitoring on an EMPTY watchlist even when the provider is not scheduled-certified', async () => {
+    // Real-instance BUG-1: a personal_local_interactive provider (e.g. Codex/Claude) is NOT
+    // scheduled-certified, so its execution readiness is_ready:false. With ZERO confirmed watchlist items
+    // there is no provider work to do, so the tick must complete via the deterministic pass — not fail.
+    const store = new InMemoryEventStore<LedgerEventEnvelope<unknown>>()
+    await defineDefaultScheduledTasks(store, { now: () => '2026-06-12T09:00:00.000Z' })
+
+    const result = await runScheduledTasks(store, {
+      dry_run: true,
+      task_kind: 'watchlist_monitor',
+      provider: new MockProvider(),
+      provider_readiness: {
+        provider_id: 'mock-provider',
+        is_ready: false,
+        status_label: 'OpenAI Codex CLI is not certified for scheduled workflows (personal_local_interactive)',
+        provider_surface_id: 'mock-provider',
+        vendor_id: 'mock',
+        runtime_kind: 'built_in',
+        auth_mode: 'built_in_demo',
+        workflow_role: 'scheduled_monitoring_dry_run',
+      },
+      now: () => '2026-06-12T09:00:00.000Z',
+      run_id: () => 'run_watchlist_monitor_empty_unready_001',
+    })
+
+    expect(result).toMatchObject({ completed: 1, failed: 0 })
+    const events = await store.list()
+    const eventTypes = events.map((event) => event.event_type)
+    expect(eventTypes).toContain('scheduled_task_run_completed')
+    expect(eventTypes).not.toContain('scheduled_task_run_failed')
+    // The provider was never invoked (nothing to monitor) so the readiness assert never fired.
+    expect(eventTypes).not.toContain('provider_run_started')
+    const completed = events.find((event) => event.event_type === 'scheduled_task_run_completed')
+    expect(completed?.payload).toMatchObject({
+      result_summary: 'watchlist_monitor dry-run: 0 confirmed watchlist item(s) monitored; 0 buy-window alert(s), 0 monitor observation(s); no buy/sell/portfolio action taken',
+    })
+  })
+
+  it('runs the deterministic buy-window pass even when confirmed items make the not-ready provider fail closed', async () => {
+    // Real-instance BUG-1 (companion): the deterministic, provider-free buy-window pass must run regardless
+    // of the provider. With confirmed items + a not-ready provider, the provider-backed drafting still
+    // fails closed (deliberate safety), but the deterministic alert is recorded FIRST — it no longer
+    // depends on the provider readiness gate the way it did before the fix.
+    const store = new InMemoryEventStore<LedgerEventEnvelope<unknown>>()
+    await watchlistWithBuyPrice(store, { ticker: 'CPRT', buyPrice: 100, fairValue: 140, caseUpdatedAt: '2026-03-01T00:00:00.000Z' })
+    await defineDefaultScheduledTasks(store, { now: () => '2026-06-12T09:00:00.000Z' })
+
+    const result = await runScheduledTasks(store, {
+      dry_run: true,
+      task_kind: 'watchlist_monitor',
+      provider: new MockProvider(),
+      provider_readiness: {
+        provider_id: 'mock-provider',
+        is_ready: false,
+        status_label: 'OpenAI Codex CLI is not certified for scheduled workflows (personal_local_interactive)',
+        provider_surface_id: 'mock-provider',
+        vendor_id: 'mock',
+        runtime_kind: 'built_in',
+        auth_mode: 'built_in_demo',
+        workflow_role: 'scheduled_monitoring_dry_run',
+      },
+      now: () => '2026-06-12T09:00:00.000Z',
+      run_id: () => 'run_watchlist_monitor_items_unready_001',
+      priceSource: makeMockPriceSource({ CPRT: { available: true, price_per_share: 90, currency: 'USD', as_of: '2026-06-12T00:00:00.000Z', source: 'mock-price-source' } }),
+    })
+
+    // Confirmed item + not-ready provider keeps the fail-closed safety property on provider-backed work.
+    expect(result).toMatchObject({ failed: 1 })
+    const events = await store.list()
+    const eventTypes = events.map((event) => event.event_type)
+    // The provider was never invoked (gate threw before drafting).
+    expect(eventTypes).not.toContain('provider_run_started')
+    // ...but the deterministic buy-window pass already recorded its alert before the gate fired.
+    const alert = events.find((event) => event.event_type === 'watchlist_monitor_alert_recorded')
+    expect(alert?.payload).toMatchObject({ ticker: 'CPRT', alert_kind: 'buy_window', buy_window_alert: true })
+  })
+
   it('creates provider-authored holding review draft proposals without approval writes', async () => {
     const store = new InMemoryEventStore<LedgerEventEnvelope<unknown>>()
     await appendCostHolding(store)
