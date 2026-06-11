@@ -52,6 +52,14 @@ import {
 } from '@owlfolio/workflow/lifecycleMonitors'
 import { buffettMungerStrategy } from '@owlfolio/strategies/buffettMunger'
 import { VALUATION_PARAMS } from '@owlfolio/strategies/valuationParams'
+import { buildCalibrationRunEvent, type CalibrationNameSummary, type CalibrationCoverageSummary, type CalibrationTarget } from '@owlfolio/strategies/calibrationRunEvent'
+import {
+  loadCalibrationUniverse,
+  runCalibrationBacktest,
+  type CalibrationUniverse,
+  type RunCalibrationBacktestDeps,
+} from '@owlfolio/workflow'
+import { projectPendingCalibrationRuns } from '@owlfolio/ledger/projections/calibrationRunQueueProjection'
 import type { ShariahFinancialRatioInputs } from '@owlfolio/strategies/shariahFinancialRatios'
 import { selectResearchCaseAction } from '@owlfolio/workflow/researchCasePolicy'
 import { runStrategyResearchSwarm, runResearchDeepDivePhase, type GroundFn } from '@owlfolio/workflow/researchSwarm'
@@ -2182,6 +2190,113 @@ export async function runProcessDeepDiveQueueTask(
   }
 
   return { processed: pending.length, failed, summaries }
+}
+
+/**
+ * The pre-stated calibration target (valuation-recalibration-spec §3.1), recorded with every run so the
+ * §3.4 anti-drift rule is enforceable (a run is calibrated against the SAME pre-stated target). Constant —
+ * never derived from the run's own results.
+ */
+const CALIBRATION_TARGET: CalibrationTarget = {
+  buys_per_year_min: 1,
+  buys_per_year_max: 3,
+  must_signal_windows: ['2020-03..2020-05', '2022-09..2023-01'],
+  must_not_signal_windows: ['2021-01..2021-12'],
+}
+
+/**
+ * Process pending calibration-run requests (valuation-recalibration-spec §3 — deliberate, enqueued, NOT a
+ * default schedule). For each `calibration_run_requested` with no recorded `calibration_run`, it loads the
+ * user-curated universe, runs the DETERMINISTIC, OBSERVATION-ONLY backtest over it via the tiered
+ * fundamentals resolver, and records a `calibration_run` ledger event capturing the universe version +
+ * params version + per-name signal summaries + the non-US COVERAGE report + the pre-stated target.
+ *
+ * It NEVER changes parameters (no valuation_config write) and never auto-advances any decision — it records
+ * evidence. Live EDGAR + price fetches are gated behind the enqueue (this task only runs when requested),
+ * keeping the default tick dry-run/mock-safe.
+ */
+export async function runProcessCalibrationQueueTask(
+  store: EventStore<LedgerEventEnvelope<unknown>>,
+  options: {
+    /** Override the universe loader (tests inject a fixture). Default: tracked config file. */
+    loadUniverse?: () => CalibrationUniverse | undefined
+    /** Backtest deps (tests inject offline fundamentals/price stubs). */
+    backtestDeps?: RunCalibrationBacktestDeps
+    now?: () => Date
+  } = {},
+): Promise<{ processed: number; failed: number; summaries: string[] }> {
+  const now = options.now ?? (() => new Date())
+  const loadUniverse = options.loadUniverse ?? (() => loadCalibrationUniverse())
+  const events = await store.list()
+  const pending = projectPendingCalibrationRuns(events)
+  const summaries: string[] = []
+  let failed = 0
+  let processed = 0
+
+  for (const run of pending) {
+    const universe = loadUniverse()
+    if (universe === undefined) {
+      failed += 1
+      summaries.push(`process_calibration_queue: calibration_run ${run.calibration_run_id} skipped — calibration universe config not found/invalid`)
+      continue
+    }
+
+    try {
+      const result = await runCalibrationBacktest(universe, options.backtestDeps ?? {})
+      const recordedAt = now().toISOString()
+
+      const summaryPayload: CalibrationNameSummary[] = result.summaries.map((s) => ({
+        ticker: s.ticker,
+        moat_class: s.moat_class,
+        runway: s.runway,
+        total_months: s.total_months,
+        buy_months: s.buy_months,
+        buys_per_year: s.buys_per_year,
+        buy_episodes: s.buy_episodes,
+        sanity_windows: s.sanity_windows,
+        deployment_ratios: s.deployment_ratios.map((d) => ({ ladder_id: d.ladder_id, episodes: d.episodes, avg_deployment_ratio: d.avg_deployment_ratio })),
+      }))
+      const coveragePayload: CalibrationCoverageSummary[] = result.coverage.map((c) => ({
+        ticker: c.ticker,
+        company: c.company,
+        market: c.market,
+        fundamentals_hint: c.fundamentals_hint,
+        status: c.status,
+        ...(c.currency === undefined ? {} : { currency: c.currency }),
+        ...(c.reason === undefined ? {} : { reason: c.reason }),
+      }))
+
+      const event = buildCalibrationRunEvent({
+        event_id: `evt_calibration_run_${run.calibration_run_id}`,
+        strategy_id: run.strategy_id ?? buffettMungerStrategy.id,
+        params: VALUATION_PARAMS,
+        universe_version: result.universe_version,
+        universe: universe.names.map((n) => n.ticker),
+        summaries: summaryPayload,
+        coverage: coveragePayload,
+        target: CALIBRATION_TARGET,
+        actor_id: WORKER_ACTOR_ID,
+        created_at: recordedAt,
+      })
+      // Record as a worker-authored observation, correlated to the request for queue de-dup.
+      await store.append({
+        ...event,
+        actor_type: 'worker',
+        causation_id: run.requested_event_id,
+        correlation_id: run.calibration_run_id,
+        idempotency_key: `calibration-run:${run.calibration_run_id}:v1`,
+      } as LedgerEventEnvelope<unknown>)
+      processed += 1
+      summaries.push(
+        `process_calibration_queue: ran calibration_run ${run.calibration_run_id} over universe ${result.universe_version} (${result.coverage_counts.resolved_edgar} edgar, ${result.coverage_counts.resolved_local_manual} local-manual, ${result.coverage_counts.unresolved} unresolved); observation-only, no param change`,
+      )
+    } catch (error) {
+      failed += 1
+      summaries.push(`process_calibration_queue: calibration_run ${run.calibration_run_id} failed: ${(error as Error).message.slice(0, 200)}`)
+    }
+  }
+
+  return { processed, failed, summaries }
 }
 
 export async function runScheduledTasks(

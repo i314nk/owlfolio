@@ -1,7 +1,13 @@
 import { createElement, Fragment, type CSSProperties, type ReactNode } from 'react'
 
 import { RouteHeader } from './designSystem'
-import type { CalibrationRunView, CalibrationView } from '../lib/calibration'
+import { RunCalibrationButton } from './RunCalibrationButton'
+import type {
+  CalibrationCoverageView,
+  CalibrationRunView,
+  CalibrationUniverseView,
+  CalibrationView,
+} from '../lib/calibration'
 
 export type CalibrationPanelProps = {
   view: CalibrationView
@@ -76,10 +82,136 @@ export function CalibrationPanel({ view }: CalibrationPanelProps) {
     }),
     createElement('hr', { className: 'owl-rule' }),
     createLedgerLine(view),
+    createUniverseSection(view.universe),
+    createRunBacktestSection(),
     createDeploymentRatioSection(view, latestRun),
     createSignalLogSection(view.runs),
+    createCoverageSection(latestRun),
     createParamHistorySection(view),
+    createConfigChangeSection(view),
   )
+}
+
+const COVERAGE_LABEL: Record<CalibrationCoverageView['status'], string> = {
+  resolved_edgar: 'Resolved · EDGAR',
+  resolved_local_manual: 'Resolved · local-manual',
+  unresolved: 'Unresolved · needs fundamentals',
+}
+
+function createUniverseSection(universe: CalibrationUniverseView | undefined) {
+  if (universe === undefined) {
+    return Section({
+      eyebrow: 'Calibration universe',
+      title: 'User-curated universe',
+      lead: 'The calibration universe is a user-owned, versioned list (the spec pre-states the UNIVERSE as part of the target). It is read from config/calibration_universe.json.',
+      children: createElement(
+        'p',
+        { style: { color: 'var(--owl-color-quiet)', fontSize: 'var(--owl-text-base)', margin: 0 } },
+        'No calibration universe config was found (config/calibration_universe.json missing or invalid).',
+      ),
+    })
+  }
+
+  const nameRows = universe.names.map((name) => [
+    createElement('span', { style: { ...monoFigure, color: 'var(--owl-color-gold-bright)' } }, name.ticker),
+    name.company,
+    name.market,
+    name.coverage_status === undefined
+      ? createElement('span', { style: { color: 'var(--owl-color-quiet)' } }, `not yet run (${name.fundamentals_hint})`)
+      : createElement(
+          'span',
+          { style: { color: name.coverage_status === 'unresolved' ? 'var(--owl-color-quiet)' : 'var(--owl-color-muted)' }, title: name.coverage_reason ?? '' },
+          COVERAGE_LABEL[name.coverage_status],
+        ),
+  ])
+
+  const suggestionBody = universe.suggestions.length === 0
+    ? createElement('p', { style: { color: 'var(--owl-color-quiet)', fontSize: 'var(--owl-text-sm)', margin: 0 } }, 'No suggested additions: every researched / 13F-discovered name is already in the universe.')
+    : Table({
+        headings: ['Suggested ticker', 'Company', 'Surfaced from'],
+        rows: universe.suggestions.map((s) => [
+          createElement('span', { style: { ...monoFigure, color: 'var(--owl-color-gold-bright)' } }, s.ticker),
+          s.company ?? '—',
+          s.sources.map((src) => (src === '13f_discovered' ? '13F discovery' : 'researched case')).join(' · '),
+        ]),
+      })
+
+  return Section({
+    eyebrow: 'Calibration universe',
+    title: `User-curated universe · ${universe.version}`,
+    lead: 'The human owns this list and freezes it per run; a recorded run captures the universe version for reproducibility. Edit config/calibration_universe.json to add or remove names. Coverage status comes from the latest recorded run. Intl/local-manual names need an operator-entered annual report (config/fundamentals/{TICKER}.json) before they resolve.',
+    children: createElement(
+      'div',
+      { style: { display: 'grid', gap: '1rem' } },
+      Table({ headings: ['Ticker', 'Company', 'Market', 'Coverage (latest run)'], rows: nameRows }),
+      createElement('p', { style: { ...microLabel, color: 'var(--owl-color-gold)' } }, 'Suggested additions (human curates — not auto-added)'),
+      suggestionBody,
+    ),
+  })
+}
+
+function createRunBacktestSection() {
+  return Section({
+    eyebrow: 'Run the backtest',
+    title: 'Deliberate, observation-only backtest',
+    lead: 'Running a calibration backtest is a deliberate, enqueued action — not a casual tune knob. It replays the config-driven valuation over the frozen universe via the tiered fundamentals resolver (EDGAR foreign-filers → local-manual → fail-closed) and records a calibration_run with the signal frequency, deployment-ratio metric, and the non-US coverage report. It never changes parameters.',
+    children: createElement(RunCalibrationButton, null),
+  })
+}
+
+function createCoverageSection(latestRun: CalibrationRunView | undefined) {
+  if (latestRun === undefined || latestRun.coverage.length === 0) {
+    return Section({
+      eyebrow: 'Coverage report',
+      title: 'Non-US fundamentals coverage',
+      lead: 'Each run reports which universe names resolved primary fundamentals (US EDGAR / foreign 20-F via EDGAR / operator-entered local-manual) and which are unresolved and need annual-report fundamentals. The gap is made visible — never fabricated, no third-party aggregator.',
+      children: createElement(
+        'p',
+        { style: { color: 'var(--owl-color-quiet)', fontSize: 'var(--owl-text-base)', margin: 0 } },
+        'No coverage report yet. Run the calibration backtest to see which names resolved vs need fundamentals.',
+      ),
+    })
+  }
+  return Section({
+    eyebrow: 'Coverage report',
+    title: 'Non-US fundamentals coverage (latest run)',
+    lead: 'Which universe names resolved primary fundamentals, and which are unresolved (need operator-entered annual-report figures). The non-US gap, made honest.',
+    children: Table({
+      headings: ['Ticker', 'Status', 'Currency', 'Reason'],
+      rows: latestRun.coverage.map((c) => [
+        createElement('span', { style: { ...monoFigure, color: 'var(--owl-color-gold-bright)' } }, c.ticker),
+        createElement('span', { style: { color: c.status === 'unresolved' ? 'var(--owl-color-quiet)' : 'var(--owl-color-muted)' } }, COVERAGE_LABEL[c.status]),
+        c.currency ?? '—',
+        c.reason ?? '—',
+      ]),
+    }),
+  })
+}
+
+function createConfigChangeSection(view: CalibrationView) {
+  const latestRun = view.runs[0]
+  const hasRun = latestRun !== undefined
+  return Section({
+    eyebrow: 'Propose parameter change',
+    title: 'Deliberate, human-confirmed config change (anti-drift)',
+    lead: 'Parameters are frozen after go-live. A change is permitted ONLY at the annual system review, ONLY with a backtest re-run attached, and ONLY against the same pre-stated target. "It has been quiet lately" is never grounds. A proposal is a logged, human-confirmed config-change DRAFT — never a quick tune knob, never auto-applied.',
+    children: createElement(
+      'div',
+      { style: { display: 'grid', gap: '0.6rem' } },
+      createElement(
+        'p',
+        { style: { ...bodyStyle, margin: 0 } },
+        hasRun
+          ? `A parameter-change draft must attach the latest recorded backtest (${latestRun.event_id.slice(0, 18)}…). Confirming a draft is a separate, human-authored ledger transition that writes a valuation_config event; it never mutates the live config silently.`
+          : 'No backtest has been recorded yet. The anti-drift rule requires an attached calibration_run before any parameter-change draft can be proposed — run the backtest first.',
+      ),
+      createElement(
+        'p',
+        { style: { color: 'var(--owl-color-quiet)', fontSize: 'var(--owl-text-sm)', margin: 0 } },
+        'The constitutional 10% discount rate is never a calibration target and cannot be proposed for change.',
+      ),
+    ),
+  })
 }
 
 function createLedgerLine(view: CalibrationView) {

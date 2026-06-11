@@ -1,4 +1,5 @@
 import { SQLiteEventStore } from '@owlfolio/ledger/sqliteEventStore'
+import { loadCalibrationUniverse, suggestCalibrationUniverseAdditions } from '@owlfolio/workflow/calibrationUniverse'
 
 import { CalibrationPanel } from '../../components/CalibrationPanel'
 import { projectCalibrationView } from '../../lib/calibration'
@@ -13,7 +14,10 @@ export const metadata = {
 export default async function CalibrationPage() {
   const state = await getOnboardingState()
   const events = await loadCalibrationEvents(state)
-  const view = projectCalibrationView(events)
+  const universe = loadCalibrationUniverse()
+  const view = projectCalibrationView(events, {
+    ...(universe === undefined ? {} : { universe, suggestions: suggestCalibrationUniverseAdditions(universe, events) }),
+  })
 
   return (
     <main className="owl-route-frame owl-route-frame-wide">

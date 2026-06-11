@@ -79,6 +79,77 @@ export function diffValuationParams(
 }
 
 /**
+ * A DELIBERATE, human-confirmed config-change DRAFT (valuation-recalibration-spec §3.4 anti-drift). This is
+ * the gated param-change path — NOT a casual tune knob. Changing parameters post-go-live is permitted ONLY
+ * at the annual system review, ONLY with a backtest re-run attached, ONLY against the same pre-stated
+ * target; "it's been quiet lately" is never grounds. So this builder:
+ *   - computes the diff (the caller does not hand-assert it),
+ *   - REQUIRES a calibration_run event id (the attached backtest precondition — fail-closed if missing),
+ *   - REFUSES to touch the constitutional 10% discount rate (spec §3.3),
+ *   - REFUSES a no-op,
+ *   - returns a `status: 'draft'` proposal that `requires_user_confirmation` and is `auto_applied: false`.
+ * Confirming the draft (a separate user action) is what writes the `valuation_config` event via
+ * `buildValuationConfigEvent`. The draft itself never mutates VALUATION_PARAMS.
+ */
+export type ValuationConfigChangeDraft = {
+  proposal_id: string
+  strategy_id: string
+  previous_version: string
+  new_version: string
+  changes: ValuationParamChange[]
+  /** The attached backtest (calibration_run event id) — the anti-drift precondition. */
+  calibration_run_event_id: string
+  status: 'draft'
+  requires_user_confirmation: true
+  auto_applied: false
+  rationale?: string
+  anti_drift_note: string
+  actor_id?: string
+  created_at: string
+}
+
+const ANTI_DRIFT_NOTE =
+  'Parameters are frozen after go-live. A change is permitted ONLY at the annual system review, ONLY with the backtest re-run attached, ONLY against the same pre-stated target. "It has been quiet lately" is never grounds. This is a draft — confirming it is a separate, human-authored, logged transition.'
+
+export function buildValuationConfigChangeDraft(args: {
+  proposal_id: string
+  strategy_id: string
+  previous: ValuationParams
+  next: ValuationParams
+  /** The calibration_run ledger event id whose backtest justifies this change (required, §3.4). */
+  calibration_run_event_id: string
+  rationale?: string
+  actor_id?: string
+  created_at?: string
+}): ValuationConfigChangeDraft {
+  if (args.calibration_run_event_id.trim().length === 0) {
+    throw new Error('A calibration_run backtest must be attached to a parameter-change draft (anti-drift §3.4).')
+  }
+  const changes = diffValuationParams(args.previous, args.next)
+  if (changes.length === 0) {
+    throw new Error('No parameter changes to propose (the diff is empty).')
+  }
+  if (changes.some((change) => change.path === 'discount_rate')) {
+    throw new Error('The 10% discount rate is constitutional — never touched by calibration (spec §3.3). Cannot propose a hurdle change.')
+  }
+  return {
+    proposal_id: args.proposal_id,
+    strategy_id: args.strategy_id,
+    previous_version: args.previous.version,
+    new_version: args.next.version,
+    changes,
+    calibration_run_event_id: args.calibration_run_event_id,
+    status: 'draft',
+    requires_user_confirmation: true,
+    auto_applied: false,
+    ...(args.rationale === undefined ? {} : { rationale: args.rationale }),
+    anti_drift_note: ANTI_DRIFT_NOTE,
+    ...(args.actor_id === undefined ? {} : { actor_id: args.actor_id }),
+    created_at: args.created_at ?? new Date().toISOString(),
+  }
+}
+
+/**
  * Build an append-only `valuation_config` ledger event from a config diff. Carries the previous/new
  * version and the changed-parameter list. Returns the event envelope; the caller appends it to the
  * EventStore. The aggregate is the strategy whose valuation policy changed.

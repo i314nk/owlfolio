@@ -24,6 +24,7 @@
     "./projections/commandCenterProjection": "./src/projections/commandCenterProjection.ts",
     "./projections/scheduledTaskProjection": "./src/projections/scheduledTaskProjection.ts",
     "./projections/researchRunQueueProjection": "./src/projections/researchRunQueueProjection.ts",
+    "./projections/calibrationRunQueueProjection": "./src/projections/calibrationRunQueueProjection.ts",
     "./projections/pipelineProjection": "./src/projections/pipelineProjection.ts",
     "./projections/investableCapitalProjection": "./src/projections/investableCapitalProjection.ts",
     "./projections/positionPostMortemProjection": "./src/projections/positionPostMortemProjection.ts",

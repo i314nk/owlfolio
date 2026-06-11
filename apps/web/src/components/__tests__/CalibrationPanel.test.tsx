@@ -8,8 +8,21 @@ import type { LedgerEventEnvelope } from '@owlfolio/ledger/eventEnvelope'
 import { VALUATION_PARAMS } from '@owlfolio/strategies/valuationParams'
 import { SIZING_PARAMS } from '@owlfolio/strategies/sizingParams'
 
-function render(events: LedgerEventEnvelope<unknown>[]): string {
-  return renderToStaticMarkup(createElement(CalibrationPanel, { view: projectCalibrationView(events) }))
+import type { CalibrationUniverse } from '@owlfolio/workflow/calibrationUniverse'
+
+const testUniverse: CalibrationUniverse = {
+  version: 'calibration-universe-test-1',
+  names: [
+    { ticker: 'CPRT', company: 'Copart', market: 'US', fundamentals_hint: 'edgar' },
+    { ticker: 'TABREED', company: 'Tabreed', market: 'intl', fundamentals_hint: 'local_manual' },
+  ],
+}
+
+function render(
+  events: LedgerEventEnvelope<unknown>[],
+  options?: Parameters<typeof projectCalibrationView>[1],
+): string {
+  return renderToStaticMarkup(createElement(CalibrationPanel, { view: projectCalibrationView(events, options) }))
 }
 
 function evt(overrides: Partial<LedgerEventEnvelope<unknown>> & { event_type: string; event_id: string }): LedgerEventEnvelope<unknown> {
@@ -63,6 +76,48 @@ describe('CalibrationPanel', () => {
     expect(html).toContain('45.0%')
     expect(html).toContain('85.0%')
     expect(html).toContain('MSFT')
+  })
+
+  it('renders the user-curated universe, suggestions, and the Run-backtest action', () => {
+    const html = render([], {
+      universe: testUniverse,
+      suggestions: [{ ticker: 'FDS', company: 'FactSet', sources: ['researched'] }],
+    })
+    expect(html).toContain('calibration-universe-test-1')
+    expect(html).toContain('CPRT')
+    expect(html).toContain('TABREED')
+    // Suggested addition surfaced (human curates).
+    expect(html).toContain('FDS')
+    expect(html).toContain('Suggested additions')
+    // The deliberate Run-backtest button.
+    expect(html).toContain('Run backtest')
+    // Anti-drift framing for the gated config-change path.
+    expect(html).toContain('Parameters are frozen')
+  })
+
+  it('renders the non-US coverage report from a recorded run', () => {
+    const html = render([
+      evt({
+        event_type: 'calibration_run',
+        event_id: 'cal_cov',
+        created_at: '2026-06-05T00:00:00.000Z',
+        payload: {
+          params_version: VALUATION_PARAMS.version,
+          universe_version: 'calibration-universe-test-1',
+          universe: ['CPRT', 'TABREED', 'GHOST'],
+          summaries: [],
+          coverage: [
+            { ticker: 'CPRT', company: 'Copart', market: 'US', status: 'resolved_edgar', currency: 'USD' },
+            { ticker: 'TABREED', company: 'Tabreed', market: 'intl', status: 'resolved_local_manual', currency: 'AED' },
+            { ticker: 'GHOST', company: 'Ghost', market: 'intl', status: 'unresolved', reason: 'no fundamentals' },
+          ],
+        },
+      }),
+    ], { universe: testUniverse })
+    expect(html).toContain('Resolved · EDGAR')
+    expect(html).toContain('Resolved · local-manual')
+    expect(html).toContain('Unresolved · needs fundamentals')
+    expect(html).toContain('no fundamentals')
   })
 
   it('renders valuation_config param-change history', () => {

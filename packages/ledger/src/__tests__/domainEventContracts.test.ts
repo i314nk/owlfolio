@@ -49,6 +49,7 @@ describe('Owlfolio v2 domain event boundary contracts', () => {
       'deep_dive_run_requested',
       'investable_capital_set',
       'valuation_config',
+      'calibration_run_requested',
       'calibration_run',
       'watchlist_monitor_alert_recorded',
       'holding_monitor_alert_recorded',
@@ -333,6 +334,22 @@ describe('Owlfolio v2 domain event boundary contracts', () => {
       'missing_data_warnings',
       'currency',
     ])
+  })
+
+  it('freezes the calibration contracts as deliberate, audit-owned, observation-only (never auto-tune)', () => {
+    expect(contract('calibration_run_requested')).toMatchObject({
+      aggregate_type: 'strategy',
+      actor_type: 'user',
+      projection_owner: 'audit',
+      payload_fields: ['calibration_run_id', 'strategy_id', 'universe_version', 'requested_by'],
+    })
+    expect(contract('calibration_run')).toMatchObject({
+      aggregate_type: 'strategy',
+      actor_type: 'user',
+      actor_types: ['user', 'worker'],
+      projection_owner: 'audit',
+      payload_fields: ['params_version', 'params', 'universe_version', 'universe', 'summaries', 'coverage', 'target'],
+    })
   })
 
   it('includes research run queue event types', () => {

@@ -4,7 +4,7 @@ import { pathToFileURL } from 'node:url'
 import { SQLiteEventStore } from '@owlfolio/ledger/sqliteEventStore'
 import { redactProviderDiagnostic, resolveProvider } from '@owlfolio/providers'
 
-import { defineDefaultScheduledTasks, resolveWorkerProviderReadiness, resolveWorkerRuntimePaths, runProcessResearchQueueTask, runProcessDeepDiveQueueTask, runScheduledTasks } from './runtime.ts'
+import { defineDefaultScheduledTasks, resolveWorkerProviderReadiness, resolveWorkerRuntimePaths, runProcessResearchQueueTask, runProcessDeepDiveQueueTask, runProcessCalibrationQueueTask, runScheduledTasks } from './runtime.ts'
 
 type CliOptions = {
   help: boolean
@@ -106,6 +106,15 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       })
       console.log(JSON.stringify({ runtime, result }, null, 2))
       return 0
+    }
+
+    if (options.task_kind === 'process_calibration_queue') {
+      // Deliberate, enqueued calibration backtest (valuation-recalibration-spec §3). Deterministic +
+      // observation-only: runs the backtest over the user-curated universe via the tiered fundamentals
+      // resolver and records a calibration_run with the coverage report. Never changes params.
+      const result = await runProcessCalibrationQueueTask(store)
+      console.log(JSON.stringify({ runtime, result }, null, 2))
+      return result.failed > 0 ? 1 : 0
     }
 
     const providerReadiness = await resolveWorkerProviderReadiness({

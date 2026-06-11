@@ -62,6 +62,7 @@ export const domainEventTypes = [
   'deep_dive_run_requested',
   'investable_capital_set',
   'valuation_config',
+  'calibration_run_requested',
   'calibration_run',
   'watchlist_monitor_alert_recorded',
   'holding_monitor_alert_recorded',
@@ -444,15 +445,27 @@ export const domainEventContracts: readonly DomainEventContract[] = [
     payload_fields: ['previous_version', 'new_version', 'changes'],
   },
   {
-    // Calibration backtest run (valuation-recalibration-spec §3.3): logs the calibration run as a ledger
-    // artifact — the valuation_params version + values used, the universe/name(s) backtested, and the
-    // signal-log summary (buys/yr, BUY episodes, sanity-window results). Append-only audit record so the
-    // §3.4 anti-drift rule is enforceable (post-go-live param changes require a re-run attached).
-    event_type: 'calibration_run',
+    // On-demand request to RUN a calibration backtest (valuation-recalibration-spec §3 — calibration is a
+    // deliberate, enqueued action, NOT a default schedule). User-authored; the worker claims it, runs the
+    // deterministic observation-only backtest over the user-curated universe, and records a calibration_run.
+    event_type: 'calibration_run_requested',
     aggregate_type: 'strategy',
     actor_type: 'user',
     projection_owner: 'audit',
-    payload_fields: ['params_version', 'params', 'universe', 'summaries', 'target'],
+    payload_fields: ['calibration_run_id', 'strategy_id', 'universe_version', 'requested_by'],
+  },
+  {
+    // Calibration backtest run (valuation-recalibration-spec §3.3): logs the calibration run as a ledger
+    // artifact — the valuation_params version + values used, the universe version + name(s) backtested, the
+    // signal-log summary (buys/yr, BUY episodes, sanity-window results, per-ladder deployment ratio), and
+    // the non-US COVERAGE report (resolved_edgar / resolved_local_manual / unresolved). Append-only audit
+    // record so the §3.4 anti-drift rule is enforceable (post-go-live param changes require a re-run).
+    event_type: 'calibration_run',
+    aggregate_type: 'strategy',
+    actor_type: 'user',
+    actor_types: ['user', 'worker'],
+    projection_owner: 'audit',
+    payload_fields: ['params_version', 'params', 'universe_version', 'universe', 'summaries', 'coverage', 'target'],
   },
   {
     // Watchlist Monitor (lifecycle-spec-v3 Module 6) observation: buy-window / staleness-suppression /

@@ -1,0 +1,13 @@
+{
+  "version": "calibration-universe-2026-06-1",
+  "note": "User-curated calibration universe (valuation-recalibration-spec §3.1: the UNIVERSE is part of the pre-stated target). The human OWNS this list. The /calibration page SUGGESTS additions (researched cases + 13F-discovered candidates) but never auto-derives it. Edit this file (or, later, a curation UI) to add/remove names; the file's `version` is bumped on every change and a calibration_run records WHICH version it used for reproducibility. Intl/local_manual names need an operator-entered config/fundamentals/{TICKER}.json (the audited annual report) before they resolve; until then a run flags them `unresolved` in the coverage report — honest, never fabricated. Intl tickers are plausible local-listing placeholders for the GCC names (DFM/ADX), not guaranteed exchange symbols; the fundamentals_hint drives the tiered resolver, not the symbol.",
+  "names": [
+    { "ticker": "CPRT", "company": "Copart", "market": "US", "fundamentals_hint": "edgar" },
+    { "ticker": "FDS", "company": "FactSet Research Systems", "market": "US", "fundamentals_hint": "edgar" },
+    { "ticker": "NVO", "company": "Novo Nordisk", "market": "intl", "fundamentals_hint": "edgar" },
+    { "ticker": "TABREED", "company": "National Central Cooling Company (Tabreed)", "market": "intl", "fundamentals_hint": "local_manual" },
+    { "ticker": "DEWA", "company": "Dubai Electricity & Water Authority", "market": "intl", "fundamentals_hint": "local_manual" },
+    { "ticker": "EMPOWER", "company": "Emirates Central Cooling Systems (Empower)", "market": "intl", "fundamentals_hint": "local_manual" },
+    { "ticker": "TALABAT", "company": "Talabat Holding", "market": "intl", "fundamentals_hint": "local_manual" }
+  ]
+}

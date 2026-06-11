@@ -12,6 +12,13 @@ import type { ValuationParams } from './valuationParams'
 
 export const CALIBRATION_RUN_EVENT_TYPE = 'calibration_run' as const
 
+/** Per-ladder deployment-ratio metric (position-sizing-spec §7), as carried in the run payload. */
+export type CalibrationDeploymentRatioSummary = {
+  ladder_id: string
+  episodes: number
+  avg_deployment_ratio: number
+}
+
 /** Summary of one name's backtest, as carried in the calibration-run payload. */
 export type CalibrationNameSummary = {
   ticker: string
@@ -22,6 +29,23 @@ export type CalibrationNameSummary = {
   buys_per_year: number
   buy_episodes: Array<{ start: string; end: string; months: number }>
   sanity_windows: Array<{ window: string; kind: string; signalled: boolean; passed: boolean; covered: boolean }>
+  /** Per-ladder deployment ratio for this name (position-sizing-spec §7). */
+  deployment_ratios?: CalibrationDeploymentRatioSummary[]
+}
+
+/**
+ * Coverage classification for one universe name (valuation-recalibration-spec non-US handling): which
+ * fundamentals lane resolved the name, or that it is unresolved (needs operator-entered annual-report
+ * figures). The non-US gap, made honest — never fabricated.
+ */
+export type CalibrationCoverageSummary = {
+  ticker: string
+  company?: string
+  market?: string
+  fundamentals_hint?: string
+  status: 'resolved_edgar' | 'resolved_local_manual' | 'unresolved'
+  currency?: string
+  reason?: string
 }
 
 /** The pre-stated calibration target (spec §3.1), recorded alongside the run for audit. */
@@ -37,10 +61,14 @@ export type CalibrationRunEventPayload = {
   params_version: string
   /** Full param values used (frozen snapshot for the audit trail). */
   params: ValuationParams
+  /** Version of the user-curated calibration universe the run used (reproducibility). */
+  universe_version?: string
   /** Tickers backtested. */
   universe: string[]
   /** Per-name signal-log summaries. */
   summaries: CalibrationNameSummary[]
+  /** Per-name coverage classification (resolved_edgar / resolved_local_manual / unresolved). */
+  coverage?: CalibrationCoverageSummary[]
   /** Pre-stated target the run is calibrated against. */
   target: CalibrationTarget
 }
@@ -70,6 +98,15 @@ export function buildCalibrationRunEvent(args: {
   params: ValuationParams
   summaries: CalibrationNameSummary[]
   target: CalibrationTarget
+  /** Version of the user-curated universe used (reproducibility). */
+  universe_version?: string
+  /**
+   * The tickers in the universe the run was scoped to. Defaults to the summaries' tickers, but should be
+   * passed explicitly so UNRESOLVED names (which have no summary) still appear in the recorded universe.
+   */
+  universe?: string[]
+  /** Per-name coverage classification (the non-US gap, made honest). */
+  coverage?: CalibrationCoverageSummary[]
   actor_id?: string
   source_ids?: string[]
   created_at?: string
@@ -84,8 +121,10 @@ export function buildCalibrationRunEvent(args: {
     payload: {
       params_version: args.params.version,
       params: args.params,
-      universe: args.summaries.map((s) => s.ticker),
+      ...(args.universe_version === undefined ? {} : { universe_version: args.universe_version }),
+      universe: args.universe ?? args.summaries.map((s) => s.ticker),
       summaries: args.summaries,
+      ...(args.coverage === undefined ? {} : { coverage: args.coverage }),
       target: args.target,
     },
     source_ids: args.source_ids ?? [],
