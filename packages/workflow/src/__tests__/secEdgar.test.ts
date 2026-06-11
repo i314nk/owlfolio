@@ -22,6 +22,27 @@ const factsFixture = fixture('cost-companyfacts.json')
 const subsFixture = fixture('cost-submissions.json')
 const novoFactsFixture = fixture('novo-companyfacts.json')
 const novoSubsFixture = fixture('novo-submissions.json')
+const cprtFactsFixture = fixture('cprt-companyfacts.json')
+
+/**
+ * Build a fake fetch that serves the trimmed CPRT companyfacts fixture for any CIK lookup and an empty
+ * submissions blob (CPRT is fetched by CIK in these tests, so the ticker map is not required).
+ */
+function fakeCprtFetch(): typeof fetch {
+  return (async (input: RequestInfo | URL) => {
+    const url = typeof input === 'string' ? input : input.toString()
+    if (url.includes('/api/xbrl/companyfacts/')) {
+      return { ok: true, status: 200, json: async () => cprtFactsFixture } as Response
+    }
+    if (url.includes('/submissions/')) {
+      return { ok: true, status: 200, json: async () => ({ filings: { recent: {} } }) } as Response
+    }
+    if (url.includes('company_tickers.json')) {
+      return { ok: true, status: 200, json: async () => tickersFixture } as Response
+    }
+    throw new Error(`unexpected fetch in test: ${url}`)
+  }) as unknown as typeof fetch
+}
 
 /**
  * Build a fake fetch routing the IFRS/20-F Novo fixtures (companyfacts + submissions). The shared
@@ -114,6 +135,19 @@ describe('fetchCompanyFundamentals (COST FY2025, fixture-driven)', () => {
     expect(la.capex_musd).toBeCloseTo(5498, 1)
     expect(la.sbc_musd).toBeCloseTo(860, 1)
     expect(la.diluted_shares_m).toBeCloseTo(444.8, 1)
+  })
+
+  it('resolves the Shariah-ratio inputs (revenue via Excluding, debt via LT components, cash + securities)', async () => {
+    // Regression guard for the concept-precedence broadening: COST must keep using the EXCLUDING revenue
+    // variant (275235), summed LT debt components (noncurrent 5713 + current 75), and cash + short-term
+    // investments (14161 + 1123) — i.e. the broadened mapping must not regress a filer that already worked.
+    const f = await fetchCompanyFundamentals('COST', { fetchImpl: fakeFetch() })
+    expect(f).toBeDefined()
+    if (f === undefined) return
+    const la = f.latest_annual
+    expect(la.revenue_musd).toBeCloseTo(275235, 1)
+    expect(la.total_debt_musd).toBeCloseTo(5788, 1)
+    expect(la.cash_and_securities_musd).toBeCloseTo(15284, 1)
   })
 
   it('builds the latest 10-K archive URL from submissions', async () => {
@@ -255,5 +289,49 @@ describe('fetchCompanyFundamentals (NVO / Novo Nordisk — IFRS + DKK + 20-F, fi
     }
     // every year should carry a 20-F filed date (needed for the as-of backtest).
     expect(f.annual_series.every((a) => typeof a.filed === 'string' && a.filed !== '')).toBe(true)
+  })
+})
+
+describe('fetchCompanyFundamentals (CPRT / Copart FY2025 — broadened concept mapping, fixture-driven)', () => {
+  // CPRT exercises three filer quirks that previously left the Shariah-ratio inputs undefined:
+  //  1. Revenue is tagged RevenueFromContractWithCustomerIncludingAssessedTax (the EXCLUDING variant is
+  //     absent), and the `Revenues` tag carries only a 525.659M Q4 PARTIAL — precedence + the annual-
+  //     duration filter must land on the 4,646.958M full-year figure, never the 525M partial.
+  //  2. CPRT carries no LongTermDebt for FY2025 (term loan repaid); its only interest-bearing liability is
+  //     a finance lease, so debt must fall through to FinanceLeaseLiability rather than coming back undefined.
+  //  3. CPRT discontinued CashAndCashEquivalentsAtCarryingValue after FY2019; FY2025 cash sits under
+  //     CashCashEquivalentsRestrictedCashAndRestrictedCashEquivalents — cash must fall through to it and add
+  //     the held-to-maturity short-term securities.
+  it('resolves revenue from the Including variant (4646.958), never the 525.659 partial', async () => {
+    const f = await fetchCompanyFundamentals('0000900075', { fetchImpl: fakeCprtFetch() })
+    expect(f).toBeDefined()
+    if (f === undefined) return
+    expect(f.cik).toBe('0000900075')
+    expect(f.entity_name).toBe('COPART, INC.')
+    expect(f.currency).toBe('USD')
+    const la = f.latest_annual
+    expect(la.fiscal_year).toBe(2025)
+    expect(la.revenue_musd).toBeCloseTo(4646.958, 2)
+    // The 525.659M Q4 partial under `Revenues` must NEVER be selected as the annual figure.
+    expect(la.revenue_musd).not.toBeCloseTo(525.659, 2)
+  })
+
+  it('resolves total debt from the finance-lease fallback when LongTermDebt is absent', async () => {
+    const f = await fetchCompanyFundamentals('0000900075', { fetchImpl: fakeCprtFetch() })
+    expect(f).toBeDefined()
+    if (f === undefined) return
+    const la = f.latest_annual
+    // CPRT FY2025: only interest-bearing liability is the finance lease (2.705M). Resolving (not undefined)
+    // is what lets the AAOIFI debt ratio compute honestly for an effectively debt-free filer.
+    expect(la.total_debt_musd).toBeCloseTo(2.705, 3)
+  })
+
+  it('resolves cash via the restricted-cash fallback plus held-to-maturity securities', async () => {
+    const f = await fetchCompanyFundamentals('0000900075', { fetchImpl: fakeCprtFetch() })
+    expect(f).toBeDefined()
+    if (f === undefined) return
+    const la = f.latest_annual
+    // cash 2780.531 (CashCashEquivalentsRestricted...) + HTM securities 2008.539 = 4789.07.
+    expect(la.cash_and_securities_musd).toBeCloseTo(4789.07, 2)
   })
 })

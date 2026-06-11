@@ -408,6 +408,13 @@ type ConceptMap = {
   /** Total interest-bearing debt: prefer the first combined concept; else sum the rest. */
   debtCombined: string[]
   debtComponents: string[]
+  /**
+   * Last-resort interest-bearing debt when neither the combined rollup nor the LT/ST components are
+   * present (e.g. a filer that repaid its term loan and carries only finance-lease liabilities). Tried
+   * in order, first populated wins — kept SEPARATE from debtComponents so it is never summed on top of a
+   * real debt figure (no double-count). Used only when debtCombined and debtComponents are both empty.
+   */
+  debtFallback: string[]
   cash: string[]
   shortTermInvestments: string[]
   interest: string
@@ -418,16 +425,46 @@ type ConceptMap = {
 
 const US_GAAP_CONCEPTS: ConceptMap = {
   netIncome: 'NetIncomeLoss',
-  revenue: ['RevenueFromContractWithCustomerExcludingAssessedTax', 'Revenues'],
+  // Revenue is PRECEDENCE-ORDERED, not Revenues-first. Many filers (e.g. Copart) report the full-company
+  // top line under RevenueFromContractWithCustomer*AssessedTax and tag `Revenues` only with a disaggregated
+  // sub-line (Copart's `Revenues` carries a 525M Q4 partial, not the 4.65B year). Trying the ASC-606
+  // contract-revenue concepts FIRST — Excluding (Costco's variant) then Including (Copart's) — lands on the
+  // canonical full-year figure; `Revenues`/`SalesRevenue*` remain as fallbacks for older/other taxonomies.
+  // (For a filer like Costco where both Excluding and Revenues equal 275235, precedence is a no-op.)
+  revenue: [
+    'RevenueFromContractWithCustomerExcludingAssessedTax',
+    'RevenueFromContractWithCustomerIncludingAssessedTax',
+    'Revenues',
+    'SalesRevenueNet',
+    'SalesRevenueServicesNet',
+    'SalesRevenueGoodsNet',
+  ],
   dAndA: ['DepreciationDepletionAndAmortization'],
   capex: ['PaymentsToAcquirePropertyPlantAndEquipment'],
   sbc: ['ShareBasedCompensation'],
   dilutedShares: ['WeightedAverageNumberOfDilutedSharesOutstanding'],
   sharesOut: ['CommonStockSharesOutstanding'],
-  debtCombined: ['DebtLongtermAndShorttermCombinedAmount'],
+  // Debt: prefer the combined rollup (LongTermDebt = total carrying amount, or the LT+ST combined amount);
+  // else sum the noncurrent + current components; else fall back to lease/short-term-borrowing concepts for
+  // a filer carrying no traditional notes (Copart's only interest-bearing liability is a finance lease).
+  debtCombined: ['LongTermDebt', 'DebtLongtermAndShorttermCombinedAmount'],
   debtComponents: ['LongTermDebtNoncurrent', 'LongTermDebtCurrent'],
-  cash: ['CashAndCashEquivalentsAtCarryingValue'],
-  shortTermInvestments: ['ShortTermInvestments', 'MarketableSecuritiesCurrent'],
+  debtFallback: ['LongTermDebtAndCapitalLeaseObligations', 'FinanceLeaseLiability', 'ShortTermBorrowings'],
+  // Cash: the canonical balance-sheet line first; then the GAAP cash-flow total (cash + restricted cash),
+  // which is the only instant cash fact some filers tag in recent years (Copart discontinued the carrying-
+  // value tag after FY2019). Restricted cash is immaterial for these filers, so the total is a safe proxy.
+  cash: [
+    'CashAndCashEquivalentsAtCarryingValue',
+    'CashCashEquivalentsRestrictedCashAndRestrictedCashEquivalents',
+  ],
+  // Short-term securities added to cash: current marketable instruments, plus held-to-maturity / available-
+  // for-sale securities for filers (e.g. Copart) that park near-cash in HTM/AFS rather than ShortTermInvestments.
+  shortTermInvestments: [
+    'ShortTermInvestments',
+    'MarketableSecuritiesCurrent',
+    'AvailableForSaleSecuritiesCurrent',
+    'DebtSecuritiesHeldToMaturityAmortizedCostAfterAllowanceForCreditLoss',
+  ],
   interest: 'InterestExpense',
   stockholdersEquity: 'StockholdersEquity',
   operatingIncome: 'OperatingIncomeLoss',
@@ -456,6 +493,8 @@ const IFRS_CONCEPTS: ConceptMap = {
   // Total interest-bearing debt: prefer the single Borrowings rollup; else sum the LT/ST components.
   debtCombined: ['Borrowings'],
   debtComponents: ['LongtermBorrowings', 'ShorttermBorrowings'],
+  // IFRS filers in scope report borrowings explicitly; no lease-only fallback needed yet.
+  debtFallback: [],
   cash: ['CashAndCashEquivalents'],
   shortTermInvestments: [],
   interest: 'InterestExpense',
@@ -475,6 +514,24 @@ function firstPopulated(facts: CompanyFacts, taxonomy: Taxonomy, concepts: strin
     if (m.size > 0) return m
   }
   return new Map<number, number>()
+}
+
+/**
+ * Per-fiscal-year fallback across a candidate list: for EACH year, take the value from the first concept
+ * (in list order) that reports that year. Unlike firstPopulated (which picks a single concept for ALL years
+ * by whole-concept population), this resolves year-by-year — needed when a filer SWITCHES tags mid-history
+ * (e.g. Copart tags CashAndCashEquivalentsAtCarryingValue through FY2019 then the restricted-cash total
+ * thereafter): the latest year must still resolve via the later tag while older years keep the original one.
+ */
+function firstPopulatedByYear(facts: CompanyFacts, taxonomy: Taxonomy, concepts: string[]): Map<number, number> {
+  const out = new Map<number, number>()
+  for (const c of concepts) {
+    const m = annualByFiscalYear(facts, taxonomy, c)
+    for (const [fy, v] of m) {
+      if (!out.has(fy)) out.set(fy, v)
+    }
+  }
+  return out
 }
 
 /** Sum, per fiscal year, the annual maps of every concept in the list (capex PPE + intangibles). */
@@ -499,10 +556,14 @@ function buildAnnualSeries(facts: CompanyFacts, taxonomy: Taxonomy, currency: Re
   const sbc = firstPopulated(facts, taxonomy, cm.sbc)
   const dilutedShares = firstPopulated(facts, taxonomy, cm.dilutedShares)
   const sharesOut = firstPopulated(facts, taxonomy, cm.sharesOut)
-  const debtCombined = firstPopulated(facts, taxonomy, cm.debtCombined)
+  // Per-YEAR fallback for tags a filer may switch mid-history (debt rollup, lease fallback, cash, securities):
+  // each year resolves to the first candidate that reports it, so the latest year still resolves even when an
+  // earlier tag was discontinued.
+  const debtCombined = firstPopulatedByYear(facts, taxonomy, cm.debtCombined)
   const debtComponents = sumConcepts(facts, taxonomy, cm.debtComponents)
-  const cash = firstPopulated(facts, taxonomy, cm.cash)
-  const shortTermInv = firstPopulated(facts, taxonomy, cm.shortTermInvestments)
+  const debtFallback = firstPopulatedByYear(facts, taxonomy, cm.debtFallback)
+  const cash = firstPopulatedByYear(facts, taxonomy, cm.cash)
+  const shortTermInv = firstPopulatedByYear(facts, taxonomy, cm.shortTermInvestments)
   const interest = annualByFiscalYear(facts, taxonomy, cm.interest)
   const stockholdersEquity = annualByFiscalYear(facts, taxonomy, cm.stockholdersEquity)
   const operatingIncome = annualByFiscalYear(facts, taxonomy, cm.operatingIncome)
@@ -521,8 +582,10 @@ function buildAnnualSeries(facts: CompanyFacts, taxonomy: Taxonomy, currency: Re
 
   const series: AnnualFacts[] = []
   for (const fy of [...allYears].sort((a, b) => b - a)) {
-    // total debt: prefer combined; else sum the long-term/short-term components.
-    const totalDebtRaw = debtCombined.get(fy) ?? (debtComponents.get(fy))
+    // total debt: prefer the combined rollup; else the summed long-term/short-term components; else the
+    // lease/short-term-borrowing fallback. Each branch is a COMPLETE total — never summed across branches —
+    // so a filer whose only interest-bearing liability is a finance lease still resolves without double-count.
+    const totalDebtRaw = debtCombined.get(fy) ?? debtComponents.get(fy) ?? debtFallback.get(fy)
     // cash + securities: cash plus whichever short-term-securities concept is present.
     const cashRaw = sumOptional(cash.get(fy), shortTermInv.get(fy))
     const filedMeta = filedMetaNi.get(fy)
