@@ -45,11 +45,15 @@ export async function POST(request: Request) {
     // Onboarding gate: refuse to start a deep dive until the minimal-viable
     // checklist (one frontier LLM connected · market-data key · investable
     // capital) is complete — and name exactly which item is missing.
+    // Skipped only under the Playwright e2e harness (a controlled mock-provider
+    // setup that does not exercise onboarding); the gate logic + this refusal
+    // remain covered by the vitest route unit test and the onboarding flow.
+    const skipOnboardingGate = process.env['OWLFOLIO_TEST_MODE'] === 'playwright'
     const gate = await evaluateOnboardingGate({
       ledgerPath: state.config.ledger_path,
       configuredProviderReady: readiness.is_ready,
     })
-    if (!gate.is_complete) {
+    if (!skipOnboardingGate && !gate.is_complete) {
       return NextResponse.json(
         {
           error: {
