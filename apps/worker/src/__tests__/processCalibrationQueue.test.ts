@@ -29,8 +29,9 @@ function priceResult(): PriceHistoryResult {
 const universe: CalibrationUniverse = {
   version: 'calibration-universe-test-1',
   names: [
-    { ticker: 'CPRT', company: 'Copart', market: 'US', fundamentals_hint: 'edgar' },
-    { ticker: 'GHOST', company: 'Unresolvable', market: 'intl', fundamentals_hint: 'local_manual' },
+    { ticker: 'CPRT', company: 'Copart', market: 'US', fundamentals_hint: 'edgar', status: 'active' },
+    { ticker: 'GHOST', company: 'Unresolvable', market: 'intl', fundamentals_hint: 'local_manual', status: 'active' },
+    { ticker: 'TABREED', company: 'Tabreed', market: 'intl', status: 'deferred', defer_reason: 'Non-SEC filer (DFM/ADX) — no automated fundamentals source.' },
   ],
 }
 
@@ -60,11 +61,13 @@ describe('runProcessCalibrationQueueTask', () => {
     expect(run).toBeDefined()
     const payload = run!.payload as Record<string, unknown>
     expect(payload['universe_version']).toBe(universe.version)
-    // The recorded universe carries ALL names (incl. unresolved), for reproducibility.
-    expect(payload['universe']).toEqual(['CPRT', 'GHOST'])
+    // The recorded universe carries ALL names (incl. unresolved + deferred), for reproducibility.
+    expect(payload['universe']).toEqual(['CPRT', 'GHOST', 'TABREED'])
     const coverage = payload['coverage'] as Array<{ ticker: string; status: string }>
     expect(coverage.find((c) => c.ticker === 'CPRT')?.status).toBe('resolved_edgar')
     expect(coverage.find((c) => c.ticker === 'GHOST')?.status).toBe('unresolved')
+    // The deferred non-SEC name is threaded through to the recorded run as `deferred`, not unresolved.
+    expect(coverage.find((c) => c.ticker === 'TABREED')?.status).toBe('deferred')
     // Observation-only: no valuation_config (param change) event is written.
     expect(events.some((e) => e.event_type === 'valuation_config')).toBe(false)
   })

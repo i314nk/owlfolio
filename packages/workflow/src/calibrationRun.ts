@@ -7,7 +7,9 @@
 //      so the run can produce an honest COVERAGE report:
 //        - local-manual store hit            → resolved_local_manual
 //        - EDGAR hit (US us-gaap, or foreign 20-F/40-F ifrs-full) → resolved_edgar
-//        - neither, or a currency mismatch     → unresolved (flagged, NEVER fabricated)
+//        - neither, or a currency mismatch     → unresolved (an ACTIVE name that failed — a real problem)
+//      Names marked status:'deferred' (non-SEC filers with no automated source) are SKIPPED entirely and
+//      classified `deferred` — expected, never attempted, never fabricated. The owner does not manual-enter.
 //   2. fetches the ~10yr month-end price series in the SAME currency as the fundamentals (fail-closed on a
 //      mismatch — no DKK-fundamentals vs USD-ADR-price mixing),
 //   3. runs the pure `runValuationBacktest` engine → per-name signal summary + buys/yr + sanity windows +
@@ -32,18 +34,25 @@ import type { StrategyContract } from '@owlfolio/strategies/strategyContract'
 import type { ValuationParams } from '@owlfolio/strategies/valuationParams'
 import type { MoatClass, Runway } from '@owlfolio/strategies/strategyContract'
 
-/** Coverage classification for one universe name in a calibration run (the non-US gap, made honest). */
-export type CoverageStatus = 'resolved_edgar' | 'resolved_local_manual' | 'unresolved'
+/**
+ * Coverage classification for one universe name in a calibration run.
+ *   - `resolved_edgar` / `resolved_local_manual`: a primary fundamentals lane resolved the name.
+ *   - `deferred`: intentionally NOT run — a non-SEC filer with no automated fundamentals source (the
+ *     owner does not manual-enter, we do not use a keyed aggregator). EXPECTED, not a problem.
+ *   - `unresolved`: an ACTIVE name that unexpectedly failed to resolve (a real problem to investigate).
+ */
+export type CoverageStatus = 'resolved_edgar' | 'resolved_local_manual' | 'deferred' | 'unresolved'
 
 export type CalibrationCoverageEntry = {
   ticker: string
   company: string
   market: CalibrationUniverseName['market']
-  fundamentals_hint: CalibrationUniverseName['fundamentals_hint']
+  /** The automated lane the operator expected (active names); absent for deferred names. */
+  fundamentals_hint?: CalibrationUniverseName['fundamentals_hint']
   status: CoverageStatus
   /** Resolved currency (when resolved); the value/price currency the backtest used. */
   currency?: string
-  /** Honest reason a name is unresolved (no fundamentals lane, or a currency mismatch). */
+  /** Honest reason a name is unresolved (active, failed) or deferred (no automated source). */
   reason?: string
 }
 
@@ -87,7 +96,7 @@ export type RunCalibrationBacktestDeps = {
   runway?: Runway
 }
 
-const EMPTY_COUNTS = (): Record<CoverageStatus, number> => ({ resolved_edgar: 0, resolved_local_manual: 0, unresolved: 0 })
+const EMPTY_COUNTS = (): Record<CoverageStatus, number> => ({ resolved_edgar: 0, resolved_local_manual: 0, deferred: 0, unresolved: 0 })
 
 /**
  * Run the calibration backtest over the user-curated universe. Deterministic + observation-only: returns
@@ -122,7 +131,20 @@ export async function runCalibrationBacktest(
       ticker: name.ticker,
       company: name.company,
       market: name.market,
-      fundamentals_hint: name.fundamentals_hint,
+      ...(name.fundamentals_hint === undefined ? {} : { fundamentals_hint: name.fundamentals_hint }),
+    }
+
+    // Deferred names (non-SEC filers with no automated fundamentals source) are intentionally NOT run:
+    // we do not attempt resolution and we do not fabricate. They are classified as `deferred` (expected),
+    // distinct from `unresolved` (an active name that unexpectedly failed). The owner does not manual-enter.
+    if (name.status === 'deferred') {
+      coverage.push({
+        ...base,
+        status: 'deferred',
+        reason: name.defer_reason ?? 'Non-SEC filer — no automated fundamentals source; manual entry intentionally not used.',
+      })
+      coverage_counts.deferred += 1
+      continue
     }
 
     // Tiered resolution, lane-classified (local-manual override wins, then EDGAR).

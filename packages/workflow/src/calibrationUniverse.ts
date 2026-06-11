@@ -32,11 +32,24 @@ export type CalibrationMarket = 'US' | 'intl'
 /** Which fundamentals lane the operator expects to resolve this name (advisory; tiered resolver decides). */
 export type FundamentalsHint = 'edgar' | 'local_manual'
 
+/**
+ * Whether a name is part of the active automated-fundamentals universe (`active`) or intentionally
+ * `deferred` — a non-SEC filer with NO automated primary source. Deferred names are listed (so the
+ * limitation is visible) but skipped by the backtest; they are NOT "needs manual entry": the owner has
+ * decided not to manual-enter and we do not use a keyed aggregator. Defaults to `active` when omitted.
+ */
+export type CalibrationNameStatus = 'active' | 'deferred'
+
 export type CalibrationUniverseName = {
   ticker: string
   company: string
   market: CalibrationMarket
-  fundamentals_hint: FundamentalsHint
+  /** The automated lane the operator expects (active names only). Absent for deferred names. */
+  fundamentals_hint?: FundamentalsHint
+  /** Active (in the automated universe) or deferred (no automated source). Defaults to 'active'. */
+  status: CalibrationNameStatus
+  /** Why a deferred name is deferred (e.g. non-SEC filer, no automated fundamentals source). */
+  defer_reason?: string
 }
 
 export type CalibrationUniverse = {
@@ -49,7 +62,14 @@ const CalibrationUniverseNameSchema = z
     ticker: z.string().min(1),
     company: z.string().min(1),
     market: z.enum(['US', 'intl']),
-    fundamentals_hint: z.enum(['edgar', 'local_manual']),
+    // `fundamentals_hint` is the automated lane for active names; deferred names omit it (no lane).
+    fundamentals_hint: z.enum(['edgar', 'local_manual']).optional(),
+    // `status` defaults to 'active' when omitted (the automated SEC-filer universe).
+    status: z.enum(['active', 'deferred']).optional(),
+    defer_reason: z.string().min(1).optional(),
+    // An optional human-facing per-name `note` is allowed in the tracked file (e.g. a coverage caveat)
+    // but is not part of the typed model.
+    note: z.string().optional(),
   })
   .strict()
 
@@ -76,7 +96,9 @@ export function parseCalibrationUniverse(raw: unknown): CalibrationUniverse | un
       ticker: name.ticker.trim().toUpperCase(),
       company: name.company,
       market: name.market,
-      fundamentals_hint: name.fundamentals_hint,
+      ...(name.fundamentals_hint === undefined ? {} : { fundamentals_hint: name.fundamentals_hint }),
+      status: name.status ?? 'active',
+      ...(name.defer_reason === undefined ? {} : { defer_reason: name.defer_reason }),
     })),
   }
 }

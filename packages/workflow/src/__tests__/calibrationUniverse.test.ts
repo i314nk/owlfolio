@@ -11,8 +11,8 @@ import {
 const universe: CalibrationUniverse = {
   version: 'calibration-universe-test-1',
   names: [
-    { ticker: 'CPRT', company: 'Copart', market: 'US', fundamentals_hint: 'edgar' },
-    { ticker: 'TABREED', company: 'Tabreed', market: 'intl', fundamentals_hint: 'local_manual' },
+    { ticker: 'CPRT', company: 'Copart', market: 'US', fundamentals_hint: 'edgar', status: 'active' },
+    { ticker: 'TABREED', company: 'Tabreed', market: 'intl', status: 'deferred', defer_reason: 'Non-SEC filer (DFM/ADX) — no automated fundamentals source.' },
   ],
 }
 
@@ -80,6 +80,34 @@ describe('parseCalibrationUniverse', () => {
     expect(parseCalibrationUniverse(null)).toBeUndefined()
     expect(parseCalibrationUniverse({ version: 'v1', names: [{ ticker: 'X' }] })).toBeUndefined()
   })
+
+  it('defaults status to active when omitted', () => {
+    const parsed = parseCalibrationUniverse({
+      version: 'v1',
+      names: [{ ticker: 'CPRT', company: 'Copart', market: 'US', fundamentals_hint: 'edgar' }],
+    })
+    expect(parsed?.names[0]?.status).toBe('active')
+  })
+
+  it('parses a deferred name with its defer reason (no automated fundamentals source)', () => {
+    const parsed = parseCalibrationUniverse({
+      version: 'v1',
+      names: [
+        {
+          ticker: 'TABREED',
+          company: 'Tabreed',
+          market: 'intl',
+          status: 'deferred',
+          defer_reason: 'Non-SEC filer (DFM/ADX) — no automated fundamentals source.',
+        },
+      ],
+    })
+    const tabreed = parsed?.names[0]
+    expect(tabreed?.status).toBe('deferred')
+    expect(tabreed?.defer_reason).toMatch(/Non-SEC filer/)
+    // A deferred name need not carry a fundamentals_hint (it has no automated lane).
+    expect(tabreed?.fundamentals_hint).toBeUndefined()
+  })
 })
 
 describe('suggestCalibrationUniverseAdditions', () => {
@@ -119,6 +147,12 @@ describe('suggestCalibrationUniverseAdditions', () => {
 
   it('returns an empty list when every candidate is already in the universe', () => {
     const events = [discoveryEvent('CPRT', 'Copart'), researchRequestedEvent('TABREED', 'rc_tab_1')]
+    expect(suggestCalibrationUniverseAdditions(universe, events)).toEqual([])
+  })
+
+  it('excludes deferred names from suggestions (they are already listed, just deferred)', () => {
+    // TABREED is in the universe as a deferred name; a discovery/research hit must NOT re-suggest it.
+    const events = [discoveryEvent('TABREED', 'Tabreed'), researchRequestedEvent('TABREED', 'rc_tab_2')]
     expect(suggestCalibrationUniverseAdditions(universe, events)).toEqual([])
   })
 })

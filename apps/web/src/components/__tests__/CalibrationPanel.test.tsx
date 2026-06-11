@@ -13,8 +13,8 @@ import type { CalibrationUniverse } from '@owlfolio/workflow/calibrationUniverse
 const testUniverse: CalibrationUniverse = {
   version: 'calibration-universe-test-1',
   names: [
-    { ticker: 'CPRT', company: 'Copart', market: 'US', fundamentals_hint: 'edgar' },
-    { ticker: 'TABREED', company: 'Tabreed', market: 'intl', fundamentals_hint: 'local_manual' },
+    { ticker: 'CPRT', company: 'Copart', market: 'US', fundamentals_hint: 'edgar', status: 'active' },
+    { ticker: 'TABREED', company: 'Tabreed', market: 'intl', status: 'deferred', defer_reason: 'Non-SEC filer (DFM/ADX) — no automated fundamentals source.' },
   ],
 }
 
@@ -95,7 +95,20 @@ describe('CalibrationPanel', () => {
     expect(html).toContain('Parameters are frozen')
   })
 
-  it('renders the non-US coverage report from a recorded run', () => {
+  it('renders deferred names in their own honest line — no "needs manual entry" phrasing', () => {
+    const html = render([], { universe: testUniverse })
+    // The deferred name is shown with a calm, honest line — NOT a red "needs data" error.
+    expect(html).toContain('Deferred — no automated fundamentals source')
+    // Its reason is surfaced.
+    expect(html).toContain('Non-SEC filer')
+    // No manual-entry / needs-fundamentals framing anywhere for the deferred set.
+    expect(html).not.toContain('manual entry')
+    expect(html).not.toContain('needs fundamentals')
+    // The honest SEC-filer-centric caveat is present.
+    expect(html).toContain('SEC-filer-centric')
+  })
+
+  it('renders the four-bucket coverage report from a recorded run (deferred distinct from unresolved)', () => {
     const html = render([
       evt({
         event_type: 'calibration_run',
@@ -104,20 +117,23 @@ describe('CalibrationPanel', () => {
         payload: {
           params_version: VALUATION_PARAMS.version,
           universe_version: 'calibration-universe-test-1',
-          universe: ['CPRT', 'TABREED', 'GHOST'],
+          universe: ['CPRT', 'NVO', 'TABREED', 'GHOST'],
           summaries: [],
           coverage: [
             { ticker: 'CPRT', company: 'Copart', market: 'US', status: 'resolved_edgar', currency: 'USD' },
-            { ticker: 'TABREED', company: 'Tabreed', market: 'intl', status: 'resolved_local_manual', currency: 'AED' },
-            { ticker: 'GHOST', company: 'Ghost', market: 'intl', status: 'unresolved', reason: 'no fundamentals' },
+            { ticker: 'NVO', company: 'Novo', market: 'intl', status: 'resolved_local_manual', currency: 'USD' },
+            { ticker: 'TABREED', company: 'Tabreed', market: 'intl', status: 'deferred', reason: 'Non-SEC filer (DFM/ADX) — no automated fundamentals source.' },
+            { ticker: 'GHOST', company: 'Ghost', market: 'intl', status: 'unresolved', reason: 'price fetch failed' },
           ],
         },
       }),
     ], { universe: testUniverse })
     expect(html).toContain('Resolved · EDGAR')
     expect(html).toContain('Resolved · local-manual')
-    expect(html).toContain('Unresolved · needs fundamentals')
-    expect(html).toContain('no fundamentals')
+    expect(html).toContain('Deferred · no automated source')
+    expect(html).toContain('Unresolved')
+    // The unresolved reason for a genuinely-failed ACTIVE name is still shown.
+    expect(html).toContain('price fetch failed')
   })
 
   it('renders valuation_config param-change history', () => {

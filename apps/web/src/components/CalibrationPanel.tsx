@@ -95,7 +95,15 @@ export function CalibrationPanel({ view }: CalibrationPanelProps) {
 const COVERAGE_LABEL: Record<CalibrationCoverageView['status'], string> = {
   resolved_edgar: 'Resolved · EDGAR',
   resolved_local_manual: 'Resolved · local-manual',
-  unresolved: 'Unresolved · needs fundamentals',
+  // Deferred is the calm, EXPECTED bucket — a non-SEC filer with no automated source, intentionally skipped.
+  deferred: 'Deferred · no automated source',
+  // Unresolved now means an ACTIVE name that unexpectedly failed to resolve — a real problem.
+  unresolved: 'Unresolved · active name failed',
+}
+
+/** Statuses we render in the calm/muted (non-alarming) tone: deferred + unresolved are quiet, not red. */
+function isQuietCoverage(status: CalibrationCoverageView['status']): boolean {
+  return status === 'unresolved' || status === 'deferred'
 }
 
 function createUniverseSection(universe: CalibrationUniverseView | undefined) {
@@ -112,18 +120,34 @@ function createUniverseSection(universe: CalibrationUniverseView | undefined) {
     })
   }
 
-  const nameRows = universe.names.map((name) => [
-    createElement('span', { style: { ...monoFigure, color: 'var(--owl-color-gold-bright)' } }, name.ticker),
-    name.company,
-    name.market,
-    name.coverage_status === undefined
-      ? createElement('span', { style: { color: 'var(--owl-color-quiet)' } }, `not yet run (${name.fundamentals_hint})`)
-      : createElement(
+  const nameRows = universe.names.map((name) => {
+    // Deferred names get their own calm, honest line (NOT a red "needs data" error): a non-SEC filer with
+    // no automated fundamentals source. Manual entry is intentionally not used, so this is expected.
+    if (name.status === 'deferred') {
+      return [
+        createElement('span', { style: { ...monoFigure, color: 'var(--owl-color-gold-bright)' } }, name.ticker),
+        name.company,
+        name.market,
+        createElement(
           'span',
-          { style: { color: name.coverage_status === 'unresolved' ? 'var(--owl-color-quiet)' : 'var(--owl-color-muted)' }, title: name.coverage_reason ?? '' },
-          COVERAGE_LABEL[name.coverage_status],
+          { style: { color: 'var(--owl-color-quiet)' }, title: name.defer_reason ?? '' },
+          `Deferred — no automated fundamentals source${name.defer_reason === undefined ? '' : ` · ${name.defer_reason}`}`,
         ),
-  ])
+      ]
+    }
+    return [
+      createElement('span', { style: { ...monoFigure, color: 'var(--owl-color-gold-bright)' } }, name.ticker),
+      name.company,
+      name.market,
+      name.coverage_status === undefined
+        ? createElement('span', { style: { color: 'var(--owl-color-quiet)' } }, `not yet run${name.fundamentals_hint === undefined ? '' : ` (${name.fundamentals_hint})`}`)
+        : createElement(
+            'span',
+            { style: { color: isQuietCoverage(name.coverage_status) ? 'var(--owl-color-quiet)' : 'var(--owl-color-muted)' }, title: name.coverage_reason ?? '' },
+            COVERAGE_LABEL[name.coverage_status],
+          ),
+    ]
+  })
 
   const suggestionBody = universe.suggestions.length === 0
     ? createElement('p', { style: { color: 'var(--owl-color-quiet)', fontSize: 'var(--owl-text-sm)', margin: 0 } }, 'No suggested additions: every researched / 13F-discovered name is already in the universe.')
@@ -136,14 +160,23 @@ function createUniverseSection(universe: CalibrationUniverseView | undefined) {
         ]),
       })
 
+  const hasDeferred = universe.names.some((name) => name.status === 'deferred')
+
   return Section({
     eyebrow: 'Calibration universe',
     title: `User-curated universe · ${universe.version}`,
-    lead: 'The human owns this list and freezes it per run; a recorded run captures the universe version for reproducibility. Edit config/calibration_universe.json to add or remove names. Coverage status comes from the latest recorded run. Intl/local-manual names need an operator-entered annual report (config/fundamentals/{TICKER}.json) before they resolve.',
+    lead: 'The automated-fundamentals universe is SEC filers: US 10-K filers (full EDGAR XBRL history) plus foreign 20-F/40-F filers (EDGAR IFRS, ~2022+). The human owns this list and curates it by ADDING gate-plausible SEC-filing names; a recorded run freezes the universe version for reproducibility. Edit config/calibration_universe.json to add or remove names. Coverage status comes from the latest recorded run.',
     children: createElement(
       'div',
       { style: { display: 'grid', gap: '1rem' } },
       Table({ headings: ['Ticker', 'Company', 'Market', 'Coverage (latest run)'], rows: nameRows }),
+      hasDeferred
+        ? createElement(
+            'p',
+            { style: { color: 'var(--owl-color-quiet)', fontSize: 'var(--owl-text-sm)', margin: 0, maxWidth: '60ch' } },
+            'Deferred names are non-SEC filers (e.g. DFM/ADX listings) with no automated primary fundamentals source. They are listed for transparency but skipped — we do not hand-key figures and we rely on no keyed aggregator. Known limitation: deferring these makes the calibration SEC-filer-centric.',
+          )
+        : null,
       createElement('p', { style: { ...microLabel, color: 'var(--owl-color-gold)' } }, 'Suggested additions (human curates — not auto-added)'),
       suggestionBody,
     ),
@@ -163,24 +196,24 @@ function createCoverageSection(latestRun: CalibrationRunView | undefined) {
   if (latestRun === undefined || latestRun.coverage.length === 0) {
     return Section({
       eyebrow: 'Coverage report',
-      title: 'Non-US fundamentals coverage',
-      lead: 'Each run reports which universe names resolved primary fundamentals (US EDGAR / foreign 20-F via EDGAR / operator-entered local-manual) and which are unresolved and need annual-report fundamentals. The gap is made visible — never fabricated, no third-party aggregator.',
+      title: 'Fundamentals coverage',
+      lead: 'Each run classifies every universe name into four buckets: resolved via EDGAR (US 10-K or foreign 20-F/40-F), resolved via the optional local-manual seam, deferred (a non-SEC filer with no automated source — expected, intentionally skipped), or unresolved (an active name that unexpectedly failed — a real problem). Never fabricated, no third-party aggregator.',
       children: createElement(
         'p',
         { style: { color: 'var(--owl-color-quiet)', fontSize: 'var(--owl-text-base)', margin: 0 } },
-        'No coverage report yet. Run the calibration backtest to see which names resolved vs need fundamentals.',
+        'No coverage report yet. Run the calibration backtest to see how each name classifies.',
       ),
     })
   }
   return Section({
     eyebrow: 'Coverage report',
-    title: 'Non-US fundamentals coverage (latest run)',
-    lead: 'Which universe names resolved primary fundamentals, and which are unresolved (need operator-entered annual-report figures). The non-US gap, made honest.',
+    title: 'Fundamentals coverage (latest run)',
+    lead: 'Four buckets: resolved · EDGAR, resolved · local-manual, deferred (non-SEC filer, no automated source — expected), and unresolved (an active name that unexpectedly failed — investigate). Deferred is calm and expected; unresolved is the only one that flags a problem.',
     children: Table({
       headings: ['Ticker', 'Status', 'Currency', 'Reason'],
       rows: latestRun.coverage.map((c) => [
         createElement('span', { style: { ...monoFigure, color: 'var(--owl-color-gold-bright)' } }, c.ticker),
-        createElement('span', { style: { color: c.status === 'unresolved' ? 'var(--owl-color-quiet)' : 'var(--owl-color-muted)' } }, COVERAGE_LABEL[c.status]),
+        createElement('span', { style: { color: isQuietCoverage(c.status) ? 'var(--owl-color-quiet)' : 'var(--owl-color-muted)' } }, COVERAGE_LABEL[c.status]),
         c.currency ?? '—',
         c.reason ?? '—',
       ]),

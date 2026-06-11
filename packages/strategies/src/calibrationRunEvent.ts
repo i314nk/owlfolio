@@ -43,7 +43,7 @@ export type CalibrationCoverageSummary = {
   company?: string
   market?: string
   fundamentals_hint?: string
-  status: 'resolved_edgar' | 'resolved_local_manual' | 'unresolved'
+  status: 'resolved_edgar' | 'resolved_local_manual' | 'deferred' | 'unresolved'
   currency?: string
   reason?: string
 }
@@ -67,7 +67,7 @@ export type CalibrationRunEventPayload = {
   universe: string[]
   /** Per-name signal-log summaries. */
   summaries: CalibrationNameSummary[]
-  /** Per-name coverage classification (resolved_edgar / resolved_local_manual / unresolved). */
+  /** Per-name coverage classification (resolved_edgar / resolved_local_manual / deferred / unresolved). */
   coverage?: CalibrationCoverageSummary[]
   /** Pre-stated target the run is calibrated against. */
   target: CalibrationTarget

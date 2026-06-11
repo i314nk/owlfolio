@@ -8,9 +8,9 @@ import { projectCalibrationView } from '../calibration'
 const universe: CalibrationUniverse = {
   version: 'calibration-universe-test-1',
   names: [
-    { ticker: 'CPRT', company: 'Copart', market: 'US', fundamentals_hint: 'edgar' },
-    { ticker: 'TABREED', company: 'Tabreed', market: 'intl', fundamentals_hint: 'local_manual' },
-    { ticker: 'GHOST', company: 'Unresolvable', market: 'intl', fundamentals_hint: 'local_manual' },
+    { ticker: 'CPRT', company: 'Copart', market: 'US', fundamentals_hint: 'edgar', status: 'active' },
+    { ticker: 'TABREED', company: 'Tabreed', market: 'intl', status: 'deferred', defer_reason: 'Non-SEC filer (DFM/ADX) — no automated fundamentals source.' },
+    { ticker: 'GHOST', company: 'Unresolvable', market: 'intl', fundamentals_hint: 'local_manual', status: 'active' },
   ],
 }
 
@@ -39,7 +39,7 @@ function calibrationRunEvent(): LedgerEventEnvelope<Record<string, unknown>> {
       ],
       coverage: [
         { ticker: 'CPRT', company: 'Copart', market: 'US', status: 'resolved_edgar', currency: 'USD' },
-        { ticker: 'TABREED', company: 'Tabreed', market: 'intl', status: 'resolved_local_manual', currency: 'AED' },
+        { ticker: 'TABREED', company: 'Tabreed', market: 'intl', status: 'deferred', reason: 'Non-SEC filer (DFM/ADX) — no automated fundamentals source.' },
         { ticker: 'GHOST', company: 'Unresolvable', market: 'intl', status: 'unresolved', reason: 'no fundamentals' },
       ],
       target: { buys_per_year_min: 1, buys_per_year_max: 3 },
@@ -57,7 +57,7 @@ describe('projectCalibrationView — calibration run with coverage', () => {
     expect(run?.universe_version).toBe('calibration-universe-test-1')
     expect(run?.coverage.map((c) => `${c.ticker}:${c.status}`)).toEqual([
       'CPRT:resolved_edgar',
-      'TABREED:resolved_local_manual',
+      'TABREED:deferred',
       'GHOST:unresolved',
     ])
     // Aggregated from the per-name summaries (no explicit run-level deployment_ratios payload).
@@ -75,6 +75,16 @@ describe('projectCalibrationView — calibration run with coverage', () => {
     expect(ghost?.coverage_status).toBe('unresolved')
     expect(ghost?.coverage_reason).toMatch(/no fundamentals/)
     expect(view.universe?.suggestions.map((s) => s.ticker)).toEqual(['FDS'])
+  })
+
+  it('carries each name status + defer reason onto the universe view (deferred names made honest)', () => {
+    const view = projectCalibrationView([], { universe })
+    const tabreed = view.universe?.names.find((n) => n.ticker === 'TABREED')
+    expect(tabreed?.status).toBe('deferred')
+    expect(tabreed?.defer_reason).toMatch(/Non-SEC filer/)
+    const cprt = view.universe?.names.find((n) => n.ticker === 'CPRT')
+    expect(cprt?.status).toBe('active')
+    expect(cprt?.defer_reason).toBeUndefined()
   })
 
   it('renders the universe even when no run has been recorded (coverage status undefined)', () => {

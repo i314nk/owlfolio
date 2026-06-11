@@ -2260,7 +2260,7 @@ export async function runProcessCalibrationQueueTask(
         ticker: c.ticker,
         company: c.company,
         market: c.market,
-        fundamentals_hint: c.fundamentals_hint,
+        ...(c.fundamentals_hint === undefined ? {} : { fundamentals_hint: c.fundamentals_hint }),
         status: c.status,
         ...(c.currency === undefined ? {} : { currency: c.currency }),
         ...(c.reason === undefined ? {} : { reason: c.reason }),
@@ -2288,7 +2288,7 @@ export async function runProcessCalibrationQueueTask(
       } as LedgerEventEnvelope<unknown>)
       processed += 1
       summaries.push(
-        `process_calibration_queue: ran calibration_run ${run.calibration_run_id} over universe ${result.universe_version} (${result.coverage_counts.resolved_edgar} edgar, ${result.coverage_counts.resolved_local_manual} local-manual, ${result.coverage_counts.unresolved} unresolved); observation-only, no param change`,
+        `process_calibration_queue: ran calibration_run ${run.calibration_run_id} over universe ${result.universe_version} (${result.coverage_counts.resolved_edgar} edgar, ${result.coverage_counts.resolved_local_manual} local-manual, ${result.coverage_counts.deferred} deferred, ${result.coverage_counts.unresolved} unresolved); observation-only, no param change`,
       )
     } catch (error) {
       failed += 1

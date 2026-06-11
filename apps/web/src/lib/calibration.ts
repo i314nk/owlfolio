@@ -29,7 +29,7 @@ export type CalibrationCoverageView = {
   ticker: string
   company?: string
   market?: string
-  status: 'resolved_edgar' | 'resolved_local_manual' | 'unresolved'
+  status: 'resolved_edgar' | 'resolved_local_manual' | 'deferred' | 'unresolved'
   currency?: string
   reason?: string
 }
@@ -80,7 +80,12 @@ export type CalibrationUniverseNameView = {
   ticker: string
   company: string
   market: string
-  fundamentals_hint: string
+  /** The automated lane the operator expects (active names); absent for deferred names. */
+  fundamentals_hint?: string
+  /** Active (automated SEC-filer universe) or deferred (no automated source). */
+  status: 'active' | 'deferred'
+  /** Why a deferred name is deferred (non-SEC filer, no automated fundamentals source). */
+  defer_reason?: string
   /** Coverage from the latest recorded run (undefined when no run has covered this name yet). */
   coverage_status?: CalibrationCoverageView['status']
   coverage_reason?: string
@@ -168,7 +173,7 @@ function parseCoverage(value: unknown): CalibrationCoverageView[] {
     if (!isRecord(entry)) continue
     const ticker = getString(entry, 'ticker')
     const status = getString(entry, 'status')
-    if (ticker === undefined || (status !== 'resolved_edgar' && status !== 'resolved_local_manual' && status !== 'unresolved')) continue
+    if (ticker === undefined || (status !== 'resolved_edgar' && status !== 'resolved_local_manual' && status !== 'deferred' && status !== 'unresolved')) continue
     const item: CalibrationCoverageView = { ticker, status }
     const company = getString(entry, 'company')
     if (company !== undefined) item.company = company
@@ -284,7 +289,9 @@ export function projectCalibrationView(
           ticker: name.ticker,
           company: name.company,
           market: name.market,
-          fundamentals_hint: name.fundamentals_hint,
+          ...(name.fundamentals_hint === undefined ? {} : { fundamentals_hint: name.fundamentals_hint }),
+          status: name.status,
+          ...(name.defer_reason === undefined ? {} : { defer_reason: name.defer_reason }),
           ...(cov === undefined ? {} : { coverage_status: cov.status }),
           ...(cov?.reason === undefined ? {} : { coverage_reason: cov.reason }),
         }

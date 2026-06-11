@@ -1,13 +1,13 @@
 {
-  "version": "calibration-universe-2026-06-1",
-  "note": "User-curated calibration universe (valuation-recalibration-spec §3.1: the UNIVERSE is part of the pre-stated target). The human OWNS this list. The /calibration page SUGGESTS additions (researched cases + 13F-discovered candidates) but never auto-derives it. Edit this file (or, later, a curation UI) to add/remove names; the file's `version` is bumped on every change and a calibration_run records WHICH version it used for reproducibility. Intl/local_manual names need an operator-entered config/fundamentals/{TICKER}.json (the audited annual report) before they resolve; until then a run flags them `unresolved` in the coverage report — honest, never fabricated. Intl tickers are plausible local-listing placeholders for the GCC names (DFM/ADX), not guaranteed exchange symbols; the fundamentals_hint drives the tiered resolver, not the symbol.",
+  "version": "calibration-universe-2026-06-2",
+  "note": "User-curated calibration universe (valuation-recalibration-spec §3.1: the UNIVERSE is part of the pre-stated target). The human OWNS this list. The AUTOMATED-fundamentals universe is SEC filers: US 10-K filers (full ~10yr EDGAR XBRL history) plus foreign 20-F/40-F filers (EDGAR IFRS, ~2022+ history). The owner curates by ADDING gate-plausible SEC-filing names; the /calibration page SUGGESTS additions (researched cases + 13F-discovered candidates) but never auto-derives the list. Names with no automated primary source (non-SEC filers on DFM/ADX) are marked status:'deferred' with a reason — listed for transparency but skipped, NEVER 'needs manual entry': the owner does not hand-key fundamentals and we do not use a keyed aggregator. Deferred names stay until an automated source exists. The local-manual adapter remains as an optional seam (a name COULD carry a local_manual hint if an audited entry ever existed) but it is no longer the expected path for the calibration universe. Edit this file to add/remove names; `version` is bumped on every change and a calibration_run records WHICH version it used for reproducibility.",
   "names": [
-    { "ticker": "CPRT", "company": "Copart", "market": "US", "fundamentals_hint": "edgar" },
-    { "ticker": "FDS", "company": "FactSet Research Systems", "market": "US", "fundamentals_hint": "edgar" },
-    { "ticker": "NVO", "company": "Novo Nordisk", "market": "intl", "fundamentals_hint": "edgar" },
-    { "ticker": "TABREED", "company": "National Central Cooling Company (Tabreed)", "market": "intl", "fundamentals_hint": "local_manual" },
-    { "ticker": "DEWA", "company": "Dubai Electricity & Water Authority", "market": "intl", "fundamentals_hint": "local_manual" },
-    { "ticker": "EMPOWER", "company": "Emirates Central Cooling Systems (Empower)", "market": "intl", "fundamentals_hint": "local_manual" },
-    { "ticker": "TALABAT", "company": "Talabat Holding", "market": "intl", "fundamentals_hint": "local_manual" }
+    { "ticker": "CPRT", "company": "Copart", "market": "US", "fundamentals_hint": "edgar", "status": "active" },
+    { "ticker": "FDS", "company": "FactSet Research Systems", "market": "US", "fundamentals_hint": "edgar", "status": "active" },
+    { "ticker": "NVO", "company": "Novo Nordisk", "market": "intl", "fundamentals_hint": "edgar", "status": "active", "note": "Foreign 20-F filer via EDGAR; IFRS XBRL history is ~2022+, so its backtest covers fewer years than the US 10-K names." },
+    { "ticker": "TABREED", "company": "National Central Cooling Company (Tabreed)", "market": "intl", "status": "deferred", "defer_reason": "Non-SEC filer (DFM/ADX) — no automated fundamentals source; manual entry intentionally not used." },
+    { "ticker": "DEWA", "company": "Dubai Electricity & Water Authority", "market": "intl", "status": "deferred", "defer_reason": "Non-SEC filer (DFM/ADX) — no automated fundamentals source; manual entry intentionally not used." },
+    { "ticker": "EMPOWER", "company": "Emirates Central Cooling Systems (Empower)", "market": "intl", "status": "deferred", "defer_reason": "Non-SEC filer (DFM/ADX) — no automated fundamentals source; manual entry intentionally not used." },
+    { "ticker": "TALABAT", "company": "Talabat Holding", "market": "intl", "status": "deferred", "defer_reason": "Non-SEC filer (DFM/ADX) — no automated fundamentals source; manual entry intentionally not used." }
   ]
 }
