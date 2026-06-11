@@ -68,7 +68,7 @@ import { resolveResearchStrategyRef } from './researchStrategyRef'
 import { buffettMungerStrategy, creditedGrowth, discountRate, marginOfSafetyForMoat, moatPassesGate, stage1HorizonForMoat, terminalGrowthForMoat, twoStageFairValuePerShare } from '@owlfolio/strategies/buffettMunger'
 import { computeShariahFinancialRatios } from '@owlfolio/strategies/shariahFinancialRatios'
 import { fetchAverageMarketCap, resolveCurrentPrice, type AverageMarketCapResult, type MarketDataDeps, type PriceQuote } from './marketData'
-import { runRedTeamPass, buildRedTeamLayer, type RedTeamLaneDigest, type RedTeamResult } from './redTeamPass'
+import { runRedTeamPass, runRedTeamResponsePass, buildRedTeamLayer, type RedTeamLaneDigest, type RedTeamResult } from './redTeamPass'
 import {
   resolveCrossCheck,
   compareMoatClass,
@@ -310,14 +310,15 @@ const DecisionAgentSchema = z.object({
   roic: z.number(),
   incremental_roic: z.number(),
   reinvestment_rate: z.number(),
-  // judgment-objectivity-layer-spec Mechanism 5 — Red-Team Pass synthesis obligation. The synthesis
-  // agent receives the red team's strongest objection and MUST address it: either answer it with cited
-  // evidence (mode 'answered_with_evidence') or accept it and downgrade (mode 'accepted_downgraded' +
-  // a downgrade dimension/from/to). OPTIONAL on the schema so the swarm parses unchanged when the red
-  // team was incomplete (no objection to answer); the HARNESS deterministically flags a missing
-  // response when a live objection exists (red_team_objection_unaddressed) — silence is not an option.
+  // judgment-objectivity-layer-spec Mechanism 5 — Red-Team Pass obligation. The synthesis_response that
+  // answers the red team's strongest objection is NO LONGER produced here: a live model kept dropping it
+  // from this monolithic schema (synthesis_schema_retry_exhausted: [synthesis_response]). Following the
+  // SAME decomposition that got the moat rubric emitting live, it now comes from a dedicated FOCUSED
+  // grounded call (runRedTeamResponsePass) that runs ONLY when a live cite-checked objection exists. The
+  // harness still deterministically flags red_team_objection_unaddressed when that focused call yields no
+  // usable response — silence is not an option. (red_team_strongest_objection stays as a harmless OPTIONAL
+  // echo the synthesis may set; it carries no obligation now.)
   red_team_strongest_objection: z.string().optional(),
-  synthesis_response: SynthesisResponseSchema.optional(),
   proposed_sources: ProposedSourcesSchema,
 })
 
@@ -541,47 +542,68 @@ async function resolveFundamentals(ticker: string, deps: FundamentalsDeps): Prom
   }
 }
 
+/** Small backoff between the live-data fetch attempt and its single retry (skipped in offline tests). */
+const PRICE_FETCH_RETRY_BACKOFF_MS = 250
+
+/** Await a short backoff before the retry — skipped under offline test mode so unit tests stay fast. */
+async function priceRetryBackoff(): Promise<void> {
+  if (isOfflineTestMode()) return
+  await new Promise((resolve) => setTimeout(resolve, PRICE_FETCH_RETRY_BACKOFF_MS))
+}
+
 /**
  * Resolve a current price for a ticker, fail-closed and test-mode-gated (mirrors resolveFundamentals).
- * Returns undefined on any failure / unavailable quote so the AAOIFI debt/cash ratios degrade to the
- * lane's proposed Shariah verdict instead of emitting a bogus market cap.
+ * A TRANSIENT failure (a thrown error, or an unavailable quote — the live Yahoo path returns
+ * available:false on a fetch error) gets ONE retry with a small backoff before giving up, so a momentary
+ * blip mid-run no longer silently voids the market cap (the live dogfood failure). Still fail-closed:
+ * returns undefined after the retry so the AAOIFI debt/cash ratios degrade rather than emit a bogus cap.
  */
 async function resolveCurrentPriceValue(ticker: string, deps: FundamentalsDeps): Promise<number | undefined> {
-  try {
-    const resolver = deps.resolvePrice
-      ?? (isOfflineTestMode()
-        ? undefined
-        : ((t: string, d?: MarketDataDeps) => resolveCurrentPrice({ ticker: t }, d)))
-    if (resolver === undefined) return undefined
-    const quote = await resolver(ticker)
-    return quote.available ? quote.price_per_share : undefined
-  } catch {
-    return undefined
+  const resolver = deps.resolvePrice
+    ?? (isOfflineTestMode()
+      ? undefined
+      : ((t: string, d?: MarketDataDeps) => resolveCurrentPrice({ ticker: t }, d)))
+  if (resolver === undefined) return undefined
+  for (let attempt = 0; attempt < 2; attempt++) {
+    if (attempt > 0) await priceRetryBackoff()
+    try {
+      const quote = await resolver(ticker)
+      if (quote.available) return quote.price_per_share
+      // available:false — transient (live path fails closed this way); retry once, then give up.
+    } catch {
+      // Thrown transient error — retry once, then give up (fail-closed).
+    }
   }
+  return undefined
 }
 
 /**
  * Resolve the trailing 36-month AVERAGE market cap ($MILLIONS) for a ticker, fail-closed and
- * test-mode-gated (mirrors resolveCurrentPriceValue). Returns undefined on any failure/unavailable
- * series so the Shariah ratios degrade to the CURRENT-price market cap. `diluted_shares` is in
- * MILLIONS so the returned market cap is in $MILLIONS (matching the AAOIFI ratio inputs).
+ * test-mode-gated (mirrors resolveCurrentPriceValue, including the single transient-failure retry).
+ * Returns undefined after the retry so the Shariah ratios degrade to the CURRENT-price market cap.
+ * `diluted_shares` is in MILLIONS so the returned market cap is in $MILLIONS (AAOIFI ratio inputs).
  */
 async function resolveAverageMarketCapValue(
   ticker: string,
   diluted_shares: number,
   deps: FundamentalsDeps,
 ): Promise<{ market_cap: number; months: number } | undefined> {
-  try {
-    const resolver = deps.resolveAverageMarketCap
-      ?? (isOfflineTestMode()
-        ? undefined
-        : ((t: string, shares: number, d?: MarketDataDeps) => fetchAverageMarketCap({ ticker: t }, shares, undefined, d)))
-    if (resolver === undefined) return undefined
-    const result = await resolver(ticker, diluted_shares)
-    return result.available ? { market_cap: result.market_cap, months: result.months } : undefined
-  } catch {
-    return undefined
+  const resolver = deps.resolveAverageMarketCap
+    ?? (isOfflineTestMode()
+      ? undefined
+      : ((t: string, shares: number, d?: MarketDataDeps) => fetchAverageMarketCap({ ticker: t }, shares, undefined, d)))
+  if (resolver === undefined) return undefined
+  for (let attempt = 0; attempt < 2; attempt++) {
+    if (attempt > 0) await priceRetryBackoff()
+    try {
+      const result = await resolver(ticker, diluted_shares)
+      if (result.available) return { market_cap: result.market_cap, months: result.months }
+      // available:false — transient; retry once, then give up.
+    } catch {
+      // Thrown transient error — retry once, then give up.
+    }
   }
+  return undefined
 }
 
 /**
@@ -1454,17 +1476,17 @@ export async function runResearchDeepDivePhase(
     { ...(deps.ground === undefined ? {} : { ground: deps.ground }), ...(deps.grounding === undefined ? {} : { grounding: deps.grounding }) },
   )
 
-  // Compact red-team digest injected into the synthesis prompt so synthesis can answer the objection.
+  // Compact red-team digest injected into the synthesis prompt so the synthesis verdict/rationale can
+  // RECONCILE with the adversarial findings. The OBLIGATION to answer the strongest objection now lives in
+  // a dedicated FOCUSED call (runRedTeamResponsePass below) — not on this monolithic schema — so this block
+  // is reconciliation context only (no required synthesis_response here).
   const redTeamPromptBlock = redTeam.status === 'complete'
-    ? `\n\nRED-TEAM PASS (Mechanism 5 — you MUST address this): an adversarial agent attacked this case. `
+    ? `\n\nRED-TEAM PASS (Mechanism 5 — reconcile with this): an adversarial agent attacked this case. `
       + `Its STRONGEST OBJECTION (severity ${redTeam.strongest_objection.severity}): "${redTeam.strongest_objection.claim}" `
       + `[cited: ${redTeam.strongest_objection.citations.join(', ') || 'no verified citation'}]. `
       + `Bear case: ${redTeam.strongest_bear_case} Moat-decay: ${redTeam.moat_decay_scenario} Growth-credit attack: ${redTeam.growth_credit_attack}. `
-      + `REQUIRED — do not omit: you MUST set red_team_strongest_objection to the objection text AND synthesis_response: either `
-      + `mode 'answered_with_evidence' (rebut it with a CITED claim from the corpus) OR mode 'accepted_downgraded' `
-      + `(accept it and downgrade tier/growth/verdict, supplying downgrade{dimension,from,to}). Silence is not an option — `
-      + `omitting synthesis_response flags the dossier as red_team_objection_unaddressed. `
-      + `EXAMPLE synthesis_response (shape only): {"mode":"accepted_downgraded","text":"FY25 capex ≫ D&A confirms a reinvestment treadmill; owner earnings nearer the conservative case","downgrade":{"dimension":"tier","from":"wide","to":"moderate"}}.`
+      + `Reconcile your verdict + rationale with this objection (a dedicated follow-up call answers it formally). `
+      + `You may echo the objection text into red_team_strongest_objection.`
     : `\n\nRED-TEAM PASS: the adversarial red-team pass did not complete (${redTeam.reason}); the case was NOT adversarially tested. `
       + `Proceed, but the harness will surface this gap.`
 
@@ -1472,21 +1494,17 @@ export async function runResearchDeepDivePhase(
   // model-tiering-spec: the synthesis runs on the `synthesis` registry role (T1). Default = the run's
   // provider/model so single-provider runs are unchanged; an override can pin it onto a frontier model.
   const synthesisRuntime = resolveRoleRuntime('synthesis', provider, command)
-  // A live red-team objection (survived cite-check) makes synthesis_response REQUIRED — synthesis must
-  // answer it or downgrade; silence is not an option.
+  // A live red-team objection (survived cite-check) makes a red-team RESPONSE required — produced by the
+  // dedicated runRedTeamResponsePass below (the focused decomposition), NOT by the synthesis schema.
   const redTeamObjectionLive = redTeam.status === 'complete' && redTeam.strongest_objection.citations.length > 0
-  // Spec-correct decomposition: the moat/runway rubric + the Shariah overlay are now produced + retried on
-  // their OWN specialist lanes (above) — NOT here. Synthesis keeps ONLY its red-team obligation: when a
-  // live (cite-checked) red-team objection exists, synthesis_response is REQUIRED (answer it or downgrade;
-  // silence is not an option). The validate→retry wrapper bounces the omission back; only after 2 attempts
-  // does the visible-degradation fallback apply (retries force compliance; the fallback prevents an abort).
-  const synthesisRequiredFields: RequiredFieldCheck<z.infer<typeof DecisionAgentSchema>>[] =
-    redTeamObjectionLive
-      ? [{ name: 'synthesis_response', present: (a) => a.synthesis_response !== undefined && a.synthesis_response.text.trim().length > 0, hint: "answer the red-team objection with evidence (mode 'answered_with_evidence') OR accept+downgrade (mode 'accepted_downgraded')" }]
-      : []
+  // Spec-correct decomposition: the moat/runway rubric + the Shariah overlay are produced + retried on their
+  // OWN specialist lanes, and the red-team response on its OWN focused call (below). Synthesis therefore has
+  // NO judgment-overlay required fields — it just produces the verdict/thesis/valuation/Shariah rationale.
+  const synthesisRequiredFields: RequiredFieldCheck<z.infer<typeof DecisionAgentSchema>>[] = []
   let dec: GroundedAgentResult<z.infer<typeof DecisionAgentSchema>>
   // Surfaced when the validate→retry wrapper exhausted its attempts and we fell back to the degraded
   // (still-parsed) payload — recorded as a visible degraded flag below so the gap is never silent.
+  // (Synthesis has no required overlay fields now; this remains for any future required-field addition.)
   let synthesisValidationDegraded: string | undefined
   try {
     const validated = await runValidatedAgent(synthesisRuntime.provider, {
@@ -1536,16 +1554,52 @@ export async function runResearchDeepDivePhase(
   }
   remember(dec.captured)
 
-  // ---- Mechanism 5: synthesis obligation enforcement (deterministic — "silence is not an option") ----
-  // The red team handed synthesis its strongest objection; synthesis MUST have answered it with cited
-  // evidence or accepted it and downgraded. The harness builds the red-team layer and — when the red
-  // team completed with a LIVE (cite-checked) objection and synthesis supplied NO usable response —
-  // flags red_team_objection_unaddressed + appends it to open_questions (conservative: never silently
-  // dropped). A red-team-incomplete state is also surfaced as an open question (case not adversarially
-  // tested). The downgrade (mode 'accepted_downgraded') is recorded in the layer for the verdict.
+  // ---- Mechanism 5: dedicated red-team-RESPONSE call (the focused decomposition) ----
+  // The synthesis_response that answers the red team's strongest objection is produced by a SMALL focused
+  // grounded call (NOT the monolithic synthesis schema, which a live model kept dropping it from). It runs
+  // ONLY when a live (cite-checked) objection exists; it cites the verified corpus and is forced by
+  // runValidatedAgent's retry. On exhaustion/failure the response stays undefined → the existing
+  // deterministic red_team_objection_unaddressed enforcement fires (visible fallback; the run completes).
+  let redTeamSynthesisResponse: SynthesisResponse | undefined
+  let redTeamResponseDegraded: string | undefined
+  if (redTeamObjectionLive && redTeam.status === 'complete') {
+    // Reuse the red_team registry role for the follow-up so it can run on the same (or a pinned) model.
+    const responseRuntime = resolveRoleRuntime('red_team', provider, command)
+    const responseOutcome = await runRedTeamResponsePass(
+      responseRuntime.provider,
+      {
+        research_case_id: command.research_case_id,
+        ticker: command.ticker,
+        model_id: responseRuntime.model_id,
+        strongestObjection: redTeam.strongest_objection,
+        laneDigest,
+        corpusSourceIds: [...accumulated.values()].map((s) => s.source_id),
+      },
+      { ...(deps.ground === undefined ? {} : { ground: deps.ground }), ...(deps.grounding === undefined ? {} : { grounding: deps.grounding }) },
+    )
+    if (responseOutcome.status === 'ok') {
+      redTeamSynthesisResponse = responseOutcome.synthesis_response
+      remember(responseOutcome.captured)
+    } else {
+      // Visible degradation: the dedicated call also failed after its attempts. The run still completes;
+      // buildRedTeamLayer flags red_team_objection_unaddressed (the response stays undefined below).
+      redTeamResponseDegraded =
+        `red_team_response_retry_exhausted: the dedicated red-team-response call did not produce a usable `
+        + `synthesis_response after ${responseOutcome.attempts} attempt(s) (${responseOutcome.reason}). `
+        + `The red-team objection is recorded as unaddressed — re-run on a more capable model.`
+    }
+  }
+
+  // ---- Mechanism 5: red-team obligation enforcement (deterministic — "silence is not an option") ----
+  // The red team handed synthesis its strongest objection; the dedicated red-team-response call MUST have
+  // answered it with cited evidence or accepted it and downgraded. The harness builds the red-team layer
+  // and — when the red team completed with a LIVE (cite-checked) objection and the focused call supplied
+  // NO usable response — flags red_team_objection_unaddressed + appends it to open_questions
+  // (conservative: never silently dropped). A red-team-incomplete state is also surfaced as an open
+  // question. The downgrade (mode 'accepted_downgraded') is recorded in the layer for the verdict.
   const { layer: redTeamLayer, openQuestion: redTeamOpenQuestion } = buildRedTeamLayer({
     redTeam,
-    synthesisResponse: dec.analysis.synthesis_response,
+    synthesisResponse: redTeamSynthesisResponse,
   })
 
   const allVerified = [
@@ -1621,6 +1675,11 @@ export async function runResearchDeepDivePhase(
   // omitting) — visible.
   if (synthesisValidationDegraded !== undefined) {
     degradedFlags.push(synthesisValidationDegraded)
+  }
+  // The dedicated red-team-response call exhausted its retries (the focused decomposition's own visible
+  // fallback) — surfaced so the gap is seen; the red_team_objection_unaddressed open question is also set.
+  if (redTeamResponseDegraded !== undefined) {
+    degradedFlags.push(redTeamResponseDegraded)
   }
   // Per-lane schema-retry exhaustion (the moat/shariah lane omitted its REQUIRED judgment block after 2
   // attempts) — surfaced exactly like the synthesis path so the gap is visible, not silent.
@@ -1994,6 +2053,21 @@ export async function runResearchDeepDivePhase(
       'shariah_ratios_unverified: impermissible_income_not_emitted — the model omitted the Shariah judgment '
       + 'overlay (sector_status + impermissible_income), so the harness did NOT recompute the AAOIFI '
       + 'debt/cash/impermissible ratios; the Shariah verdict fell back to the lane (quick-screen) judgment.',
+    )
+  } else if (
+    market_cap === undefined
+    && fundamentals?.latest_annual !== undefined
+    && shariah_financial === undefined
+  ) {
+    // The ONLY missing AAOIFI input is the market cap: EDGAR fundamentals + the Shariah overlay are both
+    // present, but the price fetch failed (even after the single retry) so we have no market cap. Surface
+    // WHY the ratios are absent — a transient feed outage, NOT a model omission (distinct from
+    // impermissible_income_not_emitted above). We do NOT fabricate a market cap; still fail-closed.
+    degradedFlags.push(
+      'shariah_ratios_unverified: market_cap_unavailable — EDGAR fundamentals and the Shariah overlay were '
+      + 'present, but the live price/market-cap fetch returned nothing (even after a retry), so the harness '
+      + 'could NOT recompute the AAOIFI debt/cash ratios. No market cap was fabricated; re-run when the price '
+      + 'feed recovers.',
     )
   }
 

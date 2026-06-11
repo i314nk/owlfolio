@@ -238,10 +238,20 @@ function mockSynthesisDecisionForTicker(ticker: string) {
     // Normalized INCREMENTAL ROIC (fraction) drives the credited-growth band.
     incremental_roic: 0.20,
     reinvestment_rate: 0.40,
-    // judgment-objectivity-layer-spec Mechanism 5: synthesis MUST answer the red team's strongest
-    // objection or downgrade. The mock answers it with evidence cited to the grounded corpus so the
-    // demo + tests render an addressed objection (no red_team_objection_unaddressed flag).
+    // judgment-objectivity-layer-spec Mechanism 5: the synthesis_response that answers the red team's
+    // strongest objection now comes from the dedicated red-team-response call (mockRedTeamResponseForTicker
+    // / schema BuffettMungerRedTeamResponse) — NOT this synthesis schema. The synthesis only echoes the
+    // objection text (optional, no obligation).
     red_team_strongest_objection: `${companyLabel} revenue is concentrated in a few categories — a shock could compress the moat.`,
+    proposed_sources: mockSourcesForTicker(ticker),
+  }
+}
+
+// judgment-objectivity-layer-spec Mechanism 5 — the dedicated red-team-RESPONSE call (the focused
+// decomposition). The mock answers the strongest objection with evidence cited to the grounded corpus so
+// the demo + tests render an addressed objection (no red_team_objection_unaddressed flag).
+function mockRedTeamResponseForTicker(ticker: string) {
+  return {
     synthesis_response: {
       mode: 'answered_with_evidence' as const,
       text: `Concentration is real but diversified across regions and members per the 10-K; renewal rates and pricing power (cited) keep the moat intact. No downgrade warranted.`,
@@ -421,6 +431,8 @@ export class MockProvider implements Provider {
           return mockSynthesisDecisionForTicker(ticker)
         case 'BuffettMungerRedTeam':
           return mockRedTeamForTicker(ticker)
+        case 'BuffettMungerRedTeamResponse':
+          return mockRedTeamResponseForTicker(ticker)
         case 'BuffettMungerGroundedResearch':
           return mockGroundedResearchForTicker(ticker)
         default:

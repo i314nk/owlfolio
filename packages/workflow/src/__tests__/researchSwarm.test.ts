@@ -158,6 +158,12 @@ function swarmFakeProvider() {
           proposed_sources: [src('src_qs_1')],
         }
       }
+      if (schemaName === 'BuffettMungerRedTeamResponse') {
+        return {
+          synthesis_response: { mode: 'answered_with_evidence', text: 'Rebutted with cited filing evidence.' },
+          proposed_sources: [src('src_qs_1')],
+        }
+      }
       // Synthesis + decision
       return {
         investment_verdict: 'WATCH',
@@ -255,6 +261,12 @@ function swarmFakeProviderWithLaneIds(_lanes: readonly string[]) {
         return {
           strongest_bear_case: 'b', weakest_rubric_items: [], moat_decay_scenario: 'd', growth_credit_attack: 'g',
           shared_narrative_blindspots: [], strongest_objection: { claim: 'c', severity: 'low', citations: ['src_qs_partial_1'] },
+          proposed_sources: [src('src_qs_partial_1')],
+        }
+      }
+      if (schemaName === 'BuffettMungerRedTeamResponse') {
+        return {
+          synthesis_response: { mode: 'answered_with_evidence', text: 'Rebutted with cited filing evidence.' },
           proposed_sources: [src('src_qs_partial_1')],
         }
       }
@@ -456,6 +468,12 @@ describe('runStrategyResearchSwarm', () => {
               strongest_bear_case: 'b', weakest_rubric_items: [], moat_decay_scenario: 'd', growth_credit_attack: 'g',
               shared_narrative_blindspots: [], strongest_objection: { claim: 'c', severity: 'low', citations: ['src_qs_good_1'] },
               proposed_sources: [src('src_rt_good_1'), src('src_rt_bad_1')],
+            }
+          }
+          if (schemaName === 'BuffettMungerRedTeamResponse') {
+            return {
+              synthesis_response: { mode: 'answered_with_evidence', text: 'Rebutted with cited filing evidence.' },
+              proposed_sources: [src('src_rt_resp_good_1'), src('src_rt_resp_bad_1')],
             }
           }
           // Synthesis + decision
@@ -937,6 +955,15 @@ function configurableSwarmProvider(opts: {
           proposed_sources: [src('src_qs_1')],
         }
       }
+      // dedicated red-team-RESPONSE call (the focused decomposition). The synthesis_response that answers
+      // the strongest objection is produced HERE now, not on the synthesis schema. Omit it (→ the required
+      // field is missing → red_team_objection_unaddressed) when opts.synthesisResponse is undefined.
+      if (schemaName === 'BuffettMungerRedTeamResponse') {
+        return {
+          ...(opts.synthesisResponse !== undefined ? { synthesis_response: opts.synthesisResponse } : {}),
+          proposed_sources: [src('src_rt_resp_1')],
+        }
+      }
       // synthesis/decision (BuffettMungerSynthesisDecision)
       if (synthFails > 0) { synthFails--; throw new Error('Codex CLI timed out') }
       return {
@@ -952,9 +979,7 @@ function configurableSwarmProvider(opts: {
         roic: opts.synthesis?.roic ?? 0.30,
         incremental_roic: opts.synthesis?.incremental_roic ?? 0.20,
         reinvestment_rate: opts.synthesis?.reinvestment_rate ?? 0.43,
-        ...(opts.synthesisResponse !== undefined
-          ? { red_team_strongest_objection: 'echoed', synthesis_response: opts.synthesisResponse }
-          : {}),
+        red_team_strongest_objection: 'echoed',
         proposed_sources: [src('src_dec_1')],
       }
     }),
@@ -1348,6 +1373,61 @@ describe('Mechanism 5 — red-team pass + synthesis obligation', () => {
     expect(cp?.red_team?.objection_unaddressed).toBeUndefined()
     expect((cp?.open_questions ?? []).some((q) => /red_team_objection_unaddressed/.test(q))).toBe(false)
   })
+
+  it('SKIPS the dedicated red-team-response call entirely when there is no live objection', async () => {
+    // The red team cites only a fabricated id → cite-check strips it → no live objection → the dedicated
+    // red-team-response call must NOT run (no synthesis_response needed when there is nothing to answer).
+    const store = new InMemoryEventStore()
+    const provider = configurableSwarmProvider({
+      laneCount: buffettMungerDeepDiveLanes.length,
+      redTeamCitations: ['src_fabricated'],
+    })
+    const sourceLedgerPath = await mkdtemp(join(tmpdir(), 'owlfolio-rt-skip-'))
+    await runStrategyResearchSwarm(
+      store, provider as never,
+      {
+        research_case_id: 'rc_rt_skip', company_id: 'c', ticker: 'TST',
+        strategy_id: 'buffett-munger', actor_id: 'user_local', idempotency_key: 'rt_skip_k',
+        model_id: 'mock', decision_id: 'decision_rt_skip', source_ledger_path: sourceLedgerPath,
+      },
+      { ground: allVerifiedGround, laneConcurrency: 4 },
+    )
+    const responseCalls = provider.structured.mock.calls.filter(
+      (c: unknown[]) => (c[0] as { response_format?: { schema_name?: string } }).response_format?.schema_name === 'BuffettMungerRedTeamResponse',
+    )
+    expect(responseCalls.length).toBe(0)
+  })
+
+  it('records the answer from the dedicated red-team-response call (no unaddressed flag) when it answers', async () => {
+    // A live objection (src_qs_1 verified) → the dedicated call runs and answers it → the answer is
+    // recorded on the red-team layer and there is NO red_team_objection_unaddressed flag.
+    const store = new InMemoryEventStore()
+    const provider = configurableSwarmProvider({
+      laneCount: buffettMungerDeepDiveLanes.length,
+      synthesisResponse: { mode: 'answered_with_evidence', text: 'Renewal rates (cited) keep the moat intact.' },
+    })
+    const sourceLedgerPath = await mkdtemp(join(tmpdir(), 'owlfolio-rt-dedicated-'))
+    await runStrategyResearchSwarm(
+      store, provider as never,
+      {
+        research_case_id: 'rc_rt_dedicated', company_id: 'c', ticker: 'TST',
+        strategy_id: 'buffett-munger', actor_id: 'user_local', idempotency_key: 'rt_ded_k',
+        model_id: 'mock', decision_id: 'decision_rt_dedicated', source_ledger_path: sourceLedgerPath,
+      },
+      { ground: allVerifiedGround, laneConcurrency: 4 },
+    )
+    const responseCalls = provider.structured.mock.calls.filter(
+      (c: unknown[]) => (c[0] as { response_format?: { schema_name?: string } }).response_format?.schema_name === 'BuffettMungerRedTeamResponse',
+    )
+    // The dedicated call ran exactly once (answered on the first attempt).
+    expect(responseCalls.length).toBe(1)
+    const events = await store.list()
+    const projections = projectResearchCases(events as Parameters<typeof projectResearchCases>[0])
+    const cp = projections.find((c) => c.research_case_id === 'rc_rt_dedicated')
+    expect(cp?.red_team?.synthesis_response?.mode).toBe('answered_with_evidence')
+    expect(cp?.red_team?.objection_unaddressed).toBeUndefined()
+    expect((cp?.open_questions ?? []).some((q) => /red_team_objection_unaddressed/.test(q))).toBe(false)
+  })
 })
 
 // ---------------------------------------------------------------------------
@@ -1569,6 +1649,12 @@ function swarmFakeProviderWithShariah(impermissible_income: number, sector_statu
           proposed_sources: [src('src_qs_1')],
         }
       }
+      if (schemaName === 'BuffettMungerRedTeamResponse') {
+        return {
+          synthesis_response: { mode: 'answered_with_evidence', text: 'Rebutted with cited filing evidence.' },
+          proposed_sources: [src('src_qs_1')],
+        }
+      }
       return {
         investment_verdict: 'WATCH', strategy_compliance: 'CONDITIONAL', valuation_status: 'EXPENSIVE',
         next_required_action: 'Await MoS.', decision_reason: 'Quality but pricey', thesis_summary: 'Compounder',
@@ -1677,6 +1763,72 @@ describe('EDGAR-anchored OE bridge + harness AAOIFI Shariah ratios', () => {
     expect(cp?.shariah_financial?.verdict).toBe('PASS')
     expect(cp?.shariah_status).toBe('NON_COMPLIANT')
     expect(cp?.shariah_sector_status).toBe('non_compliant')
+  })
+
+  it('retries the price fetch once on a transient throw → market cap resolves (ratios computed)', async () => {
+    // The injected price resolver THROWS on the first call then succeeds — the harness retry must recover
+    // it so the AAOIFI ratios still compute (a transient blip no longer silently voids the market cap).
+    const store = new InMemoryEventStore()
+    await seedDeepDivePrereqs(store)
+    const provider = swarmFakeProviderWithShariah(0.004 * 275235)
+    await provider.structured({} as never)
+
+    let priceCalls = 0
+    await runResearchDeepDivePhase(store, provider as never, deepDiveCommand(), {
+      ground: verifyAllGround(),
+      laneConcurrency: 7,
+      fundamentals: costFundamentals,
+      resolvePrice: async () => {
+        priceCalls++
+        if (priceCalls === 1) throw new Error('ECONNRESET (transient)')
+        return { available: true as const, price_per_share: 968, currency: 'USD', as_of: 'x', source: 'test' }
+      },
+    })
+
+    const events = await store.list()
+    const projections = projectResearchCases(events as Parameters<typeof projectResearchCases>[0])
+    const cp = projections.find((c) => c.research_case_id === 'rc_edgar')
+    // The retry recovered the price → market cap + ratios computed.
+    expect(priceCalls).toBe(2)
+    expect(cp?.shariah_financial?.debt_ratio).toBeDefined()
+    expect(cp?.shariah_financial?.market_cap).toBeCloseTo(968 * 444.8, 0)
+    // No market_cap_unavailable flag — the retry succeeded.
+    const analysisEvent = events.find((e) => e.event_type === 'buffett_munger_analysis_drafted')
+    const valuation = (analysisEvent?.payload as Record<string, unknown>)?.['valuation'] as Record<string, unknown>
+    const degraded = (valuation?.['degraded_flags'] as string[] | undefined) ?? []
+    expect(degraded.join(' ')).not.toMatch(/market_cap_unavailable/)
+  })
+
+  it('throws twice → market cap undefined + shariah_ratios_unverified: market_cap_unavailable flag', async () => {
+    // The price resolver always throws (transient blip that does not recover). After the single retry the
+    // market cap is undefined; EDGAR fundamentals + the Shariah overlay ARE present, so the harness must
+    // surface market_cap_unavailable (the ONLY missing AAOIFI input is the market cap) — not fabricate one.
+    const store = new InMemoryEventStore()
+    await seedDeepDivePrereqs(store)
+    const provider = swarmFakeProviderWithShariah(0.004 * 275235)
+    await provider.structured({} as never)
+
+    let priceCalls = 0
+    await runResearchDeepDivePhase(store, provider as never, deepDiveCommand(), {
+      ground: verifyAllGround(),
+      laneConcurrency: 7,
+      fundamentals: costFundamentals,
+      resolvePrice: async () => { priceCalls++; throw new Error('ECONNRESET (transient)') },
+      // No avg-market-cap resolver injected → undefined in test mode → market cap stays undefined.
+    })
+
+    const events = await store.list()
+    const projections = projectResearchCases(events as Parameters<typeof projectResearchCases>[0])
+    const cp = projections.find((c) => c.research_case_id === 'rc_edgar')
+    // Exactly two attempts (initial + one retry), then give up — no fabricated market cap.
+    expect(priceCalls).toBe(2)
+    expect(cp?.shariah_financial).toBeUndefined()
+    const analysisEvent = events.find((e) => e.event_type === 'buffett_munger_analysis_drafted')
+    const valuation = (analysisEvent?.payload as Record<string, unknown>)?.['valuation'] as Record<string, unknown>
+    const degraded = (valuation?.['degraded_flags'] as string[] | undefined) ?? []
+    expect(degraded.join(' ')).toMatch(/shariah_ratios_unverified:\s*market_cap_unavailable/)
+    // It is distinct from the impermissible-income cause (the overlay WAS emitted here).
+    expect(degraded.join(' ')).not.toMatch(/impermissible_income_not_emitted/)
   })
 })
 
@@ -1877,18 +2029,19 @@ describe('Silent-degradation cascade — fields omitted (live dogfood shape)', (
 })
 
 // ---------------------------------------------------------------------------
-// model-tiering harness defense 1: schema validation + retry. The synthesis stub keeps omitting the
-// REQUIRED high-stakes fields (moat_rubric/runway_rubric/shariah) -> the wrapper RETRIES (a second
-// synthesis call), and after 2 attempts FALLS BACK visibly (synthesis_schema_retry_exhausted) so the
-// run still completes. A provider that emits the fields on the 2nd attempt SUCCEEDS without the flag.
+// model-tiering harness defense 1: schema validation + retry. The dedicated red-team-RESPONSE call (the
+// focused decomposition of synthesis_response) keeps omitting its sole REQUIRED field -> the wrapper
+// RETRIES (a second red-team-response call), and after 2 attempts FALLS BACK visibly
+// (red_team_response_retry_exhausted + red_team_objection_unaddressed) so the run still completes. A
+// provider that emits the response on the 2nd attempt SUCCEEDS without the flag.
 // ---------------------------------------------------------------------------
 describe('runStrategyResearchSwarm — schema-validation + retry (harness defense 1)', () => {
-  // A swarm provider whose synthesis decision can include/omit the required fields on a per-attempt
-  // basis (keyed by schema_name, counting synthesis attempts so the 2nd attempt can differ).
-  function retrySwarmProvider(opts: { synthesisAttemptsToOmit: number }) {
+  // A swarm provider whose dedicated red-team-RESPONSE call can include/omit its required field on a
+  // per-attempt basis (counting response attempts so the 2nd attempt can differ).
+  function retrySwarmProvider(opts: { responseAttemptsToOmit: number }) {
     const src = (id: string) => ({ source_id: id, title: 'T', url: 'https://www.sec.gov/Archives/edgar/data/0/test-10k.htm', excerpt: 'e' })
     let laneCall = 0
-    let synthAttempt = 0
+    let responseAttempt = 0
     const fullRubric = (tier: string) => ({
       rubric_scores: [{ id: 'M1', score: 2 }, { id: 'M2', score: 2 }],
       proposed_tier: tier,
@@ -1935,10 +2088,17 @@ describe('runStrategyResearchSwarm — schema-validation + retry (harness defens
             proposed_sources: [src('src_qs_1')],
           }
         }
-        // Synthesis: omit the (now sole) required field — synthesis_response — for the first
-        // `synthesisAttemptsToOmit` attempts (a live cited red-team objection makes it required).
-        const omit = synthAttempt < opts.synthesisAttemptsToOmit
-        synthAttempt++
+        if (schemaName === 'BuffettMungerRedTeamResponse') {
+          // Omit the sole required field — synthesis_response — for the first `responseAttemptsToOmit`
+          // attempts (a live cited red-team objection makes the dedicated call run + its response required).
+          const omit = responseAttempt < opts.responseAttemptsToOmit
+          responseAttempt++
+          return {
+            ...(omit ? {} : { synthesis_response: { mode: 'answered_with_evidence', text: 'Rebutted with cited filing evidence.' } }),
+            proposed_sources: [src('src_rt_resp_1')],
+          }
+        }
+        // Synthesis decision (no judgment-overlay required fields now).
         return {
           investment_verdict: 'WATCH', strategy_compliance: 'CONDITIONAL', valuation_status: 'EXPENSIVE',
           next_required_action: 'wait', decision_reason: 'pricey', thesis_summary: 't', evidence_summary: 'e',
@@ -1948,15 +2108,12 @@ describe('runStrategyResearchSwarm — schema-validation + retry (harness defens
             net_income: 8838, depreciation_amortization: 2565, maintenance_capex: 2052,
             maintenance_capex_proxy_tier: '80', stock_based_comp: 911, normalized_working_capital_change: 0, shares_outstanding: 443,
           },
-          ...(omit ? {} : {
-            red_team_strongest_objection: 'echoed',
-            synthesis_response: { mode: 'answered_with_evidence', text: 'Rebutted with cited filing evidence.' },
-          }),
+          red_team_strongest_objection: 'echoed',
           proposed_sources: [src('src_dec_1')],
         }
       }),
     }
-    return { provider, synthCalls: () => synthAttempt }
+    return { provider, responseCalls: () => responseAttempt }
   }
 
   async function run(provider: unknown, id: string) {
@@ -1973,35 +2130,42 @@ describe('runStrategyResearchSwarm — schema-validation + retry (harness defens
     )
     const events = await store.list()
     const analysis = events.find((e) => e.event_type === 'buffett_munger_analysis_drafted')
-    return { analysisPayload: analysis?.payload as Record<string, unknown> }
+    const decision = events.find((e) => e.event_type === 'decision_drafted')
+    return {
+      analysisPayload: analysis?.payload as Record<string, unknown>,
+      decisionPayload: decision?.payload as Record<string, unknown>,
+    }
   }
 
-  it('retries synthesis when synthesis_response is omitted, then succeeds on the 2nd attempt (no degraded flag)', async () => {
-    const { provider, synthCalls } = retrySwarmProvider({ synthesisAttemptsToOmit: 1 })
-    const { analysisPayload } = await run(provider, 'retry-recover')
-    // The wrapper issued a SECOND synthesis call (the retry that bounced the missing field back).
-    expect(synthCalls()).toBe(2)
+  it('retries the dedicated red-team-response when synthesis_response is omitted, then succeeds on the 2nd attempt (no flag)', async () => {
+    const { provider, responseCalls } = retrySwarmProvider({ responseAttemptsToOmit: 1 })
+    const { analysisPayload, decisionPayload } = await run(provider, 'retry-recover')
+    // The wrapper issued a SECOND red-team-response call (the retry that bounced the missing field back).
+    expect(responseCalls()).toBe(2)
     const valuation = analysisPayload?.['valuation'] as Record<string, unknown>
     const degraded = (valuation?.['degraded_flags'] as string[] | undefined) ?? []
-    // Recovered on retry -> no schema-retry-exhausted flag. The moat/shariah lanes emitted their
-    // rubric/overlay, so there is also no rubric_not_emitted / shariah_ratios_unverified.
-    expect(degraded.join(' ')).not.toMatch(/synthesis_schema_retry_exhausted/)
+    // Recovered on retry -> no retry-exhausted flag, and the objection IS addressed (no unaddressed flag).
+    expect(degraded.join(' ')).not.toMatch(/red_team_response_retry_exhausted/)
     expect(degraded.join(' ')).not.toMatch(/rubric_not_emitted/)
     expect(degraded.join(' ')).not.toMatch(/shariah_ratios_unverified/)
+    const openQuestions = (decisionPayload?.['open_questions'] as string[] | undefined) ?? []
+    expect(openQuestions.join(' ')).not.toMatch(/red_team_objection_unaddressed/)
   })
 
-  it('marks the synthesis stage degraded after 2 failed attempts and the run still completes (visible fallback)', async () => {
-    const { provider, synthCalls } = retrySwarmProvider({ synthesisAttemptsToOmit: 99 })
-    const { analysisPayload } = await run(provider, 'retry-exhaust')
-    // 2 attempts (initial + 1 retry), then fall back to the degraded payload — the run did NOT abort.
-    expect(synthCalls()).toBe(2)
+  it('marks the red-team-response degraded after 2 failed attempts and the run still completes (visible fallback)', async () => {
+    const { provider, responseCalls } = retrySwarmProvider({ responseAttemptsToOmit: 99 })
+    const { analysisPayload, decisionPayload } = await run(provider, 'retry-exhaust')
+    // 2 attempts (initial + 1 retry), then fall back visibly — the run did NOT abort.
+    expect(responseCalls()).toBe(2)
     expect(analysisPayload).toBeDefined()
     const valuation = analysisPayload?.['valuation'] as Record<string, unknown>
     const degraded = (valuation?.['degraded_flags'] as string[] | undefined) ?? []
-    // The schema-retry exhaustion is surfaced (which field, how many attempts) — never silent. The sole
-    // synthesis-required field is now synthesis_response (the red-team obligation).
-    expect(degraded.join(' ')).toMatch(/synthesis_schema_retry_exhausted/)
+    // The retry exhaustion is surfaced (the dedicated red-team-response call) — never silent. The
+    // deterministic red_team_objection_unaddressed enforcement also fires (the objection is unaddressed).
+    expect(degraded.join(' ')).toMatch(/red_team_response_retry_exhausted/)
     expect(degraded.join(' ')).toMatch(/synthesis_response/)
+    const openQuestions = (decisionPayload?.['open_questions'] as string[] | undefined) ?? []
+    expect(openQuestions.join(' ')).toMatch(/red_team_objection_unaddressed/)
   })
 
   it('routes the red-team to a DIFFERENT provider when the red_team role is overridden', async () => {
@@ -2009,7 +2173,7 @@ describe('runStrategyResearchSwarm — schema-validation + retry (harness defens
     // override pins red_team -> mock-provider, so resolveProvider instantiates a fresh MockProvider —
     // proving the red team genuinely runs on its own provider/model, not the run's.
     const store = new InMemoryEventStore()
-    const { provider } = retrySwarmProvider({ synthesisAttemptsToOmit: 0 })
+    const { provider } = retrySwarmProvider({ responseAttemptsToOmit: 0 })
     const sourceLedgerPath = await mkdtemp(join(tmpdir(), 'owlfolio-rt-override-'))
     // resolveModelForRole reads OWLFOLIO_MODEL_ROLE_RED_TEAM from env; assert it routes without throwing.
     const prev = process.env['OWLFOLIO_MODEL_ROLE_RED_TEAM']

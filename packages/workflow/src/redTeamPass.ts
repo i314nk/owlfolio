@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import type { Provider } from '@owlfolio/providers'
 import { runGroundedAgentWithRetry, ProposedSourcesSchema, SynthesisResponseSchema, type SynthesisResponse, type GroundFn } from './groundedAgent'
+import { runValidatedAgent, type RequiredFieldCheck } from './runValidatedAgent'
 import type { GroundingDeps } from './sourceGrounding'
 
 // ---------------------------------------------------------------------------
@@ -190,6 +191,112 @@ export async function runRedTeamPass(
       status: 'red_team_incomplete',
       reason: error instanceof Error ? error.message : String(error),
     }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Dedicated red-team-RESPONSE call (the focused decomposition — same pattern that got the moat rubric
+// emitting live). Rather than asking the monolithic synthesis schema to ALSO carry synthesis_response
+// (which a live model kept dropping — synthesis_schema_retry_exhausted), we run a tiny FOCUSED grounded
+// call whose ONLY output is the synthesis_response to the red team's strongest objection. It runs ONLY
+// when a live (cite-checked) objection exists; it is grounded so it can cite the corpus, and runs under
+// runValidatedAgent (the retry FORCES the response). When it still fails after its attempts, the caller
+// leaves synthesisResponse undefined → the existing deterministic red_team_objection_unaddressed
+// enforcement fires (visible fallback, run completes).
+// ---------------------------------------------------------------------------
+
+// The dedicated call's schema = the synthesis_response ALONE (+ proposed_sources so it grounds/cites).
+export const RedTeamResponseSchema = z.object({
+  synthesis_response: SynthesisResponseSchema,
+  proposed_sources: ProposedSourcesSchema,
+})
+export type RedTeamResponseAnalysis = z.infer<typeof RedTeamResponseSchema>
+
+export type RunRedTeamResponsePassArgs = {
+  research_case_id: string
+  ticker: string
+  /** The model the red-team-response runs on. Defaults to the synthesis model. */
+  model_id: string
+  /** The live, cite-checked strongest objection the response must answer. */
+  strongestObjection: { claim: string; severity: string; citations: string[] }
+  /** Compact lane digest so the response can reason from the lanes' findings. */
+  laneDigest: RedTeamLaneDigest[]
+  /** The verified source corpus (source_ids) the response must cite from. */
+  corpusSourceIds: string[]
+}
+
+/** Outcome of the dedicated red-team-response call. `ok` carries the synthesis_response; `failed` means
+ *  retries were exhausted (the caller falls back to the visible red_team_objection_unaddressed flag). */
+export type RedTeamResponseOutcome =
+  | { status: 'ok'; synthesis_response: SynthesisResponse; verified_ids: string[]; captured: import('./sourceGrounding').CapturedSource[] }
+  | { status: 'failed'; reason: string; attempts: number }
+
+function buildRedTeamResponsePrompt(args: RunRedTeamResponsePassArgs): string {
+  const laneLines = args.laneDigest
+    .map((l) => `  - ${l.lane} (${l.confidence}): ${l.finding_summary}`)
+    .join('\n')
+  const corpus = args.corpusSourceIds.join(', ')
+  return (
+    `You are the Buffett-Munger synthesis agent answering the RED TEAM for ${args.ticker}. `
+    + `The adversarial red-team pass produced a single STRONGEST OBJECTION (severity ${args.strongestObjection.severity}): `
+    + `"${args.strongestObjection.claim}" [cited: ${args.strongestObjection.citations.join(', ') || 'no verified citation'}].\n\n`
+    + `Lane findings (the shared narrative the objection attacks):\n${laneLines}\n\n`
+    + `Produce a single synthesis_response that EITHER:\n`
+    + `  - mode 'answered_with_evidence': rebut the objection with a CITED claim from the verified corpus, OR\n`
+    + `  - mode 'accepted_downgraded': accept the objection and downgrade, supplying downgrade{dimension(tier|growth|verdict),from,to}.\n`
+    + `Silence is not an option. GROUNDING (non-negotiable): cite the verified corpus — proposed_sources MUST reference it. `
+    + `Available corpus source_ids: ${corpus}. Return them in proposed_sources with real URLs.\n`
+    + `EXAMPLE (shape only): {"synthesis_response":{"mode":"accepted_downgraded","text":"FY25 capex ≫ D&A confirms a reinvestment treadmill","downgrade":{"dimension":"tier","from":"wide","to":"moderate"}}}.`
+  )
+}
+
+/**
+ * Run the dedicated red-team-RESPONSE call under schema-validation + retry. The synthesis_response is the
+ * sole required field, so the retry FORCES it. On success returns the cited response; on exhaustion
+ * returns `failed` so the caller surfaces the visible red_team_objection_unaddressed fallback (the run
+ * still completes). Grounding/citation verification is unchanged (delegated to runGroundedAgent).
+ */
+export async function runRedTeamResponsePass(
+  provider: Provider,
+  args: RunRedTeamResponsePassArgs,
+  deps: { ground?: GroundFn; grounding?: GroundingDeps } = {},
+): Promise<RedTeamResponseOutcome> {
+  const requiredFields: RequiredFieldCheck<RedTeamResponseAnalysis>[] = [
+    {
+      name: 'synthesis_response',
+      present: (a) => a.synthesis_response !== undefined && a.synthesis_response.text.trim().length > 0,
+      hint: "answer the red-team objection with evidence (mode 'answered_with_evidence') OR accept+downgrade (mode 'accepted_downgraded')",
+    },
+  ]
+  try {
+    const validated = await runValidatedAgent(
+      provider,
+      {
+        run_id: `run_${args.research_case_id}_red_team_response`,
+        model_id: args.model_id,
+        prompt: buildRedTeamResponsePrompt(args),
+        timeout_ms: AGENT_TIMEOUT_MS,
+        schema_name: 'BuffettMungerRedTeamResponse',
+      },
+      RedTeamResponseSchema,
+      {
+        ...(deps.ground === undefined ? {} : { ground: deps.ground }),
+        ...(deps.grounding === undefined ? {} : { grounding: deps.grounding }),
+        requiredFields,
+      },
+    )
+    if (validated.status === 'ok') {
+      return {
+        status: 'ok',
+        synthesis_response: validated.result.analysis.synthesis_response,
+        verified_ids: validated.result.verified_ids,
+        captured: validated.result.captured,
+      }
+    }
+    return { status: 'failed', reason: validated.reason, attempts: validated.attempts }
+  } catch (error) {
+    // Provider/timeout error after retries — degrade visibly (the caller flags red_team_objection_unaddressed).
+    return { status: 'failed', reason: error instanceof Error ? error.message : String(error), attempts: 0 }
   }
 }
 
