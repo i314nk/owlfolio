@@ -499,6 +499,17 @@ export const domainEventContracts: readonly DomainEventContract[] = [
       'tranche_review_alert',
       'triggered_tranches',
       'thesis_gated_note',
+      // position-sizing-spec lot-tag fields (§2 ladder, §3 re-anchoring version, §4 trigger type, §5.5
+      // deployed %). Carried on the alert so the human's confirm event can record the lot tags
+      // (tranche_id, trigger_type, buy_price_version). Advisory only — never an auto-fill.
+      'ladder_id',
+      'tranche_id',
+      'trigger_type',
+      'buy_price_version',
+      'deployed_pct',
+      'target_weight',
+      'tranche_blocked',
+      'tranche_block_reason',
       'trim_review_alert',
       'weight_pct',
       'rerun_needed',

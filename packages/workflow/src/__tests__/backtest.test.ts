@@ -3,7 +3,13 @@ import { buffettMungerStrategy } from '@owlfolio/strategies/buffettMunger'
 import { VALUATION_PARAMS } from '@owlfolio/strategies/valuationParams'
 import type { AnnualFacts, Fundamentals } from '../secEdgar'
 import type { PriceHistoryPoint } from '../marketData'
-import { groupBuyEpisodes, runValuationBacktest } from '../backtest'
+import {
+  groupBuyEpisodes,
+  runValuationBacktest,
+  simulateLadderDeployment,
+  computeDeploymentRatio,
+  type SignalLogEntry,
+} from '../backtest'
 
 // ---------------------------------------------------------------------------
 // Synthetic fixtures — a small 3-year annual series with KNOWN filed dates and a
@@ -215,5 +221,83 @@ describe('groupBuyEpisodes', () => {
     ])
     expect(episodes).toHaveLength(1)
     expect(episodes[0]).toMatchObject({ start: '2020-02-29', end: '2020-02-29', months: 1 })
+  })
+})
+
+// ---------------------------------------------------------------------------
+// position-sizing-spec §7 — deployment-ratio metric (pinned values)
+// ---------------------------------------------------------------------------
+
+function step(date: string, price: number, buy: number, signal: SignalLogEntry['signal']): SignalLogEntry {
+  return {
+    date,
+    price,
+    oe_ps: 1,
+    credited_g: 0,
+    fair_value_ps: buy / 0.85,
+    buy_price_ps: buy,
+    implied_multiple: 1,
+    signal,
+    filing_fy: 2020,
+  }
+}
+
+describe('simulateLadderDeployment — fill simulation against a price path', () => {
+  it('cold ladder: price grinds to −20% over months → full deployment (1.0)', () => {
+    // buy=100; T1@buy (entry), T2@90, T3@80. Price walks down to 80.
+    const steps = [
+      { date: '2020-01-31', price: 100, buy_price_ps: 100, signal: 'BUY' as const },
+      { date: '2020-02-29', price: 92, buy_price_ps: 100, signal: 'BUY' as const },
+      { date: '2020-03-31', price: 88, buy_price_ps: 100, signal: 'BUY' as const }, // T2 hits (≤90)
+      { date: '2020-04-30', price: 79, buy_price_ps: 100, signal: 'BUY' as const }, // T3 hits (≤80)
+    ]
+    expect(simulateLadderDeployment(steps, 'cold')).toBe(1)
+  })
+
+  it('cold ladder: price never drops, never enough clean months → only T1 (0.40)', () => {
+    // Price always ABOVE buy → no price trigger, no time-completion (time needs ≤ buy).
+    const steps = [
+      { date: '2020-01-31', price: 101, buy_price_ps: 100, signal: 'BUY' as const },
+      { date: '2020-02-29', price: 105, buy_price_ps: 100, signal: 'BUY' as const },
+    ]
+    expect(simulateLadderDeployment(steps, 'cold')).toBe(0.40)
+  })
+
+  it('normal ladder: 7 months at 2% below buy → time-completion fills T2 (1.0)', () => {
+    // buy=100; price 98 (below buy, above the −10% level 90). 6 clean months → T2 by time-completion.
+    const steps = Array.from({ length: 8 }, (_unused, i) => ({
+      date: `2020-0${i + 1}-15`,
+      price: 98,
+      buy_price_ps: 100,
+      signal: 'BUY' as const,
+    }))
+    // normal = 60/40; T1 entry + T2 via time-completion = 1.0
+    expect(simulateLadderDeployment(steps, 'normal')).toBe(1)
+  })
+})
+
+describe('computeDeploymentRatio — mean deployment across BUY episodes', () => {
+  it('averages two episodes (full + partial) to a pinned 0.7', () => {
+    const log: SignalLogEntry[] = [
+      // Episode 1: walks to −20% → cold full (1.0)
+      step('2020-01-31', 100, 100, 'BUY'),
+      step('2020-02-29', 88, 100, 'BUY'),
+      step('2020-03-31', 79, 100, 'BUY'),
+      // gap (not BUY) splits the episodes
+      step('2020-04-30', 130, 100, 'WATCH'),
+      // Episode 2: one BUY month then recovers above buy → cold T1 only (0.40)
+      step('2020-05-31', 100, 100, 'BUY'),
+      step('2020-06-30', 140, 100, 'WATCH'),
+    ]
+    const cold = computeDeploymentRatio(log, 'cold')
+    expect(cold.episodes).toBe(2)
+    // (1.0 + 0.40) / 2 = 0.70
+    expect(cold.avg_deployment_ratio).toBe(0.7)
+  })
+
+  it('returns 0 with no BUY episodes', () => {
+    const log: SignalLogEntry[] = [step('2020-01-31', 130, 100, 'WATCH')]
+    expect(computeDeploymentRatio(log, 'cold').avg_deployment_ratio).toBe(0)
+    expect(computeDeploymentRatio(log, 'cold').episodes).toBe(0)
   })
 })

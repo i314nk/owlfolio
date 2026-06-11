@@ -160,6 +160,38 @@ describe('projectMonitorAlerts — holding monitor', () => {
     expect(alert?.human_action.href).toBe('/portfolio#h1')
   })
 
+  it('surfaces position-sizing lot-tag fields (tranche_id, trigger_type, buy_price_version, deployed_pct)', () => {
+    const events = [
+      evt({
+        event_type: 'holding_monitor_alert_recorded',
+        aggregate_type: 'holding',
+        aggregate_id: 'h2',
+        payload: {
+          alert_id: 'hmon_h2',
+          holding_id: 'h2',
+          ticker: 'EEE',
+          alert_kind: 'tranche_review',
+          tranche_review_alert: true,
+          tranche_id: 'T2',
+          trigger_type: 'time_completion',
+          buy_price_version: 'v2',
+          deployed_pct: 0.4,
+          ladder_id: 'cold',
+          thesis_gated_note: 'thesis re-check FIRST, then deploy — never mechanical averaging-down.',
+          trim_review_alert: false,
+          rerun_needed: false,
+          message: 'EEE: holding monitor — tranche_review',
+        },
+      }),
+    ]
+    const [alert] = projectMonitorAlerts(events)
+    expect(alert?.kind).toBe('tranche')
+    expect(alert?.headline).toContain('T2')
+    expect(alert?.headline.toLowerCase()).toContain('time-completion')
+    expect(alert?.detail).toContain('v2')
+    expect(alert?.detail).toContain('40%')
+  })
+
   it('maps a concentration alert to kind=concentration, severity=attention with weight%', () => {
     const events = [
       evt({

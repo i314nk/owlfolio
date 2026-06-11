@@ -117,6 +117,19 @@ describe('Owlfolio v2 domain event boundary contracts', () => {
       actor_type: 'worker',
       projection_owner: 'portfolio',
     })
+    // position-sizing-spec lot-tag fields are frozen onto the tranche-alert payload (§2/§3/§4/§5.5).
+    expect(contract('holding_monitor_alert_recorded')?.payload_fields).toEqual(
+      expect.arrayContaining([
+        'ladder_id',
+        'tranche_id',
+        'trigger_type',
+        'buy_price_version',
+        'deployed_pct',
+        'target_weight',
+        'tranche_blocked',
+        'tranche_block_reason',
+      ]),
+    )
     expect(contract('holding_shariah_grace_started')).toMatchObject({
       aggregate_type: 'holding',
       actor_type: 'worker',

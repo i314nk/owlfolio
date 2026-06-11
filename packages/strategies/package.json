@@ -16,6 +16,7 @@
     "./evaluateGates": "./src/evaluateGates.ts",
     "./strategyContract": "./src/strategyContract.ts",
     "./positionSizing": "./src/positionSizing.ts",
+    "./sizingParams": "./src/sizingParams.ts",
     "./valuationParams": "./src/valuationParams.ts",
     "./valuationConfigEvent": "./src/valuationConfigEvent.ts",
     "./calibrationRunEvent": "./src/calibrationRunEvent.ts",

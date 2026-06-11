@@ -19,6 +19,13 @@ import {
   type ShariahFinancialVerdict,
 } from '@owlfolio/strategies/shariahFinancialRatios'
 import type { StrategyContract } from '@owlfolio/strategies/strategyContract'
+import type { LadderId, SizingParams } from '@owlfolio/strategies/sizingParams'
+import {
+  evaluateSizingTranche,
+  suggestLadder,
+  type SizingCaseStatus,
+  type SizingTrancheAlert,
+} from './positionSizingEngine'
 
 /** Case is "fresh" only when younger than this many months (spec: <12 mo). */
 export const CASE_STALENESS_MONTHS = 12
@@ -61,6 +68,19 @@ export type MonitorHoldingInput = {
   case_updated_at?: string
   /** Tranche ids already filled for this holding (so a filled tranche does not re-fire). */
   filled_tranche_ids?: string[]
+  /**
+   * The position's confirmed, IMMUTABLE ladder id (position-sizing-spec §2). Chosen + human-confirmed at
+   * T1; fixed thereafter. When absent, the engine falls back to the configured default ladder via the
+   * temperature hook (temperature input deferred until the Marks overlay lands).
+   */
+  ladder_id?: LadderId
+  /**
+   * Months since the last tranche FILL (or last re-anchor — whichever reset the clock most recently;
+   * spec §4). Drives time-completion. Undefined → time-completion is not evaluated.
+   */
+  months_since_last_fill?: number
+  /** Current position weight as a fraction of investable capital (spec §1/§5 per-name cap check). */
+  current_weight?: number
 }
 
 // ---------------------------------------------------------------------------
@@ -358,6 +378,64 @@ export function evaluateTrancheTriggers(
       ? `${holding.ticker ?? holding.holding_id}: tranche-review — price ${opts.current_price} reached ${triggered.join('/')} trigger(s). ${TRANCHE_THESIS_GATED_NOTE} Observation only.`
       : `${holding.ticker ?? holding.holding_id}: no unfilled tranche trigger reached`,
   }
+}
+
+// ---------------------------------------------------------------------------
+// Holdings Monitor (Module 7): position-sizing tranche engine (position-sizing-spec §2–§5)
+// ---------------------------------------------------------------------------
+
+/**
+ * The richer, config-driven tranche evaluation (position-sizing-spec §2–§5). Bridges the holding/case
+ * monitor inputs to the pure positionSizingEngine: re-anchored levels (§3), time-completion (§4), the
+ * discipline gates (thesis-break / stale / per-name cap, §5), and deployed-% reporting (§5.5). Every
+ * output is a DRAFT/observation carrying the lot-tag fields (tranche_id, trigger_type, buy_price_version)
+ * so the human's confirm event can record them. Never an auto-fill.
+ *
+ * Inputs:
+ *   - the holding's confirmed ladder (defaulted via the temperature hook when absent), filled tranches,
+ *     months-since-last-fill, and current weight;
+ *   - the case's CURRENT (already re-anchored) buy price + version, staleness, thesis-break status, and
+ *     whether the most recent scheduled re-check is clean.
+ *
+ * Re-anchoring is the caller's responsibility (recompute FV/buy on a thesis re-check, then pass the new
+ * buy price + version + a reset clock here) — see positionSizingEngine.reanchorTrancheLevels.
+ */
+export function evaluateHoldingTranche(
+  holding: MonitorHoldingInput,
+  caseStatus: {
+    buy_price: number
+    buy_price_version: string
+    thesis_break_unresolved: boolean
+    stale: boolean
+    stale_reason?: string
+    recheck_clean: boolean
+  },
+  opts: { current_price: number; sleeve_id?: string; params?: SizingParams },
+): SizingTrancheAlert {
+  // Ladder: the position's confirmed immutable ladder, else the temperature-hook default (normal).
+  const ladderId: LadderId = holding.ladder_id ?? suggestLadder(undefined, opts.params)
+  const sizingCase: SizingCaseStatus = {
+    buy_price: caseStatus.buy_price,
+    buy_price_version: caseStatus.buy_price_version,
+    thesis_break_unresolved: caseStatus.thesis_break_unresolved,
+    stale: caseStatus.stale,
+    ...(caseStatus.stale_reason === undefined ? {} : { stale_reason: caseStatus.stale_reason }),
+    recheck_clean: caseStatus.recheck_clean,
+  }
+  return evaluateSizingTranche({
+    case_status: sizingCase,
+    position: {
+      ladder_id: ladderId,
+      filled_tranche_ids: holding.filled_tranche_ids ?? [],
+      ...(holding.months_since_last_fill === undefined ? {} : { months_since_last_fill: holding.months_since_last_fill }),
+      ...(holding.current_weight === undefined ? {} : { current_weight: holding.current_weight }),
+    },
+    current_price: opts.current_price,
+    ...(holding.ticker === undefined ? {} : { ticker: holding.ticker }),
+    holding_id: holding.holding_id,
+    ...(opts.sleeve_id === undefined ? {} : { sleeve_id: opts.sleeve_id }),
+    ...(opts.params === undefined ? {} : { params: opts.params }),
+  })
 }
 
 // ---------------------------------------------------------------------------

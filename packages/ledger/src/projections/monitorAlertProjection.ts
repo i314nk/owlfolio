@@ -185,13 +185,24 @@ function holdingMonitorAlerts(event: LedgerEventEnvelope<unknown>, payload: Reco
   if (getBoolean(payload, 'tranche_review_alert')) {
     const tranches = getStringArray(payload, 'triggered_tranches')
     const note = getString(payload, 'thesis_gated_note') ?? 'thesis re-check FIRST, then deploy — never mechanical averaging-down.'
+    // position-sizing-spec lot-tag fields (§2/§3/§4/§5.5) — surfaced so the human's confirm event can
+    // record the lot tags (tranche_id, trigger_type, buy_price_version).
+    const trancheId = getString(payload, 'tranche_id') ?? (tranches[0] ?? 'pullback')
+    const triggerType = getString(payload, 'trigger_type')
+    const buyPriceVersion = getString(payload, 'buy_price_version')
+    const deployedPct = getNumber(payload, 'deployed_pct')
+    const triggerLabel = triggerType === 'time_completion'
+      ? 'time-completion (≥6 clean months at/below buy)'
+      : 'price'
+    const deployedNote = deployedPct === undefined ? '' : ` Deployed ${Math.round(deployedPct * 100)}% of target.`
+    const versionNote = buyPriceVersion === undefined ? '' : ` (buy_price_version ${buyPriceVersion})`
     alerts.push({
       id: `${baseId}:tranche`,
       kind: 'tranche',
       subject,
       severity: 'attention',
-      headline: `${label}: tranche trigger ${tranches.join('/') || 'reached'}`,
-      detail: `Price reached the ${tranches.join('/') || 'pullback'} tranche trigger. ${note} This is advisory — you deploy.`,
+      headline: `${label}: ${trancheId} tranche trigger (${triggerLabel})`,
+      detail: `The ${trancheId} tranche fired by ${triggerLabel}${versionNote}. ${note} This is a DRAFT — you author the fill with lot tags.${deployedNote}`,
       recorded_at: event.created_at,
       is_observation: true,
       is_draft: false,

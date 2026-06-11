@@ -40,15 +40,18 @@ import { resolveCurrentPrice, type PriceSource } from '@owlfolio/workflow/market
 import {
   evaluateWatchlistBuyWindow,
   evaluateTrancheTriggers,
+  evaluateHoldingTranche,
   evaluateConcentration,
   evaluateAnnualRerun,
   evaluateShariahRescreen,
   evaluateShariahGrace,
+  isGateClean,
   SHARIAH_GRACE_DAYS,
   type MonitorResearchCaseInput,
   type MonitorHoldingInput,
 } from '@owlfolio/workflow/lifecycleMonitors'
 import { buffettMungerStrategy } from '@owlfolio/strategies/buffettMunger'
+import { VALUATION_PARAMS } from '@owlfolio/strategies/valuationParams'
 import type { ShariahFinancialRatioInputs } from '@owlfolio/strategies/shariahFinancialRatios'
 import { selectResearchCaseAction } from '@owlfolio/workflow/researchCasePolicy'
 import { runStrategyResearchSwarm, runResearchDeepDivePhase, type GroundFn } from '@owlfolio/workflow/researchSwarm'
@@ -1109,15 +1112,66 @@ async function runHoldingsMonitorTask(
     let trancheTriggered: string[] = []
     let trancheAlert = false
     let trancheNote: string | undefined
+    // position-sizing-spec lot-tag fields (§2/§3/§4/§5.5), populated from the rich engine when a price
+    // and a case buy price are available; advisory only, the human authors the fill.
+    let trancheLotTags: {
+      ladder_id?: string
+      tranche_id?: string
+      trigger_type?: string
+      buy_price_version?: string
+      deployed_pct?: number
+      target_weight?: number
+      tranche_blocked?: boolean
+      tranche_block_reason?: string
+    } = {}
     if (ticker !== undefined) {
       const quote = await resolveCurrentPrice({ ticker }, undefined, options.priceSource)
       if (quote.available) {
-        const tranche = evaluateTrancheTriggers(buffettMungerStrategy, monitorHolding, { current_price: quote.price_per_share })
-        trancheTriggered = tranche.triggered_tranches
-        trancheAlert = tranche.tranche_review_alert
-        trancheNote = tranche.thesis_gated_note
-        if (tranche.tranche_review_alert) {
-          observations.push(tranche.message)
+        // Legacy price-trigger set (kept for the triggered_tranches field + backward compatibility).
+        const legacy = evaluateTrancheTriggers(buffettMungerStrategy, monitorHolding, { current_price: quote.price_per_share })
+        trancheTriggered = legacy.triggered_tranches
+        trancheNote = legacy.thesis_gated_note
+
+        // Rich, config-driven engine (position-sizing-spec §2–§5): re-anchored levels + time-completion +
+        // discipline gates + deployed-%. The case buy price IS the current (re-anchored) buy price; its
+        // version is the valuation-params version that produced it (the case does not yet persist a
+        // dedicated buy_price_version — this is the stable seam). Thesis-break DETECTION is the deferred
+        // T3 piece, so thesis_break_unresolved defaults false here; recheck_clean follows the gate.
+        const buyPrice = monitorHolding.entry_buy_price
+        if (buyPrice !== undefined && Number.isFinite(buyPrice) && buyPrice > 0) {
+          const gate = isGateClean({
+            ...(researchCase?.investment_verdict === undefined ? {} : { investment_verdict: researchCase.investment_verdict }),
+            ...(researchCase?.shariah_status === undefined ? {} : { shariah_status: researchCase.shariah_status }),
+          })
+          const caseStale = researchCase?.superseded === true
+          const rich = evaluateHoldingTranche(
+            monitorHolding,
+            {
+              buy_price: buyPrice,
+              buy_price_version: VALUATION_PARAMS.version,
+              thesis_break_unresolved: false,
+              stale: caseStale,
+              ...(caseStale ? { stale_reason: 'research case superseded — re-run before any tranche' } : {}),
+              recheck_clean: gate.clean,
+            },
+            { current_price: quote.price_per_share },
+          )
+          trancheAlert = rich.alert
+          trancheLotTags = {
+            ladder_id: rich.ladder_id,
+            ...(rich.tranche_id === undefined ? {} : { tranche_id: rich.tranche_id }),
+            ...(rich.trigger_type === undefined ? {} : { trigger_type: rich.trigger_type }),
+            buy_price_version: rich.buy_price_version,
+            deployed_pct: rich.deployed_pct,
+            tranche_blocked: rich.blocked,
+            ...(rich.block_reason === undefined ? {} : { tranche_block_reason: rich.block_reason }),
+          }
+          if (rich.alert || rich.blocked) {
+            observations.push(rich.message)
+          }
+        } else if (legacy.tranche_review_alert) {
+          trancheAlert = true
+          observations.push(legacy.message)
         }
       } else {
         observations.push(`${ticker}: no auto price for tranche triggers (${quote.reason})`)
@@ -1172,6 +1226,15 @@ async function runHoldingsMonitorTask(
         tranche_review_alert: trancheAlert,
         triggered_tranches: trancheTriggered,
         ...(trancheNote === undefined ? {} : { thesis_gated_note: trancheNote }),
+        // position-sizing-spec lot-tag fields (§2/§3/§4/§5.5) — carried so the human's confirm event can
+        // record the lot tags. Present only when the rich engine ran (price + buy price available).
+        ...(trancheLotTags.ladder_id === undefined ? {} : { ladder_id: trancheLotTags.ladder_id }),
+        ...(trancheLotTags.tranche_id === undefined ? {} : { tranche_id: trancheLotTags.tranche_id }),
+        ...(trancheLotTags.trigger_type === undefined ? {} : { trigger_type: trancheLotTags.trigger_type }),
+        ...(trancheLotTags.buy_price_version === undefined ? {} : { buy_price_version: trancheLotTags.buy_price_version }),
+        ...(trancheLotTags.deployed_pct === undefined ? {} : { deployed_pct: trancheLotTags.deployed_pct }),
+        ...(trancheLotTags.tranche_blocked === undefined ? {} : { tranche_blocked: trancheLotTags.tranche_blocked }),
+        ...(trancheLotTags.tranche_block_reason === undefined ? {} : { tranche_block_reason: trancheLotTags.tranche_block_reason }),
         trim_review_alert: concentration.trim_review_alert,
         ...(concentration.weight_pct === undefined ? {} : { weight_pct: concentration.weight_pct }),
         rerun_needed: annual.rerun_needed,
