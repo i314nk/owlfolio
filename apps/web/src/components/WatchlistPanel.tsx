@@ -26,7 +26,56 @@ const WATCHLIST_ALERT_TONE: Record<MonitorAlert['severity'], 'danger' | 'warning
  * Returns a Fragment so each section is a direct child of the route frame and
  * inherits the app's staggered reveal.
  */
+// ── Verdict-band sections (valuation-recalibration §2): BUY-WINDOW / WATCH-FAIR / WATCH ──
+type VerdictBand = 'BUY-WINDOW' | 'WATCH-FAIR' | 'WATCH' | 'UNCLASSIFIED'
+
+const BAND_ORDER: VerdictBand[] = ['BUY-WINDOW', 'WATCH-FAIR', 'WATCH', 'UNCLASSIFIED']
+
+const BAND_META: Record<VerdictBand, { title: string; note: string }> = {
+  'BUY-WINDOW': {
+    title: 'Buy-window',
+    note: 'Price is at or below the case buy price on a gate-clean case. Observation only — you author every buy.',
+  },
+  'WATCH-FAIR': {
+    title: 'Watch-fair',
+    note: 'Wonderful at fair — quality at fair value, the human-discretion zone. Never a harness buy signal.',
+  },
+  WATCH: {
+    title: 'Watch',
+    note: 'Tracked above fair value; waiting for a margin of safety to open.',
+  },
+  UNCLASSIFIED: {
+    title: 'Tracked (no verdict band yet)',
+    note: 'No valuation/verdict band computed yet — run or re-run the case to classify it.',
+  },
+}
+
+function bandFor(item: AppWatchlistItem): VerdictBand {
+  const state = item.verdict?.state
+  if (state === 'BUY-WINDOW' || state === 'WATCH-FAIR' || state === 'WATCH') {
+    return state
+  }
+  return 'UNCLASSIFIED'
+}
+
 export function WatchlistPanel({ items, mode = 'demo', alerts = [] }: WatchlistPanelProps) {
+  const sectionsForBand = (band: VerdictBand) => {
+    const bandItems = items.filter((item) => bandFor(item) === band)
+    if (bandItems.length === 0) {
+      return []
+    }
+    const meta = BAND_META[band]
+    return [
+      createElement(
+        'section',
+        { key: `band-${band}`, 'aria-label': `${meta.title} candidates`, 'data-verdict-band': band, className: 'owl-section-card', style: { gap: 'var(--owl-space-2)' } },
+        createElement('p', { className: 'owl-section-accent' }, `${meta.title} · ${bandItems.length}`),
+        createElement('p', { className: 'owl-row-helper', style: { margin: 0 } }, meta.note),
+      ),
+      ...bandItems.map((item) => createWatchlistCard(item, mode, alerts.filter((alert) => alert.subject.watchlist_item_id === item.watchlist_item_id))),
+    ]
+  }
+
   return createElement(
     Fragment,
     null,
@@ -39,7 +88,7 @@ export function WatchlistPanel({ items, mode = 'demo', alerts = [] }: WatchlistP
     createLedgerLine(items),
     ...(items.length === 0
       ? [createEmptyState()]
-      : items.map((item) => createWatchlistCard(item, mode, alerts.filter((alert) => alert.subject.watchlist_item_id === item.watchlist_item_id)))),
+      : BAND_ORDER.flatMap((band) => sectionsForBand(band))),
   )
 }
 
@@ -164,10 +213,64 @@ function createWatchlistCard(item: AppWatchlistItem, mode: WorkflowMode, alerts:
       createDetail('Buy-zone status', item.buy_zone_status ?? 'Not set'),
       ...createShariahGateDetails(item),
     ),
+    // Verdict band: distance-to-buy-price + staleness indicator (position-sizing §5).
+    createVerdictBandDetails(item),
     // Agent observations on this candidate (buy-window / staleness / Shariah re-screen).
     createWatchlistAlerts(alerts),
     // The decision checkpoint: provenance + the user's authorization actions.
     createDecisionCheckpoint(item, mode),
+  )
+}
+
+/**
+ * Verdict-band figures for one candidate: buy price, the distance from the case buy price (no live quote
+ * → said so honestly, never a fake "in the window"), and a staleness indicator (>12mo since the case
+ * was last run → must re-run before any tranche alert, per position-sizing §5).
+ */
+function createVerdictBandDetails(item: AppWatchlistItem) {
+  const verdict = item.verdict
+  if (verdict === undefined) {
+    return null
+  }
+
+  const lines = []
+  if (verdict.buy_price_per_share !== undefined) {
+    lines.push(createDetail('Case buy price', `$${verdict.buy_price_per_share.toFixed(2)}`))
+  }
+  if (verdict.distance_to_buy_pct !== undefined) {
+    const pct = verdict.distance_to_buy_pct
+    lines.push(createDetail(
+      'Distance to buy price',
+      pct <= 0 ? `${Math.abs(pct).toFixed(1)}% below buy price — in the buy window` : `${pct.toFixed(1)}% above buy price`,
+    ))
+  } else {
+    lines.push(createDetail('Distance to buy price', 'No live market quote — distance not available'))
+  }
+  if (verdict.discount_to_fv_pct !== undefined) {
+    lines.push(createDetail('Discount to fair value', `${verdict.discount_to_fv_pct.toFixed(1)}%`))
+  }
+
+  const staleness = verdict.is_stale === undefined
+    ? 'Case freshness unknown'
+    : verdict.is_stale
+      ? `Stale (>12 months since last run${verdict.case_updated_at === undefined ? '' : `, last ${verdict.case_updated_at.slice(0, 10)}`}) — re-run before any tranche alert`
+      : `Fresh${verdict.case_updated_at === undefined ? '' : ` (last run ${verdict.case_updated_at.slice(0, 10)})`}`
+
+  return createElement(
+    'div',
+    { 'data-testid': 'watchlist-verdict-band', style: { display: 'grid', gap: '0.2rem', marginTop: 'var(--owl-space-2)' } },
+    createElement('p', { className: 'owl-section-accent' }, 'Verdict band'),
+    ...lines,
+    createElement(
+      'p',
+      { className: 'owl-body', style: { margin: '0.55rem 0 0' } },
+      createElement('strong', { style: { color: 'var(--owl-color-text)', fontWeight: 700 } }, 'Staleness: '),
+      createElement(
+        'span',
+        { style: { color: verdict.is_stale ? 'var(--owl-color-risk-bright, #fca5a5)' : 'var(--owl-color-muted)' } },
+        staleness,
+      ),
+    ),
   )
 }
 

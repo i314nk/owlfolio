@@ -1,4 +1,4 @@
-import { createElement, Fragment } from 'react'
+import { createElement, Fragment, type ReactNode } from 'react'
 
 import type { InvestableCapitalSnapshot } from '@owlfolio/ledger/projections/investableCapitalProjection'
 
@@ -136,21 +136,45 @@ function createHoldingAlerts(alerts: MonitorAlert[]) {
     createElement('p', { className: 'owl-section-accent' }, 'Agent observations & drafts — you decide'),
     ...alerts.map((alert) => createElement(
       'div',
-      { key: alert.id, className: 'owl-row owl-row-top' },
+      { key: alert.id, className: 'owl-row owl-row-top', 'data-alert-kind': alert.kind },
       createElement(
         'div',
         { className: 'owl-row-main' },
         createElement(
           'div',
-          { className: 'owl-activity-meta', style: { marginBottom: '0.2rem' } },
+          { className: 'owl-activity-meta', style: { marginBottom: '0.2rem', display: 'flex', flexWrap: 'wrap', gap: '0.4rem' } },
           createElement(StatusBadge, { tone: HOLDING_ALERT_TONE[alert.severity] }, alert.severity === 'urgent' ? 'Urgent' : alert.severity === 'attention' ? 'Attention' : 'Watch'),
           createElement(StatusBadge, { tone: 'neutral' }, alert.is_draft ? 'Draft — you author' : 'Observation'),
+          ...alertKindTag(alert),
         ),
         createElement('p', { className: 'owl-row-title' }, alert.headline),
         createElement('p', { className: 'owl-row-helper' }, alert.detail),
       ),
     )),
   )
+}
+
+/**
+ * A kind tag for a holding alert, so per-lot tranche fills, deployment, thesis-break, and Shariah grace
+ * read as distinct labels (UI-continuity Rule 2: per-lot tranche tags, deployed % vs target, thesis-trigger
+ * status, Shariah grace countdown). The figures themselves (tranche_id, deployed_pct, days-left, buy_price_
+ * version) are carried in the alert headline/detail from the monitor projection.
+ */
+function alertKindTag(alert: MonitorAlert): ReactNode[] {
+  const labelByKind: Partial<Record<MonitorAlert['kind'], string>> = {
+    tranche: 'Tranche / lot',
+    concentration: 'Deployed vs target',
+    shariah_grace: 'Shariah grace countdown',
+    shariah_rescreen: 'Shariah re-screen',
+    divest_required: 'Thesis trigger',
+    sell_review: 'Thesis trigger',
+    annual_rerun: 'Thesis re-check',
+  }
+  const label = labelByKind[alert.kind]
+  if (label === undefined) {
+    return []
+  }
+  return [createElement(StatusBadge, { key: 'kind', tone: alert.kind === 'shariah_grace' || alert.kind === 'divest_required' ? 'warning' : 'neutral' }, label)]
 }
 
 function createPortfolioLedgerLine(holdings: AppHolding[], totalCurrentValue: number) {

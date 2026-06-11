@@ -1,4 +1,4 @@
-import { createElement } from 'react'
+import { createElement, type ReactNode } from 'react'
 
 import type { PositionPlan, PositionTranche } from '@owlfolio/strategies/positionSizing'
 
@@ -119,6 +119,8 @@ export function ResearchCasePanel({ researchCase, mode = 'demo', marketQuote, po
     { style: { display: 'grid', gap: '1rem' } },
     // ── 1. Verdict hero ─────────────────────────────────────────────────────
     createVerdictHero(researchCase),
+    // ── 1a. The full verdict format (organizes the spec's verdict fields) ────
+    createVerdictFormatBlock(researchCase),
     // ── 1b. What changed since last case (re-analysis diff) ──────────────────
     createReAnalysisDiffPanel(researchCase),
     // ── 1c. Exit post-mortem (predicted vs realized) ─────────────────────────
@@ -504,6 +506,88 @@ function createAwaitingDeepDiveDossier(researchCase: AppResearchCase) {
     ),
     // Still render evidence for audit trail visibility
     createEvidenceAndAuditDetails(researchCase),
+  )
+}
+
+// ── The full verdict format (UI-continuity-spec Rule 2: Case/verdict view) ────
+//
+// Organizes the spec's verdict format into one coherent block: tier + runway, OE + method, credited g →
+// terminal, implied multiple + market-implied g, buy price + buy_price_version, Shariah status +
+// purification %, the rubric scores + anchor-vs-proposed tier, key-wrong-assumption, thesis-break triggers,
+// and the red-team objection + response. The underlying detail still renders in the valuation / lanes
+// panels below; this block is the spec's organized verdict header. Absent fields render "Not yet
+// available" honestly (e.g. market-implied g if not computed, or a key-wrong-assumption not recorded).
+
+function verdictFormatLine(label: string, value: ReactNode) {
+  return createElement(
+    'div',
+    { key: label, style: { alignItems: 'baseline', display: 'flex', flexWrap: 'wrap', gap: '0.6rem', justifyContent: 'space-between', borderBottom: '1px solid rgba(148,163,184,0.1)', padding: '0.4rem 0' } },
+    createElement('span', { style: { color: 'var(--owl-color-muted)', fontWeight: 700, minWidth: '14rem' } }, label),
+    createElement('span', { style: { color: 'var(--owl-color-text)', textAlign: 'right' } }, value),
+  )
+}
+
+const NOT_YET = createElement('span', { style: { color: 'var(--owl-color-quiet)' } }, 'Not yet available')
+
+function createVerdictFormatBlock(researchCase: AppResearchCase) {
+  const valuation = researchCase.valuation
+  // Only render the organized verdict format once a deep-dive valuation exists (gated/awaiting states
+  // have their own dossiers handled above).
+  if (valuation === undefined) {
+    return null
+  }
+
+  const moatClass = valuation.moat_class
+  const runway = valuation.runway
+  const oe = valuation.normalized_owner_earnings_per_share
+  const g = valuation.growth_rate
+  const terminalG = valuation.terminal_growth_rate
+  const impliedMultiple = valuation.implied_multiple ?? valuation.verdict_state?.implied_multiple
+  const buyPrice = valuation.buy_price_per_share
+  const buyPriceVersion = (valuation as { buy_price_version?: string }).buy_price_version
+  const sf = researchCase.shariah_financial
+  const purificationPct = sf?.purification_pct
+
+  // Anchor-vs-proposed tier + rubric scores (judgment-objectivity layer).
+  const moatJudgment = valuation.judgment?.moat
+  const anchorVsProposed = moatJudgment === undefined
+    ? NOT_YET
+    : createElement('span', null, `${(moatJudgment.anchor_tier ?? '—').toUpperCase()} anchor → ${(moatJudgment.proposed_tier ?? '—').toUpperCase()} proposed → ${(moatJudgment.resolved_tier ?? '—').toUpperCase()} resolved`)
+  const rubricScores = moatJudgment?.rubric_scores
+  const rubricSummary = rubricScores === undefined || rubricScores.length === 0
+    ? NOT_YET
+    : createElement('span', null, rubricScores.map((s) => `${s.id} ${s.score}`).join(' · '))
+
+  // Red-team objection + response.
+  const redTeam = researchCase.red_team
+  const redTeamLine = redTeam === undefined
+    ? NOT_YET
+    : redTeam.status === 'red_team_incomplete'
+      ? createElement('span', { style: { color: '#fca5a5' } }, 'red_team_incomplete — case not adversarially tested')
+      : createElement('span', null, redTeam.strongest_objection?.claim ?? 'Objection recorded')
+
+  const lines: ReactNode[] = [
+    verdictFormatLine('Tier + runway', moatClass === undefined ? NOT_YET : `${moatClass.toUpperCase()}${runway === undefined ? '' : ` · ${runway} runway`}`),
+    verdictFormatLine('Owner earnings + method', oe === undefined ? NOT_YET : `$${oe.toFixed(2)}/sh · two-stage discounted owner earnings`),
+    verdictFormatLine('Credited g → terminal', g === undefined ? NOT_YET : `${(g * 100).toFixed(1)}%${terminalG === undefined ? '' : ` → ${(terminalG * 100).toFixed(1)}% terminal`}`),
+    verdictFormatLine('Implied multiple', impliedMultiple === undefined ? NOT_YET : `${impliedMultiple.toFixed(1)}× OE`),
+    // Market-implied g is not computed by the harness yet → honest "not yet available".
+    verdictFormatLine('Market-implied g', NOT_YET),
+    verdictFormatLine('Buy price + version', buyPrice === undefined ? NOT_YET : `$${buyPrice}${buyPriceVersion === undefined ? ' (buy_price_version not recorded)' : ` (buy_price_version ${buyPriceVersion})`}`),
+    verdictFormatLine('Shariah + purification', researchCase.shariah_status === undefined ? NOT_YET : `${researchCase.shariah_status}${purificationPct === undefined ? '' : ` · purification ${(purificationPct * 100).toFixed(1)}%`}`),
+    verdictFormatLine('Anchor vs proposed tier', anchorVsProposed),
+    verdictFormatLine('Rubric scores', rubricSummary),
+    verdictFormatLine('Key-wrong assumption', NOT_YET),
+    verdictFormatLine('Thesis-break triggers', NOT_YET),
+    verdictFormatLine('Red-team objection', redTeamLine),
+  ]
+
+  return createElement(
+    'section',
+    { 'data-testid': 'verdict-format', className: 'owl-section-card', style: { gap: '0.3rem' } },
+    createElement('p', { className: 'owl-section-accent' }, 'Verdict format'),
+    createElement('p', { style: { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-sm)', margin: '0 0 0.5rem' } }, 'The full verdict at a glance. Fields not yet computed are shown honestly as not-yet-available; the gate table, rubric detail, and red-team response render in full below.'),
+    ...lines,
   )
 }
 

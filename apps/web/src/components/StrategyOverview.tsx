@@ -9,6 +9,12 @@ import {
   twoStageFairValuePerShare,
 } from '@owlfolio/strategies/buffettMunger'
 import { buffettMungerDeepDiveLanes } from '@owlfolio/workflow/strategyResearchPipeline'
+import {
+  SIZING_PARAMS,
+  TRANCHE_TRIGGER_MULTIPLIER,
+  type LadderId,
+  type TrancheTrigger,
+} from '@owlfolio/strategies/sizingParams'
 
 import { RouteHeader, OwlValuationChip } from './designSystem'
 
@@ -290,6 +296,45 @@ function trancheTriggerLabel(tranche: (typeof TRANCHES)[number]): string {
   return `${pct(tranche.pct)} below buy price`
 }
 
+// ── Tranche ladders (position-sizing-spec §2–§4) — read from SIZING_PARAMS ────
+const TIME_COMPLETION_MONTHS = SIZING_PARAMS.time_completion_months
+const REGIME_THRESHOLD = SIZING_PARAMS.regime_temperature_threshold
+
+const LADDER_META: Record<LadderId, { name: string; regime: string }> = {
+  cold: { name: 'Cold-regime ladder', regime: `dislocation · temperature ≥ ${REGIME_THRESHOLD + 1}` },
+  normal: { name: 'Normal / warm-regime ladder', regime: `temperature ≤ ${REGIME_THRESHOLD} · the default` },
+}
+
+/** Human label for a tranche price trigger, derived from the config multiplier (never hardcoded). */
+function ladderTriggerLabel(trigger: TrancheTrigger): string {
+  const mult = TRANCHE_TRIGGER_MULTIPLIER[trigger]
+  if (mult >= 1) {
+    return 'price ≤ buy price'
+  }
+  const drop = Math.round((1 - mult) * 100)
+  return `price ≤ buy × ${mult.toFixed(2)} (−${drop}%) or time-completion`
+}
+
+/** One ladder rendered as a fraction/trigger/gate table, sourced from SIZING_PARAMS. */
+function LadderTable(ladderId: LadderId): ReactNode {
+  const def = SIZING_PARAMS.ladders[ladderId]
+  const meta = LADDER_META[ladderId]
+  return createElement(
+    'div',
+    { key: ladderId, 'data-ladder': ladderId, style: { display: 'flex', flexDirection: 'column', gap: '0.4rem' } },
+    createElement('p', { style: microLabel }, `${meta.name} · ${meta.regime}`),
+    Table({
+      headings: ['Tranche', 'Fraction', 'Trigger', 'Gate'],
+      rows: def.rungs.map((rung) => [
+        createElement('span', { style: goldText }, rung.id),
+        createElement('span', { style: monoFigure }, pct(rung.fraction)),
+        ladderTriggerLabel(rung.trigger),
+        rung.trigger === 'buy' ? 'Entry (fresh, gate-clean case)' : createElement('span', { style: goldText }, 'Thesis re-check'),
+      ]),
+    }),
+  )
+}
+
 // ── Component ────────────────────────────────────────────────────────────────
 export function StrategyOverview(): ReactNode {
   return createElement(
@@ -508,6 +553,67 @@ export function StrategyOverview(): ReactNode {
             t.id === 'T1' ? 'Entry' : createElement('span', { style: goldText }, 'Thesis re-check'),
           ]),
         }),
+      ),
+    }),
+
+    // 7b. Tranche ladders (position-sizing-spec §2–§4) — both ladders + re-anchoring + time-completion
+    Section({
+      eyebrow: 'Tranche ladders',
+      title: 'How a position is laddered in',
+      lead: createElement(
+        'span',
+        null,
+        'Tranches buy information, not just price. Entry is laddered across rungs, each beyond T1 gated by a thesis re-check. The harness suggests a ladder from the regime temperature at T1 (temperature ≤ ',
+        createElement('span', { style: monoFigure }, String(REGIME_THRESHOLD)),
+        ' → normal; ≥ ',
+        createElement('span', { style: monoFigure }, String(REGIME_THRESHOLD + 1)),
+        ' → cold); you confirm it in the T1 ledger entry and it is fixed for that position thereafter. Fractions and triggers below are read from the live sizing config.',
+      ),
+      children: createElement(
+        'div',
+        { style: { display: 'flex', flexDirection: 'column', gap: '1.1rem' } },
+        createElement(
+          'div',
+          { style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '0.9rem' } },
+          LadderTable('normal'),
+          LadderTable('cold'),
+        ),
+        // Re-anchoring + time-completion rules (spec §3, §4)
+        createElement(
+          'div',
+          { style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '0.9rem' } },
+          createElement(
+            'div',
+            { style: { ...bodyStyle, background: 'var(--owl-color-panel)', border: '1px solid var(--owl-color-border)', borderRadius: 'var(--owl-radius-card)', padding: '0.85rem 1rem' } },
+            createElement('p', { style: { ...microLabel, marginBottom: '0.4rem' } }, 'Re-anchoring — tranches are value events'),
+            createElement(
+              'p',
+              { style: { margin: 0 } },
+              'Every thesis re-check recomputes fair value and buy price from current data. ',
+              createElement('span', { style: goldText }, 'All untriggered tranche levels re-anchor to the recomputed buy price immediately'),
+              ' — the old price path is irrelevant. A −10% "discount" off a stale buy price is no discount against deteriorated fundamentals. The ledger records each tranche alert with the buy-price version it was computed against.',
+            ),
+          ),
+          createElement(
+            'div',
+            { style: { ...bodyStyle, background: 'var(--owl-color-panel)', border: '1px solid var(--owl-color-border)', borderRadius: 'var(--owl-radius-card)', padding: '0.85rem 1rem' } },
+            createElement('p', { style: { ...microLabel, marginBottom: '0.4rem' } }, 'Time-completion — cheaper or confirmed'),
+            createElement(
+              'p',
+              { style: { margin: 0 } },
+              'If price has stayed at or below the re-anchored buy price for ',
+              createElement('span', { style: monoFigure }, `${TIME_COMPLETION_MONTHS} months`),
+              ' since the last fill and the latest re-check is clean, the next tranche fires at the prevailing price, flagged ',
+              createElement('span', { style: { ...monoFigure, color: 'var(--owl-color-gold-bright)' } }, 'trigger: time_completion'),
+              '. Time-completion substitutes only for the price trigger — never for the thesis re-check. The clock resets on every fill and every re-anchoring.',
+            ),
+          ),
+        ),
+        createElement(
+          'p',
+          { style: { color: 'var(--owl-color-quiet)', fontSize: 'var(--owl-text-sm)', margin: 0 } },
+          'T2/T3 alerts are blocked while any thesis-break trigger is unresolved, regardless of price. Tranche alerts are drafts; you author every fill as a ledger event with lot-level tags (tranche_id, trigger_type, buy_price_version).',
+        ),
       ),
     }),
 

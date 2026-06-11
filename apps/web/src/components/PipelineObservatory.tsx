@@ -183,6 +183,54 @@ function LedgerLine({ summary }: { summary: PipelineProjection['summary'] }): Re
   )
 }
 
+// ── Verdict-state legend (UI-continuity Rule 2) ───────────────────────────────
+// Distinct badges for the lifecycle/recalibration verdict states the pipeline can emit, so an operator
+// reads the same vocabulary the case view uses. These are LABELS for states the cases carry, not new state.
+type VerdictBadge = { state: string; bg: string; border: string; color: string; note: string }
+
+const VERDICT_BADGES: VerdictBadge[] = [
+  { state: 'TOO-HARD', bg: 'rgba(148,163,184,0.12)', border: 'rgba(148,163,184,0.32)', color: 'var(--owl-color-muted)', note: 'Outside the circle of competence — set aside, not failed.' },
+  { state: 'GATED', bg: 'rgba(239,68,68,0.12)', border: 'rgba(239,68,68,0.36)', color: '#fca5a5', note: 'Stopped at a hard gate (sub-wide moat or Shariah) — deep dive skipped.' },
+  { state: 'WATCH-FAIR', bg: 'rgba(214,178,94,0.16)', border: 'rgba(214,178,94,0.42)', color: 'var(--owl-color-gold-bright)', note: 'Wonderful at fair — human-discretion zone, never a harness buy signal.' },
+]
+
+function verdictBadgeChip(badge: VerdictBadge): ReactNode {
+  return createElement(
+    'span',
+    {
+      key: badge.state,
+      'data-verdict-state': badge.state,
+      style: {
+        alignItems: 'center',
+        background: badge.bg,
+        border: `1px solid ${badge.border}`,
+        borderRadius: '999px',
+        color: badge.color,
+        display: 'inline-flex',
+        fontFamily: 'var(--owl-font-mono)',
+        fontSize: 'var(--owl-text-2xs)',
+        fontWeight: 700,
+        letterSpacing: '0.04em',
+        padding: '0.2rem 0.6rem',
+      },
+    },
+    badge.state,
+  )
+}
+
+function VerdictStateLegend(): ReactNode {
+  return createElement(
+    'div',
+    { style: { display: 'grid', gap: '0.5rem' } },
+    ...VERDICT_BADGES.map((badge) => createElement(
+      'div',
+      { key: badge.state, style: { alignItems: 'center', display: 'flex', flexWrap: 'wrap', gap: '0.6rem' } },
+      verdictBadgeChip(badge),
+      createElement('span', { style: { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-sm)' } }, badge.note),
+    )),
+  )
+}
+
 // ── The stage-flow map ────────────────────────────────────────────────────────
 
 function StageFlowMap({ stages }: { stages: PipelineStageCount[] }): ReactNode {
@@ -547,6 +595,34 @@ export function PipelineObservatory({ pipeline, drillDown, selectedCaseId }: Pip
       { className: 'owl-section-card', style: { gap: 'var(--owl-space-3)' } },
       sectionHead('Stage flow', 'Pipeline flow', 'counts = cases currently at / passed each stage'),
       createElement(StageFlowMap, { stages: stage_counts }),
+      // Red-team step slot (UI-continuity Rule 2): the adversarial pre-synthesis pass. Labeled as a slot;
+      // the red-team data (strongest objection + synthesis response) renders on the case/verdict view.
+      createElement(
+        'div',
+        {
+          'data-pipeline-step': 'red_team',
+          style: {
+            alignItems: 'center',
+            background: 'var(--owl-color-panel)',
+            border: '1px dashed var(--owl-color-border-strong)',
+            borderRadius: 'var(--owl-radius-card)',
+            display: 'flex',
+            flexWrap: 'wrap',
+            gap: '0.5rem 0.85rem',
+            padding: '0.7rem 0.85rem',
+          },
+        },
+        createElement('span', { style: { ...monoLabel, color: 'var(--owl-color-gold)', letterSpacing: '0.08em' } }, 'Red-team pass'),
+        createElement('span', { style: { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-sm)' } }, 'Adversarial pre-synthesis step — the strongest objection + synthesis response render on each case verdict.'),
+      ),
+    ),
+
+    // Verdict states legend — TOO-HARD / GATED / WATCH-FAIR
+    createElement(
+      'section',
+      { className: 'owl-section-card', style: { gap: 'var(--owl-space-3)' } },
+      sectionHead('Verdict states', 'How the harness labels a case', 'distinct states an operator will see'),
+      createElement(VerdictStateLegend),
     ),
 
     // Active & recent runs

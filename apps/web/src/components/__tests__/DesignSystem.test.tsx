@@ -20,6 +20,7 @@ import {
   OwlValuationChip,
   PageHeader,
   SourceChip,
+  BOUNDARIES_FOOTER_TEXT,
 } from '../designSystem'
 import { AppNavigation } from '../AppNavigation'
 import { StatusBadge } from '../StatusBadge'
@@ -37,6 +38,14 @@ describe('phase 3 design system primitives', () => {
     expect(html).not.toContain('LOCAL WORKSPACE')
     expect(html).not.toContain('policy-gated')
     expect(html).toContain('Workflow content')
+  })
+
+  it('renders the honest-boundaries footer on every page via the app shell', () => {
+    const html = renderToStaticMarkup(createElement(AppShell, null, createElement('main', null, 'Workflow content')))
+    expect(html).toContain('owl-boundaries-footer')
+    expect(html).toContain(BOUNDARIES_FOOTER_TEXT)
+    expect(html).toContain('Automated output is a draft or observation — never a recommendation to act.')
+    expect(html).toContain('Every irreversible transition is human-authored.')
   })
 
   it('renders persistent navigation with dark-shell route pills and command affordance', () => {

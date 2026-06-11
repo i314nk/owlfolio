@@ -87,6 +87,63 @@ export type AppSourceEvidence = {
 export type AppWatchlistItem = WatchlistProjection & {
   buy_zone_status?: string
   holding_id?: string
+  /**
+   * Verdict-band enrichment joined from the item's linked research case (valuation-recalibration §2 +
+   * position-sizing §5). Lets the Watchlist desk split BUY-WINDOW / WATCH-FAIR / WATCH, show
+   * distance-to-buy-price, and a staleness indicator. Absent when the linked case has no valuation yet.
+   */
+  verdict?: AppWatchlistVerdict
+}
+
+/** Verdict-band + distance-to-buy + staleness info for a watchlist item (derived from its research case). */
+export type AppWatchlistVerdict = {
+  /** 'BUY-WINDOW' | 'WATCH-FAIR' | 'WATCH' when the linked case computed a verdict band; else undefined. */
+  state?: string
+  buy_price_per_share?: number
+  fair_value_per_share?: number
+  discount_to_fv_pct?: number
+  /** Current market price per share, when a quote is available (else undefined → "no live quote"). */
+  market_price_per_share?: number
+  /** Signed distance of market vs buy price as a fraction (negative = below buy price = in the window). */
+  distance_to_buy_pct?: number
+  /** The case's last-updated timestamp — basis for the staleness read. */
+  case_updated_at?: string
+  /** True when the linked case is older than the staleness window (>12 months) and must be re-run. */
+  is_stale?: boolean
+}
+
+/**
+ * Stale once the linked research case has not been re-run within `STALE_AFTER_MONTHS` months
+ * (position-sizing-spec §5 #3: a stale case >12 months cannot generate a tranche alert until re-run).
+ */
+export const WATCHLIST_STALE_AFTER_MONTHS = 12
+
+export function enrichWatchlistItemsWithVerdict(
+  items: AppWatchlistItem[],
+  cases: ResearchCaseProjection[],
+  now: Date = new Date(),
+): AppWatchlistItem[] {
+  const caseById = new Map(cases.map((c) => [c.research_case_id, c]))
+  return items.map((item) => {
+    const linked = caseById.get(item.research_case_id)
+    const valuation = linked?.valuation
+    if (valuation === undefined || valuation.buy_price_per_share === undefined) {
+      return item
+    }
+    const verdict: AppWatchlistVerdict = {
+      ...(valuation.verdict_state?.state === undefined ? {} : { state: valuation.verdict_state.state }),
+      buy_price_per_share: valuation.buy_price_per_share,
+      ...(valuation.fair_value_per_share === undefined ? {} : { fair_value_per_share: valuation.fair_value_per_share }),
+      ...(valuation.verdict_state?.discount_to_fv_pct === undefined ? {} : { discount_to_fv_pct: valuation.verdict_state.discount_to_fv_pct }),
+    }
+    const updatedAt = linked?.updated_at
+    if (updatedAt !== undefined) {
+      verdict.case_updated_at = updatedAt
+      const ageMonths = (now.getTime() - new Date(updatedAt).getTime()) / (1000 * 60 * 60 * 24 * 30.4375)
+      verdict.is_stale = ageMonths > WATCHLIST_STALE_AFTER_MONTHS
+    }
+    return { ...item, verdict }
+  })
 }
 
 export type AppHolding = HoldingProjection

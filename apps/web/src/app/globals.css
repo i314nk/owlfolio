@@ -386,6 +386,35 @@ a:focus-visible {
   isolation: isolate;
 }
 
+/* ── Honest-boundaries footer (UI-continuity Rule 3) ────────────────────────
+   On every page: automated output is a draft/observation, never a recommendation;
+   every irreversible transition is human-authored. Reuses the panel-deep token
+   and quiet text — no new component library, no redesign. */
+.owl-boundaries-footer {
+  border-top: 1px solid var(--owl-color-border);
+  color: var(--owl-color-quiet);
+  font-size: 0.74rem;
+  line-height: 1.5;
+  margin-top: 2.5rem;
+  padding: 1.1rem 0 0.4rem;
+}
+
+.owl-boundaries-footer-label {
+  color: var(--owl-color-gold);
+  font-family: var(--owl-font-mono);
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  margin: 0 0 0.3rem;
+  text-transform: uppercase;
+}
+
+.owl-boundaries-footer-text {
+  color: var(--owl-color-muted);
+  margin: 0;
+  max-width: 64ch;
+}
+
 /* ── Restrained page-load reveal ────────────────────────────────────────────
    A single gentle fade + 8px rise on the top-level route sections, lightly
    staggered. Reduced-motion users get none (guarded below). No layout shift. */

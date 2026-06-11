@@ -32,6 +32,7 @@ export function PurificationReport({ report }: PurificationReportProps) {
     }),
     createElement('hr', { className: 'owl-rule' }),
     createVitalSigns(report.summary_cards),
+    createIntentClassOverview(report),
     createDutyPanel(report),
     createObligations(report.obligations),
     createQuarterlyStatement(report),
@@ -39,6 +40,85 @@ export function PurificationReport({ report }: PurificationReportProps) {
     createEvidenceChecklist(report.obligations, report.payments),
     createPayments(report.payments, report.obligations.length),
     createPurificationLearnPanel(report.limitations),
+  )
+}
+
+// ── Intent-class structure (UI-continuity Rule 2: giving page) ────────────────
+//
+// Groups giving by intent class so future intents (infaq, waqf) slot in later WITHOUT a redesign. Only the
+// two active intent classes are built now (purification, zakat); the deferred classes are shown as a
+// labeled, disabled placeholder row — the structure exists, the handling does not (waqf/infaq deferred).
+
+type IntentClass = {
+  id: string
+  label: string
+  description: string
+  status: 'active' | 'deferred'
+  amountLabel?: string
+}
+
+function createIntentClassOverview(report: AppPurificationReport) {
+  const purificationRemaining = report.summary_cards.reduce((sum, card) => sum + card.remaining, 0)
+  const currency = report.summary_cards[0]?.currency ?? 'USD'
+  const zakat = report.zakat_statement
+
+  const classes: IntentClass[] = [
+    {
+      id: 'purification',
+      label: 'Purification',
+      description: 'Cleansing non-compliant income — a tracked obligation, not a ruling.',
+      status: 'active',
+      amountLabel: `${formatMoney(purificationRemaining, currency)} remaining`,
+    },
+    {
+      id: 'zakat',
+      label: 'Zakat',
+      description: '2.5% on a user-set zakatable base — a user-authored methodology.',
+      status: 'active',
+      ...(zakat === undefined ? {} : { amountLabel: `${formatMoney(zakat.zakat_due, zakat.currency)} due` }),
+    },
+    {
+      id: 'infaq',
+      label: 'Infaq',
+      description: 'Voluntary giving — deferred; the intent-class slot exists, the handling is not built.',
+      status: 'deferred',
+    },
+    {
+      id: 'waqf',
+      label: 'Waqf',
+      description: 'Endowment — deferred; the intent-class slot exists, the handling is not built.',
+      status: 'deferred',
+    },
+  ]
+
+  return createElement(
+    'section',
+    { 'aria-label': 'Giving intent classes', className: 'owl-section-card', style: { gap: 'var(--owl-space-3)' } },
+    createElement('p', { className: 'owl-section-accent' }, 'Intent classes'),
+    createElement('h2', { className: 'owl-section-title' }, 'Giving by intent class'),
+    createElement('p', { className: 'owl-row-helper', style: { maxWidth: '60ch' } }, 'Giving is organized by intent class so additional intents can be added later without a redesign. Purification and zakat are active; infaq and waqf are deferred placeholders only.'),
+    createElement(
+      'div',
+      { className: 'owl-row-list' },
+      ...classes.map((intent) => createElement(
+        'div',
+        { key: intent.id, 'data-intent-class': intent.id, className: 'owl-row owl-row-top', style: { opacity: intent.status === 'deferred' ? 0.6 : 1 } },
+        createElement(
+          'div',
+          { className: 'owl-row-main' },
+          createElement(
+            'p',
+            { className: 'owl-row-title', style: { margin: 0 } },
+            intent.label,
+            createElement('span', { style: { color: 'var(--owl-color-quiet)', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-2xs)', marginLeft: '0.6rem', textTransform: 'uppercase' } }, intent.status === 'active' ? 'active' : 'deferred'),
+          ),
+          createElement('p', { className: 'owl-row-helper', style: { margin: '0.2rem 0 0' } }, intent.description),
+        ),
+        intent.amountLabel === undefined
+          ? null
+          : createElement('p', { className: 'owl-row-helper', style: { color: 'var(--owl-color-gold-bright)', fontFamily: 'var(--owl-font-mono)', fontWeight: 700, margin: 0, textAlign: 'right' } }, intent.amountLabel),
+      )),
+    ),
   )
 }
 

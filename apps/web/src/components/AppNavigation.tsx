@@ -30,6 +30,7 @@ const navSections: NavSection[] = [
     title: 'Operations & evidence',
     items: [
       { href: '/pipeline', label: 'Pipeline' },
+      { href: '/calibration', label: 'Calibration' },
       { href: '/audit', label: 'Audit' },
       { href: '/providers', label: 'Providers' },
     ],

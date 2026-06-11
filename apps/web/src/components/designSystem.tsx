@@ -97,8 +97,30 @@ export function AppShell({ children, isSetupComplete = true }: AppShellProps) {
           createElement('span', { className: 'owl-shell-context-value' }, item.value),
         )),
       ),
-      createElement('div', { className: 'owl-main-region' }, children),
+      createElement(
+        'div',
+        { className: 'owl-main-region' },
+        children,
+        createElement(BoundariesFooter),
+      ),
     ),
+  )
+}
+
+/**
+ * Honest-boundaries footer (UI-continuity-spec Rule 3). Rendered once in the app
+ * shell so it appears on EVERY page. The exact text is load-bearing — it is the
+ * fiduciary boundary statement and is asserted in tests.
+ */
+export const BOUNDARIES_FOOTER_TEXT =
+  'Automated output is a draft or observation — never a recommendation to act. Every irreversible transition is human-authored.'
+
+export function BoundariesFooter() {
+  return createElement(
+    'footer',
+    { 'aria-label': 'Owlfolio fiduciary boundaries', className: 'owl-boundaries-footer', role: 'contentinfo' },
+    createElement('p', { className: 'owl-boundaries-footer-label' }, 'Fiduciary boundary'),
+    createElement('p', { className: 'owl-boundaries-footer-text' }, BOUNDARIES_FOOTER_TEXT),
   )
 }
 

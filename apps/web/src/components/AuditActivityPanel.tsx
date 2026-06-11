@@ -416,6 +416,26 @@ function ActorBadge({ category, label }: { category: ActorCategory; label: strin
   return createElement('span', { style: badgeStyle, title: label }, category)
 }
 
+/**
+ * Irreversibility flag (UI-continuity Rule 2: irreversibility flags rendered). User-authored events are
+ * human-authored irreversible transitions; provider/worker/system events are drafts or observations that
+ * never advance state on their own. Read straight from the actor category — the ledger's authorship.
+ */
+function IrreversibilityBadge({ category }: { category: ActorCategory }) {
+  const irreversible = category === 'user'
+  const style: CSSProperties = {
+    ...ACTOR_BADGE_BASE,
+    background: irreversible ? 'rgba(214, 178, 94, 0.16)' : 'rgba(148, 163, 184, 0.08)',
+    border: `1px solid ${irreversible ? 'rgba(214, 178, 94, 0.36)' : 'rgba(148, 163, 184, 0.2)'}`,
+    color: irreversible ? 'var(--owl-color-gold-bright)' : 'var(--owl-color-quiet)',
+  }
+  return createElement(
+    'span',
+    { 'data-irreversible': irreversible ? 'true' : 'false', style, title: irreversible ? 'Human-authored irreversible transition' : 'Draft or observation — never advances state on its own' },
+    irreversible ? 'human-authored' : 'draft / observation',
+  )
+}
+
 function AuditActivityRow({ event }: { event: AuditActivityEvent }) {
   return createElement(
     'li',
@@ -437,6 +457,7 @@ function AuditActivityRow({ event }: { event: AuditActivityEvent }) {
         { style: { alignItems: 'baseline', display: 'flex', flexWrap: 'wrap' as const, gap: '0.5rem' } },
         createElement('h3', { style: { color: 'var(--owl-color-gold-bright)', fontFamily: 'var(--owl-font-sans)', fontSize: 'var(--owl-text-md)', fontWeight: 700, margin: 0 } }, event.event_summary),
         createElement(ActorBadge, { category: event.actor_category, label: event.actor_label }),
+        createElement(IrreversibilityBadge, { category: event.actor_category }),
       ),
       createElement(
         'div',

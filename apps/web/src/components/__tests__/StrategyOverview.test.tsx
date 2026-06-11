@@ -13,6 +13,7 @@ import {
   marginOfSafetyForMoat,
 } from '@owlfolio/strategies/buffettMunger'
 import { buffettMungerDeepDiveLanes } from '@owlfolio/workflow/strategyResearchPipeline'
+import { SIZING_PARAMS } from '@owlfolio/strategies/sizingParams'
 
 function render(): string {
   return renderToStaticMarkup(createElement(StrategyOverview))
@@ -74,6 +75,25 @@ describe('StrategyOverview', () => {
     expect(html).toContain(buffettMungerStrategy.valuation.min_investable_moat)
     // narrow/moderate shown as rejected
     expect(html).toContain('No — rejected')
+  })
+
+  it('renders the tranche ladders (cold 40/30/30 + normal 60/40) read from sizing params', () => {
+    const html = render()
+    // both named ladders appear
+    expect(html).toContain('Cold-regime ladder')
+    expect(html).toContain('Normal / warm-regime ladder')
+    // each ladder's rung fractions are rendered from SIZING_PARAMS (not hardcoded)
+    for (const ladderId of ['cold', 'normal'] as const) {
+      for (const rung of SIZING_PARAMS.ladders[ladderId].rungs) {
+        const fractionPct = `${Math.round(rung.fraction * 100)}%`
+        expect(html).toContain(fractionPct)
+      }
+    }
+    // time-completion window comes from config
+    expect(html).toContain(String(SIZING_PARAMS.time_completion_months))
+    // re-anchoring + time-completion rule notes
+    expect(html.toLowerCase()).toContain('re-anchor')
+    expect(html.toLowerCase()).toContain('time-completion')
   })
 
   it('renders the position-sizing target weights and entry tranches from the contract', () => {
