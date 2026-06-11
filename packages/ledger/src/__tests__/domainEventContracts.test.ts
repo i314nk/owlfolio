@@ -51,6 +51,8 @@ describe('Owlfolio v2 domain event boundary contracts', () => {
       'valuation_config',
       'calibration_run_requested',
       'calibration_run',
+      'calibration_universe_member_added',
+      'calibration_universe_member_removed',
       'watchlist_monitor_alert_recorded',
       'holding_monitor_alert_recorded',
       'holding_shariah_grace_started',
@@ -349,6 +351,21 @@ describe('Owlfolio v2 domain event boundary contracts', () => {
       actor_types: ['user', 'worker'],
       projection_owner: 'audit',
       payload_fields: ['params_version', 'params', 'universe_version', 'universe', 'summaries', 'coverage', 'target'],
+    })
+  })
+
+  it('freezes the user-authored calibration-universe curation contracts (direct, reversible, audit-owned)', () => {
+    expect(contract('calibration_universe_member_added')).toMatchObject({
+      aggregate_type: 'strategy',
+      actor_type: 'user',
+      projection_owner: 'audit',
+      payload_fields: ['ticker', 'company', 'market'],
+    })
+    expect(contract('calibration_universe_member_removed')).toMatchObject({
+      aggregate_type: 'strategy',
+      actor_type: 'user',
+      projection_owner: 'audit',
+      payload_fields: ['ticker'],
     })
   })
 

@@ -5,7 +5,12 @@ import { join } from 'node:path'
 
 import { SQLiteEventStore } from '@owlfolio/ledger/sqliteEventStore'
 
-import { enqueueCalibrationRun, proposeValuationConfigChange } from '../calibrationActions'
+import {
+  addCalibrationUniverseMember,
+  enqueueCalibrationRun,
+  proposeValuationConfigChange,
+  removeCalibrationUniverseMember,
+} from '../calibrationActions'
 import type { OnboardingState } from '../onboarding'
 
 const dirs: string[] = []
@@ -53,6 +58,55 @@ describe('enqueueCalibrationRun', () => {
   it('throws when the workflow is not initialized', async () => {
     const state = { is_initialized: false, config: { mode: 'personal-local' } } as unknown as OnboardingState
     await expect(enqueueCalibrationRun(state, { spawn: () => {} })).rejects.toThrow(/not initialized/i)
+  })
+})
+
+describe('addCalibrationUniverseMember / removeCalibrationUniverseMember', () => {
+  it('appends a user-authored member_added event and returns the updated projected universe', async () => {
+    const state = personalState()
+    const universe = await addCalibrationUniverseMember(state, { ticker: 'fds', company: 'FactSet', market: 'US' })
+
+    // The returned universe is the seed + the new event, normalized upper-case + active.
+    const fds = universe.names.find((n) => n.ticker === 'FDS')
+    expect(fds).toBeDefined()
+    expect(fds?.status).toBe('active')
+
+    const store = new SQLiteEventStore(state.config.ledger_path!)
+    try {
+      const events = await store.list()
+      const added = events.filter((e) => e.event_type === 'calibration_universe_member_added')
+      expect(added).toHaveLength(1)
+      expect((added[0]!.payload as Record<string, unknown>)['ticker']).toBe('FDS')
+      expect(added[0]!.actor_type).toBe('user')
+    } finally {
+      store.close()
+    }
+  })
+
+  it('appends a member_removed event that tombstones a seed name (absent from the returned universe)', async () => {
+    const state = personalState()
+    // Add then remove the same ticker → it is absent from the projection.
+    await addCalibrationUniverseMember(state, { ticker: 'FDS' })
+    const universe = await removeCalibrationUniverseMember(state, { ticker: 'FDS' })
+    expect(universe.names.map((n) => n.ticker)).not.toContain('FDS')
+
+    const store = new SQLiteEventStore(state.config.ledger_path!)
+    try {
+      const events = await store.list()
+      expect(events.filter((e) => e.event_type === 'calibration_universe_member_removed')).toHaveLength(1)
+    } finally {
+      store.close()
+    }
+  })
+
+  it('rejects an empty ticker', async () => {
+    const state = personalState()
+    await expect(addCalibrationUniverseMember(state, { ticker: '   ' })).rejects.toThrow(/ticker/i)
+  })
+
+  it('throws when the workflow is not initialized', async () => {
+    const state = { is_initialized: false, config: { mode: 'personal-local' } } as unknown as OnboardingState
+    await expect(addCalibrationUniverseMember(state, { ticker: 'FDS' })).rejects.toThrow(/not initialized/i)
   })
 })
 

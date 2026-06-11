@@ -1,5 +1,9 @@
 import { SQLiteEventStore } from '@owlfolio/ledger/sqliteEventStore'
-import { loadCalibrationUniverse, suggestCalibrationUniverseAdditions } from '@owlfolio/workflow/calibrationUniverse'
+import {
+  loadCalibrationUniverse,
+  projectCalibrationUniverse,
+  suggestCalibrationUniverseAdditions,
+} from '@owlfolio/workflow/calibrationUniverse'
 
 import { CalibrationPanel } from '../../components/CalibrationPanel'
 import { projectCalibrationView } from '../../lib/calibration'
@@ -14,7 +18,9 @@ export const metadata = {
 export default async function CalibrationPage() {
   const state = await getOnboardingState()
   const events = await loadCalibrationEvents(state)
-  const universe = loadCalibrationUniverse()
+  // The current universe is a PROJECTION: the seed config + user-authored member add/remove events (Rule 1).
+  const seedUniverse = loadCalibrationUniverse()
+  const universe = seedUniverse === undefined ? undefined : projectCalibrationUniverse(seedUniverse, events)
   const view = projectCalibrationView(events, {
     ...(universe === undefined ? {} : { universe, suggestions: suggestCalibrationUniverseAdditions(universe, events) }),
   })

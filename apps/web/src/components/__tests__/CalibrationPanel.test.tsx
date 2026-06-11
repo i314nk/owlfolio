@@ -95,6 +95,20 @@ describe('CalibrationPanel', () => {
     expect(html).toContain('Parameters are frozen')
   })
 
+  it('renders the editable-universe controls: an Add-ticker form, per-row remove (×), and a suggestion Add', () => {
+    const html = render([], {
+      universe: testUniverse,
+      suggestions: [{ ticker: 'FDS', company: 'FactSet', sources: ['researched'] }],
+    })
+    // Add-ticker form (ticker required + the labelled form).
+    expect(html).toContain('Add a calibration-universe ticker')
+    expect(html).toContain('Add ticker')
+    // Per-row remove control for a seed name.
+    expect(html).toContain('Remove CPRT from the calibration universe')
+    // Inline Add affordance for the suggested addition.
+    expect(html).toContain('Add FDS to the calibration universe')
+  })
+
   it('renders deferred names in their own honest line — no "needs manual entry" phrasing', () => {
     const html = render([], { universe: testUniverse })
     // The deferred name is shown with a calm, honest line — NOT a red "needs data" error.

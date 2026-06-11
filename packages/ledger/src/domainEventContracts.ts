@@ -64,6 +64,8 @@ export const domainEventTypes = [
   'valuation_config',
   'calibration_run_requested',
   'calibration_run',
+  'calibration_universe_member_added',
+  'calibration_universe_member_removed',
   'watchlist_monitor_alert_recorded',
   'holding_monitor_alert_recorded',
   'holding_shariah_grace_started',
@@ -466,6 +468,26 @@ export const domainEventContracts: readonly DomainEventContract[] = [
     actor_types: ['user', 'worker'],
     projection_owner: 'audit',
     payload_fields: ['params_version', 'params', 'universe_version', 'universe', 'summaries', 'coverage', 'target'],
+  },
+  {
+    // User ADDS a ticker to the calibration universe (valuation-recalibration-spec §3.1 — the universe is
+    // USER-OWNED). Curation is REVERSIBLE list-editing, so this is a DIRECT user-authored event (the owner
+    // is authoring by clicking — not the irreversible draft-for-confirmation pattern). The current universe
+    // is projected from the seed config + these events; re-adding an active ticker is a no-op.
+    event_type: 'calibration_universe_member_added',
+    aggregate_type: 'strategy',
+    actor_type: 'user',
+    projection_owner: 'audit',
+    payload_fields: ['ticker', 'company', 'market'],
+  },
+  {
+    // User REMOVES a ticker from the calibration universe (tombstones it — a seed name is suppressed from the
+    // projection until re-added). Direct user-authored, reversible. Owner: audit.
+    event_type: 'calibration_universe_member_removed',
+    aggregate_type: 'strategy',
+    actor_type: 'user',
+    projection_owner: 'audit',
+    payload_fields: ['ticker'],
   },
   {
     // Watchlist Monitor (lifecycle-spec-v3 Module 6) observation: buy-window / staleness-suppression /

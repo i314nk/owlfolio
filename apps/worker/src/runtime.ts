@@ -55,6 +55,7 @@ import { VALUATION_PARAMS } from '@owlfolio/strategies/valuationParams'
 import { buildCalibrationRunEvent, type CalibrationNameSummary, type CalibrationCoverageSummary, type CalibrationTarget } from '@owlfolio/strategies/calibrationRunEvent'
 import {
   loadCalibrationUniverse,
+  projectCalibrationUniverse,
   runCalibrationBacktest,
   type CalibrationUniverse,
   type RunCalibrationBacktestDeps,
@@ -2226,8 +2227,13 @@ export async function runProcessCalibrationQueueTask(
   } = {},
 ): Promise<{ processed: number; failed: number; summaries: string[] }> {
   const now = options.now ?? (() => new Date())
-  const loadUniverse = options.loadUniverse ?? (() => loadCalibrationUniverse())
   const events = await store.list()
+  // The current universe is the seed config + user-authored member add/remove events (Rule 1): the run
+  // snapshots the PROJECTED universe + its derived version, not the static seed file. Tests inject a fixture.
+  const loadUniverse = options.loadUniverse ?? (() => {
+    const seed = loadCalibrationUniverse()
+    return seed === undefined ? undefined : projectCalibrationUniverse(seed, events)
+  })
   const pending = projectPendingCalibrationRuns(events)
   const summaries: string[] = []
   let failed = 0

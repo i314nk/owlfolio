@@ -130,6 +130,171 @@ export function loadCalibrationUniverse(
   return parseCalibrationUniverse(parsed)
 }
 
+// --- User-authored universe curation (Rule 1: the UI is a projection of the ledger) ---------------
+//
+// The current universe = the seed config (above) + user-authored ledger events layered on top. Curating
+// the list is REVERSIBLE list-editing, so an add/remove is a DIRECT user-authored event (the owner IS
+// authoring by clicking — not the irreversible "draft for confirmation" pattern). Removing a SEED name
+// tombstones it (suppressed from the projection); re-adding it un-tombstones. A derived `version` changes
+// on every edit so a calibration_run can record exactly which composed universe it used.
+
+/** Payload of `calibration_universe_member_added` (user adds a ticker to the calibration universe). */
+export type CalibrationUniverseMemberAddedPayload = {
+  ticker: string
+  company?: string
+  market?: CalibrationMarket
+}
+
+/** Payload of `calibration_universe_member_removed` (user removes / tombstones a ticker). */
+export type CalibrationUniverseMemberRemovedPayload = {
+  ticker: string
+}
+
+const CALIBRATION_UNIVERSE_AGGREGATE_ID = 'buffett-munger'
+const CALIBRATION_CURATION_ACTOR_ID = 'user_local'
+
+function normalizeTicker(raw: string): string {
+  return raw.trim().toUpperCase()
+}
+
+/**
+ * Build a user-authored `calibration_universe_member_added` ledger event. The ticker is normalized
+ * (trimmed + upper-cased); optional company/market are omitted when not supplied. The caller appends it.
+ */
+export function buildCalibrationUniverseMemberAddedEvent(args: {
+  ticker: string
+  company?: string
+  market?: CalibrationMarket
+  actor_id?: string
+  created_at?: string
+}): LedgerEventEnvelope<CalibrationUniverseMemberAddedPayload> {
+  const ticker = normalizeTicker(args.ticker)
+  const company = args.company?.trim()
+  const createdAt = args.created_at ?? new Date().toISOString()
+  return {
+    event_id: `evt_calibration_universe_member_added_${ticker}_${createdAt}`,
+    event_type: 'calibration_universe_member_added',
+    aggregate_type: 'strategy',
+    aggregate_id: CALIBRATION_UNIVERSE_AGGREGATE_ID,
+    actor_type: 'user',
+    actor_id: args.actor_id ?? CALIBRATION_CURATION_ACTOR_ID,
+    payload: {
+      ticker,
+      ...(company === undefined || company.length === 0 ? {} : { company }),
+      ...(args.market === undefined ? {} : { market: args.market }),
+    },
+    source_ids: [],
+    created_at: createdAt,
+    schema_version: 1,
+    idempotency_key: `calibration-universe-add:${ticker}:${createdAt}`,
+  }
+}
+
+/**
+ * Build a user-authored `calibration_universe_member_removed` ledger event (tombstones the ticker — a seed
+ * name is suppressed from the projection until re-added). The caller appends it.
+ */
+export function buildCalibrationUniverseMemberRemovedEvent(args: {
+  ticker: string
+  actor_id?: string
+  created_at?: string
+}): LedgerEventEnvelope<CalibrationUniverseMemberRemovedPayload> {
+  const ticker = normalizeTicker(args.ticker)
+  const createdAt = args.created_at ?? new Date().toISOString()
+  return {
+    event_id: `evt_calibration_universe_member_removed_${ticker}_${createdAt}`,
+    event_type: 'calibration_universe_member_removed',
+    aggregate_type: 'strategy',
+    aggregate_id: CALIBRATION_UNIVERSE_AGGREGATE_ID,
+    actor_type: 'user',
+    actor_id: args.actor_id ?? CALIBRATION_CURATION_ACTOR_ID,
+    payload: { ticker },
+    source_ids: [],
+    created_at: createdAt,
+    schema_version: 1,
+    idempotency_key: `calibration-universe-remove:${ticker}:${createdAt}`,
+  }
+}
+
+function readPayloadString(payload: unknown, key: string): string | undefined {
+  if (payload === null || typeof payload !== 'object') return undefined
+  const value = (payload as Record<string, unknown>)[key]
+  return typeof value === 'string' ? value : undefined
+}
+
+/**
+ * Compose the CURRENT calibration universe from the seed config + user-authored member add/remove events,
+ * applied in ledger order:
+ *   - a seed name is present unless a later `member_removed` tombstones it (re-adding un-tombstones);
+ *   - a `member_added` for a non-seed ticker inserts an `active` name (idempotent — re-adding an already
+ *     active ticker is a no-op);
+ *   - the derived `version` is `${seed.version}+N` where N counts the events that CHANGED the universe, so
+ *     it advances on every effective edit and a run can record exactly which composed universe it used.
+ * Tickers are normalized upper-case for matching. Seed metadata (company/market/status/defer_reason) is
+ * preserved across a remove→re-add cycle.
+ */
+export function projectCalibrationUniverse(
+  seed: CalibrationUniverse,
+  events: ReadonlyArray<LedgerEventEnvelope<unknown>>,
+): CalibrationUniverse {
+  // Seed names keyed by normalized ticker, preserving insertion order.
+  const order: string[] = []
+  const byTicker = new Map<string, CalibrationUniverseName>()
+  const tombstoned = new Set<string>()
+
+  for (const name of seed.names) {
+    const ticker = normalizeTicker(name.ticker)
+    if (!byTicker.has(ticker)) order.push(ticker)
+    byTicker.set(ticker, { ...name, ticker })
+  }
+
+  let appliedCount = 0
+  for (const event of events) {
+    if (event.event_type === 'calibration_universe_member_added') {
+      const rawTicker = readPayloadString(event.payload, 'ticker')
+      if (rawTicker === undefined) continue
+      const ticker = normalizeTicker(rawTicker)
+      if (ticker.length === 0) continue
+      const isTombstoned = tombstoned.has(ticker)
+      const existing = byTicker.get(ticker)
+      // Idempotent: re-adding an already-present, non-tombstoned ticker changes nothing.
+      if (existing !== undefined && !isTombstoned) continue
+      tombstoned.delete(ticker)
+      if (existing === undefined) {
+        const company = readPayloadString(event.payload, 'company')
+        const market = readPayloadString(event.payload, 'market')
+        if (!order.includes(ticker)) order.push(ticker)
+        byTicker.set(ticker, {
+          ticker,
+          company: company === undefined || company.length === 0 ? ticker : company,
+          market: market === 'intl' ? 'intl' : 'US',
+          status: 'active',
+        })
+      }
+      appliedCount += 1
+    } else if (event.event_type === 'calibration_universe_member_removed') {
+      const rawTicker = readPayloadString(event.payload, 'ticker')
+      if (rawTicker === undefined) continue
+      const ticker = normalizeTicker(rawTicker)
+      if (ticker.length === 0) continue
+      // Idempotent: removing an already-absent ticker changes nothing.
+      if (tombstoned.has(ticker) || !byTicker.has(ticker)) continue
+      tombstoned.add(ticker)
+      appliedCount += 1
+    }
+  }
+
+  const names = order
+    .filter((ticker) => !tombstoned.has(ticker))
+    .map((ticker) => byTicker.get(ticker))
+    .filter((name): name is CalibrationUniverseName => name !== undefined)
+
+  return {
+    version: `${seed.version}+${appliedCount}`,
+    names,
+  }
+}
+
 /** How a suggested ticker surfaced: from a research case, from 13F discovery, or both. */
 export type SuggestionSource = 'researched' | '13f_discovered'
 

@@ -1,9 +1,16 @@
-import { describe, expect, it } from 'vitest'
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+
+import { afterEach, describe, expect, it } from 'vitest'
 import { InMemoryEventStore } from '@owlfolio/ledger/eventStore'
 import type { LedgerEventEnvelope } from '@owlfolio/ledger/eventEnvelope'
 import type { Fundamentals, AnnualFacts } from '@owlfolio/workflow/secEdgar'
 import type { PriceHistoryResult } from '@owlfolio/workflow/marketData'
-import type { CalibrationUniverse } from '@owlfolio/workflow/calibrationUniverse'
+import {
+  buildCalibrationUniverseMemberAddedEvent,
+  type CalibrationUniverse,
+} from '@owlfolio/workflow/calibrationUniverse'
 
 import { runProcessCalibrationQueueTask } from '../runtime'
 
@@ -36,6 +43,55 @@ const universe: CalibrationUniverse = {
 }
 
 describe('runProcessCalibrationQueueTask', () => {
+  const savedProjectDir = process.env.OWLFOLIO_PROJECT_DIR
+  afterEach(() => {
+    if (savedProjectDir === undefined) delete process.env.OWLFOLIO_PROJECT_DIR
+    else process.env.OWLFOLIO_PROJECT_DIR = savedProjectDir
+  })
+
+  it('reads the PROJECTED universe (seed config + user-authored member_added events), so a ticker added via the ledger is in the run', async () => {
+    // Write a minimal seed config and point the default loader at it via OWLFOLIO_PROJECT_DIR.
+    const dir = mkdtempSync(join(tmpdir(), 'owl-cal-'))
+    mkdirSync(join(dir, 'config'), { recursive: true })
+    writeFileSync(
+      join(dir, 'config', 'calibration_universe.json'),
+      JSON.stringify({
+        version: 'seed-1',
+        names: [{ ticker: 'CPRT', company: 'Copart', market: 'US', fundamentals_hint: 'edgar', status: 'active' }],
+      }),
+    )
+    process.env.OWLFOLIO_PROJECT_DIR = dir
+
+    const store = new InMemoryEventStore<LedgerEventEnvelope<unknown>>()
+    // A user-authored member_added event for FDS layered on top of the seed.
+    await store.append(buildCalibrationUniverseMemberAddedEvent({ ticker: 'FDS', company: 'FactSet', market: 'US', created_at: '2026-05-01T00:00:00Z' }) as never)
+    await store.append({
+      event_id: 'evt_cal_req_proj', event_type: 'calibration_run_requested', aggregate_type: 'strategy',
+      aggregate_id: 'buffett-munger', correlation_id: 'cal_proj', actor_type: 'user', actor_id: 'user_local',
+      payload: { calibration_run_id: 'cal_proj', strategy_id: 'buffett-munger', requested_by: 'user_local' },
+      source_ids: [], created_at: '2026-06-01T00:00:00Z', schema_version: 1,
+    } as never)
+
+    try {
+      const result = await runProcessCalibrationQueueTask(store, {
+        backtestDeps: {
+          localProvider: { resolve: async () => undefined },
+          edgarProvider: { resolve: async (t) => fundamentals(t) },
+          priceFetcher: async () => priceResult(),
+        },
+        now: () => new Date('2026-06-01T01:00:00Z'),
+      })
+      expect(result.processed).toBe(1)
+      const run = (await store.list()).find((e) => e.event_type === 'calibration_run')
+      const payload = run!.payload as Record<string, unknown>
+      // The PROJECTED universe (seed CPRT + added FDS), with the derived version.
+      expect(payload['universe']).toEqual(['CPRT', 'FDS'])
+      expect(payload['universe_version']).toBe('seed-1+1')
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
   it('claims a pending request, runs the deterministic backtest, and records a calibration_run with coverage', async () => {
     const store = new InMemoryEventStore<LedgerEventEnvelope<unknown>>()
     await store.append({

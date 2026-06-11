@@ -2,6 +2,11 @@ import { createElement, Fragment, type CSSProperties, type ReactNode } from 'rea
 
 import { RouteHeader } from './designSystem'
 import { RunCalibrationButton } from './RunCalibrationButton'
+import {
+  CalibrationUniverseAddForm,
+  CalibrationUniverseRemoveButton,
+  CalibrationUniverseSuggestionAddButton,
+} from './CalibrationUniverseControls'
 import type {
   CalibrationCoverageView,
   CalibrationRunView,
@@ -121,6 +126,9 @@ function createUniverseSection(universe: CalibrationUniverseView | undefined) {
   }
 
   const nameRows = universe.names.map((name) => {
+    // Every name gets a per-row remove (×) control: removing a SEED name tombstones it (a user-authored
+    // calibration_universe_member_removed event); re-adding via the suggestions/form un-tombstones it.
+    const removeControl = createElement(CalibrationUniverseRemoveButton, { ticker: name.ticker })
     // Deferred names get their own calm, honest line (NOT a red "needs data" error): a non-SEC filer with
     // no automated fundamentals source. Manual entry is intentionally not used, so this is expected.
     if (name.status === 'deferred') {
@@ -133,6 +141,7 @@ function createUniverseSection(universe: CalibrationUniverseView | undefined) {
           { style: { color: 'var(--owl-color-quiet)' }, title: name.defer_reason ?? '' },
           `Deferred — no automated fundamentals source${name.defer_reason === undefined ? '' : ` · ${name.defer_reason}`}`,
         ),
+        removeControl,
       ]
     }
     return [
@@ -146,17 +155,19 @@ function createUniverseSection(universe: CalibrationUniverseView | undefined) {
             { style: { color: isQuietCoverage(name.coverage_status) ? 'var(--owl-color-quiet)' : 'var(--owl-color-muted)' }, title: name.coverage_reason ?? '' },
             COVERAGE_LABEL[name.coverage_status],
           ),
+      removeControl,
     ]
   })
 
   const suggestionBody = universe.suggestions.length === 0
     ? createElement('p', { style: { color: 'var(--owl-color-quiet)', fontSize: 'var(--owl-text-sm)', margin: 0 } }, 'No suggested additions: every researched / 13F-discovered name is already in the universe.')
     : Table({
-        headings: ['Suggested ticker', 'Company', 'Surfaced from'],
+        headings: ['Suggested ticker', 'Company', 'Surfaced from', ''],
         rows: universe.suggestions.map((s) => [
           createElement('span', { style: { ...monoFigure, color: 'var(--owl-color-gold-bright)' } }, s.ticker),
           s.company ?? '—',
           s.sources.map((src) => (src === '13f_discovered' ? '13F discovery' : 'researched case')).join(' · '),
+          createElement(CalibrationUniverseSuggestionAddButton, { ticker: s.ticker, ...(s.company === undefined ? {} : { company: s.company }) }),
         ]),
       })
 
@@ -165,11 +176,13 @@ function createUniverseSection(universe: CalibrationUniverseView | undefined) {
   return Section({
     eyebrow: 'Calibration universe',
     title: `User-curated universe · ${universe.version}`,
-    lead: 'The automated-fundamentals universe is SEC filers: US 10-K filers (full EDGAR XBRL history) plus foreign 20-F/40-F filers (EDGAR IFRS, ~2022+). The human owns this list and curates it by ADDING gate-plausible SEC-filing names; a recorded run freezes the universe version for reproducibility. Edit config/calibration_universe.json to add or remove names. Coverage status comes from the latest recorded run.',
+    lead: 'The automated-fundamentals universe is SEC filers: US 10-K filers (full EDGAR XBRL history) plus foreign 20-F/40-F filers (EDGAR IFRS, ~2022+). The human owns this list and curates it right here — add a gate-plausible SEC-filing name or remove one (×). The list is a projection: the seed config plus your add/remove edits, recorded as user-authored ledger events (removing a seed name tombstones it; re-adding un-tombstones). A recorded run freezes the resulting universe version for reproducibility. Coverage status comes from the latest recorded run.',
     children: createElement(
       'div',
       { style: { display: 'grid', gap: '1rem' } },
-      Table({ headings: ['Ticker', 'Company', 'Market', 'Coverage (latest run)'], rows: nameRows }),
+      Table({ headings: ['Ticker', 'Company', 'Market', 'Coverage (latest run)', ''], rows: nameRows }),
+      createElement('p', { style: { ...microLabel, color: 'var(--owl-color-gold)' } }, 'Add a ticker'),
+      createElement(CalibrationUniverseAddForm, null),
       hasDeferred
         ? createElement(
             'p',

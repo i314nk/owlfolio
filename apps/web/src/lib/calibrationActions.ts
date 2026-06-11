@@ -6,8 +6,95 @@ import {
   buildValuationConfigChangeDraft,
   type ValuationConfigChangeDraft,
 } from '@owlfolio/strategies/valuationConfigEvent'
+import {
+  buildCalibrationUniverseMemberAddedEvent,
+  buildCalibrationUniverseMemberRemovedEvent,
+  loadCalibrationUniverse,
+  projectCalibrationUniverse,
+  type CalibrationMarket,
+  type CalibrationUniverse,
+} from '@owlfolio/workflow/calibrationUniverse'
 
 import type { OnboardingState } from './onboarding'
+
+/**
+ * Require an initialized personal-local workflow with a ledger path; throw otherwise. Shared by the
+ * calibration curation/enqueue actions (they all write user-authored events to the personal ledger).
+ */
+function requirePersonalLedgerPath(state: OnboardingState): string {
+  if (
+    !state.is_initialized
+    || state.config.mode !== 'personal-local'
+    || state.config.ledger_path === undefined
+  ) {
+    throw new Error('Personal-local workflow is not initialized')
+  }
+  return state.config.ledger_path
+}
+
+/**
+ * Append a user-authored calibration-universe curation event to the personal ledger, then return the
+ * CURRENT projected universe (seed config + all member add/remove events). Curation is REVERSIBLE
+ * list-editing recorded as a DIRECT user-authored event (Rule 1: the user authors by clicking) — there is
+ * no draft-for-confirmation step. Idempotency is handled by the projection (re-adding an active ticker is a
+ * no-op). The seed config is the default; removing a seed name tombstones it until it is re-added.
+ */
+async function appendCurationEvent(
+  state: OnboardingState,
+  event: ReturnType<typeof buildCalibrationUniverseMemberAddedEvent | typeof buildCalibrationUniverseMemberRemovedEvent>,
+): Promise<CalibrationUniverse> {
+  const ledgerPath = requirePersonalLedgerPath(state)
+  const seed = loadCalibrationUniverse()
+  if (seed === undefined) {
+    throw new Error('Calibration universe config not found or invalid')
+  }
+  const store = new SQLiteEventStore(ledgerPath)
+  try {
+    await store.append(event)
+    const events = await store.list()
+    return projectCalibrationUniverse(seed, events)
+  } finally {
+    store.close()
+  }
+}
+
+/**
+ * Add a ticker to the calibration universe (user-authored `calibration_universe_member_added`). The ticker
+ * is required (normalized upper-case); company + market are optional. Returns the updated projected universe.
+ */
+export async function addCalibrationUniverseMember(
+  state: OnboardingState,
+  args: { ticker: string; company?: string; market?: CalibrationMarket },
+): Promise<CalibrationUniverse> {
+  const ticker = args.ticker.trim()
+  if (ticker.length === 0) {
+    throw new Error('A ticker is required to add a calibration-universe member')
+  }
+  const market: CalibrationMarket | undefined = args.market === 'intl' ? 'intl' : args.market === 'US' ? 'US' : undefined
+  return appendCurationEvent(
+    state,
+    buildCalibrationUniverseMemberAddedEvent({
+      ticker,
+      ...(args.company === undefined || args.company.trim().length === 0 ? {} : { company: args.company }),
+      ...(market === undefined ? {} : { market }),
+    }),
+  )
+}
+
+/**
+ * Remove a ticker from the calibration universe (user-authored `calibration_universe_member_removed` —
+ * tombstones a seed name until re-added). Returns the updated projected universe.
+ */
+export async function removeCalibrationUniverseMember(
+  state: OnboardingState,
+  args: { ticker: string },
+): Promise<CalibrationUniverse> {
+  const ticker = args.ticker.trim()
+  if (ticker.length === 0) {
+    throw new Error('A ticker is required to remove a calibration-universe member')
+  }
+  return appendCurationEvent(state, buildCalibrationUniverseMemberRemovedEvent({ ticker }))
+}
 
 /**
  * Enqueue a calibration backtest run (valuation-recalibration-spec §3 — DELIBERATE, enqueued, not a sync
