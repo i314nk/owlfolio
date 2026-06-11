@@ -751,19 +751,17 @@ describe('CommandCenter', () => {
     expect(learnPageSource).toContain('Learn')
     // eyebrow is user-facing "How it works", not internal "Operator documentation"
     expect(learnPageSource).toContain('How it works')
-    expect(learnPageSource).toContain('Automation boundaries')
-    expect(learnPageSource).toContain('What changes automatically and what you confirm')
-    expect(learnPageSource).toContain('Auditability and traceability')
-    expect(learnPageSource).toContain('Shariah screening')
-    // Provider section is now a concise link, not a duplicated CLI-login list
+    // The Learn page is now a tabbed brief documenting the harness specs.
+    expect(learnPageSource).toContain('LearnTabs')
+    // The provider readiness section retains the #providers anchor (onboarding deep-links here).
+    expect(learnPageSource).toContain('id="providers"')
     expect(learnPageSource).toContain('href="/providers"')
-    // Data safety section links to /settings/data-safety
+    // Next-step links to the strategy method, the audit trail, and data safety.
+    expect(learnPageSource).toContain('href="/strategy"')
+    expect(learnPageSource).toContain('href="/audit"')
     expect(learnPageSource).toContain('href="/settings/data-safety"')
-    expect(learnPageSource).toContain('id="fallback"')
-    // Workflow walkthrough is present
-    expect(learnPageSource).toContain('Research')
-    expect(learnPageSource).toContain('Quick screen')
-    expect(learnPageSource).toContain('Watchlist')
+    // Honest readiness-vs-certification language is preserved.
+    expect(learnPageSource).toContain('Readiness is not certification')
   })
 
   it('documents the /research landing route as a research library entrypoint', () => {

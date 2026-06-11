@@ -2177,3 +2177,52 @@ a:focus-visible {
   0%, 100% { box-shadow: 0 0 0 3px rgba(52, 211, 153, 0.16); }
   50% { box-shadow: 0 0 0 5px rgba(52, 211, 153, 0.05); }
 }
+
+/* ── Learn page tabs (accessible WAI-ARIA tablist) ──────────────────────────── */
+.owl-learn-tablist {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  border-bottom: 1px solid var(--owl-color-border);
+  padding-bottom: 0.1rem;
+}
+
+.owl-learn-tab {
+  appearance: none;
+  background: transparent;
+  border: 1px solid transparent;
+  border-bottom: none;
+  border-radius: var(--owl-radius-card) var(--owl-radius-card) 0 0;
+  color: var(--owl-color-muted);
+  cursor: pointer;
+  font-family: var(--owl-font-sans);
+  font-size: var(--owl-text-sm);
+  font-weight: 650;
+  letter-spacing: -0.005em;
+  margin-bottom: -1px;
+  padding: 0.6rem 0.95rem;
+  transition: color 120ms ease, background 120ms ease, border-color 120ms ease;
+}
+
+.owl-learn-tab:hover {
+  color: var(--owl-color-gold-bright);
+  background: var(--owl-color-panel);
+}
+
+.owl-learn-tab-active,
+.owl-learn-tab-active:hover {
+  color: var(--owl-color-gold-bright);
+  background: var(--owl-color-panel-elevated);
+  border-color: var(--owl-color-border);
+  border-bottom-color: var(--owl-color-panel-elevated);
+}
+
+.owl-learn-panel {
+  display: grid;
+  gap: var(--owl-space-4);
+}
+
+.owl-learn-panel:focus-visible {
+  outline: 2px solid var(--owl-color-gold);
+  outline-offset: 3px;
+}
