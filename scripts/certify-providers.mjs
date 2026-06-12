@@ -22,9 +22,21 @@ const reportDir = env.OWLFOLIO_PROVIDER_CERTIFICATION_DIR
 
 await mkdir(reportDir, { recursive: true })
 
+// Single-target invocation (per-route certification). When OWLFOLIO_CERTIFY_PROVIDER is set the runner
+// certifies only that provider; OWLFOLIO_CERTIFY_MODEL overrides the model id for the run. This is the
+// trust model for meta-aggregators like OpenRouter where each routed model needs its OWN report — so a
+// single-target run does NOT write the provider-only `<provider>.latest.json` (which would clobber the
+// other routes' reports); it writes the target-specific (provider+model) and run-id reports only.
+const onlyProviderId = env.OWLFOLIO_CERTIFY_PROVIDER
+const singleTargetModel = env.OWLFOLIO_CERTIFY_MODEL
+const isSingleTarget = onlyProviderId !== undefined && onlyProviderId.length > 0
+
 const reports = []
 
 for (const providerEntry of getProviderCatalog()) {
+  if (isSingleTarget && providerEntry.provider_id !== onlyProviderId) {
+    continue
+  }
   const readiness = await getProviderReadiness(providerEntry.provider_id, env)
   for (const workflowRole of certificationWorkflowRolesFor(providerEntry)) {
     const targetOptions = targetOptionsFor(providerEntry, readiness, workflowRole)
@@ -45,7 +57,7 @@ for (const providerEntry of getProviderCatalog()) {
 
     report = normalizeUnavailableProviderReport(report, providerEntry.capabilities)
 
-    await persistReport(report)
+    await persistReport(report, { writeProviderLatest: !isSingleTarget })
     reports.push(report)
   }
 }
@@ -55,13 +67,18 @@ for (const report of reports) {
 }
 console.log(`Provider certification reports written to ${reportDir}`)
 
-async function persistReport(report) {
+async function persistReport(report, { writeProviderLatest = true } = {}) {
   const serialized = `${JSON.stringify(report, null, 2)}\n`
-  await Promise.all([
-    writeFile(join(reportDir, `${report.provider_id}.latest.json`), serialized, 'utf8'),
+  const writes = [
+    // Target-specific (provider+model) latest report — the per-route trust file. Distinct per model id,
+    // so the OpenRouter routes never overwrite each other.
     writeFile(join(reportDir, `${certificationReportTargetFileStem(report)}.latest.json`), serialized, 'utf8'),
     writeFile(join(reportDir, `${report.certification_report_id}.json`), serialized, 'utf8'),
-  ])
+  ]
+  if (writeProviderLatest) {
+    writes.push(writeFile(join(reportDir, `${report.provider_id}.latest.json`), serialized, 'utf8'))
+  }
+  await Promise.all(writes)
 }
 
 function normalizeUnavailableProviderReport(report, capabilities) {
@@ -142,6 +159,11 @@ function targetOptionsFor(providerEntry, readiness, workflowRole) {
 }
 
 function modelForProvider(providerEntry, workflowRole) {
+  // Single-target model override wins for the targeted provider (per-route certification).
+  if (isSingleTarget && providerEntry.provider_id === onlyProviderId && singleTargetModel !== undefined && singleTargetModel.length > 0) {
+    return singleTargetModel
+  }
+
   if (providerEntry.provider_id === 'mock-provider') {
     if (workflowRole === 'scheduled_monitoring_dry_run') {
       return env.OWLFOLIO_CERTIFY_MODEL_MOCK_PROVIDER ?? 'mock-buffett-munger-demo'

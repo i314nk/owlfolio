@@ -385,15 +385,16 @@ describe('providerReadiness', () => {
     ]))
   })
 
-  it('keeps OpenRouter fail-closed even when OPENROUTER_API_KEY is present', async () => {
+  it('marks OpenRouter ready when OPENROUTER_API_KEY is present (live adapter), but flags certification is still required', async () => {
     const withKey = await getProviderReadiness('openrouter', { OPENROUTER_API_KEY: 'test-key' })
     expect(withKey).toMatchObject({
       provider_id: 'openrouter',
-      is_ready: false,
+      is_ready: true,
       auth_source: 'OPENROUTER_API_KEY',
-      readiness_state: 'unsupported_surface',
+      readiness_state: 'ready',
     })
-    expect(withKey.status_label).toMatch(/without a live adapter or certification report/)
+    // Readiness is not certification: the status must keep saying each routed model needs its own report.
+    expect(withKey.status_label).toMatch(/certification report/)
 
     const withoutKey = await getProviderReadiness('openrouter', {})
     expect(withoutKey).toMatchObject({

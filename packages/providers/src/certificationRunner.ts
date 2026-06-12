@@ -354,7 +354,9 @@ async function runCertificationScenario(
         const completion = await provider.complete(baseRequest(provider, scenario.scenario_id, options, {
           task_kind: 'text-generation',
           prompt: 'Run a provider readiness/authentication heartbeat for certification.',
-          budget: { max_tool_calls: 0, max_tokens: 200 },
+          // Reasoning models (e.g. routed via OpenRouter) spend completion tokens on reasoning before any
+          // visible content, so a tiny budget can truncate the heartbeat to empty text. Give headroom.
+          budget: { max_tool_calls: 0, max_tokens: 800 },
           response_format: { kind: 'text' },
         }))
         if (completion.text.trim().length === 0) {
@@ -631,7 +633,10 @@ function baseRequest(
     task_kind: 'structured-output',
     prompt: `Run certification scenario ${scenarioId}.`,
     timeout_ms: options.timeout_ms,
-    budget: { max_tool_calls: 0, max_tokens: 2_000 },
+    // Default structured-scenario budget. Reasoning models (e.g. OpenRouter-routed gpt-5.5/Opus) consume
+    // completion tokens on reasoning before emitting the structured JSON, so a 2k ceiling truncates them.
+    // 4k is generous headroom; it is a ceiling (not a fixed cost) and is harmless for non-reasoning paths.
+    budget: { max_tool_calls: 0, max_tokens: 4_000 },
     tool_allowlist: [],
     response_format: { kind: 'json-schema', schema_name: 'BuffettMungerAnalysis' },
     ...overrides,

@@ -121,7 +121,7 @@ export async function getProviderReadiness(providerId: ProviderId, env: Provider
   }
 
   if (provider.provider_surface_id === 'openrouter-api') {
-    return apiKeyCandidateReadiness(provider, env.OPENROUTER_API_KEY, 'OPENROUTER_API_KEY')
+    return openRouterReadiness(provider, env.OPENROUTER_API_KEY)
   }
 
   if (provider.provider_surface_id === 'deepseek-api') {
@@ -378,6 +378,36 @@ async function geminiDeveloperApiReadiness(provider: ProviderCatalogEntry, env: 
     credentialSourceCategory: 'missing',
     authSource: 'missing',
     statusLabel: 'Missing Gemini Developer API key; Gemini CLI sign-in, Vertex, and service-account credentials are separate surfaces.',
+  })
+}
+
+function openRouterReadiness(
+  provider: ProviderCatalogEntry,
+  apiKey: string | undefined,
+): ProviderReadiness {
+  // OpenRouter now has a LIVE OpenAI-compatible adapter (openRouterProvider). A present API key is
+  // therefore a runnable credential signal: readiness is true. Readiness is NOT certification — each
+  // routed model still needs its own target-specific certification report before it is trusted for real
+  // research; the certification/qualification reports carry that gate, not this readiness check.
+  if (apiKey !== undefined && apiKey.length > 0) {
+    return readinessFrom(provider, {
+      isReady: true,
+      authMode: 'api_key',
+      readinessState: 'ready',
+      credentialSourceCategory: 'env_var',
+      credentialSourceLabel: 'OPENROUTER_API_KEY',
+      authSource: 'OPENROUTER_API_KEY',
+      statusLabel: 'OPENROUTER_API_KEY detected and the OpenRouter adapter is live. Each routed model still requires its own certification report before it is trusted for research (readiness is not certification).',
+    })
+  }
+
+  return readinessFrom(provider, {
+    isReady: false,
+    authMode: 'api_key',
+    readinessState: 'missing_credentials',
+    credentialSourceCategory: 'missing',
+    authSource: 'missing',
+    statusLabel: 'Missing OPENROUTER_API_KEY; the OpenRouter adapter is live but needs a key, and each routed model still requires its own certification report.',
   })
 }
 
