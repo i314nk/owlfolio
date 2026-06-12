@@ -625,7 +625,13 @@ export async function promoteResearchCaseToWatchlist(
 
     const fallbackTicker = researchCase.company_id ?? researchCase.research_case_id
     const ticker = researchCase.ticker ?? fallbackTicker
-    const watchlistItemId = `watch_${ticker.toLowerCase()}_${Date.now()}`
+    // Deterministic per research case so re-adding the same completed case is a clean no-op:
+    // the watchlist-draft event, its Shariah gate decision, and the idempotency key all key off
+    // this stable id. A non-deterministic (Date.now()) id would orphan a fresh gate decision and
+    // risk duplicate watchlist items on retry. WATCHLIST entry is the human's authored transition;
+    // re-asserting it must converge, not fan out. We derive from the research_case_id (dropping its
+    // `rc_` prefix) to preserve the historical `watch_<ticker>_<n>` shape while staying stable.
+    const watchlistItemId = `watch_${researchCase.research_case_id.replace(/^rc_/, '')}`
     const gateDecision = await evaluateResearchCaseShariahGate(store, {
       research_case_id: researchCase.research_case_id,
       target_transition: 'watchlist_promotion',

@@ -441,6 +441,64 @@ describe('workflow helpers', () => {
     }
   })
 
+  it('is idempotent: re-adding the same completed case to the watchlist converges to one item and no orphan gate', async () => {
+    const projectDir = await mkdtemp(join(tmpdir(), 'owlfolio-watchlist-idempotent-'))
+    dirs.push(projectDir)
+
+    const ledgerPath = join(projectDir, 'data', 'personal-ledger.sqlite')
+    const sourceLedgerPath = join(projectDir, 'data', 'source-ledger')
+    const state = {
+      config: {
+        ...defaultPersonalLocalAppConfig(),
+        provider: {
+          provider_id: 'mock-provider' as const,
+          support_level: 'certified' as const,
+          model_id: 'mock-buffett-munger-demo',
+        },
+        initialized_at: '2026-05-31T12:00:00.000Z',
+        ledger_path: ledgerPath,
+        source_ledger_path: sourceLedgerPath,
+      },
+      is_initialized: true,
+    }
+
+    const created = await setupMsftResearchCaseInLedger(ledgerPath)
+
+    const first = await promoteResearchCaseToWatchlist(state, created.research_case_id)
+    // Re-adding the same case is the owner clicking the button twice; it must be a no-op.
+    const second = await promoteResearchCaseToWatchlist(state, created.research_case_id)
+
+    expect(second.watchlist_item_id).toBe(first.watchlist_item_id)
+    // The id is deterministic per research case (not time-based), preserving the watch_<ticker>_ shape.
+    expect(first.watchlist_item_id).toBe(`watch_${created.research_case_id.replace(/^rc_/, '')}`)
+    expect(first.watchlist_item_id).toMatch(/^watch_msft_/)
+
+    const store = new SQLiteEventStore(ledgerPath)
+    try {
+      const watchlistItems = await getAppWatchlistItemsFromStore(store, 'personal-local')
+      expect(watchlistItems).toHaveLength(1)
+      expect(watchlistItems[0]).toMatchObject({
+        watchlist_item_id: first.watchlist_item_id,
+        research_case_id: created.research_case_id,
+        user_approved: false,
+      })
+
+      // No duplicate watchlist-draft events and no orphan Shariah gate decisions on retry.
+      const events = await store.list()
+      const draftEvents = events.filter((event) => event.event_type === 'watchlist_draft_created')
+      expect(draftEvents).toHaveLength(1)
+      const gatePayloads = events
+        .filter((event) => event.event_type === 'shariah_gate_decision_recorded')
+        .map((event) => event.payload)
+        .filter((p): p is Record<string, unknown> => p !== null && typeof p === 'object' && !Array.isArray(p))
+        .filter((p) => p['target_transition'] === 'watchlist_promotion')
+      expect(gatePayloads).toHaveLength(1)
+      expect(gatePayloads[0]).toMatchObject({ target_id: first.watchlist_item_id })
+    } finally {
+      store.close()
+    }
+  })
+
   it('rejects provider-authored holding review drafts when the latest certification report is unsupported', async () => {
     const projectDir = await mkdtemp(join(tmpdir(), 'owlfolio-holding-review-unsupported-provider-'))
     dirs.push(projectDir)
