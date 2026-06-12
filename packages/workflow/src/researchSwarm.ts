@@ -204,6 +204,12 @@ export type RunStrategyResearchSwarmCommand = {
   quick_screen_approval?: 'automatic' | 'review'
   /** model-tiering: optional per-role provider/model overrides (registry). Omitted = single-provider default. */
   model_overrides?: Partial<Record<ModelRoleId, ModelRoleOverride>>
+  /**
+   * model-tiering: the env source the registry reads `OWLFOLIO_MODEL_ROLE_<ROLE>` from. The web/worker
+   * build this from the UI-managed env FILE merged over process.env (file wins), so file-configured
+   * tiers take effect. Omitted = `process.env` (the historical default — resolver behavior unchanged).
+   */
+  model_role_env?: Record<string, string | undefined>
 }
 
 export type RunResearchDeepDivePhaseCommand = {
@@ -221,6 +227,11 @@ export type RunResearchDeepDivePhaseCommand = {
   quick_screen_event_id: string
   /** model-tiering: optional per-role provider/model overrides (registry). Omitted = single-provider default. */
   model_overrides?: Partial<Record<ModelRoleId, ModelRoleOverride>>
+  /**
+   * model-tiering: the env source the registry reads `OWLFOLIO_MODEL_ROLE_<ROLE>` from (env FILE merged
+   * over process.env, file wins). Omitted = `process.env` (historical default).
+   */
+  model_role_env?: Record<string, string | undefined>
 }
 
 // ---------------------------------------------------------------------------
@@ -247,13 +258,13 @@ function swarmSeg(value: string): string {
 function resolveRoleRuntime(
   role: ModelRoleId,
   runProvider: Provider,
-  command: { model_id: string; model_overrides?: Partial<Record<ModelRoleId, ModelRoleOverride>> },
+  command: { model_id: string; model_overrides?: Partial<Record<ModelRoleId, ModelRoleOverride>>; model_role_env?: Record<string, string | undefined> },
 ): { provider: Provider; model_id: string } {
   const resolved = resolveModelForRole(role, {
     fallbackProviderId: runProvider.provider_id,
     fallbackModel: command.model_id,
     ...(command.model_overrides === undefined ? {} : { overrides: command.model_overrides }),
-    env: process.env,
+    env: command.model_role_env ?? process.env,
   })
   // Reuse the run's provider unless a role pins a genuinely DIFFERENT provider_id (the "different
   // model" hook the judgment spec left as a TODO — now real).
@@ -277,13 +288,13 @@ function resolveRoleRuntime(
 function resolveCrossCheckRuntime(
   role: 'lane_moat_crosscheck' | 'lane_shariah_crosscheck',
   runProvider: Provider,
-  command: { model_id: string; model_overrides?: Partial<Record<ModelRoleId, ModelRoleOverride>> },
+  command: { model_id: string; model_overrides?: Partial<Record<ModelRoleId, ModelRoleOverride>>; model_role_env?: Record<string, string | undefined> },
 ): { provider: Provider; model_id: string } | undefined {
   const resolved = resolveModelForRole(role, {
     fallbackProviderId: runProvider.provider_id,
     fallbackModel: command.model_id,
     ...(command.model_overrides === undefined ? {} : { overrides: command.model_overrides }),
-    env: process.env,
+    env: command.model_role_env ?? process.env,
   })
   // Distinct = a different provider OR a different model than the run's active one.
   const distinct = resolved.provider_id !== runProvider.provider_id || resolved.model !== command.model_id
@@ -710,6 +721,8 @@ export async function runStrategyResearchSwarm(
     quick_screen_event_id: quickScreen.event_id,
     // model-tiering: forward per-role overrides so the deep-dive lanes + dual-model cross-check honor them.
     ...(command.model_overrides === undefined ? {} : { model_overrides: command.model_overrides }),
+    // Forward the env source so file-configured tiers take effect in the deep-dive phase too.
+    ...(command.model_role_env === undefined ? {} : { model_role_env: command.model_role_env }),
   }, { ...deps, accumulated })
 
   return {

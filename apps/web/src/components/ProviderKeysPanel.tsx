@@ -62,17 +62,41 @@ export type ProviderKeyGroupView = {
   keys: ProviderKeyView[]
 }
 
-export type TierSummaryLine = {
-  role: string
-  tier: 'T0' | 'T1' | 'T2' | 'T3'
+/** A provider the per-role selector can target, honestly marked connected/qualified. */
+export type RoleConfigProviderOption = {
   provider_id: string
-  model: string
+  label: string
+  is_connected: boolean
+  is_qualified: boolean
 }
 
-export type TierSummaryView = {
+/** One per-role row in the Section B configuration table. */
+export type RoleConfigRow = {
+  role: string
+  tier: 'T1' | 'T2' | 'T3'
+  description: string
+  resolved_provider_id: string
+  resolved_model: string
+  resolved_temperature: number
+  /** true when an override pinned this role onto a DIFFERENT provider/model than the run's. */
+  overridden: boolean
+  /** Where the current resolution comes from: a file override / a process-env value / the default-inherit. */
+  source: 'file' | 'env' | 'default'
+  /** The resolved provider has connected credentials (else the role runs fail-closed). */
+  target_provider_connected: boolean
+  /** The resolved provider passed golden-set qualification. */
+  target_provider_qualified: boolean
+  /** The current OWLFOLIO_MODEL_ROLE_<ROLE> value (provider:model@temp), for prefilling the selector. */
+  current_value?: string
+}
+
+export type ProviderRoleConfigView = {
   registry_version: string
+  /** Editorial guidance paragraphs shown atop the table (the owner's "how do I configure tiers?" answer). */
+  guidance: string[]
   no_model_note: string
-  lines: TierSummaryLine[]
+  providers: RoleConfigProviderOption[]
+  roles: RoleConfigRow[]
 }
 
 export type ProviderKeysPanelProps = {
@@ -81,10 +105,11 @@ export type ProviderKeysPanelProps = {
   loginRows: ProviderLoginRow[]
   llmGroups: ProviderKeyGroupView[]
   toolGroups: ProviderKeyGroupView[]
-  tierSummary: TierSummaryView
+  roleConfig: ProviderRoleConfigView
 }
 
 const SET_KEY_ENDPOINT = '/api/onboarding/credentials'
+const MODEL_ROLE_ENDPOINT = '/api/settings/model-roles'
 
 const monoLabelStyle: CSSProperties = {
   color: 'var(--owl-color-quiet)',
@@ -127,7 +152,7 @@ export function ProviderKeysPanel(props: ProviderKeysPanelProps) {
     renderEnvFileHeader(props.envFile),
     renderOnboardingGate(props.onboardingGate),
     renderProviderLoginsSection(props.loginRows),
-    renderLlmSection(props.llmGroups, props.tierSummary),
+    renderLlmSection(props.llmGroups, props.roleConfig),
     renderToolDataSection(props.toolGroups),
   )
 }
@@ -236,34 +261,173 @@ function renderLoginRow(row: ProviderLoginRow) {
 
 // ── Section B — LLM API keys (collapsible) + tier summary ──────────────────────
 
-function renderLlmSection(groups: ProviderKeyGroupView[], tier: TierSummaryView) {
+function renderLlmSection(groups: ProviderKeyGroupView[], roleConfig: ProviderRoleConfigView) {
   const configuredCount = groups.filter((group) => group.keys.some((key) => key.is_set)).length
   return createElement(
     'section',
     { 'aria-label': 'LLM providers', className: 'owl-section-card', style: { gap: 'var(--owl-space-4)' } },
     sectionHeader('Section B', 'LLM providers (API keys)', configuredCount, groups.length, 'configured'),
-    renderTierSummary(tier),
+    renderModelRoleConfig(roleConfig),
     createElement('div', { className: 'owl-row-list' }, ...groups.map((group) => renderKeyGroup(group, true))),
   )
 }
 
-function renderTierSummary(tier: TierSummaryView) {
+// ── Per-tier model configuration table (the owner's "how do I configure tiers?" answer) ───────────────
+
+const tierToneByTier: Record<RoleConfigRow['tier'], StatusBadgeTone> = {
+  T1: 'success',
+  T2: 'neutral',
+  T3: 'manual',
+}
+
+function sourceLabel(row: RoleConfigRow): string {
+  if (row.source === 'file') return 'File override'
+  if (row.source === 'env') return 'Env override'
+  return 'Default (inherits run)'
+}
+
+function renderModelRoleConfig(roleConfig: ProviderRoleConfigView) {
+  // The provider options summary (honestly marked connected/qualified) — context for the selector.
+  const providerSummary = roleConfig.providers
+    .map((p) => `${p.label}: ${p.is_connected ? 'connected' : 'not connected'}${p.is_qualified ? ', qualified' : ''}`)
+    .join(' · ')
+
   return createElement(
     'div',
-    { 'aria-label': 'Tier assignment summary', style: { background: 'var(--owl-color-panel-deep)', border: '1px solid var(--owl-color-border)', borderRadius: '0.7rem', display: 'grid', gap: '0.4rem', padding: '0.75rem 0.85rem' } },
-    createElement('p', { style: monoLabelStyle }, `Tier assignment · registry ${tier.registry_version}`),
+    { 'aria-label': 'Per-tier model configuration', style: { background: 'var(--owl-color-panel-deep)', border: '1px solid var(--owl-color-border)', borderRadius: '0.7rem', display: 'grid', gap: 'var(--owl-space-3)', padding: '0.85rem 0.95rem' } },
+    createElement('p', { style: monoLabelStyle }, `Model tiers · registry ${roleConfig.registry_version}`),
+    // ── C. Guidance block (the tier philosophy, in the design system's editorial voice) ──
     createElement(
       'div',
-      { style: { display: 'grid', gap: '0.25rem' } },
-      ...tier.lines.map((line) =>
-        createElement(
-          'p',
-          { key: line.role, style: { ...monoValueStyle, margin: 0 } },
-          `${line.role} → ${line.tier} · ${line.provider_id}/${line.model}`,
-        ),
+      { style: { display: 'grid', gap: 'var(--owl-space-2)' } },
+      ...roleConfig.guidance.map((paragraph, index) =>
+        createElement('p', { key: `guidance-${index}`, style: subtleTextStyle }, paragraph),
       ),
     ),
-    createElement('p', { style: subtleTextStyle }, tier.no_model_note),
+    providerSummary.length === 0 ? null : createElement('p', { style: { ...monoLabelStyle, textTransform: 'none', letterSpacing: 0 } }, `Providers — ${providerSummary}`),
+    // ── B. The per-role configuration table ──
+    createElement(
+      'div',
+      { style: { display: 'grid', gap: 'var(--owl-space-3)' } },
+      ...roleConfig.roles.map((row) => renderRoleConfigRow(row, roleConfig.providers)),
+    ),
+    createElement('p', { style: subtleTextStyle }, roleConfig.no_model_note),
+  )
+}
+
+function renderRoleConfigRow(row: RoleConfigRow, providers: RoleConfigProviderOption[]) {
+  // Honest warning: a role whose resolved provider has no connected credentials runs fail-closed.
+  const notConnected = !row.target_provider_connected
+  const parsed = parseCurrentValue(row.current_value)
+
+  return createElement(
+    'article',
+    { key: row.role, 'aria-label': `${row.role} model role`, style: { background: 'var(--owl-color-panel)', border: '1px solid var(--owl-color-border)', borderRadius: '0.6rem', display: 'grid', gap: 'var(--owl-space-2)', padding: '0.7rem 0.8rem' } },
+    createElement(
+      'div',
+      { style: { alignItems: 'center', display: 'flex', flexWrap: 'wrap', gap: 'var(--owl-space-2)' } },
+      createElement(StatusBadge, { tone: tierToneByTier[row.tier] }, row.tier),
+      createElement('span', { style: { ...monoValueStyle, fontWeight: 700 } }, row.role),
+      createElement(StatusBadge, { tone: row.source === 'default' ? 'neutral' : 'success' }, sourceLabel(row)),
+      notConnected
+        ? createElement(StatusBadge, { tone: 'danger' }, 'provider not connected — runs will fail closed')
+        : row.target_provider_qualified
+          ? createElement(StatusBadge, { tone: 'success' }, 'qualified')
+          : createElement(StatusBadge, { tone: 'warning' }, 'not golden-set qualified'),
+    ),
+    createElement('p', { style: subtleTextStyle }, row.description),
+    createElement(
+      'p',
+      { style: { ...monoLabelStyle, textTransform: 'none', letterSpacing: 0 } },
+      `Now: ${row.resolved_provider_id}/${row.resolved_model} @${row.resolved_temperature}`,
+    ),
+    renderRoleSelectorForm(row, providers, parsed),
+  )
+}
+
+function parseCurrentValue(value: string | undefined): { provider?: string; model?: string; temperature?: string } {
+  if (value === undefined || value.trim().length === 0) return {}
+  let rest = value.trim()
+  let temperature: string | undefined
+  const at = rest.lastIndexOf('@')
+  if (at >= 0) {
+    temperature = rest.slice(at + 1).trim()
+    rest = rest.slice(0, at).trim()
+  }
+  const colon = rest.indexOf(':')
+  const provider = colon >= 0 ? rest.slice(0, colon).trim() : undefined
+  const model = colon >= 0 ? rest.slice(colon + 1).trim() : rest
+  return { ...(provider === undefined ? {} : { provider }), model, ...(temperature === undefined ? {} : { temperature }) }
+}
+
+const roleInputStyle: CSSProperties = {
+  background: 'var(--owl-color-panel-deep)',
+  border: '1px solid var(--owl-color-border)',
+  borderRadius: '0.4rem',
+  color: 'var(--owl-color-text)',
+  fontFamily: 'var(--owl-font-mono)',
+  fontSize: 'var(--owl-text-sm)',
+  padding: '0.35rem 0.55rem',
+}
+
+function renderRoleSelectorForm(
+  row: RoleConfigRow,
+  providers: RoleConfigProviderOption[],
+  parsed: { provider?: string; model?: string; temperature?: string },
+) {
+  return createElement(
+    'div',
+    { style: { display: 'flex', flexWrap: 'wrap', gap: 'var(--owl-space-2)' } },
+    // Set form: provider dropdown + free-form model + optional temp.
+    createElement(
+      'form',
+      { action: MODEL_ROLE_ENDPOINT, method: 'post', style: { alignItems: 'center', display: 'flex', flexWrap: 'wrap', gap: 'var(--owl-space-2)' } },
+      createElement('input', { name: 'action', type: 'hidden', value: 'set' }),
+      createElement('input', { name: 'role', type: 'hidden', value: row.role }),
+      createElement(
+        'select',
+        { 'aria-label': `${row.role} provider`, name: 'provider', defaultValue: parsed.provider ?? '', style: roleInputStyle, required: true },
+        createElement('option', { value: '', disabled: true }, 'Provider…'),
+        ...providers.map((p) =>
+          createElement(
+            'option',
+            { key: p.provider_id, value: p.provider_id },
+            `${p.label}${p.is_connected ? '' : ' (not connected)'}${p.is_qualified ? ' ✓' : ''}`,
+          ),
+        ),
+      ),
+      createElement('input', {
+        'aria-label': `${row.role} model`,
+        name: 'model',
+        type: 'text',
+        autoComplete: 'off',
+        defaultValue: parsed.model ?? '',
+        placeholder: 'model name',
+        required: true,
+        style: { ...roleInputStyle, flex: '1 1 9rem' },
+      }),
+      createElement('input', {
+        'aria-label': `${row.role} temperature`,
+        name: 'temperature',
+        type: 'text',
+        inputMode: 'decimal',
+        autoComplete: 'off',
+        defaultValue: parsed.temperature ?? '',
+        placeholder: `temp (${row.resolved_temperature})`,
+        style: { ...roleInputStyle, width: '6rem' },
+      }),
+      createElement('button', { className: 'owl-button owl-button-secondary owl-focusable', type: 'submit' }, 'Set'),
+    ),
+    // Clear form: restores the default-inherit (only meaningful when an override exists).
+    row.source === 'default'
+      ? null
+      : createElement(
+          'form',
+          { action: MODEL_ROLE_ENDPOINT, method: 'post' },
+          createElement('input', { name: 'action', type: 'hidden', value: 'clear' }),
+          createElement('input', { name: 'role', type: 'hidden', value: row.role }),
+          createElement('button', { className: 'owl-button owl-button-secondary owl-focusable', type: 'submit' }, 'Clear'),
+        ),
   )
 }
 

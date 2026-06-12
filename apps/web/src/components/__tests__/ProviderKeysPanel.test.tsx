@@ -54,12 +54,25 @@ function baseProps(overrides: Partial<ProviderKeysPanelProps> = {}): ProviderKey
         keys: [{ name: 'OWLFOLIO_MARKET_DATA_API_KEY', description: 'Market-data API key.', is_set: false, advanced: false }],
       },
     ],
-    tierSummary: {
+    roleConfig: {
       registry_version: 'model-registry-2026-06-1',
+      guidance: ['Tier philosophy: T1 frontier, T2 mid, T3 cheap; T0 is never a model.'],
       no_model_note: 'T0 — No model, ever.',
-      lines: [
-        { role: 'synthesis', tier: 'T1', provider_id: 'mock-provider', model: 'mock-demo' },
-        { role: 'monitors', tier: 'T3', provider_id: 'mock-provider', model: 'mock-demo' },
+      providers: [
+        { provider_id: 'openai', label: 'OpenAI', is_connected: true, is_qualified: false },
+        { provider_id: 'mock-provider', label: 'Mock', is_connected: true, is_qualified: true },
+      ],
+      roles: [
+        {
+          role: 'synthesis', tier: 'T1', description: 'Frontier synthesis.',
+          resolved_provider_id: 'mock-provider', resolved_model: 'mock-demo', resolved_temperature: 0.1,
+          overridden: false, source: 'default', target_provider_connected: true, target_provider_qualified: true,
+        },
+        {
+          role: 'monitors', tier: 'T3', description: 'Cheap monitors.',
+          resolved_provider_id: 'mock-provider', resolved_model: 'mock-demo', resolved_temperature: 0.1,
+          overridden: false, source: 'default', target_provider_connected: true, target_provider_qualified: true,
+        },
       ],
     },
     ...overrides,
@@ -95,11 +108,34 @@ describe('ProviderKeysPanel — registry selectability (acceptance test 2)', () 
     expect(html).toContain('…K3jQAA')
   })
 
-  it('renders the tier-assignment summary read from the model registry', () => {
+  it('renders the per-role configuration table with the current resolution + guidance', () => {
     const html = renderToStaticMarkup(createElement(ProviderKeysPanel, baseProps()))
     expect(html).toContain('synthesis')
     expect(html).toContain('monitors')
     expect(html).toContain('model-registry-2026-06-1')
+    // Current resolution + guidance + the selector posting to the model-roles route.
+    expect(html).toContain('mock-provider/mock-demo')
+    expect(html).toContain('Tier philosophy')
+    expect(html).toContain('/api/settings/model-roles')
+    // A provider dropdown option for each catalog provider.
+    expect(html).toContain('OpenAI')
+  })
+})
+
+describe('ProviderKeysPanel — per-role config honesty (not-connected warning + source)', () => {
+  it('shows a fail-closed warning when a role targets an unconnected provider, never fake-green', () => {
+    const props = baseProps()
+    props.roleConfig.roles[0] = {
+      role: 'synthesis', tier: 'T1', description: 'Frontier synthesis.',
+      resolved_provider_id: 'deepseek', resolved_model: 'r1', resolved_temperature: 0.1,
+      overridden: true, source: 'file', target_provider_connected: false, target_provider_qualified: false,
+      current_value: 'deepseek:r1@0.1',
+    }
+    const html = renderToStaticMarkup(createElement(ProviderKeysPanel, props))
+    expect(html).toContain('provider not connected')
+    expect(html).toContain('File override')
+    // An overridden role exposes a Clear affordance to restore the default-inherit.
+    expect(html).toContain('clear')
   })
 })
 

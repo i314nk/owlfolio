@@ -9,6 +9,7 @@ import {
   listEnvKeyStatuses,
   maskSecretTail,
   readEnvKeyValue,
+  removeEnvKey,
   resolveEnvKeyFilePath,
   setEnvKey,
 } from '../envKeys'
@@ -95,6 +96,26 @@ describe('setEnvKey + listEnvKeyStatuses', () => {
       const raw = await readFile(envPath, 'utf8')
       expect(raw).toContain('EXISTING_KEY=keepme')
       expect(raw).toContain('GEMINI_API_KEY=')
+    })
+  })
+})
+
+describe('removeEnvKey', () => {
+  it('removes the named key and preserves the others', async () => {
+    await withTempEnvFile(async (envPath) => {
+      await writeFile(envPath, 'KEEP_ME=stay\nOWLFOLIO_MODEL_ROLE_SYNTHESIS=openai:m@0.1\n', 'utf8')
+      await removeEnvKey('OWLFOLIO_MODEL_ROLE_SYNTHESIS', { envPath })
+      const raw = await readFile(envPath, 'utf8')
+      expect(raw).toContain('KEEP_ME=stay')
+      expect(raw).not.toContain('OWLFOLIO_MODEL_ROLE_SYNTHESIS')
+      expect(await readEnvKeyValue('OWLFOLIO_MODEL_ROLE_SYNTHESIS', { envPath })).toBeUndefined()
+    })
+  })
+
+  it('is a no-op when the key or file is absent, and rejects unsafe names', async () => {
+    await withTempEnvFile(async (envPath) => {
+      await expect(removeEnvKey('OWLFOLIO_MODEL_ROLE_SYNTHESIS', { envPath })).resolves.toBeUndefined()
+      await expect(removeEnvKey('bad name', { envPath })).rejects.toThrow()
     })
   })
 })

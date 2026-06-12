@@ -22,6 +22,7 @@
     "./calibrationRunEvent": "./src/calibrationRunEvent.ts",
     "./judgmentRubrics": "./src/judgmentRubrics.ts",
     "./modelRegistry": "./src/modelRegistry.ts",
+    "./modelRoleEnvFile": "./src/modelRoleEnvFile.ts",
     "./goldenSet": "./src/goldenSet.ts",
     "./qualificationEval": "./src/qualificationEval.ts",
     "./sourcePolicy": "./src/sourcePolicy.ts",

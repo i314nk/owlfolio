@@ -2525,3 +2525,51 @@ describe('runStrategyResearchSwarm — dual-model cross-check (moat + Shariah se
     expect(oq.some((q) => q.includes('dual_model_crosscheck_disagreement'))).toBe(false)
   })
 })
+
+describe('runStrategyResearchSwarm — model_role_env (file-configured tier overrides take effect)', () => {
+  it('resolves a role onto the env-supplied model (red_team) without touching the run default', async () => {
+    const store = new InMemoryEventStore()
+    const base = swarmFakeProvider()
+    // Record the model_id each schema_name was invoked with so we can assert the override landed.
+    const modelBySchema = new Map<string, string>()
+    const provider = {
+      ...base,
+      structured: vi.fn(async (req: { model_id?: string; response_format?: { schema_name?: string } }) => {
+        const schemaName = req.response_format?.schema_name
+        if (schemaName !== undefined && req.model_id !== undefined) modelBySchema.set(schemaName, req.model_id)
+        return (base.structured as unknown as (r: unknown) => Promise<unknown>)(req)
+      }),
+    }
+    const ground = async (sources: { source_id: string }[]) => ({
+      captured: sources.map((s) => ({
+        source_id: s.source_id, title: 't', url: 'https://example.com/x', excerpt: 'e',
+        availability: 'available' as const, fetched_at: 'x', content_hash: 'sha256:1',
+      })),
+      verified_ids: sources.map((s) => s.source_id),
+    })
+
+    await runStrategyResearchSwarm(
+      store,
+      provider as never,
+      {
+        research_case_id: 'rc_env',
+        company_id: 'company_env',
+        ticker: 'ENV',
+        strategy_id: 'buffett-munger',
+        actor_id: 'user_local',
+        idempotency_key: 'k_env',
+        model_id: 'run-default-model',
+        decision_id: 'decision_env',
+        source_ledger_path: '/tmp/owlfolio-swarm-env-test-sources',
+        // The env source the web/worker build from the env FILE merged over process.env. Same provider
+        // (fake-swarm), a DIFFERENT model on red_team — proves the file-configured tier takes effect.
+        model_role_env: { OWLFOLIO_MODEL_ROLE_RED_TEAM: 'fake-swarm:env-red-team-model@0.0' },
+      },
+      { ground, laneConcurrency: 3 },
+    )
+
+    // The red-team pass ran on the env-configured model; the quick screen kept the run default.
+    expect(modelBySchema.get('BuffettMungerRedTeam')).toBe('env-red-team-model')
+    expect(modelBySchema.get('BuffettMungerQuickScreen')).toBe('run-default-model')
+  })
+})

@@ -64,6 +64,7 @@ import { projectPendingCalibrationRuns } from '@owlfolio/ledger/projections/cali
 import type { ShariahFinancialRatioInputs } from '@owlfolio/strategies/shariahFinancialRatios'
 import { selectResearchCaseAction } from '@owlfolio/workflow/researchCasePolicy'
 import { runStrategyResearchSwarm, runResearchDeepDivePhase, type GroundFn } from '@owlfolio/workflow/researchSwarm'
+import { resolveModelRoleEnv } from '@owlfolio/strategies/modelRoleEnvFile'
 import { runDiscovery13f } from '@owlfolio/workflow/discovery13f'
 import { groundProposedSources, groundProposedSourcesDeterministic } from '@owlfolio/workflow/sourceGrounding'
 
@@ -2053,6 +2054,8 @@ export async function runProcessResearchQueueTask(
       ? groundProposedSourcesDeterministic as unknown as GroundFn
       : groundProposedSources as unknown as GroundFn
   )
+  // model-tiering: the UI-managed env-file role overrides (OWLFOLIO_MODEL_ROLE_*) win over process.env.
+  const modelRoleEnv = await resolveModelRoleEnv()
   const summaries: string[] = []
   let failed = 0
 
@@ -2093,6 +2096,7 @@ export async function runProcessResearchQueueTask(
           model_id: run.model_id ?? 'mock',
           decision_id: run.decision_id ?? `decision_${run.research_case_id}`,
           source_ledger_path: options.source_ledger_path,
+          model_role_env: modelRoleEnv,
         },
         { ground },
       )
@@ -2149,6 +2153,8 @@ export async function runProcessDeepDiveQueueTask(
       ? groundProposedSourcesDeterministic as unknown as GroundFn
       : groundProposedSources as unknown as GroundFn
   )
+  // model-tiering: the UI-managed env-file role overrides (OWLFOLIO_MODEL_ROLE_*) win over process.env.
+  const modelRoleEnv = await resolveModelRoleEnv()
   const summaries: string[] = []
   let failed = 0
 
@@ -2167,6 +2173,7 @@ export async function runProcessDeepDiveQueueTask(
           source_ledger_path: run.source_ledger_path ?? options.source_ledger_path,
           quick_screen_source_ids: run.quick_screen_source_ids,
           quick_screen_event_id: run.quick_screen_event_id,
+          model_role_env: modelRoleEnv,
         },
         { ground },
       )

@@ -166,6 +166,25 @@ export async function setEnvKey(name: string, value: string, options: EnvKeyOpti
 }
 
 /**
+ * Remove a single key from the env file, if present. Writes the file back without that entry; other
+ * entries are preserved. A no-op (no error) when the key or file is absent. Rejects unsafe names so a
+ * malformed name can never be used to probe the filesystem. SERVER-ONLY.
+ */
+export async function removeEnvKey(name: string, options: EnvKeyOptions = {}): Promise<void> {
+  if (!SAFE_KEY_NAME.test(name)) {
+    throw new Error(`Unsafe env key name: ${name}. Use SCREAMING_SNAKE_CASE.`)
+  }
+  const envPath = envPathFrom(options)
+  const map = await readEnvMap(envPath)
+  if (!map.has(name)) {
+    return
+  }
+  map.delete(name)
+  await mkdir(dirname(envPath), { recursive: true })
+  await writeFile(envPath, serializeEnvFile(map), { encoding: 'utf8', mode: 0o600 })
+}
+
+/**
  * Confirm the chosen storage path is safe to NOT commit: either it is OUTSIDE
  * the repo, or it is an in-repo dotfile that the repo's `.gitignore` already
  * covers (`.env`, `.env.local`). We do not consult git; this is a conservative
