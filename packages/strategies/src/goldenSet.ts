@@ -35,6 +35,13 @@ export type ReferenceConfidence = 'firm' | 'approximate'
  * a single reported line) — omitted when we cannot ground it, so it is simply not scored.
  */
 export type GoldenOeBridge = {
+  /**
+   * Reporting currency of the monetary OE-bridge fields (ISO code, e.g. 'USD', 'DKK'). OPTIONAL: an
+   * absent value means USD (the default for US 10-K filers). The qualification scorer compares ONLY in
+   * a matching currency — a foreign filer (e.g. Novo Nordisk, DKK/IFRS 20-F) must freeze its references
+   * in the REPORTING currency, never a USD-scaled placeholder, so the ±10% band measures judgment, not FX.
+   */
+  reporting_currency?: string
   net_income_musd: number
   d_and_a_musd: number
   maintenance_capex_musd?: number
@@ -89,12 +96,13 @@ export type GoldenSet = {
  *  NVO (Novo Nordisk) — wide moat (GLP-1 / insulin franchise: patents, manufacturing scale,
  *    branded-script switching). Shariah sector status COMPLIANT (pharmaceuticals are a permissible
  *    sector; conditional financial-ratio overlay handled separately). Novo reports in DKK under IFRS
- *    (20-F filer), so we do NOT freeze precise USD OE-bridge figures we cannot ground cleanly here:
- *    the bridge inputs are left at conservative APPROXIMATE order-of-magnitude placeholders and the row
- *    is flagged approximate. Its PRIMARY qualification value is the moat + Shariah-sector exact match.
+ *    (20-F filer). The OE bridge is FROZEN IN DKK (the reporting currency) from the FY2025 20-F via SEC
+ *    EDGAR (ifrs-full): NI 102,434 / D&A 14,666 / SBC 1,435 / diluted shares 4,447.7M (DKK millions).
+ *    The qualification scorer currency-matches before comparing, so a DKK-reporting lane bridge is scored
+ *    against these DKK references — never against a USD-scaled placeholder (the old ~375% FX-scale miss).
  */
 export const GOLDEN_SET: GoldenSet = Object.freeze({
-  version: 'golden-set-2026-06-1',
+  version: 'golden-set-2026-06-2',
   companies: [
     {
       ticker: 'COST',
@@ -140,23 +148,27 @@ export const GOLDEN_SET: GoldenSet = Object.freeze({
     {
       ticker: 'NVO',
       company: 'Novo Nordisk A/S',
-      reference_fiscal_year: 2024,
+      reference_fiscal_year: 2025,
       expected_moat_class: 'wide',
       expected_runway: 'proven',
       expected_oe_bridge: {
-        // APPROXIMATE USD-equivalent placeholders — Novo reports in DKK under IFRS (20-F). Not frozen
-        // as precise references; the row's qualification value is moat + Shariah-sector exact match.
-        net_income_musd: 14000,
-        d_and_a_musd: 1500,
-        sbc_musd: 300,
-        diluted_shares_m: 4460,
+        // FROZEN IN DKK (the REPORTING currency) from the FY2025 20-F via SEC EDGAR XBRL (ifrs-full
+        // taxonomy). Novo Nordisk reports in DKK; the prior USD placeholders made the bridge look ~375%
+        // off purely from the FX scale. The scorer now compares in the reporting currency, so these are
+        // firm references read off the same EDGAR series the lane consumes — DKK MILLIONS.
+        reporting_currency: 'DKK',
+        net_income_musd: 102434,
+        d_and_a_musd: 14666,
+        sbc_musd: 1435,
+        diluted_shares_m: 4447.7,
       },
       expected_shariah_status: 'compliant',
-      reference_confidence: 'approximate',
+      reference_confidence: 'firm',
       basis_note:
         'NVO moat wide (GLP-1/insulin franchise: patents, manufacturing scale, script switching) — firm. '
-        + 'Shariah sector COMPLIANT (pharma permissible) — firm. OE-bridge USD figures APPROXIMATE (DKK/IFRS '
-        + '20-F filer; not cleanly grounded in USD here) — review near-misses rather than auto-fail.',
+        + 'Shariah sector COMPLIANT (pharma permissible) — firm. OE-bridge FROZEN IN DKK (FY2025 20-F, SEC '
+        + 'EDGAR ifrs-full): NI 102,434 / D&A 14,666 / SBC 1,435 / diluted shares 4,447.7M (DKK millions). '
+        + 'The scorer currency-matches, so DKK references are compared against the DKK-reporting lane bridge.',
     },
   ],
 }) as GoldenSet

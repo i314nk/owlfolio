@@ -63,6 +63,21 @@ export type CertificationCaseResult = {
   observed_provider_behavior?: string
 }
 
+/**
+ * The owner-attested data posture recorded on the report for this exact (provider+model) route. Sourced
+ * from the versioned dataPosturePolicy — NOT a contractual/legal verification (the note says so). Absent
+ * on legacy reports.
+ */
+export type CertificationDataPosture = {
+  data_policy_source: string
+  retention_or_zdr_status: string
+  /** true when an owner attestation covers this route; false = fail-closed unknown/not_verified default. */
+  attested: boolean
+  note: string
+  policy_version: string
+  attested_at: string
+}
+
 export type CertificationReport = {
   certification_report_id: string
   provider_id: string
@@ -74,6 +89,8 @@ export type CertificationReport = {
   capabilities: ProviderCapabilities
   cases: CertificationCaseResult[]
   summary: string
+  /** Owner-attested per-route data posture (absent on legacy reports). */
+  data_posture?: CertificationDataPosture
 }
 
 export type CertificationLedgerPayload = Pick<CertificationReport,

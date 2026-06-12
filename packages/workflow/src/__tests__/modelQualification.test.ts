@@ -37,6 +37,7 @@ describe('runModelQualification', () => {
             moat_class: c.expected_moat_class,
             shariah_status: c.expected_shariah_status,
             oe_bridge: {
+              ...(c.expected_oe_bridge.reporting_currency === undefined ? {} : { reporting_currency: c.expected_oe_bridge.reporting_currency }),
               net_income_musd: c.expected_oe_bridge.net_income_musd,
               d_and_a_musd: c.expected_oe_bridge.d_and_a_musd,
               sbc_musd: c.expected_oe_bridge.sbc_musd,
@@ -69,6 +70,7 @@ describe('runModelQualification', () => {
             moat_class: c.expected_moat_class,
             shariah_status: c.expected_shariah_status,
             oe_bridge: {
+              ...(c.expected_oe_bridge.reporting_currency === undefined ? {} : { reporting_currency: c.expected_oe_bridge.reporting_currency }),
               net_income_musd: c.expected_oe_bridge.net_income_musd,
               d_and_a_musd: c.expected_oe_bridge.d_and_a_musd,
               sbc_musd: c.expected_oe_bridge.sbc_musd,
@@ -115,6 +117,49 @@ describe('isModelQualified — fail-closed gate', () => {
     const result = await isModelQualified('mock-provider', { dir })
     expect(result.qualified).toBe(true)
     expect(result.has_report).toBe(true)
+  })
+
+  it('is per-target: a SECOND model on the same provider does NOT overwrite the first (target-specific stem)', async () => {
+    const base: Omit<ModelQualificationReport, 'qualification_report_id' | 'model_id' | 'qualified' | 'summary' | 'result'> = {
+      provider_id: 'openrouter',
+      golden_set_version: GOLDEN_SET.version,
+      run_status: 'completed',
+      generated_at: '2026-06-13T00:00:00.000Z',
+    }
+    const passing = (model: string): ModelQualificationReport => ({
+      ...base,
+      qualification_report_id: `qual_openrouter_${model}`,
+      model_id: model,
+      qualified: true,
+      result: { golden_set_version: GOLDEN_SET.version, schema_valid_first_attempt_rate: 1, schema_valid_criterion: { pass: true, detail: 'ok' }, companies: [], qualified: true },
+      summary: 'qualified',
+    })
+    const failing = (model: string): ModelQualificationReport => ({
+      ...base,
+      qualification_report_id: `qual_openrouter_${model}_x`,
+      model_id: model,
+      qualified: false,
+      result: { golden_set_version: GOLDEN_SET.version, schema_valid_first_attempt_rate: 0, schema_valid_criterion: { pass: false, detail: 'no' }, companies: [], qualified: false },
+      summary: 'not qualified',
+    })
+    // Two DIFFERENT models on the SAME provider, each at its target-specific stem.
+    await writeFile(join(dir, qualificationReportFileStem({ provider_id: 'openrouter', model_id: 'anthropic/claude-opus-4.8' }) + '.latest.json'), JSON.stringify(passing('anthropic/claude-opus-4.8')), 'utf8')
+    await writeFile(join(dir, qualificationReportFileStem({ provider_id: 'openrouter', model_id: 'deepseek/deepseek-r1' }) + '.latest.json'), JSON.stringify(failing('deepseek/deepseek-r1')), 'utf8')
+
+    const opus = await isModelQualified('openrouter', { dir, model_id: 'anthropic/claude-opus-4.8' })
+    expect(opus.qualified).toBe(true)
+    expect(opus.report?.model_id).toBe('anthropic/claude-opus-4.8')
+
+    const deepseek = await isModelQualified('openrouter', { dir, model_id: 'deepseek/deepseek-r1' })
+    expect(deepseek.qualified).toBe(false)
+    expect(deepseek.has_report).toBe(true)
+    expect(deepseek.report?.model_id).toBe('deepseek/deepseek-r1')
+  })
+
+  it('the target-specific stems for two models on one provider are DISTINCT (no overwrite)', () => {
+    const a = qualificationReportFileStem({ provider_id: 'openrouter', model_id: 'openai/gpt-5.5' })
+    const b = qualificationReportFileStem({ provider_id: 'openrouter', model_id: 'deepseek/deepseek-r1' })
+    expect(a).not.toBe(b)
   })
 
   it('returns false when a report exists but is NOT qualified', async () => {

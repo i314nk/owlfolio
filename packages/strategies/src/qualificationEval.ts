@@ -30,8 +30,14 @@ export const OE_BRIDGE_TOLERANCE = 0.1
 /** Minimum first-attempt schema-valid rate across all scored runs. */
 export const SCHEMA_VALID_FIRST_ATTEMPT_MIN = 0.9
 
-/** The OE-bridge inputs a lane produced (company totals $M; shares in M). maintenance_capex optional. */
+/**
+ * The OE-bridge inputs a lane produced (company totals in MILLIONS of the reporting currency; shares in
+ * M). maintenance_capex optional. `reporting_currency` is the ISO code of the monetary fields (absent ⇒
+ * USD); the scorer compares ONLY against a reference in the SAME currency so an FX scale gap (e.g. a
+ * DKK-reporting foreign filer vs a USD reference) is caught as a currency mismatch, not a near-miss.
+ */
 export type LaneOeBridge = {
+  reporting_currency?: string
   net_income_musd: number
   d_and_a_musd: number
   maintenance_capex_musd?: number
@@ -119,13 +125,38 @@ function scoreShariah(reference: GoldenShariahStatus, observed: GoldenShariahSta
   return { pass, detail: `shariah ${observed} vs reference ${reference} (${pass ? 'exact' : 'mismatch'}).` }
 }
 
-/** OE-bridge passes when EVERY scored input is within ±10% of its reference. */
+/** Default reporting currency when a bridge omits one (US 10-K filers report in USD). */
+const DEFAULT_REPORTING_CURRENCY = 'USD'
+
+function normalizedCurrency(value: string | undefined): string {
+  return (value ?? DEFAULT_REPORTING_CURRENCY).trim().toUpperCase()
+}
+
+/**
+ * OE-bridge passes when EVERY scored input is within ±10% of its reference — AND the observation is in
+ * the SAME reporting currency as the reference. A currency mismatch (e.g. a DKK-reporting foreign filer
+ * scored against a USD reference) is NOT a near-miss: comparing across currencies measures FX scale, not
+ * judgment, so it fails-closed with a currency-named detail rather than a bogus huge deviation.
+ */
 function scoreOeBridge(reference: GoldenSetCompany['expected_oe_bridge'], observed: LaneOeBridge | undefined): CriterionResult & { inputs: OeBridgeInputResult[] } {
   if (observed === undefined) {
     return { pass: false, detail: 'No OE bridge produced (missing) — fail-closed.', inputs: [] }
   }
-  // Only score fields the reference froze (maintenance_capex_musd is optional and often omitted).
-  const fields = (Object.keys(reference) as (keyof LaneOeBridge)[]).filter((f) => reference[f] !== undefined)
+  const refCurrency = normalizedCurrency(reference.reporting_currency)
+  const obsCurrency = normalizedCurrency(observed.reporting_currency)
+  if (refCurrency !== obsCurrency) {
+    return {
+      pass: false,
+      detail: `OE-bridge currency mismatch: observed in ${obsCurrency} but reference frozen in ${refCurrency} — not scored across currencies (compare in the reporting currency).`,
+      inputs: [],
+    }
+  }
+  // Only score MONETARY/share fields the reference froze (reporting_currency is metadata, not a metric;
+  // maintenance_capex_musd is optional and often omitted). `reporting_currency` is filtered out so every
+  // scored field is numeric.
+  type NumericOeField = Exclude<keyof LaneOeBridge, 'reporting_currency'>
+  const fields = (Object.keys(reference) as (keyof LaneOeBridge)[])
+    .filter((f): f is NumericOeField => f !== 'reporting_currency' && reference[f] !== undefined)
   const inputs: OeBridgeInputResult[] = fields.map((field) => {
     const ref = reference[field] as number
     const obs = observed[field]

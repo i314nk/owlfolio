@@ -4,24 +4,32 @@ import { join } from 'node:path'
 
 import { describe, expect, it } from 'vitest'
 
+import { curatedRealTierModelsForProvider } from '@owlfolio/providers'
+import { qualificationReportFileStem } from '@owlfolio/workflow/modelQualification'
+
 import { buildAutoModelRoleOverrides } from '../autoTierConfig'
 
-// A qualification report fixture written next to the certification reports the helper reads.
+// A qualification report fixture written next to the certification reports the helper reads. The gate is
+// now PER-TARGET (provider+model), so we write a passing report for each of the provider's curated
+// reasoning models at the target-specific stem (mirroring what the live qualify runner writes).
 async function writeQualified(dir: string, providerId: string): Promise<void> {
-  await writeFile(
-    join(dir, `${providerId}.qualification.latest.json`),
-    JSON.stringify({
-      qualification_report_id: `qual_${providerId}_model_x`,
-      provider_id: providerId,
-      golden_set_version: 'gs-test',
-      run_status: 'completed',
-      generated_at: '2026-06-01T00:00:00.000Z',
-      qualified: true,
-      result: {},
-      summary: 'qualified for test',
-    }),
-    'utf8',
-  )
+  for (const model of curatedRealTierModelsForProvider(providerId)) {
+    await writeFile(
+      join(dir, `${qualificationReportFileStem({ provider_id: providerId, model_id: model.model_id })}.latest.json`),
+      JSON.stringify({
+        qualification_report_id: `qual_${providerId}_${model.model_id}_x`,
+        provider_id: providerId,
+        model_id: model.model_id,
+        golden_set_version: 'gs-test',
+        run_status: 'completed',
+        generated_at: '2026-06-01T00:00:00.000Z',
+        qualified: true,
+        result: {},
+        summary: 'qualified for test',
+      }),
+      'utf8',
+    )
+  }
 }
 
 describe('buildAutoModelRoleOverrides', () => {

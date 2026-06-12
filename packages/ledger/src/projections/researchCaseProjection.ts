@@ -45,6 +45,8 @@ export type ResearchCaseSpecialistFindingProjection = {
 }
 
 export type OwnerEarningsBridgeProjection = {
+  /** Reporting currency of the monetary bridge fields (e.g. 'USD', 'DKK') when EDGAR-anchored. */
+  reporting_currency?: string
   net_income?: number
   depreciation_amortization?: number
   maintenance_capex?: number
@@ -310,6 +312,8 @@ function getOwnerEarningsBridgeProjection(val: Record<string, unknown>): OwnerEa
   if (!isRecord(bridge)) return undefined
 
   const projected: OwnerEarningsBridgeProjection = {}
+  const reporting_currency = getString(bridge, 'reporting_currency')
+  if (reporting_currency !== undefined) projected.reporting_currency = reporting_currency
   const net_income = getNumber(bridge, 'net_income')
   if (net_income !== undefined) projected.net_income = net_income
   const depreciation_amortization = getNumber(bridge, 'depreciation_amortization')

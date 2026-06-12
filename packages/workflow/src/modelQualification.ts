@@ -65,8 +65,17 @@ function safeId(value: string): string {
   return value.replace(/[^a-zA-Z0-9_-]+/g, '-').replace(/[-_]+$/g, '')
 }
 
-/** The provider-keyed file stem for the latest qualification report (mirrors `<provider>.latest.json`). */
-export function qualificationReportFileStem(target: Pick<ModelQualificationTarget, 'provider_id'>): string {
+/**
+ * The file stem for the latest qualification report. TARGET-SPECIFIC when a `model_id` is supplied
+ * (`<provider>__<model>.qualification`) so a SECOND model on the same provider does NOT overwrite the
+ * first (mirrors the certification target-key fix). Provider-only (`<provider>.qualification`) when no
+ * model is given — kept for back-compat and as a provider-level pointer. The trust model IS per-target:
+ * a provider qualified on one model says nothing about another model behind the same key.
+ */
+export function qualificationReportFileStem(target: Pick<ModelQualificationTarget, 'provider_id' | 'model_id'>): string {
+  if (target.model_id !== undefined && target.model_id.length > 0) {
+    return `${safeId(target.provider_id)}__${safeId(target.model_id)}.qualification`
+  }
   return `${target.provider_id}.qualification`
 }
 
@@ -117,6 +126,14 @@ export type IsModelQualifiedResult = {
 export type IsModelQualifiedOptions = {
   /** The certification/qualification report directory (defaults from env/project root). */
   dir?: string
+  /**
+   * The model to gate on. When supplied, the gate is PER-TARGET: it reads the target-specific report
+   * (`<provider>__<model>.qualification.latest.json`), so a provider qualified on one model does not
+   * leak that verdict onto another. When omitted, the gate falls back to the newest report for the
+   * provider (provider-level pointer) — useful for a provider-level summary, but the per-target form is
+   * the trust contract.
+   */
+  model_id?: string
   env?: Record<string, string | undefined>
   cwd?: string
 }
@@ -142,10 +159,13 @@ export async function isModelQualified(
   options: IsModelQualifiedOptions = {},
 ): Promise<IsModelQualifiedResult> {
   const reportDir = resolveReportDir(options)
-  const stem = qualificationReportFileStem({ provider_id: providerId })
+  const modelId = options.model_id
+  const stem = qualificationReportFileStem({ provider_id: providerId, ...(modelId === undefined ? {} : { model_id: modelId }) })
   let report: ModelQualificationReport | undefined
   try {
-    // Prefer the provider-keyed latest file; fall back to scanning for the newest matching report.
+    // Prefer the target-specific latest file (provider+model when a model was given); fall back to
+    // scanning for the newest matching persisted report. When a model_id is given, only reports for that
+    // exact model count (per-target trust) — a report for a DIFFERENT model never qualifies this target.
     try {
       report = JSON.parse(await readFile(join(reportDir, `${stem}.latest.json`), 'utf8')) as ModelQualificationReport
     } catch {
@@ -154,6 +174,7 @@ export async function isModelQualified(
       for (const entry of entries) {
         const parsed = JSON.parse(await readFile(join(reportDir, entry), 'utf8')) as ModelQualificationReport
         if (parsed.provider_id !== providerId) continue
+        if (modelId !== undefined && parsed.model_id !== modelId) continue
         if (newest === undefined || newest.generated_at.localeCompare(parsed.generated_at) < 0) newest = parsed
       }
       report = newest

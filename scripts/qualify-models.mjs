@@ -74,6 +74,10 @@ async function runLane(ticker) {
     moat_class: valuation.moat_class ?? 'narrow',
     shariah_status: shariahSector ?? 'conditional',
     oe_bridge: {
+      // The reporting currency the harness anchored the bridge to (DKK for IFRS 20-F filers like NVO,
+      // USD for us-gaap 10-K filers). The scorer currency-matches before comparing, so a DKK bridge is
+      // scored against the DKK golden reference rather than a USD-scaled placeholder.
+      ...(typeof bridge.reporting_currency === 'string' ? { reporting_currency: bridge.reporting_currency } : {}),
       net_income_musd: numberOr(bridge.net_income, company?.expected_oe_bridge.net_income_musd ?? 0),
       d_and_a_musd: numberOr(bridge.depreciation_amortization, company?.expected_oe_bridge.d_and_a_musd ?? 0),
       ...(bridge.maintenance_capex === undefined ? {} : { maintenance_capex_musd: bridge.maintenance_capex }),
@@ -105,11 +109,15 @@ const report = await runModelQualification(
 )
 
 const serialized = `${JSON.stringify(report, null, 2)}\n`
-const stem = qualificationReportFileStem({ provider_id: providerId })
+// TARGET-SPECIFIC latest (provider+model) so a second model on the same provider does not overwrite the
+// first; PLUS a provider-level pointer (newest run) for provider-only readers; PLUS the historical id file.
+const targetStem = qualificationReportFileStem({ provider_id: providerId, model_id: modelId })
+const providerStem = qualificationReportFileStem({ provider_id: providerId })
 await Promise.all([
-  writeFile(join(reportDir, `${stem}.latest.json`), serialized, 'utf8'),
+  writeFile(join(reportDir, `${targetStem}.latest.json`), serialized, 'utf8'),
+  writeFile(join(reportDir, `${providerStem}.latest.json`), serialized, 'utf8'),
   writeFile(join(reportDir, `${report.qualification_report_id}.json`), serialized, 'utf8'),
 ])
 
 console.log(`${report.provider_id}\t${report.model_id}\t${report.run_status}\tqualified=${report.qualified}\t${report.summary}`)
-console.log(`Qualification report written to ${reportDir}/${stem}.latest.json`)
+console.log(`Qualification report written to ${reportDir}/${targetStem}.latest.json (+ provider pointer ${providerStem}.latest.json)`)

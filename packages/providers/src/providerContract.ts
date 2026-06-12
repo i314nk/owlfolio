@@ -95,10 +95,22 @@ export const providerDataPolicySources = [
   'enterprise_contract',
   'subscription_workspace_policy',
   'built_in_demo',
+  // Owner-attested account configuration (e.g. an OpenRouter account's per-route ZDR/exemption setting).
+  // The basis is an owner ACCOUNT CONFIGURATION, NOT a contractual/legal verification — see dataPosturePolicy.
+  'owner_attested_account_policy',
   'unknown',
 ] as const
 export type ProviderDataPolicySource = (typeof providerDataPolicySources)[number]
-export type ProviderRetentionOrZdrStatus = 'not_applicable' | 'available_if_configured' | 'not_verified' | 'unknown'
+export type ProviderRetentionOrZdrStatus =
+  | 'not_applicable'
+  | 'available_if_configured'
+  | 'not_verified'
+  | 'unknown'
+  // Owner-attested account configuration enforces zero-data-retention routing for this route.
+  | 'zdr_routing_enforced'
+  // Owner-attested: route runs under the vendor's standard no-training API terms (bounded
+  // abuse-monitoring retention) — OpenRouter-recommended exemption from ZDR-only for frontier vendors.
+  | 'vendor_standard_no_training_terms'
 export type ProviderAutomationSuitability = 'production_headless' | 'personal_local_interactive' | 'manual_only' | 'unsupported' | 'unknown'
 
 export const providerWorkflowRoles = [

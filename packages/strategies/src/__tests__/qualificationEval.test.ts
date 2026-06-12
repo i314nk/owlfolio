@@ -31,6 +31,7 @@ function allGoldenSetOutputs(): LaneQualificationOutput[] {
     moat_class: c.expected_moat_class,
     shariah_status: c.expected_shariah_status,
     oe_bridge: {
+      ...(c.expected_oe_bridge.reporting_currency === undefined ? {} : { reporting_currency: c.expected_oe_bridge.reporting_currency }),
       net_income_musd: c.expected_oe_bridge.net_income_musd,
       d_and_a_musd: c.expected_oe_bridge.d_and_a_musd,
       ...(c.expected_oe_bridge.maintenance_capex_musd === undefined ? {} : { maintenance_capex_musd: c.expected_oe_bridge.maintenance_capex_musd }),
@@ -183,5 +184,64 @@ describe('scoreQualification — per-criterion matrix', () => {
     expect(cprt?.qualified).toBe(false)
     expect(cprt?.missing).toBe(true)
     expect(report.qualified).toBe(false)
+  })
+})
+
+describe('OE-bridge currency consistency (the NVO DKK/USD scaling fix)', () => {
+  // NVO reports in DKK (IFRS 20-F filer). The golden reference is now frozen in DKK from the real 20-F,
+  // and the lane output must declare its reporting currency. The scorer compares ONLY in a matching
+  // currency — it never compares a DKK observation against a USD reference (the prior bug, which made
+  // net income look 375% off purely from the FX scale).
+  function exactNvoDkkOutput(overrides: Partial<LaneQualificationOutput> = {}): LaneQualificationOutput {
+    const ref = GOLDEN_SET.companies.find((c) => c.ticker === 'NVO')!.expected_oe_bridge
+    return {
+      ticker: 'NVO',
+      moat_class: 'wide',
+      shariah_status: 'compliant',
+      oe_bridge: {
+        reporting_currency: 'DKK',
+        net_income_musd: ref.net_income_musd,
+        d_and_a_musd: ref.d_and_a_musd,
+        sbc_musd: ref.sbc_musd,
+        diluted_shares_m: ref.diluted_shares_m,
+      },
+      fabricated_citation_count: 0,
+      schema_valid_first_attempt: true,
+      ...overrides,
+    }
+  }
+
+  it('the NVO golden reference is frozen in DKK', () => {
+    const nvo = GOLDEN_SET.companies.find((c) => c.ticker === 'NVO')!
+    expect(nvo.expected_oe_bridge.reporting_currency).toBe('DKK')
+  })
+
+  it('passes OE when a DKK observation matches the DKK reference', () => {
+    const report = scoreQualification([exactNvoDkkOutput()], GOLDEN_SET)
+    const row = report.companies.find((c) => c.ticker === 'NVO')!
+    expect(row.oe_bridge.pass).toBe(true)
+  })
+
+  it('FAILS (currency mismatch, not a scale near-miss) when the observation is in USD but the reference is DKK', () => {
+    // A USD-scaled observation (~1/6.9 of the DKK figures) must NOT be silently compared; it fails on
+    // currency, with a detail that names the mismatch rather than reporting a bogus huge deviation.
+    const report = scoreQualification([exactNvoDkkOutput({
+      oe_bridge: {
+        reporting_currency: 'USD',
+        net_income_musd: 14800,
+        d_and_a_musd: 2120,
+        sbc_musd: 207,
+        diluted_shares_m: 4447.7,
+      },
+    })], GOLDEN_SET)
+    const row = report.companies.find((c) => c.ticker === 'NVO')!
+    expect(row.oe_bridge.pass).toBe(false)
+    expect(row.oe_bridge.detail.toLowerCase()).toContain('currency')
+  })
+
+  it('treats an absent observed currency as matching a USD reference (back-compat for COST)', () => {
+    const report = scoreQualification([exactCostOutput()], GOLDEN_SET)
+    const row = report.companies.find((c) => c.ticker === 'COST')!
+    expect(row.oe_bridge.pass).toBe(true)
   })
 })

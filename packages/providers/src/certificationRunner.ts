@@ -4,6 +4,7 @@ import {
   certificationReportTargetFileStem,
   getCertificationScenarios,
   type CertificationCaseResult,
+  type CertificationDataPosture,
   type CertificationLedgerPayload,
   type CertificationReport,
   type CertificationReportRunStatus,
@@ -11,6 +12,7 @@ import {
   type CertificationScenarioId,
   type CertificationTarget,
 } from './certificationContract'
+import { resolveDataPosture } from './dataPosturePolicy'
 import { getProviderCatalog } from './providerCatalog'
 import { redactProviderDiagnostic } from './providerSecurity'
 import {
@@ -141,6 +143,7 @@ export async function runProviderCertification(
   }
 
   const passed = cases.filter((caseResult) => caseResult.passed).length
+  const dataPosture = dataPostureFor(target)
   const supportLevel = supportLevelFromCases(cases, target)
 
   return {
@@ -153,6 +156,20 @@ export async function runProviderCertification(
     capabilities: normalizeCapabilities(provider.capabilities),
     cases,
     summary: certificationSummary({ passed, total: cases.length, supportLevel, target }),
+    data_posture: dataPosture,
+  }
+}
+
+/** The owner-attested per-route data posture recorded on the report (from the versioned policy). */
+function dataPostureFor(target: CertificationTarget): CertificationDataPosture {
+  const posture = resolveDataPosture(target.provider_surface_id, target.model_id)
+  return {
+    data_policy_source: posture.data_policy_source,
+    retention_or_zdr_status: posture.retention_or_zdr_status,
+    attested: posture.attested,
+    note: posture.note,
+    policy_version: posture.policy_version,
+    attested_at: posture.attested_at,
   }
 }
 
@@ -682,6 +699,22 @@ function certificationSummary({
 }
 
 function certificationPrivacyBlocker(target: CertificationTarget): string | undefined {
+  // PER-ROUTE owner-attested posture wins first: an OpenRouter route the owner has attested (ZDR-routing
+  // enforced, or the vendor's standard no-training terms for an exempt frontier model) is NOT a privacy
+  // blocker — so an otherwise-passing route may reach `certified`. The attestation is an owner ACCOUNT
+  // CONFIGURATION (see dataPosturePolicy), recorded honestly on the report; it never implies a contract.
+  const posture = resolveDataPosture(target.provider_surface_id, target.model_id)
+  if (posture.attested) {
+    const acceptable = posture.retention_or_zdr_status === 'zdr_routing_enforced'
+      || posture.retention_or_zdr_status === 'vendor_standard_no_training_terms'
+    if (acceptable) {
+      return undefined
+    }
+    // An attested-but-not-acceptable posture still blocks (honest; defensive — no such rule exists today).
+    return `owner-attested posture is ${posture.retention_or_zdr_status} (not an accepted no-retention posture)`
+  }
+
+  // No attestation covers this route: fall back to the catalog-level posture (fail-closed default).
   const provider = getProviderCatalog().find((entry) => entry.provider_surface_id === target.provider_surface_id)
   if (provider === undefined) {
     return undefined

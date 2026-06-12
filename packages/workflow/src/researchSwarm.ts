@@ -1382,8 +1382,13 @@ export async function runResearchDeepDivePhase(
   const normalized_working_capital_change = nwcSanity.value ?? 0
 
   // The recorded bridge reflects what the harness actually used (EDGAR-anchored when available),
-  // preserving the model's tier + working-capital judgment.
+  // preserving the model's tier + working-capital judgment. When the bridge is EDGAR-anchored we record
+  // the PRIMARY filing's reporting currency (USD for us-gaap filers, the functional currency for IFRS
+  // 20-F foreign private issuers, e.g. DKK for Novo Nordisk) so downstream currency-consistency checks
+  // (and the qualification scorer) compare like-for-like instead of mixing a DKK bridge with a USD scale.
+  const reporting_currency = edgarBridgeUsable ? fundamentals?.currency : undefined
   const bridge = {
+    ...(reporting_currency === undefined ? {} : { reporting_currency }),
     net_income,
     depreciation_amortization: d_and_a,
     maintenance_capex,

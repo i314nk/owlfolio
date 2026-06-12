@@ -69,11 +69,23 @@ export async function buildAutoModelRoleOverrides(
   for (const provider of candidates) {
     const readiness = await readinessFn(provider.provider_id, args.processEnv)
     if (!readiness.is_ready) continue
-    const qualified = await isModelQualified(provider.provider_id, {
-      ...(args.qualificationDir === undefined ? {} : { dir: args.qualificationDir }),
-      env: args.processEnv,
-    })
-    connectedProviders.push({ provider_id: provider.provider_id, qualified: qualified.has_report && qualified.qualified })
+    // PER-TARGET trust: a provider counts as qualified for auto-tiering only when at least one of its
+    // CURATED reasoning models has a passing per-(provider+model) qualification report. A provider
+    // qualified on some unrelated model never leaks that verdict onto its curated tier candidates.
+    const curatedModels = modelCatalogLookup(provider.provider_id)
+    let providerQualified = false
+    for (const model of curatedModels) {
+      const qualified = await isModelQualified(provider.provider_id, {
+        ...(args.qualificationDir === undefined ? {} : { dir: args.qualificationDir }),
+        model_id: model.model_id,
+        env: args.processEnv,
+      })
+      if (qualified.has_report && qualified.qualified) {
+        providerQualified = true
+        break
+      }
+    }
+    connectedProviders.push({ provider_id: provider.provider_id, qualified: providerQualified })
   }
 
   const derived = deriveAutoTierAssignment({ connectedProviders, modelCatalogLookup })
