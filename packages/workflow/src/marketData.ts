@@ -411,6 +411,115 @@ export async function fetchAverageMarketCap(
   }
 }
 
+// ---------------------------------------------------------------------------
+// Stock-split events — for split-consistent fundamentals/price comparison (backtest §split-fix)
+// ---------------------------------------------------------------------------
+
+/**
+ * One stock split: the calendar date it took effect (YYYY-MM-DD, UTC) and the multiplicative share factor
+ * (e.g. a 20:1 split → factor 20: the share count multiplies by 20). A reverse split has factor < 1.
+ */
+export type SplitEvent = { date: string; factor: number }
+
+export type SplitEventsResult =
+  | { available: true; splits: SplitEvent[] }
+  | { available: false; reason: string }
+
+type YahooSplitsResponse = {
+  chart?: {
+    result?: Array<{
+      events?: { splits?: Record<string, { date?: number; numerator?: number; denominator?: number }> }
+    }>
+    error?: { code?: string; description?: string } | null
+  }
+}
+
+/**
+ * Fetch the stock-split history for a symbol from the Yahoo chart endpoint (`events=splits`). Used to put
+ * an EDGAR as-reported share series on the SAME split-adjusted basis as Yahoo's split-adjusted price series
+ * (the calibration backtest's OE-per-share vs price comparison). Same SSRF-guard / fail-closed posture as
+ * the price paths: never throws; returns { available: false } on any failure. Splits are returned in
+ * ASCENDING date order.
+ */
+export async function fetchSplitEvents(
+  ticker: string,
+  years = 15,
+  deps?: MarketDataDeps,
+  market?: string,
+): Promise<SplitEventsResult> {
+  const yrs = Number.isFinite(years) && years > 0 ? Math.floor(years) : 15
+  const symbol: PriceQuoteSymbol = market === undefined ? { ticker } : { ticker, market }
+  const yahooSym = toYahooSymbol(symbol)
+  if (yahooSym === undefined) {
+    return { available: false, reason: 'exchange not covered by yahoo' }
+  }
+  const rawUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(yahooSym)}?interval=1mo&range=${yrs}y&events=splits`
+
+  let url: URL
+  try {
+    url = assertPublicHttpUrl(rawUrl)
+  } catch (err) {
+    return { available: false, reason: `url guard failed: ${err instanceof Error ? err.message : String(err)}` }
+  }
+
+  const timeoutMs = deps?.timeoutMs ?? YAHOO_DEFAULT_TIMEOUT_MS
+  const fetchFn = deps?.fetchImpl ?? fetch
+  const controller = new AbortController()
+  const timer = setTimeout(() => { controller.abort() }, timeoutMs)
+  try {
+    const response = await fetchFn(url.toString(), {
+      signal: controller.signal,
+      headers: { 'User-Agent': 'Mozilla/5.0', 'Accept': 'application/json' },
+    })
+    if (!response.ok) return { available: false, reason: `http ${response.status}` }
+    const json = await response.json() as YahooSplitsResponse
+    return parseYahooSplits(json, ticker)
+  } catch (err) {
+    const reason = err instanceof Error ? err.message : String(err)
+    return { available: false, reason: `fetch error: ${reason}` }
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+/** Parse the Yahoo chart `events.splits` map into an ascending SplitEvent[]. Never throws. */
+export function parseYahooSplits(json: YahooSplitsResponse, ticker: string): SplitEventsResult {
+  const chart = json?.chart
+  if (chart?.error != null) {
+    const desc = chart.error.description ?? chart.error.code ?? 'api error'
+    return { available: false, reason: `yahoo error: ${desc}` }
+  }
+  const result = chart?.result
+  if (!Array.isArray(result) || result.length === 0) {
+    return { available: false, reason: `symbol not found: ${ticker}` }
+  }
+  const splitsMap = result[0]?.events?.splits ?? {}
+  const splits: SplitEvent[] = []
+  for (const s of Object.values(splitsMap)) {
+    if (typeof s?.date !== 'number' || !Number.isFinite(s.date)) continue
+    const num = s.numerator
+    const den = s.denominator
+    if (typeof num !== 'number' || typeof den !== 'number' || !(num > 0) || !(den > 0)) continue
+    splits.push({ date: new Date(s.date * 1000).toISOString().slice(0, 10), factor: num / den })
+  }
+  splits.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0))
+  return { available: true, splits }
+}
+
+/**
+ * Cumulative split factor applied to a share count reported as-of `asOfDate` to bring it onto TODAY's
+ * (latest) split-adjusted basis: the product of every split factor that took effect strictly AFTER
+ * `asOfDate`. A pre-20:1-split count (factor 20 still pending) multiplies by 20; a post-split count
+ * (no later splits) multiplies by 1. Pure + deterministic.
+ */
+export function cumulativeSplitFactorAfter(splits: ReadonlyArray<SplitEvent>, asOfDate: string): number {
+  let factor = 1
+  for (const s of splits) {
+    if (s.date > asOfDate && Number.isFinite(s.factor) && s.factor > 0) factor *= s.factor
+  }
+  return factor
+}
+
 export const defaultPriceSource: PriceSource = new YahooPriceSource()
 
 /**

@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { InMemoryEventStore } from '@owlfolio/ledger/eventStore'
 import type { LedgerEventEnvelope } from '@owlfolio/ledger/eventEnvelope'
 import type { Fundamentals, AnnualFacts } from '@owlfolio/workflow/secEdgar'
-import type { PriceHistoryResult } from '@owlfolio/workflow/marketData'
+import type { PriceHistoryResult, SplitEventsResult } from '@owlfolio/workflow/marketData'
 import {
   buildCalibrationUniverseMemberAddedEvent,
   type CalibrationUniverse,
@@ -32,6 +32,9 @@ function priceResult(): PriceHistoryResult {
   for (let m = 1; m <= 12; m += 1) points.push({ date: `2017-${String(m).padStart(2, '0')}-28`, close: 5 })
   return { available: true, currency: 'USD', points }
 }
+
+// Deterministic offline split fetcher: no splits (the §split-fix B adjustment is a no-op here).
+const noSplits = async (): Promise<SplitEventsResult> => ({ available: true, splits: [] })
 
 const universe: CalibrationUniverse = {
   version: 'calibration-universe-test-1',
@@ -77,7 +80,7 @@ describe('runProcessCalibrationQueueTask', () => {
         backtestDeps: {
           localProvider: { resolve: async () => undefined },
           edgarProvider: { resolve: async (t) => fundamentals(t) },
-          priceFetcher: async () => priceResult(),
+          priceFetcher: async () => priceResult(), splitFetcher: noSplits,
         },
         now: () => new Date('2026-06-01T01:00:00Z'),
       })
@@ -106,7 +109,7 @@ describe('runProcessCalibrationQueueTask', () => {
       backtestDeps: {
         localProvider: { resolve: async () => undefined },
         edgarProvider: { resolve: async (t) => (t.toUpperCase() === 'CPRT' ? fundamentals('Copart') : undefined) },
-        priceFetcher: async () => priceResult(),
+        priceFetcher: async () => priceResult(), splitFetcher: noSplits,
       },
       now: () => new Date('2026-06-01T01:00:00Z'),
     })

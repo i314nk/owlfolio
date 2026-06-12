@@ -696,6 +696,43 @@ function firstPopulatedGroupByYear(facts: CompanyFacts, taxonomy: Taxonomy, grou
   return out
 }
 
+/**
+ * Normalize a raw share-count series against power-of-ten UNITS restatements. Some filers re-tag the
+ * weighted-average share count in MILLIONS (e.g. val=751.8) in recent 10-Ks for periods they previously
+ * tagged as an ABSOLUTE count (val=751,800,000) — a 1e6 scale discontinuity within the same concept+unit.
+ * "Latest filed wins" then picks the mis-scaled value, which after /1e6 becomes ≈0.00075 shares and makes
+ * owner-earnings-per-share explode (the MCD backtest bug: a $109M buy price, BUY every month).
+ *
+ * Fix: anchor on the MEDIAN of the series (robust to a minority of mis-scaled years), and rescale only
+ * values that are a GROSS power-of-ten outlier — at least a factor of ~100 away from the median, snapped to
+ * the nearest clean power of ten. A real buyback never moves a share count by 100× in a year, so only a
+ * units artifact lands that far off; legitimate year-to-year drift (even across a 750M–1,200M power-of-ten
+ * boundary, ratio ~1.6) is well under the threshold and left untouched. Returns a new map.
+ */
+const SHARE_SCALE_OUTLIER_FACTOR = 100
+function normalizeShareScale(raw: Map<number, number>): Map<number, number> {
+  const positives = [...raw.values()].filter((v) => Number.isFinite(v) && v > 0).sort((a, b) => a - b)
+  if (positives.length < 2) return raw
+  const median = positives[Math.floor(positives.length / 2)]!
+  if (!(median > 0)) return raw
+  const out = new Map<number, number>()
+  for (const [fy, v] of raw) {
+    if (!Number.isFinite(v) || v <= 0) {
+      out.set(fy, v)
+      continue
+    }
+    const ratio = median / v
+    // Only a gross (≥100×) power-of-ten gap is a units artifact; snap the outlier onto the median's scale.
+    if (ratio >= SHARE_SCALE_OUTLIER_FACTOR || ratio <= 1 / SHARE_SCALE_OUTLIER_FACTOR) {
+      const exp = Math.round(Math.log10(median / v))
+      out.set(fy, v * Math.pow(10, exp))
+    } else {
+      out.set(fy, v)
+    }
+  }
+  return out
+}
+
 /** Sum, per fiscal year, the annual maps of every concept in the list (capex PPE + intangibles). */
 function sumConcepts(facts: CompanyFacts, taxonomy: Taxonomy, concepts: string[]): Map<number, number> {
   const out = new Map<number, number>()
@@ -722,7 +759,10 @@ function buildAnnualSeries(facts: CompanyFacts, taxonomy: Taxonomy, currency: Re
   const dAndA = firstPopulatedGroupByYear(facts, taxonomy, cm.dAndA)
   const capex = firstPopulatedGroupByYear(facts, taxonomy, cm.capex)
   const sbc = firstPopulatedGroupByYear(facts, taxonomy, cm.sbc)
-  const dilutedSharesTagged = firstPopulatedGroupByYear(facts, taxonomy, cm.dilutedShares)
+  // Normalize the tagged weighted-average share series against power-of-ten UNITS restatements (MCD re-tags
+  // recent years in millions, e.g. 751.8, for periods it previously tagged as 751,800,000 — a 1e6 scale
+  // discontinuity that "latest filed wins" would otherwise propagate into a near-zero share count).
+  const dilutedSharesTagged = normalizeShareScale(firstPopulatedGroupByYear(facts, taxonomy, cm.dilutedShares))
   // Diluted-share fallback: for any year the weighted-average diluted-share concept omits, derive the count
   // from net income / diluted EPS (both consolidated annual figures — a consistent per-year fill). This
   // recovers the per-share owner-earnings denominator for filers (e.g. Alphabet) that began tagging the

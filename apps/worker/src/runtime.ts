@@ -2270,6 +2270,7 @@ export async function runProcessCalibrationQueueTask(
         buy_episodes: s.buy_episodes,
         sanity_windows: s.sanity_windows,
         deployment_ratios: s.deployment_ratios.map((d) => ({ ladder_id: d.ladder_id, episodes: d.episodes, avg_deployment_ratio: d.avg_deployment_ratio })),
+        ...(s.data_quality_notes.length === 0 ? {} : { data_quality_notes: s.data_quality_notes }),
       }))
       const coveragePayload: CalibrationCoverageSummary[] = result.coverage.map((c) => ({
         ticker: c.ticker,

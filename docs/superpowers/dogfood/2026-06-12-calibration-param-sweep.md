@@ -225,3 +225,90 @@ those artifacts.
 prices, cached once per name and swept across param sets by cloning the Buffett-Munger strategy
 contract's wide-tier MOS/terminal/horizon (discount and FV cap held constant). Throwaway sweep
 scripts were used and deleted; no source under `packages/` or `apps/` was modified.*
+
+---
+
+## 7. Re-measurement (post split-fix) — 2026-06-12
+
+The §5(1) blocking data fix is now implemented and the calibration was re-run on corrected,
+split-consistent fundamentals. **No parameter was changed** (still
+`valuation-2026-06-recalibration-1`); only the share-basis data path was repaired.
+
+### What was fixed (code)
+
+- **Split-consistency (fix B, the correct comparison).** The backtest compared EDGAR *as-reported*
+  diluted shares against Yahoo *split-adjusted* prices. EDGAR's per-year share count is on the share
+  basis **as of that filing's `filed` date** (a 10-K restates prior-year comparatives onto the
+  filing-date basis after a split, but the older 10-Ks are never re-filed) — so a year's count is
+  brought onto today's basis by multiplying by the product of every split that took effect **after**
+  its `filed` date. `marketData.fetchSplitEvents` pulls Yahoo `events=splits`;
+  `cumulativeSplitFactorAfter` builds the per-date factor; `backtest.adjustFundamentalsForSplits`
+  applies it to `diluted_shares_m` (OE_total is a currency flow and is split-invariant). Verified
+  live: GOOGL FY2019 698.6M ×20 → ~13,972M (≈ today's 12,230M basis, the residual being real
+  buybacks); CPRT/NKE/MA likewise collapse onto a smooth buyback trajectory with the split jumps
+  removed. Applied in BOTH historical-OE paths (the `backtestName` runner and
+  `runCalibrationBacktest`); fail-open to the sanity guard when splits can't be fetched. The **live
+  research path is unaffected and untouched** — it values latest-year shares against the current
+  price, already the same (today's) basis.
+
+- **Sanity guard (fix C, the honest always-on net).** `runValuationBacktest` now drops any fiscal
+  year whose (split-adjusted) diluted-share count is an implausible units artifact (≥100× below the
+  series median, or a buy price > $100k/share from a collapsed denominator) and records a visible
+  `data_quality_notes` entry per dropped year, threaded into the `calibration_run`. It never emits the
+  artifact BUY (e.g. CPRT fy2012 = 0.13M).
+
+- **MCD share-resolution bug (root cause).** MCD's FY2023+ 10-Ks re-tag
+  `WeightedAverageNumberOfDilutedSharesOutstanding` in **millions** (`val = 751.8`) for periods it
+  previously tagged as the **absolute count** (`val = 751,800,000`) — a 1e6 scale discontinuity within
+  the same concept+unit. "Latest filed wins" picked the mis-scaled `751.8`, which after `/1e6` became
+  `diluted_shares_m ≈ 0.00075` → OE/sh ≈ $9.85M → buy ≈ $109M → BUY every month. Fixed in
+  `secEdgar.normalizeShareScale`: anchor on the series median and rescale only gross (≥100×)
+  power-of-ten outliers back onto the median scale (legitimate year-to-year drift, even across a
+  750M–1,200M power-of-ten boundary, is untouched). Verified live: MCD now resolves a smooth
+  1,211M → 716M buyback series, no near-zero years.
+
+- **Pinned fixture tests (RED→GREEN, TDD).** `secEdgar.test.ts` — a power-of-ten share restatement is
+  rescaled (2021→751.8M, 2022→741.3M, not 0.00075). `splitEvents.test.ts` — `parseYahooSplits` /
+  `cumulativeSplitFactorAfter` (GOOGL pre-split date carries ×20, post-split ×1). `backtest.test.ts` —
+  a synthetic 20:1 split mid-history puts OE/sh on the price basis and **removes a BUY that the
+  unadjusted control still fires**; the C-guard drops a near-zero-share year visibly and emits no BUY.
+
+### Re-measured calibration (`calibration-universe-2026-06-2+8`, params unchanged)
+
+Live EDGAR + Yahoo, recorded as a new `calibration_run` in `data/personal-ledger.sqlite` via the
+operational path (enqueue `calibration_run_requested` → worker `process_calibration_queue` once,
+default live deps).
+
+| Name | months | BUY episodes | buys/yr | 2020 must | 2022 must | 2021 must-not | notes |
+|---|---:|---:|---:|:--:|:--:|:--:|---|
+| CPRT | 120 | 0 | 0.00 | n | n | n (ok) | — |
+| FDS | 120 | 0 | 0.00 | n | n | n (ok) | — |
+| MSFT | 120 | 0 | 0.00 | n | n | n (ok) | — |
+| GOOGL | 108 | 0 | 0.00 | n | n | **n (was a 2-yr spurious BUY incl. 2021)** | — |
+| ADBE | 120 | 0 | 0.00 | n | n | n (ok) | — |
+| MCD | 120 | 0 | 0.00 | n | n | **n (was a 28-mo $109M-buy artifact)** | — |
+| NKE | 120 | 0 | 0.00 | n | n | n (ok) | — |
+| JNJ | 120 | 0 | 0.00 | n | n | n (ok) | — |
+| UNH | 120 | 0 | 0.00 | n | n | n (ok) | — |
+| MA | 120 | 0 | 0.00 | n | n | n (ok) | — |
+
+Coverage is unchanged from `cal_1781217461265`: **10 EDGAR-resolved, NVO unresolved (DKK-vs-USD
+currency fail-close), 4 deferred** non-SEC names.
+
+### The honest reading
+
+**Every artifact BUY is gone, and the result is what §5(2) predicted: zero BUYs on the clean
+universe.** The only names that ever fired (CPRT, GOOGL, MCD) fired solely because of the
+split/units contamination; with that removed, no name in this all-mega-cap-quality universe reaches
+the spec's 9×–12× OE buy band at any month 2016–2026 — consistent with §3's finding that these
+compounders bottomed at 24×–133× OE even in the 2020/2022 dislocations. **This is the correct,
+trustworthy evidence §3.4 required — and it confirms the structural conclusion, not a tuning
+opportunity.** No parameter was changed; tuning MOS/terminal/horizon to manufacture a fire on this
+universe would be loosening against an honest near-silence. The owner's deliberate next step is
+unchanged from §5: choose path **5(a) accept-silence + WATCH-FAIR human discretion**, or **5(b)
+broaden the universe** toward the cheaper/smaller and GCC names more likely to dislocate to ≤12× OE —
+now decidable on clean data. The must-signal windows being silent is a property of *this universe*,
+not of the (now-fixed) data.
+
+*Verification: `vitest run packages/workflow packages/strategies apps/worker` → 648 passed; tsc
+(workflow, strategies, worker, root) exit 0; `git diff --check` clean; no `.js` sibling imports.*

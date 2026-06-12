@@ -25,8 +25,8 @@ import {
   type FundamentalsProvider,
   type ResolveFundamentalsDeps,
 } from './fundamentalsProvider'
-import { fetchMonthEndPriceSeries, type PriceHistoryResult } from './marketData'
-import { runValuationBacktest, type DeploymentRatioByLadder } from './backtest'
+import { fetchMonthEndPriceSeries, fetchSplitEvents, type PriceHistoryResult, type SplitEventsResult } from './marketData'
+import { adjustFundamentalsForSplits, runValuationBacktest, type DeploymentRatioByLadder } from './backtest'
 import type { CalibrationUniverse, CalibrationUniverseName } from './calibrationUniverse'
 import { buffettMungerStrategy } from '@owlfolio/strategies/buffettMunger'
 import { VALUATION_PARAMS } from '@owlfolio/strategies/valuationParams'
@@ -67,6 +67,8 @@ export type CalibrationNameRunSummary = {
   buy_episodes: Array<{ start: string; end: string; months: number }>
   sanity_windows: Array<{ window: string; kind: string; signalled: boolean; passed: boolean; covered: boolean }>
   deployment_ratios: DeploymentRatioByLadder[]
+  /** Split-consistency / sanity-guard notes (§split-fix C): fiscal years dropped for an implausible share basis. */
+  data_quality_notes: string[]
 }
 
 export type CalibrationBacktestResult = {
@@ -84,6 +86,12 @@ export type RunCalibrationBacktestDeps = {
   edgarProvider?: FundamentalsProvider
   /** Price-series fetcher: (symbol, years) -> result. Default fetchMonthEndPriceSeries. */
   priceFetcher?: (symbol: string, years: number) => Promise<PriceHistoryResult>
+  /**
+   * Stock-split fetcher: (symbol, years) -> split events, for the §split-fix B share-basis adjustment.
+   * Default fetchSplitEvents. Tests inject an offline stub; a fetch failure fails open to the unadjusted
+   * series plus the always-on sanity guard (C).
+   */
+  splitFetcher?: (symbol: string, years: number) => Promise<SplitEventsResult>
   /** Optional resolver-dep passthrough (store dir / sec deps) when default providers are used. */
   resolveDeps?: ResolveFundamentalsDeps
   strategy?: StrategyContract
@@ -121,6 +129,8 @@ export async function runCalibrationBacktest(
     ?? new EdgarFundamentalsProvider(deps.resolveDeps?.fetchEdgar, deps.resolveDeps?.secDeps)
   const priceFetcher = deps.priceFetcher
     ?? ((symbol: string, yrs: number) => fetchMonthEndPriceSeries(symbol, yrs))
+  const splitFetcher = deps.splitFetcher
+    ?? ((symbol: string, yrs: number) => fetchSplitEvents(symbol, yrs))
 
   const summaries: CalibrationNameRunSummary[] = []
   const coverage: CalibrationCoverageEntry[] = []
@@ -184,11 +194,19 @@ export async function runCalibrationBacktest(
       continue
     }
 
+    // §split-fix B: adjust the EDGAR as-reported share series to the SAME split-adjusted basis as the
+    // (Yahoo, split-adjusted) price series. Fail open to the unadjusted series + the always-on sanity
+    // guard (C) when splits can't be fetched, so a split-fetch outage degrades rather than fabricates.
+    const splitEvents = await splitFetcher(name.ticker, years + 6).catch(() => ({ available: false as const, reason: 'split fetch threw' }))
+    const valuationFundamentals = splitEvents.available
+      ? adjustFundamentalsForSplits(fundamentals, splitEvents.splits)
+      : fundamentals
+
     const result = runValuationBacktest({
       ticker: name.ticker,
       moat_class,
       runway,
-      fundamentals,
+      fundamentals: valuationFundamentals,
       price_series: priceSeries.points,
       strategy,
       params,
@@ -204,6 +222,7 @@ export async function runCalibrationBacktest(
       buy_episodes: result.summary.buy_episodes.map((e) => ({ start: e.start, end: e.end, months: e.months })),
       sanity_windows: result.summary.sanity_windows.map((w) => ({ window: w.window, kind: w.kind, signalled: w.signalled, passed: w.passed, covered: w.covered })),
       deployment_ratios: result.summary.deployment_ratios,
+      data_quality_notes: result.data_quality_notes,
     })
     coverage.push({ ...base, status, currency: fundamentals.currency })
     coverage_counts[status] += 1

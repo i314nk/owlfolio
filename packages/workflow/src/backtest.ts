@@ -28,7 +28,14 @@ import type { MoatClass, Runway, StrategyContract } from '@owlfolio/strategies/s
 import type { ValuationParams } from '@owlfolio/strategies/valuationParams'
 import { computeIncrementalRoic, type AnnualFacts, type Fundamentals, type SecEdgarDeps } from './secEdgar'
 import { resolveFundamentalsForTicker, type ResolveFundamentalsDeps } from './fundamentalsProvider'
-import { fetchMonthEndPriceSeries, type MarketDataDeps, type PriceHistoryPoint } from './marketData'
+import {
+  cumulativeSplitFactorAfter,
+  fetchMonthEndPriceSeries,
+  fetchSplitEvents,
+  type MarketDataDeps,
+  type PriceHistoryPoint,
+  type SplitEvent,
+} from './marketData'
 import { buffettMungerStrategy } from '@owlfolio/strategies/buffettMunger'
 import { VALUATION_PARAMS } from '@owlfolio/strategies/valuationParams'
 import {
@@ -126,6 +133,13 @@ export type BacktestResult = {
   params_version: string
   signal_log: SignalLogEntry[]
   summary: BacktestSummary
+  /**
+   * Visible data-quality notes from the split-consistency / sanity guard (§split-fix C): each entry names
+   * a fiscal year whose share basis was implausible (a near-zero units artifact, or an unexplained >1.5×
+   * adjusted-share discontinuity) and was therefore SKIPPED rather than allowed to emit a spurious BUY.
+   * Empty when the series is clean. Surfaced so a calibration run never silently swallows a dropped year.
+   */
+  data_quality_notes: string[]
 }
 
 export type RunValuationBacktestArgs = {
@@ -189,6 +203,80 @@ export function ownerEarningsPerShare(a: AnnualFacts): number | undefined {
   return oe_total / shares
 }
 
+// ---------------------------------------------------------------------------
+// Split-consistency (§split-fix B) — put as-reported EDGAR shares on TODAY's split-adjusted basis
+// ---------------------------------------------------------------------------
+
+/**
+ * Adjust each annual entry's `diluted_shares_m` to TODAY's split-adjusted basis so OE-per-share is on the
+ * SAME basis as Yahoo's split-adjusted price series (the calibration backtest's core comparison).
+ *
+ * The EDGAR as-reported share count for a year reflects the share basis AS OF THE FILING — a 10-K's
+ * comparatives are all on the filing-date basis, and the filer restates prior-year comparatives after a
+ * split but does NOT re-file the older 10-Ks. So a year's reported count is on the basis of its `filed`
+ * date; multiplying by the product of every split that took effect AFTER that filed date brings it onto
+ * today's basis. (Using `filed` — not `period_end` — is what makes a restated post-split comparative,
+ * filed after the split, correctly carry factor 1 while the original pre-split filing carries the full
+ * factor.) OE_total is a currency flow and is split-invariant, so only the share denominator is scaled.
+ *
+ * Pure: returns a new Fundamentals (entries cloned) and never mutates the input. A no-split list is a
+ * no-op (every factor is 1).
+ */
+export function adjustFundamentalsForSplits(fundamentals: Fundamentals, splits: ReadonlyArray<SplitEvent>): Fundamentals {
+  const adjust = (a: AnnualFacts): AnnualFacts => {
+    if (a.diluted_shares_m === undefined || !Number.isFinite(a.diluted_shares_m)) return { ...a }
+    const ref = (typeof a.filed === 'string' && a.filed !== '') ? a.filed : (a.period_end ?? '')
+    const factor = ref === '' ? 1 : cumulativeSplitFactorAfter(splits, ref)
+    return { ...a, diluted_shares_m: a.diluted_shares_m * factor }
+  }
+  const annual_series = fundamentals.annual_series.map(adjust)
+  return {
+    ...fundamentals,
+    latest_annual: adjust(fundamentals.latest_annual),
+    annual_series,
+  }
+}
+
+// A buy price this far above any plausible equity price means the share denominator collapsed (a units
+// artifact, e.g. a near-zero share count): drop the year rather than emit an absurd "BUY".
+const IMPLAUSIBLE_BUY_PRICE_PS = 100_000
+// An adjusted-share count this far below the series median is a units artifact (not a real buyback) — the
+// C-guard mirror of the EDGAR power-of-ten share normalization, catching anything that slipped through
+// AFTER split adjustment (e.g. CPRT fy2012 = 0.13M).
+const IMPLAUSIBLE_SHARE_RATIO = 100
+
+/**
+ * Identify fiscal years whose (already split-adjusted) share basis is implausible — a near-zero units
+ * artifact (≥100× below the series median diluted-share count) — and must be SKIPPED in the backtest so a
+ * division-by-near-zero never produces a spurious BUY (the CPRT-fy2012 / MCD-near-zero class of bug). Pure;
+ * returns the set of suspect fiscal years plus a human-readable note per dropped year.
+ */
+function findSuspectShareYears(series: ReadonlyArray<AnnualFacts>): { years: Set<number>; notes: string[] } {
+  const shares = series
+    .map((a) => a.diluted_shares_m)
+    .filter((v): v is number => v !== undefined && Number.isFinite(v) && v > 0)
+    .sort((a, b) => a - b)
+  const years = new Set<number>()
+  const notes: string[] = []
+  if (shares.length < 2) return { years, notes }
+  const median = shares[Math.floor(shares.length / 2)]!
+  if (!(median > 0)) return { years, notes }
+  for (const a of series) {
+    const s = a.diluted_shares_m
+    if (s === undefined || !Number.isFinite(s) || s <= 0 || median / s >= IMPLAUSIBLE_SHARE_RATIO) {
+      if (a.diluted_shares_m !== undefined) {
+        years.add(a.fiscal_year)
+        notes.push(`FY${a.fiscal_year}: implausible diluted-share basis (${formatShares(a.diluted_shares_m)} vs series median ${formatShares(median)}) — units artifact; year skipped`)
+      }
+    }
+  }
+  return { years, notes }
+}
+
+function formatShares(v: number): string {
+  return `${v.toFixed(v < 1 ? 4 : 1)}M`
+}
+
 /**
  * Group a date-ordered signal log into BUY episodes: each maximal run of consecutive BUY months is one
  * episode. Exported for direct unit testing. Input entries must already be in ascending date order.
@@ -248,9 +336,18 @@ export function runValuationBacktest(args: RunValuationBacktestArgs): BacktestRe
   const signal_log: SignalLogEntry[] = []
   let skipped_months_no_filing = 0
 
+  // §split-fix C: identify fiscal years whose (split-adjusted) share basis is a units artifact, so months
+  // whose as-of filing is such a year are skipped VISIBLY rather than emitting a division-by-near-zero BUY.
+  const { years: suspectYears, notes: data_quality_notes } = findSuspectShareYears(fundamentals.annual_series)
+
   for (const point of ordered) {
     const filing = asOfFiling(fundamentals.annual_series, point.date)
     if (filing === undefined) {
+      skipped_months_no_filing += 1
+      continue
+    }
+    if (suspectYears.has(filing.fiscal_year)) {
+      // As-of a units-artifact filing year — skip (the note already records why).
       skipped_months_no_filing += 1
       continue
     }
@@ -287,6 +384,14 @@ export function runValuationBacktest(args: RunValuationBacktestArgs): BacktestRe
       horizon: stage1HorizonForMoat(strategy, tierForValuation),
     })
     const buy_price_ps = fair_value_ps * (1 - marginOfSafetyForMoat(strategy, tierForValuation))
+    // Secondary safety net (§split-fix C): an implausibly large buy price means the share denominator
+    // collapsed despite the per-year guard — never emit that BUY; skip the month with a one-time note.
+    if (buy_price_ps > IMPLAUSIBLE_BUY_PRICE_PS) {
+      skipped_months_no_filing += 1
+      const note = `FY${filing.fiscal_year}: implausible buy price ${buy_price_ps.toFixed(0)}/sh (collapsed share basis) — month skipped`
+      if (!data_quality_notes.includes(note)) data_quality_notes.push(note)
+      continue
+    }
     const signal = classify(point.close, buy_price_ps, fair_value_ps, gated)
 
     signal_log.push({
@@ -310,6 +415,7 @@ export function runValuationBacktest(args: RunValuationBacktestArgs): BacktestRe
     params_version: params.version,
     signal_log,
     summary,
+    data_quality_notes,
   }
 }
 
@@ -515,6 +621,17 @@ export async function backtestName(args: BacktestNameArgs): Promise<BacktestName
     return { ok: false, reason: `no month-end price series for ${priceSymbol}: ${priceSeries.reason}` }
   }
 
+  // §split-fix B: put the EDGAR as-reported share series on the SAME split-adjusted basis as the price
+  // series. Yahoo's prices are split-adjusted; without this the OE-per-share denominator carries split
+  // discontinuities (GOOGL 20:1, CPRT/NKE/MA) that fabricate BUY runs. Fetch the split events for the
+  // PRICE symbol (same instrument as the price series) over a long-enough window to cover the history;
+  // fail-open to the unadjusted series + the always-on sanity guard (C) when splits can't be fetched.
+  const splitYears = (args.years ?? 10) + 6
+  const splitEvents = await fetchSplitEvents(priceSymbol, splitYears, args.marketDeps, args.market)
+  const adjustedFundamentals = splitEvents.available
+    ? adjustFundamentalsForSplits(fundamentals, splitEvents.splits)
+    : fundamentals
+
   // Currency consistency: OE_ps (fundamentals currency) and price MUST be the same currency.
   if (priceSeries.currency !== fundamentals.currency) {
     return {
@@ -533,7 +650,7 @@ export async function backtestName(args: BacktestNameArgs): Promise<BacktestName
     ticker: args.ticker,
     moat_class: args.moat_class,
     runway: args.runway,
-    fundamentals,
+    fundamentals: adjustedFundamentals,
     price_series: priceSeries.points,
     strategy: args.strategy ?? buffettMungerStrategy,
     params: args.params ?? VALUATION_PARAMS,

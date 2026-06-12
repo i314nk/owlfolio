@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import type { Fundamentals, AnnualFacts } from '../secEdgar'
-import type { PriceHistoryPoint, PriceHistoryResult } from '../marketData'
+import type { PriceHistoryPoint, PriceHistoryResult, SplitEventsResult } from '../marketData'
 import { runCalibrationBacktest } from '../calibrationRun'
 import type { CalibrationUniverse } from '../calibrationUniverse'
 
@@ -59,6 +59,10 @@ function priceResult(points: PriceHistoryPoint[], currency = 'USD'): PriceHistor
   return { available: true, currency, points }
 }
 
+// Deterministic offline split fetcher: no splits (so the fixture's flat share series is unchanged and the
+// §split-fix B adjustment is a no-op — these tests assert the engine/coverage logic, not split handling).
+const noSplits = async (): Promise<SplitEventsResult> => ({ available: true, splits: [] })
+
 describe('runCalibrationBacktest', () => {
   it('classifies coverage per name: edgar / local-manual / unresolved', async () => {
     const result = await runCalibrationBacktest(universe, {
@@ -70,6 +74,7 @@ describe('runCalibrationBacktest', () => {
         resolve: async (ticker) => (ticker.toUpperCase() === 'CPRT' ? fundamentals('Copart') : undefined),
       },
       priceFetcher: async () => priceResult(priceSeries()),
+      splitFetcher: noSplits,
     })
 
     const byTicker = new Map(result.coverage.map((c) => [c.ticker, c]))
@@ -86,6 +91,7 @@ describe('runCalibrationBacktest', () => {
       localProvider: { resolve: async (t) => (t.toUpperCase() === 'TABREED' ? fundamentals('Tabreed') : undefined) },
       edgarProvider: { resolve: async (t) => (t.toUpperCase() === 'CPRT' ? fundamentals('Copart') : undefined) },
       priceFetcher: async () => priceResult(priceSeries()),
+      splitFetcher: noSplits,
     })
 
     const cprt = result.summaries.find((s) => s.ticker === 'CPRT')
@@ -101,6 +107,7 @@ describe('runCalibrationBacktest', () => {
       localProvider: { resolve: async (t) => (t.toUpperCase() === 'TABREED' ? fundamentals('Tabreed') : undefined) },
       edgarProvider: { resolve: async (t) => (t.toUpperCase() === 'CPRT' ? fundamentals('Copart') : undefined) },
       priceFetcher: async () => priceResult(priceSeries()),
+      splitFetcher: noSplits,
     })
     expect(result.universe_version).toBe('calibration-universe-test-1')
     expect(result.coverage_counts).toEqual({ resolved_edgar: 1, resolved_local_manual: 1, deferred: 0, unresolved: 1 })
@@ -125,6 +132,7 @@ describe('runCalibrationBacktest', () => {
       localProvider: { resolve: async () => { resolveAttempts += 1; return undefined } },
       edgarProvider: { resolve: async (t) => { resolveAttempts += 1; return t.toUpperCase() === 'CPRT' ? fundamentals('Copart') : undefined } },
       priceFetcher: async () => priceResult(priceSeries()),
+      splitFetcher: noSplits,
     })
 
     const tabreed = result.coverage.find((c) => c.ticker === 'TABREED')
@@ -144,6 +152,7 @@ describe('runCalibrationBacktest', () => {
         localProvider: { resolve: async () => undefined },
         edgarProvider: { resolve: async () => undefined },
         priceFetcher: async () => priceResult(priceSeries()),
+      splitFetcher: noSplits,
       },
     )
     const cprt = result.coverage.find((c) => c.ticker === 'CPRT')
@@ -159,6 +168,7 @@ describe('runCalibrationBacktest', () => {
         localProvider: { resolve: async () => undefined },
         edgarProvider: { resolve: async () => fundamentals('Novo Nordisk', 'DKK') },
         priceFetcher: async () => priceResult(priceSeries(), 'USD'),
+      splitFetcher: noSplits,
       },
     )
     const nvo = result.coverage.find((c) => c.ticker === 'NVO')

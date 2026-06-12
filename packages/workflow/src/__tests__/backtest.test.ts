@@ -4,12 +4,14 @@ import { VALUATION_PARAMS } from '@owlfolio/strategies/valuationParams'
 import type { AnnualFacts, Fundamentals } from '../secEdgar'
 import type { PriceHistoryPoint } from '../marketData'
 import {
+  adjustFundamentalsForSplits,
   groupBuyEpisodes,
   runValuationBacktest,
   simulateLadderDeployment,
   computeDeploymentRatio,
   type SignalLogEntry,
 } from '../backtest'
+import type { SplitEvent } from '../marketData'
 
 // ---------------------------------------------------------------------------
 // Synthetic fixtures — a small 3-year annual series with KNOWN filed dates and a
@@ -199,6 +201,105 @@ describe('runValuationBacktest — as-of OE + signal mapping (wide moat fixture)
       params: VALUATION_PARAMS,
     })
     expect(result.signal_log[0]!.signal).toBe('PASS')
+    expect(result.summary.buy_months).toBe(0)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Split-consistency fix (B): put as-reported EDGAR shares on TODAY's split-adjusted basis to match the
+// split-adjusted price series, and (C) drop a units-artifact (near-zero) share year VISIBLY.
+// ---------------------------------------------------------------------------
+
+describe('adjustFundamentalsForSplits (B) — share basis matches the split-adjusted price series', () => {
+  // A synthetic GOOGL-shaped series: a 20:1 split lands mid-history. EDGAR reports the PRE-split count
+  // (~700M) for years filed before the split and the POST-split count (~13,700M) for years filed after
+  // (the restated comparatives). After adjustment to today's basis, every year sits at ~13,700–14,000M.
+  function googlLikeFundamentals(): Fundamentals {
+    const mk = (fy: number, filed: string, shares: number): AnnualFacts => ({
+      fiscal_year: fy,
+      currency: 'USD',
+      filed,
+      period_end: `${fy}-12-31`,
+      net_income_musd: 40000,
+      diluted_shares_m: shares,
+    })
+    const annual_series: AnnualFacts[] = [
+      mk(2020, '2023-02-03', 13700), // filed AFTER the 2022-07 split → already post-split basis
+      mk(2019, '2022-02-02', 700), // filed BEFORE the split → pre-split basis (needs ×20)
+      mk(2018, '2021-02-03', 700),
+    ]
+    return { cik: '1', entity_name: 'GoogLike', currency: 'USD', latest_annual: annual_series[0]!, annual_series, filings: [] }
+  }
+  const splits: SplitEvent[] = [{ date: '2022-07-18', factor: 20 }]
+
+  it('multiplies a pre-split filing year by the cumulative factor and leaves post-split years alone', () => {
+    const adjusted = adjustFundamentalsForSplits(googlLikeFundamentals(), splits)
+    const byFy = new Map(adjusted.annual_series.map((a) => [a.fiscal_year, a]))
+    // FY2019 filed pre-split → ×20 → ~14,000M (now on today's split-adjusted basis).
+    expect(byFy.get(2019)!.diluted_shares_m).toBeCloseTo(700 * 20, 0)
+    expect(byFy.get(2018)!.diluted_shares_m).toBeCloseTo(700 * 20, 0)
+    // FY2020 filed post-split → ×1 → unchanged.
+    expect(byFy.get(2020)!.diluted_shares_m).toBeCloseTo(13700, 0)
+  })
+
+  it('removes the spurious BUY run: OE_ps on the price basis no longer fires below a ~$140 price', () => {
+    // Pre-adjustment, FY2019 OE_ps = 40000/700 ≈ $57/sh inflates the buy price ~20× vs a $140 price →
+    // spurious BUY. Post-adjustment OE_ps = 40000/14000 ≈ $2.86/sh → buy price well below $140 → no BUY.
+    const fundamentals = adjustFundamentalsForSplits(googlLikeFundamentals(), splits)
+    const price_series: PriceHistoryPoint[] = [
+      { date: '2022-06-30', close: 140 }, // as-of FY2019 (filed 2022-02-02); FY2020 not yet filed
+    ]
+    const result = runValuationBacktest({
+      ticker: 'GOOGL', moat_class: 'wide', runway: 'proven',
+      fundamentals, price_series, strategy: buffettMungerStrategy, params: VALUATION_PARAMS,
+    })
+    expect(result.signal_log[0]!.signal).not.toBe('BUY')
+
+    // Control: WITHOUT adjustment the same month DOES fire BUY (the artifact we are removing).
+    const unadjusted = runValuationBacktest({
+      ticker: 'GOOGL', moat_class: 'wide', runway: 'proven',
+      fundamentals: googlLikeFundamentals(), price_series, strategy: buffettMungerStrategy, params: VALUATION_PARAMS,
+    })
+    expect(unadjusted.signal_log[0]!.signal).toBe('BUY')
+  })
+})
+
+describe('runValuationBacktest sanity guard (C) — drops a near-zero share year visibly', () => {
+  // A series where ONE year carries a units-artifact near-zero share count (CPRT fy2012 = 0.13M style):
+  // OE_ps explodes → an absurd buy price → BUY every month. The guard must SKIP that filing's months and
+  // record a visible note, never emit the artifact BUY.
+  function withZeroShareYear(): Fundamentals {
+    const mk = (fy: number, filed: string, shares: number): AnnualFacts => ({
+      fiscal_year: fy, currency: 'USD', filed, period_end: `${fy}-12-31`,
+      net_income_musd: 1000, diluted_shares_m: shares,
+      stockholders_equity_musd: 400, operating_income_musd: 1200, income_tax_expense_musd: 250,
+    })
+    const annual_series: AnnualFacts[] = [
+      mk(2013, '2014-02-15', 100),
+      mk(2012, '2013-02-15', 0.13), // units artifact: ~1000× too small
+      mk(2011, '2012-02-15', 100),
+    ]
+    return { cik: '1', entity_name: 'ZeroCo', currency: 'USD', latest_annual: annual_series[0]!, annual_series, filings: [] }
+  }
+
+  it('skips months whose as-of filing is the artifact year and records a data-quality note', () => {
+    // Clean years (FY2011/FY2013): OE_ps = 1000/100 = $10/sh; a high price ($5,000) is far above any buy
+    // price → WATCH, no BUY. The artifact year (FY2012, shares 0.13M) at the SAME $5,000 price would,
+    // unguarded, value OE_ps ≈ $7,692/sh → an absurd buy price → BUY. The guard must drop it instead.
+    const price_series: PriceHistoryPoint[] = [
+      { date: '2012-06-30', close: 5000 }, // as-of FY2011 (clean) → WATCH
+      { date: '2013-06-30', close: 5000 }, // as-of FY2012 (artifact — must be skipped, NOT a BUY)
+      { date: '2014-06-30', close: 5000 }, // as-of FY2013 (clean) → WATCH
+    ]
+    const result = runValuationBacktest({
+      ticker: 'ZERO', moat_class: 'wide', runway: 'proven',
+      fundamentals: withZeroShareYear(), price_series, strategy: buffettMungerStrategy, params: VALUATION_PARAMS,
+    })
+    // The artifact month is skipped (no signal-log entry for the FY2012 as-of month).
+    expect(result.signal_log.some((e) => e.filing_fy === 2012)).toBe(false)
+    // and a visible per-name note names the dropped year.
+    expect(result.data_quality_notes.some((n) => n.includes('2012'))).toBe(true)
+    // No artifact BUY survived (the two clean months are WATCH).
     expect(result.summary.buy_months).toBe(0)
   })
 })

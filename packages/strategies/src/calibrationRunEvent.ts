@@ -31,6 +31,12 @@ export type CalibrationNameSummary = {
   sanity_windows: Array<{ window: string; kind: string; signalled: boolean; passed: boolean; covered: boolean }>
   /** Per-ladder deployment ratio for this name (position-sizing-spec §7). */
   deployment_ratios?: CalibrationDeploymentRatioSummary[]
+  /**
+   * Split-consistency / sanity-guard notes (backtest §split-fix C): fiscal years whose share basis was
+   * implausible (a units artifact) and were therefore SKIPPED, with the reason. Empty/absent for a clean
+   * name. Recorded so a calibration run is honest about any year it dropped rather than silently swallowing it.
+   */
+  data_quality_notes?: string[]
 }
 
 /**

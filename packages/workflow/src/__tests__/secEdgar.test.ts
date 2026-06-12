@@ -508,6 +508,57 @@ describe('annual_series spans concept transitions (per-year per-field resolution
     expect(fy2023?.revenue_musd).toBeCloseTo(200, 0)
   })
 
+  // FIX (MCD units bug): a filer that, in its recent 10-Ks, RE-TAGS the weighted-average diluted-share
+  // count in MILLIONS (e.g. val=751.8) for a period it previously tagged as an ABSOLUTE count
+  // (val=751800000) — a 1e6 scale discontinuity within the same concept+unit. "Latest filed wins" would
+  // pick the mis-scaled 751.8 and, after /1e6, produce diluted_shares_m ≈ 0.00075 → a division-by-near-
+  // zero that made MCD "BUY" every month in the backtest. The resolver must reject the power-of-ten
+  // scale shift and keep the consistently-scaled count, so the latest year resolves to ~751.8 MILLION.
+  it('rejects a power-of-ten share-count restatement (MCD millions-vs-absolute units bug)', async () => {
+    // The dominant (modal) scale is the ABSOLUTE count tagged across the older years; the recent years are
+    // re-tagged in millions (val=751.8 / 741.3), a 1e6 power-of-ten artifact the resolver must rescale back.
+    const shareUnits: Record<string, unknown[]> = {
+      shares: [
+        // older years: absolute counts (~hundreds of millions) — establish the modal magnitude
+        { start: '2018-01-01', end: '2018-12-31', val: 785_600_000, form: '10-K', fy: 2018, fp: 'FY', filed: '2021-02-23' },
+        { start: '2019-01-01', end: '2019-12-31', val: 764_900_000, form: '10-K', fy: 2019, fp: 'FY', filed: '2022-02-24' },
+        { start: '2020-01-01', end: '2020-12-31', val: 750_100_000, form: '10-K', fy: 2020, fp: 'FY', filed: '2023-02-24' },
+        // 2021: original absolute count, then a later re-tag in millions (the val is literally 751.8).
+        { start: '2021-01-01', end: '2021-12-31', val: 751_800_000, form: '10-K', fy: 2021, fp: 'FY', filed: '2022-02-24' },
+        { start: '2021-01-01', end: '2021-12-31', val: 751.8, form: '10-K', fy: 2023, fp: 'FY', filed: '2024-02-22' },
+        // 2022: ONLY the millions-scaled value exists (no absolute sibling) — must still be rescaled.
+        { start: '2022-01-01', end: '2022-12-31', val: 741.3, form: '10-K', fy: 2023, fp: 'FY', filed: '2024-02-22' },
+      ],
+    }
+    const facts = {
+      entityName: 'UnitsRestateCo',
+      facts: {
+        'us-gaap': {
+          NetIncomeLoss: annualFacts({ 2018: 5924, 2019: 6025, 2020: 4730, 2021: 7545, 2022: 6177 }),
+          Revenues: annualFacts({ 2018: 21025, 2019: 21364, 2020: 19208, 2021: 23223, 2022: 23183 }),
+          WeightedAverageNumberOfDilutedSharesOutstanding: { label: 'x', units: shareUnits },
+          StockholdersEquity: instantFacts({ 2018: 5000, 2019: 5000, 2020: 5000, 2021: 5000, 2022: 5000 }),
+        },
+      },
+    }
+    const f = await fetchCompanyFundamentals('0000063908', { fetchImpl: fakeFactsFetch(facts) })
+    expect(f).toBeDefined()
+    if (f === undefined) return
+    // 2021: the mis-scaled 751.8 restatement is rescaled back to ~751.8 MILLION (not 0.00075).
+    const fy2021 = f.annual_series.find((a) => a.fiscal_year === 2021)
+    expect(fy2021?.diluted_shares_m).toBeCloseTo(751.8, 1)
+    // 2022: only the millions-scaled value exists; the modal absolute scale rescales it to ~741.3 MILLION.
+    const fy2022 = f.annual_series.find((a) => a.fiscal_year === 2022)
+    expect(fy2022?.diluted_shares_m).toBeCloseTo(741.3, 1)
+    // older absolute-count years are untouched.
+    const fy2020 = f.annual_series.find((a) => a.fiscal_year === 2020)
+    expect(fy2020?.diluted_shares_m).toBeCloseTo(750.1, 1)
+    // sanity: no near-zero share count slipped through (the original bug).
+    for (const a of f.annual_series) {
+      if (a.diluted_shares_m !== undefined) expect(a.diluted_shares_m).toBeGreaterThan(1)
+    }
+  })
+
   // FIX: GOOGL-style diluted-share truncation. The weighted-average diluted-share concept is only tagged for
   // the recent years (2023-2025), but diluted EPS spans the full history (2016-2025). Per-share owner
   // earnings (the backtest denominator) must be recoverable for the older years by deriving the
