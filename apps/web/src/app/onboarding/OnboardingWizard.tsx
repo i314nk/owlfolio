@@ -344,7 +344,7 @@ export function OnboardingWizard({
             { style: { color: '#cbd5e1', marginBottom: 0 } },
             createElement('a', { className: 'owl-focusable', href: '/learn#providers', style: helpLinkStyle }, 'Learn setup guide'),
             ' or ',
-            createElement('a', { className: 'owl-focusable', href: '/providers', style: helpLinkStyle }, 'open advanced provider status'),
+            createElement('a', { className: 'owl-focusable', href: '/settings/providers', style: helpLinkStyle }, 'open advanced provider status'),
             '.',
           ),
           errorMessage === undefined ? null : createElement('p', { style: { color: '#fca5a5', fontWeight: 700 } }, errorMessage),

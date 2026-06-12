@@ -1,5 +1,6 @@
 export * from './providerContract'
 export * from './providerCatalog'
+export * from './modelCatalog'
 export * from './certificationContract'
 export * from './certificationRunner'
 export * from './claudeCliProvider'

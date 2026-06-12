@@ -13,6 +13,7 @@
     "./claudeCliProvider": "./src/claudeCliProvider.ts",
     "./geminiDeveloperApiProvider": "./src/geminiDeveloperApiProvider.ts",
     "./mockProvider": "./src/mockProvider.ts",
+    "./modelCatalog": "./src/modelCatalog.ts",
     "./openaiApiProvider": "./src/openaiApiProvider.ts",
     "./providerCatalog": "./src/providerCatalog.ts",
     "./providerContract": "./src/providerContract.ts",

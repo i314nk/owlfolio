@@ -42,6 +42,27 @@ export const modelRoleIds = [
 ] as const
 export type ModelRoleId = (typeof modelRoleIds)[number]
 
+/** The model-tiering-spec tier a role's auto-default is drawn from (T1 frontier / T2 mid / T3 cheap). */
+export type ModelRoleTier = 'T1' | 'T2' | 'T3'
+
+/**
+ * Canonical role → tier map (the single source of truth the UI and the auto-tier deriver both consume).
+ * Per the model-tiering-spec tier table: synthesis + the moat/Shariah lanes + the deep-dive lanes +
+ * their cross-checks are T1; quick_screen + red_team are T2; monitors + entity_resolve are T3.
+ */
+export const MODEL_ROLE_TIER: Record<ModelRoleId, ModelRoleTier> = {
+  synthesis: 'T1',
+  lanes_default: 'T1',
+  lane_moat: 'T1',
+  lane_shariah: 'T1',
+  quick_screen: 'T2',
+  red_team: 'T2',
+  monitors: 'T3',
+  entity_resolve: 'T3',
+  lane_moat_crosscheck: 'T1',
+  lane_shariah_crosscheck: 'T1',
+}
+
 /**
  * A role's registry entry. `provider_id`/`model` are OPTIONAL by default: omitted = inherit the run's
  * active provider/model (the single-provider default path). Set them to PIN a role onto a specific

@@ -1,5 +1,6 @@
 import { createElement, type CSSProperties, type ReactNode } from 'react'
 
+import type { ProviderStatusRow, ProviderQualificationState } from '../lib/providerStatus'
 import { RouteHeader } from './designSystem'
 import { StatusBadge, type StatusBadgeTone } from './StatusBadge'
 
@@ -62,12 +63,22 @@ export type ProviderKeyGroupView = {
   keys: ProviderKeyView[]
 }
 
+/** A curated reasoning model suggestion for the per-role selector (reasoning-only by construction). */
+export type RoleConfigCuratedModel = {
+  model_id: string
+  /** Which tiers this model suits (used to mark a model as a good fit for the role's tier). */
+  tier_suitability: Array<'T1' | 'T2' | 'T3'>
+  note: string
+}
+
 /** A provider the per-role selector can target, honestly marked connected/qualified. */
 export type RoleConfigProviderOption = {
   provider_id: string
   label: string
   is_connected: boolean
   is_qualified: boolean
+  /** Curated reasoning models for this provider (empty when none are curated). */
+  curated_models: RoleConfigCuratedModel[]
 }
 
 /** One per-role row in the Section B configuration table. */
@@ -106,6 +117,12 @@ export type ProviderKeysPanelProps = {
   llmGroups: ProviderKeyGroupView[]
   toolGroups: ProviderKeyGroupView[]
   roleConfig: ProviderRoleConfigView
+  /**
+   * Per-provider TRUST & certification rows (folded in from the retired /providers page). Optional so
+   * existing callers/tests keep working; when present, a collapsible Trust & certification section is
+   * rendered with the honest, fail-closed certification + qualification detail.
+   */
+  trustRows?: ProviderStatusRow[]
 }
 
 const SET_KEY_ENDPOINT = '/api/onboarding/credentials'
@@ -153,8 +170,161 @@ export function ProviderKeysPanel(props: ProviderKeysPanelProps) {
     renderOnboardingGate(props.onboardingGate),
     renderProviderLoginsSection(props.loginRows),
     renderLlmSection(props.llmGroups, props.roleConfig),
+    ...(props.trustRows === undefined ? [] : [renderTrustSection(props.trustRows)]),
     renderToolDataSection(props.toolGroups),
   )
+}
+
+// ── Trust & certification (folded in from the retired /providers page) ────────
+//
+// Honest, fail-closed labeling preserved EXACTLY: certification is bounded by
+// data/provider-certifications/*.latest.json, and "readiness is not certification". This is a per-
+// provider collapsible section: the summary carries the gating effective-support verdict + qualification
+// state; the body holds the certification report (incl. the grounded-research scenario gate) and limits.
+
+function renderTrustSection(rows: ProviderStatusRow[]) {
+  const certified = rows.filter((row) => row.effective_support_level === 'certified').length
+  return createElement(
+    'section',
+    { 'aria-label': 'Trust and certification', className: 'owl-section-card', style: { gap: 'var(--owl-space-4)' } },
+    sectionHeader('Trust gate', 'Trust & certification', certified, rows.length, 'certified'),
+    createElement(
+      'p',
+      { className: 'owl-body' },
+      'Which models are trusted for investment-grade research, and which are not yet. Certification is '
+      + 'bounded by the latest persisted report (data/provider-certifications/*.latest.json); readiness is '
+      + 'not certification. Each provider opens its certification + golden-set evidence below.',
+    ),
+    createElement('div', { className: 'owl-row-list' }, ...rows.map(renderTrustProviderAccordion)),
+  )
+}
+
+function trustSupportTone(level: ProviderStatusRow['effective_support_level']): Pick<CSSProperties, 'background' | 'border' | 'color'> {
+  if (level === 'certified') return { background: 'rgba(16, 185, 129, 0.16)', border: '1px solid rgba(16, 185, 129, 0.4)', color: '#bbf7d0' }
+  if (level === 'unsupported') return { background: 'rgba(248, 113, 113, 0.14)', border: '1px solid rgba(248, 113, 113, 0.4)', color: '#fecaca' }
+  return { background: 'rgba(214, 178, 94, 0.14)', border: '1px solid rgba(214, 178, 94, 0.38)', color: 'var(--owl-color-gold-bright)' }
+}
+
+function trustPill(label: string, tone: Pick<CSSProperties, 'background' | 'border' | 'color'>) {
+  return createElement(
+    'span',
+    {
+      style: {
+        ...tone,
+        borderRadius: '999px',
+        fontFamily: 'var(--owl-font-mono)',
+        fontSize: 'var(--owl-text-2xs)',
+        fontWeight: 700,
+        letterSpacing: '0.04em',
+        padding: '0.2rem 0.65rem',
+        whiteSpace: 'nowrap',
+      },
+    },
+    label,
+  )
+}
+
+function trustQualificationTone(state: ProviderQualificationState): Pick<CSSProperties, 'background' | 'border' | 'color'> {
+  if (state === 'qualified') return { background: 'rgba(16, 185, 129, 0.16)', border: '1px solid rgba(16, 185, 129, 0.4)', color: '#bbf7d0' }
+  if (state === 'not-qualified') return { background: 'rgba(248, 113, 113, 0.14)', border: '1px solid rgba(248, 113, 113, 0.4)', color: '#fecaca' }
+  return { background: 'rgba(148, 163, 184, 0.12)', border: '1px solid rgba(148, 163, 184, 0.28)', color: 'var(--owl-color-muted)' }
+}
+
+function renderTrustProviderAccordion(row: ProviderStatusRow) {
+  const qualState: ProviderQualificationState = row.qualification?.state ?? 'no-report'
+  const qualLabel = qualState === 'qualified' ? '✓ golden-set qualified' : qualState === 'not-qualified' ? 'golden-set: not qualified' : 'golden-set: no report'
+
+  return createElement(
+    'details',
+    { key: `trust-${row.provider_id}`, className: 'owl-row owl-row-top', style: { display: 'block' } },
+    createElement(
+      'summary',
+      { style: { cursor: 'pointer', display: 'grid', gap: 'var(--owl-space-2)', listStyle: 'none' } },
+      createElement(
+        'div',
+        { style: { alignItems: 'center', display: 'flex', flexWrap: 'wrap', gap: 'var(--owl-space-2)' } },
+        createElement('span', { 'aria-hidden': 'true', style: { ...monoLabelStyle, color: 'var(--owl-color-gold-bright)' } }, '▸'),
+        createElement('h3', { className: 'owl-row-title', style: { color: 'var(--owl-color-gold-bright)', margin: 0 } }, row.label),
+        trustPill(row.effective_support_level, trustSupportTone(row.effective_support_level)),
+        trustPill(qualLabel, trustQualificationTone(qualState)),
+      ),
+      // The e2e-/honesty-critical gating line stays visible in the summary.
+      createElement(
+        'section',
+        { 'aria-label': `${row.label} trust primary status`, style: { display: 'grid', gap: '0.3rem' } },
+        createElement(
+          'p',
+          { style: { ...monoValueStyle, fontWeight: 700, margin: 0 } },
+          `Effective support (gating source of truth): ${row.effective_support_level}`,
+        ),
+        createElement('p', { style: { ...monoLabelStyle, textTransform: 'none', letterSpacing: 0 } }, `Catalog support: ${row.catalog_support_level}`),
+      ),
+      createElement('p', { style: { ...monoLabelStyle, color: 'var(--owl-color-gold-bright)' } }, 'Open certification evidence ▾'),
+    ),
+    createElement(
+      'div',
+      { style: { display: 'grid', gap: 'var(--owl-space-3)', marginTop: 'var(--owl-space-3)' } },
+      // Latest certification report (incl. the grounded-research scenario gate).
+      createElement(
+        'section',
+        { style: { display: 'grid', gap: '0.35rem' } },
+        createElement('p', { style: monoLabelStyle }, 'Latest certification report'),
+        ...renderTrustCertificationReport(row),
+      ),
+      // Golden-set qualification (verified-not-assumed; no report = not qualified, fail-closed).
+      createElement(
+        'section',
+        { 'aria-label': `${row.label} golden-set qualification`, style: { display: 'grid', gap: '0.35rem' } },
+        createElement('p', { style: monoLabelStyle }, 'Golden-set qualification'),
+        createElement('p', { style: monoValueStyle }, trustQualificationLabel(qualState)),
+        createElement('p', { style: subtleTextStyle }, row.qualification?.detail ?? 'No qualification report — fail-closed (not qualified for production research).'),
+      ),
+      // Limitations.
+      createElement(
+        'section',
+        { style: { display: 'grid', gap: '0.35rem' } },
+        createElement('p', { style: monoLabelStyle }, 'Limitations'),
+        createElement(
+          'ul',
+          { style: { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-sm)', margin: 0, paddingLeft: '1.2rem' } },
+          ...row.limitations.map((limitation) => createElement('li', { key: limitation }, limitation)),
+        ),
+      ),
+    ),
+  )
+}
+
+function trustQualificationLabel(state: ProviderQualificationState): string {
+  if (state === 'qualified') return 'Qualified (golden-set passed)'
+  if (state === 'not-qualified') return 'Not qualified (golden-set report did not pass)'
+  return 'No qualification report (fail-closed)'
+}
+
+function renderTrustCertificationReport(row: ProviderStatusRow): ReactNode[] {
+  const report = row.last_certification_report
+  if (report === undefined) {
+    return [createElement('p', { key: 'no-report', style: subtleTextStyle }, 'Workflow certification: No certification report recorded')]
+  }
+
+  const scenarios = report.scenarios
+  const passed = scenarios.filter((s) => s.status === 'passed').length
+  const failed = scenarios.filter((s) => s.status === 'failed').length
+  const skipped = scenarios.filter((s) => s.status === 'skipped').length
+  const grounded = scenarios.find((s) => s.scenario_id === 'source-grounded-research-task')
+  const groundedLine = grounded === undefined
+    ? 'Grounded-research scenario (source-grounded-research-task): not in this report.'
+    : `Grounded-research scenario (source-grounded-research-task): ${grounded.status}.`
+
+  return [
+    createElement('p', { key: 'id', style: { ...monoValueStyle, ...subtleTextStyle, overflowWrap: 'anywhere' } }, `Report ID: ${report.certification_report_id}`),
+    createElement('p', { key: 'run', style: subtleTextStyle }, `Run status: ${report.run_status}`),
+    createElement('p', { key: 'gen', style: subtleTextStyle }, `Generated: ${report.generated_at}`),
+    createElement('p', { key: 'summary', style: subtleTextStyle }, report.not_run_reason === undefined ? report.summary : `Failure cause: ${report.not_run_reason}`),
+    scenarios.length === 0
+      ? null
+      : createElement('p', { key: 'scenarios', style: { ...monoValueStyle, ...subtleTextStyle } }, `Scenarios: ${passed} passed · ${failed} failed · ${skipped} skipped (of ${scenarios.length}).`),
+    createElement('p', { key: 'grounded', style: { ...subtleTextStyle, color: grounded?.status === 'passed' ? '#bbf7d0' : 'var(--owl-color-muted)' } }, groundedLine),
+  ]
 }
 
 // ── Env-file header ───────────────────────────────────────────────────────────
@@ -370,15 +540,40 @@ const roleInputStyle: CSSProperties = {
   padding: '0.35rem 0.55rem',
 }
 
+// Providers ordered for the dropdown: CONNECTED first (the spec asks for connected-first grouping), then
+// the rest. Stable within each group by the catalog order they arrived in.
+function providersConnectedFirst(providers: RoleConfigProviderOption[]): RoleConfigProviderOption[] {
+  return [...providers].sort((a, b) => Number(b.is_connected) - Number(a.is_connected))
+}
+
+/** True when the parsed model value is a curated reasoning model for the parsed provider. */
+function isCuratedSelection(
+  providers: RoleConfigProviderOption[],
+  parsed: { provider?: string; model?: string },
+): boolean {
+  if (parsed.provider === undefined || parsed.model === undefined || parsed.model.length === 0) return false
+  const provider = providers.find((p) => p.provider_id === parsed.provider)
+  return provider?.curated_models.some((m) => m.model_id === parsed.model) ?? false
+}
+
 function renderRoleSelectorForm(
   row: RoleConfigRow,
   providers: RoleConfigProviderOption[],
   parsed: { provider?: string; model?: string; temperature?: string },
 ) {
+  const ordered = providersConnectedFirst(providers)
+  const datalistId = `curated-models-${row.role}`
+  // The escape-hatch warning: shown when the current value is a free-form (uncurated) model — curated
+  // models are reasoning-verified; an uncurated one must be verified to support extended reasoning.
+  const usingUncurated = parsed.model !== undefined && parsed.model.length > 0 && !isCuratedSelection(providers, parsed)
+
   return createElement(
     'div',
+    { style: { display: 'grid', gap: 'var(--owl-space-2)' } },
+    createElement(
+    'div',
     { style: { display: 'flex', flexWrap: 'wrap', gap: 'var(--owl-space-2)' } },
-    // Set form: provider dropdown + free-form model + optional temp.
+    // Set form: provider dropdown + curated model datalist (free-form escape hatch) + optional temp.
     createElement(
       'form',
       { action: MODEL_ROLE_ENDPOINT, method: 'post', style: { alignItems: 'center', display: 'flex', flexWrap: 'wrap', gap: 'var(--owl-space-2)' } },
@@ -388,7 +583,7 @@ function renderRoleSelectorForm(
         'select',
         { 'aria-label': `${row.role} provider`, name: 'provider', defaultValue: parsed.provider ?? '', style: roleInputStyle, required: true },
         createElement('option', { value: '', disabled: true }, 'Provider…'),
-        ...providers.map((p) =>
+        ...ordered.map((p) =>
           createElement(
             'option',
             { key: p.provider_id, value: p.provider_id },
@@ -396,13 +591,28 @@ function renderRoleSelectorForm(
           ),
         ),
       ),
+      // Curated reasoning models feed an autocomplete datalist (grouped by provider via the option label),
+      // while the input itself stays free-form — the uncurated escape hatch.
+      createElement(
+        'datalist',
+        { id: datalistId },
+        ...ordered.flatMap((p) =>
+          p.curated_models.map((m) =>
+            createElement('option', {
+              key: `${p.provider_id}-${m.model_id}`,
+              value: m.model_id,
+            }, `${p.label}${m.tier_suitability.includes(row.tier) ? ` · fits ${row.tier}` : ''} — ${m.note}`),
+          ),
+        ),
+      ),
       createElement('input', {
         'aria-label': `${row.role} model`,
         name: 'model',
         type: 'text',
+        list: datalistId,
         autoComplete: 'off',
         defaultValue: parsed.model ?? '',
-        placeholder: 'model name',
+        placeholder: 'curated reasoning model (or type any)',
         required: true,
         style: { ...roleInputStyle, flex: '1 1 9rem' },
       }),
@@ -428,6 +638,18 @@ function renderRoleSelectorForm(
           createElement('input', { name: 'role', type: 'hidden', value: row.role }),
           createElement('button', { className: 'owl-button owl-button-secondary owl-focusable', type: 'submit' }, 'Clear'),
         ),
+    ),
+    // Uncurated escape-hatch warning: only when the current model is NOT a curated reasoning model.
+    usingUncurated
+      ? createElement(
+          'p',
+          {
+            'aria-label': `${row.role} uncurated model warning`,
+            style: { ...subtleTextStyle, color: 'var(--owl-color-gold-bright)', margin: 0 },
+          },
+          '⚠ Uncurated model — verify it supports extended reasoning. Curated models are reasoning/thinking-capable; a free-form id is not checked.',
+        )
+      : null,
   )
 }
 

@@ -1,4 +1,4 @@
-import { getProviderCatalog } from '@owlfolio/providers'
+import { getProviderCatalog, curatedRealTierModelsForProvider } from '@owlfolio/providers'
 import { modelRoleIds, resolveModelForRole, type ModelRoleId } from '@owlfolio/strategies/modelRegistry'
 import { isModelQualified } from '@owlfolio/workflow/modelQualification'
 
@@ -18,7 +18,7 @@ import {
   oauthLoginExpiryView,
   type LlmKeyGroup,
 } from './providerKeys'
-import { resolveProviderCertificationReportDir } from './providerStatus'
+import { buildProviderStatusRows, resolveProviderCertificationReportDir } from './providerStatus'
 import { getProviderReadiness, type ProviderReadinessEnv } from './providerReadiness'
 import type {
   ProviderKeyGroupView,
@@ -107,7 +107,13 @@ export async function buildProviderKeysPanelProps(args: BuildProviderKeysPanelAr
     processEnv,
   })
 
-  return { envFile, onboardingGate, loginRows, llmGroups, toolGroups, roleConfig }
+  // Trust & certification rows (folded in from the retired /providers page) — fail-closed honest.
+  const trustRows = await buildProviderStatusRows({
+    env: processEnv,
+    ...(args.cwd === undefined ? {} : { cwd: args.cwd }),
+  })
+
+  return { envFile, onboardingGate, loginRows, llmGroups, toolGroups, roleConfig, trustRows }
 }
 
 /**
@@ -144,6 +150,12 @@ export async function buildProviderRoleConfigView(args: {
           label: provider.label,
           is_connected: readiness.is_ready,
           is_qualified: qualified.has_report && qualified.qualified,
+          // Curated REASONING models only (reasoning-only by construction) feed the role selectors.
+          curated_models: curatedRealTierModelsForProvider(provider.provider_id).map((model) => ({
+            model_id: model.model_id,
+            tier_suitability: model.tier_suitability,
+            note: model.note,
+          })),
         }
       }),
   )

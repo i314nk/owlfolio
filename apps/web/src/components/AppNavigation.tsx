@@ -32,14 +32,14 @@ const navSections: NavSection[] = [
       { href: '/pipeline', label: 'Pipeline' },
       { href: '/calibration', label: 'Calibration' },
       { href: '/audit', label: 'Audit' },
-      { href: '/providers', label: 'Providers' },
     ],
   },
   {
     title: 'Reference',
     items: [
       { href: '/learn', label: 'Learn' },
-      { href: '/settings/providers', label: 'Provider Keys' },
+      // Single provider surface: keys + connections + trust/certification all live here now.
+      { href: '/settings/providers', label: 'Providers' },
       { href: '/settings/automation', label: 'Settings' },
       { href: '/settings/data-safety', label: 'Advanced / Data Safety' },
     ],

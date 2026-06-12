@@ -44,6 +44,7 @@ import {
 import { selectResearchCaseAction } from '@owlfolio/workflow/researchCasePolicy'
 import { runStrategyResearchSwarm, runResearchDeepDivePhase, type GroundFn } from '@owlfolio/workflow/researchSwarm'
 import { resolveModelRoleEnv } from './modelRoleEnv'
+import { buildAutoModelRoleOverrides } from './autoTierConfig'
 import { groundProposedSources, groundProposedSourcesDeterministic } from '@owlfolio/workflow/sourceGrounding'
 import { projectPendingDeepDiveRuns } from '@owlfolio/ledger/projections/researchRunQueueProjection'
 import {
@@ -351,8 +352,10 @@ export async function enqueueResearchRun(
           version,
           ...(supersedesId === undefined ? {} : { supersedes_research_case_id: supersedesId }),
           quick_screen_approval: state.config.automation?.quick_screen_approval ?? 'review',
-          // model-tiering: file-configured per-role overrides (UI-managed env file) take effect here.
+          // model-tiering: file-configured per-role overrides (UI-managed env file = PINS) take effect
+          // here, layered OVER the deterministic AUTO defaults (auto fills only unpinned roles).
           model_role_env: await resolveModelRoleEnv(),
+          model_overrides: (await buildAutoModelRoleOverrides({ processEnv: process.env })).overrides,
         },
         { ground },
       )
@@ -441,8 +444,10 @@ export async function requestDeepDiveRun(
             source_ledger_path: pendingRun.source_ledger_path ?? state.config.source_ledger_path,
             quick_screen_source_ids: pendingRun.quick_screen_source_ids,
             quick_screen_event_id: pendingRun.quick_screen_event_id,
-            // model-tiering: file-configured per-role overrides take effect in the deep-dive phase too.
+            // model-tiering: file-configured per-role overrides (PINS) take effect in the deep-dive phase
+            // too, layered over the deterministic AUTO defaults (auto fills only unpinned roles).
             model_role_env: await resolveModelRoleEnv(),
+            model_overrides: (await buildAutoModelRoleOverrides({ processEnv: process.env })).overrides,
           },
           { ground },
         )

@@ -59,8 +59,15 @@ function baseProps(overrides: Partial<ProviderKeysPanelProps> = {}): ProviderKey
       guidance: ['Tier philosophy: T1 frontier, T2 mid, T3 cheap; T0 is never a model.'],
       no_model_note: 'T0 — No model, ever.',
       providers: [
-        { provider_id: 'openai', label: 'OpenAI', is_connected: true, is_qualified: false },
-        { provider_id: 'mock-provider', label: 'Mock', is_connected: true, is_qualified: true },
+        {
+          provider_id: 'openai', label: 'OpenAI', is_connected: true, is_qualified: false,
+          curated_models: [{ model_id: 'gpt-5.5', tier_suitability: ['T1', 'T2'], note: 'Reasoning model.' }],
+        },
+        {
+          provider_id: 'claude', label: 'Claude', is_connected: false, is_qualified: false,
+          curated_models: [{ model_id: 'claude-opus-4-8', tier_suitability: ['T1'], note: 'Frontier reasoning.' }],
+        },
+        { provider_id: 'mock-provider', label: 'Mock', is_connected: true, is_qualified: true, curated_models: [] },
       ],
       roles: [
         {
@@ -136,6 +143,46 @@ describe('ProviderKeysPanel — per-role config honesty (not-connected warning +
     expect(html).toContain('File override')
     // An overridden role exposes a Clear affordance to restore the default-inherit.
     expect(html).toContain('clear')
+  })
+})
+
+describe('ProviderKeysPanel — curated reasoning-model dropdowns + uncurated warning', () => {
+  it('lists curated reasoning models of connected providers in the selector datalist', () => {
+    const html = renderToStaticMarkup(createElement(ProviderKeysPanel, baseProps()))
+    // The curated reasoning model id appears as a datalist option.
+    expect(html).toContain('gpt-5.5')
+    // The datalist is wired to the model input.
+    expect(html).toContain('curated-models-synthesis')
+    // A model that fits the role's tier is annotated.
+    expect(html).toContain('fits T1')
+  })
+
+  it('warns when a role is pinned onto an UNCURATED (free-form) model', () => {
+    const props = baseProps()
+    // deepseek:r1 is not in any curated list above -> uncurated escape hatch warning.
+    props.roleConfig.roles[0] = {
+      role: 'synthesis', tier: 'T1', description: 'Frontier synthesis.',
+      resolved_provider_id: 'deepseek', resolved_model: 'r1', resolved_temperature: 0.1,
+      overridden: true, source: 'file', target_provider_connected: false, target_provider_qualified: false,
+      current_value: 'deepseek:r1@0.1',
+    }
+    const html = renderToStaticMarkup(createElement(ProviderKeysPanel, props))
+    expect(html).toContain('Uncurated model')
+    expect(html.toLowerCase()).toContain('verify it supports extended reasoning')
+  })
+
+  it('does NOT warn when the pinned model IS a curated reasoning model', () => {
+    const props = baseProps()
+    props.roleConfig.roles[0] = {
+      role: 'synthesis', tier: 'T1', description: 'Frontier synthesis.',
+      resolved_provider_id: 'openai', resolved_model: 'gpt-5.5', resolved_temperature: 0.1,
+      overridden: true, source: 'file', target_provider_connected: true, target_provider_qualified: false,
+      current_value: 'openai:gpt-5.5@0.1',
+    }
+    // Drop the monitors row so the only role is the curated synthesis pin.
+    props.roleConfig.roles = [props.roleConfig.roles[0]!]
+    const html = renderToStaticMarkup(createElement(ProviderKeysPanel, props))
+    expect(html).not.toContain('Uncurated model')
   })
 })
 

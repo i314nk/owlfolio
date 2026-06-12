@@ -75,7 +75,7 @@ export default async function ResearchIntakePage() {
           <Link className="owl-focusable" href="/onboarding" style={ctaButtonStyle}>
             Open onboarding and enable personal-local setup
           </Link>
-          <Link className="owl-focusable" href="/providers" style={secondaryLinkStyle}>
+          <Link className="owl-focusable" href="/settings/providers" style={secondaryLinkStyle}>
             Review provider readiness first
           </Link>
         </div>

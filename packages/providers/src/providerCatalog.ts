@@ -221,7 +221,9 @@ const catalog: ProviderCatalogEntry[] = [
     description: 'Direct OpenAI API provider candidate behind separate certification gates from the Codex CLI surface.',
     runtime_kind: 'direct_api',
     auth_mode: 'api_key',
-    default_model_id: 'gpt-4.1-mini',
+    // Reasoning model: judgment-heavy swarm roles require thinking-capable models. The prior default
+    // `gpt-4.1-mini` is NOT reasoning-capable, so the default is upgraded to the curated reasoning model.
+    default_model_id: 'gpt-5.5',
     credential_source_categories: ['env_var'],
     billing: { billing_mode: 'platform_api_billing', quota_source: 'api_project', quota_status: 'unknown' },
     privacy: { data_policy_source: 'api_paid_no_training', retention_or_zdr_status: 'available_if_configured' },

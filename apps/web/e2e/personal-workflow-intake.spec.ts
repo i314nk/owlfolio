@@ -42,7 +42,7 @@ test('personal-local mode can create the first research case from the command ce
   await expect(primaryNav.getByRole('link', { name: /portfolio/i })).toHaveAttribute('href', '/portfolio')
   await expect(primaryNav.getByRole('link', { name: /accounting/i })).toHaveAttribute('href', '/accounting/monthly')
   await expect(primaryNav.getByRole('link', { name: 'Audit', exact: true })).toHaveAttribute('href', '/audit')
-  await expect(primaryNav.getByRole('link', { name: /providers/i })).toHaveAttribute('href', '/providers')
+  await expect(primaryNav.getByRole('link', { name: /providers/i })).toHaveAttribute('href', '/settings/providers')
   await expect(primaryNav.getByRole('link', { name: /onboarding/i })).toHaveCount(0)
   await expect(primaryNav.getByRole('link', { name: /start setup/i })).toHaveCount(0)
 
@@ -65,16 +65,18 @@ test('personal-local mode can create the first research case from the command ce
   await page.getByRole('navigation', { name: /primary owlfolio navigation/i }).getByRole('link', { name: 'Audit', exact: true }).click()
   await expect(page).toHaveURL('/audit')
   await expect(page.getByRole('heading', { name: /audit activity/i })).toBeVisible()
+  // /providers is retired: the nav "Providers" link now points at the consolidated /settings/providers
+  // page, which carries the per-provider Trust & certification section folded in from the old page.
   await page.getByRole('navigation', { name: /primary owlfolio navigation/i }).getByRole('link', { name: /providers/i }).click()
-  await expect(page).toHaveURL('/providers')
-  await expect(page.getByRole('heading', { name: /provider status/i })).toBeVisible()
-  await expect(page.getByText('Mock provider', { exact: true }).first()).toBeVisible()
+  await expect(page).toHaveURL('/settings/providers')
+  await expect(page.getByRole('heading', { name: /provider keys/i })).toBeVisible()
+  // The Trust & certification section preserves the honest, fail-closed gating verdicts.
+  await expect(page.getByRole('heading', { name: /trust & certification/i })).toBeVisible()
   await expect(
-    page.getByLabel('Mock provider provider primary status', { exact: true }).getByText('Effective support (gating source of truth): certified', { exact: true }),
+    page.getByLabel('Mock provider trust primary status', { exact: true }).getByText('Effective support (gating source of truth): certified', { exact: true }),
   ).toBeVisible()
-  await expect(page.getByText('Claude', { exact: true }).first()).toBeVisible()
   await expect(
-    page.getByLabel('Claude provider primary status', { exact: true }).getByText('Effective support (gating source of truth): unsupported', { exact: true }),
+    page.getByLabel('Claude trust primary status', { exact: true }).getByText('Effective support (gating source of truth): unsupported', { exact: true }),
   ).toBeVisible()
 
   await page.getByRole('navigation', { name: /primary owlfolio navigation/i }).getByRole('link', { name: 'Command Center', exact: true }).click()

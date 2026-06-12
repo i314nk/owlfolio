@@ -30,7 +30,7 @@ export default function LearnPage() {
           and override is recorded in an append-only local ledger, and all data lives on your machine.
         </p>
         <div style={linkRowStyle}>
-          <OwlButtonLink href="/providers">Review provider states →</OwlButtonLink>
+          <OwlButtonLink href="/settings/providers">Review provider states →</OwlButtonLink>
           <OwlButtonLink href="/strategy" variant="secondary">
             The full strategy method →
           </OwlButtonLink>

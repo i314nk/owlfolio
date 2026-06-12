@@ -664,7 +664,7 @@ function buildActionCards(dashboard: AppCommandCenter): ActionCard[] {
     cards.push({
       category: 'Local assistant setup needed',
       description: 'Owlfolio cannot use the selected local assistant yet. Open provider details for the technical checks, or keep using demo mode while setup is incomplete.',
-      href: '/providers',
+      href: '/settings/providers',
       label: 'Open setup details',
       title: 'Finish local assistant setup',
       tone: 'warning',

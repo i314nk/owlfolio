@@ -1,16 +1,10 @@
-import { createElement } from 'react'
+import { redirect } from 'next/navigation'
 
-import { ProviderStatusPanel } from '../../components/ProviderStatusPanel'
-import { buildProviderStatusRows, buildModelRegistrySection } from '../../lib/providerStatus'
-
-export default async function ProvidersPage() {
-  const rows = await buildProviderStatusRows()
-  // model-tiering: the registry resolves every role against the active run's provider/model. The
-  // certified demo slice (mock-provider) is the safe default to render the role→model→tier map.
-  const modelRegistry = buildModelRegistrySection({
-    activeProviderId: 'mock-provider',
-    activeModel: 'mock-buffett-munger-demo',
-  })
-
-  return createElement(ProviderStatusPanel, { rows, modelRegistry })
+/**
+ * /providers is RETIRED. Its trust/certification detail was folded into /settings/providers as a per-
+ * provider "Trust & certification" section. This route now permanently redirects there so old links,
+ * bookmarks, and in-app references keep working with a single provider surface.
+ */
+export default function ProvidersPage(): never {
+  redirect('/settings/providers')
 }
