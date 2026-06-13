@@ -73,7 +73,6 @@ function authMethodLabel(authMode: string | undefined): string {
 const CONNECT_COMMAND: Record<string, string> = {
   'openai-codex-cli': 'codex login',
   'claude-cli': 'claude login',
-  'gemini-cli': 'gemini login',
 }
 
 export async function buildProviderKeysPanelProps(args: BuildProviderKeysPanelArgs): Promise<ProviderKeysPanelProps> {

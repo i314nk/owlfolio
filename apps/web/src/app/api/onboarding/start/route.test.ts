@@ -143,12 +143,7 @@ describe('/api/onboarding/start', () => {
     expect(payload.next_destination).toBe('/')
   })
 
-  it('rejects Gemini CLI onboarding start even when a cached Google sign-in session exists because the lane is setup-only', async () => {
-    const geminiAuthPath = join(tempDir, '.gemini', 'oauth_creds.json')
-    await mkdir(join(tempDir, '.gemini'), { recursive: true })
-    await writeFile(geminiAuthPath, '{"access_token":"secret-gemini-token"}', 'utf8')
-    process.env.OWLFOLIO_GEMINI_CLI_AUTH_PATH = geminiAuthPath
-
+  it('rejects a retired provider id (gemini-cli) as an unknown provider — fail-closed after the OpenRouter + Codex CLI reduction', async () => {
     const response = await POST(new Request('http://localhost/api/onboarding/start', {
       method: 'POST',
       body: JSON.stringify({
@@ -159,13 +154,7 @@ describe('/api/onboarding/start', () => {
     const payload = await response.json()
 
     expect(response.status).toBe(400)
-    expect(payload).toEqual({
-      error: {
-        code: 'provider_not_ready',
-        message: 'Provider gemini-cli is not ready: Gemini CLI Google sign-in session detected for setup only; Owlfolio cannot execute Gemini CLI workflows until a safe adapter and target-specific certification exist. Developer API and Vertex certification remain separate.',
-      },
-    })
-    expect(JSON.stringify(payload)).not.toContain(geminiAuthPath)
-    expect(JSON.stringify(payload)).not.toContain('secret-gemini-token')
+    expect(payload.error.code).toBe('unknown_provider')
+    expect(payload.error.message).toContain('Unknown provider: gemini-cli')
   })
 })

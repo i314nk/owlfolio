@@ -1,14 +1,12 @@
 import type { ProviderId } from '@owlfolio/shared'
 
 import { ClaudeCliProvider, type ClaudeCliProviderOptions } from './claudeCliProvider'
-import { GeminiDeveloperApiProvider, type GeminiDeveloperApiProviderOptions } from './geminiDeveloperApiProvider'
 import { MockProvider, type MockProviderOptions } from './mockProvider'
-import { OpenAIAPIProvider, type OpenAIAPIProviderOptions } from './openaiApiProvider'
 import { OpenAICodexCliProvider, type OpenAICodexCliProviderOptions } from './openaiCodexCliProvider'
 import { OpenRouterProvider, type OpenRouterProviderOptions } from './openRouterProvider'
 import type { Provider } from './providerContract'
 
-export type ResolveProviderOptions = ClaudeCliProviderOptions & OpenAICodexCliProviderOptions & OpenAIAPIProviderOptions & GeminiDeveloperApiProviderOptions & OpenRouterProviderOptions & {
+export type ResolveProviderOptions = ClaudeCliProviderOptions & OpenAICodexCliProviderOptions & OpenRouterProviderOptions & {
   provider_id: ProviderId
   mockOptions?: MockProviderOptions
 }
@@ -24,14 +22,6 @@ export function resolveProvider(options: ResolveProviderOptions): Provider {
 
   if (options.provider_id === 'openai') {
     return new OpenAICodexCliProvider(options)
-  }
-
-  if (options.provider_id === 'openai-api') {
-    return new OpenAIAPIProvider(options)
-  }
-
-  if (options.provider_id === 'gemini-developer-api') {
-    return new GeminiDeveloperApiProvider(options)
   }
 
   if (options.provider_id === 'openrouter') {

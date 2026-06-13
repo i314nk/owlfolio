@@ -200,53 +200,11 @@ const roleMatrix: Record<ProviderId, { model_role: string; limitations: string[]
       'No full workflow certification report recorded, so it must not produce certified final investment decisions or Shariah conclusions.',
     ],
   },
-  'openai-api': {
-    model_role: 'Direct API candidate',
-    limitations: [
-      'Direct OpenAI API adapter supports structured research drafts and tool-call requests through the API surface, but remains certification-gated.',
-      'Must remain hidden from normal onboarding until direct API certification evidence exists.',
-    ],
-  },
-  'gemini-developer-api': {
-    model_role: 'Direct API candidate',
-    limitations: [
-      'Gemini Developer API adapter supports structured research drafts, tool-call requests, and source-grounded citations through the direct API surface.',
-      'Free-tier/privacy posture remains not verified, so certified/production claims stay blocked until policy accepts the posture or a paid/ZDR posture is proven.',
-    ],
-  },
-  'gemini-cli': {
-    model_role: 'Personal-local experimental candidate',
-    limitations: [
-      'Gemini CLI Google sign-in is modeled as a future personal-local lane; adapter not implemented yet.',
-      'Must not be treated as scheduled-workflow certified or production-headless.',
-    ],
-  },
   openrouter: {
     model_role: 'Meta-aggregator candidate',
     limitations: [
-      'OpenRouter routes one API key to many models; per-routed-model certification is still required and no live execution path is enabled yet.',
+      'OpenRouter routes one API key to many models; per-routed-model certification is still required before any routed model is trusted for research.',
       'Fail-closed: experimental candidate with no certification report, so it must not produce certified investment or Shariah outputs.',
-    ],
-  },
-  deepseek: {
-    model_role: 'Frontier reasoning candidate',
-    limitations: [
-      'DeepSeek direct API candidate without an implemented adapter or certification report yet.',
-      'Fail-closed experimental candidate; capability varies per model (e.g. reasoner tool-call limits), so it must not produce certified investment or Shariah outputs.',
-    ],
-  },
-  qwen: {
-    model_role: 'Frontier long-context candidate',
-    limitations: [
-      'Qwen (DashScope) direct API candidate without an implemented adapter or certification report yet; data-region posture is unverified.',
-      'Fail-closed experimental candidate, so it must not produce certified investment or Shariah outputs.',
-    ],
-  },
-  mistral: {
-    model_role: 'Frontier candidate',
-    limitations: [
-      'Mistral direct API candidate without an implemented adapter or certification report yet.',
-      'Fail-closed experimental candidate, so it must not produce certified investment or Shariah outputs.',
     ],
   },
 }

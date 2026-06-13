@@ -378,22 +378,10 @@ function humanizeProvider(providerId: AppConfig['provider']['provider_id']): str
       return 'Claude'
     case 'openai':
       return 'OpenAI Codex CLI'
-    case 'openai-api':
-      return 'OpenAI API'
-    case 'gemini-developer-api':
-      return 'Gemini Developer API'
-    case 'gemini-cli':
-      return 'Gemini CLI'
     case 'mock-provider':
       return 'Mock provider'
     case 'openrouter':
       return 'OpenRouter'
-    case 'deepseek':
-      return 'DeepSeek'
-    case 'qwen':
-      return 'Qwen (DashScope)'
-    case 'mistral':
-      return 'Mistral'
   }
 }
 

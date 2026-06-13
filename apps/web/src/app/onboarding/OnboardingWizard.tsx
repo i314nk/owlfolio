@@ -92,7 +92,7 @@ const helpLinkStyle: CSSProperties = {
 }
 
 type ConnectionOption = {
-  key: 'codex' | 'gemini' | 'demo'
+  key: 'codex' | 'demo'
   provider: ProviderOption
   mode: AppConfig['mode']
   title: string
@@ -102,14 +102,6 @@ type ConnectionOption = {
 
 function conciseNextStepFor(selectedProvider: ProviderOption, readiness: ProviderReadiness): string {
   const surfaceId = selectedProvider.provider_surface_id ?? readiness.provider_surface_id
-
-  if (surfaceId === 'gemini-cli' && readiness.readiness_state === 'unsupported_surface') {
-    return 'You can keep exploring with demo mode while Gemini workflow support is incomplete.'
-  }
-
-  if (surfaceId === 'gemini-cli') {
-    return 'Sign in to Gemini on this computer, then come back and check again.'
-  }
 
   if (surfaceId === 'openai-codex-cli') {
     return 'Sign in to ChatGPT/Codex on this computer, then come back and check again.'
@@ -269,7 +261,7 @@ export function OnboardingWizard({
           { style: sectionStyle, 'aria-labelledby': 'setup-mode-heading' },
           createElement('p', { style: eyebrowStyle }, '1. Choose how to explore'),
           createElement('h2', { id: 'setup-mode-heading', style: { margin: '0.35rem 0 0.25rem' } }, 'Try demo or use a local assistant'),
-          createElement('p', { style: { color: '#cbd5e1', marginTop: 0 } }, 'Demo mode is the fastest way in. Local assistant setup checks this computer for an existing ChatGPT/Codex or Gemini sign-in.'),
+          createElement('p', { style: { color: '#cbd5e1', marginTop: 0 } }, 'Demo mode is the fastest way in. Local assistant setup checks this computer for an existing ChatGPT/Codex sign-in.'),
           createElement(
             'div',
             { style: cardGridStyle },
@@ -405,7 +397,6 @@ export function providerSelectionForOption(
 function buildConnectionOptions(providerOptions: ProviderOption[]): ConnectionOption[] {
   const mockProvider = providerOptions.find((provider) => provider.provider_id === 'mock-provider')
   const codexProvider = providerOptions.find((provider) => provider.provider_surface_id === 'openai-codex-cli' || provider.provider_id === 'openai')
-  const geminiProvider = providerOptions.find((provider) => provider.provider_surface_id === 'gemini-cli' || provider.provider_id === 'gemini-cli')
   const options: ConnectionOption[] = []
 
   if (mockProvider !== undefined) {
@@ -430,17 +421,6 @@ function buildConnectionOptions(providerOptions: ProviderOption[]): ConnectionOp
     })
   }
 
-  if (geminiProvider !== undefined) {
-    options.push({
-      key: 'gemini',
-      provider: geminiProvider,
-      mode: 'personal-local',
-      title: 'Use Gemini',
-      badge: 'Local AI preview',
-      description: 'Check Gemini sign-in here. Full Gemini workflow runs are not available yet.',
-    })
-  }
-
   return options
 }
 
@@ -459,10 +439,6 @@ function plainProviderSummary(selectedProvider: ProviderOption, readiness: Provi
     return 'Owlfolio checks for a ChatGPT/Codex sign-in that already exists on this computer.'
   }
 
-  if (surfaceId === 'gemini-cli') {
-    return 'Owlfolio can detect Gemini sign-in for setup, but Gemini workflow runs stay unavailable until a safe adapter is ready.'
-  }
-
   return `Owlfolio checks ${selectedProvider.label} on this computer before starting local workflows.`
 }
 
@@ -471,14 +447,6 @@ function conciseReadinessLabel(selectedProvider: ProviderOption, readiness: Prov
 
   if (selectedProvider.provider_id === 'mock-provider') {
     return readiness.is_ready ? 'Demo mode is ready on this computer.' : 'Demo mode is not ready yet.'
-  }
-
-  if (surfaceId === 'gemini-cli' && readiness.is_ready === false) {
-    if (readiness.credential_source_category === 'missing' || readiness.auth_source === 'missing') {
-      return 'Owlfolio cannot find your Gemini sign-in yet.'
-    }
-
-    return 'Gemini sign-in can be detected, but Owlfolio cannot run the full workflow with Gemini yet.'
   }
 
   if (surfaceId === 'openai-codex-cli') {

@@ -104,36 +104,12 @@ export async function getProviderReadiness(providerId: ProviderId, env: Provider
     return claudeReadiness(provider, env)
   }
 
-  if (provider.provider_surface_id === 'openai-api') {
-    return openAIApiReadiness(provider, env)
-  }
-
   if (provider.provider_surface_id === 'openai-codex-cli') {
     return openAICodexCliReadiness(provider, env)
   }
 
-  if (provider.provider_surface_id === 'gemini-developer-api') {
-    return geminiDeveloperApiReadiness(provider, env)
-  }
-
-  if (provider.provider_surface_id === 'gemini-cli') {
-    return geminiCliReadiness(provider, env)
-  }
-
   if (provider.provider_surface_id === 'openrouter-api') {
     return openRouterReadiness(provider, env.OPENROUTER_API_KEY)
-  }
-
-  if (provider.provider_surface_id === 'deepseek-api') {
-    return apiKeyCandidateReadiness(provider, env.DEEPSEEK_API_KEY, 'DEEPSEEK_API_KEY')
-  }
-
-  if (provider.provider_surface_id === 'qwen-dashscope-api') {
-    return apiKeyCandidateReadiness(provider, env.DASHSCOPE_API_KEY, 'DASHSCOPE_API_KEY')
-  }
-
-  if (provider.provider_surface_id === 'mistral-api') {
-    return apiKeyCandidateReadiness(provider, env.MISTRAL_API_KEY, 'MISTRAL_API_KEY')
   }
 
   if (provider.support_level === 'unsupported') {
@@ -176,29 +152,6 @@ async function claudeReadiness(provider: ProviderCatalogEntry, env: ProviderRead
     credentialSourceCategory: 'missing',
     authSource: 'missing',
     statusLabel: 'Missing Claude credentials',
-  })
-}
-
-async function openAIApiReadiness(provider: ProviderCatalogEntry, env: ProviderReadinessEnv): Promise<ProviderReadiness> {
-  if (env.OPENAI_API_KEY !== undefined && env.OPENAI_API_KEY.length > 0) {
-    return readinessFrom(provider, {
-      isReady: true,
-      authMode: 'api_key',
-      readinessState: 'ready',
-      credentialSourceCategory: 'env_var',
-      credentialSourceLabel: 'OPENAI_API_KEY',
-      authSource: 'OPENAI_API_KEY',
-      statusLabel: 'Locally runnable via OpenAI API key; Codex CLI certification remains separate.',
-    })
-  }
-
-  return readinessFrom(provider, {
-    isReady: false,
-    authMode: 'api_key',
-    readinessState: 'missing_credentials',
-    credentialSourceCategory: 'missing',
-    authSource: 'missing',
-    statusLabel: 'Missing OpenAI API key; Codex CLI credentials do not certify the direct OpenAI API surface.',
   })
 }
 
@@ -250,137 +203,6 @@ async function openAICodexCliReadiness(provider: ProviderCatalogEntry, env: Prov
   })
 }
 
-async function geminiCliReadiness(provider: ProviderCatalogEntry, env: ProviderReadinessEnv): Promise<ProviderReadiness> {
-  if (env.OWLFOLIO_GEMINI_CLI_STATUS === 'reauth-required') {
-    return readinessFrom(provider, {
-      isReady: false,
-      authMode: 'cli_cached_session',
-      readinessState: 'reauth_required',
-      credentialSourceCategory: 'default_cli_config',
-      credentialSourceLabel: 'Gemini CLI cached session',
-      authSource: 'Gemini CLI cached session',
-      statusLabel: 'Gemini CLI session requires reauthentication outside Owlfolio',
-    })
-  }
-
-  if (env.OWLFOLIO_GEMINI_CLI_STATUS === 'quota-limited') {
-    return readinessFrom(provider, {
-      isReady: false,
-      authMode: 'cli_cached_session',
-      readinessState: 'quota_limited',
-      credentialSourceCategory: 'default_cli_config',
-      credentialSourceLabel: 'Gemini CLI cached session',
-      authSource: 'Gemini CLI cached session',
-      statusLabel: 'Gemini CLI quota is limited or exhausted for this local session',
-      quotaStatus: 'limited',
-    })
-  }
-
-  const geminiAuthPath = env.OWLFOLIO_GEMINI_CLI_AUTH_PATH ?? defaultGeminiCliAuthPath(env)
-  if (await fileExists(geminiAuthPath)) {
-    return readinessFrom(provider, {
-      isReady: false,
-      authMode: 'cli_cached_session',
-      readinessState: 'unsupported_surface',
-      credentialSourceCategory: 'configured_secret_file',
-      credentialSourceLabel: 'Gemini CLI Google sign-in session',
-      authSource: 'Gemini CLI Google sign-in session',
-      statusLabel: 'Gemini CLI Google sign-in session detected for setup only; Owlfolio cannot execute Gemini CLI workflows until a safe adapter and target-specific certification exist. Developer API and Vertex certification remain separate.',
-    })
-  }
-
-  const apiKeyLabel = env.GEMINI_API_KEY !== undefined && env.GEMINI_API_KEY.length > 0
-    ? 'GEMINI_API_KEY'
-    : env.GOOGLE_API_KEY !== undefined && env.GOOGLE_API_KEY.length > 0
-      ? 'GOOGLE_API_KEY'
-      : undefined
-  if (apiKeyLabel !== undefined) {
-    return readinessFrom(provider, {
-      isReady: false,
-      authMode: 'api_key',
-      readinessState: 'unsupported_surface',
-      credentialSourceCategory: 'env_var',
-      credentialSourceLabel: apiKeyLabel,
-      authSource: apiKeyLabel,
-      statusLabel: `${apiKeyLabel} belongs to Gemini Developer API, not Gemini CLI Google sign-in; Developer API and Vertex certification remain separate.`,
-    })
-  }
-
-  return readinessFrom(provider, {
-    isReady: false,
-    authMode: 'cli_cached_session',
-    readinessState: 'missing_credentials',
-    credentialSourceCategory: 'missing',
-    authSource: 'missing',
-    statusLabel: 'Missing Gemini CLI Google sign-in session',
-    dataPolicySource: 'unknown',
-  })
-}
-
-async function geminiDeveloperApiReadiness(provider: ProviderCatalogEntry, env: ProviderReadinessEnv): Promise<ProviderReadiness> {
-  const apiKeyLabel = env.GEMINI_API_KEY !== undefined && env.GEMINI_API_KEY.length > 0
-    ? 'GEMINI_API_KEY'
-    : env.GOOGLE_API_KEY !== undefined && env.GOOGLE_API_KEY.length > 0
-      ? 'GOOGLE_API_KEY'
-      : undefined
-  if (apiKeyLabel !== undefined) {
-    return readinessFrom(provider, {
-      isReady: true,
-      authMode: 'api_key',
-      readinessState: 'ready',
-      credentialSourceCategory: 'env_var',
-      credentialSourceLabel: apiKeyLabel,
-      authSource: apiKeyLabel,
-      statusLabel: 'Locally runnable via Gemini Developer API key; separate from Gemini CLI / Google AI Pro sign-in and Vertex certification.',
-    })
-  }
-
-  if (env.GOOGLE_OAUTH_ACCESS_TOKEN !== undefined && env.GOOGLE_OAUTH_ACCESS_TOKEN.length > 0) {
-    return readinessFrom(provider, {
-      isReady: false,
-      authMode: 'oauth_browser_login',
-      readinessState: 'unsupported_surface',
-      credentialSourceCategory: 'env_var',
-      credentialSourceLabel: 'GOOGLE_OAUTH_ACCESS_TOKEN',
-      authSource: 'GOOGLE_OAUTH_ACCESS_TOKEN',
-      statusLabel: 'Google OAuth testing tokens are not accepted as Owlfolio provider credentials for Gemini Developer API certification.',
-    })
-  }
-
-  if (env.GOOGLE_APPLICATION_CREDENTIALS !== undefined && env.GOOGLE_APPLICATION_CREDENTIALS.length > 0) {
-    return readinessFrom(provider, {
-      isReady: false,
-      authMode: 'application_default_credentials',
-      readinessState: 'unsupported_surface',
-      credentialSourceCategory: 'application_default_credentials',
-      credentialSourceLabel: 'GOOGLE_APPLICATION_CREDENTIALS',
-      authSource: 'GOOGLE_APPLICATION_CREDENTIALS',
-      statusLabel: 'Google Application Default Credentials belong to the Vertex or cloud lane and do not certify the Gemini Developer API key surface.',
-    })
-  }
-
-  if (env.OWLFOLIO_GOOGLE_SERVICE_ACCOUNT_PATH !== undefined && env.OWLFOLIO_GOOGLE_SERVICE_ACCOUNT_PATH.length > 0) {
-    return readinessFrom(provider, {
-      isReady: false,
-      authMode: 'service_account',
-      readinessState: 'unsupported_surface',
-      credentialSourceCategory: 'service_account',
-      credentialSourceLabel: 'OWLFOLIO_GOOGLE_SERVICE_ACCOUNT_PATH',
-      authSource: 'OWLFOLIO_GOOGLE_SERVICE_ACCOUNT_PATH',
-      statusLabel: 'Google service-account credentials belong to the Vertex or enterprise lane and do not certify the Gemini Developer API key surface.',
-    })
-  }
-
-  return readinessFrom(provider, {
-    isReady: false,
-    authMode: 'api_key',
-    readinessState: 'missing_credentials',
-    credentialSourceCategory: 'missing',
-    authSource: 'missing',
-    statusLabel: 'Missing Gemini Developer API key; Gemini CLI sign-in, Vertex, and service-account credentials are separate surfaces.',
-  })
-}
-
 function openRouterReadiness(
   provider: ProviderCatalogEntry,
   apiKey: string | undefined,
@@ -411,79 +233,8 @@ function openRouterReadiness(
   })
 }
 
-function apiKeyCandidateReadiness(
-  provider: ProviderCatalogEntry,
-  apiKey: string | undefined,
-  envVarLabel: string,
-): ProviderReadiness {
-  // Curated frontier candidates (OpenRouter meta + DeepSeek/Qwen/Mistral): a present API key is a
-  // credential signal only. The surface stays fail-closed (not runnable) until an adapter and a
-  // target-specific certification report exist. Readiness is never certification.
-  if (apiKey !== undefined && apiKey.length > 0) {
-    return readinessFrom(provider, {
-      isReady: false,
-      authMode: 'api_key',
-      readinessState: 'unsupported_surface',
-      credentialSourceCategory: 'env_var',
-      credentialSourceLabel: envVarLabel,
-      authSource: envVarLabel,
-      statusLabel: `${envVarLabel} detected, but ${provider.label} is an experimental candidate without a live adapter or certification report; provider-backed workflows stay blocked.`,
-    })
-  }
-
-  return readinessFrom(provider, {
-    isReady: false,
-    authMode: 'api_key',
-    readinessState: 'missing_credentials',
-    credentialSourceCategory: 'missing',
-    authSource: 'missing',
-    statusLabel: `Missing ${envVarLabel}; ${provider.label} remains an experimental candidate that is fail-closed until adapter and certification evidence exist.`,
-  })
-}
-
 function unsupportedSurfaceReadiness(provider: ProviderCatalogEntry, env: ProviderReadinessEnv): ProviderReadiness {
-  if (provider.provider_surface_id === 'openai-api' && env.OPENAI_API_KEY !== undefined && env.OPENAI_API_KEY.length > 0) {
-    return readinessFrom(provider, {
-      isReady: false,
-      authMode: 'api_key',
-      readinessState: 'unsupported_surface',
-      credentialSourceCategory: 'env_var',
-      credentialSourceLabel: 'OPENAI_API_KEY',
-      authSource: 'OPENAI_API_KEY',
-      statusLabel: 'OpenAI API credentials are present, but the direct API adapter is not implemented or certified yet.',
-    })
-  }
-
-  if (provider.provider_surface_id === 'gemini-cli') {
-    const hasGeminiHome = env.GEMINI_HOME !== undefined && env.GEMINI_HOME.length > 0
-    return readinessFrom(provider, {
-      isReady: false,
-      authMode: 'cli_cached_session',
-      readinessState: 'unsupported_surface',
-      credentialSourceCategory: hasGeminiHome ? 'default_cli_config' : 'missing',
-      ...(hasGeminiHome ? { credentialSourceLabel: 'Gemini CLI cached session' } : {}),
-      authSource: hasGeminiHome ? 'Gemini CLI cached session' : 'missing',
-      statusLabel: 'Gemini CLI sign-in is modeled for future personal-local use, but the adapter is not implemented or certified yet.',
-    })
-  }
-
-  if (provider.provider_surface_id === 'gemini-developer-api') {
-    const credentialLabel = env.GEMINI_API_KEY !== undefined && env.GEMINI_API_KEY.length > 0
-      ? 'GEMINI_API_KEY'
-      : env.GOOGLE_API_KEY !== undefined && env.GOOGLE_API_KEY.length > 0
-        ? 'GOOGLE_API_KEY'
-        : undefined
-    return readinessFrom(provider, {
-      isReady: false,
-      authMode: 'api_key',
-      readinessState: 'unsupported_surface',
-      credentialSourceCategory: credentialLabel === undefined ? 'missing' : 'env_var',
-      ...(credentialLabel === undefined ? {} : { credentialSourceLabel: credentialLabel }),
-      authSource: credentialLabel ?? 'missing',
-      statusLabel: 'Gemini Developer API credentials are separate from Gemini CLI sign-in, and the direct API adapter is not implemented or certified yet.',
-    })
-  }
-
+  void env
   const firstCredentialSource = provider.credential_source_categories[0] ?? 'missing'
   return readinessFrom(provider, {
     isReady: false,
@@ -544,10 +295,6 @@ function reauthActionFor(provider: ProviderCatalogEntry, authMode: ProviderAuthM
     return 'Run claude login or configure Anthropic credentials outside Owlfolio, then retry readiness.'
   }
 
-  if (provider.provider_surface_id === 'gemini-cli') {
-    return 'Run gemini login outside Owlfolio, then retry readiness.'
-  }
-
   if (authMode === 'api_key') {
     return 'Configure the provider API key, then retry readiness.'
   }
@@ -561,14 +308,6 @@ function defaultCodexAuthPath(env: Pick<ProviderReadinessEnv, 'CODEX_HOME'>): st
   }
 
   return join(homedir(), '.codex', 'auth.json')
-}
-
-function defaultGeminiCliAuthPath(env: Pick<ProviderReadinessEnv, 'GEMINI_HOME'>): string {
-  if (env.GEMINI_HOME !== undefined && env.GEMINI_HOME.length > 0) {
-    return join(env.GEMINI_HOME, '.gemini', 'oauth_creds.json')
-  }
-
-  return join(homedir(), '.gemini', 'oauth_creds.json')
 }
 
 async function fileExists(path: string): Promise<boolean> {
@@ -606,28 +345,6 @@ function providerOptionFromCatalogEntry(provider: ProviderCatalogEntry): Provide
     }
   }
 
-  if (provider.provider_surface_id === 'gemini-cli') {
-    return {
-      ...base,
-      provider_family_label: 'Gemini',
-      recommended_sign_in_label: 'Connect Gemini',
-      recommended_sign_in_description: 'Run gemini login outside Owlfolio; Owlfolio checks the local CLI session for setup readiness only.',
-      simple_next_step: 'Run gemini login outside Owlfolio, then refresh readiness.',
-      advanced_auth_options: [
-        {
-          label: 'Gemini Developer API key',
-          description: 'Direct Gemini Developer API key path for future certification-oriented provider runs.',
-          certification_note: 'certification is required before provider-backed workflow starts or final investment outputs are allowed.',
-        },
-        {
-          label: 'Vertex AI / service account',
-          description: 'Google Cloud Vertex or service-account path for enterprise/headless deployment lanes.',
-          certification_note: 'enterprise/headless certification is separate from personal-local Gemini CLI sign-in.',
-        },
-      ],
-    }
-  }
-
   if (provider.provider_surface_id === 'claude-cli') {
     return {
       ...base,
@@ -646,20 +363,12 @@ function onboardingLabelFor(provider: ProviderCatalogEntry): string {
     return 'OpenAI'
   }
 
-  if (provider.provider_surface_id === 'gemini-cli') {
-    return 'Gemini'
-  }
-
   return provider.label
 }
 
 function onboardingDescriptionFor(provider: ProviderCatalogEntry): string {
   if (provider.provider_surface_id === 'openai-codex-cli') {
     return 'Recommended Codex CLI personal-local sign-in path; direct API certification remains an advanced option.'
-  }
-
-  if (provider.provider_surface_id === 'gemini-cli') {
-    return 'Recommended Gemini CLI setup-only sign-in path; workflow execution waits for adapter certification.'
   }
 
   return provider.description

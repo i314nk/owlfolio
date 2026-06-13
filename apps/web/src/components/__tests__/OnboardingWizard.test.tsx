@@ -32,29 +32,6 @@ const providerOptions: ProviderOption[] = [
       },
     ],
   },
-  {
-    provider_id: 'gemini-cli' as any,
-    provider_surface_id: 'gemini-cli',
-    label: 'Gemini',
-    support_level: 'unsupported',
-    description: 'Recommended Gemini CLI setup-only sign-in path; workflow execution waits for adapter certification.',
-    provider_family_label: 'Gemini',
-    recommended_sign_in_label: 'Connect Gemini',
-    recommended_sign_in_description: 'Run gemini login outside Owlfolio; Owlfolio checks the CLI session for setup readiness only.',
-    simple_next_step: 'Run gemini login outside Owlfolio, then refresh readiness.',
-    advanced_auth_options: [
-      {
-        label: 'Gemini Developer API key',
-        description: 'Use a Gemini Developer API key for future direct API certification.',
-        certification_note: 'Certification is required before provider-backed workflow starts.',
-      },
-      {
-        label: 'Vertex AI / service account',
-        description: 'Use Google Cloud Vertex credentials for enterprise certification lanes.',
-        certification_note: 'Enterprise/headless certification is separate from personal-local CLI sign-in.',
-      },
-    ],
-  },
 ]
 
 function renderWizard(readiness: ProviderReadiness, providerId: string = readiness.provider_id) {
@@ -94,7 +71,7 @@ describe('OnboardingWizard', () => {
     expect(html).toContain('3. Start using Owlfolio')
     expect(html).toContain('Try demo mode')
     expect(html).toContain('Use ChatGPT/Codex')
-    expect(html).toContain('Use Gemini')
+    expect(html).not.toContain('Use Gemini')
     expect(html.indexOf('Try demo mode')).toBeLessThan(html.indexOf('Use ChatGPT/Codex'))
     expect(html).toContain('Learn setup guide')
     expect(html).not.toContain('Provider connection')
@@ -133,34 +110,20 @@ describe('OnboardingWizard', () => {
     expect(html).not.toContain('Advanced auth and certification options')
   })
 
-  it('shows Gemini as a setup-only connection without implying executable OAuth or workflow support', () => {
+  it('no longer offers a Gemini connection lane (retired with the OpenRouter + Codex CLI reduction)', () => {
     const html = renderWizard({
-      provider_id: 'gemini-cli' as any,
-      provider_surface_id: 'gemini-cli',
+      provider_id: 'openai',
+      provider_surface_id: 'openai-codex-cli',
       support_level: 'experimental',
       is_ready: false,
-      auth_source: 'Gemini CLI Google sign-in session',
-      status_label: 'Gemini CLI Google sign-in session detected for setup only; Owlfolio cannot execute Gemini CLI workflows until a safe adapter and target-specific certification exist.',
-      runtime_kind: 'cli',
-      auth_mode: 'cli_cached_session',
-      readiness_state: 'unsupported_surface',
-      credential_source_category: 'configured_secret_file',
-      credential_source_label: 'Gemini CLI Google sign-in session',
-      headless_supported: false,
-      scheduled_workflow_supported: false,
-      automation_suitability: 'personal_local_interactive',
-    }, 'gemini-cli')
+      auth_source: 'missing',
+      status_label: 'Missing OpenAI / Codex credentials',
+      reauth_action: 'Run codex login outside Owlfolio, then retry readiness.',
+    })
 
-    expect(html).toContain('Use Gemini')
-    expect(html).toContain('Local AI preview')
-    expect(html).toContain('Needs setup')
-    expect(html).toContain('Gemini sign-in can be detected, but Owlfolio cannot run the full workflow with Gemini yet.')
-    expect(html).toContain('You can keep exploring with demo mode while Gemini workflow support is incomplete.')
-    expect(html).not.toContain('Review provider states for Gemini adapter/certification availability')
-    expect(html).not.toContain('Run gemini login outside Owlfolio, then retry readiness.')
-    expect(html).not.toContain('Initialize Owlfolio workflow')
-    expect(html).not.toContain('Workflow execution stays blocked until a Gemini CLI adapter and certification exist.')
-    expect(html).not.toContain('Gemini Developer API, Vertex, or production automation')
+    expect(html).not.toContain('Use Gemini')
+    expect(html).not.toContain('Local AI preview')
+    expect(html).not.toContain('gemini login')
   })
 
   it('keeps the local demo path runnable from the simplified connect flow', () => {

@@ -20,20 +20,14 @@ export type ProviderCapabilityId = (typeof providerCapabilityIds)[number]
 export type ProviderCapabilitySupport = 'native' | 'adapter' | 'unsupported'
 export type ProviderCapabilities = Record<ProviderCapabilityId, ProviderCapabilitySupport>
 
-export const providerVendorIds = ['mock', 'anthropic', 'openai', 'google-gemini', 'openrouter', 'deepseek', 'alibaba-qwen', 'mistral', 'unknown'] as const
+export const providerVendorIds = ['mock', 'anthropic', 'openai', 'openrouter', 'unknown'] as const
 export type ProviderVendorId = (typeof providerVendorIds)[number]
 
 export const providerSurfaceIds = [
   'mock-provider',
   'claude-cli',
   'openai-codex-cli',
-  'openai-api',
-  'gemini-developer-api',
-  'gemini-cli',
   'openrouter-api',
-  'deepseek-api',
-  'qwen-dashscope-api',
-  'mistral-api',
 ] as const
 export type ProviderSurfaceId = (typeof providerSurfaceIds)[number]
 

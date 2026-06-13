@@ -41,13 +41,6 @@ describe('curated reasoning-model catalog', () => {
     expect(gpt?.tier_suitability).toEqual(expect.arrayContaining(['T1', 'T2']))
   })
 
-  it('openai-api default is upgraded to a reasoning model (gpt-4.1-mini is NOT reasoning-capable)', () => {
-    const models = curatedModelsForProvider('openai-api')
-    expect(models.some((m) => m.model_id === 'gpt-5.5')).toBe(true)
-    // The non-reasoning legacy default must never appear in a reasoning-only catalog.
-    expect(models.some((m) => m.model_id === 'gpt-4.1-mini')).toBe(false)
-  })
-
   it('claude curated set leads with the frontier reasoning models', () => {
     const models = curatedModelsForProvider('claude')
     const ids = models.map((m) => m.model_id)
@@ -57,18 +50,22 @@ describe('curated reasoning-model catalog', () => {
     expect(opus?.tier_suitability).toContain('T1')
   })
 
-  it('gemini-developer-api curates gemini-2.5-pro (T1/T2)', () => {
-    const gemini = curatedModelsForProvider('gemini-developer-api')
-    const pro = gemini.find((m) => m.model_id === 'gemini-2.5-pro')
-    expect(pro).toBeDefined()
-    expect(pro?.tier_suitability).toEqual(expect.arrayContaining(['T1', 'T2']))
-  })
-
-  it('openrouter curates a SHORT set of reasoning routes', () => {
+  it('openrouter curates the current-generation reasoning candidate menu across every tier (exact pinned ids)', () => {
     const routes = curatedModelsForProvider('openrouter')
     expect(routes.length).toBeGreaterThan(0)
-    expect(routes.length).toBeLessThanOrEqual(4)
+    // Reasoning-only invariant + every tier represented (T1/T2/T3) for the tier selectors.
     expect(routes.every((m) => m.reasoning)).toBe(true)
+    const tiers = new Set(routes.flatMap((m) => m.tier_suitability))
+    expect(tiers.has('T1')).toBe(true)
+    expect(tiers.has('T2')).toBe(true)
+    expect(tiers.has('T3')).toBe(true)
+    // Exact pinned ids only — no drifting `~*-latest` aliases under a per-target certification.
+    expect(routes.every((m) => !m.model_id.includes('~') && !m.model_id.endsWith('-latest'))).toBe(true)
+    // T1 anchors on the frontier reasoning ids the owner curated.
+    const t1 = routes.filter((m) => m.tier_suitability.includes('T1')).map((m) => m.model_id)
+    expect(t1).toEqual(expect.arrayContaining(['anthropic/claude-opus-4.8', 'openai/gpt-5.5', 'x-ai/grok-4.3']))
+    // Stale prior-generation ids are dropped.
+    expect(routes.some((m) => m.model_id === 'deepseek/deepseek-r1')).toBe(false)
   })
 
   it('mock-provider deterministic demo model is excluded from real-tier suggestions', () => {
@@ -86,7 +83,7 @@ describe('curated reasoning-model catalog', () => {
   })
 
   it('returns an empty list for a provider with no curated models', () => {
-    expect(curatedModelsForProvider('gemini-cli')).toEqual([])
+    expect(curatedModelsForProvider('some-unknown-provider')).toEqual([])
   })
 
   it('demo-only models are typed as CuratedModel with reasoning still true', () => {

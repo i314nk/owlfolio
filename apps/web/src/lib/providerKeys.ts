@@ -36,46 +36,13 @@ export const LLM_API_KEY_GROUPS: LlmKeyGroup[] = [
     id: 'openai',
     label: 'OpenAI',
     get_key_url: 'https://platform.openai.com/api-keys',
-    keys: [{ name: 'OPENAI_API_KEY', description: 'OpenAI API key (Codex CLI surface + direct API candidate).' }],
-  },
-  {
-    id: 'gemini',
-    label: 'Gemini',
-    get_key_url: 'https://aistudio.google.com/app/apikey',
-    keys: [
-      { name: 'GEMINI_API_KEY', description: 'Google Gemini Developer API key (native search grounding).' },
-      { name: 'GOOGLE_API_KEY', description: 'Alternate Google API key accepted for the Gemini Developer surface.', advanced: true },
-    ],
-  },
-  {
-    id: 'deepseek',
-    label: 'DeepSeek',
-    get_key_url: 'https://platform.deepseek.com/api_keys',
-    keys: [{ name: 'DEEPSEEK_API_KEY', description: 'DeepSeek frontier-reasoning API key (experimental candidate).' }],
-  },
-  {
-    id: 'qwen',
-    label: 'Qwen / DashScope',
-    get_key_url: 'https://dashscope.console.aliyun.com/apiKey',
-    keys: [{ name: 'DASHSCOPE_API_KEY', description: 'Alibaba Qwen via DashScope API key (experimental candidate).' }],
-  },
-  {
-    id: 'moonshot',
-    label: 'Kimi / Moonshot',
-    get_key_url: 'https://platform.moonshot.cn/console/api-keys',
-    keys: [{ name: 'MOONSHOT_API_KEY', description: 'Moonshot Kimi long-context API key (experimental candidate).' }],
+    keys: [{ name: 'OPENAI_API_KEY', description: 'OpenAI API key (Codex CLI surface).' }],
   },
   {
     id: 'openrouter',
     label: 'OpenRouter',
     get_key_url: 'https://openrouter.ai/keys',
-    keys: [{ name: 'OPENROUTER_API_KEY', description: 'OpenRouter meta-aggregator key (per-routed-model certification still required).' }],
-  },
-  {
-    id: 'mistral',
-    label: 'Mistral',
-    get_key_url: 'https://console.mistral.ai/api-keys',
-    keys: [{ name: 'MISTRAL_API_KEY', description: 'Mistral frontier API key (experimental candidate).', advanced: true }],
+    keys: [{ name: 'OPENROUTER_API_KEY', description: 'OpenRouter meta-aggregator key — the single API key that routes to every curated model (per-routed-model certification still required).' }],
   },
   {
     id: 'local-other',

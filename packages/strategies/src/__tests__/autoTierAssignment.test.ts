@@ -15,7 +15,7 @@ const CATALOG: Record<string, Array<{ model_id: string; reasoning: true; tier_su
     { model_id: 'claude-haiku-4-5', reasoning: true, tier_suitability: ['T3'] },
   ],
   openai: [{ model_id: 'gpt-5.5', reasoning: true, tier_suitability: ['T1', 'T2'] }],
-  'gemini-developer-api': [{ model_id: 'gemini-2.5-pro', reasoning: true, tier_suitability: ['T1', 'T2'] }],
+  openrouter: [{ model_id: 'google/gemini-3.1-pro-preview', reasoning: true, tier_suitability: ['T1', 'T2'] }],
 }
 
 function modelCatalogLookup(providerId: string) {
@@ -87,7 +87,7 @@ describe('deriveAutoTierAssignment', () => {
   it('a qualified frontier provider + an unqualified provider -> T1 only ever uses the qualified one', () => {
     const connectedProviders: AutoTierConnectedProvider[] = [
       { provider_id: 'claude', qualified: true },
-      { provider_id: 'gemini-developer-api', qualified: false },
+      { provider_id: 'openrouter', qualified: false },
     ]
     const result = deriveAutoTierAssignment({ connectedProviders, modelCatalogLookup })
     for (const role of T1_ROLES) {

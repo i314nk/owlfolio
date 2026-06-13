@@ -104,9 +104,7 @@ describe('provider status model', () => {
     })
 
     const openAiCodex = rows.find((row) => row.provider_id === 'openai') as any
-    const openAiApi = rows.find((row) => row.provider_id === 'openai-api') as any
-    const geminiDeveloperApi = rows.find((row) => row.provider_id === 'gemini-developer-api') as any
-    const geminiCli = rows.find((row) => row.provider_id === 'gemini-cli') as any
+    const openRouter = rows.find((row) => row.provider_id === 'openrouter') as any
 
     expect(openAiCodex).toMatchObject({
       provider_surface_id: 'openai-codex-cli',
@@ -119,51 +117,18 @@ describe('provider status model', () => {
       retention_or_zdr_status: 'not_verified',
       workflow_role: 'research_draft',
     })
-    expect(openAiApi).toMatchObject({
-      provider_surface_id: 'openai-api',
+    expect(openRouter).toMatchObject({
+      provider_surface_id: 'openrouter-api',
       runtime_kind: 'direct_api',
       auth_mode: 'api_key',
       billing_mode: 'platform_api_billing',
       quota_source: 'api_project',
-      data_policy_source: 'api_paid_no_training',
       workflow_role: 'research_draft',
-      is_ready: false,
-      effective_support_level: 'unsupported',
-      model_role: 'Direct API candidate',
-      limitations: expect.arrayContaining([
-        'Direct OpenAI API adapter supports structured research drafts and tool-call requests through the API surface, but remains certification-gated.',
-        'Must remain hidden from normal onboarding until direct API certification evidence exists.',
-      ]),
-    })
-    expect(geminiDeveloperApi).toMatchObject({
-      provider_surface_id: 'gemini-developer-api',
-      runtime_kind: 'direct_api',
-      auth_mode: 'api_key',
-      billing_mode: 'platform_api_billing',
-      quota_source: 'api_project',
-      data_policy_source: 'api_free_training_possible',
-      retention_or_zdr_status: 'not_verified',
-      workflow_role: 'research_draft',
-      is_ready: false,
-      model_role: 'Direct API candidate',
-      limitations: expect.arrayContaining([
-        'Gemini Developer API adapter supports structured research drafts, tool-call requests, and source-grounded citations through the direct API surface.',
-        'Free-tier/privacy posture remains not verified, so certified/production claims stay blocked until policy accepts the posture or a paid/ZDR posture is proven.',
-      ]),
-    })
-    expect(geminiCli).toMatchObject({
-      provider_surface_id: 'gemini-cli',
-      runtime_kind: 'cli',
-      auth_mode: 'cli_cached_session',
-      billing_mode: 'subscription_entitlement',
-      quota_source: 'subscription_tier',
-      workflow_role: 'research_draft',
-      is_ready: false,
+      model_role: 'Meta-aggregator candidate',
     })
 
-    expect(openAiCodex.provider_surface_id).not.toBe(openAiApi.provider_surface_id)
-    expect(geminiDeveloperApi.provider_surface_id).not.toBe(geminiCli.provider_surface_id)
-    for (const row of [openAiCodex, openAiApi, geminiDeveloperApi, geminiCli]) {
+    expect(openAiCodex.provider_surface_id).not.toBe(openRouter.provider_surface_id)
+    for (const row of [openAiCodex, openRouter]) {
       expect(row.status_rows.map((statusRow: { label: string }) => statusRow.label)).toEqual(expect.arrayContaining([
         'Surface',
         'Auth mode',
@@ -447,39 +412,6 @@ describe('provider status model', () => {
     await rm(projectDir, { recursive: true, force: true })
   })
 
-  it('blocks certified Gemini Developer API reports when free-tier privacy posture is not accepted', async () => {
-    const projectDir = await writeReportFixture(certifiedGeminiDeveloperApiReport())
-
-    const rows = await buildProviderStatusRows({
-      env: {
-        GEMINI_API_KEY: 'credential-present-but-privacy-policy-blocks-certified-claim',
-        OWLFOLIO_PROJECT_DIR: projectDir,
-      },
-    })
-    const geminiDeveloperApi = rows.find((row) => row.provider_id === 'gemini-developer-api')
-
-    expect(geminiDeveloperApi).toMatchObject({
-      provider_id: 'gemini-developer-api',
-      readiness_state: 'unready',
-      is_ready: false,
-      auth_source: 'certification report',
-      effective_support_level: 'unsupported',
-      status_label: 'Certified/production support is blocked until the Gemini Developer API privacy posture is policy-accepted or paid/ZDR verified.',
-      last_certification_report: {
-        run_status: 'completed',
-        support_level: 'certified',
-      },
-    })
-    expect(geminiDeveloperApi?.status_rows.find((statusRow) => statusRow.label === 'Allowed use')).toEqual({
-      label: 'Allowed use',
-      value: 'Blocked for provider-backed workflow starts',
-      tone: 'danger',
-      description: 'Fail-closed until local availability and effective workflow support are both present.',
-    })
-
-    await rm(projectDir, { recursive: true, force: true })
-  })
-
   it('displays explicit not-configured certification artifacts for unavailable real providers', async () => {
     const projectDir = await writeReportFixture(createNotConfiguredCertificationReport({
       provider_id: 'claude',
@@ -687,42 +619,6 @@ function unsupportedCompletedReport(providerId: 'mock-provider' | 'claude' | 'op
     },
     cases: [],
     summary: '0/13 scenarios passed; provider support level is unsupported.',
-  }
-}
-
-function certifiedGeminiDeveloperApiReport(): CertificationReport {
-  return {
-    certification_report_id: 'cert_gemini-developer-api_api_key_research_draft_gemini-2-5-pro_2026-06-02T00-00-00-000Z',
-    provider_id: 'gemini-developer-api',
-    target: {
-      provider_surface_id: 'gemini-developer-api',
-      vendor_id: 'google-gemini',
-      runtime_kind: 'direct_api',
-      auth_mode: 'api_key',
-      model_id: 'gemini-2.5-pro',
-      workflow_role: 'research_draft',
-      schema_version: 1,
-    },
-    run_status: 'completed',
-    support_level: 'certified',
-    generated_at: '2026-06-02T00:00:00.000Z',
-    capabilities: {
-      'text-generation': 'native',
-      'structured-output': 'native',
-      'tool-function-calling': 'native',
-      'streaming-observability': 'adapter',
-      'multi-step-tool-loop': 'unsupported',
-      'source-grounding': 'native',
-      'citation-metadata': 'native',
-      'url-context': 'native',
-      'file-context': 'unsupported',
-      'source-bundle-production': 'adapter',
-      'code-execution': 'unsupported',
-      'computer-use': 'unsupported',
-      'browser-use': 'unsupported',
-    },
-    cases: [],
-    summary: '13/13 scenarios passed; provider support level is certified.',
   }
 }
 

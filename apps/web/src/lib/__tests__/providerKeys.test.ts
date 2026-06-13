@@ -10,11 +10,19 @@ import {
 } from '../providerKeys'
 
 describe('LLM and tool/data key catalogs', () => {
-  it('lists the spec LLM providers with env var entries and a Get key link', () => {
+  it('lists the reduced LLM provider key set (OpenRouter is the one API-key lane) with env var entries and a Get key link', () => {
     const labels = LLM_API_KEY_GROUPS.map((group) => group.label)
+    // After the OpenRouter + Codex CLI reduction the LLM key surface is OpenRouter (the single API key
+    // routing to every curated model) plus the Anthropic/OpenAI keys backing the kept CLI lanes.
     expect(labels).toEqual(
-      expect.arrayContaining(['Anthropic', 'OpenAI', 'Gemini', 'DeepSeek', 'Qwen / DashScope', 'Kimi / Moonshot', 'OpenRouter']),
+      expect.arrayContaining(['Anthropic', 'OpenAI', 'OpenRouter']),
     )
+    // The retired direct-provider key groups are gone.
+    expect(labels).not.toContain('Gemini')
+    expect(labels).not.toContain('DeepSeek')
+    expect(labels).not.toContain('Qwen / DashScope')
+    expect(labels).not.toContain('Kimi / Moonshot')
+    expect(labels).not.toContain('Mistral')
     const anthropic = LLM_API_KEY_GROUPS.find((group) => group.label === 'Anthropic')
     expect(anthropic?.get_key_url).toMatch(/^https:\/\//)
     expect(anthropic?.keys.some((key) => key.name === 'ANTHROPIC_API_KEY')).toBe(true)

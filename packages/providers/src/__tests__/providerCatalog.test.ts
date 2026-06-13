@@ -4,8 +4,6 @@ import { ClaudeCliProvider } from '../claudeCliProvider'
 import type { CertificationReport } from '../certificationContract'
 import { getProviderCatalog, isInvestmentGradeSuitable } from '../providerCatalog'
 import { MockProvider } from '../mockProvider'
-import { GeminiDeveloperApiProvider } from '../geminiDeveloperApiProvider'
-import { OpenAIAPIProvider } from '../openaiApiProvider'
 import { OpenAICodexCliProvider } from '../openaiCodexCliProvider'
 import { providerCapabilityIds } from '../providerContract'
 
@@ -30,8 +28,6 @@ describe('provider catalog support semantics', () => {
     expect(catalogEntry('mock-provider').capabilities).toEqual(new MockProvider().capabilities)
     expect(catalogEntry('claude').capabilities).toEqual(new ClaudeCliProvider().capabilities)
     expect(catalogEntry('openai').capabilities).toEqual(new OpenAICodexCliProvider().capabilities)
-    expect(catalogEntry('openai-api').capabilities).toEqual(new OpenAIAPIProvider().capabilities)
-    expect(catalogEntry('gemini-developer-api').capabilities).toEqual(new GeminiDeveloperApiProvider({ apiKey: 'test-key' }).capabilities)
   })
 
   it('keeps CLI-backed real providers experimental until certification proves full workflow parity', () => {
@@ -41,16 +37,6 @@ describe('provider catalog support semantics', () => {
   })
 
   it('freezes distinct provider family and certifiable surface identities', () => {
-    expect(surfaceEntry('openai-api')).toMatchObject({
-      provider_surface_id: 'openai-api',
-      vendor_id: 'openai',
-      provider_family_id: 'openai',
-      runtime_kind: 'direct_api',
-      auth_mode: 'api_key',
-      support_level: 'experimental',
-      visible_in_onboarding: false,
-    })
-    expect(surfaceEntry('openai-api')).not.toHaveProperty('compatibility_provider_id')
     expect(surfaceEntry('openai-codex-cli')).toMatchObject({
       provider_id: 'openai',
       provider_surface_id: 'openai-codex-cli',
@@ -60,25 +46,23 @@ describe('provider catalog support semantics', () => {
       support_level: 'experimental',
       compatibility_provider_id: 'openai',
     })
-    expect(surfaceEntry('gemini-developer-api')).toMatchObject({
-      provider_surface_id: 'gemini-developer-api',
-      vendor_id: 'google-gemini',
+    expect(surfaceEntry('claude-cli')).toMatchObject({
+      provider_id: 'claude',
+      provider_surface_id: 'claude-cli',
+      vendor_id: 'anthropic',
+      runtime_kind: 'cli',
+      auth_mode: 'cli_cached_session',
+      support_level: 'experimental',
+    })
+    expect(surfaceEntry('openrouter-api')).toMatchObject({
+      provider_id: 'openrouter',
+      provider_surface_id: 'openrouter-api',
+      vendor_id: 'openrouter',
       runtime_kind: 'direct_api',
       auth_mode: 'api_key',
       support_level: 'experimental',
       visible_in_onboarding: false,
-      privacy: { data_policy_source: 'api_free_training_possible', retention_or_zdr_status: 'not_verified' },
     })
-    expect(surfaceEntry('gemini-cli')).toMatchObject({
-      provider_id: 'gemini-cli',
-      provider_surface_id: 'gemini-cli',
-      vendor_id: 'google-gemini',
-      runtime_kind: 'cli',
-      auth_mode: 'cli_cached_session',
-      support_level: 'experimental',
-      visible_in_onboarding: true,
-    })
-    expect(surfaceEntry('gemini-cli')).not.toHaveProperty('compatibility_provider_id')
   })
 
   it('carries auth, billing, quota, privacy, automation, and workflow-role metadata without capability overclaims', () => {
@@ -106,31 +90,17 @@ describe('provider catalog support semantics', () => {
       }),
     })
 
-    expect(surfaceEntry('openai-api').capabilities).toMatchObject({
-      'structured-output': 'native',
-      'tool-function-calling': 'native',
-      'multi-step-tool-loop': 'unsupported',
-    })
-    expect(surfaceEntry('gemini-developer-api')).toMatchObject({
-      support_level: 'experimental',
-      capabilities: expect.objectContaining({
-        'structured-output': 'native',
-        'tool-function-calling': 'native',
-        'source-grounding': 'native',
-        'citation-metadata': 'native',
-        'url-context': 'native',
-      }),
-      privacy: { data_policy_source: 'api_free_training_possible', retention_or_zdr_status: 'not_verified' },
-      automation: { headless_supported: true, scheduled_workflow_supported: false, automation_suitability: 'production_headless' },
-    })
-    expect(surfaceEntry('gemini-cli')).toMatchObject({
-      support_level: 'experimental',
-      privacy: { data_policy_source: 'unknown', retention_or_zdr_status: 'not_verified' },
-      automation: { headless_supported: false, scheduled_workflow_supported: false, automation_suitability: 'personal_local_interactive' },
-    })
   })
 
-  it('adds an OpenRouter meta-provider and curated frontier candidates as experimental/fail-closed entries', () => {
+  it('reduces to the two real provider lanes plus mock + claude (OpenRouter + Codex CLI owner decision)', () => {
+    // Owner decision: standardize on OpenRouter (all API models, one key) + Codex CLI. The redundant
+    // direct-HTTP adapters (openai-api, gemini-developer-api) and the unwired catalog-only entries
+    // (gemini-cli, deepseek, qwen, mistral) are retired.
+    const ids = getProviderCatalog().map((entry) => entry.provider_id).sort()
+    expect(ids).toEqual(['claude', 'mock-provider', 'openai', 'openrouter'])
+  })
+
+  it('keeps OpenRouter the meta-provider as an experimental/fail-closed entry', () => {
     expect(catalogEntry('openrouter')).toMatchObject({
       provider_id: 'openrouter',
       provider_surface_id: 'openrouter-api',
@@ -141,16 +111,7 @@ describe('provider catalog support semantics', () => {
     })
     expect(catalogEntry('openrouter').description).toContain('per-model certification still required')
 
-    for (const providerId of ['deepseek', 'qwen', 'mistral'] as const) {
-      expect(catalogEntry(providerId)).toMatchObject({
-        support_level: 'experimental',
-        runtime_kind: 'direct_api',
-        investment_grade_candidate: true,
-        model_tier: 'frontier',
-      })
-    }
-
-    // None of the newly added providers are certified in the catalog.
+    // Only the mock provider is certified in the catalog.
     expect(getProviderCatalog().filter((entry) => entry.support_level === 'certified').map((entry) => entry.provider_id)).toEqual(['mock-provider'])
   })
 })
@@ -189,8 +150,8 @@ describe('isInvestmentGradeSuitable gate', () => {
     expect(isInvestmentGradeSuitable({}, completedCertifiedReport(true))).toBe(false)
   })
 
-  it('keeps every newly-added provider non-suitable today (no certified reports exist)', () => {
-    for (const providerId of ['openrouter', 'deepseek', 'qwen', 'mistral'] as const) {
+  it('keeps every candidate provider non-suitable today (no certified reports exist)', () => {
+    for (const providerId of ['openrouter', 'claude', 'openai'] as const) {
       const entry = getProviderCatalog().find((candidate) => candidate.provider_id === providerId)
       expect(entry).toBeDefined()
       expect(isInvestmentGradeSuitable(entry!, undefined)).toBe(false)
