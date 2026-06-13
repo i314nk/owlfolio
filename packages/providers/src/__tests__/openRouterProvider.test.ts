@@ -53,8 +53,11 @@ describe('OpenRouterProvider (credential detection)', () => {
 
   it('does not overclaim capabilities', () => {
     const provider = new OpenRouterProvider({ env: {} })
+    // Source grounding stays UNSUPPORTED on the provider: grounding (SSRF + sha256 + ledger) lives in the
+    // workflow harness, never in the adapter. The provider owns only the tool-calling transport + loop.
     expect(provider.capabilities['source-grounding']).toBe('unsupported')
-    expect(provider.capabilities['multi-step-tool-loop']).toBe('unsupported')
+    // The multi-step tool loop is now an adapter capability (runToolLoop drives Phase 1 gather + Phase 2).
+    expect(provider.capabilities['multi-step-tool-loop']).toBe('adapter')
   })
 })
 
@@ -204,5 +207,148 @@ describe('OpenRouterProvider (live execution path)', () => {
     expect(run.tool_calls[0]!.tool_name).toBe('source.fetch')
     expect(run.finish_reason).toBe('tool-calls')
     expect(run.ledger_events_written).toBe(0)
+  })
+})
+
+describe('OpenRouterProvider (grounded multi-step tool loop — runToolLoop)', () => {
+  const toolRequest = {
+    ...request,
+    task_kind: 'tool-loop' as const,
+    tool_allowlist: ['fetch_source', 'search_filings'],
+    response_format: { kind: 'json-schema' as const, schema_name: 'LaneFinding' },
+    budget: { max_tool_calls: 5, max_tokens: 4_000 },
+  }
+  const schema = z.object({ finding: z.string(), source_ids: z.array(z.string()) })
+
+  it('flips the multi-step-tool-loop capability to adapter', () => {
+    const provider = new OpenRouterProvider({ env: {} })
+    expect(provider.capabilities['multi-step-tool-loop']).toBe('adapter')
+    expect(provider.capabilities['tool-function-calling']).toBe('adapter')
+  })
+
+  it('runs Phase 1 (executes injected tool calls) then Phase 2 (structured synthesis)', async () => {
+    const executor = vi.fn(async (toolName: string, args: unknown) => {
+      expect(toolName).toBe('fetch_source')
+      expect(args).toEqual({ url: 'https://www.sec.gov/x' })
+      return 'FETCHED source_id=src_1 available excerpt="real bytes"'
+    })
+
+    let call = 0
+    const fetchImpl = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+      const body = JSON.parse(init?.body as string)
+      call += 1
+      if (call === 1) {
+        // Phase 1 round 1: tools enabled, NO json schema, reasoning ON.
+        expect(body.tools).toBeDefined()
+        expect(body.response_format).toBeUndefined()
+        expect(body.reasoning.enabled).toBe(true)
+        return jsonResponse({
+          choices: [{
+            message: {
+              content: null,
+              tool_calls: [{ id: 'c1', type: 'function', function: { name: 'fetch_source', arguments: '{"url":"https://www.sec.gov/x"}' } }],
+            },
+          }],
+        })
+      }
+      if (call === 2) {
+        // Phase 1 round 2: the prior tool result must have been appended; model now answers with no tools.
+        const toolMsg = body.messages.find((m: any) => m.role === 'tool')
+        expect(toolMsg).toBeDefined()
+        expect(toolMsg.content).toContain('src_1')
+        return jsonResponse({ choices: [{ message: { content: 'gathered enough' } }] })
+      }
+      // Phase 2: structured synthesis — json_schema present, NO tools.
+      expect(body.response_format.type).toBe('json_schema')
+      expect(body.tools).toBeUndefined()
+      return jsonResponse({ choices: [{ message: { content: '{"finding":"wide moat","source_ids":["src_1"]}' } }] })
+    })
+
+    const provider = new OpenRouterProvider({ env: { OPENROUTER_API_KEY: 'k' }, fetch: fetchImpl as unknown as typeof fetch })
+    const result = await provider.runToolLoop(toolRequest, schema, executor)
+
+    expect(executor).toHaveBeenCalledOnce()
+    expect(result.rounds).toHaveLength(1)
+    expect(result.rounds[0]!.tool_name).toBe('fetch_source')
+    expect(result.analysis.finding).toBe('wide moat')
+    expect(result.analysis.source_ids).toEqual(['src_1'])
+    expect(result.degraded_no_tools).toBe(false)
+    expect(call).toBe(3)
+  })
+
+  it('handles parallel tool_calls in one round', async () => {
+    const executor = vi.fn(async (toolName: string) => `ran ${toolName}`)
+    let call = 0
+    const fetchImpl = vi.fn(async () => {
+      call += 1
+      if (call === 1) {
+        return jsonResponse({
+          choices: [{
+            message: {
+              content: null,
+              tool_calls: [
+                { id: 'c1', type: 'function', function: { name: 'fetch_source', arguments: '{"url":"https://a.com"}' } },
+                { id: 'c2', type: 'function', function: { name: 'search_filings', arguments: '{"ticker":"MSFT"}' } },
+              ],
+            },
+          }],
+        })
+      }
+      if (call === 2) return jsonResponse({ choices: [{ message: { content: 'done' } }] })
+      return jsonResponse({ choices: [{ message: { content: '{"finding":"x","source_ids":[]}' } }] })
+    })
+    const provider = new OpenRouterProvider({ env: { OPENROUTER_API_KEY: 'k' }, fetch: fetchImpl as unknown as typeof fetch })
+    const result = await provider.runToolLoop(toolRequest, schema, executor)
+    expect(executor).toHaveBeenCalledTimes(2)
+    expect(result.rounds).toHaveLength(2)
+  })
+
+  it('enforces max_tool_calls: stops gathering at the cap and proceeds to Phase 2', async () => {
+    const executor = vi.fn(async () => 'ok')
+    let call = 0
+    const fetchImpl = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+      const body = JSON.parse(init?.body as string)
+      call += 1
+      // The model keeps requesting one tool every round; only the cap stops it.
+      if (body.tools !== undefined) {
+        return jsonResponse({
+          choices: [{
+            message: {
+              content: null,
+              tool_calls: [{ id: `c${call}`, type: 'function', function: { name: 'fetch_source', arguments: '{"url":"https://a.com"}' } }],
+            },
+          }],
+        })
+      }
+      // Phase 2 (no tools sent).
+      return jsonResponse({ choices: [{ message: { content: '{"finding":"capped","source_ids":[]}' } }] })
+    })
+    const provider = new OpenRouterProvider({ env: { OPENROUTER_API_KEY: 'k' }, fetch: fetchImpl as unknown as typeof fetch })
+    const result = await provider.runToolLoop({ ...toolRequest, budget: { max_tool_calls: 3, max_tokens: 4_000 } }, schema, executor)
+    // Exactly the cap of tool executions, then it stopped and synthesized.
+    expect(executor).toHaveBeenCalledTimes(3)
+    expect(result.analysis.finding).toBe('capped')
+  })
+
+  it('no-tool-call path: model answers directly, Phase 2 still runs, degraded flag set', async () => {
+    const executor = vi.fn(async () => 'ok')
+    let call = 0
+    const fetchImpl = vi.fn(async () => {
+      call += 1
+      if (call === 1) return jsonResponse({ choices: [{ message: { content: 'I will not call tools' } }] })
+      return jsonResponse({ choices: [{ message: { content: '{"finding":"no tools","source_ids":[]}' } }] })
+    })
+    const provider = new OpenRouterProvider({ env: { OPENROUTER_API_KEY: 'k' }, fetch: fetchImpl as unknown as typeof fetch })
+    const result = await provider.runToolLoop(toolRequest, schema, executor)
+    expect(executor).not.toHaveBeenCalled()
+    expect(result.degraded_no_tools).toBe(true)
+    expect(result.analysis.finding).toBe('no tools')
+  })
+
+  it('surfaces the reasoning-truncation diagnostic during the gather loop', async () => {
+    const executor = vi.fn(async () => 'ok')
+    const fetchImpl = vi.fn(async () => jsonResponse({ choices: [{ message: { content: '' }, finish_reason: 'length' }] }))
+    const provider = new OpenRouterProvider({ env: { OPENROUTER_API_KEY: 'k' }, fetch: fetchImpl as unknown as typeof fetch })
+    await expect(provider.runToolLoop(toolRequest, schema, executor)).rejects.toThrow(/truncated|reasoning budget/i)
   })
 })

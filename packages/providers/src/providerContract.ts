@@ -204,6 +204,43 @@ export interface ProviderToolRun {
   ledger_events_written: 0
 }
 
+/**
+ * The grounded multi-step tool-loop seam. The HARNESS (packages/workflow) owns the tool EXECUTORS
+ * (grounding via fetchAndCaptureSource/secEdgar — which packages/providers must NOT import); the PROVIDER
+ * owns only the tool-calling TRANSPORT + loop mechanics. The provider drives the loop: it calls the model
+ * with the lane prompt + tool definitions, parses returned `tool_calls`, invokes this injected `executor`
+ * for each call, appends the executor's string result to the conversation, and repeats until the model
+ * stops requesting tools OR `max_tool_calls` is hit. It then issues ONE final structured call against the
+ * lane's strict json_schema. The grounding invariant is therefore structural: the model can only ever read
+ * (and later cite) bytes the harness fetched + hashed inside the executor.
+ */
+export type ProviderToolExecutor = (toolName: string, args: unknown) => Promise<string>
+
+export interface ProviderToolLoopRequest extends ProviderRunRequest {
+  /** Tool function-name → JSON Schema for the tool's arguments (OpenAI function-tool `parameters`). */
+  tool_parameters?: Record<string, unknown>
+}
+
+export interface ProviderToolLoopRound {
+  tool_name: string
+  args: unknown
+  result: string
+}
+
+export interface ProviderToolLoopResult<T> {
+  /** The validated structured Phase-2 output (the lane finding) parsed against the supplied schema. */
+  analysis: T
+  /** The tool rounds executed in Phase 1 (tool name, parsed args, executor result), newest last. */
+  rounds: ProviderToolLoopRound[]
+  metadata: ProviderRunMetadata
+  observations: ProviderObservation[]
+  /**
+   * True when the loop hit `max_tool_calls` (or otherwise stopped) WITHOUT the model ever requesting a
+   * tool, i.e. nothing was gathered — the harness records this so a degraded (ungrounded) run is visible.
+   */
+  degraded_no_tools: boolean
+}
+
 export interface ProviderRunResult {
   metadata: ProviderRunMetadata
   text: string
@@ -219,4 +256,15 @@ export interface Provider {
   complete(request: ProviderRunRequest): Promise<ProviderCompletion>
   structured<T>(request: ProviderRunRequest, schema: ZodType<T>): Promise<T>
   runWithTools(request: ProviderRunRequest): Promise<ProviderToolRun>
+  /**
+   * Grounded multi-step tool loop (Phase 1 gather → Phase 2 structured synthesis). Optional: only
+   * providers whose `multi-step-tool-loop` capability is not 'unsupported' implement it. The harness
+   * selects the loop path by capability and falls back to `structured` (propose-then-verify) otherwise.
+   * The `executor` is the harness-owned grounded tool executor (grounding stays in packages/workflow).
+   */
+  runToolLoop?<T>(
+    request: ProviderToolLoopRequest,
+    schema: ZodType<T>,
+    executor: ProviderToolExecutor,
+  ): Promise<ProviderToolLoopResult<T>>
 }

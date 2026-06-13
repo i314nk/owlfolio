@@ -24,6 +24,7 @@ import {
   ProposedSourcesSchema,
   runGroundedAgent,
   runGroundedAgentWithRetry,
+  runGroundedAgentWithTools,
   SynthesisResponseSchema,
   type GroundFn,
   type GroundedAgentRequest,
@@ -35,6 +36,7 @@ export {
   ProposedSourcesSchema,
   runGroundedAgent,
   runGroundedAgentWithRetry,
+  runGroundedAgentWithTools,
   SynthesisResponseSchema,
   type GroundFn,
   type GroundedAgentRequest,
@@ -845,7 +847,13 @@ export async function runResearchDeepDivePhase(
         prompt: basePrompt + MOAT_RUBRIC_PROMPT,
         timeout_ms: AGENT_TIMEOUT_MS,
         schema_name: 'BuffettMungerMoatLane',
-      }, MoatLaneSchema, { ...deps, lane, requiredFields: moatRequired })
+      }, MoatLaneSchema, {
+        ...deps,
+        lane,
+        requiredFields: moatRequired,
+        useToolLoop: true,
+        ...(deps.fetchFundamentals === undefined ? {} : { fetchFundamentals: deps.fetchFundamentals }),
+      })
       const agent = validated.status === 'ok' ? validated.result : validated.lastResult
       if (agent === undefined) {
         // No payload parsed even after retries — treat as a failed lane (runLaneSwarm marks it incomplete).
@@ -888,7 +896,13 @@ export async function runResearchDeepDivePhase(
         prompt: basePrompt + SHARIAH_OVERLAY_PROMPT,
         timeout_ms: AGENT_TIMEOUT_MS,
         schema_name: 'BuffettMungerShariahLane',
-      }, ShariahLaneSchema, { ...deps, lane, requiredFields: shariahRequired })
+      }, ShariahLaneSchema, {
+        ...deps,
+        lane,
+        requiredFields: shariahRequired,
+        useToolLoop: true,
+        ...(deps.fetchFundamentals === undefined ? {} : { fetchFundamentals: deps.fetchFundamentals }),
+      })
       const agent = validated.status === 'ok' ? validated.result : validated.lastResult
       if (agent === undefined) {
         throw new Error(`Shariah lane produced no parseable output: ${validated.status === 'failed' ? validated.reason : 'unknown'}`)
@@ -913,13 +927,20 @@ export async function runResearchDeepDivePhase(
     }
 
     // ---- Generic lanes (financial_quality, valuation, management, risks, …) ----
-    const agent = await runGroundedAgent(laneRuntime.provider, {
+    // Deep-dive lanes gather REAL primary sources via the grounded tool loop when the provider supports it
+    // (Phase 1 fetch_source/search_filings → Phase 2 structured), else fall back to propose-then-verify
+    // UNCHANGED (Codex's internal sandbox gather, mock). The grounding/citation verification is identical.
+    const { degraded_no_tools: _laneDegraded, ...agent } = await runGroundedAgentWithTools(laneRuntime.provider, {
       run_id: baseRunId,
       model_id: laneRuntime.model_id,
       prompt: basePrompt,
       timeout_ms: AGENT_TIMEOUT_MS,
       schema_name: 'BuffettMungerLaneFinding',
-    }, LaneAgentSchema, deps, { lane })
+    }, LaneAgentSchema, {
+      ...deps,
+      ...(deps.fetchFundamentals === undefined ? {} : { fetchFundamentals: deps.fetchFundamentals }),
+    }, { lane })
+    void _laneDegraded
     remember(agent.captured)
     return {
       lane,

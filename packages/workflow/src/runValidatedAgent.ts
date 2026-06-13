@@ -2,12 +2,14 @@ import { z, type ZodType } from 'zod'
 import type { Provider } from '@owlfolio/providers'
 import {
   runGroundedAgent,
+  runGroundedAgentWithTools,
   type GroundedAgentRequest,
   type GroundedAgentResult,
   type GroundFn,
   type ProposedSourcesSchema,
 } from './groundedAgent'
 import type { GroundingDeps } from './sourceGrounding'
+import type { Fundamentals, SecEdgarDeps } from './secEdgar'
 
 // ---------------------------------------------------------------------------
 // Harness defense 1 (model-tiering-spec) — SCHEMA VALIDATION + RETRY.
@@ -90,6 +92,14 @@ export type RunValidatedAgentOptions<T extends WithProposedSources> = {
   maxAttempts?: number
   /** When true, throw {@link ValidatedAgentFailedError} instead of returning a failed outcome. */
   throwOnFailed?: boolean
+  /**
+   * When true AND the provider supports the multi-step tool loop, gather via the grounded loop (Phase 1
+   * fetch_source/search_filings → Phase 2 structured) instead of the propose-then-verify path. Falls back
+   * automatically when the provider does not support the loop (Codex/mock) — behavior unchanged there.
+   */
+  useToolLoop?: boolean
+  /** EDGAR fetcher for the loop's search_filings tool (injectable for tests). */
+  fetchFundamentals?: (ticker: string, deps?: SecEdgarDeps) => Promise<Fundamentals | undefined>
 }
 
 function buildBounce<T>(basePrompt: string, missing: RequiredFieldCheck<T>[], reason: string): string {
@@ -127,10 +137,23 @@ export async function runValidatedAgent<T extends WithProposedSources>(
   let lastResult: GroundedAgentResult<T> | undefined
   let prompt = request.prompt
 
+  const runGather = async (req: GroundedAgentRequest): Promise<GroundedAgentResult<T>> => {
+    if (options.useToolLoop === true) {
+      const loopDeps = {
+        ...deps,
+        ...(options.fetchFundamentals === undefined ? {} : { fetchFundamentals: options.fetchFundamentals }),
+      }
+      const { degraded_no_tools: _degraded, ...rest } = await runGroundedAgentWithTools(provider, req, schema, loopDeps, groundOpts)
+      void _degraded
+      return rest
+    }
+    return runGroundedAgent(provider, req, schema, deps, groundOpts)
+  }
+
   while (attempts < maxAttempts) {
     attempts++
     try {
-      const result = await runGroundedAgent(provider, { ...request, prompt }, schema, deps, groundOpts)
+      const result = await runGather({ ...request, prompt })
       lastResult = result
       const missing = required.filter((f) => !f.present(result.analysis))
       if (missing.length === 0) {

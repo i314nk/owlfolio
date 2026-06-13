@@ -9,6 +9,10 @@ import type {
   ProviderRunMetadata,
   ProviderRunRequest,
   ProviderToolCall,
+  ProviderToolExecutor,
+  ProviderToolLoopRequest,
+  ProviderToolLoopResult,
+  ProviderToolLoopRound,
   ProviderToolRun,
 } from './providerContract'
 
@@ -35,6 +39,21 @@ type OpenRouterChatResponse = {
   choices?: Array<{ message?: OpenRouterChatMessage; finish_reason?: string }>
   error?: { message?: string; code?: string | number; type?: string }
 }
+
+/** An OpenAI-compatible chat message on the wire (assistant tool_calls + tool results for the loop). */
+type OpenRouterWireMessage = {
+  role: 'system' | 'user' | 'assistant' | 'tool'
+  content?: string | null
+  tool_call_id?: string
+  tool_calls?: Array<{
+    id: string
+    type: 'function'
+    function: { name: string; arguments: string }
+  }>
+}
+
+/** How many gather rounds the loop allows independent of the per-round tool cap (defensive bound). */
+const MAX_TOOL_LOOP_ROUNDS = 24
 
 /**
  * OpenAI's strict json_schema mode (used by openai/* routes via OpenRouter → Azure) rejects any object
@@ -178,7 +197,7 @@ export class OpenRouterProvider implements Provider {
     'structured-output': 'adapter',
     'tool-function-calling': 'adapter',
     'streaming-observability': 'unsupported',
-    'multi-step-tool-loop': 'unsupported',
+    'multi-step-tool-loop': 'adapter',
     'source-grounding': 'unsupported',
     'citation-metadata': 'unsupported',
     'url-context': 'unsupported',
@@ -244,24 +263,10 @@ export class OpenRouterProvider implements Provider {
     if (truncated !== undefined) {
       throw new Error(`Structured output validation failed: ${truncated}`)
     }
-    const raw = this.messageTextFrom(response)
-
-    let parsed: unknown
-    try {
-      // Originally-optional fields are sent to the strict API as nullable (see toStrictJsonSchema). Strip
-      // null-valued keys so an emitted `null` is treated as "absent" — matching a Zod `.optional()` field
-      // (which accepts undefined, not null). This keeps optionality honest end-to-end.
-      parsed = stripNullProperties(JSON.parse(this.stripJsonFences(raw)))
-    } catch (error) {
-      throw new Error(`Structured output validation failed: OpenRouter returned invalid JSON (${error instanceof Error ? error.message : 'unknown error'})`)
-    }
-
-    const validated = schema.safeParse(parsed)
-    if (!validated.success) {
-      throw new Error(`Structured output validation failed: ${validated.error.message}`)
-    }
-
-    return validated.data
+    // Originally-optional fields are sent to the strict API as nullable (see toStrictJsonSchema). Strip
+    // null-valued keys so an emitted `null` is treated as "absent" — matching a Zod `.optional()` field
+    // (which accepts undefined, not null). This keeps optionality honest end-to-end. (parseStructured.)
+    return this.parseStructured(response, schema)
   }
 
   async runWithTools(request: ProviderRunRequest): Promise<ProviderToolRun> {
@@ -300,14 +305,169 @@ export class OpenRouterProvider implements Provider {
     }
   }
 
-  private async createChatCompletion(request: ProviderRunRequest, extraBody: Record<string, unknown>): Promise<OpenRouterChatResponse> {
+  /**
+   * Grounded multi-step tool loop. Phase 1 (gather): with `tools` enabled and NO json schema, the loop
+   * calls the model, parses any `tool_calls`, runs the injected harness `executor` for each (the grounding
+   * — SSRF + sha256 + ledger — lives there, NOT in this adapter), appends each tool result as a `tool`
+   * message, and repeats until the model stops requesting tools OR the `max_tool_calls` cap is reached.
+   * Phase 2 (synthesis): one final `structured`-style call with the strict json_schema and NO tools, so
+   * the model emits the lane finding citing ONLY ids the executor surfaced. The grounding invariant is
+   * structural: the model can only ever read harness-fetched, content-hashed bytes.
+   */
+  async runToolLoop<T>(
+    request: ProviderToolLoopRequest,
+    schema: ZodType<T>,
+    executor: ProviderToolExecutor,
+  ): Promise<ProviderToolLoopResult<T>> {
+    const sanitizedToOriginal = new Map<string, string>()
+    const tools = request.tool_allowlist.map((toolName) => {
+      const wireName = sanitizeToolName(toolName)
+      sanitizedToOriginal.set(wireName, toolName)
+      const parameters = request.tool_parameters?.[toolName] ?? { type: 'object', additionalProperties: true }
+      return {
+        type: 'function' as const,
+        function: {
+          name: wireName,
+          description: `Owlfolio-owned grounded tool ${toolName}. Owlfolio executes it and returns harness-verified results; you may only cite sources surfaced by these tool results.`,
+          parameters,
+        },
+      }
+    })
+
+    const messages: OpenRouterWireMessage[] = [{ role: 'user', content: request.prompt }]
+    const rounds: ProviderToolLoopRound[] = []
+    const observations: ProviderObservation[] = [this.observation('queued', 'OpenRouter queued the grounded tool loop.')]
+    const maxToolCalls = Math.max(0, request.budget.max_tool_calls)
+    let executedToolCalls = 0
+    let sawToolCall = false
+
+    // ---- Phase 1: grounded gather loop ----
+    for (let round = 0; round < MAX_TOOL_LOOP_ROUNDS; round++) {
+      const response = await this.createChatCompletion(request, { tools, tool_choice: 'auto' }, messages)
+      const truncated = truncatedReasoningDiagnostic(response)
+      if (truncated !== undefined) {
+        throw new Error(truncated)
+      }
+      const message = response.choices?.[0]?.message
+      const rawToolCalls = (message?.tool_calls ?? []).filter(
+        (call) => typeof call.function?.name === 'string' && sanitizedToOriginal.has(call.function.name),
+      )
+
+      if (rawToolCalls.length === 0) {
+        // Model answered without (further) tool requests — gather phase is done.
+        break
+      }
+      sawToolCall = true
+
+      // Echo the assistant's tool-call message back into the conversation (required so the following
+      // `tool` result messages are valid in the OpenAI-compatible protocol).
+      messages.push({
+        role: 'assistant',
+        content: typeof message?.content === 'string' ? message.content : '',
+        tool_calls: rawToolCalls.map((call, index) => ({
+          id: call.id ?? `openrouter_tool_call_${round}_${index}`,
+          type: 'function',
+          function: { name: call.function!.name!, arguments: call.function?.arguments ?? '{}' },
+        })),
+      })
+
+      for (let index = 0; index < rawToolCalls.length; index++) {
+        const call = rawToolCalls[index]!
+        const toolCallId = call.id ?? `openrouter_tool_call_${round}_${index}`
+        const originalName = sanitizedToOriginal.get(call.function!.name!)!
+        if (executedToolCalls >= maxToolCalls) {
+          // Cap reached mid-round: tell the model the budget is exhausted so it stops requesting tools.
+          messages.push({
+            role: 'tool',
+            tool_call_id: toolCallId,
+            content: `TOOL BUDGET EXHAUSTED: the maximum of ${maxToolCalls} tool calls has been reached. Do not request further tools; proceed to synthesize your answer from the sources already gathered.`,
+          })
+          continue
+        }
+        const args = this.parseToolArguments(call.function?.arguments)
+        let result: string
+        try {
+          result = await executor(originalName, args)
+        } catch (error) {
+          result = `TOOL ERROR: ${redactProviderDiagnostic(error)}`
+        }
+        executedToolCalls++
+        rounds.push({ tool_name: originalName, args, result })
+        observations.push(this.observation('tool-call', `OpenRouter grounded tool ${originalName} executed by the harness.`))
+        messages.push({ role: 'tool', tool_call_id: toolCallId, content: result })
+      }
+
+      if (executedToolCalls >= maxToolCalls) {
+        // Budget spent — stop gathering and proceed to synthesis with what we have.
+        break
+      }
+    }
+
+    // ---- Phase 2: structured synthesis (json schema, NO tools) ----
+    const synthesis = await this.createChatCompletion(
+      request,
+      {
+        response_format: {
+          type: 'json_schema',
+          json_schema: {
+            name: request.response_format.kind === 'json-schema' ? request.response_format.schema_name : 'owlfolio_structured_response',
+            strict: true,
+            schema: toStrictJsonSchema(z.toJSONSchema(schema)),
+          },
+        },
+      },
+      [
+        ...messages,
+        {
+          role: 'user',
+          content:
+            'Now produce your final answer as JSON matching the required schema. Cite ONLY the source ids surfaced by the tool results above; do not invent or cite any source you did not fetch through the tools.',
+        },
+      ],
+    )
+    const truncated = truncatedReasoningDiagnostic(synthesis)
+    if (truncated !== undefined) {
+      throw new Error(`Structured output validation failed: ${truncated}`)
+    }
+    const analysis = this.parseStructured(synthesis, schema)
+    observations.push(this.observation('completed', 'OpenRouter completed the grounded tool loop.'))
+
+    return {
+      analysis,
+      rounds,
+      metadata: this.metadataFor(request),
+      observations,
+      degraded_no_tools: !sawToolCall,
+    }
+  }
+
+  private parseStructured<T>(response: OpenRouterChatResponse, schema: ZodType<T>): T {
+    const raw = this.messageTextFrom(response)
+    let parsed: unknown
+    try {
+      parsed = stripNullProperties(JSON.parse(this.stripJsonFences(raw)))
+    } catch (error) {
+      throw new Error(`Structured output validation failed: OpenRouter returned invalid JSON (${error instanceof Error ? error.message : 'unknown error'})`)
+    }
+    const validated = schema.safeParse(parsed)
+    if (!validated.success) {
+      throw new Error(`Structured output validation failed: ${validated.error.message}`)
+    }
+    return validated.data
+  }
+
+  private async createChatCompletion(
+    request: ProviderRunRequest,
+    extraBody: Record<string, unknown>,
+    messages?: OpenRouterWireMessage[],
+  ): Promise<OpenRouterChatResponse> {
     if (this.apiKey === undefined || this.apiKey.length === 0) {
       throw new Error('OpenRouter is not configured: missing OPENROUTER_API_KEY')
     }
 
     const body = this.omitUndefined({
       model: request.model_id,
-      messages: [{ role: 'user', content: request.prompt }],
+      messages: messages ?? [{ role: 'user', content: request.prompt }],
       max_tokens: request.budget.max_tokens,
       // OWNER REQUIREMENT: reasoning/thinking enabled. OpenRouter's unified `reasoning` param toggles
       // extended thinking across providers (Anthropic thinking, OpenAI reasoning effort, DeepSeek R1's
