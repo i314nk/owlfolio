@@ -33,20 +33,46 @@ export function maintenanceFractionForTier(tier: '20' | '50' | '80'): number {
   return Number(tier) / 100
 }
 
+/** A percentage counts as a growth claim only when a growth keyword sits within this many chars of it. */
+const GROWTH_KEYWORD_PROXIMITY = 24
+/** Keywords that mark a percentage as a GROWTH rate (vs a margin / ROIC / payout / share-of-revenue figure). */
+const GROWTH_KEYWORD = /\b(grow|grew|growth|compound|cagr|grows|growing)\b/i
+
 /**
  * Extract a lane-argued near-term growth rate from the free-text growth_assumptions, as a DECIMAL
  * (Phase 1.3). The harness only honours a lane argument that is LOWER than the demonstrated CAGR (the
- * agent may argue down, never up — enforced in `creditedGrowth`), so this is a best-effort parse: the
- * FIRST plausible percentage in the prose (e.g. "we model ~8% growth" → 0.08). Returns undefined when no
- * plausible figure is present (0–60% band; anything outside is treated as noise, not a growth claim).
+ * agent may argue down, never up — enforced in `creditedGrowth`), so even a misparse is safe (it can only
+ * make the valuation MORE conservative). To avoid silent, noise-driven haircuts, this is NOT a naive
+ * first-percentage grab: a percentage is treated as a growth claim ONLY when a growth keyword
+ * (grow/growth/compound/CAGR…) sits within ~24 chars of it. This rejects the common misfire surface —
+ * a margin / ROIC / buyback / share-of-revenue figure quoted before the growth statement
+ * (e.g. "margins expanded 12% while growth decelerates"). Among the qualifying figures it takes the
+ * LOWEST (the agent argues DOWN, so the most conservative growth claim in the prose binds). Returns
+ * undefined when no growth-adjacent percentage is present, or it is outside the 0–60% sanity band.
+ *
+ * NOTE (review, pre-1.9): free-text parsing of a number that moves the valuation is inherently fragile.
+ * The durable fix — if lanes are ever expected to routinely argue growth down — is a STRUCTURED growth
+ * field on the lane schema, not prose. The adjacency rule + the strictly-lower guard keep the current
+ * free-text path fail-safe (conservative-only) in the meantime; see parseLaneArguedGrowth.test.ts.
  */
 export function parseLaneArguedGrowth(growthAssumptions: string | undefined): number | undefined {
   if (typeof growthAssumptions !== 'string') return undefined
-  const m = growthAssumptions.match(/(\d{1,2}(?:\.\d+)?)\s*%/)
-  if (m === null) return undefined
-  const pct = Number(m[1])
-  if (!Number.isFinite(pct) || pct < 0 || pct > 60) return undefined
-  return pct / 100
+  const candidates: number[] = []
+  const re = /(\d{1,2}(?:\.\d+)?)\s*%/g
+  let match: RegExpExecArray | null
+  while ((match = re.exec(growthAssumptions)) !== null) {
+    const pct = Number(match[1])
+    if (!Number.isFinite(pct) || pct < 0 || pct > 60) continue
+    // Require a growth keyword within proximity on EITHER side of the percentage (handles
+    // "growth ~8%" and "8% growth"), so a bare margin/ROIC/payout figure is not read as a growth claim.
+    const start = Math.max(0, match.index - GROWTH_KEYWORD_PROXIMITY)
+    const end = Math.min(growthAssumptions.length, match.index + match[0].length + GROWTH_KEYWORD_PROXIMITY)
+    const window = growthAssumptions.slice(start, end)
+    if (GROWTH_KEYWORD.test(window)) candidates.push(pct / 100)
+  }
+  if (candidates.length === 0) return undefined
+  // The agent may only argue DOWN — bind the LOWEST growth-adjacent figure stated.
+  return Math.min(...candidates)
 }
 
 // ---------------------------------------------------------------------------
