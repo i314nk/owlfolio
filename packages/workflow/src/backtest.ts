@@ -26,7 +26,7 @@ import {
 } from '@owlfolio/strategies/buffettMunger'
 import type { MoatClass, Runway, StrategyContract } from '@owlfolio/strategies/strategyContract'
 import type { ValuationParams } from '@owlfolio/strategies/valuationParams'
-import { computeIncrementalRoic, ownerEarningsCagr, ownerEarningsPerShareSeries, type AnnualFacts, type Fundamentals, type SecEdgarDeps } from './secEdgar'
+import { ownerEarningsCagr, ownerEarningsPerShareSeries, type AnnualFacts, type Fundamentals, type SecEdgarDeps } from './secEdgar'
 import { resolveFundamentalsForTicker, type ResolveFundamentalsDeps } from './fundamentalsProvider'
 import {
   cumulativeSplitFactorAfter,
@@ -327,7 +327,8 @@ function monthInWindow(date: string, fromMonth: string, toMonth: string): boolea
  */
 export function runValuationBacktest(args: RunValuationBacktestArgs): BacktestResult {
   const { ticker, moat_class, runway, fundamentals, price_series, strategy, params } = args
-  const reinvestment_rate = args.reinvestment_rate ?? 0.5
+  // Phase 1.3: growth is the demonstrated OE/share CAGR — reinvestment_rate/incremental_roic no longer
+  // feed the growth path (the args fields are retained on the public type for back-compat / callers).
   const gated = !moatPassesGate(strategy, moat_class)
 
   // Ascending date order so as-of stepping + episode grouping are correct.
