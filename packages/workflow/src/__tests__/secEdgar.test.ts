@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 import { beforeEach, describe, expect, it } from 'vitest'
-import { __resetTickerCacheForTests, fetchCompanyFundamentals, resolveCik } from '../secEdgar'
+import { __resetTickerCacheForTests, demonstratedOwnerEarningsGrowth, fetchCompanyFundamentals, ownerEarningsCagr, ownerEarningsPerShareSeries, resolveCik, type AnnualFacts } from '../secEdgar'
 
 beforeEach(() => {
   // The ticker map is cached module-side; reset so fail-closed fetch-error tests are not masked
@@ -591,5 +591,207 @@ describe('annual_series spans concept transitions (per-year per-field resolution
     // A tagged year is NOT overwritten by the derived value.
     const fy2024 = f.annual_series.find((a) => a.fiscal_year === 2024)
     expect(fy2024?.diluted_shares_m).toBeCloseTo(205, 0)
+  })
+})
+
+describe('demonstratedOwnerEarningsGrowth — robust log-linear OE/share growth', () => {
+  // Helper: build an AnnualFacts year whose owner-earnings/share equals exactly `oePs`.
+  // ownerEarningsPerShareSeries computes OE = ni + da - min(da,capex) - sbc, OE/share = OE / shares.
+  // With da === capex (maintenance capex = da, cancels) and sbc = 0: OE = ni, so OE/share = ni / shares.
+  // We fix shares and set ni = oePs * shares to land OE/share on the target exactly.
+  function yr(fiscal_year: number, oePs: number, shares = 100, opts?: { da?: number }): AnnualFacts {
+    const da = opts?.da ?? 50
+    return {
+      fiscal_year,
+      currency: 'USD',
+      net_income_musd: oePs * shares,
+      d_and_a_musd: da,
+      capex_musd: da, // equal so maintenance capex cancels D&A -> OE = ni
+      sbc_musd: 0,
+      diluted_shares_m: shares,
+    }
+  }
+
+  it('recovers a clean ~15%/yr compounder via log-linear regression', () => {
+    const series: AnnualFacts[] = []
+    let oe = 1
+    for (let fy = 2014; fy <= 2023; fy++) {
+      series.push(yr(fy, oe))
+      oe *= 1.15
+    }
+    const r = demonstratedOwnerEarningsGrowth(series)
+    expect(r.method).toBe('log_linear_regression')
+    expect(r.points_used).toBe(10)
+    expect(r.window_years).toBe(9)
+    expect(r.growth).toBeDefined()
+    expect(r.growth!).toBeCloseTo(0.15, 3)
+  })
+
+  it('is NOT whipsawed by a single trough endpoint (where endpoint CAGR is)', () => {
+    // A ~12%/yr trend, but the FINAL year collapses to a one-time trough.
+    const series: AnnualFacts[] = []
+    let oe = 2
+    for (let fy = 2014; fy <= 2022; fy++) {
+      series.push(yr(fy, oe))
+      oe *= 1.12
+    }
+    // 2023: one-time charge drives OE/share to a deep trough.
+    series.push(yr(2023, oe * 0.25))
+
+    const robust = demonstratedOwnerEarningsGrowth(series)
+    const endpoint = ownerEarningsCagr(ownerEarningsPerShareSeries(series))
+    expect(endpoint).toBeDefined()
+    // The endpoint CAGR is dragged badly negative by the trough; the robust slope stays near the trend.
+    expect(endpoint!).toBeLessThan(0.0)
+    expect(robust.growth).toBeDefined()
+    // The robust slope stays clearly POSITIVE despite the trough (one outlier cannot flip the sign),
+    // whereas the endpoint CAGR is dragged negative.
+    expect(robust.growth!).toBeGreaterThan(0.02)
+    // robust is materially higher (less whipsawed) than the endpoint measure.
+    expect(robust.growth! - endpoint!).toBeGreaterThan(0.05)
+  })
+
+  it('is NOT whipsawed by a single spike endpoint', () => {
+    // Flat ~3%/yr but the FIRST (anchor) year is an artificial peak — endpoint CAGR anchors low.
+    const series: AnnualFacts[] = []
+    series.push(yr(2014, 10)) // artificial peak anchor
+    let oe = 3
+    for (let fy = 2015; fy <= 2023; fy++) {
+      series.push(yr(fy, oe))
+      oe *= 1.05
+    }
+    const robust = demonstratedOwnerEarningsGrowth(series)
+    const endpoint = ownerEarningsCagr(ownerEarningsPerShareSeries(series))
+    expect(robust.growth).toBeDefined()
+    expect(endpoint).toBeDefined()
+    // endpoint anchors on the 10 peak -> strongly negative; robust regression rides the body of the series.
+    expect(endpoint!).toBeLessThan(robust.growth!)
+  })
+
+  it('detects and back-adjusts a clean 2:1 split, recovering the true underlying rate', () => {
+    // True OE/share grows 10%/yr on a pre-split basis. At FY2019 a 2:1 split doubles shares; NI continuous.
+    // Pre-split shares = 100, post-split shares = 200. OE/share HALVES at the split with no earnings change.
+    const series: AnnualFacts[] = []
+    let oe = 1 // pre-split OE/share basis
+    for (let fy = 2014; fy <= 2023; fy++) {
+      const split = fy >= 2019
+      const shares = split ? 200 : 100
+      // ni continuous: ni = oe * 100 (pre-split economics); post-split OE/share = ni/200 = oe/2.
+      const ni = oe * 100
+      series.push({
+        fiscal_year: fy,
+        currency: 'USD',
+        net_income_musd: ni,
+        d_and_a_musd: 50,
+        capex_musd: 50,
+        sbc_musd: 0,
+        diluted_shares_m: shares,
+      })
+      oe *= 1.1
+    }
+    const r = demonstratedOwnerEarningsGrowth(series)
+    expect(r.method).toBe('log_linear_regression')
+    expect(r.flags.some((f) => /split/i.test(f))).toBe(true)
+    expect(r.flags.some((f) => /2/.test(f) && /FY2019/.test(f))).toBe(true)
+    expect(r.growth).toBeDefined()
+    // After back-adjustment the per-share series is continuous at the true 10% rate.
+    expect(r.growth!).toBeCloseTo(0.1, 2)
+  })
+
+  it('detects and back-adjusts a 7:1 split', () => {
+    const series: AnnualFacts[] = []
+    let oe = 1
+    for (let fy = 2014; fy <= 2023; fy++) {
+      const split = fy >= 2018
+      const shares = split ? 700 : 100
+      const ni = oe * 100
+      series.push({
+        fiscal_year: fy,
+        currency: 'USD',
+        net_income_musd: ni,
+        d_and_a_musd: 50,
+        capex_musd: 50,
+        sbc_musd: 0,
+        diluted_shares_m: shares,
+      })
+      oe *= 1.08
+    }
+    const r = demonstratedOwnerEarningsGrowth(series)
+    expect(r.flags.some((f) => /split/i.test(f) && /7/.test(f))).toBe(true)
+    expect(r.growth!).toBeCloseTo(0.08, 2)
+  })
+
+  it('handles a reverse split (1:5)', () => {
+    // Reverse split at FY2020: shares drop 5x (100 -> 20), NI continuous -> OE/share jumps 5x.
+    const series: AnnualFacts[] = []
+    let oe = 1
+    for (let fy = 2015; fy <= 2024; fy++) {
+      const reverse = fy >= 2020
+      const shares = reverse ? 20 : 100
+      const ni = oe * 100
+      series.push({
+        fiscal_year: fy,
+        currency: 'USD',
+        net_income_musd: ni,
+        d_and_a_musd: 50,
+        capex_musd: 50,
+        sbc_musd: 0,
+        diluted_shares_m: shares,
+      })
+      oe *= 1.06
+    }
+    const r = demonstratedOwnerEarningsGrowth(series)
+    expect(r.flags.some((f) => /split/i.test(f))).toBe(true)
+    expect(r.growth!).toBeCloseTo(0.06, 2)
+  })
+
+  it('flags a non-split per-share discontinuity but still returns the regression value', () => {
+    // OE/share drops ~3x in one year with NO share-count step AND earnings also dropped (a real
+    // operational discontinuity, not a split). Must NOT be silently adjusted; residual flag set.
+    const series: AnnualFacts[] = []
+    let oe = 2
+    for (let fy = 2014; fy <= 2019; fy++) {
+      series.push(yr(fy, oe))
+      oe *= 1.05
+    }
+    // FY2020: OE/share collapses ~3x via an earnings drop, shares unchanged.
+    series.push(yr(2020, oe / 3))
+    oe = oe / 3
+    for (let fy = 2021; fy <= 2023; fy++) {
+      oe *= 1.05
+      series.push(yr(fy, oe))
+    }
+    const r = demonstratedOwnerEarningsGrowth(series)
+    expect(r.flags.some((f) => /residual_discontinuity/i.test(f))).toBe(true)
+    expect(r.growth).toBeDefined()
+    expect(r.method).toBe('log_linear_regression')
+  })
+
+  it('fails closed (insufficient_data) with fewer than 3 positive points', () => {
+    const series: AnnualFacts[] = [yr(2022, 1), yr(2023, 1.1)]
+    const r = demonstratedOwnerEarningsGrowth(series)
+    expect(r.method).toBe('insufficient_data')
+    expect(r.growth).toBeUndefined()
+  })
+
+  it('fails closed on an empty series', () => {
+    const r = demonstratedOwnerEarningsGrowth([])
+    expect(r.method).toBe('insufficient_data')
+    expect(r.growth).toBeUndefined()
+    expect(r.points_used).toBe(0)
+  })
+
+  it('fails closed when positive points are too few after dropping non-positive OE/share', () => {
+    // Only 2 positive OE/share years; the rest are negative (loss years) -> insufficient_data.
+    const series: AnnualFacts[] = [
+      yr(2019, -1),
+      yr(2020, -2),
+      yr(2021, 1),
+      yr(2022, 1.2),
+      yr(2023, -1),
+    ]
+    const r = demonstratedOwnerEarningsGrowth(series)
+    expect(r.method).toBe('insufficient_data')
+    expect(r.growth).toBeUndefined()
   })
 })

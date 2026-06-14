@@ -43,7 +43,7 @@ export {
   type GroundedAgentResult,
   type SynthesisResponse,
 }
-import { computeIncrementalRoic, estimateMaintenanceCapex, maintenanceCapexLowConfidence, ownerEarningsCagr, ownerEarningsPerShareSeries, type Fundamentals, type SecEdgarDeps } from './secEdgar'
+import { computeIncrementalRoic, demonstratedOwnerEarningsGrowth, estimateMaintenanceCapex, maintenanceCapexLowConfidence, type Fundamentals, type SecEdgarDeps } from './secEdgar'
 import { resolveFundamentalsForTicker } from './fundamentalsProvider'
 import { evaluateBaseRateBurden, type BaseRateBurdenFlag } from './baseRateBurden'
 import { BASE_RATES } from '@owlfolio/strategies/baseRates'
@@ -1536,9 +1536,20 @@ export async function runResearchDeepDivePhase(
   // (the falsifiable, near-recent-history input), passed through the named ~20% forecasting-humility cap.
   // The lane may argue LOWER (never higher) via its growth_assumptions; an above-GDP rate is flagged
   // lowest-confidence (a moat-durability claim — Part D Step 2 coupling). NO reinvestment×ROIC bands.
-  const demonstrated_growth = fundamentals?.annual_series !== undefined
-    ? (ownerEarningsCagr(ownerEarningsPerShareSeries(fundamentals.annual_series)) ?? 0)
-    : 0
+  // Demonstrated growth is the ROBUST log-linear OE/share slope over the trailing window (split-adjusted),
+  // NOT the legacy endpoint CAGR — a single outlier year cannot whipsaw the slope. Fail-closed to g=0 (no
+  // growth) when the measure returns undefined (fewer than three positive points / non-finite inputs), exactly
+  // as the prior endpoint path floored to 0. Any split adjustment or residual discontinuity is surfaced as a
+  // degraded flag so the dossier shows WHY the demonstrated rate may move.
+  const demonstratedGrowthResult = fundamentals?.annual_series !== undefined
+    ? demonstratedOwnerEarningsGrowth(fundamentals.annual_series)
+    : undefined
+  const demonstrated_growth = demonstratedGrowthResult?.growth ?? 0
+  if (demonstratedGrowthResult !== undefined) {
+    for (const flag of demonstratedGrowthResult.flags) {
+      degradedFlags.push(`demonstrated_growth: ${flag}`)
+    }
+  }
   // The lane's argued growth (if any) may only REDUCE the demonstrated rate. We pass the parsed lane rate
   // when present; creditedGrowth ignores it unless strictly lower. (Lane prose stays in growth_assumptions.)
   const laneArguedGrowth = parseLaneArguedGrowth(dec.analysis.growth_assumptions)

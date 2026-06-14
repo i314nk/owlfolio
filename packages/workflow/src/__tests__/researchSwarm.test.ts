@@ -1584,9 +1584,13 @@ const costFundamentals: Fundamentals = {
     cash_and_securities_musd: 15284,
     interest_expense_musd: 154,
   },
+  // Three years so the ROBUST log-linear demonstrated-growth measure (≥3 positive points) computes a slope
+  // (the legacy 2-point endpoint CAGR is no longer the growth path). OE/share ≈ 12.51 → 14.78 → 16.28; the
+  // log-linear slope ≈ 14.0%/yr, above the 0.10 single-growth cap → credited growth caps to 0.10.
   annual_series: [
     { fiscal_year: 2025, currency: 'USD', net_income_musd: 8099, revenue_musd: 275235, d_and_a_musd: 2426, capex_musd: 5498, sbc_musd: 860, diluted_shares_m: 444.8 },
     { fiscal_year: 2024, currency: 'USD', net_income_musd: 7367, revenue_musd: 254453, d_and_a_musd: 2237, capex_musd: 4710, sbc_musd: 800, diluted_shares_m: 444.2 },
+    { fiscal_year: 2023, currency: 'USD', net_income_musd: 6292, revenue_musd: 242290, d_and_a_musd: 2077, capex_musd: 4323, sbc_musd: 741, diluted_shares_m: 443.6 },
   ],
   filings: [
     { form: '10-K', filed: '2025-10-08', url: 'https://www.sec.gov/Archives/edgar/data/909832/000090983225000101/cost-20250831.htm' },
@@ -1836,11 +1840,11 @@ describe('EDGAR-anchored OE bridge + harness AAOIFI Shariah ratios', () => {
     expect(cp?.shariah_status).toBe('CONDITIONAL')
     expect(cp?.shariah_sector_status).toBe('conditional')
 
-    // Phase 1.3/1.4 provenance (computed regardless of the moat gate): growth from the demonstrated EDGAR
-    // OE/share CAGR (≈10.08%) — now CAPPED at the 1.9-frozen single_growth_cap (0.10), above GDP — and the
-    // discount = config-default Treasury + uniform premium.
+    // Phase 1.3/1.4 provenance (computed regardless of the moat gate): growth from the ROBUST demonstrated
+    // EDGAR OE/share log-linear slope (≈14.0%/yr over FY2023–2025) — CAPPED at the 1.9-frozen
+    // single_growth_cap (0.10), above GDP — and the discount = config-default Treasury + uniform premium.
     expect(cp?.valuation?.growth_basis).toBe('edgar_oe_cagr')
-    expect(cp?.valuation?.growth_rate).toBeCloseTo(0.10, 3) // demonstrated ~10.08% capped to the 0.10 cap
+    expect(cp?.valuation?.growth_rate).toBeCloseTo(0.10, 3) // demonstrated ~14.0% capped to the 0.10 cap
     expect(cp?.valuation?.growth_above_gdp).toBe(true)
     expect(cp?.valuation?.discount_inputs?.equity_premium).toBe(0.055)
     expect(cp?.valuation?.discount_inputs?.ten_year_treasury_basis).toBe('config_default')

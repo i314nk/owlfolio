@@ -140,6 +140,209 @@ export function ownerEarningsCagr(series: OwnerEarningsPerSharePoint[]): number 
   return Math.pow(last.oe_ps / first.oe_ps, 1 / n) - 1
 }
 
+/**
+ * Result of the robust demonstrated owner-earnings-per-share growth measure (gap-closing Part D Step 2 —
+ * "durability-justified historical owner-earnings growth"). `growth` is undefined (fail-closed) whenever the
+ * measure could not be computed honestly (insufficient positive points / non-finite inputs).
+ */
+export type DemonstratedGrowthResult = {
+  /** Robust OE/share CAGR as a fraction (e.g. 0.15 = 15%/yr); undefined = fail-closed. */
+  growth?: number
+  /** Which estimator produced the result. `insufficient_data` ⇒ `growth` is undefined. */
+  method: 'log_linear_regression' | 'insufficient_data'
+  /** Span (in years) of the points actually used: last_fy − first_fy after split-adjustment. */
+  window_years: number
+  /** Count of positive OE/share points fed to the regression. */
+  points_used: number
+  /** Human-readable notes: split adjustments applied, residual discontinuities, high dispersion, etc. */
+  flags: string[]
+}
+
+/** Known split factors a per-share/share-count step is matched against (and their reverse-split reciprocals). */
+const KNOWN_SPLIT_FACTORS = [1.5, 2, 3, 4, 5, 7, 10, 20]
+/** Relative tolerance (±) for matching an observed share-ratio to a known split factor. */
+const SPLIT_MATCH_TOLERANCE = 0.12
+/** Net income must be roughly continuous across a split step: |NI[t]/NI[t-1] − 1| below this is "continuous". */
+const SPLIT_NI_CONTINUITY_TOLERANCE = 0.5
+/** A remaining year-over-year OE/share ratio at/above this (or its reciprocal) is a residual discontinuity. */
+const RESIDUAL_DISCONTINUITY_RATIO = 2.5
+/** Theil–Sen vs regression divergence (in fractional growth) above which a high_dispersion flag is added. */
+const HIGH_DISPERSION_THRESHOLD = 0.1
+
+/**
+ * Match an observed share-count ratio (shares[t]/shares[t-1]) to a known split factor within tolerance.
+ * Returns the canonical factor (>1 for a forward split, the integer for the magnitude) and the direction,
+ * or undefined when no known factor matches. A forward split RAISES the share count (ratio > 1); a reverse
+ * split LOWERS it (ratio < 1, matched against a reciprocal).
+ */
+function matchSplitFactor(ratio: number): { factor: number; forward: boolean } | undefined {
+  if (!Number.isFinite(ratio) || ratio <= 0) return undefined
+  for (const f of KNOWN_SPLIT_FACTORS) {
+    // Forward split: shares roughly multiply by f.
+    if (Math.abs(ratio / f - 1) <= SPLIT_MATCH_TOLERANCE) return { factor: f, forward: true }
+    // Reverse split: shares roughly divide by f.
+    if (Math.abs(ratio * f - 1) <= SPLIT_MATCH_TOLERANCE) return { factor: f, forward: false }
+  }
+  return undefined
+}
+
+/** Format a split factor for the flag note, e.g. "2-for-1" (forward) or "1-for-5" (reverse). */
+function formatSplitFactor(factor: number, forward: boolean): string {
+  return forward ? `${factor}-for-1` : `1-for-${factor}`
+}
+
+/** Ordinary least-squares slope of y vs x. Returns undefined when fewer than 2 points or zero x-variance. */
+function olsSlope(points: { x: number; y: number }[]): number | undefined {
+  const n = points.length
+  if (n < 2) return undefined
+  const meanX = points.reduce((s, p) => s + p.x, 0) / n
+  const meanY = points.reduce((s, p) => s + p.y, 0) / n
+  let num = 0
+  let den = 0
+  for (const p of points) {
+    const dx = p.x - meanX
+    num += dx * (p.y - meanY)
+    den += dx * dx
+  }
+  if (!(den > 0)) return undefined
+  return num / den
+}
+
+/** Theil–Sen median pairwise slope of y vs x (robust dispersion cross-check). Undefined if no pair. */
+function theilSenSlope(points: { x: number; y: number }[]): number | undefined {
+  const slopes: number[] = []
+  for (let i = 0; i < points.length; i++) {
+    for (let j = i + 1; j < points.length; j++) {
+      const dx = points[j]!.x - points[i]!.x
+      if (dx === 0) continue
+      slopes.push((points[j]!.y - points[i]!.y) / dx)
+    }
+  }
+  if (slopes.length === 0) return undefined
+  slopes.sort((a, b) => a - b)
+  const mid = Math.floor(slopes.length / 2)
+  return slopes.length % 2 === 0 ? (slopes[mid - 1]! + slopes[mid]!) / 2 : slopes[mid]!
+}
+
+/**
+ * Robust demonstrated owner-earnings-per-share growth (gap-closing Part D Step 2). Unlike the legacy
+ * endpoint `ownerEarningsCagr` — which compounds first-vs-last and is whipsawed by a single outlier year —
+ * this fits a LOG-LINEAR regression of ln(OE/share) vs fiscal year over ALL positive points in the trailing
+ * window, so no single year can dominate. Before fitting it back-adjusts SPLIT-LIKE per-share discontinuities
+ * (a known share-count step with roughly continuous net income) so a stock split does not masquerade as a
+ * collapse/spike in OE/share; a large per-share discontinuity that is NOT split-like is left in place but
+ * FLAGGED (`residual_discontinuity`) rather than silently dropped.
+ *
+ * Pure / deterministic / no network. Fail-closed: returns `method: 'insufficient_data'` with `growth`
+ * undefined when fewer than three positive points exist or the inputs are non-finite/empty. Reuses
+ * `ownerEarningsPerShareSeries` for the owner-earnings formula (never re-derives it).
+ */
+export function demonstratedOwnerEarningsGrowth(
+  series: AnnualFacts[],
+  opts?: { windowYears?: number },
+): DemonstratedGrowthResult {
+  const windowYears = opts?.windowYears ?? 10
+  const flags: string[] = []
+
+  // Trailing window of the underlying AnnualFacts, ascending by fiscal year. We keep the AnnualFacts (not
+  // just OE/share points) so we can back-adjust the share count for splits and recompute OE/share.
+  const sortedFacts = [...series].sort((a, b) => a.fiscal_year - b.fiscal_year).slice(-windowYears)
+
+  // ---- Split / per-share discontinuity adjustment -------------------------------------------------
+  // Walk diluted_shares_m year-over-year. A split-like step = the share ratio matches a known split factor
+  // AND net income is roughly continuous across the step (earnings did not jump proportionally). When found,
+  // back-adjust the PRE-step share counts by the cumulative factor so the per-share series is continuous.
+  // cumulativeFactor multiplies each pre-step year's shares so they are stated on the LATEST split basis.
+  const adjustedFacts: AnnualFacts[] = sortedFacts.map((a) => ({ ...a }))
+  // Process from the LATEST step backward so earlier years accumulate every later split.
+  for (let t = adjustedFacts.length - 1; t >= 1; t--) {
+    const cur = adjustedFacts[t]!
+    const prev = adjustedFacts[t - 1]!
+    const sCur = cur.diluted_shares_m
+    const sPrev = prev.diluted_shares_m
+    if (
+      typeof sCur !== 'number' || !Number.isFinite(sCur) || sCur <= 0
+      || typeof sPrev !== 'number' || !Number.isFinite(sPrev) || sPrev <= 0
+    ) continue
+    const ratio = sCur / sPrev
+    const match = matchSplitFactor(ratio)
+    if (match === undefined) continue
+    // Net-income continuity check across the step (a real proportional earnings jump is NOT a split).
+    const niCur = cur.net_income_musd
+    const niPrev = prev.net_income_musd
+    if (
+      typeof niCur === 'number' && Number.isFinite(niCur)
+      && typeof niPrev === 'number' && Number.isFinite(niPrev) && niPrev !== 0
+    ) {
+      if (Math.abs(niCur / niPrev - 1) > SPLIT_NI_CONTINUITY_TOLERANCE) continue
+    } else {
+      // Without comparable NI on both sides we cannot confirm continuity; do not adjust (fail-closed).
+      continue
+    }
+    // Back-adjust every year STRICTLY BEFORE the step onto the post-step share basis. For a forward split
+    // (ratio > 1) pre-step shares are multiplied UP by the factor; for a reverse split (ratio < 1) they are
+    // divided DOWN (multiplied by 1/factor) so the per-share series is continuous across the step.
+    const stepMultiplier = match.forward ? match.factor : 1 / match.factor
+    for (let k = t - 1; k >= 0; k--) {
+      const s = adjustedFacts[k]!.diluted_shares_m
+      if (typeof s === 'number' && Number.isFinite(s)) {
+        adjustedFacts[k] = { ...adjustedFacts[k]!, diluted_shares_m: s * stepMultiplier }
+      }
+    }
+    flags.push(`split-adjusted ${formatSplitFactor(match.factor, match.forward)} at FY${cur.fiscal_year}`)
+  }
+
+  // Recompute OE/share on the (possibly split-adjusted) facts via the canonical owner-earnings formula.
+  const pts = ownerEarningsPerShareSeries(adjustedFacts).sort((a, b) => a.fiscal_year - b.fiscal_year)
+
+  // ---- Residual (non-split) per-share discontinuity flag ------------------------------------------
+  // After split-adjustment, a remaining large year-over-year OE/share jump on positive points is a genuine
+  // discontinuity (operational, restatement, or an unmatched per-share step). Flag it — never drop silently.
+  for (let i = 1; i < pts.length; i++) {
+    const a = pts[i - 1]!.oe_ps
+    const b = pts[i]!.oe_ps
+    if (a > 0 && b > 0) {
+      const r = b / a
+      if (r >= RESIDUAL_DISCONTINUITY_RATIO || r <= 1 / RESIDUAL_DISCONTINUITY_RATIO) {
+        flags.push(`residual_discontinuity at FY${pts[i]!.fiscal_year} (OE/share x${r.toFixed(2)} year-over-year)`)
+      }
+    }
+  }
+
+  // ---- Robust slope: log-linear regression over positive points ----------------------------------
+  const positive = pts.filter((p) => Number.isFinite(p.oe_ps) && p.oe_ps > 0)
+  if (positive.length < 3) {
+    return { method: 'insufficient_data', growth: undefined as number | undefined, window_years: 0, points_used: positive.length, flags } as DemonstratedGrowthResult
+  }
+  const regPoints = positive.map((p) => ({ x: p.fiscal_year, y: Math.log(p.oe_ps) }))
+  const slope = olsSlope(regPoints)
+  const windowSpan = positive[positive.length - 1]!.fiscal_year - positive[0]!.fiscal_year
+  if (slope === undefined || !Number.isFinite(slope)) {
+    return { method: 'insufficient_data', growth: undefined as number | undefined, window_years: windowSpan, points_used: positive.length, flags } as DemonstratedGrowthResult
+  }
+  const growth = Math.exp(slope) - 1
+  if (!Number.isFinite(growth)) {
+    return { method: 'insufficient_data', growth: undefined as number | undefined, window_years: windowSpan, points_used: positive.length, flags } as DemonstratedGrowthResult
+  }
+
+  // Optional Theil–Sen cross-check: a large divergence from the regression signals a dispersed/noisy series.
+  const ts = theilSenSlope(regPoints)
+  if (ts !== undefined && Number.isFinite(ts)) {
+    const tsGrowth = Math.exp(ts) - 1
+    if (Math.abs(tsGrowth - growth) > HIGH_DISPERSION_THRESHOLD) {
+      flags.push(`high_dispersion: Theil–Sen growth ${(tsGrowth * 100).toFixed(1)}% diverges from regression ${(growth * 100).toFixed(1)}%`)
+    }
+  }
+
+  return {
+    method: 'log_linear_regression',
+    growth,
+    window_years: windowSpan,
+    points_used: positive.length,
+    flags,
+  }
+}
+
 /** Maintenance-capex estimate: the value (in the series' currency, $millions) and which proxy supplied it. */
 export type MaintenanceCapexEstimate = {
   /** Estimated maintenance capex, $millions; undefined when neither proxy is computable (fail-closed). */
