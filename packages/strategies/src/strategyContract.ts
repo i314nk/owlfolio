@@ -73,9 +73,9 @@ export const valuationPolicySchema = z.object({
    */
   growth_fade_years: z.number().int().min(0),
   /**
-   * The ONE named growth backstop (Phase 1.3): a single forecasting-humility cap on the honest historical
-   * owner-earnings growth path (~0.20 PLACEHOLDER, set at calibration). Replaces the old stacked
-   * band-ceilings/eligibility/max trio.
+   * The ONE named growth backstop (Phase 1.3): a single forecasting-humility ceiling on the honest historical
+   * owner-earnings growth path (0.15, re-derived 2026-06-15 from the believed-in set's robust OE/share CAGRs).
+   * Replaces the old stacked band-ceilings/eligibility/max trio.
    */
   single_growth_cap: z.number().positive(),
   /** GDP-like threshold (~2.5–3%) above which growth is treated as a moat-durability claim (flagged). */

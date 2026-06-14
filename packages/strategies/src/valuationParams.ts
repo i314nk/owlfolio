@@ -144,14 +144,14 @@ export type ValuationParams = {
  * a single named single_growth_cap (provisional placeholder) + an above-GDP coupling flag (gdp_growth_threshold).
  */
 export const VALUATION_PARAMS: ValuationParams = Object.freeze({
-  version: 'valuation-2026-06-fade-1',
+  version: 'valuation-2026-06-cap-1',
   // discount_rate = ten_year_treasury_default (0.045) + equity_premium (0.055) = 0.10 (unchanged default).
   discount_rate: 0.10,
   // PROVISIONAL — these signal-dependent params are NOT yet frozen. The 1.9 calibration ran on only n=2
   // names (CPRT, FDS; NVO failed on DKK-vs-USD currency, 4 GCC names deferred) — too thin to freeze MoS /
   // premium / must-signal against (F.11 overfitting). They stay at these defaults pending a broader-universe
-  // calibration (fix NVO's currency path + add US 10-K compounders). Only single_growth_cap was frozen at 1.9
-  // (measurement + deterministic math, robust to n=2).
+  // calibration (fix NVO's currency path + add US 10-K compounders). single_growth_cap was re-derived
+  // 2026-06-15 (see its note below); MoS / premium / widening remain provisional until the must-signal pass.
   equity_premium: 0.055,
   ten_year_treasury_default: 0.045,
   // F.13 — UNIFORM across every investable business (collapsed from the old _by_moat tier tables to the
@@ -172,13 +172,18 @@ export const VALUATION_PARAMS: ValuationParams = Object.freeze({
   },
   fv_cap_multiple: 18,
   fv_absurd_multiple: 100,
-  // PROVISIONAL PLACEHOLDER — NO LONGER FROZEN. The earlier 1.9 freeze leaned on the circle's measured OE
-  // CAGRs (incl. FDS 8.2%); FDS has since been removed from the calibration set AND its 8.2% was an
-  // old-method CAGR, so that anchor is gone. The DIRECTION (lower is safer) still holds on the deterministic
-  // over-optimism math (a long horizon on an optimistic input licensed 45–83× OE fair values; a lower cap is
-  // far tamer), but the LEVEL must be re-derived from Phase-1-method OE/share CAGRs before any freeze. Kept
-  // at 0.10 as an interim placeholder; cap_exceeded stays a WARN flag, no output-side hard guard.
-  single_growth_cap: 0.10,
+  // RE-DERIVED 2026-06-15 (owner decision) as a forward-FORECASTING-HUMILITY ceiling. The robust Phase-1
+  // OE/share CAGRs of the believed-in Role A/B set (split-adjusted, log-linear: MSFT 23.5, GOOGL 22.7,
+  // CPRT 21.8, MCO 20.4, MA 18.4, COST 16.5, AAPL 15.8, SPGI 10.7 — cluster 16–23.5%, median ~19%) show the
+  // real compounders grew well above this. The owner chose to let the CAP itself carry forward-humility
+  // ("we won't underwrite >15% forward even if history was higher") rather than honoring 20%+ inputs and
+  // leaning entirely on the MoS. This clips most of the cluster, but POST-FADE it does NOT recreate
+  // "never buyable": at g=0.15 the faded FV is ~24.6× OE and the above-GDP-widened buy is ~16× OE, so a top
+  // compounder is buyable at a genuine ~25–30% dislocation (matching its "buy only at deep dislocation"
+  // verdict), while richer names decline at normal prices. The fade — not the cap — is the primary guard
+  // against over-conservatism; the cap is the hardest available bite on over-optimism. cap_exceeded stays a
+  // WARN flag (no output-side hard guard). MoS/premium are tuned next against the must-signal calibration.
+  single_growth_cap: 0.15,
   terminal_value_share_flag: 0.65,
   gdp_growth_threshold: 0.03,
   oe_normalization_default: 'mid_cycle',

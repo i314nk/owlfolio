@@ -152,8 +152,8 @@ export type CreditedGrowthResult = {
  * from `ownerEarningsPerShareSeries`). The harness applies only:
  *   1. a floor at 0 (no negative compounding credit; non-finite → 0, fail-closed),
  *   2. the agent's argued rate IF it is LOWER (the agent may argue down, NEVER up),
- *   3. the named ~20% forecasting-humility cap (`single_growth_cap`, a PLACEHOLDER set at calibration) —
- *      a backstop behind the durable-source requirement, never a license,
+ *   3. the named 15% forecasting-humility ceiling (`single_growth_cap`, re-derived 2026-06-15) —
+ *      a ceiling behind the durable-source requirement, never a license,
  *   4. an above-GDP coupling FLAG: any rate materially above `gdp_growth_threshold` is a moat-durability
  *      claim and is flagged lowest-confidence so it surfaces WITH the moat-durability input (it is NOT
  *      silently accepted, and it is NOT haircut here — the single end-stage MoS carries the conservatism).

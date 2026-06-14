@@ -4,7 +4,7 @@ import { VALUATION_PARAMS } from '../valuationParams'
 
 // Buffett-Munger gap-closing Phase 1.3: ONE growth path.
 // creditedGrowth now takes the demonstrated historical owner-earnings growth (the OE/share CAGR computed
-// upstream) and applies ONLY: (1) a named ~20% forecasting-humility cap (single_growth_cap, PLACEHOLDER)
+// upstream) and applies ONLY: (1) a named 15% forecasting-humility ceiling (single_growth_cap, re-derived)
 // and (2) an above-GDP coupling FLAG (a near-term rate materially above GDP is a moat-durability claim and
 // must surface lowest-confidence). The agent may argue LOWER, never higher. No reinvestment×ROIC, no bands.
 describe('creditedGrowth (Phase 1.3 — one growth path + named cap + above-GDP coupling)', () => {
@@ -17,14 +17,14 @@ describe('creditedGrowth (Phase 1.3 — one growth path + named cap + above-GDP 
     expect(r.cap_binds).toBe(false)
   })
 
-  it('caps at single_growth_cap (frozen 0.10) when the demonstrated rate exceeds it; flags the bind', () => {
+  it('caps at single_growth_cap (0.15) when the demonstrated rate exceeds it; flags the bind', () => {
     const r = g({ demonstrated_growth: 0.35 })
     expect(r.growth).toBeCloseTo(VALUATION_PARAMS.single_growth_cap, 10)
     expect(r.cap_binds).toBe(true)
   })
 
   it('flags above-GDP growth (moat-durability coupling): a rate materially above GDP is lowest-confidence', () => {
-    const r = g({ demonstrated_growth: 0.07 }) // above the 0.03 GDP threshold, below the 0.10 cap
+    const r = g({ demonstrated_growth: 0.07 }) // above the 0.03 GDP threshold, below the 0.15 cap
     expect(r.above_gdp).toBe(true)
     expect(r.above_gdp_flag).toBeDefined()
     expect(r.above_gdp_flag).toMatch(/moat[-_ ]durability/i)

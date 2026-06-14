@@ -42,7 +42,7 @@ describe('Buffett-Munger two-stage DCF contract params', () => {
   })
 
   it('one named growth backstop replaces the stacked band/eligibility/max trio (Phase 1.3)', () => {
-    expect(buffettMungerStrategy.valuation.single_growth_cap).toBe(0.10) // FROZEN at 1.9
+    expect(buffettMungerStrategy.valuation.single_growth_cap).toBe(0.15) // re-derived 2026-06-15
     expect(buffettMungerStrategy.valuation.gdp_growth_threshold).toBe(0.03)
     const v = buffettMungerStrategy.valuation as Record<string, unknown>
     expect(v.growth_band_ceilings).toBeUndefined()

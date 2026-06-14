@@ -31,7 +31,7 @@ const GDP_GROWTH_THRESHOLD = strategy.valuation.gdp_growth_threshold
 
 // Worked example — an investable compounder, computed from the live contract so the prose tracks params.
 // ONE growth path (Phase 1.3): the demonstrated historical owner-earnings/share CAGR, passed through the
-// named forecasting-humility cap. Here a 12% demonstrated rate is under the ~20% cap but above GDP, so it
+// named forecasting-humility ceiling. Here a 12% demonstrated rate is under the 15% ceiling but above GDP, so it
 // is flagged a moat-durability claim (lowest-confidence, human-weighted).
 const EX_OE = 14
 const EX_DEMONSTRATED_G = 0.12
@@ -448,7 +448,7 @@ export function StrategyOverview(): ReactNode {
           headings: ['Growth control', 'Value'],
           rows: [
             [createElement('span', { style: goldText }, 'Source'), createElement('span', { style: monoFigure }, 'demonstrated OE/share CAGR')],
-            [createElement('span', { style: goldText }, 'Forecasting-humility cap (placeholder)'), createElement('span', { style: monoFigure }, pct(SINGLE_GROWTH_CAP))],
+            [createElement('span', { style: goldText }, 'Forecasting-humility ceiling'), createElement('span', { style: monoFigure }, pct(SINGLE_GROWTH_CAP))],
             [createElement('span', { style: goldText }, 'Above-GDP → moat-durability flag'), createElement('span', { style: monoFigure }, `> ${pct(GDP_GROWTH_THRESHOLD)}`)],
           ],
         }),

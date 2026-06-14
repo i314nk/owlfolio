@@ -26,7 +26,7 @@ describe('VALUATION_PARAMS (versioned config — single source of truth)', () =>
     expect(VALUATION_PARAMS.growth_fade_years).toBe(5) // Part D Step 2 — linear fade over years 6–10
     expect(VALUATION_PARAMS.base_margin_of_safety).toBe(0.25)
     expect(VALUATION_PARAMS.fv_cap_multiple).toBe(18)
-    expect(VALUATION_PARAMS.single_growth_cap).toBe(0.10) // FROZEN at 1.9 (cap)
+    expect(VALUATION_PARAMS.single_growth_cap).toBe(0.15) // re-derived 2026-06-15 (forward-humility ceiling)
     expect(VALUATION_PARAMS.gdp_growth_threshold).toBe(0.03)
     expect(VALUATION_PARAMS.oe_normalization_default).toBe('mid_cycle')
   })
@@ -70,8 +70,8 @@ describe('diffValuationParams', () => {
 // (the F.13 uniform scalars are unchanged; a new growth_fade_years field appears).
 // ---------------------------------------------------------------------------
 describe('Part D Step 2 — growth-fade version bump records the structural diff', () => {
-  it('the live version is the growth-fade config', () => {
-    expect(VALUATION_PARAMS.version).toBe('valuation-2026-06-fade-1')
+  it('the live version is the cap-rederivation config', () => {
+    expect(VALUATION_PARAMS.version).toBe('valuation-2026-06-cap-1')
   })
 
   it('diff vs the prior F.13 uniform-moat config shows the added growth_fade_years field', () => {
@@ -124,16 +124,16 @@ describe('Part D Step 2 — growth-fade version bump records the structural diff
   })
 
   it('buildValuationConfigEvent records the bump + diff (acceptance #5)', () => {
-    const previous = { ...VALUATION_PARAMS, version: 'valuation-2026-06-one-knob-2', single_growth_cap: 0.15 }
+    const previous = { ...VALUATION_PARAMS, version: 'valuation-2026-06-one-knob-2', single_growth_cap: 0.10 }
     const event = buildValuationConfigEvent({
-      event_id: 'evt_valuation_config_f13',
+      event_id: 'evt_valuation_config_cap',
       strategy_id: buffettMungerStrategy.id,
       previous,
       next: VALUATION_PARAMS,
     })
     expect(event.payload.previous_version).toBe('valuation-2026-06-one-knob-2')
-    expect(event.payload.new_version).toBe('valuation-2026-06-fade-1')
-    expect(event.payload.changes).toContainEqual({ path: 'single_growth_cap', previous: 0.15, next: 0.10 })
+    expect(event.payload.new_version).toBe('valuation-2026-06-cap-1')
+    expect(event.payload.changes).toContainEqual({ path: 'single_growth_cap', previous: 0.10, next: 0.15 })
   })
 })
 
