@@ -189,6 +189,14 @@ export type ResearchCaseValuationProjection = {
   /** Implied multiple = fair_value_per_share / OE_ps. */
   implied_multiple?: number
   margin_of_safety?: number
+  /** Terminal (Gordon) value as a % of intrinsic value (Phase 1.5) — flagged + widens MoS when > 0.65. */
+  terminal_value_pct_of_iv?: number
+  /** Phase 1.6: fair value exceeded the 18× OE sanity-flag threshold — surfaced, not truncated. */
+  cap_exceeded?: boolean
+  /** Phase 1.7: the end-stage margin of safety actually applied (base floor + widening). */
+  margin_of_safety_applied?: number
+  /** Phase 1.6: the reasons the single MoS knob widened beyond the moat base floor. */
+  margin_of_safety_widening_reasons?: string[]
   buy_price_per_share?: number
   /** Provenance of the incremental ROIC used: 'sec_edgar' (computed from the series) or 'model_proposed'. */
   incremental_roic_basis?: string
@@ -572,6 +580,14 @@ function getValuation(payload: Record<string, unknown>): ResearchCaseValuationPr
   if (implied_multiple !== undefined) projected.implied_multiple = implied_multiple
   const margin_of_safety = getNumber(value, 'margin_of_safety')
   if (margin_of_safety !== undefined) projected.margin_of_safety = margin_of_safety
+  const terminal_value_pct_of_iv = getNumber(value, 'terminal_value_pct_of_iv')
+  if (terminal_value_pct_of_iv !== undefined) projected.terminal_value_pct_of_iv = terminal_value_pct_of_iv
+  const cap_exceeded = getBoolean(value, 'cap_exceeded')
+  if (cap_exceeded !== undefined) projected.cap_exceeded = cap_exceeded
+  const margin_of_safety_applied = getNumber(value, 'margin_of_safety_applied')
+  if (margin_of_safety_applied !== undefined) projected.margin_of_safety_applied = margin_of_safety_applied
+  const margin_of_safety_widening_reasons = getStringArray(value, 'margin_of_safety_widening_reasons')
+  if (margin_of_safety_widening_reasons !== undefined) projected.margin_of_safety_widening_reasons = margin_of_safety_widening_reasons
   const buy_price_per_share = getNumber(value, 'buy_price_per_share')
   if (buy_price_per_share !== undefined) projected.buy_price_per_share = buy_price_per_share
   const incremental_roic_basis = getString(value, 'incremental_roic_basis')

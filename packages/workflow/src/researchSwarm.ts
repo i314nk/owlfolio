@@ -43,7 +43,7 @@ export {
   type GroundedAgentResult,
   type SynthesisResponse,
 }
-import { computeIncrementalRoic, ownerEarningsCagr, ownerEarningsPerShareSeries, type Fundamentals, type SecEdgarDeps } from './secEdgar'
+import { computeIncrementalRoic, estimateMaintenanceCapex, ownerEarningsCagr, ownerEarningsPerShareSeries, type Fundamentals, type SecEdgarDeps } from './secEdgar'
 import { resolveFundamentalsForTicker } from './fundamentalsProvider'
 import { evaluateBaseRateBurden, type BaseRateBurdenFlag } from './baseRateBurden'
 import { BASE_RATES } from '@owlfolio/strategies/baseRates'
@@ -60,7 +60,7 @@ import {
 } from './strategyResearchPipeline'
 import { ingestManualSourceBundle } from './sourceLedger'
 import { resolveResearchStrategyRef } from './researchStrategyRef'
-import { buffettMungerStrategy, creditedGrowth, discountRate, marginOfSafetyForMoat, moatPassesGate, stage1HorizonForMoat, terminalGrowthForMoat, twoStageFairValuePerShare } from '@owlfolio/strategies/buffettMunger'
+import { buffettMungerStrategy, creditedGrowth, discountRate, moatPassesGate, stage1HorizonForMoat, terminalGrowthForMoat, twoStageValuation, widenedMarginOfSafety } from '@owlfolio/strategies/buffettMunger'
 import { computeShariahFinancialRatios } from '@owlfolio/strategies/shariahFinancialRatios'
 import { fetchAverageMarketCap, fetchTenYearTreasuryYield, resolveCurrentPrice, type AverageMarketCapResult, type MarketDataDeps, type PriceQuote, type TreasuryYieldResult } from './marketData'
 import { runRedTeamPass, runRedTeamResponsePass, buildRedTeamLayer, type RedTeamLaneDigest, type RedTeamResult } from './redTeamPass'
@@ -1508,6 +1508,21 @@ export async function runResearchDeepDivePhase(
   let implied_multiple: number | undefined
   let margin_of_safety: number | undefined
   let terminal_growth_rate: number | undefined
+  let terminal_value_pct_of_iv: number | undefined
+  let cap_exceeded = false
+  let margin_of_safety_widening_reasons: string[] = []
+
+  // Maintenance-capex confidence (Phase 1.2 → 1.6 widening input): the dual proxy is low-confidence when
+  // gross PP&E was unavailable (Greenwald couldn't compute → D&A-floor only) or the two proxies disagree
+  // materially. Low confidence WIDENS the single MoS knob.
+  let low_maint_capex_confidence = false
+  if (fundamentals?.annual_series !== undefined) {
+    const maint = estimateMaintenanceCapex(fundamentals.annual_series)
+    if (maint.basis !== 'greenwald') {
+      // No gross-PP&E-backed Greenwald estimate → the conservative default rests on the D&A floor alone.
+      low_maint_capex_confidence = maint.basis === 'd_and_a_floor'
+    }
+  }
 
   // ---- ONE growth path (Phase 1.3): honest demonstrated OE/share growth + named cap + above-GDP flag ----
   // The growth rate is the demonstrated historical owner-earnings-per-share CAGR from the EDGAR series
@@ -1557,24 +1572,56 @@ export async function runResearchDeepDivePhase(
     const terminal_g = terminalGrowthForMoat(buffettMungerStrategy, moatClass)
     // Moat-dependent stage-1 horizon (recalibrated, spec §1): monopoly 15 yrs, wide 10.
     const horizon = stage1HorizonForMoat(buffettMungerStrategy, moatClass)
-    const computedFairValue = twoStageFairValuePerShare({
+    // Phase 1.5/1.6: rich two-stage valuation — surfaces terminal_value_pct_of_iv, flags cap_exceeded
+    // (no silent truncation), and discards only an absurd (units-bug) value.
+    const valuation = twoStageValuation({
       oe_ps: normalized_owner_earnings_per_share,
       g: effective_growth_rate,
       terminal_g,
       discount,
       ceiling_multiple: valuation_multiple_ceiling,
+      absurd_multiple: buffettMungerStrategy.valuation.fv_absurd_multiple,
       horizon,
     })
-    // Sanity guard: degrade gracefully if the per-share fair value is non-finite, <= 0, or implausibly large.
-    if (!Number.isFinite(computedFairValue) || computedFairValue <= 0 || computedFairValue > MAX_PLAUSIBLE_FAIR_VALUE_PER_SHARE) {
+    terminal_value_pct_of_iv = valuation.terminal_value_pct_of_iv
+    cap_exceeded = valuation.cap_exceeded
+    const computedFairValue = valuation.fair_value
+    // Sanity guard: degrade gracefully if the value was discarded (absurd) or implausibly large/non-positive.
+    if (valuation.absurd || computedFairValue === undefined || !Number.isFinite(computedFairValue) || computedFairValue <= 0 || computedFairValue > MAX_PLAUSIBLE_FAIR_VALUE_PER_SHARE) {
       valuationCaveats.push(
-        `Valuation discarded: computed fair value per share (${Number.isFinite(computedFairValue) ? computedFairValue.toFixed(2) : 'non-finite'}) is implausible — owner-earnings inputs likely mis-scaled. No buy price emitted.`,
+        `Valuation discarded: computed fair value per share (${computedFairValue !== undefined && Number.isFinite(computedFairValue) ? computedFairValue.toFixed(2) : 'non-finite/absurd'}) is implausible — owner-earnings inputs likely mis-scaled. No buy price emitted.`,
       )
     } else {
       fair_value_per_share = computedFairValue
       terminal_growth_rate = terminal_g
       implied_multiple = computedFairValue / normalized_owner_earnings_per_share
-      margin_of_safety = marginOfSafetyForMoat(buffettMungerStrategy, moatClass)
+      // Phase 1.5: flag a high terminal-value share (the dominant uncertainty).
+      const highTvShare = terminal_value_pct_of_iv > buffettMungerStrategy.valuation.terminal_value_share_flag
+      if (highTvShare) {
+        degradedFlags.push(
+          `terminal_value_share_high: terminal value is ${(terminal_value_pct_of_iv * 100).toFixed(0)}% of intrinsic `
+          + `value (> ${(buffettMungerStrategy.valuation.terminal_value_share_flag * 100).toFixed(0)}%) — most of the `
+          + `estimate is a guess about the distant future (a moat-durability judgment). Widens the margin of safety.`,
+        )
+      }
+      // Phase 1.6: the 18× OE cap is a SURFACED flag, not a truncation.
+      if (cap_exceeded) {
+        degradedFlags.push(
+          `valuation_cap_exceeded: fair value ${computedFairValue.toFixed(2)} exceeds ${valuation_multiple_ceiling}× owner `
+          + `earnings (${(valuation_multiple_ceiling * normalized_owner_earnings_per_share).toFixed(2)}) — a sanity flag, `
+          + `not a truncation. Re-check the growth/terminal inputs before relying on the buy-below.`,
+        )
+      }
+      // Phase 1.6: ONE end-stage margin-of-safety knob, widened by the documented uncertainties.
+      const widened = widenedMarginOfSafety(buffettMungerStrategy, {
+        moat_class: moatClass,
+        terminal_value_pct_of_iv,
+        low_maint_capex_confidence,
+        // Above-GDP growth IS a moat-durability claim (Phase 1.3 coupling) → weak-durability widening.
+        weak_moat_durability: growthResult.above_gdp,
+      })
+      margin_of_safety = widened.margin_of_safety
+      margin_of_safety_widening_reasons = widened.widening_reasons
       buy_price_per_share = Math.round(fair_value_per_share * (1 - margin_of_safety) * 100) / 100
     }
   }
@@ -1883,7 +1930,12 @@ export async function runResearchDeepDivePhase(
         ...(degradedFlags.length > 0 ? { degraded_flags: degradedFlags } : {}),
         ...(fair_value_per_share !== undefined ? { fair_value_per_share } : {}),
         ...(implied_multiple !== undefined ? { implied_multiple } : {}),
+        ...(terminal_value_pct_of_iv !== undefined ? { terminal_value_pct_of_iv } : {}),
+        ...(cap_exceeded ? { cap_exceeded: true } : {}),
         ...(margin_of_safety !== undefined ? { margin_of_safety } : {}),
+        // Phase 1.7 provenance: the end-stage MoS actually applied + why it widened beyond the moat floor.
+        ...(margin_of_safety !== undefined ? { margin_of_safety_applied: margin_of_safety } : {}),
+        ...(margin_of_safety_widening_reasons.length > 0 ? { margin_of_safety_widening_reasons } : {}),
         ...(buy_price_per_share !== undefined ? { buy_price_per_share } : {}),
         // Price → verdict band (BUY-WINDOW | WATCH-FAIR | WATCH) when a current price + buy/fair exist.
         ...(verdict_state !== undefined ? { verdict_state } : {}),

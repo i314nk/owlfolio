@@ -48,10 +48,21 @@ export const valuationPolicySchema = z.object({
   equity_premium: z.number().positive(),
   /** Fail-closed default 10y Treasury yield when the live fetch is unavailable (Phase 1.4). */
   ten_year_treasury_default: z.number().positive(),
+  /** THE single conservatism knob: base MoS floor by moat tier; widens via margin_of_safety_widening (Phase 1.6). */
   margin_of_safety_by_moat: z.object({
     wide: z.number().positive(),
     monopoly: z.number().positive(),
   }),
+  /** MoS-widening increments + cap (Phase 1.6) — all conservatism beyond the base floor lives here. */
+  margin_of_safety_widening: z.object({
+    high_terminal_value_share: z.number().min(0),
+    low_maint_capex_confidence: z.number().min(0),
+    weak_moat_durability: z.number().min(0),
+    sensitivity_dispersion_max: z.number().min(0),
+    cap: z.number().positive().max(1),
+  }),
+  /** Terminal-value-share flag threshold (Phase 1.5): TV share above this is flagged + widens the MoS. */
+  terminal_value_share_flag: z.number().positive().max(1),
   /** Terminal-stage growth (g_t) by moat tier: monopoly fades to 2.5%, wide to 1.5%. */
   terminal_growth_by_moat: z.object({
     wide: z.number().positive(),
@@ -70,7 +81,10 @@ export const valuationPolicySchema = z.object({
   single_growth_cap: z.number().positive(),
   /** GDP-like threshold (~2.5–3%) above which growth is treated as a moat-durability claim (flagged). */
   gdp_growth_threshold: z.number().positive(),
+  /** 18× OE sanity-FLAG threshold (Phase 1.6 cap_exceeded) — surfaced, never silently truncated. */
   valuation_multiple_ceiling: z.number().positive(),
+  /** Absurd-error guard multiple (100×) — a value at/above this is discarded as a units bug (Phase 1.6). */
+  fv_absurd_multiple: z.number().positive(),
   min_investable_moat: moatClassSchema,
   valuation_required: z.boolean(),
 })

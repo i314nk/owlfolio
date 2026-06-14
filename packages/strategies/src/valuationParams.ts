@@ -45,10 +45,40 @@ export type ValuationParams = {
   terminal_growth_by_moat: MoatTieredNumber
   /** Stage-1 horizon (years) by moat tier. Recalibrated: monopoly 15, wide 10 (spec §1). */
   stage1_horizon_by_moat: MoatTieredNumber
-  /** Margin of safety by moat tier. Recalibrated: monopoly 15%, wide 25% (spec §1). */
+  /**
+   * THE single conservatism knob (Phase 1.6 / Part D Step 6): the base margin-of-safety floor by moat tier.
+   * Recalibrated: monopoly 15%, wide 25%. It WIDENS (via margin_of_safety_widening) with terminal-value
+   * share, low maint-capex confidence, weak moat durability, and sensitivity dispersion.
+   */
   margin_of_safety_by_moat: MoatTieredNumber
-  /** Fair-value sanity cap as a multiple of OE (18×). Real work against the 15-yr monopoly horizon. */
+  /**
+   * MoS-widening increments + cap (Phase 1.6). All conservatism beyond the base floor lives HERE (one knob):
+   * each documented uncertainty adds its increment, clamped to `cap` (~0.50). Calibration-tunable.
+   */
+  margin_of_safety_widening: {
+    /** Added when terminal_value_pct_of_iv exceeds terminal_value_share_flag. */
+    high_terminal_value_share: number
+    /** Added when the maintenance-capex estimate is low-confidence (e.g. Greenwald/D&A disagree, no gross PP&E). */
+    low_maint_capex_confidence: number
+    /** Added for weak moat durability — incl. above-GDP growth, which IS a moat-durability claim. */
+    weak_moat_durability: number
+    /** Max increment contributed by sensitivity dispersion (scaled by the dispersion magnitude in [0,1]). */
+    sensitivity_dispersion_max: number
+    /** Hard cap on the widened MoS (~0.50). */
+    cap: number
+  }
+  /**
+   * Fair-value sanity-FLAG threshold as a multiple of OE (18×). Phase 1.6: this is NO LONGER a silent
+   * truncation — a fair value above it raises a surfaced `cap_exceeded` flag (which widens the MoS), the
+   * value is kept. The old 18× hard cap is gone.
+   */
   fv_cap_multiple: number
+  /**
+   * Absurd-error guard multiple (100×). Phase 1.6: a fair value at/above this multiple of OE signals a
+   * units/scale bug (e.g. discount ≈ terminal_g) and is DISCARDED (not flagged-and-kept). The only
+   * remaining hard limit.
+   */
+  fv_absurd_multiple: number
   /**
    * THE single named growth backstop (Phase 1.3 / Part D Step 2 / F.3) — one forecasting-humility cap on
    * the honest historical owner-earnings growth path. Replaces the old stacked
@@ -57,6 +87,12 @@ export type ValuationParams = {
    * durable-source requirement (it is a backstop, never a license) and bites only over-optimism.
    */
   single_growth_cap: number
+  /**
+   * Terminal-value-share flag threshold (Phase 1.5 / Part D Step 4): when the Gordon terminal value is
+   * more than this fraction (~0.65) of total intrinsic value, flag it — most of the estimate is a guess
+   * about the distant future — and WIDEN the end-stage margin of safety (Phase 1.6).
+   */
+  terminal_value_share_flag: number
   /**
    * GDP-like threshold (~2.5–3%) above which a near-term growth rate is treated as a moat-durability CLAIM
    * (Phase 1.3 coupling): the harness flags it lowest-confidence so it surfaces with the moat-durability
@@ -88,9 +124,19 @@ export const VALUATION_PARAMS: ValuationParams = Object.freeze({
   terminal_growth_by_moat: { monopoly: 0.025, wide: 0.015 },
   stage1_horizon_by_moat: { monopoly: 15, wide: 10 },
   margin_of_safety_by_moat: { monopoly: 0.15, wide: 0.25 },
+  // Phase 1.6 — widening increments + 0.50 cap (PLACEHOLDER magnitudes, frozen at the 1.9 calibration).
+  margin_of_safety_widening: {
+    high_terminal_value_share: 0.10,
+    low_maint_capex_confidence: 0.05,
+    weak_moat_durability: 0.10,
+    sensitivity_dispersion_max: 0.10,
+    cap: 0.50,
+  },
   fv_cap_multiple: 18,
+  fv_absurd_multiple: 100,
   // PLACEHOLDER (Phase 1.3 / F.3): set at the 1.9 calibration against the circle's actual 5–10yr OE CAGRs.
   single_growth_cap: 0.20,
+  terminal_value_share_flag: 0.65,
   gdp_growth_threshold: 0.03,
   oe_normalization_default: 'mid_cycle',
 }) as ValuationParams

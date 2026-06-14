@@ -47,6 +47,63 @@ export function marginOfSafetyForMoat(strategy: StrategyContract, moatClass: Moa
   return mos
 }
 
+/** Result of widening the single MoS knob (Phase 1.6). */
+export type WidenedMarginOfSafety = {
+  /** The end-stage margin of safety actually applied (base floor + widening, capped). */
+  margin_of_safety: number
+  /** The moat base floor before widening. */
+  base: number
+  /** True when any widening input bound. */
+  widened: boolean
+  /** Human-readable reasons each widening increment fired. */
+  widening_reasons: string[]
+}
+
+/**
+ * THE single conservatism knob (Phase 1.6 / Part D Step 6). Start from the moat-tiered base floor and WIDEN
+ * (toward the configured cap, ~0.50) with the documented uncertainties: a high terminal-value share, low
+ * maintenance-capex confidence, weak moat durability (above-GDP growth IS a moat-durability claim), and
+ * sensitivity dispersion (scaled in [0,1] when available). All conservatism beyond honest inputs lives
+ * here — one number, visible, config-driven. (The old 18× hard cap is gone — it is a surfaced cap_exceeded
+ * flag in `twoStageValuation`.)
+ */
+export function widenedMarginOfSafety(
+  strategy: StrategyContract,
+  args: {
+    moat_class: MoatClass
+    terminal_value_pct_of_iv?: number
+    low_maint_capex_confidence?: boolean
+    weak_moat_durability?: boolean
+    /** Sensitivity dispersion magnitude in [0,1]; scales sensitivity_dispersion_max. */
+    sensitivity_dispersion?: number
+  },
+): WidenedMarginOfSafety {
+  const v = strategy.valuation
+  const base = marginOfSafetyForMoat(strategy, args.moat_class)
+  const w = v.margin_of_safety_widening
+  let mos = base
+  const reasons: string[] = []
+  if (args.terminal_value_pct_of_iv !== undefined && args.terminal_value_pct_of_iv > v.terminal_value_share_flag) {
+    mos += w.high_terminal_value_share
+    reasons.push(`high terminal-value share (${(args.terminal_value_pct_of_iv * 100).toFixed(0)}% > ${(v.terminal_value_share_flag * 100).toFixed(0)}%)`)
+  }
+  if (args.low_maint_capex_confidence === true) {
+    mos += w.low_maint_capex_confidence
+    reasons.push('low maintenance-capex confidence')
+  }
+  if (args.weak_moat_durability === true) {
+    mos += w.weak_moat_durability
+    reasons.push('weak moat durability (above-GDP growth is a moat-durability claim)')
+  }
+  if (args.sensitivity_dispersion !== undefined && Number.isFinite(args.sensitivity_dispersion) && args.sensitivity_dispersion > 0) {
+    const clamped = Math.min(1, Math.max(0, args.sensitivity_dispersion))
+    mos += w.sensitivity_dispersion_max * clamped
+    reasons.push(`sensitivity dispersion (${(clamped * 100).toFixed(0)}%)`)
+  }
+  mos = Math.min(mos, w.cap)
+  return { margin_of_safety: mos, base, widened: reasons.length > 0, widening_reasons: reasons }
+}
+
 /**
  * Returns the terminal-stage growth rate (g_t) for the given investable moat class.
  * Recalibrated: monopoly → 2.5%, wide → 1.5%. Used by the two-stage DCF terminal value.
@@ -138,17 +195,74 @@ export function creditedGrowth(
   return result
 }
 
+/** Raw two-stage DCF components (no cap applied). */
+function twoStageRaw(args: { oe_ps: number; g: number; terminal_g: number; discount: number; horizon: number }): {
+  stage1: number
+  terminal: number
+  fair_value: number
+} {
+  const { oe_ps, g, terminal_g, discount: r, horizon } = args
+  let stage1 = 0
+  for (let t = 1; t <= horizon; t += 1) {
+    stage1 += (oe_ps * Math.pow(1 + g, t)) / Math.pow(1 + r, t)
+  }
+  const terminal = ((oe_ps * Math.pow(1 + g, horizon) * (1 + terminal_g)) / (r - terminal_g)) / Math.pow(1 + r, horizon)
+  return { stage1, terminal, fair_value: stage1 + terminal }
+}
+
+/** Rich two-stage valuation result (Phase 1.5 terminal share + Phase 1.6 cap flag). */
+export type TwoStageValuationResult = {
+  /** Raw two-stage fair value per share; undefined when the absurd-error guard fired (units bug). */
+  fair_value?: number
+  /** Terminal (Gordon) value as a % of total intrinsic value (Phase 1.5) — the dominant-uncertainty flag. */
+  terminal_value_pct_of_iv: number
+  /** Phase 1.6: raw fair value exceeded `ceiling_multiple × OE` — a SURFACED sanity flag, not a truncation. */
+  cap_exceeded: boolean
+  /** Phase 1.6: raw fair value reached the absurd-error guard (`absurd_multiple × OE`) → value discarded. */
+  absurd: boolean
+}
+
 /**
- * Two-stage fair value per share (buffett-valuation-method-v2 Step 4, recalibrated per
- * valuation-recalibration-spec §1 to a moat-dependent stage-1 horizon).
+ * Rich two-stage DCF (buffett-valuation-method-v2 Step 4 / Part D Steps 4 + 6).
  *
- *   FV_ps = Σ_{t=1..H} [ OE_ps × (1+g)^t / (1+r)^t ]
- *         + [ OE_ps × (1+g)^H × (1+g_t) / (r − g_t) ] / (1+r)^H
- *   FV_ps = min(FV_ps, ceiling_multiple × OE_ps)
+ *   FV_ps = Σ_{t=1..H} [ OE_ps × (1+g)^t / (1+r)^t ] + [ OE_ps × (1+g)^H × (1+g_t) / (r − g_t) ] / (1+r)^H
  *
- * Stage 1 grows OE at credited g for H years (H = horizon, moat-dependent: monopoly 15, wide 10);
- * Stage 2 fades to terminal g_t and discounts from year H. Flat discount r (always 10%). The ceiling
- * is a genuine independent brake. `horizon` defaults to 10 for backward compatibility.
+ * Phase 1.5: also surfaces `terminal_value_pct_of_iv` (Gordon terminal ÷ total IV) — the dominant
+ * uncertainty; the caller flags > 0.65 (feeds the MoS-widening).
+ * Phase 1.6: the OE multiple is NO LONGER a silent cap. `cap_exceeded` is set (and the value KEPT) when
+ * the raw value exceeds `ceiling_multiple × OE`; only at/above `absurd_multiple × OE` is the value DISCARDED
+ * (`absurd: true`, `fair_value` undefined) as a units-error guard. `horizon` defaults to 10.
+ */
+export function twoStageValuation(args: {
+  oe_ps: number
+  g: number
+  terminal_g: number
+  discount: number
+  ceiling_multiple: number
+  /** Absurd-error guard multiple; defaults to the strategy's fv_absurd_multiple (100×). */
+  absurd_multiple?: number
+  horizon?: number
+}): TwoStageValuationResult {
+  const horizon = args.horizon ?? 10
+  const absurd_multiple = args.absurd_multiple ?? 100
+  const { stage1, terminal, fair_value } = twoStageRaw({ oe_ps: args.oe_ps, g: args.g, terminal_g: args.terminal_g, discount: args.discount, horizon })
+  const total = stage1 + terminal
+  const terminal_value_pct_of_iv = total > 0 && Number.isFinite(total) ? terminal / total : 0
+  const cap_exceeded = Number.isFinite(fair_value) && fair_value > args.ceiling_multiple * args.oe_ps
+  const absurd = !Number.isFinite(fair_value) || fair_value >= absurd_multiple * args.oe_ps
+  return {
+    ...(absurd ? {} : { fair_value }),
+    terminal_value_pct_of_iv,
+    cap_exceeded,
+    absurd,
+  }
+}
+
+/**
+ * Two-stage fair value per share (back-compat scalar). Keeps the LEGACY behavior of capping at
+ * `ceiling_multiple × OE` (used by /strategy and /learn worked examples + regression tests). New harness
+ * callers use `twoStageValuation` (Phase 1.6: cap is a surfaced flag, not a truncation). `horizon`
+ * defaults to 10.
  */
 export function twoStageFairValuePerShare(args: {
   oe_ps: number
@@ -158,15 +272,9 @@ export function twoStageFairValuePerShare(args: {
   ceiling_multiple: number
   horizon?: number
 }): number {
-  const { oe_ps, g, terminal_g, discount: r, ceiling_multiple } = args
   const horizon = args.horizon ?? 10
-  let stage1 = 0
-  for (let t = 1; t <= horizon; t += 1) {
-    stage1 += (oe_ps * Math.pow(1 + g, t)) / Math.pow(1 + r, t)
-  }
-  const terminal = ((oe_ps * Math.pow(1 + g, horizon) * (1 + terminal_g)) / (r - terminal_g)) / Math.pow(1 + r, horizon)
-  const fv = stage1 + terminal
-  return Math.min(fv, ceiling_multiple * oe_ps)
+  const { fair_value } = twoStageRaw({ oe_ps: args.oe_ps, g: args.g, terminal_g: args.terminal_g, discount: args.discount, horizon })
+  return Math.min(fair_value, args.ceiling_multiple * args.oe_ps)
 }
 
 const rawBuffettMungerStrategy = {
@@ -269,6 +377,14 @@ const rawBuffettMungerStrategy = {
       wide: VALUATION_PARAMS.margin_of_safety_by_moat.wide,
       monopoly: VALUATION_PARAMS.margin_of_safety_by_moat.monopoly,
     },
+    margin_of_safety_widening: {
+      high_terminal_value_share: VALUATION_PARAMS.margin_of_safety_widening.high_terminal_value_share,
+      low_maint_capex_confidence: VALUATION_PARAMS.margin_of_safety_widening.low_maint_capex_confidence,
+      weak_moat_durability: VALUATION_PARAMS.margin_of_safety_widening.weak_moat_durability,
+      sensitivity_dispersion_max: VALUATION_PARAMS.margin_of_safety_widening.sensitivity_dispersion_max,
+      cap: VALUATION_PARAMS.margin_of_safety_widening.cap,
+    },
+    terminal_value_share_flag: VALUATION_PARAMS.terminal_value_share_flag,
     terminal_growth_by_moat: {
       wide: VALUATION_PARAMS.terminal_growth_by_moat.wide,
       monopoly: VALUATION_PARAMS.terminal_growth_by_moat.monopoly,
@@ -280,6 +396,7 @@ const rawBuffettMungerStrategy = {
     single_growth_cap: VALUATION_PARAMS.single_growth_cap,
     gdp_growth_threshold: VALUATION_PARAMS.gdp_growth_threshold,
     valuation_multiple_ceiling: VALUATION_PARAMS.fv_cap_multiple,
+    fv_absurd_multiple: VALUATION_PARAMS.fv_absurd_multiple,
     min_investable_moat: 'wide',
     valuation_required: true,
   },
