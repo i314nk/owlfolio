@@ -55,18 +55,21 @@ describe('StrategyOverview', () => {
     expect(html).toContain('15%')
   })
 
-  it('describes the two-stage DCF method (not the old single-stage equity bond)', () => {
+  it('describes the two-stage DCF with the one-knob + named-cap growth model (not the old equity-bond or reinvestment×ROIC method)', () => {
     const html = render()
-    // Two-stage framing + terminal fade + 18× cap
+    // Two-stage framing + terminal fade.
     expect(html).toContain('two stages')
     expect(html.toLowerCase()).toContain('terminal')
-    expect(html).toContain(`${buffettMungerStrategy.valuation.valuation_multiple_ceiling}×`)
-    // Incremental-ROIC eligibility threshold + runway axis
-    expect(html).toContain('incremental ROIC')
+    // New growth model: demonstrated owner-earnings growth under a named forecasting-humility cap, with
+    // the above-GDP moat-durability coupling; one end-stage margin of safety; reinvestment runway axis.
+    expect(html.toLowerCase()).toContain('humility')
+    expect(html.toLowerCase()).toContain('margin of safety')
     expect(html.toLowerCase()).toContain('runway')
-    // No stale single-stage / equity-bond prose
+    // No stale prose from the superseded methods (single-stage equity bond, reinvestment×ROIC growth,
+    // the silent 18× cap as a headline rule).
     expect(html.toLowerCase()).not.toContain('equity bond')
     expect(html).not.toContain('OE / (')
+    expect(html).not.toContain('incremental ROIC')
   })
 
   it('renders the wide-moat gate and rejects sub-wide moats', () => {
