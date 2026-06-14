@@ -23,8 +23,9 @@ export function moatPassesGate(strategy: StrategyContract, moatClass: MoatClass)
  * It is GLOBAL config the human sets once, NEVER an agent input.
  *
  * `tenYearTreasury` is the live yield (decimal) when available; when omitted (or non-finite) the config
- * default (`ten_year_treasury_default`) is used, fail-closed. The certainty difference between moat tiers
- * is captured by the moat-tiered margin of safety, never by the discount rate.
+ * default (`ten_year_treasury_default`) is used, fail-closed. Business quality is never a discount-rate knob;
+ * post-F.13 it is not a valuation-parameter knob at all — a stronger moat routes its durability through the
+ * surfaced, human-weighted moat-durability input (terminal-value share), not via tier-varying params.
  */
 export function discountRate(strategy: StrategyContract, tenYearTreasury?: number): number {
   const v = strategy.valuation
@@ -35,16 +36,16 @@ export function discountRate(strategy: StrategyContract, tenYearTreasury?: numbe
 }
 
 /**
- * Returns the margin of safety for the given investable moat class.
- * wide → 30%, monopoly → 20%.
+ * Returns the base margin of safety. UNIFORM across every investable business post-F.13 — the value no
+ * longer varies by moat tier (the monopoly tier was a relocated quality-knob; collapsed to the conservative
+ * wide value). The `moatClass` argument is retained ONLY to validate the investability gate.
  * Throws if called for a non-investable moat class (narrow, moderate).
  */
 export function marginOfSafetyForMoat(strategy: StrategyContract, moatClass: MoatClass): number {
-  const mos = (strategy.valuation.margin_of_safety_by_moat as Record<string, number>)[moatClass]
-  if (mos === undefined) {
+  if (!INVESTABLE_MOAT_CLASSES.has(moatClass)) {
     throw new Error(`No margin of safety for moat class '${moatClass}' — only investable classes (wide, monopoly) have margin of safety values.`)
   }
-  return mos
+  return strategy.valuation.base_margin_of_safety
 }
 
 /** Result of widening the single MoS knob (Phase 1.6). */
@@ -60,7 +61,8 @@ export type WidenedMarginOfSafety = {
 }
 
 /**
- * THE single conservatism knob (Phase 1.6 / Part D Step 6). Start from the moat-tiered base floor and WIDEN
+ * THE single conservatism knob (Phase 1.6 / Part D Step 6). Start from the uniform base floor (F.13 — no
+ * longer moat-tiered; `moat_class` is validated for the investability gate only) and WIDEN
  * (toward the configured cap, ~0.50) with the documented uncertainties: a high terminal-value share, low
  * maintenance-capex confidence, weak moat durability (above-GDP growth IS a moat-durability claim), and
  * sensitivity dispersion (scaled in [0,1] when available). All conservatism beyond honest inputs lives
@@ -105,29 +107,30 @@ export function widenedMarginOfSafety(
 }
 
 /**
- * Returns the terminal-stage growth rate (g_t) for the given investable moat class.
- * Recalibrated: monopoly → 2.5%, wide → 1.5%. Used by the two-stage DCF terminal value.
- * Throws if called for a non-investable moat class (narrow, moderate).
+ * Returns the terminal-stage growth rate (g_t) used by the two-stage DCF terminal value. UNIFORM across
+ * every investable business post-F.13 — the value no longer varies by moat tier (collapsed to the
+ * conservative wide value; a stronger moat earns higher terminal value through the surfaced, human-weighted
+ * moat-durability input, not via a silent tier table). The `moatClass` argument is retained ONLY to validate
+ * the investability gate. Throws if called for a non-investable moat class (narrow, moderate).
  */
 export function terminalGrowthForMoat(strategy: StrategyContract, moatClass: MoatClass): number {
-  const gt = (strategy.valuation.terminal_growth_by_moat as Record<string, number>)[moatClass]
-  if (gt === undefined) {
+  if (!INVESTABLE_MOAT_CLASSES.has(moatClass)) {
     throw new Error(`No terminal growth for moat class '${moatClass}' — only investable classes (wide, monopoly) have terminal growth values.`)
   }
-  return gt
+  return strategy.valuation.terminal_growth
 }
 
 /**
- * Returns the moat-dependent stage-1 (explicit) DCF horizon in years.
- * Recalibrated: monopoly → 15 (a true monopoly earns credit past year 10), wide → 10.
- * Throws if called for a non-investable moat class (narrow, moderate).
+ * Returns the stage-1 (explicit) DCF horizon in years. UNIFORM across every investable business post-F.13 —
+ * the value no longer varies by moat tier (collapsed to the conservative wide value; a stronger moat must
+ * not silently extend the optimistic-extrapolation horizon). The `moatClass` argument is retained ONLY to
+ * validate the investability gate. Throws if called for a non-investable moat class (narrow, moderate).
  */
 export function stage1HorizonForMoat(strategy: StrategyContract, moatClass: MoatClass): number {
-  const horizon = (strategy.valuation.stage1_horizon_by_moat as Record<string, number>)[moatClass]
-  if (horizon === undefined) {
+  if (!INVESTABLE_MOAT_CLASSES.has(moatClass)) {
     throw new Error(`No stage-1 horizon for moat class '${moatClass}' — only investable classes (wide, monopoly) have horizon values.`)
   }
-  return horizon
+  return strategy.valuation.stage1_horizon
 }
 
 /** Outcome of the single growth-path computation (Phase 1.3). */
@@ -312,7 +315,7 @@ const rawBuffettMungerStrategy = {
       {
         id: 'valuation',
         name: 'Valuation specialist',
-        mandate: 'Estimate owner-earnings bridge (NI+D&A−maint capex−SBC−ΔWC), ROIC, reinvestment rate; harness computes fair value at flat 10% discount with moat-tiered margin of safety.',
+        mandate: 'Estimate owner-earnings bridge (NI+D&A−maint capex−SBC−ΔWC), ROIC, reinvestment rate; harness computes fair value at flat 10% discount with a uniform base margin of safety (widened by documented uncertainty).',
         required: true,
       },
       {
@@ -368,15 +371,13 @@ const rawBuffettMungerStrategy = {
   valuation: {
     // EVERY valuation constant below is sourced from the versioned VALUATION_PARAMS config
     // (valuation-recalibration-spec §1: one versioned config, no hardcoded valuation constants).
-    // Recalibrated defaults: terminal g 2.5%/1.5%, stage-1 horizon monopoly 15yr/wide 10yr,
-    // MOS 15%/25%, 10% flat discount (constitutional, untouched), 18× FV cap, growth bands untouched.
+    // F.13 — UNIFORM valuation params across every investable business: base MoS 25%, terminal g 1.5%,
+    // stage-1 horizon 10yr (the monopoly tier no longer loosens valuation; it is a durability signal that
+    // routes through the moat-durability input). 10% flat discount (constitutional, untouched), 18× FV cap.
     discount_rate: VALUATION_PARAMS.discount_rate,
     equity_premium: VALUATION_PARAMS.equity_premium,
     ten_year_treasury_default: VALUATION_PARAMS.ten_year_treasury_default,
-    margin_of_safety_by_moat: {
-      wide: VALUATION_PARAMS.margin_of_safety_by_moat.wide,
-      monopoly: VALUATION_PARAMS.margin_of_safety_by_moat.monopoly,
-    },
+    base_margin_of_safety: VALUATION_PARAMS.base_margin_of_safety,
     margin_of_safety_widening: {
       high_terminal_value_share: VALUATION_PARAMS.margin_of_safety_widening.high_terminal_value_share,
       low_maint_capex_confidence: VALUATION_PARAMS.margin_of_safety_widening.low_maint_capex_confidence,
@@ -385,14 +386,8 @@ const rawBuffettMungerStrategy = {
       cap: VALUATION_PARAMS.margin_of_safety_widening.cap,
     },
     terminal_value_share_flag: VALUATION_PARAMS.terminal_value_share_flag,
-    terminal_growth_by_moat: {
-      wide: VALUATION_PARAMS.terminal_growth_by_moat.wide,
-      monopoly: VALUATION_PARAMS.terminal_growth_by_moat.monopoly,
-    },
-    stage1_horizon_by_moat: {
-      wide: VALUATION_PARAMS.stage1_horizon_by_moat.wide,
-      monopoly: VALUATION_PARAMS.stage1_horizon_by_moat.monopoly,
-    },
+    terminal_growth: VALUATION_PARAMS.terminal_growth,
+    stage1_horizon: VALUATION_PARAMS.stage1_horizon,
     single_growth_cap: VALUATION_PARAMS.single_growth_cap,
     gdp_growth_threshold: VALUATION_PARAMS.gdp_growth_threshold,
     valuation_multiple_ceiling: VALUATION_PARAMS.fv_cap_multiple,

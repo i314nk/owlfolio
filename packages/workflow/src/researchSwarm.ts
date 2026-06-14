@@ -1265,13 +1265,14 @@ export async function runResearchDeepDivePhase(
   // TOTAL owner earnings, then divide by shares_outstanding to get a PER-SHARE figure (OE_ps).
   //   OE_total = NI + D&A - maint_capex - SBC - dNWC  (dNWC signed: positive=use of cash reduces OE)
   //   OE_ps    = OE_total / shares_outstanding
-  // Credited growth g (Step 3): raw_g = reinvestment_rate × incremental_roic, clamped by runway/moat
-  //   band ceiling and the 5% absolute max; g=0 unless incremental_roic > 10%.
-  // Terminal growth g_t (Step 4): monopoly 2% / wide 1%. Flat 10% discount, always.
-  // Two-stage FV (Step 4):
+  // Credited growth g (Step 3): the demonstrated OE/share CAGR through the named humility cap (Phase 1.3).
+  // Terminal growth g_t (Step 4): UNIFORM 1.5% for every investable moat (F.13 — the monopoly tier no longer
+  //   raises g_t). Flat 10% discount, always.
+  // Two-stage FV (Step 4): stage-1 horizon is UNIFORM 10 yrs for every investable moat (F.13).
   //   FV_ps = Σ_{t=1..10} OE_ps(1+g)^t/(1+r)^t + [OE_ps(1+g)^10(1+g_t)/(r−g_t)]/(1+r)^10
-  //   FV_ps = min(FV_ps, 18 × OE_ps)   (sanity cap)
-  // Buy price (Step 5): round(FV_ps × (1 − MoS), 2)  MoS = monopoly 20% / wide 30%.
+  //   FV_ps > 18 × OE_ps raises a surfaced cap_exceeded flag (not a silent truncation).
+  // Buy price (Step 5): round(FV_ps × (1 − MoS), 2)  MoS = UNIFORM 25% base for every investable moat (F.13),
+  //   widened by documented uncertainty. A monopoly is a durability signal, not a valuation-loosening lever.
 
   // ---- Visible degraded flags (Mechanism: no SILENT skip) ----
   // Every OPTIONAL structured field the model omitted is recorded as an explicit flag here and appended
@@ -1574,7 +1575,7 @@ export async function runResearchDeepDivePhase(
     )
   } else if (moat_passes_gate && normalized_owner_earnings_per_share !== undefined) {
     const terminal_g = terminalGrowthForMoat(buffettMungerStrategy, moatClass)
-    // Moat-dependent stage-1 horizon (recalibrated, spec §1): monopoly 15 yrs, wide 10.
+    // Stage-1 horizon — UNIFORM 10 yrs for every investable moat (F.13); the moatClass arg validates the gate.
     const horizon = stage1HorizonForMoat(buffettMungerStrategy, moatClass)
     // Phase 1.5/1.6: rich two-stage valuation — surfaces terminal_value_pct_of_iv, flags cap_exceeded
     // (no silent truncation), and discards only an absurd (units-bug) value.

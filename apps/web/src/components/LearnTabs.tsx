@@ -15,14 +15,12 @@ const strategy = buffettMungerStrategy
 const DISCOUNT = discountRate(strategy)
 const MULTIPLE_CEILING = strategy.valuation.valuation_multiple_ceiling
 const MIN_INVESTABLE_MOAT = strategy.valuation.min_investable_moat
+// F.13 — base MoS, terminal g, and stage-1 horizon are UNIFORM across investable moats; one value each.
 const MOS_WIDE = marginOfSafetyForMoat(strategy, 'wide')
-const MOS_MONOPOLY = marginOfSafetyForMoat(strategy, 'monopoly')
 const TERMINAL_G_WIDE = terminalGrowthForMoat(strategy, 'wide')
-const TERMINAL_G_MONOPOLY = terminalGrowthForMoat(strategy, 'monopoly')
 const SINGLE_GROWTH_CAP = strategy.valuation.single_growth_cap
 const GDP_GROWTH_THRESHOLD = strategy.valuation.gdp_growth_threshold
-const STAGE1_MONOPOLY = strategy.valuation.stage1_horizon_by_moat.monopoly
-const STAGE1_WIDE = strategy.valuation.stage1_horizon_by_moat.wide
+const STAGE1_HORIZON = strategy.valuation.stage1_horizon
 const LANE_COUNT = buffettMungerDeepDiveLanes.length
 
 function pct(value: number, digits = 0): string {
@@ -160,7 +158,7 @@ function StrategyTab(): ReactNode {
         null,
         'Owner earnings are discounted in two stages: a stage-1 horizon at a credited growth rate, then a fade to a small terminal rate. The discount is a flat ',
         mono(pct(DISCOUNT)),
-        ' — no WACC, no beta, ever. The certainty difference between moat classes lives in the margin of safety, not the discount rate. The live parameters below are read from the versioned valuation config, not hard-coded here.',
+        ' — no WACC, no beta, ever. Business quality is not a valuation-loosening lever: the discount, the base margin of safety, the horizon, and the terminal rate are all uniform across investable moats. A monopoly is a durability signal — it earns higher terminal value through the moat-durability input, not by lowering the safety margin or stretching the horizon. The live parameters below are read from the versioned valuation config, not hard-coded here.',
       ),
       children: createElement(
         'div',
@@ -182,16 +180,16 @@ function StrategyTab(): ReactNode {
             },
           },
           createElement('div', null, `g    = honest demonstrated owner-earnings/share CAGR, capped at ${pct(SINGLE_GROWTH_CAP)} (named humility backstop); above ${pct(GDP_GROWTH_THRESHOLD)} → moat-durability flag`),
-          createElement('div', null, `stage 1 = ${STAGE1_WIDE} yrs (wide) · ${STAGE1_MONOPOLY} yrs (monopoly) at that growth path`),
-          createElement('div', null, `gₜ   = terminal fade: monopoly ${pct(TERMINAL_G_MONOPOLY)} / wide ${pct(TERMINAL_G_WIDE)}`),
+          createElement('div', null, `stage 1 = ${STAGE1_HORIZON} yrs at that growth path (uniform for every investable moat)`),
+          createElement('div', null, `gₜ   = terminal fade: ${pct(TERMINAL_G_WIDE)} (uniform for every investable moat)`),
           createElement('div', null, `fair > ${MULTIPLE_CEILING}× OE → surfaced cap_exceeded sanity flag (not a silent truncation)`),
-          createElement('div', null, `buy  = fair × (1 − MOS)   ·  the ONE conservatism knob: monopoly ${pct(MOS_MONOPOLY)} / wide ${pct(MOS_WIDE)}`),
+          createElement('div', null, `buy  = fair × (1 − MOS)   ·  the ONE conservatism knob: ${pct(MOS_WIDE)} base for every investable moat (widens with documented uncertainty)`),
         ),
         cardGrid([
           { key: 'd', eyebrow: 'Flat discount', body: createElement('span', null, mono(pct(DISCOUNT)), ' hurdle, always — falling rates never lower it.') },
           { key: 'g', eyebrow: 'Honest growth', body: createElement('span', null, 'The demonstrated OE/share CAGR, ', mono(pct(SINGLE_GROWTH_CAP)), ' humility cap; above-GDP is a moat-durability claim.') },
           { key: 'cap', eyebrow: 'Sanity flag', body: createElement('span', null, mono(`${MULTIPLE_CEILING}×`), ' owner earnings raises a cap_exceeded flag — surfaced, never silently truncated.') },
-          { key: 'mos', eyebrow: 'Margin of safety', body: createElement('span', null, 'monopoly ', mono(pct(MOS_MONOPOLY)), ' · wide ', mono(pct(MOS_WIDE)), ' — wider buffer for less certainty.') },
+          { key: 'mos', eyebrow: 'Margin of safety', body: createElement('span', null, mono(pct(MOS_WIDE)), ' base for every investable moat — uniform, then widens with documented uncertainty. A monopoly is a durability signal, not a smaller buffer.') },
         ], '200px'),
       ),
     }),

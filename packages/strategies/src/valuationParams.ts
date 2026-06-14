@@ -13,11 +13,6 @@
 /** OE normalization stance — trough reserved for true cyclicals flagged by the FINANCIAL_QUALITY lane. */
 export type OeNormalization = 'trough' | 'mid_cycle'
 
-export type MoatTieredNumber = {
-  wide: number
-  monopoly: number
-}
-
 /**
  * The full versioned valuation parameter set. Every number the valuation engine needs lives here;
  * nothing is hardcoded in buffettMunger.ts / researchSwarm.ts. Bump `version` on any change and log a
@@ -41,16 +36,28 @@ export type ValuationParams = {
   equity_premium: number
   /** Documented fail-closed default 10y Treasury yield used when the live fetch is unavailable (Phase 1.4). */
   ten_year_treasury_default: number
-  /** Terminal-stage growth g_t by moat tier. Recalibrated: monopoly 2.5%, wide 1.5% (spec §1). */
-  terminal_growth_by_moat: MoatTieredNumber
-  /** Stage-1 horizon (years) by moat tier. Recalibrated: monopoly 15, wide 10 (spec §1). */
-  stage1_horizon_by_moat: MoatTieredNumber
   /**
-   * THE single conservatism knob (Phase 1.6 / Part D Step 6): the base margin-of-safety floor by moat tier.
-   * Recalibrated: monopoly 15%, wide 25%. It WIDENS (via margin_of_safety_widening) with terminal-value
+   * Terminal-stage growth g_t — UNIFORM across every investable business (F.13). The old
+   * terminal_growth_by_moat {wide:0.015, monopoly:0.025} tier table was collapsed to one scalar
+   * (the conservative wide value): business quality is NOT a per-name valuation-loosening lever.
+   * A stronger moat earns higher terminal value through the surfaced, human-weighted moat-durability
+   * input (terminal-value share, Phase 7), not via a silent tier table that raises g_t.
+   */
+  terminal_growth: number
+  /**
+   * Stage-1 (explicit) DCF horizon in years — UNIFORM across every investable business (F.13). The old
+   * stage1_horizon_by_moat {wide:10, monopoly:15} table was collapsed to one scalar (the conservative wide
+   * value): a stronger moat must not silently extend the optimistic-extrapolation horizon.
+   */
+  stage1_horizon: number
+  /**
+   * THE single conservatism knob (Phase 1.6 / Part D Step 6): the base margin-of-safety floor — UNIFORM
+   * across every investable business (F.13). The old margin_of_safety_by_moat {wide:0.25, monopoly:0.15}
+   * table was collapsed to one scalar (the conservative wide value): a monopoly is a durability signal, NOT
+   * a license to lower the safety margin. It WIDENS (via margin_of_safety_widening) with terminal-value
    * share, low maint-capex confidence, weak moat durability, and sensitivity dispersion.
    */
-  margin_of_safety_by_moat: MoatTieredNumber
+  base_margin_of_safety: number
   /**
    * MoS-widening increments + cap (Phase 1.6). All conservatism beyond the base floor lives HERE (one knob):
    * each documented uncertainty adds its increment, clamped to `cap` (~0.50). Calibration-tunable.
@@ -82,9 +89,15 @@ export type ValuationParams = {
   /**
    * THE single named growth backstop (Phase 1.3 / Part D Step 2 / F.3) — one forecasting-humility cap on
    * the honest historical owner-earnings growth path. Replaces the old stacked
-   * growth_band_ceilings/max_growth/growth_eligibility trio. **The ~0.20 level is a PLACEHOLDER pending the
-   * 1.9 calibration against the circle's actual 5–10yr OE CAGRs — NOT a derived number.** It sits BEHIND the
-   * durable-source requirement (it is a backstop, never a license) and bites only over-optimism.
+   * growth_band_ceilings/max_growth/growth_eligibility trio. It sits BEHIND the durable-source requirement
+   * (it is a backstop, never a license) and bites only over-optimism.
+   *
+   * **PROVISIONAL PLACEHOLDER — currently UN-ANCHORED (NOT frozen).** FDS was removed from the calibration
+   * set, AND its 8.2% figure was an old-method CAGR, so the earlier "frozen at 1.9 against the circle's
+   * 5–10yr OE CAGRs (max FDS 8.2%)" justification no longer holds. The *direction* (lower is safer) still
+   * rests on the deterministic over-optimism math (a long horizon on an optimistic input licensed 45–83× OE
+   * fair values), but the *level* must be re-derived from Phase-1-method OE/share CAGRs before any freeze.
+   * Kept at 0.10 for now as an interim placeholder.
    */
   single_growth_cap: number
   /**
@@ -105,18 +118,23 @@ export type ValuationParams = {
 }
 
 /**
- * The frozen DEFAULT valuation parameters (valuation-recalibration-spec §1 recalibrated values).
+ * The DEFAULT valuation parameters (valuation-recalibration-spec §1).
  *
- * Recalibrated from buffett-valuation-method-v2:
- *   terminal g:     monopoly 2.0% → 2.5%, wide 1.0% → 1.5%
- *   stage-1 horizon: monopoly 10 → 15 yrs, wide 10 (unchanged)
- *   MOS:            monopoly 20% → 15%, wide 30% → 25%
- *   OE default:     trough-everywhere → mid_cycle
+ * F.13 — the monopoly moat tier is a relocated quality-knob; COLLAPSED to uniform valuation params:
+ *   terminal_growth:       uniform 1.5% (was terminal_growth_by_moat {wide:0.015, monopoly:0.025})
+ *   stage1_horizon:        uniform 10   (was stage1_horizon_by_moat {wide:10, monopoly:15})
+ *   base_margin_of_safety: uniform 0.25 (was margin_of_safety_by_moat {wide:0.25, monopoly:0.15})
+ * Business quality is NOT a per-name valuation-loosening lever (same principle already applied to the
+ * uniform discount rate). A monopoly is a durability signal: it earns higher terminal value through the
+ * surfaced, human-weighted moat-durability input (terminal-value share, Phase 7), never via a silent tier
+ * table. The investability gate is UNCHANGED (wide/monopoly investable; narrow/moderate fail pre-valuation)
+ * and target_weight_by_moat stays in portfolio sizing (Phase 5 owns sizing).
+ *
  * Phase 1.3 (one-knob): the stacked growth_band_ceilings/max_growth/growth_eligibility trio is replaced by
- * a single named single_growth_cap (~0.20 PLACEHOLDER) + an above-GDP coupling flag (gdp_growth_threshold).
+ * a single named single_growth_cap (provisional placeholder) + an above-GDP coupling flag (gdp_growth_threshold).
  */
 export const VALUATION_PARAMS: ValuationParams = Object.freeze({
-  version: 'valuation-2026-06-one-knob-2',
+  version: 'valuation-2026-06-f13-uniform-moat-1',
   // discount_rate = ten_year_treasury_default (0.045) + equity_premium (0.055) = 0.10 (unchanged default).
   discount_rate: 0.10,
   // PROVISIONAL — these signal-dependent params are NOT yet frozen. The 1.9 calibration ran on only n=2
@@ -126,9 +144,11 @@ export const VALUATION_PARAMS: ValuationParams = Object.freeze({
   // (measurement + deterministic math, robust to n=2).
   equity_premium: 0.055,
   ten_year_treasury_default: 0.045,
-  terminal_growth_by_moat: { monopoly: 0.025, wide: 0.015 },
-  stage1_horizon_by_moat: { monopoly: 15, wide: 10 },
-  margin_of_safety_by_moat: { monopoly: 0.15, wide: 0.25 }, // PROVISIONAL (see note above)
+  // F.13 — UNIFORM across every investable business (collapsed from the old _by_moat tier tables to the
+  // conservative wide values). Quality is not a per-name valuation-loosening lever.
+  terminal_growth: 0.015,
+  stage1_horizon: 10,
+  base_margin_of_safety: 0.25, // PROVISIONAL (see note above)
   // Phase 1.6 — widening increments + 0.50 cap. PROVISIONAL magnitudes (see note above; not yet frozen).
   margin_of_safety_widening: {
     high_terminal_value_share: 0.10,
@@ -139,11 +159,12 @@ export const VALUATION_PARAMS: ValuationParams = Object.freeze({
   },
   fv_cap_multiple: 18,
   fv_absurd_multiple: 100,
-  // FROZEN at the 1.9 calibration (owner decision 2026-06-15): set from the circle's measured 5–10yr OE
-  // CAGRs (CPRT 4.7%, FDS 8.2% — max 8.2%) so 0.10 clears every real name with headroom, AND tames the
-  // deterministic over-optimism case (0.20 over the 10–15yr horizon licensed 45–83× OE fair values; 0.10
-  // is far tamer). Measurement- + math-driven, so robust to the n=2 calibration universe. The owner chose
-  // "lower cap is enough" — cap_exceeded stays a WARN flag, no output-side hard guard.
+  // PROVISIONAL PLACEHOLDER — NO LONGER FROZEN. The earlier 1.9 freeze leaned on the circle's measured OE
+  // CAGRs (incl. FDS 8.2%); FDS has since been removed from the calibration set AND its 8.2% was an
+  // old-method CAGR, so that anchor is gone. The DIRECTION (lower is safer) still holds on the deterministic
+  // over-optimism math (a long horizon on an optimistic input licensed 45–83× OE fair values; a lower cap is
+  // far tamer), but the LEVEL must be re-derived from Phase-1-method OE/share CAGRs before any freeze. Kept
+  // at 0.10 as an interim placeholder; cap_exceeded stays a WARN flag, no output-side hard guard.
   single_growth_cap: 0.10,
   terminal_value_share_flag: 0.65,
   gdp_growth_threshold: 0.03,

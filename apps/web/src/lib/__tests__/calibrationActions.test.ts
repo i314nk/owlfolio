@@ -114,7 +114,7 @@ describe('proposeValuationConfigChange', () => {
   it('builds a gated config-change DRAFT requiring confirmation, with the backtest attached', () => {
     const draft = proposeValuationConfigChange({
       strategy_id: 'buffett-munger',
-      next: { margin_of_safety_by_moat: { monopoly: 0.20, wide: 0.30 }, version: 'valuation-proposed-1' },
+      next: { base_margin_of_safety: 0.30, version: 'valuation-proposed-1' },
       calibration_run_event_id: 'evt_calibration_run_cal_1',
       rationale: 'Annual review; ladder under-deployed.',
     })
@@ -129,7 +129,7 @@ describe('proposeValuationConfigChange', () => {
     expect(() =>
       proposeValuationConfigChange({
         strategy_id: 'buffett-munger',
-        next: { margin_of_safety_by_moat: { monopoly: 0.20, wide: 0.30 }, version: 'v' },
+        next: { base_margin_of_safety: 0.30, version: 'v' },
         calibration_run_event_id: '',
       }),
     ).toThrow(/backtest|calibration_run/i)

@@ -15,24 +15,24 @@ describe('Buffett-Munger two-stage DCF contract params', () => {
     expect(buffettMungerStrategy.valuation.discount_rate).toBe(0.1)
   })
 
-  // Recalibrated per valuation-recalibration-spec §1: monopoly 15% MOS, wide 25% MOS.
-  it('moat-tiered MoS (recalibrated): monopoly 15%, wide 25%', () => {
-    expect(buffettMungerStrategy.valuation.margin_of_safety_by_moat).toEqual({ wide: 0.25, monopoly: 0.15 })
-    expect(marginOfSafetyForMoat(buffettMungerStrategy, 'monopoly')).toBe(0.15)
+  // F.13 — UNIFORM base MoS 25% for every investable moat (collapsed from the old monopoly/wide tier table).
+  it('uniform base MoS (F.13): 25% for wide and monopoly alike', () => {
+    expect(buffettMungerStrategy.valuation.base_margin_of_safety).toBe(0.25)
+    expect(marginOfSafetyForMoat(buffettMungerStrategy, 'monopoly')).toBe(0.25)
     expect(marginOfSafetyForMoat(buffettMungerStrategy, 'wide')).toBe(0.25)
   })
 
-  // Recalibrated per spec §1: monopoly terminal 2.5%, wide 1.5% (sub-inflation 1% was wrong).
-  it('terminal growth by moat (recalibrated): monopoly 2.5%, wide 1.5%', () => {
-    expect(buffettMungerStrategy.valuation.terminal_growth_by_moat).toEqual({ monopoly: 0.025, wide: 0.015 })
-    expect(terminalGrowthForMoat(buffettMungerStrategy, 'monopoly')).toBe(0.025)
+  // F.13 — UNIFORM terminal g 1.5% for every investable moat (collapsed to wide's value).
+  it('uniform terminal growth (F.13): 1.5% for wide and monopoly alike', () => {
+    expect(buffettMungerStrategy.valuation.terminal_growth).toBe(0.015)
+    expect(terminalGrowthForMoat(buffettMungerStrategy, 'monopoly')).toBe(0.015)
     expect(terminalGrowthForMoat(buffettMungerStrategy, 'wide')).toBe(0.015)
   })
 
-  // Recalibrated per spec §1: monopoly stage-1 horizon 15 yrs (moat duration justifies paying up); wide 10.
-  it('stage-1 horizon by moat (recalibrated): monopoly 15 yrs, wide 10 yrs', () => {
-    expect(buffettMungerStrategy.valuation.stage1_horizon_by_moat).toEqual({ monopoly: 15, wide: 10 })
-    expect(stage1HorizonForMoat(buffettMungerStrategy, 'monopoly')).toBe(15)
+  // F.13 — UNIFORM stage-1 horizon 10 yrs for every investable moat (collapsed to wide's value).
+  it('uniform stage-1 horizon (F.13): 10 yrs for wide and monopoly alike', () => {
+    expect(buffettMungerStrategy.valuation.stage1_horizon).toBe(10)
+    expect(stage1HorizonForMoat(buffettMungerStrategy, 'monopoly')).toBe(10)
     expect(stage1HorizonForMoat(buffettMungerStrategy, 'wide')).toBe(10)
   })
 
@@ -116,17 +116,17 @@ describe('twoStageFairValuePerShare (Step 4 two-stage DCF)', () => {
 // "Do not trust any number in prose, including the spec's — compute from the formula and pin your
 // computed value as the regression test."
 //
-// COMPUTED (this implementation, from the Step-4 formula):
-//   Monopoly, OE_ps=100, g=0.04, horizon=15, terminal=0.025, discount=0.10, cap=18× →
-//     FV = Σ_{t=1..15} 100·1.04^t/1.10^t + [100·1.04^15·1.025/(0.10−0.025)]/1.10^15
-//        = 986.0386 (stage1) + 589.2131 (terminal) = 1575.2518   (implied 15.75× OE, under 18× cap)
-//     buy @ MOS 15% = 1575.2518 × 0.85 = 1338.9640
-//   This DIFFERS from the spec's illustrative ~1675 / buy ~1424. The spec text is illustrative only;
-//   per the spec's own instruction the COMPUTED value above is the truth and is pinned here. (The
-//   gap is ~6%: the spec's arithmetic is not reproduced by the literal Σ + Gordon-terminal formula.)
+// COMPUTED (this implementation, from the Step-4 formula). F.13 — valuation params are UNIFORM across
+// investable moats: terminal g 1.5%, horizon 10, base MoS 25% for monopoly and wide alike. A monopoly no
+// longer earns a longer horizon / higher g_t / lower MoS; the only difference below is the credited growth
+// input (g=4% vs g=3%).
+//   Monopoly-tagged name, OE_ps=100, g=0.04, horizon=10, terminal=0.015, discount=0.10, cap=18× →
+//     FV = Σ_{t=1..10} 100·1.04^t/1.10^t + [100·1.04^10·1.015/(0.10−0.015)]/1.10^10
+//        = 1425.6039   (implied 14.26× OE, under 18× cap)
+//     buy @ MOS 25% = 1425.6039 × 0.75 = 1069.2029
 // ---------------------------------------------------------------------------
-describe('Acceptance #1 — reference valuation regression (computed, not trusted from prose)', () => {
-  it('Monopoly reference: OE=100, g=4%, horizon 15, terminal 2.5%, discount 10%, cap 18×', () => {
+describe('Acceptance #1 — reference valuation regression (computed, not trusted from prose; F.13 uniform)', () => {
+  it('Monopoly-tagged name: OE=100, g=4%, uniform horizon 10, terminal 1.5%, discount 10%, cap 18×, MOS 25%', () => {
     const oe_ps = 100
     const fv = twoStageFairValuePerShare({
       oe_ps,
@@ -138,10 +138,10 @@ describe('Acceptance #1 — reference valuation regression (computed, not truste
     })
     const mos = marginOfSafetyForMoat(buffettMungerStrategy, 'monopoly')
     const buy = fv * (1 - mos)
-    // Pinned computed values (truth per spec §4 instruction). Spec illustrative ~1675 differs (~6%).
-    expect(fv).toBeCloseTo(1575.2518, 3)
-    expect(fv / oe_ps).toBeCloseTo(15.753, 3) // implied multiple, under the 18× cap
-    expect(buy).toBeCloseTo(1338.964, 2)
+    // Pinned computed values (truth per spec §4 instruction); F.13 uniform params (terminal 1.5%, horizon 10).
+    expect(fv).toBeCloseTo(1425.6039, 3)
+    expect(fv / oe_ps).toBeCloseTo(14.256, 3) // implied multiple, under the 18× cap
+    expect(buy).toBeCloseTo(1069.2029, 2)
     expect(fv).toBeLessThan(18 * oe_ps) // cap does not bind here
   })
 
@@ -175,20 +175,20 @@ describe('Acceptance #2 — config-driven (changing a param changes the buy pric
     const fv = twoStageFairValuePerShare({
       oe_ps,
       g: 0.04,
-      terminal_g: VALUATION_PARAMS.terminal_growth_by_moat.monopoly,
+      terminal_g: VALUATION_PARAMS.terminal_growth,
       discount: VALUATION_PARAMS.discount_rate,
       ceiling_multiple: VALUATION_PARAMS.fv_cap_multiple,
-      horizon: VALUATION_PARAMS.stage1_horizon_by_moat.monopoly,
+      horizon: VALUATION_PARAMS.stage1_horizon,
     })
     // Same valuation engine, two different MOS values pulled from a config object — no code change.
-    const buyAtDefaultMos = fv * (1 - VALUATION_PARAMS.margin_of_safety_by_moat.monopoly)
+    const buyAtDefaultMos = fv * (1 - VALUATION_PARAMS.base_margin_of_safety)
     const tighterConfig = {
       ...VALUATION_PARAMS,
-      margin_of_safety_by_moat: { ...VALUATION_PARAMS.margin_of_safety_by_moat, monopoly: 0.30 },
+      base_margin_of_safety: 0.30,
     }
-    const buyAtTighterMos = fv * (1 - tighterConfig.margin_of_safety_by_moat.monopoly)
+    const buyAtTighterMos = fv * (1 - tighterConfig.base_margin_of_safety)
     expect(buyAtTighterMos).toBeLessThan(buyAtDefaultMos)
     expect(buyAtTighterMos).toBeCloseTo(fv * 0.70, 6)
-    expect(buyAtDefaultMos).toBeCloseTo(fv * 0.85, 6)
+    expect(buyAtDefaultMos).toBeCloseTo(fv * 0.75, 6) // uniform base MoS is now 25% (F.13)
   })
 })

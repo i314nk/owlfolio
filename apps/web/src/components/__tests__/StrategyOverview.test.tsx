@@ -45,14 +45,15 @@ describe('StrategyOverview', () => {
     expect(html).toContain('10%')
   })
 
-  it('renders the moat-tiered margin of safety from the contract', () => {
+  it('renders the uniform base margin of safety from the contract (F.13 — same for every investable moat)', () => {
     const html = render()
-    const wide = `${marginOfSafetyForMoat(buffettMungerStrategy, 'wide') * 100}%` // 25% (recalibrated)
-    const monopoly = `${marginOfSafetyForMoat(buffettMungerStrategy, 'monopoly') * 100}%` // 15% (recalibrated)
+    const wide = `${marginOfSafetyForMoat(buffettMungerStrategy, 'wide') * 100}%` // 25%
+    const monopoly = `${marginOfSafetyForMoat(buffettMungerStrategy, 'monopoly') * 100}%` // 25% (uniform, F.13)
     expect(wide).toBe('25%')
-    expect(monopoly).toBe('15%')
+    expect(monopoly).toBe('25%')
     expect(html).toContain('25%')
-    expect(html).toContain('15%')
+    // The page describes the monopoly as a durability signal, not a smaller safety margin.
+    expect(html.toLowerCase()).toContain('durability')
   })
 
   it('describes the two-stage DCF with the one-knob + named-cap growth model (not the old equity-bond or reinvestment×ROIC method)', () => {

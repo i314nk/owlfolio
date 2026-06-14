@@ -23,14 +23,13 @@ const strategy = buffettMungerStrategy
 const DISCOUNT = discountRate(strategy)
 const MULTIPLE_CEILING = strategy.valuation.valuation_multiple_ceiling
 const MIN_INVESTABLE_MOAT = strategy.valuation.min_investable_moat
+// F.13 — the base MoS and terminal g are UNIFORM across investable moats; a single value renders for both.
 const MOS_WIDE = marginOfSafetyForMoat(strategy, 'wide')
-const MOS_MONOPOLY = marginOfSafetyForMoat(strategy, 'monopoly')
 const TERMINAL_G_WIDE = terminalGrowthForMoat(strategy, 'wide')
-const TERMINAL_G_MONOPOLY = terminalGrowthForMoat(strategy, 'monopoly')
 const SINGLE_GROWTH_CAP = strategy.valuation.single_growth_cap
 const GDP_GROWTH_THRESHOLD = strategy.valuation.gdp_growth_threshold
 
-// Worked example — a monopoly compounder, computed from the live contract so the prose tracks params.
+// Worked example — an investable compounder, computed from the live contract so the prose tracks params.
 // ONE growth path (Phase 1.3): the demonstrated historical owner-earnings/share CAGR, passed through the
 // named forecasting-humility cap. Here a 12% demonstrated rate is under the ~20% cap but above GDP, so it
 // is flagged a moat-durability claim (lowest-confidence, human-weighted).
@@ -41,11 +40,11 @@ const EX_G = EX_GROWTH.growth
 const EX_FV = twoStageFairValuePerShare({
   oe_ps: EX_OE,
   g: EX_G,
-  terminal_g: TERMINAL_G_MONOPOLY,
+  terminal_g: TERMINAL_G_WIDE,
   discount: DISCOUNT,
   ceiling_multiple: MULTIPLE_CEILING,
 })
-const EX_BUY = Math.round(EX_FV * (1 - MOS_MONOPOLY) * 100) / 100
+const EX_BUY = Math.round(EX_FV * (1 - MOS_WIDE) * 100) / 100
 const EX_IMPLIED = EX_FV / EX_OE
 const TARGET_WIDE = strategy.portfolio.target_weight_by_moat.wide
 const TARGET_MONOPOLY = strategy.portfolio.target_weight_by_moat.monopoly
@@ -437,7 +436,7 @@ export function StrategyOverview(): ReactNode {
           },
           createElement('div', null, 'OE   = NI + D&A − maintenance capex (Greenwald vs D&A floor, conservative) − SBC − ΔNWC'),
           createElement('div', null, `g    = honest demonstrated owner-earnings/share CAGR, capped at ${pct(SINGLE_GROWTH_CAP)} (named humility backstop); above ${pct(GDP_GROWTH_THRESHOLD)} is flagged a moat-durability claim`),
-          createElement('div', null, `gₜ   = terminal fade: monopoly ${pct(TERMINAL_G_MONOPOLY)} / wide ${pct(TERMINAL_G_WIDE)}`),
+          createElement('div', null, `gₜ   = terminal fade: ${pct(TERMINAL_G_WIDE)} for every investable moat (uniform)`),
           createElement('div', null, `fair = Σ OE(1+g)ᵗ/(1+${pct(DISCOUNT)})ᵗ  [t=1..10]  +  OE(1+g)¹⁰(1+gₜ)/(${pct(DISCOUNT)}−gₜ) / (1+${pct(DISCOUNT)})¹⁰`),
           createElement('div', null, `fair > ${MULTIPLE_CEILING}× OE → surfaced cap_exceeded sanity flag (not a silent truncation)`),
           createElement('div', null, 'buy  = fair × (1 − margin of safety)    — the ONE conservatism knob'),
@@ -454,21 +453,25 @@ export function StrategyOverview(): ReactNode {
           ],
         }),
 
-        // MoS table
-        createElement('p', { style: microLabel }, 'Moat-tiered margin of safety'),
+        // Valuation params — UNIFORM across investable moats (F.13). A monopoly is a durability signal that
+        // earns higher terminal value through the moat-durability input, NOT a license to lower the safety
+        // margin, extend the horizon, or raise terminal growth. Those are uniform for wide and monopoly alike.
+        createElement('p', { style: microLabel }, 'Valuation parameters — uniform across investable moats'),
         Table({
-          headings: ['Moat class', 'Discount rate', 'Terminal g', 'Margin of safety'],
+          headings: ['Parameter', 'Value (wide & monopoly)'],
           rows: [
-            [createElement('span', { style: goldText }, 'wide'), createElement('span', { style: monoFigure }, pct(DISCOUNT)), createElement('span', { style: monoFigure }, pct(TERMINAL_G_WIDE)), createElement('span', { style: monoFigure }, pct(MOS_WIDE))],
-            [createElement('span', { style: goldText }, 'monopoly'), createElement('span', { style: monoFigure }, pct(DISCOUNT)), createElement('span', { style: monoFigure }, pct(TERMINAL_G_MONOPOLY)), createElement('span', { style: monoFigure }, pct(MOS_MONOPOLY))],
+            [createElement('span', { style: goldText }, 'Discount rate'), createElement('span', { style: monoFigure }, pct(DISCOUNT))],
+            [createElement('span', { style: goldText }, 'Terminal g'), createElement('span', { style: monoFigure }, pct(TERMINAL_G_WIDE))],
+            [createElement('span', { style: goldText }, 'Base margin of safety'), createElement('span', { style: monoFigure }, pct(MOS_WIDE))],
           ],
         }),
+        createElement('p', { style: { ...bodyStyle, margin: '0.2rem 0 0' } }, 'A monopoly is a durability signal — more confidence the cash flows persist, which earns higher terminal value through the moat-durability input — not a license to lower the safety margin or stretch the horizon.'),
 
         // Worked example — computed from the live contract.
         createElement(
           'div',
           { style: { ...bodyStyle, background: 'var(--owl-color-panel)', border: '1px solid var(--owl-color-border)', borderRadius: 'var(--owl-radius-card)', padding: '0.85rem 1rem' } },
-          createElement('p', { style: { ...microLabel, marginBottom: '0.4rem' } }, 'Worked example — a monopoly compounder'),
+          createElement('p', { style: { ...microLabel, marginBottom: '0.4rem' } }, 'Worked example — an investable compounder'),
           createElement(
             'p',
             { style: { margin: 0 } },
@@ -479,18 +482,14 @@ export function StrategyOverview(): ReactNode {
             ` give a growth path of `,
             createElement('span', { style: monoFigure }, pct(EX_G)),
             ` (under the ${pct(SINGLE_GROWTH_CAP)} humility cap, but above GDP — so it is flagged a moat-durability claim the human weights). Discounting ten years of that growth and fading to a `,
-            createElement('span', { style: monoFigure }, pct(TERMINAL_G_MONOPOLY)),
+            createElement('span', { style: monoFigure }, pct(TERMINAL_G_WIDE)),
             ' terminal rate gives a fair value of ',
             createElement('span', { style: monoFigure }, `$${EX_FV.toFixed(0)}`),
-            ` (${EX_IMPLIED.toFixed(1)}× owner earnings; a value above ${MULTIPLE_CEILING}× would raise a cap_exceeded sanity flag, not be truncated). A monopoly carries a `,
-            createElement('span', { style: monoFigure }, pct(MOS_MONOPOLY)),
-            ' margin of safety, so the buy price is ',
-            createElement('span', { style: monoFigure }, `$${EX_FV.toFixed(0)} × (1 − ${pct(MOS_MONOPOLY)}) = $${EX_BUY.toFixed(0)}`),
-            '. A wide-moat business would fade to a ',
-            createElement('span', { style: monoFigure }, pct(TERMINAL_G_WIDE)),
-            ' terminal and demand a ',
+            ` (${EX_IMPLIED.toFixed(1)}× owner earnings; a value above ${MULTIPLE_CEILING}× would raise a cap_exceeded sanity flag, not be truncated). The base margin of safety is `,
             createElement('span', { style: monoFigure }, pct(MOS_WIDE)),
-            ' buffer instead.',
+            ' for every investable moat, so the buy price is ',
+            createElement('span', { style: monoFigure }, `$${EX_FV.toFixed(0)} × (1 − ${pct(MOS_WIDE)}) = $${EX_BUY.toFixed(0)}`),
+            '. A monopoly does not lower that buffer, shorten nothing, raise no terminal rate — its extra durability is argued through the moat-durability input, where the human weights it.',
           ),
         ),
       ),

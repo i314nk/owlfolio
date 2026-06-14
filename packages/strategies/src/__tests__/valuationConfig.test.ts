@@ -20,9 +20,10 @@ describe('VALUATION_PARAMS (versioned config — single source of truth)', () =>
     expect(VALUATION_PARAMS.discount_rate).toBe(0.10) // effective default = treasury default + equity premium
     expect(VALUATION_PARAMS.equity_premium).toBe(0.055) // Phase 1.4 — uniform, no quality knob
     expect(VALUATION_PARAMS.ten_year_treasury_default).toBe(0.045) // Phase 1.4 — fail-closed default
-    expect(VALUATION_PARAMS.terminal_growth_by_moat).toEqual({ monopoly: 0.025, wide: 0.015 })
-    expect(VALUATION_PARAMS.stage1_horizon_by_moat).toEqual({ monopoly: 15, wide: 10 })
-    expect(VALUATION_PARAMS.margin_of_safety_by_moat).toEqual({ monopoly: 0.15, wide: 0.25 })
+    // F.13 — UNIFORM scalars (collapsed from the old _by_moat tier tables to the conservative wide values).
+    expect(VALUATION_PARAMS.terminal_growth).toBe(0.015)
+    expect(VALUATION_PARAMS.stage1_horizon).toBe(10)
+    expect(VALUATION_PARAMS.base_margin_of_safety).toBe(0.25)
     expect(VALUATION_PARAMS.fv_cap_multiple).toBe(18)
     expect(VALUATION_PARAMS.single_growth_cap).toBe(0.10) // FROZEN at 1.9 (cap)
     expect(VALUATION_PARAMS.gdp_growth_threshold).toBe(0.03)
@@ -32,9 +33,9 @@ describe('VALUATION_PARAMS (versioned config — single source of truth)', () =>
   it('the strategy contract sources its valuation constants from VALUATION_PARAMS', () => {
     const v = buffettMungerStrategy.valuation
     expect(v.discount_rate).toBe(VALUATION_PARAMS.discount_rate)
-    expect(v.margin_of_safety_by_moat).toEqual(VALUATION_PARAMS.margin_of_safety_by_moat)
-    expect(v.terminal_growth_by_moat).toEqual(VALUATION_PARAMS.terminal_growth_by_moat)
-    expect(v.stage1_horizon_by_moat).toEqual(VALUATION_PARAMS.stage1_horizon_by_moat)
+    expect(v.base_margin_of_safety).toBe(VALUATION_PARAMS.base_margin_of_safety)
+    expect(v.terminal_growth).toBe(VALUATION_PARAMS.terminal_growth)
+    expect(v.stage1_horizon).toBe(VALUATION_PARAMS.stage1_horizon)
     expect(v.valuation_multiple_ceiling).toBe(VALUATION_PARAMS.fv_cap_multiple)
     expect(v.single_growth_cap).toBe(VALUATION_PARAMS.single_growth_cap)
     expect(v.gdp_growth_threshold).toBe(VALUATION_PARAMS.gdp_growth_threshold)
@@ -53,69 +54,65 @@ describe('diffValuationParams', () => {
     const next: ValuationParams = {
       ...VALUATION_PARAMS,
       version: 'next-version',
-      margin_of_safety_by_moat: { ...VALUATION_PARAMS.margin_of_safety_by_moat, monopoly: 0.20 },
+      base_margin_of_safety: 0.30,
     }
     const changes = diffValuationParams(VALUATION_PARAMS, next)
     expect(changes).toEqual([
-      { path: 'margin_of_safety_by_moat.monopoly', previous: 0.15, next: 0.20 },
+      { path: 'base_margin_of_safety', previous: 0.25, next: 0.30 },
     ])
   })
 })
 
 // ---------------------------------------------------------------------------
-// Phase 1.8 — version bump to the one-knob config; the config event records the structural diff.
+// F.13 — version bump to the uniform-moat config; the config event records the structural diff
+// (the collapsed _by_moat tier tables disappear; the new uniform scalars appear).
 // ---------------------------------------------------------------------------
-describe('Phase 1.8 — one-knob version bump records the structural diff', () => {
-  it('the live version is the one-knob config (cap frozen at 1.9)', () => {
-    expect(VALUATION_PARAMS.version).toBe('valuation-2026-06-one-knob-2')
+describe('F.13 — uniform-moat version bump records the structural diff', () => {
+  it('the live version is the F.13 uniform-moat config', () => {
+    expect(VALUATION_PARAMS.version).toBe('valuation-2026-06-f13-uniform-moat-1')
   })
 
-  it('diff vs the prior recalibration config shows the collapsed/added one-knob fields', () => {
-    // Reconstruct the PRIOR (recalibration-1) shape: the stacked growth trio + the old version, WITHOUT
-    // the new one-knob fields. Cast through unknown — the prior shape is intentionally no longer the type.
+  it('diff vs the prior one-knob config shows the collapsed tier tables and the added uniform scalars', () => {
+    // Reconstruct the PRIOR (one-knob-2) shape: the moat-tiered _by_moat tables + the old version, WITHOUT
+    // the new uniform scalar fields. Cast through unknown — the prior shape is intentionally no longer the type.
     const previous = {
-      version: 'valuation-2026-06-recalibration-1',
-      discount_rate: 0.10,
+      ...VALUATION_PARAMS,
+      version: 'valuation-2026-06-one-knob-2',
+      terminal_growth: undefined,
+      stage1_horizon: undefined,
+      base_margin_of_safety: undefined,
       terminal_growth_by_moat: { monopoly: 0.025, wide: 0.015 },
       stage1_horizon_by_moat: { monopoly: 15, wide: 10 },
       margin_of_safety_by_moat: { monopoly: 0.15, wide: 0.25 },
-      fv_cap_multiple: 18,
-      growth_band_ceilings: {
-        limited_or_none: 0.02, wide_proven: 0.03, wide_proven_exceptional: 0.04,
-        monopoly_proven: 0.04, monopoly_proven_exceptional: 0.05,
-      },
-      growth_eligibility_incremental_roic: 0.10,
-      max_growth: 0.05,
-      oe_normalization_default: 'mid_cycle',
     } as unknown as ValuationParams
 
     const changes = diffValuationParams(previous, VALUATION_PARAMS)
-    const paths = changes.map((c) => c.path)
-    // Collapsed (removed) stacked fields appear with next === undefined.
-    expect(paths).toContain('growth_band_ceilings.limited_or_none')
-    expect(paths).toContain('growth_eligibility_incremental_roic')
-    expect(paths).toContain('max_growth')
-    // Added one-knob fields appear with previous === undefined.
-    expect(paths).toContain('single_growth_cap')
-    expect(paths).toContain('gdp_growth_threshold')
-    expect(paths).toContain('equity_premium')
-    expect(paths).toContain('ten_year_treasury_default')
-    expect(paths).toContain('fv_absurd_multiple')
-    expect(paths).toContain('terminal_value_share_flag')
+    const byPath = new Map(changes.map((c) => [c.path, c]))
+    // Collapsed (removed) tier-table leaves appear with next === undefined.
+    expect(byPath.get('terminal_growth_by_moat.monopoly')).toEqual({ path: 'terminal_growth_by_moat.monopoly', previous: 0.025, next: undefined })
+    expect(byPath.get('terminal_growth_by_moat.wide')).toEqual({ path: 'terminal_growth_by_moat.wide', previous: 0.015, next: undefined })
+    expect(byPath.get('stage1_horizon_by_moat.monopoly')).toEqual({ path: 'stage1_horizon_by_moat.monopoly', previous: 15, next: undefined })
+    expect(byPath.get('stage1_horizon_by_moat.wide')).toEqual({ path: 'stage1_horizon_by_moat.wide', previous: 10, next: undefined })
+    expect(byPath.get('margin_of_safety_by_moat.monopoly')).toEqual({ path: 'margin_of_safety_by_moat.monopoly', previous: 0.15, next: undefined })
+    expect(byPath.get('margin_of_safety_by_moat.wide')).toEqual({ path: 'margin_of_safety_by_moat.wide', previous: 0.25, next: undefined })
+    // Added uniform scalar fields appear with previous === undefined (collapsed to the conservative wide values).
+    expect(byPath.get('terminal_growth')).toEqual({ path: 'terminal_growth', previous: undefined, next: 0.015 })
+    expect(byPath.get('stage1_horizon')).toEqual({ path: 'stage1_horizon', previous: undefined, next: 10 })
+    expect(byPath.get('base_margin_of_safety')).toEqual({ path: 'base_margin_of_safety', previous: undefined, next: 0.25 })
     // The constitutional discount_rate (effective default) is UNCHANGED.
-    expect(paths).not.toContain('discount_rate')
+    expect(byPath.has('discount_rate')).toBe(false)
   })
 
   it('buildValuationConfigEvent records the bump + diff (acceptance #5)', () => {
-    const previous = { ...VALUATION_PARAMS, version: 'valuation-2026-06-recalibration-1', single_growth_cap: 0.15 }
+    const previous = { ...VALUATION_PARAMS, version: 'valuation-2026-06-one-knob-2', single_growth_cap: 0.15 }
     const event = buildValuationConfigEvent({
-      event_id: 'evt_valuation_config_one_knob',
+      event_id: 'evt_valuation_config_f13',
       strategy_id: buffettMungerStrategy.id,
       previous,
       next: VALUATION_PARAMS,
     })
-    expect(event.payload.previous_version).toBe('valuation-2026-06-recalibration-1')
-    expect(event.payload.new_version).toBe('valuation-2026-06-one-knob-2')
+    expect(event.payload.previous_version).toBe('valuation-2026-06-one-knob-2')
+    expect(event.payload.new_version).toBe('valuation-2026-06-f13-uniform-moat-1')
     expect(event.payload.changes).toContainEqual({ path: 'single_growth_cap', previous: 0.15, next: 0.10 })
   })
 })
@@ -129,7 +126,7 @@ describe('Acceptance #5 — config change writes a valuation_config ledger event
     const next: ValuationParams = {
       ...previous,
       version: 'valuation-test-tightened-1',
-      margin_of_safety_by_moat: { monopoly: 0.20, wide: 0.30 },
+      base_margin_of_safety: 0.30,
     }
 
     const event = buildValuationConfigEvent({
@@ -148,8 +145,7 @@ describe('Acceptance #5 — config change writes a valuation_config ledger event
     expect(event.payload.previous_version).toBe(previous.version)
     expect(event.payload.new_version).toBe('valuation-test-tightened-1')
     expect(event.payload.changes).toEqual([
-      { path: 'margin_of_safety_by_moat.monopoly', previous: 0.15, next: 0.20 },
-      { path: 'margin_of_safety_by_moat.wide', previous: 0.25, next: 0.30 },
+      { path: 'base_margin_of_safety', previous: 0.25, next: 0.30 },
     ])
     expect(event.schema_version).toBe(1)
   })

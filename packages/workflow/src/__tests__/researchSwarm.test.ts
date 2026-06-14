@@ -791,17 +791,17 @@ describe('runStrategyResearchSwarm with MockProvider + deterministic grounder', 
     // unavailable → growth is the honest no-growth floor g=0 (growth_basis 'none').
     expect(caseProjection?.valuation?.growth_rate).toBe(0)
     expect(caseProjection?.valuation?.growth_basis).toBe('none')
-    // terminal g (monopoly, recalibrated) = 0.025
-    expect(caseProjection?.valuation?.terminal_growth_rate).toBe(0.025)
-    // two-stage fair value at g=0, monopoly horizon 15, terminal 2.5% ≈ 152.29 (under 18× cap of 252)
-    expect(caseProjection?.valuation?.fair_value_per_share).toBeCloseTo(152.29, 0)
+    // terminal g — UNIFORM for every investable moat (F.13) = 0.015
+    expect(caseProjection?.valuation?.terminal_growth_rate).toBe(0.015)
+    // two-stage fair value at g=0, uniform horizon 10, terminal 1.5% ≈ 150.48 (under 18× cap of 252)
+    expect(caseProjection?.valuation?.fair_value_per_share).toBeCloseTo(150.48, 0)
     expect(caseProjection?.valuation?.fair_value_per_share ?? 0).toBeLessThan(18 * 14)
-    // implied multiple ≈ 10.88×
-    expect(caseProjection?.valuation?.implied_multiple).toBeCloseTo(10.88, 1)
-    // margin_of_safety (monopoly, recalibrated): 0.15
-    expect(caseProjection?.valuation?.margin_of_safety).toBe(0.15)
-    // buy_price = round(152.29 * 0.85, 2) ≈ 129.45
-    expect(caseProjection?.valuation?.buy_price_per_share).toBeCloseTo(129.45, 0)
+    // implied multiple ≈ 10.75×
+    expect(caseProjection?.valuation?.implied_multiple).toBeCloseTo(10.75, 1)
+    // margin_of_safety — UNIFORM base for every investable moat (F.13): 0.25
+    expect(caseProjection?.valuation?.margin_of_safety).toBe(0.25)
+    // buy_price = round(150.48 * 0.75, 2) ≈ 112.86
+    expect(caseProjection?.valuation?.buy_price_per_share).toBeCloseTo(112.86, 0)
     // value_basis
     expect(caseProjection?.valuation?.value_basis).toBe('two_stage_dcf')
     // owner_earnings_bridge projected (totals in $millions + shares_outstanding in millions)

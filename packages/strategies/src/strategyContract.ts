@@ -48,11 +48,11 @@ export const valuationPolicySchema = z.object({
   equity_premium: z.number().positive(),
   /** Fail-closed default 10y Treasury yield when the live fetch is unavailable (Phase 1.4). */
   ten_year_treasury_default: z.number().positive(),
-  /** THE single conservatism knob: base MoS floor by moat tier; widens via margin_of_safety_widening (Phase 1.6). */
-  margin_of_safety_by_moat: z.object({
-    wide: z.number().positive(),
-    monopoly: z.number().positive(),
-  }),
+  /**
+   * THE single conservatism knob: base MoS floor — UNIFORM across every investable business (F.13); widens
+   * via margin_of_safety_widening (Phase 1.6). A monopoly is a durability signal, not a license to lower it.
+   */
+  base_margin_of_safety: z.number().positive(),
   /** MoS-widening increments + cap (Phase 1.6) — all conservatism beyond the base floor lives here. */
   margin_of_safety_widening: z.object({
     high_terminal_value_share: z.number().min(0),
@@ -63,16 +63,10 @@ export const valuationPolicySchema = z.object({
   }),
   /** Terminal-value-share flag threshold (Phase 1.5): TV share above this is flagged + widens the MoS. */
   terminal_value_share_flag: z.number().positive().max(1),
-  /** Terminal-stage growth (g_t) by moat tier: monopoly fades to 2.5%, wide to 1.5%. */
-  terminal_growth_by_moat: z.object({
-    wide: z.number().positive(),
-    monopoly: z.number().positive(),
-  }),
-  /** Stage-1 (explicit) DCF horizon in years by moat tier: monopoly 15, wide 10. */
-  stage1_horizon_by_moat: z.object({
-    wide: z.number().int().positive(),
-    monopoly: z.number().int().positive(),
-  }),
+  /** Terminal-stage growth (g_t) — UNIFORM across every investable business (F.13); durability routes through the moat-durability input. */
+  terminal_growth: z.number().positive(),
+  /** Stage-1 (explicit) DCF horizon in years — UNIFORM across every investable business (F.13). */
+  stage1_horizon: z.number().int().positive(),
   /**
    * The ONE named growth backstop (Phase 1.3): a single forecasting-humility cap on the honest historical
    * owner-earnings growth path (~0.20 PLACEHOLDER, set at calibration). Replaces the old stacked

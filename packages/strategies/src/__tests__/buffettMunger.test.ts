@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { buffettMungerStrategy, discountRate, marginOfSafetyForMoat, moatPassesGate, targetWeightForMoatClass } from '../buffettMunger'
 import { evaluateGates } from '../evaluateGates'
 
-describe('Buffett-Munger default strategy (Design B: 4-class, flat discount, moat-tiered MoS)', () => {
+describe('Buffett-Munger default strategy (Design B: 4-class, flat discount, UNIFORM valuation params — F.13)', () => {
   it('defines the default core policy', () => {
     expect(buffettMungerStrategy.id).toBe('buffett-munger')
     expect(buffettMungerStrategy.certification_status).toBe('draft')
@@ -10,10 +10,12 @@ describe('Buffett-Munger default strategy (Design B: 4-class, flat discount, moa
     expect(buffettMungerStrategy.research.required_specialists.map((s) => s.id)).toEqual(['moat', 'financials', 'risk', 'management', 'valuation', 'synthesis'])
     // Flat 10% discount rate for all investable moat classes
     expect(buffettMungerStrategy.valuation.discount_rate).toBe(0.10)
-    // Moat-tiered margin of safety (recalibrated, spec §1: monopoly 15%, wide 25%)
-    expect(buffettMungerStrategy.valuation.margin_of_safety_by_moat).toEqual({ wide: 0.25, monopoly: 0.15 })
-    // Two-stage DCF params (recalibrated terminal g: monopoly 2.5%, wide 1.5%)
-    expect(buffettMungerStrategy.valuation.terminal_growth_by_moat).toEqual({ wide: 0.015, monopoly: 0.025 })
+    // F.13 — uniform base margin of safety (collapsed from the old monopoly/wide tier table to wide's 25%)
+    expect(buffettMungerStrategy.valuation.base_margin_of_safety).toBe(0.25)
+    // F.13 — uniform terminal g (collapsed to wide's 1.5%)
+    expect(buffettMungerStrategy.valuation.terminal_growth).toBe(0.015)
+    // F.13 — uniform stage-1 horizon (collapsed to wide's 10 yrs)
+    expect(buffettMungerStrategy.valuation.stage1_horizon).toBe(10)
     expect(buffettMungerStrategy.valuation.valuation_multiple_ceiling).toBe(18)
     expect(buffettMungerStrategy.valuation.min_investable_moat).toBe('wide')
   })
@@ -22,9 +24,9 @@ describe('Buffett-Munger default strategy (Design B: 4-class, flat discount, moa
     expect(discountRate(buffettMungerStrategy)).toBe(0.10)
   })
 
-  it('marginOfSafetyForMoat returns moat-tiered MoS values (recalibrated)', () => {
+  it('marginOfSafetyForMoat returns the uniform base MoS for every investable class (F.13)', () => {
     expect(marginOfSafetyForMoat(buffettMungerStrategy, 'wide')).toBe(0.25)
-    expect(marginOfSafetyForMoat(buffettMungerStrategy, 'monopoly')).toBe(0.15)
+    expect(marginOfSafetyForMoat(buffettMungerStrategy, 'monopoly')).toBe(0.25)
   })
 
   it('marginOfSafetyForMoat throws for non-investable moat classes (narrow, moderate)', () => {
@@ -91,8 +93,8 @@ describe('Buffett-Munger two-stage DCF (incremental-ROIC banded g)', () => {
     expect(discountRate(buffettMungerStrategy)).toBe(discountRate(buffettMungerStrategy))
   })
 
-  it('marginOfSafetyForMoat: monopoly 15%, wide 25% (recalibrated)', () => {
-    expect(marginOfSafetyForMoat(buffettMungerStrategy, 'monopoly')).toBe(0.15)
+  it('marginOfSafetyForMoat: uniform 25% base for every investable class (F.13)', () => {
+    expect(marginOfSafetyForMoat(buffettMungerStrategy, 'monopoly')).toBe(0.25)
     expect(marginOfSafetyForMoat(buffettMungerStrategy, 'wide')).toBe(0.25)
   })
 
