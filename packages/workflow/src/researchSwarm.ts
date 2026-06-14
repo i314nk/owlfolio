@@ -1268,8 +1268,10 @@ export async function runResearchDeepDivePhase(
   // Credited growth g (Step 3): the demonstrated OE/share CAGR through the named humility cap (Phase 1.3).
   // Terminal growth g_t (Step 4): UNIFORM 1.5% for every investable moat (F.13 — the monopoly tier no longer
   //   raises g_t). Flat 10% discount, always.
-  // Two-stage FV (Step 4): stage-1 horizon is UNIFORM 10 yrs for every investable moat (F.13).
-  //   FV_ps = Σ_{t=1..10} OE_ps(1+g)^t/(1+r)^t + [OE_ps(1+g)^10(1+g_t)/(r−g_t)]/(1+r)^10
+  // Two-stage FV (Step 2 + 4): stage-1 horizon is UNIFORM 10 yrs for every investable moat (F.13). Stage-1
+  //   growth is NO LONGER flat — it compounds at g over the plateau years then LINEARLY FADES to g_t over the
+  //   trailing growth_fade_years (Part D Step 2; F=5 → years 6–10), so OE_t = OE_ps·Π_{i=1..t}(1+g_i) with g_i
+  //   gliding g → g_t. The Gordon terminal attaches off the faded year-10 OE. Fade bites only when g > g_t.
   //   FV_ps > 18 × OE_ps raises a surfaced cap_exceeded flag (not a silent truncation).
   // Buy price (Step 5): round(FV_ps × (1 − MoS), 2)  MoS = UNIFORM 25% base for every investable moat (F.13),
   //   widened by documented uncertainty. A monopoly is a durability signal, not a valuation-loosening lever.

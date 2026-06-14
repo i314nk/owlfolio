@@ -46,8 +46,10 @@ describe('over-optimism downside boundary (F.3 asymmetric stress — cap frozen 
       const buyMult = ((v.fair_value ?? 0) * (1 - w.margin_of_safety)) / oe_ps
       // At 0.10 the over-optimistic 35% input (capped to 10%) lands at a defensible buy-below — well below
       // the ~29×/62× OE the old 0.20 cap produced. The cap fix, not an output guard, is what contains it.
-      // (cap_exceeded still fires as a warn flag on the long-horizon monopoly path; it's a caution, not a block.)
+      // Part D Step 2's stage-1 fade lowers it further still (FV ≈ 18.9× OE, buy-multiple now ≈ 12.3× — the
+      // faded path glides g 10% → terminal 1.5% over years 6–10; cap_exceeded still fires as a warn flag).
       expect(buyMult).toBeLessThan(25)
+      expect(buyMult).toBeLessThan(15)
     }
   })
 

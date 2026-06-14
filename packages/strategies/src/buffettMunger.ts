@@ -198,18 +198,50 @@ export function creditedGrowth(
   return result
 }
 
-/** Raw two-stage DCF components (no cap applied). */
-function twoStageRaw(args: { oe_ps: number; g: number; terminal_g: number; discount: number; horizon: number }): {
+/**
+ * Raw two-stage DCF components (no cap applied), with a LINEAR STAGE-1 GROWTH FADE (Part D Step 2).
+ *
+ * Per-year growth g_t over the H-year explicit window glides from the near-term g down to the terminal rate
+ * over the trailing F (`fade_years`) years; plateau years (t ≤ H−F) compound at g, and at t=H, g_t = g_t
+ * (terminal) exactly. Flat compounding over a long horizon over-values quality compounders; the fade is the
+ * forecasting-humility mechanism inside the explicit window.
+ *
+ *   - Plateau years  t ≤ H−F:        g_t = g
+ *   - Fade years     t ∈ (H−F+1)..H: k = t−(H−F); g_t = g + (g_terminal − g)·(k/F)   (k = 1..F)
+ *   - OE_t = OE_0 · Π_{i=1..t} (1 + g_i); discount each year by (1+r)^t.
+ *   - Terminal (Gordon) attaches at year H off the FADED OE_H: OE_H·(1+g_t)/(r−g_t), discounted by (1+r)^H.
+ *
+ * Fade-only-downward: when g ≤ terminal (a low/no-growth name) the glide is SKIPPED (flat g_t = g for all
+ * H years) so a 1% grower is not inflated up toward the terminal rate. Guards: F ≥ H → every year fades
+ * (no plateau); F ≤ 0 → flat (no fade).
+ */
+function twoStageRaw(args: { oe_ps: number; g: number; terminal_g: number; discount: number; horizon: number; fade_years: number }): {
   stage1: number
   terminal: number
   fair_value: number
 } {
   const { oe_ps, g, terminal_g, discount: r, horizon } = args
+  // Clamp the fade window to [0, horizon]; fade only bites downward (g > terminal_g).
+  const fadeYears = Math.min(Math.max(0, args.fade_years), horizon)
+  const fadeApplies = g > terminal_g && fadeYears > 0
+  const plateauEnd = horizon - fadeYears // last plateau year (years t ≤ plateauEnd compound at g)
+
   let stage1 = 0
+  let growthFactor = 1 // running Π_{i=1..t} (1 + g_i)
+  let oeAtHorizon = oe_ps
   for (let t = 1; t <= horizon; t += 1) {
-    stage1 += (oe_ps * Math.pow(1 + g, t)) / Math.pow(1 + r, t)
+    let g_t = g
+    if (fadeApplies && t > plateauEnd) {
+      const k = t - plateauEnd // 1..fadeYears
+      g_t = g + (terminal_g - g) * (k / fadeYears)
+    }
+    growthFactor *= 1 + g_t
+    const oe_t = oe_ps * growthFactor
+    stage1 += oe_t / Math.pow(1 + r, t)
+    if (t === horizon) oeAtHorizon = oe_t
   }
-  const terminal = ((oe_ps * Math.pow(1 + g, horizon) * (1 + terminal_g)) / (r - terminal_g)) / Math.pow(1 + r, horizon)
+  // Gordon terminal off the FADED year-H owner earnings.
+  const terminal = ((oeAtHorizon * (1 + terminal_g)) / (r - terminal_g)) / Math.pow(1 + r, horizon)
   return { stage1, terminal, fair_value: stage1 + terminal }
 }
 
@@ -226,9 +258,17 @@ export type TwoStageValuationResult = {
 }
 
 /**
- * Rich two-stage DCF (buffett-valuation-method-v2 Step 4 / Part D Steps 4 + 6).
+ * Rich two-stage DCF (buffett-valuation-method-v2 Step 4 / Part D Steps 2 + 4 + 6).
  *
- *   FV_ps = Σ_{t=1..H} [ OE_ps × (1+g)^t / (1+r)^t ] + [ OE_ps × (1+g)^H × (1+g_t) / (r − g_t) ] / (1+r)^H
+ * Stage 1 grows owner earnings on a FADED path (Part D Step 2): the near-term g compounds flat over the
+ * plateau years then glides LINEARLY down to the terminal rate over the trailing `fade_years` years, so by
+ * year H the per-year rate equals the terminal rate. The Gordon terminal attaches off the faded year-H OE:
+ *
+ *   OE_t = OE_ps × Π_{i=1..t}(1+g_i),  g_i fades from g → terminal over the last F years
+ *   FV_ps = Σ_{t=1..H} OE_t/(1+r)^t  +  [ OE_H × (1+g_t) / (r − g_t) ] / (1+r)^H
+ *
+ * Fade applies only downward (g > terminal); a low/no-growth name compounds flat. `fade_years` defaults to
+ * the config `growth_fade_years` so existing callers pick up the fade with no signature change.
  *
  * Phase 1.5: also surfaces `terminal_value_pct_of_iv` (Gordon terminal ÷ total IV) — the dominant
  * uncertainty; the caller flags > 0.65 (feeds the MoS-widening).
@@ -245,10 +285,13 @@ export function twoStageValuation(args: {
   /** Absurd-error guard multiple; defaults to the strategy's fv_absurd_multiple (100×). */
   absurd_multiple?: number
   horizon?: number
+  /** Trailing stage-1 fade years; defaults to the config `growth_fade_years` (Part D Step 2). */
+  fade_years?: number
 }): TwoStageValuationResult {
   const horizon = args.horizon ?? 10
   const absurd_multiple = args.absurd_multiple ?? 100
-  const { stage1, terminal, fair_value } = twoStageRaw({ oe_ps: args.oe_ps, g: args.g, terminal_g: args.terminal_g, discount: args.discount, horizon })
+  const fade_years = args.fade_years ?? VALUATION_PARAMS.growth_fade_years
+  const { stage1, terminal, fair_value } = twoStageRaw({ oe_ps: args.oe_ps, g: args.g, terminal_g: args.terminal_g, discount: args.discount, horizon, fade_years })
   const total = stage1 + terminal
   const terminal_value_pct_of_iv = total > 0 && Number.isFinite(total) ? terminal / total : 0
   const cap_exceeded = Number.isFinite(fair_value) && fair_value > args.ceiling_multiple * args.oe_ps
@@ -264,7 +307,8 @@ export function twoStageValuation(args: {
 /**
  * Two-stage fair value per share (back-compat scalar). Keeps the LEGACY behavior of capping at
  * `ceiling_multiple × OE` (used by /strategy and /learn worked examples + regression tests). New harness
- * callers use `twoStageValuation` (Phase 1.6: cap is a surfaced flag, not a truncation). `horizon`
+ * callers use `twoStageValuation` (Phase 1.6: cap is a surfaced flag, not a truncation). Stage 1 uses the
+ * Part D Step 2 linear growth fade; `fade_years` defaults to the config `growth_fade_years`. `horizon`
  * defaults to 10.
  */
 export function twoStageFairValuePerShare(args: {
@@ -274,9 +318,12 @@ export function twoStageFairValuePerShare(args: {
   discount: number
   ceiling_multiple: number
   horizon?: number
+  /** Trailing stage-1 fade years; defaults to the config `growth_fade_years` (Part D Step 2). */
+  fade_years?: number
 }): number {
   const horizon = args.horizon ?? 10
-  const { fair_value } = twoStageRaw({ oe_ps: args.oe_ps, g: args.g, terminal_g: args.terminal_g, discount: args.discount, horizon })
+  const fade_years = args.fade_years ?? VALUATION_PARAMS.growth_fade_years
+  const { fair_value } = twoStageRaw({ oe_ps: args.oe_ps, g: args.g, terminal_g: args.terminal_g, discount: args.discount, horizon, fade_years })
   return Math.min(fair_value, args.ceiling_multiple * args.oe_ps)
 }
 
@@ -388,6 +435,7 @@ const rawBuffettMungerStrategy = {
     terminal_value_share_flag: VALUATION_PARAMS.terminal_value_share_flag,
     terminal_growth: VALUATION_PARAMS.terminal_growth,
     stage1_horizon: VALUATION_PARAMS.stage1_horizon,
+    growth_fade_years: VALUATION_PARAMS.growth_fade_years,
     single_growth_cap: VALUATION_PARAMS.single_growth_cap,
     gdp_growth_threshold: VALUATION_PARAMS.gdp_growth_threshold,
     valuation_multiple_ceiling: VALUATION_PARAMS.fv_cap_multiple,

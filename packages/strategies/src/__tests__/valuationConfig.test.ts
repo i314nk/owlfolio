@@ -23,6 +23,7 @@ describe('VALUATION_PARAMS (versioned config — single source of truth)', () =>
     // F.13 — UNIFORM scalars (collapsed from the old _by_moat tier tables to the conservative wide values).
     expect(VALUATION_PARAMS.terminal_growth).toBe(0.015)
     expect(VALUATION_PARAMS.stage1_horizon).toBe(10)
+    expect(VALUATION_PARAMS.growth_fade_years).toBe(5) // Part D Step 2 — linear fade over years 6–10
     expect(VALUATION_PARAMS.base_margin_of_safety).toBe(0.25)
     expect(VALUATION_PARAMS.fv_cap_multiple).toBe(18)
     expect(VALUATION_PARAMS.single_growth_cap).toBe(0.10) // FROZEN at 1.9 (cap)
@@ -36,6 +37,7 @@ describe('VALUATION_PARAMS (versioned config — single source of truth)', () =>
     expect(v.base_margin_of_safety).toBe(VALUATION_PARAMS.base_margin_of_safety)
     expect(v.terminal_growth).toBe(VALUATION_PARAMS.terminal_growth)
     expect(v.stage1_horizon).toBe(VALUATION_PARAMS.stage1_horizon)
+    expect(v.growth_fade_years).toBe(VALUATION_PARAMS.growth_fade_years)
     expect(v.valuation_multiple_ceiling).toBe(VALUATION_PARAMS.fv_cap_multiple)
     expect(v.single_growth_cap).toBe(VALUATION_PARAMS.single_growth_cap)
     expect(v.gdp_growth_threshold).toBe(VALUATION_PARAMS.gdp_growth_threshold)
@@ -64,12 +66,30 @@ describe('diffValuationParams', () => {
 })
 
 // ---------------------------------------------------------------------------
-// F.13 — version bump to the uniform-moat config; the config event records the structural diff
-// (the collapsed _by_moat tier tables disappear; the new uniform scalars appear).
+// Part D Step 2 — version bump to the growth-fade config; the config event records the structural diff
+// (the F.13 uniform scalars are unchanged; a new growth_fade_years field appears).
 // ---------------------------------------------------------------------------
-describe('F.13 — uniform-moat version bump records the structural diff', () => {
-  it('the live version is the F.13 uniform-moat config', () => {
-    expect(VALUATION_PARAMS.version).toBe('valuation-2026-06-f13-uniform-moat-1')
+describe('Part D Step 2 — growth-fade version bump records the structural diff', () => {
+  it('the live version is the growth-fade config', () => {
+    expect(VALUATION_PARAMS.version).toBe('valuation-2026-06-fade-1')
+  })
+
+  it('diff vs the prior F.13 uniform-moat config shows the added growth_fade_years field', () => {
+    // Reconstruct the PRIOR (f13-uniform-moat-1) shape: identical EXCEPT it had no growth_fade_years field.
+    const previous = {
+      ...VALUATION_PARAMS,
+      version: 'valuation-2026-06-f13-uniform-moat-1',
+      growth_fade_years: undefined,
+    } as unknown as ValuationParams
+    const changes = diffValuationParams(previous, VALUATION_PARAMS)
+    const byPath = new Map(changes.map((c) => [c.path, c]))
+    // The added field appears with previous === undefined (Part D Step 2 — trailing linear fade).
+    expect(byPath.get('growth_fade_years')).toEqual({ path: 'growth_fade_years', previous: undefined, next: 5 })
+    // The F.13 uniform scalars are UNCHANGED by this bump.
+    expect(byPath.has('terminal_growth')).toBe(false)
+    expect(byPath.has('stage1_horizon')).toBe(false)
+    expect(byPath.has('base_margin_of_safety')).toBe(false)
+    expect(byPath.has('discount_rate')).toBe(false)
   })
 
   it('diff vs the prior one-knob config shows the collapsed tier tables and the added uniform scalars', () => {
@@ -112,7 +132,7 @@ describe('F.13 — uniform-moat version bump records the structural diff', () =>
       next: VALUATION_PARAMS,
     })
     expect(event.payload.previous_version).toBe('valuation-2026-06-one-knob-2')
-    expect(event.payload.new_version).toBe('valuation-2026-06-f13-uniform-moat-1')
+    expect(event.payload.new_version).toBe('valuation-2026-06-fade-1')
     expect(event.payload.changes).toContainEqual({ path: 'single_growth_cap', previous: 0.15, next: 0.10 })
   })
 })

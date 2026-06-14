@@ -17,8 +17,9 @@ describe('twoStageValuation (Phase 1.5 terminal share + Phase 1.6 cap flag)', ()
     const rich = twoStageValuation({ oe_ps: 100, g: 0.04, terminal_g: 0.025, discount: 0.10, ceiling_multiple: 18, horizon: 15 })
     expect(rich.terminal_value_pct_of_iv).toBeGreaterThan(0)
     expect(rich.terminal_value_pct_of_iv).toBeLessThan(1)
-    // For the monopoly reference: stage1 986.04, terminal 589.21 → terminal share ≈ 0.374.
-    expect(rich.terminal_value_pct_of_iv).toBeCloseTo(589.2131 / 1575.2518, 3)
+    // Part D Step 2 faded path (g 4% → terminal 2.5% over the trailing 5 yrs of a 15-yr horizon):
+    // stage1 981.47, terminal 564.13 → terminal share ≈ 0.365.
+    expect(rich.terminal_value_pct_of_iv).toBeCloseTo(564.1319 / 1545.6065, 3)
   })
 
   it('flags cap_exceeded WITHOUT truncating when raw fair value exceeds the cap multiple (Phase 1.6)', () => {

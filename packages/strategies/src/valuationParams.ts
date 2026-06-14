@@ -51,6 +51,16 @@ export type ValuationParams = {
    */
   stage1_horizon: number
   /**
+   * Number of TRAILING stage-1 years over which the near-term growth rate LINEARLY FADES down to the
+   * terminal rate (Part D Step 2: "Linear fade from the near-term rate to a terminal rate (GDP-like, ~2.5%)
+   * over years 6–10" — i.e. F=5 of a 10-year horizon). The plateau years (t ≤ H−F) compound at the
+   * near-term g; the fade years glide so that at t=H, g_t = terminal exactly. The fade is the
+   * forecasting-humility mechanism INSIDE the explicit window: flat compounding over a long horizon
+   * over-values quality compounders. Fade applies ONLY when g > terminal (a low/no-growth name is NOT
+   * glided upward). Guard: F ≥ H → all years fade; F ≤ 0 → flat (no fade).
+   */
+  growth_fade_years: number
+  /**
    * THE single conservatism knob (Phase 1.6 / Part D Step 6): the base margin-of-safety floor — UNIFORM
    * across every investable business (F.13). The old margin_of_safety_by_moat {wide:0.25, monopoly:0.15}
    * table was collapsed to one scalar (the conservative wide value): a monopoly is a durability signal, NOT
@@ -134,7 +144,7 @@ export type ValuationParams = {
  * a single named single_growth_cap (provisional placeholder) + an above-GDP coupling flag (gdp_growth_threshold).
  */
 export const VALUATION_PARAMS: ValuationParams = Object.freeze({
-  version: 'valuation-2026-06-f13-uniform-moat-1',
+  version: 'valuation-2026-06-fade-1',
   // discount_rate = ten_year_treasury_default (0.045) + equity_premium (0.055) = 0.10 (unchanged default).
   discount_rate: 0.10,
   // PROVISIONAL — these signal-dependent params are NOT yet frozen. The 1.9 calibration ran on only n=2
@@ -148,6 +158,9 @@ export const VALUATION_PARAMS: ValuationParams = Object.freeze({
   // conservative wide values). Quality is not a per-name valuation-loosening lever.
   terminal_growth: 0.015,
   stage1_horizon: 10,
+  // Part D Step 2 — linear fade over the trailing F years (years 6–10 of a 10-yr horizon). Fade applies
+  // only when near-term g > terminal_growth; a low/no-growth name is never glided upward.
+  growth_fade_years: 5,
   base_margin_of_safety: 0.25, // PROVISIONAL (see note above)
   // Phase 1.6 — widening increments + 0.50 cap. PROVISIONAL magnitudes (see note above; not yet frozen).
   margin_of_safety_widening: {

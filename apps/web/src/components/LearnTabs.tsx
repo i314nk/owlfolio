@@ -21,6 +21,7 @@ const TERMINAL_G_WIDE = terminalGrowthForMoat(strategy, 'wide')
 const SINGLE_GROWTH_CAP = strategy.valuation.single_growth_cap
 const GDP_GROWTH_THRESHOLD = strategy.valuation.gdp_growth_threshold
 const STAGE1_HORIZON = strategy.valuation.stage1_horizon
+const GROWTH_FADE_YEARS = strategy.valuation.growth_fade_years
 const LANE_COUNT = buffettMungerDeepDiveLanes.length
 
 function pct(value: number, digits = 0): string {
@@ -156,7 +157,7 @@ function StrategyTab(): ReactNode {
       lead: createElement(
         'span',
         null,
-        'Owner earnings are discounted in two stages: a stage-1 horizon at a credited growth rate, then a fade to a small terminal rate. The discount is a flat ',
+        'Owner earnings are discounted in two stages: a stage-1 horizon whose growth holds the credited rate for the early years then fades LINEARLY down to a small terminal rate over the trailing years (it does not compound flat — forecasting humility inside the explicit window), and a perpetual terminal rate beyond it. The discount is a flat ',
         mono(pct(DISCOUNT)),
         ' — no WACC, no beta, ever. Business quality is not a valuation-loosening lever: the discount, the base margin of safety, the horizon, and the terminal rate are all uniform across investable moats. A monopoly is a durability signal — it earns higher terminal value through the moat-durability input, not by lowering the safety margin or stretching the horizon. The live parameters below are read from the versioned valuation config, not hard-coded here.',
       ),
@@ -180,8 +181,8 @@ function StrategyTab(): ReactNode {
             },
           },
           createElement('div', null, `g    = honest demonstrated owner-earnings/share CAGR, capped at ${pct(SINGLE_GROWTH_CAP)} (named humility backstop); above ${pct(GDP_GROWTH_THRESHOLD)} → moat-durability flag`),
-          createElement('div', null, `stage 1 = ${STAGE1_HORIZON} yrs at that growth path (uniform for every investable moat)`),
-          createElement('div', null, `gₜ   = terminal fade: ${pct(TERMINAL_G_WIDE)} (uniform for every investable moat)`),
+          createElement('div', null, `stage 1 = ${STAGE1_HORIZON} yrs; g holds, then fades LINEARLY to gₜ over the trailing ${GROWTH_FADE_YEARS} yrs (uniform for every investable moat)`),
+          createElement('div', null, `gₜ   = terminal rate: ${pct(TERMINAL_G_WIDE)} (uniform; the fade lands here by year ${STAGE1_HORIZON})`),
           createElement('div', null, `fair > ${MULTIPLE_CEILING}× OE → surfaced cap_exceeded sanity flag (not a silent truncation)`),
           createElement('div', null, `buy  = fair × (1 − MOS)   ·  the ONE conservatism knob: ${pct(MOS_WIDE)} base for every investable moat (widens with documented uncertainty)`),
         ),

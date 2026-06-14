@@ -68,6 +68,11 @@ export const valuationPolicySchema = z.object({
   /** Stage-1 (explicit) DCF horizon in years — UNIFORM across every investable business (F.13). */
   stage1_horizon: z.number().int().positive(),
   /**
+   * Trailing stage-1 years over which near-term growth LINEARLY FADES to the terminal rate (Part D Step 2 —
+   * years 6–10 of a 10-yr horizon, F=5). Fade applies only when g > terminal. 0 → flat (no fade).
+   */
+  growth_fade_years: z.number().int().min(0),
+  /**
    * The ONE named growth backstop (Phase 1.3): a single forecasting-humility cap on the honest historical
    * owner-earnings growth path (~0.20 PLACEHOLDER, set at calibration). Replaces the old stacked
    * band-ceilings/eligibility/max trio.
