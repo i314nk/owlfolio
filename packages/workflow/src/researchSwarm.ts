@@ -1392,7 +1392,15 @@ export async function runResearchDeepDivePhase(
     net_income = niAnchor.value
     if (niAnchor.clamped && niAnchor.flag !== undefined) degradedFlags.push(niAnchor.flag)
     d_and_a = edgar_d_and_a
-    maintenance_capex = Math.min(edgar_d_and_a, edgar_capex * maintenance_fraction)
+    // Phase 1.2/1.7: maintenance capex DEFAULTS to the conservative dual proxy (Greenwald vs D&A floor)
+    // computed over the EDGAR series — the harness's honest figure. When the series is too thin for either
+    // proxy, fall back to the legacy min(D&A, capex × model tier). The model tier can argue DOWN (a lower
+    // maint capex → higher OE), but only via min(): it never lifts maint capex above the conservative proxy.
+    const dualMaint = fundamentals?.annual_series !== undefined
+      ? estimateMaintenanceCapex(fundamentals.annual_series).maintenance_capex
+      : undefined
+    const legacyMaint = Math.min(edgar_d_and_a, edgar_capex * maintenance_fraction)
+    maintenance_capex = dualMaint !== undefined ? dualMaint : legacyMaint
     stock_based_comp = edgarAnnual.sbc_musd as number  // SBC always subtracted, in full
     shares_outstanding = edgarAnnual.diluted_shares_m as number  // CURRENT diluted shares
     bridge_fiscal_year = edgarAnnual.fiscal_year

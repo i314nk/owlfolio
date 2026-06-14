@@ -1139,6 +1139,57 @@ describe('Two-stage DCF harness growth path (Phase 1.3 one growth path + gates)'
     expect((valuation?.['valuation_caveats'] as string[])?.join(' ')).toMatch(/owner earnings/i)
     expect(events.some((e) => e.event_type === 'decision_drafted')).toBe(true)
   })
+
+  it('gate-passing EDGAR series → full valuation provenance (terminal share, cap flag, widened MoS) — Phase 1.5-1.7', async () => {
+    // A wide-moat compounder with a multi-year EDGAR series whose OE/share grows ~10%/yr (above GDP) and no
+    // gross PP&E (Greenwald not computable → D&A-floor → low maint-capex confidence). All three widening
+    // inputs (high terminal share, low maint-capex confidence, above-GDP moat-durability) should fire.
+    const series: AnnualFacts[] = []
+    for (let i = 0; i < 6; i += 1) {
+      const fy = 2019 + i
+      const ni = Math.round(1000 * Math.pow(1.10, i))
+      series.push({ fiscal_year: fy, currency: 'USD', net_income_musd: ni, revenue_musd: 10000, d_and_a_musd: 200, capex_musd: 200, sbc_musd: 0, diluted_shares_m: 100 })
+    }
+    const growingFundamentals: Fundamentals = {
+      cik: '0000000001', entity_name: 'GROWER INC', currency: 'USD',
+      latest_annual: series[series.length - 1]!,
+      annual_series: series,
+      filings: [{ form: '10-K', filed: '2024-02-01', url: 'https://www.sec.gov/Archives/edgar/data/1/x.htm' }],
+    }
+    const store = new InMemoryEventStore()
+    const provider = configurableSwarmProvider({
+      laneCount: buffettMungerDeepDiveLanes.length,
+      synthesis: { moat_class: 'wide', runway: 'proven', incremental_roic: 0.20, reinvestment_rate: 0.40 },
+    })
+    const sourceLedgerPath = await mkdtemp(join(tmpdir(), 'owlfolio-prov-'))
+    await runStrategyResearchSwarm(
+      store, provider as never,
+      {
+        research_case_id: 'rc_prov', company_id: 'c', ticker: 'GRW',
+        strategy_id: 'buffett-munger', actor_id: 'user_local', idempotency_key: 'prov_k',
+        model_id: 'mock', decision_id: 'decision_prov', source_ledger_path: sourceLedgerPath,
+      },
+      {
+        ground: allVerifiedGround, laneConcurrency: 4, fundamentals: growingFundamentals,
+        resolvePrice: async () => ({ available: true, price_per_share: 50, currency: 'USD', as_of: 'x', source: 'test' }),
+      },
+    )
+    const projections = projectResearchCases((await store.list()) as Parameters<typeof projectResearchCases>[0])
+    const cp = projections.find((c) => c.research_case_id === 'rc_prov')
+    expect(cp?.valuation?.moat_passes_gate).toBe(true)
+    expect(cp?.valuation?.growth_basis).toBe('edgar_oe_cagr')
+    expect(cp?.valuation?.growth_above_gdp).toBe(true)
+    // Terminal-value share surfaced and in (0,1).
+    expect(cp?.valuation?.terminal_value_pct_of_iv).toBeGreaterThan(0)
+    expect(cp?.valuation?.terminal_value_pct_of_iv).toBeLessThan(1)
+    // The single MoS knob widened beyond the wide base floor (0.25) for the above-GDP moat-durability claim
+    // and the low maint-capex confidence; margin_of_safety_applied mirrors the applied MoS.
+    expect(cp?.valuation?.margin_of_safety ?? 0).toBeGreaterThan(0.25)
+    expect(cp?.valuation?.margin_of_safety_applied).toBe(cp?.valuation?.margin_of_safety)
+    expect((cp?.valuation?.margin_of_safety_widening_reasons ?? []).join(' ')).toMatch(/moat|maint/i)
+    // Buy-below is locked from harness numbers; even with a model BUY it never escalates above WATCH here.
+    expect(cp?.valuation?.buy_price_per_share).toBeGreaterThan(0)
+  })
 })
 
 // ---------------------------------------------------------------------------
@@ -1784,6 +1835,14 @@ describe('EDGAR-anchored OE bridge + harness AAOIFI Shariah ratios', () => {
     // Recorded shariah status reflects the harness CONDITIONAL verdict.
     expect(cp?.shariah_status).toBe('CONDITIONAL')
     expect(cp?.shariah_sector_status).toBe('conditional')
+
+    // Phase 1.3/1.4 provenance (computed regardless of the moat gate): growth from the demonstrated EDGAR
+    // OE/share CAGR (≈10.1%, above GDP), and the discount = config-default Treasury + uniform premium.
+    expect(cp?.valuation?.growth_basis).toBe('edgar_oe_cagr')
+    expect(cp?.valuation?.growth_rate).toBeCloseTo(0.1008, 3)
+    expect(cp?.valuation?.growth_above_gdp).toBe(true)
+    expect(cp?.valuation?.discount_inputs?.equity_premium).toBe(0.055)
+    expect(cp?.valuation?.discount_inputs?.ten_year_treasury_basis).toBe('config_default')
   })
 
   it('falls back to the model-proposed bridge + lane verdict when EDGAR is absent', async () => {
