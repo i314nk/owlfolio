@@ -2040,6 +2040,8 @@ export async function runProcessResearchQueueTask(
     provider: Provider
     source_ledger_path: string
     ground?: GroundFn
+    /** Advanced research-depth knob: per-lane grounded-tool-call cap (undefined → loop default). */
+    maxToolCalls?: number
     now?: () => Date
   },
 ): Promise<{ processed: number; failed: number; summaries: string[] }> {
@@ -2098,7 +2100,7 @@ export async function runProcessResearchQueueTask(
           source_ledger_path: options.source_ledger_path,
           model_role_env: modelRoleEnv,
         },
-        { ground },
+        { ground, ...(options.maxToolCalls === undefined ? {} : { maxToolCalls: options.maxToolCalls }) },
       )
 
       summaries.push(`process_research_queue: ran swarm for ${run.ticker} (${run.research_case_id}); decision draft created; no investment action taken`)
@@ -2142,6 +2144,8 @@ export async function runProcessDeepDiveQueueTask(
     provider: Provider
     source_ledger_path: string
     ground?: GroundFn
+    /** Advanced research-depth knob: per-lane grounded-tool-call cap (undefined → loop default). */
+    maxToolCalls?: number
     now?: () => Date
   },
 ): Promise<{ processed: number; failed: number; summaries: string[] }> {
@@ -2175,7 +2179,7 @@ export async function runProcessDeepDiveQueueTask(
           quick_screen_event_id: run.quick_screen_event_id,
           model_role_env: modelRoleEnv,
         },
-        { ground },
+        { ground, ...(options.maxToolCalls === undefined ? {} : { maxToolCalls: options.maxToolCalls }) },
       )
 
       summaries.push(`process_deep_dive_queue: ran deep-dive swarm for ${run.ticker} (${run.research_case_id}); decision draft created; no investment action taken`)

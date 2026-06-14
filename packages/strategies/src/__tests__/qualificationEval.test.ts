@@ -1,22 +1,22 @@
 import { describe, expect, it } from 'vitest'
 
-import { GOLDEN_SET } from '../goldenSet'
+import { GOLDEN_SET, type GoldenSet, type GoldenShariahStatus } from '../goldenSet'
 import {
   scoreQualification,
   type LaneQualificationOutput,
 } from '../qualificationEval'
 
-// A lane output that exactly matches the COST reference. Schema-valid on first attempt 100%.
-function exactCostOutput(overrides: Partial<LaneQualificationOutput> = {}): LaneQualificationOutput {
+// A lane output that exactly matches the MSFT reference. Schema-valid on first attempt 100%.
+function exactMsftOutput(overrides: Partial<LaneQualificationOutput> = {}): LaneQualificationOutput {
   return {
-    ticker: 'COST',
+    ticker: 'MSFT',
     moat_class: 'wide',
-    shariah_status: 'non_compliant',
+    shariah_status: 'compliant',
     oe_bridge: {
-      net_income_musd: 8099,
-      d_and_a_musd: 2426,
-      sbc_musd: 860,
-      diluted_shares_m: 444.8,
+      net_income_musd: 101832,
+      d_and_a_musd: 28000,
+      sbc_musd: 11974,
+      diluted_shares_m: 7465,
     },
     fabricated_citation_count: 0,
     schema_valid_first_attempt: true,
@@ -45,15 +45,15 @@ function allGoldenSetOutputs(): LaneQualificationOutput[] {
 
 describe('scoreQualification — per-criterion matrix', () => {
   it('passes every criterion on an exact match', () => {
-    const report = scoreQualification([exactCostOutput()], GOLDEN_SET)
-    const row = report.companies.find((c) => c.ticker === 'COST')!
+    const report = scoreQualification([exactMsftOutput()], GOLDEN_SET)
+    const row = report.companies.find((c) => c.ticker === 'MSFT')!
     expect(row.moat.pass).toBe(true)
     expect(row.oe_bridge.pass).toBe(true)
     expect(row.shariah.pass).toBe(true)
     expect(row.fabricated_citations.pass).toBe(true)
     expect(row.qualified).toBe(true)
-    // Aggregate stays false: only COST was supplied; CPRT/NVO are missing (fail-closed). The
-    // per-company COST row qualifies; the whole golden set does not until every name is scored.
+    // Aggregate stays false: only MSFT was supplied; CPRT/NVO are missing (fail-closed). The
+    // per-company MSFT row qualifies; the whole golden set does not until every name is scored.
     expect(report.qualified).toBe(false)
     expect(report.schema_valid_first_attempt_rate).toBe(1)
     expect(report.schema_valid_criterion.pass).toBe(true)
@@ -68,20 +68,20 @@ describe('scoreQualification — per-criterion matrix', () => {
 
   describe('moat = exact OR one tier MORE conservative', () => {
     it('passes when one tier MORE conservative (moderate vs reference wide)', () => {
-      const report = scoreQualification([exactCostOutput({ moat_class: 'moderate' })], GOLDEN_SET)
-      const row = report.companies.find((c) => c.ticker === 'COST')!
+      const report = scoreQualification([exactMsftOutput({ moat_class: 'moderate' })], GOLDEN_SET)
+      const row = report.companies.find((c) => c.ticker === 'MSFT')!
       expect(row.moat.pass).toBe(true)
     })
 
     it('passes when TWO tiers more conservative (narrow vs reference wide) — more conservative is allowed', () => {
-      const report = scoreQualification([exactCostOutput({ moat_class: 'narrow' })], GOLDEN_SET)
-      const row = report.companies.find((c) => c.ticker === 'COST')!
+      const report = scoreQualification([exactMsftOutput({ moat_class: 'narrow' })], GOLDEN_SET)
+      const row = report.companies.find((c) => c.ticker === 'MSFT')!
       expect(row.moat.pass).toBe(true)
     })
 
     it('FAILS when one tier MORE AGGRESSIVE (monopoly vs reference wide)', () => {
-      const report = scoreQualification([exactCostOutput({ moat_class: 'monopoly' })], GOLDEN_SET)
-      const row = report.companies.find((c) => c.ticker === 'COST')!
+      const report = scoreQualification([exactMsftOutput({ moat_class: 'monopoly' })], GOLDEN_SET)
+      const row = report.companies.find((c) => c.ticker === 'MSFT')!
       expect(row.moat.pass).toBe(false)
       expect(row.qualified).toBe(false)
       expect(report.qualified).toBe(false)
@@ -90,59 +90,94 @@ describe('scoreQualification — per-criterion matrix', () => {
 
   describe('OE bridge inputs within ±10%', () => {
     it('passes when every input is 9% off (within tolerance)', () => {
-      const report = scoreQualification([exactCostOutput({
+      const report = scoreQualification([exactMsftOutput({
         oe_bridge: {
-          net_income_musd: 8099 * 1.09,
-          d_and_a_musd: 2426 * 0.91,
-          sbc_musd: 860 * 1.09,
-          diluted_shares_m: 444.8 * 0.91,
+          net_income_musd: 101832 * 1.09,
+          d_and_a_musd: 28000 * 0.91,
+          sbc_musd: 11974 * 1.09,
+          diluted_shares_m: 7465 * 0.91,
         },
       })], GOLDEN_SET)
-      const row = report.companies.find((c) => c.ticker === 'COST')!
+      const row = report.companies.find((c) => c.ticker === 'MSFT')!
       expect(row.oe_bridge.pass).toBe(true)
     })
 
     it('FAILS when an input is 12% off (outside tolerance)', () => {
-      const report = scoreQualification([exactCostOutput({
+      const report = scoreQualification([exactMsftOutput({
         oe_bridge: {
-          net_income_musd: 8099 * 1.12,
-          d_and_a_musd: 2426,
-          sbc_musd: 860,
-          diluted_shares_m: 444.8,
+          net_income_musd: 101832 * 1.12,
+          d_and_a_musd: 28000,
+          sbc_musd: 11974,
+          diluted_shares_m: 7465,
         },
       })], GOLDEN_SET)
-      const row = report.companies.find((c) => c.ticker === 'COST')!
+      const row = report.companies.find((c) => c.ticker === 'MSFT')!
       expect(row.oe_bridge.pass).toBe(false)
       expect(row.qualified).toBe(false)
     })
 
     it('does not score maintenance_capex when the reference omits it', () => {
-      const report = scoreQualification([exactCostOutput()], GOLDEN_SET)
-      const row = report.companies.find((c) => c.ticker === 'COST')!
+      const report = scoreQualification([exactMsftOutput()], GOLDEN_SET)
+      const row = report.companies.find((c) => c.ticker === 'MSFT')!
       const maint = row.oe_bridge.inputs.find((i) => i.field === 'maintenance_capex_musd')
       expect(maint).toBeUndefined()
     })
   })
 
-  describe('Shariah status — exact match', () => {
-    it('FAILS on any mismatch (compliant vs reference non_compliant)', () => {
-      const report = scoreQualification([exactCostOutput({ shariah_status: 'compliant' })], GOLDEN_SET)
-      const row = report.companies.find((c) => c.ticker === 'COST')!
+  describe('Shariah status — permissibility pair (compliant↔conditional matched; only permissible↔non_compliant fails)', () => {
+    it('PASSES when observed is conditional vs a compliant reference (both holdable; purification differs)', () => {
+      const report = scoreQualification([exactMsftOutput({ shariah_status: 'conditional' })], GOLDEN_SET)
+      const row = report.companies.find((c) => c.ticker === 'MSFT')!
+      expect(row.shariah.pass).toBe(true)
+      expect(row.qualified).toBe(true)
+    })
+
+    it('FAILS on the safety-critical line (non_compliant vs a permissible reference)', () => {
+      const report = scoreQualification([exactMsftOutput({ shariah_status: 'non_compliant' })], GOLDEN_SET)
+      const row = report.companies.find((c) => c.ticker === 'MSFT')!
       expect(row.shariah.pass).toBe(false)
       expect(row.qualified).toBe(false)
     })
 
-    it('FAILS on the adjacent conditional mismatch (no one-tier leniency for Shariah)', () => {
-      const report = scoreQualification([exactCostOutput({ shariah_status: 'conditional' })], GOLDEN_SET)
-      const row = report.companies.find((c) => c.ticker === 'COST')!
-      expect(row.shariah.pass).toBe(false)
+    // Full matrix against custom references (golden set v4 carries only compliant references). A
+    // permissible reference (compliant OR conditional) matches any permissible observation; the only
+    // failures are permissible↔non_compliant in either direction.
+    it('scores Shariah on permissibility across all reference tiers', () => {
+      const golden = (s: GoldenShariahStatus): GoldenSet => ({
+        version: 'test-shariah',
+        companies: [{
+          ticker: 'TST', company: 'Test Co', reference_fiscal_year: 2025,
+          expected_moat_class: 'wide', expected_runway: 'proven',
+          expected_oe_bridge: { net_income_musd: 100, d_and_a_musd: 10, sbc_musd: 5, diluted_shares_m: 50 },
+          expected_shariah_status: s, reference_confidence: 'firm', basis_note: 'test',
+        }],
+      })
+      const out = (s: GoldenShariahStatus): LaneQualificationOutput => ({
+        ticker: 'TST', moat_class: 'wide', shariah_status: s,
+        oe_bridge: { net_income_musd: 100, d_and_a_musd: 10, sbc_musd: 5, diluted_shares_m: 50 },
+        fabricated_citation_count: 0, schema_valid_first_attempt: true,
+      })
+      const pass = (ref: GoldenShariahStatus, obs: GoldenShariahStatus) =>
+        scoreQualification([out(obs)], golden(ref)).companies[0]!.shariah.pass
+      // permissible ref ↔ permissible observed: always pass
+      expect(pass('compliant', 'compliant')).toBe(true)
+      expect(pass('compliant', 'conditional')).toBe(true)
+      expect(pass('conditional', 'compliant')).toBe(true)
+      expect(pass('conditional', 'conditional')).toBe(true)
+      // permissible ref ↔ non_compliant observed: fail (both directions)
+      expect(pass('compliant', 'non_compliant')).toBe(false)
+      expect(pass('conditional', 'non_compliant')).toBe(false)
+      expect(pass('non_compliant', 'compliant')).toBe(false)
+      expect(pass('non_compliant', 'conditional')).toBe(false)
+      // non_compliant ref ↔ non_compliant observed: pass
+      expect(pass('non_compliant', 'non_compliant')).toBe(true)
     })
   })
 
   describe('fabricated citations == 0', () => {
     it('FAILS when any fabricated citation is reported', () => {
-      const report = scoreQualification([exactCostOutput({ fabricated_citation_count: 1 })], GOLDEN_SET)
-      const row = report.companies.find((c) => c.ticker === 'COST')!
+      const report = scoreQualification([exactMsftOutput({ fabricated_citation_count: 1 })], GOLDEN_SET)
+      const row = report.companies.find((c) => c.ticker === 'MSFT')!
       expect(row.fabricated_citations.pass).toBe(false)
       expect(row.qualified).toBe(false)
       expect(report.qualified).toBe(false)
@@ -152,7 +187,7 @@ describe('scoreQualification — per-criterion matrix', () => {
   describe('schema-valid on first attempt ≥ 90% (aggregate criterion)', () => {
     it('passes at exactly 90% (9 of 10 valid)', () => {
       const outputs = Array.from({ length: 10 }, (_, i) =>
-        exactCostOutput({ ticker: `COST`, schema_valid_first_attempt: i !== 0 }))
+        exactMsftOutput({ ticker: `MSFT`, schema_valid_first_attempt: i !== 0 }))
       const report = scoreQualification(outputs, GOLDEN_SET)
       expect(report.schema_valid_first_attempt_rate).toBeCloseTo(0.9, 5)
       expect(report.schema_valid_criterion.pass).toBe(true)
@@ -160,7 +195,7 @@ describe('scoreQualification — per-criterion matrix', () => {
 
     it('FAILS below 90% (8 of 10 valid) and drags the aggregate qualified to false', () => {
       const outputs = Array.from({ length: 10 }, (_, i) =>
-        exactCostOutput({ schema_valid_first_attempt: i >= 2 }))
+        exactMsftOutput({ schema_valid_first_attempt: i >= 2 }))
       const report = scoreQualification(outputs, GOLDEN_SET)
       expect(report.schema_valid_first_attempt_rate).toBeCloseTo(0.8, 5)
       expect(report.schema_valid_criterion.pass).toBe(false)
@@ -178,8 +213,8 @@ describe('scoreQualification — per-criterion matrix', () => {
   })
 
   it('fails-closed for a golden-set company with NO lane output (missing = not qualified)', () => {
-    // Only COST supplied; the report still measures the whole golden set, so CPRT/NVO are missing.
-    const report = scoreQualification([exactCostOutput()], GOLDEN_SET)
+    // Only MSFT supplied; the report still measures the whole golden set, so CPRT/NVO are missing.
+    const report = scoreQualification([exactMsftOutput()], GOLDEN_SET)
     const cprt = report.companies.find((c) => c.ticker === 'CPRT')
     expect(cprt?.qualified).toBe(false)
     expect(cprt?.missing).toBe(true)
@@ -239,9 +274,9 @@ describe('OE-bridge currency consistency (the NVO DKK/USD scaling fix)', () => {
     expect(row.oe_bridge.detail.toLowerCase()).toContain('currency')
   })
 
-  it('treats an absent observed currency as matching a USD reference (back-compat for COST)', () => {
-    const report = scoreQualification([exactCostOutput()], GOLDEN_SET)
-    const row = report.companies.find((c) => c.ticker === 'COST')!
+  it('treats an absent observed currency as matching a USD reference (back-compat for MSFT)', () => {
+    const report = scoreQualification([exactMsftOutput()], GOLDEN_SET)
+    const row = report.companies.find((c) => c.ticker === 'MSFT')!
     expect(row.oe_bridge.pass).toBe(true)
   })
 })

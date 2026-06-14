@@ -124,6 +124,9 @@ const defaultRunner: CommandRunner = (command, args, env, timeoutMs, stdin) => n
   })
 })
 
+/** Recognized Codex reasoning-effort levels (Codex `model_reasoning_effort` config values). */
+const CODEX_REASONING_EFFORTS = new Set(['minimal', 'low', 'medium', 'high', 'xhigh'])
+
 export class OpenAICodexCliProvider implements Provider {
   readonly provider_id = 'openai'
   readonly capabilities = {
@@ -152,6 +155,19 @@ export class OpenAICodexCliProvider implements Provider {
     this.runCommand = options.runCommand ?? defaultRunner
   }
 
+  /**
+   * Owlfolio-scoped Codex reasoning-effort override. When `OWLFOLIO_CODEX_REASONING_EFFORT` is set to a
+   * recognized level, pass it to `codex exec` as a `-c model_reasoning_effort=<level>` config override
+   * (the same key honored by ~/.codex/config.toml) so research runs can use deeper reasoning without
+   * changing the user's global Codex config. Unset or unrecognized → no override (Codex's own default,
+   * typically `medium`, applies). Validated against an allowlist so a stray value can't inject config.
+   */
+  private reasoningArgs(): string[] {
+    const raw = this.env['OWLFOLIO_CODEX_REASONING_EFFORT']
+    const effort = (raw ?? '').trim().toLowerCase()
+    return CODEX_REASONING_EFFORTS.has(effort) ? ['-c', `model_reasoning_effort=${effort}`] : []
+  }
+
   async complete(request: ProviderRunRequest): Promise<ProviderCompletion> {
     const observations = this.observationsFor('running', 'Codex CLI started the request.')
     const result = await this.withTempOutput(async (dir, outputPath) => {
@@ -164,6 +180,7 @@ export class OpenAICodexCliProvider implements Provider {
           'read-only',
           '--model',
           request.model_id,
+          ...this.reasoningArgs(),
           '--json',
           '-o',
           outputPath,
@@ -201,6 +218,7 @@ export class OpenAICodexCliProvider implements Provider {
           'read-only',
           '--model',
           request.model_id,
+          ...this.reasoningArgs(),
           '--json',
           '--output-schema',
           schemaPath,

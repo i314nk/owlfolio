@@ -69,6 +69,11 @@ function isValidPartialAutomation(body: unknown): body is Partial<AutomationSett
     if ('cadence' in v && !(AutomationCadencePriceRefreshValues as readonly string[]).includes(v.cadence as string)) return false
   }
 
+  // Advanced research-depth knob: a number; mergeAutomationSettings clamps it into the supported band.
+  if ('research_max_tool_calls' in b && typeof b.research_max_tool_calls !== 'number') {
+    return false
+  }
+
   return true
 }
 

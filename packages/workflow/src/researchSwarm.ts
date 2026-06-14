@@ -457,7 +457,7 @@ export async function runStrategyResearchSwarm(
   store: SwarmStore,
   provider: Provider,
   command: RunStrategyResearchSwarmCommand,
-  deps: { ground?: GroundFn; grounding?: GroundingDeps; laneConcurrency?: number } & FundamentalsDeps = {},
+  deps: { ground?: GroundFn; grounding?: GroundingDeps; laneConcurrency?: number; maxToolCalls?: number } & FundamentalsDeps = {},
 ) {
   const strategyRef = resolveResearchStrategyRef(command)
   const accumulated = new Map<string, CapturedSource>()
@@ -742,7 +742,7 @@ export async function runResearchDeepDivePhase(
   store: SwarmStore,
   provider: Provider,
   command: RunResearchDeepDivePhaseCommand,
-  deps: { ground?: GroundFn; grounding?: GroundingDeps; laneConcurrency?: number; accumulated?: Map<string, CapturedSource> } & FundamentalsDeps = {},
+  deps: { ground?: GroundFn; grounding?: GroundingDeps; laneConcurrency?: number; maxToolCalls?: number; accumulated?: Map<string, CapturedSource> } & FundamentalsDeps = {},
 ) {
   const strategyRef = resolveResearchStrategyRef(command)
   const accumulated = deps.accumulated ?? new Map<string, CapturedSource>()

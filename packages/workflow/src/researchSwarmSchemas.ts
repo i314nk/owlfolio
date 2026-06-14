@@ -170,7 +170,13 @@ export const ShariahCrossCheckSchema = z.object({
 // Constants
 // ---------------------------------------------------------------------------
 
-export const AGENT_TIMEOUT_MS = 180_000
+// Per-agent (per-lane) call timeout. Default 180s; overridable via OWLFOLIO_AGENT_TIMEOUT_MS so deeper
+// reasoning efforts (e.g. Codex xhigh) that legitimately take longer than 3 min don't get killed
+// mid-reasoning and degrade. Read at module load — set the env var when LAUNCHING, not at runtime.
+const ENV_AGENT_TIMEOUT_MS = Number.parseInt(process.env['OWLFOLIO_AGENT_TIMEOUT_MS'] ?? '', 10)
+export const AGENT_TIMEOUT_MS = Number.isFinite(ENV_AGENT_TIMEOUT_MS) && ENV_AGENT_TIMEOUT_MS > 0
+  ? ENV_AGENT_TIMEOUT_MS
+  : 180_000
 
 // MOAT-lane judgment instructions (moved here from the synthesis prompt — spec-correct: the LANE scores
 // its own rubric). The moat lane emits moat_rubric + runway_rubric (Mechanisms 1+2) AND a holistic

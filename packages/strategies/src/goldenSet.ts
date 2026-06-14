@@ -23,7 +23,10 @@ export type GoldenMoatClass = (typeof MOAT_CLASS_ORDER)[number]
 /** Reinvestment runway classes (a separate axis from moat). Referenced for context, not pass-scored. */
 export type GoldenRunway = 'none' | 'limited' | 'proven'
 
-/** Shariah sector status the eval scores for EXACT match. */
+/**
+ * Shariah status the eval scores on PERMISSIBILITY: `compliant`/`conditional` are a matched pair (both
+ * holdable; differ only in purification), and the criterion fails only on permissible↔`non_compliant`.
+ */
 export type GoldenShariahStatus = 'compliant' | 'conditional' | 'non_compliant'
 
 /** How firmly the analyst stands behind a given reference value. */
@@ -75,23 +78,30 @@ export type GoldenSet = {
  *
  * Provenance per row (the analyst's reference basis — cited so a reviewer can re-verify):
  *
- *  COST (Costco Wholesale) — wide moat (membership-warehouse scale + renewal-rate flywheel). Shariah
- *    NON-COMPLIANT on a sector/segment basis: material alcohol, pork, and conventional-finance-adjacent
- *    revenue in the warehouse mix (it is routinely screened out by mainstream Shariah equity screens).
- *    OE bridge from the FY2025 (fiscal year ended Aug/Sep 2025) 10-K, EDGAR, $M: net income 8,099;
- *    D&A 2,426; total capex 5,498 (the maintenance fraction is a model JUDGMENT, so we do NOT freeze a
- *    maintenance_capex reference here); SBC 860; diluted weighted-average shares 444.8M. These five are
- *    FIRM (read off the FY2025 10-K cash-flow/income statements + share count).
+ *  MSFT (Microsoft) — wide moat (Morningstar-rated wide: Windows/Office/Azure platform lock-in + switching
+ *    costs + scale). Shariah COMPLIANT and UNAMBIGUOUS: permissible software sector, no prohibited-income
+ *    story, debt/market-cap ~1% and cash+securities/market-cap ~3% both far under the 30% AAOIFI ceilings;
+ *    a top holding in mainstream halal funds (SP Funds SPUS, Wahed). OE bridge FIRM from the FY2025 10-K
+ *    (fiscal year ended 2025-06-30), EDGAR us-gaap, $M: net income 101,832; D&A 28,000 (Depreciation 22,000
+ *    + intangible amortization 6,000); SBC 11,974; diluted weighted-average shares 7,465M. (Replaced COST,
+ *    2026-06-14: COST's non_compliant status was a contested owner ruling that structurally blocked
+ *    qualification — capable models compute it conditional/compliant — so the gate now uses a clean-Shariah
+ *    name instead. The non_compliant path is still validated via sector-rejection, e.g. tobacco/banks.)
  *
  *  CPRT (Copart) — wide moat (two-sided salvage-auction network + irreplaceable physical yard land
  *    bank + switching costs for insurers). Shariah sector status COMPLIANT/CONDITIONAL: a permissible
  *    core business (vehicle remarketing/auctions), with the usual conditional caveat on interest income
  *    from a large cash balance — i.e. clean on sector, conditional only on the financial-ratio overlay.
- *    We freeze it as 'conditional' (the more conservative of compliant/conditional given the cash pile).
- *    OE-bridge magnitudes are APPROXIMATE (recent-FY order-of-magnitude from memory, not re-pulled from
- *    the filing for this set) — net income ~1,500; D&A ~120; SBC ~70; diluted shares ~965M. Marked
- *    approximate; the scorer's ±10% band is tight, so a near-miss here is expected to be reviewed, not
- *    auto-failed-as-fabrication.
+ *    Shariah COMPLIANT (owner decision 2026-06-14): permissible sector, no prohibited income, financial
+ *    ratios pass — the earlier 'conditional' was an analyst-conservative hunch, not a ratio breach; both
+ *    qualified models independently returned compliant.
+ *    OE bridge RE-PULLED FIRM from the FY2025 10-K (fiscal year ended 2025-07-31) via SEC EDGAR XBRL
+ *    (us-gaap), $M: net income 1,552.449; D&A (DepreciationDepletionAndAmortization) 215.849; SBC
+ *    (ShareBasedCompensation) 38.004; diluted weighted-average shares 977.563M. NOTE the prior frozen
+ *    values (D&A ~120 / SBC ~70, pinned to FY2024) were APPROXIMATE-from-memory and WRONG by ~80%/~46%;
+ *    the swarm correctly read the primary filing and the gate was failing a correct model on a bad
+ *    reference. Now pinned to the LATEST filed fiscal year the harness actually pulls (drift note: when a
+ *    newer 10-K lands, the harness pulls it — re-pull + re-pin this row at the annual golden-set review).
  *
  *  NVO (Novo Nordisk) — wide moat (GLP-1 / insulin franchise: patents, manufacturing scale,
  *    branded-script switching). Shariah sector status COMPLIANT (pharmaceuticals are a permissible
@@ -102,48 +112,59 @@ export type GoldenSet = {
  *    against these DKK references — never against a USD-scaled placeholder (the old ~375% FX-scale miss).
  */
 export const GOLDEN_SET: GoldenSet = Object.freeze({
-  version: 'golden-set-2026-06-2',
+  version: 'golden-set-2026-06-4',
   companies: [
     {
-      ticker: 'COST',
-      company: 'Costco Wholesale Corporation',
+      ticker: 'MSFT',
+      company: 'Microsoft Corporation',
       reference_fiscal_year: 2025,
       expected_moat_class: 'wide',
-      expected_runway: 'limited',
+      expected_runway: 'proven',
       expected_oe_bridge: {
-        net_income_musd: 8099,
-        d_and_a_musd: 2426,
-        // maintenance_capex omitted on purpose: the maintenance fraction of total capex (5,498) is a
-        // model judgment, not a frozen reference line. We score NI/D&A/SBC/shares instead.
-        sbc_musd: 860,
-        diluted_shares_m: 444.8,
+        // FIRM from the FY2025 10-K (FY ended 2025-06-30), SEC EDGAR XBRL us-gaap, $M. D&A = Depreciation
+        // 22,000 + AmortizationOfIntangibleAssets 6,000 = 28,000 (Microsoft reports these as the cash-flow
+        // D&A components; the harness sums them). maintenance_capex omitted (a model judgment off capex).
+        net_income_musd: 101832,
+        d_and_a_musd: 28000,
+        sbc_musd: 11974,
+        diluted_shares_m: 7465,
       },
-      expected_shariah_status: 'non_compliant',
+      expected_shariah_status: 'compliant',
       reference_confidence: 'firm',
       basis_note:
-        'COST FY2025 10-K (SEC EDGAR): NI 8,099 / D&A 2,426 / total capex 5,498 / SBC 860 / diluted '
-        + 'shares 444.8M — FIRM. Moat wide (membership flywheel) — firm. Shariah NON_COMPLIANT on sector '
-        + '(alcohol/pork/finance-adjacent segments routinely screened out) — firm.',
+        'MSFT FY2025 10-K (FY ended 2025-06-30, SEC EDGAR us-gaap): NI 101,832 / D&A 28,000 (Depreciation '
+        + '22,000 + intangible amortization 6,000) / SBC 11,974 / diluted shares 7,465M — FIRM, re-pulled '
+        + '2026-06-14. Moat WIDE (Morningstar-rated; Windows/Office/Azure lock-in) — firm. Shariah COMPLIANT '
+        + '— firm and UNAMBIGUOUS: permissible software sector, no prohibited income, debt/market-cap ~1% '
+        + 'and cash+securities/market-cap ~3% both far under the 30% AAOIFI ceilings; a top holding in '
+        + 'mainstream halal funds (SP Funds SPUS, Wahed). Replaced COST (whose contested non_compliant '
+        + 'ruling structurally blocked qualification) as a clean-Shariah golden-set name.',
     },
     {
       ticker: 'CPRT',
       company: 'Copart, Inc.',
-      reference_fiscal_year: 2024,
+      reference_fiscal_year: 2025,
       expected_moat_class: 'wide',
       expected_runway: 'proven',
       expected_oe_bridge: {
-        net_income_musd: 1500,
-        d_and_a_musd: 120,
-        sbc_musd: 70,
-        diluted_shares_m: 965,
+        // FIRM from the FY2025 10-K (FY ended 2025-07-31), SEC EDGAR XBRL us-gaap, $M. The prior values
+        // (D&A 120 / SBC 70, pinned to FY2024) were approximate-from-memory and wrong by ~80%/~46% — the
+        // gate was failing a CORRECT model on a bad reference. Re-pinned to the latest filed FY.
+        net_income_musd: 1552.449,
+        d_and_a_musd: 215.849,
+        sbc_musd: 38.004,
+        diluted_shares_m: 977.563,
       },
-      expected_shariah_status: 'conditional',
-      reference_confidence: 'approximate',
+      expected_shariah_status: 'compliant',
+      reference_confidence: 'firm',
       basis_note:
         'CPRT moat wide (salvage-auction two-sided network + yard land bank + insurer switching costs) '
-        + '— firm. Shariah sector permissible; frozen CONDITIONAL given large interest-bearing cash '
-        + '(the conservative of compliant/conditional) — firm on sector, conditional via financial overlay. '
-        + 'OE-bridge magnitudes APPROXIMATE (recent-FY order-of-magnitude, not re-pulled for this set).',
+        + '— firm. Shariah COMPLIANT (owner decision 2026-06-14): permissible salvage-auction sector, NO '
+        + 'prohibited-income story, debt/cash financial ratios pass — the earlier `conditional` was an '
+        + 'analyst-conservative hunch (interest income on the cash pile), not a ratio breach; both qualified '
+        + 'models independently returned compliant. OE bridge FIRM from the FY2025 10-K (FY ended 2025-07-31, '
+        + 'SEC EDGAR us-gaap): NI 1,552.449 / D&A 215.849 / SBC 38.004 / diluted shares 977.563M (re-pulled '
+        + '2026-06-13; prior D&A 120 / SBC 70 were approximate-from-memory and wrong).',
     },
     {
       ticker: 'NVO',

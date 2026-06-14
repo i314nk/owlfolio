@@ -126,6 +126,8 @@ Readiness inputs:
 
 Readiness is not certification. A credential file cannot override a latest `not-configured`, `unsupported`, or partial certification report, and no real-provider path should be described as live/autonomous until the target-specific report says it is supported.
 
+For how the research harness actually runs under the hood — the grounded two-phase tool loop, the swarm, model tiering/OpenRouter routing, the EDGAR owner-earnings anchor, the `max_tool_calls` depth knob, and the golden-set qualification gate — see `docs/architecture/owlfolio-v2-research-harness-internals.md` (the living "internals" reference; keep it in sync when changing a load-bearing mechanism).
+
 ## Data Safety model
 
 Runtime data is local and sensitive. Backup manifests may include ledgers, source bundles, app config metadata, provider reports, and Shariah/accounting/purification context, but must exclude credentials, API keys, provider auth homes, CLI sessions, generated builds, test artifacts, caches, and local browser state. The web Data Safety route is status/proposal evidence only; destructive restore remains operator-managed until a reviewed restore workflow exists.

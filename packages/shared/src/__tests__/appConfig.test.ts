@@ -20,6 +20,7 @@ describe('defaultAutomationSettings', () => {
     expect(settings.reanalysis).toEqual({ cadence: 'annual' })
     expect(settings.purification).toEqual({ enabled: true, cadence: 'quarterly' })
     expect(settings.price_refresh).toEqual({ enabled: true, cadence: 'daily' })
+    expect(settings.research_max_tool_calls).toBe(10)
     // Removed fields must not be present on the default
     expect((settings as Record<string, unknown>).deep_dive_mode).toBeUndefined()
     expect((settings as Record<string, unknown>).holding_reviews).toBeUndefined()
@@ -92,6 +93,28 @@ describe('mergeAutomationSettings', () => {
     const merged = mergeAutomationSettings({ valuation_refresh: { enabled: true, cadence: 'daily' } } as Record<string, unknown>)
     expect((merged as Record<string, unknown>).valuation_refresh).toBeUndefined()
     expect(merged.price_refresh).toEqual({ enabled: true, cadence: 'daily' })
+  })
+
+  it('research_max_tool_calls: honors a valid value', () => {
+    expect(mergeAutomationSettings({ research_max_tool_calls: 18 }).research_max_tool_calls).toBe(18)
+  })
+
+  it('research_max_tool_calls: defaults when absent', () => {
+    expect(mergeAutomationSettings({ research_engine_enabled: true }).research_max_tool_calls).toBe(10)
+  })
+
+  it('research_max_tool_calls: clamps below the minimum to the floor', () => {
+    expect(mergeAutomationSettings({ research_max_tool_calls: 0 }).research_max_tool_calls).toBe(1)
+    expect(mergeAutomationSettings({ research_max_tool_calls: -5 }).research_max_tool_calls).toBe(1)
+  })
+
+  it('research_max_tool_calls: clamps above the maximum to the ceiling', () => {
+    expect(mergeAutomationSettings({ research_max_tool_calls: 999 }).research_max_tool_calls).toBe(50)
+  })
+
+  it('research_max_tool_calls: rounds + rejects non-finite to the default', () => {
+    expect(mergeAutomationSettings({ research_max_tool_calls: 12.7 }).research_max_tool_calls).toBe(13)
+    expect(mergeAutomationSettings({ research_max_tool_calls: Number.NaN }).research_max_tool_calls).toBe(10)
   })
 })
 

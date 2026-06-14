@@ -357,7 +357,8 @@ export async function enqueueResearchRun(
           model_role_env: await resolveModelRoleEnv(),
           model_overrides: (await buildAutoModelRoleOverrides({ processEnv: process.env })).overrides,
         },
-        { ground },
+        // Advanced research-depth knob: per-lane grounded-tool-call cap (undefined → loop default).
+        { ground, ...(state.config.automation?.research_max_tool_calls === undefined ? {} : { maxToolCalls: state.config.automation.research_max_tool_calls }) },
       )
       return { research_case_id: researchCaseId }
     }
@@ -449,7 +450,7 @@ export async function requestDeepDiveRun(
             model_role_env: await resolveModelRoleEnv(),
             model_overrides: (await buildAutoModelRoleOverrides({ processEnv: process.env })).overrides,
           },
-          { ground },
+          { ground, ...(state.config.automation?.research_max_tool_calls === undefined ? {} : { maxToolCalls: state.config.automation.research_max_tool_calls }) },
         )
       }
 

@@ -125,6 +125,54 @@ describe('OpenAICodexCliProvider', () => {
     expect(result.source_records).toHaveLength(1)
   })
 
+  const validOutput = JSON.stringify({
+    investment_verdict: 'WATCH', strategy_compliance: 'CONDITIONAL', shariah_status: 'COMPLIANT',
+    valuation_status: 'FAIR', next_required_action: 'x', decision_reason: 'y', source_records: [],
+  })
+
+  it('passes OWLFOLIO_CODEX_REASONING_EFFORT as a -c model_reasoning_effort override', async () => {
+    let captured: string[] = []
+    const provider = new OpenAICodexCliProvider({
+      env: { CODEX_ACCESS_TOKEN: 'test-access-token', OWLFOLIO_CODEX_REASONING_EFFORT: 'xhigh' },
+      runCommand: async (_command, args) => {
+        captured = args
+        await writeFile(args[args.indexOf('-o') + 1]!, validOutput, 'utf8')
+        return { exitCode: 0, stdout: '', stderr: '' }
+      },
+    })
+    await provider.structured(request, OpenAIResearchSchema)
+    expect(captured).toContain('-c')
+    expect(captured).toContain('model_reasoning_effort=xhigh')
+  })
+
+  it('omits the reasoning override when OWLFOLIO_CODEX_REASONING_EFFORT is unset', async () => {
+    let captured: string[] = []
+    const provider = new OpenAICodexCliProvider({
+      env: { CODEX_ACCESS_TOKEN: 'test-access-token' },
+      runCommand: async (_command, args) => {
+        captured = args
+        await writeFile(args[args.indexOf('-o') + 1]!, validOutput, 'utf8')
+        return { exitCode: 0, stdout: '', stderr: '' }
+      },
+    })
+    await provider.structured(request, OpenAIResearchSchema)
+    expect(captured.some((a) => a.startsWith('model_reasoning_effort='))).toBe(false)
+  })
+
+  it('ignores an invalid reasoning effort value (falls back to the Codex default)', async () => {
+    let captured: string[] = []
+    const provider = new OpenAICodexCliProvider({
+      env: { CODEX_ACCESS_TOKEN: 'test-access-token', OWLFOLIO_CODEX_REASONING_EFFORT: 'banana' },
+      runCommand: async (_command, args) => {
+        captured = args
+        await writeFile(args[args.indexOf('-o') + 1]!, validOutput, 'utf8')
+        return { exitCode: 0, stdout: '', stderr: '' }
+      },
+    })
+    await provider.structured(request, OpenAIResearchSchema)
+    expect(captured.some((a) => a.startsWith('model_reasoning_effort='))).toBe(false)
+  })
+
   it('raises a helpful error when the Codex CLI fails', async () => {
     const provider = new OpenAICodexCliProvider({
       env: {},

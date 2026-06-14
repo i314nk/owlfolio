@@ -3,6 +3,7 @@ import { pathToFileURL } from 'node:url'
 
 import { SQLiteEventStore } from '@owlfolio/ledger/sqliteEventStore'
 import { redactProviderDiagnostic, resolveProvider } from '@owlfolio/providers'
+import { mergeAutomationSettings } from '@owlfolio/shared'
 
 import { defineDefaultScheduledTasks, resolveWorkerProviderReadiness, resolveWorkerRuntimePaths, runProcessResearchQueueTask, runProcessDeepDiveQueueTask, runProcessCalibrationQueueTask, runScheduledTasks } from './runtime.ts'
 
@@ -89,11 +90,14 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     }
 
     const provider = resolveProvider({ provider_id: runtime.config.provider.provider_id })
+    // Advanced research-depth knob: per-lane grounded-tool-call cap (clamped, default-filled).
+    const maxToolCalls = mergeAutomationSettings(runtime.config.automation).research_max_tool_calls
 
     if (options.task_kind === 'process_research_queue') {
       const result = await runProcessResearchQueueTask(store, {
         provider,
         source_ledger_path: runtime.source_ledger_path,
+        maxToolCalls,
       })
       console.log(JSON.stringify({ runtime, result }, null, 2))
       return 0
@@ -103,6 +107,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       const result = await runProcessDeepDiveQueueTask(store, {
         provider,
         source_ledger_path: runtime.source_ledger_path,
+        maxToolCalls,
       })
       console.log(JSON.stringify({ runtime, result }, null, 2))
       return 0

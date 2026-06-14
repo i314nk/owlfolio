@@ -9,6 +9,7 @@ import {
   sanitizeWorkingCapitalChange,
   anchorNetIncomeToEdgar,
   OE_NORMALIZATION_MAX_FRACTION,
+  OE_GROSS_MISMATCH_FRACTION,
 } from '../rangeSanity'
 
 describe('sanitizeRoicLike (incremental_roic / roic > 100% rejected)', () => {
@@ -93,16 +94,10 @@ describe('sanitizeTerminalGrowth [0, 0.05]', () => {
   })
 })
 
-describe('anchorNetIncomeToEdgar (bounded ±35% normalization off EDGAR reported)', () => {
-  it('exposes the normalization bound', () => {
+describe('anchorNetIncomeToEdgar (honor ≤35% normalization · clamp 35–60% · EDGAR-reported beyond 60%)', () => {
+  it('exposes the normalization + gross-mismatch bounds', () => {
     expect(OE_NORMALIZATION_MAX_FRACTION).toBe(0.35)
-  })
-
-  it('model net_income=0 while EDGAR positive → clamps to lower band edge + flags', () => {
-    const r = anchorNetIncomeToEdgar(0, 8099)
-    expect(r.clamped).toBe(true)
-    expect(r.value).toBeCloseTo(8099 * 0.65, 2)
-    expect(r.flag).toMatch(/oe_bridge_net_income_clamped/)
+    expect(OE_GROSS_MISMATCH_FRACTION).toBe(0.6)
   })
 
   it('proposal within band → used as-is, not clamped, no flag', () => {
@@ -112,16 +107,51 @@ describe('anchorNetIncomeToEdgar (bounded ±35% normalization off EDGAR reported
     expect(r.flag).toBeUndefined()
   })
 
-  it('proposal above band → clamps to upper edge', () => {
-    const r = anchorNetIncomeToEdgar(20000, 8099)
+  it('moderate over-normalization below band (35–60%) → clamps to lower band edge + flags', () => {
+    // 5000 vs 8099 is ~38% below: a plausible (if aggressive) one-off normalization → clamp to edge.
+    const r = anchorNetIncomeToEdgar(5000, 8099)
+    expect(r.clamped).toBe(true)
+    expect(r.value).toBeCloseTo(8099 * 0.65, 2)
+    expect(r.flag).toMatch(/oe_bridge_net_income_clamped/)
+  })
+
+  it('moderate over-normalization above band (35–60%) → clamps to upper band edge', () => {
+    // 11000 vs 8099 is ~36% above → clamp to upper edge.
+    const r = anchorNetIncomeToEdgar(11000, 8099)
     expect(r.clamped).toBe(true)
     expect(r.value).toBeCloseTo(8099 * 1.35, 2)
   })
 
-  it('non-finite proposal → clamps to lower band edge', () => {
+  it('GROSS under-mismatch (currency/scale error, e.g. DKK filer NI proposed in USD) → falls back to EDGAR reported', () => {
+    // Novo Nordisk regression: EDGAR ProfitLoss 102,434M DKK; the model proposed a USD-scaled ~14,845.
+    // The OLD behavior clamped to the band floor (102434×0.65=66,582.1, 35% off → failed the gate). The
+    // primary filing owns the figure: a gross (>60%) mismatch is a scale/currency error, not a
+    // normalization, so we use EDGAR's reported NI verbatim.
+    const r = anchorNetIncomeToEdgar(14845, 102434)
+    expect(r.clamped).toBe(true)
+    expect(r.value).toBe(102434)
+    expect(r.flag).toMatch(/oe_bridge_net_income_scale_mismatch/)
+  })
+
+  it('GROSS over-mismatch (proposal a different order of magnitude high) → falls back to EDGAR reported', () => {
+    const r = anchorNetIncomeToEdgar(300000, 102434)
+    expect(r.clamped).toBe(true)
+    expect(r.value).toBe(102434)
+    expect(r.flag).toMatch(/oe_bridge_net_income_scale_mismatch/)
+  })
+
+  it('model net_income=0 while EDGAR positive → falls back to EDGAR reported (not the band floor)', () => {
+    const r = anchorNetIncomeToEdgar(0, 8099)
+    expect(r.clamped).toBe(true)
+    expect(r.value).toBe(8099)
+    expect(r.flag).toMatch(/oe_bridge_net_income_scale_mismatch/)
+  })
+
+  it('non-finite proposal → falls back to EDGAR reported', () => {
     const r = anchorNetIncomeToEdgar(Number.NaN, 8099)
     expect(r.clamped).toBe(true)
-    expect(r.value).toBeCloseTo(8099 * 0.65, 2)
+    expect(r.value).toBe(8099)
+    expect(r.flag).toMatch(/oe_bridge_net_income_scale_mismatch/)
   })
 
   it('non-finite EDGAR figure → keeps model proposal (caller uses model path)', () => {

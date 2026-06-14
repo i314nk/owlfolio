@@ -11,6 +11,12 @@ import type {
   AutomationCadenceWatchlist,
   AutomationSettings,
 } from '@owlfolio/shared'
+// Import the runtime bounds from the appConfig subpath (NOT the '@owlfolio/shared' barrel, which
+// re-exports runtimeBackup → node:fs and cannot be bundled into this client component).
+import {
+  RESEARCH_MAX_TOOL_CALLS_MAX,
+  RESEARCH_MAX_TOOL_CALLS_MIN,
+} from '@owlfolio/shared/appConfig'
 
 export type AutomationSettingsPanelProps = {
   initialAutomation: AutomationSettings
@@ -84,6 +90,18 @@ const selectStyle: CSSProperties = {
   fontWeight: 650,
   padding: '0.48rem 0.75rem',
   cursor: 'pointer',
+}
+
+const numberInputStyle: CSSProperties = {
+  background: 'rgba(5, 7, 5, 0.82)',
+  border: '1px solid rgba(52, 211, 153, 0.28)',
+  borderRadius: '0.6rem',
+  color: 'var(--owl-color-text)',
+  fontSize: 'var(--owl-text-base)',
+  fontWeight: 650,
+  padding: '0.48rem 0.6rem',
+  width: '4.5rem',
+  textAlign: 'center' as const,
 }
 
 const toggleTrackBaseStyle: CSSProperties = {
@@ -245,6 +263,35 @@ function ControlSelect<T extends string>({
   )
 }
 
+function ControlNumber({
+  label,
+  value,
+  min,
+  max,
+  onChange,
+}: {
+  label: string
+  value: number
+  min: number
+  max: number
+  onChange: (v: number) => void
+}) {
+  return createElement('input', {
+    type: 'number',
+    'aria-label': label,
+    value,
+    min,
+    max,
+    step: 1,
+    style: numberInputStyle,
+    onChange: (e: React.ChangeEvent<HTMLInputElement>) => {
+      const parsed = Number.parseInt(e.target.value, 10)
+      // Keep the prior value when the field is mid-edit/empty; the server clamps on save.
+      onChange(Number.isFinite(parsed) ? parsed : value)
+    },
+  })
+}
+
 function ControlRow({
   label,
   helper,
@@ -391,6 +438,21 @@ export function AutomationSettingsPanel({ initialAutomation }: AutomationSetting
               { value: 'monthly', label: 'Monthly' },
             ],
             onChange: (v) => update('discovery', { ...pendingSettings.discovery, cadence: v }),
+          }),
+        ),
+
+        createElement(
+          ControlRow,
+          {
+            label: 'Research depth (advanced)',
+            helper: `Max grounded tool calls (SEC filing fetches / searches) each research lane may make while gathering evidence. Higher = deeper sourcing but more cost and time; lower = faster and cheaper but shallower. Range ${RESEARCH_MAX_TOOL_CALLS_MIN}–${RESEARCH_MAX_TOOL_CALLS_MAX}; default 10.`,
+          },
+          createElement(ControlNumber, {
+            label: 'Research depth (max grounded tool calls per lane)',
+            value: pendingSettings.research_max_tool_calls,
+            min: RESEARCH_MAX_TOOL_CALLS_MIN,
+            max: RESEARCH_MAX_TOOL_CALLS_MAX,
+            onChange: (v) => update('research_max_tool_calls', v),
           }),
         ),
       ),

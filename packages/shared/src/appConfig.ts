@@ -47,6 +47,17 @@ export type AutomationCadencePurification = (typeof AutomationCadencePurificatio
 export const AutomationCadencePriceRefreshValues = ['off', 'daily', 'weekly'] as const
 export type AutomationCadencePriceRefresh = (typeof AutomationCadencePriceRefreshValues)[number]
 
+/**
+ * Advanced research-depth / cost knob: the maximum number of grounded tool calls (fetch_source /
+ * search_filings) a single research lane may make during its Phase-1 evidence gather. Higher = deeper
+ * (more primary sources pulled per lane) but more model round-trips + more spend; lower = faster/cheaper
+ * but risks shallow research. Threaded into the grounded tool loop's `budget.max_tool_calls`. Bounded so
+ * a stray config can neither disable gathering (≥1) nor run away on cost (≤50).
+ */
+export const DEFAULT_RESEARCH_MAX_TOOL_CALLS = 10
+export const RESEARCH_MAX_TOOL_CALLS_MIN = 1
+export const RESEARCH_MAX_TOOL_CALLS_MAX = 50
+
 export type AutomationSettings = {
   research_engine_enabled: boolean
   discovery: { enabled: boolean; cadence: AutomationCadenceDiscovery }
@@ -56,6 +67,17 @@ export type AutomationSettings = {
   reanalysis: { cadence: AutomationCadenceReanalysis }
   purification: { enabled: boolean; cadence: AutomationCadencePurification }
   price_refresh: { enabled: boolean; cadence: AutomationCadencePriceRefresh }
+  /** Advanced: max grounded tool calls per research lane (Phase-1 gather cap). See the const docs above. */
+  research_max_tool_calls: number
+}
+
+/** Clamp a (possibly invalid/legacy) max-tool-calls value into the supported integer band; default fallback. */
+export const clampResearchMaxToolCalls = (value: unknown): number => {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return DEFAULT_RESEARCH_MAX_TOOL_CALLS
+  const rounded = Math.round(value)
+  if (rounded < RESEARCH_MAX_TOOL_CALLS_MIN) return RESEARCH_MAX_TOOL_CALLS_MIN
+  if (rounded > RESEARCH_MAX_TOOL_CALLS_MAX) return RESEARCH_MAX_TOOL_CALLS_MAX
+  return rounded
 }
 
 export type AppConfig = {
@@ -93,6 +115,7 @@ export const defaultAutomationSettings = (): AutomationSettings => ({
   reanalysis: { cadence: 'annual' },
   purification: { enabled: true, cadence: 'quarterly' },
   price_refresh: { enabled: true, cadence: 'daily' },
+  research_max_tool_calls: DEFAULT_RESEARCH_MAX_TOOL_CALLS,
 })
 
 /**
@@ -156,6 +179,9 @@ export const mergeAutomationSettings = (partial?: Partial<AutomationSettings & {
     reanalysis: partial.reanalysis !== undefined ? { cadence: reanalysisCadence } : defaults.reanalysis,
     purification: partial.purification ?? defaults.purification,
     price_refresh: partial.price_refresh ?? defaults.price_refresh,
+    research_max_tool_calls: partial.research_max_tool_calls === undefined
+      ? defaults.research_max_tool_calls
+      : clampResearchMaxToolCalls(partial.research_max_tool_calls),
   }
 }
 

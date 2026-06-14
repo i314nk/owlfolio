@@ -66,7 +66,12 @@ export type RedTeamIncomplete = {
 
 export type RedTeamResult = RedTeamOutput | RedTeamIncomplete
 
-const AGENT_TIMEOUT_MS = 180_000
+// Default 180s; overridable via OWLFOLIO_AGENT_TIMEOUT_MS (read at module load) so deeper reasoning
+// efforts that legitimately run longer aren't killed mid-reasoning. Mirrors researchSwarmSchemas.
+const ENV_AGENT_TIMEOUT_MS = Number.parseInt(process.env['OWLFOLIO_AGENT_TIMEOUT_MS'] ?? '', 10)
+const AGENT_TIMEOUT_MS = Number.isFinite(ENV_AGENT_TIMEOUT_MS) && ENV_AGENT_TIMEOUT_MS > 0
+  ? ENV_AGENT_TIMEOUT_MS
+  : 180_000
 
 /**
  * Compact digest of one lane finding for the red-team prompt. The red team attacks the SHARED

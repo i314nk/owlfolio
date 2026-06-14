@@ -105,6 +105,7 @@ describe('buildGroundedToolExecutor', () => {
 // ---- A fake loop-capable provider that drives a scripted Phase-1 / Phase-2 sequence. ----
 function fakeLoopProvider(opts: {
   capability?: 'native' | 'adapter' | 'unsupported'
+  onRequest?: (request: ProviderToolLoopRequest) => void
   script: (executor: ProviderToolExecutor) => Promise<{ analysis: unknown; sawTool: boolean; rounds: number }>
 }): Provider {
   const capability = opts.capability ?? 'adapter'
@@ -129,6 +130,7 @@ function fakeLoopProvider(opts: {
     async structured() { throw new Error('fallback structured() should not be called when loop is supported') },
     async runWithTools() { throw new Error('not used') },
     async runToolLoop<T>(request: ProviderToolLoopRequest, schema: z.ZodType<T>, executor: ProviderToolExecutor): Promise<ProviderToolLoopResult<T>> {
+      opts.onRequest?.(request)
       const scripted = await opts.script(executor)
       return {
         analysis: schema.parse(scripted.analysis),
@@ -238,6 +240,34 @@ describe('runGroundedAgentWithTools (loop selection + grounding invariant)', () 
     expect(structured).toHaveBeenCalledOnce()
     expect(result.analysis.finding_summary).toBe('fallback')
     expect(result.verified_ids).toContain('msft_10k')
+  })
+
+  it('threads deps.maxToolCalls into the loop budget (the advanced research-depth knob)', async () => {
+    let budget: number | undefined
+    const provider = fakeLoopProvider({
+      onRequest: (req) => { budget = req.budget.max_tool_calls },
+      script: async (executor) => {
+        const res = await executor('fetch_source', { url: 'https://www.sec.gov/Archives/edgar/data/789019/x.htm' })
+        const id = /source_id=(\S+)/.exec(res)![1]!
+        return { sawTool: true, rounds: 1, analysis: { finding_summary: 's', confidence: 'high', caveats: [], source_ids: [id], proposed_sources: [{ source_id: id, title: 't', url: 'https://www.sec.gov/Archives/edgar/data/789019/x.htm', excerpt: 'e' }] } }
+      },
+    })
+    await runGroundedAgentWithTools(provider, baseRequest, LaneSchema, { ground: stubGround, maxToolCalls: 3 }, { lane: 'moat' })
+    expect(budget).toBe(3)
+  })
+
+  it('uses the default tool-call cap (10) when no maxToolCalls is provided', async () => {
+    let budget: number | undefined
+    const provider = fakeLoopProvider({
+      onRequest: (req) => { budget = req.budget.max_tool_calls },
+      script: async (executor) => {
+        const res = await executor('fetch_source', { url: 'https://www.sec.gov/Archives/edgar/data/789019/x.htm' })
+        const id = /source_id=(\S+)/.exec(res)![1]!
+        return { sawTool: true, rounds: 1, analysis: { finding_summary: 's', confidence: 'high', caveats: [], source_ids: [id], proposed_sources: [{ source_id: id, title: 't', url: 'https://www.sec.gov/Archives/edgar/data/789019/x.htm', excerpt: 'e' }] } }
+      },
+    })
+    await runGroundedAgentWithTools(provider, baseRequest, LaneSchema, { ground: stubGround }, { lane: 'moat' })
+    expect(budget).toBe(10)
   })
 
   it('exposes the grounded tool names for the provider tool_allowlist', () => {

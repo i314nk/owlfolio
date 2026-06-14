@@ -62,6 +62,11 @@ export class SQLiteEventStore<TEvent extends LedgerEventEnvelope<unknown> = Ledg
     ensureParentDirectory(dbPath)
     this.db = new DatabaseSync(dbPath)
 
+    // Wait up to 5s for a lock instead of failing instantly with SQLITE_BUSY. The append-only ledger is
+    // routinely accessed by two processes at once (the web server reads projections while the worker —
+    // or an operator runner — writes swarm events); without a busy timeout, a read/write collision throws.
+    try { this.db.exec('PRAGMA busy_timeout = 5000') } catch { /* in-memory / older runtimes: best-effort */ }
+
     try {
       runLedgerMigrations(this.db)
     } catch (error) {

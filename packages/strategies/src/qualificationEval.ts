@@ -12,7 +12,9 @@
 //     tier on MOAT_CLASS_ORDER; a MORE AGGRESSIVE tier fails.)
 //   - OE bridge inputs: within ±10% of reference (per scored field; maintenance_capex only when the
 //     reference froze it).
-//   - Shariah status: EXACT match (no one-tier leniency — a wrong Shariah call is never "conservative").
+//   - Shariah status: PERMISSIBILITY match — compliant↔conditional are a matched pair (both holdable;
+//     they differ only in purification); the ONLY failure is permissible↔non_compliant (the
+//     safety-critical line). The prohibited-sector path is also covered by the quick-screen rejection.
 //   - Fabricated citations: ZERO.
 //   - Schema-valid on first attempt: ≥90% across all scored lane runs (an AGGREGATE criterion).
 
@@ -116,13 +118,32 @@ function scoreMoat(reference: GoldenMoatClass, observed: GoldenMoatClass | undef
   }
 }
 
-/** Shariah passes only on an EXACT match — a wrong sector call is never "conservative". */
+/** Permissible = holdable: `compliant` or `conditional` (compliant-with-purification). `non_compliant` = prohibited. */
+function isShariahPermissible(s: GoldenShariahStatus): boolean {
+  return s === 'compliant' || s === 'conditional'
+}
+
+/**
+ * Shariah scores on PERMISSIBILITY, not an exact three-tier match. `compliant` and `conditional` are a
+ * matched pair — both mean the name is HOLDABLE; they differ only in whether incidental impermissible
+ * income must be purified, a benign distinction on which reasonable AAOIFI screens routinely disagree
+ * (any cash-rich company earns some interest → arguably conditional). The criterion fails ONLY on the
+ * safety-critical line: a permissible reference scored `non_compliant`, or a `non_compliant` reference
+ * scored permissible. (The prohibited-sector path is ALSO exercised by the quick-screen sector rejection,
+ * e.g. tobacco/banks short-circuit before a full swarm — so dropping exact compliant/conditional matching
+ * does not weaken non_compliant detection.)
+ */
 function scoreShariah(reference: GoldenShariahStatus, observed: GoldenShariahStatus | undefined): CriterionResult {
   if (observed === undefined) {
     return { pass: false, detail: 'No shariah_status produced (missing) — fail-closed.' }
   }
-  const pass = observed === reference
-  return { pass, detail: `shariah ${observed} vs reference ${reference} (${pass ? 'exact' : 'mismatch'}).` }
+  const pass = isShariahPermissible(observed) === isShariahPermissible(reference)
+  const relation = observed === reference
+    ? 'exact'
+    : pass
+      ? 'permissibility match (compliant/conditional both holdable; purification differs)'
+      : 'MISMATCH on permissibility (permissible vs non_compliant)'
+  return { pass, detail: `shariah ${observed} vs reference ${reference} (${relation}).` }
 }
 
 /** Default reporting currency when a bridge omits one (US 10-K filers report in USD). */

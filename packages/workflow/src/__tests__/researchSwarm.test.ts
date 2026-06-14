@@ -1894,11 +1894,11 @@ describe('EDGAR-anchored OE bridge + harness AAOIFI Shariah ratios', () => {
   })
 
   // ---- Bug 1: the EDGAR net-income anchor is REAL + bounded (was a no-op = full model trust) ----
-  it('model net_income=0 (wild) → net income clamps toward EDGAR, OE positive, flag recorded', async () => {
+  it('model net_income=0 (wild) → net income falls back to EDGAR reported, OE positive, flag recorded', async () => {
     // CPRT-shaped failure: EDGAR reported NI 8099, but the model emits net_income 0. The OLD anchor
-    // (edgar + (model − edgar) = model) produced 0 → spurious negative OE → INSUFFICIENT_DATA. Now NI is
-    // anchored to EDGAR with a bounded ±35% normalization; a proposed 0 (drop of 100% > 35%) is clamped
-    // to EDGAR × (1 − 0.35) = 5264.35 and the clamp is flagged.
+    // (edgar + (model − edgar) = model) produced 0 → spurious negative OE → INSUFFICIENT_DATA. NI is now
+    // anchored to EDGAR; a proposed 0 (a 100% gap, beyond the 60% gross-mismatch band) is treated as a
+    // scale/units error and the EDGAR-REPORTED figure (8099) is used verbatim — the primary filing owns NI.
     const store = new InMemoryEventStore()
     await seedDeepDivePrereqs(store)
     const provider = swarmFakeProviderWithShariah(0.004 * 275235, 'conditional', {
@@ -1918,15 +1918,15 @@ describe('EDGAR-anchored OE bridge + harness AAOIFI Shariah ratios', () => {
     const events = await store.list()
     const projections = projectResearchCases(events as Parameters<typeof projectResearchCases>[0])
     const cp = projections.find((c) => c.research_case_id === 'rc_edgar')
-    // NI clamped to the lower normalization bound: 8099 × (1 − 0.35) = 5264.35 (>= 910 floor, > 0).
-    expect(cp?.valuation?.owner_earnings_bridge?.net_income).toBeCloseTo(8099 * 0.65, 2)
+    // NI falls back to EDGAR's reported figure (8099), not the band floor — the primary filing owns NI.
+    expect(cp?.valuation?.owner_earnings_bridge?.net_income).toBeCloseTo(8099, 2)
     // OE positive (no spurious negative), valuation computes (not voided).
     expect(cp?.valuation?.normalized_owner_earnings_per_share).toBeGreaterThan(0)
-    // The clamp is visible.
+    // The scale/units mismatch is visible.
     const analysisEvent = events.find((e) => e.event_type === 'buffett_munger_analysis_drafted')
     const valuation = (analysisEvent?.payload as Record<string, unknown>)?.['valuation'] as Record<string, unknown>
     const degraded = (valuation?.['degraded_flags'] as string[] | undefined) ?? []
-    expect(degraded.join(' ')).toMatch(/oe_bridge_net_income_clamped/)
+    expect(degraded.join(' ')).toMatch(/oe_bridge_net_income_scale_mismatch/)
   })
 
   it('model net_income within ±35% band → used as-is, no clamp flag', async () => {

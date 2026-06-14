@@ -38,6 +38,7 @@ test-results/
 
 # Runtime data + logs (LLM prompts in logs can include sensitive context)
 /data/
+/.data/
 !src/data/
 logs/
 *.pid
