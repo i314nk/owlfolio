@@ -26,8 +26,21 @@ export type MoatTieredNumber = {
 export type ValuationParams = {
   /** Monotonic version string. Bump on every parameter change; pairs with the ledger event diff. */
   version: string
-  /** Flat discount/hurdle rate — CONSTITUTIONAL, never touched by calibration (spec §1, §3.3). */
+  /**
+   * Effective DEFAULT discount/hurdle rate = ten_year_treasury_default + equity_premium (Phase 1.4). Kept
+   * for callers/regression that read a single discount; the live discount is resolved per-run as
+   * (live 10y Treasury || ten_year_treasury_default) + equity_premium via `discountRate()`. The discount is
+   * GLOBAL config, human-set once — NEVER an agent input, and it carries NO quality knob (Part D Step 3 / G).
+   */
   discount_rate: number
+  /**
+   * Fixed UNIFORM equity premium added to the 10y Treasury yield to form the discount (Phase 1.4 / Step 3).
+   * Identical for every business — the single biggest divergence the method expels is a quality-adjusted
+   * discount, so there is no per-name / per-moat knob here.
+   */
+  equity_premium: number
+  /** Documented fail-closed default 10y Treasury yield used when the live fetch is unavailable (Phase 1.4). */
+  ten_year_treasury_default: number
   /** Terminal-stage growth g_t by moat tier. Recalibrated: monopoly 2.5%, wide 1.5% (spec §1). */
   terminal_growth_by_moat: MoatTieredNumber
   /** Stage-1 horizon (years) by moat tier. Recalibrated: monopoly 15, wide 10 (spec §1). */
@@ -68,7 +81,10 @@ export type ValuationParams = {
  */
 export const VALUATION_PARAMS: ValuationParams = Object.freeze({
   version: 'valuation-2026-06-recalibration-1',
+  // discount_rate = ten_year_treasury_default (0.045) + equity_premium (0.055) = 0.10 (unchanged default).
   discount_rate: 0.10,
+  equity_premium: 0.055,
+  ten_year_treasury_default: 0.045,
   terminal_growth_by_moat: { monopoly: 0.025, wide: 0.015 },
   stage1_horizon_by_moat: { monopoly: 15, wide: 10 },
   margin_of_safety_by_moat: { monopoly: 0.15, wide: 0.25 },

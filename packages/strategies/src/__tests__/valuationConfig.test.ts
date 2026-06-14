@@ -17,7 +17,9 @@ describe('VALUATION_PARAMS (versioned config — single source of truth)', () =>
   })
 
   it('recalibrated defaults match spec §1', () => {
-    expect(VALUATION_PARAMS.discount_rate).toBe(0.10) // constitutional, untouched
+    expect(VALUATION_PARAMS.discount_rate).toBe(0.10) // effective default = treasury default + equity premium
+    expect(VALUATION_PARAMS.equity_premium).toBe(0.055) // Phase 1.4 — uniform, no quality knob
+    expect(VALUATION_PARAMS.ten_year_treasury_default).toBe(0.045) // Phase 1.4 — fail-closed default
     expect(VALUATION_PARAMS.terminal_growth_by_moat).toEqual({ monopoly: 0.025, wide: 0.015 })
     expect(VALUATION_PARAMS.stage1_horizon_by_moat).toEqual({ monopoly: 15, wide: 10 })
     expect(VALUATION_PARAMS.margin_of_safety_by_moat).toEqual({ monopoly: 0.15, wide: 0.25 })

@@ -42,7 +42,12 @@ export const runwaySchema = z.enum(['proven', 'limited', 'none'])
 export type Runway = z.infer<typeof runwaySchema>
 
 export const valuationPolicySchema = z.object({
+  /** Effective default discount = ten_year_treasury_default + equity_premium (Phase 1.4). */
   discount_rate: z.number().positive(),
+  /** Fixed UNIFORM equity premium (no quality knob); discount = 10y Treasury + this (Phase 1.4 / Step 3). */
+  equity_premium: z.number().positive(),
+  /** Fail-closed default 10y Treasury yield when the live fetch is unavailable (Phase 1.4). */
+  ten_year_treasury_default: z.number().positive(),
   margin_of_safety_by_moat: z.object({
     wide: z.number().positive(),
     monopoly: z.number().positive(),

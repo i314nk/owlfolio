@@ -62,7 +62,7 @@ import { ingestManualSourceBundle } from './sourceLedger'
 import { resolveResearchStrategyRef } from './researchStrategyRef'
 import { buffettMungerStrategy, creditedGrowth, discountRate, marginOfSafetyForMoat, moatPassesGate, stage1HorizonForMoat, terminalGrowthForMoat, twoStageFairValuePerShare } from '@owlfolio/strategies/buffettMunger'
 import { computeShariahFinancialRatios } from '@owlfolio/strategies/shariahFinancialRatios'
-import { fetchAverageMarketCap, resolveCurrentPrice, type AverageMarketCapResult, type MarketDataDeps, type PriceQuote } from './marketData'
+import { fetchAverageMarketCap, fetchTenYearTreasuryYield, resolveCurrentPrice, type AverageMarketCapResult, type MarketDataDeps, type PriceQuote, type TreasuryYieldResult } from './marketData'
 import { runRedTeamPass, runRedTeamResponsePass, buildRedTeamLayer, type RedTeamLaneDigest, type RedTeamResult } from './redTeamPass'
 import {
   resolveCrossCheck,
@@ -341,6 +341,12 @@ export type FundamentalsDeps = {
     diluted_shares: number,
     deps?: MarketDataDeps,
   ) => Promise<AverageMarketCapResult>
+  /**
+   * Override the live 10y Treasury-yield resolver (Phase 1.4). The discount = live Treasury + a fixed
+   * uniform equity premium (global config, never agent-set). Defaults to the live Yahoo ^TNX adapter
+   * outside offline test mode; fail-closed to the config default Treasury exactly like the other resolvers.
+   */
+  resolveTreasuryYield?: (deps?: MarketDataDeps) => Promise<TreasuryYieldResult>
 }
 
 /**
@@ -404,6 +410,24 @@ async function resolveCurrentPriceValue(ticker: string, deps: FundamentalsDeps):
     }
   }
   return undefined
+}
+
+/**
+ * Resolve the live 10y Treasury yield (decimal) for the discount anchor (Phase 1.4), fail-closed and
+ * test-mode-gated. Returns undefined when offline / no resolver / the live fetch failed (in which case
+ * `discountRate` falls back to the config default Treasury). The discount stays GLOBAL config; this only
+ * swaps the documented default for the live yield when one is available. Never throws.
+ */
+async function resolveTreasuryYieldValue(deps: FundamentalsDeps): Promise<number | undefined> {
+  const resolver = deps.resolveTreasuryYield
+    ?? (isOfflineTestMode() ? undefined : ((d?: MarketDataDeps) => fetchTenYearTreasuryYield(d)))
+  if (resolver === undefined) return undefined
+  try {
+    const r = await resolver()
+    return r.available ? r.yield : undefined
+  } catch {
+    return undefined
+  }
 }
 
 /**
@@ -1435,7 +1459,10 @@ export async function runResearchDeepDivePhase(
     ? owner_earnings_total / shares_outstanding
     : undefined
 
-  const discount = discountRate(buffettMungerStrategy)
+  // Discount = live 10y Treasury (fail-closed to the config default) + the fixed uniform equity premium
+  // (Phase 1.4 / Step 3). GLOBAL config, never an agent input, no quality knob.
+  const ten_year_treasury = await resolveTreasuryYieldValue(deps)
+  const discount = discountRate(buffettMungerStrategy, ten_year_treasury)
   // ---- Harness defense 3: range/sanity checks on model-proposed numerics (BEFORE the valuation) ----
   // Implausible model numbers are rejected deterministically and never fed into the valuation — a
   // rejected value falls back to a safe/not-computable value + a VISIBLE flag (mirrors degraded_flags).
@@ -1832,6 +1859,12 @@ export async function runResearchDeepDivePhase(
         runway,
         ...(runway_exceptional ? { runway_exceptional } : {}),
         discount_rate: discount,
+        // Discount provenance (Phase 1.4): live Treasury (or the config default) + the uniform equity premium.
+        discount_inputs: {
+          ten_year_treasury: ten_year_treasury ?? buffettMungerStrategy.valuation.ten_year_treasury_default,
+          ten_year_treasury_basis: ten_year_treasury !== undefined ? 'live' : 'config_default',
+          equity_premium: buffettMungerStrategy.valuation.equity_premium,
+        },
         growth_assumptions: dec.analysis.growth_assumptions,
         growth_rate: effective_growth_rate,
         growth_basis,

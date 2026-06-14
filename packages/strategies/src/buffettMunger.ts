@@ -18,11 +18,20 @@ export function moatPassesGate(strategy: StrategyContract, moatClass: MoatClass)
 }
 
 /**
- * Returns the flat discount rate (10%) for all investable moat classes.
- * The certainty difference between wide and monopoly is captured by the moat-tiered margin of safety, not the discount rate.
+ * The discount/hurdle rate (Phase 1.4 / Part D Step 3): `discount = 10y Treasury yield + a fixed UNIFORM
+ * equity premium`. The SAME rate for every business — no beta, no quality knob, no per-moat adjustment.
+ * It is GLOBAL config the human sets once, NEVER an agent input.
+ *
+ * `tenYearTreasury` is the live yield (decimal) when available; when omitted (or non-finite) the config
+ * default (`ten_year_treasury_default`) is used, fail-closed. The certainty difference between moat tiers
+ * is captured by the moat-tiered margin of safety, never by the discount rate.
  */
-export function discountRate(strategy: StrategyContract): number {
-  return strategy.valuation.discount_rate
+export function discountRate(strategy: StrategyContract, tenYearTreasury?: number): number {
+  const v = strategy.valuation
+  const treasury = (typeof tenYearTreasury === 'number' && Number.isFinite(tenYearTreasury) && tenYearTreasury > 0)
+    ? tenYearTreasury
+    : v.ten_year_treasury_default
+  return treasury + v.equity_premium
 }
 
 /**
@@ -254,6 +263,8 @@ const rawBuffettMungerStrategy = {
     // Recalibrated defaults: terminal g 2.5%/1.5%, stage-1 horizon monopoly 15yr/wide 10yr,
     // MOS 15%/25%, 10% flat discount (constitutional, untouched), 18× FV cap, growth bands untouched.
     discount_rate: VALUATION_PARAMS.discount_rate,
+    equity_premium: VALUATION_PARAMS.equity_premium,
+    ten_year_treasury_default: VALUATION_PARAMS.ten_year_treasury_default,
     margin_of_safety_by_moat: {
       wide: VALUATION_PARAMS.margin_of_safety_by_moat.wide,
       monopoly: VALUATION_PARAMS.margin_of_safety_by_moat.monopoly,

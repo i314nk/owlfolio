@@ -167,6 +167,8 @@ export type ResearchCaseValuationProjection = {
   runway?: string
   runway_exceptional?: boolean
   discount_rate?: number
+  /** Discount provenance (Phase 1.4): the 10y Treasury + uniform equity premium that formed discount_rate. */
+  discount_inputs?: { ten_year_treasury?: number; ten_year_treasury_basis?: string; equity_premium?: number }
   growth_assumptions?: string
   growth_rate?: number
   /** Provenance of the growth path (Phase 1.3): 'edgar_oe_cagr' (demonstrated CAGR) or 'none' (no-growth floor). */
@@ -530,6 +532,18 @@ function getValuation(payload: Record<string, unknown>): ResearchCaseValuationPr
   if (runway_exceptional !== undefined) projected.runway_exceptional = runway_exceptional
   const discount_rate = getNumber(value, 'discount_rate')
   if (discount_rate !== undefined) projected.discount_rate = discount_rate
+  const discountInputsRaw = value['discount_inputs']
+  if (discountInputsRaw !== null && typeof discountInputsRaw === 'object') {
+    const di = discountInputsRaw as Record<string, unknown>
+    const ten_year_treasury = getNumber(di, 'ten_year_treasury')
+    const ten_year_treasury_basis = getString(di, 'ten_year_treasury_basis')
+    const equity_premium = getNumber(di, 'equity_premium')
+    projected.discount_inputs = {
+      ...(ten_year_treasury !== undefined ? { ten_year_treasury } : {}),
+      ...(ten_year_treasury_basis !== undefined ? { ten_year_treasury_basis } : {}),
+      ...(equity_premium !== undefined ? { equity_premium } : {}),
+    }
+  }
   const growth_assumptions = getString(value, 'growth_assumptions')
   if (growth_assumptions !== undefined) projected.growth_assumptions = growth_assumptions
   const growth_rate = getNumber(value, 'growth_rate')
