@@ -63,6 +63,64 @@ describe('diffValuationParams', () => {
 })
 
 // ---------------------------------------------------------------------------
+// Phase 1.8 — version bump to the one-knob config; the config event records the structural diff.
+// ---------------------------------------------------------------------------
+describe('Phase 1.8 — one-knob version bump records the structural diff', () => {
+  it('the live version is the one-knob config', () => {
+    expect(VALUATION_PARAMS.version).toBe('valuation-2026-06-one-knob-1')
+  })
+
+  it('diff vs the prior recalibration config shows the collapsed/added one-knob fields', () => {
+    // Reconstruct the PRIOR (recalibration-1) shape: the stacked growth trio + the old version, WITHOUT
+    // the new one-knob fields. Cast through unknown — the prior shape is intentionally no longer the type.
+    const previous = {
+      version: 'valuation-2026-06-recalibration-1',
+      discount_rate: 0.10,
+      terminal_growth_by_moat: { monopoly: 0.025, wide: 0.015 },
+      stage1_horizon_by_moat: { monopoly: 15, wide: 10 },
+      margin_of_safety_by_moat: { monopoly: 0.15, wide: 0.25 },
+      fv_cap_multiple: 18,
+      growth_band_ceilings: {
+        limited_or_none: 0.02, wide_proven: 0.03, wide_proven_exceptional: 0.04,
+        monopoly_proven: 0.04, monopoly_proven_exceptional: 0.05,
+      },
+      growth_eligibility_incremental_roic: 0.10,
+      max_growth: 0.05,
+      oe_normalization_default: 'mid_cycle',
+    } as unknown as ValuationParams
+
+    const changes = diffValuationParams(previous, VALUATION_PARAMS)
+    const paths = changes.map((c) => c.path)
+    // Collapsed (removed) stacked fields appear with next === undefined.
+    expect(paths).toContain('growth_band_ceilings.limited_or_none')
+    expect(paths).toContain('growth_eligibility_incremental_roic')
+    expect(paths).toContain('max_growth')
+    // Added one-knob fields appear with previous === undefined.
+    expect(paths).toContain('single_growth_cap')
+    expect(paths).toContain('gdp_growth_threshold')
+    expect(paths).toContain('equity_premium')
+    expect(paths).toContain('ten_year_treasury_default')
+    expect(paths).toContain('fv_absurd_multiple')
+    expect(paths).toContain('terminal_value_share_flag')
+    // The constitutional discount_rate (effective default) is UNCHANGED.
+    expect(paths).not.toContain('discount_rate')
+  })
+
+  it('buildValuationConfigEvent records the bump + diff (acceptance #5)', () => {
+    const previous = { ...VALUATION_PARAMS, version: 'valuation-2026-06-recalibration-1', single_growth_cap: 0.15 }
+    const event = buildValuationConfigEvent({
+      event_id: 'evt_valuation_config_one_knob',
+      strategy_id: buffettMungerStrategy.id,
+      previous,
+      next: VALUATION_PARAMS,
+    })
+    expect(event.payload.previous_version).toBe('valuation-2026-06-recalibration-1')
+    expect(event.payload.new_version).toBe('valuation-2026-06-one-knob-1')
+    expect(event.payload.changes).toContainEqual({ path: 'single_growth_cap', previous: 0.15, next: 0.20 })
+  })
+})
+
+// ---------------------------------------------------------------------------
 // Acceptance test #5 (spec §4): a config change writes a `valuation_config` ledger event.
 // ---------------------------------------------------------------------------
 describe('Acceptance #5 — config change writes a valuation_config ledger event', () => {

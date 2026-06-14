@@ -116,7 +116,7 @@ export type ValuationParams = {
  * a single named single_growth_cap (~0.20 PLACEHOLDER) + an above-GDP coupling flag (gdp_growth_threshold).
  */
 export const VALUATION_PARAMS: ValuationParams = Object.freeze({
-  version: 'valuation-2026-06-recalibration-1',
+  version: 'valuation-2026-06-one-knob-1',
   // discount_rate = ten_year_treasury_default (0.045) + equity_premium (0.055) = 0.10 (unchanged default).
   discount_rate: 0.10,
   equity_premium: 0.055,
