@@ -116,15 +116,20 @@ export type ValuationParams = {
  * a single named single_growth_cap (~0.20 PLACEHOLDER) + an above-GDP coupling flag (gdp_growth_threshold).
  */
 export const VALUATION_PARAMS: ValuationParams = Object.freeze({
-  version: 'valuation-2026-06-one-knob-1',
+  version: 'valuation-2026-06-one-knob-2',
   // discount_rate = ten_year_treasury_default (0.045) + equity_premium (0.055) = 0.10 (unchanged default).
   discount_rate: 0.10,
+  // PROVISIONAL — these signal-dependent params are NOT yet frozen. The 1.9 calibration ran on only n=2
+  // names (CPRT, FDS; NVO failed on DKK-vs-USD currency, 4 GCC names deferred) — too thin to freeze MoS /
+  // premium / must-signal against (F.11 overfitting). They stay at these defaults pending a broader-universe
+  // calibration (fix NVO's currency path + add US 10-K compounders). Only single_growth_cap was frozen at 1.9
+  // (measurement + deterministic math, robust to n=2).
   equity_premium: 0.055,
   ten_year_treasury_default: 0.045,
   terminal_growth_by_moat: { monopoly: 0.025, wide: 0.015 },
   stage1_horizon_by_moat: { monopoly: 15, wide: 10 },
-  margin_of_safety_by_moat: { monopoly: 0.15, wide: 0.25 },
-  // Phase 1.6 — widening increments + 0.50 cap (PLACEHOLDER magnitudes, frozen at the 1.9 calibration).
+  margin_of_safety_by_moat: { monopoly: 0.15, wide: 0.25 }, // PROVISIONAL (see note above)
+  // Phase 1.6 — widening increments + 0.50 cap. PROVISIONAL magnitudes (see note above; not yet frozen).
   margin_of_safety_widening: {
     high_terminal_value_share: 0.10,
     low_maint_capex_confidence: 0.05,
@@ -134,8 +139,12 @@ export const VALUATION_PARAMS: ValuationParams = Object.freeze({
   },
   fv_cap_multiple: 18,
   fv_absurd_multiple: 100,
-  // PLACEHOLDER (Phase 1.3 / F.3): set at the 1.9 calibration against the circle's actual 5–10yr OE CAGRs.
-  single_growth_cap: 0.20,
+  // FROZEN at the 1.9 calibration (owner decision 2026-06-15): set from the circle's measured 5–10yr OE
+  // CAGRs (CPRT 4.7%, FDS 8.2% — max 8.2%) so 0.10 clears every real name with headroom, AND tames the
+  // deterministic over-optimism case (0.20 over the 10–15yr horizon licensed 45–83× OE fair values; 0.10
+  // is far tamer). Measurement- + math-driven, so robust to the n=2 calibration universe. The owner chose
+  // "lower cap is enough" — cap_exceeded stays a WARN flag, no output-side hard guard.
+  single_growth_cap: 0.10,
   terminal_value_share_flag: 0.65,
   gdp_growth_threshold: 0.03,
   oe_normalization_default: 'mid_cycle',

@@ -17,18 +17,18 @@ describe('creditedGrowth (Phase 1.3 — one growth path + named cap + above-GDP 
     expect(r.cap_binds).toBe(false)
   })
 
-  it('caps at single_growth_cap (placeholder ~20%) when the demonstrated rate exceeds it; flags the bind', () => {
+  it('caps at single_growth_cap (frozen 0.10) when the demonstrated rate exceeds it; flags the bind', () => {
     const r = g({ demonstrated_growth: 0.35 })
     expect(r.growth).toBeCloseTo(VALUATION_PARAMS.single_growth_cap, 10)
     expect(r.cap_binds).toBe(true)
   })
 
   it('flags above-GDP growth (moat-durability coupling): a rate materially above GDP is lowest-confidence', () => {
-    const r = g({ demonstrated_growth: 0.12 })
+    const r = g({ demonstrated_growth: 0.07 }) // above the 0.03 GDP threshold, below the 0.10 cap
     expect(r.above_gdp).toBe(true)
     expect(r.above_gdp_flag).toBeDefined()
     expect(r.above_gdp_flag).toMatch(/moat[-_ ]durability/i)
-    expect(r.growth).toBeCloseTo(0.12, 10) // under the cap, so the value is unchanged — only flagged
+    expect(r.growth).toBeCloseTo(0.07, 10) // under the cap, so the value is unchanged — only flagged
   })
 
   it('does NOT flag a rate at or below GDP', () => {

@@ -1837,9 +1837,10 @@ describe('EDGAR-anchored OE bridge + harness AAOIFI Shariah ratios', () => {
     expect(cp?.shariah_sector_status).toBe('conditional')
 
     // Phase 1.3/1.4 provenance (computed regardless of the moat gate): growth from the demonstrated EDGAR
-    // OE/share CAGR (≈10.1%, above GDP), and the discount = config-default Treasury + uniform premium.
+    // OE/share CAGR (≈10.08%) — now CAPPED at the 1.9-frozen single_growth_cap (0.10), above GDP — and the
+    // discount = config-default Treasury + uniform premium.
     expect(cp?.valuation?.growth_basis).toBe('edgar_oe_cagr')
-    expect(cp?.valuation?.growth_rate).toBeCloseTo(0.1008, 3)
+    expect(cp?.valuation?.growth_rate).toBeCloseTo(0.10, 3) // demonstrated ~10.08% capped to the 0.10 cap
     expect(cp?.valuation?.growth_above_gdp).toBe(true)
     expect(cp?.valuation?.discount_inputs?.equity_premium).toBe(0.055)
     expect(cp?.valuation?.discount_inputs?.ten_year_treasury_basis).toBe('config_default')

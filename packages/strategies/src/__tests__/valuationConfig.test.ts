@@ -24,7 +24,7 @@ describe('VALUATION_PARAMS (versioned config — single source of truth)', () =>
     expect(VALUATION_PARAMS.stage1_horizon_by_moat).toEqual({ monopoly: 15, wide: 10 })
     expect(VALUATION_PARAMS.margin_of_safety_by_moat).toEqual({ monopoly: 0.15, wide: 0.25 })
     expect(VALUATION_PARAMS.fv_cap_multiple).toBe(18)
-    expect(VALUATION_PARAMS.single_growth_cap).toBe(0.20) // PLACEHOLDER (Phase 1.3)
+    expect(VALUATION_PARAMS.single_growth_cap).toBe(0.10) // FROZEN at 1.9 (cap)
     expect(VALUATION_PARAMS.gdp_growth_threshold).toBe(0.03)
     expect(VALUATION_PARAMS.oe_normalization_default).toBe('mid_cycle')
   })
@@ -66,8 +66,8 @@ describe('diffValuationParams', () => {
 // Phase 1.8 — version bump to the one-knob config; the config event records the structural diff.
 // ---------------------------------------------------------------------------
 describe('Phase 1.8 — one-knob version bump records the structural diff', () => {
-  it('the live version is the one-knob config', () => {
-    expect(VALUATION_PARAMS.version).toBe('valuation-2026-06-one-knob-1')
+  it('the live version is the one-knob config (cap frozen at 1.9)', () => {
+    expect(VALUATION_PARAMS.version).toBe('valuation-2026-06-one-knob-2')
   })
 
   it('diff vs the prior recalibration config shows the collapsed/added one-knob fields', () => {
@@ -115,8 +115,8 @@ describe('Phase 1.8 — one-knob version bump records the structural diff', () =
       next: VALUATION_PARAMS,
     })
     expect(event.payload.previous_version).toBe('valuation-2026-06-recalibration-1')
-    expect(event.payload.new_version).toBe('valuation-2026-06-one-knob-1')
-    expect(event.payload.changes).toContainEqual({ path: 'single_growth_cap', previous: 0.15, next: 0.20 })
+    expect(event.payload.new_version).toBe('valuation-2026-06-one-knob-2')
+    expect(event.payload.changes).toContainEqual({ path: 'single_growth_cap', previous: 0.15, next: 0.10 })
   })
 })
 
