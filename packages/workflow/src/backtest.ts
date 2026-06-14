@@ -18,15 +18,15 @@
 
 import {
   creditedGrowth,
-  marginOfSafetyForMoat,
   moatPassesGate,
   stage1HorizonForMoat,
   terminalGrowthForMoat,
-  twoStageFairValuePerShare,
+  twoStageValuation,
+  widenedMarginOfSafety,
 } from '@owlfolio/strategies/buffettMunger'
 import type { MoatClass, Runway, StrategyContract } from '@owlfolio/strategies/strategyContract'
 import type { ValuationParams } from '@owlfolio/strategies/valuationParams'
-import { ownerEarningsCagr, ownerEarningsPerShareSeries, type AnnualFacts, type Fundamentals, type SecEdgarDeps } from './secEdgar'
+import { maintenanceCapexLowConfidence, ownerEarningsCagr, ownerEarningsPerShareSeries, type AnnualFacts, type Fundamentals, type SecEdgarDeps } from './secEdgar'
 import { resolveFundamentalsForTicker, type ResolveFundamentalsDeps } from './fundamentalsProvider'
 import {
   cumulativeSplitFactorAfter,
@@ -58,12 +58,14 @@ export type SignalLogEntry = {
   oe_ps: number
   /** Credited growth g used for the two-stage DCF. */
   credited_g: number
-  /** Fair value per share (two-stage DCF, capped). */
+  /** Fair value per share (two-stage DCF, UNCAPPED — Phase 1.6; the cap is a surfaced flag, not a truncation). */
   fair_value_ps: number
-  /** Buy price per share (FV × (1 − MOS)). */
+  /** Buy price per share (FV × (1 − widened MOS)). */
   buy_price_ps: number
   /** Implied FV multiple (fair_value_ps / oe_ps). */
   implied_multiple: number
+  /** Phase 1.6: true when the fair value exceeds the 18× OE sanity-flag threshold (surfaced, not truncated). */
+  cap_exceeded: boolean
   /** Verdict for this month. */
   signal: Signal
   /** Fiscal year of the 10-K that was available as-of this month. */
@@ -237,9 +239,8 @@ export function adjustFundamentalsForSplits(fundamentals: Fundamentals, splits: 
   }
 }
 
-// A buy price this far above any plausible equity price means the share denominator collapsed (a units
-// artifact, e.g. a near-zero share count): drop the year rather than emit an absurd "BUY".
-const IMPLAUSIBLE_BUY_PRICE_PS = 100_000
+// Phase 1.6: the legacy IMPLAUSIBLE_BUY_PRICE_PS net is superseded by twoStageValuation's absurd-error
+// guard (≥ params.fv_absurd_multiple × OE → value discarded), which keys off the OE multiple directly.
 // An adjusted-share count this far below the series median is a units artifact (not a real buyback) — the
 // C-guard mirror of the EDGAR power-of-ten share normalization, catching anything that slipped through
 // AFTER split adjustment (e.g. CPRT fy2012 = 0.13M).
@@ -368,24 +369,38 @@ export function runValuationBacktest(args: RunValuationBacktestArgs): BacktestRe
     const tierForValuation: MoatClass = gated ? 'monopoly' : moat_class
     // ONE growth path: the named cap + above-GDP coupling flag (Phase 1.3). Agent may argue lower (no agent
     // in the backtest → demonstrated growth flows straight through the cap).
-    const credited_g = creditedGrowth(strategy, { demonstrated_growth }).growth
-    const fair_value_ps = twoStageFairValuePerShare({
+    const growthResult = creditedGrowth(strategy, { demonstrated_growth })
+    const credited_g = growthResult.growth
+    // Phase 1.6 (1.9 finding): the one-knob engine — the 18× OE cap is a SURFACED flag, NOT a silent
+    // truncation; only an absurd (≥100× OE) value is discarded as a units bug. Conservatism is carried by
+    // the single MoS knob, which WIDENS for the documented uncertainties (above-GDP moat-durability claim,
+    // genuine maint-capex dispersion, high terminal-value share).
+    const valuation = twoStageValuation({
       oe_ps,
       g: credited_g,
       terminal_g: terminalGrowthForMoat(strategy, tierForValuation),
       discount: params.discount_rate,
       ceiling_multiple: params.fv_cap_multiple,
+      absurd_multiple: params.fv_absurd_multiple,
       horizon: stage1HorizonForMoat(strategy, tierForValuation),
     })
-    const buy_price_ps = fair_value_ps * (1 - marginOfSafetyForMoat(strategy, tierForValuation))
-    // Secondary safety net (§split-fix C): an implausibly large buy price means the share denominator
-    // collapsed despite the per-year guard — never emit that BUY; skip the month with a one-time note.
-    if (buy_price_ps > IMPLAUSIBLE_BUY_PRICE_PS) {
+    // Absurd-value guard (replaces the legacy IMPLAUSIBLE_BUY_PRICE net): a units-bug fair value is
+    // discarded VISIBLY rather than emitting a bogus signal for the month.
+    if (valuation.absurd || valuation.fair_value === undefined) {
       skipped_months_no_filing += 1
-      const note = `FY${filing.fiscal_year}: implausible buy price ${buy_price_ps.toFixed(0)}/sh (collapsed share basis) — month skipped`
+      const note = `FY${filing.fiscal_year}: absurd fair value (≥${params.fv_absurd_multiple}× OE) — likely collapsed share basis; month skipped`
       if (!data_quality_notes.includes(note)) data_quality_notes.push(note)
       continue
     }
+    const fair_value_ps = valuation.fair_value
+    // Single MoS knob, widened by the documented uncertainties (no live agent → derive inputs from the data).
+    const widened = widenedMarginOfSafety(strategy, {
+      moat_class: tierForValuation,
+      terminal_value_pct_of_iv: valuation.terminal_value_pct_of_iv,
+      low_maint_capex_confidence: maintenanceCapexLowConfidence(asOfSeries),
+      weak_moat_durability: growthResult.above_gdp,
+    })
+    const buy_price_ps = fair_value_ps * (1 - widened.margin_of_safety)
     const signal = classify(point.close, buy_price_ps, fair_value_ps, gated)
 
     signal_log.push({
@@ -396,6 +411,7 @@ export function runValuationBacktest(args: RunValuationBacktestArgs): BacktestRe
       fair_value_ps,
       buy_price_ps,
       implied_multiple: fair_value_ps / oe_ps,
+      cap_exceeded: valuation.cap_exceeded,
       signal,
       filing_fy: filing.fiscal_year,
     })

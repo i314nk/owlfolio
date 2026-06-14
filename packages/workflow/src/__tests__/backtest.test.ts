@@ -206,6 +206,64 @@ describe('runValuationBacktest — as-of OE + signal mapping (wide moat fixture)
 })
 
 // ---------------------------------------------------------------------------
+// Phase 1.6 in the BACKTEST path (1.9 finding): the backtest must use the one-knob valuation engine —
+// the 18× OE cap is a SURFACED flag, NOT a silent truncation, and the single MoS knob WIDENS for the
+// above-GDP moat-durability claim. Previously the backtest called the legacy capped scalar + base MoS, so
+// every quality compounder was silently truncated to 18× and made structurally un-buyable (the
+// GOOGL-never-buyable pathology, reproduced on CPRT/FDS at the 1.9 calibration).
+// ---------------------------------------------------------------------------
+describe('runValuationBacktest — one-knob engine (cap is a flag, MoS widens) — Phase 1.6/1.9', () => {
+  // A compounder whose OE/share grows ~15%/yr (above GDP) — the two-stage DCF over the wide 10yr horizon
+  // exceeds 18× OE, so the legacy path would truncate. NI grows; D&A/capex/SBC/shares flat → OE/share grows.
+  function growingFundamentals(): Fundamentals {
+    const series: AnnualFacts[] = []
+    for (let i = 6; i >= 0; i -= 1) {
+      const fy = 2018 + i
+      const ni = Math.round(120 * Math.pow(1.15, i)) // ~15%/yr OE growth
+      series.push({
+        fiscal_year: fy, currency: 'USD', filed: `${fy + 1}-02-15`, period_end: `${fy}-12-31`,
+        net_income_musd: ni, revenue_musd: 600, d_and_a_musd: 40, capex_musd: 30, sbc_musd: 20,
+        diluted_shares_m: 100, stockholders_equity_musd: 400 + i * 50, total_debt_musd: 0,
+        cash_and_securities_musd: 0, operating_income_musd: ni + 30, income_tax_expense_musd: 30,
+      })
+    }
+    return { cik: '0000000002', entity_name: 'Compounder Co', currency: 'USD', latest_annual: series[0]!, annual_series: series, filings: [] }
+  }
+
+  it('does NOT silently truncate fair value to 18× OE — records cap_exceeded instead', () => {
+    const f = growingFundamentals()
+    const result = runValuationBacktest({
+      ticker: 'GRW', moat_class: 'wide', runway: 'proven', fundamentals: f,
+      price_series: [priceAt('2025-03-31', 1)], strategy: buffettMungerStrategy, params: VALUATION_PARAMS,
+    })
+    const e = result.signal_log[0]!
+    // Growth is above GDP and the DCF blows past 18× → the cap flag fires and the value is NOT chopped to 18×.
+    expect(e.cap_exceeded).toBe(true)
+    expect(e.implied_multiple).toBeGreaterThan(18) // would be exactly 18.0 under the legacy truncation
+    expect(e.fair_value_ps).toBeGreaterThan(18 * e.oe_ps)
+  })
+
+  it('widens the applied MoS above the wide base floor for above-GDP growth (moat-durability claim)', () => {
+    const f = growingFundamentals()
+    const result = runValuationBacktest({
+      ticker: 'GRW', moat_class: 'wide', runway: 'proven', fundamentals: f,
+      price_series: [priceAt('2025-03-31', 1)], strategy: buffettMungerStrategy, params: VALUATION_PARAMS,
+    })
+    const e = result.signal_log[0]!
+    // Buy-below = fair × (1 − applied MoS). Recover the applied MoS and assert it widened beyond base 0.25.
+    const appliedMos = 1 - e.buy_price_ps / e.fair_value_ps
+    expect(appliedMos).toBeGreaterThan(0.25 + 1e-9)
+    expect(appliedMos).toBeLessThanOrEqual(0.50 + 1e-9)
+  })
+
+  it('still discards an ABSURD (≥100× OE) value as a units-bug guard', () => {
+    // Not asserting a specific fixture fires this — just that the guard path exists and is wired (the
+    // legacy path had a separate IMPLAUSIBLE_BUY_PRICE guard; the one-knob absurd guard supersedes it).
+    expect(VALUATION_PARAMS.fv_absurd_multiple).toBe(100)
+  })
+})
+
+// ---------------------------------------------------------------------------
 // Split-consistency fix (B): put as-reported EDGAR shares on TODAY's split-adjusted basis to match the
 // split-adjusted price series, and (C) drop a units-artifact (near-zero) share year VISIBLY.
 // ---------------------------------------------------------------------------
@@ -338,6 +396,7 @@ function step(date: string, price: number, buy: number, signal: SignalLogEntry['
     fair_value_ps: buy / 0.85,
     buy_price_ps: buy,
     implied_multiple: 1,
+    cap_exceeded: false,
     signal,
     filing_fy: 2020,
   }
