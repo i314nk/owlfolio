@@ -52,6 +52,13 @@ export type AnnualFacts = {
   revenue_musd?: number
   d_and_a_musd?: number
   capex_musd?: number
+  /**
+   * Gross property, plant & equipment (instant, balance-sheet), $millions — us-gaap
+   * `PropertyPlantAndEquipmentGross`. Drives the Greenwald maintenance-capex proxy (Phase 1.2):
+   * maintenance capex ≈ capex − avg(gross PP&E / sales) × Δsales$. May be absent for filers that tag
+   * only net PP&E (the proxy then degrades to the D&A floor).
+   */
+  gross_ppe_musd?: number
   sbc_musd?: number
   diluted_shares_m?: number
   shares_outstanding_m?: number
@@ -111,6 +118,71 @@ export function ownerEarningsPerShareSeries(series: AnnualFacts[]): OwnerEarning
     out.push({ fiscal_year: a.fiscal_year, oe_ps: ownerEarnings / shares! })
   }
   return out
+}
+
+/** Maintenance-capex estimate: the value (in the series' currency, $millions) and which proxy supplied it. */
+export type MaintenanceCapexEstimate = {
+  /** Estimated maintenance capex, $millions; undefined when neither proxy is computable (fail-closed). */
+  maintenance_capex?: number
+  /** Which proxy the (more-conservative) default selected. */
+  basis: 'greenwald' | 'd_and_a_floor' | 'not_computable'
+}
+
+/**
+ * Dual maintenance-capex proxy (Buffett-Munger gap-closing Phase 1.2 / Part D Step 1).
+ *
+ *   - Greenwald: growthCapex = avg(gross PP&E / sales over the series) × Δsales$ (latest year);
+ *                maintenance capex = total capex − growthCapex (floored at 0).
+ *   - D&A floor: maintenance capex ≈ D&A (defensible when the asset base isn't growing in real terms).
+ *
+ * DEFAULT = the MORE CONSERVATIVE of the two (the HIGHER maintenance capex → the LOWER owner earnings).
+ * The agent must argue to use less. When gross PP&E (or sales history) is missing the Greenwald proxy is
+ * not computable and the estimate degrades to the D&A floor; when neither is computable it fails closed
+ * (`maintenance_capex` undefined, `basis: 'not_computable'`). Pure / no network — `series` is the EDGAR
+ * `AnnualFacts[]` (any order; the latest fiscal year supplies the current-year capex/D&A/Δsales).
+ */
+export function estimateMaintenanceCapex(series: AnnualFacts[]): MaintenanceCapexEstimate {
+  const finite = (v: number | undefined): v is number => typeof v === 'number' && Number.isFinite(v)
+  // Latest fiscal year supplies current-year capex / D&A / sales.
+  const sorted = [...series].sort((a, b) => a.fiscal_year - b.fiscal_year)
+  const latest = sorted[sorted.length - 1]
+  const prior = sorted[sorted.length - 2]
+
+  // D&A floor (current year).
+  const daFloor = latest !== undefined && finite(latest.d_and_a_musd) ? Math.max(0, latest.d_and_a_musd!) : undefined
+
+  // Greenwald: avg(gross PP&E / sales) across the series × Δsales$ (latest), subtracted from total capex.
+  let greenwald: number | undefined
+  if (
+    latest !== undefined
+    && prior !== undefined
+    && finite(latest.capex_musd)
+    && finite(latest.revenue_musd)
+    && finite(prior.revenue_musd)
+  ) {
+    const ratios: number[] = []
+    for (const a of sorted) {
+      if (finite(a.gross_ppe_musd) && finite(a.revenue_musd) && a.revenue_musd! > 0) {
+        ratios.push(a.gross_ppe_musd! / a.revenue_musd!)
+      }
+    }
+    if (ratios.length > 0) {
+      const avgRatio = ratios.reduce((s, r) => s + r, 0) / ratios.length
+      const deltaSales = latest.revenue_musd! - prior.revenue_musd!
+      const growthCapex = avgRatio * deltaSales
+      greenwald = Math.max(0, latest.capex_musd! - growthCapex)
+    }
+  }
+
+  if (greenwald !== undefined && daFloor !== undefined) {
+    // More conservative = higher maintenance capex.
+    return greenwald >= daFloor
+      ? { maintenance_capex: greenwald, basis: 'greenwald' }
+      : { maintenance_capex: daFloor, basis: 'd_and_a_floor' }
+  }
+  if (daFloor !== undefined) return { maintenance_capex: daFloor, basis: 'd_and_a_floor' }
+  if (greenwald !== undefined) return { maintenance_capex: greenwald, basis: 'greenwald' }
+  return { basis: 'not_computable' }
 }
 
 // ---------------------------------------------------------------------------
@@ -492,6 +564,8 @@ type ConceptMap = {
   stockholdersEquity: string
   operatingIncome: string
   incomeTax: string
+  /** Gross PP&E (instant) — for the Greenwald maintenance-capex proxy (Phase 1.2). Empty when unmapped. */
+  grossPpe: string[]
 }
 
 const US_GAAP_CONCEPTS: ConceptMap = {
@@ -582,6 +656,10 @@ const US_GAAP_CONCEPTS: ConceptMap = {
   stockholdersEquity: 'StockholdersEquity',
   operatingIncome: 'OperatingIncomeLoss',
   incomeTax: 'IncomeTaxExpenseBenefit',
+  // Gross PP&E (instant): the canonical gross carrying amount first; then the gross-before-accumulated-
+  // depreciation variant some filers tag. Net PP&E is intentionally NOT used (the Greenwald proxy needs
+  // gross). Absent → Greenwald degrades to the D&A floor.
+  grossPpe: ['PropertyPlantAndEquipmentGross', 'PropertyPlantAndEquipmentGrossExcludingCapitalizedComputerSoftwareCosts'],
 }
 
 // IFRS (ifrs-full) equivalents for a foreign private issuer's 20-F/40-F. Mapped per the probe of Novo
@@ -627,6 +705,9 @@ const IFRS_CONCEPTS: ConceptMap = {
   stockholdersEquity: 'Equity',
   operatingIncome: 'ProfitLossFromOperatingActivities',
   incomeTax: 'IncomeTaxExpenseContinuingOperations',
+  // IFRS gross PP&E (instant) best-effort: the gross cost-model carrying amount. Absent for many IFRS
+  // filers (they disclose only net PP&E on the face) → Greenwald degrades to the D&A floor.
+  grossPpe: ['PropertyPlantAndEquipmentGrossCarryingAmount', 'GrossCarryingAmountPropertyPlantAndEquipment'],
 }
 
 function conceptMapFor(taxonomy: Taxonomy): ConceptMap {
@@ -813,6 +894,8 @@ function buildAnnualSeries(facts: CompanyFacts, taxonomy: Taxonomy, currency: Re
   const cash = firstPopulatedByYear(facts, taxonomy, cm.cash)
   const shortTermInv = firstPopulatedByYear(facts, taxonomy, cm.shortTermInvestments)
   const interest = annualByFiscalYear(facts, taxonomy, cm.interest)
+  // Gross PP&E (instant) per fiscal year — first populated candidate wins; absent → Greenwald proxy degrades.
+  const grossPpe = firstPopulatedByYear(facts, taxonomy, cm.grossPpe)
   const stockholdersEquity = annualByFiscalYear(facts, taxonomy, cm.stockholdersEquity)
   const operatingIncome = annualByFiscalYear(facts, taxonomy, cm.operatingIncome)
   const incomeTax = annualByFiscalYear(facts, taxonomy, cm.incomeTax)
@@ -849,6 +932,7 @@ function buildAnnualSeries(facts: CompanyFacts, taxonomy: Taxonomy, currency: Re
       ...optional('revenue_musd', toMusd(revenue.get(fy))),
       ...optional('d_and_a_musd', toMusd(dAndA.get(fy))),
       ...optional('capex_musd', toMusd(capex.get(fy))),
+      ...optional('gross_ppe_musd', toMusd(grossPpe.get(fy))),
       ...optional('sbc_musd', toMusd(sbc.get(fy))),
       ...optional('diluted_shares_m', toMshares(dilutedShares.get(fy))),
       ...optional('shares_outstanding_m', toMshares(sharesOut.get(fy))),
