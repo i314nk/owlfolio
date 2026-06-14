@@ -87,6 +87,32 @@ export type Fundamentals = {
   filings: FilingRef[]
 }
 
+/** One year's owner-earnings per share, derived from the annual facts (gap-closing Phase 1.1). */
+export type OwnerEarningsPerSharePoint = { fiscal_year: number; oe_ps: number }
+
+/**
+ * Per-year owner-earnings-per-share series for the demonstrated-growth input (Phase 1.2/1.3).
+ *   OE/share = (net income + D&A − maintenance capex − SBC) / diluted shares
+ * Maintenance capex here is the simple-floor proxy min(D&A, capex) (the Greenwald proxy is a separate
+ * input). SBC is subtracted and the share count is the year's CURRENT diluted count, held flat (no
+ * forward dilution projected) — so the dilution cost is counted ONCE (D-SBC). A year missing any
+ * required field (net income, D&A, capex, diluted shares) or with non-positive shares is skipped
+ * (fail-closed). Order of the input series is preserved.
+ */
+export function ownerEarningsPerShareSeries(series: AnnualFacts[]): OwnerEarningsPerSharePoint[] {
+  const out: OwnerEarningsPerSharePoint[] = []
+  for (const a of series) {
+    const { net_income_musd: ni, d_and_a_musd: da, capex_musd: capex, diluted_shares_m: shares } = a
+    if (![ni, da, capex, shares].every((v) => typeof v === 'number' && Number.isFinite(v))) continue
+    if (!(shares! > 0)) continue
+    const sbc = typeof a.sbc_musd === 'number' && Number.isFinite(a.sbc_musd) ? a.sbc_musd : 0
+    const maintenanceCapex = Math.min(da!, capex!)
+    const ownerEarnings = ni! + da! - maintenanceCapex - sbc
+    out.push({ fiscal_year: a.fiscal_year, oe_ps: ownerEarnings / shares! })
+  }
+  return out
+}
+
 // ---------------------------------------------------------------------------
 // SSRF guard narrowed to SEC hosts
 // ---------------------------------------------------------------------------
