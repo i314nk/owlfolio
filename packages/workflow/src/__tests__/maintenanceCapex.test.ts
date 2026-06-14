@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 
-import { estimateMaintenanceCapex, ownerEarningsCagr } from '../secEdgar'
+import { estimateMaintenanceCapex, maintenanceCapexLowConfidence, ownerEarningsCagr } from '../secEdgar'
 import type { AnnualFacts, OwnerEarningsPerSharePoint } from '../secEdgar'
 
 // Buffett-Munger gap-closing Phase 1.2: dual maintenance-capex proxy.
@@ -65,6 +65,64 @@ describe('estimateMaintenanceCapex', () => {
     const r = estimateMaintenanceCapex(series)
     expect(r.maintenance_capex).toBeUndefined()
     expect(r.basis).toBe('not_computable')
+  })
+
+  it('exposes BOTH proxy values + both_computable so dispersion can be measured (review: bite once)', () => {
+    const series: AnnualFacts[] = [
+      yr(2023, { revenue_musd: 1000, gross_ppe_musd: 500, capex_musd: 400, d_and_a_musd: 100 }),
+      yr(2024, { revenue_musd: 1000, gross_ppe_musd: 500, capex_musd: 400, d_and_a_musd: 100 }),
+    ]
+    const r = estimateMaintenanceCapex(series)
+    expect(r.greenwald).toBeCloseTo(400, 6)
+    expect(r.d_and_a_floor).toBeCloseTo(100, 6)
+    expect(r.both_computable).toBe(true)
+  })
+
+  it('both_computable is FALSE when gross PP&E is missing (D&A-floor fallback — a data-availability event)', () => {
+    const series: AnnualFacts[] = [
+      yr(2023, { revenue_musd: 1000, capex_musd: 400, d_and_a_musd: 180 }),
+      yr(2024, { revenue_musd: 1200, capex_musd: 400, d_and_a_musd: 180 }),
+    ]
+    const r = estimateMaintenanceCapex(series)
+    expect(r.both_computable).toBe(false)
+    expect(r.greenwald).toBeUndefined()
+    expect(r.d_and_a_floor).toBeCloseTo(180, 6)
+  })
+})
+
+// Review (pre-1.9): maint-capex confidence must "bite once". The D&A-floor fallback (missing PP&E) ALREADY
+// made the cash flow conservative; it must NOT also widen the MoS. Confidence-widening keys off genuine
+// estimation DISPERSION (both proxies computed but disagree materially), never off the data-availability
+// fallback. maintenanceCapexLowConfidence encodes that rule.
+describe('maintenanceCapexLowConfidence (bite once — dispersion, not fallback)', () => {
+  it('is FALSE when only the D&A floor computed (missing PP&E fallback — already bit the cash flow)', () => {
+    const series: AnnualFacts[] = [
+      yr(2023, { revenue_musd: 1000, capex_musd: 400, d_and_a_musd: 180 }),
+      yr(2024, { revenue_musd: 1200, capex_musd: 400, d_and_a_musd: 180 }),
+    ]
+    expect(maintenanceCapexLowConfidence(series)).toBe(false)
+  })
+
+  it('is FALSE when both proxies computed and AGREE closely', () => {
+    // Greenwald ≈ 400, D&A ≈ 380 → ~5% gap, under the dispersion threshold → confident.
+    const series: AnnualFacts[] = [
+      yr(2023, { revenue_musd: 1000, gross_ppe_musd: 500, capex_musd: 400, d_and_a_musd: 380 }),
+      yr(2024, { revenue_musd: 1000, gross_ppe_musd: 500, capex_musd: 400, d_and_a_musd: 380 }),
+    ]
+    expect(maintenanceCapexLowConfidence(series)).toBe(false)
+  })
+
+  it('is TRUE when both proxies computed but DISAGREE materially (genuine dispersion)', () => {
+    // Flat sales → Greenwald ≈ 400 ; D&A floor = 100 → ~75% gap → real estimation dispersion → widen.
+    const series: AnnualFacts[] = [
+      yr(2023, { revenue_musd: 1000, gross_ppe_musd: 500, capex_musd: 400, d_and_a_musd: 100 }),
+      yr(2024, { revenue_musd: 1000, gross_ppe_musd: 500, capex_musd: 400, d_and_a_musd: 100 }),
+    ]
+    expect(maintenanceCapexLowConfidence(series)).toBe(true)
+  })
+
+  it('is FALSE when neither proxy is computable (no basis to claim dispersion)', () => {
+    expect(maintenanceCapexLowConfidence([yr(2024, { capex_musd: 100 })])).toBe(false)
   })
 })
 

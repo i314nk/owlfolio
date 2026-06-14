@@ -146,6 +146,35 @@ export type MaintenanceCapexEstimate = {
   maintenance_capex?: number
   /** Which proxy the (more-conservative) default selected. */
   basis: 'greenwald' | 'd_and_a_floor' | 'not_computable'
+  /** The Greenwald proxy value ($M), when computable (gross PP&E + sales history present). */
+  greenwald?: number
+  /** The D&A-floor proxy value ($M), when computable. */
+  d_and_a_floor?: number
+  /** True when BOTH proxies computed — the only case where estimation DISPERSION can be measured. */
+  both_computable: boolean
+}
+
+/**
+ * Relative gap between the two maint-capex proxies above which their disagreement counts as genuine
+ * estimation DISPERSION (review, pre-1.9). Calibration-adjacent but not a frozen valuation knob.
+ */
+export const MAINT_CAPEX_DISPERSION_THRESHOLD = 0.25
+
+/**
+ * Does the maintenance-capex estimate warrant a LOW-CONFIDENCE margin-of-safety widening (Phase 1.6 /
+ * review "bite once")? TRUE only when BOTH proxies computed AND they disagree materially (relative gap >
+ * MAINT_CAPEX_DISPERSION_THRESHOLD) — i.e. genuine estimation dispersion. It is deliberately FALSE for the
+ * D&A-floor fallback caused by missing gross PP&E: that data-availability event ALREADY made the cash flow
+ * conservative (the floor is the higher maint capex → lower owner earnings), so widening the MoS on top
+ * would haircut the same single cause twice — exactly the stacking the one-knob design forbids.
+ */
+export function maintenanceCapexLowConfidence(series: AnnualFacts[]): boolean {
+  const m = estimateMaintenanceCapex(series)
+  if (!m.both_computable || m.greenwald === undefined || m.d_and_a_floor === undefined) return false
+  const hi = Math.max(m.greenwald, m.d_and_a_floor)
+  const lo = Math.min(m.greenwald, m.d_and_a_floor)
+  if (!(hi > 0)) return false
+  return (hi - lo) / hi > MAINT_CAPEX_DISPERSION_THRESHOLD
 }
 
 /**
@@ -194,15 +223,22 @@ export function estimateMaintenanceCapex(series: AnnualFacts[]): MaintenanceCape
     }
   }
 
+  // Expose both proxy values so the caller can measure estimation dispersion (review: "bite once").
+  const both = greenwald !== undefined && daFloor !== undefined
+  const proxies = {
+    ...(greenwald !== undefined ? { greenwald } : {}),
+    ...(daFloor !== undefined ? { d_and_a_floor: daFloor } : {}),
+    both_computable: both,
+  }
   if (greenwald !== undefined && daFloor !== undefined) {
     // More conservative = higher maintenance capex.
     return greenwald >= daFloor
-      ? { maintenance_capex: greenwald, basis: 'greenwald' }
-      : { maintenance_capex: daFloor, basis: 'd_and_a_floor' }
+      ? { maintenance_capex: greenwald, basis: 'greenwald', ...proxies }
+      : { maintenance_capex: daFloor, basis: 'd_and_a_floor', ...proxies }
   }
-  if (daFloor !== undefined) return { maintenance_capex: daFloor, basis: 'd_and_a_floor' }
-  if (greenwald !== undefined) return { maintenance_capex: greenwald, basis: 'greenwald' }
-  return { basis: 'not_computable' }
+  if (daFloor !== undefined) return { maintenance_capex: daFloor, basis: 'd_and_a_floor', ...proxies }
+  if (greenwald !== undefined) return { maintenance_capex: greenwald, basis: 'greenwald', ...proxies }
+  return { basis: 'not_computable', both_computable: false }
 }
 
 // ---------------------------------------------------------------------------

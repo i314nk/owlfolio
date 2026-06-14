@@ -43,7 +43,7 @@ export {
   type GroundedAgentResult,
   type SynthesisResponse,
 }
-import { computeIncrementalRoic, estimateMaintenanceCapex, ownerEarningsCagr, ownerEarningsPerShareSeries, type Fundamentals, type SecEdgarDeps } from './secEdgar'
+import { computeIncrementalRoic, estimateMaintenanceCapex, maintenanceCapexLowConfidence, ownerEarningsCagr, ownerEarningsPerShareSeries, type Fundamentals, type SecEdgarDeps } from './secEdgar'
 import { resolveFundamentalsForTicker } from './fundamentalsProvider'
 import { evaluateBaseRateBurden, type BaseRateBurdenFlag } from './baseRateBurden'
 import { BASE_RATES } from '@owlfolio/strategies/baseRates'
@@ -1520,17 +1520,13 @@ export async function runResearchDeepDivePhase(
   let cap_exceeded = false
   let margin_of_safety_widening_reasons: string[] = []
 
-  // Maintenance-capex confidence (Phase 1.2 → 1.6 widening input): the dual proxy is low-confidence when
-  // gross PP&E was unavailable (Greenwald couldn't compute → D&A-floor only) or the two proxies disagree
-  // materially. Low confidence WIDENS the single MoS knob.
-  let low_maint_capex_confidence = false
-  if (fundamentals?.annual_series !== undefined) {
-    const maint = estimateMaintenanceCapex(fundamentals.annual_series)
-    if (maint.basis !== 'greenwald') {
-      // No gross-PP&E-backed Greenwald estimate → the conservative default rests on the D&A floor alone.
-      low_maint_capex_confidence = maint.basis === 'd_and_a_floor'
-    }
-  }
+  // Maintenance-capex confidence (Phase 1.2 → 1.6 widening input, review "bite once"): low confidence is
+  // genuine estimation DISPERSION — BOTH proxies computed but disagree materially — NOT the D&A-floor
+  // fallback from missing gross PP&E. That fallback already made the cash flow conservative (higher maint
+  // capex → lower owner earnings), so widening the MoS on top would haircut the same single cause twice.
+  const low_maint_capex_confidence = fundamentals?.annual_series !== undefined
+    ? maintenanceCapexLowConfidence(fundamentals.annual_series)
+    : false
 
   // ---- ONE growth path (Phase 1.3): honest demonstrated OE/share growth + named cap + above-GDP flag ----
   // The growth rate is the demonstrated historical owner-earnings-per-share CAGR from the EDGAR series
