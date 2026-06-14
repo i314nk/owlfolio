@@ -13,20 +13,6 @@
 /** OE normalization stance — trough reserved for true cyclicals flagged by the FINANCIAL_QUALITY lane. */
 export type OeNormalization = 'trough' | 'mid_cycle'
 
-/** Banded credited-growth ceilings (Step 3): runway sets the value, moat tier sets the ceiling. */
-export type GrowthBandCeilings = {
-  /** limited/none runway — any moat tier */
-  limited_or_none: number
-  /** wide moat + proven runway */
-  wide_proven: number
-  /** wide moat + proven runway, exceptional */
-  wide_proven_exceptional: number
-  /** monopoly + proven runway */
-  monopoly_proven: number
-  /** monopoly + proven runway, exceptional */
-  monopoly_proven_exceptional: number
-}
-
 export type MoatTieredNumber = {
   wide: number
   monopoly: number
@@ -50,12 +36,21 @@ export type ValuationParams = {
   margin_of_safety_by_moat: MoatTieredNumber
   /** Fair-value sanity cap as a multiple of OE (18×). Real work against the 15-yr monopoly horizon. */
   fv_cap_multiple: number
-  /** Banded credited-growth ceilings (Step 3) — unchanged by recalibration. */
-  growth_band_ceilings: GrowthBandCeilings
-  /** Growth credit only when incremental ROIC strictly exceeds this (0.10) — unchanged. */
-  growth_eligibility_incremental_roic: number
-  /** Absolute maximum credited growth, never exceeded by any band (0.05) — unchanged. */
-  max_growth: number
+  /**
+   * THE single named growth backstop (Phase 1.3 / Part D Step 2 / F.3) — one forecasting-humility cap on
+   * the honest historical owner-earnings growth path. Replaces the old stacked
+   * growth_band_ceilings/max_growth/growth_eligibility trio. **The ~0.20 level is a PLACEHOLDER pending the
+   * 1.9 calibration against the circle's actual 5–10yr OE CAGRs — NOT a derived number.** It sits BEHIND the
+   * durable-source requirement (it is a backstop, never a license) and bites only over-optimism.
+   */
+  single_growth_cap: number
+  /**
+   * GDP-like threshold (~2.5–3%) above which a near-term growth rate is treated as a moat-durability CLAIM
+   * (Phase 1.3 coupling): the harness flags it lowest-confidence so it surfaces with the moat-durability
+   * input rather than being silently accepted. A citation grounds "grew 22% last year" but not "grows 20%
+   * for a decade."
+   */
+  gdp_growth_threshold: number
   /** Default OE normalization stance — mid_cycle (trough only for flagged cyclicals) (spec §1). */
   oe_normalization_default: OeNormalization
 }
@@ -68,7 +63,8 @@ export type ValuationParams = {
  *   stage-1 horizon: monopoly 10 → 15 yrs, wide 10 (unchanged)
  *   MOS:            monopoly 20% → 15%, wide 30% → 25%
  *   OE default:     trough-everywhere → mid_cycle
- * Unchanged: 10% discount (constitutional), 18× FV cap, growth bands/eligibility/max.
+ * Phase 1.3 (one-knob): the stacked growth_band_ceilings/max_growth/growth_eligibility trio is replaced by
+ * a single named single_growth_cap (~0.20 PLACEHOLDER) + an above-GDP coupling flag (gdp_growth_threshold).
  */
 export const VALUATION_PARAMS: ValuationParams = Object.freeze({
   version: 'valuation-2026-06-recalibration-1',
@@ -77,14 +73,8 @@ export const VALUATION_PARAMS: ValuationParams = Object.freeze({
   stage1_horizon_by_moat: { monopoly: 15, wide: 10 },
   margin_of_safety_by_moat: { monopoly: 0.15, wide: 0.25 },
   fv_cap_multiple: 18,
-  growth_band_ceilings: {
-    limited_or_none: 0.02,
-    wide_proven: 0.03,
-    wide_proven_exceptional: 0.04,
-    monopoly_proven: 0.04,
-    monopoly_proven_exceptional: 0.05,
-  },
-  growth_eligibility_incremental_roic: 0.10,
-  max_growth: 0.05,
+  // PLACEHOLDER (Phase 1.3 / F.3): set at the 1.9 calibration against the circle's actual 5–10yr OE CAGRs.
+  single_growth_cap: 0.20,
+  gdp_growth_threshold: 0.03,
   oe_normalization_default: 'mid_cycle',
 }) as ValuationParams

@@ -19,8 +19,8 @@ const MOS_WIDE = marginOfSafetyForMoat(strategy, 'wide')
 const MOS_MONOPOLY = marginOfSafetyForMoat(strategy, 'monopoly')
 const TERMINAL_G_WIDE = terminalGrowthForMoat(strategy, 'wide')
 const TERMINAL_G_MONOPOLY = terminalGrowthForMoat(strategy, 'monopoly')
-const MAX_GROWTH = strategy.valuation.max_growth
-const GROWTH_ELIGIBILITY_INC_ROIC = strategy.valuation.growth_eligibility_incremental_roic
+const SINGLE_GROWTH_CAP = strategy.valuation.single_growth_cap
+const GDP_GROWTH_THRESHOLD = strategy.valuation.gdp_growth_threshold
 const STAGE1_MONOPOLY = strategy.valuation.stage1_horizon_by_moat.monopoly
 const STAGE1_WIDE = strategy.valuation.stage1_horizon_by_moat.wide
 const LANE_COUNT = buffettMungerDeepDiveLanes.length
@@ -181,16 +181,16 @@ function StrategyTab(): ReactNode {
               overflowX: 'auto',
             },
           },
-          createElement('div', null, `g    = reinvestment × incremental ROIC, banded by runway — credited only when inc-ROIC > ${pct(GROWTH_ELIGIBILITY_INC_ROIC)}, ${pct(MAX_GROWTH)} max`),
-          createElement('div', null, `stage 1 = ${STAGE1_WIDE} yrs (wide) · ${STAGE1_MONOPOLY} yrs (monopoly) at credited g`),
+          createElement('div', null, `g    = honest demonstrated owner-earnings/share CAGR, capped at ${pct(SINGLE_GROWTH_CAP)} (named humility backstop); above ${pct(GDP_GROWTH_THRESHOLD)} → moat-durability flag`),
+          createElement('div', null, `stage 1 = ${STAGE1_WIDE} yrs (wide) · ${STAGE1_MONOPOLY} yrs (monopoly) at that growth path`),
           createElement('div', null, `gₜ   = terminal fade: monopoly ${pct(TERMINAL_G_MONOPOLY)} / wide ${pct(TERMINAL_G_WIDE)}`),
-          createElement('div', null, `fair = min( two-stage Σ OE,  ${MULTIPLE_CEILING}× OE )   — the cap is an independent brake`),
-          createElement('div', null, `buy  = fair × (1 − MOS)   ·  MOS: monopoly ${pct(MOS_MONOPOLY)} / wide ${pct(MOS_WIDE)}`),
+          createElement('div', null, `fair > ${MULTIPLE_CEILING}× OE → surfaced cap_exceeded sanity flag (not a silent truncation)`),
+          createElement('div', null, `buy  = fair × (1 − MOS)   ·  the ONE conservatism knob: monopoly ${pct(MOS_MONOPOLY)} / wide ${pct(MOS_WIDE)}`),
         ),
         cardGrid([
           { key: 'd', eyebrow: 'Flat discount', body: createElement('span', null, mono(pct(DISCOUNT)), ' hurdle, always — falling rates never lower it.') },
-          { key: 'g', eyebrow: 'Credited growth', body: createElement('span', null, 'From reinvestment × incremental ROIC, banded by runway, ', mono(pct(MAX_GROWTH)), ' absolute max.') },
-          { key: 'cap', eyebrow: 'Sanity cap', body: createElement('span', null, mono(`${MULTIPLE_CEILING}×`), ' owner earnings caps fair value regardless of the model.') },
+          { key: 'g', eyebrow: 'Honest growth', body: createElement('span', null, 'The demonstrated OE/share CAGR, ', mono(pct(SINGLE_GROWTH_CAP)), ' humility cap; above-GDP is a moat-durability claim.') },
+          { key: 'cap', eyebrow: 'Sanity flag', body: createElement('span', null, mono(`${MULTIPLE_CEILING}×`), ' owner earnings raises a cap_exceeded flag — surfaced, never silently truncated.') },
           { key: 'mos', eyebrow: 'Margin of safety', body: createElement('span', null, 'monopoly ', mono(pct(MOS_MONOPOLY)), ' · wide ', mono(pct(MOS_WIDE)), ' — wider buffer for less certainty.') },
         ], '200px'),
       ),

@@ -41,24 +41,6 @@ export type MoatClass = z.infer<typeof moatClassSchema>
 export const runwaySchema = z.enum(['proven', 'limited', 'none'])
 export type Runway = z.infer<typeof runwaySchema>
 
-/**
- * Banded credited-growth ceilings (buffett-valuation-method-v2 Step 3).
- * Runway sets the actual value; moat tier sets the ceiling. `_exceptional`
- * variants allow the top of a band only when evidence flags an exceptional runway.
- */
-export const growthBandCeilingsSchema = z.object({
-  /** limited/none runway — any moat tier */
-  limited_or_none: z.number().positive(),
-  /** wide moat + proven runway */
-  wide_proven: z.number().positive(),
-  /** wide moat + proven runway, exceptional */
-  wide_proven_exceptional: z.number().positive(),
-  /** monopoly + proven runway */
-  monopoly_proven: z.number().positive(),
-  /** monopoly + proven runway, exceptional */
-  monopoly_proven_exceptional: z.number().positive(),
-})
-
 export const valuationPolicySchema = z.object({
   discount_rate: z.number().positive(),
   margin_of_safety_by_moat: z.object({
@@ -75,12 +57,14 @@ export const valuationPolicySchema = z.object({
     wide: z.number().int().positive(),
     monopoly: z.number().int().positive(),
   }),
-  /** Banded credited-growth ceilings (runway × moat tier). */
-  growth_band_ceilings: growthBandCeilingsSchema,
-  /** Growth credit is only given when incremental ROIC strictly exceeds this threshold. */
-  growth_eligibility_incremental_roic: z.number().positive(),
-  /** Absolute maximum credited growth — never exceeded by any band. */
-  max_growth: z.number().positive(),
+  /**
+   * The ONE named growth backstop (Phase 1.3): a single forecasting-humility cap on the honest historical
+   * owner-earnings growth path (~0.20 PLACEHOLDER, set at calibration). Replaces the old stacked
+   * band-ceilings/eligibility/max trio.
+   */
+  single_growth_cap: z.number().positive(),
+  /** GDP-like threshold (~2.5–3%) above which growth is treated as a moat-durability claim (flagged). */
+  gdp_growth_threshold: z.number().positive(),
   valuation_multiple_ceiling: z.number().positive(),
   min_investable_moat: moatClassSchema,
   valuation_required: z.boolean(),

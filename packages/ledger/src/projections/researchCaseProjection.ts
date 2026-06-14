@@ -169,6 +169,12 @@ export type ResearchCaseValuationProjection = {
   discount_rate?: number
   growth_assumptions?: string
   growth_rate?: number
+  /** Provenance of the growth path (Phase 1.3): 'edgar_oe_cagr' (demonstrated CAGR) or 'none' (no-growth floor). */
+  growth_basis?: string
+  /** True when the near-term growth is materially above GDP — a flagged moat-durability claim (Phase 1.3). */
+  growth_above_gdp?: boolean
+  /** True when the named single_growth_cap bound the growth path (over-optimism backstop bit). */
+  growth_cap_binds?: boolean
   /** Terminal-stage growth (g_t) used by the two-stage DCF: monopoly 2% / wide 1%. */
   terminal_growth_rate?: number
   roic?: number
@@ -528,6 +534,12 @@ function getValuation(payload: Record<string, unknown>): ResearchCaseValuationPr
   if (growth_assumptions !== undefined) projected.growth_assumptions = growth_assumptions
   const growth_rate = getNumber(value, 'growth_rate')
   if (growth_rate !== undefined) projected.growth_rate = growth_rate
+  const growth_basis = getString(value, 'growth_basis')
+  if (growth_basis !== undefined) projected.growth_basis = growth_basis
+  const growth_above_gdp = getBoolean(value, 'growth_above_gdp')
+  if (growth_above_gdp !== undefined) projected.growth_above_gdp = growth_above_gdp
+  const growth_cap_binds = getBoolean(value, 'growth_cap_binds')
+  if (growth_cap_binds !== undefined) projected.growth_cap_binds = growth_cap_binds
   const terminal_growth_rate = getNumber(value, 'terminal_growth_rate')
   if (terminal_growth_rate !== undefined) projected.terminal_growth_rate = terminal_growth_rate
   const roic = getNumber(value, 'roic')

@@ -27,21 +27,17 @@ const MOS_WIDE = marginOfSafetyForMoat(strategy, 'wide')
 const MOS_MONOPOLY = marginOfSafetyForMoat(strategy, 'monopoly')
 const TERMINAL_G_WIDE = terminalGrowthForMoat(strategy, 'wide')
 const TERMINAL_G_MONOPOLY = terminalGrowthForMoat(strategy, 'monopoly')
-const MAX_GROWTH = strategy.valuation.max_growth
-const GROWTH_ELIGIBILITY_INC_ROIC = strategy.valuation.growth_eligibility_incremental_roic
-const BANDS = strategy.valuation.growth_band_ceilings
+const SINGLE_GROWTH_CAP = strategy.valuation.single_growth_cap
+const GDP_GROWTH_THRESHOLD = strategy.valuation.gdp_growth_threshold
 
 // Worked example — a monopoly compounder, computed from the live contract so the prose tracks params.
+// ONE growth path (Phase 1.3): the demonstrated historical owner-earnings/share CAGR, passed through the
+// named forecasting-humility cap. Here a 12% demonstrated rate is under the ~20% cap but above GDP, so it
+// is flagged a moat-durability claim (lowest-confidence, human-weighted).
 const EX_OE = 14
-const EX_RUNWAY = 'proven' as const
-const EX_INC_ROIC = 0.2
-const EX_REINV = 0.4
-const EX_G = creditedGrowth(strategy, {
-  reinvestment_rate: EX_REINV,
-  incremental_roic: EX_INC_ROIC,
-  runway: EX_RUNWAY,
-  moat_class: 'monopoly',
-})
+const EX_DEMONSTRATED_G = 0.12
+const EX_GROWTH = creditedGrowth(strategy, { demonstrated_growth: EX_DEMONSTRATED_G })
+const EX_G = EX_GROWTH.growth
 const EX_FV = twoStageFairValuePerShare({
   oe_ps: EX_OE,
   g: EX_G,
@@ -439,22 +435,22 @@ export function StrategyOverview(): ReactNode {
               overflowX: 'auto',
             },
           },
-          createElement('div', null, 'OE   = NI + D&A − maintenance capex (20/50/80% proxy) − SBC − ΔNWC'),
-          createElement('div', null, `g    = reinvestment × incremental ROIC, banded by runway — credited only when inc-ROIC > ${pct(GROWTH_ELIGIBILITY_INC_ROIC)}, ${pct(MAX_GROWTH)} max`),
+          createElement('div', null, 'OE   = NI + D&A − maintenance capex (Greenwald vs D&A floor, conservative) − SBC − ΔNWC'),
+          createElement('div', null, `g    = honest demonstrated owner-earnings/share CAGR, capped at ${pct(SINGLE_GROWTH_CAP)} (named humility backstop); above ${pct(GDP_GROWTH_THRESHOLD)} is flagged a moat-durability claim`),
           createElement('div', null, `gₜ   = terminal fade: monopoly ${pct(TERMINAL_G_MONOPOLY)} / wide ${pct(TERMINAL_G_WIDE)}`),
           createElement('div', null, `fair = Σ OE(1+g)ᵗ/(1+${pct(DISCOUNT)})ᵗ  [t=1..10]  +  OE(1+g)¹⁰(1+gₜ)/(${pct(DISCOUNT)}−gₜ) / (1+${pct(DISCOUNT)})¹⁰`),
-          createElement('div', null, `fair = min( fair,  ${MULTIPLE_CEILING}× OE )    — a genuine independent brake`),
-          createElement('div', null, 'buy  = fair × (1 − margin of safety)'),
+          createElement('div', null, `fair > ${MULTIPLE_CEILING}× OE → surfaced cap_exceeded sanity flag (not a silent truncation)`),
+          createElement('div', null, 'buy  = fair × (1 − margin of safety)    — the ONE conservatism knob'),
         ),
 
-        // Growth bands — runway is the binding axis; moat tier only sets the ceiling.
-        createElement('p', { style: microLabel }, 'Credited growth — runway sets the value, moat tier the ceiling'),
+        // One growth path (Phase 1.3) — the named cap + the above-GDP moat-durability coupling.
+        createElement('p', { style: microLabel }, 'Growth — one honest path, one named backstop'),
         Table({
-          headings: ['Runway × moat', 'Band ceiling'],
+          headings: ['Growth control', 'Value'],
           rows: [
-            [createElement('span', { style: goldText }, 'limited / none — any tier'), createElement('span', { style: monoFigure }, pct(BANDS.limited_or_none))],
-            [createElement('span', { style: goldText }, 'wide + proven'), createElement('span', { style: monoFigure }, `${pct(BANDS.wide_proven)} (${pct(BANDS.wide_proven_exceptional)} exceptional)`)],
-            [createElement('span', { style: goldText }, 'monopoly + proven'), createElement('span', { style: monoFigure }, `${pct(BANDS.monopoly_proven)} (${pct(BANDS.monopoly_proven_exceptional)} exceptional)`)],
+            [createElement('span', { style: goldText }, 'Source'), createElement('span', { style: monoFigure }, 'demonstrated OE/share CAGR')],
+            [createElement('span', { style: goldText }, 'Forecasting-humility cap (placeholder)'), createElement('span', { style: monoFigure }, pct(SINGLE_GROWTH_CAP))],
+            [createElement('span', { style: goldText }, 'Above-GDP → moat-durability flag'), createElement('span', { style: monoFigure }, `> ${pct(GDP_GROWTH_THRESHOLD)}`)],
           ],
         }),
 
@@ -478,17 +474,15 @@ export function StrategyOverview(): ReactNode {
             { style: { margin: 0 } },
             'Owner earnings of ',
             createElement('span', { style: monoFigure }, `$${EX_OE}`),
-            ' per share, a proven reinvestment runway, and incremental ROIC of ',
-            createElement('span', { style: monoFigure }, pct(EX_INC_ROIC)),
-            ' on a ',
-            createElement('span', { style: monoFigure }, pct(EX_REINV)),
-            ' reinvestment rate credit growth of ',
+            ' per share and a demonstrated owner-earnings/share CAGR of ',
+            createElement('span', { style: monoFigure }, pct(EX_DEMONSTRATED_G)),
+            ` give a growth path of `,
             createElement('span', { style: monoFigure }, pct(EX_G)),
-            ` (raw ${pct(EX_REINV * EX_INC_ROIC, 1)} clamped to the monopoly+proven band). Discounting ten years of that growth and fading to a `,
+            ` (under the ${pct(SINGLE_GROWTH_CAP)} humility cap, but above GDP — so it is flagged a moat-durability claim the human weights). Discounting ten years of that growth and fading to a `,
             createElement('span', { style: monoFigure }, pct(TERMINAL_G_MONOPOLY)),
             ' terminal rate gives a fair value of ',
             createElement('span', { style: monoFigure }, `$${EX_FV.toFixed(0)}`),
-            ` (${EX_IMPLIED.toFixed(1)}× owner earnings, under the ${MULTIPLE_CEILING}× cap). A monopoly carries a `,
+            ` (${EX_IMPLIED.toFixed(1)}× owner earnings; a value above ${MULTIPLE_CEILING}× would raise a cap_exceeded sanity flag, not be truncated). A monopoly carries a `,
             createElement('span', { style: monoFigure }, pct(MOS_MONOPOLY)),
             ' margin of safety, so the buy price is ',
             createElement('span', { style: monoFigure }, `$${EX_FV.toFixed(0)} × (1 − ${pct(MOS_MONOPOLY)}) = $${EX_BUY.toFixed(0)}`),
@@ -511,7 +505,7 @@ export function StrategyOverview(): ReactNode {
         'ul',
         { style: { ...bodyStyle, margin: 0, paddingLeft: '1.1rem', display: 'flex', flexDirection: 'column', gap: '0.4rem' } },
         createElement('li', null, createElement('span', { style: goldText }, 'Moat ≥ wide'), ' — narrow/moderate are rejected and forced to PASS.'),
-        createElement('li', null, createElement('span', { style: goldText }, 'Growth eligibility'), ` — growth is credited only when incremental ROIC exceeds ${pct(GROWTH_ELIGIBILITY_INC_ROIC)}, banded by reinvestment runway, ${pct(MAX_GROWTH)} maximum.`),
+        createElement('li', null, createElement('span', { style: goldText }, 'Honest growth path'), ` — growth is the demonstrated owner-earnings/share CAGR, capped at the ${pct(SINGLE_GROWTH_CAP)} forecasting-humility backstop; a rate above ${pct(GDP_GROWTH_THRESHOLD)} is flagged a moat-durability claim.`),
         createElement('li', null, createElement('span', { style: goldText }, 'Positive owner earnings'), ' — normalized owner earnings must be positive.'),
         createElement('li', null, createElement('span', { style: goldText }, 'Safe balance sheet'), ' — leverage must not create unacceptable fragility.'),
         createElement('li', null, createElement('span', { style: goldText }, 'Shariah compliant or conditional'), ' — non-compliant cases stop at the quick screen.'),

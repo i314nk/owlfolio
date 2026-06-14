@@ -43,7 +43,7 @@ export {
   type GroundedAgentResult,
   type SynthesisResponse,
 }
-import { computeIncrementalRoic, type Fundamentals, type SecEdgarDeps } from './secEdgar'
+import { computeIncrementalRoic, ownerEarningsCagr, ownerEarningsPerShareSeries, type Fundamentals, type SecEdgarDeps } from './secEdgar'
 import { resolveFundamentalsForTicker } from './fundamentalsProvider'
 import { evaluateBaseRateBurden, type BaseRateBurdenFlag } from './baseRateBurden'
 import { BASE_RATES } from '@owlfolio/strategies/baseRates'
@@ -90,6 +90,7 @@ import {
 // importers (the researchSwarm test imports resolveJudgmentTiers + the judgment types from here).
 import {
   maintenanceFractionForTier,
+  parseLaneArguedGrowth,
   resolveJudgmentTiers,
   buildJudgmentProjection,
   buildPrimaryFilingBlock,
@@ -1481,28 +1482,33 @@ export async function runResearchDeepDivePhase(
   let margin_of_safety: number | undefined
   let terminal_growth_rate: number | undefined
 
-  // Credited growth g — deterministic banded clamp (incremental-ROIC gated; runway sets value).
-  const effective_growth_rate = creditedGrowth(buffettMungerStrategy, {
-    reinvestment_rate,
-    incremental_roic,
-    runway,
-    moat_class: moatClass,
-    runway_exceptional,
+  // ---- ONE growth path (Phase 1.3): honest demonstrated OE/share growth + named cap + above-GDP flag ----
+  // The growth rate is the demonstrated historical owner-earnings-per-share CAGR from the EDGAR series
+  // (the falsifiable, near-recent-history input), passed through the named ~20% forecasting-humility cap.
+  // The lane may argue LOWER (never higher) via its growth_assumptions; an above-GDP rate is flagged
+  // lowest-confidence (a moat-durability claim — Part D Step 2 coupling). NO reinvestment×ROIC bands.
+  const demonstrated_growth = fundamentals?.annual_series !== undefined
+    ? (ownerEarningsCagr(ownerEarningsPerShareSeries(fundamentals.annual_series)) ?? 0)
+    : 0
+  // The lane's argued growth (if any) may only REDUCE the demonstrated rate. We pass the parsed lane rate
+  // when present; creditedGrowth ignores it unless strictly lower. (Lane prose stays in growth_assumptions.)
+  const laneArguedGrowth = parseLaneArguedGrowth(dec.analysis.growth_assumptions)
+  const growthResult = creditedGrowth(buffettMungerStrategy, {
+    demonstrated_growth,
+    ...(laneArguedGrowth !== undefined ? { agent_proposed_growth: laneArguedGrowth } : {}),
   })
-
-  // Visible degradation: when the credited-growth inputs are missing/ineligible the harness floors g to
-  // 0 (an honest no-growth floor) rather than skipping the valuation. Surface that the two-stage DCF ran
-  // on a degraded (g=0) input so the dossier reflects WHY the fair value used no growth credit — but only
-  // when the moat passes the gate (i.e. the valuation actually computes; below the gate g is moot).
-  const growthInputsMissing =
-    !Number.isFinite(incremental_roic)
-    || !Number.isFinite(reinvestment_rate)
-    || incremental_roic <= buffettMungerStrategy.valuation.growth_eligibility_incremental_roic
-  if (moat_passes_gate && effective_growth_rate === 0 && growthInputsMissing) {
+  const effective_growth_rate = growthResult.growth
+  const growth_basis: 'edgar_oe_cagr' | 'none' =
+    fundamentals?.annual_series !== undefined && demonstrated_growth > 0 ? 'edgar_oe_cagr' : 'none'
+  // Above-GDP coupling flag → surfaced so growth is reviewed WITH the moat-durability input.
+  if (moat_passes_gate && growthResult.above_gdp && growthResult.above_gdp_flag !== undefined) {
+    degradedFlags.push(growthResult.above_gdp_flag)
+  }
+  if (moat_passes_gate && effective_growth_rate === 0) {
     degradedFlags.push(
-      'valuation_degraded: credited_growth_floored_g0 — credited growth was floored to g=0 (honest no-growth '
-      + 'floor) because the incremental-ROIC / reinvestment inputs were missing or below the eligibility '
-      + 'threshold. The two-stage DCF still computed; treat the fair value as a no-growth floor.',
+      'valuation_degraded: credited_growth_floored_g0 — the demonstrated owner-earnings/share CAGR was '
+      + 'unavailable or non-positive, so growth was floored to g=0 (honest no-growth floor). The two-stage '
+      + 'DCF still computed; treat the fair value as a no-growth floor.',
     )
   }
 
@@ -1828,6 +1834,9 @@ export async function runResearchDeepDivePhase(
         discount_rate: discount,
         growth_assumptions: dec.analysis.growth_assumptions,
         growth_rate: effective_growth_rate,
+        growth_basis,
+        ...(growthResult.above_gdp ? { growth_above_gdp: true } : {}),
+        ...(growthResult.cap_binds ? { growth_cap_binds: true } : {}),
         ...(terminal_growth_rate !== undefined ? { terminal_growth_rate } : {}),
         roic,
         incremental_roic,

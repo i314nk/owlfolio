@@ -22,8 +22,8 @@ describe('VALUATION_PARAMS (versioned config — single source of truth)', () =>
     expect(VALUATION_PARAMS.stage1_horizon_by_moat).toEqual({ monopoly: 15, wide: 10 })
     expect(VALUATION_PARAMS.margin_of_safety_by_moat).toEqual({ monopoly: 0.15, wide: 0.25 })
     expect(VALUATION_PARAMS.fv_cap_multiple).toBe(18)
-    expect(VALUATION_PARAMS.growth_eligibility_incremental_roic).toBe(0.10)
-    expect(VALUATION_PARAMS.max_growth).toBe(0.05)
+    expect(VALUATION_PARAMS.single_growth_cap).toBe(0.20) // PLACEHOLDER (Phase 1.3)
+    expect(VALUATION_PARAMS.gdp_growth_threshold).toBe(0.03)
     expect(VALUATION_PARAMS.oe_normalization_default).toBe('mid_cycle')
   })
 
@@ -34,9 +34,8 @@ describe('VALUATION_PARAMS (versioned config — single source of truth)', () =>
     expect(v.terminal_growth_by_moat).toEqual(VALUATION_PARAMS.terminal_growth_by_moat)
     expect(v.stage1_horizon_by_moat).toEqual(VALUATION_PARAMS.stage1_horizon_by_moat)
     expect(v.valuation_multiple_ceiling).toBe(VALUATION_PARAMS.fv_cap_multiple)
-    expect(v.growth_band_ceilings).toEqual(VALUATION_PARAMS.growth_band_ceilings)
-    expect(v.growth_eligibility_incremental_roic).toBe(VALUATION_PARAMS.growth_eligibility_incremental_roic)
-    expect(v.max_growth).toBe(VALUATION_PARAMS.max_growth)
+    expect(v.single_growth_cap).toBe(VALUATION_PARAMS.single_growth_cap)
+    expect(v.gdp_growth_threshold).toBe(VALUATION_PARAMS.gdp_growth_threshold)
   })
 })
 

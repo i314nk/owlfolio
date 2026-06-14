@@ -33,6 +33,22 @@ export function maintenanceFractionForTier(tier: '20' | '50' | '80'): number {
   return Number(tier) / 100
 }
 
+/**
+ * Extract a lane-argued near-term growth rate from the free-text growth_assumptions, as a DECIMAL
+ * (Phase 1.3). The harness only honours a lane argument that is LOWER than the demonstrated CAGR (the
+ * agent may argue down, never up — enforced in `creditedGrowth`), so this is a best-effort parse: the
+ * FIRST plausible percentage in the prose (e.g. "we model ~8% growth" → 0.08). Returns undefined when no
+ * plausible figure is present (0–60% band; anything outside is treated as noise, not a growth claim).
+ */
+export function parseLaneArguedGrowth(growthAssumptions: string | undefined): number | undefined {
+  if (typeof growthAssumptions !== 'string') return undefined
+  const m = growthAssumptions.match(/(\d{1,2}(?:\.\d+)?)\s*%/)
+  if (m === null) return undefined
+  const pct = Number(m[1])
+  if (!Number.isFinite(pct) || pct < 0 || pct > 60) return undefined
+  return pct / 100
+}
+
 // ---------------------------------------------------------------------------
 // Judgment objectivity (Mechanisms 1+2): rubric → mechanical anchor → bounded ±1 adjustment
 // ---------------------------------------------------------------------------

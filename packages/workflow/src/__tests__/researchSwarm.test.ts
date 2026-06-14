@@ -785,21 +785,23 @@ describe('runStrategyResearchSwarm with MockProvider + deterministic grounder', 
     expect(caseProjection?.valuation?.roic).toBe(0.25)
     // incremental_roic from mock: 0.20
     expect(caseProjection?.valuation?.incremental_roic).toBe(0.20)
-    // reinvestment_rate from mock: 0.40
+    // reinvestment_rate from mock: 0.40 (context only — no longer feeds growth, Phase 1.3)
     expect(caseProjection?.valuation?.reinvestment_rate).toBe(0.40)
-    // g = min(0.40*0.20, monopoly_proven 0.04, max 0.05) = 0.04
-    expect(caseProjection?.valuation?.growth_rate).toBe(0.04)
+    // Phase 1.3 ONE growth path: with NO EDGAR series injected, the demonstrated OE/share CAGR is
+    // unavailable → growth is the honest no-growth floor g=0 (growth_basis 'none').
+    expect(caseProjection?.valuation?.growth_rate).toBe(0)
+    expect(caseProjection?.valuation?.growth_basis).toBe('none')
     // terminal g (monopoly, recalibrated) = 0.025
     expect(caseProjection?.valuation?.terminal_growth_rate).toBe(0.025)
-    // two-stage fair value ≈ 220.54 (recalibrated: monopoly horizon 15, terminal 2.5%; under 18× cap of 252)
-    expect(caseProjection?.valuation?.fair_value_per_share).toBeCloseTo(220.54, 0)
+    // two-stage fair value at g=0, monopoly horizon 15, terminal 2.5% ≈ 152.29 (under 18× cap of 252)
+    expect(caseProjection?.valuation?.fair_value_per_share).toBeCloseTo(152.29, 0)
     expect(caseProjection?.valuation?.fair_value_per_share ?? 0).toBeLessThan(18 * 14)
-    // implied multiple ≈ 15.75×
-    expect(caseProjection?.valuation?.implied_multiple).toBeCloseTo(15.75, 1)
+    // implied multiple ≈ 10.88×
+    expect(caseProjection?.valuation?.implied_multiple).toBeCloseTo(10.88, 1)
     // margin_of_safety (monopoly, recalibrated): 0.15
     expect(caseProjection?.valuation?.margin_of_safety).toBe(0.15)
-    // buy_price = round(220.54 * 0.85, 2) ≈ 187.45
-    expect(caseProjection?.valuation?.buy_price_per_share).toBeCloseTo(187.45, 0)
+    // buy_price = round(152.29 * 0.85, 2) ≈ 129.45
+    expect(caseProjection?.valuation?.buy_price_per_share).toBeCloseTo(129.45, 0)
     // value_basis
     expect(caseProjection?.valuation?.value_basis).toBe('two_stage_dcf')
     // owner_earnings_bridge projected (totals in $millions + shares_outstanding in millions)
@@ -996,14 +998,15 @@ const allVerifiedGround = async (sources: { source_id: string }[]) => ({
 })
 
 describe('BUG 1 — valuation per-share units (÷ shares_outstanding)', () => {
-  it('divides total owner earnings by shares_outstanding (COST inputs: OE/sh ≈ $19, two-stage fair ≈ $253, buy ≈ $190)', async () => {
+  it('divides total owner earnings by shares_outstanding (COST inputs: OE/sh ≈ $19, two-stage fair ≈ $205, buy ≈ $154)', async () => {
     // Captured COST inputs: NI 8838, D&A 2565, maint_capex 2052, SBC 911, dNWC 0 ($M),
-    // shares_outstanding 443 (M), discount 0.10, moat wide + runway proven, inc-ROIC 0.20, reinv 0.43.
+    // shares_outstanding 443 (M), discount 0.10, moat wide + runway proven.
     //   OE_total = 8838 + 2565 - 2052 - 911 - 0 = 8440 ($M)
     //   OE/sh    = 8440 / 443 ≈ 19.05
-    //   raw_g = 0.43 × 0.20 = 0.086 → clamped to wide+proven band ceiling g = 0.03; g_t (wide, recalibrated) = 0.015
-    //   two-stage FV: Σ OE_ps(1+g)^t/1.1^t (t=1..10, wide horizon 10) + Gordon terminal ≈ 252.96 (impl ≈ 13.28×, under 18× cap)
-    //   buy = round(252.96 * 0.75, 2) ≈ 189.72  (wide MoS recalibrated 25%)
+    //   Phase 1.3 ONE growth path: NO EDGAR series injected here → demonstrated OE/share CAGR unavailable →
+    //   honest no-growth floor g=0 (growth_basis 'none'); g_t (wide, recalibrated) = 0.015.
+    //   two-stage FV at g=0: Σ OE_ps/1.1^t (t=1..10, wide horizon 10) + Gordon terminal ≈ 204.78 (impl ≈ 10.75×)
+    //   buy = round(204.78 * 0.75, 2) ≈ 153.58  (wide MoS recalibrated 25%)
     const store = new InMemoryEventStore()
     const provider = configurableSwarmProvider({ laneCount: buffettMungerDeepDiveLanes.length })
     const sourceLedgerPath = await mkdtemp(join(tmpdir(), 'owlfolio-bug1-'))
@@ -1020,11 +1023,12 @@ describe('BUG 1 — valuation per-share units (÷ shares_outstanding)', () => {
     const projections = projectResearchCases(events as Parameters<typeof projectResearchCases>[0])
     const cp = projections.find((c) => c.research_case_id === 'rc_bug1')
     expect(cp?.valuation?.normalized_owner_earnings_per_share).toBeCloseTo(19.05, 1)
-    expect(cp?.valuation?.growth_rate).toBeCloseTo(0.03, 10)
+    expect(cp?.valuation?.growth_rate).toBe(0)
+    expect(cp?.valuation?.growth_basis).toBe('none')
     expect(cp?.valuation?.terminal_growth_rate).toBe(0.015)
-    expect(cp?.valuation?.fair_value_per_share).toBeCloseTo(252.96, 0)
-    expect(cp?.valuation?.buy_price_per_share).toBeCloseTo(189.72, 0)
-    expect(cp?.valuation?.implied_multiple).toBeCloseTo(13.28, 1)
+    expect(cp?.valuation?.fair_value_per_share).toBeCloseTo(204.78, 0)
+    expect(cp?.valuation?.buy_price_per_share).toBeCloseTo(153.58, 0)
+    expect(cp?.valuation?.implied_multiple).toBeCloseTo(10.75, 1)
     expect(cp?.valuation?.runway).toBe('proven')
     expect(cp?.valuation?.value_basis).toBe('two_stage_dcf')
     // Sanity: per-share value, never the buggy ~100x value, and under the 18× OE cap
@@ -1074,7 +1078,7 @@ describe('BUG 1 — valuation per-share units (÷ shares_outstanding)', () => {
   })
 })
 
-describe('Two-stage DCF harness banding (runway axis, eligibility, gates)', () => {
+describe('Two-stage DCF harness growth path (Phase 1.3 one growth path + gates)', () => {
   async function runWith(synthesis: SynthesisOverrides, id: string) {
     const store = new InMemoryEventStore()
     const provider = configurableSwarmProvider({ laneCount: buffettMungerDeepDiveLanes.length, synthesis })
@@ -1093,26 +1097,28 @@ describe('Two-stage DCF harness banding (runway axis, eligibility, gates)', () =
     return { events, cp: projections.find((c) => c.research_case_id === `rc_${id}`) }
   }
 
-  it('incremental_roic at/below 10% → g = 0 (ineligible; FV is the flat-stage-1 two-stage value)', async () => {
+  it('no EDGAR series → honest no-growth floor g=0 (growth_basis none; FV is the flat-stage-1 value)', async () => {
     // base bridge OE_total = 8838+2565-2052-911-0 = 8440 ($M) ÷ 443 = 19.05/sh, monopoly, proven
-    const { cp } = await runWith({ moat_class: 'monopoly', runway: 'proven', incremental_roic: 0.08, reinvestment_rate: 0.5 }, 'ineligible')
+    const { cp } = await runWith({ moat_class: 'monopoly', runway: 'proven', incremental_roic: 0.08, reinvestment_rate: 0.5 }, 'nogrowth')
     expect(cp?.valuation?.growth_rate).toBe(0)
-    // g=0, g_t (monopoly) 0.02: two-stage with flat stage 1
+    expect(cp?.valuation?.growth_basis).toBe('none')
+    // g=0, g_t (monopoly) 0.025: two-stage with flat stage 1
     expect(cp?.valuation?.fair_value_per_share).toBeGreaterThan(19.05)
     expect(cp?.valuation?.fair_value_per_share ?? 0).toBeLessThan(18 * 19.06)
   })
 
-  it("runway 'none' caps credited g at 0.02 for any tier (even monopoly + high inc-ROIC)", async () => {
+  it('growth is no longer driven by runway/incremental-ROIC (Phase 1.3): runway none still floors g=0 here', async () => {
+    // The old banding (runway/inc-ROIC/exceptional) is gone — with no demonstrated CAGR available the growth
+    // path is the honest no-growth floor regardless of the runway/inc-ROIC the lane proposes.
     const { cp } = await runWith({ moat_class: 'monopoly', runway: 'none', incremental_roic: 0.30, reinvestment_rate: 0.5 }, 'runway-none')
-    expect(cp?.valuation?.growth_rate).toBe(0.02)
+    expect(cp?.valuation?.growth_rate).toBe(0)
     expect(cp?.valuation?.runway).toBe('none')
   })
 
-  it('monopoly + proven + exceptional allows credited g up to 0.05 (absolute max)', async () => {
+  it('runway_exceptional no longer lifts growth (Phase 1.3): g stays at the no-growth floor without a CAGR', async () => {
     const { cp } = await runWith({ moat_class: 'monopoly', runway: 'proven', runway_exceptional: true, incremental_roic: 0.30, reinvestment_rate: 0.5 }, 'mono-exceptional')
-    expect(cp?.valuation?.growth_rate).toBe(0.05)
+    expect(cp?.valuation?.growth_rate).toBe(0)
     expect(cp?.valuation?.runway_exceptional).toBe(true)
-    // even at g=5% monopoly the implied multiple stays under the 18× cap
     expect(cp?.valuation?.implied_multiple ?? 0).toBeLessThan(18)
   })
 
@@ -1141,8 +1147,8 @@ describe('Two-stage DCF harness banding (runway axis, eligibility, gates)', () =
 // escalates to BUY, even when the model proposes BUY. Below buy_price → BUY-WINDOW; above FV → WATCH.
 // ---------------------------------------------------------------------------
 describe('Acceptance #3 — WATCH-FAIR verdict band (never escalates to BUY)', () => {
-  // COST-like wide case: OE/sh ≈ 19.05, g 0.03, wide horizon 10, terminal 0.015 →
-  //   fair ≈ 252.96, buy ≈ 189.72 (wide MoS 25%).
+  // COST-like wide case (NO EDGAR series → honest no-growth floor g=0, Phase 1.3): OE/sh ≈ 19.05, g 0,
+  //   wide horizon 10, terminal 0.015 → fair ≈ 204.78, buy ≈ 153.58 (wide MoS 25%).
   async function runAtPrice(price: number, id: string, investmentVerdict: 'BUY' | 'WATCH' = 'BUY') {
     const store = new InMemoryEventStore()
     const provider = configurableSwarmProvider({
@@ -1170,28 +1176,28 @@ describe('Acceptance #3 — WATCH-FAIR verdict band (never escalates to BUY)', (
     return { events, cp: projections.find((c) => c.research_case_id === `rc_${id}`) }
   }
 
-  it('price between buy (≈190) and fair (≈253) → WATCH-FAIR; model BUY does NOT escalate', async () => {
-    const { cp } = await runAtPrice(220, 'watchfair', 'BUY')
-    expect(cp?.valuation?.fair_value_per_share).toBeCloseTo(252.96, 0)
-    expect(cp?.valuation?.buy_price_per_share).toBeCloseTo(189.72, 0)
+  it('price between buy (≈154) and fair (≈205) → WATCH-FAIR; model BUY does NOT escalate', async () => {
+    const { cp } = await runAtPrice(180, 'watchfair', 'BUY')
+    expect(cp?.valuation?.fair_value_per_share).toBeCloseTo(204.78, 0)
+    expect(cp?.valuation?.buy_price_per_share).toBeCloseTo(153.58, 0)
     expect(cp?.valuation?.verdict_state?.state).toBe('WATCH-FAIR')
-    // discount-to-FV ≈ (252.96 − 220) / 252.96 ≈ 13.03%
-    expect(cp?.valuation?.verdict_state?.discount_to_fv_pct).toBeCloseTo(13.03, 0)
-    expect(cp?.valuation?.verdict_state?.implied_multiple).toBeCloseTo(13.28, 1)
+    // discount-to-FV ≈ (204.78 − 180) / 204.78 ≈ 12.10%
+    expect(cp?.valuation?.verdict_state?.discount_to_fv_pct).toBeCloseTo(12.10, 0)
+    expect(cp?.valuation?.verdict_state?.implied_multiple).toBeCloseTo(10.75, 1)
     expect(cp?.valuation?.verdict_state?.note).toMatch(/human-discretion zone/i)
     // NEVER escalates to BUY: the recorded verdict is WATCH even though the model said BUY.
     expect(cp?.investment_verdict).toBe('WATCH')
     expect(cp?.investment_verdict).not.toBe('BUY')
   })
 
-  it('price below buy (≈190) → BUY-WINDOW', async () => {
-    const { cp } = await runAtPrice(150, 'buywindow', 'BUY')
+  it('price below buy (≈154) → BUY-WINDOW', async () => {
+    const { cp } = await runAtPrice(140, 'buywindow', 'BUY')
     expect(cp?.valuation?.verdict_state?.state).toBe('BUY-WINDOW')
     // Model BUY is preserved in the buy window (the band does not downgrade it).
     expect(cp?.investment_verdict).toBe('BUY')
   })
 
-  it('price above fair (≈253) → plain WATCH', async () => {
+  it('price above fair (≈205) → plain WATCH', async () => {
     const { cp } = await runAtPrice(300, 'plainwatch', 'WATCH')
     expect(cp?.valuation?.verdict_state?.state).toBe('WATCH')
   })
@@ -1225,7 +1231,7 @@ describe('HIGH safety — BUY clamp when no computable buy band (verdict_state u
         laneConcurrency: 4,
         // Price fetch FAILS → no current_price → verdict_state stays undefined (no computable band).
         resolvePrice: priceAvailable
-          ? async () => ({ available: true as const, price_per_share: 220, currency: 'USD', as_of: '2026-06-01T00:00:00Z', source: 'fixture' })
+          ? async () => ({ available: true as const, price_per_share: 180, currency: 'USD', as_of: '2026-06-01T00:00:00Z', source: 'fixture' })
           : async () => ({ available: false as const, reason: 'no quote', source: 'test' }),
       },
     )
@@ -1246,7 +1252,7 @@ describe('HIGH safety — BUY clamp when no computable buy band (verdict_state u
   })
 
   it('verdict_state IS defined (WATCH-FAIR) → behavior unchanged (no spurious clamp)', async () => {
-    // Price 220 sits between buy (≈190) and fair (≈253) → WATCH-FAIR; the existing band logic owns this.
+    // Price 180 sits between buy (≈154) and fair (≈205) → WATCH-FAIR; the existing band logic owns this.
     const { cp } = await runGateCleanNoBand('clamp-noop', 'BUY', true)
     expect(cp?.valuation?.verdict_state?.state).toBe('WATCH-FAIR')
     expect(cp?.investment_verdict).toBe('WATCH')

@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
   buffettMungerStrategy,
-  creditedGrowth,
   twoStageFairValuePerShare,
   terminalGrowthForMoat,
   marginOfSafetyForMoat,
@@ -37,23 +36,17 @@ describe('Buffett-Munger two-stage DCF contract params', () => {
     expect(stage1HorizonForMoat(buffettMungerStrategy, 'wide')).toBe(10)
   })
 
-  it('18x OE valuation multiple ceiling (was 20x)', () => {
+  it('18x OE valuation multiple ceiling — now a surfaced sanity FLAG, not a silent truncation (Phase 1.6)', () => {
     expect(buffettMungerStrategy.valuation.valuation_multiple_ceiling).toBe(18)
   })
 
-  it('growth eligibility threshold (incremental ROIC > 10%) and 5% absolute max', () => {
-    expect(buffettMungerStrategy.valuation.growth_eligibility_incremental_roic).toBe(0.1)
-    expect(buffettMungerStrategy.valuation.max_growth).toBe(0.05)
-  })
-
-  it('growth band ceilings by runway/moat tier', () => {
-    expect(buffettMungerStrategy.valuation.growth_band_ceilings).toEqual({
-      limited_or_none: 0.02,
-      wide_proven: 0.03,
-      wide_proven_exceptional: 0.04,
-      monopoly_proven: 0.04,
-      monopoly_proven_exceptional: 0.05,
-    })
+  it('one named growth backstop replaces the stacked band/eligibility/max trio (Phase 1.3)', () => {
+    expect(buffettMungerStrategy.valuation.single_growth_cap).toBe(0.20) // PLACEHOLDER
+    expect(buffettMungerStrategy.valuation.gdp_growth_threshold).toBe(0.03)
+    const v = buffettMungerStrategy.valuation as Record<string, unknown>
+    expect(v.growth_band_ceilings).toBeUndefined()
+    expect(v.growth_eligibility_incremental_roic).toBeUndefined()
+    expect(v.max_growth).toBeUndefined()
   })
 
   it('no longer carries the legacy terminal_growth_cap', () => {
@@ -61,49 +54,7 @@ describe('Buffett-Munger two-stage DCF contract params', () => {
   })
 })
 
-// ---------------------------------------------------------------------------
-// creditedGrowth — deterministic clamp (Step 3)
-// ---------------------------------------------------------------------------
-describe('creditedGrowth (Step 3 banded clamp)', () => {
-  const g = (args: Parameters<typeof creditedGrowth>[1]) => creditedGrowth(buffettMungerStrategy, args)
-
-  it('ineligible when incremental_roic <= 10% → g = 0', () => {
-    expect(g({ reinvestment_rate: 0.5, incremental_roic: 0.1, runway: 'proven', moat_class: 'wide' })).toBe(0)
-    expect(g({ reinvestment_rate: 0.5, incremental_roic: 0.08, runway: 'proven', moat_class: 'monopoly' })).toBe(0)
-    // exactly at boundary 0.10 is NOT > 0.10 → ineligible
-    expect(g({ reinvestment_rate: 1.0, incremental_roic: 0.1, runway: 'proven', moat_class: 'monopoly' })).toBe(0)
-  })
-
-  it('COST-like: reinv 0.43 × inc-ROIC 0.20 = raw 0.086 → clamped to wide+proven ceiling 0.03', () => {
-    expect(g({ reinvestment_rate: 0.43, incremental_roic: 0.2, runway: 'proven', moat_class: 'wide' })).toBeCloseTo(0.03, 10)
-  })
-
-  it('runway none/limited caps at 0.02 for any moat tier', () => {
-    expect(g({ reinvestment_rate: 0.43, incremental_roic: 0.2, runway: 'none', moat_class: 'monopoly' })).toBe(0.02)
-    expect(g({ reinvestment_rate: 0.43, incremental_roic: 0.2, runway: 'limited', moat_class: 'wide' })).toBe(0.02)
-    // even runway_exceptional cannot lift a none/limited runway above 0.02
-    expect(g({ reinvestment_rate: 0.43, incremental_roic: 0.2, runway: 'none', moat_class: 'monopoly', runway_exceptional: true })).toBe(0.02)
-  })
-
-  it('wide + proven: ceiling 0.03; exceptional lifts to 0.04', () => {
-    expect(g({ reinvestment_rate: 1.0, incremental_roic: 0.5, runway: 'proven', moat_class: 'wide' })).toBe(0.03)
-    expect(g({ reinvestment_rate: 1.0, incremental_roic: 0.5, runway: 'proven', moat_class: 'wide', runway_exceptional: true })).toBe(0.04)
-  })
-
-  it('monopoly + proven: ceiling 0.04; exceptional lifts to 0.05 (absolute max)', () => {
-    expect(g({ reinvestment_rate: 1.0, incremental_roic: 0.5, runway: 'proven', moat_class: 'monopoly' })).toBe(0.04)
-    expect(g({ reinvestment_rate: 1.0, incremental_roic: 0.5, runway: 'proven', moat_class: 'monopoly', runway_exceptional: true })).toBe(0.05)
-  })
-
-  it('never exceeds the 5% absolute max', () => {
-    expect(g({ reinvestment_rate: 2.0, incremental_roic: 0.9, runway: 'proven', moat_class: 'monopoly', runway_exceptional: true })).toBe(0.05)
-  })
-
-  it('raw growth binds when below the band ceiling', () => {
-    // reinv 0.10 × inc-ROIC 0.20 = 0.02 raw < wide+proven ceiling 0.03 → g = 0.02
-    expect(g({ reinvestment_rate: 0.1, incremental_roic: 0.2, runway: 'proven', moat_class: 'wide' })).toBeCloseTo(0.02, 10)
-  })
-})
+// creditedGrowth (Phase 1.3 — one growth path) is covered in creditedGrowth.test.ts.
 
 // ---------------------------------------------------------------------------
 // twoStageFairValuePerShare — Step 4 formula

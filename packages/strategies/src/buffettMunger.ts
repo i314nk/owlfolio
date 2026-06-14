@@ -1,4 +1,4 @@
-import { strategyContractSchema, type MoatClass, type Runway, type StrategyContract, type TargetWeightByMoat } from './strategyContract'
+import { strategyContractSchema, type MoatClass, type StrategyContract, type TargetWeightByMoat } from './strategyContract'
 import { VALUATION_PARAMS } from './valuationParams'
 
 /** Moat classes that pass the wide-moat gate (investable). */
@@ -64,54 +64,69 @@ export function stage1HorizonForMoat(strategy: StrategyContract, moatClass: Moat
   return horizon
 }
 
+/** Outcome of the single growth-path computation (Phase 1.3). */
+export type CreditedGrowthResult = {
+  /** The near-term growth rate the harness will use in the two-stage DCF (Stage-1 g). */
+  growth: number
+  /** True when `growth` is materially above GDP — i.e. it is a moat-durability claim (lowest-confidence). */
+  above_gdp: boolean
+  /** A `degraded_flags`-style note when `above_gdp` is true; surfaces growth WITH the moat-durability input. */
+  above_gdp_flag?: string
+  /** True when the named single_growth_cap bound the rate (over-optimism backstop bit). */
+  cap_binds: boolean
+}
+
 /**
- * Credited growth g (buffett-valuation-method-v2 Step 3) — deterministic clamp.
+ * The ONE growth path (Buffett-Munger gap-closing Phase 1.3 / Part D Step 2 / F.3).
  *
- *   raw_g = reinvestment_rate × incremental_roic
- *   g = 0 if incremental_roic <= eligibility threshold (default 10%)
- *   else g = min(raw_g, band_ceiling, max_growth)
+ * Input is the DEMONSTRATED historical owner-earnings-per-share growth (the OE/share CAGR computed upstream
+ * from `ownerEarningsPerShareSeries`). The harness applies only:
+ *   1. a floor at 0 (no negative compounding credit; non-finite → 0, fail-closed),
+ *   2. the agent's argued rate IF it is LOWER (the agent may argue down, NEVER up),
+ *   3. the named ~20% forecasting-humility cap (`single_growth_cap`, a PLACEHOLDER set at calibration) —
+ *      a backstop behind the durable-source requirement, never a license,
+ *   4. an above-GDP coupling FLAG: any rate materially above `gdp_growth_threshold` is a moat-durability
+ *      claim and is flagged lowest-confidence so it surfaces WITH the moat-durability input (it is NOT
+ *      silently accepted, and it is NOT haircut here — the single end-stage MoS carries the conservatism).
  *
- * band_ceiling (runway sets the value, moat tier sets the ceiling):
- *   runway 'none' or 'limited'        → limited_or_none (0.02), any tier
- *   runway 'proven' + moat 'wide'     → wide_proven (0.03)  | exceptional 0.04
- *   runway 'proven' + moat 'monopoly' → monopoly_proven (0.04) | exceptional 0.05
- *
- * Historical revenue/EPS growth is NEVER an input — only reinvestment economics.
+ * Replaces the old reinvestment×ROIC + band-ceiling + eligibility-gate + max-growth stack ("one knob +
+ * one named backstop, not five"). Pure + config-driven.
  */
 export function creditedGrowth(
   strategy: StrategyContract,
   args: {
-    reinvestment_rate: number
-    incremental_roic: number
-    runway: Runway
-    moat_class: MoatClass
-    runway_exceptional?: boolean
+    /** Demonstrated historical OE/share growth (CAGR) — the honest, falsifiable near-recent-history rate. */
+    demonstrated_growth: number
+    /** Optional agent argument; honoured ONLY when strictly lower than the demonstrated rate. */
+    agent_proposed_growth?: number
   },
-): number {
+): CreditedGrowthResult {
   const v = strategy.valuation
-  // Eligibility: growth credit only when incremental ROIC strictly exceeds the threshold.
-  if (!Number.isFinite(args.incremental_roic) || args.incremental_roic <= v.growth_eligibility_incremental_roic) {
-    return 0
+  // (1) floor + fail-closed.
+  let g = Number.isFinite(args.demonstrated_growth) ? Math.max(0, args.demonstrated_growth) : 0
+  // (2) agent may argue LOWER, never higher.
+  if (
+    args.agent_proposed_growth !== undefined
+    && Number.isFinite(args.agent_proposed_growth)
+    && args.agent_proposed_growth >= 0
+    && args.agent_proposed_growth < g
+  ) {
+    g = args.agent_proposed_growth
   }
-
-  const bands = v.growth_band_ceilings
-  let bandCeiling: number
-  if (args.runway === 'none' || args.runway === 'limited') {
-    // Any moat tier; runway_exceptional cannot lift a non-proven runway.
-    bandCeiling = bands.limited_or_none
-  } else if (args.moat_class === 'monopoly') {
-    bandCeiling = args.runway_exceptional ? bands.monopoly_proven_exceptional : bands.monopoly_proven
-  } else if (args.moat_class === 'wide') {
-    bandCeiling = args.runway_exceptional ? bands.wide_proven_exceptional : bands.wide_proven
-  } else {
-    // narrow/moderate are gated out before valuation; treat conservatively.
-    bandCeiling = bands.limited_or_none
+  // (3) named forecasting-humility cap (placeholder).
+  const cap_binds = g > v.single_growth_cap
+  if (cap_binds) g = v.single_growth_cap
+  // (4) above-GDP coupling flag.
+  const above_gdp = g > v.gdp_growth_threshold
+  const result: CreditedGrowthResult = { growth: g, above_gdp, cap_binds }
+  if (above_gdp) {
+    result.above_gdp_flag =
+      `growth_above_gdp_moat_durability_claim: near-term growth ${(g * 100).toFixed(1)}% is materially above `
+      + `GDP (~${(v.gdp_growth_threshold * 100).toFixed(1)}%) — a citation grounds past growth but not a `
+      + `decade of it. Treat as a moat-durability claim: lowest-confidence, human-weighted, surfaced with `
+      + `the moat-durability input (terminal-value share). Widens the end-stage margin of safety.`
   }
-
-  const raw_g = args.reinvestment_rate * args.incremental_roic
-  const g = Math.min(raw_g, bandCeiling, v.max_growth)
-  // Clamp to [0, max_growth] — guard against negative reinvestment_rate.
-  return Math.max(0, g)
+  return result
 }
 
 /**
@@ -251,15 +266,8 @@ const rawBuffettMungerStrategy = {
       wide: VALUATION_PARAMS.stage1_horizon_by_moat.wide,
       monopoly: VALUATION_PARAMS.stage1_horizon_by_moat.monopoly,
     },
-    growth_band_ceilings: {
-      limited_or_none: VALUATION_PARAMS.growth_band_ceilings.limited_or_none,
-      wide_proven: VALUATION_PARAMS.growth_band_ceilings.wide_proven,
-      wide_proven_exceptional: VALUATION_PARAMS.growth_band_ceilings.wide_proven_exceptional,
-      monopoly_proven: VALUATION_PARAMS.growth_band_ceilings.monopoly_proven,
-      monopoly_proven_exceptional: VALUATION_PARAMS.growth_band_ceilings.monopoly_proven_exceptional,
-    },
-    growth_eligibility_incremental_roic: VALUATION_PARAMS.growth_eligibility_incremental_roic,
-    max_growth: VALUATION_PARAMS.max_growth,
+    single_growth_cap: VALUATION_PARAMS.single_growth_cap,
+    gdp_growth_threshold: VALUATION_PARAMS.gdp_growth_threshold,
     valuation_multiple_ceiling: VALUATION_PARAMS.fv_cap_multiple,
     min_investable_moat: 'wide',
     valuation_required: true,

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 
-import { estimateMaintenanceCapex } from '../secEdgar'
-import type { AnnualFacts } from '../secEdgar'
+import { estimateMaintenanceCapex, ownerEarningsCagr } from '../secEdgar'
+import type { AnnualFacts, OwnerEarningsPerSharePoint } from '../secEdgar'
 
 // Buffett-Munger gap-closing Phase 1.2: dual maintenance-capex proxy.
 //   - Greenwald: avg(gross PP&E / sales over the series) × Δsales$  → growth capex; maint = capex − growthCapex
@@ -65,5 +65,37 @@ describe('estimateMaintenanceCapex', () => {
     const r = estimateMaintenanceCapex(series)
     expect(r.maintenance_capex).toBeUndefined()
     expect(r.basis).toBe('not_computable')
+  })
+})
+
+// Phase 1.3: demonstrated historical owner-earnings-per-share growth (CAGR), the honest growth-path input.
+describe('ownerEarningsCagr', () => {
+  const pt = (fiscal_year: number, oe_ps: number): OwnerEarningsPerSharePoint => ({ fiscal_year, oe_ps })
+
+  it('computes the CAGR from the earliest to the latest usable point', () => {
+    // 10 → 16.105 over 5 years (6 points) → CAGR = (16.105/10)^(1/5) − 1 ≈ 0.10
+    const r = ownerEarningsCagr([
+      pt(2019, 10), pt(2020, 11), pt(2021, 12.1), pt(2022, 13.31), pt(2023, 14.641), pt(2024, 16.105),
+    ])
+    expect(r).toBeCloseTo(0.10, 4)
+  })
+
+  it('returns undefined when fewer than two usable points exist', () => {
+    expect(ownerEarningsCagr([pt(2024, 10)])).toBeUndefined()
+    expect(ownerEarningsCagr([])).toBeUndefined()
+  })
+
+  it('returns undefined when the first or last OE/share is non-positive (CAGR undefined)', () => {
+    expect(ownerEarningsCagr([pt(2020, -5), pt(2024, 10)])).toBeUndefined()
+    expect(ownerEarningsCagr([pt(2020, 10), pt(2024, 0)])).toBeUndefined()
+  })
+
+  it('uses at most the last ~10 points (sorted ascending) for the window', () => {
+    // 12-point series; window should be the last 10 (2015..2024). First windowed point oe=10 → last 20.
+    const pts: OwnerEarningsPerSharePoint[] = []
+    for (let i = 0; i < 12; i += 1) pts.push(pt(2013 + i, 8 + i)) // 8,9,...,19
+    const r = ownerEarningsCagr(pts)
+    // window = last 10 points: 2015(oe=10) .. 2024(oe=19); n=9 intervals → (19/10)^(1/9) − 1
+    expect(r).toBeCloseTo(Math.pow(19 / 10, 1 / 9) - 1, 6)
   })
 })

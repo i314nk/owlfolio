@@ -26,7 +26,7 @@ import {
 } from '@owlfolio/strategies/buffettMunger'
 import type { MoatClass, Runway, StrategyContract } from '@owlfolio/strategies/strategyContract'
 import type { ValuationParams } from '@owlfolio/strategies/valuationParams'
-import { computeIncrementalRoic, type AnnualFacts, type Fundamentals, type SecEdgarDeps } from './secEdgar'
+import { computeIncrementalRoic, ownerEarningsCagr, ownerEarningsPerShareSeries, type AnnualFacts, type Fundamentals, type SecEdgarDeps } from './secEdgar'
 import { resolveFundamentalsForTicker, type ResolveFundamentalsDeps } from './fundamentalsProvider'
 import {
   cumulativeSplitFactorAfter,
@@ -358,23 +358,16 @@ export function runValuationBacktest(args: RunValuationBacktestArgs): BacktestRe
       continue
     }
 
-    // Incremental ROIC from the series available AS-OF this filing (fiscal_year <= filing.fiscal_year).
+    // Demonstrated owner-earnings growth (Phase 1.3) from the OE/share series available AS-OF this filing.
     const asOfSeries = fundamentals.annual_series.filter((a) => a.fiscal_year <= filing.fiscal_year)
-    const incRoicResult = computeIncrementalRoic(asOfSeries)
-    const incremental_roic = incRoicResult.computable
-      ? incRoicResult.incremental_roic
-      : (args.fallback_incremental_roic ?? 0)
+    const demonstrated_growth = ownerEarningsCagr(ownerEarningsPerShareSeries(asOfSeries)) ?? 0
 
     // For gated names we still compute a nominal FV/buy (using monopoly tier as a neutral basis) purely
     // to bucket WATCH/PASS; the verdict can never be BUY (classify() enforces the gate).
     const tierForValuation: MoatClass = gated ? 'monopoly' : moat_class
-    const credited_g = creditedGrowth(strategy, {
-      reinvestment_rate,
-      incremental_roic,
-      runway,
-      moat_class: gated ? 'monopoly' : moat_class,
-      ...(args.runway_exceptional === undefined ? {} : { runway_exceptional: args.runway_exceptional }),
-    })
+    // ONE growth path: the named cap + above-GDP coupling flag (Phase 1.3). Agent may argue lower (no agent
+    // in the backtest → demonstrated growth flows straight through the cap).
+    const credited_g = creditedGrowth(strategy, { demonstrated_growth }).growth
     const fair_value_ps = twoStageFairValuePerShare({
       oe_ps,
       g: credited_g,

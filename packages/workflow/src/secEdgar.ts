@@ -120,6 +120,26 @@ export function ownerEarningsPerShareSeries(series: AnnualFacts[]): OwnerEarning
   return out
 }
 
+/**
+ * Demonstrated historical owner-earnings-per-share growth (CAGR) — the honest, falsifiable near-recent-
+ * history growth-path input (Buffett-Munger gap-closing Phase 1.3 / Part D Step 2). Computed from the
+ * `ownerEarningsPerShareSeries` over the last ~10 fiscal years (a 5–10yr window). Returns undefined when
+ * fewer than two usable points exist or the endpoints are non-positive (CAGR undefined → fail-closed).
+ * The caller feeds this into `creditedGrowth`, which applies the named cap + the above-GDP coupling flag.
+ */
+export function ownerEarningsCagr(series: OwnerEarningsPerSharePoint[]): number | undefined {
+  const sorted = [...series].sort((a, b) => a.fiscal_year - b.fiscal_year)
+  const window = sorted.slice(-10)
+  if (window.length < 2) return undefined
+  const first = window[0]!
+  const last = window[window.length - 1]!
+  if (!(first.oe_ps > 0) || !(last.oe_ps > 0)) return undefined
+  const years = last.fiscal_year - first.fiscal_year
+  const n = years > 0 ? years : window.length - 1
+  if (n <= 0) return undefined
+  return Math.pow(last.oe_ps / first.oe_ps, 1 / n) - 1
+}
+
 /** Maintenance-capex estimate: the value (in the series' currency, $millions) and which proxy supplied it. */
 export type MaintenanceCapexEstimate = {
   /** Estimated maintenance capex, $millions; undefined when neither proxy is computable (fail-closed). */
