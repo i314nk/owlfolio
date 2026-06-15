@@ -31,7 +31,9 @@ describe('detectSignals — STATE-INDEPENDENCE (the discipline tripwire)', () =>
   // detection is state-independent — the SAME name-data must yield the SAME signal set regardless of
   // the name's lifecycle state. We drive that by holding all data fixed and varying ONLY `state`.
   it('produces the identical signal set across all states for identical name-data', () => {
-    const asOfData = { now: NOW, current_price: 40, portfolio_nav: 1_000, thesis_break: true }
+    // market_value 200 of nav 1_000 = 20% > 15% cap → also fires over_concentrated, so the tripwire
+    // exercises ALL seven signals across states (a regression coupling any one signal to state breaks this).
+    const asOfData = { now: NOW, current_price: 40, market_value: 200, portfolio_nav: 1_000, thesis_break: true }
     const baseData = {
       buy_price_per_share: 50,
       fair_value_per_share: 80,
@@ -45,8 +47,11 @@ describe('detectSignals — STATE-INDEPENDENCE (the discipline tripwire)', () =>
       [...detectSignals(name({ ...baseData, state }), asOfData)].sort(),
     )
 
-    // Every state yields the exact same signal set.
+    // The fixture is constructed to fire ALL seven signals — so the cross-state equality below is a
+    // genuine tripwire for every signal (if any one became state-coupled, the sets would diverge here).
     const first = signalSets[0]
+    expect(first).toEqual([...LIFECYCLE_SIGNALS].sort())
+    // Every state yields the exact same signal set.
     for (const set of signalSets) {
       expect(set).toEqual(first)
     }
