@@ -508,6 +508,38 @@ describe('annual_series spans concept transitions (per-year per-field resolution
     expect(fy2023?.revenue_musd).toBeCloseTo(200, 0)
   })
 
+  // FIX (as-of staleness bug): the `filed` availability date must be FIRST-disclosure (earliest 10-K that
+  // reported the period), NOT the latest comparative. A 10-K restates 2-3 prior years as comparatives, so
+  // latest-filed-wins tagged every fiscal year with a filing ~2-3 yrs too late and made the as-of backtest
+  // value each month on stale fundamentals (e.g. KO-as-of-2020 used the FY2017 one-time-charge trough).
+  it('uses the FIRST-disclosure (earliest) filed date per fiscal year, not the latest comparative', async () => {
+    // FY2020 NetIncomeLoss appears in the original FY2020 10-K (filed 2021-02-15) AND again as a comparative
+    // in the FY2022 10-K (filed 2023-02-15). The availability date must be the EARLIEST.
+    const facts = {
+      entityName: 'FiledDateCo',
+      facts: {
+        'us-gaap': {
+          NetIncomeLoss: {
+            label: 'x',
+            units: {
+              USD: [
+                { start: '2020-01-01', end: '2020-12-31', val: 100 * M, form: '10-K', fy: 2020, fp: 'FY', filed: '2021-02-15' },
+                { start: '2020-01-01', end: '2020-12-31', val: 100 * M, form: '10-K', fy: 2022, fp: 'FY', filed: '2023-02-15' },
+                { start: '2021-01-01', end: '2021-12-31', val: 110 * M, form: '10-K', fy: 2021, fp: 'FY', filed: '2022-02-15' },
+                { start: '2022-01-01', end: '2022-12-31', val: 120 * M, form: '10-K', fy: 2022, fp: 'FY', filed: '2023-02-15' },
+              ],
+            },
+          },
+          StockholdersEquity: instantFacts({ 2020: 50, 2021: 55, 2022: 60 }),
+        },
+      },
+    }
+    const f = await fetchCompanyFundamentals('0000000002', { fetchImpl: fakeFactsFetch(facts) })
+    expect(f).toBeDefined()
+    const fy2020 = f?.annual_series.find((a) => a.fiscal_year === 2020)
+    expect(fy2020?.filed).toBe('2021-02-15') // first disclosure, NOT the 2023-02-15 comparative
+  })
+
   // FIX (MCD units bug): a filer that, in its recent 10-Ks, RE-TAGS the weighted-average diluted-share
   // count in MILLIONS (e.g. val=751.8) for a period it previously tagged as an ABSOLUTE count
   // (val=751800000) — a 1e6 scale discontinuity within the same concept+unit. "Latest filed wins" would

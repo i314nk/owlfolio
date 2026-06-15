@@ -714,10 +714,13 @@ function annualByFiscalYear(facts: CompanyFacts, taxonomy: Taxonomy, concept: st
 }
 
 /**
- * For a us-gaap flow concept, return a map of fiscal_year -> { filed, period_end } — the filing date
- * and period END of the 10-K that reported that fiscal year. Mirrors annualByFiscalYear's period
- * selection (latest filed wins per period end; latest period end wins per fiscal year) but surfaces the
- * filing metadata the calibration backtest needs to know which 10-K was available as-of a given month.
+ * For a us-gaap flow concept, return a map of fiscal_year -> { filed, period_end } — the FIRST-disclosure
+ * filing date and period END for that fiscal year. The availability date must be when an analyst FIRST had
+ * the annual number (the original 10-K/20-F), NOT the latest comparative: a 10-K restates 2–3 prior years
+ * as comparatives, so latest-filed-wins would tag every fiscal year with a filing ~2–3 years too late and
+ * make the as-of backtest value each month on stale fundamentals. So we take the EARLIEST annual-form filed
+ * date per period end (first disclosure). (The VALUE in annualByFiscalYear still takes latest-filed = the
+ * most-restated number; only the availability DATE is first-disclosure.)
  */
 function annualFiledMetaByFiscalYear(
   facts: CompanyFacts,
@@ -741,9 +744,10 @@ function annualFiledMetaByFiscalYear(
       if (days === undefined || days < ANNUAL_MIN_DAYS || days > ANNUAL_MAX_DAYS) continue
     }
     const filed = typeof e.filed === 'string' ? e.filed : ''
+    if (filed === '') continue // need a real first-disclosure date
     const prior = byEnd.get(e.end)
-    if (prior === undefined || filed > prior.filed) {
-      byEnd.set(e.end, { filed })
+    if (prior === undefined || filed < prior.filed) {
+      byEnd.set(e.end, { filed }) // EARLIEST annual-form filing that reported this period end (first disclosure)
     }
   }
 
