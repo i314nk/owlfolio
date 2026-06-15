@@ -77,6 +77,10 @@ export function watchlistRow(args: {
   if (args.buy_price_per_share !== undefined) row.buy_price_per_share = args.buy_price_per_share
   if (args.fair_value_per_share !== undefined) row.fair_value_per_share = args.fair_value_per_share
   if (args.shariah_status !== undefined) row.shariah_gate_status = args.shariah_status
+  // `superseded` is a freshness fact: a watchlist item still referencing a superseded research case is
+  // stale regardless of age. Wire it onto the row so the engine's `stale` signal honors it (restores
+  // equivalence with the pre-route evaluateWatchlistBuyWindow, which folded superseded → stale → suppress).
+  if (args.superseded !== undefined) row.superseded = args.superseded
   return row
 }
 

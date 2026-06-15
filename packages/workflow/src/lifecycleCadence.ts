@@ -106,10 +106,11 @@ export function detectSignals(name: NameLifecycleProjection, asOfData: CadenceAs
   const signals: LifecycleSignal[] = []
 
   // stale ← case freshness rule (>12mo / superseded / newer annual report). The projection's name-level
-  // `updated_at` is the freshness clock; a screened/exited name carries the same data, so the SIGNAL is
-  // raised uniformly — only the action (see selectAction) is state-sensitive.
+  // `updated_at` is the freshness clock and `superseded` is a freshness FACT (a superseded case is stale
+  // regardless of age); both are name-data, so the SIGNAL is raised uniformly — only the action (see
+  // selectAction) is state-sensitive. `superseded` is NOT a state-branch.
   const freshness = evaluateCaseFreshness(
-    { updated_at: name.updated_at },
+    { updated_at: name.updated_at, ...(name.superseded === undefined ? {} : { superseded: name.superseded }) },
     {
       now: asOfData.now,
       ...(asOfData.latest_annual_report_filed === undefined

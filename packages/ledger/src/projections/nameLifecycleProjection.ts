@@ -60,6 +60,14 @@ export type NameLifecycleProjection = {
   /** The Shariah gate status carried by the live entity (watchlist/holding), when present. */
   shariah_gate_status?: string
   /**
+   * Freshness fact: the research case this name references has been superseded by a newer version. A
+   * superseded case is STALE regardless of age ("stale cheapness is not a signal"). Optional and
+   * non-breaking: `projectNameLifecycle` skips superseded cases for surfaced names so it leaves this
+   * undefined/false, but a worker adapter that builds a row for the case a watchlist item references
+   * supplies the real value so the cadence engine's `stale` signal honors it.
+   */
+  superseded?: boolean
+  /**
    * Honesty bit (owner refinement #1): a `watched` name whose falsifier has tripped (Shariah gate FAIL,
    * or a staleness / Shariah re-screen alert) MUST still project as `watched` but be flagged here. It must
    * NOT look healthy and must NOT be synthesized into `exited` — there is no prune event yet (later phase),

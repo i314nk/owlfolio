@@ -80,6 +80,29 @@ describe('detectSignals — STATE-INDEPENDENCE (the discipline tripwire)', () =>
     expect(above).not.toContain('price_crossed_buybelow')
   })
 
+  it('raises stale for a superseded-but-RECENT case (superseded is a freshness fact, age-independent)', () => {
+    // The case's updated_at is RECENT (fresh by age) and the gate is clean + price cheap — the ONLY
+    // staleness cause is `superseded: true`. If superseded is honored, `stale` fires regardless of age.
+    const superseded = detectSignals(
+      name({ state: 'watched', updated_at: RECENT, superseded: true, buy_price_per_share: 50, gate_clean: true }),
+      { now: NOW, current_price: 40 },
+    )
+    expect(superseded).toContain('stale')
+    // It is NOT reunderwrite_due (that derives purely from age, and the case is recent).
+    expect(superseded).not.toContain('reunderwrite_due')
+
+    // ISOLATION: the identical name WITHOUT superseded does NOT raise stale — proving superseded is the
+    // sole cause here, and that selectAction('stale','watched') therefore suppresses only the superseded one.
+    const notSuperseded = detectSignals(
+      name({ state: 'watched', updated_at: RECENT, buy_price_per_share: 50, gate_clean: true }),
+      { now: NOW, current_price: 40 },
+    )
+    expect(notSuperseded).not.toContain('stale')
+
+    // The suppress action is what a watched + stale name resolves to.
+    expect(selectAction('stale', 'watched').kind).toBe('suppress')
+  })
+
   it('raises stale and reunderwrite_due for an old case', () => {
     const signals = detectSignals(
       name({ state: 'watched', updated_at: '2024-01-01T00:00:00.000Z', gate_clean: true }),

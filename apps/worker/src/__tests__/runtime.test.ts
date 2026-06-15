@@ -1850,7 +1850,7 @@ describe('worker runtime', () => {
 
 function watchlistWithBuyPrice(
   store: InMemoryEventStore<LedgerEventEnvelope<unknown>>,
-  args: { ticker: string; buyPrice: number; fairValue: number; caseUpdatedAt: string },
+  args: { ticker: string; buyPrice: number; fairValue: number; caseUpdatedAt: string; superseded?: boolean },
 ): Promise<unknown> {
   const itemId = `wl_${args.ticker.toLowerCase()}_001`
   const caseId = `rc_${args.ticker.toLowerCase()}_001`
@@ -1889,6 +1889,19 @@ function watchlistWithBuyPrice(
       }),
       created_at: args.caseUpdatedAt,
     })
+    if (args.superseded === true) {
+      // A NEWER research-case version supersedes the watchlist-referenced case (the supersedes link is
+      // carried on research_case_created, where the projection reads it). The watchlist item still
+      // references the original (now superseded) case via research_case_id, so its monitor view is stale.
+      await store.append({
+        ...ledgerEvent('research_case_created', 'research_case', `${caseId}_v2`, {
+          research_case_id: `${caseId}_v2`,
+          supersedes_research_case_id: caseId,
+          ticker: args.ticker,
+        }, 'system'),
+        created_at: args.caseUpdatedAt,
+      })
+    }
   })()
 }
 
@@ -2170,6 +2183,39 @@ describe('worker runtime — cadence engine adapter equivalence (Task 3.2b)', ()
       rerun_needed: true,
     })
     expect((alert?.payload as { suppression_reason?: string }).suppression_reason).toMatch(/stale cheapness is not a signal/)
+  })
+
+  it('watchlist_monitor (engine-routed) SUPPRESSES a superseded-but-RECENT cheap gate-clean case (no contradictory buy_window fields)', async () => {
+    // The watchlist-referenced case is RECENT (fresh by age) and gate-clean, the price is cheap — the ONLY
+    // staleness cause is that a newer version SUPERSEDES it. Pre-route, evaluateWatchlistBuyWindow folded
+    // superseded → stale → buy_window_suppressed/suppressed=true. The engine must match exactly, with NO
+    // contradictory buy_window fields.
+    const store = new InMemoryEventStore<LedgerEventEnvelope<unknown>>()
+    await watchlistWithBuyPrice(store, { ticker: 'SUPS', buyPrice: 100, fairValue: 140, caseUpdatedAt: '2026-05-15T00:00:00.000Z', superseded: true })
+    await defineDefaultScheduledTasks(store, { now: () => '2026-06-10T09:00:00.000Z' })
+
+    await runScheduledTasks(store, {
+      dry_run: true,
+      task_kind: 'watchlist_monitor',
+      now: () => '2026-06-10T09:00:00.000Z',
+      run_id: () => 'run_watchlist_monitor_superseded_eq_001',
+      priceSource: makeMockPriceSource({ SUPS: { available: true, price_per_share: 80, currency: 'USD', as_of: '2026-06-10T00:00:00.000Z', source: 'mock-price-source' } }),
+    })
+
+    const alert = (await store.list()).find((event) => event.event_type === 'watchlist_monitor_alert_recorded')
+    expect(alert?.payload).toMatchObject({
+      ticker: 'SUPS',
+      alert_kind: 'buy_window_suppressed',
+      buy_window_alert: false,
+      suppressed: true,
+      rerun_needed: true,
+    })
+    expect((alert?.payload as { suppression_reason?: string }).suppression_reason).toMatch(/superseded/)
+    // No contradictory buy_window fields: it must NOT be a buy_window alert.
+    expect((alert?.payload as { alert_kind?: string }).alert_kind).not.toBe('buy_window')
+    expect((alert?.payload as { buy_window_alert?: boolean }).buy_window_alert).toBe(false)
+    expect(alert?.actor_type).toBe('worker')
+    expect((await store.list()).map((event) => event.event_type)).not.toContain('holding_opened')
   })
 
   it('decideForName is the decision source: watched + cheap + fresh + gate-clean → buy_eval (no suppress)', async () => {
