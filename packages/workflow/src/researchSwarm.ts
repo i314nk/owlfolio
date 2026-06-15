@@ -62,6 +62,8 @@ import { ingestManualSourceBundle } from './sourceLedger'
 import { resolveResearchStrategyRef } from './researchStrategyRef'
 import { buffettMungerStrategy, creditedGrowth, discountRate, moatPassesGate, stage1HorizonForMoat, terminalGrowthForMoat, twoStageValuation, widenedMarginOfSafety } from '@owlfolio/strategies/buffettMunger'
 import { computeShariahFinancialRatios } from '@owlfolio/strategies/shariahFinancialRatios'
+import { valuationSensitivity, type ValuationSensitivity } from '@owlfolio/strategies/valuationSensitivity'
+import { marketImpliedGrowth } from '@owlfolio/strategies/reverseDcf'
 import { fetchAverageMarketCap, fetchTenYearTreasuryYield, resolveCurrentPrice, type AverageMarketCapResult, type MarketDataDeps, type PriceQuote, type TreasuryYieldResult } from './marketData'
 import { runRedTeamPass, runRedTeamResponsePass, buildRedTeamLayer, type RedTeamLaneDigest, type RedTeamResult } from './redTeamPass'
 import {
@@ -1522,6 +1524,13 @@ export async function runResearchDeepDivePhase(
   let terminal_value_pct_of_iv: number | undefined
   let cap_exceeded = false
   let margin_of_safety_widening_reasons: string[] = []
+  // Phase 2 (reverse-DCF + sensitivity wiring): a low/base/high fair-value RANGE and the cap-binding
+  // flag. Computed inside the valuation block when a point FV is produced; market-implied growth is
+  // computed later (needs the resolved current price). Presentation/attachment only — no math change.
+  let valuationSensitivityResult: ValuationSensitivity | undefined
+  let fair_value_range: string | undefined
+  let fair_value_range_basis: string | undefined
+  let valuation_cap_binding: boolean | undefined
 
   // Maintenance-capex confidence (Phase 1.2 → 1.6 widening input, review "bite once"): low confidence is
   // genuine estimation DISPERSION — BOTH proxies computed but disagree materially — NOT the D&A-floor
@@ -1545,6 +1554,11 @@ export async function runResearchDeepDivePhase(
     ? demonstratedOwnerEarningsGrowth(fundamentals.annual_series)
     : undefined
   const demonstrated_growth = demonstratedGrowthResult?.growth ?? 0
+  // Phase 2 sensitivity inputs: usable owner-earnings history depth + whether the robust slope diverged
+  // from the Theil–Sen cross-check (high dispersion). Both widen the fair-value band (honest uncertainty).
+  const demonstrated_points_used = demonstratedGrowthResult?.points_used ?? 0
+  const demonstrated_high_dispersion =
+    demonstratedGrowthResult?.flags.some((f) => /dispersion/i.test(f)) ?? false
   if (demonstratedGrowthResult !== undefined) {
     for (const flag of demonstratedGrowthResult.flags) {
       degradedFlags.push(`demonstrated_growth: ${flag}`)
@@ -1641,6 +1655,45 @@ export async function runResearchDeepDivePhase(
       margin_of_safety = widened.margin_of_safety
       margin_of_safety_widening_reasons = widened.widening_reasons
       buy_price_per_share = Math.round(fair_value_per_share * (1 - margin_of_safety) * 100) / 100
+
+      // ---- Phase 2: sensitivity RANGE around the point FV (attachment/presentation only) ----
+      // A low/base/high fair-value band straddling the CREDITED growth, widened by the growth measure's
+      // own uncertainty (thin history / dispersion). We pass the SAME oe_ps, terminal, discount and
+      // horizon the point valuation used so the band's base equals fair_value_per_share. The math (cap,
+      // fade, MoS, discount) is unchanged — this only describes the uncertainty already present.
+      valuationSensitivityResult = valuationSensitivity(buffettMungerStrategy, {
+        oe_ps: normalized_owner_earnings_per_share,
+        demonstrated_growth,
+        points_used: demonstrated_points_used,
+        high_dispersion: demonstrated_high_dispersion,
+        terminal_g,
+        discount,
+        horizon,
+      })
+      valuation_cap_binding = valuationSensitivityResult.cap_binding
+      if (
+        valuationSensitivityResult.computable
+        && valuationSensitivityResult.fair_value_low !== undefined
+        && valuationSensitivityResult.fair_value_base !== undefined
+        && valuationSensitivityResult.fair_value_high !== undefined
+      ) {
+        const lo = Math.round(valuationSensitivityResult.fair_value_low)
+        const base = Math.round(valuationSensitivityResult.fair_value_base)
+        const hi = Math.round(valuationSensitivityResult.fair_value_high)
+        fair_value_range = `$${lo}–$${hi} (base $${base})`
+        // Honest "why is the range wide" note: a wide band (≳40%) driven by thin usable owner-earnings
+        // history and/or dispersion → say so, so a thin-history name reads as uncertain, not precise.
+        const rangePct = valuationSensitivityResult.range_pct
+        const pts = valuationSensitivityResult.uncertainty.points_used
+        if (rangePct !== undefined && rangePct >= 0.40) {
+          const causes: string[] = []
+          if (pts > 0 && pts < 8) causes.push(`only ${pts} years of usable owner-earnings history`)
+          if (valuationSensitivityResult.uncertainty.high_dispersion) causes.push('high growth dispersion')
+          fair_value_range_basis = causes.length > 0
+            ? `Range is wide (±${Math.round((rangePct / 2) * 100)}%) because ${causes.join(' and ')} anchor the growth estimate — treat it as honestly uncertain, not precise.`
+            : `Range spans ±${Math.round((rangePct / 2) * 100)}% — treat the base as a central estimate, not a precise target.`
+        }
+      }
     }
   }
 
@@ -1658,6 +1711,36 @@ export async function runResearchDeepDivePhase(
   const market_cap = avgMarketCap?.market_cap ?? spotMarketCap
   const market_cap_basis: 'avg_36mo_x_diluted_shares' | 'current_price_x_diluted_shares' =
     avgMarketCap !== undefined ? 'avg_36mo_x_diluted_shares' : 'current_price_x_diluted_shares'
+
+  // ---- Phase 2: reverse-DCF market-implied growth (attachment/presentation only) ----
+  // "What near-term owner-earnings growth does TODAY'S price imply?" — inverts the SAME faded two-stage
+  // DCF the point valuation used (same oe_ps, discount, terminal, horizon basis), so reverse and forward
+  // stay consistent. Fail-closed: omit entirely when no current price or no positive owner earnings/share
+  // (never fabricate a price or a rate). Grounded in the live price already used + the EDGAR oe_ps.
+  // Only computed when a POINT fair value was produced (moat investable, valid OE/share, FV not discarded)
+  // — that guarantees the per-moat terminal_growth_rate the point valuation used is defined, so the reverse
+  // solve inverts the SAME forward DCF. terminalGrowthForMoat throws for non-investable moats, so gating on
+  // fair_value_per_share avoids that path entirely.
+  let market_implied_growth: number | undefined
+  if (
+    current_price !== undefined
+    && fair_value_per_share !== undefined
+    && terminal_growth_rate !== undefined
+    && normalized_owner_earnings_per_share !== undefined
+    && normalized_owner_earnings_per_share > 0
+  ) {
+    const impliedHorizon = stage1HorizonForMoat(buffettMungerStrategy, moatClass)
+    const implied = marketImpliedGrowth({
+      price: current_price,
+      oe_ps: normalized_owner_earnings_per_share,
+      terminal_g: terminal_growth_rate,
+      discount,
+      horizon: impliedHorizon,
+    })
+    if (implied.status === 'solved' && implied.implied_growth !== undefined) {
+      market_implied_growth = implied.implied_growth
+    }
+  }
 
   // The SHARIAH lane (LLM) identifies the sector status + impermissible income ($M); the harness
   // RECOMPUTES the three AAOIFI financial ratios + verdict + purification % from EDGAR debt/cash/
@@ -1955,6 +2038,14 @@ export async function runResearchDeepDivePhase(
         ...(margin_of_safety !== undefined ? { margin_of_safety_applied: margin_of_safety } : {}),
         ...(margin_of_safety_widening_reasons.length > 0 ? { margin_of_safety_widening_reasons } : {}),
         ...(buy_price_per_share !== undefined ? { buy_price_per_share } : {}),
+        // Phase 2: the fair-value RANGE (low–high, base) — the dossier leads with this instead of the
+        // point FV. Omitted when not computable (point FV still stands as the base).
+        ...(fair_value_range !== undefined ? { fair_value_range } : {}),
+        ...(fair_value_range_basis !== undefined ? { fair_value_range_basis } : {}),
+        // Phase 2: the near-term growth TODAY'S PRICE implies (reverse-DCF). Omitted when no price.
+        ...(market_implied_growth !== undefined ? { market_implied_growth } : {}),
+        // Phase 2: the base FV is cap-LIMITED (demonstrated growth above the named cap), not estimate-limited.
+        ...(valuation_cap_binding ? { valuation_cap_binding: true } : {}),
         // Price → verdict band (BUY-WINDOW | WATCH-FAIR | WATCH) when a current price + buy/fair exist.
         ...(verdict_state !== undefined ? { verdict_state } : {}),
         value_basis: 'two_stage_dcf',

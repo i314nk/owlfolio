@@ -1189,6 +1189,66 @@ describe('Two-stage DCF harness growth path (Phase 1.3 one growth path + gates)'
     expect((cp?.valuation?.margin_of_safety_widening_reasons ?? []).join(' ')).toMatch(/moat|maint/i)
     // Buy-below is locked from harness numbers; even with a model BUY it never escalates above WATCH here.
     expect(cp?.valuation?.buy_price_per_share).toBeGreaterThan(0)
+
+    // ---- Phase 2: fair-value RANGE + reverse-DCF market-implied growth (this case has a price) ----
+    // A formatted low–high (base) range is attached; its base matches the point fair value.
+    const fvRange = cp?.valuation?.fair_value_range
+    expect(fvRange).toBeDefined()
+    expect(fvRange).toMatch(/^\$\d+–\$\d+ \(base \$\d+\)$/)
+    const fvBase = Number(/\(base \$(\d+)\)/.exec(fvRange ?? '')?.[1])
+    expect(fvBase).toBeCloseTo(cp?.valuation?.fair_value_per_share ?? 0, 0)
+    // Thin EDGAR history (6 usable points, demonstrated g above the cap) → a WIDE range with an honest
+    // "why is it wide" basis note that names the short history.
+    const fvLow = Number(/^\$(\d+)/.exec(fvRange ?? '')?.[1])
+    const fvHigh = Number(/–\$(\d+)/.exec(fvRange ?? '')?.[1])
+    expect((fvHigh - fvLow) / fvBase).toBeGreaterThan(0.2)
+    expect(cp?.valuation?.fair_value_range_basis).toMatch(/years of usable owner-earnings history/i)
+    // Demonstrated growth (~10%) is below the named cap here → NOT cap-limited (the flag is omitted).
+    expect(cp?.valuation?.valuation_cap_binding).toBeUndefined()
+    // A current price was injected (50) with positive OE/share → market-implied growth is computable.
+    expect(typeof cp?.valuation?.market_implied_growth).toBe('number')
+    expect(Number.isFinite(cp?.valuation?.market_implied_growth ?? NaN)).toBe(true)
+  })
+
+  it('fail-closed: no current price → no market_implied_growth (omitted, not fabricated); point FV kept', async () => {
+    // Same growing EDGAR series, but the price resolver FAILS → no current price.
+    const series: AnnualFacts[] = []
+    for (let i = 0; i < 6; i += 1) {
+      const fy = 2019 + i
+      const ni = Math.round(1000 * Math.pow(1.10, i))
+      series.push({ fiscal_year: fy, currency: 'USD', net_income_musd: ni, revenue_musd: 10000, d_and_a_musd: 200, capex_musd: 200, sbc_musd: 0, diluted_shares_m: 100 })
+    }
+    const growingFundamentals: Fundamentals = {
+      cik: '0000000001', entity_name: 'GROWER INC', currency: 'USD',
+      latest_annual: series[series.length - 1]!,
+      annual_series: series,
+      filings: [{ form: '10-K', filed: '2024-02-01', url: 'https://www.sec.gov/Archives/edgar/data/1/x.htm' }],
+    }
+    const store = new InMemoryEventStore()
+    const provider = configurableSwarmProvider({
+      laneCount: buffettMungerDeepDiveLanes.length,
+      synthesis: { moat_class: 'wide', runway: 'proven', incremental_roic: 0.20, reinvestment_rate: 0.40 },
+    })
+    const sourceLedgerPath = await mkdtemp(join(tmpdir(), 'owlfolio-noprice-'))
+    await runStrategyResearchSwarm(
+      store, provider as never,
+      {
+        research_case_id: 'rc_noprice', company_id: 'c', ticker: 'GRW',
+        strategy_id: 'buffett-munger', actor_id: 'user_local', idempotency_key: 'noprice_k',
+        model_id: 'mock', decision_id: 'decision_noprice', source_ledger_path: sourceLedgerPath,
+      },
+      {
+        ground: allVerifiedGround, laneConcurrency: 4, fundamentals: growingFundamentals,
+        resolvePrice: async () => ({ available: false as const, reason: 'fetch failed', source: 'fixture' }),
+      },
+    )
+    const projections = projectResearchCases((await store.list()) as Parameters<typeof projectResearchCases>[0])
+    const cp = projections.find((c) => c.research_case_id === 'rc_noprice')
+    // Point fair value (and its range) still compute — they don't need a price.
+    expect(cp?.valuation?.fair_value_per_share).toBeGreaterThan(0)
+    expect(cp?.valuation?.fair_value_range).toBeDefined()
+    // Fail-closed: no price → market_implied_growth is OMITTED (never fabricated).
+    expect(cp?.valuation?.market_implied_growth).toBeUndefined()
   })
 })
 

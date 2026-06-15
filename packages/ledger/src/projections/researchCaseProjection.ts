@@ -198,6 +198,26 @@ export type ResearchCaseValuationProjection = {
   /** Phase 1.6: the reasons the single MoS knob widened beyond the moat base floor. */
   margin_of_safety_widening_reasons?: string[]
   buy_price_per_share?: number
+  /**
+   * Phase 2: a formatted low–high (base) fair-value RANGE derived from the growth-measure's own
+   * uncertainty (thin history / dispersion widen the band). Absent when not computable; the point
+   * fair_value_per_share is the BASE of this range. E.g. "$148–$216 (base $216)".
+   */
+  fair_value_range?: string
+  /**
+   * Phase 2: a human-readable note explaining WHY the range is as wide as it is (usable owner-earnings
+   * history depth / dispersion). Surfaced so a thin-history name reads as honestly uncertain. Absent
+   * when the range is not computable or no widening cause applies.
+   */
+  fair_value_range_basis?: string
+  /**
+   * Phase 2: the near-term owner-earnings growth the CURRENT MARKET PRICE implies (reverse-DCF),
+   * as a fraction. Absent when no current price was available. Compared against growth_rate (ours)
+   * in the dossier as an over-confidence/richness signal.
+   */
+  market_implied_growth?: number
+  /** Phase 2: true when the base fair value is LIMITED by the single growth cap (not the estimate). */
+  valuation_cap_binding?: boolean
   /** Provenance of the incremental ROIC used: 'sec_edgar' (computed from the series) or 'model_proposed'. */
   incremental_roic_basis?: string
   /**
@@ -590,6 +610,14 @@ function getValuation(payload: Record<string, unknown>): ResearchCaseValuationPr
   if (margin_of_safety_widening_reasons !== undefined) projected.margin_of_safety_widening_reasons = margin_of_safety_widening_reasons
   const buy_price_per_share = getNumber(value, 'buy_price_per_share')
   if (buy_price_per_share !== undefined) projected.buy_price_per_share = buy_price_per_share
+  const fair_value_range = getString(value, 'fair_value_range')
+  if (fair_value_range !== undefined) projected.fair_value_range = fair_value_range
+  const fair_value_range_basis = getString(value, 'fair_value_range_basis')
+  if (fair_value_range_basis !== undefined) projected.fair_value_range_basis = fair_value_range_basis
+  const market_implied_growth = getNumber(value, 'market_implied_growth')
+  if (market_implied_growth !== undefined) projected.market_implied_growth = market_implied_growth
+  const valuation_cap_binding = getBoolean(value, 'valuation_cap_binding')
+  if (valuation_cap_binding !== undefined) projected.valuation_cap_binding = valuation_cap_binding
   const incremental_roic_basis = getString(value, 'incremental_roic_basis')
   if (incremental_roic_basis !== undefined) projected.incremental_roic_basis = incremental_roic_basis
   const verdict_state = getVerdictState(value)

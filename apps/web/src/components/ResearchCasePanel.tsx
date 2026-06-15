@@ -1,6 +1,7 @@
 import { createElement, type ReactNode } from 'react'
 
 import type { PositionPlan, PositionTranche } from '@owlfolio/strategies/positionSizing'
+import { buffettMungerStrategy } from '@owlfolio/strategies/buffettMunger'
 
 import { SourceChip } from './designSystem'
 import { StatusBadge } from './StatusBadge'
@@ -545,6 +546,9 @@ function createVerdictFormatBlock(researchCase: AppResearchCase) {
   const impliedMultiple = valuation.implied_multiple ?? valuation.verdict_state?.implied_multiple
   const buyPrice = valuation.buy_price_per_share
   const buyPriceVersion = (valuation as { buy_price_version?: string }).buy_price_version
+  // Phase 2: the fair-value RANGE + reverse-DCF market-implied growth (replaces the old NOT_YET stubs).
+  const fairValueRange = valuation.fair_value_range
+  const marketImpliedGrowth = valuation.market_implied_growth
   const sf = researchCase.shariah_financial
   const purificationPct = sf?.purification_pct
 
@@ -570,9 +574,16 @@ function createVerdictFormatBlock(researchCase: AppResearchCase) {
     verdictFormatLine('Tier + runway', moatClass === undefined ? NOT_YET : `${moatClass.toUpperCase()}${runway === undefined ? '' : ` · ${runway} runway`}`),
     verdictFormatLine('Owner earnings + method', oe === undefined ? NOT_YET : `$${oe.toFixed(2)}/sh · two-stage discounted owner earnings`),
     verdictFormatLine('Credited g → terminal', g === undefined ? NOT_YET : `${(g * 100).toFixed(1)}%${terminalG === undefined ? '' : ` → ${(terminalG * 100).toFixed(1)}% terminal`}`),
+    // Phase 2: lead with the fair-value RANGE (point FV is the base). Honest NOT_YET when not computable.
+    verdictFormatLine('Fair-value range', fairValueRange === undefined ? NOT_YET : fairValueRange),
     verdictFormatLine('Implied multiple', impliedMultiple === undefined ? NOT_YET : `${impliedMultiple.toFixed(1)}× OE`),
-    // Market-implied g is not computed by the harness yet → honest "not yet available".
-    verdictFormatLine('Market-implied g', NOT_YET),
+    // Phase 2: reverse-DCF market-implied growth vs ours. NOT_YET when no current price was available.
+    verdictFormatLine(
+      'Market-implied g',
+      marketImpliedGrowth === undefined
+        ? NOT_YET
+        : `${(marketImpliedGrowth * 100).toFixed(1)}%${g === undefined ? '' : ` vs our ${(g * 100).toFixed(1)}%`}`,
+    ),
     verdictFormatLine('Buy price + version', buyPrice === undefined ? NOT_YET : `$${buyPrice}${buyPriceVersion === undefined ? ' (buy_price_version not recorded)' : ` (buy_price_version ${buyPriceVersion})`}`),
     verdictFormatLine('Shariah + purification', researchCase.shariah_status === undefined ? NOT_YET : `${researchCase.shariah_status}${purificationPct === undefined ? '' : ` · purification ${(purificationPct * 100).toFixed(1)}%`}`),
     verdictFormatLine('Anchor vs proposed tier', anchorVsProposed),
@@ -770,6 +781,11 @@ function createValuationPanel(researchCase: AppResearchCase, marketQuote?: Marke
 
   const buyPrice = valuation.buy_price_per_share
   const fairValue = valuation.fair_value_per_share
+  // Phase 2: the fair-value RANGE (low–high, base) and the reverse-DCF market-implied growth. The
+  // dossier LEADS with the range + "market implies X% vs our Y%" instead of a single point estimate.
+  const fairValueRange = valuation.fair_value_range
+  const marketImpliedGrowth = valuation.market_implied_growth
+  const capBinding = valuation.valuation_cap_binding === true
   const discountRateVal = valuation.discount_rate
   const mosVal = valuation.margin_of_safety
   const moatClass = valuation.moat_class ?? 'unknown'
@@ -857,12 +873,34 @@ function createValuationPanel(researchCase: AppResearchCase, marketQuote?: Marke
     ? `Yahoo Finance · as of ${new Date(marketQuote.as_of).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`
     : 'market price unavailable / manual'
 
-  // Build fair value → buy price summary line
-  const fairValueSummary = (fairValue !== undefined && buyPrice !== undefined && mosLabel !== undefined)
-    ? `fair value $${fairValue.toFixed(2)} · less ${mosLabel} margin of safety (${moatClass.toLowerCase()}) · buy below $${buyPrice}`
-    : fairValue !== undefined
-      ? `fair value $${fairValue.toFixed(2)}`
+  // Build fair value → buy price summary line. Phase 2: LEAD with the fair-value RANGE when computable
+  // (the point FV becomes the base of the range), keeping the buy-below for the reader's reference.
+  const fairValueLead = fairValueRange ?? (fairValue !== undefined ? `fair value $${fairValue.toFixed(2)}` : undefined)
+  const fairValueSummary = (fairValueLead !== undefined && buyPrice !== undefined && mosLabel !== undefined)
+    ? `fair value ${fairValueRange !== undefined ? `range ${fairValueRange}` : `$${fairValue!.toFixed(2)}`} · less ${mosLabel} margin of safety (${moatClass.toLowerCase()}) · buy below $${buyPrice}`
+    : fairValueLead !== undefined
+      ? (fairValueRange !== undefined ? `fair value range ${fairValueRange}` : fairValueLead)
       : undefined
+
+  // Phase 2: "market implies X% growth vs our Y%" — the over-confidence/richness lead. When the implied
+  // rate is above the method's growth cap, the market is pricing in growth the method would refuse to
+  // underwrite (a richness signal). Omitted when no current price was available (fail-closed).
+  const singleGrowthCap = buffettMungerStrategy.valuation.single_growth_cap
+  const marketImpliedLine = marketImpliedGrowth !== undefined
+    ? `Market implies ${(marketImpliedGrowth * 100).toFixed(1)}% near-term growth`
+      + (growthRate !== undefined ? ` vs our ${(growthRate * 100).toFixed(1)}%` : '')
+      + (marketImpliedGrowth > singleGrowthCap
+          ? ` — above the ${(singleGrowthCap * 100).toFixed(0)}% method cap (the market is pricing in growth the method won't underwrite; a richness signal).`
+          : '.')
+    : undefined
+
+  // Phase 2: cap-binding note — the base fair value is limited by the named growth cap, not by the
+  // growth estimate. And an uncertainty note when the range is wide (thin owner-earnings history).
+  const capBindingNote = capBinding
+    ? `Base fair value is cap-limited: demonstrated growth exceeds the ${(singleGrowthCap * 100).toFixed(0)}% forecasting-humility cap, so the upside is held at the cap (not confident headroom).`
+    : undefined
+  // The harness builds the "why is the range wide" note (it has the usable-history depth + dispersion).
+  const rangeUncertaintyNote = valuation.fair_value_range_basis
 
   // Owner-earnings bridge summary for collapsible
   const bridge = valuation.owner_earnings_bridge
@@ -1045,6 +1083,24 @@ function createValuationPanel(researchCase: AppResearchCase, marketQuote?: Marke
       { style: { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-base)', lineHeight: 1.5, margin: 0 } },
       'Buy-price target not yet computed — run the valuation lane.',
     ),
+    // Phase 2: market-implied growth vs ours — the over-confidence/richness lead (omitted when no price).
+    marketImpliedLine !== undefined ? createElement(
+      'p',
+      { 'data-testid': 'market-implied-growth', style: { color: marketImpliedGrowth !== undefined && marketImpliedGrowth > singleGrowthCap ? '#f0d999' : '#d7e2d7', fontSize: 'var(--owl-text-base)', lineHeight: 1.5, margin: '0.2rem 0 0' } },
+      marketImpliedLine,
+    ) : null,
+    // Phase 2: cap-binding note — the base FV is limited by the growth cap, not the growth estimate.
+    capBindingNote !== undefined ? createElement(
+      'p',
+      { 'data-testid': 'cap-binding-note', style: { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-sm)', lineHeight: 1.4, margin: '0.2rem 0 0' } },
+      capBindingNote,
+    ) : null,
+    // Phase 2: uncertainty note — why the range is wide (thin history / dispersion). Honest, not precise.
+    rangeUncertaintyNote !== undefined ? createElement(
+      'p',
+      { 'data-testid': 'range-uncertainty-note', style: { color: 'var(--owl-color-muted)', fontStyle: 'italic', fontSize: 'var(--owl-text-sm)', lineHeight: 1.4, margin: '0.2rem 0 0' } },
+      rangeUncertaintyNote,
+    ) : null,
     // ROIC gate / growth note
     roicGateLabel !== undefined ? createElement(
       'p',

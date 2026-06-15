@@ -612,6 +612,10 @@ describe('research and watchlist workflow pages', () => {
         reinvestment_rate: 0.43,
         normalized_owner_earnings_per_share: 16.27,
         fair_value_per_share: 210.0,
+        // Phase 2: the dossier leads with this range + market-implied growth instead of a point estimate.
+        fair_value_range: '$160–$240 (base $210)',
+        fair_value_range_basis: 'Range is wide (±19%) because only 6 years of usable owner-earnings history anchor the growth estimate — treat it as honestly uncertain, not precise.',
+        market_implied_growth: 0.18,
         implied_multiple: 12.9,
         margin_of_safety: 0.3,
         buy_price_per_share: 147.0,
@@ -651,6 +655,14 @@ describe('research and watchlist workflow pages', () => {
     // OE-bridge provenance (note + EDGAR chip).
     expect(html).toContain('Owner earnings computed from SEC 10-K FY2025')
     expect(html).toContain('SEC EDGAR')
+    // Phase 2: the dossier LEADS with the fair-value RANGE (point FV is the base).
+    expect(html).toContain('range $160–$240 (base $210)')
+    // Phase 2: "market implies X% growth vs our Y%" — the over-confidence/richness lead. Our credited
+    // growth is 3%; the market implies 18% (above the 15% method cap → richness signal).
+    expect(html).toContain('Market implies 18.0% near-term growth vs our 3.0%')
+    expect(html).toContain('method cap')
+    // Phase 2: the honest "why is the range wide" uncertainty note (thin owner-earnings history).
+    expect(html).toContain('years of usable owner-earnings history')
   })
 
   it('renders the personal-local watchlist promotion action only for drafted decisions', () => {
