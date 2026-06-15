@@ -35,6 +35,7 @@
     "./circleOfCompetence": "./src/circleOfCompetence.ts",
     "./admitAssessment": "./src/admitAssessment.ts",
     "./sizingAssessment": "./src/sizingAssessment.ts",
+    "./sellAssessment": "./src/sellAssessment.ts",
     "./marketData": "./src/marketData.ts",
     "./secEdgar": "./src/secEdgar.ts",
     "./fundamentalsProvider": "./src/fundamentalsProvider.ts",

@@ -581,12 +581,18 @@ export const domainEventContracts: readonly DomainEventContract[] = [
   },
   {
     // SELL-REVIEW / DIVEST-REQUIRED draft scaffold (lifecycle-spec-v3 Module 7 sell discipline).
-    // Worker-authored DRAFT — a human-authored-exit PROPOSAL, never an execution and never a
-    // recommendation. requires_user_authoring=true gates the exit; the event-driven thesis-break trigger
-    // DETECTION is the deferred T3 piece (deferred_detection_note carries the seam).
+    // A human-authored-exit PROPOSAL, never an execution and never a recommendation.
+    // requires_user_authoring=true gates the exit. Two authors: the worker-authored DRAFT (the older
+    // divest/falsifier seam) AND the Phase-6 S8a provider-authored on-demand sell-DECISION OBSERVATION
+    // (is_observation=true) produced by computeSellDecision — the additive fields below carry that
+    // recommendation (the trigger, the consumed impairment_call, the minimum-hold guard decision, the
+    // sign-off-frozen IV, the always-attached worst case, the disposition/anchoring bias caveats, and
+    // whether human sign-off is structurally required). It NEVER closes the holding — the close is the
+    // human-authored holding_closed transition (S7).
     event_type: 'holding_sell_review_drafted',
     aggregate_type: 'holding',
     actor_type: 'worker',
+    actor_types: ['provider', 'worker'],
     projection_owner: 'portfolio',
     payload_fields: [
       'sell_review_id',
@@ -603,6 +609,17 @@ export const domainEventContracts: readonly DomainEventContract[] = [
       'requires_user_authoring',
       'deferred_detection_note',
       'message',
+      // Phase 6 S8a — the on-demand sell-decision recommendation, carried additively.
+      'decision_status',
+      'trigger',
+      'impairment_call',
+      'minimum_hold_decision',
+      'frozen_iv',
+      'worst_case',
+      'bias_caveats',
+      'requires_human_signoff',
+      'sell_review_draft',
+      'is_observation',
     ],
   },
   {

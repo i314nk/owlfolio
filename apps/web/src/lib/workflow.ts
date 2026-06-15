@@ -51,6 +51,14 @@ import {
   type PersistedDownsideFloor,
   type SizingAssessmentResult,
 } from '@owlfolio/workflow/sizingAssessment'
+import {
+  computeSellDecision,
+  type MinimumHoldTrigger,
+  type SellAssessmentArgs,
+  type SellDecisionResult,
+  type SellRecommendation,
+} from '@owlfolio/workflow/sellAssessment'
+import { projectNameLifecycle } from '@owlfolio/ledger/projections/nameLifecycleProjection'
 import { screenCheapness } from '@owlfolio/workflow/cheapnessScreen'
 import type { ClusteredPosition } from '@owlfolio/strategies/correlatedClusters'
 import type { MoatClass } from '@owlfolio/strategies/strategyContract'
@@ -1135,6 +1143,276 @@ export async function recordSizingRecommendation(
     return {
       status: 'complete',
       sizing_recommendation_id: sizingRecommendationId,
+      recommendation: event.payload as Record<string, unknown>,
+    }
+  } finally {
+    store.close()
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Phase 6 S8a — the ON-DEMAND SELL DECISION (recordSellDecision).
+//
+// Mirrors recordSizingRecommendation: a fresh-read + assemble + emit-ONE-OBSERVATION recorder for the
+// HELD-position sell decision. It composes the S6 pure assembler (computeSellDecision) into the held flow.
+// It NEVER closes the holding — the close is the human-authored closeHolding (S7). The emitted artifact is
+// an advisory `holding_sell_review_drafted` OBSERVATION (is_observation:true, additive); the actual exit is
+// always human-authored.
+//
+// The trigger comes from the caller (the UI / a cadence-raised signal picks WHICH minimum-hold trigger to
+// evaluate). For `better_opportunity` the candidate/held owner-earnings yields also come from the caller
+// (optional; missing → the assembler returns cannot_assess).
+//
+// The grounded risk fields (uncertainty / permanent_loss_risk / quality_verdict_passes) are read from the
+// PERSISTED admit recommendation + the case's gate flag — the same source recordAdmitJudgment used. A fully
+// fresh corpus re-run (re-grounding the impairment judgment against today's filings) is a FUTURE
+// enhancement; this slice reuses the persisted grounded fields and does NOT build a provider re-run.
+// ---------------------------------------------------------------------------
+
+/** The minimum-hold triggers a sell decision may be evaluated against (the request body's `trigger`). */
+export const MINIMUM_HOLD_TRIGGERS: ReadonlySet<MinimumHoldTrigger> = new Set<MinimumHoldTrigger>([
+  'thesis_broke',
+  'valuation_inverted',
+  'better_opportunity',
+  'original_mistake',
+])
+
+export function isMinimumHoldTrigger(value: unknown): value is MinimumHoldTrigger {
+  return typeof value === 'string' && MINIMUM_HOLD_TRIGGERS.has(value as MinimumHoldTrigger)
+}
+
+/**
+ * Input for the on-demand sell decision. `trigger` is required (the caller picks which minimum-hold trigger
+ * to evaluate). The yields are optional and only consumed by the `better_opportunity` trigger.
+ */
+export type RecordSellDecisionInput = {
+  trigger: MinimumHoldTrigger
+  candidate_oe_yield?: number
+  held_oe_yield?: number
+  switching_friction?: number
+}
+
+/**
+ * Dependency surface for the on-demand sell decision. The default path resolves the current price via the
+ * live Yahoo adapter; the test injects a fixture resolver (offline). No provider call is needed — the
+ * grounded risk fields are read from the persisted admit recommendation, not re-grounded in this slice.
+ */
+export type RecordSellDecisionDeps = {
+  /** Override the current-price resolver (test fixture). Defaults to the live Yahoo adapter. */
+  resolvePrice?: (ticker: string) => Promise<PriceQuote>
+}
+
+export type RecordSellDecisionOutcome =
+  | { status: 'complete'; sell_review_id: string; recommendation: Record<string, unknown> }
+  | { status: 'not_a_held_position'; reason: string }
+  | { status: 'cannot_assess'; reason: string }
+
+/**
+ * Compute + persist the SELL DECISION for a HELD name's research case ON-DEMAND (Phase 6 S8a).
+ *
+ * Fresh reads:
+ *   - the HELD name's lifecycle row (nameLifecycle): holding_id, ticker, opened_at, frozen_iv (sign-off
+ *     frozen undiscounted IV — read from the projection, NEVER recomputed here), downside_floor_* (the
+ *     Phase-5 floor for the always-attached worst case),
+ *   - the persisted admit recommendation (researchCase.admit_recommendation): uncertainty.level,
+ *     permanent_loss_risk.level — the current grounded risk fields the impairment judgment consumes,
+ *   - the case's gate flag (valuation.moat_passes_gate) → quality_verdict_passes (same source as
+ *     recordAdmitJudgment), and
+ *   - the FRESH current price (the at-loss + valuation-inverted input), via the same resolver sizing uses.
+ *
+ * Gate: the name must be HELD; a non-held name returns `not_a_held_position` (the route maps to 409). It
+ * then calls computeSellDecision, REBUILDS the sell-review scaffold with the REAL holding_id + ticker, and
+ * emits ONE `holding_sell_review_drafted` OBSERVATION (is_observation:true, additive). Content-hash
+ * idempotency converges an identical recompute to one event; a changed recompute appends (newest wins).
+ *
+ * It NEVER closes the holding — the buy/sell EXECUTION stays the human-signed closeHolding transition.
+ */
+export async function recordSellDecision(
+  state: OnboardingState,
+  researchCaseId: string,
+  input: RecordSellDecisionInput,
+  deps: RecordSellDecisionDeps = {},
+): Promise<RecordSellDecisionOutcome> {
+  if (!state.is_initialized || state.config.mode !== 'personal-local' || state.config.ledger_path === undefined) {
+    throw new Error('Personal-local workflow is not initialized')
+  }
+  if (!isMinimumHoldTrigger(input.trigger)) {
+    throw new Error(`Invalid minimum-hold trigger: ${String(input.trigger)}`)
+  }
+
+  const store = new SQLiteEventStore(state.config.ledger_path)
+  try {
+    const events = await store.list()
+    const researchCase = projectResearchCases(events).find((candidate) => candidate.research_case_id === researchCaseId)
+    if (researchCase === undefined) {
+      throw new Error(`Unknown research case: ${researchCaseId}`)
+    }
+
+    const ticker = researchCase.ticker ?? researchCase.company_id ?? researchCase.research_case_id
+
+    // The HELD name's lifecycle row is the source of the holding identity + the sign-off-frozen IV +
+    // opened_at + the downside floor. The sell decision is ONLY meaningful for a HELD position.
+    const lifecycle = projectNameLifecycle(events).find((row) => row.research_case_id === researchCaseId)
+    if (lifecycle === undefined || lifecycle.state !== 'held' || lifecycle.holding_id === undefined) {
+      return {
+        status: 'not_a_held_position',
+        reason: `the sell decision is only live for a HELD position (state: ${lifecycle?.state ?? 'unknown'}).`,
+      }
+    }
+    const holdingId = lifecycle.holding_id
+    const heldTicker = lifecycle.ticker ?? ticker
+
+    // The held position's cost basis (the at-loss input) comes from the holding_opened lot.
+    const holding = projectHoldings(events).find((candidate) => candidate.holding_id === holdingId)
+    if (holding === undefined) {
+      return {
+        status: 'not_a_held_position',
+        reason: `no open holding found for ${heldTicker} (holding ${holdingId}).`,
+      }
+    }
+    const costBasisPerShare = holding.cost_basis_per_share
+
+    // The CURRENT grounded risk fields = the persisted admit recommendation's risk levels. A fully fresh
+    // corpus re-run is a future enhancement; we reuse the persisted grounded fields here. quality_verdict
+    // is the case's quality gate (moat_passes_gate) — the SAME source recordAdmitJudgment used. Fail-closed
+    // defaults (high uncertainty / high permanent-loss) keep a missing-admit case from a hollow "fixable".
+    const admit = researchCase.admit_recommendation
+    const uncertaintyLevel: SellAssessmentArgs['uncertainty'] =
+      asRiskLevel(admit?.uncertainty?.level) ?? 'high'
+    const permanentLossLevel: SellAssessmentArgs['permanent_loss_risk'] =
+      asRiskLevel(admit?.permanent_loss_risk?.level) ?? 'high'
+    const qualityVerdictPasses = researchCase.valuation?.moat_passes_gate === true
+
+    // The FRESH current price — the at-loss + valuation-inverted input (the SAME resolver sizing/buy-window
+    // uses). Fail-closed: no price → cannot_assess (a sell can never proceed without a real price input).
+    const resolvePrice = deps.resolvePrice ?? ((t: string) => resolveCurrentPrice({ ticker: t }))
+    let currentPrice: number | undefined
+    try {
+      const quote = await resolvePrice(heldTicker)
+      if (quote.available) currentPrice = quote.price_per_share
+    } catch {
+      currentPrice = undefined
+    }
+    if (currentPrice === undefined || !(currentPrice > 0)) {
+      return {
+        status: 'cannot_assess',
+        reason: `cannot assess ${heldTicker}: no fresh market price resolved (the at-loss / valuation-inverted inputs are not computable).`,
+      }
+    }
+
+    // frozen_iv is READ FROM THE PROJECTION (sign-off-frozen undiscounted IV), NEVER recomputed here.
+    const frozenIv = lifecycle.frozen_iv
+
+    const assemblerArgs: SellAssessmentArgs = {
+      trigger: input.trigger,
+      opened_at: lifecycle.opened_at,
+      now: new Date().toISOString(),
+      current_price: currentPrice,
+      cost_basis_per_share: costBasisPerShare,
+      uncertainty: uncertaintyLevel,
+      permanent_loss_risk: permanentLossLevel,
+      quality_verdict_passes: qualityVerdictPasses,
+      frozen_iv: frozenIv,
+      ...(input.candidate_oe_yield === undefined ? {} : { candidate_oe_yield: input.candidate_oe_yield }),
+      ...(input.held_oe_yield === undefined ? {} : { held_oe_yield: input.held_oe_yield }),
+      ...(input.switching_friction === undefined ? {} : { switching_friction: input.switching_friction }),
+      ...(lifecycle.downside_floor_per_share === undefined
+        ? {}
+        : { downside_floor_per_share: lifecycle.downside_floor_per_share }),
+      ...(lifecycle.downside_floor_basis === undefined
+        ? {}
+        : { downside_floor_basis: lifecycle.downside_floor_basis }),
+      ...(lifecycle.downside_floor_reliability === undefined
+        ? {}
+        : { downside_floor_reliability: lifecycle.downside_floor_reliability }),
+    }
+
+    const result: SellDecisionResult = computeSellDecision(assemblerArgs)
+
+    if (result.status === 'cannot_assess' || result.recommendation === undefined) {
+      return {
+        status: 'cannot_assess',
+        reason: `cannot assess the ${input.trigger} sell trigger for ${heldTicker} (e.g. no sign-off-frozen IV for valuation_inverted, or missing candidate/held yields for better_opportunity).`,
+      }
+    }
+
+    const rec: SellRecommendation = result.recommendation
+
+    // Rebuild the sell-review scaffold with the REAL holding identity (the pure assembler used a placeholder
+    // holding_id: ''). The scaffold rides on the OBSERVATION payload so S8b can render the human-authored
+    // exit draft against the real holding + ticker.
+    const sellReviewDraft = rec.sell_review_draft === undefined
+      ? undefined
+      : { ...rec.sell_review_draft, holding_id: holdingId, ticker: heldTicker }
+
+    // The verified source corpus the decision is grounded to = the case's accumulated source_ids.
+    const timeline = projectResearchCaseTimeline(events, researchCaseId)
+    const corpusSourceIds = [...new Set(timeline.flatMap((entry) => entry.source_ids))]
+
+    // Idempotency keyed on case + holding + the recommendation CONTENT (an identical recompute converges to
+    // one event; a changed recompute appends — newest wins in the projection). Mirror sizing/admit.
+    const contentHash = createHash('sha256').update(JSON.stringify({
+      holding_id: holdingId,
+      status: result.status,
+      trigger: rec.trigger,
+      impairment_call: rec.impairment_call,
+      minimum_hold_decision: rec.minimum_hold_decision,
+      reason_code: rec.reason_code,
+      frozen_iv: rec.frozen_iv,
+      worst_case: rec.worst_case,
+      requires_human_signoff: rec.requires_human_signoff,
+    })).digest('hex').slice(0, 16)
+    const sellReviewId = `sell_${researchCaseId.replace(/^rc_/, '')}_${contentHash}`
+    const nowIso = new Date().toISOString()
+
+    const event: LedgerEventEnvelope<unknown> = {
+      event_id: `evt_holding_sell_review_drafted_${sellReviewId}`,
+      event_type: 'holding_sell_review_drafted',
+      aggregate_type: 'holding',
+      aggregate_id: holdingId,
+      correlation_id: researchCaseId,
+      actor_type: 'provider',
+      actor_id: state.config.provider.provider_id,
+      payload: {
+        sell_review_id: sellReviewId,
+        holding_id: holdingId,
+        research_case_id: researchCaseId,
+        ticker: heldTicker,
+        reason_code: rec.reason_code,
+        detail: rec.reason,
+        ...(sellReviewDraft === undefined
+          ? {}
+          : { reasons: sellReviewDraft.reasons, weakest_reason: sellReviewDraft.weakest_reason, weakest_reason_note: sellReviewDraft.weakest_reason_note }),
+        message: rec.reason,
+        // Phase 6 S8a — the advisory sell-decision fields ride on the OBSERVATION so S8b can render them.
+        // (Additive payload fields beyond the base holding_sell_review_drafted contract.)
+        decision_status: result.status,
+        trigger: rec.trigger,
+        impairment_call: rec.impairment_call,
+        minimum_hold_decision: rec.minimum_hold_decision,
+        ...(rec.frozen_iv === undefined ? {} : { frozen_iv: rec.frozen_iv }),
+        worst_case: rec.worst_case,
+        bias_caveats: rec.bias_caveats,
+        requires_human_signoff: rec.requires_human_signoff,
+        ...(sellReviewDraft === undefined ? {} : { sell_review_draft: sellReviewDraft }),
+        // The exit draft is NEVER an execution / recommendation-to-act; it requires human authoring.
+        is_execution: false,
+        is_recommendation: false,
+        requires_user_authoring: true,
+        // Worker/agent OBSERVATION discipline: this is an observation, and it NEVER closes the holding —
+        // the close stays the human-signed closeHolding transition.
+        is_observation: true,
+      },
+      source_ids: corpusSourceIds,
+      created_at: nowIso,
+      schema_version: 1,
+      idempotency_key: `sell-decision:${researchCaseId}:${holdingId}:${contentHash}`,
+    }
+    await store.append(event)
+
+    return {
+      status: 'complete',
+      sell_review_id: sellReviewId,
       recommendation: event.payload as Record<string, unknown>,
     }
   } finally {

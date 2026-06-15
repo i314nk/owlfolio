@@ -199,6 +199,7 @@ describe('Owlfolio v2 domain event boundary contracts', () => {
     expect(contract('holding_sell_review_drafted')).toMatchObject({
       aggregate_type: 'holding',
       actor_type: 'worker',
+      actor_types: ['provider', 'worker'],
       projection_owner: 'portfolio',
       payload_fields: [
         'sell_review_id',
@@ -215,6 +216,17 @@ describe('Owlfolio v2 domain event boundary contracts', () => {
         'requires_user_authoring',
         'deferred_detection_note',
         'message',
+        // Phase 6 S8a — the on-demand sell-decision recommendation, carried additively.
+        'decision_status',
+        'trigger',
+        'impairment_call',
+        'minimum_hold_decision',
+        'frozen_iv',
+        'worst_case',
+        'bias_caveats',
+        'requires_human_signoff',
+        'sell_review_draft',
+        'is_observation',
       ],
     })
   })
