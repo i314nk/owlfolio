@@ -159,6 +159,52 @@ describe('projectNameLifecycle — derived states', () => {
     expect(rows.filter((r) => r.ticker === 'HELD')).toHaveLength(1)
   })
 
+  it('projects opened_at onto a held row from the holding_opened event (Phase 6 minimum-hold clock)', () => {
+    const events: LedgerEventEnvelope<unknown>[] = [
+      evt({
+        event_type: 'research_case_created',
+        aggregate_type: 'research_case',
+        aggregate_id: 'rc_clock_001',
+        payload: { ticker: 'CLOCK', company_id: 'company_clock' },
+        created_at: '2026-06-01T00:00:00.000Z',
+      }),
+      evt({
+        event_type: 'watchlist_draft_created',
+        aggregate_type: 'watchlist_item',
+        aggregate_id: 'watch_clock_001',
+        payload: { watchlist_item_id: 'watch_clock_001', research_case_id: 'rc_clock_001', ticker: 'CLOCK' },
+        created_at: '2026-06-01T01:00:00.000Z',
+      }),
+      evt({
+        event_type: 'watchlist_draft_confirmed',
+        aggregate_type: 'watchlist_item',
+        aggregate_id: 'watch_clock_001',
+        payload: { watchlist_item_id: 'watch_clock_001', research_case_id: 'rc_clock_001' },
+        created_at: '2026-06-01T02:00:00.000Z',
+      }),
+      evt({
+        event_type: 'holding_opened',
+        aggregate_type: 'holding',
+        aggregate_id: 'holding_clock_001',
+        payload: {
+          holding_id: 'holding_clock_001',
+          watchlist_item_id: 'watch_clock_001',
+          research_case_id: 'rc_clock_001',
+          ticker: 'CLOCK',
+          shares: 10,
+          cost_basis_per_share: 100,
+          opened_at: '2024-01-15',
+        },
+        created_at: '2024-01-15T03:00:00.000Z',
+      }),
+    ]
+
+    const rows = projectNameLifecycle(events)
+    const held = byTicker(rows, 'CLOCK')
+    expect(held.state).toBe('held')
+    expect(held.opened_at).toBe('2024-01-15')
+  })
+
   it('marks a screened-out research case (rejected / pass) as exited with screened_out provenance', () => {
     const events: LedgerEventEnvelope<unknown>[] = [
       evt({

@@ -52,6 +52,11 @@ export type NameLifecycleProjection = {
   watchlist_item_id?: string
   holding_id?: string
   /**
+   * ISO timestamp from the `holding_opened` event (the date the open holding was opened). Present on a
+   * `held` row; enables the Phase-6 minimum-hold clock (the guard reads it to compute holding age).
+   */
+  opened_at?: string
+  /**
    * Locked buy-below price. For a `watched` name this is the value FROZEN at admit (the source of truth
    * for a watched name's buy-below); otherwise it is the research case valuation's buy_price_per_share.
    */
@@ -152,6 +157,7 @@ type Accumulator = {
   research_case_id?: string
   watchlist_item_id?: string
   holding_id?: string
+  opened_at?: string
   buy_price_per_share?: number
   fair_value_per_share?: number
   downside_floor_per_share?: number
@@ -384,6 +390,7 @@ export function projectNameLifecycle(events: LedgerEventEnvelope<unknown>[]): Na
     } else {
       // Open holding → held; bind the live entity.
       row.holding_id = holding.holding_id
+      row.opened_at = holding.opened_at
       row.watchlist_item_id = holding.watchlist_item_id
       if (row.research_case_id === undefined) {
         row.research_case_id = holding.research_case_id
@@ -417,6 +424,7 @@ export function projectNameLifecycle(events: LedgerEventEnvelope<unknown>[]): Na
     if (row.research_case_id !== undefined) projected.research_case_id = row.research_case_id
     if (row.watchlist_item_id !== undefined) projected.watchlist_item_id = row.watchlist_item_id
     if (row.holding_id !== undefined) projected.holding_id = row.holding_id
+    if (row.opened_at !== undefined) projected.opened_at = row.opened_at
     if (row.buy_price_per_share !== undefined) projected.buy_price_per_share = row.buy_price_per_share
     if (row.fair_value_per_share !== undefined) projected.fair_value_per_share = row.fair_value_per_share
     if (row.downside_floor_per_share !== undefined) projected.downside_floor_per_share = row.downside_floor_per_share
