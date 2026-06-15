@@ -17,9 +17,15 @@ import { projectHoldings } from './holdingProjection'
  *   exited    → holding_closed (exit_provenance: 'sold') OR research-case rejected/pass
  *               (exit_provenance: 'screened_out').
  *
- * Precedence for the live state when a name has multiple entities: held > watched > candidate. An exit
- * fact (holding_closed, or research-case rejected/pass) moves the name to `exited`. If an exited name is
- * later re-discovered it returns to `candidate` while RETAINING the prior exit_provenance as history.
+ * Precedence for the live state when a name has multiple entities: held > watched > candidate.
+ *
+ * Exit honesty (owner refinements #1/#2): a name is `exited` ONLY when it has NO live entity. An exit
+ * fact (holding_closed → 'sold', or a non-superseded research case rejected/pass → 'screened_out') does
+ * NOT by itself force `exited` — if the same ticker also has a live entity (held/watched/candidate) the
+ * live state WINS. `exit_provenance` is therefore present IFF `state === 'exited'`; it must never leak
+ * onto a live row. The re-entry history of a live name is carried separately by `prior_exit_provenance`
+ * (the most-recent prior exit fact for that ticker), so the history is preserved without being misread
+ * as a current exit.
  */
 export type NameLifecycleState = 'candidate' | 'watched' | 'held' | 'exited'
 
@@ -30,11 +36,18 @@ export type NameLifecycleProjection = {
   company?: string
   state: NameLifecycleState
   /**
-   * For an `exited` name, which kind of exit it was (sold former holding vs screened-out reject). For a
-   * re-discovered name now back in an earlier state, this is RETAINED as the prior exit's provenance so
-   * the history is not lost.
+   * For an `exited` name, which kind of exit it was (sold former holding vs screened-out reject). Present
+   * IFF `state === 'exited'` — a live row (held/watched/candidate) must NOT carry exit_provenance, since
+   * it has not exited. Re-entry history of a live name lives on `prior_exit_provenance` instead.
    */
   exit_provenance?: NameLifecycleExitProvenance
+  /**
+   * For a LIVE name (held/watched/candidate) that was previously exited, the most-recent prior exit's
+   * provenance — so the re-discovery / re-acquisition history is not lost while keeping `exit_provenance`
+   * honest (undefined on a live row). Undefined when the name has no prior exit fact, or when the name is
+   * itself `exited` (then the exit fact is on `exit_provenance`).
+   */
+  prior_exit_provenance?: NameLifecycleExitProvenance
   research_case_id?: string
   watchlist_item_id?: string
   holding_id?: string
@@ -94,11 +107,17 @@ function caseTicker(researchCase: ResearchCaseProjection | undefined): string | 
   return researchCase?.ticker
 }
 
+/**
+ * The live (non-exited) part of a name's lifecycle, plus everything carried by the live entity. Set only
+ * by the candidate/watched/held folds — exit facts are tracked separately in `ExitFact`.
+ */
+type LiveState = 'candidate' | 'watched' | 'held'
+
 type Accumulator = {
   ticker: string
   company?: string
-  state: NameLifecycleState
-  exit_provenance?: NameLifecycleExitProvenance
+  /** The live state if the name has a live entity, else undefined (→ resolves to `exited`). */
+  liveState?: LiveState
   research_case_id?: string
   watchlist_item_id?: string
   holding_id?: string
@@ -108,13 +127,26 @@ type Accumulator = {
   shariah_gate_status?: string
   falsifier_tripped?: boolean
   falsifier_reason?: string
-  /**
-   * Internal: the only research case for this name is the watchlist/holding lineage itself (stage
-   * `watchlist`/`holding`), i.e. there is no independent pre-watchlist re-discovery. Used to distinguish a
-   * sold holding (lineage-only → exited) from a genuine re-discovery (a new live case → candidate).
-   */
-  fromLineageOnly?: boolean
+  /** The most-recent exit fact for this ticker (sold holding / screened-out case), independent of state. */
+  exitProvenance?: NameLifecycleExitProvenance
+  exitAt?: string
   updated_at: string
+}
+
+/** Promote the live state honoring precedence held > watched > candidate (never downgrades). */
+function promoteLiveState(row: Accumulator, next: LiveState): void {
+  const rank: Record<LiveState, number> = { candidate: 0, watched: 1, held: 2 }
+  if (row.liveState === undefined || rank[next] > rank[row.liveState]) {
+    row.liveState = next
+  }
+}
+
+/** Record an exit fact, keeping only the most-recent one (by timestamp). */
+function recordExit(row: Accumulator, provenance: NameLifecycleExitProvenance, at: string): void {
+  if (row.exitAt === undefined || at >= row.exitAt) {
+    row.exitProvenance = provenance
+    row.exitAt = at
+  }
 }
 
 /**
@@ -158,15 +190,19 @@ export function projectNameLifecycle(events: LedgerEventEnvelope<unknown>[]): Na
     caseById.set(researchCase.research_case_id, researchCase)
   }
 
-  // Closed holdings: a holding is closed once a holding_closed event exists for it.
-  const closedHoldingIds = new Set<string>()
+  // Closed holdings: a holding is closed once a holding_closed event exists for it. Keep the close
+  // timestamp so the most-recent exit fact can be resolved across multiple exit kinds for one ticker.
+  const closedHoldingAt = new Map<string, string>()
   for (const event of events) {
     if (event.event_type !== 'holding_closed') {
       continue
     }
     const holdingId = (isRecord(event.payload) ? getString(event.payload, 'holding_id') : undefined)
       ?? event.aggregate_id
-    closedHoldingIds.add(holdingId)
+    const existing = closedHoldingAt.get(holdingId)
+    if (existing === undefined || event.created_at > existing) {
+      closedHoldingAt.set(holdingId, event.created_at)
+    }
   }
 
   // Watchlist items / research cases whose lineage became a holding (open or closed). These must NOT be
@@ -190,12 +226,15 @@ export function projectNameLifecycle(events: LedgerEventEnvelope<unknown>[]): Na
       }
       return existing
     }
-    const created: Accumulator = { ticker: upper, state: 'candidate', updated_at: updatedAt }
+    const created: Accumulator = { ticker: upper, updated_at: updatedAt }
     rows.set(upper, created)
     return created
   }
 
-  // 1) Seed CANDIDATE / EXITED(screened_out) from research cases. Skip superseded cases.
+  // 1) From research cases (skip superseded): a screened-out case (rejected/pass) is an EXIT FACT — it is
+  //    NOT a live entity and does not assert any live state. A non-superseded case in a pre-watchlist /
+  //    non-terminal stage is a live CANDIDATE. The watchlist/holding lineage stages are derived by the
+  //    folds below, so they assert no live state here.
   for (const researchCase of researchCases) {
     if (researchCase.superseded) {
       continue
@@ -205,7 +244,10 @@ export function projectNameLifecycle(events: LedgerEventEnvelope<unknown>[]): Na
       continue
     }
     const row = ensure(ticker, researchCase.updated_at)
-    row.research_case_id = researchCase.research_case_id
+    if (row.research_case_id === undefined || !isScreenedOutStage(researchCase.stage)) {
+      // Prefer a live case's id over a screened-out case's id when both exist for the ticker.
+      row.research_case_id = researchCase.research_case_id
+    }
     if (researchCase.company_id !== undefined) {
       row.company = researchCase.company_id
     }
@@ -217,15 +259,14 @@ export function projectNameLifecycle(events: LedgerEventEnvelope<unknown>[]): Na
     }
 
     if (isScreenedOutStage(researchCase.stage)) {
-      row.state = 'exited'
-      row.exit_provenance = 'screened_out'
+      // Exit fact only — never a live state. (If the same ticker has a live entity it will still win.)
+      recordExit(row, 'screened_out', researchCase.updated_at)
     } else if (researchCase.stage === 'watchlist' || researchCase.stage === 'holding') {
-      // These stages are the watchlist/holding LINEAGE, not an independent candidate. Leave state as-is
-      // (default candidate) — the watchlist/holding folds below derive the real live state. We must NOT
-      // assert `candidate` here, or a sold holding whose case is at stage `holding` would look re-discovered.
-      row.fromLineageOnly = true
+      // Watchlist/holding LINEAGE — the live state is derived by the watchlist/holding folds below.
+    } else {
+      // A genuine pre-watchlist / non-terminal case → live candidate.
+      promoteLiveState(row, 'candidate')
     }
-    // Any other (pre-watchlist) stage leaves the row at its default `candidate`; the folds below promote it.
   }
 
   // 2) WATCHED from user-approved watchlist items with no open holding (precedence over candidate).
@@ -249,9 +290,7 @@ export function projectNameLifecycle(events: LedgerEventEnvelope<unknown>[]): Na
     if (item.shariah_gate_status !== undefined) {
       row.shariah_gate_status = item.shariah_gate_status
     }
-    if (row.state !== 'exited') {
-      row.state = 'watched'
-    }
+    promoteLiveState(row, 'watched')
     // Falsifier honesty (#1): Shariah gate FAIL or a staleness/re-screen alert trips the falsifier.
     const gateFail = isShariahGateFail(item.shariah_gate_status, item.shariah_gate_allowed)
     const alertReason = watchedFalsifierAlerts.get(item.research_case_id)
@@ -267,50 +306,51 @@ export function projectNameLifecycle(events: LedgerEventEnvelope<unknown>[]): Na
     }
   }
 
-  // 3) HELD / EXITED(sold) from holdings (highest precedence for the live state).
+  // 3) HELD (open holding) / EXIT FACT 'sold' (closed holding) from holdings — held is the highest live
+  //    precedence; a closed holding records an exit fact but never forces `exited` if a live entity exists.
   for (const holding of holdings) {
     const ticker = holding.ticker ?? caseTicker(caseById.get(holding.research_case_id))
     if (ticker === undefined) {
       continue
     }
     const row = ensure(ticker, holding.updated_at)
-    row.holding_id = holding.holding_id
-    row.watchlist_item_id = holding.watchlist_item_id
-    if (row.research_case_id === undefined) {
-      row.research_case_id = holding.research_case_id
-    }
-    if (holding.company_id !== undefined && row.company === undefined) {
-      row.company = holding.company_id
-    }
-    if (holding.shariah_gate_status !== undefined) {
-      row.shariah_gate_status = holding.shariah_gate_status
-    }
-
-    if (closedHoldingIds.has(holding.holding_id)) {
-      // Exited via sale: retain the provenance as history regardless of what happens next.
-      row.exit_provenance = 'sold'
-      // A re-discovery after a sale is a NEW, non-superseded research case in a live stage; steps 1+2
-      // will already have set this row to candidate/watched. In that case keep the live state (retaining
-      // provenance). Otherwise the sale is the latest fact → exited.
-      const rediscoveredLive = (row.state === 'candidate' || row.state === 'watched') && row.fromLineageOnly !== true
-      if (!rediscoveredLive) {
-        row.state = 'exited'
-      }
+    const closedAt = closedHoldingAt.get(holding.holding_id)
+    if (closedAt !== undefined) {
+      // Closed holding → exit fact only; do not bind the live entity ids to this dead holding.
+      recordExit(row, 'sold', closedAt)
     } else {
-      // Open holding → held (overrides candidate/watched).
-      row.state = 'held'
+      // Open holding → held; bind the live entity.
+      row.holding_id = holding.holding_id
+      row.watchlist_item_id = holding.watchlist_item_id
+      if (row.research_case_id === undefined) {
+        row.research_case_id = holding.research_case_id
+      }
+      if (holding.company_id !== undefined && row.company === undefined) {
+        row.company = holding.company_id
+      }
+      if (holding.shariah_gate_status !== undefined) {
+        row.shariah_gate_status = holding.shariah_gate_status
+      }
+      promoteLiveState(row, 'held')
     }
   }
 
   return [...rows.values()].map((row) => {
+    // A name is `exited` ONLY when it has no live entity. Otherwise the live state wins and the exit fact
+    // (if any) is carried as history on prior_exit_provenance — never leaked onto exit_provenance.
+    const state: NameLifecycleState = row.liveState ?? 'exited'
     const projected: NameLifecycleProjection = {
       ticker: row.ticker,
-      state: row.state,
+      state,
       prune_action_available: false,
       updated_at: row.updated_at,
     }
     if (row.company !== undefined) projected.company = row.company
-    if (row.exit_provenance !== undefined) projected.exit_provenance = row.exit_provenance
+    if (state === 'exited') {
+      if (row.exitProvenance !== undefined) projected.exit_provenance = row.exitProvenance
+    } else if (row.exitProvenance !== undefined) {
+      projected.prior_exit_provenance = row.exitProvenance
+    }
     if (row.research_case_id !== undefined) projected.research_case_id = row.research_case_id
     if (row.watchlist_item_id !== undefined) projected.watchlist_item_id = row.watchlist_item_id
     if (row.holding_id !== undefined) projected.holding_id = row.holding_id

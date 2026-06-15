@@ -404,7 +404,107 @@ describe('projectNameLifecycle — exit-provenance is RETAINED (owner refinement
 
     const row = byTicker(projectNameLifecycle(events), 'REDX')
     expect(row.state).toBe('candidate')
-    // History is not lost.
-    expect(row.exit_provenance).toBe('sold')
+    // A live row must NOT expose exit_provenance — it is not exited.
+    expect(row.exit_provenance).toBeUndefined()
+    // History is not lost — it moves to the distinct prior_exit_provenance field.
+    expect(row.prior_exit_provenance).toBe('sold')
+  })
+
+  it('lets a live re-discovery WIN over an unrelated rejected case for the same ticker (finding #1)', () => {
+    const events: LedgerEventEnvelope<unknown>[] = [
+      // An earlier, NON-superseded rejected case for the ticker.
+      evt({
+        event_type: 'research_case_created',
+        aggregate_type: 'research_case',
+        aggregate_id: 'rc_dual_rej',
+        payload: { ticker: 'DUAL', company_id: 'company_dual' },
+        created_at: '2026-06-01T00:00:00.000Z',
+      }),
+      evt({
+        event_type: 'quick_screen_drafted',
+        aggregate_type: 'research_case',
+        aggregate_id: 'rc_dual_rej',
+        payload: { research_case_id: 'rc_dual_rej', ticker: 'DUAL', screening_result: 'reject' },
+        created_at: '2026-06-01T01:00:00.000Z',
+      }),
+      // A fresh, NON-superseded live candidate for the SAME ticker (no supersession link).
+      evt({
+        event_type: 'research_case_created',
+        aggregate_type: 'research_case',
+        aggregate_id: 'rc_dual_live',
+        payload: { ticker: 'DUAL', company_id: 'company_dual' },
+        created_at: '2026-06-10T00:00:00.000Z',
+      }),
+    ]
+
+    const row = byTicker(projectNameLifecycle(events), 'DUAL')
+    // Live wins — the name is not exited.
+    expect(row.state).toBe('candidate')
+    expect(row.exit_provenance).toBeUndefined()
+    // The prior screen-out is preserved as history.
+    expect(row.prior_exit_provenance).toBe('screened_out')
+  })
+
+  it('does not leak a stale screened_out provenance onto a currently-held name (finding #2)', () => {
+    const events: LedgerEventEnvelope<unknown>[] = [
+      // An unrelated, NON-superseded rejected case for the ticker.
+      evt({
+        event_type: 'research_case_created',
+        aggregate_type: 'research_case',
+        aggregate_id: 'rc_hold_rej',
+        payload: { ticker: 'HOLX', company_id: 'company_holx' },
+        created_at: '2026-06-01T00:00:00.000Z',
+      }),
+      evt({
+        event_type: 'quick_screen_drafted',
+        aggregate_type: 'research_case',
+        aggregate_id: 'rc_hold_rej',
+        payload: { research_case_id: 'rc_hold_rej', ticker: 'HOLX', screening_result: 'reject' },
+        created_at: '2026-06-01T01:00:00.000Z',
+      }),
+      // A separate live chain to an OPEN holding for the same ticker.
+      evt({
+        event_type: 'research_case_created',
+        aggregate_type: 'research_case',
+        aggregate_id: 'rc_hold_live',
+        payload: { ticker: 'HOLX', company_id: 'company_holx' },
+        created_at: '2026-06-10T00:00:00.000Z',
+      }),
+      evt({
+        event_type: 'watchlist_draft_created',
+        aggregate_type: 'watchlist_item',
+        aggregate_id: 'watch_hold_live',
+        payload: { watchlist_item_id: 'watch_hold_live', research_case_id: 'rc_hold_live', ticker: 'HOLX' },
+        created_at: '2026-06-10T01:00:00.000Z',
+      }),
+      evt({
+        event_type: 'watchlist_draft_confirmed',
+        aggregate_type: 'watchlist_item',
+        aggregate_id: 'watch_hold_live',
+        payload: { watchlist_item_id: 'watch_hold_live', research_case_id: 'rc_hold_live' },
+        created_at: '2026-06-10T02:00:00.000Z',
+      }),
+      evt({
+        event_type: 'holding_opened',
+        aggregate_type: 'holding',
+        aggregate_id: 'holding_hold_live',
+        payload: {
+          holding_id: 'holding_hold_live',
+          watchlist_item_id: 'watch_hold_live',
+          research_case_id: 'rc_hold_live',
+          ticker: 'HOLX',
+          shares: 7,
+          cost_basis_per_share: 70,
+        },
+        created_at: '2026-06-10T03:00:00.000Z',
+      }),
+    ]
+
+    const row = byTicker(projectNameLifecycle(events), 'HOLX')
+    // Held wins — and a live row must NOT carry exit_provenance.
+    expect(row.state).toBe('held')
+    expect(row.exit_provenance).toBeUndefined()
+    // The prior screen-out is preserved as history on the distinct field.
+    expect(row.prior_exit_provenance).toBe('screened_out')
   })
 })
