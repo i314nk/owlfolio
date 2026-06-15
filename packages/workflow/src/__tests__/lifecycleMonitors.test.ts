@@ -371,10 +371,10 @@ describe('buildSellReviewScaffold', () => {
     expect(draft.is_recommendation).toBe(false)
     expect(draft.requires_user_authoring).toBe(true)
     expect(draft.reasons).toContain('thesis_broken')
-    expect(draft.reasons).toContain('materially_better_opportunity')
+    expect(draft.reasons).toContain('better_opportunity_under_constraint')
     expect(draft.reasons).toContain('unresolvable_shariah_breach')
-    // overvaluation alone is flagged as the weakest reason.
-    expect(draft.weakest_reason).toBe('overvaluation_alone')
+    // valuation inversion alone (vs the sign-off-frozen IV) is flagged as the weakest reason.
+    expect(draft.weakest_reason).toBe('valuation_inverted')
   })
 
   it('marks the thesis-break detection as a deferred T3 seam for a stubbed thesis-break case', () => {

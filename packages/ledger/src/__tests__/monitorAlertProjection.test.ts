@@ -311,7 +311,7 @@ describe('projectMonitorAlerts — shariah grace + sell review (urgent)', () => 
           reason_code: 'unresolvable_shariah_breach',
           detail: 'AAOIFI breach unresolved past grace deadline.',
           reasons: ['thesis_broken', 'unresolvable_shariah_breach'],
-          weakest_reason: 'overvaluation_alone',
+          weakest_reason: 'valuation_inverted',
           message: 'HHH: DIVEST-REQUIRED draft',
         },
       }),

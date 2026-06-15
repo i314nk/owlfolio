@@ -515,12 +515,21 @@ export function evaluateConcentration(
 // SELL-REVIEW scaffold (drafted, never executed)
 // ---------------------------------------------------------------------------
 
-/** The valid SELL-REVIEW reasons (spec sell discipline). overvaluation_alone is the weakest. */
+/**
+ * The valid SELL-REVIEW reasons (spec sell discipline). `valuation_inverted` (price reached the
+ * SIGN-OFF-FROZEN intrinsic value) is the weakest reason to sell a true compounder — it REPLACES the
+ * retired `overvaluation_alone` (which compared against a movable/recomputed fair value; the frozen-IV
+ * comparison is the don't-move-the-number version). `minimum_hold_released` marks a broken thesis that
+ * fired THROUGH the minimum-hold window; `better_opportunity_under_constraint` is the churn-prone switch
+ * trigger (always human-signed-off); `original_mistake` is a recognized never-valid-thesis override.
+ */
 export type SellReviewReasonCode =
   | 'thesis_broken'
-  | 'materially_better_opportunity'
+  | 'valuation_inverted'
+  | 'better_opportunity_under_constraint'
+  | 'original_mistake'
+  | 'minimum_hold_released'
   | 'unresolvable_shariah_breach'
-  | 'overvaluation_alone'
 
 export type SellReviewDraft = {
   holding_id: string
@@ -529,8 +538,11 @@ export type SellReviewDraft = {
   detail: string
   /** All sell-discipline reasons, surfaced so the human weighs them. */
   reasons: SellReviewReasonCode[]
-  /** Overvaluation alone of a true compounder is the weakest reason — flagged as such. */
-  weakest_reason: 'overvaluation_alone'
+  /**
+   * The weakest reason to sell a true compounder — flagged as such. `valuation_inverted` (price reached
+   * the sign-off-frozen IV) replaces the retired `overvaluation_alone`.
+   */
+  weakest_reason: 'valuation_inverted'
   weakest_reason_note: string
   /** A SELL-REVIEW is a draft the human authors into an exit; it is never an execution. */
   is_execution: false
@@ -542,9 +554,9 @@ export type SellReviewDraft = {
 
 const SELL_REVIEW_REASONS: SellReviewReasonCode[] = [
   'thesis_broken',
-  'materially_better_opportunity',
+  'better_opportunity_under_constraint',
   'unresolvable_shariah_breach',
-  'overvaluation_alone',
+  'valuation_inverted',
 ]
 
 /**
@@ -563,8 +575,8 @@ export function buildSellReviewScaffold(
     reason_code: args.reason_code,
     detail: args.detail,
     reasons: SELL_REVIEW_REASONS,
-    weakest_reason: 'overvaluation_alone',
-    weakest_reason_note: 'Overvaluation alone of a true compounder is the weakest reason to sell — flagged as such.',
+    weakest_reason: 'valuation_inverted',
+    weakest_reason_note: 'Valuation inversion alone (price reached the sign-off-frozen intrinsic value) of a true compounder is the weakest reason to sell — flagged as such.',
     is_execution: false,
     is_recommendation: false,
     requires_user_authoring: true,

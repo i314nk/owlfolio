@@ -2077,7 +2077,7 @@ describe('worker runtime — lifecycle monitors', () => {
     expect(sellReview?.payload).toMatchObject({
       holding_id: 'holding_brk_001',
       reason_code: 'unresolvable_shariah_breach',
-      weakest_reason: 'overvaluation_alone',
+      weakest_reason: 'valuation_inverted',
       is_execution: false,
       is_recommendation: false,
       requires_user_authoring: true,
@@ -2286,7 +2286,7 @@ describe('worker runtime — cadence engine adapter equivalence (Task 3.2b)', ()
     expect(sellReview?.payload).toMatchObject({
       holding_id: 'holding_brk_001',
       reason_code: 'unresolvable_shariah_breach',
-      weakest_reason: 'overvaluation_alone',
+      weakest_reason: 'valuation_inverted',
       is_execution: false,
       is_recommendation: false,
       requires_user_authoring: true,
