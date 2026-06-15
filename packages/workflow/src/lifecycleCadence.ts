@@ -193,6 +193,13 @@ export type LifecycleAction = {
   reason?: string
   /** Present on a reprice_or_prune_review: there is no prune event in the ledger yet (Phase 6.6). */
   prune_action_available?: boolean
+  /**
+   * Present on a `buy_eval` (Phase 5 S7): the on-demand SIZING recommendation (the S6 assembler) is
+   * available for the human to compute when they open the sizing step. The cadence engine does NOT
+   * compute or attach the size itself (it is pure + carries no fresh price / floor / book inputs) — it
+   * only flags that the sizing surface exists. The buy stays human-authored/signed; nothing auto-sizes.
+   */
+  sizing_recommendation_available?: boolean
 }
 
 function noOp(reason: string): LifecycleAction {
@@ -207,10 +214,20 @@ function noOp(reason: string): LifecycleAction {
  */
 const ACTION_TABLE: Record<string, LifecycleAction> = {
   // price_crossed_buybelow: only a watched name evaluates a buy. candidate is not admitted; a held
-  // add-tranche is Phase 5; an exited name is inert.
-  'price_crossed_buybelow:watched': { kind: 'buy_eval', reason: 'price at/below the locked buy-below on a watched name — evaluate a buy (human authors).' },
+  // add-tranche is deferred (see below); an exited name is inert.
+  // Phase 5 S7: the watched buy_eval references the on-demand SIZING recommendation (the S6 assembler,
+  // worst-case-first + the deployment/permanent-loss/cluster caps). The engine only FLAGS that the sizing
+  // surface exists; it never computes a size here (no fresh price/floor/book inputs) and never auto-buys.
+  'price_crossed_buybelow:watched': {
+    kind: 'buy_eval',
+    reason: 'price at/below the locked buy-below on a watched name — evaluate a buy via the on-demand sizing recommendation (worst-case-first; human authors + signs the buy).',
+    sizing_recommendation_available: true,
+  },
   'price_crossed_buybelow:candidate': noOp('candidate not admitted to the watchlist; no buy evaluation.'),
-  'price_crossed_buybelow:held': noOp('add-tranche on a held name is Phase 5; no buy evaluation here.'),
+  // Add-tranche on a held name is DEFERRED out of the auto cadence path: promoting it via
+  // evaluateSizingTranche would need per-name held floor/sic data the cadence table does not carry, and a
+  // ladder add is still a human-signed buy. Left an explicit no_op rather than risk an unsupervised path.
+  'price_crossed_buybelow:held': noOp('add-tranche on a held name is the human-signed sizing path (S7), not an auto cadence action; no buy evaluation here.'),
   'price_crossed_buybelow:exited': noOp('exited name is inert; price crossings do not act.'),
 
   // falsifier_tripped: a held name goes to sell-review; a watched name to reprice-or-prune (prune

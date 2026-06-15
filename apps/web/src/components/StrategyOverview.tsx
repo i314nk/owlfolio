@@ -16,6 +16,8 @@ import {
   type TrancheTrigger,
 } from '@owlfolio/strategies/sizingParams'
 
+import { DEFAULT_SAVINGS_EXPECTED_PROFIT_RATE, DEFAULT_EQUITY_RISK_MARGIN } from '@owlfolio/shared'
+
 import { RouteHeader, OwlValuationChip } from './designSystem'
 
 // ── Live contract values (rendered, never hard-coded) ───────────────────────
@@ -51,6 +53,11 @@ const TARGET_MONOPOLY = strategy.portfolio.target_weight_by_moat.monopoly
 const TRANCHES = strategy.portfolio.entry_tranches
 const MAX_POSITION_WEIGHT = strategy.portfolio.max_position_weight
 const MAX_POSITIONS = strategy.portfolio.max_positions
+// Phase 5 conviction-sizing constants (rendered from the live sizing config / savings defaults).
+const BASE_TARGET_WEIGHT = SIZING_PARAMS.base_target_weight
+const PER_NAME_CAP = SIZING_PARAMS.per_name_cap
+const CONCENTRATION_REVIEW_THRESHOLD = SIZING_PARAMS.concentration_review_threshold
+const DEPLOYMENT_HURDLE = DEFAULT_SAVINGS_EXPECTED_PROFIT_RATE + DEFAULT_EQUITY_RISK_MARGIN
 
 function pct(value: number, digits = 0): string {
   return `${(value * 100).toFixed(digits).replace(/\.0+$/, '')}%`
@@ -607,6 +614,66 @@ export function StrategyOverview(): ReactNode {
             t.id === 'T1' ? 'Entry' : createElement('span', { style: goldText }, 'Thesis re-check'),
           ]),
         }),
+      ),
+    }),
+
+    // 7a. Conviction sizing discipline (Phase 5 S1–S7) — no Kelly, the two caps, savings first-class.
+    Section({
+      eyebrow: 'Sizing discipline',
+      title: 'How the size is set — worst case first, no Kelly',
+      lead: createElement(
+        'span',
+        null,
+        'The target is ',
+        createElement('span', { style: goldText }, `conviction × ${pct(BASE_TARGET_WEIGHT)}`),
+        ` base weight — conviction (moat, permanent-loss, uncertainty) only scales it DOWN from ${pct(BASE_TARGET_WEIGHT)}, never up. `,
+        createElement('span', { style: goldText }, 'This is deliberately NOT Kelly: there is no win-probability, no odds, no edge term.'),
+        ' A probability-weighted bet size would size up on a "good bet"; we refuse that — the downside is taken down to the concrete floor (a number), and the only quality input is a one-directional down-weight. The sizing recommendation is computed on-demand at the watched→held step, recorded as an observation, and leads with the worst case (the concrete downside floor + its net-cash-vs-stressed-book basis + the aggregate correlated-cluster downside) BEFORE the target weight. The buy is human-signed; nothing auto-trades.',
+      ),
+      children: createElement(
+        'div',
+        { style: { display: 'grid', gap: '0.9rem' } },
+        Table({
+          headings: ['Guardrail', 'Threshold', 'What it does'],
+          rows: [
+            [
+              createElement('span', { style: goldText }, 'Deployment cap'),
+              createElement('span', { style: monoFigure }, pct(PER_NAME_CAP)),
+              `Per-name ceiling on NEW buys/adds at execution time — caps how much capital deploys into one name.`,
+            ],
+            [
+              createElement('span', { style: goldText }, 'Appreciation review'),
+              createElement('span', { style: monoFigure }, `~${pct(CONCENTRATION_REVIEW_THRESHOLD)}`),
+              `A HELD winner whose PRICE appreciates past this raises a human REVIEW — never an auto-trim, never a sale.`,
+            ],
+            [
+              createElement('span', { style: goldText }, 'Deployment hurdle'),
+              createElement('span', { style: monoFigure }, `~${pct(DEPLOYMENT_HURDLE, 1)}`),
+              `A candidate's owner-earnings yield must clear savings (~${pct(DEFAULT_SAVINGS_EXPECTED_PROFIT_RATE, 1)}) + an equity-risk margin (~${pct(DEFAULT_EQUITY_RISK_MARGIN, 1)}) to deploy out of savings.`,
+            ],
+          ],
+        }),
+        createElement(
+          'p',
+          { style: { ...bodyStyle, margin: 0 } },
+          'The two caps are distinct and BOTH review-only: the ',
+          createElement('span', { style: goldText }, `${pct(PER_NAME_CAP)} deployment cap`),
+          ' limits new capital going IN, while the ',
+          createElement('span', { style: goldText }, `~${pct(CONCENTRATION_REVIEW_THRESHOLD)} appreciation-review threshold`),
+          ' only flags a held winner whose price ran up for a human look. A winner appreciating between the two raises nothing — ',
+          createElement('span', { style: goldText }, 'winners run; the target weight is an entry cap, not a rebalancing ceiling, and a compounder is never force-trimmed.'),
+        ),
+        createElement(
+          'p',
+          { style: { ...bodyStyle, margin: 0 } },
+          createElement('span', { style: goldText }, 'Cash is a first-class position. '),
+          `When nothing clears the deployment hurdle, idle capital stays in the Shariah-compliant Mudarabah savings sleeve — the CORRECT fat-pitch posture (waiting for the pitch), never under-deployment. The one savings rate does triple duty: the EXPECTED (not guaranteed) return on idle capital, the deployment-hurdle floor, and — later — the risk-free anchor.`,
+        ),
+        createElement(
+          'p',
+          { style: { ...microLabel, color: 'var(--owl-color-muted)', margin: 0 } },
+          'Advisory only — the sizing recommendation is an observation recomputed on-demand; you author and sign every buy. The reverse-DCF / fair-value anchor swap to this rate is deferred (not yet wired).',
+        ),
       ),
     }),
 

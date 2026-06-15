@@ -308,6 +308,52 @@ export type ResearchCaseAdmitRecommendationProjection = {
   recorded_at?: string
 }
 
+/** The worst-case block that ALWAYS rides alongside a sizing recommendation (Phase 5 S7). */
+export type ResearchCaseSizingWorstCaseProjection = {
+  downside_floor_per_share?: number
+  /** net_cash (harder) vs stressed_book — the reliability signal, never flattened. */
+  downside_floor_basis?: string
+  realistic_downside_per_share?: number
+  /** Aggregate cluster downside as a fraction of book NAV (the S4 correlated-impairment view). */
+  aggregate_cluster_downside_fraction?: number
+}
+
+/** One rung of the entry ladder carried on a sizing recommendation. */
+export type ResearchCaseSizingLadderLevelProjection = {
+  id?: string
+  fraction?: number
+  trigger_label?: string
+  trigger_price_per_share?: number
+  buy_price_version?: string
+}
+
+/**
+ * Sizing recommendation (Phase 5 S7) — the agent-authored OBSERVATION recomputed FRESH on-demand by the
+ * S6 assembler. It is a RECOMMENDATION (advisory), NOT a buy: recording it never opens a holding. The
+ * newest recorded recommendation wins.
+ *
+ * `status` is the gate-first outcome:
+ *   - `sizeable` — the candidate cleared the deployment hurdle; the size fields + worst_case are present.
+ *   - `hold_in_savings` — nothing clears the hurdle → idle capital stays in the savings sleeve. This is
+ *     the CORRECT fat-pitch posture, NOT a warning. `reason` + `expected_savings_return` explain it.
+ *   - `cannot_size` — fail-closed (no floor / non-investable / bad inputs); `reason` says why. No size.
+ */
+export type ResearchCaseSizingRecommendationProjection = {
+  sizing_recommendation_id?: string
+  status?: 'sizeable' | 'hold_in_savings' | 'cannot_size'
+  conviction_factor?: number
+  target_weight?: number
+  sizeable_value?: number
+  binding_constraint?: string
+  worst_case?: ResearchCaseSizingWorstCaseProjection
+  ladder?: ResearchCaseSizingLadderLevelProjection[]
+  caveats?: string[]
+  reason?: string
+  /** EXPECTED (not guaranteed) savings-sleeve return, present on a `hold_in_savings` posture. */
+  expected_savings_return?: number
+  recorded_at?: string
+}
+
 export type ResearchCaseProjection = {
   research_case_id: string
   version: number
@@ -345,6 +391,8 @@ export type ResearchCaseProjection = {
   red_team?: ResearchCaseRedTeamProjection
   /** Task 4.2c: the newest admit-judgment recommendation OBSERVATION (recomputed fresh on-demand). */
   admit_recommendation?: ResearchCaseAdmitRecommendationProjection
+  /** Phase 5 S7: the newest sizing recommendation OBSERVATION (the S6 assembler, recomputed on-demand). */
+  sizing_recommendation?: ResearchCaseSizingRecommendationProjection
   synthesis_id?: string
   decision_id?: string
   investment_verdict?: string
@@ -654,6 +702,67 @@ function getAdmitRecommendation(
   }
   const uncited_refs = getStringArray(payload, 'uncited_refs')
   if (uncited_refs !== undefined) projected.uncited_refs = uncited_refs
+  return projected
+}
+
+function getSizingRecommendation(
+  payload: Record<string, unknown>,
+  recordedAt: string,
+): ResearchCaseSizingRecommendationProjection {
+  const projected: ResearchCaseSizingRecommendationProjection = { recorded_at: recordedAt }
+  const sizing_recommendation_id = getString(payload, 'sizing_recommendation_id')
+  if (sizing_recommendation_id !== undefined) projected.sizing_recommendation_id = sizing_recommendation_id
+  const status = getString(payload, 'status')
+  if (status === 'sizeable' || status === 'hold_in_savings' || status === 'cannot_size') {
+    projected.status = status
+  }
+  const conviction_factor = getNumber(payload, 'conviction_factor')
+  if (conviction_factor !== undefined) projected.conviction_factor = conviction_factor
+  const target_weight = getNumber(payload, 'target_weight')
+  if (target_weight !== undefined) projected.target_weight = target_weight
+  const sizeable_value = getNumber(payload, 'sizeable_value')
+  if (sizeable_value !== undefined) projected.sizeable_value = sizeable_value
+  const binding_constraint = getString(payload, 'binding_constraint')
+  if (binding_constraint !== undefined) projected.binding_constraint = binding_constraint
+  const worst_case = payload['worst_case']
+  if (isRecord(worst_case)) {
+    const wc: ResearchCaseSizingWorstCaseProjection = {}
+    const floor = getNumber(worst_case, 'downside_floor_per_share')
+    if (floor !== undefined) wc.downside_floor_per_share = floor
+    const basis = getString(worst_case, 'downside_floor_basis')
+    if (basis !== undefined) wc.downside_floor_basis = basis
+    const realistic = getNumber(worst_case, 'realistic_downside_per_share')
+    if (realistic !== undefined) wc.realistic_downside_per_share = realistic
+    const clusterFraction = getNumber(worst_case, 'aggregate_cluster_downside_fraction')
+    if (clusterFraction !== undefined) wc.aggregate_cluster_downside_fraction = clusterFraction
+    projected.worst_case = wc
+  }
+  const ladder = payload['ladder']
+  if (Array.isArray(ladder)) {
+    const levels = ladder
+      .filter(isRecord)
+      .map((level): ResearchCaseSizingLadderLevelProjection => {
+        const out: ResearchCaseSizingLadderLevelProjection = {}
+        const id = getString(level, 'id')
+        if (id !== undefined) out.id = id
+        const fraction = getNumber(level, 'fraction')
+        if (fraction !== undefined) out.fraction = fraction
+        const triggerLabel = getString(level, 'trigger_label') ?? getString(level, 'trigger')
+        if (triggerLabel !== undefined) out.trigger_label = triggerLabel
+        const triggerPrice = getNumber(level, 'trigger_price_per_share') ?? getNumber(level, 'price_per_share')
+        if (triggerPrice !== undefined) out.trigger_price_per_share = triggerPrice
+        const buyPriceVersion = getString(level, 'buy_price_version')
+        if (buyPriceVersion !== undefined) out.buy_price_version = buyPriceVersion
+        return out
+      })
+    projected.ladder = levels
+  }
+  const caveats = getStringArray(payload, 'caveats')
+  if (caveats !== undefined) projected.caveats = caveats
+  const reason = getString(payload, 'reason')
+  if (reason !== undefined) projected.reason = reason
+  const expected_savings_return = getNumber(payload, 'expected_savings_return')
+  if (expected_savings_return !== undefined) projected.expected_savings_return = expected_savings_return
   return projected
 }
 
@@ -1188,6 +1297,24 @@ export function projectResearchCases(events: LedgerEventEnvelope<unknown>[]): Re
       // Newest recorded recommendation wins (recomputed fresh on-demand): events are applied in order, so
       // the last admit_judgment_recorded overwrites the field.
       researchCase.admit_recommendation = getAdmitRecommendation(event.payload, event.created_at)
+      continue
+    }
+
+    if (event.event_type === 'sizing_recommendation_recorded') {
+      const researchCaseId = researchCaseIdFor(event, event.payload)
+      if (researchCaseId === undefined) {
+        continue
+      }
+
+      // OBSERVATION, not a buy: do NOT change the stage — recording a sizing recommendation never opens a
+      // holding. Preserve the existing stage (or fall back to 'discovered' for an out-of-order event) so
+      // the recommendation can attach without transitioning the case.
+      const existing = researchCases.get(researchCaseId)
+      const researchCase = upsertCase(researchCases, researchCaseId, existing?.stage ?? 'discovered', event.created_at)
+      applyString(researchCase, 'ticker', getString(event.payload, 'ticker'))
+      // Newest recorded recommendation wins (recomputed fresh on-demand): events are applied in order, so
+      // the last sizing_recommendation_recorded overwrites the field.
+      researchCase.sizing_recommendation = getSizingRecommendation(event.payload, event.created_at)
       continue
     }
 

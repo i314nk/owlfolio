@@ -195,6 +195,23 @@ describe('selectAction — total (signal × state) lookup table', () => {
     expect(selectAction('price_crossed_buybelow', 'exited').kind).toBe('no_op')
   })
 
+  it('the watched buy_eval references the on-demand sizing recommendation (Phase 5 S7)', () => {
+    // The buy_eval action no longer stops at "evaluate a buy"; it points the human at the on-demand
+    // sizing recommendation (the S6 assembler) that is computed when they open the sizing step.
+    const buyEval = selectAction('price_crossed_buybelow', 'watched')
+    expect(buyEval.kind).toBe('buy_eval')
+    expect(buyEval.sizing_recommendation_available).toBe(true)
+    expect(buyEval.reason).toMatch(/sizing/i)
+  })
+
+  it('the held add-tranche cell stays a no_op (deferred — left out of the auto path)', () => {
+    // Promoting (price_crossed_buybelow, held) to an auto add-tranche path adds risk (it needs per-name
+    // held floor/sic data the cadence table does not carry); it stays an explicit no_op with a reason.
+    const held = selectAction('price_crossed_buybelow', 'held')
+    expect(held.kind).toBe('no_op')
+    expect(held.reason).toMatch(/add-tranche/i)
+  })
+
   it('pins falsifier_tripped cells', () => {
     expect(selectAction('falsifier_tripped', 'held').kind).toBe('sell_review')
     const watched = selectAction('falsifier_tripped', 'watched')

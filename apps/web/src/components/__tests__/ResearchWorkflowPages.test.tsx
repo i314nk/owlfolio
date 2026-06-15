@@ -3,6 +3,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it, vi } from 'vitest'
 
 import * as researchCaseTimelineProjection from '@owlfolio/ledger/projections/researchCaseTimelineProjection'
+import type { ResearchCaseAdmitRecommendationProjection } from '@owlfolio/ledger/projections/researchCaseProjection'
 import { SQLiteEventStore } from '@owlfolio/ledger/sqliteEventStore'
 import { buildPositionPlan } from '../../lib/positionPlan'
 import { CommandCenter } from '../CommandCenter'
@@ -1264,5 +1265,116 @@ describe('research and watchlist workflow pages', () => {
     expect(html).not.toContain('data-testid="admit-recommendation"')
     expect(html).not.toContain('Impairment bear case')
     expect(html).not.toContain('Advisory: admittable')
+  })
+
+  // ── Phase 5 S7: sizing recommendation panel (worst-case-first, cash-is-correct) ──
+  function admitRecommendationForSizing(): ResearchCaseAdmitRecommendationProjection {
+    return {
+      admit_judgment_id: 'admit_admit_001',
+      uncertainty: { level: 'low' },
+      permanent_loss_risk: { level: 'low' },
+      admittable: true,
+      buy_below: 120,
+      downside_floor_per_share: 80,
+      downside_floor_basis: 'net_cash',
+      downside_floor_reliability: 'sound',
+    }
+  }
+
+  it('shows the on-demand sizing request (no fabricated size) for an admittable candidate', () => {
+    const researchCase: AppResearchCase = {
+      ...admissionCandidateCase(),
+      admit_recommendation: admitRecommendationForSizing(),
+    }
+    const html = renderToStaticMarkup(createElement(ResearchCasePanel, { researchCase, mode: 'personal-local' }))
+    expect(html).toContain('Position sizing')
+    expect(html).toContain('Request sizing')
+    expect(html).not.toContain('data-testid="sizing-recommendation"')
+  })
+
+  it('renders a SIZEABLE recommendation WORST-CASE FIRST (floor + basis + cluster) before the target weight', () => {
+    const researchCase: AppResearchCase = {
+      ...admissionCandidateCase(),
+      admit_recommendation: admitRecommendationForSizing(),
+      sizing_recommendation: {
+        sizing_recommendation_id: 'sizing_admit_001',
+        status: 'sizeable',
+        conviction_factor: 0.8,
+        target_weight: 0.08,
+        sizeable_value: 8000,
+        binding_constraint: 'permanent_loss',
+        worst_case: {
+          downside_floor_per_share: 80,
+          downside_floor_basis: 'net_cash',
+          realistic_downside_per_share: 40,
+          aggregate_cluster_downside_fraction: 0.12,
+        },
+        ladder: [],
+        caveats: ['conviction scaled the target DOWN to 80% of base'],
+        recorded_at: '2026-06-08T13:00:00.000Z',
+      },
+    }
+    const html = renderToStaticMarkup(createElement(ResearchCasePanel, { researchCase, mode: 'personal-local' }))
+
+    expect(html).toContain('data-testid="sizing-recommendation"')
+    // Worst case appears, and its block appears BEFORE the target-weight metric in the DOM (worst-first).
+    expect(html).toContain('data-testid="sizing-worst-case"')
+    expect(html).toContain('Concrete downside floor $80.00/share')
+    expect(html).toContain('data-testid="sizing-floor-basis"')
+    expect(html).toContain('net cash') // the floor BASIS (net-cash-vs-stressed-book) is shown
+    expect(html).toContain('data-testid="sizing-cluster-downside"')
+    expect(html).toContain('12.0% of book NAV')
+    // binding_constraint surfaced.
+    expect(html).toContain('Binding constraint:')
+    expect(html).toContain('Permanent loss')
+    // Worst-case block precedes the target weight in the rendered order.
+    expect(html.indexOf('sizing-worst-case')).toBeLessThan(html.indexOf('Target weight'))
+  })
+
+  it('renders hold_in_savings as the CORRECT POSITIVE posture, NOT a yellow/red warning', () => {
+    const researchCase: AppResearchCase = {
+      ...admissionCandidateCase(),
+      admit_recommendation: admitRecommendationForSizing(),
+      sizing_recommendation: {
+        sizing_recommendation_id: 'sizing_admit_002',
+        status: 'hold_in_savings',
+        reason: 'owner-earnings yield 3.0% does not clear the 4.5% deployment hurdle.',
+        expected_savings_return: 0.02,
+        recorded_at: '2026-06-08T13:30:00.000Z',
+      },
+    }
+    const html = renderToStaticMarkup(createElement(ResearchCasePanel, { researchCase, mode: 'personal-local' }))
+
+    expect(html).toContain('data-sizing-status="hold_in_savings"')
+    expect(html).toContain('data-testid="sizing-hold-correct-posture"')
+    expect(html).toContain('Correct posture')
+    expect(html).toContain('fat-pitch discipline')
+    expect(html).toContain('~2.0% expected')
+    // POSITIVE posture: the emerald palette is used, NOT the gold/yellow caveat or red warning palette.
+    expect(html).toContain('#34d399') // emerald accent border
+    const holdBlock = html.slice(html.indexOf('data-sizing-status="hold_in_savings"'))
+    const panelEnd = holdBlock.indexOf('Re-run sizing')
+    const holdMarkup = holdBlock.slice(0, panelEnd === -1 ? undefined : panelEnd)
+    // No yellow warning gold accent and no red risk color inside the hold-in-savings block.
+    expect(holdMarkup).not.toContain('#f0d999')
+    expect(holdMarkup).not.toContain('rgba(214, 178, 94')
+    expect(holdMarkup).not.toContain('#fca5a5')
+  })
+
+  it('renders cannot_size fail-closed (a reason, never a fabricated number)', () => {
+    const researchCase: AppResearchCase = {
+      ...admissionCandidateCase(),
+      admit_recommendation: admitRecommendationForSizing(),
+      sizing_recommendation: {
+        sizing_recommendation_id: 'sizing_admit_003',
+        status: 'cannot_size',
+        reason: 'downside floor unavailable (S2 cannot_floor) — fail-closed, no size.',
+        recorded_at: '2026-06-08T13:45:00.000Z',
+      },
+    }
+    const html = renderToStaticMarkup(createElement(ResearchCasePanel, { researchCase, mode: 'personal-local' }))
+    expect(html).toContain('data-sizing-status="cannot_size"')
+    expect(html).toContain('fail-closed, no size')
+    expect(html).not.toContain('data-testid="sizing-worst-case"')
   })
 })

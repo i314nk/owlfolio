@@ -61,6 +61,7 @@ describe('Owlfolio v2 domain event boundary contracts', () => {
       'forecast_recorded',
       'forecast_resolved',
       'admit_judgment_recorded',
+      'sizing_recommendation_recorded',
     ])
   })
 
@@ -85,6 +86,34 @@ describe('Owlfolio v2 domain event boundary contracts', () => {
         'buy_below',
         'cheapness',
         'uncited_refs',
+        'is_observation',
+        'is_recommendation',
+      ],
+    })
+  })
+
+  it('freezes the sizing-recommendation contract (Phase 5 S7) as an agent OBSERVATION, never an auto-open', () => {
+    // The sizing recommendation is a provider-authored OBSERVATION on the research case — it does NOT open
+    // the holding (the human still signs the buy via the holding-open transition).
+    expect(contract('sizing_recommendation_recorded')).toMatchObject({
+      aggregate_type: 'research_case',
+      actor_type: 'provider',
+      actor_types: ['provider', 'worker'],
+      projection_owner: 'discovery',
+      payload_fields: [
+        'sizing_recommendation_id',
+        'research_case_id',
+        'ticker',
+        'status',
+        'conviction_factor',
+        'target_weight',
+        'sizeable_value',
+        'binding_constraint',
+        'worst_case',
+        'ladder',
+        'caveats',
+        'reason',
+        'expected_savings_return',
         'is_observation',
         'is_recommendation',
       ],

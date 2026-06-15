@@ -150,4 +150,29 @@ describe('StrategyOverview', () => {
       expect(html).toContain(tranche.id)
     }
   })
+
+  it('renders the Phase-5 conviction-sizing discipline: no Kelly, the two caps, savings first-class, worst-case-first', () => {
+    const html = render()
+    // target = conviction × base weight, explicitly NOT Kelly (no probability/odds/edge).
+    expect(html).toContain(`conviction × ${SIZING_PARAMS.base_target_weight * 100}%`)
+    expect(html).toContain('NOT Kelly')
+    expect(html).toContain('no win-probability, no odds, no edge')
+    // The two distinct caps: 15% deployment vs ~22% appreciation-review.
+    expect(html).toContain('Deployment cap')
+    expect(html).toContain(`${SIZING_PARAMS.per_name_cap * 100}%`)
+    expect(html).toContain('Appreciation review')
+    expect(html).toContain(`~${SIZING_PARAMS.concentration_review_threshold * 100}%`)
+    // Winners run / no force-trim.
+    expect(html).toContain('winners run')
+    expect(html).toContain('never force-trimmed')
+    // Savings as first-class + the triple-duty rate.
+    expect(html).toContain('Cash is a first-class position')
+    expect(html).toContain('triple duty')
+    expect(html).toContain('fat-pitch posture')
+    // Worst-case-in-front discipline.
+    expect(html).toContain('worst case')
+    // NO OVERCLAIM: advisory only + the anchor swap is deferred.
+    expect(html).toContain('Advisory only')
+    expect(html).toContain('anchor swap to this rate is deferred')
+  })
 })

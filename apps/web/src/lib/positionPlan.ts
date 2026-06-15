@@ -125,6 +125,11 @@ export function buildPositionPlan(input: BuildPositionPlanInput): PositionPlan {
     'Tranches T2–T3 deploy only if the thesis is still intact (re-check on the price drop).',
     'Target weight is an entry cap — let winners run; do not force-trim a compounder.',
     `Respect the ${(cashBuffer * 100).toFixed(0)}% cash buffer and ${maxPositions}-position limit across the portfolio.`,
+    // S6 follow-up (i): this bare conviction target is NOT fully risk-checked. The downside caps
+    // (permanent-loss / cluster / deployment hurdle) are applied at EXECUTION-TIME sizing — the on-demand
+    // sizing recommendation (S7) — which leads with the concrete worst case and may cut this target or
+    // park the capital in savings. Read this weight as the conviction ceiling, not the final size.
+    'This is the conviction target only — NOT fully risk-checked. The permanent-loss, cluster, and deployment-hurdle caps are applied at execution-time sizing (the on-demand sizing recommendation), which leads with the worst case and may cut this number or hold in savings.',
   ]
 
   return {

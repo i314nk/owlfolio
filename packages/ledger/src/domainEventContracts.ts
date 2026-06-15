@@ -74,6 +74,7 @@ export const domainEventTypes = [
   'forecast_recorded',
   'forecast_resolved',
   'admit_judgment_recorded',
+  'sizing_recommendation_recorded',
 ] as const
 
 export type DomainEventType = (typeof domainEventTypes)[number]
@@ -696,6 +697,40 @@ export const domainEventContracts: readonly DomainEventContract[] = [
       'buy_below',
       'cheapness',
       'uncited_refs',
+      'is_observation',
+      'is_recommendation',
+    ],
+  },
+  {
+    // Sizing recommendation (Phase 5, Slice S7). An agent-authored OBSERVATION computed FRESH on-demand
+    // when the human opens the sizing step for a watched/admittable name with a locked buy-below + a
+    // concrete downside floor. The S6 assembler composes the S1 conviction target, the S3 permanent-loss
+    // cap, the S4 cluster cap, and the S5 deployment hurdle into ONE worst-case-first recommendation:
+    // status (sizeable | hold_in_savings | cannot_size), the conviction factor + target weight, the
+    // sizeable value + which constraint bound it, the ALWAYS-attached worst case (downside floor + its
+    // basis + the aggregate cluster downside), and the entry ladder. `hold_in_savings` is the CORRECT
+    // fat-pitch posture (nothing clears the hurdle → capital parked in the savings sleeve), NEVER a
+    // warning. It does NOT open the holding — the buy stays the human-signed holding-open transition.
+    // Grounded to the case corpus; the newest recorded recommendation wins (recomputed fresh on-demand).
+    event_type: 'sizing_recommendation_recorded',
+    aggregate_type: 'research_case',
+    actor_type: 'provider',
+    actor_types: ['provider', 'worker'],
+    projection_owner: 'discovery',
+    payload_fields: [
+      'sizing_recommendation_id',
+      'research_case_id',
+      'ticker',
+      'status',
+      'conviction_factor',
+      'target_weight',
+      'sizeable_value',
+      'binding_constraint',
+      'worst_case',
+      'ladder',
+      'caveats',
+      'reason',
+      'expected_savings_return',
       'is_observation',
       'is_recommendation',
     ],
