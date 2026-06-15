@@ -589,3 +589,100 @@ describe('projectNameLifecycle — Phase 5 S2 downside floor (sizing reads it al
     expect(row.downside_floor_reliability).toBe('sound')
   })
 })
+
+describe('projectNameLifecycle — frozen undiscounted IV (Phase 6 S3; the valuation-inverted trigger reads it)', () => {
+  it('projects frozen_iv + frozen_iv_valuation_version onto a held row from the watchlist lineage', () => {
+    const events: LedgerEventEnvelope<unknown>[] = [
+      evt({
+        event_type: 'research_case_created',
+        aggregate_type: 'research_case',
+        aggregate_id: 'rc_iv_001',
+        payload: { ticker: 'IVH', company_id: 'company_ivh' },
+        created_at: '2026-06-01T00:00:00.000Z',
+      }),
+      evt({
+        event_type: 'watchlist_draft_created',
+        aggregate_type: 'watchlist_item',
+        aggregate_id: 'watch_iv_001',
+        actor_type: 'user',
+        payload: {
+          watchlist_item_id: 'watch_iv_001',
+          research_case_id: 'rc_iv_001',
+          ticker: 'IVH',
+          // Frozen undiscounted IV (216) is DISTINCT from the discounted locked buy-below (150).
+          locked_buy_below: 150,
+          buy_below_valuation_version: 'valuation-2026-06-1',
+          frozen_iv: 216,
+          frozen_iv_valuation_version: 'valuation-2026-06-1',
+        },
+        created_at: '2026-06-01T01:00:00.000Z',
+      }),
+      evt({
+        event_type: 'watchlist_draft_confirmed',
+        aggregate_type: 'watchlist_item',
+        aggregate_id: 'watch_iv_001',
+        actor_type: 'user',
+        payload: { watchlist_item_id: 'watch_iv_001', research_case_id: 'rc_iv_001' },
+        created_at: '2026-06-01T02:00:00.000Z',
+      }),
+      evt({
+        event_type: 'holding_opened',
+        aggregate_type: 'holding',
+        aggregate_id: 'holding_iv_001',
+        payload: {
+          holding_id: 'holding_iv_001',
+          watchlist_item_id: 'watch_iv_001',
+          research_case_id: 'rc_iv_001',
+          ticker: 'IVH',
+          shares: 10,
+          cost_basis_per_share: 120,
+        },
+        created_at: '2026-06-01T03:00:00.000Z',
+      }),
+    ]
+    const row = byTicker(projectNameLifecycle(events), 'IVH')
+    expect(row.state).toBe('held')
+    // The sell-decision flow reads the FROZEN IV (not the discounted buy-below) off the lifecycle row.
+    expect(row.frozen_iv).toBe(216)
+    expect(row.frozen_iv_valuation_version).toBe('valuation-2026-06-1')
+  })
+
+  it('leaves frozen_iv absent when the lineage froze none (never falls back to the discounted buy-below)', () => {
+    const events: LedgerEventEnvelope<unknown>[] = [
+      evt({
+        event_type: 'research_case_created',
+        aggregate_type: 'research_case',
+        aggregate_id: 'rc_noiv_001',
+        payload: { ticker: 'NOIV', company_id: 'company_noiv' },
+        created_at: '2026-06-01T00:00:00.000Z',
+      }),
+      evt({
+        event_type: 'watchlist_draft_created',
+        aggregate_type: 'watchlist_item',
+        aggregate_id: 'watch_noiv_001',
+        actor_type: 'user',
+        payload: {
+          watchlist_item_id: 'watch_noiv_001',
+          research_case_id: 'rc_noiv_001',
+          ticker: 'NOIV',
+          locked_buy_below: 150,
+          buy_below_valuation_version: 'valuation-2026-06-1',
+        },
+        created_at: '2026-06-01T01:00:00.000Z',
+      }),
+      evt({
+        event_type: 'watchlist_draft_confirmed',
+        aggregate_type: 'watchlist_item',
+        aggregate_id: 'watch_noiv_001',
+        actor_type: 'user',
+        payload: { watchlist_item_id: 'watch_noiv_001', research_case_id: 'rc_noiv_001' },
+        created_at: '2026-06-01T02:00:00.000Z',
+      }),
+    ]
+    const row = byTicker(projectNameLifecycle(events), 'NOIV')
+    expect(row.state).toBe('watched')
+    expect(row.frozen_iv).toBeUndefined()
+    expect(row.frozen_iv_valuation_version).toBeUndefined()
+    expect(row.locked_buy_below).toBe(150)
+  })
+})

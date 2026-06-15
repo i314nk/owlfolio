@@ -19,6 +19,7 @@
     "./sellParams": "./src/sellParams.ts",
     "./minimumHold": "./src/minimumHold.ts",
     "./minimumHoldGuard": "./src/minimumHoldGuard.ts",
+    "./valuationInverted": "./src/valuationInverted.ts",
     "./convictionFactor": "./src/convictionFactor.ts",
     "./permanentLossCap": "./src/permanentLossCap.ts",
     "./deploymentHurdle": "./src/deploymentHurdle.ts",

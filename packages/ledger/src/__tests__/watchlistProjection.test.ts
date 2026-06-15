@@ -70,3 +70,61 @@ describe('projectWatchlist Shariah gates', () => {
     })
   })
 })
+
+describe('projectWatchlist frozen undiscounted IV (Phase 6 S3)', () => {
+  function watchlistDraftCreated(payload: Record<string, unknown>): LedgerEventEnvelope<unknown> {
+    return {
+      event_id: 'evt_watchlist_draft_created_watch_msft_001',
+      event_type: 'watchlist_draft_created',
+      aggregate_type: 'watchlist_item',
+      aggregate_id: 'watch_msft_001',
+      actor_type: 'user',
+      actor_id: 'user_local',
+      payload: {
+        watchlist_item_id: 'watch_msft_001',
+        research_case_id: 'rc_msft_001',
+        decision_id: 'decision_msft_001',
+        company_id: 'company_msft',
+        ticker: 'MSFT',
+        strategy_id: 'buffett-munger',
+        thesis_summary: 'Watch MSFT.',
+        user_approved: false,
+        created_by_actor_type: 'user',
+        created_by_actor_id: 'user_local',
+        ...payload,
+      },
+      source_ids: [],
+      created_at: '2026-06-01T00:01:00.000Z',
+      schema_version: 1,
+    }
+  }
+
+  it('projects frozen_iv + frozen_iv_valuation_version from the draft event', () => {
+    const watchlist = projectWatchlist([
+      watchlistDraftCreated({
+        // The frozen undiscounted IV (216) is DISTINCT from the MoS-discounted buy-below (150).
+        locked_buy_below: 150,
+        buy_below_valuation_version: 'valuation-2026-06-1',
+        frozen_iv: 216,
+        frozen_iv_valuation_version: 'valuation-2026-06-1',
+      }),
+    ])
+
+    expect(watchlist[0]).toMatchObject({
+      locked_buy_below: 150,
+      frozen_iv: 216,
+      frozen_iv_valuation_version: 'valuation-2026-06-1',
+    })
+  })
+
+  it('leaves frozen_iv absent when the draft event carries none (never falls back to buy-below)', () => {
+    const watchlist = projectWatchlist([
+      watchlistDraftCreated({ locked_buy_below: 150, buy_below_valuation_version: 'valuation-2026-06-1' }),
+    ])
+
+    expect(watchlist[0]?.frozen_iv).toBeUndefined()
+    expect(watchlist[0]?.frozen_iv_valuation_version).toBeUndefined()
+    // The discounted buy-below still projects — frozen_iv must NOT have been backfilled from it.
+    expect(watchlist[0]?.locked_buy_below).toBe(150)
+  })
+})

@@ -21,14 +21,24 @@ export type SellParams = {
    * thesis-broke sell. 30 months ≈ 2.5 years.
    */
   minimum_hold_months: number
+  /**
+   * Fraction of the SIGN-OFF-FROZEN undiscounted intrinsic value (IV) at/above which the
+   * "valuation-inverted" sell trigger fires (Phase 6 S3). 1.0 = FULL IV — a HARD threshold, NOT a band.
+   * Pabrai's documented biggest mistake was selling winners at 90-95% of IV, so the trigger is biased to
+   * HOLD: it only fires once price reaches the whole frozen IV. The IV compared against is always the
+   * value FROZEN at sign-off (never the MoS-discounted buy-below, never a live/recomputed fair value).
+   */
+  sell_iv_fraction: number
 }
 
 /**
  * The frozen DEFAULT sell parameters.
  *
  *   minimum_hold_months: 30  (≈ 2.5 years — inside the stated 2–3 year minimum-hold band)
+ *   sell_iv_fraction:    1.0 (FULL IV — hard threshold, Pabrai recant; biased to hold below IV)
  */
 export const SELL_PARAMS: SellParams = Object.freeze({
-  version: 'sell-2026-06-phase6-1',
+  version: 'sell-2026-06-phase6-2',
   minimum_hold_months: 30,
+  sell_iv_fraction: 1.0,
 }) as SellParams

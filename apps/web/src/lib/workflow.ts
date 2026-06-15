@@ -688,6 +688,14 @@ export async function promoteResearchCaseToWatchlist(
     // thesis. Fall back to the verdict-band buy-below / 0 when the case has no valuation buy-below yet.
     const lockedBuyBelow = researchCase.valuation?.buy_price_per_share ?? 0
 
+    // FREEZE the UNDISCOUNTED IV at sign-off (Phase 6 S3): snapshot the case's fair_value_per_share — the
+    // UNDISCOUNTED intrinsic value, DISTINCT from the MoS-discounted buy_price_per_share above. The
+    // valuation-inverted sell trigger reads THIS frozen number (don't-move-the-number F.9/F.10): only a
+    // re-underwrite that re-runs this freeze may change it. FAIL-CLOSED — when the case has no undiscounted
+    // IV we freeze it as `undefined` (absent), NEVER falling back to the discounted buy-below; the trigger
+    // then returns cannot_assess rather than reading a wrong number.
+    const frozenIv = researchCase.valuation?.fair_value_per_share
+
     return await confirmWatchlistDraft(store, {
       watchlist_item_id: watchlistItemId,
       research_case_id: researchCase.research_case_id,
@@ -700,6 +708,9 @@ export async function promoteResearchCaseToWatchlist(
       locked_buy_below: lockedBuyBelow,
       buy_below_valuation_version: VALUATION_PARAMS.version,
       buy_below_mos_provisional: true,
+      ...(frozenIv === undefined
+        ? {}
+        : { frozen_iv: frozenIv, frozen_iv_valuation_version: VALUATION_PARAMS.version }),
       signed_thesis: humanSignedThesis,
       actor_id: 'user_local',
       idempotency_key: `decision:${researchCase.research_case_id}:watchlist:v1`,

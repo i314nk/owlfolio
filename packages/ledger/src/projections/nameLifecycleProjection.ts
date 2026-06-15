@@ -83,6 +83,17 @@ export type NameLifecycleProjection = {
   buy_below_valuation_version?: string
   /** True while the MoS is provisional (#124) — a future MoS freeze that changes the buy-below is a visible re-price. */
   buy_below_mos_provisional?: boolean
+  /**
+   * Phase 6 S3 — the UNDISCOUNTED intrinsic value (fair value per share) FROZEN at sign-off, carried from
+   * the watchlist lineage. This is the value the "valuation-inverted" sell trigger compares price against
+   * (evaluateValuationInverted reads it off this row); it is DISTINCT from the MoS-discounted
+   * `locked_buy_below`/`buy_price_per_share`. Don't-move-the-number (F.9/F.10): only a re-underwrite that
+   * re-runs the freeze changes it. Absent when nothing was frozen — the trigger then returns cannot_assess
+   * (it must NEVER be backfilled from the discounted buy-below).
+   */
+  frozen_iv?: number
+  /** `VALUATION_PARAMS.version` the frozen undiscounted IV was frozen under (sign-off valuation provenance). */
+  frozen_iv_valuation_version?: string
   /** True when every gate the name has is clean (Shariah gate allowed / not FAIL). */
   gate_clean?: boolean
   /** The Shariah gate status carried by the live entity (watchlist/holding), when present. */
@@ -166,6 +177,8 @@ type Accumulator = {
   locked_buy_below?: number
   buy_below_valuation_version?: string
   buy_below_mos_provisional?: boolean
+  frozen_iv?: number
+  frozen_iv_valuation_version?: string
   gate_clean?: boolean
   shariah_gate_status?: string
   falsifier_tripped?: boolean
@@ -231,6 +244,15 @@ export function projectNameLifecycle(events: LedgerEventEnvelope<unknown>[]): Na
   const caseById = new Map<string, ResearchCaseProjection>()
   for (const researchCase of researchCases) {
     caseById.set(researchCase.research_case_id, researchCase)
+  }
+
+  // Watchlist items keyed by id, so the held fold can recover the sign-off-frozen IV from the originating
+  // lineage: the WATCHED fold below SKIPS items that became holdings, so a held row would otherwise never
+  // pick up `frozen_iv` (frozen at the watchlist admit). The valuation-inverted sell trigger reads
+  // `frozen_iv` off the HELD row (S6/S8), so it must be carried through.
+  const watchlistById = new Map<string, (typeof watchlist)[number]>()
+  for (const item of watchlist) {
+    watchlistById.set(item.watchlist_item_id, item)
   }
 
   // Closed holdings: a holding is closed once a holding_closed event exists for it. Keep the close
@@ -359,6 +381,15 @@ export function projectNameLifecycle(events: LedgerEventEnvelope<unknown>[]): Na
     if (item.buy_below_mos_provisional !== undefined) {
       row.buy_below_mos_provisional = item.buy_below_mos_provisional
     }
+    // The sign-off-frozen undiscounted IV rides along from the watchlist lineage (its valuation-version
+    // provenance with it). The held-name sell flow reads frozen_iv off this row for the valuation-inverted
+    // trigger — DISTINCT from the discounted buy-below above; never derived from it.
+    if (item.frozen_iv !== undefined) {
+      row.frozen_iv = item.frozen_iv
+    }
+    if (item.frozen_iv_valuation_version !== undefined) {
+      row.frozen_iv_valuation_version = item.frozen_iv_valuation_version
+    }
     promoteLiveState(row, 'watched')
     // Falsifier honesty (#1): Shariah gate FAIL or a staleness/re-screen alert trips the falsifier.
     const gateFail = isShariahGateFail(item.shariah_gate_status, item.shariah_gate_allowed)
@@ -401,6 +432,16 @@ export function projectNameLifecycle(events: LedgerEventEnvelope<unknown>[]): Na
       if (holding.shariah_gate_status !== undefined) {
         row.shariah_gate_status = holding.shariah_gate_status
       }
+      // Carry the sign-off-frozen undiscounted IV from the originating watchlist lineage onto the held row
+      // (the watched fold skipped this item because it became a holding). The valuation-inverted sell
+      // trigger reads `frozen_iv` here; it is the value frozen at admit, never recomputed.
+      const lineage = watchlistById.get(holding.watchlist_item_id)
+      if (lineage?.frozen_iv !== undefined && row.frozen_iv === undefined) {
+        row.frozen_iv = lineage.frozen_iv
+      }
+      if (lineage?.frozen_iv_valuation_version !== undefined && row.frozen_iv_valuation_version === undefined) {
+        row.frozen_iv_valuation_version = lineage.frozen_iv_valuation_version
+      }
       promoteLiveState(row, 'held')
     }
   }
@@ -438,6 +479,10 @@ export function projectNameLifecycle(events: LedgerEventEnvelope<unknown>[]): Na
     }
     if (row.buy_below_mos_provisional !== undefined) {
       projected.buy_below_mos_provisional = row.buy_below_mos_provisional
+    }
+    if (row.frozen_iv !== undefined) projected.frozen_iv = row.frozen_iv
+    if (row.frozen_iv_valuation_version !== undefined) {
+      projected.frozen_iv_valuation_version = row.frozen_iv_valuation_version
     }
     if (row.gate_clean !== undefined) projected.gate_clean = row.gate_clean
     if (row.shariah_gate_status !== undefined) projected.shariah_gate_status = row.shariah_gate_status

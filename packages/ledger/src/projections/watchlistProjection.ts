@@ -19,6 +19,15 @@ export type WatchlistProjection = {
   buy_below_valuation_version?: string
   /** True while the MoS is provisional (#124) — a future MoS freeze that changes the buy-below is a visible re-price. */
   buy_below_mos_provisional?: boolean
+  /**
+   * The UNDISCOUNTED intrinsic value (fair value per share) FROZEN at sign-off (Phase 6 S3) — distinct
+   * from the MoS-discounted `locked_buy_below`. The valuation-inverted sell trigger compares price against
+   * THIS frozen number; only a re-underwrite (which re-runs the freeze) may change it. Absent when the
+   * case had no undiscounted IV at sign-off (fail-closed — never backfilled from the discounted buy-below).
+   */
+  frozen_iv?: number
+  /** `VALUATION_PARAMS.version` the frozen undiscounted IV was frozen under (sign-off valuation provenance). */
+  frozen_iv_valuation_version?: string
   /** The human's signed plain-language thesis (Gate 0 `[Hu]`), distinct from the agent-drafted thesis_summary. */
   signed_thesis?: string
   shariah_gate_decision_id?: string
@@ -125,7 +134,14 @@ function applyString(
   target: WatchlistProjection,
   key: keyof Pick<
     WatchlistProjection,
-    'company_id' | 'ticker' | 'strategy_id' | 'strategy_version' | 'thesis_summary' | 'signed_thesis' | 'buy_below_valuation_version'
+    | 'company_id'
+    | 'ticker'
+    | 'strategy_id'
+    | 'strategy_version'
+    | 'thesis_summary'
+    | 'signed_thesis'
+    | 'buy_below_valuation_version'
+    | 'frozen_iv_valuation_version'
   >,
   value: string | undefined,
 ): void {
@@ -178,10 +194,16 @@ export function projectWatchlist(events: LedgerEventEnvelope<unknown>[]): Watchl
     applyString(watchlistItem, 'thesis_summary', getString(event.payload, 'thesis_summary'))
     applyString(watchlistItem, 'signed_thesis', getString(event.payload, 'signed_thesis'))
     applyString(watchlistItem, 'buy_below_valuation_version', getString(event.payload, 'buy_below_valuation_version'))
+    applyString(watchlistItem, 'frozen_iv_valuation_version', getString(event.payload, 'frozen_iv_valuation_version'))
 
     const lockedBuyBelow = getNumber(event.payload, 'locked_buy_below')
     if (lockedBuyBelow !== undefined) {
       watchlistItem.locked_buy_below = lockedBuyBelow
+    }
+    // The sign-off-frozen undiscounted IV — projected verbatim; NEVER backfilled from locked_buy_below.
+    const frozenIv = getNumber(event.payload, 'frozen_iv')
+    if (frozenIv !== undefined) {
+      watchlistItem.frozen_iv = frozenIv
     }
     const mosProvisional = getBoolean(event.payload, 'buy_below_mos_provisional')
     if (mosProvisional !== undefined) {
