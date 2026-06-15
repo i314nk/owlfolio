@@ -128,6 +128,14 @@ export type SizingParams = {
    */
   book_recovery_threshold: number
   /**
+   * Correlated-cluster grouping width (Phase 5 S4): how many leading digits of `Fundamentals.sic` form
+   * the cluster key. 2 = SIC major-group prefix (`sic:73`). This is a COARSE proxy for correlation, NOT a
+   * correlation model — it over-clusters (different businesses in one broad sector) and under-clusters
+   * (supplier↔customer in different SIC, shared macro driver). Mutating this widens/narrows clustering with
+   * no code change. See correlatedClusters.ts.
+   */
+  cluster_sic_digits: number
+  /**
    * Concentration APPRECIATION-review threshold (Phase 5 S3): ~0.22. A HELD position whose PRICE has
    * appreciated past this fraction of NAV raises a FLAGGED HUMAN-REVIEW (logged/signed, "don't move the
    * number"). This is DISTINCT from `per_name_cap` (the 15% deployment ceiling on new buys/adds). NEITHER
@@ -178,6 +186,7 @@ export const SIZING_PARAMS: SizingParams = Object.freeze({
   conviction_discount_depth_ramp: { floor: 0.6, full_at_depth: 0.30 },
   per_name_cap: 0.15,
   book_recovery_threshold: 0.05,
+  cluster_sic_digits: 2,
   concentration_review_threshold: 0.22,
   book_value_haircut: 0.5,
   target_names: 20,
