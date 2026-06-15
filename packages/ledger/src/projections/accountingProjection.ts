@@ -29,6 +29,25 @@ export type AccountingSnapshotInput = {
   period_end: string
   currency: string
   recorded_at: string
+  /**
+   * The ONE expected (NOT guaranteed) Mudarabah savings profit rate, from SavingsSleeveConfig. Optional
+   * and additive: when supplied, the projection surfaces `expected_savings_return` on the idle savings
+   * balance. The projection is otherwise pure and cannot read app config, so the rate is passed in.
+   */
+  savings_expected_profit_rate?: number
+}
+
+/**
+ * The EXPECTED — explicitly NOT GUARANTEED — return on idle capital sitting in the capital-stable
+ * Mudarabah savings sleeve. `basis: 'expected_not_guaranteed'` is the honest label: a Mudarabah profit
+ * share is an expectation, never a promised/risk-free yield. amount = savings_balance × rate.
+ */
+export type ExpectedSavingsReturn = {
+  amount: number
+  /** Honest-labeling marker. Always 'expected_not_guaranteed' — surfaced text must not imply certainty. */
+  basis: 'expected_not_guaranteed'
+  rate: number
+  model: 'mudarabah'
 }
 
 export type AccountingHoldingSnapshot = {
@@ -62,6 +81,17 @@ export type AccountingSnapshotProjection = {
   dividends: number
   fees: number
   net_cash_flow: number
+  /**
+   * Idle, un-deployed capital sitting in the Shariah-compliant savings sleeve (= `cash_balance`). Cash is
+   * a first-class position: holding here when nothing clears the deployment hurdle is the CORRECT posture
+   * (fat-pitch discipline), never under-deployment.
+   */
+  savings_balance: number
+  /**
+   * EXPECTED (NOT guaranteed) return on `savings_balance`, present only when a savings rate was supplied.
+   * See {@link ExpectedSavingsReturn}.
+   */
+  expected_savings_return?: ExpectedSavingsReturn
   cash_ledger_status: CashLedgerStatus
   cash_flows: AccountingCashFlow[]
   audit_event_ids: string[]
@@ -317,6 +347,19 @@ export function projectAccountingSnapshot(
     .reduce((sum, amount) => sum + amount, 0))
   const netCashFlow = roundMoney(deposits - withdrawals + dividends - fees)
   const nav = roundMoney(currentValue + cashBalance)
+  // Idle, un-deployed capital lives in the savings sleeve. savings_balance === cash_balance.
+  const savingsBalance = cashBalance
+  // EXPECTED (NOT guaranteed) Mudarabah return, only when a rate was supplied.
+  const savingsRate = input.savings_expected_profit_rate
+  const expectedSavingsReturn: ExpectedSavingsReturn | undefined =
+    typeof savingsRate === 'number' && Number.isFinite(savingsRate)
+      ? {
+        amount: roundMoney(savingsBalance * savingsRate),
+        basis: 'expected_not_guaranteed',
+        rate: savingsRate,
+        model: 'mudarabah',
+      }
+      : undefined
   const missingValuationHoldingIds = holdings
     .filter((holding) => holding.valuation_status === 'missing_valuation')
     .map((holding) => holding.holding_id)
@@ -350,6 +393,8 @@ export function projectAccountingSnapshot(
     dividends,
     fees,
     net_cash_flow: netCashFlow,
+    savings_balance: savingsBalance,
+    ...(expectedSavingsReturn === undefined ? {} : { expected_savings_return: expectedSavingsReturn }),
     cash_ledger_status: asOfCashFlows.length > 0 ? 'ledger_backed' : 'placeholder',
     cash_flows: cashFlows,
     audit_event_ids: auditEventIds,
@@ -389,6 +434,8 @@ function normalizeRecordedAccountingSnapshot(payload: Record<string, unknown>): 
   return {
     ...snapshot,
     realized_gain_loss: getNumber(payload, 'realized_gain_loss') ?? 0,
+    // Back-compat: legacy recorded snapshots predate the savings sleeve; idle cash === savings balance.
+    savings_balance: getNumber(payload, 'savings_balance') ?? getNumber(payload, 'cash_balance') ?? 0,
     cash_flows: Array.isArray(payload.cash_flows) ? snapshot.cash_flows : [],
     audit_event_ids: getStringArray(payload, 'audit_event_ids'),
     source_ids: getStringArray(payload, 'source_ids'),

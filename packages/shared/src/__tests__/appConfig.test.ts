@@ -11,6 +11,11 @@ import {
   defaultPersonalLocalAppConfig,
   mergeAutomationSettings,
   mergeCircleOfCompetenceConfig,
+  type SavingsSleeveConfig,
+  DEFAULT_SAVINGS_SLEEVE,
+  SAVINGS_RATE_MAX,
+  defaultSavingsSleeveConfig,
+  mergeSavingsSleeveConfig,
 } from '../appConfig'
 
 describe('defaultAutomationSettings', () => {
@@ -287,5 +292,87 @@ describe('defaultPersonalLocalAppConfig back-compat', () => {
   it('includes a permissive circle_of_competence by default', () => {
     const config = defaultPersonalLocalAppConfig()
     expect(config.circle_of_competence).toEqual(defaultCircleOfCompetenceConfig())
+  })
+})
+
+describe('defaultSavingsSleeveConfig', () => {
+  it('has sensible owner-tunable defaults: 2% expected rate, mudarabah, 5% equity risk margin', () => {
+    expect(defaultSavingsSleeveConfig()).toEqual<SavingsSleeveConfig>({
+      savings_expected_profit_rate: 0.02,
+      savings_model: 'mudarabah',
+      equity_risk_margin: 0.05,
+    })
+  })
+
+  it('uses a capital-stable profit-sharing model (mudarabah), NOT a Treasury bill', () => {
+    // The model is mudarabah — capital-stable, profit-sharing — never a guaranteed/risk-free instrument.
+    expect(defaultSavingsSleeveConfig().savings_model).toBe('mudarabah')
+  })
+
+  it('returns a fresh copy so callers cannot mutate the shared default', () => {
+    const a = defaultSavingsSleeveConfig()
+    a.savings_expected_profit_rate = 0.99
+    expect(defaultSavingsSleeveConfig().savings_expected_profit_rate).toBe(0.02)
+    expect(DEFAULT_SAVINGS_SLEEVE.savings_expected_profit_rate).toBe(0.02)
+  })
+})
+
+describe('mergeSavingsSleeveConfig', () => {
+  it('returns defaults for undefined / legacy config (no savings field)', () => {
+    expect(mergeSavingsSleeveConfig()).toEqual(defaultSavingsSleeveConfig())
+    expect(mergeSavingsSleeveConfig(undefined)).toEqual(defaultSavingsSleeveConfig())
+  })
+
+  it('merges over a partial config, filling missing fields with defaults', () => {
+    expect(mergeSavingsSleeveConfig({ savings_expected_profit_rate: 0.03 })).toEqual<SavingsSleeveConfig>({
+      savings_expected_profit_rate: 0.03,
+      savings_model: 'mudarabah',
+      equity_risk_margin: 0.05,
+    })
+    expect(mergeSavingsSleeveConfig({ equity_risk_margin: 0.08 })).toEqual<SavingsSleeveConfig>({
+      savings_expected_profit_rate: 0.02,
+      savings_model: 'mudarabah',
+      equity_risk_margin: 0.08,
+    })
+  })
+
+  it('always pins savings_model to mudarabah (the only supported capital-stable model)', () => {
+    expect(mergeSavingsSleeveConfig({ savings_model: 'treasury' as never }).savings_model).toBe('mudarabah')
+  })
+
+  it('clamps rates fail-closed-to-default for invalid / out-of-band values', () => {
+    // negative, NaN, non-finite, non-number → default
+    expect(mergeSavingsSleeveConfig({ savings_expected_profit_rate: -0.5 }).savings_expected_profit_rate).toBe(0.02)
+    expect(mergeSavingsSleeveConfig({ savings_expected_profit_rate: Number.NaN }).savings_expected_profit_rate).toBe(0.02)
+    expect(mergeSavingsSleeveConfig({ equity_risk_margin: 'x' as never }).equity_risk_margin).toBe(0.05)
+    // above the [0, ~0.25] band → fail closed to default (not silently clamped to the ceiling)
+    expect(mergeSavingsSleeveConfig({ savings_expected_profit_rate: 0.9 }).savings_expected_profit_rate).toBe(0.02)
+    expect(mergeSavingsSleeveConfig({ equity_risk_margin: SAVINGS_RATE_MAX + 0.01 }).equity_risk_margin).toBe(0.05)
+  })
+
+  it('accepts in-band values including the boundaries 0 and the max', () => {
+    expect(mergeSavingsSleeveConfig({ savings_expected_profit_rate: 0 }).savings_expected_profit_rate).toBe(0)
+    expect(mergeSavingsSleeveConfig({ equity_risk_margin: SAVINGS_RATE_MAX }).equity_risk_margin).toBe(SAVINGS_RATE_MAX)
+  })
+
+  it('does not mutate the input partial', () => {
+    const partial = { savings_expected_profit_rate: 0.03 }
+    mergeSavingsSleeveConfig(partial)
+    expect(partial).toEqual({ savings_expected_profit_rate: 0.03 })
+  })
+})
+
+describe('app config defaults include the savings sleeve', () => {
+  it('demo config carries the default savings sleeve', () => {
+    expect(defaultDemoAppConfig().savings).toEqual(defaultSavingsSleeveConfig())
+  })
+
+  it('personal-local config carries the default savings sleeve', () => {
+    expect(defaultPersonalLocalAppConfig().savings).toEqual(defaultSavingsSleeveConfig())
+  })
+
+  it('leaves version unchanged at 1 (additive field, no migration)', () => {
+    expect(defaultDemoAppConfig().version).toBe(1)
+    expect(defaultPersonalLocalAppConfig().version).toBe(1)
   })
 })

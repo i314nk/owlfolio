@@ -527,4 +527,70 @@ describe('accounting snapshot projection', () => {
     expect(recorded.payload).not.toHaveProperty('purification_paid')
     expect(projectRecordedAccountingSnapshots([recorded])).toEqual([snapshot])
   })
+
+  it('treats idle cash as a savings_balance and surfaces an EXPECTED (not guaranteed) savings return', () => {
+    const deposit = event({
+      event_id: 'evt_cash_deposit_savings',
+      event_type: 'cash_deposited',
+      aggregate_type: 'cash_account',
+      aggregate_id: 'cash_usd',
+      actor_type: 'user',
+      actor_id: 'user_local',
+      payload: {
+        cash_account_id: 'cash_usd',
+        amount: 1000,
+        currency: 'USD',
+        deposited_at: '2026-06-10',
+      },
+      created_at: '2026-06-10T09:00:00.000Z',
+    })
+
+    const snapshot = projectAccountingSnapshot([deposit], {
+      snapshot_id: 'acct_2026_06',
+      period_start: '2026-06-01',
+      period_end: '2026-06-30',
+      currency: 'USD',
+      recorded_at: '2026-06-30T23:59:00.000Z',
+      // The ONE expected (not guaranteed) Mudarabah profit rate, supplied from SavingsSleeveConfig.
+      savings_expected_profit_rate: 0.02,
+    })
+
+    // savings_balance is exactly the un-deployed idle cash sitting in the sleeve.
+    expect(snapshot.savings_balance).toBe(1000)
+    expect(snapshot.savings_balance).toBe(snapshot.cash_balance)
+    // expected_savings_return = balance × rate — EXPECTED, NOT GUARANTEED.
+    expect(snapshot.expected_savings_return).toEqual({
+      amount: 20,
+      basis: 'expected_not_guaranteed',
+      rate: 0.02,
+      model: 'mudarabah',
+    })
+  })
+
+  it('omits expected_savings_return when no rate is supplied, but still reports savings_balance (additive, back-compat)', () => {
+    const deposit = event({
+      event_id: 'evt_cash_deposit_norate',
+      event_type: 'cash_deposited',
+      aggregate_type: 'cash_account',
+      aggregate_id: 'cash_usd',
+      actor_type: 'user',
+      actor_id: 'user_local',
+      payload: { cash_account_id: 'cash_usd', amount: 500, currency: 'USD', deposited_at: '2026-06-10' },
+      created_at: '2026-06-10T09:00:00.000Z',
+    })
+
+    const snapshot = projectAccountingSnapshot([deposit], {
+      snapshot_id: 'acct_2026_06',
+      period_start: '2026-06-01',
+      period_end: '2026-06-30',
+      currency: 'USD',
+      recorded_at: '2026-06-30T23:59:00.000Z',
+    })
+
+    expect(snapshot.savings_balance).toBe(500)
+    expect(snapshot.expected_savings_return).toBeUndefined()
+    // Existing fields unchanged.
+    expect(snapshot.cash_balance).toBe(500)
+    expect(snapshot.nav).toBe(500)
+  })
 })

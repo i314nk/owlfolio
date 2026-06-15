@@ -19,6 +19,7 @@
     "./sizingParams": "./src/sizingParams.ts",
     "./convictionFactor": "./src/convictionFactor.ts",
     "./permanentLossCap": "./src/permanentLossCap.ts",
+    "./deploymentHurdle": "./src/deploymentHurdle.ts",
     "./correlatedClusters": "./src/correlatedClusters.ts",
     "./valuationParams": "./src/valuationParams.ts",
     "./reverseDcf": "./src/reverseDcf.ts",

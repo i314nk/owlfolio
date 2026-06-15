@@ -23,6 +23,7 @@ function snapshot(overrides: Partial<AccountingSnapshotProjection> = {}): Accoun
     dividends: 0,
     fees: 0,
     net_cash_flow: 0,
+    savings_balance: 0,
     cash_ledger_status: 'placeholder',
     cash_flows: [],
     audit_event_ids: ['evt_holding_opened_msft', 'evt_holding_valuation_msft'],

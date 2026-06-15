@@ -23,6 +23,33 @@ export type ShariahDefaults = {
   non_compliant_income_threshold: number
 }
 
+/**
+ * Cash-as-a-first-class-position: the Shariah-compliant savings sleeve config (Phase 5 S5).
+ *
+ * Idle capital's default home is a Mudarabah-style sleeve: CAPITAL-STABLE (not capital-CERTAIN) and
+ * profit-SHARING — NOT a Treasury bill, NOT a guaranteed/risk-free instrument. The single rate here does
+ * triple duty (the SAME number): idle-capital return, the deployment hurdle floor (now), and — later — the
+ * risk-free anchor.
+ *
+ * HONEST LABELING IS LOAD-BEARING: `savings_expected_profit_rate` is EXPECTED, NOT GUARANTEED. The field
+ * name and docs must never encode false certainty. A Mudarabah profit share is a realized-profit
+ * expectation, not a promised yield.
+ */
+export type SavingsSleeveConfig = {
+  /**
+   * The ONE rate (annualized, as a fraction e.g. 0.02 = 2%). EXPECTED, NOT GUARANTEED — a Mudarabah
+   * profit-share expectation, never a promised/risk-free yield. Drives idle-capital return + the hurdle.
+   */
+  savings_expected_profit_rate: number
+  /** Capital-STABLE, profit-SHARING Mudarabah model — NOT a Treasury bill / guaranteed instrument. */
+  savings_model: 'mudarabah'
+  /**
+   * The margin a candidate's owner-earnings yield must clear ABOVE the expected savings rate to justify
+   * deploying idle capital out of the sleeve. hurdle = savings_expected_profit_rate + equity_risk_margin.
+   */
+  equity_risk_margin: number
+}
+
 export type MarketUniverseConfig = {
   scope_id: 'public-equities'
   label: string
@@ -122,6 +149,7 @@ export type AppConfig = {
   provider: ProviderSelection
   strategy_id: StrategyId
   shariah: ShariahDefaults
+  savings?: SavingsSleeveConfig
   market_universe: MarketUniverseConfig
   automation?: AutomationSettings
   circle_of_competence?: CircleOfCompetenceConfig
@@ -136,6 +164,57 @@ export const defaultShariahDefaults = (): ShariahDefaults => ({
   allow_conditional: true,
   non_compliant_income_threshold: 0.05,
 })
+
+/**
+ * Rate band for the savings sleeve. Both `savings_expected_profit_rate` and `equity_risk_margin` are
+ * clamped FAIL-CLOSED-TO-DEFAULT into [0, SAVINGS_RATE_MAX]: any out-of-band / non-finite / non-number
+ * value reverts to the default (it is NOT silently pinned to the ceiling), so a stray config can never
+ * fabricate an implausibly high "expected" rate or hurdle.
+ */
+export const SAVINGS_RATE_MIN = 0
+export const SAVINGS_RATE_MAX = 0.25
+export const DEFAULT_SAVINGS_EXPECTED_PROFIT_RATE = 0.02
+export const DEFAULT_EQUITY_RISK_MARGIN = 0.05
+
+/** Shared reference value. Prefer `defaultSavingsSleeveConfig()` when you need a fresh, mutable copy. */
+export const DEFAULT_SAVINGS_SLEEVE: SavingsSleeveConfig = {
+  savings_expected_profit_rate: DEFAULT_SAVINGS_EXPECTED_PROFIT_RATE,
+  savings_model: 'mudarabah',
+  equity_risk_margin: DEFAULT_EQUITY_RISK_MARGIN,
+}
+
+/** Returns a fresh default savings sleeve (capital-stable Mudarabah; rate EXPECTED, NOT guaranteed). */
+export const defaultSavingsSleeveConfig = (): SavingsSleeveConfig => ({
+  savings_expected_profit_rate: DEFAULT_SAVINGS_EXPECTED_PROFIT_RATE,
+  savings_model: 'mudarabah',
+  equity_risk_margin: DEFAULT_EQUITY_RISK_MARGIN,
+})
+
+/** Clamp a savings rate into [SAVINGS_RATE_MIN, SAVINGS_RATE_MAX], failing CLOSED TO DEFAULT (never to the ceiling). */
+const clampSavingsRate = (value: unknown, fallback: number): number => {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return fallback
+  if (value < SAVINGS_RATE_MIN || value > SAVINGS_RATE_MAX) return fallback
+  return value
+}
+
+/**
+ * Merge a (potentially partial, legacy, or invalid) savings sleeve config with the defaults without
+ * mutating the input. Out-of-band / invalid rates fail closed to the default; `savings_model` is always
+ * pinned to the single supported capital-stable model ('mudarabah') — no tiered-cash / sukuk variants.
+ */
+export const mergeSavingsSleeveConfig = (partial?: Partial<SavingsSleeveConfig>): SavingsSleeveConfig => {
+  if (partial === undefined) {
+    return defaultSavingsSleeveConfig()
+  }
+  return {
+    savings_expected_profit_rate: clampSavingsRate(
+      partial.savings_expected_profit_rate,
+      DEFAULT_SAVINGS_EXPECTED_PROFIT_RATE,
+    ),
+    savings_model: 'mudarabah',
+    equity_risk_margin: clampSavingsRate(partial.equity_risk_margin, DEFAULT_EQUITY_RISK_MARGIN),
+  }
+}
 
 export const defaultMarketUniverseConfig = (): MarketUniverseConfig => ({
   scope_id: 'public-equities',
@@ -296,6 +375,7 @@ export const defaultDemoAppConfig = (): AppConfig => ({
   },
   strategy_id: 'buffett-munger',
   shariah: defaultShariahDefaults(),
+  savings: defaultSavingsSleeveConfig(),
   market_universe: defaultMarketUniverseConfig(),
   automation: defaultAutomationSettings(),
   circle_of_competence: defaultCircleOfCompetenceConfig(),
@@ -310,6 +390,7 @@ export const defaultPersonalLocalAppConfig = (): AppConfig => ({
   },
   strategy_id: 'buffett-munger',
   shariah: defaultShariahDefaults(),
+  savings: defaultSavingsSleeveConfig(),
   market_universe: defaultMarketUniverseConfig(),
   automation: defaultAutomationSettings(),
   circle_of_competence: defaultCircleOfCompetenceConfig(),

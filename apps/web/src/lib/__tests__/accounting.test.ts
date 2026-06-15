@@ -30,6 +30,7 @@ function recordedSnapshot(overrides: Partial<AccountingSnapshotProjection> = {})
     dividends: 0,
     fees: 0,
     net_cash_flow: 0,
+    savings_balance: 0,
     cash_ledger_status: 'placeholder',
     cash_flows: [],
     audit_event_ids: [],
