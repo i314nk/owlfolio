@@ -3,10 +3,14 @@ import { describe, expect, it } from 'vitest'
 import {
   type AutomationCadenceReanalysis,
   type AutomationSettings,
+  type CircleOfCompetenceConfig,
+  DEFAULT_CIRCLE_OF_COMPETENCE,
   defaultAutomationSettings,
+  defaultCircleOfCompetenceConfig,
   defaultDemoAppConfig,
   defaultPersonalLocalAppConfig,
   mergeAutomationSettings,
+  mergeCircleOfCompetenceConfig,
 } from '../appConfig'
 
 describe('defaultAutomationSettings', () => {
@@ -118,10 +122,144 @@ describe('mergeAutomationSettings', () => {
   })
 })
 
+describe('defaultCircleOfCompetenceConfig', () => {
+  it('is permissive by default: disabled with no caps or lists', () => {
+    const config = defaultCircleOfCompetenceConfig()
+    expect(config.enabled).toBe(false)
+    expect(config.allowed_sic_prefixes).toBeUndefined()
+    expect(config.excluded_sic_prefixes).toBeUndefined()
+    expect(config.allowed_archetypes).toBeUndefined()
+    expect(config.min_market_cap_musd).toBeUndefined()
+    expect(config.max_market_cap_musd).toBeUndefined()
+  })
+
+  it('DEFAULT_CIRCLE_OF_COMPETENCE matches the factory default and is frozen-safe (no shared mutation)', () => {
+    expect(defaultCircleOfCompetenceConfig()).toEqual(DEFAULT_CIRCLE_OF_COMPETENCE)
+    // Factory returns a fresh object each call so callers cannot mutate the shared default
+    expect(defaultCircleOfCompetenceConfig()).not.toBe(defaultCircleOfCompetenceConfig())
+  })
+})
+
+describe('mergeCircleOfCompetenceConfig', () => {
+  it('returns the permissive default when called with no argument', () => {
+    expect(mergeCircleOfCompetenceConfig()).toEqual(defaultCircleOfCompetenceConfig())
+  })
+
+  it('returns the permissive default when called with undefined', () => {
+    expect(mergeCircleOfCompetenceConfig(undefined)).toEqual(defaultCircleOfCompetenceConfig())
+  })
+
+  it('does not mutate the partial passed in', () => {
+    const partial: Partial<CircleOfCompetenceConfig> = { enabled: true, excluded_sic_prefixes: ['6'] }
+    const snapshot = JSON.parse(JSON.stringify(partial))
+    mergeCircleOfCompetenceConfig(partial)
+    expect(partial).toEqual(snapshot)
+  })
+
+  it('spreads a partial over the permissive default: enabled + excluded_sic_prefixes', () => {
+    const merged = mergeCircleOfCompetenceConfig({ enabled: true, excluded_sic_prefixes: ['6'] })
+    expect(merged.enabled).toBe(true)
+    expect(merged.excluded_sic_prefixes).toEqual(['6'])
+    // Untouched optional fields stay undefined (permissive)
+    expect(merged.allowed_sic_prefixes).toBeUndefined()
+    expect(merged.allowed_archetypes).toBeUndefined()
+    expect(merged.min_market_cap_musd).toBeUndefined()
+    expect(merged.max_market_cap_musd).toBeUndefined()
+  })
+
+  it('keeps valid allowed lists and archetypes (string arrays)', () => {
+    const merged = mergeCircleOfCompetenceConfig({
+      enabled: true,
+      allowed_sic_prefixes: ['20', '28'],
+      allowed_archetypes: ['compounder', 'special-situation'],
+    })
+    expect(merged.allowed_sic_prefixes).toEqual(['20', '28'])
+    expect(merged.allowed_archetypes).toEqual(['compounder', 'special-situation'])
+  })
+
+  // --- Fail-closed-to-permissive on invalid values ---
+
+  it('fail-closed: non-array list fields are dropped (treated as permissive/unset)', () => {
+    const merged = mergeCircleOfCompetenceConfig({
+      enabled: true,
+      allowed_sic_prefixes: 'not-an-array' as unknown as string[],
+      excluded_sic_prefixes: 42 as unknown as string[],
+      allowed_archetypes: {} as unknown as string[],
+    })
+    expect(merged.allowed_sic_prefixes).toBeUndefined()
+    expect(merged.excluded_sic_prefixes).toBeUndefined()
+    expect(merged.allowed_archetypes).toBeUndefined()
+  })
+
+  it('fail-closed: non-string entries inside a list are filtered out', () => {
+    const merged = mergeCircleOfCompetenceConfig({
+      enabled: true,
+      allowed_sic_prefixes: ['20', 28 as unknown as string, '', '  ', '28'] as string[],
+    })
+    expect(merged.allowed_sic_prefixes).toEqual(['20', '28'])
+  })
+
+  it('fail-closed: an all-invalid list collapses to undefined (permissive)', () => {
+    const merged = mergeCircleOfCompetenceConfig({
+      enabled: true,
+      allowed_sic_prefixes: [42, null, ''] as unknown as string[],
+    })
+    expect(merged.allowed_sic_prefixes).toBeUndefined()
+  })
+
+  it('fail-closed: negative market-cap bounds are dropped (permissive)', () => {
+    const merged = mergeCircleOfCompetenceConfig({
+      enabled: true,
+      min_market_cap_musd: -100,
+      max_market_cap_musd: -1,
+    })
+    expect(merged.min_market_cap_musd).toBeUndefined()
+    expect(merged.max_market_cap_musd).toBeUndefined()
+  })
+
+  it('fail-closed: NaN / non-finite market-cap bounds are dropped (permissive)', () => {
+    const merged = mergeCircleOfCompetenceConfig({
+      enabled: true,
+      min_market_cap_musd: Number.NaN,
+      max_market_cap_musd: Number.POSITIVE_INFINITY,
+    })
+    expect(merged.min_market_cap_musd).toBeUndefined()
+    expect(merged.max_market_cap_musd).toBeUndefined()
+  })
+
+  it('market-cap bounds: valid values are kept and rounded sanely', () => {
+    const merged = mergeCircleOfCompetenceConfig({
+      enabled: true,
+      min_market_cap_musd: 250.4,
+      max_market_cap_musd: 2000.6,
+    })
+    expect(merged.min_market_cap_musd).toBe(250)
+    expect(merged.max_market_cap_musd).toBe(2001)
+  })
+
+  it('market-cap bounds: zero min is permitted (down-the-cap edge), kept as 0', () => {
+    const merged = mergeCircleOfCompetenceConfig({ enabled: true, min_market_cap_musd: 0 })
+    expect(merged.min_market_cap_musd).toBe(0)
+  })
+
+  it('never throws on garbage input', () => {
+    expect(() => mergeCircleOfCompetenceConfig({
+      enabled: 'yes' as unknown as boolean,
+      allowed_sic_prefixes: null as unknown as string[],
+      min_market_cap_musd: 'big' as unknown as number,
+    })).not.toThrow()
+  })
+})
+
 describe('defaultDemoAppConfig back-compat', () => {
   it('includes automation with defaults', () => {
     const config = defaultDemoAppConfig()
     expect(config.automation).toEqual(defaultAutomationSettings())
+  })
+
+  it('includes a permissive circle_of_competence by default', () => {
+    const config = defaultDemoAppConfig()
+    expect(config.circle_of_competence).toEqual(defaultCircleOfCompetenceConfig())
   })
 
   it('parses correctly when automation is absent (legacy config)', () => {
@@ -144,5 +282,10 @@ describe('defaultPersonalLocalAppConfig back-compat', () => {
   it('includes automation with defaults', () => {
     const config = defaultPersonalLocalAppConfig()
     expect(config.automation).toEqual(defaultAutomationSettings())
+  })
+
+  it('includes a permissive circle_of_competence by default', () => {
+    const config = defaultPersonalLocalAppConfig()
+    expect(config.circle_of_competence).toEqual(defaultCircleOfCompetenceConfig())
   })
 })

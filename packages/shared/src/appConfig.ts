@@ -80,6 +80,42 @@ export const clampResearchMaxToolCalls = (value: unknown): number => {
   return rounded
 }
 
+/**
+ * The owner-set "circle of competence" boundary the research harness CHECKS candidates against
+ * before spend (the check + pre-spend gate live in a later task; this is the config only).
+ *
+ * Default is PERMISSIVE: `{ enabled: false }` with every optional field unset admits everything, so
+ * nothing is ever silently rejected until the owner deliberately narrows the boundary.
+ */
+export type CircleOfCompetenceConfig = {
+  /** false = permissive (no rejection); true = enforce the boundary below. Default false. */
+  enabled: boolean
+  /** When set + enabled, a candidate's SIC code must prefix-match one of these to be admitted. */
+  allowed_sic_prefixes?: string[]
+  /** When set + enabled, a candidate whose SIC code prefix-matches one of these is rejected. */
+  excluded_sic_prefixes?: string[]
+  /** When set + enabled, a candidate's business archetype must be one of these to be admitted. */
+  allowed_archetypes?: string[]
+  /**
+   * DEFERRED — Pabrai Principle 5 (size) decision. Market-cap floor in millions USD.
+   *
+   * Size is the deliberately-deferred axis: the small-investor edge lives DOWN the cap spectrum
+   * (sub-$500M names, special situations large funds structurally cannot touch). A high min-cap —
+   * e.g. a reflexive "min $2B for liquidity/EDGAR coverage" default — would structurally foreclose
+   * exactly that edge. But a very low floor strains other gates: thin small-cap XBRL/data coverage,
+   * the moat gate (sub-$500M wide-moats are rarer), and Shariah-screen reliability. There is no safe
+   * reflexive default in either direction, so this ships PERMISSIVE (unset). It must be set
+   * DELIBERATELY by the owner later, never auto-defaulted, so size never becomes a buried parameter.
+   */
+  min_market_cap_musd?: number
+  /**
+   * DEFERRED — Pabrai Principle 5 (size) decision. Market-cap ceiling in millions USD.
+   * See `min_market_cap_musd` above: size is a deferred, deliberately-set axis, NOT a reflexive
+   * default. Ships PERMISSIVE (unset) so the small-cap edge is never foreclosed by accident.
+   */
+  max_market_cap_musd?: number
+}
+
 export type AppConfig = {
   version: 1
   mode: OwlfolioMode
@@ -88,6 +124,7 @@ export type AppConfig = {
   shariah: ShariahDefaults
   market_universe: MarketUniverseConfig
   automation?: AutomationSettings
+  circle_of_competence?: CircleOfCompetenceConfig
   ledger_path?: string
   source_ledger_path?: string
   initialized_at?: string
@@ -185,6 +222,70 @@ export const mergeAutomationSettings = (partial?: Partial<AutomationSettings & {
   }
 }
 
+/**
+ * The permissive baseline: disabled, with no lists or caps. Admits every candidate. Used as the
+ * shared reference value; prefer `defaultCircleOfCompetenceConfig()` when you need a fresh, mutable
+ * copy.
+ */
+export const DEFAULT_CIRCLE_OF_COMPETENCE: CircleOfCompetenceConfig = { enabled: false }
+
+/** Returns a fresh permissive circle-of-competence config (so callers can't mutate the shared default). */
+export const defaultCircleOfCompetenceConfig = (): CircleOfCompetenceConfig => ({ enabled: false })
+
+/** Keep only finite, trimmed, non-empty string entries; collapse an empty result to undefined (permissive). */
+const sanitizeStringList = (value: unknown): string[] | undefined => {
+  if (!Array.isArray(value)) return undefined
+  const cleaned = value
+    .filter((entry): entry is string => typeof entry === 'string')
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0)
+  return cleaned.length > 0 ? cleaned : undefined
+}
+
+/**
+ * Clamp a (possibly invalid) market-cap bound (millions USD) to a non-negative integer, or drop it.
+ * Fail-closed to permissive: negative / NaN / non-finite / non-number → undefined (no bound applied).
+ * Note: bounds are intentionally NOT given a reflexive default — see CircleOfCompetenceConfig docs.
+ */
+const clampMarketCapMusd = (value: unknown): number | undefined => {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) return undefined
+  return Math.round(value)
+}
+
+/**
+ * Merges a (potentially partial, legacy, or invalid) circle-of-competence config with the permissive
+ * default without mutating the input. Invalid values fail closed to PERMISSIVE (the offending field is
+ * dropped / left unset rather than throwing) so a malformed config can never silently reject candidates.
+ */
+export const mergeCircleOfCompetenceConfig = (
+  partial?: Partial<CircleOfCompetenceConfig>,
+): CircleOfCompetenceConfig => {
+  if (partial === undefined) {
+    return defaultCircleOfCompetenceConfig()
+  }
+
+  const merged: CircleOfCompetenceConfig = {
+    enabled: partial.enabled === true,
+  }
+
+  const allowedSic = sanitizeStringList(partial.allowed_sic_prefixes)
+  if (allowedSic !== undefined) merged.allowed_sic_prefixes = allowedSic
+
+  const excludedSic = sanitizeStringList(partial.excluded_sic_prefixes)
+  if (excludedSic !== undefined) merged.excluded_sic_prefixes = excludedSic
+
+  const allowedArchetypes = sanitizeStringList(partial.allowed_archetypes)
+  if (allowedArchetypes !== undefined) merged.allowed_archetypes = allowedArchetypes
+
+  const minCap = clampMarketCapMusd(partial.min_market_cap_musd)
+  if (minCap !== undefined) merged.min_market_cap_musd = minCap
+
+  const maxCap = clampMarketCapMusd(partial.max_market_cap_musd)
+  if (maxCap !== undefined) merged.max_market_cap_musd = maxCap
+
+  return merged
+}
+
 export const defaultDemoAppConfig = (): AppConfig => ({
   version: 1,
   mode: 'demo',
@@ -197,6 +298,7 @@ export const defaultDemoAppConfig = (): AppConfig => ({
   shariah: defaultShariahDefaults(),
   market_universe: defaultMarketUniverseConfig(),
   automation: defaultAutomationSettings(),
+  circle_of_competence: defaultCircleOfCompetenceConfig(),
 })
 
 export const defaultPersonalLocalAppConfig = (): AppConfig => ({
@@ -210,4 +312,5 @@ export const defaultPersonalLocalAppConfig = (): AppConfig => ({
   shariah: defaultShariahDefaults(),
   market_universe: defaultMarketUniverseConfig(),
   automation: defaultAutomationSettings(),
+  circle_of_competence: defaultCircleOfCompetenceConfig(),
 })
