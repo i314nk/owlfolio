@@ -114,12 +114,22 @@ export const AdmitJudgmentSchema = z.object({
   // The two SEPARATE grounded fields — the Pabrai-Principle-7 split made structural.
   uncertainty: GroundedRiskFieldSchema,
   permanent_loss_risk: GroundedRiskFieldSchema,
-  // The INDEPENDENT impairment bear case (argues PERMANENT impairment from the filings; see prompt).
-  impairment_bear_case: z.string().min(1),
   proposed_sources: ProposedSourcesSchema,
 })
 
 export type AdmitJudgmentAnalysis = z.infer<typeof AdmitJudgmentSchema>
+
+/**
+ * Step-1 schema — the INDEPENDENT impairment bear case, generated from the filings COLD (its own
+ * provider call, NOT handed the bull/quality narrative). It is a separate contract precisely so the
+ * bear case cannot be a field smuggled out of the bull-context judgment call.
+ */
+export const AdmitBearCaseSchema = z.object({
+  impairment_bear_case: z.string().min(1),
+  proposed_sources: ProposedSourcesSchema,
+})
+
+export type AdmitBearCaseAnalysis = z.infer<typeof AdmitBearCaseSchema>
 
 /** A grounded risk field on the persisted recommendation (citations are post-cite-check). */
 export type GroundedRiskField = {
@@ -200,7 +210,13 @@ export function buildAdmitBearPrompt(args: RunAdmitJudgmentArgs): string {
   )
 }
 
-function buildAdmitJudgmentPrompt(args: RunAdmitJudgmentArgs): string {
+/**
+ * Step-2 judgment prompt. It legitimately needs the quality verdict + lanes to assess uncertainty and
+ * permanent_loss_risk — BUT it is also FED the independent impairment bear case from Step 1 (generated
+ * from the filings cold) so the `permanent_loss_risk` assessment is PRESSURE-TESTED by an argument that
+ * was NOT built by critiquing the bull thesis. The judgment does NOT emit the bear case (Step 1 owns it).
+ */
+function buildAdmitJudgmentPrompt(args: RunAdmitJudgmentArgs, independentBearCase: string): string {
   const laneLines = args.laneDigest
     .map((l) => `  - ${l.lane} (${l.confidence}): ${l.finding_summary}`)
     .join('\n')
@@ -210,6 +226,9 @@ function buildAdmitJudgmentPrompt(args: RunAdmitJudgmentArgs): string {
     + `${args.cheapness_summary}\n\n`
     + `The research swarm ${args.quality_verdict_passes ? 'PASSED' : 'did NOT pass'} this business on quality.\n\n`
     + `Lane findings:\n${laneLines}\n\n`
+    + `An INDEPENDENT impairment bear case was generated SEPARATELY from the filings cold (it did NOT see this `
+    + `quality verdict or these lane findings). Pressure-test your permanent_loss_risk assessment against it — `
+    + `do not dismiss it because the bull case is strong:\n"""\n${independentBearCase}\n"""\n\n`
     + `Your job is the HARDEST judgment: the name is cheap because something went WRONG — is that wrong thing `
     + `FIXABLE (temporary, recoverable) or TERMINAL (permanent impairment)? Separate the two axes that a single `
     + `"value trap?" verdict would blur:\n`
@@ -218,9 +237,8 @@ function buildAdmitJudgmentPrompt(args: RunAdmitJudgmentArgs): string {
     + `unknown). This is the axis that decides admit. The value trap is a LOW stated permanent-loss-risk that is `
     + `actually HIGH.\n\n`
     + `Emit BOTH as SEPARATE grounded fields: each REQUIRES a level (low|medium|high), an argument, and >=1 `
-    + `citation. Also emit an impairment_bear_case that argues permanent impairment from the filings. `
-    + `GROUNDING (non-negotiable): cite ONLY the verified corpus (${corpus}); return them in proposed_sources `
-    + `with real URLs. An ungrounded risk claim will be rejected.`
+    + `citation. GROUNDING (non-negotiable): cite ONLY the verified corpus (${corpus}); return them in `
+    + `proposed_sources with real URLs. An ungrounded risk claim will be rejected.`
   )
 }
 
@@ -256,6 +274,36 @@ export async function runAdmitJudgment(
   args: RunAdmitJudgmentArgs,
   deps: { ground?: GroundFn; grounding?: GroundingDeps } = {},
 ): Promise<AdmitRecommendation> {
+  // STEP 1 — the INDEPENDENT impairment bear case (its OWN provider call). It is fed ONLY the corpus /
+  // cheapness context via buildAdmitBearPrompt; it does NOT receive quality_verdict_passes, the lane
+  // digest, or any bull/admit thesis — so it argues impairment from the filings COLD (not critique-the-
+  // thesis). If THIS call fails, we fail-closed: the judgment is too important to proceed with no bear
+  // case, so we degrade VISIBLY rather than fabricating a clean admit.
+  let bearCase: string
+  try {
+    const bear = await runGroundedAgentWithRetry(
+      provider,
+      {
+        run_id: `run_${args.research_case_id}_admit_bear_case`,
+        model_id: args.model_id,
+        prompt: buildAdmitBearPrompt(args),
+        timeout_ms: AGENT_TIMEOUT_MS,
+        schema_name: 'BuffettMungerAdmitBearCase',
+      },
+      AdmitBearCaseSchema,
+      deps,
+    )
+    bearCase = bear.analysis.impairment_bear_case
+  } catch (error) {
+    return {
+      status: 'admit_judgment_incomplete',
+      reason: `independent impairment bear case failed: ${error instanceof Error ? error.message : String(error)}`,
+    }
+  }
+
+  // STEP 2 — the admit judgment (uncertainty + permanent_loss_risk grounded fields). It legitimately
+  // gets the quality verdict + lanes, AND is fed the Step-1 independent bear case so permanent_loss_risk
+  // is pressure-tested by an argument NOT built from the bull thesis.
   let agent
   try {
     agent = await runGroundedAgentWithRetry(
@@ -263,7 +311,7 @@ export async function runAdmitJudgment(
       {
         run_id: `run_${args.research_case_id}_admit_judgment`,
         model_id: args.model_id,
-        prompt: buildAdmitJudgmentPrompt(args),
+        prompt: buildAdmitJudgmentPrompt(args, bearCase),
         timeout_ms: AGENT_TIMEOUT_MS,
         schema_name: 'BuffettMungerAdmitJudgment',
       },
@@ -299,7 +347,7 @@ export async function runAdmitJudgment(
       argument: a.permanent_loss_risk.argument,
       citations: pCheck.citations,
     },
-    impairment_bear_case: a.impairment_bear_case,
+    impairment_bear_case: bearCase,
     impairment_call: classified.impairment_call,
     admittable: classified.admittable,
     reason: classified.reason,

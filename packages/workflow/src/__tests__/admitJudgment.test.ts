@@ -82,6 +82,43 @@ function admitProvider(payload: unknown) {
   }
 }
 
+/** The recorded args of a single provider.structured call (the request prompt is what we inspect). */
+type RecordedCall = { prompt: string }
+
+/**
+ * A fake provider that records the request of EACH structured call and returns a per-call payload.
+ * The layer now makes TWO calls — Step 1 (independent bear case) then Step 2 (the judgment) — so the
+ * test inspects the ACTUAL arguments each call received (code path), not a prompt builder in isolation.
+ */
+function recordingAdmitProvider(payloads: unknown[]) {
+  const calls: RecordedCall[] = []
+  let i = 0
+  return {
+    provider: {
+      provider_id: 'fake-admit-recording',
+      capabilities: {} as never,
+      complete: vi.fn(),
+      runWithTools: vi.fn(),
+      structured: vi.fn(async (req: { prompt: string }) => {
+        calls.push({ prompt: req.prompt })
+        const payload = payloads[Math.min(i, payloads.length - 1)]
+        i += 1
+        return payload
+      }),
+    },
+    calls,
+  }
+}
+
+/** Step-1 payload: an INDEPENDENT impairment bear case (only the bear case + sources). */
+function bearCasePayload() {
+  return {
+    impairment_bear_case:
+      'From the filings cold: the renewal cohort and deferred revenue are eroding structurally; this is terminal, not a stumble.',
+    proposed_sources: proposedSources(),
+  }
+}
+
 const verifyAllGround: GroundFn = (async (sources: { source_id: string }[]) => ({
   captured: sources.map((s) => ({
     source_id: s.source_id, title: 't', url: 'https://example.com/x', excerpt: 'e',
@@ -198,6 +235,78 @@ describe('runAdmitJudgment — provider-driven judgment feeding the classifier',
     expect(prompt).toMatch(/do not critique a bull thesis/i)
     expect(prompt).toMatch(/you are not given one/i)
     expect(prompt).toMatch(/from the filings cold/i)
+  })
+
+  // -------------------------------------------------------------------------
+  // INDEPENDENCE IN THE CODE PATH (not the prompt string). The layer makes TWO calls; we inspect the
+  // ACTUAL arguments each provider call received. The bear case must be generated from the filings
+  // COLD — its call must NOT see the bull/quality narrative (the value trap hides in that gap).
+  // -------------------------------------------------------------------------
+
+  it('CODE PATH: the bear-case call actually happens (buildAdmitBearPrompt is on the path, not dead code)', async () => {
+    const { provider, calls } = recordingAdmitProvider([bearCasePayload(), stumbleShapedPayload()])
+    const rec = await runAdmitJudgment(provider as never, baseArgs, { ground: verifyAllGround })
+    expect(rec.status).toBe('complete')
+    // Two calls: Step 1 independent bear case, Step 2 the judgment.
+    expect(calls.length).toBe(2)
+    // The first call IS the independent bear-case prompt produced by buildAdmitBearPrompt.
+    expect(calls[0]!.prompt).toBe(buildAdmitBearPrompt(baseArgs))
+  })
+
+  it('INDEPENDENCE: the bear-case call context contains ONLY corpus/cheapness — NOT quality_verdict/laneDigest/bull-thesis', async () => {
+    const { provider, calls } = recordingAdmitProvider([bearCasePayload(), stumbleShapedPayload()])
+    await runAdmitJudgment(provider as never, baseArgs, { ground: verifyAllGround })
+    const bearPrompt = calls[0]!.prompt
+    // It DOES carry the corpus it must cite (grounding) — that is allowed cold context.
+    expect(bearPrompt).toContain('src_a')
+    expect(bearPrompt).toContain('src_b')
+    // It must NOT carry the bull/quality narrative that turns it into critique-the-thesis:
+    //   - the quality verdict rendered into the prompt ("PASSED ... on quality")
+    expect(bearPrompt).not.toMatch(/on quality/i)
+    expect(bearPrompt).not.toMatch(/PASSED/)
+    //   - the lane-digest findings (the bull case the swarm built)
+    expect(bearPrompt).not.toContain('wide moat')
+    expect(bearPrompt).not.toContain('cyclical drawdown')
+    expect(bearPrompt).not.toMatch(/lane findings/i)
+    //   - an admit/bull thesis to poke holes in
+    expect(bearPrompt).not.toMatch(/bull thesis to/i)
+  })
+
+  it('STEP 2: the judgment call RECEIVES the independent bear case from Step 1 as input', async () => {
+    const bear = bearCasePayload()
+    const { provider, calls } = recordingAdmitProvider([bear, stumbleShapedPayload()])
+    await runAdmitJudgment(provider as never, baseArgs, { ground: verifyAllGround })
+    const judgmentPrompt = calls[1]!.prompt
+    // The judgment (Step 2) is fed the independent bear case so permanent_loss_risk is pressure-tested.
+    expect(judgmentPrompt).toContain(bear.impairment_bear_case)
+  })
+
+  it('RESULT: impairment_bear_case is the Step-1 independent bear case, not a field the judgment call emitted', async () => {
+    const bear = bearCasePayload()
+    const { provider } = recordingAdmitProvider([bear, stumbleShapedPayload()])
+    const rec = await runAdmitJudgment(provider as never, baseArgs, { ground: verifyAllGround })
+    expect(rec.status).toBe('complete')
+    if (rec.status !== 'complete') return
+    expect(rec.impairment_bear_case).toBe(bear.impairment_bear_case)
+  })
+
+  it('FAIL-CLOSED: if the bear-case call fails, the judgment degrades visibly (admit_judgment_incomplete), no clean admit', async () => {
+    const provider = {
+      provider_id: 'fake-admit-bear-fails',
+      capabilities: {} as never,
+      complete: vi.fn(),
+      runWithTools: vi.fn(),
+      // The FIRST (bear-case) call throws on every attempt; the layer must not silently proceed.
+      structured: vi.fn(async () => {
+        throw new Error('bear-case provider timeout')
+      }),
+    }
+    const rec = await runAdmitJudgment(provider as never, baseArgs, { ground: verifyAllGround })
+    expect(rec.status).toBe('admit_judgment_incomplete')
+    if (rec.status !== 'admit_judgment_incomplete') return
+    // It does NOT fabricate a clean admit or proceed with no bear case.
+    expect(rec).not.toHaveProperty('admittable')
+    expect(rec).not.toHaveProperty('impairment_bear_case')
   })
 
   it('NO AUTO-ADMIT: the output is a recommendation only; admittable is a recommendation flag', async () => {
