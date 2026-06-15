@@ -60,7 +60,35 @@ describe('Owlfolio v2 domain event boundary contracts', () => {
       'position_post_mortem_recorded',
       'forecast_recorded',
       'forecast_resolved',
+      'admit_judgment_recorded',
     ])
+  })
+
+  it('freezes the admit-judgment contract (Task 4.2c) as an agent OBSERVATION, never an auto-admit', () => {
+    // The recommendation is a provider-authored OBSERVATION on the research case — it does NOT transition
+    // the name to watched (the human still admits via the watchlist_draft confirm with a signed thesis).
+    expect(contract('admit_judgment_recorded')).toMatchObject({
+      aggregate_type: 'research_case',
+      actor_type: 'provider',
+      actor_types: ['provider', 'worker'],
+      projection_owner: 'discovery',
+      payload_fields: [
+        'admit_judgment_id',
+        'research_case_id',
+        'ticker',
+        'uncertainty',
+        'permanent_loss_risk',
+        'impairment_bear_case',
+        'impairment_call',
+        'admittable',
+        'reason',
+        'buy_below',
+        'cheapness',
+        'uncited_refs',
+        'is_observation',
+        'is_recommendation',
+      ],
+    })
   })
 
   it('freezes the Module 10 post-mortem + forecast-calibration contracts as harness-arithmetic, never auto-trade', () => {

@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { spawn } from 'node:child_process'
+import { createHash } from 'node:crypto'
 
 import {
   extractDiscoverySignal,
@@ -44,6 +45,11 @@ import {
 } from '@owlfolio/workflow'
 import { selectResearchCaseAction } from '@owlfolio/workflow/researchCasePolicy'
 import { runStrategyResearchSwarm, runResearchDeepDivePhase, type GroundFn } from '@owlfolio/workflow/researchSwarm'
+import { runAdmitAssessment, type AdmitAssessmentResult } from '@owlfolio/workflow/admitAssessment'
+import { resolveFundamentalsForTicker } from '@owlfolio/workflow/fundamentalsProvider'
+import { resolveCurrentPrice, type PriceQuote } from '@owlfolio/workflow/marketData'
+import type { Fundamentals } from '@owlfolio/workflow/secEdgar'
+import type { LedgerEventEnvelope } from '@owlfolio/ledger/eventEnvelope'
 import { resolveModelRoleEnv } from './modelRoleEnv'
 import { buildAutoModelRoleOverrides } from './autoTierConfig'
 import { groundProposedSources, groundProposedSourcesDeterministic } from '@owlfolio/workflow/sourceGrounding'
@@ -690,6 +696,208 @@ export async function promoteResearchCaseToWatchlist(
     })
   } finally {
     store.close()
+  }
+}
+
+/**
+ * Dependency surface for the on-demand admit assessment (Task 4.2c). Lets the route test inject a fake
+ * provider + fixture fundamentals/price + a deterministic ground fn (offline, like the swarm tests),
+ * while the live path resolves the configured provider + live SEC EDGAR / Yahoo data.
+ */
+export type RecordAdmitJudgmentDeps = {
+  /** Override the provider (test fake). Defaults to the configured provider. */
+  provider?: ReturnType<typeof resolveProvider>
+  /** Override the grounding fn (test). Defaults to the provider-appropriate live grounder. */
+  ground?: GroundFn
+  /** Pre-resolved fundamentals (test fixture). Takes precedence over the live resolver. */
+  fundamentals?: Fundamentals
+  /** Override the current-price resolver (test fixture). Defaults to the live Yahoo adapter. */
+  resolvePrice?: (ticker: string) => Promise<PriceQuote>
+}
+
+export type RecordAdmitJudgmentOutcome =
+  | { status: 'complete'; admit_judgment_id: string; recommendation: Record<string, unknown> }
+  | { status: 'not_an_admission_candidate'; reason: string }
+  | { status: 'admit_judgment_incomplete'; reason: string }
+
+/**
+ * Compute + persist the admit-judgment recommendation for a research case ON-DEMAND (Task 4.2c).
+ *
+ * This is the LIVE wiring that composes the previously-islanded screenCheapness + runAdmitJudgment:
+ *   - reads the case FRESH from the ledger (gate verdict, lane digest, verified source corpus),
+ *   - fetches fundamentals + current price FRESH (so cheapness/EV reflect today),
+ *   - runs the orchestrator (which fail-closes early for a non-candidate — no provider call), and
+ *   - emits a single `admit_judgment_recorded` OBSERVATION (actor=provider). It does NOT admit anything:
+ *     the human still admits via the watchlist_draft confirm (signed thesis). No auto-transition.
+ *
+ * Idempotency is keyed on case + the recommendation's CONTENT hash, so re-running with an identical
+ * result converges to one event, while a fresh recompute that changes the call appends a new event
+ * (newest wins in the projection).
+ */
+export async function recordAdmitJudgment(
+  state: OnboardingState,
+  researchCaseId: string,
+  deps: RecordAdmitJudgmentDeps = {},
+): Promise<RecordAdmitJudgmentOutcome> {
+  if (!state.is_initialized || state.config.mode !== 'personal-local' || state.config.ledger_path === undefined) {
+    throw new Error('Personal-local workflow is not initialized')
+  }
+
+  const store = new SQLiteEventStore(state.config.ledger_path)
+  try {
+    const events = await store.list()
+    const researchCase = projectResearchCases(events).find((candidate) => candidate.research_case_id === researchCaseId)
+    if (researchCase === undefined) {
+      throw new Error(`Unknown research case: ${researchCaseId}`)
+    }
+
+    const ticker = researchCase.ticker ?? researchCase.company_id ?? researchCase.research_case_id
+    const gatePassing = researchCase.valuation?.moat_passes_gate === true
+
+    // The verified source corpus the judgment must cite from = the case's accumulated source_ids. We do
+    // NOT have raw content hashes on the projection, so we cite-check by source_id (a lane may cite by id;
+    // the swarm treats source_id as corpus-verified). This keeps the judgment grounded to the case corpus.
+    const timeline = projectResearchCaseTimeline(events, researchCaseId)
+    const corpusSourceIds = [...new Set(timeline.flatMap((entry) => entry.source_ids))]
+    const verifiedCitationHashes = new Set<string>(corpusSourceIds)
+
+    // Lane digest from the persisted specialist findings (same compact shape the red-team digest uses).
+    const laneDigest = (researchCase.specialist_findings ?? [])
+      .filter((finding) => finding.finding_summary !== undefined)
+      .map((finding) => ({
+        lane: finding.specialist_lane ?? finding.finding_id,
+        finding_summary: finding.finding_summary ?? '',
+        confidence: finding.confidence ?? 'medium',
+      }))
+
+    const provider = deps.provider ?? resolveProvider({ provider_id: state.config.provider.provider_id })
+    const ground: GroundFn = deps.ground ?? (
+      provider.provider_id === 'mock-provider'
+        ? groundProposedSourcesDeterministic as unknown as GroundFn
+        : groundProposedSources as unknown as GroundFn
+    )
+
+    // Fetch fundamentals + current price FRESH so the cheapness screen (OE-yield / EV) reflects today.
+    const fundamentals = deps.fundamentals ?? await resolveFundamentalsFreshForAdmit(ticker)
+    if (fundamentals === undefined) {
+      return {
+        status: 'not_an_admission_candidate',
+        reason: `cannot run the admit judgment for ${ticker}: no SEC EDGAR fundamentals resolved (cheapness/EV not computable).`,
+      }
+    }
+    const marketCapMusd = await resolveMarketCapMusdForAdmit(ticker, fundamentals, deps.resolvePrice)
+    if (marketCapMusd === undefined) {
+      return {
+        status: 'not_an_admission_candidate',
+        reason: `cannot run the admit judgment for ${ticker}: no current price resolved (market cap / EV not computable).`,
+      }
+    }
+
+    const result: AdmitAssessmentResult = await runAdmitAssessment(
+      provider,
+      {
+        research_case_id: researchCaseId,
+        ticker,
+        model_id: resolveModelIdForProvider(state.config),
+        stage: researchCase.stage,
+        gate_passing: gatePassing,
+        fundamentals,
+        market_cap_musd: marketCapMusd,
+        laneDigest,
+        corpusSourceIds,
+        verifiedCitationHashes,
+        ...(researchCase.valuation?.buy_price_per_share === undefined
+          ? {}
+          : { valuation: { buy_below: researchCase.valuation.buy_price_per_share } }),
+      },
+      { ground },
+    )
+
+    if (result.status !== 'complete') {
+      return result
+    }
+
+    const rec = result.recommendation
+    // Idempotency keyed on case + the recommendation content (so an identical recompute converges; a
+    // changed recompute appends — newest wins in the projection).
+    const contentHash = createHash('sha256').update(JSON.stringify({
+      impairment_call: rec.impairment_call,
+      admittable: rec.admittable,
+      uncertainty: rec.uncertainty,
+      permanent_loss_risk: rec.permanent_loss_risk,
+      impairment_bear_case: rec.impairment_bear_case,
+      buy_below: rec.buy_below,
+      cheapness: rec.cheapness,
+    })).digest('hex').slice(0, 16)
+    const admitJudgmentId = `admit_${researchCaseId.replace(/^rc_/, '')}_${contentHash}`
+
+    const event: LedgerEventEnvelope<unknown> = {
+      event_id: `evt_admit_judgment_recorded_${admitJudgmentId}`,
+      event_type: 'admit_judgment_recorded',
+      aggregate_type: 'research_case',
+      aggregate_id: researchCaseId,
+      correlation_id: researchCaseId,
+      actor_type: 'provider',
+      actor_id: provider.provider_id,
+      payload: {
+        admit_judgment_id: admitJudgmentId,
+        research_case_id: researchCaseId,
+        ticker,
+        uncertainty: rec.uncertainty,
+        permanent_loss_risk: rec.permanent_loss_risk,
+        impairment_bear_case: rec.impairment_bear_case,
+        impairment_call: rec.impairment_call,
+        // RECOMMENDATION flag only — nothing transitions the name here (the human admits in 4.2b).
+        admittable: rec.admittable,
+        reason: rec.reason,
+        ...(rec.buy_below === undefined ? {} : { buy_below: rec.buy_below }),
+        ...(rec.cheapness === undefined ? {} : { cheapness: rec.cheapness }),
+        ...(rec.uncited_refs === undefined ? {} : { uncited_refs: rec.uncited_refs }),
+        // Worker/agent OBSERVATION discipline: this is an observation, NOT a recommendation to ACT.
+        is_observation: true,
+        is_recommendation: false,
+      },
+      source_ids: corpusSourceIds,
+      created_at: new Date().toISOString(),
+      schema_version: 1,
+      idempotency_key: `admit-judgment:${researchCaseId}:${contentHash}`,
+    }
+    await store.append(event)
+
+    return {
+      status: 'complete',
+      admit_judgment_id: admitJudgmentId,
+      recommendation: event.payload as Record<string, unknown>,
+    }
+  } finally {
+    store.close()
+  }
+}
+
+/** Resolve fundamentals fresh for the admit screen — fail-closed (undefined) on any error / offline. */
+async function resolveFundamentalsFreshForAdmit(ticker: string): Promise<Fundamentals | undefined> {
+  try {
+    return await resolveFundamentalsForTicker(ticker)
+  } catch {
+    return undefined
+  }
+}
+
+/** Resolve market cap ($M) = current price × diluted shares (millions). Fail-closed (undefined). */
+async function resolveMarketCapMusdForAdmit(
+  ticker: string,
+  fundamentals: Fundamentals,
+  resolvePrice?: (ticker: string) => Promise<PriceQuote>,
+): Promise<number | undefined> {
+  const dilutedShares = fundamentals.latest_annual.diluted_shares_m
+  if (dilutedShares === undefined || !(dilutedShares > 0)) return undefined
+  try {
+    const quote = await (resolvePrice ?? ((t: string) => resolveCurrentPrice({ ticker: t })))(ticker)
+    if (!quote.available) return undefined
+    // diluted_shares_m is in MILLIONS → price × shares(M) yields $MILLIONS market cap.
+    return quote.price_per_share * dilutedShares
+  } catch {
+    return undefined
   }
 }
 

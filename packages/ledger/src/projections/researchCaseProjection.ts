@@ -261,6 +261,44 @@ export type ResearchCaseShariahFinancialProjection = {
   bridge_source_fiscal_year?: number
 }
 
+/**
+ * A grounded risk field on the admit recommendation (Task 4.2c): level + argument + cite-checked
+ * citations. The value trap hides in a LOW stated permanent_loss_risk that is actually HIGH, so the
+ * judgment carries `uncertainty` and `permanent_loss_risk` as SEPARATE grounded fields.
+ */
+export type ResearchCaseAdmitRiskFieldProjection = {
+  level?: string
+  argument?: string
+  citations?: string[]
+}
+
+/** Cheapness summary (Phase-1 OE / EV) that surfaced the name for the admit judgment. */
+export type ResearchCaseAdmitCheapnessProjection = {
+  owner_earnings_yield?: number
+  ev?: number
+  cheap?: boolean
+  reason?: string
+}
+
+/**
+ * Admit-judgment recommendation (Task 4.2c) — the agent-authored OBSERVATION recomputed FRESH on-demand.
+ * It is a RECOMMENDATION (`admittable` is a flag), NOT an admit: recording it never transitions the case.
+ * The newest recorded recommendation wins (the projection keeps the latest).
+ */
+export type ResearchCaseAdmitRecommendationProjection = {
+  admit_judgment_id?: string
+  uncertainty?: ResearchCaseAdmitRiskFieldProjection
+  permanent_loss_risk?: ResearchCaseAdmitRiskFieldProjection
+  impairment_bear_case?: string
+  impairment_call?: string
+  admittable?: boolean
+  reason?: string
+  buy_below?: number
+  cheapness?: ResearchCaseAdmitCheapnessProjection
+  uncited_refs?: string[]
+  recorded_at?: string
+}
+
 export type ResearchCaseProjection = {
   research_case_id: string
   version: number
@@ -296,6 +334,8 @@ export type ResearchCaseProjection = {
   source_discipline?: ResearchCaseSourceDisciplineProjection
   /** Mechanism 5: red-team pass — strongest objection + the synthesis response + the deterministic flags. */
   red_team?: ResearchCaseRedTeamProjection
+  /** Task 4.2c: the newest admit-judgment recommendation OBSERVATION (recomputed fresh on-demand). */
+  admit_recommendation?: ResearchCaseAdmitRecommendationProjection
   synthesis_id?: string
   decision_id?: string
   investment_verdict?: string
@@ -541,6 +581,60 @@ function getRedTeam(payload: Record<string, unknown>): ResearchCaseRedTeamProjec
   }
 
   return Object.keys(projected).length === 0 ? undefined : projected
+}
+
+function getAdmitRiskField(value: unknown): ResearchCaseAdmitRiskFieldProjection | undefined {
+  if (!isRecord(value)) return undefined
+  const projected: ResearchCaseAdmitRiskFieldProjection = {}
+  const level = getString(value, 'level')
+  if (level !== undefined) projected.level = level
+  const argument = getString(value, 'argument')
+  if (argument !== undefined) projected.argument = argument
+  const citations = getStringArray(value, 'citations')
+  if (citations !== undefined) projected.citations = citations
+  return Object.keys(projected).length === 0 ? undefined : projected
+}
+
+function getAdmitCheapness(value: unknown): ResearchCaseAdmitCheapnessProjection | undefined {
+  if (!isRecord(value)) return undefined
+  const projected: ResearchCaseAdmitCheapnessProjection = {}
+  const owner_earnings_yield = getNumber(value, 'owner_earnings_yield')
+  if (owner_earnings_yield !== undefined) projected.owner_earnings_yield = owner_earnings_yield
+  const ev = getNumber(value, 'ev')
+  if (ev !== undefined) projected.ev = ev
+  const cheap = getBoolean(value, 'cheap')
+  if (cheap !== undefined) projected.cheap = cheap
+  const reason = getString(value, 'reason')
+  if (reason !== undefined) projected.reason = reason
+  return Object.keys(projected).length === 0 ? undefined : projected
+}
+
+function getAdmitRecommendation(
+  payload: Record<string, unknown>,
+  recordedAt: string,
+): ResearchCaseAdmitRecommendationProjection {
+  const projected: ResearchCaseAdmitRecommendationProjection = { recorded_at: recordedAt }
+  const admit_judgment_id = getString(payload, 'admit_judgment_id')
+  if (admit_judgment_id !== undefined) projected.admit_judgment_id = admit_judgment_id
+  const uncertainty = getAdmitRiskField(payload['uncertainty'])
+  if (uncertainty !== undefined) projected.uncertainty = uncertainty
+  const permanent_loss_risk = getAdmitRiskField(payload['permanent_loss_risk'])
+  if (permanent_loss_risk !== undefined) projected.permanent_loss_risk = permanent_loss_risk
+  const impairment_bear_case = getString(payload, 'impairment_bear_case')
+  if (impairment_bear_case !== undefined) projected.impairment_bear_case = impairment_bear_case
+  const impairment_call = getString(payload, 'impairment_call')
+  if (impairment_call !== undefined) projected.impairment_call = impairment_call
+  const admittable = getBoolean(payload, 'admittable')
+  if (admittable !== undefined) projected.admittable = admittable
+  const reason = getString(payload, 'reason')
+  if (reason !== undefined) projected.reason = reason
+  const buy_below = getNumber(payload, 'buy_below')
+  if (buy_below !== undefined) projected.buy_below = buy_below
+  const cheapness = getAdmitCheapness(payload['cheapness'])
+  if (cheapness !== undefined) projected.cheapness = cheapness
+  const uncited_refs = getStringArray(payload, 'uncited_refs')
+  if (uncited_refs !== undefined) projected.uncited_refs = uncited_refs
+  return projected
 }
 
 function getValuation(payload: Record<string, unknown>): ResearchCaseValuationProjection | undefined {
@@ -1056,6 +1150,24 @@ export function projectResearchCases(events: LedgerEventEnvelope<unknown>[]): Re
       if (redTeam !== undefined) {
         researchCase.red_team = redTeam
       }
+      continue
+    }
+
+    if (event.event_type === 'admit_judgment_recorded') {
+      const researchCaseId = researchCaseIdFor(event, event.payload)
+      if (researchCaseId === undefined) {
+        continue
+      }
+
+      // OBSERVATION, not an admit: do NOT change the stage — recording the recommendation never moves the
+      // name to watchlist/holding. Preserve the existing stage (or fall back to 'discovered' for an
+      // out-of-order event) so the recommendation can attach without transitioning the case.
+      const existing = researchCases.get(researchCaseId)
+      const researchCase = upsertCase(researchCases, researchCaseId, existing?.stage ?? 'discovered', event.created_at)
+      applyString(researchCase, 'ticker', getString(event.payload, 'ticker'))
+      // Newest recorded recommendation wins (recomputed fresh on-demand): events are applied in order, so
+      // the last admit_judgment_recorded overwrites the field.
+      researchCase.admit_recommendation = getAdmitRecommendation(event.payload, event.created_at)
       continue
     }
 

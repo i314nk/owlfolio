@@ -73,6 +73,7 @@ export const domainEventTypes = [
   'position_post_mortem_recorded',
   'forecast_recorded',
   'forecast_resolved',
+  'admit_judgment_recorded',
 ] as const
 
 export type DomainEventType = (typeof domainEventTypes)[number]
@@ -667,6 +668,36 @@ export const domainEventContracts: readonly DomainEventContract[] = [
       'outcome',
       'brier_score',
       'resolved_on',
+    ],
+  },
+  {
+    // Admit-judgment recommendation (Phase 4, Task 4.2c). An agent-authored OBSERVATION computed FRESH
+    // on-demand when the human opens the admit step for a deep-dive-complete, gate-passing candidate:
+    // the independent impairment bear case + the two grounded risk fields (uncertainty / permanent-loss),
+    // the deterministic impairment_call + admittable RECOMMENDATION flag, the buy-below carried from
+    // Phase-1 valuation, and the cheapness summary (Phase-1 OE / EV). It does NOT admit anything — the
+    // human still admits via the watchlist_draft confirm (signed thesis). Grounded/cite-checked; the
+    // newest recorded recommendation wins (recomputed fresh each time the route is invoked).
+    event_type: 'admit_judgment_recorded',
+    aggregate_type: 'research_case',
+    actor_type: 'provider',
+    actor_types: ['provider', 'worker'],
+    projection_owner: 'discovery',
+    payload_fields: [
+      'admit_judgment_id',
+      'research_case_id',
+      'ticker',
+      'uncertainty',
+      'permanent_loss_risk',
+      'impairment_bear_case',
+      'impairment_call',
+      'admittable',
+      'reason',
+      'buy_below',
+      'cheapness',
+      'uncited_refs',
+      'is_observation',
+      'is_recommendation',
     ],
   },
 ] as const
