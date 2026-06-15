@@ -17,6 +17,8 @@
     "./strategyContract": "./src/strategyContract.ts",
     "./sizingParams": "./src/sizingParams.ts",
     "./sellParams": "./src/sellParams.ts",
+    "./checklistParams": "./src/checklistParams.ts",
+    "./checklist": "./src/checklist.ts",
     "./minimumHold": "./src/minimumHold.ts",
     "./minimumHoldGuard": "./src/minimumHoldGuard.ts",
     "./valuationInverted": "./src/valuationInverted.ts",
