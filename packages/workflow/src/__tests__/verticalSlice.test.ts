@@ -87,6 +87,7 @@ describe('v0.2 vertical research workflow', () => {
       holding_id: holding.holding_id,
       causation_id: reviewDraft.event_id,
       actor_id: 'user_local',
+      checklist_answers: COMPLETE_CHECKLIST,
       idempotency_key: 'holding:holding_cost_001:review:2026-06-30:confirm:v1',
     })
     const secondReviewDraft = await draftHoldingReview(store, provider, {
@@ -331,6 +332,7 @@ describe('v0.2 vertical research workflow', () => {
       holding_id: holding.holding_id,
       causation_id: firstDraft.event_id,
       actor_id: 'user_local',
+      checklist_answers: COMPLETE_CHECKLIST,
     })).rejects.toThrow('Holding review draft is not the latest pending draft')
   })
 })

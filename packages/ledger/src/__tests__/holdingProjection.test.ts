@@ -134,6 +134,79 @@ describe('projectHoldings', () => {
     })
   })
 
+  it('projects the re-underwrite checklist answers from holding_review_confirmed (auditable)', () => {
+    const checklistAnswers = {
+      moat_erosion: { addressed: true, note: 'No erosion evidence at re-underwrite.' },
+      shariah_drift: { addressed: true, note: 'Ratios unchanged since admission.' },
+    }
+    const holdings = projectHoldings([
+      openedHolding,
+      draftedReview('review_ru', '2026-06-01T00:00:00.000Z'),
+      {
+        event_id: 'evt_holding_review_confirmed_review_ru',
+        event_type: 'holding_review_confirmed',
+        aggregate_type: 'holding',
+        aggregate_id: 'holding_cost_001',
+        actor_type: 'user',
+        actor_id: 'user_local',
+        payload: {
+          review_id: 'review_ru',
+          holding_id: 'holding_cost_001',
+          research_case_id: 'rc_cost_001',
+          ticker: 'COST',
+          strategy_id: 'buffett-munger',
+          thesis_health: 'HEALTHY',
+          action_stance: 'HOLD',
+          rationale: 'Confirmed at re-underwrite.',
+          evidence_summary: 'Manual confirmation.',
+          uncertainty: 'None.',
+          next_review_at: '2026-09-30',
+          user_approved: true,
+          checklist_answers: checklistAnswers,
+        },
+        source_ids: [],
+        created_at: '2026-06-03T00:00:00.000Z',
+        schema_version: 1,
+      },
+    ])
+
+    expect(holdings[0]?.checklist_answers).toEqual(checklistAnswers)
+  })
+
+  it('omits checklist_answers when an older confirmation event has none', () => {
+    const holdings = projectHoldings([
+      openedHolding,
+      draftedReview('review_legacy', '2026-06-01T00:00:00.000Z'),
+      {
+        event_id: 'evt_holding_review_confirmed_review_legacy',
+        event_type: 'holding_review_confirmed',
+        aggregate_type: 'holding',
+        aggregate_id: 'holding_cost_001',
+        actor_type: 'user',
+        actor_id: 'user_local',
+        payload: {
+          review_id: 'review_legacy',
+          holding_id: 'holding_cost_001',
+          research_case_id: 'rc_cost_001',
+          ticker: 'COST',
+          strategy_id: 'buffett-munger',
+          thesis_health: 'HEALTHY',
+          action_stance: 'HOLD',
+          rationale: 'Legacy confirmation, no checklist.',
+          evidence_summary: 'Manual confirmation.',
+          uncertainty: 'None.',
+          next_review_at: '2026-09-30',
+          user_approved: true,
+        },
+        source_ids: [],
+        created_at: '2026-06-03T00:00:00.000Z',
+        schema_version: 1,
+      },
+    ])
+
+    expect(holdings[0]?.checklist_answers).toBeUndefined()
+  })
+
   it('projects scheduled price-check metadata from valuation snapshots', () => {
     const holdings = projectHoldings([
       openedHolding,

@@ -1648,9 +1648,22 @@ export async function confirmPersonalHoldingReviewDraft(
   state: OnboardingState,
   holdingId: string,
   reviewId: string,
+  checklistAnswers: Record<string, ChecklistAnswer> = {},
 ) {
   if (!state.is_initialized || state.config.mode !== 'personal-local' || state.config.ledger_path === undefined) {
     throw new Error('Personal-local workflow is not initialized')
+  }
+
+  // COMPLETION-BLOCK (Phase 7 S3): the re-underwrite sign-off requires every hygiene/bias checklist item
+  // to be ADDRESSED — the integrity fix that turns holding_review_confirmed from validating NOTHING into
+  // validating the checklist. The cognitive answers are HUMAN-AUTHORED only; we pass them through untouched
+  // and NEVER default/synthesize any answer here. Reject with the unaddressed ids so the route can 400 with
+  // what still needs attention. Decision-NEUTRAL: no scoring/count. (confirmHoldingReviewDraft re-checks.)
+  const checklistCompletion = evaluateChecklistCompletion(checklistAnswers)
+  if (!checklistCompletion.complete) {
+    throw new Error(
+      `Re-underwrite sign-off requires every quality/bias checklist item to be addressed; unaddressed: ${checklistCompletion.unaddressed.join(', ')}`,
+    )
   }
 
   const store = new SQLiteEventStore(state.config.ledger_path)
@@ -1660,6 +1673,7 @@ export async function confirmPersonalHoldingReviewDraft(
       holding_id: holdingId,
       causation_id: `evt_holding_review_drafted_${reviewId}`,
       actor_id: 'user_local',
+      checklist_answers: checklistAnswers,
       idempotency_key: `holding:${holdingId}:review:${reviewId}:confirm`,
     })
   } finally {

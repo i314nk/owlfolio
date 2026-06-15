@@ -1,5 +1,15 @@
 import type { LedgerEventEnvelope } from '../eventEnvelope'
 
+/**
+ * One human checklist answer as projected for audit. Structurally identical to the `ChecklistAnswer`
+ * shape in `@owlfolio/strategies/checklist`, redeclared here because `@owlfolio/ledger` must NOT depend
+ * on `@owlfolio/strategies` (same reason `watchlistProjection` redeclares its own answer type).
+ */
+export type HoldingChecklistAnswer = {
+  addressed: boolean
+  note: string
+}
+
 export type HoldingProjection = {
   holding_id: string
   watchlist_item_id: string
@@ -40,6 +50,14 @@ export type HoldingProjection = {
   latest_review_uncertainty?: string
   next_review_at?: string
   latest_reviewed_at?: string
+  /**
+   * The human's answers to the Phase 7 hygiene checklists (business + cognitive), captured at the latest
+   * re-underwrite sign-off (holding_review_confirmed) — so a holding's re-underwrite answers are auditable
+   * alongside its confirmed thesis. Keyed by checklist item id; each value is `{ addressed, note }`.
+   * DECISION-NEUTRAL: no score/count is derived here — this is a verbatim audit projection. Undefined for
+   * holdings whose latest confirmation predates the checklist (older events have none).
+   */
+  checklist_answers?: Record<string, HoldingChecklistAnswer>
   opened_by_actor_type?: string
   opened_by_actor_id?: string
   shariah_gate_decision_id?: string
@@ -76,6 +94,33 @@ function getStringArray(payload: Record<string, unknown>, key: string): string[]
     return []
   }
   return value.filter((entry): entry is string => typeof entry === 'string')
+}
+
+/**
+ * Extract the human checklist answers map from a payload, decision-neutrally — verbatim, no scoring.
+ * Only well-formed `{ addressed: boolean; note: string }` entries are kept. Returns undefined when the
+ * field is absent or not an object (older confirmation events have no checklist).
+ */
+function getChecklistAnswers(
+  payload: Record<string, unknown>,
+  key: string,
+): Record<string, HoldingChecklistAnswer> | undefined {
+  const value = payload[key]
+  if (!isRecord(value)) {
+    return undefined
+  }
+  const answers: Record<string, HoldingChecklistAnswer> = {}
+  for (const [id, entry] of Object.entries(value)) {
+    if (!isRecord(entry)) {
+      continue
+    }
+    const addressed = entry['addressed']
+    const note = entry['note']
+    if (typeof addressed === 'boolean' && typeof note === 'string') {
+      answers[id] = { addressed, note }
+    }
+  }
+  return answers
 }
 
 type ShariahGateDecisionProjection = {
@@ -311,6 +356,15 @@ export function projectHoldings(events: LedgerEventEnvelope<unknown>[]): Holding
       if (evidenceSummary !== undefined) holding.latest_review_evidence_summary = evidenceSummary
       if (uncertainty !== undefined) holding.latest_review_uncertainty = uncertainty
       if (nextReviewAt !== undefined) holding.next_review_at = nextReviewAt
+      // Re-underwrite sign-off answers (Phase 7 S3): only the human confirmation carries the checklist.
+      // We replace the field with the latest confirmation's answers (verbatim, no scoring) so a holding's
+      // current re-underwrite answers are auditable; an older confirmation with none leaves it undefined.
+      if (event.event_type === 'holding_review_confirmed') {
+        const checklistAnswers = getChecklistAnswers(event.payload, 'checklist_answers')
+        if (checklistAnswers !== undefined) {
+          holding.checklist_answers = checklistAnswers
+        }
+      }
       holding.latest_reviewed_at = event.created_at
       holding.updated_at = event.created_at
       continue

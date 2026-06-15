@@ -3,6 +3,7 @@ import { createElement, Fragment, type ReactNode } from 'react'
 import type { InvestableCapitalSnapshot } from '@owlfolio/ledger/projections/investableCapitalProjection'
 
 import { OwlButtonLink, OwlRingGauge, OwlValuationChip, RouteHeader, type OwlValuationKind } from './designSystem'
+import { HoldingReviewChecklistConfirm } from './HoldingReviewChecklistConfirm'
 import type { AppHolding, MonitorAlert, WorkflowMode } from '../lib/workflow'
 import { StatusBadge } from './StatusBadge'
 
@@ -530,18 +531,10 @@ function createReviewForm(holding: AppHolding) {
           createElement('p', { style: { color: 'var(--owl-color-muted)', margin: '0.35rem 0 0', fontSize: 'var(--owl-text-sm)' } }, 'Date fields expect YYYY-MM-DD format for consistency with ledger-aware display.'),
         ),
       ),
-      createElement(
-        'form',
-        {
-          id: 'holding-review-path-confirm',
-          action: `/api/portfolio/${holding.holding_id}/review/${holding.pending_review_id}/confirm`,
-          method: 'post',
-          style: { ...decisionPanelStyle, background: 'rgba(22, 163, 74, 0.10)' },
-        },
-        createElement('h4', { className: 'owl-section-title', style: { fontSize: 'var(--owl-text-base)' } }, 'Apply provider draft'),
-        createElement('p', { className: 'owl-body', style: { margin: 0 } }, 'Applies the provider-authored thesis health, action stance, and next review date to portfolio state.'),
-        createSubmitButton('Apply provider draft', 'var(--owl-color-accent)'),
-      ),
+      createElement(HoldingReviewChecklistConfirm, {
+        holdingId: holding.holding_id,
+        reviewId: holding.pending_review_id,
+      }),
       createElement(
         'form',
         {

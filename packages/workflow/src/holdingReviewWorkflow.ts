@@ -2,6 +2,7 @@ import type { EventStore } from '@owlfolio/ledger/eventStore'
 import type { ActorType, LedgerEventEnvelope } from '@owlfolio/ledger/eventEnvelope'
 import { projectHoldings } from '@owlfolio/ledger/projections/holdingProjection'
 import type { Provider, ProviderRunRequest } from '@owlfolio/providers'
+import { evaluateChecklistCompletion, type ChecklistAnswer } from '@owlfolio/strategies/checklist'
 import { z } from 'zod'
 
 const HoldingReviewSchema = z.object({
@@ -44,6 +45,17 @@ export type HoldingReviewConfirmedPayload = Omit<
   'user_approved' | 'reviewed_by_actor_type' | 'reviewed_by_actor_id'
 > & {
   user_approved: true
+  /**
+   * The human's answers to the two Phase 7 hygiene checklists (business failure modes + cognitive
+   * biases), captured at the re-underwrite sign-off as part of the human commitment — append-only.
+   * Keyed by checklist item id; each answer is `{ addressed, note }`. The sign-off is COMPLETION-BLOCKED:
+   * every item must be addressed (affirmed + non-empty note) before this event is appended (see
+   * confirmHoldingReviewDraft). This is the re-underwrite host: it makes `holding_review_confirmed` go
+   * from validating NOTHING to validating that the checklist is addressed — the integrity fix.
+   * DECISION-NEUTRAL: no score/count/weight is derived — the checklist forces the question, never ranks
+   * it. The cognitive answers are HUMAN-AUTHORED only; nothing server-side defaults or synthesizes them.
+   */
+  checklist_answers: Record<string, ChecklistAnswer>
   confirmed_by_actor_type: ActorType
   confirmed_by_actor_id: string
 }
@@ -89,6 +101,13 @@ export type ConfirmHoldingReviewDraftCommand = {
   holding_id: string
   causation_id: string
   actor_id: string
+  /**
+   * The human's answers to the Phase 7 hygiene checklists (business + cognitive). REQUIRED: every
+   * checklist item must be addressed (affirmed + non-empty note) or the re-underwrite sign-off is
+   * rejected before any append (completion-block). Keyed by item id. HUMAN-AUTHORED only — the caller
+   * must pass the human's own answers; no answer is defaulted/synthesized server-side.
+   */
+  checklist_answers: Record<string, ChecklistAnswer>
   idempotency_key?: string
 }
 
@@ -260,6 +279,21 @@ export async function confirmHoldingReviewDraft(
 ): Promise<HoldingReviewConfirmed> {
   const draft = await findPendingReviewDraft(store, command.review_id, command.holding_id)
 
+  // COMPLETION-BLOCK (Phase 7 S3): the re-underwrite sign-off is the twin of the watchlist-admit sign-off
+  // — every hygiene/bias checklist item must be ADDRESSED before this confirmation is appended. This is
+  // the INTEGRITY FIX: `holding_review_confirmed` previously validated NOTHING (a confirmation that
+  // confirms nothing); now it validates that the same 17-item checklist has been addressed, catching
+  // post-admission deterioration (e.g. shariah_drift, data_completeness) that re-underwrite is the only
+  // place to catch. Throw-before-append, mirroring confirmWatchlistDraft. Decision-NEUTRAL: the evaluator
+  // only tells us WHICH items are unaddressed; it never scores/counts them, and a "risk present" answer
+  // never auto-rejects. The cognitive answers are HUMAN-AUTHORED only; we never default/synthesize here.
+  const checklistCompletion = evaluateChecklistCompletion(command.checklist_answers)
+  if (!checklistCompletion.complete) {
+    throw new Error(
+      `Re-underwrite sign-off requires every quality/bias checklist item to be addressed; unaddressed: ${checklistCompletion.unaddressed.join(', ')}`,
+    )
+  }
+
   const payload: HoldingReviewConfirmedPayload = {
     review_id: draft.payload.review_id,
     holding_id: draft.payload.holding_id,
@@ -274,6 +308,9 @@ export async function confirmHoldingReviewDraft(
     uncertainty: draft.payload.uncertainty,
     next_review_at: draft.payload.next_review_at,
     user_approved: true,
+    // Persisted append-only as part of the human re-underwrite sign-off (verified complete above). The
+    // cognitive answers are the human's own — never defaulted/synthesized here.
+    checklist_answers: command.checklist_answers,
     confirmed_by_actor_type: 'user',
     confirmed_by_actor_id: command.actor_id,
   }

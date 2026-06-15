@@ -296,7 +296,7 @@ describe('workflow helpers', () => {
       valued_at: '2026-06-01',
     })
     const reviewDraft = await createPersonalHoldingReviewDraft(state, openedHolding.holding_id)
-    const reviewConfirmation = await confirmPersonalHoldingReviewDraft(state, openedHolding.holding_id, reviewDraft.review_id)
+    const reviewConfirmation = await confirmPersonalHoldingReviewDraft(state, openedHolding.holding_id, reviewDraft.review_id, COMPLETE_CHECKLIST)
     const secondReviewDraft = await createPersonalHoldingReviewDraft(state, openedHolding.holding_id)
     const reviewOverride = await overridePersonalHoldingReviewDraft(state, openedHolding.holding_id, secondReviewDraft.review_id, {
       thesis_health: 'WATCH',
