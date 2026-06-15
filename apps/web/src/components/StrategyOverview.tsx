@@ -16,6 +16,7 @@ import {
   type TrancheTrigger,
 } from '@owlfolio/strategies/sizingParams'
 import { SELL_PARAMS } from '@owlfolio/strategies/sellParams'
+import { CHECKLIST_PARAMS, type ChecklistCategory } from '@owlfolio/strategies/checklistParams'
 
 import { DEFAULT_SAVINGS_EXPECTED_PROFIT_RATE, DEFAULT_EQUITY_RISK_MARGIN } from '@owlfolio/shared'
 
@@ -343,6 +344,23 @@ function LadderTable(ladderId: LadderId): ReactNode {
 }
 
 // ── Component ────────────────────────────────────────────────────────────────
+// The hygiene-checklist prompts, rendered LIVE from CHECKLIST_PARAMS — never a hardcoded copy of the
+// prompts — so the copy stays in sync as the owner extends the list. This LISTS the prompts; it never
+// renders a count/progress/score (a count is a score in disguise).
+function ChecklistPromptColumn({ category, heading }: { category: ChecklistCategory; heading: string }): ReactNode {
+  const items = CHECKLIST_PARAMS.items.filter((item) => item.category === category)
+  return createElement(
+    'div',
+    { style: { display: 'flex', flexDirection: 'column', gap: '0.5rem' } },
+    createElement('p', { style: { ...microLabel } }, heading),
+    createElement(
+      'ul',
+      { style: { ...bodyStyle, margin: 0, paddingLeft: '1.1rem', display: 'flex', flexDirection: 'column', gap: '0.4rem' } },
+      ...items.map((item) => createElement('li', { key: item.id }, item.prompt)),
+    ),
+  )
+}
+
 export function StrategyOverview(): ReactNode {
   return createElement(
     'main',
@@ -824,6 +842,42 @@ export function StrategyOverview(): ReactNode {
           'p',
           { style: { color: 'var(--owl-color-quiet)', fontSize: 'var(--owl-text-sm)', margin: 0 } },
           'The sell decision is advisory and bounded by the recommendation — it leads with the concrete worst case (the downside floor + its net-cash-vs-stressed-book basis = a reliability signal), runs the four triggers + the minimum-hold guard + the bias guards, and stops there. The exit is always authored and signed by you; the harness never closes a holding.',
+        ),
+      ),
+    }),
+
+    // 7e. Quality & bias hygiene checklists (Phase 7) — completion-block on both sign-offs, decision-neutral.
+    Section({
+      eyebrow: 'Quality & bias hygiene',
+      title: 'Two checklists that force the question — they never score it',
+      lead: createElement(
+        'span',
+        null,
+        'Both the admission sign-off and the re-underwrite sign-off carry two hygiene checklists. They are a ',
+        createElement('span', { style: goldText }, 'hygiene surface, not a gate'),
+        ': each FORCES you to address a known failure mode, but ',
+        createElement('span', { style: goldText }, 'never scores, tallies, or pass/fails'),
+        ' your answers — there is no pass/fail count, and a "risk present" answer never auto-rejects. The ',
+        createElement('span', { style: goldText }, 'business'),
+        ' list (agent-marshaled evidence beside each item, which you still affirm) guards the investment; the ',
+        createElement('span', { style: goldText }, 'cognitive'),
+        ' list (human-only — the agent never pre-fills) guards your reasoning. Both are a ',
+        createElement('span', { style: goldText }, 'completion-block'),
+        ': every item must be addressed in your own words before either sign-off goes through. The checklist informs; you and the existing gates decide. The lists below are read live from the versioned checklist config and grow as the owner adds failure modes from experience.',
+      ),
+      children: createElement(
+        'div',
+        { style: { display: 'flex', flexDirection: 'column', gap: '0.9rem' } },
+        createElement(
+          'div',
+          { style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '0.9rem' } },
+          createElement(ChecklistPromptColumn, { category: 'business', heading: 'Business failure modes' }),
+          createElement(ChecklistPromptColumn, { category: 'cognitive', heading: 'Cognitive biases' }),
+        ),
+        createElement(
+          'p',
+          { style: { ...bodyStyle, fontSize: 'var(--owl-text-sm)', color: 'var(--owl-color-quiet)', borderLeft: '2px solid var(--owl-color-border)', paddingLeft: '0.85rem', margin: 0 } },
+          'Decision-neutral by construction: the checklist lists the questions to address and refuses to let a sign-off through with an unaddressed item — it does not auto-reject, score, or rank. The human plus the existing hard gates make the decision.',
         ),
       ),
     }),

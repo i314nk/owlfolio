@@ -9,6 +9,7 @@ import {
   terminalGrowthForMoat,
 } from '@owlfolio/strategies/buffettMunger'
 import { SELL_PARAMS } from '@owlfolio/strategies/sellParams'
+import { CHECKLIST_PARAMS, type ChecklistCategory } from '@owlfolio/strategies/checklistParams'
 import { buffettMungerDeepDiveLanes } from '@owlfolio/workflow/strategyResearchPipeline'
 
 // ── Live contract values (rendered, never hard-coded) ───────────────────────
@@ -282,6 +283,14 @@ function SwarmTab(): ReactNode {
   )
 }
 
+// The hygiene-checklist prompts, rendered LIVE from CHECKLIST_PARAMS (never a hardcoded copy of the
+// prompts) so the copy stays in sync as the owner extends the list. This is copy, not a live checklist —
+// it LISTS the prompts; it never renders a count/progress/score (a count is a score in disguise).
+function checklistPromptList(category: ChecklistCategory): ReactNode {
+  const items = CHECKLIST_PARAMS.items.filter((item) => item.category === category)
+  return bullets(items.map((item) => createElement('span', { key: item.id }, item.prompt)))
+}
+
 // 3 — Judgment Objectivity
 function JudgmentTab(): ReactNode {
   return createElement(
@@ -299,6 +308,60 @@ function JudgmentTab(): ReactNode {
         { key: 'forecast', eyebrow: 'Calibration', title: 'Falsifiable forecasts', body: 'Each case logs 2–3 resolvable forecasts with probabilities. The harness resolves them on annual reports and scores Brier calibration per lane — overconfident lanes get shaded mechanically.' },
         { key: 'sources', eyebrow: 'Source discipline', title: 'Per-lane whitelists', body: 'Classification lanes read primary documents only — filings, transcripts, regulatory data. Sell-side research and financial media are excluded so the model cannot return the consensus dressed as analysis.' },
       ]),
+    }),
+    PanelSection({
+      eyebrow: 'Quality & bias hygiene',
+      title: 'Two checklists that force the question — they never score it',
+      lead: createElement(
+        'span',
+        null,
+        'Two hygiene checklists sit on the admission and re-underwrite sign-offs. They are a ',
+        gold('hygiene surface, not a gate'),
+        ': each one FORCES you to address a known failure mode, but it ',
+        gold('never scores, tallies, or pass/fails'),
+        ' your answers, and a "risk present" answer never auto-rejects the case. The checklist informs; you and the existing gates decide. They are a ',
+        gold('completion-block'),
+        ' — every item must be addressed in your own words before either sign-off goes through, but completeness is the only thing checked, never a verdict. The lists below are read ',
+        gold('live from the versioned checklist config'),
+        ', so they stay in sync as the owner adds failure modes learned from experience.',
+      ),
+      children: createElement(
+        'div',
+        { style: { display: 'grid', gap: 'var(--owl-space-3)' } },
+        cardGrid([
+          {
+            key: 'business',
+            eyebrow: 'Business failure modes',
+            title: 'Agent-marshaled, human-affirmed',
+            body: 'Guards the investment. The harness marshals the named persisted evidence beside each item (read-only, never a score), and YOU still affirm each one in your own words.',
+          },
+          {
+            key: 'cognitive',
+            eyebrow: 'Cognitive biases',
+            title: 'Human-only — the agent never pre-fills',
+            body: 'Guards your reasoning. Introspective and human-only: the agent never pre-fills, suggests, or seeds a cognitive answer — these are yours alone.',
+          },
+        ], '260px'),
+        createElement(
+          'div',
+          { style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '0.9rem' } },
+          createElement(
+            'div',
+            { style: { display: 'grid', gap: '0.5rem' } },
+            createElement('p', { style: microLabel }, 'Business failure modes'),
+            checklistPromptList('business'),
+          ),
+          createElement(
+            'div',
+            { style: { display: 'grid', gap: '0.5rem' } },
+            createElement('p', { style: microLabel }, 'Cognitive biases'),
+            checklistPromptList('cognitive'),
+          ),
+        ),
+        caveat(
+          'These checklists are decision-NEUTRAL by construction: they list the questions to address; they do not auto-reject, score, or rank. The human plus the existing hard gates make the decision — the checklist only refuses to let a sign-off through with an unaddressed item.',
+        ),
+      ),
     }),
     caveat(
       'This layer makes judgment consistent, anchored, and measured — it does not manufacture a contrarian edge. A perfectly calibrated consensus earns roughly market returns; the calibration data is simply how you find out whether your rubrics ever disagreed with the market and were right.',
