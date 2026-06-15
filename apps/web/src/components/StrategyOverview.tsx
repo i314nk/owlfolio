@@ -372,6 +372,67 @@ export function StrategyOverview(): ReactNode {
       children: PipelineFlow(),
     }),
 
+    // 2b. Admission — the operation discovery actually performs, and how a name is admitted
+    Section({
+      eyebrow: 'Admission',
+      title: 'Discovery is the admission operation',
+      lead:
+        'Discovery is not a stock screener that ranks names — it is the operation that decides which businesses are even allowed into deep research. Two human-set boundaries bound it before any model runs, and the final admit is a human decision with a written thesis.',
+      children: createElement(
+        'div',
+        { style: { display: 'flex', flexDirection: 'column', gap: '0.9rem' } },
+        createElement(
+          'ul',
+          { style: { ...bodyStyle, margin: 0, paddingLeft: '1.1rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' } },
+          createElement(
+            'li',
+            null,
+            createElement('span', { style: goldText }, 'Circle of competence — human-set config the harness CHECKS, never agent-inferred.'),
+            ' You configure the sector boundary; the harness checks it mechanically (sector via the EDGAR SIC code), exactly the same discipline as the discount anchor — the model never gets to decide what is inside your circle. It ships ',
+            createElement('span', { style: goldText }, 'permissive by default'),
+            ' (no boundary enabled), so the common path is unchanged until you narrow it.',
+          ),
+          createElement(
+            'li',
+            null,
+            createElement('span', { style: goldText }, 'Size — the Pabrai Principle 5 axis, deferred.'),
+            ' A size boundary (favouring the small, under-followed names where mispricing concentrates) is part of the model but ',
+            createElement('span', { style: goldText }, 'shipped permissive / deferred'),
+            ' — it does not yet constrain admission.',
+          ),
+          createElement(
+            'li',
+            null,
+            createElement('span', { style: goldText }, 'Cheapness counts only on an already-wonderful business.'),
+            ' Price is never the entry reason. Cheapness is considered only after a business has passed the quality gate (≥ wide moat, honest growth, safe balance sheet, Shariah-clean) — a cheap business that fails the gate is still a PASS.',
+          ),
+          createElement(
+            'li',
+            null,
+            createElement('span', { style: goldText }, 'The admit judgment splits uncertainty from permanent-loss risk.'),
+            ' An opportunity is a business with ',
+            createElement('span', { style: goldText }, 'high uncertainty but low permanent-loss risk'),
+            ' — the market overpays for certainty, so durable businesses whose near-term outcome is merely unknowable (not impaired) are where the edge lives. A separate, independent bear case is built to test that the downside really is uncertainty and not permanent impairment.',
+          ),
+          createElement(
+            'li',
+            null,
+            createElement('span', { style: goldText }, 'Admit is human-decided.'),
+            ' Nothing is admitted automatically. The human authors the watchlist entry with a ',
+            createElement('span', { style: goldText }, 'signed thesis written in their own words'),
+            ' (never pre-filled from the agent draft) and a locked buy-below frozen at admit. That buy-below is ',
+            createElement('span', { style: goldText }, 'provisional-MoS-derived'),
+            ' — the margin of safety behind it is not yet frozen, so a future MoS freeze will visibly, logged-ly re-price it rather than move the number silently.',
+          ),
+        ),
+        createElement(
+          'p',
+          { style: { ...bodyStyle, fontSize: 'var(--owl-text-sm)', color: 'var(--owl-color-quiet)', borderLeft: '2px solid var(--owl-color-border)', paddingLeft: '0.85rem', margin: 0 } },
+          'Honest scope: the circle is permissive by default, the size axis is deferred, the buy-below MoS is provisional, and admit is human-decided. The harness does not yet present an admit-recommendation panel (uncertainty / permanent-loss / bear-case scoring) — that is a later slice once the recommendation is persisted.',
+        ),
+      ),
+    }),
+
     // 3. Specialist swarm — the centerpiece
     Section({
       eyebrow: 'The deep-dive swarm',

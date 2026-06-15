@@ -195,6 +195,27 @@ function StrategyTab(): ReactNode {
       ),
     }),
     PanelSection({
+      eyebrow: 'Admission',
+      title: 'Discovery is the admission operation',
+      lead: createElement(
+        'span',
+        null,
+        'Discovery decides which businesses are even allowed into deep research — it is not a ranking screener. Two human-set boundaries bound it, and the final admit is a human decision with a written thesis.',
+      ),
+      children: createElement(
+        'div',
+        { style: { display: 'grid', gap: '0.75rem' } },
+        bullets([
+          createElement('span', { key: 1 }, gold('Circle of competence'), ' — human-set config the harness CHECKS, never agent-inferred. You configure the sector boundary; the harness checks it mechanically (sector via the EDGAR SIC code), the same discipline as the discount anchor. It ships ', gold('permissive by default'), ' — no boundary until you narrow it.'),
+          createElement('span', { key: 2 }, gold('Size'), ' — the Pabrai Principle 5 axis, ', gold('deferred'), '. A size boundary favouring small, under-followed names is part of the model but shipped permissive; it does not yet constrain admission.'),
+          createElement('span', { key: 3 }, gold('Cheapness counts only on an already-wonderful business'), ' — price is never the entry reason. Cheapness is considered only after a business passes the quality gate; a cheap business that fails the gate is still a PASS.'),
+          createElement('span', { key: 4 }, gold('Uncertainty vs permanent-loss risk'), ' — the admit judgment splits the two. An opportunity is high uncertainty + ', gold('low permanent-loss risk'), '; an independent bear case tests that the downside is uncertainty, not impairment.'),
+          createElement('span', { key: 5 }, gold('Admit is human-decided'), ' — the human authors the watchlist entry with a ', gold('signed thesis in their own words'), ' (never pre-filled from the agent draft) and a locked buy-below frozen at admit. That buy-below is provisional-MoS-derived — a future MoS freeze will visibly re-price it, never move it silently.'),
+        ]),
+        caveat('Honest scope: the circle is permissive by default, the size axis is deferred, the buy-below MoS is provisional, and admit is human-decided. There is no admit-recommendation panel yet (uncertainty / permanent-loss / bear-case scoring) — that is a later slice once the recommendation is persisted.'),
+      ),
+    }),
+    PanelSection({
       eyebrow: 'The verdict band',
       title: 'BUY, WATCH, or PASS',
       lead: 'Where the current price sits against the computed fair value and buy price decides the draft verdict — below the buy price is a BUY draft, between buy price and fair value is WATCH-FAIR, and a failed gate forces PASS.',

@@ -104,8 +104,18 @@ describe('/api/research/[caseId]/watchlist', () => {
     await rm(tempDir, { force: true, recursive: true })
   })
 
-  function callRoute(caseId: string) {
-    return POST(new Request(`http://localhost/api/research/${caseId}/watchlist`, { method: 'POST' }), {
+  // The human-typed signed thesis is REQUIRED on this path (Task 4.3) — there is no auto-fallback to the
+  // agent draft — so the route is posted with a form-encoded signed_thesis like the real admit control.
+  const HUMAN_SIGNED_THESIS = 'I am admitting ADBE: wide-moat franchise, low permanent-loss risk, fair-to-cheap.'
+
+  function callRoute(caseId: string, signedThesis: string = HUMAN_SIGNED_THESIS) {
+    const form = new URLSearchParams()
+    form.set('signed_thesis', signedThesis)
+    return POST(new Request(`http://localhost/api/research/${caseId}/watchlist`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      body: form.toString(),
+    }), {
       params: Promise.resolve({ caseId }),
     })
   }
@@ -124,6 +134,10 @@ describe('/api/research/[caseId]/watchlist', () => {
       const draftEvents = events.filter((event) => event.event_type === 'watchlist_draft_created')
       expect(draftEvents).toHaveLength(1)
       expect(draftEvents[0]?.actor_type).toBe('user')
+      // The signed thesis is the human's typed text passed through — never the agent thesis_summary.
+      const payload = draftEvents[0]?.payload as Record<string, unknown> | undefined
+      expect(payload?.['signed_thesis']).toBe(HUMAN_SIGNED_THESIS)
+      expect(payload?.['signed_thesis']).not.toBe(payload?.['thesis_summary'])
 
       const watchlist = projectWatchlist(events)
       expect(watchlist).toHaveLength(1)
@@ -151,6 +165,25 @@ describe('/api/research/[caseId]/watchlist', () => {
       const events = await store.list()
       expect(events.filter((event) => event.event_type === 'watchlist_draft_created')).toHaveLength(1)
       expect(projectWatchlist(events)).toHaveLength(1)
+    } finally {
+      store.close()
+    }
+  })
+
+  it('rejects an admit with no human-typed thesis (no auto-fallback to the agent summary)', async () => {
+    const caseId = await seedCompletedAdbeCase(ledgerPath)
+
+    const response = await callRoute(caseId, '   ')
+    expect(response.status).toBe(400)
+    await expect(response.json()).resolves.toMatchObject({
+      error: expect.stringMatching(/human-signed thesis is required/),
+    })
+
+    // No watchlist draft was created — the rubber-stamp path is closed.
+    const store = new SQLiteEventStore(ledgerPath)
+    try {
+      const events = await store.list()
+      expect(events.some((event) => event.event_type === 'watchlist_draft_created')).toBe(false)
     } finally {
       store.close()
     }

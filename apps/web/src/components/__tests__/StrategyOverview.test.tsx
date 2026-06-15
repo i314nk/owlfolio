@@ -116,6 +116,31 @@ describe('StrategyOverview', () => {
     expect(html.toLowerCase()).toContain('screened out')
   })
 
+  it('describes admission discipline without overclaiming (circle CHECKED not inferred, size deferred, MoS provisional, admit human-decided, no recommendation panel)', () => {
+    const html = render().toLowerCase()
+    // Discovery is the admission operation.
+    expect(html).toContain('discovery is the admission operation')
+    // Circle of competence is human-set config the harness CHECKS, never agent-inferred (sector via EDGAR SIC).
+    expect(html).toContain('circle of competence')
+    expect(html).toContain('checks')
+    expect(html).toContain('never agent-inferred')
+    expect(html).toContain('edgar sic')
+    expect(html).toContain('permissive by default')
+    // Size is the deferred Pabrai-Principle-5 axis, shipped permissive.
+    expect(html).toContain('pabrai principle 5')
+    expect(html).toContain('deferred')
+    // Cheapness counts only on an already-wonderful business.
+    expect(html).toContain('already-wonderful')
+    // The admit judgment splits uncertainty vs permanent-loss risk + an independent bear case.
+    expect(html).toContain('permanent-loss risk')
+    expect(html).toContain('bear case')
+    // Admit is human-decided with a signed thesis + a provisional-MoS buy-below.
+    expect(html).toContain('signed thesis')
+    expect(html).toContain('provisional')
+    // NO OVERCLAIM: the admit-recommendation panel does NOT exist yet.
+    expect(html).toContain('does not yet present an admit-recommendation panel')
+  })
+
   it('renders the position-sizing target weights and entry tranches from the contract', () => {
     const html = render()
     const targetMonopoly = `${buffettMungerStrategy.portfolio.target_weight_by_moat.monopoly * 100}%` // 10%

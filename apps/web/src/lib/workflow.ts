@@ -620,10 +620,19 @@ export function monitorAlertsForHolding(alerts: MonitorAlert[], holdingId: strin
 export async function promoteResearchCaseToWatchlist(
   state: OnboardingState,
   researchCaseId: string,
-  signedThesis?: string,
+  signedThesis: string,
 ) {
   if (!state.is_initialized || state.config.mode !== 'personal-local' || state.config.ledger_path === undefined) {
     throw new Error('Personal-local workflow is not initialized')
+  }
+
+  // The signed thesis is the HUMAN commitment that makes admission a real decision (Task 4.3). It is
+  // required and must be the human's own words — there is NO auto-fallback to the agent-drafted
+  // thesis_summary on this interactive path. An empty/whitespace thesis is rejected here so a missing
+  // human thesis can never be silently papered over by the agent draft.
+  const humanSignedThesis = signedThesis.trim()
+  if (humanSignedThesis.length === 0) {
+    throw new Error('A human-signed thesis is required to promote a research case to the watchlist')
   }
 
   const store = new SQLiteEventStore(state.config.ledger_path)
@@ -662,11 +671,6 @@ export async function promoteResearchCaseToWatchlist(
     // freeze that changes the number is a VISIBLE, logged re-price — never a silent move on the locked
     // thesis. Fall back to the verdict-band buy-below / 0 when the case has no valuation buy-below yet.
     const lockedBuyBelow = researchCase.valuation?.buy_price_per_share ?? 0
-    // The signed thesis is the human commitment. When the caller does not supply one yet, fall back to the
-    // case-derived summary so the human-authored admit still carries a non-empty thesis.
-    const resolvedSignedThesis = signedThesis !== undefined && signedThesis.trim().length > 0
-      ? signedThesis
-      : thesisSummary
 
     return await confirmWatchlistDraft(store, {
       watchlist_item_id: watchlistItemId,
@@ -680,7 +684,7 @@ export async function promoteResearchCaseToWatchlist(
       locked_buy_below: lockedBuyBelow,
       buy_below_valuation_version: VALUATION_PARAMS.version,
       buy_below_mos_provisional: true,
-      signed_thesis: resolvedSignedThesis,
+      signed_thesis: humanSignedThesis,
       actor_id: 'user_local',
       idempotency_key: `decision:${researchCase.research_case_id}:watchlist:v1`,
     })

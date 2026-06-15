@@ -4,6 +4,8 @@ import type { FormEvent } from 'react'
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 
+import { resolveErrorMessage } from './resolveErrorMessage'
+
 const cardStyle = {
   background: 'var(--owl-color-panel-elevated)',
   border: '1px solid rgba(148, 163, 184, 0.18)',
@@ -51,7 +53,7 @@ export function ResearchIntakeForm() {
       const body = await response.json()
 
       if (!response.ok) {
-        setError(typeof body.error === 'string' ? body.error : 'Unable to create research case')
+        setError(resolveErrorMessage(body))
         return
       }
 

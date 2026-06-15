@@ -115,6 +115,12 @@ test('personal-local mode can create the first research case from the command ce
   const researchCaseId = new URL(page.url()).pathname.split('/').at(-1)
   expect(researchCaseId).toMatch(/^rc_msft_/)
 
+  // The admit control requires a human-typed signed thesis (Task 4.3); the promote button is disabled
+  // until one is entered, and the field is never pre-filled from the agent draft.
+  const signedThesis = page.getByLabel('Your signed thesis')
+  await expect(signedThesis).toHaveValue('')
+  await expect(page.getByRole('button', { name: /promote to watchlist/i })).toBeDisabled()
+  await signedThesis.fill('Admitting MSFT: durable quality compounder bought with a margin of safety.')
   await page.getByRole('button', { name: /promote to watchlist/i }).click()
 
   await expect(page).toHaveURL('/watchlist')

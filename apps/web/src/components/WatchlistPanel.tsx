@@ -211,6 +211,7 @@ function createWatchlistCard(item: AppWatchlistItem, mode: WorkflowMode, alerts:
       createDetail('Strategy', item.strategy_id ?? 'Unknown'),
       createDetail('Thesis summary', item.thesis_summary ?? 'No thesis recorded'),
       createDetail('Buy-zone status', item.buy_zone_status ?? 'Not set'),
+      ...createLockedBuyBelowDetail(item),
       ...createShariahGateDetails(item),
     ),
     // Verdict band: distance-to-buy-price + staleness indicator (position-sizing §5).
@@ -398,6 +399,27 @@ function createDetail(label: string, value: string) {
     createElement('strong', { style: { color: 'var(--owl-color-text)', fontWeight: 700 } }, `${label}: `),
     value,
   )
+}
+
+/**
+ * The buy-below frozen at admit, LABELLED as provisional-MoS-derived (Task 4.3). The margin of safety
+ * behind it is still PROVISIONAL (#124): a future MoS freeze will visibly, logged-ly re-price this — it
+ * is NOT a settled number. The valuation version it was frozen under is surfaced in the label so the
+ * re-price is traceable. Renders nothing when no locked buy-below was recorded.
+ */
+function createLockedBuyBelowDetail(item: AppWatchlistItem) {
+  if (item.locked_buy_below === undefined) {
+    return []
+  }
+
+  const version = item.buy_below_valuation_version === undefined ? '' : ` · ${item.buy_below_valuation_version}`
+  const provisional = item.buy_below_mos_provisional === true
+  const label = provisional ? `Buy-below (provisional MoS${version})` : `Buy-below${version}`
+  const note = provisional
+    ? ' — provisional margin of safety; a future MoS freeze will visibly re-price it'
+    : ''
+
+  return [createDetail(label, `$${item.locked_buy_below.toFixed(2)}${note}`)]
 }
 
 function createShariahGateDetails(item: AppWatchlistItem) {

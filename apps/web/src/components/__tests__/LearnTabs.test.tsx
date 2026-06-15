@@ -82,6 +82,30 @@ describe('LearnTabs', () => {
     expect(html.toLowerCase()).toContain('uniform')
   })
 
+  it('describes admission discipline on the strategy panel without overclaiming', () => {
+    const html = render('strategy').toLowerCase()
+    expect(html).toContain('discovery is the admission operation')
+    // Circle = human-set config the harness CHECKS, never agent-inferred (sector via EDGAR SIC), permissive default.
+    expect(html).toContain('circle of competence')
+    expect(html).toContain('checks')
+    expect(html).toContain('never agent-inferred')
+    expect(html).toContain('edgar sic')
+    expect(html).toContain('permissive by default')
+    // Size = deferred Pabrai Principle 5 axis.
+    expect(html).toContain('pabrai principle 5')
+    expect(html).toContain('deferred')
+    // Cheapness only on an already-wonderful business; uncertainty vs permanent-loss + bear case.
+    expect(html).toContain('already-wonderful')
+    expect(html).toContain('permanent-loss risk')
+    expect(html).toContain('bear case')
+    // Admit human-decided: signed thesis (not pre-filled) + provisional-MoS buy-below.
+    expect(html).toContain('signed thesis')
+    expect(html).toContain('never pre-filled')
+    expect(html).toContain('provisional')
+    // NO OVERCLAIM: no admit-recommendation panel yet.
+    expect(html).toContain('no admit-recommendation panel yet')
+  })
+
   it('states the grounding invariant on the swarm panel', () => {
     const html = render('swarm')
     expect(html).toContain('content-hashed')

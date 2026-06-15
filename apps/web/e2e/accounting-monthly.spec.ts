@@ -26,6 +26,9 @@ test('monthly accounting report renders projected current period after a valuati
   const researchCaseId = new URL(page.url()).pathname.split('/').at(-1)
   expect(researchCaseId).toMatch(/^rc_msft_/)
 
+  // The admit control requires a human-typed signed thesis (Task 4.3); the button is disabled until one
+  // is entered, and it is never pre-filled from the agent draft.
+  await page.getByLabel('Your signed thesis').fill('Admitting MSFT: durable franchise, margin of safety.')
   await page.getByRole('button', { name: /promote to watchlist/i }).click()
   await page.getByRole('button', { name: /confirm watchlist draft/i }).click()
   await page.getByLabel('Shares').fill('3.25')

@@ -680,6 +680,7 @@ describe('research and watchlist workflow pages', () => {
       strategy_compliance: 'CONDITIONAL',
       shariah_status: 'COMPLIANT',
       valuation_status: 'EXPENSIVE',
+      thesis_summary: 'Agent draft: Microsoft screens as a durable quality compounder awaiting a margin of safety.',
       next_required_action: 'Promote the drafted decision into a watchlist draft.',
       updated_at: '2026-05-31T12:00:00.000Z',
       gate_checklist: [],
@@ -703,6 +704,19 @@ describe('research and watchlist workflow pages', () => {
     expect(personalHtml).not.toContain('color:#3730a3')
     expect(demoHtml).not.toContain('Promote to watchlist')
     expect(demoHtml).not.toContain('/api/research/rc_msft_001/watchlist')
+
+    // The admit control requires a NON-PREFILLED, human-typed signed thesis (Task 4.3).
+    // A required textarea named signed_thesis is present...
+    expect(personalHtml).toContain('name="signed_thesis"')
+    expect(personalHtml).toMatch(/<textarea[^>]*\brequired\b/)
+    // ...the signed-thesis textarea is EMPTY — NOT seeded with the agent thesis_summary (no rubber
+    // stamp). The agent draft may legitimately appear elsewhere in the dossier, so scope the check to
+    // the textarea's own content: it must render as an empty <textarea ...></textarea>.
+    const textareaMatch = personalHtml.match(/<textarea\b[^>]*name="signed_thesis"[^>]*>([\s\S]*?)<\/textarea>/)
+    expect(textareaMatch).not.toBeNull()
+    expect(textareaMatch?.[1]).toBe('')
+    // ...and the promote button starts DISABLED until the human types a thesis.
+    expect(personalHtml).toMatch(/<button[^>]*\bdisabled\b[^>]*>Promote to watchlist/)
   })
 
   it('renders an empty personal-local portfolio state with workflow guidance and provenance', () => {

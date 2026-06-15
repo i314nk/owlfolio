@@ -64,4 +64,21 @@ describe('WatchlistPanel verdict-band sections', () => {
     const html = render([item({ watchlist_item_id: 'w_none', ticker: 'EEE' })])
     expect(html).toContain('data-verdict-band="UNCLASSIFIED"')
   })
+
+  it('labels the locked buy-below as provisional-MoS-derived with its valuation version (Task 4.3)', () => {
+    const html = render([
+      item({
+        watchlist_item_id: 'w_prov',
+        ticker: 'FFF',
+        locked_buy_below: 123.45,
+        buy_below_mos_provisional: true,
+        buy_below_valuation_version: 'valuation-2026-06-cap-1',
+      }),
+    ])
+    // The label names it provisional-MoS-derived and carries the valuation version, so the user knows a
+    // future MoS freeze will visibly re-price it — not a settled number.
+    expect(html).toContain('Buy-below (provisional MoS · valuation-2026-06-cap-1)')
+    expect(html).toContain('$123.45')
+    expect(html).toContain('a future MoS freeze will visibly re-price it')
+  })
 })

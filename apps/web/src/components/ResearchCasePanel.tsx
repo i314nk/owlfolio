@@ -5,6 +5,7 @@ import { buffettMungerStrategy } from '@owlfolio/strategies/buffettMunger'
 
 import { SourceChip } from './designSystem'
 import { StatusBadge } from './StatusBadge'
+import { WatchlistPromotionForm } from './WatchlistPromotionForm'
 import type { AppResearchCase, AppSourceEvidence, WorkflowMode } from '../lib/workflow'
 
 export type MarketQuote = {
@@ -2244,43 +2245,10 @@ function createOwnerEarningsValuationCard(ownerValuation: NonNullable<AppResearc
 // ── Watchlist promotion & actions ─────────────────────────────────────────────
 
 function createWatchlistPromotionAction(researchCaseId: string) {
-  return createElement(
-    'section',
-    {
-      style: {
-        ...cardStyle,
-        border: '1px solid var(--owl-color-gold)',
-        background: 'rgba(214, 178, 94, 0.12)',
-      },
-    },
-    createElement('p', { style: labelStyle }, 'User confirmation'),
-    createElement(
-      'p',
-      { style: { color: 'var(--owl-color-gold-bright)', fontSize: 'var(--owl-text-md)', fontWeight: 700, margin: '0.35rem 0 1rem' } },
-      'Advance this drafted decision into durable personal-local watchlist state.',
-    ),
-    createElement(
-      'form',
-      { action: `/api/research/${researchCaseId}/watchlist`, method: 'post' },
-      createElement(
-        'button',
-        {
-          type: 'submit',
-          style: {
-            background: 'var(--owl-color-gold)',
-            border: 0,
-            borderRadius: '999px',
-            color: '#ffffff',
-            cursor: 'pointer',
-            fontSize: 'var(--owl-text-base)',
-            fontWeight: 900,
-            padding: '0.75rem 1rem',
-          },
-        },
-        'Promote to watchlist',
-      ),
-    ),
-  )
+  // The admit control is its own client component: it requires a NON-PREFILLED, human-typed signed
+  // thesis and keeps the promote button disabled until one is entered (Task 4.3). It is never seeded
+  // from the agent-drafted thesis_summary — that would recreate the rubber stamp this gate prevents.
+  return createElement(WatchlistPromotionForm, { researchCaseId })
 }
 
 function createActionsRow() {
