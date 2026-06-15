@@ -701,6 +701,10 @@ describe('strategy-agnostic research pipeline foundation', () => {
       ticker: 'LIFE',
       strategy_id: defaultResearchStrategyRef.strategy_id,
       thesis_summary: 'Candidate remains eligible for user-monitored watchlist.',
+      locked_buy_below: 90,
+      buy_below_valuation_version: 'valuation-2026-06-cap-1',
+      buy_below_mos_provisional: true,
+      signed_thesis: 'I am admitting LIFE for monitoring at the frozen buy-below.',
       actor_id: 'user_local',
     })
     await approveWatchlistDraft(store, {
@@ -764,6 +768,10 @@ describe('strategy-agnostic research pipeline foundation', () => {
       ticker: 'NDEF',
       ...selectedStrategy,
       thesis_summary: 'Non-default strategy candidate remains eligible for monitoring.',
+      locked_buy_below: 60,
+      buy_below_valuation_version: 'valuation-2026-06-cap-1',
+      buy_below_mos_provisional: true,
+      signed_thesis: 'I am admitting NDEF under a non-default strategy at the frozen buy-below.',
       actor_id: 'user_local',
     })
     await approveWatchlistDraft(store, {

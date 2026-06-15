@@ -13,6 +13,27 @@ type WatchlistDraftCreatedPayload = {
   strategy_id: string
   strategy_version: string
   thesis_summary: string
+  /**
+   * The Phase-1 valuation buy-below (`buy_price_per_share`) FROZEN at the moment of admit — a snapshot,
+   * NOT a live reference. Once admitted, the watched name's buy-below is this value; a later valuation
+   * change does not silently move it.
+   */
+  locked_buy_below: number
+  /**
+   * `VALUATION_PARAMS.version` at freeze time — the MoS/valuation provenance the locked buy-below was
+   * frozen under. A FUTURE MoS freeze under a different version that changes the buy-below is therefore a
+   * VISIBLE, logged RE-PRICE (F.9/F.10), never a silent invalidation of the locked thesis.
+   */
+  buy_below_valuation_version: string
+  /**
+   * True while the MoS is PROVISIONAL (#124) — so the UI shows the buy-below as provisional-MoS-derived.
+   */
+  buy_below_mos_provisional: boolean
+  /**
+   * The human's plain-language thesis (doc Gate 0 `[Hu]`), distinct from the agent-drafted
+   * `thesis_summary`. A signed thesis is the human's commitment; it is required + non-empty on admit.
+   */
+  signed_thesis: string
   user_approved: false
   created_by_actor_type: ActorType
   created_by_actor_id: string
@@ -29,7 +50,20 @@ export type ConfirmWatchlistDraftCommand = {
   strategy_id: string
   strategy_version?: string
   thesis_summary: string
+  /** The Phase-1 valuation buy-below, FROZEN as a snapshot at admit (see payload doc). */
+  locked_buy_below: number
+  /** `VALUATION_PARAMS.version` at freeze time — the MoS/valuation provenance (see payload doc). */
+  buy_below_valuation_version: string
+  /** True while the MoS is provisional (#124). */
+  buy_below_mos_provisional: boolean
+  /** The human's required, non-empty signed thesis (Gate 0 `[Hu]`). */
+  signed_thesis: string
   actor_id: string
+  /**
+   * Admit is a HUMAN-AUTHORED transition: defaults to `user`. A non-`user` actor (worker/provider/system)
+   * cannot admit — there is no auto-admit.
+   */
+  actor_type?: ActorType
   idempotency_key?: string
 }
 
@@ -65,6 +99,18 @@ export async function confirmWatchlistDraft(
   store: WatchlistEventStore,
   command: ConfirmWatchlistDraftCommand,
 ): Promise<WatchlistDraftCreated> {
+  // Admit is human-authored: no auto-admit by worker/provider/system.
+  const actorType: ActorType = command.actor_type ?? 'user'
+  if (actorType !== 'user') {
+    throw new Error(
+      `Watchlist admit must be human-authored (actor_type 'user'); received '${actorType}'. No auto-admit.`,
+    )
+  }
+  // The signed thesis is the human's commitment — required, non-empty.
+  if (command.signed_thesis.trim().length === 0) {
+    throw new Error('Watchlist admit requires a non-empty signed_thesis (the human commitment).')
+  }
+
   const selectedStrategy = resolveResearchStrategyRef(command)
   const payload: WatchlistDraftCreatedPayload = {
     watchlist_item_id: command.watchlist_item_id,
@@ -74,6 +120,11 @@ export async function confirmWatchlistDraft(
     ticker: command.ticker,
     ...selectedStrategy,
     thesis_summary: command.thesis_summary,
+    // Frozen at admit: buy-below snapshot + the MoS/valuation provenance it was frozen under.
+    locked_buy_below: command.locked_buy_below,
+    buy_below_valuation_version: command.buy_below_valuation_version,
+    buy_below_mos_provisional: command.buy_below_mos_provisional,
+    signed_thesis: command.signed_thesis,
     user_approved: false,
     created_by_actor_type: 'user',
     created_by_actor_id: command.actor_id,

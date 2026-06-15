@@ -95,6 +95,10 @@ describe('discovery candidate queue', () => {
       ticker: 'MSFT',
       strategy_id: 'buffett-munger',
       thesis_summary: 'Already approved for watchlist monitoring.',
+      locked_buy_below: 300,
+      buy_below_valuation_version: 'valuation-2026-06-cap-1',
+      buy_below_mos_provisional: true,
+      signed_thesis: 'I am admitting MSFT for monitoring at the frozen buy-below.',
       actor_id: 'user_local',
     })
     await approveWatchlistDraft(store, {
@@ -119,6 +123,10 @@ describe('discovery candidate queue', () => {
       ticker: 'AAPL',
       strategy_id: 'buffett-munger',
       thesis_summary: 'Already approved before opening a holding.',
+      locked_buy_below: 150,
+      buy_below_valuation_version: 'valuation-2026-06-cap-1',
+      buy_below_mos_provisional: true,
+      signed_thesis: 'I am admitting AAPL ahead of opening a tracked holding.',
       actor_id: 'user_local',
     })
     await approveWatchlistDraft(store, {

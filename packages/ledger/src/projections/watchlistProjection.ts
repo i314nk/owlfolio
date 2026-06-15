@@ -13,6 +13,14 @@ export type WatchlistProjection = {
   confirmed_by_actor_type?: string
   confirmed_by_actor_id?: string
   thesis_summary?: string
+  /** Locked buy-below FROZEN at admit (snapshot, not a live valuation reference). */
+  locked_buy_below?: number
+  /** `VALUATION_PARAMS.version` the locked buy-below was frozen under (MoS/valuation provenance). */
+  buy_below_valuation_version?: string
+  /** True while the MoS is provisional (#124) — a future MoS freeze that changes the buy-below is a visible re-price. */
+  buy_below_mos_provisional?: boolean
+  /** The human's signed plain-language thesis (Gate 0 `[Hu]`), distinct from the agent-drafted thesis_summary. */
+  signed_thesis?: string
   shariah_gate_decision_id?: string
   shariah_gate_status?: string
   shariah_gate_allowed?: boolean
@@ -34,6 +42,11 @@ function getString(payload: Record<string, unknown>, key: string): string | unde
 function getBoolean(payload: Record<string, unknown>, key: string): boolean | undefined {
   const value = payload[key]
   return typeof value === 'boolean' ? value : undefined
+}
+
+function getNumber(payload: Record<string, unknown>, key: string): number | undefined {
+  const value = payload[key]
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined
 }
 
 function getStringArray(payload: Record<string, unknown>, key: string): string[] {
@@ -110,7 +123,10 @@ function applyShariahGateDecision(target: WatchlistProjection, decision: Shariah
 
 function applyString(
   target: WatchlistProjection,
-  key: keyof Pick<WatchlistProjection, 'company_id' | 'ticker' | 'strategy_id' | 'strategy_version' | 'thesis_summary'>,
+  key: keyof Pick<
+    WatchlistProjection,
+    'company_id' | 'ticker' | 'strategy_id' | 'strategy_version' | 'thesis_summary' | 'signed_thesis' | 'buy_below_valuation_version'
+  >,
   value: string | undefined,
 ): void {
   if (value !== undefined) {
@@ -160,6 +176,17 @@ export function projectWatchlist(events: LedgerEventEnvelope<unknown>[]): Watchl
     applyString(watchlistItem, 'strategy_id', getString(event.payload, 'strategy_id'))
     applyString(watchlistItem, 'strategy_version', getString(event.payload, 'strategy_version'))
     applyString(watchlistItem, 'thesis_summary', getString(event.payload, 'thesis_summary'))
+    applyString(watchlistItem, 'signed_thesis', getString(event.payload, 'signed_thesis'))
+    applyString(watchlistItem, 'buy_below_valuation_version', getString(event.payload, 'buy_below_valuation_version'))
+
+    const lockedBuyBelow = getNumber(event.payload, 'locked_buy_below')
+    if (lockedBuyBelow !== undefined) {
+      watchlistItem.locked_buy_below = lockedBuyBelow
+    }
+    const mosProvisional = getBoolean(event.payload, 'buy_below_mos_provisional')
+    if (mosProvisional !== undefined) {
+      watchlistItem.buy_below_mos_provisional = mosProvisional
+    }
 
     if (event.event_type === 'watchlist_draft_created') {
       watchlistItem.created_by_actor_type = getString(event.payload, 'created_by_actor_type') ?? event.actor_type

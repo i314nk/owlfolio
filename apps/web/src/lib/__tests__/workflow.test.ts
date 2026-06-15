@@ -885,6 +885,10 @@ describe('workflow helpers', () => {
         ticker: 'WTCH',
         ...selectedStrategy,
         thesis_summary: 'Selected-strategy watchlist draft awaits user confirmation.',
+        locked_buy_below: 50,
+        buy_below_valuation_version: 'valuation-2026-06-cap-1',
+        buy_below_mos_provisional: true,
+        signed_thesis: 'I am admitting WTCH at the frozen buy-below.',
         actor_id: 'user_local',
       })
 

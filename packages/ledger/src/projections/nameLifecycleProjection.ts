@@ -51,10 +51,23 @@ export type NameLifecycleProjection = {
   research_case_id?: string
   watchlist_item_id?: string
   holding_id?: string
-  /** Locked buy-below price from the research case valuation. */
+  /**
+   * Locked buy-below price. For a `watched` name this is the value FROZEN at admit (the source of truth
+   * for a watched name's buy-below); otherwise it is the research case valuation's buy_price_per_share.
+   */
   buy_price_per_share?: number
   /** Fair value per share from the research case valuation. */
   fair_value_per_share?: number
+  /**
+   * The buy-below FROZEN at admit (snapshot, not a live reference). Present for a watched name admitted
+   * with a locked buy-below. Mirrors `buy_price_per_share` for a watched name; carried explicitly so the
+   * provenance below can be read alongside it.
+   */
+  locked_buy_below?: number
+  /** `VALUATION_PARAMS.version` the locked buy-below was frozen under (MoS/valuation provenance). */
+  buy_below_valuation_version?: string
+  /** True while the MoS is provisional (#124) — a future MoS freeze that changes the buy-below is a visible re-price. */
+  buy_below_mos_provisional?: boolean
   /** True when every gate the name has is clean (Shariah gate allowed / not FAIL). */
   gate_clean?: boolean
   /** The Shariah gate status carried by the live entity (watchlist/holding), when present. */
@@ -131,6 +144,9 @@ type Accumulator = {
   holding_id?: string
   buy_price_per_share?: number
   fair_value_per_share?: number
+  locked_buy_below?: number
+  buy_below_valuation_version?: string
+  buy_below_mos_provisional?: boolean
   gate_clean?: boolean
   shariah_gate_status?: string
   falsifier_tripped?: boolean
@@ -298,6 +314,19 @@ export function projectNameLifecycle(events: LedgerEventEnvelope<unknown>[]): Na
     if (item.shariah_gate_status !== undefined) {
       row.shariah_gate_status = item.shariah_gate_status
     }
+    // The buy-below is FROZEN at admit: for a watched name the locked admit value is the SOURCE OF TRUTH,
+    // overriding any live research-case buy-below (which can drift). Its MoS/valuation provenance rides
+    // along so a future MoS freeze that changes the number reads as a visible re-price, not a silent move.
+    if (item.locked_buy_below !== undefined) {
+      row.locked_buy_below = item.locked_buy_below
+      row.buy_price_per_share = item.locked_buy_below
+    }
+    if (item.buy_below_valuation_version !== undefined) {
+      row.buy_below_valuation_version = item.buy_below_valuation_version
+    }
+    if (item.buy_below_mos_provisional !== undefined) {
+      row.buy_below_mos_provisional = item.buy_below_mos_provisional
+    }
     promoteLiveState(row, 'watched')
     // Falsifier honesty (#1): Shariah gate FAIL or a staleness/re-screen alert trips the falsifier.
     const gateFail = isShariahGateFail(item.shariah_gate_status, item.shariah_gate_allowed)
@@ -364,6 +393,13 @@ export function projectNameLifecycle(events: LedgerEventEnvelope<unknown>[]): Na
     if (row.holding_id !== undefined) projected.holding_id = row.holding_id
     if (row.buy_price_per_share !== undefined) projected.buy_price_per_share = row.buy_price_per_share
     if (row.fair_value_per_share !== undefined) projected.fair_value_per_share = row.fair_value_per_share
+    if (row.locked_buy_below !== undefined) projected.locked_buy_below = row.locked_buy_below
+    if (row.buy_below_valuation_version !== undefined) {
+      projected.buy_below_valuation_version = row.buy_below_valuation_version
+    }
+    if (row.buy_below_mos_provisional !== undefined) {
+      projected.buy_below_mos_provisional = row.buy_below_mos_provisional
+    }
     if (row.gate_clean !== undefined) projected.gate_clean = row.gate_clean
     if (row.shariah_gate_status !== undefined) projected.shariah_gate_status = row.shariah_gate_status
     if (row.falsifier_tripped !== undefined) projected.falsifier_tripped = row.falsifier_tripped

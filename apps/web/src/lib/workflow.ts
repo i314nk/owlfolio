@@ -25,6 +25,7 @@ import { projectWatchlist } from '@owlfolio/ledger/projections/watchlistProjecti
 import type { EventStore } from '@owlfolio/ledger/eventStore'
 import { SQLiteEventStore } from '@owlfolio/ledger/sqliteEventStore'
 import { resolveProvider } from '@owlfolio/providers'
+import { VALUATION_PARAMS } from '@owlfolio/strategies/valuationParams'
 import type { AppConfig } from '@owlfolio/shared'
 import {
   approveWatchlistDraft,
@@ -619,6 +620,7 @@ export function monitorAlertsForHolding(alerts: MonitorAlert[], holdingId: strin
 export async function promoteResearchCaseToWatchlist(
   state: OnboardingState,
   researchCaseId: string,
+  signedThesis?: string,
 ) {
   if (!state.is_initialized || state.config.mode !== 'personal-local' || state.config.ledger_path === undefined) {
     throw new Error('Personal-local workflow is not initialized')
@@ -655,6 +657,17 @@ export async function promoteResearchCaseToWatchlist(
       ? researchCase.next_required_action ?? `Watch ${ticker} after drafted decision ${researchCase.decision}`
       : `Watch ${ticker}: ${researchCase.reason}`
 
+    // FREEZE the buy-below at admit (Task 4.2b): snapshot the Phase-1 valuation buy-below and record the
+    // MoS/valuation version it was frozen under. The MoS is still PROVISIONAL (#124), so a future MoS
+    // freeze that changes the number is a VISIBLE, logged re-price — never a silent move on the locked
+    // thesis. Fall back to the verdict-band buy-below / 0 when the case has no valuation buy-below yet.
+    const lockedBuyBelow = researchCase.valuation?.buy_price_per_share ?? 0
+    // The signed thesis is the human commitment. When the caller does not supply one yet, fall back to the
+    // case-derived summary so the human-authored admit still carries a non-empty thesis.
+    const resolvedSignedThesis = signedThesis !== undefined && signedThesis.trim().length > 0
+      ? signedThesis
+      : thesisSummary
+
     return await confirmWatchlistDraft(store, {
       watchlist_item_id: watchlistItemId,
       research_case_id: researchCase.research_case_id,
@@ -664,6 +677,10 @@ export async function promoteResearchCaseToWatchlist(
       strategy_id: researchCase.strategy_id ?? state.config.strategy_id,
       ...(researchCase.strategy_version === undefined ? {} : { strategy_version: researchCase.strategy_version }),
       thesis_summary: thesisSummary,
+      locked_buy_below: lockedBuyBelow,
+      buy_below_valuation_version: VALUATION_PARAMS.version,
+      buy_below_mos_provisional: true,
+      signed_thesis: resolvedSignedThesis,
       actor_id: 'user_local',
       idempotency_key: `decision:${researchCase.research_case_id}:watchlist:v1`,
     })
