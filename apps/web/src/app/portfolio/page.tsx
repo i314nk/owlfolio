@@ -7,6 +7,7 @@ import { humanizeCron } from '../../lib/schedule'
 import { projectMonitorAlerts } from '@owlfolio/ledger/projections/monitorAlertProjection'
 
 import { getAppHoldingsFromStore, getInvestableCapital, type MonitorAlert } from '../../lib/workflow'
+import { resolveChecklistEvidence } from '../../lib/checklistEvidence'
 
 export default async function PortfolioPage() {
   const state = await getOnboardingState()
@@ -59,6 +60,15 @@ async function loadHoldings(ledgerPath: string | undefined, mode: 'demo' | 'pers
       const buyBelow = valuationCase?.valuation?.buy_price_per_share
 
       const enriched: PortfolioHolding = { ...holding }
+      // Phase 7 S4 — marshal the re-underwrite evidence as a PURE read of the held name's research-case
+      // projection (the holding's linked case, with the valuation fallback). No engine call.
+      const evidenceCase = valuationCase ?? linkedCase
+      if (evidenceCase !== undefined) {
+        const evidence = resolveChecklistEvidence(evidenceCase)
+        if (Object.keys(evidence).length > 0) {
+          enriched.reviewChecklistEvidence = evidence
+        }
+      }
       if (buyBelow !== undefined) {
         enriched.buyBelowPricePerShare = buyBelow
         const moatClass = valuationCase?.valuation?.moat_class

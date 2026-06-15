@@ -27,6 +27,12 @@ export type HoldingReviewOverrideFormProps = {
   defaultThesisHealth: string
   defaultActionStance: string
   defaultNextReviewAt: string
+  /**
+   * Phase 7 S4 — marshaled evidence per business checklist item (itemId -> persisted display value), a PURE
+   * read of the HELD name's research-case projection, resolved by the caller. Read-only line beside each
+   * business item; cognitive items are evidence-free. Never pre-fills an answer, never a count/score.
+   */
+  evidence?: Record<string, string>
 }
 
 const labelStyle: CSSProperties = {
@@ -82,6 +88,16 @@ const CATEGORY_HEADINGS: Record<ChecklistCategory, string> = {
 /** A human-readable label for the per-item "needs attention" marker, never a count. */
 const NEEDS_ATTENTION_LABEL = 'Needs attention'
 
+/** Read-only marshaled-evidence line style (S4) — a calm, secondary readout, never an input. */
+const evidenceLineStyle: CSSProperties = {
+  color: 'var(--owl-color-muted)',
+  fontFamily: 'var(--owl-font-mono)',
+  fontSize: 'var(--owl-text-xs)',
+  lineHeight: 1.4,
+  margin: 0,
+  wordBreak: 'break-word',
+}
+
 const THESIS_HEALTH_VALUES = ['HEALTHY', 'WATCH', 'IMPAIRED', 'EXIT_CANDIDATE']
 const ACTION_STANCE_VALUES = ['HOLD', 'ADD_ON_PULLBACK', 'REDUCE', 'EXIT_REVIEW_NEEDED', 'RESEARCH_MORE']
 
@@ -104,6 +120,7 @@ export function HoldingReviewOverrideForm({
   defaultThesisHealth,
   defaultActionStance,
   defaultNextReviewAt,
+  evidence = {},
 }: HoldingReviewOverrideFormProps) {
   // The user-authored thesis fields start EMPTY (rationale/evidence/uncertainty/date) — an override is a real
   // decision, not a rubber stamp; selects default to a sensible starting value but are still user-confirmed.
@@ -227,6 +244,14 @@ export function HoldingReviewOverrideForm({
             )
           : null,
       ),
+      // Phase 7 S4 — marshaled evidence (read-only, reads-only) beside each business item.
+      evidence[item.id] !== undefined
+        ? createElement(
+            'p',
+            { 'data-testid': `checklist-evidence-${item.id}`, style: evidenceLineStyle },
+            `Marshaled evidence: ${evidence[item.id]}`,
+          )
+        : null,
       createElement('textarea', {
         'aria-label': item.prompt,
         id: `override-checklist-note-${item.id}`,

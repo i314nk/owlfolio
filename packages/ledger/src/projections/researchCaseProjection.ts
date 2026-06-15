@@ -173,6 +173,15 @@ export type ResearchCaseValuationProjection = {
   growth_rate?: number
   /** Provenance of the growth path (Phase 1.3): 'edgar_oe_cagr' (demonstrated CAGR) or 'none' (no-growth floor). */
   growth_basis?: string
+  /**
+   * Phase 7 S4 — data-completeness evidence (checklist item 11): the span (years), positive-point count,
+   * and estimator the demonstrated owner-earnings growth measure actually used. CARRIED from the existing
+   * DemonstratedGrowthResult the valuation already consumed (persist-only). A short/gappy series reads as
+   * thin history beside the data_completeness item.
+   */
+  growth_window_years?: number
+  growth_points_used?: number
+  growth_method?: string
   /** True when the near-term growth is materially above GDP — a flagged moat-durability claim (Phase 1.3). */
   growth_above_gdp?: boolean
   /** True when the named single_growth_cap bound the growth path (over-optimism backstop bit). */
@@ -316,6 +325,13 @@ export type ResearchCaseSizingWorstCaseProjection = {
   realistic_downside_per_share?: number
   /** Aggregate cluster downside as a fraction of book NAV (the S4 correlated-impairment view). */
   aggregate_cluster_downside_fraction?: number
+  /**
+   * Phase 7 S4 — the candidate's per-name cluster key + basis (e.g. 'sic:73' / 'sic_proxy', or
+   * 'unclustered:TICKER' / 'unclustered'), CARRIED from the same cluster computation (persist-only). Lets
+   * the concentration_correlation business-checklist item marshal "which cluster, on what basis".
+   */
+  cluster_key?: string
+  cluster_basis?: string
 }
 
 /** One rung of the entry ladder carried on a sizing recommendation. */
@@ -835,6 +851,11 @@ function getSizingRecommendation(
     if (realistic !== undefined) wc.realistic_downside_per_share = realistic
     const clusterFraction = getNumber(worst_case, 'aggregate_cluster_downside_fraction')
     if (clusterFraction !== undefined) wc.aggregate_cluster_downside_fraction = clusterFraction
+    // Phase 7 S4 — carry the per-name cluster key/basis straight off the payload (persist-only).
+    const clusterKey = getString(worst_case, 'cluster_key')
+    if (clusterKey !== undefined) wc.cluster_key = clusterKey
+    const clusterBasis = getString(worst_case, 'cluster_basis')
+    if (clusterBasis !== undefined) wc.cluster_basis = clusterBasis
     projected.worst_case = wc
   }
   const ladder = payload['ladder']
@@ -958,6 +979,14 @@ function getValuation(payload: Record<string, unknown>): ResearchCaseValuationPr
   if (growth_rate !== undefined) projected.growth_rate = growth_rate
   const growth_basis = getString(value, 'growth_basis')
   if (growth_basis !== undefined) projected.growth_basis = growth_basis
+  // Phase 7 S4 — data-completeness evidence (item 11): carry-through of the demonstrated-growth measure's
+  // window/points/method already on the event payload (persist-only; never recomputed in the projector).
+  const growth_window_years = getNumber(value, 'growth_window_years')
+  if (growth_window_years !== undefined) projected.growth_window_years = growth_window_years
+  const growth_points_used = getNumber(value, 'growth_points_used')
+  if (growth_points_used !== undefined) projected.growth_points_used = growth_points_used
+  const growth_method = getString(value, 'growth_method')
+  if (growth_method !== undefined) projected.growth_method = growth_method
   const growth_above_gdp = getBoolean(value, 'growth_above_gdp')
   if (growth_above_gdp !== undefined) projected.growth_above_gdp = growth_above_gdp
   const growth_cap_binds = getBoolean(value, 'growth_cap_binds')

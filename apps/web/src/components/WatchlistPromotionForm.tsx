@@ -24,6 +24,13 @@ import { evaluateChecklistCompletion, type ChecklistAnswer } from '@owlfolio/str
  */
 export type WatchlistPromotionFormProps = {
   researchCaseId: string
+  /**
+   * Phase 7 S4 — marshaled evidence per business checklist item (itemId -> persisted display value), a PURE
+   * read of the research-case projection resolved by the caller. Rendered as a read-only line the human reads
+   * before affirming. Cognitive items are absent here by construction (no `reads`); business items with no
+   * persisted value are simply omitted. NEVER a count/score, never pre-fills an answer.
+   */
+  evidence?: Record<string, string>
 }
 
 const cardStyle: CSSProperties = {
@@ -79,6 +86,16 @@ const CATEGORY_HEADINGS: Record<ChecklistCategory, string> = {
 /** A human-readable label for the per-item "needs attention" marker, never a count. */
 const NEEDS_ATTENTION_LABEL = 'Needs attention'
 
+/** Read-only marshaled-evidence line style (S4) — a calm, secondary readout, never an input. */
+const evidenceLineStyle: CSSProperties = {
+  color: 'var(--owl-color-muted)',
+  fontFamily: 'var(--owl-font-mono)',
+  fontSize: 'var(--owl-text-xs)',
+  lineHeight: 1.4,
+  margin: 0,
+  wordBreak: 'break-word',
+}
+
 function emptyAnswer(): ChecklistAnswer {
   return { addressed: false, note: '' }
 }
@@ -92,7 +109,7 @@ function initialAnswers(): Record<string, ChecklistAnswer> {
   return answers
 }
 
-export function WatchlistPromotionForm({ researchCaseId }: WatchlistPromotionFormProps) {
+export function WatchlistPromotionForm({ researchCaseId, evidence = {} }: WatchlistPromotionFormProps) {
   // Start EMPTY — never seeded from the agent's thesis_summary. The human must write this.
   const [signedThesis, setSignedThesis] = useState('')
   // Every checklist answer starts EMPTY — no seeding/suggestion (the cognitive items are human-only).
@@ -154,6 +171,15 @@ export function WatchlistPromotionForm({ researchCaseId }: WatchlistPromotionFor
             )
           : null,
       ),
+      // Phase 7 S4 — marshaled evidence (read-only, reads-only). Present only for business items whose
+      // persisted projection value resolved; cognitive items never have evidence.
+      evidence[item.id] !== undefined
+        ? createElement(
+            'p',
+            { 'data-testid': `checklist-evidence-${item.id}`, style: evidenceLineStyle },
+            `Marshaled evidence: ${evidence[item.id]}`,
+          )
+        : null,
       createElement('textarea', {
         'aria-label': item.prompt,
         id: `checklist-note-${item.id}`,

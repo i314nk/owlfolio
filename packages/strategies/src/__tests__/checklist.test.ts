@@ -52,7 +52,7 @@ describe('CHECKLIST_PARAMS — data-defined checklist items', () => {
     expect(Object.isFrozen(CHECKLIST_PARAMS)).toBe(true)
     expect(typeof CHECKLIST_PARAMS.version).toBe('string')
     expect(CHECKLIST_PARAMS.version.length).toBeGreaterThan(0)
-    expect(CHECKLIST_PARAMS.version).toBe('checklist-2026-06-phase7-1')
+    expect(CHECKLIST_PARAMS.version).toBe('checklist-2026-06-phase7-2')
   })
 
   it('has exactly 17 items: 11 business + 6 cognitive', () => {
@@ -103,10 +103,10 @@ describe('CHECKLIST_PARAMS — data-defined checklist items', () => {
     expect(readsById.cyclical_peak).toBe('owner_earnings_valuation.confidence')
     expect(readsById.quality_of_earnings).toBe('valuation.owner_earnings_bridge')
     expect(readsById.concentration_correlation).toBe(
-      'sizing_recommendation.worst_case.aggregate_cluster_downside_fraction',
+      'sizing_recommendation.worst_case.cluster_key',
     )
     expect(readsById.shariah_drift).toBe('shariah_status')
-    expect(readsById.data_completeness).toBe('valuation.growth_basis')
+    expect(readsById.data_completeness).toBe('valuation.growth_window_years')
   })
 
   it('leaves non-groundable business items WITHOUT a reads field', () => {

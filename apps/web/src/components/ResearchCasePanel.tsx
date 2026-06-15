@@ -7,6 +7,8 @@ import type {
 } from '@owlfolio/ledger/projections/researchCaseProjection'
 import { isDeepDiveComplete } from '@owlfolio/workflow/admitAssessment'
 
+import { resolveChecklistEvidence } from '../lib/checklistEvidence'
+
 import type { PositionPlan, PositionTranche } from '../lib/positionPlan'
 
 import { AdmitRecommendationRequest } from './AdmitRecommendationRequest'
@@ -175,7 +177,7 @@ export function ResearchCasePanel({ researchCase, mode = 'demo', marketQuote, po
     // ── 4e. Sell decision (advisory, worst-case-first; HELD context) + on-demand request (personal-local) ──
     showSellPanel ? createSellDecisionPanel(researchCase) : null,
     // ── 5. Watchlist promotion (personal-local only) ─────────────────────────
-    canPromoteToWatchlist ? createWatchlistPromotionAction(researchCase.research_case_id) : null,
+    canPromoteToWatchlist ? createWatchlistPromotionAction(researchCase) : null,
     // ── 6. Actions row ──────────────────────────────────────────────────────
     createActionsRow(),
     // ── 7. Evidence and audit details (collapsed, e2e anchor) ────────────────
@@ -2957,11 +2959,15 @@ function createSellDecisionPanel(researchCase: AppResearchCase) {
   )
 }
 
-function createWatchlistPromotionAction(researchCaseId: string) {
+function createWatchlistPromotionAction(researchCase: AppResearchCase) {
   // The admit control is its own client component: it requires a NON-PREFILLED, human-typed signed
   // thesis and keeps the promote button disabled until one is entered (Task 4.3). It is never seeded
   // from the agent-drafted thesis_summary — that would recreate the rubber stamp this gate prevents.
-  return createElement(WatchlistPromotionForm, { researchCaseId })
+  //
+  // Phase 7 S4 — marshal the per-item evidence as a PURE read of this case's persisted projection (no
+  // engine call); the form renders it read-only beside each groundable business item.
+  const evidence = resolveChecklistEvidence(researchCase)
+  return createElement(WatchlistPromotionForm, { researchCaseId: researchCase.research_case_id, evidence })
 }
 
 function createActionsRow() {

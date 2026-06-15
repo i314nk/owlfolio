@@ -2016,6 +2016,16 @@ export async function runResearchDeepDivePhase(
         growth_assumptions: dec.analysis.growth_assumptions,
         growth_rate: effective_growth_rate,
         growth_basis,
+        // Phase 7 S4 — data-completeness evidence (item 11): CARRY the demonstrated-growth measure's own
+        // window/points/method that the valuation already consumed (persist-only; NO new derivation). Lets
+        // the data_completeness business-checklist item marshal "how deep/robust is the OE history".
+        ...(demonstratedGrowthResult !== undefined
+          ? {
+              growth_window_years: demonstratedGrowthResult.window_years,
+              growth_points_used: demonstratedGrowthResult.points_used,
+              growth_method: demonstratedGrowthResult.method,
+            }
+          : {}),
         ...(growthResult.above_gdp ? { growth_above_gdp: true } : {}),
         ...(growthResult.cap_binds ? { growth_cap_binds: true } : {}),
         ...(terminal_growth_rate !== undefined ? { terminal_growth_rate } : {}),

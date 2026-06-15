@@ -49,7 +49,7 @@ export type ChecklistParams = {
  * impossible because no item-level scoring field exists.
  */
 export const CHECKLIST_PARAMS: ChecklistParams = Object.freeze({
-  version: 'checklist-2026-06-phase7-1',
+  version: 'checklist-2026-06-phase7-2',
   items: [
     // --- business (11): guards the investment; groundable (most carry a `reads` evidence hint). ---
     {
@@ -96,7 +96,9 @@ export const CHECKLIST_PARAMS: ChecklistParams = Object.freeze({
       id: 'concentration_correlation',
       category: 'business',
       prompt: 'How does this correlate with what I already hold?',
-      reads: 'sizing_recommendation.worst_case.aggregate_cluster_downside_fraction',
+      // S4: the per-name cluster key/basis (which correlated bucket, on what proxy) — persist-only carry of
+      // the same evaluateClusterCap result that produced the aggregate downside fraction.
+      reads: 'sizing_recommendation.worst_case.cluster_key',
     },
     {
       id: 'thesis_drift',
@@ -116,7 +118,9 @@ export const CHECKLIST_PARAMS: ChecklistParams = Object.freeze({
       prompt:
         'Is my owner-earnings history complete enough to trust, or am I extrapolating from a '
         + 'short/gappy series?',
-      reads: 'valuation.growth_basis',
+      // S4: the OE-history depth actually used (span in years) — persist-only carry of the demonstrated-growth
+      // measure's own window the valuation already consumed. A thin/gappy window reads as low completeness.
+      reads: 'valuation.growth_window_years',
     },
     // --- cognitive (6): guards the human's reasoning; introspective, HUMAN-ONLY (NO `reads`). ---
     {

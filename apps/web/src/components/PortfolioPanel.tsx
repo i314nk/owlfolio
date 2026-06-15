@@ -32,6 +32,12 @@ export type PortfolioHolding = AppHolding & {
   buyBelowPricePerShare?: number
   moatClass?: string
   hurdleRate?: number
+  /**
+   * Phase 7 S4 — marshaled re-underwrite evidence (business itemId -> persisted display value), a PURE read
+   * of the HELD name's research-case projection resolved by the loader. Passed to the review confirm/override
+   * forms so each groundable business item reads its evidence beside it. Cognitive items are absent here.
+   */
+  reviewChecklistEvidence?: Record<string, string>
 }
 
 export type PortfolioPanelProps = {
@@ -417,7 +423,7 @@ function createConfirmedPortfolioState(holding: AppHolding) {
   )
 }
 
-function createReviewForm(holding: AppHolding) {
+function createReviewForm(holding: PortfolioHolding) {
   if (holding.pending_review_id !== undefined) {
     const currentThesisCopy = holding.thesis_health === undefined
       ? 'No confirmed review yet — rejecting this draft leaves thesis review pending.'
@@ -535,6 +541,7 @@ function createReviewForm(holding: AppHolding) {
       createElement(HoldingReviewChecklistConfirm, {
         holdingId: holding.holding_id,
         reviewId: holding.pending_review_id,
+        ...(holding.reviewChecklistEvidence === undefined ? {} : { evidence: holding.reviewChecklistEvidence }),
       }),
       createElement(HoldingReviewOverrideForm, {
         holdingId: holding.holding_id,
@@ -542,6 +549,7 @@ function createReviewForm(holding: AppHolding) {
         defaultThesisHealth: holding.pending_review_thesis_health ?? 'WATCH',
         defaultActionStance: holding.pending_review_action_stance ?? 'RESEARCH_MORE',
         defaultNextReviewAt: normalizedPendingReviewDate,
+        ...(holding.reviewChecklistEvidence === undefined ? {} : { evidence: holding.reviewChecklistEvidence }),
       }),
       createElement(
         'form',
@@ -578,7 +586,7 @@ function createReviewForm(holding: AppHolding) {
   )
 }
 
-function createManualFallbackActions(holding: AppHolding) {
+function createManualFallbackActions(holding: PortfolioHolding) {
   return createElement(
     'details',
     {

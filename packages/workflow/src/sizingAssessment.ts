@@ -29,7 +29,7 @@
 import { SIZING_PARAMS, type SizingParams } from '@owlfolio/strategies/sizingParams'
 import { computeConvictionFactor } from '@owlfolio/strategies/convictionFactor'
 import { evaluatePermanentLossCap } from '@owlfolio/strategies/permanentLossCap'
-import { evaluateClusterCap, type ClusteredPosition } from '@owlfolio/strategies/correlatedClusters'
+import { evaluateClusterCap, type ClusterBasis, type ClusteredPosition } from '@owlfolio/strategies/correlatedClusters'
 import { evaluateDeploymentHurdle } from '@owlfolio/strategies/deploymentHurdle'
 import type { MoatClass } from '@owlfolio/strategies/strategyContract'
 
@@ -65,6 +65,13 @@ export type SizingRecommendation = {
     downside_floor_basis: DownsideFloorBasis
     realistic_downside_per_share: number
     aggregate_cluster_downside_fraction: number
+    /**
+     * Phase 7 S4 — the candidate's per-name cluster key + basis, CARRIED from the same evaluateClusterCap
+     * computation that produced aggregate_cluster_downside_fraction (NOT a new derivation). Persisted so the
+     * concentration_correlation business-checklist item can marshal evidence ("which cluster, on what basis").
+     */
+    cluster_key: string
+    cluster_basis: ClusterBasis
   }
   /** The entry ladder (reuses computeTrancheLevels — the existing engine). */
   ladder: TrancheLevel[]
@@ -264,6 +271,9 @@ export function computeSizingRecommendation(args: SizingAssessmentArgs): SizingA
       downside_floor_basis: floorBasis,
       realistic_downside_per_share: realisticDownsidePerShare,
       aggregate_cluster_downside_fraction: clusterCap.cluster.aggregate_impairment_fraction,
+      // Phase 7 S4 — carry the per-name cluster key/basis from the SAME cluster result (persist-only).
+      cluster_key: clusterCap.cluster.cluster_key,
+      cluster_basis: clusterCap.cluster.cluster_basis,
     },
     ladder,
     caveats,

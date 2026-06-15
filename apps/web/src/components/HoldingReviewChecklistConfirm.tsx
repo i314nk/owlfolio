@@ -25,6 +25,13 @@ import { evaluateChecklistCompletion, type ChecklistAnswer } from '@owlfolio/str
 export type HoldingReviewChecklistConfirmProps = {
   holdingId: string
   reviewId: string
+  /**
+   * Phase 7 S4 — marshaled evidence per business checklist item (itemId -> persisted display value), a PURE
+   * read of the HELD name's research-case projection (reached via the holding's research_case_id), resolved
+   * by the caller. Read-only line beside each item; cognitive items are evidence-free by construction. Never
+   * pre-fills an answer, never a count/score.
+   */
+  evidence?: Record<string, string>
 }
 
 const labelStyle: CSSProperties = {
@@ -67,6 +74,16 @@ const CATEGORY_HEADINGS: Record<ChecklistCategory, string> = {
 /** A human-readable label for the per-item "needs attention" marker, never a count. */
 const NEEDS_ATTENTION_LABEL = 'Needs attention'
 
+/** Read-only marshaled-evidence line style (S4) — a calm, secondary readout, never an input. */
+const evidenceLineStyle: CSSProperties = {
+  color: 'var(--owl-color-muted)',
+  fontFamily: 'var(--owl-font-mono)',
+  fontSize: 'var(--owl-text-xs)',
+  lineHeight: 1.4,
+  margin: 0,
+  wordBreak: 'break-word',
+}
+
 function emptyAnswer(): ChecklistAnswer {
   return { addressed: false, note: '' }
 }
@@ -80,7 +97,7 @@ function initialAnswers(): Record<string, ChecklistAnswer> {
   return answers
 }
 
-export function HoldingReviewChecklistConfirm({ holdingId, reviewId }: HoldingReviewChecklistConfirmProps) {
+export function HoldingReviewChecklistConfirm({ holdingId, reviewId, evidence = {} }: HoldingReviewChecklistConfirmProps) {
   // Every checklist answer starts EMPTY — no seeding/suggestion (the cognitive items are human-only).
   const [answers, setAnswers] = useState<Record<string, ChecklistAnswer>>(initialAnswers)
 
@@ -139,6 +156,15 @@ export function HoldingReviewChecklistConfirm({ holdingId, reviewId }: HoldingRe
             )
           : null,
       ),
+      // Phase 7 S4 — marshaled evidence (read-only, reads-only). Re-underwrite re-checks drift since
+      // admission, so the held name's persisted projection value reads beside each business item.
+      evidence[item.id] !== undefined
+        ? createElement(
+            'p',
+            { 'data-testid': `checklist-evidence-${item.id}`, style: evidenceLineStyle },
+            `Marshaled evidence: ${evidence[item.id]}`,
+          )
+        : null,
       createElement('textarea', {
         'aria-label': item.prompt,
         id: `review-checklist-note-${item.id}`,
