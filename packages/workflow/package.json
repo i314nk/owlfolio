@@ -50,6 +50,7 @@
     "./lifecycleMonitors": "./src/lifecycleMonitors.ts",
     "./lifecycleCadence": "./src/lifecycleCadence.ts",
     "./positionSizingEngine": "./src/positionSizingEngine.ts",
-    "./cheapnessScreen": "./src/cheapnessScreen.ts"
+    "./cheapnessScreen": "./src/cheapnessScreen.ts",
+    "./admitJudgment": "./src/admitJudgment.ts"
   }
 }
