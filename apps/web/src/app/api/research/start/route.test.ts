@@ -1,13 +1,15 @@
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+import { SQLiteEventStore } from '@owlfolio/ledger/sqliteEventStore'
 import { createNotConfiguredCertificationReport } from '@owlfolio/providers'
 import { defaultPersonalLocalAppConfig } from '@owlfolio/shared'
 
 import { POST } from './route'
+import * as circleGate from '../../../../lib/circleGate'
 
 const originalEnv = {
   OWLFOLIO_APP_CONFIG_PATH: process.env.OWLFOLIO_APP_CONFIG_PATH,
@@ -51,8 +53,38 @@ describe('/api/research/start', () => {
         process.env[key as keyof typeof originalEnv] = value
       }
     }
+    delete process.env.OWLFOLIO_TEST_MODE
+    vi.restoreAllMocks()
     await rm(tempDir, { force: true, recursive: true })
   })
+
+  // Count `research_run_requested` events in the ledger — a started research case appends exactly this
+  // event, so zero of them proves a pre-spend rejection created NO research case. (The ledger file itself
+  // may exist from readiness/gate reads; only the research event proves a case was started.)
+  async function researchRunRequestedCount(): Promise<number> {
+    const ledgerPath = join(tempDir, 'personal.sqlite')
+    if (!(await readdir(tempDir)).some((name) => name === 'personal.sqlite')) return 0
+    const store = new SQLiteEventStore(ledgerPath)
+    const events = await store.list()
+    return events.filter((e) => e.event_type === 'research_run_requested').length
+  }
+
+  // Reach the circle gate deterministically: mock-provider is ready and we skip the (capital-dependent)
+  // onboarding gate via the existing playwright seam, so the circle gate is the next decision.
+  async function writeMockProviderConfigWithCircle(circle: Record<string, unknown>): Promise<void> {
+    process.env.OWLFOLIO_TEST_MODE = 'playwright'
+    await writeFile(appConfigPath, JSON.stringify({
+      ...defaultPersonalLocalAppConfig(),
+      provider: {
+        ...defaultPersonalLocalAppConfig().provider,
+        provider_id: 'mock-provider',
+      },
+      circle_of_competence: circle,
+      ledger_path: join(tempDir, 'personal.sqlite'),
+      source_ledger_path: join(tempDir, 'source-ledger'),
+      initialized_at: '2026-06-01T00:00:00.000Z',
+    }), 'utf8')
+  }
 
   it('returns a clean 400 JSON error when research is requested with an unready provider', async () => {
     const response = await POST(new Request('http://localhost/api/research/start', {
@@ -153,6 +185,59 @@ describe('/api/research/start', () => {
         code: 'unknown_provider',
         message: 'Unknown provider: unknown-provider',
       },
+    })
+  })
+
+  describe('circle-of-competence pre-spend gate', () => {
+    it('rejects an out-of-circle ticker pre-spend, returns the reason, and creates no research case', async () => {
+      await writeMockProviderConfigWithCircle({ enabled: true, allowed_sic_prefixes: ['73'] })
+      const spy = vi.spyOn(circleGate, 'evaluateCircleGate').mockResolvedValue({
+        allowed: false,
+        reason: 'SIC 6022 is outside the allowed SIC prefixes (73)',
+      })
+
+      const response = await POST(new Request('http://localhost/api/research/start', {
+        method: 'POST',
+        body: JSON.stringify({ ticker: 'JPM' }),
+      }))
+      const payload = await response.json()
+
+      expect(response.status).toBe(400)
+      expect(payload.error.code).toBe('out_of_circle')
+      expect(payload.error.message).toContain('6022')
+      expect(spy).toHaveBeenCalled()
+      // No research case was created: no research_run_requested event was appended.
+      expect(await researchRunRequestedCount()).toBe(0)
+    })
+
+    it('proceeds to start research when the candidate is in-circle', async () => {
+      await writeMockProviderConfigWithCircle({ enabled: true, allowed_sic_prefixes: ['73'] })
+      vi.spyOn(circleGate, 'evaluateCircleGate').mockResolvedValue({ allowed: true })
+
+      const response = await POST(new Request('http://localhost/api/research/start', {
+        method: 'POST',
+        body: JSON.stringify({ ticker: 'MSFT' }),
+      }))
+      const payload = await response.json()
+
+      expect(response.status).toBe(202)
+      expect(typeof payload.research_case_id).toBe('string')
+    })
+
+    it('does not run the circle gate at all under the permissive default (disabled)', async () => {
+      await writeMockProviderConfigWithCircle({ enabled: false })
+      const spy = vi.spyOn(circleGate, 'evaluateCircleGate')
+
+      const response = await POST(new Request('http://localhost/api/research/start', {
+        method: 'POST',
+        body: JSON.stringify({ ticker: 'MSFT' }),
+      }))
+      const payload = await response.json()
+
+      expect(response.status).toBe(202)
+      expect(typeof payload.research_case_id).toBe('string')
+      // Common path untouched: the gate evaluator was never invoked.
+      expect(spy).not.toHaveBeenCalled()
     })
   })
 })

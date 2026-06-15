@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 
+import { evaluateCircleGate } from '../../../../lib/circleGate'
 import { getOnboardingState, getProviderReadinessSnapshot } from '../../../../lib/onboarding'
 import { evaluateOnboardingGate } from '../../../../lib/onboardingGate'
 import { enqueueResearchRun } from '../../../../lib/workflow'
@@ -64,6 +65,26 @@ export async function POST(request: Request) {
         },
         { status: 400 },
       )
+    }
+
+    // Circle-of-competence PRE-SPEND gate: when the owner has ENABLED a boundary, reject an
+    // out-of-circle candidate BEFORE any expensive research is spent — no research case is created.
+    // Permissive default (enabled !== true) skips this entirely so the common path is unchanged (no
+    // extra fetch). The decision is config-only — there is NO LLM in the circle path.
+    const circleConfig = state.config.circle_of_competence
+    if (circleConfig?.enabled === true) {
+      const circle = await evaluateCircleGate(circleConfig, parsed.ticker)
+      if (!circle.allowed) {
+        return NextResponse.json(
+          {
+            error: {
+              code: 'out_of_circle',
+              message: `Out of circle of competence: ${circle.reason}`,
+            },
+          },
+          { status: 400 },
+        )
+      }
     }
 
     const { research_case_id } = await enqueueResearchRun(state, parsed)

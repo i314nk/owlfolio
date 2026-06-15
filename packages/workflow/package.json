@@ -32,6 +32,7 @@
     "./watchlistWorkflow": "./src/watchlistWorkflow.ts",
     "./workflowContract": "./src/workflowContract.ts",
     "./researchCasePolicy": "./src/researchCasePolicy.ts",
+    "./circleOfCompetence": "./src/circleOfCompetence.ts",
     "./marketData": "./src/marketData.ts",
     "./secEdgar": "./src/secEdgar.ts",
     "./fundamentalsProvider": "./src/fundamentalsProvider.ts",
