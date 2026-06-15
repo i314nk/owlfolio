@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { buffettMungerStrategy } from '@owlfolio/strategies/buffettMunger'
+import { SIZING_PARAMS } from '@owlfolio/strategies/sizingParams'
 
 import {
   evaluateCaseFreshness,
@@ -238,19 +239,42 @@ describe('evaluateTrancheTriggers', () => {
 // Concentration (Module 7)
 // ---------------------------------------------------------------------------
 
-describe('evaluateConcentration', () => {
-  it('does not alert at or below 15% NAV', () => {
+describe('evaluateConcentration — Phase 5 S3 winner-skew split (appreciation review, NOT the 15% deployment cap)', () => {
+  // REGRESSION GUARD against the prior 15% auto-fire behavior (the exact class as the Phase-3
+  // superseded→buy flip): the appreciation review now fires at ~22%, NOT at 15%. A winner that
+  // appreciates to 18% NAV — between the 15% DEPLOYMENT cap and the ~22% APPRECIATION review — must
+  // raise NOTHING (else it looks like an auto-trim-on-price signal, violating "don't move the number").
+  it('REGRESSION: a winner at 18% NAV raises NO alert (between the 15% deployment cap and the ~22% review)', () => {
+    const result = evaluateConcentration(openHolding({ market_value: 1800 }), { portfolio_nav: 10_000 })
+    expect(result.weight_pct).toBeCloseTo(18, 5)
+    expect(result.trim_review_alert).toBe(false)
+  })
+
+  it('does not alert at or below the ~22% appreciation-review threshold (e.g. 15%, the old deployment cap)', () => {
     const result = evaluateConcentration(openHolding({ market_value: 1500 }), { portfolio_nav: 10_000 })
     expect(result.trim_review_alert).toBe(false)
     expect(result.weight_pct).toBeCloseTo(15, 5)
   })
 
-  it('alerts above 15% NAV with a winners-run note', () => {
-    const result = evaluateConcentration(openHolding({ market_value: 2000 }), { portfolio_nav: 10_000 })
+  it('raises a REVIEW (never a sale) above the ~22% appreciation threshold with a winners-run note', () => {
+    const result = evaluateConcentration(openHolding({ market_value: 2500 }), { portfolio_nav: 10_000 })
     expect(result.trim_review_alert).toBe(true)
-    expect(result.weight_pct).toBeCloseTo(20, 5)
+    expect(result.weight_pct).toBeCloseTo(25, 5)
     expect(result.note).toContain('winners run')
+    // NEITHER threshold auto-trims — this is a review-only observation, never a recommendation/sale.
     expect(result.is_recommendation).toBe(false)
+    expect(result.is_observation).toBe(true)
+  })
+
+  it('the binding point is config-driven: tightening concentration_review_threshold makes 18% fire', () => {
+    const result = evaluateConcentration(
+      openHolding({ market_value: 1800 }),
+      {
+        portfolio_nav: 10_000,
+        params: { ...SIZING_PARAMS, concentration_review_threshold: 0.15 },
+      },
+    )
+    expect(result.trim_review_alert).toBe(true)
   })
 
   it('does not alert when NAV is unavailable', () => {

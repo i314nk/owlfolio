@@ -31,9 +31,10 @@ describe('detectSignals — STATE-INDEPENDENCE (the discipline tripwire)', () =>
   // detection is state-independent — the SAME name-data must yield the SAME signal set regardless of
   // the name's lifecycle state. We drive that by holding all data fixed and varying ONLY `state`.
   it('produces the identical signal set across all states for identical name-data', () => {
-    // market_value 200 of nav 1_000 = 20% > 15% cap → also fires over_concentrated, so the tripwire
-    // exercises ALL seven signals across states (a regression coupling any one signal to state breaks this).
-    const asOfData = { now: NOW, current_price: 40, market_value: 200, portfolio_nav: 1_000, thesis_break: true }
+    // market_value 250 of nav 1_000 = 25% > the ~22% appreciation-review threshold (Phase 5 S3) → fires
+    // over_concentrated, so the tripwire exercises ALL seven signals across states (a regression coupling
+    // any one signal to state breaks this). NB: 25% (not 20%) because the review threshold is ~22%, not 15%.
+    const asOfData = { now: NOW, current_price: 40, market_value: 250, portfolio_nav: 1_000, thesis_break: true }
     const baseData = {
       buy_price_per_share: 50,
       fair_value_per_share: 80,
@@ -143,7 +144,7 @@ describe('detectSignals — STATE-INDEPENDENCE (the discipline tripwire)', () =>
   it('raises over_concentrated only when holding + nav present and over the cap', () => {
     const signals = detectSignals(
       name({ state: 'held', holding_id: 'h1', gate_clean: true }),
-      { now: NOW, market_value: 200, portfolio_nav: 1_000 }, // 20% > 15%
+      { now: NOW, market_value: 250, portfolio_nav: 1_000 }, // 25% > the ~22% appreciation-review threshold
     )
     expect(signals).toContain('over_concentrated')
   })

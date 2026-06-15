@@ -18,6 +18,7 @@
     "./positionSizing": "./src/positionSizing.ts",
     "./sizingParams": "./src/sizingParams.ts",
     "./convictionFactor": "./src/convictionFactor.ts",
+    "./permanentLossCap": "./src/permanentLossCap.ts",
     "./valuationParams": "./src/valuationParams.ts",
     "./reverseDcf": "./src/reverseDcf.ts",
     "./valuationSensitivity": "./src/valuationSensitivity.ts",

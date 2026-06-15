@@ -112,8 +112,28 @@ export type SizingParams = {
     floor: number
     full_at_depth: number
   }
-  /** Hard per-name cap (spec §1): 15% per name. Sleeves deferred → per-name, not cross-sleeve. */
+  /**
+   * Hard per-name DEPLOYMENT ceiling (spec §1): 15% per name. This is a ceiling on NEW BUYS/ADDS only —
+   * the sizing engine's `per_name_cap_reached` gate blocks deploying more capital into a name once it is
+   * at/over this weight. It is NOT a rebalancing/appreciation ceiling: a winner whose PRICE appreciates
+   * past 15% does NOT trip this (winners run; "don't move the number"). Appreciation review is a SEPARATE,
+   * higher threshold (`concentration_review_threshold`). Sleeves deferred → per-name, not cross-sleeve.
+   */
   per_name_cap: number
+  /**
+   * Permanent-loss CAP book-recovery threshold (Phase 5 S3): the max fraction of book NAV that a single
+   * position's loss-to-the-concrete-floor may impair (e.g. 0.05). The cap (permanentLossCap.ts) binds on
+   * the CONCRETE downside floor (a number from S2), NOT on a quality re-judgment. Mutating this changes
+   * the binding point with no code change.
+   */
+  book_recovery_threshold: number
+  /**
+   * Concentration APPRECIATION-review threshold (Phase 5 S3): ~0.22. A HELD position whose PRICE has
+   * appreciated past this fraction of NAV raises a FLAGGED HUMAN-REVIEW (logged/signed, "don't move the
+   * number"). This is DISTINCT from `per_name_cap` (the 15% deployment ceiling on new buys/adds). NEITHER
+   * threshold auto-trims — both are review-only. A winner between 15% and ~22% raises NOTHING.
+   */
+  concentration_review_threshold: number
   /**
    * Stressed-book haircut (Phase 5 S2) applied to stockholders' equity for the SOFTER downside floor
    * (`stressed_book` basis) — used only when there is no positive net cash. 0.5 = value the book at 50¢
@@ -157,6 +177,8 @@ export const SIZING_PARAMS: SizingParams = Object.freeze({
   conviction_use_discount_depth: false,
   conviction_discount_depth_ramp: { floor: 0.6, full_at_depth: 0.30 },
   per_name_cap: 0.15,
+  book_recovery_threshold: 0.05,
+  concentration_review_threshold: 0.22,
   book_value_haircut: 0.5,
   target_names: 20,
   ladders: {

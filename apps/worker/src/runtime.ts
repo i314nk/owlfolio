@@ -560,7 +560,8 @@ function defaultTaskDefinitions(automation?: AutomationSettings): ScheduledTaskP
     },
     {
       // Holdings Monitor (lifecycle-spec-v3 Module 7) daily pass: tranche-review (T2/T3, thesis-gated),
-      // >15% concentration trim-review, annual deep-re-run flag. Records holding_monitor_alert_recorded
+      // ~22% concentration appreciation-review (Phase 5 S3, not the 15% deployment cap), annual deep-re-run
+      // flag. Records holding_monitor_alert_recorded
       // OBSERVATIONS only — advisory, never an auto-trade/-trim/-advance. Follows the watchlist cadence.
       scheduled_task_id: 'task_holdings_monitor_daily',
       task_kind: 'holdings_monitor',
@@ -1157,7 +1158,7 @@ async function runWatchlistBuyWindowPass(
 
 /**
  * Daily holdings monitor pass (Module 7): per open holding, tranche-review triggers (T2/T3, thesis-gated),
- * >15% concentration trim-review, and the annual deep-re-run flag. Records `holding_monitor_alert_recorded`
+ * ~22% concentration appreciation-review (Phase 5 S3), and the annual deep-re-run flag. Records `holding_monitor_alert_recorded`
  * OBSERVATIONS. Advisory only — never an auto-trade, auto-trim, or state advance.
  */
 async function runHoldingsMonitorTask(

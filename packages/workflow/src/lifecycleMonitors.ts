@@ -19,7 +19,7 @@ import {
   type ShariahFinancialVerdict,
 } from '@owlfolio/strategies/shariahFinancialRatios'
 import type { StrategyContract } from '@owlfolio/strategies/strategyContract'
-import type { LadderId, SizingParams } from '@owlfolio/strategies/sizingParams'
+import { SIZING_PARAMS, type LadderId, type SizingParams } from '@owlfolio/strategies/sizingParams'
 import {
   evaluateSizingTranche,
   suggestLadder,
@@ -31,8 +31,22 @@ import {
 export const CASE_STALENESS_MONTHS = 12
 /** AAOIFI-practice default grace window before a divest draft (spec: 90 days). */
 export const SHARIAH_GRACE_DAYS = 90
-/** Concentration trim-review threshold (spec: > 15% NAV). */
-export const CONCENTRATION_TRIM_THRESHOLD_PCT = 15
+/**
+ * Concentration APPRECIATION-review threshold, in % of NAV (Phase 5 S3 winner-skew split).
+ *
+ * THIS IS NOT THE 15% DEPLOYMENT CAP. Two DISTINCT thresholds now exist and must not be conflated:
+ *   - 15% per_name_cap (DEPLOYMENT): binds NEW buys/adds only, enforced in the sizing engine's
+ *     `per_name_cap_reached` gate (evaluateSizingTranche). It does NOT fire on appreciation.
+ *   - ~22% concentration_review_threshold (APPRECIATION): a HELD position whose PRICE appreciated past
+ *     this raises a FLAGGED HUMAN-REVIEW (logged/signed, "don't move the number").
+ *
+ * The Phase-5 model fires the appreciation review at ~22%, NOT at 15%. A winner appreciating to 18% NAV
+ * (between the deployment cap and the review threshold) raises NOTHING — firing it at 15% would look like
+ * an auto-trim-on-price signal (a SILENT failure that violates winner-skew while looking like a feature).
+ * NEITHER threshold auto-trims; both are review-only/advisory. The number is config-driven (read from
+ * SIZING_PARAMS.concentration_review_threshold); this constant is the default for display/back-compat.
+ */
+export const CONCENTRATION_REVIEW_THRESHOLD_PCT = SIZING_PARAMS.concentration_review_threshold * 100
 
 // ---------------------------------------------------------------------------
 // Shared input shapes (already-projected; callers pull these from projections)
@@ -455,17 +469,25 @@ export type ConcentrationResult = {
 }
 
 /**
- * Module 7 concentration check: position_value / portfolio_NAV. > 15% → a trim-review alert ("winners
- * run; alert ≠ auto-trim"). Fail-closed: a non-positive NAV → not computable.
+ * Module 7 concentration check (Phase 5 S3 winner-skew split): position_value / portfolio_NAV.
+ *
+ * Fires an APPRECIATION-review alert when the weight exceeds the ~22% `concentration_review_threshold`
+ * — NOT the 15% deployment cap. The 15% per-name cap is a DEPLOYMENT ceiling on new buys/adds, enforced
+ * in the sizing engine; it does NOT belong here and does NOT fire on appreciation. So a winner that
+ * appreciated to 18% of NAV (between the two thresholds) raises NOTHING; only at ~22%+ does this raise a
+ * FLAGGED HUMAN-REVIEW. NEITHER threshold auto-trims — this is review-only ("winners run; alert ≠
+ * auto-trim; never a sale"). Fail-closed: a non-positive NAV → not computable. The threshold is read from
+ * config (SizingParams.concentration_review_threshold); mutating it changes the binding point.
  */
 export function evaluateConcentration(
   holding: MonitorHoldingInput,
-  opts: { portfolio_nav: number },
+  opts: { portfolio_nav: number; params?: SizingParams },
 ): ConcentrationResult {
+  const reviewThresholdPct = (opts.params ?? SIZING_PARAMS).concentration_review_threshold * 100
   const base = {
     holding_id: holding.holding_id,
     ...(holding.ticker === undefined ? {} : { ticker: holding.ticker }),
-    note: 'winners run; this is a trim-review alert, never an auto-trim. The human decides.',
+    note: 'winners run; this is an appreciation-review alert, never an auto-trim or a sale. The human decides.',
     is_observation: true as const,
     is_recommendation: false as const,
   }
@@ -474,15 +496,18 @@ export function evaluateConcentration(
     return { ...base, computable: false, trim_review_alert: false, message: `${holding.ticker ?? holding.holding_id}: NAV / position value unavailable — concentration not computable` }
   }
   const weightPct = Number(((value / opts.portfolio_nav) * 100).toFixed(4))
-  const alert = weightPct > CONCENTRATION_TRIM_THRESHOLD_PCT
+  // Appreciation review fires at the ~22% review threshold, NOT the 15% deployment cap. A winner between
+  // the two thresholds (e.g. 18%) raises NOTHING — firing at 15% on appreciation is the forbidden
+  // auto-trim-on-price signal.
+  const alert = weightPct > reviewThresholdPct
   return {
     ...base,
     computable: true,
     weight_pct: weightPct,
     trim_review_alert: alert,
     message: alert
-      ? `${holding.ticker ?? holding.holding_id}: concentration ${weightPct}% of NAV exceeds the ${CONCENTRATION_TRIM_THRESHOLD_PCT}% cap — trim-review alert. Winners run; alert ≠ auto-trim. Observation only.`
-      : `${holding.ticker ?? holding.holding_id}: concentration ${weightPct}% of NAV within the ${CONCENTRATION_TRIM_THRESHOLD_PCT}% cap`,
+      ? `${holding.ticker ?? holding.holding_id}: concentration ${weightPct}% of NAV exceeds the ${reviewThresholdPct}% appreciation-review threshold — flagged human-review (winners run; alert ≠ auto-trim, never a sale). Observation only.`
+      : `${holding.ticker ?? holding.holding_id}: concentration ${weightPct}% of NAV within the ${reviewThresholdPct}% appreciation-review threshold`,
   }
 }
 

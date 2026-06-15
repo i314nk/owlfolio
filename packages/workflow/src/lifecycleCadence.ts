@@ -158,7 +158,8 @@ export function detectSignals(name: NameLifecycleProjection, asOfData: CadenceAs
     signals.push('falsifier_tripped')
   }
 
-  // over_concentrated ← position weight over the trim cap (only computable with market value + NAV).
+  // over_concentrated ← position weight past the ~22% appreciation-review threshold (Phase 5 S3 — NOT
+  // the 15% deployment cap; review-only, never an auto-trim). Only computable with market value + NAV.
   if (isFiniteNumber(asOfData.market_value) && isFiniteNumber(asOfData.portfolio_nav)) {
     const concentration = evaluateConcentration(
       { holding_id: name.holding_id ?? name.ticker, market_value: asOfData.market_value },
@@ -232,7 +233,7 @@ const ACTION_TABLE: Record<string, LifecycleAction> = {
   'reunderwrite_due:exited': noOp('exited name is inert; no re-underwrite.'),
 
   // over_concentrated: only meaningful on a held name → trim review; others inert.
-  'over_concentrated:held': { kind: 'trim_review', reason: 'position over the concentration cap — trim-review (winners run; alert ≠ auto-trim).' },
+  'over_concentrated:held': { kind: 'trim_review', reason: 'position past the ~22% appreciation-review threshold — flagged human-review (winners run; alert ≠ auto-trim, never a sale).' },
   'over_concentrated:candidate': noOp('candidate holds no position; concentration does not apply.'),
   'over_concentrated:watched': noOp('watched name holds no position; concentration does not apply.'),
   'over_concentrated:exited': noOp('exited name holds no position; concentration does not apply.'),
