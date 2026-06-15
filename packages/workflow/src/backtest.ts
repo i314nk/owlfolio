@@ -164,6 +164,10 @@ export type RunValuationBacktestArgs = {
 const SANITY_WINDOWS: ReadonlyArray<{ window: string; kind: 'must_signal' | 'must_not_signal'; from: string; to: string }> = [
   { window: '2020-03..2020-05', kind: 'must_signal', from: '2020-03', to: '2020-05' },
   { window: '2022-09..2023-01', kind: 'must_signal', from: '2022-09', to: '2023-01' },
+  // 2024-09..2025-06: a single-name drawdown window (Nike fell ~$170→~$60 on a thesis wobble) — a quality
+  // name that genuinely got cheap OUTSIDE a broad crash, so the canary is testable per-name (not every name
+  // is expected to fire here, only those actually in a deep individual drawdown).
+  { window: '2024-09..2025-06', kind: 'must_signal', from: '2024-09', to: '2025-06' },
   // "2021 broad US large-cap quality at peak multiples" — a system buying here is loose.
   { window: '2021-01..2021-12', kind: 'must_not_signal', from: '2021-01', to: '2021-12' },
 ]

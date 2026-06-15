@@ -2221,7 +2221,7 @@ export async function runProcessDeepDiveQueueTask(
 const CALIBRATION_TARGET: CalibrationTarget = {
   buys_per_year_min: 1,
   buys_per_year_max: 3,
-  must_signal_windows: ['2020-03..2020-05', '2022-09..2023-01'],
+  must_signal_windows: ['2020-03..2020-05', '2022-09..2023-01', '2024-09..2025-06'],
   must_not_signal_windows: ['2021-01..2021-12'],
 }
 
