@@ -1,0 +1,410 @@
+import { describe, expect, it } from 'vitest'
+
+import type { LedgerEventEnvelope } from '../eventEnvelope'
+import {
+  projectNameLifecycle,
+  type NameLifecycleProjection,
+} from '../projections/nameLifecycleProjection'
+
+function evt(overrides: Partial<LedgerEventEnvelope<unknown>> & {
+  event_type: string
+  aggregate_type: LedgerEventEnvelope<unknown>['aggregate_type']
+  aggregate_id: string
+  payload: unknown
+  created_at: string
+}): LedgerEventEnvelope<unknown> {
+  return {
+    event_id: `evt_${overrides.event_type}_${overrides.aggregate_id}`,
+    actor_type: 'system',
+    source_ids: [],
+    schema_version: 1,
+    ...overrides,
+  }
+}
+
+function byTicker(rows: NameLifecycleProjection[], ticker: string): NameLifecycleProjection {
+  const row = rows.find((r) => r.ticker === ticker)
+  if (row === undefined) {
+    throw new Error(`expected a row for ${ticker}`)
+  }
+  return row
+}
+
+describe('projectNameLifecycle — derived states', () => {
+  it('derives one row per ticker in each of candidate / watched / held / exited states', () => {
+    const events: LedgerEventEnvelope<unknown>[] = [
+      // CANDIDATE: a research case in a pre-watchlist stage.
+      evt({
+        event_type: 'research_case_created',
+        aggregate_type: 'research_case',
+        aggregate_id: 'rc_cand_001',
+        payload: { ticker: 'CAND', company_id: 'company_cand' },
+        created_at: '2026-06-01T00:00:00.000Z',
+      }),
+
+      // WATCHED: research case -> watchlist draft created -> confirmed (user-approved), no holding.
+      evt({
+        event_type: 'research_case_created',
+        aggregate_type: 'research_case',
+        aggregate_id: 'rc_watch_001',
+        payload: { ticker: 'WTCH', company_id: 'company_wtch' },
+        created_at: '2026-06-01T00:00:00.000Z',
+      }),
+      evt({
+        event_type: 'watchlist_draft_created',
+        aggregate_type: 'watchlist_item',
+        aggregate_id: 'watch_wtch_001',
+        payload: { watchlist_item_id: 'watch_wtch_001', research_case_id: 'rc_watch_001', ticker: 'WTCH' },
+        created_at: '2026-06-01T01:00:00.000Z',
+      }),
+      evt({
+        event_type: 'watchlist_draft_confirmed',
+        aggregate_type: 'watchlist_item',
+        aggregate_id: 'watch_wtch_001',
+        payload: { watchlist_item_id: 'watch_wtch_001', research_case_id: 'rc_watch_001' },
+        created_at: '2026-06-01T02:00:00.000Z',
+      }),
+
+      // HELD: full chain through holding_opened, no holding_closed.
+      evt({
+        event_type: 'research_case_created',
+        aggregate_type: 'research_case',
+        aggregate_id: 'rc_held_001',
+        payload: { ticker: 'HELD', company_id: 'company_held' },
+        created_at: '2026-06-01T00:00:00.000Z',
+      }),
+      evt({
+        event_type: 'watchlist_draft_created',
+        aggregate_type: 'watchlist_item',
+        aggregate_id: 'watch_held_001',
+        payload: { watchlist_item_id: 'watch_held_001', research_case_id: 'rc_held_001', ticker: 'HELD' },
+        created_at: '2026-06-01T01:00:00.000Z',
+      }),
+      evt({
+        event_type: 'watchlist_draft_confirmed',
+        aggregate_type: 'watchlist_item',
+        aggregate_id: 'watch_held_001',
+        payload: { watchlist_item_id: 'watch_held_001', research_case_id: 'rc_held_001' },
+        created_at: '2026-06-01T02:00:00.000Z',
+      }),
+      evt({
+        event_type: 'holding_opened',
+        aggregate_type: 'holding',
+        aggregate_id: 'holding_held_001',
+        payload: {
+          holding_id: 'holding_held_001',
+          watchlist_item_id: 'watch_held_001',
+          research_case_id: 'rc_held_001',
+          ticker: 'HELD',
+          shares: 10,
+          cost_basis_per_share: 100,
+        },
+        created_at: '2026-06-01T03:00:00.000Z',
+      }),
+
+      // EXITED via sale: a holding that was later closed.
+      evt({
+        event_type: 'research_case_created',
+        aggregate_type: 'research_case',
+        aggregate_id: 'rc_sold_001',
+        payload: { ticker: 'SOLD', company_id: 'company_sold' },
+        created_at: '2026-06-01T00:00:00.000Z',
+      }),
+      evt({
+        event_type: 'watchlist_draft_created',
+        aggregate_type: 'watchlist_item',
+        aggregate_id: 'watch_sold_001',
+        payload: { watchlist_item_id: 'watch_sold_001', research_case_id: 'rc_sold_001', ticker: 'SOLD' },
+        created_at: '2026-06-01T01:00:00.000Z',
+      }),
+      evt({
+        event_type: 'watchlist_draft_confirmed',
+        aggregate_type: 'watchlist_item',
+        aggregate_id: 'watch_sold_001',
+        payload: { watchlist_item_id: 'watch_sold_001', research_case_id: 'rc_sold_001' },
+        created_at: '2026-06-01T02:00:00.000Z',
+      }),
+      evt({
+        event_type: 'holding_opened',
+        aggregate_type: 'holding',
+        aggregate_id: 'holding_sold_001',
+        payload: {
+          holding_id: 'holding_sold_001',
+          watchlist_item_id: 'watch_sold_001',
+          research_case_id: 'rc_sold_001',
+          ticker: 'SOLD',
+          shares: 5,
+          cost_basis_per_share: 50,
+        },
+        created_at: '2026-06-01T03:00:00.000Z',
+      }),
+      evt({
+        event_type: 'holding_closed',
+        aggregate_type: 'holding',
+        aggregate_id: 'holding_sold_001',
+        payload: { holding_id: 'holding_sold_001', closed_at: '2026-06-02' },
+        created_at: '2026-06-02T00:00:00.000Z',
+      }),
+    ]
+
+    const rows = projectNameLifecycle(events)
+
+    expect(byTicker(rows, 'CAND').state).toBe('candidate')
+    expect(byTicker(rows, 'WTCH').state).toBe('watched')
+    expect(byTicker(rows, 'HELD').state).toBe('held')
+    expect(byTicker(rows, 'SOLD').state).toBe('exited')
+    expect(byTicker(rows, 'SOLD').exit_provenance).toBe('sold')
+
+    // One row per ticker.
+    expect(rows.filter((r) => r.ticker === 'HELD')).toHaveLength(1)
+  })
+
+  it('marks a screened-out research case (rejected / pass) as exited with screened_out provenance', () => {
+    const events: LedgerEventEnvelope<unknown>[] = [
+      evt({
+        event_type: 'research_case_created',
+        aggregate_type: 'research_case',
+        aggregate_id: 'rc_rej_001',
+        payload: { ticker: 'REJX', company_id: 'company_rejx' },
+        created_at: '2026-06-01T00:00:00.000Z',
+      }),
+      evt({
+        event_type: 'quick_screen_drafted',
+        aggregate_type: 'research_case',
+        aggregate_id: 'rc_rej_001',
+        payload: { research_case_id: 'rc_rej_001', ticker: 'REJX', screening_result: 'reject' },
+        created_at: '2026-06-01T01:00:00.000Z',
+      }),
+    ]
+
+    const rows = projectNameLifecycle(events)
+    expect(byTicker(rows, 'REJX').state).toBe('exited')
+    expect(byTicker(rows, 'REJX').exit_provenance).toBe('screened_out')
+  })
+})
+
+describe('projectNameLifecycle — deteriorating-watched is HONEST (owner refinement #1)', () => {
+  function watchedChain(researchCaseId: string, watchlistItemId: string, ticker: string): LedgerEventEnvelope<unknown>[] {
+    return [
+      evt({
+        event_type: 'research_case_created',
+        aggregate_type: 'research_case',
+        aggregate_id: researchCaseId,
+        payload: { ticker, company_id: `company_${ticker.toLowerCase()}` },
+        created_at: '2026-06-01T00:00:00.000Z',
+      }),
+      evt({
+        event_type: 'watchlist_draft_created',
+        aggregate_type: 'watchlist_item',
+        aggregate_id: watchlistItemId,
+        payload: { watchlist_item_id: watchlistItemId, research_case_id: researchCaseId, ticker },
+        created_at: '2026-06-01T01:00:00.000Z',
+      }),
+      evt({
+        event_type: 'watchlist_draft_confirmed',
+        aggregate_type: 'watchlist_item',
+        aggregate_id: watchlistItemId,
+        payload: { watchlist_item_id: watchlistItemId, research_case_id: researchCaseId },
+        created_at: '2026-06-01T02:00:00.000Z',
+      }),
+    ]
+  }
+
+  it('keeps a watched name with a FAILED Shariah gate in `watched` but flags the tripped falsifier', () => {
+    const events: LedgerEventEnvelope<unknown>[] = [
+      ...watchedChain('rc_det_001', 'watch_det_001', 'DETR'),
+      evt({
+        event_type: 'shariah_gate_decision_recorded',
+        aggregate_type: 'decision',
+        aggregate_id: 'gate_det_001',
+        payload: {
+          gate_decision_id: 'gate_det_001',
+          target_id: 'watch_det_001',
+          research_case_id: 'rc_det_001',
+          status: 'FAIL',
+          allowed: false,
+          reasons: ['Interest-bearing debt ratio breached the threshold on the newer 10-K.'],
+        },
+        created_at: '2026-06-03T00:00:00.000Z',
+      }),
+    ]
+
+    const row = byTicker(projectNameLifecycle(events), 'DETR')
+    // Still watched — NOT synthesized into exited or a half-state (no prune event exists yet).
+    expect(row.state).toBe('watched')
+    expect(row.falsifier_tripped).toBe(true)
+    expect(row.falsifier_reason).toBeTruthy()
+    expect(row.gate_clean).toBe(false)
+    // The gap is kept VISIBLE: there is no prune action available.
+    expect(row.prune_action_available).toBe(false)
+  })
+
+  it('flags a watched name that went stale on a newer filing (suppressed monitor alert)', () => {
+    const events: LedgerEventEnvelope<unknown>[] = [
+      ...watchedChain('rc_stale_001', 'watch_stale_001', 'STLE'),
+      evt({
+        event_type: 'watchlist_monitor_alert_recorded',
+        aggregate_type: 'watchlist_item',
+        aggregate_id: 'watch_stale_001',
+        actor_type: 'worker',
+        payload: {
+          watchlist_item_id: 'watch_stale_001',
+          research_case_id: 'rc_stale_001',
+          ticker: 'STLE',
+          suppressed: true,
+          suppression_reason: 'A cheap price was seen but the case is stale on a newer 10-K.',
+        },
+        created_at: '2026-06-04T00:00:00.000Z',
+      }),
+    ]
+
+    const row = byTicker(projectNameLifecycle(events), 'STLE')
+    expect(row.state).toBe('watched')
+    expect(row.falsifier_tripped).toBe(true)
+    expect(row.falsifier_reason).toContain('stale')
+    expect(row.prune_action_available).toBe(false)
+  })
+
+  it('leaves a healthy watched name unflagged', () => {
+    const row = byTicker(projectNameLifecycle(watchedChain('rc_ok_001', 'watch_ok_001', 'OKAY')), 'OKAY')
+    expect(row.state).toBe('watched')
+    expect(row.falsifier_tripped).toBeUndefined()
+  })
+})
+
+describe('projectNameLifecycle — exit-provenance is RETAINED (owner refinement #2)', () => {
+  it('distinguishes a sold former holding from a screened-out reject, both exited', () => {
+    const events: LedgerEventEnvelope<unknown>[] = [
+      // Sold former holding.
+      evt({
+        event_type: 'research_case_created',
+        aggregate_type: 'research_case',
+        aggregate_id: 'rc_sold_002',
+        payload: { ticker: 'SLDX', company_id: 'company_sldx' },
+        created_at: '2026-06-01T00:00:00.000Z',
+      }),
+      evt({
+        event_type: 'watchlist_draft_created',
+        aggregate_type: 'watchlist_item',
+        aggregate_id: 'watch_sold_002',
+        payload: { watchlist_item_id: 'watch_sold_002', research_case_id: 'rc_sold_002', ticker: 'SLDX' },
+        created_at: '2026-06-01T01:00:00.000Z',
+      }),
+      evt({
+        event_type: 'watchlist_draft_confirmed',
+        aggregate_type: 'watchlist_item',
+        aggregate_id: 'watch_sold_002',
+        payload: { watchlist_item_id: 'watch_sold_002', research_case_id: 'rc_sold_002' },
+        created_at: '2026-06-01T02:00:00.000Z',
+      }),
+      evt({
+        event_type: 'holding_opened',
+        aggregate_type: 'holding',
+        aggregate_id: 'holding_sold_002',
+        payload: {
+          holding_id: 'holding_sold_002',
+          watchlist_item_id: 'watch_sold_002',
+          research_case_id: 'rc_sold_002',
+          ticker: 'SLDX',
+          shares: 3,
+          cost_basis_per_share: 30,
+        },
+        created_at: '2026-06-01T03:00:00.000Z',
+      }),
+      evt({
+        event_type: 'holding_closed',
+        aggregate_type: 'holding',
+        aggregate_id: 'holding_sold_002',
+        payload: { holding_id: 'holding_sold_002', closed_at: '2026-06-05' },
+        created_at: '2026-06-05T00:00:00.000Z',
+      }),
+
+      // Screened-out reject.
+      evt({
+        event_type: 'research_case_created',
+        aggregate_type: 'research_case',
+        aggregate_id: 'rc_rej_002',
+        payload: { ticker: 'PASX', company_id: 'company_pasx' },
+        created_at: '2026-06-01T00:00:00.000Z',
+      }),
+      evt({
+        event_type: 'quick_screen_drafted',
+        aggregate_type: 'research_case',
+        aggregate_id: 'rc_rej_002',
+        payload: { research_case_id: 'rc_rej_002', ticker: 'PASX', screening_result: 'pass' },
+        created_at: '2026-06-01T01:00:00.000Z',
+      }),
+    ]
+
+    const rows = projectNameLifecycle(events)
+    const sold = byTicker(rows, 'SLDX')
+    const screenedOut = byTicker(rows, 'PASX')
+
+    expect(sold.state).toBe('exited')
+    expect(screenedOut.state).toBe('exited')
+    // Same state, OPPOSITE histories — provenance must distinguish them.
+    expect(sold.exit_provenance).toBe('sold')
+    expect(screenedOut.exit_provenance).toBe('screened_out')
+    expect(sold.exit_provenance).not.toBe(screenedOut.exit_provenance)
+  })
+
+  it('retains the prior exit_provenance when an exited name is re-discovered as a candidate', () => {
+    const events: LedgerEventEnvelope<unknown>[] = [
+      evt({
+        event_type: 'research_case_created',
+        aggregate_type: 'research_case',
+        aggregate_id: 'rc_redisc_v1',
+        payload: { ticker: 'REDX', company_id: 'company_redx' },
+        created_at: '2026-06-01T00:00:00.000Z',
+      }),
+      evt({
+        event_type: 'watchlist_draft_created',
+        aggregate_type: 'watchlist_item',
+        aggregate_id: 'watch_redisc_001',
+        payload: { watchlist_item_id: 'watch_redisc_001', research_case_id: 'rc_redisc_v1', ticker: 'REDX' },
+        created_at: '2026-06-01T01:00:00.000Z',
+      }),
+      evt({
+        event_type: 'watchlist_draft_confirmed',
+        aggregate_type: 'watchlist_item',
+        aggregate_id: 'watch_redisc_001',
+        payload: { watchlist_item_id: 'watch_redisc_001', research_case_id: 'rc_redisc_v1' },
+        created_at: '2026-06-01T02:00:00.000Z',
+      }),
+      evt({
+        event_type: 'holding_opened',
+        aggregate_type: 'holding',
+        aggregate_id: 'holding_redisc_001',
+        payload: {
+          holding_id: 'holding_redisc_001',
+          watchlist_item_id: 'watch_redisc_001',
+          research_case_id: 'rc_redisc_v1',
+          ticker: 'REDX',
+          shares: 2,
+          cost_basis_per_share: 20,
+        },
+        created_at: '2026-06-01T03:00:00.000Z',
+      }),
+      evt({
+        event_type: 'holding_closed',
+        aggregate_type: 'holding',
+        aggregate_id: 'holding_redisc_001',
+        payload: { holding_id: 'holding_redisc_001', closed_at: '2026-06-05' },
+        created_at: '2026-06-05T00:00:00.000Z',
+      }),
+      // Re-discovered later as a NEW research case (supersedes the old one), back in a live stage.
+      evt({
+        event_type: 'research_case_created',
+        aggregate_type: 'research_case',
+        aggregate_id: 'rc_redisc_v2',
+        payload: { ticker: 'REDX', company_id: 'company_redx', supersedes_research_case_id: 'rc_redisc_v1', version: 2 },
+        created_at: '2026-06-10T00:00:00.000Z',
+      }),
+    ]
+
+    const row = byTicker(projectNameLifecycle(events), 'REDX')
+    expect(row.state).toBe('candidate')
+    // History is not lost.
+    expect(row.exit_provenance).toBe('sold')
+  })
+})
