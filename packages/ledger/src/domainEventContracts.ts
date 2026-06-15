@@ -70,6 +70,7 @@ export const domainEventTypes = [
   'holding_monitor_alert_recorded',
   'holding_shariah_grace_started',
   'holding_sell_review_drafted',
+  'holding_closed',
   'position_post_mortem_recorded',
   'forecast_recorded',
   'forecast_resolved',
@@ -601,6 +602,32 @@ export const domainEventContracts: readonly DomainEventContract[] = [
       'is_recommendation',
       'requires_user_authoring',
       'deferred_detection_note',
+      'message',
+    ],
+  },
+  {
+    // Holding CLOSE / sale finalization (lifecycle-spec-v3 Module 7 sell discipline; Phase 6 S7). The
+    // irreversible, HUMAN-AUTHORED exit transition — the mirror of holding_opened. The sell RECOMMENDATION
+    // is an advisory OBSERVATION (sizing/sell-review); this event is the actual execution and may only be
+    // authored by a user (never a worker/provider/agent — closeHolding throws on a machine actor).
+    // is_execution=true marks the irreversible action; requires_user_authoring=true gates it. core fields
+    // (holding_id, closed_at) stay compatible with existing folds (nameLifecycle → exited/sold, purification
+    // exit-finalization). reason_code records WHY the position was closed, reusing the SellReviewReasonCode
+    // vocabulary ('thesis_broken' | 'valuation_inverted' | 'better_opportunity_under_constraint' |
+    // 'original_mistake' | 'minimum_hold_released' | 'unresolvable_shariah_breach'); typed as a string here
+    // because @owlfolio/ledger must not depend on @owlfolio/workflow (where that union lives).
+    event_type: 'holding_closed',
+    aggregate_type: 'holding',
+    actor_type: 'user',
+    projection_owner: 'portfolio',
+    payload_fields: [
+      'holding_id',
+      'closed_at',
+      'exit_price_per_share',
+      'reason_code',
+      'exit_provenance',
+      'is_execution',
+      'requires_user_authoring',
       'message',
     ],
   },

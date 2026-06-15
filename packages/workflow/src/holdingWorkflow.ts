@@ -1,6 +1,7 @@
 import type { EventStore } from '@owlfolio/ledger/eventStore'
 import type { ActorType, LedgerEventEnvelope } from '@owlfolio/ledger/eventEnvelope'
 import { resolveResearchStrategyRef } from './researchStrategyRef'
+import type { SellReviewReasonCode } from './lifecycleMonitors'
 
 type HoldingEventStore = EventStore<LedgerEventEnvelope<unknown>>
 
@@ -54,6 +55,38 @@ export type OpenHoldingFromWatchlistCommand = {
   currency: string
   causation_id: string
   actor_id: string
+  idempotency_key?: string
+}
+
+export type HoldingClosedPayload = {
+  holding_id: string
+  closed_at: string
+  exit_price_per_share: number
+  /** Why the position was closed — reuses the SellReviewReasonCode vocabulary. */
+  reason_code: SellReviewReasonCode
+  exit_provenance: 'sold'
+  /** This IS the irreversible execution (not a draft/observation). */
+  is_execution: true
+  /** The close is gated to human authoring. */
+  requires_user_authoring: true
+  message?: string
+}
+
+export type HoldingClosed = LedgerEventEnvelope<HoldingClosedPayload> & HoldingClosedPayload
+
+export type CloseHoldingCommand = {
+  holding_id: string
+  closed_at?: string
+  exit_price_per_share: number
+  reason_code: SellReviewReasonCode
+  /**
+   * Authoring actor. The irreversible close is HUMAN-authored ONLY — a worker/provider/agent actor is
+   * rejected (see closeHolding). Typed as ActorType so the guard is explicit at the call site.
+   */
+  actor_type: ActorType
+  actor_id: string
+  causation_id?: string
+  message?: string
   idempotency_key?: string
 }
 
@@ -150,6 +183,53 @@ export async function openHoldingFromWatchlist(
 
   const storedEvent = await store.append(event as LedgerEventEnvelope<unknown>)
   return mergeEventPayload(storedEvent as LedgerEventEnvelope<HoldingOpenedPayload>)
+}
+
+export async function closeHolding(
+  store: HoldingEventStore,
+  command: CloseHoldingCommand,
+): Promise<HoldingClosed> {
+  // KEY INVARIANT: the irreversible holding close is HUMAN-authored ONLY. A worker/provider/agent actor
+  // attempting the exit is rejected — the sell RECOMMENDATION may be machine-authored (observation/draft),
+  // but the actual CLOSE execution must be signed by a user. Mirrors the user-only holding_opened transition.
+  if (command.actor_type !== 'user') {
+    throw new Error(
+      `holding_closed is human-authored only: actor_type '${command.actor_type}' cannot author the irreversible close of ${command.holding_id}`,
+    )
+  }
+  if (!Number.isFinite(command.exit_price_per_share) || command.exit_price_per_share < 0) {
+    throw new Error('Exit price per share cannot be negative')
+  }
+
+  const payload: HoldingClosedPayload = {
+    holding_id: command.holding_id,
+    closed_at: command.closed_at ?? todayIsoDate(),
+    exit_price_per_share: command.exit_price_per_share,
+    reason_code: command.reason_code,
+    exit_provenance: 'sold',
+    is_execution: true,
+    requires_user_authoring: true,
+    ...(command.message === undefined ? {} : { message: command.message }),
+  }
+
+  const event: LedgerEventEnvelope<HoldingClosedPayload> = {
+    event_id: `evt_holding_closed_${command.holding_id}`,
+    event_type: 'holding_closed',
+    aggregate_type: 'holding',
+    aggregate_id: command.holding_id,
+    causation_id: command.causation_id ?? command.holding_id,
+    correlation_id: command.holding_id,
+    actor_type: 'user',
+    actor_id: command.actor_id,
+    payload,
+    source_ids: [],
+    created_at: nowIso(),
+    schema_version: 1,
+    ...(command.idempotency_key === undefined ? {} : { idempotency_key: command.idempotency_key }),
+  }
+
+  const storedEvent = await store.append(event as LedgerEventEnvelope<unknown>)
+  return mergeEventPayload(storedEvent as LedgerEventEnvelope<HoldingClosedPayload>)
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

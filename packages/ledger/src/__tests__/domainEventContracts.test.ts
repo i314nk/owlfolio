@@ -57,6 +57,7 @@ describe('Owlfolio v2 domain event boundary contracts', () => {
       'holding_monitor_alert_recorded',
       'holding_shariah_grace_started',
       'holding_sell_review_drafted',
+      'holding_closed',
       'position_post_mortem_recorded',
       'forecast_recorded',
       'forecast_resolved',
@@ -213,6 +214,26 @@ describe('Owlfolio v2 domain event boundary contracts', () => {
         'is_recommendation',
         'requires_user_authoring',
         'deferred_detection_note',
+        'message',
+      ],
+    })
+  })
+
+  it('freezes the holding_closed contract (Phase 6 S7) as the irreversible HUMAN-authored exit execution', () => {
+    // The close is the mirror of holding_opened: human-authored only, an execution (not a draft/observation),
+    // gated by requires_user_authoring. exit_provenance:'sold' keeps the nameLifecycle/purification folds green.
+    expect(contract('holding_closed')).toMatchObject({
+      aggregate_type: 'holding',
+      actor_type: 'user',
+      projection_owner: 'portfolio',
+      payload_fields: [
+        'holding_id',
+        'closed_at',
+        'exit_price_per_share',
+        'reason_code',
+        'exit_provenance',
+        'is_execution',
+        'requires_user_authoring',
         'message',
       ],
     })
