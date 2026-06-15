@@ -14,6 +14,12 @@ import {
   runMockStrategyDiscovery,
 } from '../discoveryCandidateWorkflow'
 import { approveWatchlistDraft, confirmWatchlistDraft } from '../watchlistWorkflow'
+import { CHECKLIST_PARAMS } from '@owlfolio/strategies/checklistParams'
+
+// Phase 7 S2: admit requires every hygiene/bias checklist item to be addressed (affirmed + note).
+const COMPLETE_CHECKLIST: Record<string, { addressed: boolean; note: string }> = Object.fromEntries(
+  CHECKLIST_PARAMS.items.map((item) => [item.id, { addressed: true, note: `Addressed ${item.id}.` }]),
+)
 
 describe('discovery candidate queue', () => {
   it('records selected-strategy candidates before quick screening without creating portfolio state', async () => {
@@ -99,6 +105,7 @@ describe('discovery candidate queue', () => {
       buy_below_valuation_version: 'valuation-2026-06-cap-1',
       buy_below_mos_provisional: true,
       signed_thesis: 'I am admitting MSFT for monitoring at the frozen buy-below.',
+      checklist_answers: COMPLETE_CHECKLIST,
       actor_id: 'user_local',
     })
     await approveWatchlistDraft(store, {
@@ -127,6 +134,7 @@ describe('discovery candidate queue', () => {
       buy_below_valuation_version: 'valuation-2026-06-cap-1',
       buy_below_mos_provisional: true,
       signed_thesis: 'I am admitting AAPL ahead of opening a tracked holding.',
+      checklist_answers: COMPLETE_CHECKLIST,
       actor_id: 'user_local',
     })
     await approveWatchlistDraft(store, {

@@ -27,6 +27,7 @@ import type { EventStore } from '@owlfolio/ledger/eventStore'
 import { SQLiteEventStore } from '@owlfolio/ledger/sqliteEventStore'
 import { resolveProvider } from '@owlfolio/providers'
 import { VALUATION_PARAMS } from '@owlfolio/strategies/valuationParams'
+import { evaluateChecklistCompletion, type ChecklistAnswer } from '@owlfolio/strategies/checklist'
 import type { AppConfig } from '@owlfolio/shared'
 import {
   approveWatchlistDraft,
@@ -645,6 +646,7 @@ export async function promoteResearchCaseToWatchlist(
   state: OnboardingState,
   researchCaseId: string,
   signedThesis: string,
+  checklistAnswers: Record<string, ChecklistAnswer> = {},
 ) {
   if (!state.is_initialized || state.config.mode !== 'personal-local' || state.config.ledger_path === undefined) {
     throw new Error('Personal-local workflow is not initialized')
@@ -657,6 +659,17 @@ export async function promoteResearchCaseToWatchlist(
   const humanSignedThesis = signedThesis.trim()
   if (humanSignedThesis.length === 0) {
     throw new Error('A human-signed thesis is required to promote a research case to the watchlist')
+  }
+
+  // COMPLETION-BLOCK (Phase 7 S2): every hygiene/bias checklist item must be ADDRESSED before admit —
+  // mirroring the signed-thesis gate. The cognitive answers are HUMAN-AUTHORED only; we pass through the
+  // human's answers untouched and NEVER default/synthesize any answer here. Reject with the unaddressed
+  // ids so the route can 400 with what still needs attention. Decision-NEUTRAL: no scoring/count.
+  const checklistCompletion = evaluateChecklistCompletion(checklistAnswers)
+  if (!checklistCompletion.complete) {
+    throw new Error(
+      `The hygiene/bias checklist must be fully addressed to promote a research case to the watchlist; unaddressed: ${checklistCompletion.unaddressed.join(', ')}`,
+    )
   }
 
   const store = new SQLiteEventStore(state.config.ledger_path)
@@ -720,6 +733,7 @@ export async function promoteResearchCaseToWatchlist(
         ? {}
         : { frozen_iv: frozenIv, frozen_iv_valuation_version: VALUATION_PARAMS.version }),
       signed_thesis: humanSignedThesis,
+      checklist_answers: checklistAnswers,
       actor_id: 'user_local',
       idempotency_key: `decision:${researchCase.research_case_id}:watchlist:v1`,
     })

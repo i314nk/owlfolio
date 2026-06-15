@@ -7,9 +7,18 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { defaultPersonalLocalAppConfig } from '@owlfolio/shared'
 import { SQLiteEventStore } from '@owlfolio/ledger/sqliteEventStore'
 import { projectWatchlist } from '@owlfolio/ledger/projections/watchlistProjection'
+import { CHECKLIST_PARAMS } from '@owlfolio/strategies/checklistParams'
 import { createResearchCase, draftDecision } from '@owlfolio/workflow'
 
 import { POST } from './route'
+
+/** Append a fully-addressed per-item checklist (note + addressed) to a form, mirroring the admit form. */
+function appendCompleteChecklist(form: URLSearchParams): void {
+  for (const item of CHECKLIST_PARAMS.items) {
+    form.set(`checklist_note[${item.id}]`, `Addressed ${item.id}.`)
+    form.set(`checklist_addressed[${item.id}]`, 'on')
+  }
+}
 
 const originalEnv = {
   OWLFOLIO_APP_CONFIG_PATH: process.env.OWLFOLIO_APP_CONFIG_PATH,
@@ -111,6 +120,28 @@ describe('/api/research/[caseId]/watchlist', () => {
   function callRoute(caseId: string, signedThesis: string = HUMAN_SIGNED_THESIS) {
     const form = new URLSearchParams()
     form.set('signed_thesis', signedThesis)
+    // The Phase 7 hygiene/bias checklist is also required — post a fully-addressed set on the happy path.
+    appendCompleteChecklist(form)
+    return POST(new Request(`http://localhost/api/research/${caseId}/watchlist`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      body: form.toString(),
+    }), {
+      params: Promise.resolve({ caseId }),
+    })
+  }
+
+  // Post with the signed thesis but an INCOMPLETE checklist (one item omitted) — exercises the 400 path.
+  function callRouteIncompleteChecklist(caseId: string, omitItemId: string) {
+    const form = new URLSearchParams()
+    form.set('signed_thesis', HUMAN_SIGNED_THESIS)
+    for (const item of CHECKLIST_PARAMS.items) {
+      if (item.id === omitItemId) {
+        continue
+      }
+      form.set(`checklist_note[${item.id}]`, `Addressed ${item.id}.`)
+      form.set(`checklist_addressed[${item.id}]`, 'on')
+    }
     return POST(new Request(`http://localhost/api/research/${caseId}/watchlist`, {
       method: 'POST',
       headers: { 'content-type': 'application/x-www-form-urlencoded' },
@@ -184,6 +215,67 @@ describe('/api/research/[caseId]/watchlist', () => {
     try {
       const events = await store.list()
       expect(events.some((event) => event.event_type === 'watchlist_draft_created')).toBe(false)
+    } finally {
+      store.close()
+    }
+  })
+
+  it('persists and projects the human checklist answers alongside the signed thesis (auditable)', async () => {
+    const caseId = await seedCompletedAdbeCase(ledgerPath)
+
+    await expect(callRoute(caseId)).rejects.toMatchObject({ digest: expect.stringContaining('NEXT_REDIRECT') })
+
+    const store = new SQLiteEventStore(ledgerPath)
+    try {
+      const events = await store.list()
+      const draft = events.find((event) => event.event_type === 'watchlist_draft_created')
+      const payload = draft?.payload as { checklist_answers?: Record<string, { addressed: boolean; note: string }> }
+      // Every checklist item was captured on the signed artifact.
+      expect(Object.keys(payload.checklist_answers ?? {})).toHaveLength(CHECKLIST_PARAMS.items.length)
+      expect(payload.checklist_answers?.['anchoring']?.addressed).toBe(true)
+
+      const [item] = projectWatchlist(events)
+      expect(Object.keys(item?.checklist_answers ?? {})).toHaveLength(CHECKLIST_PARAMS.items.length)
+    } finally {
+      store.close()
+    }
+  })
+
+  it('returns 400 with the unaddressed ids when the hygiene/bias checklist is incomplete (completion-block)', async () => {
+    const caseId = await seedCompletedAdbeCase(ledgerPath)
+
+    const response = await callRouteIncompleteChecklist(caseId, 'anchoring')
+    expect(response.status).toBe(400)
+    await expect(response.json()).resolves.toMatchObject({
+      error: expect.stringMatching(/checklist must be fully addressed.*anchoring/),
+    })
+
+    // No draft was appended — the completion-block closed the path.
+    const store = new SQLiteEventStore(ledgerPath)
+    try {
+      const events = await store.list()
+      expect(events.some((event) => event.event_type === 'watchlist_draft_created')).toBe(false)
+    } finally {
+      store.close()
+    }
+  })
+
+  it('does not synthesize cognitive answers server-side: an empty checklist is rejected, not auto-filled', async () => {
+    const caseId = await seedCompletedAdbeCase(ledgerPath)
+
+    // Post the signed thesis but NO checklist fields at all — the server must NOT fabricate any answer.
+    const form = new URLSearchParams()
+    form.set('signed_thesis', HUMAN_SIGNED_THESIS)
+    const response = await POST(new Request(`http://localhost/api/research/${caseId}/watchlist`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      body: form.toString(),
+    }), { params: Promise.resolve({ caseId }) })
+
+    expect(response.status).toBe(400)
+    const store = new SQLiteEventStore(ledgerPath)
+    try {
+      expect((await store.list()).some((event) => event.event_type === 'watchlist_draft_created')).toBe(false)
     } finally {
       store.close()
     }

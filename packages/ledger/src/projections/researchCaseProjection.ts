@@ -403,6 +403,24 @@ export type ResearchCaseSellRecommendationProjection = {
   recorded_at?: string
 }
 
+/**
+ * One human checklist answer mirrored onto the research case (Phase 7 S2). Structurally identical to the
+ * `ChecklistAnswer` shape in `@owlfolio/strategies/checklist`, redeclared here because `@owlfolio/ledger`
+ * must NOT depend on `@owlfolio/strategies`.
+ */
+export type ResearchCaseChecklistAnswer = {
+  addressed: boolean
+  note: string
+}
+
+/**
+ * The human's Phase 7 hygiene-checklist answers (business + cognitive), captured at sign-off
+ * (`watchlist_draft_created`) and mirrored onto the research case so a name's checklist answers travel
+ * with its thesis (auditable). Keyed by checklist item id. DECISION-NEUTRAL: a verbatim audit projection
+ * — no score/count is derived.
+ */
+export type ResearchCaseChecklistAnswersProjection = Record<string, ResearchCaseChecklistAnswer>
+
 export type ResearchCaseProjection = {
   research_case_id: string
   version: number
@@ -460,6 +478,11 @@ export type ResearchCaseProjection = {
   shariah_rationale?: string
   risks?: string[]
   open_questions?: string[]
+  /**
+   * The human's Phase 7 hygiene-checklist answers, captured at admit sign-off — mirrored here so the
+   * checklist answers travel with the thesis (auditable). DECISION-NEUTRAL: verbatim, never scored.
+   */
+  checklist_answers?: ResearchCaseChecklistAnswersProjection
   updated_at: string
 }
 
@@ -489,6 +512,32 @@ function getStringArray(payload: Record<string, unknown>, key: string): string[]
 function getNumber(payload: Record<string, unknown>, key: string): number | undefined {
   const value = payload[key]
   return typeof value === 'number' && isFinite(value) ? value : undefined
+}
+
+/**
+ * Extract the human checklist answers map from a payload, decision-neutrally — verbatim, no scoring.
+ * Only well-formed `{ addressed: boolean; note: string }` entries are kept; undefined when absent.
+ */
+function getChecklistAnswers(
+  payload: Record<string, unknown>,
+  key: string,
+): ResearchCaseChecklistAnswersProjection | undefined {
+  const value = payload[key]
+  if (!isRecord(value)) {
+    return undefined
+  }
+  const answers: ResearchCaseChecklistAnswersProjection = {}
+  for (const [id, entry] of Object.entries(value)) {
+    if (!isRecord(entry)) {
+      continue
+    }
+    const addressed = entry['addressed']
+    const note = entry['note']
+    if (typeof addressed === 'boolean' && typeof note === 'string') {
+      answers[id] = { addressed, note }
+    }
+  }
+  return answers
 }
 
 function getOwnerEarningsBridgeProjection(val: Record<string, unknown>): OwnerEarningsBridgeProjection | undefined {
@@ -1477,6 +1526,11 @@ export function projectResearchCases(events: LedgerEventEnvelope<unknown>[]): Re
       applyString(researchCase, 'strategy_id', getString(event.payload, 'strategy_id'))
       applyString(researchCase, 'strategy_version', getString(event.payload, 'strategy_version'))
       applyBoolean(researchCase, 'user_approved', getBoolean(event.payload, 'user_approved'))
+      // Mirror the human's sign-off checklist answers onto the case (auditable; verbatim, never scored).
+      const checklistAnswers = getChecklistAnswers(event.payload, 'checklist_answers')
+      if (checklistAnswers !== undefined) {
+        researchCase.checklist_answers = checklistAnswers
+      }
       continue
     }
 

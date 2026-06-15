@@ -157,3 +157,52 @@ describe('projectResearchCases — admit_judgment_recorded', () => {
     expect(rc.admit_recommendation?.permanent_loss_risk?.level).toBe('high')
   })
 })
+
+describe('projectResearchCases — checklist_answers (Phase 7 S2)', () => {
+  function watchlistDraft(checklistAnswers: unknown): LedgerEventEnvelope<unknown> {
+    return {
+      event_id: `evt_watchlist_draft_created_watch_${RC}`,
+      event_type: 'watchlist_draft_created',
+      aggregate_type: 'watchlist_item',
+      aggregate_id: `watch_${RC}`,
+      causation_id: `decision_${RC}`,
+      correlation_id: RC,
+      actor_type: 'user',
+      actor_id: 'user_local',
+      payload: {
+        watchlist_item_id: `watch_${RC}`,
+        research_case_id: RC,
+        decision_id: `decision_${RC}`,
+        company_id: 'company_tst',
+        ticker: 'TST',
+        strategy_id: 'buffett-munger',
+        thesis_summary: 'agent draft',
+        signed_thesis: 'human commitment',
+        checklist_answers: checklistAnswers,
+        user_approved: false,
+        created_by_actor_type: 'user',
+        created_by_actor_id: 'user_local',
+      },
+      source_ids: [],
+      created_at: '2026-06-03T00:00:00.000Z',
+      schema_version: 1,
+    }
+  }
+
+  it('mirrors the human checklist answers onto the research case (auditable, verbatim)', () => {
+    const answers = {
+      anchoring: { addressed: true, note: 'not anchored to a past price' },
+      moat_erosion: { addressed: true, note: 'no erosion evidence yet' },
+    }
+    const cases = projectResearchCases([created(), watchlistDraft(answers)])
+    const rc = cases.find((c) => c.research_case_id === RC)!
+    expect(rc.checklist_answers?.['anchoring']).toEqual(answers.anchoring)
+    expect(rc.checklist_answers?.['moat_erosion']).toEqual(answers.moat_erosion)
+  })
+
+  it('leaves checklist_answers undefined when the draft has none (older events)', () => {
+    const cases = projectResearchCases([created(), watchlistDraft(undefined)])
+    const rc = cases.find((c) => c.research_case_id === RC)!
+    expect(rc.checklist_answers).toBeUndefined()
+  })
+})

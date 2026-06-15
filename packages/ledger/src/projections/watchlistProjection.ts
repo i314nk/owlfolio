@@ -1,5 +1,15 @@
 import type { LedgerEventEnvelope } from '../eventEnvelope'
 
+/**
+ * One human checklist answer as projected for audit. Structurally identical to the `ChecklistAnswer`
+ * shape in `@owlfolio/strategies/checklist`, redeclared here because `@owlfolio/ledger` must NOT depend
+ * on `@owlfolio/strategies` (same reason `reason_code` is typed as a string in the event contracts).
+ */
+export type WatchlistChecklistAnswer = {
+  addressed: boolean
+  note: string
+}
+
 export type WatchlistProjection = {
   watchlist_item_id: string
   research_case_id: string
@@ -30,6 +40,13 @@ export type WatchlistProjection = {
   frozen_iv_valuation_version?: string
   /** The human's signed plain-language thesis (Gate 0 `[Hu]`), distinct from the agent-drafted thesis_summary. */
   signed_thesis?: string
+  /**
+   * The human's answers to the Phase 7 hygiene checklists (business + cognitive), captured at sign-off
+   * alongside `signed_thesis` — so a name's checklist answers travel with its thesis (auditable). Keyed by
+   * checklist item id; each value is `{ addressed: boolean; note: string }`. DECISION-NEUTRAL: no
+   * score/count is derived here — this is a verbatim audit projection of the human's sign-off answers.
+   */
+  checklist_answers?: Record<string, WatchlistChecklistAnswer>
   shariah_gate_decision_id?: string
   shariah_gate_status?: string
   shariah_gate_allowed?: boolean
@@ -56,6 +73,33 @@ function getBoolean(payload: Record<string, unknown>, key: string): boolean | un
 function getNumber(payload: Record<string, unknown>, key: string): number | undefined {
   const value = payload[key]
   return typeof value === 'number' && Number.isFinite(value) ? value : undefined
+}
+
+/**
+ * Extract the human checklist answers map from a payload, decision-neutrally — verbatim, no scoring.
+ * Only well-formed `{ addressed: boolean; note: string }` entries are kept. Returns undefined when the
+ * field is absent or not an object (older events have no checklist).
+ */
+function getChecklistAnswers(
+  payload: Record<string, unknown>,
+  key: string,
+): Record<string, WatchlistChecklistAnswer> | undefined {
+  const value = payload[key]
+  if (!isRecord(value)) {
+    return undefined
+  }
+  const answers: Record<string, WatchlistChecklistAnswer> = {}
+  for (const [id, entry] of Object.entries(value)) {
+    if (!isRecord(entry)) {
+      continue
+    }
+    const addressed = entry['addressed']
+    const note = entry['note']
+    if (typeof addressed === 'boolean' && typeof note === 'string') {
+      answers[id] = { addressed, note }
+    }
+  }
+  return answers
 }
 
 function getStringArray(payload: Record<string, unknown>, key: string): string[] {
@@ -193,6 +237,10 @@ export function projectWatchlist(events: LedgerEventEnvelope<unknown>[]): Watchl
     applyString(watchlistItem, 'strategy_version', getString(event.payload, 'strategy_version'))
     applyString(watchlistItem, 'thesis_summary', getString(event.payload, 'thesis_summary'))
     applyString(watchlistItem, 'signed_thesis', getString(event.payload, 'signed_thesis'))
+    const checklistAnswers = getChecklistAnswers(event.payload, 'checklist_answers')
+    if (checklistAnswers !== undefined) {
+      watchlistItem.checklist_answers = checklistAnswers
+    }
     applyString(watchlistItem, 'buy_below_valuation_version', getString(event.payload, 'buy_below_valuation_version'))
     applyString(watchlistItem, 'frozen_iv_valuation_version', getString(event.payload, 'frozen_iv_valuation_version'))
 

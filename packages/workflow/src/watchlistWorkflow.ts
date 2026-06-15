@@ -1,5 +1,6 @@
 import type { EventStore } from '@owlfolio/ledger/eventStore'
 import type { ActorType, LedgerEventEnvelope } from '@owlfolio/ledger/eventEnvelope'
+import { evaluateChecklistCompletion, type ChecklistAnswer } from '@owlfolio/strategies/checklist'
 import { resolveResearchStrategyRef } from './researchStrategyRef'
 
 type WatchlistEventStore = EventStore<LedgerEventEnvelope<unknown>>
@@ -45,6 +46,16 @@ type WatchlistDraftCreatedPayload = {
    * `thesis_summary`. A signed thesis is the human's commitment; it is required + non-empty on admit.
    */
   signed_thesis: string
+  /**
+   * The human's answers to the two Phase 7 hygiene checklists (business failure modes + cognitive
+   * biases), captured at sign-off as part of the human commitment — append-only, alongside
+   * `signed_thesis`. Keyed by checklist item id; each answer is `{ addressed, note }`. Admission is
+   * COMPLETION-BLOCKED: every item must be addressed (affirmed + non-empty note) before this event is
+   * appended (see confirmWatchlistDraft). DECISION-NEUTRAL: no score/count/weight is derived — the
+   * checklist forces the question, it never answers or ranks it. The cognitive answers are HUMAN-AUTHORED
+   * only; nothing server-side defaults or synthesizes them.
+   */
+  checklist_answers: Record<string, ChecklistAnswer>
   user_approved: false
   created_by_actor_type: ActorType
   created_by_actor_id: string
@@ -77,6 +88,13 @@ export type ConfirmWatchlistDraftCommand = {
   frozen_iv_valuation_version?: string | undefined
   /** The human's required, non-empty signed thesis (Gate 0 `[Hu]`). */
   signed_thesis: string
+  /**
+   * The human's answers to the Phase 7 hygiene checklists (business + cognitive). REQUIRED: every
+   * checklist item must be addressed (affirmed + non-empty note) or the admit is rejected before any
+   * append (completion-block, mirroring the signed_thesis guard). Keyed by item id. HUMAN-AUTHORED only —
+   * the caller must pass the human's own answers; no answer is defaulted/synthesized server-side.
+   */
+  checklist_answers: Record<string, ChecklistAnswer>
   actor_id: string
   /**
    * Admit is a HUMAN-AUTHORED transition: defaults to `user`. A non-`user` actor (worker/provider/system)
@@ -129,6 +147,16 @@ export async function confirmWatchlistDraft(
   if (command.signed_thesis.trim().length === 0) {
     throw new Error('Watchlist admit requires a non-empty signed_thesis (the human commitment).')
   }
+  // COMPLETION-BLOCK (Phase 7 S2): every hygiene/bias checklist item must be ADDRESSED before admit —
+  // same throw-before-append shape as the signed_thesis guard. Decision-NEUTRAL: the evaluator only tells
+  // us WHICH items are unaddressed; it never scores/counts them, and a "risk present" answer never
+  // auto-rejects. We throw the unaddressed ids so the human knows what still needs attention.
+  const checklistCompletion = evaluateChecklistCompletion(command.checklist_answers)
+  if (!checklistCompletion.complete) {
+    throw new Error(
+      `Watchlist admit requires every quality/bias checklist item to be addressed; unaddressed: ${checklistCompletion.unaddressed.join(', ')}`,
+    )
+  }
 
   const selectedStrategy = resolveResearchStrategyRef(command)
   const payload: WatchlistDraftCreatedPayload = {
@@ -151,6 +179,9 @@ export async function confirmWatchlistDraft(
       ? {}
       : { frozen_iv_valuation_version: command.frozen_iv_valuation_version }),
     signed_thesis: command.signed_thesis,
+    // Persisted append-only as part of the human sign-off, alongside signed_thesis (verified complete
+    // above). The cognitive answers are the human's own — never defaulted/synthesized here.
+    checklist_answers: command.checklist_answers,
     user_approved: false,
     created_by_actor_type: 'user',
     created_by_actor_id: command.actor_id,

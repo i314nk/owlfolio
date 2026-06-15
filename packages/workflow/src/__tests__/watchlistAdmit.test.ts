@@ -3,11 +3,22 @@ import { InMemoryEventStore } from '@owlfolio/ledger/eventStore'
 import { projectNameLifecycle } from '@owlfolio/ledger/projections/nameLifecycleProjection'
 import { projectWatchlist } from '@owlfolio/ledger/projections/watchlistProjection'
 import { VALUATION_PARAMS } from '@owlfolio/strategies/valuationParams'
+import { CHECKLIST_PARAMS } from '@owlfolio/strategies/checklistParams'
+import type { ChecklistAnswer } from '@owlfolio/strategies/checklist'
 import { createResearchCase, draftDecision } from '../researchWorkflow'
 import { approveWatchlistDraft, confirmWatchlistDraft, type ConfirmWatchlistDraftCommand } from '../watchlistWorkflow'
 
 const SIGNED_THESIS =
   'I am admitting COST: a durable, low-cost-moat retailer compounding membership economics; I will buy only at a deep dislocation.'
+
+/** A fully-addressed answer set: every checklist item affirmed with a non-empty reasoned note. */
+function completeChecklistAnswers(): Record<string, ChecklistAnswer> {
+  const answers: Record<string, ChecklistAnswer> = {}
+  for (const item of CHECKLIST_PARAMS.items) {
+    answers[item.id] = { addressed: true, note: `Addressed ${item.id}: considered and reasoned.` }
+  }
+  return answers
+}
 
 function admitCommand(overrides: Partial<ConfirmWatchlistDraftCommand> = {}): ConfirmWatchlistDraftCommand {
   return {
@@ -25,6 +36,7 @@ function admitCommand(overrides: Partial<ConfirmWatchlistDraftCommand> = {}): Co
     frozen_iv: 990,
     frozen_iv_valuation_version: VALUATION_PARAMS.version,
     signed_thesis: SIGNED_THESIS,
+    checklist_answers: completeChecklistAnswers(),
     actor_id: 'user_local',
     ...overrides,
   }
@@ -112,6 +124,58 @@ describe('admit candidate → watched (Task 4.2b)', () => {
 
     await expect(confirmWatchlistDraft(store, admitCommand({ signed_thesis: '' }))).rejects.toThrow(/signed[_ ]thesis/i)
     await expect(confirmWatchlistDraft(store, admitCommand({ signed_thesis: '   ' }))).rejects.toThrow(/signed[_ ]thesis/i)
+  })
+
+  it('blocks admit when any hygiene/bias checklist item is unaddressed (the integrity completion-block)', async () => {
+    const store = new InMemoryEventStore()
+    await seedCase(store)
+
+    // Drop one cognitive item entirely (missing answer).
+    const missingOne = completeChecklistAnswers()
+    delete missingOne['anchoring']
+    await expect(confirmWatchlistDraft(store, admitCommand({ checklist_answers: missingOne }))).rejects.toThrow(
+      /checklist item to be addressed; unaddressed:.*anchoring/i,
+    )
+
+    // An affirmed item with an empty note does NOT count as addressed.
+    const emptyNote = completeChecklistAnswers()
+    emptyNote['disposition'] = { addressed: true, note: '   ' }
+    await expect(confirmWatchlistDraft(store, admitCommand({ checklist_answers: emptyNote }))).rejects.toThrow(
+      /unaddressed:.*disposition/i,
+    )
+
+    // No empty answer set at all.
+    await expect(confirmWatchlistDraft(store, admitCommand({ checklist_answers: {} }))).rejects.toThrow(
+      /checklist item to be addressed/i,
+    )
+
+    // None of the blocked attempts appended a draft.
+    expect((await store.list()).some((event) => event.event_type === 'watchlist_draft_created')).toBe(false)
+  })
+
+  it('persists the human checklist answers on the signed artifact and projects them (auditable)', async () => {
+    const store = new InMemoryEventStore()
+    await seedCase(store)
+
+    const answers = completeChecklistAnswers()
+    const created = await confirmWatchlistDraft(store, admitCommand({ checklist_answers: answers }))
+
+    // Persisted verbatim on the created draft payload.
+    expect(created.checklist_answers['anchoring']).toEqual(answers['anchoring'])
+    expect(Object.keys(created.checklist_answers)).toHaveLength(CHECKLIST_PARAMS.items.length)
+
+    // Projected onto the watchlist item so a name's checklist answers travel with its thesis.
+    const [item] = projectWatchlist(await store.list())
+    expect(item?.checklist_answers?.['moat_erosion']).toEqual(answers['moat_erosion'])
+    expect(Object.keys(item?.checklist_answers ?? {})).toHaveLength(CHECKLIST_PARAMS.items.length)
+  })
+
+  it('admits when every checklist item is addressed', async () => {
+    const store = new InMemoryEventStore()
+    await seedCase(store)
+
+    const created = await confirmWatchlistDraft(store, admitCommand())
+    expect(created.event_type).toBe('watchlist_draft_created')
   })
 
   it('rejects an admit authored by a non-user actor (no auto-admit by worker/provider)', async () => {
