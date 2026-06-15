@@ -1,11 +1,16 @@
 import { createElement, type ReactNode } from 'react'
 
 import { buffettMungerStrategy } from '@owlfolio/strategies/buffettMunger'
+import type {
+  ResearchCaseSellBiasCaveatProjection,
+  ResearchCaseSellWorstCaseProjection,
+} from '@owlfolio/ledger/projections/researchCaseProjection'
 import { isDeepDiveComplete } from '@owlfolio/workflow/admitAssessment'
 
 import type { PositionPlan, PositionTranche } from '../lib/positionPlan'
 
 import { AdmitRecommendationRequest } from './AdmitRecommendationRequest'
+import { SellDecisionRequest } from './SellDecisionRequest'
 import { SizingRecommendationRequest } from './SizingRecommendationRequest'
 import { SourceChip } from './designSystem'
 import { StatusBadge } from './StatusBadge'
@@ -125,6 +130,13 @@ export function ResearchCasePanel({ researchCase, mode = 'demo', marketQuote, po
   const showSizingPanel = mode === 'personal-local'
     && (hasSizingRecommendation || (isAdmissionCandidate && hasAdmitRecommendation))
 
+  // Sell decision panel (Phase 6 S8b): show the on-demand sell-decision request + the persisted advisory
+  // recommendation once a name is HELD, or whenever a sell decision has already been recorded. The CLOSE
+  // stays human-authored — this panel never offers an auto-sell.
+  const hasSellRecommendation = researchCase.sell_recommendation !== undefined
+  const isHeld = researchCase.stage === 'holding'
+  const showSellPanel = mode === 'personal-local' && (hasSellRecommendation || isHeld)
+
   const gated = isGatedCase(researchCase)
 
   if (gated) {
@@ -160,6 +172,8 @@ export function ResearchCasePanel({ researchCase, mode = 'demo', marketQuote, po
     showAdmitPanel ? createAdmitRecommendationPanel(researchCase) : null,
     // ── 4d. Sizing recommendation (advisory, worst-case-first) + on-demand request (personal-local) ──
     showSizingPanel ? createSizingRecommendationPanel(researchCase) : null,
+    // ── 4e. Sell decision (advisory, worst-case-first; HELD context) + on-demand request (personal-local) ──
+    showSellPanel ? createSellDecisionPanel(researchCase) : null,
     // ── 5. Watchlist promotion (personal-local only) ─────────────────────────
     canPromoteToWatchlist ? createWatchlistPromotionAction(researchCase.research_case_id) : null,
     // ── 6. Actions row ──────────────────────────────────────────────────────
@@ -2666,6 +2680,280 @@ function createSizingRecommendationPanel(researchCase: AppResearchCase) {
       'Target weight is an entry cap — let winners run; the buy is human-signed, never auto-traded.',
     ),
     createElement(SizingRecommendationRequest, { researchCaseId: researchCase.research_case_id, hasRecommendation: true }),
+  )
+}
+
+// ── Sell decision panel (Phase 6 S8b) ─────────────────────────────────────────
+// Read-only render of the PERSISTED `sell_recommendation` projection (advisory; NOT recomputed here) plus
+// the on-demand request control. It is WORST-CASE-FIRST (the concrete floor + its basis + the realistic
+// downside) THEN the decision. The four decision_status states are distinct:
+//   - `hold`           → the guard HELD (a fixable problem inside the hold window). This is the disposition
+//                        brake working AS DESIGNED — rendered as the CORRECT posture (a POSITIVE emerald
+//                        block), NEVER a yellow/red warning. Mirrors sizing's hold_in_savings exactly.
+//   - `escalate_review`→ the unresolved / incoherent path — a distinct "needs your judgment" state
+//                        (neutral / attention, not an error).
+//   - `sell_review`    → surfaces the reason_code, prominently flags requires_human_signoff, and states that
+//                        the CLOSE is human-authored (there is NO auto-sell button anywhere here).
+//   - `cannot_assess`  → fail-closed neutral message (mirrors sizing's cannot_size).
+// The bias_caveats (disposition / anchoring) render as advisory notes. The close is ALWAYS human-authored.
+
+const SELL_REASON_CODE_LABEL: Record<string, string> = {
+  thesis_broken: 'thesis broke — the durable advantage or the bet no longer holds',
+  permanent_impairment: 'permanent impairment — the loss is not recoverable inside the thesis',
+  valuation_inverted: 'valuation inverted — price reached / exceeded the frozen intrinsic value',
+  better_opportunity: 'better opportunity — a materially higher net OE yield clears the switching hurdle',
+  original_mistake: 'original mistake — the underwriting was wrong from the start',
+  minimum_hold_released: 'minimum-hold guard released the review',
+  minimum_hold_active: 'minimum-hold guard is holding (fixable problem inside the window)',
+  escalate_human_review: 'unresolved / incoherent — escalated for your judgment',
+}
+
+function createSellWorstCaseBlock(worst: ResearchCaseSellWorstCaseProjection | undefined) {
+  const floorBasis = worst?.downside_floor_basis
+  const basisLabel = floorBasis === undefined ? undefined : (SIZING_FLOOR_BASIS_LABEL[floorBasis] ?? floorBasis)
+  const reliability = worst?.downside_floor_reliability
+  return createElement(
+    'div',
+    {
+      'data-testid': 'sell-worst-case',
+      style: {
+        background: 'rgba(239, 68, 68, 0.07)',
+        border: '1px solid rgba(239, 68, 68, 0.28)',
+        borderRadius: '0.85rem',
+        display: 'grid',
+        gap: '0.4rem',
+        padding: '0.9rem 1rem',
+      },
+    },
+    createElement('p', { style: { ...labelStyle, color: '#fca5a5', margin: 0 } }, 'Worst case first'),
+    createElement(
+      'p',
+      { style: { color: '#f3d7d7', fontSize: 'var(--owl-text-base)', lineHeight: 1.55, margin: 0 } },
+      worst?.downside_floor_per_share === undefined
+        ? 'Downside floor not recorded.'
+        : `Concrete downside floor $${worst.downside_floor_per_share.toFixed(2)}/share`,
+      worst?.realistic_downside === undefined
+        ? ''
+        : ` · realistic downside $${worst.realistic_downside.toFixed(2)}/share from entry`,
+      '.',
+    ),
+    basisLabel === undefined ? null : createElement(
+      'p',
+      { 'data-testid': 'sell-floor-basis', style: { color: '#f3d7d7', fontSize: 'var(--owl-text-sm)', lineHeight: 1.5, margin: 0 } },
+      createElement('strong', null, 'Floor basis: '),
+      basisLabel,
+      reliability === undefined ? null : ` (reliability: ${reliability})`,
+    ),
+  )
+}
+
+function createSellBiasCaveats(caveats: ResearchCaseSellBiasCaveatProjection[] | undefined) {
+  if ((caveats ?? []).length === 0) return null
+  return createElement(
+    'div',
+    {
+      'data-testid': 'sell-bias-caveats',
+      style: {
+        background: 'var(--owl-color-panel-deep)',
+        border: '1px solid rgba(148, 163, 184, 0.16)',
+        borderRadius: '0.85rem',
+        display: 'grid',
+        gap: '0.35rem',
+        padding: '0.8rem 1rem',
+      },
+    },
+    createElement('p', { style: { ...labelStyle, margin: 0 } }, 'Bias guards (advisory)'),
+    createElement(
+      'ul',
+      {
+        style: {
+          color: 'var(--owl-color-muted)', display: 'flex', flexDirection: 'column',
+          fontSize: 'var(--owl-text-sm)', gap: '0.3rem', lineHeight: 1.45, margin: 0, paddingLeft: '1.1rem',
+        },
+      },
+      ...(caveats ?? []).map((caveat, index) =>
+        createElement(
+          'li',
+          { key: `sell-bias-${index}` },
+          caveat.kind === undefined ? null : createElement('strong', { style: { color: 'var(--owl-color-sand)' } }, `${humanizeToken(caveat.kind)}: `),
+          caveat.message ?? '',
+        ),
+      ),
+    ),
+  )
+}
+
+function createSellDecisionPanel(researchCase: AppResearchCase) {
+  const rec = researchCase.sell_recommendation
+
+  // No decision yet — show ONLY the on-demand request control (no fabricated verdict).
+  if (rec === undefined) {
+    return createElement(SellDecisionRequest, { researchCaseId: researchCase.research_case_id })
+  }
+
+  const worstCase = createSellWorstCaseBlock(rec.worst_case)
+  const biasCaveats = createSellBiasCaveats(rec.bias_caveats)
+  const triggerLabel = rec.trigger === undefined ? undefined : humanizeToken(rec.trigger)
+  const impairmentLabel = rec.impairment_call === undefined ? undefined : humanizeToken(rec.impairment_call)
+  const guardLabel = rec.minimum_hold_decision === undefined ? undefined : humanizeToken(rec.minimum_hold_decision)
+
+  // Shared trigger / impairment / guard facts row (always shown alongside the decision).
+  const factsRow = createElement(
+    'div',
+    { 'data-testid': 'sell-decision-facts', style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '0.6rem' } },
+    createPlanMetric('Trigger', triggerLabel ?? '—'),
+    createPlanMetric('Impairment call', impairmentLabel ?? '—'),
+    createPlanMetric('Minimum-hold guard', guardLabel ?? '—'),
+  )
+
+  // hold — the guard HELD: a fixable problem inside the hold window. The CORRECT posture (NOT a warning).
+  // Rendered as a POSITIVE emerald block, mirroring sizing's hold_in_savings exactly.
+  if (rec.decision_status === 'hold') {
+    return createElement(
+      'section',
+      {
+        'data-testid': 'sell-decision',
+        'data-sell-status': 'hold',
+        'aria-label': 'Sell decision',
+        style: {
+          ...cardStyle,
+          background: 'rgba(16, 185, 129, 0.08)',
+          border: '1px solid rgba(52, 211, 153, 0.4)',
+          borderLeft: '3px solid #34d399',
+          display: 'grid',
+          gap: '0.7rem',
+        },
+      },
+      createElement('p', { style: { ...labelStyle, color: '#6ee7b7' } }, 'Sell decision · hold'),
+      worstCase,
+      createElement(
+        'p',
+        { 'data-testid': 'sell-hold-correct-posture', style: { color: '#bbf7d0', fontSize: 'var(--owl-text-md)', fontWeight: 800, lineHeight: 1.5, margin: 0 } },
+        'Correct posture: hold — the problem is fixable inside the hold window.',
+      ),
+      createElement(
+        'p',
+        { style: { color: '#d1fae5', fontSize: 'var(--owl-text-base)', lineHeight: 1.55, margin: 0 } },
+        'The minimum-hold guard held the sale: the fixable-vs-permanent judgment says this is a temporary, recoverable problem inside the minimum-hold window. This is the disposition brake working as designed — not a warning. Let the thesis play out.',
+      ),
+      factsRow,
+      biasCaveats,
+      createElement(SellDecisionRequest, { researchCaseId: researchCase.research_case_id, hasRecommendation: true }),
+    )
+  }
+
+  // escalate_review — the unresolved / incoherent path. A distinct "needs your judgment" state
+  // (neutral / attention, never an error).
+  if (rec.decision_status === 'escalate_review') {
+    return createElement(
+      'section',
+      {
+        'data-testid': 'sell-decision',
+        'data-sell-status': 'escalate_review',
+        'aria-label': 'Sell decision',
+        style: {
+          ...cardStyle,
+          background: 'rgba(234, 179, 8, 0.06)',
+          border: '1px solid rgba(234, 179, 8, 0.32)',
+          borderLeft: '3px solid var(--owl-color-gold)',
+          display: 'grid',
+          gap: '0.7rem',
+        },
+      },
+      createElement('p', { style: { ...labelStyle, color: 'var(--owl-color-gold-bright)' } }, 'Sell decision · needs your judgment'),
+      worstCase,
+      createElement(
+        'p',
+        { 'data-testid': 'sell-escalate-message', style: { color: 'var(--owl-color-text)', fontSize: 'var(--owl-text-md)', fontWeight: 800, lineHeight: 1.5, margin: 0 } },
+        'Escalated for your judgment — the signal is unresolved or incoherent.',
+      ),
+      createElement(
+        'p',
+        { style: { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-base)', lineHeight: 1.55, margin: 0 } },
+        'The harness could not resolve this into a clean hold or sell-review (e.g. the impairment judgment is unresolved). It surfaces the conflict rather than defaulting either way — you decide. The close, if any, is human-authored.',
+      ),
+      factsRow,
+      biasCaveats,
+      createElement(SellDecisionRequest, { researchCaseId: researchCase.research_case_id, hasRecommendation: true }),
+    )
+  }
+
+  // cannot_assess — fail-closed (missing inputs / no frozen IV / missing yields). Surfaced honestly.
+  if (rec.decision_status === 'cannot_assess') {
+    return createElement(
+      'section',
+      {
+        'data-testid': 'sell-decision',
+        'data-sell-status': 'cannot_assess',
+        'aria-label': 'Sell decision',
+        style: { ...cardStyle, borderLeft: '3px solid var(--owl-color-border)', display: 'grid', gap: '0.6rem' },
+      },
+      createElement('p', { style: labelStyle }, 'Sell decision · cannot assess'),
+      createElement(
+        'p',
+        { style: { color: 'var(--owl-color-text)', fontSize: 'var(--owl-text-base)', lineHeight: 1.55, margin: 0 } },
+        'Cannot assess the sell trigger — fail-closed, never a fabricated verdict. The close stays human-authored.',
+      ),
+      factsRow,
+      createElement(SellDecisionRequest, { researchCaseId: researchCase.research_case_id, hasRecommendation: true }),
+    )
+  }
+
+  // sell_review — the guard released a review. Surface the reason_code + the human sign-off + the explicit
+  // statement that the CLOSE is human-authored (there is NO auto-sell button).
+  const reasonCode = rec.reason_code
+  const reasonLabel = reasonCode === undefined ? undefined : (SELL_REASON_CODE_LABEL[reasonCode] ?? humanizeToken(reasonCode))
+  return createElement(
+    'section',
+    {
+      'data-testid': 'sell-decision',
+      'data-sell-status': 'sell_review',
+      'aria-label': 'Sell decision',
+      style: { ...cardStyle, borderLeft: '3px solid #fca5a5', display: 'grid', gap: '0.85rem' },
+    },
+    createElement('p', { style: { ...labelStyle, color: '#fca5a5' } }, 'Sell decision · sell review'),
+    createElement(
+      'p',
+      { style: { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-sm)', lineHeight: 1.5, margin: 0 } },
+      'Advisory — recomputed on-demand and recorded as an observation, NOT a sale. The worst case comes first; the human still authors and signs the close below.',
+    ),
+    worstCase,
+    reasonLabel === undefined ? null : createElement(
+      'p',
+      { 'data-testid': 'sell-reason-code', style: { color: 'var(--owl-color-text)', fontSize: 'var(--owl-text-base)', lineHeight: 1.55, margin: 0 } },
+      createElement('strong', { style: { color: '#fca5a5' } }, 'Reason: '),
+      reasonLabel,
+    ),
+    factsRow,
+    // Prominent human sign-off + the explicit "close is human-authored, no auto-sell" statement.
+    createElement(
+      'div',
+      {
+        'data-testid': 'sell-human-signoff',
+        style: {
+          background: 'var(--owl-color-panel-deep)',
+          border: '1px solid rgba(252, 165, 165, 0.35)',
+          borderRadius: '0.85rem',
+          display: 'grid',
+          gap: '0.35rem',
+          padding: '0.9rem 1rem',
+        },
+      },
+      createElement(
+        'p',
+        { style: { color: '#fecaca', fontSize: 'var(--owl-text-md)', fontWeight: 800, lineHeight: 1.5, margin: 0 } },
+        rec.requires_human_signoff === false
+          ? 'You author the close.'
+          : 'Requires your sign-off.',
+      ),
+      createElement(
+        'p',
+        { style: { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-base)', lineHeight: 1.55, margin: 0 } },
+        'This is an advisory review, not an instruction to sell. The close is human-authored — you author and sign the exit yourself. There is no auto-sell; the harness never closes a holding.',
+      ),
+    ),
+    biasCaveats,
+    createElement(SellDecisionRequest, { researchCaseId: researchCase.research_case_id, hasRecommendation: true }),
   )
 }
 

@@ -15,6 +15,7 @@ import {
   type LadderId,
   type TrancheTrigger,
 } from '@owlfolio/strategies/sizingParams'
+import { SELL_PARAMS } from '@owlfolio/strategies/sellParams'
 
 import { DEFAULT_SAVINGS_EXPECTED_PROFIT_RATE, DEFAULT_EQUITY_RISK_MARGIN } from '@owlfolio/shared'
 
@@ -58,6 +59,10 @@ const BASE_TARGET_WEIGHT = SIZING_PARAMS.base_target_weight
 const PER_NAME_CAP = SIZING_PARAMS.per_name_cap
 const CONCENTRATION_REVIEW_THRESHOLD = SIZING_PARAMS.concentration_review_threshold
 const DEPLOYMENT_HURDLE = DEFAULT_SAVINGS_EXPECTED_PROFIT_RATE + DEFAULT_EQUITY_RISK_MARGIN
+// Phase 6 sell parameters (rendered live from the versioned config, never hard-coded).
+const MIN_HOLD_MONTHS = SELL_PARAMS.minimum_hold_months
+const SELL_IV_FRACTION = SELL_PARAMS.sell_iv_fraction
+const BETTER_OPP_MIN_MARGIN = SELL_PARAMS.better_opportunity_min_margin
 
 function pct(value: number, digits = 0): string {
   return `${(value * 100).toFixed(digits).replace(/\.0+$/, '')}%`
@@ -767,6 +772,58 @@ export function StrategyOverview(): ReactNode {
           'p',
           { style: { ...bodyStyle, margin: 0 } },
           'Sold and screened-out are opposite kinds of exit and are kept distinct. Position sizing on the watched→held step and a prune action for deteriorating watched names are later phases — the lifecycle view shows those gaps rather than hiding them.',
+        ),
+      ),
+    }),
+
+    // 7d. Sell discipline (Phase 6) — the four triggers, no stop-loss, the minimum-hold guard, human close.
+    Section({
+      eyebrow: 'Sell discipline',
+      title: 'A sell needs a reason — price is an input, never a cause',
+      lead: createElement(
+        'span',
+        null,
+        'A held name gets an advisory ',
+        createElement('span', { style: goldText }, 'sell decision'),
+        ' on-demand — worst case first, then a verdict. It is bounded by the recommendation and never trades: the ',
+        createElement('span', { style: goldText }, 'close is human-authored'),
+        ', and there is no auto-sell. A sale needs one of four real reasons; a falling price alone is never one of them.',
+      ),
+      children: createElement(
+        'div',
+        { style: { display: 'flex', flexDirection: 'column', gap: '0.9rem' } },
+        Table({
+          headings: ['Trigger', 'What it means'],
+          rows: [
+            [createElement('span', { style: goldText }, 'thesis broke'), 'The durable advantage or the original bet no longer holds.'],
+            [createElement('span', { style: goldText }, 'valuation inverted'), createElement('span', null, 'Price reached the frozen intrinsic value. Pabrai recant: do NOT sell winners at 90–95% of IV — fires only at/above ', createElement('span', { style: monoFigure }, pct(SELL_IV_FRACTION)), ' of the sign-off-frozen IV (a hard threshold; biased to hold below it).')],
+            [createElement('span', { style: goldText }, 'better opportunity'), createElement('span', null, 'A materially higher net owner-earnings yield — at least ', createElement('span', { style: monoFigure }, pct(BETTER_OPP_MIN_MARGIN, 1)), ' after switching friction — and it ALSO always needs human sign-off.')],
+            [createElement('span', { style: goldText }, 'original mistake'), 'The underwriting was wrong from the start — admit it and exit rather than anchor to the entry price.'],
+          ],
+        }),
+        createElement(
+          'div',
+          { style: { ...bodyStyle, background: 'var(--owl-color-panel)', border: '1px solid var(--owl-color-border)', borderRadius: 'var(--owl-radius-card)', padding: '0.85rem 1rem' } },
+          createElement('p', { style: { ...microLabel, marginBottom: '0.4rem' } }, 'No stop-loss · the minimum-hold guard consumes the fixable-vs-permanent judgment'),
+          createElement(
+            'p',
+            { style: { margin: 0 } },
+            createElement('span', { style: goldText }, 'There is no stop-loss'),
+            ' — price is an input to "are we at a loss?", never the cause of a sale. The minimum-hold guard is ',
+            createElement('span', { style: goldText }, 'not a clock'),
+            ': a trigger inside the ~',
+            createElement('span', { style: monoFigure }, `${MIN_HOLD_MONTHS}-month`),
+            ' window is held only when the problem is judged ',
+            createElement('span', { style: goldText }, 'fixable / temporary'),
+            '; a permanent impairment releases a sell review even inside the window. When the judgment is ',
+            createElement('span', { style: goldText }, 'unresolved'),
+            ', the decision escalates to human review rather than defaulting either way. Guard-held is the disposition brake working as designed — surfaced as the correct posture, not a warning. Disposition and anchoring bias guards are advisory; they never block or change the decision.',
+          ),
+        ),
+        createElement(
+          'p',
+          { style: { color: 'var(--owl-color-quiet)', fontSize: 'var(--owl-text-sm)', margin: 0 } },
+          'The sell decision is advisory and bounded by the recommendation — it leads with the concrete worst case (the downside floor + its net-cash-vs-stressed-book basis = a reliability signal), runs the four triggers + the minimum-hold guard + the bias guards, and stops there. The exit is always authored and signed by you; the harness never closes a holding.',
         ),
       ),
     }),

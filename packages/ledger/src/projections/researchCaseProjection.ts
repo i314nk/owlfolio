@@ -354,6 +354,55 @@ export type ResearchCaseSizingRecommendationProjection = {
   recorded_at?: string
 }
 
+/** The worst case that ALWAYS rides alongside a sell decision (Phase 6 S8). Floor fields from the S2 floor. */
+export type ResearchCaseSellWorstCaseProjection = {
+  downside_floor_per_share?: number
+  /** net_cash (harder) vs stressed_book — the reliability signal, never flattened. */
+  downside_floor_basis?: string
+  /** The reliability tier of the floor (e.g. high/medium/low) — a second reliability signal. */
+  downside_floor_reliability?: string
+  /** max(cost - floor, 0); present only when the floor is known. */
+  realistic_downside?: number
+}
+
+/** One advisory Munger bias caveat carried on a sell decision (Phase 6 S5). Never blocks the decision. */
+export type ResearchCaseSellBiasCaveatProjection = {
+  kind?: string
+  message?: string
+}
+
+/**
+ * Sell decision (Phase 6 S8) — the agent-authored advisory OBSERVATION (`holding_sell_review_drafted`,
+ * is_observation:true) recomputed FRESH on-demand for a HELD name. It is a RECOMMENDATION, NEVER a close:
+ * recording it never exits the holding — the close stays the human-authored `closeHolding` transition.
+ * The newest recorded observation wins.
+ *
+ * `decision_status` is the gate-first outcome:
+ *   - `sell_review` — the minimum-hold guard released a review; `reason_code` + `requires_human_signoff`
+ *     surface, and the CLOSE is still human-authored (there is NO auto-sell).
+ *   - `hold` — the guard HELD (a fixable problem inside the hold window). This is the disposition brake
+ *     working AS DESIGNED — the CORRECT posture, NOT a warning.
+ *   - `escalate_review` — the unresolved / incoherent path; needs the human's judgment (attention, not error).
+ *   - `cannot_assess` — fail-closed (missing inputs); a neutral honest message, never a fabricated verdict.
+ */
+export type ResearchCaseSellRecommendationProjection = {
+  decision_status?: 'sell_review' | 'hold' | 'escalate_review' | 'cannot_assess'
+  reason_code?: string
+  trigger?: string
+  impairment_call?: string
+  /** The minimum-hold guard's verdict (S2). */
+  minimum_hold_decision?: string
+  /** The sign-off-frozen intrinsic value (passed in, never recomputed). Present when supplied. */
+  frozen_iv?: number
+  /** ALWAYS attached — worst-case-first, even on a hold/escalate. */
+  worst_case?: ResearchCaseSellWorstCaseProjection
+  /** Advisory disposition / anchoring caveats (S5); never block or change the decision. */
+  bias_caveats?: ResearchCaseSellBiasCaveatProjection[]
+  /** True when a human MUST author/sign the exit as a structural gate (better-opportunity, escalate). */
+  requires_human_signoff?: boolean
+  recorded_at?: string
+}
+
 export type ResearchCaseProjection = {
   research_case_id: string
   version: number
@@ -393,6 +442,8 @@ export type ResearchCaseProjection = {
   admit_recommendation?: ResearchCaseAdmitRecommendationProjection
   /** Phase 5 S7: the newest sizing recommendation OBSERVATION (the S6 assembler, recomputed on-demand). */
   sizing_recommendation?: ResearchCaseSizingRecommendationProjection
+  /** Phase 6 S8: the newest sell-decision OBSERVATION for a HELD name (advisory; never closes the holding). */
+  sell_recommendation?: ResearchCaseSellRecommendationProjection
   synthesis_id?: string
   decision_id?: string
   investment_verdict?: string
@@ -763,6 +814,63 @@ function getSizingRecommendation(
   if (reason !== undefined) projected.reason = reason
   const expected_savings_return = getNumber(payload, 'expected_savings_return')
   if (expected_savings_return !== undefined) projected.expected_savings_return = expected_savings_return
+  return projected
+}
+
+function getSellRecommendation(
+  payload: Record<string, unknown>,
+  recordedAt: string,
+): ResearchCaseSellRecommendationProjection {
+  const projected: ResearchCaseSellRecommendationProjection = { recorded_at: recordedAt }
+  const decision_status = getString(payload, 'decision_status')
+  if (
+    decision_status === 'sell_review'
+    || decision_status === 'hold'
+    || decision_status === 'escalate_review'
+    || decision_status === 'cannot_assess'
+  ) {
+    projected.decision_status = decision_status
+  }
+  const reason_code = getString(payload, 'reason_code')
+  if (reason_code !== undefined) projected.reason_code = reason_code
+  const trigger = getString(payload, 'trigger')
+  if (trigger !== undefined) projected.trigger = trigger
+  const impairment_call = getString(payload, 'impairment_call')
+  if (impairment_call !== undefined) projected.impairment_call = impairment_call
+  const minimum_hold_decision = getString(payload, 'minimum_hold_decision')
+  if (minimum_hold_decision !== undefined) projected.minimum_hold_decision = minimum_hold_decision
+  const frozen_iv = getNumber(payload, 'frozen_iv')
+  if (frozen_iv !== undefined) projected.frozen_iv = frozen_iv
+  const worst_case = payload['worst_case']
+  if (isRecord(worst_case)) {
+    const wc: ResearchCaseSellWorstCaseProjection = {}
+    const floor = getNumber(worst_case, 'downside_floor_per_share')
+    if (floor !== undefined) wc.downside_floor_per_share = floor
+    const basis = getString(worst_case, 'downside_floor_basis')
+    if (basis !== undefined) wc.downside_floor_basis = basis
+    const reliability = getString(worst_case, 'downside_floor_reliability')
+    if (reliability !== undefined) wc.downside_floor_reliability = reliability
+    const realistic = getNumber(worst_case, 'realistic_downside')
+    if (realistic !== undefined) wc.realistic_downside = realistic
+    projected.worst_case = wc
+  }
+  const biasCaveats = payload['bias_caveats']
+  if (Array.isArray(biasCaveats)) {
+    const caveats = biasCaveats
+      .filter(isRecord)
+      .map((caveat): ResearchCaseSellBiasCaveatProjection => {
+        const out: ResearchCaseSellBiasCaveatProjection = {}
+        const kind = getString(caveat, 'kind')
+        if (kind !== undefined) out.kind = kind
+        const message = getString(caveat, 'message')
+        if (message !== undefined) out.message = message
+        return out
+      })
+      .filter((caveat) => Object.keys(caveat).length > 0)
+    projected.bias_caveats = caveats
+  }
+  const requires_human_signoff = getBoolean(payload, 'requires_human_signoff')
+  if (requires_human_signoff !== undefined) projected.requires_human_signoff = requires_human_signoff
   return projected
 }
 
@@ -1315,6 +1423,25 @@ export function projectResearchCases(events: LedgerEventEnvelope<unknown>[]): Re
       // Newest recorded recommendation wins (recomputed fresh on-demand): events are applied in order, so
       // the last sizing_recommendation_recorded overwrites the field.
       researchCase.sizing_recommendation = getSizingRecommendation(event.payload, event.created_at)
+      continue
+    }
+
+    if (event.event_type === 'holding_sell_review_drafted') {
+      const researchCaseId = researchCaseIdFor(event, event.payload)
+      if (researchCaseId === undefined) {
+        continue
+      }
+
+      // OBSERVATION, not a close: do NOT change the stage — recording a sell decision NEVER exits the
+      // holding (the close stays the human-authored closeHolding transition). Preserve the existing stage
+      // (a sell decision only ever applies to a HELD name; fall back to 'holding' for an out-of-order
+      // event) so the recommendation can attach without transitioning the case.
+      const existing = researchCases.get(researchCaseId)
+      const researchCase = upsertCase(researchCases, researchCaseId, existing?.stage ?? 'holding', event.created_at)
+      applyString(researchCase, 'ticker', getString(event.payload, 'ticker'))
+      // Newest recorded recommendation wins (recomputed fresh on-demand): events are applied in order, so
+      // the last holding_sell_review_drafted overwrites the field.
+      researchCase.sell_recommendation = getSellRecommendation(event.payload, event.created_at)
       continue
     }
 
