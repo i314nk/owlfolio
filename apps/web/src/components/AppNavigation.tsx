@@ -14,6 +14,7 @@ const navSections: NavSection[] = [
     items: [
       { href: '/', label: 'Command Center' },
       { href: '/research', label: 'Research' },
+      { href: '/lifecycle', label: 'Lifecycle' },
       { href: '/watchlist', label: 'Watchlist' },
       { href: '/portfolio', label: 'Portfolio' },
     ],

@@ -610,6 +610,39 @@ export function StrategyOverview(): ReactNode {
       ),
     }),
 
+    // 7c. The unified name lifecycle + the single cadence engine
+    Section({
+      eyebrow: 'The name lifecycle',
+      title: 'One list of names, one cadence engine',
+      lead: createElement(
+        'span',
+        null,
+        'After a verdict, a name lives on a single unified list and moves through one lifecycle: ',
+        createElement('span', { style: goldText }, 'candidate → watched → held → exited'),
+        '. It becomes a candidate from discovery and research, advances to watched on a user-confirmed watchlist entry, becomes held on an explicit open-holding entry, and is exited only when no live entity remains. There are not separate watchlist and holdings monitors — ',
+        createElement('span', { style: goldText }, 'one cadence engine'),
+        ' runs the same falsifier check and re-underwrite across the whole list; its detection is state-independent and only the action it can take branches on the state. Every transition is human-authored and append-only; the worker observes and drafts, never trades.',
+      ),
+      children: createElement(
+        'div',
+        { style: { display: 'flex', flexDirection: 'column', gap: '0.6rem' } },
+        Table({
+          headings: ['State', 'Means', 'Cadence action (state-branched)'],
+          rows: [
+            [createElement('span', { style: goldText }, 'candidate'), 'In research, not yet user-confirmed to the watchlist', 'Advance or screen out (research re-run)'],
+            [createElement('span', { style: goldText }, 'watched'), 'User-confirmed, tracked for a buy window', createElement('span', null, 'Buy-window / staleness observation; a tripped falsifier flags it ', createElement('span', { style: rejected }, 'deteriorating'), ' (no prune action yet — later phase)')],
+            [createElement('span', { style: goldText }, 'held'), 'An open holding (explicit user entry)', 'Tranche / concentration / Shariah-grace re-check'],
+            [createElement('span', { style: goldText }, 'exited'), 'No live entity — sold, or screened out', 'Post-mortem; re-discovery keeps prior-exit history'],
+          ],
+        }),
+        createElement(
+          'p',
+          { style: { ...bodyStyle, margin: 0 } },
+          'Sold and screened-out are opposite kinds of exit and are kept distinct. Position sizing on the watched→held step and a prune action for deteriorating watched names are later phases — the lifecycle view shows those gaps rather than hiding them.',
+        ),
+      ),
+    }),
+
     // 8. Boundaries
     Section({
       eyebrow: 'Honest boundaries',

@@ -100,6 +100,22 @@ describe('StrategyOverview', () => {
     expect(html.toLowerCase()).toContain('time-completion')
   })
 
+  it('describes the unified name lifecycle and the single state-branched cadence engine', () => {
+    const html = render()
+    // One list, one lifecycle in candidate → watched → held → exited order.
+    expect(html.toLowerCase()).toContain('candidate → watched → held → exited')
+    // ONE cadence engine, detection state-independent, action branches on state.
+    expect(html.toLowerCase()).toContain('one cadence engine')
+    expect(html.toLowerCase()).toContain('state-independent')
+    // Replaces the stale "separate watchlist/holdings monitors" framing.
+    expect(html.toLowerCase()).toContain('not separate watchlist and holdings monitors')
+    // Honesty: deteriorating watched name has no prune action yet (later phase).
+    expect(html.toLowerCase()).toContain('deteriorating')
+    expect(html.toLowerCase()).toContain('no prune action yet')
+    // Exit provenance — sold vs screened out are opposite.
+    expect(html.toLowerCase()).toContain('screened out')
+  })
+
   it('renders the position-sizing target weights and entry tranches from the contract', () => {
     const html = render()
     const targetMonopoly = `${buffettMungerStrategy.portfolio.target_weight_by_moat.monopoly * 100}%` // 10%

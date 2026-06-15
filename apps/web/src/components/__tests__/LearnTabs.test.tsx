@@ -94,6 +94,24 @@ describe('LearnTabs', () => {
     expect(html.toLowerCase()).toContain('fatwa')
   })
 
+  it('describes the unified lifecycle and the single state-branched cadence engine on the lifecycle panel', () => {
+    const html = render('lifecycle')
+    // One list, one lifecycle: candidate → watched → held → exited.
+    expect(html.toUpperCase()).toContain('CANDIDATE')
+    expect(html.toUpperCase()).toContain('WATCHED')
+    expect(html.toUpperCase()).toContain('HELD')
+    expect(html.toUpperCase()).toContain('EXITED')
+    // ONE cadence engine; detection state-independent; action branches on state.
+    expect(html.toLowerCase()).toContain('one cadence engine')
+    expect(html.toLowerCase()).toContain('does not depend on which state')
+    // Stale "separate watchlist and holdings monitors" framing is replaced.
+    expect(html.toLowerCase()).toContain('not separate watchlist and holdings monitors')
+    // Honesty: deteriorating watched name, no prune action yet; exits are sold vs screened out.
+    expect(html.toLowerCase()).toContain('deteriorating')
+    expect(html.toLowerCase()).toContain('no prune action yet')
+    expect(html.toLowerCase()).toContain('screened out')
+  })
+
   it('describes the four model tiers including the compute-everything T0 rule', () => {
     const html = render('tiering')
     expect(html).toContain('T1')
