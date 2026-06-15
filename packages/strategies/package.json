@@ -19,6 +19,7 @@
     "./sizingParams": "./src/sizingParams.ts",
     "./valuationParams": "./src/valuationParams.ts",
     "./reverseDcf": "./src/reverseDcf.ts",
+    "./valuationSensitivity": "./src/valuationSensitivity.ts",
     "./valuationConfigEvent": "./src/valuationConfigEvent.ts",
     "./calibrationRunEvent": "./src/calibrationRunEvent.ts",
     "./judgmentRubrics": "./src/judgmentRubrics.ts",
