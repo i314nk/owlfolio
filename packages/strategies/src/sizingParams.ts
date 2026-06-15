@@ -45,14 +45,73 @@ export type MoatTieredWeight = {
 }
 
 /**
+ * The conviction sub-factor tables (Phase 5 S1). Each sub-factor is ≤ 1, so the conviction product can
+ * only scale the position target DOWN from base_target_weight — nothing sizes ABOVE the base.
+ */
+export type ConvictionMoatFactor = {
+  /** monopoly is full conviction; wide gets a sizing down-weight (the only surviving moat-tier use — a
+   *  sizing knob, NOT a valuation lever; F.13-consistent). */
+  monopoly: number
+  wide: number
+}
+
+export type ConvictionPermanentLossSubfactor = {
+  /** low permanent-loss → full size; medium → down-weight (`high` is not-admittable → never sized). */
+  low: number
+  medium: number
+}
+
+export type ConvictionUncertaintySubfactor = {
+  /** High uncertainty is a SOFT down-weight only (it is the opportunity, not a penalty — Pabrai P7). */
+  high: number
+  /** Applied for any non-high uncertainty level. */
+  default: number
+}
+
+/**
  * The full versioned sizing parameter set. Every number the sizing/tranche engine needs lives here.
  * Bump `version` on any change and (when wired to the ledger) log a sizing-config event diff.
  */
 export type SizingParams = {
   /** Monotonic version string. Bump on every parameter change. */
   version: string
-  /** Target entry weight by moat tier (spec §1): monopoly 10%, wide 6%. */
+  /**
+   * @deprecated Superseded by `base_target_weight × conviction_factor` (Phase 5 S1 — see
+   * convictionFactor.ts). Consolidation/removal is Phase 5 S6 O-9; computePositionPlan still reads
+   * this, so it is left in place for now. Do NOT add new readers.
+   * Target entry weight by moat tier (spec §1): monopoly 10%, wide 6%.
+   */
   target_weight_by_moat: MoatTieredWeight
+  /**
+   * Base full-position target weight (Phase 5 S1): ~0.10. Position target = base_target_weight ×
+   * conviction_factor, where conviction_factor ∈ (0,1] only scales DOWN. Nothing targets above this.
+   */
+  base_target_weight: number
+  /** Conviction moat sub-factor table (Phase 5 S1): a sizing down-weight by investable moat class. */
+  conviction_moat_factor: ConvictionMoatFactor
+  /** Conviction permanent-loss sub-factor table (Phase 5 S1). */
+  conviction_permanent_loss_subfactor: ConvictionPermanentLossSubfactor
+  /** Conviction uncertainty sub-factor table (Phase 5 S1) — SOFT down-weight for high uncertainty only. */
+  conviction_uncertainty_subfactor: ConvictionUncertaintySubfactor
+  /**
+   * OFF-by-default flag (Phase 5 S1) for the optional discount-depth conviction sub-factor.
+   *
+   * Why OFF: discount depth ALREADY gates *whether* you buy (the deployment hurdle + the buy-below
+   * crossing). Letting it also scale *how much* double-counts the discount AND tilts the largest
+   * positions toward the deepest-fallen names, which are disproportionately real impairments — a
+   * permanent-loss-first system must NOT size UP on depth. Conviction tracks quality + safety (moat +
+   * how the floor holds), never how cheap it got. Ship OFF.
+   */
+  conviction_use_discount_depth: boolean
+  /**
+   * Discount-depth ramp constants (Phase 5 S1) — PRESENT BUT UNUSED while conviction_use_discount_depth
+   * is false. When enabled, depth = (buy_price − current_price)/buy_price is ramped linearly from
+   * `floor` (at depth 0) to 1.0 (at depth ≥ `full_at_depth`).
+   */
+  conviction_discount_depth_ramp: {
+    floor: number
+    full_at_depth: number
+  }
   /** Hard per-name cap (spec §1): 15% per name. Sleeves deferred → per-name, not cross-sleeve. */
   per_name_cap: number
   /** Target number of names at full build-out (spec §1): ~20. */
@@ -82,8 +141,15 @@ export type SizingParams = {
  *   default ladder:  normal (used until the temperature overlay lands)
  */
 export const SIZING_PARAMS: SizingParams = Object.freeze({
-  version: 'sizing-2026-06-position-sizing-1',
+  version: 'sizing-2026-06-conviction-1',
+  // @deprecated — superseded by base_target_weight × conviction_factor (Phase 5 S1); removal is S6 O-9.
   target_weight_by_moat: { monopoly: 0.10, wide: 0.06 },
+  base_target_weight: 0.10,
+  conviction_moat_factor: { monopoly: 1.0, wide: 0.85 },
+  conviction_permanent_loss_subfactor: { low: 1.0, medium: 0.7 },
+  conviction_uncertainty_subfactor: { high: 0.9, default: 1.0 },
+  conviction_use_discount_depth: false,
+  conviction_discount_depth_ramp: { floor: 0.6, full_at_depth: 0.30 },
   per_name_cap: 0.15,
   target_names: 20,
   ladders: {

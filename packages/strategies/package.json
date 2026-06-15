@@ -17,6 +17,7 @@
     "./strategyContract": "./src/strategyContract.ts",
     "./positionSizing": "./src/positionSizing.ts",
     "./sizingParams": "./src/sizingParams.ts",
+    "./convictionFactor": "./src/convictionFactor.ts",
     "./valuationParams": "./src/valuationParams.ts",
     "./reverseDcf": "./src/reverseDcf.ts",
     "./valuationSensitivity": "./src/valuationSensitivity.ts",
