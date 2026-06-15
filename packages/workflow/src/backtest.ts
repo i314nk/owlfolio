@@ -26,7 +26,7 @@ import {
 } from '@owlfolio/strategies/buffettMunger'
 import type { MoatClass, Runway, StrategyContract } from '@owlfolio/strategies/strategyContract'
 import type { ValuationParams } from '@owlfolio/strategies/valuationParams'
-import { maintenanceCapexLowConfidence, ownerEarningsCagr, ownerEarningsPerShareSeries, type AnnualFacts, type Fundamentals, type SecEdgarDeps } from './secEdgar'
+import { maintenanceCapexLowConfidence, demonstratedOwnerEarningsGrowth, type AnnualFacts, type Fundamentals, type SecEdgarDeps } from './secEdgar'
 import { resolveFundamentalsForTicker, type ResolveFundamentalsDeps } from './fundamentalsProvider'
 import {
   cumulativeSplitFactorAfter,
@@ -361,8 +361,11 @@ export function runValuationBacktest(args: RunValuationBacktestArgs): BacktestRe
     }
 
     // Demonstrated owner-earnings growth (Phase 1.3) from the OE/share series available AS-OF this filing.
+    // Uses the ROBUST log-linear measure (split-adjustment + outlier-resistant) — the SAME measure the live
+    // researchSwarm uses, so the calibration freezes MoS against production's growth input, not a stale one.
+    // (Fundamentals are already split-adjusted upstream in calibrationRun; the internal split-detect is a no-op.)
     const asOfSeries = fundamentals.annual_series.filter((a) => a.fiscal_year <= filing.fiscal_year)
-    const demonstrated_growth = ownerEarningsCagr(ownerEarningsPerShareSeries(asOfSeries)) ?? 0
+    const demonstrated_growth = demonstratedOwnerEarningsGrowth(asOfSeries).growth ?? 0
 
     // For gated names we still compute a nominal FV/buy (using monopoly tier as a neutral basis) purely
     // to bucket WATCH/PASS; the verdict can never be BUY (classify() enforces the gate).
