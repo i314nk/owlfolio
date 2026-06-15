@@ -18,6 +18,7 @@
     "./positionSizing": "./src/positionSizing.ts",
     "./sizingParams": "./src/sizingParams.ts",
     "./valuationParams": "./src/valuationParams.ts",
+    "./reverseDcf": "./src/reverseDcf.ts",
     "./valuationConfigEvent": "./src/valuationConfigEvent.ts",
     "./calibrationRunEvent": "./src/calibrationRunEvent.ts",
     "./judgmentRubrics": "./src/judgmentRubrics.ts",
