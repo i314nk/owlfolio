@@ -2,7 +2,9 @@ import { createElement, type ReactNode } from 'react'
 
 import type { PositionPlan, PositionTranche } from '@owlfolio/strategies/positionSizing'
 import { buffettMungerStrategy } from '@owlfolio/strategies/buffettMunger'
+import { isDeepDiveComplete } from '@owlfolio/workflow/admitAssessment'
 
+import { AdmitRecommendationRequest } from './AdmitRecommendationRequest'
 import { SourceChip } from './designSystem'
 import { StatusBadge } from './StatusBadge'
 import { WatchlistPromotionForm } from './WatchlistPromotionForm'
@@ -106,6 +108,14 @@ export function ResearchCasePanel({ researchCase, mode = 'demo', marketQuote, po
     && researchCase.decision !== undefined
     && researchCase.decision_id !== undefined
 
+  // Admit recommendation (Task 4.3-panel): show the on-demand request control + the persisted
+  // recommendation for a deep-dive-complete, gate-passing admission candidate (personal-local only),
+  // or whenever a recommendation has already been recorded.
+  const hasAdmitRecommendation = researchCase.admit_recommendation !== undefined
+  const isAdmissionCandidate = isDeepDiveComplete(researchCase.stage)
+    && researchCase.valuation?.moat_passes_gate === true
+  const showAdmitPanel = mode === 'personal-local' && (hasAdmitRecommendation || isAdmissionCandidate)
+
   const gated = isGatedCase(researchCase)
 
   if (gated) {
@@ -137,6 +147,8 @@ export function ResearchCasePanel({ researchCase, mode = 'demo', marketQuote, po
     createSpecialistLanesGrid(researchCase),
     // ── 4b. Falsifiable forecasts (calibration scaffold) ─────────────────────
     createForecastsPanel(researchCase),
+    // ── 4c. Admit recommendation (advisory) + on-demand request (personal-local) ──
+    showAdmitPanel ? createAdmitRecommendationPanel(researchCase) : null,
     // ── 5. Watchlist promotion (personal-local only) ─────────────────────────
     canPromoteToWatchlist ? createWatchlistPromotionAction(researchCase.research_case_id) : null,
     // ── 6. Actions row ──────────────────────────────────────────────────────
@@ -2243,6 +2255,221 @@ function createOwnerEarningsValuationCard(ownerValuation: NonNullable<AppResearc
 }
 
 // ── Watchlist promotion & actions ─────────────────────────────────────────────
+
+// ── Admit recommendation (Task 4.3-panel) ─────────────────────────────────────
+//
+// Read-only render of the PERSISTED `admit_recommendation` projection (NOT recomputed here) plus the
+// on-demand request control. The crux: `uncertainty` and `permanent_loss_risk` are rendered as SEPARATE,
+// clearly-distinct fields — they must NEVER be blurred into a single "value trap" line, because the
+// opportunity is precisely high uncertainty + LOW permanent-loss. The impairment_call / admittable are
+// shown as an ADVISORY recommendation; the human still admits via the signed-thesis control below.
+
+function riskLevelColor(level: string | undefined): string {
+  const l = (level ?? '').toLowerCase()
+  if (l === 'low') return '#bbf7d0'
+  if (l === 'medium') return '#f0d999'
+  if (l === 'high') return '#fca5a5'
+  return 'var(--owl-color-muted)'
+}
+
+function createAdmitRiskField(
+  testId: string,
+  title: string,
+  subtitle: string,
+  field: { level?: string; argument?: string; citations?: string[] } | undefined,
+) {
+  const level = field?.level
+  return createElement(
+    'div',
+    {
+      'data-testid': testId,
+      style: {
+        background: 'var(--owl-color-panel-deep)',
+        border: '1px solid rgba(148, 163, 184, 0.16)',
+        borderRadius: '0.85rem',
+        display: 'grid',
+        gap: '0.4rem',
+        padding: '0.9rem 1rem',
+      },
+    },
+    createElement(
+      'div',
+      { style: { alignItems: 'baseline', display: 'flex', flexWrap: 'wrap', gap: '0.6rem', justifyContent: 'space-between' } },
+      createElement('p', { style: { ...labelStyle, margin: 0 } }, title),
+      createElement(
+        'span',
+        {
+          style: {
+            background: 'rgba(148, 163, 184, 0.12)',
+            border: '1px solid var(--owl-color-border)',
+            borderRadius: '999px',
+            color: riskLevelColor(level),
+            fontFamily: 'var(--owl-font-mono)',
+            fontSize: 'var(--owl-text-sm)',
+            fontWeight: 800,
+            letterSpacing: '0.06em',
+            padding: '0.2rem 0.7rem',
+            textTransform: 'uppercase' as const,
+          },
+        },
+        level === undefined ? 'NOT RATED' : level.toUpperCase(),
+      ),
+    ),
+    createElement('p', { style: { color: 'var(--owl-color-quiet)', fontSize: 'var(--owl-text-xs)', margin: 0 } }, subtitle),
+    createElement(
+      'p',
+      { style: { color: 'var(--owl-color-text)', fontSize: 'var(--owl-text-base)', lineHeight: 1.5, margin: 0 } },
+      field?.argument ?? 'No argument recorded.',
+    ),
+    (field?.citations ?? []).length === 0 ? null : createElement(
+      'div',
+      { style: { display: 'flex', flexWrap: 'wrap', gap: '0.35rem', marginTop: '0.1rem' } },
+      ...(field?.citations ?? []).map((citation) => createElement(SourceChip, { key: citation, id: citation, label: 'Cited source id' })),
+    ),
+  )
+}
+
+function createAdmitRecommendationPanel(researchCase: AppResearchCase) {
+  const rec = researchCase.admit_recommendation
+
+  // No recommendation yet — show ONLY the on-demand request control (no fabricated recommendation).
+  if (rec === undefined) {
+    return createElement(AdmitRecommendationRequest, { researchCaseId: researchCase.research_case_id })
+  }
+
+  const admittable = rec.admittable === true
+  const callLabel = rec.impairment_call ?? 'unresolved'
+  const cheapness = rec.cheapness
+  const oeYield = cheapness?.owner_earnings_yield
+  const ev = cheapness?.ev
+  const uncitedRefs = rec.uncited_refs ?? []
+
+  return createElement(
+    'section',
+    { 'data-testid': 'admit-recommendation', 'aria-label': 'Admit recommendation', style: { ...cardStyle, display: 'grid', gap: '0.85rem' } },
+    createElement('p', { style: labelStyle }, 'Admit recommendation'),
+    createElement(
+      'p',
+      { style: { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-sm)', lineHeight: 1.5, margin: 0 } },
+      'Advisory — recomputed on-demand and recorded as an observation, NOT an admission. The human still admits via the signed thesis below.',
+    ),
+    // Uncertainty and permanent-loss risk as SEPARATE, clearly-distinct fields (never merged).
+    createElement(
+      'div',
+      { style: { display: 'grid', gap: '0.6rem' } },
+      createAdmitRiskField(
+        'admit-uncertainty',
+        'Uncertainty',
+        'How unknowable the outcome is. High uncertainty is the opportunity, not a blocker.',
+        rec.uncertainty,
+      ),
+      createAdmitRiskField(
+        'admit-permanent-loss-risk',
+        'Permanent-loss risk',
+        'Risk of permanent capital impairment. A separate axis from uncertainty — this is what blocks admission.',
+        rec.permanent_loss_risk,
+      ),
+    ),
+    // Independent impairment bear case.
+    rec.impairment_bear_case === undefined ? null : createElement(
+      'div',
+      {
+        'data-testid': 'admit-bear-case',
+        style: {
+          background: 'rgba(239, 68, 68, 0.07)',
+          border: '1px solid rgba(239, 68, 68, 0.28)',
+          borderRadius: '0.85rem',
+          display: 'grid',
+          gap: '0.35rem',
+          padding: '0.9rem 1rem',
+        },
+      },
+      createElement('p', { style: { ...labelStyle, color: '#fca5a5', margin: 0 } }, 'Impairment bear case'),
+      createElement(
+        'p',
+        { style: { color: '#f3d7d7', fontSize: 'var(--owl-text-base)', lineHeight: 1.5, margin: 0 } },
+        rec.impairment_bear_case,
+      ),
+    ),
+    // Advisory impairment call + admittable flag (the human decides).
+    createElement(
+      'div',
+      {
+        'data-testid': 'admit-advisory-call',
+        style: {
+          alignItems: 'center',
+          display: 'flex',
+          flexWrap: 'wrap',
+          gap: '0.6rem',
+        },
+      },
+      createPill(
+        `Impairment call: ${callLabel}`,
+        callLabel === 'permanent_impairment'
+          ? { bg: 'rgba(239, 68, 68, 0.14)', border: 'rgba(252, 165, 165, 0.36)', text: '#fecaca' }
+          : callLabel === 'fixable_temporary'
+            ? { bg: 'rgba(34, 197, 94, 0.14)', border: 'rgba(134, 239, 172, 0.38)', text: '#bbf7d0' }
+            : { bg: 'rgba(214, 178, 94, 0.14)', border: 'rgba(243, 223, 177, 0.36)', text: '#f0d999' },
+      ),
+      createPill(
+        admittable ? 'Advisory: admittable' : 'Advisory: not admittable',
+        admittable
+          ? { bg: 'rgba(34, 197, 94, 0.14)', border: 'rgba(134, 239, 172, 0.38)', text: '#bbf7d0' }
+          : { bg: 'rgba(148, 163, 184, 0.12)', border: 'rgba(148, 163, 184, 0.28)', text: 'var(--owl-color-muted)' },
+      ),
+    ),
+    rec.reason === undefined ? null : createElement(
+      'p',
+      { style: { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-base)', lineHeight: 1.5, margin: 0 } },
+      createElement('strong', { style: { color: 'var(--owl-color-sand)' } }, 'Reason: '),
+      rec.reason,
+    ),
+    // Cheapness summary (owner-earnings yield / EV).
+    (oeYield === undefined && ev === undefined) ? null : createElement(
+      'div',
+      {
+        'data-testid': 'admit-cheapness',
+        style: { borderTop: '1px solid var(--owl-color-border)', display: 'grid', gap: '0.3rem', paddingTop: '0.7rem' },
+      },
+      createElement('p', { style: { ...labelStyle, margin: 0 } }, 'Cheapness'),
+      createElement(
+        'p',
+        { style: { color: 'var(--owl-color-text)', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-base)', margin: 0 } },
+        oeYield === undefined ? 'Owner-earnings yield not computed' : `Owner-earnings yield ${(oeYield * 100).toFixed(1)}%`,
+        ev === undefined ? '' : ` · EV ≈ $${Math.round(ev).toLocaleString('en-US')}M`,
+        rec.buy_below === undefined ? '' : ` · buy below $${rec.buy_below}`,
+      ),
+      cheapness?.reason === undefined ? null : createElement(
+        'p',
+        { style: { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-sm)', lineHeight: 1.4, margin: 0 } },
+        cheapness.reason,
+      ),
+    ),
+    // Uncited references surfaced as a caveat (never hidden).
+    uncitedRefs.length === 0 ? null : createElement(
+      'div',
+      {
+        'data-testid': 'admit-uncited-refs',
+        style: {
+          background: 'rgba(214, 178, 94, 0.08)',
+          border: '1px solid rgba(214, 178, 94, 0.4)',
+          borderRadius: '0.7rem',
+          display: 'grid',
+          gap: '0.3rem',
+          padding: '0.7rem 0.85rem',
+        },
+      },
+      createElement('p', { style: { ...labelStyle, color: 'var(--owl-color-gold-bright)', margin: 0 } }, 'Uncited references caveat'),
+      createElement(
+        'p',
+        { style: { color: '#f0d999', fontSize: 'var(--owl-text-sm)', lineHeight: 1.5, margin: 0 } },
+        `The judgment referenced ${uncitedRefs.length} source${uncitedRefs.length === 1 ? '' : 's'} not in the verified case corpus: ${uncitedRefs.join(', ')}. Treat these as unverified.`,
+      ),
+    ),
+    // On-demand re-run control (the recommendation is recomputed fresh; newest wins in the projection).
+    createElement(AdmitRecommendationRequest, { researchCaseId: researchCase.research_case_id, hasRecommendation: true }),
+  )
+}
 
 function createWatchlistPromotionAction(researchCaseId: string) {
   // The admit control is its own client component: it requires a NON-PREFILLED, human-typed signed

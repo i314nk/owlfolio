@@ -1162,4 +1162,110 @@ describe('research and watchlist workflow pages', () => {
     expect(html).toContain('Set your investable capital on the Portfolio page to see position sizing.')
     expect(html).not.toContain('thesis re-check')
   })
+
+  function admissionCandidateCase(): AppResearchCase {
+    return {
+      research_case_id: 'rc_admit_001',
+      version: 1,
+      superseded: false,
+      stage: 'decision_drafted',
+      company_id: 'company_admit',
+      ticker: 'ADMT',
+      strategy_id: 'buffett-munger',
+      decision_id: 'decision_admit_001',
+      decision: 'WATCH',
+      investment_verdict: 'WATCH',
+      valuation_status: 'FAIR',
+      valuation: {
+        moat_class: 'wide',
+        moat_passes_gate: true,
+        buy_price_per_share: 120,
+      },
+      next_required_action: 'Consider the admit judgment.',
+      updated_at: '2026-06-08T12:00:00.000Z',
+      gate_checklist: [],
+      source_ids: [],
+      ledger_timeline: [],
+    }
+  }
+
+  it('renders the persisted admit recommendation with uncertainty and permanent-loss-risk as SEPARATE fields', () => {
+    const researchCase: AppResearchCase = {
+      ...admissionCandidateCase(),
+      admit_recommendation: {
+        admit_judgment_id: 'admit_admit_001_abc',
+        uncertainty: {
+          level: 'high',
+          argument: 'Outcome range is wide because the turnaround timing is genuinely unknowable.',
+          citations: ['src_admit_10k'],
+        },
+        permanent_loss_risk: {
+          level: 'low',
+          argument: 'Net cash, no covenant risk; the balance sheet survives a long downturn.',
+          citations: ['src_admit_balance_sheet'],
+        },
+        impairment_bear_case: 'If the new product line fails, owner earnings stay flat for five years.',
+        impairment_call: 'fixable_temporary',
+        admittable: true,
+        reason: 'High uncertainty with low permanent-loss risk is the opportunity; admittable.',
+        buy_below: 120,
+        cheapness: { owner_earnings_yield: 0.085, ev: 4200, cheap: true, reason: 'Cheap on Phase-1 owner-earnings yield.' },
+        uncited_refs: ['some-blog-post'],
+        recorded_at: '2026-06-08T12:30:00.000Z',
+      },
+    }
+
+    const html = renderToStaticMarkup(createElement(ResearchCasePanel, { researchCase, mode: 'personal-local' }))
+
+    // Uncertainty and permanent-loss risk are SEPARATE, distinct fields (never merged into one line).
+    expect(html).toContain('data-testid="admit-uncertainty"')
+    expect(html).toContain('data-testid="admit-permanent-loss-risk"')
+    expect(html).toContain('Uncertainty')
+    expect(html).toContain('Permanent-loss risk')
+    // Their distinct levels both appear.
+    expect(html).toContain('HIGH')
+    expect(html).toContain('LOW')
+    // Each carries its own argument + citation.
+    expect(html).toContain('turnaround timing is genuinely unknowable')
+    expect(html).toContain('the balance sheet survives a long downturn')
+    expect(html).toContain('src_admit_10k')
+    expect(html).toContain('src_admit_balance_sheet')
+    // They must NOT be blurred into a single "value trap" line.
+    expect(html.toLowerCase()).not.toContain('value trap')
+
+    // Independent impairment bear case (labelled).
+    expect(html).toContain('Impairment bear case')
+    expect(html).toContain('the new product line fails')
+
+    // Advisory impairment call + admittable (clearly advisory — the human decides).
+    expect(html).toContain('Impairment call: fixable_temporary')
+    expect(html).toContain('Advisory: admittable')
+    expect(html).toContain('High uncertainty with low permanent-loss risk is the opportunity')
+
+    // Cheapness summary (OE yield / EV).
+    expect(html).toContain('Owner-earnings yield 8.5%')
+    expect(html).toContain('EV ≈ $4,200M')
+
+    // Uncited refs surfaced as a caveat (not hidden).
+    expect(html).toContain('Uncited references caveat')
+    expect(html).toContain('some-blog-post')
+
+    // The signed-thesis human-decision control stays present (admit stays a real human decision).
+    expect(html).toContain('Your signed thesis (required)')
+  })
+
+  it('shows the on-demand request control and no fabricated recommendation when none is persisted', () => {
+    const html = renderToStaticMarkup(createElement(ResearchCasePanel, {
+      researchCase: admissionCandidateCase(),
+      mode: 'personal-local',
+    }))
+
+    // The request control is shown for a deep-dive-complete, gate-passing candidate.
+    expect(html).toContain('Admit judgment')
+    expect(html).toContain('Request admit judgment')
+    // No fabricated recommendation — none of the recommendation render hooks appear.
+    expect(html).not.toContain('data-testid="admit-recommendation"')
+    expect(html).not.toContain('Impairment bear case')
+    expect(html).not.toContain('Advisory: admittable')
+  })
 })
