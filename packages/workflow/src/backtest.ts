@@ -365,7 +365,17 @@ export function runValuationBacktest(args: RunValuationBacktestArgs): BacktestRe
     // researchSwarm uses, so the calibration freezes MoS against production's growth input, not a stale one.
     // (Fundamentals are already split-adjusted upstream in calibrationRun; the internal split-detect is a no-op.)
     const asOfSeries = fundamentals.annual_series.filter((a) => a.fiscal_year <= filing.fiscal_year)
-    const demonstrated_growth = demonstratedOwnerEarningsGrowth(asOfSeries).growth ?? 0
+    const growthMeasure = demonstratedOwnerEarningsGrowth(asOfSeries)
+    if (growthMeasure.growth === undefined) {
+      // Fail-closed: too little OE/share history (<3 usable points) for a robust growth estimate. SKIP the
+      // month rather than valuing at g=0 — a zero-growth fallback crushes FV and emits a misleading WATCH/PASS
+      // (the GOOGL-pre-2021 artifact: D&A is untagged before FY2021, so its series is too short to value then).
+      skipped_months_no_filing += 1
+      const note = `FY${filing.fiscal_year}: insufficient OE/share history (<3 points) for a robust growth estimate — month skipped`
+      if (!data_quality_notes.includes(note)) data_quality_notes.push(note)
+      continue
+    }
+    const demonstrated_growth = growthMeasure.growth
 
     // For gated names we still compute a nominal FV/buy (using monopoly tier as a neutral basis) purely
     // to bucket WATCH/PASS; the verdict can never be BUY (classify() enforces the gate).

@@ -45,11 +45,14 @@ function annualEntry(fy: number, filed: string, shares: number): AnnualFacts {
 }
 
 function buildFundamentals(): Fundamentals {
-  // newest → oldest, as fetchCompanyFundamentals returns
+  // newest → oldest, as fetchCompanyFundamentals returns. Five years so the as-of series has ≥3 OE/share
+  // points from the FY2018 filing onward (the robust growth measure needs ≥3 points — fewer → month skipped).
   const annual_series: AnnualFacts[] = [
     annualEntry(2020, '2021-02-15', 100),
     annualEntry(2019, '2020-02-15', 100),
     annualEntry(2018, '2019-02-15', 100),
+    annualEntry(2017, '2018-02-15', 100),
+    annualEntry(2016, '2017-02-15', 100),
   ]
   return {
     cik: '0000000001',
@@ -273,18 +276,24 @@ describe('adjustFundamentalsForSplits (B) — share basis matches the split-adju
   // (~700M) for years filed before the split and the POST-split count (~13,700M) for years filed after
   // (the restated comparatives). After adjustment to today's basis, every year sits at ~13,700–14,000M.
   function googlLikeFundamentals(): Fundamentals {
+    // d_and_a = capex = 0 → maintenance capex 0 → OE = NI exactly (keeps OE_ps = NI/shares as the comments
+    // describe). Five years so the as-of-FY2019 series has ≥3 OE/share points for the robust growth measure.
     const mk = (fy: number, filed: string, shares: number): AnnualFacts => ({
       fiscal_year: fy,
       currency: 'USD',
       filed,
       period_end: `${fy}-12-31`,
       net_income_musd: 40000,
+      d_and_a_musd: 0,
+      capex_musd: 0,
       diluted_shares_m: shares,
     })
     const annual_series: AnnualFacts[] = [
       mk(2020, '2023-02-03', 13700), // filed AFTER the 2022-07 split → already post-split basis
       mk(2019, '2022-02-02', 700), // filed BEFORE the split → pre-split basis (needs ×20)
       mk(2018, '2021-02-03', 700),
+      mk(2017, '2020-02-03', 700),
+      mk(2016, '2019-02-03', 700),
     ]
     return { cik: '1', entity_name: 'GoogLike', currency: 'USD', latest_annual: annual_series[0]!, annual_series, filings: [] }
   }
