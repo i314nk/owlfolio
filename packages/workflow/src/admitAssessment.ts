@@ -88,7 +88,7 @@ const DEEP_DIVE_COMPLETE_STAGES = new Set<string>([
   'watchlist_draft',
 ])
 
-function isDeepDiveComplete(stage: string): boolean {
+export function isDeepDiveComplete(stage: string): boolean {
   return DEEP_DIVE_COMPLETE_STAGES.has(stage)
 }
 

@@ -33,7 +33,10 @@ describe('Task 4.2c wiring conformance: admit judgment + cheapness are reachable
   it('the orchestrator calls BOTH screenCheapness AND runAdmitJudgment (not islands)', () => {
     // Would have FAILED pre-4.2c: there was no orchestrator calling these two functions.
     expect(orchestratorSrc).toMatch(/runAdmitJudgment\s*\(/)
-    expect(orchestratorSrc).toMatch(/screenCheapness\s*\(/)
+    // No `\s*` before `(`: the real call is `screenCheapness({...})` (no space). This must NOT be
+    // satisfiable by the file's docstring "screenCheapness (Phase-1 OE / EV)" (space-paren), or the
+    // tripwire would be hollow for exactly the function it is meant to guard.
+    expect(orchestratorSrc).toMatch(/screenCheapness\(/)
   })
 
   it('the on-demand route + web workflow invoke the orchestrator (runAdmitAssessment) on a live path', () => {

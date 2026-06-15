@@ -45,7 +45,7 @@ import {
 } from '@owlfolio/workflow'
 import { selectResearchCaseAction } from '@owlfolio/workflow/researchCasePolicy'
 import { runStrategyResearchSwarm, runResearchDeepDivePhase, type GroundFn } from '@owlfolio/workflow/researchSwarm'
-import { runAdmitAssessment, type AdmitAssessmentResult } from '@owlfolio/workflow/admitAssessment'
+import { runAdmitAssessment, isDeepDiveComplete, type AdmitAssessmentResult } from '@owlfolio/workflow/admitAssessment'
 import { resolveFundamentalsForTicker } from '@owlfolio/workflow/fundamentalsProvider'
 import { resolveCurrentPrice, type PriceQuote } from '@owlfolio/workflow/marketData'
 import type { Fundamentals } from '@owlfolio/workflow/secEdgar'
@@ -753,6 +753,23 @@ export async function recordAdmitJudgment(
 
     const ticker = researchCase.ticker ?? researchCase.company_id ?? researchCase.research_case_id
     const gatePassing = researchCase.valuation?.moat_passes_gate === true
+
+    // Pre-spend funnel discipline: gate from the projection alone — in the SAME order + with the SAME
+    // reasons as runAdmitAssessment (reusing isDeepDiveComplete, so there's no divergence) — BEFORE the fresh
+    // EDGAR/price fetches, so a non-candidate spends zero data-feed reads. (The orchestrator re-gates too,
+    // defense-in-depth, before any provider call.)
+    if (!isDeepDiveComplete(researchCase.stage)) {
+      return {
+        status: 'not_an_admission_candidate',
+        reason: `research case is not deep-dive-complete (stage: ${researchCase.stage}); the admit judgment is only live for a deep-dive-complete candidate.`,
+      }
+    }
+    if (!gatePassing) {
+      return {
+        status: 'not_an_admission_candidate',
+        reason: 'research case did not pass the quality gate; the admit judgment is only live for a gate-passing admission candidate.',
+      }
+    }
 
     // The verified source corpus the judgment must cite from = the case's accumulated source_ids. We do
     // NOT have raw content hashes on the projection, so we cite-check by source_id (a lane may cite by id;
