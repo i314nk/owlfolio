@@ -246,6 +246,52 @@ describe('fetchCompanyFundamentals (COST FY2025, fixture-driven)', () => {
     expect(f?.latest_annual.fiscal_year).toBe(2025)
     expect(f?.filings).toEqual([])
   })
+
+  it('surfaces the SIC code + description from submissions onto Fundamentals', async () => {
+    const submissions = {
+      cik: '0000909832',
+      name: 'COSTCO WHOLESALE CORP /NEW',
+      sic: '7372',
+      sicDescription: 'Services-Prepackaged Software',
+      filings: { recent: {} },
+    }
+    const f = await fetchCompanyFundamentals('COST', {
+      fetchImpl: fakeFetch({ '/submissions/': { json: submissions } }),
+    })
+    expect(f).toBeDefined()
+    expect(f?.sic).toBe('7372')
+    expect(f?.sic_description).toBe('Services-Prepackaged Software')
+  })
+
+  it('trims a padded SIC value but does not coerce/pad it', async () => {
+    const submissions = {
+      sic: '  7372  ',
+      sicDescription: '  Services-Prepackaged Software  ',
+      filings: { recent: {} },
+    }
+    const f = await fetchCompanyFundamentals('COST', {
+      fetchImpl: fakeFetch({ '/submissions/': { json: submissions } }),
+    })
+    expect(f?.sic).toBe('7372')
+    expect(f?.sic_description).toBe('Services-Prepackaged Software')
+  })
+
+  it('leaves SIC fields undefined (fail-open) when submissions lack them', async () => {
+    // The captured COST submissions fixture carries no top-level sic/sicDescription.
+    const f = await fetchCompanyFundamentals('COST', { fetchImpl: fakeFetch() })
+    expect(f).toBeDefined()
+    expect(f?.sic).toBeUndefined()
+    expect(f?.sic_description).toBeUndefined()
+  })
+
+  it('leaves SIC fields undefined (fail-open) when the submissions fetch errors', async () => {
+    const f = await fetchCompanyFundamentals('COST', { fetchImpl: fakeFetch({ '/submissions/': 'throw' }) })
+    expect(f).toBeDefined()
+    // Structured facts still returned; SIC simply absent (never fabricated).
+    expect(f?.latest_annual.fiscal_year).toBe(2025)
+    expect(f?.sic).toBeUndefined()
+    expect(f?.sic_description).toBeUndefined()
+  })
 })
 
 describe('fetchCompanyFundamentals (NVO / Novo Nordisk — IFRS + DKK + 20-F, fixture-driven)', () => {

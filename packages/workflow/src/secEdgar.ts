@@ -92,6 +92,14 @@ export type Fundamentals = {
   latest_annual: AnnualFacts
   annual_series: AnnualFacts[]
   filings: FilingRef[]
+  /**
+   * SEC Standard Industrial Classification code from the submissions endpoint (e.g. '7372'), when
+   * present. Best-effort/fail-open: undefined when submissions are unavailable or omit it — never
+   * fabricated. Reported verbatim (trimmed); not coerced or zero-padded.
+   */
+  sic?: string
+  /** Human-readable SIC sector/industry label (e.g. 'Services-Prepackaged Software'), when present. */
+  sic_description?: string
 }
 
 /** One year's owner-earnings per share, derived from the annual facts (gap-closing Phase 1.1). */
@@ -1222,6 +1230,8 @@ function optional<K extends string, V>(key: K, value: V | undefined): Record<K, 
 type Submissions = {
   cik?: string | number
   name?: string
+  sic?: string
+  sicDescription?: string
   filings?: {
     recent?: {
       form?: string[]
@@ -1312,7 +1322,18 @@ export async function fetchCompanyFundamentals(
     latest_annual,
     annual_series,
     filings,
+    // SIC sector/industry is best-effort/fail-open: present only when submissions carry it, trimmed
+    // but not coerced/padded, and omitted (undefined) otherwise so it is never fabricated.
+    ...optional('sic', trimmedString(subs?.sic)),
+    ...optional('sic_description', trimmedString(subs?.sicDescription)),
   }
+}
+
+/** Trim a candidate string, returning undefined for non-strings or empty/whitespace-only values. */
+function trimmedString(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined
+  const trimmed = value.trim()
+  return trimmed.length === 0 ? undefined : trimmed
 }
 
 // ---------------------------------------------------------------------------
