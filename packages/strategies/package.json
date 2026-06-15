@@ -21,6 +21,7 @@
     "./minimumHoldGuard": "./src/minimumHoldGuard.ts",
     "./valuationInverted": "./src/valuationInverted.ts",
     "./betterOpportunity": "./src/betterOpportunity.ts",
+    "./sellBiasGuards": "./src/sellBiasGuards.ts",
     "./convictionFactor": "./src/convictionFactor.ts",
     "./permanentLossCap": "./src/permanentLossCap.ts",
     "./deploymentHurdle": "./src/deploymentHurdle.ts",
