@@ -508,3 +508,38 @@ describe('projectNameLifecycle — exit-provenance is RETAINED (owner refinement
     expect(row.prior_exit_provenance).toBe('screened_out')
   })
 })
+
+describe('projectNameLifecycle — Phase 5 S2 downside floor (sizing reads it alongside buy_price_per_share)', () => {
+  it('surfaces the downside floor (per-share + basis + reliability) from the newest admit recommendation', () => {
+    const events: LedgerEventEnvelope<unknown>[] = [
+      evt({
+        event_type: 'research_case_created',
+        aggregate_type: 'research_case',
+        aggregate_id: 'rc_floor_001',
+        payload: { ticker: 'FLOOR', company_id: 'company_floor' },
+        created_at: '2026-06-01T00:00:00.000Z',
+      }),
+      // Newest admit recommendation carries a computed net-cash floor (newest-recorded wins).
+      evt({
+        event_type: 'admit_judgment_recorded',
+        aggregate_type: 'research_case',
+        aggregate_id: 'rc_floor_001',
+        actor_type: 'provider',
+        payload: {
+          admit_judgment_id: 'admit_floor_1',
+          research_case_id: 'rc_floor_001',
+          ticker: 'FLOOR',
+          permanent_loss_risk: { level: 'low', argument: 'a', citations: ['s'] },
+          impairment_call: 'fixable_temporary',
+          admittable: true,
+          downside_floor: { status: 'floor', floor_per_share: 5, basis: 'net_cash', reliability: 'sound', components: {} },
+        },
+        created_at: '2026-06-02T00:00:00.000Z',
+      }),
+    ]
+    const row = byTicker(projectNameLifecycle(events), 'FLOOR')
+    expect(row.downside_floor_per_share).toBe(5)
+    expect(row.downside_floor_basis).toBe('net_cash')
+    expect(row.downside_floor_reliability).toBe('sound')
+  })
+})

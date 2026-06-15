@@ -59,6 +59,16 @@ export type NameLifecycleProjection = {
   /** Fair value per share from the research case valuation. */
   fair_value_per_share?: number
   /**
+   * Phase 5 S2 — the concrete per-share downside FLOOR from the newest admit recommendation (deterministic
+   * balance-sheet arithmetic, GATED for reliability by the grounded permanent-loss level). Phase-5 sizing
+   * (S3) reads this alongside `buy_price_per_share`. The `basis` (net_cash vs stressed_book) IS the
+   * reliability signal and rides alongside the number — never flattened. Absent when the floor was not
+   * computable (e.g. a HIGH permanent-loss level, or missing balance-sheet inputs). Newest-recorded wins.
+   */
+  downside_floor_per_share?: number
+  downside_floor_basis?: string
+  downside_floor_reliability?: string
+  /**
    * The buy-below FROZEN at admit (snapshot, not a live reference). Present for a watched name admitted
    * with a locked buy-below. Mirrors `buy_price_per_share` for a watched name; carried explicitly so the
    * provenance below can be read alongside it.
@@ -144,6 +154,9 @@ type Accumulator = {
   holding_id?: string
   buy_price_per_share?: number
   fair_value_per_share?: number
+  downside_floor_per_share?: number
+  downside_floor_basis?: string
+  downside_floor_reliability?: string
   locked_buy_below?: number
   buy_below_valuation_version?: string
   buy_below_mos_provisional?: boolean
@@ -281,6 +294,19 @@ export function projectNameLifecycle(events: LedgerEventEnvelope<unknown>[]): Na
     if (researchCase.valuation?.fair_value_per_share !== undefined) {
       row.fair_value_per_share = researchCase.valuation.fair_value_per_share
     }
+    // Phase 5 S2 — surface the concrete downside floor from the newest admit recommendation (the
+    // recommendation is recomputed on-demand; the projection keeps the latest). Carried alongside the
+    // buy-below so Phase-5 sizing reads the floor + its basis/reliability together (never a bare number).
+    const admit = researchCase.admit_recommendation
+    if (admit?.downside_floor_per_share !== undefined) {
+      row.downside_floor_per_share = admit.downside_floor_per_share
+    }
+    if (admit?.downside_floor_basis !== undefined) {
+      row.downside_floor_basis = admit.downside_floor_basis
+    }
+    if (admit?.downside_floor_reliability !== undefined) {
+      row.downside_floor_reliability = admit.downside_floor_reliability
+    }
 
     if (isScreenedOutStage(researchCase.stage)) {
       // Exit fact only — never a live state. (If the same ticker has a live entity it will still win.)
@@ -393,6 +419,11 @@ export function projectNameLifecycle(events: LedgerEventEnvelope<unknown>[]): Na
     if (row.holding_id !== undefined) projected.holding_id = row.holding_id
     if (row.buy_price_per_share !== undefined) projected.buy_price_per_share = row.buy_price_per_share
     if (row.fair_value_per_share !== undefined) projected.fair_value_per_share = row.fair_value_per_share
+    if (row.downside_floor_per_share !== undefined) projected.downside_floor_per_share = row.downside_floor_per_share
+    if (row.downside_floor_basis !== undefined) projected.downside_floor_basis = row.downside_floor_basis
+    if (row.downside_floor_reliability !== undefined) {
+      projected.downside_floor_reliability = row.downside_floor_reliability
+    }
     if (row.locked_buy_below !== undefined) projected.locked_buy_below = row.locked_buy_below
     if (row.buy_below_valuation_version !== undefined) {
       projected.buy_below_valuation_version = row.buy_below_valuation_version

@@ -50,6 +50,7 @@ function admitJudgment(overrides: Record<string, unknown>, createdAt: string, ev
       reason: 'low permanent-loss + quality passes',
       buy_below: 42,
       cheapness: { owner_earnings_yield: 0.0825, ev: 10_300, cheap: true },
+      downside_floor: { status: 'floor', floor_per_share: 5, basis: 'net_cash', reliability: 'sound', components: {} },
       is_observation: true,
       is_recommendation: false,
       ...overrides,
@@ -82,6 +83,46 @@ describe('projectResearchCases — admit_judgment_recorded', () => {
     // The cheapness summary survives.
     expect(rec.cheapness?.owner_earnings_yield).toBeCloseTo(0.0825, 6)
     expect(rec.cheapness?.ev).toBe(10_300)
+    // Phase 5 S2 — the concrete downside floor (incl. its basis) is projected from the persisted payload.
+    expect(rec.downside_floor_per_share).toBe(5)
+    expect(rec.downside_floor_basis).toBe('net_cash')
+    expect(rec.downside_floor_reliability).toBe('sound')
+  })
+
+  it('Phase 5 S2: a cannot_floor result projects no floor fields (fail-closed)', () => {
+    const cases = projectResearchCases([
+      created(),
+      admitJudgment(
+        { downside_floor: { status: 'cannot_floor', reason: 'permanent_loss_risk is HIGH' } },
+        '2026-06-02T00:00:00.000Z',
+        `evt_admit_1_${RC}`,
+      ),
+    ])
+    const rec = cases.find((c) => c.research_case_id === RC)!.admit_recommendation!
+    expect(rec.downside_floor_per_share).toBeUndefined()
+    expect(rec.downside_floor_basis).toBeUndefined()
+    expect(rec.downside_floor_reliability).toBeUndefined()
+  })
+
+  it('Phase 5 S2: newest recorded downside floor wins (basis + reliability ride along)', () => {
+    const cases = projectResearchCases([
+      created(),
+      admitJudgment(
+        { downside_floor: { status: 'floor', floor_per_share: 5, basis: 'net_cash', reliability: 'sound', components: {} } },
+        '2026-06-02T00:00:00.000Z',
+        `evt_admit_1_${RC}`,
+      ),
+      // A later recompute falls to a softer stressed-book floor — the newer one must win.
+      admitJudgment(
+        { downside_floor: { status: 'floor', floor_per_share: 4, basis: 'stressed_book', reliability: 'qualified', components: {} } },
+        '2026-06-09T00:00:00.000Z',
+        `evt_admit_2_${RC}`,
+      ),
+    ])
+    const rec = cases.find((c) => c.research_case_id === RC)!.admit_recommendation!
+    expect(rec.downside_floor_per_share).toBe(4)
+    expect(rec.downside_floor_basis).toBe('stressed_book')
+    expect(rec.downside_floor_reliability).toBe('qualified')
   })
 
   it('does NOT transition the case stage — it is an observation, not an admit', () => {

@@ -845,6 +845,7 @@ export async function recordAdmitJudgment(
       impairment_bear_case: rec.impairment_bear_case,
       buy_below: rec.buy_below,
       cheapness: rec.cheapness,
+      downside_floor: rec.downside_floor,
     })).digest('hex').slice(0, 16)
     const admitJudgmentId = `admit_${researchCaseId.replace(/^rc_/, '')}_${contentHash}`
 
@@ -869,6 +870,9 @@ export async function recordAdmitJudgment(
         reason: rec.reason,
         ...(rec.buy_below === undefined ? {} : { buy_below: rec.buy_below }),
         ...(rec.cheapness === undefined ? {} : { cheapness: rec.cheapness }),
+        // Phase 5 S2 — the concrete downside floor (incl. its basis + reliability, or cannot_floor reason)
+        // travels on the admit observation so Phase-5 sizing reads it from the projection.
+        ...(rec.downside_floor === undefined ? {} : { downside_floor: rec.downside_floor }),
         ...(rec.uncited_refs === undefined ? {} : { uncited_refs: rec.uncited_refs }),
         // Worker/agent OBSERVATION discipline: this is an observation, NOT a recommendation to ACT.
         is_observation: true,

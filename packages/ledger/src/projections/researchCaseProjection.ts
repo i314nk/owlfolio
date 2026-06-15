@@ -295,6 +295,15 @@ export type ResearchCaseAdmitRecommendationProjection = {
   reason?: string
   buy_below?: number
   cheapness?: ResearchCaseAdmitCheapnessProjection
+  /**
+   * Phase 5 S2 — the concrete per-share downside floor (deterministic balance-sheet arithmetic, GATED for
+   * reliability by `permanent_loss_risk.level`). Present only when the floor was computable; `cannot_floor`
+   * (e.g. a HIGH permanent-loss level, or missing inputs) leaves all three undefined. `basis` (net_cash vs
+   * stressed_book) IS the reliability signal — never flattened to a bare number. Phase-5 sizing reads these.
+   */
+  downside_floor_per_share?: number
+  downside_floor_basis?: string
+  downside_floor_reliability?: string
   uncited_refs?: string[]
   recorded_at?: string
 }
@@ -632,6 +641,17 @@ function getAdmitRecommendation(
   if (buy_below !== undefined) projected.buy_below = buy_below
   const cheapness = getAdmitCheapness(payload['cheapness'])
   if (cheapness !== undefined) projected.cheapness = cheapness
+  // Phase 5 S2 — the concrete downside floor. Only projected when a floor was computed (status 'floor');
+  // a `cannot_floor` result carries no number/basis, so the fields stay undefined.
+  const downside_floor = payload['downside_floor']
+  if (isRecord(downside_floor) && downside_floor['status'] === 'floor') {
+    const floor_per_share = getNumber(downside_floor, 'floor_per_share')
+    if (floor_per_share !== undefined) projected.downside_floor_per_share = floor_per_share
+    const basis = getString(downside_floor, 'basis')
+    if (basis !== undefined) projected.downside_floor_basis = basis
+    const reliability = getString(downside_floor, 'reliability')
+    if (reliability !== undefined) projected.downside_floor_reliability = reliability
+  }
   const uncited_refs = getStringArray(payload, 'uncited_refs')
   if (uncited_refs !== undefined) projected.uncited_refs = uncited_refs
   return projected

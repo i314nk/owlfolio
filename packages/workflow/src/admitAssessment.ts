@@ -3,6 +3,7 @@ import type { GroundFn } from './groundedAgent'
 import type { GroundingDeps } from './sourceGrounding'
 import { screenCheapness, type CheapnessResult } from './cheapnessScreen'
 import { runAdmitJudgment, type AdmitLaneDigest, type AdmitRecommendation } from './admitJudgment'
+import { computeDownsideFloor, type DownsideFloor } from './downsideFloor'
 import type { Fundamentals } from './secEdgar'
 
 // ---------------------------------------------------------------------------
@@ -38,6 +39,13 @@ export type AdmitCheapnessSummary = {
 export type AdmitAssessmentRecommendation = Extract<AdmitRecommendation, { status: 'complete' }> & {
   /** The cheapness screen summary that surfaced this name (Phase-1 OE / EV). */
   cheapness?: AdmitCheapnessSummary
+  /**
+   * Phase 5 S2 — the concrete per-share downside FLOOR, deterministic balance-sheet arithmetic GATED for
+   * reliability by this judgment's `permanent_loss_risk.level`. Travels WITH the permanent-loss judgment so
+   * Phase-5 sizing (S3) reads the floor and its basis/reliability together (never a bare number). Either a
+   * computed floor (with `basis` + `reliability`) or `cannot_floor` with a reason (fail-closed).
+   */
+  downside_floor?: DownsideFloor
 }
 
 /**
@@ -168,9 +176,17 @@ export async function runAdmitAssessment(
     ...(cheapness.reason === undefined ? {} : { reason: cheapness.reason }),
   }
 
+  // Phase 5 S2 — compute the concrete downside floor ALONGSIDE the permanent-loss judgment, gated for
+  // reliability by THIS judgment's permanent_loss_risk.level. It travels with the judgment so the floor and
+  // the grounded decision of whether to trust it stay coupled (Frontline net-cash logic / Horsehead trap).
+  const downsideFloor = computeDownsideFloor({
+    fundamentals: args.fundamentals,
+    permanent_loss_level: judgment.permanent_loss_risk.level,
+  })
+
   return {
     status: 'complete',
-    recommendation: { ...judgment, cheapness: cheapnessSummary },
+    recommendation: { ...judgment, cheapness: cheapnessSummary, downside_floor: downsideFloor },
     cheapness,
   }
 }

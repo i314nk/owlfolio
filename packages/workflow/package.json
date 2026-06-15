@@ -52,6 +52,7 @@
     "./lifecycleCadence": "./src/lifecycleCadence.ts",
     "./positionSizingEngine": "./src/positionSizingEngine.ts",
     "./cheapnessScreen": "./src/cheapnessScreen.ts",
-    "./admitJudgment": "./src/admitJudgment.ts"
+    "./admitJudgment": "./src/admitJudgment.ts",
+    "./downsideFloor": "./src/downsideFloor.ts"
   }
 }

@@ -114,6 +114,12 @@ export type SizingParams = {
   }
   /** Hard per-name cap (spec §1): 15% per name. Sleeves deferred → per-name, not cross-sleeve. */
   per_name_cap: number
+  /**
+   * Stressed-book haircut (Phase 5 S2) applied to stockholders' equity for the SOFTER downside floor
+   * (`stressed_book` basis) — used only when there is no positive net cash. 0.5 = value the book at 50¢
+   * on the dollar under stress. A net-cash floor never reads this (it is the hardest, most concrete floor).
+   */
+  book_value_haircut: number
   /** Target number of names at full build-out (spec §1): ~20. */
   target_names: number
   /** The ladder definitions (spec §2): cold 40/30/30, normal 60/40. */
@@ -151,6 +157,7 @@ export const SIZING_PARAMS: SizingParams = Object.freeze({
   conviction_use_discount_depth: false,
   conviction_discount_depth_ramp: { floor: 0.6, full_at_depth: 0.30 },
   per_name_cap: 0.15,
+  book_value_haircut: 0.5,
   target_names: 20,
   ladders: {
     cold: {

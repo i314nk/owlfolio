@@ -148,6 +148,32 @@ describe('runAdmitAssessment — the on-demand orchestrator', () => {
     expect((provider.structured as ReturnType<typeof vi.fn>)).not.toHaveBeenCalled()
   })
 
+  it('Phase 5 S2: a LOW permanent-loss stumble + positive net cash → a sound net-cash downside floor rides on the recommendation', async () => {
+    const provider = admitProvider([bearCasePayload(), stumblePayload()])
+    // Positive net cash: cash 600 − debt 100 = 500 / 100 shares = 5.0/share.
+    const args = { ...baseArgs(), fundamentals: makeFundamentals({ cash_and_securities_musd: 600, total_debt_musd: 100, stockholders_equity_musd: 800 }) }
+    const out = await runAdmitAssessment(provider as never, args, { ground: verifyAllGround })
+    expect(out.status).toBe('complete')
+    if (out.status !== 'complete') return
+    const floor = out.recommendation.downside_floor
+    expect(floor?.status).toBe('floor')
+    if (floor?.status !== 'floor') return
+    expect(floor.floor_per_share).toBeCloseTo(5.0, 6)
+    expect(floor.basis).toBe('net_cash') // the basis rides alongside — never flattened to a bare number
+    expect(floor.reliability).toBe('sound') // gated by the LOW permanent-loss level
+  })
+
+  it('Phase 5 S2: the 4.2a level gates the floor — a HIGH permanent-loss eroder → cannot_floor even on a clean balance sheet', async () => {
+    const provider = admitProvider([bearCasePayload(), eroderPayload()]) // eroder = permanent_loss_risk HIGH
+    // A SUPERFICIALLY CLEAN balance sheet (positive net cash) — arithmetic alone would compute a healthy
+    // floor — but the grounded HIGH level says the balance sheet is unreliable (Horsehead-style).
+    const args = { ...baseArgs(), fundamentals: makeFundamentals({ cash_and_securities_musd: 600, total_debt_musd: 100, stockholders_equity_musd: 800 }) }
+    const out = await runAdmitAssessment(provider as never, args, { ground: verifyAllGround })
+    expect(out.status).toBe('complete')
+    if (out.status !== 'complete') return
+    expect(out.recommendation.downside_floor?.status).toBe('cannot_floor')
+  })
+
   it('passes the cheapness screen summary into the judgment so "why cheap" frames the question', async () => {
     const provider = admitProvider([bearCasePayload(), stumblePayload()])
     await runAdmitAssessment(provider as never, baseArgs(), { ground: verifyAllGround })
