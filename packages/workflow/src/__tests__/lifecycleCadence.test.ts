@@ -32,12 +32,14 @@ describe('detectSignals — STATE-INDEPENDENCE (the discipline tripwire)', () =>
   // the name's lifecycle state. We drive that by holding all data fixed and varying ONLY `state`.
   it('produces the identical signal set across all states for identical name-data', () => {
     // market_value 250 of nav 1_000 = 25% > the ~22% appreciation-review threshold (Phase 5 S3) → fires
-    // over_concentrated, so the tripwire exercises ALL seven signals across states (a regression coupling
+    // over_concentrated, so the tripwire exercises ALL signals across states (a regression coupling
     // any one signal to state breaks this). NB: 25% (not 20%) because the review threshold is ~22%, not 15%.
     const asOfData = { now: NOW, current_price: 40, market_value: 250, portfolio_nav: 1_000, thesis_break: true }
     const baseData = {
       buy_price_per_share: 50,
       fair_value_per_share: 80,
+      // frozen_iv 40: current_price 40 >= frozen_iv 40 → valuation_inverted fires (price reached frozen IV).
+      frozen_iv: 40,
       gate_clean: false,
       shariah_gate_status: 'FAIL',
       falsifier_tripped: true,
@@ -48,7 +50,7 @@ describe('detectSignals — STATE-INDEPENDENCE (the discipline tripwire)', () =>
       [...detectSignals(name({ ...baseData, state }), asOfData)].sort(),
     )
 
-    // The fixture is constructed to fire ALL seven signals — so the cross-state equality below is a
+    // The fixture is constructed to fire ALL signals — so the cross-state equality below is a
     // genuine tripwire for every signal (if any one became state-coupled, the sets would diverge here).
     const first = signalSets[0]
     expect(first).toEqual([...LIFECYCLE_SIGNALS].sort())
@@ -169,6 +171,62 @@ describe('detectSignals — STATE-INDEPENDENCE (the discipline tripwire)', () =>
   })
 })
 
+describe('detectSignals — valuation_inverted (Phase 6 S8c)', () => {
+  // The valuation-inverted signal fires from price-vs-the-SIGN-OFF-FROZEN-IV (a signed-off cause-ref),
+  // NOT a raw price move, and routes to a sell-REVIEW. It must NEVER fire by price alone (no frozen IV).
+  it('raises valuation_inverted when price >= frozen_iv (inverted) on a held name', () => {
+    const signals = detectSignals(
+      name({ state: 'held', frozen_iv: 100, gate_clean: true }),
+      { now: NOW, current_price: 100 },
+    )
+    expect(signals).toContain('valuation_inverted')
+  })
+
+  it('does NOT raise valuation_inverted when price < frozen_iv (margin of safety intact)', () => {
+    const signals = detectSignals(
+      name({ state: 'held', frozen_iv: 100, gate_clean: true }),
+      { now: NOW, current_price: 99 },
+    )
+    expect(signals).not.toContain('valuation_inverted')
+  })
+
+  it('does NOT raise valuation_inverted when frozen_iv is absent (fail-closed; never price-alone)', () => {
+    const signals = detectSignals(
+      name({ state: 'held', gate_clean: true }),
+      { now: NOW, current_price: 10_000 },
+    )
+    expect(signals).not.toContain('valuation_inverted')
+  })
+
+  it('does NOT raise valuation_inverted when current_price is absent (fail-closed)', () => {
+    const signals = detectSignals(
+      name({ state: 'held', frozen_iv: 100, gate_clean: true }),
+      { now: NOW },
+    )
+    expect(signals).not.toContain('valuation_inverted')
+  })
+
+  it('detection of valuation_inverted is state-independent (same set across all states)', () => {
+    const asOfData = { now: NOW, current_price: 120 }
+    const baseData = { frozen_iv: 100, gate_clean: true }
+    const sets = LIFECYCLE_STATES.map((state) =>
+      detectSignals(name({ ...baseData, state }), asOfData).includes('valuation_inverted'),
+    )
+    // Every state raises the signal identically (true everywhere) — no state-coupling.
+    for (const raised of sets) {
+      expect(raised).toBe(true)
+    }
+  })
+
+  it('can read frozen_iv from CadenceAsOfData when the caller threads it there', () => {
+    const signals = detectSignals(
+      name({ state: 'held', gate_clean: true }),
+      { now: NOW, current_price: 100, frozen_iv: 100 },
+    )
+    expect(signals).toContain('valuation_inverted')
+  })
+})
+
 describe('selectAction — total (signal × state) lookup table', () => {
   it('returns a defined action for EVERY (signal, state) pair in the cartesian product', () => {
     for (const signal of LIFECYCLE_SIGNALS) {
@@ -240,6 +298,19 @@ describe('selectAction — total (signal × state) lookup table', () => {
     expect(selectAction('over_concentrated', 'candidate').kind).toBe('no_op')
     expect(selectAction('over_concentrated', 'watched').kind).toBe('no_op')
     expect(selectAction('over_concentrated', 'exited').kind).toBe('no_op')
+  })
+
+  it('pins valuation_inverted cells (Phase 6 S8c)', () => {
+    expect(selectAction('valuation_inverted', 'held').kind).toBe('sell_review')
+    expect(selectAction('valuation_inverted', 'watched').kind).toBe('no_op')
+    expect(selectAction('valuation_inverted', 'candidate').kind).toBe('no_op')
+    expect(selectAction('valuation_inverted', 'exited').kind).toBe('no_op')
+    // The held sell_review reason names the frozen-IV inversion.
+    expect(selectAction('valuation_inverted', 'held').reason).toMatch(/frozen|intrinsic value/i)
+    // Honest label (single source for the worker emission): a valuation-inverted held sell-review carries
+    // its OWN reason_code — it must NOT be mislabeled as a broken thesis.
+    expect(selectAction('valuation_inverted', 'held').reason_code).toBe('valuation_inverted')
+    expect(selectAction('falsifier_tripped', 'held').reason_code).toBe('thesis_broken')
   })
 
   it('pins stale and gated cells', () => {

@@ -95,6 +95,7 @@ export function holdingRow(args: {
   research_case_id?: string
   updated_at: string
   state?: NameLifecycleState
+  frozen_iv?: number
 }): NameLifecycleProjection {
   const row: NameLifecycleProjection = {
     ticker: args.ticker,
@@ -104,6 +105,9 @@ export function holdingRow(args: {
     holding_id: args.holding_id,
   }
   if (args.research_case_id !== undefined) row.research_case_id = args.research_case_id
+  // `frozen_iv` is the sign-off-frozen intrinsic value (Phase 6 S8c). Carrying it onto the held row lets
+  // the engine's valuation_inverted signal fire when price reaches the frozen IV; never a live fair value.
+  if (args.frozen_iv !== undefined) row.frozen_iv = args.frozen_iv
   return row
 }
 

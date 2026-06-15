@@ -25,6 +25,7 @@ import type {
   NameLifecycleState,
 } from '@owlfolio/ledger/projections/nameLifecycleProjection'
 import type { ShariahFinancialRatioInputs } from '@owlfolio/strategies/shariahFinancialRatios'
+import { evaluateValuationInverted } from '@owlfolio/strategies/valuationInverted'
 import {
   evaluateAnnualRerun,
   evaluateCaseFreshness,
@@ -32,6 +33,7 @@ import {
   evaluateShariahRescreen,
   isGateClean,
 } from './lifecycleMonitors'
+import type { SellReviewReasonCode } from './lifecycleMonitors'
 
 // ---------------------------------------------------------------------------
 // Signals (atomic, grounded; state-independent)
@@ -45,6 +47,7 @@ export type LifecycleSignal =
   | 'reunderwrite_due'
   | 'falsifier_tripped'
   | 'over_concentrated'
+  | 'valuation_inverted'
 
 /** The full signal vocabulary — used for the totality table and its tests. */
 export const LIFECYCLE_SIGNALS: readonly LifecycleSignal[] = [
@@ -55,6 +58,7 @@ export const LIFECYCLE_SIGNALS: readonly LifecycleSignal[] = [
   'reunderwrite_due',
   'falsifier_tripped',
   'over_concentrated',
+  'valuation_inverted',
 ] as const
 
 /** The full state vocabulary — used for the totality table and its tests. */
@@ -74,6 +78,14 @@ export type CadenceAsOfData = {
   now: Date
   /** Latest observed price for the name (price feed; fail-closed when absent). */
   current_price?: number
+  /**
+   * The SIGN-OFF-FROZEN undiscounted intrinsic value per share (Phase 6 S3/S8c). Optional override for
+   * the projection's own `frozen_iv` field: when a caller assembles as-of data without a full projection
+   * row it can thread the frozen IV here. Detection prefers this, falling back to `name.frozen_iv`. It is
+   * NEVER a live/recomputed fair value — only the value frozen at sign-off; absent → no inversion signal
+   * (fail-closed; the valuation_inverted signal never fires by price alone).
+   */
+  frozen_iv?: number
   /** AAOIFI re-screen ratio inputs (EDGAR fundamentals + market cap), when available. */
   shariah_ratios?: ShariahFinancialRatioInputs
   /** Latest market value of the position (price × shares) — feeds concentration. */
@@ -170,6 +182,24 @@ export function detectSignals(name: NameLifecycleProjection, asOfData: CadenceAs
     }
   }
 
+  // valuation_inverted ← current price has reached the SIGN-OFF-FROZEN intrinsic value (margin of safety
+  // gone). The CAUSE is "price reached the frozen IV" (a signed-off cause-reference), NOT a raw price
+  // move: it reuses evaluateValuationInverted as the SINGLE SOURCE OF TRUTH for the hard 1.0
+  // sell_iv_fraction threshold — no inline price>=IV compare. FAIL-CLOSED: absent frozen_iv or
+  // current_price raises nothing (never fires by price alone). The frozen IV is read off the projection
+  // (name.frozen_iv, frozen at sign-off), with asOfData.frozen_iv as a caller-supplied override; it is
+  // never a live/recomputed fair value. State-independent: NO state branch — the held→sell_review routing
+  // lives only in selectAction.
+  const frozenIv = isFiniteNumber(asOfData.frozen_iv) ? asOfData.frozen_iv : name.frozen_iv
+  if (
+    isFiniteNumber(asOfData.current_price) &&
+    isFiniteNumber(frozenIv) &&
+    evaluateValuationInverted({ current_price: asOfData.current_price, frozen_iv: frozenIv }).status ===
+      'inverted'
+  ) {
+    signals.push('valuation_inverted')
+  }
+
   return signals
 }
 
@@ -191,6 +221,12 @@ export type LifecycleActionKind =
 export type LifecycleAction = {
   kind: LifecycleActionKind
   reason?: string
+  /**
+   * Present on a `sell_review`: the honest sell-review reason code for the originating signal, so a
+   * worker-surfaced sell-review draft is labeled by WHY it fired (a falsifier vs a valuation inversion)
+   * rather than a single hardcoded code. The action table is the single source of this label.
+   */
+  reason_code?: SellReviewReasonCode
   /** Present on a reprice_or_prune_review: there is no prune event in the ledger yet (Phase 6.6). */
   prune_action_available?: boolean
   /**
@@ -232,7 +268,7 @@ const ACTION_TABLE: Record<string, LifecycleAction> = {
 
   // falsifier_tripped: a held name goes to sell-review; a watched name to reprice-or-prune (prune
   // unavailable until Phase 6.6); candidate/exited inert.
-  'falsifier_tripped:held': { kind: 'sell_review', reason: 'falsifier tripped on a held name — open a sell-review (human authors the exit).' },
+  'falsifier_tripped:held': { kind: 'sell_review', reason_code: 'thesis_broken', reason: 'falsifier tripped on a held name — open a sell-review (human authors the exit).' },
   'falsifier_tripped:watched': { kind: 'reprice_or_prune_review', reason: 'falsifier tripped on a watched name — reprice or prune review.', prune_action_available: false },
   'falsifier_tripped:candidate': noOp('candidate has no thesis to falsify into a sell; no action.'),
   'falsifier_tripped:exited': noOp('exited name is inert; falsifier does not act.'),
@@ -254,6 +290,15 @@ const ACTION_TABLE: Record<string, LifecycleAction> = {
   'over_concentrated:candidate': noOp('candidate holds no position; concentration does not apply.'),
   'over_concentrated:watched': noOp('watched name holds no position; concentration does not apply.'),
   'over_concentrated:exited': noOp('exited name holds no position; concentration does not apply.'),
+
+  // valuation_inverted (Phase 6 S8c): a held name whose price has reached the SIGN-OFF-FROZEN IV → a
+  // sell-REVIEW (advisory; the human authors the close). Watched/candidate have no position to sell — the
+  // above-IV case on a watched name only means "don't buy", and that buy side is already handled by
+  // price_crossed_buybelow; there is no sell pre-holding, so they are explicit no_ops. Exited is inert.
+  'valuation_inverted:held': { kind: 'sell_review', reason_code: 'valuation_inverted', reason: 'price reached the sign-off-frozen intrinsic value on a held name — margin of safety gone; open a sell-review (human authors the exit; never a recomputed fair value).' },
+  'valuation_inverted:watched': noOp('above the frozen IV on a watched name only means do not buy (the buy side is handled by price_crossed_buybelow); no position exists to sell pre-holding.'),
+  'valuation_inverted:candidate': noOp('candidate holds no position; valuation inversion does not sell.'),
+  'valuation_inverted:exited': noOp('exited name is inert; valuation inversion does not act.'),
 
   // stale: a watched name with a stale case suppresses its buy signal; others inert (stale is folded into
   // re-underwrite cadence for held, and is irrelevant to candidate/exited at this layer).

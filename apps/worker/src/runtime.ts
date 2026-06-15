@@ -2015,7 +2015,10 @@ function cadenceEmissionFor(
   const ticker = name.ticker
   switch (action.kind) {
     case 'sell_review': {
-      // held + falsifier_tripped → a SELL-REVIEW draft (human authors the exit). DRAFT, never execution.
+      // held sell_review (falsifier_tripped OR valuation_inverted) → a SELL-REVIEW draft (human authors
+      // the exit). DRAFT, never execution. The reason_code is taken from the action (the cadence table
+      // labels each sell_review by its originating signal) so a valuation-inverted nudge is NOT mislabeled
+      // as a broken thesis; falls back to thesis_broken only if the action carried no code.
       if (name.holding_id === undefined) return undefined
       return {
         event_type: 'holding_sell_review_drafted',
@@ -2027,12 +2030,12 @@ function cadenceEmissionFor(
           ...(name.research_case_id === undefined ? {} : { research_case_id: name.research_case_id }),
           ticker,
           cadence_pass: pass,
-          reason_code: 'thesis_broken',
-          detail: action.reason ?? 'Falsifier tripped on a held name during the cadence pass.',
+          reason_code: action.reason_code ?? 'thesis_broken',
+          detail: action.reason ?? 'Sell-review surfaced on a held name during the cadence pass.',
           is_execution: false,
           is_recommendation: false,
           requires_user_authoring: true,
-          message: `${ticker}: ${action.reason ?? 'falsifier tripped'} (${pass}).`,
+          message: `${ticker}: ${action.reason ?? 'sell-review surfaced'} (${pass}).`,
         },
       }
     }
@@ -2148,6 +2151,10 @@ async function runCadencePassTask(
       ...(currentPrice === undefined ? {} : { current_price: currentPrice }),
       ...(holding?.latest_market_value === undefined ? {} : { market_value: holding.latest_market_value }),
       ...(portfolioNav > 0 ? { portfolio_nav: portfolioNav } : {}),
+      // Thread the SIGN-OFF-FROZEN intrinsic value (Phase 6 S8c) so valuation_inverted can fire on a held
+      // name when price has reached the frozen IV. The row already carries `frozen_iv`; passing it through
+      // asOfData makes the live cadence path's input explicit (never a live/recomputed fair value).
+      ...(row.frozen_iv === undefined ? {} : { frozen_iv: row.frozen_iv }),
     }
     const [decided] = runPass([row], asOfData)
     if (decided === undefined) continue
