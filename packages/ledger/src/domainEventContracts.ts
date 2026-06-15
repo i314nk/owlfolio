@@ -71,6 +71,7 @@ export const domainEventTypes = [
   'holding_shariah_grace_started',
   'holding_sell_review_drafted',
   'holding_closed',
+  'watchlist_item_pruned',
   'position_post_mortem_recorded',
   'forecast_recorded',
   'forecast_resolved',
@@ -643,6 +644,30 @@ export const domainEventContracts: readonly DomainEventContract[] = [
       'exit_price_per_share',
       'reason_code',
       'exit_provenance',
+      'is_execution',
+      'requires_user_authoring',
+      'message',
+    ],
+  },
+  {
+    // Watched-name PRUNE (lifecycle-spec-v3 watchlist exit discipline; Phase 6 S9). The softer EXIT for a
+    // WATCHED name whose falsifier has tripped (staleness / Shariah re-screen FAIL) — it removes the name
+    // from the watchlist rather than selling a holding. Same HUMAN-AUTHORED-only invariant as the holding
+    // close (holding_closed): the prune is the human's signed exit and may ONLY be authored by a user
+    // (pruneWatchlistItem throws on a worker/provider/agent actor). is_execution=true marks the exit;
+    // requires_user_authoring=true gates it. The nameLifecycle fold reads watchlist_item_pruned and folds
+    // the name to exited / exit_provenance:'pruned' (a watched name pruned out of the list — distinct from a
+    // sold holding or a screened-out research case). reason records WHY (mirrors the falsifier reason).
+    event_type: 'watchlist_item_pruned',
+    aggregate_type: 'watchlist_item',
+    actor_type: 'user',
+    projection_owner: 'portfolio',
+    payload_fields: [
+      'watchlist_item_id',
+      'ticker',
+      'research_case_id',
+      'pruned_at',
+      'reason',
       'is_execution',
       'requires_user_authoring',
       'message',

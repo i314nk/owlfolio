@@ -281,8 +281,8 @@ describe('projectNameLifecycle — deteriorating-watched is HONEST (owner refine
     expect(row.falsifier_tripped).toBe(true)
     expect(row.falsifier_reason).toBeTruthy()
     expect(row.gate_clean).toBe(false)
-    // The gap is kept VISIBLE: there is no prune action available.
-    expect(row.prune_action_available).toBe(false)
+    // Phase 6 S9: a falsified watched name OFFERS the human-authored prune action.
+    expect(row.prune_action_available).toBe(true)
   })
 
   it('flags a watched name that went stale on a newer filing (suppressed monitor alert)', () => {
@@ -308,13 +308,108 @@ describe('projectNameLifecycle — deteriorating-watched is HONEST (owner refine
     expect(row.state).toBe('watched')
     expect(row.falsifier_tripped).toBe(true)
     expect(row.falsifier_reason).toContain('stale')
-    expect(row.prune_action_available).toBe(false)
+    expect(row.prune_action_available).toBe(true)
   })
 
   it('leaves a healthy watched name unflagged', () => {
     const row = byTicker(projectNameLifecycle(watchedChain('rc_ok_001', 'watch_ok_001', 'OKAY')), 'OKAY')
     expect(row.state).toBe('watched')
     expect(row.falsifier_tripped).toBeUndefined()
+    // A clean watched name has nothing to prune.
+    expect(row.prune_action_available).toBe(false)
+  })
+
+  it('does not offer the prune action on a held or candidate name', () => {
+    const heldEvents: LedgerEventEnvelope<unknown>[] = [
+      ...watchedChain('rc_held_p', 'watch_held_p', 'HELD'),
+      evt({
+        event_type: 'holding_opened',
+        aggregate_type: 'holding',
+        aggregate_id: 'holding_held_p',
+        payload: {
+          holding_id: 'holding_held_p',
+          watchlist_item_id: 'watch_held_p',
+          research_case_id: 'rc_held_p',
+          ticker: 'HELD',
+          shares: 2,
+          cost_basis_per_share: 20,
+        },
+        created_at: '2026-06-02T00:00:00.000Z',
+      }),
+    ]
+    expect(byTicker(projectNameLifecycle(heldEvents), 'HELD').prune_action_available).toBe(false)
+
+    const candidateEvents: LedgerEventEnvelope<unknown>[] = [
+      evt({
+        event_type: 'research_case_created',
+        aggregate_type: 'research_case',
+        aggregate_id: 'rc_cand_p',
+        payload: { ticker: 'CAND', company_id: 'company_cand' },
+        created_at: '2026-06-01T00:00:00.000Z',
+      }),
+    ]
+    expect(byTicker(projectNameLifecycle(candidateEvents), 'CAND').prune_action_available).toBe(false)
+  })
+
+  it('folds a pruned watched name to exited/pruned (Phase 6 S9 softer exit)', () => {
+    const events: LedgerEventEnvelope<unknown>[] = [
+      ...watchedChain('rc_prune_001', 'watch_prune_001', 'PRNE'),
+      evt({
+        event_type: 'watchlist_item_pruned',
+        aggregate_type: 'watchlist_item',
+        aggregate_id: 'watch_prune_001',
+        actor_type: 'user',
+        payload: {
+          watchlist_item_id: 'watch_prune_001',
+          research_case_id: 'rc_prune_001',
+          ticker: 'PRNE',
+          pruned_at: '2026-06-06',
+          reason: 'Shariah re-screen returned FAIL.',
+        },
+        created_at: '2026-06-06T00:00:00.000Z',
+      }),
+    ]
+
+    const row = byTicker(projectNameLifecycle(events), 'PRNE')
+    expect(row.state).toBe('exited')
+    expect(row.exit_provenance).toBe('pruned')
+    // Exited → no prune action on a dead row.
+    expect(row.prune_action_available).toBe(false)
+  })
+
+  it('lets a live re-discovery WIN over a prior pruned watch, keeping the prune as history', () => {
+    const events: LedgerEventEnvelope<unknown>[] = [
+      ...watchedChain('rc_reprune_v1', 'watch_reprune_001', 'RPRN'),
+      evt({
+        event_type: 'watchlist_item_pruned',
+        aggregate_type: 'watchlist_item',
+        aggregate_id: 'watch_reprune_001',
+        actor_type: 'user',
+        payload: {
+          watchlist_item_id: 'watch_reprune_001',
+          research_case_id: 'rc_reprune_v1',
+          ticker: 'RPRN',
+          pruned_at: '2026-06-06',
+          reason: 'stale on a newer 10-K',
+        },
+        created_at: '2026-06-06T00:00:00.000Z',
+      }),
+      // Re-discovered later as a NEW (non-superseded) live candidate for the same ticker.
+      evt({
+        event_type: 'research_case_created',
+        aggregate_type: 'research_case',
+        aggregate_id: 'rc_reprune_v2',
+        payload: { ticker: 'RPRN', company_id: 'company_rprn' },
+        created_at: '2026-06-10T00:00:00.000Z',
+      }),
+    ]
+
+    const row = byTicker(projectNameLifecycle(events), 'RPRN')
+    // Live wins — the name is not exited; exit_provenance must NOT leak onto the live row.
+    expect(row.state).toBe('candidate')
+    expect(row.exit_provenance).toBeUndefined()
+    // The prune is preserved as history.
+    expect(row.prior_exit_provenance).toBe('pruned')
   })
 })
 

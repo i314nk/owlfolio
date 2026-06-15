@@ -209,3 +209,86 @@ export async function approveWatchlistDraft(
 
   return mergeEventPayload(storedEvent as LedgerEventEnvelope<WatchlistDraftConfirmedPayload>)
 }
+
+function todayIsoDate(): string {
+  return nowIso().slice(0, 10)
+}
+
+export type WatchlistItemPrunedPayload = {
+  watchlist_item_id: string
+  ticker: string
+  research_case_id?: string
+  pruned_at: string
+  /** Why the watched name was pruned — typically mirrors the tripped falsifier reason. */
+  reason: string
+  /** This IS the (soft) exit execution — not a draft/observation. */
+  is_execution: true
+  /** The prune is gated to human authoring. */
+  requires_user_authoring: true
+  message?: string
+}
+
+export type WatchlistItemPruned = LedgerEventEnvelope<WatchlistItemPrunedPayload> & WatchlistItemPrunedPayload
+
+export type PruneWatchlistItemCommand = {
+  watchlist_item_id: string
+  ticker: string
+  research_case_id?: string
+  pruned_at?: string
+  reason: string
+  /**
+   * Authoring actor. The watched-name prune is HUMAN-authored ONLY — a worker/provider/agent actor is
+   * rejected (see pruneWatchlistItem). Typed as ActorType so the guard is explicit at the call site.
+   */
+  actor_type: ActorType
+  actor_id: string
+  causation_id?: string
+  message?: string
+  idempotency_key?: string
+}
+
+export async function pruneWatchlistItem(
+  store: WatchlistEventStore,
+  command: PruneWatchlistItemCommand,
+): Promise<WatchlistItemPruned> {
+  // KEY INVARIANT: the watched-name prune is HUMAN-authored ONLY — the softer mirror of the holding close
+  // (closeHolding). A worker/provider/agent actor is rejected BEFORE any append: the falsifier DETECTION may
+  // be machine-authored (the watchlist_monitor_alert / Shariah re-screen observation), but the EXIT (removing
+  // the name from the watchlist) must be signed by a user. Mirrors the user-only holding_closed transition.
+  if (command.actor_type !== 'user') {
+    throw new Error(
+      `watchlist_item_pruned is human-authored only: actor_type '${command.actor_type}' cannot author the prune of ${command.watchlist_item_id}`,
+    )
+  }
+
+  const payload: WatchlistItemPrunedPayload = {
+    watchlist_item_id: command.watchlist_item_id,
+    ticker: command.ticker,
+    ...(command.research_case_id === undefined ? {} : { research_case_id: command.research_case_id }),
+    pruned_at: command.pruned_at ?? todayIsoDate(),
+    reason: command.reason,
+    is_execution: true,
+    requires_user_authoring: true,
+    ...(command.message === undefined ? {} : { message: command.message }),
+  }
+
+  const event: LedgerEventEnvelope<WatchlistItemPrunedPayload> = {
+    event_id: `evt_watchlist_item_pruned_${command.watchlist_item_id}`,
+    event_type: 'watchlist_item_pruned',
+    aggregate_type: 'watchlist_item',
+    aggregate_id: command.watchlist_item_id,
+    causation_id: command.causation_id ?? command.watchlist_item_id,
+    ...(command.research_case_id === undefined ? {} : { correlation_id: command.research_case_id }),
+    actor_type: 'user',
+    actor_id: command.actor_id,
+    payload,
+    source_ids: [],
+    created_at: nowIso(),
+    schema_version: 1,
+    ...(command.idempotency_key === undefined ? {} : { idempotency_key: command.idempotency_key }),
+  }
+
+  const storedEvent = await store.append(event as LedgerEventEnvelope<unknown>)
+
+  return mergeEventPayload(storedEvent as LedgerEventEnvelope<WatchlistItemPrunedPayload>)
+}

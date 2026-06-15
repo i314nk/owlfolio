@@ -38,11 +38,13 @@ const GROUP_META: Record<NameLifecycleState, { title: string; note: string }> = 
 const EXIT_PROVENANCE_LABEL: Record<NameLifecycleExitProvenance, string> = {
   sold: 'Sold (closed holding)',
   screened_out: 'Screened out (research rejected / pass)',
+  pruned: 'Pruned (removed from watchlist)',
 }
 
 const PRIOR_EXIT_LABEL: Record<NameLifecycleExitProvenance, string> = {
   sold: 'previously sold',
   screened_out: 'previously screened out',
+  pruned: 'previously pruned',
 }
 
 /**

@@ -58,6 +58,7 @@ describe('Owlfolio v2 domain event boundary contracts', () => {
       'holding_shariah_grace_started',
       'holding_sell_review_drafted',
       'holding_closed',
+      'watchlist_item_pruned',
       'position_post_mortem_recorded',
       'forecast_recorded',
       'forecast_resolved',
@@ -244,6 +245,26 @@ describe('Owlfolio v2 domain event boundary contracts', () => {
         'exit_price_per_share',
         'reason_code',
         'exit_provenance',
+        'is_execution',
+        'requires_user_authoring',
+        'message',
+      ],
+    })
+  })
+
+  it('freezes the watchlist_item_pruned contract (Phase 6 S9) as the HUMAN-authored watched-name prune', () => {
+    // The prune is the softer mirror of holding_closed: human-authored only, an execution (not a draft/
+    // observation), gated by requires_user_authoring. It removes a falsified watched name from the watchlist.
+    expect(contract('watchlist_item_pruned')).toMatchObject({
+      aggregate_type: 'watchlist_item',
+      actor_type: 'user',
+      projection_owner: 'portfolio',
+      payload_fields: [
+        'watchlist_item_id',
+        'ticker',
+        'research_case_id',
+        'pruned_at',
+        'reason',
         'is_execution',
         'requires_user_authoring',
         'message',

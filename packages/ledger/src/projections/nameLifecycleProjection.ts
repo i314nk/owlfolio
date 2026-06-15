@@ -15,7 +15,8 @@ import { projectHoldings } from './holdingProjection'
  *   watched   → watchlist_draft_confirmed (user-approved) AND no open holding.
  *   held      → holding_opened with no later holding_closed.
  *   exited    → holding_closed (exit_provenance: 'sold') OR research-case rejected/pass
- *               (exit_provenance: 'screened_out').
+ *               (exit_provenance: 'screened_out') OR a watched name pruned out of the watchlist
+ *               (watchlist_item_pruned → exit_provenance: 'pruned', the Phase-6 S9 softer exit).
  *
  * Precedence for the live state when a name has multiple entities: held > watched > candidate.
  *
@@ -29,7 +30,7 @@ import { projectHoldings } from './holdingProjection'
  */
 export type NameLifecycleState = 'candidate' | 'watched' | 'held' | 'exited'
 
-export type NameLifecycleExitProvenance = 'sold' | 'screened_out'
+export type NameLifecycleExitProvenance = 'sold' | 'screened_out' | 'pruned'
 
 export type NameLifecycleProjection = {
   ticker: string
@@ -115,8 +116,11 @@ export type NameLifecycleProjection = {
   falsifier_tripped?: boolean
   falsifier_reason?: string
   /**
-   * There is no prune/remove event in the ledger yet (later phase). Always false today — surfaced so the
-   * UI can show the gap rather than hide it.
+   * Phase 6 S9 — the human-authored PRUNE action is available for a WATCHED name whose falsifier has tripped
+   * (`state === 'watched'` AND `falsifier_tripped === true`). Pruning removes the name from the watchlist via
+   * the human-authored `watchlist_item_pruned` exit (pruneWatchlistItem) — the softer mirror of the holding
+   * close. False otherwise: a clean watched name has nothing to prune, and a candidate/held/exited name is
+   * not a prunable watch.
    */
   prune_action_available: boolean
   updated_at: string
@@ -270,6 +274,23 @@ export function projectNameLifecycle(events: LedgerEventEnvelope<unknown>[]): Na
     }
   }
 
+  // Pruned watchlist items (Phase 6 S9): a watched name is pruned out of the watchlist once a human-authored
+  // watchlist_item_pruned event exists for it. Keyed by watchlist_item_id -> the prune timestamp. Mirrors
+  // closedHoldingAt: the WATCHED fold demotes a pruned item to an exit fact ('pruned') rather than a live
+  // watch — so the name folds to `exited` UNLESS some OTHER live entity still wins (live-wins preserved).
+  const prunedWatchlistAt = new Map<string, string>()
+  for (const event of events) {
+    if (event.event_type !== 'watchlist_item_pruned') {
+      continue
+    }
+    const watchlistItemId = (isRecord(event.payload) ? getString(event.payload, 'watchlist_item_id') : undefined)
+      ?? event.aggregate_id
+    const existing = prunedWatchlistAt.get(watchlistItemId)
+    if (existing === undefined || event.created_at > existing) {
+      prunedWatchlistAt.set(watchlistItemId, event.created_at)
+    }
+  }
+
   // Watchlist items / research cases whose lineage became a holding (open or closed). These must NOT be
   // counted as `watched`: the watchlist confirmation that fed a holding is not a live watch, and after a
   // sale only a genuinely NEW (non-superseded) research case re-discovers the name.
@@ -358,6 +379,14 @@ export function projectNameLifecycle(events: LedgerEventEnvelope<unknown>[]): Na
     }
     const ticker = item.ticker ?? caseTicker(caseById.get(item.research_case_id))
     if (ticker === undefined) {
+      continue
+    }
+    // Phase 6 S9: a pruned watched name is an EXIT FACT ('pruned'), not a live watch. Record the exit and do
+    // NOT assert the `watched` live state — if some OTHER live entity exists for the ticker it still wins.
+    const prunedAt = prunedWatchlistAt.get(item.watchlist_item_id)
+    if (prunedAt !== undefined) {
+      const prunedRow = ensure(ticker, item.updated_at)
+      recordExit(prunedRow, 'pruned', prunedAt)
       continue
     }
     const row = ensure(ticker, item.updated_at)
@@ -450,10 +479,12 @@ export function projectNameLifecycle(events: LedgerEventEnvelope<unknown>[]): Na
     // A name is `exited` ONLY when it has no live entity. Otherwise the live state wins and the exit fact
     // (if any) is carried as history on prior_exit_provenance — never leaked onto exit_provenance.
     const state: NameLifecycleState = row.liveState ?? 'exited'
+    // Phase 6 S9: the human-authored prune is offered ONLY for a WATCHED name whose falsifier has tripped.
+    const pruneActionAvailable = state === 'watched' && row.falsifier_tripped === true
     const projected: NameLifecycleProjection = {
       ticker: row.ticker,
       state,
-      prune_action_available: false,
+      prune_action_available: pruneActionAvailable,
       updated_at: row.updated_at,
     }
     if (row.company !== undefined) projected.company = row.company
