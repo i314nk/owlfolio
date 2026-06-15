@@ -67,6 +67,9 @@ import { runStrategyResearchSwarm, runResearchDeepDivePhase, type GroundFn } fro
 import { resolveModelRoleEnv } from '@owlfolio/strategies/modelRoleEnvFile'
 import { runDiscovery13f } from '@owlfolio/workflow/discovery13f'
 import { groundProposedSources, groundProposedSourcesDeterministic } from '@owlfolio/workflow/sourceGrounding'
+import { runFalsifierCheck, runReUnderwrite, type CadenceAsOfData, type CadencePassRow, type LifecycleAction } from '@owlfolio/workflow/lifecycleCadence'
+import { projectNameLifecycle, type NameLifecycleProjection } from '@owlfolio/ledger/projections/nameLifecycleProjection'
+import { decideForName, watchlistRow, holdingRow } from './lifecycleEngineAdapter'
 
 export type WorkerRuntimeEnv = {
   OWLFOLIO_APP_CONFIG_PATH?: string
@@ -662,6 +665,39 @@ function defaultTaskDefinitions(automation?: AutomationSettings): ScheduledTaskP
         auto_approve_portfolio_actions: false,
       },
     },
+    {
+      // Cadence engine (Task 3.2b) quarterly falsifier-check (10-Q window). Runs the PURE cadence engine
+      // over the unified name list and records OBSERVATION / DRAFT events reusing existing event types.
+      // Runs alongside the unchanged daily monitors; never an auto-trade/-trim/-exit/-advance. Follows the
+      // watchlist-monitoring cadence gate (quarterly cron) so disabling monitoring also disables it.
+      scheduled_task_id: 'task_falsifier_check_quarterly',
+      task_kind: 'falsifier_check',
+      cadence: CRON_QUARTERLY,
+      enabled: cfg.watchlist_monitoring.enabled,
+      dry_run: true,
+      retry_policy: { max_attempts: 2, retry_delay_ms: DEFAULT_RETRY_DELAY_MS },
+      safety: {
+        mock_safe: true,
+        auto_approve_investment_actions: false,
+        auto_approve_portfolio_actions: false,
+      },
+    },
+    {
+      // Cadence engine (Task 3.2b) annual re-underwrite (10-K window). Runs the PURE cadence engine over
+      // the unified name list and records OBSERVATION / DRAFT events reusing existing event types. Runs
+      // alongside the unchanged monitors; never an auto-trade/-trim/-exit/-advance.
+      scheduled_task_id: 'task_re_underwrite_annual',
+      task_kind: 're_underwrite',
+      cadence: CRON_ANNUAL,
+      enabled: cfg.thesis_review.enabled,
+      dry_run: true,
+      retry_policy: { max_attempts: 2, retry_delay_ms: DEFAULT_RETRY_DELAY_MS },
+      safety: {
+        mock_safe: true,
+        auto_approve_investment_actions: false,
+        auto_approve_portfolio_actions: false,
+      },
+    },
   ]
 }
 
@@ -1041,7 +1077,35 @@ async function runWatchlistBuyWindowPass(
     }
 
     const result = evaluateWatchlistBuyWindow(monitorCase, { current_price: quote.price_per_share, now })
-    const alertKind = result.buy_window_alert ? 'buy_window' : result.suppressed ? 'buy_window_suppressed' : 'no_signal'
+
+    // DECISION SOURCE = the cadence engine (Task 3.2b). Build a watched-name row from the SAME monitor
+    // inputs (case-level freshness clock + buy price + gate status) and let detectSignals + selectAction
+    // decide the branch: price_crossed_buybelow→buy_eval, stale/gated→suppress. The alert_kind is derived
+    // from the engine's action set; the monitor result only fills payload DETAIL (discount/age/message).
+    const decision = decideForName(
+      watchlistRow({
+        ticker,
+        research_case_id: monitorCase.research_case_id,
+        case_updated_at: monitorCase.updated_at,
+        ...(monitorCase.buy_price_per_share === undefined ? {} : { buy_price_per_share: monitorCase.buy_price_per_share }),
+        ...(monitorCase.fair_value_per_share === undefined ? {} : { fair_value_per_share: monitorCase.fair_value_per_share }),
+        ...(monitorCase.investment_verdict === undefined ? {} : { investment_verdict: monitorCase.investment_verdict }),
+        ...(monitorCase.shariah_status === undefined ? {} : { shariah_status: monitorCase.shariah_status }),
+        ...(monitorCase.superseded === undefined ? {} : { superseded: monitorCase.superseded }),
+      }),
+      { now, current_price: quote.price_per_share },
+    )
+    // buy_window = engine raised a buy_eval AND did not suppress; buy_window_suppressed = a crossed price
+    // (buy_eval) that the engine suppressed (stale/gated); otherwise no_signal.
+    const priceCrossed = decision.has('buy_eval')
+    const suppressedByEngine = decision.has('suppress')
+    const alertKind = priceCrossed && !suppressedByEngine
+      ? 'buy_window'
+      : priceCrossed && suppressedByEngine
+        ? 'buy_window_suppressed'
+        : 'no_signal'
+    const buyWindowAlert = alertKind === 'buy_window'
+    const suppressed = alertKind === 'buy_window_suppressed'
     const alertId = `wmon_${item.watchlist_item_id}_${asOf.replace(/[^0-9]/g, '')}`
     const idempotencyKey = `watchlist-monitor-alert:${alertId}:${quote.source}`
     if (existingKeys.has(idempotencyKey)) {
@@ -1065,8 +1129,8 @@ async function runWatchlistBuyWindowPass(
         research_case_id: monitorCase.research_case_id,
         ticker,
         alert_kind: alertKind,
-        buy_window_alert: result.buy_window_alert,
-        suppressed: result.suppressed,
+        buy_window_alert: buyWindowAlert,
+        suppressed,
         ...(result.suppression_reason === undefined ? {} : { suppression_reason: result.suppression_reason }),
         rerun_needed: result.rerun_needed,
         ...(result.discount_to_buy_pct === undefined ? {} : { discount_to_buy_pct: result.discount_to_buy_pct }),
@@ -1082,7 +1146,7 @@ async function runWatchlistBuyWindowPass(
     existingKeys.add(idempotencyKey)
     appended += 1
     observations.push(result.message)
-    if (result.buy_window_alert) {
+    if (buyWindowAlert) {
       alerts += 1
       approvalGates.add(OPEN_HOLDING_APPROVAL_GATE)
     }
@@ -1327,7 +1391,14 @@ async function runShariahRescreenTask(
       continue
     }
     const result = evaluateShariahRescreen(ratios)
-    if (!result.flagged) {
+    // DECISION SOURCE = the cadence engine (Task 3.2b). A watched-name row + the re-screen ratios in
+    // asOfData raise shariah_breach iff the monitor flags (FAIL or CONDITIONAL); selectAction maps a
+    // watched breach → removal_review. The monitor result fills the verdict / propose_removal detail.
+    const decision = decideForName(
+      watchlistRow({ ticker, research_case_id: item.research_case_id, case_updated_at: item.updated_at }),
+      { now, shariah_ratios: ratios },
+    )
+    if (!decision.has('removal_review')) {
       observations.push(`${ticker}: watchlist Shariah re-screen ${result.verdict ?? 'not computable'} — no flag`)
       continue
     }
@@ -1384,13 +1455,26 @@ async function runShariahRescreenTask(
       observations.push(`${ticker}: no Shariah-ratio data available for holding re-screen`)
       continue
     }
+    // DECISION SOURCE = the cadence engine (Task 3.2b). A held-name row + the re-screen ratios in
+    // asOfData raise shariah_breach iff the ratios flag; selectAction maps a held breach →
+    // shariah_grace_or_divest, routing the name into the grace path. The 90-day grace CLOCK sub-decision
+    // (start vs. divest-draft vs. wait) is NOT modelled by the engine (it depends on open_grace state),
+    // so evaluateShariahGrace still resolves that sub-branch — the engine decides WHETHER to walk the
+    // path, the monitor decides WHERE on it. A CONDITIONAL breach raises the signal but the monitor
+    // returns no grace/divest action (verdict !== FAIL) → observation only, exactly as before.
+    const decision = decideForName(
+      holdingRow({ ticker, holding_id: holding.holding_id, research_case_id: holding.research_case_id, updated_at: holding.updated_at }),
+      { now, shariah_ratios: ratios },
+    )
     const openGrace = findOpenShariahGrace(events, holding.holding_id)
     const result = evaluateShariahGrace(
       { holding_id: holding.holding_id, ...(holding.ticker === undefined ? {} : { ticker: holding.ticker }), research_case_id: holding.research_case_id },
       { ratios, now, ...(openGrace === undefined ? {} : { open_grace: openGrace }) },
     )
 
-    if (result.start_grace && result.grace_deadline !== undefined) {
+    if (!decision.has('shariah_grace_or_divest')) {
+      observations.push(result.message)
+    } else if (result.start_grace && result.grace_deadline !== undefined) {
       const graceId = `grace_${holding.holding_id}_${asOf.replace(/[^0-9]/g, '')}`
       const idempotencyKey = `holding-shariah-grace:${graceId}`
       if (!existingKeys.has(idempotencyKey)) {
@@ -1899,6 +1983,214 @@ async function runPurificationProjectionTask(
   }
 }
 
+// ---------------------------------------------------------------------------
+// Cadence-engine passes (Task 3.2b): falsifier_check (quarterly / 10-Q) + re_underwrite (annual / 10-K).
+//
+// These run the PURE cadence engine over the unified name list (projectNameLifecycle) and emit
+// OBSERVATION / DRAFT events reusing the EXISTING event types — never a new event type, never an
+// auto-trade/-trim/-exit/-advance. They run ALONGSIDE the unchanged daily monitors; to avoid colliding
+// with the monitors' own idempotency keys they use a distinct `cadence-<pass>:...` idempotency namespace
+// and carry a `cadence_pass` marker + the engine's action `reason`. The grace CLOCK is the daily
+// shariah_rescreen monitor's job; the cadence passes only SURFACE the engine action as an observation.
+// ---------------------------------------------------------------------------
+
+/** Map one engine action on one name to an existing-event-type observation/draft. Pure event builder. */
+type CadenceEmission = {
+  event_type:
+    | 'watchlist_monitor_alert_recorded'
+    | 'holding_monitor_alert_recorded'
+    | 'holding_sell_review_drafted'
+  aggregate_type: LedgerEventEnvelope<unknown>['aggregate_type']
+  aggregate_id: string
+  payload: Record<string, unknown>
+  approval_gate?: string
+}
+
+function cadenceEmissionFor(
+  pass: 'falsifier_check' | 're_underwrite',
+  name: NameLifecycleProjection,
+  action: LifecycleAction,
+): CadenceEmission | undefined {
+  const ticker = name.ticker
+  switch (action.kind) {
+    case 'sell_review': {
+      // held + falsifier_tripped → a SELL-REVIEW draft (human authors the exit). DRAFT, never execution.
+      if (name.holding_id === undefined) return undefined
+      return {
+        event_type: 'holding_sell_review_drafted',
+        aggregate_type: 'holding',
+        aggregate_id: name.holding_id,
+        approval_gate: SELL_REVIEW_APPROVAL_GATE,
+        payload: {
+          holding_id: name.holding_id,
+          ...(name.research_case_id === undefined ? {} : { research_case_id: name.research_case_id }),
+          ticker,
+          cadence_pass: pass,
+          reason_code: 'thesis_broken',
+          detail: action.reason ?? 'Falsifier tripped on a held name during the cadence pass.',
+          is_execution: false,
+          is_recommendation: false,
+          requires_user_authoring: true,
+          message: `${ticker}: ${action.reason ?? 'falsifier tripped'} (${pass}).`,
+        },
+      }
+    }
+    case 're_underwrite':
+    case 'reprice_or_prune_review':
+    case 'removal_review':
+    case 'suppress':
+    case 'buy_eval': {
+      // watchlist-side cadence observations → reuse watchlist_monitor_alert_recorded (observation only).
+      if (name.watchlist_item_id === undefined && name.holding_id === undefined) return undefined
+      if (name.holding_id !== undefined && action.kind === 're_underwrite') {
+        // held re-underwrite → a holding monitor observation.
+        return {
+          event_type: 'holding_monitor_alert_recorded',
+          aggregate_type: 'holding',
+          aggregate_id: name.holding_id,
+          payload: {
+            holding_id: name.holding_id,
+            ...(name.research_case_id === undefined ? {} : { research_case_id: name.research_case_id }),
+            ticker,
+            cadence_pass: pass,
+            alert_kind: action.kind,
+            is_observation: true,
+            is_recommendation: false,
+            message: `${ticker}: ${action.reason ?? action.kind} (${pass}).`,
+          },
+        }
+      }
+      if (name.watchlist_item_id === undefined) return undefined
+      return {
+        event_type: 'watchlist_monitor_alert_recorded',
+        aggregate_type: 'watchlist_item',
+        aggregate_id: name.watchlist_item_id,
+        ...(action.kind === 'buy_eval' ? { approval_gate: OPEN_HOLDING_APPROVAL_GATE } : {}),
+        ...(action.kind === 'removal_review' ? { approval_gate: WATCHLIST_REMOVAL_APPROVAL_GATE } : {}),
+        payload: {
+          watchlist_item_id: name.watchlist_item_id,
+          ...(name.research_case_id === undefined ? {} : { research_case_id: name.research_case_id }),
+          ticker,
+          cadence_pass: pass,
+          alert_kind: action.kind,
+          buy_window_alert: action.kind === 'buy_eval',
+          suppressed: action.kind === 'suppress',
+          rerun_needed: action.kind === 're_underwrite',
+          is_observation: true,
+          is_recommendation: false,
+          message: `${ticker}: ${action.reason ?? action.kind} (${pass}).`,
+        },
+      }
+    }
+    case 'shariah_grace_or_divest':
+    case 'trim_review': {
+      // held-side cadence observations → reuse holding_monitor_alert_recorded (observation only). The
+      // grace clock + divest draft remain the daily shariah_rescreen monitor's responsibility.
+      if (name.holding_id === undefined) return undefined
+      return {
+        event_type: 'holding_monitor_alert_recorded',
+        aggregate_type: 'holding',
+        aggregate_id: name.holding_id,
+        payload: {
+          holding_id: name.holding_id,
+          ...(name.research_case_id === undefined ? {} : { research_case_id: name.research_case_id }),
+          ticker,
+          cadence_pass: pass,
+          alert_kind: action.kind,
+          is_observation: true,
+          is_recommendation: false,
+          message: `${ticker}: ${action.reason ?? action.kind} (${pass}).`,
+        },
+      }
+    }
+    default:
+      return undefined
+  }
+}
+
+async function runCadencePassTask(
+  store: EventStore<LedgerEventEnvelope<unknown>>,
+  options: TaskHandlerOptions,
+  pass: 'falsifier_check' | 're_underwrite',
+  runPass: (names: NameLifecycleProjection[], asOfData: CadenceAsOfData) => CadencePassRow[],
+): Promise<TaskResult> {
+  const events = await store.list()
+  const names = projectNameLifecycle(events)
+  const holdings = projectHoldings(events)
+  const existingKeys = new Set(events.map((event) => event.idempotency_key).filter((key): key is string => key !== undefined))
+  const now = new Date(eventTimestamp(options))
+  const asOf = options.as_of ?? now.toISOString().slice(0, 10)
+  const portfolioNav = holdings.reduce((sum, holding) => sum + (holding.latest_market_value ?? 0), 0)
+  const observations: string[] = []
+  const approvalGates = new Set<string>()
+  let appended = 0
+
+  // Per-name as-of inputs the engine carries: price (fail-closed), market value + NAV (concentration),
+  // and the latest case freshness clock the row already encodes. Re-underwrite/falsifier use the same
+  // uniform detection — the pass label only changes the cadence, not WHAT is detected.
+  for (const name of names) {
+    const holding = name.holding_id === undefined ? undefined : holdings.find((entry) => entry.holding_id === name.holding_id)
+    const ticker = normalizeTicker(name.ticker)
+    let currentPrice: number | undefined
+    if (ticker !== undefined) {
+      const quote = await resolveCurrentPrice({ ticker }, undefined, options.priceSource)
+      if (quote.available) {
+        currentPrice = quote.price_per_share
+      }
+    }
+    // The unified name-list row carries its own freshness clock (projectNameLifecycle folds the latest
+    // case/watchlist/holding update). The cadence passes detect over that row directly — these are NEW
+    // observation surfaces, not the equivalence-bound monitors, so they use the projection's clock.
+    const row = name
+    const asOfData: CadenceAsOfData = {
+      now,
+      ...(currentPrice === undefined ? {} : { current_price: currentPrice }),
+      ...(holding?.latest_market_value === undefined ? {} : { market_value: holding.latest_market_value }),
+      ...(portfolioNav > 0 ? { portfolio_nav: portfolioNav } : {}),
+    }
+    const [decided] = runPass([row], asOfData)
+    if (decided === undefined) continue
+
+    for (const action of decided.actions) {
+      const emission = cadenceEmissionFor(pass, row, action)
+      if (emission === undefined) continue
+      const alertId = `cadence_${pass}_${emission.aggregate_id}_${action.kind}_${asOf.replace(/[^0-9]/g, '')}`
+      const idempotencyKey = `cadence-${pass}:${alertId}`
+      if (existingKeys.has(idempotencyKey)) {
+        observations.push(`${row.ticker}: ${pass} ${action.kind} already recorded for ${asOf}; no duplicate`)
+        continue
+      }
+      await store.append({
+        event_id: `evt_${emission.event_type}_${alertId}`,
+        event_type: emission.event_type,
+        aggregate_type: emission.aggregate_type,
+        aggregate_id: emission.aggregate_id,
+        causation_id: `evt_scheduled_task_run_started_${options.scheduled_task_run_id}`,
+        correlation_id: options.scheduled_task_run_id,
+        idempotency_key: idempotencyKey,
+        actor_type: 'worker',
+        actor_id: WORKER_ACTOR_ID,
+        payload: { alert_id: alertId, ...emission.payload },
+        source_ids: [],
+        created_at: eventTimestamp(options),
+        schema_version: 1,
+      } satisfies LedgerEventEnvelope<Record<string, unknown>>)
+      existingKeys.add(idempotencyKey)
+      appended += 1
+      observations.push(`${row.ticker}: ${pass} → ${action.kind} (observation/draft; no auto-action)`)
+      if (emission.approval_gate !== undefined) approvalGates.add(emission.approval_gate)
+    }
+  }
+
+  return {
+    result_summary: `${pass} dry-run: ran the cadence engine over ${names.length} name(s), recorded ${appended} observation/draft event(s); observations/drafts only, no buy/sell/trim/exit/portfolio action taken`,
+    observations,
+    approval_gates: [...approvalGates],
+    human_approval_required: appended > 0,
+    events_appended: appended,
+  }
+}
+
 async function runDiscovery13fTask(
   store: EventStore<LedgerEventEnvelope<unknown>>,
   options: TaskHandlerOptions,
@@ -1958,6 +2250,14 @@ async function runTaskHandler(
 
   if (task.task_kind === 'forecast_resolution') {
     return runForecastResolutionTask(store, options)
+  }
+
+  if (task.task_kind === 'falsifier_check') {
+    return runCadencePassTask(store, options, 'falsifier_check', runFalsifierCheck)
+  }
+
+  if (task.task_kind === 're_underwrite') {
+    return runCadencePassTask(store, options, 're_underwrite', runReUnderwrite)
   }
 
   throw new Error(`Unsupported scheduled task kind: ${task.task_kind}`)

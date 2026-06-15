@@ -579,7 +579,7 @@ describe('worker runtime', () => {
     await defineDefaultScheduledTasks(store, { now: () => '2026-06-01T08:00:00.000Z' })
 
     const definitions = (await store.list()).filter((event) => event.event_type === 'scheduled_task_defined')
-    expect(definitions).toHaveLength(9)
+    expect(definitions).toHaveLength(11)
     expect(definitions.map((event) => event.payload)).toEqual([
       expect.objectContaining({ task_kind: 'review_reminder', dry_run: true, enabled: true }),
       expect.objectContaining({ task_kind: 'watchlist_monitor', dry_run: true, enabled: true }),
@@ -633,6 +633,26 @@ describe('worker runtime', () => {
         task_kind: 'discovery_13f',
         cadence: '0 6 1 */3 *',
         dry_run: true,
+        safety: expect.objectContaining({
+          auto_approve_investment_actions: false,
+          auto_approve_portfolio_actions: false,
+        }),
+      }),
+      expect.objectContaining({
+        task_kind: 'falsifier_check',
+        cadence: '0 6 1 */3 *',
+        dry_run: true,
+        enabled: true,
+        safety: expect.objectContaining({
+          auto_approve_investment_actions: false,
+          auto_approve_portfolio_actions: false,
+        }),
+      }),
+      expect.objectContaining({
+        task_kind: 're_underwrite',
+        cadence: '0 6 1 1 *',
+        dry_run: true,
+        enabled: true,
         safety: expect.objectContaining({
           auto_approve_investment_actions: false,
           auto_approve_portfolio_actions: false,
@@ -2087,5 +2107,226 @@ describe('worker runtime — lifecycle monitors', () => {
     const events = await store.list()
     expect(events.map((event) => event.event_type)).not.toContain('holding_shariah_grace_started')
     expect(events.map((event) => event.event_type)).not.toContain('holding_sell_review_drafted')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Task 3.2b — cadence-engine adapter equivalence + new cadence task kinds.
+//
+// These tests pin that the engine-routed handlers (watchlist_monitor, shariah_rescreen) emit the SAME
+// events on the existing fixtures as before the refactor (the characterization baseline above is the
+// "before"; these re-assert the byte-level payload + idempotency keys + gates that must not move), and
+// that the engine is the decision source (decideForName agrees with the emitted alert_kind / path).
+// holdings_monitor + holding_review_draft are NOT routed (see the report) and keep their own tests.
+// ---------------------------------------------------------------------------
+describe('worker runtime — cadence engine adapter equivalence (Task 3.2b)', () => {
+  it('watchlist_monitor (engine-routed) emits the IDENTICAL buy_window alert payload + idempotency key', async () => {
+    const store = new InMemoryEventStore<LedgerEventEnvelope<unknown>>()
+    await watchlistWithBuyPrice(store, { ticker: 'CPRT', buyPrice: 100, fairValue: 140, caseUpdatedAt: '2026-03-01T00:00:00.000Z' })
+    await defineDefaultScheduledTasks(store, { now: () => '2026-06-10T09:00:00.000Z' })
+
+    await runScheduledTasks(store, {
+      dry_run: true,
+      task_kind: 'watchlist_monitor',
+      now: () => '2026-06-10T09:00:00.000Z',
+      run_id: () => 'run_watchlist_monitor_bw_eq_001',
+      priceSource: makeMockPriceSource({ CPRT: { available: true, price_per_share: 90, currency: 'USD', as_of: '2026-06-10T00:00:00.000Z', source: 'mock-price-source' } }),
+    })
+
+    const alert = (await store.list()).find((event) => event.event_type === 'watchlist_monitor_alert_recorded')
+    expect(alert?.payload).toMatchObject({
+      ticker: 'CPRT',
+      alert_kind: 'buy_window',
+      buy_window_alert: true,
+      suppressed: false,
+      rerun_needed: false,
+      discount_to_buy_pct: 10,
+      case_age_months: 3,
+      is_observation: true,
+      is_recommendation: false,
+    })
+    expect(alert?.idempotency_key).toBe('watchlist-monitor-alert:wmon_wl_cprt_001_20260610:mock-price-source')
+    expect(alert?.actor_type).toBe('worker')
+  })
+
+  it('watchlist_monitor (engine-routed) still SUPPRESSES on a stale-but-cheap case (engine stale→suppress)', async () => {
+    const store = new InMemoryEventStore<LedgerEventEnvelope<unknown>>()
+    await watchlistWithBuyPrice(store, { ticker: 'STALE', buyPrice: 100, fairValue: 140, caseUpdatedAt: '2024-12-01T00:00:00.000Z' })
+    await defineDefaultScheduledTasks(store, { now: () => '2026-06-10T09:00:00.000Z' })
+
+    await runScheduledTasks(store, {
+      dry_run: true,
+      task_kind: 'watchlist_monitor',
+      now: () => '2026-06-10T09:00:00.000Z',
+      run_id: () => 'run_watchlist_monitor_stale_eq_001',
+      priceSource: makeMockPriceSource({ STALE: { available: true, price_per_share: 80, currency: 'USD', as_of: '2026-06-10T00:00:00.000Z', source: 'mock-price-source' } }),
+    })
+
+    const alert = (await store.list()).find((event) => event.event_type === 'watchlist_monitor_alert_recorded')
+    expect(alert?.payload).toMatchObject({
+      alert_kind: 'buy_window_suppressed',
+      buy_window_alert: false,
+      suppressed: true,
+      rerun_needed: true,
+    })
+    expect((alert?.payload as { suppression_reason?: string }).suppression_reason).toMatch(/stale cheapness is not a signal/)
+  })
+
+  it('decideForName is the decision source: watched + cheap + fresh + gate-clean → buy_eval (no suppress)', async () => {
+    const { decideForName, watchlistRow } = await import('../lifecycleEngineAdapter')
+    const decision = decideForName(
+      watchlistRow({ ticker: 'CPRT', research_case_id: 'rc', case_updated_at: '2026-03-01T00:00:00.000Z', buy_price_per_share: 100, investment_verdict: 'WATCH', shariah_status: 'PASS' }),
+      { now: new Date('2026-06-10T09:00:00.000Z'), current_price: 90 },
+    )
+    expect(decision.has('buy_eval')).toBe(true)
+    expect(decision.has('suppress')).toBe(false)
+  })
+
+  it('decideForName: watched + cheap + stale → suppress (engine drops the buy)', async () => {
+    const { decideForName, watchlistRow } = await import('../lifecycleEngineAdapter')
+    const decision = decideForName(
+      watchlistRow({ ticker: 'STALE', research_case_id: 'rc', case_updated_at: '2024-12-01T00:00:00.000Z', buy_price_per_share: 100, investment_verdict: 'WATCH', shariah_status: 'PASS' }),
+      { now: new Date('2026-06-10T09:00:00.000Z'), current_price: 80 },
+    )
+    expect(decision.has('suppress')).toBe(true)
+  })
+
+  it('shariah_rescreen (engine-routed) emits the IDENTICAL grace then divest draft on a held FAIL breach', async () => {
+    const store = new InMemoryEventStore<LedgerEventEnvelope<unknown>>()
+    await store.append(ledgerEvent('holding_opened', 'holding', 'holding_brk_001', {
+      holding_id: 'holding_brk_001',
+      watchlist_item_id: 'wl_brk_001',
+      research_case_id: 'rc_brk_001',
+      ticker: 'BRK',
+      strategy_id: 'buffett-munger',
+      shares: 10,
+      cost_basis_per_share: 100,
+      currency: 'USD',
+      opened_at: '2026-01-01',
+    }))
+    const failRatios = { interest_bearing_debt: 400, cash_and_securities: 100, total_revenue: 1000, market_cap: 1000, impermissible_income: 0 }
+    const shariahRatioSource = () => Promise.resolve(failRatios)
+    await store.append(ledgerEvent('scheduled_task_defined', 'scheduled_task', 'task_shariah_rescreen_quarterly', {
+      scheduled_task_id: 'task_shariah_rescreen_quarterly',
+      task_kind: 'shariah_rescreen',
+      cadence: '0 6 1 */3 *',
+      enabled: true,
+      dry_run: true,
+      retry_policy: { max_attempts: 2, retry_delay_ms: 300_000 },
+      safety: { mock_safe: true, auto_approve_investment_actions: false, auto_approve_portfolio_actions: false },
+    }))
+
+    await runScheduledTasks(store, {
+      dry_run: true,
+      task_kind: 'shariah_rescreen',
+      now: () => '2026-03-01T06:00:00.000Z',
+      run_id: () => 'run_shariah_rescreen_eq_001',
+      shariahRatioSource,
+    })
+    let events = await store.list()
+    const grace = events.find((event) => event.event_type === 'holding_shariah_grace_started')
+    expect(grace?.payload).toMatchObject({ holding_id: 'holding_brk_001', grace_days: 90, deadline: '2026-05-30', is_observation: true })
+    expect(grace?.idempotency_key).toBe('holding-shariah-grace:grace_holding_brk_001_20260301')
+
+    await runScheduledTasks(store, {
+      dry_run: true,
+      task_kind: 'shariah_rescreen',
+      now: () => '2026-06-10T06:00:00.000Z',
+      run_id: () => 'run_shariah_rescreen_eq_002',
+      shariahRatioSource,
+    })
+    events = await store.list()
+    const sellReview = events.find((event) => event.event_type === 'holding_sell_review_drafted')
+    expect(sellReview?.payload).toMatchObject({
+      holding_id: 'holding_brk_001',
+      reason_code: 'unresolvable_shariah_breach',
+      weakest_reason: 'overvaluation_alone',
+      is_execution: false,
+      is_recommendation: false,
+      requires_user_authoring: true,
+    })
+    expect(sellReview?.idempotency_key).toBe('holding-sell-review:sellreview_holding_brk_001_20260610')
+  })
+
+  it('re_underwrite cadence pass emits a holding_monitor_alert_recorded re-underwrite observation on a >12mo held case', async () => {
+    const store = new InMemoryEventStore<LedgerEventEnvelope<unknown>>()
+    await store.append({
+      ...ledgerEvent('buffett_munger_analysis_drafted', 'research_case', 'rc_aapl_001', {
+        research_case_id: 'rc_aapl_001',
+        ticker: 'AAPL',
+        investment_verdict: 'WATCH',
+        shariah_status: 'PASS',
+        valuation: { moat_class: 'wide', buy_price_per_share: 100, fair_value_per_share: 140 },
+      }, 'system'),
+      created_at: '2024-12-01T00:00:00.000Z',
+    })
+    await store.append({
+      ...ledgerEvent('holding_opened', 'holding', 'holding_aapl_001', {
+        holding_id: 'holding_aapl_001',
+        watchlist_item_id: 'wl_aapl_001',
+        research_case_id: 'rc_aapl_001',
+        ticker: 'AAPL',
+        strategy_id: 'buffett-munger',
+        shares: 10,
+        cost_basis_per_share: 100,
+        currency: 'USD',
+        opened_at: '2024-12-01',
+      }),
+      created_at: '2024-12-01T00:00:00.000Z',
+    })
+    await defineDefaultScheduledTasks(store, { now: () => '2026-06-10T06:00:00.000Z' })
+
+    await runScheduledTasks(store, {
+      dry_run: true,
+      task_kind: 're_underwrite',
+      now: () => '2026-06-10T06:00:00.000Z',
+      run_id: () => 'run_re_underwrite_001',
+    })
+
+    const events = await store.list()
+    const alert = events.find((event) => event.event_type === 'holding_monitor_alert_recorded')
+    expect(alert?.payload).toMatchObject({
+      holding_id: 'holding_aapl_001',
+      ticker: 'AAPL',
+      cadence_pass: 're_underwrite',
+      alert_kind: 're_underwrite',
+      is_observation: true,
+      is_recommendation: false,
+    })
+    expect(alert?.idempotency_key).toBe('cadence-re_underwrite:cadence_re_underwrite_holding_aapl_001_re_underwrite_20260610')
+    expect(alert?.actor_type).toBe('worker')
+    // No auto-trade / state advance.
+    expect(events.map((event) => event.event_type)).not.toContain('holding_realized_gain_loss_recorded')
+  })
+
+  it('falsifier_check cadence pass emits a watchlist_monitor_alert_recorded buy_window observation on a cheap fresh watched name', async () => {
+    const store = new InMemoryEventStore<LedgerEventEnvelope<unknown>>()
+    await watchlistWithBuyPrice(store, { ticker: 'CPRT', buyPrice: 100, fairValue: 140, caseUpdatedAt: '2026-03-01T00:00:00.000Z' })
+    await defineDefaultScheduledTasks(store, { now: () => '2026-06-10T06:00:00.000Z' })
+
+    await runScheduledTasks(store, {
+      dry_run: true,
+      task_kind: 'falsifier_check',
+      now: () => '2026-06-10T06:00:00.000Z',
+      run_id: () => 'run_falsifier_check_001',
+      priceSource: makeMockPriceSource({ CPRT: { available: true, price_per_share: 90, currency: 'USD', as_of: '2026-06-10T00:00:00.000Z', source: 'mock-price-source' } }),
+    })
+
+    const events = await store.list()
+    const alert = events.find(
+      (event) => event.event_type === 'watchlist_monitor_alert_recorded'
+        && (event.payload as { cadence_pass?: string }).cadence_pass === 'falsifier_check',
+    )
+    expect(alert?.payload).toMatchObject({
+      ticker: 'CPRT',
+      cadence_pass: 'falsifier_check',
+      alert_kind: 'buy_eval',
+      buy_window_alert: true,
+      is_observation: true,
+      is_recommendation: false,
+    })
+    expect(alert?.idempotency_key).toBe('cadence-falsifier_check:cadence_falsifier_check_wl_cprt_001_buy_eval_20260610')
+    // Never opens a holding.
+    expect(events.map((event) => event.event_type)).not.toContain('holding_opened')
   })
 })
