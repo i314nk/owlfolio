@@ -1,8 +1,9 @@
 import { createElement, type ReactNode } from 'react'
 
-import type { PositionPlan, PositionTranche } from '@owlfolio/strategies/positionSizing'
 import { buffettMungerStrategy } from '@owlfolio/strategies/buffettMunger'
 import { isDeepDiveComplete } from '@owlfolio/workflow/admitAssessment'
+
+import type { PositionPlan, PositionTranche } from '../lib/positionPlan'
 
 import { AdmitRecommendationRequest } from './AdmitRecommendationRequest'
 import { SourceChip } from './designSystem'

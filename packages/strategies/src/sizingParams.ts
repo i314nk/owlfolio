@@ -39,11 +39,6 @@ export type LadderDef = {
 /** The available ladder ids. Cold = dislocation 40/30/30; normal/warm = 60/40 two-tranche. */
 export type LadderId = 'cold' | 'normal'
 
-export type MoatTieredWeight = {
-  monopoly: number
-  wide: number
-}
-
 /**
  * The conviction sub-factor tables (Phase 5 S1). Each sub-factor is ≤ 1, so the conviction product can
  * only scale the position target DOWN from base_target_weight — nothing sizes ABOVE the base.
@@ -75,13 +70,6 @@ export type ConvictionUncertaintySubfactor = {
 export type SizingParams = {
   /** Monotonic version string. Bump on every parameter change. */
   version: string
-  /**
-   * @deprecated Superseded by `base_target_weight × conviction_factor` (Phase 5 S1 — see
-   * convictionFactor.ts). Consolidation/removal is Phase 5 S6 O-9; computePositionPlan still reads
-   * this, so it is left in place for now. Do NOT add new readers.
-   * Target entry weight by moat tier (spec §1): monopoly 10%, wide 6%.
-   */
-  target_weight_by_moat: MoatTieredWeight
   /**
    * Base full-position target weight (Phase 5 S1): ~0.10. Position target = base_target_weight ×
    * conviction_factor, where conviction_factor ∈ (0,1] only scales DOWN. Nothing targets above this.
@@ -175,9 +163,7 @@ export type SizingParams = {
  *   default ladder:  normal (used until the temperature overlay lands)
  */
 export const SIZING_PARAMS: SizingParams = Object.freeze({
-  version: 'sizing-2026-06-conviction-1',
-  // @deprecated — superseded by base_target_weight × conviction_factor (Phase 5 S1); removal is S6 O-9.
-  target_weight_by_moat: { monopoly: 0.10, wide: 0.06 },
+  version: 'sizing-2026-06-conviction-2-no-moat-tier',
   base_target_weight: 0.10,
   conviction_moat_factor: { monopoly: 1.0, wide: 0.85 },
   conviction_permanent_loss_subfactor: { low: 1.0, medium: 0.7 },

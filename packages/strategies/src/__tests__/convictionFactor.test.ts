@@ -236,7 +236,7 @@ describe('computeConvictionFactor — conviction_factor × base_target_weight', 
 
 describe('SIZING_PARAMS — conviction additions + version pin', () => {
   it('is pinned to the conviction config version', () => {
-    expect(SIZING_PARAMS.version).toBe('sizing-2026-06-conviction-1')
+    expect(SIZING_PARAMS.version).toBe('sizing-2026-06-conviction-2-no-moat-tier')
   })
 
   it('carries base_target_weight 0.10 and per_name_cap 0.15', () => {
@@ -254,7 +254,7 @@ describe('SIZING_PARAMS — conviction additions + version pin', () => {
     expect(SIZING_PARAMS.conviction_use_discount_depth).toBe(false)
   })
 
-  it('still carries target_weight_by_moat (deprecated, not yet removed — Phase 5 S6 O-9)', () => {
-    expect(SIZING_PARAMS.target_weight_by_moat).toEqual({ monopoly: 0.10, wide: 0.06 })
+  it('no longer carries the deprecated moat-tiered target_weight_by_moat (retired in Phase 5 S6 O-9)', () => {
+    expect('target_weight_by_moat' in SIZING_PARAMS).toBe(false)
   })
 })

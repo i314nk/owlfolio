@@ -4,8 +4,7 @@ import { describe, expect, it, vi } from 'vitest'
 
 import * as researchCaseTimelineProjection from '@owlfolio/ledger/projections/researchCaseTimelineProjection'
 import { SQLiteEventStore } from '@owlfolio/ledger/sqliteEventStore'
-import { buffettMungerStrategy } from '@owlfolio/strategies/buffettMunger'
-import { computePositionPlan } from '@owlfolio/strategies/positionSizing'
+import { buildPositionPlan } from '../../lib/positionPlan'
 import { CommandCenter } from '../CommandCenter'
 import { PortfolioPanel } from '../PortfolioPanel'
 import { ResearchCasePanel } from '../ResearchCasePanel'
@@ -1120,12 +1119,10 @@ describe('research and watchlist workflow pages', () => {
   }
 
   it('renders the advisory position plan with T1 ungated and T2/T3 thesis-gated when capital + buy price + investable moat exist', () => {
-    const plan = computePositionPlan({
-      strategy: buffettMungerStrategy,
+    const plan = buildPositionPlan({
       moatClass: 'wide',
       buyPricePerShare: 300,
       investableCapital: 100000,
-      currency: 'USD',
     })
 
     const html = renderToStaticMarkup(createElement(ResearchCasePanel, {

@@ -5,8 +5,9 @@
 // probability/odds/edge term — this is deliberately NOT Kelly. Conviction only scales the target DOWN;
 // nothing ever targets above base_target_weight.
 //
-// ISLAND: pure, deterministic, no I/O, no LLM. NOT wired into computePositionPlan / the cadence / the
-// flow yet (that is Phase 5 S6/S7). Every constant is read from SIZING_PARAMS — no hardcoded numbers.
+// Pure, deterministic, no I/O, no LLM. Composed by the Phase 5 S6 sizing assembler
+// (sizingAssessment.computeSizingRecommendation); S7 wires that into the live flow. Every constant is read
+// from SIZING_PARAMS — no hardcoded numbers.
 
 import { SIZING_PARAMS, type SizingParams } from './sizingParams'
 import type { MoatClass } from './strategyContract'

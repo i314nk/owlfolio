@@ -15,7 +15,6 @@
     "./shariahFinancialRatios": "./src/shariahFinancialRatios.ts",
     "./evaluateGates": "./src/evaluateGates.ts",
     "./strategyContract": "./src/strategyContract.ts",
-    "./positionSizing": "./src/positionSizing.ts",
     "./sizingParams": "./src/sizingParams.ts",
     "./convictionFactor": "./src/convictionFactor.ts",
     "./permanentLossCap": "./src/permanentLossCap.ts",

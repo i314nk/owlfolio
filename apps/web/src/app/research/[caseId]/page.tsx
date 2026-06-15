@@ -2,11 +2,10 @@ import { notFound } from 'next/navigation'
 
 import { SQLiteEventStore } from '@owlfolio/ledger/sqliteEventStore'
 import { resolveCurrentPrice } from '@owlfolio/workflow/marketData'
-import { buffettMungerStrategy } from '@owlfolio/strategies/buffettMunger'
-import { computePositionPlan, type PositionPlan } from '@owlfolio/strategies/positionSizing'
 import type { MoatClass } from '@owlfolio/strategies/strategyContract'
 
 import { ResearchCasePanel } from '../../../components/ResearchCasePanel'
+import { buildPositionPlan, type PositionPlan } from '../../../lib/positionPlan'
 import { getDemoResearchCase, resolveDemoLedgerPath } from '../../../lib/demo'
 import { getOnboardingState } from '../../../lib/onboarding'
 import { getAppResearchCaseFromStore, getInvestableCapital } from '../../../lib/workflow'
@@ -59,12 +58,10 @@ export default async function ResearchCasePage({ params }: ResearchCasePageProps
     if (moatIsInvestable && buyPrice !== undefined && state.config.mode === 'personal-local') {
       const investableCapital = await getInvestableCapital(state.config.ledger_path)
       if (investableCapital !== undefined) {
-        positionPlan = computePositionPlan({
-          strategy: buffettMungerStrategy,
+        positionPlan = buildPositionPlan({
           moatClass: moatClass as MoatClass,
           buyPricePerShare: buyPrice,
           investableCapital: investableCapital.amount,
-          currency: investableCapital.currency,
         })
       } else {
         promptForCapital = true

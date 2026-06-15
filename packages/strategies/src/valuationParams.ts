@@ -138,7 +138,8 @@ export type ValuationParams = {
  * uniform discount rate). A monopoly is a durability signal: it earns higher terminal value through the
  * surfaced, human-weighted moat-durability input (terminal-value share, Phase 7), never via a silent tier
  * table. The investability gate is UNCHANGED (wide/monopoly investable; narrow/moderate fail pre-valuation)
- * and target_weight_by_moat stays in portfolio sizing (Phase 5 owns sizing).
+ * and position sizing is conviction-based (base_target_weight × conviction_factor; Phase 5 owns sizing —
+ * the old moat-tiered target_weight_by_moat sizing surface was retired in Phase 5 S6 O-9).
  *
  * Phase 1.3 (one-knob): the stacked growth_band_ceilings/max_growth/growth_eligibility trio is replaced by
  * a single named single_growth_cap (provisional placeholder) + an above-GDP coupling flag (gdp_growth_threshold).
