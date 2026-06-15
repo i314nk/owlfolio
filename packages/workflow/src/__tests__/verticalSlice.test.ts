@@ -108,6 +108,7 @@ describe('v0.2 vertical research workflow', () => {
       evidence_summary: 'Reviewed latest valuation snapshot and original watchlist thesis.',
       uncertainty: 'Need updated debt and Shariah ratio review before increasing exposure.',
       next_review_at: '2026-10-31',
+      checklist_answers: COMPLETE_CHECKLIST,
       idempotency_key: 'holding:holding_cost_001:review:2026-12-31:override:v1',
     })
     const rejectedReviewDraft = await draftHoldingReview(store, provider, {

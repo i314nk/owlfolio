@@ -52,8 +52,9 @@ export type HoldingProjection = {
   latest_reviewed_at?: string
   /**
    * The human's answers to the Phase 7 hygiene checklists (business + cognitive), captured at the latest
-   * re-underwrite sign-off (holding_review_confirmed) — so a holding's re-underwrite answers are auditable
-   * alongside its confirmed thesis. Keyed by checklist item id; each value is `{ addressed, note }`.
+   * re-underwrite sign-off (holding_review_confirmed OR holding_review_overridden — both co-equal sign-offs)
+   * — so a holding's re-underwrite answers are auditable alongside its confirmed thesis. Keyed by checklist
+   * item id; each value is `{ addressed, note }`.
    * DECISION-NEUTRAL: no score/count is derived here — this is a verbatim audit projection. Undefined for
    * holdings whose latest confirmation predates the checklist (older events have none).
    */
@@ -356,14 +357,13 @@ export function projectHoldings(events: LedgerEventEnvelope<unknown>[]): Holding
       if (evidenceSummary !== undefined) holding.latest_review_evidence_summary = evidenceSummary
       if (uncertainty !== undefined) holding.latest_review_uncertainty = uncertainty
       if (nextReviewAt !== undefined) holding.next_review_at = nextReviewAt
-      // Re-underwrite sign-off answers (Phase 7 S3): only the human confirmation carries the checklist.
-      // We replace the field with the latest confirmation's answers (verbatim, no scoring) so a holding's
-      // current re-underwrite answers are auditable; an older confirmation with none leaves it undefined.
-      if (event.event_type === 'holding_review_confirmed') {
-        const checklistAnswers = getChecklistAnswers(event.payload, 'checklist_answers')
-        if (checklistAnswers !== undefined) {
-          holding.checklist_answers = checklistAnswers
-        }
+      // Re-underwrite sign-off answers (Phase 7 S3 + bypass close): BOTH human sign-offs carry the checklist
+      // — confirm AND override are co-equal re-underwrites writing the same confirmed thesis state. We replace
+      // the field with the LATEST sign-off's answers (verbatim, no scoring) so a holding's current
+      // re-underwrite answers are auditable; an older sign-off with none leaves it undefined.
+      const checklistAnswers = getChecklistAnswers(event.payload, 'checklist_answers')
+      if (checklistAnswers !== undefined) {
+        holding.checklist_answers = checklistAnswers
       }
       holding.latest_reviewed_at = event.created_at
       holding.updated_at = event.created_at

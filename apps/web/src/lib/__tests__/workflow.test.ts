@@ -305,7 +305,7 @@ describe('workflow helpers', () => {
       evidence_summary: 'Compared provider draft to the manual valuation snapshot and original thesis.',
       uncertainty: 'Need updated Shariah ratio review and concentration check.',
       next_review_at: '2026-10-31',
-    })
+    }, COMPLETE_CHECKLIST)
     const rejectedReviewDraft = await createPersonalHoldingReviewDraft(state, openedHolding.holding_id)
     const reviewRejection = await rejectPersonalHoldingReviewDraft(state, openedHolding.holding_id, rejectedReviewDraft.review_id, {
       rejection_reason: 'Reject stale draft after override; wait for new evidence.',

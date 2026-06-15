@@ -1686,9 +1686,22 @@ export async function overridePersonalHoldingReviewDraft(
   holdingId: string,
   reviewId: string,
   input: OverridePersonalHoldingReviewInput,
+  checklistAnswers: Record<string, ChecklistAnswer> = {},
 ) {
   if (!state.is_initialized || state.config.mode !== 'personal-local' || state.config.ledger_path === undefined) {
     throw new Error('Personal-local workflow is not initialized')
+  }
+
+  // COMPLETION-BLOCK (Phase 7 S3 — bypass close): the override is a co-equal re-underwrite sign-off writing
+  // the SAME confirmed thesis state as confirm, so it requires every hygiene/bias checklist item to be
+  // ADDRESSED — gating only confirm would reopen the gap S3 closed. The cognitive answers are HUMAN-AUTHORED
+  // only; we pass them through untouched and NEVER default/synthesize. Reject with the unaddressed ids so the
+  // route can 400 with what still needs attention. Decision-NEUTRAL: no scoring/count. (overrideHoldingReviewDraft re-checks.)
+  const checklistCompletion = evaluateChecklistCompletion(checklistAnswers)
+  if (!checklistCompletion.complete) {
+    throw new Error(
+      `Re-underwrite sign-off requires every quality/bias checklist item to be addressed; unaddressed: ${checklistCompletion.unaddressed.join(', ')}`,
+    )
   }
 
   const override = parseHoldingReviewOverrideInput(input)
@@ -1705,6 +1718,7 @@ export async function overridePersonalHoldingReviewDraft(
       evidence_summary: override.evidence_summary,
       uncertainty: override.uncertainty,
       next_review_at: override.next_review_at,
+      checklist_answers: checklistAnswers,
       idempotency_key: `holding:${holdingId}:review:${reviewId}:override`,
     })
   } finally {

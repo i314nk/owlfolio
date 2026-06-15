@@ -173,6 +173,106 @@ describe('projectHoldings', () => {
     expect(holdings[0]?.checklist_answers).toEqual(checklistAnswers)
   })
 
+  it('projects the re-underwrite checklist answers from holding_review_overridden (auditable)', () => {
+    const checklistAnswers = {
+      moat_erosion: { addressed: true, note: 'No erosion evidence at override re-underwrite.' },
+      shariah_drift: { addressed: true, note: 'Ratios unchanged since admission.' },
+    }
+    const holdings = projectHoldings([
+      openedHolding,
+      draftedReview('review_ovr', '2026-06-01T00:00:00.000Z'),
+      {
+        event_id: 'evt_holding_review_overridden_review_ovr',
+        event_type: 'holding_review_overridden',
+        aggregate_type: 'holding',
+        aggregate_id: 'holding_cost_001',
+        actor_type: 'user',
+        actor_id: 'user_local',
+        payload: {
+          review_id: 'review_ovr',
+          holding_id: 'holding_cost_001',
+          research_case_id: 'rc_cost_001',
+          ticker: 'COST',
+          strategy_id: 'buffett-munger',
+          thesis_health: 'WATCH',
+          action_stance: 'RESEARCH_MORE',
+          rationale: 'Overridden at re-underwrite.',
+          evidence_summary: 'Manual override.',
+          uncertainty: 'Some.',
+          next_review_at: '2026-09-30',
+          user_approved: true,
+          user_overrode_provider: true,
+          checklist_answers: checklistAnswers,
+        },
+        source_ids: [],
+        created_at: '2026-06-03T00:00:00.000Z',
+        schema_version: 1,
+      },
+    ])
+
+    expect(holdings[0]?.checklist_answers).toEqual(checklistAnswers)
+  })
+
+  it('keeps the latest re-underwrite checklist answers across confirm then override (latest wins)', () => {
+    const confirmAnswers = {
+      moat_erosion: { addressed: true, note: 'Confirm pass note.' },
+    }
+    const overrideAnswers = {
+      moat_erosion: { addressed: true, note: 'Override pass note.' },
+      shariah_drift: { addressed: true, note: 'Override shariah note.' },
+    }
+    const holdings = projectHoldings([
+      openedHolding,
+      draftedReview('review_c', '2026-06-01T00:00:00.000Z'),
+      {
+        event_id: 'evt_holding_review_confirmed_review_c',
+        event_type: 'holding_review_confirmed',
+        aggregate_type: 'holding',
+        aggregate_id: 'holding_cost_001',
+        actor_type: 'user',
+        actor_id: 'user_local',
+        payload: {
+          review_id: 'review_c',
+          holding_id: 'holding_cost_001',
+          research_case_id: 'rc_cost_001',
+          thesis_health: 'HEALTHY',
+          action_stance: 'HOLD',
+          next_review_at: '2026-09-30',
+          user_approved: true,
+          checklist_answers: confirmAnswers,
+        },
+        source_ids: [],
+        created_at: '2026-06-02T00:00:00.000Z',
+        schema_version: 1,
+      },
+      draftedReview('review_o', '2026-06-03T00:00:00.000Z'),
+      {
+        event_id: 'evt_holding_review_overridden_review_o',
+        event_type: 'holding_review_overridden',
+        aggregate_type: 'holding',
+        aggregate_id: 'holding_cost_001',
+        actor_type: 'user',
+        actor_id: 'user_local',
+        payload: {
+          review_id: 'review_o',
+          holding_id: 'holding_cost_001',
+          research_case_id: 'rc_cost_001',
+          thesis_health: 'WATCH',
+          action_stance: 'RESEARCH_MORE',
+          next_review_at: '2026-12-31',
+          user_approved: true,
+          user_overrode_provider: true,
+          checklist_answers: overrideAnswers,
+        },
+        source_ids: [],
+        created_at: '2026-06-04T00:00:00.000Z',
+        schema_version: 1,
+      },
+    ])
+
+    expect(holdings[0]?.checklist_answers).toEqual(overrideAnswers)
+  })
+
   it('omits checklist_answers when an older confirmation event has none', () => {
     const holdings = projectHoldings([
       openedHolding,

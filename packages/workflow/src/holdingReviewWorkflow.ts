@@ -68,6 +68,15 @@ export type HoldingReviewOverriddenPayload = Omit<
 > & {
   user_approved: true
   user_overrode_provider: true
+  /**
+   * The human's answers to the Phase 7 hygiene checklists, captured at the OVERRIDE re-underwrite sign-off
+   * — the co-equal twin of `holding_review_confirmed.checklist_answers`. The override writes the SAME
+   * confirmed thesis state as confirm, so it is COMPLETION-BLOCKED on the SAME 17-item checklist: every item
+   * must be addressed (affirmed + non-empty note) before this event is appended (see overrideHoldingReviewDraft).
+   * Gating only confirm and not override would reopen the exact gap S3 closed. DECISION-NEUTRAL: no
+   * score/count/weight is derived. The cognitive answers are HUMAN-AUTHORED only; nothing is defaulted/synthesized.
+   */
+  checklist_answers: Record<string, ChecklistAnswer>
   overridden_by_actor_type: ActorType
   overridden_by_actor_id: string
 }
@@ -122,6 +131,13 @@ export type OverrideHoldingReviewDraftCommand = {
   evidence_summary: string
   uncertainty: string
   next_review_at: string
+  /**
+   * The human's answers to the Phase 7 hygiene checklists. REQUIRED: the override re-underwrite sign-off is
+   * COMPLETION-BLOCKED exactly like confirm — every checklist item must be addressed (affirmed + non-empty
+   * note) or the sign-off is rejected before any append. Keyed by item id. HUMAN-AUTHORED only — the caller
+   * must pass the human's own answers; no answer is defaulted/synthesized server-side.
+   */
+  checklist_answers: Record<string, ChecklistAnswer>
   idempotency_key?: string
 }
 
@@ -340,6 +356,19 @@ export async function overrideHoldingReviewDraft(
   command: OverrideHoldingReviewDraftCommand,
 ): Promise<HoldingReviewOverridden> {
   const draft = await findPendingReviewDraft(store, command.review_id, command.holding_id)
+
+  // COMPLETION-BLOCK (Phase 7 S3 — bypass close): the OVERRIDE is a co-equal re-underwrite sign-off that
+  // writes the SAME confirmed thesis state as confirm. It MUST be gated on the same 17-item hygiene/bias
+  // checklist; gating only confirm would reopen the exact gap S3 closed (a sign-off that signs off on
+  // nothing). Throw-before-append, mirroring confirmHoldingReviewDraft. Decision-NEUTRAL: the evaluator only
+  // tells us WHICH items are unaddressed; never scores/counts. The cognitive answers are HUMAN-AUTHORED only.
+  const checklistCompletion = evaluateChecklistCompletion(command.checklist_answers)
+  if (!checklistCompletion.complete) {
+    throw new Error(
+      `Re-underwrite sign-off requires every quality/bias checklist item to be addressed; unaddressed: ${checklistCompletion.unaddressed.join(', ')}`,
+    )
+  }
+
   const payload: HoldingReviewOverriddenPayload = {
     review_id: draft.payload.review_id,
     holding_id: draft.payload.holding_id,
@@ -355,6 +384,9 @@ export async function overrideHoldingReviewDraft(
     next_review_at: command.next_review_at,
     user_approved: true,
     user_overrode_provider: true,
+    // Persisted append-only as part of the human override sign-off (verified complete above). The cognitive
+    // answers are the human's own — never defaulted/synthesized here.
+    checklist_answers: command.checklist_answers,
     overridden_by_actor_type: 'user',
     overridden_by_actor_id: command.actor_id,
   }

@@ -999,7 +999,9 @@ describe('research and watchlist workflow pages', () => {
     expect(html).toContain('Override evidence summary (required)')
     expect(html).toContain('Override uncertainty (required)')
     expect(html).toContain('Override next review date (required)')
-    expect(html).toContain('Date fields use YYYY-MM-DD format')
+    // Phase 7 S3 bypass close: the override is gated on the SAME 17-item checklist as confirm.
+    expect(html).toContain('checklist_note[shariah_drift]')
+    expect(html).toContain('checklist_note[data_completeness]')
     expect(html).not.toContain('Save override')
     expect(html).toContain('Reject provider draft')
     expect(html).toContain('Leaves the current confirmed portfolio thesis unchanged and clears this pending draft.')

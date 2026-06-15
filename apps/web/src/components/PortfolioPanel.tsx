@@ -4,6 +4,7 @@ import type { InvestableCapitalSnapshot } from '@owlfolio/ledger/projections/inv
 
 import { OwlButtonLink, OwlRingGauge, OwlValuationChip, RouteHeader, type OwlValuationKind } from './designSystem'
 import { HoldingReviewChecklistConfirm } from './HoldingReviewChecklistConfirm'
+import { HoldingReviewOverrideForm } from './HoldingReviewOverrideForm'
 import type { AppHolding, MonitorAlert, WorkflowMode } from '../lib/workflow'
 import { StatusBadge } from './StatusBadge'
 
@@ -535,25 +536,13 @@ function createReviewForm(holding: AppHolding) {
         holdingId: holding.holding_id,
         reviewId: holding.pending_review_id,
       }),
-      createElement(
-        'form',
-        {
-          id: 'holding-review-path-override',
-          action: `/api/portfolio/${holding.holding_id}/review/${holding.pending_review_id}/override`,
-          method: 'post',
-          style: { ...decisionPanelStyle, background: 'rgba(214, 178, 94, 0.12)' },
-        },
-        createElement('h4', { className: 'owl-section-title', style: { fontSize: 'var(--owl-text-base)' } }, 'Apply user override'),
-        createElement('p', { className: 'owl-body', style: { margin: 0 } }, 'Applies your edited values instead of the provider draft and records a user-authored audit event.'),
-        createReviewSelect('Override thesis health', 'thesis_health', ['HEALTHY', 'WATCH', 'IMPAIRED', 'EXIT_CANDIDATE'], holding.pending_review_thesis_health ?? 'WATCH'),
-        createReviewSelect('Override action stance', 'action_stance', ['HOLD', 'ADD_ON_PULLBACK', 'REDUCE', 'EXIT_REVIEW_NEEDED', 'RESEARCH_MORE'], holding.pending_review_action_stance ?? 'RESEARCH_MORE'),
-        createReviewTextarea('Override rationale (required)', 'rationale', holding.pending_review_rationale ?? ''),
-        createReviewTextarea('Override evidence summary (required)', 'evidence_summary', 'User reviewed provider draft against the local ledger and available evidence.'),
-        createReviewTextarea('Override uncertainty (required)', 'uncertainty', 'User override records uncertainty before the next scheduled review.'),
-        createReviewInput('Override next review date (required)', 'next_review_at', normalizedPendingReviewDate),
-        createElement('p', { style: { color: 'var(--owl-color-muted)', margin: 0, fontSize: 'var(--owl-text-sm)' } }, 'Date fields use YYYY-MM-DD format (ISO date without time).'),
-        createSubmitButton('Apply user override', 'var(--owl-color-gold)'),
-      ),
+      createElement(HoldingReviewOverrideForm, {
+        holdingId: holding.holding_id,
+        reviewId: holding.pending_review_id,
+        defaultThesisHealth: holding.pending_review_thesis_health ?? 'WATCH',
+        defaultActionStance: holding.pending_review_action_stance ?? 'RESEARCH_MORE',
+        defaultNextReviewAt: normalizedPendingReviewDate,
+      }),
       createElement(
         'form',
         {
@@ -625,19 +614,6 @@ function createSubmitButton(label: string, background: string) {
   )
 }
 
-function createReviewSelect(label: string, name: string, values: string[], selectedValue: string) {
-  return createElement(
-    'label',
-    { style: { color: 'var(--owl-color-muted)', display: 'grid', fontWeight: 700, gap: '0.35rem' } },
-    label,
-    createElement(
-      'select',
-      { name, defaultValue: selectedValue, style: inputStyle },
-      ...values.map((value) => createElement('option', { key: value, value }, value)),
-    ),
-  )
-}
-
 function createReviewTextarea(label: string, name: string, defaultValue: string) {
   return createElement(
     'label',
@@ -648,21 +624,6 @@ function createReviewTextarea(label: string, name: string, defaultValue: string)
       required: true,
       defaultValue,
       style: { ...inputStyle, minHeight: '5rem' },
-    }),
-  )
-}
-
-function createReviewInput(label: string, name: string, defaultValue: string) {
-  return createElement(
-    'label',
-    { style: { color: 'var(--owl-color-muted)', display: 'grid', fontWeight: 700, gap: '0.35rem' } },
-    label,
-    createElement('input', {
-      name,
-      required: true,
-      type: 'date',
-      defaultValue,
-      style: inputStyle,
     }),
   )
 }

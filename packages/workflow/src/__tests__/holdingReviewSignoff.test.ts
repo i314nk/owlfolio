@@ -4,7 +4,16 @@ import { projectHoldings } from '@owlfolio/ledger/projections/holdingProjection'
 import { MockProvider } from '@owlfolio/providers/mockProvider'
 import { CHECKLIST_PARAMS } from '@owlfolio/strategies/checklistParams'
 import { openHoldingFromWatchlist, recordHoldingValuationSnapshot } from '../holdingWorkflow'
-import { confirmHoldingReviewDraft, draftHoldingReview } from '../holdingReviewWorkflow'
+import { confirmHoldingReviewDraft, draftHoldingReview, overrideHoldingReviewDraft } from '../holdingReviewWorkflow'
+
+const OVERRIDE_THESIS = {
+  thesis_health: 'WATCH',
+  action_stance: 'RESEARCH_MORE',
+  rationale: 'User override: moat intact, valuation needs another evidence pass.',
+  evidence_summary: 'Compared the provider draft to the manual valuation snapshot.',
+  uncertainty: 'Need an updated Shariah ratio + concentration check.',
+  next_review_at: '2026-10-31',
+} as const
 
 // Phase 7 S3: the re-underwrite sign-off (confirmHoldingReviewDraft → holding_review_confirmed) is
 // completion-blocked on the SAME 17-item hygiene/bias checklist. These tests prove the integrity fix:
@@ -148,5 +157,111 @@ describe('re-underwrite sign-off checklist completion-block (Phase 7 S3)', () =>
 
     expect(confirmation.actor_type).toBe('user')
     expect(confirmation.confirmed_by_actor_type).toBe('user')
+  })
+})
+
+// Phase 7 S3 (bypass close): overrideHoldingReviewDraft → holding_review_overridden is a SEPARATE,
+// co-equal re-underwrite sign-off that writes the SAME confirmed thesis state. It must be gated on the
+// SAME 17-item checklist as confirm; otherwise it reopens the gap S3 closed.
+describe('re-underwrite override sign-off checklist completion-block (Phase 7 S3 bypass close)', () => {
+  it('overrides when every checklist item is addressed and persists the answers', async () => {
+    const store = new InMemoryEventStore()
+    const draft = await draftReview(store)
+
+    const override = await overrideHoldingReviewDraft(store, {
+      review_id: draft.review_id,
+      holding_id: draft.holding_id,
+      causation_id: draft.event_id,
+      actor_id: 'user_local',
+      ...OVERRIDE_THESIS,
+      checklist_answers: COMPLETE_CHECKLIST,
+    })
+
+    expect(override.event_type).toBe('holding_review_overridden')
+    expect(override.user_approved).toBe(true)
+    expect(override.user_overrode_provider).toBe(true)
+    // Persisted append-only on the override re-underwrite artifact (auditable).
+    expect(override.payload.checklist_answers).toEqual(COMPLETE_CHECKLIST)
+  })
+
+  it('throws and appends NOTHING when an item is unaddressed (the integrity test)', async () => {
+    const store = new InMemoryEventStore()
+    const draft = await draftReview(store)
+    const before = (await store.list()).length
+
+    await expect(overrideHoldingReviewDraft(store, {
+      review_id: draft.review_id,
+      holding_id: draft.holding_id,
+      causation_id: draft.event_id,
+      actor_id: 'user_local',
+      ...OVERRIDE_THESIS,
+      checklist_answers: withUnaddressed('moat_erosion'),
+    })).rejects.toThrow(/Re-underwrite sign-off requires every quality\/bias checklist item to be addressed; unaddressed: moat_erosion/)
+
+    // No append on the failed sign-off — throw-before-append.
+    expect((await store.list()).length).toBe(before)
+    const holding = projectHoldings(await store.list()).find((h) => h.holding_id === draft.holding_id)
+    expect(holding?.latest_review_id).toBeUndefined()
+    // The draft remains pending — nothing was overridden.
+    expect(holding?.pending_review_id).toBe(draft.review_id)
+  })
+
+  it('rejects an EMPTY checklist on the override path (the twin of overriding nothing)', async () => {
+    const store = new InMemoryEventStore()
+    const draft = await draftReview(store)
+
+    await expect(overrideHoldingReviewDraft(store, {
+      review_id: draft.review_id,
+      holding_id: draft.holding_id,
+      causation_id: draft.event_id,
+      actor_id: 'user_local',
+      ...OVERRIDE_THESIS,
+      checklist_answers: {},
+    })).rejects.toThrow(/Re-underwrite sign-off requires every quality\/bias checklist item to be addressed/)
+  })
+
+  it('is completion-blocked when shariah_drift (item 10) is unaddressed on the override path', async () => {
+    const store = new InMemoryEventStore()
+    const draft = await draftReview(store)
+
+    await expect(overrideHoldingReviewDraft(store, {
+      review_id: draft.review_id,
+      holding_id: draft.holding_id,
+      causation_id: draft.event_id,
+      actor_id: 'user_local',
+      ...OVERRIDE_THESIS,
+      checklist_answers: withUnaddressed('shariah_drift'),
+    })).rejects.toThrow(/unaddressed: shariah_drift/)
+  })
+
+  it('is completion-blocked when data_completeness (item 11) is unaddressed on the override path', async () => {
+    const store = new InMemoryEventStore()
+    const draft = await draftReview(store)
+
+    await expect(overrideHoldingReviewDraft(store, {
+      review_id: draft.review_id,
+      holding_id: draft.holding_id,
+      causation_id: draft.event_id,
+      actor_id: 'user_local',
+      ...OVERRIDE_THESIS,
+      checklist_answers: withUnaddressed('data_completeness'),
+    })).rejects.toThrow(/unaddressed: data_completeness/)
+  })
+
+  it('records the override answers human-authored (actor user); nothing is defaulted server-side', async () => {
+    const store = new InMemoryEventStore()
+    const draft = await draftReview(store)
+
+    const override = await overrideHoldingReviewDraft(store, {
+      review_id: draft.review_id,
+      holding_id: draft.holding_id,
+      causation_id: draft.event_id,
+      actor_id: 'user_local',
+      ...OVERRIDE_THESIS,
+      checklist_answers: COMPLETE_CHECKLIST,
+    })
+
+    expect(override.actor_type).toBe('user')
+    expect(override.overridden_by_actor_type).toBe('user')
   })
 })
