@@ -348,7 +348,7 @@ function LifecycleTab(): ReactNode {
         cardGrid([
           { key: 'buy', eyebrow: 'Buy-window (watched)', body: 'A BUY-WINDOW observation is valid only on a fresh, gate-clean case. Stale cheapness is suppressed and forces a re-run first.' },
           { key: 'tranche', eyebrow: 'Tranche triggers (held)', body: 'Price at T2 (−10%) or T3 (−20%) triggers a thesis re-check first, then a tranche alert — never mechanical averaging-down.' },
-          { key: 'conc', eyebrow: 'Concentration (held)', body: 'A position above 15% of NAV raises a trim-review alert. Winners run; an alert is never an auto-trim.' },
+          { key: 'conc', eyebrow: 'Concentration (held)', body: 'The 15% deployment cap binds new buys; a held position that APPRECIATES past a higher concentration-review threshold (~22%) raises a review-on-appreciation alert. Winners run — an alert is never an auto-trim.' },
           { key: 'shariah', eyebrow: 'Shariah grace (any live state)', body: 'A ratio breach opens a grace period (default 90 days); if unresolved, the harness drafts a DIVEST-REQUIRED — the human authors the exit.' },
         ]),
         caveat(

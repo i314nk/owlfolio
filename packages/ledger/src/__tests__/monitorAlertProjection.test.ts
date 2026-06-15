@@ -216,6 +216,11 @@ describe('projectMonitorAlerts — holding monitor', () => {
     const concentration = alerts.find((a) => a.kind === 'concentration')
     expect(concentration?.severity).toBe('attention')
     expect(concentration?.detail).toContain('22.4%')
+    // Guard the stale-label lie (S3): the alert fires at the ~22% appreciation-review threshold, so the
+    // detail must NOT claim it fires "over the 15% cap" — it must name the concentration-review threshold.
+    expect(concentration?.detail).not.toContain('over the 15% cap')
+    expect(concentration?.detail).not.toContain('15% NAV cap')
+    expect(concentration?.detail).toContain('concentration-review threshold')
   })
 
   it('splits a combined tranche+concentration+annual alert into one alert per kind', () => {
