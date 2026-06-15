@@ -29,16 +29,28 @@ export type SellParams = {
    * value FROZEN at sign-off (never the MoS-discounted buy-below, never a live/recomputed fair value).
    */
   sell_iv_fraction: number
+  /**
+   * The HIGH hurdle for the "better opportunity under capital constraint" sell trigger (Phase 6 S4): the
+   * minimum NET owner-earnings-yield margin (absolute, in yield points) a candidate must beat the held
+   * name by — AFTER switching friction (taxes/spreads as a yield-equivalent drag) — before a switch is
+   * "warranted". Default 0.05 (5 yield points) is deliberately HIGH: this is the most churn-prone trigger
+   * (Buffett/Pabrai: "patient holding dies by a thousand switches"), so the bar to clear is steep. Note
+   * this only gates `switch_warranted`; the switch ALWAYS additionally requires human sign-off — it is
+   * never mechanical.
+   */
+  better_opportunity_min_margin: number
 }
 
 /**
  * The frozen DEFAULT sell parameters.
  *
- *   minimum_hold_months: 30  (≈ 2.5 years — inside the stated 2–3 year minimum-hold band)
- *   sell_iv_fraction:    1.0 (FULL IV — hard threshold, Pabrai recant; biased to hold below IV)
+ *   minimum_hold_months:          30   (≈ 2.5 years — inside the stated 2–3 year minimum-hold band)
+ *   sell_iv_fraction:             1.0  (FULL IV — hard threshold, Pabrai recant; biased to hold below IV)
+ *   better_opportunity_min_margin: 0.05 (HIGH net OE-yield hurdle; switch ALSO always needs human sign-off)
  */
 export const SELL_PARAMS: SellParams = Object.freeze({
-  version: 'sell-2026-06-phase6-2',
+  version: 'sell-2026-06-phase6-3',
   minimum_hold_months: 30,
   sell_iv_fraction: 1.0,
+  better_opportunity_min_margin: 0.05,
 }) as SellParams
