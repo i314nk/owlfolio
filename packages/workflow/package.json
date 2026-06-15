@@ -47,6 +47,7 @@
     "./disciplineReports": "./src/disciplineReports.ts",
     "./lifecyclePostMortem": "./src/lifecyclePostMortem.ts",
     "./lifecycleMonitors": "./src/lifecycleMonitors.ts",
+    "./lifecycleCadence": "./src/lifecycleCadence.ts",
     "./positionSizingEngine": "./src/positionSizingEngine.ts"
   }
 }
