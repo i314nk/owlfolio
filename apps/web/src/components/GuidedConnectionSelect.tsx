@@ -44,9 +44,9 @@ const TIER_ORDER: ModelTierSuitability[] = ['T1', 'T2', 'T3']
 
 const connectionCardBaseStyle: CSSProperties = {
   background: 'var(--owl-color-panel)',
-  border: '1px solid rgba(148, 163, 184, 0.24)',
-  borderRadius: '1rem',
-  color: '#f7f8ff',
+  border: '1px solid var(--owl-color-border)',
+  borderRadius: 'var(--owl-radius-card)',
+  color: 'var(--owl-color-text)',
   cursor: 'pointer',
   display: 'grid',
   gap: '0.65rem',
@@ -56,9 +56,8 @@ const connectionCardBaseStyle: CSSProperties = {
 
 const selectedConnectionCardStyle: CSSProperties = {
   ...connectionCardBaseStyle,
-  background: 'rgba(124, 140, 255, 0.1)',
-  border: '1px solid rgba(124, 140, 255, 0.4)',
-  boxShadow: '0 0 0 1px rgba(124, 140, 255, 0.2) inset',
+  background: 'rgba(22, 163, 74, 0.10)',
+  border: '1px solid var(--owl-color-border-strong)',
 }
 
 const cardGridStyle: CSSProperties = {
@@ -67,15 +66,34 @@ const cardGridStyle: CSSProperties = {
   gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))',
 }
 
-const selectStyle: CSSProperties = {
-  appearance: 'none',
-  background: 'var(--owl-color-panel-deep)',
-  border: '1px solid rgba(124, 140, 255, 0.34)',
-  borderRadius: '0.8rem',
-  color: '#f7f8ff',
-  fontSize: '1rem',
+const cardBadgeStyle: CSSProperties = {
+  color: 'var(--owl-color-gold-bright)',
+  fontFamily: 'var(--owl-font-mono)',
+  fontSize: '0.78rem',
   fontWeight: 700,
-  padding: '0.85rem 1rem',
+  letterSpacing: '0.06em',
+  textTransform: 'uppercase',
+}
+
+const cardDescriptionStyle: CSSProperties = {
+  color: 'var(--owl-color-muted)',
+  lineHeight: 1.45,
+}
+
+const modelLabelStyle: CSSProperties = {
+  color: 'var(--owl-color-quiet)',
+  fontFamily: 'var(--owl-font-mono)',
+  fontSize: 'var(--owl-text-2xs)',
+  fontWeight: 600,
+  letterSpacing: '0.12em',
+  textTransform: 'uppercase',
+}
+
+const modelValueStyle: CSSProperties = {
+  color: 'var(--owl-color-gold-bright)',
+  fontFamily: 'var(--owl-font-mono)',
+  fontSize: 'var(--owl-text-sm)',
+  fontWeight: 600,
 }
 
 export function buildConnectionOptions(providerOptions: ProviderOption[]): ConnectionOption[] {
@@ -262,9 +280,9 @@ export function GuidedConnectionSelect({
           style: isConnectionSelected(option, selectedProviderId) ? selectedConnectionCardStyle : connectionCardBaseStyle,
           type: 'button',
         },
-        createElement('span', { style: { color: '#a5b4fc', fontSize: '0.78rem', fontWeight: 900, letterSpacing: '0.06em', textTransform: 'uppercase' } }, option.badge),
-        createElement('strong', { style: { fontSize: '1.08rem' } }, option.title),
-        createElement('span', { style: { color: '#cbd5e1', lineHeight: 1.45 } }, option.description),
+        createElement('span', { style: cardBadgeStyle }, option.badge),
+        createElement('strong', { style: { color: 'var(--owl-color-text)', fontSize: '1.08rem' } }, option.title),
+        createElement('span', { style: cardDescriptionStyle }, option.description),
       )),
     ),
     renderModelSelection(selectedConnection, selectedModelId, onSelectModel),
@@ -287,9 +305,9 @@ export function renderModelSelection(
     }
     return createElement(
       'div',
-      { style: { color: '#cbd5e1', display: 'grid', gap: '0.3rem', margin: '0 0 1rem' } },
-      createElement('span', { style: { fontWeight: 800 } }, 'Model'),
-      createElement('span', { 'aria-label': 'Fixed model', style: { color: '#a5b4fc', fontWeight: 700 } }, `${fixedModelId} (only model)`),
+      { style: { display: 'grid', gap: '0.3rem', margin: '0 0 1rem' } },
+      createElement('span', { style: modelLabelStyle }, 'Model'),
+      createElement('span', { 'aria-label': 'Fixed model', style: modelValueStyle }, `${fixedModelId} (only model)`),
     )
   }
 
@@ -300,17 +318,20 @@ export function renderModelSelection(
 
   return createElement(
     'label',
-    { style: { color: '#cbd5e1', display: 'grid', gap: '0.5rem', margin: '0 0 1rem', maxWidth: '480px' } },
-    createElement('span', { style: { fontWeight: 800 } }, 'Model (pick one)'),
+    { style: { display: 'grid', gap: '0.5rem', margin: '0 0 1rem', maxWidth: '480px' } },
+    createElement('span', { style: modelLabelStyle }, 'Model (pick one)'),
     createElement(
+      'span',
+      { className: 'owl-select-wrap' },
+      createElement(
       'select',
       {
         'aria-label': 'Choose one model',
+        className: 'owl-select owl-focusable',
         onChange: (event: Event) => {
           const target = event.target as HTMLSelectElement
           onSelectModel(selectedConnection.provider, target.value)
         },
-        style: selectStyle,
         value: selectedModelId ?? '',
       },
       ...groups.map((group) => createElement(
@@ -322,6 +343,7 @@ export function renderModelSelection(
           `${model.model_id} — ${model.note}`,
         )),
       )),
+    ),
     ),
   )
 }

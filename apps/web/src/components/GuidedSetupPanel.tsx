@@ -82,48 +82,13 @@ const KEY_GUIDANCE: Record<ConnectionOption['key'], KeyGuidance> = {
   },
 }
 
-const sectionStyle: CSSProperties = {
-  background: 'var(--owl-color-panel-elevated)',
-  border: '1px solid rgba(148, 163, 184, 0.18)',
-  borderRadius: '1.25rem',
-  display: 'grid',
-  gap: '1rem',
-  padding: '1.25rem',
-}
-
-const eyebrowStyle: CSSProperties = {
-  color: '#6366f1',
-  fontSize: '0.85rem',
-  fontWeight: 800,
-  letterSpacing: '0.08em',
-  margin: 0,
-  textTransform: 'uppercase',
-}
-
-const modeButtonBaseStyle: CSSProperties = {
-  background: 'var(--owl-color-panel)',
-  border: '1px solid rgba(148, 163, 184, 0.3)',
-  borderRadius: '999px',
-  color: '#f7f8ff',
-  cursor: 'pointer',
-  fontWeight: 800,
-  padding: '0.65rem 1.1rem',
-}
-
-const modeButtonActiveStyle: CSSProperties = {
-  ...modeButtonBaseStyle,
-  background: 'rgba(124, 140, 255, 0.18)',
-  border: '1px solid rgba(124, 140, 255, 0.5)',
-}
-
-const helpLinkStyle: CSSProperties = {
-  color: '#a5b4fc',
-  fontWeight: 800,
-  textDecoration: 'none',
-}
+// The guided-setup cards use the canonical .owl-section-card panel, with a slightly tighter gap to
+// match the surrounding ProviderKeysPanel sections.
+const sectionCardStyle: CSSProperties = { gap: 'var(--owl-space-4)' }
 
 const subtleTextStyle: CSSProperties = {
-  color: '#cbd5e1',
+  color: 'var(--owl-color-muted)',
+  fontSize: 'var(--owl-text-sm)',
   lineHeight: 1.5,
   margin: 0,
 }
@@ -213,10 +178,10 @@ export function GuidedSetupPanel({ initialConfig, initialIsInitialized, provider
     { 'aria-label': 'Guided setup', style: { display: 'grid', gap: '1.25rem', marginBottom: '1.5rem' } },
     // ── Header + mode switch ──
     createElement(
-      'div',
-      { style: sectionStyle },
-      createElement('p', { style: eyebrowStyle }, 'Step 1 · Choose a mode'),
-      createElement('h2', { style: { margin: '0.2rem 0' } }, 'Guided setup'),
+      'section',
+      { className: 'owl-section-card', style: sectionCardStyle },
+      createElement('p', { className: 'owl-section-accent' }, 'Step 1 · Choose a mode'),
+      createElement('h2', { className: 'owl-section-title' }, 'Guided setup'),
       createElement(
         'p',
         { style: subtleTextStyle },
@@ -229,13 +194,13 @@ export function GuidedSetupPanel({ initialConfig, initialIsInitialized, provider
           type: 'button',
           disabled: isBusy,
           onClick: () => void switchToMode('demo'),
-          style: config.mode === 'demo' ? modeButtonActiveStyle : modeButtonBaseStyle,
+          className: `owl-button ${config.mode === 'demo' ? 'owl-button-primary' : 'owl-button-secondary'} owl-focusable`,
         }, 'Demo'),
         createElement('button', {
           type: 'button',
           disabled: isBusy,
           onClick: () => void switchToMode('personal-local'),
-          style: config.mode === 'personal-local' ? modeButtonActiveStyle : modeButtonBaseStyle,
+          className: `owl-button ${config.mode === 'personal-local' ? 'owl-button-primary' : 'owl-button-secondary'} owl-focusable`,
         }, 'Personal-local'),
         createElement(StatusBadge, { tone: isInitialized ? 'success' : 'warning' }, isInitialized ? 'Set up' : 'Setup needed'),
         createElement(StatusBadge, { tone: 'neutral' }, `Current: ${config.mode}`),
@@ -243,10 +208,10 @@ export function GuidedSetupPanel({ initialConfig, initialIsInitialized, provider
     ),
     // ── Provider + model selection (shared component) ──
     createElement(
-      'div',
-      { style: sectionStyle },
-      createElement('p', { style: eyebrowStyle }, 'Step 2 · Provider & model'),
-      createElement('h2', { style: { margin: '0.2rem 0' } }, 'Choose a provider and model'),
+      'section',
+      { className: 'owl-section-card', style: sectionCardStyle },
+      createElement('p', { className: 'owl-section-accent' }, 'Step 2 · Provider & model'),
+      createElement('h2', { className: 'owl-section-title' }, 'Choose a provider and model'),
       createElement(
         'p',
         { style: subtleTextStyle },
@@ -259,14 +224,14 @@ export function GuidedSetupPanel({ initialConfig, initialIsInitialized, provider
         onSelectConnection,
         onSelectModel,
       }),
-      errorMessage === undefined ? null : createElement('p', { role: 'alert', style: { color: '#fca5a5', fontWeight: 700, margin: 0 } }, errorMessage),
+      errorMessage === undefined ? null : createElement('p', { role: 'alert', style: { color: 'var(--owl-color-risk-bright)', fontWeight: 700, margin: 0 } }, errorMessage),
     ),
     // ── Per-provider key guidance ──
     createElement(
-      'div',
-      { 'aria-label': 'Provider key guidance', style: sectionStyle },
-      createElement('p', { style: eyebrowStyle }, 'Step 3 · Connect your provider'),
-      createElement('h2', { style: { margin: '0.2rem 0' } }, 'How to get a key or sign in'),
+      'section',
+      { 'aria-label': 'Provider key guidance', className: 'owl-section-card', style: sectionCardStyle },
+      createElement('p', { className: 'owl-section-accent' }, 'Step 3 · Connect your provider'),
+      createElement('h2', { className: 'owl-section-title' }, 'How to get a key or sign in'),
       createElement(
         'div',
         { style: { display: 'grid', gap: '0.75rem' } },
@@ -280,10 +245,10 @@ export function GuidedSetupPanel({ initialConfig, initialIsInitialized, provider
     ),
     // ── Capital next-step + gate missing-items ──
     createElement(
-      'div',
-      { 'aria-label': 'Set investable capital next step', style: sectionStyle },
-      createElement('p', { style: eyebrowStyle }, 'Step 4 · Set capital'),
-      createElement('h2', { style: { margin: '0.2rem 0' } }, 'Set investable capital'),
+      'section',
+      { 'aria-label': 'Set investable capital next step', className: 'owl-section-card', style: sectionCardStyle },
+      createElement('p', { className: 'owl-section-accent' }, 'Step 4 · Set capital'),
+      createElement('h2', { className: 'owl-section-title' }, 'Set investable capital'),
       createElement(
         'p',
         { style: subtleTextStyle },
@@ -292,7 +257,7 @@ export function GuidedSetupPanel({ initialConfig, initialIsInitialized, provider
       createElement(
         'p',
         { style: { margin: 0 } },
-        createElement('a', { className: 'owl-focusable', href: '/portfolio#investable-capital', style: helpLinkStyle }, 'Set investable capital on the portfolio →'),
+        createElement('a', { className: 'owl-back-link owl-focusable', href: '/portfolio#investable-capital' }, 'Set investable capital on the portfolio →'),
       ),
       renderMissingItems(missingItems),
     ),
@@ -307,9 +272,9 @@ function renderKeyGuidance(option: ConnectionOption, isSelected: boolean) {
       key: option.key,
       'aria-label': `${option.title} key guidance`,
       style: {
-        background: 'var(--owl-color-panel)',
-        border: isSelected ? '1px solid rgba(124, 140, 255, 0.5)' : '1px solid rgba(148, 163, 184, 0.24)',
-        borderRadius: '0.85rem',
+        background: isSelected ? 'rgba(22, 163, 74, 0.10)' : 'var(--owl-color-panel-deep)',
+        border: isSelected ? '1px solid var(--owl-color-border-strong)' : '1px solid var(--owl-color-border)',
+        borderRadius: '0.7rem',
         display: 'grid',
         gap: '0.4rem',
         padding: '0.85rem 1rem',
@@ -318,16 +283,15 @@ function renderKeyGuidance(option: ConnectionOption, isSelected: boolean) {
     createElement(
       'div',
       { style: { alignItems: 'center', display: 'flex', flexWrap: 'wrap', gap: '0.5rem' } },
-      createElement('strong', { style: { color: '#f7f8ff' } }, option.title),
+      createElement('strong', { style: { color: 'var(--owl-color-gold-bright)' } }, option.title),
       createElement(StatusBadge, { tone: 'neutral' }, option.badge),
     ),
     createElement('p', { style: subtleTextStyle }, guidance.sentence),
     createElement(
       'a',
       {
-        className: 'owl-focusable',
+        className: 'owl-back-link owl-focusable',
         href: guidance.link_href,
-        style: helpLinkStyle,
         ...(guidance.external ? { rel: 'noreferrer', target: '_blank' } : {}),
       },
       guidance.external ? `${guidance.link_label} ↗` : guidance.link_label,
@@ -337,7 +301,7 @@ function renderKeyGuidance(option: ConnectionOption, isSelected: boolean) {
 
 function renderMissingItems(missingItems: GuidedSetupGateItem[]) {
   if (missingItems.length === 0) {
-    return createElement('p', { style: { ...subtleTextStyle, color: '#bbf7d0' } }, 'All setup steps are complete — deep dives can start.')
+    return createElement('p', { style: { ...subtleTextStyle, color: 'var(--owl-color-accent-bright)' } }, 'All setup steps are complete — deep dives can start.')
   }
   return createElement(
     'div',

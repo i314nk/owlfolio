@@ -713,8 +713,8 @@ a:focus-visible {
 .owl-active-mode-attention {
   background:
     radial-gradient(circle at top left, rgba(240, 180, 41, 0.18), transparent 12rem),
-    rgba(240, 180, 41, 0.08);
-  border-color: rgba(240, 180, 41, 0.4);
+    var(--owl-color-amber-muted);
+  border-color: var(--owl-color-amber-border);
 }
 
 a.owl-active-mode-attention .owl-active-mode-label {
