@@ -14,12 +14,16 @@ import {
   runMockStrategyDiscovery,
 } from '../discoveryCandidateWorkflow'
 import { confirmWatchlistDraft } from '../watchlistWorkflow'
-import { CHECKLIST_PARAMS } from '@owlfolio/strategies/checklistParams'
+import { CHECKLIST_PARAMS, listBusinessItems } from '@owlfolio/strategies/checklistParams'
 
 // Phase 7 S2: admit requires every hygiene/bias checklist item to be addressed (affirmed + note).
-const COMPLETE_CHECKLIST: Record<string, { addressed: boolean; note: string }> = Object.fromEntries(
-  CHECKLIST_PARAMS.items.map((item) => [item.id, { addressed: true, note: `Addressed ${item.id}.` }]),
-)
+const COMPLETE_AUDIT: import('@owlfolio/strategies/checklistParams').ChecklistAudit = {
+  version: CHECKLIST_PARAMS.version,
+  business_findings: Object.fromEntries(
+    listBusinessItems().map((item) => [item.id, `Marshaled finding for ${item.id}.`]),
+  ),
+  cognitive_acknowledged: true,
+}
 
 describe('discovery candidate queue', () => {
   it('records selected-strategy candidates before quick screening without creating portfolio state', async () => {
@@ -105,7 +109,8 @@ describe('discovery candidate queue', () => {
       buy_below_valuation_version: 'valuation-2026-06-cap-1',
       buy_below_mos_provisional: true,
       signed_thesis: 'I am admitting MSFT for monitoring at the frozen buy-below.',
-      checklist_answers: COMPLETE_CHECKLIST,
+      signed_thesis_draft: 'I am admitting MSFT for monitoring at the frozen buy-below.',
+      checklist_audit: COMPLETE_AUDIT,
       actor_id: 'user_local',
     })
 
@@ -128,7 +133,8 @@ describe('discovery candidate queue', () => {
       buy_below_valuation_version: 'valuation-2026-06-cap-1',
       buy_below_mos_provisional: true,
       signed_thesis: 'I am admitting AAPL ahead of opening a tracked holding.',
-      checklist_answers: COMPLETE_CHECKLIST,
+      signed_thesis_draft: 'I am admitting AAPL ahead of opening a tracked holding.',
+      checklist_audit: COMPLETE_AUDIT,
       actor_id: 'user_local',
     })
     await openHoldingFromWatchlist(store, {

@@ -3,8 +3,7 @@ import { InMemoryEventStore } from '@owlfolio/ledger/eventStore'
 import { projectNameLifecycle } from '@owlfolio/ledger/projections/nameLifecycleProjection'
 import { projectWatchlist } from '@owlfolio/ledger/projections/watchlistProjection'
 import { VALUATION_PARAMS } from '@owlfolio/strategies/valuationParams'
-import { CHECKLIST_PARAMS } from '@owlfolio/strategies/checklistParams'
-import type { ChecklistAnswer } from '@owlfolio/strategies/checklist'
+import { CHECKLIST_PARAMS, listBusinessItems, type ChecklistAudit } from '@owlfolio/strategies/checklistParams'
 import { createResearchCase, draftDecision } from '../researchWorkflow'
 import type { LedgerEventEnvelope } from '@owlfolio/ledger/eventEnvelope'
 import { confirmWatchlistDraft, type ConfirmWatchlistDraftCommand } from '../watchlistWorkflow'
@@ -12,13 +11,13 @@ import { confirmWatchlistDraft, type ConfirmWatchlistDraftCommand } from '../wat
 const SIGNED_THESIS =
   'I am admitting COST: a durable, low-cost-moat retailer compounding membership economics; I will buy only at a deep dislocation.'
 
-/** A fully-addressed answer set: every checklist item affirmed with a non-empty reasoned note. */
-function completeChecklistAnswers(): Record<string, ChecklistAnswer> {
-  const answers: Record<string, ChecklistAnswer> = {}
-  for (const item of CHECKLIST_PARAMS.items) {
-    answers[item.id] = { addressed: true, note: `Addressed ${item.id}: considered and reasoned.` }
+/** A complete audit: a non-empty finding for every business item + the cognitive acknowledgement. */
+function completeChecklistAudit(): ChecklistAudit {
+  const business_findings: Record<string, string> = {}
+  for (const item of listBusinessItems()) {
+    business_findings[item.id] = `Marshaled finding for ${item.id}: grounded and reviewed.`
   }
-  return answers
+  return { version: CHECKLIST_PARAMS.version, business_findings, cognitive_acknowledged: true }
 }
 
 function admitCommand(overrides: Partial<ConfirmWatchlistDraftCommand> = {}): ConfirmWatchlistDraftCommand {
@@ -37,7 +36,8 @@ function admitCommand(overrides: Partial<ConfirmWatchlistDraftCommand> = {}): Co
     frozen_iv: 990,
     frozen_iv_valuation_version: VALUATION_PARAMS.version,
     signed_thesis: SIGNED_THESIS,
-    checklist_answers: completeChecklistAnswers(),
+    signed_thesis_draft: SIGNED_THESIS,
+    checklist_audit: completeChecklistAudit(),
     actor_id: 'user_local',
     ...overrides,
   }
@@ -127,48 +127,90 @@ describe('admit candidate → watched (Task 4.2b)', () => {
     await expect(confirmWatchlistDraft(store, admitCommand({ signed_thesis: '   ' }))).rejects.toThrow(/signed[_ ]thesis/i)
   })
 
-  it('blocks admit when any hygiene/bias checklist item is unaddressed (the integrity completion-block)', async () => {
+  it('blocks admit when the audit is incomplete (the integrity completion-block)', async () => {
     const store = new InMemoryEventStore()
     await seedCase(store)
 
-    // Drop one cognitive item entirely (missing answer).
-    const missingOne = completeChecklistAnswers()
-    delete missingOne['anchoring']
-    await expect(confirmWatchlistDraft(store, admitCommand({ checklist_answers: missingOne }))).rejects.toThrow(
-      /checklist item to be addressed; unaddressed:.*anchoring/i,
+    // Drop one business finding entirely (missing marshaled finding).
+    const missingOne = completeChecklistAudit()
+    delete missingOne.business_findings['moat_erosion']
+    await expect(confirmWatchlistDraft(store, admitCommand({ checklist_audit: missingOne }))).rejects.toThrow(
+      /complete audit; missing:.*moat_erosion/i,
     )
 
-    // An affirmed item with an empty note does NOT count as addressed.
-    const emptyNote = completeChecklistAnswers()
-    emptyNote['disposition'] = { addressed: true, note: '   ' }
-    await expect(confirmWatchlistDraft(store, admitCommand({ checklist_answers: emptyNote }))).rejects.toThrow(
-      /unaddressed:.*disposition/i,
+    // A whitespace-only finding does NOT count as marshaled.
+    const emptyFinding = completeChecklistAudit()
+    emptyFinding.business_findings['quality_of_earnings'] = '   '
+    await expect(confirmWatchlistDraft(store, admitCommand({ checklist_audit: emptyFinding }))).rejects.toThrow(
+      /missing:.*quality_of_earnings/i,
     )
 
-    // No empty answer set at all.
-    await expect(confirmWatchlistDraft(store, admitCommand({ checklist_answers: {} }))).rejects.toThrow(
-      /checklist item to be addressed/i,
+    // The cognitive acknowledgement not given blocks admit.
+    const noAck = completeChecklistAudit()
+    noAck.cognitive_acknowledged = false
+    await expect(confirmWatchlistDraft(store, admitCommand({ checklist_audit: noAck }))).rejects.toThrow(
+      /complete audit; missing:.*cognitive_acknowledgement/i,
     )
 
     // None of the blocked attempts appended a draft.
     expect((await store.list()).some((event) => event.event_type === 'watchlist_draft_created')).toBe(false)
   })
 
-  it('persists the human checklist answers on the signed artifact and projects them (auditable)', async () => {
+  it('persists the harness audit on the signed artifact and projects it (auditable)', async () => {
     const store = new InMemoryEventStore()
     await seedCase(store)
 
-    const answers = completeChecklistAnswers()
-    const created = await confirmWatchlistDraft(store, admitCommand({ checklist_answers: answers }))
+    const audit = completeChecklistAudit()
+    const created = await confirmWatchlistDraft(store, admitCommand({ checklist_audit: audit }))
 
     // Persisted verbatim on the created draft payload.
-    expect(created.checklist_answers['anchoring']).toEqual(answers['anchoring'])
-    expect(Object.keys(created.checklist_answers)).toHaveLength(CHECKLIST_PARAMS.items.length)
+    expect(created.checklist_audit).toEqual(audit)
+    expect(Object.keys(created.checklist_audit.business_findings)).toHaveLength(listBusinessItems().length)
 
-    // Projected onto the watchlist item so a name's checklist answers travel with its thesis.
+    // Projected onto the watchlist item so a name's audit travels with its thesis.
     const [item] = projectWatchlist(await store.list())
-    expect(item?.checklist_answers?.['moat_erosion']).toEqual(answers['moat_erosion'])
-    expect(Object.keys(item?.checklist_answers ?? {})).toHaveLength(CHECKLIST_PARAMS.items.length)
+    expect(item?.checklist_audit?.business_findings['moat_erosion']).toEqual(audit.business_findings['moat_erosion'])
+    expect(item?.checklist_audit?.cognitive_acknowledged).toBe(true)
+  })
+
+  it('derives thesis_amended: false when the human affirms the agent draft verbatim', async () => {
+    const store = new InMemoryEventStore()
+    await seedCase(store)
+
+    const draft = 'Agent draft: durable membership-economics compounder; admit at the frozen buy-below.'
+    const created = await confirmWatchlistDraft(
+      store,
+      admitCommand({ signed_thesis: draft, signed_thesis_draft: draft }),
+    )
+
+    expect(created.thesis_amended).toBe(false)
+    expect(created.signed_thesis).toBe(draft)
+    expect(created.signed_thesis_draft).toBe(draft)
+
+    const [item] = projectWatchlist(await store.list())
+    expect(item?.thesis_amended).toBe(false)
+    expect(item?.signed_thesis_draft).toBe(draft)
+  })
+
+  it('derives thesis_amended: true when the human amends the agent draft', async () => {
+    const store = new InMemoryEventStore()
+    await seedCase(store)
+
+    const draftThesis = 'Agent draft: durable compounder; admit at the frozen buy-below.'
+    const finalThesis = 'Human amend: durable compounder BUT I require a wider margin of safety before buying.'
+    const created = await confirmWatchlistDraft(
+      store,
+      admitCommand({ signed_thesis: finalThesis, signed_thesis_draft: draftThesis }),
+    )
+
+    expect(created.thesis_amended).toBe(true)
+    expect(created.signed_thesis).toBe(finalThesis)
+    expect(created.signed_thesis_draft).toBe(draftThesis)
+
+    const [item] = projectWatchlist(await store.list())
+    expect(item?.thesis_amended).toBe(true)
+    expect(item?.signed_thesis).toBe(finalThesis)
+    expect(item?.signed_thesis_draft).toBe(draftThesis)
   })
 
   it('admits when every checklist item is addressed', async () => {
@@ -241,10 +283,10 @@ describe('consolidated single-step admission (Phase 8 S4)', () => {
 
     // Empty signed thesis is rejected BEFORE any append (neither created nor confirmed leaks).
     await expect(confirmWatchlistDraft(store, admitCommand({ signed_thesis: '   ' }))).rejects.toThrow(/signed[_ ]thesis/i)
-    // An unaddressed checklist item is rejected before any append.
-    const missingOne = completeChecklistAnswers()
-    delete missingOne['anchoring']
-    await expect(confirmWatchlistDraft(store, admitCommand({ checklist_answers: missingOne }))).rejects.toThrow(/unaddressed/i)
+    // An incomplete audit is rejected before any append.
+    const missingOne = completeChecklistAudit()
+    delete missingOne.business_findings['moat_erosion']
+    await expect(confirmWatchlistDraft(store, admitCommand({ checklist_audit: missingOne }))).rejects.toThrow(/missing/i)
 
     const events = await store.list()
     expect(events.some((event) => event.event_type === 'watchlist_draft_created')).toBe(false)
@@ -253,8 +295,12 @@ describe('consolidated single-step admission (Phase 8 S4)', () => {
 
   it('history-compat: a LEGACY two-event sequence (created user_approved:false THEN a separate confirmed) projects to the SAME confirmed end-state as the new atomic pair', async () => {
     // Build the legacy sequence by hand: created@T1 (user_approved:false), confirmed@T2 — the shape an
-    // append-only ledger written before this consolidation still holds. It MUST replay identically.
+    // append-only ledger written before this consolidation still holds. It MUST replay identically. NOTE
+    // the OLD payload carries `checklist_answers` (the pre-audit-and-decide field), NOT `checklist_audit`.
     const legacyStore = new InMemoryEventStore()
+    const legacyChecklistAnswers: Record<string, { addressed: boolean; note: string }> = Object.fromEntries(
+      CHECKLIST_PARAMS.items.map((item) => [item.id, { addressed: true, note: `Legacy answer ${item.id}.` }]),
+    )
     const createdPayload = {
       watchlist_item_id: 'watch_cost_admit_001',
       research_case_id: 'rc_cost_admit_001',
@@ -270,7 +316,7 @@ describe('consolidated single-step admission (Phase 8 S4)', () => {
       frozen_iv: 990,
       frozen_iv_valuation_version: VALUATION_PARAMS.version,
       signed_thesis: SIGNED_THESIS,
-      checklist_answers: completeChecklistAnswers(),
+      checklist_answers: legacyChecklistAnswers,
       user_approved: false,
       created_by_actor_type: 'user',
       created_by_actor_id: 'user_local',
@@ -326,5 +372,13 @@ describe('consolidated single-step admission (Phase 8 S4)', () => {
     expect(legacyItem?.locked_buy_below).toBe(newItem?.locked_buy_below)
     expect(legacyItem?.frozen_iv).toBe(newItem?.frozen_iv)
     expect(legacyItem?.signed_thesis).toBe(newItem?.signed_thesis)
+
+    // LEGACY TOLERANCE: the old event carried `checklist_answers` (no `checklist_audit`) — it must still
+    // project without throwing, surfacing the legacy answers and leaving the new audit field undefined.
+    expect(legacyItem?.checklist_answers?.['moat_erosion']).toEqual(legacyChecklistAnswers['moat_erosion'])
+    expect(legacyItem?.checklist_audit).toBeUndefined()
+    // The new atomic path carries the audit (no legacy answers).
+    expect(newItem?.checklist_audit?.cognitive_acknowledged).toBe(true)
+    expect(newItem?.checklist_answers).toBeUndefined()
   })
 })

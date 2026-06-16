@@ -205,4 +205,48 @@ describe('projectResearchCases — checklist_answers (Phase 7 S2)', () => {
     const rc = cases.find((c) => c.research_case_id === RC)!
     expect(rc.checklist_answers).toBeUndefined()
   })
+
+  it('mirrors the harness checklist_audit onto the research case from a NEW event (audit-and-decide)', () => {
+    const audit = {
+      version: 'checklist-2026-06-phase7-2',
+      business_findings: {
+        moat_erosion: 'Marshaled finding: no erosion evidence yet.',
+        shariah_drift: 'Marshaled finding: compliant.',
+      },
+      cognitive_acknowledged: true,
+    }
+    const newEvent: LedgerEventEnvelope<unknown> = {
+      event_id: `evt_watchlist_draft_created_watch_${RC}`,
+      event_type: 'watchlist_draft_created',
+      aggregate_type: 'watchlist_item',
+      aggregate_id: `watch_${RC}`,
+      causation_id: `decision_${RC}`,
+      correlation_id: RC,
+      actor_type: 'user',
+      actor_id: 'user_local',
+      payload: {
+        watchlist_item_id: `watch_${RC}`,
+        research_case_id: RC,
+        decision_id: `decision_${RC}`,
+        company_id: 'company_tst',
+        ticker: 'TST',
+        strategy_id: 'buffett-munger',
+        thesis_summary: 'agent draft',
+        signed_thesis: 'human commitment',
+        signed_thesis_draft: 'agent draft thesis',
+        thesis_amended: true,
+        checklist_audit: audit,
+        user_approved: false,
+        created_by_actor_type: 'user',
+        created_by_actor_id: 'user_local',
+      },
+      source_ids: [],
+      created_at: '2026-06-03T00:00:00.000Z',
+      schema_version: 1,
+    }
+    const cases = projectResearchCases([created(), newEvent])
+    const rc = cases.find((c) => c.research_case_id === RC)!
+    expect(rc.checklist_audit).toEqual(audit)
+    expect(rc.checklist_answers).toBeUndefined()
+  })
 })

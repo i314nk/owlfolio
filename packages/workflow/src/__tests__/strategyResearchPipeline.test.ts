@@ -19,12 +19,16 @@ import {
 import { createResearchCase } from '../researchWorkflow'
 import { confirmWatchlistDraft } from '../watchlistWorkflow'
 import { openHoldingFromWatchlist } from '../holdingWorkflow'
-import { CHECKLIST_PARAMS } from '@owlfolio/strategies/checklistParams'
+import { CHECKLIST_PARAMS, listBusinessItems } from '@owlfolio/strategies/checklistParams'
 
 // Phase 7 S2: admit requires every hygiene/bias checklist item to be addressed (affirmed + note).
-const COMPLETE_CHECKLIST: Record<string, { addressed: boolean; note: string }> = Object.fromEntries(
-  CHECKLIST_PARAMS.items.map((item) => [item.id, { addressed: true, note: `Addressed ${item.id}.` }]),
-)
+const COMPLETE_AUDIT: import('@owlfolio/strategies/checklistParams').ChecklistAudit = {
+  version: CHECKLIST_PARAMS.version,
+  business_findings: Object.fromEntries(
+    listBusinessItems().map((item) => [item.id, `Marshaled finding for ${item.id}.`]),
+  ),
+  cognitive_acknowledged: true,
+}
 
 describe('strategy-agnostic research pipeline foundation', () => {
   it('records neutral strategy-scoped stages with source ids through decision pending', async () => {
@@ -711,7 +715,8 @@ describe('strategy-agnostic research pipeline foundation', () => {
       buy_below_valuation_version: 'valuation-2026-06-cap-1',
       buy_below_mos_provisional: true,
       signed_thesis: 'I am admitting LIFE for monitoring at the frozen buy-below.',
-      checklist_answers: COMPLETE_CHECKLIST,
+      signed_thesis_draft: 'I am admitting LIFE for monitoring at the frozen buy-below.',
+      checklist_audit: COMPLETE_AUDIT,
       actor_id: 'user_local',
     })
 
@@ -773,7 +778,8 @@ describe('strategy-agnostic research pipeline foundation', () => {
       buy_below_valuation_version: 'valuation-2026-06-cap-1',
       buy_below_mos_provisional: true,
       signed_thesis: 'I am admitting NDEF under a non-default strategy at the frozen buy-below.',
-      checklist_answers: COMPLETE_CHECKLIST,
+      signed_thesis_draft: 'I am admitting NDEF under a non-default strategy at the frozen buy-below.',
+      checklist_audit: COMPLETE_AUDIT,
       actor_id: 'user_local',
     })
     await openHoldingFromWatchlist(store, {

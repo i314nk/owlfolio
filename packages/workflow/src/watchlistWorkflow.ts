@@ -1,6 +1,7 @@
 import type { EventStore } from '@owlfolio/ledger/eventStore'
 import type { ActorType, LedgerEventEnvelope } from '@owlfolio/ledger/eventEnvelope'
-import { evaluateChecklistCompletion, type ChecklistAnswer } from '@owlfolio/strategies/checklist'
+import { evaluateChecklistCompletion } from '@owlfolio/strategies/checklist'
+import type { ChecklistAudit } from '@owlfolio/strategies/checklistParams'
 import { resolveResearchStrategyRef } from './researchStrategyRef'
 
 type WatchlistEventStore = EventStore<LedgerEventEnvelope<unknown>>
@@ -43,19 +44,30 @@ type WatchlistDraftCreatedPayload = {
   frozen_iv_valuation_version?: string
   /**
    * The human's plain-language thesis (doc Gate 0 `[Hu]`), distinct from the agent-drafted
-   * `thesis_summary`. A signed thesis is the human's commitment; it is required + non-empty on admit.
+   * `thesis_summary`. A signed thesis is the human's FINAL commitment; it is required + non-empty on
+   * admit. In the audit-and-decide model the human starts from `signed_thesis_draft` (the agent-drafted
+   * thesis) and either AFFIRMS it verbatim or AMENDS it — either way THIS is the persisted final.
    */
   signed_thesis: string
   /**
-   * The human's answers to the two Phase 7 hygiene checklists (business failure modes + cognitive
-   * biases), captured at sign-off as part of the human commitment — append-only, alongside
-   * `signed_thesis`. Keyed by checklist item id; each answer is `{ addressed, note }`. Admission is
-   * COMPLETION-BLOCKED: every item must be addressed (affirmed + non-empty note) before this event is
-   * appended (see confirmWatchlistDraft). DECISION-NEUTRAL: no score/count/weight is derived — the
-   * checklist forces the question, it never answers or ranks it. The cognitive answers are HUMAN-AUTHORED
-   * only; nothing server-side defaults or synthesizes them.
+   * The agent-drafted thesis the human reviewed before signing (the audit-and-decide draft). Captured so
+   * the affirm-vs-amend provenance (`thesis_amended`) is auditable: the human's final `signed_thesis` is
+   * compared against THIS draft. Distinct from `thesis_summary` (the watchlist summary reference).
    */
-  checklist_answers: Record<string, ChecklistAnswer>
+  signed_thesis_draft: string
+  /**
+   * Whether the human AMENDED the agent-drafted thesis: `signed_thesis.trim() !== signed_thesis_draft.trim()`.
+   * Derived at sign-off, persisted append-only so the affirm (false) vs. amend (true) decision is auditable.
+   */
+  thesis_amended: boolean
+  /**
+   * The harness-marshaled audit captured at sign-off (audit-and-decide model): one business finding per
+   * business item + the human's single cognitive acknowledgement. Admission is COMPLETION-BLOCKED: every
+   * business item must carry a non-empty finding AND `cognitive_acknowledged === true` before this event is
+   * appended (see confirmWatchlistDraft). DECISION-NEUTRAL: no score/count/weight is derived — the audit
+   * forces the question, it never answers or ranks it.
+   */
+  checklist_audit: ChecklistAudit
   user_approved: false
   created_by_actor_type: ActorType
   created_by_actor_id: string
@@ -86,15 +98,19 @@ export type ConfirmWatchlistDraftCommand = {
   frozen_iv?: number | undefined
   /** `VALUATION_PARAMS.version` the frozen undiscounted IV was frozen under (see payload doc). */
   frozen_iv_valuation_version?: string | undefined
-  /** The human's required, non-empty signed thesis (Gate 0 `[Hu]`). */
+  /** The human's required, non-empty FINAL signed thesis (Gate 0 `[Hu]`) — affirmed or amended. */
   signed_thesis: string
   /**
-   * The human's answers to the Phase 7 hygiene checklists (business + cognitive). REQUIRED: every
-   * checklist item must be addressed (affirmed + non-empty note) or the admit is rejected before any
-   * append (completion-block, mirroring the signed_thesis guard). Keyed by item id. HUMAN-AUTHORED only —
-   * the caller must pass the human's own answers; no answer is defaulted/synthesized server-side.
+   * The agent-drafted thesis the human reviewed (the audit-and-decide draft). REQUIRED so the
+   * affirm-vs-amend provenance (`thesis_amended`) can be derived: `signed_thesis` is compared against it.
    */
-  checklist_answers: Record<string, ChecklistAnswer>
+  signed_thesis_draft: string
+  /**
+   * The harness-marshaled audit (business findings + cognitive acknowledgement). REQUIRED: the admit is
+   * COMPLETION-BLOCKED — every business item must carry a non-empty finding AND `cognitive_acknowledged`
+   * must be true, or the admit is rejected before any append (mirroring the signed_thesis guard).
+   */
+  checklist_audit: ChecklistAudit
   actor_id: string
   /**
    * Admit is a HUMAN-AUTHORED transition: defaults to `user`. A non-`user` actor (worker/provider/system)
@@ -139,16 +155,20 @@ export async function confirmWatchlistDraft(
   if (command.signed_thesis.trim().length === 0) {
     throw new Error('Watchlist admit requires a non-empty signed_thesis (the human commitment).')
   }
-  // COMPLETION-BLOCK (Phase 7 S2): every hygiene/bias checklist item must be ADDRESSED before admit —
-  // same throw-before-append shape as the signed_thesis guard. Decision-NEUTRAL: the evaluator only tells
-  // us WHICH items are unaddressed; it never scores/counts them, and a "risk present" answer never
-  // auto-rejects. We throw the unaddressed ids so the human knows what still needs attention.
-  const checklistCompletion = evaluateChecklistCompletion(command.checklist_answers)
+  // COMPLETION-BLOCK (audit-and-decide): the harness-marshaled audit must be fully marshaled +
+  // acknowledged before admit — same throw-before-append shape as the signed_thesis guard.
+  // Decision-NEUTRAL: the evaluator only tells us WHICH blockers are still open (business items lacking a
+  // finding, plus the cognitive acknowledgement); it never scores/counts them, and a "risk present"
+  // finding never auto-rejects. We throw the missing ids so the human knows what still needs attention.
+  const checklistCompletion = evaluateChecklistCompletion(command.checklist_audit)
   if (!checklistCompletion.complete) {
     throw new Error(
-      `Watchlist admit requires every quality/bias checklist item to be addressed; unaddressed: ${checklistCompletion.unaddressed.join(', ')}`,
+      `Watchlist admit requires a complete audit; missing: ${checklistCompletion.missing.join(', ')}`,
     )
   }
+
+  // Affirm vs. amend provenance: the human either signed the agent draft verbatim or amended it.
+  const thesisAmended = command.signed_thesis.trim() !== command.signed_thesis_draft.trim()
 
   const selectedStrategy = resolveResearchStrategyRef(command)
   const payload: WatchlistDraftCreatedPayload = {
@@ -171,9 +191,12 @@ export async function confirmWatchlistDraft(
       ? {}
       : { frozen_iv_valuation_version: command.frozen_iv_valuation_version }),
     signed_thesis: command.signed_thesis,
+    // The agent draft the human reviewed + whether they amended it (affirm-vs-amend provenance).
+    signed_thesis_draft: command.signed_thesis_draft,
+    thesis_amended: thesisAmended,
     // Persisted append-only as part of the human sign-off, alongside signed_thesis (verified complete
-    // above). The cognitive answers are the human's own — never defaulted/synthesized here.
-    checklist_answers: command.checklist_answers,
+    // above). The harness marshals the business findings; the human acknowledges the cognitive reflection.
+    checklist_audit: command.checklist_audit,
     user_approved: false,
     created_by_actor_type: 'user',
     created_by_actor_id: command.actor_id,

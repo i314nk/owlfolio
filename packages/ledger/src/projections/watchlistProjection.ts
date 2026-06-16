@@ -10,6 +10,17 @@ export type WatchlistChecklistAnswer = {
   note: string
 }
 
+/**
+ * The harness-marshaled audit as projected for the audit-and-decide sign-off. Structurally identical to
+ * the `ChecklistAudit` shape in `@owlfolio/strategies/checklistParams`, redeclared here because
+ * `@owlfolio/ledger` must NOT depend on `@owlfolio/strategies`.
+ */
+export type WatchlistChecklistAudit = {
+  version: string
+  business_findings: Record<string, string>
+  cognitive_acknowledged: boolean
+}
+
 export type WatchlistProjection = {
   watchlist_item_id: string
   research_case_id: string
@@ -38,13 +49,22 @@ export type WatchlistProjection = {
   frozen_iv?: number
   /** `VALUATION_PARAMS.version` the frozen undiscounted IV was frozen under (sign-off valuation provenance). */
   frozen_iv_valuation_version?: string
-  /** The human's signed plain-language thesis (Gate 0 `[Hu]`), distinct from the agent-drafted thesis_summary. */
+  /** The human's signed FINAL plain-language thesis (Gate 0 `[Hu]`), distinct from the agent-drafted thesis_summary. */
   signed_thesis?: string
+  /** The agent-drafted thesis the human reviewed (the audit-and-decide draft) — present on new events. */
+  signed_thesis_draft?: string
+  /** Whether the human amended the agent draft (`signed_thesis` !== `signed_thesis_draft`) — present on new events. */
+  thesis_amended?: boolean
   /**
-   * The human's answers to the Phase 7 hygiene checklists (business + cognitive), captured at sign-off
-   * alongside `signed_thesis` — so a name's checklist answers travel with its thesis (auditable). Keyed by
-   * checklist item id; each value is `{ addressed: boolean; note: string }`. DECISION-NEUTRAL: no
-   * score/count is derived here — this is a verbatim audit projection of the human's sign-off answers.
+   * The harness-marshaled audit (business findings + cognitive acknowledgement), captured at sign-off
+   * alongside `signed_thesis` — so a name's audit travels with its thesis (auditable). DECISION-NEUTRAL:
+   * no score/count is derived here. Present on NEW (audit-and-decide) events.
+   */
+  checklist_audit?: WatchlistChecklistAudit
+  /**
+   * LEGACY: the human's per-item checklist answers captured under the OLD sign-off model. Retained so
+   * existing ledgers written before the audit-and-decide migration still project. New events carry
+   * `checklist_audit` instead. DECISION-NEUTRAL verbatim audit projection.
    */
   checklist_answers?: Record<string, WatchlistChecklistAnswer>
   shariah_gate_decision_id?: string
@@ -100,6 +120,33 @@ function getChecklistAnswers(
     }
   }
   return answers
+}
+
+/**
+ * Extract the harness-marshaled audit from a payload, decision-neutrally — verbatim, no scoring. Returns
+ * undefined when the field is absent or malformed (older events carry `checklist_answers` instead).
+ */
+function getChecklistAudit(
+  payload: Record<string, unknown>,
+  key: string,
+): WatchlistChecklistAudit | undefined {
+  const value = payload[key]
+  if (!isRecord(value)) {
+    return undefined
+  }
+  const version = value['version']
+  const businessFindings = value['business_findings']
+  const cognitiveAcknowledged = value['cognitive_acknowledged']
+  if (typeof version !== 'string' || !isRecord(businessFindings) || typeof cognitiveAcknowledged !== 'boolean') {
+    return undefined
+  }
+  const findings: Record<string, string> = {}
+  for (const [id, finding] of Object.entries(businessFindings)) {
+    if (typeof finding === 'string') {
+      findings[id] = finding
+    }
+  }
+  return { version, business_findings: findings, cognitive_acknowledged: cognitiveAcknowledged }
 }
 
 function getStringArray(payload: Record<string, unknown>, key: string): string[] {
@@ -184,6 +231,7 @@ function applyString(
     | 'strategy_version'
     | 'thesis_summary'
     | 'signed_thesis'
+    | 'signed_thesis_draft'
     | 'buy_below_valuation_version'
     | 'frozen_iv_valuation_version'
   >,
@@ -237,6 +285,17 @@ export function projectWatchlist(events: LedgerEventEnvelope<unknown>[]): Watchl
     applyString(watchlistItem, 'strategy_version', getString(event.payload, 'strategy_version'))
     applyString(watchlistItem, 'thesis_summary', getString(event.payload, 'thesis_summary'))
     applyString(watchlistItem, 'signed_thesis', getString(event.payload, 'signed_thesis'))
+    applyString(watchlistItem, 'signed_thesis_draft', getString(event.payload, 'signed_thesis_draft'))
+    const thesisAmended = getBoolean(event.payload, 'thesis_amended')
+    if (thesisAmended !== undefined) {
+      watchlistItem.thesis_amended = thesisAmended
+    }
+    // NEW (audit-and-decide): the harness-marshaled audit. LEGACY: per-item checklist answers — read both
+    // so existing ledgers written before the migration still project. New events carry only the audit.
+    const checklistAudit = getChecklistAudit(event.payload, 'checklist_audit')
+    if (checklistAudit !== undefined) {
+      watchlistItem.checklist_audit = checklistAudit
+    }
     const checklistAnswers = getChecklistAnswers(event.payload, 'checklist_answers')
     if (checklistAnswers !== undefined) {
       watchlistItem.checklist_answers = checklistAnswers

@@ -10,6 +10,17 @@ export type HoldingChecklistAnswer = {
   note: string
 }
 
+/**
+ * The harness-marshaled audit as projected for the audit-and-decide re-underwrite sign-off. Structurally
+ * identical to the `ChecklistAudit` shape in `@owlfolio/strategies/checklistParams`, redeclared here
+ * because `@owlfolio/ledger` must NOT depend on `@owlfolio/strategies`.
+ */
+export type HoldingChecklistAudit = {
+  version: string
+  business_findings: Record<string, string>
+  cognitive_acknowledged: boolean
+}
+
 export type HoldingProjection = {
   holding_id: string
   watchlist_item_id: string
@@ -51,12 +62,16 @@ export type HoldingProjection = {
   next_review_at?: string
   latest_reviewed_at?: string
   /**
-   * The human's answers to the Phase 7 hygiene checklists (business + cognitive), captured at the latest
-   * re-underwrite sign-off (holding_review_confirmed OR holding_review_overridden — both co-equal sign-offs)
-   * — so a holding's re-underwrite answers are auditable alongside its confirmed thesis. Keyed by checklist
-   * item id; each value is `{ addressed, note }`.
-   * DECISION-NEUTRAL: no score/count is derived here — this is a verbatim audit projection. Undefined for
-   * holdings whose latest confirmation predates the checklist (older events have none).
+   * The harness-marshaled audit captured at the latest re-underwrite sign-off (holding_review_confirmed OR
+   * holding_review_overridden — both co-equal sign-offs) — so a holding's re-underwrite audit is auditable
+   * alongside its confirmed thesis. DECISION-NEUTRAL: no score/count is derived. Present on NEW
+   * (audit-and-decide) sign-offs.
+   */
+  checklist_audit?: HoldingChecklistAudit
+  /**
+   * LEGACY: the human's per-item checklist answers captured under the OLD sign-off model. Retained so
+   * existing ledgers written before the audit-and-decide migration still project. New sign-offs carry
+   * `checklist_audit` instead. Undefined for holdings whose latest confirmation predates the checklist.
    */
   checklist_answers?: Record<string, HoldingChecklistAnswer>
   opened_by_actor_type?: string
@@ -122,6 +137,33 @@ function getChecklistAnswers(
     }
   }
   return answers
+}
+
+/**
+ * Extract the harness-marshaled audit from a payload, decision-neutrally — verbatim, no scoring. Returns
+ * undefined when the field is absent or malformed (older sign-offs carry `checklist_answers` instead).
+ */
+function getChecklistAudit(
+  payload: Record<string, unknown>,
+  key: string,
+): HoldingChecklistAudit | undefined {
+  const value = payload[key]
+  if (!isRecord(value)) {
+    return undefined
+  }
+  const version = value['version']
+  const businessFindings = value['business_findings']
+  const cognitiveAcknowledged = value['cognitive_acknowledged']
+  if (typeof version !== 'string' || !isRecord(businessFindings) || typeof cognitiveAcknowledged !== 'boolean') {
+    return undefined
+  }
+  const findings: Record<string, string> = {}
+  for (const [id, finding] of Object.entries(businessFindings)) {
+    if (typeof finding === 'string') {
+      findings[id] = finding
+    }
+  }
+  return { version, business_findings: findings, cognitive_acknowledged: cognitiveAcknowledged }
 }
 
 type ShariahGateDecisionProjection = {
@@ -357,10 +399,15 @@ export function projectHoldings(events: LedgerEventEnvelope<unknown>[]): Holding
       if (evidenceSummary !== undefined) holding.latest_review_evidence_summary = evidenceSummary
       if (uncertainty !== undefined) holding.latest_review_uncertainty = uncertainty
       if (nextReviewAt !== undefined) holding.next_review_at = nextReviewAt
-      // Re-underwrite sign-off answers (Phase 7 S3 + bypass close): BOTH human sign-offs carry the checklist
-      // — confirm AND override are co-equal re-underwrites writing the same confirmed thesis state. We replace
-      // the field with the LATEST sign-off's answers (verbatim, no scoring) so a holding's current
-      // re-underwrite answers are auditable; an older sign-off with none leaves it undefined.
+      // Re-underwrite sign-off audit (audit-and-decide) + LEGACY answers: BOTH human sign-offs carry it —
+      // confirm AND override are co-equal re-underwrites writing the same confirmed thesis state. We replace
+      // the field with the LATEST sign-off's audit/answers (verbatim, no scoring) so a holding's current
+      // re-underwrite record is auditable. New events carry `checklist_audit`; older ledgers carry
+      // `checklist_answers` — read both so existing ledgers still project.
+      const checklistAudit = getChecklistAudit(event.payload, 'checklist_audit')
+      if (checklistAudit !== undefined) {
+        holding.checklist_audit = checklistAudit
+      }
       const checklistAnswers = getChecklistAnswers(event.payload, 'checklist_answers')
       if (checklistAnswers !== undefined) {
         holding.checklist_answers = checklistAnswers

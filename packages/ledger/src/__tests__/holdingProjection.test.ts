@@ -213,6 +213,51 @@ describe('projectHoldings', () => {
     expect(holdings[0]?.checklist_answers).toEqual(checklistAnswers)
   })
 
+  it('projects the harness checklist_audit from a NEW holding_review_confirmed event (audit-and-decide)', () => {
+    const checklistAudit = {
+      version: 'checklist-2026-06-phase7-2',
+      business_findings: {
+        moat_erosion: 'Marshaled finding: no erosion evidence at re-underwrite.',
+        shariah_drift: 'Marshaled finding: ratios unchanged since admission.',
+      },
+      cognitive_acknowledged: true,
+    }
+    const holdings = projectHoldings([
+      openedHolding,
+      draftedReview('review_audit', '2026-06-01T00:00:00.000Z'),
+      {
+        event_id: 'evt_holding_review_confirmed_review_audit',
+        event_type: 'holding_review_confirmed',
+        aggregate_type: 'holding',
+        aggregate_id: 'holding_cost_001',
+        actor_type: 'user',
+        actor_id: 'user_local',
+        payload: {
+          review_id: 'review_audit',
+          holding_id: 'holding_cost_001',
+          research_case_id: 'rc_cost_001',
+          ticker: 'COST',
+          strategy_id: 'buffett-munger',
+          thesis_health: 'HEALTHY',
+          action_stance: 'HOLD',
+          rationale: 'Confirmed at re-underwrite.',
+          evidence_summary: 'Manual confirmation.',
+          uncertainty: 'None.',
+          next_review_at: '2026-09-30',
+          user_approved: true,
+          checklist_audit: checklistAudit,
+        },
+        source_ids: [],
+        created_at: '2026-06-03T00:00:00.000Z',
+        schema_version: 1,
+      },
+    ])
+
+    // The new audit projects; the legacy answers field stays undefined (no legacy field on a new event).
+    expect(holdings[0]?.checklist_audit).toEqual(checklistAudit)
+    expect(holdings[0]?.checklist_answers).toBeUndefined()
+  })
+
   it('keeps the latest re-underwrite checklist answers across confirm then override (latest wins)', () => {
     const confirmAnswers = {
       moat_erosion: { addressed: true, note: 'Confirm pass note.' },

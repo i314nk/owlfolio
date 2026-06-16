@@ -430,6 +430,17 @@ export type ResearchCaseChecklistAnswer = {
 }
 
 /**
+ * The harness-marshaled audit mirrored onto the research case (audit-and-decide model). Structurally
+ * identical to the `ChecklistAudit` shape in `@owlfolio/strategies/checklistParams`, redeclared here
+ * because `@owlfolio/ledger` must NOT depend on `@owlfolio/strategies`.
+ */
+export type ResearchCaseChecklistAudit = {
+  version: string
+  business_findings: Record<string, string>
+  cognitive_acknowledged: boolean
+}
+
+/**
  * The human's Phase 7 hygiene-checklist answers (business + cognitive), captured at sign-off
  * (`watchlist_draft_created`) and mirrored onto the research case so a name's checklist answers travel
  * with its thesis (auditable). Keyed by checklist item id. DECISION-NEUTRAL: a verbatim audit projection
@@ -495,8 +506,14 @@ export type ResearchCaseProjection = {
   risks?: string[]
   open_questions?: string[]
   /**
-   * The human's Phase 7 hygiene-checklist answers, captured at admit sign-off — mirrored here so the
-   * checklist answers travel with the thesis (auditable). DECISION-NEUTRAL: verbatim, never scored.
+   * The harness-marshaled audit, captured at admit sign-off — mirrored here so the audit travels with the
+   * thesis (auditable). DECISION-NEUTRAL: verbatim, never scored. Present on NEW (audit-and-decide) events.
+   */
+  checklist_audit?: ResearchCaseChecklistAudit
+  /**
+   * LEGACY: the human's per-item checklist answers captured under the OLD sign-off model, mirrored at admit.
+   * Retained so existing ledgers written before the audit-and-decide migration still project. New events
+   * carry `checklist_audit` instead. DECISION-NEUTRAL: verbatim, never scored.
    */
   checklist_answers?: ResearchCaseChecklistAnswersProjection
   updated_at: string
@@ -554,6 +571,33 @@ function getChecklistAnswers(
     }
   }
   return answers
+}
+
+/**
+ * Extract the harness-marshaled audit from a payload, decision-neutrally — verbatim, no scoring. Returns
+ * undefined when the field is absent or malformed (older events carry `checklist_answers` instead).
+ */
+function getChecklistAudit(
+  payload: Record<string, unknown>,
+  key: string,
+): ResearchCaseChecklistAudit | undefined {
+  const value = payload[key]
+  if (!isRecord(value)) {
+    return undefined
+  }
+  const version = value['version']
+  const businessFindings = value['business_findings']
+  const cognitiveAcknowledged = value['cognitive_acknowledged']
+  if (typeof version !== 'string' || !isRecord(businessFindings) || typeof cognitiveAcknowledged !== 'boolean') {
+    return undefined
+  }
+  const findings: Record<string, string> = {}
+  for (const [id, finding] of Object.entries(businessFindings)) {
+    if (typeof finding === 'string') {
+      findings[id] = finding
+    }
+  }
+  return { version, business_findings: findings, cognitive_acknowledged: cognitiveAcknowledged }
 }
 
 function getOwnerEarningsBridgeProjection(val: Record<string, unknown>): OwnerEarningsBridgeProjection | undefined {
@@ -1555,7 +1599,13 @@ export function projectResearchCases(events: LedgerEventEnvelope<unknown>[]): Re
       applyString(researchCase, 'strategy_id', getString(event.payload, 'strategy_id'))
       applyString(researchCase, 'strategy_version', getString(event.payload, 'strategy_version'))
       applyBoolean(researchCase, 'user_approved', getBoolean(event.payload, 'user_approved'))
-      // Mirror the human's sign-off checklist answers onto the case (auditable; verbatim, never scored).
+      // Mirror the sign-off audit onto the case (auditable; verbatim, never scored). NEW events carry the
+      // harness-marshaled `checklist_audit`; LEGACY ledgers carry per-item `checklist_answers` — read both
+      // so existing ledgers still project.
+      const checklistAudit = getChecklistAudit(event.payload, 'checklist_audit')
+      if (checklistAudit !== undefined) {
+        researchCase.checklist_audit = checklistAudit
+      }
       const checklistAnswers = getChecklistAnswers(event.payload, 'checklist_answers')
       if (checklistAnswers !== undefined) {
         researchCase.checklist_answers = checklistAnswers

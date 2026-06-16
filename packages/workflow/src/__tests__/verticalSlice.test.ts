@@ -11,14 +11,18 @@ import {
   overrideHoldingReviewDraft,
   rejectHoldingReviewDraft,
 } from '../holdingReviewWorkflow'
-import { CHECKLIST_PARAMS } from '@owlfolio/strategies/checklistParams'
+import { CHECKLIST_PARAMS, listBusinessItems } from '@owlfolio/strategies/checklistParams'
 import { createResearchCase, runDemoBuffettMungerAnalysis, draftDecision } from '../researchWorkflow'
 import { confirmWatchlistDraft } from '../watchlistWorkflow'
 
 // Phase 7 S2: admit requires every hygiene/bias checklist item to be addressed (affirmed + note).
-const COMPLETE_CHECKLIST: Record<string, { addressed: boolean; note: string }> = Object.fromEntries(
-  CHECKLIST_PARAMS.items.map((item) => [item.id, { addressed: true, note: `Addressed ${item.id}.` }]),
-)
+const COMPLETE_AUDIT: import('@owlfolio/strategies/checklistParams').ChecklistAudit = {
+  version: CHECKLIST_PARAMS.version,
+  business_findings: Object.fromEntries(
+    listBusinessItems().map((item) => [item.id, `Marshaled finding for ${item.id}.`]),
+  ),
+  cognitive_acknowledged: true,
+}
 
 async function openCostHolding(store: InMemoryEventStore) {
   return await openHoldingFromWatchlist(store, {
@@ -47,7 +51,7 @@ describe('v0.2 vertical research workflow', () => {
     const analysis = await runDemoBuffettMungerAnalysis(store, provider, { research_case_id: researchCase.research_case_id, company_id: 'company_cost', ticker: 'COST', idempotency_key: 'analysis:rc_cost_001:mock:v1' })
     const decision = await draftDecision(store, { research_case_id: researchCase.research_case_id, decision_id: 'decision_cost_watch_001', decision: analysis.investment_verdict, reason: 'Demo analysis says watch until margin of safety improves.', causation_id: analysis.event_id })
     // Phase 8 S4: one gated admit emits BOTH the created draft AND the confirmation atomically.
-    await confirmWatchlistDraft(store, { watchlist_item_id: 'watch_cost_001', research_case_id: researchCase.research_case_id, decision_id: decision.decision_id, company_id: 'company_cost', ticker: 'COST', strategy_id: 'buffett-munger', thesis_summary: 'Durable quality compounder; wait for better margin of safety.', locked_buy_below: 742.5, buy_below_valuation_version: 'valuation-2026-06-cap-1', buy_below_mos_provisional: true, signed_thesis: 'I am admitting COST as a durable low-cost-moat compounder; buy only at a deep dislocation.', checklist_answers: COMPLETE_CHECKLIST, actor_id: 'user_local' })
+    await confirmWatchlistDraft(store, { watchlist_item_id: 'watch_cost_001', research_case_id: researchCase.research_case_id, decision_id: decision.decision_id, company_id: 'company_cost', ticker: 'COST', strategy_id: 'buffett-munger', thesis_summary: 'Durable quality compounder; wait for better margin of safety.', locked_buy_below: 742.5, buy_below_valuation_version: 'valuation-2026-06-cap-1', buy_below_mos_provisional: true, signed_thesis: 'I am admitting COST as a durable low-cost-moat compounder; buy only at a deep dislocation.', signed_thesis_draft: 'I am admitting COST as a durable low-cost-moat compounder; buy only at a deep dislocation.', checklist_audit: COMPLETE_AUDIT, actor_id: 'user_local' })
     const confirmedEvent = (await store.list()).find((event) => event.event_type === 'watchlist_draft_confirmed')
     if (confirmedEvent === undefined) {
       throw new Error('expected the consolidated admit to emit a watchlist_draft_confirmed event')
@@ -92,7 +96,7 @@ describe('v0.2 vertical research workflow', () => {
       holding_id: holding.holding_id,
       causation_id: reviewDraft.event_id,
       actor_id: 'user_local',
-      checklist_answers: COMPLETE_CHECKLIST,
+      checklist_audit: COMPLETE_AUDIT,
       idempotency_key: 'holding:holding_cost_001:review:2026-06-30:confirm:v1',
     })
     const secondReviewDraft = await draftHoldingReview(store, provider, {
@@ -113,7 +117,7 @@ describe('v0.2 vertical research workflow', () => {
       evidence_summary: 'Reviewed latest valuation snapshot and original watchlist thesis.',
       uncertainty: 'Need updated debt and Shariah ratio review before increasing exposure.',
       next_review_at: '2026-10-31',
-      checklist_answers: COMPLETE_CHECKLIST,
+      checklist_audit: COMPLETE_AUDIT,
       idempotency_key: 'holding:holding_cost_001:review:2026-12-31:override:v1',
     })
     const rejectedReviewDraft = await draftHoldingReview(store, provider, {
@@ -338,7 +342,7 @@ describe('v0.2 vertical research workflow', () => {
       holding_id: holding.holding_id,
       causation_id: firstDraft.event_id,
       actor_id: 'user_local',
-      checklist_answers: COMPLETE_CHECKLIST,
+      checklist_audit: COMPLETE_AUDIT,
     })).rejects.toThrow('Holding review draft is not the latest pending draft')
   })
 })

@@ -128,3 +128,94 @@ describe('projectWatchlist frozen undiscounted IV (Phase 6 S3)', () => {
     expect(watchlist[0]?.locked_buy_below).toBe(150)
   })
 })
+
+describe('projectWatchlist audit-and-decide sign-off (checklist_audit + thesis provenance)', () => {
+  function draftCreated(payload: Record<string, unknown>): LedgerEventEnvelope<unknown> {
+    return {
+      event_id: 'evt_watchlist_draft_created_watch_cost_001',
+      event_type: 'watchlist_draft_created',
+      aggregate_type: 'watchlist_item',
+      aggregate_id: 'watch_cost_001',
+      actor_type: 'user',
+      actor_id: 'user_local',
+      payload: {
+        watchlist_item_id: 'watch_cost_001',
+        research_case_id: 'rc_cost_001',
+        decision_id: 'decision_cost_001',
+        company_id: 'company_cost',
+        ticker: 'COST',
+        strategy_id: 'buffett-munger',
+        thesis_summary: 'Watch COST.',
+        user_approved: false,
+        created_by_actor_type: 'user',
+        created_by_actor_id: 'user_local',
+        ...payload,
+      },
+      source_ids: [],
+      created_at: '2026-06-01T00:01:00.000Z',
+      schema_version: 1,
+    }
+  }
+
+  const completeAudit = {
+    version: 'checklist-2026-06-phase7-2',
+    business_findings: {
+      moat_erosion: 'Marshaled finding: no erosion evidence.',
+      shariah_drift: 'Marshaled finding: compliant.',
+    },
+    cognitive_acknowledged: true,
+  }
+
+  it('projects checklist_audit + signed_thesis_draft + thesis_amended:false when the human affirms', () => {
+    const watchlist = projectWatchlist([
+      draftCreated({
+        signed_thesis: 'Final thesis verbatim from the agent draft.',
+        signed_thesis_draft: 'Final thesis verbatim from the agent draft.',
+        thesis_amended: false,
+        checklist_audit: completeAudit,
+      }),
+    ])
+
+    expect(watchlist[0]?.checklist_audit).toEqual(completeAudit)
+    expect(watchlist[0]?.signed_thesis).toBe('Final thesis verbatim from the agent draft.')
+    expect(watchlist[0]?.signed_thesis_draft).toBe('Final thesis verbatim from the agent draft.')
+    expect(watchlist[0]?.thesis_amended).toBe(false)
+    // No legacy answers field on a new event.
+    expect(watchlist[0]?.checklist_answers).toBeUndefined()
+  })
+
+  it('projects thesis_amended:true when the human amended the agent draft', () => {
+    const watchlist = projectWatchlist([
+      draftCreated({
+        signed_thesis: 'Human-amended final thesis with a wider margin of safety.',
+        signed_thesis_draft: 'Agent draft thesis.',
+        thesis_amended: true,
+        checklist_audit: completeAudit,
+      }),
+    ])
+
+    expect(watchlist[0]?.thesis_amended).toBe(true)
+    expect(watchlist[0]?.signed_thesis).toBe('Human-amended final thesis with a wider margin of safety.')
+    expect(watchlist[0]?.signed_thesis_draft).toBe('Agent draft thesis.')
+  })
+
+  it('LEGACY TOLERANCE: an OLD event carrying checklist_answers (no checklist_audit) still projects', () => {
+    const legacyAnswers = {
+      moat_erosion: { addressed: true, note: 'Legacy answer.' },
+      shariah_drift: { addressed: true, note: 'Legacy answer.' },
+    }
+    const watchlist = projectWatchlist([
+      draftCreated({
+        signed_thesis: 'Legacy signed thesis.',
+        checklist_answers: legacyAnswers,
+      }),
+    ])
+
+    // The legacy answers project without throwing; the new audit field stays undefined.
+    expect(watchlist[0]?.checklist_answers).toEqual(legacyAnswers)
+    expect(watchlist[0]?.checklist_audit).toBeUndefined()
+    expect(watchlist[0]?.signed_thesis).toBe('Legacy signed thesis.')
+    expect(watchlist[0]?.signed_thesis_draft).toBeUndefined()
+    expect(watchlist[0]?.thesis_amended).toBeUndefined()
+  })
+})

@@ -246,9 +246,10 @@ describe('Phase 7 S5 wiring conformance — A3: cognitive items are HUMAN-ONLY (
 describe('Phase 7 S5 wiring conformance — A4: the checklist is extensible (iterates the data, no hardcoded list)', () => {
   it('the evaluator iterates CHECKLIST_PARAMS.items (no hardcoded per-item id list)', () => {
     const code = stripComments(checklistEngineSrc)
-    // It must iterate the params list...
-    expect(code, 'evaluator must iterate params.items / CHECKLIST_PARAMS.items').toMatch(
-      /for\s*\(\s*const\s+\w+\s+of\s+\w*\.?items\b/,
+    // It must iterate the params data — either `…items` directly or via the data-derived `listBusinessItems(…)`
+    // helper (audit-and-decide: the engine iterates the business items). Both are data-driven, not hardcoded.
+    expect(code, 'evaluator must iterate params.items / CHECKLIST_PARAMS.items / listBusinessItems(…)').toMatch(
+      /for\s*\(\s*const\s+\w+\s+of\s+(?:\w*\.?items\b|listBusinessItems\s*\()/,
     )
     // ...and must NOT enumerate item ids inline (a literal array of >=2 known item id strings).
     const knownIds = CHECKLIST_PARAMS.items.map((item) => item.id)

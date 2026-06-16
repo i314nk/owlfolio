@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { InMemoryEventStore } from '@owlfolio/ledger/eventStore'
 import { projectHoldings } from '@owlfolio/ledger/projections/holdingProjection'
 import { MockProvider } from '@owlfolio/providers/mockProvider'
-import { CHECKLIST_PARAMS } from '@owlfolio/strategies/checklistParams'
+import { CHECKLIST_PARAMS, listBusinessItems, type ChecklistAudit } from '@owlfolio/strategies/checklistParams'
 import { openHoldingFromWatchlist, recordHoldingValuationSnapshot } from '../holdingWorkflow'
 import { confirmHoldingReviewDraft, draftHoldingReview, overrideHoldingReviewDraft } from '../holdingReviewWorkflow'
 
@@ -15,15 +15,24 @@ const OVERRIDE_THESIS = {
   next_review_at: '2026-10-31',
 } as const
 
-// Phase 7 S3: the re-underwrite sign-off (confirmHoldingReviewDraft → holding_review_confirmed) is
-// completion-blocked on the SAME 17-item hygiene/bias checklist. These tests prove the integrity fix:
-// a confirmation that previously validated NOTHING now validates that the checklist is addressed.
-const COMPLETE_CHECKLIST: Record<string, { addressed: boolean; note: string }> = Object.fromEntries(
-  CHECKLIST_PARAMS.items.map((item) => [item.id, { addressed: true, note: `Addressed ${item.id} at re-underwrite.` }]),
-)
+// Audit-and-decide: the re-underwrite sign-off (confirmHoldingReviewDraft → holding_review_confirmed) is
+// completion-blocked on the harness-marshaled audit. These tests prove the integrity fix: a confirmation
+// that previously validated NOTHING now validates that the audit is complete.
+function completeChecklistAudit(): ChecklistAudit {
+  const business_findings: Record<string, string> = {}
+  for (const item of listBusinessItems()) {
+    business_findings[item.id] = `Marshaled finding for ${item.id} at re-underwrite.`
+  }
+  return { version: CHECKLIST_PARAMS.version, business_findings, cognitive_acknowledged: true }
+}
 
-function withUnaddressed(itemId: string): Record<string, { addressed: boolean; note: string }> {
-  return { ...COMPLETE_CHECKLIST, [itemId]: { addressed: false, note: '' } }
+const COMPLETE_AUDIT: ChecklistAudit = completeChecklistAudit()
+
+/** A complete audit missing one business finding (the named business item is unmarshaled). */
+function withMissingFinding(itemId: string): ChecklistAudit {
+  const audit = completeChecklistAudit()
+  delete audit.business_findings[itemId]
+  return audit
 }
 
 async function openCostHolding(store: InMemoryEventStore) {
@@ -74,13 +83,13 @@ describe('re-underwrite sign-off checklist completion-block (Phase 7 S3)', () =>
       holding_id: draft.holding_id,
       causation_id: draft.event_id,
       actor_id: 'user_local',
-      checklist_answers: COMPLETE_CHECKLIST,
+      checklist_audit: COMPLETE_AUDIT,
     })
 
     expect(confirmation.event_type).toBe('holding_review_confirmed')
     expect(confirmation.user_approved).toBe(true)
     // Persisted append-only on the re-underwrite artifact (auditable).
-    expect(confirmation.payload.checklist_answers).toEqual(COMPLETE_CHECKLIST)
+    expect(confirmation.payload.checklist_audit).toEqual(COMPLETE_AUDIT)
   })
 
   it('throws and appends NOTHING when an item is unaddressed (the integrity test)', async () => {
@@ -93,8 +102,8 @@ describe('re-underwrite sign-off checklist completion-block (Phase 7 S3)', () =>
       holding_id: draft.holding_id,
       causation_id: draft.event_id,
       actor_id: 'user_local',
-      checklist_answers: withUnaddressed('moat_erosion'),
-    })).rejects.toThrow(/Re-underwrite sign-off requires every quality\/bias checklist item to be addressed; unaddressed: moat_erosion/)
+      checklist_audit: withMissingFinding('moat_erosion'),
+    })).rejects.toThrow(/Re-underwrite sign-off requires a complete audit; missing: moat_erosion/)
 
     // No append on the failed sign-off — throw-before-append.
     expect((await store.list()).length).toBe(before)
@@ -113,8 +122,8 @@ describe('re-underwrite sign-off checklist completion-block (Phase 7 S3)', () =>
       holding_id: draft.holding_id,
       causation_id: draft.event_id,
       actor_id: 'user_local',
-      checklist_answers: {},
-    })).rejects.toThrow(/Re-underwrite sign-off requires every quality\/bias checklist item to be addressed/)
+      checklist_audit: { version: CHECKLIST_PARAMS.version, business_findings: {}, cognitive_acknowledged: false },
+    })).rejects.toThrow(/Re-underwrite sign-off requires a complete audit/)
   })
 
   it('is completion-blocked when shariah_drift (item 10) is unaddressed — catches post-admission drift', async () => {
@@ -126,8 +135,8 @@ describe('re-underwrite sign-off checklist completion-block (Phase 7 S3)', () =>
       holding_id: draft.holding_id,
       causation_id: draft.event_id,
       actor_id: 'user_local',
-      checklist_answers: withUnaddressed('shariah_drift'),
-    })).rejects.toThrow(/unaddressed: shariah_drift/)
+      checklist_audit: withMissingFinding('shariah_drift'),
+    })).rejects.toThrow(/missing: shariah_drift/)
   })
 
   it('is completion-blocked when data_completeness (item 11) is unaddressed', async () => {
@@ -139,8 +148,8 @@ describe('re-underwrite sign-off checklist completion-block (Phase 7 S3)', () =>
       holding_id: draft.holding_id,
       causation_id: draft.event_id,
       actor_id: 'user_local',
-      checklist_answers: withUnaddressed('data_completeness'),
-    })).rejects.toThrow(/unaddressed: data_completeness/)
+      checklist_audit: withMissingFinding('data_completeness'),
+    })).rejects.toThrow(/missing: data_completeness/)
   })
 
   it('records the re-underwrite answers human-authored (actor user); nothing is defaulted server-side', async () => {
@@ -152,7 +161,7 @@ describe('re-underwrite sign-off checklist completion-block (Phase 7 S3)', () =>
       holding_id: draft.holding_id,
       causation_id: draft.event_id,
       actor_id: 'user_local',
-      checklist_answers: COMPLETE_CHECKLIST,
+      checklist_audit: COMPLETE_AUDIT,
     })
 
     expect(confirmation.actor_type).toBe('user')
@@ -174,14 +183,14 @@ describe('re-underwrite override sign-off checklist completion-block (Phase 7 S3
       causation_id: draft.event_id,
       actor_id: 'user_local',
       ...OVERRIDE_THESIS,
-      checklist_answers: COMPLETE_CHECKLIST,
+      checklist_audit: COMPLETE_AUDIT,
     })
 
     expect(override.event_type).toBe('holding_review_overridden')
     expect(override.user_approved).toBe(true)
     expect(override.user_overrode_provider).toBe(true)
     // Persisted append-only on the override re-underwrite artifact (auditable).
-    expect(override.payload.checklist_answers).toEqual(COMPLETE_CHECKLIST)
+    expect(override.payload.checklist_audit).toEqual(COMPLETE_AUDIT)
   })
 
   it('throws and appends NOTHING when an item is unaddressed (the integrity test)', async () => {
@@ -195,8 +204,8 @@ describe('re-underwrite override sign-off checklist completion-block (Phase 7 S3
       causation_id: draft.event_id,
       actor_id: 'user_local',
       ...OVERRIDE_THESIS,
-      checklist_answers: withUnaddressed('moat_erosion'),
-    })).rejects.toThrow(/Re-underwrite sign-off requires every quality\/bias checklist item to be addressed; unaddressed: moat_erosion/)
+      checklist_audit: withMissingFinding('moat_erosion'),
+    })).rejects.toThrow(/Re-underwrite sign-off requires a complete audit; missing: moat_erosion/)
 
     // No append on the failed sign-off — throw-before-append.
     expect((await store.list()).length).toBe(before)
@@ -216,8 +225,8 @@ describe('re-underwrite override sign-off checklist completion-block (Phase 7 S3
       causation_id: draft.event_id,
       actor_id: 'user_local',
       ...OVERRIDE_THESIS,
-      checklist_answers: {},
-    })).rejects.toThrow(/Re-underwrite sign-off requires every quality\/bias checklist item to be addressed/)
+      checklist_audit: { version: CHECKLIST_PARAMS.version, business_findings: {}, cognitive_acknowledged: false },
+    })).rejects.toThrow(/Re-underwrite sign-off requires a complete audit/)
   })
 
   it('is completion-blocked when shariah_drift (item 10) is unaddressed on the override path', async () => {
@@ -230,8 +239,8 @@ describe('re-underwrite override sign-off checklist completion-block (Phase 7 S3
       causation_id: draft.event_id,
       actor_id: 'user_local',
       ...OVERRIDE_THESIS,
-      checklist_answers: withUnaddressed('shariah_drift'),
-    })).rejects.toThrow(/unaddressed: shariah_drift/)
+      checklist_audit: withMissingFinding('shariah_drift'),
+    })).rejects.toThrow(/missing: shariah_drift/)
   })
 
   it('is completion-blocked when data_completeness (item 11) is unaddressed on the override path', async () => {
@@ -244,8 +253,8 @@ describe('re-underwrite override sign-off checklist completion-block (Phase 7 S3
       causation_id: draft.event_id,
       actor_id: 'user_local',
       ...OVERRIDE_THESIS,
-      checklist_answers: withUnaddressed('data_completeness'),
-    })).rejects.toThrow(/unaddressed: data_completeness/)
+      checklist_audit: withMissingFinding('data_completeness'),
+    })).rejects.toThrow(/missing: data_completeness/)
   })
 
   it('records the override answers human-authored (actor user); nothing is defaulted server-side', async () => {
@@ -258,7 +267,7 @@ describe('re-underwrite override sign-off checklist completion-block (Phase 7 S3
       causation_id: draft.event_id,
       actor_id: 'user_local',
       ...OVERRIDE_THESIS,
-      checklist_answers: COMPLETE_CHECKLIST,
+      checklist_audit: COMPLETE_AUDIT,
     })
 
     expect(override.actor_type).toBe('user')

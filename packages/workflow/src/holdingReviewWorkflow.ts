@@ -2,7 +2,8 @@ import type { EventStore } from '@owlfolio/ledger/eventStore'
 import type { ActorType, LedgerEventEnvelope } from '@owlfolio/ledger/eventEnvelope'
 import { projectHoldings } from '@owlfolio/ledger/projections/holdingProjection'
 import type { Provider, ProviderRunRequest } from '@owlfolio/providers'
-import { evaluateChecklistCompletion, type ChecklistAnswer } from '@owlfolio/strategies/checklist'
+import { evaluateChecklistCompletion } from '@owlfolio/strategies/checklist'
+import type { ChecklistAudit } from '@owlfolio/strategies/checklistParams'
 import { z } from 'zod'
 
 const HoldingReviewSchema = z.object({
@@ -46,16 +47,14 @@ export type HoldingReviewConfirmedPayload = Omit<
 > & {
   user_approved: true
   /**
-   * The human's answers to the two Phase 7 hygiene checklists (business failure modes + cognitive
-   * biases), captured at the re-underwrite sign-off as part of the human commitment — append-only.
-   * Keyed by checklist item id; each answer is `{ addressed, note }`. The sign-off is COMPLETION-BLOCKED:
-   * every item must be addressed (affirmed + non-empty note) before this event is appended (see
-   * confirmHoldingReviewDraft). This is the re-underwrite host: it makes `holding_review_confirmed` go
-   * from validating NOTHING to validating that the checklist is addressed — the integrity fix.
-   * DECISION-NEUTRAL: no score/count/weight is derived — the checklist forces the question, never ranks
-   * it. The cognitive answers are HUMAN-AUTHORED only; nothing server-side defaults or synthesizes them.
+   * The harness-marshaled audit captured at the re-underwrite sign-off (audit-and-decide model): one
+   * business finding per business item + the human's single cognitive acknowledgement — append-only. The
+   * sign-off is COMPLETION-BLOCKED: every business item must carry a non-empty finding AND
+   * `cognitive_acknowledged === true` before this event is appended (see confirmHoldingReviewDraft). This
+   * is the re-underwrite host: it makes `holding_review_confirmed` go from validating NOTHING to validating
+   * that the audit is complete — the integrity fix. DECISION-NEUTRAL: no score/count/weight is derived.
    */
-  checklist_answers: Record<string, ChecklistAnswer>
+  checklist_audit: ChecklistAudit
   confirmed_by_actor_type: ActorType
   confirmed_by_actor_id: string
 }
@@ -69,14 +68,14 @@ export type HoldingReviewOverriddenPayload = Omit<
   user_approved: true
   user_overrode_provider: true
   /**
-   * The human's answers to the Phase 7 hygiene checklists, captured at the OVERRIDE re-underwrite sign-off
-   * — the co-equal twin of `holding_review_confirmed.checklist_answers`. The override writes the SAME
-   * confirmed thesis state as confirm, so it is COMPLETION-BLOCKED on the SAME 17-item checklist: every item
-   * must be addressed (affirmed + non-empty note) before this event is appended (see overrideHoldingReviewDraft).
+   * The harness-marshaled audit captured at the OVERRIDE re-underwrite sign-off — the co-equal twin of
+   * `holding_review_confirmed.checklist_audit`. The override writes the SAME confirmed thesis state as
+   * confirm, so it is COMPLETION-BLOCKED on the SAME audit: every business item must carry a non-empty
+   * finding AND `cognitive_acknowledged === true` before this event is appended (see overrideHoldingReviewDraft).
    * Gating only confirm and not override would reopen the exact gap S3 closed. DECISION-NEUTRAL: no
-   * score/count/weight is derived. The cognitive answers are HUMAN-AUTHORED only; nothing is defaulted/synthesized.
+   * score/count/weight is derived.
    */
-  checklist_answers: Record<string, ChecklistAnswer>
+  checklist_audit: ChecklistAudit
   overridden_by_actor_type: ActorType
   overridden_by_actor_id: string
 }
@@ -111,12 +110,11 @@ export type ConfirmHoldingReviewDraftCommand = {
   causation_id: string
   actor_id: string
   /**
-   * The human's answers to the Phase 7 hygiene checklists (business + cognitive). REQUIRED: every
-   * checklist item must be addressed (affirmed + non-empty note) or the re-underwrite sign-off is
-   * rejected before any append (completion-block). Keyed by item id. HUMAN-AUTHORED only — the caller
-   * must pass the human's own answers; no answer is defaulted/synthesized server-side.
+   * The harness-marshaled audit (business findings + cognitive acknowledgement). REQUIRED: the
+   * re-underwrite sign-off is COMPLETION-BLOCKED — every business item must carry a non-empty finding AND
+   * `cognitive_acknowledged` must be true, or the sign-off is rejected before any append.
    */
-  checklist_answers: Record<string, ChecklistAnswer>
+  checklist_audit: ChecklistAudit
   idempotency_key?: string
 }
 
@@ -132,12 +130,11 @@ export type OverrideHoldingReviewDraftCommand = {
   uncertainty: string
   next_review_at: string
   /**
-   * The human's answers to the Phase 7 hygiene checklists. REQUIRED: the override re-underwrite sign-off is
-   * COMPLETION-BLOCKED exactly like confirm — every checklist item must be addressed (affirmed + non-empty
-   * note) or the sign-off is rejected before any append. Keyed by item id. HUMAN-AUTHORED only — the caller
-   * must pass the human's own answers; no answer is defaulted/synthesized server-side.
+   * The harness-marshaled audit (business findings + cognitive acknowledgement). REQUIRED: the override
+   * re-underwrite sign-off is COMPLETION-BLOCKED exactly like confirm — every business item must carry a
+   * non-empty finding AND `cognitive_acknowledged` must be true, or the sign-off is rejected before any append.
    */
-  checklist_answers: Record<string, ChecklistAnswer>
+  checklist_audit: ChecklistAudit
   idempotency_key?: string
 }
 
@@ -301,12 +298,12 @@ export async function confirmHoldingReviewDraft(
   // confirms nothing); now it validates that the same 17-item checklist has been addressed, catching
   // post-admission deterioration (e.g. shariah_drift, data_completeness) that re-underwrite is the only
   // place to catch. Throw-before-append, mirroring confirmWatchlistDraft. Decision-NEUTRAL: the evaluator
-  // only tells us WHICH items are unaddressed; it never scores/counts them, and a "risk present" answer
-  // never auto-rejects. The cognitive answers are HUMAN-AUTHORED only; we never default/synthesize here.
-  const checklistCompletion = evaluateChecklistCompletion(command.checklist_answers)
+  // only tells us WHICH blockers are still open; it never scores/counts them, and a "risk present" finding
+  // never auto-rejects. The harness marshals the findings; the human acknowledges the cognitive reflection.
+  const checklistCompletion = evaluateChecklistCompletion(command.checklist_audit)
   if (!checklistCompletion.complete) {
     throw new Error(
-      `Re-underwrite sign-off requires every quality/bias checklist item to be addressed; unaddressed: ${checklistCompletion.unaddressed.join(', ')}`,
+      `Re-underwrite sign-off requires a complete audit; missing: ${checklistCompletion.missing.join(', ')}`,
     )
   }
 
@@ -325,8 +322,8 @@ export async function confirmHoldingReviewDraft(
     next_review_at: draft.payload.next_review_at,
     user_approved: true,
     // Persisted append-only as part of the human re-underwrite sign-off (verified complete above). The
-    // cognitive answers are the human's own — never defaulted/synthesized here.
-    checklist_answers: command.checklist_answers,
+    // harness marshals the business findings; the human acknowledges the cognitive reflection.
+    checklist_audit: command.checklist_audit,
     confirmed_by_actor_type: 'user',
     confirmed_by_actor_id: command.actor_id,
   }
@@ -361,11 +358,12 @@ export async function overrideHoldingReviewDraft(
   // writes the SAME confirmed thesis state as confirm. It MUST be gated on the same 17-item hygiene/bias
   // checklist; gating only confirm would reopen the exact gap S3 closed (a sign-off that signs off on
   // nothing). Throw-before-append, mirroring confirmHoldingReviewDraft. Decision-NEUTRAL: the evaluator only
-  // tells us WHICH items are unaddressed; never scores/counts. The cognitive answers are HUMAN-AUTHORED only.
-  const checklistCompletion = evaluateChecklistCompletion(command.checklist_answers)
+  // tells us WHICH blockers are still open; never scores/counts. The harness marshals the findings; the
+  // human acknowledges the cognitive reflection.
+  const checklistCompletion = evaluateChecklistCompletion(command.checklist_audit)
   if (!checklistCompletion.complete) {
     throw new Error(
-      `Re-underwrite sign-off requires every quality/bias checklist item to be addressed; unaddressed: ${checklistCompletion.unaddressed.join(', ')}`,
+      `Re-underwrite sign-off requires a complete audit; missing: ${checklistCompletion.missing.join(', ')}`,
     )
   }
 
@@ -384,9 +382,9 @@ export async function overrideHoldingReviewDraft(
     next_review_at: command.next_review_at,
     user_approved: true,
     user_overrode_provider: true,
-    // Persisted append-only as part of the human override sign-off (verified complete above). The cognitive
-    // answers are the human's own — never defaulted/synthesized here.
-    checklist_answers: command.checklist_answers,
+    // Persisted append-only as part of the human override sign-off (verified complete above). The harness
+    // marshals the business findings; the human acknowledges the cognitive reflection.
+    checklist_audit: command.checklist_audit,
     overridden_by_actor_type: 'user',
     overridden_by_actor_id: command.actor_id,
   }
