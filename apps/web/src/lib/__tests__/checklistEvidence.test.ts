@@ -4,10 +4,10 @@ import { dirname, resolve } from 'node:path'
 
 import { describe, expect, it } from 'vitest'
 
-import { CHECKLIST_PARAMS } from '@owlfolio/strategies/checklistParams'
+import { CHECKLIST_PARAMS, listBusinessItems } from '@owlfolio/strategies/checklistParams'
 import type { ResearchCaseProjection } from '@owlfolio/ledger/projections/researchCaseProjection'
 
-import { resolveChecklistEvidence } from '../checklistEvidence'
+import { resolveBusinessFindings, resolveChecklistEvidence } from '../checklistEvidence'
 
 // ---------------------------------------------------------------------------
 // Phase 7 S4 — the EVIDENCE READ-LAYER. A PURE read of the persisted research-case projection: for each
@@ -97,5 +97,27 @@ describe('resolveChecklistEvidence — the S4 reads-only evidence marshaller', (
     expect(src).not.toMatch(/shariah(Assessment|Policy|Engine)/i)
     // It does not recompute: no import from a strategies engine other than the checklist DATA params.
     expect(src).not.toMatch(/computeSizingRecommendation|sizingAssessment/)
+  })
+})
+
+describe('resolveBusinessFindings', () => {
+  it('returns a non-empty finding for every business item, even with an empty projection', () => {
+    const findings = resolveBusinessFindings(undefined)
+    for (const item of listBusinessItems()) {
+      expect(findings[item.id]?.trim().length ?? 0).toBeGreaterThan(0)
+    }
+  })
+  it('surfaces a grounded value when the projection has it', () => {
+    const projection = { valuation: { terminal_value_pct_of_iv: 0.42 } } as never
+    const findings = resolveBusinessFindings(projection)
+    expect(findings.terminal_value_optimism).toContain('0.42')
+  })
+  it('marks a non-groundable item as qualitative rather than leaving it blank', () => {
+    const findings = resolveBusinessFindings(undefined)
+    expect(findings.capital_allocation?.toLowerCase()).toContain('qualitative')
+  })
+  it('never emits a finding keyed to a cognitive item', () => {
+    const findings = resolveBusinessFindings(undefined)
+    expect(findings.anchoring).toBeUndefined()
   })
 })

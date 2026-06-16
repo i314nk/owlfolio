@@ -14,7 +14,7 @@
 // or pass/fail anything. The human still affirms each item.
 // ---------------------------------------------------------------------------
 
-import { CHECKLIST_PARAMS } from '@owlfolio/strategies/checklistParams'
+import { CHECKLIST_PARAMS, listBusinessItems } from '@owlfolio/strategies/checklistParams'
 import type { ResearchCaseProjection } from '@owlfolio/ledger/projections/researchCaseProjection'
 
 /** Resolve a dotted path (e.g. 'valuation.growth_window_years') against the projection. Pure read. */
@@ -60,4 +60,32 @@ export function resolveChecklistEvidence(
     if (display !== undefined) evidence[item.id] = display
   }
   return evidence
+}
+
+const QUALITATIVE_FINDING =
+  'Qualitative — no automated metric; audit against the signed thesis and research brief.'
+const GROUNDED_ABSENT_FINDING = 'No grounded value available in this case.'
+
+/**
+ * One marshaled finding per BUSINESS item (read-only audit surface).
+ * - groundable (`reads` set) + value present → formatted value
+ * - groundable + value absent → honest "no grounded value" (never fabricated)
+ * - non-groundable (no `reads`) → qualitative pointer to the thesis/research
+ * Cognitive items are intentionally excluded (the agent must not author them).
+ */
+export function resolveBusinessFindings(
+  projection: ResearchCaseProjection | undefined,
+): Record<string, string> {
+  const findings: Record<string, string> = {}
+  for (const item of listBusinessItems()) {
+    if (item.reads === undefined) {
+      findings[item.id] = QUALITATIVE_FINDING
+      continue
+    }
+    const value = readPath(projection, item.reads)
+    const formatted = value === undefined ? undefined : formatEvidence(value)
+    findings[item.id] =
+      formatted !== undefined && formatted.length > 0 ? formatted : GROUNDED_ABSENT_FINDING
+  }
+  return findings
 }
