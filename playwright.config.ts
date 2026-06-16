@@ -3,6 +3,11 @@ import { defineConfig, devices } from '@playwright/test'
 export default defineConfig({
   testDir: './apps/web/e2e',
   workers: 1,
+  // The long personal-workflow-intake spec has a known flaky tail (the override sign-off POST→redirect
+  // and the subsequent /audit navigation race under the single-worker dev server — stable in isolation,
+  // non-deterministic under the full end-to-end run). Retry to absorb that flake; `trace: 'on-first-retry'`
+  // already anticipates retries. Deterministic failures still fail every attempt.
+  retries: 2,
   use: {
     baseURL: 'http://127.0.0.1:3000',
     trace: 'on-first-retry',

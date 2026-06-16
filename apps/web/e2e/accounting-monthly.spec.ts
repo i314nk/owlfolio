@@ -29,7 +29,24 @@ test('monthly accounting report renders projected current period after a valuati
   // The admit control requires a human-typed signed thesis (Task 4.3); the button is disabled until one
   // is entered, and it is never pre-filled from the agent draft.
   await page.getByLabel('Your signed thesis').fill('Admitting MSFT: durable franchise, margin of safety.')
-  await page.getByRole('button', { name: /promote to watchlist/i }).click()
+
+  // Phase 7: admission is also completion-blocked on the quality + bias hygiene checklist — every item
+  // must be addressed (checkbox + non-empty note) before promote enables.
+  const checklistNotes = page.locator('textarea[name^="checklist_note["]')
+  const noteCount = await checklistNotes.count()
+  expect(noteCount).toBeGreaterThan(0)
+  for (let i = 0; i < noteCount; i += 1) {
+    await checklistNotes.nth(i).fill('Considered and addressed for this admission.')
+  }
+  const checklistAddressed = page.locator('input[name^="checklist_addressed["]')
+  const addressedCount = await checklistAddressed.count()
+  for (let i = 0; i < addressedCount; i += 1) {
+    await checklistAddressed.nth(i).check()
+  }
+
+  const promoteButton = page.getByRole('button', { name: /promote to watchlist/i })
+  await expect(promoteButton).toBeEnabled()
+  await promoteButton.click()
   await page.getByRole('button', { name: /confirm watchlist draft/i }).click()
   await page.getByLabel('Shares').fill('3.25')
   await page.getByLabel('Cost basis per share').fill('812.40')

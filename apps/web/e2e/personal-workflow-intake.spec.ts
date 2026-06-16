@@ -121,7 +121,27 @@ test('personal-local mode can create the first research case from the command ce
   await expect(signedThesis).toHaveValue('')
   await expect(page.getByRole('button', { name: /promote to watchlist/i })).toBeDisabled()
   await signedThesis.fill('Admitting MSFT: durable quality compounder bought with a margin of safety.')
-  await page.getByRole('button', { name: /promote to watchlist/i }).click()
+
+  // Phase 7: admission is also completion-blocked on the quality + bias hygiene checklist — every item
+  // (business failure modes + cognitive biases) must be addressed (checkbox + a non-empty reasoned note),
+  // and the cognitive notes are never pre-filled. The promote button stays disabled until the thesis AND
+  // the whole checklist are addressed. Address every item, then promote.
+  const checklistNotes = page.locator('textarea[name^="checklist_note["]')
+  const noteCount = await checklistNotes.count()
+  expect(noteCount).toBeGreaterThan(0)
+  for (let i = 0; i < noteCount; i += 1) {
+    await expect(checklistNotes.nth(i)).toHaveValue('') // non-prefilled (esp. cognitive)
+    await checklistNotes.nth(i).fill('Considered and addressed for this admission.')
+  }
+  const checklistAddressed = page.locator('input[name^="checklist_addressed["]')
+  const addressedCount = await checklistAddressed.count()
+  for (let i = 0; i < addressedCount; i += 1) {
+    await checklistAddressed.nth(i).check()
+  }
+
+  const promoteButton = page.getByRole('button', { name: /promote to watchlist/i })
+  await expect(promoteButton).toBeEnabled()
+  await promoteButton.click()
 
   await expect(page).toHaveURL('/watchlist')
   await expect(page.getByRole('heading', { name: 'MSFT' })).toBeVisible()
@@ -214,7 +234,26 @@ test('personal-local mode can create the first research case from the command ce
   await expect(page.getByRole('link', { name: /apply user override/i })).toHaveAttribute('href', /\/portfolio#holding_msft_/)
 
   await page.goto('/portfolio')
-  await page.getByRole('button', { name: /apply provider draft/i }).click()
+
+  // Phase 7: the re-underwrite sign-off (confirming the provider draft) is ALSO completion-blocked on the
+  // hygiene checklist (the integrity fix that turned an ungated confirmation into a real one). Scope the
+  // fill to the confirm form (action …/confirm) so it doesn't touch the sibling override form's checklist.
+  const confirmForm = page.locator('form[action$="/confirm"]')
+  const confirmNotes = confirmForm.locator('textarea[name^="checklist_note["]')
+  const confirmNoteCount = await confirmNotes.count()
+  expect(confirmNoteCount).toBeGreaterThan(0)
+  for (let i = 0; i < confirmNoteCount; i += 1) {
+    await confirmNotes.nth(i).fill('Re-underwrite: considered and addressed (incl. Shariah-drift + data-completeness).')
+  }
+  const confirmAddressed = confirmForm.locator('input[name^="checklist_addressed["]')
+  const confirmAddressedCount = await confirmAddressed.count()
+  for (let i = 0; i < confirmAddressedCount; i += 1) {
+    await confirmAddressed.nth(i).check()
+  }
+
+  const applyProviderDraft = page.getByRole('button', { name: /apply provider draft/i })
+  await expect(applyProviderDraft).toBeEnabled()
+  await applyProviderDraft.click()
 
   await expect(page).toHaveURL('/portfolio')
   await expect(page.getByText('Thesis health: HEALTHY')).toBeVisible()
@@ -232,7 +271,26 @@ test('personal-local mode can create the first research case from the command ce
   await page.getByLabel('Override evidence summary').fill('Compared provider draft to the manual valuation snapshot and original thesis.')
   await page.getByLabel('Override uncertainty').fill('Need updated Shariah ratio review and concentration check.')
   await page.getByLabel('Override next review date').fill(nextReviewDate)
-  await page.getByRole('button', { name: /apply user override/i }).click()
+
+  // Phase 7: the override re-underwrite sign-off is completion-blocked too (the S3 bypass fix — override
+  // is a co-equal sign-off, gated identically to confirm). Fill the override form's checklist (scoped to
+  // action …/override) before applying.
+  const overrideForm = page.locator('form[action$="/override"]')
+  const overrideNotes = overrideForm.locator('textarea[name^="checklist_note["]')
+  const overrideNoteCount = await overrideNotes.count()
+  expect(overrideNoteCount).toBeGreaterThan(0)
+  for (let i = 0; i < overrideNoteCount; i += 1) {
+    await overrideNotes.nth(i).fill('Override re-underwrite: considered and addressed.')
+  }
+  const overrideAddressed = overrideForm.locator('input[name^="checklist_addressed["]')
+  const overrideAddressedCount = await overrideAddressed.count()
+  for (let i = 0; i < overrideAddressedCount; i += 1) {
+    await overrideAddressed.nth(i).check()
+  }
+
+  const applyUserOverride = page.getByRole('button', { name: /apply user override/i })
+  await expect(applyUserOverride).toBeEnabled()
+  await applyUserOverride.click()
 
   await expect(page).toHaveURL('/portfolio')
   await expect(page.getByText('Thesis health: WATCH')).toBeVisible()
