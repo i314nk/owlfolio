@@ -643,7 +643,7 @@ function createInvestableCapitalPanel(investableCapital?: InvestableCapitalSnaps
 
   return createElement(
     'section',
-    { 'aria-label': 'Investable capital', className: 'owl-section-card owl-workflow-card', style: { gap: '0.85rem' } },
+    { id: 'investable-capital', 'aria-label': 'Investable capital', className: 'owl-section-card owl-workflow-card', style: { gap: '0.85rem' } },
     createElement('p', { className: 'owl-section-accent' }, 'Sizing'),
     createElement('h2', { className: 'owl-section-title' }, 'Investable capital'),
     createElement(
