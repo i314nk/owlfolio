@@ -33,11 +33,12 @@ export type PortfolioHolding = AppHolding & {
   moatClass?: string
   hurdleRate?: number
   /**
-   * Phase 7 S4 — marshaled re-underwrite evidence (business itemId -> persisted display value), a PURE read
-   * of the HELD name's research-case projection resolved by the loader. Passed to the review confirm/override
-   * forms so each groundable business item reads its evidence beside it. Cognitive items are absent here.
+   * The harness-marshaled re-underwrite findings (business itemId -> finding), a PURE read of the HELD name's
+   * research-case projection resolved by the loader. Passed to the review confirm/override forms so each
+   * business item reads its read-only marshaled finding (audit-and-decide). Covers ALL 11 business items
+   * (qualitative/absent fallbacks included); cognitive items are absent here.
    */
-  reviewChecklistEvidence?: Record<string, string>
+  reviewBusinessFindings?: Record<string, string>
 }
 
 export type PortfolioPanelProps = {
@@ -541,7 +542,7 @@ function createReviewForm(holding: PortfolioHolding) {
       createElement(HoldingReviewChecklistConfirm, {
         holdingId: holding.holding_id,
         reviewId: holding.pending_review_id,
-        ...(holding.reviewChecklistEvidence === undefined ? {} : { evidence: holding.reviewChecklistEvidence }),
+        businessFindings: holding.reviewBusinessFindings ?? {},
       }),
       createElement(HoldingReviewOverrideForm, {
         holdingId: holding.holding_id,
@@ -549,7 +550,7 @@ function createReviewForm(holding: PortfolioHolding) {
         defaultThesisHealth: holding.pending_review_thesis_health ?? 'WATCH',
         defaultActionStance: holding.pending_review_action_stance ?? 'RESEARCH_MORE',
         defaultNextReviewAt: normalizedPendingReviewDate,
-        ...(holding.reviewChecklistEvidence === undefined ? {} : { evidence: holding.reviewChecklistEvidence }),
+        businessFindings: holding.reviewBusinessFindings ?? {},
       }),
       createElement(
         'form',

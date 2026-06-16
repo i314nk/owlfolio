@@ -27,7 +27,6 @@ import type { EventStore } from '@owlfolio/ledger/eventStore'
 import { SQLiteEventStore } from '@owlfolio/ledger/sqliteEventStore'
 import { resolveProvider } from '@owlfolio/providers'
 import { VALUATION_PARAMS } from '@owlfolio/strategies/valuationParams'
-import { evaluateChecklistCompletion, type ChecklistAnswer } from '@owlfolio/strategies/checklist'
 import { CHECKLIST_PARAMS, type ChecklistAudit } from '@owlfolio/strategies/checklistParams'
 import { resolveAdmissionThesisDraft, resolveBusinessFindings } from './checklistEvidence'
 import type { AppConfig } from '@owlfolio/shared'
@@ -1682,32 +1681,31 @@ export async function confirmPersonalHoldingReviewDraft(
   state: OnboardingState,
   holdingId: string,
   reviewId: string,
-  checklistAnswers: Record<string, ChecklistAnswer> = {},
+  cognitiveAcknowledged = false,
 ) {
   if (!state.is_initialized || state.config.mode !== 'personal-local' || state.config.ledger_path === undefined) {
     throw new Error('Personal-local workflow is not initialized')
   }
 
-  // COMPLETION-BLOCK (Phase 7 S3): the re-underwrite sign-off requires every hygiene/bias checklist item
-  // to be ADDRESSED — the integrity fix that turns holding_review_confirmed from validating NOTHING into
-  // validating the checklist. The cognitive answers are HUMAN-AUTHORED only; we pass them through untouched
-  // and NEVER default/synthesize any answer here. Reject with the unaddressed ids so the route can 400 with
-  // what still needs attention. Decision-NEUTRAL: no scoring/count. (confirmHoldingReviewDraft re-checks.)
-  const checklistCompletion = evaluateChecklistCompletion(checklistAnswers)
-  if (!checklistCompletion.complete) {
-    throw new Error(
-      `Re-underwrite sign-off requires every quality/bias checklist item to be addressed; unaddressed: ${checklistCompletion.unaddressed.join(', ')}`,
-    )
-  }
-
   const store = new SQLiteEventStore(state.config.ledger_path)
   try {
+    // AUDIT-AND-DECIDE (re-underwrite confirm): the SERVER marshals the business findings — one finding per
+    // business item, a PURE read of the HELD name's research-case projection — so a finding can never be
+    // authored or spoofed by the client. The human posts only their single cognitive acknowledgement. The
+    // COMPLETION-BLOCK still lives in confirmHoldingReviewDraft (throw-before-append): every business item
+    // must carry a non-empty finding AND `cognitive_acknowledged` must be true. Decision-NEUTRAL: no score/count.
+    const checklistAudit: ChecklistAudit = {
+      version: CHECKLIST_PARAMS.version,
+      business_findings: resolveBusinessFindings(await resolveHoldingResearchCase(store, holdingId)),
+      cognitive_acknowledged: cognitiveAcknowledged,
+    }
+
     return await confirmHoldingReviewDraft(store, {
       review_id: reviewId,
       holding_id: holdingId,
       causation_id: `evt_holding_review_drafted_${reviewId}`,
       actor_id: 'user_local',
-      checklist_answers: checklistAnswers,
+      checklist_audit: checklistAudit,
       idempotency_key: `holding:${holdingId}:review:${reviewId}:confirm`,
     })
   } finally {
@@ -1715,32 +1713,54 @@ export async function confirmPersonalHoldingReviewDraft(
   }
 }
 
+/**
+ * Resolve the research-case projection for a holding's re-underwrite so the server can marshal the business
+ * findings (audit-and-decide). Prefers the holding's own linked case, falling back to the latest
+ * non-superseded case for the same ticker — mirroring the portfolio loader. PURE read; no engine call.
+ * Returns undefined when no case is found, in which case resolveBusinessFindings yields honest fallbacks.
+ */
+async function resolveHoldingResearchCase(
+  store: EventStore,
+  holdingId: string,
+): Promise<ResearchCaseProjection | undefined> {
+  const events = await store.list()
+  const holding = projectHoldings(events).find((candidate) => candidate.holding_id === holdingId)
+  if (holding === undefined) {
+    return undefined
+  }
+  const linkedCase = projectResearchCases(events).find((candidate) => candidate.research_case_id === holding.research_case_id)
+  if (linkedCase?.valuation?.buy_price_per_share !== undefined) {
+    return linkedCase
+  }
+  const fallback = holding.ticker === undefined ? undefined : findLatestResearchCaseForTicker(events, holding.ticker)
+  return fallback ?? linkedCase
+}
+
 export async function overridePersonalHoldingReviewDraft(
   state: OnboardingState,
   holdingId: string,
   reviewId: string,
   input: OverridePersonalHoldingReviewInput,
-  checklistAnswers: Record<string, ChecklistAnswer> = {},
+  cognitiveAcknowledged = false,
 ) {
   if (!state.is_initialized || state.config.mode !== 'personal-local' || state.config.ledger_path === undefined) {
     throw new Error('Personal-local workflow is not initialized')
   }
 
-  // COMPLETION-BLOCK (Phase 7 S3 — bypass close): the override is a co-equal re-underwrite sign-off writing
-  // the SAME confirmed thesis state as confirm, so it requires every hygiene/bias checklist item to be
-  // ADDRESSED — gating only confirm would reopen the gap S3 closed. The cognitive answers are HUMAN-AUTHORED
-  // only; we pass them through untouched and NEVER default/synthesize. Reject with the unaddressed ids so the
-  // route can 400 with what still needs attention. Decision-NEUTRAL: no scoring/count. (overrideHoldingReviewDraft re-checks.)
-  const checklistCompletion = evaluateChecklistCompletion(checklistAnswers)
-  if (!checklistCompletion.complete) {
-    throw new Error(
-      `Re-underwrite sign-off requires every quality/bias checklist item to be addressed; unaddressed: ${checklistCompletion.unaddressed.join(', ')}`,
-    )
-  }
-
   const override = parseHoldingReviewOverrideInput(input)
   const store = new SQLiteEventStore(state.config.ledger_path)
   try {
+    // AUDIT-AND-DECIDE (re-underwrite override): the override is the co-equal twin of confirm — it writes the
+    // SAME confirmed thesis state, so it is gated on the SAME server-marshaled audit. The SERVER marshals the
+    // business findings (a PURE read of the held name's projection); the human authors their substitute
+    // thesis fields + posts the single cognitive acknowledgement. The COMPLETION-BLOCK lives in
+    // overrideHoldingReviewDraft (throw-before-append). Gating only confirm would reopen the gap S3 closed.
+    const checklistAudit: ChecklistAudit = {
+      version: CHECKLIST_PARAMS.version,
+      business_findings: resolveBusinessFindings(await resolveHoldingResearchCase(store, holdingId)),
+      cognitive_acknowledged: cognitiveAcknowledged,
+    }
+
     return await overrideHoldingReviewDraft(store, {
       review_id: reviewId,
       holding_id: holdingId,
@@ -1752,7 +1772,7 @@ export async function overridePersonalHoldingReviewDraft(
       evidence_summary: override.evidence_summary,
       uncertainty: override.uncertainty,
       next_review_at: override.next_review_at,
-      checklist_answers: checklistAnswers,
+      checklist_audit: checklistAudit,
       idempotency_key: `holding:${holdingId}:review:${reviewId}:override`,
     })
   } finally {

@@ -44,12 +44,6 @@ import {
 // auto-fallback to the agent summary on this path, so the helper must be given a real human thesis.
 const HUMAN_SIGNED_THESIS = 'I am admitting this name: durable franchise, low permanent-loss risk, buying with a margin of safety.'
 
-// Phase 7 S2: admit also requires every hygiene/bias checklist item to be addressed. A fully-addressed
-// answer set so the happy-path promote calls below clear the completion-block.
-const COMPLETE_CHECKLIST: Record<string, { addressed: boolean; note: string }> = Object.fromEntries(
-  CHECKLIST_PARAMS.items.map((item) => [item.id, { addressed: true, note: `Addressed ${item.id}.` }]),
-)
-
 // Audit-and-decide: a complete harness-marshaled audit (one finding per business item + the human ack) so
 // a direct confirmWatchlistDraft call clears the completion-block.
 const COMPLETE_AUDIT = {
@@ -397,7 +391,7 @@ describe('workflow helpers', () => {
       valued_at: '2026-06-01',
     })
     const reviewDraft = await createPersonalHoldingReviewDraft(state, openedHolding.holding_id)
-    const reviewConfirmation = await confirmPersonalHoldingReviewDraft(state, openedHolding.holding_id, reviewDraft.review_id, COMPLETE_CHECKLIST)
+    const reviewConfirmation = await confirmPersonalHoldingReviewDraft(state, openedHolding.holding_id, reviewDraft.review_id, true)
     const secondReviewDraft = await createPersonalHoldingReviewDraft(state, openedHolding.holding_id)
     const reviewOverride = await overridePersonalHoldingReviewDraft(state, openedHolding.holding_id, secondReviewDraft.review_id, {
       thesis_health: 'WATCH',
@@ -406,7 +400,7 @@ describe('workflow helpers', () => {
       evidence_summary: 'Compared provider draft to the manual valuation snapshot and original thesis.',
       uncertainty: 'Need updated Shariah ratio review and concentration check.',
       next_review_at: '2026-10-31',
-    }, COMPLETE_CHECKLIST)
+    }, true)
     const rejectedReviewDraft = await createPersonalHoldingReviewDraft(state, openedHolding.holding_id)
     const reviewRejection = await rejectPersonalHoldingReviewDraft(state, openedHolding.holding_id, rejectedReviewDraft.review_id, {
       rejection_reason: 'Reject stale draft after override; wait for new evidence.',

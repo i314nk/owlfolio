@@ -1007,9 +1007,13 @@ describe('research and watchlist workflow pages', () => {
     expect(html).toContain('Override evidence summary (required)')
     expect(html).toContain('Override uncertainty (required)')
     expect(html).toContain('Override next review date (required)')
-    // Phase 7 S3 bypass close: the override is gated on the SAME 17-item checklist as confirm.
-    expect(html).toContain('checklist_note[shariah_drift]')
-    expect(html).toContain('checklist_note[data_completeness]')
+    // Audit-and-decide: both re-underwrite paths render the checklist as READ-ONLY marshaled findings gated
+    // by a single cognitive acknowledgement — never the old per-item author inputs.
+    expect(html).toContain('data-testid="checklist-finding-shariah_drift"')
+    expect(html).toContain('data-testid="checklist-finding-data_completeness"')
+    expect(html).toContain('name="cognitive_reflection_acknowledged"')
+    expect(html).not.toContain('checklist_note[')
+    expect(html).not.toContain('checklist_addressed[')
     expect(html).not.toContain('Save override')
     expect(html).toContain('Reject provider draft')
     expect(html).toContain('Leaves the current confirmed portfolio thesis unchanged and clears this pending draft.')

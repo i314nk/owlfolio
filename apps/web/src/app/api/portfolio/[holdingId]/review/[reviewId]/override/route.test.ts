@@ -7,17 +7,18 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { defaultPersonalLocalAppConfig } from '@owlfolio/shared'
 import { SQLiteEventStore } from '@owlfolio/ledger/sqliteEventStore'
 import { projectHoldings } from '@owlfolio/ledger/projections/holdingProjection'
-import { CHECKLIST_PARAMS } from '@owlfolio/strategies/checklistParams'
+import { listBusinessItems } from '@owlfolio/strategies/checklistParams'
 import { MockProvider } from '@owlfolio/providers/mockProvider'
 import { openHoldingFromWatchlist, recordHoldingValuationSnapshot } from '@owlfolio/workflow/holdingWorkflow'
 import { draftHoldingReview } from '@owlfolio/workflow/holdingReviewWorkflow'
 
 import { POST } from './route'
 
-// Phase 7 S3 (bypass close) — the override re-underwrite sign-off route gates holding_review_overridden on
-// the SAME 17-item checklist as confirm. It writes the SAME confirmed thesis state; it must not skip the gate.
+// Audit-and-decide re-underwrite override (bypass close): the override writes the SAME confirmed thesis state
+// as confirm, so it is gated on the SAME server-marshaled audit. The human posts their authored thesis fields
+// + the single cognitive acknowledgement; the server marshals the business findings.
 
-/** The four required override thesis fields, mirroring the override form. */
+/** The required override thesis fields, mirroring the override form's authored inputs. */
 function appendOverrideThesis(form: URLSearchParams): void {
   form.set('thesis_health', 'WATCH')
   form.set('action_stance', 'RESEARCH_MORE')
@@ -27,12 +28,9 @@ function appendOverrideThesis(form: URLSearchParams): void {
   form.set('next_review_at', '2026-10-31')
 }
 
-/** Append a fully-addressed per-item checklist (note + addressed) to a form, mirroring the override form. */
-function appendCompleteChecklist(form: URLSearchParams): void {
-  for (const item of CHECKLIST_PARAMS.items) {
-    form.set(`checklist_note[${item.id}]`, `Addressed ${item.id} at re-underwrite.`)
-    form.set(`checklist_addressed[${item.id}]`, 'on')
-  }
+/** Acknowledge the cognitive reflection, mirroring the override form's single checkbox. */
+function appendCognitiveAck(form: URLSearchParams): void {
+  form.set('cognitive_reflection_acknowledged', 'on')
 }
 
 const originalEnv = {
@@ -124,11 +122,11 @@ describe('/api/portfolio/[holdingId]/review/[reviewId]/override', () => {
     })
   }
 
-  it('overrides the re-underwrite, persists the checklist answers, and redirects', async () => {
+  it('overrides the re-underwrite, marshals the audit server-side, persists it, and redirects', async () => {
     await seedHoldingWithDraftReview(ledgerPath)
     const form = new URLSearchParams()
     appendOverrideThesis(form)
-    appendCompleteChecklist(form)
+    appendCognitiveAck(form)
 
     await expect(callRoute(form)).rejects.toMatchObject({
       digest: expect.stringContaining('NEXT_REDIRECT'),
@@ -139,32 +137,32 @@ describe('/api/portfolio/[holdingId]/review/[reviewId]/override', () => {
       const events = await store.list()
       const overridden = events.find((event) => event.event_type === 'holding_review_overridden')
       expect(overridden?.actor_type).toBe('user')
-      const payload = overridden?.payload as { checklist_answers?: Record<string, { addressed: boolean; note: string }> }
-      expect(Object.keys(payload.checklist_answers ?? {})).toHaveLength(CHECKLIST_PARAMS.items.length)
+      // The SERVER marshals one business finding per business item + records the cognitive acknowledgement.
+      const payload = overridden?.payload as {
+        checklist_audit?: { business_findings?: Record<string, string>; cognitive_acknowledged?: boolean }
+        rationale?: string
+      }
+      expect(Object.keys(payload.checklist_audit?.business_findings ?? {})).toHaveLength(listBusinessItems().length)
+      expect(payload.checklist_audit?.cognitive_acknowledged).toBe(true)
+      // The human-authored override fields are persisted (their substitute judgment stays).
+      expect(payload.rationale).toContain('User override')
 
       const holding = projectHoldings(events).find((h) => h.holding_id === HOLDING_ID)
-      expect(Object.keys(holding?.checklist_answers ?? {})).toHaveLength(CHECKLIST_PARAMS.items.length)
+      expect(Object.keys(holding?.checklist_audit?.business_findings ?? {})).toHaveLength(listBusinessItems().length)
     } finally {
       store.close()
     }
   })
 
-  it('returns 400 with the unaddressed ids when shariah_drift is unaddressed (completion-block)', async () => {
+  it('returns 400 (completion-block) when the cognitive reflection is not acknowledged', async () => {
     await seedHoldingWithDraftReview(ledgerPath)
     const form = new URLSearchParams()
     appendOverrideThesis(form)
-    for (const item of CHECKLIST_PARAMS.items) {
-      if (item.id === 'shariah_drift') {
-        continue
-      }
-      form.set(`checklist_note[${item.id}]`, `Addressed ${item.id}.`)
-      form.set(`checklist_addressed[${item.id}]`, 'on')
-    }
 
     const response = await callRoute(form)
     expect(response.status).toBe(400)
     await expect(response.json()).resolves.toMatchObject({
-      error: expect.stringMatching(/Re-underwrite sign-off requires.*shariah_drift/),
+      error: expect.stringMatching(/Re-underwrite sign-off requires/),
     })
 
     const store = new SQLiteEventStore(ledgerPath)
@@ -175,7 +173,7 @@ describe('/api/portfolio/[holdingId]/review/[reviewId]/override', () => {
     }
   })
 
-  it('does not synthesize cognitive answers server-side: an empty checklist is rejected, not auto-filled', async () => {
+  it('does not synthesize the cognitive acknowledgement server-side: an unacknowledged override is rejected', async () => {
     await seedHoldingWithDraftReview(ledgerPath)
     const form = new URLSearchParams()
     appendOverrideThesis(form)

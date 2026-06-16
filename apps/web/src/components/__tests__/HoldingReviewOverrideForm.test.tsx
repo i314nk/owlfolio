@@ -5,19 +5,26 @@ import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 
-import { CHECKLIST_PARAMS } from '@owlfolio/strategies/checklistParams'
+import { listBusinessItems, listCognitiveItems } from '@owlfolio/strategies/checklistParams'
 
 import { HoldingReviewOverrideForm } from '../HoldingReviewOverrideForm'
 
 // ---------------------------------------------------------------------------
-// Phase 7 S3 (bypass close) — the OVERRIDE re-underwrite sign-off form is the co-equal twin of
-// HoldingReviewChecklistConfirm: it writes the SAME confirmed thesis state, so it renders the SAME two
-// hygiene checklists (business + cognitive) as required, NON-PREFILLED inputs, with NO count/progress badge.
-// The disabled submit + per-item "needs attention" markers are the ONLY completeness signal; a count would
-// be a score in disguise. Gating only confirm and not override would reopen the gap S3 closed.
+// Audit-and-decide re-underwrite OVERRIDE (AMEND): the co-equal twin of HoldingReviewChecklistConfirm. The
+// override KEEPS the human-authored thesis fields (those are the substitute judgment and stay), but the
+// checklist is INVERTED exactly like confirm: the 11 business items render READ-ONLY (prompt + marshaled
+// finding) — NO per-item input — and the 6 cognitive items render as read-only reflection prompts gated by
+// EXACTLY ONE acknowledgement checkbox. Override is enabled IFF the authored thesis fields are filled AND the
+// single cognitive ack is checked. NO 17-field gating, NO count badge.
 // ---------------------------------------------------------------------------
 
-function render() {
+function businessFindings(): Record<string, string> {
+  const findings: Record<string, string> = {}
+  for (const item of listBusinessItems()) findings[item.id] = `Marshaled finding for ${item.id}.`
+  return findings
+}
+
+function render(overrides: Partial<{ businessFindings: Record<string, string> }> = {}) {
   return renderToStaticMarkup(
     createElement(HoldingReviewOverrideForm, {
       holdingId: 'holding_cost_001',
@@ -25,18 +32,19 @@ function render() {
       defaultThesisHealth: 'WATCH',
       defaultActionStance: 'RESEARCH_MORE',
       defaultNextReviewAt: '2026-10-31',
+      businessFindings: overrides.businessFindings ?? businessFindings(),
     }),
   )
 }
 
-describe('HoldingReviewOverrideForm — Phase 7 re-underwrite override sign-off checklist', () => {
+describe('HoldingReviewOverrideForm — audit-and-decide re-underwrite override', () => {
   it('posts to the re-underwrite override route', () => {
     const html = render()
     expect(html).toContain('action="/api/portfolio/holding_cost_001/review/review_001/override"')
     expect(html).toContain('method="post"')
   })
 
-  it('renders the four required override thesis fields', () => {
+  it('keeps the human-authored override thesis fields', () => {
     const html = render()
     expect(html).toContain('name="thesis_health"')
     expect(html).toContain('name="action_stance"')
@@ -46,35 +54,49 @@ describe('HoldingReviewOverrideForm — Phase 7 re-underwrite override sign-off 
     expect(html).toContain('name="next_review_at"')
   })
 
-  it('renders every checklist item prompt, grouped into the two checklists', () => {
-    const html = render()
-    for (const item of CHECKLIST_PARAMS.items) {
+  it('renders ALL business items READ-ONLY: prompt + marshaled finding, NO per-item input', () => {
+    const findings = businessFindings()
+    const html = render({ businessFindings: findings })
+    for (const item of listBusinessItems()) {
       const escapedPrompt = item.prompt.replace(/&/g, '&amp;').replace(/'/g, '&#x27;').replace(/"/g, '&quot;')
       expect(html).toContain(escapedPrompt)
+      expect(html).toContain(`data-testid="checklist-finding-${item.id}"`)
+      expect(html).toContain(findings[item.id]!)
     }
     expect(html).toContain('Business failure modes')
     expect(html).toContain('Cognitive biases')
+    // The OLD per-item author inputs are GONE — the human never authors a finding.
+    expect(html).not.toContain('checklist_note[')
+    expect(html).not.toContain('checklist_addressed[')
   })
 
-  it('forces shariah_drift (item 10) and data_completeness (item 11) on the override path too', () => {
+  it('still surfaces shariah_drift and data_completeness findings on the override path too', () => {
     const html = render()
-    expect(html).toContain('checklist_note[shariah_drift]')
-    expect(html).toContain('checklist_note[data_completeness]')
+    expect(html).toContain('data-testid="checklist-finding-shariah_drift"')
+    expect(html).toContain('data-testid="checklist-finding-data_completeness"')
   })
 
-  it('starts every checklist answer EMPTY and the required thesis text fields EMPTY — no seeding', () => {
+  it('renders the cognitive items as read-only reflection prompts (no per-item input)', () => {
     const html = render()
-    for (const item of CHECKLIST_PARAMS.items) {
-      expect(html).toContain(`checklist_note[${item.id}]`)
+    for (const item of listCognitiveItems()) {
+      const escapedPrompt = item.prompt.replace(/&/g, '&amp;').replace(/'/g, '&#x27;').replace(/"/g, '&quot;')
+      expect(html).toContain(escapedPrompt)
     }
-    // No checklist note textarea (or required thesis textarea) is pre-filled with content.
-    expect(html).not.toMatch(/<textarea[^>]*>[^<]/)
-    expect(html).not.toContain('checked')
   })
 
-  it('disables submit initially (thesis fields + checklist not addressed)', () => {
+  it('renders EXACTLY ONE checkbox — the single cognitive acknowledgement', () => {
+    const html = render()
+    const checkboxes = html.match(/type="checkbox"/g) ?? []
+    expect(checkboxes).toHaveLength(1)
+    expect(html).toContain('name="cognitive_reflection_acknowledged"')
+  })
+
+  it('disables submit initially — authored thesis fields empty and the cognitive ack unchecked', () => {
     const html = render()
     expect(html).toMatch(/<button[^>]*disabled/)
+    // The authored free-text fields start empty and no checkbox starts checked.
+    expect(html).not.toMatch(/<textarea[^>]*>[^<]/)
+    expect(html).not.toContain('checked')
   })
 
   it('renders NO count/progress badge — a count is a score in disguise (decision-neutral)', () => {
@@ -86,7 +108,7 @@ describe('HoldingReviewOverrideForm — Phase 7 re-underwrite override sign-off 
     expect(html).not.toMatch(/\d+\s*\/\s*\d+\s+addressed/i)
   })
 
-  it('the component SOURCE contains no count/progress patterns (a count is a score in disguise)', () => {
+  it('the component SOURCE contains no count/progress patterns and no per-item author inputs', () => {
     const source = readFileSync(
       fileURLToPath(new URL('../HoldingReviewOverrideForm.tsx', import.meta.url)),
       'utf8',
@@ -96,5 +118,7 @@ describe('HoldingReviewOverrideForm — Phase 7 re-underwrite override sign-off 
     expect(source).not.toMatch(/\bremaining\b/i)
     expect(source).not.toMatch(/\d+\s+of\s+\d+/)
     expect(source).not.toMatch(/\{[^}]*\.length[^}]*\}\s*(of|\/)/)
+    expect(source).not.toContain('checklist_note[')
+    expect(source).not.toContain('checklist_addressed[')
   })
 })

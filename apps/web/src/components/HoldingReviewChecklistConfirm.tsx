@@ -2,36 +2,38 @@
 
 import { createElement, useState, type CSSProperties, type ReactNode } from 'react'
 
-import { CHECKLIST_PARAMS, type ChecklistCategory } from '@owlfolio/strategies/checklistParams'
-import { evaluateChecklistCompletion, type ChecklistAnswer } from '@owlfolio/strategies/checklist'
+import {
+  listBusinessItems,
+  listCognitiveItems,
+  type ChecklistItemDefinition,
+} from '@owlfolio/strategies/checklistParams'
 
 /**
- * The re-underwrite sign-off control — the moment a human confirms a provider-drafted Buffett-Munger
- * holding review into durable portfolio state (holding_review_confirmed). This is the re-underwrite TWIN
- * of WatchlistPromotionForm: the same two Phase 7 hygiene checklists (business failure modes + cognitive
- * biases) must be fully ADDRESSED before sign-off.
+ * The re-underwrite CONFIRM sign-off control — the moment a human AFFIRMS a provider-drafted Buffett-Munger
+ * holding review into durable portfolio state (holding_review_confirmed). Sign-off is INVERTED to
+ * audit-and-decide (the re-underwrite TWIN of WatchlistPromotionForm): the HARNESS marshals the analysis
+ * (one read-only finding per business item) and the human just AUDITS it and makes ONE decision — a SINGLE
+ * cognitive-reflection acknowledgement. Confirm APPLIES the provider draft as-is, so the human authors NO
+ * thesis here; the only thing they post is the single acknowledgement.
  *
- * Integrity invariant (Phase 7 S3): a confirmation previously validated NOTHING — a human-authored
- * transition that didn't require the human to have done anything. Now EVERY checklist item is REQUIRED and
- * NON-PREFILLED; nothing is seeded or suggested — especially the cognitive items. The confirm button stays
- * DISABLED until `evaluateChecklistCompletion` reports the checklist complete (the SAME pure fn the server
- * completion-block uses). Re-underwrite is the only place post-admission deterioration (shariah_drift,
- * data_completeness) gets re-checked.
+ * The 11 business findings are server-marshaled and rendered READ-ONLY; the client never authors or posts
+ * them (the server recomputes them at sign-off). There is NO per-item input and NO per-item checkbox. The 6
+ * cognitive items render as read-only reflection prompts gated by EXACTLY ONE acknowledgement checkbox.
  *
  * DECISION-NEUTRAL surface: there is NO count or progress badge — any "N done", "N left", or ratio readout
- * is forbidden, because a count is a score in disguise. The disabled submit + per-item "needs attention"
- * markers are the ONLY completeness signal. The checklist FORCES the question; it never scores it.
+ * is forbidden, because a count is a score in disguise. The confirm button is enabled IFF the single
+ * cognitive ack is checked.
  */
 export type HoldingReviewChecklistConfirmProps = {
   holdingId: string
   reviewId: string
   /**
-   * Phase 7 S4 — marshaled evidence per business checklist item (itemId -> persisted display value), a PURE
-   * read of the HELD name's research-case projection (reached via the holding's research_case_id), resolved
-   * by the caller. Read-only line beside each item; cognitive items are evidence-free by construction. Never
-   * pre-fills an answer, never a count/score.
+   * The harness-marshaled finding per BUSINESS item (itemId -> finding), a PURE read of the HELD name's
+   * research-case projection resolved by the caller. Rendered as a read-only line the human audits before
+   * affirming. The client NEVER posts these — the server recomputes them so a finding can't be authored or
+   * spoofed.
    */
-  evidence?: Record<string, string>
+  businessFindings: Record<string, string>
 }
 
 const labelStyle: CSSProperties = {
@@ -44,19 +46,6 @@ const labelStyle: CSSProperties = {
   textTransform: 'uppercase',
 }
 
-const checklistNoteStyle: CSSProperties = {
-  background: 'var(--owl-color-panel-elevated)',
-  border: '1px solid rgba(148, 163, 184, 0.28)',
-  borderRadius: '0.85rem',
-  color: '#f7f8ff',
-  fontSize: 'var(--owl-text-base)',
-  lineHeight: 1.5,
-  minHeight: '3.25rem',
-  padding: '0.75rem 0.85rem',
-  resize: 'vertical',
-  width: '100%',
-}
-
 const groupHeadingStyle: CSSProperties = {
   color: 'var(--owl-color-gold-bright)',
   fontSize: 'var(--owl-text-sm)',
@@ -66,16 +55,8 @@ const groupHeadingStyle: CSSProperties = {
   textTransform: 'uppercase',
 }
 
-const CATEGORY_HEADINGS: Record<ChecklistCategory, string> = {
-  business: 'Business failure modes',
-  cognitive: 'Cognitive biases',
-}
-
-/** A human-readable label for the per-item "needs attention" marker, never a count. */
-const NEEDS_ATTENTION_LABEL = 'Needs attention'
-
-/** Read-only marshaled-evidence line style (S4) — a calm, secondary readout, never an input. */
-const evidenceLineStyle: CSSProperties = {
+/** Read-only marshaled-finding line style — a calm, secondary readout, never an input. */
+const findingLineStyle: CSSProperties = {
   color: 'var(--owl-color-muted)',
   fontFamily: 'var(--owl-font-mono)',
   fontSize: 'var(--owl-text-xs)',
@@ -84,119 +65,47 @@ const evidenceLineStyle: CSSProperties = {
   wordBreak: 'break-word',
 }
 
-function emptyAnswer(): ChecklistAnswer {
-  return { addressed: false, note: '' }
+const itemCardStyle: CSSProperties = {
+  border: '1px solid rgba(148, 163, 184, 0.2)',
+  borderRadius: '0.75rem',
+  display: 'grid',
+  gap: '0.4rem',
+  padding: '0.6rem 0.75rem',
 }
 
-/** All checklist items start EMPTY — never seeded, especially the cognitive ones. */
-function initialAnswers(): Record<string, ChecklistAnswer> {
-  const answers: Record<string, ChecklistAnswer> = {}
-  for (const item of CHECKLIST_PARAMS.items) {
-    answers[item.id] = emptyAnswer()
-  }
-  return answers
+const promptStyle: CSSProperties = { color: 'var(--owl-color-text)', fontWeight: 700 }
+
+/** One READ-ONLY business item: the prompt + the harness's marshaled finding. No input, no checkbox. */
+function renderBusinessItem(item: ChecklistItemDefinition, findings: Record<string, string>): ReactNode {
+  const finding = findings[item.id] ?? 'No marshaled finding available in this case.'
+  return createElement(
+    'div',
+    { key: item.id, style: itemCardStyle },
+    createElement('p', { style: promptStyle }, item.prompt),
+    createElement(
+      'p',
+      { 'data-testid': `checklist-finding-${item.id}`, style: findingLineStyle },
+      `Marshaled finding: ${finding}`,
+    ),
+  )
 }
 
-export function HoldingReviewChecklistConfirm({ holdingId, reviewId, evidence = {} }: HoldingReviewChecklistConfirmProps) {
-  // Every checklist answer starts EMPTY — no seeding/suggestion (the cognitive items are human-only).
-  const [answers, setAnswers] = useState<Record<string, ChecklistAnswer>>(initialAnswers)
+/** One READ-ONLY cognitive reflection prompt. The human reflects; there is no per-item input. */
+function renderCognitiveItem(item: ChecklistItemDefinition): ReactNode {
+  return createElement(
+    'div',
+    { key: item.id, style: itemCardStyle },
+    createElement('p', { style: promptStyle }, item.prompt),
+  )
+}
 
-  // The SAME pure, decision-neutral evaluator the server completion-block uses. It reports ONLY which
-  // items are unaddressed — never a count/score.
-  const completion = evaluateChecklistCompletion(answers)
-  const unaddressed = new Set(completion.unaddressed)
-  const canConfirm = completion.complete
+export function HoldingReviewChecklistConfirm({ holdingId, reviewId, businessFindings }: HoldingReviewChecklistConfirmProps) {
+  // The single human acknowledgement that they reflected on the 6 cognitive bias prompts. Never seeded.
+  const [cognitiveAck, setCognitiveAck] = useState(false)
 
-  function setNote(id: string, note: string): void {
-    setAnswers((prev) => ({ ...prev, [id]: { addressed: prev[id]?.addressed ?? false, note } }))
-  }
-
-  function setAddressed(id: string, addressed: boolean): void {
-    setAnswers((prev) => ({ ...prev, [id]: { addressed, note: prev[id]?.note ?? '' } }))
-  }
-
-  function renderChecklistItem(item: (typeof CHECKLIST_PARAMS.items)[number]): ReactNode {
-    const answer = answers[item.id] ?? emptyAnswer()
-    const needsAttention = unaddressed.has(item.id)
-    return createElement(
-      'div',
-      {
-        key: item.id,
-        style: {
-          border: needsAttention ? '1px solid var(--owl-color-gold)' : '1px solid rgba(148, 163, 184, 0.2)',
-          borderRadius: '0.75rem',
-          display: 'grid',
-          gap: '0.4rem',
-          padding: '0.6rem 0.75rem',
-        },
-      },
-      createElement(
-        'div',
-        { style: { alignItems: 'baseline', display: 'flex', gap: '0.5rem', justifyContent: 'space-between' } },
-        createElement(
-          'label',
-          { htmlFor: `review-checklist-note-${item.id}`, style: { color: 'var(--owl-color-text)', fontWeight: 700 } },
-          item.prompt,
-        ),
-        // Per-item completeness marker — "Needs attention", never a count. Only shown when unaddressed.
-        needsAttention
-          ? createElement(
-              'span',
-              {
-                style: {
-                  color: 'var(--owl-color-gold-bright)',
-                  flexShrink: 0,
-                  fontSize: 'var(--owl-text-xs)',
-                  fontWeight: 800,
-                  letterSpacing: '0.05em',
-                  textTransform: 'uppercase',
-                },
-              },
-              NEEDS_ATTENTION_LABEL,
-            )
-          : null,
-      ),
-      // Phase 7 S4 — marshaled evidence (read-only, reads-only). Re-underwrite re-checks drift since
-      // admission, so the held name's persisted projection value reads beside each business item.
-      evidence[item.id] !== undefined
-        ? createElement(
-            'p',
-            { 'data-testid': `checklist-evidence-${item.id}`, style: evidenceLineStyle },
-            `Marshaled evidence: ${evidence[item.id]}`,
-          )
-        : null,
-      createElement('textarea', {
-        'aria-label': item.prompt,
-        id: `review-checklist-note-${item.id}`,
-        name: `checklist_note[${item.id}]`,
-        onChange: (event: { target: { value: string } }) => setNote(item.id, event.target.value),
-        placeholder: 'Your reasoned note — in your own words.',
-        style: checklistNoteStyle,
-        value: answer.note,
-      }),
-      createElement(
-        'label',
-        { style: { alignItems: 'center', color: 'var(--owl-color-muted)', display: 'flex', fontSize: 'var(--owl-text-sm)', gap: '0.4rem' } },
-        createElement('input', {
-          checked: answer.addressed,
-          name: `checklist_addressed[${item.id}]`,
-          onChange: (event: { target: { checked: boolean } }) => setAddressed(item.id, event.target.checked),
-          type: 'checkbox',
-        }),
-        createElement('span', null, 'I have addressed this'),
-      ),
-    )
-  }
-
-  function renderChecklistGroup(category: ChecklistCategory): ReactNode {
-    const items = CHECKLIST_PARAMS.items.filter((item) => item.category === category)
-    return createElement(
-      'fieldset',
-      { key: category, style: { border: 0, margin: 0, padding: 0 } },
-      createElement('legend', { style: groupHeadingStyle }, CATEGORY_HEADINGS[category]),
-      createElement('div', { style: { display: 'grid', gap: '0.6rem' } }, ...items.map(renderChecklistItem)),
-    )
-  }
+  // Confirm APPLIES the provider draft — the human authors no thesis here, so the only gate is the single
+  // cognitive acknowledgement. No 17-field gating, no count/score.
+  const canConfirm = cognitiveAck
 
   return createElement(
     'form',
@@ -223,13 +132,50 @@ export function HoldingReviewChecklistConfirm({ holdingId, reviewId, evidence = 
     createElement(
       'p',
       { style: { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-sm)', lineHeight: 1.5, margin: '0.25rem 0 0' } },
-      'A re-underwrite is a real decision, not a rubber stamp. Address every quality and bias check below in '
-      + 'your own words before signing off — nothing is pre-filled, the cognitive checks are yours alone, and '
-      + 'this is the moment to catch any drift since admission. Items still needing attention are marked; the '
-      + 'confirm button stays disabled until all are addressed.',
+      'A re-underwrite is a real decision, not a rubber stamp. Below is the harness-marshaled analysis. Audit '
+      + 'each business finding against the provider draft and the original thesis, reflect on the reasoning '
+      + 'checks, then acknowledge before signing off. This is the moment to catch any drift since admission.',
     ),
-    renderChecklistGroup('business'),
-    renderChecklistGroup('cognitive'),
+    createElement(
+      'fieldset',
+      { style: { border: 0, margin: 0, padding: 0 } },
+      createElement('legend', { style: groupHeadingStyle }, 'Business failure modes'),
+      createElement(
+        'div',
+        { style: { display: 'grid', gap: '0.6rem' } },
+        ...listBusinessItems().map((item) => renderBusinessItem(item, businessFindings)),
+      ),
+    ),
+    createElement(
+      'fieldset',
+      { style: { border: 0, margin: 0, padding: 0 } },
+      createElement('legend', { style: groupHeadingStyle }, 'Cognitive biases'),
+      createElement(
+        'div',
+        { style: { display: 'grid', gap: '0.6rem' } },
+        ...listCognitiveItems().map(renderCognitiveItem),
+      ),
+    ),
+    createElement(
+      'label',
+      {
+        style: {
+          alignItems: 'center',
+          color: 'var(--owl-color-text)',
+          display: 'flex',
+          fontSize: 'var(--owl-text-sm)',
+          fontWeight: 700,
+          gap: '0.5rem',
+        },
+      },
+      createElement('input', {
+        checked: cognitiveAck,
+        name: 'cognitive_reflection_acknowledged',
+        onChange: (event: { target: { checked: boolean } }) => setCognitiveAck(event.target.checked),
+        type: 'checkbox',
+      }),
+      createElement('span', null, 'I have reflected on these reasoning checks for my own thinking.'),
+    ),
     createElement(
       'button',
       {

@@ -228,17 +228,24 @@ describe('Phase 7 S5 wiring conformance — A3: cognitive items are HUMAN-ONLY (
     )
   })
 
-  it('the three forms seed every checklist answer EMPTY (never seeded, especially cognitive)', () => {
+  it('the three forms never seed the cognitive reflection (audit-and-decide: the single ack starts unchecked)', () => {
     for (const [name, src] of [
       ['WatchlistPromotionForm', watchlistPromotionFormSrc],
       ['HoldingReviewChecklistConfirm', holdingReviewConfirmFormSrc],
       ['HoldingReviewOverrideForm', holdingReviewOverrideFormSrc],
     ] as const) {
       const code = stripComments(src)
-      // The empty-seed shape: { addressed: false, note: '' } produced for each item.
-      expect(code, `${name} must seed answers empty { addressed: false, note: '' }`).toMatch(
-        /addressed:\s*false\s*,\s*note:\s*['"]['"]/,
+      // Audit-and-decide: the human posts exactly ONE cognitive-reflection acknowledgement, and it is NEVER
+      // seeded — the ack state starts false (the agent must not pre-acknowledge the human's reflection).
+      expect(code, `${name} must post the single cognitive acknowledgement`).toContain(
+        'cognitive_reflection_acknowledged',
       )
+      expect(code, `${name} must start the cognitive ack UNCHECKED (never seeded)`).toMatch(
+        /useState\s*\(\s*false\s*\)/,
+      )
+      // The OLD per-item author inputs are GONE — the human never authors/seeds a per-item finding.
+      expect(code, `${name} must not author per-item checklist notes`).not.toContain('checklist_note[')
+      expect(code, `${name} must not author per-item checklist affirmations`).not.toContain('checklist_addressed[')
     }
   })
 })

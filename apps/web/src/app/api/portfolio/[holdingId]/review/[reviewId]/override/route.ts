@@ -1,13 +1,7 @@
 import { redirect } from 'next/navigation'
 import { NextResponse } from 'next/server'
 
-import type { ChecklistAnswer } from '@owlfolio/strategies/checklist'
-
 import { getOnboardingState } from '../../../../../../../lib/onboarding'
-import {
-  coerceChecklistAnswers,
-  readChecklistFromForm,
-} from '../../../../../../../lib/holdingReviewChecklistRequest'
 import { overridePersonalHoldingReviewDraft } from '../../../../../../../lib/workflow'
 
 type RouteContext = {
@@ -15,9 +9,10 @@ type RouteContext = {
 }
 
 /**
- * The override re-underwrite sign-off form posts the four required thesis fields. We read the body ONCE (the
- * stream can only be consumed once): keep the thesis fields AND the per-item checklist answers from the same
- * read. The checklist gates the override identically to confirm (Phase 7 S3 bypass close).
+ * The override re-underwrite sign-off posts the human-authored thesis fields (their substitute judgment,
+ * which stays) plus the SINGLE `cognitive_reflection_acknowledged` flag. We read the body ONCE (the stream
+ * can only be consumed once): keep the authored fields AND the ack from the same read. The human NEVER posts
+ * business findings — the server marshals them at sign-off so a finding can't be authored or spoofed.
  */
 type OverrideRequestBody = {
   input: {
@@ -28,7 +23,7 @@ type OverrideRequestBody = {
     uncertainty: FormDataEntryValue | null
     next_review_at: FormDataEntryValue | null
   }
-  checklistAnswers: Record<string, ChecklistAnswer>
+  cognitiveAcknowledged: boolean
 }
 
 async function readOverrideRequest(request: Request): Promise<OverrideRequestBody> {
@@ -44,6 +39,7 @@ async function readOverrideRequest(request: Request): Promise<OverrideRequestBod
       body = {}
     }
     const asString = (value: unknown): FormDataEntryValue | null => (typeof value === 'string' ? value : null)
+    const ack = body['cognitive_reflection_acknowledged']
     return {
       input: {
         thesis_health: asString(body['thesis_health']),
@@ -53,7 +49,8 @@ async function readOverrideRequest(request: Request): Promise<OverrideRequestBod
         uncertainty: asString(body['uncertainty']),
         next_review_at: asString(body['next_review_at']),
       },
-      checklistAnswers: coerceChecklistAnswers(body['checklist_answers']),
+      // Accept `true` or the HTML checkbox-style 'on' for programmatic JSON callers.
+      cognitiveAcknowledged: ack === true || ack === 'on',
     }
   }
 
@@ -67,17 +64,18 @@ async function readOverrideRequest(request: Request): Promise<OverrideRequestBod
       uncertainty: formData.get('uncertainty'),
       next_review_at: formData.get('next_review_at'),
     },
-    checklistAnswers: readChecklistFromForm(formData),
+    // An HTML checkbox only appears in the form data (value 'on') when checked.
+    cognitiveAcknowledged: formData.get('cognitive_reflection_acknowledged') === 'on',
   }
 }
 
 export async function POST(request: Request, context: RouteContext) {
   const state = await getOnboardingState()
   const { holdingId, reviewId } = await context.params
-  const { input, checklistAnswers } = await readOverrideRequest(request)
+  const { input, cognitiveAcknowledged } = await readOverrideRequest(request)
 
   try {
-    await overridePersonalHoldingReviewDraft(state, holdingId, reviewId, input, checklistAnswers)
+    await overridePersonalHoldingReviewDraft(state, holdingId, reviewId, input, cognitiveAcknowledged)
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : 'Failed to override holding review' }, { status: 400 })
   }
