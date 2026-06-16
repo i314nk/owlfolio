@@ -6,7 +6,7 @@ import { SQLiteEventStore } from '@owlfolio/ledger/sqliteEventStore'
 import { projectWatchlist } from '@owlfolio/ledger/projections/watchlistProjection'
 import type { CertificationReport } from '@owlfolio/providers'
 import { defaultPersonalLocalAppConfig } from '@owlfolio/shared'
-import { CHECKLIST_PARAMS } from '@owlfolio/strategies/checklistParams'
+import { CHECKLIST_PARAMS, listBusinessItems } from '@owlfolio/strategies/checklistParams'
 import {
   createResearchCase,
   discoverCandidate,
@@ -49,6 +49,14 @@ const HUMAN_SIGNED_THESIS = 'I am admitting this name: durable franchise, low pe
 const COMPLETE_CHECKLIST: Record<string, { addressed: boolean; note: string }> = Object.fromEntries(
   CHECKLIST_PARAMS.items.map((item) => [item.id, { addressed: true, note: `Addressed ${item.id}.` }]),
 )
+
+// Audit-and-decide: a complete harness-marshaled audit (one finding per business item + the human ack) so
+// a direct confirmWatchlistDraft call clears the completion-block.
+const COMPLETE_AUDIT = {
+  version: CHECKLIST_PARAMS.version,
+  business_findings: Object.fromEntries(listBusinessItems().map((item) => [item.id, `Marshaled finding for ${item.id}.`])),
+  cognitive_acknowledged: true,
+}
 
 describe('workflow helpers', () => {
   const dirs: string[] = []
@@ -373,7 +381,7 @@ describe('workflow helpers', () => {
 
     const created = await setupMsftResearchCaseInLedger(ledgerPath)
     // Phase 8 S4: the single gated promote lands the item user-confirmed (both events emitted atomically).
-    const promoted = await promoteResearchCaseToWatchlist(state, created.research_case_id, HUMAN_SIGNED_THESIS, COMPLETE_CHECKLIST)
+    const promoted = await promoteResearchCaseToWatchlist(state, created.research_case_id, HUMAN_SIGNED_THESIS, true)
     const confirmStore = new SQLiteEventStore(ledgerPath)
     const confirmed = projectWatchlist(await confirmStore.list()).find((item) => item.watchlist_item_id === promoted.watchlist_item_id)
     confirmStore.close()
@@ -568,9 +576,9 @@ describe('workflow helpers', () => {
 
     const created = await setupMsftResearchCaseInLedger(ledgerPath)
 
-    const first = await promoteResearchCaseToWatchlist(state, created.research_case_id, HUMAN_SIGNED_THESIS, COMPLETE_CHECKLIST)
+    const first = await promoteResearchCaseToWatchlist(state, created.research_case_id, HUMAN_SIGNED_THESIS, true)
     // Re-adding the same case is the owner clicking the button twice; it must be a no-op.
-    const second = await promoteResearchCaseToWatchlist(state, created.research_case_id, HUMAN_SIGNED_THESIS, COMPLETE_CHECKLIST)
+    const second = await promoteResearchCaseToWatchlist(state, created.research_case_id, HUMAN_SIGNED_THESIS, true)
 
     expect(second.watchlist_item_id).toBe(first.watchlist_item_id)
     // The id is deterministic per research case (not time-based), preserving the watch_<ticker>_ shape.
@@ -669,7 +677,7 @@ describe('workflow helpers', () => {
     }
 
     const created = await setupMsftResearchCaseInLedger(ledgerPath)
-    const promoted = await promoteResearchCaseToWatchlist(state, created.research_case_id, `  ${HUMAN_SIGNED_THESIS}  `, COMPLETE_CHECKLIST)
+    const promoted = await promoteResearchCaseToWatchlist(state, created.research_case_id, `  ${HUMAN_SIGNED_THESIS}  `, true)
 
     const store = new SQLiteEventStore(ledgerPath)
     try {
@@ -716,7 +724,7 @@ describe('workflow helpers', () => {
       }
 
       const created = await setupMsftResearchCaseInLedger(ledgerPath)
-      const promoted = await promoteResearchCaseToWatchlist(state, created.research_case_id, HUMAN_SIGNED_THESIS, COMPLETE_CHECKLIST)
+      const promoted = await promoteResearchCaseToWatchlist(state, created.research_case_id, HUMAN_SIGNED_THESIS, true)
       const openedHolding = await openPersonalHoldingFromWatchlist(state, promoted.watchlist_item_id)
       const unsupportedProviderState = {
         ...state,
@@ -798,7 +806,7 @@ describe('workflow helpers', () => {
         causation_id: 'evt_analysis_rc_blocked_001',
       })
 
-      await expect(promoteResearchCaseToWatchlist(state, researchCase.research_case_id, HUMAN_SIGNED_THESIS, COMPLETE_CHECKLIST)).rejects.toThrow(/Shariah gate blocked watchlist_promotion/)
+      await expect(promoteResearchCaseToWatchlist(state, researchCase.research_case_id, HUMAN_SIGNED_THESIS, true)).rejects.toThrow(/Shariah gate blocked watchlist_promotion/)
       const events = await store.list()
       // Phase 8 S4: the consolidated single step preserves the Shariah gate — a non-compliant case is
       // blocked BEFORE any append, so NEITHER the created draft NOR the atomic confirmation leaks.
@@ -843,7 +851,7 @@ describe('workflow helpers', () => {
     }
 
     const created = await setupMsftResearchCaseInLedger(ledgerPath)
-    const promoted = await promoteResearchCaseToWatchlist(state, created.research_case_id, HUMAN_SIGNED_THESIS, COMPLETE_CHECKLIST)
+    const promoted = await promoteResearchCaseToWatchlist(state, created.research_case_id, HUMAN_SIGNED_THESIS, true)
 
     await expect(openPersonalHoldingFromWatchlist(state, promoted.watchlist_item_id, {
       shares: '0',
@@ -1076,7 +1084,8 @@ describe('workflow helpers', () => {
         buy_below_valuation_version: 'valuation-2026-06-cap-1',
         buy_below_mos_provisional: true,
         signed_thesis: 'I am admitting WTCH at the frozen buy-below.',
-        checklist_answers: COMPLETE_CHECKLIST,
+        signed_thesis_draft: 'Watch WTCH: selected-strategy watchlist draft awaits user confirmation.',
+        checklist_audit: COMPLETE_AUDIT,
         actor_id: 'user_local',
       })
 

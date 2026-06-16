@@ -7,18 +7,10 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { defaultPersonalLocalAppConfig } from '@owlfolio/shared'
 import { SQLiteEventStore } from '@owlfolio/ledger/sqliteEventStore'
 import { projectWatchlist } from '@owlfolio/ledger/projections/watchlistProjection'
-import { CHECKLIST_PARAMS } from '@owlfolio/strategies/checklistParams'
+import { listBusinessItems } from '@owlfolio/strategies/checklistParams'
 import { createResearchCase, draftDecision } from '@owlfolio/workflow'
 
 import { POST } from './route'
-
-/** Append a fully-addressed per-item checklist (note + addressed) to a form, mirroring the admit form. */
-function appendCompleteChecklist(form: URLSearchParams): void {
-  for (const item of CHECKLIST_PARAMS.items) {
-    form.set(`checklist_note[${item.id}]`, `Addressed ${item.id}.`)
-    form.set(`checklist_addressed[${item.id}]`, 'on')
-  }
-}
 
 const originalEnv = {
   OWLFOLIO_APP_CONFIG_PATH: process.env.OWLFOLIO_APP_CONFIG_PATH,
@@ -117,30 +109,13 @@ describe('/api/research/[caseId]/watchlist', () => {
   // agent draft — so the route is posted with a form-encoded signed_thesis like the real admit control.
   const HUMAN_SIGNED_THESIS = 'I am admitting ADBE: wide-moat franchise, low permanent-loss risk, fair-to-cheap.'
 
-  function callRoute(caseId: string, signedThesis: string = HUMAN_SIGNED_THESIS) {
+  // Audit-and-decide: the human posts only the final signed thesis + the SINGLE cognitive acknowledgement.
+  // No per-item findings are posted — the server marshals them at sign-off.
+  function callRoute(caseId: string, signedThesis: string = HUMAN_SIGNED_THESIS, acknowledged = true) {
     const form = new URLSearchParams()
     form.set('signed_thesis', signedThesis)
-    // The Phase 7 hygiene/bias checklist is also required — post a fully-addressed set on the happy path.
-    appendCompleteChecklist(form)
-    return POST(new Request(`http://localhost/api/research/${caseId}/watchlist`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/x-www-form-urlencoded' },
-      body: form.toString(),
-    }), {
-      params: Promise.resolve({ caseId }),
-    })
-  }
-
-  // Post with the signed thesis but an INCOMPLETE checklist (one item omitted) — exercises the 400 path.
-  function callRouteIncompleteChecklist(caseId: string, omitItemId: string) {
-    const form = new URLSearchParams()
-    form.set('signed_thesis', HUMAN_SIGNED_THESIS)
-    for (const item of CHECKLIST_PARAMS.items) {
-      if (item.id === omitItemId) {
-        continue
-      }
-      form.set(`checklist_note[${item.id}]`, `Addressed ${item.id}.`)
-      form.set(`checklist_addressed[${item.id}]`, 'on')
+    if (acknowledged) {
+      form.set('cognitive_reflection_acknowledged', 'on')
     }
     return POST(new Request(`http://localhost/api/research/${caseId}/watchlist`, {
       method: 'POST',
@@ -224,7 +199,7 @@ describe('/api/research/[caseId]/watchlist', () => {
     }
   })
 
-  it('persists and projects the human checklist answers alongside the signed thesis (auditable)', async () => {
+  it('marshals the business findings server-side and persists the audit (auditable) with affirm provenance', async () => {
     const caseId = await seedCompletedAdbeCase(ledgerPath)
 
     await expect(callRoute(caseId)).rejects.toMatchObject({ digest: expect.stringContaining('NEXT_REDIRECT') })
@@ -233,25 +208,50 @@ describe('/api/research/[caseId]/watchlist', () => {
     try {
       const events = await store.list()
       const draft = events.find((event) => event.event_type === 'watchlist_draft_created')
-      const payload = draft?.payload as { checklist_answers?: Record<string, { addressed: boolean; note: string }> }
-      // Every checklist item was captured on the signed artifact.
-      expect(Object.keys(payload.checklist_answers ?? {})).toHaveLength(CHECKLIST_PARAMS.items.length)
-      expect(payload.checklist_answers?.['anchoring']?.addressed).toBe(true)
+      const payload = draft?.payload as {
+        checklist_audit?: { version: string; business_findings: Record<string, string>; cognitive_acknowledged: boolean }
+        signed_thesis_draft?: string
+        thesis_amended?: boolean
+      }
+      // The server marshaled one finding per BUSINESS item — the human never posted them.
+      expect(Object.keys(payload.checklist_audit?.business_findings ?? {})).toHaveLength(listBusinessItems().length)
+      expect(payload.checklist_audit?.cognitive_acknowledged).toBe(true)
+      // The human typed a thesis DISTINCT from the agent draft, so it's recorded as an amendment.
+      expect(payload.signed_thesis_draft).toBeTruthy()
+      expect(payload.thesis_amended).toBe(true)
 
       const [item] = projectWatchlist(events)
-      expect(Object.keys(item?.checklist_answers ?? {})).toHaveLength(CHECKLIST_PARAMS.items.length)
+      expect(Object.keys(item?.checklist_audit?.business_findings ?? {})).toHaveLength(listBusinessItems().length)
     } finally {
       store.close()
     }
   })
 
-  it('returns 400 with the unaddressed ids when the hygiene/bias checklist is incomplete (completion-block)', async () => {
+  it('records an AFFIRM (thesis_amended=false) when the human signs the agent draft verbatim', async () => {
     const caseId = await seedCompletedAdbeCase(ledgerPath)
 
-    const response = await callRouteIncompleteChecklist(caseId, 'anchoring')
+    // The seeded case has reason "Durable quality business..."; the agent draft thesis is `Watch ADBE: <reason>`.
+    const agentDraft = 'Watch ADBE: Durable quality business at a fair valuation; watch for a wider margin of safety.'
+    await expect(callRoute(caseId, agentDraft)).rejects.toMatchObject({ digest: expect.stringContaining('NEXT_REDIRECT') })
+
+    const store = new SQLiteEventStore(ledgerPath)
+    try {
+      const draft = (await store.list()).find((event) => event.event_type === 'watchlist_draft_created')
+      const payload = draft?.payload as { thesis_amended?: boolean; signed_thesis?: string; signed_thesis_draft?: string }
+      expect(payload.signed_thesis).toBe(payload.signed_thesis_draft)
+      expect(payload.thesis_amended).toBe(false)
+    } finally {
+      store.close()
+    }
+  })
+
+  it('returns 400 when the single cognitive acknowledgement is missing (completion-block)', async () => {
+    const caseId = await seedCompletedAdbeCase(ledgerPath)
+
+    const response = await callRoute(caseId, HUMAN_SIGNED_THESIS, false)
     expect(response.status).toBe(400)
     await expect(response.json()).resolves.toMatchObject({
-      error: expect.stringMatching(/checklist must be fully addressed.*anchoring/),
+      error: expect.stringMatching(/complete audit.*cognitive_acknowledgement/),
     })
 
     // No draft was appended — the completion-block closed the path.
@@ -264,22 +264,28 @@ describe('/api/research/[caseId]/watchlist', () => {
     }
   })
 
-  it('does not synthesize cognitive answers server-side: an empty checklist is rejected, not auto-filled', async () => {
+  it('succeeds with ZERO business free-text posted: the server marshals findings, the human only acks', async () => {
     const caseId = await seedCompletedAdbeCase(ledgerPath)
 
-    // Post the signed thesis but NO checklist fields at all — the server must NOT fabricate any answer.
+    // Post ONLY the thesis + the single ack — no business findings at all (acceptance gate §6.2).
     const form = new URLSearchParams()
     form.set('signed_thesis', HUMAN_SIGNED_THESIS)
-    const response = await POST(new Request(`http://localhost/api/research/${caseId}/watchlist`, {
+    form.set('cognitive_reflection_acknowledged', 'on')
+    await expect(POST(new Request(`http://localhost/api/research/${caseId}/watchlist`, {
       method: 'POST',
       headers: { 'content-type': 'application/x-www-form-urlencoded' },
       body: form.toString(),
-    }), { params: Promise.resolve({ caseId }) })
+    }), { params: Promise.resolve({ caseId }) })).rejects.toMatchObject({
+      digest: expect.stringContaining('NEXT_REDIRECT'),
+    })
 
-    expect(response.status).toBe(400)
     const store = new SQLiteEventStore(ledgerPath)
     try {
-      expect((await store.list()).some((event) => event.event_type === 'watchlist_draft_created')).toBe(false)
+      const events = await store.list()
+      const draft = events.find((event) => event.event_type === 'watchlist_draft_created')
+      const payload = draft?.payload as { checklist_audit?: { business_findings: Record<string, string> } }
+      // The findings were marshaled server-side even though the client posted none.
+      expect(Object.keys(payload.checklist_audit?.business_findings ?? {})).toHaveLength(listBusinessItems().length)
     } finally {
       store.close()
     }

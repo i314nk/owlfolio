@@ -7,7 +7,7 @@ import type {
 } from '@owlfolio/ledger/projections/researchCaseProjection'
 import { isDeepDiveComplete } from '@owlfolio/workflow/admitAssessment'
 
-import { resolveChecklistEvidence } from '../lib/checklistEvidence'
+import { resolveAdmissionThesisDraft, resolveBusinessFindings } from '../lib/checklistEvidence'
 
 import type { PositionPlan, PositionTranche } from '../lib/positionPlan'
 
@@ -2960,14 +2960,18 @@ function createSellDecisionPanel(researchCase: AppResearchCase) {
 }
 
 function createWatchlistPromotionAction(researchCase: AppResearchCase) {
-  // The admit control is its own client component: it requires a NON-PREFILLED, human-typed signed
-  // thesis and keeps the promote button disabled until one is entered (Task 4.3). It is never seeded
-  // from the agent-drafted thesis_summary — that would recreate the rubber stamp this gate prevents.
-  //
-  // Phase 7 S4 — marshal the per-item evidence as a PURE read of this case's persisted projection (no
-  // engine call); the form renders it read-only beside each groundable business item.
-  const evidence = resolveChecklistEvidence(researchCase)
-  return createElement(WatchlistPromotionForm, { researchCaseId: researchCase.research_case_id, evidence })
+  // Audit-and-decide admit control: the HARNESS marshals the analysis and the human AUDITS it. The
+  // signed-thesis textarea is PRE-FILLED with the agent draft (affirm-or-amend), and the 11 business
+  // findings render read-only — both are PURE reads of this case's persisted projection (no engine call).
+  // The server re-derives the SAME draft + findings at sign-off, so the client can neither author a
+  // finding nor spoof the draft.
+  const thesisDraft = resolveAdmissionThesisDraft(researchCase)
+  const businessFindings = resolveBusinessFindings(researchCase)
+  return createElement(WatchlistPromotionForm, {
+    researchCaseId: researchCase.research_case_id,
+    thesisDraft,
+    businessFindings,
+  })
 }
 
 function createActionsRow() {

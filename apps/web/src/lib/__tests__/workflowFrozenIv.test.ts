@@ -6,7 +6,6 @@ import { SQLiteEventStore } from '@owlfolio/ledger/sqliteEventStore'
 import { projectWatchlist } from '@owlfolio/ledger/projections/watchlistProjection'
 import { defaultPersonalLocalAppConfig } from '@owlfolio/shared'
 import { VALUATION_PARAMS } from '@owlfolio/strategies/valuationParams'
-import { CHECKLIST_PARAMS } from '@owlfolio/strategies/checklistParams'
 import { createResearchCase, draftDecision } from '@owlfolio/workflow'
 import { afterEach, describe, expect, it } from 'vitest'
 
@@ -102,11 +101,6 @@ async function seedCase(
 }
 
 
-// Phase 7 S2: admit requires every hygiene/bias checklist item to be addressed.
-const COMPLETE_CHECKLIST: Record<string, { addressed: boolean; note: string }> = Object.fromEntries(
-  CHECKLIST_PARAMS.items.map((item) => [item.id, { addressed: true, note: `Addressed ${item.id}.` }]),
-)
-
 describe('promoteResearchCaseToWatchlist — freeze undiscounted IV at sign-off (Phase 6 S3)', () => {
   const dirs: string[] = []
   afterEach(async () => {
@@ -127,7 +121,7 @@ describe('promoteResearchCaseToWatchlist — freeze undiscounted IV at sign-off 
       buy_price_per_share: 150,
     })
 
-    const promoted = await promoteResearchCaseToWatchlist(state, research_case_id, HUMAN_SIGNED_THESIS, COMPLETE_CHECKLIST)
+    const promoted = await promoteResearchCaseToWatchlist(state, research_case_id, HUMAN_SIGNED_THESIS, true)
 
     expect(promoted.frozen_iv).toBe(216)
     expect(promoted.frozen_iv_valuation_version).toBe(VALUATION_PARAMS.version)
@@ -155,7 +149,7 @@ describe('promoteResearchCaseToWatchlist — freeze undiscounted IV at sign-off 
     // A valuation WITH a discounted buy-below but NO undiscounted fair value.
     const { research_case_id } = await seedCase(ledgerPath, { buy_price_per_share: 150 })
 
-    const promoted = await promoteResearchCaseToWatchlist(state, research_case_id, HUMAN_SIGNED_THESIS, COMPLETE_CHECKLIST)
+    const promoted = await promoteResearchCaseToWatchlist(state, research_case_id, HUMAN_SIGNED_THESIS, true)
 
     // No undiscounted IV → frozen_iv absent; it must NEVER be backfilled from the discounted buy-below.
     expect(promoted.frozen_iv).toBeUndefined()

@@ -28,6 +28,8 @@ import { SQLiteEventStore } from '@owlfolio/ledger/sqliteEventStore'
 import { resolveProvider } from '@owlfolio/providers'
 import { VALUATION_PARAMS } from '@owlfolio/strategies/valuationParams'
 import { evaluateChecklistCompletion, type ChecklistAnswer } from '@owlfolio/strategies/checklist'
+import { CHECKLIST_PARAMS, type ChecklistAudit } from '@owlfolio/strategies/checklistParams'
+import { resolveAdmissionThesisDraft, resolveBusinessFindings } from './checklistEvidence'
 import type { AppConfig } from '@owlfolio/shared'
 import {
   assertShariahGateAllowsTransition,
@@ -715,30 +717,19 @@ export async function promoteResearchCaseToWatchlist(
   state: OnboardingState,
   researchCaseId: string,
   signedThesis: string,
-  checklistAnswers: Record<string, ChecklistAnswer> = {},
+  cognitiveAcknowledged = false,
 ) {
   if (!state.is_initialized || state.config.mode !== 'personal-local' || state.config.ledger_path === undefined) {
     throw new Error('Personal-local workflow is not initialized')
   }
 
-  // The signed thesis is the HUMAN commitment that makes admission a real decision (Task 4.3). It is
-  // required and must be the human's own words — there is NO auto-fallback to the agent-drafted
-  // thesis_summary on this interactive path. An empty/whitespace thesis is rejected here so a missing
-  // human thesis can never be silently papered over by the agent draft.
+  // The signed thesis is the HUMAN commitment that makes admission a real decision. In the audit-and-decide
+  // model it is PRE-FILLED from the agent draft (affirm-or-amend), but it must still be non-empty after the
+  // human's final edit — an emptied thesis cannot be signed. Rejected here so a blank thesis can never be
+  // admitted.
   const humanSignedThesis = signedThesis.trim()
   if (humanSignedThesis.length === 0) {
     throw new Error('A human-signed thesis is required to promote a research case to the watchlist')
-  }
-
-  // COMPLETION-BLOCK (Phase 7 S2): every hygiene/bias checklist item must be ADDRESSED before admit —
-  // mirroring the signed-thesis gate. The cognitive answers are HUMAN-AUTHORED only; we pass through the
-  // human's answers untouched and NEVER default/synthesize any answer here. Reject with the unaddressed
-  // ids so the route can 400 with what still needs attention. Decision-NEUTRAL: no scoring/count.
-  const checklistCompletion = evaluateChecklistCompletion(checklistAnswers)
-  if (!checklistCompletion.complete) {
-    throw new Error(
-      `The hygiene/bias checklist must be fully addressed to promote a research case to the watchlist; unaddressed: ${checklistCompletion.unaddressed.join(', ')}`,
-    )
   }
 
   const store = new SQLiteEventStore(state.config.ledger_path)
@@ -772,6 +763,18 @@ export async function promoteResearchCaseToWatchlist(
       ? researchCase.next_required_action ?? `Watch ${ticker} after drafted decision ${researchCase.decision}`
       : `Watch ${ticker}: ${researchCase.reason}`
 
+    // AUDIT-AND-DECIDE provenance (server-marshaled, NEVER client-authored):
+    //  - signed_thesis_draft: the agent draft the human reviewed — the SAME value the admit form pre-filled,
+    //    so the affirm-vs-amend decision (`thesis_amended`) is computed against what the human actually saw.
+    //  - checklist_audit: one finding per business item (a pure read of THIS case's projection) + the human's
+    //    single cognitive acknowledgement. confirmWatchlistDraft completion-blocks on it (throw-before-append).
+    const signedThesisDraft = resolveAdmissionThesisDraft(researchCase)
+    const checklistAudit: ChecklistAudit = {
+      version: CHECKLIST_PARAMS.version,
+      business_findings: resolveBusinessFindings(researchCase),
+      cognitive_acknowledged: cognitiveAcknowledged,
+    }
+
     // FREEZE the buy-below at admit (Task 4.2b): snapshot the Phase-1 valuation buy-below and record the
     // MoS/valuation version it was frozen under. The MoS is still PROVISIONAL (#124), so a future MoS
     // freeze that changes the number is a VISIBLE, logged re-price — never a silent move on the locked
@@ -802,7 +805,8 @@ export async function promoteResearchCaseToWatchlist(
         ? {}
         : { frozen_iv: frozenIv, frozen_iv_valuation_version: VALUATION_PARAMS.version }),
       signed_thesis: humanSignedThesis,
-      checklist_answers: checklistAnswers,
+      signed_thesis_draft: signedThesisDraft,
+      checklist_audit: checklistAudit,
       actor_id: 'user_local',
       idempotency_key: `decision:${researchCase.research_case_id}:watchlist:v1`,
     })

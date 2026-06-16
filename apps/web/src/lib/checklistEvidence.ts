@@ -73,6 +73,28 @@ const GROUNDED_ABSENT_FINDING = 'No grounded value available in this case.'
  * - non-groundable (no `reads`) → qualitative pointer to the thesis/research
  * Cognitive items are intentionally excluded (the agent must not author them).
  */
+/**
+ * Derive the agent-drafted thesis the human audits at admission (audit-and-decide). This is the SAME
+ * draft the admit command persists as `signed_thesis_draft`, computed in ONE place so the pre-filled
+ * form textarea, the server's persisted draft, and the affirm-vs-amend provenance all agree. Pure read of
+ * the projection — no engine call.
+ */
+export function resolveAdmissionThesisDraft(
+  projection: ResearchCaseProjection | undefined,
+): string {
+  const ticker = projection?.ticker ?? projection?.company_id ?? projection?.research_case_id ?? 'this name'
+  const reason = projection?.reason
+  if (reason !== undefined && reason.trim().length > 0) {
+    return `Watch ${ticker}: ${reason}`
+  }
+  const nextAction = projection?.next_required_action
+  if (nextAction !== undefined && nextAction.trim().length > 0) {
+    return nextAction
+  }
+  const decision = projection?.decision
+  return `Watch ${ticker} after drafted decision ${decision ?? 'WATCH'}`
+}
+
 export function resolveBusinessFindings(
   projection: ResearchCaseProjection | undefined,
 ): Record<string, string> {

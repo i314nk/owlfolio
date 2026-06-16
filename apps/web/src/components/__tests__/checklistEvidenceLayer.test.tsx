@@ -4,15 +4,19 @@ import { describe, expect, it } from 'vitest'
 
 import { CHECKLIST_PARAMS } from '@owlfolio/strategies/checklistParams'
 
-import { WatchlistPromotionForm } from '../WatchlistPromotionForm'
 import { HoldingReviewChecklistConfirm } from '../HoldingReviewChecklistConfirm'
 import { HoldingReviewOverrideForm } from '../HoldingReviewOverrideForm'
 
 // ---------------------------------------------------------------------------
-// Phase 7 S4 — the EVIDENCE READ-LAYER renders beside each groundable BUSINESS item in BOTH the admission
-// form and the two re-underwrite forms. The evidence is a read-only marshaled value (passed in by the
-// caller as a pure read of the projection). Cognitive items render NO evidence. The S2/S3 invariants are
-// unchanged: non-prefilled inputs, completion-blocked submit, NO count badge.
+// Phase 7 S4 — the EVIDENCE READ-LAYER renders beside each groundable BUSINESS item in the two
+// re-underwrite forms. The evidence is a read-only marshaled value (passed in by the caller as a pure read
+// of the projection). Cognitive items render NO evidence. The S2/S3 invariants are unchanged:
+// non-prefilled inputs, completion-blocked submit, NO count badge.
+//
+// NOTE: the ADMISSION form (WatchlistPromotionForm) is NO LONGER part of this shared evidence-layer loop.
+// It migrated to the audit-and-decide model (pre-filled thesis + read-only marshaled FINDINGS + a single
+// cognitive ack), which has its own contract and is covered by WatchlistPromotionForm.test.tsx. The two
+// re-underwrite forms below still use the per-item evidence contract until their own migration slice.
 // ---------------------------------------------------------------------------
 
 // One marshaled value per groundable business item id (the caller resolves these from the projection).
@@ -31,10 +35,6 @@ const businessWithReads = CHECKLIST_PARAMS.items.filter((i) => i.category === 'b
 const cognitiveItems = CHECKLIST_PARAMS.items.filter((i) => i.category === 'cognitive')
 
 const renderers: Array<{ name: string; render: (ev?: Record<string, string>) => string }> = [
-  {
-    name: 'WatchlistPromotionForm (admission)',
-    render: (ev) => renderToStaticMarkup(createElement(WatchlistPromotionForm, { researchCaseId: 'rc_1', ...(ev ? { evidence: ev } : {}) })),
-  },
   {
     name: 'HoldingReviewChecklistConfirm (re-underwrite confirm)',
     render: (ev) => renderToStaticMarkup(createElement(HoldingReviewChecklistConfirm, { holdingId: 'h_1', reviewId: 'rev_1', ...(ev ? { evidence: ev } : {}) })),
