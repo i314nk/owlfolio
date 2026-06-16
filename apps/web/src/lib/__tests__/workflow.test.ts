@@ -3,6 +3,7 @@ import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 
 import { SQLiteEventStore } from '@owlfolio/ledger/sqliteEventStore'
+import { projectWatchlist } from '@owlfolio/ledger/projections/watchlistProjection'
 import type { CertificationReport } from '@owlfolio/providers'
 import { defaultPersonalLocalAppConfig } from '@owlfolio/shared'
 import { CHECKLIST_PARAMS } from '@owlfolio/strategies/checklistParams'
@@ -20,7 +21,6 @@ import { afterEach, describe, expect, it } from 'vitest'
 
 import {
   confirmPersonalHoldingReviewDraft,
-  confirmPersonalWatchlistDraft,
   createPersonalHoldingReviewDraft,
   enqueueResearchRun,
   getAppHoldingsFromStore,
@@ -282,8 +282,11 @@ describe('workflow helpers', () => {
     }
 
     const created = await setupMsftResearchCaseInLedger(ledgerPath)
+    // Phase 8 S4: the single gated promote lands the item user-confirmed (both events emitted atomically).
     const promoted = await promoteResearchCaseToWatchlist(state, created.research_case_id, HUMAN_SIGNED_THESIS, COMPLETE_CHECKLIST)
-    const confirmed = await confirmPersonalWatchlistDraft(state, promoted.watchlist_item_id)
+    const confirmStore = new SQLiteEventStore(ledgerPath)
+    const confirmed = projectWatchlist(await confirmStore.list()).find((item) => item.watchlist_item_id === promoted.watchlist_item_id)
+    confirmStore.close()
     const openedHolding = await openPersonalHoldingFromWatchlist(state, promoted.watchlist_item_id, {
       shares: '3.25',
       cost_basis_per_share: '812.40',
@@ -491,13 +494,16 @@ describe('workflow helpers', () => {
       expect(watchlistItems[0]).toMatchObject({
         watchlist_item_id: first.watchlist_item_id,
         research_case_id: created.research_case_id,
-        user_approved: false,
+        // Phase 8 S4: the single gated promote lands the item confirmed (both events atomic).
+        user_approved: true,
       })
 
-      // No duplicate watchlist-draft events and no orphan Shariah gate decisions on retry.
+      // No duplicate watchlist-draft/confirmed events and no orphan Shariah gate decisions on retry.
       const events = await store.list()
       const draftEvents = events.filter((event) => event.event_type === 'watchlist_draft_created')
       expect(draftEvents).toHaveLength(1)
+      const confirmEvents = events.filter((event) => event.event_type === 'watchlist_draft_confirmed')
+      expect(confirmEvents).toHaveLength(1)
       const gatePayloads = events
         .filter((event) => event.event_type === 'shariah_gate_decision_recorded')
         .map((event) => event.payload)
@@ -621,7 +627,6 @@ describe('workflow helpers', () => {
 
       const created = await setupMsftResearchCaseInLedger(ledgerPath)
       const promoted = await promoteResearchCaseToWatchlist(state, created.research_case_id, HUMAN_SIGNED_THESIS, COMPLETE_CHECKLIST)
-      await confirmPersonalWatchlistDraft(state, promoted.watchlist_item_id)
       const openedHolding = await openPersonalHoldingFromWatchlist(state, promoted.watchlist_item_id)
       const unsupportedProviderState = {
         ...state,
@@ -705,7 +710,10 @@ describe('workflow helpers', () => {
 
       await expect(promoteResearchCaseToWatchlist(state, researchCase.research_case_id, HUMAN_SIGNED_THESIS, COMPLETE_CHECKLIST)).rejects.toThrow(/Shariah gate blocked watchlist_promotion/)
       const events = await store.list()
+      // Phase 8 S4: the consolidated single step preserves the Shariah gate — a non-compliant case is
+      // blocked BEFORE any append, so NEITHER the created draft NOR the atomic confirmation leaks.
       expect(events.some((event) => event.event_type === 'watchlist_draft_created')).toBe(false)
+      expect(events.some((event) => event.event_type === 'watchlist_draft_confirmed')).toBe(false)
       expect(events).toEqual(expect.arrayContaining([
         expect.objectContaining({
           event_type: 'shariah_gate_decision_recorded',
@@ -746,7 +754,6 @@ describe('workflow helpers', () => {
 
     const created = await setupMsftResearchCaseInLedger(ledgerPath)
     const promoted = await promoteResearchCaseToWatchlist(state, created.research_case_id, HUMAN_SIGNED_THESIS, COMPLETE_CHECKLIST)
-    await confirmPersonalWatchlistDraft(state, promoted.watchlist_item_id)
 
     await expect(openPersonalHoldingFromWatchlist(state, promoted.watchlist_item_id, {
       shares: '0',

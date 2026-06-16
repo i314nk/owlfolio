@@ -46,8 +46,8 @@ test('monthly accounting report renders projected current period after a valuati
 
   const promoteButton = page.getByRole('button', { name: /promote to watchlist/i })
   await expect(promoteButton).toBeEnabled()
+  // Phase 8 S4: the single gated promote lands the item user-confirmed — no second "confirm" click.
   await promoteButton.click()
-  await page.getByRole('button', { name: /confirm watchlist draft/i }).click()
   await page.getByLabel('Shares').fill('3.25')
   await page.getByLabel('Cost basis per share').fill('812.40')
   await page.getByLabel('Opened date').fill('2026-05-31')

@@ -13,7 +13,7 @@ import {
 } from '../holdingReviewWorkflow'
 import { CHECKLIST_PARAMS } from '@owlfolio/strategies/checklistParams'
 import { createResearchCase, runDemoBuffettMungerAnalysis, draftDecision } from '../researchWorkflow'
-import { approveWatchlistDraft, confirmWatchlistDraft } from '../watchlistWorkflow'
+import { confirmWatchlistDraft } from '../watchlistWorkflow'
 
 // Phase 7 S2: admit requires every hygiene/bias checklist item to be addressed (affirmed + note).
 const COMPLETE_CHECKLIST: Record<string, { addressed: boolean; note: string }> = Object.fromEntries(
@@ -46,8 +46,13 @@ describe('v0.2 vertical research workflow', () => {
     const researchCase = await createResearchCase(store, { research_case_id: 'rc_cost_001', company_id: 'company_cost', ticker: 'COST', strategy_id: 'buffett-munger', actor_id: 'user_local' })
     const analysis = await runDemoBuffettMungerAnalysis(store, provider, { research_case_id: researchCase.research_case_id, company_id: 'company_cost', ticker: 'COST', idempotency_key: 'analysis:rc_cost_001:mock:v1' })
     const decision = await draftDecision(store, { research_case_id: researchCase.research_case_id, decision_id: 'decision_cost_watch_001', decision: analysis.investment_verdict, reason: 'Demo analysis says watch until margin of safety improves.', causation_id: analysis.event_id })
+    // Phase 8 S4: one gated admit emits BOTH the created draft AND the confirmation atomically.
     await confirmWatchlistDraft(store, { watchlist_item_id: 'watch_cost_001', research_case_id: researchCase.research_case_id, decision_id: decision.decision_id, company_id: 'company_cost', ticker: 'COST', strategy_id: 'buffett-munger', thesis_summary: 'Durable quality compounder; wait for better margin of safety.', locked_buy_below: 742.5, buy_below_valuation_version: 'valuation-2026-06-cap-1', buy_below_mos_provisional: true, signed_thesis: 'I am admitting COST as a durable low-cost-moat compounder; buy only at a deep dislocation.', checklist_answers: COMPLETE_CHECKLIST, actor_id: 'user_local' })
-    const confirmed = await approveWatchlistDraft(store, { watchlist_item_id: 'watch_cost_001', research_case_id: researchCase.research_case_id, causation_id: 'watch_cost_001', actor_id: 'user_local', idempotency_key: 'watchlist:watch_cost_001:confirm:v1' })
+    const confirmedEvent = (await store.list()).find((event) => event.event_type === 'watchlist_draft_confirmed')
+    if (confirmedEvent === undefined) {
+      throw new Error('expected the consolidated admit to emit a watchlist_draft_confirmed event')
+    }
+    const confirmed = { ...confirmedEvent, ...(confirmedEvent.payload as Record<string, unknown>) }
     const holding = await openHoldingFromWatchlist(store, {
       holding_id: 'holding_cost_001',
       watchlist_item_id: 'watch_cost_001',

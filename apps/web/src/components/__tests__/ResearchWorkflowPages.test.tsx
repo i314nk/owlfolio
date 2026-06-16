@@ -94,13 +94,14 @@ describe('research and watchlist workflow pages', () => {
       expect(html).toContain('Research case link')
       expect(html).toContain('href="/research/rc_cost_001"')
       expect(html).toContain('View research dossier')
-      expect(html).toContain('Draft — awaiting user confirmation')
+      // Phase 8 S4: admission is one gated step, so a bare unconfirmed item is only a legacy artifact.
+      expect(html).toContain('Legacy unconfirmed draft')
       expect(html).not.toContain('#ecfdf5')
       expect(html).not.toContain('#047857')
     })
   })
 
-  it('renders a personal-local watchlist confirmation action only for unapproved drafts', () => {
+  it('no longer renders a separate watchlist confirmation action (Phase 8 S4: admission is one gated step)', () => {
     const draftItem: AppWatchlistItem = {
       watchlist_item_id: 'watch_msft_001',
       research_case_id: 'rc_msft_001',
@@ -132,10 +133,10 @@ describe('research and watchlist workflow pages', () => {
       mode: 'personal-local',
     }))
 
-    expect(personalDraftHtml).toContain('action="/api/watchlist/watch_msft_001/confirm"')
-    expect(personalDraftHtml).toContain('method="post"')
-    expect(personalDraftHtml).toContain('Review Shariah gate evidence, then confirm this watchlist draft as user-authored state.')
-    expect(personalDraftHtml).toContain('Confirm watchlist draft')
+    // The separate "confirm watchlist draft" affordance + its API route are GONE in every mode/state:
+    // admission lands the item user-confirmed in one gated step (signed thesis + checklist + Shariah).
+    expect(personalDraftHtml).not.toContain('/api/watchlist/watch_msft_001/confirm')
+    expect(personalDraftHtml).not.toContain('Confirm watchlist draft')
     expect(demoDraftHtml).not.toContain('Confirm watchlist draft')
     expect(demoDraftHtml).not.toContain('/api/watchlist/watch_msft_001/confirm')
     expect(personalConfirmedHtml).toContain('User confirmed')

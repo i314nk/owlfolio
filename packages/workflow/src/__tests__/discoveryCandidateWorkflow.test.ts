@@ -13,7 +13,7 @@ import {
   rejectDiscoveryCandidate,
   runMockStrategyDiscovery,
 } from '../discoveryCandidateWorkflow'
-import { approveWatchlistDraft, confirmWatchlistDraft } from '../watchlistWorkflow'
+import { confirmWatchlistDraft } from '../watchlistWorkflow'
 import { CHECKLIST_PARAMS } from '@owlfolio/strategies/checklistParams'
 
 // Phase 7 S2: admit requires every hygiene/bias checklist item to be addressed (affirmed + note).
@@ -93,7 +93,7 @@ describe('discovery candidate queue', () => {
       strategy_id: 'buffett-munger',
       actor_id: 'user_local',
     })
-    const msftDraft = await confirmWatchlistDraft(store, {
+    await confirmWatchlistDraft(store, {
       watchlist_item_id: 'watch_msft_existing_001',
       research_case_id: 'rc_msft_existing_001',
       decision_id: 'decision_msft_watch_001',
@@ -106,12 +106,6 @@ describe('discovery candidate queue', () => {
       buy_below_mos_provisional: true,
       signed_thesis: 'I am admitting MSFT for monitoring at the frozen buy-below.',
       checklist_answers: COMPLETE_CHECKLIST,
-      actor_id: 'user_local',
-    })
-    await approveWatchlistDraft(store, {
-      watchlist_item_id: msftDraft.watchlist_item_id,
-      research_case_id: 'rc_msft_existing_001',
-      causation_id: msftDraft.event_id,
       actor_id: 'user_local',
     })
 
@@ -135,12 +129,6 @@ describe('discovery candidate queue', () => {
       buy_below_mos_provisional: true,
       signed_thesis: 'I am admitting AAPL ahead of opening a tracked holding.',
       checklist_answers: COMPLETE_CHECKLIST,
-      actor_id: 'user_local',
-    })
-    await approveWatchlistDraft(store, {
-      watchlist_item_id: aaplDraft.watchlist_item_id,
-      research_case_id: 'rc_aapl_existing_001',
-      causation_id: aaplDraft.event_id,
       actor_id: 'user_local',
     })
     await openHoldingFromWatchlist(store, {

@@ -170,13 +170,17 @@ describe('/api/research/[caseId]/watchlist', () => {
       expect(payload?.['signed_thesis']).toBe(HUMAN_SIGNED_THESIS)
       expect(payload?.['signed_thesis']).not.toBe(payload?.['thesis_summary'])
 
+      // Phase 8 S4: the single gated promote emits the confirmation atomically alongside the draft.
+      expect(events.filter((event) => event.event_type === 'watchlist_draft_confirmed')).toHaveLength(1)
       const watchlist = projectWatchlist(events)
       expect(watchlist).toHaveLength(1)
       expect(watchlist[0]).toMatchObject({
         research_case_id: caseId,
         ticker: 'ADBE',
-        user_approved: false,
+        // Lands user-confirmed in one gated step (no separate confirm action remains).
+        user_approved: true,
         created_by_actor_type: 'user',
+        confirmed_by_actor_type: 'user',
       })
       // The watchlist item links back to the case so the monitors (buy-window etc.) can work on it.
       expect(watchlist[0]?.watchlist_item_id).toBe(`watch_${caseId.replace(/^rc_/, '')}`)

@@ -30,13 +30,11 @@ import { VALUATION_PARAMS } from '@owlfolio/strategies/valuationParams'
 import { evaluateChecklistCompletion, type ChecklistAnswer } from '@owlfolio/strategies/checklist'
 import type { AppConfig } from '@owlfolio/shared'
 import {
-  approveWatchlistDraft,
   assertShariahGateAllowsTransition,
   confirmHoldingReviewDraft,
   confirmWatchlistDraft,
   draftHoldingReview,
   evaluateResearchCaseShariahGate,
-  lookupExistingShariahGateDecision,
   openHoldingFromWatchlist,
   overrideHoldingReviewDraft,
   recordHoldingValuationSnapshot,
@@ -1485,46 +1483,6 @@ async function resolveMarketCapMusdForAdmit(
     return quote.price_per_share * dilutedShares
   } catch {
     return undefined
-  }
-}
-
-export async function confirmPersonalWatchlistDraft(
-  state: OnboardingState,
-  watchlistItemId: string,
-) {
-  if (!state.is_initialized || state.config.mode !== 'personal-local' || state.config.ledger_path === undefined) {
-    throw new Error('Personal-local workflow is not initialized')
-  }
-
-  const store = new SQLiteEventStore(state.config.ledger_path)
-  try {
-    const watchlistItem = projectWatchlist(await store.list()).find((candidate) => candidate.watchlist_item_id === watchlistItemId)
-    if (watchlistItem === undefined) {
-      throw new Error(`Unknown watchlist item: ${watchlistItemId}`)
-    }
-
-    // Reuse the existing promotion gate decision rather than recording a duplicate evaluation.
-    // A prior decision already exists from watchlist_promotion (same target_id = watchlist_item_id).
-    // Only fall back to a full evaluation if no prior decision is found (e.g. legacy ledger items).
-    const existingDecision = await lookupExistingShariahGateDecision(store, watchlistItem.watchlist_item_id)
-    const gateDecision = existingDecision ?? await evaluateResearchCaseShariahGate(store, {
-      research_case_id: watchlistItem.research_case_id,
-      target_transition: 'watchlist_confirmation',
-      target_id: watchlistItem.watchlist_item_id,
-      shariah_defaults: state.config.shariah,
-      idempotency_key: `shariah:${watchlistItem.research_case_id}:watchlist-confirmation:${watchlistItem.watchlist_item_id}:v1`,
-    })
-    assertShariahGateAllowsTransition(gateDecision)
-
-    return await approveWatchlistDraft(store, {
-      watchlist_item_id: watchlistItem.watchlist_item_id,
-      research_case_id: watchlistItem.research_case_id,
-      causation_id: `evt_watchlist_draft_created_${watchlistItem.watchlist_item_id}`,
-      actor_id: 'user_local',
-      idempotency_key: `watchlist:${watchlistItem.watchlist_item_id}:confirm:v1`,
-    })
-  } finally {
-    store.close()
   }
 }
 

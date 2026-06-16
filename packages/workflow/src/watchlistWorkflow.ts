@@ -114,14 +114,6 @@ type WatchlistDraftConfirmedPayload = {
 
 export type WatchlistDraftConfirmed = LedgerEventEnvelope<WatchlistDraftConfirmedPayload> & WatchlistDraftConfirmedPayload
 
-export type ApproveWatchlistDraftCommand = {
-  watchlist_item_id: string
-  research_case_id: string
-  causation_id: string
-  actor_id: string
-  idempotency_key?: string
-}
-
 function nowIso(): string {
   return new Date().toISOString()
 }
@@ -205,14 +197,18 @@ export async function confirmWatchlistDraft(
 
   const storedEvent = await store.append(event as LedgerEventEnvelope<unknown>)
 
-  return mergeEventPayload(storedEvent as LedgerEventEnvelope<WatchlistDraftCreatedPayload>)
-}
-
-export async function approveWatchlistDraft(
-  store: WatchlistEventStore,
-  command: ApproveWatchlistDraftCommand,
-): Promise<WatchlistDraftConfirmed> {
-  const payload: WatchlistDraftConfirmedPayload = {
+  // CONSOLIDATED SINGLE GATED STEP (Phase 8 S4): the admission's real human judgment (signed thesis +
+  // the full checklist + the caller's Shariah gate) is captured HERE, at this one gated transition. The
+  // former second human step (`approveWatchlistDraft` / "confirm watchlist draft") added no new human
+  // input — it only re-asserted the SAME already-passed Shariah gate. So we emit the `watchlist_draft_confirmed`
+  // event ATOMICALLY alongside the created draft: the item lands user_approved:true in one step.
+  //
+  // HISTORY-COMPAT (append-only): we REUSE the existing `watchlist_draft_confirmed` event type with the
+  // SAME stable event_id (`evt_watchlist_draft_confirmed_<id>`), the same causation (the created draft),
+  // and the same correlation (the research case) the legacy second step used. The projection fold is
+  // UNCHANGED, so a legacy two-event ledger (created@T1, confirmed@T2) and this atomic pair replay to the
+  // identical confirmed end-state.
+  const confirmedPayload: WatchlistDraftConfirmedPayload = {
     watchlist_item_id: command.watchlist_item_id,
     research_case_id: command.research_case_id,
     user_approved: true,
@@ -220,25 +216,27 @@ export async function approveWatchlistDraft(
     confirmed_by_actor_id: command.actor_id,
   }
 
-  const event: LedgerEventEnvelope<WatchlistDraftConfirmedPayload> = {
+  const confirmedEvent: LedgerEventEnvelope<WatchlistDraftConfirmedPayload> = {
     event_id: `evt_watchlist_draft_confirmed_${command.watchlist_item_id}`,
     event_type: 'watchlist_draft_confirmed',
     aggregate_type: 'watchlist_item',
     aggregate_id: command.watchlist_item_id,
-    causation_id: command.causation_id,
+    causation_id: `evt_watchlist_draft_created_${command.watchlist_item_id}`,
     correlation_id: command.research_case_id,
     actor_type: 'user',
     actor_id: command.actor_id,
-    payload,
+    payload: confirmedPayload,
     source_ids: [],
     created_at: nowIso(),
     schema_version: 1,
-    ...(command.idempotency_key === undefined ? {} : { idempotency_key: command.idempotency_key }),
+    ...(command.idempotency_key === undefined
+      ? {}
+      : { idempotency_key: `${command.idempotency_key}:confirm` }),
   }
 
-  const storedEvent = await store.append(event as LedgerEventEnvelope<unknown>)
+  await store.append(confirmedEvent as LedgerEventEnvelope<unknown>)
 
-  return mergeEventPayload(storedEvent as LedgerEventEnvelope<WatchlistDraftConfirmedPayload>)
+  return mergeEventPayload(storedEvent as LedgerEventEnvelope<WatchlistDraftCreatedPayload>)
 }
 
 function todayIsoDate(): string {

@@ -17,7 +17,7 @@ import {
   startDeepDive,
 } from '../strategyResearchPipeline'
 import { createResearchCase } from '../researchWorkflow'
-import { confirmWatchlistDraft, approveWatchlistDraft } from '../watchlistWorkflow'
+import { confirmWatchlistDraft } from '../watchlistWorkflow'
 import { openHoldingFromWatchlist } from '../holdingWorkflow'
 import { CHECKLIST_PARAMS } from '@owlfolio/strategies/checklistParams'
 
@@ -714,12 +714,6 @@ describe('strategy-agnostic research pipeline foundation', () => {
       checklist_answers: COMPLETE_CHECKLIST,
       actor_id: 'user_local',
     })
-    await approveWatchlistDraft(store, {
-      watchlist_item_id: watchlistDraft.watchlist_item_id,
-      research_case_id: 'rc_lifecycle_001',
-      causation_id: watchlistDraft.event_id,
-      actor_id: 'user_local',
-    })
 
     expect(projectResearchCases(await store.list())).toEqual([
       expect.objectContaining({
@@ -780,12 +774,6 @@ describe('strategy-agnostic research pipeline foundation', () => {
       buy_below_mos_provisional: true,
       signed_thesis: 'I am admitting NDEF under a non-default strategy at the frozen buy-below.',
       checklist_answers: COMPLETE_CHECKLIST,
-      actor_id: 'user_local',
-    })
-    await approveWatchlistDraft(store, {
-      watchlist_item_id: watchlistDraft.watchlist_item_id,
-      research_case_id: 'rc_non_default_lifecycle_001',
-      causation_id: watchlistDraft.event_id,
       actor_id: 'user_local',
     })
     await openHoldingFromWatchlist(store, {

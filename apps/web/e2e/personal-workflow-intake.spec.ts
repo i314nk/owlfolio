@@ -143,32 +143,18 @@ test('personal-local mode can create the first research case from the command ce
   await expect(promoteButton).toBeEnabled()
   await promoteButton.click()
 
+  // Phase 8 S4: admission is a SINGLE gated step — the promote lands the item user-confirmed (the
+  // former separate "confirm watchlist draft" action + its interstitial state are gone). No second click.
   await expect(page).toHaveURL('/watchlist')
   await expect(page.getByRole('heading', { name: 'MSFT' })).toBeVisible()
-  await expect(page.getByText('Draft — awaiting user confirmation')).toBeVisible()
+  await expect(page.getByText('User confirmed')).toBeVisible()
+  await expect(page.getByText('Draft — awaiting user confirmation')).toHaveCount(0)
+  await expect(page.getByRole('button', { name: /confirm watchlist draft/i })).toHaveCount(0)
   await expect(page.getByText('CONDITIONAL — allowed')).toBeVisible()
   await expect(page.getByText('Required Shariah sources: mock_msft_primary, mock_msft_secondary')).toBeVisible()
   await expect(page.getByRole('link', { name: `Research case ${researchCaseId}` })).toHaveAttribute('href', `/research/${researchCaseId}`)
 
-  await page.goto('/')
-  await expect(page.getByText('Approval queue')).toBeVisible()
-  await expect(page.getByText('1 pending proposal grouped by decision type')).toBeVisible()
-  await expect(page.getByText('Watchlist confirmations')).toBeVisible()
-  await expect(page.getByRole('heading', { name: 'MSFT watchlist draft' })).toBeVisible()
-  await expect(page.getByText('Confirm MSFT as a user-approved watchlist item before worker monitoring or portfolio actions.')).toBeVisible()
-  await expect(page.getByRole('link', { name: /review and confirm watchlist draft/i }).first()).toHaveAttribute('href', /\/watchlist#watch_msft_/)
-  await expect(page.getByRole('link', { name: /Audit event evt_watchlist_draft_created_watch_msft_/ })).toHaveAttribute('href', /\/audit\?event_id=evt_watchlist_draft_created_watch_msft_.*#evt_watchlist_draft_created_watch_msft_/)
-
-  await page.goto('/watchlist')
-
-  await page.getByRole('button', { name: /confirm watchlist draft/i }).click()
-
-  await expect(page).toHaveURL('/watchlist')
-  await expect(page.getByRole('heading', { name: 'MSFT' })).toBeVisible()
-  await expect(page.getByText('User confirmed')).toBeVisible()
-  await expect(page.getByRole('button', { name: /confirm watchlist draft/i })).toHaveCount(0)
-  await expect(page.getByRole('link', { name: `Research case ${researchCaseId}` })).toHaveAttribute('href', `/research/${researchCaseId}`)
-
+  // The dashboard shows the item already confirmed: no pending watchlist-confirmation approval remains.
   await page.goto('/')
   await expect(page.getByRole('heading', { name: 'Monitor confirmed watchlist items for buy-zone and thesis updates' })).toBeVisible()
   await expect(page.locator('article').filter({ hasText: 'Watchlist drafts' }).getByText('0', { exact: true })).toBeVisible()

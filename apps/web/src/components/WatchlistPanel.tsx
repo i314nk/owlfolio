@@ -199,7 +199,9 @@ function createWatchlistCard(item: AppWatchlistItem, mode: WorkflowMode, alerts:
             ? 'Holding recorded'
             : item.user_approved
               ? 'User confirmed'
-              : 'Draft — awaiting user confirmation',
+              // Phase 8 S4: admission is a single gated step, so new items land confirmed. A bare
+              // unconfirmed item is now only a legacy ledger artifact (no confirm action remains).
+              : 'Legacy unconfirmed draft',
         ),
       ),
     ),
@@ -276,7 +278,8 @@ function createVerdictBandDetails(item: AppWatchlistItem) {
 }
 
 function createDecisionCheckpoint(item: AppWatchlistItem, mode: WorkflowMode) {
-  const confirmForm = mode === 'personal-local' && !item.user_approved ? createWatchlistConfirmForm(item) : null
+  // Phase 8 S4: admission is one gated step (signed thesis + checklist + Shariah gate), so an admitted
+  // item is already user-confirmed — there is no separate "confirm watchlist draft" affordance anymore.
   const openHoldingForm = mode === 'personal-local' && item.user_approved && item.holding_id === undefined ? createOpenHoldingForm(item) : null
 
   return createElement(
@@ -301,7 +304,6 @@ function createDecisionCheckpoint(item: AppWatchlistItem, mode: WorkflowMode) {
       item.holding_id === undefined ? createDetail('Position status', 'Not opened yet') : createDetail('Position status', 'Holding open'),
       createResearchCaseLink(item.research_case_id),
     ),
-    confirmForm,
     openHoldingForm,
   )
 }
@@ -325,33 +327,6 @@ function shariahChip(item: AppWatchlistItem) {
   }
 
   return createElement(OwlValuationChip, { kind: 'watch', label: 'GATE PENDING' })
-}
-
-function createWatchlistConfirmForm(item: AppWatchlistItem) {
-  return createElement(
-    'form',
-    {
-      action: `/api/watchlist/${item.watchlist_item_id}/confirm`,
-      method: 'post',
-      className: 'owl-action-form owl-action-form-confirm',
-      style: { display: 'grid', gap: 'var(--owl-space-2)' },
-    },
-    createElement('h3', { className: 'owl-section-title', style: { fontSize: 'var(--owl-text-base)' } }, 'Confirm user watchlist state'),
-    createElement(
-      'p',
-      { className: 'owl-row-helper', style: { margin: 0 } },
-      'Review Shariah gate evidence, then confirm this watchlist draft as user-authored state.',
-    ),
-    createElement(
-      'button',
-      {
-        type: 'submit',
-        className: 'owl-form-button owl-form-button-primary',
-        style: { justifySelf: 'start' },
-      },
-      'Confirm watchlist draft',
-    ),
-  )
 }
 
 function createOpenHoldingForm(item: AppWatchlistItem) {
