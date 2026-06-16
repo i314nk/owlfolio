@@ -738,10 +738,11 @@ describe('runStrategyResearchSwarm with MockProvider + deterministic grounder', 
     //   NI=14000, D&A=4000, maint=3000, SBC=2000, dNWC=-1000 → OE_total = 14000 ($M)
     //   shares_outstanding=1000 (M) → OE/sh = 14000/1000 = 14
     //   roic=0.25, incremental_roic=0.20, reinvestment_rate=0.40
-    // Harness computes:
-    //   raw_g = 0.40*0.20 = 0.08 → clamped to monopoly+proven band ceiling g = 0.04; g_t (monopoly) = 0.025
-    //   two-stage FV ≈ 220.54 (recalibrated: horizon 15, terminal 2.5%; impl ≈ 15.75×, under the 18× cap of 252)
-    //   MoS(monopoly)=0.15, buy=round(220.54*0.85,2)≈187.45
+    // Harness computes (Phase 1.3 ONE growth path + F.13 uniform params): with NO EDGAR series injected the
+    // demonstrated OE/share CAGR is unavailable → growth floors to the honest no-growth g=0 (growth_basis
+    // 'none'); reinvestment×ROIC bands are GONE. Uniform terminal g 1.5%, horizon 10, flat 10% discount:
+    //   two-stage FV ≈ 150.48 (impl ≈ 10.75×, under the 18× fv_cap_multiple flag — 252 at OE/sh 14)
+    //   MoS uniform base 0.25 (F.13, widens with documented uncertainty), buy=round(150.48*0.75,2)≈112.86
     const sourceLedgerPath = await mkdtemp(join(tmpdir(), 'owlfolio-mock-swarm-valuation-'))
     const store = new InMemoryEventStore()
     const provider = new MockProvider()

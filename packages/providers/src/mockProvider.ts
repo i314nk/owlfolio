@@ -222,7 +222,7 @@ function mockSynthesisDecisionForTicker(ticker: string) {
     // NOTE (spec-correct decomposition): moat_class / runway / moat_rubric / runway_rubric now come from
     // the MOAT lane (mockMoatLaneForTicker) and the sector_status / impermissible_income overlay from the
     // SHARIAH lane (mockShariahLaneForTicker). The synthesis schema no longer carries them.
-    growth_assumptions: `${companyLabel} is credited two-stage growth: incremental ROIC 20% > 10% eligibility, reinvestment rate 40% → raw g = 0.40×0.20 = 0.08, clamped to the monopoly+proven band ceiling g = 4%. Owner earnings $14,000M ÷ 1,000M shares = $14/sh. Two-stage DCF (10yr at 4%, terminal fade to 2%, flat 10% discount) → fair value ≈ $206/sh (implied ≈14.7× OE, under the 18× cap). Monopoly MoS 20% → buy below ≈ $165.`,
+    growth_assumptions: `${companyLabel} is credited the demonstrated owner-earnings/share CAGR — here illustrated at a near-term rate of 0.08 (above the 0.03 GDP threshold, so flagged as a moat-durability claim that widens the margin of safety), passed through the named single_growth_cap of 0.15 (the agent may argue the rate down, never up; no reinvestment×ROIC band). Owner earnings $14,000M ÷ 1,000M shares = $14/sh. Two-stage DCF (10yr horizon, linear fade over years 6–10 to a uniform 1.5% terminal, flat 10% discount) → fair value ≈ $237.64/sh (implied ≈17.0× OE, under the 18× fv_cap_multiple — a surfaced cap_exceeded flag, not a hard truncation). Uniform 25% MoS → buy below ≈ $178.23.`,
     owner_earnings_bridge: {
       // Company TOTALS in $millions, judgment-grounded. OE_total = 14000+4000−3000−2000−(−1000) = 14000.
       // shares_outstanding 1000M → OE/sh = 14000/1000 = 14.

@@ -20,7 +20,7 @@ import { brierScore } from './forecastCalibration'
 export type PostMortemPredicted = {
   fair_value_per_share?: number
   buy_price_per_share?: number
-  /** Required margin of safety as a fraction (monopoly 0.20 / wide 0.30). */
+  /** Required margin of safety as a fraction — uniform 0.25 base (F.13), widened by documented uncertainty. */
   margin_of_safety?: number
   /** Credited growth rate (fraction) from the original valuation. */
   credited_g?: number

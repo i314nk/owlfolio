@@ -7,7 +7,7 @@ import { marginOfSafetyForMoat, widenedMarginOfSafety, buffettMungerStrategy } f
 // from here (it is a surfaced cap_exceeded flag in twoStageValuation).
 describe('widenedMarginOfSafety (Phase 1.6 — single conservatism knob with widening)', () => {
   it('returns the moat base floor when no widening inputs are present', () => {
-    const base = marginOfSafetyForMoat(buffettMungerStrategy, 'monopoly') // 0.15
+    const base = marginOfSafetyForMoat(buffettMungerStrategy, 'monopoly') // 0.25 (uniform base, F.13)
     const r = widenedMarginOfSafety(buffettMungerStrategy, { moat_class: 'monopoly' })
     expect(r.margin_of_safety).toBeCloseTo(base, 10)
     expect(r.widened).toBe(false)
