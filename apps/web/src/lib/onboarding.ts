@@ -174,6 +174,86 @@ export async function initializeSelectedMode(update: OnboardingConfigUpdate = {}
   return initializedConfig
 }
 
+/**
+ * Resolve the durable ledger path for a chosen, initializable mode. `unconfigured` has no ledger.
+ */
+function resolveLedgerPathForMode(mode: AppConfig['mode'], options: OnboardingOptions): string | undefined {
+  if (mode === 'demo') {
+    return resolveDemoLedgerPath({
+      ...(options.cwd !== undefined ? { cwd: options.cwd } : {}),
+      ...(options.env !== undefined ? { env: options.env } : {}),
+    })
+  }
+  if (mode === 'personal-local') {
+    return resolvePersonalLedgerPath(options)
+  }
+  return undefined
+}
+
+/** Number of events currently in the ledger at `ledgerPath` (0 if new/empty). */
+async function countLedgerEvents(ledgerPath: string): Promise<number> {
+  const store = new SQLiteEventStore(ledgerPath)
+  try {
+    return (await store.list()).length
+  } finally {
+    store.close()
+  }
+}
+
+/**
+ * Idempotent, non-destructive mode switch / re-init (three-state mode model). Unlike the first-run
+ * `initializeSelectedMode`, this is safe to call on RE-ENTRY:
+ *
+ *  (i)   Re-selecting the CURRENT mode (already initialized) is a no-op — it appends nothing, re-seeds
+ *        nothing, and leaves `initialized_at` UNCHANGED (other code may depend on that timestamp).
+ *  (ii)  Switching demo↔personal-local repoints `ledger_path` at the OTHER mode's ledger WITHOUT
+ *        wiping or re-seeding either ledger; the previous mode's events are preserved.
+ *  (iii) A demo ledger is only seeded when it is actually empty/new (it is also event-level
+ *        idempotent), so an existing demo ledger is never re-seeded.
+ *
+ * `initialized_at` is set once (first time the app leaves `unconfigured`/uninitialized) and preserved
+ * thereafter.
+ */
+export async function switchMode(mode: AppConfig['mode'], options: OnboardingOptions = {}): Promise<AppConfig> {
+  const current = await loadAppConfig(options)
+
+  // (i) No-op when re-selecting the already-initialized current mode.
+  if (current.mode === mode && current.initialized_at !== undefined && current.ledger_path !== undefined) {
+    return current
+  }
+
+  const ledgerPath = resolveLedgerPathForMode(mode, options)
+  const sourceLedgerPath = resolveSourceLedgerPath(options)
+
+  // Preserve an existing initialized_at; only stamp it the first time we leave the uninitialized
+  // state. Unconfigured stays uninitialized.
+  const initializedAt = current.initialized_at ?? (mode === 'unconfigured' ? undefined : new Date().toISOString())
+
+  const next: AppConfig = {
+    ...current,
+    mode,
+    // (ii) Repoint at the target mode's ledger; unconfigured carries no ledger.
+    ...(ledgerPath === undefined ? {} : { ledger_path: ledgerPath }),
+    source_ledger_path: sourceLedgerPath,
+    ...(initializedAt === undefined ? {} : { initialized_at: initializedAt }),
+  }
+
+  // (iii) Seed the demo ledger only when it is empty/new (event-level idempotent regardless).
+  if (mode === 'demo' && ledgerPath !== undefined) {
+    if ((await countLedgerEvents(ledgerPath)) === 0) {
+      const store = new SQLiteEventStore(ledgerPath)
+      try {
+        await seedDemoLedger(store)
+      } finally {
+        store.close()
+      }
+    }
+  }
+
+  await saveAppConfig(next, options)
+  return next
+}
+
 export async function getOnboardingProviderOptions(options: OnboardingOptions = {}) {
   const rowsByProvider = new Map((await buildProviderStatusRows({
     ...(options.cwd === undefined ? {} : { cwd: options.cwd }),

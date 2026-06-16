@@ -5,7 +5,7 @@ import { dirname, isAbsolute, join, parse, relative, resolve } from 'node:path'
 
 type AppConfig = {
   version: 1
-  mode: 'demo' | 'personal-local'
+  mode: 'unconfigured' | 'demo' | 'personal-local'
   provider: {
     provider_id: 'mock-provider' | 'claude' | 'openai' | 'openrouter'
     support_level: 'certified' | 'experimental' | 'unsupported'

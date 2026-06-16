@@ -2,11 +2,16 @@ import { projectNameLifecycle, type NameLifecycleProjection } from '@owlfolio/le
 import { SQLiteEventStore } from '@owlfolio/ledger/sqliteEventStore'
 
 import { LifecyclePanel } from '../../components/LifecyclePanel'
+import { UnconfiguredNotice } from '../../components/UnconfiguredNotice'
 import { getDemoEvents } from '../../lib/demo'
+import { isUnconfigured } from '../../lib/modeView'
 import { getOnboardingState } from '../../lib/onboarding'
 
 export default async function LifecyclePage() {
   const state = await getOnboardingState()
+  if (isUnconfigured(state.config)) {
+    return <UnconfiguredNotice feature="Lifecycle" />
+  }
   const names = state.config.mode === 'demo'
     ? projectNameLifecycle(await getDemoEvents())
     : await loadPersonalLifecycle(state.config.ledger_path)

@@ -216,6 +216,36 @@ export async function getDemoCommandCenterFromStore(store: EventStore): Promise<
 }
 
 export async function getSetupAwareCommandCenter({ config, is_initialized, provider_status_rows, store }: SetupAwareCommandCenterInput): Promise<AppCommandCenter> {
+  // EXPLICIT unconfigured branch (three-state mode model). An unconfigured app has made no mode
+  // choice and has no ledger — it must steer to setup, NEVER render demo data and never claim an
+  // initialized ledger. This is checked FIRST so unconfigured can never fall through to the demo or
+  // personal branches below.
+  if (config.mode === 'unconfigured') {
+    return {
+      product_name: 'Owlfolio',
+      setup_status: 'Choose a mode to begin',
+      provider_status: 'Provider: not selected yet',
+      strategy_status: 'Strategy: Buffett-Munger default',
+      shariah_status: config.shariah.enabled ? 'Shariah: enabled by default' : 'Shariah: disabled',
+      ledger_status: 'Ledger: no mode chosen yet',
+      pipeline_counts: {
+        research_cases: 0,
+        watchlist_drafts: 0,
+        confirmed_watchlist_items: 0,
+        open_holdings: 0,
+        pending_user_actions: 0,
+      },
+      next_recommended_action: 'Choose a mode to begin — explore demo data or set up a personal-local workflow',
+      approval_queue: [],
+      holding_review_prompts: [],
+      recent_activity: [{ event_id: 'placeholder:no-mode-chosen-yet', label: 'No mode chosen yet' }],
+      monitor_alerts: [],
+      discovery_signals: [],
+      primary_action: { href: '/onboarding', label: 'Continue setup' },
+      secondary_action: { href: '/settings/providers', label: 'Review provider readiness' },
+    }
+  }
+
   if (config.mode === 'demo') {
     return store === undefined ? getDemoCommandCenter() : getDemoCommandCenterFromStore(store)
   }

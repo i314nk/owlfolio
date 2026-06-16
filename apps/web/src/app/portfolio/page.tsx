@@ -2,15 +2,20 @@ import { findLatestResearchCaseForTicker, projectResearchCases } from '@owlfolio
 import { SQLiteEventStore } from '@owlfolio/ledger/sqliteEventStore'
 
 import { PortfolioPanel, type PortfolioHolding, type PortfolioValuationRefreshSummary } from '../../components/PortfolioPanel'
+import { UnconfiguredNotice } from '../../components/UnconfiguredNotice'
+import { isUnconfigured } from '../../lib/modeView'
 import { getOnboardingState } from '../../lib/onboarding'
 import { humanizeCron } from '../../lib/schedule'
 import { projectMonitorAlerts } from '@owlfolio/ledger/projections/monitorAlertProjection'
 
-import { getAppHoldingsFromStore, getInvestableCapital, type MonitorAlert } from '../../lib/workflow'
+import { getAppHoldingsFromStore, getInvestableCapital, type MonitorAlert, type WorkflowMode } from '../../lib/workflow'
 import { resolveChecklistEvidence } from '../../lib/checklistEvidence'
 
 export default async function PortfolioPage() {
   const state = await getOnboardingState()
+  if (isUnconfigured(state.config)) {
+    return <UnconfiguredNotice feature="Portfolio" />
+  }
   const { holdings, alerts } = await loadHoldings(state.config.ledger_path, state.config.mode)
   const valuationRefresh = buildValuationRefreshSummary(holdings)
   const investableCapital = state.config.mode === 'personal-local'
@@ -35,8 +40,10 @@ export default async function PortfolioPage() {
   )
 }
 
-async function loadHoldings(ledgerPath: string | undefined, mode: 'demo' | 'personal-local'): Promise<{ holdings: PortfolioHolding[]; alerts: MonitorAlert[] }> {
-  if (ledgerPath === undefined && mode === 'personal-local') {
+// `mode` is the full WorkflowMode for type-safety, but the page short-circuits unconfigured before
+// calling this, so in practice only 'demo' | 'personal-local' reach here.
+async function loadHoldings(ledgerPath: string | undefined, mode: WorkflowMode): Promise<{ holdings: PortfolioHolding[]; alerts: MonitorAlert[] }> {
+  if (ledgerPath === undefined && mode !== 'demo') {
     return { holdings: [], alerts: [] }
   }
 

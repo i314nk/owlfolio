@@ -6,8 +6,10 @@ import {
 } from '@owlfolio/workflow/calibrationUniverse'
 
 import { CalibrationPanel } from '../../components/CalibrationPanel'
+import { UnconfiguredNotice } from '../../components/UnconfiguredNotice'
 import { projectCalibrationView } from '../../lib/calibration'
 import { getDemoEvents } from '../../lib/demo'
+import { isUnconfigured } from '../../lib/modeView'
 import { getOnboardingState, type OnboardingState } from '../../lib/onboarding'
 
 export const metadata = {
@@ -17,6 +19,9 @@ export const metadata = {
 
 export default async function CalibrationPage() {
   const state = await getOnboardingState()
+  if (isUnconfigured(state.config)) {
+    return <UnconfiguredNotice feature="Calibration" />
+  }
   const events = await loadCalibrationEvents(state)
   // The current universe is a PROJECTION: the seed config + user-authored member add/remove events (Rule 1).
   const seedUniverse = loadCalibrationUniverse()

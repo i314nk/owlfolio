@@ -1,6 +1,8 @@
 import type { CSSProperties } from 'react'
 import Link from 'next/link'
 
+import type { OwlfolioMode } from '@owlfolio/shared'
+
 import { getOnboardingState } from '../../../lib/onboarding'
 import { ResearchIntakeForm } from './ResearchIntakeForm'
 
@@ -37,7 +39,11 @@ const secondaryLinkStyle: CSSProperties = {
   textDecoration: 'none',
 }
 
-function getResearchBlockMessage(mode: 'demo' | 'personal-local', initialized: boolean): string {
+function getResearchBlockMessage(mode: OwlfolioMode, initialized: boolean): string {
+  if (mode === 'unconfigured') {
+    return 'No mode is chosen yet. Choose a mode to begin, then set up a personal-local workflow to record durable research cases.'
+  }
+
   if (mode === 'personal-local' && !initialized) {
     return 'Personal-local mode is configured, but your workflow is not initialized yet.'
   }

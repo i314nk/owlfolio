@@ -7,7 +7,7 @@ import { describe, expect, it } from 'vitest'
 
 import { SQLiteEventStore } from '@owlfolio/ledger/sqliteEventStore'
 import { getDemoSeedEvents } from '../../lib/demoSeed'
-import { getOnboardingProviderOptions, getOnboardingState, getProviderReadinessSnapshot, initializeSelectedMode, resetOnboardingRuntime, updateOnboardingConfig } from '../onboarding'
+import { getOnboardingProviderOptions, getOnboardingState, getProviderReadinessSnapshot, initializeSelectedMode, resetOnboardingRuntime, switchMode, updateOnboardingConfig } from '../onboarding'
 
 describe('onboarding helpers', () => {
   async function withTempProject(assertion: (projectDir: string) => Promise<void>) {
@@ -252,6 +252,99 @@ describe('onboarding helpers', () => {
       const state = await getOnboardingState({ cwd: nestedDir })
       expect(state.config.ledger_path).toBe(join(projectDir, 'data', 'personal-ledger.sqlite'))
       expect(state.config.source_ledger_path).toBe(join(projectDir, 'data', 'source-ledger'))
+    })
+  })
+
+  it('re-init (switchMode) is idempotent and non-destructive across demo↔personal-local re-entry', async () => {
+    await withTempProject(async (projectDir) => {
+      const env = { OWLFOLIO_PROJECT_DIR: projectDir }
+
+      // First-run: initialize personal-local and record a durable user event.
+      const personalConfig = await initializeSelectedMode(
+        { mode: 'personal-local', provider: { provider_id: 'claude', support_level: 'certified' } },
+        { env },
+      )
+      const personalLedgerPath = personalConfig.ledger_path!
+      const personalInitializedAt = personalConfig.initialized_at!
+
+      const seedStore = new SQLiteEventStore(personalLedgerPath)
+      try {
+        await seedStore.append({
+          event_id: 'evt_reentry_001',
+          event_type: 'research_case_created',
+          aggregate_type: 'research_case',
+          aggregate_id: 'rc_reentry_001',
+          idempotency_key: 'reentry:research_case:rc_reentry_001:v1',
+          actor_type: 'user',
+          actor_id: 'user_local',
+          payload: { research_case_id: 'rc_reentry_001', company_id: 'company_test', ticker: 'TEST', strategy_id: 'buffett-munger' },
+          source_ids: [],
+          created_at: '2026-06-09T00:00:00.000Z',
+          schema_version: 1,
+        })
+      } finally {
+        seedStore.close()
+      }
+
+      const countEvents = async (path: string): Promise<number> => {
+        const store = new SQLiteEventStore(path)
+        try {
+          return (await store.list()).length
+        } finally {
+          store.close()
+        }
+      }
+      expect(await countEvents(personalLedgerPath)).toBe(1)
+
+      // Switch personal → demo: must NOT wipe/re-seed the personal ledger, points at the demo ledger.
+      const demoConfig = await switchMode('demo', { env })
+      expect(demoConfig.mode).toBe('demo')
+      expect(demoConfig.ledger_path).not.toBe(personalLedgerPath)
+      expect(await countEvents(personalLedgerPath)).toBe(1) // personal events preserved
+
+      // Switch demo → personal: personal ledger + its event survive untouched, timestamp unchanged.
+      const backToPersonal = await switchMode('personal-local', { env })
+      expect(backToPersonal.mode).toBe('personal-local')
+      expect(backToPersonal.ledger_path).toBe(personalLedgerPath)
+      expect(backToPersonal.initialized_at).toBe(personalInitializedAt)
+      expect(await countEvents(personalLedgerPath)).toBe(1)
+
+      // Round-trip again to be sure re-entry is repeatable.
+      await switchMode('demo', { env })
+      const finalPersonal = await switchMode('personal-local', { env })
+      expect(await countEvents(personalLedgerPath)).toBe(1)
+      expect(finalPersonal.initialized_at).toBe(personalInitializedAt)
+    })
+  })
+
+  it('re-selecting the current mode appends nothing, re-seeds nothing, and leaves initialized_at unchanged', async () => {
+    await withTempProject(async (projectDir) => {
+      const env = { OWLFOLIO_PROJECT_DIR: projectDir }
+
+      const demoConfig = await initializeSelectedMode(
+        { mode: 'demo', provider: { provider_id: 'mock-provider', support_level: 'certified', model_id: 'mock-buffett-munger-demo' } },
+        { env },
+      )
+      const demoLedgerPath = demoConfig.ledger_path!
+      const demoInitializedAt = demoConfig.initialized_at!
+
+      const countEvents = async (path: string): Promise<number> => {
+        const store = new SQLiteEventStore(path)
+        try {
+          return (await store.list()).length
+        } finally {
+          store.close()
+        }
+      }
+      const seededCount = await countEvents(demoLedgerPath)
+      expect(seededCount).toBe(getDemoSeedEvents().length)
+
+      // Re-selecting the SAME mode must be a no-op: no extra events, no duplicate seed, same timestamp.
+      const reselected = await switchMode('demo', { env })
+      expect(reselected.mode).toBe('demo')
+      expect(reselected.initialized_at).toBe(demoInitializedAt)
+      expect(reselected.ledger_path).toBe(demoLedgerPath)
+      expect(await countEvents(demoLedgerPath)).toBe(seededCount) // seed not re-applied / duplicated
     })
   })
 

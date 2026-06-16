@@ -1,4 +1,10 @@
-export const owlfolioModeValues = ['demo', 'personal-local'] as const
+/**
+ * The three-state mode model. `unconfigured` is the FIRST-CLASS "not yet chosen" state — it is the
+ * default for a real fresh install, so "no choice made" is an explicit value every branch must handle
+ * (rather than a silent fall-through to `demo`). `demo` and `personal-local` are deliberately CHOSEN
+ * states; nothing should ever land in `demo` by default.
+ */
+export const owlfolioModeValues = ['unconfigured', 'demo', 'personal-local'] as const
 export type OwlfolioMode = (typeof owlfolioModeValues)[number]
 
 export const providerIdValues = ['mock-provider', 'claude', 'openai', 'openrouter'] as const
@@ -364,6 +370,30 @@ export const mergeCircleOfCompetenceConfig = (
 
   return merged
 }
+
+/**
+ * The default config for a REAL fresh install: explicitly `unconfigured`. It carries the shared safe
+ * defaults (strategy, Shariah, savings, market universe, automation, circle-of-competence) so every
+ * consumer sees a complete config shape, but it points at NO ledger and is NOT initialized — the
+ * providers/onboarding flow resolves it into a chosen `demo` or `personal-local` mode. The provider
+ * defaults to `mock-provider`/`certified` only as a neutral placeholder; an unconfigured app must never
+ * render demo data or claim an initialized ledger on the strength of it.
+ */
+export const defaultUnconfiguredAppConfig = (): AppConfig => ({
+  version: 1,
+  mode: 'unconfigured',
+  provider: {
+    provider_id: 'mock-provider',
+    support_level: 'certified',
+    model_id: 'mock-buffett-munger-demo',
+  },
+  strategy_id: 'buffett-munger',
+  shariah: defaultShariahDefaults(),
+  savings: defaultSavingsSleeveConfig(),
+  market_universe: defaultMarketUniverseConfig(),
+  automation: defaultAutomationSettings(),
+  circle_of_competence: defaultCircleOfCompetenceConfig(),
+})
 
 export const defaultDemoAppConfig = (): AppConfig => ({
   version: 1,

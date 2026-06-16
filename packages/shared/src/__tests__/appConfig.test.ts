@@ -9,6 +9,8 @@ import {
   defaultCircleOfCompetenceConfig,
   defaultDemoAppConfig,
   defaultPersonalLocalAppConfig,
+  defaultUnconfiguredAppConfig,
+  owlfolioModeValues,
   mergeAutomationSettings,
   mergeCircleOfCompetenceConfig,
   type SavingsSleeveConfig,
@@ -17,6 +19,29 @@ import {
   defaultSavingsSleeveConfig,
   mergeSavingsSleeveConfig,
 } from '../appConfig'
+
+describe('three-state mode model', () => {
+  it('includes unconfigured as an explicit enum member alongside demo and personal-local', () => {
+    expect(owlfolioModeValues).toEqual(['unconfigured', 'demo', 'personal-local'])
+  })
+
+  it('defaultUnconfiguredAppConfig is an explicit unconfigured config that never carries demo seed state', () => {
+    const config = defaultUnconfiguredAppConfig()
+    expect(config.mode).toBe('unconfigured')
+    // Unconfigured must not be initialized or point at any ledger.
+    expect(config.ledger_path).toBeUndefined()
+    expect(config.source_ledger_path).toBeUndefined()
+    expect(config.initialized_at).toBeUndefined()
+    // It still carries the shared safe defaults so every consumer has a complete config shape.
+    expect(config.strategy_id).toBe('buffett-munger')
+    expect(config.shariah.enabled).toBe(true)
+  })
+
+  it('demo and personal-local defaults keep their explicit modes', () => {
+    expect(defaultDemoAppConfig().mode).toBe('demo')
+    expect(defaultPersonalLocalAppConfig().mode).toBe('personal-local')
+  })
+})
 
 describe('defaultAutomationSettings', () => {
   it('returns the correct default shape', () => {

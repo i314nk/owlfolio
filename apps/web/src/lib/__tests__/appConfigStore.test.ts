@@ -24,12 +24,29 @@ describe('appConfigStore', () => {
     }
   }
 
-  it('returns demo defaults when no config file exists', async () => {
+  it('returns demo defaults under test mode when no config file exists (keeps the e2e/unit path green)', async () => {
     await withTempProject(async (projectDir) => {
+      // Under vitest/playwright the new-install default stays demo so the test path remains usable.
       const config = await loadAppConfig({ env: { OWLFOLIO_PROJECT_DIR: projectDir } })
 
       expect(config.mode).toBe('demo')
       expect(config.provider.provider_id).toBe('mock-provider')
+      expect(config.strategy_id).toBe('buffett-munger')
+      expect(config.shariah.enabled).toBe(true)
+    })
+  })
+
+  it('returns an explicit unconfigured default for a real fresh install (no config file, not test mode)', async () => {
+    await withTempProject(async (projectDir) => {
+      // OWLFOLIO_DISABLE_TEST_DEFAULTS forces the real-install branch even under the vitest runner so
+      // we can assert the production behaviour: a brand-new install is unconfigured, never silently demo.
+      const config = await loadAppConfig({
+        env: { OWLFOLIO_PROJECT_DIR: projectDir, OWLFOLIO_DISABLE_TEST_DEFAULTS: '1' },
+      })
+
+      expect(config.mode).toBe('unconfigured')
+      expect(config.ledger_path).toBeUndefined()
+      expect(config.initialized_at).toBeUndefined()
       expect(config.strategy_id).toBe('buffett-munger')
       expect(config.shariah.enabled).toBe(true)
     })

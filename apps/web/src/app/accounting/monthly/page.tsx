@@ -1,12 +1,17 @@
 import { SQLiteEventStore } from '@owlfolio/ledger/sqliteEventStore'
 
 import { AccountingMonthlyReport } from '../../../components/AccountingMonthlyReport'
+import { UnconfiguredNotice } from '../../../components/UnconfiguredNotice'
 import { buildMonthlyAccountingReport, getAccountingReportFromStore } from '../../../lib/accounting'
 import { getDemoEvents } from '../../../lib/demo'
+import { isUnconfigured } from '../../../lib/modeView'
 import { getOnboardingState, type OnboardingState } from '../../../lib/onboarding'
 
 export default async function AccountingMonthlyPage() {
   const state = await getOnboardingState()
+  if (isUnconfigured(state.config)) {
+    return <UnconfiguredNotice feature="Accounting" />
+  }
   const report = await loadAccountingReport(state)
 
   return (

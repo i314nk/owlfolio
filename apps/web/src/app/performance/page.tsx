@@ -3,7 +3,9 @@ import { fetchPriceHistory } from '@owlfolio/workflow/marketData'
 import type { PerformanceBenchmarkPoint } from '@owlfolio/workflow/performanceProjection'
 
 import { PerformancePanel } from '../../components/PerformancePanel'
+import { UnconfiguredNotice } from '../../components/UnconfiguredNotice'
 import { getDemoEvents } from '../../lib/demo'
+import { isUnconfigured } from '../../lib/modeView'
 import { getOnboardingState, type OnboardingState } from '../../lib/onboarding'
 import {
   buildPerformanceReport,
@@ -14,6 +16,9 @@ import {
 
 export default async function PerformancePage() {
   const state = await getOnboardingState()
+  if (isUnconfigured(state.config)) {
+    return <UnconfiguredNotice feature="Performance" />
+  }
   const benchmarkSeries = await loadBenchmarkSeries()
   const report = await loadPerformanceReport(state, benchmarkSeries)
 

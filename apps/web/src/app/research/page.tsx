@@ -2,11 +2,16 @@ import { projectResearchCases } from '@owlfolio/ledger/projections/researchCaseP
 import { SQLiteEventStore } from '@owlfolio/ledger/sqliteEventStore'
 
 import { ResearchLibrary } from '../../components/ResearchLibrary'
+import { UnconfiguredNotice } from '../../components/UnconfiguredNotice'
 import { resolveDemoLedgerPath, seedDemoLedger } from '../../lib/demo'
+import { isUnconfigured } from '../../lib/modeView'
 import { getOnboardingState } from '../../lib/onboarding'
 
 export default async function ResearchLandingPage() {
   const state = await getOnboardingState()
+  if (isUnconfigured(state.config)) {
+    return <UnconfiguredNotice feature="Research library" />
+  }
   const selectedStrategyId = state.config.strategy_id
   const store = state.config.mode === 'demo'
     ? new SQLiteEventStore(resolveDemoLedgerPath())

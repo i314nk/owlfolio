@@ -4,7 +4,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { SQLiteEventStore } from '@owlfolio/ledger/sqliteEventStore'
-import { defaultPersonalLocalAppConfig } from '@owlfolio/shared'
+import { defaultPersonalLocalAppConfig, defaultUnconfiguredAppConfig } from '@owlfolio/shared'
 
 const mockedNavigation = vi.hoisted(() => ({ pathname: '/' }))
 
@@ -149,6 +149,31 @@ describe('CommandCenter', () => {
     } finally {
       store.close()
     }
+  })
+
+  it('renders a choose-a-mode setup state for an unconfigured app and never demo data', async () => {
+    const dashboard = await getSetupAwareCommandCenter({
+      config: defaultUnconfiguredAppConfig(),
+      is_initialized: false,
+    })
+    const html = renderToStaticMarkup(createElement(CommandCenter, { dashboard }))
+
+    // It must steer toward choosing a mode / running setup, never silently render demo data.
+    expect(dashboard.setup_status).toBe('Choose a mode to begin')
+    expect(html).toContain('Choose a mode to begin')
+    expect(html).toContain('Continue setup')
+    // No demo seed labels leak into the unconfigured command center.
+    expect(html).not.toContain('Mock provider / demo mode')
+    expect(html).not.toContain('View demo research case')
+    expect(html).not.toContain('Setup ready')
+    // Pipeline counts are all zero (no ledger).
+    expect(dashboard.pipeline_counts).toEqual({
+      research_cases: 0,
+      watchlist_drafts: 0,
+      confirmed_watchlist_items: 0,
+      open_holdings: 0,
+      pending_user_actions: 0,
+    })
   })
 
   it('renders setup-needed status for uninitialized personal local mode', async () => {

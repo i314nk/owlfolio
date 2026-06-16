@@ -5,8 +5,10 @@ import { resolveCurrentPrice } from '@owlfolio/workflow/marketData'
 import type { MoatClass } from '@owlfolio/strategies/strategyContract'
 
 import { ResearchCasePanel } from '../../../components/ResearchCasePanel'
+import { UnconfiguredNotice } from '../../../components/UnconfiguredNotice'
 import { buildPositionPlan, type PositionPlan } from '../../../lib/positionPlan'
 import { getDemoResearchCase, resolveDemoLedgerPath } from '../../../lib/demo'
+import { isUnconfigured } from '../../../lib/modeView'
 import { getOnboardingState } from '../../../lib/onboarding'
 import { getAppResearchCaseFromStore, getInvestableCapital } from '../../../lib/workflow'
 import type { MarketQuote } from '../../../components/ResearchCasePanel'
@@ -20,6 +22,9 @@ export type ResearchCasePageProps = {
 export default async function ResearchCasePage({ params }: ResearchCasePageProps) {
   const { caseId } = await params
   const state = await getOnboardingState()
+  if (isUnconfigured(state.config)) {
+    return <UnconfiguredNotice feature="Research case" />
+  }
 
   try {
     const researchCase = state.config.mode === 'demo'
