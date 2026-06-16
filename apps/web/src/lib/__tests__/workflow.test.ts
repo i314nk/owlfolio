@@ -33,6 +33,7 @@ import {
   recordPersonalHoldingValuation,
   rejectPersonalHoldingReviewDraft,
   requestDeepDiveRun,
+  resolveResearchCaseView,
   resolveActiveWorkflowMode,
   resolveModelIdForProvider,
   setInvestableCapital,
@@ -258,6 +259,95 @@ describe('workflow helpers', () => {
     } finally {
       store.close()
     }
+  })
+
+  describe('resolveResearchCaseView (post-start pending race)', () => {
+    async function appendRunRequested(store: SQLiteEventStore, researchCaseId: string): Promise<void> {
+      await store.append({
+        event_id: `evt_research_run_requested_${researchCaseId}`,
+        event_type: 'research_run_requested',
+        aggregate_type: 'research_case',
+        aggregate_id: researchCaseId,
+        correlation_id: researchCaseId,
+        actor_type: 'user',
+        actor_id: 'user_local',
+        payload: { research_case_id: researchCaseId, ticker: 'MSFT', company_id: 'company_msft', requested_by: 'user_local' },
+        source_ids: [],
+        created_at: new Date().toISOString(),
+        schema_version: 1,
+        idempotency_key: `research-run-request:${researchCaseId}:v1`,
+      })
+    }
+
+    it('reports pending when a run was requested but no case_created is projected yet', async () => {
+      const store = new SQLiteEventStore()
+      try {
+        await appendRunRequested(store, 'rc_pending_001')
+        const view = await resolveResearchCaseView(store, 'personal-local', 'rc_pending_001')
+        expect(view.status).toBe('pending')
+      } finally {
+        store.close()
+      }
+    })
+
+    it('resolves to the real case once research_case_created is appended', async () => {
+      const store = new SQLiteEventStore()
+      try {
+        await appendRunRequested(store, 'rc_resolve_001')
+        await createResearchCase(store, {
+          research_case_id: 'rc_resolve_001',
+          company_id: 'company_msft',
+          ticker: 'MSFT',
+          strategy_id: 'buffett-munger',
+          strategy_version: '1.0.0',
+          actor_id: 'user_local',
+        })
+        const view = await resolveResearchCaseView(store, 'personal-local', 'rc_resolve_001')
+        expect(view.status).toBe('ready')
+        if (view.status === 'ready') {
+          expect(view.researchCase.research_case_id).toBe('rc_resolve_001')
+        }
+      } finally {
+        store.close()
+      }
+    })
+
+    it('reports unknown when there is no event at all for the id (genuine 404)', async () => {
+      const store = new SQLiteEventStore()
+      try {
+        const view = await resolveResearchCaseView(store, 'personal-local', 'rc_nonexistent_999')
+        expect(view.status).toBe('unknown')
+      } finally {
+        store.close()
+      }
+    })
+
+    it('reports failed (with summary) when research_run_failed exists and no case was created', async () => {
+      const store = new SQLiteEventStore()
+      try {
+        await appendRunRequested(store, 'rc_failed_001')
+        await store.append({
+          event_id: 'evt_research_run_failed_rc_failed_001',
+          event_type: 'research_run_failed',
+          aggregate_type: 'research_case',
+          aggregate_id: 'rc_failed_001',
+          correlation_id: 'rc_failed_001',
+          actor_type: 'worker',
+          actor_id: 'owlfolio-worker',
+          payload: { research_case_id: 'rc_failed_001', run_id: 'run_rc_failed_001', failed_at: new Date().toISOString(), error_summary: 'provider timed out' },
+          source_ids: [],
+          created_at: new Date().toISOString(),
+          schema_version: 1,
+        })
+        const view = await resolveResearchCaseView(store, 'personal-local', 'rc_failed_001')
+        expect(view.status).toBe('failed')
+        if (view.status === 'failed') {
+          expect(view.error_summary).toBe('provider timed out')
+        }
+      } finally {
+        store.close()
+      }
+    })
   })
 
   it('promotes and confirms a drafted personal-local decision into a user-approved watchlist item', async () => {

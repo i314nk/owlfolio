@@ -5,12 +5,14 @@ import { resolveCurrentPrice } from '@owlfolio/workflow/marketData'
 import type { MoatClass } from '@owlfolio/strategies/strategyContract'
 
 import { ResearchCasePanel } from '../../../components/ResearchCasePanel'
+import { ResearchCasePending } from '../../../components/ResearchCasePending'
 import { UnconfiguredNotice } from '../../../components/UnconfiguredNotice'
 import { buildPositionPlan, type PositionPlan } from '../../../lib/positionPlan'
 import { getDemoResearchCase, resolveDemoLedgerPath } from '../../../lib/demo'
 import { isUnconfigured } from '../../../lib/modeView'
 import { getOnboardingState } from '../../../lib/onboarding'
-import { getAppResearchCaseFromStore, getInvestableCapital } from '../../../lib/workflow'
+import { getInvestableCapital, resolveResearchCaseView } from '../../../lib/workflow'
+import type { AppResearchCase, ResearchCaseView } from '../../../lib/workflow'
 import type { MarketQuote } from '../../../components/ResearchCasePanel'
 
 const INVESTABLE_MOAT_CLASSES: ReadonlySet<string> = new Set(['wide', 'monopoly'])
@@ -27,9 +29,50 @@ export default async function ResearchCasePage({ params }: ResearchCasePageProps
   }
 
   try {
-    const researchCase = state.config.mode === 'demo'
-      ? await getDemoResearchCase(caseId)
-      : await loadPersonalResearchCase(caseId, state.config.ledger_path, state.config.source_ledger_path)
+    let researchCase: AppResearchCase
+    if (state.config.mode === 'demo') {
+      researchCase = await getDemoResearchCase(caseId)
+    } else {
+      // Personal-local: tolerate the post-start race where the web path has appended
+      // `research_run_requested` but the WORKER has not yet authored `research_case_created`.
+      const view = await loadPersonalResearchCaseView(caseId, state.config.ledger_path, state.config.source_ledger_path)
+      if (view.status === 'unknown') {
+        notFound()
+      }
+      if (view.status === 'pending') {
+        return (
+          <main className="owl-route-frame owl-route-frame-narrow">
+            <p className="owl-route-back-row">
+              <a className="owl-back-link owl-focusable" href="/">
+                ← Back to command center
+              </a>
+            </p>
+            <ResearchCasePending caseId={caseId} />
+          </main>
+        )
+      }
+      if (view.status === 'failed') {
+        return (
+          <main className="owl-route-frame owl-route-frame-narrow">
+            <p className="owl-route-back-row">
+              <a className="owl-back-link owl-focusable" href="/">
+                ← Back to command center
+              </a>
+            </p>
+            <section className="owl-section-card">
+              <p className="owl-empty-state-kicker">Research run failed</p>
+              <h2 className="owl-section-title">This research run did not complete</h2>
+              <p className="owl-empty-state-description">
+                The research worker reported a failure for <code>{caseId}</code>
+                {view.error_summary === undefined ? '.' : `: ${view.error_summary}`} You can start a new
+                research case from the command center.
+              </p>
+            </section>
+          </main>
+        )
+      }
+      researchCase = view.researchCase
+    }
 
     // Fetch a live market quote server-side when the case has a ticker and a buy-below price.
     // Skip under playwright test mode so e2e is deterministic (no live network call).
@@ -98,14 +141,18 @@ export default async function ResearchCasePage({ params }: ResearchCasePageProps
   }
 }
 
-async function loadPersonalResearchCase(caseId: string, ledgerPath: string | undefined, sourceLedgerPath: string | undefined) {
+async function loadPersonalResearchCaseView(
+  caseId: string,
+  ledgerPath: string | undefined,
+  sourceLedgerPath: string | undefined,
+): Promise<ResearchCaseView> {
   if (ledgerPath === undefined) {
     notFound()
   }
 
   const store = new SQLiteEventStore(ledgerPath ?? resolveDemoLedgerPath())
   try {
-    return await getAppResearchCaseFromStore(store, 'personal-local', caseId, sourceLedgerPath)
+    return await resolveResearchCaseView(store, 'personal-local', caseId, sourceLedgerPath)
   } finally {
     store.close()
   }

@@ -511,6 +511,76 @@ export async function getAppResearchCaseFromStore(
   return buildPersonalResearchCase(events, researchCase, sourceLedgerPath)
 }
 
+/**
+ * Resolves how a research-case page should render a given id, tolerating the post-start race where
+ * `research_run_requested` (web-authored) lands ~1s before `research_case_created` (worker-authored).
+ *
+ *   - `ready`   — `research_case_created` is projected → the full dossier renders.
+ *   - `pending` — the worker has a `research_run_requested`/`research_run_claimed` for the id but has
+ *                 not yet authored `research_case_created`. The page shows a "Research running…" state
+ *                 and auto-refreshes until the case materializes. (Authorship stays with the worker.)
+ *   - `failed`  — `research_run_failed` exists for the id and no case was created → a clear failed state.
+ *   - `unknown` — there is NO event for the id at all → genuinely 404.
+ */
+export type ResearchCaseView =
+  | { status: 'ready'; researchCase: AppResearchCase }
+  | { status: 'pending' }
+  | { status: 'failed'; error_summary?: string }
+  | { status: 'unknown' }
+
+const RESEARCH_RUN_EVENT_TYPES: ReadonlySet<string> = new Set([
+  'research_run_requested',
+  'research_run_claimed',
+  'research_run_failed',
+])
+
+function eventResearchCaseId(event: LedgerEventEnvelope<unknown>): string {
+  const payload = event.payload
+  if (payload !== null && typeof payload === 'object') {
+    const id = (payload as Record<string, unknown>).research_case_id
+    if (typeof id === 'string' && id.length > 0) {
+      return id
+    }
+  }
+  return event.aggregate_id
+}
+
+export async function resolveResearchCaseView(
+  store: EventStore,
+  mode: WorkflowMode,
+  caseId: string,
+  sourceLedgerPath?: string,
+): Promise<ResearchCaseView> {
+  const events = await store.list()
+
+  // 1. Case already created → render the real dossier.
+  const researchCase = projectResearchCases(events).find((candidate) => candidate.research_case_id === caseId)
+  if (researchCase !== undefined) {
+    return { status: 'ready', researchCase: await buildPersonalResearchCase(events, researchCase, sourceLedgerPath) }
+  }
+
+  // 2. No case yet — inspect the run-lifecycle events for this id to distinguish pending/failed/unknown.
+  const runEvents = events.filter(
+    (event) => RESEARCH_RUN_EVENT_TYPES.has(event.event_type) && eventResearchCaseId(event) === caseId,
+  )
+  if (runEvents.length === 0) {
+    return { status: 'unknown' }
+  }
+
+  const failed = runEvents.find((event) => event.event_type === 'research_run_failed')
+  if (failed !== undefined) {
+    const payload = failed.payload
+    const summary =
+      payload !== null && typeof payload === 'object'
+        ? (payload as Record<string, unknown>).error_summary
+        : undefined
+    return { status: 'failed', ...(typeof summary === 'string' ? { error_summary: summary } : {}) }
+  }
+
+  // requested/claimed but not yet created → the worker is still building the case.
+  return { status: 'pending' }
+}
+
 export async function getAppWatchlistItemsFromStore(
   store: EventStore,
   mode: WorkflowMode,
