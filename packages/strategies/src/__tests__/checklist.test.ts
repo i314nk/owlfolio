@@ -3,19 +3,16 @@ import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import {
   CHECKLIST_PARAMS,
+  listBusinessItems,
+  type ChecklistAudit,
   type ChecklistItemDefinition,
-  type ChecklistParams,
 } from '../checklistParams'
-import {
-  evaluateChecklistCompletion,
-  type ChecklistAnswer,
-  type ChecklistCompletion,
-} from '../checklist'
+import { evaluateChecklistCompletion } from '../checklist'
 
-// Phase 7 S1 — two decision-NEUTRAL hygiene checklists (11 business + 6 cognitive), data-defined and
-// extensible, plus a pure completion evaluator that forces the question (which items remain) and NEVER
-// scores the answers. Mirrors the no-Kelly discipline: scoring is made structurally unrepresentable.
-// Island slice: pure, no I/O, not wired into sign-off flows yet.
+// Phase 7 — audit-and-decide: the HARNESS marshals one finding per business item, the human only
+// acknowledges the cognitive reflection. Completion = every business item has a non-empty finding AND
+// the human acknowledged. Decision-NEUTRAL: scoring is made structurally unrepresentable (no
+// score/tally/count/weight in the return or the source). Mirrors the no-Kelly discipline.
 
 const BUSINESS_IDS = [
   'overpaying_for_quality',
@@ -40,12 +37,18 @@ const COGNITIVE_IDS = [
   'recency_vividness',
 ] as const
 
-const allAddressed = (
-  params: ChecklistParams = CHECKLIST_PARAMS,
-): Record<string, ChecklistAnswer> =>
-  Object.fromEntries(
-    params.items.map((i) => [i.id, { addressed: true, note: `addressed: ${i.id}` }]),
-  )
+function findingsForAllBusiness(): Record<string, string> {
+  const out: Record<string, string> = {}
+  for (const item of listBusinessItems()) out[item.id] = `Finding for ${item.id}.`
+  return out
+}
+function completeAudit(): ChecklistAudit {
+  return {
+    version: CHECKLIST_PARAMS.version,
+    business_findings: findingsForAllBusiness(),
+    cognitive_acknowledged: true,
+  }
+}
 
 describe('CHECKLIST_PARAMS — data-defined checklist items', () => {
   it('is frozen and carries a version string', () => {
@@ -139,90 +142,60 @@ describe('CHECKLIST_PARAMS — data-defined checklist items', () => {
   })
 })
 
-describe('evaluateChecklistCompletion — pure, decision-neutral completion', () => {
-  it('all items addressed with non-empty notes → complete, no unaddressed', () => {
-    const result = evaluateChecklistCompletion(allAddressed())
-    expect(result.complete).toBe(true)
-    expect(result.unaddressed).toEqual([])
+describe('evaluateChecklistCompletion (audit-and-decide)', () => {
+  it('complete when every business item has a finding and cognitive acknowledged', () => {
+    const r = evaluateChecklistCompletion(completeAudit())
+    expect(r.complete).toBe(true)
+    expect(r.missing).toEqual([])
   })
-
-  it('one item with an empty note → incomplete and names exactly that id', () => {
-    const answers = allAddressed()
-    answers.moat_erosion = { addressed: true, note: '' }
-    const result = evaluateChecklistCompletion(answers)
-    expect(result.complete).toBe(false)
-    expect(result.unaddressed).toEqual(['moat_erosion'])
+  it('incomplete and names the business item when a finding is missing', () => {
+    const a = completeAudit()
+    const id = listBusinessItems()[0]!.id
+    delete a.business_findings[id]
+    const r = evaluateChecklistCompletion(a)
+    expect(r.complete).toBe(false)
+    expect(r.missing).toContain(id)
   })
-
-  it('a whitespace-only note → still unaddressed (note must be non-empty)', () => {
-    const answers = allAddressed()
-    answers.disposition = { addressed: true, note: '   \n\t ' }
-    const result = evaluateChecklistCompletion(answers)
-    expect(result.complete).toBe(false)
-    expect(result.unaddressed).toEqual(['disposition'])
+  it('treats a whitespace-only finding as missing', () => {
+    const a = completeAudit()
+    const id = listBusinessItems()[0]!.id
+    a.business_findings[id] = '   '
+    expect(evaluateChecklistCompletion(a).missing).toContain(id)
   })
-
-  it('a missing answer → unaddressed', () => {
-    const answers = allAddressed()
-    delete answers.thesis_drift
-    const result = evaluateChecklistCompletion(answers)
-    expect(result.complete).toBe(false)
-    expect(result.unaddressed).toEqual(['thesis_drift'])
+  it('incomplete when cognitive reflection not acknowledged', () => {
+    const a = completeAudit()
+    a.cognitive_acknowledged = false
+    const r = evaluateChecklistCompletion(a)
+    expect(r.complete).toBe(false)
+    expect(r.missing).toContain('cognitive_acknowledgement')
   })
-
-  it('addressed:false with a non-empty note → still unaddressed', () => {
-    const answers = allAddressed()
-    answers.anchoring = { addressed: false, note: 'I wrote something but did not affirm' }
-    const result = evaluateChecklistCompletion(answers)
-    expect(result.complete).toBe(false)
-    expect(result.unaddressed).toEqual(['anchoring'])
+  it('does not require findings for cognitive items', () => {
+    const a = completeAudit()
+    for (const id of Object.keys(a.business_findings)) {
+      expect(CHECKLIST_PARAMS.items.find((i) => i.id === id)?.category).toBe('business')
+    }
+    expect(evaluateChecklistCompletion(a).complete).toBe(true)
   })
-
-  it('empty answer set → all 17 items unaddressed', () => {
-    const result = evaluateChecklistCompletion({})
-    expect(result.complete).toBe(false)
-    expect(result.unaddressed).toHaveLength(17)
-    expect(new Set(result.unaddressed)).toEqual(
-      new Set([...BUSINESS_IDS, ...COGNITIVE_IDS]),
-    )
+  it('decision-neutral: result is exactly { complete, missing }, no numeric field', () => {
+    const r = evaluateChecklistCompletion(completeAudit()) as Record<string, unknown>
+    expect(Object.keys(r).sort()).toEqual(['complete', 'missing'])
+    for (const v of Object.values(r)) expect(typeof v).not.toBe('number')
+  })
+  it('extensibility: a newly-added business item is automatically required to have a finding', () => {
+    const extended = {
+      version: 'test-extended',
+      items: [
+        ...CHECKLIST_PARAMS.items,
+        { id: 'new_business_risk', category: 'business' as const, prompt: 'New?' },
+      ],
+    }
+    const r = evaluateChecklistCompletion(completeAudit(), extended)
+    expect(r.complete).toBe(false)
+    expect(r.missing).toContain('new_business_risk')
   })
 
   describe('decision-neutral structural invariant (the load-bearing one)', () => {
-    it('the return has EXACTLY {complete, unaddressed} — no numeric/score/tally field', () => {
-      const result = evaluateChecklistCompletion(allAddressed())
-      expect(Object.keys(result).sort()).toEqual(['complete', 'unaddressed'])
-    })
-
-    it('carries no score/count/ratio/passed/total/percentage verdict key', () => {
-      const partial = allAddressed()
-      partial.moat_erosion = { addressed: true, note: '' }
-      const result: ChecklistCompletion = evaluateChecklistCompletion(partial)
-      const forbidden = [
-        'score',
-        'count',
-        'ratio',
-        'passed',
-        'total',
-        'percentage',
-        'pct',
-        'tally',
-        'verdict',
-        'rank',
-        'weight',
-        'n_addressed',
-      ]
-      for (const key of forbidden) {
-        expect(Object.prototype.hasOwnProperty.call(result, key)).toBe(false)
-      }
-      // No value in the return is itself a number (no count smuggled in as the only field).
-      expect(typeof result.complete).toBe('boolean')
-      expect(Array.isArray(result.unaddressed)).toBe(true)
-      for (const v of Object.values(result)) {
-        expect(typeof v).not.toBe('number')
-      }
-    })
-
-    it('the module source contains no tally arithmetic over answers feeding a verdict', () => {
+    it('the module source contains no tally arithmetic over the audit feeding a verdict', () => {
       // Mirror the no-Kelly grep style: strip comments + string literals, then assert no
       // scoring/tally identifiers survive in the evaluator source.
       const src = readFileSync(
@@ -246,49 +219,12 @@ describe('evaluateChecklistCompletion — pure, decision-neutral completion', ()
         /\bpassedCount\b/i,
         /\bratio\b/i,
         /\bpercentage\b/i,
+        /\bweight\b/i,
         /\.reduce\s*\(/, // no fold accumulating a numeric verdict
       ]
       for (const re of forbidden) {
         expect(stripped).not.toMatch(re)
       }
-    })
-  })
-
-  describe('extensibility — adding an item is data, and is automatically required', () => {
-    it('an extra item in params is required even when today’s 17 are all addressed', () => {
-      const extended: ChecklistParams = {
-        version: 'checklist-test-extended',
-        items: [
-          ...CHECKLIST_PARAMS.items,
-          {
-            id: 'new_future_item',
-            category: 'business',
-            prompt: 'A brand new question added later as pure data?',
-          },
-        ],
-      }
-      // Address ONLY today's 17 items; the new one is left unaddressed.
-      const answersForSeventeen = allAddressed(CHECKLIST_PARAMS)
-      const result = evaluateChecklistCompletion(answersForSeventeen, extended)
-      expect(result.complete).toBe(false)
-      expect(result.unaddressed).toEqual(['new_future_item'])
-    })
-
-    it('addressing the extra item too → complete again', () => {
-      const extended: ChecklistParams = {
-        version: 'checklist-test-extended',
-        items: [
-          ...CHECKLIST_PARAMS.items,
-          {
-            id: 'new_future_item',
-            category: 'business',
-            prompt: 'A brand new question added later as pure data?',
-          },
-        ],
-      }
-      const result = evaluateChecklistCompletion(allAddressed(extended), extended)
-      expect(result.complete).toBe(true)
-      expect(result.unaddressed).toEqual([])
     })
   })
 })

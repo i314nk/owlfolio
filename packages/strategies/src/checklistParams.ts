@@ -159,3 +159,27 @@ export const CHECKLIST_PARAMS: ChecklistParams = Object.freeze({
     },
   ],
 }) as ChecklistParams
+
+/**
+ * The harness-authored audit captured at sign-off.
+ * - business_findings: one marshaled finding per BUSINESS item id (server-authored, read-only to the human)
+ * - cognitive_acknowledged: the human's single acknowledgement that they reflected on the 6 bias prompts
+ * No scoring/tally — decision-neutral.
+ */
+export type ChecklistAudit = {
+  version: string
+  business_findings: Record<string, string>
+  cognitive_acknowledged: boolean
+}
+
+export function listBusinessItems(
+  params: ChecklistParams = CHECKLIST_PARAMS,
+): readonly ChecklistItemDefinition[] {
+  return params.items.filter((item) => item.category === 'business')
+}
+
+export function listCognitiveItems(
+  params: ChecklistParams = CHECKLIST_PARAMS,
+): readonly ChecklistItemDefinition[] {
+  return params.items.filter((item) => item.category === 'cognitive')
+}
