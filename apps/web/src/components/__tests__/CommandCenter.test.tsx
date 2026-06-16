@@ -140,7 +140,7 @@ describe('CommandCenter', () => {
       expect(html).toContain('Open holdings')
       expect(html).toContain('Pending user actions')
       expect(html).not.toContain('current Owlfolio v0.2 slice')
-      expect(html).toContain('Review COST watchlist draft and confirm it')
+      expect(html).toContain('COST is a legacy unconfirmed watchlist draft — re-admit from research')
       expect(html).toContain('Watchlist draft created')
       expect(html).toContain('class="owl-source-chip-label"')
       expect(html).toContain('Audit event')
@@ -176,7 +176,7 @@ describe('CommandCenter', () => {
           open_holdings: 1,
           pending_user_actions: 2,
         },
-        next_recommended_action: 'Review COST watchlist draft and confirm it',
+        next_recommended_action: 'COST is a legacy unconfirmed watchlist draft — re-admit from research',
         primary_action: { href: '/watchlist', label: 'Open watchlist drafts' },
         secondary_action: { href: '/research', label: 'Open research cockpit' },
       }),
@@ -195,7 +195,7 @@ describe('CommandCenter', () => {
     // The command cockpit + next-action queue.
     expect(html).toContain('aria-label="Command cockpit overview"')
     expect(html).toContain('Awaiting your authorization')
-    expect(html).toContain('Review COST watchlist draft and confirm it')
+    expect(html).toContain('COST is a legacy unconfirmed watchlist draft — re-admit from research')
     expect(html).toContain('aria-label="Next action queue"')
     // The agent's desk keeps the pipeline-forward links present.
     expect(html).toContain('aria-label="Your research agent"')
@@ -351,7 +351,7 @@ describe('CommandCenter', () => {
           open_holdings: 1,
           pending_user_actions: 2,
         },
-        next_recommended_action: 'Review COST watchlist draft and confirm it',
+        next_recommended_action: 'COST is a legacy unconfirmed watchlist draft — re-admit from research',
         holding_review_prompts: [
           {
             holding_id: 'holding_msft_001',
@@ -525,7 +525,7 @@ describe('CommandCenter', () => {
           after_summary: 'Confirm MSFT as a user-approved watchlist item before worker monitoring or portfolio actions.',
           shariah_impact: 'COMPLIANT — allowed.',
           accounting_impact: 'No accounting or holding state changes until a user opens a holding.',
-          approve_action_label: 'Review and confirm watchlist draft',
+          approve_action_label: 'Legacy unconfirmed draft — re-admit from research',
         },
         {
           id: 'holding-review:holding_msft_001:review_msft_001',
@@ -582,7 +582,7 @@ describe('CommandCenter', () => {
     expect(html).toContain('href="/audit?event_id=evt_watchlist_msft#evt_watchlist_msft"')
     expect(html).toContain('src_msft_10k_2025')
     expect(html).toContain('provider_run_watchlist_001')
-    expect(html).toContain('Review and confirm watchlist draft')
+    expect(html).toContain('Legacy unconfirmed draft — re-admit from research')
     expect(html).toContain('Apply provider draft')
     expect(html).toContain('Reject provider draft')
     expect(html).toContain('Apply user override')

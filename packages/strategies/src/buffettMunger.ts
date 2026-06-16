@@ -28,6 +28,7 @@ export function moatPassesGate(strategy: StrategyContract, moatClass: MoatClass)
  * surfaced, human-weighted moat-durability input (terminal-value share), not via tier-varying params.
  */
 export function discountRate(strategy: StrategyContract, tenYearTreasury?: number): number {
+  // ANCHOR-SWAP-F2: discount anchor = Treasury + equity_premium today; F.2 swaps to savings_rate + equity_premium (deferred, blocked on the calibration cohort #124).
   const v = strategy.valuation
   const treasury = (typeof tenYearTreasury === 'number' && Number.isFinite(tenYearTreasury) && tenYearTreasury > 0)
     ? tenYearTreasury

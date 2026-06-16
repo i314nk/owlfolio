@@ -692,6 +692,7 @@ export function StrategyOverview(): ReactNode {
           createElement('span', { style: goldText }, 'Cash is a first-class position. '),
           `When nothing clears the deployment hurdle, idle capital stays in the Shariah-compliant Mudarabah savings sleeve — the CORRECT fat-pitch posture (waiting for the pitch), never under-deployment. The one savings rate does triple duty: the EXPECTED (not guaranteed) return on idle capital, the deployment-hurdle floor, and — later — the risk-free anchor.`,
         ),
+        // ANCHOR-SWAP-F2: discount anchor = Treasury + equity_premium today; F.2 swaps to savings_rate + equity_premium (deferred, blocked on the calibration cohort #124). The "— later — the risk-free anchor" / "anchor swap to this rate is deferred" copy below is the user-facing forward-reference to that swap; keep this token in CODE only, never in rendered text.
         createElement(
           'p',
           { style: { ...microLabel, color: 'var(--owl-color-muted)', margin: 0 } },

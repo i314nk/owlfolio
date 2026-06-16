@@ -86,7 +86,7 @@ describe('projectCommandCenterSummary', () => {
         pending_user_actions: 1,
       },
       primary_research_case_id: 'rc_cost_001',
-      next_recommended_action: 'Review COST watchlist draft and confirm it',
+      next_recommended_action: 'COST is a legacy unconfirmed watchlist draft — re-admit from research',
       recent_activity: [
         { event_id: 'evt_watchlist', label: 'watchlist_draft_created by user:user_local' },
         { event_id: 'evt_analysis', label: 'buffett_munger_analysis_drafted by provider:mock-provider' },
@@ -107,7 +107,7 @@ describe('projectCommandCenterSummary', () => {
           after_summary: 'Confirm COST as a user-approved watchlist item before worker monitoring or portfolio actions.',
           shariah_impact: 'Shariah gate decision pending.',
           accounting_impact: 'No accounting or holding state changes until a user opens a holding.',
-          approve_action_label: 'Review and confirm watchlist draft',
+          approve_action_label: 'Legacy unconfirmed draft — re-admit from research',
         },
       ],
     })

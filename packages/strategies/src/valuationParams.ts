@@ -27,6 +27,7 @@ export type ValuationParams = {
    * (live 10y Treasury || ten_year_treasury_default) + equity_premium via `discountRate()`. The discount is
    * GLOBAL config, human-set once — NEVER an agent input, and it carries NO quality knob (Part D Step 3 / G).
    */
+  // ANCHOR-SWAP-F2: discount anchor = Treasury + equity_premium today; F.2 swaps to savings_rate + equity_premium (deferred, blocked on the calibration cohort #124).
   discount_rate: number
   /**
    * Fixed UNIFORM equity premium added to the 10y Treasury yield to form the discount (Phase 1.4 / Step 3).

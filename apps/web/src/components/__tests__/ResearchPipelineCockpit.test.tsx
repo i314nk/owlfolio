@@ -27,7 +27,7 @@ describe('ResearchPipelineCockpit', () => {
         section('Deep Dive Queue', [{ id: 'rc_adbe_queue', label: 'ADBE', status: 'queued_for_deep_dive', href: '/research/rc_adbe_queue', next_action: 'Start deep dive' }]),
         section('In Deep Dive', [{ id: 'rc_asml_deep', label: 'ASML', status: 'specialist_finding_recorded', href: '/research/rc_asml_deep', next_action: 'Draft synthesis' }]),
         section('Synthesis / Decision Pending', [{ id: 'rc_cost_decision', label: 'COST', status: 'decision_pending', href: '/research/rc_cost_decision', next_action: 'Review draft decision', summary: 'Durable membership economics remain attractive, but valuation still requires patience.' }]),
-        section('Watchlist', [{ id: 'watch_cost', label: 'COST', status: 'watchlist_draft', href: '/watchlist', next_action: 'Confirm watchlist draft' }]),
+        section('Watchlist', [{ id: 'watch_cost', label: 'COST', status: 'watchlist_draft', href: '/watchlist', next_action: 'Legacy unconfirmed draft — re-admit from research' }]),
         section('Rejected / Passed', [{ id: 'rc_old_pass', label: 'OLD', status: 'pass', href: '/research/rc_old_pass', next_action: 'No action required' }]),
       ],
     }))
@@ -42,7 +42,7 @@ describe('ResearchPipelineCockpit', () => {
     for (const title of ['Discovered', 'Quick Screen', 'Deep Dive Queue', 'In Deep Dive', 'Synthesis / Decision Pending', 'Watchlist', 'Rejected / Passed']) {
       expect(html).toContain(title)
     }
-    for (const action of ['Queue for quick screen', 'Send to deep dive queue', 'Start deep dive', 'Draft synthesis', 'Review draft decision', 'Confirm watchlist draft', 'No action required']) {
+    for (const action of ['Queue for quick screen', 'Send to deep dive queue', 'Start deep dive', 'Draft synthesis', 'Review draft decision', 'Legacy unconfirmed draft — re-admit from research', 'No action required']) {
       expect(html).toContain(action)
     }
     expect(html).toContain('Investment brief')

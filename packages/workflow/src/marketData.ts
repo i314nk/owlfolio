@@ -173,6 +173,7 @@ function parseYahooChart(json: YahooChartResponse, ticker: string): PriceQuote {
 // ---------------------------------------------------------------------------
 // 10-year Treasury yield (Phase 1.4) — the discount anchor input.
 // discount = 10y Treasury + a fixed uniform equity premium (Part D Step 3). GLOBAL config, never agent-set.
+// ANCHOR-SWAP-F2: discount anchor = Treasury + equity_premium today; F.2 swaps to savings_rate + equity_premium (deferred, blocked on the calibration cohort #124).
 // ---------------------------------------------------------------------------
 
 /** Documented fail-closed default 10y Treasury yield (decimal) used when the live fetch is unavailable. */

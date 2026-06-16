@@ -1938,7 +1938,9 @@ function watchlistItemToPipelineItem(item: AppWatchlistItem): AppResearchPipelin
       ? 'Review in portfolio'
       : item.user_approved
         ? 'Monitor and open a holding only after user decision'
-        : 'Confirm watchlist draft',
+        // Phase 8 S6: legacy-only — the standalone confirm-draft affordance was removed in S4. An
+        // unconfirmed draft can only come from a legacy partial ledger; do not promise the deleted action.
+        : 'Legacy unconfirmed draft — re-admit from research',
     href: item.holding_id !== undefined ? `/portfolio#${item.holding_id}` : '/watchlist',
     meta: `${item.strategy_id ?? 'strategy pending'} • Updated ${item.updated_at}`,
   }
@@ -1985,7 +1987,9 @@ function nextActionForResearchCase(researchCase: ResearchCaseProjection): string
     case 'decision_drafted':
       return 'Review decision and confirm the next user-authored transition'
     case 'watchlist_draft':
-      return 'Confirm watchlist draft'
+      // Phase 8 S6: legacy-only stage — S4 promotes straight to a confirmed watchlist (atomic admit +
+      // confirm), so the confirm-draft action no longer exists; surface the legacy state instead.
+      return 'Legacy unconfirmed draft — re-admit from research'
     case 'watchlist':
       return 'Monitor watchlist thesis'
     case 'holding':

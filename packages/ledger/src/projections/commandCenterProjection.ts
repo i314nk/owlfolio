@@ -192,7 +192,11 @@ function buildWatchlistApprovalItems(
       after_summary: `Confirm ${label} as a user-approved watchlist item before worker monitoring or portfolio actions.`,
       shariah_impact: shariahImpact(item.shariah_gate_status, item.shariah_gate_allowed),
       accounting_impact: 'No accounting or holding state changes until a user opens a holding.',
-      approve_action_label: 'Review and confirm watchlist draft',
+      // Phase 8 S6: the standalone "confirm watchlist draft" affordance was removed in S4 (admit now emits
+      // the draft + confirmation atomically). This item only appears for a LEGACY partial ledger with an
+      // unconfirmed draft the new flow can no longer produce, so the label points at a neutral legacy state
+      // rather than the deleted confirm action.
+      approve_action_label: 'Legacy unconfirmed draft — re-admit from research',
     }
   })
 }
@@ -343,7 +347,9 @@ export function projectCommandCenterSummary(
   const upcomingHoldingReviewPrompt = holdingReviewPrompts.find((prompt) => prompt.status === 'upcoming')
   const confirmedWatchlistItems = watchlist.filter((item) => item.user_approved && !heldWatchlistItemIds.has(item.watchlist_item_id))
   const nextRecommendedAction = pendingDraftItems[0] !== undefined
-    ? `Review ${watchlistItemLabel(pendingDraftItems[0])} watchlist draft and confirm it`
+    // Phase 8 S6: legacy-only path — an unconfirmed draft predates the S4 atomic admit+confirm flow; the
+    // confirm action no longer exists, so surface the legacy state, not a promise to confirm it.
+    ? `${watchlistItemLabel(pendingDraftItems[0])} is a legacy unconfirmed watchlist draft — re-admit from research`
     : pendingHoldingReviewDrafts[0] !== undefined
       ? `Confirm the drafted strategy review for ${holdingLabel(pendingHoldingReviewDrafts[0])}`
       : dueHoldingReviewPrompt !== undefined

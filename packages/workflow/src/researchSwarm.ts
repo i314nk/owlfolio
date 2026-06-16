@@ -1474,6 +1474,7 @@ export async function runResearchDeepDivePhase(
 
   // Discount = live 10y Treasury (fail-closed to the config default) + the fixed uniform equity premium
   // (Phase 1.4 / Step 3). GLOBAL config, never an agent input, no quality knob.
+  // ANCHOR-SWAP-F2: discount anchor = Treasury + equity_premium today; F.2 swaps to savings_rate + equity_premium (deferred, blocked on the calibration cohort #124).
   const ten_year_treasury = await resolveTreasuryYieldValue(deps)
   const discount = discountRate(buffettMungerStrategy, ten_year_treasury)
   // ---- Harness defense 3: range/sanity checks on model-proposed numerics (BEFORE the valuation) ----
