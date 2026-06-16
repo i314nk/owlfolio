@@ -12,12 +12,10 @@ function baseProps(overrides: Partial<ProviderKeysPanelProps> = {}): ProviderKey
     onboardingGate: {
       items: [
         { id: 'frontier_llm', label: 'At least one frontier LLM provider connected', done: false },
-        { id: 'market_data', label: 'A market-data key set', done: false },
         { id: 'investable_capital', label: 'Investable capital set in the ledger', done: false },
       ],
       missing_items: [
         { id: 'frontier_llm', label: 'At least one frontier LLM provider connected', done: false },
-        { id: 'market_data', label: 'A market-data key set', done: false },
         { id: 'investable_capital', label: 'Investable capital set in the ledger', done: false },
       ],
       is_complete: false,
@@ -87,12 +85,15 @@ function baseProps(overrides: Partial<ProviderKeysPanelProps> = {}): ProviderKey
 }
 
 describe('ProviderKeysPanel — onboarding gate (acceptance test 1)', () => {
-  it('renders the three-item checklist and the named blocking reason on a fresh state', () => {
+  it('renders the two-item checklist (provider + capital) and the named blocking reason on a fresh state', () => {
     const html = renderToStaticMarkup(createElement(ProviderKeysPanel, baseProps()))
     expect(html).toContain('At least one frontier LLM provider connected')
-    expect(html).toContain('A market-data key set')
     expect(html).toContain('Investable capital set in the ledger')
+    // Market-data is no longer a gate item (EDGAR direct) — only provider + capital gate research.
+    expect(html).not.toContain('A market-data key set')
     expect(html).toContain('Cannot start a deep dive')
+    // Market-data remains a SETTABLE tool key on the page (just not a blocker).
+    expect(html).toContain('OWLFOLIO_MARKET_DATA_API_KEY')
   })
 })
 

@@ -193,12 +193,11 @@ export function oauthLoginExpiryView(input: OauthLoginExpiryInput, now: Date = n
 
 export type OnboardingGateInputs = {
   has_frontier_llm_connected: boolean
-  has_market_data_key: boolean
   has_investable_capital: boolean
 }
 
 export type OnboardingGateItem = {
-  id: 'frontier_llm' | 'market_data' | 'investable_capital'
+  id: 'frontier_llm' | 'investable_capital'
   label: string
   done: boolean
 }
@@ -214,11 +213,15 @@ export type OnboardingGate = {
 /**
  * Build the minimal-viable onboarding checklist + the deep-dive blocking reason.
  * The pipeline refuses to start a deep dive until complete, naming the missing item.
+ *
+ * The gate is frontier-LLM-connected + investable-capital-set ONLY. A market-data
+ * API key is NOT a prerequisite: the owner uses SEC EDGAR directly, so the
+ * market-data key remains a settable tool key on the providers page but never
+ * blocks research.
  */
 export function buildOnboardingGate(inputs: OnboardingGateInputs): OnboardingGate {
   const items: OnboardingGateItem[] = [
     { id: 'frontier_llm', label: 'At least one frontier LLM provider connected', done: inputs.has_frontier_llm_connected },
-    { id: 'market_data', label: 'A market-data key set', done: inputs.has_market_data_key },
     { id: 'investable_capital', label: 'Investable capital set in the ledger', done: inputs.has_investable_capital },
   ]
   const missing_items = items.filter((item) => !item.done)

@@ -86,24 +86,24 @@ describe('oauthLoginExpiryView (acceptance test 5 — expired token)', () => {
 })
 
 describe('buildOnboardingGate (acceptance test 1)', () => {
-  it('reports all three items incomplete on a fresh install and names the first missing item', () => {
+  it('reports the two gate items incomplete on a fresh install and names the first missing item', () => {
     const gate = buildOnboardingGate({
       has_frontier_llm_connected: false,
-      has_market_data_key: false,
       has_investable_capital: false,
     })
     expect(gate.is_complete).toBe(false)
-    expect(gate.items).toHaveLength(3)
-    expect(gate.missing_items).toHaveLength(3)
+    // The gate is provider + capital only — market-data is no longer a required item (EDGAR direct).
+    expect(gate.items).toHaveLength(2)
+    expect(gate.items.map((item) => item.id)).toEqual(['frontier_llm', 'investable_capital'])
+    expect(gate.missing_items).toHaveLength(2)
     // The blocking reason must NAME exactly which item is missing.
     expect(gate.blocked_reason).toBeDefined()
     expect(gate.blocked_reason).toContain(gate.missing_items[0]!.label)
   })
 
-  it('is complete once all three items are satisfied', () => {
+  it('is complete once provider + capital are satisfied, with NO market-data key', () => {
     const gate = buildOnboardingGate({
       has_frontier_llm_connected: true,
-      has_market_data_key: true,
       has_investable_capital: true,
     })
     expect(gate.is_complete).toBe(true)
@@ -111,13 +111,12 @@ describe('buildOnboardingGate (acceptance test 1)', () => {
     expect(gate.blocked_reason).toBeUndefined()
   })
 
-  it('names the specific remaining item when only one is missing', () => {
+  it('names the specific remaining item when only capital is missing', () => {
     const gate = buildOnboardingGate({
       has_frontier_llm_connected: true,
-      has_market_data_key: false,
-      has_investable_capital: true,
+      has_investable_capital: false,
     })
     expect(gate.is_complete).toBe(false)
-    expect(gate.blocked_reason).toContain('market-data')
+    expect(gate.blocked_reason).toContain('Investable capital')
   })
 })

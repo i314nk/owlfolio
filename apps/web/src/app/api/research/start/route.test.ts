@@ -10,6 +10,7 @@ import { defaultPersonalLocalAppConfig } from '@owlfolio/shared'
 
 import { POST } from './route'
 import * as circleGate from '../../../../lib/circleGate'
+import { recordProviderConnectedEvent } from '../../../../lib/providerConnections'
 
 const originalEnv = {
   OWLFOLIO_APP_CONFIG_PATH: process.env.OWLFOLIO_APP_CONFIG_PATH,
@@ -137,6 +138,7 @@ describe('/api/research/start', () => {
 
   it('refuses to start a deep dive when onboarding is incomplete, naming the missing item', async () => {
     // mock-provider is ready, so we pass the readiness check and reach the onboarding gate.
+    // The gate is provider + capital only; with no investable capital set, capital is the missing item.
     await writeFile(appConfigPath, JSON.stringify({
       ...defaultPersonalLocalAppConfig(),
       provider: {
@@ -147,7 +149,6 @@ describe('/api/research/start', () => {
       source_ledger_path: join(tempDir, 'source-ledger'),
       initialized_at: '2026-06-01T00:00:00.000Z',
     }), 'utf8')
-    delete process.env.OWLFOLIO_MARKET_DATA_API_KEY
 
     const response = await POST(new Request('http://localhost/api/research/start', {
       method: 'POST',
@@ -157,8 +158,54 @@ describe('/api/research/start', () => {
 
     expect(response.status).toBe(400)
     expect(payload.error.code).toBe('onboarding_incomplete')
-    expect(payload.error.message).toMatch(/market-data/)
-    expect(payload.error.missing_items).toEqual(expect.arrayContaining([expect.stringMatching(/market-data/)]))
+    expect(payload.error.message).toMatch(/Investable capital/)
+    expect(payload.error.missing_items).toEqual(expect.arrayContaining([expect.stringMatching(/Investable capital/)]))
+    // The market-data key is no longer a gate item, so it must never appear in the missing list.
+    expect(payload.error.missing_items).not.toEqual(expect.arrayContaining([expect.stringMatching(/market-data/i)]))
+  })
+
+  it('allows a research run when provider + capital are set even with NO market-data key (EDGAR direct)', async () => {
+    // mock-provider ready + frontier-LLM connected + investable capital set, but no market-data key.
+    delete process.env.OWLFOLIO_MARKET_DATA_API_KEY
+    const ledgerPath = join(tempDir, 'personal.sqlite')
+    await writeFile(appConfigPath, JSON.stringify({
+      ...defaultPersonalLocalAppConfig(),
+      provider: {
+        ...defaultPersonalLocalAppConfig().provider,
+        provider_id: 'mock-provider',
+      },
+      ledger_path: ledgerPath,
+      source_ledger_path: join(tempDir, 'source-ledger'),
+      initialized_at: '2026-06-01T00:00:00.000Z',
+    }), 'utf8')
+
+    const store = new SQLiteEventStore(ledgerPath)
+    try {
+      await recordProviderConnectedEvent(store, { provider_id: 'anthropic', env_key_name: 'ANTHROPIC_API_KEY', connected_at: '2026-06-09T00:00:00Z' })
+      await store.append({
+        event_id: 'evt_investable_capital_set_route',
+        event_type: 'investable_capital_set',
+        aggregate_type: 'portfolio',
+        aggregate_id: 'portfolio_local',
+        actor_type: 'user',
+        actor_id: 'user_local',
+        payload: { amount: 10000, currency: 'USD', as_of: '2026-06-09T00:00:00Z' },
+        source_ids: [],
+        created_at: '2026-06-09T00:00:00Z',
+        schema_version: 1,
+      })
+    } finally {
+      store.close()
+    }
+
+    const response = await POST(new Request('http://localhost/api/research/start', {
+      method: 'POST',
+      body: JSON.stringify({ ticker: 'MSFT' }),
+    }))
+    const payload = await response.json()
+
+    expect(response.status).toBe(202)
+    expect(typeof payload.research_case_id).toBe('string')
   })
 
   it('returns a clean 400 JSON error when research is requested with an unknown provider', async () => {

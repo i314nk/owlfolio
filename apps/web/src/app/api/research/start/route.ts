@@ -44,8 +44,9 @@ export async function POST(request: Request) {
     }
 
     // Onboarding gate: refuse to start a deep dive until the minimal-viable
-    // checklist (one frontier LLM connected · market-data key · investable
-    // capital) is complete — and name exactly which item is missing.
+    // checklist (one frontier LLM connected · investable capital) is complete —
+    // and name exactly which item is missing. A market-data key is NOT required
+    // (the owner uses SEC EDGAR directly); it stays settable but never blocks.
     // Skipped only under the Playwright e2e harness (a controlled mock-provider
     // setup that does not exercise onboarding); the gate logic + this refusal
     // remain covered by the vitest route unit test and the onboarding flow.

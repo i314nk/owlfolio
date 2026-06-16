@@ -7,7 +7,6 @@ import { describe, expect, it } from 'vitest'
 
 import { evaluateOnboardingGate } from '../onboardingGate'
 import { recordProviderConnectedEvent } from '../providerConnections'
-import { setEnvKey } from '../envKeys'
 
 async function withTemp(assertion: (dir: string) => Promise<void>) {
   const dir = await mkdtemp(join(tmpdir(), 'owlfolio-gate-'))
@@ -30,7 +29,7 @@ describe('evaluateOnboardingGate (acceptance test 1 — deep-dive refusal)', () 
     })
   })
 
-  it('unblocks once an LLM is connected, market-data key is set, and capital exists', async () => {
+  it('unblocks once an LLM is connected and capital exists — NO market-data key required (EDGAR direct)', async () => {
     await withTemp(async (dir) => {
       const ledgerPath = join(dir, 'ledger.sqlite')
       const envPath = join(dir, '.env')
@@ -54,11 +53,13 @@ describe('evaluateOnboardingGate (acceptance test 1 — deep-dive refusal)', () 
         store.close()
       }
 
-      await setEnvKey('OWLFOLIO_MARKET_DATA_API_KEY', 'md-key-123456', { envPath })
-
+      // No OWLFOLIO_MARKET_DATA_API_KEY is set: the gate is provider + capital only.
       const gate = await evaluateOnboardingGate({ ledgerPath, envKeyOptions: { envPath } })
       expect(gate.is_complete).toBe(true)
       expect(gate.blocked_reason).toBeUndefined()
+      // The gate no longer carries a market-data item at all.
+      expect(gate.items.map((item) => item.id)).toEqual(['frontier_llm', 'investable_capital'])
+      expect(gate.items.some((item) => item.id === ('market_data' as string))).toBe(false)
     })
   })
 })
