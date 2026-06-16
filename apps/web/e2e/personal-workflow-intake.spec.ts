@@ -115,29 +115,16 @@ test('personal-local mode can create the first research case from the command ce
   const researchCaseId = new URL(page.url()).pathname.split('/').at(-1)
   expect(researchCaseId).toMatch(/^rc_msft_/)
 
-  // The admit control requires a human-typed signed thesis (Task 4.3); the promote button is disabled
-  // until one is entered, and the field is never pre-filled from the agent draft.
-  const signedThesis = page.getByLabel('Your signed thesis')
-  await expect(signedThesis).toHaveValue('')
-  await expect(page.getByRole('button', { name: /promote to watchlist/i })).toBeDisabled()
+  // Audit-and-decide admission: the thesis is harness-drafted and PRE-FILLED; the human affirms it as-is
+  // (amend is optional). Here we amend it so the downstream "User confirmed" / signed-thesis assertions
+  // remain meaningful with a known MSFT string.
+  const signedThesis = page.getByLabel(/signed thesis/i)
+  await expect(signedThesis).not.toHaveValue('')
   await signedThesis.fill('Admitting MSFT: durable quality compounder bought with a margin of safety.')
 
-  // Phase 7: admission is also completion-blocked on the quality + bias hygiene checklist — every item
-  // (business failure modes + cognitive biases) must be addressed (checkbox + a non-empty reasoned note),
-  // and the cognitive notes are never pre-filled. The promote button stays disabled until the thesis AND
-  // the whole checklist are addressed. Address every item, then promote.
-  const checklistNotes = page.locator('textarea[name^="checklist_note["]')
-  const noteCount = await checklistNotes.count()
-  expect(noteCount).toBeGreaterThan(0)
-  for (let i = 0; i < noteCount; i += 1) {
-    await expect(checklistNotes.nth(i)).toHaveValue('') // non-prefilled (esp. cognitive)
-    await checklistNotes.nth(i).fill('Considered and addressed for this admission.')
-  }
-  const checklistAddressed = page.locator('input[name^="checklist_addressed["]')
-  const addressedCount = await checklistAddressed.count()
-  for (let i = 0; i < addressedCount; i += 1) {
-    await checklistAddressed.nth(i).check()
-  }
+  // Single cognitive-reflection acknowledgement (replaces the per-item checklist). The promote button
+  // stays disabled until the thesis is non-empty AND this single acknowledgement is checked.
+  await page.getByLabel(/I have reflected on these reasoning checks for my own thinking/i).check()
 
   const promoteButton = page.getByRole('button', { name: /promote to watchlist/i })
   await expect(promoteButton).toBeEnabled()
@@ -221,21 +208,11 @@ test('personal-local mode can create the first research case from the command ce
 
   await page.goto('/portfolio')
 
-  // Phase 7: the re-underwrite sign-off (confirming the provider draft) is ALSO completion-blocked on the
-  // hygiene checklist (the integrity fix that turned an ungated confirmation into a real one). Scope the
-  // fill to the confirm form (action …/confirm) so it doesn't touch the sibling override form's checklist.
+  // Audit-and-decide re-underwrite (confirm): affirming the provider draft is gated on a SINGLE
+  // cognitive-reflection acknowledgement. Scope to the confirm form (action …/confirm) so it doesn't
+  // touch the sibling override form's acknowledgement.
   const confirmForm = page.locator('form[action$="/confirm"]')
-  const confirmNotes = confirmForm.locator('textarea[name^="checklist_note["]')
-  const confirmNoteCount = await confirmNotes.count()
-  expect(confirmNoteCount).toBeGreaterThan(0)
-  for (let i = 0; i < confirmNoteCount; i += 1) {
-    await confirmNotes.nth(i).fill('Re-underwrite: considered and addressed (incl. Shariah-drift + data-completeness).')
-  }
-  const confirmAddressed = confirmForm.locator('input[name^="checklist_addressed["]')
-  const confirmAddressedCount = await confirmAddressed.count()
-  for (let i = 0; i < confirmAddressedCount; i += 1) {
-    await confirmAddressed.nth(i).check()
-  }
+  await confirmForm.getByLabel(/I have reflected on these reasoning checks for my own thinking/i).check()
 
   const applyProviderDraft = page.getByRole('button', { name: /apply provider draft/i })
   await expect(applyProviderDraft).toBeEnabled()
@@ -258,21 +235,11 @@ test('personal-local mode can create the first research case from the command ce
   await page.getByLabel('Override uncertainty').fill('Need updated Shariah ratio review and concentration check.')
   await page.getByLabel('Override next review date').fill(nextReviewDate)
 
-  // Phase 7: the override re-underwrite sign-off is completion-blocked too (the S3 bypass fix — override
-  // is a co-equal sign-off, gated identically to confirm). Fill the override form's checklist (scoped to
-  // action …/override) before applying.
+  // Audit-and-decide re-underwrite (override): the human authors their own thesis fields (filled above)
+  // AND checks the SINGLE cognitive-reflection acknowledgement. Scope to the override form (action
+  // …/override) so it doesn't touch the sibling confirm form's acknowledgement.
   const overrideForm = page.locator('form[action$="/override"]')
-  const overrideNotes = overrideForm.locator('textarea[name^="checklist_note["]')
-  const overrideNoteCount = await overrideNotes.count()
-  expect(overrideNoteCount).toBeGreaterThan(0)
-  for (let i = 0; i < overrideNoteCount; i += 1) {
-    await overrideNotes.nth(i).fill('Override re-underwrite: considered and addressed.')
-  }
-  const overrideAddressed = overrideForm.locator('input[name^="checklist_addressed["]')
-  const overrideAddressedCount = await overrideAddressed.count()
-  for (let i = 0; i < overrideAddressedCount; i += 1) {
-    await overrideAddressed.nth(i).check()
-  }
+  await overrideForm.getByLabel(/I have reflected on these reasoning checks for my own thinking/i).check()
 
   const applyUserOverride = page.getByRole('button', { name: /apply user override/i })
   await expect(applyUserOverride).toBeEnabled()

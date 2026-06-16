@@ -26,23 +26,13 @@ test('monthly accounting report renders projected current period after a valuati
   const researchCaseId = new URL(page.url()).pathname.split('/').at(-1)
   expect(researchCaseId).toMatch(/^rc_msft_/)
 
-  // The admit control requires a human-typed signed thesis (Task 4.3); the button is disabled until one
-  // is entered, and it is never pre-filled from the agent draft.
-  await page.getByLabel('Your signed thesis').fill('Admitting MSFT: durable franchise, margin of safety.')
+  // Audit-and-decide admission: the thesis is harness-drafted and PRE-FILLED; the human affirms it as-is
+  // (amend is optional). This spec doesn't assert on the thesis text, so we affirm the pre-filled draft.
+  const signedThesis = page.getByLabel(/signed thesis/i)
+  await expect(signedThesis).not.toHaveValue('')
 
-  // Phase 7: admission is also completion-blocked on the quality + bias hygiene checklist — every item
-  // must be addressed (checkbox + non-empty note) before promote enables.
-  const checklistNotes = page.locator('textarea[name^="checklist_note["]')
-  const noteCount = await checklistNotes.count()
-  expect(noteCount).toBeGreaterThan(0)
-  for (let i = 0; i < noteCount; i += 1) {
-    await checklistNotes.nth(i).fill('Considered and addressed for this admission.')
-  }
-  const checklistAddressed = page.locator('input[name^="checklist_addressed["]')
-  const addressedCount = await checklistAddressed.count()
-  for (let i = 0; i < addressedCount; i += 1) {
-    await checklistAddressed.nth(i).check()
-  }
+  // Single cognitive-reflection acknowledgement (replaces the per-item checklist) gates the promote.
+  await page.getByLabel(/I have reflected on these reasoning checks for my own thinking/i).check()
 
   const promoteButton = page.getByRole('button', { name: /promote to watchlist/i })
   await expect(promoteButton).toBeEnabled()
