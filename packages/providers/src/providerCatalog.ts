@@ -178,7 +178,7 @@ const catalog: ProviderCatalogEntry[] = [
     provider_family_id: 'openrouter',
     label: 'OpenRouter',
     support_level: 'experimental',
-    visible_in_onboarding: false,
+    visible_in_onboarding: true,
     description: 'Meta-aggregator; routes to many models behind one API key — per-model certification still required. Fail-closed until a target-specific certification report exists for the routed model.',
     runtime_kind: 'direct_api',
     auth_mode: 'api_key',

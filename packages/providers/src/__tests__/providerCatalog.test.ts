@@ -61,7 +61,7 @@ describe('provider catalog support semantics', () => {
       runtime_kind: 'direct_api',
       auth_mode: 'api_key',
       support_level: 'experimental',
-      visible_in_onboarding: false,
+      visible_in_onboarding: true,
     })
   })
 
@@ -100,12 +100,12 @@ describe('provider catalog support semantics', () => {
     expect(ids).toEqual(['claude', 'mock-provider', 'openai', 'openrouter'])
   })
 
-  it('keeps OpenRouter the meta-provider as an experimental/fail-closed entry', () => {
+  it('keeps OpenRouter the meta-provider as an experimental/fail-closed entry surfaced in onboarding', () => {
     expect(catalogEntry('openrouter')).toMatchObject({
       provider_id: 'openrouter',
       provider_surface_id: 'openrouter-api',
       support_level: 'experimental',
-      visible_in_onboarding: false,
+      visible_in_onboarding: true,
       investment_grade_candidate: true,
       model_tier: 'frontier',
     })

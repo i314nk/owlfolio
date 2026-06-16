@@ -9,7 +9,7 @@ test('monthly accounting report renders projected current period after a valuati
   await page.goto('/onboarding')
   await page.getByRole('button', { name: /use chatgpt\/codex/i }).click()
   await page.getByText('Advanced: choose a different provider').click()
-  await page.getByRole('combobox').selectOption('mock-provider')
+  await page.getByRole('combobox', { name: /provider family/i }).selectOption('mock-provider')
   await page.getByRole('button', { name: /start using owlfolio/i }).click()
 
   await page.getByRole('link', { name: /open research cockpit/i }).first().click()

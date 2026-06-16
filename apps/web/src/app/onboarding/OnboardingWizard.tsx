@@ -2,6 +2,7 @@
 
 import { createElement, useEffect, useMemo, useState, type CSSProperties } from 'react'
 
+import { curatedRealTierModelsForProvider, type CuratedModel, type ModelTierSuitability } from '@owlfolio/providers/modelCatalog'
 import type { AppConfig } from '@owlfolio/shared'
 
 import { StatusBadge } from '../../components/StatusBadge'
@@ -92,13 +93,27 @@ const helpLinkStyle: CSSProperties = {
 }
 
 type ConnectionOption = {
-  key: 'codex' | 'demo'
+  key: 'codex' | 'demo' | 'openrouter' | 'claude'
   provider: ProviderOption
   mode: AppConfig['mode']
   title: string
   badge: string
   description: string
+  /**
+   * 'fixed': single hard-wired model (Codex gpt-5.5 / demo mock) — no chooser.
+   * 'choose': the user picks ONE model from the tier-grouped dropdown.
+   * 'none': no model surface (unused today).
+   */
+  modelChoice: 'fixed' | 'choose'
 }
+
+const TIER_GROUP_LABELS: Record<ModelTierSuitability, string> = {
+  T1: 'Tier 1',
+  T2: 'Tier 2',
+  T3: 'Tier 3',
+}
+
+const TIER_ORDER: ModelTierSuitability[] = ['T1', 'T2', 'T3']
 
 function conciseNextStepFor(selectedProvider: ProviderOption, readiness: ProviderReadiness): string {
   const surfaceId = selectedProvider.provider_surface_id ?? readiness.provider_surface_id
@@ -156,6 +171,10 @@ export function OnboardingWizard({
   )
 
   const connectionOptions = useMemo<ConnectionOption[]>(() => buildConnectionOptions(providerOptions), [providerOptions])
+  const selectedConnection = useMemo<ConnectionOption | undefined>(
+    () => connectionOptions.find((option) => isConnectionSelected(option, config.provider.provider_id)),
+    [connectionOptions, config.provider.provider_id],
+  )
   const readinessMatchesSelection = readiness.provider_id === config.provider.provider_id
   const providerCanStart = readinessMatchesSelection && readiness.is_ready
   const statusLabel = readinessMatchesSelection ? conciseReadinessLabel(selectedProvider, readiness) : 'Checking readiness…'
@@ -173,7 +192,20 @@ export function OnboardingWizard({
             support_level: 'certified',
             model_id: 'mock-buffett-munger-demo',
           }
-        : providerSelectionForOption(current.provider, option.provider),
+        : providerSelectionForConnection(current.provider, option),
+    }))
+  }
+
+  function selectModel(provider: ProviderOption, modelId: string) {
+    setErrorMessage(undefined)
+    setConfig((current) => ({
+      ...current,
+      provider: {
+        ...current.provider,
+        provider_id: provider.provider_id,
+        support_level: provider.support_level,
+        model_id: modelId,
+      },
     }))
   }
 
@@ -289,6 +321,7 @@ export function OnboardingWizard({
               createElement(
                 'select',
                 {
+                  'aria-label': 'Provider family',
                   onChange: (event: Event) => {
                     const target = event.target as HTMLSelectElement
                     const nextProvider = providerOptions.find((provider) => provider.provider_id === target.value)
@@ -310,6 +343,7 @@ export function OnboardingWizard({
           createElement('p', { style: eyebrowStyle }, '2. Connect a local AI assistant'),
           createElement('h2', { id: 'assistant-connection-heading', style: { margin: '0.35rem 0 0.25rem' } }, selectedProvider.label),
           createElement('p', { style: { color: '#cbd5e1', marginTop: 0 } }, plainProviderSummary(selectedProvider, readiness)),
+          renderModelSelection(selectedConnection, config.provider.model_id, selectModel),
           createElement(
             'div',
             {
@@ -377,6 +411,45 @@ export function providerModeForOption(
   return allowAdvancedPersonalMockProvider ? currentMode : 'demo'
 }
 
+/**
+ * Default model id for a connection: a `choose` connection (OpenRouter / Claude Code) pins the first
+ * curated real-tier model so the stored model_id is always a curated/runnable id (never the bare
+ * `openrouter/auto` catalog default); a `fixed` connection uses the catalog default (Codex gpt-5.5).
+ */
+export function defaultModelForConnection(option: ConnectionOption): string | undefined {
+  if (option.modelChoice === 'choose') {
+    const curated = curatedRealTierModelsForProvider(option.provider.provider_id)
+    if (curated.length > 0) {
+      return curated[0]!.model_id
+    }
+  }
+  return option.provider.default_model_id
+}
+
+/**
+ * Provider selection when a connection card is chosen. Preserves an existing explicit model choice for
+ * the same provider; otherwise seeds the connection's default model so the run model is always concrete.
+ */
+export function providerSelectionForConnection(
+  current: AppConfig['provider'],
+  option: ConnectionOption,
+): AppConfig['provider'] {
+  const nextProvider = option.provider
+  if (current.provider_id === nextProvider.provider_id && current.model_id !== undefined) {
+    return {
+      ...current,
+      support_level: nextProvider.support_level,
+    }
+  }
+
+  const defaultModelId = defaultModelForConnection(option)
+  return {
+    provider_id: nextProvider.provider_id,
+    support_level: nextProvider.support_level,
+    ...(defaultModelId === undefined ? {} : { model_id: defaultModelId }),
+  }
+}
+
 export function providerSelectionForOption(
   current: AppConfig['provider'],
   nextProvider: ProviderOption,
@@ -397,6 +470,8 @@ export function providerSelectionForOption(
 function buildConnectionOptions(providerOptions: ProviderOption[]): ConnectionOption[] {
   const mockProvider = providerOptions.find((provider) => provider.provider_id === 'mock-provider')
   const codexProvider = providerOptions.find((provider) => provider.provider_surface_id === 'openai-codex-cli' || provider.provider_id === 'openai')
+  const openRouterProvider = providerOptions.find((provider) => provider.provider_surface_id === 'openrouter-api' || provider.provider_id === 'openrouter')
+  const claudeProvider = providerOptions.find((provider) => provider.provider_surface_id === 'claude-cli' || provider.provider_id === 'claude')
   const options: ConnectionOption[] = []
 
   if (mockProvider !== undefined) {
@@ -407,6 +482,7 @@ function buildConnectionOptions(providerOptions: ProviderOption[]): ConnectionOp
       title: 'Try demo mode',
       badge: 'Demo',
       description: 'Open a safe sample workspace with local mock data. No account is required.',
+      modelChoice: 'fixed',
     })
   }
 
@@ -417,7 +493,32 @@ function buildConnectionOptions(providerOptions: ProviderOption[]): ConnectionOp
       mode: 'personal-local',
       title: 'Use ChatGPT/Codex',
       badge: 'Local AI',
-      description: 'Use a ChatGPT/Codex sign-in that already exists on this computer.',
+      description: 'Use a ChatGPT/Codex sign-in that already exists on this computer. Runs the gpt-5.5 model.',
+      modelChoice: 'fixed',
+    })
+  }
+
+  if (openRouterProvider !== undefined) {
+    options.push({
+      key: 'openrouter',
+      provider: openRouterProvider,
+      mode: 'personal-local',
+      title: 'Use OpenRouter',
+      badge: 'API key',
+      description: 'One OpenRouter API key routes to many models. Pick one model below; readiness needs OPENROUTER_API_KEY.',
+      modelChoice: 'choose',
+    })
+  }
+
+  if (claudeProvider !== undefined) {
+    options.push({
+      key: 'claude',
+      provider: claudeProvider,
+      mode: 'personal-local',
+      title: 'Use Claude Code',
+      badge: 'Local AI',
+      description: 'Use a Claude Code / Anthropic sign-in on this computer. Pick one Claude model below.',
+      modelChoice: 'choose',
     })
   }
 
@@ -426,6 +527,79 @@ function buildConnectionOptions(providerOptions: ProviderOption[]): ConnectionOp
 
 function isConnectionSelected(option: ConnectionOption, providerId: AppConfig['provider']['provider_id']): boolean {
   return option.provider.provider_id === providerId
+}
+
+/**
+ * Tier-grouped model menu data for the `<select>`. GROUPING RULE: read the curated reasoning menu via
+ * `curatedRealTierModelsForProvider(provider_id)` (never hardcoded here) and place EACH model under EVERY
+ * tier in its `tier_suitability` — so a model suited to T1+T2 shows under both Tier 1 and Tier 2, and ALL
+ * curated options remain visible/selectable. The tier grouping is purely organizational; the chosen value
+ * is a single concrete `model_id`.
+ */
+export function buildTierGroupedModelOptions(providerId: string): { tier: ModelTierSuitability; label: string; models: CuratedModel[] }[] {
+  const curated = curatedRealTierModelsForProvider(providerId)
+  return TIER_ORDER
+    .map((tier) => ({
+      tier,
+      label: TIER_GROUP_LABELS[tier],
+      models: curated.filter((model) => model.tier_suitability.includes(tier)),
+    }))
+    .filter((group) => group.models.length > 0)
+}
+
+function renderModelSelection(
+  selectedConnection: ConnectionOption | undefined,
+  selectedModelId: string | undefined,
+  onSelectModel: (provider: ProviderOption, modelId: string) => void,
+) {
+  if (selectedConnection === undefined || selectedConnection.mode === 'demo') {
+    return null
+  }
+
+  if (selectedConnection.modelChoice === 'fixed') {
+    const fixedModelId = selectedConnection.provider.default_model_id
+    if (fixedModelId === undefined) {
+      return null
+    }
+    return createElement(
+      'div',
+      { style: { color: '#cbd5e1', display: 'grid', gap: '0.3rem', margin: '0 0 1rem' } },
+      createElement('span', { style: { fontWeight: 800 } }, 'Model'),
+      createElement('span', { 'aria-label': 'Fixed model', style: { color: '#a5b4fc', fontWeight: 700 } }, `${fixedModelId} (only model)`),
+    )
+  }
+
+  const groups = buildTierGroupedModelOptions(selectedConnection.provider.provider_id)
+  if (groups.length === 0) {
+    return null
+  }
+
+  return createElement(
+    'label',
+    { style: { color: '#cbd5e1', display: 'grid', gap: '0.5rem', margin: '0 0 1rem', maxWidth: '480px' } },
+    createElement('span', { style: { fontWeight: 800 } }, 'Model (pick one)'),
+    createElement(
+      'select',
+      {
+        'aria-label': 'Choose one model',
+        onChange: (event: Event) => {
+          const target = event.target as HTMLSelectElement
+          onSelectModel(selectedConnection.provider, target.value)
+        },
+        style: selectStyle,
+        value: selectedModelId ?? '',
+      },
+      ...groups.map((group) => createElement(
+        'optgroup',
+        { key: group.tier, label: group.label },
+        ...group.models.map((model) => createElement(
+          'option',
+          { key: `${group.tier}:${model.model_id}`, value: model.model_id },
+          `${model.model_id} — ${model.note}`,
+        )),
+      )),
+    ),
+  )
 }
 
 function plainProviderSummary(selectedProvider: ProviderOption, readiness: ProviderReadiness): string {

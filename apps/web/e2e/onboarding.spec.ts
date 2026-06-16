@@ -42,11 +42,42 @@ test('Codex onboarding shows a concise blocked state when the local session is u
   await expect(page.getByRole('heading', { name: /command center/i })).not.toBeVisible()
 })
 
-test('the Gemini onboarding lane is retired (only demo + ChatGPT/Codex remain)', async ({ page }) => {
+test('the provider toggle offers Demo + ChatGPT/Codex + OpenRouter + Claude Code (Gemini retired)', async ({ page }) => {
   await page.goto('/onboarding')
 
+  // Gemini lane stays retired.
   await expect(page.getByRole('button', { name: /use gemini/i })).toHaveCount(0)
   await expect(page.getByText('Local AI preview', { exact: true })).toHaveCount(0)
+
+  // The four toggle options render.
   await expect(page.getByRole('button', { name: /try demo mode/i })).toBeVisible()
   await expect(page.getByRole('button', { name: /use chatgpt\/codex/i })).toBeVisible()
+  await expect(page.getByRole('button', { name: /use openrouter/i })).toBeVisible()
+  await expect(page.getByRole('button', { name: /use claude code/i })).toBeVisible()
+})
+
+test('OpenRouter and Claude Code show a tier-grouped model dropdown; Codex shows a fixed model', async ({ page }) => {
+  await page.goto('/onboarding')
+
+  // Codex: fixed model, no chooser.
+  await page.getByRole('button', { name: /use chatgpt\/codex/i }).click()
+  await expect(page.getByLabel('Fixed model')).toContainText('gpt-5.5')
+  await expect(page.getByRole('combobox', { name: /choose one model/i })).toHaveCount(0)
+
+  // OpenRouter: tier-grouped dropdown with all curated options.
+  await page.getByRole('button', { name: /use openrouter/i }).click()
+  const openRouterSelect = page.getByRole('combobox', { name: /choose one model/i })
+  await expect(openRouterSelect).toBeVisible()
+  await expect(openRouterSelect.locator('optgroup[label="Tier 1"]')).toHaveCount(1)
+  await expect(openRouterSelect.locator('optgroup[label="Tier 2"]')).toHaveCount(1)
+  await expect(openRouterSelect.locator('optgroup[label="Tier 3"]')).toHaveCount(1)
+  await expect(openRouterSelect.locator('option[value="anthropic/claude-opus-4.8"]')).toHaveCount(1)
+  await openRouterSelect.selectOption('google/gemini-3.5-flash')
+  await expect(openRouterSelect).toHaveValue('google/gemini-3.5-flash')
+
+  // Claude Code: same tier-grouped chooser with Claude models.
+  await page.getByRole('button', { name: /use claude code/i }).click()
+  const claudeSelect = page.getByRole('combobox', { name: /choose one model/i })
+  await expect(claudeSelect.locator('option[value="claude-opus-4-8"]')).toHaveCount(1)
+  await expect(claudeSelect.locator('option[value="claude-haiku-4-5"]')).toHaveCount(1)
 })

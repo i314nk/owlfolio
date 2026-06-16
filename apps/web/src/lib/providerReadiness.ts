@@ -40,6 +40,7 @@ export type ProviderOption = {
   label: string
   support_level: ProviderSupportLevel
   description: string
+  default_model_id?: string
   provider_family_label?: string
   recommended_sign_in_label?: string
   recommended_sign_in_description?: string
@@ -326,6 +327,7 @@ function providerOptionFromCatalogEntry(provider: ProviderCatalogEntry): Provide
     label: onboardingLabelFor(provider),
     support_level: provider.support_level,
     description: onboardingDescriptionFor(provider),
+    default_model_id: provider.default_model_id,
   }
 
   if (provider.provider_surface_id === 'openai-codex-cli') {

@@ -174,9 +174,9 @@ describe('providerReadiness', () => {
   it('lists provider options in onboarding order with frozen support semantics', () => {
     const options = getProviderOptions()
 
-    expect(options.map((provider) => provider.provider_id)).toEqual(['mock-provider', 'claude', 'openai'])
-    expect(options.map((provider) => provider.provider_surface_id)).toEqual(['mock-provider', 'claude-cli', 'openai-codex-cli'])
-    expect(options.map((provider) => provider.support_level)).toEqual(['certified', 'experimental', 'experimental'])
+    expect(options.map((provider) => provider.provider_id)).toEqual(['mock-provider', 'claude', 'openai', 'openrouter'])
+    expect(options.map((provider) => provider.provider_surface_id)).toEqual(['mock-provider', 'claude-cli', 'openai-codex-cli', 'openrouter-api'])
+    expect(options.map((provider) => provider.support_level)).toEqual(['certified', 'experimental', 'experimental', 'experimental'])
   })
 
   it('exposes simple recommended sign-in copy and progressive advanced auth options for OpenAI', () => {
@@ -214,8 +214,15 @@ describe('providerReadiness', () => {
     })
   })
 
-  it('does not surface OpenRouter (the API-key meta lane) in onboarding options', () => {
-    const optionIds = getProviderOptions().map((option) => option.provider_id)
-    expect(optionIds).not.toContain('openrouter')
+  it('surfaces OpenRouter (the API-key meta lane) in onboarding options with its catalog default model', () => {
+    const options = getProviderOptions()
+    const optionIds = options.map((option) => option.provider_id)
+    expect(optionIds).toContain('openrouter')
+
+    const openrouter = options.find((option) => option.provider_id === 'openrouter')
+    expect(openrouter?.default_model_id).toBe('openrouter/auto')
+
+    const claude = options.find((option) => option.provider_id === 'claude')
+    expect(claude?.default_model_id).toBe('claude-sonnet-4-6')
   })
 })
