@@ -2,6 +2,8 @@
 
 import { createElement, useState, type CSSProperties } from 'react'
 
+import { MINIMUM_HOLD_TRIGGERS, type MinimumHoldTrigger } from '@owlfolio/strategies/minimumHoldGuard'
+
 import { resolveErrorMessage } from '../app/research/new/resolveErrorMessage'
 
 /**
@@ -22,13 +24,21 @@ export type SellDecisionRequestProps = {
   hasRecommendation?: boolean
 }
 
-/** The four minimum-hold triggers (mirrors MINIMUM_HOLD_TRIGGERS in workflow.ts). */
-const TRIGGERS: { value: string; label: string }[] = [
-  { value: 'thesis_broke', label: 'Thesis broke' },
-  { value: 'valuation_inverted', label: 'Valuation inverted' },
-  { value: 'better_opportunity', label: 'Better opportunity' },
-  { value: 'original_mistake', label: 'Original mistake' },
-]
+/**
+ * Human-facing copy for each minimum-hold trigger. The OPTION VALUES are NOT hardcoded here — they are
+ * derived from the canonical `MINIMUM_HOLD_TRIGGERS` set (single source of WHICH triggers exist). This map
+ * supplies only the LABELS (UI copy, which belongs in the web layer).
+ *
+ * The `Record<MinimumHoldTrigger, string>` typing is the ANTI-DRIFT GUARD: adding a member to the
+ * `MinimumHoldTrigger` union forces a COMPILE ERROR here until a label is supplied, so the picker can never
+ * silently omit a trigger. Do NOT loosen this to `Partial<Record<…>>` or `Record<string, string>`.
+ */
+const TRIGGER_LABELS: Record<MinimumHoldTrigger, string> = {
+  thesis_broke: 'Thesis broke',
+  valuation_inverted: 'Valuation inverted',
+  better_opportunity: 'Better opportunity',
+  original_mistake: 'Original mistake',
+}
 
 const cardStyle: CSSProperties = {
   background: 'var(--owl-color-panel)',
@@ -149,8 +159,8 @@ export function SellDecisionRequest({ researchCaseId, hasRecommendation = false 
           onChange: (event: { target: { value: string } }) => setTrigger(event.target.value),
           style: inputStyle,
         },
-        ...TRIGGERS.map((option) =>
-          createElement('option', { key: option.value, value: option.value }, option.label),
+        ...MINIMUM_HOLD_TRIGGERS.map((value) =>
+          createElement('option', { key: value, value }, TRIGGER_LABELS[value]),
         ),
       ),
     ),

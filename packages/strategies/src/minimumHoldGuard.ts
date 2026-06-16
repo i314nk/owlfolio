@@ -31,6 +31,29 @@ export type MinimumHoldTrigger =
   | 'original_mistake'
 
 /**
+ * The canonical runtime list of WHICH minimum-hold triggers exist, in canonical order.
+ *
+ * This is the SINGLE SOURCE for callers that need to enumerate the triggers at runtime (e.g. the web
+ * picker, validators). It is typed `readonly MinimumHoldTrigger[]` and the `satisfies` exhaustiveness check
+ * below makes adding a member to the union a COMPILE ERROR until it is listed here — so this list can never
+ * silently drift from the union. This carries only the trigger VALUES (no UI copy/labels — those belong in
+ * the consuming layer).
+ */
+export const MINIMUM_HOLD_TRIGGERS = [
+  'thesis_broke',
+  'valuation_inverted',
+  'better_opportunity',
+  'original_mistake',
+] as const satisfies readonly MinimumHoldTrigger[]
+
+// Anti-drift guard (compile-time only): asserts MINIMUM_HOLD_TRIGGERS covers the WHOLE union. If a member
+// is added to MinimumHoldTrigger but not to the array above, `_TriggerCoverage` becomes a non-`never` type
+// and this assignment fails to compile.
+type _MissingTrigger = Exclude<MinimumHoldTrigger, (typeof MINIMUM_HOLD_TRIGGERS)[number]>
+const _triggerCoverage: _MissingTrigger extends never ? true : never = true
+void _triggerCoverage
+
+/**
  * The guard's verdict on a candidate sell:
  * - `release_through_guard`: the sale proceeds despite the window (a broken thesis / recognized mistake).
  * - `hold_blocks_sell`: the disposition brake holds — a loss-driven sale on a fixable stumble (or churn).

@@ -59,6 +59,7 @@ import {
   type SellDecisionResult,
   type SellRecommendation,
 } from '@owlfolio/workflow/sellAssessment'
+import { MINIMUM_HOLD_TRIGGERS as MINIMUM_HOLD_TRIGGER_LIST } from '@owlfolio/strategies/minimumHoldGuard'
 import { projectNameLifecycle } from '@owlfolio/ledger/projections/nameLifecycleProjection'
 import { screenCheapness } from '@owlfolio/workflow/cheapnessScreen'
 import type { ClusteredPosition } from '@owlfolio/strategies/correlatedClusters'
@@ -1183,13 +1184,14 @@ export async function recordSizingRecommendation(
 // enhancement; this slice reuses the persisted grounded fields and does NOT build a provider re-run.
 // ---------------------------------------------------------------------------
 
-/** The minimum-hold triggers a sell decision may be evaluated against (the request body's `trigger`). */
-export const MINIMUM_HOLD_TRIGGERS: ReadonlySet<MinimumHoldTrigger> = new Set<MinimumHoldTrigger>([
-  'thesis_broke',
-  'valuation_inverted',
-  'better_opportunity',
-  'original_mistake',
-])
+/**
+ * The minimum-hold triggers a sell decision may be evaluated against (the request body's `trigger`).
+ * Derived from the canonical `MINIMUM_HOLD_TRIGGER_LIST` in `@owlfolio/strategies` (single source of WHICH
+ * triggers exist) so this membership check can never drift from the union.
+ */
+export const MINIMUM_HOLD_TRIGGERS: ReadonlySet<MinimumHoldTrigger> = new Set<MinimumHoldTrigger>(
+  MINIMUM_HOLD_TRIGGER_LIST,
+)
 
 export function isMinimumHoldTrigger(value: unknown): value is MinimumHoldTrigger {
   return typeof value === 'string' && MINIMUM_HOLD_TRIGGERS.has(value as MinimumHoldTrigger)

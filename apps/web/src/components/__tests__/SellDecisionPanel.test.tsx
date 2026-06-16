@@ -3,7 +3,8 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 
 import { ResearchCasePanel } from '../ResearchCasePanel'
-import type { AppResearchCase } from '../../lib/workflow'
+import { SellDecisionRequest } from '../SellDecisionRequest'
+import { MINIMUM_HOLD_TRIGGERS, type AppResearchCase } from '../../lib/workflow'
 
 // ── Phase 6 S8b: the SELL DECISION panel (worst-case-first; guard-held = CORRECT posture; no auto-close) ──
 //
@@ -164,5 +165,20 @@ describe('SellDecisionPanel — Phase 6 S8b', () => {
     expect(html).toContain('fail-closed')
     expect(html).not.toContain('Close holding')
     expect(html).not.toContain('Confirm sale')
+  })
+
+  // Phase 8 S3 — anti-drift: EVERY canonical minimum-hold trigger must be a selectable option in the
+  // request control. The control derives its option values from MINIMUM_HOLD_TRIGGERS (single source of
+  // WHICH triggers exist) so a trigger can never be silently omitted from the picker.
+  it('renders EVERY MINIMUM_HOLD_TRIGGERS member as a selectable option (no silent drift)', () => {
+    const html = renderToStaticMarkup(
+      createElement(SellDecisionRequest, { researchCaseId: 'rc_sell_001' }),
+    )
+    for (const trigger of MINIMUM_HOLD_TRIGGERS) {
+      expect(html).toContain(`value="${trigger}"`)
+    }
+    // Sanity: the option count matches the canonical set exactly (no extras, none missing).
+    const optionCount = (html.match(/<option/g) ?? []).length
+    expect(optionCount).toBe(MINIMUM_HOLD_TRIGGERS.size)
   })
 })
