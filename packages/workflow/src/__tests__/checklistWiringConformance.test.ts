@@ -3,7 +3,7 @@ import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
-import { CHECKLIST_PARAMS } from '@owlfolio/strategies/checklistParams'
+import { CHECKLIST_PARAMS, listCognitiveItems } from '@owlfolio/strategies/checklistParams'
 
 // ---------------------------------------------------------------------------------------------------
 // Phase 7 S5 — CHECKLIST WIRING-CONFORMANCE TRIPWIRE (the 4th application of the "built-but-unwired"
@@ -22,12 +22,20 @@ import { CHECKLIST_PARAMS } from '@owlfolio/strategies/checklistParams'
 //   A3. COGNITIVE-HUMAN-ONLY — no host/route/workflow pre-fills or suggests cognitive answers, and the
 //       cognitive items in CHECKLIST_PARAMS carry NO `reads` field (so the evidence layer can never
 //       marshal them). The forms seed every answer EMPTY.
-//   A4. EXTENSIBLE — the evaluator iterates CHECKLIST_PARAMS.items (no hardcoded per-item id list in the
-//       evaluator OR the hosts), so a newly-added item is automatically required with no code change.
+//   A4. EXTENSIBLE — the evaluator iterates the business items (CHECKLIST_PARAMS.items / listBusinessItems(…))
+//       and so does the web findings layer (no hardcoded per-item id list in the evaluator, hosts, OR the
+//       findings layer), so a newly-added business item is automatically required with no code change.
+//   A5. NO HUMAN BUSINESS FREE-TEXT — the 17-field author mechanism is GONE: ZERO occurrences of
+//       `checklist_note[` / `checklist_addressed[` across the three forms AND the three sign-off routes. The
+//       human affirms/amends one thesis + one cognitive acknowledgement; they never author business answers.
+//   A6. AGENT CANNOT AUTHOR COGNITIVE CONTENT — the server-side findings layer (resolveBusinessFindings)
+//       references NO cognitive item id and iterates listBusinessItems() only (never listCognitiveItems()/
+//       CHECKLIST_PARAMS.items), so the agent has no path to fill/suggest a human-only cognitive answer.
 //
 // If a future edit makes the checklist an island in any flow (a host stops calling the evaluator, a
-// route stops calling the host), or smuggles a score/count/tally into the engine/hosts/forms, or
-// pre-fills cognitive answers, or hardcodes the item list — this trips.
+// route stops calling the host), or smuggles a score/count/tally into the engine/hosts/forms/findings, or
+// pre-fills cognitive answers, or hardcodes the item list, or re-introduces human business free-text, or
+// gives the agent a path to author a cognitive answer — this trips.
 // ---------------------------------------------------------------------------------------------------
 
 const here = dirname(fileURLToPath(import.meta.url))
@@ -132,14 +140,19 @@ describe('Phase 7 S5 wiring conformance — A2: decision-neutral (no scoring) in
   // Scoring/tally identifiers the checklist must NEVER contain — a count IS a score in disguise.
   const forbiddenScoring = /\bchecklist_score\b|\btally\b|\bpass_count\b|\bn_of_m\b|\bweighted\b|\bweight\b|\bscore\b/i
 
-  it('the engine + the three sign-off hosts + the evidence layer carry NO scoring/tally identifier', () => {
+  it('the engine + the three sign-off hosts + the findings/evidence layer + the three forms carry NO scoring/tally identifier', () => {
     const codeSources: Array<{ name: string; src: string }> = [
       { name: 'checklist engine', src: checklistEngineSrc },
       { name: 'checklistParams', src: checklistParamsSrc },
       { name: 'confirmWatchlistDraft host', src: functionSlice(watchlistWorkflowSrc, 'export async function confirmWatchlistDraft') },
       { name: 'confirmHoldingReviewDraft host', src: functionSlice(holdingReviewWorkflowSrc, 'export async function confirmHoldingReviewDraft') },
       { name: 'overrideHoldingReviewDraft host', src: functionSlice(holdingReviewWorkflowSrc, 'export async function overrideHoldingReviewDraft') },
-      { name: 'evidence layer', src: evidenceSrc },
+      // The findings/evidence layer marshals one finding per business item — it must stay decision-neutral too.
+      { name: 'findings/evidence layer', src: evidenceSrc },
+      // The inverted forms render the marshaled findings + the single ack — no score/tally identifier there either.
+      { name: 'WatchlistPromotionForm', src: watchlistPromotionFormSrc },
+      { name: 'HoldingReviewChecklistConfirm', src: holdingReviewConfirmFormSrc },
+      { name: 'HoldingReviewOverrideForm', src: holdingReviewOverrideFormSrc },
     ]
     for (const { name, src } of codeSources) {
       expect(stripComments(src), `${name} CODE must contain no scoring/tally identifier`).not.toMatch(
@@ -275,5 +288,78 @@ describe('Phase 7 S5 wiring conformance — A4: the checklist is extensible (ite
       const inlineIdCount = knownIds.filter((id) => code.includes(`'${id}'`) || code.includes(`"${id}"`)).length
       expect(inlineIdCount, `${name} must not enumerate checklist item ids inline`).toBe(0)
     }
+  })
+
+  it('the web findings layer iterates the data source (listBusinessItems), never a hardcoded id list', () => {
+    // Audit-and-decide: the harness marshals one finding per BUSINESS item by iterating the data-derived
+    // helper, so a newly-added business item is automatically required with no findings-layer change.
+    const code = stripComments(evidenceSrc)
+    expect(code, 'findings layer must iterate listBusinessItems() (data-driven, not hardcoded)').toMatch(
+      /for\s*\(\s*const\s+\w+\s+of\s+listBusinessItems\s*\(/,
+    )
+    // ...and must NOT enumerate item ids inline (a literal of any known item id string).
+    const knownIds = CHECKLIST_PARAMS.items.map((item) => item.id)
+    const inlineIdCount = knownIds.filter((id) => code.includes(`'${id}'`) || code.includes(`"${id}"`)).length
+    expect(inlineIdCount, 'findings layer must not hardcode checklist item ids').toBe(0)
+  })
+})
+
+describe('Phase 7 S5 wiring conformance — A5: the human authors NO business free-text (the 17-field mechanism is GONE)', () => {
+  it('no form or sign-off route references checklist_note[ or checklist_addressed[', () => {
+    // The OLD model had the human author per-item free-text (checklist_note[id]) + per-item affirmations
+    // (checklist_addressed[id]) for all 17 items. Audit-and-decide REMOVES that surface entirely: the human
+    // affirms/amends one thesis + makes one cognitive acknowledgement; the agent marshals every business
+    // finding. ZERO occurrences of either mechanism anywhere in the forms OR the three sign-off routes is the
+    // executable proof the human no longer authors business answers (acceptance gates §6.2 / §6.5).
+    for (const [name, src] of [
+      ['WatchlistPromotionForm', watchlistPromotionFormSrc],
+      ['HoldingReviewChecklistConfirm', holdingReviewConfirmFormSrc],
+      ['HoldingReviewOverrideForm', holdingReviewOverrideFormSrc],
+      ['watchlist route', watchlistRouteSrc],
+      ['review confirm route', reviewConfirmRouteSrc],
+      ['review override route', reviewOverrideRouteSrc],
+    ] as const) {
+      const code = stripComments(src)
+      expect(code, `${name} must not author per-item checklist notes (checklist_note[)`).not.toContain(
+        'checklist_note[',
+      )
+      expect(code, `${name} must not author per-item checklist affirmations (checklist_addressed[)`).not.toContain(
+        'checklist_addressed[',
+      )
+    }
+  })
+})
+
+describe('Phase 7 S5 wiring conformance — A6: the agent cannot author cognitive content', () => {
+  it('the server-side findings layer (resolveBusinessFindings) references NO cognitive item id', () => {
+    // The human-only property requires the agent to have NO path to fill/suggest a cognitive answer. The
+    // findings layer marshals ONLY business findings; it must not key a finding to any cognitive item id.
+    // Derive the cognitive ids from the data and grep the findings-layer slice — must be zero hits.
+    const cognitiveIds = listCognitiveItems().map((item) => item.id)
+    expect(cognitiveIds.length, 'there must be cognitive items to guard').toBeGreaterThan(0)
+    const findingsSlice = stripComments(
+      functionSlice(evidenceSrc, 'export function resolveBusinessFindings'),
+    )
+    expect(findingsSlice, 'resolveBusinessFindings must exist as a slice').not.toBe('')
+    for (const id of cognitiveIds) {
+      expect(findingsSlice, `findings layer must not reference cognitive item ${id}`).not.toContain(`'${id}'`)
+      expect(findingsSlice, `findings layer must not reference cognitive item ${id}`).not.toContain(`"${id}"`)
+    }
+  })
+
+  it('the findings layer iterates listBusinessItems() only — never listCognitiveItems()/CHECKLIST_PARAMS.items', () => {
+    // Structurally, the agent-authored findings must derive from the BUSINESS set alone. resolveBusinessFindings
+    // iterates listBusinessItems(); it must never iterate the cognitive helper or the full item set (either of
+    // which would give the agent a path to a cognitive item).
+    const findingsSlice = stripComments(
+      functionSlice(evidenceSrc, 'export function resolveBusinessFindings'),
+    )
+    expect(findingsSlice, 'findings layer must iterate listBusinessItems()').toMatch(/listBusinessItems\s*\(/)
+    expect(findingsSlice, 'findings layer must NOT iterate listCognitiveItems()').not.toMatch(
+      /listCognitiveItems\s*\(/,
+    )
+    expect(findingsSlice, 'findings layer must NOT iterate the full CHECKLIST_PARAMS.items set for findings').not.toMatch(
+      /for\s*\(\s*const\s+\w+\s+of\s+(?:\w*\.)?CHECKLIST_PARAMS\.items\b/,
+    )
   })
 })
