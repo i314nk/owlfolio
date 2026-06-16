@@ -3,6 +3,18 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 
 import { LearnTabs, LEARN_TABS, nextTabIndex } from '../LearnTabs'
+import {
+  AAOIFI_DEBT_RATIO_MAX,
+  AAOIFI_CASH_SECURITIES_RATIO_MAX,
+  AAOIFI_IMPERMISSIBLE_INCOME_MAX,
+} from '@owlfolio/strategies/shariahFinancialRatios'
+
+// Mirror LearnTabs' local pct() helper so the assertions pin the DERIVED value, not a
+// hardcoded "30%"/"5%". This fails if EITHER a constant changes without the render updating
+// OR the render drifts away from the constant.
+function pct(value: number, digits = 0): string {
+  return `${(value * 100).toFixed(digits).replace(/\.0+$/, '')}%`
+}
 
 function render(initialTabId?: string): string {
   const props = initialTabId === undefined ? {} : { initialTabId }
@@ -116,6 +128,18 @@ describe('LearnTabs', () => {
     const html = render('shariah')
     expect(html.toLowerCase()).toContain('not a')
     expect(html.toLowerCase()).toContain('fatwa')
+  })
+
+  it('live-renders the AAOIFI financial-ratio thresholds from the exported constants (no hardcode drift)', () => {
+    const html = render('shariah')
+    // DERIVED strings — must track the constants, not a hardcoded copy. (Currently 30% / 30% / 5%.)
+    expect(html).toContain(pct(AAOIFI_DEBT_RATIO_MAX)) // debt ratio
+    expect(html).toContain(pct(AAOIFI_CASH_SECURITIES_RATIO_MAX)) // cash ratio
+    expect(html).toContain(pct(AAOIFI_IMPERMISSIBLE_INCOME_MAX)) // impermissible income
+    // User-visible text is unchanged by this drift-proofing refactor.
+    expect(pct(AAOIFI_DEBT_RATIO_MAX)).toBe('30%')
+    expect(pct(AAOIFI_CASH_SECURITIES_RATIO_MAX)).toBe('30%')
+    expect(pct(AAOIFI_IMPERMISSIBLE_INCOME_MAX)).toBe('5%')
   })
 
   it('describes the unified lifecycle and the single state-branched cadence engine on the lifecycle panel', () => {

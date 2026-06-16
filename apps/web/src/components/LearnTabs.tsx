@@ -9,6 +9,11 @@ import {
   terminalGrowthForMoat,
 } from '@owlfolio/strategies/buffettMunger'
 import { SELL_PARAMS } from '@owlfolio/strategies/sellParams'
+import {
+  AAOIFI_DEBT_RATIO_MAX,
+  AAOIFI_CASH_SECURITIES_RATIO_MAX,
+  AAOIFI_IMPERMISSIBLE_INCOME_MAX,
+} from '@owlfolio/strategies/shariahFinancialRatios'
 import { CHECKLIST_PARAMS, type ChecklistCategory } from '@owlfolio/strategies/checklistParams'
 import { buffettMungerDeepDiveLanes } from '@owlfolio/workflow/strategyResearchPipeline'
 
@@ -480,9 +485,9 @@ function ShariahTab(): ReactNode {
       lead: 'Shariah compliance is enforced across discovery exclusion, the quick screen, the deep-dive lane, holdings ratio monitoring, the purification engine, and exit rules. A FAIL stops the case outright and is never price-overridable.',
       children: cardGrid([
         { key: 'sector', eyebrow: 'Sector screen', body: createElement('span', null, 'Segment-level revenue check; more than ', mono('5%'), ' impermissible core revenue screens the name out before any valuation is attempted.') },
-        { key: 'debt', eyebrow: 'Debt ratio', body: createElement('span', null, 'Interest-bearing debt / market cap (36-mo avg) below ', mono('30%'), ', computed by the harness from primary filings.') },
-        { key: 'cash', eyebrow: 'Cash ratio', body: createElement('span', null, 'Cash + interest-bearing securities / market cap below ', mono('30%'), '.') },
-        { key: 'income', eyebrow: 'Impermissible income', body: createElement('span', null, 'Impermissible income / revenue below ', mono('5%'), '; the remainder sets the purification percentage.') },
+        { key: 'debt', eyebrow: 'Debt ratio', body: createElement('span', null, 'Interest-bearing debt / market cap (36-mo avg) below ', mono(pct(AAOIFI_DEBT_RATIO_MAX)), ', computed by the harness from primary filings.') },
+        { key: 'cash', eyebrow: 'Cash ratio', body: createElement('span', null, 'Cash + interest-bearing securities / market cap below ', mono(pct(AAOIFI_CASH_SECURITIES_RATIO_MAX)), '.') },
+        { key: 'income', eyebrow: 'Impermissible income', body: createElement('span', null, 'Impermissible income / revenue below ', mono(pct(AAOIFI_IMPERMISSIBLE_INCOME_MAX)), '; the remainder sets the purification percentage.') },
       ]),
     }),
     PanelSection({
