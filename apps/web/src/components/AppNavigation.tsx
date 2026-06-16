@@ -4,6 +4,9 @@ import { useEffect } from 'react'
 import { createElement, type FunctionComponent, type ReactNode } from 'react'
 import { usePathname } from 'next/navigation'
 
+import { ActiveModeIndicator } from './ActiveModeIndicator'
+import type { ActiveModeStatus } from '../lib/activeModeStatus'
+
 type NavItem = { href: string; label: string }
 
 type NavSection = { title: string; items: NavItem[] }
@@ -49,6 +52,12 @@ const navSections: NavSection[] = [
 
 export type AppNavigationProps = {
   isSetupComplete?: boolean
+  /**
+   * Resolved persistent mode/provider/model status. When present, the always-on indicator subsumes
+   * the legacy setup card: it shows the CURRENT state on every page and is clickable-to-fix on every
+   * not-ready state.
+   */
+  activeModeStatus?: ActiveModeStatus
 }
 
 const SEARCH_TRIGGER_HREF = '/audit?focus=1'
@@ -81,7 +90,7 @@ function isActiveRoute(pathname: string, href: string): boolean {
   return pathname === href || pathname.startsWith(`${href}/`)
 }
 
-export const AppNavigation: FunctionComponent<AppNavigationProps> = function AppNavigation({ isSetupComplete = true }: AppNavigationProps) {
+export const AppNavigation: FunctionComponent<AppNavigationProps> = function AppNavigation({ isSetupComplete = true, activeModeStatus }: AppNavigationProps) {
   const pathname = usePathname() ?? '/'
 
   useEffect(() => {
@@ -135,12 +144,18 @@ export const AppNavigation: FunctionComponent<AppNavigationProps> = function App
           createElement('span', { className: 'owl-brand-kicker' }, 'Fiduciary command center'),
         ),
       ),
+      // Persistent, app-wide mode/provider/model indicator. Subsumes the legacy setup card: it is
+      // always on screen and clickable-to-fix on every not-ready state.
+      activeModeStatus === undefined
+        ? null
+        : createElement(ActiveModeIndicator, { status: activeModeStatus }),
       createElement(
         'div',
         { className: 'owl-nav-sections' },
         ...navSections.map((section) => renderNavSection(section.title, section.items, pathname)),
       ),
-      isSetupComplete ? null : createElement(SetupCard),
+      // Legacy fallback only when no status was resolved (e.g. callers not yet wired to S2).
+      activeModeStatus === undefined && !isSetupComplete ? createElement(SetupCard) : null,
       createElement(
         'a',
         { className: 'owl-command-trigger owl-focusable', href: SEARCH_TRIGGER_HREF, 'aria-label': 'Audit trail search with keyboard shortcut ⌘K' },

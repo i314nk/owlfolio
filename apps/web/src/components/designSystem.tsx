@@ -2,6 +2,7 @@ import { createElement, type ReactNode } from 'react'
 import { Fraunces, Hanken_Grotesk, JetBrains_Mono } from 'next/font/google'
 
 import { AppNavigation } from './AppNavigation'
+import type { ActiveModeStatus } from '../lib/activeModeStatus'
 
 // Self-hosted (no runtime CDN) refined-luxury type system.
 // Display serif for titles/section headings, warm grotesk body, mono for labels/figures.
@@ -29,6 +30,7 @@ const fontVariableClassName = `${fraunces.variable} ${hanken.variable} ${jetbrai
 export type AppShellProps = {
   children?: ReactNode
   isSetupComplete?: boolean
+  activeModeStatus?: ActiveModeStatus
 }
 
 export type OwlCardProps = {
@@ -79,11 +81,14 @@ const shellStatusItems = [
   { label: 'Provider readiness', value: 'Shown inline' },
 ]
 
-export function AppShell({ children, isSetupComplete = true }: AppShellProps) {
+export function AppShell({ children, isSetupComplete = true, activeModeStatus }: AppShellProps) {
   return createElement(
     'div',
     { className: `owl-app-shell ${fontVariableClassName}`, 'data-owl-shell': 'clean-sidebar' },
-    createElement(AppNavigation, { isSetupComplete }),
+    createElement(AppNavigation, {
+      isSetupComplete,
+      ...(activeModeStatus === undefined ? {} : { activeModeStatus }),
+    }),
     createElement(
       'div',
       { className: 'owl-app-frame' },

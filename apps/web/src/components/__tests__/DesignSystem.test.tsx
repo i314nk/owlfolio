@@ -71,6 +71,49 @@ describe('phase 3 design system primitives', () => {
     expect(html).toContain('Setup needed content')
   })
 
+  it('renders the persistent active-mode indicator app-wide and subsumes the legacy setup card', () => {
+    const html = renderToStaticMarkup(
+      createElement(
+        AppShell,
+        {
+          isSetupComplete: false,
+          activeModeStatus: {
+            kind: 'provider-not-connected' as const,
+            label: 'Personal-local · provider not connected',
+            href: '/settings/providers',
+          },
+        },
+        createElement('main', null, 'Workflow content'),
+      ),
+    )
+
+    // The indicator is present, shows the current state, and is clickable-to-fix.
+    expect(html).toContain('data-active-mode-kind="provider-not-connected"')
+    expect(html).toContain('Personal-local · provider not connected')
+    expect(html).toContain('href="/settings/providers"')
+    // The legacy setup card is subsumed — no two conflicting setup affordances.
+    expect(html).not.toContain('class="owl-setup-card"')
+  })
+
+  it('renders the ready active-mode indicator with provider / model and no fix link', () => {
+    const html = renderToStaticMarkup(
+      createElement(
+        AppShell,
+        {
+          activeModeStatus: {
+            kind: 'ready' as const,
+            label: 'Personal-local · openrouter / claude-opus-4.8',
+          },
+        },
+        createElement('main', null, 'Workflow content'),
+      ),
+    )
+
+    expect(html).toContain('data-active-mode-kind="ready"')
+    expect(html).toContain('Personal-local · openrouter / claude-opus-4.8')
+    expect(html).not.toContain('class="owl-setup-card"')
+  })
+
   it('renders reusable card, button, status, source, and financial-number treatments', () => {
     const html = renderToStaticMarkup(createElement(
       'section',
