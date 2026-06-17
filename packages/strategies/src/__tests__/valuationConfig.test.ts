@@ -70,8 +70,36 @@ describe('diffValuationParams', () => {
 // (the F.13 uniform scalars are unchanged; a new growth_fade_years field appears).
 // ---------------------------------------------------------------------------
 describe('Part D Step 2 — growth-fade version bump records the structural diff', () => {
-  it('the live version is the required-growth-gap config', () => {
-    expect(VALUATION_PARAMS.version).toBe('valuation-2026-06-required-gap-1')
+  it('the live version is the no-band-gap config (band/gap decision machinery removed)', () => {
+    expect(VALUATION_PARAMS.version).toBe('valuation-2026-06-no-band-gap-1')
+  })
+
+  it('diff vs the prior required-gap config shows the removed required_growth_gap (band/gap machinery deleted)', () => {
+    // Reconstruct the PRIOR (required-gap-1) shape: identical EXCEPT it still carried the now-removed
+    // required_growth_gap config block. The no-band-gap bump records its removal as the structural change.
+    const previous = {
+      ...VALUATION_PARAMS,
+      version: 'valuation-2026-06-required-gap-1',
+      required_growth_gap: {
+        base_gap: 0.03,
+        widening: {
+          high_terminal_value_share: 0.02,
+          low_maint_capex_confidence: 0.01,
+          weak_moat_durability: 0.02,
+          sensitivity_dispersion_max: 0.02,
+          cap: 0.06,
+        },
+      },
+    } as unknown as ValuationParams
+    const changes = diffValuationParams(previous, VALUATION_PARAMS)
+    const byPath = new Map(changes.map((c) => [c.path, c]))
+    // The removed leaves appear with next === undefined (the band/gap conservatism knob is gone).
+    expect(byPath.get('required_growth_gap.base_gap')).toEqual({ path: 'required_growth_gap.base_gap', previous: 0.03, next: undefined })
+    expect(byPath.get('required_growth_gap.widening.cap')).toEqual({ path: 'required_growth_gap.widening.cap', previous: 0.06, next: undefined })
+    // The surviving sanity-check params are UNCHANGED by this bump.
+    expect(byPath.has('single_growth_cap')).toBe(false)
+    expect(byPath.has('terminal_value_share_flag')).toBe(false)
+    expect(byPath.has('fv_cap_multiple')).toBe(false)
   })
 
   it('diff vs the prior F.13 uniform-moat config shows the added growth_fade_years field', () => {
@@ -132,7 +160,7 @@ describe('Part D Step 2 — growth-fade version bump records the structural diff
       next: VALUATION_PARAMS,
     })
     expect(event.payload.previous_version).toBe('valuation-2026-06-one-knob-2')
-    expect(event.payload.new_version).toBe('valuation-2026-06-required-gap-1')
+    expect(event.payload.new_version).toBe('valuation-2026-06-no-band-gap-1')
     expect(event.payload.changes).toContainEqual({ path: 'single_growth_cap', previous: 0.10, next: 0.15 })
   })
 })

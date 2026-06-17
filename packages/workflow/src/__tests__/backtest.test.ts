@@ -113,8 +113,10 @@ describe('runValuationBacktest — as-of OE + signal mapping (wide moat fixture)
     expect(result.signal_log[2]!.filing_fy).toBe(2020)
   })
 
-  it('reverse-DCF-vs-band: implied below threshold → BUY, in (threshold, band_low] → WATCH-FAIR, above → WATCH', () => {
-    // Establish the derived buy price (the price implying exactly band_low − required_gap) from one month.
+  it('light sanity signal: implied clearly below demonstrated growth → BUY, otherwise → WATCH', () => {
+    // The reference fair value is the price the forward DCF implies for the as-of OE; a price well BELOW it
+    // implies a much lower near-term growth than the business demonstrated → BUY (a clear dislocation). A
+    // price at/above the reference implies growth at/above the demonstrated proxy → WATCH (no band/gap tier).
     const probe = runValuationBacktest({
       ticker: 'FIX',
       moat_class: 'wide',
@@ -124,14 +126,10 @@ describe('runValuationBacktest — as-of OE + signal mapping (wide moat fixture)
       strategy: buffettMungerStrategy,
       params: VALUATION_PARAMS,
     })
-    const entry = probe.signal_log[0]!
-    const buy = entry.buy_price_ps // price at which implied growth == band_low − required_gap
-    // A price below buy implies growth below the threshold → BUY. A high price → implied above band_low → WATCH.
-    // The flat fixture's band_low is ~0 (zero demonstrated growth), so the WATCH-FAIR band sits just above buy.
+    const ref = probe.signal_log[0]!.reference_fair_value // the as-of reference fair value (ladder anchor)
     const series: PriceHistoryPoint[] = [
-      priceAt('2019-03-31', buy * 0.7), // implied well below threshold → BUY
-      priceAt('2019-04-30', buy * 1.1), // implied just above threshold but <= band_low → WATCH-FAIR
-      priceAt('2019-05-31', buy * 4), // implied well above band_low → WATCH
+      priceAt('2019-03-31', ref * 0.5), // deep discount → implied growth well below demonstrated → BUY
+      priceAt('2019-05-31', ref * 4), // rich → implied growth above demonstrated → WATCH
     ]
     const result = runValuationBacktest({
       ticker: 'FIX',
@@ -142,12 +140,12 @@ describe('runValuationBacktest — as-of OE + signal mapping (wide moat fixture)
       strategy: buffettMungerStrategy,
       params: VALUATION_PARAMS,
     })
-    expect(result.signal_log.map((e) => e.signal)).toEqual(['BUY', 'WATCH-FAIR', 'WATCH'])
-    // The decision fields are implied/band/gap (not FV/MoS), with the demonstrated-proxy band basis.
-    expect(result.signal_log[0]!.band_basis).toBe('demonstrated_proxy')
-    expect(result.signal_log[0]!.implied_growth).toBeLessThanOrEqual(
-      result.signal_log[0]!.band_low - result.signal_log[0]!.required_gap + 1e-6,
-    )
+    expect(result.signal_log.map((e) => e.signal)).toEqual(['BUY', 'WATCH'])
+    // The signal fields are implied_growth + reference_fair_value (no band/gap fields any more).
+    expect(typeof result.signal_log[0]!.implied_growth).toBe('number')
+    expect(result.signal_log[0]!.reference_fair_value).toBeGreaterThan(0)
+    // The BUY month's implied growth sits a clear sanity margin below the demonstrated-growth proxy.
+    expect(result.signal_log[0]!.implied_growth).toBeLessThan(result.signal_log[0]!.credited_g)
   })
 
   it('groups consecutive BUY months into one episode and computes buys/yr', () => {
@@ -160,8 +158,8 @@ describe('runValuationBacktest — as-of OE + signal mapping (wide moat fixture)
       strategy: buffettMungerStrategy,
       params: VALUATION_PARAMS,
     })
-    const buy = probe.signal_log[0]!.buy_price_ps
-    const low = buy * 0.8
+    const buy = probe.signal_log[0]!.reference_fair_value
+    const low = buy * 0.5
     const high = buy * 5
     // BUY, BUY (one episode), WATCH, BUY (second episode)
     const series: PriceHistoryPoint[] = [
@@ -197,13 +195,13 @@ describe('runValuationBacktest — as-of OE + signal mapping (wide moat fixture)
       strategy: buffettMungerStrategy,
       params: VALUATION_PARAMS,
     })
-    const buy = probe.signal_log[0]!.buy_price_ps
+    const buy = probe.signal_log[0]!.reference_fair_value
     const result = runValuationBacktest({
       ticker: 'FIX',
       moat_class: 'moderate',
       runway: 'proven',
       fundamentals,
-      price_series: [priceAt('2019-03-31', buy * 0.1)], // far below any buy price
+      price_series: [priceAt('2019-03-31', buy * 0.1)], // far below the reference fair value
       strategy: buffettMungerStrategy,
       params: VALUATION_PARAMS,
     })
@@ -213,13 +211,12 @@ describe('runValuationBacktest — as-of OE + signal mapping (wide moat fixture)
 })
 
 // ---------------------------------------------------------------------------
-// Phase 1.6 in the BACKTEST path (1.9 finding): the backtest must use the one-knob valuation engine —
-// the 18× OE cap is a SURFACED flag, NOT a silent truncation, and the single MoS knob WIDENS for the
-// above-GDP moat-durability claim. Previously the backtest called the legacy capped scalar + base MoS, so
-// every quality compounder was silently truncated to 18× and made structurally un-buyable (the
-// GOOGL-never-buyable pathology, reproduced on CPRT/FDS at the 1.9 calibration).
+// Phase 1.6 in the BACKTEST path (1.9 finding): the reference fair value uses the one-knob valuation engine —
+// the 18× OE cap is a SURFACED flag, NOT a silent truncation. Previously the backtest called the legacy
+// capped scalar, so every quality compounder was silently truncated to 18× and made structurally un-buyable
+// (the GOOGL-never-buyable pathology, reproduced on CPRT/FDS at the 1.9 calibration).
 // ---------------------------------------------------------------------------
-describe('runValuationBacktest — one-knob engine (cap is a flag, gap widens) — Phase 1.6/1.9 + merge-gate', () => {
+describe('runValuationBacktest — reference fair value (cap is a flag, not a truncation) — Phase 1.6/1.9', () => {
   // A compounder whose OE/share grows ~15%/yr (above GDP) — the two-stage DCF over the wide 10yr horizon
   // exceeds 18× OE, so the legacy path would truncate. NI grows; D&A/capex/SBC/shares flat → OE/share grows.
   function growingFundamentals(): Fundamentals {
@@ -237,7 +234,7 @@ describe('runValuationBacktest — one-knob engine (cap is a flag, gap widens) �
     return { cik: '0000000002', entity_name: 'Compounder Co', currency: 'USD', latest_annual: series[0]!, annual_series: series, filings: [] }
   }
 
-  it('does NOT silently truncate the band-center fair value to 18× OE — records cap_exceeded instead', () => {
+  it('does NOT silently truncate the reference fair value to 18× OE — records cap_exceeded instead', () => {
     const f = growingFundamentals()
     // A solvable mid-range price (a far-out price falls outside the reverse-DCF bracket → month skipped).
     const result = runValuationBacktest({
@@ -245,26 +242,22 @@ describe('runValuationBacktest — one-knob engine (cap is a flag, gap widens) �
       price_series: [priceAt('2025-03-31', 30)], strategy: buffettMungerStrategy, params: VALUATION_PARAMS,
     })
     const e = result.signal_log[0]!
-    // Growth is above GDP and the band-center DCF blows past 18× → the cap flag fires and the value is NOT
-    // chopped to 18× (implied_multiple = band-center fair value / oe_ps, surfaced).
+    // Growth is above GDP and the reference DCF blows past 18× → the cap flag fires and the value is NOT
+    // chopped to 18× (implied_multiple = reference fair value / oe_ps, surfaced).
     expect(e.cap_exceeded).toBe(true)
     expect(e.implied_multiple).toBeGreaterThan(18) // would be exactly 18.0 under the legacy truncation
   })
 
-  it('widens the required gap above the base prior for above-GDP growth (moat-durability claim)', () => {
+  it('credits an above-GDP demonstrated growth (surfaced for the sanity signal, not a gap widener)', () => {
     const f = growingFundamentals()
     const result = runValuationBacktest({
       ticker: 'GRW', moat_class: 'wide', runway: 'proven', fundamentals: f,
       price_series: [priceAt('2025-03-31', 30)], strategy: buffettMungerStrategy, params: VALUATION_PARAMS,
     })
     const e = result.signal_log[0]!
-    // The single conservatism knob is now the required GROWTH gap (not a price MoS haircut). Above-GDP
-    // credited growth IS a moat-durability claim → the gap widens above the base prior (0.03).
+    // The retired required_growth_gap widening is GONE — the demonstrated-growth proxy is simply credited
+    // (above GDP here) and surfaced; the BUY/WATCH split is implied-vs-demonstrated growth, no gap config.
     expect(e.credited_g).toBeGreaterThan(VALUATION_PARAMS.gdp_growth_threshold)
-    expect(e.required_gap).toBeGreaterThan(VALUATION_PARAMS.required_growth_gap.base_gap + 1e-9)
-    expect(e.required_gap).toBeLessThanOrEqual(
-      VALUATION_PARAMS.required_growth_gap.base_gap + VALUATION_PARAMS.required_growth_gap.widening.cap + 1e-9,
-    )
   })
 
   it('still discards an ABSURD (≥100× OE) value as a units-bug guard', () => {
@@ -411,11 +404,7 @@ function step(date: string, price: number, buy: number, signal: SignalLogEntry['
     oe_ps: 1,
     credited_g: 0,
     implied_growth: 0,
-    band_low: 0,
-    band_high: 0,
-    required_gap: 0.03,
-    band_basis: 'demonstrated_proxy',
-    buy_price_ps: buy, // the derived ladder anchor the deployment sim fills against
+    reference_fair_value: buy, // the ladder anchor the deployment sim fills against
     implied_multiple: 1,
     cap_exceeded: false,
     signal,

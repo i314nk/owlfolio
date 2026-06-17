@@ -61,22 +61,6 @@ export const valuationPolicySchema = z.object({
     sensitivity_dispersion_max: z.number().min(0),
     cap: z.number().positive().max(1),
   }),
-  /**
-   * THE single conservatism knob (valuation-core revision / F.13) — a required growth-rate GAP in
-   * growth-rate POINTS (the decision buys when market_implied_growth ≤ band_low − required_gap). Widening
-   * FACTORS mirror margin_of_safety_widening 1:1; MAGNITUDES are growth-point-scaled (not price-%) and
-   * PROVISIONAL pending V8 calibration. All conservatism lives here; the sustainable-growth band carries none.
-   */
-  required_growth_gap: z.object({
-    base_gap: z.number().min(0),
-    widening: z.object({
-      high_terminal_value_share: z.number().min(0),
-      low_maint_capex_confidence: z.number().min(0),
-      weak_moat_durability: z.number().min(0),
-      sensitivity_dispersion_max: z.number().min(0),
-      cap: z.number().min(0).max(1),
-    }),
-  }),
   /** Terminal-value-share flag threshold (Phase 1.5): TV share above this is flagged + widens the MoS. */
   terminal_value_share_flag: z.number().positive().max(1),
   /** Terminal-stage growth (g_t) — UNIFORM across every investable business (F.13); durability routes through the moat-durability input. */

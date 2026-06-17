@@ -86,36 +86,6 @@ export type ValuationParams = {
     cap: number
   }
   /**
-   * THE single conservatism knob, valuation-core revision (F.13 one-knob) — a REQUIRED GROWTH-RATE GAP in
-   * GROWTH-RATE POINTS (NOT a price percentage). The decision layer buys when
-   * `market_implied_growth ≤ band_low − required_gap`: the gap is the margin the market-implied growth must
-   * clear BELOW the honest, grounded sustainable-growth band. All conservatism beyond honest inputs lives
-   * HERE; the sustainable-growth band engine carries none.
-   *
-   * The WIDENING FACTORS (which conditions widen) transplant 1:1 from margin_of_safety_widening. The
-   * MAGNITUDES do NOT — those are PRICE-percentage haircuts (0.10 = 10% off price), the WRONG units for a
-   * growth-point gap. These are growth-point-scaled PROVISIONAL placeholders, calibrated in V8 against the
-   * cheap-in-crash / GOOGL must-signal cohort (V8 VALIDATES that GOOGL fires in the 2020 dislocation and
-   * stays quiet in 2021; it does NOT tune base_gap so that GOOGL fires — that would be overfitting).
-   */
-  required_growth_gap: {
-    /** Base required gap, in growth-rate points (e.g. 0.03 = 3 growth-points). A deliberately WIDE prior. */
-    base_gap: number
-    /** Widening increments + cap, in growth-rate points (factors mirror margin_of_safety_widening 1:1). */
-    widening: {
-      /** Added (growth-points) when terminal_value_pct_of_iv exceeds terminal_value_share_flag. */
-      high_terminal_value_share: number
-      /** Added (growth-points) when the maintenance-capex estimate is low-confidence. */
-      low_maint_capex_confidence: number
-      /** Added (growth-points) for weak moat durability (incl. above-GDP growth). */
-      weak_moat_durability: number
-      /** Max growth-points contributed by sensitivity dispersion (scaled by the magnitude in [0,1]). */
-      sensitivity_dispersion_max: number
-      /** Max widening (growth-points) ON TOP OF base_gap. */
-      cap: number
-    }
-  }
-  /**
    * Fair-value sanity-FLAG threshold as a multiple of OE (18×). Phase 1.6: this is NO LONGER a silent
    * truncation — a fair value above it raises a surfaced `cap_exceeded` flag (which widens the MoS), the
    * value is kept. The old 18× hard cap is gone.
@@ -176,7 +146,7 @@ export type ValuationParams = {
  * a single named single_growth_cap (provisional placeholder) + an above-GDP coupling flag (gdp_growth_threshold).
  */
 export const VALUATION_PARAMS: ValuationParams = Object.freeze({
-  version: 'valuation-2026-06-required-gap-1',
+  version: 'valuation-2026-06-no-band-gap-1',
   // discount_rate = ten_year_treasury_default (0.045) + equity_premium (0.055) = 0.10 (unchanged default).
   discount_rate: 0.10,
   // PROVISIONAL — these signal-dependent params are NOT yet frozen. The 1.9 calibration ran on only n=2
@@ -201,22 +171,6 @@ export const VALUATION_PARAMS: ValuationParams = Object.freeze({
     weak_moat_durability: 0.10,
     sensitivity_dispersion_max: 0.10,
     cap: 0.50,
-  },
-  // valuation-core revision — THE single conservatism knob as a required growth-rate GAP (growth-points).
-  // PROVISIONAL — calibrated in V8 against the cheap-in-crash / GOOGL must-signal cohort (V8 VALIDATES the
-  // levels; it does NOT tune-to-fit). The widening FACTORS mirror margin_of_safety_widening 1:1; the
-  // MAGNITUDES differ deliberately — margin_of_safety_widening is in PRICE-percentage points (0.10 = 10% off
-  // price), the WRONG units for a growth-point gap, so these are growth-point-scaled. base_gap is a
-  // deliberately WIDE prior (3 growth-points); widening adds up to +cap (6 growth-points) on top.
-  required_growth_gap: {
-    base_gap: 0.03, // PROVISIONAL — a defensible WIDE prior (3 growth-points); V8 validates, does NOT tune-to-fit.
-    widening: {
-      high_terminal_value_share: 0.02, // PROVISIONAL (growth-points) — V8-owned.
-      low_maint_capex_confidence: 0.01, // PROVISIONAL (growth-points) — V8-owned.
-      weak_moat_durability: 0.02, // PROVISIONAL (growth-points) — V8-owned.
-      sensitivity_dispersion_max: 0.02, // PROVISIONAL (growth-points) — V8-owned.
-      cap: 0.06, // PROVISIONAL — max widening (growth-points) ON TOP OF base_gap; V8-owned.
-    },
   },
   fv_cap_multiple: 18,
   fv_absurd_multiple: 100,

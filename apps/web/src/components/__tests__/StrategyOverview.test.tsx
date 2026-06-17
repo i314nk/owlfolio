@@ -46,8 +46,8 @@ describe('StrategyOverview', () => {
 
   it('renders the uniform base required growth gap from the contract (valuation-core: conservatism is the gap, not a price MoS)', () => {
     const html = render()
-    const baseGap = `${buffettMungerStrategy.valuation.required_growth_gap.base_gap * 100}%` // 3%
-    expect(baseGap).toBe('3%')
+    // The required_growth_gap config/engine were removed (the model now proposes the verdict with cited
+    // reasoning; determinism only sanity-checks). The UI renders a 3% display constant for the worked example.
     expect(html).toContain('3%')
     expect(html.toLowerCase()).toContain('required growth gap')
     expect(html.toLowerCase()).toContain('growth-points')

@@ -28,7 +28,10 @@ const MULTIPLE_CEILING = strategy.valuation.valuation_multiple_ceiling
 const MIN_INVESTABLE_MOAT = strategy.valuation.min_investable_moat
 // Valuation-core revision (F.13): conservatism is the required GROWTH GAP (in growth-rate points), NOT a
 // price-discount margin of safety. The base gap is uniform across investable moats; terminal g is too.
-const BASE_GROWTH_GAP = strategy.valuation.required_growth_gap.base_gap
+// The required_growth_gap deterministic ENGINE + config were removed (the model now proposes the
+// verdict/buy-below with cited reasoning; the deterministic side only sanity-checks). This is now a
+// DISPLAY constant for the worked example only — the live gap magnitude is the model's, not a frozen config.
+const BASE_GROWTH_GAP = 0.03
 const TERMINAL_G_WIDE = terminalGrowthForMoat(strategy, 'wide')
 const SINGLE_GROWTH_CAP = strategy.valuation.single_growth_cap
 const GDP_GROWTH_THRESHOLD = strategy.valuation.gdp_growth_threshold

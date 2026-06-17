@@ -2,17 +2,17 @@
 //
 // Replays the config-driven valuation over ~10 years of month-end prices. For each month-end it computes
 // Owner Earnings from the 10-K an analyst would have HAD as-of that month (the latest annual_series entry
-// whose `filed` date <= the month) and makes the REVERSE-DCF-vs-BAND decision (valuation-core revision /
-// merge-gate): it solves the market-implied near-term growth at the month's price (reverse-DCF off the SAME
-// forward two-stage DCF) and maps it against the grounded sustainable-growth band and the required-growth
-// gap → BUY when implied_growth <= band_low − required_gap, WATCH-FAIR when implied <= band_low, else WATCH
-// (the recalibration verdict mapping; mirrors the live harness boundaries exactly). Consecutive BUY months
-// collapse into one episode; the summary reports buys/yr + the spec §3.1 sanity-window checks.
-//
-// BAND BASIS (live-vs-backtest gap): the live harness anchors the band on an agent-CITED reinvestment×ROIC
-// economic identity; a backtest has no agent and raw EDGAR incremental ROIC is too noisy per-month, so the
-// backtest APPROXIMATES the band by anchoring on the demonstrated OE/share CAGR proxy (band_basis:
-// 'demonstrated_proxy'). The merge-gate validation is against this deterministic approximation.
+// whose `filed` date <= the month) and makes a LIGHT reverse-DCF SANITY signal (the reframe: the model
+// proposes the verdict/valuation/buy-below with cited reasoning; the deterministic side only sanity-checks).
+// Per month it solves the market-implied near-term growth at the month's price (reverse-DCF off the SAME
+// forward two-stage DCF the reference fair value uses) and compares it to the demonstrated-growth PROXY:
+//   - BUY    when implied growth is clearly BELOW the demonstrated-growth proxy (a meaningful dislocation
+//            margin — the market is pricing in materially less growth than the business has demonstrated),
+//   - WATCH  otherwise (fairly-to-richly priced),
+//   - PASS   when the moat is below the wide gate AND the month would have been cheap enough to BUY.
+// The band/gap DECISION ENGINES (sustainableGrowthBand + requiredGrowthGap) are GONE — this is a confidence
+// spot-check, NOT a parameter-freeze gate. The real validation is the §8 live run (a later slice).
+// Consecutive BUY months collapse into one episode; the summary reports buys/yr + the §3.1 sanity windows.
 //
 // PURE + DETERMINISTIC: no fetch inside the engine. It takes `fundamentals` + `price_series` as inputs so
 // it is fully testable with fixtures. The runner (backtest.runner-style backtestName) does the fetching.
@@ -32,12 +32,10 @@ import {
   terminalGrowthForMoat,
   twoStageValuation,
 } from '@owlfolio/strategies/buffettMunger'
-import { sustainableGrowthBand } from '@owlfolio/strategies/sustainableGrowthBand'
-import { requiredGrowthGap } from '@owlfolio/strategies/requiredGrowthGap'
 import { marketImpliedGrowth } from '@owlfolio/strategies/reverseDcf'
 import type { MoatClass, Runway, StrategyContract } from '@owlfolio/strategies/strategyContract'
 import type { ValuationParams } from '@owlfolio/strategies/valuationParams'
-import { maintenanceCapexLowConfidence, demonstratedOwnerEarningsGrowth, type AnnualFacts, type Fundamentals, type SecEdgarDeps } from './secEdgar'
+import { demonstratedOwnerEarningsGrowth, type AnnualFacts, type Fundamentals, type SecEdgarDeps } from './secEdgar'
 import { resolveFundamentalsForTicker, type ResolveFundamentalsDeps } from './fundamentalsProvider'
 import {
   cumulativeSplitFactorAfter,
@@ -59,10 +57,7 @@ import {
 /** The recalibration verdict mapping (spec §2 + the gate). */
 export type Signal = 'BUY' | 'WATCH-FAIR' | 'WATCH' | 'PASS'
 
-/** How the sustainable-growth band was anchored in the backtest (no agent → demonstrated proxy by default). */
-export type BandBasis = 'computed_roic_reinvestment' | 'demonstrated_proxy'
-
-/** One month-end observation in the signal log (merge-gate: reverse-DCF-vs-band decision). */
+/** One month-end observation in the signal log (light reverse-DCF SANITY signal — not a decision gate). */
 export type SignalLogEntry = {
   /** Month-end date (YYYY-MM-DD) of the price observation. */
   date: string
@@ -70,29 +65,20 @@ export type SignalLogEntry = {
   price: number
   /** Owner earnings per share computed from the as-of filing. */
   oe_ps: number
-  /** Credited growth g (the named cap applied to demonstrated OE/share CAGR); the band's proxy anchor. */
+  /** Credited growth g (the named cap applied to demonstrated OE/share CAGR); the demonstrated-growth proxy. */
   credited_g: number
-  // ---- DECISION fields (reverse-DCF-vs-band; replace the old fair_value/buy_price + MoS decision) ----
+  // ---- SANITY signal fields (light reverse-DCF spot-check; NOT a band/gap decision) ----
   /** Market-implied near-term growth at this month's price (reverse-DCF off the same forward DCF). */
   implied_growth: number
-  /** Honest sustainable-growth band LOW edge (the WATCH-FAIR upper boundary). */
-  band_low: number
-  /** Honest sustainable-growth band HIGH edge. */
-  band_high: number
-  /** The single conservatism knob, in growth-rate points: BUY when implied <= band_low − required_gap. */
-  required_gap: number
-  /** How the band was anchored: a clean computed ROIC×reinvestment, or the demonstrated-growth proxy. */
-  band_basis: BandBasis
-  // ---- Derived / surfaced reference (NOT the decision driver) ----
   /**
-   * Derived buy price per share = twoStageValuation(g = band_low − required_gap).fair_value — the price at
-   * which the reverse-DCF market-implied growth rises to exactly the buy threshold. RETAINED purely so the
-   * ladder-deployment simulation still has a price level to fill against; it is NOT the decision driver.
+   * Reference two-stage fair value per share off the demonstrated-growth proxy — the price the forward DCF
+   * implies for the as-of owner earnings. A surfaced reference + the ladder-deployment fill anchor; NOT the
+   * decision driver (the BUY/WATCH split is implied-vs-demonstrated-growth, below).
    */
-  buy_price_ps: number
-  /** Implied FV multiple (band-center fair value / oe_ps) — surfaced reference. */
+  reference_fair_value: number
+  /** Implied FV multiple (reference fair value / oe_ps) — surfaced reference. */
   implied_multiple: number
-  /** Phase 1.6: true when the band-center fair value exceeds the 18× OE sanity-flag threshold (surfaced). */
+  /** Phase 1.6: true when the reference fair value exceeds the 18× OE sanity-flag threshold (surfaced). */
   cap_exceeded: boolean
   /** Verdict for this month. */
   signal: Signal
@@ -342,32 +328,29 @@ export function groupBuyEpisodes(
 const IMPLIED_GROWTH_EPSILON = 1e-6
 
 /**
- * Map (implied_growth, band_low, band_high, required_gap) → verdict (merge-gate). Mirrors the LIVE V3
- * boundaries exactly (researchSwarm verdict_state):
- *   - gated (moat below the wide gate / band not computable) → never BUY.
- *   - implied <= band_low − required_gap → BUY      (market-implied growth a full gap below the band's low edge).
- *   - implied <= band_low                → WATCH-FAIR (within the honest band, no safety gap — human-discretion).
- *   - else                               → WATCH     (fairly-to-richly priced).
- * For a gated name we still bucket WATCH/PASS: PASS only when the implied is below the buy threshold (would
- * have been cheap enough to buy if not gated), WATCH otherwise.
+ * The dislocation MARGIN (growth-points) the market-implied growth must sit BELOW the demonstrated-growth
+ * proxy to flag a BUY in the SANITY spot-check. This is NOT the retired required_growth_gap config knob — it
+ * is a fixed, deliberately wide sanity margin so the backtest only flags a clear dislocation (the market
+ * pricing in materially less growth than the business has demonstrated). The real conservatism + buy-below
+ * live in the model's cited reasoning at run time; the backtest just confidence-checks.
  */
-function classify(
-  implied_growth: number,
-  band_low: number,
-  band_high: number,
-  required_gap: number,
-  gated: boolean,
-): Signal {
-  const buyThreshold = band_low - required_gap
-  void band_high // surfaced on the entry; not a boundary lever here (mirrors V3, which only sub-flags above-band)
-  if (gated) {
-    // Below-wide moats are gated out: never a harness BUY. PASS when it WOULD have been cheap (below the buy
-    // threshold), WATCH otherwise — the cheap/expensive split, in implied-growth space.
-    return implied_growth <= buyThreshold + IMPLIED_GROWTH_EPSILON ? 'PASS' : 'WATCH'
-  }
-  if (implied_growth <= buyThreshold + IMPLIED_GROWTH_EPSILON) return 'BUY'
-  if (implied_growth <= band_low + IMPLIED_GROWTH_EPSILON) return 'WATCH-FAIR'
-  return 'WATCH'
+const BUY_SANITY_MARGIN = 0.03
+
+/**
+ * Map (implied_growth, demonstrated_g) → a LIGHT SANITY verdict (the reframe: the model proposes the verdict;
+ * the backtest is a confidence spot-check, NOT a parameter-freeze gate):
+ *   - gated (moat below the wide gate) → never BUY. PASS when it WOULD have been cheap (implied clearly below
+ *     the demonstrated-growth proxy), WATCH otherwise.
+ *   - implied_growth <= demonstrated_g − BUY_SANITY_MARGIN → BUY  (a clear dislocation: the market prices in
+ *     materially less growth than the business has demonstrated).
+ *   - else                                                 → WATCH (fairly-to-richly priced).
+ * There is no band/gap and no WATCH-FAIR tier — those were band-engine artifacts and are gone.
+ */
+function classify(implied_growth: number, demonstrated_g: number, gated: boolean): Signal {
+  const buyThreshold = demonstrated_g - BUY_SANITY_MARGIN
+  const cheap = implied_growth <= buyThreshold + IMPLIED_GROWTH_EPSILON
+  if (gated) return cheap ? 'PASS' : 'WATCH'
+  return cheap ? 'BUY' : 'WATCH'
 }
 
 function monthInWindow(date: string, fromMonth: string, toMonth: string): boolean {
@@ -458,44 +441,16 @@ export function runValuationBacktest(args: RunValuationBacktestArgs): BacktestRe
       if (!data_quality_notes.includes(note)) data_quality_notes.push(note)
       continue
     }
-    const fair_value_ps = valuation.fair_value
+    const reference_fair_value = valuation.fair_value
 
-    // ---- MERGE-GATE: reverse-DCF-vs-band decision (replaces the old price-vs-FV + MoS-haircut) ----
+    // ---- LIGHT reverse-DCF SANITY signal (the band/gap decision engines are GONE) ----
     //
-    // BAND BASIS — live-vs-backtest gap (documented, load-bearing): the LIVE harness anchors the band on
-    // a cited reinvestment×incremental-ROIC economic identity (with an OPTIONAL agent-cited capital-light
-    // escape valve). A backtest has NO agent to cite economics, and an incremental-ROIC derived from raw
-    // year-over-year EDGAR (ΔNOPAT / ΔinvestedCapital) is far too noisy/often-negative to anchor a band
-    // cleanly per-month. So the backtest APPROXIMATES the live band by anchoring it on the demonstrated
-    // OE/share CAGR as the proxy g_fundamental — band_center = credited_g (demonstrated growth after the
-    // named cap), reinvestment_rate = 1, incremental_roic = credited_g, basis = model_proposed, and
-    // capital_light_argument = undefined (no agent). band_basis = 'demonstrated_proxy' records this gap on
-    // every entry. The merge-gate validation is therefore against THIS deterministic approximation of the
-    // live agent-cited band, not the live band itself.
-    const band = sustainableGrowthBand(strategy, {
-      incremental_roic: credited_g,
-      reinvestment_rate: 1,
-      // demonstrated == center so the unsupported-high cross-check tripwire never fires on the proxy itself.
-      demonstrated_growth: credited_g,
-      runway,
-      moat_class: tierForValuation,
-      incremental_roic_basis: 'model_proposed',
-      // No agent in the backtest → no cited capital-light escape valve (capital_light_argument omitted,
-      // i.e. undefined; exactOptionalPropertyTypes forbids passing it explicitly undefined).
-    })
-    const band_basis: BandBasis = 'demonstrated_proxy'
-
-    // required-growth gap — the single conservatism knob. Mirror the inputs available in the backtest (same
-    // as the live harness omits sensitivity_dispersion — there is no per-month sensitivity sweep here).
-    const gap = requiredGrowthGap(strategy, {
-      moat_class: tierForValuation,
-      terminal_value_pct_of_iv: valuation.terminal_value_pct_of_iv,
-      low_maint_capex_confidence: maintenanceCapexLowConfidence(asOfSeries),
-      // Above-GDP growth IS a moat-durability claim (Phase 1.3 coupling) → weak-durability widening.
-      weak_moat_durability: growthResult.above_gdp,
-    })
-
-    // market-implied near-term growth at THIS month's price — inverts the SAME forward DCF the point FV used.
+    // The reframe relit the decision: the model proposes the verdict/valuation/buy-below with cited
+    // reasoning at run time; the deterministic side only sanity-checks. So the backtest is now a confidence
+    // SPOT-CHECK, not a parameter-freeze gate. Per month we solve the market-implied near-term growth at the
+    // month's price (inverting the SAME forward two-stage DCF the reference fair value used) and compare it
+    // to the demonstrated-growth proxy (credited_g): a BUY flags only when the implied growth sits a clear
+    // sanity margin BELOW what the business has demonstrated (a real dislocation). No band, no gap, no freeze.
     const impliedResult = marketImpliedGrowth({
       price: point.close,
       oe_ps,
@@ -504,35 +459,16 @@ export function runValuationBacktest(args: RunValuationBacktestArgs): BacktestRe
       horizon: stage1HorizonForMoat(strategy, tierForValuation),
       fade_years: params.growth_fade_years,
     })
-    if (impliedResult.implied_growth === undefined || band.grounding_status === 'not_computable') {
-      // Cannot solve implied growth (price/oe out of the reverse-DCF bracket) or band not computable → skip
-      // the month VISIBLY rather than emit a verdict the decision layer never confirmed.
+    if (impliedResult.implied_growth === undefined) {
+      // Cannot solve implied growth (price/oe out of the reverse-DCF bracket) → skip the month VISIBLY
+      // rather than emit a verdict the spot-check could not compute.
       skipped_months_no_filing += 1
-      const note = `FY${filing.fiscal_year}: market-implied growth unsolvable at price ${point.close} (status: ${impliedResult.status}) or band not computable — month skipped`
+      const note = `FY${filing.fiscal_year}: market-implied growth unsolvable at price ${point.close} (status: ${impliedResult.status}) — month skipped`
       if (!data_quality_notes.includes(note)) data_quality_notes.push(note)
       continue
     }
     const implied_growth = impliedResult.implied_growth
-    const signal = classify(implied_growth, band.band_low, band.band_high, gap.required_gap, gated)
-
-    // Derived buy price (RETAINED for the ladder sim only): the price at which implied growth rises to the
-    // buy threshold (band_low − required_gap). Falls back to the band-center FV when the threshold growth is
-    // below the reverse-DCF bracket floor (cannot be expressed as a price round-trip).
-    const gThreshold = band.band_low - gap.required_gap
-    const buyValuation = gThreshold > -0.5
-      ? twoStageValuation({
-          oe_ps,
-          g: gThreshold,
-          terminal_g: terminalGrowthForMoat(strategy, tierForValuation),
-          discount: discountRate(strategy),
-          ceiling_multiple: params.fv_cap_multiple,
-          absurd_multiple: params.fv_absurd_multiple,
-          horizon: stage1HorizonForMoat(strategy, tierForValuation),
-        }).fair_value
-      : undefined
-    const buy_price_ps = buyValuation !== undefined && Number.isFinite(buyValuation) && buyValuation > 0
-      ? buyValuation
-      : fair_value_ps
+    const signal = classify(implied_growth, credited_g, gated)
 
     signal_log.push({
       date: point.date,
@@ -540,12 +476,8 @@ export function runValuationBacktest(args: RunValuationBacktestArgs): BacktestRe
       oe_ps,
       credited_g,
       implied_growth,
-      band_low: band.band_low,
-      band_high: band.band_high,
-      required_gap: gap.required_gap,
-      band_basis,
-      buy_price_ps,
-      implied_multiple: fair_value_ps / oe_ps,
+      reference_fair_value,
+      implied_multiple: reference_fair_value / oe_ps,
       cap_exceeded: valuation.cap_exceeded,
       signal,
       filing_fy: filing.fiscal_year,
@@ -564,8 +496,11 @@ export function runValuationBacktest(args: RunValuationBacktestArgs): BacktestRe
   }
 }
 
-/** A minimal month-end observation the deployment simulation needs (date, price, the as-of buy price). */
+/** A minimal month-end observation the deployment simulation needs (date, price, the as-of anchor price). */
 type DeploymentStep = { date: string; price: number; buy_price_ps: number; signal: Signal }
+
+// NOTE: `buy_price_ps` on DeploymentStep is the LADDER ANCHOR price (the reference fair value), not a
+// band/gap-derived buy-below — the ladder sim only needs a price level to fill tranches against.
 
 function monthsBetweenDates(fromIso: string, toIso: string): number {
   const from = new Date(fromIso)
@@ -640,7 +575,7 @@ export function computeDeploymentRatio(
     const steps: DeploymentStep[] = signal_log.slice(startIdx).map((e) => ({
       date: e.date,
       price: e.price,
-      buy_price_ps: e.buy_price_ps,
+      buy_price_ps: e.reference_fair_value,
       signal: e.signal,
     }))
     return simulateLadderDeployment(steps, ladderId, params)

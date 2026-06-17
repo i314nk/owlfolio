@@ -30,8 +30,6 @@
     "./correlatedClusters": "./src/correlatedClusters.ts",
     "./valuationParams": "./src/valuationParams.ts",
     "./reverseDcf": "./src/reverseDcf.ts",
-    "./sustainableGrowthBand": "./src/sustainableGrowthBand.ts",
-    "./requiredGrowthGap": "./src/requiredGrowthGap.ts",
     "./valuationSensitivity": "./src/valuationSensitivity.ts",
     "./valuationConfigEvent": "./src/valuationConfigEvent.ts",
     "./calibrationRunEvent": "./src/calibrationRunEvent.ts",
