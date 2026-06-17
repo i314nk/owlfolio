@@ -58,16 +58,36 @@ export type OwnerEarningsBridgeProjection = {
 }
 
 /**
- * Price → verdict band for a gate-clean name (valuation-recalibration-spec §2).
- *   BUY-WINDOW  — price ≤ buy price
- *   WATCH-FAIR  — buy price < price ≤ fair value (human-discretion zone; never a harness buy signal)
- *   WATCH       — price > fair value
+ * Reverse-DCF vs sustainable-growth band ± required-gap verdict band (valuation-core revision).
+ * The verdict compares the market-IMPLIED growth (reverse-DCF of today's price) to a grounded
+ * sustainable-growth band, with conservatism in the required gap (NOT a price haircut):
+ *   BUY-WINDOW  — implied ≤ band_low − required_gap  (market underprices the band = CHEAP)
+ *   WATCH-FAIR  — band_low − required_gap < implied ≤ band_low (human-discretion zone; never a buy signal)
+ *   WATCH       — implied > band_low (implied_above_band when implied ≥ band_high)
  */
 export type ResearchCaseVerdictStateProjection = {
   state?: string
-  /** Discount to fair value (%), present for WATCH-FAIR. */
+  /** Discount to fair value (%) — legacy price-vs-FV field; retained for back-compat where emitted. */
   discount_to_fv_pct?: number
   implied_multiple?: number
+  /** Market-implied near-term growth (reverse-DCF of today's price) — the decision input. */
+  market_implied_growth?: number
+  /** Grounded sustainable-growth band low edge (honest uncertainty dispersion, not a haircut). */
+  band_low?: number
+  /** Grounded sustainable-growth band high edge. */
+  band_high?: number
+  /** Grounded anchor g = reinvestment_rate × incremental_roic. */
+  band_center?: number
+  /** grounded | unsupported_high | not_computable. */
+  band_grounding_status?: string
+  /** Citations that ground the band (the identity + any capital-light/cross-check basis). */
+  band_basis_citations?: string[]
+  /** The single conservatism knob, in growth-rate points. */
+  required_gap?: number
+  /** (band_low − required_gap) − implied; positive = how far below the buy threshold the market sits. */
+  gap_to_band?: number
+  /** True when implied ≥ band_high (market prices above what the business sustains). */
+  implied_above_band?: boolean
   note?: string
 }
 
@@ -643,6 +663,24 @@ function getVerdictState(valuation: Record<string, unknown>): ResearchCaseVerdic
   if (discount_to_fv_pct !== undefined) projected.discount_to_fv_pct = discount_to_fv_pct
   const implied_multiple = getNumber(value, 'implied_multiple')
   if (implied_multiple !== undefined) projected.implied_multiple = implied_multiple
+  const market_implied_growth = getNumber(value, 'market_implied_growth')
+  if (market_implied_growth !== undefined) projected.market_implied_growth = market_implied_growth
+  const band_low = getNumber(value, 'band_low')
+  if (band_low !== undefined) projected.band_low = band_low
+  const band_high = getNumber(value, 'band_high')
+  if (band_high !== undefined) projected.band_high = band_high
+  const band_center = getNumber(value, 'band_center')
+  if (band_center !== undefined) projected.band_center = band_center
+  const band_grounding_status = getString(value, 'band_grounding_status')
+  if (band_grounding_status !== undefined) projected.band_grounding_status = band_grounding_status
+  const band_basis_citations = getStringArray(value, 'band_basis_citations')
+  if (band_basis_citations !== undefined) projected.band_basis_citations = band_basis_citations
+  const required_gap = getNumber(value, 'required_gap')
+  if (required_gap !== undefined) projected.required_gap = required_gap
+  const gap_to_band = getNumber(value, 'gap_to_band')
+  if (gap_to_band !== undefined) projected.gap_to_band = gap_to_band
+  const implied_above_band = getBoolean(value, 'implied_above_band')
+  if (implied_above_band !== undefined) projected.implied_above_band = implied_above_band
   const note = getString(value, 'note')
   if (note !== undefined) projected.note = note
   return Object.keys(projected).length === 0 ? undefined : projected

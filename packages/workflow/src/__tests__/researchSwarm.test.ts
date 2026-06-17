@@ -1254,13 +1254,24 @@ describe('Two-stage DCF harness growth path (Phase 1.3 one growth path + gates)'
 })
 
 // ---------------------------------------------------------------------------
-// Acceptance test #3 (valuation-recalibration-spec §4): WATCH-FAIR verdict band.
-// A gate-clean name with price between buy_price and fair_value → WATCH-FAIR (NEW band). It NEVER
-// escalates to BUY, even when the model proposes BUY. Below buy_price → BUY-WINDOW; above FV → WATCH.
+// Acceptance test #3 (valuation-core revision): reverse-DCF vs sustainable-band ± required-gap.
+// The verdict no longer compares price to a point fair value; it compares the market-IMPLIED growth (a
+// reverse-DCF of today's price) to a grounded sustainable-growth band, with conservatism in the required
+// gap. DIRECTION IS COUNTERINTUITIVE: LOW implied growth vs a HIGHER honest band = CHEAP = BUY-WINDOW.
+//
+// This COST-like wide case (NO EDGAR series → honest no-growth floor g=0; incremental_roic 0.20 ×
+// reinvestment 0.43 = band_center 8.6%; runway proven + wide moat → band_low ≈ 7.31%; required_gap 3%):
+//   buy threshold = band_low − required_gap ≈ 4.31%.
+//   implied <= 4.31%      → BUY-WINDOW   (market underprices the sustainable band — CHEAP)
+//   4.31% < implied <= 7.31% → WATCH-FAIR (within the band, no safety gap — human-discretion zone)
+//   implied > 7.31%       → WATCH        (implied_above_band when implied >= band_high 8.6%)
+// implied growth is monotonically INCREASING in price, so a higher price ⇒ higher implied growth.
+//   price 180 → implied ≈ −1.9% (well below 4.31%) → BUY-WINDOW
+//   price 300 → implied ≈ 6.6%  (in 4.31–7.31%)    → WATCH-FAIR
+//   price 330 → implied ≈ 8.4%  (in 7.31–8.6%)     → WATCH (no implied_above_band)
+//   price 400 → implied ≈ 12.0% (above band_high)  → WATCH + implied_above_band
 // ---------------------------------------------------------------------------
-describe('Acceptance #3 — WATCH-FAIR verdict band (never escalates to BUY)', () => {
-  // COST-like wide case (NO EDGAR series → honest no-growth floor g=0, Phase 1.3): OE/sh ≈ 19.05, g 0,
-  //   wide horizon 10, terminal 0.015 → fair ≈ 204.78, buy ≈ 153.58 (wide MoS 25%).
+describe('Acceptance #3 — reverse-DCF vs sustainable-band ± required-gap (never escalates WATCH-FAIR→BUY)', () => {
   async function runAtPrice(price: number, id: string, investmentVerdict: 'BUY' | 'WATCH' = 'BUY') {
     const store = new InMemoryEventStore()
     const provider = configurableSwarmProvider({
@@ -1288,30 +1299,86 @@ describe('Acceptance #3 — WATCH-FAIR verdict band (never escalates to BUY)', (
     return { events, cp: projections.find((c) => c.research_case_id === `rc_${id}`) }
   }
 
-  it('price between buy (≈154) and fair (≈205) → WATCH-FAIR; model BUY does NOT escalate', async () => {
-    const { cp } = await runAtPrice(180, 'watchfair', 'BUY')
-    expect(cp?.valuation?.fair_value_per_share).toBeCloseTo(204.78, 0)
-    expect(cp?.valuation?.buy_price_per_share).toBeCloseTo(153.58, 0)
-    expect(cp?.valuation?.verdict_state?.state).toBe('WATCH-FAIR')
-    // discount-to-FV ≈ (204.78 − 180) / 204.78 ≈ 12.10%
-    expect(cp?.valuation?.verdict_state?.discount_to_fv_pct).toBeCloseTo(12.10, 0)
-    expect(cp?.valuation?.verdict_state?.implied_multiple).toBeCloseTo(10.75, 1)
-    expect(cp?.valuation?.verdict_state?.note).toMatch(/human-discretion zone/i)
+  it('CHEAP: low implied growth (price 180) below band_low − gap → BUY-WINDOW (NOT expensive)', async () => {
+    const { cp } = await runAtPrice(180, 'buywindow', 'BUY')
+    const vs = cp?.valuation?.verdict_state
+    // The grounded band (8.6% center, ≈7.31% low) and 3% required gap are surfaced for V4/V7.
+    expect(vs?.band_center).toBeCloseTo(0.086, 3)
+    expect(vs?.band_low).toBeCloseTo(0.0731, 3)
+    expect(vs?.required_gap).toBeCloseTo(0.03, 3)
+    expect(vs?.band_grounding_status).toBe('grounded')
+    // INVERSION GUARD: implied growth sits BELOW the buy threshold (band_low − gap) = CHEAP = BUY-WINDOW.
+    expect(vs?.market_implied_growth ?? NaN).toBeLessThanOrEqual((vs?.band_low ?? 0) - (vs?.required_gap ?? 0))
+    expect(vs?.state).toBe('BUY-WINDOW')
+    // gap_to_band positive = how far below the buy threshold the market sits (cheaper).
+    expect(vs?.gap_to_band ?? -1).toBeGreaterThan(0)
+    // Model BUY is preserved in the buy window (the band does not downgrade it).
+    expect(cp?.investment_verdict).toBe('BUY')
+  })
+
+  it('WATCH-FAIR: implied within band (price 300) above the gap but ≤ band_low; model BUY does NOT escalate', async () => {
+    const { cp } = await runAtPrice(300, 'watchfair', 'BUY')
+    const vs = cp?.valuation?.verdict_state
+    const lo = vs?.band_low ?? 0
+    const gapv = vs?.required_gap ?? 0
+    const implied = vs?.market_implied_growth ?? NaN
+    // In the honest band but no safety gap: band_low − gap < implied <= band_low.
+    expect(implied).toBeGreaterThan(lo - gapv)
+    expect(implied).toBeLessThanOrEqual(lo)
+    expect(vs?.state).toBe('WATCH-FAIR')
+    expect(vs?.note).toMatch(/human-discretion zone/i)
     // NEVER escalates to BUY: the recorded verdict is WATCH even though the model said BUY.
     expect(cp?.investment_verdict).toBe('WATCH')
     expect(cp?.investment_verdict).not.toBe('BUY')
   })
 
-  it('price below buy (≈154) → BUY-WINDOW', async () => {
-    const { cp } = await runAtPrice(140, 'buywindow', 'BUY')
-    expect(cp?.valuation?.verdict_state?.state).toBe('BUY-WINDOW')
-    // Model BUY is preserved in the buy window (the band does not downgrade it).
-    expect(cp?.investment_verdict).toBe('BUY')
+  it('WATCH (fair): implied just above band_low (price 330) → WATCH, no implied_above_band', async () => {
+    const { cp } = await runAtPrice(330, 'plainwatch', 'WATCH')
+    const vs = cp?.valuation?.verdict_state
+    expect(vs?.market_implied_growth ?? NaN).toBeGreaterThan(vs?.band_low ?? 0)
+    // Still below band_high → fairly priced, not yet "above what the business sustains".
+    expect(vs?.market_implied_growth ?? NaN).toBeLessThan(vs?.band_high ?? 0)
+    expect(vs?.state).toBe('WATCH')
+    expect(vs?.implied_above_band).toBeUndefined()
   })
 
-  it('price above fair (≈205) → plain WATCH', async () => {
-    const { cp } = await runAtPrice(300, 'plainwatch', 'WATCH')
-    expect(cp?.valuation?.verdict_state?.state).toBe('WATCH')
+  it('EXPENSIVE: implied above band_high (price 400) → WATCH + implied_above_band', async () => {
+    const { cp } = await runAtPrice(400, 'expensive', 'WATCH')
+    const vs = cp?.valuation?.verdict_state
+    // Market prices ABOVE what the business sustains (implied >= band_high).
+    expect(vs?.market_implied_growth ?? NaN).toBeGreaterThanOrEqual(vs?.band_high ?? Infinity)
+    expect(vs?.state).toBe('WATCH')
+    expect(vs?.implied_above_band).toBe(true)
+  })
+
+  it('fail-closed: no current price → no implied growth → verdict_state undefined (model BUY clamped to RESEARCH_MORE, NOT BUY)', async () => {
+    const store = new InMemoryEventStore()
+    const provider = configurableSwarmProvider({
+      laneCount: buffettMungerDeepDiveLanes.length,
+      synthesis: { moat_class: 'wide', runway: 'proven', incremental_roic: 0.20, reinvestment_rate: 0.43 },
+      investmentVerdict: 'BUY',
+    })
+    const sourceLedgerPath = await mkdtemp(join(tmpdir(), 'owlfolio-wf-failclosed-'))
+    await runStrategyResearchSwarm(
+      store, provider as never,
+      {
+        research_case_id: 'rc_failclosed', company_id: 'c', ticker: 'COST',
+        strategy_id: 'buffett-munger', actor_id: 'user_local', idempotency_key: 'failclosed_k',
+        model_id: 'mock', decision_id: 'decision_failclosed', source_ledger_path: sourceLedgerPath,
+      },
+      {
+        ground: allVerifiedGround,
+        laneConcurrency: 4,
+        // No price → no reverse-DCF implied growth → verdict_state cannot be computed (fail-closed).
+        resolvePrice: async () => ({ available: false as const, reason: 'fetch failed', source: 'fixture' }),
+      },
+    )
+    const projections = projectResearchCases((await store.list()) as Parameters<typeof projectResearchCases>[0])
+    const cp = projections.find((c) => c.research_case_id === 'rc_failclosed')
+    expect(cp?.valuation?.verdict_state).toBeUndefined()
+    // A model BUY on missing data must NOT be recorded as BUY (fail closed → RESEARCH_MORE).
+    expect(cp?.investment_verdict).not.toBe('BUY')
+    expect(cp?.investment_verdict).toBe('RESEARCH_MORE')
   })
 })
 
@@ -1341,9 +1408,11 @@ describe('HIGH safety — BUY clamp when no computable buy band (verdict_state u
       {
         ground: allVerifiedGround,
         laneConcurrency: 4,
-        // Price fetch FAILS → no current_price → verdict_state stays undefined (no computable band).
+        // Price fetch FAILS → no current_price → no reverse-DCF implied growth → verdict_state stays
+        // undefined (no computable band). Price 300 sits in the WATCH-FAIR zone (implied ≈6.6%, within
+        // band_low ≈7.31% but above the gap), so the "band defined" case still clamps a model BUY to WATCH.
         resolvePrice: priceAvailable
-          ? async () => ({ available: true as const, price_per_share: 180, currency: 'USD', as_of: '2026-06-01T00:00:00Z', source: 'fixture' })
+          ? async () => ({ available: true as const, price_per_share: 300, currency: 'USD', as_of: '2026-06-01T00:00:00Z', source: 'fixture' })
           : async () => ({ available: false as const, reason: 'no quote', source: 'test' }),
       },
     )

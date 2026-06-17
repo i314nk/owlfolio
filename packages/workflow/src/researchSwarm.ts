@@ -64,6 +64,8 @@ import { buffettMungerStrategy, creditedGrowth, discountRate, moatPassesGate, st
 import { computeShariahFinancialRatios } from '@owlfolio/strategies/shariahFinancialRatios'
 import { valuationSensitivity, type ValuationSensitivity } from '@owlfolio/strategies/valuationSensitivity'
 import { marketImpliedGrowth } from '@owlfolio/strategies/reverseDcf'
+import { sustainableGrowthBand } from '@owlfolio/strategies/sustainableGrowthBand'
+import { requiredGrowthGap } from '@owlfolio/strategies/requiredGrowthGap'
 import { fetchAverageMarketCap, fetchTenYearTreasuryYield, resolveCurrentPrice, type AverageMarketCapResult, type MarketDataDeps, type PriceQuote, type TreasuryYieldResult } from './marketData'
 import { runRedTeamPass, runRedTeamResponsePass, buildRedTeamLayer, type RedTeamLaneDigest, type RedTeamResult } from './redTeamPass'
 import {
@@ -1875,38 +1877,106 @@ export async function runResearchDeepDivePhase(
     )
   }
 
-  // ---- Price → verdict band (valuation-recalibration-spec §2: WATCH-FAIR) ----
-  // For gate-clean names (moat passes, Shariah not FAIL) with a computed buy/fair price and a current
-  // price, classify the price band:
-  //   price <= buy_price              → BUY-WINDOW
-  //   buy_price < price <= fair_value → WATCH-FAIR  (NEW — human-discretion zone; never a buy signal)
-  //   price > fair_value              → WATCH
-  // WATCH-FAIR carries the discount-to-FV %, the implied multiple, and the editorial line. It NEVER
-  // auto-escalates to BUY. The moat gate / Shariah FAIL still force PASS/STOP above this band.
+  // ---- Reverse-DCF vs sustainable-growth band ± required-gap → verdict band (valuation-core revision) ----
+  // The verdict no longer compares the live price to a point fair value (price-vs-FV). It compares the
+  // market-IMPLIED growth (what TODAY'S price assumes the business will compound at, reverse-DCF) against a
+  // grounded, GDP-honest sustainable-growth band, with conservatism living in ONE place: the required gap.
+  //
+  // Two pure engines (no conservatism in the band; ALL conservatism in the gap — F.13 one-knob discipline):
+  //   band = sustainableGrowthBand(...)  → band_low / band_center / band_high (what the business can FUND).
+  //   gap  = requiredGrowthGap(...)      → required_gap in GROWTH-RATE POINTS (the SAME widening factors the
+  //                                        MoS price-haircut used — reuse the widenedMarginOfSafety args 1:1).
+  //
+  // Boundaries (implied = market_implied_growth, lo = band.band_low, gapv = gap.required_gap):
+  //   implied <= lo - gapv            → BUY-WINDOW  (market UNDERPRICES sustainable growth = CHEAP — note the
+  //                                                   direction: LOW implied growth vs a HIGHER honest band is
+  //                                                   the cheap case, not the expensive one.)
+  //   lo - gapv < implied <= lo       → WATCH-FAIR  (within the honest band, no safety gap — human-discretion
+  //                                                   zone; NEVER auto-escalates to BUY.)
+  //   implied > lo                    → WATCH       (fairly-to-richly priced); sub-flag implied_above_band
+  //                                                   when implied >= band_high (market prices ABOVE what the
+  //                                                   business sustains).
+  // Fail-closed: when implied is undefined, the band is not_computable, or OE<=0 (no point FV / no band),
+  // verdict_state stays undefined and the buy-band-unconfirmed clamp below forces a safe non-BUY verdict.
+  const band = sustainableGrowthBand(buffettMungerStrategy, {
+    incremental_roic,
+    reinvestment_rate,
+    demonstrated_growth,
+    runway,
+    moat_class: moatClass,
+    incremental_roic_basis,
+    // capital_light_argument arrives from the valuation lane in a later slice (V5); OMITTED here clamps the
+    // band to the reinvestment×ROIC identity (the honest default), which is fine for now.
+  })
+  const gap = requiredGrowthGap(buffettMungerStrategy, {
+    // Mirror the widenedMarginOfSafety args 1:1 (the SAME documented uncertainties widen the gap).
+    moat_class: moatClass,
+    ...(terminal_value_pct_of_iv !== undefined ? { terminal_value_pct_of_iv } : {}),
+    low_maint_capex_confidence,
+    // Above-GDP growth IS a moat-durability claim (Phase 1.3 coupling) → weak-durability widening.
+    weak_moat_durability: growthResult.above_gdp,
+  })
   let verdict_state:
-    | { state: 'BUY-WINDOW' | 'WATCH-FAIR' | 'WATCH'; discount_to_fv_pct?: number; implied_multiple?: number; note?: string }
+    | {
+        state: 'BUY-WINDOW' | 'WATCH-FAIR' | 'WATCH'
+        market_implied_growth?: number
+        band_low?: number
+        band_high?: number
+        band_center?: number
+        band_grounding_status?: 'grounded' | 'unsupported_high' | 'not_computable'
+        band_basis_citations?: string[]
+        required_gap?: number
+        gap_to_band?: number
+        implied_multiple?: number
+        implied_above_band?: boolean
+        note?: string
+      }
     | undefined
   const sectorShariahFail = shariahJudgment?.sector_status === 'non_compliant'
     || shariah_financial?.verdict === 'FAIL'
   if (
     moat_passes_gate
     && !sectorShariahFail
-    && current_price !== undefined
-    && buy_price_per_share !== undefined
+    && market_implied_growth !== undefined
+    && band.grounding_status !== 'not_computable'
+    // A point fair value (positive OE/share, FV not discarded) underpins the reverse-DCF solve, so its
+    // presence guarantees the implied growth inverts the SAME forward DCF.
     && fair_value_per_share !== undefined
   ) {
-    if (current_price <= buy_price_per_share) {
-      verdict_state = { state: 'BUY-WINDOW', ...(implied_multiple !== undefined ? { implied_multiple } : {}) }
-    } else if (current_price <= fair_value_per_share) {
-      const discount_to_fv_pct = ((fair_value_per_share - current_price) / fair_value_per_share) * 100
+    const implied = market_implied_growth
+    const lo = band.band_low
+    const gapv = gap.required_gap
+    const buyThreshold = lo - gapv
+    // gap_to_band > 0 = how far BELOW the buy threshold the market sits (cheaper); < 0 = above it.
+    const gap_to_band = buyThreshold - implied
+    const common = {
+      market_implied_growth: implied,
+      band_low: band.band_low,
+      band_high: band.band_high,
+      band_center: band.band_center,
+      band_grounding_status: band.grounding_status,
+      band_basis_citations: band.basis_citations,
+      required_gap: gapv,
+      gap_to_band,
+      ...(implied_multiple !== undefined ? { implied_multiple } : {}),
+    }
+    if (implied <= buyThreshold) {
+      // CHEAP: market-implied growth is a full required-gap below the honest band's low edge.
+      verdict_state = { state: 'BUY-WINDOW', ...common }
+    } else if (implied <= lo) {
+      // Within the honest band but no safety gap — human-discretion zone; never a harness buy signal.
       verdict_state = {
         state: 'WATCH-FAIR',
-        discount_to_fv_pct,
-        ...(implied_multiple !== undefined ? { implied_multiple } : {}),
+        ...common,
         note: 'Wonderful at fair — human-discretion zone. No harness buy signal.',
       }
     } else {
-      verdict_state = { state: 'WATCH', ...(implied_multiple !== undefined ? { implied_multiple } : {}) }
+      // Fairly-to-richly priced. Flag when the market prices ABOVE what the business sustains.
+      verdict_state = {
+        state: 'WATCH',
+        ...common,
+        ...(implied >= band.band_high ? { implied_above_band: true } : {}),
+      }
     }
   }
 
