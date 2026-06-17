@@ -118,16 +118,14 @@ const SUPERSEDED_PATTERNS: SupersededPattern[] = [
     // GROWTH GAP (growth-points). The legitimate survivors are NOT in the UI-copy scan scope: the
     // qualitative `owner_earnings_valuation.margin_of_safety` lane string lives in ResearchCasePanel; the
     // `widenedMarginOfSafety`/`marginOfSafetyForMoat` functions + the post-mortem field live in packages.
-    label: 'margin of safety as a PRICE haircut — retired; conservatism is the required growth gap (valuation-core)',
+    label: 'margin of safety as a PRICE haircut — retired; the model proposes a buy-below with cited reasoning (R1)',
     pattern: /margin of safety|\bMoS\b|fair[\s-]value range|provisional[\s-]*MoS/i,
     scan: UI_COPY_SCAN_SET,
-    allow: [
-      {
-        file: 'apps/web/src/components/StrategyOverview.tsx',
-        snippet: 'price-discount margin of safety. The base gap is uniform across investable moats; terminal g is too.',
-        reason: 'StrategyOverview code comment NAMES the retired price-discount MoS to say the conservatism is now the growth gap.',
-      },
-    ],
+    // RELIGHTENED DECISION (R1): the MoS-as-haircut framing is now fully GONE from the UI copy (the
+    // StrategyOverview retirement comment that named "price-discount margin of safety" was removed when the
+    // band/gap copy was reframed to model-proposes-buy-below). No allow entry is needed — the term must not
+    // appear in the UI copy at all.
+    allow: [],
   },
   {
     label: 'valuation multiple as a HARD cap / truncation — now a surfaced cap_exceeded FLAG (Phase 1.6)',

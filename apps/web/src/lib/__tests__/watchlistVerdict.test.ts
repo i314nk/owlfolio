@@ -52,4 +52,28 @@ describe('enrichWatchlistItemsWithVerdict', () => {
     const [enriched] = enrichWatchlistItemsWithVerdict(items, cases, new Date('2026-06-01T00:00:00.000Z'))
     expect(enriched?.verdict).toBeUndefined()
   })
+
+  it('carries the R1 model verdict framing (valuation_status, proposed buy-below, in-buy-zone, sanity flags)', () => {
+    const items = [watchlistItem('w1', 'rc1')]
+    const cases = [{
+      research_case_id: 'rc1',
+      updated_at: '2026-05-01T00:00:00.000Z',
+      valuation_status: 'EXPENSIVE',
+      valuation: {
+        proposed_buy_below: 147,
+        reference_fair_value: 210,
+        in_buy_zone: false,
+        market_implied_growth: 0.09,
+        sanity_flags: ['Implied growth exceeds the demonstrated CAGR.'],
+      },
+    } as unknown as ResearchCaseProjection]
+    const [enriched] = enrichWatchlistItemsWithVerdict(items, cases, new Date('2026-06-01T00:00:00.000Z'))
+    expect(enriched?.verdict?.valuation_status).toBe('EXPENSIVE')
+    expect(enriched?.verdict?.proposed_buy_below).toBe(147)
+    expect(enriched?.verdict?.buy_price_per_share).toBe(147)
+    expect(enriched?.verdict?.reference_fair_value).toBe(210)
+    expect(enriched?.verdict?.in_buy_zone).toBe(false)
+    expect(enriched?.verdict?.market_implied_growth).toBe(0.09)
+    expect(enriched?.verdict?.sanity_flags).toEqual(['Implied growth exceeds the demonstrated CAGR.'])
+  })
 })

@@ -671,16 +671,21 @@ describe('research and watchlist workflow pages', () => {
     // OE-bridge provenance (note + EDGAR chip).
     expect(html).toContain('Owner earnings computed from SEC 10-K FY2025')
     expect(html).toContain('SEC EDGAR')
-    // Valuation-core revision: the dossier LEADS with the growth-axis band + the implied-vs-band lead line.
-    expect(html).toContain('data-testid="growth-band-axis"')
-    expect(html).toContain('Market implies 18.0% growth; business can sustain 4.0–7.0%')
-    expect(html).toContain('Sustainable band')
-    expect(html).toContain('Required growth gap')
-    // Implied growth (18%) is above the band high (7%) → flagged above the sustainable band.
-    expect(html).toContain('above sustainable band')
-    expect(html).toContain('data-implied-zone="above-band"')
-    // The honest "why is the band wide" uncertainty note (thin owner-earnings history).
-    expect(html).toContain('years of usable owner-earnings history')
+    // RELIGHTENED DECISION (R1): the dossier LEADS with the model decision panel — the model-proposed
+    // buy-below (here falling back to buy_price_per_share) and the market-implied growth read. The retired
+    // growth-axis band viz + band/gap labels are gone.
+    expect(html).toContain('data-testid="decision-summary"')
+    expect(html).toContain('Model buy-below')
+    expect(html).toContain('$147.00')
+    expect(html.toLowerCase()).toContain('the market implies')
+    expect(html).toContain('18.0%')
+    // The reference fair value (falls back to fair_value_per_share) is labeled a cross-check, not the decision.
+    expect(html).toContain('$210.00')
+    expect(html.toLowerCase()).toContain('cross-check (not the decision)')
+    // The retired growth-axis band viz + band/gap labels are gone.
+    expect(html).not.toContain('data-testid="growth-band-axis"')
+    expect(html).not.toContain('Sustainable band')
+    expect(html).not.toContain('Required growth gap')
   })
 
   it('renders the personal-local watchlist promotion action only for drafted decisions', () => {

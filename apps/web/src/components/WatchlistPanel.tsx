@@ -26,7 +26,7 @@ const WATCHLIST_ALERT_TONE: Record<MonitorAlert['severity'], 'danger' | 'warning
  * Returns a Fragment so each section is a direct child of the route frame and
  * inherits the app's staggered reveal.
  */
-// ── Verdict-band sections (valuation-recalibration §2): BUY-WINDOW / WATCH-FAIR / WATCH ──
+// ── Model-verdict sections (R1): BUY-WINDOW / WATCH-FAIR / WATCH — the model's proposed verdict states ──
 type VerdictBand = 'BUY-WINDOW' | 'WATCH-FAIR' | 'WATCH' | 'UNCLASSIFIED'
 
 const BAND_ORDER: VerdictBand[] = ['BUY-WINDOW', 'WATCH-FAIR', 'WATCH', 'UNCLASSIFIED']
@@ -34,7 +34,7 @@ const BAND_ORDER: VerdictBand[] = ['BUY-WINDOW', 'WATCH-FAIR', 'WATCH', 'UNCLASS
 const BAND_META: Record<VerdictBand, { title: string; note: string }> = {
   'BUY-WINDOW': {
     title: 'Buy-window',
-    note: 'Price is at or below the case buy price on a gate-clean case. Observation only — you author every buy.',
+    note: 'Price is at or below the model-proposed buy-below on a gate-clean case. Observation only — you author every buy.',
   },
   'WATCH-FAIR': {
     title: 'Watch-fair',
@@ -42,11 +42,11 @@ const BAND_META: Record<VerdictBand, { title: string; note: string }> = {
   },
   WATCH: {
     title: 'Watch',
-    note: 'Tracked while the market implies more growth than the band; waiting for the implied growth to fall a required gap below the band.',
+    note: 'Tracked while the price sits above the model-proposed buy-below; waiting for the price to meet it and the reasoning to hold.',
   },
   UNCLASSIFIED: {
-    title: 'Tracked (no verdict band yet)',
-    note: 'No valuation/verdict band computed yet — run or re-run the case to classify it.',
+    title: 'Tracked (no model verdict yet)',
+    note: 'No model verdict computed yet — run or re-run the case to classify it.',
   },
 }
 
@@ -226,9 +226,11 @@ function createWatchlistCard(item: AppWatchlistItem, mode: WorkflowMode, alerts:
 }
 
 /**
- * Verdict-band figures for one candidate: buy price, the distance from the case buy price (no live quote
- * → said so honestly, never a fake "in the window"), and a staleness indicator (>12mo since the case
- * was last run → must re-run before any tranche alert, per position-sizing §5).
+ * Model-verdict figures for one candidate (R1): the model's valuation status, the MODEL-proposed buy-below,
+ * the distance from that buy-below (no live quote → said so honestly, never a fake "in the window"), the
+ * arithmetic in-buy-zone read, the market-implied growth richness read, the flag-only sanity-check (advisory,
+ * never a block), and a staleness indicator (>12mo since the case was last run → re-run before any tranche
+ * alert, per position-sizing §5). The retired band/gap framing is gone.
  */
 function createVerdictBandDetails(item: AppWatchlistItem) {
   const verdict = item.verdict
@@ -237,42 +239,36 @@ function createVerdictBandDetails(item: AppWatchlistItem) {
   }
 
   const fmtPct = (frac: number) => `${(frac * 100).toFixed(1)}%`
+  const buyBelow = verdict.proposed_buy_below ?? verdict.buy_price_per_share
 
   const lines = []
-  if (verdict.buy_price_per_share !== undefined) {
-    lines.push(createDetail('Case buy price', `$${verdict.buy_price_per_share.toFixed(2)}`))
+  if (verdict.valuation_status !== undefined) {
+    lines.push(createDetail('Model valuation', verdict.valuation_status))
+  }
+  if (buyBelow !== undefined) {
+    lines.push(createDetail('Model buy-below', `$${buyBelow.toFixed(2)}`))
   }
   if (verdict.distance_to_buy_pct !== undefined) {
     const pct = verdict.distance_to_buy_pct
     lines.push(createDetail(
       'Distance to buy price',
-      pct <= 0 ? `${Math.abs(pct).toFixed(1)}% below buy price — in the buy window` : `${pct.toFixed(1)}% above buy price`,
+      pct <= 0 ? `${Math.abs(pct).toFixed(1)}% below the model buy-below — in the buy window` : `${pct.toFixed(1)}% above the model buy-below`,
     ))
   } else {
     lines.push(createDetail('Distance to buy price', 'No live market quote — distance not available'))
   }
-  // Valuation-core revision (growth-axis): the band/gap framing — market-implied growth vs the grounded
-  // sustainable-growth band, with the required gap as the single conservatism knob (NOT a price haircut /
-  // discount-to-fair-value). The buy threshold is band_low − required_gap.
-  if (verdict.band_low !== undefined && verdict.band_high !== undefined) {
-    lines.push(createDetail('Sustainable band', `${fmtPct(verdict.band_low)}–${fmtPct(verdict.band_high)}`))
-    if (verdict.required_gap !== undefined) {
-      const threshold = verdict.band_low - verdict.required_gap
-      lines.push(createDetail('Required growth gap', `${(verdict.required_gap * 100).toFixed(1)} pts (buy below ${fmtPct(threshold)})`))
-    }
+  if (verdict.in_buy_zone !== undefined) {
+    lines.push(createDetail(
+      'Buy-zone',
+      verdict.in_buy_zone ? 'In the buy zone (price ≤ model buy-below)' : 'Not in the buy zone yet',
+    ))
   }
+  // The richness read — what today's price implies the business must grow (reverse-DCF), the model's input.
   if (verdict.market_implied_growth !== undefined) {
     lines.push(createDetail('Market-implied growth', fmtPct(verdict.market_implied_growth)))
   }
-  if (verdict.gap_to_band !== undefined) {
-    const g = verdict.gap_to_band
-    lines.push(createDetail(
-      'Gap to buy threshold',
-      g >= 0 ? `${(g * 100).toFixed(1)} pts below threshold — in the buy window` : `${Math.abs(g * 100).toFixed(1)} pts above the buy threshold`,
-    ))
-  }
-  if (verdict.band_grounding_status !== undefined && verdict.band_grounding_status !== 'grounded') {
-    lines.push(createDetail('Band grounding', verdict.band_grounding_status))
+  if (verdict.reference_fair_value !== undefined) {
+    lines.push(createDetail('Reference fair value', `$${verdict.reference_fair_value.toFixed(2)} — cross-check (not the decision)`))
   }
 
   const staleness = verdict.is_stale === undefined
@@ -281,15 +277,26 @@ function createVerdictBandDetails(item: AppWatchlistItem) {
       ? `Stale (>12 months since last run${verdict.case_updated_at === undefined ? '' : `, last ${verdict.case_updated_at.slice(0, 10)}`}) — re-run before any tranche alert`
       : `Fresh${verdict.case_updated_at === undefined ? '' : ` (last run ${verdict.case_updated_at.slice(0, 10)})`}`
 
+  const sanityFlags = verdict.sanity_flags ?? []
+
   return createElement(
     'div',
     { 'data-testid': 'watchlist-verdict-band', style: { display: 'grid', gap: '0.2rem', marginTop: 'var(--owl-space-2)' } },
-    createElement('p', { className: 'owl-section-accent' }, 'Verdict band'),
+    createElement('p', { className: 'owl-section-accent' }, 'Model verdict'),
     ...lines,
-    verdict.implied_above_band === true ? createElement(
-      'p',
-      { className: 'owl-body', style: { color: 'var(--owl-color-gold-bright)', margin: '0.55rem 0 0' } },
-      'Market-implied growth is above sustainable band — the market prices in growth the business is not shown to sustain.',
+    // The deterministic flag-only sanity-check — advisory amber annotations, never a block.
+    sanityFlags.length > 0 ? createElement(
+      'div',
+      { style: { marginTop: 'var(--owl-space-2)' } },
+      createElement('p', { className: 'owl-body', style: { margin: 0 } },
+        createElement('strong', { style: { color: 'var(--owl-color-gold-bright)', fontWeight: 700 } }, `Sanity-check (${sanityFlags.length}): `),
+        'advisory only — does not block the verdict.',
+      ),
+      createElement(
+        'ul',
+        { className: 'owl-body', style: { color: 'var(--owl-color-gold-bright)', display: 'grid', gap: '0.2rem', margin: '0.2rem 0 0', paddingLeft: '1.1rem' } },
+        ...sanityFlags.map((flag, index) => createElement('li', { key: `wl-sanity-${index}` }, `⚠ ${flag}`)),
+      ),
     ) : null,
     createElement(
       'p',

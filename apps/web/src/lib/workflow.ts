@@ -125,13 +125,25 @@ export type AppWatchlistItem = WatchlistProjection & {
   verdict?: AppWatchlistVerdict
 }
 
-/** Verdict-band + distance-to-buy + staleness info for a watchlist item (derived from its research case). */
+/**
+ * Model-verdict + distance-to-buy + staleness info for a watchlist item (derived from its research case).
+ * RELIGHTENED DECISION (R1): the MODEL proposes the verdict + valuation_status + buy-below; the deterministic
+ * side emits a flag-only sanity-check. The band/gap engine is retired; these fields carry the model's framing.
+ */
 export type AppWatchlistVerdict = {
-  /** 'BUY-WINDOW' | 'WATCH-FAIR' | 'WATCH' when the linked case computed a verdict band; else undefined. */
+  /** 'BUY-WINDOW' | 'WATCH-FAIR' | 'WATCH' when the linked case computed a verdict state; else undefined. */
   state?: string
+  /** The model's valuation status (e.g. FAIR / EXPENSIVE / OVERVALUED). */
+  valuation_status?: string
+  /** The MODEL-proposed buy-below (recorded verbatim, NOT a derived FV). */
+  proposed_buy_below?: number
   buy_price_per_share?: number
-  fair_value_per_share?: number
-  discount_to_fv_pct?: number
+  /** RELIGHTENED DECISION (R1): a forward-DCF cross-check fair value — a reference only, not the decision. */
+  reference_fair_value?: number
+  /** RELIGHTENED DECISION (R1): pure arithmetic — current_price <= buy_below. */
+  in_buy_zone?: boolean
+  /** RELIGHTENED DECISION (R1): the deterministic flag-only sanity-check messages (advisory; never blocks). */
+  sanity_flags?: string[]
   /** Current market price per share, when a quote is available (else undefined → "no live quote"). */
   market_price_per_share?: number
   /** Signed distance of market vs buy price as a fraction (negative = below buy price = in the window). */
@@ -140,22 +152,8 @@ export type AppWatchlistVerdict = {
   case_updated_at?: string
   /** True when the linked case is older than the staleness window (>12 months) and must be re-run. */
   is_stale?: boolean
-  // Valuation-core revision (growth-axis): the sustainable-growth band + required-gap fields carried from
-  // the linked case's verdict_state, so the Watchlist desk shows the band/gap framing (not a price haircut).
-  /** Grounded sustainable-growth band low edge (fraction). */
-  band_low?: number
-  /** Grounded sustainable-growth band high edge (fraction). */
-  band_high?: number
-  /** The single conservatism knob, in growth-rate points (fraction). */
-  required_gap?: number
-  /** (band_low − required_gap) − implied; positive = how far below the buy threshold the market sits. */
-  gap_to_band?: number
-  /** Market-implied near-term growth (reverse-DCF of today's price), fraction. */
+  /** Market-implied near-term growth (reverse-DCF of today's price), fraction — the richness read. */
   market_implied_growth?: number
-  /** grounded | unsupported_high | not_computable. */
-  band_grounding_status?: string
-  /** True when implied ≥ band_high (market prices above what the business sustains). */
-  implied_above_band?: boolean
 }
 
 /**
@@ -173,23 +171,23 @@ export function enrichWatchlistItemsWithVerdict(
   return items.map((item) => {
     const linked = caseById.get(item.research_case_id)
     const valuation = linked?.valuation
-    if (valuation === undefined || valuation.buy_price_per_share === undefined) {
+    const buyBelow = valuation?.proposed_buy_below ?? valuation?.buy_price_per_share
+    if (valuation === undefined || buyBelow === undefined) {
       return item
     }
+    // RELIGHTENED DECISION (R1): carry the MODEL's verdict framing — valuation_status, the model-proposed
+    // buy-below, the arithmetic in-buy-zone, and the flag-only sanity-check. The retired verdict_state.state
+    // still seeds the section grouping for legacy events; new runs no longer emit it.
     const vs = valuation.verdict_state
     const verdict: AppWatchlistVerdict = {
       ...(vs?.state === undefined ? {} : { state: vs.state }),
-      buy_price_per_share: valuation.buy_price_per_share,
-      ...(valuation.fair_value_per_share === undefined ? {} : { fair_value_per_share: valuation.fair_value_per_share }),
-      ...(vs?.discount_to_fv_pct === undefined ? {} : { discount_to_fv_pct: vs.discount_to_fv_pct }),
-      // Growth-axis band/gap fields (carried verbatim from the case verdict_state).
-      ...(vs?.band_low === undefined ? {} : { band_low: vs.band_low }),
-      ...(vs?.band_high === undefined ? {} : { band_high: vs.band_high }),
-      ...(vs?.required_gap === undefined ? {} : { required_gap: vs.required_gap }),
-      ...(vs?.gap_to_band === undefined ? {} : { gap_to_band: vs.gap_to_band }),
-      ...(vs?.market_implied_growth === undefined ? {} : { market_implied_growth: vs.market_implied_growth }),
-      ...(vs?.band_grounding_status === undefined ? {} : { band_grounding_status: vs.band_grounding_status }),
-      ...(vs?.implied_above_band === undefined ? {} : { implied_above_band: vs.implied_above_band }),
+      ...(linked?.valuation_status === undefined ? {} : { valuation_status: linked.valuation_status }),
+      proposed_buy_below: buyBelow,
+      buy_price_per_share: buyBelow,
+      ...(valuation.reference_fair_value === undefined ? {} : { reference_fair_value: valuation.reference_fair_value }),
+      ...(valuation.in_buy_zone === undefined ? {} : { in_buy_zone: valuation.in_buy_zone }),
+      ...(valuation.sanity_flags === undefined ? {} : { sanity_flags: valuation.sanity_flags }),
+      ...(valuation.market_implied_growth === undefined ? {} : { market_implied_growth: valuation.market_implied_growth }),
     }
     const updatedAt = linked?.updated_at
     if (updatedAt !== undefined) {

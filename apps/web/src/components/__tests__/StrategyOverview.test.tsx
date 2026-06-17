@@ -44,36 +44,43 @@ describe('StrategyOverview', () => {
     expect(html).toContain('10%')
   })
 
-  it('renders the uniform base required growth gap from the contract (valuation-core: conservatism is the gap, not a price MoS)', () => {
+  it('reframes the decision to model-proposes-buy-below + deterministic sanity-check + human-decides (R1)', () => {
     const html = render()
-    // The required_growth_gap config/engine were removed (the model now proposes the verdict with cited
-    // reasoning; determinism only sanity-checks). The UI renders a 3% display constant for the worked example.
-    expect(html).toContain('3%')
-    expect(html.toLowerCase()).toContain('required growth gap')
-    expect(html.toLowerCase()).toContain('growth-points')
-    // The page describes the monopoly as a durability signal, not a narrower gap.
-    expect(html.toLowerCase()).toContain('durability')
-    // The MoS-as-price-haircut framing is retired from the UI copy (only the explanatory code comment
-    // names it, which never renders).
+    const lower = html.toLowerCase()
+    // The model proposes the verdict/valuation/buy-below with cited reasoning.
+    expect(lower).toContain('the model proposes')
+    expect(lower).toContain('cited reasoning')
+    expect(lower).toContain('buy-below')
+    // A deterministic sanity-check flags absurdity but never blocks; the human audits and decides.
+    expect(lower).toContain('sanity-check')
+    expect(lower).toContain('audit')
+    // The page describes the monopoly as a durability signal.
+    expect(lower).toContain('durability')
+    // The retired MoS-as-price-haircut framing stays gone (Phase-8 tripwire — guards the retired MoS terms).
     expect(html).not.toContain('Base margin of safety')
     expect(html).not.toContain('× (1 −')
+    // The retired band/gap framing must NOT be reintroduced by the reframe.
+    expect(lower).not.toContain('required growth gap')
+    expect(lower).not.toContain('sustainable-growth band')
+    expect(lower).not.toContain('sustainable band')
+    expect(html).not.toContain('band_low')
+    expect(html).not.toContain('growth-points')
   })
 
-  it('describes the two-stage DCF + the sustainable-growth band the implied growth is judged against (band/gap, not MoS price haircut)', () => {
+  it('describes the two-stage DCF as a cross-check reference, not the decision (R1)', () => {
     const html = render()
+    const lower = html.toLowerCase()
     // Two-stage framing + terminal fade.
     expect(html).toContain('two stages')
-    expect(html.toLowerCase()).toContain('terminal')
+    expect(lower).toContain('terminal')
     // New growth model: demonstrated owner-earnings growth under a named forecasting-humility cap.
-    expect(html.toLowerCase()).toContain('humility')
-    expect(html.toLowerCase()).toContain('runway')
-    // Valuation-core: the decision is reverse-DCF market-implied growth vs the grounded sustainable band,
-    // with the required gap as the single conservatism knob.
-    expect(html.toLowerCase()).toContain('sustainable-growth band')
-    expect(html.toLowerCase()).toContain('required growth gap')
-    expect(html.toLowerCase()).toContain('market-implied')
+    expect(lower).toContain('humility')
+    expect(lower).toContain('runway')
+    // The forward-DCF fair value is a cross-check sanity reference, NOT the decision.
+    expect(lower).toContain('cross-check')
+    expect(lower).toContain('not the decision')
     // No stale single-stage equity-bond prose.
-    expect(html.toLowerCase()).not.toContain('equity bond')
+    expect(lower).not.toContain('equity bond')
     expect(html).not.toContain('OE / (')
   })
 

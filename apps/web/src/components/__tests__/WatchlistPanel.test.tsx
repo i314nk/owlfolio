@@ -22,12 +22,12 @@ function render(items: AppWatchlistItem[]): string {
   return renderToStaticMarkup(createElement(WatchlistPanel, { items, mode: 'personal-local' }))
 }
 
-describe('WatchlistPanel verdict-band sections', () => {
+describe('WatchlistPanel model-verdict sections', () => {
   it('splits candidates into BUY-WINDOW / WATCH-FAIR / WATCH sections by verdict state', () => {
     const html = render([
-      item({ watchlist_item_id: 'w_buy', ticker: 'AAA', verdict: { state: 'BUY-WINDOW', buy_price_per_share: 100 } }),
-      item({ watchlist_item_id: 'w_fair', ticker: 'BBB', verdict: { state: 'WATCH-FAIR', buy_price_per_share: 80, discount_to_fv_pct: 12 } }),
-      item({ watchlist_item_id: 'w_watch', ticker: 'CCC', verdict: { state: 'WATCH', buy_price_per_share: 50 } }),
+      item({ watchlist_item_id: 'w_buy', ticker: 'AAA', verdict: { state: 'BUY-WINDOW', proposed_buy_below: 100 } }),
+      item({ watchlist_item_id: 'w_fair', ticker: 'BBB', verdict: { state: 'WATCH-FAIR', proposed_buy_below: 80 } }),
+      item({ watchlist_item_id: 'w_watch', ticker: 'CCC', verdict: { state: 'WATCH', proposed_buy_below: 50 } }),
     ])
     expect(html).toContain('data-verdict-band="BUY-WINDOW"')
     expect(html).toContain('data-verdict-band="WATCH-FAIR"')
@@ -39,58 +39,62 @@ describe('WatchlistPanel verdict-band sections', () => {
       item({
         watchlist_item_id: 'w_buy',
         ticker: 'AAA',
-        verdict: { state: 'BUY-WINDOW', buy_price_per_share: 100, distance_to_buy_pct: -8, is_stale: false, case_updated_at: '2026-02-01T00:00:00.000Z' },
+        verdict: { state: 'BUY-WINDOW', proposed_buy_below: 100, distance_to_buy_pct: -8, is_stale: false, case_updated_at: '2026-02-01T00:00:00.000Z' },
       }),
     ])
     expect(html).toContain('Distance to buy price')
     expect(html).toContain('in the buy window')
     expect(html).toContain('Staleness:')
-    expect(html).toContain('Case buy price')
+    expect(html).toContain('Model buy-below')
   })
 
-  it('renders the band + required-gap framing when the case carries band fields', () => {
+  it('renders the model verdict framing: valuation status, model buy-below, in-buy-zone, market-implied growth', () => {
     const html = render([
       item({
-        watchlist_item_id: 'w_band',
+        watchlist_item_id: 'w_model',
         ticker: 'GGG',
         verdict: {
           state: 'WATCH',
-          buy_price_per_share: 100,
-          band_low: 0.05,
-          band_high: 0.08,
-          required_gap: 0.02,
-          gap_to_band: -0.04,
+          valuation_status: 'EXPENSIVE',
+          proposed_buy_below: 147,
+          reference_fair_value: 210,
+          in_buy_zone: false,
           market_implied_growth: 0.09,
         },
       }),
     ])
-    expect(html).toContain('Sustainable band')
-    expect(html).toContain('5.0%')
-    expect(html).toContain('8.0%')
-    expect(html).toContain('Required growth gap')
+    expect(html).toContain('Model valuation')
+    expect(html).toContain('EXPENSIVE')
+    expect(html).toContain('Model buy-below')
+    expect(html).toContain('$147.00')
+    expect(html).toContain('Buy-zone')
+    expect(html).toContain('Not in the buy zone')
     expect(html).toContain('Market-implied growth')
-    expect(html).toContain('Gap to buy threshold')
-    // The retired price-vs-FV "discount to fair value" framing is gone.
+    expect(html).toContain('9.0%')
+    // The reference fair value is labeled a cross-check, not the decision.
+    expect(html).toContain('cross-check (not the decision)')
+    // The retired band/gap + price-vs-FV framing is gone.
+    expect(html).not.toContain('Sustainable band')
+    expect(html).not.toContain('Required growth gap')
     expect(html).not.toContain('Discount to fair value')
   })
 
-  it('flags an above-sustainable-band implied growth as a risk note', () => {
+  it('renders the flag-only sanity-check as advisory annotations (never a block)', () => {
     const html = render([
       item({
-        watchlist_item_id: 'w_above',
+        watchlist_item_id: 'w_sanity',
         ticker: 'HHH',
         verdict: {
           state: 'WATCH',
-          buy_price_per_share: 100,
-          band_low: 0.05,
-          band_high: 0.08,
-          required_gap: 0.02,
+          proposed_buy_below: 100,
           market_implied_growth: 0.12,
-          implied_above_band: true,
+          sanity_flags: ['Implied growth 12% exceeds the demonstrated CAGR — implausible.'],
         },
       }),
     ])
-    expect(html).toContain('above sustainable band')
+    expect(html).toContain('Sanity-check (1)')
+    expect(html).toContain('does not block the verdict')
+    expect(html).toContain('Implied growth 12% exceeds the demonstrated CAGR')
   })
 
   it('flags a stale case honestly and shows an honest "no quote" distance', () => {
@@ -98,7 +102,7 @@ describe('WatchlistPanel verdict-band sections', () => {
       item({
         watchlist_item_id: 'w_stale',
         ticker: 'DDD',
-        verdict: { state: 'WATCH', buy_price_per_share: 60, is_stale: true, case_updated_at: '2024-01-01T00:00:00.000Z' },
+        verdict: { state: 'WATCH', proposed_buy_below: 60, is_stale: true, case_updated_at: '2024-01-01T00:00:00.000Z' },
       }),
     ])
     expect(html).toContain('Stale (&gt;12 months since last run')

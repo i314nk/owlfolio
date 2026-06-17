@@ -187,7 +187,10 @@ export function ResearchCasePanel({ researchCase, mode = 'demo', configuredProvi
     createReAnalysisDiffPanel(researchCase),
     // ── 1c. Exit post-mortem (predicted vs realized) ─────────────────────────
     createPostMortemPanel(researchCase),
-    // ── 2. Valuation panel ──────────────────────────────────────────────────
+    // ── 1d. Decision panel (R1): the model's verdict/valuation_status, the model-proposed buy-below +
+    //        in-buy-zone, and the flag-only sanity-check. Leads with what the human needs to decide. ──
+    createDecisionPanel(researchCase, marketQuote),
+    // ── 2. Valuation panel — the reasoning to audit (cited reasoning, reference FV cross-check, etc.) ──
     createValuationPanel(researchCase, marketQuote),
     // ── 2b. Position plan (advisory) ─────────────────────────────────────────
     createPositionPlanPanel(positionPlan, promptForCapital),
@@ -877,154 +880,135 @@ function createVerdictSummaryText(researchCase: AppResearchCase): string {
   return fullThesis ?? 'This dossier is waiting for a source-backed investment reason.'
 }
 
-// ── Valuation panel ───────────────────────────────────────────────────────────
+// ── Decision panel (R1) ───────────────────────────────────────────────────────
 
 /**
- * Growth-axis band visualization (valuation-core revision): a horizontal GROWTH axis rendering the grounded
- * sustainable-growth band [band_low, band_high] as a shaded span, the market-IMPLIED growth as a marker,
- * and the buy-threshold (band_low − required_gap) marked. The implied marker is coloured by zone: in the
- * buy zone (≤ threshold) uses the cheap/accent token, above the band high uses the gold/risk token. Built
- * from owl-* tokens + the same absolute-tick idiom the retired price bar used. Pure presentation.
+ * RELIGHTENED DECISION (R1) — the dossier LEADS with what the human needs to decide:
+ *   - the model's investment verdict + valuation_status,
+ *   - the MODEL-proposed buy-below vs the live price, with the arithmetic in-buy-zone read,
+ *   - the deterministic flag-only sanity-check (`sanity_flags`) as advisory amber annotations.
+ * The sanity-check FLAGS internal absurdity; it NEVER blocks the verdict. The reasoning to audit
+ * (cited valuation_reasoning, the reference FV cross-check, market-implied growth, the bear case) lives
+ * in the valuation panel beneath. Native owl-*; no band/gap axis.
  */
-function createGrowthBandAxis(args: {
-  bandLow: number
-  bandHigh: number
-  impliedGrowth: number
-  buyThreshold: number | undefined
-  impliedZone: 'buy' | 'in-band' | 'above-band'
-}) {
-  const { bandLow, bandHigh, impliedGrowth, buyThreshold, impliedZone } = args
-  // Axis domain: pad around the widest of {threshold, band, implied} so every marker stays visible.
-  const lo = Math.min(buyThreshold ?? bandLow, bandLow, impliedGrowth)
-  const hi = Math.max(bandHigh, impliedGrowth)
-  const span = Math.max(hi - lo, 0.0001)
-  const pad = span * 0.12
-  const domainLo = lo - pad
-  const domainHi = hi + pad
-  const toPct = (g: number) => Math.min(98, Math.max(2, ((g - domainLo) / (domainHi - domainLo)) * 100))
-  const bandLeft = toPct(bandLow)
-  const bandRight = toPct(bandHigh)
-  const impliedPct = toPct(impliedGrowth)
-  const thresholdPct = buyThreshold !== undefined ? toPct(buyThreshold) : undefined
-  const impliedColor = impliedZone === 'above-band'
-    ? 'var(--owl-color-gold-bright)'
-    : impliedZone === 'buy'
-      ? 'var(--owl-color-accent-bright)'
-      : 'var(--owl-color-text)'
-  const fmt = (g: number) => `${(g * 100).toFixed(1)}%`
+function createDecisionPanel(researchCase: AppResearchCase, marketQuote?: MarketQuote) {
+  const valuation = researchCase.valuation
+  if (valuation === undefined) return null
+
+  const buyBelow = valuation.proposed_buy_below ?? valuation.buy_price_per_share
+  const sanityFlags = valuation.sanity_flags ?? []
+  // Nothing decision-relevant to lead with → let the valuation panel carry it.
+  if (buyBelow === undefined && sanityFlags.length === 0 && valuation.in_buy_zone === undefined) {
+    return null
+  }
+
+  const verdict = researchCase.investment_verdict ?? researchCase.decision
+  const valuationStatus = researchCase.valuation_status
+  const livePrice = marketQuote?.price_per_share
+  // The in-buy-zone read is pure arithmetic (current_price <= buy_below). Prefer the recorded flag, else
+  // derive it from the live quote vs the model buy-below when both are present.
+  const inBuyZone = valuation.in_buy_zone
+    ?? (livePrice !== undefined && buyBelow !== undefined ? livePrice <= buyBelow : undefined)
 
   return createElement(
-    'div',
-    { 'data-testid': 'growth-band-axis', style: { padding: '2.6rem 0 2.4rem', position: 'relative' } },
-    // The axis track.
+    'section',
+    {
+      'data-testid': 'decision-summary',
+      className: 'owl-section-card',
+      style: { gap: '0.7rem' },
+    },
+    // Header + the model verdict / valuation-status pills (decision-relevant, leads).
+    createElement('p', { className: 'owl-section-accent' }, 'The decision'),
+    createElement(
+      'p',
+      { style: { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-sm)', lineHeight: 1.5, margin: 0 } },
+      'The model proposes the verdict, the valuation, and the buy-below with cited reasoning. A light deterministic sanity-check flags internal absurdity — it does not block the verdict. You audit the reasoning beneath and decide.',
+    ),
     createElement(
       'div',
-      {
-        style: {
-          background: 'var(--owl-color-panel-deep)',
-          border: '1px solid var(--owl-color-border)',
-          borderRadius: '0.7rem',
-          height: '48px',
-          position: 'relative',
-        },
+      { style: { alignItems: 'center', display: 'flex', flexWrap: 'wrap', gap: '0.6rem' } },
+      verdict === undefined ? null : createPill(
+        `Model verdict: ${verdict}`,
+        resolveVerdictColors(verdict),
+      ),
+      valuationStatus === undefined ? null : createPill(
+        `Valuation: ${valuationStatus}`,
+        resolveValuationChipColor(valuationStatus),
+      ),
+    ),
+    // Model-proposed buy-below vs live price + the in-buy-zone arithmetic.
+    createElement(
+      'div',
+      { className: 'owl-ledger-line', style: { marginTop: '0.2rem' } },
+      createValuationLedgerStat(
+        'Model buy-below',
+        buyBelow !== undefined ? `$${buyBelow.toFixed(2)}` : 'Pending',
+        'owl-ledger-figure-money',
+      ),
+      createValuationLedgerStat(
+        'Live price',
+        livePrice !== undefined ? `$${livePrice.toFixed(2)}` : 'No live quote',
+        'owl-ledger-figure-money',
+      ),
+      createValuationLedgerStat(
+        'Buy-zone',
+        inBuyZone === undefined
+          ? 'Not computable'
+          : inBuyZone ? 'In the buy zone' : 'Not in the buy zone',
+        inBuyZone === true ? 'owl-ledger-figure-emerald' : '',
+      ),
+    ),
+    livePrice !== undefined && buyBelow !== undefined ? createElement(
+      'p',
+      { style: { color: inBuyZone ? '#bbf7d0' : 'var(--owl-color-muted)', fontSize: 'var(--owl-text-base)', lineHeight: 1.5, margin: 0 } },
+      inBuyZone
+        ? `Live price $${livePrice.toFixed(2)} is at or below the model buy-below $${buyBelow.toFixed(2)} — in the buy zone if the reasoning holds.`
+        : `Live price $${livePrice.toFixed(2)} is above the model buy-below $${buyBelow.toFixed(2)} — not in the buy zone yet.`,
+    ) : null,
+    // The deterministic sanity-check flags — advisory amber annotations, never blocks.
+    sanityFlags.length > 0 ? createSanityFlags(sanityFlags) : null,
+  )
+}
+
+/**
+ * The flag-only sanity-check (R1): deterministic, symmetric (over-optimistic + over-pessimistic + absurdity)
+ * advisory messages. Rendered as clear amber/risk annotations — flags, NOT blocks. The verdict is the
+ * model's; these only surface "this implies X, which is implausible because Y"-style catches for the human.
+ */
+function createSanityFlags(flags: string[]) {
+  return createElement(
+    'div',
+    {
+      'data-testid': 'sanity-flags',
+      style: {
+        background: 'rgba(214, 178, 94, 0.08)',
+        border: '1px solid rgba(214, 178, 94, 0.4)',
+        borderRadius: '0.7rem',
+        display: 'grid',
+        gap: '0.4rem',
+        marginTop: '0.2rem',
+        padding: '0.7rem 0.9rem',
       },
-      // Shaded sustainable-growth band span [band_low, band_high].
+    },
+    createElement(
+      'div',
+      { style: { alignItems: 'center', display: 'flex', flexWrap: 'wrap', gap: '0.5rem' } },
+      createElement(StatusBadge, { tone: 'warning' }, `Sanity-check · ${flags.length} flag${flags.length === 1 ? '' : 's'}`),
       createElement(
-        'div',
-        {
-          'data-testid': 'sustainable-band-span',
-          style: {
-            background: 'rgba(34, 197, 94, 0.18)',
-            borderLeft: '1px solid var(--owl-color-accent-bright)',
-            borderRight: '1px solid var(--owl-color-accent-bright)',
-            bottom: 0,
-            left: `${bandLeft}%`,
-            position: 'absolute',
-            top: 0,
-            width: `${Math.max(bandRight - bandLeft, 0.5)}%`,
-          },
-        },
-        createElement(
-          'span',
-          {
-            style: {
-              color: 'var(--owl-color-accent-bright)',
-              fontFamily: 'var(--owl-font-mono)',
-              fontSize: 'var(--owl-text-2xs)',
-              left: '50%',
-              position: 'absolute',
-              top: '-20px',
-              transform: 'translateX(-50%)',
-              whiteSpace: 'nowrap',
-            },
-          },
-          `Sustainable band ${fmt(bandLow)}–${fmt(bandHigh)}`,
-        ),
+        'span',
+        { style: { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-sm)' } },
+        'Advisory only — flags internal absurdity; does not block the verdict.',
       ),
-      // Buy-threshold marker (band_low − required_gap).
-      thresholdPct !== undefined ? createElement(
-        'div',
-        {
-          'data-testid': 'buy-threshold-marker',
-          style: {
-            background: 'var(--owl-color-accent-bright)',
-            bottom: '-8px',
-            left: `${thresholdPct}%`,
-            position: 'absolute',
-            top: '-8px',
-            width: '2px',
-          },
-        },
-        createElement(
-          'span',
-          {
-            style: {
-              bottom: '-26px',
-              color: 'var(--owl-color-accent-bright)',
-              fontFamily: 'var(--owl-font-mono)',
-              fontSize: 'var(--owl-text-2xs)',
-              left: '50%',
-              position: 'absolute',
-              transform: 'translateX(-50%)',
-              whiteSpace: 'nowrap',
-            },
-          },
-          `Buy below ${fmt(buyThreshold!)}`,
-        ),
-      ) : null,
-      // Market-implied growth marker (coloured by zone).
-      createElement(
-        'div',
-        {
-          'data-testid': 'implied-growth-marker',
-          'data-implied-zone': impliedZone,
-          style: {
-            background: impliedColor,
-            bottom: '-8px',
-            left: `${impliedPct}%`,
-            position: 'absolute',
-            top: '-8px',
-            width: '2px',
-          },
-        },
-        createElement(
-          'span',
-          {
-            style: {
-              color: impliedColor,
-              fontFamily: 'var(--owl-font-mono)',
-              fontSize: 'var(--owl-text-sm)',
-              fontWeight: 800,
-              left: '50%',
-              position: 'absolute',
-              top: '-26px',
-              transform: 'translateX(-50%)',
-              whiteSpace: 'nowrap',
-            },
-          },
-          `Implied ${fmt(impliedGrowth)}`,
-        ),
-      ),
+    ),
+    createElement(
+      'ul',
+      { style: { display: 'grid', gap: '0.35rem', margin: 0, paddingLeft: '1.1rem' } },
+      ...flags.map((flag, index) => createElement(
+        'li',
+        { key: `sanity-${index}`, style: { color: '#f0d999', fontSize: 'var(--owl-text-base)', lineHeight: 1.5 } },
+        createElement('span', { style: { marginRight: '0.35rem' } }, '⚠'),
+        flag,
+      )),
     ),
   )
 }
@@ -1033,16 +1017,14 @@ function createValuationPanel(researchCase: AppResearchCase, marketQuote?: Marke
   const valuation = researchCase.valuation
   if (valuation === undefined) return null
 
-  const buyPrice = valuation.buy_price_per_share
-  const fairValue = valuation.fair_value_per_share
-  // The reverse-DCF market-implied growth (fallback when verdict_state omits it). The dossier leads with
-  // the growth-axis band view; fair_value_per_share is now only a band-center reference, not the lead.
+  const pctPts = (frac: number) => `${(frac * 100).toFixed(1)}%`
+
+  // RELIGHTENED DECISION (R1): the MODEL's cited reasoning is the substance to audit. The reference fair
+  // value is a deterministic CROSS-CHECK only (not the decision); market-implied growth is the richness read.
+  const referenceFairValue = valuation.reference_fair_value ?? valuation.fair_value_per_share
   const marketImpliedGrowth = valuation.market_implied_growth
-  const capBinding = valuation.valuation_cap_binding === true
+  const reasoning = valuation.valuation_reasoning
   const discountRateVal = valuation.discount_rate
-  // MoS-as-price-haircut is RETIRED (conservatism now lives in the required_growth_gap); the computed
-  // margin_of_safety projection field is gone. The growth-axis band visualization (V7) replaces this read.
-  const mosVal: number | undefined = undefined
   const moatClass = valuation.moat_class ?? 'unknown'
   const roic = valuation.roic
   const incrementalRoic = valuation.incremental_roic
@@ -1051,19 +1033,6 @@ function createValuationPanel(researchCase: AppResearchCase, marketQuote?: Marke
   const reinvestmentRate = valuation.reinvestment_rate
   const runway = valuation.runway
   const impliedMultiple = valuation.implied_multiple
-  const verdictState = valuation.verdict_state
-  // Valuation-core revision (growth-axis): the decision is reverse-DCF market-implied growth vs a grounded
-  // SUSTAINABLE-GROWTH BAND, with the buy-threshold at (band_low − required_gap). The band fields live on
-  // verdict_state (V3/V4); the growth-axis view replaces the retired price-vs-fair-value bar entirely.
-  const bandLow = verdictState?.band_low
-  const bandHigh = verdictState?.band_high
-  const requiredGap = verdictState?.required_gap
-  const gapToBand = verdictState?.gap_to_band
-  const impliedGrowth = verdictState?.market_implied_growth ?? marketImpliedGrowth
-  const bandGroundingStatus = verdictState?.band_grounding_status
-  const bandBasisCitations = verdictState?.band_basis_citations ?? []
-  const impliedAboveBand = verdictState?.implied_above_band === true
-  const hasBand = bandLow !== undefined && bandHigh !== undefined && impliedGrowth !== undefined
   // Judgment-objectivity layer (Mechanisms 1+2): mechanical anchor vs the lane's proposed tier vs the
   // harness-resolved tier. Surfaced so the dossier shows where judgment moved the tier (and by how much).
   const moatJudgment = valuation.judgment?.moat
@@ -1084,10 +1053,10 @@ function createValuationPanel(researchCase: AppResearchCase, marketQuote?: Marke
   const sourceDiscipline = researchCase.source_discipline
   const rejectedSourceCount = sourceDiscipline?.rejected_count ?? 0
 
-  // Mechanism 5 (Red-Team Pass): the adversarial pre-synthesis run + the synthesis obligation. We
-  // surface the strongest objection + the synthesis response (answered-with-evidence vs accepted→
-  // downgraded), and the deterministic flags: objection_unaddressed (synthesis was silent — never
-  // dropped) and red_team_incomplete (the case was not adversarially tested).
+  // Mechanism 5 (Red-Team Pass) — the INDEPENDENT BEAR CASE. The adversarial pre-synthesis run + the
+  // synthesis obligation. We surface the strongest objection + the synthesis response (answered-with-
+  // evidence vs accepted→downgraded), and the deterministic flags: objection_unaddressed (synthesis was
+  // silent — never dropped) and red_team_incomplete (the case was not adversarially tested).
   const redTeam = researchCase.red_team
   const redTeamIncomplete = redTeam?.status === 'red_team_incomplete'
   const redTeamObjection = redTeam?.strongest_objection
@@ -1095,10 +1064,7 @@ function createValuationPanel(researchCase: AppResearchCase, marketQuote?: Marke
   const redTeamUnaddressed = redTeam?.objection_unaddressed === true
 
   const discountLabel = discountRateVal !== undefined ? `${Math.round(discountRateVal * 100)}%` : '10%'
-  const mosLabel = mosVal !== undefined ? `${Math.round(mosVal * 100)}%` : undefined
-  const moatLabel = mosLabel !== undefined
-    ? `${moatClass.toUpperCase()} MOAT · ${discountLabel} DISCOUNT · ${mosLabel} MOS`
-    : `${moatClass.toUpperCase()} MOAT · ${discountLabel} DISCOUNT`
+  const moatLabel = `${moatClass.toUpperCase()} MOAT · ${discountLabel} DISCOUNT`
 
   // Two-stage credited-growth label: g (10yr) fading to terminal g_t, gated by incremental ROIC.
   // Growth credit requires incremental ROIC > 10%; runway is the binding axis, moat tier the ceiling.
@@ -1111,40 +1077,8 @@ function createValuationPanel(researchCase: AppResearchCase, marketQuote?: Marke
       : `g=0%${fadeLabel}${eligRoic !== undefined ? ` · incremental ROIC ${(eligRoic * 100).toFixed(0)}% ≤ 10% (no growth credit)` : ' (no growth credit)'}${runwayLabel}`
     : undefined
 
-  // Growth-axis lead line (valuation-core revision): "Market implies {implied}% growth; business can
-  // sustain {band_low}–{band_high}% (grounded in {reinvestment}%×{incrementalROIC}% + cited durability);
-  // buy below {threshold}%. Gap to buy: {gap_to_band} pts." The threshold is (band_low − required_gap).
-  const buyThreshold = (bandLow !== undefined && requiredGap !== undefined) ? bandLow - requiredGap : undefined
-  const pctPts = (frac: number) => `${(frac * 100).toFixed(1)}%`
-  const groundingClause = (reinvestmentRate !== undefined && incrementalRoic !== undefined)
-    ? ` (grounded in ${(reinvestmentRate * 100).toFixed(0)}%×${(incrementalRoic * 100).toFixed(0)}% + cited durability)`
-    : ''
-  const gapClause = gapToBand !== undefined
-    ? ` Gap to buy: ${gapToBand >= 0 ? '' : '−'}${Math.abs(gapToBand * 100).toFixed(1)} pts${gapToBand >= 0 ? ' below threshold — in the buy window.' : ' above the buy threshold.'}`
-    : ''
-  const growthLeadLine = hasBand
-    ? `Market implies ${pctPts(impliedGrowth!)} growth; business can sustain ${(bandLow! * 100).toFixed(1)}–${(bandHigh! * 100).toFixed(1)}%${groundingClause}`
-      + (buyThreshold !== undefined ? `; buy below ${pctPts(buyThreshold)}.` : '.')
-      + gapClause
-    : undefined
-
-  // Implied-growth zone (drives the marker colour + the data-implied-zone testid):
-  //   buy        — implied ≤ buy threshold (cheap/accent)
-  //   in-band    — buy threshold < implied ≤ band_high (tracked)
-  //   above-band — implied ≥ band_high (richness/risk; gold)
-  const impliedZone: 'buy' | 'in-band' | 'above-band' = hasBand
-    ? (impliedAboveBand || (bandHigh !== undefined && impliedGrowth! >= bandHigh)
-        ? 'above-band'
-        : (buyThreshold !== undefined && impliedGrowth! <= buyThreshold ? 'buy' : 'in-band'))
-    : 'in-band'
-
-  // Phase 2: cap-binding note — the base fair value is limited by the named growth cap, not by the
-  // growth estimate. And an uncertainty note when the range is wide (thin owner-earnings history).
-  const capBindingNote = capBinding
-    ? `Base fair value is cap-limited: demonstrated growth exceeds the forecasting-humility cap, so the upside is held at the cap (not confident headroom).`
-    : undefined
-  // The harness builds the "why is the range wide" note (it has the usable-history depth + dispersion).
-  const rangeUncertaintyNote = valuation.fair_value_range_basis
+  // The assumed growth the model used (its number, cited). Falls back to the credited growth_rate.
+  const assumedGrowth = reasoning?.assumed_growth ?? growthRate
 
   // Owner-earnings bridge summary for collapsible
   const bridge = valuation.owner_earnings_bridge
@@ -1182,70 +1116,46 @@ function createValuationPanel(researchCase: AppResearchCase, marketQuote?: Marke
         moatLabel,
       ),
     ),
-    // Growth-axis band visualization (valuation-core revision): market-implied growth vs the grounded
-    // sustainable-growth band, with the buy-threshold (band_low − required_gap) marked. Replaces the
-    // retired price-vs-fair-value bar. Honest "not yet computed" line when the band is unavailable.
-    hasBand
-      ? createGrowthBandAxis({
-          bandLow: bandLow!,
-          bandHigh: bandHigh!,
-          impliedGrowth: impliedGrowth!,
-          buyThreshold,
-          impliedZone,
-        })
-      : createElement(
-          'p',
-          { style: { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-base)', lineHeight: 1.5, margin: 0 } },
-          'Sustainable-growth band not yet computed — run the valuation lane.',
-        ),
-    // Lead line: market implies X% growth vs the sustainable band, buy-threshold, gap to buy.
-    growthLeadLine !== undefined ? createElement(
+    createElement(
       'p',
-      { 'data-testid': 'growth-band-lead', style: { color: '#d7e2d7', fontSize: 'var(--owl-text-base)', lineHeight: 1.55, margin: '0.6rem 0 0' } },
-      createElement('strong', { style: { color: 'var(--owl-color-accent-bright)' } }, growthLeadLine),
-    ) : null,
-    // Band-grounding status badge (e.g. unsupported_high) + an above-sustainable-band risk note.
-    bandGroundingStatus !== undefined && bandGroundingStatus !== 'grounded' ? createElement(
-      'p',
-      { 'data-testid': 'band-grounding-status', style: { margin: '0.4rem 0 0' } },
-      createElement(StatusBadge, { tone: 'warning' }, `band grounding: ${bandGroundingStatus}`),
-    ) : null,
-    impliedAboveBand ? createElement(
-      'p',
-      { 'data-testid': 'implied-above-band-note', style: { color: 'var(--owl-color-gold-bright)', fontSize: 'var(--owl-text-sm)', lineHeight: 1.45, margin: '0.4rem 0 0' } },
-      'Market-implied growth is above sustainable band — the market is pricing in growth the business is not shown to sustain (a richness/risk signal).',
-    ) : null,
-    // Band basis citations — the durability evidence that grounds the band (collapsible details).
-    bandBasisCitations.length > 0 ? createElement(
-      'details',
-      { 'data-testid': 'band-basis', style: { ...collapsibleDetailsStyle, marginTop: '0.6rem' } },
-      createElement('summary', { style: collapsibleSummaryStyle }, `Band basis (${bandBasisCitations.length})`),
-      createElement(
+      { style: { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-sm)', lineHeight: 1.5, margin: 0 } },
+      'The reasoning to audit. The model proposed the verdict and the buy-below above; here it shows its work. The deterministic fair value is a cross-check only — it is not the decision.',
+    ),
+    // The MODEL's cited valuation reasoning — it shows its work (owner-earnings basis, the growth it
+    // assumed + WHY, the discount rationale). The substance the human audits.
+    reasoning !== undefined ? createElement(
+      'div',
+      {
+        'data-testid': 'valuation-reasoning',
+        style: { display: 'grid', gap: '0.45rem', marginTop: '0.4rem' },
+      },
+      createElement('p', { className: 'owl-section-accent' }, 'Model valuation reasoning (cited)'),
+      reasoning.owner_earnings_basis !== undefined ? createElement(
         'p',
-        { style: { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-sm)', margin: '0.5rem 0' } },
-        'The sustainable-growth band is grounded in the reinvestment × incremental-ROIC identity plus cited durability evidence.',
-      ),
-      createElement(
-        'ul',
-        { style: { display: 'grid', gap: '0.3rem', margin: 0, paddingLeft: '1.1rem' } },
-        ...bandBasisCitations.map((citation) => createElement(
-          'li',
-          { key: citation, style: { color: 'var(--owl-color-text)', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-sm)' } },
-          citation,
-        )),
-      ),
+        { style: { color: '#dbe3ef', fontSize: 'var(--owl-text-base)', lineHeight: 1.55, margin: 0 } },
+        createElement('strong', { style: { color: 'var(--owl-color-sand)' } }, 'Owner-earnings basis: '),
+        reasoning.owner_earnings_basis,
+      ) : null,
+      assumedGrowth !== undefined ? createElement(
+        'p',
+        { style: { color: '#dbe3ef', fontSize: 'var(--owl-text-base)', lineHeight: 1.55, margin: 0 } },
+        createElement('strong', { style: { color: 'var(--owl-color-sand)' } }, 'Assumed growth: '),
+        `the model assumes ${pctPts(assumedGrowth)} near-term growth`,
+        reasoning.assumed_growth_rationale !== undefined ? ` — ${reasoning.assumed_growth_rationale}` : '',
+      ) : null,
+      reasoning.discount_rationale !== undefined ? createElement(
+        'p',
+        { style: { color: '#dbe3ef', fontSize: 'var(--owl-text-base)', lineHeight: 1.55, margin: 0 } },
+        createElement('strong', { style: { color: 'var(--owl-color-sand)' } }, 'Discount: '),
+        reasoning.discount_rationale,
+      ) : null,
     ) : null,
-    // Phase 2: uncertainty note — why the range is wide (thin history / dispersion). Honest, not precise.
-    rangeUncertaintyNote !== undefined ? createElement(
+    // Market-implied growth read — the richness signal (what today's price implies the business must grow).
+    marketImpliedGrowth !== undefined ? createElement(
       'p',
-      { 'data-testid': 'range-uncertainty-note', style: { color: 'var(--owl-color-muted)', fontStyle: 'italic', fontSize: 'var(--owl-text-sm)', lineHeight: 1.4, margin: '0.5rem 0 0' } },
-      rangeUncertaintyNote,
-    ) : null,
-    // Cap-binding note (when the base reference fair value is held at the growth cap).
-    capBindingNote !== undefined ? createElement(
-      'p',
-      { 'data-testid': 'cap-binding-note', style: { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-sm)', lineHeight: 1.4, margin: '0.2rem 0 0' } },
-      capBindingNote,
+      { 'data-testid': 'market-implied-growth', style: { color: '#d7e2d7', fontSize: 'var(--owl-text-base)', lineHeight: 1.5, margin: '0.4rem 0 0' } },
+      createElement('strong', { style: { color: 'var(--owl-color-accent-bright)' } }, `The market implies ${pctPts(marketImpliedGrowth)} growth`),
+      assumedGrowth !== undefined ? ` vs the model's assumed ${pctPts(assumedGrowth)}.` : '.',
     ) : null,
     // ROIC gate / growth note
     roicGateLabel !== undefined ? createElement(
@@ -1253,75 +1163,27 @@ function createValuationPanel(researchCase: AppResearchCase, marketQuote?: Marke
       { style: { color: 'var(--owl-color-muted)', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-sm)', lineHeight: 1.4, margin: '0.2rem 0 0' } },
       roicGateLabel,
     ) : null,
-    // Market quote context (when a live quote is available) — reference only; the decision axis is growth.
+    // Market quote context (when a live quote is available) — reference only.
     marketQuote !== undefined ? createElement(
       'p',
       { style: { color: 'var(--owl-color-quiet)', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-2xs)', margin: '0.2rem 0 0' } },
       `Market $${marketQuote.price_per_share.toFixed(2)} (${marketQuote.currency}) · Yahoo Finance, as of ${new Date(marketQuote.as_of).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`,
     ) : null,
-    // WATCH-FAIR callout (valuation-core revision): the human-discretion zone — market implies growth
-    // between the buy-threshold and the band low. Never a harness buy signal; framed in growth points.
-    verdictState?.state === 'WATCH-FAIR' ? createElement(
-      'div',
-      {
-        'data-testid': 'watch-fair-callout',
-        style: {
-          background: 'rgba(214, 178, 94, 0.08)',
-          border: '1px solid rgba(214, 178, 94, 0.4)',
-          borderRadius: '0.7rem',
-          display: 'grid',
-          gap: '0.3rem',
-          margin: '0.6rem 0 0',
-          padding: '0.7rem 0.85rem',
-        },
-      },
-      createElement(
-        'p',
-        { style: { color: 'var(--owl-color-gold-bright)', fontSize: 'var(--owl-text-base)', fontWeight: 800, margin: 0 } },
-        'WATCH-FAIR',
-      ),
-      createElement(
-        'p',
-        { style: { color: '#f0d999', fontSize: 'var(--owl-text-base)', lineHeight: 1.5, margin: 0 } },
-        verdictState.note ?? 'Wonderful at fair — human-discretion zone. No harness buy signal.',
-      ),
-      createElement(
-        'p',
-        { style: { color: 'var(--owl-color-muted)', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-sm)', margin: 0 } },
-        [
-          (impliedGrowth !== undefined && bandLow !== undefined) ? `implied ${pctPts(impliedGrowth)} vs band low ${pctPts(bandLow)}` : undefined,
-          impliedMultiple !== undefined ? `implied ${impliedMultiple.toFixed(1)}× OE` : undefined,
-        ].filter((s): s is string => s !== undefined).join(' · '),
-      ),
-    ) : null,
-    // Key figures — the ledger-line of the valuation, reframed to the band + gap. The sustainable band
-    // and the required growth gap are primary; fair value / buy-below / implied multiple are secondary
-    // references (fair value is the band-CENTER reference, not the decision driver).
+    // Key figures — the ledger-line of the valuation. The reference fair value is the deterministic
+    // CROSS-CHECK (clearly labeled NOT the decision); the model's buy-below + verdict drive the decision.
     createElement(
       'div',
       { className: 'owl-ledger-line', style: { marginTop: '1rem' } },
       createValuationLedgerStat(
-        'Sustainable band',
-        (bandLow !== undefined && bandHigh !== undefined) ? `${pctPts(bandLow)}–${pctPts(bandHigh)}` : 'Pending',
-        'owl-ledger-figure-emerald',
-      ),
-      createValuationLedgerStat(
-        'Required growth gap',
-        requiredGap !== undefined ? `${(requiredGap * 100).toFixed(1)} pts` : 'Pending',
-        '',
+        'Reference fair value · cross-check (not the decision)',
+        referenceFairValue !== undefined ? `$${referenceFairValue.toFixed(2)}` : 'Pending',
+        'owl-ledger-figure-money',
       ),
       createValuationLedgerStat(
         'Market-implied growth',
-        impliedGrowth !== undefined ? pctPts(impliedGrowth) : 'Pending',
-        impliedZone === 'above-band' ? 'owl-ledger-figure-risk' : impliedZone === 'buy' ? 'owl-ledger-figure-emerald' : '',
+        marketImpliedGrowth !== undefined ? pctPts(marketImpliedGrowth) : 'Pending',
+        '',
       ),
-      createValuationLedgerStat(
-        'Buy-threshold growth',
-        buyThreshold !== undefined ? pctPts(buyThreshold) : 'Pending',
-        'owl-ledger-figure-emerald',
-      ),
-      createValuationLedgerStat('Fair value · band-center reference', fairValue !== undefined ? `$${fairValue.toFixed(2)}` : 'Pending', 'owl-ledger-figure-money'),
-      createValuationLedgerStat('Buy-below price reference', buyPrice !== undefined ? `$${buyPrice}` : 'Pending', 'owl-ledger-figure-money'),
       createValuationLedgerStat('Implied multiple', impliedMultiple !== undefined ? `${impliedMultiple.toFixed(1)}× OE` : 'Pending', ''),
       createValuationLedgerStat('Owner earnings / sh', valuation.normalized_owner_earnings_per_share !== undefined ? `$${valuation.normalized_owner_earnings_per_share.toFixed(2)}` : 'Pending', 'owl-ledger-figure-money'),
       createValuationLedgerStat('Terminal g', terminalGrowthRate !== undefined ? `${(terminalGrowthRate * 100).toFixed(0)}%` : 'Pending', ''),
@@ -1384,7 +1246,7 @@ function createValuationPanel(researchCase: AppResearchCase, marketQuote?: Marke
           color: (redTeamUnaddressed || redTeamIncomplete) ? '#f87171' : 'var(--owl-color-gold-bright)',
           fontWeight: 800, fontSize: 'var(--owl-text-sm)', margin: '0 0 0.3rem',
         },
-      }, 'Red-team'),
+      }, 'Independent bear case (red-team)'),
       redTeamIncomplete ? createElement('p', {
         style: { color: '#fca5a5', fontSize: 'var(--owl-text-xs)', fontFamily: 'var(--owl-font-mono)', margin: 0 },
       }, `red_team_incomplete — the adversarial pass did not complete${redTeam.reason !== undefined ? ` (${redTeam.reason})` : ''}. The case was NOT adversarially tested; re-run before relying on the verdict.`)

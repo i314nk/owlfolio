@@ -83,17 +83,28 @@ describe('LearnTabs', () => {
     expect(nextTabIndex(2, 'a', LEARN_TABS.length)).toBe(2) // ignored key
   })
 
-  it('renders the live two-stage DCF params on the strategy panel', () => {
+  it('renders the live two-stage DCF params + the R1 model-proposes-buy-below reframe on the strategy panel', () => {
     const html = render('strategy')
-    // Valuation-core — UNIFORM base required growth gap 3% (growth-points) + 18x cap + flat 10% discount.
-    expect(html).toContain('3%')
+    const lower = html.toLowerCase()
+    // Live params still render: 18× cap + flat 10% discount.
     expect(html).toContain('18×')
     expect(html).toContain('10%')
-    expect(html.toLowerCase()).toContain('required growth gap')
-    expect(html.toLowerCase()).toContain('sustainable-growth band')
+    // R1 reframe: the model proposes the verdict/valuation/buy-below with cited reasoning; the two-stage
+    // DCF is a cross-check sanity reference, not the decision; a sanity-check flags absurdity, human decides.
+    expect(lower).toContain('the model proposes')
+    expect(lower).toContain('cited reasoning')
+    expect(lower).toContain('buy-below')
+    expect(lower).toContain('cross-check')
+    expect(lower).toContain('sanity-check')
     // The monopoly tier no longer loosens valuation — it is described as a durability signal.
-    expect(html.toLowerCase()).toContain('durability')
-    expect(html.toLowerCase()).toContain('uniform')
+    expect(lower).toContain('durability')
+    expect(lower).toContain('uniform')
+    // The retired band/gap framing must NOT be reintroduced (Phase-8 tripwire — retired band/MoS terms).
+    expect(lower).not.toContain('required growth gap')
+    expect(lower).not.toContain('sustainable-growth band')
+    expect(lower).not.toContain('sustainable band')
+    expect(html).not.toContain('band_low')
+    expect(html).not.toContain('growth-points')
   })
 
   it('describes admission discipline on the strategy panel without overclaiming', () => {
