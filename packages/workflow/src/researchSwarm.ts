@@ -43,7 +43,7 @@ export {
   type GroundedAgentResult,
   type SynthesisResponse,
 }
-import { computeIncrementalRoic, demonstratedOwnerEarningsGrowth, estimateMaintenanceCapex, type Fundamentals, type SecEdgarDeps } from './secEdgar'
+import { computeIncrementalRoic, demonstratedOwnerEarningsGrowth, estimateMaintenanceCapex, ownerEarningsVsFcfDiagnostic, type Fundamentals, type SecEdgarDeps } from './secEdgar'
 import { resolveFundamentalsForTicker } from './fundamentalsProvider'
 import { evaluateBaseRateBurden, type BaseRateBurdenFlag } from './baseRateBurden'
 import { BASE_RATES } from '@owlfolio/strategies/baseRates'
@@ -1461,6 +1461,9 @@ export async function runResearchDeepDivePhase(
     shares_outstanding,
   }
 
+  const ownerEarningsVsFcf = ownerEarningsVsFcfDiagnostic(fundamentals?.latest_annual, maintenance_capex)
+  for (const flag of ownerEarningsVsFcf.flags) degradedFlags.push(`fcf_screen: ${flag}`)
+
   const owner_earnings_total =
     net_income
     + d_and_a
@@ -2155,6 +2158,7 @@ export async function runResearchDeepDivePhase(
         incremental_roic_basis,
         reinvestment_rate,
         owner_earnings_bridge: bridge,
+        owner_earnings_vs_fcf: ownerEarningsVsFcf,
         ...(normalized_owner_earnings_per_share !== undefined ? { normalized_owner_earnings_per_share } : {}),
         ...(valuationCaveats.length > 0 ? { valuation_caveats: valuationCaveats } : {}),
         // Visible degraded flags: each OPTIONAL structured field the model omitted (rubric, Shariah

@@ -365,6 +365,22 @@ export type MaintenanceCapexEstimate = {
   both_computable: boolean
 }
 
+export const GROWTH_CAPEX_HEAVY_CAPEX_TO_DA_RATIO = 1.25
+export const GROWTH_CAPEX_HEAVY_CAPEX_TO_MAINT_RATIO = 1.25
+
+export type OwnerEarningsVsFcfDiagnostic = {
+  role: 'fast_screen_only_owner_earnings_is_authority'
+  valuation_authority: 'owner_earnings'
+  total_capex_musd?: number
+  d_and_a_musd?: number
+  maintenance_capex_musd?: number
+  capex_to_d_and_a?: number
+  capex_to_maintenance_capex?: number
+  growth_capex_heavy: boolean
+  fcf_likely_understates_owner_economics: boolean
+  flags: string[]
+}
+
 /**
  * Relative gap between the two maint-capex proxies above which their disagreement counts as genuine
  * estimation DISPERSION (review, pre-1.9). Calibration-adjacent but not a frozen valuation knob.
@@ -450,6 +466,62 @@ export function estimateMaintenanceCapex(series: AnnualFacts[]): MaintenanceCape
   if (daFloor !== undefined) return { maintenance_capex: daFloor, basis: 'd_and_a_floor', ...proxies }
   if (greenwald !== undefined) return { maintenance_capex: greenwald, basis: 'greenwald', ...proxies }
   return { basis: 'not_computable', both_computable: false }
+}
+
+/**
+ * FCF-vs-owner-earnings diagnostic for the automated fast screen.
+ *
+ * Owlfolio's valuation authority is owner earnings. This helper does NOT replace the OE bridge; it surfaces
+ * when a reported-FCF/P-FCF calculator is probably conservative because total capex includes growth capex.
+ */
+export function ownerEarningsVsFcfDiagnostic(
+  latest: AnnualFacts | undefined,
+  maintenanceCapex?: number,
+): OwnerEarningsVsFcfDiagnostic {
+  const flags: string[] = []
+  const finite = (v: number | undefined): v is number => typeof v === 'number' && Number.isFinite(v)
+  if (latest === undefined) {
+    return {
+      role: 'fast_screen_only_owner_earnings_is_authority',
+      valuation_authority: 'owner_earnings',
+      growth_capex_heavy: false,
+      fcf_likely_understates_owner_economics: false,
+      flags: ['fcf_screen_not_computable: no latest annual facts available; owner earnings remains authority'],
+    }
+  }
+
+  const capex = finite(latest.capex_musd) ? latest.capex_musd : undefined
+  const da = finite(latest.d_and_a_musd) ? latest.d_and_a_musd : undefined
+  const maint = finite(maintenanceCapex) ? maintenanceCapex : undefined
+  const capexToDa = capex !== undefined && da !== undefined && da > 0 ? capex / da : undefined
+  const capexToMaint = capex !== undefined && maint !== undefined && maint > 0 ? capex / maint : undefined
+  const growthCapexHeavy = Boolean(
+    (capexToDa !== undefined && capexToDa >= GROWTH_CAPEX_HEAVY_CAPEX_TO_DA_RATIO)
+    || (capexToMaint !== undefined && capexToMaint >= GROWTH_CAPEX_HEAVY_CAPEX_TO_MAINT_RATIO),
+  )
+
+  if (growthCapexHeavy) {
+    flags.push(
+      'growth_capex_heavy: total capex materially exceeds D&A and/or estimated maintenance capex; '
+      + 'reported FCF/P-FCF likely understates owner economics and biases reverse-FCF implied growth high',
+    )
+  }
+  if (capex === undefined || da === undefined) {
+    flags.push('fcf_screen_incomplete: capex or D&A missing; cannot test whether total-capex FCF is a fair OE proxy')
+  }
+
+  return {
+    role: 'fast_screen_only_owner_earnings_is_authority',
+    valuation_authority: 'owner_earnings',
+    ...(capex !== undefined ? { total_capex_musd: capex } : {}),
+    ...(da !== undefined ? { d_and_a_musd: da } : {}),
+    ...(maint !== undefined ? { maintenance_capex_musd: maint } : {}),
+    ...(capexToDa !== undefined ? { capex_to_d_and_a: capexToDa } : {}),
+    ...(capexToMaint !== undefined ? { capex_to_maintenance_capex: capexToMaint } : {}),
+    growth_capex_heavy: growthCapexHeavy,
+    fcf_likely_understates_owner_economics: growthCapexHeavy,
+    flags,
+  }
 }
 
 // ---------------------------------------------------------------------------

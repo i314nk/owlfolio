@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 
-import { estimateMaintenanceCapex, maintenanceCapexLowConfidence, ownerEarningsCagr } from '../secEdgar'
+import { estimateMaintenanceCapex, maintenanceCapexLowConfidence, ownerEarningsCagr, ownerEarningsVsFcfDiagnostic } from '../secEdgar'
 import type { AnnualFacts, OwnerEarningsPerSharePoint } from '../secEdgar'
 
 // Buffett-Munger gap-closing Phase 1.2: dual maintenance-capex proxy.
@@ -87,6 +87,32 @@ describe('estimateMaintenanceCapex', () => {
     expect(r.both_computable).toBe(false)
     expect(r.greenwald).toBeUndefined()
     expect(r.d_and_a_floor).toBeCloseTo(180, 6)
+  })
+})
+
+// FCF-vs-OE diagnostic: reported FCF/P-FCF is only a fast screen; growth capex can make it too punitive.
+describe('ownerEarningsVsFcfDiagnostic', () => {
+  it('flags growth-capex-heavy years where total capex materially exceeds maintenance capex / D&A', () => {
+    const r = ownerEarningsVsFcfDiagnostic(
+      yr(2024, { capex_musd: 500, d_and_a_musd: 200 }),
+      200,
+    )
+    expect(r.role).toBe('fast_screen_only_owner_earnings_is_authority')
+    expect(r.valuation_authority).toBe('owner_earnings')
+    expect(r.growth_capex_heavy).toBe(true)
+    expect(r.fcf_likely_understates_owner_economics).toBe(true)
+    expect(r.capex_to_d_and_a).toBeCloseTo(2.5, 6)
+    expect(r.flags.join(' ')).toContain('reported FCF/P-FCF likely understates owner economics')
+  })
+
+  it('does not flag mature steady-state capex that approximates D&A and maintenance capex', () => {
+    const r = ownerEarningsVsFcfDiagnostic(
+      yr(2024, { capex_musd: 105, d_and_a_musd: 100 }),
+      100,
+    )
+    expect(r.growth_capex_heavy).toBe(false)
+    expect(r.fcf_likely_understates_owner_economics).toBe(false)
+    expect(r.flags).toEqual([])
   })
 })
 
