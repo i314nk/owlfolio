@@ -19,6 +19,7 @@ import {
 } from '@owlfolio/workflow'
 import { afterEach, describe, expect, it } from 'vitest'
 
+import { resolveAppConfigPath } from '../appConfigStore'
 import {
   confirmPersonalHoldingReviewDraft,
   createPersonalHoldingReviewDraft,
@@ -116,6 +117,50 @@ describe('workflow helpers', () => {
       } finally {
         store.close()
       }
+    } finally {
+      if (previousTestMode === undefined) {
+        delete process.env.OWLFOLIO_TEST_MODE
+      } else {
+        process.env.OWLFOLIO_TEST_MODE = previousTestMode
+      }
+    }
+  })
+
+  it('propagates the web app resolved app-config path to the spawned research worker (so it does not fall back to the demo/mock config)', async () => {
+    const previousTestMode = process.env.OWLFOLIO_TEST_MODE
+    delete process.env.OWLFOLIO_TEST_MODE
+
+    try {
+      const projectDir = await mkdtemp(join(tmpdir(), 'owlfolio-enqueue-research-config-'))
+      dirs.push(projectDir)
+
+      const ledgerPath = join(projectDir, 'data', 'personal-ledger.sqlite')
+      const sourceLedgerPath = join(projectDir, 'data', 'source-ledger')
+      const state = {
+        config: {
+          ...defaultPersonalLocalAppConfig(),
+          provider: {
+            provider_id: 'mock-provider' as const,
+            support_level: 'certified' as const,
+            model_id: 'mock-buffett-munger-demo',
+          },
+          initialized_at: '2026-05-29T12:00:00.000Z',
+          ledger_path: ledgerPath,
+          source_ledger_path: sourceLedgerPath,
+        },
+        is_initialized: true,
+      }
+
+      let capturedPaths: { ledgerPath: string; sourceLedgerPath: string; appConfigPath: string } | undefined
+      await enqueueResearchRun(state, { ticker: 'INTC' }, {
+        spawn: (paths) => {
+          capturedPaths = paths
+        },
+      })
+
+      expect(capturedPaths?.appConfigPath).toBe(resolveAppConfigPath())
+      expect(capturedPaths?.ledgerPath).toBe(ledgerPath)
+      expect(capturedPaths?.sourceLedgerPath).toBe(sourceLedgerPath)
     } finally {
       if (previousTestMode === undefined) {
         delete process.env.OWLFOLIO_TEST_MODE

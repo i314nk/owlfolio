@@ -29,6 +29,8 @@ import { resolveProvider } from '@owlfolio/providers'
 import { VALUATION_PARAMS } from '@owlfolio/strategies/valuationParams'
 import { CHECKLIST_PARAMS, type ChecklistAudit } from '@owlfolio/strategies/checklistParams'
 import { resolveAdmissionThesisDraft, resolveBusinessFindings } from './checklistEvidence'
+import { resolveAppConfigPath } from './appConfigStore'
+import { resolveProviderCertificationReportDir } from './providerStatus'
 import type { AppConfig } from '@owlfolio/shared'
 import {
   assertShariahGateAllowsTransition,
@@ -238,9 +240,20 @@ export function resolveActiveWorkflowMode(config: Pick<AppConfig, 'mode'>): Work
   return config.mode
 }
 
-type SpawnWorkerPaths = { ledgerPath: string; sourceLedgerPath: string }
+type SpawnWorkerPaths = {
+  ledgerPath: string
+  sourceLedgerPath: string
+  /**
+   * The app-config file the web app itself resolved. The spawned worker MUST read the same file,
+   * otherwise it falls back to defaultDemoAppConfig() (mode `demo`, provider `mock-provider`) and a
+   * personal-local run silently executes the mock swarm. This is the load-bearing fix.
+   */
+  appConfigPath: string
+  /** Provider-certification report dir, propagated so the worker's readiness/cert checks match the web app's. */
+  providerCertificationDir?: string
+}
 
-function defaultSpawnWorker({ ledgerPath, sourceLedgerPath }: SpawnWorkerPaths): void {
+function defaultSpawnWorker({ ledgerPath, sourceLedgerPath, appConfigPath, providerCertificationDir }: SpawnWorkerPaths): void {
   const child = spawn('corepack', ['pnpm', '--filter', '@owlfolio/worker', 'dev', '--', '--once', '--task-kind', 'process_research_queue'], {
     cwd: process.env.OWLFOLIO_PROJECT_DIR ?? process.cwd(),
     env: {
@@ -248,6 +261,8 @@ function defaultSpawnWorker({ ledgerPath, sourceLedgerPath }: SpawnWorkerPaths):
       OWLFOLIO_LEDGER_PATH: ledgerPath,
       OWLFOLIO_SOURCE_LEDGER_PATH: sourceLedgerPath,
       OWLFOLIO_PROJECT_DIR: process.env.OWLFOLIO_PROJECT_DIR ?? process.cwd(),
+      OWLFOLIO_APP_CONFIG_PATH: appConfigPath,
+      ...(providerCertificationDir === undefined ? {} : { OWLFOLIO_PROVIDER_CERTIFICATION_DIR: providerCertificationDir }),
     },
     detached: true,
     stdio: 'ignore',
@@ -255,7 +270,7 @@ function defaultSpawnWorker({ ledgerPath, sourceLedgerPath }: SpawnWorkerPaths):
   child.unref()
 }
 
-function defaultSpawnDeepDiveWorker({ ledgerPath, sourceLedgerPath }: SpawnWorkerPaths): void {
+function defaultSpawnDeepDiveWorker({ ledgerPath, sourceLedgerPath, appConfigPath, providerCertificationDir }: SpawnWorkerPaths): void {
   const child = spawn('corepack', ['pnpm', '--filter', '@owlfolio/worker', 'dev', '--', '--once', '--task-kind', 'process_deep_dive_queue'], {
     cwd: process.env.OWLFOLIO_PROJECT_DIR ?? process.cwd(),
     env: {
@@ -263,6 +278,8 @@ function defaultSpawnDeepDiveWorker({ ledgerPath, sourceLedgerPath }: SpawnWorke
       OWLFOLIO_LEDGER_PATH: ledgerPath,
       OWLFOLIO_SOURCE_LEDGER_PATH: sourceLedgerPath,
       OWLFOLIO_PROJECT_DIR: process.env.OWLFOLIO_PROJECT_DIR ?? process.cwd(),
+      OWLFOLIO_APP_CONFIG_PATH: appConfigPath,
+      ...(providerCertificationDir === undefined ? {} : { OWLFOLIO_PROVIDER_CERTIFICATION_DIR: providerCertificationDir }),
     },
     detached: true,
     stdio: 'ignore',
@@ -392,7 +409,12 @@ export async function enqueueResearchRun(
     store.close()
   }
 
-  ;(deps.spawn ?? defaultSpawnWorker)({ ledgerPath: state.config.ledger_path, sourceLedgerPath: state.config.source_ledger_path })
+  ;(deps.spawn ?? defaultSpawnWorker)({
+    ledgerPath: state.config.ledger_path,
+    sourceLedgerPath: state.config.source_ledger_path,
+    appConfigPath: resolveAppConfigPath(),
+    providerCertificationDir: resolveProviderCertificationReportDir(),
+  })
 
   return { research_case_id: researchCaseId }
 }
@@ -488,7 +510,12 @@ export async function requestDeepDiveRun(
     store.close()
   }
 
-  ;(deps.spawn ?? defaultSpawnDeepDiveWorker)({ ledgerPath: state.config.ledger_path, sourceLedgerPath: state.config.source_ledger_path })
+  ;(deps.spawn ?? defaultSpawnDeepDiveWorker)({
+    ledgerPath: state.config.ledger_path,
+    sourceLedgerPath: state.config.source_ledger_path,
+    appConfigPath: resolveAppConfigPath(),
+    providerCertificationDir: resolveProviderCertificationReportDir(),
+  })
 
   return { research_case_id: researchCaseId }
 }
