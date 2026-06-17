@@ -214,6 +214,11 @@ export type ResearchCaseValuationProjection = {
   reinvestment_rate?: number
   owner_earnings_bridge?: OwnerEarningsBridgeProjection
   normalized_owner_earnings_per_share?: number
+  /**
+   * Presentation-only intrinsic-value reference at the sustainable-growth band CENTER (forward DCF at
+   * g = band_center). NOT the decision driver — the verdict is market-implied-growth-vs-band (see
+   * verdict_state), not price-vs-fair-value.
+   */
   fair_value_per_share?: number
   /** Implied multiple = fair_value_per_share / OE_ps. */
   implied_multiple?: number
@@ -226,6 +231,12 @@ export type ResearchCaseValuationProjection = {
   margin_of_safety_applied?: number
   /** Phase 1.6: the reasons the single MoS knob widened beyond the moat base floor. */
   margin_of_safety_widening_reasons?: string[]
+  /**
+   * The price at which market-implied growth rises to the buy-threshold (band_low − required_gap) — i.e.
+   * the forward DCF evaluated at g = band_low − required_gap, repurposing the monotonic two-stage DCF as a
+   * price-from-growth function. By construction the reverse-DCF implied growth at this price equals the
+   * buy-threshold (round-trip-consistent). NOT fair_value × (1 − MoS).
+   */
   buy_price_per_share?: number
   /**
    * Phase 2: a formatted low–high (base) fair-value RANGE derived from the growth-measure's own

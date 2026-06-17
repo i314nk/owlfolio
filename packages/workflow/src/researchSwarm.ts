@@ -1657,7 +1657,10 @@ export async function runResearchDeepDivePhase(
       })
       margin_of_safety = widened.margin_of_safety
       margin_of_safety_widening_reasons = widened.widening_reasons
-      buy_price_per_share = Math.round(fair_value_per_share * (1 - margin_of_safety) * 100) / 100
+      // NOTE: buy_price_per_share is NO LONGER fair_value × (1 − MoS). The valuation-core revision (V3)
+      // moved the buy decision to implied-growth-vs-band, so the buy-below is now the PRICE at which the
+      // market-implied growth rises to the buy-threshold (band_low − required_gap). It is derived below,
+      // once the sustainable-growth band and required gap are computed (see the verdict-band section).
 
       // ---- Phase 2: sensitivity RANGE around the point FV (attachment/presentation only) ----
       // A low/base/high fair-value band straddling the CREDITED growth, widened by the growth measure's
@@ -1916,6 +1919,64 @@ export async function runResearchDeepDivePhase(
     // Above-GDP growth IS a moat-durability claim (Phase 1.3 coupling) → weak-durability widening.
     weak_moat_durability: growthResult.above_gdp,
   })
+
+  // ---- buy-below = price where market-implied growth meets the buy-threshold; fair_value = band center ----
+  // The monotonic forward DCF (twoStageValuation, increasing in g) is REPURPOSED as a price-from-growth
+  // function (V2 of the valuation-core revision):
+  //   buy_price_per_share  = forward DCF at g = band_low − required_gap (the buy-threshold). This is, by
+  //                          construction, the price at which the reverse-DCF market-implied growth rises to
+  //                          exactly band_low − required_gap — i.e. the cheapest price that still clears the
+  //                          buy gate. It REPLACES the old fair_value × (1 − MoS) haircut.
+  //   fair_value_per_share = forward DCF at g = band_center. PRESENTATION-ONLY reference anchor; it is NOT
+  //                          the decision driver — the verdict is implied-growth-vs-band (V3), not price-vs-FV.
+  // Both reuse the SAME twoStageValuation arg basis the point FV used (oe_ps, terminal_g, discount,
+  // ceiling_multiple, horizon; fade_years defaults to the config growth_fade_years, as the point FV and the
+  // reverse-DCF solve both do — keeping forward/reverse round-trip-consistent). Fail-closed: only when a
+  // point FV exists (positive OE/share, moat investable, FV not discarded) AND the band/gap are computable.
+  if (
+    fair_value_per_share !== undefined
+    && terminal_growth_rate !== undefined
+    && normalized_owner_earnings_per_share !== undefined
+    && normalized_owner_earnings_per_share > 0
+    && band.grounding_status !== 'not_computable'
+    && Number.isFinite(band.band_center)
+    && Number.isFinite(band.band_low)
+    && Number.isFinite(gap.required_gap)
+  ) {
+    const valHorizon = stage1HorizonForMoat(buffettMungerStrategy, moatClass)
+    // fair_value: presentation-only band-center reference (NOT the decision driver).
+    const fvAtCenter = twoStageValuation({
+      oe_ps: normalized_owner_earnings_per_share,
+      g: band.band_center,
+      terminal_g: terminal_growth_rate,
+      discount,
+      ceiling_multiple: valuation_multiple_ceiling,
+      absurd_multiple: buffettMungerStrategy.valuation.fv_absurd_multiple,
+      horizon: valHorizon,
+    }).fair_value
+    if (fvAtCenter !== undefined && Number.isFinite(fvAtCenter) && fvAtCenter > 0 && fvAtCenter <= MAX_PLAUSIBLE_FAIR_VALUE_PER_SHARE) {
+      fair_value_per_share = Math.round(fvAtCenter * 100) / 100
+    }
+    // buy-below: the price at which market-implied growth rises to the buy-threshold (band_low − required_gap).
+    const gThreshold = band.band_low - gap.required_gap
+    // The reverse-DCF search brackets near-term growth in [G_LOW, G_HIGH] = [-0.5, 0.5]; a threshold below
+    // that floor is not expressible by the round-trip, so skip (fail-closed → buy-band-unconfirmed clamp).
+    if (Number.isFinite(gThreshold) && gThreshold > -0.5) {
+      const fvAtThreshold = twoStageValuation({
+        oe_ps: normalized_owner_earnings_per_share,
+        g: gThreshold,
+        terminal_g: terminal_growth_rate,
+        discount,
+        ceiling_multiple: valuation_multiple_ceiling,
+        absurd_multiple: buffettMungerStrategy.valuation.fv_absurd_multiple,
+        horizon: valHorizon,
+      }).fair_value
+      if (fvAtThreshold !== undefined && Number.isFinite(fvAtThreshold) && fvAtThreshold > 0 && fvAtThreshold <= MAX_PLAUSIBLE_FAIR_VALUE_PER_SHARE) {
+        buy_price_per_share = Math.round(fvAtThreshold * 100) / 100
+      }
+    }
+  }
+
   let verdict_state:
     | {
         state: 'BUY-WINDOW' | 'WATCH-FAIR' | 'WATCH'
@@ -1942,6 +2003,9 @@ export async function runResearchDeepDivePhase(
     // A point fair value (positive OE/share, FV not discarded) underpins the reverse-DCF solve, so its
     // presence guarantees the implied growth inverts the SAME forward DCF.
     && fair_value_per_share !== undefined
+    // The threshold-derived buy-below must also be expressible; if it failed closed (e.g. the buy-threshold
+    // growth fell below the reverse-DCF bracket floor), leave verdict_state undefined → buy-band-unconfirmed.
+    && buy_price_per_share !== undefined
   ) {
     const implied = market_implied_growth
     const lo = band.band_low

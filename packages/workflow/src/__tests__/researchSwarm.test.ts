@@ -7,6 +7,8 @@ import { z } from 'zod'
 import { InMemoryEventStore } from '@owlfolio/ledger/eventStore'
 import { projectResearchCases } from '@owlfolio/ledger/projections/researchCaseProjection'
 import { MockProvider } from '@owlfolio/providers/mockProvider'
+import { marketImpliedGrowth } from '@owlfolio/strategies/reverseDcf'
+import { stage1HorizonForMoat, terminalGrowthForMoat, discountRate, buffettMungerStrategy } from '@owlfolio/strategies/buffettMunger'
 import { runGroundedAgent, ProposedSourcesSchema, runLaneSwarm, runStrategyResearchSwarm, ResearchSwarmStageError, resolveJudgmentTiers, type GroundFn } from '../researchSwarm'
 import type { AnnualFacts } from '../secEdgar'
 import { buffettMungerDeepDiveLanes } from '../strategyResearchPipeline'
@@ -794,15 +796,19 @@ describe('runStrategyResearchSwarm with MockProvider + deterministic grounder', 
     expect(caseProjection?.valuation?.growth_basis).toBe('none')
     // terminal g — UNIFORM for every investable moat (F.13) = 0.015
     expect(caseProjection?.valuation?.terminal_growth_rate).toBe(0.015)
-    // two-stage fair value at g=0, uniform horizon 10, terminal 1.5% ≈ 150.48 (under 18× cap of 252)
-    expect(caseProjection?.valuation?.fair_value_per_share).toBeCloseTo(150.48, 0)
+    // fair_value is now the PRESENTATION-ONLY band-center reference (valuation-core revision V2): the
+    // forward DCF at g = band_center ≈ 237.64 (was the g=0 credited-growth FV 150.48 under the old model).
+    expect(caseProjection?.valuation?.fair_value_per_share).toBeCloseTo(237.64, 0)
+    // Per-share sanity: well under the 18× OE absurdity ceiling.
     expect(caseProjection?.valuation?.fair_value_per_share ?? 0).toBeLessThan(18 * 14)
-    // implied multiple ≈ 10.75×
+    // implied multiple ≈ 10.75× (computed at the credited-growth point FV / OE — unchanged by the band anchor).
     expect(caseProjection?.valuation?.implied_multiple).toBeCloseTo(10.75, 1)
-    // margin_of_safety — UNIFORM base for every investable moat (F.13): 0.25
+    // margin_of_safety — UNIFORM base for every investable moat (F.13): 0.25 (still surfaced; no longer
+    // drives the buy-below).
     expect(caseProjection?.valuation?.margin_of_safety).toBe(0.25)
-    // buy_price = round(150.48 * 0.75, 2) ≈ 112.86
-    expect(caseProjection?.valuation?.buy_price_per_share).toBeCloseTo(112.86, 0)
+    // buy_price is now the forward DCF at the buy-threshold g = band_low − required_gap ≈ 189.42 (NOT
+    // fair_value × (1 − MoS)). It round-trips to the buy-threshold via the reverse DCF.
+    expect(caseProjection?.valuation?.buy_price_per_share).toBeCloseTo(189.42, 0)
     // value_basis
     expect(caseProjection?.valuation?.value_basis).toBe('two_stage_dcf')
     // owner_earnings_bridge projected (totals in $millions + shares_outstanding in millions)
@@ -1027,8 +1033,11 @@ describe('BUG 1 — valuation per-share units (÷ shares_outstanding)', () => {
     expect(cp?.valuation?.growth_rate).toBe(0)
     expect(cp?.valuation?.growth_basis).toBe('none')
     expect(cp?.valuation?.terminal_growth_rate).toBe(0.015)
-    expect(cp?.valuation?.fair_value_per_share).toBeCloseTo(204.78, 0)
-    expect(cp?.valuation?.buy_price_per_share).toBeCloseTo(153.58, 0)
+    // fair_value is the presentation-only band-center reference (forward DCF at g = band_center) ≈ 333.99
+    // (was the g=0 credited-growth point FV 204.78). buy_price is the forward DCF at the buy-threshold
+    // g = band_low − required_gap ≈ 265 (NOT fair_value × (1 − MoS), which would have been ≈ 153.58).
+    expect(cp?.valuation?.fair_value_per_share).toBeCloseTo(333.99, 0)
+    expect(cp?.valuation?.buy_price_per_share).toBeCloseTo(265, 0)
     expect(cp?.valuation?.implied_multiple).toBeCloseTo(10.75, 1)
     expect(cp?.valuation?.runway).toBe('proven')
     expect(cp?.valuation?.value_basis).toBe('two_stage_dcf')
@@ -1133,6 +1142,8 @@ describe('Two-stage DCF harness growth path (Phase 1.3 one growth path + gates)'
         normalized_working_capital_change: 0, shares_outstanding: 50,
       },
     }, 'neg-oe')
+    // No positive OE/share → no point FV → the band-center fair_value and threshold-derived buy-below
+    // both fail closed (undefined), rather than emitting a fabricated reference or buy price.
     expect(cp?.valuation?.fair_value_per_share).toBeUndefined()
     expect(cp?.valuation?.buy_price_per_share).toBeUndefined()
     const analysisEvent = events.find((e) => e.event_type === 'buffett_munger_analysis_drafted')
@@ -1192,12 +1203,17 @@ describe('Two-stage DCF harness growth path (Phase 1.3 one growth path + gates)'
     expect(cp?.valuation?.buy_price_per_share).toBeGreaterThan(0)
 
     // ---- Phase 2: fair-value RANGE + reverse-DCF market-implied growth (this case has a price) ----
-    // A formatted low–high (base) range is attached; its base matches the point fair value.
+    // A formatted low–high (base) range is attached. Its base is the CREDITED-growth point FV (the
+    // sensitivity engine's anchor). Note: since the valuation-core revision V2, the surfaced
+    // fair_value_per_share is the band-CENTER reference (a presentation anchor), which differs from this
+    // credited-growth sensitivity base — so the range base is asserted as a positive plausible value, not
+    // as equal to fair_value_per_share.
     const fvRange = cp?.valuation?.fair_value_range
     expect(fvRange).toBeDefined()
     expect(fvRange).toMatch(/^\$\d+–\$\d+ \(base \$\d+\)$/)
     const fvBase = Number(/\(base \$(\d+)\)/.exec(fvRange ?? '')?.[1])
-    expect(fvBase).toBeCloseTo(cp?.valuation?.fair_value_per_share ?? 0, 0)
+    expect(fvBase).toBeGreaterThan(0)
+    expect(fvBase).toBeLessThan(1000)
     // Thin EDGAR history (6 usable points, demonstrated g above the cap) → a WIDE range with an honest
     // "why is it wide" basis note that names the short history.
     const fvLow = Number(/^\$(\d+)/.exec(fvRange ?? '')?.[1])
@@ -1314,6 +1330,31 @@ describe('Acceptance #3 — reverse-DCF vs sustainable-band ± required-gap (nev
     expect(vs?.gap_to_band ?? -1).toBeGreaterThan(0)
     // Model BUY is preserved in the buy window (the band does not downgrade it).
     expect(cp?.investment_verdict).toBe('BUY')
+  })
+
+  it('ROUND-TRIP: buy_price_per_share is the price at which implied growth = band_low − required_gap', async () => {
+    // The valuation-core revision derives the buy-below as the FORWARD DCF at gThreshold = band_low − gap.
+    // Cross-engine invariant: feeding that price back through the reverse DCF must recover EXACTLY the
+    // buy-threshold — proving the buy-below IS the price at which implied growth meets the threshold, and
+    // that the forward (twoStageValuation) and reverse (marketImpliedGrowth) engines are consistent.
+    const { cp } = await runAtPrice(180, 'roundtrip', 'BUY')
+    const vs = cp?.valuation?.verdict_state
+    const buyBelow = cp?.valuation?.buy_price_per_share
+    const oe_ps = cp?.valuation?.normalized_owner_earnings_per_share
+    expect(buyBelow).toBeGreaterThan(0)
+    expect(oe_ps ?? 0).toBeGreaterThan(0)
+    const gThreshold = (vs?.band_low ?? NaN) - (vs?.required_gap ?? NaN)
+    const implied = marketImpliedGrowth({
+      price: buyBelow!,
+      oe_ps: oe_ps!,
+      terminal_g: terminalGrowthForMoat(buffettMungerStrategy, 'wide'),
+      discount: discountRate(buffettMungerStrategy),
+      horizon: stage1HorizonForMoat(buffettMungerStrategy, 'wide'),
+    })
+    expect(implied.status).toBe('solved')
+    expect(implied.implied_growth).toBeDefined()
+    // The buy-below price implies growth EXACTLY at the buy threshold (within bisection tolerance).
+    expect(implied.implied_growth!).toBeCloseTo(gThreshold, 3)
   })
 
   it('WATCH-FAIR: implied within band (price 300) above the gap but ≤ band_low; model BUY does NOT escalate', async () => {

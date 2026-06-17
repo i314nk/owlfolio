@@ -39,6 +39,35 @@ describe('marketImpliedGrowth — inverts the faded two-stage DCF', () => {
     }
   })
 
+  // Buy-below invariant (valuation-core revision V2): the harness derives the buy-below as the FORWARD DCF
+  // at the buy-threshold growth gThreshold = band_low − required_gap. This test proves that price, fed back
+  // through the reverse DCF, recovers EXACTLY gThreshold — i.e. the buy-below IS the price at which the
+  // market-implied growth rises to meet the buy-threshold (forward/reverse engines are consistent).
+  describe('buy-below round-trip: price at gThreshold ⇒ implied growth = gThreshold', () => {
+    const oe_ps = 6
+    // A representative band_low − required_gap pair (e.g. band_low 7.31%, required_gap 3% ⇒ 4.31%).
+    for (const gThreshold of [0.0431, 0.0, -0.02, 0.09]) {
+      it(`buy-below price at gThreshold=${gThreshold} round-trips to implied growth = gThreshold`, () => {
+        const buyBelow = forwardFv(oe_ps, gThreshold)
+        const implied = marketImpliedGrowth({ price: buyBelow, oe_ps })
+        expect(implied.status).toBe('solved')
+        expect(implied.implied_growth).toBeDefined()
+        expect(implied.implied_growth!).toBeCloseTo(gThreshold, 3)
+      })
+    }
+  })
+
+  it('fail-closed: a buy-threshold growth below the reverse-DCF bracket floor (−0.5) is not expressible', () => {
+    // The harness skips a threshold-derived buy-below when gThreshold ≤ −0.5 (below the reverse-DCF search
+    // floor): the forward FV at such a deep decline cannot round-trip, so the implied solve returns
+    // below_range / not_computable rather than a fabricated growth. This is the boundary the swarm guards on.
+    const oe_ps = 6
+    const belowFloorPrice = forwardFv(oe_ps, -0.6) // gThreshold below the −0.5 bracket floor
+    const implied = marketImpliedGrowth({ price: belowFloorPrice, oe_ps })
+    expect(implied.status).not.toBe('solved')
+    expect(implied.implied_growth).toBeUndefined()
+  })
+
   it('is monotonic — a higher price implies a higher growth', () => {
     const oe_ps = 4
     const lowPrice = forwardFv(oe_ps, 0.05)
