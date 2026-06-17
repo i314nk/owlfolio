@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import type { Provider } from '@owlfolio/providers'
 import { runGroundedAgentWithRetry, ProposedSourcesSchema, type GroundFn } from './groundedAgent'
+import { AGENT_TIMEOUT_MS } from './researchSwarmSchemas'
 import type { GroundingDeps } from './sourceGrounding'
 
 // ---------------------------------------------------------------------------
@@ -160,10 +161,10 @@ export type AdmitRecommendation =
       reason: string
     }
 
-const ENV_AGENT_TIMEOUT_MS = Number.parseInt(process.env['OWLFOLIO_AGENT_TIMEOUT_MS'] ?? '', 10)
-const AGENT_TIMEOUT_MS = Number.isFinite(ENV_AGENT_TIMEOUT_MS) && ENV_AGENT_TIMEOUT_MS > 0
-  ? ENV_AGENT_TIMEOUT_MS
-  : 180_000
+// Per-agent call timeout. Default 600s — real frontier-reasoning provider calls (e.g. Codex CLI
+// grounded lanes reading EDGAR) routinely exceed the old 180s; a single timed-out call aborts the
+// whole ~10-call swarm. Override with OWLFOLIO_AGENT_TIMEOUT_MS. Single source of truth lives in
+// researchSwarmSchemas.
 
 /** Compact lane finding the judgment reasons from (same shape as the red-team digest). */
 export type AdmitLaneDigest = {

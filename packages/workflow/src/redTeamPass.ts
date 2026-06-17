@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import type { Provider } from '@owlfolio/providers'
 import { runGroundedAgentWithRetry, ProposedSourcesSchema, SynthesisResponseSchema, type SynthesisResponse, type GroundFn } from './groundedAgent'
+import { AGENT_TIMEOUT_MS } from './researchSwarmSchemas'
 import { runValidatedAgent, type RequiredFieldCheck } from './runValidatedAgent'
 import type { GroundingDeps } from './sourceGrounding'
 
@@ -66,12 +67,9 @@ export type RedTeamIncomplete = {
 
 export type RedTeamResult = RedTeamOutput | RedTeamIncomplete
 
-// Default 180s; overridable via OWLFOLIO_AGENT_TIMEOUT_MS (read at module load) so deeper reasoning
-// efforts that legitimately run longer aren't killed mid-reasoning. Mirrors researchSwarmSchemas.
-const ENV_AGENT_TIMEOUT_MS = Number.parseInt(process.env['OWLFOLIO_AGENT_TIMEOUT_MS'] ?? '', 10)
-const AGENT_TIMEOUT_MS = Number.isFinite(ENV_AGENT_TIMEOUT_MS) && ENV_AGENT_TIMEOUT_MS > 0
-  ? ENV_AGENT_TIMEOUT_MS
-  : 180_000
+// Default 600s — real frontier-reasoning provider calls (e.g. Codex CLI grounded lanes reading EDGAR)
+// routinely exceed the old 180s; a single timed-out call aborts the whole ~10-call swarm. Override with
+// OWLFOLIO_AGENT_TIMEOUT_MS. Single source of truth lives in researchSwarmSchemas.
 
 /**
  * Compact digest of one lane finding for the red-team prompt. The red team attacks the SHARED

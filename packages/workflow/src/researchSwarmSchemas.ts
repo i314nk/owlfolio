@@ -170,13 +170,24 @@ export const ShariahCrossCheckSchema = z.object({
 // Constants
 // ---------------------------------------------------------------------------
 
-// Per-agent (per-lane) call timeout. Default 180s; overridable via OWLFOLIO_AGENT_TIMEOUT_MS so deeper
-// reasoning efforts (e.g. Codex xhigh) that legitimately take longer than 3 min don't get killed
-// mid-reasoning and degrade. Read at module load — set the env var when LAUNCHING, not at runtime.
-const ENV_AGENT_TIMEOUT_MS = Number.parseInt(process.env['OWLFOLIO_AGENT_TIMEOUT_MS'] ?? '', 10)
-export const AGENT_TIMEOUT_MS = Number.isFinite(ENV_AGENT_TIMEOUT_MS) && ENV_AGENT_TIMEOUT_MS > 0
-  ? ENV_AGENT_TIMEOUT_MS
-  : 180_000
+// Per-agent (per-lane) call timeout. Default 600s — real frontier-reasoning provider calls (e.g. Codex
+// CLI grounded lanes reading EDGAR) routinely exceed the old 180s; a single timed-out call aborts the
+// whole ~10-call swarm. Override with OWLFOLIO_AGENT_TIMEOUT_MS (read at module load — set when
+// LAUNCHING, not at runtime). This is the single source of truth; redTeamPass/admitJudgment import it.
+export const DEFAULT_AGENT_TIMEOUT_MS = 600_000
+
+/**
+ * Resolve the per-agent call timeout from an OWLFOLIO_AGENT_TIMEOUT_MS-style raw value.
+ * A valid positive integer wins; anything invalid (unset, empty, zero, negative, non-numeric)
+ * falls back to DEFAULT_AGENT_TIMEOUT_MS. The resolved value flows through to each codex exec
+ * subprocess kill timer via the per-request timeout_ms the swarm passes to the provider.
+ */
+export function resolveAgentTimeoutMs(raw: string | undefined): number {
+  const parsed = Number.parseInt(raw ?? '', 10)
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_AGENT_TIMEOUT_MS
+}
+
+export const AGENT_TIMEOUT_MS = resolveAgentTimeoutMs(process.env['OWLFOLIO_AGENT_TIMEOUT_MS'])
 
 // MOAT-lane judgment instructions (moved here from the synthesis prompt — spec-correct: the LANE scores
 // its own rubric). The moat lane emits moat_rubric + runway_rubric (Mechanisms 1+2) AND a holistic
