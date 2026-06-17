@@ -75,6 +75,9 @@ async function seedHeld(ledgerPath: string, opts: { held?: boolean } = {}): Prom
       payload: {
         watchlist_item_id: WATCH_ID, research_case_id: RC, company_id: 'company_tst', ticker: 'TST',
         locked_buy_below: 60, signed_thesis: 'I am admitting TST.',
+        // valuation-core revision — the rekeyed valuation-inverted sell keys off the frozen band/oe_ps.
+        // oe_ps 5 + band_high 0.09: the live price 90 implies ~9.1% growth ≥ the 9% ceiling → inverted.
+        frozen_band_low: 0.05, frozen_band_high: 0.09, frozen_oe_ps: 5,
         frozen_iv: 80, frozen_iv_valuation_version: 'valuation-2026-06-cap-1',
       },
     }))

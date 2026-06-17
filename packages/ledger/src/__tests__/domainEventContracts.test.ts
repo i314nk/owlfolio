@@ -222,6 +222,8 @@ describe('Owlfolio v2 domain event boundary contracts', () => {
         'trigger',
         'impairment_call',
         'minimum_hold_decision',
+        'frozen_band_high',
+        'frozen_oe_ps',
         'frozen_iv',
         'worst_case',
         'bias_caveats',

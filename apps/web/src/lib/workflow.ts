@@ -812,13 +812,19 @@ export async function promoteResearchCaseToWatchlist(
     // thesis. Fall back to the verdict-band buy-below / 0 when the case has no valuation buy-below yet.
     const lockedBuyBelow = researchCase.valuation?.buy_price_per_share ?? 0
 
-    // FREEZE the UNDISCOUNTED IV at sign-off (Phase 6 S3): snapshot the case's fair_value_per_share — the
-    // UNDISCOUNTED intrinsic value, DISTINCT from the MoS-discounted buy_price_per_share above. The
-    // valuation-inverted sell trigger reads THIS frozen number (don't-move-the-number F.9/F.10): only a
-    // re-underwrite that re-runs this freeze may change it. FAIL-CLOSED — when the case has no undiscounted
-    // IV we freeze it as `undefined` (absent), NEVER falling back to the discounted buy-below; the trigger
-    // then returns cannot_assess rather than reading a wrong number.
-    const frozenIv = researchCase.valuation?.fair_value_per_share
+    // FREEZE the sustainable-growth BAND + owner-earnings/share at sign-off (valuation-core revision). The
+    // valuation-inverted SELL was rekeyed to implied-growth-vs-FROZEN-band (the mirror of the BUY): it
+    // solves the market-implied growth off the LIVE price against THESE frozen inputs, never a recomputed
+    // live band (don't-move-the-number F.9/F.10). Sourced from the case's projected verdict band +
+    // valuation: band_low/band_high off verdict_state, oe_ps off valuation.normalized_owner_earnings_per_share.
+    // frozen_iv_valuation_version pins the discount/terminal/horizon/fade the reverse-DCF uses. FAIL-CLOSED —
+    // when a field is absent at sign-off we freeze it as `undefined`; the sell then returns cannot_assess
+    // rather than reading a wrong number. confirmWatchlistDraft DERIVES the legacy frozen_iv price anchor
+    // from frozen_band_high + frozen_oe_ps (retained one release for the anchoring bias guard / legacy readers).
+    const frozenBandLow = researchCase.valuation?.verdict_state?.band_low
+    const frozenBandHigh = researchCase.valuation?.verdict_state?.band_high
+    const frozenOePs = researchCase.valuation?.normalized_owner_earnings_per_share
+    const hasFrozenBand = frozenBandHigh !== undefined && frozenOePs !== undefined
 
     return await confirmWatchlistDraft(store, {
       watchlist_item_id: watchlistItemId,
@@ -831,9 +837,12 @@ export async function promoteResearchCaseToWatchlist(
       thesis_summary: thesisSummary,
       locked_buy_below: lockedBuyBelow,
       buy_below_valuation_version: VALUATION_PARAMS.version,
-      ...(frozenIv === undefined
-        ? {}
-        : { frozen_iv: frozenIv, frozen_iv_valuation_version: VALUATION_PARAMS.version }),
+      ...(frozenBandLow === undefined ? {} : { frozen_band_low: frozenBandLow }),
+      ...(frozenBandHigh === undefined ? {} : { frozen_band_high: frozenBandHigh }),
+      ...(frozenOePs === undefined ? {} : { frozen_oe_ps: frozenOePs }),
+      // The version provenance pins the valuation params for the reverse-DCF; recorded whenever any band/
+      // oe_ps field is frozen (the derived frozen_iv rides along inside confirmWatchlistDraft).
+      ...(hasFrozenBand ? { frozen_iv_valuation_version: VALUATION_PARAMS.version } : {}),
       signed_thesis: humanSignedThesis,
       signed_thesis_draft: signedThesisDraft,
       checklist_audit: checklistAudit,
@@ -1418,7 +1427,11 @@ export async function recordSellDecision(
       }
     }
 
-    // frozen_iv is READ FROM THE PROJECTION (sign-off-frozen undiscounted IV), NEVER recomputed here.
+    // The sign-off-frozen inputs are READ FROM THE PROJECTION (valuation-core revision), NEVER recomputed
+    // here (don't-move-the-number F.9/F.10): the band ceiling + oe_ps the rekeyed valuation-inverted sell
+    // keys off, plus the derived frozen_iv price anchor the anchoring bias guard reads.
+    const frozenBandHigh = lifecycle.frozen_band_high
+    const frozenOePs = lifecycle.frozen_oe_ps
     const frozenIv = lifecycle.frozen_iv
 
     const assemblerArgs: SellAssessmentArgs = {
@@ -1430,6 +1443,8 @@ export async function recordSellDecision(
       uncertainty: uncertaintyLevel,
       permanent_loss_risk: permanentLossLevel,
       quality_verdict_passes: qualityVerdictPasses,
+      frozen_band_high: frozenBandHigh,
+      frozen_oe_ps: frozenOePs,
       frozen_iv: frozenIv,
       ...(input.candidate_oe_yield === undefined ? {} : { candidate_oe_yield: input.candidate_oe_yield }),
       ...(input.held_oe_yield === undefined ? {} : { held_oe_yield: input.held_oe_yield }),
@@ -1450,7 +1465,7 @@ export async function recordSellDecision(
     if (result.status === 'cannot_assess' || result.recommendation === undefined) {
       return {
         status: 'cannot_assess',
-        reason: `cannot assess the ${input.trigger} sell trigger for ${heldTicker} (e.g. no sign-off-frozen IV for valuation_inverted, or missing candidate/held yields for better_opportunity).`,
+        reason: `cannot assess the ${input.trigger} sell trigger for ${heldTicker} (e.g. no sign-off-frozen band/oe_ps for valuation_inverted, or missing candidate/held yields for better_opportunity).`,
       }
     }
 
@@ -1476,6 +1491,8 @@ export async function recordSellDecision(
       impairment_call: rec.impairment_call,
       minimum_hold_decision: rec.minimum_hold_decision,
       reason_code: rec.reason_code,
+      frozen_band_high: rec.frozen_band_high,
+      frozen_oe_ps: rec.frozen_oe_ps,
       frozen_iv: rec.frozen_iv,
       worst_case: rec.worst_case,
       requires_human_signoff: rec.requires_human_signoff,
@@ -1508,6 +1525,8 @@ export async function recordSellDecision(
         trigger: rec.trigger,
         impairment_call: rec.impairment_call,
         minimum_hold_decision: rec.minimum_hold_decision,
+        ...(rec.frozen_band_high === undefined ? {} : { frozen_band_high: rec.frozen_band_high }),
+        ...(rec.frozen_oe_ps === undefined ? {} : { frozen_oe_ps: rec.frozen_oe_ps }),
         ...(rec.frozen_iv === undefined ? {} : { frozen_iv: rec.frozen_iv }),
         worst_case: rec.worst_case,
         bias_caveats: rec.bias_caveats,

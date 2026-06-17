@@ -39,13 +39,32 @@ export type WatchlistProjection = {
   /** `VALUATION_PARAMS.version` the locked buy-below was frozen under (valuation provenance). */
   buy_below_valuation_version?: string
   /**
-   * The UNDISCOUNTED intrinsic value (fair value per share) FROZEN at sign-off (Phase 6 S3) — distinct
-   * from the MoS-discounted `locked_buy_below`. The valuation-inverted sell trigger compares price against
-   * THIS frozen number; only a re-underwrite (which re-runs the freeze) may change it. Absent when the
-   * case had no undiscounted IV at sign-off (fail-closed — never backfilled from the discounted buy-below).
+   * The SIGN-OFF-FROZEN sustainable-growth band LOW edge (valuation-core revision). Frozen verbatim from the
+   * admit event; only a re-underwrite changes it. Absent on legacy events (they carry only frozen_iv).
+   */
+  frozen_band_low?: number
+  /**
+   * The SIGN-OFF-FROZEN sustainable-growth band HIGH edge (valuation-core revision) — the ceiling the
+   * rekeyed valuation-inverted SELL keys off. Frozen verbatim; only a re-underwrite changes it. Absent on
+   * legacy events (the sell then falls back to cannot_assess via the derived path).
+   */
+  frozen_band_high?: number
+  /**
+   * The SIGN-OFF-FROZEN normalized owner-earnings/share (valuation-core revision) the reverse-DCF solves
+   * implied growth against. Frozen verbatim; only a re-underwrite changes it. Absent on legacy events.
+   */
+  frozen_oe_ps?: number
+  /**
+   * The UNDISCOUNTED intrinsic value (fair value per share) — RETAINED for one release as a DERIVED price
+   * anchor (valuation-core revision: derived-from-the-frozen-band, no longer the primary sell key). The
+   * anchoring bias guard (which reasons in PRICE units) reads it. Projected verbatim; NEVER backfilled from
+   * the discounted buy-below. Legacy events carry only this field (no band/oe_ps).
    */
   frozen_iv?: number
-  /** `VALUATION_PARAMS.version` the frozen undiscounted IV was frozen under (sign-off valuation provenance). */
+  /**
+   * `VALUATION_PARAMS.version` the frozen band/oe_ps (+ the derived frozen_iv) were frozen under — pins the
+   * valuation params the reverse-DCF uses (sign-off provenance).
+   */
   frozen_iv_valuation_version?: string
   /** The human's signed FINAL plain-language thesis (Gate 0 `[Hu]`), distinct from the agent-drafted thesis_summary. */
   signed_thesis?: string
@@ -305,7 +324,21 @@ export function projectWatchlist(events: LedgerEventEnvelope<unknown>[]): Watchl
     if (lockedBuyBelow !== undefined) {
       watchlistItem.locked_buy_below = lockedBuyBelow
     }
-    // The sign-off-frozen undiscounted IV — projected verbatim; NEVER backfilled from locked_buy_below.
+    // The sign-off-frozen band edges + oe_ps (valuation-core revision) — projected verbatim. Legacy events
+    // (frozen_iv only) leave these absent; the sell then fails closed to cannot_assess.
+    const frozenBandLow = getNumber(event.payload, 'frozen_band_low')
+    if (frozenBandLow !== undefined) {
+      watchlistItem.frozen_band_low = frozenBandLow
+    }
+    const frozenBandHigh = getNumber(event.payload, 'frozen_band_high')
+    if (frozenBandHigh !== undefined) {
+      watchlistItem.frozen_band_high = frozenBandHigh
+    }
+    const frozenOePs = getNumber(event.payload, 'frozen_oe_ps')
+    if (frozenOePs !== undefined) {
+      watchlistItem.frozen_oe_ps = frozenOePs
+    }
+    // The DERIVED frozen_iv price anchor — projected verbatim; NEVER backfilled from locked_buy_below.
     const frozenIv = getNumber(event.payload, 'frozen_iv')
     if (frozenIv !== undefined) {
       watchlistItem.frozen_iv = frozenIv

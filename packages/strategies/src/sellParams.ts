@@ -22,11 +22,25 @@ export type SellParams = {
    */
   minimum_hold_months: number
   /**
-   * Fraction of the SIGN-OFF-FROZEN undiscounted intrinsic value (IV) at/above which the
-   * "valuation-inverted" sell trigger fires (Phase 6 S3). 1.0 = FULL IV — a HARD threshold, NOT a band.
-   * Pabrai's documented biggest mistake was selling winners at 90-95% of IV, so the trigger is biased to
-   * HOLD: it only fires once price reaches the whole frozen IV. The IV compared against is always the
-   * value FROZEN at sign-off (never the MoS-discounted buy-below, never a live/recomputed fair value).
+   * Fraction of the SIGN-OFF-FROZEN band-high growth ceiling at/above which the "valuation-inverted" sell
+   * trigger fires (valuation-core revision — the MIRROR of the BUY side). The trigger solves the
+   * market-IMPLIED growth off the LIVE price against the SIGN-OFF-FROZEN band/oe_ps, and fires when
+   * `implied_growth ≥ frozen_band_high × sell_band_fraction`: the market now prices growth ABOVE what the
+   * business can sustain, so the held name's margin of safety is gone. 1.0 = the FULL frozen band ceiling —
+   * a HARD threshold, NOT a wider band. This preserves the Pabrai recant (selling winners at 90-95% of IV
+   * was his documented biggest mistake): biased to HOLD, it only fires once the implied growth reaches the
+   * whole frozen sustainable ceiling.
+   *
+   * The growth is solved off the FROZEN band/oe_ps ONLY (don't-move-the-number F.9/F.10) — never a
+   * recomputed live band.
+   */
+  sell_band_fraction: number
+  /**
+   * @deprecated SUPERSEDED by `sell_band_fraction`. Was the fraction of the sign-off-frozen UNDISCOUNTED
+   * point IV at/above which the (old) price-vs-frozen-IV inversion fired. The valuation-inverted sell was
+   * rekeyed to implied-growth-vs-FROZEN-band (the mirror of the reverse-DCF-vs-band BUY). Retained for one
+   * release so legacy callers/configs that still read this constant do not break; the sell trigger no
+   * longer consumes it.
    */
   sell_iv_fraction: number
   /**
@@ -45,12 +59,14 @@ export type SellParams = {
  * The frozen DEFAULT sell parameters.
  *
  *   minimum_hold_months:          30   (≈ 2.5 years — inside the stated 2–3 year minimum-hold band)
- *   sell_iv_fraction:             1.0  (FULL IV — hard threshold, Pabrai recant; biased to hold below IV)
+ *   sell_band_fraction:           1.0  (FULL frozen band ceiling — hard threshold, Pabrai recant; biased to hold)
+ *   sell_iv_fraction:             1.0  (DEPRECATED — superseded by sell_band_fraction; retained one release)
  *   better_opportunity_min_margin: 0.05 (HIGH net OE-yield hurdle; switch ALSO always needs human sign-off)
  */
 export const SELL_PARAMS: SellParams = Object.freeze({
-  version: 'sell-2026-06-phase6-3',
+  version: 'sell-2026-06-band-1',
   minimum_hold_months: 30,
+  sell_band_fraction: 1.0,
   sell_iv_fraction: 1.0,
   better_opportunity_min_margin: 0.05,
 }) as SellParams

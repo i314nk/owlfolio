@@ -1,8 +1,46 @@
 import type { EventStore } from '@owlfolio/ledger/eventStore'
 import type { ActorType, LedgerEventEnvelope } from '@owlfolio/ledger/eventEnvelope'
+import { buffettMungerStrategy, discountRate, twoStageValuation } from '@owlfolio/strategies/buffettMunger'
 import { evaluateChecklistCompletion } from '@owlfolio/strategies/checklist'
 import type { ChecklistAudit } from '@owlfolio/strategies/checklistParams'
+import { VALUATION_PARAMS } from '@owlfolio/strategies/valuationParams'
 import { resolveResearchStrategyRef } from './researchStrategyRef'
+
+/**
+ * Derive the legacy `frozen_iv` price anchor FROM the sign-off-frozen band (valuation-core revision). The
+ * valuation-inverted sell was rekeyed to implied-growth-vs-FROZEN-band, but `frozen_iv` is RETAINED for one
+ * release as a derived price reference so the anchoring bias guard (sellBiasGuards) — which legitimately
+ * reasons in PRICE units (cost basis vs IV) — and any legacy reader still have a number. It is the forward
+ * two-stage fair value at the frozen band HIGH edge off the frozen oe_ps + the frozen valuation params:
+ * derived-from-the-frozen-band, NOT a primary. Returns undefined when the band/oe_ps are absent or the
+ * forward value is not finite (the absurd-error guard fired) — fail-closed, never a fabricated anchor.
+ */
+export function deriveFrozenIvFromBand(args: {
+  frozen_oe_ps: number | undefined
+  frozen_band_high: number | undefined
+}): number | undefined {
+  const { frozen_oe_ps, frozen_band_high } = args
+  if (
+    frozen_oe_ps === undefined
+    || !Number.isFinite(frozen_oe_ps)
+    || frozen_oe_ps <= 0
+    || frozen_band_high === undefined
+    || !Number.isFinite(frozen_band_high)
+  ) {
+    return undefined
+  }
+  const fair_value = twoStageValuation({
+    oe_ps: frozen_oe_ps,
+    g: frozen_band_high,
+    terminal_g: VALUATION_PARAMS.terminal_growth,
+    discount: discountRate(buffettMungerStrategy),
+    ceiling_multiple: VALUATION_PARAMS.fv_cap_multiple,
+    absurd_multiple: VALUATION_PARAMS.fv_absurd_multiple,
+    horizon: VALUATION_PARAMS.stage1_horizon,
+    fade_years: VALUATION_PARAMS.growth_fade_years,
+  }).fair_value
+  return fair_value !== undefined && Number.isFinite(fair_value) ? fair_value : undefined
+}
 
 type WatchlistEventStore = EventStore<LedgerEventEnvelope<unknown>>
 
@@ -28,15 +66,41 @@ type WatchlistDraftCreatedPayload = {
    */
   buy_below_valuation_version: string
   /**
-   * The UNDISCOUNTED intrinsic value (fair value per share) FROZEN at sign-off (Phase 6 S3) — DISTINCT
-   * from the MoS-discounted `locked_buy_below`. The "valuation-inverted" sell trigger compares the live
-   * price against THIS frozen number, never the provisional buy-below and never a recomputed fair value.
-   * Don't-move-the-number (F.9/F.10): the agent cannot nudge it; only a re-underwrite (which re-runs the
-   * freeze) may change it. ABSENT when the case had no undiscounted IV at sign-off (fail-closed — it is
-   * NEVER backfilled from the discounted buy-below; the trigger then returns cannot_assess).
+   * The SIGN-OFF-FROZEN sustainable-growth band LOW edge (valuation-core revision). Frozen from the research
+   * case's `verdict_state.band_low` at admit. Part of the freeze the rekeyed valuation-inverted sell keys
+   * off (the BUY uses band_low − required_gap; the SELL uses band_high). Don't-move-the-number (F.9/F.10):
+   * only a re-underwrite re-runs the freeze. ABSENT when the case had no band at sign-off (fail-closed).
+   */
+  frozen_band_low?: number
+  /**
+   * The SIGN-OFF-FROZEN sustainable-growth band HIGH edge (valuation-core revision). Frozen from the
+   * research case's `verdict_state.band_high` at admit. The "valuation-inverted" SELL trigger fires when the
+   * market-implied growth (solved off the LIVE price against the FROZEN band/oe_ps) reaches this ceiling ×
+   * `sell_band_fraction` — the MIRROR of the BUY. Don't-move-the-number (F.9/F.10): only a re-underwrite
+   * re-runs the freeze. ABSENT when the case had no band at sign-off (fail-closed → sell cannot_assess).
+   */
+  frozen_band_high?: number
+  /**
+   * The SIGN-OFF-FROZEN normalized owner-earnings/share (valuation-core revision). Frozen from the research
+   * case's `valuation.normalized_owner_earnings_per_share` at admit. The reverse-DCF solves the market-
+   * implied growth off the LIVE price against THIS frozen oe_ps (+ the frozen valuation params pinned by
+   * `frozen_iv_valuation_version`) — never a recomputed live oe_ps. ABSENT → sell cannot_assess (fail-closed).
+   */
+  frozen_oe_ps?: number
+  /**
+   * The UNDISCOUNTED intrinsic value (fair value per share) — RETAINED for one release as a DERIVED price
+   * anchor (valuation-core revision). It is no longer the primary sell key: the valuation-inverted SELL was
+   * rekeyed to implied-growth-vs-FROZEN-band. It is now DERIVED-FROM-THE-FROZEN-BAND — the forward two-stage
+   * fair value at `frozen_band_high` off `frozen_oe_ps` + the frozen valuation params — so the anchoring
+   * bias guard (which reasons in PRICE units) and any legacy reader still have a price anchor during
+   * migration. Don't-move-the-number (F.9/F.10): only a re-underwrite re-runs the freeze. ABSENT when the
+   * band/oe_ps were absent at sign-off (fail-closed — never backfilled from the discounted buy-below).
    */
   frozen_iv?: number
-  /** `VALUATION_PARAMS.version` the frozen undiscounted IV was frozen under (sign-off valuation provenance). */
+  /**
+   * `VALUATION_PARAMS.version` the frozen band/oe_ps (and the derived frozen_iv) were frozen under — it PINS
+   * the discount/terminal/horizon/fade the reverse-DCF uses to solve implied growth (sign-off provenance).
+   */
   frozen_iv_valuation_version?: string
   /**
    * The human's plain-language thesis (doc Gate 0 `[Hu]`), distinct from the agent-drafted
@@ -85,12 +149,31 @@ export type ConfirmWatchlistDraftCommand = {
   /** `VALUATION_PARAMS.version` at freeze time — the MoS/valuation provenance (see payload doc). */
   buy_below_valuation_version: string
   /**
-   * The UNDISCOUNTED intrinsic value FROZEN at sign-off (Phase 6 S3; see payload doc). Distinct from the
-   * discounted `locked_buy_below`. Omit/undefined when the case has no undiscounted IV — fail-closed, NEVER
-   * the buy-below. Explicit `undefined` is accepted (the caller may pass the optional case value through).
+   * The sign-off-frozen sustainable-growth band LOW edge (see payload doc). Omit/undefined when the case has
+   * no band at sign-off — fail-closed.
+   */
+  frozen_band_low?: number | undefined
+  /**
+   * The sign-off-frozen sustainable-growth band HIGH edge — the ceiling the rekeyed valuation-inverted SELL
+   * keys off (see payload doc). Omit/undefined when the case has no band at sign-off — fail-closed.
+   */
+  frozen_band_high?: number | undefined
+  /**
+   * The sign-off-frozen normalized owner-earnings/share the reverse-DCF solves implied growth against (see
+   * payload doc). Omit/undefined when the case has no oe_ps at sign-off — fail-closed.
+   */
+  frozen_oe_ps?: number | undefined
+  /**
+   * The DERIVED frozen_iv price anchor (see payload doc) — derived-from-the-frozen-band, NOT a primary.
+   * When omitted but `frozen_band_high` + `frozen_oe_ps` are supplied, confirmWatchlistDraft derives it via
+   * deriveFrozenIvFromBand so the anchoring guard / legacy readers still have a price anchor. Explicit
+   * `undefined` is accepted.
    */
   frozen_iv?: number | undefined
-  /** `VALUATION_PARAMS.version` the frozen undiscounted IV was frozen under (see payload doc). */
+  /**
+   * `VALUATION_PARAMS.version` the frozen band/oe_ps (+ the derived frozen_iv) were frozen under — pins the
+   * valuation params the reverse-DCF uses (see payload doc).
+   */
   frozen_iv_valuation_version?: string | undefined
   /** The human's required, non-empty FINAL signed thesis (Gate 0 `[Hu]`) — affirmed or amended. */
   signed_thesis: string
@@ -165,6 +248,15 @@ export async function confirmWatchlistDraft(
   const thesisAmended = command.signed_thesis.trim() !== command.signed_thesis_draft.trim()
 
   const selectedStrategy = resolveResearchStrategyRef(command)
+
+  // Derive the legacy frozen_iv price anchor FROM the frozen band when the caller did not pass one but DID
+  // supply the band + oe_ps (valuation-core revision: frozen_iv is derived-from-the-frozen-band, not a
+  // primary). An explicit command.frozen_iv (e.g. a legacy caller) is honoured as-is.
+  const frozenIv = command.frozen_iv ?? deriveFrozenIvFromBand({
+    frozen_oe_ps: command.frozen_oe_ps,
+    frozen_band_high: command.frozen_band_high,
+  })
+
   const payload: WatchlistDraftCreatedPayload = {
     watchlist_item_id: command.watchlist_item_id,
     research_case_id: command.research_case_id,
@@ -176,10 +268,15 @@ export async function confirmWatchlistDraft(
     // Frozen at admit: buy-below snapshot + the MoS/valuation provenance it was frozen under.
     locked_buy_below: command.locked_buy_below,
     buy_below_valuation_version: command.buy_below_valuation_version,
-    // Frozen at sign-off (Phase 6 S3): the UNDISCOUNTED IV + its valuation provenance. Conditionally
-    // included so a case with no undiscounted IV freezes it as ABSENT (fail-closed) — never as the
-    // discounted buy-below.
-    ...(command.frozen_iv === undefined ? {} : { frozen_iv: command.frozen_iv }),
+    // Frozen at sign-off (valuation-core revision): the sustainable-growth band edges + the normalized
+    // owner-earnings/share the rekeyed valuation-inverted SELL keys off, plus the DERIVED frozen_iv price
+    // anchor + the valuation-version provenance (which pins the discount/terminal/horizon/fade the reverse-
+    // DCF uses). Each conditionally included so a case with no band/oe_ps freezes them as ABSENT
+    // (fail-closed) — the sell then returns cannot_assess rather than reading a wrong number.
+    ...(command.frozen_band_low === undefined ? {} : { frozen_band_low: command.frozen_band_low }),
+    ...(command.frozen_band_high === undefined ? {} : { frozen_band_high: command.frozen_band_high }),
+    ...(command.frozen_oe_ps === undefined ? {} : { frozen_oe_ps: command.frozen_oe_ps }),
+    ...(frozenIv === undefined ? {} : { frozen_iv: frozenIv }),
     ...(command.frozen_iv_valuation_version === undefined
       ? {}
       : { frozen_iv_valuation_version: command.frozen_iv_valuation_version }),

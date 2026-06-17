@@ -13,10 +13,11 @@
 // is emitted later by S8 and the actual close is human-authored. NEVER auto-sell.
 //
 // THE LOAD-BEARING INVARIANT: a sell must never result from PRICE ALONE. Price is an INPUT — to "at a
-// loss?" and to the valuation-inverted comparison against a SIGN-OFF-FROZEN frozen_iv — never the sole
-// cause. The ONLY price-driven `sell_review` is `valuation_inverted`, which compares against the
-// sign-off-frozen IV (passed in, never recomputed here). Every other `sell_review` rides on a non-price
-// cause (a broken thesis, a recognized mistake, a constrained better opportunity).
+// loss?" and to the valuation-inverted reverse-DCF (the live price's IMPLIED growth, solved against the
+// SIGN-OFF-FROZEN band/oe_ps) — never the sole cause. The ONLY price-driven `sell_review` is
+// `valuation_inverted`, which fires only when the implied growth reaches the FROZEN sustainable-band ceiling
+// (the mirror of the buy; the band/oe_ps are passed in, never recomputed here). Every other `sell_review`
+// rides on a non-price cause (a broken thesis, a recognized mistake, a constrained better opportunity).
 //
 // ORDER (gate-first; short-circuit). See computeSellDecision for the exact sequence:
 //   1. at_loss = current_price < cost_basis_per_share.
@@ -67,7 +68,20 @@ export type SellRecommendation = {
   impairment_call: ImpairmentCall
   /** The minimum-hold guard's verdict (S2). */
   minimum_hold_decision: GuardDecision
-  /** The sign-off-frozen intrinsic value (passed in, never recomputed). Present when supplied. */
+  /**
+   * The sign-off-frozen sustainable-growth band HIGH edge the rekeyed valuation-inverted sell keys off
+   * (valuation-core revision; passed in, never recomputed). Present when supplied.
+   */
+  frozen_band_high?: number
+  /**
+   * The sign-off-frozen normalized owner-earnings/share the reverse-DCF solves implied growth against
+   * (valuation-core revision; passed in, never recomputed). Present when supplied.
+   */
+  frozen_oe_ps?: number
+  /**
+   * The DERIVED frozen_iv price anchor (valuation-core revision: derived-from-the-frozen-band, retained one
+   * release for the anchoring bias guard). Present when supplied.
+   */
   frozen_iv?: number
   /** ALWAYS present — never an empty/absent worst case on a sell_review. */
   worst_case: SellWorstCase
@@ -105,7 +119,11 @@ export type SellAssessmentArgs = {
   uncertainty: RiskLevel
   permanent_loss_risk: RiskLevel
   quality_verdict_passes: boolean
-  // valuation-inverted: the SIGN-OFF-FROZEN intrinsic value (never recomputed here).
+  // valuation-inverted (valuation-core revision): the SIGN-OFF-FROZEN sustainable-growth band HIGH edge +
+  // normalized owner-earnings/share the implied-growth-vs-band sell keys off (never recomputed here). The
+  // derived frozen_iv price anchor rides along for the anchoring bias guard.
+  frozen_band_high: number | undefined
+  frozen_oe_ps: number | undefined
   frozen_iv: number | undefined
   // better-opportunity (optional; only for that trigger):
   candidate_oe_yield?: number
@@ -192,6 +210,8 @@ export function computeSellDecision(args: SellAssessmentArgs): SellDecisionResul
       trigger: args.trigger,
       impairment_call,
       minimum_hold_decision: guard.decision,
+      ...(finite(args.frozen_band_high) ? { frozen_band_high: args.frozen_band_high } : {}),
+      ...(finite(args.frozen_oe_ps) ? { frozen_oe_ps: args.frozen_oe_ps } : {}),
       ...(finite(args.frozen_iv) ? { frozen_iv: args.frozen_iv } : {}),
       worst_case,
       bias_caveats,
@@ -244,10 +264,13 @@ export function computeSellDecision(args: SellAssessmentArgs): SellDecisionResul
 
   switch (args.trigger) {
     case 'valuation_inverted': {
-      // PRICE-DRIVEN, but never price-ALONE: the comparison is against the SIGN-OFF-FROZEN frozen_iv.
+      // PRICE-DRIVEN, but never price-ALONE (valuation-core revision — the MIRROR of the BUY): the live
+      // price is the reverse-DCF INPUT; the implied growth is solved against the SIGN-OFF-FROZEN band/oe_ps
+      // (don't-move-the-number F.9/F.10) and fires only at/above the frozen band ceiling.
       const inv = evaluateValuationInverted({
         current_price: args.current_price,
-        frozen_iv: args.frozen_iv,
+        frozen_band_high: args.frozen_band_high,
+        frozen_oe_ps: args.frozen_oe_ps,
         params,
       })
       if (inv.status === 'cannot_assess') {

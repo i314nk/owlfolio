@@ -79,13 +79,19 @@ export type CadenceAsOfData = {
   /** Latest observed price for the name (price feed; fail-closed when absent). */
   current_price?: number
   /**
-   * The SIGN-OFF-FROZEN undiscounted intrinsic value per share (Phase 6 S3/S8c). Optional override for
-   * the projection's own `frozen_iv` field: when a caller assembles as-of data without a full projection
-   * row it can thread the frozen IV here. Detection prefers this, falling back to `name.frozen_iv`. It is
-   * NEVER a live/recomputed fair value — only the value frozen at sign-off; absent → no inversion signal
+   * The SIGN-OFF-FROZEN sustainable-growth band HIGH edge (valuation-core revision). Optional override for
+   * the projection's own `frozen_band_high` field: when a caller assembles as-of data without a full
+   * projection row it can thread it here. Detection prefers this, falling back to `name.frozen_band_high`.
+   * NEVER a recomputed live band — only the value frozen at sign-off; absent → no inversion signal
    * (fail-closed; the valuation_inverted signal never fires by price alone).
    */
-  frozen_iv?: number
+  frozen_band_high?: number
+  /**
+   * The SIGN-OFF-FROZEN normalized owner-earnings/share (valuation-core revision). Optional override for
+   * the projection's own `frozen_oe_ps`; detection prefers this, falling back to `name.frozen_oe_ps`. The
+   * reverse-DCF solves the implied growth off the live price against THIS frozen oe_ps. Absent → no signal.
+   */
+  frozen_oe_ps?: number
   /** AAOIFI re-screen ratio inputs (EDGAR fundamentals + market cap), when available. */
   shariah_ratios?: ShariahFinancialRatioInputs
   /** Latest market value of the position (price × shares) — feeds concentration. */
@@ -182,20 +188,25 @@ export function detectSignals(name: NameLifecycleProjection, asOfData: CadenceAs
     }
   }
 
-  // valuation_inverted ← current price has reached the SIGN-OFF-FROZEN intrinsic value (margin of safety
-  // gone). The CAUSE is "price reached the frozen IV" (a signed-off cause-reference), NOT a raw price
-  // move: it reuses evaluateValuationInverted as the SINGLE SOURCE OF TRUTH for the hard 1.0
-  // sell_iv_fraction threshold — no inline price>=IV compare. FAIL-CLOSED: absent frozen_iv or
-  // current_price raises nothing (never fires by price alone). The frozen IV is read off the projection
-  // (name.frozen_iv, frozen at sign-off), with asOfData.frozen_iv as a caller-supplied override; it is
-  // never a live/recomputed fair value. State-independent: NO state branch — the held→sell_review routing
-  // lives only in selectAction.
-  const frozenIv = isFiniteNumber(asOfData.frozen_iv) ? asOfData.frozen_iv : name.frozen_iv
+  // valuation_inverted ← the market now implies growth ABOVE the SIGN-OFF-FROZEN sustainable ceiling
+  // (margin of safety gone) — the MIRROR of the buy (valuation-core revision). The CAUSE is "implied growth
+  // reached the frozen band ceiling" (a signed-off cause-reference), NOT a raw price move: it reuses
+  // evaluateValuationInverted as the SINGLE SOURCE OF TRUTH for the hard sell_band_fraction threshold — no
+  // inline compare. FAIL-CLOSED: absent frozen band/oe_ps or current_price raises nothing (never fires by
+  // price alone). The frozen band/oe_ps are read off the projection (name.frozen_band_high / frozen_oe_ps,
+  // frozen at sign-off), with asOfData overrides; they are NEVER a recomputed live band. State-independent:
+  // NO state branch — the held→sell_review routing lives only in selectAction.
+  const frozenBandHigh = isFiniteNumber(asOfData.frozen_band_high) ? asOfData.frozen_band_high : name.frozen_band_high
+  const frozenOePs = isFiniteNumber(asOfData.frozen_oe_ps) ? asOfData.frozen_oe_ps : name.frozen_oe_ps
   if (
     isFiniteNumber(asOfData.current_price) &&
-    isFiniteNumber(frozenIv) &&
-    evaluateValuationInverted({ current_price: asOfData.current_price, frozen_iv: frozenIv }).status ===
-      'inverted'
+    isFiniteNumber(frozenBandHigh) &&
+    isFiniteNumber(frozenOePs) &&
+    evaluateValuationInverted({
+      current_price: asOfData.current_price,
+      frozen_band_high: frozenBandHigh,
+      frozen_oe_ps: frozenOePs,
+    }).status === 'inverted'
   ) {
     signals.push('valuation_inverted')
   }
@@ -291,12 +302,13 @@ const ACTION_TABLE: Record<string, LifecycleAction> = {
   'over_concentrated:watched': noOp('watched name holds no position; concentration does not apply.'),
   'over_concentrated:exited': noOp('exited name holds no position; concentration does not apply.'),
 
-  // valuation_inverted (Phase 6 S8c): a held name whose price has reached the SIGN-OFF-FROZEN IV → a
-  // sell-REVIEW (advisory; the human authors the close). Watched/candidate have no position to sell — the
-  // above-IV case on a watched name only means "don't buy", and that buy side is already handled by
-  // price_crossed_buybelow; there is no sell pre-holding, so they are explicit no_ops. Exited is inert.
-  'valuation_inverted:held': { kind: 'sell_review', reason_code: 'valuation_inverted', reason: 'price reached the sign-off-frozen intrinsic value on a held name — margin of safety gone; open a sell-review (human authors the exit; never a recomputed fair value).' },
-  'valuation_inverted:watched': noOp('above the frozen IV on a watched name only means do not buy (the buy side is handled by price_crossed_buybelow); no position exists to sell pre-holding.'),
+  // valuation_inverted (valuation-core revision — mirror of the buy): a held name whose market-IMPLIED
+  // growth has reached the SIGN-OFF-FROZEN sustainable-band ceiling → a sell-REVIEW (advisory; the human
+  // authors the close). Watched/candidate have no position to sell — the above-ceiling case on a watched
+  // name only means "don't buy", and that buy side is already handled by price_crossed_buybelow; there is no
+  // sell pre-holding, so they are explicit no_ops. Exited is inert.
+  'valuation_inverted:held': { kind: 'sell_review', reason_code: 'valuation_inverted', reason: 'the market now implies growth above the sign-off-frozen sustainable ceiling on a held name — margin of safety gone; open a sell-review (human authors the exit; never a recomputed live band).' },
+  'valuation_inverted:watched': noOp('above the frozen sustainable ceiling on a watched name only means do not buy (the buy side is handled by price_crossed_buybelow); no position exists to sell pre-holding.'),
   'valuation_inverted:candidate': noOp('candidate holds no position; valuation inversion does not sell.'),
   'valuation_inverted:exited': noOp('exited name is inert; valuation inversion does not act.'),
 

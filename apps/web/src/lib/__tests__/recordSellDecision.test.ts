@@ -33,8 +33,8 @@ const NOW = '2026-06-09T00:00:00.000Z'
 type SeedOpts = {
   /** Open the holding (default true). When false, the name stays merely watched (non-held). */
   held?: boolean
-  /** Freeze the sign-off IV onto the watchlist lineage (default true). */
-  withFrozenIv?: boolean
+  /** Freeze the sign-off band/oe_ps onto the watchlist lineage (default true). */
+  withFrozenBand?: boolean
   /** The opened-at date for the held lot (default well past the minimum-hold window). */
   openedAt?: string
   /** The held lot's cost basis per share (default 100 — a high cost so a low price is "at a loss"). */
@@ -55,11 +55,11 @@ function ev(partial: Omit<LedgerEventEnvelope<Record<string, unknown>>, 'schema_
   } as LedgerEventEnvelope<Record<string, unknown>>
 }
 
-/** Seed a HELD name with a gate-passing case, an admit recommendation, a sign-off-frozen IV, and a lot. */
+/** Seed a HELD name with a gate-passing case, an admit recommendation, a sign-off-frozen band/oe_ps, and a lot. */
 async function seedHeld(ledgerPath: string, opts: SeedOpts = {}): Promise<void> {
   const store = new SQLiteEventStore(ledgerPath)
   try {
-    // 1) The research case (gate-passing valuation; the frozen IV = fair_value_per_share = 80).
+    // 1) The research case (gate-passing valuation; the frozen band/oe_ps are set on the watchlist event).
     await store.append(ev({
       event_id: `evt_research_case_created_${RC}`,
       event_type: 'research_case_created',
@@ -93,7 +93,10 @@ async function seedHeld(ledgerPath: string, opts: SeedOpts = {}): Promise<void> 
         is_observation: true, is_recommendation: false,
       },
     }))
-    // 3) The watchlist confirmation — carries the sign-off-frozen IV onto the lineage.
+    // 3) The watchlist confirmation — carries the sign-off-frozen band/oe_ps onto the lineage (valuation-core
+    // revision). frozen_oe_ps 5 + frozen_band_high 0.09: the live price 90 implies ~9.1% growth ≥ the 9%
+    // ceiling → inverted; the at-loss price 70 implies ~4.4% < ceiling. A derived frozen_iv rides along for
+    // the anchoring bias guard.
     await store.append(ev({
       event_id: `evt_watchlist_draft_confirmed_${WATCH_ID}`,
       event_type: 'watchlist_draft_confirmed',
@@ -102,7 +105,9 @@ async function seedHeld(ledgerPath: string, opts: SeedOpts = {}): Promise<void> 
       payload: {
         watchlist_item_id: WATCH_ID, research_case_id: RC, company_id: 'company_tst', ticker: 'TST',
         locked_buy_below: 60, signed_thesis: 'I am admitting TST.',
-        ...(opts.withFrozenIv === false ? {} : { frozen_iv: 80, frozen_iv_valuation_version: 'valuation-2026-06-cap-1' }),
+        ...(opts.withFrozenBand === false
+          ? {}
+          : { frozen_band_low: 0.05, frozen_band_high: 0.09, frozen_oe_ps: 5, frozen_iv: 80, frozen_iv_valuation_version: 'valuation-2026-06-cap-1' }),
       },
     }))
     // 4) The open holding (default — a held lot with a high cost so a low price is "at a loss").
@@ -159,11 +164,12 @@ describe('recordSellDecision (Phase 6 S8a — on-demand held-position sell decis
     await rm(tempDir, { force: true, recursive: true })
   })
 
-  it('a held name + valuation_inverted (price reached frozen IV) → ONE sell_review OBSERVATION, never a close', async () => {
+  it('a held name + valuation_inverted (implied growth reached the frozen band ceiling) → ONE sell_review OBSERVATION, never a close', async () => {
     await seedHeld(ledgerPath)
     const state = await getOnboardingState()
-    // Price 90 ≥ frozen IV 80 → valuation_inverted sell_review; 90 < cost basis 100 is irrelevant here
-    // (a valuation-inverted gain/parity proceeds on its own terms; the guard only brakes loss sales).
+    // Price 90 (oe_ps 5) implies ~9.1% growth ≥ the frozen band ceiling 9% → valuation_inverted sell_review;
+    // 90 < cost basis 100 is irrelevant here (a valuation-inverted gain/parity proceeds on its own terms;
+    // the guard only brakes loss sales).
     const outcome = await recordSellDecision(state, RC, { trigger: 'valuation_inverted' }, priceDeps(90))
 
     expect(outcome.status).toBe('complete')
@@ -174,7 +180,8 @@ describe('recordSellDecision (Phase 6 S8a — on-demand held-position sell decis
     expect(outcome.recommendation.requires_user_authoring).toBe(true)
     expect(outcome.recommendation.decision_status).toBe('sell_review')
     expect(outcome.recommendation.holding_id).toBe(HOLDING_ID)
-    expect(outcome.recommendation.frozen_iv).toBe(80)
+    expect(outcome.recommendation.frozen_band_high).toBe(0.09)
+    expect(outcome.recommendation.frozen_oe_ps).toBe(5)
     // The rebuilt scaffold carries the REAL holding identity (the assembler used a placeholder).
     const draft = outcome.recommendation.sell_review_draft as Record<string, unknown>
     expect(draft.holding_id).toBe(HOLDING_ID)
@@ -240,8 +247,8 @@ describe('recordSellDecision (Phase 6 S8a — on-demand held-position sell decis
     }
   })
 
-  it('valuation_inverted with NO sign-off-frozen IV → cannot_assess (a raw price move never sells alone)', async () => {
-    await seedHeld(ledgerPath, { withFrozenIv: false })
+  it('valuation_inverted with NO sign-off-frozen band/oe_ps → cannot_assess (a raw price move never sells alone)', async () => {
+    await seedHeld(ledgerPath, { withFrozenBand: false })
     const state = await getOnboardingState()
     const outcome = await recordSellDecision(state, RC, { trigger: 'valuation_inverted' }, priceDeps(90))
     expect(outcome.status).toBe('cannot_assess')

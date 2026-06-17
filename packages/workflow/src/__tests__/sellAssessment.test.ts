@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
+import { buffettMungerStrategy, discountRate, twoStageValuation } from '@owlfolio/strategies/buffettMunger'
 import { SELL_PARAMS } from '@owlfolio/strategies/sellParams'
+import { VALUATION_PARAMS } from '@owlfolio/strategies/valuationParams'
 
 import { computeSellDecision, type SellAssessmentArgs } from '../sellAssessment'
 
@@ -10,8 +12,26 @@ import { computeSellDecision, type SellAssessmentArgs } from '../sellAssessment'
 // decision. All gate-first, fail-closed, PURE. worst_case is ALWAYS attached.
 //
 // Crux invariant under test: a sell_review NEVER results from a raw price comparison alone. The ONLY
-// price-driven sell_review is `valuation_inverted`, which compares against the SIGN-OFF-FROZEN frozen_iv.
+// price-driven sell_review is `valuation_inverted` (valuation-core revision — the MIRROR of the BUY):
+// it solves the live price's IMPLIED growth against the SIGN-OFF-FROZEN band/oe_ps and fires only when the
+// implied growth reaches the FROZEN sustainable-band ceiling.
 // ---------------------------------------------------------------------------
+
+// Reference frozen oe_ps + the forward FV at a near-term growth (against the frozen params) — we build the
+// live current_price from this so a chosen price implies a known growth off the frozen oe_ps.
+const FROZEN_OE_PS = 10
+const FROZEN_BAND_HIGH = 0.10
+const fvAt = (g: number): number =>
+  twoStageValuation({
+    oe_ps: FROZEN_OE_PS,
+    g,
+    terminal_g: VALUATION_PARAMS.terminal_growth,
+    discount: discountRate(buffettMungerStrategy),
+    ceiling_multiple: VALUATION_PARAMS.fv_cap_multiple,
+    absurd_multiple: VALUATION_PARAMS.fv_absurd_multiple,
+    horizon: VALUATION_PARAMS.stage1_horizon,
+    fade_years: VALUATION_PARAMS.growth_fade_years,
+  }).fair_value as number
 
 // A baseline inside the minimum-hold window (opened recently), at a loss (price < cost). Each test
 // perturbs ONE field to exercise a chosen path.
@@ -25,7 +45,9 @@ const baseArgs = (): SellAssessmentArgs => ({
   uncertainty: 'low',
   permanent_loss_risk: 'low',
   quality_verdict_passes: true,
-  // valuation-inverted reference (sign-off-frozen IV)
+  // valuation-inverted reference (sign-off-frozen band/oe_ps + the derived frozen_iv price anchor)
+  frozen_band_high: FROZEN_BAND_HIGH,
+  frozen_oe_ps: FROZEN_OE_PS,
   frozen_iv: 150,
   // worst-case (persisted admit floor — Phase 5 floor)
   downside_floor_per_share: 60,
@@ -95,43 +117,43 @@ describe('computeSellDecision — thesis_broke trigger', () => {
   })
 })
 
-describe('computeSellDecision — valuation_inverted trigger', () => {
-  it('price ≥ frozen_iv (a gain, guard inactive) → sell_review (valuation_inverted)', () => {
+describe('computeSellDecision — valuation_inverted trigger (implied-growth-vs-FROZEN-band)', () => {
+  it('implied growth ≥ frozen band ceiling (a gain, guard inactive) → sell_review (valuation_inverted)', () => {
     const result = computeSellDecision({
       ...baseArgs(),
       trigger: 'valuation_inverted',
-      current_price: 160, // ≥ frozen_iv 150 → inverted, and a gain vs cost 100
-      frozen_iv: 150,
+      current_price: fvAt(0.12), // implies ~12% growth ≥ band ceiling 10% → inverted; ~210 is a gain vs cost 100
     })
     expect(result.status).toBe('sell_review')
     expect(result.recommendation?.reason_code).toBe('valuation_inverted')
-    expect(result.recommendation?.frozen_iv).toBe(150)
+    expect(result.recommendation?.frozen_band_high).toBe(FROZEN_BAND_HIGH)
+    expect(result.recommendation?.frozen_oe_ps).toBe(FROZEN_OE_PS)
     expect(result.recommendation?.minimum_hold_decision).toBe('inactive') // not a loss → guard inactive
     expect(result.recommendation?.worst_case).toBeDefined()
   })
 
-  it('price < frozen_iv → hold (price has not reached the frozen IV; no sale)', () => {
+  it('implied growth < frozen band ceiling → hold (the market has not priced above the ceiling; no sale)', () => {
     const result = computeSellDecision({
       ...baseArgs(),
       trigger: 'valuation_inverted',
-      current_price: 120, // below frozen_iv 150, above cost 100 → not inverted, not at loss
-      frozen_iv: 150,
+      current_price: fvAt(0.05), // implies ~5% growth < band ceiling 10% → not inverted; ~144 is above cost 100
     })
     expect(result.status).toBe('hold')
     expect(result.recommendation?.worst_case).toBeDefined()
   })
 
-  it('frozen_iv undefined → cannot_assess (price alone cannot drive a sell)', () => {
+  it('frozen band/oe_ps absent → cannot_assess (price alone cannot drive a sell)', () => {
     const result = computeSellDecision({
       ...baseArgs(),
       trigger: 'valuation_inverted',
-      current_price: 999, // a huge price move, but no frozen IV to compare against
-      frozen_iv: undefined,
+      current_price: 999_999, // a huge price move, but no frozen band/oe_ps to solve against
+      frozen_band_high: undefined,
+      frozen_oe_ps: undefined,
       // not at loss so the guard is inactive and we reach the trigger logic.
       cost_basis_per_share: 100,
     })
     expect(result.status).toBe('cannot_assess')
-    // CRITICAL: never a sell_review off a raw price move with no frozen IV.
+    // CRITICAL: never a sell_review off a raw price move with no frozen band.
     expect(result.status).not.toBe('sell_review')
   })
 })
@@ -210,7 +232,7 @@ describe('computeSellDecision — structural invariants', () => {
   it('every sell_review carries a non-empty worst_case and a reason_code', () => {
     const sellReviews = [
       computeSellDecision({ ...baseArgs(), trigger: 'thesis_broke', ...permanentInputs }),
-      computeSellDecision({ ...baseArgs(), trigger: 'valuation_inverted', current_price: 160 }),
+      computeSellDecision({ ...baseArgs(), trigger: 'valuation_inverted', current_price: fvAt(0.12) }),
       computeSellDecision({ ...baseArgs(), trigger: 'original_mistake', ...permanentInputs }),
     ].filter((r) => r.status === 'sell_review')
     expect(sellReviews.length).toBeGreaterThan(0)
@@ -254,23 +276,25 @@ describe('computeSellDecision — structural invariants', () => {
     expect(result.recommendation?.worst_case.realistic_downside).toBeUndefined()
   })
 
-  it('PRICE ALONE CANNOT DRIVE A SELL: a price move with no frozen_iv and no thesis-break/mistake → cannot_assess, never sell_review', () => {
+  it('PRICE ALONE CANNOT DRIVE A SELL: a price move with no frozen band/oe_ps and no thesis-break/mistake → cannot_assess, never sell_review', () => {
     const result = computeSellDecision({
       ...baseArgs(),
       trigger: 'valuation_inverted',
-      current_price: 10_000, // an enormous price move
-      frozen_iv: undefined, // but no signed-off IV to compare against
+      current_price: 10_000_000, // an enormous price move
+      frozen_band_high: undefined, // but no signed-off band/oe_ps to solve against
+      frozen_oe_ps: undefined,
     })
     expect(result.status).toBe('cannot_assess')
     expect(result.status).not.toBe('sell_review')
   })
 
-  it('reads the threshold from SELL_PARAMS (valuation-inverted fires exactly at sell_iv_fraction)', () => {
+  it('reads the threshold from SELL_PARAMS (valuation-inverted fires at the frozen band ceiling × sell_band_fraction)', () => {
+    // Default sell_band_fraction is 1.0, so an implied growth exactly at the frozen band ceiling inverts.
+    expect(SELL_PARAMS.sell_band_fraction).toBe(1.0)
     const atThreshold = computeSellDecision({
       ...baseArgs(),
       trigger: 'valuation_inverted',
-      frozen_iv: 150,
-      current_price: 150 * SELL_PARAMS.sell_iv_fraction, // exactly at threshold
+      current_price: fvAt(FROZEN_BAND_HIGH), // implies exactly the band ceiling
     })
     expect(atThreshold.status).toBe('sell_review')
     expect(atThreshold.recommendation?.reason_code).toBe('valuation_inverted')
