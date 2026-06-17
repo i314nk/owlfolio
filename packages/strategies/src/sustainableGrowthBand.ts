@@ -165,8 +165,10 @@ export function sustainableGrowthBand(
   }
   let band_low = gFundamental * spread
 
-  // (5) Provenance flag — a model-proposed (uncited) ROIC underpins the identity; surface for audit only.
-  if (args.incremental_roic_basis === 'model_proposed' && !hasCitedCapitalLight) {
+  // (5) Provenance flag — a model-proposed ROIC underpins the IDENTITY (band_center), independent of any
+  // capital-light citation (which justifies band_high, not the ROIC). Fire whenever the basis is model-proposed
+  // so the grounding of the band's anchor is always surfaced for audit.
+  if (args.incremental_roic_basis === 'model_proposed') {
     flags.push('incremental_roic_model_proposed_uncited')
   }
 

@@ -136,6 +136,22 @@ describe('sustainableGrowthBand (grounded reinvestment×ROIC identity + capital-
     expect(r.grounding_status).toBe('grounded')
   })
 
+  it('model_proposed flag fires EVEN WITH a cited capital-light argument (the citation justifies band_high, not the ROIC anchor)', () => {
+    const r = band({
+      incremental_roic: 0.20,
+      reinvestment_rate: 0.50,
+      demonstrated_growth: 0.10,
+      runway: 'proven',
+      moat_class: 'wide',
+      incremental_roic_basis: 'model_proposed',
+      capital_light_argument: { claimed_growth: 0.13, citation: 'operating-leverage margin expansion per FY25 10-K segment disclosure' },
+    })
+    // band_center (the identity) still rests on a model-proposed ROIC — provenance must always surface.
+    expect(r.flags).toContain('incremental_roic_model_proposed_uncited')
+    expect(r.flags).toContain('capital_light_escape_used')
+    expect(r.grounding_status).toBe('grounded')
+  })
+
   // One-knob discipline (type-level + source-level): this engine carries NO conservatism inputs.
   // Conservatism lives in the required-gap engine (a later slice). Assert the source does NOT pull in the
   // widening config and the arg shape omits the conservatism keys.
