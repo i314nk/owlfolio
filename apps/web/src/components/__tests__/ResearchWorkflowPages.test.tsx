@@ -1392,3 +1392,86 @@ describe('research and watchlist workflow pages', () => {
     expect(html).not.toContain('data-testid="sizing-worst-case"')
   })
 })
+
+// ---------------------------------------------------------------------------
+// Defense-in-depth UI honesty: warn when a personal-local dossier was authored by the
+// built-in mock provider instead of the user's configured provider. In demo mode (where
+// mock is the legitimate, expected provider) the banner never shows.
+// ---------------------------------------------------------------------------
+
+describe('ResearchCasePanel — mock-provider warning banner', () => {
+  function mockAuthoredCase(): AppResearchCase {
+    return {
+      research_case_id: 'rc_mock_warning_001',
+      version: 1,
+      superseded: false,
+      stage: 'decision_drafted',
+      company_id: 'company_tst',
+      ticker: 'TST',
+      strategy_id: 'buffett-munger',
+      decision_id: 'decision_tst_001',
+      decision: 'WATCH',
+      reason: 'Placeholder reason recorded by the mock provider.',
+      investment_verdict: 'WATCH',
+      strategy_compliance: 'CONDITIONAL',
+      shariah_status: 'CONDITIONAL',
+      valuation_status: 'FAIR',
+      next_required_action: 'Review the dossier.',
+      authored_by_provider_id: 'mock-provider',
+      updated_at: '2026-06-08T12:00:00.000Z',
+      gate_checklist: [],
+      source_ids: [],
+      ledger_timeline: [],
+    } as AppResearchCase
+  }
+
+  it('shows the warning when a personal-local mock-authored case has a non-mock configured provider', () => {
+    const html = renderToStaticMarkup(createElement(ResearchCasePanel, {
+      researchCase: mockAuthoredCase(),
+      mode: 'personal-local',
+      configuredProviderId: 'openai',
+    }))
+    expect(html).toContain('data-testid="mock-provider-warning"')
+    expect(html).toContain('Placeholder run')
+    expect(html).toContain('openai')
+  })
+
+  it('hides the warning when the configured provider IS mock-provider', () => {
+    const html = renderToStaticMarkup(createElement(ResearchCasePanel, {
+      researchCase: mockAuthoredCase(),
+      mode: 'personal-local',
+      configuredProviderId: 'mock-provider',
+    }))
+    expect(html).not.toContain('data-testid="mock-provider-warning"')
+  })
+
+  it('hides the warning in demo mode (mock is the legitimate provider there)', () => {
+    const html = renderToStaticMarkup(createElement(ResearchCasePanel, {
+      researchCase: mockAuthoredCase(),
+      mode: 'demo',
+      configuredProviderId: 'openai',
+    }))
+    expect(html).not.toContain('data-testid="mock-provider-warning"')
+  })
+
+  it('hides the warning when the authoring provider is not mock-provider', () => {
+    const realAuthored = { ...mockAuthoredCase(), authored_by_provider_id: 'openai' }
+    const html = renderToStaticMarkup(createElement(ResearchCasePanel, {
+      researchCase: realAuthored,
+      mode: 'personal-local',
+      configuredProviderId: 'openai',
+    }))
+    expect(html).not.toContain('data-testid="mock-provider-warning"')
+  })
+
+  it('hides the warning when authored_by_provider_id is undefined', () => {
+    const unknownAuthor = { ...mockAuthoredCase() }
+    delete (unknownAuthor as { authored_by_provider_id?: string }).authored_by_provider_id
+    const html = renderToStaticMarkup(createElement(ResearchCasePanel, {
+      researchCase: unknownAuthor,
+      mode: 'personal-local',
+      configuredProviderId: 'openai',
+    }))
+    expect(html).not.toContain('data-testid="mock-provider-warning"')
+  })
+})

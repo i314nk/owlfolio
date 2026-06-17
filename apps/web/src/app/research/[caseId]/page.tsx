@@ -126,6 +126,7 @@ export default async function ResearchCasePage({ params }: ResearchCasePageProps
         <ResearchCasePanel
           researchCase={researchCase}
           mode={state.config.mode}
+          configuredProviderId={state.config.provider.provider_id}
           {...(marketQuote !== undefined ? { marketQuote } : {})}
           {...(positionPlan !== undefined ? { positionPlan } : {})}
           promptForCapital={promptForCapital}

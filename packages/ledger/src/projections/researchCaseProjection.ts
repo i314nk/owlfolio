@@ -454,6 +454,14 @@ export type ResearchCaseProjection = {
   supersedes_research_case_id?: string
   superseded: boolean
   stage: ResearchCaseStage
+  /**
+   * The provider that actually AUTHORED the run (defense-in-depth UI honesty): a placeholder/mock run
+   * can never masquerade as a real grounded dossier. Derived from the authoring provider event's
+   * `actor_id` — the `buffett_munger_analysis_drafted` event (the canonical analysis author) is
+   * preferred, falling back to a `specialist_finding_recorded` event when the analysis event is absent.
+   * Only set when `actor_type === 'provider'`; undefined for older / user-authored / non-provider runs.
+   */
+  authored_by_provider_id?: string
   candidate_id?: string
   company_id?: string
   ticker?: string
@@ -1427,6 +1435,11 @@ export function projectResearchCases(events: LedgerEventEnvelope<unknown>[]): Re
       applyString(researchCase, 'confidence', getString(event.payload, 'confidence'))
       applyStringArray(researchCase, 'caveats', getStringArray(event.payload, 'caveats'))
       recordSpecialistFinding(researchCase, event.payload)
+      // Fallback authoring-provider attribution: a finding's provider author counts only when the
+      // canonical analysis author has not already set it (the analysis event always wins).
+      if (researchCase.authored_by_provider_id === undefined && event.actor_type === 'provider' && event.actor_id !== undefined) {
+        researchCase.authored_by_provider_id = event.actor_id
+      }
       continue
     }
 
@@ -1487,6 +1500,11 @@ export function projectResearchCases(events: LedgerEventEnvelope<unknown>[]): Re
       }
 
       const researchCase = upsertCase(researchCases, researchCaseId, 'analysis_drafted', event.created_at)
+      // Canonical authoring-provider attribution (preferred over any specialist-finding fallback): the
+      // analysis event's provider author is who actually authored the run. Overwrites the finding fallback.
+      if (event.actor_type === 'provider' && event.actor_id !== undefined) {
+        researchCase.authored_by_provider_id = event.actor_id
+      }
       applyString(researchCase, 'investment_verdict', getString(event.payload, 'investment_verdict'))
       applyString(researchCase, 'strategy_compliance', getString(event.payload, 'strategy_compliance'))
       applyString(researchCase, 'shariah_status', getString(event.payload, 'shariah_status'))
