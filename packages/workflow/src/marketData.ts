@@ -195,8 +195,8 @@ type YahooTnxResponse = {
 }
 
 /**
- * Fetch the current 10-year US Treasury yield (decimal) from Yahoo's `^TNX` index, which quotes 10× the
- * yield (e.g. 42.5 → 4.25%). Same fail-closed / SSRF-guard posture as the price path: any fetch/parse/HTTP
+ * Fetch the current 10-year US Treasury yield (decimal) from Yahoo's `^TNX` index, which quotes the yield
+ * AS A PERCENT (e.g. 4.428 → 4.428%, confirmed live 2026-06). Same fail-closed / SSRF-guard posture as the price path: any fetch/parse/HTTP
  * error or an implausible value returns `available: false` WITH the documented `fallback_yield` so the
  * caller can fail closed to a known default — it NEVER throws. The discount rate is global config; this is
  * the only external input behind it.
@@ -231,7 +231,7 @@ export async function fetchTenYearTreasuryYield(deps?: MarketDataDeps): Promise<
     if (typeof raw !== 'number' || !Number.isFinite(raw) || raw <= 0) {
       return { available: false, reason: 'missing or non-positive ^TNX value', fallback_yield: DEFAULT_TEN_YEAR_TREASURY_YIELD, source: 'yahoo' }
     }
-    const decimalYield = raw / 1000 // ^TNX quotes 10× the percent (42.5 → 4.25% → 0.0425)
+    const decimalYield = raw / 100 // ^TNX quotes the yield as a percent (4.428 → 4.428% → 0.04428)
     if (decimalYield <= 0 || decimalYield > TNX_MAX_PLAUSIBLE_YIELD) {
       return { available: false, reason: `implausible 10y yield ${decimalYield}`, fallback_yield: DEFAULT_TEN_YEAR_TREASURY_YIELD, source: 'yahoo' }
     }

@@ -4,23 +4,36 @@ import { fetchTenYearTreasuryYield, DEFAULT_TEN_YEAR_TREASURY_YIELD } from '../m
 
 // Buffett-Munger gap-closing Phase 1.4: Treasury-anchored discount input.
 // The 10y Treasury yield feeds discount = tenYearTreasury + equity_premium (global config, never an
-// agent input). Fetched from Yahoo's ^TNX (quotes 10× the yield, e.g. 42.5 → 4.25%). FAIL-CLOSED to a
-// documented default (DEFAULT_TEN_YEAR_TREASURY_YIELD) on any fetch/parse error.
+// agent input). Fetched from Yahoo's ^TNX, which quotes the yield AS A PERCENT (e.g. 4.428 → 4.428%,
+// confirmed live 2026-06) → decimal via /100. (The earlier /1000 was a scale bug: it produced 0.004428,
+// a ~10x-low anchor that inflated forward fair values and corrupted market-implied growth.) FAIL-CLOSED
+// to a documented default (DEFAULT_TEN_YEAR_TREASURY_YIELD) on any fetch/parse error.
 function jsonResponse(body: unknown): Response {
   return new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } })
 }
 
 describe('fetchTenYearTreasuryYield', () => {
-  it('parses ^TNX (10× yield) into a decimal yield', async () => {
+  it('parses ^TNX (percent quote) into a decimal yield via /100', async () => {
+    // Real ^TNX regularMarketPrice is the yield in percent (live 4.428), NOT 10x it.
     const fetchImpl = (async () => jsonResponse({
-      chart: { result: [{ meta: { regularMarketPrice: 42.5 } }], error: null },
+      chart: { result: [{ meta: { regularMarketPrice: 4.428 } }], error: null },
     })) as unknown as typeof fetch
     const r = await fetchTenYearTreasuryYield({ fetchImpl })
     expect(r.available).toBe(true)
     if (r.available) {
-      expect(r.yield).toBeCloseTo(0.0425, 6)
+      expect(r.yield).toBeCloseTo(0.04428, 6) // 4.428% — was 0.004428 under the /1000 bug
       expect(r.source).toBe('yahoo')
     }
+  })
+
+  it('rejects a 10x-too-large quote as implausible (the old /1000 scale would have masked it)', async () => {
+    // If Yahoo ever returned 44.28 (10x), /100 → 0.4428 > TNX_MAX_PLAUSIBLE_YIELD → fail closed, not a silent 0.04428.
+    const fetchImpl = (async () => jsonResponse({
+      chart: { result: [{ meta: { regularMarketPrice: 44.28 } }], error: null },
+    })) as unknown as typeof fetch
+    const r = await fetchTenYearTreasuryYield({ fetchImpl })
+    expect(r.available).toBe(false)
+    if (!r.available) expect(r.fallback_yield).toBe(DEFAULT_TEN_YEAR_TREASURY_YIELD)
   })
 
   it('fails closed to the documented default on an HTTP error', async () => {
