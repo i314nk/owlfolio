@@ -65,8 +65,13 @@ export type SignalLogEntry = {
   price: number
   /** Owner earnings per share computed from the as-of filing. */
   oe_ps: number
-  /** Credited growth g (the named cap applied to demonstrated OE/share CAGR); the demonstrated-growth proxy. */
+  /** Capped growth feeding the reference fair value (single_growth_cap applied to the demonstrated CAGR). */
   credited_g: number
+  /**
+   * Uncapped robust OE/share CAGR — the dislocation reference the BUY signal compares the market-implied
+   * growth against. Equals credited_g when ≤ single_growth_cap; diverges (and is the BUY basis) above it.
+   */
+  demonstrated_growth: number
   // ---- SANITY signal fields (light reverse-DCF spot-check; NOT a band/gap decision) ----
   /** Market-implied near-term growth at this month's price (reverse-DCF off the same forward DCF). */
   implied_growth: number
@@ -340,13 +345,17 @@ const BUY_SANITY_MARGIN = 0.03
  * Map (implied_growth, demonstrated_g) → a LIGHT SANITY verdict (the reframe: the model proposes the verdict;
  * the backtest is a confidence spot-check, NOT a parameter-freeze gate):
  *   - gated (moat below the wide gate) → never BUY. PASS when it WOULD have been cheap (implied clearly below
- *     the demonstrated-growth proxy), WATCH otherwise.
+ *     demonstrated growth), WATCH otherwise.
  *   - implied_growth <= demonstrated_g − BUY_SANITY_MARGIN → BUY  (a clear dislocation: the market prices in
- *     materially less growth than the business has demonstrated).
+ *     materially less growth than the business has DEMONSTRATED).
  *   - else                                                 → WATCH (fairly-to-richly priced).
- * There is no band/gap and no WATCH-FAIR tier — those were band-engine artifacts and are gone.
+ * `demonstrated_g` is the UNCAPPED robust OE/share CAGR — NOT credited_g. The single_growth_cap is a
+ * valuation-conservatism device that belongs only in the reference fair value; feeding it here collapsed the
+ * BUY threshold (~demonstrated−3pts) for every >15%-growth compounder, suppressing all true-dislocation BUYs.
+ * There is no band/gap and no WATCH-FAIR tier — those were band-engine artifacts and are gone. Exported for
+ * direct unit testing.
  */
-function classify(implied_growth: number, demonstrated_g: number, gated: boolean): Signal {
+export function classify(implied_growth: number, demonstrated_g: number, gated: boolean): Signal {
   const buyThreshold = demonstrated_g - BUY_SANITY_MARGIN
   const cheap = implied_growth <= buyThreshold + IMPLIED_GROWTH_EPSILON
   if (gated) return cheap ? 'PASS' : 'WATCH'
@@ -449,8 +458,10 @@ export function runValuationBacktest(args: RunValuationBacktestArgs): BacktestRe
     // reasoning at run time; the deterministic side only sanity-checks. So the backtest is now a confidence
     // SPOT-CHECK, not a parameter-freeze gate. Per month we solve the market-implied near-term growth at the
     // month's price (inverting the SAME forward two-stage DCF the reference fair value used) and compare it
-    // to the demonstrated-growth proxy (credited_g): a BUY flags only when the implied growth sits a clear
-    // sanity margin BELOW what the business has demonstrated (a real dislocation). No band, no gap, no freeze.
+    // to the UNCAPPED demonstrated OE/share CAGR (demonstrated_growth — NOT credited_g): a BUY flags only when
+    // the implied growth sits a clear sanity margin BELOW what the business has DEMONSTRATED (a real
+    // dislocation). The single_growth_cap stays in credited_g (the conservative FV input) but is kept OUT of
+    // the detector — capping the basis collapsed the BUY threshold for every >15% compounder. No band/gap/freeze.
     const impliedResult = marketImpliedGrowth({
       price: point.close,
       oe_ps,
@@ -468,13 +479,14 @@ export function runValuationBacktest(args: RunValuationBacktestArgs): BacktestRe
       continue
     }
     const implied_growth = impliedResult.implied_growth
-    const signal = classify(implied_growth, credited_g, gated)
+    const signal = classify(implied_growth, demonstrated_growth, gated)
 
     signal_log.push({
       date: point.date,
       price: point.close,
       oe_ps,
       credited_g,
+      demonstrated_growth,
       implied_growth,
       reference_fair_value,
       implied_multiple: reference_fair_value / oe_ps,

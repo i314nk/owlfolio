@@ -5,6 +5,7 @@ import type { AnnualFacts, Fundamentals } from '../secEdgar'
 import type { PriceHistoryPoint } from '../marketData'
 import {
   adjustFundamentalsForSplits,
+  classify,
   groupBuyEpisodes,
   runValuationBacktest,
   simulateLadderDeployment,
@@ -144,8 +145,9 @@ describe('runValuationBacktest — as-of OE + signal mapping (wide moat fixture)
     // The signal fields are implied_growth + reference_fair_value (no band/gap fields any more).
     expect(typeof result.signal_log[0]!.implied_growth).toBe('number')
     expect(result.signal_log[0]!.reference_fair_value).toBeGreaterThan(0)
-    // The BUY month's implied growth sits a clear sanity margin below the demonstrated-growth proxy.
-    expect(result.signal_log[0]!.implied_growth).toBeLessThan(result.signal_log[0]!.credited_g)
+    // The BUY month's implied growth sits a clear sanity margin below the demonstrated (uncapped) growth —
+    // the basis the BUY signal actually compares against (re-pointed from credited_g, which only feeds FV).
+    expect(result.signal_log[0]!.implied_growth).toBeLessThan(result.signal_log[0]!.demonstrated_growth)
   })
 
   it('groups consecutive BUY months into one episode and computes buys/yr', () => {
@@ -207,6 +209,95 @@ describe('runValuationBacktest — as-of OE + signal mapping (wide moat fixture)
     })
     expect(result.signal_log[0]!.signal).toBe('PASS')
     expect(result.summary.buy_months).toBe(0)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// classify — the crux: the BUY threshold compares implied growth against the UNCAPPED demonstrated growth,
+// NOT credited_g (capped at single_growth_cap=0.15). The old capped basis collapsed the BUY threshold for
+// every quality compounder so no real dislocation could fire — the bug this guards both directions of.
+// ---------------------------------------------------------------------------
+describe('classify — implied-vs-DEMONSTRATED (uncapped) growth, both directions', () => {
+  it('fires BUY when the market prices materially less growth than demonstrated (real dislocation)', () => {
+    // demonstrated 25%, market implies 16% → 16 ≤ 25−3 = 22 → BUY. Under the OLD capped logic the basis
+    // was credited_g=0.15 → threshold 0.12, so 0.16 was WATCH — that was the suppressed-compounder bug.
+    expect(classify(0.16, 0.25, false)).toBe('BUY')
+  })
+
+  it('does NOT BUY a fairly-priced compounder (no blanket-BUY / over-fire)', () => {
+    // demonstrated 25%, market implies ~the full 24% → 24 > 22 → WATCH (fairly priced).
+    expect(classify(0.24, 0.25, false)).toBe('WATCH')
+  })
+
+  it('gated names never BUY even when cheap (record PASS)', () => {
+    expect(classify(0.16, 0.25, true)).toBe('PASS')
+  })
+
+  it('low-growth (≤ cap) parity: identical behaviour to before (credited==demonstrated)', () => {
+    // 5% ≤ 10−3 = 7 → BUY; demonstrated 10% is under the 15% cap, so credited_g would equal demonstrated_g
+    // and the fix is a no-op for this class.
+    expect(classify(0.05, 0.10, false)).toBe('BUY')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Integration: a HIGH-demonstrated-growth (>15%) compounder. credited_g caps at 0.15 but demonstrated_growth
+// is ~0.20+, so a real dislocation month fires BUY off the uncapped basis (it would have been WATCH off the
+// capped credited_g — the bug). A richly-priced month stays WATCH (no over-fire).
+// ---------------------------------------------------------------------------
+describe('runValuationBacktest — high-demonstrated-growth compounder fires BUY at a dislocation', () => {
+  // OE/share compounds ~22%/yr (NI grows 22%, shares/D&A/capex/SBC flat) → demonstrated_growth ~0.22,
+  // well above the 0.15 single_growth_cap so credited_g caps and the two bases diverge.
+  function fastCompounder(): Fundamentals {
+    const series: AnnualFacts[] = []
+    for (let i = 6; i >= 0; i -= 1) {
+      const fy = 2018 + i
+      const ni = Math.round(120 * Math.pow(1.22, i))
+      series.push({
+        fiscal_year: fy, currency: 'USD', filed: `${fy + 1}-02-15`, period_end: `${fy}-12-31`,
+        net_income_musd: ni, revenue_musd: 600, d_and_a_musd: 40, capex_musd: 30, sbc_musd: 20,
+        diluted_shares_m: 100, stockholders_equity_musd: 400 + i * 50, total_debt_musd: 0,
+        cash_and_securities_musd: 0, operating_income_musd: ni + 30, income_tax_expense_musd: 30,
+      })
+    }
+    return { cik: '0000000003', entity_name: 'FastCo', currency: 'USD', latest_annual: series[0]!, annual_series: series, filings: [] }
+  }
+
+  function signalAt(close: number): SignalLogEntry {
+    const r = runValuationBacktest({
+      ticker: 'FAST', moat_class: 'wide', runway: 'proven', fundamentals: fastCompounder(),
+      price_series: [priceAt('2025-03-31', close)], strategy: buffettMungerStrategy, params: VALUATION_PARAMS,
+    })
+    return r.signal_log[0]!
+  }
+
+  it('caps credited_g at the single_growth_cap while demonstrated_growth stays uncapped (>15%)', () => {
+    // Pin a mid-range solvable price purely to read the growth fields.
+    const e = signalAt(40)
+    expect(e.credited_g).toBeCloseTo(VALUATION_PARAMS.single_growth_cap, 6)
+    expect(e.demonstrated_growth).toBeGreaterThan(0.15)
+    expect(e.demonstrated_growth).toBeGreaterThan(e.credited_g)
+  })
+
+  it('a deep dislocation fires BUY off the uncapped basis (WATCH under the old capped basis = the bug)', () => {
+    // Price empirically chosen (engine is pure+deterministic): implied≈0.194, which sits BELOW
+    // demonstrated(0.233)−margin(0.03)=0.203 → BUY, but ABOVE credited_g(0.15)−0.03=0.12 → the old capped
+    // comparison would have called this exact month WATCH. This is the suppressed-compounder bug, pinned.
+    const e = signalAt(120)
+    expect(e.signal).toBe('BUY')
+    // The cap bit and the uncapped demonstrated basis is what fired the BUY.
+    expect(e.demonstrated_growth).toBeGreaterThan(0.15)
+    expect(e.demonstrated_growth).toBeGreaterThan(e.credited_g)
+    expect(e.implied_growth).toBeLessThan(e.demonstrated_growth - 0.03)
+    // Regression lock: the SAME month would be WATCH compared against credited_g (the capped basis = the bug).
+    expect(classify(e.implied_growth, e.credited_g, false)).toBe('WATCH')
+    expect(classify(e.implied_growth, e.demonstrated_growth, false)).toBe('BUY')
+  })
+
+  it('a richly-priced month stays WATCH (no blanket-BUY of every compounder)', () => {
+    // implied≈0.238 ≥ demonstrated(0.233) → fairly-to-richly priced → WATCH (proves no over-fire).
+    const e = signalAt(150)
+    expect(e.signal).toBe('WATCH')
   })
 })
 
@@ -403,6 +494,7 @@ function step(date: string, price: number, buy: number, signal: SignalLogEntry['
     price,
     oe_ps: 1,
     credited_g: 0,
+    demonstrated_growth: 0,
     implied_growth: 0,
     reference_fair_value: buy, // the ladder anchor the deployment sim fills against
     implied_multiple: 1,
