@@ -1,8 +1,9 @@
+import { spawn } from 'node:child_process'
 import { readFile, writeFile } from 'node:fs/promises'
 import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
 
-import { OpenAICodexCliProvider } from '../openaiCodexCliProvider'
+import { OpenAICodexCliProvider, defaultRunner } from '../openaiCodexCliProvider'
 import { resolveProvider } from '../providerFactory'
 import type { ProviderRunRequest } from '../providerContract'
 
@@ -193,7 +194,7 @@ describe('OpenAICodexCliProvider', () => {
     )
   })
 
-  it('resolves OpenAI through the provider factory', () => {
+  it('resolves OpenAI through the provider factory (regression)', () => {
     const provider = resolveProvider({
       provider_id: 'openai',
       env: { CODEX_ACCESS_TOKEN: 'test-access-token' },
@@ -206,4 +207,100 @@ describe('OpenAICodexCliProvider', () => {
 
     expect(provider).toBeInstanceOf(OpenAICodexCliProvider)
   })
+})
+
+// defaultRunner spawns a REAL process; these tests drive it with controlled `node -e ...` stubs
+// (never the real `codex` binary). The core regression is that a stalled child which IGNORES SIGTERM
+// must NOT hang the runner forever — the runner must escalate to SIGKILL on the process group and
+// settle the promise on the grace deadline regardless.
+describe('defaultRunner', () => {
+  const nodeBin = process.execPath
+
+  it('resolves with stdout + exit code 0 on normal completion (regression)', async () => {
+    const result = await defaultRunner(
+      nodeBin,
+      ['-e', 'process.stdout.write("hello"); process.exit(0)'],
+      process.env,
+      10_000,
+    )
+    expect(result.exitCode).toBe(0)
+    expect(result.stdout).toBe('hello')
+  })
+
+  it(
+    'settles (does not hang) when the child ignores SIGTERM, then SIGKILLs the process group',
+    async () => {
+      // A child that traps SIGTERM and keeps its stdio pipes open forever. With the old code
+      // (SIGTERM + rely solely on "close") this promise NEVER settles. The hardened runner must
+      // escalate to SIGKILL on the group and settle on the grace deadline.
+      const child = spawn(
+        nodeBin,
+        ['-e', "process.on('SIGTERM',()=>{}); setInterval(()=>{},1e9)"],
+        { stdio: ['pipe', 'pipe', 'pipe'] },
+      )
+      const childPid = child.pid!
+      expect(childPid).toBeGreaterThan(0)
+      // We only spawned this to capture a comparable pid contract; kill it — defaultRunner spawns
+      // its OWN child. (Keeping the harness clean.)
+      child.kill('SIGKILL')
+
+      const start = Date.now()
+      // Bounded race so a true hang surfaces as a FAILURE, not a stalled test runner.
+      const result = await Promise.race([
+        defaultRunner(
+          nodeBin,
+          ['-e', "process.on('SIGTERM',()=>{}); setInterval(()=>{},1e9)"],
+          process.env,
+          300, // timeoutMs
+        ),
+        new Promise<never>((_resolve, reject) =>
+          setTimeout(() => reject(new Error('defaultRunner HUNG: promise never settled')), 8_000),
+        ),
+      ])
+      const elapsed = Date.now() - start
+
+      expect(result.exitCode).toBe(-1)
+      expect(result.stderr).toMatch(/timed out/i)
+      // Must settle well before the test budget: timeout (300ms) + grace (3000ms) + slack.
+      expect(elapsed).toBeLessThan(7_000)
+    },
+    15_000,
+  )
+
+  it(
+    'kills the spawned child process tree on timeout (SIGKILL reaches it)',
+    async () => {
+      // Spawn through defaultRunner a SIGTERM-ignoring child that prints its own pid first so we can
+      // assert it is dead after the timeout escalation (process.kill(pid, 0) throws ESRCH).
+      const runner = defaultRunner(
+        nodeBin,
+        ['-e', "process.stdout.write(String(process.pid)+'\\n'); process.on('SIGTERM',()=>{}); setInterval(()=>{},1e9)"],
+        process.env,
+        300,
+      )
+      // Give it a moment to emit its pid, then await the runner.
+      const result = await Promise.race([
+        runner,
+        new Promise<never>((_resolve, reject) =>
+          setTimeout(() => reject(new Error('defaultRunner HUNG: promise never settled')), 8_000),
+        ),
+      ])
+      const observedPid = Number.parseInt(result.stdout.trim().split('\n')[0] ?? '', 10)
+      expect(result.exitCode).toBe(-1)
+      if (Number.isFinite(observedPid) && observedPid > 0) {
+        // Best-effort: the child should be gone. Allow a brief settle window for the SIGKILL to reap.
+        let alive = true
+        for (let i = 0; i < 20 && alive; i += 1) {
+          try {
+            process.kill(observedPid, 0)
+            await new Promise((r) => setTimeout(r, 100))
+          } catch {
+            alive = false
+          }
+        }
+        expect(alive).toBe(false)
+      }
+    },
+    15_000,
+  )
 })

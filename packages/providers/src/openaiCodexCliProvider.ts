@@ -41,16 +41,38 @@ type CodexJsonEvent = {
   }
 }
 
-const defaultRunner: CommandRunner = (command, args, env, timeoutMs, stdin) => new Promise((resolve, reject) => {
+// After a stalled codex call's per-call timeout fires we SIGTERM the process GROUP; if 'close' still
+// hasn't fired within this short grace we SIGKILL the group AND settle the promise ourselves on the
+// deadline. This guarantees a stalled/SIGTERM-ignoring codex can NEVER hang the worker forever (the
+// old code relied solely on 'close', which never fires if the child keeps the stdio pipes open).
+// Overridable for tests via OWLFOLIO_CODEX_KILL_GRACE_MS; defaults to 3000ms.
+const resolveGraceMs = (): number => {
+  const parsed = Number.parseInt(process.env['OWLFOLIO_CODEX_KILL_GRACE_MS'] ?? '', 10)
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 3000
+}
+
+export const defaultRunner: CommandRunner = (command, args, env, timeoutMs, stdin) => new Promise((resolve, reject) => {
+  // detached: true puts codex in its OWN process group so we can signal the whole tree (codex spawns
+  // a child binary; killing only the immediate child leaves the grandchild holding the stdio pipes).
   const child = spawn(command, args, {
     env,
     stdio: ['pipe', 'pipe', 'pipe'],
+    detached: true,
   })
 
   let stdout = ''
   let stderr = ''
   let settled = false
   let timedOut = false
+  let graceTimer: ReturnType<typeof setTimeout> | undefined
+
+  const clearTimers = () => {
+    clearTimeout(timer)
+    if (graceTimer !== undefined) {
+      clearTimeout(graceTimer)
+      graceTimer = undefined
+    }
+  }
 
   const finish = (result: CommandRunResult) => {
     if (settled) {
@@ -68,9 +90,39 @@ const defaultRunner: CommandRunner = (command, args, env, timeoutMs, stdin) => n
     reject(error)
   }
 
+  // Signal the process GROUP (negative pid) so codex's grandchild dies too. Guarded: pid may be
+  // undefined (spawn failed) or the group already gone. Falls back to signaling the child directly.
+  const killGroup = (signal: NodeJS.Signals) => {
+    if (child.pid !== undefined) {
+      try {
+        process.kill(-child.pid, signal)
+        return
+      } catch {
+        // group gone or unsupported — fall through to the direct child kill below
+      }
+    }
+    try {
+      child.kill(signal)
+    } catch {
+      // already dead
+    }
+  }
+
+  const timedOutResult = (): CommandRunResult => ({
+    exitCode: -1,
+    stdout,
+    stderr: stderr.trim().length > 0 ? stderr : `Codex CLI timed out after ${timeoutMs}ms (killed)`,
+  })
+
   const timer = setTimeout(() => {
     timedOut = true
-    child.kill('SIGTERM')
+    killGroup('SIGTERM')
+    // If 'close' doesn't fire within the grace, force-kill the group AND settle on the deadline so a
+    // SIGTERM-ignoring codex can't hang us. A later 'close' is a no-op via the settled guard.
+    graceTimer = setTimeout(() => {
+      killGroup('SIGKILL')
+      finish(timedOutResult())
+    }, resolveGraceMs())
   }, timeoutMs)
 
   child.stdout.on('data', (chunk) => {
@@ -92,11 +144,11 @@ const defaultRunner: CommandRunner = (command, args, env, timeoutMs, stdin) => n
     child.stdin.end()
   } catch (error) {
     fail(error instanceof Error ? error : new Error(String(error)))
-    child.kill('SIGTERM')
+    killGroup('SIGTERM')
   }
 
   child.on('error', (error) => {
-    clearTimeout(timer)
+    clearTimers()
     if ('code' in error && error.code === 'ENOENT') {
       fail(new Error(`Codex CLI not available: ${command}`))
       return
@@ -105,14 +157,10 @@ const defaultRunner: CommandRunner = (command, args, env, timeoutMs, stdin) => n
   })
 
   child.on('close', (code, signal) => {
-    clearTimeout(timer)
+    clearTimers()
 
     if (timedOut) {
-      finish({
-        exitCode: -1,
-        stdout,
-        stderr: stderr.trim().length > 0 ? stderr : `Codex CLI timed out after ${timeoutMs}ms`,
-      })
+      finish(timedOutResult())
       return
     }
 

@@ -67,8 +67,8 @@ export type RedTeamIncomplete = {
 
 export type RedTeamResult = RedTeamOutput | RedTeamIncomplete
 
-// Default 600s — real frontier-reasoning provider calls (e.g. Codex CLI grounded lanes reading EDGAR)
-// routinely exceed the old 180s; a single timed-out call aborts the whole ~10-call swarm. Override with
+// Default 180s — bounds a stalled `codex exec` call (which can hang for the full per-call timeout)
+// so the retry recovers instead of compounding into a multi-hour swarm hang. Override with
 // OWLFOLIO_AGENT_TIMEOUT_MS. Single source of truth lives in researchSwarmSchemas.
 
 /**
