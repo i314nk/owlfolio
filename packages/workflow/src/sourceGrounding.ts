@@ -77,7 +77,36 @@ export type GroundingDeps = {
   timeoutMs?: number
   maxExcerptChars?: number
   concurrency?: number
+  /**
+   * User-Agent sent on every source fetch. SEC's fair-access policy (and many company IR sites) 403 a
+   * UA-less request; without one the source silently drops out of `verified_ids` and the agent falls
+   * back to ungrounded reasoning. Resolution: this field, then `OWLFOLIO_SOURCE_USER_AGENT`, then
+   * `OWLFOLIO_SEC_USER_AGENT` (so a single env satisfies both EDGAR and grounding), then the default.
+   */
+  userAgent?: string
+  /** Max total fetch attempts (incl. the first) before failing closed on a transient error. Default 3. */
+  maxAttempts?: number
+  /** Base backoff (ms); attempt N (1-indexed) sleeps base × 2^(N-1) before the next try. Default 250. */
+  retryBaseMs?: number
+  /** Injectable sleep so tests assert the backoff schedule without real delay. Default: setTimeout-based. */
+  sleepImpl?: (ms: number) => Promise<void>
 }
+
+const DEFAULT_SOURCE_USER_AGENT = 'Owlfolio research (local)'
+
+function resolveSourceUserAgent(deps: GroundingDeps): string {
+  return deps.userAgent
+    ?? process.env['OWLFOLIO_SOURCE_USER_AGENT']
+    ?? process.env['OWLFOLIO_SEC_USER_AGENT']
+    ?? DEFAULT_SOURCE_USER_AGENT
+}
+
+/** A transient HTTP status worth retrying: 429 (rate limit) or any 5xx. 4xx (403/404/...) are deterministic. */
+function isTransientStatus(status: number): boolean {
+  return status === 429 || (status >= 500 && status <= 599)
+}
+
+const defaultSleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
 
 export async function fetchAndCaptureSource(
   source: ProposedSource,
@@ -87,6 +116,10 @@ export async function fetchAndCaptureSource(
   const fetchImpl = deps.fetchImpl ?? fetch
   const timeoutMs = deps.timeoutMs ?? 20_000
   const maxExcerpt = deps.maxExcerptChars ?? 600
+  const ua = resolveSourceUserAgent(deps)
+  const maxAttempts = Math.max(1, deps.maxAttempts ?? 3)
+  const retryBaseMs = deps.retryBaseMs ?? 250
+  const sleep = deps.sleepImpl ?? defaultSleep
   const base: CapturedSource = {
     source_id: source.source_id,
     title: source.title,
@@ -102,45 +135,89 @@ export async function fetchAndCaptureSource(
     return base
   }
   const MAX_REDIRECTS = 3
-  const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), timeoutMs)
-  try {
-    let currentUrl = source.url
-    for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
-      // Re-validate on every hop (initial URL already validated above, but re-checking is safe and covers redirect targets)
-      assertPublicHttpUrl(currentUrl)
-      const response = await fetchImpl(currentUrl, { signal: controller.signal, redirect: 'manual' })
-      const isRedirect = response.status === 301 || response.status === 302 || response.status === 303
-        || response.status === 307 || response.status === 308
-      const location = response.headers.get('location')
-      if (isRedirect && location !== null) {
-        if (hop === MAX_REDIRECTS) {
-          // Too many redirects — fail closed
-          return base
-        }
-        currentUrl = new URL(location, currentUrl).toString()
-        continue
-      }
-      if (!response.ok) {
-        return { ...base, http_status: response.status }
-      }
-      const body = await response.text()
-      const hash = createHash('sha256').update(body).digest('hex')
-      return {
-        ...base,
-        availability: 'available',
-        http_status: response.status,
-        content_hash: `sha256:${hash}`,
-        excerpt: body.replace(/\s+/g, ' ').trim().slice(0, maxExcerpt) || source.excerpt,
-      }
-    }
-    // Exhausted hops without a final response — fail closed
-    return base
-  } catch {
-    return base
-  } finally {
-    clearTimeout(timer)
+  const headers = {
+    'User-Agent': ua,
+    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
   }
+
+  // One full attempt: follow up to MAX_REDIRECTS redirects under a FRESH AbortController/timer (so a
+  // retry never reuses an already-aborted controller). SSRF re-validation, redirect handling, and the
+  // timeout abort are unchanged from before. Outcome distinguishes the transient cases (worth a retry)
+  // from the deterministic/fail-closed ones (returned immediately).
+  type Attempt =
+    | { kind: 'done'; captured: CapturedSource } // 2xx success or deterministic non-2xx (return base as-is)
+    | { kind: 'failClosed' } // deterministic fail-closed (SSRF / redirects exhausted) — do NOT retry
+    | { kind: 'retryError' } // network/timeout error — transient, retry within the bound
+    | { kind: 'retryStatus'; status: number } // transient HTTP (429/5xx) — retry, preserving last status
+  async function attempt(): Promise<Attempt> {
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), timeoutMs)
+    try {
+      let currentUrl = source.url
+      for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
+        // Re-validate on every hop (initial URL already validated above, but re-checking is safe and covers
+        // redirect targets). An SSRF rejection here is DETERMINISTIC (a redirect to a private/blocked host),
+        // not transient — fail closed immediately rather than retrying.
+        try {
+          assertPublicHttpUrl(currentUrl)
+        } catch {
+          return { kind: 'failClosed' }
+        }
+        const response = await fetchImpl(currentUrl, { signal: controller.signal, redirect: 'manual', headers })
+        const isRedirect = response.status === 301 || response.status === 302 || response.status === 303
+          || response.status === 307 || response.status === 308
+        const location = response.headers.get('location')
+        if (isRedirect && location !== null) {
+          if (hop === MAX_REDIRECTS) {
+            // Too many redirects — fail closed (not a transient condition)
+            return { kind: 'failClosed' }
+          }
+          currentUrl = new URL(location, currentUrl).toString()
+          continue
+        }
+        if (!response.ok) {
+          // Transient (429/5xx) → retry; deterministic (403/404/...) → return immediately as today.
+          if (isTransientStatus(response.status)) return { kind: 'retryStatus', status: response.status }
+          return { kind: 'done', captured: { ...base, http_status: response.status } }
+        }
+        const body = await response.text()
+        const hash = createHash('sha256').update(body).digest('hex')
+        return {
+          kind: 'done',
+          captured: {
+            ...base,
+            availability: 'available',
+            http_status: response.status,
+            content_hash: `sha256:${hash}`,
+            excerpt: body.replace(/\s+/g, ' ').trim().slice(0, maxExcerpt) || source.excerpt,
+          },
+        }
+      }
+      // Exhausted hops without a final response — fail closed
+      return { kind: 'failClosed' }
+    } catch {
+      // Network/timeout error — transient, retry within the bound.
+      return { kind: 'retryError' }
+    } finally {
+      clearTimeout(timer)
+    }
+  }
+
+  let lastTransientStatus: number | undefined
+  for (let n = 1; n <= maxAttempts; n++) {
+    const result = await attempt()
+    if (result.kind === 'done') return result.captured
+    // Deterministic fail-closed (SSRF / redirects exhausted) is NOT transient — return immediately.
+    if (result.kind === 'failClosed') return base
+    if (result.kind === 'retryStatus') lastTransientStatus = result.status
+    // retryStatus (429/5xx) and retryError (network/timeout) are transient: retry until the bound.
+    if (n < maxAttempts) {
+      await sleep(retryBaseMs * 2 ** (n - 1))
+      continue
+    }
+  }
+  // Retries exhausted — fail closed, preserving the last HTTP status when there was a response.
+  return lastTransientStatus === undefined ? base : { ...base, http_status: lastTransientStatus }
 }
 
 export type GroundingResult = {
