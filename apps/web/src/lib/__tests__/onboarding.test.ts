@@ -210,6 +210,39 @@ describe('onboarding helpers', () => {
     })
   })
 
+  it('refuses to initialize demo mode outside test mode', async () => {
+    await withTempProject(async (projectDir) => {
+      await expect(
+        initializeSelectedMode(
+          { mode: 'demo', provider: { provider_id: 'mock-provider', support_level: 'certified', model_id: 'mock-buffett-munger-demo' } },
+          { env: { OWLFOLIO_PROJECT_DIR: projectDir, OWLFOLIO_DISABLE_TEST_DEFAULTS: '1' } },
+        ),
+      ).rejects.toThrow(/Demo mode is retired in production/)
+    })
+  })
+
+  it('refuses to switch into demo mode outside test mode', async () => {
+    await withTempProject(async (projectDir) => {
+      await expect(
+        switchMode('demo', { env: { OWLFOLIO_PROJECT_DIR: projectDir, OWLFOLIO_DISABLE_TEST_DEFAULTS: '1' } }),
+      ).rejects.toThrow(/Demo mode is retired in production/)
+    })
+  })
+
+  it('still allows personal-local init and switch outside test mode', async () => {
+    await withTempProject(async (projectDir) => {
+      const env = { OWLFOLIO_PROJECT_DIR: projectDir, OWLFOLIO_DISABLE_TEST_DEFAULTS: '1' }
+      const initialized = await initializeSelectedMode(
+        { mode: 'personal-local', provider: { provider_id: 'claude', support_level: 'certified' } },
+        { env },
+      )
+      expect(initialized.mode).toBe('personal-local')
+
+      const switched = await switchMode('unconfigured', { env })
+      expect(switched.mode).toBe('unconfigured')
+    })
+  })
+
   it('initializes personal local mode with an empty durable ledger', async () => {
     await withTempProject(async (projectDir) => {
       const updated = await initializeSelectedMode(

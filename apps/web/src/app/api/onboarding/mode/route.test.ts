@@ -49,4 +49,33 @@ describe('POST /api/onboarding/mode', () => {
     expect(response.status).toBe(400)
     expect(switchModeMock).not.toHaveBeenCalled()
   })
+
+  it('rejects demo mode outside test mode with a 400 and does not call switchMode', async () => {
+    const original = process.env.OWLFOLIO_DISABLE_TEST_DEFAULTS
+    process.env.OWLFOLIO_DISABLE_TEST_DEFAULTS = '1'
+    try {
+      const response = await POST(jsonRequest({ mode: 'demo' }))
+      expect(response.status).toBe(400)
+      const payload = await response.json()
+      expect(payload.error).toBeDefined()
+      expect(switchModeMock).not.toHaveBeenCalled()
+    } finally {
+      if (original === undefined) {
+        delete process.env.OWLFOLIO_DISABLE_TEST_DEFAULTS
+      } else {
+        process.env.OWLFOLIO_DISABLE_TEST_DEFAULTS = original
+      }
+    }
+  })
+
+  it('still accepts demo mode under the test harness', async () => {
+    const config = { mode: 'demo', provider: { provider_id: 'mock-provider' }, ledger_path: '/x', initialized_at: '2026-01-01' }
+    switchModeMock.mockResolvedValue(config)
+    getOnboardingStateMock.mockResolvedValue({ config, is_initialized: true })
+
+    const response = await POST(jsonRequest({ mode: 'demo' }))
+    expect(response.status).toBe(200)
+    expect(switchModeMock).toHaveBeenCalledTimes(1)
+    expect(switchModeMock).toHaveBeenCalledWith('demo')
+  })
 })

@@ -5,7 +5,7 @@ import { SQLiteEventStore } from '@owlfolio/ledger/sqliteEventStore'
 import type { AppConfig, AutomationSettings, MarketUniverseConfig, ProviderSelection, ShariahDefaults } from '@owlfolio/shared'
 import { mergeAutomationSettings } from '@owlfolio/shared'
 
-import { loadAppConfig, resolveProjectRootFromCwd, resolveSourceLedgerPath, saveAppConfig } from './appConfigStore'
+import { loadAppConfig, resolveProjectRootFromCwd, resolveSourceLedgerPath, saveAppConfig, shouldUseTestDemoDefault } from './appConfigStore'
 import { resetDefaultDemoStore, resolveDemoLedgerPath } from './demo'
 import { seedDemoLedger } from './demoSeed'
 import { getProviderOptions, type ProviderReadiness } from './providerReadiness'
@@ -45,6 +45,17 @@ export type OnboardingConfigUpdate = Partial<Omit<AppConfig, 'provider' | 'shari
   provider?: Partial<ProviderSelection>
   shariah?: Partial<ShariahDefaults>
   market_universe?: Partial<MarketUniverseConfig>
+}
+
+/**
+ * Defense-in-depth write-path guard: demo mode is retired in the user-facing product. It may only be
+ * entered under the test harness (playwright e2e / vitest), gated by `shouldUseTestDemoDefault`. Any
+ * other caller attempting to seed or switch into demo throws — even if a request is crafted directly.
+ */
+function assertModeAllowed(mode: AppConfig['mode'], options: OnboardingOptions): void {
+  if (mode === 'demo' && !shouldUseTestDemoDefault((options.env ?? process.env) as OnboardingEnv)) {
+    throw new Error('Demo mode is retired in production')
+  }
 }
 
 export async function getOnboardingState(options: OnboardingOptions = {}): Promise<OnboardingState> {
@@ -145,6 +156,10 @@ export async function getProviderReadinessSnapshot(config: AppConfig, options: O
 }
 
 export async function initializeSelectedMode(update: OnboardingConfigUpdate = {}, options: OnboardingOptions = {}): Promise<AppConfig> {
+  // Guard before any persistence so a rejected demo init never writes mode to disk.
+  const prospectiveMode = update.mode ?? (await loadAppConfig(options)).mode
+  assertModeAllowed(prospectiveMode, options)
+
   const config = await updateOnboardingConfig(update, options)
   const ledgerPath = config.mode === 'demo'
     ? resolveDemoLedgerPath({
@@ -215,6 +230,7 @@ async function countLedgerEvents(ledgerPath: string): Promise<number> {
  * thereafter.
  */
 export async function switchMode(mode: AppConfig['mode'], options: OnboardingOptions = {}): Promise<AppConfig> {
+  assertModeAllowed(mode, options)
   const current = await loadAppConfig(options)
 
   // (i) No-op when re-selecting the already-initialized current mode.

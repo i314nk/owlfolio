@@ -6,6 +6,7 @@ import { homedir } from 'node:os'
 import { defaultDemoAppConfig, defaultUnconfiguredAppConfig, type AppConfig } from '@owlfolio/shared'
 
 type AppConfigEnv = {
+  [key: string]: string | undefined
   OWLFOLIO_APP_CONFIG_PATH?: string
   OWLFOLIO_PROJECT_DIR?: string
   OWLFOLIO_TEST_MODE?: string
