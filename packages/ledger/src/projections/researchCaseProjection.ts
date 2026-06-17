@@ -92,6 +92,22 @@ export type ResearchCaseVerdictStateProjection = {
 }
 
 /**
+ * RELIGHTENED DECISION (R1): the MODEL's cited valuation reasoning — it shows its work. The deterministic
+ * side uses assumed_growth + the owner-earnings basis only for the reference cross-check FV (a flag-only
+ * sanity-check), never to drive the verdict or the buy-below.
+ */
+export type ResearchCaseValuationReasoningProjection = {
+  /** Cited: the owner-earnings basis the model valued. */
+  owner_earnings_basis?: string
+  /** The near-term growth the model assumed (a fraction). */
+  assumed_growth?: number
+  /** Cited: WHY that growth is defensible. */
+  assumed_growth_rationale?: string
+  /** OPTIONAL: the model's discount-rate reasoning. */
+  discount_rationale?: string
+}
+
+/**
  * Judgment-objectivity layer (judgment-objectivity-layer-spec Mechanisms 1+2): per-axis rubric scores
  * + the mechanical anchor tier vs the lane's proposed tier + the harness-resolved tier. The harness
  * re-verifies the computable rows, bounds the lane's adjustment to ±1 tier with verified cited evidence
@@ -259,8 +275,27 @@ export type ResearchCaseValuationProjection = {
   /** Provenance of the incremental ROIC used: 'sec_edgar' (computed from the series) or 'model_proposed'. */
   incremental_roic_basis?: string
   /**
-   * Price → verdict band (valuation-recalibration-spec §2): BUY-WINDOW | WATCH-FAIR | WATCH.
-   * WATCH-FAIR is the "wonderful at fair" human-discretion zone — never a harness buy signal.
+   * RELIGHTENED DECISION (R1): the MODEL's proposed buy-below (recorded VERBATIM — NOT a derived FV). Equal
+   * to buy_price_per_share now that the band/gap engines no longer source the buy-below.
+   */
+  proposed_buy_below?: number
+  /**
+   * RELIGHTENED DECISION (R1): a forward-DCF CROSS-CHECK fair value at the MODEL's assumed growth — a
+   * reference only (NOT the decision driver, NOT the buy-below source). Used by the flag-only sanity layer.
+   */
+  reference_fair_value?: number
+  /** RELIGHTENED DECISION (R1): pure arithmetic — current_price <= buy_below. */
+  in_buy_zone?: boolean
+  /**
+   * RELIGHTENED DECISION (R1): the deterministic, SYMMETRIC, flag-only sanity-check messages (over-
+   * optimistic + over-pessimistic catches + absurdity flags). NEVER blocks the verdict — advisory only.
+   */
+  sanity_flags?: string[]
+  /** RELIGHTENED DECISION (R1): the MODEL's cited valuation reasoning (it shows its work). */
+  valuation_reasoning?: ResearchCaseValuationReasoningProjection
+  /**
+   * LEGACY (R1 tolerates, R2/R4 remove): the retired band verdict_state. New runs no longer EMIT it; old
+   * events that still carry it are projected via the back-compat type so the dossier UI keeps compiling.
    */
   verdict_state?: ResearchCaseVerdictStateProjection
   /** Judgment-objectivity rubric layer (Mechanisms 1+2): anchor-vs-proposed tier + rubric scores. */
@@ -708,6 +743,21 @@ function getVerdictState(valuation: Record<string, unknown>): ResearchCaseVerdic
   return Object.keys(projected).length === 0 ? undefined : projected
 }
 
+function getValuationReasoning(valuation: Record<string, unknown>): ResearchCaseValuationReasoningProjection | undefined {
+  const value = valuation['valuation_reasoning']
+  if (!isRecord(value)) return undefined
+  const projected: ResearchCaseValuationReasoningProjection = {}
+  const owner_earnings_basis = getString(value, 'owner_earnings_basis')
+  if (owner_earnings_basis !== undefined) projected.owner_earnings_basis = owner_earnings_basis
+  const assumed_growth = getNumber(value, 'assumed_growth')
+  if (assumed_growth !== undefined) projected.assumed_growth = assumed_growth
+  const assumed_growth_rationale = getString(value, 'assumed_growth_rationale')
+  if (assumed_growth_rationale !== undefined) projected.assumed_growth_rationale = assumed_growth_rationale
+  const discount_rationale = getString(value, 'discount_rationale')
+  if (discount_rationale !== undefined) projected.discount_rationale = discount_rationale
+  return Object.keys(projected).length === 0 ? undefined : projected
+}
+
 function getJudgmentAxis(value: unknown): ResearchCaseJudgmentAxisProjection | undefined {
   if (!isRecord(value)) return undefined
   const projected: ResearchCaseJudgmentAxisProjection = {}
@@ -1142,6 +1192,19 @@ function getValuation(payload: Record<string, unknown>): ResearchCaseValuationPr
   if (valuation_cap_binding !== undefined) projected.valuation_cap_binding = valuation_cap_binding
   const incremental_roic_basis = getString(value, 'incremental_roic_basis')
   if (incremental_roic_basis !== undefined) projected.incremental_roic_basis = incremental_roic_basis
+  // RELIGHTENED DECISION (R1): the model's buy-below + the deterministic flag-only sanity layer.
+  const proposed_buy_below = getNumber(value, 'proposed_buy_below')
+  if (proposed_buy_below !== undefined) projected.proposed_buy_below = proposed_buy_below
+  const reference_fair_value = getNumber(value, 'reference_fair_value')
+  if (reference_fair_value !== undefined) projected.reference_fair_value = reference_fair_value
+  const in_buy_zone = getBoolean(value, 'in_buy_zone')
+  if (in_buy_zone !== undefined) projected.in_buy_zone = in_buy_zone
+  const sanity_flags = getStringArray(value, 'sanity_flags')
+  if (sanity_flags !== undefined) projected.sanity_flags = sanity_flags
+  const valuation_reasoning = getValuationReasoning(value)
+  if (valuation_reasoning !== undefined) projected.valuation_reasoning = valuation_reasoning
+  // LEGACY (R1 tolerates): the retired band verdict_state still projects from old events (no throw); new
+  // runs no longer emit it.
   const verdict_state = getVerdictState(value)
   if (verdict_state !== undefined) projected.verdict_state = verdict_state
   const judgment = getJudgment(value)

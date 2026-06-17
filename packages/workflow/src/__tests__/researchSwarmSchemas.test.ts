@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import { DecisionAgentSchema } from '../researchSwarmSchemas'
 
-// The valuation lane (synthesis+decision agent) now emits a structured band_economics block: cited
-// reinvestment-runway + durability evidence + a grounded sustainable-growth argument, plus an OPTIONAL
-// cited capital_light_argument (the escape valve the band engine honours only when its citation is real).
-describe('DecisionAgentSchema.band_economics (grounded sustainable-growth band argument)', () => {
+// RELIGHTENED DECISION (R1): the model OWNS the valuation. The decision agent now emits proposed_buy_below
+// (the price below which it would buy — recorded verbatim, NOT a derived FV) and valuation_reasoning (the
+// cited owner-earnings basis + assumed growth + why it is defensible). The retired band_economics block is
+// gone; valuation_reasoning is OPTIONAL so a degraded payload still flows through.
+describe('DecisionAgentSchema (model proposes buy-below + cited valuation reasoning)', () => {
   const base = {
     investment_verdict: 'WATCH' as const,
     strategy_compliance: 'CONDITIONAL' as const,
@@ -27,48 +28,50 @@ describe('DecisionAgentSchema.band_economics (grounded sustainable-growth band a
     roic: 0.3,
     incremental_roic: 0.2,
     reinvestment_rate: 0.4,
+    proposed_buy_below: 150,
     proposed_sources: [{ source_id: 's1', title: 'T', url: 'https://www.sec.gov/x.htm', excerpt: 'e' }],
   }
 
-  it('parses with the required narrative band_economics fields (no capital_light_argument)', () => {
-    const parsed = DecisionAgentSchema.safeParse({
-      ...base,
-      band_economics: {
-        reinvestment_runway_evidence: 'Reinvestment runway sustained per 10-K segment capex.',
-        durability_evidence: 'Wide moat: switching costs per 10-K.',
-        sustainable_growth_argument: '8% sustainable because reinvestment 40% × 20% incremental ROIC.',
-      },
-    })
+  it('requires proposed_buy_below (the model\'s buy-below number)', () => {
+    const { proposed_buy_below: _omit, ...withoutBuyBelow } = base
+    void _omit
+    expect(DecisionAgentSchema.safeParse(withoutBuyBelow).success).toBe(false)
+    const parsed = DecisionAgentSchema.safeParse(base)
     expect(parsed.success).toBe(true)
-    expect(parsed.success && parsed.data.band_economics?.capital_light_argument).toBeUndefined()
+    expect(parsed.success && parsed.data.proposed_buy_below).toBe(150)
   })
 
-  it('carries an optional capital_light_argument (claimed_growth + citation)', () => {
+  it('parses with the cited valuation_reasoning block (owner-earnings basis + assumed growth + rationale)', () => {
     const parsed = DecisionAgentSchema.safeParse({
       ...base,
-      band_economics: {
-        reinvestment_runway_evidence: 'Low reinvestment; operating leverage.',
-        durability_evidence: 'Network effects per 10-K.',
-        sustainable_growth_argument: '12% sustainable on capital-light operating leverage.',
-        capital_light_argument: { claimed_growth: 0.12, citation: 'sec_edgar_10k:Cloud segment operating margin expansion' },
+      valuation_reasoning: {
+        owner_earnings_basis: 'FY25 owner earnings $8.4B per the 10-K.',
+        assumed_growth: 0.06,
+        assumed_growth_rationale: 'Modest mid-single-digit growth grounded in segment capex, cited to the 10-K.',
       },
     })
     expect(parsed.success).toBe(true)
-    expect(parsed.success && parsed.data.band_economics?.capital_light_argument?.claimed_growth).toBe(0.12)
+    expect(parsed.success && parsed.data.valuation_reasoning?.assumed_growth).toBe(0.06)
+    expect(parsed.success && parsed.data.valuation_reasoning?.discount_rationale).toBeUndefined()
   })
 
-  it('represents (but does not validate away) an empty-citation capital-light claim — grounding is the band engine\'s job', () => {
+  it('carries an optional discount_rationale on valuation_reasoning', () => {
     const parsed = DecisionAgentSchema.safeParse({
       ...base,
-      band_economics: {
-        reinvestment_runway_evidence: 'r',
-        durability_evidence: 'd',
-        sustainable_growth_argument: 's',
-        capital_light_argument: { claimed_growth: 0.20, citation: '' },
+      valuation_reasoning: {
+        owner_earnings_basis: 'FY25 owner earnings per the 10-K.',
+        assumed_growth: 0.18,
+        assumed_growth_rationale: 'Capital-light operating leverage per the cloud segment, cited to the 10-K.',
+        discount_rationale: '10% = live 10y Treasury + uniform equity premium.',
       },
     })
-    // The SCHEMA carries the empty citation; the band engine (tested elsewhere) is what clamps it.
     expect(parsed.success).toBe(true)
-    expect(parsed.success && parsed.data.band_economics?.capital_light_argument?.citation).toBe('')
+    expect(parsed.success && parsed.data.valuation_reasoning?.discount_rationale).toBe('10% = live 10y Treasury + uniform equity premium.')
+  })
+
+  it('valuation_reasoning is OPTIONAL — a degraded payload (buy-below only) still parses', () => {
+    const parsed = DecisionAgentSchema.safeParse(base)
+    expect(parsed.success).toBe(true)
+    expect(parsed.success && parsed.data.valuation_reasoning).toBeUndefined()
   })
 })

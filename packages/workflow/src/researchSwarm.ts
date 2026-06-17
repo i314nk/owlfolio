@@ -43,7 +43,7 @@ export {
   type GroundedAgentResult,
   type SynthesisResponse,
 }
-import { computeIncrementalRoic, demonstratedOwnerEarningsGrowth, estimateMaintenanceCapex, maintenanceCapexLowConfidence, type Fundamentals, type SecEdgarDeps } from './secEdgar'
+import { computeIncrementalRoic, demonstratedOwnerEarningsGrowth, estimateMaintenanceCapex, type Fundamentals, type SecEdgarDeps } from './secEdgar'
 import { resolveFundamentalsForTicker } from './fundamentalsProvider'
 import { evaluateBaseRateBurden, type BaseRateBurdenFlag } from './baseRateBurden'
 import { BASE_RATES } from '@owlfolio/strategies/baseRates'
@@ -64,8 +64,9 @@ import { buffettMungerStrategy, creditedGrowth, discountRate, moatPassesGate, st
 import { computeShariahFinancialRatios } from '@owlfolio/strategies/shariahFinancialRatios'
 import { valuationSensitivity, type ValuationSensitivity } from '@owlfolio/strategies/valuationSensitivity'
 import { marketImpliedGrowth } from '@owlfolio/strategies/reverseDcf'
-import { sustainableGrowthBand } from '@owlfolio/strategies/sustainableGrowthBand'
-import { requiredGrowthGap } from '@owlfolio/strategies/requiredGrowthGap'
+// NOTE (R1): sustainableGrowthBand + requiredGrowthGap are no longer imported here — the relightened
+// decision stopped using the band/gap engines (they are deleted entirely in R2). The model now proposes
+// the verdict + valuation + buy-below; the deterministic side only sanity-checks + applies the cheap gates.
 import { fetchAverageMarketCap, fetchTenYearTreasuryYield, resolveCurrentPrice, type AverageMarketCapResult, type MarketDataDeps, type PriceQuote, type TreasuryYieldResult } from './marketData'
 import { runRedTeamPass, runRedTeamResponsePass, buildRedTeamLayer, type RedTeamLaneDigest, type RedTeamResult } from './redTeamPass'
 import {
@@ -1125,8 +1126,8 @@ export async function runResearchDeepDivePhase(
     prompt: `You are the Buffett-Munger synthesis+decision agent for ${command.ticker}. `
       + `Using the lane findings, produce a verdict, thesis, evidence, valuation rationale, Shariah rationale, risks, open questions, and a synthesis summary. `
       + `For the owner_earnings_bridge, provide company TOTALS in $millions from the latest 10-K (net_income, depreciation_amortization, maintenance_capex, stock_based_comp, normalized_working_capital_change) AND shares_outstanding (diluted weighted-average shares outstanding, in MILLIONS) so the harness can compute owner earnings per share. `
-      + `REQUIRED — do not omit: report incremental_roic (normalized INCREMENTAL ROIC as a fraction, e.g. 0.20) alongside reinvestment_rate. The harness credits growth only when incremental_roic exceeds 10%; historical revenue/EPS growth is never an input. `
-      + `Produce a GROUNDED sustainable-growth band in band_economics: anchor on reinvestment × incremental-ROIC; cross-check against demonstrated growth; CITE moat-durability (durability_evidence) and the reinvestment-runway basis (reinvestment_runway_evidence); state the honest sustainable-growth argument (sustainable_growth_argument) — estimate HONESTLY, do NOT lowball. When growth is capital-light (brand / network / operating-leverage growth at low reinvestment) supply a CITED capital_light_argument {claimed_growth, citation} with the sustainable growth you argue for and its grounded source. Argue the band DOWN freely; a band-UP above the reinvestment×ROIC identity REQUIRES a citation (an uncited band-up is clamped to the identity). `
+      + `Report incremental_roic (normalized INCREMENTAL ROIC as a fraction, e.g. 0.20) alongside reinvestment_rate (reported context). `
+      + `YOU OWN THE VALUATION JUDGMENT. REQUIRED — do not omit: proposed_buy_below — the per-share price BELOW which you would buy, your own number, with your cited reasoning (the harness records it verbatim; it does NOT derive it from any fair value). ALSO produce valuation_reasoning: owner_earnings_basis (CITED — the owner-earnings figure you valued), assumed_growth (the near-term growth you assumed, a fraction), assumed_growth_rationale (CITED — WHY that growth is defensible; a durable source, not "strong execution"), and optionally discount_rationale. Estimate HONESTLY — do NOT lowball and do NOT over-reach: a growth above ~15% or a price implying it will be FLAGGED as implausible. Set valuation_status (ATTRACTIVE | FAIR | EXPENSIVE | INSUFFICIENT_DATA) consistently with that evidence — the harness sanity-checks it against the market-implied growth in BOTH directions. `
       // The moat/runway classification + rubrics and the Shariah overlay are produced by the MOAT and
       // SHARIAH specialist lanes — NOT here. The harness has already resolved them; the resolved tiers are
       // handed to you below for RECONCILIATION only (you do not re-score them).
@@ -1520,7 +1521,6 @@ export async function runResearchDeepDivePhase(
   const valuation_multiple_ceiling = buffettMungerStrategy.valuation.valuation_multiple_ceiling
 
   const valuationCaveats: string[] = []
-  let buy_price_per_share: number | undefined
   let fair_value_per_share: number | undefined
   let implied_multiple: number | undefined
   let terminal_growth_rate: number | undefined
@@ -1534,13 +1534,9 @@ export async function runResearchDeepDivePhase(
   let fair_value_range_basis: string | undefined
   let valuation_cap_binding: boolean | undefined
 
-  // Maintenance-capex confidence (Phase 1.2 → 1.6 widening input, review "bite once"): low confidence is
-  // genuine estimation DISPERSION — BOTH proxies computed but disagree materially — NOT the D&A-floor
-  // fallback from missing gross PP&E. That fallback already made the cash flow conservative (higher maint
-  // capex → lower owner earnings), so widening the MoS on top would haircut the same single cause twice.
-  const low_maint_capex_confidence = fundamentals?.annual_series !== undefined
-    ? maintenanceCapexLowConfidence(fundamentals.annual_series)
-    : false
+  // NOTE (R1): maintenance-capex confidence was a widening input for the retired required_growth_gap engine
+  // (deleted in R2). The relightened decision no longer widens a deterministic conservatism knob — the
+  // model owns the valuation judgment — so the low-maint-capex-confidence signal is no longer consumed here.
 
   // ---- ONE growth path (Phase 1.3): honest demonstrated OE/share growth + named cap + above-GDP flag ----
   // The growth rate is the demonstrated historical owner-earnings-per-share CAGR from the EDGAR series
@@ -1874,207 +1870,197 @@ export async function runResearchDeepDivePhase(
     )
   }
 
-  // ---- Reverse-DCF vs sustainable-growth band ± required-gap → verdict band (valuation-core revision) ----
-  // The verdict no longer compares the live price to a point fair value (price-vs-FV). It compares the
-  // market-IMPLIED growth (what TODAY'S price assumes the business will compound at, reverse-DCF) against a
-  // grounded, GDP-honest sustainable-growth band, with conservatism living in ONE place: the required gap.
+  // ---- RELIGHTENED DECISION (R1): model proposes verdict + valuation + buy-below; harness sanity-checks ----
+  // The frontier MODEL does the valuation/judgment (showing its work + citing sources). DETERMINISM is
+  // reserved for arithmetic, a LIGHT valuation sanity-check (flag-only, NEVER blocks), the human-decision
+  // boundary, and Shariah. The retired band/gap ENGINES (sustainableGrowthBand + requiredGrowthGap) no
+  // longer DECIDE the verdict — they are deleted in R2; here we simply STOP using them.
   //
-  // Two pure engines (no conservatism in the band; ALL conservatism in the gap — F.13 one-knob discipline):
-  //   band = sustainableGrowthBand(...)  → band_low / band_center / band_high (what the business can FUND).
-  //   gap  = requiredGrowthGap(...)      → required_gap in GROWTH-RATE POINTS (the SAME widening factors the
-  //                                        MoS price-haircut used — reuse the widenedMarginOfSafety args 1:1).
+  //   buy_below            = the MODEL's proposed_buy_below (recorded VERBATIM — NOT derived from any FV).
+  //   reference_fair_value = twoStageValuation at the model's assumed_growth + owner-earnings basis — a
+  //                          CROSS-CHECK reference ONLY (NOT the decision driver, NOT the buy-below source).
+  //   market_implied_growth = the reverse-DCF of today's price (computed above) — the crazy-detector.
+  //   sanity_flags[]       = flag-only absurdity checks (SYMMETRIC: catches both an over-optimistic and an
+  //                          over-pessimistic model read). NEVER blocks the verdict.
+  //   in_buy_zone          = pure arithmetic: current_price <= buy_below (useful for watch re-surface).
   //
-  // Boundaries (implied = market_implied_growth, lo = band.band_low, gapv = gap.required_gap):
-  //   implied <= lo - gapv            → BUY-WINDOW  (market UNDERPRICES sustainable growth = CHEAP — note the
-  //                                                   direction: LOW implied growth vs a HIGHER honest band is
-  //                                                   the cheap case, not the expensive one.)
-  //   lo - gapv < implied <= lo       → WATCH-FAIR  (within the honest band, no safety gap — human-discretion
-  //                                                   zone; NEVER auto-escalates to BUY.)
-  //   implied > lo                    → WATCH       (fairly-to-richly priced); sub-flag implied_above_band
-  //                                                   when implied >= band_high (market prices ABOVE what the
-  //                                                   business sustains).
-  // Fail-closed: when implied is undefined, the band is not_computable, or OE<=0 (no point FV / no band),
-  // verdict_state stays undefined and the buy-band-unconfirmed clamp below forces a safe non-BUY verdict.
-  // The valuation lane (synthesis schema) now emits a grounded band_economics block. Its OPTIONAL
-  // capital_light_argument is the escape valve: a CITED claim that the bare reinvestment×ROIC identity
-  // understates a capital-light compounder. The band engine validates it (empty/missing citation → no
-  // escape, clamp to the identity; claim > single_growth_cap → capped) — so we pass it through verbatim.
-  const laneCapitalLightArgument = dec.analysis.band_economics?.capital_light_argument
-  const band = sustainableGrowthBand(buffettMungerStrategy, {
-    incremental_roic,
-    reinvestment_rate,
-    demonstrated_growth,
-    runway,
-    moat_class: moatClass,
-    incremental_roic_basis,
-    // The cited capital-light escape from the valuation lane (omitted → band clamps to the identity, the
-    // honest default). The band engine ignores it when the citation is empty.
-    ...(laneCapitalLightArgument !== undefined ? { capital_light_argument: laneCapitalLightArgument } : {}),
-  })
-  const gap = requiredGrowthGap(buffettMungerStrategy, {
-    // Mirror the widenedMarginOfSafety args 1:1 (the SAME documented uncertainties widen the gap).
-    moat_class: moatClass,
-    ...(terminal_value_pct_of_iv !== undefined ? { terminal_value_pct_of_iv } : {}),
-    low_maint_capex_confidence,
-    // Above-GDP growth IS a moat-durability claim (Phase 1.3 coupling) → weak-durability widening.
-    weak_moat_durability: growthResult.above_gdp,
-  })
+  // Verdict = the MODEL's investment_verdict, clamped ONLY by the existing cheap deterministic gates:
+  // moat-gate (below wide → PASS), Shariah-FAIL → PASS/block, and RESEARCH_MORE when the required data
+  // (owner-earnings / price) is missing. There is NO band-derived verdict.
+  const dr = dec.analysis.valuation_reasoning
+  const assumed_growth = dr?.assumed_growth
+  const valuation_status = dec.analysis.valuation_status
 
-  // ---- buy-below = price where market-implied growth meets the buy-threshold; fair_value = band center ----
-  // The monotonic forward DCF (twoStageValuation, increasing in g) is REPURPOSED as a price-from-growth
-  // function (V2 of the valuation-core revision):
-  //   buy_price_per_share  = forward DCF at g = band_low − required_gap (the buy-threshold). This is, by
-  //                          construction, the price at which the reverse-DCF market-implied growth rises to
-  //                          exactly band_low − required_gap — i.e. the cheapest price that still clears the
-  //                          buy gate. It REPLACES the old fair_value × (1 − MoS) haircut.
-  //   fair_value_per_share = forward DCF at g = band_center. PRESENTATION-ONLY reference anchor; it is NOT
-  //                          the decision driver — the verdict is implied-growth-vs-band (V3), not price-vs-FV.
-  // Both reuse the SAME twoStageValuation arg basis the point FV used (oe_ps, terminal_g, discount,
-  // ceiling_multiple, horizon; fade_years defaults to the config growth_fade_years, as the point FV and the
-  // reverse-DCF solve both do — keeping forward/reverse round-trip-consistent). Fail-closed: only when a
-  // point FV exists (positive OE/share, moat investable, FV not discarded) AND the band/gap are computable.
+  // reference_fair_value — a forward-DCF cross-check at the MODEL's assumed growth + owner-earnings basis.
+  // Reuses the SAME twoStageValuation arg basis the point FV used (oe_ps, terminal_g, discount,
+  // ceiling_multiple, horizon). Fail-closed: only when a valid OE/share + terminal exist AND the model
+  // supplied an assumed growth. This is a REFERENCE only — it never feeds the verdict or the buy-below.
+  let reference_fair_value: number | undefined
   if (
-    fair_value_per_share !== undefined
-    && terminal_growth_rate !== undefined
-    && normalized_owner_earnings_per_share !== undefined
+    normalized_owner_earnings_per_share !== undefined
     && normalized_owner_earnings_per_share > 0
-    && band.grounding_status !== 'not_computable'
-    && Number.isFinite(band.band_center)
-    && Number.isFinite(band.band_low)
-    && Number.isFinite(gap.required_gap)
+    && terminal_growth_rate !== undefined
+    && assumed_growth !== undefined
+    && Number.isFinite(assumed_growth)
   ) {
-    const valHorizon = stage1HorizonForMoat(buffettMungerStrategy, moatClass)
-    // fair_value: presentation-only band-center reference (NOT the decision driver).
-    const fvAtCenter = twoStageValuation({
+    const refHorizon = stage1HorizonForMoat(buffettMungerStrategy, moatClass)
+    const refFv = twoStageValuation({
       oe_ps: normalized_owner_earnings_per_share,
-      g: band.band_center,
+      g: assumed_growth,
       terminal_g: terminal_growth_rate,
       discount,
       ceiling_multiple: valuation_multiple_ceiling,
       absurd_multiple: buffettMungerStrategy.valuation.fv_absurd_multiple,
-      horizon: valHorizon,
+      horizon: refHorizon,
     }).fair_value
-    if (fvAtCenter !== undefined && Number.isFinite(fvAtCenter) && fvAtCenter > 0 && fvAtCenter <= MAX_PLAUSIBLE_FAIR_VALUE_PER_SHARE) {
-      fair_value_per_share = Math.round(fvAtCenter * 100) / 100
-    }
-    // buy-below: the price at which market-implied growth rises to the buy-threshold (band_low − required_gap).
-    const gThreshold = band.band_low - gap.required_gap
-    // The reverse-DCF search brackets near-term growth in [G_LOW, G_HIGH] = [-0.5, 0.5]; a threshold below
-    // that floor is not expressible by the round-trip, so skip (fail-closed → buy-band-unconfirmed clamp).
-    if (Number.isFinite(gThreshold) && gThreshold > -0.5) {
-      const fvAtThreshold = twoStageValuation({
-        oe_ps: normalized_owner_earnings_per_share,
-        g: gThreshold,
-        terminal_g: terminal_growth_rate,
-        discount,
-        ceiling_multiple: valuation_multiple_ceiling,
-        absurd_multiple: buffettMungerStrategy.valuation.fv_absurd_multiple,
-        horizon: valHorizon,
-      }).fair_value
-      if (fvAtThreshold !== undefined && Number.isFinite(fvAtThreshold) && fvAtThreshold > 0 && fvAtThreshold <= MAX_PLAUSIBLE_FAIR_VALUE_PER_SHARE) {
-        buy_price_per_share = Math.round(fvAtThreshold * 100) / 100
-      }
+    if (refFv !== undefined && Number.isFinite(refFv) && refFv > 0 && refFv <= MAX_PLAUSIBLE_FAIR_VALUE_PER_SHARE) {
+      reference_fair_value = Math.round(refFv * 100) / 100
     }
   }
 
-  let verdict_state:
-    | {
-        state: 'BUY-WINDOW' | 'WATCH-FAIR' | 'WATCH'
-        market_implied_growth?: number
-        band_low?: number
-        band_high?: number
-        band_center?: number
-        band_grounding_status?: 'grounded' | 'unsupported_high' | 'not_computable'
-        band_basis_citations?: string[]
-        required_gap?: number
-        gap_to_band?: number
-        implied_multiple?: number
-        implied_above_band?: boolean
-        note?: string
-      }
-    | undefined
-  const sectorShariahFail = shariahJudgment?.sector_status === 'non_compliant'
-    || shariah_financial?.verdict === 'FAIL'
-  if (
-    moat_passes_gate
-    && !sectorShariahFail
-    && market_implied_growth !== undefined
-    && band.grounding_status !== 'not_computable'
-    // A point fair value (positive OE/share, FV not discarded) underpins the reverse-DCF solve, so its
-    // presence guarantees the implied growth inverts the SAME forward DCF.
-    && fair_value_per_share !== undefined
-    // The threshold-derived buy-below must also be expressible; if it failed closed (e.g. the buy-threshold
-    // growth fell below the reverse-DCF bracket floor), leave verdict_state undefined → buy-band-unconfirmed.
-    && buy_price_per_share !== undefined
-  ) {
-    const implied = market_implied_growth
-    const lo = band.band_low
-    const gapv = gap.required_gap
-    const buyThreshold = lo - gapv
-    // gap_to_band > 0 = how far BELOW the buy threshold the market sits (cheaper); < 0 = above it.
-    const gap_to_band = buyThreshold - implied
-    const common = {
-      market_implied_growth: implied,
-      band_low: band.band_low,
-      band_high: band.band_high,
-      band_center: band.band_center,
-      band_grounding_status: band.grounding_status,
-      band_basis_citations: band.basis_citations,
-      required_gap: gapv,
-      gap_to_band,
-      ...(implied_multiple !== undefined ? { implied_multiple } : {}),
-    }
-    if (implied <= buyThreshold) {
-      // CHEAP: market-implied growth is a full required-gap below the honest band's low edge.
-      verdict_state = { state: 'BUY-WINDOW', ...common }
-    } else if (implied <= lo) {
-      // Within the honest band but no safety gap — human-discretion zone; never a harness buy signal.
-      verdict_state = {
-        state: 'WATCH-FAIR',
-        ...common,
-        note: 'Wonderful at fair — human-discretion zone. No harness buy signal.',
-      }
-    } else {
-      // Fairly-to-richly priced. Flag when the market prices ABOVE what the business sustains.
-      verdict_state = {
-        state: 'WATCH',
-        ...common,
-        ...(implied >= band.band_high ? { implied_above_band: true } : {}),
-      }
-    }
-  }
-
-  // HIGH safety — clamp a model BUY when no buy band is computable. The deterministic verdict_state
-  // (BUY-WINDOW / WATCH-FAIR / WATCH) is ONLY computed when buy_price, fair_value and current_price are
-  // ALL present. When the moat gate passes but verdict_state is undefined (OE<=0, invalid shares,
-  // implausible FV discarded, or the live price fetch failed), the deterministic buy window NEVER
-  // confirmed the price sits in the buy band — so a model-proposed BUY must NOT be recorded. Force a
-  // safe non-BUY verdict (RESEARCH_MORE — the existing "can't confirm" state) and surface the reason.
-  const buyBandUnconfirmed =
-    moat_passes_gate
-    && verdict_state === undefined
-    && dec.analysis.investment_verdict === 'BUY'
-  const buyClampReason = buyBandUnconfirmed
-    ? 'BUY not recordable: no computable buy band (missing/implausible valuation or price — owner '
-      + 'earnings, shares, fair value, or the live price was unavailable) — defaulting to RESEARCH_MORE.'
+  // buy_below = the MODEL's proposed number (NOT a derived FV). Recorded verbatim when finite + positive.
+  const buy_below = (typeof dec.analysis.proposed_buy_below === 'number'
+    && Number.isFinite(dec.analysis.proposed_buy_below)
+    && dec.analysis.proposed_buy_below > 0)
+    ? dec.analysis.proposed_buy_below
     : undefined
 
-  // Apply moat gate: if moat is below wide, override verdict to PASS regardless of model output.
-  // WATCH-FAIR never escalates the verdict to BUY — when the model said BUY but the price sits above
-  // the buy window (WATCH-FAIR), the harness records WATCH so it cannot emit a buy signal.
+  // in_buy_zone — pure arithmetic comparison on the model's number (fine; it is arithmetic, not judgment).
+  const in_buy_zone = current_price !== undefined && buy_below !== undefined
+    ? current_price <= buy_below
+    : undefined
+
+  // ---- sanity_flags: SYMMETRIC, flag-only absurdity detector (NEVER blocks the verdict) ----
+  // It must catch BOTH an over-optimistic and an over-pessimistic model read:
+  //   - market-implied growth above a sane bound (reverse-DCF above_cap / above_gdp);
+  //   - the reference FV's terminal-value share above the configured flag threshold;
+  //   - the reference implied multiple above the fv_cap_multiple (cap_exceeded);
+  //   - status ATTRACTIVE while the market already prices implausibly-high growth (over-optimistic);
+  //   - status EXPENSIVE while the market implies only modest growth (over-pessimistic — re-check);
+  //   - the model's proposed_buy_below implies (reverse-DCF at that price) an absurd growth.
+  const sanity_flags: string[] = []
+  const singleGrowthCap = buffettMungerStrategy.valuation.single_growth_cap
+  const gdpThreshold = buffettMungerStrategy.valuation.gdp_growth_threshold
+  const tvShareFlag = buffettMungerStrategy.valuation.terminal_value_share_flag
+  const fvCapMultiple = valuation_multiple_ceiling
+
+  // (a) market-implied growth above a sane bound.
+  if (market_implied_growth !== undefined && market_implied_growth > singleGrowthCap) {
+    sanity_flags.push(
+      `sanity_implied_growth_above_cap: today's price implies ~${(market_implied_growth * 100).toFixed(1)}% near-term `
+      + `owner-earnings growth — above the ${(singleGrowthCap * 100).toFixed(0)}% forecasting-humility cap. The market `
+      + `already prices in growth the method would refuse to underwrite; treat the price as rich.`,
+    )
+  }
+
+  // (b) reference FV terminal-value share too high (the reference estimate is mostly a distant guess).
+  if (
+    reference_fair_value !== undefined
+    && normalized_owner_earnings_per_share !== undefined
+    && normalized_owner_earnings_per_share > 0
+    && terminal_growth_rate !== undefined
+    && assumed_growth !== undefined
+  ) {
+    const refHorizon = stage1HorizonForMoat(buffettMungerStrategy, moatClass)
+    const refResult = twoStageValuation({
+      oe_ps: normalized_owner_earnings_per_share,
+      g: assumed_growth,
+      terminal_g: terminal_growth_rate,
+      discount,
+      ceiling_multiple: valuation_multiple_ceiling,
+      absurd_multiple: buffettMungerStrategy.valuation.fv_absurd_multiple,
+      horizon: refHorizon,
+    })
+    if (refResult.terminal_value_pct_of_iv > tvShareFlag) {
+      sanity_flags.push(
+        `sanity_reference_terminal_share_high: the reference cross-check FV at the model's ${(assumed_growth * 100).toFixed(1)}% `
+        + `assumed growth is ${(refResult.terminal_value_pct_of_iv * 100).toFixed(0)}% terminal value (> ${(tvShareFlag * 100).toFixed(0)}%) — most of the `
+        + `reference is a distant-future guess. Re-check the model's growth assumption.`,
+      )
+    }
+    // (c) reference implied multiple above the fv cap (the reference FV is richer than the sanity cap).
+    const refMultiple = reference_fair_value / normalized_owner_earnings_per_share
+    if (refMultiple > fvCapMultiple) {
+      sanity_flags.push(
+        `sanity_reference_cap_exceeded: the reference cross-check FV implies ${refMultiple.toFixed(1)}× owner earnings `
+        + `(> ${fvCapMultiple}× sanity cap) at the model's assumed growth — re-check the growth/terminal inputs.`,
+      )
+    }
+  }
+
+  // (d/e) SYMMETRIC valuation_status vs evidence contradiction (both directions).
+  if (market_implied_growth !== undefined) {
+    if (valuation_status === 'ATTRACTIVE' && market_implied_growth > singleGrowthCap) {
+      // Over-OPTIMISTIC catch: model calls it attractive, yet the market already prices implausible growth.
+      sanity_flags.push(
+        `sanity_status_contradicts_evidence: model says valuation is ATTRACTIVE, yet today's price already implies `
+        + `~${(market_implied_growth * 100).toFixed(1)}% growth (above the ${(singleGrowthCap * 100).toFixed(0)}% cap) — the market `
+        + `already prices implausible growth, so "attractive" is hard to credit. Re-check.`,
+      )
+    } else if (valuation_status === 'EXPENSIVE' && market_implied_growth <= gdpThreshold) {
+      // Over-PESSIMISTIC catch: model calls it expensive, yet the market implies only modest growth.
+      sanity_flags.push(
+        `sanity_status_contradicts_evidence: model says valuation is EXPENSIVE, yet today's price implies only `
+        + `~${(market_implied_growth * 100).toFixed(1)}% growth (at/below the ${(gdpThreshold * 100).toFixed(0)}% GDP rate) — the market `
+        + `implies only modest growth, so "expensive" is hard to credit. Re-check.`,
+      )
+    }
+  }
+
+  // (f) the model's proposed_buy_below implies (reverse-DCF at that price) an absurd growth.
+  if (
+    buy_below !== undefined
+    && normalized_owner_earnings_per_share !== undefined
+    && normalized_owner_earnings_per_share > 0
+    && terminal_growth_rate !== undefined
+  ) {
+    const buyImplied = marketImpliedGrowth({
+      price: buy_below,
+      oe_ps: normalized_owner_earnings_per_share,
+      terminal_g: terminal_growth_rate,
+      discount,
+      horizon: stage1HorizonForMoat(buffettMungerStrategy, moatClass),
+    })
+    if (buyImplied.status === 'solved' && buyImplied.implied_growth !== undefined && buyImplied.implied_growth > singleGrowthCap) {
+      sanity_flags.push(
+        `sanity_buy_below_implies_absurd_growth: the model's proposed buy-below ($${buy_below.toFixed(2)}) still implies `
+        + `~${(buyImplied.implied_growth * 100).toFixed(1)}% growth (above the ${(singleGrowthCap * 100).toFixed(0)}% cap) — even at the "buy" `
+        + `price the market would price in growth the method would refuse to underwrite.`,
+      )
+    }
+  }
+
+  // HIGH safety — RESEARCH_MORE when the required data for a recordable BUY is missing. A model BUY needs
+  // a usable buy-below AND a current price to be a meaningful, arithmetic-checkable buy signal; without
+  // them the model's raw BUY must NOT be recorded. (Owner-earnings/price missing → no in_buy_zone.) This
+  // is the cheap human-decision-boundary gate, NOT a band verdict — the sanity_flags NEVER cause a clamp.
+  const sectorShariahFail = shariahJudgment?.sector_status === 'non_compliant'
+    || shariah_financial?.verdict === 'FAIL'
+  const buyDataUnconfirmed =
+    moat_passes_gate
+    && !sectorShariahFail
+    && dec.analysis.investment_verdict === 'BUY'
+    && (buy_below === undefined || current_price === undefined)
+  const buyClampReason = buyDataUnconfirmed
+    ? 'BUY not recordable: missing the data a buy signal needs (the model\'s buy-below and/or the live '
+      + 'price was unavailable — owner earnings, shares, or the price fetch) — defaulting to RESEARCH_MORE.'
+    : undefined
+
+  // Apply the cheap deterministic gates ONLY: moat below wide → PASS; Shariah sector/financial FAIL → PASS;
+  // missing buy data → RESEARCH_MORE. Otherwise the MODEL's verdict passes through. Sanity flags NEVER gate.
   const gatedVerdict = !moat_passes_gate
     ? ('PASS' as const)
-    : buyBandUnconfirmed
-      ? ('RESEARCH_MORE' as const)
-      : verdict_state?.state === 'WATCH-FAIR'
-        ? ('WATCH' as const)
+    : sectorShariahFail
+      ? ('PASS' as const)
+      : buyDataUnconfirmed
+        ? ('RESEARCH_MORE' as const)
         : dec.analysis.investment_verdict
   const gatedReason = !moat_passes_gate
     ? `Moat below the wide-moat gate (${moatClass}) — pass.`
-    : buyBandUnconfirmed
-      ? `${buyClampReason} ${dec.analysis.decision_reason}`
-      : verdict_state?.state === 'WATCH-FAIR'
-        ? `Wonderful at fair — human-discretion zone. No harness buy signal. ${dec.analysis.decision_reason}`
+    : sectorShariahFail
+      ? `Shariah ${shariahJudgment?.sector_status === 'non_compliant' ? 'sector' : 'financial'} status FAIL — pass. ${dec.analysis.decision_reason}`
+      : buyDataUnconfirmed
+        ? `${buyClampReason} ${dec.analysis.decision_reason}`
         : dec.analysis.decision_reason
 
   // ---- Project the judgment-rubric layer for the verdict/dossier (spec verdict-format additions) ----
@@ -2178,19 +2164,38 @@ export async function runResearchDeepDivePhase(
         ...(implied_multiple !== undefined ? { implied_multiple } : {}),
         ...(terminal_value_pct_of_iv !== undefined ? { terminal_value_pct_of_iv } : {}),
         ...(cap_exceeded ? { cap_exceeded: true } : {}),
-        // The MoS-as-price-haircut fields (margin_of_safety / margin_of_safety_applied /
-        // margin_of_safety_widening_reasons) are RETIRED — conservatism now lives in the required_growth_gap.
-        ...(buy_price_per_share !== undefined ? { buy_price_per_share } : {}),
+        // RELIGHTENED DECISION (R1): buy_price_per_share is the MODEL's proposed_buy_below (recorded
+        // verbatim — NOT a derived FV). The band/gap engines no longer source it. proposed_buy_below
+        // mirrors it as the explicit model-provenance field.
+        ...(buy_below !== undefined ? { buy_price_per_share: buy_below, proposed_buy_below: buy_below } : {}),
         // Phase 2: the fair-value RANGE (low–high, base) — the dossier leads with this instead of the
         // point FV. Omitted when not computable (point FV still stands as the base).
         ...(fair_value_range !== undefined ? { fair_value_range } : {}),
         ...(fair_value_range_basis !== undefined ? { fair_value_range_basis } : {}),
-        // Phase 2: the near-term growth TODAY'S PRICE implies (reverse-DCF). Omitted when no price.
+        // Phase 2: the near-term growth TODAY'S PRICE implies (reverse-DCF) — the crazy-detector. Omitted
+        // when no price.
         ...(market_implied_growth !== undefined ? { market_implied_growth } : {}),
         // Phase 2: the base FV is cap-LIMITED (demonstrated growth above the named cap), not estimate-limited.
         ...(valuation_cap_binding ? { valuation_cap_binding: true } : {}),
-        // Price → verdict band (BUY-WINDOW | WATCH-FAIR | WATCH) when a current price + buy/fair exist.
-        ...(verdict_state !== undefined ? { verdict_state } : {}),
+        // RELIGHTENED DECISION (R1) — the deterministic sanity layer (flag-only, NEVER blocks the verdict):
+        //   reference_fair_value = forward-DCF cross-check at the MODEL's assumed growth (a reference, not the
+        //     decision driver, not the buy-below source);
+        //   in_buy_zone          = pure arithmetic current_price <= buy_below;
+        //   sanity_flags[]       = SYMMETRIC absurdity flags (over-optimistic + over-pessimistic catches);
+        //   valuation_reasoning  = the MODEL's cited valuation basis (it shows its work).
+        ...(reference_fair_value !== undefined ? { reference_fair_value } : {}),
+        ...(in_buy_zone !== undefined ? { in_buy_zone } : {}),
+        ...(sanity_flags.length > 0 ? { sanity_flags } : {}),
+        ...(dr !== undefined
+          ? {
+              valuation_reasoning: {
+                owner_earnings_basis: dr.owner_earnings_basis,
+                assumed_growth: dr.assumed_growth,
+                assumed_growth_rationale: dr.assumed_growth_rationale,
+                ...(dr.discount_rationale !== undefined ? { discount_rationale: dr.discount_rationale } : {}),
+              },
+            }
+          : {}),
         value_basis: 'two_stage_dcf',
         // Judgment-objectivity layer (Mechanisms 1+2): rubric scores + anchor-vs-proposed tier per axis.
         ...(judgmentProjection !== undefined ? { judgment: judgmentProjection } : {}),

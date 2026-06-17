@@ -138,31 +138,31 @@ export const DecisionAgentSchema = z.object({
   // Owner-earnings bridge — totals in $millions, judgment-grounded
   owner_earnings_bridge: OwnerEarningsBridgeSchema,
   // ROIC inputs. `roic` is reported context; `incremental_roic` (normalized INCREMENTAL ROIC, a
-  // fraction, e.g. 0.20) drives credited growth eligibility + magnitude.
+  // fraction, e.g. 0.20) is context the deterministic side records (no longer drives a band verdict).
   roic: z.number(),
   incremental_roic: z.number(),
   reinvestment_rate: z.number(),
-  // GROUNDED sustainable-growth band argument (valuation-core revision). The reinvestment×ROIC identity
-  // (incremental_roic × reinvestment_rate, above) is the band anchor; band_economics adds the CITED
-  // narrative the band engine grounds on — why the reinvestment runway sustains, the moat-durability
-  // basis, and the honest sustainable-growth argument. The OPTIONAL capital_light_argument is the escape
-  // valve: a CITED claim that the bare identity understates a capital-light compounder (brand / network /
-  // operating-leverage growth at low reinvestment — MSFT/GOOGL). The band engine honours it ONLY when its
-  // citation is non-empty (a band-up without a citation still clamps to the identity); optional so a
-  // degraded payload still flows through the identity-clamped default rather than hard-failing.
-  band_economics: z.object({
-    // Cited: why the reinvestment runway sustains (or doesn't).
-    reinvestment_runway_evidence: z.string().min(1),
-    // Cited: the moat-durability basis.
-    durability_evidence: z.string().min(1),
-    // The grounded narrative: "X% sustainable because ...".
-    sustainable_growth_argument: z.string().min(1),
-    // OPTIONAL — only when growth is capital-light. claimed_growth is the band-high the agent argues for;
-    // citation is its grounded source (an empty citation is representable but does not trigger the escape).
-    capital_light_argument: z.object({
-      claimed_growth: z.number(),
-      citation: z.string(),
-    }).optional(),
+  // RELIGHTENED DECISION (R1): the MODEL proposes the price below which it would buy, WITH its cited
+  // reasoning. This is the buy-below the harness records — NOT a number derived from any fair value.
+  // The deterministic side only sanity-checks it (flag-only, never blocks) + computes the arithmetic
+  // price-vs-buy-below comparison. Required in the schema, but a degraded/absent payload is tolerated by
+  // the harness (it falls back to INSUFFICIENT_DATA / RESEARCH_MORE rather than fabricating a number).
+  proposed_buy_below: z.number(),
+  // The model's CITED valuation reasoning (it shows its work). Replaces the retired band_economics block:
+  // the model OWNS the valuation judgment, so it states the owner-earnings basis it valued, the growth it
+  // assumed, WHY that growth is defensible (cited), and optionally the discount rationale. The harness uses
+  // assumed_growth + the owner-earnings basis ONLY to compute a reference cross-check fair value (a flag-
+  // only sanity-check), never to drive the verdict or the buy-below. Optional so a degraded payload still
+  // flows through (the sanity-check then simply has less to cross-check).
+  valuation_reasoning: z.object({
+    // Cited: the owner-earnings basis the model valued (e.g. "FY25 owner earnings $8.4B per the 10-K").
+    owner_earnings_basis: z.string().min(1),
+    // The near-term growth the model assumed in its valuation (a fraction, e.g. 0.08).
+    assumed_growth: z.number(),
+    // Cited: WHY that growth is defensible (the durable-source argument the model is accountable for).
+    assumed_growth_rationale: z.string().min(1),
+    // OPTIONAL: the model's discount-rate reasoning, if it argues one.
+    discount_rationale: z.string().optional(),
   }).optional(),
   // judgment-objectivity-layer-spec Mechanism 5 — Red-Team Pass obligation. The synthesis_response that
   // answers the red team's strongest objection is NO LONGER produced here: a live model kept dropping it

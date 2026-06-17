@@ -241,23 +241,23 @@ function mockSynthesisDecisionForTicker(ticker: string) {
       shares_outstanding: 1000,
     },
     roic: 0.25,
-    // Normalized INCREMENTAL ROIC (fraction) drives the credited-growth band.
+    // Normalized INCREMENTAL ROIC (fraction) — reported context (no longer drives a band verdict; R1).
     incremental_roic: 0.20,
     reinvestment_rate: 0.40,
-    // GROUNDED sustainable-growth band argument (valuation-core revision). The identity anchor is
-    // reinvestment 40% × 20% incremental ROIC = 8.0% sustainable. Capital-light names (MSFT/GOOGL) ALSO
-    // supply a CITED capital_light_argument — the escape valve that lifts band_high above the bare
-    // identity — so the capital-light path is exercised deterministically in the demo + tests. Other
-    // names omit it (band clamps to the identity). Deterministic per ticker.
-    band_economics: {
-      reinvestment_runway_evidence: `${companyLabel} reinvests incremental capital at high ROIC with visible remaining runway per the latest 10-K segment capex.`,
-      durability_evidence: `${companyLabel}'s moat durability rests on switching costs and scale advantages disclosed in the latest 10-K.`,
-      sustainable_growth_argument: isCapitalLightMock(ticker)
-        ? `${companyLabel} sustains ~12% growth on capital-light operating leverage (brand/network growth at low reinvestment), above the 8% reinvestment×ROIC identity.`
-        : `${companyLabel} sustains ~8% growth = reinvestment 40% × 20% incremental ROIC (the funded identity).`,
-      ...(isCapitalLightMock(ticker)
-        ? { capital_light_argument: { claimed_growth: 0.12, citation: `sec_edgar_10k_${ticker}: cloud/services segment operating-margin expansion at low incremental reinvestment` } }
-        : {}),
+    // RELIGHTENED DECISION (R1): the MODEL proposes the buy-below WITH its cited valuation reasoning. The
+    // deterministic side records this number as the buy-below and only sanity-checks it.
+    // Deterministic per ticker so tests are stable, and chosen so the cohorts exercise BOTH sanity paths:
+    //   - capital-light names (MSFT/GOOGL): an OVER-OPTIMISTIC assumed_growth (0.18, above the 0.15
+    //     single_growth_cap) paired with an ATTRACTIVE valuation_status — trips the symmetric sanity-check
+    //     (over-optimistic catch). proposed_buy_below set high so it is clearly the model's own number.
+    //   - other names: a modest, defensible assumed_growth (0.06) — a CLEAN case (no sanity flag).
+    proposed_buy_below: isCapitalLightMock(ticker) ? 320 : 150,
+    valuation_reasoning: {
+      owner_earnings_basis: `${companyLabel} FY25 owner earnings ≈ $14B per the latest 10-K (NI + D&A − maintenance capex − SBC − ΔWC).`,
+      assumed_growth: isCapitalLightMock(ticker) ? 0.18 : 0.06,
+      assumed_growth_rationale: isCapitalLightMock(ticker)
+        ? `${companyLabel} sustains capital-light operating-leverage growth per the latest 10-K cloud/services segment margin expansion at low incremental reinvestment.`
+        : `${companyLabel} sustains modest mid-single-digit growth = reinvestment 40% × 20% incremental ROIC (the funded identity), cited to the latest 10-K segment capex.`,
     },
     // judgment-objectivity-layer-spec Mechanism 5: the synthesis_response that answers the red team's
     // strongest objection now comes from the dedicated red-team-response call (mockRedTeamResponseForTicker

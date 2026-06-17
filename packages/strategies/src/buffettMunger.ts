@@ -363,7 +363,7 @@ const rawBuffettMungerStrategy = {
       {
         id: 'valuation',
         name: 'Valuation specialist',
-        mandate: 'Estimate the owner-earnings bridge (NI+D&A−maint capex−SBC−ΔWC), ROIC, reinvestment rate, and produce a GROUNDED sustainable-growth band: anchor on reinvestment × incremental-ROIC, cross-check against demonstrated growth, cite moat-durability + reinvestment-runway evidence, and estimate HONESTLY (do not lowball). When growth is capital-light (brand/network/operating-leverage, low reinvestment) supply a CITED capital_light_argument (the claimed sustainable growth + its grounded source). Argue the band DOWN freely; a band-UP above the reinvestment×ROIC identity REQUIRES a citation. The harness derives fair value and the verdict from this band (conservatism lives in the required-growth gap).',
+        mandate: 'Estimate the owner-earnings bridge (NI+D&A−maint capex−SBC−ΔWC), ROIC, and reinvestment rate, and OWN the valuation judgment: propose the per-share buy-below price (your own number, with cited reasoning) and a cited valuation_reasoning (the owner-earnings basis you valued, the near-term growth you assumed, and WHY that growth is defensible from a durable source). Estimate HONESTLY — neither lowball nor over-reach. The harness records your buy-below verbatim and only sanity-checks the valuation (flag-only, never blocking); the human decides.',
         required: true,
       },
       {
