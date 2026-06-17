@@ -70,8 +70,8 @@ describe('diffValuationParams', () => {
 // (the F.13 uniform scalars are unchanged; a new growth_fade_years field appears).
 // ---------------------------------------------------------------------------
 describe('Part D Step 2 — growth-fade version bump records the structural diff', () => {
-  it('the live version is the cap-rederivation config', () => {
-    expect(VALUATION_PARAMS.version).toBe('valuation-2026-06-cap-1')
+  it('the live version is the required-growth-gap config', () => {
+    expect(VALUATION_PARAMS.version).toBe('valuation-2026-06-required-gap-1')
   })
 
   it('diff vs the prior F.13 uniform-moat config shows the added growth_fade_years field', () => {
@@ -132,7 +132,7 @@ describe('Part D Step 2 — growth-fade version bump records the structural diff
       next: VALUATION_PARAMS,
     })
     expect(event.payload.previous_version).toBe('valuation-2026-06-one-knob-2')
-    expect(event.payload.new_version).toBe('valuation-2026-06-cap-1')
+    expect(event.payload.new_version).toBe('valuation-2026-06-required-gap-1')
     expect(event.payload.changes).toContainEqual({ path: 'single_growth_cap', previous: 0.10, next: 0.15 })
   })
 })

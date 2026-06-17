@@ -433,6 +433,18 @@ const rawBuffettMungerStrategy = {
       sensitivity_dispersion_max: VALUATION_PARAMS.margin_of_safety_widening.sensitivity_dispersion_max,
       cap: VALUATION_PARAMS.margin_of_safety_widening.cap,
     },
+    // valuation-core revision — THE single conservatism knob as a required growth-rate GAP (growth-points,
+    // PROVISIONAL/V8-owned; see VALUATION_PARAMS.required_growth_gap). Conservatism lives here, not in the band.
+    required_growth_gap: {
+      base_gap: VALUATION_PARAMS.required_growth_gap.base_gap,
+      widening: {
+        high_terminal_value_share: VALUATION_PARAMS.required_growth_gap.widening.high_terminal_value_share,
+        low_maint_capex_confidence: VALUATION_PARAMS.required_growth_gap.widening.low_maint_capex_confidence,
+        weak_moat_durability: VALUATION_PARAMS.required_growth_gap.widening.weak_moat_durability,
+        sensitivity_dispersion_max: VALUATION_PARAMS.required_growth_gap.widening.sensitivity_dispersion_max,
+        cap: VALUATION_PARAMS.required_growth_gap.widening.cap,
+      },
+    },
     terminal_value_share_flag: VALUATION_PARAMS.terminal_value_share_flag,
     terminal_growth: VALUATION_PARAMS.terminal_growth,
     stage1_horizon: VALUATION_PARAMS.stage1_horizon,
