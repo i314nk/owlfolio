@@ -192,13 +192,14 @@ export const ShariahCrossCheckSchema = z.object({
 // Constants
 // ---------------------------------------------------------------------------
 
-// Per-agent (per-lane) call timeout. Default 180s — matches the "180s timeout" the groundedAgent retry
-// path assumes. `codex exec` calls intermittently STALL for the entire per-call timeout on the first
-// attempt (a retry usually succeeds fast), so at the old 600s default each stall cost 10 min and across
-// the deep-dive lanes + retries compounded into a multi-hour hang. 180s bounds a stalled call to ~3 min;
-// the retry then recovers. Override with OWLFOLIO_AGENT_TIMEOUT_MS (read at module load — set when
-// LAUNCHING, not at runtime). This is the single source of truth; redTeamPass/admitJudgment import it.
-export const DEFAULT_AGENT_TIMEOUT_MS = 180_000
+// Per-agent (per-lane) call timeout. Default 300s (5 min) — a GENEROUS BACKSTOP, not the anti-stuck
+// mechanism. Real codex calls run ~60s; the timeout must be generous enough never to sever legitimate
+// analysis. The real anti-stuck protection is the process-group HARD-KILL of a hung codex (already
+// fixed), the single retry, and the run WATCHDOG that fails-closes abandoned runs — NOT a short timeout.
+// (A previous 180s default risked cutting off a slow-but-legitimate call; the hard-kill already bounds a
+// truly-hung process regardless of this value.) Override with OWLFOLIO_AGENT_TIMEOUT_MS (read at module
+// load — set when LAUNCHING, not at runtime). Single source of truth; redTeamPass/admitJudgment import it.
+export const DEFAULT_AGENT_TIMEOUT_MS = 300_000
 
 /**
  * Resolve the per-agent call timeout from an OWLFOLIO_AGENT_TIMEOUT_MS-style raw value.

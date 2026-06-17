@@ -64,6 +64,7 @@ import { projectPendingCalibrationRuns } from '@owlfolio/ledger/projections/cali
 import type { ShariahFinancialRatioInputs } from '@owlfolio/strategies/shariahFinancialRatios'
 import { selectResearchCaseAction } from '@owlfolio/workflow/researchCasePolicy'
 import { runStrategyResearchSwarm, runResearchDeepDivePhase, type GroundFn } from '@owlfolio/workflow/researchSwarm'
+import { findAbandonedResearchRuns, resolveRunWatchdogStalenessMs } from '@owlfolio/workflow/researchRunWatchdog'
 import { resolveModelRoleEnv } from '@owlfolio/strategies/modelRoleEnvFile'
 import { runDiscovery13f } from '@owlfolio/workflow/discovery13f'
 import { groundProposedSources, groundProposedSourcesDeterministic } from '@owlfolio/workflow/sourceGrounding'
@@ -2383,6 +2384,62 @@ function describeConfigMismatch(
   return undefined
 }
 
+/**
+ * Run-watchdog reaper (anti-stuck). Finds ABANDONED in-flight research runs — a case left in a
+ * non-terminal stage with NO new events for longer than the staleness window, which means the worker
+ * that was driving it died/was killed mid-run — and records a `research_run_failed` WITH A REASON so
+ * the pipeline stops showing the case "running" forever. Idempotent: a dedicated idempotency key per
+ * case means re-running the reaper never double-emits (the event store returns the existing failure).
+ * Runs at the START of the research-queue tick AND can be invoked directly on a normal tick.
+ *
+ * Staleness is generous (default 25 min, env-overridable) precisely so a slow-but-progressing run is
+ * never severed — the hard-kill + retry + this watchdog are the real anti-stuck protection, not a
+ * short timeout.
+ */
+export async function reapAbandonedResearchRuns(
+  store: EventStore<LedgerEventEnvelope<unknown>>,
+  options: { now?: () => Date; stalenessMs?: number } = {},
+): Promise<{ failed: number; summaries: string[] }> {
+  const now = options.now ?? (() => new Date())
+  const stalenessMs = options.stalenessMs
+    ?? resolveRunWatchdogStalenessMs(process.env['OWLFOLIO_RUN_WATCHDOG_STALENESS_MS'])
+  const events = await store.list()
+  const abandoned = findAbandonedResearchRuns({ events, now: now(), stalenessMs })
+
+  const summaries: string[] = []
+  let failed = 0
+  for (const run of abandoned) {
+    const failedAt = now().toISOString()
+    const minutes = Math.round(run.stalled_for_ms / 60_000)
+    const errorSummary =
+      `Run abandoned — no progress for ${minutes} minutes (worker likely terminated mid-run). Re-run to retry.`
+    await store.append({
+      event_id: `evt_research_run_failed_${run.research_case_id}_watchdog`,
+      event_type: 'research_run_failed',
+      aggregate_type: 'research_case',
+      aggregate_id: run.research_case_id,
+      correlation_id: run.research_case_id,
+      idempotency_key: `research-run-watchdog-failed:${run.research_case_id}:v1`,
+      actor_type: 'worker',
+      actor_id: WORKER_ACTOR_ID,
+      payload: {
+        research_case_id: run.research_case_id,
+        run_id: `run_${run.research_case_id}`,
+        ...(run.ticker === undefined ? {} : { ticker: run.ticker }),
+        failed_at: failedAt,
+        error_summary: errorSummary,
+      },
+      source_ids: [],
+      created_at: failedAt,
+      schema_version: 1,
+    } satisfies LedgerEventEnvelope<Record<string, unknown>>)
+    failed += 1
+    summaries.push(`run_watchdog: failed abandoned run ${run.ticker ?? run.research_case_id} (${run.research_case_id}) — stalled ${minutes} min`)
+  }
+
+  return { failed, summaries }
+}
+
 export async function runProcessResearchQueueTask(
   store: EventStore<LedgerEventEnvelope<unknown>>,
   options: {
@@ -2406,6 +2463,12 @@ export async function runProcessResearchQueueTask(
   },
 ): Promise<{ processed: number; failed: number; summaries: string[] }> {
   const now = options.now ?? (() => new Date())
+
+  // Anti-stuck reaper FIRST: before claiming/processing any new runs, fail-close any abandoned
+  // in-flight run (a case stuck non-terminal because the worker driving it died mid-run). Idempotent,
+  // so it is safe to run on every tick.
+  const reaped = await reapAbandonedResearchRuns(store, { now })
+
   const events = await store.list()
   const pending = projectPendingResearchRuns(events as LedgerEventEnvelope<Record<string, unknown>>[])
   // Cast: groundProposedSources/groundProposedSourcesDeterministic accept `ProposedSource[]`
@@ -2418,8 +2481,8 @@ export async function runProcessResearchQueueTask(
   )
   // model-tiering: the UI-managed env-file role overrides (OWLFOLIO_MODEL_ROLE_*) win over process.env.
   const modelRoleEnv = await resolveModelRoleEnv()
-  const summaries: string[] = []
-  let failed = 0
+  const summaries: string[] = [...reaped.summaries]
+  let failed = reaped.failed
 
   for (const run of pending) {
     const claimedAt = now().toISOString()

@@ -2,11 +2,12 @@ import { describe, it, expect } from 'vitest'
 import { AGENT_TIMEOUT_MS, DEFAULT_AGENT_TIMEOUT_MS, resolveAgentTimeoutMs } from '../researchSwarmSchemas'
 
 describe('resolveAgentTimeoutMs', () => {
-  it('defaults to 180_000 (3 min) when OWLFOLIO_AGENT_TIMEOUT_MS is unset', () => {
-    // Lowered from 600s: a stalled codex call now costs ~3 min, not 10, before the retry recovers.
-    expect(DEFAULT_AGENT_TIMEOUT_MS).toBe(180_000)
-    expect(resolveAgentTimeoutMs(undefined)).toBe(180_000)
-    expect(resolveAgentTimeoutMs('')).toBe(180_000)
+  it('defaults to 300_000 (5 min) when OWLFOLIO_AGENT_TIMEOUT_MS is unset', () => {
+    // Generous backstop (not the anti-stuck mechanism): the hard-kill + retry + run watchdog protect
+    // against a hung codex; this timeout must never sever a slow-but-legitimate ~60s call.
+    expect(DEFAULT_AGENT_TIMEOUT_MS).toBe(300_000)
+    expect(resolveAgentTimeoutMs(undefined)).toBe(300_000)
+    expect(resolveAgentTimeoutMs('')).toBe(300_000)
   })
 
   it('honors a valid positive OWLFOLIO_AGENT_TIMEOUT_MS override', () => {
@@ -14,11 +15,11 @@ describe('resolveAgentTimeoutMs', () => {
     expect(resolveAgentTimeoutMs('120000')).toBe(120_000)
   })
 
-  it('falls back to the 180_000 default on invalid/zero/negative override', () => {
-    expect(resolveAgentTimeoutMs('0')).toBe(180_000)
-    expect(resolveAgentTimeoutMs('-5')).toBe(180_000)
-    expect(resolveAgentTimeoutMs('not-a-number')).toBe(180_000)
-    expect(resolveAgentTimeoutMs('NaN')).toBe(180_000)
+  it('falls back to the 300_000 default on invalid/zero/negative override', () => {
+    expect(resolveAgentTimeoutMs('0')).toBe(300_000)
+    expect(resolveAgentTimeoutMs('-5')).toBe(300_000)
+    expect(resolveAgentTimeoutMs('not-a-number')).toBe(300_000)
+    expect(resolveAgentTimeoutMs('NaN')).toBe(300_000)
   })
 
   it('module-load AGENT_TIMEOUT_MS resolves to a positive value (default unless env override set)', () => {

@@ -55,6 +55,7 @@
     "./positionSizingEngine": "./src/positionSizingEngine.ts",
     "./cheapnessScreen": "./src/cheapnessScreen.ts",
     "./admitJudgment": "./src/admitJudgment.ts",
-    "./downsideFloor": "./src/downsideFloor.ts"
+    "./downsideFloor": "./src/downsideFloor.ts",
+    "./researchRunWatchdog": "./src/researchRunWatchdog.ts"
   }
 }

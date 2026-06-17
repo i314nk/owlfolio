@@ -87,10 +87,10 @@ export async function runGroundedAgent<T extends { proposed_sources: z.infer<typ
 
 /**
  * Resilient wrapper around {@link runGroundedAgent} for the bookend calls (quick-screen and
- * synthesis/decision) that are NOT covered by the per-lane try/catch. A single 180s provider
- * timeout on either bookend would otherwise abort the entire run; this adds a single retry on a
- * transient error so a flaky timeout recovers. On the final (post-retry) failure it rethrows so the
- * caller can record a clean failed-run outcome.
+ * synthesis/decision) that are NOT covered by the per-lane try/catch. A single per-call provider
+ * timeout (the generous 300s backstop) on either bookend would otherwise abort the entire run; this
+ * adds a single retry on a transient error so a flaky timeout recovers. On the final (post-retry)
+ * failure it rethrows so the caller can record a clean failed-run outcome.
  */
 export async function runGroundedAgentWithRetry<T extends { proposed_sources: z.infer<typeof ProposedSourcesSchema> }>(
   provider: Provider,
@@ -106,7 +106,7 @@ export async function runGroundedAgentWithRetry<T extends { proposed_sources: z.
       return await runGroundedAgent(provider, request, schema, deps)
     } catch (error) {
       lastError = error
-      // One more attempt on a transient failure (e.g. a 180s timeout). No backoff needed for the
+      // One more attempt on a transient failure (e.g. a per-call timeout). No backoff needed for the
       // alpha — the provider call itself is the slow part.
     }
   }

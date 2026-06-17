@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { InMemoryEventStore } from '@owlfolio/ledger/eventStore'
 import { MockProvider } from '@owlfolio/providers/mockProvider'
 import type { GroundFn } from '@owlfolio/workflow/researchSwarm'
-import { runProcessResearchQueueTask } from '../runtime'
+import { runProcessResearchQueueTask, reapAbandonedResearchRuns } from '../runtime'
 
 describe('runProcessResearchQueueTask', () => {
   it('claims a pending request and runs the swarm to a decision', async () => {
@@ -161,5 +161,70 @@ describe('runProcessResearchQueueTask', () => {
     expect(types).not.toContain('research_run_failed')
     expect(result.processed).toBe(1)
     expect(result.failed).toBe(0)
+  })
+})
+
+describe('reapAbandonedResearchRuns (run watchdog)', () => {
+  // A case stuck mid-run: deep_dive_started but no terminal event, and the worker died (no new events).
+  async function seedAbandonedCase() {
+    const store = new InMemoryEventStore()
+    await store.append({
+      event_id: 'evt_created_rc_stuck', event_type: 'research_case_created', aggregate_type: 'research_case',
+      aggregate_id: 'rc_stuck', actor_type: 'user', actor_id: 'user_local',
+      payload: { research_case_id: 'rc_stuck', ticker: 'STUCK', company_id: 'company_stuck', strategy_id: 'buffett-munger' },
+      source_ids: [], created_at: '2026-06-08T00:00:00.000Z', schema_version: 1,
+    } as never)
+    await store.append({
+      event_id: 'evt_dd_started_rc_stuck', event_type: 'deep_dive_started', aggregate_type: 'research_case',
+      aggregate_id: 'rc_stuck', actor_type: 'worker', actor_id: 'owlfolio-worker',
+      payload: { research_case_id: 'rc_stuck', deep_dive_id: 'dd_rc_stuck' },
+      source_ids: [], created_at: '2026-06-08T00:30:00.000Z', schema_version: 1,
+    } as never)
+    return store
+  }
+
+  it('appends exactly one research_run_failed with a reason (minute count) for a stale in-flight case', async () => {
+    const store = await seedAbandonedCase()
+    // 90 min after the last event, well beyond the 25 min default staleness window.
+    const result = await reapAbandonedResearchRuns(store, { now: () => new Date('2026-06-08T02:00:00.000Z') })
+
+    expect(result.failed).toBe(1)
+    const failures = (await store.list()).filter((e) => e.event_type === 'research_run_failed')
+    expect(failures).toHaveLength(1)
+    const payload = failures[0]?.payload as Record<string, unknown>
+    expect(payload.research_case_id).toBe('rc_stuck')
+    expect(payload.run_id).toBe('run_rc_stuck')
+    expect(payload.ticker).toBe('STUCK')
+    const reason = String(payload.error_summary)
+    expect(reason).toContain('90 minutes')
+    expect(reason).toContain('worker likely terminated mid-run')
+    expect(reason).toContain('Re-run to retry')
+  })
+
+  it('is idempotent — running the reaper twice does NOT append a second failure', async () => {
+    const store = await seedAbandonedCase()
+    await reapAbandonedResearchRuns(store, { now: () => new Date('2026-06-08T02:00:00.000Z') })
+    const second = await reapAbandonedResearchRuns(store, { now: () => new Date('2026-06-08T03:00:00.000Z') })
+
+    // The first reap recorded a research_run_failed, so the detector now treats the case as terminal
+    // (no double-report) — the second reap finds nothing to fail.
+    expect(second.failed).toBe(0)
+    const failures = (await store.list()).filter((e) => e.event_type === 'research_run_failed')
+    expect(failures).toHaveLength(1)
+  })
+
+  it('runProcessResearchQueueTask runs the reaper at the start of the tick', async () => {
+    const store = await seedAbandonedCase()
+    const result = await runProcessResearchQueueTask(store, {
+      provider: new MockProvider(),
+      source_ledger_path: '/tmp/owlfolio-worker-research-watchdog',
+      now: () => new Date('2026-06-08T02:00:00.000Z'),
+    })
+
+    const failures = (await store.list()).filter((e) => e.event_type === 'research_run_failed')
+    expect(failures).toHaveLength(1)
+    expect(String((failures[0]?.payload as Record<string, unknown>).error_summary)).toContain('90 minutes')
+    // The reaped failure is reflected in the tick result.
+    expect(result.failed).toBeGreaterThanOrEqual(1)
   })
 })
