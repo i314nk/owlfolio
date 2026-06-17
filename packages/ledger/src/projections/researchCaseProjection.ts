@@ -473,20 +473,16 @@ export type ResearchCaseSellRecommendationProjection = {
   /** The minimum-hold guard's verdict (S2). */
   minimum_hold_decision?: string
   /**
-   * The sign-off-frozen sustainable-growth band HIGH edge the rekeyed valuation-inverted sell keys off
-   * (valuation-core revision; passed in, never recomputed). Present when supplied.
-   */
-  frozen_band_high?: number
-  /**
-   * The sign-off-frozen normalized owner-earnings/share the reverse-DCF solves implied growth against
-   * (valuation-core revision; passed in, never recomputed). Present when supplied.
+   * The sign-off-frozen normalized owner-earnings/share (scope-reframe; passed in, never recomputed).
+   * Present when supplied.
    */
   frozen_oe_ps?: number
   /**
-   * The DERIVED frozen_iv price anchor (valuation-core revision: derived-from-the-frozen-band, retained one
-   * release for the anchoring guard). Present when supplied.
+   * The sign-off-frozen REFERENCE fair value the lightened valuation-inverted sell FLAG compares the live
+   * price against — also the anchoring guard's price anchor (scope-reframe; passed in, never recomputed).
+   * Present when supplied. Legacy events' frozen_iv is read onto this.
    */
-  frozen_iv?: number
+  frozen_reference_fair_value?: number
   /** ALWAYS attached — worst-case-first, even on a hold/escalate. */
   worst_case?: ResearchCaseSellWorstCaseProjection
   /** Advisory disposition / anchoring caveats (S5); never block or change the decision. */
@@ -1071,12 +1067,15 @@ function getSellRecommendation(
   if (impairment_call !== undefined) projected.impairment_call = impairment_call
   const minimum_hold_decision = getString(payload, 'minimum_hold_decision')
   if (minimum_hold_decision !== undefined) projected.minimum_hold_decision = minimum_hold_decision
-  const frozen_band_high = getNumber(payload, 'frozen_band_high')
-  if (frozen_band_high !== undefined) projected.frozen_band_high = frozen_band_high
   const frozen_oe_ps = getNumber(payload, 'frozen_oe_ps')
   if (frozen_oe_ps !== undefined) projected.frozen_oe_ps = frozen_oe_ps
-  const frozen_iv = getNumber(payload, 'frozen_iv')
-  if (frozen_iv !== undefined) projected.frozen_iv = frozen_iv
+  // LEGACY TOLERANCE: read the new frozen reference first, falling back to the old frozen_iv so old sell
+  // observations still project.
+  const frozen_reference_fair_value =
+    getNumber(payload, 'frozen_reference_fair_value') ?? getNumber(payload, 'frozen_iv')
+  if (frozen_reference_fair_value !== undefined) {
+    projected.frozen_reference_fair_value = frozen_reference_fair_value
+  }
   const worst_case = payload['worst_case']
   if (isRecord(worst_case)) {
     const wc: ResearchCaseSellWorstCaseProjection = {}

@@ -104,7 +104,8 @@ describe('projectResearchCases — holding_sell_review_drafted', () => {
     expect(rec.trigger).toBe('thesis_broke')
     expect(rec.impairment_call).toBe('permanent_impairment')
     expect(rec.minimum_hold_decision).toBe('allow_sell_review')
-    expect(rec.frozen_iv).toBe(120)
+    // LEGACY TOLERANCE: the payload's legacy frozen_iv (120) maps onto the new frozen_reference_fair_value.
+    expect(rec.frozen_reference_fair_value).toBe(120)
     expect(rec.requires_human_signoff).toBe(true)
     // The ALWAYS-attached worst case survives, basis + reliability included.
     expect(rec.worst_case?.downside_floor_per_share).toBe(30)

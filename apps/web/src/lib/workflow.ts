@@ -837,19 +837,16 @@ export async function promoteResearchCaseToWatchlist(
     // thesis. Fall back to the verdict-band buy-below / 0 when the case has no valuation buy-below yet.
     const lockedBuyBelow = researchCase.valuation?.buy_price_per_share ?? 0
 
-    // FREEZE the sustainable-growth BAND + owner-earnings/share at sign-off (valuation-core revision). The
-    // valuation-inverted SELL was rekeyed to implied-growth-vs-FROZEN-band (the mirror of the BUY): it
-    // solves the market-implied growth off the LIVE price against THESE frozen inputs, never a recomputed
-    // live band (don't-move-the-number F.9/F.10). Sourced from the case's projected verdict band +
-    // valuation: band_low/band_high off verdict_state, oe_ps off valuation.normalized_owner_earnings_per_share.
-    // frozen_iv_valuation_version pins the discount/terminal/horizon/fade the reverse-DCF uses. FAIL-CLOSED —
-    // when a field is absent at sign-off we freeze it as `undefined`; the sell then returns cannot_assess
-    // rather than reading a wrong number. confirmWatchlistDraft DERIVES the legacy frozen_iv price anchor
-    // from frozen_band_high + frozen_oe_ps (retained one release for the anchoring bias guard / legacy readers).
-    const frozenBandLow = researchCase.valuation?.verdict_state?.band_low
-    const frozenBandHigh = researchCase.valuation?.verdict_state?.band_high
+    // FREEZE the owner-earnings/share + a REFERENCE fair value at sign-off (scope-reframe — the band/gap
+    // engine was removed). The lightened valuation-inverted SELL is a LIGHT price-vs-this-reference sanity
+    // FLAG (advisory; the human decides), never a band engine. The REFERENCE is derived inside
+    // confirmWatchlistDraft as the forward two-stage FV off the frozen oe_ps + the sign-off assumed growth
+    // (the case's verdict-band high edge, used here only as the growth assumption — not a band). FAIL-CLOSED:
+    // when the oe_ps is absent at sign-off the reference is frozen as `undefined` and the sell returns
+    // cannot_assess. frozen_iv_valuation_version is the sign-off valuation provenance.
+    const assumedGrowth = researchCase.valuation?.verdict_state?.band_high
     const frozenOePs = researchCase.valuation?.normalized_owner_earnings_per_share
-    const hasFrozenBand = frozenBandHigh !== undefined && frozenOePs !== undefined
+    const hasFrozenReference = assumedGrowth !== undefined && frozenOePs !== undefined
 
     return await confirmWatchlistDraft(store, {
       watchlist_item_id: watchlistItemId,
@@ -862,12 +859,13 @@ export async function promoteResearchCaseToWatchlist(
       thesis_summary: thesisSummary,
       locked_buy_below: lockedBuyBelow,
       buy_below_valuation_version: VALUATION_PARAMS.version,
-      ...(frozenBandLow === undefined ? {} : { frozen_band_low: frozenBandLow }),
-      ...(frozenBandHigh === undefined ? {} : { frozen_band_high: frozenBandHigh }),
       ...(frozenOePs === undefined ? {} : { frozen_oe_ps: frozenOePs }),
-      // The version provenance pins the valuation params for the reverse-DCF; recorded whenever any band/
-      // oe_ps field is frozen (the derived frozen_iv rides along inside confirmWatchlistDraft).
-      ...(hasFrozenBand ? { frozen_iv_valuation_version: VALUATION_PARAMS.version } : {}),
+      // The sign-off assumed growth feeds the REFERENCE FV derivation inside confirmWatchlistDraft (not
+      // persisted; a derivation input only).
+      ...(assumedGrowth === undefined ? {} : { assumed_growth: assumedGrowth }),
+      // The version provenance is the sign-off valuation provenance; recorded whenever the reference can be
+      // derived.
+      ...(hasFrozenReference ? { frozen_iv_valuation_version: VALUATION_PARAMS.version } : {}),
       signed_thesis: humanSignedThesis,
       signed_thesis_draft: signedThesisDraft,
       checklist_audit: checklistAudit,
@@ -1363,7 +1361,7 @@ export type RecordSellDecisionOutcome =
  * Compute + persist the SELL DECISION for a HELD name's research case ON-DEMAND (Phase 6 S8a).
  *
  * Fresh reads:
- *   - the HELD name's lifecycle row (nameLifecycle): holding_id, ticker, opened_at, frozen_iv (sign-off
+ *   - the HELD name's lifecycle row (nameLifecycle): holding_id, ticker, opened_at, frozen_reference_fair_value (sign-off
  *     frozen undiscounted IV — read from the projection, NEVER recomputed here), downside_floor_* (the
  *     Phase-5 floor for the always-attached worst case),
  *   - the persisted admit recommendation (researchCase.admit_recommendation): uncertainty.level,
@@ -1452,12 +1450,12 @@ export async function recordSellDecision(
       }
     }
 
-    // The sign-off-frozen inputs are READ FROM THE PROJECTION (valuation-core revision), NEVER recomputed
-    // here (don't-move-the-number F.9/F.10): the band ceiling + oe_ps the rekeyed valuation-inverted sell
-    // keys off, plus the derived frozen_iv price anchor the anchoring bias guard reads.
-    const frozenBandHigh = lifecycle.frozen_band_high
+    // The sign-off-frozen inputs are READ FROM THE PROJECTION (scope-reframe), NEVER recomputed here
+    // (don't-move-the-number F.9/F.10): the REFERENCE fair value the lightened valuation-inverted sell FLAG
+    // compares the live price against + the oe_ps. The frozen reference is also the anchoring guard's price
+    // anchor.
     const frozenOePs = lifecycle.frozen_oe_ps
-    const frozenIv = lifecycle.frozen_iv
+    const frozenReferenceFairValue = lifecycle.frozen_reference_fair_value
 
     const assemblerArgs: SellAssessmentArgs = {
       trigger: input.trigger,
@@ -1468,9 +1466,8 @@ export async function recordSellDecision(
       uncertainty: uncertaintyLevel,
       permanent_loss_risk: permanentLossLevel,
       quality_verdict_passes: qualityVerdictPasses,
-      frozen_band_high: frozenBandHigh,
       frozen_oe_ps: frozenOePs,
-      frozen_iv: frozenIv,
+      frozen_reference_fair_value: frozenReferenceFairValue,
       ...(input.candidate_oe_yield === undefined ? {} : { candidate_oe_yield: input.candidate_oe_yield }),
       ...(input.held_oe_yield === undefined ? {} : { held_oe_yield: input.held_oe_yield }),
       ...(input.switching_friction === undefined ? {} : { switching_friction: input.switching_friction }),
@@ -1516,9 +1513,8 @@ export async function recordSellDecision(
       impairment_call: rec.impairment_call,
       minimum_hold_decision: rec.minimum_hold_decision,
       reason_code: rec.reason_code,
-      frozen_band_high: rec.frozen_band_high,
       frozen_oe_ps: rec.frozen_oe_ps,
-      frozen_iv: rec.frozen_iv,
+      frozen_reference_fair_value: rec.frozen_reference_fair_value,
       worst_case: rec.worst_case,
       requires_human_signoff: rec.requires_human_signoff,
     })).digest('hex').slice(0, 16)
@@ -1550,9 +1546,10 @@ export async function recordSellDecision(
         trigger: rec.trigger,
         impairment_call: rec.impairment_call,
         minimum_hold_decision: rec.minimum_hold_decision,
-        ...(rec.frozen_band_high === undefined ? {} : { frozen_band_high: rec.frozen_band_high }),
         ...(rec.frozen_oe_ps === undefined ? {} : { frozen_oe_ps: rec.frozen_oe_ps }),
-        ...(rec.frozen_iv === undefined ? {} : { frozen_iv: rec.frozen_iv }),
+        ...(rec.frozen_reference_fair_value === undefined
+          ? {}
+          : { frozen_reference_fair_value: rec.frozen_reference_fair_value }),
         worst_case: rec.worst_case,
         bias_caveats: rec.bias_caveats,
         requires_human_signoff: rec.requires_human_signoff,

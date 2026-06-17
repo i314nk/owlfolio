@@ -83,37 +83,22 @@ export type NameLifecycleProjection = {
   /** `VALUATION_PARAMS.version` the locked buy-below was frozen under (valuation provenance). */
   buy_below_valuation_version?: string
   /**
-   * The SIGN-OFF-FROZEN sustainable-growth band LOW edge (valuation-core revision), carried from the
-   * watchlist lineage. Part of the freeze the rekeyed valuation-inverted sell keys off. Don't-move-the-number
-   * (F.9/F.10): only a re-underwrite changes it. Absent on legacy lineage (frozen_iv only).
-   */
-  frozen_band_low?: number
-  /**
-   * The SIGN-OFF-FROZEN sustainable-growth band HIGH edge (valuation-core revision), carried from the
-   * watchlist lineage — the ceiling the "valuation-inverted" SELL keys off (evaluateValuationInverted reads
-   * it off this row alongside frozen_oe_ps). The sell fires when the market-implied growth (solved off the
-   * LIVE price against the FROZEN band/oe_ps) reaches this × sell_band_fraction. Don't-move-the-number
-   * (F.9/F.10): only a re-underwrite changes it. Absent → the sell returns cannot_assess (never backfilled).
-   */
-  frozen_band_high?: number
-  /**
-   * The SIGN-OFF-FROZEN normalized owner-earnings/share (valuation-core revision), carried from the
-   * watchlist lineage. The reverse-DCF solves the market-implied growth off the LIVE price against THIS
-   * frozen oe_ps + the frozen valuation params (pinned by frozen_iv_valuation_version) — never a recomputed
-   * live oe_ps. Absent → the sell returns cannot_assess (fail-closed).
+   * The SIGN-OFF-FROZEN normalized owner-earnings/share (scope-reframe), carried from the watchlist lineage.
+   * Pairs with `frozen_reference_fair_value`. Absent → the sell returns cannot_assess (fail-closed).
    */
   frozen_oe_ps?: number
   /**
-   * The UNDISCOUNTED intrinsic value (fair value per share) — RETAINED for one release as a DERIVED price
-   * anchor (valuation-core revision: derived-from-the-frozen-band, no longer the primary sell key). Carried
-   * from the watchlist lineage; the anchoring bias guard (which reasons in PRICE units) reads it. DISTINCT
-   * from the MoS-discounted `locked_buy_below`/`buy_price_per_share`; never backfilled from them. Legacy
-   * lineage carries only this field (no band/oe_ps).
+   * The SIGN-OFF-FROZEN REFERENCE fair value per share (scope-reframe — the band/gap engine was removed),
+   * carried from the watchlist lineage. The lightened "valuation-inverted" SELL flag compares the LIVE price
+   * against it (evaluateValuationInverted reads it off this row alongside frozen_oe_ps), and the anchoring
+   * bias guard (which reasons in PRICE units) reads it. DISTINCT from the MoS-discounted
+   * `locked_buy_below`/`buy_price_per_share`; never backfilled from them. Legacy lineage carries the old
+   * frozen_iv, which the watchlist projection maps onto this.
    */
-  frozen_iv?: number
+  frozen_reference_fair_value?: number
   /**
-   * `VALUATION_PARAMS.version` the frozen band/oe_ps (+ the derived frozen_iv) were frozen under — pins the
-   * valuation params the reverse-DCF uses (sign-off provenance).
+   * `VALUATION_PARAMS.version` the frozen oe_ps + reference were frozen under — the sign-off valuation
+   * provenance.
    */
   frozen_iv_valuation_version?: string
   /** True when every gate the name has is clean (Shariah gate allowed / not FAIL). */
@@ -201,10 +186,8 @@ type Accumulator = {
   downside_floor_reliability?: string
   locked_buy_below?: number
   buy_below_valuation_version?: string
-  frozen_band_low?: number
-  frozen_band_high?: number
   frozen_oe_ps?: number
-  frozen_iv?: number
+  frozen_reference_fair_value?: number
   frozen_iv_valuation_version?: string
   gate_clean?: boolean
   shariah_gate_status?: string
@@ -273,10 +256,10 @@ export function projectNameLifecycle(events: LedgerEventEnvelope<unknown>[]): Na
     caseById.set(researchCase.research_case_id, researchCase)
   }
 
-  // Watchlist items keyed by id, so the held fold can recover the sign-off-frozen IV from the originating
-  // lineage: the WATCHED fold below SKIPS items that became holdings, so a held row would otherwise never
-  // pick up `frozen_iv` (frozen at the watchlist admit). The valuation-inverted sell trigger reads
-  // `frozen_iv` off the HELD row (S6/S8), so it must be carried through.
+  // Watchlist items keyed by id, so the held fold can recover the sign-off-frozen reference from the
+  // originating lineage: the WATCHED fold below SKIPS items that became holdings, so a held row would
+  // otherwise never pick up `frozen_reference_fair_value` (frozen at the watchlist admit). The
+  // valuation-inverted sell flag reads it off the HELD row (S6/S8), so it must be carried through.
   const watchlistById = new Map<string, (typeof watchlist)[number]>()
   for (const item of watchlist) {
     watchlistById.set(item.watchlist_item_id, item)
@@ -430,21 +413,15 @@ export function projectNameLifecycle(events: LedgerEventEnvelope<unknown>[]): Na
     if (item.buy_below_valuation_version !== undefined) {
       row.buy_below_valuation_version = item.buy_below_valuation_version
     }
-    // The sign-off-frozen band edges + oe_ps ride along from the watchlist lineage (valuation-core revision;
-    // valuation-version provenance with them). The held-name valuation-inverted sell keys off frozen_band_high
-    // + frozen_oe_ps; the derived frozen_iv price anchor rides along for the anchoring guard. All DISTINCT
-    // from the discounted buy-below above; never derived from it.
-    if (item.frozen_band_low !== undefined) {
-      row.frozen_band_low = item.frozen_band_low
-    }
-    if (item.frozen_band_high !== undefined) {
-      row.frozen_band_high = item.frozen_band_high
-    }
+    // The sign-off-frozen oe_ps + REFERENCE fair value ride along from the watchlist lineage (scope-reframe;
+    // valuation-version provenance with them). The held-name valuation-inverted sell flag compares the live
+    // price against frozen_reference_fair_value (the anchoring guard reads it too). DISTINCT from the
+    // discounted buy-below above; never derived from it.
     if (item.frozen_oe_ps !== undefined) {
       row.frozen_oe_ps = item.frozen_oe_ps
     }
-    if (item.frozen_iv !== undefined) {
-      row.frozen_iv = item.frozen_iv
+    if (item.frozen_reference_fair_value !== undefined) {
+      row.frozen_reference_fair_value = item.frozen_reference_fair_value
     }
     if (item.frozen_iv_valuation_version !== undefined) {
       row.frozen_iv_valuation_version = item.frozen_iv_valuation_version
@@ -491,22 +468,17 @@ export function projectNameLifecycle(events: LedgerEventEnvelope<unknown>[]): Na
       if (holding.shariah_gate_status !== undefined) {
         row.shariah_gate_status = holding.shariah_gate_status
       }
-      // Carry the sign-off-frozen band/oe_ps (+ the derived frozen_iv) from the originating watchlist lineage
-      // onto the held row (the watched fold skipped this item because it became a holding). The
-      // valuation-inverted sell keys off frozen_band_high + frozen_oe_ps here; they are the values frozen at
-      // admit, never recomputed. Legacy lineage carries only frozen_iv (band/oe_ps absent → sell fails closed).
+      // Carry the sign-off-frozen oe_ps + REFERENCE fair value from the originating watchlist lineage onto the
+      // held row (the watched fold skipped this item because it became a holding). The valuation-inverted sell
+      // flag compares the live price against frozen_reference_fair_value here; these are the values frozen at
+      // admit, never recomputed. Legacy lineage's frozen_iv is mapped onto the reference by the watchlist
+      // projection.
       const lineage = watchlistById.get(holding.watchlist_item_id)
-      if (lineage?.frozen_band_low !== undefined && row.frozen_band_low === undefined) {
-        row.frozen_band_low = lineage.frozen_band_low
-      }
-      if (lineage?.frozen_band_high !== undefined && row.frozen_band_high === undefined) {
-        row.frozen_band_high = lineage.frozen_band_high
-      }
       if (lineage?.frozen_oe_ps !== undefined && row.frozen_oe_ps === undefined) {
         row.frozen_oe_ps = lineage.frozen_oe_ps
       }
-      if (lineage?.frozen_iv !== undefined && row.frozen_iv === undefined) {
-        row.frozen_iv = lineage.frozen_iv
+      if (lineage?.frozen_reference_fair_value !== undefined && row.frozen_reference_fair_value === undefined) {
+        row.frozen_reference_fair_value = lineage.frozen_reference_fair_value
       }
       if (lineage?.frozen_iv_valuation_version !== undefined && row.frozen_iv_valuation_version === undefined) {
         row.frozen_iv_valuation_version = lineage.frozen_iv_valuation_version
@@ -548,10 +520,10 @@ export function projectNameLifecycle(events: LedgerEventEnvelope<unknown>[]): Na
     if (row.buy_below_valuation_version !== undefined) {
       projected.buy_below_valuation_version = row.buy_below_valuation_version
     }
-    if (row.frozen_band_low !== undefined) projected.frozen_band_low = row.frozen_band_low
-    if (row.frozen_band_high !== undefined) projected.frozen_band_high = row.frozen_band_high
     if (row.frozen_oe_ps !== undefined) projected.frozen_oe_ps = row.frozen_oe_ps
-    if (row.frozen_iv !== undefined) projected.frozen_iv = row.frozen_iv
+    if (row.frozen_reference_fair_value !== undefined) {
+      projected.frozen_reference_fair_value = row.frozen_reference_fair_value
+    }
     if (row.frozen_iv_valuation_version !== undefined) {
       projected.frozen_iv_valuation_version = row.frozen_iv_valuation_version
     }

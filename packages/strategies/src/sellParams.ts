@@ -22,17 +22,16 @@ export type SellParams = {
    */
   minimum_hold_months: number
   /**
-   * Fraction of the SIGN-OFF-FROZEN band-high growth ceiling at/above which the "valuation-inverted" sell
-   * trigger fires (valuation-core revision — the MIRROR of the BUY side). The trigger solves the
-   * market-IMPLIED growth off the LIVE price against the SIGN-OFF-FROZEN band/oe_ps, and fires when
-   * `implied_growth ≥ frozen_band_high × sell_band_fraction`: the market now prices growth ABOVE what the
-   * business can sustain, so the held name's margin of safety is gone. 1.0 = the FULL frozen band ceiling —
-   * a HARD threshold, NOT a wider band. This preserves the Pabrai recant (selling winners at 90-95% of IV
-   * was his documented biggest mistake): biased to HOLD, it only fires once the implied growth reaches the
-   * whole frozen sustainable ceiling.
+   * Fraction of the SIGN-OFF-FROZEN REFERENCE fair value at/above which the "valuation-inverted" sell FLAG
+   * fires (scope-reframe — the band/gap engine was removed; this is now a LIGHT price-vs-reference sanity
+   * flag, advisory, the human decides). The flag fires when `current_price ≥ frozen_reference_fair_value ×
+   * sell_band_fraction`: the live price runs at/above the signed-off reference, so the name is priced richly
+   * vs the reference. 1.0 = the FULL frozen reference — a HARD threshold, NOT a wider band. This preserves
+   * the Pabrai recant (selling winners at 90-95% of IV was his documented biggest mistake): biased to HOLD,
+   * it only flags once the price reaches the whole frozen reference.
    *
-   * The growth is solved off the FROZEN band/oe_ps ONLY (don't-move-the-number F.9/F.10) — never a
-   * recomputed live band.
+   * The comparison keys off the FROZEN reference + the LIVE price ONLY (don't-move-the-number F.9/F.10) —
+   * never a recomputed live band (there is none). Name retained from the band era to avoid config churn.
    */
   sell_band_fraction: number
   /**

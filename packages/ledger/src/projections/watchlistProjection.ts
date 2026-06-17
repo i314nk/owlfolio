@@ -39,31 +39,22 @@ export type WatchlistProjection = {
   /** `VALUATION_PARAMS.version` the locked buy-below was frozen under (valuation provenance). */
   buy_below_valuation_version?: string
   /**
-   * The SIGN-OFF-FROZEN sustainable-growth band LOW edge (valuation-core revision). Frozen verbatim from the
-   * admit event; only a re-underwrite changes it. Absent on legacy events (they carry only frozen_iv).
-   */
-  frozen_band_low?: number
-  /**
-   * The SIGN-OFF-FROZEN sustainable-growth band HIGH edge (valuation-core revision) — the ceiling the
-   * rekeyed valuation-inverted SELL keys off. Frozen verbatim; only a re-underwrite changes it. Absent on
-   * legacy events (the sell then falls back to cannot_assess via the derived path).
-   */
-  frozen_band_high?: number
-  /**
-   * The SIGN-OFF-FROZEN normalized owner-earnings/share (valuation-core revision) the reverse-DCF solves
-   * implied growth against. Frozen verbatim; only a re-underwrite changes it. Absent on legacy events.
+   * The SIGN-OFF-FROZEN normalized owner-earnings/share (scope-reframe). Frozen verbatim; only a
+   * re-underwrite changes it. Absent when the case had no oe_ps at sign-off.
    */
   frozen_oe_ps?: number
   /**
-   * The UNDISCOUNTED intrinsic value (fair value per share) — RETAINED for one release as a DERIVED price
-   * anchor (valuation-core revision: derived-from-the-frozen-band, no longer the primary sell key). The
-   * anchoring bias guard (which reasons in PRICE units) reads it. Projected verbatim; NEVER backfilled from
-   * the discounted buy-below. Legacy events carry only this field (no band/oe_ps).
+   * The SIGN-OFF-FROZEN REFERENCE fair value per share (scope-reframe — the band/gap engine was removed).
+   * The lightened valuation-inverted SELL flag compares the LIVE price against it, and the anchoring bias
+   * guard (which reasons in PRICE units) reads it as the price anchor. Projected verbatim; NEVER backfilled
+   * from the discounted buy-below. LEGACY TOLERANCE: legacy events carry the old `frozen_iv` (a derived price
+   * anchor) and no `frozen_reference_fair_value`; that old value is read onto this field so old ledgers
+   * still project.
    */
-  frozen_iv?: number
+  frozen_reference_fair_value?: number
   /**
-   * `VALUATION_PARAMS.version` the frozen band/oe_ps (+ the derived frozen_iv) were frozen under — pins the
-   * valuation params the reverse-DCF uses (sign-off provenance).
+   * `VALUATION_PARAMS.version` the frozen oe_ps + reference were frozen under — the sign-off valuation
+   * provenance.
    */
   frozen_iv_valuation_version?: string
   /** The human's signed FINAL plain-language thesis (Gate 0 `[Hu]`), distinct from the agent-drafted thesis_summary. */
@@ -324,24 +315,19 @@ export function projectWatchlist(events: LedgerEventEnvelope<unknown>[]): Watchl
     if (lockedBuyBelow !== undefined) {
       watchlistItem.locked_buy_below = lockedBuyBelow
     }
-    // The sign-off-frozen band edges + oe_ps (valuation-core revision) — projected verbatim. Legacy events
-    // (frozen_iv only) leave these absent; the sell then fails closed to cannot_assess.
-    const frozenBandLow = getNumber(event.payload, 'frozen_band_low')
-    if (frozenBandLow !== undefined) {
-      watchlistItem.frozen_band_low = frozenBandLow
-    }
-    const frozenBandHigh = getNumber(event.payload, 'frozen_band_high')
-    if (frozenBandHigh !== undefined) {
-      watchlistItem.frozen_band_high = frozenBandHigh
-    }
+    // The sign-off-frozen oe_ps (scope-reframe) — projected verbatim.
     const frozenOePs = getNumber(event.payload, 'frozen_oe_ps')
     if (frozenOePs !== undefined) {
       watchlistItem.frozen_oe_ps = frozenOePs
     }
-    // The DERIVED frozen_iv price anchor — projected verbatim; NEVER backfilled from locked_buy_below.
-    const frozenIv = getNumber(event.payload, 'frozen_iv')
-    if (frozenIv !== undefined) {
-      watchlistItem.frozen_iv = frozenIv
+    // The frozen REFERENCE fair value — projected verbatim; NEVER backfilled from locked_buy_below. LEGACY
+    // TOLERANCE: the band/gap engine was removed, so legacy events carry the old `frozen_iv` (a derived price
+    // anchor) and no `frozen_reference_fair_value`; read the new field first, falling back to the old one so
+    // old ledgers still project. (Legacy frozen_band_* are simply ignored — no longer consumed.)
+    const frozenReferenceFairValue =
+      getNumber(event.payload, 'frozen_reference_fair_value') ?? getNumber(event.payload, 'frozen_iv')
+    if (frozenReferenceFairValue !== undefined) {
+      watchlistItem.frozen_reference_fair_value = frozenReferenceFairValue
     }
     // The provisional-MoS flag (buy_below_mos_provisional) is RETIRED — conservatism now lives in the
     // required_growth_gap. Legacy events that still carry it are tolerated; the field is simply ignored.

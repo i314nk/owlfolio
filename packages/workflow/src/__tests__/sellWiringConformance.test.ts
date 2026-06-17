@@ -72,13 +72,13 @@ describe('Phase 6 S8a wiring conformance: the sell assembler is reachable from a
     expect(webWorkflowSrc).toContain('holding_sell_review_drafted')
   })
 
-  it('STRUCTURAL (a) no price-ALONE sell: the only price→sell path is evaluateValuationInverted with the FROZEN band', () => {
-    // The valuation-inverted call must be passed the SIGN-OFF-FROZEN band (it solves the live price's
-    // IMPLIED growth against the frozen band/oe_ps, never a bare price move and never a recomputed live
-    // band). We grep that the evaluateValuationInverted call site co-occurs with the frozen band/oe_ps args.
+  it('STRUCTURAL (a) no price-ALONE sell: the only price→sell path is evaluateValuationInverted with the FROZEN reference', () => {
+    // The valuation-inverted FLAG must be passed the SIGN-OFF-FROZEN reference (it compares the live price
+    // against the frozen reference fair value, never a bare price move and never a recomputed live band). We
+    // grep that the evaluateValuationInverted call site co-occurs with the frozen reference/oe_ps args.
     const code = stripComments(assemblerSrc)
-    const invCall = /evaluateValuationInverted\(\s*\{[\s\S]*?frozen_band_high[\s\S]*?frozen_oe_ps[\s\S]*?\}\s*\)/
-    expect(code, 'evaluateValuationInverted must be passed the frozen band/oe_ps').toMatch(invCall)
+    const invCall = /evaluateValuationInverted\(\s*\{[\s\S]*?frozen_reference_fair_value[\s\S]*?frozen_oe_ps[\s\S]*?\}\s*\)/
+    expect(code, 'evaluateValuationInverted must be passed the frozen reference/oe_ps').toMatch(invCall)
     // And there is NO bare price comparison that produces a sell outside that call: no `current_price > ` /
     // `current_price < ` style comparison in the assembler code other than the documented `at_loss`
     // (current_price < cost_basis_per_share) loss check, which feeds the GUARD, never a sell directly.
@@ -99,14 +99,14 @@ describe('Phase 6 S8a wiring conformance: the sell assembler is reachable from a
     expect(code, 'guard must not perform month arithmetic for a release branch').not.toMatch(/minimum_hold_months/)
   })
 
-  it('STRUCTURAL (c) frozen-band-not-live: recordSellDecision reads the frozen band/oe_ps from a projection, not a fresh recompute', () => {
+  it('STRUCTURAL (c) frozen-reference-not-live: recordSellDecision reads the frozen reference/oe_ps from a projection, not a fresh recompute', () => {
     const slice = stripComments(recordSellDecisionSlice(webWorkflowSrc))
-    // The frozen band/oe_ps must be sourced from the nameLifecycle projection row, NOT a fresh recompute
-    // (don't-move-the-number F.9/F.10): never a recomputed live band.
-    expect(slice, 'recordSellDecision must read frozen_band_high from a projection row').toMatch(/\.frozen_band_high\b/)
+    // The frozen reference/oe_ps must be sourced from the nameLifecycle projection row, NOT a fresh recompute
+    // (don't-move-the-number F.9/F.10): never a recomputed live valuation.
+    expect(slice, 'recordSellDecision must read frozen_reference_fair_value from a projection row').toMatch(/\.frozen_reference_fair_value\b/)
     expect(slice, 'recordSellDecision must read frozen_oe_ps from a projection row').toMatch(/\.frozen_oe_ps\b/)
     // It must NOT recompute a sustainable band / fair value inline for the sell decision.
-    expect(slice, 'recordSellDecision must not recompute a band/fair_value for the sell decision').not.toMatch(/fair_value|computeFairValue|recomputeIv|sustainableGrowthBand/i)
+    expect(slice, 'recordSellDecision must not recompute a band/fair_value for the sell decision').not.toMatch(/computeFairValue|recomputeIv|sustainableGrowthBand|twoStageValuation/i)
   })
 
   it('STRUCTURAL (d) never auto-close: recordSellDecision + the route never close a holding', () => {

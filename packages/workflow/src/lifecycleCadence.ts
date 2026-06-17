@@ -79,17 +79,17 @@ export type CadenceAsOfData = {
   /** Latest observed price for the name (price feed; fail-closed when absent). */
   current_price?: number
   /**
-   * The SIGN-OFF-FROZEN sustainable-growth band HIGH edge (valuation-core revision). Optional override for
-   * the projection's own `frozen_band_high` field: when a caller assembles as-of data without a full
-   * projection row it can thread it here. Detection prefers this, falling back to `name.frozen_band_high`.
-   * NEVER a recomputed live band — only the value frozen at sign-off; absent → no inversion signal
-   * (fail-closed; the valuation_inverted signal never fires by price alone).
+   * The SIGN-OFF-FROZEN REFERENCE fair value (scope-reframe). Optional override for the projection's own
+   * `frozen_reference_fair_value` field: when a caller assembles as-of data without a full projection row it
+   * can thread it here. Detection prefers this, falling back to `name.frozen_reference_fair_value`. NEVER a
+   * recomputed live band — only the value frozen at sign-off; absent → no inversion signal (fail-closed; the
+   * valuation_inverted signal never fires by price alone).
    */
-  frozen_band_high?: number
+  frozen_reference_fair_value?: number
   /**
-   * The SIGN-OFF-FROZEN normalized owner-earnings/share (valuation-core revision). Optional override for
-   * the projection's own `frozen_oe_ps`; detection prefers this, falling back to `name.frozen_oe_ps`. The
-   * reverse-DCF solves the implied growth off the live price against THIS frozen oe_ps. Absent → no signal.
+   * The SIGN-OFF-FROZEN normalized owner-earnings/share (scope-reframe). Optional override for the
+   * projection's own `frozen_oe_ps`; detection prefers this, falling back to `name.frozen_oe_ps`. Absent →
+   * no signal.
    */
   frozen_oe_ps?: number
   /** AAOIFI re-screen ratio inputs (EDGAR fundamentals + market cap), when available. */
@@ -188,23 +188,26 @@ export function detectSignals(name: NameLifecycleProjection, asOfData: CadenceAs
     }
   }
 
-  // valuation_inverted ← the market now implies growth ABOVE the SIGN-OFF-FROZEN sustainable ceiling
-  // (margin of safety gone) — the MIRROR of the buy (valuation-core revision). The CAUSE is "implied growth
-  // reached the frozen band ceiling" (a signed-off cause-reference), NOT a raw price move: it reuses
+  // valuation_inverted ← the live price runs at/above the SIGN-OFF-FROZEN REFERENCE fair value (scope-reframe
+  // — the band/gap engine was removed; this is a LIGHT price-vs-reference sanity FLAG, advisory). The CAUSE is
+  // "the price reached the frozen reference" (a signed-off cause-reference), NOT a raw price move: it reuses
   // evaluateValuationInverted as the SINGLE SOURCE OF TRUTH for the hard sell_band_fraction threshold — no
-  // inline compare. FAIL-CLOSED: absent frozen band/oe_ps or current_price raises nothing (never fires by
-  // price alone). The frozen band/oe_ps are read off the projection (name.frozen_band_high / frozen_oe_ps,
-  // frozen at sign-off), with asOfData overrides; they are NEVER a recomputed live band. State-independent:
-  // NO state branch — the held→sell_review routing lives only in selectAction.
-  const frozenBandHigh = isFiniteNumber(asOfData.frozen_band_high) ? asOfData.frozen_band_high : name.frozen_band_high
+  // inline compare. FAIL-CLOSED: absent frozen reference/oe_ps or current_price raises nothing (never fires
+  // by price alone). The frozen reference/oe_ps are read off the projection
+  // (name.frozen_reference_fair_value / frozen_oe_ps, frozen at sign-off), with asOfData overrides; NEVER a
+  // recomputed live band. State-independent: NO state branch — the held→sell_review routing lives only in
+  // selectAction.
+  const frozenReferenceFairValue = isFiniteNumber(asOfData.frozen_reference_fair_value)
+    ? asOfData.frozen_reference_fair_value
+    : name.frozen_reference_fair_value
   const frozenOePs = isFiniteNumber(asOfData.frozen_oe_ps) ? asOfData.frozen_oe_ps : name.frozen_oe_ps
   if (
     isFiniteNumber(asOfData.current_price) &&
-    isFiniteNumber(frozenBandHigh) &&
+    isFiniteNumber(frozenReferenceFairValue) &&
     isFiniteNumber(frozenOePs) &&
     evaluateValuationInverted({
       current_price: asOfData.current_price,
-      frozen_band_high: frozenBandHigh,
+      frozen_reference_fair_value: frozenReferenceFairValue,
       frozen_oe_ps: frozenOePs,
     }).status === 'inverted'
   ) {

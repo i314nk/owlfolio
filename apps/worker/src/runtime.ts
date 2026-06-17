@@ -2151,11 +2151,13 @@ async function runCadencePassTask(
       ...(currentPrice === undefined ? {} : { current_price: currentPrice }),
       ...(holding?.latest_market_value === undefined ? {} : { market_value: holding.latest_market_value }),
       ...(portfolioNav > 0 ? { portfolio_nav: portfolioNav } : {}),
-      // Thread the SIGN-OFF-FROZEN sustainable-growth band ceiling + oe_ps (valuation-core revision) so
-      // valuation_inverted can fire on a held name when the market now implies growth above the frozen
-      // ceiling (the mirror of the buy). The row already carries them; passing them through asOfData makes
-      // the live cadence path's input explicit (never a recomputed live band).
-      ...(row.frozen_band_high === undefined ? {} : { frozen_band_high: row.frozen_band_high }),
+      // Thread the SIGN-OFF-FROZEN REFERENCE fair value + oe_ps (scope-reframe) so valuation_inverted can
+      // fire on a held name when the live price runs at/above the frozen reference (a light sanity flag).
+      // The row already carries them; passing them through asOfData makes the live cadence path's input
+      // explicit (never a recomputed live band).
+      ...(row.frozen_reference_fair_value === undefined
+        ? {}
+        : { frozen_reference_fair_value: row.frozen_reference_fair_value }),
       ...(row.frozen_oe_ps === undefined ? {} : { frozen_oe_ps: row.frozen_oe_ps }),
     }
     const [decided] = runPass([row], asOfData)

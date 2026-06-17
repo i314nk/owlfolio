@@ -1,154 +1,131 @@
-// valuation-core revision — the "valuation-inverted" sell trigger, REKEYED to implied-growth-vs-FROZEN-band
-// (the MIRROR of the reverse-DCF-vs-band BUY). Pure, deterministic, no I/O, no LLM.
+// scope-reframe — the "valuation-inverted" sell is now a LIGHT price-vs-frozen-reference SANITY FLAG
+// (advisory), NOT a band engine. Pure, deterministic, no I/O, no LLM.
 //
-// One of the four sell triggers. It fires when the market now implies near-term growth ABOVE what the
-// business can sustain — i.e. the held name's margin of safety is gone — the exact mirror of the BUY side,
-// which fires when the market implies growth BELOW the band (cheap). Two hard constraints from the owner:
+// The band/gap decision engine (R1/R2) was removed. This trigger no longer keys off a frozen
+// sustainable-growth BAND. It keys off a frozen REFERENCE fair value (`frozen_reference_fair_value`) — the
+// signed-off reference FV — and fires `inverted` (an ADVISORY FLAG feeding the sell decision + the model's
+// hold/trim assessment) when the LIVE price runs FAR above what the frozen reference assumed:
 //
-//   1. DON'T MOVE THE NUMBER (F.9/F.10). The growth this compares against the frozen band ceiling is the
-//      market-IMPLIED growth solved off the LIVE price against the SIGN-OFF-FROZEN band/oe_ps + the frozen
-//      valuation params (discount/terminal/horizon/fade). It is NEVER a recomputed LIVE band: the agent
-//      must not be able to nudge it to manufacture or suppress a sell. This function therefore takes the
-//      already-frozen `frozen_band_high` + `frozen_oe_ps` and only solves implied growth off them; it must
-//      never fetch or recompute a live sustainable band. The caller reads the frozen band/oe_ps off the
-//      sign-off-frozen projection fields (nameLifecycle.frozen_band_high / frozen_oe_ps).
+//   inverted IFF  current_price >= frozen_reference_fair_value × sell_fraction   (default fraction 1.0)
 //
-//   2. PABRAI RECANT. Selling winners at 90-95% of IV was Pabrai's documented biggest mistake, so the
-//      trigger fires only at/above the FULL frozen band ceiling (the configured `sell_band_fraction`,
-//      default 1.0 — a HARD threshold, NOT a wider band). The trigger is biased to HOLD below the ceiling.
+// Determinism here = arithmetic + a flag + the human boundary; NOT a band engine. This is NOT an auto-sell:
+// the human decides the irreversible close. Two hard constraints survive:
 //
-// The CAUSE of an inversion is "the market now implies growth above the frozen sustainable ceiling": the
-// LIVE price is the INPUT to the reverse-DCF, the frozen band/oe_ps are the fixed references. Every constant
-// is read from SELL_PARAMS (no magic numbers).
+//   1. DON'T MOVE THE NUMBER (F.9/F.10). The reference + oe_ps are the SIGN-OFF-FROZEN values, read off the
+//      sign-off-frozen projection — never a recomputed live band (there is none). This function takes the
+//      already-frozen reference + oe_ps; it never fetches or recomputes a live valuation.
+//
+//   2. HOLD BIAS. The flag fires only at/above the FULL frozen reference (the configured `sell_band_fraction`,
+//      default 1.0 — a HARD threshold, NOT a wider band). Biased to HOLD below the reference.
+//
+// `frozen_oe_ps` is still required for fail-closed parity with the freeze (a reference with no oe_ps is not
+// a usable sign-off freeze); the implied growth off the live price is reported for context only.
 
 import { marketImpliedGrowth } from './reverseDcf'
 import { SELL_PARAMS, type SellParams } from './sellParams'
 
-/**
- * Numerical slack on the at-threshold comparison. The market-implied growth is solved by BISECTION
- * (reverse-DCF), so an implied growth that is mathematically AT the threshold lands a few solver-tolerance
- * units below it (e.g. solving the price for g=0.10 returns 0.0999998…). This epsilon — far smaller than any
- * real decision margin (1e-4 growth-points ≈ a hundredth of a basis point of growth) — makes the
- * at-the-ceiling case fire deterministically rather than flicker on solver noise. It is NOT a decision band:
- * the Pabrai-recant HARD threshold is still `frozen_band_high × sell_band_fraction`.
- */
-const IMPLIED_GROWTH_AT_THRESHOLD_EPSILON = 1e-4
-
-/** The valuation-inverted trigger result. */
+/** The valuation-inverted FLAG result. */
 export type ValuationInvertedStatus = 'inverted' | 'not_inverted' | 'cannot_assess'
 
 export type ValuationInvertedResult = {
   status: ValuationInvertedStatus
   /**
-   * The market-IMPLIED near-term growth solved off the LIVE price against the FROZEN band/oe_ps. Present
-   * only when it could be solved (positive frozen oe_ps + a solvable price); absent on `cannot_assess`.
+   * The market-IMPLIED near-term growth solved off the LIVE price against the FROZEN oe_ps — reported for
+   * CONTEXT only (it is no longer the trigger; the trigger is the price-vs-reference comparison). Present
+   * only when it could be solved; absent on `cannot_assess`.
    */
   implied_growth?: number
-  /** Human-readable reason carrying the cause ("market implies growth above the frozen ceiling") or the fail-closed reason. */
+  /** Human-readable reason carrying the cause (the live price ran above the frozen reference) or fail-closed. */
   reason: string
 }
 
 /**
- * Evaluate the valuation-inverted sell trigger (implied-growth-vs-FROZEN-band).
+ * Evaluate the valuation-inverted sell FLAG (light price-vs-frozen-reference sanity check).
  *
- * @param current_price    The current per-share LIVE price (the reverse-DCF INPUT).
- * @param frozen_band_high The SIGN-OFF-FROZEN sustainable-growth band HIGH edge — the ceiling the market
- *                         must price ABOVE to invert. MUST be the frozen projection value; this function
- *                         never recomputes a live band. Undefined/non-finite → `cannot_assess` (FAIL-CLOSED).
- * @param frozen_oe_ps     The SIGN-OFF-FROZEN normalized owner-earnings/share the implied growth is solved
- *                         against. Undefined/≤0 → `cannot_assess` (FAIL-CLOSED).
- * @param terminal_g       Frozen terminal growth; defaults to the valuation-params default (reverse-DCF default).
- * @param discount         Frozen discount rate; defaults to the valuation-params default (reverse-DCF default).
- * @param horizon          Frozen stage-1 horizon; defaults to the valuation-params default.
- * @param fade_years       Frozen trailing fade years; defaults to the valuation-params default.
- * @param params           Sell parameter set (defaults to SELL_PARAMS); `sell_band_fraction` is the threshold.
+ * @param current_price                The current per-share LIVE price (the comparison INPUT).
+ * @param frozen_reference_fair_value  The SIGN-OFF-FROZEN reference fair value per share the live price is
+ *                                     compared against. MUST be the frozen projection value; never recomputed
+ *                                     here. Undefined/≤0/non-finite → `cannot_assess` (FAIL-CLOSED).
+ * @param frozen_oe_ps                 The SIGN-OFF-FROZEN normalized owner-earnings/share. Undefined/≤0 →
+ *                                     `cannot_assess` (FAIL-CLOSED). Used to report the implied growth for
+ *                                     context (not the trigger).
+ * @param params                       Sell parameter set (defaults to SELL_PARAMS); `sell_band_fraction` is
+ *                                     the threshold fraction (default 1.0 = the FULL frozen reference).
  *
- * Inverted IFF the implied growth is solvable AND `implied_growth >= frozen_band_high * sell_band_fraction`
- * (default fraction 1.0 = the FULL frozen band ceiling).
+ * Inverted IFF `current_price >= frozen_reference_fair_value × sell_band_fraction`.
  *
- * NOTE: there is deliberately NO live-band parameter. Don't-move-the-number (F.9/F.10): the inversion keys
- * ONLY off the frozen band/oe_ps + the live price, never a recomputed live band.
+ * NOTE: there is deliberately NO live-band parameter. Don't-move-the-number (F.9/F.10): the flag keys ONLY
+ * off the frozen reference + the live price — never a recomputed live band (there is none).
  */
 export function evaluateValuationInverted({
   current_price,
-  frozen_band_high,
+  frozen_reference_fair_value,
   frozen_oe_ps,
-  terminal_g,
-  discount,
-  horizon,
-  fade_years,
   params = SELL_PARAMS,
 }: {
   current_price: number
-  frozen_band_high: number | undefined
+  frozen_reference_fair_value: number | undefined
   frozen_oe_ps: number | undefined
-  terminal_g?: number
-  discount?: number
-  horizon?: number
-  fade_years?: number
   params?: SellParams
 }): ValuationInvertedResult {
-  // FAIL-CLOSED: with no usable frozen band ceiling / oe_ps the trigger cannot assess; it never
-  // manufactures or suppresses a sell, and it never recomputes a live band.
-  if (frozen_band_high === undefined || !Number.isFinite(frozen_band_high)) {
+  // FAIL-CLOSED: with no usable frozen reference / oe_ps the FLAG cannot assess; it never manufactures or
+  // suppresses a sell, and it never recomputes a live valuation.
+  if (
+    frozen_reference_fair_value === undefined
+    || !Number.isFinite(frozen_reference_fair_value)
+    || frozen_reference_fair_value <= 0
+  ) {
     return {
       status: 'cannot_assess',
       reason:
-        'No sign-off-frozen sustainable-growth band ceiling available — cannot assess valuation inversion (fail-closed).',
+        'No sign-off-frozen reference fair value available — cannot assess valuation inversion (fail-closed).',
     }
   }
   if (frozen_oe_ps === undefined || !Number.isFinite(frozen_oe_ps) || frozen_oe_ps <= 0) {
     return {
       status: 'cannot_assess',
       reason:
-        'No sign-off-frozen owner-earnings/share available — cannot solve market-implied growth (fail-closed).',
+        'No sign-off-frozen owner-earnings/share available — cannot assess valuation inversion (fail-closed).',
     }
   }
-
-  // Solve the market-IMPLIED near-term growth off the LIVE price against the FROZEN oe_ps + frozen params.
-  // The reverse-DCF inverts the SAME forward valuation the band/buy side uses, so reverse and forward stay
-  // consistent. The band is NOT recomputed here — only the implied growth, against the frozen inputs.
-  const implied = marketImpliedGrowth({
-    price: current_price,
-    oe_ps: frozen_oe_ps,
-    ...(terminal_g === undefined ? {} : { terminal_g }),
-    ...(discount === undefined ? {} : { discount }),
-    ...(horizon === undefined ? {} : { horizon }),
-    ...(fade_years === undefined ? {} : { fade_years }),
-  })
-
-  // FAIL-CLOSED: an unsolvable implied growth (not-computable price, or out of the solvable bracket) can
-  // never produce a sell — a raw price move ALONE is never a sell.
-  if (implied.implied_growth === undefined || !Number.isFinite(implied.implied_growth)) {
+  // FAIL-CLOSED: a non-finite / non-positive live price can never produce a sell — a missing price is never
+  // a sell.
+  if (!Number.isFinite(current_price) || current_price <= 0) {
     return {
       status: 'cannot_assess',
       reason:
-        `Market-implied growth could not be solved at price ${current_price} (status: ${implied.status}) — ` +
-        'cannot assess valuation inversion (fail-closed).',
+        `No usable live price (${current_price}) — cannot assess valuation inversion (fail-closed).`,
     }
   }
 
-  const implied_growth = implied.implied_growth
-  const threshold = frozen_band_high * params.sell_band_fraction
-  const pct = (v: number): string => `${(v * 100).toFixed(1)}%`
+  // Report the market-IMPLIED near-term growth off the LIVE price against the FROZEN oe_ps for CONTEXT only
+  // (it feeds the human-facing reason; it is NOT the trigger). The trigger is the price-vs-reference
+  // comparison below. The implied growth may be unsolvable for an extreme price; that is non-fatal here.
+  const implied = marketImpliedGrowth({ price: current_price, oe_ps: frozen_oe_ps })
+  const impliedGrowth = Number.isFinite(implied.implied_growth) ? implied.implied_growth : undefined
 
-  if (implied_growth >= threshold - IMPLIED_GROWTH_AT_THRESHOLD_EPSILON) {
+  const threshold = frozen_reference_fair_value * params.sell_band_fraction
+  const num = (v: number): string => v.toFixed(2)
+  const growthNote =
+    impliedGrowth === undefined ? '' : ` (live price implies ~${(impliedGrowth * 100).toFixed(1)}% growth)`
+
+  if (current_price >= threshold) {
     return {
       status: 'inverted',
-      implied_growth,
+      ...(impliedGrowth === undefined ? {} : { implied_growth: impliedGrowth }),
       reason:
-        `Market now implies ${pct(implied_growth)} growth — at/above the sign-off-frozen sustainable ` +
-        `ceiling (band-high ${pct(frozen_band_high)}, threshold ${pct(threshold)}). Margin of safety gone ` +
-        '(the mirror of the buy: high implied = priced above what the business can sustain = overvalued).',
+        `Live price ${num(current_price)} is at/above the sign-off-frozen reference fair value `
+        + `(${num(frozen_reference_fair_value)}, threshold ${num(threshold)})${growthNote}. ADVISORY FLAG: `
+        + 'the market prices the name richly vs the signed-off reference — review for a possible trim/exit. '
+        + 'The human decides the irreversible close (never an auto-sell).',
     }
   }
 
   return {
     status: 'not_inverted',
-    implied_growth,
+    ...(impliedGrowth === undefined ? {} : { implied_growth: impliedGrowth }),
     reason:
-      `Market implies ${pct(implied_growth)} growth — below the sign-off-frozen sustainable ceiling ` +
-      `(band-high ${pct(frozen_band_high)}, threshold ${pct(threshold)}). Margin of safety intact (holds ` +
-      'below the frozen band ceiling).',
+      `Live price ${num(current_price)} is below the sign-off-frozen reference fair value `
+      + `(${num(frozen_reference_fair_value)}, threshold ${num(threshold)})${growthNote}. Hold bias intact.`,
   }
 }

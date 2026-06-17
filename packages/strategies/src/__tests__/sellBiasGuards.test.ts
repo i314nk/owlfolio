@@ -103,6 +103,22 @@ describe('evaluateAnchoringGuard', () => {
     expect(result.caveat).toBeNull()
   })
 
+  it('SAFETY PROPERTY SURVIVES: the anchoring guard STILL FIRES on the lighter freeze (frozen REFERENCE FV)', () => {
+    // The scope-reframe dropped the frozen_band fields + the implied-vs-band sell trigger, but the
+    // anchoring/disposition guard is a REAL safety property that MUST survive. It now anchors to the frozen
+    // REFERENCE fair value (the renamed/repurposed frozen reference) — proving the don't-anchor-to-cost
+    // caveat is NOT silently dropped when the band fields are removed. cost 100, frozen REFERENCE FV 160,
+    // proposed 105 hugs cost → the caveat fires.
+    const frozenReferenceFairValue = 160
+    const result = evaluateAnchoringGuard({
+      proposed_basis: 105,
+      cost_basis_per_share: 100,
+      frozen_iv: frozenReferenceFairValue,
+    })
+    expect(result.caveat).not.toBeNull()
+    expect(result.caveat?.kind).toBe('anchoring')
+  })
+
   it('no caveat when cost ≈ IV (indistinguishable) regardless of proposed basis', () => {
     // cost 100, IV 100.5 — cost and IV collapse onto each other; "near cost" is meaningless.
     const result = evaluateAnchoringGuard({

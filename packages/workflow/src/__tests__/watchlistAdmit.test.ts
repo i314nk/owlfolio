@@ -31,8 +31,8 @@ function admitCommand(overrides: Partial<ConfirmWatchlistDraftCommand> = {}): Co
     thesis_summary: 'Agent-drafted: durable quality compounder; wait for margin of safety.',
     locked_buy_below: 742.5,
     buy_below_valuation_version: VALUATION_PARAMS.version,
-    // Sign-off-frozen UNDISCOUNTED IV — distinct from the MoS-discounted locked_buy_below (742.5).
-    frozen_iv: 990,
+    // Sign-off-frozen REFERENCE fair value — distinct from the MoS-discounted locked_buy_below (742.5).
+    frozen_reference_fair_value: 990,
     frozen_iv_valuation_version: VALUATION_PARAMS.version,
     signed_thesis: SIGNED_THESIS,
     signed_thesis_draft: SIGNED_THESIS,
@@ -82,35 +82,35 @@ describe('admit candidate → watched (Task 4.2b)', () => {
     expect(item?.signed_thesis).toBe(SIGNED_THESIS)
   })
 
-  it('freezes the UNDISCOUNTED IV at sign-off, distinct from the discounted buy-below (Phase 6 S3)', async () => {
+  it('freezes the REFERENCE fair value at sign-off, distinct from the discounted buy-below (scope-reframe)', async () => {
     const store = new InMemoryEventStore()
     await seedCase(store)
 
     const created = await confirmWatchlistDraft(store, admitCommand())
 
-    // The frozen IV is the undiscounted intrinsic value (990), NOT the MoS-discounted buy-below (742.5).
-    expect(created.frozen_iv).toBe(990)
+    // The frozen reference is the reference fair value (990), NOT the MoS-discounted buy-below (742.5).
+    expect(created.frozen_reference_fair_value).toBe(990)
     expect(created.frozen_iv_valuation_version).toBe(VALUATION_PARAMS.version)
-    expect(created.frozen_iv).not.toBe(created.locked_buy_below)
+    expect(created.frozen_reference_fair_value).not.toBe(created.locked_buy_below)
 
     const [item] = projectWatchlist(await store.list())
-    expect(item?.frozen_iv).toBe(990)
+    expect(item?.frozen_reference_fair_value).toBe(990)
     expect(item?.frozen_iv_valuation_version).toBe(VALUATION_PARAMS.version)
   })
 
-  it('omits frozen_iv when no undiscounted IV is available at sign-off (fail-closed, never the buy-below)', async () => {
+  it('omits the frozen reference when none is available at sign-off (fail-closed, never the buy-below)', async () => {
     const store = new InMemoryEventStore()
     await seedCase(store)
 
     const created = await confirmWatchlistDraft(
       store,
-      admitCommand({ frozen_iv: undefined, frozen_iv_valuation_version: undefined }),
+      admitCommand({ frozen_reference_fair_value: undefined, frozen_iv_valuation_version: undefined }),
     )
 
-    // No undiscounted IV → frozen_iv absent; it must NEVER be backfilled from the discounted buy-below.
-    expect(created.frozen_iv).toBeUndefined()
+    // No reference → frozen_reference_fair_value absent; never backfilled from the discounted buy-below.
+    expect(created.frozen_reference_fair_value).toBeUndefined()
     const [item] = projectWatchlist(await store.list())
-    expect(item?.frozen_iv).toBeUndefined()
+    expect(item?.frozen_reference_fair_value).toBeUndefined()
     expect(item?.frozen_iv_valuation_version).toBeUndefined()
     // The discounted buy-below still freezes normally.
     expect(item?.locked_buy_below).toBe(742.5)
@@ -365,7 +365,9 @@ describe('consolidated single-step admission (Phase 8 S4)', () => {
     expect(legacyItem?.confirmed_by_actor_type).toBe(newItem?.confirmed_by_actor_type)
     expect(legacyItem?.confirmed_by_actor_id).toBe(newItem?.confirmed_by_actor_id)
     expect(legacyItem?.locked_buy_below).toBe(newItem?.locked_buy_below)
-    expect(legacyItem?.frozen_iv).toBe(newItem?.frozen_iv)
+    // LEGACY TOLERANCE: the old event's frozen_iv (990) maps onto the new frozen_reference_fair_value.
+    expect(legacyItem?.frozen_reference_fair_value).toBe(newItem?.frozen_reference_fair_value)
+    expect(legacyItem?.frozen_reference_fair_value).toBe(990)
     expect(legacyItem?.signed_thesis).toBe(newItem?.signed_thesis)
 
     // LEGACY TOLERANCE: the old event carried `checklist_answers` (no `checklist_audit`) — it must still

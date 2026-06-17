@@ -93,10 +93,10 @@ async function seedHeld(ledgerPath: string, opts: SeedOpts = {}): Promise<void> 
         is_observation: true, is_recommendation: false,
       },
     }))
-    // 3) The watchlist confirmation — carries the sign-off-frozen band/oe_ps onto the lineage (valuation-core
-    // revision). frozen_oe_ps 5 + frozen_band_high 0.09: the live price 90 implies ~9.1% growth ≥ the 9%
-    // ceiling → inverted; the at-loss price 70 implies ~4.4% < ceiling. A derived frozen_iv rides along for
-    // the anchoring bias guard.
+    // 3) The watchlist confirmation — carries the sign-off-frozen oe_ps + REFERENCE fair value onto the
+    // lineage (scope-reframe). frozen_reference_fair_value 80: the live price 90 ≥ 80 → flagged (inverted);
+    // the at-loss price 70 < 80 → not flagged. The frozen reference is also the anchoring guard's price
+    // anchor.
     await store.append(ev({
       event_id: `evt_watchlist_draft_confirmed_${WATCH_ID}`,
       event_type: 'watchlist_draft_confirmed',
@@ -107,7 +107,7 @@ async function seedHeld(ledgerPath: string, opts: SeedOpts = {}): Promise<void> 
         locked_buy_below: 60, signed_thesis: 'I am admitting TST.',
         ...(opts.withFrozenBand === false
           ? {}
-          : { frozen_band_low: 0.05, frozen_band_high: 0.09, frozen_oe_ps: 5, frozen_iv: 80, frozen_iv_valuation_version: 'valuation-2026-06-cap-1' }),
+          : { frozen_oe_ps: 5, frozen_reference_fair_value: 80, frozen_iv_valuation_version: 'valuation-2026-06-cap-1' }),
       },
     }))
     // 4) The open holding (default — a held lot with a high cost so a low price is "at a loss").
@@ -164,12 +164,12 @@ describe('recordSellDecision (Phase 6 S8a — on-demand held-position sell decis
     await rm(tempDir, { force: true, recursive: true })
   })
 
-  it('a held name + valuation_inverted (implied growth reached the frozen band ceiling) → ONE sell_review OBSERVATION, never a close', async () => {
+  it('a held name + valuation_inverted (live price reached the frozen reference) → ONE sell_review OBSERVATION, never a close', async () => {
     await seedHeld(ledgerPath)
     const state = await getOnboardingState()
-    // Price 90 (oe_ps 5) implies ~9.1% growth ≥ the frozen band ceiling 9% → valuation_inverted sell_review;
-    // 90 < cost basis 100 is irrelevant here (a valuation-inverted gain/parity proceeds on its own terms;
-    // the guard only brakes loss sales).
+    // Price 90 ≥ the frozen reference 80 → valuation_inverted sell_review FLAG; 90 < cost basis 100 is
+    // irrelevant here (a valuation-inverted gain/parity proceeds on its own terms; the guard only brakes
+    // loss sales).
     const outcome = await recordSellDecision(state, RC, { trigger: 'valuation_inverted' }, priceDeps(90))
 
     expect(outcome.status).toBe('complete')
@@ -180,7 +180,7 @@ describe('recordSellDecision (Phase 6 S8a — on-demand held-position sell decis
     expect(outcome.recommendation.requires_user_authoring).toBe(true)
     expect(outcome.recommendation.decision_status).toBe('sell_review')
     expect(outcome.recommendation.holding_id).toBe(HOLDING_ID)
-    expect(outcome.recommendation.frozen_band_high).toBe(0.09)
+    expect(outcome.recommendation.frozen_reference_fair_value).toBe(80)
     expect(outcome.recommendation.frozen_oe_ps).toBe(5)
     // The rebuilt scaffold carries the REAL holding identity (the assembler used a placeholder).
     const draft = outcome.recommendation.sell_review_draft as Record<string, unknown>

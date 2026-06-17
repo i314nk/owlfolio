@@ -99,32 +99,49 @@ describe('projectWatchlist frozen undiscounted IV (Phase 6 S3)', () => {
     }
   }
 
-  it('projects frozen_iv + frozen_iv_valuation_version from the draft event', () => {
+  it('projects frozen_reference_fair_value + frozen_iv_valuation_version from the draft event', () => {
     const watchlist = projectWatchlist([
       watchlistDraftCreated({
-        // The frozen undiscounted IV (216) is DISTINCT from the MoS-discounted buy-below (150).
+        // The frozen REFERENCE fair value (216) is DISTINCT from the MoS-discounted buy-below (150).
         locked_buy_below: 150,
         buy_below_valuation_version: 'valuation-2026-06-1',
-        frozen_iv: 216,
+        frozen_reference_fair_value: 216,
         frozen_iv_valuation_version: 'valuation-2026-06-1',
       }),
     ])
 
     expect(watchlist[0]).toMatchObject({
       locked_buy_below: 150,
-      frozen_iv: 216,
+      frozen_reference_fair_value: 216,
       frozen_iv_valuation_version: 'valuation-2026-06-1',
     })
   })
 
-  it('leaves frozen_iv absent when the draft event carries none (never falls back to buy-below)', () => {
+  it('LEGACY TOLERANCE: maps a legacy frozen_iv event onto frozen_reference_fair_value', () => {
+    const watchlist = projectWatchlist([
+      watchlistDraftCreated({
+        locked_buy_below: 150,
+        buy_below_valuation_version: 'valuation-2026-06-1',
+        // A legacy event written before the scope-reframe carried frozen_band_* + frozen_iv.
+        frozen_band_low: 0.06,
+        frozen_band_high: 0.10,
+        frozen_iv: 216,
+        frozen_iv_valuation_version: 'valuation-2026-06-1',
+      }),
+    ])
+
+    expect(watchlist[0]?.frozen_reference_fair_value).toBe(216)
+    expect(watchlist[0]?.locked_buy_below).toBe(150)
+  })
+
+  it('leaves frozen_reference_fair_value absent when the draft event carries none (never falls back to buy-below)', () => {
     const watchlist = projectWatchlist([
       watchlistDraftCreated({ locked_buy_below: 150, buy_below_valuation_version: 'valuation-2026-06-1' }),
     ])
 
-    expect(watchlist[0]?.frozen_iv).toBeUndefined()
+    expect(watchlist[0]?.frozen_reference_fair_value).toBeUndefined()
     expect(watchlist[0]?.frozen_iv_valuation_version).toBeUndefined()
-    // The discounted buy-below still projects — frozen_iv must NOT have been backfilled from it.
+    // The discounted buy-below still projects — the reference must NOT have been backfilled from it.
     expect(watchlist[0]?.locked_buy_below).toBe(150)
   })
 })

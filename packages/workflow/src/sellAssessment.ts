@@ -69,20 +69,16 @@ export type SellRecommendation = {
   /** The minimum-hold guard's verdict (S2). */
   minimum_hold_decision: GuardDecision
   /**
-   * The sign-off-frozen sustainable-growth band HIGH edge the rekeyed valuation-inverted sell keys off
-   * (valuation-core revision; passed in, never recomputed). Present when supplied.
-   */
-  frozen_band_high?: number
-  /**
-   * The sign-off-frozen normalized owner-earnings/share the reverse-DCF solves implied growth against
-   * (valuation-core revision; passed in, never recomputed). Present when supplied.
+   * The sign-off-frozen normalized owner-earnings/share (scope-reframe; passed in, never recomputed).
+   * Present when supplied.
    */
   frozen_oe_ps?: number
   /**
-   * The DERIVED frozen_iv price anchor (valuation-core revision: derived-from-the-frozen-band, retained one
-   * release for the anchoring bias guard). Present when supplied.
+   * The sign-off-frozen REFERENCE fair value the lightened valuation-inverted sell FLAG compares the live
+   * price against — and the price anchor the anchoring bias guard reads (scope-reframe; passed in, never
+   * recomputed). Present when supplied.
    */
-  frozen_iv?: number
+  frozen_reference_fair_value?: number
   /** ALWAYS present — never an empty/absent worst case on a sell_review. */
   worst_case: SellWorstCase
   /** Advisory Munger bias caveats (S5); never block or change the decision. */
@@ -119,12 +115,11 @@ export type SellAssessmentArgs = {
   uncertainty: RiskLevel
   permanent_loss_risk: RiskLevel
   quality_verdict_passes: boolean
-  // valuation-inverted (valuation-core revision): the SIGN-OFF-FROZEN sustainable-growth band HIGH edge +
-  // normalized owner-earnings/share the implied-growth-vs-band sell keys off (never recomputed here). The
-  // derived frozen_iv price anchor rides along for the anchoring bias guard.
-  frozen_band_high: number | undefined
+  // valuation-inverted (scope-reframe): the SIGN-OFF-FROZEN REFERENCE fair value the lightened sell FLAG
+  // compares the live price against (never recomputed here) + the normalized owner-earnings/share. The
+  // frozen reference is also the price anchor the anchoring bias guard reads.
   frozen_oe_ps: number | undefined
-  frozen_iv: number | undefined
+  frozen_reference_fair_value: number | undefined
   // better-opportunity (optional; only for that trigger):
   candidate_oe_yield?: number
   held_oe_yield?: number
@@ -185,17 +180,20 @@ export function computeSellDecision(args: SellAssessmentArgs): SellDecisionResul
   const guard = applyMinimumHoldGuard({ trigger: args.trigger, impairment_call, at_loss, within_window })
 
   // worst_case + bias_caveats are ALWAYS attached (even on hold/escalate).
-  // proposed_basis: the reference the sell rationale leans on. We use the sign-off-frozen IV when known
-  // (a sound sell reasons FROM intrinsic value, not from cost); when no frozen IV exists we fall back to
-  // the cost basis so the anchoring guard fail-safes to no caveat (it requires a usable IV to fire).
-  const proposed_basis = args.frozen_iv ?? args.cost_basis_per_share
+  // proposed_basis: the reference the sell rationale leans on. We use the sign-off-frozen REFERENCE fair
+  // value when known (a sound sell reasons FROM intrinsic/reference value, not from cost); when no frozen
+  // reference exists we fall back to the cost basis so the anchoring guard fail-safes to no caveat (it
+  // requires a usable reference to fire). The anchoring/disposition bias guard (a real safety property)
+  // therefore still functions on the lighter freeze — its price anchor is now the frozen reference.
+  const proposed_basis = args.frozen_reference_fair_value ?? args.cost_basis_per_share
   const worst_case = buildWorstCase(args)
   const bias_caveats = collectSellBiasCaveats({
     at_loss,
     impairment_call,
     proposed_basis,
     cost_basis_per_share: args.cost_basis_per_share,
-    frozen_iv: args.frozen_iv,
+    // The guard's `frozen_iv` parameter is a generic PRICE anchor; feed it the frozen reference.
+    frozen_iv: args.frozen_reference_fair_value,
   })
 
   // A recommendation builder shared by every terminal outcome — guarantees worst_case + caveats ride
@@ -210,9 +208,10 @@ export function computeSellDecision(args: SellAssessmentArgs): SellDecisionResul
       trigger: args.trigger,
       impairment_call,
       minimum_hold_decision: guard.decision,
-      ...(finite(args.frozen_band_high) ? { frozen_band_high: args.frozen_band_high } : {}),
       ...(finite(args.frozen_oe_ps) ? { frozen_oe_ps: args.frozen_oe_ps } : {}),
-      ...(finite(args.frozen_iv) ? { frozen_iv: args.frozen_iv } : {}),
+      ...(finite(args.frozen_reference_fair_value)
+        ? { frozen_reference_fair_value: args.frozen_reference_fair_value }
+        : {}),
       worst_case,
       bias_caveats,
       requires_human_signoff: extra.requires_human_signoff,
@@ -264,12 +263,13 @@ export function computeSellDecision(args: SellAssessmentArgs): SellDecisionResul
 
   switch (args.trigger) {
     case 'valuation_inverted': {
-      // PRICE-DRIVEN, but never price-ALONE (valuation-core revision — the MIRROR of the BUY): the live
-      // price is the reverse-DCF INPUT; the implied growth is solved against the SIGN-OFF-FROZEN band/oe_ps
-      // (don't-move-the-number F.9/F.10) and fires only at/above the frozen band ceiling.
+      // PRICE-DRIVEN, but never price-ALONE (scope-reframe): a LIGHT price-vs-frozen-reference sanity FLAG.
+      // The live price is compared against the SIGN-OFF-FROZEN reference fair value (don't-move-the-number
+      // F.9/F.10 — never a recomputed live band, there is none) and flags only at/above the frozen
+      // reference. This FLAG is advisory and feeds the human decision — never an auto-sell.
       const inv = evaluateValuationInverted({
         current_price: args.current_price,
-        frozen_band_high: args.frozen_band_high,
+        frozen_reference_fair_value: args.frozen_reference_fair_value,
         frozen_oe_ps: args.frozen_oe_ps,
         params,
       })

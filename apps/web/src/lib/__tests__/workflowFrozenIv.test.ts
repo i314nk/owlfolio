@@ -13,24 +13,22 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { promoteResearchCaseToWatchlist } from '../workflow'
 
 // ---------------------------------------------------------------------------
-// valuation-core revision — freezing the sustainable-growth BAND + owner-earnings/share at sign-off.
-//
-// promoteResearchCaseToWatchlist (the admit/sign-off path) must freeze the case's band edges
-// (verdict_state.band_low / band_high) + normalized owner-earnings/share
-// (valuation.normalized_owner_earnings_per_share) as `frozen_band_low` / `frozen_band_high` / `frozen_oe_ps`
-// — the inputs the rekeyed valuation-inverted SELL keys off (the mirror of the BUY). It also retains a
-// DERIVED `frozen_iv` price anchor (the forward two-stage fair value at frozen_band_high off frozen_oe_ps)
-// for the anchoring bias guard. Don't-move-the-number (F.9/F.10): all freeze here with their
-// valuation-version provenance. FAIL-CLOSED: a case with no band/oe_ps freezes them ABSENT.
+// scope-reframe — lightening the sell/freeze. The band/gap decision engine was removed, so the sign-off
+// freeze no longer records a sustainable-growth BAND. promoteResearchCaseToWatchlist (the admit/sign-off
+// path) now freezes a frozen REFERENCE fair value (`frozen_reference_fair_value`) + the normalized
+// owner-earnings/share (`frozen_oe_ps`) — and drops `frozen_band_low` / `frozen_band_high`. The reference
+// is the forward two-stage fair value off the frozen oe_ps + the sign-off assumed growth (a reference,
+// NOT a band). Don't-move-the-number (F.9/F.10): the freeze with its valuation-version provenance.
+// FAIL-CLOSED: a case with no oe_ps freezes the reference ABSENT.
 //
 // Sibling file (NOT workflow.test.ts) per the slice's test-placement guidance.
 // ---------------------------------------------------------------------------
 
-/** The expected DERIVED frozen_iv: forward two-stage FV at the frozen band-high off the frozen oe_ps. */
-function expectedDerivedFrozenIv(oe_ps: number, band_high: number): number {
+/** The expected frozen REFERENCE FV: forward two-stage FV at the sign-off assumed growth off the oe_ps. */
+function expectedReferenceFairValue(oe_ps: number, g: number): number {
   return twoStageValuation({
     oe_ps,
-    g: band_high,
+    g,
     terminal_g: VALUATION_PARAMS.terminal_growth,
     discount: discountRate(buffettMungerStrategy),
     ceiling_multiple: VALUATION_PARAMS.fv_cap_multiple,
@@ -61,8 +59,7 @@ function makeState(ledgerPath: string, sourceLedgerPath: string) {
 }
 
 /**
- * Seed a research case whose `buffett_munger_analysis_drafted` carries a `valuation` payload with BOTH the
- * undiscounted fair value and the discounted buy-below (when `valuation` is provided), then a drafted
+ * Seed a research case whose `buffett_munger_analysis_drafted` carries a `valuation` payload, then a drafted
  * WATCH decision so the case is ready for promotion.
  */
 async function seedCase(
@@ -94,7 +91,6 @@ async function seedCase(
         company_id: 'company_iv',
         ticker: 'IVCO',
         investment_verdict: 'WATCH',
-        // COMPLIANT + sourced so the Shariah gate allows the watchlist promotion (mirrors the MSFT setup).
         shariah_status: 'COMPLIANT',
         ...(valuation === undefined ? {} : { valuation }),
       },
@@ -117,21 +113,21 @@ async function seedCase(
 }
 
 
-describe('promoteResearchCaseToWatchlist — freeze the sustainable-growth band at sign-off (valuation-core revision)', () => {
+describe('promoteResearchCaseToWatchlist — freeze a REFERENCE fair value at sign-off (scope-reframe; not a band)', () => {
   const dirs: string[] = []
   afterEach(async () => {
     await Promise.all(dirs.map((dir) => rm(dir, { recursive: true, force: true })))
     dirs.length = 0
   })
 
-  it('freezes the band edges + oe_ps, derives frozen_iv from the band, distinct from the discounted buy-below', async () => {
-    const projectDir = await mkdtemp(join(tmpdir(), 'owlfolio-frozen-band-'))
+  it('freezes frozen_reference_fair_value + frozen_oe_ps, distinct from the discounted buy-below; NOT frozen_band_*', async () => {
+    const projectDir = await mkdtemp(join(tmpdir(), 'owlfolio-frozen-ref-'))
     dirs.push(projectDir)
     const ledgerPath = join(projectDir, 'data', 'personal-ledger.sqlite')
     const state = makeState(ledgerPath, join(projectDir, 'data', 'source-ledger'))
 
-    // The band (band_low 0.06, band_high 0.10) + oe_ps (10) are the SELL inputs; buy_price_per_share (150)
-    // is the MoS-discounted buy-below frozen separately as locked_buy_below.
+    // band_high 0.10 is the sign-off assumed growth used to derive the REFERENCE FV; oe_ps 10. The discounted
+    // buy_price_per_share (150) is frozen separately as locked_buy_below.
     const { research_case_id } = await seedCase(ledgerPath, {
       normalized_owner_earnings_per_share: 10,
       buy_price_per_share: 150,
@@ -140,57 +136,98 @@ describe('promoteResearchCaseToWatchlist — freeze the sustainable-growth band 
 
     const promoted = await promoteResearchCaseToWatchlist(state, research_case_id, HUMAN_SIGNED_THESIS, true)
 
-    expect(promoted.frozen_band_low).toBe(0.06)
-    expect(promoted.frozen_band_high).toBe(0.10)
     expect(promoted.frozen_oe_ps).toBe(10)
     expect(promoted.frozen_iv_valuation_version).toBe(VALUATION_PARAMS.version)
-    // frozen_iv is DERIVED from the frozen band (forward FV at band_high off oe_ps), NOT the buy-below.
-    expect(promoted.frozen_iv).toBeCloseTo(expectedDerivedFrozenIv(10, 0.10), 6)
+    // The frozen REFERENCE FV is the forward FV at the sign-off assumed growth off the oe_ps, NOT the buy-below.
+    expect(promoted.frozen_reference_fair_value).toBeCloseTo(expectedReferenceFairValue(10, 0.10), 6)
     expect(promoted.locked_buy_below).toBe(150)
-    expect(promoted.frozen_iv).not.toBe(promoted.locked_buy_below)
+    expect(promoted.frozen_reference_fair_value).not.toBe(promoted.locked_buy_below)
+    // The band fields are DROPPED from the freeze (scope-reframe — the band engine was removed).
+    expect((promoted as Record<string, unknown>).frozen_band_low).toBeUndefined()
+    expect((promoted as Record<string, unknown>).frozen_band_high).toBeUndefined()
 
     const store = new SQLiteEventStore(ledgerPath)
     try {
       const [item] = projectWatchlist(await store.list())
-      expect(item?.frozen_band_low).toBe(0.06)
-      expect(item?.frozen_band_high).toBe(0.10)
       expect(item?.frozen_oe_ps).toBe(10)
-      expect(item?.frozen_iv).toBeCloseTo(expectedDerivedFrozenIv(10, 0.10), 6)
+      expect(item?.frozen_reference_fair_value).toBeCloseTo(expectedReferenceFairValue(10, 0.10), 6)
       expect(item?.frozen_iv_valuation_version).toBe(VALUATION_PARAMS.version)
       expect(item?.locked_buy_below).toBe(150)
+      expect((item as Record<string, unknown> | undefined)?.frozen_band_low).toBeUndefined()
+      expect((item as Record<string, unknown> | undefined)?.frozen_band_high).toBeUndefined()
     } finally {
       store.close()
     }
   })
 
-  it('leaves the frozen band + derived frozen_iv absent when the case has no band/oe_ps (fail-closed)', async () => {
-    const projectDir = await mkdtemp(join(tmpdir(), 'owlfolio-frozen-band-none-'))
+  it('leaves the frozen reference absent when the case has no oe_ps (fail-closed)', async () => {
+    const projectDir = await mkdtemp(join(tmpdir(), 'owlfolio-frozen-ref-none-'))
     dirs.push(projectDir)
     const ledgerPath = join(projectDir, 'data', 'personal-ledger.sqlite')
     const state = makeState(ledgerPath, join(projectDir, 'data', 'source-ledger'))
 
-    // A valuation WITH a discounted buy-below but NO band / oe_ps.
+    // A valuation WITH a discounted buy-below but NO oe_ps.
     const { research_case_id } = await seedCase(ledgerPath, { buy_price_per_share: 150 })
 
     const promoted = await promoteResearchCaseToWatchlist(state, research_case_id, HUMAN_SIGNED_THESIS, true)
 
-    // No band/oe_ps → the frozen band fields + the derived frozen_iv are absent (fail-closed); the sell then
-    // returns cannot_assess. They must NEVER be backfilled from the discounted buy-below.
-    expect(promoted.frozen_band_low).toBeUndefined()
-    expect(promoted.frozen_band_high).toBeUndefined()
     expect(promoted.frozen_oe_ps).toBeUndefined()
-    expect(promoted.frozen_iv).toBeUndefined()
+    expect(promoted.frozen_reference_fair_value).toBeUndefined()
     expect(promoted.frozen_iv_valuation_version).toBeUndefined()
     expect(promoted.locked_buy_below).toBe(150)
 
     const store = new SQLiteEventStore(ledgerPath)
     try {
       const [item] = projectWatchlist(await store.list())
-      expect(item?.frozen_band_high).toBeUndefined()
       expect(item?.frozen_oe_ps).toBeUndefined()
-      expect(item?.frozen_iv).toBeUndefined()
+      expect(item?.frozen_reference_fair_value).toBeUndefined()
       expect(item?.frozen_iv_valuation_version).toBeUndefined()
       expect(item?.locked_buy_below).toBe(150)
+    } finally {
+      store.close()
+    }
+  })
+
+  it('LEGACY TOLERANCE: a legacy event carrying frozen_band_* + frozen_iv still projects (frozen_iv → reference)', async () => {
+    const projectDir = await mkdtemp(join(tmpdir(), 'owlfolio-frozen-legacy-'))
+    dirs.push(projectDir)
+    const ledgerPath = join(projectDir, 'data', 'personal-ledger.sqlite')
+
+    const store = new SQLiteEventStore(ledgerPath)
+    try {
+      // A legacy watchlist confirmation written BEFORE the scope-reframe: it carries frozen_band_low/high +
+      // the legacy frozen_iv price anchor. The projection must TOLERATE it (read via guards, not throw) and
+      // map the old frozen_iv onto the new frozen_reference_fair_value.
+      await store.append({
+        event_id: 'evt_watchlist_draft_confirmed_legacy_wi',
+        event_type: 'watchlist_draft_confirmed',
+        aggregate_type: 'watchlist_item',
+        aggregate_id: 'legacy_wi',
+        correlation_id: 'rc_legacy',
+        actor_type: 'user',
+        actor_id: 'user_local',
+        payload: {
+          watchlist_item_id: 'legacy_wi',
+          research_case_id: 'rc_legacy',
+          ticker: 'LEG',
+          locked_buy_below: 120,
+          frozen_band_low: 0.06,
+          frozen_band_high: 0.10,
+          frozen_oe_ps: 10,
+          frozen_iv: 175,
+          frozen_iv_valuation_version: 'valuation-2026-06-cap-1',
+          signed_thesis: 'legacy admit',
+        },
+        source_ids: [],
+        created_at: new Date().toISOString(),
+        schema_version: 1,
+      })
+
+      const [item] = projectWatchlist(await store.list())
+      expect(item?.frozen_oe_ps).toBe(10)
+      // The legacy frozen_iv maps onto the reference fair value.
+      expect(item?.frozen_reference_fair_value).toBe(175)
+      expect(item?.locked_buy_below).toBe(120)
     } finally {
       store.close()
     }

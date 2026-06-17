@@ -704,7 +704,8 @@ describe('projectNameLifecycle — frozen undiscounted IV (Phase 6 S3; the valua
           watchlist_item_id: 'watch_iv_001',
           research_case_id: 'rc_iv_001',
           ticker: 'IVH',
-          // Frozen undiscounted IV (216) is DISTINCT from the discounted locked buy-below (150).
+          // Frozen REFERENCE fair value (216) is DISTINCT from the discounted locked buy-below (150). This is
+          // a LEGACY event carrying the old `frozen_iv` — the projection maps it onto the new reference field.
           locked_buy_below: 150,
           buy_below_valuation_version: 'valuation-2026-06-1',
           frozen_iv: 216,
@@ -737,12 +738,13 @@ describe('projectNameLifecycle — frozen undiscounted IV (Phase 6 S3; the valua
     ]
     const row = byTicker(projectNameLifecycle(events), 'IVH')
     expect(row.state).toBe('held')
-    // The sell-decision flow reads the FROZEN IV (not the discounted buy-below) off the lifecycle row.
-    expect(row.frozen_iv).toBe(216)
+    // The sell-decision flow reads the FROZEN REFERENCE (not the discounted buy-below) off the lifecycle row;
+    // the legacy frozen_iv was mapped onto it.
+    expect(row.frozen_reference_fair_value).toBe(216)
     expect(row.frozen_iv_valuation_version).toBe('valuation-2026-06-1')
   })
 
-  it('leaves frozen_iv absent when the lineage froze none (never falls back to the discounted buy-below)', () => {
+  it('leaves frozen_reference_fair_value absent when the lineage froze none (never falls back to the discounted buy-below)', () => {
     const events: LedgerEventEnvelope<unknown>[] = [
       evt({
         event_type: 'research_case_created',
@@ -776,7 +778,7 @@ describe('projectNameLifecycle — frozen undiscounted IV (Phase 6 S3; the valua
     ]
     const row = byTicker(projectNameLifecycle(events), 'NOIV')
     expect(row.state).toBe('watched')
-    expect(row.frozen_iv).toBeUndefined()
+    expect(row.frozen_reference_fair_value).toBeUndefined()
     expect(row.frozen_iv_valuation_version).toBeUndefined()
     expect(row.locked_buy_below).toBe(150)
   })

@@ -615,11 +615,11 @@ export const domainEventContracts: readonly DomainEventContract[] = [
       'trigger',
       'impairment_call',
       'minimum_hold_decision',
-      // valuation-core revision — the rekeyed valuation-inverted sell keys off the sign-off-frozen band/oe_ps;
-      // frozen_iv is RETAINED as a derived price anchor for the anchoring guard. Carried additively.
-      'frozen_band_high',
+      // scope-reframe — the lightened valuation-inverted sell FLAG compares the live price against the
+      // sign-off-frozen REFERENCE fair value (also the anchoring guard's price anchor) + oe_ps. Carried
+      // additively. (Legacy frozen_band_high / frozen_iv are tolerated on old events but no longer emitted.)
       'frozen_oe_ps',
-      'frozen_iv',
+      'frozen_reference_fair_value',
       'worst_case',
       'bias_caveats',
       'requires_human_signoff',

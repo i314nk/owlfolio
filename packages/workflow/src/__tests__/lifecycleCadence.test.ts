@@ -1,6 +1,4 @@
 import { describe, expect, it } from 'vitest'
-import { buffettMungerStrategy, discountRate, twoStageValuation } from '@owlfolio/strategies/buffettMunger'
-import { VALUATION_PARAMS } from '@owlfolio/strategies/valuationParams'
 import type {
   NameLifecycleProjection,
   NameLifecycleState,
@@ -19,25 +17,13 @@ import {
 const RECENT = '2026-05-01T00:00:00.000Z'
 const NOW = new Date('2026-06-01T00:00:00.000Z')
 
-// valuation-core revision — the valuation-inverted signal solves the live price's IMPLIED growth off the
-// FROZEN band/oe_ps. We build live prices from the forward FV at a near-term growth so a chosen price
-// implies a known growth off frozen_oe_ps=10 against the frozen band ceiling 0.10.
+// scope-reframe — the valuation-inverted signal is a LIGHT price-vs-frozen-reference sanity FLAG. It flags
+// when the live price runs at/above the frozen REFERENCE fair value. frozen_oe_ps=10 rides along for parity.
 const FROZEN_OE_PS = 10
-const FROZEN_BAND_HIGH = 0.10
-const fvAt = (g: number): number =>
-  twoStageValuation({
-    oe_ps: FROZEN_OE_PS,
-    g,
-    terminal_g: VALUATION_PARAMS.terminal_growth,
-    discount: discountRate(buffettMungerStrategy),
-    ceiling_multiple: VALUATION_PARAMS.fv_cap_multiple,
-    absurd_multiple: VALUATION_PARAMS.fv_absurd_multiple,
-    horizon: VALUATION_PARAMS.stage1_horizon,
-    fade_years: VALUATION_PARAMS.growth_fade_years,
-  }).fair_value as number
-// A price implying growth AT/ABOVE the frozen band ceiling (inverts) and one BELOW it (holds).
-const PRICE_IMPLIES_ABOVE_CEILING = fvAt(0.12)
-const PRICE_IMPLIES_BELOW_CEILING = fvAt(0.05)
+const FROZEN_REFERENCE_FAIR_VALUE = 150
+// A price AT/ABOVE the frozen reference (flags) and one BELOW it (holds).
+const PRICE_IMPLIES_ABOVE_CEILING = FROZEN_REFERENCE_FAIR_VALUE * 1.3
+const PRICE_IMPLIES_BELOW_CEILING = FROZEN_REFERENCE_FAIR_VALUE * 0.5
 
 function name(overrides: Partial<NameLifecycleProjection> & { state: NameLifecycleState }): NameLifecycleProjection {
   return {
@@ -59,12 +45,12 @@ describe('detectSignals — STATE-INDEPENDENCE (the discipline tripwire)', () =>
     const asOfData = { now: NOW, current_price: PRICE_IMPLIES_ABOVE_CEILING, market_value: 250, portfolio_nav: 1_000, thesis_break: true }
     const baseData = {
       // buy_price_per_share ABOVE the live price so price_crossed_buybelow also fires (price ≤ buy-below),
-      // while the SAME live price implies growth ≥ the frozen band ceiling so valuation_inverted fires too.
+      // while the SAME live price runs above the frozen reference so valuation_inverted fires too.
       buy_price_per_share: PRICE_IMPLIES_ABOVE_CEILING + 1,
       fair_value_per_share: 80,
-      // frozen band ceiling 0.10 + oe_ps 10: the live price implies ~12% growth ≥ the ceiling →
-      // valuation_inverted fires (the market now prices growth above the frozen sustainable ceiling).
-      frozen_band_high: FROZEN_BAND_HIGH,
+      // frozen reference 150 + oe_ps 10: the live price (above 150) flags valuation_inverted (a light
+      // price-vs-reference sanity flag).
+      frozen_reference_fair_value: FROZEN_REFERENCE_FAIR_VALUE,
       frozen_oe_ps: FROZEN_OE_PS,
       gate_clean: false,
       shariah_gate_status: 'FAIL',
@@ -197,29 +183,29 @@ describe('detectSignals — STATE-INDEPENDENCE (the discipline tripwire)', () =>
   })
 })
 
-describe('detectSignals — valuation_inverted (implied-growth-vs-FROZEN-band)', () => {
-  // valuation-core revision — the MIRROR of the buy. The signal fires when the live price's IMPLIED growth
-  // (solved off the SIGN-OFF-FROZEN band/oe_ps) reaches the frozen band ceiling — a signed-off cause-ref,
-  // NOT a raw price move — and routes to a sell-REVIEW. It must NEVER fire by price alone (no frozen band).
-  const frozenBand = { frozen_band_high: FROZEN_BAND_HIGH, frozen_oe_ps: FROZEN_OE_PS }
+describe('detectSignals — valuation_inverted (light price-vs-frozen-reference FLAG)', () => {
+  // scope-reframe — a LIGHT sanity FLAG. The signal fires when the live price runs at/above the SIGN-OFF-
+  // FROZEN reference fair value — a signed-off cause-ref, NOT a raw price move — and routes to a sell-REVIEW.
+  // It must NEVER fire by price alone (no frozen reference).
+  const frozenRef = { frozen_reference_fair_value: FROZEN_REFERENCE_FAIR_VALUE, frozen_oe_ps: FROZEN_OE_PS }
 
-  it('raises valuation_inverted when implied growth ≥ the frozen band ceiling on a held name', () => {
+  it('raises valuation_inverted when the live price is ≥ the frozen reference on a held name', () => {
     const signals = detectSignals(
-      name({ state: 'held', ...frozenBand, gate_clean: true }),
+      name({ state: 'held', ...frozenRef, gate_clean: true }),
       { now: NOW, current_price: PRICE_IMPLIES_ABOVE_CEILING },
     )
     expect(signals).toContain('valuation_inverted')
   })
 
-  it('does NOT raise valuation_inverted when implied growth < the frozen band ceiling (margin intact)', () => {
+  it('does NOT raise valuation_inverted when the live price < the frozen reference (hold bias)', () => {
     const signals = detectSignals(
-      name({ state: 'held', ...frozenBand, gate_clean: true }),
+      name({ state: 'held', ...frozenRef, gate_clean: true }),
       { now: NOW, current_price: PRICE_IMPLIES_BELOW_CEILING },
     )
     expect(signals).not.toContain('valuation_inverted')
   })
 
-  it('does NOT raise valuation_inverted when the frozen band/oe_ps are absent (fail-closed; never price-alone)', () => {
+  it('does NOT raise valuation_inverted when the frozen reference/oe_ps are absent (fail-closed; never price-alone)', () => {
     const signals = detectSignals(
       name({ state: 'held', gate_clean: true }),
       { now: NOW, current_price: 10_000 },
@@ -229,7 +215,7 @@ describe('detectSignals — valuation_inverted (implied-growth-vs-FROZEN-band)',
 
   it('does NOT raise valuation_inverted when current_price is absent (fail-closed)', () => {
     const signals = detectSignals(
-      name({ state: 'held', ...frozenBand, gate_clean: true }),
+      name({ state: 'held', ...frozenRef, gate_clean: true }),
       { now: NOW },
     )
     expect(signals).not.toContain('valuation_inverted')
@@ -237,7 +223,7 @@ describe('detectSignals — valuation_inverted (implied-growth-vs-FROZEN-band)',
 
   it('detection of valuation_inverted is state-independent (same set across all states)', () => {
     const asOfData = { now: NOW, current_price: PRICE_IMPLIES_ABOVE_CEILING }
-    const baseData = { ...frozenBand, gate_clean: true }
+    const baseData = { ...frozenRef, gate_clean: true }
     const sets = LIFECYCLE_STATES.map((state) =>
       detectSignals(name({ ...baseData, state }), asOfData).includes('valuation_inverted'),
     )
@@ -247,10 +233,10 @@ describe('detectSignals — valuation_inverted (implied-growth-vs-FROZEN-band)',
     }
   })
 
-  it('can read the frozen band/oe_ps from CadenceAsOfData when the caller threads them there', () => {
+  it('can read the frozen reference/oe_ps from CadenceAsOfData when the caller threads them there', () => {
     const signals = detectSignals(
       name({ state: 'held', gate_clean: true }),
-      { now: NOW, current_price: PRICE_IMPLIES_ABOVE_CEILING, frozen_band_high: FROZEN_BAND_HIGH, frozen_oe_ps: FROZEN_OE_PS },
+      { now: NOW, current_price: PRICE_IMPLIES_ABOVE_CEILING, frozen_reference_fair_value: FROZEN_REFERENCE_FAIR_VALUE, frozen_oe_ps: FROZEN_OE_PS },
     )
     expect(signals).toContain('valuation_inverted')
   })

@@ -95,9 +95,8 @@ export function holdingRow(args: {
   research_case_id?: string
   updated_at: string
   state?: NameLifecycleState
-  frozen_band_high?: number
   frozen_oe_ps?: number
-  frozen_iv?: number
+  frozen_reference_fair_value?: number
 }): NameLifecycleProjection {
   const row: NameLifecycleProjection = {
     ticker: args.ticker,
@@ -107,12 +106,13 @@ export function holdingRow(args: {
     holding_id: args.holding_id,
   }
   if (args.research_case_id !== undefined) row.research_case_id = args.research_case_id
-  // The sign-off-frozen band ceiling + oe_ps (valuation-core revision) let the engine's valuation_inverted
-  // signal fire when the market implies growth above the frozen ceiling; never a recomputed live band.
-  // frozen_iv is retained as a derived price anchor for the anchoring guard.
-  if (args.frozen_band_high !== undefined) row.frozen_band_high = args.frozen_band_high
+  // The sign-off-frozen REFERENCE fair value + oe_ps (scope-reframe) let the engine's valuation_inverted
+  // FLAG fire when the live price runs at/above the frozen reference; never a recomputed live band. The
+  // frozen reference is also the anchoring guard's price anchor.
   if (args.frozen_oe_ps !== undefined) row.frozen_oe_ps = args.frozen_oe_ps
-  if (args.frozen_iv !== undefined) row.frozen_iv = args.frozen_iv
+  if (args.frozen_reference_fair_value !== undefined) {
+    row.frozen_reference_fair_value = args.frozen_reference_fair_value
+  }
   return row
 }
 
