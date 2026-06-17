@@ -2239,8 +2239,9 @@ export async function runResearchDeepDivePhase(
         //   valuation_reasoning  = the MODEL's cited valuation basis (it shows its work).
         ...(reference_fair_value !== undefined ? { reference_fair_value } : {}),
         ...(in_buy_zone !== undefined ? { in_buy_zone } : {}),
-        // implied_exit_multiple = (price × (1+discount)^horizon) / owner earnings grown to the horizon at the
-        // market-IMPLIED growth — the exit P/OE the live price requires; a flag-only §2 sanity output.
+        // implied_exit_multiple = current price / forward owner earnings (OE grown to the explicit horizon at
+        // the MODEL's assumed growth; no discount-compounding factor) — the exit P/OE the live price requires;
+        // a flag-only §2 sanity output (see the inline derivation above).
         ...(implied_exit_multiple !== undefined ? { implied_exit_multiple } : {}),
         ...(sanity_flags.length > 0 ? { sanity_flags } : {}),
         ...(dr !== undefined

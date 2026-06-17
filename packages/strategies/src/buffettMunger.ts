@@ -222,9 +222,10 @@ export function creditedGrowth(
  *
  *   OE_H = OE_0 · Π_{i=1..H} (1 + g_i),  g_i fading from g → terminal over the trailing F years.
  *
- * Used both by the forward DCF (twoStageRaw) and by the flag-only implied-exit-multiple sanity output
- * (the harness grows OE to the horizon at the market-IMPLIED growth, then reads the exit P/OE the price
- * requires). `fade_years` defaults to the config `growth_fade_years`.
+ * Used both by the forward DCF (twoStageRaw, which calls this for its year-H owner earnings) and by the
+ * flag-only implied-exit-multiple sanity output (which grows OE to the horizon at the MODEL's assumed
+ * growth, then reads the exit P/OE the price requires). `fade_years` defaults to the config
+ * `growth_fade_years`.
  */
 export function ownerEarningsAtHorizon(args: {
   oe_ps: number
@@ -262,7 +263,6 @@ function twoStageRaw(args: { oe_ps: number; g: number; terminal_g: number; disco
 
   let stage1 = 0
   let growthFactor = 1 // running Π_{i=1..t} (1 + g_i)
-  let oeAtHorizon = oe_ps
   for (let t = 1; t <= horizon; t += 1) {
     let g_t = g
     if (fadeApplies && t > plateauEnd) {
@@ -272,8 +272,10 @@ function twoStageRaw(args: { oe_ps: number; g: number; terminal_g: number; disco
     growthFactor *= 1 + g_t
     const oe_t = oe_ps * growthFactor
     stage1 += oe_t / Math.pow(1 + r, t)
-    if (t === horizon) oeAtHorizon = oe_t
   }
+  // Single-source the year-H owner earnings via the shared fade helper (same faded path as the loop above);
+  // keeps the fade math in one place so reverse/forward/exit-multiple stay consistent.
+  const oeAtHorizon = ownerEarningsAtHorizon({ oe_ps, g, terminal_g, horizon, fade_years: args.fade_years })
   // Gordon terminal off the FADED year-H owner earnings.
   const terminal = ((oeAtHorizon * (1 + terminal_g)) / (r - terminal_g)) / Math.pow(1 + r, horizon)
   return { stage1, terminal, fair_value: stage1 + terminal }

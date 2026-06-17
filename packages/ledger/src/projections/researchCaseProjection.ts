@@ -287,10 +287,11 @@ export type ResearchCaseValuationProjection = {
   /** RELIGHTENED DECISION (R1): pure arithmetic — current_price <= buy_below. */
   in_buy_zone?: boolean
   /**
-   * §2 sanity output (flag-only): the name-specific implied EXIT P/OE multiple — (current price ×
-   * (1+discount)^horizon) ÷ owner earnings grown to the horizon at the market-IMPLIED growth. The exit
-   * multiple the live price requires you to sell at. Absent (legacy-tolerant) when not computable; a
-   * directional `sanity_implied_exit_multiple_high` flag fires when it is above the sane cap. Advisory.
+   * §2 sanity output (flag-only): the name-specific implied EXIT P/OE multiple — current price ÷ forward
+   * owner earnings (OE/share grown to the explicit horizon at the MODEL's assumed growth along the same
+   * faded stage-1 path the two-stage DCF uses; NO discount-compounding factor). The exit P/OE the live
+   * price requires a future buyer to pay. Absent (legacy-tolerant) when not computable; a directional
+   * `sanity_implied_exit_multiple_high` flag fires when it is above the sane cap. Advisory.
    */
   implied_exit_multiple?: number
   /**
