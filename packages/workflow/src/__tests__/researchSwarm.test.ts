@@ -803,9 +803,9 @@ describe('runStrategyResearchSwarm with MockProvider + deterministic grounder', 
     expect(caseProjection?.valuation?.fair_value_per_share ?? 0).toBeLessThan(18 * 14)
     // implied multiple ≈ 10.75× (computed at the credited-growth point FV / OE — unchanged by the band anchor).
     expect(caseProjection?.valuation?.implied_multiple).toBeCloseTo(10.75, 1)
-    // margin_of_safety — UNIFORM base for every investable moat (F.13): 0.25 (still surfaced; no longer
-    // drives the buy-below).
-    expect(caseProjection?.valuation?.margin_of_safety).toBe(0.25)
+    // margin_of_safety (the MoS-as-price-haircut field) is RETIRED — conservatism now lives in the
+    // required_growth_gap; the field is no longer projected.
+    expect((caseProjection?.valuation as Record<string, unknown> | undefined)?.margin_of_safety).toBeUndefined()
     // buy_price is now the forward DCF at the buy-threshold g = band_low − required_gap ≈ 189.42 (NOT
     // fair_value × (1 − MoS)). It round-trips to the buy-threshold via the reverse DCF.
     expect(caseProjection?.valuation?.buy_price_per_share).toBeCloseTo(189.42, 0)
@@ -1194,11 +1194,13 @@ describe('Two-stage DCF harness growth path (Phase 1.3 one growth path + gates)'
     // Terminal-value share surfaced and in (0,1).
     expect(cp?.valuation?.terminal_value_pct_of_iv).toBeGreaterThan(0)
     expect(cp?.valuation?.terminal_value_pct_of_iv).toBeLessThan(1)
-    // The single MoS knob widened beyond the wide base floor (0.25) for the above-GDP moat-durability claim
-    // and the low maint-capex confidence; margin_of_safety_applied mirrors the applied MoS.
-    expect(cp?.valuation?.margin_of_safety ?? 0).toBeGreaterThan(0.25)
-    expect(cp?.valuation?.margin_of_safety_applied).toBe(cp?.valuation?.margin_of_safety)
-    expect((cp?.valuation?.margin_of_safety_widening_reasons ?? []).join(' ')).toMatch(/moat|maint/i)
+    // The MoS-as-price-haircut fields are RETIRED — the SAME documented uncertainties (above-GDP
+    // moat-durability, low maint-capex confidence) now widen the required_growth_gap instead of the price,
+    // so margin_of_safety / margin_of_safety_applied / margin_of_safety_widening_reasons are no longer projected.
+    const retiredValuation = cp?.valuation as Record<string, unknown> | undefined
+    expect(retiredValuation?.margin_of_safety).toBeUndefined()
+    expect(retiredValuation?.margin_of_safety_applied).toBeUndefined()
+    expect(retiredValuation?.margin_of_safety_widening_reasons).toBeUndefined()
     // Buy-below is locked from harness numbers; even with a model BUY it never escalates above WATCH here.
     expect(cp?.valuation?.buy_price_per_share).toBeGreaterThan(0)
 

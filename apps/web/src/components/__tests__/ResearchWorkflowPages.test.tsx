@@ -621,7 +621,6 @@ describe('research and watchlist workflow pages', () => {
         fair_value_range_basis: 'Range is wide (±19%) because only 6 years of usable owner-earnings history anchor the growth estimate — treat it as honestly uncertain, not precise.',
         market_implied_growth: 0.18,
         implied_multiple: 12.9,
-        margin_of_safety: 0.3,
         buy_price_per_share: 147.0,
         value_basis: 'two_stage_dcf',
         bridge_basis: 'sec_edgar',

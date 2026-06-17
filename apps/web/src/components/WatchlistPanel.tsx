@@ -387,14 +387,10 @@ function createLockedBuyBelowDetail(item: AppWatchlistItem) {
     return []
   }
 
+  // The provisional-MoS flag is retired (conservatism now lives in the required_growth_gap); the buy-below
+  // is the frozen price at the buy-threshold growth, no longer an MoS-discounted haircut.
   const version = item.buy_below_valuation_version === undefined ? '' : ` · ${item.buy_below_valuation_version}`
-  const provisional = item.buy_below_mos_provisional === true
-  const label = provisional ? `Buy-below (provisional MoS${version})` : `Buy-below${version}`
-  const note = provisional
-    ? ' — provisional margin of safety; a future MoS freeze will visibly re-price it'
-    : ''
-
-  return [createDetail(label, `$${item.locked_buy_below.toFixed(2)}${note}`)]
+  return [createDetail(`Buy-below${version}`, `$${item.locked_buy_below.toFixed(2)}`)]
 }
 
 function createShariahGateDetails(item: AppWatchlistItem) {

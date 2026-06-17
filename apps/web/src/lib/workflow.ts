@@ -831,7 +831,6 @@ export async function promoteResearchCaseToWatchlist(
       thesis_summary: thesisSummary,
       locked_buy_below: lockedBuyBelow,
       buy_below_valuation_version: VALUATION_PARAMS.version,
-      buy_below_mos_provisional: true,
       ...(frozenIv === undefined
         ? {}
         : { frozen_iv: frozenIv, frozen_iv_valuation_version: VALUATION_PARAMS.version }),

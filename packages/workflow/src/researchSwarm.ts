@@ -60,7 +60,7 @@ import {
 } from './strategyResearchPipeline'
 import { ingestManualSourceBundle } from './sourceLedger'
 import { resolveResearchStrategyRef } from './researchStrategyRef'
-import { buffettMungerStrategy, creditedGrowth, discountRate, moatPassesGate, stage1HorizonForMoat, terminalGrowthForMoat, twoStageValuation, widenedMarginOfSafety } from '@owlfolio/strategies/buffettMunger'
+import { buffettMungerStrategy, creditedGrowth, discountRate, moatPassesGate, stage1HorizonForMoat, terminalGrowthForMoat, twoStageValuation } from '@owlfolio/strategies/buffettMunger'
 import { computeShariahFinancialRatios } from '@owlfolio/strategies/shariahFinancialRatios'
 import { valuationSensitivity, type ValuationSensitivity } from '@owlfolio/strategies/valuationSensitivity'
 import { marketImpliedGrowth } from '@owlfolio/strategies/reverseDcf'
@@ -1522,11 +1522,9 @@ export async function runResearchDeepDivePhase(
   let buy_price_per_share: number | undefined
   let fair_value_per_share: number | undefined
   let implied_multiple: number | undefined
-  let margin_of_safety: number | undefined
   let terminal_growth_rate: number | undefined
   let terminal_value_pct_of_iv: number | undefined
   let cap_exceeded = false
-  let margin_of_safety_widening_reasons: string[] = []
   // Phase 2 (reverse-DCF + sensitivity wiring): a low/base/high fair-value RANGE and the cap-binding
   // flag. Computed inside the valuation block when a point FV is produced; market-implied growth is
   // computed later (needs the resolved current price). Presentation/attachment only — no math change.
@@ -1647,16 +1645,11 @@ export async function runResearchDeepDivePhase(
           + `not a truncation. Re-check the growth/terminal inputs before relying on the buy-below.`,
         )
       }
-      // Phase 1.6: ONE end-stage margin-of-safety knob, widened by the documented uncertainties.
-      const widened = widenedMarginOfSafety(buffettMungerStrategy, {
-        moat_class: moatClass,
-        terminal_value_pct_of_iv,
-        low_maint_capex_confidence,
-        // Above-GDP growth IS a moat-durability claim (Phase 1.3 coupling) → weak-durability widening.
-        weak_moat_durability: growthResult.above_gdp,
-      })
-      margin_of_safety = widened.margin_of_safety
-      margin_of_safety_widening_reasons = widened.widening_reasons
+      // NOTE: the MoS-as-price-haircut knob (widenedMarginOfSafety → margin_of_safety) is RETIRED. The
+      // valuation-core revision moved ALL conservatism into the required_growth_gap (see requiredGrowthGap
+      // below); the SAME documented uncertainties (terminal-value share, maint-capex confidence, above-GDP
+      // durability) now widen the GAP in growth-rate points instead of haircutting the price.
+      //
       // NOTE: buy_price_per_share is NO LONGER fair_value × (1 − MoS). The valuation-core revision (V3)
       // moved the buy decision to implied-growth-vs-band, so the buy-below is now the PRICE at which the
       // market-implied growth rises to the buy-threshold (band_low − required_gap). It is derived below,
@@ -2178,10 +2171,8 @@ export async function runResearchDeepDivePhase(
         ...(implied_multiple !== undefined ? { implied_multiple } : {}),
         ...(terminal_value_pct_of_iv !== undefined ? { terminal_value_pct_of_iv } : {}),
         ...(cap_exceeded ? { cap_exceeded: true } : {}),
-        ...(margin_of_safety !== undefined ? { margin_of_safety } : {}),
-        // Phase 1.7 provenance: the end-stage MoS actually applied + why it widened beyond the moat floor.
-        ...(margin_of_safety !== undefined ? { margin_of_safety_applied: margin_of_safety } : {}),
-        ...(margin_of_safety_widening_reasons.length > 0 ? { margin_of_safety_widening_reasons } : {}),
+        // The MoS-as-price-haircut fields (margin_of_safety / margin_of_safety_applied /
+        // margin_of_safety_widening_reasons) are RETIRED — conservatism now lives in the required_growth_gap.
         ...(buy_price_per_share !== undefined ? { buy_price_per_share } : {}),
         // Phase 2: the fair-value RANGE (low–high, base) — the dossier leads with this instead of the
         // point FV. Omitted when not computable (point FV still stands as the base).

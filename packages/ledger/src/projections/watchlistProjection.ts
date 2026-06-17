@@ -36,10 +36,8 @@ export type WatchlistProjection = {
   thesis_summary?: string
   /** Locked buy-below FROZEN at admit (snapshot, not a live valuation reference). */
   locked_buy_below?: number
-  /** `VALUATION_PARAMS.version` the locked buy-below was frozen under (MoS/valuation provenance). */
+  /** `VALUATION_PARAMS.version` the locked buy-below was frozen under (valuation provenance). */
   buy_below_valuation_version?: string
-  /** True while the MoS is provisional (#124) — a future MoS freeze that changes the buy-below is a visible re-price. */
-  buy_below_mos_provisional?: boolean
   /**
    * The UNDISCOUNTED intrinsic value (fair value per share) FROZEN at sign-off (Phase 6 S3) — distinct
    * from the MoS-discounted `locked_buy_below`. The valuation-inverted sell trigger compares price against
@@ -312,10 +310,8 @@ export function projectWatchlist(events: LedgerEventEnvelope<unknown>[]): Watchl
     if (frozenIv !== undefined) {
       watchlistItem.frozen_iv = frozenIv
     }
-    const mosProvisional = getBoolean(event.payload, 'buy_below_mos_provisional')
-    if (mosProvisional !== undefined) {
-      watchlistItem.buy_below_mos_provisional = mosProvisional
-    }
+    // The provisional-MoS flag (buy_below_mos_provisional) is RETIRED — conservatism now lives in the
+    // required_growth_gap. Legacy events that still carry it are tolerated; the field is simply ignored.
 
     if (event.event_type === 'watchlist_draft_created') {
       watchlistItem.created_by_actor_type = getString(event.payload, 'created_by_actor_type') ?? event.actor_type

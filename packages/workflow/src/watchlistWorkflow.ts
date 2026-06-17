@@ -28,10 +28,6 @@ type WatchlistDraftCreatedPayload = {
    */
   buy_below_valuation_version: string
   /**
-   * True while the MoS is PROVISIONAL (#124) — so the UI shows the buy-below as provisional-MoS-derived.
-   */
-  buy_below_mos_provisional: boolean
-  /**
    * The UNDISCOUNTED intrinsic value (fair value per share) FROZEN at sign-off (Phase 6 S3) — DISTINCT
    * from the MoS-discounted `locked_buy_below`. The "valuation-inverted" sell trigger compares the live
    * price against THIS frozen number, never the provisional buy-below and never a recomputed fair value.
@@ -88,8 +84,6 @@ export type ConfirmWatchlistDraftCommand = {
   locked_buy_below: number
   /** `VALUATION_PARAMS.version` at freeze time — the MoS/valuation provenance (see payload doc). */
   buy_below_valuation_version: string
-  /** True while the MoS is provisional (#124). */
-  buy_below_mos_provisional: boolean
   /**
    * The UNDISCOUNTED intrinsic value FROZEN at sign-off (Phase 6 S3; see payload doc). Distinct from the
    * discounted `locked_buy_below`. Omit/undefined when the case has no undiscounted IV — fail-closed, NEVER
@@ -182,7 +176,6 @@ export async function confirmWatchlistDraft(
     // Frozen at admit: buy-below snapshot + the MoS/valuation provenance it was frozen under.
     locked_buy_below: command.locked_buy_below,
     buy_below_valuation_version: command.buy_below_valuation_version,
-    buy_below_mos_provisional: command.buy_below_mos_provisional,
     // Frozen at sign-off (Phase 6 S3): the UNDISCOUNTED IV + its valuation provenance. Conditionally
     // included so a case with no undiscounted IV freezes it as ABSENT (fail-closed) — never as the
     // discounted buy-below.

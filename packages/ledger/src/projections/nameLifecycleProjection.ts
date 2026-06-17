@@ -80,10 +80,8 @@ export type NameLifecycleProjection = {
    * provenance below can be read alongside it.
    */
   locked_buy_below?: number
-  /** `VALUATION_PARAMS.version` the locked buy-below was frozen under (MoS/valuation provenance). */
+  /** `VALUATION_PARAMS.version` the locked buy-below was frozen under (valuation provenance). */
   buy_below_valuation_version?: string
-  /** True while the MoS is provisional (#124) — a future MoS freeze that changes the buy-below is a visible re-price. */
-  buy_below_mos_provisional?: boolean
   /**
    * Phase 6 S3 — the UNDISCOUNTED intrinsic value (fair value per share) FROZEN at sign-off, carried from
    * the watchlist lineage. This is the value the "valuation-inverted" sell trigger compares price against
@@ -180,7 +178,6 @@ type Accumulator = {
   downside_floor_reliability?: string
   locked_buy_below?: number
   buy_below_valuation_version?: string
-  buy_below_mos_provisional?: boolean
   frozen_iv?: number
   frozen_iv_valuation_version?: string
   gate_clean?: boolean
@@ -407,9 +404,6 @@ export function projectNameLifecycle(events: LedgerEventEnvelope<unknown>[]): Na
     if (item.buy_below_valuation_version !== undefined) {
       row.buy_below_valuation_version = item.buy_below_valuation_version
     }
-    if (item.buy_below_mos_provisional !== undefined) {
-      row.buy_below_mos_provisional = item.buy_below_mos_provisional
-    }
     // The sign-off-frozen undiscounted IV rides along from the watchlist lineage (its valuation-version
     // provenance with it). The held-name sell flow reads frozen_iv off this row for the valuation-inverted
     // trigger — DISTINCT from the discounted buy-below above; never derived from it.
@@ -507,9 +501,6 @@ export function projectNameLifecycle(events: LedgerEventEnvelope<unknown>[]): Na
     if (row.locked_buy_below !== undefined) projected.locked_buy_below = row.locked_buy_below
     if (row.buy_below_valuation_version !== undefined) {
       projected.buy_below_valuation_version = row.buy_below_valuation_version
-    }
-    if (row.buy_below_mos_provisional !== undefined) {
-      projected.buy_below_mos_provisional = row.buy_below_mos_provisional
     }
     if (row.frozen_iv !== undefined) projected.frozen_iv = row.frozen_iv
     if (row.frozen_iv_valuation_version !== undefined) {

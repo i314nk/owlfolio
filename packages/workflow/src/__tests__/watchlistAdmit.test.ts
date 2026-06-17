@@ -31,7 +31,6 @@ function admitCommand(overrides: Partial<ConfirmWatchlistDraftCommand> = {}): Co
     thesis_summary: 'Agent-drafted: durable quality compounder; wait for margin of safety.',
     locked_buy_below: 742.5,
     buy_below_valuation_version: VALUATION_PARAMS.version,
-    buy_below_mos_provisional: true,
     // Sign-off-frozen UNDISCOUNTED IV — distinct from the MoS-discounted locked_buy_below (742.5).
     frozen_iv: 990,
     frozen_iv_valuation_version: VALUATION_PARAMS.version,
@@ -70,7 +69,6 @@ describe('admit candidate → watched (Task 4.2b)', () => {
     // The buy-below is FROZEN as a snapshot, with the valuation/MoS provenance it was frozen under.
     expect(created.locked_buy_below).toBe(742.5)
     expect(created.buy_below_valuation_version).toBe(VALUATION_PARAMS.version)
-    expect(created.buy_below_mos_provisional).toBe(true)
     // The signed human thesis is distinct from the agent-drafted summary.
     expect(created.signed_thesis).toBe(SIGNED_THESIS)
     expect(created.thesis_summary).not.toBe(created.signed_thesis)
@@ -81,7 +79,6 @@ describe('admit candidate → watched (Task 4.2b)', () => {
     const [item] = projectWatchlist(await store.list())
     expect(item?.locked_buy_below).toBe(742.5)
     expect(item?.buy_below_valuation_version).toBe(VALUATION_PARAMS.version)
-    expect(item?.buy_below_mos_provisional).toBe(true)
     expect(item?.signed_thesis).toBe(SIGNED_THESIS)
   })
 
@@ -247,7 +244,6 @@ describe('admit candidate → watched (Task 4.2b)', () => {
     expect(watched?.buy_price_per_share).toBe(742.5)
     expect(watched?.locked_buy_below).toBe(742.5)
     expect(watched?.buy_below_valuation_version).toBe(VALUATION_PARAMS.version)
-    expect(watched?.buy_below_mos_provisional).toBe(true)
   })
 })
 
@@ -312,7 +308,6 @@ describe('consolidated single-step admission (Phase 8 S4)', () => {
       thesis_summary: 'Agent-drafted: durable quality compounder; wait for margin of safety.',
       locked_buy_below: 742.5,
       buy_below_valuation_version: VALUATION_PARAMS.version,
-      buy_below_mos_provisional: true,
       frozen_iv: 990,
       frozen_iv_valuation_version: VALUATION_PARAMS.version,
       signed_thesis: SIGNED_THESIS,

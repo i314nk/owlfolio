@@ -220,17 +220,15 @@ export type ResearchCaseValuationProjection = {
    * verdict_state), not price-vs-fair-value.
    */
   fair_value_per_share?: number
-  /** Implied multiple = fair_value_per_share / OE_ps. */
+  /**
+   * Implied multiple = point fair value at the CREDITED growth (forward DCF at g = credited_g) / OE_ps. NOT
+   * fair_value_per_share / OE_ps — fair_value_per_share is now the band-center reference, a different anchor.
+   */
   implied_multiple?: number
-  margin_of_safety?: number
-  /** Terminal (Gordon) value as a % of intrinsic value (Phase 1.5) — flagged + widens MoS when > 0.65. */
+  /** Terminal (Gordon) value as a % of intrinsic value (Phase 1.5) — flagged when > 0.65. */
   terminal_value_pct_of_iv?: number
   /** Phase 1.6: fair value exceeded the 18× OE sanity-flag threshold — surfaced, not truncated. */
   cap_exceeded?: boolean
-  /** Phase 1.7: the end-stage margin of safety actually applied (base floor + widening). */
-  margin_of_safety_applied?: number
-  /** Phase 1.6: the reasons the single MoS knob widened beyond the moat base floor. */
-  margin_of_safety_widening_reasons?: string[]
   /**
    * The price at which market-implied growth rises to the buy-threshold (band_low − required_gap) — i.e.
    * the forward DCF evaluated at g = band_low − required_gap, repurposing the monotonic two-stage DCF as a
@@ -1108,16 +1106,13 @@ function getValuation(payload: Record<string, unknown>): ResearchCaseValuationPr
   if (fair_value_per_share !== undefined) projected.fair_value_per_share = fair_value_per_share
   const implied_multiple = getNumber(value, 'implied_multiple')
   if (implied_multiple !== undefined) projected.implied_multiple = implied_multiple
-  const margin_of_safety = getNumber(value, 'margin_of_safety')
-  if (margin_of_safety !== undefined) projected.margin_of_safety = margin_of_safety
+  // NOTE: the legacy margin_of_safety / margin_of_safety_applied / margin_of_safety_widening_reasons fields
+  // (the retired MoS-as-price-haircut machinery) are intentionally NOT projected. Legacy events that still
+  // carry them are tolerated — the fields are simply ignored (conservatism now lives in the required gap).
   const terminal_value_pct_of_iv = getNumber(value, 'terminal_value_pct_of_iv')
   if (terminal_value_pct_of_iv !== undefined) projected.terminal_value_pct_of_iv = terminal_value_pct_of_iv
   const cap_exceeded = getBoolean(value, 'cap_exceeded')
   if (cap_exceeded !== undefined) projected.cap_exceeded = cap_exceeded
-  const margin_of_safety_applied = getNumber(value, 'margin_of_safety_applied')
-  if (margin_of_safety_applied !== undefined) projected.margin_of_safety_applied = margin_of_safety_applied
-  const margin_of_safety_widening_reasons = getStringArray(value, 'margin_of_safety_widening_reasons')
-  if (margin_of_safety_widening_reasons !== undefined) projected.margin_of_safety_widening_reasons = margin_of_safety_widening_reasons
   const buy_price_per_share = getNumber(value, 'buy_price_per_share')
   if (buy_price_per_share !== undefined) projected.buy_price_per_share = buy_price_per_share
   const fair_value_range = getString(value, 'fair_value_range')

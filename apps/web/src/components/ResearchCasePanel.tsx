@@ -892,7 +892,9 @@ function createValuationPanel(researchCase: AppResearchCase, marketQuote?: Marke
   const marketImpliedGrowth = valuation.market_implied_growth
   const capBinding = valuation.valuation_cap_binding === true
   const discountRateVal = valuation.discount_rate
-  const mosVal = valuation.margin_of_safety
+  // MoS-as-price-haircut is RETIRED (conservatism now lives in the required_growth_gap); the computed
+  // margin_of_safety projection field is gone. The growth-axis band visualization (V7) replaces this read.
+  const mosVal: number | undefined = undefined
   const moatClass = valuation.moat_class ?? 'unknown'
   const roic = valuation.roic
   const incrementalRoic = valuation.incremental_roic
@@ -1709,9 +1711,9 @@ function createFallbackValuationText(researchCase: AppResearchCase): string {
   const valuation = researchCase.valuation
   if (valuation?.buy_price_per_share !== undefined) {
     const discount = valuation.discount_rate !== undefined ? `${Math.round(valuation.discount_rate * 100)}%` : '10%'
-    const mos = valuation.margin_of_safety !== undefined ? ` · ${Math.round(valuation.margin_of_safety * 100)}% margin of safety (${(valuation.moat_class ?? 'wide').toLowerCase()})` : ''
+    // MoS-as-price-haircut retired — buy-below is now the price at the buy-threshold growth (band_low − gap).
     const fair = valuation.fair_value_per_share !== undefined ? `fair value $${valuation.fair_value_per_share.toFixed(2)} → ` : ''
-    return `${fair}buy below $${valuation.buy_price_per_share}/sh · ${discount} flat discount${mos}. Quality is not in question; price is.`
+    return `${fair}buy below $${valuation.buy_price_per_share}/sh · ${discount} flat discount. Quality is not in question; price is.`
   }
   if (researchCase.owner_earnings_valuation !== undefined) {
     return researchCase.owner_earnings_valuation.summary
