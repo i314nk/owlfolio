@@ -1033,6 +1033,10 @@ function createValuationPanel(researchCase: AppResearchCase, marketQuote?: Marke
   const reinvestmentRate = valuation.reinvestment_rate
   const runway = valuation.runway
   const impliedMultiple = valuation.implied_multiple
+  // §2 flag-only sanity output: the name-specific implied EXIT P/OE the live price requires (current price ÷
+  // owner earnings grown to the horizon at the model's growth). Advisory; the directional over-high flag (if
+  // it fired) already renders in the sanity-flags annotation. Absent → shown honestly as Pending.
+  const impliedExitMultiple = valuation.implied_exit_multiple
   // Judgment-objectivity layer (Mechanisms 1+2): mechanical anchor vs the lane's proposed tier vs the
   // harness-resolved tier. Surfaced so the dossier shows where judgment moved the tier (and by how much).
   const moatJudgment = valuation.judgment?.moat
@@ -1185,6 +1189,7 @@ function createValuationPanel(researchCase: AppResearchCase, marketQuote?: Marke
         '',
       ),
       createValuationLedgerStat('Implied multiple', impliedMultiple !== undefined ? `${impliedMultiple.toFixed(1)}× OE` : 'Pending', ''),
+      createValuationLedgerStat('Implied exit multiple', impliedExitMultiple !== undefined ? `${impliedExitMultiple.toFixed(1)}× OE` : 'Pending', ''),
       createValuationLedgerStat('Owner earnings / sh', valuation.normalized_owner_earnings_per_share !== undefined ? `$${valuation.normalized_owner_earnings_per_share.toFixed(2)}` : 'Pending', 'owl-ledger-figure-money'),
       createValuationLedgerStat('Terminal g', terminalGrowthRate !== undefined ? `${(terminalGrowthRate * 100).toFixed(0)}%` : 'Pending', ''),
       createValuationLedgerStat('Runway', runway ?? 'Pending', ''),

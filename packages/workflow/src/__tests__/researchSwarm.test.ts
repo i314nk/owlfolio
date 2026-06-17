@@ -1406,6 +1406,64 @@ describe('RELIGHTENED DECISION — model proposes buy-below; deterministic side 
     expect(flags.some((f) => /implied_growth_above_cap/.test(f))).toBe(false)
   })
 
+  it('IMPLIED EXIT MULTIPLE (surfaced): a normal case computes a sane, name-specific implied_exit_multiple', async () => {
+    // A normal mid price → the flag-only sanity block backs out the exit P/OE the price requires
+    // (current price grown at the discount over the horizon ÷ owner earnings grown at the market-implied
+    // growth). It is name-specific (varies with price + growth), positive, and within the sane cap.
+    const { valuation } = await runRelit({ id: 'exitmult-normal', price: 220, valuationStatus: 'FAIR', proposedBuyBelow: 180, assumedGrowth: 0.05 })
+    const m = valuation?.['implied_exit_multiple']
+    expect(typeof m).toBe('number')
+    expect(Number.isFinite(m as number)).toBe(true)
+    expect(m as number).toBeGreaterThan(0)
+    // Name-specific: a higher price implies a higher required exit multiple (same OE basis).
+    const { valuation: hi } = await runRelit({ id: 'exitmult-higher', price: 400, valuationStatus: 'FAIR', proposedBuyBelow: 180, assumedGrowth: 0.05 })
+    expect(hi?.['implied_exit_multiple'] as number).toBeGreaterThan(m as number)
+  })
+
+  it('IMPLIED EXIT MULTIPLE (HIGH → directional flag): an absurdly high price fires the over-high exit-multiple flag (verdict NOT blocked)', async () => {
+    const { valuation, cp } = await runRelit({
+      id: 'exitmult-high', price: 600, valuationStatus: 'ATTRACTIVE', investmentVerdict: 'BUY', proposedBuyBelow: 590,
+    })
+    const flags = (valuation?.['sanity_flags'] as string[] | undefined) ?? []
+    expect(flags.some((f) => /exit multiple/i.test(f) && /above a defensible exit/i.test(f))).toBe(true)
+    expect(typeof valuation?.['implied_exit_multiple']).toBe('number')
+    // FLAG NEVER BLOCKS: the cheap gates still pass the model BUY through.
+    expect(cp?.investment_verdict).toBe('BUY')
+  })
+
+  it('IMPLIED EXIT MULTIPLE (clean): a normal price does NOT fire the exit-multiple flag', async () => {
+    const { valuation } = await runRelit({ id: 'exitmult-clean', price: 200, valuationStatus: 'FAIR', proposedBuyBelow: 180, assumedGrowth: 0.05 })
+    const flags = (valuation?.['sanity_flags'] as string[] | undefined) ?? []
+    expect(flags.some((f) => /exit multiple/i.test(f))).toBe(false)
+  })
+
+  it('IMPLIED EXIT MULTIPLE (fail-closed): no current price → implied_exit_multiple omitted + no exit-multiple flag', async () => {
+    const store = new InMemoryEventStore()
+    const provider = configurableSwarmProvider({
+      laneCount: buffettMungerDeepDiveLanes.length,
+      synthesis: { moat_class: 'wide', runway: 'proven', incremental_roic: 0.20, reinvestment_rate: 0.43, proposed_buy_below: 180,
+        valuation_reasoning: { owner_earnings_basis: 'b', assumed_growth: 0.06, assumed_growth_rationale: 'r' } },
+      investmentVerdict: 'WATCH',
+    })
+    const sourceLedgerPath = await mkdtemp(join(tmpdir(), 'owlfolio-exitmult-noprice-'))
+    await runStrategyResearchSwarm(
+      store, provider as never,
+      {
+        research_case_id: 'rc_exitmult_noprice', company_id: 'c', ticker: 'COST',
+        strategy_id: 'buffett-munger', actor_id: 'user_local', idempotency_key: 'exitmult_noprice_k',
+        model_id: 'mock', decision_id: 'decision_exitmult_noprice', source_ledger_path: sourceLedgerPath,
+      },
+      {
+        ground: allVerifiedGround, laneConcurrency: 4,
+        resolvePrice: async () => ({ available: false as const, reason: 'fetch failed', source: 'fixture' }),
+      },
+    )
+    const analysisEvent = (await store.list()).find((e) => e.event_type === 'buffett_munger_analysis_drafted')
+    const valuation = (analysisEvent?.payload as Record<string, unknown> | undefined)?.['valuation'] as Record<string, unknown> | undefined
+    expect(valuation?.['implied_exit_multiple']).toBeUndefined()
+    expect(((valuation?.['sanity_flags'] as string[] | undefined) ?? []).every((f) => !/exit multiple/i.test(f))).toBe(true)
+  })
+
   it('GATE preserved — moat below wide → PASS regardless of the model verdict', async () => {
     const { cp } = await runRelit({ id: 'gate-moat', price: 200, moatClass: 'moderate', investmentVerdict: 'BUY' })
     expect(cp?.investment_verdict).toBe('PASS')

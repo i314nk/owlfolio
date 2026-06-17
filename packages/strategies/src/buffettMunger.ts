@@ -216,6 +216,39 @@ export function creditedGrowth(
  * H years) so a 1% grower is not inflated up toward the terminal rate. Guards: F ≥ H → every year fades
  * (no plateau); F ≤ 0 → flat (no fade).
  */
+/**
+ * Owner earnings at the end of the explicit H-year window, grown on the SAME linear stage-1 fade the
+ * two-stage DCF uses (single-sources the fade math so reverse/forward/exit-multiple stay consistent):
+ *
+ *   OE_H = OE_0 · Π_{i=1..H} (1 + g_i),  g_i fading from g → terminal over the trailing F years.
+ *
+ * Used both by the forward DCF (twoStageRaw) and by the flag-only implied-exit-multiple sanity output
+ * (the harness grows OE to the horizon at the market-IMPLIED growth, then reads the exit P/OE the price
+ * requires). `fade_years` defaults to the config `growth_fade_years`.
+ */
+export function ownerEarningsAtHorizon(args: {
+  oe_ps: number
+  g: number
+  terminal_g: number
+  horizon: number
+  fade_years?: number
+}): number {
+  const { oe_ps, g, terminal_g, horizon } = args
+  const fadeYears = Math.min(Math.max(0, args.fade_years ?? VALUATION_PARAMS.growth_fade_years), horizon)
+  const fadeApplies = g > terminal_g && fadeYears > 0
+  const plateauEnd = horizon - fadeYears // last plateau year (years t ≤ plateauEnd compound at g)
+  let growthFactor = 1 // running Π_{i=1..t} (1 + g_i)
+  for (let t = 1; t <= horizon; t += 1) {
+    let g_t = g
+    if (fadeApplies && t > plateauEnd) {
+      const k = t - plateauEnd // 1..fadeYears
+      g_t = g + (terminal_g - g) * (k / fadeYears)
+    }
+    growthFactor *= 1 + g_t
+  }
+  return oe_ps * growthFactor
+}
+
 function twoStageRaw(args: { oe_ps: number; g: number; terminal_g: number; discount: number; horizon: number; fade_years: number }): {
   stage1: number
   terminal: number

@@ -287,6 +287,13 @@ export type ResearchCaseValuationProjection = {
   /** RELIGHTENED DECISION (R1): pure arithmetic — current_price <= buy_below. */
   in_buy_zone?: boolean
   /**
+   * §2 sanity output (flag-only): the name-specific implied EXIT P/OE multiple — (current price ×
+   * (1+discount)^horizon) ÷ owner earnings grown to the horizon at the market-IMPLIED growth. The exit
+   * multiple the live price requires you to sell at. Absent (legacy-tolerant) when not computable; a
+   * directional `sanity_implied_exit_multiple_high` flag fires when it is above the sane cap. Advisory.
+   */
+  implied_exit_multiple?: number
+  /**
    * RELIGHTENED DECISION (R1): the deterministic, SYMMETRIC, flag-only sanity-check messages (over-
    * optimistic + over-pessimistic catches + absurdity flags). NEVER blocks the verdict — advisory only.
    */
@@ -1198,6 +1205,8 @@ function getValuation(payload: Record<string, unknown>): ResearchCaseValuationPr
   if (reference_fair_value !== undefined) projected.reference_fair_value = reference_fair_value
   const in_buy_zone = getBoolean(value, 'in_buy_zone')
   if (in_buy_zone !== undefined) projected.in_buy_zone = in_buy_zone
+  const implied_exit_multiple = getNumber(value, 'implied_exit_multiple')
+  if (implied_exit_multiple !== undefined) projected.implied_exit_multiple = implied_exit_multiple
   const sanity_flags = getStringArray(value, 'sanity_flags')
   if (sanity_flags !== undefined) projected.sanity_flags = sanity_flags
   const valuation_reasoning = getValuationReasoning(value)

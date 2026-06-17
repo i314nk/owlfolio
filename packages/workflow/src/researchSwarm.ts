@@ -60,7 +60,7 @@ import {
 } from './strategyResearchPipeline'
 import { ingestManualSourceBundle } from './sourceLedger'
 import { resolveResearchStrategyRef } from './researchStrategyRef'
-import { buffettMungerStrategy, creditedGrowth, discountRate, moatPassesGate, stage1HorizonForMoat, terminalGrowthForMoat, twoStageValuation } from '@owlfolio/strategies/buffettMunger'
+import { buffettMungerStrategy, creditedGrowth, discountRate, moatPassesGate, ownerEarningsAtHorizon, stage1HorizonForMoat, terminalGrowthForMoat, twoStageValuation } from '@owlfolio/strategies/buffettMunger'
 import { computeShariahFinancialRatios } from '@owlfolio/strategies/shariahFinancialRatios'
 import { valuationSensitivity, type ValuationSensitivity } from '@owlfolio/strategies/valuationSensitivity'
 import { marketImpliedGrowth } from '@owlfolio/strategies/reverseDcf'
@@ -1933,6 +1933,44 @@ export async function runResearchDeepDivePhase(
     ? current_price <= buy_below
     : undefined
 
+
+  // ---- implied_exit_multiple: name-specific, flag-only §2 sanity output (NEVER blocks/clamps) ----
+  // The exit P/OE multiple TODAY'S price implies you would have to EXIT at after the explicit horizon, given
+  // the model's growth path. Reuses the existing valuation math — NO new engine:
+  //   OE_H = ownerEarningsAtHorizon(oe_ps, g = model assumed_growth, terminal_g, horizon)   (the SAME faded
+  //          stage-1 path the two-stage DCF + reference FV use)
+  //   implied_exit_multiple = current_price / OE_H
+  // i.e. the price expressed as a multiple of the owner earnings the company is projected to earn at the end
+  // of the explicit window — the P/OE the price requires a future buyer to pay at exit. Name-specific: rises
+  // with the live price and varies with the model's assumed growth + the owner-earnings basis — NOT a config
+  // constant. Fail-closed: omitted unless price + positive OE/share + the model's assumed growth + terminal
+  // all exist, and the result is finite + positive (never a spurious value, so no low-side flag).
+  let implied_exit_multiple: number | undefined
+  if (
+    current_price !== undefined
+    && current_price > 0
+    && normalized_owner_earnings_per_share !== undefined
+    && normalized_owner_earnings_per_share > 0
+    && assumed_growth !== undefined
+    && Number.isFinite(assumed_growth)
+    && terminal_growth_rate !== undefined
+  ) {
+    const exitHorizon = stage1HorizonForMoat(buffettMungerStrategy, moatClass)
+    const oeAtHorizon = ownerEarningsAtHorizon({
+      oe_ps: normalized_owner_earnings_per_share,
+      g: assumed_growth,
+      terminal_g: terminal_growth_rate,
+      horizon: exitHorizon,
+    })
+    if (oeAtHorizon > 0 && Number.isFinite(oeAtHorizon)) {
+      const exitMultiple = current_price / oeAtHorizon
+      if (Number.isFinite(exitMultiple) && exitMultiple > 0) {
+        implied_exit_multiple = Math.round(exitMultiple * 10) / 10
+      }
+    }
+  }
+
+
   // ---- sanity_flags: SYMMETRIC, flag-only absurdity detector (NEVER blocks the verdict) ----
   // It must catch BOTH an over-optimistic and an over-pessimistic model read:
   //   - market-implied growth above a sane bound (reverse-DCF above_cap / above_gdp);
@@ -2031,6 +2069,18 @@ export async function runResearchDeepDivePhase(
         + `price the market would price in growth the method would refuse to underwrite.`,
       )
     }
+  }
+
+  // (g) implied EXIT multiple absurdity — DIRECTIONAL, flag-only. Too HIGH (> the fv_cap_multiple sane high
+  // bound, 18×) → the live price requires exiting at a P/OE no defensible buyer would pay. The LOW direction
+  // is fail-closed: a non-computable / non-positive multiple emits no field and no flag (handled above), so
+  // there is no spurious low-side flag. Advisory only — never blocks the verdict, never clamps the valuation.
+  if (implied_exit_multiple !== undefined && implied_exit_multiple > fvCapMultiple) {
+    sanity_flags.push(
+      `sanity_implied_exit_multiple_high: today's price implies an exit multiple of ${implied_exit_multiple.toFixed(1)}× owner-earnings `
+      + `(> the ${fvCapMultiple}× sanity cap), well above a defensible exit — to merely earn the discount you would have to `
+      + `sell at a richer multiple than the method would underwrite. Treat the price as rich; re-check the inputs.`,
+    )
   }
 
   // HIGH safety — RESEARCH_MORE when the required data for a recordable BUY is missing. A model BUY needs
@@ -2189,6 +2239,9 @@ export async function runResearchDeepDivePhase(
         //   valuation_reasoning  = the MODEL's cited valuation basis (it shows its work).
         ...(reference_fair_value !== undefined ? { reference_fair_value } : {}),
         ...(in_buy_zone !== undefined ? { in_buy_zone } : {}),
+        // implied_exit_multiple = (price × (1+discount)^horizon) / owner earnings grown to the horizon at the
+        // market-IMPLIED growth — the exit P/OE the live price requires; a flag-only §2 sanity output.
+        ...(implied_exit_multiple !== undefined ? { implied_exit_multiple } : {}),
         ...(sanity_flags.length > 0 ? { sanity_flags } : {}),
         ...(dr !== undefined
           ? {

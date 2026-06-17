@@ -140,6 +140,28 @@ describe('ResearchCasePanel auditable dossier (R1)', () => {
     expect(html).toContain('9.0%')
   })
 
+  it('surfaces the implied exit multiple (§2 flag-only sanity output) as a ledger line', () => {
+    const html = render(baseCase({ implied_exit_multiple: 7.8 }), QUOTE)
+    expect(html).toContain('Implied exit multiple')
+    expect(html).toContain('7.8× OE')
+  })
+
+  it('renders the implied-exit-multiple directional flag annotation when it fires (high), alongside the line', () => {
+    const html = render(baseCase({
+      implied_exit_multiple: 21.4,
+      sanity_flags: [
+        'sanity_implied_exit_multiple_high: today\'s price implies an exit multiple of 21.4× owner-earnings (> the 18× sanity cap), well above a defensible exit.',
+      ],
+    }), QUOTE)
+    // The ledger line shows the multiple.
+    expect(html).toContain('Implied exit multiple')
+    expect(html).toContain('21.4× OE')
+    // The directional flag annotation renders inside the advisory (non-blocking) sanity-flags panel.
+    expect(html).toContain('data-testid="sanity-flags"')
+    expect(html.toLowerCase()).toContain('above a defensible exit')
+    expect(html.toLowerCase()).toContain('does not block')
+  })
+
   it('surfaces the independent bear case (red-team strongest objection)', () => {
     const html = render(baseCase(), QUOTE)
     expect(html.toLowerCase()).toContain('bear case')

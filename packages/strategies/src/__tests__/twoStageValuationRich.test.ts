@@ -1,5 +1,22 @@
 import { describe, expect, it } from 'vitest'
-import { twoStageValuation, twoStageFairValuePerShare, buffettMungerStrategy } from '../buffettMunger'
+import { twoStageValuation, twoStageFairValuePerShare, ownerEarningsAtHorizon, buffettMungerStrategy } from '../buffettMunger'
+
+// ownerEarningsAtHorizon single-sources the faded stage-1 growth path (reused by the forward DCF and the
+// flag-only implied-exit-multiple §2 sanity output). It must compound OE on the same faded path the DCF uses.
+describe('ownerEarningsAtHorizon (faded stage-1 path, shared with the implied-exit-multiple sanity output)', () => {
+  it('grows owner earnings on the faded path; a higher growth → higher horizon owner earnings (monotone)', () => {
+    const lo = ownerEarningsAtHorizon({ oe_ps: 10, g: 0.04, terminal_g: 0.01, horizon: 10 })
+    const hi = ownerEarningsAtHorizon({ oe_ps: 10, g: 0.08, terminal_g: 0.01, horizon: 10 })
+    expect(lo).toBeGreaterThan(10) // grows above the base
+    expect(hi).toBeGreaterThan(lo)
+  })
+
+  it('flat (no fade) when g ≤ terminal_g — a low/no-growth name is not inflated toward the terminal rate', () => {
+    // g (0%) below terminal (1%): the fade is skipped, so OE compounds flat at g (0%) — it stays at oe_ps.
+    const flat = ownerEarningsAtHorizon({ oe_ps: 10, g: 0.0, terminal_g: 0.01, horizon: 10 })
+    expect(flat).toBeCloseTo(10, 6)
+  })
+})
 
 // Phase 1.5: twoStageValuation also returns terminal_value_pct_of_iv (Gordon terminal ÷ total IV).
 // Phase 1.6: the 18× OE cap becomes a SURFACED sanity flag (cap_exceeded), NOT a silent truncation; only
