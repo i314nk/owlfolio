@@ -5,7 +5,7 @@ import type { PerformanceBenchmarkPoint } from '@owlfolio/workflow/performancePr
 import { PerformancePanel } from '../../components/PerformancePanel'
 import { UnconfiguredNotice } from '../../components/UnconfiguredNotice'
 import { getDemoEvents } from '../../lib/demo'
-import { isUnconfigured } from '../../lib/modeView'
+import { isUnconfiguredForUser } from '../../lib/modeView'
 import { getOnboardingState, type OnboardingState } from '../../lib/onboarding'
 import {
   buildPerformanceReport,
@@ -16,7 +16,7 @@ import {
 
 export default async function PerformancePage() {
   const state = await getOnboardingState()
-  if (isUnconfigured(state.config)) {
+  if (isUnconfiguredForUser(state.config)) {
     return <UnconfiguredNotice feature="Performance" />
   }
   const benchmarkSeries = await loadBenchmarkSeries()

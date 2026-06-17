@@ -4,12 +4,12 @@ import { SQLiteEventStore } from '@owlfolio/ledger/sqliteEventStore'
 import { LifecyclePanel } from '../../components/LifecyclePanel'
 import { UnconfiguredNotice } from '../../components/UnconfiguredNotice'
 import { getDemoEvents } from '../../lib/demo'
-import { isUnconfigured } from '../../lib/modeView'
+import { isUnconfiguredForUser } from '../../lib/modeView'
 import { getOnboardingState } from '../../lib/onboarding'
 
 export default async function LifecyclePage() {
   const state = await getOnboardingState()
-  if (isUnconfigured(state.config)) {
+  if (isUnconfiguredForUser(state.config)) {
     return <UnconfiguredNotice feature="Lifecycle" />
   }
   const names = state.config.mode === 'demo'

@@ -4,7 +4,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { SQLiteEventStore } from '@owlfolio/ledger/sqliteEventStore'
-import { defaultPersonalLocalAppConfig, defaultUnconfiguredAppConfig } from '@owlfolio/shared'
+import { defaultDemoAppConfig, defaultPersonalLocalAppConfig, defaultUnconfiguredAppConfig } from '@owlfolio/shared'
 
 const mockedNavigation = vi.hoisted(() => ({ pathname: '/' }))
 
@@ -174,6 +174,38 @@ describe('CommandCenter', () => {
       open_holdings: 0,
       pending_user_actions: 0,
     })
+  })
+
+  it('renders a stale demo config as the choose-a-mode setup state in production, never demo data', async () => {
+    const dashboard = await getSetupAwareCommandCenter({
+      config: defaultDemoAppConfig(),
+      is_initialized: true,
+      env: { OWLFOLIO_DISABLE_TEST_DEFAULTS: '1' },
+    })
+    const html = renderToStaticMarkup(createElement(CommandCenter, { dashboard }))
+
+    expect(dashboard.setup_status).toBe('Choose a mode to begin')
+    expect(html).toContain('Choose a mode to begin')
+    expect(html).not.toContain('Mock provider / demo mode')
+  })
+
+  it('still renders the seeded demo command center for a demo config in test mode', async () => {
+    const store = new SQLiteEventStore()
+    try {
+      await seedDemoLedger(store)
+      const dashboard = await getSetupAwareCommandCenter({
+        config: defaultDemoAppConfig(),
+        is_initialized: true,
+        store,
+        env: { VITEST: '1' },
+      })
+      const html = renderToStaticMarkup(createElement(CommandCenter, { dashboard }))
+
+      expect(html).toContain('Mock provider / demo mode')
+      expect(dashboard.setup_status).not.toBe('Choose a mode to begin')
+    } finally {
+      store.close()
+    }
   })
 
   it('renders setup-needed status for uninitialized personal local mode', async () => {

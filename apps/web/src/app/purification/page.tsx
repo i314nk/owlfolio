@@ -4,12 +4,12 @@ import { PurificationReport } from '../../components/PurificationReport'
 import { UnconfiguredNotice } from '../../components/UnconfiguredNotice'
 import { buildPurificationReport, getPurificationReportFromStore } from '../../lib/purification'
 import { getDemoEvents } from '../../lib/demo'
-import { isUnconfigured } from '../../lib/modeView'
+import { isUnconfiguredForUser } from '../../lib/modeView'
 import { getOnboardingState, type OnboardingState } from '../../lib/onboarding'
 
 export default async function PurificationPage() {
   const state = await getOnboardingState()
-  if (isUnconfigured(state.config)) {
+  if (isUnconfiguredForUser(state.config)) {
     return <UnconfiguredNotice feature="Purification" />
   }
   const report = await loadPurificationReport(state)

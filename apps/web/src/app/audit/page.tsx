@@ -4,7 +4,7 @@ import { AuditActivityPanel } from '../../components/AuditActivityPanel'
 import { AuditSearchFocusBridge } from '../../components/AuditSearchFocusBridge'
 import { UnconfiguredNotice } from '../../components/UnconfiguredNotice'
 import { getDemoEvents } from '../../lib/demo'
-import { isUnconfigured } from '../../lib/modeView'
+import { isUnconfiguredForUser } from '../../lib/modeView'
 import { getOnboardingState, type OnboardingState } from '../../lib/onboarding'
 import { getAuditActivityEventsFromStore, projectAuditActivityEvents, type AuditActivityFilters } from '../../lib/audit'
 
@@ -14,7 +14,7 @@ type AuditPageProps = {
 
 export default async function AuditPage({ searchParams }: AuditPageProps) {
   const state = await getOnboardingState()
-  if (isUnconfigured(state.config)) {
+  if (isUnconfiguredForUser(state.config)) {
     return <UnconfiguredNotice feature="Audit" />
   }
   const events = await loadAuditActivity(state)

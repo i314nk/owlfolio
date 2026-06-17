@@ -9,7 +9,7 @@ import { CalibrationPanel } from '../../components/CalibrationPanel'
 import { UnconfiguredNotice } from '../../components/UnconfiguredNotice'
 import { projectCalibrationView } from '../../lib/calibration'
 import { getDemoEvents } from '../../lib/demo'
-import { isUnconfigured } from '../../lib/modeView'
+import { isUnconfiguredForUser } from '../../lib/modeView'
 import { getOnboardingState, type OnboardingState } from '../../lib/onboarding'
 
 export const metadata = {
@@ -19,7 +19,7 @@ export const metadata = {
 
 export default async function CalibrationPage() {
   const state = await getOnboardingState()
-  if (isUnconfigured(state.config)) {
+  if (isUnconfiguredForUser(state.config)) {
     return <UnconfiguredNotice feature="Calibration" />
   }
   const events = await loadCalibrationEvents(state)

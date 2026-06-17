@@ -9,7 +9,7 @@ import { ResearchCasePending } from '../../../components/ResearchCasePending'
 import { UnconfiguredNotice } from '../../../components/UnconfiguredNotice'
 import { buildPositionPlan, type PositionPlan } from '../../../lib/positionPlan'
 import { getDemoResearchCase, resolveDemoLedgerPath } from '../../../lib/demo'
-import { isUnconfigured } from '../../../lib/modeView'
+import { isUnconfiguredForUser } from '../../../lib/modeView'
 import { getOnboardingState } from '../../../lib/onboarding'
 import { getInvestableCapital, resolveResearchCaseView } from '../../../lib/workflow'
 import type { AppResearchCase, ResearchCaseView } from '../../../lib/workflow'
@@ -24,7 +24,7 @@ export type ResearchCasePageProps = {
 export default async function ResearchCasePage({ params }: ResearchCasePageProps) {
   const { caseId } = await params
   const state = await getOnboardingState()
-  if (isUnconfigured(state.config)) {
+  if (isUnconfiguredForUser(state.config)) {
     return <UnconfiguredNotice feature="Research case" />
   }
 

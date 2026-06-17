@@ -4,7 +4,7 @@ import { SQLiteEventStore } from '@owlfolio/ledger/sqliteEventStore'
 import { PipelineObservatory } from '../../components/PipelineObservatory'
 import { UnconfiguredNotice } from '../../components/UnconfiguredNotice'
 import { resolveDemoLedgerPath, seedDemoLedger } from '../../lib/demo'
-import { isUnconfigured } from '../../lib/modeView'
+import { isUnconfiguredForUser } from '../../lib/modeView'
 import { getOnboardingState } from '../../lib/onboarding'
 
 export type PipelinePageProps = {
@@ -14,7 +14,7 @@ export type PipelinePageProps = {
 export default async function PipelinePage({ searchParams }: PipelinePageProps) {
   const { case: requestedCaseId } = await searchParams
   const state = await getOnboardingState()
-  if (isUnconfigured(state.config)) {
+  if (isUnconfiguredForUser(state.config)) {
     return <UnconfiguredNotice feature="Pipeline" />
   }
 

@@ -27,6 +27,7 @@ import type { AppConfig } from '@owlfolio/shared'
 import type { StatusBadgeTone } from '../components/StatusBadge'
 import { buildMonthlyAccountingReport } from './accounting'
 import { DEMO_RESEARCH_CASE_ID, seedDemoLedger } from './demoSeed'
+import { isUnconfiguredForUser } from './modeView'
 import { buildProviderStatusRows, type ProviderStatusRow } from './providerStatus'
 
 export { seedDemoLedger } from './demoSeed'
@@ -156,6 +157,7 @@ export type SetupAwareCommandCenterInput = {
   is_initialized: boolean
   provider_status_rows?: ProviderStatusRow[]
   store?: EventStore
+  env?: { readonly [key: string]: string | undefined }
 }
 
 export function resolveDemoLedgerPath({ cwd = process.cwd(), env = process.env as DemoLedgerEnv }: ResolveDemoLedgerPathOptions = {}): string {
@@ -215,12 +217,14 @@ export async function getDemoCommandCenterFromStore(store: EventStore): Promise<
   return buildDemoCommandCenter(summary, events)
 }
 
-export async function getSetupAwareCommandCenter({ config, is_initialized, provider_status_rows, store }: SetupAwareCommandCenterInput): Promise<AppCommandCenter> {
+export async function getSetupAwareCommandCenter({ config, is_initialized, provider_status_rows, store, env }: SetupAwareCommandCenterInput): Promise<AppCommandCenter> {
   // EXPLICIT unconfigured branch (three-state mode model). An unconfigured app has made no mode
   // choice and has no ledger — it must steer to setup, NEVER render demo data and never claim an
-  // initialized ledger. This is checked FIRST so unconfigured can never fall through to the demo or
-  // personal branches below.
-  if (config.mode === 'unconfigured') {
+  // initialized ledger. In PRODUCTION a stale persisted `demo` config is also treated as
+  // unconfigured (demo is a test-only harness), so it takes this branch instead of rendering seeded
+  // demo data. Checked FIRST — and BEFORE the demo branch — so it can never fall through; in TEST
+  // mode `isUnconfiguredForUser` returns false for demo, so the demo branch below still fires.
+  if (isUnconfiguredForUser(config, env)) {
     return {
       product_name: 'Owlfolio',
       setup_status: 'Choose a mode to begin',

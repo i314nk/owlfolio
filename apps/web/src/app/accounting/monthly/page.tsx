@@ -4,12 +4,12 @@ import { AccountingMonthlyReport } from '../../../components/AccountingMonthlyRe
 import { UnconfiguredNotice } from '../../../components/UnconfiguredNotice'
 import { buildMonthlyAccountingReport, getAccountingReportFromStore } from '../../../lib/accounting'
 import { getDemoEvents } from '../../../lib/demo'
-import { isUnconfigured } from '../../../lib/modeView'
+import { isUnconfiguredForUser } from '../../../lib/modeView'
 import { getOnboardingState, type OnboardingState } from '../../../lib/onboarding'
 
 export default async function AccountingMonthlyPage() {
   const state = await getOnboardingState()
-  if (isUnconfigured(state.config)) {
+  if (isUnconfiguredForUser(state.config)) {
     return <UnconfiguredNotice feature="Accounting" />
   }
   const report = await loadAccountingReport(state)

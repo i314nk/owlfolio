@@ -3,7 +3,7 @@ import { SQLiteEventStore } from '@owlfolio/ledger/sqliteEventStore'
 
 import { PortfolioPanel, type PortfolioHolding, type PortfolioValuationRefreshSummary } from '../../components/PortfolioPanel'
 import { UnconfiguredNotice } from '../../components/UnconfiguredNotice'
-import { isUnconfigured } from '../../lib/modeView'
+import { isUnconfiguredForUser } from '../../lib/modeView'
 import { getOnboardingState } from '../../lib/onboarding'
 import { humanizeCron } from '../../lib/schedule'
 import { projectMonitorAlerts } from '@owlfolio/ledger/projections/monitorAlertProjection'
@@ -13,7 +13,7 @@ import { resolveBusinessFindings } from '../../lib/checklistEvidence'
 
 export default async function PortfolioPage() {
   const state = await getOnboardingState()
-  if (isUnconfigured(state.config)) {
+  if (isUnconfiguredForUser(state.config)) {
     return <UnconfiguredNotice feature="Portfolio" />
   }
   const { holdings, alerts } = await loadHoldings(state.config.ledger_path, state.config.mode)

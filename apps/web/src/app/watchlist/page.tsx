@@ -4,13 +4,13 @@ import { SQLiteEventStore } from '@owlfolio/ledger/sqliteEventStore'
 import { UnconfiguredNotice } from '../../components/UnconfiguredNotice'
 import { WatchlistPanel } from '../../components/WatchlistPanel'
 import { getDemoEvents, getDemoMonitorAlerts, getDemoWatchlistItems } from '../../lib/demo'
-import { isUnconfigured } from '../../lib/modeView'
+import { isUnconfiguredForUser } from '../../lib/modeView'
 import { getOnboardingState } from '../../lib/onboarding'
 import { enrichWatchlistItemsWithVerdict, getAppMonitorAlertsFromStore, getAppWatchlistItemsFromStore, type AppWatchlistItem, type MonitorAlert } from '../../lib/workflow'
 
 export default async function WatchlistPage() {
   const state = await getOnboardingState()
-  if (isUnconfigured(state.config)) {
+  if (isUnconfiguredForUser(state.config)) {
     return <UnconfiguredNotice feature="Watchlist" />
   }
   const { items: watchlistItems, alerts } = state.config.mode === 'demo'
