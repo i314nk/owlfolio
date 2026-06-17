@@ -85,10 +85,12 @@ describe('LearnTabs', () => {
 
   it('renders the live two-stage DCF params on the strategy panel', () => {
     const html = render('strategy')
-    // F.13 — UNIFORM base MoS 25% for every investable moat + 18x cap + flat 10% discount (live valuationParams)
-    expect(html).toContain('25%')
+    // Valuation-core — UNIFORM base required growth gap 3% (growth-points) + 18x cap + flat 10% discount.
+    expect(html).toContain('3%')
     expect(html).toContain('18×')
     expect(html).toContain('10%')
+    expect(html.toLowerCase()).toContain('required growth gap')
+    expect(html.toLowerCase()).toContain('sustainable-growth band')
     // The monopoly tier no longer loosens valuation — it is described as a durability signal.
     expect(html.toLowerCase()).toContain('durability')
     expect(html.toLowerCase()).toContain('uniform')

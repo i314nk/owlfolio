@@ -64,7 +64,21 @@ type SupersededPattern = {
    * ADD HERE when a new legitimate "this is RETIRED / is NOT what we do" reference is introduced.
    */
   allow: Array<{ file: string; snippet: string; reason: string }>
+  /**
+   * Optional scan-scope override for THIS pattern (repo-relative paths). Used by the valuation-core
+   * revision MoS-as-haircut / fair-value-range patterns, which are scoped to the USER-FACING UI COPY
+   * surfaces only: the architecture math doc legitimately still names the MoS engine + the
+   * `marginOfSafetyForMoat`/`widenedMarginOfSafety` functions (kept for the V8 backtest), so banning the
+   * term repo-wide would false-positive on that code reference. When omitted, the pattern scans SCAN_SET.
+   */
+  scan?: string[]
 }
+
+/** UI-copy-only scan scope (the two user-facing strategy components) for the valuation-core MoS patterns. */
+const UI_COPY_SCAN_SET: string[] = [
+  'apps/web/src/components/StrategyOverview.tsx',
+  'apps/web/src/components/LearnTabs.tsx',
+]
 
 const SUPERSEDED_PATTERNS: SupersededPattern[] = [
   {
@@ -85,14 +99,33 @@ const SUPERSEDED_PATTERNS: SupersededPattern[] = [
     allow: [],
   },
   {
-    label: 'growth-band / band-ceiling — replaced by one named single_growth_cap (Phase 1.3)',
-    pattern: /growth[\s-]band|band[\s-]ceiling/i,
+    // The RETIRED term is the stacked growth-band-CEILINGS trio (a growth-band used as a ceiling). The
+    // valuation-core revision's "sustainable-growth band" is a DIFFERENT, current concept (the grounded
+    // band the implied growth is judged against) and must NOT trip — so the matcher requires "ceiling".
+    label: 'growth-band-ceiling — replaced by one named single_growth_cap (Phase 1.3)',
+    pattern: /growth[\s-]band[\s-]ceiling|band[\s-]ceiling/i,
     allow: [
       {
         file: 'docs/architecture/owlfolio-v2-buffett-munger-strategy.md',
         snippet:
           'This replaces the retired stacked reinvestment×ROIC + growth-band-ceilings + ROIC-eligibility-gate stack',
         reason: '§4.2 names the RETIRED growth-band-ceilings stack to say it was replaced by one named cap.',
+      },
+    ],
+  },
+  {
+    // Valuation-core revision: the MoS-as-PRICE-HAIRCUT knob is retired. Conservatism is now the required
+    // GROWTH GAP (growth-points). The legitimate survivors are NOT in the UI-copy scan scope: the
+    // qualitative `owner_earnings_valuation.margin_of_safety` lane string lives in ResearchCasePanel; the
+    // `widenedMarginOfSafety`/`marginOfSafetyForMoat` functions + the post-mortem field live in packages.
+    label: 'margin of safety as a PRICE haircut — retired; conservatism is the required growth gap (valuation-core)',
+    pattern: /margin of safety|\bMoS\b|fair[\s-]value range|provisional[\s-]*MoS/i,
+    scan: UI_COPY_SCAN_SET,
+    allow: [
+      {
+        file: 'apps/web/src/components/StrategyOverview.tsx',
+        snippet: 'price-discount margin of safety. The base gap is uniform across investable moats; terminal g is too.',
+        reason: 'StrategyOverview code comment NAMES the retired price-discount MoS to say the conservatism is now the growth gap.',
       },
     ],
   },
@@ -151,9 +184,11 @@ describe('Phase 8 S6 superseded-term consistency tripwire: no stale recalibratio
   })
 
   it('no SUPERSEDED-as-current term appears in the copy/doc scan set outside the allow-list', () => {
-    for (const file of SCAN_SET) {
-      const original = readScanned(file)
-      for (const { label, pattern, allow } of SUPERSEDED_PATTERNS) {
+    for (const { label, pattern, allow, scan } of SUPERSEDED_PATTERNS) {
+      // Each pattern scans its own scope override when present (the valuation-core MoS patterns are
+      // UI-copy-only); otherwise the shared SCAN_SET.
+      for (const file of scan ?? SCAN_SET) {
+        const original = readScanned(file)
         // Strip the allow-listed retirement-describing snippets for THIS file, then assert absence.
         let remainder = original
         for (const entry of allow) {

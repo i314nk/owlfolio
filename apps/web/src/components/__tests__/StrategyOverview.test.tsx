@@ -10,7 +10,6 @@ import { StrategyOverview } from '../StrategyOverview'
 import {
   buffettMungerStrategy,
   discountRate,
-  marginOfSafetyForMoat,
 } from '@owlfolio/strategies/buffettMunger'
 import { buffettMungerDeepDiveLanes } from '@owlfolio/workflow/strategyResearchPipeline'
 import { SIZING_PARAMS } from '@owlfolio/strategies/sizingParams'
@@ -45,32 +44,37 @@ describe('StrategyOverview', () => {
     expect(html).toContain('10%')
   })
 
-  it('renders the uniform base margin of safety from the contract (F.13 — same for every investable moat)', () => {
+  it('renders the uniform base required growth gap from the contract (valuation-core: conservatism is the gap, not a price MoS)', () => {
     const html = render()
-    const wide = `${marginOfSafetyForMoat(buffettMungerStrategy, 'wide') * 100}%` // 25%
-    const monopoly = `${marginOfSafetyForMoat(buffettMungerStrategy, 'monopoly') * 100}%` // 25% (uniform, F.13)
-    expect(wide).toBe('25%')
-    expect(monopoly).toBe('25%')
-    expect(html).toContain('25%')
-    // The page describes the monopoly as a durability signal, not a smaller safety margin.
+    const baseGap = `${buffettMungerStrategy.valuation.required_growth_gap.base_gap * 100}%` // 3%
+    expect(baseGap).toBe('3%')
+    expect(html).toContain('3%')
+    expect(html.toLowerCase()).toContain('required growth gap')
+    expect(html.toLowerCase()).toContain('growth-points')
+    // The page describes the monopoly as a durability signal, not a narrower gap.
     expect(html.toLowerCase()).toContain('durability')
+    // The MoS-as-price-haircut framing is retired from the UI copy (only the explanatory code comment
+    // names it, which never renders).
+    expect(html).not.toContain('Base margin of safety')
+    expect(html).not.toContain('× (1 −')
   })
 
-  it('describes the two-stage DCF with the one-knob + named-cap growth model (not the old equity-bond or reinvestment×ROIC method)', () => {
+  it('describes the two-stage DCF + the sustainable-growth band the implied growth is judged against (band/gap, not MoS price haircut)', () => {
     const html = render()
     // Two-stage framing + terminal fade.
     expect(html).toContain('two stages')
     expect(html.toLowerCase()).toContain('terminal')
-    // New growth model: demonstrated owner-earnings growth under a named forecasting-humility cap, with
-    // the above-GDP moat-durability coupling; one end-stage margin of safety; reinvestment runway axis.
+    // New growth model: demonstrated owner-earnings growth under a named forecasting-humility cap.
     expect(html.toLowerCase()).toContain('humility')
-    expect(html.toLowerCase()).toContain('margin of safety')
     expect(html.toLowerCase()).toContain('runway')
-    // No stale prose from the superseded methods (single-stage equity bond, reinvestment×ROIC growth,
-    // the silent 18× cap as a headline rule).
+    // Valuation-core: the decision is reverse-DCF market-implied growth vs the grounded sustainable band,
+    // with the required gap as the single conservatism knob.
+    expect(html.toLowerCase()).toContain('sustainable-growth band')
+    expect(html.toLowerCase()).toContain('required growth gap')
+    expect(html.toLowerCase()).toContain('market-implied')
+    // No stale single-stage equity-bond prose.
     expect(html.toLowerCase()).not.toContain('equity bond')
     expect(html).not.toContain('OE / (')
-    expect(html).not.toContain('incremental ROIC')
   })
 
   it('renders the wide-moat gate and rejects sub-wide moats', () => {

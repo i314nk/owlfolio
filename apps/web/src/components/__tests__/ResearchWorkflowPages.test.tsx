@@ -82,7 +82,7 @@ describe('research and watchlist workflow pages', () => {
       expect(html).toContain('Watchlist')
       expect(html).toContain('COST')
       expect(html).toContain('buffett-munger')
-      expect(html).toContain('Durable quality compounder; wait for better margin of safety.')
+      expect(html).toContain('Durable quality compounder; wait for the market-implied growth to fall below the sustainable band.')
       expect(html).toContain('Buy-zone status')
       expect(html).toContain('Not set')
       expect(html).toContain('Provider draft state')
@@ -616,12 +616,25 @@ describe('research and watchlist workflow pages', () => {
         reinvestment_rate: 0.43,
         normalized_owner_earnings_per_share: 16.27,
         fair_value_per_share: 210.0,
-        // Phase 2: the dossier leads with this range + market-implied growth instead of a point estimate.
+        // Valuation-core revision: the dossier leads with the growth-axis band; the range basis is the
+        // honest "why is the band wide" note. Market-implied growth + band live on verdict_state.
         fair_value_range: '$160–$240 (base $210)',
         fair_value_range_basis: 'Range is wide (±19%) because only 6 years of usable owner-earnings history anchor the growth estimate — treat it as honestly uncertain, not precise.',
         market_implied_growth: 0.18,
         implied_multiple: 12.9,
         buy_price_per_share: 147.0,
+        verdict_state: {
+          state: 'WATCH',
+          market_implied_growth: 0.18,
+          band_low: 0.04,
+          band_high: 0.07,
+          band_center: 0.055,
+          band_grounding_status: 'grounded',
+          band_basis_citations: ['sec_edgar_10k_0000909832_fy2025'],
+          required_gap: 0.03,
+          gap_to_band: -0.17,
+          implied_above_band: true,
+        },
         value_basis: 'two_stage_dcf',
         bridge_basis: 'sec_edgar',
         bridge_fiscal_year: 2025,
@@ -658,13 +671,15 @@ describe('research and watchlist workflow pages', () => {
     // OE-bridge provenance (note + EDGAR chip).
     expect(html).toContain('Owner earnings computed from SEC 10-K FY2025')
     expect(html).toContain('SEC EDGAR')
-    // Phase 2: the dossier LEADS with the fair-value RANGE (point FV is the base).
-    expect(html).toContain('range $160–$240 (base $210)')
-    // Phase 2: "market implies X% growth vs our Y%" — the over-confidence/richness lead. Our credited
-    // growth is 3%; the market implies 18% (above the 15% method cap → richness signal).
-    expect(html).toContain('Market implies 18.0% near-term growth vs our 3.0%')
-    expect(html).toContain('method cap')
-    // Phase 2: the honest "why is the range wide" uncertainty note (thin owner-earnings history).
+    // Valuation-core revision: the dossier LEADS with the growth-axis band + the implied-vs-band lead line.
+    expect(html).toContain('data-testid="growth-band-axis"')
+    expect(html).toContain('Market implies 18.0% growth; business can sustain 4.0–7.0%')
+    expect(html).toContain('Sustainable band')
+    expect(html).toContain('Required growth gap')
+    // Implied growth (18%) is above the band high (7%) → flagged above the sustainable band.
+    expect(html).toContain('above sustainable band')
+    expect(html).toContain('data-implied-zone="above-band"')
+    // The honest "why is the band wide" uncertainty note (thin owner-earnings history).
     expect(html).toContain('years of usable owner-earnings history')
   })
 

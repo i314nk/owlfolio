@@ -140,6 +140,22 @@ export type AppWatchlistVerdict = {
   case_updated_at?: string
   /** True when the linked case is older than the staleness window (>12 months) and must be re-run. */
   is_stale?: boolean
+  // Valuation-core revision (growth-axis): the sustainable-growth band + required-gap fields carried from
+  // the linked case's verdict_state, so the Watchlist desk shows the band/gap framing (not a price haircut).
+  /** Grounded sustainable-growth band low edge (fraction). */
+  band_low?: number
+  /** Grounded sustainable-growth band high edge (fraction). */
+  band_high?: number
+  /** The single conservatism knob, in growth-rate points (fraction). */
+  required_gap?: number
+  /** (band_low − required_gap) − implied; positive = how far below the buy threshold the market sits. */
+  gap_to_band?: number
+  /** Market-implied near-term growth (reverse-DCF of today's price), fraction. */
+  market_implied_growth?: number
+  /** grounded | unsupported_high | not_computable. */
+  band_grounding_status?: string
+  /** True when implied ≥ band_high (market prices above what the business sustains). */
+  implied_above_band?: boolean
 }
 
 /**
@@ -160,11 +176,20 @@ export function enrichWatchlistItemsWithVerdict(
     if (valuation === undefined || valuation.buy_price_per_share === undefined) {
       return item
     }
+    const vs = valuation.verdict_state
     const verdict: AppWatchlistVerdict = {
-      ...(valuation.verdict_state?.state === undefined ? {} : { state: valuation.verdict_state.state }),
+      ...(vs?.state === undefined ? {} : { state: vs.state }),
       buy_price_per_share: valuation.buy_price_per_share,
       ...(valuation.fair_value_per_share === undefined ? {} : { fair_value_per_share: valuation.fair_value_per_share }),
-      ...(valuation.verdict_state?.discount_to_fv_pct === undefined ? {} : { discount_to_fv_pct: valuation.verdict_state.discount_to_fv_pct }),
+      ...(vs?.discount_to_fv_pct === undefined ? {} : { discount_to_fv_pct: vs.discount_to_fv_pct }),
+      // Growth-axis band/gap fields (carried verbatim from the case verdict_state).
+      ...(vs?.band_low === undefined ? {} : { band_low: vs.band_low }),
+      ...(vs?.band_high === undefined ? {} : { band_high: vs.band_high }),
+      ...(vs?.required_gap === undefined ? {} : { required_gap: vs.required_gap }),
+      ...(vs?.gap_to_band === undefined ? {} : { gap_to_band: vs.gap_to_band }),
+      ...(vs?.market_implied_growth === undefined ? {} : { market_implied_growth: vs.market_implied_growth }),
+      ...(vs?.band_grounding_status === undefined ? {} : { band_grounding_status: vs.band_grounding_status }),
+      ...(vs?.implied_above_band === undefined ? {} : { implied_above_band: vs.implied_above_band }),
     }
     const updatedAt = linked?.updated_at
     if (updatedAt !== undefined) {

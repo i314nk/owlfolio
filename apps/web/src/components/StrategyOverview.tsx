@@ -4,7 +4,6 @@ import {
   buffettMungerStrategy,
   creditedGrowth,
   discountRate,
-  marginOfSafetyForMoat,
   terminalGrowthForMoat,
   twoStageFairValuePerShare,
 } from '@owlfolio/strategies/buffettMunger'
@@ -27,8 +26,9 @@ const strategy = buffettMungerStrategy
 const DISCOUNT = discountRate(strategy)
 const MULTIPLE_CEILING = strategy.valuation.valuation_multiple_ceiling
 const MIN_INVESTABLE_MOAT = strategy.valuation.min_investable_moat
-// F.13 — the base MoS and terminal g are UNIFORM across investable moats; a single value renders for both.
-const MOS_WIDE = marginOfSafetyForMoat(strategy, 'wide')
+// Valuation-core revision (F.13): conservatism is the required GROWTH GAP (in growth-rate points), NOT a
+// price-discount margin of safety. The base gap is uniform across investable moats; terminal g is too.
+const BASE_GROWTH_GAP = strategy.valuation.required_growth_gap.base_gap
 const TERMINAL_G_WIDE = terminalGrowthForMoat(strategy, 'wide')
 const SINGLE_GROWTH_CAP = strategy.valuation.single_growth_cap
 const GDP_GROWTH_THRESHOLD = strategy.valuation.gdp_growth_threshold
@@ -48,7 +48,11 @@ const EX_FV = twoStageFairValuePerShare({
   discount: DISCOUNT,
   ceiling_multiple: MULTIPLE_CEILING,
 })
-const EX_BUY = Math.round(EX_FV * (1 - MOS_WIDE) * 100) / 100
+// Valuation-core revision: the buy decision is reverse-DCF market-implied growth vs the sustainable band.
+// The example band is centred on the credited growth; the buy-threshold growth is band_low − required gap.
+const EX_BAND_LOW = Math.max(0, EX_G - 0.01)
+const EX_BAND_HIGH = EX_G + 0.01
+const EX_BUY_THRESHOLD_G = Math.max(0, EX_BAND_LOW - BASE_GROWTH_GAP)
 const EX_IMPLIED = EX_FV / EX_OE
 const TARGET_WIDE = strategy.portfolio.target_weight_by_moat.wide
 const TARGET_MONOPOLY = strategy.portfolio.target_weight_by_moat.monopoly
@@ -388,7 +392,7 @@ export function StrategyOverview(): ReactNode {
       createElement(
         'p',
         { style: { ...bodyStyle, fontSize: 'var(--owl-text-md)', lineHeight: 1.6, maxWidth: '54rem' } },
-        'Buy a small number of understandable businesses with durable economic moats and honest, capable management, only when the price offers a margin of safety against a conservative estimate of intrinsic value — then hold. ',
+        'Buy a small number of understandable businesses with durable economic moats and honest, capable management, only when the market is implying LESS growth than the business can sustainably fund — a required gap below an honest, grounded sustainable-growth band — then hold. ',
         createElement('span', { style: goldText }, 'Agents propose; the harness computes; you decide.'),
         ' Nothing the swarm produces becomes a watchlist entry or a holding without an explicit, user-authored ledger transition.',
       ),
@@ -450,15 +454,15 @@ export function StrategyOverview(): ReactNode {
             createElement('span', { style: goldText }, 'Admit is human-decided.'),
             ' Nothing is admitted automatically. The human authors the watchlist entry with a ',
             createElement('span', { style: goldText }, 'signed thesis written in their own words'),
-            ' (never pre-filled from the agent draft) and a locked buy-below frozen at admit. That buy-below is ',
-            createElement('span', { style: goldText }, 'provisional-MoS-derived'),
-            ' — the margin of safety behind it is not yet frozen, so a future MoS freeze will visibly, logged-ly re-price it rather than move the number silently.',
+            ' (never pre-filled from the agent draft) and the frozen sustainable-growth band + buy-threshold at admit. The buy-threshold growth is ',
+            createElement('span', { style: goldText }, 'band_low − the required growth gap'),
+            ' — the conservatism lives entirely in that gap, and a future re-underwrite will visibly, logged-ly re-anchor the band rather than move the number silently.',
           ),
         ),
         createElement(
           'p',
           { style: { ...bodyStyle, fontSize: 'var(--owl-text-sm)', color: 'var(--owl-color-quiet)', borderLeft: '2px solid var(--owl-color-border)', paddingLeft: '0.85rem', margin: 0 } },
-          'Honest scope: the circle is permissive by default, the size axis is deferred, the buy-below MoS is provisional, and admit is human-decided. The harness does not yet present an admit-recommendation panel (uncertainty / permanent-loss / bear-case scoring) — that is a later slice once the recommendation is persisted.',
+          'Honest scope: the circle is permissive by default, the size axis is deferred, the required-gap magnitudes are provisional (V8-calibrated), and admit is human-decided. The harness does not yet present an admit-recommendation panel (uncertainty / permanent-loss / bear-case scoring) — that is a later slice once the recommendation is persisted.',
         ),
       ),
     }),
@@ -503,7 +507,7 @@ export function StrategyOverview(): ReactNode {
         null,
         'Pay for current owner earnings plus modest, evidence-backed reinvestment value — never pay upfront for all future compounding. Owner earnings are discounted in two stages: a ten-year explicit window whose growth no longer compounds flat — it holds the credited rate for the early years, then fades LINEARLY down to a small terminal rate over the trailing years (forecasting humility inside the window) — and a perpetual terminal rate beyond it. The discount is a flat ',
         createElement('span', { style: monoFigure }, pct(DISCOUNT)),
-        ' — no WACC, no beta, ever. The certainty difference between moat classes lives in the margin of safety, not the discount rate.',
+        ' — no WACC, no beta, ever. The conservatism does not live in the discount rate or a price haircut; it lives in the required growth gap the market-implied growth must clear below the sustainable band.',
       ),
       children: createElement(
         'div',
@@ -530,7 +534,8 @@ export function StrategyOverview(): ReactNode {
           createElement('div', null, `gₜ   = terminal fade: ${pct(TERMINAL_G_WIDE)} for every investable moat (uniform)`),
           createElement('div', null, `fair = Σ OE(1+g)ᵗ/(1+${pct(DISCOUNT)})ᵗ  [t=1..10]  +  OE(1+g)¹⁰(1+gₜ)/(${pct(DISCOUNT)}−gₜ) / (1+${pct(DISCOUNT)})¹⁰`),
           createElement('div', null, `fair > ${MULTIPLE_CEILING}× OE → surfaced cap_exceeded sanity flag (not a silent truncation)`),
-          createElement('div', null, 'buy  = fair × (1 − margin of safety)    — the ONE conservatism knob'),
+          createElement('div', null, 'band = grounded sustainable-growth band [band_low, band_high]  (reinvestment × incremental ROIC + cited durability)'),
+          createElement('div', null, `buy  = market-implied g ≤ band_low − required_gap   — the ONE conservatism knob (${pct(BASE_GROWTH_GAP)} base, in growth-points)`),
         ),
 
         // One growth path (Phase 1.3) — the named cap + the above-GDP moat-durability coupling.
@@ -553,10 +558,10 @@ export function StrategyOverview(): ReactNode {
           rows: [
             [createElement('span', { style: goldText }, 'Discount rate'), createElement('span', { style: monoFigure }, pct(DISCOUNT))],
             [createElement('span', { style: goldText }, 'Terminal g'), createElement('span', { style: monoFigure }, pct(TERMINAL_G_WIDE))],
-            [createElement('span', { style: goldText }, 'Base margin of safety'), createElement('span', { style: monoFigure }, pct(MOS_WIDE))],
+            [createElement('span', { style: goldText }, 'Base required growth gap'), createElement('span', { style: monoFigure }, `${pct(BASE_GROWTH_GAP)} (growth-points)`)],
           ],
         }),
-        createElement('p', { style: { ...bodyStyle, margin: '0.2rem 0 0' } }, 'A monopoly is a durability signal — more confidence the cash flows persist, which earns higher terminal value through the moat-durability input — not a license to lower the safety margin or stretch the horizon.'),
+        createElement('p', { style: { ...bodyStyle, margin: '0.2rem 0 0' } }, 'A monopoly is a durability signal — more confidence the cash flows persist, which earns higher terminal value through the moat-durability input — not a license to narrow the required gap or stretch the horizon.'),
 
         // Worked example — computed from the live contract.
         createElement(
@@ -574,13 +579,15 @@ export function StrategyOverview(): ReactNode {
             createElement('span', { style: monoFigure }, pct(EX_G)),
             ` (under the ${pct(SINGLE_GROWTH_CAP)} humility cap, but above GDP — so it is flagged a moat-durability claim the human weights). Holding that rate for the early years, then fading it LINEARLY down to a `,
             createElement('span', { style: monoFigure }, pct(TERMINAL_G_WIDE)),
-            ' terminal rate over the trailing years of the ten-year window, gives a fair value of ',
+            ' terminal rate over the trailing years of the ten-year window, gives a band-center reference fair value of ',
             createElement('span', { style: monoFigure }, `$${EX_FV.toFixed(0)}`),
-            ` (${EX_IMPLIED.toFixed(1)}× owner earnings; a value above ${MULTIPLE_CEILING}× would raise a cap_exceeded sanity flag, not be truncated). The base margin of safety is `,
-            createElement('span', { style: monoFigure }, pct(MOS_WIDE)),
-            ' for every investable moat, so the buy price is ',
-            createElement('span', { style: monoFigure }, `$${EX_FV.toFixed(0)} × (1 − ${pct(MOS_WIDE)}) = $${EX_BUY.toFixed(0)}`),
-            '. A monopoly does not lower that buffer, shorten nothing, raise no terminal rate — its extra durability is argued through the moat-durability input, where the human weights it.',
+            ` (${EX_IMPLIED.toFixed(1)}× owner earnings; a value above ${MULTIPLE_CEILING}× would raise a cap_exceeded sanity flag, not be truncated). We do not compute a precise fair value to discount: we judge a grounded sustainable-growth band — here about `,
+            createElement('span', { style: monoFigure }, `${pct(EX_BAND_LOW)}–${pct(EX_BAND_HIGH)}`),
+            ` — and buy only when the reverse-DCF market-implied growth sits a required gap of `,
+            createElement('span', { style: monoFigure }, pct(BASE_GROWTH_GAP)),
+            ' growth-points BELOW the band, i.e. when the market implies ≤ ',
+            createElement('span', { style: monoFigure }, pct(EX_BUY_THRESHOLD_G)),
+            '. A monopoly does not narrow that gap, shorten nothing, raise no terminal rate — its extra durability is argued through the moat-durability input, where the human weights it.',
           ),
         ),
       ),

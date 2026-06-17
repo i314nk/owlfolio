@@ -48,6 +48,51 @@ describe('WatchlistPanel verdict-band sections', () => {
     expect(html).toContain('Case buy price')
   })
 
+  it('renders the band + required-gap framing when the case carries band fields', () => {
+    const html = render([
+      item({
+        watchlist_item_id: 'w_band',
+        ticker: 'GGG',
+        verdict: {
+          state: 'WATCH',
+          buy_price_per_share: 100,
+          band_low: 0.05,
+          band_high: 0.08,
+          required_gap: 0.02,
+          gap_to_band: -0.04,
+          market_implied_growth: 0.09,
+        },
+      }),
+    ])
+    expect(html).toContain('Sustainable band')
+    expect(html).toContain('5.0%')
+    expect(html).toContain('8.0%')
+    expect(html).toContain('Required growth gap')
+    expect(html).toContain('Market-implied growth')
+    expect(html).toContain('Gap to buy threshold')
+    // The retired price-vs-FV "discount to fair value" framing is gone.
+    expect(html).not.toContain('Discount to fair value')
+  })
+
+  it('flags an above-sustainable-band implied growth as a risk note', () => {
+    const html = render([
+      item({
+        watchlist_item_id: 'w_above',
+        ticker: 'HHH',
+        verdict: {
+          state: 'WATCH',
+          buy_price_per_share: 100,
+          band_low: 0.05,
+          band_high: 0.08,
+          required_gap: 0.02,
+          market_implied_growth: 0.12,
+          implied_above_band: true,
+        },
+      }),
+    ])
+    expect(html).toContain('above sustainable band')
+  })
+
   it('flags a stale case honestly and shows an honest "no quote" distance', () => {
     const html = render([
       item({

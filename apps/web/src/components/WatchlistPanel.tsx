@@ -42,7 +42,7 @@ const BAND_META: Record<VerdictBand, { title: string; note: string }> = {
   },
   WATCH: {
     title: 'Watch',
-    note: 'Tracked above fair value; waiting for a margin of safety to open.',
+    note: 'Tracked while the market implies more growth than the band; waiting for the implied growth to fall a required gap below the band.',
   },
   UNCLASSIFIED: {
     title: 'Tracked (no verdict band yet)',
@@ -236,6 +236,8 @@ function createVerdictBandDetails(item: AppWatchlistItem) {
     return null
   }
 
+  const fmtPct = (frac: number) => `${(frac * 100).toFixed(1)}%`
+
   const lines = []
   if (verdict.buy_price_per_share !== undefined) {
     lines.push(createDetail('Case buy price', `$${verdict.buy_price_per_share.toFixed(2)}`))
@@ -249,8 +251,28 @@ function createVerdictBandDetails(item: AppWatchlistItem) {
   } else {
     lines.push(createDetail('Distance to buy price', 'No live market quote — distance not available'))
   }
-  if (verdict.discount_to_fv_pct !== undefined) {
-    lines.push(createDetail('Discount to fair value', `${verdict.discount_to_fv_pct.toFixed(1)}%`))
+  // Valuation-core revision (growth-axis): the band/gap framing — market-implied growth vs the grounded
+  // sustainable-growth band, with the required gap as the single conservatism knob (NOT a price haircut /
+  // discount-to-fair-value). The buy threshold is band_low − required_gap.
+  if (verdict.band_low !== undefined && verdict.band_high !== undefined) {
+    lines.push(createDetail('Sustainable band', `${fmtPct(verdict.band_low)}–${fmtPct(verdict.band_high)}`))
+    if (verdict.required_gap !== undefined) {
+      const threshold = verdict.band_low - verdict.required_gap
+      lines.push(createDetail('Required growth gap', `${(verdict.required_gap * 100).toFixed(1)} pts (buy below ${fmtPct(threshold)})`))
+    }
+  }
+  if (verdict.market_implied_growth !== undefined) {
+    lines.push(createDetail('Market-implied growth', fmtPct(verdict.market_implied_growth)))
+  }
+  if (verdict.gap_to_band !== undefined) {
+    const g = verdict.gap_to_band
+    lines.push(createDetail(
+      'Gap to buy threshold',
+      g >= 0 ? `${(g * 100).toFixed(1)} pts below threshold — in the buy window` : `${Math.abs(g * 100).toFixed(1)} pts above the buy threshold`,
+    ))
+  }
+  if (verdict.band_grounding_status !== undefined && verdict.band_grounding_status !== 'grounded') {
+    lines.push(createDetail('Band grounding', verdict.band_grounding_status))
   }
 
   const staleness = verdict.is_stale === undefined
@@ -264,6 +286,11 @@ function createVerdictBandDetails(item: AppWatchlistItem) {
     { 'data-testid': 'watchlist-verdict-band', style: { display: 'grid', gap: '0.2rem', marginTop: 'var(--owl-space-2)' } },
     createElement('p', { className: 'owl-section-accent' }, 'Verdict band'),
     ...lines,
+    verdict.implied_above_band === true ? createElement(
+      'p',
+      { className: 'owl-body', style: { color: 'var(--owl-color-gold-bright)', margin: '0.55rem 0 0' } },
+      'Market-implied growth is above sustainable band — the market prices in growth the business is not shown to sustain.',
+    ) : null,
     createElement(
       'p',
       { className: 'owl-body', style: { margin: '0.55rem 0 0' } },
@@ -377,10 +404,10 @@ function createDetail(label: string, value: string) {
 }
 
 /**
- * The buy-below frozen at admit, LABELLED as provisional-MoS-derived (Task 4.3). The margin of safety
- * behind it is still PROVISIONAL (#124): a future MoS freeze will visibly, logged-ly re-price this — it
- * is NOT a settled number. The valuation version it was frozen under is surfaced in the label so the
- * re-price is traceable. Renders nothing when no locked buy-below was recorded.
+ * The buy-below frozen at admit. The MoS-as-price-haircut framing is RETIRED (valuation-core revision):
+ * conservatism now lives in the required growth gap, so this is the frozen price at the buy-threshold
+ * growth (band_low − required_gap), NOT a discounted haircut. The valuation version it was frozen under is
+ * surfaced in the label so a re-anchor is traceable. Renders nothing when no locked buy-below was recorded.
  */
 function createLockedBuyBelowDetail(item: AppWatchlistItem) {
   if (item.locked_buy_below === undefined) {
