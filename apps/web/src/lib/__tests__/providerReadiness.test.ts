@@ -179,6 +179,22 @@ describe('providerReadiness', () => {
     expect(options.map((provider) => provider.support_level)).toEqual(['certified', 'experimental', 'experimental', 'experimental'])
   })
 
+  it('excludes mock-provider from options for a production (non-test) env', () => {
+    const options = getProviderOptions({ OWLFOLIO_DISABLE_TEST_DEFAULTS: '1' })
+
+    expect(options.map((provider) => provider.provider_id)).not.toContain('mock-provider')
+    // Real providers remain available so the unconfigured → personal-local path still works.
+    expect(options.map((provider) => provider.provider_id)).toEqual(['claude', 'openai', 'openrouter'])
+  })
+
+  it('includes mock-provider in options under the test harness env', () => {
+    const playwright = getProviderOptions({ OWLFOLIO_TEST_MODE: 'playwright' })
+    expect(playwright.map((provider) => provider.provider_id)).toContain('mock-provider')
+
+    const vitest = getProviderOptions({ VITEST: '1' })
+    expect(vitest.map((provider) => provider.provider_id)).toContain('mock-provider')
+  })
+
   it('exposes simple recommended sign-in copy and progressive advanced auth options for OpenAI', () => {
     const options = getProviderOptions()
     const openai = options.find((provider) => provider.provider_id === 'openai')

@@ -260,7 +260,7 @@ export async function getOnboardingProviderOptions(options: OnboardingOptions = 
     ...(options.env === undefined ? {} : { env: options.env }),
   })).map((row) => [row.provider_id, row]))
 
-  return getProviderOptions().map((provider) => {
+  return getProviderOptions(options.env ?? process.env).map((provider) => {
     const status = rowsByProvider.get(provider.provider_id)
 
     return {

@@ -11,7 +11,7 @@ import {
 } from '@owlfolio/providers'
 import type { ProviderId, ProviderSupportLevel } from '@owlfolio/shared'
 
-import { defaultClaudeCredentialsPath } from './appConfigStore'
+import { defaultClaudeCredentialsPath, shouldUseTestDemoDefault } from './appConfigStore'
 
 export type ProviderReadinessEnv = {
   ANTHROPIC_API_KEY?: string
@@ -78,9 +78,21 @@ export type ProviderReadiness = {
   reauth_action?: string
 }
 
-export function getProviderOptions(): ProviderOption[] {
+/**
+ * Provider options for the user-facing onboarding wizard and `/settings/providers` guided setup.
+ *
+ * `mock-provider` is the deterministic TEST/e2e harness and stays in the catalog, but it must NOT be
+ * offered to real users: outside test mode it is filtered out, which also auto-removes the "Try demo
+ * mode" connection card (keyed on the mock option) so production is unconfigured → personal-local with
+ * a real provider only. Under playwright/vitest (`shouldUseTestDemoDefault`) mock is kept so the
+ * existing deterministic suite stays green.
+ */
+export type ProviderOptionsEnv = { readonly [key: string]: string | undefined }
+
+export function getProviderOptions(env: ProviderOptionsEnv = process.env): ProviderOption[] {
+  const allowMockProvider = shouldUseTestDemoDefault(env)
   return getProviderCatalog()
-    .filter((provider) => provider.visible_in_onboarding)
+    .filter((provider) => provider.visible_in_onboarding && (provider.provider_id !== 'mock-provider' || allowMockProvider))
     .map(providerOptionFromCatalogEntry)
 }
 

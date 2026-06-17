@@ -20,7 +20,7 @@ type AppConfigEnv = {
  * suite (e.g. `demo-mode.spec.ts`) stays green before S5 migrates e2e to programmatic init. The
  * `OWLFOLIO_DISABLE_TEST_DEFAULTS` flag lets a test deliberately exercise the production branch.
  */
-function shouldUseTestDemoDefault(env: AppConfigEnv): boolean {
+export function shouldUseTestDemoDefault(env: AppConfigEnv): boolean {
   if (env.OWLFOLIO_DISABLE_TEST_DEFAULTS === '1') {
     return false
   }

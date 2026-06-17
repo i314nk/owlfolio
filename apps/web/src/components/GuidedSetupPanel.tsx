@@ -101,6 +101,14 @@ export function GuidedSetupPanel({ initialConfig, initialIsInitialized, provider
   const [isBusy, setIsBusy] = useState(false)
   const [errorMessage, setErrorMessage] = useState<string>()
 
+  // Demo/mock is the TEST-only harness: it is present in providerOptions only under test mode (the
+  // server filters mock-provider out in production via getProviderOptions). The "Demo" mode toggle is
+  // hardcoded here (not derived from connection cards), so gate it on the same signal that removes the
+  // "Try demo mode" card — the presence of the mock-provider option.
+  const demoAvailable = useMemo<boolean>(
+    () => providerOptions.some((option) => option.provider_id === 'mock-provider'),
+    [providerOptions],
+  )
   const connectionOptions = useMemo<ConnectionOption[]>(() => buildConnectionOptions(providerOptions), [providerOptions])
   const selectedConnection = useMemo<ConnectionOption | undefined>(
     () => connectionOptions.find((option) => option.provider.provider_id === config.provider.provider_id),
@@ -190,12 +198,15 @@ export function GuidedSetupPanel({ initialConfig, initialIsInitialized, provider
       createElement(
         'div',
         { 'aria-label': 'Mode switch', style: { display: 'flex', flexWrap: 'wrap', gap: '0.75rem', alignItems: 'center' } },
-        createElement('button', {
-          type: 'button',
-          disabled: isBusy,
-          onClick: () => void switchToMode('demo'),
-          className: `owl-button ${config.mode === 'demo' ? 'owl-button-primary' : 'owl-button-secondary'} owl-focusable`,
-        }, 'Demo'),
+        demoAvailable
+          ? createElement('button', {
+            key: 'demo',
+            type: 'button',
+            disabled: isBusy,
+            onClick: () => void switchToMode('demo'),
+            className: `owl-button ${config.mode === 'demo' ? 'owl-button-primary' : 'owl-button-secondary'} owl-focusable`,
+          }, 'Demo')
+          : null,
         createElement('button', {
           type: 'button',
           disabled: isBusy,

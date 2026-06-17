@@ -71,4 +71,36 @@ describe('GuidedSetupPanel — guided onboarding surface', () => {
     const html = renderToStaticMarkup(createElement(GuidedSetupPanel, baseProps()))
     expect(html).not.toMatch(/sk-/)
   })
+
+  it('hides the demo card and the Demo mode toggle when mock-provider is absent (production)', () => {
+    const productionOptions = providerOptions.filter((option) => option.provider_id !== 'mock-provider')
+    const html = renderToStaticMarkup(
+      createElement(
+        GuidedSetupPanel,
+        baseProps({
+          providerOptions: productionOptions,
+          initialConfig: {
+            version: 1,
+            mode: 'personal-local',
+            provider: { provider_id: 'openai', support_level: 'experimental', model_id: 'gpt-5.5' },
+            strategy_id: 'buffett-munger',
+          } as GuidedSetupPanelProps['initialConfig'],
+        }),
+      ),
+    )
+    // No "Try demo mode" connection card and no demo key-guidance card.
+    expect(html).not.toContain('Try demo mode')
+    expect(html).not.toContain('About demo mode')
+    // No "Demo" mode toggle button; only Personal-local is offered.
+    expect(html).not.toContain('>Demo<')
+    expect(html).toContain('Personal-local')
+    // Real connections remain.
+    expect(html).toContain('Use ChatGPT/Codex')
+  })
+
+  it('shows the demo card and Demo toggle when mock-provider is present (test harness)', () => {
+    const html = renderToStaticMarkup(createElement(GuidedSetupPanel, baseProps()))
+    expect(html).toContain('Try demo mode')
+    expect(html).toContain('>Demo<')
+  })
 })
