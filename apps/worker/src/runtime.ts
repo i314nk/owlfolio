@@ -2342,6 +2342,43 @@ function cadenceSkipReason(task: ScheduledTaskProjection, now: string, explicitl
   return undefined
 }
 
+/**
+ * Defense-in-depth fail-closed guard. Returns a legible error message when the worker would run a
+ * DIFFERENT provider/mode than the run requested (or loaded a config that silently defaulted to demo),
+ * or `undefined` when it is safe to proceed.
+ *
+ * Backward-compat: a legacy request that recorded NO `expected_provider_id`/`expected_mode` is never
+ * failed on the mismatch checks (a run whose expectation matches the loaded config proceeds normally).
+ * The missing-config-path check only fires when there IS a recorded expectation, so we don't break
+ * unit tests / legacy callers that don't thread a real config path.
+ */
+function describeConfigMismatch(
+  run: { expected_provider_id?: string; expected_mode?: string },
+  loaded: { loaded_provider_id?: string; loaded_mode?: string; config_path?: string },
+): string | undefined {
+  const hasExpectation = run.expected_provider_id !== undefined || run.expected_mode !== undefined
+  if (!hasExpectation) {
+    return undefined
+  }
+
+  const loadedProvider = loaded.loaded_provider_id ?? '(unknown)'
+  const loadedMode = loaded.loaded_mode ?? '(unknown)'
+  const mismatch = `Worker loaded a different config than the run requested (requested provider '${run.expected_provider_id ?? '(unspecified)'}' / mode '${run.expected_mode ?? '(unspecified)'}', loaded '${loadedProvider}' / '${loadedMode}'). Aborted — no mock/demo dossier produced. Re-check that the worker reads your personal-local config.`
+
+  if (run.expected_provider_id !== undefined && loaded.loaded_provider_id !== undefined && run.expected_provider_id !== loaded.loaded_provider_id) {
+    return mismatch
+  }
+  if (run.expected_mode !== undefined && loaded.loaded_mode !== undefined && run.expected_mode !== loaded.loaded_mode) {
+    return mismatch
+  }
+  // The loaded config path does not exist on disk → the worker silently defaulted to demo. The
+  // expected provider/mode came from a real web-app config, so a missing path here means substitution.
+  if (loaded.config_path !== undefined && !existsSync(loaded.config_path)) {
+    return mismatch
+  }
+  return undefined
+}
+
 export async function runProcessResearchQueueTask(
   store: EventStore<LedgerEventEnvelope<unknown>>,
   options: {
@@ -2350,6 +2387,17 @@ export async function runProcessResearchQueueTask(
     ground?: GroundFn
     /** Advanced research-depth knob: per-lane grounded-tool-call cap (undefined → loop default). */
     maxToolCalls?: number
+    /**
+     * Defense-in-depth fail-closed guard inputs. These describe the config the worker ACTUALLY loaded
+     * (provider_id + mode + the config path it read). If a run's `research_run_requested` recorded an
+     * `expected_provider_id`/`expected_mode` and it differs from these — or the config path is missing
+     * on disk (config silently defaulted to demo) — the run fails closed (research_run_failed, zero
+     * findings) instead of silently substituting a mock/demo dossier. Omitted in unit tests that don't
+     * exercise the guard → the guard is skipped (treated as legacy/no-expectation).
+     */
+    loaded_provider_id?: string
+    loaded_mode?: string
+    config_path?: string
     now?: () => Date
   },
 ): Promise<{ processed: number; failed: number; summaries: string[] }> {
@@ -2391,6 +2439,39 @@ export async function runProcessResearchQueueTask(
       created_at: claimedAt,
       schema_version: 1,
     } satisfies LedgerEventEnvelope<Record<string, unknown>>)
+
+    // Defense-in-depth fail-closed guard: a personal-local run must execute the EXACT provider/mode it
+    // was requested under — never a silently-substituted mock/demo swarm. If the request recorded an
+    // expectation and the worker loaded a different provider/mode, OR the loaded config path is missing
+    // on disk (config silently defaulted to demo), abort this run with a legible failure and emit NO
+    // swarm findings. Legacy requests with no recorded expectation are NOT failed on (backward-compat).
+    const guardError = describeConfigMismatch(run, options)
+    if (guardError !== undefined) {
+      const failedAt = now().toISOString()
+      await store.append({
+        event_id: `evt_research_run_failed_${run.research_case_id}`,
+        event_type: 'research_run_failed',
+        aggregate_type: 'research_case',
+        aggregate_id: run.research_case_id,
+        causation_id: claimedEvent.event_id,
+        correlation_id: run.research_case_id,
+        idempotency_key: `research-run-failed:${run.research_case_id}:v1`,
+        actor_type: 'worker',
+        actor_id: WORKER_ACTOR_ID,
+        payload: {
+          research_case_id: run.research_case_id,
+          run_id: `run_${run.research_case_id}`,
+          failed_at: failedAt,
+          error_summary: guardError.slice(0, 500),
+        },
+        source_ids: [],
+        created_at: failedAt,
+        schema_version: 1,
+      } satisfies LedgerEventEnvelope<Record<string, unknown>>)
+      failed += 1
+      summaries.push(`process_research_queue: aborted ${run.ticker} (${run.research_case_id}) — config mismatch, no swarm run: ${guardError.slice(0, 200)}`)
+      continue
+    }
 
     try {
       await runStrategyResearchSwarm(

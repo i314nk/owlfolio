@@ -344,6 +344,11 @@ export async function enqueueResearchRun(
         model_id: resolveModelIdForProvider(state.config),
         requested_by: 'user_local',
         decision_id: decisionId,
+        // Defense-in-depth: the request records the provider/mode it was made under so the
+        // worker can fail closed if it loads a different config (e.g. silent demo/mock fallback)
+        // instead of silently substituting a mock/demo dossier for a real personal-local run.
+        expected_provider_id: state.config.provider.provider_id,
+        expected_mode: state.config.mode,
       },
       source_ids: [],
       created_at: new Date().toISOString(),

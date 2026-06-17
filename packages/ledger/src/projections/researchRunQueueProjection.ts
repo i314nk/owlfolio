@@ -7,6 +7,14 @@ export type PendingResearchRun = {
   strategy_id?: string
   model_id?: string
   decision_id?: string
+  /**
+   * The provider the run was REQUESTED under (from the web app's loaded config). Defense-in-depth:
+   * the worker fails closed if this differs from the provider it actually loaded. Absent on legacy
+   * requests, in which case the worker does NOT fail on it (backward-compat).
+   */
+  expected_provider_id?: string
+  /** The mode the run was REQUESTED under (e.g. `personal-local`). Absent on legacy requests. */
+  expected_mode?: string
   requested_event_id: string
 }
 
@@ -45,6 +53,8 @@ export function projectPendingResearchRuns(
       ...(p.strategy_id === undefined ? {} : { strategy_id: String(p.strategy_id) }),
       ...(p.model_id === undefined ? {} : { model_id: String(p.model_id) }),
       ...(p.decision_id === undefined ? {} : { decision_id: String(p.decision_id) }),
+      ...(p.expected_provider_id === undefined ? {} : { expected_provider_id: String(p.expected_provider_id) }),
+      ...(p.expected_mode === undefined ? {} : { expected_mode: String(p.expected_mode) }),
       requested_event_id: e.event_id,
     })
   }

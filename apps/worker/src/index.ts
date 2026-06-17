@@ -98,6 +98,11 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         provider,
         source_ledger_path: runtime.source_ledger_path,
         maxToolCalls,
+        // Defense-in-depth: let the task fail closed if the run requested a provider/mode that differs
+        // from the config the worker actually loaded (e.g. a silent demo/mock fallback).
+        loaded_provider_id: runtime.config.provider.provider_id,
+        loaded_mode: runtime.config.mode,
+        config_path: runtime.config_path,
       })
       console.log(JSON.stringify({ runtime, result }, null, 2))
       return 0

@@ -390,7 +390,7 @@ export const domainEventContracts: readonly DomainEventContract[] = [
     aggregate_type: 'research_case',
     actor_type: 'user',
     projection_owner: 'worker_status',
-    payload_fields: ['research_case_id', 'ticker', 'company_id', 'strategy_id', 'model_id', 'requested_by', 'decision_id'],
+    payload_fields: ['research_case_id', 'ticker', 'company_id', 'strategy_id', 'model_id', 'requested_by', 'decision_id', 'expected_provider_id', 'expected_mode'],
   },
   {
     event_type: 'research_run_claimed',
