@@ -142,6 +142,28 @@ export const DecisionAgentSchema = z.object({
   roic: z.number(),
   incremental_roic: z.number(),
   reinvestment_rate: z.number(),
+  // GROUNDED sustainable-growth band argument (valuation-core revision). The reinvestment×ROIC identity
+  // (incremental_roic × reinvestment_rate, above) is the band anchor; band_economics adds the CITED
+  // narrative the band engine grounds on — why the reinvestment runway sustains, the moat-durability
+  // basis, and the honest sustainable-growth argument. The OPTIONAL capital_light_argument is the escape
+  // valve: a CITED claim that the bare identity understates a capital-light compounder (brand / network /
+  // operating-leverage growth at low reinvestment — MSFT/GOOGL). The band engine honours it ONLY when its
+  // citation is non-empty (a band-up without a citation still clamps to the identity); optional so a
+  // degraded payload still flows through the identity-clamped default rather than hard-failing.
+  band_economics: z.object({
+    // Cited: why the reinvestment runway sustains (or doesn't).
+    reinvestment_runway_evidence: z.string().min(1),
+    // Cited: the moat-durability basis.
+    durability_evidence: z.string().min(1),
+    // The grounded narrative: "X% sustainable because ...".
+    sustainable_growth_argument: z.string().min(1),
+    // OPTIONAL — only when growth is capital-light. claimed_growth is the band-high the agent argues for;
+    // citation is its grounded source (an empty citation is representable but does not trigger the escape).
+    capital_light_argument: z.object({
+      claimed_growth: z.number(),
+      citation: z.string(),
+    }).optional(),
+  }).optional(),
   // judgment-objectivity-layer-spec Mechanism 5 — Red-Team Pass obligation. The synthesis_response that
   // answers the red team's strongest objection is NO LONGER produced here: a live model kept dropping it
   // from this monolithic schema (synthesis_schema_retry_exhausted: [synthesis_response]). Following the

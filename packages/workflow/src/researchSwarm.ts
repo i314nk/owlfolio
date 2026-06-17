@@ -1126,6 +1126,7 @@ export async function runResearchDeepDivePhase(
       + `Using the lane findings, produce a verdict, thesis, evidence, valuation rationale, Shariah rationale, risks, open questions, and a synthesis summary. `
       + `For the owner_earnings_bridge, provide company TOTALS in $millions from the latest 10-K (net_income, depreciation_amortization, maintenance_capex, stock_based_comp, normalized_working_capital_change) AND shares_outstanding (diluted weighted-average shares outstanding, in MILLIONS) so the harness can compute owner earnings per share. `
       + `REQUIRED — do not omit: report incremental_roic (normalized INCREMENTAL ROIC as a fraction, e.g. 0.20) alongside reinvestment_rate. The harness credits growth only when incremental_roic exceeds 10%; historical revenue/EPS growth is never an input. `
+      + `Produce a GROUNDED sustainable-growth band in band_economics: anchor on reinvestment × incremental-ROIC; cross-check against demonstrated growth; CITE moat-durability (durability_evidence) and the reinvestment-runway basis (reinvestment_runway_evidence); state the honest sustainable-growth argument (sustainable_growth_argument) — estimate HONESTLY, do NOT lowball. When growth is capital-light (brand / network / operating-leverage growth at low reinvestment) supply a CITED capital_light_argument {claimed_growth, citation} with the sustainable growth you argue for and its grounded source. Argue the band DOWN freely; a band-UP above the reinvestment×ROIC identity REQUIRES a citation (an uncited band-up is clamped to the identity). `
       // The moat/runway classification + rubrics and the Shariah overlay are produced by the MOAT and
       // SHARIAH specialist lanes — NOT here. The harness has already resolved them; the resolved tiers are
       // handed to you below for RECONCILIATION only (you do not re-score them).
@@ -1894,6 +1895,11 @@ export async function runResearchDeepDivePhase(
   //                                                   business sustains).
   // Fail-closed: when implied is undefined, the band is not_computable, or OE<=0 (no point FV / no band),
   // verdict_state stays undefined and the buy-band-unconfirmed clamp below forces a safe non-BUY verdict.
+  // The valuation lane (synthesis schema) now emits a grounded band_economics block. Its OPTIONAL
+  // capital_light_argument is the escape valve: a CITED claim that the bare reinvestment×ROIC identity
+  // understates a capital-light compounder. The band engine validates it (empty/missing citation → no
+  // escape, clamp to the identity; claim > single_growth_cap → capped) — so we pass it through verbatim.
+  const laneCapitalLightArgument = dec.analysis.band_economics?.capital_light_argument
   const band = sustainableGrowthBand(buffettMungerStrategy, {
     incremental_roic,
     reinvestment_rate,
@@ -1901,8 +1907,9 @@ export async function runResearchDeepDivePhase(
     runway,
     moat_class: moatClass,
     incremental_roic_basis,
-    // capital_light_argument arrives from the valuation lane in a later slice (V5); OMITTED here clamps the
-    // band to the reinvestment×ROIC identity (the honest default), which is fine for now.
+    // The cited capital-light escape from the valuation lane (omitted → band clamps to the identity, the
+    // honest default). The band engine ignores it when the citation is empty.
+    ...(laneCapitalLightArgument !== undefined ? { capital_light_argument: laneCapitalLightArgument } : {}),
   })
   const gap = requiredGrowthGap(buffettMungerStrategy, {
     // Mirror the widenedMarginOfSafety args 1:1 (the SAME documented uncertainties widen the gap).

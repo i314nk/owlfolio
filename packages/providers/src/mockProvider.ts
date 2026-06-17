@@ -36,6 +36,12 @@ function companyLabelForTicker(ticker: string): string {
   return ticker
 }
 
+// Deterministic capital-light cohort for the mock: these names get a CITED capital_light_argument so the
+// band engine's escape valve (band_high above the reinvestment×ROIC identity) is exercised in tests/demo.
+function isCapitalLightMock(ticker: string): boolean {
+  return ticker === 'MSFT' || ticker === 'GOOGL'
+}
+
 function sourceIdsForTicker(ticker: string): string[] {
   const slug = sourceSlugForTicker(ticker)
   return [`src_${slug}_10k_2025`, `src_${slug}_proxy_2025`, `src_${slug}_q1_2026`]
@@ -238,6 +244,21 @@ function mockSynthesisDecisionForTicker(ticker: string) {
     // Normalized INCREMENTAL ROIC (fraction) drives the credited-growth band.
     incremental_roic: 0.20,
     reinvestment_rate: 0.40,
+    // GROUNDED sustainable-growth band argument (valuation-core revision). The identity anchor is
+    // reinvestment 40% × 20% incremental ROIC = 8.0% sustainable. Capital-light names (MSFT/GOOGL) ALSO
+    // supply a CITED capital_light_argument — the escape valve that lifts band_high above the bare
+    // identity — so the capital-light path is exercised deterministically in the demo + tests. Other
+    // names omit it (band clamps to the identity). Deterministic per ticker.
+    band_economics: {
+      reinvestment_runway_evidence: `${companyLabel} reinvests incremental capital at high ROIC with visible remaining runway per the latest 10-K segment capex.`,
+      durability_evidence: `${companyLabel}'s moat durability rests on switching costs and scale advantages disclosed in the latest 10-K.`,
+      sustainable_growth_argument: isCapitalLightMock(ticker)
+        ? `${companyLabel} sustains ~12% growth on capital-light operating leverage (brand/network growth at low reinvestment), above the 8% reinvestment×ROIC identity.`
+        : `${companyLabel} sustains ~8% growth = reinvestment 40% × 20% incremental ROIC (the funded identity).`,
+      ...(isCapitalLightMock(ticker)
+        ? { capital_light_argument: { claimed_growth: 0.12, citation: `sec_edgar_10k_${ticker}: cloud/services segment operating-margin expansion at low incremental reinvestment` } }
+        : {}),
+    },
     // judgment-objectivity-layer-spec Mechanism 5: the synthesis_response that answers the red team's
     // strongest objection now comes from the dedicated red-team-response call (mockRedTeamResponseForTicker
     // / schema BuffettMungerRedTeamResponse) — NOT this synthesis schema. The synthesis only echoes the

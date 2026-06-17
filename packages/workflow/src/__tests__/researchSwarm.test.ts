@@ -867,6 +867,14 @@ type SynthesisOverrides = Partial<{
   incremental_roic: number
   reinvestment_rate: number
   owner_earnings_bridge: Record<string, number | string>
+  // The grounded band argument the valuation lane now emits. When supplied with a non-empty
+  // capital_light_argument citation, the band engine lifts band_high above the reinvestment×ROIC identity.
+  band_economics: {
+    reinvestment_runway_evidence: string
+    durability_evidence: string
+    sustainable_growth_argument: string
+    capital_light_argument?: { claimed_growth: number; citation: string }
+  }
 }>
 
 function configurableSwarmProvider(opts: {
@@ -988,6 +996,7 @@ function configurableSwarmProvider(opts: {
         roic: opts.synthesis?.roic ?? 0.30,
         incremental_roic: opts.synthesis?.incremental_roic ?? 0.20,
         reinvestment_rate: opts.synthesis?.reinvestment_rate ?? 0.43,
+        ...(opts.synthesis?.band_economics !== undefined ? { band_economics: opts.synthesis.band_economics } : {}),
         red_team_strongest_objection: 'echoed',
         proposed_sources: [src('src_dec_1')],
       }
@@ -1422,6 +1431,83 @@ describe('Acceptance #3 — reverse-DCF vs sustainable-band ± required-gap (nev
     // A model BUY on missing data must NOT be recorded as BUY (fail closed → RESEARCH_MORE).
     expect(cp?.investment_verdict).not.toBe('BUY')
     expect(cp?.investment_verdict).toBe('RESEARCH_MORE')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Capital-light escape valve: the valuation lane's band_economics.capital_light_argument flows into the
+// sustainable-growth band engine. A CITED capital-light claim lifts band_high above the bare
+// reinvestment×ROIC identity (so capital-light compounders aren't understated) and its citation surfaces
+// in band_basis_citations; a run WITHOUT a capital_light_argument clamps band_high to the identity.
+// (COST-like wide case: incremental_roic 0.20 × reinvestment 0.43 → band_center/identity 8.6%.)
+// ---------------------------------------------------------------------------
+describe('Valuation lane band_economics → sustainable-growth band (capital-light escape)', () => {
+  async function runWithBandEconomics(
+    band_economics: NonNullable<SynthesisOverrides['band_economics']> | undefined,
+    id: string,
+  ) {
+    const store = new InMemoryEventStore()
+    const provider = configurableSwarmProvider({
+      laneCount: buffettMungerDeepDiveLanes.length,
+      synthesis: {
+        moat_class: 'wide', runway: 'proven', incremental_roic: 0.20, reinvestment_rate: 0.43,
+        ...(band_economics !== undefined ? { band_economics } : {}),
+      },
+      investmentVerdict: 'WATCH',
+    })
+    const sourceLedgerPath = await mkdtemp(join(tmpdir(), `owlfolio-cl-${id}-`))
+    await runStrategyResearchSwarm(
+      store, provider as never,
+      {
+        research_case_id: `rc_${id}`, company_id: 'c', ticker: 'COST',
+        strategy_id: 'buffett-munger', actor_id: 'user_local', idempotency_key: `${id}_k`,
+        model_id: 'mock', decision_id: `decision_${id}`, source_ledger_path: sourceLedgerPath,
+      },
+      {
+        ground: allVerifiedGround,
+        laneConcurrency: 4,
+        resolvePrice: async () => ({ available: true as const, price_per_share: 300, currency: 'USD', as_of: '2026-06-01T00:00:00Z', source: 'fixture' }),
+      },
+    )
+    const events = await store.list()
+    const projections = projectResearchCases(events as Parameters<typeof projectResearchCases>[0])
+    return { cp: projections.find((c) => c.research_case_id === `rc_${id}`) }
+  }
+
+  it('a CITED capital_light_argument lifts band_high above the reinvestment×ROIC identity + cites it', async () => {
+    const { cp } = await runWithBandEconomics(
+      {
+        reinvestment_runway_evidence: 'Low reinvestment; operating leverage per FY25 10-K.',
+        durability_evidence: 'Network effects per 10-K segment disclosure.',
+        sustainable_growth_argument: '12% sustainable on capital-light operating leverage.',
+        capital_light_argument: { claimed_growth: 0.12, citation: 'sec_edgar_10k: cloud segment operating-margin expansion' },
+      },
+      'cl-cited',
+    )
+    const vs = cp?.valuation?.verdict_state
+    // Identity (band_center) is 0.20 × 0.43 = 0.086; the cited capital-light claim lifts band_high to 0.12.
+    expect(vs?.band_center).toBeCloseTo(0.086, 3)
+    expect(vs?.band_high).toBeCloseTo(0.12, 3)
+    expect(vs?.band_high ?? 0).toBeGreaterThan(vs?.band_center ?? Infinity)
+    // The capital-light citation surfaces in the band basis citations.
+    expect((vs?.band_basis_citations ?? []).some((c) => /cloud segment operating-margin expansion/i.test(c))).toBe(true)
+    expect(vs?.band_grounding_status).toBe('grounded')
+  })
+
+  it('WITHOUT a capital_light_argument the band clamps band_high to the identity (band_center)', async () => {
+    const { cp } = await runWithBandEconomics(
+      {
+        reinvestment_runway_evidence: 'Reinvestment runway sustained per 10-K.',
+        durability_evidence: 'Wide-moat switching costs per 10-K.',
+        sustainable_growth_argument: '8.6% sustainable = reinvestment 43% × 20% incremental ROIC.',
+        // no capital_light_argument → clamps to the identity.
+      },
+      'cl-none',
+    )
+    const vs = cp?.valuation?.verdict_state
+    expect(vs?.band_center).toBeCloseTo(0.086, 3)
+    expect(vs?.band_high).toBeCloseTo(0.086, 3)
+    expect(vs?.band_high).toBeCloseTo(vs?.band_center ?? NaN, 5)
   })
 })
 

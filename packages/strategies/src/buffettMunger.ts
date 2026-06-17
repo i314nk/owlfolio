@@ -363,7 +363,7 @@ const rawBuffettMungerStrategy = {
       {
         id: 'valuation',
         name: 'Valuation specialist',
-        mandate: 'Estimate owner-earnings bridge (NI+D&A−maint capex−SBC−ΔWC), ROIC, reinvestment rate; harness computes fair value at flat 10% discount with a uniform base margin of safety (widened by documented uncertainty).',
+        mandate: 'Estimate the owner-earnings bridge (NI+D&A−maint capex−SBC−ΔWC), ROIC, reinvestment rate, and produce a GROUNDED sustainable-growth band: anchor on reinvestment × incremental-ROIC, cross-check against demonstrated growth, cite moat-durability + reinvestment-runway evidence, and estimate HONESTLY (do not lowball). When growth is capital-light (brand/network/operating-leverage, low reinvestment) supply a CITED capital_light_argument (the claimed sustainable growth + its grounded source). Argue the band DOWN freely; a band-UP above the reinvestment×ROIC identity REQUIRES a citation. The harness derives fair value and the verdict from this band (conservatism lives in the required-growth gap).',
         required: true,
       },
       {
