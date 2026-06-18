@@ -933,6 +933,16 @@ function configurableSwarmProvider(opts: {
   omitShariahOverlay?: boolean
   // Founding-risk fix: omit valuation_reasoning entirely (→ synthesis_grounding_unmet) — the live shape.
   omitValuationReasoning?: boolean
+  // A1 hole repro: the decision agent proposes BOTH a verified ('src_dec_good_1') and a
+  // captured-but-unverified ('src_dec_bad_1') source. L1 (dec.verified_ids non-empty) is satisfied by the
+  // good one; the valuation citations point at the BAD (unverified) source. Use with a ground fn that
+  // grounds 'good' ids but captures 'bad' ids as unavailable (no content_hash).
+  decisionProposesGoodBad?: boolean
+  // Rubric/red-team hardening repro: the quick screen proposes BOTH a verified ('src_qs_good_1') and a
+  // captured-but-unverified ('src_qs_bad_1') source. Use with a ground fn that grounds 'good' ids but
+  // captures 'bad' ids as unavailable (no content_hash), so a citation pointing at 'src_qs_bad_1' is
+  // captured-but-unverified — it must NOT count as grounded after the fix.
+  quickScreenProposesGoodBad?: boolean
 }) {
   const src = (id: string) => ({ source_id: id, title: 'T', url: 'https://www.sec.gov/Archives/edgar/data/0/test-10k.htm', excerpt: 'e' })
   let laneCall = 0
@@ -960,7 +970,10 @@ function configurableSwarmProvider(opts: {
           management_capital_allocation: 'Excellent', financial_quality: 'Solid',
           valuation_sanity: 'Reasonable', shariah_status: 'CONDITIONAL',
           red_flags: ['None identified'], confidence: 'high', caveats: ['Mock caveat'],
-          screening_result: 'deep_dive_candidate', proposed_sources: [src('src_qs_1')],
+          screening_result: 'deep_dive_candidate',
+          proposed_sources: opts.quickScreenProposesGoodBad === true
+            ? [src('src_qs_good_1'), src('src_qs_bad_1')]
+            : [src('src_qs_1')],
         }
       }
       if (schemaName === 'BuffettMungerLaneFinding') {
@@ -1050,7 +1063,9 @@ function configurableSwarmProvider(opts: {
               },
             }),
         red_team_strongest_objection: 'echoed',
-        proposed_sources: [src('src_dec_1')],
+        proposed_sources: opts.decisionProposesGoodBad === true
+          ? [src('src_dec_good_1'), src('src_dec_bad_1')]
+          : [src('src_dec_1')],
       }
     }),
   }
@@ -1841,6 +1856,48 @@ describe('Mechanism 5 — red-team pass + synthesis obligation', () => {
     expect(cp?.red_team?.uncited_objection_refs).toEqual(['src_fabricated'])
     expect(cp?.red_team?.objection_unaddressed).toBeUndefined()
     expect((cp?.open_questions ?? []).some((q) => /red_team_objection_unaddressed/.test(q))).toBe(false)
+  })
+
+  it('drops an objection whose only citation is CAPTURED-BUT-UNVERIFIED (no content_hash) — hardens verifiedCitationHashes', async () => {
+    // Hardening repro for the verifiedCitationHashes hole. The red team cites src_qs_bad_1 — a source that
+    // WAS captured (present in accumulated) but FAILED to ground (no content_hash, excluded from
+    // verified_ids). The old cite-check set added every captured source_id unconditionally, so the
+    // objection would have wrongly counted as a LIVE (grounded) objection. After the fix only verified
+    // sources enter the set → the objection is stripped exactly like a fabricated one.
+    const groundGoodCaptureBad = async (sources: { source_id: string }[]) => ({
+      captured: sources.map((s) => {
+        const ok = !s.source_id.includes('bad')
+        return {
+          source_id: s.source_id, title: 't', url: 'https://example.com/x', excerpt: 'e',
+          availability: (ok ? 'available' : 'unavailable') as 'available' | 'unavailable',
+          fetched_at: 'x', ...(ok ? { content_hash: 'sha256:1' } : {}),
+        }
+      }),
+      verified_ids: sources.filter((s) => !s.source_id.includes('bad')).map((s) => s.source_id),
+    })
+    const store = new InMemoryEventStore()
+    const provider = configurableSwarmProvider({
+      laneCount: buffettMungerDeepDiveLanes.length,
+      quickScreenProposesGoodBad: true,
+      redTeamCitations: ['src_qs_bad_1'],
+    })
+    const sourceLedgerPath = await mkdtemp(join(tmpdir(), 'owlfolio-rt-captured-unverified-'))
+    await runStrategyResearchSwarm(
+      store, provider as never,
+      {
+        research_case_id: 'rc_rt_cap_unver', company_id: 'c', ticker: 'TST',
+        strategy_id: 'buffett-munger', actor_id: 'user_local', idempotency_key: 'rt_cap_unver_k',
+        model_id: 'mock', decision_id: 'decision_rt_cap_unver', source_ledger_path: sourceLedgerPath,
+      },
+      { ground: groundGoodCaptureBad as GroundFn, laneConcurrency: 4 },
+    )
+    const events = await store.list()
+    const projections = projectResearchCases(events as Parameters<typeof projectResearchCases>[0])
+    const cp = projections.find((c) => c.research_case_id === 'rc_rt_cap_unver')
+    // The captured-but-unverified citation must be stripped: no live objection, no synthesis obligation.
+    expect(cp?.red_team?.strongest_objection?.citations ?? []).toEqual([])
+    expect(cp?.red_team?.uncited_objection_refs).toEqual(['src_qs_bad_1'])
+    expect(cp?.red_team?.objection_unaddressed).toBeUndefined()
   })
 
   it('SKIPS the dedicated red-team-response call entirely when there is no live objection', async () => {
@@ -3152,6 +3209,46 @@ describe('runStrategyResearchSwarm — synthesis own-grounding fail-closed (foun
     expect(cp?.valuation?.synthesis_grounding_unmet).toBe(true)
     expect(cp?.valuation?.synthesis_grounding_reason).toMatch(/owner_earnings_citation/)
     expect(cp?.investment_verdict ?? cp?.decision).toBe('RESEARCH_MORE')
+  })
+
+  it('Test 2b — CAPTURED-BUT-UNVERIFIED citation (in corpus, NO content_hash): verdict RESEARCH_MORE + synthesis_grounding_unmet', async () => {
+    // The A1 hole repro. L1 PASSES: the decision agent grounds a real source (src_dec_good_1 → in
+    // dec.verified_ids). But the valuation citations point at src_dec_bad_1 — a source that was CAPTURED
+    // (it shows up in `accumulated`) but FAILED to ground (no content_hash, excluded from verified_ids,
+    // e.g. SSRF/404/redirect-exhausted/network). The old cite-check sets added every captured source_id
+    // unconditionally, so src_dec_bad_1 'verified' and L2 waved a confident verdict through. After the fix
+    // only VERIFIED sources (content_hash present) enter the set → the gate fires.
+    const groundGoodCaptureBad = async (sources: { source_id: string }[]) => ({
+      captured: sources.map((s) => {
+        const ok = !s.source_id.includes('bad')
+        return {
+          source_id: s.source_id, title: 't', url: 'https://example.com/x', excerpt: 'e',
+          // 'bad' ids are captured (present in accumulated) but UNAVAILABLE — no content_hash.
+          availability: (ok ? 'available' : 'unavailable') as 'available' | 'unavailable',
+          fetched_at: 'x', ...(ok ? { content_hash: 'sha256:1' } : {}),
+        }
+      }),
+      verified_ids: sources.filter((s) => !s.source_id.includes('bad')).map((s) => s.source_id),
+    })
+    const { cp } = await runWithSynthesis('rc_g_captured_unverified', {
+      investmentVerdict: 'BUY',
+      decisionProposesGoodBad: true,
+      synthesis: {
+        valuation_reasoning: {
+          owner_earnings_basis: 'FY25 owner earnings per the 10-K bridge.',
+          // Cite the captured-but-unverified source for BOTH valuation claims. L1 is still satisfied
+          // because the agent also grounded src_dec_good_1.
+          owner_earnings_citation: 'src_dec_bad_1',
+          assumed_growth: 0.06,
+          assumed_growth_rationale: 'Growth rationale.',
+          assumed_growth_citation: 'src_dec_bad_1',
+        },
+      },
+    }, groundGoodCaptureBad as GroundFn)
+    expect(cp?.valuation?.synthesis_grounding_unmet).toBe(true)
+    expect(cp?.valuation?.synthesis_grounding_reason).toMatch(/owner_earnings_citation|assumed_growth_citation/)
+    expect(cp?.investment_verdict ?? cp?.decision).toBe('RESEARCH_MORE')
+    expect(cp?.investment_verdict ?? cp?.decision).not.toBe('BUY')
   })
 
   it('Test 4 — FULLY GROUNDED (own verified_ids + both citations verify): model verdict passes through, NO flag', async () => {

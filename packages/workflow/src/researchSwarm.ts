@@ -998,7 +998,10 @@ export async function runResearchDeepDivePhase(
   // unchanged. Resolved BEFORE the red team so its caseDigest sees the resolved tiers.
   const verifiedCitationHashes = new Set<string>()
   for (const s of accumulated.values()) {
-    if (s.content_hash !== undefined) verifiedCitationHashes.add(s.content_hash)
+    // Only VERIFIED sources (content_hash present) enter the cite-check set — a captured-but-unverified
+    // source_id (fetch failed: SSRF/404/redirect-exhausted/network) must not satisfy a citation.
+    if (s.content_hash === undefined) continue
+    verifiedCitationHashes.add(s.content_hash)
     verifiedCitationHashes.add(s.source_id) // a lane may cite by source_id; both are corpus-verified
   }
   const judgment = resolveJudgmentTiers({
@@ -1063,7 +1066,10 @@ export async function runResearchDeepDivePhase(
   const corpusBeforeSynthesis = [...accumulated.values()]
   const corpusHashesBeforeSynthesis = new Set<string>()
   for (const s of corpusBeforeSynthesis) {
-    if (s.content_hash !== undefined) corpusHashesBeforeSynthesis.add(s.content_hash)
+    // Only VERIFIED sources (content_hash present) enter the cite-check set — a captured-but-unverified
+    // source_id (fetch failed: SSRF/404/redirect-exhausted/network) must not satisfy a citation.
+    if (s.content_hash === undefined) continue
+    corpusHashesBeforeSynthesis.add(s.content_hash)
     corpusHashesBeforeSynthesis.add(s.source_id)
   }
   const laneDigest: RedTeamLaneDigest[] = laneResults
@@ -1194,7 +1200,10 @@ export async function runResearchDeepDivePhase(
   // present AND verify. Deterministic verifies GROUNDING; semantic relevance stays the human's audit.
   const synthesisCorpusHashes = new Set<string>()
   for (const s of accumulated.values()) {
-    if (s.content_hash !== undefined) synthesisCorpusHashes.add(s.content_hash)
+    // Only VERIFIED sources (content_hash present) enter the cite-check set — a captured-but-unverified
+    // source_id (fetch failed: SSRF/404/redirect-exhausted/network) must not satisfy a citation.
+    if (s.content_hash === undefined) continue
+    synthesisCorpusHashes.add(s.content_hash)
     synthesisCorpusHashes.add(s.source_id) // a citation may be by source_id OR content_hash; both are corpus-verified
   }
   const ownerEarningsCitation = dec.analysis.valuation_reasoning?.owner_earnings_citation
