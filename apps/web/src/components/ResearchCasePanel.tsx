@@ -677,6 +677,16 @@ function createVerdictFormatBlock(researchCase: AppResearchCase) {
       ? createElement('span', { style: { color: '#fca5a5' } }, 'red_team_incomplete — case not adversarially tested')
       : createElement('span', null, redTeam.strongest_objection?.claim ?? 'Objection recorded')
 
+  // Founding-risk fix: surface the synthesis own-grounding fail-closed near the verdict so an ungrounded
+  // verdict (routed to RESEARCH_MORE) is never silent. Grounded = a quiet OK; unmet = a visible red warning.
+  const synthesisGroundingLine = valuation.synthesis_grounding_unmet === true
+    ? createElement(
+        'span',
+        { style: { color: '#fca5a5' } },
+        'Synthesis valuation reasoning not grounded — re-run',
+      )
+    : createElement('span', { style: { color: 'var(--owl-color-muted)' } }, 'Grounded')
+
   const lines: ReactNode[] = [
     verdictFormatLine('Tier + runway', moatClass === undefined ? NOT_YET : `${moatClass.toUpperCase()}${runway === undefined ? '' : ` · ${runway} runway`}`),
     verdictFormatLine('Owner earnings + method', oe === undefined ? NOT_YET : `$${oe.toFixed(2)}/sh · two-stage discounted owner earnings`),
@@ -698,6 +708,7 @@ function createVerdictFormatBlock(researchCase: AppResearchCase) {
     verdictFormatLine('Key-wrong assumption', NOT_YET),
     verdictFormatLine('Thesis-break triggers', NOT_YET),
     verdictFormatLine('Red-team objection', redTeamLine),
+    verdictFormatLine('Synthesis grounding', synthesisGroundingLine),
   ]
 
   return createElement(

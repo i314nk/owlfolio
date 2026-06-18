@@ -254,10 +254,14 @@ function mockSynthesisDecisionForTicker(ticker: string) {
     proposed_buy_below: isCapitalLightMock(ticker) ? 320 : 150,
     valuation_reasoning: {
       owner_earnings_basis: `${companyLabel} FY25 owner earnings ≈ $14B per the latest 10-K (NI + D&A − maintenance capex − SBC − ΔWC).`,
+      // Founding-risk fix: ground both valuation claims in the decision agent's OWN proposed (and verified)
+      // primary source so the harness's deterministic synthesis own-grounding cite-check passes.
+      owner_earnings_citation: `mock_${sourceSlugForTicker(ticker)}_primary`,
       assumed_growth: isCapitalLightMock(ticker) ? 0.18 : 0.06,
       assumed_growth_rationale: isCapitalLightMock(ticker)
         ? `${companyLabel} sustains capital-light operating-leverage growth per the latest 10-K cloud/services segment margin expansion at low incremental reinvestment.`
         : `${companyLabel} sustains modest mid-single-digit growth = reinvestment 40% × 20% incremental ROIC (the funded identity), cited to the latest 10-K segment capex.`,
+      assumed_growth_citation: `mock_${sourceSlugForTicker(ticker)}_primary`,
     },
     // judgment-objectivity-layer-spec Mechanism 5: the synthesis_response that answers the red team's
     // strongest objection now comes from the dedicated red-team-response call (mockRedTeamResponseForTicker

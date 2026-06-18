@@ -41,18 +41,37 @@ describe('DecisionAgentSchema (model proposes buy-below + cited valuation reason
     expect(parsed.success && parsed.data.proposed_buy_below).toBe(150)
   })
 
-  it('parses with the cited valuation_reasoning block (owner-earnings basis + assumed growth + rationale)', () => {
+  it('parses with the cited valuation_reasoning block (owner-earnings basis + assumed growth + rationale + grounding citations)', () => {
     const parsed = DecisionAgentSchema.safeParse({
       ...base,
       valuation_reasoning: {
         owner_earnings_basis: 'FY25 owner earnings $8.4B per the 10-K.',
+        // Founding-risk fix: the grounding citations (a source_id of a verified primary source) are required.
+        owner_earnings_citation: 's1',
         assumed_growth: 0.06,
         assumed_growth_rationale: 'Modest mid-single-digit growth grounded in segment capex, cited to the 10-K.',
+        assumed_growth_citation: 's1',
       },
     })
     expect(parsed.success).toBe(true)
     expect(parsed.success && parsed.data.valuation_reasoning?.assumed_growth).toBe(0.06)
+    expect(parsed.success && parsed.data.valuation_reasoning?.owner_earnings_citation).toBe('s1')
+    expect(parsed.success && parsed.data.valuation_reasoning?.assumed_growth_citation).toBe('s1')
     expect(parsed.success && parsed.data.valuation_reasoning?.discount_rationale).toBeUndefined()
+  })
+
+  it('REQUIRES the grounding citations when valuation_reasoning is present (founding-risk fix)', () => {
+    // valuation_reasoning is optional overall, but if present BOTH citation fields are mandatory — the
+    // schema FAILS without them so runValidatedAgent retries (the model must ground its own claims).
+    const missingCitations = DecisionAgentSchema.safeParse({
+      ...base,
+      valuation_reasoning: {
+        owner_earnings_basis: 'FY25 owner earnings $8.4B per the 10-K.',
+        assumed_growth: 0.06,
+        assumed_growth_rationale: 'Modest mid-single-digit growth grounded in segment capex.',
+      },
+    })
+    expect(missingCitations.success).toBe(false)
   })
 
   it('carries an optional discount_rationale on valuation_reasoning', () => {
@@ -60,8 +79,10 @@ describe('DecisionAgentSchema (model proposes buy-below + cited valuation reason
       ...base,
       valuation_reasoning: {
         owner_earnings_basis: 'FY25 owner earnings per the 10-K.',
+        owner_earnings_citation: 's1',
         assumed_growth: 0.18,
         assumed_growth_rationale: 'Capital-light operating leverage per the cloud segment, cited to the 10-K.',
+        assumed_growth_citation: 's1',
         discount_rationale: '10% = live 10y Treasury + uniform equity premium.',
       },
     })

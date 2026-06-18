@@ -188,6 +188,14 @@ function swarmFakeProvider() {
         incremental_roic: 0.20,
         reinvestment_rate: 0.40,
         proposed_buy_below: 150,
+        // Founding-risk fix: ground the valuation/growth claims in the decision agent's OWN verified source.
+        valuation_reasoning: {
+          owner_earnings_basis: 'FY25 owner earnings per the 10-K bridge.',
+          owner_earnings_citation: 'src_dec_1',
+          assumed_growth: 0.06,
+          assumed_growth_rationale: 'Modest mid-single-digit growth grounded in segment capex, cited to the 10-K.',
+          assumed_growth_citation: 'src_dec_1',
+        },
         proposed_sources: [src('src_dec_1')],
       }
     }),
@@ -295,6 +303,14 @@ function swarmFakeProviderWithLaneIds(_lanes: readonly string[]) {
         incremental_roic: 0.20,
         reinvestment_rate: 0.40,
         proposed_buy_below: 150,
+        // Founding-risk fix: ground the valuation/growth claims in the decision agent's OWN verified source.
+        valuation_reasoning: {
+          owner_earnings_basis: 'FY25 owner earnings per the 10-K bridge.',
+          owner_earnings_citation: 'src_dec_partial_1',
+          assumed_growth: 0.06,
+          assumed_growth_rationale: 'Modest mid-single-digit growth grounded in segment capex, cited to the 10-K.',
+          assumed_growth_citation: 'src_dec_partial_1',
+        },
         proposed_sources: [src('src_dec_partial_1')],
       }
     }),
@@ -502,6 +518,14 @@ describe('runStrategyResearchSwarm', () => {
             incremental_roic: 0.20,
             reinvestment_rate: 0.40,
             proposed_buy_below: 150,
+            // Founding-risk fix: cite the GOOD (verified) decision source so the grounding gate passes.
+            valuation_reasoning: {
+              owner_earnings_basis: 'FY25 owner earnings per the 10-K bridge.',
+              owner_earnings_citation: 'src_dec_good_1',
+              assumed_growth: 0.06,
+              assumed_growth_rationale: 'Modest mid-single-digit growth grounded in segment capex, cited to the 10-K.',
+              assumed_growth_citation: 'src_dec_good_1',
+            },
             proposed_sources: [src('src_dec_good_1'), src('src_dec_bad_1')],
           }
         }),
@@ -874,8 +898,12 @@ type SynthesisOverrides = Partial<{
   proposed_buy_below: number
   valuation_reasoning: {
     owner_earnings_basis: string
+    // Founding-risk fix: a grounded source_id (or content_hash) backing the owner-earnings figure.
+    owner_earnings_citation: string
     assumed_growth: number
     assumed_growth_rationale: string
+    // Founding-risk fix: a grounded source_id (or content_hash) backing the assumed-growth rationale.
+    assumed_growth_citation: string
     discount_rationale?: string
   }
 }>
@@ -903,6 +931,8 @@ function configurableSwarmProvider(opts: {
   // and/or the SHARIAH lane omits its overlay (→ shariah_ratios_unverified) — the live-dogfood shape.
   omitMoatRubric?: boolean
   omitShariahOverlay?: boolean
+  // Founding-risk fix: omit valuation_reasoning entirely (→ synthesis_grounding_unmet) — the live shape.
+  omitValuationReasoning?: boolean
 }) {
   const src = (id: string) => ({ source_id: id, title: 'T', url: 'https://www.sec.gov/Archives/edgar/data/0/test-10k.htm', excerpt: 'e' })
   let laneCall = 0
@@ -1005,11 +1035,20 @@ function configurableSwarmProvider(opts: {
         reinvestment_rate: opts.synthesis?.reinvestment_rate ?? 0.43,
         // RELIGHTENED DECISION (R1): the model proposes the buy-below + cited valuation reasoning.
         proposed_buy_below: opts.synthesis?.proposed_buy_below ?? 150,
-        valuation_reasoning: opts.synthesis?.valuation_reasoning ?? {
-          owner_earnings_basis: 'FY25 owner earnings per the 10-K bridge.',
-          assumed_growth: 0.06,
-          assumed_growth_rationale: 'Modest mid-single-digit growth grounded in segment capex, cited to the 10-K.',
-        },
+        // Founding-risk fix: by default the valuation_reasoning GROUNDS both claims in the decision agent's
+        // OWN verified source (src_dec_1, which allVerifiedGround verifies into dec.verified_ids) so a clean
+        // grounded synthesis passes through. omitValuationReasoning drops it entirely (→ grounding unmet).
+        ...(opts.omitValuationReasoning === true
+          ? {}
+          : {
+              valuation_reasoning: opts.synthesis?.valuation_reasoning ?? {
+                owner_earnings_basis: 'FY25 owner earnings per the 10-K bridge.',
+                owner_earnings_citation: 'src_dec_1',
+                assumed_growth: 0.06,
+                assumed_growth_rationale: 'Modest mid-single-digit growth grounded in segment capex, cited to the 10-K.',
+                assumed_growth_citation: 'src_dec_1',
+              },
+            }),
         red_team_strongest_objection: 'echoed',
         proposed_sources: [src('src_dec_1')],
       }
@@ -1326,8 +1365,13 @@ describe('RELIGHTENED DECISION — model proposes buy-below; deterministic side 
         ...(opts.proposedBuyBelow !== undefined ? { proposed_buy_below: opts.proposedBuyBelow } : {}),
         valuation_reasoning: {
           owner_earnings_basis: 'FY25 owner earnings per the 10-K bridge.',
+          // Founding-risk fix: ground both valuation claims in the decision agent's OWN verified source
+          // (src_dec_1, verified by allVerifiedGround) so these flag-only sanity tests exercise the SANITY
+          // layer on a properly-grounded synthesis (the grounding gate must not interfere).
+          owner_earnings_citation: 'src_dec_1',
           assumed_growth: opts.assumedGrowth ?? 0.06,
           assumed_growth_rationale: 'Cited to the latest 10-K segment capex.',
+          assumed_growth_citation: 'src_dec_1',
         },
       },
       investmentVerdict: opts.investmentVerdict ?? 'WATCH',
@@ -1442,7 +1486,7 @@ describe('RELIGHTENED DECISION — model proposes buy-below; deterministic side 
     const provider = configurableSwarmProvider({
       laneCount: buffettMungerDeepDiveLanes.length,
       synthesis: { moat_class: 'wide', runway: 'proven', incremental_roic: 0.20, reinvestment_rate: 0.43, proposed_buy_below: 180,
-        valuation_reasoning: { owner_earnings_basis: 'b', assumed_growth: 0.06, assumed_growth_rationale: 'r' } },
+        valuation_reasoning: { owner_earnings_basis: 'b', owner_earnings_citation: 'src_dec_1', assumed_growth: 0.06, assumed_growth_rationale: 'r', assumed_growth_citation: 'src_dec_1' } },
       investmentVerdict: 'WATCH',
     })
     const sourceLedgerPath = await mkdtemp(join(tmpdir(), 'owlfolio-exitmult-noprice-'))
@@ -1510,7 +1554,9 @@ describe('RELIGHTENED DECISION — model proposes buy-below; deterministic side 
           normalized_working_capital_change: 0, shares_outstanding: 0,
         },
         proposed_buy_below: 150,
-        valuation_reasoning: { owner_earnings_basis: 'b', assumed_growth: 0.06, assumed_growth_rationale: 'r' },
+        // Founding-risk fix: ground both valuation claims so this test isolates the OE/buy-data gate, not
+        // the synthesis grounding gate (cite the decision agent's OWN verified source src_dec_1).
+        valuation_reasoning: { owner_earnings_basis: 'b', owner_earnings_citation: 'src_dec_1', assumed_growth: 0.06, assumed_growth_rationale: 'r', assumed_growth_citation: 'src_dec_1' },
       },
       investmentVerdict: 'WATCH',
     })
@@ -3010,5 +3056,122 @@ describe('runStrategyResearchSwarm — model_role_env (file-configured tier over
     // The red-team pass ran on the env-configured model; the quick screen kept the run default.
     expect(modelBySchema.get('BuffettMungerRedTeam')).toBe('env-red-team-model')
     expect(modelBySchema.get('BuffettMungerQuickScreen')).toBe('run-default-model')
+  })
+})
+
+// ---------------------------------------------------------------------------------------------------
+// FOUNDING-RISK FIX — the synthesis/decision agent fails closed on its OWN grounding.
+//
+// The decision agent's verdict + valuation/growth claims must be grounded in a VERIFIED source of its
+// OWN — not merely in the union corpus the lanes already grounded (which is never empty). When the agent
+// grounds NOTHING of its own (dec.verified_ids empty) OR its owner_earnings_citation / assumed_growth_
+// citation do not verify against the corpus, the harness FAILS CLOSED: the recorded verdict is
+// RESEARCH_MORE (NOT the model's confident investment_verdict) + a visible synthesis_grounding_unmet flag.
+// A clean, fully-grounded synthesis still passes the model's verdict through (no false-positive).
+// ---------------------------------------------------------------------------------------------------
+describe('runStrategyResearchSwarm — synthesis own-grounding fail-closed (founding-risk fix)', () => {
+  async function runWithSynthesis(
+    rcId: string,
+    opts: Omit<Parameters<typeof configurableSwarmProvider>[0], 'laneCount'>,
+    ground: GroundFn = allVerifiedGround as GroundFn,
+  ) {
+    const store = new InMemoryEventStore()
+    const provider = configurableSwarmProvider({ laneCount: buffettMungerDeepDiveLanes.length, ...opts })
+    const sourceLedgerPath = await mkdtemp(join(tmpdir(), `owlfolio-grounding-${rcId}-`))
+    await runStrategyResearchSwarm(
+      store, provider as never,
+      {
+        research_case_id: rcId, company_id: `company_${rcId}`, ticker: 'COST',
+        strategy_id: 'buffett-munger', actor_id: 'user_local', idempotency_key: `${rcId}_k`,
+        model_id: 'mock', decision_id: `decision_${rcId}`, source_ledger_path: sourceLedgerPath,
+      },
+      { ground, laneConcurrency: 4 },
+    )
+    const events = await store.list()
+    const projections = projectResearchCases(events as Parameters<typeof projectResearchCases>[0])
+    const cp = projections.find((c) => c.research_case_id === rcId)
+    return { events, cp }
+  }
+
+  it('Test 1 — EMPTY OWN GROUNDING (union corpus non-empty): verdict RESEARCH_MORE + synthesis_grounding_unmet', async () => {
+    // The lanes/quick-screen ground their sources (union corpus non-empty) but the decision agent's OWN
+    // proposed source (src_dec_1) does NOT verify → dec.verified_ids empty. The old all-corpus check never
+    // fires; the new Layer-1 own-grounding check must route to RESEARCH_MORE and set the flag.
+    const groundExceptDecision = async (sources: { source_id: string }[]) => {
+      const verifiable = sources.filter((s) => !s.source_id.startsWith('src_dec'))
+      return {
+        captured: sources.map((s) => {
+          const ok = !s.source_id.startsWith('src_dec')
+          return {
+            source_id: s.source_id, title: 't', url: 'https://example.com/x', excerpt: 'e',
+            availability: (ok ? 'available' : 'unavailable') as 'available' | 'unavailable',
+            fetched_at: 'x', ...(ok ? { content_hash: 'sha256:1' } : {}),
+          }
+        }),
+        verified_ids: verifiable.map((s) => s.source_id),
+      }
+    }
+    // The model would have said BUY; the gate must NOT record that confident verdict.
+    const { cp } = await runWithSynthesis('rc_g_empty', { investmentVerdict: 'BUY' }, groundExceptDecision)
+    expect(cp?.valuation?.synthesis_grounding_unmet).toBe(true)
+    expect(cp?.investment_verdict ?? cp?.decision).toBe('RESEARCH_MORE')
+    expect(cp?.investment_verdict ?? cp?.decision).not.toBe('BUY')
+  })
+
+  it('Test 2 — UNGROUNDED GROWTH citation (not in corpus): verdict RESEARCH_MORE + synthesis_grounding_unmet', async () => {
+    const { cp } = await runWithSynthesis('rc_g_growth', {
+      investmentVerdict: 'BUY',
+      synthesis: {
+        valuation_reasoning: {
+          owner_earnings_basis: 'FY25 owner earnings per the 10-K bridge.',
+          owner_earnings_citation: 'src_dec_1', // verifies
+          assumed_growth: 0.06,
+          assumed_growth_rationale: 'Growth rationale.',
+          assumed_growth_citation: 'src_not_in_corpus', // does NOT verify
+        },
+      },
+    })
+    expect(cp?.valuation?.synthesis_grounding_unmet).toBe(true)
+    expect(cp?.valuation?.synthesis_grounding_reason).toMatch(/assumed_growth_citation/)
+    expect(cp?.investment_verdict ?? cp?.decision).toBe('RESEARCH_MORE')
+  })
+
+  it('Test 3 — UNGROUNDED OWNER-EARNINGS citation (not in corpus): verdict RESEARCH_MORE + synthesis_grounding_unmet', async () => {
+    const { cp } = await runWithSynthesis('rc_g_oe', {
+      investmentVerdict: 'BUY',
+      synthesis: {
+        valuation_reasoning: {
+          owner_earnings_basis: 'FY25 owner earnings per the 10-K bridge.',
+          owner_earnings_citation: 'src_not_in_corpus', // does NOT verify
+          assumed_growth: 0.06,
+          assumed_growth_rationale: 'Growth rationale.',
+          assumed_growth_citation: 'src_dec_1', // verifies
+        },
+      },
+    })
+    expect(cp?.valuation?.synthesis_grounding_unmet).toBe(true)
+    expect(cp?.valuation?.synthesis_grounding_reason).toMatch(/owner_earnings_citation/)
+    expect(cp?.investment_verdict ?? cp?.decision).toBe('RESEARCH_MORE')
+  })
+
+  it('Test 4 — FULLY GROUNDED (own verified_ids + both citations verify): model verdict passes through, NO flag', async () => {
+    // The decision agent grounds src_dec_1 and cites it for BOTH valuation claims (default fixture shape).
+    // A model WATCH here passes through cleanly — NO synthesis_grounding_unmet flag (proves no false-positive
+    // on a clean grounded synthesis; the grounding gate does NOT clamp a properly-grounded verdict). WATCH
+    // (not BUY) is used so the unrelated buy-data gate — which needs a live price — does not interfere.
+    const { cp } = await runWithSynthesis('rc_g_clean', { investmentVerdict: 'WATCH' })
+    expect(cp?.valuation?.synthesis_grounding_unmet).toBeUndefined()
+    expect(cp?.valuation?.synthesis_grounding_reason).toBeUndefined()
+    expect(cp?.investment_verdict ?? cp?.decision).toBe('WATCH')
+  })
+
+  it('Tripwire — NO CONFIDENT VERDICT ON UNGROUNDED SYNTHESIS (valuation_reasoning omitted entirely)', async () => {
+    // Wiring-conformance: with the decision agent producing NO valuation_reasoning at all (and so no
+    // citations), the recorded decision verdict MUST be RESEARCH_MORE + synthesis_grounding_unmet — NEVER
+    // the model's confident investment_verdict. This guards the founding-risk gate at the final verdict.
+    const { cp } = await runWithSynthesis('rc_g_trip', { investmentVerdict: 'BUY', omitValuationReasoning: true })
+    expect(cp?.valuation?.synthesis_grounding_unmet).toBe(true)
+    expect(cp?.investment_verdict ?? cp?.decision).toBe('RESEARCH_MORE')
+    expect(cp?.investment_verdict ?? cp?.decision).not.toBe('BUY')
   })
 })

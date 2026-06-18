@@ -248,6 +248,15 @@ export type ResearchCaseValuationProjection = {
   /** Phase 1.6: fair value exceeded the 18× OE sanity-flag threshold — surfaced, not truncated. */
   cap_exceeded?: boolean
   /**
+   * Founding-risk fix: the decision/synthesis agent's verdict + valuation/growth claims were NOT grounded
+   * in a verified source of its OWN (empty dec.verified_ids and/or an owner-earnings/assumed-growth citation
+   * that did not verify against the corpus). When true the verdict was fail-closed to RESEARCH_MORE — the
+   * model's confident verdict was NOT recorded. Legacy-tolerant: absent on old events.
+   */
+  synthesis_grounding_unmet?: boolean
+  /** Founding-risk fix: human-readable reason naming WHICH grounding layer/claim failed. */
+  synthesis_grounding_reason?: string
+  /**
    * The price at which market-implied growth rises to the buy-threshold (band_low − required_gap) — i.e.
    * the forward DCF evaluated at g = band_low − required_gap, repurposing the monotonic two-stage DCF as a
    * price-from-growth function. By construction the reverse-DCF implied growth at this price equals the
@@ -1190,6 +1199,11 @@ function getValuation(payload: Record<string, unknown>): ResearchCaseValuationPr
   if (terminal_value_pct_of_iv !== undefined) projected.terminal_value_pct_of_iv = terminal_value_pct_of_iv
   const cap_exceeded = getBoolean(value, 'cap_exceeded')
   if (cap_exceeded !== undefined) projected.cap_exceeded = cap_exceeded
+  // Founding-risk fix: legacy-tolerant projection of the synthesis own-grounding fail-closed flag + reason.
+  const synthesis_grounding_unmet = getBoolean(value, 'synthesis_grounding_unmet')
+  if (synthesis_grounding_unmet !== undefined) projected.synthesis_grounding_unmet = synthesis_grounding_unmet
+  const synthesis_grounding_reason = getString(value, 'synthesis_grounding_reason')
+  if (synthesis_grounding_reason !== undefined) projected.synthesis_grounding_reason = synthesis_grounding_reason
   const buy_price_per_share = getNumber(value, 'buy_price_per_share')
   if (buy_price_per_share !== undefined) projected.buy_price_per_share = buy_price_per_share
   const fair_value_range = getString(value, 'fair_value_range')

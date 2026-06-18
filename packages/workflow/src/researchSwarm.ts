@@ -1113,7 +1113,22 @@ export async function runResearchDeepDivePhase(
   // Spec-correct decomposition: the moat/runway rubric + the Shariah overlay are produced + retried on their
   // OWN specialist lanes, and the red-team response on its OWN focused call (below). Synthesis therefore has
   // NO judgment-overlay required fields — it just produces the verdict/thesis/valuation/Shariah rationale.
-  const synthesisRequiredFields: RequiredFieldCheck<z.infer<typeof DecisionAgentSchema>>[] = []
+  // Founding-risk fix: the decision agent's valuation/growth claims must be GROUNDED in a verified source of
+  // its OWN — so the citation fields are REQUIRED (runValidatedAgent retries when the model omits them). The
+  // post-synthesis cite-check below then verifies they resolve against the corpus; absent/unverifiable →
+  // synthesis_grounding_unmet → RESEARCH_MORE (the model's confident verdict is NOT recorded).
+  const synthesisRequiredFields: RequiredFieldCheck<z.infer<typeof DecisionAgentSchema>>[] = [
+    {
+      name: 'valuation_reasoning.owner_earnings_citation',
+      present: (a) => (a.valuation_reasoning?.owner_earnings_citation ?? '').length > 0,
+      hint: 'the source_id of a VERIFIED primary source backing the owner-earnings figure (a real grounded source_id, not prose)',
+    },
+    {
+      name: 'valuation_reasoning.assumed_growth_citation',
+      present: (a) => (a.valuation_reasoning?.assumed_growth_citation ?? '').length > 0,
+      hint: 'the source_id of a VERIFIED primary source backing the assumed-growth rationale (a real grounded source_id, not prose)',
+    },
+  ]
   let dec: GroundedAgentResult<z.infer<typeof DecisionAgentSchema>>
   // Surfaced when the validate→retry wrapper exhausted its attempts and we fell back to the degraded
   // (still-parsed) payload — recorded as a visible degraded flag below so the gap is never silent.
@@ -1127,7 +1142,7 @@ export async function runResearchDeepDivePhase(
       + `Using the lane findings, produce a verdict, thesis, evidence, valuation rationale, Shariah rationale, risks, open questions, and a synthesis summary. `
       + `For the owner_earnings_bridge, provide company TOTALS in $millions from the latest 10-K (net_income, depreciation_amortization, maintenance_capex, stock_based_comp, normalized_working_capital_change) AND shares_outstanding (diluted weighted-average shares outstanding, in MILLIONS) so the harness can compute owner earnings per share. `
       + `Report incremental_roic (normalized INCREMENTAL ROIC as a fraction, e.g. 0.20) alongside reinvestment_rate (reported context). `
-      + `YOU OWN THE VALUATION JUDGMENT. REQUIRED — do not omit: proposed_buy_below — the per-share price BELOW which you would buy, your own number, with your cited reasoning (the harness records it verbatim; it does NOT derive it from any fair value). ALSO produce valuation_reasoning: owner_earnings_basis (CITED — the owner-earnings figure you valued), assumed_growth (the near-term growth you assumed, a fraction), assumed_growth_rationale (CITED — WHY that growth is defensible; a durable source, not "strong execution"), and optionally discount_rationale. Estimate HONESTLY — do NOT lowball and do NOT over-reach: a growth above ~15% or a price implying it will be FLAGGED as implausible. Set valuation_status (ATTRACTIVE | FAIR | EXPENSIVE | INSUFFICIENT_DATA) consistently with that evidence — the harness sanity-checks it against the market-implied growth in BOTH directions. `
+      + `YOU OWN THE VALUATION JUDGMENT. REQUIRED — do not omit: proposed_buy_below — the per-share price BELOW which you would buy, your own number, with your cited reasoning (the harness records it verbatim; it does NOT derive it from any fair value). ALSO produce valuation_reasoning: owner_earnings_basis (CITED — the owner-earnings figure you valued), owner_earnings_citation (REQUIRED — the source_id of a VERIFIED primary source from YOUR proposed_sources / the corpus that backs the owner-earnings figure; a real grounded source_id, NOT a prose hand-wave), assumed_growth (the near-term growth you assumed, a fraction), assumed_growth_rationale (CITED — WHY that growth is defensible; a durable source, not "strong execution"), assumed_growth_citation (REQUIRED — the source_id of a VERIFIED primary source backing that growth rationale; again a real grounded source_id, NOT prose), and optionally discount_rationale. The harness deterministically cite-checks owner_earnings_citation and assumed_growth_citation against the grounded corpus and FAILS CLOSED (routes to RESEARCH_MORE) when either is absent or does not verify — cite real grounded sources of your own. Estimate HONESTLY — do NOT lowball and do NOT over-reach: a growth above ~15% or a price implying it will be FLAGGED as implausible. Set valuation_status (ATTRACTIVE | FAIR | EXPENSIVE | INSUFFICIENT_DATA) consistently with that evidence — the harness sanity-checks it against the market-implied growth in BOTH directions. `
       // The moat/runway classification + rubrics and the Shariah overlay are produced by the MOAT and
       // SHARIAH specialist lanes — NOT here. The harness has already resolved them; the resolved tiers are
       // handed to you below for RECONCILIATION only (you do not re-score them).
@@ -1167,6 +1182,44 @@ export async function runResearchDeepDivePhase(
     throw new ResearchSwarmStageError('synthesis', error, { lanes_completed: true })
   }
   remember(dec.captured)
+
+  // ---- Synthesis OWN-GROUNDING gate (founding-risk fix) ----
+  // The synthesis/decision agent's verdict + valuation/growth claims must be grounded in a VERIFIED source
+  // of its OWN — not merely in the union corpus the lanes already grounded (which is never empty, so the
+  // old all-corpus check at 1228 never fired). Build a verification Set over the POST-synthesis corpus
+  // (now that the decision agent's own captured sources are in `accumulated`) holding BOTH the content_hash
+  // AND the source_id of every verified source — mirror lines 999-1002 — then cite-check the two valuation
+  // citations against it (the SAME mechanism the rubric/red-team use). Layer 1: dec.verified_ids must be
+  // non-empty (the agent grounded at least one source itself). Layer 2: each valuation citation must be
+  // present AND verify. Deterministic verifies GROUNDING; semantic relevance stays the human's audit.
+  const synthesisCorpusHashes = new Set<string>()
+  for (const s of accumulated.values()) {
+    if (s.content_hash !== undefined) synthesisCorpusHashes.add(s.content_hash)
+    synthesisCorpusHashes.add(s.source_id) // a citation may be by source_id OR content_hash; both are corpus-verified
+  }
+  const ownerEarningsCitation = dec.analysis.valuation_reasoning?.owner_earnings_citation
+  const assumedGrowthCitation = dec.analysis.valuation_reasoning?.assumed_growth_citation
+  const ownerEarningsGrounded = ownerEarningsCitation !== undefined && synthesisCorpusHashes.has(ownerEarningsCitation)
+  const assumedGrowthGrounded = assumedGrowthCitation !== undefined && synthesisCorpusHashes.has(assumedGrowthCitation)
+  const synthesisGroundingUnmet =
+    dec.verified_ids.length === 0
+    || dec.analysis.valuation_reasoning === undefined
+    || !ownerEarningsGrounded
+    || !assumedGrowthGrounded
+  // Human-readable reason naming WHICH layer/claim failed (surfaced as a visible degraded flag below).
+  const synthesisGroundingReason: string | undefined = !synthesisGroundingUnmet
+    ? undefined
+    : dec.verified_ids.length === 0
+      ? 'synthesis_grounding_unmet: the decision agent cited no verified source of its own (dec.verified_ids empty) — '
+        + 'a confident verdict citing nothing verifiable. Routed to RESEARCH_MORE; re-run.'
+      : dec.analysis.valuation_reasoning === undefined
+        ? 'synthesis_grounding_unmet: the decision agent produced no valuation_reasoning (owner-earnings + assumed-growth '
+          + 'basis/citations) — its valuation is ungrounded. Routed to RESEARCH_MORE; re-run.'
+        : !ownerEarningsGrounded
+          ? `synthesis_grounding_unmet: owner_earnings_citation '${ownerEarningsCitation ?? '(absent)'}' did not verify `
+            + 'against the corpus — the owner-earnings basis is ungrounded. Routed to RESEARCH_MORE; re-run.'
+          : `synthesis_grounding_unmet: assumed_growth_citation '${assumedGrowthCitation ?? '(absent)'}' did not verify `
+            + 'against the corpus — the assumed-growth rationale is ungrounded. Routed to RESEARCH_MORE; re-run.'
 
   // ---- Mechanism 5: dedicated red-team-RESPONSE call (the focused decomposition) ----
   // The synthesis_response that answers the red team's strongest objection is produced by a SMALL focused
@@ -1292,6 +1345,13 @@ export async function runResearchDeepDivePhase(
   // omitting) — visible.
   if (synthesisValidationDegraded !== undefined) {
     degradedFlags.push(synthesisValidationDegraded)
+  }
+  // Founding-risk fix: the decision agent's OWN grounding was unmet (no verified source of its own and/or an
+  // ungrounded valuation/growth citation). Surfaced the SAME way as the other degradation flags (recorded in
+  // valuation.degraded_flags + appended to the decision open_questions) so it is never silent. The verdict is
+  // routed to RESEARCH_MORE in gatedVerdict below — the model's confident verdict is NOT recorded.
+  if (synthesisGroundingReason !== undefined) {
+    degradedFlags.push(synthesisGroundingReason)
   }
   // The dedicated red-team-response call exhausted its retries (the focused decomposition's own visible
   // fallback) — surfaced so the gap is seen; the red_team_objection_unaddressed open question is also set.
@@ -2105,16 +2165,24 @@ export async function runResearchDeepDivePhase(
     ? ('PASS' as const)
     : sectorShariahFail
       ? ('PASS' as const)
-      : buyDataUnconfirmed
+      // Founding-risk fix: the synthesis verdict is ONLY recorded when the decision agent grounded it in a
+      // verified source of its OWN (Layer 1) AND its owner-earnings + assumed-growth citations verify against
+      // the corpus (Layer 2). Otherwise we fail closed to RESEARCH_MORE — the model's confident
+      // investment_verdict is NOT used. (The all-corpus check at I1 stays as the all-empty backstop.)
+      : synthesisGroundingUnmet
         ? ('RESEARCH_MORE' as const)
-        : dec.analysis.investment_verdict
+        : buyDataUnconfirmed
+          ? ('RESEARCH_MORE' as const)
+          : dec.analysis.investment_verdict
   const gatedReason = !moat_passes_gate
     ? `Moat below the wide-moat gate (${moatClass}) — pass.`
     : sectorShariahFail
       ? `Shariah ${shariahJudgment?.sector_status === 'non_compliant' ? 'sector' : 'financial'} status FAIL — pass. ${dec.analysis.decision_reason}`
-      : buyDataUnconfirmed
-        ? `${buyClampReason} ${dec.analysis.decision_reason}`
-        : dec.analysis.decision_reason
+      : synthesisGroundingUnmet
+        ? `${synthesisGroundingReason} ${dec.analysis.decision_reason}`
+        : buyDataUnconfirmed
+          ? `${buyClampReason} ${dec.analysis.decision_reason}`
+          : dec.analysis.decision_reason
 
   // ---- Project the judgment-rubric layer for the verdict/dossier (spec verdict-format additions) ----
   // rubric scores + anchor-vs-proposed tier + whether the bounded adjustment was applied + violations.
@@ -2214,6 +2282,11 @@ export async function runResearchDeepDivePhase(
         // Visible degraded flags: each OPTIONAL structured field the model omitted (rubric, Shariah
         // overlay, growth inputs) is recorded here so the silent skips the live dogfood exposed are SEEN.
         ...(degradedFlags.length > 0 ? { degraded_flags: degradedFlags } : {}),
+        // Founding-risk fix: a visible boolean flag (+ the human-readable reason carried in degraded_flags)
+        // marking that the decision agent's verdict/valuation was NOT grounded in a verified source of its
+        // own → the verdict was routed to RESEARCH_MORE. Projected + displayed near the verdict.
+        ...(synthesisGroundingUnmet ? { synthesis_grounding_unmet: true } : {}),
+        ...(synthesisGroundingReason !== undefined ? { synthesis_grounding_reason: synthesisGroundingReason } : {}),
         ...(fair_value_per_share !== undefined ? { fair_value_per_share } : {}),
         ...(implied_multiple !== undefined ? { implied_multiple } : {}),
         ...(terminal_value_pct_of_iv !== undefined ? { terminal_value_pct_of_iv } : {}),

@@ -157,10 +157,19 @@ export const DecisionAgentSchema = z.object({
   valuation_reasoning: z.object({
     // Cited: the owner-earnings basis the model valued (e.g. "FY25 owner earnings $8.4B per the 10-K").
     owner_earnings_basis: z.string().min(1),
+    // GROUNDING (founding-risk fix): the source_id (or content_hash) of a VERIFIED primary source from the
+    // model's own proposed_sources / the corpus that backs the owner-earnings figure — a real grounded
+    // source_id, NOT a prose hand-wave. The harness fail-closes the synthesis verdict when this does not
+    // verify against the post-synthesis corpus (deterministic grounding; relevance stays the human's audit).
+    owner_earnings_citation: z.string().min(1),
     // The near-term growth the model assumed in its valuation (a fraction, e.g. 0.08).
     assumed_growth: z.number(),
     // Cited: WHY that growth is defensible (the durable-source argument the model is accountable for).
     assumed_growth_rationale: z.string().min(1),
+    // GROUNDING (founding-risk fix): the source_id (or content_hash) of a VERIFIED primary source backing
+    // the assumed-growth rationale — a real grounded source_id, NOT a prose hand-wave. Cite-checked exactly
+    // like owner_earnings_citation; an absent/unverifiable citation fail-closes the synthesis verdict.
+    assumed_growth_citation: z.string().min(1),
     // OPTIONAL: the model's discount-rate reasoning, if it argues one.
     discount_rationale: z.string().optional(),
   }).optional(),
