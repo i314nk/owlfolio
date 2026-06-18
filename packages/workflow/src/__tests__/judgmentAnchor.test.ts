@@ -264,6 +264,113 @@ describe('resolveRubricTier — upward needs 2x evidence (asymmetry)', () => {
   })
 })
 
+describe('resolveRubricTier — grounded-ceiling clamp (upward bump must be supported by grounded rows)', () => {
+  // The CPRT-shaped failure: anchor computable=moderate (M1=2,M2=0), lane proposes WIDE with 3 verified
+  // adjustment-evidence items, but EVERY cited moat row (M3..M6) cites a hash NOT in the corpus -> each
+  // scores 0. Grounded total = 2 (M1) + 0 = 2 -> tierForScore = 'moderate'. The +-1 upward bump used to
+  // manufacture WIDE off the adjustment evidence alone; the clamp denies it.
+  it('CPRT shape: moderate->wide with ungrounded cited rows is clamped to the anchor (moderate)', () => {
+    const result = resolveRubricTier({
+      rubric: moat,
+      anchorScores: { M1: 2, M2: 0 },
+      laneRubricScores: [
+        { id: 'M1', score: 2 },
+        { id: 'M2', score: 0 },
+        // M3..M6 all cite hashes that DO NOT verify against the corpus -> each re-verified to 0.
+        { id: 'M3', score: 2, citation_hash: 'sha256:UNVERIFIED-1' },
+        { id: 'M4', score: 2, citation_hash: 'sha256:UNVERIFIED-2' },
+        { id: 'M5', score: 2, citation_hash: 'sha256:UNVERIFIED-3' },
+        { id: 'M6', score: 2, citation_hash: 'sha256:UNVERIFIED-4' },
+      ],
+      anchorTier: 'moderate',
+      proposedTier: 'wide',
+      // 3 verified adjustment-evidence items (would satisfy the 2x-upward bar on their own).
+      adjustmentEvidence: [
+        { claim: 'pricing power', citation_hash: 'sha256:cite-a' },
+        { claim: 'share gains', citation_hash: 'sha256:cite-b' },
+        { claim: 'competitor exit', citation_hash: 'sha256:cite-c' },
+      ],
+      verifiedCitationHashes: VERIFIED,
+    })
+    expect(result.resolved_tier).toBe('moderate') // NOT wide — grounded rows total 2 -> moderate
+    expect(result.adjustment_applied).toBe(false)
+    expect(result.grounding_capped).toBe(true)
+    expect(result.violations.some((v) => v.includes('grounding-unmet'))).toBe(true)
+  })
+
+  it('legit grounded upward bump still works: moderate->wide with verified cited rows (grounded total >=7)', () => {
+    const result = resolveRubricTier({
+      rubric: moat,
+      anchorScores: { M1: 2, M2: 0 },
+      laneRubricScores: [
+        { id: 'M1', score: 2 },
+        { id: 'M2', score: 0 },
+        // M3..M6 verified -> +8; grounded total = 2 + 8 = 10 -> tierForScore 'monopoly' (>= wide).
+        { id: 'M3', score: 2, citation_hash: 'sha256:cite-a' },
+        { id: 'M4', score: 2, citation_hash: 'sha256:cite-b' },
+        { id: 'M5', score: 2, citation_hash: 'sha256:cite-c' },
+        { id: 'M6', score: 2, citation_hash: 'sha256:cite-d' },
+      ],
+      anchorTier: 'moderate',
+      proposedTier: 'wide',
+      adjustmentEvidence: [
+        { claim: 'pricing power', citation_hash: 'sha256:cite-a' },
+        { claim: 'share gains', citation_hash: 'sha256:cite-b' },
+      ],
+      verifiedCitationHashes: VERIFIED,
+    })
+    expect(result.resolved_tier).toBe('wide')
+    expect(result.adjustment_applied).toBe(true)
+    expect(result.grounding_capped).toBe(false)
+  })
+
+  it('downward bump is unaffected by the grounded ceiling (conservative downgrade allowed)', () => {
+    const result = resolveRubricTier({
+      rubric: moat,
+      anchorScores: { M1: 2, M2: 2 },
+      laneRubricScores: [
+        { id: 'M1', score: 2 }, { id: 'M2', score: 2 },
+        { id: 'M3', score: 2, citation_hash: 'sha256:cite-a' },
+        { id: 'M4', score: 2, citation_hash: 'sha256:cite-b' },
+        { id: 'M5', score: 2, citation_hash: 'sha256:cite-c' },
+        { id: 'M6', score: 2, citation_hash: 'sha256:cite-d' },
+      ],
+      anchorTier: 'wide',
+      proposedTier: 'moderate',
+      adjustmentEvidence: [{ claim: 'patent cliff', citation_hash: 'sha256:cite-a' }],
+      verifiedCitationHashes: VERIFIED,
+    })
+    expect(result.resolved_tier).toBe('moderate') // conservative downgrade, not capped up
+    expect(result.adjustment_applied).toBe(true)
+    expect(result.grounding_capped).toBe(false)
+  })
+
+  it('runway lane: limited->proven with ungrounded R2/R3 is clamped to the anchor (limited)', () => {
+    const runway = JUDGMENT_RUBRICS.runway
+    const result = resolveRubricTier({
+      rubric: runway,
+      anchorScores: { R1: 2 }, // R1=2 -> sub-score 2 -> anchor 'limited'
+      laneRubricScores: [
+        { id: 'R1', score: 2 },
+        { id: 'R2', score: 2, citation_hash: 'sha256:UNVERIFIED-1' },
+        { id: 'R3', score: 2, citation_hash: 'sha256:UNVERIFIED-2' },
+      ],
+      anchorTier: 'limited',
+      proposedTier: 'proven',
+      adjustmentEvidence: [
+        { claim: 'TAM headroom', citation_hash: 'sha256:cite-a' },
+        { claim: 'reinvestment rate', citation_hash: 'sha256:cite-b' },
+        { claim: 'white space', citation_hash: 'sha256:cite-c' },
+      ],
+      verifiedCitationHashes: VERIFIED,
+    })
+    expect(result.resolved_tier).toBe('limited') // grounded total = 2 (R1) -> 'limited'
+    expect(result.adjustment_applied).toBe(false)
+    expect(result.grounding_capped).toBe(true)
+    expect(result.violations.some((v) => v.includes('grounding-unmet'))).toBe(true)
+  })
+})
+
 describe('resolveRubricTier — not-computable anchor fallback', () => {
   it('when the anchor is not computable, the lane full-rubric score stands (no +-1 clamp)', () => {
     // Lane proposes monopoly with a full cited rubric; the anchor could not be computed (no EDGAR).

@@ -268,6 +268,12 @@ export type ResolveRubricTierResult = {
   adjustment_applied: boolean
   /** Number of adjustment-evidence items whose citation_hash verified against the corpus. */
   verified_evidence_count: number
+  /**
+   * True when an UPWARD adjustment was DENIED because the grounded rubric rows don't support it: the
+   * resolved tier was clamped down to max(anchor, grounded-row-sum tier). Fail-closed-on-ungrounded, at
+   * the tier — an upward bump may not ride on adjustment evidence the substantive rows don't back.
+   */
+  grounding_capped: boolean
   /** Recorded rule violations (over-range, uncited, unverifiable, insufficient-for-upward). */
   violations: string[]
 }
@@ -327,6 +333,7 @@ export function resolveRubricTier(args: ResolveRubricTierArgs): ResolveRubricTie
       // The lane's tier is its own full-rubric mapping; "applied" iff it matches the re-verified mapping.
       adjustment_applied: resolved === proposedTier,
       verified_evidence_count,
+      grounding_capped: false,
       violations,
     }
   }
@@ -370,14 +377,42 @@ export function resolveRubricTier(args: ResolveRubricTierArgs): ResolveRubricTie
   return finalize(proposedTier, true)
 
   function finalize(tier: RubricTier, applied: boolean): ResolveRubricTierResult {
+    let resolvedTier = tier
+    let adjustment_applied = applied
+    let grounding_capped = false
+
+    // --- Grounded ceiling: an UPWARD adjustment may not raise the tier above the higher of
+    // {the filings anchor, the grounded-row-sum tier}. The resolved_row_scores already use the
+    // harness score for computable rows and verified-or-0 for cited rows, so their sum IS the
+    // grounded evidence. A bump the grounded rows don't support is denied (fail-closed-on-ungrounded,
+    // at the gate). Downward adjustments (tier below the anchor) are conservative and never capped. ---
+    const candidateIdx = tierIndex(rubric, resolvedTier)
+    if (candidateIdx > anchorIdx) {
+      const groundedTotal = Object.values(resolved_row_scores).reduce((s, v) => s + v, 0)
+      const groundedRowTier = tierForScore(rubric, groundedTotal)
+      const ceilingIdx = Math.max(anchorIdx, tierIndex(rubric, groundedRowTier))
+      if (candidateIdx > ceilingIdx) {
+        const cappedTier: RubricTier = tiers[ceilingIdx] ?? anchorTier!
+        violations.push(
+          `${rubric.id}-grounding-unmet: proposed tier '${proposedTier}' exceeds grounded support `
+          + `(anchor '${anchorTier}', grounded rows total ${groundedTotal} -> '${groundedRowTier}') `
+          + `— cited rows ungrounded, tier not raised (clamped to '${cappedTier}')`,
+        )
+        resolvedTier = cappedTier
+        adjustment_applied = false
+        grounding_capped = true
+      }
+    }
+
     return {
       anchor_computable: true,
       anchor_tier: anchorTier,
       proposed_tier: proposedTier,
-      resolved_tier: tier,
+      resolved_tier: resolvedTier,
       resolved_row_scores,
-      adjustment_applied: applied,
+      adjustment_applied,
       verified_evidence_count,
+      grounding_capped,
       violations,
     }
   }

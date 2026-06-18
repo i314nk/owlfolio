@@ -120,6 +120,8 @@ export type ResearchCaseJudgmentAxisProjection = {
   adjustment_applied?: boolean
   anchor_computable?: boolean
   verified_evidence_count?: number
+  /** True when an upward tier bump was denied because the grounded rows didn't support it. Legacy events omit it. */
+  grounding_capped?: boolean
   rubric_scores?: { id: string; score: number }[]
   violations?: string[]
   anchor_note?: string
@@ -773,6 +775,7 @@ function getJudgmentAxis(value: unknown): ResearchCaseJudgmentAxisProjection | u
   if (resolved_tier !== undefined) projected.resolved_tier = resolved_tier
   if (typeof value['adjustment_applied'] === 'boolean') projected.adjustment_applied = value['adjustment_applied']
   if (typeof value['anchor_computable'] === 'boolean') projected.anchor_computable = value['anchor_computable']
+  if (typeof value['grounding_capped'] === 'boolean') projected.grounding_capped = value['grounding_capped']
   const verified_evidence_count = getNumber(value, 'verified_evidence_count')
   if (verified_evidence_count !== undefined) projected.verified_evidence_count = verified_evidence_count
   const rawScores = value['rubric_scores']

@@ -162,6 +162,7 @@ export function resolveJudgmentTiers(args: {
     resolved_row_scores: {},
     adjustment_applied: false,
     verified_evidence_count: 0,
+    grounding_capped: false,
     violations: [],
   })
 
@@ -253,6 +254,8 @@ type JudgmentAxisProjection = {
   adjustment_applied: boolean
   anchor_computable: boolean
   verified_evidence_count: number
+  /** True when an upward bump was denied because the grounded rows didn't support it (tier clamped). */
+  grounding_capped: boolean
   rubric_scores: { id: string; score: number }[]
   violations: string[]
   anchor_note?: string
@@ -277,6 +280,7 @@ export function buildJudgmentProjection(judgment: JudgmentResolution): JudgmentP
       adjustment_applied: r.adjustment_applied,
       anchor_computable: r.anchor_computable,
       verified_evidence_count: r.verified_evidence_count,
+      grounding_capped: r.grounding_capped,
       rubric_scores: Object.entries(r.resolved_row_scores).map(([id, score]) => ({ id, score })),
       violations: r.violations,
       ...(r.anchor_note === undefined ? {} : { anchor_note: r.anchor_note }),

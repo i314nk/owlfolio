@@ -2450,6 +2450,65 @@ describe('resolveJudgmentTiers — EDGAR-anchored moat resolution', () => {
   })
 })
 
+// A 10-year series with high, durable ROIC (M1=2) but a wildly swinging operating margin so the M2
+// band-proxy scores 0 -> moat computable anchor sub-score 2 -> 'moderate' (the CPRT anchor shape).
+function tenYearModerateMoatSeries(): AnnualFacts[] {
+  const out: AnnualFacts[] = []
+  for (let i = 0; i < 10; i += 1) {
+    const scale = Math.pow(1.10, 9 - i)
+    const equity = 1000 * scale
+    // ROIC stays high (op*(1-0.21)/equity well above 0.15) but the margin oscillates hard year to year
+    // so the M2 +-300/600bps band proxy is blown -> M2=0.
+    const marginPct = i % 2 === 0 ? 0.30 : 0.45
+    const revenue = 1000 * scale
+    const op = revenue * marginPct
+    out.push({
+      fiscal_year: 2025 - i,
+      currency: 'USD',
+      net_income_musd: op * 0.79,
+      revenue_musd: revenue,
+      operating_income_musd: op,
+      income_tax_expense_musd: op * 0.21,
+      stockholders_equity_musd: equity,
+      total_debt_musd: 0,
+      cash_and_securities_musd: 0,
+    })
+  }
+  return out
+}
+
+describe('resolveJudgmentTiers — grounded-ceiling clamp (gate fails closed on ungrounded moat)', () => {
+  const verified = new Set(['sha256:a', 'sha256:b', 'sha256:c'])
+
+  it('CPRT shape: anchor moderate + proposed wide with ungrounded cited rows -> resolved NOT wide, grounding_capped', () => {
+    const res = resolveJudgmentTiers({
+      moatRubric: {
+        rubric_scores: [
+          { id: 'M1', score: 2 }, { id: 'M2', score: 0 },
+          // M3..M6 cite hashes NOT in the corpus -> re-verified to 0 (ungrounded).
+          { id: 'M3', score: 2, citation_hash: 'sha256:UNVERIFIED-1' },
+          { id: 'M4', score: 2, citation_hash: 'sha256:UNVERIFIED-2' },
+          { id: 'M5', score: 2, citation_hash: 'sha256:UNVERIFIED-3' },
+          { id: 'M6', score: 2, citation_hash: 'sha256:UNVERIFIED-4' },
+        ],
+        proposed_tier: 'wide',
+        adjustment_evidence: [
+          { claim: 'pricing power', citation_hash: 'sha256:a' },
+          { claim: 'share gains', citation_hash: 'sha256:b' },
+          { claim: 'competitor exit', citation_hash: 'sha256:c' },
+        ],
+      },
+      series: tenYearModerateMoatSeries(),
+      verifiedCitationHashes: verified,
+    })
+    expect(res.moat?.anchor_tier).toBe('moderate')
+    expect(res.moat?.resolved_moat_class).not.toBe('wide')
+    expect(res.moat?.resolved_moat_class).toBe('moderate')
+    expect(res.moat?.grounding_capped).toBe(true)
+    expect(res.moat?.adjustment_applied).toBe(false)
+  })
+})
+
 // ---------------------------------------------------------------------------
 // Silent-degradation cascade fix: the model omits the OPTIONAL judgment fields (no rubric, no shariah
 // overlay, no synthesis_response — exactly the live CPRT dogfood). The moat/runway tier MUST still
