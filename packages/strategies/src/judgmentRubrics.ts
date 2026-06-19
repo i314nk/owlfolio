@@ -116,6 +116,19 @@ const MANAGEMENT_RUBRIC: Rubric = {
 // ---------------------------------------------------------------------------
 // Predictability rubric — BUSINESS_QUALITY lane. 5 items, max 10.
 // Mapping: >=8 high · 5–7 moderate · <5 low.
+//
+// H4 RECONCILIATION (circle-of-competence-as-model-judgment): cashflow PREDICTABILITY is the SAME axis as
+// the circle-of-competence COMPETENCE judgment ("do I understand THIS business well enough to assess its
+// cashflow predictability?"), which is now a GROUNDED MODEL JUDGMENT (researchSwarm.ts → the circle gate,
+// emitting circle_competence_judged: cite-verified cashflow_drivers + predictability_breakers). The model's
+// grounded judgment SUBSUMES this deterministic score→tier as the predictability assessment.
+//
+// VERIFIED (do not assume otherwise): this deterministic PREDICTABILITY_RUBRIC is currently DORMANT — only
+// JUDGMENT_RUBRICS.moat and .runway are consumed (researchSwarmCompute.ts → resolveJudgmentTiers). The
+// predictability (and management) rubrics are NOT wired into any binding admit/quality gate (a repo-wide
+// grep confirms no production consumer beyond this definition + its unit test). So there is NO admit gate
+// to break: the fold-in is clean — predictability now lives in the circle judgment. The frozen rubric is
+// retained (config provenance / possible future deterministic cross-check), explicitly superseded here.
 // ---------------------------------------------------------------------------
 const PREDICTABILITY_RUBRIC: Rubric = {
   id: 'predictability',

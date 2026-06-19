@@ -181,6 +181,8 @@ export function ResearchCasePanel({ researchCase, mode = 'demo', configuredProvi
     mockWarningBanner,
     // ── 1. Verdict hero ─────────────────────────────────────────────────────
     createVerdictHero(researchCase),
+    // ── 1·circle. Circle-of-competence judgment (the grounded gate that admits/sets-aside the spend) ──
+    createCircleCompetencePanel(researchCase),
     // ── 1a. The full verdict format (organizes the spec's verdict fields) ────
     createVerdictFormatBlock(researchCase),
     // ── 1b. What changed since last case (re-analysis diff) ──────────────────
@@ -325,6 +327,67 @@ function createPostMortemPanel(researchCase: AppResearchCase) {
       pm.holding_period_days === undefined ? null : row('Holding period', `${pm.holding_period_days} days`),
       pm.total_realized_pl === undefined ? null : row('Total realized P&L', `$${pm.total_realized_pl.toLocaleString('en-US')}`),
     ),
+  )
+}
+
+/**
+ * Circle-of-competence judgment panel — the GROUNDED MODEL JUDGMENT that gated the deep-dive spend. Shows
+ * the cited cashflow drivers, the cited predictability-breakers (the deeper test), and the in/outside
+ * outcome with reasoning. When outside-competence, the case was SET ASIDE (verdict PASS) before the 7-lane
+ * deep dive ran. Legacy-tolerant: renders nothing when the case predates the circle gate.
+ */
+function createCircleCompetencePanel(researchCase: AppResearchCase) {
+  const circle = researchCase.circle_competence
+  if (circle === undefined) return null
+
+  const inCompetence = circle.in_competence === true
+  const accent = inCompetence ? 'var(--owl-color-accent-bright)' : 'var(--owl-color-risk)'
+  const heading = inCompetence
+    ? 'Circle of competence — in competence'
+    : 'Outside competence — set aside'
+
+  const claimRow = (text: string, citation: string | undefined, grounded: boolean | undefined) =>
+    createElement(
+      'li',
+      { key: `${text}:${citation ?? ''}`, style: { color: 'var(--owl-color-text)', fontSize: 'var(--owl-text-base)', lineHeight: 1.5, marginBottom: '0.3rem' } },
+      createElement('span', null, text),
+      citation === undefined
+        ? null
+        : createElement(
+            'span',
+            { style: { color: grounded ? 'var(--owl-color-muted)' : '#fca5a5', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-xs)', marginLeft: '0.5rem' } },
+            grounded ? `[cited: ${citation}]` : `[citation did not verify: ${citation}]`,
+          ),
+    )
+
+  const drivers = circle.cashflow_drivers ?? []
+  const breakers = circle.predictability_breakers ?? []
+
+  return createElement(
+    'section',
+    { 'data-testid': 'circle-competence', 'aria-label': 'Circle of competence', style: { ...cardStyle, borderLeft: `3px solid ${accent}` } },
+    createElement('p', { style: labelStyle }, heading),
+    createElement(
+      'p',
+      { style: { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-sm)', margin: '0 0 0.7rem' } },
+      inCompetence
+        ? 'The model demonstrated it understands this business well enough to assess its cashflow predictability — both clauses cite verified filings. The deep dive proceeded.'
+        : 'The model could not demonstrate (from cited filings) that it understands this business well enough to assess its cashflow predictability. Ungrounded competence is outside competence — a valid, common, correct Buffett output. Set aside before the deep dive; no expensive spend.',
+    ),
+    createElement('p', { style: { color: 'var(--owl-color-muted)', fontWeight: 700, fontSize: 'var(--owl-text-sm)', margin: '0.4rem 0 0.2rem' } }, 'Cashflow drivers (cited)'),
+    drivers.length === 0
+      ? createElement('p', { style: { color: 'var(--owl-color-quiet)', fontSize: 'var(--owl-text-sm)' } }, 'None recorded')
+      : createElement('ul', { style: { margin: '0 0 0.5rem', paddingLeft: '1.1rem' } }, ...drivers.map((d) => claimRow(d.driver ?? '', d.citation, d.grounded))),
+    createElement('p', { style: { color: 'var(--owl-color-muted)', fontWeight: 700, fontSize: 'var(--owl-text-sm)', margin: '0.4rem 0 0.2rem' } }, 'Predictability breakers (cited — the deeper test)'),
+    breakers.length === 0
+      ? createElement('p', { style: { color: 'var(--owl-color-quiet)', fontSize: 'var(--owl-text-sm)' } }, 'None recorded')
+      : createElement('ul', { style: { margin: '0 0 0.5rem', paddingLeft: '1.1rem' } }, ...breakers.map((b) => claimRow(b.breaker ?? '', b.citation, b.grounded))),
+    circle.competence_reasoning === undefined
+      ? null
+      : createElement('p', { style: { color: 'var(--owl-color-text)', fontSize: 'var(--owl-text-base)', lineHeight: 1.55, margin: '0.4rem 0 0' } }, circle.competence_reasoning),
+    inCompetence || circle.reason === undefined
+      ? null
+      : createElement('p', { style: { color: '#fca5a5', fontSize: 'var(--owl-text-sm)', margin: '0.4rem 0 0' } }, circle.reason),
   )
 }
 

@@ -126,6 +126,28 @@ function mockSourcesForTicker(ticker: string) {
   ] as const
 }
 
+// CIRCLE-OF-COMPETENCE judgment (the sequential pre-deep-dive gate). The deterministic mock DEMONSTRATES
+// understanding by citing the grounded mock primary/secondary source_ids for BOTH clauses (so the harness
+// cite-check verifies them and the gate PASSES — the deep dive proceeds exactly as before). Claims
+// in_competence so the deterministic demo/test path is in-circle.
+function mockCircleCompetenceForTicker(ticker: string) {
+  const companyLabel = companyLabelForTicker(ticker)
+  const groundedSources = mockSourcesForTicker(ticker)
+  const primaryCite = groundedSources[0].source_id
+  const secondaryCite = groundedSources[1].source_id
+  return {
+    cashflow_drivers: [
+      { driver: `${companyLabel} recurring membership/subscription revenue grounded in the 10-K`, citation: primaryCite },
+    ],
+    predictability_breakers: [
+      { breaker: `Cyclicality or customer-concentration risk that would make ${companyLabel}'s cashflows unpredictable`, citation: secondaryCite },
+    ],
+    competence_reasoning: `${companyLabel}'s cashflow engine is understandable and demonstrated from primary filings.`,
+    in_competence: true,
+    proposed_sources: groundedSources,
+  }
+}
+
 function mockQuickScreenForTicker(ticker: string) {
   const companyLabel = companyLabelForTicker(ticker)
   return {
@@ -444,6 +466,8 @@ export class MockProvider implements Provider {
       switch (request.response_format.schema_name) {
         case 'BuffettMungerHoldingReview':
           return buffettMungerHoldingReviewForTicker(ticker)
+        case 'BuffettMungerCircleCompetence':
+          return mockCircleCompetenceForTicker(ticker)
         case 'BuffettMungerQuickScreen':
           return mockQuickScreenForTicker(ticker)
         case 'BuffettMungerLaneFinding':

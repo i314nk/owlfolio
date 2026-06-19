@@ -114,14 +114,21 @@ export const clampResearchMaxToolCalls = (value: unknown): number => {
 }
 
 /**
- * The owner-set "circle of competence" boundary the research harness CHECKS candidates against
- * before spend (the check + pre-spend gate live in a later task; this is the config only).
+ * The owner-set OWNER-POLICY HARD-EXCLUSION policy the research harness CHECKS candidates against before
+ * spend (cheap, deterministic, config-only pre-filter at the research-start route).
+ *
+ * IMPORTANT — what this is NOT: this is NOT the circle-of-competence COMPETENCE judgment ("do I understand
+ * THIS business well enough to assess its cashflow predictability?"). That is a GROUNDED MODEL JUDGMENT in
+ * the deep-dive phase (the circle gate, emitting circle_competence_judged). THIS config is the owner's
+ * categorical HARD-EXCLUSIONS ("I categorically WON'T invest in sector/archetype/size X" — an owner CHOICE,
+ * not a competence claim). The TYPE NAME + config key (`circle_of_competence`) are retained for persisted-
+ * config back-compat; the MEANING is owner-policy exclusions.
  *
  * Default is PERMISSIVE: `{ enabled: false }` with every optional field unset admits everything, so
- * nothing is ever silently rejected until the owner deliberately narrows the boundary.
+ * nothing is ever silently excluded until the owner deliberately narrows the policy.
  */
 export type CircleOfCompetenceConfig = {
-  /** false = permissive (no rejection); true = enforce the boundary below. Default false. */
+  /** false = permissive (no exclusion); true = enforce the owner-policy exclusions below. Default false. */
   enabled: boolean
   /** When set + enabled, a candidate's SIC code must prefix-match one of these to be admitted. */
   allowed_sic_prefixes?: string[]

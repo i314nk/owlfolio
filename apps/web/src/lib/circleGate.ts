@@ -1,12 +1,19 @@
-// Pre-spend circle-of-competence GATE for the research-start route (Task 4.1c, Part B).
+// Pre-spend OWNER-POLICY hard-exclusion GATE for the research-start route (Task 4.1c, Part B).
 //
-// Runs the PURE `inCircle` check against the OWNER-SET boundary BEFORE any expensive research is spent,
-// so an out-of-circle name is rejected before a research case is ever created. The boundary decision is
-// config-only — there is NO LLM anywhere in this path. The gate only fetches the CHEAP pre-spend inputs
-// (SIC + a single spot quote) the pure check needs, and only when the boundary is actually enabled.
+// IMPORTANT — what this is NOT: this is NOT the circle-of-competence COMPETENCE judgment ("do I understand
+// THIS business well enough to assess its cashflow predictability?"). That is a GROUNDED MODEL JUDGMENT
+// that runs as a sequential pre-deep-dive stage inside the swarm (researchSwarm.ts → the circle gate,
+// emitting circle_competence_judged). THIS gate is the cheap, owner-controlled PRE-SPEND PRE-FILTER: it
+// enforces the owner's categorical hard-exclusions (sector/archetype/market-cap — "I categorically won't
+// invest in X", an owner CHOICE) BEFORE any expensive research is spent, so an excluded name is rejected
+// before a research case is ever created.
 //
-// Fail-closed: under an ENABLED restrictive config, if SIC or market cap cannot be fetched, the candidate
-// is rejected with a reason ("can't confirm in-circle") rather than admitted on missing data.
+// Runs the PURE owner-policy `inCircle` check against the OWNER-SET policy. The decision is config-only —
+// there is NO LLM anywhere in this path. The gate only fetches the CHEAP pre-spend inputs (SIC + a single
+// spot quote) the pure check needs, and only when the policy is actually enabled.
+//
+// Fail-closed: under an ENABLED restrictive policy, if SIC or market cap cannot be fetched, the candidate
+// is rejected with a reason ("can't confirm it passes the owner policy") rather than admitted on missing data.
 
 import {
   type CircleOfCompetenceConfig,

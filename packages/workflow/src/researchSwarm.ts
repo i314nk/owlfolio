@@ -85,9 +85,11 @@ import {
   DecisionAgentSchema,
   MoatCrossCheckSchema,
   ShariahCrossCheckSchema,
+  CircleCompetenceSchema,
   AGENT_TIMEOUT_MS,
   MOAT_RUBRIC_PROMPT,
   SHARIAH_OVERLAY_PROMPT,
+  CIRCLE_COMPETENCE_PROMPT,
   PRIMARY_FILING_LANES,
 } from './researchSwarmSchemas'
 // Deterministic harness compute (judgment-tier resolution, projection builders, OE-bridge filing block,
@@ -773,6 +775,44 @@ export async function runStrategyResearchSwarm(
 // NEVER blocks the verdict; it directs the human to verify the basis.
 const MAINTENANCE_CAPEX_DIVERGENCE_FRACTION = 0.20
 
+/**
+ * Run the CIRCLE-OF-COMPETENCE judgment as a grounded model call (the SAME grounded-agent path the lanes
+ * use — runGroundedAgentWithTools with tool/citation grounding, so it produces proposed_sources +
+ * verified_ids and content-hash-confirmed captured sources the harness cite-verifies). It is the model's
+ * demonstration of whether it understands THIS business well enough to assess its cashflow predictability.
+ * The caller cite-verifies BOTH clauses and fails closed to outside-competence when either is ungrounded.
+ */
+async function judgeCircleCompetence(
+  provider: Provider,
+  command: RunResearchDeepDivePhaseCommand,
+  deps: { ground?: GroundFn; grounding?: GroundingDeps; maxToolCalls?: number } & FundamentalsDeps,
+) {
+  // The circle judgment runs on the synthesis role (T1 — the high-stakes judgment tier). Default = the
+  // run's provider/model so single-provider runs are unchanged; an override can pin it onto a frontier model.
+  const circleRuntime = resolveRoleRuntime('synthesis', provider, command)
+  const prompt = `You are the Buffett-Munger circle-of-competence gate for ${command.ticker} (${command.company_id}). `
+    + CIRCLE_COMPETENCE_PROMPT
+  const { degraded_no_tools: _circleDegraded, ...agent } = await runGroundedAgentWithTools(
+    circleRuntime.provider,
+    {
+      run_id: `run_${command.research_case_id}_circle_competence`,
+      model_id: circleRuntime.model_id,
+      prompt,
+      timeout_ms: AGENT_TIMEOUT_MS,
+      schema_name: 'BuffettMungerCircleCompetence',
+    },
+    CircleCompetenceSchema,
+    {
+      ...(deps.ground === undefined ? {} : { ground: deps.ground }),
+      ...(deps.grounding === undefined ? {} : { grounding: deps.grounding }),
+      ...(deps.fetchFundamentals === undefined ? {} : { fetchFundamentals: deps.fetchFundamentals }),
+      ...(deps.maxToolCalls === undefined ? {} : { maxToolCalls: deps.maxToolCalls }),
+    },
+  )
+  void _circleDegraded
+  return agent
+}
+
 export async function runResearchDeepDivePhase(
   store: SwarmStore,
   provider: Provider,
@@ -784,6 +824,163 @@ export async function runResearchDeepDivePhase(
   const remember = (captured: CapturedSource[]) => captured.forEach((c) => accumulated.set(c.source_id, c))
 
   const lanes = buffettMungerDeepDiveLanes
+
+  // ---- CIRCLE-OF-COMPETENCE GATE (sequential pre-deep-dive stage — gates the 7-lane spend) ----
+  // The circle of competence is a GROUNDED MODEL JUDGMENT, not a config screen: "do I understand THIS
+  // business well enough to assess its cashflow predictability?" It runs as its OWN call (NOT an 8th
+  // parallel lane) at the START of the deep-dive phase, BEFORE the expensive 7 lanes — the cheap quick
+  // screen already ran. The model must DEMONSTRATE understanding: cite-verify BOTH the cashflow drivers
+  // AND what would make them unpredictable, held to the SAME rigor. Binary outcome:
+  //   - in-competence  → proceed to the 7-lane deep dive + synthesis + decision (today's path).
+  //   - outside-competence (model says so, OR fail-closed on EITHER ungrounded clause) → SET ASIDE: emit a
+  //     terminal decision with verdict PASS carrying competence_reasoning + the circle_competence_unmet
+  //     flag; the 7 lanes do NOT run. NEVER RESEARCH_MORE — a valid, common, CORRECT Buffett output.
+  const circle = await judgeCircleCompetence(provider, command, deps)
+  remember(circle.captured)
+  // Build the verified cite-check set from ONLY content_hash-confirmed sources (the SAME hardened primitive
+  // the §2/A1/rubric cite-checks use — a captured-but-unverified id must NOT satisfy a citation).
+  const circleVerified = new Set<string>()
+  for (const s of accumulated.values()) {
+    if (s.content_hash === undefined) continue
+    circleVerified.add(s.content_hash)
+    circleVerified.add(s.source_id)
+  }
+  const groundedDrivers = circle.analysis.cashflow_drivers.filter((d) => circleVerified.has(d.citation))
+  const groundedBreakers = circle.analysis.predictability_breakers.filter((b) => circleVerified.has(b.citation))
+  // The gate passes (in-competence) ONLY when the model CLAIMS in_competence AND BOTH clauses ground
+  // (≥1 grounded cashflow driver AND ≥1 grounded predictability breaker). EITHER clause ungrounded → fail
+  // closed to outside-competence. Ungrounded competence = outside competence.
+  const driversGrounded = groundedDrivers.length >= 1
+  const breakersGrounded = groundedBreakers.length >= 1
+  const inCompetence = circle.analysis.in_competence === true && driversGrounded && breakersGrounded
+  const circleUnmetReason = inCompetence
+    ? undefined
+    : circle.analysis.in_competence !== true
+      ? 'circle_competence_unmet: the model judged it does NOT understand this business well enough to assess '
+        + 'its cashflow predictability (outside competence) — a valid, common, correct Buffett output. Set aside.'
+      : !driversGrounded
+        ? 'circle_competence_unmet: the model claimed in-competence but its cashflow_drivers citations did NOT '
+          + 'verify against the corpus — ungrounded understanding is outside competence (fail-closed). Set aside.'
+        : 'circle_competence_unmet: the model grounded the cashflow drivers but its predictability_breakers '
+          + 'citations did NOT verify — the deeper clause is held to the same rigor; ungrounded = outside '
+          + 'competence (fail-closed). Set aside.'
+
+  // Project-ready circle judgment payload (the cited drivers + breakers + outcome + reasoning).
+  const circleJudgmentPayload = {
+    in_competence: inCompetence,
+    model_claimed_in_competence: circle.analysis.in_competence,
+    competence_reasoning: circle.analysis.competence_reasoning,
+    cashflow_drivers: circle.analysis.cashflow_drivers.map((d) => ({
+      driver: d.driver ?? '',
+      citation: d.citation,
+      grounded: circleVerified.has(d.citation),
+    })),
+    predictability_breakers: circle.analysis.predictability_breakers.map((b) => ({
+      breaker: b.breaker ?? '',
+      citation: b.citation,
+      grounded: circleVerified.has(b.citation),
+    })),
+    ...(circleUnmetReason !== undefined ? { circle_competence_unmet: true, reason: circleUnmetReason } : {}),
+  }
+
+  // Emit the circle judgment event (causation = the quick-screen event; this is the first deep-dive stage).
+  const circleJudged = await store.append({
+    event_id: `evt_circle_competence_judged_${command.research_case_id}`,
+    event_type: 'circle_competence_judged',
+    aggregate_type: 'research_case',
+    aggregate_id: command.research_case_id,
+    correlation_id: command.research_case_id,
+    causation_id: command.quick_screen_event_id,
+    actor_type: 'provider',
+    actor_id: provider.provider_id,
+    payload: { research_case_id: command.research_case_id, company_id: command.company_id, ticker: command.ticker, ...circleJudgmentPayload },
+    source_ids: [...new Set([...groundedDrivers.map((d) => d.citation), ...groundedBreakers.map((b) => b.citation), ...circle.verified_ids])],
+    created_at: new Date().toISOString(),
+    schema_version: 1,
+    idempotency_key: `circle-competence:${command.research_case_id}:v1`,
+  } satisfies LedgerEventEnvelope<unknown>)
+
+  if (!inCompetence) {
+    // ---- OUTSIDE COMPETENCE → SET ASIDE (terminal PASS) — the 7 lanes do NOT run ----
+    const circleSourceIds = [...new Set([...command.quick_screen_source_ids, ...circle.verified_ids])]
+    const setAsideReason = `Set aside — outside the circle of competence. ${circle.analysis.competence_reasoning}`
+    const analysisEvent: LedgerEventEnvelope<unknown> = {
+      event_id: `evt_buffett_munger_analysis_drafted_${command.research_case_id}`,
+      event_type: 'buffett_munger_analysis_drafted',
+      aggregate_type: 'research_case',
+      aggregate_id: command.research_case_id,
+      correlation_id: command.research_case_id,
+      causation_id: circleJudged.event_id,
+      actor_type: 'provider',
+      actor_id: provider.provider_id,
+      payload: {
+        research_case_id: command.research_case_id,
+        company_id: command.company_id,
+        ticker: command.ticker,
+        investment_verdict: 'PASS',
+        strategy_compliance: 'INSUFFICIENT_DATA',
+        valuation_status: 'INSUFFICIENT_DATA',
+        next_required_action: 'No further research — set aside (outside the circle of competence).',
+        // Carry the circle judgment on the valuation block (the dossier reads circle_competence_unmet here)
+        // AND as a first-class circle_competence field (projected legacy-tolerantly).
+        valuation: { circle_competence_unmet: true, outside_circle: true },
+        circle_competence: circleJudgmentPayload,
+      },
+      source_ids: circleSourceIds,
+      created_at: new Date().toISOString(),
+      schema_version: 1,
+      idempotency_key: `analysis:${command.research_case_id}:v1`,
+    }
+    const setAsideAnalysis = await store.append(analysisEvent)
+    const setAsideDecision = await draftDecision(store, {
+      research_case_id: command.research_case_id,
+      decision_id: command.decision_id,
+      decision: 'PASS',
+      reason: setAsideReason,
+      thesis_summary: setAsideReason,
+      evidence_summary: circleUnmetReason ?? setAsideReason,
+      valuation_rationale: 'Not assessed — set aside outside the circle of competence (the expensive deep dive did not run).',
+      shariah_rationale: 'Not assessed — set aside before the deep dive.',
+      risks: ['Outside circle of competence — cashflow predictability could not be demonstrated from filings.'],
+      open_questions: [circleUnmetReason ?? setAsideReason],
+      causation_id: circleJudged.event_id,
+      source_ids: circleSourceIds,
+      idempotency_key: `decision:${command.research_case_id}:v1`,
+    })
+
+    // Persist the circle-stage captured sources so the dossier's citations resolve.
+    const capturedSoFar = [...accumulated.values()]
+    if (capturedSoFar.length > 0) {
+      await ingestManualSourceBundle({
+        source_ledger_path: command.source_ledger_path,
+        research_case_id: command.research_case_id,
+        ticker: command.ticker,
+        strategy_id: command.strategy_id,
+        provider_id: provider.provider_id,
+        proposed_by_actor_type: 'provider',
+        proposed_by_actor_id: provider.provider_id,
+        ingested_by_actor_type: 'system',
+        ingested_by_actor_id: 'research_workflow',
+        sources: capturedSoFar.map((c) => ({
+          source_id: c.source_id,
+          kind: 'url' as const,
+          title: c.title,
+          url: c.url,
+          excerpt: c.excerpt,
+          availability: c.availability,
+          ...(c.content_hash === undefined ? {} : { content_hash: c.content_hash }),
+          metadata: { research_case_id: command.research_case_id, ...(c.http_status === undefined ? {} : { http_status: c.http_status }) },
+        })),
+      })
+    }
+
+    return {
+      circle_competence_judged: circleJudged,
+      analysis: setAsideAnalysis,
+      decision: setAsideDecision,
+      set_aside_outside_circle: true,
+    }
+  }
 
   const queued = await queueDeepDive(store, {
     research_case_id: command.research_case_id,
@@ -2426,6 +2623,9 @@ export async function runResearchDeepDivePhase(
       shariah_status: undefined, // will be set below
       valuation_status: dec.analysis.valuation_status,
       next_required_action: moat_passes_gate ? dec.analysis.next_required_action : gatedReason,
+      // Circle-of-competence judgment (in-competence here — the gate passed; the deep dive ran). Carried on
+      // the analysis so the dossier always shows the grounded competence judgment that admitted this spend.
+      circle_competence: circleJudgmentPayload,
       quick_screen: undefined, // populated below
       valuation: {
         moat_class: moatClass,

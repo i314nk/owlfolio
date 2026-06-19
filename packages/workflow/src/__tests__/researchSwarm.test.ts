@@ -109,6 +109,20 @@ function fakeShariahLanePayload(src: (id: string) => unknown) {
   }
 }
 
+// Shared in-competence circle-of-competence payload for the existing fake providers (so the pre-deep-dive
+// circle gate PASSES and the deep dive proceeds exactly as before). The two citation source_ids
+// (src_circle_driver / src_circle_breaker) verify under every test's ground fn (they contain neither
+// 'moat' nor 'bad', the only substrings the filtering grounds exclude).
+function fakeCirclePayload(src: (id: string) => unknown) {
+  return {
+    cashflow_drivers: [{ driver: 'Recurring revenue grounded in the 10-K', citation: 'src_circle_driver' }],
+    predictability_breakers: [{ breaker: 'Cyclicality / customer concentration risk', citation: 'src_circle_breaker' }],
+    competence_reasoning: 'Understandable cashflow engine demonstrated from filings.',
+    in_competence: true,
+    proposed_sources: [src('src_circle_driver'), src('src_circle_breaker')],
+  }
+}
+
 function swarmFakeProvider() {
   let laneCall = 0
   const src = (id: string) => ({
@@ -124,6 +138,9 @@ function swarmFakeProvider() {
     runWithTools: vi.fn(),
     structured: vi.fn(async (req: { response_format?: { schema_name?: string } }) => {
       const schemaName = req.response_format?.schema_name
+      if (schemaName === 'BuffettMungerCircleCompetence') {
+        return fakeCirclePayload(src)
+      }
       if (schemaName === 'BuffettMungerQuickScreen') {
         return {
           summary: 'Good business',
@@ -225,6 +242,9 @@ function swarmFakeProviderWithLaneIds(_lanes: readonly string[]) {
     runWithTools: vi.fn(),
     structured: vi.fn(async (req: { prompt?: string; response_format?: { schema_name?: string } }) => {
       const schemaName = req.response_format?.schema_name
+      if (schemaName === 'BuffettMungerCircleCompetence') {
+        return fakeCirclePayload(src)
+      }
       if (schemaName === 'BuffettMungerQuickScreen') {
         return {
           summary: 'Good business',
@@ -440,7 +460,10 @@ describe('runStrategyResearchSwarm', () => {
         runWithTools: vi.fn(),
         structured: vi.fn(async (req: { response_format?: { schema_name?: string } }) => {
           const schemaName = req.response_format?.schema_name
-          if (schemaName === 'BuffettMungerQuickScreen') {
+          if (schemaName === 'BuffettMungerCircleCompetence') {
+            return fakeCirclePayload(src)
+          }
+      if (schemaName === 'BuffettMungerQuickScreen') {
             // Quick screen — one good, one bad source
             return {
               summary: 'Good business',
@@ -983,6 +1006,9 @@ function configurableSwarmProvider(opts: {
     // are handled correctly regardless of ordering.
     structured: vi.fn(async (req: { response_format?: { schema_name?: string } }) => {
       const schemaName = req.response_format?.schema_name
+      if (schemaName === 'BuffettMungerCircleCompetence') {
+        return fakeCirclePayload(src)
+      }
       if (schemaName === 'BuffettMungerQuickScreen') {
         if (qsFails > 0) { qsFails--; throw new Error('Codex CLI timed out') }
         return {
@@ -2242,6 +2268,9 @@ function swarmFakeProviderWithShariah(
     runWithTools: vi.fn(),
     structured: vi.fn(async (req: { response_format?: { schema_name?: string } }) => {
       const schemaName = req.response_format?.schema_name
+      if (schemaName === 'BuffettMungerCircleCompetence') {
+        return fakeCirclePayload(src)
+      }
       if (schemaName === 'BuffettMungerQuickScreen') {
         return {
           summary: 's', business_quality: 'b', moat: 'm', management_capital_allocation: 'mc',
@@ -3002,7 +3031,10 @@ describe('SUBSTITUTION-BOUNDARY INVARIANT — moat gate cannot pass on quant alo
       provider_id: 'fake-moat-gate', capabilities: {} as never, complete: vi.fn(), runWithTools: vi.fn(),
       structured: vi.fn(async (req: { response_format?: { schema_name?: string } }) => {
         const schemaName = req.response_format?.schema_name
-        if (schemaName === 'BuffettMungerQuickScreen') {
+        if (schemaName === 'BuffettMungerCircleCompetence') {
+          return fakeCirclePayload(src)
+        }
+      if (schemaName === 'BuffettMungerQuickScreen') {
           return {
             summary: 's', business_quality: 'b', moat: 'm', management_capital_allocation: 'mc',
             financial_quality: 'fq', valuation_sanity: 'vs', shariah_status: 'COMPLIANT',
@@ -3243,7 +3275,10 @@ describe('runStrategyResearchSwarm — schema-validation + retry (harness defens
       runWithTools: vi.fn(),
       structured: vi.fn(async (req: { response_format?: { schema_name?: string } }) => {
         const schemaName = req.response_format?.schema_name
-        if (schemaName === 'BuffettMungerQuickScreen') {
+        if (schemaName === 'BuffettMungerCircleCompetence') {
+          return fakeCirclePayload(src)
+        }
+      if (schemaName === 'BuffettMungerQuickScreen') {
           return {
             summary: 'Good', business_quality: 'Strong', moat: 'Wide', management_capital_allocation: 'Good',
             financial_quality: 'Solid', valuation_sanity: 'Fair', shariah_status: 'CONDITIONAL',
@@ -3413,6 +3448,9 @@ function crossCheckSwarmProvider(opts: {
     runWithTools: vi.fn(),
     structured: vi.fn(async (req: { response_format?: { schema_name?: string } }) => {
       const schemaName = req.response_format?.schema_name
+      if (schemaName === 'BuffettMungerCircleCompetence') {
+        return fakeCirclePayload(src)
+      }
       if (schemaName === 'BuffettMungerQuickScreen') {
         return {
           summary: 'Good', business_quality: 'Strong', moat: 'Wide', management_capital_allocation: 'Excellent',
@@ -3852,5 +3890,193 @@ describe('§2 reference FV + implied-exit-multiple — gated on grounded assumed
     expect(typeof valuation?.['reference_fair_value']).toBe('number')
     expect(typeof valuation?.['implied_exit_multiple']).toBe('number')
     expect(typeof valuation?.['market_implied_growth']).toBe('number')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// CIRCLE-OF-COMPETENCE gate — a sequential GROUNDED MODEL JUDGMENT that gates the 7-lane deep-dive spend.
+// The model must DEMONSTRATE understanding by cite-verifying BOTH the cashflow drivers AND what would make
+// them unpredictable (same rigor). Ungrounded EITHER clause = outside competence (fail-closed). Binary
+// outcome: in-competence → run the 7 lanes; outside-competence → set aside (PASS), never RESEARCH_MORE.
+// ---------------------------------------------------------------------------
+describe('circle-of-competence gate', () => {
+  // A swarm fake provider whose circle judgment claims in_competence and cites `driverCite`/`breakerCite`
+  // for the two clauses. Everything else mirrors swarmFakeProvider (full happy-path deep dive).
+  function circleSwarmProvider(opts: {
+    in_competence: boolean
+    driverCite: string
+    breakerCite: string
+  }) {
+    let laneCall = 0
+    const src = (id: string) => ({
+      source_id: id,
+      title: 'Test source',
+      url: 'https://www.sec.gov/Archives/edgar/data/0/test-10k.htm',
+      excerpt: 'Test excerpt',
+    })
+    const fullRubric = (tier: string) => ({ rubric_scores: [{ id: 'M1', score: 2 }, { id: 'M2', score: 2 }], proposed_tier: tier, adjustment_evidence: [] })
+    return {
+      provider_id: 'fake-swarm-circle',
+      capabilities: {} as never,
+      complete: vi.fn(),
+      runWithTools: vi.fn(),
+      structured: vi.fn(async (req: { response_format?: { schema_name?: string } }) => {
+        const schemaName = req.response_format?.schema_name
+        if (schemaName === 'BuffettMungerCircleCompetence') {
+          return {
+            cashflow_drivers: [{ driver: 'Recurring insurance float invested at scale', citation: opts.driverCite }],
+            predictability_breakers: [{ breaker: 'Catastrophe-loss tail volatility', citation: opts.breakerCite }],
+            competence_reasoning: opts.in_competence
+              ? 'Understandable cashflow engine grounded in the 10-K.'
+              : 'I cannot demonstrate the drivers from filings.',
+            in_competence: opts.in_competence,
+            proposed_sources: [src('src_circle_driver'), src('src_circle_breaker')],
+          }
+        }
+        if (schemaName === 'BuffettMungerCircleCompetence') {
+          return fakeCirclePayload(src)
+        }
+      if (schemaName === 'BuffettMungerQuickScreen') {
+          return {
+            summary: 'Good business', business_quality: 'Strong', moat: 'Wide moat',
+            management_capital_allocation: 'Excellent', financial_quality: 'Solid', valuation_sanity: 'Reasonable',
+            shariah_status: 'COMPLIANT', red_flags: ['None identified'], confidence: 'high', caveats: ['Mock caveat'],
+            screening_result: 'deep_dive_candidate', proposed_sources: [src('src_qs_1')],
+          }
+        }
+        if (schemaName === 'BuffettMungerMoatLane') {
+          return {
+            finding_summary: 'Moat lane finding', confidence: 'medium' as const, caveats: ['Mock moat caveat'],
+            moat_class: 'wide' as const, runway: 'proven' as const,
+            moat_rubric: fullRubric('wide'), runway_rubric: fullRubric('proven'),
+            proposed_sources: [src('src_lane_moat')],
+          }
+        }
+        if (schemaName === 'BuffettMungerShariahLane') {
+          return {
+            finding_summary: 'Shariah lane finding', confidence: 'medium' as const, caveats: ['Mock shariah caveat'],
+            sector_status: 'compliant' as const, impermissible_income: 0,
+            proposed_sources: [src('src_lane_shariah')],
+          }
+        }
+        if (schemaName === 'BuffettMungerLaneFinding') {
+          const n = laneCall++
+          return { finding_summary: `Lane ${n} finding`, confidence: 'medium', caveats: ['Mock lane caveat'], proposed_sources: [src(`src_lane_${n}`)] }
+        }
+        if (schemaName === 'BuffettMungerRedTeam') {
+          return {
+            strongest_bear_case: 'b', weakest_rubric_items: [], moat_decay_scenario: 'd', growth_credit_attack: 'g',
+            shared_narrative_blindspots: [], strongest_objection: { claim: 'c', severity: 'low', citations: ['src_qs_1'] },
+            proposed_sources: [src('src_qs_1')],
+          }
+        }
+        if (schemaName === 'BuffettMungerRedTeamResponse') {
+          return { synthesis_response: { mode: 'answered_with_evidence', text: 'Rebutted with cited filing evidence.' }, proposed_sources: [src('src_qs_1')] }
+        }
+        // Synthesis + decision
+        return {
+          investment_verdict: 'WATCH', strategy_compliance: 'CONDITIONAL', valuation_status: 'EXPENSIVE',
+          next_required_action: 'Await margin of safety before buying.', decision_reason: 'Solid business, needs margin of safety',
+          thesis_summary: 'Quality compounder', evidence_summary: 'Covered by mock sources', valuation_rationale: 'Elevated valuation',
+          shariah_rationale: 'No prohibited activities detected', synthesis_summary: 'All lanes reviewed; watch for better entry',
+          risks: ['Valuation risk'], open_questions: ['Margin of safety needed'],
+          growth_assumptions: 'Steady growth; ROIC 20% > 10% discount; terminal g=3%.',
+          owner_earnings_bridge: { net_income: 18, depreciation_amortization: 4, maintenance_capex: 3, maintenance_capex_proxy_tier: '50', stock_based_comp: 2, normalized_working_capital_change: 0, shares_outstanding: 1 },
+          roic: 0.20, incremental_roic: 0.20, reinvestment_rate: 0.40, proposed_buy_below: 150,
+          valuation_reasoning: { owner_earnings_basis: 'FY25 owner earnings per the 10-K bridge.', owner_earnings_citation: 'src_dec_1', assumed_growth: 0.06, assumed_growth_rationale: 'Modest mid-single-digit growth grounded in segment capex, cited to the 10-K.', assumed_growth_citation: 'src_dec_1' },
+          proposed_sources: [src('src_dec_1')],
+        }
+      }),
+    }
+  }
+
+  // Ground fn: verifies every source EXCEPT those whose source_id is in `unverified` (no content_hash →
+  // not in the cite-check set, exactly like the §2/A1 fixtures).
+  function circleGround(unverified: Set<string>): GroundFn {
+    return (async (sources: { source_id: string }[]) => ({
+      captured: sources.map((s) => ({
+        source_id: s.source_id, title: 't', url: 'https://example.com/x', excerpt: 'e',
+        availability: (unverified.has(s.source_id) ? 'unavailable' : 'available') as 'available' | 'unavailable',
+        fetched_at: 'x', ...(unverified.has(s.source_id) ? {} : { content_hash: 'sha256:1' }),
+      })),
+      verified_ids: sources.filter((s) => !unverified.has(s.source_id)).map((s) => s.source_id),
+    })) as unknown as GroundFn
+  }
+
+  async function runCircle(research_case_id: string, opts: { in_competence: boolean; driverCite: string; breakerCite: string; unverified?: Set<string> }) {
+    const store = new InMemoryEventStore()
+    const provider = circleSwarmProvider({ in_competence: opts.in_competence, driverCite: opts.driverCite, breakerCite: opts.breakerCite })
+    const result = await runStrategyResearchSwarm(
+      store, provider as never,
+      { research_case_id, company_id: 'c', ticker: 'CIRC', strategy_id: 'buffett-munger', actor_id: 'user_local', idempotency_key: 'k', model_id: 'mock', decision_id: `d_${research_case_id}`, source_ledger_path: '/tmp/owlfolio-circle' },
+      { ground: circleGround(opts.unverified ?? new Set()), laneConcurrency: 3 },
+    )
+    const events = await store.list()
+    const cases = projectResearchCases(events)
+    return { store, events, types: events.map((e) => e.event_type), cp: cases.find((c) => c.research_case_id === research_case_id), result }
+  }
+
+  it('1. in-competence (both clauses grounded) → gate passes, the 7-lane deep dive runs, decision proceeds', async () => {
+    const { types, cp } = await runCircle('rc_circle_in', { in_competence: true, driverCite: 'src_circle_driver', breakerCite: 'src_circle_breaker' })
+    // The judgment was recorded and the deep dive ran (lanes + synthesis).
+    expect(types).toContain('circle_competence_judged')
+    expect(types).toContain('deep_dive_started')
+    expect(types.filter((t) => t === 'specialist_finding_recorded').length).toBeGreaterThanOrEqual(7)
+    expect(types).toContain('deep_dive_synthesis_drafted')
+    expect(types).toContain('decision_drafted')
+    // The model's (gated) verdict flows through — NOT a circle set-aside.
+    expect(cp?.investment_verdict ?? cp?.decision).not.toBe(undefined)
+  })
+
+  it('2. outside-competence (model says so) → set aside: PASS + outside_circle, 7 lanes do NOT run, terminal', async () => {
+    const { types, cp } = await runCircle('rc_circle_out', { in_competence: false, driverCite: 'src_circle_driver', breakerCite: 'src_circle_breaker' })
+    expect(types).toContain('circle_competence_judged')
+    // The expensive deep dive was SKIPPED — no lanes, no synthesis.
+    expect(types).not.toContain('deep_dive_started')
+    expect(types).not.toContain('specialist_finding_recorded')
+    expect(types).not.toContain('deep_dive_synthesis_drafted')
+    // Terminal decision: PASS (set aside), flagged outside the circle.
+    expect(types).toContain('decision_drafted')
+    expect(cp?.investment_verdict ?? cp?.decision).toBe('PASS')
+    expect(cp?.valuation?.circle_competence_unmet).toBe(true)
+  })
+
+  it('3. fail-closed on ungrounded cashflow_drivers → outside-competence/set aside (ungrounded = outside)', async () => {
+    // The model CLAIMS in_competence, but the cashflow_drivers citation does not verify.
+    const { types, cp } = await runCircle('rc_circle_ungrounded_drivers', {
+      in_competence: true, driverCite: 'src_circle_driver', breakerCite: 'src_circle_breaker',
+      unverified: new Set(['src_circle_driver']),
+    })
+    expect(types).not.toContain('deep_dive_started')
+    expect(cp?.investment_verdict ?? cp?.decision).toBe('PASS')
+    expect(cp?.valuation?.circle_competence_unmet).toBe(true)
+  })
+
+  it('4. fail-closed on ungrounded predictability_breakers (the DEEPER test) → STILL outside-competence', async () => {
+    // The drivers ground, but the predictability_breakers citation does not verify — the second clause is
+    // held to the SAME rigor, so the gate STILL fails closed.
+    const { types, cp } = await runCircle('rc_circle_ungrounded_breakers', {
+      in_competence: true, driverCite: 'src_circle_driver', breakerCite: 'src_circle_breaker',
+      unverified: new Set(['src_circle_breaker']),
+    })
+    expect(types).not.toContain('deep_dive_started')
+    expect(cp?.investment_verdict ?? cp?.decision).toBe('PASS')
+    expect(cp?.valuation?.circle_competence_unmet).toBe(true)
+  })
+
+  it('5. outside-competence outcome is set-aside PASS, NEVER RESEARCH_MORE', async () => {
+    const { cp } = await runCircle('rc_circle_never_more', { in_competence: false, driverCite: 'src_circle_driver', breakerCite: 'src_circle_breaker' })
+    expect(cp?.investment_verdict ?? cp?.decision).not.toBe('RESEARCH_MORE')
+    expect(cp?.investment_verdict ?? cp?.decision).toBe('PASS')
+  })
+
+  it('projects the circle judgment (cited drivers + breakers + outcome) onto the case', async () => {
+    const { cp } = await runCircle('rc_circle_proj', { in_competence: true, driverCite: 'src_circle_driver', breakerCite: 'src_circle_breaker' })
+    const circle = cp?.circle_competence
+    expect(circle).toBeDefined()
+    expect(circle?.in_competence).toBe(true)
+    expect(circle?.cashflow_drivers?.[0]?.driver).toBeTruthy()
+    expect(circle?.predictability_breakers?.[0]?.breaker).toBeTruthy()
+    expect(circle?.competence_reasoning).toBeTruthy()
   })
 })

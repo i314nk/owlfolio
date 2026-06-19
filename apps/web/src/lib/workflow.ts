@@ -2172,6 +2172,8 @@ function nextActionForResearchCase(researchCase: ResearchCaseProjection): string
       return 'Review quick screen and click "Run deep dive" to start the swarm'
     case 'queued_for_deep_dive':
       return 'Start deep dive'
+    case 'circle_competence_judged':
+      return 'Circle-of-competence judged; deep dive in progress'
     case 'deep_dive_started':
     case 'specialist_finding_recorded':
     case 'deep_dive_in_progress':

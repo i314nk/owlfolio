@@ -114,6 +114,41 @@ export const ShariahLaneSchema = z.object({
   impermissible_income: ShariahJudgmentSchema.shape.impermissible_income,
 })
 
+// ---------------------------------------------------------------------------
+// CIRCLE-OF-COMPETENCE judgment schema (sequential PRE-deep-dive stage).
+//
+// The circle of competence is a MODEL JUDGMENT, not a config screen: "do I understand THIS business well
+// enough to assess its cashflow predictability?" The model must DEMONSTRATE it, not assert it — it cites
+// (from filings) the specific drivers of this business's cashflows AND what would make those cashflows
+// UNPREDICTABLE. The harness cite-verifies BOTH clauses against the grounded corpus with the SAME hardened
+// primitive the lanes use; if EITHER clause is ungrounded, the model is OUTSIDE its competence (fail-closed).
+// Ungrounded competence = outside competence.
+// ---------------------------------------------------------------------------
+
+// A single cited claim: the claim text + the source_id (or content_hash) of a VERIFIED primary source.
+const CircleClaimSchema = z.object({
+  // For cashflow_drivers: a specific driver of THIS business's cashflows. For predictability_breakers:
+  // a specific thing that would make those cashflows UNPREDICTABLE.
+  driver: z.string().min(1).optional(),
+  breaker: z.string().min(1).optional(),
+  // REQUIRED — the source_id (or content_hash) of a VERIFIED primary source backing the claim (a real
+  // grounded id, NOT prose). The harness cite-verifies this against the corpus; ungrounded → fail-closed.
+  citation: z.string().min(1),
+})
+
+export const CircleCompetenceSchema = z.object({
+  // The specific drivers of THIS business's cashflows, each citing a filing source.
+  cashflow_drivers: z.array(CircleClaimSchema).min(1),
+  // What would make those cashflows UNPREDICTABLE, each cited. THE DEEPER TEST — held to the SAME
+  // cite-verify rigor as the drivers; not ungrounded prose.
+  predictability_breakers: z.array(CircleClaimSchema).min(1),
+  // The model's narrative judgment of whether it understands this business well enough.
+  competence_reasoning: z.string().min(1),
+  // The model's CLAIM of in/outside competence. The harness only honors `true` when BOTH clauses ground.
+  in_competence: z.boolean(),
+  proposed_sources: ProposedSourcesSchema,
+})
+
 export const DecisionAgentSchema = z.object({
   investment_verdict: z.enum(['BUY', 'WATCH', 'PASS', 'RESEARCH_MORE']),
   strategy_compliance: z.enum(['COMPLIANT', 'CONDITIONAL', 'NON_COMPLIANT', 'INSUFFICIENT_DATA']),
@@ -247,6 +282,20 @@ export const SHARIAH_OVERLAY_PROMPT =
   + `sector_status ('compliant' | 'conditional' | 'non_compliant') confirmed with segment revenue, and impermissible_income — the dollar amount in $MILLIONS of non-permissible income (interest income on cash, prohibited-segment revenue), 0 if fully permissible. `
   + `The harness recomputes the AAOIFI debt/cash/impermissible ratios + verdict + purification % from the primary filings + market cap; do NOT compute the ratios yourself. `
   + `EXAMPLE (shape only): {"sector_status":"compliant","impermissible_income":128.0}.`
+
+// CIRCLE-OF-COMPETENCE judgment prompt (the sequential pre-deep-dive gate). The model must DEMONSTRATE
+// understanding, not assert it — and grounding BOTH clauses is the bar. Ungrounded = outside competence.
+export const CIRCLE_COMPETENCE_PROMPT =
+  `You are the Buffett-Munger CIRCLE-OF-COMPETENCE gate. Judge whether you understand THIS business well `
+  + `enough to assess its cashflow predictability. You must DEMONSTRATE it, not assert it: `
+  + `cite (from primary filings) the specific DRIVERS of this business's cashflows (cashflow_drivers — each `
+  + `with a citation: the source_id of a VERIFIED primary source you fetched) AND what would make those `
+  + `cashflows UNPREDICTABLE (predictability_breakers — each ALSO cited to a verified primary source; this `
+  + `clause is held to the SAME rigor as the drivers — do NOT hand-wave it as prose). `
+  + `If you cannot GROUND BOTH, you are OUTSIDE your competence — a valid, common, CORRECT answer; set `
+  + `in_competence to false. Do NOT rationalize understanding you cannot demonstrate. Gather your own primary `
+  + `sources and return them in proposed_sources with real URLs; cite real grounded source_ids in every `
+  + `citation field. Also give competence_reasoning (your narrative judgment) and in_competence (your claim).`
 
 // Lanes that receive the primary-filing data injection (they consume hard financials).
 export const PRIMARY_FILING_LANES: ReadonlySet<string> = new Set(['financial_quality', 'valuation', 'shariah'])

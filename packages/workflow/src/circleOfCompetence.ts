@@ -1,12 +1,22 @@
-// PURE circle-of-competence check (Task 4.1c, Part A).
+// PURE OWNER-POLICY HARD-EXCLUSION check (Task 4.1c, Part A).
 //
-// The harness CHECKS a candidate against the OWNER-SET boundary in `CircleOfCompetenceConfig`; it
-// NEVER infers the boundary. There is deliberately NO LLM and NO network in this path — same discipline
-// as the discount anchor: an agent will rationalize almost anything into the circle, so the decision is
-// config-only, deterministic, and reproducible.
+// IMPORTANT — what this is NOT: this is NOT the circle-of-competence COMPETENCE judgment. "Do I understand
+// THIS business well enough to assess its cashflow predictability?" is a GROUNDED MODEL JUDGMENT and lives
+// in the deep-dive phase (researchSwarm.ts → judgeCircleCompetence + the circle gate, emitting
+// circle_competence_judged). THIS module is a cheap, deterministic OWNER-POLICY PRE-FILTER: an owner-chosen
+// set of categorical hard-exclusions ("I categorically WON'T invest in sector/archetype/size X" — an owner
+// CHOICE, not a competence claim). It is a pre-spend gate at the research-start route, NOT a demonstration
+// of understanding. The H1 confusion (this config screen standing in for the competence judgment) must not
+// recur: the COMPETENCE judgment is the model's; THIS is the owner's policy.
+//
+// The harness CHECKS a candidate against the OWNER-SET policy in `CircleOfCompetenceConfig` (the config KEY
+// stays `circle_of_competence` for persisted-config back-compat; its MEANING is owner-policy exclusions);
+// it NEVER infers the policy. There is deliberately NO LLM and NO network in this path — an agent will
+// rationalize almost anything past an exclusion, so the owner's hard-exclusions are config-only,
+// deterministic, and reproducible.
 //
 // Safety property: the permissive default (`enabled: false`) ALWAYS admits — nothing is ever silently
-// rejected until the owner deliberately narrows the boundary.
+// excluded until the owner deliberately narrows the policy.
 
 import type { CircleOfCompetenceConfig } from '@owlfolio/shared'
 
@@ -33,7 +43,10 @@ function matchesAnyPrefix(sic: string, prefixes: string[]): boolean {
 }
 
 /**
- * Deterministic, pure, NO-LLM, NO-network circle-of-competence check.
+ * Deterministic, pure, NO-LLM, NO-network OWNER-POLICY hard-exclusion check (NOT a competence judgment —
+ * see the file header). Kept named `inCircle` / `in_circle` for back-compat with the research-start route
+ * and existing configs; semantically it answers "does the candidate pass the owner's categorical
+ * hard-exclusion policy?" (the alias {@link passesOwnerPolicy} reads truer at new call sites).
  *
  * - `config.enabled === false` (the permissive default) → `{ in_circle: true }` ALWAYS (short-circuits
  *   before any list/bound is consulted). This is the key safety property.
@@ -124,3 +137,11 @@ export function inCircle(candidate: CircleCandidate, config: CircleOfCompetenceC
 
   return { in_circle: true }
 }
+
+/**
+ * Truer-reading alias for {@link inCircle}: this gate answers whether a candidate passes the OWNER's
+ * categorical hard-exclusion POLICY (sector/archetype/market-cap), NOT whether the model is competent to
+ * judge the business (that is the grounded model judgment in the deep-dive circle gate). New owner-policy
+ * call sites should prefer this name; `inCircle` is retained for the existing route + config back-compat.
+ */
+export const passesOwnerPolicy = inCircle

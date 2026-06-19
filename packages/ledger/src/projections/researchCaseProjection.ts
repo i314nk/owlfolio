@@ -8,6 +8,7 @@ export type ResearchCaseStage =
   | 'deep_dive_started'
   | 'specialist_finding_recorded'
   | 'deep_dive_in_progress'
+  | 'circle_competence_judged'
   | 'deep_dive_synthesis_drafted'
   | 'deep_dive_completed'
   | 'deep_dive_complete'
@@ -198,7 +199,34 @@ export type ResearchCaseRedTeamProjection = {
   objection_unaddressed?: boolean
 }
 
+// Circle-of-competence judgment: the grounded model judgment of whether it understands THIS business well
+// enough to assess its cashflow predictability. Demonstrated (not asserted) — cited drivers + cited
+// predictability-breakers (both cite-verified). Outside-competence (model says so OR fail-closed on either
+// ungrounded clause) sets the case aside (verdict PASS). Projected legacy-tolerantly (absent on old runs).
+export type ResearchCaseCircleClaimProjection = {
+  driver?: string
+  breaker?: string
+  citation?: string
+  grounded?: boolean
+}
+export type ResearchCaseCircleCompetenceProjection = {
+  /** The HARNESS outcome: in-competence (true) only when the model claimed it AND both clauses grounded. */
+  in_competence?: boolean
+  /** The model's raw claim (before the harness's grounding fail-closed). */
+  model_claimed_in_competence?: boolean
+  competence_reasoning?: string
+  cashflow_drivers?: ResearchCaseCircleClaimProjection[]
+  predictability_breakers?: ResearchCaseCircleClaimProjection[]
+  /** Set when the gate failed closed (model outside-competence OR an ungrounded clause). */
+  circle_competence_unmet?: boolean
+  reason?: string
+}
+
 export type ResearchCaseValuationProjection = {
+  /** Set when the case was set aside outside the circle of competence (the deep dive did not run). */
+  circle_competence_unmet?: boolean
+  /** Mirror flag for the set-aside path (outside the owner-policy + competence circle). */
+  outside_circle?: boolean
   moat_class?: string
   moat_passes_gate?: boolean
   /** Reinvestment runway axis (separate from moat): proven | limited | none. */
@@ -600,6 +628,8 @@ export type ResearchCaseProjection = {
   specialist_lane?: string
   specialist_findings?: ResearchCaseSpecialistFindingProjection[]
   owner_earnings_valuation?: ResearchCaseOwnerEarningsValuationProjection
+  /** Circle-of-competence judgment (grounded model judgment that gated the deep-dive spend). */
+  circle_competence?: ResearchCaseCircleCompetenceProjection
   valuation?: ResearchCaseValuationProjection
   /** Harness-computed AAOIFI Shariah financial ratios (absent → lane-proposed verdict was used). */
   shariah_financial?: ResearchCaseShariahFinancialProjection
@@ -869,6 +899,46 @@ function getBaseRateBurden(valuation: Record<string, unknown>): ResearchCaseBase
       return flag
     })
     if (flags.length > 0) projected.flags = flags
+  }
+  return Object.keys(projected).length === 0 ? undefined : projected
+}
+
+function getCircleCompetence(payload: Record<string, unknown>): ResearchCaseCircleCompetenceProjection | undefined {
+  const value = payload['circle_competence']
+  if (!isRecord(value)) return undefined
+  const projected: ResearchCaseCircleCompetenceProjection = {}
+  if (typeof value['in_competence'] === 'boolean') projected.in_competence = value['in_competence']
+  if (typeof value['model_claimed_in_competence'] === 'boolean') projected.model_claimed_in_competence = value['model_claimed_in_competence']
+  const competence_reasoning = getString(value, 'competence_reasoning')
+  if (competence_reasoning !== undefined) projected.competence_reasoning = competence_reasoning
+  const reason = getString(value, 'reason')
+  if (reason !== undefined) projected.reason = reason
+  if (typeof value['circle_competence_unmet'] === 'boolean') projected.circle_competence_unmet = value['circle_competence_unmet']
+  const drivers = value['cashflow_drivers']
+  if (Array.isArray(drivers)) {
+    const mapped = drivers.filter(isRecord).map((d): ResearchCaseCircleClaimProjection => {
+      const c: ResearchCaseCircleClaimProjection = {}
+      const driver = getString(d, 'driver')
+      if (driver !== undefined) c.driver = driver
+      const citation = getString(d, 'citation')
+      if (citation !== undefined) c.citation = citation
+      if (typeof d['grounded'] === 'boolean') c.grounded = d['grounded']
+      return c
+    })
+    if (mapped.length > 0) projected.cashflow_drivers = mapped
+  }
+  const breakers = value['predictability_breakers']
+  if (Array.isArray(breakers)) {
+    const mapped = breakers.filter(isRecord).map((b): ResearchCaseCircleClaimProjection => {
+      const c: ResearchCaseCircleClaimProjection = {}
+      const breaker = getString(b, 'breaker')
+      if (breaker !== undefined) c.breaker = breaker
+      const citation = getString(b, 'citation')
+      if (citation !== undefined) c.citation = citation
+      if (typeof b['grounded'] === 'boolean') c.grounded = b['grounded']
+      return c
+    })
+    if (mapped.length > 0) projected.predictability_breakers = mapped
   }
   return Object.keys(projected).length === 0 ? undefined : projected
 }
@@ -1162,6 +1232,10 @@ function getValuation(payload: Record<string, unknown>): ResearchCaseValuationPr
   }
 
   const projected: ResearchCaseValuationProjection = {}
+  const circle_competence_unmet = typeof value['circle_competence_unmet'] === 'boolean' ? value['circle_competence_unmet'] : undefined
+  if (circle_competence_unmet !== undefined) projected.circle_competence_unmet = circle_competence_unmet
+  const outside_circle = typeof value['outside_circle'] === 'boolean' ? value['outside_circle'] : undefined
+  if (outside_circle !== undefined) projected.outside_circle = outside_circle
   const moat_class = getString(value, 'moat_class')
   if (moat_class !== undefined) projected.moat_class = moat_class
   const moat_passes_gate = typeof value['moat_passes_gate'] === 'boolean' ? value['moat_passes_gate'] : undefined
@@ -1628,6 +1702,23 @@ export function projectResearchCases(events: LedgerEventEnvelope<unknown>[]): Re
       continue
     }
 
+    if (event.event_type === 'circle_competence_judged') {
+      const researchCaseId = researchCaseIdFor(event, event.payload)
+      if (researchCaseId === undefined) {
+        continue
+      }
+      // The judgment never advances the stage on its own — the analysis/decision events that follow set the
+      // terminal (set-aside) or proceeding stage. Preserve the existing stage; just attach the judgment.
+      const existing = researchCases.get(researchCaseId)
+      const researchCase = upsertCase(researchCases, researchCaseId, existing?.stage ?? 'circle_competence_judged', event.created_at)
+      applyString(researchCase, 'ticker', getString(event.payload, 'ticker'))
+      const circleCompetence = getCircleCompetence({ circle_competence: event.payload })
+      if (circleCompetence !== undefined) {
+        researchCase.circle_competence = circleCompetence
+      }
+      continue
+    }
+
     if (event.event_type === 'deep_dive_synthesis_drafted') {
       const researchCaseId = researchCaseIdFor(event, event.payload)
       if (researchCaseId === undefined) {
@@ -1698,6 +1789,10 @@ export function projectResearchCases(events: LedgerEventEnvelope<unknown>[]): Re
       const valuation = getValuation(event.payload)
       if (valuation !== undefined) {
         researchCase.valuation = valuation
+      }
+      const circleCompetence = getCircleCompetence(event.payload)
+      if (circleCompetence !== undefined) {
+        researchCase.circle_competence = circleCompetence
       }
       const shariahFinancial = getShariahFinancial(event.payload)
       if (shariahFinancial !== undefined) {

@@ -1494,3 +1494,68 @@ describe('ResearchCasePanel — mock-provider warning banner', () => {
     expect(html).not.toContain('data-testid="mock-provider-warning"')
   })
 })
+
+describe('ResearchCasePanel — circle-of-competence judgment', () => {
+  function baseCircleCase(): AppResearchCase {
+    return {
+      research_case_id: 'rc_circle_ui',
+      version: 1,
+      superseded: false,
+      stage: 'analysis_drafted',
+      company_id: 'company_circ',
+      ticker: 'CIRC',
+      strategy_id: 'buffett-munger',
+      investment_verdict: 'WATCH',
+      updated_at: '2026-06-19T12:00:00.000Z',
+      gate_checklist: [],
+      source_ids: ['src_circle_driver', 'src_circle_breaker'],
+      ledger_timeline: [],
+    }
+  }
+
+  it('renders the cited drivers, cited predictability-breakers, and the in-competence outcome', () => {
+    const researchCase: AppResearchCase = {
+      ...baseCircleCase(),
+      circle_competence: {
+        in_competence: true,
+        model_claimed_in_competence: true,
+        competence_reasoning: 'Understandable cashflow engine demonstrated from filings.',
+        cashflow_drivers: [{ driver: 'Recurring insurance float invested at scale', citation: 'src_circle_driver', grounded: true }],
+        predictability_breakers: [{ breaker: 'Catastrophe-loss tail volatility', citation: 'src_circle_breaker', grounded: true }],
+      },
+    }
+    const html = renderToStaticMarkup(createElement(ResearchCasePanel, { researchCase, mode: 'personal-local' }))
+    expect(html).toContain('data-testid="circle-competence"')
+    expect(html).toContain('Circle of competence — in competence')
+    expect(html).toContain('Recurring insurance float invested at scale')
+    expect(html).toContain('Catastrophe-loss tail volatility')
+    expect(html).toContain('Predictability breakers (cited — the deeper test)')
+    expect(html).toContain('Understandable cashflow engine demonstrated from filings.')
+  })
+
+  it('renders "Outside competence — set aside" with the reasoning when the gate failed closed', () => {
+    const researchCase: AppResearchCase = {
+      ...baseCircleCase(),
+      investment_verdict: 'PASS',
+      valuation: { circle_competence_unmet: true, outside_circle: true },
+      circle_competence: {
+        in_competence: false,
+        model_claimed_in_competence: true,
+        competence_reasoning: 'I could not ground the drivers from filings.',
+        circle_competence_unmet: true,
+        reason: 'circle_competence_unmet: the predictability_breakers citations did NOT verify — set aside.',
+        cashflow_drivers: [{ driver: 'Driver claim', citation: 'src_circle_driver', grounded: true }],
+        predictability_breakers: [{ breaker: 'Breaker claim', citation: 'src_unverified', grounded: false }],
+      },
+    }
+    const html = renderToStaticMarkup(createElement(ResearchCasePanel, { researchCase, mode: 'personal-local' }))
+    expect(html).toContain('Outside competence — set aside')
+    expect(html).toContain('citation did not verify: src_unverified')
+    expect(html).toContain('the predictability_breakers citations did NOT verify')
+  })
+
+  it('renders nothing for the circle panel on a legacy case without the judgment', () => {
+    const html = renderToStaticMarkup(createElement(ResearchCasePanel, { researchCase: baseCircleCase(), mode: 'personal-local' }))
+    expect(html).not.toContain('data-testid="circle-competence"')
+  })
+})
