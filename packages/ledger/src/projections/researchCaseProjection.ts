@@ -652,6 +652,14 @@ export type ResearchCaseProjection = {
   shariah_status?: string
   valuation_status?: string
   next_required_action?: string
+  /**
+   * MARGIN-OF-SAFETY AUDIT SURFACE — the synthesis decision's forward-looking model risk judgments.
+   * key_wrong_assumption: the SINGLE assumption that, if wrong, breaks the thesis. thesis_break_triggers:
+   * the observable events that would invalidate it. Legacy-tolerant (optional, guarded reads) — absent for
+   * old analysis events. NOT cite-verified (forward-looking model judgments, not current-fact claims).
+   */
+  key_wrong_assumption?: string
+  thesis_break_triggers?: string[]
   decision?: string
   user_approved?: boolean
   reason?: string
@@ -1446,6 +1454,7 @@ function applyString(
     | 'shariah_status'
     | 'valuation_status'
     | 'next_required_action'
+    | 'key_wrong_assumption'
     | 'decision'
     | 'reason'
     | 'thesis_summary'
@@ -1475,7 +1484,7 @@ function applyBoolean(
 
 function applyStringArray(
   target: ResearchCaseProjection,
-  key: keyof Pick<ResearchCaseProjection, 'red_flags' | 'caveats' | 'risks' | 'open_questions'>,
+  key: keyof Pick<ResearchCaseProjection, 'red_flags' | 'caveats' | 'risks' | 'open_questions' | 'thesis_break_triggers'>,
   value: string[] | undefined,
 ): void {
   if (value !== undefined) {
@@ -1786,6 +1795,9 @@ export function projectResearchCases(events: LedgerEventEnvelope<unknown>[]): Re
       applyString(researchCase, 'shariah_status', getString(event.payload, 'shariah_status'))
       applyString(researchCase, 'valuation_status', getString(event.payload, 'valuation_status'))
       applyString(researchCase, 'next_required_action', getString(event.payload, 'next_required_action'))
+      // MARGIN-OF-SAFETY AUDIT SURFACE — legacy-tolerant guarded reads (absent on old analysis events).
+      applyString(researchCase, 'key_wrong_assumption', getString(event.payload, 'key_wrong_assumption'))
+      applyStringArray(researchCase, 'thesis_break_triggers', getStringArray(event.payload, 'thesis_break_triggers'))
       const valuation = getValuation(event.payload)
       if (valuation !== undefined) {
         researchCase.valuation = valuation

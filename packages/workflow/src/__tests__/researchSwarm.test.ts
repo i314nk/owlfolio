@@ -12,6 +12,17 @@ import type { AnnualFacts } from '../secEdgar'
 import { buffettMungerDeepDiveLanes } from '../strategyResearchPipeline'
 import { groundProposedSourcesDeterministic, type CapturedSource } from '../sourceGrounding'
 
+// MARGIN-OF-SAFETY AUDIT SURFACE — the synthesis decision now REQUIRES key_wrong_assumption +
+// thesis_break_triggers (forward-looking model risk judgments). Shared substantive fixture spread into
+// every synthesis-decision fake so the existing decision tests still produce a schema-valid decision.
+const DECISION_MOS_FIXTURE = {
+  key_wrong_assumption: 'The assumed near-term owner-earnings growth holds — if pricing power erodes the thesis breaks.',
+  thesis_break_triggers: [
+    'Gross margin falls below the current band for two consecutive fiscal years.',
+    'Top-2 customer concentration rises materially.',
+  ],
+}
+
 function fakeProvider(payload: unknown) {
   return {
     provider_id: 'fake',
@@ -195,6 +206,7 @@ function swarmFakeProvider() {
         synthesis_summary: 'All lanes reviewed; watch for better entry',
         risks: ['Valuation risk'],
         open_questions: ['Margin of safety needed'],
+        ...DECISION_MOS_FIXTURE,
         growth_assumptions: 'Steady growth; ROIC 20% > 10% discount; terminal g=3%.',
         owner_earnings_bridge: {
           net_income: 18, depreciation_amortization: 4, maintenance_capex: 3,
@@ -313,6 +325,7 @@ function swarmFakeProviderWithLaneIds(_lanes: readonly string[]) {
         synthesis_summary: 'All lanes reviewed; watch for better entry',
         risks: ['Valuation risk'],
         open_questions: ['Margin of safety needed'],
+        ...DECISION_MOS_FIXTURE,
         growth_assumptions: 'Steady growth; ROIC 20% > 10% discount; terminal g=3%.',
         owner_earnings_bridge: {
           net_income: 18, depreciation_amortization: 4, maintenance_capex: 3,
@@ -531,6 +544,7 @@ describe('runStrategyResearchSwarm', () => {
             synthesis_summary: 'All lanes reviewed; watch for better entry',
             risks: ['Valuation risk'],
             open_questions: ['Margin of safety needed'],
+            ...DECISION_MOS_FIXTURE,
             growth_assumptions: 'Steady growth; ROIC 20% > 10% discount; terminal g=3%.',
             owner_earnings_bridge: {
               net_income: 18, depreciation_amortization: 4, maintenance_capex: 3,
@@ -797,6 +811,40 @@ describe('runStrategyResearchSwarm with MockProvider + deterministic grounder', 
     expect(caseProjection?.strategy_compliance).toBeDefined()
     expect(caseProjection?.valuation_status).toBeDefined()
     expect(caseProjection?.shariah_status).toBeDefined()
+  })
+
+  // Margin-of-safety audit surface: a decision with key_wrong_assumption + thesis_break_triggers flows
+  // through the swarm → persisted on the analysis event → projected on the research case.
+  it('persists + projects key_wrong_assumption + thesis_break_triggers from the synthesis decision', async () => {
+    const sourceLedgerPath = await mkdtemp(join(tmpdir(), 'owlfolio-mock-swarm-mos-'))
+    const store = new InMemoryEventStore()
+    const provider = new MockProvider()
+
+    await runStrategyResearchSwarm(
+      store,
+      provider,
+      {
+        research_case_id: 'rc_mock_mos',
+        company_id: 'company_mock',
+        ticker: 'COST',
+        strategy_id: 'buffett-munger',
+        actor_id: 'user_local',
+        idempotency_key: 'mock_mos_k',
+        model_id: 'mock-research-v1',
+        decision_id: 'decision_mock_mos',
+        source_ledger_path: sourceLedgerPath,
+      },
+      { ground: groundProposedSourcesDeterministic as GroundFn, laneConcurrency: 4 },
+    )
+
+    const events = await store.list()
+    const projections = projectResearchCases(events as Parameters<typeof projectResearchCases>[0])
+    const caseProjection = projections.find((c) => c.research_case_id === 'rc_mock_mos')
+    expect(caseProjection).toBeDefined()
+    expect(typeof caseProjection?.key_wrong_assumption).toBe('string')
+    expect((caseProjection?.key_wrong_assumption ?? '').length).toBeGreaterThan(0)
+    expect(Array.isArray(caseProjection?.thesis_break_triggers)).toBe(true)
+    expect((caseProjection?.thesis_break_triggers ?? []).length).toBeGreaterThan(0)
   })
 
   it('projects moat_class, runway, discount_rate, roic, two-stage fair_value, MoS, and buy_price from the analysis event (two-stage DCF)', async () => {
@@ -1086,6 +1134,7 @@ function configurableSwarmProvider(opts: {
         valuation_rationale: 'Elevated', shariah_rationale: 'No prohibited activities',
         synthesis_summary: 'All lanes reviewed', risks: ['Valuation risk'],
         open_questions: ['Margin of safety needed'],
+        ...DECISION_MOS_FIXTURE,
         // moat_class / runway now come from the MOAT lane; the synthesis schema no longer carries them.
         growth_assumptions: 'Two-stage DCF; credited g banded by incremental ROIC and runway.',
         owner_earnings_bridge: opts.synthesis?.owner_earnings_bridge ?? baseBridge,
@@ -2317,6 +2366,7 @@ function swarmFakeProviderWithShariah(
         next_required_action: 'Await MoS.', decision_reason: 'Quality but pricey', thesis_summary: 'Compounder',
         evidence_summary: 'Covered', valuation_rationale: 'Elevated', shariah_rationale: 'Trace interest income',
         synthesis_summary: 'Reviewed', risks: ['Valuation'], open_questions: ['MoS'],
+        ...DECISION_MOS_FIXTURE,
         growth_assumptions: 'Two-stage DCF; banded g.',
         // Model proposes a NORMALIZED net income equal to EDGAR reported NI (delta 0), tier '80', and
         // a maintenance_capex value the harness IGNORES in favour of min(D&A, capex × 0.80).
@@ -3068,6 +3118,7 @@ describe('SUBSTITUTION-BOUNDARY INVARIANT — moat gate cannot pass on quant alo
           next_required_action: 'Buy below the band.', decision_reason: 'Strong compounder', thesis_summary: 'Quality',
           evidence_summary: 'Covered', valuation_rationale: 'Cheap', shariah_rationale: 'Clean',
           synthesis_summary: 'Reviewed', risks: ['r'], open_questions: ['q'],
+          ...DECISION_MOS_FIXTURE,
           growth_assumptions: 'Two-stage DCF.',
           owner_earnings_bridge: { net_income: 1000, depreciation_amortization: 100, maintenance_capex: 50, maintenance_capex_proxy_tier: '80', stock_based_comp: 0, normalized_working_capital_change: 0, shares_outstanding: 100 },
           roic: 0.30, incremental_roic: 0.20, reinvestment_rate: 0.40,
@@ -3327,6 +3378,7 @@ describe('runStrategyResearchSwarm — schema-validation + retry (harness defens
           investment_verdict: 'WATCH', strategy_compliance: 'CONDITIONAL', valuation_status: 'EXPENSIVE',
           next_required_action: 'wait', decision_reason: 'pricey', thesis_summary: 't', evidence_summary: 'e',
           valuation_rationale: 'v', shariah_rationale: 's', synthesis_summary: 'x', risks: ['r'], open_questions: ['q'],
+          ...DECISION_MOS_FIXTURE,
           growth_assumptions: 'two-stage', roic: 0.30, incremental_roic: 0.20, reinvestment_rate: 0.43,
           proposed_buy_below: 150,
           owner_earnings_bridge: {
@@ -3501,6 +3553,7 @@ function crossCheckSwarmProvider(opts: {
         next_required_action: 'a', decision_reason: 'r', thesis_summary: 't', evidence_summary: 'e',
         valuation_rationale: 'v', shariah_rationale: 's', synthesis_summary: 'ss', risks: ['risk'],
         open_questions: ['baseline question'],
+        ...DECISION_MOS_FIXTURE,
         growth_assumptions: 'g', owner_earnings_bridge: {
           net_income: 8838, depreciation_amortization: 2565, maintenance_capex: 2052,
           maintenance_capex_proxy_tier: '80', stock_based_comp: 911, normalized_working_capital_change: 0, shares_outstanding: 443,
@@ -3980,6 +4033,7 @@ describe('circle-of-competence gate', () => {
           thesis_summary: 'Quality compounder', evidence_summary: 'Covered by mock sources', valuation_rationale: 'Elevated valuation',
           shariah_rationale: 'No prohibited activities detected', synthesis_summary: 'All lanes reviewed; watch for better entry',
           risks: ['Valuation risk'], open_questions: ['Margin of safety needed'],
+          ...DECISION_MOS_FIXTURE,
           growth_assumptions: 'Steady growth; ROIC 20% > 10% discount; terminal g=3%.',
           owner_earnings_bridge: { net_income: 18, depreciation_amortization: 4, maintenance_capex: 3, maintenance_capex_proxy_tier: '50', stock_based_comp: 2, normalized_working_capital_change: 0, shares_outstanding: 1 },
           roic: 0.20, incremental_roic: 0.20, reinvestment_rate: 0.40, proposed_buy_below: 150,

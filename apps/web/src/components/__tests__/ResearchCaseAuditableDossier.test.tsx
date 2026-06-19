@@ -177,6 +177,29 @@ describe('ResearchCasePanel auditable dossier (R1)', () => {
     expect(html.toLowerCase()).toContain('in the buy zone')
   })
 
+  // Margin-of-safety audit surface: the model's key_wrong_assumption + thesis_break_triggers.
+  it('renders the key-wrong-assumption line and the thesis-break-triggers list when present', () => {
+    const html = render({
+      ...baseCase(),
+      key_wrong_assumption: 'The assumed 6% durable growth holds — if pricing power erodes the thesis breaks.',
+      thesis_break_triggers: [
+        'Gross margin falls below 40% for two consecutive quarters.',
+        'Membership renewal rate drops below 88%.',
+      ],
+    } as unknown as AppResearchCase, QUOTE)
+    expect(html).toContain('The assumed 6% durable growth holds — if pricing power erodes the thesis breaks.')
+    expect(html).toContain('Gross margin falls below 40% for two consecutive quarters.')
+    expect(html).toContain('Membership renewal rate drops below 88%.')
+  })
+
+  it('falls back to "Not yet available" for the margin-of-safety surface when absent (legacy case, no crash)', () => {
+    // baseCase carries neither field — both lines render the honest not-yet-available fallback.
+    const html = render(baseCase(), QUOTE)
+    expect(html).toContain('Key-wrong assumption')
+    expect(html).toContain('Thesis-break triggers')
+    expect(html).toContain('Not yet available')
+  })
+
   it('retires the growth-axis band viz and the band/gap ledger labels entirely', () => {
     const html = render(baseCase(), QUOTE)
     expect(html).not.toContain('data-testid="growth-band-axis"')

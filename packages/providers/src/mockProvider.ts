@@ -266,6 +266,15 @@ function mockSynthesisDecisionForTicker(ticker: string) {
     // Normalized INCREMENTAL ROIC (fraction) — reported context (no longer drives a band verdict; R1).
     incremental_roic: 0.20,
     reinvestment_rate: 0.40,
+    // MARGIN-OF-SAFETY AUDIT SURFACE — business-specific forward-looking risk judgments (required +
+    // substantive; NOT cite-gated). Concrete assumption that, if wrong, breaks the thesis + observable
+    // invalidating events tied to this name (not boilerplate).
+    key_wrong_assumption: `${companyLabel}'s assumed ${isCapitalLightMock(ticker) ? '18%' : '6%'} durable owner-earnings growth holds — if pricing power or segment margins erode, the moat-durability premium and the thesis break.`,
+    thesis_break_triggers: [
+      `${companyLabel} gross margin falls below the current band for two consecutive fiscal years.`,
+      `Top-customer / top-segment concentration rises materially (a funded entrant takes share).`,
+      `Incremental ROIC on reinvested owner earnings drops below the 10% discount rate.`,
+    ],
     // RELIGHTENED DECISION (R1): the MODEL proposes the buy-below WITH its cited valuation reasoning. The
     // deterministic side records this number as the buy-below and only sanity-checks it.
     // Deterministic per ticker so tests are stable, and chosen so the cohorts exercise BOTH sanity paths:

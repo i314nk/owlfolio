@@ -29,6 +29,8 @@ describe('DecisionAgentSchema (model proposes buy-below + cited valuation reason
     incremental_roic: 0.2,
     reinvestment_rate: 0.4,
     proposed_buy_below: 150,
+    key_wrong_assumption: 'The assumed 6% durable growth holds — if pricing power erodes the thesis breaks.',
+    thesis_break_triggers: ['Gross margin falls below 40% for two consecutive quarters.'],
     proposed_sources: [{ source_id: 's1', title: 'T', url: 'https://www.sec.gov/x.htm', excerpt: 'e' }],
   }
 
@@ -94,5 +96,29 @@ describe('DecisionAgentSchema (model proposes buy-below + cited valuation reason
     const parsed = DecisionAgentSchema.safeParse(base)
     expect(parsed.success).toBe(true)
     expect(parsed.success && parsed.data.valuation_reasoning).toBeUndefined()
+  })
+
+  // Margin-of-safety audit surface: the SINGLE assumption that, if wrong, breaks the thesis +
+  // the observable events that would invalidate it. Both REQUIRED + substantive (.min(1)).
+  it('REQUIRES key_wrong_assumption (the single assumption that, if wrong, breaks the thesis)', () => {
+    const { key_wrong_assumption: _omit, ...withoutKWA } = base
+    void _omit
+    expect(DecisionAgentSchema.safeParse(withoutKWA).success).toBe(false)
+    const empty = DecisionAgentSchema.safeParse({ ...base, key_wrong_assumption: '' })
+    expect(empty.success).toBe(false)
+    const parsed = DecisionAgentSchema.safeParse(base)
+    expect(parsed.success && parsed.data.key_wrong_assumption).toContain('6% durable growth')
+  })
+
+  it('REQUIRES thesis_break_triggers (a non-empty array of observable invalidating events)', () => {
+    const { thesis_break_triggers: _omit, ...withoutTBT } = base
+    void _omit
+    expect(DecisionAgentSchema.safeParse(withoutTBT).success).toBe(false)
+    const emptyArray = DecisionAgentSchema.safeParse({ ...base, thesis_break_triggers: [] })
+    expect(emptyArray.success).toBe(false)
+    const emptyItem = DecisionAgentSchema.safeParse({ ...base, thesis_break_triggers: [''] })
+    expect(emptyItem.success).toBe(false)
+    const parsed = DecisionAgentSchema.safeParse(base)
+    expect(parsed.success && parsed.data.thesis_break_triggers).toHaveLength(1)
   })
 })

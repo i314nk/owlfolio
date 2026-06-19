@@ -1336,6 +1336,19 @@ export async function runResearchDeepDivePhase(
       present: (a) => (a.valuation_reasoning?.assumed_growth_citation ?? '').length > 0,
       hint: 'the source_id of a VERIFIED primary source backing the assumed-growth rationale (a real grounded source_id, not prose)',
     },
+    // MARGIN-OF-SAFETY AUDIT SURFACE — required + substantive (the schema's .min(1) + the prompt's
+    // specificity instruction + this retry are the guard against empty/boilerplate). Forward-looking model
+    // risk judgments, so deliberately NOT cite-gated — an absent one does NOT route to RESEARCH_MORE.
+    {
+      name: 'key_wrong_assumption',
+      present: (a) => (a.key_wrong_assumption ?? '').trim().length > 0,
+      hint: 'the SINGLE concrete assumption that, if wrong, breaks the thesis (name the assumed growth rate / moat-durability claim / maintenance-capex judgment you actually made — not boilerplate)',
+    },
+    {
+      name: 'thesis_break_triggers',
+      present: (a) => Array.isArray(a.thesis_break_triggers) && a.thesis_break_triggers.some((t) => (t ?? '').trim().length > 0),
+      hint: 'concrete OBSERVABLE events tied to THIS business that would invalidate the thesis ("gross margin falls below X%", "top-2 customer concentration rises") — not generic "if growth slows"',
+    },
   ]
   let dec: GroundedAgentResult<z.infer<typeof DecisionAgentSchema>>
   // Surfaced when the validate→retry wrapper exhausted its attempts and we fell back to the degraded
@@ -1351,6 +1364,7 @@ export async function runResearchDeepDivePhase(
       + `For the owner_earnings_bridge, provide company TOTALS in $millions from the latest 10-K (net_income, depreciation_amortization, maintenance_capex, stock_based_comp, normalized_working_capital_change) AND shares_outstanding (diluted weighted-average shares outstanding, in MILLIONS) so the harness can compute owner earnings per share. `
       + `Report incremental_roic (normalized INCREMENTAL ROIC as a fraction, e.g. 0.20) alongside reinvestment_rate (reported context). `
       + `YOU OWN THE VALUATION JUDGMENT. REQUIRED — do not omit: proposed_buy_below — the per-share price BELOW which you would buy, your own number, with your cited reasoning (the harness records it verbatim; it does NOT derive it from any fair value). ALSO produce valuation_reasoning: owner_earnings_basis (CITED — the owner-earnings figure you valued), owner_earnings_citation (REQUIRED — the source_id of a VERIFIED primary source from YOUR proposed_sources / the corpus that backs the owner-earnings figure; a real grounded source_id, NOT a prose hand-wave), assumed_growth (the near-term growth you assumed, a fraction), assumed_growth_rationale (CITED — WHY that growth is defensible; a durable source, not "strong execution"), assumed_growth_citation (REQUIRED — the source_id of a VERIFIED primary source backing that growth rationale; again a real grounded source_id, NOT prose), and optionally discount_rationale. The harness deterministically cite-checks owner_earnings_citation and assumed_growth_citation against the grounded corpus and FAILS CLOSED (routes to RESEARCH_MORE) when either is absent or does not verify — cite real grounded sources of your own. Estimate HONESTLY — do NOT lowball and do NOT over-reach: a growth above ~15% or a price implying it will be FLAGGED as implausible. Set valuation_status (ATTRACTIVE | FAIR | EXPENSIVE | INSUFFICIENT_DATA) consistently with that evidence — the harness sanity-checks it against the market-implied growth in BOTH directions. `
+      + `MARGIN-OF-SAFETY AUDIT SURFACE — REQUIRED, do not omit: key_wrong_assumption and thesis_break_triggers, SPECIFIC to THIS business's thesis. key_wrong_assumption = the SINGLE assumption that, if WRONG, breaks this thesis — name a CONCRETE assumption you actually made (the assumed growth rate, the moat-durability claim, the maintenance-capex judgment), NOT a generic placeholder. thesis_break_triggers = the concrete, OBSERVABLE events that would invalidate the thesis, tied to THIS business (e.g. "gross margin falls below X%", "the top-2 customer concentration rises above Y%", "a funded entrant takes >Z% share") — NOT generic boilerplate like "if growth slows". Vague or generic answers are NOT acceptable. These are your forward-looking RISK reasoning for the human to audit; the harness does NOT cite-check them, but they MUST be substantive and business-specific. `
       // The moat/runway classification + rubrics and the Shariah overlay are produced by the MOAT and
       // SHARIAH specialist lanes — NOT here. The harness has already resolved them; the resolved tiers are
       // handed to you below for RECONCILIATION only (you do not re-score them).
@@ -2623,6 +2637,11 @@ export async function runResearchDeepDivePhase(
       shariah_status: undefined, // will be set below
       valuation_status: dec.analysis.valuation_status,
       next_required_action: moat_passes_gate ? dec.analysis.next_required_action : gatedReason,
+      // MARGIN-OF-SAFETY AUDIT SURFACE — the model's forward-looking risk judgments (the SINGLE assumption
+      // that, if wrong, breaks the thesis + the observable invalidating events). Carried verbatim from the
+      // synthesis decision; required + substantive (schema + retry), deliberately NOT cite-gated.
+      key_wrong_assumption: dec.analysis.key_wrong_assumption,
+      thesis_break_triggers: dec.analysis.thesis_break_triggers,
       // Circle-of-competence judgment (in-competence here — the gate passed; the deep dive ran). Carried on
       // the analysis so the dossier always shows the grounded competence judgment that admitted this spend.
       circle_competence: circleJudgmentPayload,

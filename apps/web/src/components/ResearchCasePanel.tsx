@@ -760,6 +760,24 @@ function createVerdictFormatBlock(researchCase: AppResearchCase) {
       )
     : createElement('span', { style: { color: 'var(--owl-color-muted)' } }, 'Grounded')
 
+  // MARGIN-OF-SAFETY AUDIT SURFACE — the model's forward-looking risk judgments (what assumption, if
+  // wrong, breaks the thesis; what observable events would invalidate it). Prominent for the human to
+  // audit; NOT cite-gated. Absent (legacy / not produced) → honest NOT_YET fallback (no crash).
+  const keyWrongAssumption = researchCase.key_wrong_assumption
+  const keyWrongAssumptionLine = keyWrongAssumption === undefined || keyWrongAssumption.trim().length === 0
+    ? NOT_YET
+    : createElement('span', null, keyWrongAssumption)
+  const thesisBreakTriggers = researchCase.thesis_break_triggers
+  const thesisBreakTriggersLine = thesisBreakTriggers === undefined || thesisBreakTriggers.length === 0
+    ? NOT_YET
+    : createElement(
+        'ul',
+        { style: { margin: 0, paddingLeft: '1.1rem', textAlign: 'left' } },
+        ...thesisBreakTriggers.map((trigger, i) =>
+          createElement('li', { key: `tbt-${i}` }, trigger),
+        ),
+      )
+
   const lines: ReactNode[] = [
     verdictFormatLine('Tier + runway', moatClass === undefined ? NOT_YET : `${moatClass.toUpperCase()}${runway === undefined ? '' : ` · ${runway} runway`}`),
     verdictFormatLine('Owner earnings + method', oe === undefined ? NOT_YET : `$${oe.toFixed(2)}/sh · two-stage discounted owner earnings`),
@@ -778,8 +796,11 @@ function createVerdictFormatBlock(researchCase: AppResearchCase) {
     verdictFormatLine('Shariah + purification', researchCase.shariah_status === undefined ? NOT_YET : `${researchCase.shariah_status}${purificationPct === undefined ? '' : ` · purification ${(purificationPct * 100).toFixed(1)}%`}`),
     verdictFormatLine('Anchor vs proposed tier', anchorVsProposed),
     verdictFormatLine('Rubric scores', rubricSummary),
-    verdictFormatLine('Key-wrong assumption', NOT_YET),
-    verdictFormatLine('Thesis-break triggers', NOT_YET),
+    // MARGIN-OF-SAFETY AUDIT SURFACE — the model's forward-looking risk judgments (no longer hardcoded
+    // stubs). key_wrong_assumption as a line; thesis_break_triggers as a list. Legacy/absent → honest
+    // NOT_YET fallback (these are NOT cite-gated — they are the model's risk reasoning for the human).
+    verdictFormatLine('Key-wrong assumption', keyWrongAssumptionLine),
+    verdictFormatLine('Thesis-break triggers', thesisBreakTriggersLine),
     verdictFormatLine('Red-team objection', redTeamLine),
     verdictFormatLine('Synthesis grounding', synthesisGroundingLine),
     verdictFormatLine('Moat grounding', moatGroundingLine),

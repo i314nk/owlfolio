@@ -177,6 +177,14 @@ export const DecisionAgentSchema = z.object({
   roic: z.number(),
   incremental_roic: z.number(),
   reinvestment_rate: z.number(),
+  // MARGIN-OF-SAFETY AUDIT SURFACE — forward-looking model risk judgments (NOT current-fact claims, so
+  // deliberately NOT cite-gated; required + substantive is the guard). key_wrong_assumption: the SINGLE
+  // assumption that, if wrong, breaks the thesis (name a concrete assumption actually made — the assumed
+  // growth rate, the moat-durability claim, the maintenance-capex judgment — not boilerplate).
+  key_wrong_assumption: z.string().min(1),
+  // thesis_break_triggers: the observable events that would invalidate the thesis (concrete + tied to THIS
+  // business — "gross margin falls below X%", "top-2 customer concentration rises" — not "if growth slows").
+  thesis_break_triggers: z.array(z.string().min(1)).min(1),
   // RELIGHTENED DECISION (R1): the MODEL proposes the price below which it would buy, WITH its cited
   // reasoning. This is the buy-below the harness records — NOT a number derived from any fair value.
   // The deterministic side only sanity-checks it (flag-only, never blocks) + computes the arithmetic
