@@ -768,6 +768,11 @@ export async function runStrategyResearchSwarm(
 // Deep-dive phase (extracted so it can be called independently)
 // ---------------------------------------------------------------------------
 
+// The model's judged maintenance capex is flagged (ADVISORY) when it sits MATERIALLY below the conservative
+// Greenwald/D&A proxy — i.e. more than this fraction below it (more aggressive OE → higher value). The flag
+// NEVER blocks the verdict; it directs the human to verify the basis.
+const MAINTENANCE_CAPEX_DIVERGENCE_FRACTION = 0.20
+
 export async function runResearchDeepDivePhase(
   store: SwarmStore,
   provider: Provider,
@@ -1493,6 +1498,10 @@ export async function runResearchDeepDivePhase(
   let shares_outstanding: number
   let bridge_fiscal_year: number | undefined
   let bridge_source_id: string | undefined
+  // The deterministic Greenwald/D&A maintenance-capex proxy is now a SANITY-CHECK REFERENCE (NOT the binding
+  // OE input). Surfaced on the valuation payload + used for the advisory divergence flag; undefined when the
+  // EDGAR series is too thin to compute either proxy.
+  let maintenance_capex_proxy_reference: number | undefined
 
   if (edgarBridgeUsable && edgarAnnual !== undefined) {
     const maintenance_fraction = maintenanceFractionForTier(modelBridge.maintenance_capex_proxy_tier)
@@ -1507,15 +1516,56 @@ export async function runResearchDeepDivePhase(
     net_income = niAnchor.value
     if (niAnchor.clamped && niAnchor.flag !== undefined) degradedFlags.push(niAnchor.flag)
     d_and_a = edgar_d_and_a
-    // Phase 1.2/1.7: maintenance capex DEFAULTS to the conservative dual proxy (Greenwald vs D&A floor)
-    // computed over the EDGAR series — the harness's honest figure. When the series is too thin for either
-    // proxy, fall back to the legacy min(D&A, capex × model tier). The model tier can argue DOWN (a lower
-    // maint capex → higher OE), but only via min(): it never lifts maint capex above the conservative proxy.
-    const dualMaint = fundamentals?.annual_series !== undefined
+    // Maintenance-vs-growth capex is a JUDGMENT — what fraction of total capex is maintenance. Per the
+    // architecture that judgment is the MODEL's (grounded in the EDGAR capex/D&A facts, cite-verified via
+    // A1's owner_earnings_citation), NOT the deterministic Greenwald/D&A proxy. The OE arithmetic stays
+    // deterministic; only its maint-capex INPUT is the model's number. NI/D&A/SBC remain EDGAR-anchored.
+    //
+    // The Greenwald/D&A proxy (Greenwald vs D&A floor, more conservative) is kept as a SANITY-CHECK
+    // REFERENCE (surfaced + an advisory divergence flag), never the binding input. The legacy
+    // min(D&A, capex × model tier) remains the SAFE fallback when the model's value is rejected by the
+    // deterministic envelope (or when EDGAR is absent). The model tier still informs that fallback.
+    maintenance_capex_proxy_reference = fundamentals?.annual_series !== undefined
       ? estimateMaintenanceCapex(fundamentals.annual_series).maintenance_capex
       : undefined
     const legacyMaint = Math.min(edgar_d_and_a, edgar_capex * maintenance_fraction)
-    maintenance_capex = dualMaint !== undefined ? dualMaint : legacyMaint
+    // Deterministic sanity ENVELOPE (arithmetic guard, NOT a judgment): the model's maintenance_capex must
+    // be finite and within [0, total capex]. It cannot be negative; it cannot exceed total capex (that is
+    // not maintenance — it is a units/logic error). Outside the envelope → reject the model's value with a
+    // VISIBLE flag and fall back to the SAFE value (the proxy reference, else the legacy tier fallback).
+    const safeMaint = maintenance_capex_proxy_reference ?? legacyMaint
+    const modelMaint = modelBridge.maintenance_capex
+    if (!Number.isFinite(edgar_capex)) {
+      // Without a total-capex upper bound the envelope cannot be enforced — fall back to the safe value.
+      maintenance_capex = safeMaint
+      degradedFlags.push(
+        `oe_bridge_maintenance_capex_envelope_unenforceable: total capex unavailable from EDGAR — cannot bound `
+        + `the model's maintenance_capex=${modelMaint}. Falling back to the conservative proxy reference (${safeMaint}).`,
+      )
+    } else if (!Number.isFinite(modelMaint) || modelMaint < 0 || modelMaint > edgar_capex) {
+      maintenance_capex = safeMaint
+      degradedFlags.push(
+        `range_check_rejected: maintenance_capex=${modelMaint} is outside the envelope [0, total capex ${edgar_capex}] `
+        + `(negative or exceeds total capex is a units/logic error, not maintenance). Value discarded; fell back to the `
+        + `conservative Greenwald/D&A proxy reference (${safeMaint}).`,
+      )
+    } else {
+      // The model's judged maintenance_capex is the binding OE input.
+      maintenance_capex = modelMaint
+      // ADVISORY divergence flag (NEVER blocks the verdict; the human audits): the model's maint capex is
+      // MATERIALLY below the conservative proxy → more aggressive OE → higher value. Flag for verification.
+      if (
+        maintenance_capex_proxy_reference !== undefined
+        && maintenance_capex_proxy_reference > 0
+        && modelMaint < maintenance_capex_proxy_reference * (1 - MAINTENANCE_CAPEX_DIVERGENCE_FRACTION)
+      ) {
+        degradedFlags.push(
+          `maintenance_capex_below_proxy: the model assumes maintenance capex ($${modelMaint}M) materially below the `
+          + `conservative Greenwald/D&A proxy ($${maintenance_capex_proxy_reference}M) — verify the basis; owner earnings `
+          + `may be overstated. Advisory only (does not change the verdict).`,
+        )
+      }
+    }
     stock_based_comp = edgarAnnual.sbc_musd as number  // SBC always subtracted, in full
     shares_outstanding = edgarAnnual.diluted_shares_m as number  // CURRENT diluted shares
     bridge_fiscal_year = edgarAnnual.fiscal_year
@@ -2497,6 +2547,12 @@ export async function runResearchDeepDivePhase(
         bridge_basis,
         ...(bridge_fiscal_year !== undefined ? { bridge_fiscal_year } : {}),
         ...(bridge_source_id !== undefined ? { bridge_source_id } : {}),
+        // SANITY-CHECK REFERENCE: the deterministic Greenwald/D&A maintenance-capex proxy ($M). NOT the
+        // binding OE input (the model judges maintenance capex); surfaced for the human + the advisory
+        // divergence flag (maintenance_capex_below_proxy). Omitted when the EDGAR series is too thin.
+        ...(maintenance_capex_proxy_reference !== undefined
+          ? { maintenance_capex_proxy_reference }
+          : {}),
       },
       // Harness-computed AAOIFI Shariah financial ratios (re-verifying the model). Absent when not
       // computable (EDGAR/market-cap/impermissible-income missing) — caller falls back to lane verdict.

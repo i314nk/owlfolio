@@ -2210,6 +2210,9 @@ function swarmFakeProviderWithShariah(
   impermissible_income: number,
   sector_status: 'compliant' | 'conditional' | 'non_compliant' = 'conditional',
   bridgeOverride?: Record<string, number | string>,
+  // When supplied, the decision agent emits a cited valuation_reasoning so the A1 grounding gate is MET
+  // (a headline fair value can then be emitted). Default (undefined) leaves it ungrounded → RESEARCH_MORE.
+  valuationReasoningOverride?: Record<string, unknown>,
 ) {
   let laneCall = 0
   const src = (id: string) => ({ source_id: id, title: 'T', url: 'https://www.sec.gov/Archives/edgar/data/0/test-10k.htm', excerpt: 'e' })
@@ -2279,6 +2282,7 @@ function swarmFakeProviderWithShariah(
         },
         roic: 0.30, incremental_roic: 0.20, reinvestment_rate: 0.43,
         proposed_buy_below: 150,
+        ...(valuationReasoningOverride !== undefined ? { valuation_reasoning: valuationReasoningOverride } : {}),
         proposed_sources: [src('src_dec_1')],
       }
     }),
@@ -2304,17 +2308,21 @@ describe('EDGAR-anchored OE bridge + harness AAOIFI Shariah ratios', () => {
     const projections = projectResearchCases(events as Parameters<typeof projectResearchCases>[0])
     const cp = projections.find((c) => c.research_case_id === 'rc_edgar')
 
-    // OE bridge is EDGAR-anchored: NI 8099, D&A 2426, maint = min(2426, 5498×0.80=4398) = 2426, SBC 860.
+    // OE bridge: NI/D&A/SBC EDGAR-anchored (8099 / 2426 / 860); maintenance_capex is the MODEL's JUDGMENT
+    // (default fixture: 1, within the [0, total capex 5498] envelope) — was the binding-proxy 2426 (updated:
+    // architecture says the model judges maint capex; the Greenwald/D&A proxy is now a sanity reference).
     expect(cp?.valuation?.bridge_basis).toBe('sec_edgar')
     expect(cp?.valuation?.bridge_fiscal_year).toBe(2025)
     expect(cp?.valuation?.bridge_source_id).toBe('sec_edgar_10k_0000909832_fy2025')
     expect(cp?.valuation?.owner_earnings_bridge?.net_income).toBe(8099)
     expect(cp?.valuation?.owner_earnings_bridge?.depreciation_amortization).toBe(2426)
-    expect(cp?.valuation?.owner_earnings_bridge?.maintenance_capex).toBe(2426)
+    expect(cp?.valuation?.owner_earnings_bridge?.maintenance_capex).toBe(1)
+    // The Greenwald/D&A proxy (2426, D&A floor) is surfaced as a SANITY-CHECK REFERENCE (not the OE input).
+    expect(cp?.valuation?.maintenance_capex_proxy_reference).toBeCloseTo(2426, 0)
     expect(cp?.valuation?.owner_earnings_bridge?.stock_based_comp).toBe(860)
     expect(cp?.valuation?.owner_earnings_bridge?.shares_outstanding).toBeCloseTo(444.8, 3)
-    // OE_ps = (8099 + 2426 - 2426 - 860 - 0) / 444.8 ≈ 16.27
-    expect(cp?.valuation?.normalized_owner_earnings_per_share).toBeCloseTo(16.27, 1)
+    // OE_ps = (8099 + 2426 - 1 - 860 - 0) / 444.8 ≈ 21.73 (model-judged maint capex; was 16.27 under the proxy)
+    expect(cp?.valuation?.normalized_owner_earnings_per_share).toBeCloseTo(21.73, 1)
 
     // Harness-computed AAOIFI ratios re-verify the model:
     expect(cp?.shariah_financial?.debt_ratio).toBeCloseTo(0.0134, 3)
@@ -2545,6 +2553,184 @@ describe('EDGAR-anchored OE bridge + harness AAOIFI Shariah ratios', () => {
     expect(cp?.valuation?.owner_earnings_bridge?.depreciation_amortization).toBe(2426)
     expect(cp?.valuation?.owner_earnings_bridge?.stock_based_comp).toBe(860)
     expect(cp?.valuation?.owner_earnings_bridge?.shares_outstanding).toBeCloseTo(444.8, 3)
+  })
+
+  // ---- Maintenance capex is the MODEL's JUDGMENT; the Greenwald/D&A proxy is a sanity-check reference ----
+  // Architecture: OE = NI + D&A − maintenance_capex − SBC − ΔNWC is deterministic arithmetic on facts, but
+  // the maintenance-vs-growth split of total capex is a JUDGMENT. Per the architecture that judgment is the
+  // MODEL's (grounded in the EDGAR capex/D&A facts, cite-verified by A1's owner_earnings_citation), NOT the
+  // deterministic Greenwald/D&A proxy. The proxy is surfaced as a SANITY-CHECK REFERENCE only.
+  it('OE uses the MODEL judged maintenance_capex, not the Greenwald/D&A proxy', async () => {
+    // EDGAR: NI 8099, D&A 2426, SBC 860, shares 444.8, capex 5498; the D&A-floor proxy = 2426.
+    // The model judges maintenance_capex = 1000 (≠ the 2426 proxy, but WITHIN [0, total capex 5498]).
+    // OE = 8099 + 2426 − 1000 − 860 = 8665; OE/share = 8665 / 444.8 ≈ 19.48 (vs the proxy-bound 16.27).
+    const store = new InMemoryEventStore()
+    await seedDeepDivePrereqs(store)
+    const provider = swarmFakeProviderWithShariah(0.004 * 275235, 'conditional', {
+      net_income: 8099, depreciation_amortization: 999, maintenance_capex: 1000,
+      maintenance_capex_proxy_tier: '80', stock_based_comp: 1,
+      normalized_working_capital_change: 0, shares_outstanding: 1,
+    })
+    await provider.structured({} as never)
+
+    await runResearchDeepDivePhase(store, provider as never, deepDiveCommand(), {
+      ground: verifyAllGround(),
+      laneConcurrency: 7,
+      fundamentals: costFundamentals,
+      resolvePrice: async () => ({ available: true, price_per_share: 968, currency: 'USD', as_of: 'x', source: 'test' }),
+    })
+
+    const events = await store.list()
+    const projections = projectResearchCases(events as Parameters<typeof projectResearchCases>[0])
+    const cp = projections.find((c) => c.research_case_id === 'rc_edgar')
+    // The bridge maintenance_capex is the MODEL's judged 1000 — NOT the 2426 proxy.
+    expect(cp?.valuation?.owner_earnings_bridge?.maintenance_capex).toBe(1000)
+    // NI/D&A/SBC remain EDGAR-anchored.
+    expect(cp?.valuation?.owner_earnings_bridge?.net_income).toBe(8099)
+    expect(cp?.valuation?.owner_earnings_bridge?.depreciation_amortization).toBe(2426)
+    expect(cp?.valuation?.owner_earnings_bridge?.stock_based_comp).toBe(860)
+    // OE/share reflects the model's maint capex (≈19.48), not the proxy-bound 16.27.
+    expect(cp?.valuation?.normalized_owner_earnings_per_share).toBeCloseTo(19.48, 1)
+  })
+
+  it('surfaces the Greenwald/D&A proxy as a reference + advisory divergence flag when the model is materially below it', async () => {
+    // Model judges maintenance_capex = 500 — MATERIALLY below the 2426 conservative proxy (more aggressive
+    // OE → higher value). The proxy is surfaced as maintenance_capex_proxy_reference; an ADVISORY divergence
+    // flag fires; the verdict is NOT blocked/changed by it.
+    const store = new InMemoryEventStore()
+    await seedDeepDivePrereqs(store)
+    const provider = swarmFakeProviderWithShariah(0.004 * 275235, 'conditional', {
+      net_income: 8099, depreciation_amortization: 999, maintenance_capex: 500,
+      maintenance_capex_proxy_tier: '80', stock_based_comp: 1,
+      normalized_working_capital_change: 0, shares_outstanding: 1,
+    })
+    await provider.structured({} as never)
+
+    await runResearchDeepDivePhase(store, provider as never, deepDiveCommand(), {
+      ground: verifyAllGround(),
+      laneConcurrency: 7,
+      fundamentals: costFundamentals,
+      resolvePrice: async () => ({ available: true, price_per_share: 968, currency: 'USD', as_of: 'x', source: 'test' }),
+    })
+
+    const events = await store.list()
+    const projections = projectResearchCases(events as Parameters<typeof projectResearchCases>[0])
+    const cp = projections.find((c) => c.research_case_id === 'rc_edgar')
+    // The proxy is surfaced as a reference (the conservative 2426 D&A-floor).
+    expect(cp?.valuation?.maintenance_capex_proxy_reference).toBeCloseTo(2426, 0)
+    // The model's judged value still drives OE (500, not the 2426 proxy).
+    expect(cp?.valuation?.owner_earnings_bridge?.maintenance_capex).toBe(500)
+    // An ADVISORY divergence flag fires (sanity_flags — never blocks).
+    const analysisEvent = events.find((e) => e.event_type === 'buffett_munger_analysis_drafted')
+    const valuation = (analysisEvent?.payload as Record<string, unknown>)?.['valuation'] as Record<string, unknown>
+    const flagsBlob = [
+      ...((valuation?.['sanity_flags'] as string[] | undefined) ?? []),
+      ...((valuation?.['degraded_flags'] as string[] | undefined) ?? []),
+    ].join(' ')
+    expect(flagsBlob).toMatch(/maintenance.capex.*below.*proxy|proxy.*maintenance.capex/i)
+    // The verdict is not BLOCKED by the advisory flag (a verdict is still recorded — the run completes).
+    expect(cp?.investment_verdict).toBeDefined()
+  })
+
+  it('rejects a model maintenance_capex above total capex (envelope) and falls back to the proxy with a visible flag', async () => {
+    // Model judges maintenance_capex = 6000 — ABOVE total capex (5498); that is not maintenance, it is a
+    // units/logic error. The deterministic envelope rejects it and falls back to the conservative proxy
+    // (2426) with a VISIBLE flag; OE is NOT computed from the absurd 6000.
+    const store = new InMemoryEventStore()
+    await seedDeepDivePrereqs(store)
+    const provider = swarmFakeProviderWithShariah(0.004 * 275235, 'conditional', {
+      net_income: 8099, depreciation_amortization: 999, maintenance_capex: 6000,
+      maintenance_capex_proxy_tier: '80', stock_based_comp: 1,
+      normalized_working_capital_change: 0, shares_outstanding: 1,
+    })
+    await provider.structured({} as never)
+
+    await runResearchDeepDivePhase(store, provider as never, deepDiveCommand(), {
+      ground: verifyAllGround(),
+      laneConcurrency: 7,
+      fundamentals: costFundamentals,
+      resolvePrice: async () => ({ available: true, price_per_share: 968, currency: 'USD', as_of: 'x', source: 'test' }),
+    })
+
+    const events = await store.list()
+    const projections = projectResearchCases(events as Parameters<typeof projectResearchCases>[0])
+    const cp = projections.find((c) => c.research_case_id === 'rc_edgar')
+    // Falls back to the proxy (2426), NOT the absurd 6000.
+    expect(cp?.valuation?.owner_earnings_bridge?.maintenance_capex).toBeCloseTo(2426, 0)
+    // OE/share computed from the safe proxy value (≈16.27), not from 6000.
+    expect(cp?.valuation?.normalized_owner_earnings_per_share).toBeCloseTo(16.27, 1)
+    const analysisEvent = events.find((e) => e.event_type === 'buffett_munger_analysis_drafted')
+    const valuation = (analysisEvent?.payload as Record<string, unknown>)?.['valuation'] as Record<string, unknown>
+    const degraded = (valuation?.['degraded_flags'] as string[] | undefined) ?? []
+    expect(degraded.join(' ')).toMatch(/maintenance_capex.*exceeds.*capex|range_check_rejected.*maintenance_capex/i)
+  })
+
+  it('a clean case (model maintenance_capex ≈ proxy) → no divergence flag; OE uses the model value', async () => {
+    // Model judges maintenance_capex = 2426 (≈ the proxy). No divergence flag; OE uses the model value
+    // (which equals the proxy here) → OE/share ≈ 16.27.
+    const store = new InMemoryEventStore()
+    await seedDeepDivePrereqs(store)
+    const provider = swarmFakeProviderWithShariah(0.004 * 275235, 'conditional', {
+      net_income: 8099, depreciation_amortization: 999, maintenance_capex: 2426,
+      maintenance_capex_proxy_tier: '80', stock_based_comp: 1,
+      normalized_working_capital_change: 0, shares_outstanding: 1,
+    })
+    await provider.structured({} as never)
+
+    await runResearchDeepDivePhase(store, provider as never, deepDiveCommand(), {
+      ground: verifyAllGround(),
+      laneConcurrency: 7,
+      fundamentals: costFundamentals,
+      resolvePrice: async () => ({ available: true, price_per_share: 968, currency: 'USD', as_of: 'x', source: 'test' }),
+    })
+
+    const events = await store.list()
+    const projections = projectResearchCases(events as Parameters<typeof projectResearchCases>[0])
+    const cp = projections.find((c) => c.research_case_id === 'rc_edgar')
+    expect(cp?.valuation?.owner_earnings_bridge?.maintenance_capex).toBe(2426)
+    expect(cp?.valuation?.normalized_owner_earnings_per_share).toBeCloseTo(16.27, 1)
+    const analysisEvent = events.find((e) => e.event_type === 'buffett_munger_analysis_drafted')
+    const valuation = (analysisEvent?.payload as Record<string, unknown>)?.['valuation'] as Record<string, unknown>
+    const flagsBlob = [
+      ...((valuation?.['sanity_flags'] as string[] | undefined) ?? []),
+      ...((valuation?.['degraded_flags'] as string[] | undefined) ?? []),
+    ].join(' ')
+    expect(flagsBlob).not.toMatch(/maintenance.capex.*below.*proxy/i)
+  })
+
+  it('grounding inheritance: an ungrounded owner-earnings basis (A1) degrades to RESEARCH_MORE — no confident headline FV', async () => {
+    // The model's maintenance_capex is part of the owner-earnings basis A1 grounds via owner_earnings_citation.
+    // When the basis is ungrounded (no valuation_reasoning → synthesis_grounding_unmet), A1 routes to
+    // RESEARCH_MORE and the headline fair value is omitted — maint-capex/OE inherit that degradation. (This
+    // fixture supplies NO valuation_reasoning, so the OE basis is ungrounded.)
+    const store = new InMemoryEventStore()
+    await seedDeepDivePrereqs(store)
+    const provider = swarmFakeProviderWithShariah(0.004 * 275235, 'conditional', {
+      net_income: 8099, depreciation_amortization: 999, maintenance_capex: 1000,
+      maintenance_capex_proxy_tier: '80', stock_based_comp: 1,
+      normalized_working_capital_change: 0, shares_outstanding: 1,
+    })
+    await provider.structured({} as never)
+
+    await runResearchDeepDivePhase(store, provider as never, deepDiveCommand(), {
+      ground: verifyAllGround(),
+      laneConcurrency: 7,
+      fundamentals: costFundamentals,
+      resolvePrice: async () => ({ available: true, price_per_share: 968, currency: 'USD', as_of: 'x', source: 'test' }),
+    })
+
+    const events = await store.list()
+    const projections = projectResearchCases(events as Parameters<typeof projectResearchCases>[0])
+    const cp = projections.find((c) => c.research_case_id === 'rc_edgar')
+    // OE/share is still computed (the bridge arithmetic), but the headline FV is omitted (A1 → RESEARCH_MORE).
+    expect(cp?.valuation?.normalized_owner_earnings_per_share).toBeGreaterThan(0)
+    expect(cp?.valuation?.fair_value_per_share).toBeUndefined()
+    const analysisEvent = events.find((e) => e.event_type === 'buffett_munger_analysis_drafted')
+    const valuation = (analysisEvent?.payload as Record<string, unknown>)?.['valuation'] as Record<string, unknown>
+    expect(valuation?.['synthesis_grounding_unmet']).toBe(true)
+    // The grounding reason explicitly names the owner-earnings basis path (which carries maint-capex).
+    const degraded = (valuation?.['degraded_flags'] as string[] | undefined) ?? []
+    expect(degraded.join(' ')).toMatch(/synthesis_grounding_unmet/)
   })
 })
 

@@ -348,6 +348,12 @@ export type ResearchCaseValuationProjection = {
   bridge_fiscal_year?: number
   /** EDGAR source_id for the 10-K the bridge was anchored to (when bridge_basis === 'sec_edgar'). */
   bridge_source_id?: string
+  /**
+   * SANITY-CHECK REFERENCE: the deterministic Greenwald/D&A maintenance-capex proxy ($M). NOT the binding OE
+   * input — the model judges maintenance capex. Surfaced for the human + the advisory divergence flag
+   * (maintenance_capex_below_proxy). Absent when the EDGAR series is too thin to compute either proxy.
+   */
+  maintenance_capex_proxy_reference?: number
 }
 
 /**
@@ -1272,6 +1278,8 @@ function getValuation(payload: Record<string, unknown>): ResearchCaseValuationPr
   if (bridge_fiscal_year !== undefined) projected.bridge_fiscal_year = bridge_fiscal_year
   const bridge_source_id = getString(value, 'bridge_source_id')
   if (bridge_source_id !== undefined) projected.bridge_source_id = bridge_source_id
+  const maintenance_capex_proxy_reference = getNumber(value, 'maintenance_capex_proxy_reference')
+  if (maintenance_capex_proxy_reference !== undefined) projected.maintenance_capex_proxy_reference = maintenance_capex_proxy_reference
 
   return Object.keys(projected).length === 0 ? undefined : projected
 }
