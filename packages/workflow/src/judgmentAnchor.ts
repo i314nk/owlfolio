@@ -76,15 +76,27 @@ export type RubricAnchor =
 // The anchor is the PRIOR computed from the computable rows ALONE. Because the higher tiers of each
 // rubric require CITED evidence the quant score cannot see (a true monopoly needs price-power/share/
 // switching evidence; a proven runway needs visible headroom), the computable-only sub-score is mapped
-// CONSERVATIVELY: a perfect computable sub-score lands at the mid/high tier, and reaching the TOP tier
-// always requires the lane's cited rows + a (bounded, evidenced) upward adjustment. This is deliberate
-// and documented — it is NOT interpolation of the cited rows (an unscoreable row is 0, never guessed).
+// CONSERVATIVELY: a perfect computable sub-score lands at the mid tier, and reaching ANY gate-passing
+// tier always requires the lane's cited rows (verified) lifting the grounded-row-sum, never the quant
+// alone. This is deliberate and documented — it is NOT interpolation of the cited rows (an unscoreable
+// row is 0, never guessed).
 //
-// Moat computable rows {M1,M2} -> max 4:  4 -> wide · 2..3 -> moderate · <2 -> narrow.
-// Runway computable row {R1}    -> max 2:  >=1 -> limited · 0 -> none.   (proven needs cited headroom.)
+// SUBSTITUTION BOUNDARY (the contract): the quant CORROBORATES a grounded qualitative moat thesis — it
+// must NEVER SUBSTITUTE for one. High ROIC/margins are real moat evidence, but they can be a cyclical
+// peak, an accounting artifact, or a temporary monopoly; on their own they cannot prove a durable moat.
+// So the moat anchor is CAPPED AT 'moderate' — the computable rows {M1,M2} can never reach a gate-passing
+// tier (wide/monopoly) by themselves. 'wide'+ is reachable ONLY when the cite-verified qualitative rows
+// (M3 pricing power, M4 share, M5 switching, M6 competitor exits) lift the grounded-row-sum to the
+// rubric's wide/monopoly threshold, via the grounded-ceiling in resolveRubricTier (d4170a3). A name with
+// perfect numbers but zero grounded qualitative evidence anchors at 'moderate' and FAILS the moat gate.
+//
+// Moat computable rows {M1,M2} -> max 4:  >=2 -> moderate · <2 -> narrow.  (NEVER wide/monopoly: the
+//   quant cannot substitute for cited qualitative evidence — gate-passing needs the grounded-row-sum.)
+// Runway computable row {R1}    -> max 2:  >=1 -> limited · 0 -> none.     (proven needs cited headroom.)
 
 function moatTierForSubScore(subScore: number): RubricTier {
-  if (subScore >= 4) return 'wide'
+  // Capped at 'moderate' — see the SUBSTITUTION BOUNDARY note above. The quant anchor must never reach a
+  // gate-passing tier on its own; wide/monopoly require the cite-verified qualitative rows.
   if (subScore >= 2) return 'moderate'
   return 'narrow'
 }
@@ -190,7 +202,8 @@ export function computeMoatAnchor(series: AnnualFacts[]): RubricAnchor {
   const note =
     `Moat anchor from EDGAR: M1=${m1} (ROIC>15% in ${yearsAboveThreshold}/${roics.length} yrs), `
     + `M2=${m2} (${m2Computed ? 'operating-margin band proxy — gross margin not surfaced by the filing adapter' : 'margin not computable, scored 0'}). `
-    + `Computable sub-score ${sub_score}/${sub_score_max} -> anchor tier '${anchor_tier}' (top tier needs cited rows).`
+    + `Computable sub-score ${sub_score}/${sub_score_max} -> anchor tier '${anchor_tier}' (capped at moderate; `
+    + `the quant corroborates but cannot substitute for cited qualitative moat rows — wide+ needs the grounded-row-sum).`
   return { computable: true, row_scores, sub_score, sub_score_max, anchor_tier, note }
 }
 
@@ -348,18 +361,29 @@ export function resolveRubricTier(args: ResolveRubricTierArgs): ResolveRubricTie
     return finalize(anchorTier, false)
   }
 
-  // Over-range (>=2 tiers): reject the magnitude, clamp to +-1 from the anchor, record a violation.
+  // Over-range (>=2 tiers): reject the +-1 MAGNITUDE bound, but the resolution differs by direction.
   const delta = proposedIdx - anchorIdx
   const direction = delta > 0 ? 'upward' : 'downward'
   if (Math.abs(delta) >= 2) {
-    violations.push(`proposed tier '${proposedTier}' is ${Math.abs(delta)} tiers from anchor '${anchorTier}' (max +-1) -> clamped`)
-    const clampedIdx = anchorIdx + (delta > 0 ? 1 : -1)
-    const clampedTier = tiers[clampedIdx] ?? anchorTier
-    // A clamp still requires the adjustment to be evidenced; otherwise fall back to the anchor entirely.
+    if (direction === 'downward') {
+      // A conservative over-range DOWNGRADE is clamped to one tier below the anchor (unchanged).
+      violations.push(`proposed tier '${proposedTier}' is ${Math.abs(delta)} tiers from anchor '${anchorTier}' (max +-1) -> clamped`)
+      const clampedTier = tiers[anchorIdx - 1] ?? anchorTier
+      if (!hasSufficientEvidence(direction, verified_evidence_count, violations)) {
+        return finalize(anchorTier, false)
+      }
+      return finalize(clampedTier, true)
+    }
+    // An over-range UPWARD proposal is NOT mechanically clamped to anchor+1 — that would make the TOP
+    // tier (monopoly) unreachable now that the quant anchor is capped at moderate. Instead the GROUNDED
+    // ROWS carry the tier: finalize(proposedTier) and let the grounded-ceiling below cap it to the
+    // grounded-row-sum tier. So monopoly is reachable iff the cite-verified rows sum to the monopoly
+    // threshold (>=10); otherwise the ceiling clamps it to whatever the grounded rows actually support.
+    // The upward bump still requires the asymmetric evidence; without it the anchor stands.
     if (!hasSufficientEvidence(direction, verified_evidence_count, violations)) {
       return finalize(anchorTier, false)
     }
-    return finalize(clampedTier, true)
+    return finalize(proposedTier, true)
   }
 
   // +-1 adjustment: requires verified cited evidence (asymmetric: upward needs 2x a downward's items).

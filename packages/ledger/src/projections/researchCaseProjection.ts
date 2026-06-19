@@ -257,6 +257,15 @@ export type ResearchCaseValuationProjection = {
   /** Founding-risk fix: human-readable reason naming WHICH grounding layer/claim failed. */
   synthesis_grounding_reason?: string
   /**
+   * Moat-gate fix: the moat gate failed because the moat claim was UNGROUNDED (the model reached for a
+   * wide+ moat but the cite-verified qualitative rows did not back it, or the moat resolved via the
+   * holistic fallback) — NOT because the moat is genuinely narrow. When true the verdict was routed to
+   * RESEARCH_MORE (vs PASS for a genuinely-narrow moat). Legacy-tolerant: absent on old events.
+   */
+  moat_grounding_unmet?: boolean
+  /** Moat-gate fix: human-readable reason naming WHY the moat claim was treated as ungrounded. */
+  moat_grounding_reason?: string
+  /**
    * The price at which market-implied growth rises to the buy-threshold (band_low − required_gap) — i.e.
    * the forward DCF evaluated at g = band_low − required_gap, repurposing the monotonic two-stage DCF as a
    * price-from-growth function. By construction the reverse-DCF implied growth at this price equals the
@@ -1204,6 +1213,11 @@ function getValuation(payload: Record<string, unknown>): ResearchCaseValuationPr
   if (synthesis_grounding_unmet !== undefined) projected.synthesis_grounding_unmet = synthesis_grounding_unmet
   const synthesis_grounding_reason = getString(value, 'synthesis_grounding_reason')
   if (synthesis_grounding_reason !== undefined) projected.synthesis_grounding_reason = synthesis_grounding_reason
+  // Moat-gate fix: legacy-tolerant projection of the moat ungrounded-vs-narrow fail-closed flag + reason.
+  const moat_grounding_unmet = getBoolean(value, 'moat_grounding_unmet')
+  if (moat_grounding_unmet !== undefined) projected.moat_grounding_unmet = moat_grounding_unmet
+  const moat_grounding_reason = getString(value, 'moat_grounding_reason')
+  if (moat_grounding_reason !== undefined) projected.moat_grounding_reason = moat_grounding_reason
   const buy_price_per_share = getNumber(value, 'buy_price_per_share')
   if (buy_price_per_share !== undefined) projected.buy_price_per_share = buy_price_per_share
   const fair_value_range = getString(value, 'fair_value_range')

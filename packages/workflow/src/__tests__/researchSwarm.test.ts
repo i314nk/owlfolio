@@ -2494,7 +2494,7 @@ function tenYearHighRoicSeries(): AnnualFacts[] {
 describe('resolveJudgmentTiers — EDGAR-anchored moat resolution', () => {
   const verified = new Set(['sha256:a', 'sha256:b'])
 
-  it('anchor wide + proposed monopoly with 2x verified evidence -> monopoly applied', () => {
+  it('anchor moderate (capped quant) + proposed monopoly with 2x verified evidence + grounded rows -> monopoly applied', () => {
     const res = resolveJudgmentTiers({
       moatRubric: {
         rubric_scores: [
@@ -2514,12 +2514,17 @@ describe('resolveJudgmentTiers — EDGAR-anchored moat resolution', () => {
       verifiedCitationHashes: verified,
     })
     expect(res.moat?.anchor_computable).toBe(true)
-    expect(res.moat?.anchor_tier).toBe('wide')
+    // Quant anchor is now CAPPED at moderate (was 'wide' — that asserted the hole). The cite-verified
+    // qualitative rows (grounded sum 12) carry the resolution to monopoly via the grounded ceiling.
+    expect(res.moat?.anchor_tier).toBe('moderate')
     expect(res.moat?.adjustment_applied).toBe(true)
     expect(res.moat?.resolved_moat_class).toBe('monopoly')
   })
 
-  it('anchor wide + proposed monopoly with only 1 evidence item -> rejected (anchor stands wide)', () => {
+  it('quant alone (M1=M2=2, no grounded qualitative rows) + proposed monopoly -> resolved MODERATE, not wide', () => {
+    // Was 'anchor wide + proposed monopoly with only 1 evidence -> wide'; that asserted the hole (the gate
+    // passing on EDGAR quant alone). With the anchor capped at moderate and ZERO grounded qualitative rows,
+    // the moat resolves MODERATE and FAILS the gate — the quant cannot substitute for a grounded thesis.
     const res = resolveJudgmentTiers({
       moatRubric: {
         rubric_scores: [{ id: 'M1', score: 2 }, { id: 'M2', score: 2 }],
@@ -2529,12 +2534,12 @@ describe('resolveJudgmentTiers — EDGAR-anchored moat resolution', () => {
       series: tenYearHighRoicSeries(),
       verifiedCitationHashes: verified,
     })
-    expect(res.moat?.anchor_tier).toBe('wide')
-    expect(res.moat?.adjustment_applied).toBe(false)
-    expect(res.moat?.resolved_moat_class).toBe('wide')
+    expect(res.moat?.anchor_tier).toBe('moderate')
+    expect(res.moat?.resolved_moat_class).toBe('moderate')
+    expect(res.moat?.resolved_moat_class).not.toBe('wide')
   })
 
-  it('lane inflates M1/M2 but EDGAR overrides them with the computed anchor scores', () => {
+  it('lane inflates M1/M2 but EDGAR overrides them with the computed anchor scores (resolves moderate, not wide)', () => {
     // Low-ROIC short windows would not compute; here the series is high-ROIC so anchor M1/M2 = 2 each.
     // Even if the lane had claimed otherwise, the harness uses its computed values for M1/M2.
     const res = resolveJudgmentTiers({
@@ -2548,8 +2553,10 @@ describe('resolveJudgmentTiers — EDGAR-anchored moat resolution', () => {
     })
     expect(res.moat?.resolved_row_scores['M1']).toBe(2)
     expect(res.moat?.resolved_row_scores['M2']).toBe(2)
-    // proposed wide == anchor wide -> no adjustment needed, resolved wide.
-    expect(res.moat?.resolved_moat_class).toBe('wide')
+    // Anchor is now moderate (capped); proposed wide is an upward bump but the grounded rows (sum 4) only
+    // support moderate -> grounding-capped to moderate. (Was 'wide' — that asserted the quant-alone hole.)
+    expect(res.moat?.resolved_moat_class).toBe('moderate')
+    expect(res.moat?.resolved_moat_class).not.toBe('wide')
   })
 })
 
@@ -2621,7 +2628,7 @@ describe('resolveJudgmentTiers — grounded-ceiling clamp (gate fails closed on 
 describe('resolveJudgmentTiers — holistic fallback when the rubric is omitted (never undefined)', () => {
   const verified = new Set<string>()
 
-  it('falls back to the holistic moat_class/runway and flags rubric_not_emitted when no rubric is supplied', () => {
+  it('moat FAILS CLOSED to narrow (NOT the holistic wide) when no rubric is supplied; runway keeps its holistic fallback; both flagged', () => {
     const res = resolveJudgmentTiers({
       // No moatRubric / runwayRubric — mirrors the live dogfood (optional fields blank).
       holisticMoatClass: 'wide',
@@ -2629,8 +2636,10 @@ describe('resolveJudgmentTiers — holistic fallback when the rubric is omitted 
       series: tenYearHighRoicSeries(),
       verifiedCitationHashes: verified,
     })
-    // moat/runway STILL resolve — to the holistic value the lane proposed.
-    expect(res.moat?.resolved_moat_class).toBe('wide')
+    // A3 fail-closed: the moat does NOT admit on the model's ungrounded bare holistic 'wide' — it resolves
+    // to narrow (was 'wide' — that asserted the hole: the gate passing on the model's bare word). Runway
+    // is not a gate, so it keeps the holistic fallback ('limited').
+    expect(res.moat?.resolved_moat_class).toBe('narrow')
     expect(res.runway?.resolved_runway).toBe('limited')
     // and the degradation is visible (not a silent holistic substitution).
     expect(res.moat?.judgment_degraded).toBe('rubric_not_emitted')
@@ -2649,15 +2658,203 @@ describe('resolveJudgmentTiers — holistic fallback when the rubric is omitted 
   })
 })
 
+// ---------------------------------------------------------------------------
+// SUBSTITUTION-BOUNDARY INVARIANT (the contract): the moat gate cannot pass on EDGAR quant ALONE — an
+// ungrounded qualitative moat claim FAILS CLOSED. The quant CORROBORATES, never SUBSTITUTES. Four-case
+// invariant routed end-to-end through the swarm (gatedVerdict). A computable anchor (moderate) is forced
+// by a series with high, durable ROIC + a tight operating-margin band (M1=2, M2=2).
+// ---------------------------------------------------------------------------
+function tenYearComputableModerateFundamentals(): Fundamentals {
+  const series: AnnualFacts[] = []
+  for (let i = 0; i < 10; i += 1) {
+    const scale = Math.pow(1.10, 9 - i)
+    const revenue = 1000 * scale
+    const op = revenue * 0.30 // tight margin band -> M2=2; high ROIC -> M1=2 -> sub-score 4 -> moderate (capped)
+    series.push({
+      fiscal_year: 2025 - i, currency: 'USD',
+      net_income_musd: op * 0.79, revenue_musd: revenue, operating_income_musd: op,
+      income_tax_expense_musd: op * 0.21, stockholders_equity_musd: 1000 * scale,
+      total_debt_musd: 0, cash_and_securities_musd: 0,
+      // OE-bridge inputs so the valuation can compute when the gate passes.
+      d_and_a_musd: op * 0.10, capex_musd: op * 0.10, sbc_musd: 0, diluted_shares_m: 100,
+    })
+  }
+  return {
+    cik: '0000000077', entity_name: 'MOATGATE INC', currency: 'USD',
+    latest_annual: series[0]!, annual_series: series,
+    filings: [{ form: '10-K', filed: '2026-02-01', url: 'https://www.sec.gov/Archives/edgar/data/77/x.htm' }],
+  }
+}
+
+describe('SUBSTITUTION-BOUNDARY INVARIANT — moat gate cannot pass on quant alone (ungrounded moat fails closed)', () => {
+  // A moat rubric for the given tier with explicit control over whether M3-M6 carry a (verifiable) cite.
+  // scoredTier shapes the M3-M6 rows the lane scores; proposedTier is what the lane PROPOSES (its reach);
+  // citeQualitative=false makes the qualitative rows cite an UNVERIFIED hash (present-but-ungrounded);
+  // withEvidence supplies the 2x verified adjustment evidence a legitimate upward bump needs.
+  function moatRubric(
+    scoredTier: 'narrow' | 'moderate' | 'wide' | 'monopoly',
+    cite: string,
+    opts?: { citeQualitative?: boolean; proposedTier?: 'narrow' | 'moderate' | 'wide' | 'monopoly'; withEvidence?: boolean },
+  ) {
+    const q = opts?.citeQualitative !== false
+    const qual = (id: string) => (q ? { id, score: 2, citation_hash: cite } : { id, score: 2, citation_hash: 'sha256:UNVERIFIED' })
+    const scores = scoredTier === 'monopoly'
+      ? [{ id: 'M1', score: 2 }, { id: 'M2', score: 2 }, qual('M3'), qual('M4'), qual('M5'), qual('M6')]
+      : scoredTier === 'wide'
+        ? [{ id: 'M1', score: 2 }, { id: 'M2', score: 2 }, qual('M3'), qual('M4')]
+        : scoredTier === 'moderate'
+          ? [{ id: 'M1', score: 2 }, { id: 'M2', score: 2 }]
+          : [{ id: 'M1', score: 0 }, { id: 'M2', score: 0 }]
+    const adjustment_evidence = opts?.withEvidence
+      ? [{ claim: 'pricing power', citation_hash: cite }, { claim: 'competitor exit', citation_hash: cite }]
+      : []
+    return { rubric_scores: scores, proposed_tier: opts?.proposedTier ?? scoredTier, adjustment_evidence }
+  }
+
+  // A provider that emits a moat lane with the supplied moat rubric (overriding the tier-derived default).
+  function moatGateProvider(moatRubricPayload: ReturnType<typeof moatRubric>, proposedClass: 'narrow' | 'moderate' | 'wide' | 'monopoly') {
+    const src = (id: string) => ({ source_id: id, title: 'T', url: 'https://www.sec.gov/Archives/edgar/data/0/test-10k.htm', excerpt: 'e' })
+    let laneCall = 0
+    return {
+      provider_id: 'fake-moat-gate', capabilities: {} as never, complete: vi.fn(), runWithTools: vi.fn(),
+      structured: vi.fn(async (req: { response_format?: { schema_name?: string } }) => {
+        const schemaName = req.response_format?.schema_name
+        if (schemaName === 'BuffettMungerQuickScreen') {
+          return {
+            summary: 's', business_quality: 'b', moat: 'm', management_capital_allocation: 'mc',
+            financial_quality: 'fq', valuation_sanity: 'vs', shariah_status: 'COMPLIANT',
+            red_flags: ['None'], confidence: 'high', caveats: ['c'], screening_result: 'deep_dive_candidate',
+            proposed_sources: [src('src_qs_1')],
+          }
+        }
+        if (schemaName === 'BuffettMungerMoatLane') {
+          return {
+            finding_summary: 'Moat lane', confidence: 'high', caveats: ['c'],
+            moat_class: proposedClass, runway: 'proven',
+            moat_rubric: moatRubricPayload, runway_rubric: runwayRubricForTier('proven', 'src_lane_moat'),
+            proposed_sources: [src('src_lane_moat')],
+          }
+        }
+        if (schemaName === 'BuffettMungerShariahLane') {
+          return { finding_summary: 'Shariah lane', confidence: 'high', caveats: ['c'], sector_status: 'compliant', impermissible_income: 0, proposed_sources: [src('src_lane_shariah')] }
+        }
+        if (schemaName === 'BuffettMungerLaneFinding') {
+          const n = laneCall++
+          return { finding_summary: `Lane ${n}`, confidence: 'high', caveats: ['c'], proposed_sources: [src(`src_lane_${n}`)] }
+        }
+        if (schemaName === 'BuffettMungerRedTeam') {
+          return { strongest_bear_case: 'b', weakest_rubric_items: [], moat_decay_scenario: 'd', growth_credit_attack: 'g', shared_narrative_blindspots: [], strongest_objection: { claim: 'c', severity: 'low', citations: ['src_qs_1'] }, proposed_sources: [src('src_qs_1')] }
+        }
+        if (schemaName === 'BuffettMungerRedTeamResponse') {
+          return { synthesis_response: { mode: 'answered_with_evidence', text: 'Rebutted.' }, proposed_sources: [src('src_qs_1')] }
+        }
+        return {
+          investment_verdict: 'BUY', strategy_compliance: 'COMPLIANT', valuation_status: 'ATTRACTIVE',
+          next_required_action: 'Buy below the band.', decision_reason: 'Strong compounder', thesis_summary: 'Quality',
+          evidence_summary: 'Covered', valuation_rationale: 'Cheap', shariah_rationale: 'Clean',
+          synthesis_summary: 'Reviewed', risks: ['r'], open_questions: ['q'],
+          growth_assumptions: 'Two-stage DCF.',
+          owner_earnings_bridge: { net_income: 1000, depreciation_amortization: 100, maintenance_capex: 50, maintenance_capex_proxy_tier: '80', stock_based_comp: 0, normalized_working_capital_change: 0, shares_outstanding: 100 },
+          roic: 0.30, incremental_roic: 0.20, reinvestment_rate: 0.40,
+          proposed_buy_below: 50,
+          valuation_reasoning: {
+            owner_earnings_basis: 'FY25 owner earnings.', owner_earnings_citation: 'src_dec_1',
+            assumed_growth: 0.06, assumed_growth_rationale: 'Cited capex.', assumed_growth_citation: 'src_dec_1',
+          },
+          proposed_sources: [src('src_dec_1')],
+        }
+      }),
+    }
+  }
+
+  async function runGate(opts: { rubric: ReturnType<typeof moatRubric>; proposedClass: 'narrow' | 'moderate' | 'wide' | 'monopoly'; id: string }) {
+    const store = new InMemoryEventStore()
+    const provider = moatGateProvider(opts.rubric, opts.proposedClass)
+    const sourceLedgerPath = await mkdtemp(join(tmpdir(), `owlfolio-moatgate-${opts.id}-`))
+    await runStrategyResearchSwarm(
+      store, provider as never,
+      {
+        research_case_id: `rc_${opts.id}`, company_id: 'c', ticker: 'MGT',
+        strategy_id: 'buffett-munger', actor_id: 'user_local', idempotency_key: `${opts.id}_k`,
+        model_id: 'mock', decision_id: `decision_${opts.id}`, source_ledger_path: sourceLedgerPath,
+      },
+      {
+        ground: allVerifiedGround, laneConcurrency: 4,
+        fundamentals: tenYearComputableModerateFundamentals(),
+        resolvePrice: async () => ({ available: true, price_per_share: 50, currency: 'USD', as_of: 'x', source: 'test' }),
+      },
+    )
+    const projections = projectResearchCases((await store.list()) as Parameters<typeof projectResearchCases>[0])
+    return projections.find((c) => c.research_case_id === `rc_${opts.id}`)
+  }
+
+  it('Case 1 — strong quant, NO qualitative (model proposed wide): resolved MODERATE, gate fails, RESEARCH_MORE + moat_grounding_unmet', async () => {
+    // M1=M2=2 only (no M3-M6 scored), but the lane PROPOSES wide reaching off the quant. The quant anchor
+    // caps at moderate; no grounded qualitative rows support a lift -> resolved moderate, gate fails.
+    const cp = await runGate({ rubric: moatRubric('moderate', 'src_lane_moat', { proposedTier: 'wide' }), proposedClass: 'wide', id: 'case1' })
+    expect(cp?.valuation?.moat_class).toBe('moderate')
+    expect(cp?.valuation?.moat_class).not.toBe('wide')
+    expect(cp?.valuation?.moat_passes_gate).toBe(false)
+    expect(cp?.valuation?.moat_grounding_unmet).toBe(true)
+    expect(cp?.investment_verdict).toBe('RESEARCH_MORE')
+  })
+
+  it('Case 2 — strong quant, qualitative CITED but citations DO NOT verify (->0): resolved NOT wide, RESEARCH_MORE + moat_grounding_unmet', async () => {
+    // M3-M6 are scored 2 but cite an UNVERIFIED hash -> re-verified to 0 (the cite-check, not presence).
+    const cp = await runGate({ rubric: moatRubric('wide', 'src_lane_moat', { citeQualitative: false, withEvidence: true }), proposedClass: 'wide', id: 'case2' })
+    expect(cp?.valuation?.moat_class).not.toBe('wide')
+    expect(cp?.valuation?.moat_passes_gate).toBe(false)
+    expect(cp?.valuation?.moat_grounding_unmet).toBe(true)
+    expect(cp?.investment_verdict).toBe('RESEARCH_MORE')
+  })
+
+  it('Case 3 — strong quant + cite-verified qualitative (grounded sum>=7): resolved WIDE, gate passes, NO moat_grounding_unmet', async () => {
+    // M3/M4 cite-verified -> grounded sum 8 -> wide; the +1 upward bump is carried by 2x verified evidence.
+    const cp = await runGate({ rubric: moatRubric('wide', 'src_lane_moat', { withEvidence: true }), proposedClass: 'wide', id: 'case3' })
+    expect(cp?.valuation?.moat_class).toBe('wide')
+    expect(cp?.valuation?.moat_passes_gate).toBe(true)
+    expect(cp?.valuation?.moat_grounding_unmet).toBeUndefined()
+    // A real grounded wide still works (proves no false-positive) — the verdict is NOT clamped by the gate.
+    expect(cp?.investment_verdict).not.toBe('PASS')
+  })
+
+  it('Case 4 — cite-verified to >=10: resolved MONOPOLY (the grounded path reaches the top tier even with the anchor capped at moderate)', async () => {
+    // M3-M6 all cite-verified -> grounded sum 12 -> monopoly; over-range upward carried by 2x evidence.
+    const cp = await runGate({ rubric: moatRubric('monopoly', 'src_lane_moat', { withEvidence: true }), proposedClass: 'monopoly', id: 'case4' })
+    expect(cp?.valuation?.moat_class).toBe('monopoly')
+    expect(cp?.valuation?.moat_passes_gate).toBe(true)
+    expect(cp?.valuation?.moat_grounding_unmet).toBeUndefined()
+  })
+
+  it('Case 5 — genuinely NARROW on grounded evidence (model did not claim a passing tier): PASS, NOT RESEARCH_MORE, no moat_grounding_unmet', async () => {
+    const cp = await runGate({ rubric: moatRubric('narrow', 'src_lane_moat'), proposedClass: 'narrow', id: 'case5' })
+    // Quant scored 0 (M1=M2=0 in the narrow rubric) -> resolved narrow, genuinely below the circle.
+    expect(cp?.valuation?.moat_passes_gate).toBe(false)
+    expect(cp?.valuation?.moat_grounding_unmet).toBeUndefined()
+    expect(cp?.investment_verdict).toBe('PASS')
+  })
+
+  it('Tripwire — the moat gate cannot pass on quant alone; an ungrounded qualitative moat claim fails closed', async () => {
+    // The conformance assertion in one place: perfect computable rows + a proposed wide moat, zero grounded
+    // qualitative evidence -> the gate does NOT pass, and the case is routed back for more research.
+    const cp = await runGate({ rubric: moatRubric('moderate', 'src_lane_moat', { proposedTier: 'wide' }), proposedClass: 'wide', id: 'tripwire' })
+    expect(cp?.valuation?.moat_passes_gate).toBe(false)
+    expect(cp?.investment_verdict).toBe('RESEARCH_MORE')
+  })
+})
+
 describe('Silent-degradation cascade — fields omitted (live dogfood shape)', () => {
   // The MOAT lane omits its rubric and the SHARIAH lane omits its overlay — exactly the per-lane
   // judgment fields a live model leaves blank. With a holistic wide moat + OE available, the harness
   // MUST still compute the two-stage valuation and flag every silent skip.
-  async function runOmitted(opts: { synthesis?: SynthesisOverrides; id: string }) {
+  async function runOmitted(opts: { synthesis?: SynthesisOverrides; id: string; keepMoatRubric?: boolean }) {
     const store = new InMemoryEventStore()
     const provider = configurableSwarmProvider({
       laneCount: buffettMungerDeepDiveLanes.length,
-      omitMoatRubric: true,
+      // A3: omitting the moat rubric now fails the moat CLOSED (the holistic moat_class is not trusted).
+      // Tests that need the valuation to compute (gate must pass) keep a genuinely-grounded moat rubric
+      // (keepMoatRubric) so the moat is established from cite-verified rows, not the model's bare word.
+      omitMoatRubric: opts.keepMoatRubric !== true,
       omitShariahOverlay: true,
       ...(opts.synthesis !== undefined ? { synthesis: opts.synthesis } : {}),
     })
@@ -2683,12 +2880,23 @@ describe('Silent-degradation cascade — fields omitted (live dogfood shape)', (
     }
   }
 
-  it('still resolves moat_class + computes the two-stage valuation when the rubric is omitted', async () => {
+  it('A3: omitting the moat rubric FAILS the moat CLOSED to narrow (gate fails) — moat_class never undefined', async () => {
     const { cp } = await runOmitted({ synthesis: { moat_class: 'wide', runway: 'proven' }, id: 'omit-val' })
-    // moat resolved holistically (wide) — NOT undefined.
+    // A3 fail-closed: the holistic wide is NOT trusted to pass the gate — the moat resolves narrow and the
+    // gate fails (was 'wide' + passes_gate true — that asserted the hole: admitting on the bare holistic word).
+    expect(cp?.valuation?.moat_class).toBe('narrow')
+    expect(cp?.valuation?.moat_passes_gate).toBe(false)
+    // The ungrounded moat is surfaced and the verdict routes to RESEARCH_MORE (not silently admitted).
+    expect(cp?.valuation?.moat_grounding_unmet).toBe(true)
+    expect(cp?.investment_verdict).toBe('RESEARCH_MORE')
+  })
+
+  it('with a GENUINELY-GROUNDED moat rubric (cite-verified rows), the two-stage valuation STILL computes when OTHER fields are omitted', async () => {
+    // The valuation must not be voided by the omitted shariah overlay — but the moat must be GROUNDED
+    // (cite-verified rows via moatRubricForTier('wide')), not the model's bare holistic word.
+    const { cp } = await runOmitted({ synthesis: { moat_class: 'wide', runway: 'proven' }, id: 'omit-val-grounded', keepMoatRubric: true })
     expect(cp?.valuation?.moat_class).toBe('wide')
     expect(cp?.valuation?.moat_passes_gate).toBe(true)
-    // the two-stage DCF STILL computes — the omitted rubric must NOT void the valuation.
     expect(cp?.valuation?.fair_value_per_share).toBeDefined()
     expect(cp?.valuation?.buy_price_per_share).toBeDefined()
   })
@@ -2710,9 +2918,10 @@ describe('Silent-degradation cascade — fields omitted (live dogfood shape)', (
 
   it('flags a g=0 credited-growth floor when growth inputs are ineligible (honest floor, valuation still computes)', async () => {
     const { cp, analysisPayload } = await runOmitted({
-      // incremental_roic <= 10% eligibility threshold -> g floored to 0, but FV must still compute.
+      // incremental_roic <= 10% eligibility threshold -> g floored to 0, but FV must still compute. The
+      // moat is GENUINELY GROUNDED (keepMoatRubric) so the gate passes and the valuation computes.
       synthesis: { moat_class: 'wide', runway: 'proven', incremental_roic: 0.05, reinvestment_rate: 0.5 },
-      id: 'omit-g0',
+      id: 'omit-g0', keepMoatRubric: true,
     })
     expect(cp?.valuation?.growth_rate).toBe(0)
     expect(cp?.valuation?.fair_value_per_share).toBeDefined()

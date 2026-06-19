@@ -687,6 +687,16 @@ function createVerdictFormatBlock(researchCase: AppResearchCase) {
       )
     : createElement('span', { style: { color: 'var(--owl-color-muted)' } }, 'Grounded')
 
+  // Moat-gate fix: surface an UNGROUNDED moat claim (reached for wide+ without cite-verified support, or
+  // resolved holistically) near the verdict — it routed to RESEARCH_MORE, never silent. Same shape as above.
+  const moatGroundingLine = valuation.moat_grounding_unmet === true
+    ? createElement(
+        'span',
+        { style: { color: '#fca5a5' } },
+        'Moat claim not grounded (quant alone / holistic) — re-research',
+      )
+    : createElement('span', { style: { color: 'var(--owl-color-muted)' } }, 'Grounded')
+
   const lines: ReactNode[] = [
     verdictFormatLine('Tier + runway', moatClass === undefined ? NOT_YET : `${moatClass.toUpperCase()}${runway === undefined ? '' : ` · ${runway} runway`}`),
     verdictFormatLine('Owner earnings + method', oe === undefined ? NOT_YET : `$${oe.toFixed(2)}/sh · two-stage discounted owner earnings`),
@@ -709,6 +719,7 @@ function createVerdictFormatBlock(researchCase: AppResearchCase) {
     verdictFormatLine('Thesis-break triggers', NOT_YET),
     verdictFormatLine('Red-team objection', redTeamLine),
     verdictFormatLine('Synthesis grounding', synthesisGroundingLine),
+    verdictFormatLine('Moat grounding', moatGroundingLine),
   ]
 
   return createElement(

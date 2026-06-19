@@ -59,16 +59,18 @@ function lowRoicSeries(): AnnualFacts[] {
 }
 
 describe('computeMoatAnchor — mechanical anchor from computable rows (M1, M2)', () => {
-  it('high-ROIC + tight-margin series -> M1=2, M2=2, anchor sub-score 4 -> wide anchor', () => {
+  it('high-ROIC + tight-margin series -> M1=2, M2=2, anchor sub-score 4 -> MODERATE anchor (capped)', () => {
     const anchor = computeMoatAnchor(highRoicSeries())
     expect(anchor.computable).toBe(true)
     if (!anchor.computable) return
     expect(anchor.row_scores['M1']).toBe(2)
     expect(anchor.row_scores['M2']).toBe(2)
     expect(anchor.sub_score).toBe(4)
-    // 4 computable points (the full computable max) maps to the WIDE anchor — the prior the lane
-    // adjusts from. It cannot be 'monopoly' from computable rows alone (cited rows are needed).
-    expect(anchor.anchor_tier).toBe('wide')
+    // SUBSTITUTION BOUNDARY: a perfect computable sub-score (4/4) anchors at MODERATE, NOT wide. The quant
+    // corroborates but cannot SUBSTITUTE for a grounded qualitative moat thesis — wide/monopoly are
+    // reachable only when the cite-verified qualitative rows (M3-M6) lift the grounded-row-sum. (Was 'wide'
+    // — that asserted the hole: the moat gate passing on EDGAR quant alone.)
+    expect(anchor.anchor_tier).toBe('moderate')
   })
 
   it('low-ROIC + swinging-margin series -> M1=0, M2=0, anchor sub-score 0 -> narrow anchor', () => {
@@ -368,6 +370,79 @@ describe('resolveRubricTier — grounded-ceiling clamp (upward bump must be supp
     expect(result.adjustment_applied).toBe(false)
     expect(result.grounding_capped).toBe(true)
     expect(result.violations.some((v) => v.includes('grounding-unmet'))).toBe(true)
+  })
+})
+
+describe('resolveRubricTier — quant cannot substitute for a grounded qualitative moat (substitution boundary)', () => {
+  // INVARIANT row 1: strong quant (M1=M2=2), zero qualitative -> resolved MODERATE, never wide.
+  it('quant-alone (M1=M2=2, M3-M6=0) anchors moderate and resolves moderate — NOT wide', () => {
+    const result = resolveRubricTier({
+      rubric: moat,
+      anchorScores: { M1: 2, M2: 2 }, // perfect quant
+      laneRubricScores: [
+        { id: 'M1', score: 2 }, { id: 'M2', score: 2 },
+        { id: 'M3', score: 0 }, { id: 'M4', score: 0 }, { id: 'M5', score: 0 }, { id: 'M6', score: 0 },
+      ],
+      anchorTier: 'moderate', // capped quant anchor (post-fix)
+      proposedTier: 'moderate',
+      adjustmentEvidence: [],
+      verifiedCitationHashes: VERIFIED,
+    })
+    expect(result.resolved_tier).toBe('moderate')
+    expect(result.resolved_tier).not.toBe('wide')
+  })
+
+  // INVARIANT row 4: grounded MONOPOLY must remain reachable even with the anchor capped at moderate —
+  // the GROUNDED ROWS carry the tier all the way up (M3-M6 cite-verified -> grounded sum 12 -> monopoly).
+  it('grounded monopoly: anchor moderate, proposed monopoly, M3-M6 cite-verified (sum>=10) -> monopoly', () => {
+    const result = resolveRubricTier({
+      rubric: moat,
+      anchorScores: { M1: 2, M2: 2 },
+      laneRubricScores: [
+        { id: 'M1', score: 2 }, { id: 'M2', score: 2 },
+        { id: 'M3', score: 2, citation_hash: 'sha256:cite-a' },
+        { id: 'M4', score: 2, citation_hash: 'sha256:cite-b' },
+        { id: 'M5', score: 2, citation_hash: 'sha256:cite-c' },
+        { id: 'M6', score: 2, citation_hash: 'sha256:cite-d' },
+      ],
+      anchorTier: 'moderate', // capped quant anchor; proposed monopoly is over-range upward (+2)
+      proposedTier: 'monopoly',
+      adjustmentEvidence: [
+        { claim: 'durable monopoly via X', citation_hash: 'sha256:cite-a' },
+        { claim: 'failed entrant exited', citation_hash: 'sha256:cite-b' },
+      ],
+      verifiedCitationHashes: VERIFIED,
+    })
+    // grounded sum = 2+2+8 = 12 -> monopoly; the grounded rows fully support the top tier -> reachable.
+    expect(result.resolved_tier).toBe('monopoly')
+    expect(result.grounding_capped).toBe(false)
+    expect(result.adjustment_applied).toBe(true)
+  })
+
+  // The over-range upward proposal is NOT mechanically clamped to anchor+1 — but the grounded ceiling
+  // still caps it to what the grounded rows actually support (here: only M3/M4 verify -> sum 8 -> wide).
+  it('over-range upward (moderate->monopoly) with grounded sum only 8 is capped to wide, not monopoly', () => {
+    const result = resolveRubricTier({
+      rubric: moat,
+      anchorScores: { M1: 2, M2: 2 },
+      laneRubricScores: [
+        { id: 'M1', score: 2 }, { id: 'M2', score: 2 },
+        { id: 'M3', score: 2, citation_hash: 'sha256:cite-a' },
+        { id: 'M4', score: 2, citation_hash: 'sha256:cite-b' },
+        { id: 'M5', score: 2, citation_hash: 'sha256:UNVERIFIED-1' }, // ungrounded -> 0
+        { id: 'M6', score: 2, citation_hash: 'sha256:UNVERIFIED-2' }, // ungrounded -> 0
+      ],
+      anchorTier: 'moderate',
+      proposedTier: 'monopoly',
+      adjustmentEvidence: [
+        { claim: 'a', citation_hash: 'sha256:cite-a' },
+        { claim: 'b', citation_hash: 'sha256:cite-b' },
+      ],
+      verifiedCitationHashes: VERIFIED,
+    })
+    // grounded sum = 2+2+2+2 = 8 -> wide (the monopoly threshold, 10, is unmet) -> capped to wide.
+    expect(result.resolved_tier).toBe('wide')
+    expect(result.grounding_capped).toBe(true)
   })
 })
 

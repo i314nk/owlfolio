@@ -133,9 +133,10 @@ export type JudgmentResolution = {
  *
  * Precedence (documented, deterministic):
  *   1. Rubric present + sufficient  -> mechanical anchor (EDGAR) + bounded ±1 adjustment (resolveRubricTier).
- *   2. Rubric absent OR resolves to a tier not valid downstream -> fall back to the holistic
- *      moat_class/runway the lane proposes (still emitted on the decision schema), flagged
- *      `judgment_degraded: 'rubric_not_emitted'` so the holistic substitution is VISIBLE.
+ *   2. Rubric absent OR resolves to a tier not valid downstream -> the MOAT axis FAILS CLOSED to `narrow`
+ *      (never admit on the model's ungrounded bare holistic moat_class — the same fail-closed-on-ungrounded
+ *      principle as the moat gate and the decision agent), flagged `judgment_degraded: 'rubric_not_emitted'`
+ *      so the degradation is VISIBLE. (Runway keeps its holistic fallback — it cannot pass a moat gate.)
  *   3. Neither rubric nor holistic -> a conservative explicit default (narrow moat / none runway) that
  *      fails the gate, still flagged degraded. NEVER `undefined`.
  *
@@ -186,23 +187,23 @@ export function resolveJudgmentTiers(args: {
         ...(anchor.computable ? { anchor_note: anchor.note } : { anchor_note: `Moat anchor not computable: ${anchor.reason}` }),
       }
     } else {
-      // Rubric resolved to a non-downstream tier — fall back to holistic/default, flagged.
-      const fallback = args.holisticMoatClass ?? DEFAULT_MOAT_CLASS
+      // Rubric resolved to a non-downstream tier — FAIL CLOSED to narrow (never admit on the model's
+      // ungrounded bare word), VISIBLY flagged. The holistic moat_class is NOT trusted to pass the gate.
       moat = {
         ...resolved,
-        resolved_moat_class: fallback,
+        resolved_moat_class: DEFAULT_MOAT_CLASS,
         judgment_degraded: 'rubric_not_emitted',
         ...(anchor.computable ? { anchor_note: anchor.note } : { anchor_note: `Moat anchor not computable: ${anchor.reason}` }),
       }
     }
   } else {
-    // No rubric supplied — resolve holistically (or conservative default), VISIBLY flagged.
-    const fallback = args.holisticMoatClass ?? DEFAULT_MOAT_CLASS
+    // No rubric supplied — FAIL CLOSED to narrow (do NOT admit on the model's ungrounded bare holistic
+    // moat_class), VISIBLY flagged. wide+ requires scored, cite-verified rubric rows — not a model claim.
     moat = {
-      ...degradedResult(fallback as RubricTier),
-      resolved_moat_class: fallback,
+      ...degradedResult(DEFAULT_MOAT_CLASS as RubricTier),
+      resolved_moat_class: DEFAULT_MOAT_CLASS,
       judgment_degraded: 'rubric_not_emitted',
-      anchor_note: 'Moat rubric not emitted by the model — resolved from the holistic moat_class (or conservative default).',
+      anchor_note: 'Moat rubric not emitted by the model — failed closed to narrow (the holistic moat_class is NOT trusted to pass the gate without scored, cite-verified rubric rows).',
     }
   }
 
@@ -235,6 +236,8 @@ export function resolveJudgmentTiers(args: {
       }
     }
   } else {
+    // Runway keeps its holistic fallback: runway feeds GROWTH credit, not the moat admission gate, so an
+    // ungrounded holistic runway cannot itself admit a name (unlike moat, which fails closed above).
     const fallback = args.holisticRunway ?? DEFAULT_RUNWAY
     runway = {
       ...degradedResult(fallback as RubricTier),

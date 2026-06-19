@@ -1425,6 +1425,43 @@ export async function runResearchDeepDivePhase(
   const moatClass = resolvedMoatClass
   const moat_passes_gate = moatPassesGate(buffettMungerStrategy, moatClass)
 
+  // ---- moat_grounding_unmet: distinguish an UNGROUNDED moat from a genuinely-NARROW one ----
+  // When the moat fails the gate (below wide), WHY it failed changes the routing (gatedVerdict below):
+  //   - UNGROUNDED  (the model REACHED for a wide+ moat but the cite-verified qualitative rows did not
+  //     back it) -> route to RESEARCH_MORE: the thesis is incomplete, not disproven. "Ungrounded" =
+  //       (a) grounding_capped: an upward bump to a gate-passing tier was DENIED for lack of grounded rows;
+  //       (b) judgment_degraded: the moat resolved via the holistic fallback (rubric not emitted/scored);
+  //       (c) the model PROPOSED a gate-passing tier (wide/monopoly) but it did not resolve there.
+  //   - GENUINELY NARROW (the model did not claim a passing tier, or the grounded evidence simply adds to
+  //     narrow/moderate) -> keep PASS: set aside, outside the wide-moat circle, no further research owed.
+  // Surfaced the SAME way as synthesis_grounding_unmet (A1): a visible boolean + reason on the valuation
+  // payload, projected legacy-tolerantly, displayed near the verdict.
+  const moatProposedTier = judgment.moat?.proposed_tier
+  const modelClaimedPassingMoat = moatProposedTier === 'wide' || moatProposedTier === 'monopoly'
+  const moatGroundingCapped = judgment.moat?.grounding_capped === true
+  const moatJudgmentDegraded = judgment.moat?.judgment_degraded === 'rubric_not_emitted'
+  const moat_grounding_unmet =
+    !moat_passes_gate
+    && (moatGroundingCapped || moatJudgmentDegraded || (modelClaimedPassingMoat && !moat_passes_gate))
+  const moatGroundingReason: string | undefined = !moat_grounding_unmet
+    ? undefined
+    : moatGroundingCapped
+      ? `moat_grounding_unmet: the moat resolved to '${moatClass}' (below the wide-moat gate) — an upward `
+        + 'tier bump to a gate-passing moat was DENIED because the cite-verified qualitative rows (M3 pricing '
+        + 'power, M4 share, M5 switching, M6 competitor exits) did not support it. The quant corroborates but '
+        + 'cannot substitute for a grounded qualitative moat thesis. Routed to RESEARCH_MORE; ground the moat.'
+      : moatJudgmentDegraded
+        ? `moat_grounding_unmet: the moat resolved to '${moatClass}' via the holistic fallback (rubric not `
+          + 'scored / not emitted) — the moat class was NOT established from cite-verified rubric rows. Routed '
+          + 'to RESEARCH_MORE; emit a scored, grounded moat rubric.'
+        : `moat_grounding_unmet: the model proposed a '${moatProposedTier}' moat but it resolved to '${moatClass}' `
+          + '(below the wide-moat gate) — the cite-verified qualitative rows did not back the claimed moat. '
+          + 'Routed to RESEARCH_MORE; ground the moat thesis.'
+  // Surface the ungrounded-moat reason as a visible degraded flag (mirrors synthesis_grounding_unmet).
+  if (moatGroundingReason !== undefined) {
+    degradedFlags.push(moatGroundingReason)
+  }
+
   const modelBridge = dec.analysis.owner_earnings_bridge
 
   // ---- EDGAR-anchored owner-earnings bridge ("judgment proposes, code computes") ----
@@ -2171,7 +2208,10 @@ export async function runResearchDeepDivePhase(
   // Apply the cheap deterministic gates ONLY: moat below wide → PASS; Shariah sector/financial FAIL → PASS;
   // missing buy data → RESEARCH_MORE. Otherwise the MODEL's verdict passes through. Sanity flags NEVER gate.
   const gatedVerdict = !moat_passes_gate
-    ? ('PASS' as const)
+    // A moat below the gate routes by WHY: an UNGROUNDED moat claim (the model reached for wide+ but the
+    // cite-verified rows didn't back it / the rubric wasn't scored) is INCOMPLETE -> RESEARCH_MORE; a
+    // genuinely-narrow moat (no passing claim, grounded) is set aside -> PASS.
+    ? (moat_grounding_unmet ? ('RESEARCH_MORE' as const) : ('PASS' as const))
     : sectorShariahFail
       ? ('PASS' as const)
       // Founding-risk fix: the synthesis verdict is ONLY recorded when the decision agent grounded it in a
@@ -2184,7 +2224,9 @@ export async function runResearchDeepDivePhase(
           ? ('RESEARCH_MORE' as const)
           : dec.analysis.investment_verdict
   const gatedReason = !moat_passes_gate
-    ? `Moat below the wide-moat gate (${moatClass}) — pass.`
+    ? (moat_grounding_unmet
+        ? `${moatGroundingReason} ${dec.analysis.decision_reason}`
+        : `Moat below the wide-moat gate (${moatClass}) — pass.`)
     : sectorShariahFail
       ? `Shariah ${shariahJudgment?.sector_status === 'non_compliant' ? 'sector' : 'financial'} status FAIL — pass. ${dec.analysis.decision_reason}`
       : synthesisGroundingUnmet
@@ -2296,6 +2338,10 @@ export async function runResearchDeepDivePhase(
         // own → the verdict was routed to RESEARCH_MORE. Projected + displayed near the verdict.
         ...(synthesisGroundingUnmet ? { synthesis_grounding_unmet: true } : {}),
         ...(synthesisGroundingReason !== undefined ? { synthesis_grounding_reason: synthesisGroundingReason } : {}),
+        // moat_grounding_unmet (+ reason): the moat gate failed because the moat claim was UNGROUNDED
+        // (vs genuinely narrow) — verdict routed to RESEARCH_MORE. Surfaced like synthesis_grounding_unmet.
+        ...(moat_grounding_unmet ? { moat_grounding_unmet: true } : {}),
+        ...(moatGroundingReason !== undefined ? { moat_grounding_reason: moatGroundingReason } : {}),
         ...(fair_value_per_share !== undefined ? { fair_value_per_share } : {}),
         ...(implied_multiple !== undefined ? { implied_multiple } : {}),
         ...(terminal_value_pct_of_iv !== undefined ? { terminal_value_pct_of_iv } : {}),
