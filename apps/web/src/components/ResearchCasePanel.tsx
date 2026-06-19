@@ -340,11 +340,19 @@ function createCircleCompetencePanel(researchCase: AppResearchCase) {
   const circle = researchCase.circle_competence
   if (circle === undefined) return null
 
-  const inCompetence = circle.in_competence === true
+  // Bug B: prefer the predictability ENUM; legacy-tolerant — old events carry only the in_competence boolean
+  // (map true → durably_predictable-equivalent). The gate proceeds only on durably_predictable + grounded.
+  const predictability = circle.cashflow_predictability
+    ?? (circle.in_competence === true ? 'durably_predictable' : undefined)
+  const inCompetence = circle.in_competence === true && predictability === 'durably_predictable'
   const accent = inCompetence ? 'var(--owl-color-accent-bright)' : 'var(--owl-color-risk)'
   const heading = inCompetence
-    ? 'Circle of competence — in competence'
-    : 'Outside competence — set aside'
+    ? 'Cashflows durably predictable — in competence'
+    : predictability === 'not_predictable'
+      ? 'Outside competence — set aside (cashflows not durably predictable)'
+      : predictability === 'uncertain'
+        ? 'Outside competence — set aside (cashflow predictability uncertain)'
+        : 'Outside competence — set aside'
 
   const claimRow = (text: string, citation: string | undefined, grounded: boolean | undefined) =>
     createElement(

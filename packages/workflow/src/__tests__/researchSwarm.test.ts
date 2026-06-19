@@ -11,6 +11,7 @@ import { runGroundedAgent, ProposedSourcesSchema, runLaneSwarm, runStrategyResea
 import type { AnnualFacts } from '../secEdgar'
 import { buffettMungerDeepDiveLanes } from '../strategyResearchPipeline'
 import { groundProposedSourcesDeterministic, type CapturedSource } from '../sourceGrounding'
+import { CashflowDriverSchema, PredictabilityBreakerSchema } from '../researchSwarmSchemas'
 
 // MARGIN-OF-SAFETY AUDIT SURFACE — the synthesis decision now REQUIRES key_wrong_assumption +
 // thesis_break_triggers (forward-looking model risk judgments). Shared substantive fixture spread into
@@ -139,7 +140,7 @@ function fakeCirclePayload(src: (id: string) => unknown) {
     cashflow_drivers: [{ driver: 'Recurring revenue grounded in the 10-K', citation: 'src_circle_driver' }],
     predictability_breakers: [{ breaker: 'Cyclicality / customer concentration risk', citation: 'src_circle_breaker' }],
     competence_reasoning: 'Understandable cashflow engine demonstrated from filings.',
-    in_competence: true,
+    cashflow_predictability: 'durably_predictable',
     proposed_sources: [src('src_circle_driver'), src('src_circle_breaker')],
   }
 }
@@ -3974,12 +3975,16 @@ describe('§2 reference FV + implied-exit-multiple — gated on grounded assumed
 // outcome: in-competence → run the 7 lanes; outside-competence → set aside (PASS), never RESEARCH_MORE.
 // ---------------------------------------------------------------------------
 describe('circle-of-competence gate', () => {
-  // A swarm fake provider whose circle judgment claims in_competence and cites `driverCite`/`breakerCite`
-  // for the two clauses. Everything else mirrors swarmFakeProvider (full happy-path deep dive).
+  // A swarm fake provider whose circle judgment reports a cashflow_predictability verdict and cites
+  // `driverCite`/`breakerCite` for the two clauses. `driverText`/`breakerText` default to substantive text
+  // but can be set to '' to exercise the empty-text (Bug A) regression. Everything else mirrors
+  // swarmFakeProvider (full happy-path deep dive).
   function circleSwarmProvider(opts: {
-    in_competence: boolean
+    cashflow_predictability: 'durably_predictable' | 'not_predictable' | 'uncertain'
     driverCite: string
     breakerCite: string
+    driverText?: string
+    breakerText?: string
   }) {
     let laneCall = 0
     const src = (id: string) => ({
@@ -3998,12 +4003,12 @@ describe('circle-of-competence gate', () => {
         const schemaName = req.response_format?.schema_name
         if (schemaName === 'BuffettMungerCircleCompetence') {
           return {
-            cashflow_drivers: [{ driver: 'Recurring insurance float invested at scale', citation: opts.driverCite }],
-            predictability_breakers: [{ breaker: 'Catastrophe-loss tail volatility', citation: opts.breakerCite }],
-            competence_reasoning: opts.in_competence
+            cashflow_drivers: [{ driver: opts.driverText ?? 'Recurring insurance float invested at scale', citation: opts.driverCite }],
+            predictability_breakers: [{ breaker: opts.breakerText ?? 'Catastrophe-loss tail volatility', citation: opts.breakerCite }],
+            competence_reasoning: opts.cashflow_predictability === 'durably_predictable'
               ? 'Understandable cashflow engine grounded in the 10-K.'
-              : 'I cannot demonstrate the drivers from filings.',
-            in_competence: opts.in_competence,
+              : 'I understand the business but its cashflows are not durably predictable.',
+            cashflow_predictability: opts.cashflow_predictability,
             proposed_sources: [src('src_circle_driver'), src('src_circle_breaker')],
           }
         }
@@ -4078,9 +4083,15 @@ describe('circle-of-competence gate', () => {
     })) as unknown as GroundFn
   }
 
-  async function runCircle(research_case_id: string, opts: { in_competence: boolean; driverCite: string; breakerCite: string; unverified?: Set<string> }) {
+  async function runCircle(research_case_id: string, opts: { cashflow_predictability: 'durably_predictable' | 'not_predictable' | 'uncertain'; driverCite: string; breakerCite: string; driverText?: string; breakerText?: string; unverified?: Set<string> }) {
     const store = new InMemoryEventStore()
-    const provider = circleSwarmProvider({ in_competence: opts.in_competence, driverCite: opts.driverCite, breakerCite: opts.breakerCite })
+    const provider = circleSwarmProvider({
+      cashflow_predictability: opts.cashflow_predictability,
+      driverCite: opts.driverCite,
+      breakerCite: opts.breakerCite,
+      ...(opts.driverText !== undefined ? { driverText: opts.driverText } : {}),
+      ...(opts.breakerText !== undefined ? { breakerText: opts.breakerText } : {}),
+    })
     const result = await runStrategyResearchSwarm(
       store, provider as never,
       { research_case_id, company_id: 'c', ticker: 'CIRC', strategy_id: 'buffett-munger', actor_id: 'user_local', idempotency_key: 'k', model_id: 'mock', decision_id: `d_${research_case_id}`, source_ledger_path: '/tmp/owlfolio-circle' },
@@ -4091,8 +4102,8 @@ describe('circle-of-competence gate', () => {
     return { store, events, types: events.map((e) => e.event_type), cp: cases.find((c) => c.research_case_id === research_case_id), result }
   }
 
-  it('1. in-competence (both clauses grounded) → gate passes, the 7-lane deep dive runs, decision proceeds', async () => {
-    const { types, cp } = await runCircle('rc_circle_in', { in_competence: true, driverCite: 'src_circle_driver', breakerCite: 'src_circle_breaker' })
+  it('1. durably_predictable + both clauses grounded (non-empty text) → gate passes, the 7-lane deep dive runs', async () => {
+    const { types, cp } = await runCircle('rc_circle_in', { cashflow_predictability: 'durably_predictable', driverCite: 'src_circle_driver', breakerCite: 'src_circle_breaker' })
     // The judgment was recorded and the deep dive ran (lanes + synthesis).
     expect(types).toContain('circle_competence_judged')
     expect(types).toContain('deep_dive_started')
@@ -4103,53 +4114,75 @@ describe('circle-of-competence gate', () => {
     expect(cp?.investment_verdict ?? cp?.decision).not.toBe(undefined)
   })
 
-  it('2. outside-competence (model says so) → set aside: PASS + outside_circle, 7 lanes do NOT run, terminal', async () => {
-    const { types, cp } = await runCircle('rc_circle_out', { in_competence: false, driverCite: 'src_circle_driver', breakerCite: 'src_circle_breaker' })
+  it('2. not_predictable (understood but cyclical — the MU case) WITH grounded substantive clauses → SET ASIDE (PASS), 7 lanes do NOT run', async () => {
+    // Bug B: the model understands the business and grounds BOTH clauses, but judges the cashflows
+    // not durably predictable. The gate must set aside on the verdict, NOT proceed.
+    const { types, cp } = await runCircle('rc_circle_not_predictable', { cashflow_predictability: 'not_predictable', driverCite: 'src_circle_driver', breakerCite: 'src_circle_breaker' })
     expect(types).toContain('circle_competence_judged')
     // The expensive deep dive was SKIPPED — no lanes, no synthesis.
     expect(types).not.toContain('deep_dive_started')
     expect(types).not.toContain('specialist_finding_recorded')
     expect(types).not.toContain('deep_dive_synthesis_drafted')
-    // Terminal decision: PASS (set aside), flagged outside the circle.
+    // Terminal decision: PASS (set aside), flagged outside the circle, NEVER RESEARCH_MORE.
     expect(types).toContain('decision_drafted')
     expect(cp?.investment_verdict ?? cp?.decision).toBe('PASS')
+    expect(cp?.investment_verdict ?? cp?.decision).not.toBe('RESEARCH_MORE')
     expect(cp?.valuation?.circle_competence_unmet).toBe(true)
   })
 
-  it('3. fail-closed on ungrounded cashflow_drivers → outside-competence/set aside (ungrounded = outside)', async () => {
-    // The model CLAIMS in_competence, but the cashflow_drivers citation does not verify.
-    const { types, cp } = await runCircle('rc_circle_ungrounded_drivers', {
-      in_competence: true, driverCite: 'src_circle_driver', breakerCite: 'src_circle_breaker',
+  it("3. uncertain → SET ASIDE (PASS), 7 lanes do NOT run", async () => {
+    const { types, cp } = await runCircle('rc_circle_uncertain', { cashflow_predictability: 'uncertain', driverCite: 'src_circle_driver', breakerCite: 'src_circle_breaker' })
+    expect(types).not.toContain('deep_dive_started')
+    expect(cp?.investment_verdict ?? cp?.decision).toBe('PASS')
+    expect(cp?.valuation?.circle_competence_unmet).toBe(true)
+  })
+
+  it('4. Bug A — empty driver TEXT (with a verified citation) does NOT count as grounded → SET ASIDE', async () => {
+    // durably_predictable + a VERIFIED breaker citation, but the driver has empty text. An empty claim must
+    // NOT clear the bar even though its citation verifies — drops grounded drivers below 1 → set aside.
+    const { types, cp } = await runCircle('rc_circle_empty_driver', {
+      cashflow_predictability: 'durably_predictable', driverCite: 'src_circle_driver', breakerCite: 'src_circle_breaker',
+      driverText: '',
+    })
+    expect(types).not.toContain('deep_dive_started')
+    expect(cp?.investment_verdict ?? cp?.decision).toBe('PASS')
+    expect(cp?.valuation?.circle_competence_unmet).toBe(true)
+  })
+
+  it('4b. Bug A schema — a missing driver/breaker TEXT is rejected at parse (text is now REQUIRED)', () => {
+    // The split schemas make driver/breaker text non-optional. Parsing a claim without text must fail.
+    expect(CashflowDriverSchema.safeParse({ citation: 'src_x' }).success).toBe(false)
+    expect(CashflowDriverSchema.safeParse({ driver: '', citation: 'src_x' }).success).toBe(false)
+    expect(PredictabilityBreakerSchema.safeParse({ citation: 'src_x' }).success).toBe(false)
+    expect(CashflowDriverSchema.safeParse({ driver: 'd', citation: 'src_x' }).success).toBe(true)
+    expect(PredictabilityBreakerSchema.safeParse({ breaker: 'b', citation: 'src_x' }).success).toBe(true)
+  })
+
+  it('5. fail-closed: ungrounded citations (drivers OR breakers) → SET ASIDE (unchanged)', async () => {
+    const drivers = await runCircle('rc_circle_ungrounded_drivers', {
+      cashflow_predictability: 'durably_predictable', driverCite: 'src_circle_driver', breakerCite: 'src_circle_breaker',
       unverified: new Set(['src_circle_driver']),
     })
-    expect(types).not.toContain('deep_dive_started')
-    expect(cp?.investment_verdict ?? cp?.decision).toBe('PASS')
-    expect(cp?.valuation?.circle_competence_unmet).toBe(true)
-  })
+    expect(drivers.types).not.toContain('deep_dive_started')
+    expect(drivers.cp?.investment_verdict ?? drivers.cp?.decision).toBe('PASS')
+    expect(drivers.cp?.valuation?.circle_competence_unmet).toBe(true)
 
-  it('4. fail-closed on ungrounded predictability_breakers (the DEEPER test) → STILL outside-competence', async () => {
-    // The drivers ground, but the predictability_breakers citation does not verify — the second clause is
-    // held to the SAME rigor, so the gate STILL fails closed.
-    const { types, cp } = await runCircle('rc_circle_ungrounded_breakers', {
-      in_competence: true, driverCite: 'src_circle_driver', breakerCite: 'src_circle_breaker',
+    const breakers = await runCircle('rc_circle_ungrounded_breakers', {
+      cashflow_predictability: 'durably_predictable', driverCite: 'src_circle_driver', breakerCite: 'src_circle_breaker',
       unverified: new Set(['src_circle_breaker']),
     })
-    expect(types).not.toContain('deep_dive_started')
-    expect(cp?.investment_verdict ?? cp?.decision).toBe('PASS')
-    expect(cp?.valuation?.circle_competence_unmet).toBe(true)
+    expect(breakers.types).not.toContain('deep_dive_started')
+    expect(breakers.cp?.investment_verdict ?? breakers.cp?.decision).toBe('PASS')
+    expect(breakers.cp?.valuation?.circle_competence_unmet).toBe(true)
   })
 
-  it('5. outside-competence outcome is set-aside PASS, NEVER RESEARCH_MORE', async () => {
-    const { cp } = await runCircle('rc_circle_never_more', { in_competence: false, driverCite: 'src_circle_driver', breakerCite: 'src_circle_breaker' })
-    expect(cp?.investment_verdict ?? cp?.decision).not.toBe('RESEARCH_MORE')
-    expect(cp?.investment_verdict ?? cp?.decision).toBe('PASS')
-  })
-
-  it('projects the circle judgment (cited drivers + breakers + outcome) onto the case', async () => {
-    const { cp } = await runCircle('rc_circle_proj', { in_competence: true, driverCite: 'src_circle_driver', breakerCite: 'src_circle_breaker' })
+  it('6. projects the predictability verdict + model_claimed_predictability + required-text clauses onto the case', async () => {
+    const { cp } = await runCircle('rc_circle_proj', { cashflow_predictability: 'durably_predictable', driverCite: 'src_circle_driver', breakerCite: 'src_circle_breaker' })
     const circle = cp?.circle_competence
     expect(circle).toBeDefined()
     expect(circle?.in_competence).toBe(true)
+    expect(circle?.cashflow_predictability).toBe('durably_predictable')
+    expect(circle?.model_claimed_predictability).toBe('durably_predictable')
     expect(circle?.cashflow_drivers?.[0]?.driver).toBeTruthy()
     expect(circle?.predictability_breakers?.[0]?.breaker).toBeTruthy()
     expect(circle?.competence_reasoning).toBeTruthy()

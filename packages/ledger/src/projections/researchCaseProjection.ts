@@ -224,9 +224,21 @@ export type ResearchCaseCircleClaimProjection = {
   grounded?: boolean
 }
 export type ResearchCaseCircleCompetenceProjection = {
-  /** The HARNESS outcome: in-competence (true) only when the model claimed it AND both clauses grounded. */
+  /**
+   * The HARNESS outcome: in-competence (true) only when the model judged the cashflows durably predictable
+   * AND both clauses grounded (non-empty text + verified citation). DERIVED — kept as the proceed/set-aside
+   * signal and for legacy events that only carried this boolean.
+   */
   in_competence?: boolean
-  /** The model's raw claim (before the harness's grounding fail-closed). */
+  /**
+   * The model's predictability VERDICT (Bug B): 'durably_predictable' is the ONLY value that proceeds; a
+   * well-understood but cyclical/commodity business is 'not_predictable' → set aside. Absent on legacy
+   * events (which carried only the in_competence boolean).
+   */
+  cashflow_predictability?: 'durably_predictable' | 'not_predictable' | 'uncertain'
+  /** The model's raw predictability claim (the enum, before the harness's grounding fail-closed). */
+  model_claimed_predictability?: 'durably_predictable' | 'not_predictable' | 'uncertain'
+  /** LEGACY: the model's raw boolean claim on old events (before the enum). Read for back-compat only. */
   model_claimed_in_competence?: boolean
   competence_reasoning?: string
   cashflow_drivers?: ResearchCaseCircleClaimProjection[]
@@ -972,7 +984,13 @@ function getCircleCompetence(payload: Record<string, unknown>): ResearchCaseCirc
   const value = payload['circle_competence']
   if (!isRecord(value)) return undefined
   const projected: ResearchCaseCircleCompetenceProjection = {}
+  const isPredictabilityEnum = (v: unknown): v is 'durably_predictable' | 'not_predictable' | 'uncertain' =>
+    v === 'durably_predictable' || v === 'not_predictable' || v === 'uncertain'
+  // Bug B: project the predictability enum. Legacy-tolerant — old events carry only the in_competence
+  // boolean; keep reading it (and map a legacy true → durably_predictable-equivalent for display below).
   if (typeof value['in_competence'] === 'boolean') projected.in_competence = value['in_competence']
+  if (isPredictabilityEnum(value['cashflow_predictability'])) projected.cashflow_predictability = value['cashflow_predictability']
+  if (isPredictabilityEnum(value['model_claimed_predictability'])) projected.model_claimed_predictability = value['model_claimed_predictability']
   if (typeof value['model_claimed_in_competence'] === 'boolean') projected.model_claimed_in_competence = value['model_claimed_in_competence']
   const competence_reasoning = getString(value, 'competence_reasoning')
   if (competence_reasoning !== undefined) projected.competence_reasoning = competence_reasoning

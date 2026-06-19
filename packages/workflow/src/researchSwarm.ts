@@ -845,40 +845,54 @@ export async function runResearchDeepDivePhase(
     circleVerified.add(s.content_hash)
     circleVerified.add(s.source_id)
   }
-  const groundedDrivers = circle.analysis.cashflow_drivers.filter((d) => circleVerified.has(d.citation))
-  const groundedBreakers = circle.analysis.predictability_breakers.filter((b) => circleVerified.has(b.citation))
-  // The gate passes (in-competence) ONLY when the model CLAIMS in_competence AND BOTH clauses ground
-  // (≥1 grounded cashflow driver AND ≥1 grounded predictability breaker). EITHER clause ungrounded → fail
-  // closed to outside-competence. Ungrounded competence = outside competence.
+  // Bug A: a claim counts grounded ONLY when its TEXT is non-empty AND its citation cite-verifies. An empty
+  // claim with a verified citation MUST NOT count (the MU run cleared N=M=1 on citations alone).
+  const groundedDrivers = circle.analysis.cashflow_drivers.filter(
+    (d) => (d.driver?.trim().length ?? 0) > 0 && circleVerified.has(d.citation),
+  )
+  const groundedBreakers = circle.analysis.predictability_breakers.filter(
+    (b) => (b.breaker?.trim().length ?? 0) > 0 && circleVerified.has(b.citation),
+  )
+  // Bug B: the gate now keys off the cashflow_predictability ENUM, not a boolean that conflated
+  // "I understand the business" with "the cashflows are durably predictable". The gate proceeds
+  // (in-competence) ONLY when the model judged 'durably_predictable' AND BOTH clauses ground (≥1 grounded,
+  // non-empty cashflow driver AND ≥1 grounded, non-empty predictability breaker). 'not_predictable' OR
+  // 'uncertain' OR EITHER clause ungrounded → fail closed to outside-competence (set aside).
+  const predictability = circle.analysis.cashflow_predictability
   const driversGrounded = groundedDrivers.length >= 1
   const breakersGrounded = groundedBreakers.length >= 1
-  const inCompetence = circle.analysis.in_competence === true && driversGrounded && breakersGrounded
+  const inCompetence = predictability === 'durably_predictable' && driversGrounded && breakersGrounded
   const circleUnmetReason = inCompetence
     ? undefined
-    : circle.analysis.in_competence !== true
-      ? 'circle_competence_unmet: the model judged it does NOT understand this business well enough to assess '
-        + 'its cashflow predictability (outside competence) — a valid, common, correct Buffett output. Set aside.'
+    : predictability !== 'durably_predictable'
+      ? `circle_competence_unmet: the model judged this business's cashflows ${predictability === 'not_predictable' ? 'NOT durably predictable' : 'of UNCERTAIN predictability'} `
+        + '— understanding the business is not the same as competence to value it; cyclical/commodity/unpredictable '
+        + 'cashflows are outside the circle. A valid, common, correct Buffett output. Set aside.'
       : !driversGrounded
-        ? 'circle_competence_unmet: the model claimed in-competence but its cashflow_drivers citations did NOT '
-          + 'verify against the corpus — ungrounded understanding is outside competence (fail-closed). Set aside.'
+        ? 'circle_competence_unmet: the model judged the cashflows durably predictable but its cashflow_drivers '
+          + 'were empty or their citations did NOT verify against the corpus — ungrounded predictability is '
+          + 'outside competence (fail-closed). Set aside.'
         : 'circle_competence_unmet: the model grounded the cashflow drivers but its predictability_breakers '
-          + 'citations did NOT verify — the deeper clause is held to the same rigor; ungrounded = outside '
-          + 'competence (fail-closed). Set aside.'
+          + 'were empty or their citations did NOT verify — the deeper clause is held to the same rigor; '
+          + 'ungrounded = outside competence (fail-closed). Set aside.'
 
-  // Project-ready circle judgment payload (the cited drivers + breakers + outcome + reasoning).
+  // Project-ready circle judgment payload (the cited drivers + breakers + outcome + reasoning). The resolved
+  // `in_competence` boolean is DERIVED (durably_predictable && grounded) and kept as the internal/legacy
+  // proceed/set-aside signal; cashflow_predictability + model_claimed_predictability carry the enum.
   const circleJudgmentPayload = {
     in_competence: inCompetence,
-    model_claimed_in_competence: circle.analysis.in_competence,
+    cashflow_predictability: predictability,
+    model_claimed_predictability: predictability,
     competence_reasoning: circle.analysis.competence_reasoning,
     cashflow_drivers: circle.analysis.cashflow_drivers.map((d) => ({
       driver: d.driver ?? '',
       citation: d.citation,
-      grounded: circleVerified.has(d.citation),
+      grounded: (d.driver?.trim().length ?? 0) > 0 && circleVerified.has(d.citation),
     })),
     predictability_breakers: circle.analysis.predictability_breakers.map((b) => ({
       breaker: b.breaker ?? '',
       citation: b.citation,
-      grounded: circleVerified.has(b.citation),
+      grounded: (b.breaker?.trim().length ?? 0) > 0 && circleVerified.has(b.citation),
     })),
     ...(circleUnmetReason !== undefined ? { circle_competence_unmet: true, reason: circleUnmetReason } : {}),
   }

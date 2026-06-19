@@ -1518,7 +1518,8 @@ describe('ResearchCasePanel — circle-of-competence judgment', () => {
       ...baseCircleCase(),
       circle_competence: {
         in_competence: true,
-        model_claimed_in_competence: true,
+        cashflow_predictability: 'durably_predictable',
+        model_claimed_predictability: 'durably_predictable',
         competence_reasoning: 'Understandable cashflow engine demonstrated from filings.',
         cashflow_drivers: [{ driver: 'Recurring insurance float invested at scale', citation: 'src_circle_driver', grounded: true }],
         predictability_breakers: [{ breaker: 'Catastrophe-loss tail volatility', citation: 'src_circle_breaker', grounded: true }],
@@ -1526,14 +1527,35 @@ describe('ResearchCasePanel — circle-of-competence judgment', () => {
     }
     const html = renderToStaticMarkup(createElement(ResearchCasePanel, { researchCase, mode: 'personal-local' }))
     expect(html).toContain('data-testid="circle-competence"')
-    expect(html).toContain('Circle of competence — in competence')
+    expect(html).toContain('Cashflows durably predictable')
     expect(html).toContain('Recurring insurance float invested at scale')
     expect(html).toContain('Catastrophe-loss tail volatility')
     expect(html).toContain('Predictability breakers (cited — the deeper test)')
     expect(html).toContain('Understandable cashflow engine demonstrated from filings.')
   })
 
-  it('renders "Outside competence — set aside" with the reasoning when the gate failed closed', () => {
+  it('renders set-aside with the not-durably-predictable message for an understood-but-cyclical case (the MU case)', () => {
+    const researchCase: AppResearchCase = {
+      ...baseCircleCase(),
+      investment_verdict: 'PASS',
+      valuation: { circle_competence_unmet: true, outside_circle: true },
+      circle_competence: {
+        in_competence: false,
+        cashflow_predictability: 'not_predictable',
+        model_claimed_predictability: 'not_predictable',
+        competence_reasoning: 'I understand the business but reject durable predictability — cyclical commodity cashflows.',
+        circle_competence_unmet: true,
+        reason: 'circle_competence_unmet: the model judged the cashflows not durably predictable — set aside.',
+        cashflow_drivers: [{ driver: 'DRAM/NAND pricing cycle', citation: 'src_circle_driver', grounded: true }],
+        predictability_breakers: [{ breaker: 'Commodity memory price collapses', citation: 'src_circle_breaker', grounded: true }],
+      },
+    }
+    const html = renderToStaticMarkup(createElement(ResearchCasePanel, { researchCase, mode: 'personal-local' }))
+    expect(html).toContain('Outside competence — set aside (cashflows not durably predictable)')
+    expect(html).toContain('the model judged the cashflows not durably predictable')
+  })
+
+  it('renders the legacy boolean event (in_competence:false, no enum) as set-aside', () => {
     const researchCase: AppResearchCase = {
       ...baseCircleCase(),
       investment_verdict: 'PASS',
@@ -1541,7 +1563,7 @@ describe('ResearchCasePanel — circle-of-competence judgment', () => {
       circle_competence: {
         in_competence: false,
         model_claimed_in_competence: true,
-        competence_reasoning: 'I could not ground the drivers from filings.',
+        competence_reasoning: 'Legacy boolean case.',
         circle_competence_unmet: true,
         reason: 'circle_competence_unmet: the predictability_breakers citations did NOT verify — set aside.',
         cashflow_drivers: [{ driver: 'Driver claim', citation: 'src_circle_driver', grounded: true }],

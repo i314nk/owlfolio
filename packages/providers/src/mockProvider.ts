@@ -127,9 +127,10 @@ function mockSourcesForTicker(ticker: string) {
 }
 
 // CIRCLE-OF-COMPETENCE judgment (the sequential pre-deep-dive gate). The deterministic mock DEMONSTRATES
-// understanding by citing the grounded mock primary/secondary source_ids for BOTH clauses (so the harness
-// cite-check verifies them and the gate PASSES — the deep dive proceeds exactly as before). Claims
-// in_competence so the deterministic demo/test path is in-circle.
+// durable predictability by citing the grounded mock primary/secondary source_ids for BOTH clauses (with
+// substantive TEXT) so the harness cite-check verifies them and the gate PASSES — the deep dive proceeds
+// exactly as before. Reports cashflow_predictability='durably_predictable' (Bug B enum) so the test path
+// is in-circle.
 function mockCircleCompetenceForTicker(ticker: string) {
   const companyLabel = companyLabelForTicker(ticker)
   const groundedSources = mockSourcesForTicker(ticker)
@@ -142,8 +143,8 @@ function mockCircleCompetenceForTicker(ticker: string) {
     predictability_breakers: [
       { breaker: `Cyclicality or customer-concentration risk that would make ${companyLabel}'s cashflows unpredictable`, citation: secondaryCite },
     ],
-    competence_reasoning: `${companyLabel}'s cashflow engine is understandable and demonstrated from primary filings.`,
-    in_competence: true,
+    competence_reasoning: `${companyLabel}'s cashflow engine is understandable and its cashflows are durably predictable, demonstrated from primary filings.`,
+    cashflow_predictability: 'durably_predictable',
     proposed_sources: groundedSources,
   }
 }

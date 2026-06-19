@@ -125,27 +125,40 @@ export const ShariahLaneSchema = z.object({
 // Ungrounded competence = outside competence.
 // ---------------------------------------------------------------------------
 
-// A single cited claim: the claim text + the source_id (or content_hash) of a VERIFIED primary source.
-const CircleClaimSchema = z.object({
-  // For cashflow_drivers: a specific driver of THIS business's cashflows. For predictability_breakers:
-  // a specific thing that would make those cashflows UNPREDICTABLE.
-  driver: z.string().min(1).optional(),
-  breaker: z.string().min(1).optional(),
+// A single cited cashflow DRIVER: the driver TEXT (REQUIRED — Bug A: text was previously optional, so an
+// empty claim cleared the bar on its citation alone) + the source_id (or content_hash) of a VERIFIED
+// primary source. The harness cite-verifies the citation AND requires non-empty text to count it grounded.
+export const CashflowDriverSchema = z.object({
+  // A specific driver of THIS business's cashflows that makes them DURABLE/predictable. REQUIRED.
+  driver: z.string().min(1),
   // REQUIRED — the source_id (or content_hash) of a VERIFIED primary source backing the claim (a real
   // grounded id, NOT prose). The harness cite-verifies this against the corpus; ungrounded → fail-closed.
   citation: z.string().min(1),
 })
 
+// A single cited PREDICTABILITY BREAKER: what would make those cashflows UNPREDICTABLE. THE DEEPER TEST —
+// held to the SAME rigor as the drivers; the breaker TEXT is REQUIRED (Bug A) and the citation cite-verified.
+export const PredictabilityBreakerSchema = z.object({
+  // A specific thing that would make THIS business's cashflows UNPREDICTABLE. REQUIRED.
+  breaker: z.string().min(1),
+  // REQUIRED — same cite-verify rigor as the drivers; ungrounded → fail-closed.
+  citation: z.string().min(1),
+})
+
 export const CircleCompetenceSchema = z.object({
-  // The specific drivers of THIS business's cashflows, each citing a filing source.
-  cashflow_drivers: z.array(CircleClaimSchema).min(1),
-  // What would make those cashflows UNPREDICTABLE, each cited. THE DEEPER TEST — held to the SAME
-  // cite-verify rigor as the drivers; not ungrounded prose.
-  predictability_breakers: z.array(CircleClaimSchema).min(1),
-  // The model's narrative judgment of whether it understands this business well enough.
+  // The specific drivers of THIS business's cashflows, each with REQUIRED text + a filing citation.
+  cashflow_drivers: z.array(CashflowDriverSchema).min(1),
+  // What would make those cashflows UNPREDICTABLE, each with REQUIRED text + a cited filing source. THE
+  // DEEPER TEST — held to the SAME cite-verify rigor as the drivers; not ungrounded prose.
+  predictability_breakers: z.array(PredictabilityBreakerSchema).min(1),
+  // The model's narrative judgment.
   competence_reasoning: z.string().min(1),
-  // The model's CLAIM of in/outside competence. The harness only honors `true` when BOTH clauses ground.
-  in_competence: z.boolean(),
+  // Bug B fix: the question is NOT "do I understand this business" — it is "are THIS business's cashflows
+  // DURABLY PREDICTABLE enough to value with confidence?". A well-understood but cyclical/commodity-driven
+  // business is `not_predictable` → OUTSIDE the circle (set aside), a valid+common+correct Buffett answer.
+  // The gate proceeds ONLY when this is `durably_predictable` AND both clauses ground (non-empty text +
+  // verified citation); `not_predictable` OR `uncertain` OR ungrounded → set aside.
+  cashflow_predictability: z.enum(['durably_predictable', 'not_predictable', 'uncertain']),
   proposed_sources: ProposedSourcesSchema,
 })
 
@@ -316,16 +329,23 @@ export const SHARIAH_OVERLAY_PROMPT =
 // CIRCLE-OF-COMPETENCE judgment prompt (the sequential pre-deep-dive gate). The model must DEMONSTRATE
 // understanding, not assert it — and grounding BOTH clauses is the bar. Ungrounded = outside competence.
 export const CIRCLE_COMPETENCE_PROMPT =
-  `You are the Buffett-Munger CIRCLE-OF-COMPETENCE gate. Judge whether you understand THIS business well `
-  + `enough to assess its cashflow predictability. You must DEMONSTRATE it, not assert it: `
-  + `cite (from primary filings) the specific DRIVERS of this business's cashflows (cashflow_drivers — each `
-  + `with a citation: the source_id of a VERIFIED primary source you fetched) AND what would make those `
-  + `cashflows UNPREDICTABLE (predictability_breakers — each ALSO cited to a verified primary source; this `
-  + `clause is held to the SAME rigor as the drivers — do NOT hand-wave it as prose). `
-  + `If you cannot GROUND BOTH, you are OUTSIDE your competence — a valid, common, CORRECT answer; set `
-  + `in_competence to false. Do NOT rationalize understanding you cannot demonstrate. Gather your own primary `
-  + `sources and return them in proposed_sources with real URLs; cite real grounded source_ids in every `
-  + `citation field. Also give competence_reasoning (your narrative judgment) and in_competence (your claim).`
+  `You are the Buffett-Munger CIRCLE-OF-COMPETENCE gate. The question is NOT "do I understand this `
+  + `business?" — it is "are THIS business's cashflows DURABLY PREDICTABLE enough to value with confidence?". `
+  + `These are DIFFERENT: understanding the business is NOT the same as competence to value it. A business you `
+  + `understand well but whose cashflows are CYCLICAL, COMMODITY-DRIVEN, or otherwise UNPREDICTABLE (think a `
+  + `well-understood memory-chip maker whose earnings swing with a commodity price cycle) is NOT durably `
+  + `predictable — that is OUTSIDE the circle (set aside), and it is a VALID, COMMON, CORRECT Buffett answer. `
+  + `You must DEMONSTRATE your judgment, not assert it: cite (from primary filings) the specific DRIVERS that `
+  + `make this business's cashflows DURABLE/predictable (cashflow_drivers — each with concrete TEXT describing `
+  + `the driver AND a citation: the source_id of a VERIFIED primary source you fetched) AND what would make `
+  + `those cashflows UNPREDICTABLE (predictability_breakers — each ALSO with concrete TEXT + a cited verified `
+  + `primary source; this clause is held to the SAME rigor as the drivers — do NOT hand-wave it as prose, and `
+  + `do NOT omit the text). Then set cashflow_predictability: 'durably_predictable' ONLY if the drivers `
+  + `genuinely support durable predictability AND the breakers are not dominant; otherwise 'not_predictable' `
+  + `(you understand it but the cashflows are not durably predictable) or 'uncertain'. If you cannot GROUND `
+  + `BOTH clauses, you are OUTSIDE the circle (the harness fails closed). Do NOT rationalize predictability you `
+  + `cannot demonstrate. Gather your own primary sources and return them in proposed_sources with real URLs; `
+  + `cite real grounded source_ids in every citation field. Also give competence_reasoning (your narrative).`
 
 // Lanes that receive the primary-filing data injection (they consume hard financials).
 export const PRIMARY_FILING_LANES: ReadonlySet<string> = new Set(['financial_quality', 'valuation', 'shariah'])
