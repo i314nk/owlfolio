@@ -590,6 +590,22 @@ describe('runStrategyResearchSwarm', () => {
     const goodRecord = bundle.records.find((r) => r.source_id.includes('good'))
     expect(goodRecord).toBeDefined()
     expect(goodRecord?.availability).toBe('available')
+
+    // (3) BELT-AND-SUSPENDERS INVARIANT LOCK (the admit cite-check relies on this):
+    // every persisted research-event source_id MUST be one of the source-ledger's content-hash-VERIFIED
+    // source_ids. The admit path (workflow.recordAdmitJudgment / buildAdmitVerifiedCitationSet) builds its
+    // cite-check set from content-hash-verified ledger records; this asserts the swarm never persists an
+    // event source_id that isn't content-hash-verified, so that implicit invariant can't silently break.
+    const verifiedLedgerSourceIds = new Set(
+      bundle.records
+        .filter((r) => (r as { content_hash?: string }).content_hash !== undefined && r.availability !== 'unavailable')
+        .map((r) => r.source_id),
+    )
+    const persistedEventSourceIds = [...new Set(events.flatMap((e) => e.source_ids ?? []))]
+    expect(persistedEventSourceIds.length).toBeGreaterThan(0) // not vacuous
+    for (const id of persistedEventSourceIds) {
+      expect(verifiedLedgerSourceIds.has(id)).toBe(true)
+    }
   })
 })
 

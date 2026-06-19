@@ -34,6 +34,7 @@ import {
   recordPersonalHoldingValuation,
   rejectPersonalHoldingReviewDraft,
   requestDeepDiveRun,
+  buildAdmitVerifiedCitationSet,
   resolveResearchCaseView,
   resolveActiveWorkflowMode,
   resolveModelIdForProvider,
@@ -1683,3 +1684,58 @@ async function setupMsftResearchCaseInLedger(
   }
   return { research_case_id: researchCaseId, decision_id: decisionId }
 }
+
+describe('buildAdmitVerifiedCitationSet — the admit cite-check only counts content-hash-verified sources', () => {
+  // FOUNDING-RISK REGRESSION: the admit judgment's decisive permanent_loss_risk / uncertainty citations
+  // are cite-checked against this set. A captured-but-unverified source_id (fetch failed → ledger record
+  // has NO content_hash) must NOT enter the set, exactly like the swarm primitive — otherwise a failed-fetch
+  // source could satisfy the decisive citation. (Pre-fix, the set was `new Set(corpusSourceIds)`, which
+  // counted EVERY corpus id as verified — this test fails RED against that.)
+  it('does NOT count a captured-but-unverified source (no content_hash) as grounded', () => {
+    const corpusSourceIds = ['src_verified', 'src_unverified']
+    const records = [
+      { source_id: 'src_verified', content_hash: 'sha256:abc', availability: 'available' as const },
+      // failed fetch: persisted with NO content_hash (the swarm omits content_hash when undefined)
+      { source_id: 'src_unverified', availability: 'unavailable' as const },
+    ]
+
+    const verified = buildAdmitVerifiedCitationSet(corpusSourceIds, records)
+
+    expect(verified.has('src_unverified')).toBe(false)
+    expect(verified.has('src_verified')).toBe(true)
+  })
+
+  it('also rejects a source that has a content_hash but is explicitly unavailable', () => {
+    const verified = buildAdmitVerifiedCitationSet(
+      ['src_stale'],
+      [{ source_id: 'src_stale', content_hash: 'sha256:stale', availability: 'unavailable' as const }],
+    )
+
+    expect(verified.has('src_stale')).toBe(false)
+    expect(verified.has('sha256:stale')).toBe(false)
+  })
+
+  it('NO false-omission: a genuinely verified source (content_hash present) satisfies the citation by id OR by hash', () => {
+    const verified = buildAdmitVerifiedCitationSet(
+      ['src_a'],
+      [{ source_id: 'src_a', content_hash: 'sha256:hashA', availability: 'available' as const }],
+    )
+
+    // a lane may cite by source_id or by content_hash — both must be admitted
+    expect(verified.has('src_a')).toBe(true)
+    expect(verified.has('sha256:hashA')).toBe(true)
+  })
+
+  it('only scopes to the case corpus: a verified ledger record for a source NOT in this case corpus is ignored', () => {
+    const verified = buildAdmitVerifiedCitationSet(
+      ['src_in_corpus'],
+      [
+        { source_id: 'src_in_corpus', content_hash: 'sha256:in', availability: 'available' as const },
+        { source_id: 'src_other_case', content_hash: 'sha256:other', availability: 'available' as const },
+      ],
+    )
+
+    expect(verified.has('src_in_corpus')).toBe(true)
+    expect(verified.has('src_other_case')).toBe(false)
+  })
+})

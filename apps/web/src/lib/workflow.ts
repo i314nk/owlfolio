@@ -897,6 +897,34 @@ export type RecordAdmitJudgmentOutcome =
   | { status: 'admit_judgment_incomplete'; reason: string }
 
 /**
+ * Build the admit cite-check's VERIFIED set from content-hash-confirmed sources only — the exact mirror
+ * of the swarm primitive (researchSwarm.ts: a captured-but-unverified source whose `content_hash` is
+ * undefined is SKIPPED). A failed-fetch source_id present in the case corpus must NOT satisfy the
+ * decisive permanent_loss_risk / uncertainty citation. A source counts as verified iff a source-ledger
+ * record for that source_id carries a `content_hash` (and is not explicitly `unavailable`). For each such
+ * source both its `source_id` and its `content_hash` enter the set, because a lane may cite by either.
+ *
+ * `corpusSourceIds` only scopes which ids are eligible (the ids the case actually accumulated); records
+ * are the source of truth for verification. Ids with no verified record never enter the set.
+ */
+export function buildAdmitVerifiedCitationSet(
+  corpusSourceIds: readonly string[],
+  records: readonly { source_id: string; content_hash?: string; availability?: SourceLedgerBundle['records'][number]['availability'] }[],
+): Set<string> {
+  const eligible = new Set(corpusSourceIds)
+  const verified = new Set<string>()
+  for (const record of records) {
+    if (!eligible.has(record.source_id)) continue
+    // Mirror the swarm primitive: skip unless content-hash-confirmed (and not an explicit failed fetch).
+    if (record.content_hash === undefined) continue
+    if (record.availability === 'unavailable') continue
+    verified.add(record.source_id)
+    verified.add(record.content_hash)
+  }
+  return verified
+}
+
+/**
  * Compute + persist the admit-judgment recommendation for a research case ON-DEMAND (Task 4.2c).
  *
  * This is the LIVE wiring that composes the previously-islanded screenCheapness + runAdmitJudgment:
@@ -947,12 +975,19 @@ export async function recordAdmitJudgment(
       }
     }
 
-    // The verified source corpus the judgment must cite from = the case's accumulated source_ids. We do
-    // NOT have raw content hashes on the projection, so we cite-check by source_id (a lane may cite by id;
-    // the swarm treats source_id as corpus-verified). This keeps the judgment grounded to the case corpus.
+    // The corpus the judgment may cite from = the case's accumulated source_ids (for the prompt framing).
+    // The CITE-CHECK set, however, must admit ONLY content-hash-VERIFIED sources — mirroring the swarm
+    // primitive (researchSwarm.ts: skip when content_hash === undefined). A captured-but-unverified
+    // source_id (fetch failed: SSRF/404/redirect-exhausted/network → record persisted with NO content_hash)
+    // must NOT satisfy the decisive permanent_loss_risk / uncertainty citation. We read the verified status
+    // from the SOURCE LEDGER (the source of truth that carries content_hash / availability per source),
+    // not from the raw timeline source_ids (which carry no verification).
     const timeline = projectResearchCaseTimeline(events, researchCaseId)
     const corpusSourceIds = [...new Set(timeline.flatMap((entry) => entry.source_ids))]
-    const verifiedCitationHashes = new Set<string>(corpusSourceIds)
+    const sourceBundle = state.config.source_ledger_path === undefined
+      ? undefined
+      : await readSourceBundle(state.config.source_ledger_path, researchCaseId)
+    const verifiedCitationHashes = buildAdmitVerifiedCitationSet(corpusSourceIds, sourceBundle?.records ?? [])
 
     // Lane digest from the persisted specialist findings (same compact shape the red-team digest uses).
     const laneDigest = (researchCase.specialist_findings ?? [])
