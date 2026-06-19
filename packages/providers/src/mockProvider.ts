@@ -345,6 +345,11 @@ function mockRedTeamForTicker(ticker: string) {
 }
 
 function buffettMungerHoldingReviewForTicker(ticker: string) {
+  // Grounded contract: the holding review now runs through the grounded-agent path. The mock proposes
+  // real-shaped primary sources (the harness fetches + content-hashes them) and cites the SAME verified
+  // source_ids in its judgment, so the harness cite-check verifies them and the thesis_health is emitted
+  // as grounded (the deterministic demo/test path stays in-grounding, no fail-closed degrade).
+  const groundedSources = mockSourcesForTicker(ticker)
   return {
     thesis_health: 'HEALTHY',
     action_stance: 'HOLD',
@@ -352,7 +357,8 @@ function buffettMungerHoldingReviewForTicker(ticker: string) {
     evidence_summary: 'Reviewed the existing research case, source ledger references, holding cost basis, and latest valuation snapshot.',
     uncertainty: 'Needs a refreshed primary-source review after the next quarterly filing.',
     next_review_at: '2026-09-30',
-    source_ids: sourceIdsForTicker(ticker),
+    source_ids: groundedSources.map((s) => s.source_id),
+    proposed_sources: groundedSources,
   } as const
 }
 

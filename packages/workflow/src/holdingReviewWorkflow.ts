@@ -1,10 +1,12 @@
 import type { EventStore } from '@owlfolio/ledger/eventStore'
 import type { ActorType, LedgerEventEnvelope } from '@owlfolio/ledger/eventEnvelope'
 import { projectHoldings } from '@owlfolio/ledger/projections/holdingProjection'
-import type { Provider, ProviderRunRequest } from '@owlfolio/providers'
+import type { Provider } from '@owlfolio/providers'
 import { evaluateChecklistCompletion } from '@owlfolio/strategies/checklist'
 import type { ChecklistAudit } from '@owlfolio/strategies/checklistParams'
 import { z } from 'zod'
+import { ProposedSourcesSchema, runGroundedAgentWithTools, type GroundFn } from './groundedAgent'
+import { groundProposedSources, groundProposedSourcesDeterministic, type GroundingDeps } from './sourceGrounding'
 
 const HoldingReviewSchema = z.object({
   thesis_health: z.enum(['HEALTHY', 'WATCH', 'IMPAIRED', 'EXIT_CANDIDATE']),
@@ -14,7 +16,22 @@ const HoldingReviewSchema = z.object({
   uncertainty: z.string().min(1),
   next_review_at: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   source_ids: z.array(z.string().min(1)),
+  // The model's proposed primary sources; the harness fetches + content-hashes them, and the review's
+  // thesis judgment is held to cite ONLY the verified subset (fail-closed when nothing verifies).
+  proposed_sources: ProposedSourcesSchema,
 })
+
+const HOLDING_REVIEW_TIMEOUT_MS = 120_000
+
+/**
+ * The conservative ABSTAIN stance the draft degrades to when the model grounded NOTHING. A confident
+ * thesis_health ('HEALTHY'/'IMPAIRED'/etc.) on ungrounded input must never be presented as if it were
+ * grounded — mirroring how every research-path call fails closed on an empty verified corpus. The draft
+ * still reaches the human (it is advisory), but it is visibly flagged `holding_review_ungrounded` and
+ * carries a non-confident WATCH + RESEARCH_MORE stance rather than a confident judgment.
+ */
+const UNGROUNDED_THESIS_HEALTH: ThesisHealth = 'WATCH'
+const UNGROUNDED_ACTION_STANCE: HoldingReviewActionStance = 'RESEARCH_MORE'
 
 export type ThesisHealth = z.infer<typeof HoldingReviewSchema>['thesis_health']
 export type HoldingReviewActionStance = z.infer<typeof HoldingReviewSchema>['action_stance']
@@ -37,6 +54,15 @@ export type HoldingReviewDraftedPayload = {
   user_approved: false
   reviewed_by_actor_type: ActorType
   reviewed_by_actor_id: string
+  /**
+   * FAIL-CLOSED VISIBILITY: set true when the grounded-agent call produced NO content-verified sources the
+   * thesis judgment could cite. In that case thesis_health/action_stance are degraded to a conservative
+   * abstain (WATCH + RESEARCH_MORE), NOT the model's confident judgment — an ungrounded "thesis intact" must
+   * never be presented as grounded. Absent/false = the judgment cite-verified against the corpus.
+   */
+  holding_review_ungrounded?: true
+  /** Human-readable reason the draft degraded (only set with the flag above). */
+  ungrounded_reason?: string
 }
 
 export type HoldingReviewDrafted = LedgerEventEnvelope<HoldingReviewDraftedPayload> & HoldingReviewDraftedPayload
@@ -157,37 +183,39 @@ function mergeEventPayload<TPayload extends object>(
   return { ...event, ...event.payload }
 }
 
-function buildReviewRequest(command: DraftHoldingReviewCommand, provider: Provider, holding: ReturnType<typeof projectHoldings>[number]): ProviderRunRequest {
+/** The grounded prompt for the holding-review judgment (Phase-1 gather → Phase-2 thesis assessment). */
+function buildReviewPrompt(holding: ReturnType<typeof projectHoldings>[number]): string {
   const ticker = holding.ticker ?? holding.company_id ?? holding.holding_id
   const valuationSummary = holding.latest_market_value === undefined
     ? 'No valuation snapshot has been recorded yet.'
     : `Latest valuation: ${holding.latest_market_value} ${holding.currency} at ${holding.latest_price_per_share ?? 'unknown'} per share on ${holding.latest_valuation_at ?? 'unknown date'}.`
 
-  return {
-    run_id: `run_${command.review_id}_holding_review`,
-    provider_id: provider.provider_id,
-    model_id: command.model_id,
-    task_kind: 'structured-output',
-    prompt: [
-      `You are the Buffett-Munger holding review agent for Owlfolio holding ${holding.holding_id}.`,
-      `Review ticker ${ticker} under the default Buffett-Munger strategy ${holding.strategy_id ?? 'buffett-munger'}.`,
-      `Original thesis: ${holding.thesis_summary ?? 'No thesis summary recorded.'}`,
-      `Cost basis: ${holding.total_cost_basis} ${holding.currency} for ${holding.shares} shares.`,
-      valuationSummary,
-      'Assess thesis drift, business quality, moat durability, management/capital allocation, Shariah status, valuation discipline, and concentration risk.',
-      'Return only the structured fields requested by the JSON schema.',
-    ].join(' '),
-    timeout_ms: 120_000,
-    budget: { max_tool_calls: 0, max_tokens: 4_000 },
-    tool_allowlist: [],
-    response_format: { kind: 'json-schema', schema_name: 'BuffettMungerHoldingReview' },
-  }
+  return [
+    `You are the Buffett-Munger holding review agent for Owlfolio holding ${holding.holding_id}.`,
+    `Review ticker ${ticker} under the default Buffett-Munger strategy ${holding.strategy_id ?? 'buffett-munger'}.`,
+    `Original thesis: ${holding.thesis_summary ?? 'No thesis summary recorded.'}`,
+    `Cost basis: ${holding.total_cost_basis} ${holding.currency} for ${holding.shares} shares.`,
+    valuationSummary,
+    'Assess thesis drift, business quality, moat durability, management/capital allocation, Shariah status, valuation discipline, and concentration risk.',
+    'Gather PRIMARY sources (use the grounded tools to fetch + content-hash them) and ground your thesis_health/action_stance ONLY in sources you fetched and that verified.',
+    'List every cited source id in source_ids; cite ONLY verified ids. Return only the structured fields requested by the JSON schema.',
+  ].join(' ')
+}
+
+export type DraftHoldingReviewDeps = {
+  /** Grounding fn (injectable for tests). Defaults to the live grounder (deterministic for the mock provider). */
+  ground?: GroundFn
+  /** Extra grounding deps (fetch impl, timeouts, excerpt length). */
+  grounding?: GroundingDeps
+  /** Advanced research-depth knob: max grounded tool calls (undefined → loop default). */
+  maxToolCalls?: number
 }
 
 export async function draftHoldingReview(
   store: HoldingReviewEventStore,
   provider: Provider,
   command: DraftHoldingReviewCommand,
+  deps: DraftHoldingReviewDeps = {},
 ): Promise<HoldingReviewDrafted> {
   const events = await store.list()
   const holding = projectHoldings(events).find((candidate) => candidate.holding_id === command.holding_id)
@@ -195,7 +223,58 @@ export async function draftHoldingReview(
     throw new Error(`Unknown holding: ${command.holding_id}`)
   }
 
-  const structured = await provider.structured(buildReviewRequest(command, provider, holding), HoldingReviewSchema)
+  // Route through the SAME grounded-agent path the research lanes / circle gate use: the model proposes (or
+  // tool-fetches) primary sources, the harness fetches + content-hashes them, and the thesis judgment is
+  // cite-verified against the content_hash-confirmed corpus. Default the grounder to deterministic for the
+  // mock provider (offline/test), else the live SSRF+sha256 grounder — mirroring the research path.
+  // Cast: groundProposedSources(Deterministic) accept ProposedSource[] (exactOptionalPropertyTypes) while
+  // GroundFn is typed over z.infer<ProposedSourcesSchema>; the runtime shapes are identical.
+  const ground: GroundFn = deps.ground ?? (
+    provider.provider_id === 'mock-provider'
+      ? groundProposedSourcesDeterministic as unknown as GroundFn
+      : groundProposedSources as unknown as GroundFn
+  )
+
+  const { degraded_no_tools: _degraded, ...agent } = await runGroundedAgentWithTools(
+    provider,
+    {
+      run_id: `run_${command.review_id}_holding_review`,
+      model_id: command.model_id,
+      prompt: buildReviewPrompt(holding),
+      timeout_ms: HOLDING_REVIEW_TIMEOUT_MS,
+      schema_name: 'BuffettMungerHoldingReview',
+    },
+    HoldingReviewSchema,
+    {
+      ground,
+      ...(deps.grounding === undefined ? {} : { grounding: deps.grounding }),
+      ...(deps.maxToolCalls === undefined ? {} : { maxToolCalls: deps.maxToolCalls }),
+    },
+  )
+  void _degraded
+  const structured = agent.analysis
+
+  // Build the verified cite-check set from ONLY content_hash-confirmed sources (the SAME hardened primitive
+  // the research lanes / circle gate use — a captured-but-unverified id must NOT satisfy a citation).
+  const verified = new Set<string>()
+  for (const captured of agent.captured) {
+    if (captured.content_hash === undefined) continue
+    verified.add(captured.content_hash)
+    verified.add(captured.source_id)
+  }
+  for (const id of agent.verified_ids) verified.add(id)
+  const groundedCitations = structured.source_ids.filter((id) => verified.has(id))
+
+  // FAIL CLOSED: the judgment is grounded ONLY when the harness verified ≥1 source AND the review actually
+  // cites a verified source. Otherwise the model grounded nothing — degrade VISIBLY to a conservative
+  // abstain (a confident ungrounded thesis_health must never be presented as grounded).
+  const isGrounded = agent.verified_ids.length > 0 && groundedCitations.length > 0
+  const ungroundedReason = isGrounded
+    ? undefined
+    : agent.verified_ids.length === 0
+      ? 'holding_review_ungrounded: the model produced no content-verified sources (fail-closed). thesis_health degraded to a conservative WATCH / RESEARCH_MORE pending a grounded re-review — NOT a confident judgment.'
+      : 'holding_review_ungrounded: the model produced verified sources but its thesis_health/action_stance cited none of them (fail-closed). Degraded to a conservative WATCH / RESEARCH_MORE pending a grounded re-review.'
+
   const payload: HoldingReviewDraftedPayload = {
     review_id: command.review_id,
     holding_id: holding.holding_id,
@@ -203,15 +282,24 @@ export async function draftHoldingReview(
     ...(holding.company_id === undefined ? {} : { company_id: holding.company_id }),
     ...(holding.ticker === undefined ? {} : { ticker: holding.ticker }),
     strategy_id: holding.strategy_id ?? 'buffett-munger',
-    thesis_health: structured.thesis_health,
-    action_stance: structured.action_stance,
-    rationale: structured.rationale,
-    evidence_summary: structured.evidence_summary,
-    uncertainty: structured.uncertainty,
+    thesis_health: isGrounded ? structured.thesis_health : UNGROUNDED_THESIS_HEALTH,
+    action_stance: isGrounded ? structured.action_stance : UNGROUNDED_ACTION_STANCE,
+    rationale: isGrounded
+      ? structured.rationale
+      : `Grounded re-review needed before a thesis verdict. ${ungroundedReason ?? ''}`.trim(),
+    evidence_summary: isGrounded
+      ? structured.evidence_summary
+      : 'No content-verified primary sources were captured for this review; no thesis evidence can be asserted.',
+    uncertainty: isGrounded
+      ? structured.uncertainty
+      : 'Thesis health is UNKNOWN until a grounded re-review captures verified primary sources.',
     next_review_at: structured.next_review_at,
     user_approved: false,
     reviewed_by_actor_type: 'provider',
     reviewed_by_actor_id: provider.provider_id,
+    ...(isGrounded || ungroundedReason === undefined
+      ? {}
+      : { holding_review_ungrounded: true, ungrounded_reason: ungroundedReason }),
   }
 
   const event: LedgerEventEnvelope<HoldingReviewDraftedPayload> = {
@@ -224,7 +312,8 @@ export async function draftHoldingReview(
     actor_type: 'provider',
     actor_id: provider.provider_id,
     payload,
-    source_ids: structured.source_ids,
+    // The cited corpus = the verified citations (grounded) — never the model's raw, unverified source_ids.
+    source_ids: groundedCitations,
     created_at: nowIso(),
     schema_version: 1,
     ...(command.idempotency_key === undefined ? {} : { idempotency_key: command.idempotency_key }),

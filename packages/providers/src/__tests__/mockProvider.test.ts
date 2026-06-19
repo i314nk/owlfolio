@@ -82,7 +82,9 @@ describe('MockProvider', () => {
       HoldingReviewSchema,
     )
 
-    expect(result.source_ids).toEqual(['src_msft_10k_2025', 'src_msft_proxy_2025', 'src_msft_q1_2026'])
+    // The holding review now runs through the grounding harness, so the mock proposes + cites the same
+    // EDGAR-shaped grounded source ids (verified deterministically) instead of the legacy analysis ids.
+    expect(result.source_ids).toEqual(['mock_msft_primary', 'mock_msft_secondary'])
   })
 
   it('records provider run metadata and tool allowlist', async () => {
