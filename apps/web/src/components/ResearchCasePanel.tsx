@@ -1092,8 +1092,9 @@ function createValuationPanel(researchCase: AppResearchCase, marketQuote?: Marke
   const discountLabel = discountRateVal !== undefined ? `${Math.round(discountRateVal * 100)}%` : '10%'
   const moatLabel = `${moatClass.toUpperCase()} MOAT · ${discountLabel} DISCOUNT`
 
-  // Two-stage credited-growth label: g (10yr) fading to terminal g_t, gated by incremental ROIC.
-  // Growth credit requires incremental ROIC > 10%; runway is the binding axis, moat tier the ceiling.
+  // Two-stage HEADLINE-growth label: g (10yr) fading to terminal g_t. growth_rate is now the MODEL's
+  // cite-verified assumed_growth (the headline); the capped demonstrated CAGR is the demonstrated-history
+  // reference (demonstrated_growth_reference), not shown here. The ROIC annotation is context only.
   const eligRoic = incrementalRoic ?? roic
   const fadeLabel = terminalGrowthRate !== undefined ? ` → terminal ${(terminalGrowthRate * 100).toFixed(0)}%` : ''
   const runwayLabel = runway !== undefined ? ` · ${runway} runway` : ''
@@ -1103,7 +1104,8 @@ function createValuationPanel(researchCase: AppResearchCase, marketQuote?: Marke
       : `g=0%${fadeLabel}${eligRoic !== undefined ? ` · incremental ROIC ${(eligRoic * 100).toFixed(0)}% ≤ 10% (no growth credit)` : ' (no growth credit)'}${runwayLabel}`
     : undefined
 
-  // The assumed growth the model used (its number, cited). Falls back to the credited growth_rate.
+  // The assumed growth the model used (its number, cited). growth_rate is now this same headline value;
+  // the fallback is retained for legacy events that predate the headline-growth inversion.
   const assumedGrowth = reasoning?.assumed_growth ?? growthRate
 
   // Owner-earnings bridge summary for collapsible

@@ -1687,9 +1687,39 @@ export async function runResearchDeepDivePhase(
   }
   if (moat_passes_gate && effective_growth_rate === 0) {
     degradedFlags.push(
-      'valuation_degraded: credited_growth_floored_g0 — the demonstrated owner-earnings/share CAGR was '
-      + 'unavailable or non-positive, so growth was floored to g=0 (honest no-growth floor). The two-stage '
-      + 'DCF still computed; treat the fair value as a no-growth floor.',
+      'valuation_degraded: demonstrated_growth_reference_floored_g0 — the demonstrated owner-earnings/share '
+      + 'CAGR was unavailable or non-positive, so the demonstrated-history reference growth was floored to g=0 '
+      + '(honest no-growth floor). This is a SANITY reference, not the headline; the headline forward-DCF uses '
+      + "the model's cited assumed_growth.",
+    )
+  }
+
+  // ---- HEADLINE GROWTH = the MODEL's cite-verified assumed_growth (architecture inversion) ----
+  // The architecture: the model's grounded, cited judgment is the analysis; the deterministic credited-g
+  // (demonstrated CAGR, capped, lane-may-argue-lower) is a SANITY reference, NEVER the headline. So the
+  // headline growth + headline forward-DCF FV are driven by the model's `assumed_growth` (the SAME value A1
+  // grounds via assumed_growth_citation). The capped credited-g (effective_growth_rate) is DEMOTED to a
+  // demonstrated-history reference (`demonstrated_growth_reference`) + an advisory flag (below).
+  //
+  // A1 coupling: assumed_growth must be cite-verified — if synthesisGroundingUnmet, A1 already routes the
+  // verdict to RESEARCH_MORE, so we do NOT fall back to credited-g as the headline. We adopt the model's
+  // assumed_growth as the headline ONLY when grounding is met AND the value is finite + non-negative; an
+  // absent/ungrounded assumed_growth leaves the headline growth undefined (degrade per A1).
+  const modelAssumedGrowth = dec.analysis.valuation_reasoning?.assumed_growth
+  const assumedGrowthUsable =
+    !synthesisGroundingUnmet
+    && modelAssumedGrowth !== undefined
+    && Number.isFinite(modelAssumedGrowth)
+    && modelAssumedGrowth >= 0
+  // Sanity guard (mirrors the existing implausible-growth flag path): an assumed growth above the named
+  // single_growth_cap is FLAGGED, not silently trusted — the human audits whether the cited source defends
+  // it. The flag is advisory; the value is still recorded as the model's headline (the model owns it).
+  const headline_growth: number | undefined = assumedGrowthUsable ? modelAssumedGrowth : undefined
+  if (moat_passes_gate && assumedGrowthUsable && modelAssumedGrowth > buffettMungerStrategy.valuation.single_growth_cap) {
+    degradedFlags.push(
+      `assumed_growth_above_cap: the model's cited assumed growth ${(modelAssumedGrowth * 100).toFixed(1)}% is above the `
+      + `${(buffettMungerStrategy.valuation.single_growth_cap * 100).toFixed(0)}% forecasting-humility cap — flagged as `
+      + `implausible for sanity, not silently trusted. Verify the durable cited source before relying on the headline.`,
     )
   }
 
@@ -1711,11 +1741,22 @@ export async function runResearchDeepDivePhase(
     const terminal_g = terminalGrowthForMoat(buffettMungerStrategy, moatClass)
     // Stage-1 horizon — UNIFORM 10 yrs for every investable moat (F.13); the moatClass arg validates the gate.
     const horizon = stage1HorizonForMoat(buffettMungerStrategy, moatClass)
+    // terminal_growth_rate is the per-moat Gordon stage; set it WHENEVER the gate passes with a usable OE/sh,
+    // independent of whether a headline FV is produced — the §2 reference FV, implied_exit_multiple, and the
+    // reverse-DCF market_implied_growth all consume it (they fail-closed on undefined otherwise).
+    terminal_growth_rate = terminal_g
+    // HEADLINE forward-DCF — the CONSOLIDATED single forward-DCF reference, computed from the MODEL's cited
+    // assumed_growth (headline_growth), NOT the capped credited-g. This is the SAME value the §2
+    // reference_fair_value computes; we compute it ONCE here so there is one forward-DCF FV from one grounded
+    // growth (no two competing FVs). Labelled a SECONDARY reference (market-implied growth is the primary
+    // lens). Computed only when assumed_growth is grounded + usable (A1); an ungrounded assumed_growth leaves
+    // the headline FV undefined (degrade per A1 — we do NOT fall back to credited-g as the headline).
+    if (headline_growth !== undefined) {
     // Phase 1.5/1.6: rich two-stage valuation — surfaces terminal_value_pct_of_iv, flags cap_exceeded
     // (no silent truncation), and discards only an absurd (units-bug) value.
     const valuation = twoStageValuation({
       oe_ps: normalized_owner_earnings_per_share,
-      g: effective_growth_rate,
+      g: headline_growth,
       terminal_g,
       discount,
       ceiling_multiple: valuation_multiple_ceiling,
@@ -1732,7 +1773,6 @@ export async function runResearchDeepDivePhase(
       )
     } else {
       fair_value_per_share = computedFairValue
-      terminal_growth_rate = terminal_g
       implied_multiple = computedFairValue / normalized_owner_earnings_per_share
       // Phase 1.5: flag a high terminal-value share (the dominant uncertainty).
       const highTvShare = terminal_value_pct_of_iv > buffettMungerStrategy.valuation.terminal_value_share_flag
@@ -1761,14 +1801,15 @@ export async function runResearchDeepDivePhase(
       // market-implied growth rises to the buy-threshold (band_low − required_gap). It is derived below,
       // once the sustainable-growth band and required gap are computed (see the verdict-band section).
 
-      // ---- Phase 2: sensitivity RANGE around the point FV (attachment/presentation only) ----
-      // A low/base/high fair-value band straddling the CREDITED growth, widened by the growth measure's
-      // own uncertainty (thin history / dispersion). We pass the SAME oe_ps, terminal, discount and
-      // horizon the point valuation used so the band's base equals fair_value_per_share. The math (cap,
-      // fade, MoS, discount) is unchanged — this only describes the uncertainty already present.
+      // ---- Phase 2: sensitivity RANGE around the HEADLINE FV (attachment/presentation only) ----
+      // A low/base/high fair-value band straddling the HEADLINE growth (the model's assumed_growth), so the
+      // band's base equals fair_value_per_share (consolidated — one forward-DCF from one grounded growth).
+      // The band WIDTH still widens with the demonstrated growth measure's own uncertainty (thin history /
+      // dispersion) — the honest history-depth signal. We pass the SAME oe_ps, terminal, discount and horizon
+      // the point valuation used. The math (cap, fade, discount) is unchanged.
       valuationSensitivityResult = valuationSensitivity(buffettMungerStrategy, {
         oe_ps: normalized_owner_earnings_per_share,
-        demonstrated_growth,
+        demonstrated_growth: headline_growth,
         points_used: demonstrated_points_used,
         high_dispersion: demonstrated_high_dispersion,
         terminal_g,
@@ -1800,6 +1841,7 @@ export async function runResearchDeepDivePhase(
         }
       }
     }
+    } // end if (headline_growth !== undefined) — the headline forward-DCF FV from the model's assumed growth
   }
 
   // ---- Market cap + harness-computed AAOIFI Shariah FINANCIAL ratios ----
@@ -2000,12 +2042,16 @@ export async function runResearchDeepDivePhase(
   const assumed_growth = dr?.assumed_growth
   const valuation_status = dec.analysis.valuation_status
 
-  // reference_fair_value — a forward-DCF cross-check at the MODEL's assumed growth + owner-earnings basis.
-  // Reuses the SAME twoStageValuation arg basis the point FV used (oe_ps, terminal_g, discount,
-  // ceiling_multiple, horizon). Fail-closed: only when a valid OE/share + terminal exist AND the model
-  // supplied an assumed growth. This is a REFERENCE only — it never feeds the verdict or the buy-below.
+  // reference_fair_value — the CONSOLIDATED forward-DCF reference at the MODEL's assumed growth. After the
+  // headline inversion the HEADLINE fair_value_per_share IS the forward-DCF at assumed_growth, so the
+  // reference equals it (one forward-DCF from one grounded growth — no two competing FVs). When the headline
+  // FV was produced we surface it (rounded) as the reference; otherwise we fail-closed to recomputing it from
+  // assumed_growth on the SAME basis (e.g. an edge case where the headline branch did not run). This is a
+  // REFERENCE only — it never feeds the verdict or the buy-below.
   let reference_fair_value: number | undefined
-  if (
+  if (fair_value_per_share !== undefined && Number.isFinite(fair_value_per_share) && fair_value_per_share > 0) {
+    reference_fair_value = Math.round(fair_value_per_share * 100) / 100
+  } else if (
     normalized_owner_earnings_per_share !== undefined
     && normalized_owner_earnings_per_share > 0
     && terminal_growth_rate !== undefined
@@ -2189,6 +2235,26 @@ export async function runResearchDeepDivePhase(
     )
   }
 
+  // (h) HEADLINE-GROWTH vs DEMONSTRATED HISTORY — ADVISORY, flag-only. The headline growth is the MODEL's
+  // cited assumed_growth; the deterministic credited-g (effective_growth_rate, the capped demonstrated CAGR)
+  // is the demonstrated-history SANITY reference. When the model assumes growth MATERIALLY above the
+  // demonstrated history (assumed_growth > credited_g + a margin), surface it so the human audits whether the
+  // durable cited source defends growth above what the company has actually shown. NEVER blocks the verdict —
+  // the model owns the growth judgment; this only asks the question (mirrors the other §2 sanity flags).
+  const DEMONSTRATED_HISTORY_MARGIN = 0.01 // 1 percentage point — avoids flagging rounding-level differences.
+  if (
+    moat_passes_gate
+    && headline_growth !== undefined
+    && headline_growth > effective_growth_rate + DEMONSTRATED_HISTORY_MARGIN
+  ) {
+    sanity_flags.push(
+      `sanity_assumed_growth_above_demonstrated_history: the model assumes ~${(headline_growth * 100).toFixed(1)}% near-term `
+      + `growth — above the ~${(effective_growth_rate * 100).toFixed(1)}% demonstrated owner-earnings/share history `
+      + `(credited reference). Advisory only: verify the durable cited source that defends growth above demonstrated `
+      + `history before relying on the headline. The verdict is unchanged — the model owns the growth judgment.`,
+    )
+  }
+
   // HIGH safety — RESEARCH_MORE when the required data for a recordable BUY is missing. A model BUY needs
   // a usable buy-below AND a current price to be a meaningful, arithmetic-checkable buy signal; without
   // them the model's raw BUY must NOT be recorded. (Owner-earnings/price missing → no in_buy_zone.) This
@@ -2307,7 +2373,16 @@ export async function runResearchDeepDivePhase(
           equity_premium: buffettMungerStrategy.valuation.equity_premium,
         },
         growth_assumptions: dec.analysis.growth_assumptions,
-        growth_rate: effective_growth_rate,
+        // HEADLINE growth = the MODEL's cite-verified assumed_growth (the architecture: the model's grounded
+        // judgment is the analysis). Omitted when assumed_growth is absent/ungrounded (degrade per A1 — we do
+        // NOT fall back to the credited-g as the headline). The capped credited-g (demonstrated CAGR) is the
+        // demonstrated_growth_reference below — a SANITY reference, never the headline.
+        ...(headline_growth !== undefined ? { growth_rate: headline_growth } : {}),
+        // demonstrated_growth_reference = the capped-mechanical credited growth (demonstrated owner-earnings/
+        // share CAGR through the forecasting-humility cap; lane may argue lower) — DEMOTED to a demonstrated-
+        // history SANITY reference. NOT the headline. An advisory sanity flag fires (above) when the model's
+        // headline assumed_growth materially exceeds this.
+        demonstrated_growth_reference: effective_growth_rate,
         growth_basis,
         // Phase 7 S4 — data-completeness evidence (item 11): CARRY the demonstrated-growth measure's own
         // window/points/method that the valuation already consumed (persist-only; NO new derivation). Lets

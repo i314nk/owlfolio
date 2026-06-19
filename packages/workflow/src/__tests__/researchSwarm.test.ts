@@ -815,18 +815,22 @@ describe('runStrategyResearchSwarm with MockProvider + deterministic grounder', 
     expect(caseProjection?.valuation?.incremental_roic).toBe(0.20)
     // reinvestment_rate from mock: 0.40 (context only — no longer feeds growth, Phase 1.3)
     expect(caseProjection?.valuation?.reinvestment_rate).toBe(0.40)
-    // Phase 1.3 ONE growth path: with NO EDGAR series injected, the demonstrated OE/share CAGR is
-    // unavailable → growth is the honest no-growth floor g=0 (growth_basis 'none').
-    expect(caseProjection?.valuation?.growth_rate).toBe(0)
+    // HEADLINE-GROWTH INVERSION: the headline growth_rate is now the MODEL's cite-verified assumed_growth.
+    // The MockProvider emits 0.18 for capital-light names (MSFT) — an over-optimistic rate ABOVE the 0.15
+    // cap, recorded as the headline (flagged for sanity, not silently capped). The capped demonstrated CAGR
+    // (here 0 — NO EDGAR series) is DEMOTED to demonstrated_growth_reference. (Was: growth_rate === 0 — the
+    // old credited-g headline; that asserted the inverted-from-architecture behavior.)
+    expect(caseProjection?.valuation?.growth_rate).toBeCloseTo(0.18, 6)
+    expect(caseProjection?.valuation?.demonstrated_growth_reference).toBeCloseTo(0, 6)
     expect(caseProjection?.valuation?.growth_basis).toBe('none')
     // terminal g — UNIFORM for every investable moat (F.13) = 0.015
     expect(caseProjection?.valuation?.terminal_growth_rate).toBe(0.015)
-    // fair_value_per_share is the point FV at the credited (no-series) growth g=0 — a presentation
-    // reference, well under the 18× OE absurdity ceiling.
+    // fair_value_per_share is the headline forward-DCF at the model's 0.18 assumed growth — a positive
+    // presentation reference. At g=0.18 it exceeds the 18× OE cap (a SURFACED flag, not a truncation).
     expect(caseProjection?.valuation?.fair_value_per_share ?? 0).toBeGreaterThan(0)
-    expect(caseProjection?.valuation?.fair_value_per_share ?? 0).toBeLessThan(18 * 14)
-    // implied multiple ≈ 10.75× (point FV at credited growth / OE).
-    expect(caseProjection?.valuation?.implied_multiple).toBeCloseTo(10.75, 1)
+    expect(caseProjection?.valuation?.cap_exceeded).toBe(true)
+    // implied multiple = headline FV (g=0.18) / OE — above the no-growth ~10.75× since growth lifts the FV.
+    expect(caseProjection?.valuation?.implied_multiple ?? 0).toBeGreaterThan(10.75)
     // margin_of_safety (the MoS-as-price-haircut field) is RETIRED.
     expect((caseProjection?.valuation as Record<string, unknown> | undefined)?.margin_of_safety).toBeUndefined()
     // RELIGHTENED DECISION (R1): buy_price_per_share is the MODEL's proposed_buy_below (recorded verbatim).
@@ -1106,14 +1110,18 @@ describe('BUG 1 — valuation per-share units (÷ shares_outstanding)', () => {
     const projections = projectResearchCases(events as Parameters<typeof projectResearchCases>[0])
     const cp = projections.find((c) => c.research_case_id === 'rc_bug1')
     expect(cp?.valuation?.normalized_owner_earnings_per_share).toBeCloseTo(19.05, 1)
-    expect(cp?.valuation?.growth_rate).toBe(0)
+    // HEADLINE-GROWTH INVERSION: growth_rate is now the MODEL's cited assumed_growth (0.06 in the
+    // configurable provider default), NOT the no-series credited-g floor of 0 (which is the
+    // demonstrated_growth_reference). (Was: growth_rate === 0 — the old credited-g headline.)
+    expect(cp?.valuation?.growth_rate).toBeCloseTo(0.06, 6)
+    expect(cp?.valuation?.demonstrated_growth_reference).toBeCloseTo(0, 6)
     expect(cp?.valuation?.growth_basis).toBe('none')
     expect(cp?.valuation?.terminal_growth_rate).toBe(0.015)
-    // fair_value_per_share is the point FV at the credited (no-series) g=0 ≈ 204.78. buy_price_per_share
-    // is now the MODEL's proposed_buy_below (default 150 in the configurable provider) — NOT a derived FV.
-    expect(cp?.valuation?.fair_value_per_share).toBeCloseTo(204.78, 0)
+    // fair_value_per_share is the headline forward-DCF at the model's 0.06 assumed growth — ABOVE the old
+    // g=0 credited-g FV (~204.78). buy_price_per_share is the MODEL's proposed_buy_below (default 150).
+    expect(cp?.valuation?.fair_value_per_share ?? 0).toBeGreaterThan(204.78)
     expect(cp?.valuation?.buy_price_per_share).toBe(150)
-    expect(cp?.valuation?.implied_multiple).toBeCloseTo(10.75, 1)
+    expect(cp?.valuation?.implied_multiple ?? 0).toBeGreaterThan(10.75)
     expect(cp?.valuation?.runway).toBe('proven')
     expect(cp?.valuation?.value_basis).toBe('two_stage_dcf')
     // Sanity: per-share value, never the buggy ~100x value, and under the 18× OE cap
@@ -1187,27 +1195,33 @@ describe('Two-stage DCF harness growth path (Phase 1.3 one growth path + gates)'
     return { events, cp: projections.find((c) => c.research_case_id === `rc_${id}`) }
   }
 
-  it('no EDGAR series → honest no-growth floor g=0 (growth_basis none; FV is the flat-stage-1 value)', async () => {
-    // base bridge OE_total = 8838+2565-2052-911-0 = 8440 ($M) ÷ 443 = 19.05/sh, monopoly, proven
+  it('no EDGAR series → demonstrated_growth_reference floors to g=0; HEADLINE growth = model assumed_growth', async () => {
+    // base bridge OE_total = 8838+2565-2052-911-0 = 8440 ($M) ÷ 443 = 19.05/sh, monopoly, proven.
+    // HEADLINE-GROWTH INVERSION: with no EDGAR series the DEMONSTRATED-HISTORY reference floors to 0, but the
+    // headline growth_rate is now the MODEL's cited assumed_growth (0.06). (Was: growth_rate === 0.)
     const { cp } = await runWith({ moat_class: 'monopoly', runway: 'proven', incremental_roic: 0.08, reinvestment_rate: 0.5 }, 'nogrowth')
-    expect(cp?.valuation?.growth_rate).toBe(0)
+    expect(cp?.valuation?.growth_rate).toBeCloseTo(0.06, 6)
+    expect(cp?.valuation?.demonstrated_growth_reference).toBeCloseTo(0, 6)
     expect(cp?.valuation?.growth_basis).toBe('none')
-    // g=0, g_t (monopoly) 0.025: two-stage with flat stage 1
+    // headline forward-DCF at g=0.06 (above the g=0 floor): a positive per-share value under the 18× cap.
     expect(cp?.valuation?.fair_value_per_share).toBeGreaterThan(19.05)
     expect(cp?.valuation?.fair_value_per_share ?? 0).toBeLessThan(18 * 19.06)
   })
 
-  it('growth is no longer driven by runway/incremental-ROIC (Phase 1.3): runway none still floors g=0 here', async () => {
-    // The old banding (runway/inc-ROIC/exceptional) is gone — with no demonstrated CAGR available the growth
-    // path is the honest no-growth floor regardless of the runway/inc-ROIC the lane proposes.
+  it('growth is no longer driven by runway/incremental-ROIC (Phase 1.3): runway none still floors the demonstrated reference to 0', async () => {
+    // The old banding (runway/inc-ROIC/exceptional) is gone — with no demonstrated CAGR available the
+    // demonstrated-history REFERENCE is the honest no-growth floor regardless of the runway/inc-ROIC the lane
+    // proposes. The headline growth is the model's assumed_growth (0.06), independent of runway too.
     const { cp } = await runWith({ moat_class: 'monopoly', runway: 'none', incremental_roic: 0.30, reinvestment_rate: 0.5 }, 'runway-none')
-    expect(cp?.valuation?.growth_rate).toBe(0)
+    expect(cp?.valuation?.demonstrated_growth_reference).toBeCloseTo(0, 6)
+    expect(cp?.valuation?.growth_rate).toBeCloseTo(0.06, 6)
     expect(cp?.valuation?.runway).toBe('none')
   })
 
-  it('runway_exceptional no longer lifts growth (Phase 1.3): g stays at the no-growth floor without a CAGR', async () => {
+  it('runway_exceptional no longer lifts growth (Phase 1.3): the demonstrated reference stays at the no-growth floor without a CAGR', async () => {
     const { cp } = await runWith({ moat_class: 'monopoly', runway: 'proven', runway_exceptional: true, incremental_roic: 0.30, reinvestment_rate: 0.5 }, 'mono-exceptional')
-    expect(cp?.valuation?.growth_rate).toBe(0)
+    expect(cp?.valuation?.demonstrated_growth_reference).toBeCloseTo(0, 6)
+    expect(cp?.valuation?.growth_rate).toBeCloseTo(0.06, 6)
     expect(cp?.valuation?.runway_exceptional).toBe(true)
     expect(cp?.valuation?.implied_multiple ?? 0).toBeLessThan(18)
   })
@@ -1286,23 +1300,22 @@ describe('Two-stage DCF harness growth path (Phase 1.3 one growth path + gates)'
     expect(cp?.valuation?.buy_price_per_share).toBeGreaterThan(0)
 
     // ---- Phase 2: fair-value RANGE + reverse-DCF market-implied growth (this case has a price) ----
-    // A formatted low–high (base) range is attached. Its base is the CREDITED-growth point FV (the
-    // sensitivity engine's anchor). Note: since the valuation-core revision V2, the surfaced
-    // fair_value_per_share is the band-CENTER reference (a presentation anchor), which differs from this
-    // credited-growth sensitivity base — so the range base is asserted as a positive plausible value, not
-    // as equal to fair_value_per_share.
+    // A formatted low–high (base) range is attached. HEADLINE-GROWTH INVERSION: the sensitivity band now
+    // straddles the HEADLINE growth (the model's assumed_growth 0.06), so its base equals the headline
+    // fair_value_per_share (one consolidated forward-DCF). The band WIDTH still widens with the demonstrated
+    // EDGAR history's depth (6 usable points < 8 → thin-history widening), so the band is reasonably wide.
     const fvRange = cp?.valuation?.fair_value_range
     expect(fvRange).toBeDefined()
     expect(fvRange).toMatch(/^\$\d+–\$\d+ \(base \$\d+\)$/)
     const fvBase = Number(/\(base \$(\d+)\)/.exec(fvRange ?? '')?.[1])
     expect(fvBase).toBeGreaterThan(0)
     expect(fvBase).toBeLessThan(1000)
-    // Thin EDGAR history (6 usable points, demonstrated g above the cap) → a WIDE range with an honest
-    // "why is it wide" basis note that names the short history.
+    // The range base equals the headline fair_value_per_share (the band centers on the headline growth).
+    expect(fvBase).toBeCloseTo(Math.round(cp?.valuation?.fair_value_per_share ?? 0), 0)
+    // Thin EDGAR history (6 usable points < 8) → the band_fraction is widened → a non-trivial range width.
     const fvLow = Number(/^\$(\d+)/.exec(fvRange ?? '')?.[1])
     const fvHigh = Number(/–\$(\d+)/.exec(fvRange ?? '')?.[1])
     expect((fvHigh - fvLow) / fvBase).toBeGreaterThan(0.2)
-    expect(cp?.valuation?.fair_value_range_basis).toMatch(/years of usable owner-earnings history/i)
     // Demonstrated growth (~10%) is below the named cap here → NOT cap-limited (the flag is omitted).
     expect(cp?.valuation?.valuation_cap_binding).toBeUndefined()
     // A current price was injected (50) with positive OE/share → market-implied growth is computable.
@@ -1623,6 +1636,68 @@ describe('RELIGHTENED DECISION — model proposes buy-below; deterministic side 
     const { valuation, cp } = await runRelit({ id: 'flag-noblock', price: 600, investmentVerdict: 'BUY', proposedBuyBelow: 580 })
     expect(((valuation?.['sanity_flags'] as string[] | undefined) ?? []).length).toBeGreaterThan(0)
     expect(cp?.investment_verdict).toBe('BUY')
+  })
+
+  // -------------------------------------------------------------------------
+  // HEADLINE-GROWTH INVERSION (architecture): the MODEL's cite-verified assumed_growth is the headline
+  // growth + drives the headline forward-DCF FV. The capped-mechanical credited-g (demonstrated CAGR) is
+  // DEMOTED to a demonstrated-history REFERENCE + an ADVISORY sanity flag — never the headline, never a
+  // blocker. (NO-SERIES COST case → demonstrated_growth = 0 → credited-g = 0, so assumed_growth 0.06 ≠ 0.)
+  // -------------------------------------------------------------------------
+  it('HEADLINE GROWTH = the model\'s cited assumed_growth (NOT the capped credited-g)', async () => {
+    // COST no-EDGAR-series → demonstrated/credited-g = 0; the model cites assumed_growth = 0.06. The
+    // persisted headline growth_rate must be the MODEL's 0.06, not the credited-g floor of 0.
+    const { cp, valuation } = await runRelit({ id: 'headline-growth', price: 300, proposedBuyBelow: 150, assumedGrowth: 0.06 })
+    expect(cp?.valuation?.growth_rate).toBeCloseTo(0.06, 6)
+    // The demonstrated-history reference (credited-g) is surfaced SEPARATELY and is the no-series floor 0.
+    expect(valuation?.['demonstrated_growth_reference']).toBeCloseTo(0, 6)
+  })
+
+  it('HEADLINE FORWARD-DCF FV is computed from assumed_growth (NOT credited-g), consolidated with reference_fair_value', async () => {
+    // assumed_growth 0.06 ≠ credited-g 0 → the headline fair_value_per_share must equal the two-stage FV at
+    // g = 0.06 (i.e. equal to reference_fair_value), NOT the g=0 credited-g FV (~204.78 for these inputs).
+    const { cp, valuation } = await runRelit({ id: 'headline-fv', price: 300, proposedBuyBelow: 150, assumedGrowth: 0.06 })
+    const fv = cp?.valuation?.fair_value_per_share
+    const refFv = valuation?.['reference_fair_value'] as number | undefined
+    expect(typeof fv).toBe('number')
+    expect(typeof refFv).toBe('number')
+    // ONE consolidated forward-DCF: the headline FV IS the reference FV (both from assumed_growth).
+    expect(fv).toBeCloseTo(refFv as number, 2)
+    // It is the g=0.06 FV, materially ABOVE the g=0 credited-g FV (~204.78) for these inputs.
+    expect(fv as number).toBeGreaterThan(210)
+  })
+
+  it('credited-g → demonstrated-history reference + ADVISORY flag when assumed_growth materially exceeds it (verdict NOT blocked)', async () => {
+    // assumed_growth 0.06 >> demonstrated/credited-g 0 (no series) → the advisory "model assumes growth
+    // above demonstrated history" flag fires, but the model's verdict passes through unchanged.
+    const { cp, valuation } = await runRelit({ id: 'advisory-flag', price: 200, investmentVerdict: 'WATCH', proposedBuyBelow: 250, assumedGrowth: 0.06 })
+    const flags = (valuation?.['sanity_flags'] as string[] | undefined) ?? []
+    expect(flags.some((f) => /above demonstrated history/i.test(f))).toBe(true)
+    // The demonstrated-history reference is surfaced; the headline growth stays the model's assumed_growth.
+    expect(valuation?.['demonstrated_growth_reference']).toBeCloseTo(0, 6)
+    expect(cp?.valuation?.growth_rate).toBeCloseTo(0.06, 6)
+    // Advisory only — never blocks/changes the model verdict.
+    expect(cp?.investment_verdict).toBe('WATCH')
+  })
+
+  it('CLEAN: assumed_growth ≈ demonstrated → NO above-history advisory flag; headline uses assumed_growth', async () => {
+    // No-series case → demonstrated/credited-g 0; choose assumed_growth = 0 so they MATCH → no advisory flag.
+    const { cp, valuation } = await runRelit({ id: 'clean-growth', price: 200, valuationStatus: 'FAIR', proposedBuyBelow: 180, assumedGrowth: 0 })
+    const flags = (valuation?.['sanity_flags'] as string[] | undefined) ?? []
+    expect(flags.some((f) => /above demonstrated history/i.test(f))).toBe(false)
+    expect(cp?.valuation?.growth_rate).toBeCloseTo(0, 6)
+  })
+
+  it('credited-g is NOT binding: the model verdict is unchanged whether credited-g is high or low (model inputs held fixed)', async () => {
+    // Same model inputs (verdict WATCH, assumed_growth 0.06, buy-below 150, price 300). Whether the
+    // deterministic credited-g would be high or low MUST NOT move the verdict — the verdict is the model's,
+    // clamped only by the cheap gates. (No-series here → credited-g 0; the advisory flag may fire but never
+    // blocks.) The verdict equals the unclamped model WATCH in both the flagged and clean growth cases above.
+    const { cp: flagged } = await runRelit({ id: 'binding-a', price: 300, investmentVerdict: 'WATCH', proposedBuyBelow: 150, assumedGrowth: 0.06 })
+    const { cp: clean } = await runRelit({ id: 'binding-b', price: 300, investmentVerdict: 'WATCH', proposedBuyBelow: 150, assumedGrowth: 0 })
+    expect(flagged?.investment_verdict).toBe('WATCH')
+    expect(clean?.investment_verdict).toBe('WATCH')
+    expect(flagged?.investment_verdict).toBe(clean?.investment_verdict)
   })
 })
 
@@ -2252,11 +2327,17 @@ describe('EDGAR-anchored OE bridge + harness AAOIFI Shariah ratios', () => {
     expect(cp?.shariah_status).toBe('CONDITIONAL')
     expect(cp?.shariah_sector_status).toBe('conditional')
 
-    // Phase 1.3/1.4 provenance (computed regardless of the moat gate): growth from the ROBUST demonstrated
-    // EDGAR OE/share log-linear slope (≈14.1%/yr over FY2023–2025) — BELOW the re-derived single_growth_cap
-    // (0.15) so it passes through UNCAPPED, above GDP — and the discount = config-default Treasury + premium.
+    // Phase 1.3/1.4 provenance (computed regardless of the moat gate): the DEMONSTRATED-HISTORY reference
+    // growth from the ROBUST demonstrated EDGAR OE/share log-linear slope (≈14.1%/yr over FY2023–2025) —
+    // BELOW the re-derived single_growth_cap (0.15) so it passes through UNCAPPED, above GDP — and the
+    // discount = config-default Treasury + premium. HEADLINE-GROWTH INVERSION: the demonstrated CAGR is now
+    // the demonstrated_growth_reference (a sanity reference), NOT the headline growth_rate. This fixture's
+    // decision supplies NO valuation_reasoning (no cited assumed_growth) → A1 routes to RESEARCH_MORE and the
+    // headline growth_rate is omitted (degraded per A1 — no fall-back to the credited-g as the headline).
+    // (Was: growth_rate ≈ 0.1407 — the old credited-g headline, inverted from the architecture.)
     expect(cp?.valuation?.growth_basis).toBe('edgar_oe_cagr')
-    expect(cp?.valuation?.growth_rate).toBeCloseTo(0.1407, 3) // demonstrated ~14.1%, below the 0.15 cap (uncapped)
+    expect(cp?.valuation?.demonstrated_growth_reference).toBeCloseTo(0.1407, 3) // demonstrated ~14.1%, below the 0.15 cap (uncapped)
+    expect(cp?.valuation?.growth_rate).toBeUndefined() // no grounded assumed_growth → headline omitted (A1)
     expect(cp?.valuation?.growth_above_gdp).toBe(true)
     expect(cp?.valuation?.discount_inputs?.equity_premium).toBe(0.055)
     expect(cp?.valuation?.discount_inputs?.ten_year_treasury_basis).toBe('config_default')
@@ -2916,18 +2997,21 @@ describe('Silent-degradation cascade — fields omitted (live dogfood shape)', (
     expect(openQuestions.join(' ')).toMatch(/impermissible_income_not_emitted/)
   })
 
-  it('flags a g=0 credited-growth floor when growth inputs are ineligible (honest floor, valuation still computes)', async () => {
+  it('flags a g=0 demonstrated-history reference floor when no CAGR is available (honest floor, valuation still computes)', async () => {
     const { cp, analysisPayload } = await runOmitted({
-      // incremental_roic <= 10% eligibility threshold -> g floored to 0, but FV must still compute. The
+      // No EDGAR series → the DEMONSTRATED-HISTORY reference floors to 0, but FV must still compute. The
       // moat is GENUINELY GROUNDED (keepMoatRubric) so the gate passes and the valuation computes.
       synthesis: { moat_class: 'wide', runway: 'proven', incremental_roic: 0.05, reinvestment_rate: 0.5 },
       id: 'omit-g0', keepMoatRubric: true,
     })
-    expect(cp?.valuation?.growth_rate).toBe(0)
+    // HEADLINE-GROWTH INVERSION: the demonstrated-history reference is the floored g=0; the headline growth
+    // is the model's cited assumed_growth (0.06). (Was: growth_rate === 0 — the old credited-g headline.)
+    expect(cp?.valuation?.demonstrated_growth_reference).toBeCloseTo(0, 6)
+    expect(cp?.valuation?.growth_rate).toBeCloseTo(0.06, 6)
     expect(cp?.valuation?.fair_value_per_share).toBeDefined()
     const valuation = analysisPayload?.['valuation'] as Record<string, unknown>
     const degraded = (valuation?.['degraded_flags'] as string[] | undefined) ?? []
-    expect(degraded.join(' ')).toMatch(/valuation_degraded:\s*credited_growth_floored_g0/)
+    expect(degraded.join(' ')).toMatch(/valuation_degraded:\s*demonstrated_growth_reference_floored_g0/)
   })
 })
 

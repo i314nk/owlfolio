@@ -208,7 +208,18 @@ export type ResearchCaseValuationProjection = {
   /** Discount provenance (Phase 1.4): the 10y Treasury + uniform equity premium that formed discount_rate. */
   discount_inputs?: { ten_year_treasury?: number; ten_year_treasury_basis?: string; equity_premium?: number }
   growth_assumptions?: string
+  /**
+   * HEADLINE growth = the MODEL's cite-verified assumed_growth (architecture: the model's grounded judgment
+   * is the analysis). Absent when assumed_growth was absent/ungrounded (degraded per A1 — no fall-back to
+   * the credited-g). The capped demonstrated CAGR is `demonstrated_growth_reference` (a sanity reference).
+   */
   growth_rate?: number
+  /**
+   * The capped-mechanical CREDITED growth (demonstrated owner-earnings/share CAGR through the forecasting-
+   * humility cap; lane may argue lower) — a DEMONSTRATED-HISTORY sanity reference, NOT the headline. An
+   * advisory sanity flag fires when the model's headline assumed_growth materially exceeds this.
+   */
+  demonstrated_growth_reference?: number
   /** Provenance of the growth path (Phase 1.3): 'edgar_oe_cagr' (demonstrated CAGR) or 'none' (no-growth floor). */
   growth_basis?: string
   /**
@@ -1171,6 +1182,8 @@ function getValuation(payload: Record<string, unknown>): ResearchCaseValuationPr
   if (growth_assumptions !== undefined) projected.growth_assumptions = growth_assumptions
   const growth_rate = getNumber(value, 'growth_rate')
   if (growth_rate !== undefined) projected.growth_rate = growth_rate
+  const demonstrated_growth_reference = getNumber(value, 'demonstrated_growth_reference')
+  if (demonstrated_growth_reference !== undefined) projected.demonstrated_growth_reference = demonstrated_growth_reference
   const growth_basis = getString(value, 'growth_basis')
   if (growth_basis !== undefined) projected.growth_basis = growth_basis
   // Phase 7 S4 — data-completeness evidence (item 11): carry-through of the demonstrated-growth measure's
