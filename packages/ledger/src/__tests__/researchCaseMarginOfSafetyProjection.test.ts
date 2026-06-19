@@ -79,4 +79,68 @@ describe('projectResearchCases — margin-of-safety audit surface', () => {
     // The rest of the analysis projection is unaffected.
     expect(rc.investment_verdict).toBe('WATCH')
   })
+
+  // MARGIN-OF-SAFETY JOINT JUDGMENT (synthesis-owned): the structured judgment projects under the DISTINCT
+  // key margin_of_safety_judgment (never colliding with the retired legacy `margin_of_safety` haircut string).
+  it('projects the structured margin_of_safety_judgment (sources + per-source reasoning + adequacy)', () => {
+    const cases = projectResearchCases([
+      created(),
+      analysisDrafted({
+        margin_of_safety_judgment: {
+          sources: ['price', 'moat'],
+          price_gap_reasoning: 'Price ~25% below the proposed buy-below.',
+          moat_durability_reasoning: 'Grounded wide moat lets time bail out estimate error.',
+          adequacy: 'adequate',
+          reasoning: 'Price gap and grounded moat jointly supply an adequate margin.',
+        },
+      }),
+    ])
+    const rc = cases.find((c) => c.research_case_id === RC)!
+    expect(rc.margin_of_safety_judgment?.sources).toEqual(['price', 'moat'])
+    expect(rc.margin_of_safety_judgment?.adequacy).toBe('adequate')
+    expect(rc.margin_of_safety_judgment?.moat_durability_reasoning).toContain('moat')
+    expect(rc.margin_of_safety_judgment?.reasoning.length).toBeGreaterThan(0)
+  })
+
+  it('projects the Guard-2 margin_of_safety_moat_ungrounded flag when present', () => {
+    const cases = projectResearchCases([
+      created(),
+      analysisDrafted({ margin_of_safety_moat_ungrounded: true }),
+    ])
+    const rc = cases.find((c) => c.research_case_id === RC)!
+    expect(rc.margin_of_safety_moat_ungrounded).toBe(true)
+  })
+
+  // LEGACY TOLERANCE: an OLD event carrying the retired legacy `margin_of_safety` STRING (from the haircut
+  // era, on the owner-earnings valuation block) must still project WITHOUT throwing and WITHOUT being
+  // mistaken for the new structured judgment.
+  it('legacy-tolerant: an old event with the legacy margin_of_safety STRING still projects (no throw, no collision)', () => {
+    const cases = projectResearchCases([
+      created(),
+      analysisDrafted({
+        // Legacy haircut-era shapes — must be ignored gracefully, not crash replay.
+        margin_of_safety: '25% applied to the fair value',
+        margin_of_safety_applied: true,
+        valuation: {
+          summary: 'legacy',
+          margin_of_safety: '25%',
+        },
+      }),
+    ])
+    const rc = cases.find((c) => c.research_case_id === RC)!
+    // The retired legacy string is NOT projected as the new structured judgment.
+    expect(rc.margin_of_safety_judgment).toBeUndefined()
+    // Replay did not throw; the rest projects.
+    expect(rc.investment_verdict).toBe('WATCH')
+  })
+
+  it('legacy-tolerant: a malformed margin_of_safety_judgment (no valid sources) projects nothing, no throw', () => {
+    const cases = projectResearchCases([
+      created(),
+      analysisDrafted({ margin_of_safety_judgment: { sources: [], adequacy: 'adequate', reasoning: 'x' } }),
+    ])
+    const rc = cases.find((c) => c.research_case_id === RC)!
+    expect(rc.margin_of_safety_judgment).toBeUndefined()
+    expect(rc.investment_verdict).toBe('WATCH')
+  })
 })

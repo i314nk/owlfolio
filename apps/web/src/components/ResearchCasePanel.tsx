@@ -763,6 +763,61 @@ function createVerdictFormatBlock(researchCase: AppResearchCase) {
   // MARGIN-OF-SAFETY AUDIT SURFACE — the model's forward-looking risk judgments (what assumption, if
   // wrong, breaks the thesis; what observable events would invalidate it). Prominent for the human to
   // audit; NOT cite-gated. Absent (legacy / not produced) → honest NOT_YET fallback (no crash).
+  // MARGIN-OF-SAFETY JOINT JUDGMENT (synthesis-owned) — the HEADLINE of the MoS audit surface. The margin of
+  // safety rests on TWO SUBSTITUTABLE sources: the price-vs-value gap and moat durability. Show which
+  // source(s) it rests on, the per-source reasoning, and adequacy + reasoning. When it rests on 'moat' make
+  // that visually clear (a moat-sourced margin is higher-stakes — scrutinize moat durability). Guard 2: if
+  // the moat is claimed as a source on an ungrounded moat, surface the incoherence flag. Legacy/absent →
+  // graceful NOT_YET fallback.
+  const mosJudgment = researchCase.margin_of_safety_judgment
+  const mosMoatUngrounded = researchCase.margin_of_safety_moat_ungrounded === true
+  const marginOfSafetyJudgmentLine = mosJudgment === undefined
+    ? NOT_YET
+    : (() => {
+        const restsOnMoat = mosJudgment.sources.includes('moat')
+        const restsOnPrice = mosJudgment.sources.includes('price')
+        const sourcesLabel = mosJudgment.sources.map((s) => (s === 'moat' ? 'moat durability' : 'price gap')).join(' + ')
+        const adequacyColor = mosJudgment.adequacy === 'adequate'
+          ? 'var(--owl-color-positive, #4ade80)'
+          : mosJudgment.adequacy === 'thin'
+            ? '#fbbf24'
+            : '#fca5a5'
+        const children: ReactNode[] = [
+          createElement(
+            'div',
+            { key: 'mos-sources', style: { display: 'flex', flexWrap: 'wrap', gap: '0.4rem', alignItems: 'baseline', justifyContent: 'flex-end' } },
+            createElement('span', { style: { fontWeight: 700 } }, `Rests on: ${sourcesLabel}`),
+            restsOnMoat
+              ? createElement(
+                  'span',
+                  { 'data-testid': 'mos-moat-sourced', style: { fontSize: 'var(--owl-text-sm)', fontWeight: 700, color: '#fbbf24', border: '1px solid rgba(251,191,36,0.5)', borderRadius: '0.4rem', padding: '0.05rem 0.4rem' } },
+                  'MOAT-SOURCED — scrutinize moat durability',
+                )
+              : null,
+          ),
+          createElement(
+            'div',
+            { key: 'mos-adequacy', style: { color: adequacyColor, fontWeight: 700 } },
+            `Adequacy (audit-only, not a gate): ${mosJudgment.adequacy}`,
+          ),
+        ]
+        if (restsOnPrice && mosJudgment.price_gap_reasoning !== undefined) {
+          children.push(createElement('div', { key: 'mos-price', style: { color: 'var(--owl-color-muted)' } }, `Price gap: ${mosJudgment.price_gap_reasoning}`))
+        }
+        if (restsOnMoat && mosJudgment.moat_durability_reasoning !== undefined) {
+          children.push(createElement('div', { key: 'mos-moat', style: { color: 'var(--owl-color-muted)' } }, `Moat durability: ${mosJudgment.moat_durability_reasoning}`))
+        }
+        children.push(createElement('div', { key: 'mos-reasoning' }, mosJudgment.reasoning))
+        if (mosMoatUngrounded) {
+          children.push(createElement(
+            'div',
+            { 'data-testid': 'mos-moat-ungrounded', key: 'mos-ungrounded', style: { color: '#fca5a5', fontWeight: 700 } },
+            'Incoherent: margin claims a moat source but the moat is not grounded / did not pass the moat gate.',
+          ))
+        }
+        return createElement('div', { style: { display: 'flex', flexDirection: 'column', gap: '0.25rem', textAlign: 'right' } }, ...children)
+      })()
+
   const keyWrongAssumption = researchCase.key_wrong_assumption
   const keyWrongAssumptionLine = keyWrongAssumption === undefined || keyWrongAssumption.trim().length === 0
     ? NOT_YET
@@ -799,6 +854,8 @@ function createVerdictFormatBlock(researchCase: AppResearchCase) {
     // MARGIN-OF-SAFETY AUDIT SURFACE — the model's forward-looking risk judgments (no longer hardcoded
     // stubs). key_wrong_assumption as a line; thesis_break_triggers as a list. Legacy/absent → honest
     // NOT_YET fallback (these are NOT cite-gated — they are the model's risk reasoning for the human).
+    // MARGIN-OF-SAFETY JOINT JUDGMENT — the HEADLINE of the MoS audit surface, ABOVE key-wrong/thesis-break.
+    verdictFormatLine('Margin of safety (joint)', marginOfSafetyJudgmentLine),
     verdictFormatLine('Key-wrong assumption', keyWrongAssumptionLine),
     verdictFormatLine('Thesis-break triggers', thesisBreakTriggersLine),
     verdictFormatLine('Red-team objection', redTeamLine),

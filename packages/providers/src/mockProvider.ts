@@ -275,6 +275,16 @@ function mockSynthesisDecisionForTicker(ticker: string) {
       `Top-customer / top-segment concentration rises materially (a funded entrant takes share).`,
       `Incremental ROIC on reinvested owner earnings drops below the 10% discount rate.`,
     ],
+    // MARGIN-OF-SAFETY JOINT JUDGMENT (synthesis-owned) — the margin rests on TWO substitutable sources:
+    // the price-vs-value gap and moat durability. Business-specific per-source reasoning; the moat reasoning
+    // anchors on the GROUNDED moat thesis the moat gate verified. adequacy is audit-only (never a gate).
+    margin_of_safety: {
+      sources: ['price', 'moat'] as ('price' | 'moat')[],
+      price_gap_reasoning: `${companyLabel} trades at a discount to the model's proposed_buy_below, supplying a price-vs-value cushion against estimate error.`,
+      moat_durability_reasoning: `${companyLabel}'s grounded wide/monopoly moat (verified by the moat gate) lets time bail out modest valuation error, so a smaller price discount is required.`,
+      adequacy: 'adequate' as const,
+      reasoning: `The price gap and the grounded moat durability jointly supply an adequate margin for ${companyLabel}; either source alone would be thinner.`,
+    },
     // RELIGHTENED DECISION (R1): the MODEL proposes the buy-below WITH its cited valuation reasoning. The
     // deterministic side records this number as the buy-below and only sanity-checks it.
     // Deterministic per ticker so tests are stable, and chosen so the cohorts exercise BOTH sanity paths:

@@ -31,6 +31,13 @@ describe('DecisionAgentSchema (model proposes buy-below + cited valuation reason
     proposed_buy_below: 150,
     key_wrong_assumption: 'The assumed 6% durable growth holds — if pricing power erodes the thesis breaks.',
     thesis_break_triggers: ['Gross margin falls below 40% for two consecutive quarters.'],
+    margin_of_safety: {
+      sources: ['price', 'moat'] as ('price' | 'moat')[],
+      price_gap_reasoning: 'Price ~25% below the proposed buy-below.',
+      moat_durability_reasoning: 'Grounded wide moat lets time bail out estimate error.',
+      adequacy: 'adequate' as const,
+      reasoning: 'Price gap and grounded moat jointly supply an adequate margin.',
+    },
     proposed_sources: [{ source_id: 's1', title: 'T', url: 'https://www.sec.gov/x.htm', excerpt: 'e' }],
   }
 
@@ -120,5 +127,33 @@ describe('DecisionAgentSchema (model proposes buy-below + cited valuation reason
     expect(emptyItem.success).toBe(false)
     const parsed = DecisionAgentSchema.safeParse(base)
     expect(parsed.success && parsed.data.thesis_break_triggers).toHaveLength(1)
+  })
+
+  // MARGIN-OF-SAFETY JOINT JUDGMENT (synthesis-owned). The margin rests on TWO substitutable sources —
+  // price gap and moat durability — with per-source reasoning + a REASONED adequacy + reasoning.
+  it('REQUIRES a structured margin_of_safety (sources + adequacy + reasoning)', () => {
+    const { margin_of_safety: _omit, ...withoutMos } = base
+    void _omit
+    expect(DecisionAgentSchema.safeParse(withoutMos).success).toBe(false)
+    const parsed = DecisionAgentSchema.safeParse(base)
+    expect(parsed.success).toBe(true)
+    if (parsed.success) {
+      expect(parsed.data.margin_of_safety.sources).toEqual(['price', 'moat'])
+      expect(parsed.data.margin_of_safety.adequacy).toBe('adequate')
+      expect(parsed.data.margin_of_safety.reasoning.length).toBeGreaterThan(0)
+    }
+  })
+
+  it('margin_of_safety.sources must be a non-empty subset of price|moat', () => {
+    expect(DecisionAgentSchema.safeParse({ ...base, margin_of_safety: { ...base.margin_of_safety, sources: [] } }).success).toBe(false)
+    expect(DecisionAgentSchema.safeParse({ ...base, margin_of_safety: { ...base.margin_of_safety, sources: ['liquidity'] } }).success).toBe(false)
+    expect(DecisionAgentSchema.safeParse({ ...base, margin_of_safety: { ...base.margin_of_safety, sources: ['price'] } }).success).toBe(true)
+    expect(DecisionAgentSchema.safeParse({ ...base, margin_of_safety: { ...base.margin_of_safety, sources: ['moat'] } }).success).toBe(true)
+  })
+
+  it('margin_of_safety.adequacy is one of adequate|thin|inadequate and reasoning is required', () => {
+    expect(DecisionAgentSchema.safeParse({ ...base, margin_of_safety: { ...base.margin_of_safety, adequacy: 'great' } }).success).toBe(false)
+    expect(DecisionAgentSchema.safeParse({ ...base, margin_of_safety: { ...base.margin_of_safety, reasoning: '' } }).success).toBe(false)
+    expect(DecisionAgentSchema.safeParse({ ...base, margin_of_safety: { ...base.margin_of_safety, adequacy: 'inadequate' as const } }).success).toBe(true)
   })
 })

@@ -185,6 +185,28 @@ export const DecisionAgentSchema = z.object({
   // thesis_break_triggers: the observable events that would invalidate the thesis (concrete + tied to THIS
   // business — "gross margin falls below X%", "top-2 customer concentration rises" — not "if growth slows").
   thesis_break_triggers: z.array(z.string().min(1)).min(1),
+  // MARGIN-OF-SAFETY JOINT JUDGMENT (synthesis-owned) — the margin of safety comes from TWO SUBSTITUTABLE
+  // sources: the PRICE-vs-value gap and MOAT durability ("a fortress moat lets time bail out errors, so it
+  // needs less price discount"). Synthesis OWNS this as a single joint judgment, naming which source(s) the
+  // margin rests on, the per-source reasoning, and a REASONED adequacy + reasoning. GUARD: adequacy is an
+  // audit judgment DISPLAYED for the human — it is NEVER a gate (the retired MoS-as-haircut stays dead). A
+  // moat-sourced margin must rest on the GROUNDED moat-gate thesis (the harness flags a moat source claimed
+  // on an ungrounded moat). Cite-checked? No — like key_wrong_assumption it is forward-looking reasoning;
+  // required + substantive (the schema + synthesisRequiredFields retry + the prompt specificity are the guard).
+  margin_of_safety: z.object({
+    // Which substitutable source(s) the margin rests on. 'price' = the price-vs-value gap; 'moat' = moat
+    // durability bailing out time/error. At least one; both is valid (a discounted price AND a fortress moat).
+    sources: z.array(z.enum(['price', 'moat'])).min(1),
+    // Required-in-prompt when 'price' is a source: WHY the price-vs-value gap supplies adequate margin.
+    price_gap_reasoning: z.string().optional(),
+    // Required-in-prompt when 'moat' is a source: WHY moat durability supplies margin — anchored on the
+    // GROUNDED moat thesis the moat gate verified, NOT a fresh claim.
+    moat_durability_reasoning: z.string().optional(),
+    // A REASONED JUDGMENT of whether the joint margin is adequate. Audit-only — NEVER gates the verdict.
+    adequacy: z.enum(['adequate', 'thin', 'inadequate']),
+    // The joint reasoning tying the named source(s) together into the adequacy judgment.
+    reasoning: z.string().min(1),
+  }),
   // RELIGHTENED DECISION (R1): the MODEL proposes the price below which it would buy, WITH its cited
   // reasoning. This is the buy-below the harness records — NOT a number derived from any fair value.
   // The deterministic side only sanity-checks it (flag-only, never blocks) + computes the arithmetic

@@ -200,6 +200,65 @@ describe('ResearchCasePanel auditable dossier (R1)', () => {
     expect(html).toContain('Not yet available')
   })
 
+  // MARGIN-OF-SAFETY JOINT JUDGMENT (synthesis-owned) — the HEADLINE of the MoS audit surface, ABOVE the
+  // key-wrong-assumption / thesis-break lines.
+  it('renders the structured margin-of-safety joint judgment as the HEADLINE above key-wrong/thesis-break', () => {
+    const html = render({
+      ...baseCase(),
+      key_wrong_assumption: 'The assumed 6% durable growth holds.',
+      margin_of_safety_judgment: {
+        sources: ['price', 'moat'],
+        price_gap_reasoning: 'Price sits 25% below the model buy-below.',
+        moat_durability_reasoning: 'The grounded wide moat lets time bail out estimate error.',
+        adequacy: 'adequate',
+        reasoning: 'Price gap and grounded moat jointly supply an adequate margin.',
+      },
+    } as unknown as AppResearchCase, QUOTE)
+    expect(html).toContain('Margin of safety (joint)')
+    expect(html).toContain('Price sits 25% below the model buy-below.')
+    expect(html).toContain('The grounded wide moat lets time bail out estimate error.')
+    expect(html).toContain('Price gap and grounded moat jointly supply an adequate margin.')
+    expect(html.toLowerCase()).toContain('adequacy')
+    // The headline renders ABOVE the key-wrong-assumption line.
+    expect(html.indexOf('Margin of safety (joint)')).toBeLessThan(html.indexOf('Key-wrong assumption'))
+  })
+
+  it('flags a MOAT-sourced margin visually (higher-stakes — scrutinize moat durability)', () => {
+    const html = render({
+      ...baseCase(),
+      margin_of_safety_judgment: {
+        sources: ['moat'],
+        moat_durability_reasoning: 'Grounded fortress moat carries the margin.',
+        adequacy: 'adequate',
+        reasoning: 'Moat durability carries the margin.',
+      },
+    } as unknown as AppResearchCase, QUOTE)
+    expect(html).toContain('data-testid="mos-moat-sourced"')
+    expect(html.toLowerCase()).toContain('scrutinize moat durability')
+  })
+
+  it('surfaces the Guard-2 incoherence flag when a moat-sourced margin rests on an ungrounded moat', () => {
+    const html = render({
+      ...baseCase(),
+      margin_of_safety_judgment: {
+        sources: ['moat'],
+        moat_durability_reasoning: 'Claims moat durability.',
+        adequacy: 'adequate',
+        reasoning: 'Incoherently rests on an ungrounded moat.',
+      },
+      margin_of_safety_moat_ungrounded: true,
+    } as unknown as AppResearchCase, QUOTE)
+    expect(html).toContain('data-testid="mos-moat-ungrounded"')
+    expect(html.toLowerCase()).toContain('not grounded')
+  })
+
+  it('falls back gracefully for the joint margin-of-safety headline when absent (legacy case, no crash)', () => {
+    const html = render(baseCase(), QUOTE)
+    expect(html).toContain('Margin of safety (joint)')
+    // No structured judgment → the honest not-yet-available fallback (no crash).
+    expect(html).toContain('Not yet available')
+  })
+
   it('retires the growth-axis band viz and the band/gap ledger labels entirely', () => {
     const html = render(baseCase(), QUOTE)
     expect(html).not.toContain('data-testid="growth-band-axis"')

@@ -1349,6 +1349,24 @@ export async function runResearchDeepDivePhase(
       present: (a) => Array.isArray(a.thesis_break_triggers) && a.thesis_break_triggers.some((t) => (t ?? '').trim().length > 0),
       hint: 'concrete OBSERVABLE events tied to THIS business that would invalidate the thesis ("gross margin falls below X%", "top-2 customer concentration rises") — not generic "if growth slows"',
     },
+    // MARGIN-OF-SAFETY JOINT JUDGMENT (synthesis-owned) — REQUIRED + substantive. A substantive `present`
+    // predicate: ≥1 named source AND a non-empty joint reasoning AND the reasoning for EACH named source is
+    // present (price_gap_reasoning when 'price'; moat_durability_reasoning when 'moat'). Like the other MoS
+    // surface this is forward-looking reasoning, deliberately NOT cite-gated; the retry forces the structure.
+    {
+      name: 'margin_of_safety',
+      present: (a) => {
+        const mos = a.margin_of_safety
+        if (mos === undefined) return false
+        const sources = Array.isArray(mos.sources) ? mos.sources : []
+        if (sources.length === 0) return false
+        if ((mos.reasoning ?? '').trim().length === 0) return false
+        if (sources.includes('price') && (mos.price_gap_reasoning ?? '').trim().length === 0) return false
+        if (sources.includes('moat') && (mos.moat_durability_reasoning ?? '').trim().length === 0) return false
+        return true
+      },
+      hint: 'the synthesis-owned JOINT margin-of-safety judgment: which substitutable source(s) the margin rests on (price gap, moat durability, or both), the reasoning for EACH named source (price_gap_reasoning when "price"; moat_durability_reasoning when "moat"), and a reasoned adequacy + joint reasoning',
+    },
   ]
   let dec: GroundedAgentResult<z.infer<typeof DecisionAgentSchema>>
   // Surfaced when the validate→retry wrapper exhausted its attempts and we fell back to the degraded
@@ -1365,6 +1383,7 @@ export async function runResearchDeepDivePhase(
       + `Report incremental_roic (normalized INCREMENTAL ROIC as a fraction, e.g. 0.20) alongside reinvestment_rate (reported context). `
       + `YOU OWN THE VALUATION JUDGMENT. REQUIRED — do not omit: proposed_buy_below — the per-share price BELOW which you would buy, your own number, with your cited reasoning (the harness records it verbatim; it does NOT derive it from any fair value). ALSO produce valuation_reasoning: owner_earnings_basis (CITED — the owner-earnings figure you valued), owner_earnings_citation (REQUIRED — the source_id of a VERIFIED primary source from YOUR proposed_sources / the corpus that backs the owner-earnings figure; a real grounded source_id, NOT a prose hand-wave), assumed_growth (the near-term growth you assumed, a fraction), assumed_growth_rationale (CITED — WHY that growth is defensible; a durable source, not "strong execution"), assumed_growth_citation (REQUIRED — the source_id of a VERIFIED primary source backing that growth rationale; again a real grounded source_id, NOT prose), and optionally discount_rationale. The harness deterministically cite-checks owner_earnings_citation and assumed_growth_citation against the grounded corpus and FAILS CLOSED (routes to RESEARCH_MORE) when either is absent or does not verify — cite real grounded sources of your own. Estimate HONESTLY — do NOT lowball and do NOT over-reach: a growth above ~15% or a price implying it will be FLAGGED as implausible. Set valuation_status (ATTRACTIVE | FAIR | EXPENSIVE | INSUFFICIENT_DATA) consistently with that evidence — the harness sanity-checks it against the market-implied growth in BOTH directions. `
       + `MARGIN-OF-SAFETY AUDIT SURFACE — REQUIRED, do not omit: key_wrong_assumption and thesis_break_triggers, SPECIFIC to THIS business's thesis. key_wrong_assumption = the SINGLE assumption that, if WRONG, breaks this thesis — name a CONCRETE assumption you actually made (the assumed growth rate, the moat-durability claim, the maintenance-capex judgment), NOT a generic placeholder. thesis_break_triggers = the concrete, OBSERVABLE events that would invalidate the thesis, tied to THIS business (e.g. "gross margin falls below X%", "the top-2 customer concentration rises above Y%", "a funded entrant takes >Z% share") — NOT generic boilerplate like "if growth slows". Vague or generic answers are NOT acceptable. These are your forward-looking RISK reasoning for the human to audit; the harness does NOT cite-check them, but they MUST be substantive and business-specific. `
+      + `MARGIN-OF-SAFETY JOINT JUDGMENT — REQUIRED, do not omit: margin_of_safety. YOU OWN this as a single joint judgment. The margin of safety comes from TWO SUBSTITUTABLE sources: (1) the PRICE-vs-value gap (your proposed_buy_below sits below value), and (2) MOAT DURABILITY (a fortress moat lets TIME bail out estimate error, so it needs LESS price discount). Name in 'sources' which source(s) THIS margin actually rests on — 'price', 'moat', or BOTH (they substitute: a wide-enough moat can carry a thinner price discount, and a deep-enough price discount can carry a narrower moat). For EACH named source give its reasoning: price_gap_reasoning when 'price' (WHY the price gap supplies margin for THIS business), moat_durability_reasoning when 'moat' (WHY the moat's durability supplies margin — and it MUST rest on the GROUNDED moat thesis the moat gate verified above, '${judgment.moat!.resolved_moat_class}', NOT a fresh moat claim). Then give a REASONED adequacy ('adequate' | 'thin' | 'inadequate') and a joint reasoning tying the named source(s) together. Be business-specific, NOT boilerplate. NOTE: adequacy is a REASONED JUDGMENT DISPLAYED for the human to audit — it does NOT change your verdict or buy-below (those stand on their own); it only ARTICULATES why the margin is or is not adequate. `
       // The moat/runway classification + rubrics and the Shariah overlay are produced by the MOAT and
       // SHARIAH specialist lanes — NOT here. The harness has already resolved them; the resolved tiers are
       // handed to you below for RECONCILIATION only (you do not re-score them).
@@ -2579,6 +2598,24 @@ export async function runResearchDeepDivePhase(
           ? `${buyClampReason} ${dec.analysis.decision_reason}`
           : dec.analysis.decision_reason
 
+  // ---- MARGIN-OF-SAFETY JOINT JUDGMENT (synthesis-owned) — Guard 1 + Guard 2 ----------------------------
+  // GUARD 1: adequacy is an AUDIT judgment ONLY. NOTHING above (gatedVerdict / gatedReason / the moat gate /
+  //   the buy-below) reads margin_of_safety or its adequacy — the verdict is identical whether adequacy is
+  //   'adequate' or 'inadequate'. We carry the structured judgment verbatim onto the analysis payload below
+  //   so the human can audit WHY the margin is adequate; it is never wired into any gate.
+  // GUARD 2: a moat-SOURCED margin must rest on the GROUNDED moat thesis. The moat gate already fails closed
+  //   on an ungrounded moat (a buy thesis cannot reach a passing verdict with an ungrounded moat), so a
+  //   'moat' source on a gate-passing case is grounded by construction. Belt-and-suspenders: when 'moat' is
+  //   claimed as a source we confirm the moat passed the grounded gate (moat_passes_gate AND not
+  //   moat_grounding_unmet); if 'moat' is claimed but the moat is NOT grounded/gate-passing, that is
+  //   incoherent (ungrounded moat = ungrounded margin) → surface a VISIBLE margin_of_safety_moat_ungrounded
+  //   flag rather than silently accept a moat-sourced margin without a grounded moat.
+  const marginOfSafetyJudgment = dec.analysis.margin_of_safety
+  const marginRestsOnMoat = Array.isArray(marginOfSafetyJudgment?.sources)
+    && marginOfSafetyJudgment.sources.includes('moat')
+  const moatThesisGrounded = moat_passes_gate && !moat_grounding_unmet
+  const margin_of_safety_moat_ungrounded = marginRestsOnMoat && !moatThesisGrounded
+
   // ---- Project the judgment-rubric layer for the verdict/dossier (spec verdict-format additions) ----
   // rubric scores + anchor-vs-proposed tier + whether the bounded adjustment was applied + violations.
   const judgmentProjection = buildJudgmentProjection(judgment)
@@ -2642,6 +2679,16 @@ export async function runResearchDeepDivePhase(
       // synthesis decision; required + substantive (schema + retry), deliberately NOT cite-gated.
       key_wrong_assumption: dec.analysis.key_wrong_assumption,
       thesis_break_triggers: dec.analysis.thesis_break_triggers,
+      // MARGIN-OF-SAFETY JOINT JUDGMENT (synthesis-owned) — the HEADLINE of the MoS audit surface: which
+      // substitutable source(s) the margin rests on (price gap / moat durability / both), the per-source
+      // reasoning, and a REASONED adequacy + reasoning. GUARD 1: adequacy is audit-only, never gates — the
+      // verdict above is unchanged by it. Carried verbatim from synthesis; required + substantive (schema +
+      // retry), deliberately NOT cite-gated. Projected under the distinct key margin_of_safety_judgment so it
+      // never collides with the retired legacy `margin_of_safety` haircut string.
+      ...(marginOfSafetyJudgment !== undefined ? { margin_of_safety_judgment: marginOfSafetyJudgment } : {}),
+      // GUARD 2: a moat-sourced margin claimed on a NOT-grounded / NOT-gate-passing moat is incoherent
+      // (ungrounded moat = ungrounded margin) — surfaced visibly, never silently accepted.
+      ...(margin_of_safety_moat_ungrounded ? { margin_of_safety_moat_ungrounded: true } : {}),
       // Circle-of-competence judgment (in-competence here — the gate passed; the deep dive ran). Carried on
       // the analysis so the dossier always shows the grounded competence judgment that admitted this spend.
       circle_competence: circleJudgmentPayload,
