@@ -1868,10 +1868,15 @@ export async function runResearchDeepDivePhase(
   // — that guarantees the per-moat terminal_growth_rate the point valuation used is defined, so the reverse
   // solve inverts the SAME forward DCF. terminalGrowthForMoat throws for non-investable moats, so gating on
   // fair_value_per_share avoids that path entirely.
+  // market_implied_growth is the PRIMARY lens: the reverse-DCF of TODAY's price against the EDGAR
+  // owner-earnings basis — it does NOT consume the model's assumed_growth, so it must stay ungated when the
+  // assumed_growth is ungrounded (A1 omits the headline FV in that case, but the price+OE-derived
+  // market-implied growth remains grounded and must still compute). It depends ONLY on the inputs
+  // marketImpliedGrowth() actually uses — price, owner-earnings/share, terminal growth, discount, horizon —
+  // NOT on the headline fair_value_per_share.
   let market_implied_growth: number | undefined
   if (
     current_price !== undefined
-    && fair_value_per_share !== undefined
     && terminal_growth_rate !== undefined
     && normalized_owner_earnings_per_share !== undefined
     && normalized_owner_earnings_per_share > 0
@@ -2048,11 +2053,17 @@ export async function runResearchDeepDivePhase(
   // FV was produced we surface it (rounded) as the reference; otherwise we fail-closed to recomputing it from
   // assumed_growth on the SAME basis (e.g. an edge case where the headline branch did not run). This is a
   // REFERENCE only — it never feeds the verdict or the buy-below.
+  // A1 SYMMETRY: the reference FV CONSUMES the model's assumed_growth, so it is gated on the SAME
+  // cite-verified-assumed-growth signal the headline uses (headline_growth !== undefined, i.e.
+  // assumedGrowthUsable — grounding met). When the assumed_growth is present but ungrounded the headline FV
+  // is already undefined; we must NOT fall back to recomputing a reference from the ungrounded growth
+  // (that would be confident output on ungrounded input). Both branches require the grounded signal.
   let reference_fair_value: number | undefined
-  if (fair_value_per_share !== undefined && Number.isFinite(fair_value_per_share) && fair_value_per_share > 0) {
+  if (headline_growth !== undefined && fair_value_per_share !== undefined && Number.isFinite(fair_value_per_share) && fair_value_per_share > 0) {
     reference_fair_value = Math.round(fair_value_per_share * 100) / 100
   } else if (
-    normalized_owner_earnings_per_share !== undefined
+    headline_growth !== undefined
+    && normalized_owner_earnings_per_share !== undefined
     && normalized_owner_earnings_per_share > 0
     && terminal_growth_rate !== undefined
     && assumed_growth !== undefined
@@ -2097,9 +2108,15 @@ export async function runResearchDeepDivePhase(
   // with the live price and varies with the model's assumed growth + the owner-earnings basis — NOT a config
   // constant. Fail-closed: omitted unless price + positive OE/share + the model's assumed growth + terminal
   // all exist, and the result is finite + positive (never a spurious value, so no low-side flag).
+  // A1 SYMMETRY: implied_exit_multiple grows the owner earnings along the MODEL's assumed_growth path, so it
+  // CONSUMES the assumed_growth claim and is gated on the SAME cite-verified signal as the headline
+  // (headline_growth !== undefined). An ungrounded-but-present assumed_growth omits it, exactly like the
+  // headline. (market_implied_growth — the reverse-DCF of price + EDGAR OE — does NOT consume assumed_growth
+  // and stays ungated.)
   let implied_exit_multiple: number | undefined
   if (
-    current_price !== undefined
+    headline_growth !== undefined
+    && current_price !== undefined
     && current_price > 0
     && normalized_owner_earnings_per_share !== undefined
     && normalized_owner_earnings_per_share > 0

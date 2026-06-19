@@ -3565,3 +3565,90 @@ describe('runStrategyResearchSwarm — synthesis own-grounding fail-closed (foun
     expect(cp?.investment_verdict ?? cp?.decision).not.toBe('BUY')
   })
 })
+
+// ---------------------------------------------------------------------------------------------------
+// §2 REFERENCE FV + IMPLIED-EXIT-MULTIPLE — A1 SYMMETRY (fail-closed at every assumed_growth claim point).
+//
+// A1/B5 already omit the HEADLINE growth_rate/fair_value_per_share when the model's assumed_growth is not
+// cite-verified. But the §2 sanity REFERENCES — reference_fair_value and implied_exit_multiple — derived
+// from the RAW assumed_growth, so a PRESENT-BUT-UNGROUNDED growth still emitted those reference numbers
+// ("confident output on ungrounded input"). They must now be gated on the SAME cite-verified-assumed-growth
+// signal the headline uses. market_implied_growth is the PRIMARY lens (reverse-DCF of price + EDGAR
+// owner-earnings, NOT the model's assumed_growth) and must STAY ungated — it still computes from price+OE.
+// ---------------------------------------------------------------------------------------------------
+describe('§2 reference FV + implied-exit-multiple — gated on grounded assumed_growth (A1 symmetry)', () => {
+  // A growing EDGAR series so owner-earnings-per-share is grounded (→ market_implied_growth is computable
+  // from price+OE regardless of the assumed_growth grounding).
+  function growingFundamentals(): Fundamentals {
+    const series: AnnualFacts[] = []
+    for (let i = 0; i < 6; i += 1) {
+      const fy = 2019 + i
+      const ni = Math.round(1000 * Math.pow(1.10, i))
+      series.push({ fiscal_year: fy, currency: 'USD', net_income_musd: ni, revenue_musd: 10000, d_and_a_musd: 200, capex_musd: 200, sbc_musd: 0, diluted_shares_m: 100 })
+    }
+    return {
+      cik: '0000000001', entity_name: 'GROWER INC', currency: 'USD',
+      latest_annual: series[series.length - 1]!,
+      annual_series: series,
+      filings: [{ form: '10-K', filed: '2024-02-01', url: 'https://www.sec.gov/Archives/edgar/data/1/x.htm' }],
+    }
+  }
+
+  async function runWithGrowthCitation(rcId: string, assumedGrowthCitation: string) {
+    const store = new InMemoryEventStore()
+    const provider = configurableSwarmProvider({
+      laneCount: buffettMungerDeepDiveLanes.length,
+      investmentVerdict: 'BUY',
+      synthesis: {
+        moat_class: 'wide', runway: 'proven', incremental_roic: 0.20, reinvestment_rate: 0.40,
+        valuation_reasoning: {
+          owner_earnings_basis: 'FY25 owner earnings per the 10-K bridge.',
+          owner_earnings_citation: 'src_dec_1', // verifies under allVerifiedGround
+          assumed_growth: 0.06,
+          assumed_growth_rationale: 'Growth rationale.',
+          assumed_growth_citation: assumedGrowthCitation,
+        },
+      },
+    })
+    const sourceLedgerPath = await mkdtemp(join(tmpdir(), `owlfolio-s2gate-${rcId}-`))
+    await runStrategyResearchSwarm(
+      store, provider as never,
+      {
+        research_case_id: rcId, company_id: `company_${rcId}`, ticker: 'GRW',
+        strategy_id: 'buffett-munger', actor_id: 'user_local', idempotency_key: `${rcId}_k`,
+        model_id: 'mock', decision_id: `decision_${rcId}`, source_ledger_path: sourceLedgerPath,
+      },
+      {
+        ground: allVerifiedGround, laneConcurrency: 4, fundamentals: growingFundamentals(),
+        resolvePrice: async () => ({ available: true as const, price_per_share: 50, currency: 'USD', as_of: '2026-06-01T00:00:00Z', source: 'fixture' }),
+      },
+    )
+    const events = await store.list()
+    const projections = projectResearchCases(events as Parameters<typeof projectResearchCases>[0])
+    const cp = projections.find((c) => c.research_case_id === rcId)
+    const valuation = cp?.valuation as Record<string, unknown> | undefined
+    return { cp, valuation }
+  }
+
+  it('UNGROUNDED assumed_growth (present, citation does NOT verify) → reference_fair_value + implied_exit_multiple omitted; market_implied_growth still present; RESEARCH_MORE', async () => {
+    // src_not_in_corpus is never proposed → never captured/verified → assumed_growth is ungrounded.
+    const { cp, valuation } = await runWithGrowthCitation('rc_s2_ungrounded', 'src_not_in_corpus')
+    // A1: ungrounded assumed_growth routes the verdict to RESEARCH_MORE and omits the headline growth.
+    expect(cp?.valuation?.synthesis_grounding_unmet).toBe(true)
+    expect(cp?.investment_verdict ?? cp?.decision).toBe('RESEARCH_MORE')
+    // The two §2 references that CONSUME the model's assumed_growth are omitted (fail-closed, A1 symmetry).
+    expect(valuation?.['reference_fair_value']).toBeUndefined()
+    expect(valuation?.['implied_exit_multiple']).toBeUndefined()
+    // The PRIMARY lens stays ungated: computed from price (50) + EDGAR owner-earnings, NOT assumed_growth.
+    expect(typeof valuation?.['market_implied_growth']).toBe('number')
+    expect(Number.isFinite(valuation?.['market_implied_growth'] as number)).toBe(true)
+  })
+
+  it('GROUNDED assumed_growth (citation verifies) → all three present (no false omission)', async () => {
+    const { cp, valuation } = await runWithGrowthCitation('rc_s2_grounded', 'src_dec_1')
+    expect(cp?.valuation?.synthesis_grounding_unmet).toBeUndefined()
+    expect(typeof valuation?.['reference_fair_value']).toBe('number')
+    expect(typeof valuation?.['implied_exit_multiple']).toBe('number')
+    expect(typeof valuation?.['market_implied_growth']).toBe('number')
+  })
+})
