@@ -110,25 +110,32 @@ function moatThesisForTier(tier: 'narrow' | 'moderate' | 'wide' | 'monopoly', ci
     moat_reasoning: `Grounded ${tier} moat thesis for the test.`,
   }
 }
-function runwayRubricForTier(tier: 'none' | 'limited' | 'proven', cite: string) {
-  const scores = tier === 'proven'
-    ? [{ id: 'R1', score: 2 }, { id: 'R2', score: 2, citation_hash: cite }, { id: 'R3', score: 2, citation_hash: cite }]
-    : tier === 'limited'
-      ? [{ id: 'R1', score: 2 }]
-      : [{ id: 'R1', score: 0 }]
-  return { rubric_scores: scores, proposed_tier: tier, adjustment_evidence: [] }
+// Runway reframe: the RUNWAY lane emits a GROUNDED CITED THESIS (runway_drivers + proposed_runway), NOT a
+// per-row R1-R3 rubric. Build a thesis that resolves to the given tier: proven needs >=2 grounded distinct
+// drivers, limited >=1, none 0 (or a none proposal). All drivers cite the supplied grounded source_id so
+// they verify under the test ground fn. Mirror of moatThesisForTier.
+function runwayThesisForTier(tier: 'none' | 'limited' | 'proven', cite: string) {
+  const allDrivers = [
+    { headroom: 'under-penetrated emerging markets — decades of volume runway', citation: cite },
+    { headroom: 'announced capacity expansion deploys capital at high incremental ROIC', citation: cite },
+  ]
+  const count = tier === 'proven' ? 2 : tier === 'limited' ? 1 : 1
+  return {
+    runway_drivers: allDrivers.slice(0, count),
+    proposed_runway: tier,
+    runway_reasoning: `Grounded ${tier} runway thesis for the test.`,
+  }
 }
 
 // Shared per-lane judgment payloads for the schema-name-keyed fakes (spec-correct decomposition: the
-// MOAT lane emits its rubric, the SHARIAH lane emits its overlay).
+// MOAT lane emits its grounded moat + runway theses, the SHARIAH lane emits its overlay).
 function fakeMoatLanePayload(src: (id: string) => unknown) {
-  const runwayRubric = (tier: string) => ({ rubric_scores: [{ id: 'R1', score: 2 }], proposed_tier: tier, adjustment_evidence: [] })
   return {
     finding_summary: 'Moat lane finding', confidence: 'medium' as const, caveats: ['Mock moat caveat'],
-    // B6 grounded cited thesis (2 grounded drivers -> resolves wide). runway keeps its per-row rubric.
+    // Grounded cited theses: 2 grounded moat drivers -> wide; 2 grounded runway drivers -> proven.
     ...moatThesisForTier('wide', 'src_lane_moat'),
     runway: 'proven' as const,
-    runway_rubric: runwayRubric('proven'),
+    ...runwayThesisForTier('proven', 'src_lane_moat'),
     proposed_sources: [src('src_lane_moat')],
   }
 }
@@ -266,7 +273,6 @@ function swarmFakeProviderWithLaneIds(_lanes: readonly string[]) {
     const m = /Buffett-Munger (\w+) specialist agent/.exec(prompt ?? '')
     return m?.[1] ?? 'lane'
   }
-  const fullRubric = (tier: string) => ({ rubric_scores: [{ id: 'M1', score: 2 }, { id: 'M2', score: 2 }], proposed_tier: tier, adjustment_evidence: [] })
   return {
     provider_id: 'fake-swarm-partial',
     capabilities: {} as never,
@@ -298,7 +304,7 @@ function swarmFakeProviderWithLaneIds(_lanes: readonly string[]) {
         return {
           finding_summary: 'moat lane finding', confidence: 'medium' as const, caveats: ['Mock lane caveat'],
           ...moatThesisForTier('wide', 'src_moat_1'), runway: 'proven' as const,
-          runway_rubric: fullRubric('proven'),
+          ...runwayThesisForTier('proven', 'src_moat_1'),
           proposed_sources: [src('src_moat_1')],
         }
       }
@@ -485,7 +491,6 @@ describe('runStrategyResearchSwarm', () => {
         url: 'https://www.sec.gov/Archives/edgar/data/0/test-10k.htm',
         excerpt: 'Test excerpt',
       })
-      const fullRubric = (tier: string) => ({ rubric_scores: [{ id: 'M1', score: 2 }, { id: 'M2', score: 2 }], proposed_tier: tier, adjustment_evidence: [] })
       return {
         provider_id: 'fake-swarm-good-bad',
         capabilities: {} as never,
@@ -517,7 +522,7 @@ describe('runStrategyResearchSwarm', () => {
             return {
               finding_summary: 'moat lane finding', confidence: 'medium' as const, caveats: ['Mock lane caveat'],
               ...moatThesisForTier('wide', 'src_moat_good_1'), runway: 'proven' as const,
-              runway_rubric: fullRubric('proven'),
+              ...runwayThesisForTier('proven', 'src_moat_good_1'),
               proposed_sources: [src('src_moat_good_1'), src('src_moat_bad_1')],
             }
           }
@@ -990,6 +995,15 @@ describe('runStrategyResearchSwarm with MockProvider + deterministic grounder', 
     expect(judgment?.moat?.grounded_driver_count).toBeGreaterThanOrEqual(3)
     // resolved moat_class fed downstream is monopoly.
     expect(c?.valuation?.moat_class).toBe('monopoly')
+    // runway axis (runway reframe): the mock emits a grounded cited runway thesis (2 grounded headroom
+    // drivers proposing proven -> resolved proven). The dossier surfaces the cited runway_drivers + count.
+    expect(judgment?.runway?.proposed_tier).toBe('proven')
+    expect(judgment?.runway?.resolved_tier).toBe('proven')
+    expect((judgment?.runway?.runway_drivers ?? []).length).toBeGreaterThanOrEqual(2)
+    expect((judgment?.runway?.runway_drivers ?? []).every((d) => d.grounded)).toBe(true)
+    expect(judgment?.runway?.grounded_driver_count).toBeGreaterThanOrEqual(2)
+    // resolved runway fed downstream is proven.
+    expect(c?.valuation?.runway).toBe('proven')
   })
 })
 
@@ -1131,12 +1145,13 @@ function configurableSwarmProvider(opts: {
           runway,
           ...(opts.synthesis?.runway_exceptional !== undefined ? { runway_exceptional: opts.synthesis.runway_exceptional } : {}),
           // B6: the grounded cited thesis RESOLVES to the requested moat_class (drivers cite the grounded
-          // src_lane_moat so they verify under allVerifiedGround). When omitMoatRubric is set the thesis is
-          // omitted (the lane omits its judgment block) -> fail-closed narrow + judgment_degraded; the
-          // runway_rubric is still supplied so the runway axis resolves normally.
+          // src_lane_moat so they verify under allVerifiedGround). When omitMoatRubric is set the moat thesis
+          // is omitted (the lane omits its judgment block) -> fail-closed narrow + judgment_degraded; the
+          // grounded runway thesis is still supplied so the runway axis resolves normally.
+          ...runwayThesisForTier(runway, 'src_lane_moat'),
           ...(opts.omitMoatRubric === true
-            ? { runway_rubric: runwayRubricForTier(runway, 'src_lane_moat') }
-            : { ...moatThesisForTier(moatClass, 'src_lane_moat'), runway_rubric: runwayRubricForTier(runway, 'src_lane_moat') }),
+            ? {}
+            : moatThesisForTier(moatClass, 'src_lane_moat')),
           proposed_sources: [src('src_lane_moat')],
         }
       }
@@ -2411,9 +2426,6 @@ function swarmFakeProviderWithShariah(
 ) {
   let laneCall = 0
   const src = (id: string) => ({ source_id: id, title: 'T', url: 'https://www.sec.gov/Archives/edgar/data/0/test-10k.htm', excerpt: 'e' })
-  const fullRubric = (tier: string) => ({
-    rubric_scores: [{ id: 'M1', score: 2 }, { id: 'M2', score: 2 }], proposed_tier: tier, adjustment_evidence: [],
-  })
   return {
     provider_id: 'fake-swarm-shariah',
     capabilities: {} as never,
@@ -2436,7 +2448,7 @@ function swarmFakeProviderWithShariah(
         return {
           finding_summary: 'Moat lane', confidence: 'medium', caveats: ['c'],
           ...moatThesisForTier('wide', 'src_lane_moat'), runway: 'proven',
-          runway_rubric: fullRubric('proven'),
+          ...runwayThesisForTier('proven', 'src_lane_moat'),
           proposed_sources: [src('src_lane_moat')],
         }
       }
@@ -3334,7 +3346,7 @@ describe('SUBSTITUTION-BOUNDARY INVARIANT — moat gate cannot pass on quant alo
           return {
             finding_summary: 'Moat lane', confidence: 'high', caveats: ['c'],
             ...moatThesisPayload, runway: 'proven',
-            runway_rubric: runwayRubricForTier('proven', 'src_lane_moat'),
+            ...runwayThesisForTier('proven', 'src_lane_moat'),
             proposed_sources: [src('src_lane_moat')],
           }
         }
@@ -3551,11 +3563,6 @@ describe('runStrategyResearchSwarm — schema-validation + retry (harness defens
     const src = (id: string) => ({ source_id: id, title: 'T', url: 'https://www.sec.gov/Archives/edgar/data/0/test-10k.htm', excerpt: 'e' })
     let laneCall = 0
     let responseAttempt = 0
-    const fullRubric = (tier: string) => ({
-      rubric_scores: [{ id: 'M1', score: 2 }, { id: 'M2', score: 2 }],
-      proposed_tier: tier,
-      adjustment_evidence: [],
-    })
     const provider = {
       provider_id: 'fake-retry',
       capabilities: {} as never,
@@ -3582,7 +3589,7 @@ describe('runStrategyResearchSwarm — schema-validation + retry (harness defens
           return {
             finding_summary: 'Moat lane', confidence: 'high', caveats: ['c'],
             ...moatThesisForTier('wide', 'src_lane_moat'), runway: 'proven',
-            runway_rubric: fullRubric('proven'),
+            ...runwayThesisForTier('proven', 'src_lane_moat'),
             proposed_sources: [src('src_lane_moat')],
           }
         }
@@ -3758,7 +3765,7 @@ function crossCheckSwarmProvider(opts: {
         return {
           finding_summary: 'Moat lane', confidence: 'high', caveats: ['c'],
           ...moatThesisForTier(moatClass, 'src_lane_moat'), runway: 'proven',
-          runway_rubric: runwayRubricForTier('proven', 'src_lane_moat'),
+          ...runwayThesisForTier('proven', 'src_lane_moat'),
           proposed_sources: [src('src_lane_moat')],
         }
       }
@@ -4208,7 +4215,6 @@ describe('circle-of-competence gate', () => {
       url: 'https://www.sec.gov/Archives/edgar/data/0/test-10k.htm',
       excerpt: 'Test excerpt',
     })
-    const fullRubric = (tier: string) => ({ rubric_scores: [{ id: 'M1', score: 2 }, { id: 'M2', score: 2 }], proposed_tier: tier, adjustment_evidence: [] })
     return {
       provider_id: 'fake-swarm-circle',
       capabilities: {} as never,
@@ -4242,7 +4248,7 @@ describe('circle-of-competence gate', () => {
           return {
             finding_summary: 'Moat lane finding', confidence: 'medium' as const, caveats: ['Mock moat caveat'],
             ...moatThesisForTier('wide', 'src_lane_moat'), runway: 'proven' as const,
-            runway_rubric: fullRubric('proven'),
+            ...runwayThesisForTier('proven', 'src_lane_moat'),
             proposed_sources: [src('src_lane_moat')],
           }
         }

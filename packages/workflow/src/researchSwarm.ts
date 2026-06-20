@@ -1119,7 +1119,8 @@ export async function runResearchDeepDivePhase(
       const moatRequired: RequiredFieldCheck<z.infer<typeof MoatLaneSchema>>[] = [
         { name: 'moat_drivers', present: (a) => Array.isArray(a.moat_drivers) && a.moat_drivers.length > 0, hint: 'the durable competitive advantages, each {advantage, citation} cited to a verified primary source' },
         { name: 'proposed_moat_class', present: (a) => a.proposed_moat_class !== undefined, hint: "'narrow' | 'moderate' | 'wide' | 'monopoly' — your grounded moat judgment" },
-        { name: 'runway_rubric', present: (a) => a.runway_rubric !== undefined, hint: 'scored 0/1/2 rubric_scores + proposed_tier' },
+        { name: 'runway_drivers', present: (a) => Array.isArray(a.runway_drivers) && a.runway_drivers.length > 0, hint: 'the reinvestment-runway headroom drivers, each {headroom, citation} cited to a verified primary source' },
+        { name: 'proposed_runway', present: (a) => a.proposed_runway !== undefined, hint: "'proven' | 'limited' | 'none' — your grounded runway judgment" },
       ]
       const validated = await runValidatedAgent(laneRuntime.provider, {
         run_id: baseRunId,
@@ -1150,6 +1151,11 @@ export async function runResearchDeepDivePhase(
       // undefined → the resolver fails closed to narrow + judgment_degraded, never a silent admit).
       const moatThesisPresent =
         Array.isArray(a.moat_drivers) && a.moat_drivers.length > 0 && a.proposed_moat_class !== undefined
+      // The grounded runway thesis is present only when BOTH the drivers (non-empty) and the proposed
+      // runway survived (the fallback path leaves runway_thesis undefined → the resolver fails closed to a
+      // conservative runway + judgment_degraded; never a silent admit).
+      const runwayThesisPresent =
+        Array.isArray(a.runway_drivers) && a.runway_drivers.length > 0 && a.proposed_runway !== undefined
       const moat_judgment: MoatLaneJudgment = {
         ...(moatThesisPresent
           ? {
@@ -1162,7 +1168,15 @@ export async function runResearchDeepDivePhase(
           : {}),
         runway: a.runway,
         ...(a.runway_exceptional !== undefined ? { runway_exceptional: a.runway_exceptional } : {}),
-        ...(a.runway_rubric !== undefined ? { runway_rubric: a.runway_rubric } : {}),
+        ...(runwayThesisPresent
+          ? {
+              runway_thesis: {
+                runway_drivers: a.runway_drivers,
+                proposed_runway: a.proposed_runway,
+                runway_reasoning: a.runway_reasoning ?? '',
+              },
+            }
+          : {}),
       } as MoatLaneJudgment
       return {
         lane,
@@ -1274,8 +1288,10 @@ export async function runResearchDeepDivePhase(
     // MOAT (B6 reframe): the grounded cited thesis (moat_drivers + proposed_moat_class). When the lane
     // omitted it, the moat axis fails closed to narrow + judgment_degraded (the silent-skip guard).
     ...(moatJudgment?.moat_thesis !== undefined ? { moatThesis: moatJudgment.moat_thesis } : {}),
-    ...(moatJudgment?.runway_rubric !== undefined ? { runwayRubric: moatJudgment.runway_rubric } : {}),
-    // Holistic runway fallback so the resolved runway is NEVER undefined when its rubric is omitted.
+    // RUNWAY (runway reframe): the grounded cited thesis (runway_drivers + proposed_runway). When the lane
+    // omitted it, the runway axis fails closed to a conservative runway + judgment_degraded.
+    ...(moatJudgment?.runway_thesis !== undefined ? { runwayThesis: moatJudgment.runway_thesis } : {}),
+    // Holistic runway fallback so the resolved runway is NEVER undefined when the grounded thesis is omitted.
     ...(moatJudgment?.runway !== undefined ? { holisticRunway: moatJudgment.runway } : {}),
     ...(fundamentals?.annual_series !== undefined ? { series: fundamentals.annual_series } : {}),
     verifiedCitationHashes,
@@ -1760,9 +1776,9 @@ export async function runResearchDeepDivePhase(
   if (shariahLaneResult?.judgment_retry_degraded !== undefined) degradedFlags.push(shariahLaneResult.judgment_retry_degraded)
   if (judgment.moat?.judgment_degraded === 'rubric_not_emitted' || judgment.runway?.judgment_degraded === 'rubric_not_emitted') {
     degradedFlags.push(
-      'judgment_degraded: rubric_not_emitted — the model omitted the moat/runway rubric_scores; the moat '
+      'judgment_degraded: rubric_not_emitted — the model omitted the grounded moat/runway thesis; the moat '
       + 'class and reinvestment runway were resolved from the holistic lane judgment (or a conservative default), '
-      + 'NOT from scored, citation-verified rubric rows.',
+      + 'NOT from a grounded, cite-verified thesis.',
     )
   }
   // resolved_moat_class is guaranteed defined by resolveJudgmentTiers (never undefined).
@@ -2785,13 +2801,15 @@ export async function runResearchDeepDivePhase(
   // and surfaces them; it does NOT silently pass an unjustified exceptional claim.
   // B6: the moat exceptionality justification is now the GROUNDED moat thesis (cite-verified drivers) —
   // each grounded {advantage, citation} maps onto an {claim, citation_hash} justification. Only grounded
-  // drivers count (an ungrounded driver is no justification). The runway rubric still contributes its
-  // cited adjustment evidence.
+  // drivers count (an ungrounded driver is no justification). Runway reframe: the grounded runway thesis
+  // (cite-verified headroom drivers) likewise contributes — only grounded {headroom, citation} drivers.
   const exceptionalityJustifications = [
     ...((judgment.moat?.moat_drivers ?? [])
       .filter((d) => d.grounded)
       .map((d) => ({ claim: d.advantage, citation_hash: d.citation }))),
-    ...(moatJudgment?.runway_rubric?.adjustment_evidence ?? []),
+    ...((judgment.runway?.runway_drivers ?? [])
+      .filter((d) => d.grounded)
+      .map((d) => ({ claim: d.headroom, citation_hash: d.citation }))),
   ]
   // ROIC>20% sustained signal: high reported/incremental ROIC at a wide+ moat with growth credited.
   const roicForecastGt20 =

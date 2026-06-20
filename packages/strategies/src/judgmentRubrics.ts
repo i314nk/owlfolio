@@ -123,8 +123,11 @@ const MANAGEMENT_RUBRIC: Rubric = {
 // emitting circle_competence_judged: cite-verified cashflow_drivers + predictability_breakers). The model's
 // grounded judgment SUBSUMES this deterministic score→tier as the predictability assessment.
 //
-// VERIFIED (do not assume otherwise): this deterministic PREDICTABILITY_RUBRIC is currently DORMANT — only
-// JUDGMENT_RUBRICS.moat and .runway are consumed (researchSwarmCompute.ts → resolveJudgmentTiers). The
+// VERIFIED (do not assume otherwise): this deterministic PREDICTABILITY_RUBRIC is DORMANT. As of the moat
+// (db691ac) + runway reframes, JUDGMENT_RUBRICS.moat and .runway are NO LONGER consumed either — both axes
+// resolve from a grounded cited thesis (resolveMoatThesis / resolveRunwayThesis), so MOAT_RUBRIC /
+// RUNWAY_RUBRIC + resolveRubricTier are now dead machinery (flagged for a Goal-2 cleanup pass; their unit
+// tests + computeMoatAnchor/computeRunwayAnchor are preserved). The
 // predictability (and management) rubrics are NOT wired into any binding admit/quality gate (a repo-wide
 // grep confirms no production consumer beyond this definition + its unit test). So there is NO admit gate
 // to break: the fold-in is clean — predictability now lives in the circle judgment. The frozen rubric is

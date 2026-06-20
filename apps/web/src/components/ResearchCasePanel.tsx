@@ -766,6 +766,42 @@ function createVerdictFormatBlock(researchCase: AppResearchCase) {
           : null,
       )
 
+  // Runway reframe: the RUNWAY is the model's GROUNDED CITED THESIS (cited reinvestment-headroom drivers) —
+  // the EDGAR incremental-ROIC quant CORROBORATES. Mirror the moat display: proposed → resolved + the quant
+  // corroboration tier, then the cited runway_drivers (with grounded flags) + an advisory contradiction flag.
+  // Runway is NOT a verdict gate, so the advisory flags never route to RESEARCH_MORE.
+  const runwayJudgment = valuation.judgment?.runway
+  const runwayProposedResolved = runwayJudgment === undefined
+    ? NOT_YET
+    : createElement(
+        'span',
+        null,
+        `${(runwayJudgment.proposed_tier ?? '—').toUpperCase()} proposed → ${(runwayJudgment.resolved_tier ?? '—').toUpperCase()} resolved`
+        + ` · quant corroboration: ${(runwayJudgment.anchor_tier ?? (runwayJudgment.anchor_computable === false ? 'not computable' : '—')).toUpperCase()}`,
+      )
+  const runwayDrivers = runwayJudgment?.runway_drivers
+  const runwayDriverRow = (headroom: string, citation: string | undefined, grounded: boolean | undefined) =>
+    createElement(
+      'li',
+      { key: `${headroom}:${citation}`, style: { marginBottom: '0.25rem', fontSize: 'var(--owl-text-sm)', lineHeight: 1.5 } },
+      createElement('span', { style: { color: 'var(--owl-color-text)' } }, headroom),
+      createElement(
+        'span',
+        { style: { color: grounded ? 'var(--owl-color-muted)' : '#fca5a5', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-xs)', marginLeft: '0.5rem' } },
+        grounded ? `[cited: ${citation}]` : `[citation did not verify: ${citation}]`,
+      ),
+    )
+  const runwayThesisSummary = runwayDrivers === undefined || runwayDrivers.length === 0
+    ? NOT_YET
+    : createElement(
+        'div',
+        null,
+        createElement('ul', { style: { margin: '0 0 0.25rem', paddingLeft: '1.1rem' } }, ...runwayDrivers.map((d) => runwayDriverRow(d.headroom ?? '', d.citation, d.grounded))),
+        runwayJudgment?.quant_contradicts_runway === true
+          ? createElement('span', { style: { color: '#fbbf24', fontSize: 'var(--owl-text-xs)' } }, 'advisory: EDGAR incremental-ROIC quant is weak under this runway thesis (corroboration only — does not block)')
+          : null,
+      )
+
   // Red-team objection + response.
   const redTeam = researchCase.red_team
   const redTeamLine = redTeam === undefined
@@ -885,6 +921,8 @@ function createVerdictFormatBlock(researchCase: AppResearchCase) {
     verdictFormatLine('Shariah + purification', researchCase.shariah_status === undefined ? NOT_YET : `${researchCase.shariah_status}${purificationPct === undefined ? '' : ` · purification ${(purificationPct * 100).toFixed(1)}%`}`),
     verdictFormatLine('Moat class (quant corroborates)', anchorVsProposed),
     verdictFormatLine('Grounded moat thesis', rubricSummary),
+    verdictFormatLine('Runway (quant corroborates)', runwayProposedResolved),
+    verdictFormatLine('Grounded runway thesis', runwayThesisSummary),
     // MARGIN-OF-SAFETY AUDIT SURFACE — the model's forward-looking risk judgments (no longer hardcoded
     // stubs). key_wrong_assumption as a line; thesis_break_triggers as a list. Legacy/absent → honest
     // NOT_YET fallback (these are NOT cite-gated — they are the model's risk reasoning for the human).
@@ -1244,6 +1282,14 @@ function createValuationPanel(researchCase: AppResearchCase, marketQuote?: Marke
       + ` · ${moatJudgment.grounded_driver_count ?? 0} grounded driver(s)`
       + ` · quant ${moatJudgment.anchor_computable === false ? 'n/a' : (moatJudgment.anchor_tier ?? '?').toUpperCase()}`
     : undefined
+  // Runway reframe: the runway is the grounded cited thesis; the incremental-ROIC quant CORROBORATES. Show
+  // proposed → resolved + the grounded driver count + the quant corroboration tier (n/a when not computable).
+  const runwayJudgment = valuation.judgment?.runway
+  const runwayAnchorLabel = runwayJudgment !== undefined
+    ? `${(runwayJudgment.proposed_tier ?? '?').toUpperCase()} proposed → ${(runwayJudgment.resolved_tier ?? '?').toUpperCase()} resolved`
+      + ` · ${runwayJudgment.grounded_driver_count ?? 0} grounded driver(s)`
+      + ` · quant ${runwayJudgment.anchor_computable === false ? 'n/a' : (runwayJudgment.anchor_tier ?? '?').toUpperCase()}`
+    : undefined
 
   // Mechanism 3 (Base-Rate Constraints): claims that beat a base rate (monopoly, credited g 4-5%, >20%
   // ROIC, margin expansion) lacking a STRUCTURAL exceptionality justification are flagged
@@ -1395,6 +1441,7 @@ function createValuationPanel(researchCase: AppResearchCase, marketQuote?: Marke
       createValuationLedgerStat('Terminal g', terminalGrowthRate !== undefined ? `${(terminalGrowthRate * 100).toFixed(0)}%` : 'Pending', ''),
       createValuationLedgerStat('Runway', runway ?? 'Pending', ''),
       ...(moatAnchorLabel !== undefined ? [createValuationLedgerStat('Moat anchor', moatAnchorLabel, '')] : []),
+      ...(runwayAnchorLabel !== undefined ? [createValuationLedgerStat('Runway anchor', runwayAnchorLabel, '')] : []),
       createValuationLedgerStat('Discount', discountLabel, ''),
     ),
     // Mechanism 3: base-rate burden — exceptional claims lacking structural evidence (surfaced, never passed).

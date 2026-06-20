@@ -149,6 +149,13 @@ export type ResearchCaseJudgmentAxisProjection = {
   moat_grounding_unmet?: boolean
   /** Advisory: a grounded gate-passing moat sits on a WEAK EDGAR quant. Surfaced, never blocks. */
   quant_contradicts_moat?: boolean
+  // ---- Grounded-thesis RUNWAY projection (runway reframe) — the runway is the model's grounded cited thesis. ----
+  /** The cited reinvestment-runway headroom drivers, each with a cite-verified `grounded` flag. */
+  runway_drivers?: { headroom: string; citation: string; grounded: boolean }[]
+  /** True when the model proposed proven but the grounded thesis couldn't back it. ADVISORY (runway is NOT a gate). */
+  runway_grounding_unmet?: boolean
+  /** Advisory: a grounded proven runway sits on a WEAK EDGAR incremental-ROIC quant. Surfaced, never blocks. */
+  quant_contradicts_runway?: boolean
 }
 
 export type ResearchCaseJudgmentProjection = {
@@ -957,6 +964,17 @@ function getJudgmentAxis(value: unknown): ResearchCaseJudgmentAxisProjection | u
   if (grounded_driver_count !== undefined) projected.grounded_driver_count = grounded_driver_count
   if (value['moat_grounding_unmet'] === true) projected.moat_grounding_unmet = true
   if (value['quant_contradicts_moat'] === true) projected.quant_contradicts_moat = true
+  // ---- Grounded-thesis RUNWAY fields (runway reframe) — legacy events omit these (tolerated). ----
+  const rawRunwayDrivers = value['runway_drivers']
+  if (Array.isArray(rawRunwayDrivers)) {
+    const drivers = rawRunwayDrivers
+      .filter(isRecord)
+      .map((d) => ({ headroom: getString(d, 'headroom'), citation: getString(d, 'citation'), grounded: d['grounded'] === true }))
+      .filter((d): d is { headroom: string; citation: string; grounded: boolean } => d.headroom !== undefined && d.citation !== undefined)
+    if (drivers.length > 0) projected.runway_drivers = drivers
+  }
+  if (value['runway_grounding_unmet'] === true) projected.runway_grounding_unmet = true
+  if (value['quant_contradicts_runway'] === true) projected.quant_contradicts_runway = true
   return Object.keys(projected).length === 0 ? undefined : projected
 }
 

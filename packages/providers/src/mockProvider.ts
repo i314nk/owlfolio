@@ -177,10 +177,11 @@ function mockLaneFindingForTicker(ticker: string) {
   }
 }
 
-// MOAT lane (B6 reframe): emits a GROUNDED CITED THESIS (moat_drivers + proposed_moat_class +
-// moat_reasoning) — mirroring the circle gate — plus the (still-rubric) runway axis. Each driver cites a
-// grounded mock source_id so it verifies against the corpus; 3 grounded distinct advantages clear the
-// monopoly threshold (>=3). The runway keeps its per-row rubric (resolveRubricTier — later follow-up).
+// MOAT lane (B6 + runway reframe): emits TWO GROUNDED CITED THESES — the moat thesis (moat_drivers +
+// proposed_moat_class + moat_reasoning) and the runway thesis (runway_drivers + proposed_runway +
+// runway_reasoning) — both mirroring the circle gate. Each driver cites a grounded mock source_id so it
+// verifies against the corpus; 3 grounded distinct moat advantages clear the monopoly threshold (>=3) and
+// 2 grounded distinct runway headroom drivers clear the proven threshold (>=2).
 function mockMoatLaneForTicker(ticker: string) {
   const companyLabel = companyLabelForTicker(ticker)
   const groundedSources = mockSourcesForTicker(ticker)
@@ -198,15 +199,12 @@ function mockMoatLaneForTicker(ticker: string) {
     proposed_moat_class: 'monopoly' as const,
     moat_reasoning: `${companyLabel} combines durable pricing power, share durability, and a structural cost/scale advantage — a grounded monopoly-class moat.`,
     runway: 'proven' as const,
-    runway_rubric: {
-      rubric_scores: [
-        { id: 'R1', score: 2 },
-        { id: 'R2', score: 2, citation_hash: primaryCite },
-        { id: 'R3', score: 2, citation_hash: secondaryCite },
-      ],
-      proposed_tier: 'proven' as const,
-      adjustment_evidence: [],
-    },
+    runway_drivers: [
+      { headroom: `${companyLabel} under-penetrated emerging markets — decades of volume runway per the filing.`, citation: primaryCite },
+      { headroom: `${companyLabel} announced capacity expansion deploys incremental capital at high ROIC.`, citation: secondaryCite },
+    ],
+    proposed_runway: 'proven' as const,
+    runway_reasoning: `${companyLabel} can deploy incremental capital at high ROIC for years with visible remaining headroom — a grounded proven runway.`,
     proposed_sources: groundedSources,
   }
 }
