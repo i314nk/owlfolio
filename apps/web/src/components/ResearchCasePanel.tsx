@@ -730,15 +730,41 @@ function createVerdictFormatBlock(researchCase: AppResearchCase) {
   const sf = researchCase.shariah_financial
   const purificationPct = sf?.purification_pct
 
-  // Anchor-vs-proposed tier + rubric scores (judgment-objectivity layer).
+  // B6: the MOAT is the model's GROUNDED CITED THESIS (cited advantages) — the EDGAR quant CORROBORATES.
+  // Show proposed → resolved class + the quant corroboration tier, then the cited moat_drivers (with their
+  // grounded flags, mirroring the circle gate) + an advisory flag when the quant contradicts the moat.
   const moatJudgment = valuation.judgment?.moat
   const anchorVsProposed = moatJudgment === undefined
     ? NOT_YET
-    : createElement('span', null, `${(moatJudgment.anchor_tier ?? '—').toUpperCase()} anchor → ${(moatJudgment.proposed_tier ?? '—').toUpperCase()} proposed → ${(moatJudgment.resolved_tier ?? '—').toUpperCase()} resolved`)
-  const rubricScores = moatJudgment?.rubric_scores
-  const rubricSummary = rubricScores === undefined || rubricScores.length === 0
+    : createElement(
+        'span',
+        null,
+        `${(moatJudgment.proposed_tier ?? '—').toUpperCase()} proposed → ${(moatJudgment.resolved_tier ?? '—').toUpperCase()} resolved`
+        + ` · quant corroboration: ${(moatJudgment.anchor_tier ?? (moatJudgment.anchor_computable === false ? 'not computable' : '—')).toUpperCase()}`,
+      )
+  // The grounded cited moat thesis: each durable advantage + a cite-verified flag (mirror the circle gate).
+  const moatDrivers = moatJudgment?.moat_drivers
+  const moatDriverRow = (advantage: string, citation: string | undefined, grounded: boolean | undefined) =>
+    createElement(
+      'li',
+      { key: `${advantage}:${citation}`, style: { marginBottom: '0.25rem', fontSize: 'var(--owl-text-sm)', lineHeight: 1.5 } },
+      createElement('span', { style: { color: 'var(--owl-color-text)' } }, advantage),
+      createElement(
+        'span',
+        { style: { color: grounded ? 'var(--owl-color-muted)' : '#fca5a5', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-xs)', marginLeft: '0.5rem' } },
+        grounded ? `[cited: ${citation}]` : `[citation did not verify: ${citation}]`,
+      ),
+    )
+  const rubricSummary = moatDrivers === undefined || moatDrivers.length === 0
     ? NOT_YET
-    : createElement('span', null, rubricScores.map((s) => `${s.id} ${s.score}`).join(' · '))
+    : createElement(
+        'div',
+        null,
+        createElement('ul', { style: { margin: '0 0 0.25rem', paddingLeft: '1.1rem' } }, ...moatDrivers.map((d) => moatDriverRow(d.advantage ?? '', d.citation, d.grounded))),
+        moatJudgment?.quant_contradicts_moat === true
+          ? createElement('span', { style: { color: '#fbbf24', fontSize: 'var(--owl-text-xs)' } }, 'advisory: EDGAR quant is weak under this moat thesis (corroboration only — does not block)')
+          : null,
+      )
 
   // Red-team objection + response.
   const redTeam = researchCase.red_team
@@ -857,8 +883,8 @@ function createVerdictFormatBlock(researchCase: AppResearchCase) {
     ),
     verdictFormatLine('Buy price + version', buyPrice === undefined ? NOT_YET : `$${buyPrice}${buyPriceVersion === undefined ? ' (buy_price_version not recorded)' : ` (buy_price_version ${buyPriceVersion})`}`),
     verdictFormatLine('Shariah + purification', researchCase.shariah_status === undefined ? NOT_YET : `${researchCase.shariah_status}${purificationPct === undefined ? '' : ` · purification ${(purificationPct * 100).toFixed(1)}%`}`),
-    verdictFormatLine('Anchor vs proposed tier', anchorVsProposed),
-    verdictFormatLine('Rubric scores', rubricSummary),
+    verdictFormatLine('Moat class (quant corroborates)', anchorVsProposed),
+    verdictFormatLine('Grounded moat thesis', rubricSummary),
     // MARGIN-OF-SAFETY AUDIT SURFACE — the model's forward-looking risk judgments (no longer hardcoded
     // stubs). key_wrong_assumption as a line; thesis_break_triggers as a list. Legacy/absent → honest
     // NOT_YET fallback (these are NOT cite-gated — they are the model's risk reasoning for the human).
@@ -1211,10 +1237,12 @@ function createValuationPanel(researchCase: AppResearchCase, marketQuote?: Marke
   // Judgment-objectivity layer (Mechanisms 1+2): mechanical anchor vs the lane's proposed tier vs the
   // harness-resolved tier. Surfaced so the dossier shows where judgment moved the tier (and by how much).
   const moatJudgment = valuation.judgment?.moat
+  // B6: the moat is the grounded cited thesis; the quant CORROBORATES. Show proposed → resolved + the
+  // grounded driver count + the quant corroboration tier (n/a when the EDGAR anchor was not computable).
   const moatAnchorLabel = moatJudgment !== undefined
-    ? (moatJudgment.anchor_computable === false
-        ? `${(moatJudgment.proposed_tier ?? '?').toUpperCase()} (anchor n/a → lane rubric)`
-        : `${(moatJudgment.anchor_tier ?? '?').toUpperCase()} anchor → ${(moatJudgment.resolved_tier ?? '?').toUpperCase()}${moatJudgment.adjustment_applied ? ` (±1 from ${(moatJudgment.proposed_tier ?? '?').toUpperCase()})` : ''}`)
+    ? `${(moatJudgment.proposed_tier ?? '?').toUpperCase()} proposed → ${(moatJudgment.resolved_tier ?? '?').toUpperCase()} resolved`
+      + ` · ${moatJudgment.grounded_driver_count ?? 0} grounded driver(s)`
+      + ` · quant ${moatJudgment.anchor_computable === false ? 'n/a' : (moatJudgment.anchor_tier ?? '?').toUpperCase()}`
     : undefined
 
   // Mechanism 3 (Base-Rate Constraints): claims that beat a base rate (monopoly, credited g 4-5%, >20%

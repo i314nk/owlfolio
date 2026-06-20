@@ -93,15 +93,22 @@ describe('runLaneSwarm', () => {
 // Computable rows (M1/M2, R1) are honored from the lane when no anchor exists; cited rows carry the
 // supplied verified citation hash (a grounded source_id) so they score. Tier bands (moat): monopoly≥10,
 // wide 7-9, moderate 4-6, narrow<4. Runway: proven≥5, limited≥2, none<2.
-function moatRubricForTier(tier: 'narrow' | 'moderate' | 'wide' | 'monopoly', cite: string) {
-  const scores = tier === 'monopoly'
-    ? [{ id: 'M1', score: 2 }, { id: 'M2', score: 2 }, { id: 'M3', score: 2, citation_hash: cite }, { id: 'M4', score: 2, citation_hash: cite }, { id: 'M5', score: 2, citation_hash: cite }, { id: 'M6', score: 2, citation_hash: cite }]
-    : tier === 'wide'
-      ? [{ id: 'M1', score: 2 }, { id: 'M2', score: 2 }, { id: 'M3', score: 2, citation_hash: cite }, { id: 'M4', score: 2, citation_hash: cite }]
-      : tier === 'moderate'
-        ? [{ id: 'M1', score: 2 }, { id: 'M2', score: 2 }]
-        : [{ id: 'M1', score: 1 }, { id: 'M2', score: 1 }]
-  return { rubric_scores: scores, proposed_tier: tier, adjustment_evidence: [] }
+// B6 reframe: the MOAT lane emits a GROUNDED CITED THESIS (moat_drivers + proposed_moat_class), NOT a
+// per-row rubric. Build a thesis that resolves to the given tier: monopoly needs >=3 grounded distinct
+// drivers, wide >=2, moderate 1, narrow 0 grounded drivers (or a narrow proposal). All drivers cite the
+// supplied grounded source_id so they verify under the test ground fn.
+function moatThesisForTier(tier: 'narrow' | 'moderate' | 'wide' | 'monopoly', cite: string) {
+  const allDrivers = [
+    { advantage: 'documented pricing power without volume loss', citation: cite },
+    { advantage: 'sustained market-share gains vs funded entrants', citation: cite },
+    { advantage: 'structural cost/scale + distribution advantage', citation: cite },
+  ]
+  const count = tier === 'monopoly' ? 3 : tier === 'wide' ? 2 : tier === 'moderate' ? 1 : 1
+  return {
+    moat_drivers: allDrivers.slice(0, count),
+    proposed_moat_class: tier,
+    moat_reasoning: `Grounded ${tier} moat thesis for the test.`,
+  }
 }
 function runwayRubricForTier(tier: 'none' | 'limited' | 'proven', cite: string) {
   const scores = tier === 'proven'
@@ -115,11 +122,13 @@ function runwayRubricForTier(tier: 'none' | 'limited' | 'proven', cite: string) 
 // Shared per-lane judgment payloads for the schema-name-keyed fakes (spec-correct decomposition: the
 // MOAT lane emits its rubric, the SHARIAH lane emits its overlay).
 function fakeMoatLanePayload(src: (id: string) => unknown) {
-  const fullRubric = (tier: string) => ({ rubric_scores: [{ id: 'M1', score: 2 }, { id: 'M2', score: 2 }], proposed_tier: tier, adjustment_evidence: [] })
+  const runwayRubric = (tier: string) => ({ rubric_scores: [{ id: 'R1', score: 2 }], proposed_tier: tier, adjustment_evidence: [] })
   return {
     finding_summary: 'Moat lane finding', confidence: 'medium' as const, caveats: ['Mock moat caveat'],
-    moat_class: 'wide' as const, runway: 'proven' as const,
-    moat_rubric: fullRubric('wide'), runway_rubric: fullRubric('proven'),
+    // B6 grounded cited thesis (2 grounded drivers -> resolves wide). runway keeps its per-row rubric.
+    ...moatThesisForTier('wide', 'src_lane_moat'),
+    runway: 'proven' as const,
+    runway_rubric: runwayRubric('proven'),
     proposed_sources: [src('src_lane_moat')],
   }
 }
@@ -288,8 +297,8 @@ function swarmFakeProviderWithLaneIds(_lanes: readonly string[]) {
       if (schemaName === 'BuffettMungerMoatLane') {
         return {
           finding_summary: 'moat lane finding', confidence: 'medium' as const, caveats: ['Mock lane caveat'],
-          moat_class: 'wide' as const, runway: 'proven' as const,
-          moat_rubric: fullRubric('wide'), runway_rubric: fullRubric('proven'),
+          ...moatThesisForTier('wide', 'src_moat_1'), runway: 'proven' as const,
+          runway_rubric: fullRubric('proven'),
           proposed_sources: [src('src_moat_1')],
         }
       }
@@ -507,8 +516,8 @@ describe('runStrategyResearchSwarm', () => {
           if (schemaName === 'BuffettMungerMoatLane') {
             return {
               finding_summary: 'moat lane finding', confidence: 'medium' as const, caveats: ['Mock lane caveat'],
-              moat_class: 'wide' as const, runway: 'proven' as const,
-              moat_rubric: fullRubric('wide'), runway_rubric: fullRubric('proven'),
+              ...moatThesisForTier('wide', 'src_moat_good_1'), runway: 'proven' as const,
+              runway_rubric: fullRubric('proven'),
               proposed_sources: [src('src_moat_good_1'), src('src_moat_bad_1')],
             }
           }
@@ -944,10 +953,10 @@ describe('runStrategyResearchSwarm with MockProvider + deterministic grounder', 
     expect(caseProjection?.valuation?.owner_earnings_bridge?.shares_outstanding).toBe(1000)
   })
 
-  it('projects the judgment-objectivity layer (Mechanisms 1+2): rubric scores + anchor-vs-proposed-vs-resolved', async () => {
-    // No EDGAR fundamentals injected -> moat anchor not computable -> the lane full-rubric score stands.
-    // Mock cites all 6 moat rows (12 -> monopoly). The dossier surfaces the rubric scores + that the
-    // anchor was not computable.
+  it('projects the judgment layer: grounded moat thesis (B6) + runway rubric, anchor-vs-proposed-vs-resolved', async () => {
+    // No EDGAR fundamentals injected -> moat quant anchor not computable. The mock emits a grounded cited
+    // moat thesis (3 grounded drivers proposing monopoly -> resolved monopoly). The dossier surfaces the
+    // cited moat_drivers + grounded count + that the quant anchor was not computable.
     const sourceLedgerPath = await mkdtemp(join(tmpdir(), 'owlfolio-mock-judgment-'))
     const store = new InMemoryEventStore()
     await runStrategyResearchSwarm(
@@ -971,11 +980,14 @@ describe('runStrategyResearchSwarm with MockProvider + deterministic grounder', 
     const judgment = c?.valuation?.judgment
     expect(judgment).toBeDefined()
     expect(judgment?.rubric_version).toBeDefined()
-    // moat axis: anchor not computable -> lane full rubric stands -> resolved monopoly.
+    // moat axis (B6): quant anchor not computable -> grounded thesis resolves the tier -> monopoly.
     expect(judgment?.moat?.anchor_computable).toBe(false)
     expect(judgment?.moat?.proposed_tier).toBe('monopoly')
     expect(judgment?.moat?.resolved_tier).toBe('monopoly')
-    expect((judgment?.moat?.rubric_scores ?? []).length).toBe(6)
+    // The grounded cited moat drivers are surfaced (3 grounded distinct advantages clear the monopoly bar).
+    expect((judgment?.moat?.moat_drivers ?? []).length).toBeGreaterThanOrEqual(3)
+    expect((judgment?.moat?.moat_drivers ?? []).every((d) => d.grounded)).toBe(true)
+    expect(judgment?.moat?.grounded_driver_count).toBeGreaterThanOrEqual(3)
     // resolved moat_class fed downstream is monopoly.
     expect(c?.valuation?.moat_class).toBe('monopoly')
   })
@@ -1103,12 +1115,15 @@ function configurableSwarmProvider(opts: {
         return {
           finding_summary: 'Moat lane finding', confidence: 'high',
           caveats: ['Mock moat caveat'],
-          moat_class: moatClass,
           runway,
           ...(opts.synthesis?.runway_exceptional !== undefined ? { runway_exceptional: opts.synthesis.runway_exceptional } : {}),
-          // The rubric RESOLVES to the requested moat/runway tier (no-anchor path; cited rows cite the
-          // grounded src_lane_moat so they verify under allVerifiedGround).
-          ...(opts.omitMoatRubric === true ? {} : { moat_rubric: moatRubricForTier(moatClass, 'src_lane_moat'), runway_rubric: runwayRubricForTier(runway, 'src_lane_moat') }),
+          // B6: the grounded cited thesis RESOLVES to the requested moat_class (drivers cite the grounded
+          // src_lane_moat so they verify under allVerifiedGround). When omitMoatRubric is set the thesis is
+          // omitted (the lane omits its judgment block) -> fail-closed narrow + judgment_degraded; the
+          // runway_rubric is still supplied so the runway axis resolves normally.
+          ...(opts.omitMoatRubric === true
+            ? { runway_rubric: runwayRubricForTier(runway, 'src_lane_moat') }
+            : { ...moatThesisForTier(moatClass, 'src_lane_moat'), runway_rubric: runwayRubricForTier(runway, 'src_lane_moat') }),
           proposed_sources: [src('src_lane_moat')],
         }
       }
@@ -2397,8 +2412,8 @@ function swarmFakeProviderWithShariah(
       if (schemaName === 'BuffettMungerMoatLane') {
         return {
           finding_summary: 'Moat lane', confidence: 'medium', caveats: ['c'],
-          moat_class: 'wide', runway: 'proven',
-          moat_rubric: fullRubric('wide'), runway_rubric: fullRubric('proven'),
+          ...moatThesisForTier('wide', 'src_lane_moat'), runway: 'proven',
+          runway_rubric: fullRubric('proven'),
           proposed_sources: [src('src_lane_moat')],
         }
       }
@@ -2919,72 +2934,73 @@ function tenYearHighRoicSeries(): AnnualFacts[] {
   return out
 }
 
-describe('resolveJudgmentTiers — EDGAR-anchored moat resolution', () => {
+// B6 reframe: the moat axis now resolves from the model's GROUNDED CITED THESIS (moat_drivers +
+// proposed_moat_class) — NOT a per-row M1-M6 rubric. These tests were rewritten from the retired rubric
+// path to the grounded-thesis behavior (the dedicated unit coverage lives in moatThesis.test.ts; here we
+// exercise the resolveJudgmentTiers integration + the quant corroboration surfacing).
+describe('resolveJudgmentTiers — grounded-thesis moat resolution', () => {
   const verified = new Set(['sha256:a', 'sha256:b'])
 
-  it('anchor moderate (capped quant) + proposed monopoly with 2x verified evidence + grounded rows -> monopoly applied', () => {
+  it('3 grounded drivers + proposed monopoly + strong quant -> monopoly, quant corroborates (not contradicts)', () => {
     const res = resolveJudgmentTiers({
-      moatRubric: {
-        rubric_scores: [
-          { id: 'M1', score: 2 }, { id: 'M2', score: 2 },
-          { id: 'M3', score: 2, citation_hash: 'sha256:a' },
-          { id: 'M4', score: 2, citation_hash: 'sha256:b' },
-          { id: 'M5', score: 2, citation_hash: 'sha256:a' },
-          { id: 'M6', score: 2, citation_hash: 'sha256:b' },
+      moatThesis: {
+        moat_drivers: [
+          { advantage: 'documented pricing power without volume loss', citation: 'sha256:a' },
+          { advantage: 'sustained share gains vs funded entrants', citation: 'sha256:b' },
+          { advantage: 'structural cost/scale advantage', citation: 'sha256:a' },
         ],
-        proposed_tier: 'monopoly',
-        adjustment_evidence: [
-          { claim: 'failed entrant exited', citation_hash: 'sha256:a' },
-          { claim: 'documented pricing power', citation_hash: 'sha256:b' },
-        ],
+        proposed_moat_class: 'monopoly',
+        moat_reasoning: 'Three grounded durable advantages.',
       },
       series: tenYearHighRoicSeries(),
       verifiedCitationHashes: verified,
     })
     expect(res.moat?.anchor_computable).toBe(true)
-    // Quant anchor is now CAPPED at moderate (was 'wide' — that asserted the hole). The cite-verified
-    // qualitative rows (grounded sum 12) carry the resolution to monopoly via the grounded ceiling.
-    expect(res.moat?.anchor_tier).toBe('moderate')
-    expect(res.moat?.adjustment_applied).toBe(true)
+    // The quant CORROBORATES (anchor capped at moderate on its own) — but the GROUNDED thesis resolves the
+    // tier. A strong quant under a grounded passing thesis does NOT raise quant_contradicts_moat.
+    expect(res.moat?.quant_anchor_tier).toBe('moderate')
     expect(res.moat?.resolved_moat_class).toBe('monopoly')
+    expect(res.moat?.quant_contradicts_moat).not.toBe(true)
   })
 
-  it('quant alone (M1=M2=2, no grounded qualitative rows) + proposed monopoly -> resolved MODERATE, not wide', () => {
-    // Was 'anchor wide + proposed monopoly with only 1 evidence -> wide'; that asserted the hole (the gate
-    // passing on EDGAR quant alone). With the anchor capped at moderate and ZERO grounded qualitative rows,
-    // the moat resolves MODERATE and FAILS the gate — the quant cannot substitute for a grounded thesis.
+  it('proposed monopoly but only 2 grounded drivers (strong quant) -> resolved WIDE, fails closed below monopoly + unmet', () => {
+    // The quant cannot substitute for grounded drivers: a monopoly claim needs >=3 grounded advantages.
     const res = resolveJudgmentTiers({
-      moatRubric: {
-        rubric_scores: [{ id: 'M1', score: 2 }, { id: 'M2', score: 2 }],
-        proposed_tier: 'monopoly',
-        adjustment_evidence: [{ claim: 'one thing', citation_hash: 'sha256:a' }],
+      moatThesis: {
+        moat_drivers: [
+          { advantage: 'pricing power', citation: 'sha256:a' },
+          { advantage: 'brand strength', citation: 'sha256:b' },
+        ],
+        proposed_moat_class: 'monopoly',
+        moat_reasoning: 'Two grounded drivers, claims monopoly.',
       },
       series: tenYearHighRoicSeries(),
       verifiedCitationHashes: verified,
     })
-    expect(res.moat?.anchor_tier).toBe('moderate')
-    expect(res.moat?.resolved_moat_class).toBe('moderate')
-    expect(res.moat?.resolved_moat_class).not.toBe('wide')
+    expect(res.moat?.quant_anchor_tier).toBe('moderate')
+    expect(res.moat?.resolved_moat_class).toBe('wide')
+    expect(res.moat?.resolved_moat_class).not.toBe('monopoly')
+    expect(res.moat?.moat_grounding_unmet).toBe(true)
   })
 
-  it('lane inflates M1/M2 but EDGAR overrides them with the computed anchor scores (resolves moderate, not wide)', () => {
-    // Low-ROIC short windows would not compute; here the series is high-ROIC so anchor M1/M2 = 2 each.
-    // Even if the lane had claimed otherwise, the harness uses its computed values for M1/M2.
+  it('proposed wide but drivers ungrounded (citations do not verify) -> resolved NARROW even with strong quant', () => {
+    // The EDGAR quant overrides nothing here: 0 grounded drivers -> narrow regardless of the strong quant.
     const res = resolveJudgmentTiers({
-      moatRubric: {
-        rubric_scores: [{ id: 'M1', score: 0 }, { id: 'M2', score: 0 }],
-        proposed_tier: 'wide',
-        adjustment_evidence: [],
+      moatThesis: {
+        moat_drivers: [
+          { advantage: 'pricing power', citation: 'sha256:UNVERIFIED-1' },
+          { advantage: 'share gains', citation: 'sha256:UNVERIFIED-2' },
+        ],
+        proposed_moat_class: 'wide',
+        moat_reasoning: 'Claims wide, cites unverifiable sources.',
       },
       series: tenYearHighRoicSeries(),
       verifiedCitationHashes: verified,
     })
-    expect(res.moat?.resolved_row_scores['M1']).toBe(2)
-    expect(res.moat?.resolved_row_scores['M2']).toBe(2)
-    // Anchor is now moderate (capped); proposed wide is an upward bump but the grounded rows (sum 4) only
-    // support moderate -> grounding-capped to moderate. (Was 'wide' — that asserted the quant-alone hole.)
-    expect(res.moat?.resolved_moat_class).toBe('moderate')
+    expect(res.moat?.grounded_driver_count).toBe(0)
+    expect(res.moat?.resolved_moat_class).toBe('narrow')
     expect(res.moat?.resolved_moat_class).not.toBe('wide')
+    expect(res.moat?.moat_grounding_unmet).toBe(true)
   })
 })
 
@@ -3015,35 +3031,32 @@ function tenYearModerateMoatSeries(): AnnualFacts[] {
   return out
 }
 
-describe('resolveJudgmentTiers — grounded-ceiling clamp (gate fails closed on ungrounded moat)', () => {
+describe('resolveJudgmentTiers — grounded-thesis fails closed on an ungrounded wide claim', () => {
   const verified = new Set(['sha256:a', 'sha256:b', 'sha256:c'])
 
-  it('CPRT shape: anchor moderate + proposed wide with ungrounded cited rows -> resolved NOT wide, grounding_capped', () => {
+  it('CPRT shape: proposed wide but only one grounded driver (rest ungrounded) -> resolved NOT wide, moat_grounding_unmet', () => {
+    // B6 rewrite of the retired grounded-ceiling-clamp test: a wide claim with insufficient GROUNDED
+    // drivers fails closed (the moderate quant does not lift it). Two of the three drivers cite hashes not
+    // in the corpus -> only one grounds -> below the >=2 wide threshold.
     const res = resolveJudgmentTiers({
-      moatRubric: {
-        rubric_scores: [
-          { id: 'M1', score: 2 }, { id: 'M2', score: 0 },
-          // M3..M6 cite hashes NOT in the corpus -> re-verified to 0 (ungrounded).
-          { id: 'M3', score: 2, citation_hash: 'sha256:UNVERIFIED-1' },
-          { id: 'M4', score: 2, citation_hash: 'sha256:UNVERIFIED-2' },
-          { id: 'M5', score: 2, citation_hash: 'sha256:UNVERIFIED-3' },
-          { id: 'M6', score: 2, citation_hash: 'sha256:UNVERIFIED-4' },
+      moatThesis: {
+        moat_drivers: [
+          { advantage: 'pricing power', citation: 'sha256:a' },
+          { advantage: 'share gains', citation: 'sha256:UNVERIFIED-1' },
+          { advantage: 'competitor exit', citation: 'sha256:UNVERIFIED-2' },
         ],
-        proposed_tier: 'wide',
-        adjustment_evidence: [
-          { claim: 'pricing power', citation_hash: 'sha256:a' },
-          { claim: 'share gains', citation_hash: 'sha256:b' },
-          { claim: 'competitor exit', citation_hash: 'sha256:c' },
-        ],
+        proposed_moat_class: 'wide',
+        moat_reasoning: 'Claims wide on mostly-ungrounded drivers.',
       },
       series: tenYearModerateMoatSeries(),
       verifiedCitationHashes: verified,
     })
-    expect(res.moat?.anchor_tier).toBe('moderate')
+    expect(res.moat?.quant_anchor_tier).toBe('moderate')
+    expect(res.moat?.grounded_driver_count).toBe(1)
     expect(res.moat?.resolved_moat_class).not.toBe('wide')
     expect(res.moat?.resolved_moat_class).toBe('moderate')
+    expect(res.moat?.moat_grounding_unmet).toBe(true)
     expect(res.moat?.grounding_capped).toBe(true)
-    expect(res.moat?.adjustment_applied).toBe(false)
   })
 })
 
@@ -3056,20 +3069,19 @@ describe('resolveJudgmentTiers — grounded-ceiling clamp (gate fails closed on 
 describe('resolveJudgmentTiers — holistic fallback when the rubric is omitted (never undefined)', () => {
   const verified = new Set<string>()
 
-  it('moat FAILS CLOSED to narrow (NOT the holistic wide) when no rubric is supplied; runway keeps its holistic fallback; both flagged', () => {
+  it('moat FAILS CLOSED to narrow when NO thesis is supplied; runway keeps its holistic fallback; both flagged', () => {
     const res = resolveJudgmentTiers({
-      // No moatRubric / runwayRubric — mirrors the live dogfood (optional fields blank).
-      holisticMoatClass: 'wide',
+      // No moatThesis / runwayRubric — mirrors the live dogfood (the lane omitted its judgment block).
       holisticRunway: 'limited',
       series: tenYearHighRoicSeries(),
       verifiedCitationHashes: verified,
     })
-    // A3 fail-closed: the moat does NOT admit on the model's ungrounded bare holistic 'wide' — it resolves
-    // to narrow (was 'wide' — that asserted the hole: the gate passing on the model's bare word). Runway
-    // is not a gate, so it keeps the holistic fallback ('limited').
+    // B6 fail-closed: with no grounded moat thesis the moat resolves to narrow (a moat class requires a
+    // grounded, cite-verified thesis — silence is not trusted to pass the gate). Runway is not a gate, so
+    // it keeps the holistic fallback ('limited').
     expect(res.moat?.resolved_moat_class).toBe('narrow')
     expect(res.runway?.resolved_runway).toBe('limited')
-    // and the degradation is visible (not a silent holistic substitution).
+    // and the degradation is visible (not a silent substitution).
     expect(res.moat?.judgment_degraded).toBe('rubric_not_emitted')
     expect(res.runway?.judgment_degraded).toBe('rubric_not_emitted')
   })
@@ -3115,32 +3127,33 @@ function tenYearComputableModerateFundamentals(): Fundamentals {
 }
 
 describe('SUBSTITUTION-BOUNDARY INVARIANT — moat gate cannot pass on quant alone (ungrounded moat fails closed)', () => {
-  // A moat rubric for the given tier with explicit control over whether M3-M6 carry a (verifiable) cite.
-  // scoredTier shapes the M3-M6 rows the lane scores; proposedTier is what the lane PROPOSES (its reach);
-  // citeQualitative=false makes the qualitative rows cite an UNVERIFIED hash (present-but-ungrounded);
-  // withEvidence supplies the 2x verified adjustment evidence a legitimate upward bump needs.
-  function moatRubric(
-    scoredTier: 'narrow' | 'moderate' | 'wide' | 'monopoly',
+  // B6 reframe: a GROUNDED CITED THESIS (moat_drivers + proposed_moat_class) instead of a per-row rubric.
+  // groundedCount = how many drivers cite a VERIFIABLE source (src_lane_moat). ungroundedCount = drivers
+  // citing an UNVERIFIED id (present-but-ungrounded — the cite-check, not presence, decides). proposedTier
+  // is what the lane PROPOSES (its reach). The harness resolves from the grounded thesis: wide needs >=2
+  // grounded drivers, monopoly >=3; the quant corroborates but cannot substitute.
+  function moatThesis(
     cite: string,
-    opts?: { citeQualitative?: boolean; proposedTier?: 'narrow' | 'moderate' | 'wide' | 'monopoly'; withEvidence?: boolean },
+    opts: { groundedCount: number; ungroundedCount?: number; proposedTier: 'narrow' | 'moderate' | 'wide' | 'monopoly' },
   ) {
-    const q = opts?.citeQualitative !== false
-    const qual = (id: string) => (q ? { id, score: 2, citation_hash: cite } : { id, score: 2, citation_hash: 'sha256:UNVERIFIED' })
-    const scores = scoredTier === 'monopoly'
-      ? [{ id: 'M1', score: 2 }, { id: 'M2', score: 2 }, qual('M3'), qual('M4'), qual('M5'), qual('M6')]
-      : scoredTier === 'wide'
-        ? [{ id: 'M1', score: 2 }, { id: 'M2', score: 2 }, qual('M3'), qual('M4')]
-        : scoredTier === 'moderate'
-          ? [{ id: 'M1', score: 2 }, { id: 'M2', score: 2 }]
-          : [{ id: 'M1', score: 0 }, { id: 'M2', score: 0 }]
-    const adjustment_evidence = opts?.withEvidence
-      ? [{ claim: 'pricing power', citation_hash: cite }, { claim: 'competitor exit', citation_hash: cite }]
-      : []
-    return { rubric_scores: scores, proposed_tier: opts?.proposedTier ?? scoredTier, adjustment_evidence }
+    const advantages = [
+      'documented pricing power without volume loss',
+      'sustained market-share gains vs funded entrants',
+      'structural cost/scale + distribution advantage',
+      'high customer switching costs',
+    ]
+    const drivers: { advantage: string; citation: string }[] = []
+    for (let i = 0; i < opts.groundedCount; i += 1) drivers.push({ advantage: advantages[i]!, citation: cite })
+    for (let i = 0; i < (opts.ungroundedCount ?? 0); i += 1) {
+      drivers.push({ advantage: `${advantages[opts.groundedCount + i]!} (claimed)`, citation: 'sha256:UNVERIFIED' })
+    }
+    // The lane must emit at least one driver (schema min(1)); a fully-ungrounded thesis still has drivers.
+    if (drivers.length === 0) drivers.push({ advantage: advantages[0]!, citation: 'sha256:UNVERIFIED' })
+    return { moat_drivers: drivers, proposed_moat_class: opts.proposedTier, moat_reasoning: 'Test moat thesis.' }
   }
 
-  // A provider that emits a moat lane with the supplied moat rubric (overriding the tier-derived default).
-  function moatGateProvider(moatRubricPayload: ReturnType<typeof moatRubric>, proposedClass: 'narrow' | 'moderate' | 'wide' | 'monopoly') {
+  // A provider that emits a moat lane with the supplied grounded thesis.
+  function moatGateProvider(moatThesisPayload: ReturnType<typeof moatThesis>, _proposedClass: 'narrow' | 'moderate' | 'wide' | 'monopoly') {
     const src = (id: string) => ({ source_id: id, title: 'T', url: 'https://www.sec.gov/Archives/edgar/data/0/test-10k.htm', excerpt: 'e' })
     let laneCall = 0
     return {
@@ -3161,8 +3174,8 @@ describe('SUBSTITUTION-BOUNDARY INVARIANT — moat gate cannot pass on quant alo
         if (schemaName === 'BuffettMungerMoatLane') {
           return {
             finding_summary: 'Moat lane', confidence: 'high', caveats: ['c'],
-            moat_class: proposedClass, runway: 'proven',
-            moat_rubric: moatRubricPayload, runway_rubric: runwayRubricForTier('proven', 'src_lane_moat'),
+            ...moatThesisPayload, runway: 'proven',
+            runway_rubric: runwayRubricForTier('proven', 'src_lane_moat'),
             proposed_sources: [src('src_lane_moat')],
           }
         }
@@ -3199,9 +3212,9 @@ describe('SUBSTITUTION-BOUNDARY INVARIANT — moat gate cannot pass on quant alo
     }
   }
 
-  async function runGate(opts: { rubric: ReturnType<typeof moatRubric>; proposedClass: 'narrow' | 'moderate' | 'wide' | 'monopoly'; id: string }) {
+  async function runGate(opts: { thesis: ReturnType<typeof moatThesis>; proposedClass: 'narrow' | 'moderate' | 'wide' | 'monopoly'; id: string }) {
     const store = new InMemoryEventStore()
-    const provider = moatGateProvider(opts.rubric, opts.proposedClass)
+    const provider = moatGateProvider(opts.thesis, opts.proposedClass)
     const sourceLedgerPath = await mkdtemp(join(tmpdir(), `owlfolio-moatgate-${opts.id}-`))
     await runStrategyResearchSwarm(
       store, provider as never,
@@ -3220,29 +3233,29 @@ describe('SUBSTITUTION-BOUNDARY INVARIANT — moat gate cannot pass on quant alo
     return projections.find((c) => c.research_case_id === `rc_${opts.id}`)
   }
 
-  it('Case 1 — strong quant, NO qualitative (model proposed wide): resolved MODERATE, gate fails, RESEARCH_MORE + moat_grounding_unmet', async () => {
-    // M1=M2=2 only (no M3-M6 scored), but the lane PROPOSES wide reaching off the quant. The quant anchor
-    // caps at moderate; no grounded qualitative rows support a lift -> resolved moderate, gate fails.
-    const cp = await runGate({ rubric: moatRubric('moderate', 'src_lane_moat', { proposedTier: 'wide' }), proposedClass: 'wide', id: 'case1' })
-    expect(cp?.valuation?.moat_class).toBe('moderate')
+  it('Case 1 — strong quant, NO grounded drivers (model proposed wide): resolved below wide, gate fails, RESEARCH_MORE + moat_grounding_unmet', async () => {
+    // The lane PROPOSES wide reaching off the quant but grounds ZERO drivers. The quant cannot substitute
+    // for a grounded thesis (A2) -> resolved narrow, gate fails, routed to RESEARCH_MORE.
+    const cp = await runGate({ thesis: moatThesis('src_lane_moat', { groundedCount: 0, ungroundedCount: 2, proposedTier: 'wide' }), proposedClass: 'wide', id: 'case1' })
     expect(cp?.valuation?.moat_class).not.toBe('wide')
     expect(cp?.valuation?.moat_passes_gate).toBe(false)
     expect(cp?.valuation?.moat_grounding_unmet).toBe(true)
     expect(cp?.investment_verdict).toBe('RESEARCH_MORE')
   })
 
-  it('Case 2 — strong quant, qualitative CITED but citations DO NOT verify (->0): resolved NOT wide, RESEARCH_MORE + moat_grounding_unmet', async () => {
-    // M3-M6 are scored 2 but cite an UNVERIFIED hash -> re-verified to 0 (the cite-check, not presence).
-    const cp = await runGate({ rubric: moatRubric('wide', 'src_lane_moat', { citeQualitative: false, withEvidence: true }), proposedClass: 'wide', id: 'case2' })
+  it('Case 2 — drivers CITED but citations DO NOT verify: resolved NOT wide, RESEARCH_MORE + moat_grounding_unmet', async () => {
+    // The drivers are present + scored a wide claim, but cite an UNVERIFIED id -> not grounded (the cite-
+    // check, not presence). 0 grounded -> narrow, gate fails.
+    const cp = await runGate({ thesis: moatThesis('src_lane_moat', { groundedCount: 0, ungroundedCount: 3, proposedTier: 'wide' }), proposedClass: 'wide', id: 'case2' })
     expect(cp?.valuation?.moat_class).not.toBe('wide')
     expect(cp?.valuation?.moat_passes_gate).toBe(false)
     expect(cp?.valuation?.moat_grounding_unmet).toBe(true)
     expect(cp?.investment_verdict).toBe('RESEARCH_MORE')
   })
 
-  it('Case 3 — strong quant + cite-verified qualitative (grounded sum>=7): resolved WIDE, gate passes, NO moat_grounding_unmet', async () => {
-    // M3/M4 cite-verified -> grounded sum 8 -> wide; the +1 upward bump is carried by 2x verified evidence.
-    const cp = await runGate({ rubric: moatRubric('wide', 'src_lane_moat', { withEvidence: true }), proposedClass: 'wide', id: 'case3' })
+  it('Case 3 — >=2 cite-verified grounded drivers + proposed wide: resolved WIDE, gate passes, NO moat_grounding_unmet', async () => {
+    // Two grounded drivers clear the wide threshold; the grounded thesis carries the tier.
+    const cp = await runGate({ thesis: moatThesis('src_lane_moat', { groundedCount: 2, proposedTier: 'wide' }), proposedClass: 'wide', id: 'case3' })
     expect(cp?.valuation?.moat_class).toBe('wide')
     expect(cp?.valuation?.moat_passes_gate).toBe(true)
     expect(cp?.valuation?.moat_grounding_unmet).toBeUndefined()
@@ -3250,26 +3263,25 @@ describe('SUBSTITUTION-BOUNDARY INVARIANT — moat gate cannot pass on quant alo
     expect(cp?.investment_verdict).not.toBe('PASS')
   })
 
-  it('Case 4 — cite-verified to >=10: resolved MONOPOLY (the grounded path reaches the top tier even with the anchor capped at moderate)', async () => {
-    // M3-M6 all cite-verified -> grounded sum 12 -> monopoly; over-range upward carried by 2x evidence.
-    const cp = await runGate({ rubric: moatRubric('monopoly', 'src_lane_moat', { withEvidence: true }), proposedClass: 'monopoly', id: 'case4' })
+  it('Case 4 — >=3 cite-verified grounded drivers + proposed monopoly: resolved MONOPOLY', async () => {
+    const cp = await runGate({ thesis: moatThesis('src_lane_moat', { groundedCount: 3, proposedTier: 'monopoly' }), proposedClass: 'monopoly', id: 'case4' })
     expect(cp?.valuation?.moat_class).toBe('monopoly')
     expect(cp?.valuation?.moat_passes_gate).toBe(true)
     expect(cp?.valuation?.moat_grounding_unmet).toBeUndefined()
   })
 
-  it('Case 5 — genuinely NARROW on grounded evidence (model did not claim a passing tier): PASS, NOT RESEARCH_MORE, no moat_grounding_unmet', async () => {
-    const cp = await runGate({ rubric: moatRubric('narrow', 'src_lane_moat'), proposedClass: 'narrow', id: 'case5' })
-    // Quant scored 0 (M1=M2=0 in the narrow rubric) -> resolved narrow, genuinely below the circle.
+  it('Case 5 — genuinely NARROW (model proposed narrow): PASS, NOT RESEARCH_MORE, no moat_grounding_unmet', async () => {
+    const cp = await runGate({ thesis: moatThesis('src_lane_moat', { groundedCount: 1, proposedTier: 'narrow' }), proposedClass: 'narrow', id: 'case5' })
+    // Model proposed narrow -> resolved narrow, genuinely below the circle (a valid Buffett set-aside).
     expect(cp?.valuation?.moat_passes_gate).toBe(false)
     expect(cp?.valuation?.moat_grounding_unmet).toBeUndefined()
     expect(cp?.investment_verdict).toBe('PASS')
   })
 
-  it('Tripwire — the moat gate cannot pass on quant alone; an ungrounded qualitative moat claim fails closed', async () => {
-    // The conformance assertion in one place: perfect computable rows + a proposed wide moat, zero grounded
-    // qualitative evidence -> the gate does NOT pass, and the case is routed back for more research.
-    const cp = await runGate({ rubric: moatRubric('moderate', 'src_lane_moat', { proposedTier: 'wide' }), proposedClass: 'wide', id: 'tripwire' })
+  it('Tripwire — the moat gate cannot pass on quant alone; an ungrounded wide moat claim fails closed', async () => {
+    // The conformance assertion in one place: strong computable quant + a proposed wide moat, zero grounded
+    // drivers -> the gate does NOT pass, and the case is routed back for more research.
+    const cp = await runGate({ thesis: moatThesis('src_lane_moat', { groundedCount: 0, ungroundedCount: 2, proposedTier: 'wide' }), proposedClass: 'wide', id: 'tripwire' })
     expect(cp?.valuation?.moat_passes_gate).toBe(false)
     expect(cp?.investment_verdict).toBe('RESEARCH_MORE')
   })
@@ -3410,8 +3422,8 @@ describe('runStrategyResearchSwarm — schema-validation + retry (harness defens
         if (schemaName === 'BuffettMungerMoatLane') {
           return {
             finding_summary: 'Moat lane', confidence: 'high', caveats: ['c'],
-            moat_class: 'wide', runway: 'proven',
-            moat_rubric: fullRubric('wide'), runway_rubric: fullRubric('proven'),
+            ...moatThesisForTier('wide', 'src_lane_moat'), runway: 'proven',
+            runway_rubric: fullRubric('proven'),
             proposed_sources: [src('src_lane_moat')],
           }
         }
@@ -3582,12 +3594,12 @@ function crossCheckSwarmProvider(opts: {
         return { finding_summary: `Lane ${n}`, confidence: 'high', caveats: ['c'], proposed_sources: [src(`src_lane_${n}`)] }
       }
       if (schemaName === 'BuffettMungerMoatLane') {
-        // The PRIMARY moat class is the moat lane's judgment (what the cross-check second model checks).
+        // The PRIMARY moat class is the moat lane's grounded thesis (what the cross-check second model checks).
         const moatClass = opts.primaryMoat ?? 'wide'
         return {
           finding_summary: 'Moat lane', confidence: 'high', caveats: ['c'],
-          moat_class: moatClass, runway: 'proven',
-          moat_rubric: moatRubricForTier(moatClass, 'src_lane_moat'), runway_rubric: runwayRubricForTier('proven', 'src_lane_moat'),
+          ...moatThesisForTier(moatClass, 'src_lane_moat'), runway: 'proven',
+          runway_rubric: runwayRubricForTier('proven', 'src_lane_moat'),
           proposed_sources: [src('src_lane_moat')],
         }
       }
@@ -4070,8 +4082,8 @@ describe('circle-of-competence gate', () => {
         if (schemaName === 'BuffettMungerMoatLane') {
           return {
             finding_summary: 'Moat lane finding', confidence: 'medium' as const, caveats: ['Mock moat caveat'],
-            moat_class: 'wide' as const, runway: 'proven' as const,
-            moat_rubric: fullRubric('wide'), runway_rubric: fullRubric('proven'),
+            ...moatThesisForTier('wide', 'src_lane_moat'), runway: 'proven' as const,
+            runway_rubric: fullRubric('proven'),
             proposed_sources: [src('src_lane_moat')],
           }
         }

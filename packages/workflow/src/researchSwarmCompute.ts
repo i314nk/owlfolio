@@ -8,13 +8,30 @@ import {
   type ResolveRubricTierResult,
 } from './judgmentAnchor'
 import type { AnnualFacts, Fundamentals } from './secEdgar'
+import { isCitationGrounded } from './sourceGrounding'
 
-/** The MOAT lane's judgment output (Mechanisms 1+2): rubrics + the holistic moat_class/runway fallback. */
+/** A single cited durable competitive advantage from the MOAT lane's grounded thesis (B6 reframe). */
+export type MoatDriverInput = {
+  advantage: string
+  citation: string
+}
+
+/** The MOAT lane's GROUNDED CITED THESIS (B6 reframe — mirrors the circle gate): cited drivers + the
+ *  model's proposed moat_class + reasoning. The harness cite-verifies the drivers and resolves the tier
+ *  from the grounded thesis with the EDGAR quant as corroboration (NOT a per-row M1-M6 rubric). */
+export type MoatThesisInput = {
+  moat_drivers: MoatDriverInput[]
+  proposed_moat_class: 'narrow' | 'moderate' | 'wide' | 'monopoly'
+  moat_reasoning: string
+}
+
+/** The MOAT lane's judgment output: the grounded moat thesis + the (still-rubric) runway axis. The
+ *  moat_thesis is OPTIONAL — the schema-retry fallback (lane omitted its judgment block) leaves it absent,
+ *  which fails the moat axis closed to narrow + judgment_degraded (never a silent admit). */
 export type MoatLaneJudgment = {
-  moat_class: 'narrow' | 'moderate' | 'wide' | 'monopoly'
+  moat_thesis?: MoatThesisInput
   runway: 'proven' | 'limited' | 'none'
   runway_exceptional?: boolean
-  moat_rubric?: LaneRubricInput
   runway_rubric?: LaneRubricInput
 }
 
@@ -85,7 +102,6 @@ export type LaneRubricInput = {
   adjustment_evidence: { claim: string; citation_hash: string }[]
 }
 
-const VALID_MOAT_CLASSES = new Set(['narrow', 'moderate', 'wide', 'monopoly'])
 const VALID_RUNWAYS = new Set(['proven', 'limited', 'none'])
 
 /** Map the lane rubric payload shape onto the harness resolver's input shape. */
@@ -110,13 +126,31 @@ export type JudgmentDegraded = 'rubric_not_emitted'
 const DEFAULT_MOAT_CLASS = 'narrow' as const
 const DEFAULT_RUNWAY = 'none' as const
 
+/** A single moat-thesis driver after cite-verification (the grounded flag mirrors the circle gate). */
+export type ResolvedMoatDriver = {
+  advantage: string
+  citation: string
+  grounded: boolean
+}
+
 export type JudgmentResolution = {
   moat?: ResolveRubricTierResult & {
-    /** ALWAYS defined: rubric-resolved tier -> holistic fallback -> conservative default. Never undefined. */
+    /** ALWAYS defined: grounded-thesis resolved tier -> conservative default. Never undefined. */
     resolved_moat_class: 'narrow' | 'moderate' | 'wide' | 'monopoly'
     anchor_note?: string
-    /** Set when the tier was NOT rubric-scored (resolved holistically / by default). Surfaced, not silent. */
+    /** Set when no grounded thesis existed (the moat thesis was not emitted). Surfaced, not silent. */
     judgment_degraded?: JudgmentDegraded
+    // ---- Grounded-thesis moat fields (B6 reframe — mirror the circle gate) ----
+    /** The cited moat drivers, each with a cite-verified `grounded` flag. */
+    moat_drivers?: ResolvedMoatDriver[]
+    /** Count of distinct grounded drivers (non-empty advantage AND cite-verified citation). */
+    grounded_driver_count?: number
+    /** The EDGAR quant corroboration signal (M1 ROIC + M2 margin) — corroborates, never substitutes/overrides. */
+    quant_anchor_tier?: RubricTier
+    /** True when the model proposed a gate-passing tier (wide/monopoly) but the grounded thesis was insufficient. */
+    moat_grounding_unmet?: boolean
+    /** Advisory: a grounded wide/monopoly thesis sits on a WEAK quant (anchor narrow). Surfaced, never blocks. */
+    quant_contradicts_moat?: boolean
   }
   runway?: ResolveRubricTierResult & {
     /** ALWAYS defined: rubric-resolved tier -> holistic fallback -> conservative default. Never undefined. */
@@ -127,26 +161,144 @@ export type JudgmentResolution = {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Grounded-thesis MOAT resolver (B6 reframe) — replaces the per-row M1-M6 rubric path FOR MOAT ONLY.
+// (Runway still uses resolveRubricTier — a later follow-up reframes it.)
+// ---------------------------------------------------------------------------
+
+/** Minimum distinct GROUNDED moat_drivers a gate-passing tier requires. KO (pricing-power + brand + scale)
+ *  clears the wide bar; monopoly demands a third grounded advantage. Defensible + conservative: a wide moat
+ *  needs at least two independently-cited durable advantages, a monopoly at least three (these are the
+ *  rarest, highest-stakes claims — the burden rises with the claim). Below the threshold → fail closed. */
+const GROUNDED_DRIVERS_FOR_WIDE = 2
+const GROUNDED_DRIVERS_FOR_MONOPOLY = 3
+
+const MOAT_CLASS_ORDER: readonly ('narrow' | 'moderate' | 'wide' | 'monopoly')[] = ['narrow', 'moderate', 'wide', 'monopoly']
+
 /**
- * Resolve the moat + runway tiers from the lane rubrics (Mechanisms 1+2) — ALWAYS yielding a defined
- * resolved tier so the omission of an OPTIONAL rubric can never silently void the downstream valuation.
+ * Resolve the MOAT tier from the model's GROUNDED CITED THESIS (B6) — mirroring the circle gate's
+ * grounded-thesis structure rather than the fragile per-row M1-M6 numeric rubric. The model emits
+ * moat_drivers (each {advantage, citation}) + a proposed_moat_class; the harness cite-verifies each driver
+ * with the SAME primitive the circle uses (non-empty text AND isCitationGrounded), counts the grounded
+ * distinct drivers, and resolves the tier:
+ *   - a gate-passing class (wide/monopoly) is HONORED only when enough drivers ground (>=2 for wide, >=3
+ *     for monopoly); otherwise FAIL CLOSED to the tier the grounded drivers support + moat_grounding_unmet.
+ *   - the EDGAR quant (computeMoatAnchor: M1 ROIC + M2 margin) CORROBORATES but never substitutes (0
+ *     grounded drivers -> narrow regardless of a strong quant — A2 preserved) and never overrides (a
+ *     grounded wide thesis resolves wide even on a weak quant — a weak quant raises an ADVISORY
+ *     quant_contradicts_moat flag, surfaced, never blocks).
+ */
+function resolveMoatThesis(args: {
+  thesis: MoatThesisInput
+  series: AnnualFacts[]
+  verifiedCitationHashes: ReadonlySet<string>
+}): NonNullable<JudgmentResolution['moat']> {
+  const { thesis, series, verifiedCitationHashes } = args
+
+  // Cite-verify each driver (mirror the circle: non-empty TEXT AND a citation that verifies against the
+  // content-hash-verified corpus). An empty advantage with a verified citation does NOT count (Bug A).
+  const moat_drivers = thesis.moat_drivers.map((d) => ({
+    advantage: d.advantage ?? '',
+    citation: d.citation,
+    grounded: (d.advantage?.trim().length ?? 0) > 0 && isCitationGrounded(d.citation, verifiedCitationHashes),
+  }))
+  // Count DISTINCT grounded advantages (dedupe identical advantage text so a repeated driver can't pad).
+  const grounded_driver_count = new Set(
+    moat_drivers.filter((d) => d.grounded).map((d) => d.advantage.trim().toLowerCase()),
+  ).size
+
+  // The tier the GROUNDED thesis supports (the cap): >=3 -> wide is supported AND monopoly is reachable;
+  // >=2 -> wide; >=1 -> moderate; 0 grounded -> narrow (no grounded thesis = no moat, A2).
+  const supportedClass: 'narrow' | 'moderate' | 'wide' | 'monopoly' =
+    grounded_driver_count >= GROUNDED_DRIVERS_FOR_MONOPOLY
+      ? 'monopoly'
+      : grounded_driver_count >= GROUNDED_DRIVERS_FOR_WIDE
+        ? 'wide'
+        : grounded_driver_count >= 1
+          ? 'moderate'
+          : 'narrow'
+
+  // The resolved class is the MIN of what the model proposed and what the grounded thesis supports — the
+  // grounded thesis is a CEILING (it can only cap a proposal down, never inflate it). A narrow proposal
+  // stays narrow even with many grounded drivers (the model's grounded judgment is honored both ways).
+  const proposedIdx = MOAT_CLASS_ORDER.indexOf(thesis.proposed_moat_class)
+  const supportedIdx = MOAT_CLASS_ORDER.indexOf(supportedClass)
+  const resolvedIdx = Math.min(proposedIdx, supportedIdx)
+  const resolved_moat_class = MOAT_CLASS_ORDER[resolvedIdx]!
+
+  // moat_grounding_unmet: the model REACHED for a gate-passing tier (wide/monopoly) but the grounded
+  // thesis could not back it (resolved below the proposal). This is the "ungrounded wide claim" — the
+  // verdict routes to RESEARCH_MORE downstream. A genuinely-narrow proposal (or one fully supported) is
+  // NOT unmet (PASS / set aside).
+  const modelClaimedPassing = thesis.proposed_moat_class === 'wide' || thesis.proposed_moat_class === 'monopoly'
+  const moat_grounding_unmet = modelClaimedPassing && resolvedIdx < proposedIdx
+
+  // The EDGAR quant corroboration (M1 ROIC + M2 margin). Capped at 'moderate' on its own (it can never
+  // substitute for a grounded thesis). quant_contradicts_moat is an ADVISORY flag: a grounded gate-passing
+  // moat sitting on a WEAK quant (anchor 'narrow' / not computable) — surfaced for the human, NEVER blocks.
+  const anchor = computeMoatAnchor(series)
+  const quant_anchor_tier: RubricTier | undefined = anchor.computable ? anchor.anchor_tier : undefined
+  const resolvedIsPassing = resolved_moat_class === 'wide' || resolved_moat_class === 'monopoly'
+  const quant_contradicts_moat =
+    resolvedIsPassing && (!anchor.computable || anchor.anchor_tier === 'narrow')
+
+  const anchor_note = anchor.computable
+    ? anchor.note
+    : `Moat quant corroboration not computable: ${anchor.reason}`
+
+  const violations: string[] = []
+  if (moat_grounding_unmet) {
+    violations.push(
+      `moat-grounding-unmet: proposed '${thesis.proposed_moat_class}' but only ${grounded_driver_count} grounded `
+      + `driver(s) (need ${thesis.proposed_moat_class === 'monopoly' ? GROUNDED_DRIVERS_FOR_MONOPOLY : GROUNDED_DRIVERS_FOR_WIDE}) `
+      + `— failed closed to '${resolved_moat_class}'`,
+    )
+  }
+  if (quant_contradicts_moat) {
+    violations.push(
+      `quant-contradicts-moat (advisory): a grounded '${resolved_moat_class}' moat thesis sits on a weak EDGAR `
+      + `quant (${quant_anchor_tier ?? 'not computable'}) — surfaced, does NOT block the grounded thesis`,
+    )
+  }
+
+  return {
+    // ResolveRubricTierResult-compatible fields so downstream consumers + the projection keep working.
+    anchor_computable: anchor.computable,
+    anchor_tier: quant_anchor_tier,
+    proposed_tier: thesis.proposed_moat_class,
+    resolved_tier: resolved_moat_class,
+    resolved_row_scores: anchor.computable ? anchor.row_scores : {},
+    adjustment_applied: false,
+    verified_evidence_count: grounded_driver_count,
+    grounding_capped: moat_grounding_unmet,
+    violations,
+    // Grounded-thesis fields.
+    resolved_moat_class,
+    moat_drivers,
+    grounded_driver_count,
+    ...(quant_anchor_tier !== undefined ? { quant_anchor_tier } : {}),
+    ...(moat_grounding_unmet ? { moat_grounding_unmet: true } : {}),
+    ...(quant_contradicts_moat ? { quant_contradicts_moat: true } : {}),
+    anchor_note,
+  }
+}
+
+/**
+ * Resolve the moat + runway tiers — ALWAYS yielding a defined resolved tier so the omission of the moat
+ * thesis / runway rubric can never silently void the downstream valuation.
  *
- * Precedence (documented, deterministic):
- *   1. Rubric present + sufficient  -> mechanical anchor (EDGAR) + bounded ±1 adjustment (resolveRubricTier).
- *   2. Rubric absent OR resolves to a tier not valid downstream -> the MOAT axis FAILS CLOSED to `narrow`
- *      (never admit on the model's ungrounded bare holistic moat_class — the same fail-closed-on-ungrounded
- *      principle as the moat gate and the decision agent), flagged `judgment_degraded: 'rubric_not_emitted'`
- *      so the degradation is VISIBLE. (Runway keeps its holistic fallback — it cannot pass a moat gate.)
- *   3. Neither rubric nor holistic -> a conservative explicit default (narrow moat / none runway) that
- *      fails the gate, still flagged degraded. NEVER `undefined`.
+ * MOAT (B6 reframe): resolved from the model's GROUNDED CITED THESIS (resolveMoatThesis) — NOT a per-row
+ * rubric. The quant (computeMoatAnchor) corroborates; it never substitutes/overrides. A gate-passing class
+ * is honored only when enough drivers ground; an ungrounded wide/monopoly claim FAILS CLOSED + flags
+ * moat_grounding_unmet. No thesis at all -> narrow + judgment_degraded (silent-skip guard).
  *
- * Grounding/citation verification (resolveRubricTier) is unchanged.
+ * RUNWAY (unchanged): mechanical anchor (EDGAR) + bounded ±1 adjustment (resolveRubricTier). Runway feeds
+ * GROWTH credit, not the moat gate, so it keeps its holistic fallback.
  */
 export function resolveJudgmentTiers(args: {
-  moatRubric?: LaneRubricInput | undefined
+  /** The MOAT lane's grounded cited thesis (B6). When absent -> fail closed to narrow + judgment_degraded. */
+  moatThesis?: MoatThesisInput | undefined
   runwayRubric?: LaneRubricInput | undefined
-  /** Holistic moat_class the synthesis lane proposes (the schema-required field). Used as the fallback. */
-  holisticMoatClass?: 'narrow' | 'moderate' | 'wide' | 'monopoly' | undefined
   /** Holistic runway the synthesis lane proposes (the schema-required field). Used as the fallback. */
   holisticRunway?: 'proven' | 'limited' | 'none' | undefined
   series?: AnnualFacts[] | undefined
@@ -167,43 +319,22 @@ export function resolveJudgmentTiers(args: {
     violations: [],
   })
 
-  // --- Moat axis ---
+  // --- Moat axis (B6 reframe: GROUNDED CITED THESIS, not a per-row rubric) ---
   let moat: JudgmentResolution['moat']
-  if (args.moatRubric !== undefined) {
-    const anchor = computeMoatAnchor(series)
-    const resolved = resolveRubricTier({
-      rubric: JUDGMENT_RUBRICS.moat,
-      anchorScores: anchor.computable ? anchor.row_scores : undefined,
-      laneRubricScores: toLaneRubricScores(args.moatRubric.rubric_scores),
-      anchorTier: anchor.computable ? anchor.anchor_tier : undefined,
-      proposedTier: args.moatRubric.proposed_tier,
-      adjustmentEvidence: toAdjustmentEvidence(args.moatRubric.adjustment_evidence),
+  if (args.moatThesis !== undefined) {
+    moat = resolveMoatThesis({
+      thesis: args.moatThesis,
+      series,
       verifiedCitationHashes: args.verifiedCitationHashes,
     })
-    if (VALID_MOAT_CLASSES.has(resolved.resolved_tier)) {
-      moat = {
-        ...resolved,
-        resolved_moat_class: resolved.resolved_tier as 'narrow' | 'moderate' | 'wide' | 'monopoly',
-        ...(anchor.computable ? { anchor_note: anchor.note } : { anchor_note: `Moat anchor not computable: ${anchor.reason}` }),
-      }
-    } else {
-      // Rubric resolved to a non-downstream tier — FAIL CLOSED to narrow (never admit on the model's
-      // ungrounded bare word), VISIBLY flagged. The holistic moat_class is NOT trusted to pass the gate.
-      moat = {
-        ...resolved,
-        resolved_moat_class: DEFAULT_MOAT_CLASS,
-        judgment_degraded: 'rubric_not_emitted',
-        ...(anchor.computable ? { anchor_note: anchor.note } : { anchor_note: `Moat anchor not computable: ${anchor.reason}` }),
-      }
-    }
   } else {
-    // No rubric supplied — FAIL CLOSED to narrow (do NOT admit on the model's ungrounded bare holistic
-    // moat_class), VISIBLY flagged. wide+ requires scored, cite-verified rubric rows — not a model claim.
+    // No moat thesis supplied — FAIL CLOSED to narrow (do NOT admit on a bare/absent claim), VISIBLY
+    // flagged. wide+ requires a grounded, cite-verified moat thesis — not a model assertion or silence.
     moat = {
       ...degradedResult(DEFAULT_MOAT_CLASS as RubricTier),
       resolved_moat_class: DEFAULT_MOAT_CLASS,
       judgment_degraded: 'rubric_not_emitted',
-      anchor_note: 'Moat rubric not emitted by the model — failed closed to narrow (the holistic moat_class is NOT trusted to pass the gate without scored, cite-verified rubric rows).',
+      anchor_note: 'Moat thesis not emitted by the model — failed closed to narrow (a moat class requires a grounded, cite-verified moat thesis; an absent thesis is not trusted to pass the gate).',
     }
   }
 
@@ -264,6 +395,11 @@ type JudgmentAxisProjection = {
   anchor_note?: string
   /** Set when the axis resolved holistically (rubric not emitted) rather than from scored rubric rows. */
   judgment_degraded?: JudgmentDegraded
+  // ---- Grounded-thesis MOAT projection (B6) — the cited advantages + their grounded flags + the flags. ----
+  moat_drivers?: ResolvedMoatDriver[]
+  grounded_driver_count?: number
+  moat_grounding_unmet?: boolean
+  quant_contradicts_moat?: boolean
 }
 
 type JudgmentProjection = {
@@ -274,7 +410,17 @@ type JudgmentProjection = {
 
 /** Build the serializable judgment-layer projection (rubric scores + anchor-vs-proposed) for the dossier. */
 export function buildJudgmentProjection(judgment: JudgmentResolution): JudgmentProjection | undefined {
-  function axis(r: (ResolveRubricTierResult & { anchor_note?: string; judgment_degraded?: JudgmentDegraded }) | undefined): JudgmentAxisProjection | undefined {
+  function axis(
+    r: (ResolveRubricTierResult & {
+      anchor_note?: string
+      judgment_degraded?: JudgmentDegraded
+      // B6 grounded-thesis moat fields (present only on the moat axis).
+      moat_drivers?: ResolvedMoatDriver[]
+      grounded_driver_count?: number
+      moat_grounding_unmet?: boolean
+      quant_contradicts_moat?: boolean
+    }) | undefined,
+  ): JudgmentAxisProjection | undefined {
     if (r === undefined) return undefined
     return {
       ...(r.anchor_tier === undefined ? {} : { anchor_tier: r.anchor_tier }),
@@ -288,6 +434,11 @@ export function buildJudgmentProjection(judgment: JudgmentResolution): JudgmentP
       violations: r.violations,
       ...(r.anchor_note === undefined ? {} : { anchor_note: r.anchor_note }),
       ...(r.judgment_degraded === undefined ? {} : { judgment_degraded: r.judgment_degraded }),
+      // B6 grounded-thesis moat projection (the cited advantages + grounded flags + the flags).
+      ...(r.moat_drivers === undefined ? {} : { moat_drivers: r.moat_drivers }),
+      ...(r.grounded_driver_count === undefined ? {} : { grounded_driver_count: r.grounded_driver_count }),
+      ...(r.moat_grounding_unmet ? { moat_grounding_unmet: true } : {}),
+      ...(r.quant_contradicts_moat ? { quant_contradicts_moat: true } : {}),
     }
   }
   const moat = axis(judgment.moat)

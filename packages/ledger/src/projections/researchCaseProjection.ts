@@ -140,6 +140,15 @@ export type ResearchCaseJudgmentAxisProjection = {
   rubric_scores?: { id: string; score: number }[]
   violations?: string[]
   anchor_note?: string
+  // ---- Grounded-thesis MOAT projection (B6) — the moat is the model's grounded cited thesis. ----
+  /** The cited durable competitive advantages, each with a cite-verified `grounded` flag. */
+  moat_drivers?: { advantage: string; citation: string; grounded: boolean }[]
+  /** Count of distinct grounded drivers (non-empty advantage AND cite-verified citation). */
+  grounded_driver_count?: number
+  /** True when the model proposed a gate-passing tier (wide/monopoly) the grounded thesis couldn't back. */
+  moat_grounding_unmet?: boolean
+  /** Advisory: a grounded gate-passing moat sits on a WEAK EDGAR quant. Surfaced, never blocks. */
+  quant_contradicts_moat?: boolean
 }
 
 export type ResearchCaseJudgmentProjection = {
@@ -935,6 +944,19 @@ function getJudgmentAxis(value: unknown): ResearchCaseJudgmentAxisProjection | u
   }
   const anchor_note = getString(value, 'anchor_note')
   if (anchor_note !== undefined) projected.anchor_note = anchor_note
+  // ---- Grounded-thesis MOAT fields (B6) — legacy events omit these (tolerated). ----
+  const rawDrivers = value['moat_drivers']
+  if (Array.isArray(rawDrivers)) {
+    const drivers = rawDrivers
+      .filter(isRecord)
+      .map((d) => ({ advantage: getString(d, 'advantage'), citation: getString(d, 'citation'), grounded: d['grounded'] === true }))
+      .filter((d): d is { advantage: string; citation: string; grounded: boolean } => d.advantage !== undefined && d.citation !== undefined)
+    if (drivers.length > 0) projected.moat_drivers = drivers
+  }
+  const grounded_driver_count = getNumber(value, 'grounded_driver_count')
+  if (grounded_driver_count !== undefined) projected.grounded_driver_count = grounded_driver_count
+  if (value['moat_grounding_unmet'] === true) projected.moat_grounding_unmet = true
+  if (value['quant_contradicts_moat'] === true) projected.quant_contradicts_moat = true
   return Object.keys(projected).length === 0 ? undefined : projected
 }
 

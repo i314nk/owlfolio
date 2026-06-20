@@ -177,9 +177,10 @@ function mockLaneFindingForTicker(ticker: string) {
   }
 }
 
-// MOAT lane (spec-correct decomposition): emits its OWN moat_rubric + runway_rubric (Mechanisms 1+2) +
-// the holistic moat_class/runway fallback. Cited rows cite the grounded mock source_ids so they verify
-// against the corpus. Upward-to-monopoly carries 2 cited adjustment-evidence items (asymmetric burden).
+// MOAT lane (B6 reframe): emits a GROUNDED CITED THESIS (moat_drivers + proposed_moat_class +
+// moat_reasoning) — mirroring the circle gate — plus the (still-rubric) runway axis. Each driver cites a
+// grounded mock source_id so it verifies against the corpus; 3 grounded distinct advantages clear the
+// monopoly threshold (>=3). The runway keeps its per-row rubric (resolveRubricTier — later follow-up).
 function mockMoatLaneForTicker(ticker: string) {
   const companyLabel = companyLabelForTicker(ticker)
   const groundedSources = mockSourcesForTicker(ticker)
@@ -189,23 +190,14 @@ function mockMoatLaneForTicker(ticker: string) {
     finding_summary: `${companyLabel} moat lane: wide-to-monopoly durable competitive position with proven reinvestment runway.`,
     confidence: 'medium' as const,
     caveats: [`Mock moat finding — not investment-grade; run a real provider before any decision.`],
-    moat_class: 'monopoly' as const,
+    moat_drivers: [
+      { advantage: `${companyLabel} documented pricing power — price increases stick without volume loss.`, citation: primaryCite },
+      { advantage: `${companyLabel} sustained market-share gains versus funded entrants over the last decade.`, citation: secondaryCite },
+      { advantage: `${companyLabel} cost/scale + distribution advantage competitors cannot replicate.`, citation: primaryCite },
+    ],
+    proposed_moat_class: 'monopoly' as const,
+    moat_reasoning: `${companyLabel} combines durable pricing power, share durability, and a structural cost/scale advantage — a grounded monopoly-class moat.`,
     runway: 'proven' as const,
-    moat_rubric: {
-      rubric_scores: [
-        { id: 'M1', score: 2 },
-        { id: 'M2', score: 2 },
-        { id: 'M3', score: 2, citation_hash: primaryCite },
-        { id: 'M4', score: 2, citation_hash: secondaryCite },
-        { id: 'M5', score: 2, citation_hash: primaryCite },
-        { id: 'M6', score: 2, citation_hash: secondaryCite },
-      ],
-      proposed_tier: 'monopoly' as const,
-      adjustment_evidence: [
-        { claim: `${companyLabel} sustained share gains vs funded entrants over the last decade.`, citation_hash: primaryCite },
-        { claim: `${companyLabel} shows documented pricing power without volume loss.`, citation_hash: secondaryCite },
-      ],
-    },
     runway_rubric: {
       rubric_scores: [
         { id: 'R1', score: 2 },

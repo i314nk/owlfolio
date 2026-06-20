@@ -84,24 +84,46 @@ const LaneRubricSchema = z.object({
 
 // ---------------------------------------------------------------------------
 // Per-lane JUDGMENT schemas (spec-correct decomposition — Integration Point #1).
-// The judgment-objectivity spec says each judgment-heavy LANE scores its OWN rubric. The moat lane
-// therefore emits moat_rubric + runway_rubric as REQUIRED fields (Mechanisms 1+2); the shariah lane
-// emits the sector_status + impermissible_income overlay as REQUIRED. These are small, FOCUSED schemas
-// (the lane's base finding + just its judgment block) so a live model is not asked to fill one giant
-// monolithic synthesis schema (the dogfood failure). Each is run under runValidatedAgent with its
-// judgment fields as requiredFields — the retry FORCES them; only after 2 fails does the visible
-// holistic/unverified fallback apply. The harness still re-verifies the computable rows + citations.
+// Each judgment-heavy LANE produces its OWN judgment. B6 reframe: the moat lane emits a GROUNDED CITED
+// THESIS (moat_drivers + proposed_moat_class — mirror of the circle gate) PLUS the (still-rubric) runway
+// axis; the shariah lane emits the sector_status + impermissible_income overlay as REQUIRED. These are
+// small, FOCUSED schemas (the lane's base finding + just its judgment block) so a live model is not asked
+// to fill one giant monolithic synthesis schema (the dogfood failure). Each is run under runValidatedAgent
+// with its judgment fields as requiredFields — the retry FORCES them; only after 2 fails does the visible
+// fallback apply. The harness cite-verifies the moat drivers + re-computes the EDGAR quant corroboration.
+// A single cited durable competitive ADVANTAGE: the advantage TEXT (REQUIRED — mirrors the circle's
+// CashflowDriverSchema; an empty claim must not clear the bar on its citation alone) + the source_id (or
+// content_hash) of a VERIFIED primary source. The harness cite-verifies the citation AND requires
+// non-empty text to count the driver grounded (the grounded-thesis moat reframe, B6).
+export const MoatDriverSchema = z.object({
+  // A specific durable competitive advantage of THIS business (pricing power, switching costs, network
+  // effects, brand, cost/scale advantage, etc.). REQUIRED.
+  advantage: z.string().min(1),
+  // REQUIRED — the source_id (or content_hash) of a VERIFIED primary source backing the advantage (a real
+  // grounded id, NOT prose). The harness cite-verifies this against the corpus; ungrounded → not counted.
+  citation: z.string().min(1),
+})
+
+// MOAT lane (B6 reframe): the lane emits a GROUNDED CITED THESIS, mirroring the circle gate — NOT a per-row
+// M1-M6 numeric rubric. The model argues the durable competitive advantages (each cited to a verified
+// primary source), proposes the moat_class, and gives its reasoning. The QUANT (M1 ROIC + M2 margin) is
+// computed by the HARNESS from EDGAR — the model does NOT score it. The harness cite-verifies each driver
+// (mirror of the circle), resolves the tier from the grounded thesis, and uses the quant as corroboration.
 export const MoatLaneSchema = z.object({
   ...LaneAgentBaseShape,
-  // The MOAT lane's own rubric judgment (REQUIRED on this lane's schema). It also classifies the
-  // holistic moat_class + runway as a fallback the harness uses ONLY when the rubric resolves to a
-  // non-downstream tier.
-  moat_class: z.enum(['narrow', 'moderate', 'wide', 'monopoly']),
+  // The durable competitive advantages, each with REQUIRED text + a verified-primary-source citation.
+  // (Mirror cashflow_drivers.) The harness cite-verifies these; an upward moat class must be GROUNDED here.
+  moat_drivers: z.array(MoatDriverSchema).min(1),
+  // The model's grounded moat judgment (the tier its cited drivers argue for).
+  proposed_moat_class: z.enum(['narrow', 'moderate', 'wide', 'monopoly']),
+  // The model's narrative moat reasoning.
+  moat_reasoning: z.string().min(1),
+  // RUNWAY axis is UNCHANGED (it still uses the per-row rubric resolved by resolveRubricTier — a later
+  // follow-up reframes it). The lane keeps emitting the holistic runway + the runway_rubric.
   runway: z.enum(['proven', 'limited', 'none']),
   // Optional: the lane may flag an exceptional runway (with headroom evidence) to allow the top of a
   // growth band. Defaults to false when omitted.
   runway_exceptional: z.boolean().optional(),
-  moat_rubric: LaneRubricSchema,
   runway_rubric: LaneRubricSchema,
 })
 
@@ -301,22 +323,35 @@ export function resolveAgentTimeoutMs(raw: string | undefined): number {
 
 export const AGENT_TIMEOUT_MS = resolveAgentTimeoutMs(process.env['OWLFOLIO_AGENT_TIMEOUT_MS'])
 
-// MOAT-lane judgment instructions (moved here from the synthesis prompt — spec-correct: the LANE scores
-// its own rubric). The moat lane emits moat_rubric + runway_rubric (Mechanisms 1+2) AND a holistic
-// moat_class/runway the harness uses only as a fallback when the rubric resolves to a non-downstream tier.
+// MOAT-lane judgment instructions (B6 reframe — the moat is the model's GROUNDED CITED THESIS, mirroring
+// the circle gate, NOT a per-row numeric rubric). The lane argues the durable competitive advantages, each
+// cited to a verified primary source; proposes the moat_class; and states the quant (ROIC/margins) will
+// corroborate. The harness cite-verifies each driver, resolves the tier from the grounded thesis, and uses
+// the EDGAR quant (M1/M2) only as corroboration. The RUNWAY rubric is UNCHANGED (later follow-up).
 export const MOAT_RUBRIC_PROMPT =
-  ` As the MOAT lane you ALSO produce the judgment classification + rubrics for this case. `
-  + `Classify the durable competitive moat_class ('narrow' | 'moderate' | 'wide' | 'monopoly') and the `
-  + `reinvestment runway ('proven' | 'limited' | 'none' — a SEPARATE axis from moat width; proven means `
-  + `≥5 yrs of incremental capital deployed at high ROIC with visible remaining headroom). Set `
+  ` As the MOAT lane you ALSO produce the durable-moat judgment for this case — as a GROUNDED CITED THESIS, `
+  + `the SAME discipline as the circle-of-competence gate: argue it, do not assert it. `
+  + `Emit moat_drivers: the SPECIFIC durable competitive advantages of THIS business — pricing power, switching `
+  + `costs, network effects, brand, cost/scale advantage, regulatory/IP barriers — EACH with concrete TEXT (the `
+  + `advantage) AND a citation (the source_id of a VERIFIED primary source backing it). Then set `
+  + `proposed_moat_class ('narrow' | 'moderate' | 'wide' | 'monopoly') — your grounded judgment of the moat width — `
+  + `and moat_reasoning (your narrative). The quant (ROIC durability + margin stability) will be computed by the `
+  + `harness from the EDGAR filings to CORROBORATE your thesis; do NOT score it yourself. `
+  + `GROUNDING IS THE BAR (mirror the circle): the harness cite-verifies each moat_driver against the corpus and `
+  + `counts ONLY drivers with non-empty advantage text AND a citation that verifies. A wide/monopoly class is `
+  + `honored ONLY when enough drivers GROUND (≈2 grounded distinct advantages for wide, ≈3 for monopoly); an `
+  + `ungrounded wide/monopoly claim FAILS CLOSED to narrow. STEER: for filing-backed claims, cite the named `
+  + `harness-verified source_ids (e.g. sec_edgar_10k_<cik>_fy<year>) listed in the pre-verified sources; do NOT `
+  + `fetch or cite your OWN SEC archive URL for the primary 10-K (it fetches unreliably and will FAIL the `
+  + `cite-check). outside/narrow is a valid, common answer — do NOT over-claim a moat you cannot ground. `
+  + `ALSO classify the reinvestment runway ('proven' | 'limited' | 'none' — a SEPARATE axis from moat width; `
+  + `proven means ≥5 yrs of incremental capital deployed at high ROIC with visible remaining headroom). Set `
   + `runway_exceptional only with explicit headroom evidence. `
-  + `JUDGMENT RUBRICS — REQUIRED, do not omit (omitting them forces the harness to degrade to a holistic tier and flag the dossier as rubric_not_emitted): emit BOTH moat_rubric and runway_rubric. `
-  + `Score the MOAT rubric (M1 ROIC>15% in ≥9/10yr [computable], M2 gross-margin band [computable], M3 price increases without share loss, M4 share vs entrant, M5 customer switching, M6 competitor exits) `
-  + `and the RUNWAY rubric (R1 incremental capital at high ROIC [computable], R2 visible headroom, R3 demonstrated reinvestment rate). `
-  + `For EACH item give a score 0/1/2; CITED rows (M3–M6, R2, R3) MUST carry a citation_hash that matches a fetched primary source (the harness scores 0 for any uncited cited row and re-computes M1/M2/R1 from filings itself). `
-  + `Then give proposed_tier (moat: narrow|moderate|wide|monopoly; runway: none|limited|proven) and adjustment_evidence — cited claims the quantitative score cannot see (patent cliff, announced entrant, technology substitution). `
-  + `The harness anchors the tier in the computable rows and accepts your proposed_tier ONLY as a bounded ±1-tier adjustment with verified cited evidence; an UPWARD adjustment needs 2× the cited evidence items of a downward one. `
-  + `EXAMPLE moat_rubric (shape only): {"rubric_scores":[{"id":"M1","score":2},{"id":"M2","score":2},{"id":"M3","score":2,"citation_hash":"<hash-of-a-fetched-source>"},{"id":"M4","score":1,"citation_hash":"<hash>"},{"id":"M5","score":2,"citation_hash":"<hash>"},{"id":"M6","score":1,"citation_hash":"<hash>"}],"proposed_tier":"wide","adjustment_evidence":[{"claim":"insurer contracts repriced upward with no share loss","citation_hash":"<hash>"}]}.`
+  + `RUNWAY RUBRIC — REQUIRED, do not omit (omitting it forces the harness to degrade to a holistic tier and flag the dossier as rubric_not_emitted): emit runway_rubric. `
+  + `Score the RUNWAY rubric (R1 incremental capital at high ROIC [computable], R2 visible headroom, R3 demonstrated reinvestment rate). `
+  + `For EACH item give a score 0/1/2; CITED rows (R2, R3) MUST carry a citation_hash that matches a fetched primary source (the harness scores 0 for any uncited cited row and re-computes R1 from filings itself). `
+  + `Then give proposed_tier (runway: none|limited|proven) and adjustment_evidence — cited claims the quantitative score cannot see (announced capacity, demonstrated reinvestment cadence). `
+  + `EXAMPLE moat_drivers (shape only): [{"advantage":"concentrate price increases stick with no volume loss","citation":"sec_edgar_10k_<cik>_fy<year>"},{"advantage":"global brand + bottler distribution scale advantage","citation":"<verified-source_id>"}].`
 
 // SHARIAH-lane judgment overlay instructions (moved here from the synthesis prompt). The lane supplies
 // the JUDGMENT only; the harness recomputes the AAOIFI ratios + verdict + purification % from filings.
@@ -347,5 +382,10 @@ export const CIRCLE_COMPETENCE_PROMPT =
   + `cannot demonstrate. Gather your own primary sources and return them in proposed_sources with real URLs; `
   + `cite real grounded source_ids in every citation field. Also give competence_reasoning (your narrative).`
 
-// Lanes that receive the primary-filing data injection (they consume hard financials).
-export const PRIMARY_FILING_LANES: ReadonlySet<string> = new Set(['financial_quality', 'valuation', 'shariah'])
+// Lanes that receive the primary-filing data injection (they consume hard financials). The MOAT lane is
+// included (B6 reframe) so the harness-verified resolver 10-K source_id is force-added to the moat lane's
+// verified set + tool-loop captured corpus — making the resolver id CITABLE by the grounded moat thesis
+// even though the model did not fetch it (the circle gate grounds by citing it; the moat must be able to
+// too). Note: the moat lane does NOT get the full primary-filing NUMBERS block (that stays on the financial
+// lanes); injectFiling only governs the withFiling verified-id force-add for the moat lane (see researchSwarm.ts).
+export const PRIMARY_FILING_LANES: ReadonlySet<string> = new Set(['financial_quality', 'valuation', 'shariah', 'moat'])

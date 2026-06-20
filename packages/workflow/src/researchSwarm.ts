@@ -1076,7 +1076,13 @@ export async function runResearchDeepDivePhase(
   const laneResults = await runLaneSwarm(lanes, async (lane) => {
     // Inject the grounded primary-filing block into the financial-heavy lanes so they have a
     // guaranteed primary citation + real numbers. The lane MUST cite the EDGAR source_id.
+    // injectFiling governs the verified-id FORCE-ADD + captured-corpus seeding (so the resolver 10-K id is
+    // CITABLE by the lane). The MOAT lane is in PRIMARY_FILING_LANES for THAT reason (B6: the grounded moat
+    // thesis must be able to cite the resolver id, like the circle gate) — but it does NOT receive the full
+    // primary-filing NUMBERS block in its prompt (that stays on the financial lanes). injectFilingNumbers
+    // gates the prompt numbers block and EXCLUDES the moat lane.
     const injectFiling = primaryFilingBlock !== undefined && PRIMARY_FILING_LANES.has(lane)
+    const injectFilingNumbers = injectFiling && lane !== 'moat'
     // model-tiering: the highest-stakes lanes resolve their OWN registry role (moat → lane_moat,
     // shariah → lane_shariah); every other lane uses lanes_default. Default = the run's provider/model
     // so single-provider runs are unchanged; an override can pin moat/shariah onto a stronger model.
@@ -1092,7 +1098,7 @@ export async function runResearchDeepDivePhase(
     const basePrompt = `You are the Buffett-Munger ${lane} specialist agent for ${command.ticker}. `
       + `Produce a source-backed finding for the ${lane} lane only. Gather your own sources; return them in proposed_sources with real URLs. `
       + `SOURCE DISCIPLINE (Mechanism 6): this lane reasons from PRIMARY documents. ${sourceDiscipline}`
-      + (injectFiling ? primaryFilingBlock : '')
+      + (injectFilingNumbers ? primaryFilingBlock : '')
 
     const baseRunId = `run_${command.research_case_id}_${swarmSeg(lane)}`
     // The grounded EDGAR 10-K is a guaranteed verified primary citation for the injected lanes —
@@ -1103,13 +1109,15 @@ export async function runResearchDeepDivePhase(
         ? [...new Set([primaryFilingSourceId, ...verified])]
         : verified
 
-    // ---- MOAT lane: emits its OWN moat_rubric + runway_rubric (spec-correct decomposition) ----
-    // The judgment-objectivity spec assigns rubric scoring to the producing lane. The moat lane runs
-    // under runValidatedAgent with moat_rubric + runway_rubric REQUIRED — the retry FORCES them; only
-    // after 2 fails does the visible holistic fallback (judgment_degraded: rubric_not_emitted) apply.
+    // ---- MOAT lane: emits its GROUNDED CITED THESIS (moat_drivers + proposed_moat_class) + runway_rubric ----
+    // B6 reframe (mirror the circle gate): the moat is the model's grounded cited thesis, NOT a per-row
+    // M1-M6 rubric. The lane runs under runValidatedAgent with moat_drivers + proposed_moat_class + the
+    // runway_rubric REQUIRED — the retry FORCES them; only after 2 fails does the visible fallback (the
+    // moat thesis is absent → resolver fails closed to narrow + judgment_degraded: rubric_not_emitted) apply.
     if (lane === 'moat') {
       const moatRequired: RequiredFieldCheck<z.infer<typeof MoatLaneSchema>>[] = [
-        { name: 'moat_rubric', present: (a) => a.moat_rubric !== undefined, hint: 'scored 0/1/2 rubric_scores + proposed_tier + citation_hash on cited rows' },
+        { name: 'moat_drivers', present: (a) => Array.isArray(a.moat_drivers) && a.moat_drivers.length > 0, hint: 'the durable competitive advantages, each {advantage, citation} cited to a verified primary source' },
+        { name: 'proposed_moat_class', present: (a) => a.proposed_moat_class !== undefined, hint: "'narrow' | 'moderate' | 'wide' | 'monopoly' — your grounded moat judgment" },
         { name: 'runway_rubric', present: (a) => a.runway_rubric !== undefined, hint: 'scored 0/1/2 rubric_scores + proposed_tier' },
       ]
       const validated = await runValidatedAgent(laneRuntime.provider, {
@@ -1136,13 +1144,25 @@ export async function runResearchDeepDivePhase(
       }
       remember(agent.captured)
       const a = agent.analysis
+      // B6: the grounded cited thesis is present only when BOTH the drivers (non-empty) and the proposed
+      // class survived (a schema-valid live model always has them; the fallback path leaves moat_thesis
+      // undefined → the resolver fails closed to narrow + judgment_degraded, never a silent admit).
+      const moatThesisPresent =
+        Array.isArray(a.moat_drivers) && a.moat_drivers.length > 0 && a.proposed_moat_class !== undefined
       const moat_judgment: MoatLaneJudgment = {
-        moat_class: a.moat_class,
+        ...(moatThesisPresent
+          ? {
+              moat_thesis: {
+                moat_drivers: a.moat_drivers,
+                proposed_moat_class: a.proposed_moat_class,
+                moat_reasoning: a.moat_reasoning ?? '',
+              },
+            }
+          : {}),
         runway: a.runway,
         ...(a.runway_exceptional !== undefined ? { runway_exceptional: a.runway_exceptional } : {}),
-        ...(a.moat_rubric !== undefined ? { moat_rubric: a.moat_rubric } : {}),
         ...(a.runway_rubric !== undefined ? { runway_rubric: a.runway_rubric } : {}),
-      }
+      } as MoatLaneJudgment
       return {
         lane,
         finding_summary: a.finding_summary,
@@ -1250,11 +1270,11 @@ export async function runResearchDeepDivePhase(
     verifiedCitationHashes.add(s.source_id) // a lane may cite by source_id; both are corpus-verified
   }
   const judgment = resolveJudgmentTiers({
-    ...(moatJudgment?.moat_rubric !== undefined ? { moatRubric: moatJudgment.moat_rubric } : {}),
+    // MOAT (B6 reframe): the grounded cited thesis (moat_drivers + proposed_moat_class). When the lane
+    // omitted it, the moat axis fails closed to narrow + judgment_degraded (the silent-skip guard).
+    ...(moatJudgment?.moat_thesis !== undefined ? { moatThesis: moatJudgment.moat_thesis } : {}),
     ...(moatJudgment?.runway_rubric !== undefined ? { runwayRubric: moatJudgment.runway_rubric } : {}),
-    // Holistic fallbacks (the moat lane's holistic fields) so the resolved tier is NEVER undefined when
-    // the rubric is omitted — closing the silent-degradation cascade the live dogfood exposed.
-    ...(moatJudgment?.moat_class !== undefined ? { holisticMoatClass: moatJudgment.moat_class } : {}),
+    // Holistic runway fallback so the resolved runway is NEVER undefined when its rubric is omitted.
     ...(moatJudgment?.runway !== undefined ? { holisticRunway: moatJudgment.runway } : {}),
     ...(fundamentals?.annual_series !== undefined ? { series: fundamentals.annual_series } : {}),
     verifiedCitationHashes,
@@ -1721,11 +1741,15 @@ export async function runResearchDeepDivePhase(
   // payload, projected legacy-tolerantly, displayed near the verdict.
   const moatProposedTier = judgment.moat?.proposed_tier
   const modelClaimedPassingMoat = moatProposedTier === 'wide' || moatProposedTier === 'monopoly'
+  // B6: the grounded-thesis resolver sets moat_grounding_unmet directly (model claimed wide/monopoly but
+  // the grounded drivers couldn't back it). grounding_capped mirrors it. judgment_degraded fires when no
+  // thesis was emitted at all. Any of these → the moat claim is UNGROUNDED (vs genuinely narrow).
+  const moatThesisUnmet = judgment.moat?.moat_grounding_unmet === true
   const moatGroundingCapped = judgment.moat?.grounding_capped === true
   const moatJudgmentDegraded = judgment.moat?.judgment_degraded === 'rubric_not_emitted'
   const moat_grounding_unmet =
     !moat_passes_gate
-    && (moatGroundingCapped || moatJudgmentDegraded || (modelClaimedPassingMoat && !moat_passes_gate))
+    && (moatThesisUnmet || moatGroundingCapped || moatJudgmentDegraded || (modelClaimedPassingMoat && !moat_passes_gate))
   const moatGroundingReason: string | undefined = !moat_grounding_unmet
     ? undefined
     : moatGroundingCapped
@@ -2675,8 +2699,14 @@ export async function runResearchDeepDivePhase(
   // evidence the synthesis supplied lives in the moat/runway rubric adjustment_evidence (cited
   // claims) + the EDGAR-anchored rubric rows. The harness FLAGS unmet burdens (base_rate_burden_unmet)
   // and surfaces them; it does NOT silently pass an unjustified exceptional claim.
+  // B6: the moat exceptionality justification is now the GROUNDED moat thesis (cite-verified drivers) —
+  // each grounded {advantage, citation} maps onto an {claim, citation_hash} justification. Only grounded
+  // drivers count (an ungrounded driver is no justification). The runway rubric still contributes its
+  // cited adjustment evidence.
   const exceptionalityJustifications = [
-    ...(moatJudgment?.moat_rubric?.adjustment_evidence ?? []),
+    ...((judgment.moat?.moat_drivers ?? [])
+      .filter((d) => d.grounded)
+      .map((d) => ({ claim: d.advantage, citation_hash: d.citation }))),
     ...(moatJudgment?.runway_rubric?.adjustment_evidence ?? []),
   ]
   // ROIC>20% sustained signal: high reported/incremental ROIC at a wide+ moat with growth credited.
