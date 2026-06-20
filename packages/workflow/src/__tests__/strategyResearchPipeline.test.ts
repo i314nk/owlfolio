@@ -461,6 +461,88 @@ describe('strategy-agnostic research pipeline foundation', () => {
     ])
   })
 
+  it('treats a duplicate deep-dive start as an idempotent no-op (returns the existing start)', async () => {
+    const store = new InMemoryEventStore()
+
+    await createResearchCase(store, {
+      research_case_id: 'rc_dup_start_001',
+      company_id: 'company_dup_start',
+      ticker: 'DUPE',
+      ...defaultResearchStrategyRef,
+      actor_id: 'user_local',
+    })
+    const quickScreen = await draftQuickScreen(store, {
+      research_case_id: 'rc_dup_start_001',
+      quick_screen_id: 'quick_dup_start_001',
+      company_id: 'company_dup_start',
+      ticker: 'DUPE',
+      ...defaultResearchStrategyRef,
+      screening_result: 'deep_dive_candidate',
+      summary: 'Candidate clears quick screen for duplicate-start validation.',
+      business_quality: 'Enough evidence to test duplicate start.',
+      moat: 'Moat needs deep dive.',
+      management_capital_allocation: 'Management needs deep dive.',
+      financial_quality: 'Financial quality needs deep dive.',
+      valuation_sanity: 'Valuation needs deep dive.',
+      shariah_status: 'PENDING',
+      red_flags: [],
+      confidence: 'medium',
+      caveats: ['Duplicate-start validation only'],
+      source_ids: ['src_dup_001'],
+      actor_id: 'mock-provider',
+    })
+    const queued = await queueDeepDive(store, {
+      research_case_id: 'rc_dup_start_001',
+      queue_id: 'queue_dup_001',
+      candidate_id: 'candidate_dup_001',
+      ...defaultResearchStrategyRef,
+      source_ids: ['src_dup_001'],
+      causation_id: quickScreen.event_id,
+      actor_id: 'system',
+    })
+
+    const startCommand = {
+      research_case_id: 'rc_dup_start_001',
+      deep_dive_id: 'deep_dup_001',
+      candidate_id: 'candidate_dup_001',
+      ...defaultResearchStrategyRef,
+      specialist_lanes: ['moat'],
+      source_ids: ['src_dup_001'],
+      causation_id: queued.event_id,
+      actor_id: 'worker_research',
+    }
+    const started = await startDeepDive(store, startCommand)
+
+    // A back-to-back duplicate trigger returns the SAME start event, no throw.
+    const restartedImmediately = await startDeepDive(store, startCommand)
+    expect(restartedImmediately.event_id).toBe(started.event_id)
+
+    // Advance the dive, then a retry/duplicate trigger must still be an idempotent
+    // no-op — NOT the "already advanced" rejection (the watchdog/race regression).
+    await recordSpecialistFinding(store, {
+      research_case_id: 'rc_dup_start_001',
+      finding_id: 'finding_dup_moat_001',
+      deep_dive_id: started.deep_dive_id,
+      candidate_id: 'candidate_dup_001',
+      specialist_lane: 'moat',
+      ...defaultResearchStrategyRef,
+      finding_summary: 'Moat lane recorded before the duplicate start retry.',
+      confidence: 'medium',
+      caveats: [],
+      source_ids: ['src_dup_001'],
+      causation_id: started.event_id,
+      actor_id: 'mock-provider',
+    })
+
+    const restartedAfterAdvance = await startDeepDive(store, startCommand)
+    expect(restartedAfterAdvance.event_id).toBe(started.event_id)
+    expect(restartedAfterAdvance.deep_dive_id).toBe('deep_dup_001')
+
+    // Exactly one deep_dive_started persisted across all three start calls.
+    const startEvents = (await store.list()).filter((event) => event.event_type === 'deep_dive_started')
+    expect(startEvents).toHaveLength(1)
+  })
+
   it('rejects deep-dive queueing unless the quick screen produced a deep-dive candidate', async () => {
     const store = new InMemoryEventStore()
 

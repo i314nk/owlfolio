@@ -639,10 +639,43 @@ export async function queueDeepDive(
   })
 }
 
+/**
+ * Finds an already-appended `deep_dive_started` event for this exact deep dive
+ * (matched by research case + deterministic deep_dive_id), if any.
+ */
+async function findStartedDeepDive(
+  store: ResearchPipelineEventStore,
+  researchCaseId: string,
+  deepDiveId: string,
+): Promise<LedgerEventEnvelope<DeepDiveStartedPayload> | undefined> {
+  const normalizedDeepDiveId = deepDiveId.trim()
+  if (normalizedDeepDiveId.length === 0) {
+    return undefined
+  }
+  const researchCaseEvents = await store.listByAggregate('research_case', researchCaseId)
+  const match = researchCaseEvents.find(
+    (event) =>
+      event.event_type === 'deep_dive_started'
+      && isRecord(event.payload)
+      && getString(event.payload, 'deep_dive_id') === normalizedDeepDiveId,
+  )
+  return match as LedgerEventEnvelope<DeepDiveStartedPayload> | undefined
+}
+
 export async function startDeepDive(
   store: ResearchPipelineEventStore,
   command: StartDeepDiveCommand,
 ): Promise<DeepDiveStarted> {
+  // Idempotent start: a duplicate or retry trigger for a deep dive that has
+  // already started (and may have advanced to findings/synthesis) is a no-op
+  // that returns the existing start event — NOT an "already advanced" rejection.
+  // This keeps concurrent worker ticks / re-enqueues from failing a healthy run.
+  // The advance-guard below still protects the first, genuine start.
+  const existingStart = await findStartedDeepDive(store, command.research_case_id, command.deep_dive_id)
+  if (existingStart !== undefined) {
+    return mergeEventPayload(existingStart)
+  }
+
   await requireQueuedDeepDive(store, command)
   const payload: DeepDiveStartedPayload = {
     ...pipelinePayloadBase(command),
