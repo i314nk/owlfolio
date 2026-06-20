@@ -279,13 +279,33 @@ function buildRuns(researchCases: ResearchCaseProjection[]): PipelineRun[] {
 }
 
 /**
- * `research_run_failed` events that are not subsequently superseded by a successful
- * claim/progression for the same case are treated as recent failures.
+ * Forward-progress events that, when they occur AFTER a `research_run_failed`,
+ * mean the run genuinely recovered (was re-run and advanced) rather than having
+ * stalled at the failure. A failure followed by no such event is a genuine
+ * recent failure — including a watchdog-abandoned run that progressed and then
+ * failed (the failure is its latest lifecycle state, not "recovered").
+ */
+const RUN_RECOVERY_EVENT_TYPES = new Set<string>([
+  'quick_screen_drafted',
+  'deep_dive_started',
+  'specialist_finding_recorded',
+  'deep_dive_synthesis_drafted',
+  'deep_dive_completed',
+  'buffett_munger_analysis_drafted',
+  'decision_drafted',
+])
+
+/**
+ * A `research_run_failed` event is a recent failure only if it is the case's
+ * latest lifecycle state — i.e. no forward-progress event for the same case
+ * occurs after it. Recovery is ORDER-AWARE: iterating in append order, a failure
+ * is recorded on `research_run_failed` and cleared by any later progress event,
+ * so progressed-then-abandoned runs correctly remain failed while
+ * failed-then-re-run runs correctly drop out.
  * Returns both the count and the structured failed run entries.
  */
 function collectRecentFailures(events: LedgerEventEnvelope<unknown>[]): { count: number; failed_runs: PipelineFailedRun[] } {
-  const failedByCase = new Map<string, PipelineFailedRun>()
-  const recoveredCases = new Set<string>()
+  const latestFailureByCase = new Map<string, PipelineFailedRun>()
   for (const event of events) {
     if (!isRecord(event.payload)) {
       continue
@@ -295,21 +315,14 @@ function collectRecentFailures(events: LedgerEventEnvelope<unknown>[]): { count:
       const ticker = getString(event.payload, 'ticker') ?? caseId
       const errorSummary = getString(event.payload, 'error_summary')
       const failedAt = getString(event.payload, 'failed_at') ?? event.created_at
-      failedByCase.set(caseId, { case_id: caseId, ticker, failed_at: failedAt, ...(errorSummary !== undefined ? { error_summary: errorSummary } : {}) })
-    } else if (
-      event.event_type === 'quick_screen_drafted'
-      || event.event_type === 'deep_dive_started'
-      || event.event_type === 'specialist_finding_recorded'
-    ) {
-      recoveredCases.add(caseId)
+      latestFailureByCase.set(caseId, { case_id: caseId, ticker, failed_at: failedAt, ...(errorSummary !== undefined ? { error_summary: errorSummary } : {}) })
+    } else if (RUN_RECOVERY_EVENT_TYPES.has(event.event_type)) {
+      // Forward progress AFTER a recorded failure clears it (genuine recovery).
+      // Progress BEFORE a failure leaves nothing to clear, so a later failure stays.
+      latestFailureByCase.delete(caseId)
     }
   }
-  const failed_runs: PipelineFailedRun[] = []
-  for (const [caseId, run] of failedByCase) {
-    if (!recoveredCases.has(caseId)) {
-      failed_runs.push(run)
-    }
-  }
+  const failed_runs = [...latestFailureByCase.values()]
   return { count: failed_runs.length, failed_runs }
 }
 

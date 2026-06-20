@@ -95,6 +95,63 @@ describe('projectPipeline — run statuses', () => {
   })
 })
 
+describe('projectPipeline — recovery is order-aware (post-progress failures stay failed)', () => {
+  it('keeps a run that progressed and THEN failed as a genuine failure (watchdog-abandoned)', () => {
+    // The watchdog auto-fails a run that made progress but stalled. The failure
+    // is the LATEST state for the case — it must NOT be masked as "recovered"
+    // just because earlier progress events exist for the same case.
+    const events: LedgerEventEnvelope<unknown>[] = [
+      evt({ aggregate_id: 'stall', event_type: 'research_run_requested', payload: { research_case_id: 'stall', ticker: 'STALL' } }),
+      evt({ aggregate_id: 'stall', event_type: 'deep_dive_started', payload: { research_case_id: 'stall', ticker: 'STALL', deep_dive_id: 'd1' } }),
+      evt({ aggregate_id: 'stall', event_type: 'specialist_finding_recorded', payload: { research_case_id: 'stall', finding_id: 'f1', specialist_lane: 'moat', source_ids: ['s1'] } }),
+      evt({ aggregate_id: 'stall', event_type: 'research_run_failed', payload: { research_case_id: 'stall', ticker: 'STALL', error_summary: 'watchdog: abandoned after 300s' } }),
+    ]
+
+    const projection = projectPipeline(events)
+    expect(projection.summary.failed_recent).toBe(1)
+    const failed = projection.failed_runs?.find((r) => r.case_id === 'stall')
+    expect(failed).toBeDefined()
+    expect(failed?.error_summary).toBe('watchdog: abandoned after 300s')
+  })
+
+  it('treats a run that failed and THEN re-ran with progress as recovered (not failed)', () => {
+    const events: LedgerEventEnvelope<unknown>[] = [
+      evt({ aggregate_id: 'retry', event_type: 'research_run_requested', payload: { research_case_id: 'retry', ticker: 'RETRY' } }),
+      evt({ aggregate_id: 'retry', event_type: 'research_run_failed', payload: { research_case_id: 'retry', ticker: 'RETRY', error_summary: 'transient codex stall' } }),
+      // re-run made forward progress after the failure → genuinely recovered
+      evt({ aggregate_id: 'retry', event_type: 'deep_dive_started', payload: { research_case_id: 'retry', ticker: 'RETRY', deep_dive_id: 'd2' } }),
+      evt({ aggregate_id: 'retry', event_type: 'specialist_finding_recorded', payload: { research_case_id: 'retry', finding_id: 'f1', specialist_lane: 'moat', source_ids: ['s1'] } }),
+    ]
+
+    const projection = projectPipeline(events)
+    expect(projection.summary.failed_recent).toBe(0)
+    expect(projection.failed_runs ?? []).toHaveLength(0)
+  })
+
+  it('reports the latest failure when a run failed, recovered, then failed again', () => {
+    const events: LedgerEventEnvelope<unknown>[] = [
+      evt({ aggregate_id: 'flap', event_type: 'research_run_failed', payload: { research_case_id: 'flap', ticker: 'FLAP', error_summary: 'first failure' } }),
+      evt({ aggregate_id: 'flap', event_type: 'deep_dive_started', payload: { research_case_id: 'flap', ticker: 'FLAP', deep_dive_id: 'd1' } }),
+      evt({ aggregate_id: 'flap', event_type: 'research_run_failed', payload: { research_case_id: 'flap', ticker: 'FLAP', error_summary: 'second failure' } }),
+    ]
+
+    const projection = projectPipeline(events)
+    expect(projection.summary.failed_recent).toBe(1)
+    expect(projection.failed_runs?.find((r) => r.case_id === 'flap')?.error_summary).toBe('second failure')
+  })
+
+  it('treats reaching a terminal decision after a failure as recovered', () => {
+    const events: LedgerEventEnvelope<unknown>[] = [
+      evt({ aggregate_id: 'late', event_type: 'research_run_failed', payload: { research_case_id: 'late', ticker: 'LATE', error_summary: 'mid-run stall' } }),
+      evt({ aggregate_id: 'late', event_type: 'deep_dive_synthesis_drafted', payload: { research_case_id: 'late', ticker: 'LATE' } }),
+      evt({ aggregate_id: 'late', event_type: 'decision_drafted', payload: { research_case_id: 'late', decision: 'WATCH' } }),
+    ]
+
+    const projection = projectPipeline(events)
+    expect(projection.summary.failed_recent).toBe(0)
+  })
+})
+
 describe('buildPipelineDrillDown — lane statuses + timeline ordering', () => {
   it('marks recorded lanes done with timing, expected-not-recorded running while live', () => {
     const events: LedgerEventEnvelope<unknown>[] = [

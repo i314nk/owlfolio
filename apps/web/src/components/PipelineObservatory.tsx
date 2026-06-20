@@ -385,7 +385,7 @@ function FailedRunsSection({ failedRuns }: { failedRuns: PipelineFailedRun[] }):
   return createElement(
     'section',
     { className: 'owl-section-card', style: { borderColor: 'rgba(239,68,68,0.24)', gap: 'var(--owl-space-3)' } },
-    sectionHead('Faults', 'Failed runs', 'not recovered by a subsequent claim', 'var(--owl-color-risk-bright)'),
+    sectionHead('Faults', 'Failed runs', 'failure is the latest state — no forward progress since', 'var(--owl-color-risk-bright)'),
     createElement(
       'div',
       { style: { overflowX: 'auto' } },
