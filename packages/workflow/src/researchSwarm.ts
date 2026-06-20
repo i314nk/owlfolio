@@ -15,7 +15,7 @@ import {
   anchorNetIncomeToEdgar,
 } from './rangeSanity'
 import { runValidatedAgent, ValidatedAgentFailedError, type RequiredFieldCheck } from './runValidatedAgent'
-import { groundProposedSources, type CapturedSource, type GroundingDeps, type ProposedSource, type SourcePolicyRejection } from './sourceGrounding'
+import { groundProposedSources, isCitationGrounded, type CapturedSource, type GroundingDeps, type ProposedSource, type SourcePolicyRejection } from './sourceGrounding'
 // Grounded-agent primitives live in a cycle-free module (groundedAgent) so BOTH this orchestrator AND
 // the red-team pass can import them without a circular module-evaluation dependency. Re-exported below
 // for existing importers (tests + workers import these from researchSwarm).
@@ -101,6 +101,7 @@ import {
   resolveJudgmentTiers,
   buildJudgmentProjection,
   buildPrimaryFilingBlock,
+  buildPreVerifiedSourcesBlock,
   type MoatLaneJudgment,
   type ShariahLaneJudgment,
   type JudgmentDegraded,
@@ -785,13 +786,17 @@ const MAINTENANCE_CAPEX_DIVERGENCE_FRACTION = 0.20
 async function judgeCircleCompetence(
   provider: Provider,
   command: RunResearchDeepDivePhaseCommand,
-  deps: { ground?: GroundFn; grounding?: GroundingDeps; maxToolCalls?: number } & FundamentalsDeps,
+  deps: { ground?: GroundFn; grounding?: GroundingDeps; maxToolCalls?: number; preVerifiedSourcesBlock?: string } & FundamentalsDeps,
 ) {
   // The circle judgment runs on the synthesis role (T1 — the high-stakes judgment tier). Default = the
   // run's provider/model so single-provider runs are unchanged; an override can pin it onto a frontier model.
   const circleRuntime = resolveRoleRuntime('synthesis', provider, command)
   const prompt = `You are the Buffett-Munger circle-of-competence gate for ${command.ticker} (${command.company_id}). `
     + CIRCLE_COMPETENCE_PROMPT
+    // citation/corpus-alignment: surface the harness's already-verified EDGAR primary source_id so the
+    // cashflow_drivers / predictability_breakers cite an id that reliably verifies (the cite-check below
+    // grounds on it) instead of the model's own flaky SEC-archive id.
+    + (deps.preVerifiedSourcesBlock ?? '')
   const { degraded_no_tools: _circleDegraded, ...agent } = await runGroundedAgentWithTools(
     circleRuntime.provider,
     {
@@ -825,6 +830,52 @@ export async function runResearchDeepDivePhase(
 
   const lanes = buffettMungerDeepDiveLanes
 
+  // ---- Pre-fetch SEC EDGAR primary-filing fundamentals (fail-closed, test-mode-gated) ----
+  // When fundamentals resolve, we ground the latest 10-K as a verified primary source and inject the
+  // raw filing numbers into the financial_quality / valuation / shariah lanes so those lanes ground on
+  // filings instead of dropping when IR/news is blocked. When they do not resolve (non-US ticker,
+  // EDGAR down, test mode w/o injection), the lanes run EXACTLY as today — no regression.
+  //
+  // citation/corpus-alignment fix (KO regression): this runs BEFORE the circle gate (not after, where it
+  // used to) so the harness-verified EDGAR source_id is available to the circle gate, the moat lane, AND
+  // the decision/synthesis agent as a PRE-VERIFIED-SOURCES block. KO spuriously resolved narrow because
+  // the moat rows cited the model's OWN flaky SEC-archive id while the SAME 10-K was reliably verified
+  // under the harness resolver id — the cited id was not in the verified set, so the rows scored 0. By
+  // surfacing the resolver's already-content-hash-verified id and instructing the agents to cite THAT for
+  // filing-backed claims, the model's citations align with what the harness reliably verifies. The strict
+  // content-hash cite-check is unchanged — this only aligns WHAT is cited with what is VERIFIED.
+  const fundamentals = await resolveFundamentals(command.ticker, deps)
+  let primaryFilingBlock: string | undefined
+  let primaryFilingSourceId: string | undefined
+  if (fundamentals !== undefined) {
+    const tenK = fundamentals.filings.find((x) => x.form === '10-K')
+    if (tenK !== undefined) {
+      const sourceId = `sec_edgar_10k_${fundamentals.cik}_fy${fundamentals.latest_annual.fiscal_year}`
+      const proposed: ProposedSource = {
+        source_id: sourceId,
+        title: `${fundamentals.entity_name} 10-K (FY${fundamentals.latest_annual.fiscal_year}) — SEC EDGAR`,
+        url: tenK.url,
+        excerpt: `Primary SEC EDGAR 10-K filing for ${fundamentals.entity_name} (CIK ${fundamentals.cik}), filed ${tenK.filed}.`,
+      }
+      // Ground the 10-K through the same path as model-proposed sources (content-hash + SSRF guard).
+      const ground = deps.ground ?? groundProposedSources
+      const grounded = await ground([proposed], deps.grounding)
+      const captured = grounded.captured[0]
+      if (captured !== undefined && grounded.verified_ids.includes(sourceId)) {
+        remember([captured])
+        primaryFilingSourceId = sourceId
+        primaryFilingBlock = buildPrimaryFilingBlock(fundamentals, sourceId)
+      }
+    }
+  }
+  // The PRE-VERIFIED-SOURCES block lists the harness's already-content-hash-verified EDGAR primary
+  // source_ids and instructs the agent to cite THOSE for filing-backed claims (instead of inventing its
+  // own SEC archive URLs, which fetch unreliably). Surfaced to the circle gate, the moat lane, and the
+  // decision/synthesis agent — the three lanes whose filing-backed claims drive the cite-check verdicts.
+  const preVerifiedSourcesBlock = primaryFilingSourceId !== undefined
+    ? buildPreVerifiedSourcesBlock([primaryFilingSourceId])
+    : undefined
+
   // ---- CIRCLE-OF-COMPETENCE GATE (sequential pre-deep-dive stage — gates the 7-lane spend) ----
   // The circle of competence is a GROUNDED MODEL JUDGMENT, not a config screen: "do I understand THIS
   // business well enough to assess its cashflow predictability?" It runs as its OWN call (NOT an 8th
@@ -835,7 +886,10 @@ export async function runResearchDeepDivePhase(
   //   - outside-competence (model says so, OR fail-closed on EITHER ungrounded clause) → SET ASIDE: emit a
   //     terminal decision with verdict PASS carrying competence_reasoning + the circle_competence_unmet
   //     flag; the 7 lanes do NOT run. NEVER RESEARCH_MORE — a valid, common, CORRECT Buffett output.
-  const circle = await judgeCircleCompetence(provider, command, deps)
+  const circle = await judgeCircleCompetence(provider, command, {
+    ...deps,
+    ...(preVerifiedSourcesBlock === undefined ? {} : { preVerifiedSourcesBlock }),
+  })
   remember(circle.captured)
   // Build the verified cite-check set from ONLY content_hash-confirmed sources (the SAME hardened primitive
   // the §2/A1/rubric cite-checks use — a captured-but-unverified id must NOT satisfy a citation).
@@ -848,10 +902,10 @@ export async function runResearchDeepDivePhase(
   // Bug A: a claim counts grounded ONLY when its TEXT is non-empty AND its citation cite-verifies. An empty
   // claim with a verified citation MUST NOT count (the MU run cleared N=M=1 on citations alone).
   const groundedDrivers = circle.analysis.cashflow_drivers.filter(
-    (d) => (d.driver?.trim().length ?? 0) > 0 && circleVerified.has(d.citation),
+    (d) => (d.driver?.trim().length ?? 0) > 0 && isCitationGrounded(d.citation, circleVerified),
   )
   const groundedBreakers = circle.analysis.predictability_breakers.filter(
-    (b) => (b.breaker?.trim().length ?? 0) > 0 && circleVerified.has(b.citation),
+    (b) => (b.breaker?.trim().length ?? 0) > 0 && isCitationGrounded(b.citation, circleVerified),
   )
   // Bug B: the gate now keys off the cashflow_predictability ENUM, not a boolean that conflated
   // "I understand the business" with "the cashflows are durably predictable". The gate proceeds
@@ -887,12 +941,12 @@ export async function runResearchDeepDivePhase(
     cashflow_drivers: circle.analysis.cashflow_drivers.map((d) => ({
       driver: d.driver ?? '',
       citation: d.citation,
-      grounded: (d.driver?.trim().length ?? 0) > 0 && circleVerified.has(d.citation),
+      grounded: (d.driver?.trim().length ?? 0) > 0 && isCitationGrounded(d.citation, circleVerified),
     })),
     predictability_breakers: circle.analysis.predictability_breakers.map((b) => ({
       breaker: b.breaker ?? '',
       citation: b.citation,
-      grounded: (b.breaker?.trim().length ?? 0) > 0 && circleVerified.has(b.citation),
+      grounded: (b.breaker?.trim().length ?? 0) > 0 && isCitationGrounded(b.citation, circleVerified),
     })),
     ...(circleUnmetReason !== undefined ? { circle_competence_unmet: true, reason: circleUnmetReason } : {}),
   }
@@ -1017,35 +1071,6 @@ export async function runResearchDeepDivePhase(
     idempotency_key: `deep-dive-start:${command.research_case_id}:v1`,
   })
 
-  // ---- Pre-fetch SEC EDGAR primary-filing fundamentals (fail-closed, test-mode-gated) ----
-  // When fundamentals resolve, we ground the latest 10-K as a verified primary source and inject the
-  // raw filing numbers into the financial_quality / valuation / shariah lanes so those lanes ground on
-  // filings instead of dropping when IR/news is blocked. When they do not resolve (non-US ticker,
-  // EDGAR down, test mode w/o injection), the lanes run EXACTLY as today — no regression.
-  const fundamentals = await resolveFundamentals(command.ticker, deps)
-  let primaryFilingBlock: string | undefined
-  let primaryFilingSourceId: string | undefined
-  if (fundamentals !== undefined) {
-    const tenK = fundamentals.filings.find((x) => x.form === '10-K')
-    if (tenK !== undefined) {
-      const sourceId = `sec_edgar_10k_${fundamentals.cik}_fy${fundamentals.latest_annual.fiscal_year}`
-      const proposed: ProposedSource = {
-        source_id: sourceId,
-        title: `${fundamentals.entity_name} 10-K (FY${fundamentals.latest_annual.fiscal_year}) — SEC EDGAR`,
-        url: tenK.url,
-        excerpt: `Primary SEC EDGAR 10-K filing for ${fundamentals.entity_name} (CIK ${fundamentals.cik}), filed ${tenK.filed}.`,
-      }
-      // Ground the 10-K through the same path as model-proposed sources (content-hash + SSRF guard).
-      const ground = deps.ground ?? groundProposedSources
-      const grounded = await ground([proposed], deps.grounding)
-      const captured = grounded.captured[0]
-      if (captured !== undefined && grounded.verified_ids.includes(sourceId)) {
-        remember([captured])
-        primaryFilingSourceId = sourceId
-        primaryFilingBlock = buildPrimaryFilingBlock(fundamentals, sourceId)
-      }
-    }
-  }
 
   // ---- Per-lane swarm ----
   const laneResults = await runLaneSwarm(lanes, async (lane) => {
@@ -1090,7 +1115,11 @@ export async function runResearchDeepDivePhase(
       const validated = await runValidatedAgent(laneRuntime.provider, {
         run_id: baseRunId,
         model_id: laneRuntime.model_id,
-        prompt: basePrompt + MOAT_RUBRIC_PROMPT,
+        // citation/corpus-alignment (KO regression): the moat lane does NOT get the full primary-filing
+        // numbers block (that stays on the financial lanes), but it DOES get the pre-verified EDGAR
+        // source_id so the qualitative moat rows (M3-M6) cite the harness-verified filing id rather than
+        // the model's own flaky SEC-archive id — the exact bug that scored KO's wide-moat rows to 0.
+        prompt: basePrompt + MOAT_RUBRIC_PROMPT + (preVerifiedSourcesBlock ?? ''),
         timeout_ms: AGENT_TIMEOUT_MS,
         schema_name: 'BuffettMungerMoatLane',
       }, MoatLaneSchema, {
@@ -1405,6 +1434,11 @@ export async function runResearchDeepDivePhase(
       + (shariahLaneJudgment !== undefined ? `; the SHARIAH lane assessed sector_status='${shariahLaneJudgment.sector_status}'` : '')
       + `. Reconcile your verdict + rationale with these resolved classifications; do NOT re-score the rubrics. `
       + `Cite sources in proposed_sources with real URLs.`
+      // citation/corpus-alignment (KO regression): surface the harness's already-verified EDGAR source_id
+      // so owner_earnings_citation / assumed_growth_citation cite the id the harness reliably verifies
+      // (the cite-check below FAILS CLOSED on an unverifiable citation) instead of the model's own flaky
+      // SEC-archive id.
+      + (preVerifiedSourcesBlock ?? '')
       + redTeamPromptBlock,
     timeout_ms: AGENT_TIMEOUT_MS,
     schema_name: 'BuffettMungerSynthesisDecision',
@@ -1457,8 +1491,8 @@ export async function runResearchDeepDivePhase(
   }
   const ownerEarningsCitation = dec.analysis.valuation_reasoning?.owner_earnings_citation
   const assumedGrowthCitation = dec.analysis.valuation_reasoning?.assumed_growth_citation
-  const ownerEarningsGrounded = ownerEarningsCitation !== undefined && synthesisCorpusHashes.has(ownerEarningsCitation)
-  const assumedGrowthGrounded = assumedGrowthCitation !== undefined && synthesisCorpusHashes.has(assumedGrowthCitation)
+  const ownerEarningsGrounded = ownerEarningsCitation !== undefined && isCitationGrounded(ownerEarningsCitation, synthesisCorpusHashes)
+  const assumedGrowthGrounded = assumedGrowthCitation !== undefined && isCitationGrounded(assumedGrowthCitation, synthesisCorpusHashes)
   const synthesisGroundingUnmet =
     dec.verified_ids.length === 0
     || dec.analysis.valuation_reasoning === undefined

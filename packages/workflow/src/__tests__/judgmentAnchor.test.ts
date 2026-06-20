@@ -141,6 +141,59 @@ describe('resolveRubricTier — computable-row re-verification (lane cannot infl
   })
 })
 
+describe('resolveRubricTier — compound citations (KO regression)', () => {
+  // The real KO bug: the wide-moat rows M3-M6 cited a COMPOUND string pairing the harness-verified
+  // EDGAR id with the model's own flaky archive id. An exact `verified.has(...)` never matched the
+  // compound, the rows scored 0, and a WIDE-moat business resolved NARROW. The compound-aware
+  // cite-check must ground each row because the EDGAR component IS in the verified set.
+  it('grounds rows whose compound citation contains at least one verified component', () => {
+    const result = resolveRubricTier({
+      rubric: moat,
+      anchorScores: { M1: 2, M2: 2 },
+      laneRubricScores: [
+        { id: 'M1', score: 2 },
+        { id: 'M2', score: 2 },
+        { id: 'M3', score: 2, citation_hash: 'sha256:cite-a; ko_2025_10k' },
+        { id: 'M4', score: 2, citation_hash: 'ko_2025_10k, sha256:cite-b' },
+        { id: 'M5', score: 2, citation_hash: 'sha256:cite-c' },
+        { id: 'M6', score: 2, citation_hash: 'sha256:cite-d ; ko_2025_10k' },
+      ],
+      anchorTier: 'wide',
+      proposedTier: 'wide',
+      adjustmentEvidence: [],
+      verifiedCitationHashes: VERIFIED,
+    })
+    // Every cited row grounds (each compound has a verified component) -> full score, no "scored 0" violations.
+    expect(result.resolved_row_scores['M3']).toBe(2)
+    expect(result.resolved_row_scores['M4']).toBe(2)
+    expect(result.resolved_row_scores['M5']).toBe(2)
+    expect(result.resolved_row_scores['M6']).toBe(2)
+    expect(result.violations.some((v) => v.includes('without a verified citation'))).toBe(false)
+    expect(result.resolved_tier).toBe('wide')
+  })
+
+  it('still scores 0 when NO component of a compound citation verifies', () => {
+    const result = resolveRubricTier({
+      rubric: moat,
+      anchorScores: { M1: 2, M2: 2 },
+      laneRubricScores: [
+        { id: 'M1', score: 2 },
+        { id: 'M2', score: 2 },
+        { id: 'M3', score: 2, citation_hash: 'ko_2025_10k; ko_2026_q1_10q' },
+        { id: 'M4', score: 2, citation_hash: 'sha256:cite-b' },
+        { id: 'M5', score: 2, citation_hash: 'sha256:cite-c' },
+        { id: 'M6', score: 2, citation_hash: 'sha256:cite-d' },
+      ],
+      anchorTier: 'wide',
+      proposedTier: 'wide',
+      adjustmentEvidence: [],
+      verifiedCitationHashes: VERIFIED,
+    })
+    expect(result.resolved_row_scores['M3']).toBe(0)
+    expect(result.violations.some((v) => v.includes('M3') && v.includes('without a verified citation'))).toBe(true)
+  })
+})
+
 describe('resolveRubricTier — +-1 bound', () => {
   function citedRows(hashes: string[]) {
     return [

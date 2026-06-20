@@ -3,7 +3,7 @@ import type { Provider } from '@owlfolio/providers'
 import { runGroundedAgentWithRetry, ProposedSourcesSchema, SynthesisResponseSchema, type SynthesisResponse, type GroundFn } from './groundedAgent'
 import { AGENT_TIMEOUT_MS } from './researchSwarmSchemas'
 import { runValidatedAgent, type RequiredFieldCheck } from './runValidatedAgent'
-import type { GroundingDeps } from './sourceGrounding'
+import { isCitationGrounded, type GroundingDeps } from './sourceGrounding'
 
 // ---------------------------------------------------------------------------
 // judgment-objectivity-layer-spec Mechanism 5 — Red-Team Pass (pre-Synthesis, mandatory)
@@ -139,7 +139,7 @@ function citeCheckObjection(
   const citations: string[] = []
   const uncited: string[] = []
   for (const c of objection.citations) {
-    if (verified.has(c)) citations.push(c)
+    if (isCitationGrounded(c, verified)) citations.push(c)
     else uncited.push(c)
   }
   return { citations, uncited }

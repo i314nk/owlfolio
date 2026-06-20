@@ -2,7 +2,7 @@ import { z } from 'zod'
 import type { Provider } from '@owlfolio/providers'
 import { runGroundedAgentWithRetry, ProposedSourcesSchema, type GroundFn } from './groundedAgent'
 import { AGENT_TIMEOUT_MS } from './researchSwarmSchemas'
-import type { GroundingDeps } from './sourceGrounding'
+import { isCitationGrounded, type GroundingDeps } from './sourceGrounding'
 
 // ---------------------------------------------------------------------------
 // Task 4.2a — the ADMIT-JUDGMENT forcing layer (candidate → watched gate).
@@ -253,7 +253,7 @@ function citeCheckRiskField(
   const citations: string[] = []
   const uncited: string[] = []
   for (const c of field.citations) {
-    if (verified.has(c)) citations.push(c)
+    if (isCitationGrounded(c, verified)) citations.push(c)
     else uncited.push(c)
   }
   return { citations, uncited }

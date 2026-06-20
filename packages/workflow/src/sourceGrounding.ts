@@ -49,6 +49,24 @@ export function assertPublicHttpUrl(rawUrl: string): URL {
   return url
 }
 
+/**
+ * Cite-check a (possibly compound) citation string against the verified corpus. Models routinely emit
+ * COMPOUND citations — multiple source_ids in one string, e.g. "ko_2025_10k; ko_2026_q1_10q" — which an
+ * exact `verified.has(citation)` lookup NEVER matches even when both components are individually verified
+ * (the real KO bug: the cited compound never matched, the row scored 0, the moat resolved narrow). Split
+ * the citation on `;` or `,`, trim, drop empties, and return true when AT LEAST ONE component is in the
+ * verified set (a claim is grounded if any one of its cited sources is content-hash-verified). This does
+ * NOT loosen what counts as verified — the caller's `verified` set is still the content_hash-confirmed
+ * set; this only fixes the LOOKUP to handle compound strings.
+ */
+export function isCitationGrounded(citation: string, verified: ReadonlySet<string>): boolean {
+  return citation
+    .split(/[;,]/)
+    .map((c) => c.trim())
+    .filter((c) => c.length > 0)
+    .some((c) => verified.has(c))
+}
+
 export type ProposedSource = {
   source_id: string
   title: string

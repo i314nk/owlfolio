@@ -309,6 +309,29 @@ function fmtShares(v: number | undefined): string {
 }
 
 /**
+ * Build the PRE-VERIFIED PRIMARY SOURCES prompt block (citation/corpus-alignment fix for the KO
+ * regression). Lists the harness's ALREADY-fetched + content-hash-verified EDGAR primary source_ids
+ * (the resolver 10-K, and any 10-Q / submissions ids) and instructs the agent to cite THOSE source_ids
+ * for filing-backed claims, rather than inventing its own SEC archive URLs (which fetch unreliably and
+ * then fail the strict content-hash cite-check — exactly the bug that scored KO's wide-moat rows to 0).
+ * Returns '' for an empty list so callers can append unconditionally. This does NOT loosen verification:
+ * the ids listed here are precisely the ones the harness already verified.
+ */
+export function buildPreVerifiedSourcesBlock(sourceIds: readonly string[]): string {
+  const ids = sourceIds.filter((id) => id.trim().length > 0)
+  if (ids.length === 0) return ''
+  return (
+    `\n\nPRE-VERIFIED PRIMARY SOURCES (already fetched + content-verified by the harness — cite THESE `
+    + `source_ids for filing-backed claims; do NOT invent your own SEC archive URLs, which fetch `
+    + `unreliably and will FAIL the harness cite-check): [${ids.join(', ')}]. `
+    + `For any filing-backed claim — the moat qualitative rows, the circle-of-competence cashflow drivers `
+    + `and predictability breakers, and the valuation owner-earnings / assumed-growth citations — set the `
+    + `citation to one of these pre-verified source_ids. You may still propose ADDITIONAL sources for `
+    + `non-EDGAR facts, but a filing-backed claim citing an unverified id will be dropped.`
+  )
+}
+
+/**
  * Build a compact, grounded primary-filing context block for injection into a lane prompt. Includes
  * the OE-bridge raw inputs, revenue, debt, cash, interest expense, the multi-year series, and the
  * grounded EDGAR source_id the lane MUST cite.

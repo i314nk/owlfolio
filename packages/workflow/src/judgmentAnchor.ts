@@ -27,6 +27,7 @@ import {
   tierIndex,
 } from '@owlfolio/strategies/judgmentRubrics'
 import { computeIncrementalRoic, type AnnualFacts } from './secEdgar'
+import { isCitationGrounded } from './sourceGrounding'
 
 // ---------------------------------------------------------------------------
 // Computable-row scoring constants (pinned; documented mapping the tests freeze)
@@ -321,7 +322,7 @@ export function resolveRubricTier(args: ResolveRubricTierArgs): ResolveRubricTie
       }
     } else {
       // Cited row: the lane's score counts only when backed by a verified citation_hash; else 0.
-      const cited = laneRow?.citation_hash !== undefined && verifiedCitationHashes.has(laneRow.citation_hash)
+      const cited = laneRow?.citation_hash !== undefined && isCitationGrounded(laneRow.citation_hash, verifiedCitationHashes)
       resolved_row_scores[item.id] = cited ? clampItemScore(laneRow!.score) : 0
       if (laneRow !== undefined && laneRow.score > 0 && !cited) {
         violations.push(`row ${item.id}: scored ${laneRow.score} without a verified citation -> scored 0`)
@@ -330,7 +331,7 @@ export function resolveRubricTier(args: ResolveRubricTierArgs): ResolveRubricTie
   }
 
   // Count verified adjustment-evidence items (citation_hash present in the corpus).
-  const verifiedEvidence = adjustmentEvidence.filter((e) => verifiedCitationHashes.has(e.citation_hash))
+  const verifiedEvidence = adjustmentEvidence.filter((e) => isCitationGrounded(e.citation_hash, verifiedCitationHashes))
   const verified_evidence_count = verifiedEvidence.length
 
   // --- Anchor not computable: the lane's full-rubric score stands (re-verified rows), no +-1 clamp ---

@@ -1,5 +1,33 @@
 import { afterEach, describe, expect, it } from 'vitest'
-import { assertPublicHttpUrl, fetchAndCaptureSource, groundProposedSources, type ProposedSource } from '../sourceGrounding'
+import { assertPublicHttpUrl, fetchAndCaptureSource, groundProposedSources, isCitationGrounded, type ProposedSource } from '../sourceGrounding'
+
+describe('isCitationGrounded', () => {
+  const verified = new Set(['id1', 'sec_edgar_10k_0000021344_fy2025', 'sha256:abc'])
+
+  it('grounds a single id present in the verified set', () => {
+    expect(isCitationGrounded('id1', verified)).toBe(true)
+  })
+
+  it('does not ground a single id absent from the verified set', () => {
+    expect(isCitationGrounded('ko_2025_10k', verified)).toBe(false)
+  })
+
+  it('grounds a compound "id1; id2" citation when at least one component verifies', () => {
+    expect(isCitationGrounded('ko_2025_10k; id1', verified)).toBe(true)
+    expect(isCitationGrounded('sec_edgar_10k_0000021344_fy2025; ko_2026_q1_10q', verified)).toBe(true)
+  })
+
+  it('does not ground a compound citation when NO component verifies', () => {
+    expect(isCitationGrounded('ko_2025_10k; ko_2026_q1_10q', verified)).toBe(false)
+  })
+
+  it('supports comma separators and trims/drops whitespace + empty components', () => {
+    expect(isCitationGrounded('ko_2025_10k , id1', verified)).toBe(true)
+    expect(isCitationGrounded('  id1  ;  ;  ', verified)).toBe(true)
+    expect(isCitationGrounded(' ; , ; ', verified)).toBe(false)
+    expect(isCitationGrounded('', verified)).toBe(false)
+  })
+})
 
 describe('assertPublicHttpUrl', () => {
   it('accepts public https urls', () => {

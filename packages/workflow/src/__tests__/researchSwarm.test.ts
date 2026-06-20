@@ -2266,6 +2266,50 @@ describe('SEC EDGAR primary-filing wiring', () => {
       .toContain('sec_edgar_10k_0000909832_fy2025')
   })
 
+  it('surfaces the pre-verified EDGAR source_id + cite-instruction to the circle, moat, and decision prompts', async () => {
+    const store = new InMemoryEventStore()
+    await seedDeepDivePrereqs(store)
+
+    const provider = swarmFakeProvider()
+    await provider.structured({} as never) // skip quick screen call
+
+    await runResearchDeepDivePhase(store, provider as never, deepDiveCommand(), {
+      ground: verifyAllGround(),
+      laneConcurrency: 7,
+      fundamentals: costFundamentals,
+    })
+
+    const prompts = provider.structured.mock.calls.map((c: unknown[]) => (c[0] as { prompt?: string }).prompt).filter((p): p is string => typeof p === 'string')
+    const circlePrompt = prompts.find((p) => p.includes('circle-of-competence gate'))
+    const moatPrompt = prompts.find((p) => p.includes('moat specialist'))
+    const decisionPrompt = prompts.find((p) => p.includes('synthesis+decision agent'))
+
+    for (const p of [circlePrompt, moatPrompt, decisionPrompt]) {
+      expect(p).toBeDefined()
+      // The block lists the harness-verified EDGAR id and instructs citing it for filing-backed claims.
+      expect(p).toContain('PRE-VERIFIED PRIMARY SOURCES')
+      expect(p).toContain('sec_edgar_10k_0000909832_fy2025')
+      expect(p).toContain('do NOT invent your own SEC archive URLs')
+    }
+  })
+
+  it('does NOT surface a pre-verified-sources block when fundamentals are undefined (no fabricated ids)', async () => {
+    const store = new InMemoryEventStore()
+    await seedDeepDivePrereqs(store)
+
+    const provider = swarmFakeProvider()
+    await provider.structured({} as never)
+
+    await runResearchDeepDivePhase(store, provider as never, deepDiveCommand(), {
+      ground: verifyAllGround(),
+      laneConcurrency: 7,
+      fetchFundamentals: async () => undefined,
+    })
+
+    const prompts = provider.structured.mock.calls.map((c: unknown[]) => (c[0] as { prompt?: string }).prompt).filter((p): p is string => typeof p === 'string')
+    expect(prompts.every((p) => !p.includes('PRE-VERIFIED PRIMARY SOURCES'))).toBe(true)
+  })
+
   it('runs exactly as today (no injection) when fundamentals are undefined — fail-closed', async () => {
     const store = new InMemoryEventStore()
     await seedDeepDivePrereqs(store)
