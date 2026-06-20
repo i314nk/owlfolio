@@ -1056,6 +1056,19 @@ function configurableSwarmProvider(opts: {
   omitShariahOverlay?: boolean
   // Founding-risk fix: omit valuation_reasoning entirely (→ synthesis_grounding_unmet) — the live shape.
   omitValuationReasoning?: boolean
+  // FOCUSED valuation-reasoning fallback controls (the focused decomposition mirroring the red-team response).
+  // valuationReasoningResponse: what the dedicated BuffettMungerValuationReasoning call returns (undefined =
+  // it omits the required field → the focused call also fails to ground). When the focused call is NOT
+  // expected to fire (happy path), the harness must never invoke it — assert on valuationReasoningCalls.
+  valuationReasoningResponse?: {
+    owner_earnings_basis: string
+    owner_earnings_citation: string
+    assumed_growth: number
+    assumed_growth_rationale: string
+    assumed_growth_citation: string
+  }
+  // Counter the test reads to confirm the focused call fired (or, for the happy path, did NOT).
+  valuationReasoningCalls?: { count: number }
   // A1 hole repro: the decision agent proposes BOTH a verified ('src_dec_good_1') and a
   // captured-but-unverified ('src_dec_bad_1') source. L1 (dec.verified_ids non-empty) is satisfied by the
   // good one; the valuation citations point at the BAD (unverified) source. Use with a ground fn that
@@ -1158,6 +1171,16 @@ function configurableSwarmProvider(opts: {
         return {
           ...(opts.synthesisResponse !== undefined ? { synthesis_response: opts.synthesisResponse } : {}),
           proposed_sources: [src('src_rt_resp_1')],
+        }
+      }
+      // FOCUSED valuation-reasoning call (the fallback when the monolithic decision drops/ungrounds it).
+      if (schemaName === 'BuffettMungerValuationReasoning') {
+        if (opts.valuationReasoningCalls !== undefined) opts.valuationReasoningCalls.count += 1
+        return {
+          // Omit valuation_reasoning entirely when no response configured (→ the required field is missing →
+          // the focused call also fails to ground → RESEARCH_MORE + valuation_reasoning_retry_exhausted).
+          ...(opts.valuationReasoningResponse !== undefined ? { valuation_reasoning: opts.valuationReasoningResponse } : {}),
+          proposed_sources: [src('src_vr_focused_1')],
         }
       }
       // synthesis/decision (BuffettMungerSynthesisDecision)
@@ -2907,6 +2930,142 @@ describe('EDGAR-anchored OE bridge + harness AAOIFI Shariah ratios', () => {
     // The grounding reason explicitly names the owner-earnings basis path (which carries maint-capex).
     const degraded = (valuation?.['degraded_flags'] as string[] | undefined) ?? []
     expect(degraded.join(' ')).toMatch(/synthesis_grounding_unmet/)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// FOCUSED valuation-reasoning fallback (the focused decomposition mirroring the red-team-response call).
+// The monolithic decision schema intermittently DROPS valuation_reasoning (KO: "wide moat, predictable, but
+// EXPENSIVE" → a clean WATCH, but the structured owner-earnings + assumed-growth citation fields fell out).
+// A1 then fail-closes to RESEARCH_MORE. When that happens, a SMALL focused grounded call produces the
+// valuation_reasoning; its grounded result lets the model's verdict land. Fail-closed preserved: if the
+// focused call ALSO can't ground (omits it OR cites an ungrounded id) → RESEARCH_MORE + a visible
+// valuation_reasoning_retry_exhausted note. The happy path (decision produced grounded valuation_reasoning)
+// never invokes the focused call.
+// ---------------------------------------------------------------------------
+describe('FOCUSED valuation-reasoning fallback (when the monolithic decision drops it)', () => {
+  async function runVR(opts: {
+    id: string
+    omitValuationReasoning?: boolean
+    valuationReasoningResponse?: {
+      owner_earnings_basis: string
+      owner_earnings_citation: string
+      assumed_growth: number
+      assumed_growth_rationale: string
+      assumed_growth_citation: string
+    }
+    valuationReasoningCalls?: { count: number }
+    ground?: GroundFn
+  }) {
+    const store = new InMemoryEventStore()
+    const provider = configurableSwarmProvider({
+      laneCount: buffettMungerDeepDiveLanes.length,
+      synthesis: { moat_class: 'wide', runway: 'proven' },
+      investmentVerdict: 'WATCH',
+      ...(opts.omitValuationReasoning !== undefined ? { omitValuationReasoning: opts.omitValuationReasoning } : {}),
+      ...(opts.valuationReasoningResponse !== undefined ? { valuationReasoningResponse: opts.valuationReasoningResponse } : {}),
+      ...(opts.valuationReasoningCalls !== undefined ? { valuationReasoningCalls: opts.valuationReasoningCalls } : {}),
+    })
+    const sourceLedgerPath = await mkdtemp(join(tmpdir(), `owlfolio-vr-${opts.id}-`))
+    await runStrategyResearchSwarm(
+      store, provider as never,
+      {
+        research_case_id: `rc_${opts.id}`, company_id: 'c', ticker: 'KO',
+        strategy_id: 'buffett-munger', actor_id: 'user_local', idempotency_key: `${opts.id}_k`,
+        model_id: 'mock', decision_id: `decision_${opts.id}`, source_ledger_path: sourceLedgerPath,
+      },
+      {
+        ground: opts.ground ?? allVerifiedGround,
+        laneConcurrency: 4,
+        resolvePrice: async () => ({ available: true as const, price_per_share: 60, currency: 'USD', as_of: '2026-06-01T00:00:00Z', source: 'fixture' }),
+      },
+    )
+    const events = await store.list()
+    const projections = projectResearchCases(events as Parameters<typeof projectResearchCases>[0])
+    const analysisEvent = events.find((e) => e.event_type === 'buffett_munger_analysis_drafted')
+    const valuation = (analysisEvent?.payload as Record<string, unknown> | undefined)?.['valuation'] as Record<string, unknown> | undefined
+    return { events, valuation, cp: projections.find((c) => c.research_case_id === `rc_${opts.id}`) }
+  }
+
+  it('Test 1 — decision DROPS valuation_reasoning, focused call produces it GROUNDED → verdict = model WATCH (not RESEARCH_MORE)', async () => {
+    const calls = { count: 0 }
+    const { valuation, cp } = await runVR({
+      id: 'vr-grounded',
+      omitValuationReasoning: true,
+      // The focused call grounds both citations in src_dec_1 (verified by allVerifiedGround into dec.verified_ids).
+      valuationReasoningResponse: {
+        owner_earnings_basis: 'FY25 owner earnings per the 10-K bridge.',
+        owner_earnings_citation: 'src_dec_1',
+        assumed_growth: 0.06,
+        assumed_growth_rationale: 'Mid-single-digit growth grounded in segment capex, cited to the 10-K.',
+        assumed_growth_citation: 'src_dec_1',
+      },
+      valuationReasoningCalls: calls,
+    })
+    // The focused call DID fire (the monolithic decision dropped valuation_reasoning).
+    expect(calls.count).toBeGreaterThan(0)
+    // Its grounded result satisfies A1 → grounding is MET → the model's WATCH verdict lands (NOT RESEARCH_MORE).
+    expect(valuation?.['synthesis_grounding_unmet']).toBeUndefined()
+    expect(cp?.investment_verdict).toBe('WATCH')
+    // The focused valuation_reasoning rides along on the projection.
+    const vr = valuation?.['valuation_reasoning'] as Record<string, unknown> | undefined
+    expect(vr?.['assumed_growth']).toBe(0.06)
+  })
+
+  it('Test 2 — decision drops it AND the focused call ALSO fails to ground → RESEARCH_MORE + valuation_reasoning_retry_exhausted', async () => {
+    const { valuation, cp } = await runVR({
+      id: 'vr-exhausted',
+      omitValuationReasoning: true,
+      // No valuationReasoningResponse → the focused call omits the required field → retries exhaust.
+    })
+    expect(valuation?.['synthesis_grounding_unmet']).toBe(true)
+    expect(cp?.investment_verdict).toBe('RESEARCH_MORE')
+    const degraded = (valuation?.['degraded_flags'] as string[] | undefined) ?? []
+    expect(degraded.join(' ')).toMatch(/valuation_reasoning_retry_exhausted/)
+  })
+
+  it('Test 3 — HAPPY PATH: decision produced a grounded valuation_reasoning → focused call is NOT invoked, verdict proceeds', async () => {
+    const calls = { count: 0 }
+    const { valuation, cp } = await runVR({
+      id: 'vr-happy',
+      // omitValuationReasoning defaults false → the decision agent supplies the grounded valuation_reasoning.
+      valuationReasoningCalls: calls,
+    })
+    // The focused call must be SKIPPED on the happy path.
+    expect(calls.count).toBe(0)
+    expect(valuation?.['synthesis_grounding_unmet']).toBeUndefined()
+    expect(cp?.investment_verdict).toBe('WATCH')
+  })
+
+  it('Test 4 — focused call cites an UNGROUNDED id → does NOT count (fail-closed): RESEARCH_MORE', async () => {
+    // Ground grounds 'good' ids but captures 'bad' ids as unavailable (no content_hash) — mirrors the A1
+    // captured-but-unverified repro. The focused call cites src_dec_bad_1, which never verifies.
+    const groundGoodCaptureBad = async (sources: { source_id: string }[]) => ({
+      captured: sources.map((s) => {
+        const ok = !s.source_id.includes('bad')
+        return {
+          source_id: s.source_id, title: 't', url: 'https://example.com/x', excerpt: 'e',
+          availability: (ok ? 'available' : 'unavailable') as 'available' | 'unavailable',
+          fetched_at: 'x', ...(ok ? { content_hash: 'sha256:1' } : {}),
+        }
+      }),
+      verified_ids: sources.filter((s) => !s.source_id.includes('bad')).map((s) => s.source_id),
+    })
+    const { valuation, cp } = await runVR({
+      id: 'vr-ungrounded-cite',
+      omitValuationReasoning: true,
+      valuationReasoningResponse: {
+        owner_earnings_basis: 'FY25 owner earnings per the 10-K bridge.',
+        owner_earnings_citation: 'src_dec_bad_1',
+        assumed_growth: 0.06,
+        assumed_growth_rationale: 'Mid-single-digit growth, cited.',
+        assumed_growth_citation: 'src_dec_bad_1',
+      },
+      ground: groundGoodCaptureBad as GroundFn,
+    })
+    // The focused call's ungrounded citation does NOT satisfy A1 → fail-closed.
+    expect(valuation?.['synthesis_grounding_unmet']).toBe(true)
+    expect(cp?.investment_verdict).toBe('RESEARCH_MORE')
   })
 })
 

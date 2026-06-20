@@ -69,6 +69,7 @@ import { marketImpliedGrowth } from '@owlfolio/strategies/reverseDcf'
 // the verdict + valuation + buy-below; the deterministic side only sanity-checks + applies the cheap gates.
 import { fetchAverageMarketCap, fetchTenYearTreasuryYield, resolveCurrentPrice, type AverageMarketCapResult, type MarketDataDeps, type PriceQuote, type TreasuryYieldResult } from './marketData'
 import { runRedTeamPass, runRedTeamResponsePass, buildRedTeamLayer, type RedTeamLaneDigest, type RedTeamResult } from './redTeamPass'
+import { runValuationReasoningPass, type ValuationReasoning } from './valuationReasoningPass'
 import {
   resolveCrossCheck,
   compareMoatClass,
@@ -1509,24 +1510,101 @@ export async function runResearchDeepDivePhase(
     synthesisCorpusHashes.add(s.content_hash)
     synthesisCorpusHashes.add(s.source_id) // a citation may be by source_id OR content_hash; both are corpus-verified
   }
-  const ownerEarningsCitation = dec.analysis.valuation_reasoning?.owner_earnings_citation
-  const assumedGrowthCitation = dec.analysis.valuation_reasoning?.assumed_growth_citation
-  const ownerEarningsGrounded = ownerEarningsCitation !== undefined && isCitationGrounded(ownerEarningsCitation, synthesisCorpusHashes)
-  const assumedGrowthGrounded = assumedGrowthCitation !== undefined && isCitationGrounded(assumedGrowthCitation, synthesisCorpusHashes)
+  // The valuation_reasoning the harness reasons from downstream. It STARTS as the decision agent's own
+  // (the happy path) and is REPLACED below by the focused valuation-reasoning call ONLY when the decision
+  // dropped/ungrounded it (the focused-decomposition fallback — same pattern as the red-team response).
+  let valuationReasoning: ValuationReasoning | undefined = dec.analysis.valuation_reasoning
+  // Cite-check the (possibly-replaced) valuation_reasoning citations against the content_hash-verified corpus.
+  const groundValuation = (vr: ValuationReasoning | undefined): { ownerGrounded: boolean; growthGrounded: boolean; ownerCite?: string; growthCite?: string } => {
+    const ownerCite = vr?.owner_earnings_citation
+    const growthCite = vr?.assumed_growth_citation
+    return {
+      ownerGrounded: ownerCite !== undefined && isCitationGrounded(ownerCite, synthesisCorpusHashes),
+      growthGrounded: growthCite !== undefined && isCitationGrounded(growthCite, synthesisCorpusHashes),
+      ...(ownerCite === undefined ? {} : { ownerCite }),
+      ...(growthCite === undefined ? {} : { growthCite }),
+    }
+  }
+  let g = groundValuation(valuationReasoning)
+  // The VALUATION part of the grounding gate (owner-earnings + assumed-growth citations). The dec.verified_ids
+  // layer (the agent grounded at least one source of its OWN) is independent of the valuation_reasoning and is
+  // NOT something the focused call can repair — it stays evaluated on the decision agent itself.
+  let valuationGroundingUnmet =
+    valuationReasoning === undefined || !g.ownerGrounded || !g.growthGrounded
+
+  // ---- FOCUSED valuation-reasoning fallback (the focused decomposition) ----
+  // The monolithic decision schema intermittently DROPS valuation_reasoning (KO: the narrative reasoned a
+  // clean WATCH — "wide moat, durably predictable, but EXPENSIVE" — but the structured owner-earnings +
+  // assumed-growth citation fields fell out under the monolithic load). A1 then fail-closes to RESEARCH_MORE.
+  // Mirror the red-team-response precedent: when the decision dropped/ungrounded valuation_reasoning, run a
+  // SMALL focused grounded call whose ONLY output is the valuation_reasoning, steered to the harness-verified
+  // EDGAR id. Re-evaluate the cite-check against its result; if it grounds → the valuation grounding gate is
+  // MET and the verdict lands. Fail-closed PRESERVED: if the focused call ALSO can't ground (omits it OR cites
+  // an ungrounded id), valuationGroundingUnmet stays true → RESEARCH_MORE + a visible degradation note. The
+  // happy path (the decision produced a grounded valuation_reasoning) NEVER fires this call.
+  let valuationReasoningDegraded: string | undefined
+  if (valuationGroundingUnmet) {
+    const vrRuntime = resolveRoleRuntime('synthesis', provider, command)
+    const vrOutcome = await runValuationReasoningPass(
+      vrRuntime.provider,
+      {
+        research_case_id: command.research_case_id,
+        ticker: command.ticker,
+        model_id: vrRuntime.model_id,
+        laneDigest,
+        corpusSourceIds: [...accumulated.values()].map((s) => s.source_id),
+        preVerifiedSourceIds: primaryFilingSourceId !== undefined ? [primaryFilingSourceId] : [],
+      },
+      { ...(deps.ground === undefined ? {} : { ground: deps.ground }), ...(deps.grounding === undefined ? {} : { grounding: deps.grounding }) },
+    )
+    if (vrOutcome.status === 'ok') {
+      // Persist the focused call's captured sources into the corpus (like the red-team response) so the
+      // cite-check below sees them, then RE-EVALUATE grounding against the focused result.
+      remember(vrOutcome.captured)
+      for (const s of accumulated.values()) {
+        if (s.content_hash === undefined) continue
+        synthesisCorpusHashes.add(s.content_hash)
+        synthesisCorpusHashes.add(s.source_id)
+      }
+      const candidate = vrOutcome.valuation_reasoning
+      const cg = groundValuation(candidate)
+      if (cg.ownerGrounded && cg.growthGrounded) {
+        // The focused call grounded it → adopt it as the valuation_reasoning + clear the valuation gate.
+        valuationReasoning = candidate
+        g = cg
+        valuationGroundingUnmet = false
+      } else {
+        // The focused call produced a payload but its citations do NOT verify → fail-closed (preserved).
+        valuationReasoningDegraded =
+          'valuation_reasoning_retry_exhausted: the focused valuation-reasoning call produced owner-earnings/'
+          + 'assumed-growth citations that did not verify against the corpus — the valuation stays ungrounded. '
+          + 'Routed to RESEARCH_MORE; re-run on a more capable model.'
+      }
+    } else {
+      // The focused call also failed (omitted the required field / errored / timed out) after its attempts.
+      valuationReasoningDegraded =
+        `valuation_reasoning_retry_exhausted: the focused valuation-reasoning call did not produce a usable, `
+        + `grounded valuation_reasoning after ${vrOutcome.attempts} attempt(s) (${vrOutcome.reason}). `
+        + `The valuation stays ungrounded — routed to RESEARCH_MORE; re-run on a more capable model.`
+    }
+  }
+
+  const ownerEarningsCitation = g.ownerCite
+  const assumedGrowthCitation = g.growthCite
+  const ownerEarningsGrounded = g.ownerGrounded
   const synthesisGroundingUnmet =
     dec.verified_ids.length === 0
-    || dec.analysis.valuation_reasoning === undefined
-    || !ownerEarningsGrounded
-    || !assumedGrowthGrounded
+    || valuationGroundingUnmet
   // Human-readable reason naming WHICH layer/claim failed (surfaced as a visible degraded flag below).
   const synthesisGroundingReason: string | undefined = !synthesisGroundingUnmet
     ? undefined
     : dec.verified_ids.length === 0
       ? 'synthesis_grounding_unmet: the decision agent cited no verified source of its own (dec.verified_ids empty) — '
         + 'a confident verdict citing nothing verifiable. Routed to RESEARCH_MORE; re-run.'
-      : dec.analysis.valuation_reasoning === undefined
+      : valuationReasoning === undefined
         ? 'synthesis_grounding_unmet: the decision agent produced no valuation_reasoning (owner-earnings + assumed-growth '
-          + 'basis/citations) — its valuation is ungrounded. Routed to RESEARCH_MORE; re-run.'
+          + 'basis/citations) and the focused valuation-reasoning call could not ground one — its valuation is ungrounded. '
+          + 'Routed to RESEARCH_MORE; re-run.'
         : !ownerEarningsGrounded
           ? `synthesis_grounding_unmet: owner_earnings_citation '${ownerEarningsCitation ?? '(absent)'}' did not verify `
             + 'against the corpus — the owner-earnings basis is ungrounded. Routed to RESEARCH_MORE; re-run.'
@@ -1664,6 +1742,12 @@ export async function runResearchDeepDivePhase(
   // routed to RESEARCH_MORE in gatedVerdict below — the model's confident verdict is NOT recorded.
   if (synthesisGroundingReason !== undefined) {
     degradedFlags.push(synthesisGroundingReason)
+  }
+  // The focused valuation-reasoning fallback fired but could not ground a valuation_reasoning (the focused
+  // decomposition's own visible fallback — mirrors red_team_response_retry_exhausted). Surfaced so the gap is
+  // seen; the verdict is routed to RESEARCH_MORE via synthesisGroundingUnmet above.
+  if (valuationReasoningDegraded !== undefined) {
+    degradedFlags.push(valuationReasoningDegraded)
   }
   // The dedicated red-team-response call exhausted its retries (the focused decomposition's own visible
   // fallback) — surfaced so the gap is seen; the red_team_objection_unaddressed open question is also set.
@@ -2057,7 +2141,7 @@ export async function runResearchDeepDivePhase(
   // verdict to RESEARCH_MORE, so we do NOT fall back to credited-g as the headline. We adopt the model's
   // assumed_growth as the headline ONLY when grounding is met AND the value is finite + non-negative; an
   // absent/ungrounded assumed_growth leaves the headline growth undefined (degrade per A1).
-  const modelAssumedGrowth = dec.analysis.valuation_reasoning?.assumed_growth
+  const modelAssumedGrowth = valuationReasoning?.assumed_growth
   const assumedGrowthUsable =
     !synthesisGroundingUnmet
     && modelAssumedGrowth !== undefined
@@ -2395,7 +2479,7 @@ export async function runResearchDeepDivePhase(
   // Verdict = the MODEL's investment_verdict, clamped ONLY by the existing cheap deterministic gates:
   // moat-gate (below wide → PASS), Shariah-FAIL → PASS/block, and RESEARCH_MORE when the required data
   // (owner-earnings / price) is missing. There is NO band-derived verdict.
-  const dr = dec.analysis.valuation_reasoning
+  const dr = valuationReasoning
   const assumed_growth = dr?.assumed_growth
   const valuation_status = dec.analysis.valuation_status
 
