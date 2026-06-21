@@ -11,6 +11,7 @@ function researchCase(overrides: Partial<ResearchCaseProjection> & Pick<Research
   return {
     version: 1,
     superseded: false,
+    archived: false,
     stage: 'discovered',
     updated_at: '2026-06-01T00:00:00.000Z',
     ...overrides,
@@ -141,6 +142,33 @@ describe('ResearchLibrary', () => {
     expect(html).toContain('href="/research/rc_nvda_v2"')
     expect(html).not.toContain('href="/research/rc_nvda_v1"')
     expect(html).toContain('v2')
+  })
+
+  it('hides an archived case from the active library, like superseded (option-b append-only archive)', () => {
+    const html = renderToStaticMarkup(
+      createElement(ResearchLibrary, {
+        mode: 'personal-local',
+        selectedStrategyLabel: 'Selected strategy: buffett-munger',
+        cases: [
+          researchCase({
+            research_case_id: 'rc_live',
+            ticker: 'LIVE',
+            stage: 'decision_drafted',
+            decision: 'WATCH',
+          }),
+          researchCase({
+            research_case_id: 'rc_arch',
+            ticker: 'ARCH',
+            archived: true,
+            stage: 'decision_drafted',
+            decision: 'WATCH',
+          }),
+        ],
+      }),
+    )
+
+    expect(html).toContain('href="/research/rc_live"')
+    expect(html).not.toContain('href="/research/rc_arch"')
   })
 
   it('flags an older-engine run with a compact chip, and not current/pre-versioning runs', () => {

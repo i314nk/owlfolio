@@ -16,6 +16,7 @@ function heldCase(): AppResearchCase {
     research_case_id: 'rc_sell_001',
     version: 1,
     superseded: false,
+    archived: false,
     stage: 'holding',
     company_id: 'company_sell',
     ticker: 'SELL',

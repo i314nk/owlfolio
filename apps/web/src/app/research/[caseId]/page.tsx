@@ -123,6 +123,21 @@ export default async function ResearchCasePage({ params }: ResearchCasePageProps
             ← Back to command center
           </a>
         </p>
+        {researchCase.archived === true ? (
+          <p
+            data-testid="research-case-archived-marker"
+            style={{
+              fontFamily: 'var(--owl-font-mono)',
+              fontSize: 'var(--owl-text-2xs)',
+              letterSpacing: '0.07em',
+              textTransform: 'uppercase',
+              color: 'var(--owl-color-quiet)',
+              margin: '0 0 var(--owl-space-3)',
+            }}
+          >
+            Archived — hidden from the active research library and pipeline. Still in the ledger.
+          </p>
+        ) : null}
         <ResearchCasePanel
           researchCase={researchCase}
           mode={state.config.mode}

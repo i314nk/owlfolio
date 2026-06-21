@@ -256,3 +256,25 @@ describe('buildPipelineDrillDown — lane statuses + timeline ordering', () => {
     expect(drill?.lanes.some((l) => l.status === 'running')).toBe(false)
   })
 })
+
+describe('projectPipeline — archived cases (option-b append-only archive)', () => {
+  it('excludes an archived case from the active stage counts + runs, like superseded', () => {
+    const events: LedgerEventEnvelope<unknown>[] = [
+      // a live deep-dive case
+      evt({ aggregate_id: 'live', event_type: 'research_case_created', payload: { ticker: 'LIVE' } }),
+      evt({ aggregate_id: 'live', event_type: 'deep_dive_started', payload: { research_case_id: 'live', ticker: 'LIVE', deep_dive_id: 'd1' } }),
+      // an archived deep-dive case (same stage) — must NOT count in the active view
+      evt({ aggregate_id: 'arch', event_type: 'research_case_created', payload: { ticker: 'ARCH' } }),
+      evt({ aggregate_id: 'arch', event_type: 'deep_dive_started', payload: { research_case_id: 'arch', ticker: 'ARCH', deep_dive_id: 'd2' } }),
+      evt({ aggregate_id: 'arch', event_type: 'research_case_archived', actor_type: 'user', payload: { research_case_id: 'arch', archived_at: '2026-06-09T00:00:00Z', reason: 'stale' } }),
+    ]
+
+    const projection = projectPipeline(events)
+    const byKey = Object.fromEntries(projection.stage_counts.map((s) => [s.key, s.count]))
+    expect(byKey.deep_dive).toBe(1) // only the live case is counted
+
+    const tickers = projection.runs.map((r) => r.ticker)
+    expect(tickers).toContain('LIVE')
+    expect(tickers).not.toContain('ARCH')
+  })
+})

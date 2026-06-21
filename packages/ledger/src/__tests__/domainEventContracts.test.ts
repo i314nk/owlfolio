@@ -64,7 +64,19 @@ describe('Owlfolio v2 domain event boundary contracts', () => {
       'forecast_resolved',
       'admit_judgment_recorded',
       'sizing_recommendation_recorded',
+      'research_case_archived',
     ])
+  })
+
+  it('freezes the research_case_archived contract as the user-authored append-only archive (hide, never mutate)', () => {
+    // Option-b append-only archive: a stale run is HIDDEN from the active views via this event while staying
+    // in the ledger (the case still projects, marked archived). Mirrors the superseded pattern; user-authored.
+    expect(contract('research_case_archived')).toMatchObject({
+      aggregate_type: 'research_case',
+      actor_type: 'user',
+      projection_owner: 'discovery',
+      payload_fields: ['research_case_id', 'archived_at', 'reason'],
+    })
   })
 
   it('freezes the admit-judgment contract (Task 4.2c) as an agent OBSERVATION, never an auto-admit', () => {

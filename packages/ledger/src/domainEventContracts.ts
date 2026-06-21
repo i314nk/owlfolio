@@ -77,6 +77,7 @@ export const domainEventTypes = [
   'forecast_resolved',
   'admit_judgment_recorded',
   'sizing_recommendation_recorded',
+  'research_case_archived',
 ] as const
 
 export type DomainEventType = (typeof domainEventTypes)[number]
@@ -807,6 +808,20 @@ export const domainEventContracts: readonly DomainEventContract[] = [
       'is_observation',
       'is_recommendation',
     ],
+  },
+  {
+    // Append-only ARCHIVE of a stale research run (option-b: hide-without-mutate). A USER-authored event that
+    // marks a case archived so the ACTIVE research surfaces (pipeline stage counts + runs, the research
+    // library, and the latest-per-ticker resolution) hide it — WITHOUT mutating or removing any prior
+    // research event. The archived case STILL PROJECTS (projectResearchCases returns it, marked
+    // `archived: true`) and its dossier still renders directly; only the lists/active counts drop it. This
+    // mirrors the existing `superseded` pattern (hidden from active views, retained in the ledger). Idempotent
+    // via the idempotency_key — re-archiving is a harmless no-op. Not an execution and not a recommendation.
+    event_type: 'research_case_archived',
+    aggregate_type: 'research_case',
+    actor_type: 'user',
+    projection_owner: 'discovery',
+    payload_fields: ['research_case_id', 'archived_at', 'reason'],
   },
 ] as const
 

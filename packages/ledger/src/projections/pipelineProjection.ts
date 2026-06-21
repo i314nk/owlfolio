@@ -232,7 +232,7 @@ function countSourceIds(researchCase: ResearchCaseProjection): number {
 function buildRuns(researchCases: ResearchCaseProjection[], failedCaseIds: ReadonlySet<string>): PipelineRun[] {
   const runs: PipelineRun[] = []
   for (const researchCase of researchCases) {
-    if (researchCase.superseded) {
+    if (researchCase.superseded || researchCase.archived) {
       continue
     }
     // Only surface cases that have entered the swarm pipeline (have a ticker + a stage past discovery).
@@ -333,7 +333,9 @@ function collectRecentFailures(events: LedgerEventEnvelope<unknown>[]): { count:
 
 export function projectPipeline(events: LedgerEventEnvelope<unknown>[]): PipelineProjection {
   const researchCases = projectResearchCases(events)
-  const liveCases = researchCases.filter((researchCase) => !researchCase.superseded)
+  // ACTIVE view = non-superseded AND non-archived. Archived runs (option-b append-only archive) stay in the
+  // ledger + still project, but leave the active stage counts + runs list — exactly like superseded.
+  const liveCases = researchCases.filter((researchCase) => !researchCase.superseded && !researchCase.archived)
   const watchlistItems = projectWatchlist(events)
   const holdings = projectHoldings(events)
 

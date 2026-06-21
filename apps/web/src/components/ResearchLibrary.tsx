@@ -375,7 +375,9 @@ export function ResearchLibrary({ mode: _mode, selectedStrategyLabel, cases }: R
   // Latest version per company: keep only non-superseded cases, then dedupe by ticker keeping the highest version.
   const latestByTicker = new Map<string, ResearchCaseProjection>()
   for (const researchCase of cases) {
-    if (researchCase.superseded) {
+    // Archived runs (option-b append-only archive) are hidden from the active library — they stay in the
+    // ledger + still project (the dossier renders directly), but never list here. Same as superseded.
+    if (researchCase.superseded || researchCase.archived) {
       continue
     }
     const key = (researchCase.ticker ?? researchCase.research_case_id).toUpperCase()

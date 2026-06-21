@@ -76,6 +76,20 @@ type DecisionDraftedPayload = {
 
 export type DecisionDrafted = LedgerEventEnvelope<DecisionDraftedPayload> & DecisionDraftedPayload
 
+type ResearchCaseArchivedPayload = {
+  research_case_id: string
+  archived_at: string
+  reason: string
+}
+
+export type ResearchCaseArchived = LedgerEventEnvelope<ResearchCaseArchivedPayload> & ResearchCaseArchivedPayload
+
+export type ArchiveResearchCaseCommand = {
+  research_case_id: string
+  reason: string
+  actor_id: string
+}
+
 export type DraftDecisionCommand = {
   research_case_id: string
   decision_id: string
@@ -179,6 +193,40 @@ export async function createResearchCase(store: ResearchEventStore, command: Cre
   const storedEvent = await store.append(event as LedgerEventEnvelope<unknown>)
 
   return mergeEventPayload(storedEvent as LedgerEventEnvelope<ResearchCaseCreatedPayload>)
+}
+
+/**
+ * Append-only ARCHIVE of a stale research run (option-b: hide-without-mutate). Appends a single
+ * `research_case_archived` event so the ACTIVE research surfaces hide the case WITHOUT mutating or removing
+ * any prior research event. The case STILL PROJECTS (marked `archived: true`) and its dossier still renders;
+ * only the lists/active counts drop it. Idempotent via a deterministic event_id + idempotency_key —
+ * re-archiving the same case is a harmless no-op (the store returns the existing event).
+ */
+export async function archiveResearchCase(store: ResearchEventStore, command: ArchiveResearchCaseCommand): Promise<ResearchCaseArchived> {
+  const payload: ResearchCaseArchivedPayload = {
+    research_case_id: command.research_case_id,
+    archived_at: nowIso(),
+    reason: command.reason,
+  }
+
+  const event: LedgerEventEnvelope<ResearchCaseArchivedPayload> = {
+    event_id: eventId('evt_research_case_archived', command.research_case_id),
+    event_type: 'research_case_archived',
+    aggregate_type: 'research_case',
+    aggregate_id: command.research_case_id,
+    correlation_id: command.research_case_id,
+    actor_type: 'user',
+    actor_id: command.actor_id,
+    payload,
+    source_ids: [],
+    created_at: nowIso(),
+    schema_version: 1,
+    idempotency_key: `research-archived:${command.research_case_id}:v1`,
+  }
+
+  const storedEvent = await store.append(event as LedgerEventEnvelope<unknown>)
+
+  return mergeEventPayload(storedEvent as LedgerEventEnvelope<ResearchCaseArchivedPayload>)
 }
 
 export async function runDemoBuffettMungerAnalysis(

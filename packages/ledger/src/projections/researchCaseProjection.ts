@@ -656,6 +656,13 @@ export type ResearchCaseProjection = {
   version: number
   supersedes_research_case_id?: string
   superseded: boolean
+  /**
+   * Append-only ARCHIVE flag (option-b: hide-without-mutate). True when a `research_case_archived` event
+   * exists for this case. The case is STILL PROJECTED (never dropped) — only the ACTIVE views (pipeline
+   * stage counts + runs, the research library, and the latest-per-ticker resolution) filter it out. Mirrors
+   * `superseded` (hidden from active views, retained in the ledger). Legacy-tolerant: no event → false.
+   */
+  archived: boolean
   stage: ResearchCaseStage
   /**
    * The provider that actually AUTHORED the run (defense-in-depth UI honesty): a placeholder/mock run
@@ -1709,6 +1716,7 @@ function upsertCase(
     research_case_id: researchCaseId,
     version: 1,
     superseded: false,
+    archived: false,
     stage,
     updated_at: updatedAt,
   }
@@ -2090,6 +2098,20 @@ export function projectResearchCases(events: LedgerEventEnvelope<unknown>[]): Re
       applyString(researchCase, 'strategy_id', getString(event.payload, 'strategy_id'))
       applyString(researchCase, 'strategy_version', getString(event.payload, 'strategy_version'))
       applyBoolean(researchCase, 'user_approved', true)
+      continue
+    }
+
+    if (event.event_type === 'research_case_archived') {
+      const researchCaseId = researchCaseIdFor(event, event.payload)
+      if (researchCaseId === undefined) {
+        continue
+      }
+      // The archive NEVER advances the stage — it only marks the case archived (hide-without-mutate). Preserve
+      // the existing stage; if the case has not been projected yet (archive seen before its create), upsert
+      // tolerantly so the flag still lands. The case is STILL returned — only active views filter it.
+      const existing = researchCases.get(researchCaseId)
+      const researchCase = upsertCase(researchCases, researchCaseId, existing?.stage ?? 'discovered', existing?.updated_at ?? event.created_at)
+      researchCase.archived = true
     }
   }
 
@@ -2119,13 +2141,16 @@ export function projectResearchCaseVersionsForTicker(events: LedgerEventEnvelope
 }
 
 /**
- * Returns the latest non-superseded research case for the given ticker, or undefined if none exists.
+ * Returns the latest non-superseded, non-archived research case for the given ticker, or undefined if none
+ * exists. Archived runs (option-b append-only archive) are skipped here so a hidden stale run is never
+ * surfaced as a ticker's current case — exactly like superseded.
  */
 export function findLatestResearchCaseForTicker(events: LedgerEventEnvelope<unknown>[], ticker: string): ResearchCaseProjection | undefined {
   const versions = projectResearchCaseVersionsForTicker(events, ticker)
   // The latest version is the one with the highest version number and not superseded
-  // (which by definition is the last in sorted order since superseded means a newer one points to it)
-  const nonSuperseded = versions.filter((researchCase) => !researchCase.superseded)
+  // (which by definition is the last in sorted order since superseded means a newer one points to it),
+  // and not archived (a hidden stale run must not surface as the ticker's current case).
+  const nonSuperseded = versions.filter((researchCase) => !researchCase.superseded && !researchCase.archived)
   if (nonSuperseded.length === 0) {
     return undefined
   }

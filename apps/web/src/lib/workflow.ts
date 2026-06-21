@@ -46,6 +46,7 @@ import {
   type SourceLedgerBundle,
 } from '@owlfolio/workflow'
 import { selectResearchCaseAction } from '@owlfolio/workflow/researchCasePolicy'
+import { archiveResearchCase } from '@owlfolio/workflow/researchWorkflow'
 import { runStrategyResearchSwarm, runResearchDeepDivePhase, type GroundFn } from '@owlfolio/workflow/researchSwarm'
 import { runAdmitAssessment, isDeepDiveComplete, type AdmitAssessmentResult } from '@owlfolio/workflow/admitAssessment'
 import {
@@ -546,6 +547,44 @@ export async function requestDeepDiveRun(
   })
 
   return { research_case_id: researchCaseId }
+}
+
+/**
+ * Append-only ARCHIVE of a stale research run (option-b: hide-without-mutate). Appends a single
+ * `research_case_archived` event so the ACTIVE research surfaces (pipeline counts + runs, the research
+ * library, the latest-per-ticker resolution) hide the case WITHOUT mutating the append-only ledger. The case
+ * STILL PROJECTS + its dossier still renders. Personal-local only; rejects an unknown case. Idempotent — the
+ * deterministic idempotency_key makes re-archiving a no-op.
+ */
+export async function archiveAppResearchCase(
+  state: OnboardingState,
+  researchCaseId: string,
+): Promise<{ research_case_id: string }> {
+  if (
+    !state.is_initialized
+    || state.config.mode !== 'personal-local'
+    || state.config.ledger_path === undefined
+  ) {
+    throw new Error('Personal-local workflow is not initialized')
+  }
+
+  const store = new SQLiteEventStore(state.config.ledger_path)
+  try {
+    const researchCase = projectResearchCases(await store.list()).find((c) => c.research_case_id === researchCaseId)
+    if (researchCase === undefined) {
+      throw new Error(`Unknown research case: ${researchCaseId}`)
+    }
+
+    await archiveResearchCase(store, {
+      research_case_id: researchCaseId,
+      reason: 'Archived stale research run from the research surface',
+      actor_id: 'user_local',
+    })
+
+    return { research_case_id: researchCaseId }
+  } finally {
+    store.close()
+  }
 }
 
 export async function getAppResearchCaseFromStore(
