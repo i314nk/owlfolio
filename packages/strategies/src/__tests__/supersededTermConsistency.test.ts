@@ -50,6 +50,13 @@ const SCAN_SET: string[] = [
   'docs/architecture/owlfolio-v2-provider-model-support.md',
   'apps/web/src/components/StrategyOverview.tsx',
   'apps/web/src/components/LearnTabs.tsx',
+  // Phase-8 cohesion sweep widened the guard onto the now-cleaned dossier/desk copy surfaces (S4 copy
+  // rewrite + S6 dossier rework). These are app components, not packages/strategies, so they resolve
+  // through the same `apps/web/src/components/` branch of readScanned() as StrategyOverview/LearnTabs.
+  'apps/web/src/components/ResearchCasePanel.tsx',
+  'apps/web/src/components/WatchlistPanel.tsx',
+  'apps/web/src/components/PipelineObservatory.tsx',
+  'apps/web/src/components/PerformancePanel.tsx',
 ]
 
 /** A SUPERSEDED term + the (file → verbatim-snippet) references that legitimately describe it as RETIRED. */
@@ -160,6 +167,87 @@ const SUPERSEDED_PATTERNS: SupersededPattern[] = [
       },
     ],
   },
+  // ─── Phase-8 cohesion sweep: the newly-retired DECISION mechanisms (R1 model-decides rework) ──────────
+  //
+  // The R1 relight retired the DETERMINISTIC valuation-decision mechanisms in favour of "the MODEL proposes
+  // the verdict / valuation / buy-below with cited reasoning; determinism only sanity-CHECKS". Each retired
+  // mechanism gets a pattern below. Where a surface legitimately NAMES the retired mechanism to say it is
+  // RETIRED / is NOT what the harness does, the exact snippet is allow-listed (anti-rot still enforces it).
+  {
+    // The credited-growth ENGINE / headline (the buy-below once led with a "credited growth/rate" figure).
+    // RETIRED: the model proposes the buy-below with cited reasoning. The pattern targets the spaced/hyphenated
+    // ENGINE-label noun phrase ONLY — it deliberately does NOT match the SURVIVING live helpers/fields/shorthand:
+    //   - `creditedGrowth(...)` (camelCase exported helper, still the growth-CAP fn) — no hyphen/space, never trips,
+    //   - `credited_g_vs_actual` (live post-mortem data key) — underscore, never trips,
+    //   - "credited g 4-5%" (the CURRENT Mechanism-3 base-rate shorthand, verbatim in the projection source) —
+    //     requires "growth"/"rate"/"g-headline", so the bare "credited g <pct>" base-rate phrasing never trips.
+    label: 'credited-growth engine / headline — retired; the model proposes the buy-below with cited reasoning (R1)',
+    pattern: /credited[-\s]growth|credited[-\s]rate|credited[-\s]g[-\s]headline/i,
+    allow: [],
+  },
+  {
+    // The deterministic required-growth-GAP / buy-below BAND engine (band_low / conservatism knob).
+    // RETIRED: there is no deterministic gap/band engine; the buy-below is the model's cited judgement.
+    // `band_low` / `required_growth_gap` are retired CODE/DATA identifiers (no live render); the prose
+    // references that survive all NAME the engine to say it is RETIRED, and are allow-listed verbatim.
+    label: 'required-growth-gap / buy-below band engine (band_low, conservatism knob) — retired (R1)',
+    pattern: /required[-\s]?growth[-\s]?gap|required_growth_gap|\bband_low\b|conservatism[-\s]?knob/i,
+    allow: [
+      {
+        file: 'apps/web/src/components/StrategyOverview.tsx',
+        snippet: 'the deterministic required_growth_gap / band engine is RETIRED',
+        reason: 'StrategyOverview R1 comment names the retired required_growth_gap/band engine to mark it RETIRED.',
+      },
+      {
+        file: 'apps/web/src/components/LearnTabs.tsx',
+        snippet: 'the deterministic required_growth_gap / band engine is RETIRED',
+        reason: 'LearnTabs R1 comment names the retired required_growth_gap/band engine to mark it RETIRED.',
+      },
+    ],
+  },
+  {
+    // Margin-of-safety AS A HAIRCUT (the MoS once applied as a deterministic price haircut / knob).
+    // RETIRED: the buy-below is the model's cited judgement, not a derived haircut. The pattern is PRECISE —
+    // it requires "MoS"/"margin of safety" ADJACENT to "haircut" so it does NOT false-positive on the bare
+    // verb "haircut" used for the (current, different) stressed-book-value concept, nor on the "not a derived
+    // haircut" / "no deterministic haircut" negations (which lack the MoS adjacency).
+    label: 'margin of safety AS A HAIRCUT — retired; the buy-below is the model’s cited judgement (R1)',
+    pattern: /margin[-\s]?of[-\s]?safety[-\s]?haircut|MoS[-\s]?haircut|MoS[-\s]?as[-\s]?(?:a[-\s]?)?haircut/i,
+    allow: [],
+  },
+  {
+    // Per-row RUBRIC scoring / score-to-tier (judgments were once scored from a rubric into a tier).
+    // RETIRED: judgments are grounded, cite-verified theses, not rubric scores. The LearnTabs "Claims, not
+    // scores" card NAMES the retired rubric to say there is NONE — allow-listed verbatim (one snippet covers
+    // both the per-row-rubric and the score-to-tier matchers, each of which strips it for its own scan).
+    label: 'per-row rubric / score-to-tier scoring — retired; grounded cite-verified theses, not rubric scores',
+    pattern: /scored from a rubric|rubric of cite|per[-\s]row rubric|score[-\s]?to[-\s]?tier/i,
+    allow: [
+      {
+        file: 'apps/web/src/components/LearnTabs.tsx',
+        snippet: 'There is no per-row rubric, no M1–M6, no total-score-to-tier map.',
+        reason: 'LearnTabs "Claims, not scores" card NAMES the retired per-row-rubric / score-to-tier to say there is none.',
+      },
+    ],
+  },
+  // SKIPPED — "forecasting-humility ceiling/cap": this term is NOT retired. It is the CURRENT name for the
+  // single named growth cap (`single_growth_cap = 0.15`) — the strategy doc §"credited/single growth" and the
+  // live `creditedGrowth()` helper both describe it as "a forecasting-humility ceiling behind the durable-source
+  // requirement, never a license". What was retired is the STACKED growth-band-ceilings TRIO (already guarded by
+  // the `growth-band-ceiling` pattern above), not the single forecasting-humility ceiling. A blunt
+  // /forecasting-humility (ceiling|cap)/ would false-positive on that legitimate CURRENT backstop copy, so it is
+  // intentionally not banned; the cap-is-a-backstop-not-a-lever positive-assertion tests guard the engine framing.
+  // NOTE — the harder, more ambiguous retired mechanisms are deliberately NOT given a blunt regex here,
+  // because a broad pattern would false-positive on the LEGITIMATE current copy:
+  //   - the forward two-stage DCF: it survives as the LABELED REFERENCE cross-check (StrategyOverview's
+  //     "forward two-stage … LABELED REFERENCE cross-check", LearnTabs' reference-FV worked example). Banning
+  //     "two-stage" / "forward DCF" would trip that legitimate current copy. The positive-assertion tests
+  //     (reference-FV-is-a-cross-check, decision-is-the-reverse-DCF) guard it instead.
+  //   - circle-of-competence as a CONFIG determinant: the current copy correctly frames the circle as a
+  //     grounded MODEL judgement (ResearchCasePanel's circle-competence panel, "Outside the circle of
+  //     competence — set aside, not failed"). Banning "circle" would trip that legitimate current copy; the
+  //     model-judges-the-circle positive-assertion tests guard the retired "model never decides your circle"
+  //     framing instead.
 ]
 
 function readScanned(file: string): string {
