@@ -74,7 +74,7 @@ describe('AppNavigation', () => {
     expect(html).toContain('Learn')
     expect(html).toContain('href="/settings/data-safety"')
     expect(html).toContain('Settings')
-    expect(html).not.toContain('class="owl-nav-link owl-focusable" href="/onboarding"')
+    expect(html).not.toContain('href="/onboarding"')
     expect(html).not.toContain('>Onboarding</a>')
   })
 
@@ -84,7 +84,7 @@ describe('AppNavigation', () => {
     expect(html).toContain('class="owl-setup-card"')
     expect(html).toContain('Setup needed')
     expect(html).toContain('Start setup')
-    expect(html).toContain('href="/onboarding"')
+    expect(html).toContain('href="/settings/providers"')
   })
 
 

@@ -245,7 +245,7 @@ export async function getSetupAwareCommandCenter({ config, is_initialized, provi
       recent_activity: [{ event_id: 'placeholder:no-mode-chosen-yet', label: 'No mode chosen yet' }],
       monitor_alerts: [],
       discovery_signals: [],
-      primary_action: { href: '/onboarding', label: 'Continue setup' },
+      primary_action: { href: '/settings/providers', label: 'Continue setup' },
       secondary_action: { href: '/settings/providers', label: 'Review provider readiness' },
     }
   }
@@ -275,7 +275,7 @@ export async function getSetupAwareCommandCenter({ config, is_initialized, provi
       recent_activity: [{ event_id: 'placeholder:no-durable-ledger-events-yet', label: 'No durable ledger events yet' }],
       monitor_alerts: [],
       discovery_signals: [],
-      primary_action: { href: '/onboarding', label: 'Continue setup' },
+      primary_action: { href: '/settings/providers', label: 'Continue setup' },
     }
   }
 

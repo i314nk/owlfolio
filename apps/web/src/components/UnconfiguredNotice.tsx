@@ -32,8 +32,7 @@ export function UnconfiguredNotice({ feature }: UnconfiguredNoticeProps) {
       title: 'Choose a mode to begin',
       description:
         'Start setup to pick demo mode or a personal-local workflow. Review provider readiness first if you want to connect a local AI assistant.',
-      primaryAction: createElement(OwlButtonLink, { href: '/onboarding' }, 'Continue setup'),
-      secondaryAction: createElement(OwlButtonLink, { href: '/settings/providers', variant: 'secondary' }, 'Review provider readiness'),
+      primaryAction: createElement(OwlButtonLink, { href: '/settings/providers' }, 'Continue setup'),
     }),
   )
 }

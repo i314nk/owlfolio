@@ -205,6 +205,6 @@ function SetupCard() {
     createElement('p', { className: 'owl-setup-card-kicker' }, 'Setup needed'),
     createElement('h2', { className: 'owl-setup-card-title' }, 'Start your local workspace'),
     createElement('p', { className: 'owl-setup-card-copy' }, 'Choose demo mode or connect a local AI assistant before personal ledger workflows begin.'),
-    createElement('a', { className: 'owl-setup-card-action owl-focusable', href: '/onboarding' }, 'Start setup'),
+    createElement('a', { className: 'owl-setup-card-action owl-focusable', href: '/settings/providers' }, 'Start setup'),
   )
 }

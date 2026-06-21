@@ -1,17 +1,11 @@
-import { createElement } from 'react'
+import { redirect } from 'next/navigation'
 
-import { OnboardingWizard } from './OnboardingWizard'
-import { getOnboardingProviderOptions, getOnboardingState, getProviderReadinessSnapshot } from '../../lib/onboarding'
-
-export default async function OnboardingPage() {
-  const state = await getOnboardingState()
-  const readiness = await getProviderReadinessSnapshot(state.config)
-
-  return createElement(OnboardingWizard, {
-    initialConfig: state.config,
-    initialIsInitialized: state.is_initialized,
-    initialReadiness: readiness,
-    providerOptions: await getOnboardingProviderOptions(),
-    allowAdvancedPersonalMockProvider: process.env.OWLFOLIO_TEST_MODE === 'playwright',
-  })
+/**
+ * /onboarding is RETIRED. The standalone onboarding wizard was fully superseded by the guided-setup
+ * surface at /settings/providers (mode toggle, provider/model selection, key/capital guidance, and
+ * readiness). This route now permanently redirects there so old links, bookmarks, and in-app references
+ * keep working with a single setup surface.
+ */
+export default function OnboardingPage(): never {
+  redirect('/settings/providers')
 }

@@ -67,7 +67,7 @@ describe('phase 3 design system primitives', () => {
     expect(html).toContain('class="owl-setup-card"')
     expect(html).toContain('Setup needed')
     expect(html).toContain('Start setup')
-    expect(html).toContain('href="/onboarding"')
+    expect(html).toContain('href="/settings/providers"')
     expect(html).toContain('Setup needed content')
   })
 
@@ -163,7 +163,7 @@ describe('phase 3 design system primitives', () => {
       }),
       createElement(EmptyState, {
         description: 'Initialize personal-local mode before recording live decisions.',
-        primaryAction: createElement(OwlButtonLink, { href: '/onboarding', variant: 'primary' }, 'Open onboarding'),
+        primaryAction: createElement(OwlButtonLink, { href: '/settings/providers', variant: 'primary' }, 'Open onboarding'),
         provenance: createElement(SourceChip, { id: 'event_setup_required', label: 'Audit' }),
         secondaryAction: createElement(OwlButtonLink, { href: '/audit', variant: 'secondary' }, 'View audit'),
         title: 'No personal ledger yet',
@@ -325,7 +325,6 @@ describe('phase 3 design system primitives', () => {
       'apps/web/src/app/settings/data-safety/page.tsx',
       'apps/web/src/app/research/new/ResearchIntakeForm.tsx',
       'apps/web/src/app/watchlist/page.tsx',
-      'apps/web/src/app/onboarding/OnboardingWizard.tsx',
     ]
 
     for (const pagePath of pagePaths) {

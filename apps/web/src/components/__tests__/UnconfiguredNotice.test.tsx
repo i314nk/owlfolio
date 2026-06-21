@@ -13,7 +13,6 @@ describe('UnconfiguredNotice', () => {
     expect(html).toContain('Choose a mode to begin')
     // It steers toward provider/onboarding setup — NEVER demo data.
     expect(html).toContain('href="/settings/providers"')
-    expect(html).toContain('href="/onboarding"')
     // It must not pretend there is data: no demo seed labels.
     expect(html).not.toContain('demo research case')
     expect(html).not.toContain('Mock provider / demo mode')

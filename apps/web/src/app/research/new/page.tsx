@@ -29,16 +29,6 @@ const ctaButtonStyle: CSSProperties = {
   textDecoration: 'none',
 }
 
-const secondaryLinkStyle: CSSProperties = {
-  border: '1px solid rgba(148, 163, 184, 0.3)',
-  borderRadius: '999px',
-  color: '#cbd5e1',
-  display: 'inline-flex',
-  fontWeight: 800,
-  padding: '0.65rem 1rem',
-  textDecoration: 'none',
-}
-
 function getResearchBlockMessage(mode: OwlfolioMode, initialized: boolean): string {
   if (mode === 'unconfigured') {
     return 'No mode is chosen yet. Choose a mode to begin, then set up a personal-local workflow to record durable research cases.'
@@ -78,11 +68,8 @@ export default async function ResearchIntakePage() {
           <li>Demo mode and uninitialized states are intentionally read-only for workflow previews.</li>
         </ul>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem' }}>
-          <Link className="owl-focusable" href="/onboarding" style={ctaButtonStyle}>
-            Open onboarding and enable personal-local setup
-          </Link>
-          <Link className="owl-focusable" href="/settings/providers" style={secondaryLinkStyle}>
-            Review provider readiness first
+          <Link className="owl-focusable" href="/settings/providers" style={ctaButtonStyle}>
+            Open setup and enable personal-local mode
           </Link>
         </div>
       </section>

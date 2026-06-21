@@ -27,7 +27,7 @@ test('personal-local mode can create the first research case from the command ce
 
   await page.goto('/')
   const initialPrimaryNav = page.getByRole('navigation', { name: /primary owlfolio navigation/i })
-  await expect(initialPrimaryNav.getByRole('link', { name: /start setup/i })).toHaveAttribute('href', '/onboarding')
+  await expect(initialPrimaryNav.getByRole('link', { name: /start setup/i })).toHaveAttribute('href', '/settings/providers')
   await expect(initialPrimaryNav.getByText(/setup needed/i)).toBeVisible()
 
   // Programmatic init (mock-provider + personal-local) replaces driving the wizard UI. The e2e no longer
@@ -54,12 +54,11 @@ test('personal-local mode can create the first research case from the command ce
   await page.getByRole('link', { name: /manual ticker intake/i }).click()
   await expect(page).toHaveURL('/research/new')
   await expect(page.getByRole('button', { name: /create research case/i })).toBeVisible()
-  // PENDING WIZARD-REMOVAL SLICE: this re-visit still asserts the wizard heading at /onboarding. It is a
-  // nav/heading assertion (not init), so per the migration plan it stays as the CURRENT reality until the
-  // follow-up slice removes the wizard and redirects /onboarding → /settings/providers.
+  // The onboarding wizard is retired: /onboarding now permanently redirects to the consolidated guided-
+  // setup surface at /settings/providers, so a visit lands there and shows the guided setup heading.
   await page.goto('/onboarding')
-  await expect(page).toHaveURL('/onboarding')
-  await expect(page.getByRole('heading', { name: /start setup/i })).toBeVisible()
+  await expect(page).toHaveURL('/settings/providers')
+  await expect(page.getByRole('heading', { name: /guided setup/i })).toBeVisible()
   await page.getByRole('navigation', { name: /primary owlfolio navigation/i }).getByRole('link', { name: /watchlist/i }).click()
   await expect(page).toHaveURL('/watchlist')
   await expect(page.getByText('No watchlist items yet. Create a research case first.')).toBeVisible()
