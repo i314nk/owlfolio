@@ -1,5 +1,7 @@
 import { expect, test } from '@playwright/test'
 
+import { initWorkflow } from './helpers'
+
 function isoDateDaysFromToday(daysFromToday: number): string {
   const today = new Date()
   return new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate() + daysFromToday))
@@ -28,12 +30,11 @@ test('personal-local mode can create the first research case from the command ce
   await expect(initialPrimaryNav.getByRole('link', { name: /start setup/i })).toHaveAttribute('href', '/onboarding')
   await expect(initialPrimaryNav.getByText(/setup needed/i)).toBeVisible()
 
-  await page.goto('/onboarding')
-  await page.getByRole('button', { name: /use chatgpt\/codex/i }).click()
-  await page.getByText('Advanced: choose a different provider').click()
-  await page.getByRole('combobox', { name: /provider family/i }).selectOption('mock-provider')
-  await page.getByRole('button', { name: /start using owlfolio/i }).click()
+  // Programmatic init (mock-provider + personal-local) replaces driving the wizard UI. The e2e no longer
+  // depends on the wizard to perform setup; the wizard can be deleted in the follow-up slice.
+  await initWorkflow(request)
 
+  await page.goto('/')
   await expect(page).toHaveURL('/')
   const primaryNav = page.getByRole('navigation', { name: /primary owlfolio navigation/i })
   await expect(primaryNav.getByRole('link', { name: 'Command Center', exact: true })).toHaveAttribute('href', '/')
@@ -53,6 +54,9 @@ test('personal-local mode can create the first research case from the command ce
   await page.getByRole('link', { name: /manual ticker intake/i }).click()
   await expect(page).toHaveURL('/research/new')
   await expect(page.getByRole('button', { name: /create research case/i })).toBeVisible()
+  // PENDING WIZARD-REMOVAL SLICE: this re-visit still asserts the wizard heading at /onboarding. It is a
+  // nav/heading assertion (not init), so per the migration plan it stays as the CURRENT reality until the
+  // follow-up slice removes the wizard and redirects /onboarding → /settings/providers.
   await page.goto('/onboarding')
   await expect(page).toHaveURL('/onboarding')
   await expect(page.getByRole('heading', { name: /start setup/i })).toBeVisible()

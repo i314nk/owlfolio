@@ -1,17 +1,16 @@
 import { expect, test } from '@playwright/test'
 
+import { initWorkflow } from './helpers'
+
 test.beforeEach(async ({ request }) => {
   const response = await request.post('/api/testing/reset')
   expect(response.ok()).toBe(true)
 })
 
 test('monthly accounting report renders projected current period after a valuation snapshot', async ({ page, request }) => {
-  await page.goto('/onboarding')
-  await page.getByRole('button', { name: /use chatgpt\/codex/i }).click()
-  await page.getByText('Advanced: choose a different provider').click()
-  await page.getByRole('combobox', { name: /provider family/i }).selectOption('mock-provider')
-  await page.getByRole('button', { name: /start using owlfolio/i }).click()
+  await initWorkflow(request)
 
+  await page.goto('/')
   await page.getByRole('link', { name: /open research cockpit/i }).first().click()
   await expect(page).toHaveURL('/research')
   await page.getByRole('link', { name: /manual ticker intake/i }).click()

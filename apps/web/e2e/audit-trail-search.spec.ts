@@ -1,5 +1,7 @@
 import { expect, test } from '@playwright/test'
-import type { Page } from '@playwright/test'
+import type { APIRequestContext, Page } from '@playwright/test'
+
+import { initWorkflow } from './helpers'
 
 type FilterCollisionCheck = {
   maxRightOverflow: number
@@ -7,12 +9,9 @@ type FilterCollisionCheck = {
   actorSelectWidth: number
 }
 
-async function initializeDemoWorkflow(page: Page): Promise<void> {
-  await page.goto('/onboarding')
-  await page.getByRole('button', { name: /use chatgpt\/codex/i }).click()
-  await page.getByText('Advanced: choose a different provider').click()
-  await page.getByRole('combobox', { name: /provider family/i }).selectOption('mock-provider')
-  await page.getByRole('button', { name: /start using owlfolio/i }).click()
+async function initializeDemoWorkflow(page: Page, request: APIRequestContext): Promise<void> {
+  await initWorkflow(request)
+  await page.goto('/')
   await expect(page).toHaveURL('/')
 }
 
@@ -71,8 +70,8 @@ test.beforeEach(async ({ request }) => {
   expect(response.ok()).toBe(true)
 })
 
-test('audit trail command affordance link focuses query search input', async ({ page }) => {
-  await initializeDemoWorkflow(page)
+test('audit trail command affordance link focuses query search input', async ({ page, request }) => {
+  await initializeDemoWorkflow(page, request)
 
   await page
     .getByRole('navigation', { name: /primary owlfolio navigation/i })
@@ -84,8 +83,8 @@ test('audit trail command affordance link focuses query search input', async ({ 
   await expect(searchInput).toBeFocused()
 })
 
-test('audit filters keep actor and related controls from overlapping at desktop width', async ({ page }) => {
-  await initializeDemoWorkflow(page)
+test('audit filters keep actor and related controls from overlapping at desktop width', async ({ page, request }) => {
+  await initializeDemoWorkflow(page, request)
   await page.setViewportSize({ width: 1366, height: 900 })
   await page.goto('/audit')
 
