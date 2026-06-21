@@ -374,6 +374,29 @@ export const MOAT_RUBRIC_PROMPT =
   + `EXAMPLE moat_drivers (shape only): [{"advantage":"concentrate price increases stick with no volume loss","citation":"sec_edgar_10k_<cik>_fy<year>"},{"advantage":"global brand + bottler distribution scale advantage","citation":"<verified-source_id>"}]. `
   + `EXAMPLE runway_drivers (shape only): [{"headroom":"emerging-market per-capita consumption under 1/4 of developed markets — decades of volume runway","citation":"sec_edgar_10k_<cik>_fy<year>"},{"headroom":"announced bottling-capacity expansion deploys capital at >20% incremental ROIC","citation":"<verified-source_id>"}].`
 
+// VALUATION-lane discount-ownership note (F.2 conformance). The harness OWNS the discount + the
+// intrinsic-value computation deterministically; the valuation lane must reason about VALUE, not free-lance
+// a textbook DCF with its own required return / cost of capital / government-bond anchor (the model's
+// training prior), which would contradict the system's config-driven uniform discount. Appended ONLY to the
+// valuation lane's prompt (NOT the other generic lanes). PHRASING NOTE (consistency tripwire): the discount
+// prohibitions in the constant below are NEGATIONS ("do NOT …"), deliberately phrased so they do NOT match the
+// discount/Treasury patterns in supersededTermConsistency.test.ts (e.g. "Treasury" never lands adjacent to
+// +/anchor/discount) — so no allow-list entry is needed and the patterns still catch any NEW as-current usage.
+export const VALUATION_LANE_DISCOUNT_NOTE =
+  ` DISCOUNT OWNERSHIP (read carefully — THE HARNESS OWNS THE DISCOUNT, not you): the harness discounts `
+  + `owner earnings deterministically at a single config-driven UNIFORM rate (the compliant SAVINGS rate `
+  + `plus a fixed equity premium, ≈7.5% by default, the SAME for every business). The risk-free anchor is `
+  + `the compliant SAVINGS rate the owner can actually hold — it is explicitly NOT the interest-bearing `
+  + `10-year Treasury, which a compliant investor cannot hold, so do NOT anchor your reasoning to the `
+  + `10-year Treasury or any government-bond yield. Therefore you MUST NOT specify, assume, or assert your `
+  + `own required return, discount rate, cost of capital, WACC, or hurdle (do NOT, for example, assert a `
+  + `9-10% required return) and you MUST NOT present a textbook DCF or an intrinsic-value range computed off `
+  + `a self-chosen rate — that math is the harness's job and your numbers would contradict the system's `
+  + `deterministic discount. INSTEAD, reason about VALUE: the owner-earnings BASIS (normalized owner `
+  + `earnings, the maintenance-capex and one-off adjustments behind it), the DURABILITY and defensibility of `
+  + `growth, and a QUALITATIVE cheap / fair / expensive read versus today's price. Leave the discount rate `
+  + `and the intrinsic-value / DCF computation entirely to the harness.`
+
 // SHARIAH-lane judgment overlay instructions (moved here from the synthesis prompt). The lane supplies
 // the JUDGMENT only; the harness recomputes the AAOIFI ratios + verdict + purification % from filings.
 export const SHARIAH_OVERLAY_PROMPT =

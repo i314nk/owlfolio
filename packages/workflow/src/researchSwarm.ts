@@ -91,6 +91,7 @@ import {
   MOAT_RUBRIC_PROMPT,
   SHARIAH_OVERLAY_PROMPT,
   CIRCLE_COMPETENCE_PROMPT,
+  VALUATION_LANE_DISCOUNT_NOTE,
   PRIMARY_FILING_LANES,
 } from './researchSwarmSchemas'
 // Deterministic harness compute (judgment-tier resolution, projection builders, OE-bridge filing block,
@@ -1230,7 +1231,11 @@ export async function runResearchDeepDivePhase(
     const { degraded_no_tools: _laneDegraded, ...agent } = await runGroundedAgentWithTools(laneRuntime.provider, {
       run_id: baseRunId,
       model_id: laneRuntime.model_id,
-      prompt: basePrompt,
+      // F.2 conformance: the valuation lane MUST be told the harness owns the discount, else (as the
+      // generic basePrompt alone) the model free-lances a textbook DCF with its own required return + a
+      // 10-year-Treasury anchor (its training prior), contradicting the system's deterministic discount.
+      // Appended ONLY for the valuation lane; the other generic lanes keep the plain basePrompt.
+      prompt: basePrompt + (lane === 'valuation' ? VALUATION_LANE_DISCOUNT_NOTE : ''),
       timeout_ms: AGENT_TIMEOUT_MS,
       schema_name: 'BuffettMungerLaneFinding',
     }, LaneAgentSchema, {
@@ -1719,7 +1724,9 @@ export async function runResearchDeepDivePhase(
   //   OE_ps    = OE_total / shares_outstanding
   // Credited growth g (Step 3): the demonstrated OE/share CAGR through the named humility cap (Phase 1.3).
   // Terminal growth g_t (Step 4): UNIFORM 1.5% for every investable moat (F.13 — the monopoly tier no longer
-  //   raises g_t). Flat 10% discount, always.
+  //   raises g_t). Discount (F.2): the config-driven compliant SAVINGS rate + a fixed equity premium
+  //   (≈7.5% default), UNIFORM across every moat — no longer a flat 10%, and the retired interest-bearing
+  //   Treasury is no longer the anchor (a compliant investor cannot hold it).
   // Two-stage FV (Step 2 + 4): stage-1 horizon is UNIFORM 10 yrs for every investable moat (F.13). Stage-1
   //   growth is NO LONGER flat — it compounds at g over the plateau years then LINEARLY FADES to g_t over the
   //   trailing growth_fade_years (Part D Step 2; F=5 → years 6–10), so OE_t = OE_ps·Π_{i=1..t}(1+g_i) with g_i

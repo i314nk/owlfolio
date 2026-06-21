@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { DecisionAgentSchema } from '../researchSwarmSchemas'
+import { DecisionAgentSchema, VALUATION_LANE_DISCOUNT_NOTE } from '../researchSwarmSchemas'
 
 // RELIGHTENED DECISION (R1): the model OWNS the valuation. The decision agent now emits proposed_buy_below
 // (the price below which it would buy — recorded verbatim, NOT a derived FV) and valuation_reasoning (the
@@ -155,5 +155,26 @@ describe('DecisionAgentSchema (model proposes buy-below + cited valuation reason
     expect(DecisionAgentSchema.safeParse({ ...base, margin_of_safety: { ...base.margin_of_safety, adequacy: 'great' } }).success).toBe(false)
     expect(DecisionAgentSchema.safeParse({ ...base, margin_of_safety: { ...base.margin_of_safety, reasoning: '' } }).success).toBe(false)
     expect(DecisionAgentSchema.safeParse({ ...base, margin_of_safety: { ...base.margin_of_safety, adequacy: 'inadequate' as const } }).success).toBe(true)
+  })
+})
+
+// ---------------------------------------------------------------------------------------------------
+// F.2 conformance: the valuation specialist-lane prompt MUST tell the lane the HARNESS owns the discount,
+// so the model does not free-lance a textbook DCF with its own required return + a Treasury anchor (its
+// training prior) that contradicts the system's deterministic config-driven discount. This positive
+// assertion pins that the constraint can't be silently removed; the supersededTermConsistency tripwire
+// (packages/strategies) guards the negative side (a Treasury / self-required-return slipping in as-current).
+// ---------------------------------------------------------------------------------------------------
+describe('VALUATION_LANE_DISCOUNT_NOTE (the harness owns the discount — F.2 conformance)', () => {
+  it('states the harness owns the discount, savings-anchored, and prohibits a self-chosen required return', () => {
+    // The harness owns the discount.
+    expect(VALUATION_LANE_DISCOUNT_NOTE).toMatch(/harness/i)
+    expect(VALUATION_LANE_DISCOUNT_NOTE).toMatch(/owns the discount/i)
+    // The anchor is the compliant SAVINGS rate (not the interest-bearing Treasury).
+    expect(VALUATION_LANE_DISCOUNT_NOTE).toMatch(/savings/i)
+    // A do-NOT-specify-your-own-required-return / discount / cost-of-capital prohibition is present.
+    expect(VALUATION_LANE_DISCOUNT_NOTE).toMatch(/(?:must not|do not|not)[^.]*(?:required return|discount rate|cost of capital|wacc|hurdle)/i)
+    // The lane must NOT anchor to the 10-year Treasury (negation present).
+    expect(VALUATION_LANE_DISCOUNT_NOTE).toMatch(/(?:not|n't)[^.]*treasur/i)
   })
 })

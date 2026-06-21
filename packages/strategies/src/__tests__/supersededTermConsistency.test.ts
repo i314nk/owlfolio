@@ -42,6 +42,7 @@ const repoRoot = join(here, '..', '..', '..', '..')
 const ARCH_DIR = join(repoRoot, 'docs', 'architecture')
 const COMPONENTS_DIR = join(repoRoot, 'apps', 'web', 'src', 'components')
 const STRATEGIES_SRC_DIR = join(repoRoot, 'packages', 'strategies', 'src')
+const WORKFLOW_SRC_DIR = join(repoRoot, 'packages', 'workflow', 'src')
 
 /** The living copy/doc surfaces the consistency guarantee covers, by repo-relative path. */
 const SCAN_SET: string[] = [
@@ -76,6 +77,13 @@ const DISCOUNT_SCAN_SET: string[] = [
   'apps/web/src/components/ResearchCasePanel.tsx',
   'packages/strategies/src/buffettMunger.ts',
   'packages/strategies/src/valuationParams.ts',
+  // The valuation specialist-LANE prompt constants live here (VALUATION_LANE_DISCOUNT_NOTE etc.). A
+  // Treasury-as-live-anchor or a self-specified required-return/discount in a MODEL-FACING lane prompt is
+  // the same discount-lie class as the user-facing copy and must trip going forward — the exact bug F.2
+  // fixed in the math/copy but left in the valuation lane prompt. The note's prohibitions are NEGATIONS,
+  // phrased so they do NOT match the discount patterns (no allow-list entry needed); a NEW as-current
+  // Treasury/required-return line in a prompt still trips.
+  'packages/workflow/src/researchSwarmSchemas.ts',
 ]
 
 /** A SUPERSEDED term + the (file → verbatim-snippet) references that legitimately describe it as RETIRED. */
@@ -359,6 +367,8 @@ function readScanned(file: string): string {
     abs = join(COMPONENTS_DIR, file.slice('apps/web/src/components/'.length))
   } else if (file.startsWith('packages/strategies/src/')) {
     abs = join(STRATEGIES_SRC_DIR, file.slice('packages/strategies/src/'.length))
+  } else if (file.startsWith('packages/workflow/src/')) {
+    abs = join(WORKFLOW_SRC_DIR, file.slice('packages/workflow/src/'.length))
   } else {
     throw new Error(`readScanned: no resolver root for ${file}`)
   }
@@ -395,5 +405,25 @@ describe('Phase 8 S6 superseded-term consistency tripwire: no stale recalibratio
         ).not.toMatch(pattern)
       }
     }
+  })
+
+  // F.2 lane-prompt guard: prove the discount patterns WOULD trip on a hypothetical NEW as-current
+  // methodology line in a lane prompt (a self-chosen required return / Treasury-as-live-anchor) — the exact
+  // bug fixed here (the valuation lane free-lancing a textbook DCF). This is the positive side of the guard:
+  // if someone re-introduces that methodology AS CURRENT in researchSwarmSchemas.ts, the absence test above
+  // catches it. These synthetic lines stand in for that future regression.
+  it('the discount/Treasury patterns CATCH a hypothetical as-current self-required-return / Treasury lane prompt', () => {
+    const treasuryPattern = SUPERSEDED_PATTERNS.find((p) =>
+      p.label.startsWith('Treasury as the live discount anchor'))?.pattern
+    const flat10Pattern = SUPERSEDED_PATTERNS.find((p) =>
+      p.label.startsWith('constitutional / flat 10% discount'))?.pattern
+    expect(treasuryPattern).toBeDefined()
+    expect(flat10Pattern).toBeDefined()
+    // A self-chosen Treasury-anchored required return (the model's training prior) trips the Treasury guard.
+    expect('discount the cash flows at the 10-year Treasury + a 5.5% equity premium').toMatch(treasuryPattern!)
+    expect('anchor the required return to current Treasuries plus a premium').toMatch(treasuryPattern!)
+    // A flat-10%-discount methodology trips the flat-10% guard.
+    expect('apply a 10% discount rate to the projected owner earnings').toMatch(flat10Pattern!)
+    expect('use a discount rate of 10% for the DCF').toMatch(flat10Pattern!)
   })
 })
