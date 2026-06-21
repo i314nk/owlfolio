@@ -27,8 +27,10 @@ test('personal-local mode can create the first research case from the command ce
 
   await page.goto('/')
   const initialPrimaryNav = page.getByRole('navigation', { name: /primary owlfolio navigation/i })
-  await expect(initialPrimaryNav.getByRole('link', { name: /start setup/i })).toHaveAttribute('href', '/settings/providers')
-  await expect(initialPrimaryNav.getByText(/setup needed/i)).toBeVisible()
+  // In playwright test mode the fresh (reset) default is demo mode (mock-provider sample data); the
+  // app-wide workspace indicator shows it as plain text (demo has no fix-link). initWorkflow() below
+  // switches to personal-local.
+  await expect(initialPrimaryNav.getByText(/mock-provider \(sample data\)/i)).toBeVisible()
 
   // Programmatic init (mock-provider + personal-local) replaces driving the wizard UI. The e2e no longer
   // depends on the wizard to perform setup; the wizard can be deleted in the follow-up slice.
