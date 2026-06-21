@@ -221,15 +221,14 @@ Market price polling sole purpose: is current price ≤ stored `buy_price_per_sh
 
 ---
 
-## 9. Deferred: F.2 discount-anchor swap
+## 9. F.2 discount-anchor swap (SHIPPED)
 
-The discount/hurdle anchor is **deferred work F.2** — DOCUMENTED here, not yet implemented:
+The discount/hurdle anchor is the one Shariah-compliant Mudarabah **savings rate** — this is the F.2 swap, now implemented:
 
-- **Current (today):** `discount = 10y Treasury + equity_premium` (§3 / §4.3) — a flat, uniform, human-set global config, never an agent input.
-- **Deferred swap (F.2):** re-anchor to `discount = savings_rate + equity_premium`, so the one Shariah-compliant Mudarabah savings rate does triple duty (idle-capital return, the deployment-hurdle floor, AND the risk-free valuation anchor). This is the same forward-reference the /strategy "Cash is a first-class position" copy makes.
-- **Blocked on:** the **calibration cohort #124** MoS-freeze — the swap moves the valuation anchor, so it must be coordinated with (not run ahead of) the MoS calibration freeze. Until that cohort lands, F.2 stays deferred.
+- **Today:** `discount = savings_rate + equity_premium` (§3 / §4.3). The single compliant savings rate does triple duty — idle-capital return, the deployment-hurdle floor, AND the risk-free valuation anchor. It is a flat, uniform, human-set global config, never an agent input. This is the same anchor the /strategy "Cash is a first-class position" copy describes.
+- **Retired:** the interest-bearing `10y Treasury + equity_premium` anchor. A non-interest-bearing investor cannot actually hold the Treasury yield, so it was never the right risk-free; it has been removed.
 
-**One-grep manifest for the F.2 session:** every discount-anchor touchpoint is marked with the greppable token `ANCHOR-SWAP-F2:`. Run `grep -rn ANCHOR-SWAP-F2` to enumerate the swap sites (the param config, `discountRate()`, the Treasury-yield adapter, the live swarm discount computation, and the /strategy forward-reference comment) instead of maintaining a hand-list. Comment-only markers — zero behavior change is recorded against them; F.2 itself is what changes the anchor.
+**One-grep manifest:** every discount-anchor touchpoint is marked with the greppable token `ANCHOR-SWAP-F2:`. Run `grep -rn ANCHOR-SWAP-F2` to enumerate the sites (the param config, `discountRate()`, the live swarm discount computation, and the /strategy reference comment).
 
 ---
 

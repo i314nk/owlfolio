@@ -15,8 +15,8 @@ import {
 // Sibling to packages/strategies/src/__tests__/partDConformance.test.ts. This file guards the two
 // Part-D steps whose mechanics live in workflow:
 //   Step 1 — owner-earnings-per-share formula (secEdgar.ts), and
-//   Step 2 — the robust demonstrated-growth measure used CONSISTENTLY in both the live swarm and the
-//            calibration backtest (the live/backtest growth-measure consistency invariant).
+//   Step 2 — the robust demonstrated-growth measure used by the live swarm (the legacy calibration backtest
+//            that once mirrored this measure was removed as dead, closed-loop code).
 // Each assertion names the Part-D step it guards. Fixtures are synthetic + deterministic (no network).
 // ---------------------------------------------------------------------------------------------------
 
@@ -95,31 +95,23 @@ describe('Part-D conformance: Step 2 — robust growth measure (fail-closed on a
   })
 })
 
-describe('Part-D conformance: Step 2 — SAME robust measure wired in both the swarm and the backtest', () => {
-  // The live/backtest growth-measure consistency invariant. These are SOURCE-LEVEL assertions (a grep
-  // over the committed source) guarding that BOTH the live researchSwarm and the calibration backtest
-  // source their growth from `demonstratedOwnerEarningsGrowth` and do NOT take the growth path from the
-  // endpoint `ownerEarningsCagr` (which a single outlier year can whipsaw). If a future edit reintroduces
-  // the endpoint-CAGR growth path on either side, this trips — the backtest must freeze the MoS against
-  // production's growth input, not a stale/divergent one.
+describe('Part-D conformance: Step 2 — the robust measure is wired in the live swarm', () => {
+  // The live growth-measure invariant. These are SOURCE-LEVEL assertions (a grep over the committed source)
+  // guarding that the live researchSwarm sources its growth from `demonstratedOwnerEarningsGrowth` and does
+  // NOT take the growth path from the endpoint `ownerEarningsCagr` (which a single outlier year can whipsaw).
+  // If a future edit reintroduces the endpoint-CAGR growth path, this trips. (The legacy calibration backtest
+  // once mirrored this same measure; it was removed as dead code, so only the live path is guarded now.)
   const swarmSrc = readFileSync(join(srcDir, 'researchSwarm.ts'), 'utf8')
-  const backtestSrc = readFileSync(join(srcDir, 'backtest.ts'), 'utf8')
 
   it('researchSwarm.ts sources its growth from demonstratedOwnerEarningsGrowth', () => {
     // Part D Step 2: the LIVE growth path uses the robust measure.
     expect(swarmSrc).toContain('demonstratedOwnerEarningsGrowth')
   })
 
-  it('backtest.ts sources its growth from demonstratedOwnerEarningsGrowth', () => {
-    // Part D Step 2: the BACKTEST growth path uses the SAME robust measure as live.
-    expect(backtestSrc).toContain('demonstratedOwnerEarningsGrowth')
-  })
-
-  it('neither the swarm nor the backtest takes the growth PATH from the endpoint ownerEarningsCagr', () => {
+  it('the swarm does NOT take the growth PATH from the endpoint ownerEarningsCagr', () => {
     // Part D Step 2: the endpoint CAGR is the legacy, outlier-whipsawed measure; it must not be the source
-    // of the forward growth path on either side. (Importing/exporting the symbol is fine; CALLING it as the
-    // growth source is the regression we guard. We assert the symbol is not invoked in either file.)
+    // of the forward growth path. (Importing/exporting the symbol is fine; CALLING it as the growth source is
+    // the regression we guard. We assert the symbol is not invoked in the live file.)
     expect(swarmSrc).not.toMatch(/ownerEarningsCagr\s*\(/)
-    expect(backtestSrc).not.toMatch(/ownerEarningsCagr\s*\(/)
   })
 })

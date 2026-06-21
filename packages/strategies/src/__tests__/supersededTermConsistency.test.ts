@@ -41,7 +41,6 @@ const repoRoot = join(here, '..', '..', '..', '..')
 
 const ARCH_DIR = join(repoRoot, 'docs', 'architecture')
 const COMPONENTS_DIR = join(repoRoot, 'apps', 'web', 'src', 'components')
-const WEB_LIB_DIR = join(repoRoot, 'apps', 'web', 'src', 'lib')
 const STRATEGIES_SRC_DIR = join(repoRoot, 'packages', 'strategies', 'src')
 
 /** The living copy/doc surfaces the consistency guarantee covers, by repo-relative path. */
@@ -59,11 +58,6 @@ const SCAN_SET: string[] = [
   'apps/web/src/components/WatchlistPanel.tsx',
   'apps/web/src/components/PipelineObservatory.tsx',
   'apps/web/src/components/PerformancePanel.tsx',
-  // F.2 discount-anchor swap (savings-rate-anchored discount; Treasury retired). The Calibration desk
-  // copy described the discount/anti-drift framing that the F.2 fix corrected, so it joins the guarded
-  // copy surfaces. It is an app component, so it resolves through the same `apps/web/src/components/`
-  // branch of readScanned() as StrategyOverview/LearnTabs.
-  'apps/web/src/components/CalibrationPanel.tsx',
 ]
 
 /**
@@ -71,8 +65,8 @@ const SCAN_SET: string[] = [
  * copy ("flat 8% discount", "constitutional 10%", Treasury-as-the-live-anchor, "falling rates never lower
  * it") slipped through because (a) no discount/flat-rate patterns existed AND (b) the discount-copy
  * surfaces were not all scanned. The corrected copy now lives across the UI components in SCAN_SET PLUS the
- * `apps/web/src/lib/` calibration writer and the `packages/strategies/src/` valuation engine/params — roots
- * the base SCAN_SET resolver (readScanned) reaches now that it handles those two extra roots. These paths
+ * `packages/strategies/src/` valuation engine/params (buffettMunger.ts, valuationParams.ts) — a root the
+ * base SCAN_SET resolver (readScanned) reaches. These paths
  * carry the F.2 discount framing (or its retirement negations) and are scanned ONLY by the discount
  * patterns via their `scan` override, so the engine math doc / other surfaces are not over-scanned.
  */
@@ -80,9 +74,6 @@ const DISCOUNT_SCAN_SET: string[] = [
   'apps/web/src/components/StrategyOverview.tsx',
   'apps/web/src/components/LearnTabs.tsx',
   'apps/web/src/components/ResearchCasePanel.tsx',
-  'apps/web/src/components/CalibrationPanel.tsx',
-  'apps/web/src/lib/calibrationActions.ts',
-  'packages/strategies/src/valuationConfigEvent.ts',
   'packages/strategies/src/buffettMunger.ts',
   'packages/strategies/src/valuationParams.ts',
 ]
@@ -258,6 +249,22 @@ const SUPERSEDED_PATTERNS: SupersededPattern[] = [
       },
     ],
   },
+  {
+    // CALIBRATION-AS-PARAMETER-FREEZE — DISSOLVED. The owner-curated calibration backtest desk (the
+    // /calibration page, run/universe events, queue projection) was removed as dead, closed-loop code. With
+    // it goes the "tune-then-FREEZE the params on a calibration cohort" framing (the §9 "blocked on the MoS
+    // calibration freeze" copy that staled when F.2 shipped). The PATTERN is scoped to "param"-adjacent
+    // FREEZE only, so it deliberately does NOT trip:
+    //   - the LIVE forecast/Brier "calibration & integrity" surfacing (a different concept entirely), nor
+    //     LearnTabs' learning-loop "calibration file" copy — neither pairs "calibration" with a param freeze;
+    //   - the many legitimate "frozen buy-below / frozen IV / frozen golden set" mentions — none pair "frozen"
+    //     with "calibration" + "param" within the window.
+    // A NEW "calibration freezes the params / parameter-freeze on a calibration cohort" usage anywhere in the
+    // living copy surfaces trips this. No allow entries: the concept must not reappear as current.
+    label: 'calibration-as-parameter-freeze — dissolved; calibration never tunes-then-freezes the params',
+    pattern: /calibration[^.]{0,40}(?:freezes?|frozen)\s+(?:the\s+)?param|param(?:eter)?[-\s]?freeze[^.]{0,40}calibration|calibration[^.]{0,20}param(?:eter)?[-\s]?freeze/i,
+    allow: [],
+  },
   // SKIPPED — "forecasting-humility ceiling/cap": this term is NOT retired. It is the CURRENT name for the
   // single named growth cap (`single_growth_cap = 0.15`) — the strategy doc §"credited/single growth" and the
   // live `creditedGrowth()` helper both describe it as "a forecasting-humility ceiling behind the durable-source
@@ -281,12 +288,12 @@ const SUPERSEDED_PATTERNS: SupersededPattern[] = [
   //
   // WHY THIS CLASS EXISTS: the stale discount copy ("flat 8% discount", "constitutional 10%",
   // Treasury-as-the-live-anchor, "falling rates never lower it") slipped through because (a) no discount /
-  // flat-rate patterns existed here AND (b) CalibrationPanel + the lib/strategies discount surfaces were not
-  // scanned. F.2 swapped the anchor to the COMPLIANT SAVINGS RATE + a uniform equity premium (≈7.5% default,
+  // flat-rate patterns existed here AND (b) the discount-copy surfaces were not all scanned. F.2 swapped the
+  // anchor to the COMPLIANT SAVINGS RATE + a uniform equity premium (≈7.5% default,
   // ≈8% rounded in copy), uniform across businesses, tracking the owner's savings rate; Treasury is retired.
   // The copy is now fixed (commits 0073cab / f25c58d) — these patterns LOCK it. Each is scoped to
-  // DISCOUNT_SCAN_SET (the UI copy + CalibrationPanel + the web-lib calibration writer + the strategies
-  // engine/params), NOT the math doc, so the live numeric `pct(discountRate(...))` renders and the
+  // DISCOUNT_SCAN_SET (the UI copy + the strategies engine/params),
+  // NOT the math doc, so the live numeric `pct(discountRate(...))` renders and the
   // dotted-path code identifiers are not over-scanned.
   {
     // Flat / constant discount as the framing (a flat N% discount/hurdle, or "falling rates never lower it").
@@ -344,14 +351,12 @@ const SUPERSEDED_PATTERNS: SupersededPattern[] = [
 
 function readScanned(file: string): string {
   // Resolve the repo-relative path against its root. The base set is arch docs + web components; the F.2
-  // discount guard additionally reaches the web lib (calibration writer) and the strategies engine/params.
+  // discount guard additionally reaches the strategies engine/params.
   let abs: string
   if (file.startsWith('docs/architecture/')) {
     abs = join(ARCH_DIR, file.slice('docs/architecture/'.length))
   } else if (file.startsWith('apps/web/src/components/')) {
     abs = join(COMPONENTS_DIR, file.slice('apps/web/src/components/'.length))
-  } else if (file.startsWith('apps/web/src/lib/')) {
-    abs = join(WEB_LIB_DIR, file.slice('apps/web/src/lib/'.length))
   } else if (file.startsWith('packages/strategies/src/')) {
     abs = join(STRATEGIES_SRC_DIR, file.slice('packages/strategies/src/'.length))
   } else {

@@ -46,7 +46,6 @@ This is the live route set as implemented under `apps/web/src/app/**/page.tsx`. 
 | Performance | `@owlfolio/ledger` | `/performance` | Performance summary and Shariah status surfacing. |
 | Monthly accounting | `@owlfolio/ledger` | `/accounting/monthly` | Monthly snapshots, NAV, cash balance, position values, realized/unrealized summaries. |
 | Purification | `@owlfolio/ledger` | `/purification` | Obligations, payments, remaining owed, period/source linkage. |
-| Calibration | `@owlfolio/strategies` | `/calibration` | Confidence-signal backtest, deployment-ratio metric, owner-curated universe, parameter version history. |
 | Audit trail | `@owlfolio/ledger` | `/audit` | Cross-domain ledger timeline with event IDs, actor, causation/correlation, and sources. |
 | Provider settings | `@owlfolio/providers` | `/settings/providers` | Catalog support level, readiness, latest provider runs, and per-provider trust/certification. |
 | Automation settings | `@owlfolio/ledger` | `/settings/automation` | Scheduled-task / worker configuration and run state. |

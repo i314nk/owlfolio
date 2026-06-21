@@ -17,7 +17,6 @@ describe('Owlfolio v2 route ownership documentation', () => {
     expect(routeMap).toContain('| Provider settings | `@owlfolio/providers` | `/settings/providers` |')
     expect(routeMap).toContain('| Audit trail | `@owlfolio/ledger` | `/audit` |')
     expect(routeMap).toContain('| Automation settings | `@owlfolio/ledger` | `/settings/automation` |')
-    expect(routeMap).toContain('| Calibration | `@owlfolio/strategies` | `/calibration` |')
     // The retired/non-existent routes must NOT be advertised as live page-owner ROWS in the table.
     expect(routeMap).not.toMatch(/\|[^|]*\|[^|]*\|\s*`\/shariah`\s*\|/)
     expect(routeMap).not.toMatch(/\|[^|]*\|[^|]*\|\s*`\/worker`\s*\|/)

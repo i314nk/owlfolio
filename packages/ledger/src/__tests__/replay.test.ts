@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest'
 import type { LedgerEventEnvelope } from '../eventEnvelope'
 import { projectResearchCases } from '../projections/researchCaseProjection'
 import { projectWatchlist } from '../projections/watchlistProjection'
+import { projectPipeline } from '../projections/pipelineProjection'
+import { projectResearchCaseTimeline } from '../projections/researchCaseTimelineProjection'
 
 const events: LedgerEventEnvelope<unknown>[] = [
   { event_id: 'evt_001', event_type: 'research_case_created', aggregate_type: 'research_case', aggregate_id: 'rc_cost_001', actor_type: 'user', actor_id: 'user_local', payload: { company_id: 'company_cost', ticker: 'COST', strategy_id: 'buffett-munger' }, source_ids: [], created_at: '2026-05-27T00:00:00.000Z', schema_version: 1 },
@@ -59,5 +61,46 @@ describe('ledger replay projections', () => {
     expect(rc?.valuation).toBeDefined()
     expect(rc?.valuation?.reference_fair_value).toBe(200)
     expect(rc?.valuation?.implied_exit_multiple).toBeUndefined()
+  })
+
+  // LEGACY-REPLAY: the calibration backtest loop (page, queue projection, run/universe events) was removed
+  // as dead, closed-loop code, but old ledgers may still hold `calibration_run` / `calibration_universe_*`
+  // events. The store does NOT enforce event types on read and the surviving general projections only key
+  // off the event types they own, so these now-orphaned events must replay through them HARMLESSLY — never
+  // throw and never leak into research/pipeline/timeline output. This guards against a future projection
+  // assuming a closed event universe and choking on a legacy calibration event.
+  it('legacy-replay: orphaned calibration events project clean through the surviving general projections', () => {
+    const legacyCalibrationEvents: LedgerEventEnvelope<unknown>[] = [
+      {
+        event_id: 'evt_legacy_calib_run', event_type: 'calibration_run', aggregate_type: 'strategy', aggregate_id: 'buffett-munger',
+        actor_type: 'worker', actor_id: 'worker_local',
+        payload: { calibration_run_id: 'cal_2026_001', universe_version: 'v3', params_version: 7, summaries: [], coverage: [] },
+        source_ids: [], created_at: '2026-05-27T00:05:00.000Z', schema_version: 1,
+      },
+      {
+        event_id: 'evt_legacy_calib_member', event_type: 'calibration_universe_member_added', aggregate_type: 'strategy', aggregate_id: 'buffett-munger',
+        actor_type: 'user', actor_id: 'user_local',
+        payload: { ticker: 'KO', market: 'us', added_by: 'user_local' },
+        source_ids: [], created_at: '2026-05-27T00:06:00.000Z', schema_version: 1,
+      },
+    ]
+    // Interleave the orphaned calibration events with a real research-case slice.
+    const mixed: LedgerEventEnvelope<unknown>[] = [...events, ...legacyCalibrationEvents]
+
+    // None of the surviving general projections throws on the orphaned events, AND each produces output
+    // IDENTICAL to the clean slice — proving the calibration events are ignored, not merely tolerated.
+    expect(projectResearchCases(mixed)).toEqual(projectResearchCases(events))
+    expect(projectWatchlist(mixed)).toEqual(projectWatchlist(events))
+    // projectPipeline stamps a wall-clock `snapshot_at`; compare everything else.
+    const { snapshot_at: _mixedAt, ...mixedPipeline } = projectPipeline(mixed)
+    const { snapshot_at: _cleanAt, ...cleanPipeline } = projectPipeline(events)
+    expect(mixedPipeline).toEqual(cleanPipeline)
+
+    // And no calibration event leaks into the research-case audit timeline (one row per real, owned event).
+    const timeline = projectResearchCaseTimeline(mixed, 'rc_cost_001')
+    expect(timeline.some((entry) => entry.event_type.startsWith('calibration_'))).toBe(false)
+    // Sanity: the real research-case state still rebuilds as expected from the mixed log.
+    expect(projectResearchCases(mixed)).toHaveLength(1)
+    expect(projectResearchCases(mixed)[0]).toMatchObject({ research_case_id: 'rc_cost_001', stage: 'watchlist_draft' })
   })
 })
