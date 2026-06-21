@@ -380,8 +380,8 @@ export const MOAT_RUBRIC_PROMPT =
 // training prior), which would contradict the system's config-driven uniform discount. Appended ONLY to the
 // valuation lane's prompt (NOT the other generic lanes). PHRASING NOTE (consistency tripwire): the discount
 // prohibitions in the constant below are NEGATIONS ("do NOT …"), deliberately phrased so they do NOT match the
-// discount/Treasury patterns in supersededTermConsistency.test.ts (e.g. "Treasury" never lands adjacent to
-// +/anchor/discount) — so no allow-list entry is needed and the patterns still catch any NEW as-current usage.
+// superseded-discount patterns in supersededTermConsistency.test.ts — no allow-list entry is needed, and those
+// patterns still catch any NEW as-current discount methodology that slips into a lane prompt.
 export const VALUATION_LANE_DISCOUNT_NOTE =
   ` DISCOUNT OWNERSHIP (read carefully — THE HARNESS OWNS THE DISCOUNT, not you): the harness discounts `
   + `owner earnings deterministically at a single config-driven UNIFORM rate (the compliant SAVINGS rate `
