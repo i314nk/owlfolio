@@ -277,4 +277,22 @@ describe('projectPipeline — archived cases (option-b append-only archive)', ()
     expect(tickers).toContain('LIVE')
     expect(tickers).not.toContain('ARCH')
   })
+
+  it('excludes an archived FAILED run from the Faults section (archiving hides it from every active surface)', () => {
+    const events: LedgerEventEnvelope<unknown>[] = [
+      // a live failed run — stays in Faults
+      evt({ aggregate_id: 'lf', event_type: 'research_run_requested', payload: { research_case_id: 'lf', ticker: 'LIVEFAIL' } }),
+      evt({ aggregate_id: 'lf', event_type: 'research_run_failed', payload: { research_case_id: 'lf', ticker: 'LIVEFAIL', error_summary: 'still a fault' } }),
+      // an archived failed run — acknowledged + discarded, must leave Faults too
+      evt({ aggregate_id: 'af', event_type: 'research_run_requested', payload: { research_case_id: 'af', ticker: 'ARCHFAIL' } }),
+      evt({ aggregate_id: 'af', event_type: 'research_run_failed', payload: { research_case_id: 'af', ticker: 'ARCHFAIL', error_summary: 'archived fault' } }),
+      evt({ aggregate_id: 'af', event_type: 'research_case_archived', actor_type: 'user', payload: { research_case_id: 'af', archived_at: '2026-06-09T00:00:00Z', reason: 'stale' } }),
+    ]
+
+    const projection = projectPipeline(events)
+    expect(projection.summary.failed_recent).toBe(1) // only the live failure
+    const faultIds = (projection.failed_runs ?? []).map((r) => r.case_id)
+    expect(faultIds).toContain('lf')
+    expect(faultIds).not.toContain('af')
+  })
 })

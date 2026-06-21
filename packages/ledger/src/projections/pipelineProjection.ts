@@ -343,7 +343,11 @@ export function projectPipeline(events: LedgerEventEnvelope<unknown>[]): Pipelin
   // later recovery). The failure is RECORDED (surfaced as a fault below), but its abandoned research is
   // DISCARDED from the ACTIVE stage counts + runs — a failed run must not linger as an in-progress
   // deep-dive/quick-screen just because research_run_failed does not advance the research-case stage.
-  const { count: failedRecent, failed_runs } = collectRecentFailures(events)
+  // ARCHIVED runs (option-b archive) are excluded from Faults too: archiving acknowledges + discards a run,
+  // so it leaves EVERY active surface (counts, runs, AND faults), not just the stage counts.
+  const archivedCaseIds = new Set(researchCases.filter((c) => c.archived).map((c) => c.research_case_id))
+  const failed_runs = collectRecentFailures(events).failed_runs.filter((run) => !archivedCaseIds.has(run.case_id))
+  const failedRecent = failed_runs.length
   const failedCaseIds = new Set(failed_runs.map((run) => run.case_id))
 
   // ── Stage counts ── (active stages exclude failed cases) ───────────────────
