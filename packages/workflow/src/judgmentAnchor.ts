@@ -1,33 +1,22 @@
-// Mechanical anchor + bounded +-1-tier adjustment — judgment-objectivity-layer-spec Mechanism 2.
+// Mechanical quant anchor — judgment-objectivity-layer-spec Mechanism 1 (computable-row corroboration).
 //
 // "Judgment doesn't disappear — it moves into rubrics, priors, and scoring rules written once, in
 // advance. Lanes score evidence; the harness maps scores to conclusions."
 //
-// This module is the HARNESS side of Mechanisms 1+2:
-//   1. computeMoatAnchor / computeRunwayAnchor — score the COMPUTABLE rubric rows from PRIMARY EDGAR
-//      data alone (deterministic), sum them to a sub-score, and map that to a mechanical `anchor_tier`
-//      (the prior the lane adjusts from). Fail-closed to { computable: false } when EDGAR is insufficient.
-//   2. resolveRubricTier — takes the lane's rubric scores + proposed tier + cited adjustment evidence
-//      and resolves the FINAL tier under three rules, enforced here (not in a prompt):
-//        - computable rows: the harness uses ITS score, never the lane's claim (lane can't inflate M1/M2/R1);
-//        - the proposed tier may differ from the anchor by AT MOST +-1 tier (>=2 -> clamped + violation);
-//        - any adjustment (proposed != anchor) requires verified cited evidence (uncited/unverifiable ->
-//          rejected, anchor stands); an UPWARD adjustment needs 2x the evidence items of a downward one.
-//      When the anchor is not computable, the lane's full-rubric score stands (no clamp), still re-verifying
-//      whatever computable rows it can and requiring citations on the cited rows.
+// This module is the quant-corroboration side of the harness:
+//   computeMoatAnchor / computeRunwayAnchor — score the COMPUTABLE rubric rows from PRIMARY EDGAR
+//   data alone (deterministic), sum them to a sub-score, and map that to a mechanical `anchor_tier`
+//   (the quant prior). Fail-closed to { computable: false } when EDGAR is insufficient.
 //
-// Grounding/citation verification is UNCHANGED: a citation_hash is accepted only when it is present in
-// the set of verified content hashes from the fetched corpus (sourceGrounding). Nothing here weakens that.
+// The anchor CORROBORATES a grounded qualitative thesis but never SUBSTITUTES for one: the moat anchor is
+// capped at 'moderate' and the runway anchor at 'limited' — gate-passing tiers require the cite-verified
+// grounded thesis (resolveMoatThesis / resolveRunwayThesis in researchSwarmCompute), not the quant alone.
+//
+// ResolveRubricTierResult below is the result shape consumed by researchSwarmCompute for both axes.
+// (The per-row resolveRubricTier mapping was retired by the rubric→grounded-thesis migration.)
 
-import {
-  type Rubric,
-  type RubricTier,
-  tierForScore,
-  orderedTiers,
-  tierIndex,
-} from '@owlfolio/strategies/judgmentRubrics'
+import { type RubricTier } from '@owlfolio/strategies/judgmentRubrics'
 import { computeIncrementalRoic, type AnnualFacts } from './secEdgar'
-import { isCitationGrounded } from './sourceGrounding'
 
 // ---------------------------------------------------------------------------
 // Computable-row scoring constants (pinned; documented mapping the tests freeze)
@@ -87,8 +76,8 @@ export type RubricAnchor =
 // peak, an accounting artifact, or a temporary monopoly; on their own they cannot prove a durable moat.
 // So the moat anchor is CAPPED AT 'moderate' — the computable rows {M1,M2} can never reach a gate-passing
 // tier (wide/monopoly) by themselves. 'wide'+ is reachable ONLY when the cite-verified qualitative rows
-// (M3 pricing power, M4 share, M5 switching, M6 competitor exits) lift the grounded-row-sum to the
-// rubric's wide/monopoly threshold, via the grounded-ceiling in resolveRubricTier (d4170a3). A name with
+// (M3 pricing power, M4 share, M5 switching, M6 competitor exits) lift the grounded thesis to the
+// wide/monopoly threshold (resolveMoatThesis in researchSwarmCompute). A name with
 // perfect numbers but zero grounded qualitative evidence anchors at 'moderate' and FAILS the moat gate.
 //
 // Moat computable rows {M1,M2} -> max 4:  >=2 -> moderate · <2 -> narrow.  (NEVER wide/monopoly: the
@@ -237,35 +226,8 @@ export function computeRunwayAnchor(series: AnnualFacts[]): RubricAnchor {
 }
 
 // ---------------------------------------------------------------------------
-// Bounded +-1 adjustment resolution
+// Moat/runway resolution result shape (consumed by researchSwarmCompute)
 // ---------------------------------------------------------------------------
-
-export type LaneRubricScore = {
-  id: string
-  score: number
-  citation_hash?: string
-}
-
-export type AdjustmentEvidence = {
-  claim: string
-  citation_hash: string
-}
-
-export type ResolveRubricTierArgs = {
-  rubric: Rubric
-  /** Harness-computed scores for the COMPUTABLE rows (keyed by item id). undefined => anchor not computable. */
-  anchorScores: Record<string, number> | undefined
-  /** The lane's full rubric scores (one per item; computable rows are re-verified against anchorScores). */
-  laneRubricScores: LaneRubricScore[]
-  /** The mechanical anchor tier (undefined when the anchor is not computable). */
-  anchorTier: RubricTier | undefined
-  /** The lane's proposed tier (its judgment adjustment). */
-  proposedTier: RubricTier
-  /** Cited evidence the quant score cannot see, supporting an adjustment away from the anchor. */
-  adjustmentEvidence: AdjustmentEvidence[]
-  /** Set of verified content hashes from the fetched corpus (grounding). A citation is valid iff present. */
-  verifiedCitationHashes: ReadonlySet<string>
-}
 
 export type ResolveRubricTierResult = {
   /** Whether the mechanical anchor was computable. */
@@ -290,175 +252,4 @@ export type ResolveRubricTierResult = {
   grounding_capped: boolean
   /** Recorded rule violations (over-range, uncited, unverifiable, insufficient-for-upward). */
   violations: string[]
-}
-
-/**
- * Resolve the final rubric tier under Mechanism 2's rules (deterministic; no averaging). See module
- * header. Computable rows are re-verified from `anchorScores`; the lane's claim for those rows is
- * discarded. The proposed tier is accepted only as an evidenced, cited, +-1-bounded adjustment from the
- * anchor (upward needs 2x the evidence items of downward). Rejected/over-range adjustments do NOT
- * average — they clamp to +-1 (over-range) or fall back to the anchor (uncited/unverifiable/insufficient).
- */
-export function resolveRubricTier(args: ResolveRubricTierArgs): ResolveRubricTierResult {
-  const { rubric, anchorScores, laneRubricScores, anchorTier, proposedTier, adjustmentEvidence, verifiedCitationHashes } = args
-  const violations: string[] = []
-
-  // --- Re-verify computable rows: harness score wins, lane claim discarded ---
-  const resolved_row_scores: Record<string, number> = {}
-  for (const item of rubric.items) {
-    const laneRow = laneRubricScores.find((r) => r.id === item.id)
-    if (item.computable) {
-      const harnessScore = anchorScores?.[item.id]
-      if (harnessScore !== undefined) {
-        resolved_row_scores[item.id] = harnessScore
-        if (laneRow !== undefined && laneRow.score !== harnessScore) {
-          violations.push(`row ${item.id}: lane claimed ${laneRow.score} but harness computed ${harnessScore} from filings (harness value used)`)
-        }
-      } else {
-        // Computable row but no harness score (anchor not computable): the harness has nothing to
-        // re-verify against, so per the spec ("lane's full-rubric score stands") we fall back to the
-        // lane's claimed score for this row. This branch is only reached when anchorScores is undefined.
-        resolved_row_scores[item.id] = laneRow !== undefined ? clampItemScore(laneRow.score) : 0
-      }
-    } else {
-      // Cited row: the lane's score counts only when backed by a verified citation_hash; else 0.
-      const cited = laneRow?.citation_hash !== undefined && isCitationGrounded(laneRow.citation_hash, verifiedCitationHashes)
-      resolved_row_scores[item.id] = cited ? clampItemScore(laneRow!.score) : 0
-      if (laneRow !== undefined && laneRow.score > 0 && !cited) {
-        violations.push(`row ${item.id}: scored ${laneRow.score} without a verified citation -> scored 0`)
-      }
-    }
-  }
-
-  // Count verified adjustment-evidence items (citation_hash present in the corpus).
-  const verifiedEvidence = adjustmentEvidence.filter((e) => isCitationGrounded(e.citation_hash, verifiedCitationHashes))
-  const verified_evidence_count = verifiedEvidence.length
-
-  // --- Anchor not computable: the lane's full-rubric score stands (re-verified rows), no +-1 clamp ---
-  if (anchorScores === undefined || anchorTier === undefined) {
-    const total = Object.values(resolved_row_scores).reduce((s, v) => s + v, 0)
-    const resolved = tierForScore(rubric, total)
-    return {
-      anchor_computable: false,
-      anchor_tier: undefined,
-      proposed_tier: proposedTier,
-      resolved_tier: resolved,
-      resolved_row_scores,
-      // The lane's tier is its own full-rubric mapping; "applied" iff it matches the re-verified mapping.
-      adjustment_applied: resolved === proposedTier,
-      verified_evidence_count,
-      grounding_capped: false,
-      violations,
-    }
-  }
-
-  // --- Anchor computable: bounded +-1 adjustment from the anchor tier ---
-  const anchorIdx = tierIndex(rubric, anchorTier)
-  const proposedIdx = tierIndex(rubric, proposedTier)
-  const tiers = orderedTiers(rubric)
-
-  // No adjustment proposed (proposed == anchor): anchor stands, no evidence needed.
-  if (proposedIdx === anchorIdx) {
-    return finalize(anchorTier, false)
-  }
-
-  // Over-range (>=2 tiers): reject the +-1 MAGNITUDE bound, but the resolution differs by direction.
-  const delta = proposedIdx - anchorIdx
-  const direction = delta > 0 ? 'upward' : 'downward'
-  if (Math.abs(delta) >= 2) {
-    if (direction === 'downward') {
-      // A conservative over-range DOWNGRADE is clamped to one tier below the anchor (unchanged).
-      violations.push(`proposed tier '${proposedTier}' is ${Math.abs(delta)} tiers from anchor '${anchorTier}' (max +-1) -> clamped`)
-      const clampedTier = tiers[anchorIdx - 1] ?? anchorTier
-      if (!hasSufficientEvidence(direction, verified_evidence_count, violations)) {
-        return finalize(anchorTier, false)
-      }
-      return finalize(clampedTier, true)
-    }
-    // An over-range UPWARD proposal is NOT mechanically clamped to anchor+1 — that would make the TOP
-    // tier (monopoly) unreachable now that the quant anchor is capped at moderate. Instead the GROUNDED
-    // ROWS carry the tier: finalize(proposedTier) and let the grounded-ceiling below cap it to the
-    // grounded-row-sum tier. So monopoly is reachable iff the cite-verified rows sum to the monopoly
-    // threshold (>=10); otherwise the ceiling clamps it to whatever the grounded rows actually support.
-    // The upward bump still requires the asymmetric evidence; without it the anchor stands.
-    if (!hasSufficientEvidence(direction, verified_evidence_count, violations)) {
-      return finalize(anchorTier, false)
-    }
-    return finalize(proposedTier, true)
-  }
-
-  // +-1 adjustment: requires verified cited evidence (asymmetric: upward needs 2x a downward's items).
-  if (verifiedEvidence.length === 0) {
-    if (adjustmentEvidence.length === 0) {
-      violations.push(`adjustment from '${anchorTier}' to '${proposedTier}' is uncited (no citation evidence) -> rejected (anchor stands)`)
-    } else {
-      violations.push(`adjustment from '${anchorTier}' to '${proposedTier}' cites no hash that verifies against the corpus -> rejected (anchor stands)`)
-    }
-    return finalize(anchorTier, false)
-  }
-  if (!hasSufficientEvidence(direction, verified_evidence_count, violations)) {
-    return finalize(anchorTier, false)
-  }
-  return finalize(proposedTier, true)
-
-  function finalize(tier: RubricTier, applied: boolean): ResolveRubricTierResult {
-    let resolvedTier = tier
-    let adjustment_applied = applied
-    let grounding_capped = false
-
-    // --- Grounded ceiling: an UPWARD adjustment may not raise the tier above the higher of
-    // {the filings anchor, the grounded-row-sum tier}. The resolved_row_scores already use the
-    // harness score for computable rows and verified-or-0 for cited rows, so their sum IS the
-    // grounded evidence. A bump the grounded rows don't support is denied (fail-closed-on-ungrounded,
-    // at the gate). Downward adjustments (tier below the anchor) are conservative and never capped. ---
-    const candidateIdx = tierIndex(rubric, resolvedTier)
-    if (candidateIdx > anchorIdx) {
-      const groundedTotal = Object.values(resolved_row_scores).reduce((s, v) => s + v, 0)
-      const groundedRowTier = tierForScore(rubric, groundedTotal)
-      const ceilingIdx = Math.max(anchorIdx, tierIndex(rubric, groundedRowTier))
-      if (candidateIdx > ceilingIdx) {
-        const cappedTier: RubricTier = tiers[ceilingIdx] ?? anchorTier!
-        violations.push(
-          `${rubric.id}-grounding-unmet: proposed tier '${proposedTier}' exceeds grounded support `
-          + `(anchor '${anchorTier}', grounded rows total ${groundedTotal} -> '${groundedRowTier}') `
-          + `— cited rows ungrounded, tier not raised (clamped to '${cappedTier}')`,
-        )
-        resolvedTier = cappedTier
-        adjustment_applied = false
-        grounding_capped = true
-      }
-    }
-
-    return {
-      anchor_computable: true,
-      anchor_tier: anchorTier,
-      proposed_tier: proposedTier,
-      resolved_tier: resolvedTier,
-      resolved_row_scores,
-      adjustment_applied,
-      verified_evidence_count,
-      grounding_capped,
-      violations,
-    }
-  }
-}
-
-/** Minimum verified-evidence items for a downward (1) vs an upward (2x = 2) adjustment. */
-const DOWNWARD_MIN_EVIDENCE = 1
-const UPWARD_MIN_EVIDENCE = DOWNWARD_MIN_EVIDENCE * 2
-
-function hasSufficientEvidence(direction: 'upward' | 'downward', verifiedCount: number, violations: string[]): boolean {
-  const required = direction === 'upward' ? UPWARD_MIN_EVIDENCE : DOWNWARD_MIN_EVIDENCE
-  if (verifiedCount >= required) return true
-  violations.push(
-    `${direction} adjustment requires ${required} verified evidence item(s)`
-    + `${direction === 'upward' ? ' (2x a downward adjustment)' : ''} but only ${verifiedCount} verified -> rejected (anchor stands)`,
-  )
-  return false
-}
-
-/** Clamp a row score to the valid 0..2 range (defensive against a malformed lane payload). */
-function clampItemScore(score: number): number {
-  if (!Number.isFinite(score)) return 0
-  return Math.max(0, Math.min(2, Math.round(score)))
 }
