@@ -164,13 +164,19 @@ function StrategyTab(): ReactNode {
     }),
     PanelSection({
       eyebrow: 'Value',
-      title: 'The two-stage discounted owner-earnings model',
+      title: 'Reverse-DCF first — the market’s implied growth as the lens',
       lead: createElement(
         'span',
         null,
-        'Owner earnings are discounted in two stages: a stage-1 horizon whose growth holds the credited rate for the early years then fades LINEARLY down to a small terminal rate over the trailing years (it does not compound flat — forecasting humility inside the explicit window), and a perpetual terminal rate beyond it. The discount is a flat ',
+        'The primary lens is the ',
+        gold('reverse-DCF'),
+        ': read the growth today’s price already demands and compare it to the ',
+        gold('sustainable growth the model judges and cites'),
+        '. Cheapness is that comparison, not a single computed number. The ',
+        gold('forward two-stage discounted owner-earnings fair value is a LABELED REFERENCE cross-check'),
+        ', NOT the decision: a stage-1 horizon whose growth holds the judged rate for the early years then fades LINEARLY down to a small terminal rate over the trailing years, plus a perpetual terminal rate beyond it, all at a flat ',
         mono(pct(DISCOUNT)),
-        ' — no WACC, no beta, ever. This two-stage fair value is a forward-DCF cross-check sanity reference, NOT the decision: the model proposes the verdict and the buy-below with cited reasoning, and the deterministic side only flags internal absurdity (it never blocks the verdict). The discount, the horizon, and the terminal rate stay uniform across investable moats; a monopoly earns higher terminal value through the moat-durability input, not by stretching the horizon. The live parameters below are read from the versioned valuation config, not hard-coded here.',
+        ' discount — no WACC, no beta, ever. The model proposes the verdict and the buy-below with cited reasoning, and the deterministic side only flags internal absurdity (it never blocks the verdict). The discount, the horizon, and the terminal rate stay uniform across investable moats; a monopoly earns higher terminal value through the moat-durability input, not by stretching the horizon. The live parameters below are read from the versioned valuation config, not hard-coded here.',
       ),
       children: createElement(
         'div',
@@ -191,7 +197,8 @@ function StrategyTab(): ReactNode {
               overflowX: 'auto',
             },
           },
-          createElement('div', null, `g    = honest demonstrated owner-earnings/share CAGR, capped at ${pct(SINGLE_GROWTH_CAP)} (named humility backstop); above ${pct(GDP_GROWTH_THRESHOLD)} → moat-durability flag`),
+          createElement('div', null, 'PRIMARY (reverse-DCF):  market_implied_g = the growth today’s price already demands  →  compare to g'),
+          createElement('div', null, `g    = the model’s judged sustainable owner-earnings/share growth, cited; a deterministic sanity-check flags an unsupportable rate (above ${pct(SINGLE_GROWTH_CAP)}, or above ${pct(GDP_GROWTH_THRESHOLD)} → moat-durability claim) — the flag is not the value source`),
           createElement('div', null, `stage 1 = ${STAGE1_HORIZON} yrs; g holds, then fades LINEARLY to gₜ over the trailing ${GROWTH_FADE_YEARS} yrs (uniform for every investable moat)`),
           createElement('div', null, `gₜ   = terminal rate: ${pct(TERMINAL_G_WIDE)} (uniform; the fade lands here by year ${STAGE1_HORIZON})`),
           createElement('div', null, `fair > ${MULTIPLE_CEILING}× OE → surfaced cap_exceeded sanity flag (not a silent truncation)`),
@@ -200,7 +207,8 @@ function StrategyTab(): ReactNode {
         ),
         cardGrid([
           { key: 'd', eyebrow: 'Flat discount', body: createElement('span', null, mono(pct(DISCOUNT)), ' hurdle, always — falling rates never lower it.') },
-          { key: 'g', eyebrow: 'Honest growth', body: createElement('span', null, 'The demonstrated OE/share CAGR, ', mono(pct(SINGLE_GROWTH_CAP)), ' humility cap; above-GDP is a moat-durability claim.') },
+          { key: 'rdcf', eyebrow: 'Reverse-DCF lens', body: 'The primary read: the growth the price implies vs the model’s judged sustainable growth. Cheapness is that gap, not a single number.' },
+          { key: 'g', eyebrow: 'Judged growth', body: createElement('span', null, 'The model’s judged sustainable rate, cited; a sanity-check flags an unsupportable rate (above ', mono(pct(SINGLE_GROWTH_CAP)), ', or above GDP → a moat-durability claim) — it never sets the number.') },
           { key: 'cap', eyebrow: 'Sanity flag', body: createElement('span', null, mono(`${MULTIPLE_CEILING}×`), ' owner earnings raises a cap_exceeded flag — surfaced, never silently truncated.') },
           { key: 'buy', eyebrow: 'Model buy-below', body: createElement('span', null, 'The model proposes the buy-below with cited reasoning; you buy when the price meets it and the reasoning holds. The deterministic sanity-check flags absurdity but never blocks the verdict.') },
         ], '200px'),
@@ -218,7 +226,7 @@ function StrategyTab(): ReactNode {
         'div',
         { style: { display: 'grid', gap: '0.75rem' } },
         bullets([
-          createElement('span', { key: 1 }, gold('Circle of competence'), ' — human-set config the harness CHECKS, never agent-inferred. You configure the sector boundary; the harness checks it mechanically (sector via the EDGAR SIC code), the same discipline as the discount anchor. It ships ', gold('permissive by default'), ' — no boundary until you narrow it.'),
+          createElement('span', { key: 1 }, gold('Circle of competence'), ' — the model’s grounded judgment (durable predictability), argued from fetched, content-hashed sources in the deep dive, never agent-inferred from thin air. The config screen does NOT determine competence; it sets owner-policy exclusions the harness CHECKS mechanically (a sector boundary via the EDGAR SIC code, the same discipline as the discount anchor) that only narrow the universe. It ships ', gold('permissive by default'), ' — no boundary until you narrow it.'),
           createElement('span', { key: 2 }, gold('Size'), ' — the Pabrai Principle 5 axis, ', gold('deferred'), '. A size boundary favouring small, under-followed names is part of the model but shipped permissive; it does not yet constrain admission.'),
           createElement('span', { key: 3 }, gold('Cheapness counts only on an already-wonderful business'), ' — price is never the entry reason. Cheapness is considered only after a business passes the quality gate; a cheap business that fails the gate is still a PASS.'),
           createElement('span', { key: 4 }, gold('Uncertainty vs permanent-loss risk'), ' — the admit judgment splits the two. An opportunity is high uncertainty + ', gold('low permanent-loss risk'), '; an independent bear case tests that the downside is uncertainty, not impairment.'),
@@ -240,12 +248,12 @@ function StrategyTab(): ReactNode {
 function SwarmTab(): ReactNode {
   const laneDetails: Record<string, string> = {
     business_quality: 'How the business makes money, and whether 10-year owner earnings are predictable enough to value at all.',
-    moat: 'Moat class and the reinvestment runway as separate axes, scored from a rubric of citeable sub-questions.',
+    moat: 'The moat and its reinvestment runway as a grounded, cite-verified thesis — every claim cited to a fetched source; a quant anchor from filings only corroborates, it does not set a numeric score.',
     management: 'Capital allocation, candor, incentives, and the SBC trend — from filings and proxies, not media profiles.',
     financial_quality: 'Every raw harness input: the owner-earnings bridge, incremental ROIC, leverage, and accounting quality.',
     shariah: 'Sector status and the AAOIFI financial ratios, plus the purification percentage — a screening aid, not a ruling.',
     risks: 'The pre-mortem, the thesis-break triggers, and the single assumption that, if wrong, breaks the case.',
-    valuation: 'The owner-earnings and reinvestment inputs the model values; the model proposes the buy-below with cited reasoning, deterministically sanity-checked against a forward-DCF cross-check.',
+    valuation: 'The reverse-DCF read — the growth today’s price implies vs the model’s judged sustainable growth — plus the owner-earnings inputs behind it; the model proposes the buy-below with cited reasoning, deterministically sanity-checked against a forward-DCF reference.',
   }
   return createElement(
     'div',
@@ -268,7 +276,7 @@ function SwarmTab(): ReactNode {
       title: 'Quick screen → deep dive → synthesis → decision',
       lead: 'A cheap funnel kills roughly 90% of candidates before the expensive swarm runs. Survivors get the full multi-agent deep dive; synthesis reconciles the lanes; the result is a BUY / WATCH / PASS draft for a human.',
       children: bullets([
-        createElement('span', { key: 1 }, gold('Quick screen'), ' — Shariah sector gate, circle-of-competence check, and a worth-it read over the latest annual report.'),
+        createElement('span', { key: 1 }, gold('Quick screen'), ' — Shariah sector gate, the owner-policy exclusion check (the config-set universe boundary), and a worth-it read over the latest annual report. The circle-of-competence judgment itself — durable predictability — is the model’s, made in the deep dive.'),
         createElement('span', { key: 2 }, gold('Deep-dive swarm'), ` — ${LANE_COUNT} specialist lanes run blind to each other, each grounding its own claims.`),
         createElement('span', { key: 3 }, gold('Synthesis'), ' — conflicts reconciled conservatively, hard gates applied, base-rate burden enforced.'),
         createElement('span', { key: 4 }, gold('Decision'), ' — a drafted verdict; the human authors the watchlist entry or closes the case.'),
@@ -303,16 +311,16 @@ function JudgmentTab(): ReactNode {
     'div',
     { style: { display: 'grid', gap: 'var(--owl-space-4)' } },
     PanelSection({
-      eyebrow: 'Judgment as a measured quantity',
-      title: 'Move judgment into rubrics, priors, and scoring rules written in advance',
-      lead: 'Judgment does not disappear — it is written once, deliberately, into versioned config. Lanes score evidence against falsifiable sub-questions; the harness maps the total score to a classification. Changing a rubric is a deliberate, logged act, never an in-flight accommodation for a name you like.',
+      eyebrow: 'Grounded judgment, not a scoring machine',
+      title: 'The model judges; grounding and an adversarial pass keep it honest',
+      lead: 'The frontier model makes the judgments — circle, moat, runway, growth, the verdict. What makes a judgment trustworthy is not a rubric that scores it into a tier; it is that every claim is grounded in a fetched, content-hashed source and survives an adversarial bear case. The model abstains and flags rather than fabricating. Determinism corroborates and sanity-checks; it never sets or bounds the judgment.',
       children: cardGrid([
-        { key: 'rubric', eyebrow: 'Rubric decomposition', title: 'Scores, not vibes', body: 'Each judgment-heavy lane scores citeable sub-questions; the harness mechanically maps the total to a tier. An unscoreable item is 0, never interpolated.' },
-        { key: 'anchor', eyebrow: 'Mechanical anchor', title: 'Bounded ±1 tier', body: 'The harness computes a prior from raw filing data alone. A lane may then adjust at most one tier, and only with cited evidence the numbers cannot see. Upward moves need 2× the evidence.' },
-        { key: 'baserate', eyebrow: 'Base rates', title: 'The outside view', body: 'Any proposal that beats a base rate must carry a structural exceptionality justification. Synthesis rejects inside-view narrative like "strong execution" as insufficient.' },
+        { key: 'thesis', eyebrow: 'Cite-verified theses', title: 'Claims, not scores', body: 'Circle, moat, and runway are grounded, cite-verified theses — each claim cited to a source the harness fetched and content-hashed. There is no per-row rubric, no M1–M6, no total-score-to-tier map.' },
+        { key: 'anchor', eyebrow: 'Quant corroborates', title: 'The numbers only confirm', body: 'A quant anchor read straight from the filings (ROIC, reinvestment, leverage) corroborates the thesis — but it does not set the tier or bound it. The model’s grounded argument is the judgment; the numbers either back it up or expose a contradiction.' },
+        { key: 'baserate', eyebrow: 'Base rates', title: 'The outside view', body: 'Any proposal that beats a base rate must carry a structural exceptionality argument cited to evidence. Synthesis rejects inside-view narrative like "strong execution" as insufficient.' },
         { key: 'redteam', eyebrow: 'Red-team pass', title: 'Break the case', body: 'Before synthesis, one adversarial agent — ideally on a different model — must build the strongest bear case. Synthesis must answer its strongest objection or downgrade.' },
-        { key: 'forecast', eyebrow: 'Calibration', title: 'Falsifiable forecasts', body: 'Each case logs 2–3 resolvable forecasts with probabilities. The harness resolves them on annual reports and scores Brier calibration per lane — overconfident lanes get shaded mechanically.' },
-        { key: 'sources', eyebrow: 'Source discipline', title: 'Per-lane whitelists', body: 'Classification lanes read primary documents only — filings, transcripts, regulatory data. Sell-side research and financial media are excluded so the model cannot return the consensus dressed as analysis.' },
+        { key: 'failclosed', eyebrow: 'Fail closed', title: 'Abstain, never fabricate', body: 'A claim the harness cannot tie to a fetched source is rejected mechanically — the lane abstains and flags the gap rather than inventing support. Missing evidence becomes a visible hole, never a confident guess.' },
+        { key: 'sources', eyebrow: 'Source discipline', title: 'Primary documents only', body: 'Judgment-heavy lanes read primary documents only — filings, transcripts, regulatory data. Sell-side research and financial media are excluded so the model cannot return the consensus dressed as analysis.' },
       ]),
     }),
     PanelSection({
@@ -370,7 +378,7 @@ function JudgmentTab(): ReactNode {
       ),
     }),
     caveat(
-      'This layer makes judgment consistent, anchored, and measured — it does not manufacture a contrarian edge. A perfectly calibrated consensus earns roughly market returns; the calibration data is simply how you find out whether your rubrics ever disagreed with the market and were right.',
+      'This layer makes judgment grounded, adversarially tested, and honest about what it cannot support — it does not manufacture a contrarian edge. A judgment that merely restates the consensus earns roughly market returns; grounding and the bear-case pass are simply how you find out whether the model’s view genuinely diverged from the market and was right.',
     ),
   )
 }

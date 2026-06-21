@@ -411,18 +411,18 @@ function createDetail(label: string, value: string) {
 }
 
 /**
- * The buy-below frozen at admit. The MoS-as-price-haircut framing is RETIRED (valuation-core revision):
- * conservatism now lives in the required growth gap, so this is the frozen price at the buy-threshold
- * growth (band_low − required_gap), NOT a discounted haircut. The valuation version it was frozen under is
- * surfaced in the label so a re-anchor is traceable. Renders nothing when no locked buy-below was recorded.
+ * The frozen model-proposed buy-below (cited reasoning) at admit. There is no deterministic haircut or
+ * required-gap engine here: the buy-below is the price the MODEL's reasoning judged cheap enough, frozen at
+ * admit. The valuation version it was frozen under is surfaced in the label so a re-anchor is traceable.
+ * Renders nothing when no locked buy-below was recorded.
  */
 function createLockedBuyBelowDetail(item: AppWatchlistItem) {
   if (item.locked_buy_below === undefined) {
     return []
   }
 
-  // The provisional-MoS flag is retired (conservatism now lives in the required_growth_gap); the buy-below
-  // is the frozen price at the buy-threshold growth, no longer an MoS-discounted haircut.
+  // The buy-below is the frozen model-proposed buy-below at admit, carrying the valuation version it was
+  // frozen under — not a deterministic price-discount knob.
   const version = item.buy_below_valuation_version === undefined ? '' : ` · ${item.buy_below_valuation_version}`
   return [createDetail(`Buy-below${version}`, `$${item.locked_buy_below.toFixed(2)}`)]
 }

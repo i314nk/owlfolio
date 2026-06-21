@@ -34,12 +34,13 @@ const SINGLE_GROWTH_CAP = strategy.valuation.single_growth_cap
 const GDP_GROWTH_THRESHOLD = strategy.valuation.gdp_growth_threshold
 
 // Worked example — an investable compounder, computed from the live contract so the prose tracks params.
-// ONE growth path (Phase 1.3): the demonstrated historical owner-earnings/share CAGR, passed through the
-// named forecasting-humility ceiling. Here a 12% demonstrated rate is under the 15% ceiling but above GDP, so it
-// is flagged a moat-durability claim (lowest-confidence, human-weighted).
+// The DECISION lens is the reverse-DCF (market-implied vs the model's judged sustainable growth); the
+// forward two-stage number below is computed only as the LABELED REFERENCE cross-check that corroborates
+// the model's reasoning, never as the decision. Here a 12% sustainable rate the model judges and cites is
+// under the deterministic sanity cap but above GDP, so a sanity-check flags it for the human to weigh.
 const EX_OE = 14
-const EX_DEMONSTRATED_G = 0.12
-const EX_GROWTH = creditedGrowth(strategy, { demonstrated_growth: EX_DEMONSTRATED_G })
+const EX_JUDGED_G = 0.12
+const EX_GROWTH = creditedGrowth(strategy, { demonstrated_growth: EX_JUDGED_G })
 const EX_G = EX_GROWTH.growth
 const EX_FV = twoStageFairValuePerShare({
   oe_ps: EX_OE,
@@ -212,7 +213,7 @@ const LANE_DETAILS: Record<string, { name: string; assesses: string }> = {
   },
   valuation: {
     name: 'Valuation',
-    assesses: 'The owner-earnings bridge, ROIC and reinvestment inputs the harness needs; the deterministic harness then computes fair value and buy price.',
+    assesses: 'The reverse-DCF read — the growth today’s price implies — against the model’s judged sustainable growth, plus the owner-earnings bridge, ROIC and reinvestment inputs behind it; the model proposes the buy-below with cited reasoning, deterministically sanity-checked against a forward-DCF reference.',
   },
 }
 
@@ -416,8 +417,8 @@ export function StrategyOverview(): ReactNode {
           createElement(
             'li',
             null,
-            createElement('span', { style: goldText }, 'Circle of competence — human-set config the harness CHECKS, never agent-inferred.'),
-            ' You configure the sector boundary; the harness checks it mechanically (sector via the EDGAR SIC code), exactly the same discipline as the discount anchor — the model never gets to decide what is inside your circle. It ships ',
+            createElement('span', { style: goldText }, 'Circle of competence — the model’s grounded judgment; the config screen sets owner-policy exclusions only.'),
+            ' Whether a business is inside the circle — durable, predictable enough to underwrite — is the model’s grounded judgment in the deep dive, never agent-inferred from thin air: it is argued from fetched, content-hashed sources. The config screen does NOT determine competence; it sets owner-policy exclusions the harness CHECKS mechanically (a sector boundary via the EDGAR SIC code, the same discipline as the discount anchor), which only narrow the universe. It ships ',
             createElement('span', { style: goldText }, 'permissive by default'),
             ' (no boundary enabled), so the common path is unchanged until you narrow it.',
           ),
@@ -493,16 +494,22 @@ export function StrategyOverview(): ReactNode {
       }),
     }),
 
-    // 5. Valuation method (two-stage DCF)
+    // 5. Valuation method — reverse-DCF primary, forward two-stage as a labeled reference
     Section({
       eyebrow: 'Value',
-      title: 'Valuation — two-stage discounted owner earnings',
+      title: 'Valuation — reverse-DCF first, the market’s implied growth as the lens',
       lead: createElement(
         'span',
         null,
-        'Pay for current owner earnings plus modest, evidence-backed reinvestment value — never pay upfront for all future compounding. Owner earnings are discounted in two stages: a ten-year explicit window whose growth no longer compounds flat — it holds the credited rate for the early years, then fades LINEARLY down to a small terminal rate over the trailing years (forecasting humility inside the window) — and a perpetual terminal rate beyond it. The discount is a flat ',
+        'The primary lens is the ',
+        createElement('span', { style: goldText }, 'reverse-DCF'),
+        ': extract the growth the live price already implies, then compare it to the ',
+        createElement('span', { style: goldText }, 'sustainable growth the model judges and cites'),
+        '. If the price demands more than the business can durably deliver, it is expensive; if it demands less, there is room. That comparison — not a single computed number — is how cheapness is read. The ',
+        createElement('span', { style: goldText }, 'forward two-stage discounted owner-earnings fair value is a LABELED REFERENCE cross-check'),
+        ', NOT the decision engine: a ten-year explicit window whose growth holds the judged rate for the early years then fades LINEARLY down to a small terminal rate over the trailing years, plus a perpetual terminal rate beyond it, all at a flat ',
         createElement('span', { style: monoFigure }, pct(DISCOUNT)),
-        ' — no WACC, no beta, ever. The model proposes the valuation — the owner earnings, the growth it assumes and WHY, the discount — with cited reasoning, and proposes the buy-below. A light deterministic sanity-check flags internal absurdity (implausible implied growth, terminal-value dominance, a multiple out of bounds); it never blocks the verdict. You audit the reasoning and decide.',
+        ' discount — no WACC, no beta, ever. The model proposes the valuation — the owner earnings, the sustainable growth it judges and WHY, the discount — with cited reasoning, and proposes the buy-below. A light deterministic sanity-check flags internal absurdity (an implied growth the history cannot support, terminal-value dominance, a multiple out of bounds); it never blocks the verdict. You audit the reasoning and decide.',
       ),
       children: createElement(
         'div',
@@ -525,7 +532,8 @@ export function StrategyOverview(): ReactNode {
             },
           },
           createElement('div', null, 'OE   = NI + D&A − maintenance capex (Greenwald vs D&A floor, conservative) − SBC − ΔNWC'),
-          createElement('div', null, `g    = honest demonstrated owner-earnings/share CAGR, capped at ${pct(SINGLE_GROWTH_CAP)} (named humility backstop); above ${pct(GDP_GROWTH_THRESHOLD)} is flagged a moat-durability claim`),
+          createElement('div', null, 'PRIMARY (reverse-DCF):  market_implied_g = the growth today’s price already demands  →  compare to g'),
+          createElement('div', null, `g    = the model’s judged sustainable owner-earnings/share growth, cited; a deterministic sanity-check flags an unsupportable rate (above ${pct(SINGLE_GROWTH_CAP)}, or above ${pct(GDP_GROWTH_THRESHOLD)} → a moat-durability claim to weigh) — the flag is not the value source`),
           createElement('div', null, `gₜ   = terminal fade: ${pct(TERMINAL_G_WIDE)} for every investable moat (uniform)`),
           createElement('div', null, `fair = Σ OE(1+g)ᵗ/(1+${pct(DISCOUNT)})ᵗ  [t=1..10]  +  OE(1+g)¹⁰(1+gₜ)/(${pct(DISCOUNT)}−gₜ) / (1+${pct(DISCOUNT)})¹⁰`),
           createElement('div', null, `fair > ${MULTIPLE_CEILING}× OE → surfaced cap_exceeded sanity flag (not a silent truncation)`),
@@ -533,14 +541,14 @@ export function StrategyOverview(): ReactNode {
           createElement('div', null, 'buy  = the MODEL’s proposed buy-below (cited reasoning) ; in_buy_zone = current_price ≤ buy-below'),
         ),
 
-        // One growth path (Phase 1.3) — the named cap + the above-GDP moat-durability coupling.
-        createElement('p', { style: microLabel }, 'Growth — one honest path, one named backstop'),
+        // Growth is the model's judged sustainable rate (cited); the cap + above-GDP threshold are sanity FLAGS.
+        createElement('p', { style: microLabel }, 'Growth — the model’s judged sustainable rate, sanity-flagged'),
         Table({
           headings: ['Growth control', 'Value'],
           rows: [
-            [createElement('span', { style: goldText }, 'Source'), createElement('span', { style: monoFigure }, 'demonstrated OE/share CAGR')],
-            [createElement('span', { style: goldText }, 'Forecasting-humility ceiling'), createElement('span', { style: monoFigure }, pct(SINGLE_GROWTH_CAP))],
-            [createElement('span', { style: goldText }, 'Above-GDP → moat-durability flag'), createElement('span', { style: monoFigure }, `> ${pct(GDP_GROWTH_THRESHOLD)}`)],
+            [createElement('span', { style: goldText }, 'Source'), createElement('span', { style: monoFigure }, 'model-judged sustainable rate (cited)')],
+            [createElement('span', { style: goldText }, 'Sanity flag — unsupportable rate'), createElement('span', { style: monoFigure }, `> ${pct(SINGLE_GROWTH_CAP)}`)],
+            [createElement('span', { style: goldText }, 'Sanity flag — above-GDP durability claim'), createElement('span', { style: monoFigure }, `> ${pct(GDP_GROWTH_THRESHOLD)}`)],
           ],
         }),
 
@@ -566,17 +574,15 @@ export function StrategyOverview(): ReactNode {
           createElement(
             'p',
             { style: { margin: 0 } },
-            'Owner earnings of ',
-            createElement('span', { style: monoFigure }, `$${EX_OE}`),
-            ' per share and a demonstrated owner-earnings/share CAGR of ',
-            createElement('span', { style: monoFigure }, pct(EX_DEMONSTRATED_G)),
-            ` give a growth path of `,
+            'Start with the reverse-DCF lens: read the growth the live price already demands, and set it beside the ',
             createElement('span', { style: monoFigure }, pct(EX_G)),
-            ` (under the ${pct(SINGLE_GROWTH_CAP)} humility cap, but above GDP — so it is flagged a moat-durability claim the human weights). Holding that rate for the early years, then fading it LINEARLY down to a `,
+            ' sustainable growth the model judges and cites for owner earnings of ',
+            createElement('span', { style: monoFigure }, `$${EX_OE}`),
+            ` per share. If the price implies more than that, it is expensive; if less, there is room — and because ${pct(EX_G)} sits above GDP, a deterministic sanity-check flags it a moat-durability claim for the human to weigh. The forward two-stage number is only the LABELED REFERENCE: holding that rate for the early years, then fading it LINEARLY down to a `,
             createElement('span', { style: monoFigure }, pct(TERMINAL_G_WIDE)),
             ' terminal rate over the trailing years of the ten-year window, gives a forward-DCF cross-check fair value of ',
             createElement('span', { style: monoFigure }, `$${EX_FV.toFixed(0)}`),
-            ` (${EX_IMPLIED.toFixed(1)}× owner earnings; a value above ${MULTIPLE_CEILING}× would raise a cap_exceeded sanity flag, not be truncated). That cross-check is a sanity reference, NOT the decision: the model proposes the verdict and the buy-below with cited reasoning — the owner earnings it valued, the growth it assumed and why, the discount — and the deterministic side only flags internal absurdity (e.g. an implied growth the history cannot support). You buy when the price has met the model’s proposed buy-below and the cited reasoning holds. A monopoly raises no terminal rate and shortens nothing — its extra durability is argued through the moat-durability input, where the human weights it.`,
+            ` (${EX_IMPLIED.toFixed(1)}× owner earnings; a value above ${MULTIPLE_CEILING}× would raise a cap_exceeded sanity flag, not be truncated). That forward number is a sanity reference, NOT the decision: the model proposes the verdict and the buy-below with cited reasoning — the owner earnings it valued, the sustainable growth it judged and why, the discount — and the deterministic side only flags internal absurdity (e.g. an implied growth the history cannot support). You buy when the price has met the model’s proposed buy-below and the cited reasoning holds. A monopoly raises no terminal rate and shortens nothing — its extra durability is argued through the moat-durability input, where the human weights it.`,
           ),
         ),
       ),
@@ -591,7 +597,7 @@ export function StrategyOverview(): ReactNode {
         'ul',
         { style: { ...bodyStyle, margin: 0, paddingLeft: '1.1rem', display: 'flex', flexDirection: 'column', gap: '0.4rem' } },
         createElement('li', null, createElement('span', { style: goldText }, 'Moat ≥ wide'), ' — narrow/moderate are rejected and forced to PASS.'),
-        createElement('li', null, createElement('span', { style: goldText }, 'Honest growth path'), ` — growth is the demonstrated owner-earnings/share CAGR, capped at the ${pct(SINGLE_GROWTH_CAP)} forecasting-humility backstop; a rate above ${pct(GDP_GROWTH_THRESHOLD)} is flagged a moat-durability claim.`),
+        createElement('li', null, createElement('span', { style: goldText }, 'Honest growth path'), ` — growth is the model’s judged sustainable owner-earnings/share rate with cited reasoning; a deterministic sanity-check flags an unsupportable rate (above ${pct(SINGLE_GROWTH_CAP)}, or above ${pct(GDP_GROWTH_THRESHOLD)} → a moat-durability claim) rather than setting the number.`),
         createElement('li', null, createElement('span', { style: goldText }, 'Positive owner earnings'), ' — normalized owner earnings must be positive.'),
         createElement('li', null, createElement('span', { style: goldText }, 'Safe balance sheet'), ' — leverage must not create unacceptable fragility.'),
         createElement('li', null, createElement('span', { style: goldText }, 'Shariah compliant or conditional'), ' — non-compliant cases stop at the quick screen.'),

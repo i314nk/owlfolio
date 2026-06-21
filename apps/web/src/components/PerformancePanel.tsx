@@ -178,7 +178,7 @@ function createDisciplineView(report: AppPerformanceReport) {
     createElement('h2', { className: 'owl-section-title', style: { margin: '0 0 0.6rem' } }, 'Calibration & integrity'),
     overrideCard,
     createElement('h3', { className: 'owl-section-title', style: { fontSize: 'var(--owl-text-md)', margin: '0.5rem 0 0.4rem' } }, 'Discount-at-purchase vs subsequent outcome'),
-    createElement('p', { style: { color: 'var(--owl-color-muted)', margin: '0 0 0.5rem', fontSize: 'var(--owl-text-sm)' } }, 'The data that, over time, calibrates whether the margin-of-safety levels are right.'),
+    createElement('p', { style: { color: 'var(--owl-color-muted)', margin: '0 0 0.5rem', fontSize: 'var(--owl-text-sm)' } }, 'The data that, over time, calibrates whether the model’s judgments and its buy-below reasoning held.'),
     discountRows,
     createElement('h3', { className: 'owl-section-title', style: { fontSize: 'var(--owl-text-md)', margin: '1rem 0 0' } }, 'Thesis-review latency'),
     latencyRows,

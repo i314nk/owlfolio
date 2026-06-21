@@ -67,21 +67,29 @@ describe('StrategyOverview', () => {
     expect(html).not.toContain('growth-points')
   })
 
-  it('describes the two-stage DCF as a cross-check reference, not the decision (R1)', () => {
+  it('leads with reverse-DCF and demotes the two-stage DCF to a labeled reference, not the decision (R1)', () => {
     const html = render()
     const lower = html.toLowerCase()
-    // Two-stage framing + terminal fade.
-    expect(html).toContain('two stages')
+    // Reverse-DCF is the PRIMARY lens: market-implied growth vs the model's judged sustainable growth.
+    expect(lower).toContain('reverse-dcf')
+    expect(lower).toContain('market’s implied growth')
+    expect(lower).toContain('judged sustainable')
+    // Two-stage framing + terminal fade survive, but as the labeled reference.
+    expect(html).toContain('two-stage')
     expect(lower).toContain('terminal')
-    // New growth model: demonstrated owner-earnings growth under a named forecasting-humility cap.
-    expect(lower).toContain('humility')
     expect(lower).toContain('runway')
-    // The forward-DCF fair value is a cross-check sanity reference, NOT the decision.
+    // The forward two-stage fair value is a labeled REFERENCE cross-check, NOT the decision engine.
+    expect(lower).toContain('labeled reference')
     expect(lower).toContain('cross-check')
     expect(lower).toContain('not the decision')
-    // No stale single-stage equity-bond prose.
+    // Growth is the model's judged sustainable rate; the cap is a deterministic sanity flag, not the source.
+    expect(lower).toContain('sanity-check flags')
+    expect(lower).toContain('sanity flag')
+    // No stale single-stage equity-bond prose, and no stale "credited"/"forecasting-humility cap" framing.
     expect(lower).not.toContain('equity bond')
     expect(html).not.toContain('OE / (')
+    expect(lower).not.toContain('credited')
+    expect(lower).not.toContain('forecasting-humility')
   })
 
   it('renders the wide-moat gate and rejects sub-wide moats', () => {
