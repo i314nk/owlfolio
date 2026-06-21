@@ -8,8 +8,8 @@ describe('Buffett-Munger default strategy (Design B: 4-class, flat discount, UNI
     expect(buffettMungerStrategy.certification_status).toBe('draft')
     expect(buffettMungerStrategy.shariah.required).toBe(true)
     expect(buffettMungerStrategy.research.required_specialists.map((s) => s.id)).toEqual(['moat', 'financials', 'risk', 'management', 'valuation', 'synthesis'])
-    // Flat 10% discount rate for all investable moat classes
-    expect(buffettMungerStrategy.valuation.discount_rate).toBe(0.10)
+    // F.2 — flat 7.5% effective default discount (compliant savings 2% + uniform equity premium 5.5%)
+    expect(buffettMungerStrategy.valuation.discount_rate).toBe(0.075)
     // F.13 — uniform terminal g (collapsed to wide's 1.5%)
     expect(buffettMungerStrategy.valuation.terminal_growth).toBe(0.015)
     // F.13 — uniform stage-1 horizon (collapsed to wide's 10 yrs)
@@ -18,8 +18,8 @@ describe('Buffett-Munger default strategy (Design B: 4-class, flat discount, UNI
     expect(buffettMungerStrategy.valuation.min_investable_moat).toBe('wide')
   })
 
-  it('discountRate returns flat 0.10 for all investable classes', () => {
-    expect(discountRate(buffettMungerStrategy)).toBe(0.10)
+  it('discountRate returns the flat 0.075 effective default for all investable classes (F.2 savings anchor)', () => {
+    expect(discountRate(buffettMungerStrategy)).toBe(0.075)
   })
 
   it('moatPassesGate: wide/monopoly pass; narrow/moderate reject; no inevitable tier', () => {
@@ -76,8 +76,8 @@ describe('Buffett-Munger default strategy (Design B: 4-class, flat discount, UNI
 })
 
 describe('Buffett-Munger two-stage DCF (incremental-ROIC banded g)', () => {
-  it('flat 10% discount for all investable classes — wide and monopoly use the same rate', () => {
-    expect(discountRate(buffettMungerStrategy)).toBe(0.10)
+  it('flat 7.5% effective default discount for all investable classes — wide and monopoly use the same rate', () => {
+    expect(discountRate(buffettMungerStrategy)).toBe(0.075)
     expect(discountRate(buffettMungerStrategy)).toBe(discountRate(buffettMungerStrategy))
   })
 

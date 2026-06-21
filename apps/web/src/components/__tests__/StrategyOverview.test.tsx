@@ -39,9 +39,13 @@ describe('StrategyOverview', () => {
 
   it('renders the flat discount rate from the contract', () => {
     const html = render()
-    const discountPct = `${discountRate(buffettMungerStrategy) * 100}%` // 10%
-    expect(discountPct).toBe('10%')
-    expect(html).toContain('10%')
+    // F.2 — the effective default discount is the compliant savings anchor (2%) + uniform premium (5.5%) = 7.5%.
+    const discountPct = `${discountRate(buffettMungerStrategy) * 100}%` // 7.5%
+    expect(discountPct).toBe('7.5%')
+    // The panel renders the discount rounded to a whole percent (pct() digits=0) → 8%.
+    const discountPctRounded = `${Math.round(discountRate(buffettMungerStrategy) * 100)}%` // 8%
+    expect(discountPctRounded).toBe('8%')
+    expect(html).toContain('8%')
   })
 
   it('reframes the decision to model-proposes-buy-below + deterministic sanity-check + human-decides (R1)', () => {

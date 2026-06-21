@@ -2602,6 +2602,12 @@ export async function runProcessDeepDiveQueueTask(
     ground?: GroundFn
     /** Advanced research-depth knob: per-lane grounded-tool-call cap (undefined → loop default). */
     maxToolCalls?: number
+    /**
+     * F.2 — the COMPLIANT risk-free SAVINGS rate (Mudarabah expected profit) from the app-config savings
+     * sleeve, threaded into the deep-dive discount anchor. Omitted → the swarm fails closed to the strategy's
+     * savings_rate_default (the Treasury anchor is retired).
+     */
+    risk_free_rate?: number
     now?: () => Date
   },
 ): Promise<{ processed: number; failed: number; summaries: string[] }> {
@@ -2633,6 +2639,9 @@ export async function runProcessDeepDiveQueueTask(
           source_ledger_path: run.source_ledger_path ?? options.source_ledger_path,
           quick_screen_source_ids: run.quick_screen_source_ids,
           quick_screen_event_id: run.quick_screen_event_id,
+          // F.2 — thread the compliant app-config savings rate as the discount risk-free anchor (fail-closed
+          // to the strategy savings_rate_default in the swarm when absent).
+          ...(options.risk_free_rate === undefined ? {} : { risk_free_rate: options.risk_free_rate }),
           model_role_env: modelRoleEnv,
         },
         { ground, ...(options.maxToolCalls === undefined ? {} : { maxToolCalls: options.maxToolCalls }) },

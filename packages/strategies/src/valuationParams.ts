@@ -22,21 +22,29 @@ export type ValuationParams = {
   /** Monotonic version string. Bump on every parameter change; pairs with the ledger event diff. */
   version: string
   /**
-   * Effective DEFAULT discount/hurdle rate = ten_year_treasury_default + equity_premium (Phase 1.4). Kept
+   * Effective DEFAULT discount/hurdle rate = savings_rate_default + equity_premium (Phase 1.4 / F.2). Kept
    * for callers/regression that read a single discount; the live discount is resolved per-run as
-   * (live 10y Treasury || ten_year_treasury_default) + equity_premium via `discountRate()`. The discount is
-   * GLOBAL config, human-set once — NEVER an agent input, and it carries NO quality knob (Part D Step 3 / G).
+   * (app-config compliant savings rate || savings_rate_default) + equity_premium via `discountRate()`. The
+   * discount is GLOBAL config, human-set once — NEVER an agent input, and it carries NO quality knob
+   * (Part D Step 3 / G).
    */
-  // ANCHOR-SWAP-F2: discount anchor = Treasury + equity_premium today; F.2 swaps to savings_rate + equity_premium (deferred, blocked on the calibration cohort #124).
+  // ANCHOR-SWAP-F2 (SHIPPED): the discount anchor is the COMPLIANT risk-free SAVINGS rate (Mudarabah
+  // expected profit) + equity_premium. The interest-bearing 10y Treasury anchor is RETIRED — a compliant
+  // investor cannot hold Treasury, so their true risk-free opportunity cost is the savings rate (the SAME
+  // baseline the deployment-hurdle + sizing engines already use). Effective default 0.02 + 0.055 = 0.075.
   discount_rate: number
   /**
-   * Fixed UNIFORM equity premium added to the 10y Treasury yield to form the discount (Phase 1.4 / Step 3).
-   * Identical for every business — the single biggest divergence the method expels is a quality-adjusted
-   * discount, so there is no per-name / per-moat knob here.
+   * Fixed UNIFORM equity premium added to the compliant risk-free (savings) rate to form the discount
+   * (Phase 1.4 / Step 3 / F.2). Identical for every business — the single biggest divergence the method
+   * expels is a quality-adjusted discount, so there is no per-name / per-moat knob here.
    */
   equity_premium: number
-  /** Documented fail-closed default 10y Treasury yield used when the live fetch is unavailable (Phase 1.4). */
-  ten_year_treasury_default: number
+  /**
+   * Documented fail-closed default COMPLIANT SAVINGS rate (Mudarabah expected profit) used as the discount
+   * risk-free anchor when the app-config savings rate is unavailable (F.2). Mirrors the app-config default
+   * (`DEFAULT_SAVINGS_EXPECTED_PROFIT_RATE` = 0.02). Replaced the retired `ten_year_treasury_default`.
+   */
+  savings_rate_default: number
   /**
    * Terminal-stage growth g_t — UNIFORM across every investable business (F.13). The old
    * terminal_growth_by_moat {wide:0.015, monopoly:0.025} tier table was collapsed to one scalar
@@ -121,16 +129,20 @@ export type ValuationParams = {
  * a single named single_growth_cap (provisional placeholder) + an above-GDP coupling flag (gdp_growth_threshold).
  */
 export const VALUATION_PARAMS: ValuationParams = Object.freeze({
-  version: 'valuation-2026-06-no-mos-knob-1',
-  // discount_rate = ten_year_treasury_default (0.045) + equity_premium (0.055) = 0.10 (unchanged default).
-  discount_rate: 0.10,
+  version: 'valuation-2026-06-savings-anchor-1',
+  // F.2 ANCHOR SWAP: discount_rate = savings_rate_default (0.02) + equity_premium (0.055) = 0.075. The
+  // compliant risk-free anchor is the SAVINGS rate (Mudarabah expected profit) — the same baseline the
+  // deployment-hurdle + sizing engines already use — NOT the interest-bearing 10y Treasury (retired).
+  discount_rate: 0.075,
   // PROVISIONAL — these signal-dependent params are NOT yet frozen. The 1.9 calibration ran on only n=2
   // names (CPRT, FDS; NVO failed on DKK-vs-USD currency, 4 GCC names deferred) — too thin to freeze the
   // premium / must-signal against (F.11 overfitting). They stay at these defaults pending a broader-universe
   // calibration (fix NVO's currency path + add US 10-K compounders). single_growth_cap was re-derived
   // 2026-06-15 (see its note below); premium remains provisional until the must-signal pass.
   equity_premium: 0.055,
-  ten_year_treasury_default: 0.045,
+  // F.2 — fail-closed compliant savings-rate anchor (mirrors DEFAULT_SAVINGS_EXPECTED_PROFIT_RATE = 0.02).
+  // The live discount sources the app-config savings rate; this is the fail-closed default.
+  savings_rate_default: 0.02,
   // F.13 — UNIFORM across every investable business (collapsed from the old _by_moat tier tables to the
   // conservative wide values). Quality is not a per-name valuation-loosening lever.
   terminal_growth: 0.015,

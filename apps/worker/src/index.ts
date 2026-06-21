@@ -3,7 +3,7 @@ import { pathToFileURL } from 'node:url'
 
 import { SQLiteEventStore } from '@owlfolio/ledger/sqliteEventStore'
 import { redactProviderDiagnostic, resolveProvider } from '@owlfolio/providers'
-import { mergeAutomationSettings } from '@owlfolio/shared'
+import { mergeAutomationSettings, mergeSavingsSleeveConfig } from '@owlfolio/shared'
 
 import { defineDefaultScheduledTasks, resolveWorkerProviderReadiness, resolveWorkerRuntimePaths, runProcessResearchQueueTask, runProcessDeepDiveQueueTask, runProcessCalibrationQueueTask, runScheduledTasks } from './runtime.ts'
 
@@ -109,10 +109,14 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     }
 
     if (options.task_kind === 'process_deep_dive_queue') {
+      // F.2 — the discount risk-free anchor is the COMPLIANT app-config savings rate (clamped fail-closed
+      // to default via the shared helper), NOT the retired interest-bearing Treasury yield.
+      const risk_free_rate = mergeSavingsSleeveConfig(runtime.config.savings).savings_expected_profit_rate
       const result = await runProcessDeepDiveQueueTask(store, {
         provider,
         source_ledger_path: runtime.source_ledger_path,
         maxToolCalls,
+        risk_free_rate,
       })
       console.log(JSON.stringify({ runtime, result }, null, 2))
       return 0

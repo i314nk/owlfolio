@@ -80,25 +80,26 @@ describe('Part-D conformance: Step 2 — linear growth fade to terminal over the
   })
 })
 
-describe('Part-D conformance: Step 3 — discount = 10y Treasury + a UNIFORM equity premium, no moat knob', () => {
-  it('discountRate = ten_year_treasury_default + equity_premium when no live yield is supplied', () => {
-    // Part D Step 3: risk-free anchor + a fixed equity premium; fail-closed to the config default Treasury.
+describe('Part-D conformance: Step 3 — discount = compliant savings rate + a UNIFORM equity premium, no moat knob', () => {
+  it('discountRate = savings_rate_default + equity_premium when no risk-free rate is supplied (F.2)', () => {
+    // Part D Step 3 / F.2: compliant risk-free (savings) anchor + a fixed equity premium; fail-closed to the
+    // config default savings rate (Treasury anchor retired — interest-bearing, not compliantly holdable).
     expect(discountRate(strat)).toBeCloseTo(
-      strat.valuation.ten_year_treasury_default + strat.valuation.equity_premium,
+      strat.valuation.savings_rate_default + strat.valuation.equity_premium,
       10,
     )
   })
 
-  it('a live 10y Treasury override flows through (treasury + the same uniform premium)', () => {
-    // Part D Step 3: the discount tracks the live risk-free yield; the premium stays fixed.
-    expect(discountRate(strat, 0.04)).toBeCloseTo(0.04 + strat.valuation.equity_premium, 10)
-    expect(discountRate(strat, 0.06)).toBeCloseTo(0.06 + strat.valuation.equity_premium, 10)
+  it('a compliant risk-free (savings) override flows through (savings + the same uniform premium)', () => {
+    // Part D Step 3 / F.2: the discount tracks the compliant risk-free rate; the premium stays fixed.
+    expect(discountRate(strat, 0.025)).toBeCloseTo(0.025 + strat.valuation.equity_premium, 10)
+    expect(discountRate(strat, 0.03)).toBeCloseTo(0.03 + strat.valuation.equity_premium, 10)
   })
 
   it('the discount has NO moat/quality knob (no per-moat parameter; same rate for every business)', () => {
     // Part D Step 3 / G: the single biggest divergence the method expels is a quality-adjusted discount.
     // discountRate takes no moat argument at all, and there is no _by_moat discount table in the config.
-    expect(discountRate).toHaveLength(2) // (strategy, tenYearTreasury?) — no moat parameter
+    expect(discountRate).toHaveLength(2) // (strategy, riskFreeRate?) — no moat parameter
     expect(Object.keys(VALUATION_PARAMS)).not.toContain('discount_rate_by_moat')
     expect(Object.keys(VALUATION_PARAMS)).not.toContain('equity_premium_by_moat')
   })

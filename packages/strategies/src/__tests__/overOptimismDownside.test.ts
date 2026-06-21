@@ -39,15 +39,17 @@ describe('over-optimism downside boundary (F.3 asymmetric stress — cap re-deri
         absurd_multiple: buffettMungerStrategy.valuation.fv_absurd_multiple,
         horizon: stage1HorizonForMoat(buffettMungerStrategy, moat),
       })
-      // At cap 0.15 the over-optimistic 35% input (capped to 15%) lands at a defensible fair value: the faded
-      // FV is ≈ 24.6× OE — far below the ~36×/77× the old uncapped path produced. The cap + the Part D Step 2
-      // fade (g 15% → terminal 1.5% over years 6–10), not an output-side guard, are what contain it
-      // (cap_exceeded still fires as a warn flag). Margin of safety is no longer a deterministic config
-      // haircut — it comes from the synthesis joint price/moat judgment — so this guards only the cap+fade
-      // FV mechanism, which is the live deterministic part.
+      // At cap 0.15 the over-optimistic 35% input (capped to 15%) lands at a contained fair value: under the
+      // F.2 savings-anchor discount (7.5%) the faded FV is ≈ 36.4× OE — still far below the uncapped path,
+      // which at this lower discount would be dramatically higher. The cap + the Part D Step 2 fade (g 15% →
+      // terminal 1.5% over years 6–10), not an output-side guard, are what contain it (cap_exceeded still
+      // fires as a warn flag). Margin of safety is no longer a deterministic config haircut — it comes from
+      // the synthesis joint price/moat judgment — so this guards only the cap+fade FV mechanism, which is the
+      // live deterministic part. (The multiple rose from the old ~24.6× because F.2 dropped the discount from
+      // 10% to 7.5%: a compliant investor's risk-free is the savings rate, not Treasury.)
       const fvMult = (v.fair_value ?? 0) / oe_ps
-      expect(fvMult).toBeLessThan(25)
-      expect(fvMult).toBeCloseTo(24.6, 1)
+      expect(fvMult).toBeLessThan(40)
+      expect(fvMult).toBeCloseTo(36.4, 1)
     }
   })
 
@@ -60,6 +62,9 @@ describe('over-optimism downside boundary (F.3 asymmetric stress — cap re-deri
       horizon: stage1HorizonForMoat(buffettMungerStrategy, 'wide'),
     })
     // ~8% growth (an FDS-like real compounder) lands at a defensible multiple — the cap is not even relevant.
-    expect(v.fair_value! / oe_ps).toBeLessThan(20)
+    // Under the F.2 savings-anchor discount (7.5%, down from 10%) the multiple is ≈ 24.6× (was < 20× at 10%);
+    // a lower compliant risk-free rate raises every present value, but ~8% growth is still well-contained.
+    expect(v.fair_value! / oe_ps).toBeLessThan(26)
+    expect(v.fair_value! / oe_ps).toBeCloseTo(24.6, 1)
   })
 })

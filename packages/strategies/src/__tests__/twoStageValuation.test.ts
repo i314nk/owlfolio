@@ -11,8 +11,8 @@ import {
 // Two-stage DCF valuation contract params (buffett-valuation-method-v2)
 // ---------------------------------------------------------------------------
 describe('Buffett-Munger two-stage DCF contract params', () => {
-  it('flat 10% discount rate', () => {
-    expect(buffettMungerStrategy.valuation.discount_rate).toBe(0.1)
+  it('flat 7.5% effective default discount rate (F.2 — compliant savings anchor 2% + uniform premium 5.5%)', () => {
+    expect(buffettMungerStrategy.valuation.discount_rate).toBe(0.075)
   })
 
   // F.13 — UNIFORM terminal g 1.5% for every investable moat (collapsed to wide's value).
@@ -113,16 +113,19 @@ describe('twoStageFairValuePerShare (Step 4 two-stage DCF)', () => {
 // investable moats: terminal g 1.5%, horizon 10, base MoS 25% for monopoly and wide alike. A monopoly no
 // longer earns a longer horizon / higher g_t / lower MoS; the only difference below is the credited growth
 // input (g=4% vs g=3%).
-//   Monopoly-tagged name, OE_ps=100, g=0.04, horizon=10, terminal=0.015, discount=0.10, cap=18×,
-//   Part D Step 2 fade (g 4% glides to 1.5% over the trailing 5 yrs) →
-//     OE_t = 100·Π_{i=1..t}(1+g_i); FV = Σ OE_t/1.10^t + [OE_10·1.015/(0.10−0.015)]/1.10^10
-//        = 1367.7824   (implied 13.68× OE, under 18× cap)
-//     buy @ MOS 25% = 1367.7824 × 0.75 = 1025.8368
+//
+// F.2 — the live discount is now the COMPLIANT savings-rate anchor (0.075 = 0.02 savings + 0.055 premium),
+// down from the retired Treasury-anchored 0.10. The lower discount raises every present value, so these
+// reference cases now exceed the 18× OE cap: we pin the UNCAPPED two-stage DCF fair value (twoStageValuation,
+// the real Step-4 reference) AND assert the legacy capped scalar truncates at 18× (cap now binds at 7.5%).
+//   Monopoly-tagged name, OE_ps=100, g=0.04, horizon=10, terminal=0.015, discount=0.075, fade 5 →
+//     OE_t = 100·Π_{i=1..t}(1+g_i); FV = Σ OE_t/1.075^t + [OE_10·1.015/(0.075−0.015)]/1.075^10
+//        = 1954.7576   (implied 19.55× OE — over the 18× cap; the cap now binds at the F.2 discount)
 // ---------------------------------------------------------------------------
 describe('Acceptance #1 — reference valuation regression (computed, not trusted from prose; F.13 uniform)', () => {
-  it('Monopoly-tagged name: OE=100, g=4%, uniform horizon 10, terminal 1.5%, discount 10%, cap 18×, MOS 25%', () => {
+  it('Monopoly-tagged name: OE=100, g=4%, uniform horizon 10, terminal 1.5%, F.2 discount 7.5%, cap 18×', () => {
     const oe_ps = 100
-    const fv = twoStageFairValuePerShare({
+    const uncapped = twoStageValuation({
       oe_ps,
       g: 0.04,
       terminal_g: terminalGrowthForMoat(buffettMungerStrategy, 'monopoly'),
@@ -130,18 +133,25 @@ describe('Acceptance #1 — reference valuation regression (computed, not truste
       ceiling_multiple: buffettMungerStrategy.valuation.valuation_multiple_ceiling,
       horizon: stage1HorizonForMoat(buffettMungerStrategy, 'monopoly'),
     })
-    const mos = 0.25 // local test haircut to derive a reference buy price; not a live config field
-    const buy = fv * (1 - mos)
-    // Pinned computed values (truth per spec §4 instruction); F.13 uniform params + Part D Step 2 fade.
-    expect(fv).toBeCloseTo(1367.7824, 3)
-    expect(fv / oe_ps).toBeCloseTo(13.678, 3) // implied multiple, under the 18× cap
-    expect(buy).toBeCloseTo(1025.8368, 2)
-    expect(fv).toBeLessThan(18 * oe_ps) // cap does not bind here
+    // Pinned UNCAPPED computed value (truth per spec §4 instruction); F.13 uniform params + Part D Step 2 fade.
+    expect(uncapped.fair_value).toBeCloseTo(1954.7576, 3)
+    expect(uncapped.fair_value! / oe_ps).toBeCloseTo(19.548, 3) // implied multiple, OVER the 18× cap at 7.5%
+    expect(uncapped.cap_exceeded).toBe(true) // the F.2 lower discount pushes it over the cap (surfaced flag)
+    // The legacy capped scalar truncates at 18× OE (the cap now binds at the F.2 discount).
+    const capped = twoStageFairValuePerShare({
+      oe_ps,
+      g: 0.04,
+      terminal_g: terminalGrowthForMoat(buffettMungerStrategy, 'monopoly'),
+      discount: buffettMungerStrategy.valuation.discount_rate,
+      ceiling_multiple: buffettMungerStrategy.valuation.valuation_multiple_ceiling,
+      horizon: stage1HorizonForMoat(buffettMungerStrategy, 'monopoly'),
+    })
+    expect(capped).toBeCloseTo(1800, 6) // 18 × OE
   })
 
-  it('Wide reference: OE=100, g=3%, horizon 10, terminal 1.5%, discount 10%, cap 18×, MOS 25%', () => {
+  it('Wide reference: OE=100, g=3%, horizon 10, terminal 1.5%, F.2 discount 7.5%, cap 18×', () => {
     const oe_ps = 100
-    const fv = twoStageFairValuePerShare({
+    const uncapped = twoStageValuation({
       oe_ps,
       g: 0.03,
       terminal_g: terminalGrowthForMoat(buffettMungerStrategy, 'wide'),
@@ -149,13 +159,19 @@ describe('Acceptance #1 — reference valuation regression (computed, not truste
       ceiling_multiple: buffettMungerStrategy.valuation.valuation_multiple_ceiling,
       horizon: stage1HorizonForMoat(buffettMungerStrategy, 'wide'),
     })
-    const mos = 0.25 // local test haircut to derive a reference buy price; not a live config field
-    const buy = fv * (1 - mos)
-    // Computed (Part D Step 2 fade, g 3% → 1.5%): stage1 703.4297 + terminal 592.1290 = 1295.5587
-    // (implied 12.956×); buy @25% = 971.6690.
-    expect(fv).toBeCloseTo(1295.5587, 3)
-    expect(fv / oe_ps).toBeCloseTo(12.956, 3)
-    expect(buy).toBeCloseTo(971.6690, 3)
+    // Computed UNCAPPED (Part D Step 2 fade, g 3% → 1.5%, F.2 discount 7.5%): 1845.1904 (implied 18.452×).
+    expect(uncapped.fair_value).toBeCloseTo(1845.1904, 3)
+    expect(uncapped.fair_value! / oe_ps).toBeCloseTo(18.452, 3)
+    expect(uncapped.cap_exceeded).toBe(true)
+    const capped = twoStageFairValuePerShare({
+      oe_ps,
+      g: 0.03,
+      terminal_g: terminalGrowthForMoat(buffettMungerStrategy, 'wide'),
+      discount: buffettMungerStrategy.valuation.discount_rate,
+      ceiling_multiple: buffettMungerStrategy.valuation.valuation_multiple_ceiling,
+      horizon: stage1HorizonForMoat(buffettMungerStrategy, 'wide'),
+    })
+    expect(capped).toBeCloseTo(1800, 6) // 18 × OE
   })
 })
 

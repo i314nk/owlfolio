@@ -295,8 +295,11 @@ describe('runValuationBacktest — high-demonstrated-growth compounder fires BUY
   })
 
   it('a richly-priced month stays WATCH (no blanket-BUY of every compounder)', () => {
-    // implied≈0.238 ≥ demonstrated(0.233) → fairly-to-richly priced → WATCH (proves no over-fire).
-    const e = signalAt(150)
+    // F.2 — under the lower savings-anchor discount (7.5%, was 10%) a given price implies LESS growth, so the
+    // richly-priced probe moves up: at 230 implied≈0.242 ≥ demonstrated(0.233) → richly priced → WATCH
+    // (proves no over-fire). (The old 150 price implied ≈0.238 at the 10% discount; at 7.5% it implies
+    // ≈0.162 — a genuine dislocation — so 150 now correctly fires BUY.)
+    const e = signalAt(230)
     expect(e.signal).toBe('WATCH')
   })
 })

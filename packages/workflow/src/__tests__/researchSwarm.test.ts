@@ -912,8 +912,9 @@ describe('runStrategyResearchSwarm with MockProvider + deterministic grounder', 
     expect(caseProjection?.valuation?.moat_class).toBe('monopoly')
     // moat_passes_gate: monopoly passes
     expect(caseProjection?.valuation?.moat_passes_gate).toBe(true)
-    // discount_rate: flat 10% (Design B)
-    expect(caseProjection?.valuation?.discount_rate).toBe(0.10)
+    // discount_rate: flat 7.5% effective default (F.2 — compliant savings anchor 2% + uniform premium 5.5%;
+    // no risk_free_rate threaded → fails closed to savings_rate_default)
+    expect(caseProjection?.valuation?.discount_rate).toBe(0.075)
     // growth_assumptions is a non-empty string
     expect(typeof caseProjection?.valuation?.growth_assumptions).toBe('string')
     expect((caseProjection?.valuation?.growth_assumptions ?? '').length).toBeGreaterThan(0)
@@ -1290,9 +1291,12 @@ describe('BUG 1 — valuation per-share units (÷ shares_outstanding)', () => {
     expect(cp?.valuation?.implied_multiple ?? 0).toBeGreaterThan(10.75)
     expect(cp?.valuation?.runway).toBe('proven')
     expect(cp?.valuation?.value_basis).toBe('two_stage_dcf')
-    // Sanity: per-share value, never the buggy ~100x value, and under the 18× OE cap
+    // Sanity: per-share value, never the buggy ~100x value. F.2 — under the lower savings-anchor discount
+    // (7.5%, was 10%) the g=0.06 FV is ≈ $417.7 (~21.9× OE), which now EXCEEDS the 18× cap: cap_exceeded is a
+    // SURFACED flag (Phase 1.6), not a truncation, and the value stays well under the absurd guard.
     expect(cp?.valuation?.fair_value_per_share ?? 0).toBeLessThan(1000)
-    expect(cp?.valuation?.fair_value_per_share ?? 0).toBeLessThan(18 * 19.06)
+    expect(cp?.valuation?.fair_value_per_share ?? 0).toBeCloseTo(417.7, 0)
+    expect(cp?.valuation?.cap_exceeded).toBe(true)
     // valuation_status must still read EXPENSIVE vs a ~$968 price
     expect(cp?.valuation_status).toBe('EXPENSIVE')
     // bridge totals + shares projected
@@ -1369,9 +1373,12 @@ describe('Two-stage DCF harness growth path (Phase 1.3 one growth path + gates)'
     expect(cp?.valuation?.growth_rate).toBeCloseTo(0.06, 6)
     expect(cp?.valuation?.demonstrated_growth_reference).toBeCloseTo(0, 6)
     expect(cp?.valuation?.growth_basis).toBe('none')
-    // headline forward-DCF at g=0.06 (above the g=0 floor): a positive per-share value under the 18× cap.
+    // headline forward-DCF at g=0.06 (above the g=0 floor): a positive per-share value. F.2 — at the lower
+    // savings-anchor discount (7.5%) the FV (~21.9× OE) now exceeds the 18× cap (a surfaced flag, not a
+    // truncation), still well under the absurd guard.
     expect(cp?.valuation?.fair_value_per_share).toBeGreaterThan(19.05)
-    expect(cp?.valuation?.fair_value_per_share ?? 0).toBeLessThan(18 * 19.06)
+    expect(cp?.valuation?.fair_value_per_share ?? 0).toBeLessThan(1000)
+    expect(cp?.valuation?.cap_exceeded).toBe(true)
   })
 
   it('growth is no longer driven by runway/incremental-ROIC (Phase 1.3): runway none still floors the demonstrated reference to 0', async () => {
@@ -1389,7 +1396,11 @@ describe('Two-stage DCF harness growth path (Phase 1.3 one growth path + gates)'
     expect(cp?.valuation?.demonstrated_growth_reference).toBeCloseTo(0, 6)
     expect(cp?.valuation?.growth_rate).toBeCloseTo(0.06, 6)
     expect(cp?.valuation?.runway_exceptional).toBe(true)
-    expect(cp?.valuation?.implied_multiple ?? 0).toBeLessThan(18)
+    // runway_exceptional does NOT lift the multiple: it is the SAME g=0.06 FV as the non-exceptional case
+    // (≈ 21.9× OE at the F.2 7.5% savings-anchor discount). The cap_exceeded flag surfaces it (Phase 1.6);
+    // runway_exceptional contributes nothing to the valuation (Phase 1.3 — no growth lift).
+    expect(cp?.valuation?.implied_multiple ?? 0).toBeCloseTo(21.9, 0)
+    expect(cp?.valuation?.cap_exceeded).toBe(true)
   })
 
   it('negative owner earnings gates the valuation — caveat recorded, no FV/buy, run completes', async () => {
@@ -1611,9 +1622,11 @@ describe('RELIGHTENED DECISION — model proposes buy-below; deterministic side 
   it('SANITY (over-OPTIMISTIC): status ATTRACTIVE + market implies implausibly HIGH growth → a sanity flag (verdict NOT blocked)', async () => {
     // A very high price → reverse-DCF implies a growth above the 15% cap; the model nonetheless says
     // ATTRACTIVE — the symmetric sanity-check must fire the over-optimistic catch. The model verdict (BUY,
-    // gated only by the cheap gates) is NOT blocked by the flag.
+    // gated only by the cheap gates) is NOT blocked by the flag. F.2 — at the lower savings-anchor discount
+    // (7.5%, was 10%) a given price implies LESS growth, so the price is raised to 800 (implied ≈ 17.6%,
+    // comfortably above the 15% cap; at the old 10% discount 600 already cleared the cap).
     const { valuation, cp } = await runRelit({
-      id: 'sanity-optimistic', price: 600, valuationStatus: 'ATTRACTIVE', investmentVerdict: 'BUY', proposedBuyBelow: 550,
+      id: 'sanity-optimistic', price: 800, valuationStatus: 'ATTRACTIVE', investmentVerdict: 'BUY', proposedBuyBelow: 550,
     })
     const flags = (valuation?.['sanity_flags'] as string[] | undefined) ?? []
     expect(flags.length).toBeGreaterThan(0)
@@ -2558,8 +2571,36 @@ describe('EDGAR-anchored OE bridge + harness AAOIFI Shariah ratios', () => {
     expect(cp?.valuation?.demonstrated_growth_reference).toBeCloseTo(0.1407, 3) // demonstrated ~14.1%, below the 0.15 cap (uncapped)
     expect(cp?.valuation?.growth_rate).toBeUndefined() // no grounded assumed_growth → headline omitted (A1)
     expect(cp?.valuation?.growth_above_gdp).toBe(true)
+    // F.2 — discount provenance now carries the COMPLIANT risk-free SAVINGS rate. This command threads NO
+    // risk_free_rate, so the swarm fails closed to the strategy savings_rate_default (0.02) → basis
+    // 'config_default' and discount = 0.02 + 0.055 = 0.075.
     expect(cp?.valuation?.discount_inputs?.equity_premium).toBe(0.055)
-    expect(cp?.valuation?.discount_inputs?.ten_year_treasury_basis).toBe('config_default')
+    expect(cp?.valuation?.discount_inputs?.risk_free_basis).toBe('config_default')
+    expect(cp?.valuation?.discount_inputs?.risk_free_rate).toBeCloseTo(0.02, 10)
+    expect(cp?.valuation?.discount_rate).toBeCloseTo(0.075, 10)
+  })
+
+  it('F.2 — threads the compliant app-config savings rate into the discount (basis compliant_savings)', async () => {
+    const store = new InMemoryEventStore()
+    await seedDeepDivePrereqs(store)
+    const provider = swarmFakeProvider()
+    await provider.structured({} as never) // skip the quick-screen call
+
+    await runResearchDeepDivePhase(
+      store,
+      provider as never,
+      { ...deepDiveCommand(), risk_free_rate: 0.03 },
+      { ground: verifyAllGround(), laneConcurrency: 7, fundamentals: costFundamentals },
+    )
+
+    const events = await store.list()
+    const projections = projectResearchCases(events as Parameters<typeof projectResearchCases>[0])
+    const cp = projections.find((c) => c.research_case_id === 'rc_edgar')
+    // Threaded compliant savings rate 0.03 → basis 'compliant_savings', discount = 0.03 + 0.055 = 0.085.
+    expect(cp?.valuation?.discount_inputs?.risk_free_basis).toBe('compliant_savings')
+    expect(cp?.valuation?.discount_inputs?.risk_free_rate).toBeCloseTo(0.03, 10)
+    expect(cp?.valuation?.discount_inputs?.equity_premium).toBe(0.055)
+    expect(cp?.valuation?.discount_rate).toBeCloseTo(0.085, 10)
   })
 
   it('falls back to the model-proposed bridge + lane verdict when EDGAR is absent', async () => {

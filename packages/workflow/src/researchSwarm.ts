@@ -67,7 +67,7 @@ import { marketImpliedGrowth } from '@owlfolio/strategies/reverseDcf'
 // NOTE (R1): sustainableGrowthBand + requiredGrowthGap are no longer imported here — the relightened
 // decision stopped using the band/gap engines (they are deleted entirely in R2). The model now proposes
 // the verdict + valuation + buy-below; the deterministic side only sanity-checks + applies the cheap gates.
-import { fetchAverageMarketCap, fetchTenYearTreasuryYield, resolveCurrentPrice, type AverageMarketCapResult, type MarketDataDeps, type PriceQuote, type TreasuryYieldResult } from './marketData'
+import { fetchAverageMarketCap, resolveCurrentPrice, type AverageMarketCapResult, type MarketDataDeps, type PriceQuote } from './marketData'
 import { runRedTeamPass, runRedTeamResponsePass, buildRedTeamLayer, type RedTeamLaneDigest, type RedTeamResult } from './redTeamPass'
 import { runValuationReasoningPass, type ValuationReasoning } from './valuationReasoningPass'
 import {
@@ -237,6 +237,13 @@ export type RunResearchDeepDivePhaseCommand = {
   quick_screen_source_ids: string[]
   /** event_id of the quick_screen_drafted event — used as causation_id */
   quick_screen_event_id: string
+  /**
+   * F.2 — the COMPLIANT risk-free SAVINGS rate (Mudarabah expected profit, decimal) from the app-config
+   * savings sleeve (`savings_expected_profit_rate`), used as the discount risk-free anchor. The SAME
+   * baseline the deployment-hurdle + sizing engines use. Omitted / non-finite / non-positive → the discount
+   * fails closed to `savings_rate_default` (the Treasury anchor is retired).
+   */
+  risk_free_rate?: number
   /** model-tiering: optional per-role provider/model overrides (registry). Omitted = single-provider default. */
   model_overrides?: Partial<Record<ModelRoleId, ModelRoleOverride>>
   /**
@@ -350,12 +357,10 @@ export type FundamentalsDeps = {
     diluted_shares: number,
     deps?: MarketDataDeps,
   ) => Promise<AverageMarketCapResult>
-  /**
-   * Override the live 10y Treasury-yield resolver (Phase 1.4). The discount = live Treasury + a fixed
-   * uniform equity premium (global config, never agent-set). Defaults to the live Yahoo ^TNX adapter
-   * outside offline test mode; fail-closed to the config default Treasury exactly like the other resolvers.
-   */
-  resolveTreasuryYield?: (deps?: MarketDataDeps) => Promise<TreasuryYieldResult>
+  // F.2 (SHIPPED): the discount risk-free anchor is the COMPLIANT app-config savings rate threaded into the
+  // deep-dive command (`risk_free_rate`), NOT a live Treasury fetch. The former `resolveTreasuryYield`
+  // override + `resolveTreasuryYieldValue` helper were retired here; the marketData Treasury exports remain
+  // (a later dead-surface slice removes them) but are no longer called in the discount path.
 }
 
 /**
@@ -419,24 +424,6 @@ async function resolveCurrentPriceValue(ticker: string, deps: FundamentalsDeps):
     }
   }
   return undefined
-}
-
-/**
- * Resolve the live 10y Treasury yield (decimal) for the discount anchor (Phase 1.4), fail-closed and
- * test-mode-gated. Returns undefined when offline / no resolver / the live fetch failed (in which case
- * `discountRate` falls back to the config default Treasury). The discount stays GLOBAL config; this only
- * swaps the documented default for the live yield when one is available. Never throws.
- */
-async function resolveTreasuryYieldValue(deps: FundamentalsDeps): Promise<number | undefined> {
-  const resolver = deps.resolveTreasuryYield
-    ?? (isOfflineTestMode() ? undefined : ((d?: MarketDataDeps) => fetchTenYearTreasuryYield(d)))
-  if (resolver === undefined) return undefined
-  try {
-    const r = await resolver()
-    return r.available ? r.yield : undefined
-  } catch {
-    return undefined
-  }
 }
 
 /**
@@ -2037,11 +2024,20 @@ export async function runResearchDeepDivePhase(
     ? owner_earnings_total / shares_outstanding
     : undefined
 
-  // Discount = live 10y Treasury (fail-closed to the config default) + the fixed uniform equity premium
-  // (Phase 1.4 / Step 3). GLOBAL config, never an agent input, no quality knob.
-  // ANCHOR-SWAP-F2: discount anchor = Treasury + equity_premium today; F.2 swaps to savings_rate + equity_premium (deferred, blocked on the calibration cohort #124).
-  const ten_year_treasury = await resolveTreasuryYieldValue(deps)
-  const discount = discountRate(buffettMungerStrategy, ten_year_treasury)
+  // F.2 ANCHOR SWAP (SHIPPED): discount = the COMPLIANT risk-free SAVINGS rate (fail-closed to the config
+  // default savings rate) + the fixed uniform equity premium (Phase 1.4 / Step 3). GLOBAL config, never an
+  // agent input, no quality knob. The compliant investor's true risk-free is the savings rate they could
+  // actually hold (the SAME baseline the deployment-hurdle + sizing engines use), NOT the interest-bearing
+  // 10y Treasury (retired — it cannot be held compliantly). Sourced from the threaded app-config savings
+  // rate; fails closed to `savings_rate_default` when absent / non-finite / non-positive.
+  const threadedRiskFree = command.risk_free_rate
+  const risk_free_from_config = typeof threadedRiskFree === 'number'
+    && Number.isFinite(threadedRiskFree)
+    && threadedRiskFree > 0
+  const risk_free_rate = risk_free_from_config
+    ? threadedRiskFree
+    : buffettMungerStrategy.valuation.savings_rate_default
+  const discount = discountRate(buffettMungerStrategy, risk_free_rate)
   // ---- Harness defense 3: range/sanity checks on model-proposed numerics (BEFORE the valuation) ----
   // Implausible model numbers are rejected deterministically and never fed into the valuation — a
   // rejected value falls back to a safe/not-computable value + a VISIBLE flag (mirrors degraded_flags).
@@ -2879,10 +2875,12 @@ export async function runResearchDeepDivePhase(
         runway,
         ...(runway_exceptional ? { runway_exceptional } : {}),
         discount_rate: discount,
-        // Discount provenance (Phase 1.4): live Treasury (or the config default) + the uniform equity premium.
+        // Discount provenance (Phase 1.4 / F.2): the COMPLIANT risk-free SAVINGS rate (app-config or the
+        // config default) + the uniform equity premium. basis 'compliant_savings' when sourced from the
+        // threaded app-config savings rate; 'config_default' when failed closed to savings_rate_default.
         discount_inputs: {
-          ten_year_treasury: ten_year_treasury ?? buffettMungerStrategy.valuation.ten_year_treasury_default,
-          ten_year_treasury_basis: ten_year_treasury !== undefined ? 'live' : 'config_default',
+          risk_free_rate,
+          risk_free_basis: risk_free_from_config ? 'compliant_savings' : 'config_default',
           equity_premium: buffettMungerStrategy.valuation.equity_premium,
         },
         growth_assumptions: dec.analysis.growth_assumptions,

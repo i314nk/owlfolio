@@ -275,8 +275,15 @@ export type ResearchCaseValuationProjection = {
   runway?: string
   runway_exceptional?: boolean
   discount_rate?: number
-  /** Discount provenance (Phase 1.4): the 10y Treasury + uniform equity premium that formed discount_rate. */
-  discount_inputs?: { ten_year_treasury?: number; ten_year_treasury_basis?: string; equity_premium?: number }
+  /**
+   * Discount provenance (Phase 1.4 / F.2): the COMPLIANT risk-free SAVINGS rate + uniform equity premium that
+   * formed discount_rate. `risk_free_basis` is 'compliant_savings' (from the app-config savings rate) or
+   * 'config_default' (failed closed to savings_rate_default). LEGACY-TOLERANT: events written before F.2
+   * carried `ten_year_treasury` / `ten_year_treasury_basis` (the retired Treasury anchor); those still
+   * project — the legacy Treasury figure maps into `risk_free_rate` (and its basis into `risk_free_basis`)
+   * so old dossiers keep rendering a discount provenance.
+   */
+  discount_inputs?: { risk_free_rate?: number; risk_free_basis?: string; equity_premium?: number }
   growth_assumptions?: string
   /**
    * HEADLINE growth = the MODEL's cite-verified assumed_growth (architecture: the model's grounded judgment
@@ -1372,12 +1379,15 @@ function getValuation(payload: Record<string, unknown>): ResearchCaseValuationPr
   const discountInputsRaw = value['discount_inputs']
   if (discountInputsRaw !== null && typeof discountInputsRaw === 'object') {
     const di = discountInputsRaw as Record<string, unknown>
-    const ten_year_treasury = getNumber(di, 'ten_year_treasury')
-    const ten_year_treasury_basis = getString(di, 'ten_year_treasury_basis')
+    // F.2 shape (current): risk_free_rate / risk_free_basis (compliant savings rate). LEGACY-TOLERANT:
+    // pre-F.2 events carried ten_year_treasury / ten_year_treasury_basis (the retired Treasury anchor) — map
+    // those into risk_free_rate / risk_free_basis so old events still project a discount provenance.
+    const risk_free_rate = getNumber(di, 'risk_free_rate') ?? getNumber(di, 'ten_year_treasury')
+    const risk_free_basis = getString(di, 'risk_free_basis') ?? getString(di, 'ten_year_treasury_basis')
     const equity_premium = getNumber(di, 'equity_premium')
     projected.discount_inputs = {
-      ...(ten_year_treasury !== undefined ? { ten_year_treasury } : {}),
-      ...(ten_year_treasury_basis !== undefined ? { ten_year_treasury_basis } : {}),
+      ...(risk_free_rate !== undefined ? { risk_free_rate } : {}),
+      ...(risk_free_basis !== undefined ? { risk_free_basis } : {}),
       ...(equity_premium !== undefined ? { equity_premium } : {}),
     }
   }

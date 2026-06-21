@@ -17,9 +17,9 @@ describe('VALUATION_PARAMS (versioned config — single source of truth)', () =>
   })
 
   it('recalibrated defaults match spec §1', () => {
-    expect(VALUATION_PARAMS.discount_rate).toBe(0.10) // effective default = treasury default + equity premium
+    expect(VALUATION_PARAMS.discount_rate).toBe(0.075) // F.2 effective default = savings_rate_default + equity premium
     expect(VALUATION_PARAMS.equity_premium).toBe(0.055) // Phase 1.4 — uniform, no quality knob
-    expect(VALUATION_PARAMS.ten_year_treasury_default).toBe(0.045) // Phase 1.4 — fail-closed default
+    expect(VALUATION_PARAMS.savings_rate_default).toBe(0.02) // F.2 — compliant savings rate fail-closed default
     // F.13 — UNIFORM scalars (collapsed from the old _by_moat tier tables to the conservative wide values).
     expect(VALUATION_PARAMS.terminal_growth).toBe(0.015)
     expect(VALUATION_PARAMS.stage1_horizon).toBe(10)
@@ -68,8 +68,31 @@ describe('diffValuationParams', () => {
 // (the F.13 uniform scalars are unchanged; a new growth_fade_years field appears).
 // ---------------------------------------------------------------------------
 describe('Part D Step 2 — growth-fade version bump records the structural diff', () => {
-  it('the live version is the no-mos-knob config (deterministic MoS knob removed)', () => {
-    expect(VALUATION_PARAMS.version).toBe('valuation-2026-06-no-mos-knob-1')
+  it('the live version is the savings-anchor config (F.2 — discount anchor swapped to the compliant savings rate)', () => {
+    expect(VALUATION_PARAMS.version).toBe('valuation-2026-06-savings-anchor-1')
+  })
+
+  it('F.2 — diff vs the prior no-mos-knob config shows the retired ten_year_treasury_default + the added savings_rate_default', () => {
+    // Reconstruct the PRIOR (no-mos-knob-1) shape: identical EXCEPT the discount anchored on the now-retired
+    // ten_year_treasury_default (0.045) and the effective default discount was 0.10. The F.2 bump records the
+    // Treasury anchor's removal + the compliant savings-rate anchor's addition; equity_premium is unchanged.
+    const previous = {
+      ...VALUATION_PARAMS,
+      version: 'valuation-2026-06-no-mos-knob-1',
+      discount_rate: 0.10,
+      savings_rate_default: undefined,
+      ten_year_treasury_default: 0.045,
+    } as unknown as ValuationParams
+    const changes = diffValuationParams(previous, VALUATION_PARAMS)
+    const byPath = new Map(changes.map((c) => [c.path, c]))
+    // The retired Treasury anchor appears with next === undefined.
+    expect(byPath.get('ten_year_treasury_default')).toEqual({ path: 'ten_year_treasury_default', previous: 0.045, next: undefined })
+    // The added compliant savings-rate anchor appears with previous === undefined.
+    expect(byPath.get('savings_rate_default')).toEqual({ path: 'savings_rate_default', previous: undefined, next: 0.02 })
+    // The effective default discount drops 0.10 -> 0.075 (0.02 savings + 0.055 premium).
+    expect(byPath.get('discount_rate')).toEqual({ path: 'discount_rate', previous: 0.10, next: 0.075 })
+    // The equity premium is UNCHANGED by this bump.
+    expect(byPath.has('equity_premium')).toBe(false)
   })
 
   it('diff vs the prior no-band-gap config shows the removed base_margin_of_safety + margin_of_safety_widening (MoS knob deleted)', () => {
@@ -158,7 +181,7 @@ describe('Part D Step 2 — growth-fade version bump records the structural diff
       next: VALUATION_PARAMS,
     })
     expect(event.payload.previous_version).toBe('valuation-2026-06-one-knob-2')
-    expect(event.payload.new_version).toBe('valuation-2026-06-no-mos-knob-1')
+    expect(event.payload.new_version).toBe('valuation-2026-06-savings-anchor-1')
     expect(event.payload.changes).toContainEqual({ path: 'single_growth_cap', previous: 0.10, next: 0.15 })
   })
 })

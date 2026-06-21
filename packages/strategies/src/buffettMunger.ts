@@ -18,22 +18,26 @@ export function moatPassesGate(strategy: StrategyContract, moatClass: MoatClass)
 }
 
 /**
- * The discount/hurdle rate (Phase 1.4 / Part D Step 3): `discount = 10y Treasury yield + a fixed UNIFORM
- * equity premium`. The SAME rate for every business — no beta, no quality knob, no per-moat adjustment.
- * It is GLOBAL config the human sets once, NEVER an agent input.
+ * The discount/hurdle rate (Phase 1.4 / Part D Step 3 / F.2): `discount = the COMPLIANT risk-free SAVINGS
+ * rate + a fixed UNIFORM equity premium`. The SAME rate for every business — no beta, no quality knob, no
+ * per-moat adjustment. It is GLOBAL config the human sets once, NEVER an agent input.
  *
- * `tenYearTreasury` is the live yield (decimal) when available; when omitted (or non-finite) the config
- * default (`ten_year_treasury_default`) is used, fail-closed. Business quality is never a discount-rate knob;
- * post-F.13 it is not a valuation-parameter knob at all — a stronger moat routes its durability through the
- * surfaced, human-weighted moat-durability input (terminal-value share), not via tier-varying params.
+ * `riskFreeRate` is the compliant savings rate (Mudarabah expected profit; decimal) from the app-config
+ * savings sleeve when available; when omitted (or non-finite / non-positive) the config default
+ * (`savings_rate_default`) is used, fail-closed. The compliant investor's true risk-free is the savings rate
+ * they could actually hold — NOT the interest-bearing 10y Treasury, which is retired (it cannot be held
+ * compliantly, and this is the SAME baseline the deployment-hurdle + sizing engines already use). Business
+ * quality is never a discount-rate knob; post-F.13 it is not a valuation-parameter knob at all — a stronger
+ * moat routes its durability through the surfaced, human-weighted moat-durability input (terminal-value
+ * share), not via tier-varying params.
  */
-export function discountRate(strategy: StrategyContract, tenYearTreasury?: number): number {
-  // ANCHOR-SWAP-F2: discount anchor = Treasury + equity_premium today; F.2 swaps to savings_rate + equity_premium (deferred, blocked on the calibration cohort #124).
+export function discountRate(strategy: StrategyContract, riskFreeRate?: number): number {
+  // ANCHOR-SWAP-F2 (SHIPPED): discount anchor = compliant savings rate + equity_premium. Treasury retired.
   const v = strategy.valuation
-  const treasury = (typeof tenYearTreasury === 'number' && Number.isFinite(tenYearTreasury) && tenYearTreasury > 0)
-    ? tenYearTreasury
-    : v.ten_year_treasury_default
-  return treasury + v.equity_premium
+  const riskFree = (typeof riskFreeRate === 'number' && Number.isFinite(riskFreeRate) && riskFreeRate > 0)
+    ? riskFreeRate
+    : v.savings_rate_default
+  return riskFree + v.equity_premium
 }
 
 /**
@@ -385,10 +389,11 @@ const rawBuffettMungerStrategy = {
     // (valuation-recalibration-spec §1: one versioned config, no hardcoded valuation constants).
     // F.13 — UNIFORM valuation params across every investable business: terminal g 1.5%,
     // stage-1 horizon 10yr (the monopoly tier no longer loosens valuation; it is a durability signal that
-    // routes through the moat-durability input). 10% flat discount (constitutional, untouched), 18× FV cap.
+    // routes through the moat-durability input). F.2 — flat 7.5% effective default discount (compliant
+    // savings-rate anchor 2% + uniform equity premium 5.5%; Treasury retired), 18× FV cap.
     discount_rate: VALUATION_PARAMS.discount_rate,
     equity_premium: VALUATION_PARAMS.equity_premium,
-    ten_year_treasury_default: VALUATION_PARAMS.ten_year_treasury_default,
+    savings_rate_default: VALUATION_PARAMS.savings_rate_default,
     terminal_value_share_flag: VALUATION_PARAMS.terminal_value_share_flag,
     terminal_growth: VALUATION_PARAMS.terminal_growth,
     stage1_horizon: VALUATION_PARAMS.stage1_horizon,
