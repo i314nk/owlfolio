@@ -86,8 +86,8 @@ describe('LearnTabs', () => {
   it('renders the live two-stage DCF params + the R1 model-proposes-buy-below reframe on the strategy panel', () => {
     const html = render('strategy')
     const lower = html.toLowerCase()
-    // Live params still render: 18× cap + the flat discount. F.2 — the discount anchor is now the compliant
-    // savings rate (effective default 7.5%), which the Learn panel rounds to a whole percent (8%).
+    // Live params still render: 18× cap + the savings-anchored discount. F.2 — the discount anchor is the
+    // compliant savings rate (effective default 7.5%), which the Learn panel rounds to a whole percent (8%).
     expect(html).toContain('18×')
     expect(html).toContain('8%')
     // R1 reframe: the model proposes the verdict/valuation/buy-below with cited reasoning; the two-stage

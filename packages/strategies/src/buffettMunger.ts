@@ -389,8 +389,9 @@ const rawBuffettMungerStrategy = {
     // (valuation-recalibration-spec §1: one versioned config, no hardcoded valuation constants).
     // F.13 — UNIFORM valuation params across every investable business: terminal g 1.5%,
     // stage-1 horizon 10yr (the monopoly tier no longer loosens valuation; it is a durability signal that
-    // routes through the moat-durability input). F.2 — flat 7.5% effective default discount (compliant
-    // savings-rate anchor 2% + uniform equity premium 5.5%; Treasury retired), 18× FV cap.
+    // routes through the moat-durability input). F.2 — savings-anchored discount, uniform across businesses
+    // (≈7.5% default = compliant savings-rate anchor 2% + uniform equity premium 5.5%; tracks the owner's
+    // savings rate, Treasury retired), 18× FV cap.
     discount_rate: VALUATION_PARAMS.discount_rate,
     equity_premium: VALUATION_PARAMS.equity_premium,
     savings_rate_default: VALUATION_PARAMS.savings_rate_default,

@@ -37,7 +37,7 @@ describe('StrategyOverview', () => {
     expect(html).toContain('cited to a harness-captured source')
   })
 
-  it('renders the flat discount rate from the contract', () => {
+  it('renders the savings-anchored discount rate from the contract', () => {
     const html = render()
     // F.2 — the effective default discount is the compliant savings anchor (2%) + uniform premium (5.5%) = 7.5%.
     const discountPct = `${discountRate(buffettMungerStrategy) * 100}%` // 7.5%
@@ -194,8 +194,9 @@ describe('StrategyOverview', () => {
     expect(html).toContain('fat-pitch posture')
     // Worst-case-in-front discipline.
     expect(html).toContain('worst case')
-    // NO OVERCLAIM: advisory only + the anchor swap is deferred.
+    // NO OVERCLAIM: advisory only + the discount already anchors on the savings rate (F.2 shipped).
     expect(html).toContain('Advisory only')
-    expect(html).toContain('anchor swap to this rate is deferred')
+    expect(html).toContain('The discount already anchors on this savings rate')
+    expect(html).toContain('Treasury anchor is retired')
   })
 })

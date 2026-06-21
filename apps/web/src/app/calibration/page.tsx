@@ -14,7 +14,7 @@ import { getOnboardingState, type OnboardingState } from '../../lib/onboarding'
 
 export const metadata = {
   title: 'Calibration · Owlfolio',
-  description: 'Backtest signal log, deployment-ratio metric, and parameter version history for the valuation/sizing calibration.',
+  description: 'A confidence signal for the valuation/sizing parameters: reverse-DCF backtest signal log, deployment-ratio metric, owner-curated universe, and parameter version history. It reports how the live config behaves; it does not tune or freeze it.',
 }
 
 export default async function CalibrationPage() {

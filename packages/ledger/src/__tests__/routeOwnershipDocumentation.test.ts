@@ -10,11 +10,16 @@ describe('Owlfolio v2 route ownership documentation', () => {
     expect(existsSync(routeMapPath)).toBe(true)
     const routeMap = readFileSync(routeMapPath, 'utf8')
 
-    expect(routeMap).toContain('| Shariah status | `@owlfolio/ledger` | `/shariah` |')
+    // The live route set as implemented under apps/web/src/app/**/page.tsx. There is no standalone
+    // /shariah or /worker page, and /providers is retired (redirects to /settings/providers).
     expect(routeMap).toContain('| Purification | `@owlfolio/ledger` | `/purification` |')
-    expect(routeMap).toContain('| Monthly accounting | `@owlfolio/ledger` | `/accounting` |')
-    expect(routeMap).toContain('| Provider status | `@owlfolio/providers` | `/providers` |')
+    expect(routeMap).toContain('| Monthly accounting | `@owlfolio/ledger` | `/accounting/monthly` |')
+    expect(routeMap).toContain('| Provider settings | `@owlfolio/providers` | `/settings/providers` |')
     expect(routeMap).toContain('| Audit trail | `@owlfolio/ledger` | `/audit` |')
-    expect(routeMap).toContain('| Worker status | `@owlfolio/ledger` | `/worker` |')
+    expect(routeMap).toContain('| Automation settings | `@owlfolio/ledger` | `/settings/automation` |')
+    expect(routeMap).toContain('| Calibration | `@owlfolio/strategies` | `/calibration` |')
+    // The retired/non-existent routes must NOT be advertised as live page-owner ROWS in the table.
+    expect(routeMap).not.toMatch(/\|[^|]*\|[^|]*\|\s*`\/shariah`\s*\|/)
+    expect(routeMap).not.toMatch(/\|[^|]*\|[^|]*\|\s*`\/worker`\s*\|/)
   })
 })

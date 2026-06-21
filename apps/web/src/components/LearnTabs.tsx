@@ -174,9 +174,9 @@ function StrategyTab(): ReactNode {
         gold('sustainable growth the model judges and cites'),
         '. Cheapness is that comparison, not a single computed number. The ',
         gold('forward two-stage discounted owner-earnings fair value is a LABELED REFERENCE cross-check'),
-        ', NOT the decision: a stage-1 horizon whose growth holds the judged rate for the early years then fades LINEARLY down to a small terminal rate over the trailing years, plus a perpetual terminal rate beyond it, all at a flat ',
+        ', NOT the decision: a stage-1 horizon whose growth holds the judged rate for the early years then fades LINEARLY down to a small terminal rate over the trailing years, plus a perpetual terminal rate beyond it, all at the same savings-anchored discount (the compliant savings rate + a uniform equity premium, ',
         mono(pct(DISCOUNT)),
-        ' discount — no WACC, no beta, ever. The model proposes the verdict and the buy-below with cited reasoning, and the deterministic side only flags internal absurdity (it never blocks the verdict). The discount, the horizon, and the terminal rate stay uniform across investable moats; a monopoly earns higher terminal value through the moat-durability input, not by stretching the horizon. The live parameters below are read from the versioned valuation config, not hard-coded here.',
+        ' today) — no WACC, no beta, ever. The model proposes the verdict and the buy-below with cited reasoning, and the deterministic side only flags internal absurdity (it never blocks the verdict). The discount, the horizon, and the terminal rate stay uniform across investable moats; a monopoly earns higher terminal value through the moat-durability input, not by stretching the horizon. The live parameters below are read from the versioned valuation config, not hard-coded here.',
       ),
       children: createElement(
         'div',
@@ -206,7 +206,7 @@ function StrategyTab(): ReactNode {
           createElement('div', null, 'buy  = the MODEL’s proposed buy-below (cited reasoning) ; in_buy_zone = current_price ≤ buy-below'),
         ),
         cardGrid([
-          { key: 'd', eyebrow: 'Flat discount', body: createElement('span', null, mono(pct(DISCOUNT)), ' hurdle, always — falling rates never lower it.') },
+          { key: 'd', eyebrow: 'Uniform discount', body: createElement('span', null, 'the same savings-anchored rate (', mono(pct(DISCOUNT)), ') for every business — no beta, no quality knob; a lower savings rate lowers it.') },
           { key: 'rdcf', eyebrow: 'Reverse-DCF lens', body: 'The primary read: the growth the price implies vs the model’s judged sustainable growth. Cheapness is that gap, not a single number.' },
           { key: 'g', eyebrow: 'Judged growth', body: createElement('span', null, 'The model’s judged sustainable rate, cited; a sanity-check flags an unsupportable rate (above ', mono(pct(SINGLE_GROWTH_CAP)), ', or above GDP → a moat-durability claim) — it never sets the number.') },
           { key: 'cap', eyebrow: 'Sanity flag', body: createElement('span', null, mono(`${MULTIPLE_CEILING}×`), ' owner earnings raises a cap_exceeded flag — surfaced, never silently truncated.') },

@@ -91,8 +91,9 @@ describe('CalibrationPanel', () => {
     expect(html).toContain('Suggested additions')
     // The deliberate Run-backtest button.
     expect(html).toContain('Run backtest')
-    // Anti-drift framing for the gated config-change path.
-    expect(html).toContain('Parameters are frozen')
+    // Confidence-signal framing: the backtest reports how the live config behaves; it does not tune/freeze.
+    expect(html).toContain('A confidence signal, not a tune-then-freeze knob')
+    expect(html).toContain('it does not tune or freeze it')
   })
 
   it('renders the editable-universe controls: an Add-ticker form, per-row remove (×), and a suggestion Add', () => {

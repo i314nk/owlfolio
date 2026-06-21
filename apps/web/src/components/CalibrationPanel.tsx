@@ -83,7 +83,7 @@ export function CalibrationPanel({ view }: CalibrationPanelProps) {
     createElement(RouteHeader, {
       kicker: 'Calibration desk',
       title: 'Calibration',
-      description: 'Operator evidence behind the valuation and sizing parameters: the backtest signal log, the deployment-ratio metric per ladder, and the parameter version history. Anti-drift: parameters are tuned against this evidence at the annual review, then frozen.',
+      description: 'A confidence signal for the valuation and sizing parameters: a reverse-DCF sanity spot-check (the backtest signal log + deployment-ratio metric per ladder) plus owner-curated universe management. It measures how the surviving parameters behave over the curated universe; it does not tune or freeze them.',
     }),
     createElement('hr', { className: 'owl-rule' }),
     createLedgerLine(view),
@@ -238,9 +238,9 @@ function createConfigChangeSection(view: CalibrationView) {
   const latestRun = view.runs[0]
   const hasRun = latestRun !== undefined
   return Section({
-    eyebrow: 'Propose parameter change',
-    title: 'Deliberate, human-confirmed config change (anti-drift)',
-    lead: 'Parameters are frozen after go-live. A change is permitted ONLY at the annual system review, ONLY with a backtest re-run attached, and ONLY against the same pre-stated target. "It has been quiet lately" is never grounds. A proposal is a logged, human-confirmed config-change DRAFT — never a quick tune knob, never auto-applied.',
+    eyebrow: 'What the backtest tells you',
+    title: 'A confidence signal, not a tune-then-freeze knob',
+    lead: 'The backtest is a reverse-DCF sanity spot-check over the surviving parameters and the curated universe — it reports how the live config behaves, it does not tune or freeze it. The parameters are not parameter-fitted to the backtest; the universe is owner-curated above, and any future config change would be a separate, human-authored ledger event, never an automated drift.',
     children: createElement(
       'div',
       { style: { display: 'grid', gap: '0.6rem' } },
@@ -248,13 +248,13 @@ function createConfigChangeSection(view: CalibrationView) {
         'p',
         { style: { ...bodyStyle, margin: 0 } },
         hasRun
-          ? `A parameter-change draft must attach the latest recorded backtest (${latestRun.event_id.slice(0, 18)}…). Confirming a draft is a separate, human-authored ledger transition that writes a valuation_config event; it never mutates the live config silently.`
-          : 'No backtest has been recorded yet. The anti-drift rule requires an attached calibration_run before any parameter-change draft can be proposed — run the backtest first.',
+          ? `The latest recorded backtest (${latestRun.event_id.slice(0, 18)}…) is the current confidence reading: a frequency-and-deployment sanity check against the pre-stated target. It records evidence; it never mutates the live config.`
+          : 'No backtest has been recorded yet. Run one to get a confidence reading on how the live parameters behave over the curated universe — it records evidence only, it does not change parameters.',
       ),
       createElement(
         'p',
         { style: { color: 'var(--owl-color-quiet)', fontSize: 'var(--owl-text-sm)', margin: 0 } },
-        'The constitutional 10% discount rate is never a calibration target and cannot be proposed for change.',
+        'The discount rate (the compliant savings rate + equity premium) is never a calibration target — it tracks the owner-set savings rate, not the backtest.',
       ),
     ),
   })
@@ -311,14 +311,14 @@ function createDeploymentRatioSection(view: CalibrationView, latestRun: Calibrat
         createElement(
           'p',
           { style: { color: 'var(--owl-color-quiet)', fontSize: 'var(--owl-text-sm)', margin: 0 } },
-          'No backtest has recorded a deployment-ratio metric yet. Run the calibration backtest to measure the mean % of each target position actually deployed across historical BUY signals — if a ladder under-deploys, tune its fractions / N against this evidence at the annual review, then freeze.',
+          'No backtest has recorded a deployment-ratio metric yet. Run the calibration backtest to measure the mean % of each target position actually deployed across historical BUY signals — a confidence reading on the live ladders, surfaced as evidence, not a knob the backtest tunes.',
         ),
       )
 
   return Section({
     eyebrow: 'Deployment-ratio metric',
     title: 'Average % deployed, per ladder',
-    lead: 'The mean fraction of a target position the ladder would actually have deployed across historical BUY signals. A low ratio means the portfolio runs more diluted than the constitution intends; it is the evidence the ladder fractions are tuned against.',
+    lead: 'The mean fraction of a target position the ladder would actually have deployed across historical BUY signals. A low ratio means the portfolio runs more diluted than the constitution intends; it is a confidence reading on the live ladders, not a knob the backtest tunes.',
     children: body,
   })
 }
@@ -388,7 +388,7 @@ function createParamHistorySection(view: CalibrationView) {
   return Section({
     eyebrow: 'Parameter version history',
     title: 'Versions & config-change events',
-    lead: 'The current live parameter versions (read from config) plus every recorded valuation_config change. Each config change is an append-only ledger event; the anti-drift rule requires a backtest re-run attached to any post-go-live change.',
+    lead: 'The current live parameter versions (read from config) plus every recorded valuation_config change. Each config change is an append-only, human-authored ledger event — an audit trail of any change, never an automated drift driven by the backtest.',
     children: Table({ headings: ['Parameter set', 'Version', 'Basis'], rows }),
   })
 }

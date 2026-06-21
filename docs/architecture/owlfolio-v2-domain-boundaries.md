@@ -30,14 +30,27 @@ Direct API adapters can later receive separate provider IDs or revised labels af
 
 These pages can be implemented by downstream lanes without renaming the underlying projection owners.
 
+This is the live route set as implemented under `apps/web/src/app/**/page.tsx`. There is no standalone `/shariah` or `/worker` page: Shariah status is surfaced inside `/performance`, and worker/scheduled-task settings live under `/settings/automation`. `/providers` is retired and permanently redirects to `/settings/providers`.
+
 | Domain | Package owner | Route/page owner | Initial contract |
 |---|---|---|---|
-| Shariah status | `@owlfolio/ledger` | `/shariah` | Current status, latest evaluation, status-change history, source links. |
+| Command center | `@owlfolio/ledger` | `/` | Cross-domain home: workflow entry points and current portfolio/workflow state. |
+| Onboarding | `@owlfolio/shared` | `/onboarding` | Guided local setup; writes app config + ledger paths. |
+| Strategy | `@owlfolio/strategies` | `/strategy` | Buffett-Munger strategy overview and live valuation/sizing parameters. |
+| Learn | `@owlfolio/strategies` | `/learn` | Educational tabs explaining the strategy, valuation, and provider model. |
+| Research pipeline | `@owlfolio/workflow` | `/research`, `/research/new`, `/research/[caseId]` | Research case list, new-case intake, and the per-case decision dossier. |
+| Pipeline | `@owlfolio/workflow` | `/pipeline` | Cross-stage research/watchlist/holding pipeline view. |
+| Watchlist | `@owlfolio/workflow` | `/watchlist` | Admitted candidates with the frozen model-proposed buy-below and buy-zone status. |
+| Lifecycle | `@owlfolio/workflow` | `/lifecycle` | Held-name lifecycle: holdings, sell triggers, re-underwrite state. |
+| Portfolio | `@owlfolio/ledger` | `/portfolio` | Positions, investable capital, and portfolio composition. |
+| Performance | `@owlfolio/ledger` | `/performance` | Performance summary and Shariah status surfacing. |
+| Monthly accounting | `@owlfolio/ledger` | `/accounting/monthly` | Monthly snapshots, NAV, cash balance, position values, realized/unrealized summaries. |
 | Purification | `@owlfolio/ledger` | `/purification` | Obligations, payments, remaining owed, period/source linkage. |
-| Monthly accounting | `@owlfolio/ledger` | `/accounting` | Monthly snapshots, NAV, cash balance, position values, realized/unrealized summaries. |
-| Provider status | `@owlfolio/providers` | `/providers` | Catalog support level, readiness, latest provider runs, latest certification report. |
+| Calibration | `@owlfolio/strategies` | `/calibration` | Confidence-signal backtest, deployment-ratio metric, owner-curated universe, parameter version history. |
 | Audit trail | `@owlfolio/ledger` | `/audit` | Cross-domain ledger timeline with event IDs, actor, causation/correlation, and sources. |
-| Worker status | `@owlfolio/ledger` | `/worker` | Scheduled tasks, latest run state, failure summaries, next due time. |
+| Provider settings | `@owlfolio/providers` | `/settings/providers` | Catalog support level, readiness, latest provider runs, and per-provider trust/certification. |
+| Automation settings | `@owlfolio/ledger` | `/settings/automation` | Scheduled-task / worker configuration and run state. |
+| Data-safety settings | `@owlfolio/shared` | `/settings/data-safety` | Local data location, backup, and reset controls. |
 
 ## Downstream integration notes
 

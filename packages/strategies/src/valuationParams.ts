@@ -6,9 +6,11 @@
 // their constants from this object. Config changes are logged as `valuation_config` ledger events
 // (see valuationConfigEvent.ts).
 //
-// "Conservatism lives in ONE place per risk. Inputs honest; MOS absorbs estimation error. Decide
-// parameters by calibration backtest before go-live, then freeze." Post-go-live changes are
-// permitted only at the annual review with a backtest re-run attached (spec §3.4 anti-drift).
+// "Conservatism lives in ONE place per risk. Inputs honest; MOS absorbs estimation error." The
+// calibration backtest is a CONFIDENCE SIGNAL over these surviving params + the curated universe — a
+// reverse-DCF sanity spot-check, NOT a tune-then-freeze loop; it never parameter-fits to the backtest.
+// Any change is a separate, human-authored valuation_config ledger event (spec §3.4 anti-drift), never
+// an automated drift.
 
 /** OE normalization stance — trough reserved for true cyclicals flagged by the FINANCIAL_QUALITY lane. */
 export type OeNormalization = 'trough' | 'mid_cycle'

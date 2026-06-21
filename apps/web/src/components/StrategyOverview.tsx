@@ -507,9 +507,9 @@ export function StrategyOverview(): ReactNode {
         createElement('span', { style: goldText }, 'sustainable growth the model judges and cites'),
         '. If the price demands more than the business can durably deliver, it is expensive; if it demands less, there is room. That comparison — not a single computed number — is how cheapness is read. The ',
         createElement('span', { style: goldText }, 'forward two-stage discounted owner-earnings fair value is a LABELED REFERENCE cross-check'),
-        ', NOT the decision engine: a ten-year explicit window whose growth holds the judged rate for the early years then fades LINEARLY down to a small terminal rate over the trailing years, plus a perpetual terminal rate beyond it, all at a flat ',
+        ', NOT the decision engine: a ten-year explicit window whose growth holds the judged rate for the early years then fades LINEARLY down to a small terminal rate over the trailing years, plus a perpetual terminal rate beyond it, all at the same savings-anchored discount (the compliant savings rate + a uniform equity premium, ',
         createElement('span', { style: monoFigure }, pct(DISCOUNT)),
-        ' discount — no WACC, no beta, ever. The model proposes the valuation — the owner earnings, the sustainable growth it judges and WHY, the discount — with cited reasoning, and proposes the buy-below. A light deterministic sanity-check flags internal absurdity (an implied growth the history cannot support, terminal-value dominance, a multiple out of bounds); it never blocks the verdict. You audit the reasoning and decide.',
+        ' today) — no WACC, no beta, ever. The model proposes the valuation — the owner earnings, the sustainable growth it judges and WHY, the discount — with cited reasoning, and proposes the buy-below. A light deterministic sanity-check flags internal absurdity (an implied growth the history cannot support, terminal-value dominance, a multiple out of bounds); it never blocks the verdict. You audit the reasoning and decide.',
       ),
       children: createElement(
         'div',
@@ -692,13 +692,13 @@ export function StrategyOverview(): ReactNode {
           'p',
           { style: { ...bodyStyle, margin: 0 } },
           createElement('span', { style: goldText }, 'Cash is a first-class position. '),
-          `When nothing clears the deployment hurdle, idle capital stays in the Shariah-compliant Mudarabah savings sleeve — the CORRECT fat-pitch posture (waiting for the pitch), never under-deployment. The one savings rate does triple duty: the EXPECTED (not guaranteed) return on idle capital, the deployment-hurdle floor, and — later — the risk-free anchor.`,
+          `When nothing clears the deployment hurdle, idle capital stays in the Shariah-compliant Mudarabah savings sleeve — the CORRECT fat-pitch posture (waiting for the pitch), never under-deployment. The one savings rate does triple duty: the EXPECTED (not guaranteed) return on idle capital, the deployment-hurdle floor, and the discount's risk-free anchor.`,
         ),
-        // ANCHOR-SWAP-F2: discount anchor = Treasury + equity_premium today; F.2 swaps to savings_rate + equity_premium (deferred, blocked on the calibration cohort #124). The "— later — the risk-free anchor" / "anchor swap to this rate is deferred" copy below is the user-facing forward-reference to that swap; keep this token in CODE only, never in rendered text.
+        // ANCHOR-SWAP-F2 (SHIPPED): discount anchors on the compliant savings rate + equity_premium; Treasury retired. The savings rate IS the discount's risk-free anchor today (see discountRate() in @owlfolio/strategies). Keep this token in CODE only, never in rendered text.
         createElement(
           'p',
           { style: { ...microLabel, color: 'var(--owl-color-muted)', margin: 0 } },
-          'Advisory only — the sizing recommendation is an observation recomputed on-demand; you author and sign every buy. The reverse-DCF / fair-value anchor swap to this rate is deferred (not yet wired).',
+          'Advisory only — the sizing recommendation is an observation recomputed on-demand; you author and sign every buy. The discount already anchors on this savings rate (the compliant savings rate + the equity premium); the interest-bearing Treasury anchor is retired.',
         ),
       ),
     }),

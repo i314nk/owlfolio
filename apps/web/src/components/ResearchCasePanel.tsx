@@ -4,6 +4,7 @@ import type {
   ResearchCaseSellBiasCaveatProjection,
   ResearchCaseSellWorstCaseProjection,
 } from '@owlfolio/ledger/projections/researchCaseProjection'
+import { buffettMungerStrategy, discountRate } from '@owlfolio/strategies/buffettMunger'
 import { isDeepDiveComplete } from '@owlfolio/workflow/admitAssessment'
 
 import { resolveAdmissionThesisDraft, resolveBusinessFindings } from '../lib/checklistEvidence'
@@ -17,6 +18,11 @@ import { SourceChip } from './designSystem'
 import { StatusBadge } from './StatusBadge'
 import { WatchlistPromotionForm } from './WatchlistPromotionForm'
 import type { AppResearchCase, AppSourceEvidence, WorkflowMode } from '../lib/workflow'
+
+// Live default discount when an event predates a stored discount_rate: the savings-anchored default
+// (compliant savings rate + equity premium), computed from the versioned strategy contract — never a
+// hard-coded "10%". Mirrors how StrategyOverview/LearnTabs render the live discount.
+const DEFAULT_DISCOUNT_LABEL = `${Math.round(discountRate(buffettMungerStrategy) * 100)}%`
 
 export type MarketQuote = {
   price_per_share: number
@@ -1208,7 +1214,7 @@ function createValuationPanel(researchCase: AppResearchCase, marketQuote?: Marke
   const redTeamResponse = redTeam?.synthesis_response
   const redTeamUnaddressed = redTeam?.objection_unaddressed === true
 
-  const discountLabel = discountRateVal !== undefined ? `${Math.round(discountRateVal * 100)}%` : '10%'
+  const discountLabel = discountRateVal !== undefined ? `${Math.round(discountRateVal * 100)}%` : DEFAULT_DISCOUNT_LABEL
   const moatLabel = `${moatClass.toUpperCase()} MOAT · ${discountLabel} DISCOUNT`
 
   // Judged-growth label: the model's judged sustainable g (early years) fading to terminal g_t. growth_rate
@@ -1781,10 +1787,10 @@ function valuationProvenanceNote(researchCase: AppResearchCase): string | undefi
 function createFallbackValuationText(researchCase: AppResearchCase): string {
   const valuation = researchCase.valuation
   if (valuation?.buy_price_per_share !== undefined) {
-    const discount = valuation.discount_rate !== undefined ? `${Math.round(valuation.discount_rate * 100)}%` : '10%'
+    const discount = valuation.discount_rate !== undefined ? `${Math.round(valuation.discount_rate * 100)}%` : DEFAULT_DISCOUNT_LABEL
     // Buy-below is the model-proposed price-to-buy-below carried with its cited reasoning (not a derived haircut).
     const fair = valuation.fair_value_per_share !== undefined ? `fair value $${valuation.fair_value_per_share.toFixed(2)} → ` : ''
-    return `${fair}buy below $${valuation.buy_price_per_share}/sh · ${discount} flat discount. Quality is not in question; price is.`
+    return `${fair}buy below $${valuation.buy_price_per_share}/sh · ${discount} savings-anchored discount. Quality is not in question; price is.`
   }
   if (researchCase.owner_earnings_valuation !== undefined) {
     return researchCase.owner_earnings_valuation.summary
