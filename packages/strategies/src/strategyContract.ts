@@ -1,5 +1,10 @@
 import { z } from 'zod'
 
+// Re-export the derived engine-version marker from the package index so apps/web + @owlfolio/workflow can
+// import the single source of truth for the current reasoning vintage (see engineVersion.ts for why it is
+// derived rather than hand-bumped).
+export { ENGINE_VERSION } from './engineVersion'
+
 export const strategyMetadataSchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1),

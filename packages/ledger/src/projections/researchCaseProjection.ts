@@ -160,6 +160,14 @@ export type ResearchCaseJudgmentAxisProjection = {
 
 export type ResearchCaseJudgmentProjection = {
   rubric_version?: string
+  /**
+   * Engine-version marker — the run's reasoning vintage, derived from the methodology versions and stamped
+   * at analysis time. Legacy-tolerant: absent on pre-versioning events (projects to undefined, NOT a
+   * current-engine default), so a stale run is surfaced rather than silently trusted.
+   */
+  engine_version?: string
+  /** Best-effort engine git commit provenance; present only when stamped (OWLFOLIO_ENGINE_COMMIT). */
+  engine_commit?: string
   moat?: ResearchCaseJudgmentAxisProjection
   runway?: ResearchCaseJudgmentAxisProjection
 }
@@ -991,6 +999,11 @@ function getJudgment(valuation: Record<string, unknown>): ResearchCaseJudgmentPr
   const projected: ResearchCaseJudgmentProjection = {}
   const rubric_version = getString(value, 'rubric_version')
   if (rubric_version !== undefined) projected.rubric_version = rubric_version
+  // Engine-version marker (legacy-tolerant: absent → undefined, never a current-engine default).
+  const engine_version = getString(value, 'engine_version')
+  if (engine_version !== undefined) projected.engine_version = engine_version
+  const engine_commit = getString(value, 'engine_commit')
+  if (engine_commit !== undefined) projected.engine_commit = engine_commit
   const moat = getJudgmentAxis(value['moat'])
   if (moat !== undefined) projected.moat = moat
   const runway = getJudgmentAxis(value['runway'])

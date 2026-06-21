@@ -1,3 +1,4 @@
+import { ENGINE_VERSION } from '@owlfolio/strategies/engineVersion'
 import { JUDGMENT_RUBRICS, type RubricTier } from '@owlfolio/strategies/judgmentRubrics'
 import {
   computeMoatAnchor,
@@ -522,8 +523,19 @@ type JudgmentAxisProjection = {
 
 type JudgmentProjection = {
   rubric_version: string
+  /** Composite engine-version marker (derived from the methodology versions) — the run's reasoning vintage. */
+  engine_version: string
+  /** Best-effort provenance: the engine git commit, ONLY when OWLFOLIO_ENGINE_COMMIT is set+nonempty. */
+  engine_commit?: string
   moat?: JudgmentAxisProjection
   runway?: JudgmentAxisProjection
+}
+
+// Best-effort engine-commit provenance: read ONLY from the env var (never shell out to git). Omitted when
+// the var is unset or empty so legacy/local runs simply carry no commit field.
+function resolveEngineCommit(): string | undefined {
+  const commit = process.env.OWLFOLIO_ENGINE_COMMIT
+  return commit !== undefined && commit.trim() !== '' ? commit.trim() : undefined
 }
 
 /** Build the serializable judgment-layer projection (rubric scores + anchor-vs-proposed) for the dossier. */
@@ -570,8 +582,12 @@ export function buildJudgmentProjection(judgment: JudgmentResolution): JudgmentP
   const moat = axis(judgment.moat)
   const runway = axis(judgment.runway)
   if (moat === undefined && runway === undefined) return undefined
+  const engineCommit = resolveEngineCommit()
   return {
     rubric_version: JUDGMENT_RUBRICS.version,
+    // Engine-version marker: stamps the run's reasoning vintage so the dossier can flag stale runs.
+    engine_version: ENGINE_VERSION,
+    ...(engineCommit === undefined ? {} : { engine_commit: engineCommit }),
     ...(moat === undefined ? {} : { moat }),
     ...(runway === undefined ? {} : { runway }),
   }

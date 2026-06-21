@@ -32,6 +32,7 @@
     "./reverseDcf": "./src/reverseDcf.ts",
     "./valuationSensitivity": "./src/valuationSensitivity.ts",
     "./judgmentRubrics": "./src/judgmentRubrics.ts",
+    "./engineVersion": "./src/engineVersion.ts",
     "./modelRegistry": "./src/modelRegistry.ts",
     "./autoTierAssignment": "./src/autoTierAssignment.ts",
     "./modelRoleEnvFile": "./src/modelRoleEnvFile.ts",

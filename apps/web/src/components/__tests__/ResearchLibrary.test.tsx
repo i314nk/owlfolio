@@ -3,6 +3,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 
 import type { ResearchCaseProjection } from '@owlfolio/ledger/projections/researchCaseProjection'
+import { ENGINE_VERSION } from '@owlfolio/strategies/engineVersion'
 
 import { ResearchLibrary } from '../ResearchLibrary'
 
@@ -140,5 +141,41 @@ describe('ResearchLibrary', () => {
     expect(html).toContain('href="/research/rc_nvda_v2"')
     expect(html).not.toContain('href="/research/rc_nvda_v1"')
     expect(html).toContain('v2')
+  })
+
+  it('flags an older-engine run with a compact chip, and not current/pre-versioning runs', () => {
+    const html = renderToStaticMarkup(
+      createElement(ResearchLibrary, {
+        mode: 'personal-local',
+        selectedStrategyLabel: 'Selected strategy: buffett-munger',
+        cases: [
+          researchCase({
+            research_case_id: 'rc_older',
+            ticker: 'OLD',
+            stage: 'decision_drafted',
+            decision: 'WATCH',
+            valuation: { judgment: { engine_version: 'engine-old/old' } },
+          }),
+          researchCase({
+            research_case_id: 'rc_current',
+            ticker: 'CUR',
+            stage: 'decision_drafted',
+            decision: 'BUY',
+            valuation: { judgment: { engine_version: ENGINE_VERSION } },
+          }),
+          researchCase({
+            research_case_id: 'rc_legacy',
+            ticker: 'LEG',
+            stage: 'decision_drafted',
+            decision: 'PASS',
+          }),
+        ],
+      }),
+    )
+
+    // The older run is visibly flagged; current + pre-versioning runs are not.
+    expect(html).toContain('data-testid="older-engine-chip"')
+    expect(html).toContain('older engine')
+    expect((html.match(/older-engine-chip/g) ?? []).length).toBe(1)
   })
 })

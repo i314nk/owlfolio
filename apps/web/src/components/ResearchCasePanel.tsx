@@ -5,6 +5,7 @@ import type {
   ResearchCaseSellWorstCaseProjection,
 } from '@owlfolio/ledger/projections/researchCaseProjection'
 import { buffettMungerStrategy, discountRate } from '@owlfolio/strategies/buffettMunger'
+import { ENGINE_VERSION } from '@owlfolio/strategies/engineVersion'
 import { isDeepDiveComplete } from '@owlfolio/workflow/admitAssessment'
 
 import { resolveAdmissionThesisDraft, resolveBusinessFindings } from '../lib/checklistEvidence'
@@ -727,16 +728,22 @@ function createVerdictHero(researchCase: AppResearchCase) {
       'div',
       { style: { alignItems: 'baseline', display: 'flex', gap: '0.75rem', justifyContent: 'space-between', flexWrap: 'wrap' } },
       createElement('p', { className: 'owl-section-accent' }, 'Research dossier'),
-      versionBadge === null ? null : createElement(
-        'span',
-        {
-          style: {
-            color: 'var(--owl-color-quiet)',
-            fontFamily: 'var(--owl-font-mono)',
-            fontSize: 'var(--owl-text-xs)',
+      // version badge stacked above the engine-version marker (the reasoning-vintage stamp).
+      createElement(
+        'div',
+        { style: { alignItems: 'flex-end', display: 'flex', flexDirection: 'column', gap: '0.2rem', textAlign: 'right' } },
+        versionBadge === null ? null : createElement(
+          'span',
+          {
+            style: {
+              color: 'var(--owl-color-quiet)',
+              fontFamily: 'var(--owl-font-mono)',
+              fontSize: 'var(--owl-text-xs)',
+            },
           },
-        },
-        versionBadge,
+          versionBadge,
+        ),
+        buildEngineVersionMarker(researchCase),
       ),
     ),
     // Ticker (serif page title — the briefing's subject)
@@ -828,6 +835,63 @@ function buildVersionBadge(researchCase: AppResearchCase): string | null {
   if (researchCase.superseded) return `v${researchCase.version} · superseded`
   if (researchCase.supersedes_research_case_id !== undefined) return `v${researchCase.version} · superseded v${researchCase.version - 1}`
   return `v${researchCase.version}`
+}
+
+// Engine-version marker — the at-a-glance reasoning-vintage stamp (the POOL episode). Three states:
+//   - present + EQUALS the current ENGINE_VERSION → calm/muted "Engine {v} · generated {date}".
+//   - present + DIFFERS from current → same marker PLUS a subtle amber "may use older methodology" caution.
+//   - ABSENT → "Engine version unknown · pre-versioning" (muted — must NOT imply current).
+// Optional "· commit {short}" appended when engine_commit was stamped. Mirrors the dossier's existing mono/
+// muted provenance idioms (owl-font-mono, owl-text-2xs, owl-color-quiet/muted, gold-bright caution tone).
+function buildEngineVersionMarker(researchCase: AppResearchCase): ReactNode {
+  const engineVersion = researchCase.valuation?.judgment?.engine_version
+  const engineCommit = researchCase.valuation?.judgment?.engine_commit
+  const generatedDate = researchCase.updated_at === undefined
+    ? undefined
+    : new Date(researchCase.updated_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+  const commitSuffix = engineCommit === undefined ? '' : ` · commit ${engineCommit.slice(0, 7)}`
+
+  const baseStyle = {
+    color: 'var(--owl-color-quiet)',
+    fontFamily: 'var(--owl-font-mono)',
+    fontSize: 'var(--owl-text-2xs)',
+  } as const
+
+  if (engineVersion === undefined) {
+    return createElement(
+      'span',
+      { 'data-testid': 'engine-version-marker', style: baseStyle },
+      `Engine version unknown · pre-versioning${commitSuffix}`,
+    )
+  }
+
+  const isCurrent = engineVersion === ENGINE_VERSION
+  const generatedSuffix = generatedDate === undefined ? '' : ` · generated ${generatedDate}`
+  const marker = createElement(
+    'span',
+    { 'data-testid': 'engine-version-marker', style: baseStyle },
+    `Engine ${engineVersion}${generatedSuffix}${commitSuffix}`,
+  )
+  if (isCurrent) return marker
+
+  // Older engine: same calm marker PLUS a subtle amber caution in the dossier's existing risk tone.
+  return createElement(
+    'span',
+    { style: { alignItems: 'baseline', display: 'inline-flex', flexWrap: 'wrap', gap: '0.35rem' } },
+    marker,
+    createElement(
+      'span',
+      {
+        'data-testid': 'engine-version-older',
+        style: {
+          color: 'var(--owl-color-gold-bright)',
+          fontFamily: 'var(--owl-font-mono)',
+          fontSize: 'var(--owl-text-2xs)',
+        },
+      },
+      '· may use older methodology',
+    ),
+  )
 }
 
 function resolveVerdictColors(verdict: string): { bg: string; border: string; text: string } {
