@@ -41,6 +41,8 @@ const repoRoot = join(here, '..', '..', '..', '..')
 
 const ARCH_DIR = join(repoRoot, 'docs', 'architecture')
 const COMPONENTS_DIR = join(repoRoot, 'apps', 'web', 'src', 'components')
+const WEB_LIB_DIR = join(repoRoot, 'apps', 'web', 'src', 'lib')
+const STRATEGIES_SRC_DIR = join(repoRoot, 'packages', 'strategies', 'src')
 
 /** The living copy/doc surfaces the consistency guarantee covers, by repo-relative path. */
 const SCAN_SET: string[] = [
@@ -57,6 +59,32 @@ const SCAN_SET: string[] = [
   'apps/web/src/components/WatchlistPanel.tsx',
   'apps/web/src/components/PipelineObservatory.tsx',
   'apps/web/src/components/PerformancePanel.tsx',
+  // F.2 discount-anchor swap (savings-rate-anchored discount; Treasury retired). The Calibration desk
+  // copy described the discount/anti-drift framing that the F.2 fix corrected, so it joins the guarded
+  // copy surfaces. It is an app component, so it resolves through the same `apps/web/src/components/`
+  // branch of readScanned() as StrategyOverview/LearnTabs.
+  'apps/web/src/components/CalibrationPanel.tsx',
+]
+
+/**
+ * F.2 discount-anchor scan scope (the savings-anchored-discount guard, below). The retired stale-discount
+ * copy ("flat 8% discount", "constitutional 10%", Treasury-as-the-live-anchor, "falling rates never lower
+ * it") slipped through because (a) no discount/flat-rate patterns existed AND (b) the discount-copy
+ * surfaces were not all scanned. The corrected copy now lives across the UI components in SCAN_SET PLUS the
+ * `apps/web/src/lib/` calibration writer and the `packages/strategies/src/` valuation engine/params — roots
+ * the base SCAN_SET resolver (readScanned) reaches now that it handles those two extra roots. These paths
+ * carry the F.2 discount framing (or its retirement negations) and are scanned ONLY by the discount
+ * patterns via their `scan` override, so the engine math doc / other surfaces are not over-scanned.
+ */
+const DISCOUNT_SCAN_SET: string[] = [
+  'apps/web/src/components/StrategyOverview.tsx',
+  'apps/web/src/components/LearnTabs.tsx',
+  'apps/web/src/components/ResearchCasePanel.tsx',
+  'apps/web/src/components/CalibrationPanel.tsx',
+  'apps/web/src/lib/calibrationActions.ts',
+  'packages/strategies/src/valuationConfigEvent.ts',
+  'packages/strategies/src/buffettMunger.ts',
+  'packages/strategies/src/valuationParams.ts',
 ]
 
 /** A SUPERSEDED term + the (file → verbatim-snippet) references that legitimately describe it as RETIRED. */
@@ -248,12 +276,87 @@ const SUPERSEDED_PATTERNS: SupersededPattern[] = [
   //     competence — set aside, not failed"). Banning "circle" would trip that legitimate current copy; the
   //     model-judges-the-circle positive-assertion tests guard the retired "model never decides your circle"
   //     framing instead.
+  //
+  // ─── F.2 cohesion sweep: the RETIRED stale-DISCOUNT-rate framing (the discount-lie class) ──────────────
+  //
+  // WHY THIS CLASS EXISTS: the stale discount copy ("flat 8% discount", "constitutional 10%",
+  // Treasury-as-the-live-anchor, "falling rates never lower it") slipped through because (a) no discount /
+  // flat-rate patterns existed here AND (b) CalibrationPanel + the lib/strategies discount surfaces were not
+  // scanned. F.2 swapped the anchor to the COMPLIANT SAVINGS RATE + a uniform equity premium (≈7.5% default,
+  // ≈8% rounded in copy), uniform across businesses, tracking the owner's savings rate; Treasury is retired.
+  // The copy is now fixed (commits 0073cab / f25c58d) — these patterns LOCK it. Each is scoped to
+  // DISCOUNT_SCAN_SET (the UI copy + CalibrationPanel + the web-lib calibration writer + the strategies
+  // engine/params), NOT the math doc, so the live numeric `pct(discountRate(...))` renders and the
+  // dotted-path code identifiers are not over-scanned.
+  {
+    // Flat / constant discount as the framing (a flat N% discount/hurdle, or "falling rates never lower it").
+    // Targets "flat <pct?> discount/hurdle" so it CATCHES "all at a flat 8% discount" and the bare "Flat
+    // discount" eyebrow, but spares the live numeric renders (which are `pct(discountRate(...))`, no "flat").
+    label: 'flat/constant discount — retired; the discount is a savings-anchored rate, not a flat hurdle (F.2)',
+    pattern: /flat\s+(?:\d+\s*%\s+)?(?:discount|hurdle)|falling rates never lower it/i,
+    scan: DISCOUNT_SCAN_SET,
+    allow: [],
+  },
+  {
+    // Constitutional / flat 10% discount: the old "constitutional 10% discount rate" framing. PRECISE — it
+    // requires a 10% ADJACENT to discount/hurdle (or the "constitutional N%" phrase), so it does NOT trip on
+    // unrelated 10%s: the ResearchCasePanel "incremental ROIC … > 10%" eligibility figure, the LearnTabs
+    // "T2 (−10%)" tranche trigger, or the StrategyOverview "−10% \"discount\"" stale-buy-price aside (the
+    // quote mark breaks the `10% discount` adjacency).
+    label: 'constitutional / flat 10% discount — retired; no constitutional 10% hurdle (F.2)',
+    pattern: /constitutional\s+\d+\s*%|\b10\s*%\s+(?:flat\s+)?(?:discount|hurdle)|(?:discount|hurdle)\s+(?:rate\s+)?(?:of\s+)?10\s*%/i,
+    scan: DISCOUNT_SCAN_SET,
+    allow: [],
+  },
+  {
+    // Treasury AS the live discount anchor (the old "Treasury + equity_premium today" framing). PRECISE — it
+    // requires "Treasury/Treasuries" within 40 non-period chars of "+", "plus", "anchor", or "discount", so a
+    // blunt /treasury/ flood is avoided. The two CURRENT references that match are the F.2 retirement
+    // NEGATIONS ("Treasury anchor is RETIRED" / "Treasury anchor is retired"); they are allow-listed verbatim
+    // so the term is permitted in those retirement phrasings but a NEW Treasury-as-live-anchor usage trips.
+    // The other Treasury mentions (", which is retired", "(retired)", "Treasury retired.", "treasury_default")
+    // do not pair Treasury with +/anchor/discount within the window, so they never match.
+    label: 'Treasury as the live discount anchor — retired; the anchor is the compliant savings rate (F.2)',
+    pattern: /treasur(?:y|ies)[^.]{0,40}(?:\+|plus|anchor|discount)/i,
+    scan: DISCOUNT_SCAN_SET,
+    allow: [
+      {
+        file: 'packages/strategies/src/valuationParams.ts',
+        snippet: 'Treasury anchor is RETIRED',
+        reason: 'valuationParams ANCHOR-SWAP-F2 comment names the Treasury anchor to say it is RETIRED (negation).',
+      },
+      {
+        file: 'apps/web/src/components/StrategyOverview.tsx',
+        snippet: 'Treasury anchor is retired',
+        reason: 'StrategyOverview F.2 prose states the interest-bearing Treasury anchor is retired (negation).',
+      },
+    ],
+  },
+  {
+    // Old equity-bond valuation framing (a different, retired comparison). No current discount surface uses
+    // it; banning it locks the framing out of the scanned copy. No allow entries needed.
+    label: 'equity-bond valuation framing — retired (F.2)',
+    pattern: /equity[-\s]?bond/i,
+    scan: DISCOUNT_SCAN_SET,
+    allow: [],
+  },
 ]
 
 function readScanned(file: string): string {
-  const abs = file.startsWith('docs/architecture/')
-    ? join(ARCH_DIR, file.slice('docs/architecture/'.length))
-    : join(COMPONENTS_DIR, file.slice('apps/web/src/components/'.length))
+  // Resolve the repo-relative path against its root. The base set is arch docs + web components; the F.2
+  // discount guard additionally reaches the web lib (calibration writer) and the strategies engine/params.
+  let abs: string
+  if (file.startsWith('docs/architecture/')) {
+    abs = join(ARCH_DIR, file.slice('docs/architecture/'.length))
+  } else if (file.startsWith('apps/web/src/components/')) {
+    abs = join(COMPONENTS_DIR, file.slice('apps/web/src/components/'.length))
+  } else if (file.startsWith('apps/web/src/lib/')) {
+    abs = join(WEB_LIB_DIR, file.slice('apps/web/src/lib/'.length))
+  } else if (file.startsWith('packages/strategies/src/')) {
+    abs = join(STRATEGIES_SRC_DIR, file.slice('packages/strategies/src/'.length))
+  } else {
+    throw new Error(`readScanned: no resolver root for ${file}`)
+  }
   return readFileSync(abs, 'utf8')
 }
 
