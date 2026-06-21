@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buffettMungerStrategy, discountRate, marginOfSafetyForMoat, moatPassesGate, targetWeightForMoatClass } from '../buffettMunger'
+import { buffettMungerStrategy, discountRate, moatPassesGate, targetWeightForMoatClass } from '../buffettMunger'
 import { evaluateGates } from '../evaluateGates'
 
 describe('Buffett-Munger default strategy (Design B: 4-class, flat discount, UNIFORM valuation params — F.13)', () => {
@@ -22,16 +22,6 @@ describe('Buffett-Munger default strategy (Design B: 4-class, flat discount, UNI
 
   it('discountRate returns flat 0.10 for all investable classes', () => {
     expect(discountRate(buffettMungerStrategy)).toBe(0.10)
-  })
-
-  it('marginOfSafetyForMoat returns the uniform base MoS for every investable class (F.13)', () => {
-    expect(marginOfSafetyForMoat(buffettMungerStrategy, 'wide')).toBe(0.25)
-    expect(marginOfSafetyForMoat(buffettMungerStrategy, 'monopoly')).toBe(0.25)
-  })
-
-  it('marginOfSafetyForMoat throws for non-investable moat classes (narrow, moderate)', () => {
-    expect(() => marginOfSafetyForMoat(buffettMungerStrategy, 'narrow')).toThrow()
-    expect(() => marginOfSafetyForMoat(buffettMungerStrategy, 'moderate')).toThrow()
   })
 
   it('moatPassesGate: wide/monopoly pass; narrow/moderate reject; no inevitable tier', () => {
@@ -91,11 +81,6 @@ describe('Buffett-Munger two-stage DCF (incremental-ROIC banded g)', () => {
   it('flat 10% discount for all investable classes — wide and monopoly use the same rate', () => {
     expect(discountRate(buffettMungerStrategy)).toBe(0.10)
     expect(discountRate(buffettMungerStrategy)).toBe(discountRate(buffettMungerStrategy))
-  })
-
-  it('marginOfSafetyForMoat: uniform 25% base for every investable class (F.13)', () => {
-    expect(marginOfSafetyForMoat(buffettMungerStrategy, 'monopoly')).toBe(0.25)
-    expect(marginOfSafetyForMoat(buffettMungerStrategy, 'wide')).toBe(0.25)
   })
 
   it('signed ΔWC in OE bridge: negative WC change adds to OE', () => {

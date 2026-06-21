@@ -3,12 +3,10 @@ import {
   buffettMungerStrategy,
   creditedGrowth,
   discountRate,
-  marginOfSafetyForMoat,
   stage1HorizonForMoat,
   terminalGrowthForMoat,
   twoStageValuation,
   twoStageFairValuePerShare,
-  widenedMarginOfSafety,
 } from '../buffettMunger'
 import { VALUATION_PARAMS } from '../valuationParams'
 
@@ -119,16 +117,10 @@ describe('Part-D conformance: F.13 — uniform valuation params (no per-moat loo
     expect(stage1HorizonForMoat(strat, 'wide')).toBe(VALUATION_PARAMS.stage1_horizon)
   })
 
-  it('marginOfSafetyForMoat returns the SAME value for wide and monopoly (uniform post-F.13)', () => {
-    // F.13 / Part D Step 6: a monopoly is a durability signal, NOT a license to lower the safety margin.
-    expect(marginOfSafetyForMoat(strat, 'wide')).toBe(marginOfSafetyForMoat(strat, 'monopoly'))
-    expect(marginOfSafetyForMoat(strat, 'wide')).toBe(VALUATION_PARAMS.base_margin_of_safety)
-  })
-
   it('each per-moat lookup still THROWS for non-investable moats (narrow, moderate)', () => {
     // F.13: uniform params loosen NOTHING — the investability gate is unchanged; non-investable moats
     // never reach valuation.
-    for (const fn of [terminalGrowthForMoat, stage1HorizonForMoat, marginOfSafetyForMoat]) {
+    for (const fn of [terminalGrowthForMoat, stage1HorizonForMoat]) {
       expect(() => fn(strat, 'narrow')).toThrow()
       expect(() => fn(strat, 'moderate')).toThrow()
     }
@@ -161,52 +153,6 @@ describe('Part-D conformance: Step 4 — terminal-value share is surfaced + feed
     // Low discount headroom over terminal g + low near-term g pushes most of IV into the terminal block.
     const r = twoStageValuation({ oe_ps: 100, g: 0.02, terminal_g: 0.025, discount: 0.06, ceiling_multiple: 1e9, horizon: 10 })
     expect(r.terminal_value_pct_of_iv).toBeGreaterThan(VALUATION_PARAMS.terminal_value_share_flag)
-  })
-
-  it('widenedMarginOfSafety adds high_terminal_value_share when TV share exceeds the flag', () => {
-    // Part D Step 4 → Step 6: a high terminal-value share WIDENS the single end-stage MoS.
-    const lo = widenedMarginOfSafety(strat, { moat_class: 'wide', terminal_value_pct_of_iv: VALUATION_PARAMS.terminal_value_share_flag - 0.05 })
-    const hi = widenedMarginOfSafety(strat, { moat_class: 'wide', terminal_value_pct_of_iv: VALUATION_PARAMS.terminal_value_share_flag + 0.10 })
-    expect(lo.margin_of_safety).toBeCloseTo(VALUATION_PARAMS.base_margin_of_safety, 10)
-    expect(hi.margin_of_safety).toBeCloseTo(
-      VALUATION_PARAMS.base_margin_of_safety + VALUATION_PARAMS.margin_of_safety_widening.high_terminal_value_share,
-      10,
-    )
-    expect(hi.widening_reasons.join(' ')).toMatch(/terminal/i)
-  })
-})
-
-describe('Part-D conformance: Step 6 — ONE end-stage MoS that starts at the uniform base and widens', () => {
-  it('starts from the uniform base_margin_of_safety with no widening inputs', () => {
-    // Part D Step 6: the ONLY conservatism knob — one number, visible, tunable.
-    const r = widenedMarginOfSafety(strat, { moat_class: 'wide' })
-    expect(r.margin_of_safety).toBeCloseTo(VALUATION_PARAMS.base_margin_of_safety, 10)
-    expect(r.base).toBeCloseTo(VALUATION_PARAMS.base_margin_of_safety, 10)
-    expect(r.widened).toBe(false)
-  })
-
-  it('widens with EACH documented uncertainty (TV share, low maint-capex conf, weak moat, dispersion)', () => {
-    // Part D Step 6: the MoS widens with higher TV share, wider dispersion, lower maint-capex confidence,
-    // weaker moat durability (above-GDP growth). Each input must independently lift the knob.
-    const base = VALUATION_PARAMS.base_margin_of_safety
-    expect(widenedMarginOfSafety(strat, { moat_class: 'wide', terminal_value_pct_of_iv: 0.90 }).margin_of_safety).toBeGreaterThan(base)
-    expect(widenedMarginOfSafety(strat, { moat_class: 'wide', low_maint_capex_confidence: true }).margin_of_safety).toBeGreaterThan(base)
-    expect(widenedMarginOfSafety(strat, { moat_class: 'wide', weak_moat_durability: true }).margin_of_safety).toBeGreaterThan(base)
-    expect(widenedMarginOfSafety(strat, { moat_class: 'wide', sensitivity_dispersion: 0.8 }).margin_of_safety).toBeGreaterThan(base)
-  })
-
-  it('the widened MoS is CLAMPED at the cap (~0.50)', () => {
-    // Part D Step 6: all conservatism beyond honest inputs lives in this one clamped knob (five small
-    // multiplying haircuts are exactly what the method forbids).
-    const r = widenedMarginOfSafety(strat, {
-      moat_class: 'wide',
-      terminal_value_pct_of_iv: 0.95,
-      low_maint_capex_confidence: true,
-      weak_moat_durability: true,
-      sensitivity_dispersion: 1,
-    })
-    expect(r.margin_of_safety).toBeLessThanOrEqual(VALUATION_PARAMS.margin_of_safety_widening.cap + 1e-9)
-    expect(r.margin_of_safety).toBeCloseTo(VALUATION_PARAMS.margin_of_safety_widening.cap, 10)
   })
 })
 

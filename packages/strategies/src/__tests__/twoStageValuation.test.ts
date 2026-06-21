@@ -4,7 +4,6 @@ import {
   twoStageFairValuePerShare,
   twoStageValuation,
   terminalGrowthForMoat,
-  marginOfSafetyForMoat,
   stage1HorizonForMoat,
 } from '../buffettMunger'
 
@@ -17,10 +16,8 @@ describe('Buffett-Munger two-stage DCF contract params', () => {
   })
 
   // F.13 — UNIFORM base MoS 25% for every investable moat (collapsed from the old monopoly/wide tier table).
-  it('uniform base MoS (F.13): 25% for wide and monopoly alike', () => {
+  it('uniform base MoS (F.13): 25%', () => {
     expect(buffettMungerStrategy.valuation.base_margin_of_safety).toBe(0.25)
-    expect(marginOfSafetyForMoat(buffettMungerStrategy, 'monopoly')).toBe(0.25)
-    expect(marginOfSafetyForMoat(buffettMungerStrategy, 'wide')).toBe(0.25)
   })
 
   // F.13 — UNIFORM terminal g 1.5% for every investable moat (collapsed to wide's value).
@@ -138,7 +135,7 @@ describe('Acceptance #1 — reference valuation regression (computed, not truste
       ceiling_multiple: buffettMungerStrategy.valuation.valuation_multiple_ceiling,
       horizon: stage1HorizonForMoat(buffettMungerStrategy, 'monopoly'),
     })
-    const mos = marginOfSafetyForMoat(buffettMungerStrategy, 'monopoly')
+    const mos = 0.25 // F.13 uniform base MoS (buffettMungerStrategy.valuation.base_margin_of_safety)
     const buy = fv * (1 - mos)
     // Pinned computed values (truth per spec §4 instruction); F.13 uniform params + Part D Step 2 fade.
     expect(fv).toBeCloseTo(1367.7824, 3)
@@ -157,7 +154,7 @@ describe('Acceptance #1 — reference valuation regression (computed, not truste
       ceiling_multiple: buffettMungerStrategy.valuation.valuation_multiple_ceiling,
       horizon: stage1HorizonForMoat(buffettMungerStrategy, 'wide'),
     })
-    const mos = marginOfSafetyForMoat(buffettMungerStrategy, 'wide')
+    const mos = 0.25 // F.13 uniform base MoS (buffettMungerStrategy.valuation.base_margin_of_safety)
     const buy = fv * (1 - mos)
     // Computed (Part D Step 2 fade, g 3% → 1.5%): stage1 703.4297 + terminal 592.1290 = 1295.5587
     // (implied 12.956×); buy @25% = 971.6690.

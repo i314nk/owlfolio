@@ -67,9 +67,8 @@ type SupersededPattern = {
   /**
    * Optional scan-scope override for THIS pattern (repo-relative paths). Used by the valuation-core
    * revision MoS-as-haircut / fair-value-range patterns, which are scoped to the USER-FACING UI COPY
-   * surfaces only: the architecture math doc legitimately still names the MoS engine + the
-   * `marginOfSafetyForMoat`/`widenedMarginOfSafety` functions (kept for the V8 backtest), so banning the
-   * term repo-wide would false-positive on that code reference. When omitted, the pattern scans SCAN_SET.
+   * surfaces only: the architecture math doc legitimately still names the MoS engine, so banning the
+   * term repo-wide would false-positive on that doc reference. When omitted, the pattern scans SCAN_SET.
    */
   scan?: string[]
 }
@@ -116,8 +115,9 @@ const SUPERSEDED_PATTERNS: SupersededPattern[] = [
   {
     // Valuation-core revision: the MoS-as-PRICE-HAIRCUT knob is retired. Conservatism is now the required
     // GROWTH GAP (growth-points). The legitimate survivors are NOT in the UI-copy scan scope: the
-    // qualitative `owner_earnings_valuation.margin_of_safety` lane string lives in ResearchCasePanel; the
-    // `widenedMarginOfSafety`/`marginOfSafetyForMoat` functions + the post-mortem field live in packages.
+    // qualitative `owner_earnings_valuation.margin_of_safety` lane string lives in ResearchCasePanel, and
+    // the post-mortem field lives in packages. (The `widenedMarginOfSafety`/`marginOfSafetyForMoat`
+    // functions were removed as dead code.)
     label: 'margin of safety as a PRICE haircut — retired; the model proposes a buy-below with cited reasoning (R1)',
     pattern: /margin of safety|\bMoS\b|fair[\s-]value range|provisional[\s-]*MoS/i,
     scan: UI_COPY_SCAN_SET,

@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest'
 import {
   creditedGrowth,
   twoStageValuation,
-  widenedMarginOfSafety,
   buffettMungerStrategy,
   terminalGrowthForMoat,
   stage1HorizonForMoat,
@@ -40,10 +39,14 @@ describe('over-optimism downside boundary (F.3 asymmetric stress — cap re-deri
         absurd_multiple: buffettMungerStrategy.valuation.fv_absurd_multiple,
         horizon: stage1HorizonForMoat(buffettMungerStrategy, moat),
       })
-      const w = widenedMarginOfSafety(buffettMungerStrategy, {
-        moat_class: moat, terminal_value_pct_of_iv: v.terminal_value_pct_of_iv, weak_moat_durability: true,
-      })
-      const buyMult = ((v.fair_value ?? 0) * (1 - w.margin_of_safety)) / oe_ps
+      // End-stage MoS: uniform base + the weak-moat-durability widening (above-GDP growth is a durability
+      // claim), plus the high-terminal-value-share increment when this faded FV's TV share exceeds the flag.
+      const widening = VALUATION_PARAMS.margin_of_safety_widening
+      const tvShare = v.terminal_value_pct_of_iv ?? 0
+      const mos = VALUATION_PARAMS.base_margin_of_safety
+        + widening.weak_moat_durability
+        + (tvShare > VALUATION_PARAMS.terminal_value_share_flag ? widening.high_terminal_value_share : 0)
+      const buyMult = ((v.fair_value ?? 0) * (1 - mos)) / oe_ps
       // At cap 0.15 the over-optimistic 35% input (capped to 15%) lands at a defensible buy-below: the faded
       // FV is ≈ 24.6× OE and the above-GDP-widened MoS (0.25 base + 0.10 weak-durability = 0.35) gives a
       // buy-multiple ≈ 16× OE — far below the ~29×/62× the old flat 0.20 path produced. The cap + the Part D
