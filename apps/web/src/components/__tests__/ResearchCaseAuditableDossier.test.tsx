@@ -223,6 +223,27 @@ describe('ResearchCasePanel auditable dossier (R1)', () => {
     expect(html.indexOf('Margin of safety (joint)')).toBeLessThan(html.indexOf('Key-wrong assumption'))
   })
 
+  it('surfaces the price margin AND the moat-durability thesis side by side in the MoS region (neither buried)', () => {
+    const html = render({
+      ...baseCase(),
+      margin_of_safety_judgment: {
+        sources: ['price', 'moat'],
+        price_gap_reasoning: 'Price sits 25% below the model buy-below.',
+        moat_durability_reasoning: 'The grounded wide moat lets time bail out estimate error.',
+        adequacy: 'adequate',
+        reasoning: 'Price gap and grounded moat jointly supply an adequate margin.',
+      },
+    } as unknown as AppResearchCase, QUOTE)
+    // Both source columns are labelled and present in the joint MoS region.
+    expect(html).toContain('Price margin')
+    expect(html).toContain('Moat durability')
+    // Both per-source reasonings render (neither is buried).
+    expect(html).toContain('Price sits 25% below the model buy-below.')
+    expect(html).toContain('The grounded wide moat lets time bail out estimate error.')
+    // They appear side by side: the price column precedes the moat column in render order.
+    expect(html.indexOf('Price margin')).toBeLessThan(html.indexOf('Moat durability'))
+  })
+
   it('flags a MOAT-sourced margin visually (higher-stakes — scrutinize moat durability)', () => {
     const html = render({
       ...baseCase(),

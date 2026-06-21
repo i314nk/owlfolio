@@ -183,17 +183,21 @@ export function ResearchCasePanel({ researchCase, mode = 'demo', configuredProvi
     createVerdictHero(researchCase),
     // ── 1·circle. Circle-of-competence judgment (the grounded gate that admits/sets-aside the spend) ──
     createCircleCompetencePanel(researchCase),
-    // ── 1a. The full verdict format (organizes the spec's verdict fields) ────
-    createVerdictFormatBlock(researchCase),
     // ── 1b. What changed since last case (re-analysis diff) ──────────────────
     createReAnalysisDiffPanel(researchCase),
     // ── 1c. Exit post-mortem (predicted vs realized) ─────────────────────────
     createPostMortemPanel(researchCase),
     // ── 1d. Decision panel (R1): the model's verdict/valuation_status, the model-proposed buy-below +
-    //        in-buy-zone, and the flag-only sanity-check. Leads with what the human needs to decide. ──
+    //        in-buy-zone, and the flag-only sanity-check. The decision centerpiece. ──
     createDecisionPanel(researchCase, marketQuote),
-    // ── 2. Valuation panel — the reasoning to audit (cited reasoning, reference FV cross-check, etc.) ──
+    // ── 2. Valuation panel — the model thesis + cited reasoning (owner-earnings basis, judged growth +
+    //       rationale, discount), the reverse-DCF read (market-implied vs judged sustainable growth), the
+    //       two hidden assumptions the price bakes in (implied growth + implied exit multiple), the
+    //       reference FV cross-check, and the independent bear case (red-team). ──
     createValuationPanel(researchCase, marketQuote),
+    // ── 2a. Margin-of-safety audit — the synthesis-owned JOINT judgment (price margin + moat durability,
+    //        side by side), plus the key-wrong assumption + thesis-break triggers. ──
+    createMarginOfSafetyAuditBlock(researchCase),
     // ── 2b. Position plan (advisory) ─────────────────────────────────────────
     createPositionPlanPanel(positionPlan, promptForCapital),
     // ── 3. Four summary cards (always visible) ───────────────────────────────
@@ -322,7 +326,7 @@ function createPostMortemPanel(researchCase: AppResearchCase) {
       'div',
       { style: { display: 'grid', gap: '0.4rem' } },
       row('MOS protection', mosText),
-      row('Credited-g vs actual', gText),
+      row('Judged growth vs actual', gText),
       row('Which lane was most wrong', laneText),
       pm.holding_period_days === undefined ? null : row('Holding period', `${pm.holding_period_days} days`),
       pm.total_realized_pl === undefined ? null : row('Total realized P&L', `$${pm.total_realized_pl.toLocaleString('en-US')}`),
@@ -688,261 +692,9 @@ function createAwaitingDeepDiveDossier(researchCase: AppResearchCase) {
   )
 }
 
-// ── The full verdict format (UI-continuity-spec Rule 2: Case/verdict view) ────
-//
-// Organizes the spec's verdict format into one coherent block: tier + runway, OE + method, credited g →
-// terminal, implied multiple + market-implied g, buy price + buy_price_version, Shariah status +
-// purification %, the rubric scores + anchor-vs-proposed tier, key-wrong-assumption, thesis-break triggers,
-// and the red-team objection + response. The underlying detail still renders in the valuation / lanes
-// panels below; this block is the spec's organized verdict header. Absent fields render "Not yet
-// available" honestly (e.g. market-implied g if not computed, or a key-wrong-assumption not recorded).
-
-function verdictFormatLine(label: string, value: ReactNode) {
-  return createElement(
-    'div',
-    { key: label, style: { alignItems: 'baseline', display: 'flex', flexWrap: 'wrap', gap: '0.6rem', justifyContent: 'space-between', borderBottom: '1px solid rgba(148,163,184,0.1)', padding: '0.4rem 0' } },
-    createElement('span', { style: { color: 'var(--owl-color-muted)', fontWeight: 700, minWidth: '14rem' } }, label),
-    createElement('span', { style: { color: 'var(--owl-color-text)', textAlign: 'right' } }, value),
-  )
-}
+// ── Shared not-yet-available fallback (honest absent-field rendering) ──────────
 
 const NOT_YET = createElement('span', { style: { color: 'var(--owl-color-quiet)' } }, 'Not yet available')
-
-function createVerdictFormatBlock(researchCase: AppResearchCase) {
-  const valuation = researchCase.valuation
-  // Only render the organized verdict format once a deep-dive valuation exists (gated/awaiting states
-  // have their own dossiers handled above).
-  if (valuation === undefined) {
-    return null
-  }
-
-  const moatClass = valuation.moat_class
-  const runway = valuation.runway
-  const oe = valuation.normalized_owner_earnings_per_share
-  const g = valuation.growth_rate
-  const terminalG = valuation.terminal_growth_rate
-  const impliedMultiple = valuation.implied_multiple ?? valuation.verdict_state?.implied_multiple
-  const buyPrice = valuation.buy_price_per_share
-  const buyPriceVersion = (valuation as { buy_price_version?: string }).buy_price_version
-  // Phase 2: the fair-value RANGE + reverse-DCF market-implied growth (replaces the old NOT_YET stubs).
-  const fairValueRange = valuation.fair_value_range
-  const marketImpliedGrowth = valuation.market_implied_growth
-  const sf = researchCase.shariah_financial
-  const purificationPct = sf?.purification_pct
-
-  // B6: the MOAT is the model's GROUNDED CITED THESIS (cited advantages) — the EDGAR quant CORROBORATES.
-  // Show proposed → resolved class + the quant corroboration tier, then the cited moat_drivers (with their
-  // grounded flags, mirroring the circle gate) + an advisory flag when the quant contradicts the moat.
-  const moatJudgment = valuation.judgment?.moat
-  const anchorVsProposed = moatJudgment === undefined
-    ? NOT_YET
-    : createElement(
-        'span',
-        null,
-        `${(moatJudgment.proposed_tier ?? '—').toUpperCase()} proposed → ${(moatJudgment.resolved_tier ?? '—').toUpperCase()} resolved`
-        + ` · quant corroboration: ${(moatJudgment.anchor_tier ?? (moatJudgment.anchor_computable === false ? 'not computable' : '—')).toUpperCase()}`,
-      )
-  // The grounded cited moat thesis: each durable advantage + a cite-verified flag (mirror the circle gate).
-  const moatDrivers = moatJudgment?.moat_drivers
-  const moatDriverRow = (advantage: string, citation: string | undefined, grounded: boolean | undefined) =>
-    createElement(
-      'li',
-      { key: `${advantage}:${citation}`, style: { marginBottom: '0.25rem', fontSize: 'var(--owl-text-sm)', lineHeight: 1.5 } },
-      createElement('span', { style: { color: 'var(--owl-color-text)' } }, advantage),
-      createElement(
-        'span',
-        { style: { color: grounded ? 'var(--owl-color-muted)' : '#fca5a5', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-xs)', marginLeft: '0.5rem' } },
-        grounded ? `[cited: ${citation}]` : `[citation did not verify: ${citation}]`,
-      ),
-    )
-  const rubricSummary = moatDrivers === undefined || moatDrivers.length === 0
-    ? NOT_YET
-    : createElement(
-        'div',
-        null,
-        createElement('ul', { style: { margin: '0 0 0.25rem', paddingLeft: '1.1rem' } }, ...moatDrivers.map((d) => moatDriverRow(d.advantage ?? '', d.citation, d.grounded))),
-        moatJudgment?.quant_contradicts_moat === true
-          ? createElement('span', { style: { color: '#fbbf24', fontSize: 'var(--owl-text-xs)' } }, 'advisory: EDGAR quant is weak under this moat thesis (corroboration only — does not block)')
-          : null,
-      )
-
-  // Runway reframe: the RUNWAY is the model's GROUNDED CITED THESIS (cited reinvestment-headroom drivers) —
-  // the EDGAR incremental-ROIC quant CORROBORATES. Mirror the moat display: proposed → resolved + the quant
-  // corroboration tier, then the cited runway_drivers (with grounded flags) + an advisory contradiction flag.
-  // Runway is NOT a verdict gate, so the advisory flags never route to RESEARCH_MORE.
-  const runwayJudgment = valuation.judgment?.runway
-  const runwayProposedResolved = runwayJudgment === undefined
-    ? NOT_YET
-    : createElement(
-        'span',
-        null,
-        `${(runwayJudgment.proposed_tier ?? '—').toUpperCase()} proposed → ${(runwayJudgment.resolved_tier ?? '—').toUpperCase()} resolved`
-        + ` · quant corroboration: ${(runwayJudgment.anchor_tier ?? (runwayJudgment.anchor_computable === false ? 'not computable' : '—')).toUpperCase()}`,
-      )
-  const runwayDrivers = runwayJudgment?.runway_drivers
-  const runwayDriverRow = (headroom: string, citation: string | undefined, grounded: boolean | undefined) =>
-    createElement(
-      'li',
-      { key: `${headroom}:${citation}`, style: { marginBottom: '0.25rem', fontSize: 'var(--owl-text-sm)', lineHeight: 1.5 } },
-      createElement('span', { style: { color: 'var(--owl-color-text)' } }, headroom),
-      createElement(
-        'span',
-        { style: { color: grounded ? 'var(--owl-color-muted)' : '#fca5a5', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-xs)', marginLeft: '0.5rem' } },
-        grounded ? `[cited: ${citation}]` : `[citation did not verify: ${citation}]`,
-      ),
-    )
-  const runwayThesisSummary = runwayDrivers === undefined || runwayDrivers.length === 0
-    ? NOT_YET
-    : createElement(
-        'div',
-        null,
-        createElement('ul', { style: { margin: '0 0 0.25rem', paddingLeft: '1.1rem' } }, ...runwayDrivers.map((d) => runwayDriverRow(d.headroom ?? '', d.citation, d.grounded))),
-        runwayJudgment?.quant_contradicts_runway === true
-          ? createElement('span', { style: { color: '#fbbf24', fontSize: 'var(--owl-text-xs)' } }, 'advisory: EDGAR incremental-ROIC quant is weak under this runway thesis (corroboration only — does not block)')
-          : null,
-      )
-
-  // Red-team objection + response.
-  const redTeam = researchCase.red_team
-  const redTeamLine = redTeam === undefined
-    ? NOT_YET
-    : redTeam.status === 'red_team_incomplete'
-      ? createElement('span', { style: { color: '#fca5a5' } }, 'red_team_incomplete — case not adversarially tested')
-      : createElement('span', null, redTeam.strongest_objection?.claim ?? 'Objection recorded')
-
-  // Founding-risk fix: surface the synthesis own-grounding fail-closed near the verdict so an ungrounded
-  // verdict (routed to RESEARCH_MORE) is never silent. Grounded = a quiet OK; unmet = a visible red warning.
-  const synthesisGroundingLine = valuation.synthesis_grounding_unmet === true
-    ? createElement(
-        'span',
-        { style: { color: '#fca5a5' } },
-        'Synthesis valuation reasoning not grounded — re-run',
-      )
-    : createElement('span', { style: { color: 'var(--owl-color-muted)' } }, 'Grounded')
-
-  // Moat-gate fix: surface an UNGROUNDED moat claim (reached for wide+ without cite-verified support, or
-  // resolved holistically) near the verdict — it routed to RESEARCH_MORE, never silent. Same shape as above.
-  const moatGroundingLine = valuation.moat_grounding_unmet === true
-    ? createElement(
-        'span',
-        { style: { color: '#fca5a5' } },
-        'Moat claim not grounded (quant alone / holistic) — re-research',
-      )
-    : createElement('span', { style: { color: 'var(--owl-color-muted)' } }, 'Grounded')
-
-  // MARGIN-OF-SAFETY AUDIT SURFACE — the model's forward-looking risk judgments (what assumption, if
-  // wrong, breaks the thesis; what observable events would invalidate it). Prominent for the human to
-  // audit; NOT cite-gated. Absent (legacy / not produced) → honest NOT_YET fallback (no crash).
-  // MARGIN-OF-SAFETY JOINT JUDGMENT (synthesis-owned) — the HEADLINE of the MoS audit surface. The margin of
-  // safety rests on TWO SUBSTITUTABLE sources: the price-vs-value gap and moat durability. Show which
-  // source(s) it rests on, the per-source reasoning, and adequacy + reasoning. When it rests on 'moat' make
-  // that visually clear (a moat-sourced margin is higher-stakes — scrutinize moat durability). Guard 2: if
-  // the moat is claimed as a source on an ungrounded moat, surface the incoherence flag. Legacy/absent →
-  // graceful NOT_YET fallback.
-  const mosJudgment = researchCase.margin_of_safety_judgment
-  const mosMoatUngrounded = researchCase.margin_of_safety_moat_ungrounded === true
-  const marginOfSafetyJudgmentLine = mosJudgment === undefined
-    ? NOT_YET
-    : (() => {
-        const restsOnMoat = mosJudgment.sources.includes('moat')
-        const restsOnPrice = mosJudgment.sources.includes('price')
-        const sourcesLabel = mosJudgment.sources.map((s) => (s === 'moat' ? 'moat durability' : 'price gap')).join(' + ')
-        const adequacyColor = mosJudgment.adequacy === 'adequate'
-          ? 'var(--owl-color-positive, #4ade80)'
-          : mosJudgment.adequacy === 'thin'
-            ? '#fbbf24'
-            : '#fca5a5'
-        const children: ReactNode[] = [
-          createElement(
-            'div',
-            { key: 'mos-sources', style: { display: 'flex', flexWrap: 'wrap', gap: '0.4rem', alignItems: 'baseline', justifyContent: 'flex-end' } },
-            createElement('span', { style: { fontWeight: 700 } }, `Rests on: ${sourcesLabel}`),
-            restsOnMoat
-              ? createElement(
-                  'span',
-                  { 'data-testid': 'mos-moat-sourced', style: { fontSize: 'var(--owl-text-sm)', fontWeight: 700, color: '#fbbf24', border: '1px solid rgba(251,191,36,0.5)', borderRadius: '0.4rem', padding: '0.05rem 0.4rem' } },
-                  'MOAT-SOURCED — scrutinize moat durability',
-                )
-              : null,
-          ),
-          createElement(
-            'div',
-            { key: 'mos-adequacy', style: { color: adequacyColor, fontWeight: 700 } },
-            `Adequacy (audit-only, not a gate): ${mosJudgment.adequacy}`,
-          ),
-        ]
-        if (restsOnPrice && mosJudgment.price_gap_reasoning !== undefined) {
-          children.push(createElement('div', { key: 'mos-price', style: { color: 'var(--owl-color-muted)' } }, `Price gap: ${mosJudgment.price_gap_reasoning}`))
-        }
-        if (restsOnMoat && mosJudgment.moat_durability_reasoning !== undefined) {
-          children.push(createElement('div', { key: 'mos-moat', style: { color: 'var(--owl-color-muted)' } }, `Moat durability: ${mosJudgment.moat_durability_reasoning}`))
-        }
-        children.push(createElement('div', { key: 'mos-reasoning' }, mosJudgment.reasoning))
-        if (mosMoatUngrounded) {
-          children.push(createElement(
-            'div',
-            { 'data-testid': 'mos-moat-ungrounded', key: 'mos-ungrounded', style: { color: '#fca5a5', fontWeight: 700 } },
-            'Incoherent: margin claims a moat source but the moat is not grounded / did not pass the moat gate.',
-          ))
-        }
-        return createElement('div', { style: { display: 'flex', flexDirection: 'column', gap: '0.25rem', textAlign: 'right' } }, ...children)
-      })()
-
-  const keyWrongAssumption = researchCase.key_wrong_assumption
-  const keyWrongAssumptionLine = keyWrongAssumption === undefined || keyWrongAssumption.trim().length === 0
-    ? NOT_YET
-    : createElement('span', null, keyWrongAssumption)
-  const thesisBreakTriggers = researchCase.thesis_break_triggers
-  const thesisBreakTriggersLine = thesisBreakTriggers === undefined || thesisBreakTriggers.length === 0
-    ? NOT_YET
-    : createElement(
-        'ul',
-        { style: { margin: 0, paddingLeft: '1.1rem', textAlign: 'left' } },
-        ...thesisBreakTriggers.map((trigger, i) =>
-          createElement('li', { key: `tbt-${i}` }, trigger),
-        ),
-      )
-
-  const lines: ReactNode[] = [
-    verdictFormatLine('Tier + runway', moatClass === undefined ? NOT_YET : `${moatClass.toUpperCase()}${runway === undefined ? '' : ` · ${runway} runway`}`),
-    verdictFormatLine('Owner earnings + method', oe === undefined ? NOT_YET : `$${oe.toFixed(2)}/sh · two-stage discounted owner earnings`),
-    verdictFormatLine('Credited g → terminal', g === undefined ? NOT_YET : `${(g * 100).toFixed(1)}%${terminalG === undefined ? '' : ` → ${(terminalG * 100).toFixed(1)}% terminal`}`),
-    // Phase 2: lead with the fair-value RANGE (point FV is the base). Honest NOT_YET when not computable.
-    verdictFormatLine('Fair-value range', fairValueRange === undefined ? NOT_YET : fairValueRange),
-    verdictFormatLine('Implied multiple', impliedMultiple === undefined ? NOT_YET : `${impliedMultiple.toFixed(1)}× OE`),
-    // Phase 2: reverse-DCF market-implied growth vs ours. NOT_YET when no current price was available.
-    verdictFormatLine(
-      'Market-implied g',
-      marketImpliedGrowth === undefined
-        ? NOT_YET
-        : `${(marketImpliedGrowth * 100).toFixed(1)}%${g === undefined ? '' : ` vs our ${(g * 100).toFixed(1)}%`}`,
-    ),
-    verdictFormatLine('Buy price + version', buyPrice === undefined ? NOT_YET : `$${buyPrice}${buyPriceVersion === undefined ? ' (buy_price_version not recorded)' : ` (buy_price_version ${buyPriceVersion})`}`),
-    verdictFormatLine('Shariah + purification', researchCase.shariah_status === undefined ? NOT_YET : `${researchCase.shariah_status}${purificationPct === undefined ? '' : ` · purification ${(purificationPct * 100).toFixed(1)}%`}`),
-    verdictFormatLine('Moat class (quant corroborates)', anchorVsProposed),
-    verdictFormatLine('Grounded moat thesis', rubricSummary),
-    verdictFormatLine('Runway (quant corroborates)', runwayProposedResolved),
-    verdictFormatLine('Grounded runway thesis', runwayThesisSummary),
-    // MARGIN-OF-SAFETY AUDIT SURFACE — the model's forward-looking risk judgments (no longer hardcoded
-    // stubs). key_wrong_assumption as a line; thesis_break_triggers as a list. Legacy/absent → honest
-    // NOT_YET fallback (these are NOT cite-gated — they are the model's risk reasoning for the human).
-    // MARGIN-OF-SAFETY JOINT JUDGMENT — the HEADLINE of the MoS audit surface, ABOVE key-wrong/thesis-break.
-    verdictFormatLine('Margin of safety (joint)', marginOfSafetyJudgmentLine),
-    verdictFormatLine('Key-wrong assumption', keyWrongAssumptionLine),
-    verdictFormatLine('Thesis-break triggers', thesisBreakTriggersLine),
-    verdictFormatLine('Red-team objection', redTeamLine),
-    verdictFormatLine('Synthesis grounding', synthesisGroundingLine),
-    verdictFormatLine('Moat grounding', moatGroundingLine),
-  ]
-
-  return createElement(
-    'section',
-    { 'data-testid': 'verdict-format', className: 'owl-section-card', style: { gap: '0.3rem' } },
-    createElement('p', { className: 'owl-section-accent' }, 'Verdict format'),
-    createElement('p', { style: { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-sm)', margin: '0 0 0.5rem' } }, 'The full verdict at a glance. Fields not yet computed are shown honestly as not-yet-available; the gate table, rubric detail, and red-team response render in full below.'),
-    ...lines,
-  )
-}
 
 // ── Verdict hero ──────────────────────────────────────────────────────────────
 
@@ -1206,6 +958,150 @@ function createDecisionPanel(researchCase: AppResearchCase, marketQuote?: Market
 }
 
 /**
+ * MARGIN-OF-SAFETY AUDIT — the synthesis-owned risk surface, re-homed from the retired verdict-format block
+ * into the decision region (directly beneath the decision panel). It surfaces, in order:
+ *   1. the JOINT margin-of-safety judgment — the HEADLINE. The margin rests on TWO substitutable sources
+ *      shown SIDE BY SIDE: the PRICE margin (price vs the model's judged value) and the MOAT-DURABILITY
+ *      thesis (the grounded, cite-verified moat thesis). Neither is buried; adequacy + which source(s) it
+ *      rests on are explicit. A moat-sourced margin is flagged higher-stakes; an ungrounded-moat source is
+ *      flagged incoherent (Guard 2).
+ *   2. the model's key_wrong_assumption (the one assumption that, if wrong, breaks the thesis).
+ *   3. the thesis_break_triggers (observable events that would invalidate the thesis).
+ * These are the model's forward-looking risk reasoning for the human to audit — NOT cite-gated. Absent
+ * (legacy / not produced) → honest "Not yet available" fallback (no crash). Native owl-* tokens only.
+ */
+function createMarginOfSafetyAuditBlock(researchCase: AppResearchCase) {
+  // Only render once a deep-dive valuation exists (gated/awaiting states have their own dossiers).
+  if (researchCase.valuation === undefined) return null
+
+  const mosJudgment = researchCase.margin_of_safety_judgment
+  const mosMoatUngrounded = researchCase.margin_of_safety_moat_ungrounded === true
+
+  // The joint margin-of-safety judgment — surface the PRICE margin and the MOAT-DURABILITY thesis SIDE BY
+  // SIDE so neither is buried; show adequacy + which source(s) the margin rests on.
+  const jointJudgment = mosJudgment === undefined
+    ? NOT_YET
+    : (() => {
+        const restsOnMoat = mosJudgment.sources.includes('moat')
+        const restsOnPrice = mosJudgment.sources.includes('price')
+        const sourcesLabel = mosJudgment.sources.map((s) => (s === 'moat' ? 'moat durability' : 'price gap')).join(' + ')
+        const adequacyColor = mosJudgment.adequacy === 'adequate'
+          ? 'var(--owl-color-positive, #4ade80)'
+          : mosJudgment.adequacy === 'thin'
+            ? '#fbbf24'
+            : '#fca5a5'
+
+        // The two substitutable MoS sources, shown SIDE BY SIDE (a two-column grid): the PRICE margin and
+        // the grounded MOAT-DURABILITY thesis. Each column states whether the margin rests on that source.
+        const sourceColumn = (
+          title: string,
+          rests: boolean,
+          reasoning: string | undefined,
+          highStakesBadge: ReactNode,
+        ) => createElement(
+          'div',
+          {
+            key: title,
+            style: {
+              background: rests ? 'rgba(214, 178, 94, 0.06)' : 'var(--owl-color-panel-deep)',
+              border: `1px solid ${rests ? 'rgba(214, 178, 94, 0.3)' : 'var(--owl-color-border)'}`,
+              borderRadius: '0.6rem',
+              display: 'flex',
+              flexDirection: 'column' as const,
+              gap: '0.3rem',
+              padding: '0.6rem 0.75rem',
+            },
+          },
+          createElement(
+            'div',
+            { style: { alignItems: 'center', display: 'flex', flexWrap: 'wrap' as const, gap: '0.4rem' } },
+            createElement('span', { style: { color: 'var(--owl-color-accent-bright)', fontSize: 'var(--owl-text-xs)', fontWeight: 800, letterSpacing: '0.06em', textTransform: 'uppercase' as const } }, title),
+            createElement(
+              'span',
+              { style: { color: rests ? 'var(--owl-color-text)' : 'var(--owl-color-quiet)', fontSize: 'var(--owl-text-xs)', fontWeight: 700 } },
+              rests ? 'margin rests here' : 'not a source',
+            ),
+            highStakesBadge,
+          ),
+          reasoning !== undefined
+            ? createElement('p', { style: { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-sm)', lineHeight: 1.5, margin: 0 } }, reasoning)
+            : createElement('p', { style: { color: 'var(--owl-color-quiet)', fontSize: 'var(--owl-text-sm)', margin: 0 } }, rests ? 'No reasoning recorded.' : '—'),
+        )
+
+        const moatBadge = restsOnMoat
+          ? createElement(
+              'span',
+              { 'data-testid': 'mos-moat-sourced', style: { fontSize: 'var(--owl-text-2xs)', fontWeight: 700, color: '#fbbf24', border: '1px solid rgba(251,191,36,0.5)', borderRadius: '0.4rem', padding: '0.05rem 0.4rem' } },
+              'MOAT-SOURCED — scrutinize moat durability',
+            )
+          : null
+
+        return createElement(
+          'div',
+          { style: { display: 'flex', flexDirection: 'column' as const, gap: '0.5rem' } },
+          createElement(
+            'div',
+            { style: { color: adequacyColor, fontWeight: 700 } },
+            `Rests on: ${sourcesLabel} · adequacy (audit-only, not a gate): ${mosJudgment.adequacy}`,
+          ),
+          createElement(
+            'div',
+            { style: { display: 'grid', gap: '0.6rem', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' } },
+            sourceColumn('Price margin', restsOnPrice, mosJudgment.price_gap_reasoning, null),
+            sourceColumn('Moat durability', restsOnMoat, mosJudgment.moat_durability_reasoning, moatBadge),
+          ),
+          createElement('p', { style: { color: 'var(--owl-color-text)', fontSize: 'var(--owl-text-base)', lineHeight: 1.55, margin: 0 } }, mosJudgment.reasoning),
+          mosMoatUngrounded
+            ? createElement(
+                'p',
+                { 'data-testid': 'mos-moat-ungrounded', style: { color: '#fca5a5', fontWeight: 700, margin: 0 } },
+                'Incoherent: margin claims a moat source but the moat is not grounded / did not pass the moat gate.',
+              )
+            : null,
+        )
+      })()
+
+  const keyWrongAssumption = researchCase.key_wrong_assumption
+  const keyWrongAssumptionLine = keyWrongAssumption === undefined || keyWrongAssumption.trim().length === 0
+    ? NOT_YET
+    : createElement('span', null, keyWrongAssumption)
+
+  const thesisBreakTriggers = researchCase.thesis_break_triggers
+  const thesisBreakTriggersLine = thesisBreakTriggers === undefined || thesisBreakTriggers.length === 0
+    ? NOT_YET
+    : createElement(
+        'ul',
+        { style: { margin: 0, paddingLeft: '1.1rem' } },
+        ...thesisBreakTriggers.map((trigger, i) => createElement('li', { key: `tbt-${i}`, style: { color: 'var(--owl-color-text)', lineHeight: 1.5 } }, trigger)),
+      )
+
+  const auditRow = (label: string, value: ReactNode) => createElement(
+    'div',
+    { key: label, style: { display: 'grid', gap: '0.3rem', borderTop: '1px solid var(--owl-color-border)', paddingTop: '0.6rem' } },
+    createElement('p', { style: { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-sm)', fontWeight: 700, margin: 0 } }, label),
+    createElement('div', { style: { color: 'var(--owl-color-text)', fontSize: 'var(--owl-text-base)', lineHeight: 1.55 } }, value),
+  )
+
+  return createElement(
+    'section',
+    {
+      'data-testid': 'margin-of-safety-audit',
+      className: 'owl-section-card',
+      style: { gap: '0.6rem' },
+    },
+    createElement('p', { className: 'owl-section-accent' }, 'Margin of safety (joint)'),
+    createElement(
+      'p',
+      { style: { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-sm)', lineHeight: 1.5, margin: 0 } },
+      'The margin of safety rests on two substitutable sources — the price-vs-value gap and moat durability — shown side by side. Below them, the one assumption that breaks the thesis and the observable triggers that would invalidate it. The model\'s forward-looking risk reasoning for you to audit.',
+    ),
+    jointJudgment,
+    auditRow('Key-wrong assumption', keyWrongAssumptionLine),
+    auditRow('Thesis-break triggers', thesisBreakTriggersLine),
+  )
+}
+
+/**
  * The flag-only sanity-check (R1): deterministic, symmetric (over-optimistic + over-pessimistic + absurdity)
  * advisory messages. Rendered as clear amber/risk annotations — flags, NOT blocks. The verdict is the
  * model's; these only surface "this implies X, which is implausible because Y"-style catches for the human.
@@ -1315,16 +1211,16 @@ function createValuationPanel(researchCase: AppResearchCase, marketQuote?: Marke
   const discountLabel = discountRateVal !== undefined ? `${Math.round(discountRateVal * 100)}%` : '10%'
   const moatLabel = `${moatClass.toUpperCase()} MOAT · ${discountLabel} DISCOUNT`
 
-  // Two-stage HEADLINE-growth label: g (10yr) fading to terminal g_t. growth_rate is now the MODEL's
-  // cite-verified assumed_growth (the headline); the capped demonstrated CAGR is the demonstrated-history
-  // reference (demonstrated_growth_reference), not shown here. The ROIC annotation is context only.
+  // Judged-growth label: the model's judged sustainable g (early years) fading to terminal g_t. growth_rate
+  // is now the MODEL's cite-verified assumed/judged growth; the capped demonstrated CAGR is the
+  // demonstrated-history reference (demonstrated_growth_reference), not shown here. ROIC is context only.
   const eligRoic = incrementalRoic ?? roic
   const fadeLabel = terminalGrowthRate !== undefined ? ` → terminal ${(terminalGrowthRate * 100).toFixed(0)}%` : ''
   const runwayLabel = runway !== undefined ? ` · ${runway} runway` : ''
   const roicGateLabel = growthRate !== undefined
     ? growthRate > 0
-      ? `g=${(growthRate * 100).toFixed(0)}%${fadeLabel}${eligRoic !== undefined ? ` · incremental ROIC ${(eligRoic * 100).toFixed(0)}% > 10% credited` : ''}${runwayLabel}`
-      : `g=0%${fadeLabel}${eligRoic !== undefined ? ` · incremental ROIC ${(eligRoic * 100).toFixed(0)}% ≤ 10% (no growth credit)` : ' (no growth credit)'}${runwayLabel}`
+      ? `judged g=${(growthRate * 100).toFixed(0)}%${fadeLabel}${eligRoic !== undefined ? ` · incremental ROIC ${(eligRoic * 100).toFixed(0)}% > 10%` : ''}${runwayLabel}`
+      : `judged g=0%${fadeLabel}${eligRoic !== undefined ? ` · incremental ROIC ${(eligRoic * 100).toFixed(0)}% ≤ 10% (no growth credit)` : ' (no growth credit)'}${runwayLabel}`
     : undefined
 
   // The assumed growth the model used (its number, cited). growth_rate is now this same headline value;
@@ -1401,12 +1297,27 @@ function createValuationPanel(researchCase: AppResearchCase, marketQuote?: Marke
         reasoning.discount_rationale,
       ) : null,
     ) : null,
-    // Market-implied growth read — the richness signal (what today's price implies the business must grow).
+    // Reverse-DCF read (the primary lens): the market-implied growth vs the model's judged sustainable
+    // growth. The richness signal — what today's price requires the business to grow vs what the model judges.
     marketImpliedGrowth !== undefined ? createElement(
       'p',
       { 'data-testid': 'market-implied-growth', style: { color: '#d7e2d7', fontSize: 'var(--owl-text-base)', lineHeight: 1.5, margin: '0.4rem 0 0' } },
       createElement('strong', { style: { color: 'var(--owl-color-accent-bright)' } }, `The market implies ${pctPts(marketImpliedGrowth)} growth`),
-      assumedGrowth !== undefined ? ` vs the model's assumed ${pctPts(assumedGrowth)}.` : '.',
+      assumedGrowth !== undefined ? ` — the model judges ${pctPts(assumedGrowth)} sustainable.` : '.',
+    ) : null,
+    // The two hidden assumptions baked into today's price, surfaced together and briefly explained (not two
+    // bare adjacent stats): the implied growth the price requires, and the implied EXIT multiple it must hold.
+    (marketImpliedGrowth !== undefined || impliedExitMultiple !== undefined) ? createElement(
+      'p',
+      { 'data-testid': 'price-implied-assumptions', style: { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-sm)', lineHeight: 1.5, margin: '0.3rem 0 0' } },
+      'Today\'s price bakes in two assumptions: ',
+      marketImpliedGrowth !== undefined
+        ? createElement('span', null, createElement('strong', { style: { color: 'var(--owl-color-sand)' } }, `${pctPts(marketImpliedGrowth)} implied growth`), ' (the rate the business must compound at to justify the price)')
+        : createElement('span', null, 'an implied growth (not computable without a live price)'),
+      ', and ',
+      impliedExitMultiple !== undefined
+        ? createElement('span', null, createElement('strong', { style: { color: 'var(--owl-color-sand)' } }, `a ${impliedExitMultiple.toFixed(1)}× implied exit multiple`), ' (the owner-earnings multiple the price must still command at the horizon).')
+        : createElement('span', null, 'an implied exit multiple (not yet computed).'),
     ) : null,
     // ROIC gate / growth note
     roicGateLabel !== undefined ? createElement(
@@ -1871,7 +1782,7 @@ function createFallbackValuationText(researchCase: AppResearchCase): string {
   const valuation = researchCase.valuation
   if (valuation?.buy_price_per_share !== undefined) {
     const discount = valuation.discount_rate !== undefined ? `${Math.round(valuation.discount_rate * 100)}%` : '10%'
-    // MoS-as-price-haircut retired — buy-below is now the price at the buy-threshold growth (band_low − gap).
+    // Buy-below is the model-proposed price-to-buy-below carried with its cited reasoning (not a derived haircut).
     const fair = valuation.fair_value_per_share !== undefined ? `fair value $${valuation.fair_value_per_share.toFixed(2)} → ` : ''
     return `${fair}buy below $${valuation.buy_price_per_share}/sh · ${discount} flat discount. Quality is not in question; price is.`
   }
