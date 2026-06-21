@@ -1,11 +1,6 @@
 import { spawn } from 'node:child_process'
 
 import { SQLiteEventStore } from '@owlfolio/ledger/sqliteEventStore'
-import { VALUATION_PARAMS, type ValuationParams } from '@owlfolio/strategies/valuationParams'
-import {
-  buildValuationConfigChangeDraft,
-  type ValuationConfigChangeDraft,
-} from '@owlfolio/strategies/valuationConfigEvent'
 import {
   buildCalibrationUniverseMemberAddedEvent,
   buildCalibrationUniverseMemberRemovedEvent,
@@ -168,31 +163,4 @@ function defaultSpawnCalibrationWorker({ ledgerPath, sourceLedgerPath }: { ledge
     stdio: 'ignore',
   })
   child.unref()
-}
-
-/**
- * Build a gated, human-confirmed valuation-parameter-change DRAFT (valuation-recalibration-spec §3.4
- * anti-drift). This is NOT a casual tune knob: the draft computes the diff, REQUIRES an attached
- * calibration_run backtest, refuses to touch the constitutional 10% discount rate, and is never
- * auto-applied. The caller renders the returned draft for explicit user confirmation; only confirming it
- * writes a `valuation_config` ledger event.
- */
-export function proposeValuationConfigChange(args: {
-  strategy_id: string
-  /** Partial override merged onto the current VALUATION_PARAMS (must include a bumped `version`). */
-  next: Partial<ValuationParams> & { version: string }
-  /** The recorded calibration_run event id whose backtest justifies the change (required, §3.4). */
-  calibration_run_event_id: string
-  rationale?: string
-}): ValuationConfigChangeDraft {
-  const next: ValuationParams = { ...VALUATION_PARAMS, ...args.next }
-  return buildValuationConfigChangeDraft({
-    proposal_id: `valcfg_proposal_${Date.now()}`,
-    strategy_id: args.strategy_id,
-    previous: VALUATION_PARAMS,
-    next,
-    calibration_run_event_id: args.calibration_run_event_id,
-    ...(args.rationale === undefined ? {} : { rationale: args.rationale }),
-    actor_id: 'user_local',
-  })
 }

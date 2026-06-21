@@ -8,7 +8,6 @@ import { SQLiteEventStore } from '@owlfolio/ledger/sqliteEventStore'
 import {
   addCalibrationUniverseMember,
   enqueueCalibrationRun,
-  proposeValuationConfigChange,
   removeCalibrationUniverseMember,
 } from '../calibrationActions'
 import type { OnboardingState } from '../onboarding'
@@ -107,31 +106,5 @@ describe('addCalibrationUniverseMember / removeCalibrationUniverseMember', () =>
   it('throws when the workflow is not initialized', async () => {
     const state = { is_initialized: false, config: { mode: 'personal-local' } } as unknown as OnboardingState
     await expect(addCalibrationUniverseMember(state, { ticker: 'FDS' })).rejects.toThrow(/not initialized/i)
-  })
-})
-
-describe('proposeValuationConfigChange', () => {
-  it('builds a gated config-change DRAFT requiring confirmation, with the backtest attached', () => {
-    const draft = proposeValuationConfigChange({
-      strategy_id: 'buffett-munger',
-      next: { single_growth_cap: 0.12, version: 'valuation-proposed-1' },
-      calibration_run_event_id: 'evt_calibration_run_cal_1',
-      rationale: 'Annual review; ladder under-deployed.',
-    })
-    expect(draft.status).toBe('draft')
-    expect(draft.requires_user_confirmation).toBe(true)
-    expect(draft.auto_applied).toBe(false)
-    expect(draft.calibration_run_event_id).toBe('evt_calibration_run_cal_1')
-    expect(draft.changes.length).toBeGreaterThan(0)
-  })
-
-  it('refuses a proposal without an attached backtest (anti-drift §3.4)', () => {
-    expect(() =>
-      proposeValuationConfigChange({
-        strategy_id: 'buffett-munger',
-        next: { single_growth_cap: 0.12, version: 'v' },
-        calibration_run_event_id: '',
-      }),
-    ).toThrow(/backtest|calibration_run/i)
   })
 })
