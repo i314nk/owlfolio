@@ -229,7 +229,7 @@ function countSourceIds(researchCase: ResearchCaseProjection): number {
  * Builds the recent-runs list. A "run" is a research case that has at least
  * started the swarm (quick screen requested/drafted onward). Ordered most-recent first.
  */
-function buildRuns(researchCases: ResearchCaseProjection[]): PipelineRun[] {
+function buildRuns(researchCases: ResearchCaseProjection[], failedCaseIds: ReadonlySet<string>): PipelineRun[] {
   const runs: PipelineRun[] = []
   for (const researchCase of researchCases) {
     if (researchCase.superseded) {
@@ -249,7 +249,12 @@ function buildRuns(researchCases: ResearchCaseProjection[]): PipelineRun[] {
         .filter((lane): lane is string => lane !== undefined),
     ).size
 
-    const status = runStatusForCase(researchCase)
+    // A recorded run-failure (order-aware, with no later recovery) terminates the run: the failure is
+    // recorded (Faults), but its partial in-progress research is DISCARDED from the active view — a failed
+    // case must NOT read as a running deep-dive/quick-screen just because its pre-failure stage lingers.
+    const status: PipelineRunStatus = failedCaseIds.has(researchCase.research_case_id)
+      ? 'failed'
+      : runStatusForCase(researchCase)
     const run: PipelineRun = {
       research_case_id: researchCase.research_case_id,
       ticker: researchCase.ticker,
@@ -332,21 +337,28 @@ export function projectPipeline(events: LedgerEventEnvelope<unknown>[]): Pipelin
   const watchlistItems = projectWatchlist(events)
   const holdings = projectHoldings(events)
 
-  // ── Stage counts ──────────────────────────────────────────────────────────
+  // Recorded run-failures (order-aware): a case whose latest lifecycle state is research_run_failed (no
+  // later recovery). The failure is RECORDED (surfaced as a fault below), but its abandoned research is
+  // DISCARDED from the ACTIVE stage counts + runs — a failed run must not linger as an in-progress
+  // deep-dive/quick-screen just because research_run_failed does not advance the research-case stage.
+  const { count: failedRecent, failed_runs } = collectRecentFailures(events)
+  const failedCaseIds = new Set(failed_runs.map((run) => run.case_id))
+
+  // ── Stage counts ── (active stages exclude failed cases) ───────────────────
+  const isActive = (c: ResearchCaseProjection): boolean => !failedCaseIds.has(c.research_case_id)
   const quickScreen = liveCases.filter(
-    (c) => c.stage === 'quick_screened' || c.stage === 'awaiting_deep_dive_approval' || c.stage === 'pass',
+    (c) => isActive(c) && (c.stage === 'quick_screened' || c.stage === 'awaiting_deep_dive_approval' || c.stage === 'pass'),
   ).length
-  const deepDive = liveCases.filter((c) => c.stage === 'queued_for_deep_dive' || DEEP_DIVE_STAGES.has(c.stage)).length
-  const synthesis = liveCases.filter((c) => SYNTHESIS_STAGES.has(c.stage)).length
-  const decision = liveCases.filter((c) => DECISION_STAGES.has(c.stage)).length
+  const deepDive = liveCases.filter((c) => isActive(c) && (c.stage === 'queued_for_deep_dive' || DEEP_DIVE_STAGES.has(c.stage))).length
+  const synthesis = liveCases.filter((c) => isActive(c) && SYNTHESIS_STAGES.has(c.stage)).length
+  const decision = liveCases.filter((c) => isActive(c) && DECISION_STAGES.has(c.stage)).length
   const watchlistCount = watchlistItems.length
   const holdingCount = holdings.length
   const reviewCount = holdings.filter(
     (h) => h.pending_review_id !== undefined || h.latest_review_id !== undefined,
   ).length
 
-  const awaitingApproval = liveCases.filter((c) => c.stage === 'awaiting_deep_dive_approval').length
-  const { count: failedRecent, failed_runs } = collectRecentFailures(events)
+  const awaitingApproval = liveCases.filter((c) => isActive(c) && c.stage === 'awaiting_deep_dive_approval').length
 
   const stage_counts: PipelineStageCount[] = [
     { key: 'quick_screen', label: 'Quick screen', count: quickScreen, health: 'ok' },
@@ -370,7 +382,7 @@ export function projectPipeline(events: LedgerEventEnvelope<unknown>[]): Pipelin
   }
 
   // ── Runs ────────────────────────────────────────────────────────────────────
-  const runs = buildRuns(liveCases)
+  const runs = buildRuns(liveCases, failedCaseIds)
   const active_runs = runs.filter((run) => run.status === 'running').length
 
   // ── Grounded sources (total distinct across live cases) ──────────────────────
@@ -454,7 +466,10 @@ export function buildPipelineDrillDown(
     .slice()
     .sort((a, b) => (a.created_at < b.created_at ? -1 : a.created_at > b.created_at ? 1 : 0))
 
-  const status = runStatusForCase(researchCase)
+  // A recorded run-failure (order-aware) terminates the run: the drill-down reads 'failed', and its lanes
+  // are NOT shown as live-running (consistent with the active-pipeline view, which discards failed runs).
+  const failed = new Set(collectRecentFailures(events).failed_runs.map((run) => run.case_id)).has(caseId)
+  const status: PipelineRunStatus = failed ? 'failed' : runStatusForCase(researchCase)
   const deepDiveStarted = caseEvents.find((event) => event.event_type === 'deep_dive_started')
   const deepDiveStartMs = deepDiveStarted !== undefined ? Date.parse(deepDiveStarted.created_at) : undefined
   const swarmLive = status === 'running' && deepDiveStarted !== undefined

@@ -152,6 +152,57 @@ describe('projectPipeline — recovery is order-aware (post-progress failures st
   })
 })
 
+describe('projectPipeline — a recorded run-failure is discarded from the ACTIVE pipeline', () => {
+  it('a failed deep-dive does not count as an active deep-dive (recorded as a fault, run status=failed, not running)', () => {
+    const events: LedgerEventEnvelope<unknown>[] = [
+      evt({ aggregate_id: 'fd', event_type: 'research_run_requested', payload: { research_case_id: 'fd', ticker: 'FAILDD' } }),
+      evt({ aggregate_id: 'fd', event_type: 'research_case_created', payload: { research_case_id: 'fd', ticker: 'FAILDD' } }),
+      evt({ aggregate_id: 'fd', event_type: 'deep_dive_started', payload: { research_case_id: 'fd', ticker: 'FAILDD', deep_dive_id: 'd1', specialist_lanes: ['moat'] } }),
+      evt({ aggregate_id: 'fd', event_type: 'specialist_finding_recorded', payload: { research_case_id: 'fd', finding_id: 'f1', specialist_lane: 'moat', source_ids: ['s1'] } }),
+      evt({ aggregate_id: 'fd', event_type: 'research_run_failed', payload: { research_case_id: 'fd', ticker: 'FAILDD', error_summary: 'watchdog: abandoned' } }),
+    ]
+    const projection = projectPipeline(events)
+    const byKey = Object.fromEntries(projection.stage_counts.map((s) => [s.key, s.count]))
+    expect(byKey.deep_dive).toBe(0)            // discarded from the active deep-dive count
+    expect(projection.summary.active_runs).toBe(0)
+    expect(projection.summary.failed_recent).toBe(1) // but the failure IS recorded
+    expect(projection.failed_runs?.some((r) => r.case_id === 'fd')).toBe(true)
+    const run = projection.runs.find((r) => r.research_case_id === 'fd')
+    expect(run?.status).toBe('failed')         // not 'running'
+  })
+
+  it('a failed quick-screen does not count as an active quick-screen', () => {
+    const events: LedgerEventEnvelope<unknown>[] = [
+      evt({ aggregate_id: 'fq', event_type: 'research_run_requested', payload: { research_case_id: 'fq', ticker: 'FAILQS' } }),
+      evt({ aggregate_id: 'fq', event_type: 'research_case_created', payload: { research_case_id: 'fq', ticker: 'FAILQS' } }),
+      evt({ aggregate_id: 'fq', event_type: 'quick_screen_drafted', payload: { research_case_id: 'fq', ticker: 'FAILQS', screening_result: 'continue' } }),
+      evt({ aggregate_id: 'fq', event_type: 'research_run_failed', payload: { research_case_id: 'fq', ticker: 'FAILQS', error_summary: 'quick-screen stall' } }),
+    ]
+    const projection = projectPipeline(events)
+    const byKey = Object.fromEntries(projection.stage_counts.map((s) => [s.key, s.count]))
+    expect(byKey.quick_screen).toBe(0)
+    expect(projection.summary.failed_recent).toBe(1)
+    expect(projection.runs.find((r) => r.research_case_id === 'fq')?.status).toBe('failed')
+  })
+
+  it('a failed-then-recovered run is active again (order-aware): later progress un-discards it', () => {
+    const events: LedgerEventEnvelope<unknown>[] = [
+      evt({ aggregate_id: 'fr', event_type: 'research_case_created', payload: { research_case_id: 'fr', ticker: 'RECOV' } }),
+      evt({ aggregate_id: 'fr', event_type: 'deep_dive_started', payload: { research_case_id: 'fr', ticker: 'RECOV', deep_dive_id: 'd1', specialist_lanes: ['moat'] } }),
+      evt({ aggregate_id: 'fr', event_type: 'research_run_failed', payload: { research_case_id: 'fr', ticker: 'RECOV', error_summary: 'transient' } }),
+      // re-run made forward progress after the failure → genuinely active again
+      evt({ aggregate_id: 'fr', event_type: 'deep_dive_started', payload: { research_case_id: 'fr', ticker: 'RECOV', deep_dive_id: 'd2', specialist_lanes: ['moat'] } }),
+      evt({ aggregate_id: 'fr', event_type: 'specialist_finding_recorded', payload: { research_case_id: 'fr', finding_id: 'f1', specialist_lane: 'moat', source_ids: ['s1'] } }),
+    ]
+    const projection = projectPipeline(events)
+    const byKey = Object.fromEntries(projection.stage_counts.map((s) => [s.key, s.count]))
+    expect(byKey.deep_dive).toBe(1)            // recovered → counted active
+    expect(projection.summary.active_runs).toBe(1)
+    expect(projection.summary.failed_recent).toBe(0)
+    expect(projection.runs.find((r) => r.research_case_id === 'fr')?.status).toBe('running')
+  })
+})
+
 describe('buildPipelineDrillDown — lane statuses + timeline ordering', () => {
   it('marks recorded lanes done with timing, expected-not-recorded running while live', () => {
     const events: LedgerEventEnvelope<unknown>[] = [
@@ -191,5 +242,17 @@ describe('buildPipelineDrillDown — lane statuses + timeline ordering', () => {
     ]
     const drill = buildPipelineDrillDown(events, 'qs')
     expect(drill?.lanes.every((l) => l.status === 'pending')).toBe(true)
+  })
+
+  it('a failed run drills down as failed with no live-running lanes', () => {
+    const events: LedgerEventEnvelope<unknown>[] = [
+      evt({ aggregate_id: 'fd', event_type: 'research_case_created', payload: { research_case_id: 'fd', ticker: 'FAILDD' } }),
+      evt({ aggregate_id: 'fd', event_type: 'deep_dive_started', payload: { research_case_id: 'fd', ticker: 'FAILDD', deep_dive_id: 'd1', specialist_lanes: ['moat', 'risks'] } }),
+      evt({ aggregate_id: 'fd', event_type: 'research_run_failed', payload: { research_case_id: 'fd', ticker: 'FAILDD', error_summary: 'abandoned' } }),
+    ]
+    const drill = buildPipelineDrillDown(events, 'fd')
+    expect(drill?.status).toBe('failed')
+    // lanes are NOT shown as live-running once the run has failed (consistent with the active view)
+    expect(drill?.lanes.some((l) => l.status === 'running')).toBe(false)
   })
 })
