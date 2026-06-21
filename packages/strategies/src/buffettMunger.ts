@@ -383,20 +383,12 @@ const rawBuffettMungerStrategy = {
   valuation: {
     // EVERY valuation constant below is sourced from the versioned VALUATION_PARAMS config
     // (valuation-recalibration-spec §1: one versioned config, no hardcoded valuation constants).
-    // F.13 — UNIFORM valuation params across every investable business: base MoS 25%, terminal g 1.5%,
+    // F.13 — UNIFORM valuation params across every investable business: terminal g 1.5%,
     // stage-1 horizon 10yr (the monopoly tier no longer loosens valuation; it is a durability signal that
     // routes through the moat-durability input). 10% flat discount (constitutional, untouched), 18× FV cap.
     discount_rate: VALUATION_PARAMS.discount_rate,
     equity_premium: VALUATION_PARAMS.equity_premium,
     ten_year_treasury_default: VALUATION_PARAMS.ten_year_treasury_default,
-    base_margin_of_safety: VALUATION_PARAMS.base_margin_of_safety,
-    margin_of_safety_widening: {
-      high_terminal_value_share: VALUATION_PARAMS.margin_of_safety_widening.high_terminal_value_share,
-      low_maint_capex_confidence: VALUATION_PARAMS.margin_of_safety_widening.low_maint_capex_confidence,
-      weak_moat_durability: VALUATION_PARAMS.margin_of_safety_widening.weak_moat_durability,
-      sensitivity_dispersion_max: VALUATION_PARAMS.margin_of_safety_widening.sensitivity_dispersion_max,
-      cap: VALUATION_PARAMS.margin_of_safety_widening.cap,
-    },
     terminal_value_share_flag: VALUATION_PARAMS.terminal_value_share_flag,
     terminal_growth: VALUATION_PARAMS.terminal_growth,
     stage1_horizon: VALUATION_PARAMS.stage1_horizon,

@@ -131,7 +131,6 @@ describe('Part-D conformance: F.13 — uniform valuation params (no per-moat loo
     // tables were collapsed to scalars. Their presence would mean a per-moat loosening lever returned.
     expect(typeof VALUATION_PARAMS.terminal_growth).toBe('number')
     expect(typeof VALUATION_PARAMS.stage1_horizon).toBe('number')
-    expect(typeof VALUATION_PARAMS.base_margin_of_safety).toBe('number')
     expect(typeof VALUATION_PARAMS.growth_fade_years).toBe('number')
     const keys = Object.keys(VALUATION_PARAMS)
     expect(keys).not.toContain('terminal_growth_by_moat')

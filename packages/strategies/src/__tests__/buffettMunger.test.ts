@@ -10,8 +10,6 @@ describe('Buffett-Munger default strategy (Design B: 4-class, flat discount, UNI
     expect(buffettMungerStrategy.research.required_specialists.map((s) => s.id)).toEqual(['moat', 'financials', 'risk', 'management', 'valuation', 'synthesis'])
     // Flat 10% discount rate for all investable moat classes
     expect(buffettMungerStrategy.valuation.discount_rate).toBe(0.10)
-    // F.13 — uniform base margin of safety (collapsed from the old monopoly/wide tier table to wide's 25%)
-    expect(buffettMungerStrategy.valuation.base_margin_of_safety).toBe(0.25)
     // F.13 — uniform terminal g (collapsed to wide's 1.5%)
     expect(buffettMungerStrategy.valuation.terminal_growth).toBe(0.015)
     // F.13 — uniform stage-1 horizon (collapsed to wide's 10 yrs)

@@ -48,20 +48,7 @@ export const valuationPolicySchema = z.object({
   equity_premium: z.number().positive(),
   /** Fail-closed default 10y Treasury yield when the live fetch is unavailable (Phase 1.4). */
   ten_year_treasury_default: z.number().positive(),
-  /**
-   * THE single conservatism knob: base MoS floor — UNIFORM across every investable business (F.13); widens
-   * via margin_of_safety_widening (Phase 1.6). A monopoly is a durability signal, not a license to lower it.
-   */
-  base_margin_of_safety: z.number().positive(),
-  /** MoS-widening increments + cap (Phase 1.6) — all conservatism beyond the base floor lives here. */
-  margin_of_safety_widening: z.object({
-    high_terminal_value_share: z.number().min(0),
-    low_maint_capex_confidence: z.number().min(0),
-    weak_moat_durability: z.number().min(0),
-    sensitivity_dispersion_max: z.number().min(0),
-    cap: z.number().positive().max(1),
-  }),
-  /** Terminal-value-share flag threshold (Phase 1.5): TV share above this is flagged + widens the MoS. */
+  /** Terminal-value-share flag threshold (Phase 1.5): TV share above this is flagged. */
   terminal_value_share_flag: z.number().positive().max(1),
   /** Terminal-stage growth (g_t) — UNIFORM across every investable business (F.13); durability routes through the moat-durability input. */
   terminal_growth: z.number().positive(),

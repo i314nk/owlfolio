@@ -2,7 +2,7 @@
 //
 // valuation-recalibration-spec §1 "Implementation requirement": every valuation parameter lives in
 // ONE versioned config; NO valuation constant is hardcoded in the valuation logic. The valuation
-// helpers (creditedGrowth, twoStageFairValuePerShare, terminal/MOS/horizon lookups) read ALL of
+// helpers (creditedGrowth, twoStageFairValuePerShare, terminal/horizon lookups) read ALL of
 // their constants from this object. Config changes are logged as `valuation_config` ledger events
 // (see valuationConfigEvent.ts).
 //
@@ -62,30 +62,6 @@ export type ValuationParams = {
    */
   growth_fade_years: number
   /**
-   * THE single conservatism knob (Phase 1.6 / Part D Step 6): the base margin-of-safety floor — UNIFORM
-   * across every investable business (F.13). The old margin_of_safety_by_moat {wide:0.25, monopoly:0.15}
-   * table was collapsed to one scalar (the conservative wide value): a monopoly is a durability signal, NOT
-   * a license to lower the safety margin. It WIDENS (via margin_of_safety_widening) with terminal-value
-   * share, low maint-capex confidence, weak moat durability, and sensitivity dispersion.
-   */
-  base_margin_of_safety: number
-  /**
-   * MoS-widening increments + cap (Phase 1.6). All conservatism beyond the base floor lives HERE (one knob):
-   * each documented uncertainty adds its increment, clamped to `cap` (~0.50). Calibration-tunable.
-   */
-  margin_of_safety_widening: {
-    /** Added when terminal_value_pct_of_iv exceeds terminal_value_share_flag. */
-    high_terminal_value_share: number
-    /** Added when the maintenance-capex estimate is low-confidence (e.g. Greenwald/D&A disagree, no gross PP&E). */
-    low_maint_capex_confidence: number
-    /** Added for weak moat durability — incl. above-GDP growth, which IS a moat-durability claim. */
-    weak_moat_durability: number
-    /** Max increment contributed by sensitivity dispersion (scaled by the dispersion magnitude in [0,1]). */
-    sensitivity_dispersion_max: number
-    /** Hard cap on the widened MoS (~0.50). */
-    cap: number
-  }
-  /**
    * Fair-value sanity-FLAG threshold as a multiple of OE (18×). Phase 1.6: this is NO LONGER a silent
    * truncation — a fair value above it raises a surfaced `cap_exceeded` flag (which widens the MoS), the
    * value is kept. The old 18× hard cap is gone.
@@ -134,7 +110,6 @@ export type ValuationParams = {
  * F.13 — the monopoly moat tier is a relocated quality-knob; COLLAPSED to uniform valuation params:
  *   terminal_growth:       uniform 1.5% (was terminal_growth_by_moat {wide:0.015, monopoly:0.025})
  *   stage1_horizon:        uniform 10   (was stage1_horizon_by_moat {wide:10, monopoly:15})
- *   base_margin_of_safety: uniform 0.25 (was margin_of_safety_by_moat {wide:0.25, monopoly:0.15})
  * Business quality is NOT a per-name valuation-loosening lever (same principle already applied to the
  * uniform discount rate). A monopoly is a durability signal: it earns higher terminal value through the
  * surfaced, human-weighted moat-durability input (terminal-value share, Phase 7), never via a silent tier
@@ -146,14 +121,14 @@ export type ValuationParams = {
  * a single named single_growth_cap (provisional placeholder) + an above-GDP coupling flag (gdp_growth_threshold).
  */
 export const VALUATION_PARAMS: ValuationParams = Object.freeze({
-  version: 'valuation-2026-06-no-band-gap-1',
+  version: 'valuation-2026-06-no-mos-knob-1',
   // discount_rate = ten_year_treasury_default (0.045) + equity_premium (0.055) = 0.10 (unchanged default).
   discount_rate: 0.10,
   // PROVISIONAL — these signal-dependent params are NOT yet frozen. The 1.9 calibration ran on only n=2
-  // names (CPRT, FDS; NVO failed on DKK-vs-USD currency, 4 GCC names deferred) — too thin to freeze MoS /
+  // names (CPRT, FDS; NVO failed on DKK-vs-USD currency, 4 GCC names deferred) — too thin to freeze the
   // premium / must-signal against (F.11 overfitting). They stay at these defaults pending a broader-universe
   // calibration (fix NVO's currency path + add US 10-K compounders). single_growth_cap was re-derived
-  // 2026-06-15 (see its note below); MoS / premium / widening remain provisional until the must-signal pass.
+  // 2026-06-15 (see its note below); premium remains provisional until the must-signal pass.
   equity_premium: 0.055,
   ten_year_treasury_default: 0.045,
   // F.13 — UNIFORM across every investable business (collapsed from the old _by_moat tier tables to the
@@ -163,15 +138,6 @@ export const VALUATION_PARAMS: ValuationParams = Object.freeze({
   // Part D Step 2 — linear fade over the trailing F years (years 6–10 of a 10-yr horizon). Fade applies
   // only when near-term g > terminal_growth; a low/no-growth name is never glided upward.
   growth_fade_years: 5,
-  base_margin_of_safety: 0.25, // PROVISIONAL (see note above)
-  // Phase 1.6 — widening increments + 0.50 cap. PROVISIONAL magnitudes (see note above; not yet frozen).
-  margin_of_safety_widening: {
-    high_terminal_value_share: 0.10,
-    low_maint_capex_confidence: 0.05,
-    weak_moat_durability: 0.10,
-    sensitivity_dispersion_max: 0.10,
-    cap: 0.50,
-  },
   fv_cap_multiple: 18,
   fv_absurd_multiple: 100,
   // RE-DERIVED 2026-06-15 (owner decision) as a forward-FORECASTING-HUMILITY ceiling. The robust Phase-1
@@ -184,7 +150,7 @@ export const VALUATION_PARAMS: ValuationParams = Object.freeze({
   // compounder is buyable at a genuine ~25–30% dislocation (matching its "buy only at deep dislocation"
   // verdict), while richer names decline at normal prices. The fade — not the cap — is the primary guard
   // against over-conservatism; the cap is the hardest available bite on over-optimism. cap_exceeded stays a
-  // WARN flag (no output-side hard guard). MoS/premium are tuned next against the must-signal calibration.
+  // WARN flag (no output-side hard guard). premium is tuned next against the must-signal calibration.
   single_growth_cap: 0.15,
   terminal_value_share_flag: 0.65,
   gdp_growth_threshold: 0.03,

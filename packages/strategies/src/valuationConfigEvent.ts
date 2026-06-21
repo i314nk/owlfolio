@@ -12,7 +12,7 @@ export const VALUATION_CONFIG_EVENT_TYPE = 'valuation_config' as const
 
 /** A single changed parameter in a config diff: dotted path + previous/next values. */
 export type ValuationParamChange = {
-  /** Dotted path into the params object, e.g. 'base_margin_of_safety' or 'margin_of_safety_widening.cap'. */
+  /** Dotted path into the params object, e.g. 'discount_rate' or 'single_growth_cap'. */
   path: string
   previous: unknown
   next: unknown

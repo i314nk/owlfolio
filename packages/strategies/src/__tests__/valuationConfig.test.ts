@@ -24,7 +24,6 @@ describe('VALUATION_PARAMS (versioned config — single source of truth)', () =>
     expect(VALUATION_PARAMS.terminal_growth).toBe(0.015)
     expect(VALUATION_PARAMS.stage1_horizon).toBe(10)
     expect(VALUATION_PARAMS.growth_fade_years).toBe(5) // Part D Step 2 — linear fade over years 6–10
-    expect(VALUATION_PARAMS.base_margin_of_safety).toBe(0.25)
     expect(VALUATION_PARAMS.fv_cap_multiple).toBe(18)
     expect(VALUATION_PARAMS.single_growth_cap).toBe(0.15) // re-derived 2026-06-15 (forward-humility ceiling)
     expect(VALUATION_PARAMS.gdp_growth_threshold).toBe(0.03)
@@ -34,7 +33,6 @@ describe('VALUATION_PARAMS (versioned config — single source of truth)', () =>
   it('the strategy contract sources its valuation constants from VALUATION_PARAMS', () => {
     const v = buffettMungerStrategy.valuation
     expect(v.discount_rate).toBe(VALUATION_PARAMS.discount_rate)
-    expect(v.base_margin_of_safety).toBe(VALUATION_PARAMS.base_margin_of_safety)
     expect(v.terminal_growth).toBe(VALUATION_PARAMS.terminal_growth)
     expect(v.stage1_horizon).toBe(VALUATION_PARAMS.stage1_horizon)
     expect(v.growth_fade_years).toBe(VALUATION_PARAMS.growth_fade_years)
@@ -56,11 +54,11 @@ describe('diffValuationParams', () => {
     const next: ValuationParams = {
       ...VALUATION_PARAMS,
       version: 'next-version',
-      base_margin_of_safety: 0.30,
+      single_growth_cap: 0.12,
     }
     const changes = diffValuationParams(VALUATION_PARAMS, next)
     expect(changes).toEqual([
-      { path: 'base_margin_of_safety', previous: 0.25, next: 0.30 },
+      { path: 'single_growth_cap', previous: 0.15, next: 0.12 },
     ])
   })
 })
@@ -70,32 +68,32 @@ describe('diffValuationParams', () => {
 // (the F.13 uniform scalars are unchanged; a new growth_fade_years field appears).
 // ---------------------------------------------------------------------------
 describe('Part D Step 2 — growth-fade version bump records the structural diff', () => {
-  it('the live version is the no-band-gap config (band/gap decision machinery removed)', () => {
-    expect(VALUATION_PARAMS.version).toBe('valuation-2026-06-no-band-gap-1')
+  it('the live version is the no-mos-knob config (deterministic MoS knob removed)', () => {
+    expect(VALUATION_PARAMS.version).toBe('valuation-2026-06-no-mos-knob-1')
   })
 
-  it('diff vs the prior required-gap config shows the removed required_growth_gap (band/gap machinery deleted)', () => {
-    // Reconstruct the PRIOR (required-gap-1) shape: identical EXCEPT it still carried the now-removed
-    // required_growth_gap config block. The no-band-gap bump records its removal as the structural change.
+  it('diff vs the prior no-band-gap config shows the removed base_margin_of_safety + margin_of_safety_widening (MoS knob deleted)', () => {
+    // Reconstruct the PRIOR (no-band-gap-1) shape: identical EXCEPT it still carried the now-removed
+    // deterministic margin-of-safety knob (base_margin_of_safety + margin_of_safety_widening). The
+    // no-mos-knob bump records their removal — margin of safety now comes from the synthesis joint
+    // price/moat judgment, not a deterministic config haircut.
     const previous = {
       ...VALUATION_PARAMS,
-      version: 'valuation-2026-06-required-gap-1',
-      required_growth_gap: {
-        base_gap: 0.03,
-        widening: {
-          high_terminal_value_share: 0.02,
-          low_maint_capex_confidence: 0.01,
-          weak_moat_durability: 0.02,
-          sensitivity_dispersion_max: 0.02,
-          cap: 0.06,
-        },
+      version: 'valuation-2026-06-no-band-gap-1',
+      base_margin_of_safety: 0.25,
+      margin_of_safety_widening: {
+        high_terminal_value_share: 0.10,
+        low_maint_capex_confidence: 0.05,
+        weak_moat_durability: 0.10,
+        sensitivity_dispersion_max: 0.10,
+        cap: 0.50,
       },
     } as unknown as ValuationParams
     const changes = diffValuationParams(previous, VALUATION_PARAMS)
     const byPath = new Map(changes.map((c) => [c.path, c]))
-    // The removed leaves appear with next === undefined (the band/gap conservatism knob is gone).
-    expect(byPath.get('required_growth_gap.base_gap')).toEqual({ path: 'required_growth_gap.base_gap', previous: 0.03, next: undefined })
-    expect(byPath.get('required_growth_gap.widening.cap')).toEqual({ path: 'required_growth_gap.widening.cap', previous: 0.06, next: undefined })
+    // The removed leaves appear with next === undefined (the deterministic MoS conservatism knob is gone).
+    expect(byPath.get('base_margin_of_safety')).toEqual({ path: 'base_margin_of_safety', previous: 0.25, next: undefined })
+    expect(byPath.get('margin_of_safety_widening.cap')).toEqual({ path: 'margin_of_safety_widening.cap', previous: 0.50, next: undefined })
     // The surviving sanity-check params are UNCHANGED by this bump.
     expect(byPath.has('single_growth_cap')).toBe(false)
     expect(byPath.has('terminal_value_share_flag')).toBe(false)
@@ -116,7 +114,7 @@ describe('Part D Step 2 — growth-fade version bump records the structural diff
     // The F.13 uniform scalars are UNCHANGED by this bump.
     expect(byPath.has('terminal_growth')).toBe(false)
     expect(byPath.has('stage1_horizon')).toBe(false)
-    expect(byPath.has('base_margin_of_safety')).toBe(false)
+    expect(byPath.has('single_growth_cap')).toBe(false)
     expect(byPath.has('discount_rate')).toBe(false)
   })
 
@@ -128,7 +126,7 @@ describe('Part D Step 2 — growth-fade version bump records the structural diff
       version: 'valuation-2026-06-one-knob-2',
       terminal_growth: undefined,
       stage1_horizon: undefined,
-      base_margin_of_safety: undefined,
+      single_growth_cap: undefined,
       terminal_growth_by_moat: { monopoly: 0.025, wide: 0.015 },
       stage1_horizon_by_moat: { monopoly: 15, wide: 10 },
       margin_of_safety_by_moat: { monopoly: 0.15, wide: 0.25 },
@@ -146,7 +144,7 @@ describe('Part D Step 2 — growth-fade version bump records the structural diff
     // Added uniform scalar fields appear with previous === undefined (collapsed to the conservative wide values).
     expect(byPath.get('terminal_growth')).toEqual({ path: 'terminal_growth', previous: undefined, next: 0.015 })
     expect(byPath.get('stage1_horizon')).toEqual({ path: 'stage1_horizon', previous: undefined, next: 10 })
-    expect(byPath.get('base_margin_of_safety')).toEqual({ path: 'base_margin_of_safety', previous: undefined, next: 0.25 })
+    expect(byPath.get('single_growth_cap')).toEqual({ path: 'single_growth_cap', previous: undefined, next: 0.15 })
     // The constitutional discount_rate (effective default) is UNCHANGED.
     expect(byPath.has('discount_rate')).toBe(false)
   })
@@ -160,7 +158,7 @@ describe('Part D Step 2 — growth-fade version bump records the structural diff
       next: VALUATION_PARAMS,
     })
     expect(event.payload.previous_version).toBe('valuation-2026-06-one-knob-2')
-    expect(event.payload.new_version).toBe('valuation-2026-06-no-band-gap-1')
+    expect(event.payload.new_version).toBe('valuation-2026-06-no-mos-knob-1')
     expect(event.payload.changes).toContainEqual({ path: 'single_growth_cap', previous: 0.10, next: 0.15 })
   })
 })
@@ -174,7 +172,7 @@ describe('Acceptance #5 — config change writes a valuation_config ledger event
     const next: ValuationParams = {
       ...previous,
       version: 'valuation-test-tightened-1',
-      base_margin_of_safety: 0.30,
+      single_growth_cap: 0.12,
     }
 
     const event = buildValuationConfigEvent({
@@ -193,7 +191,7 @@ describe('Acceptance #5 — config change writes a valuation_config ledger event
     expect(event.payload.previous_version).toBe(previous.version)
     expect(event.payload.new_version).toBe('valuation-test-tightened-1')
     expect(event.payload.changes).toEqual([
-      { path: 'base_margin_of_safety', previous: 0.25, next: 0.30 },
+      { path: 'single_growth_cap', previous: 0.15, next: 0.12 },
     ])
     expect(event.schema_version).toBe(1)
   })

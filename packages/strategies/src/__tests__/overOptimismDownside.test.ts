@@ -30,7 +30,7 @@ describe('over-optimism downside boundary (F.3 asymmetric stress — cap re-deri
     expect(g.above_gdp).toBe(true)
   })
 
-  it('caps an over-optimistic input so the buy-below collapses to a SANE multiple (cap=0.15 + fade tame it)', () => {
+  it('caps an over-optimistic input so the FAIR VALUE collapses to a SANE multiple (cap=0.15 + fade tame it)', () => {
     const g = creditedGrowth(buffettMungerStrategy, { demonstrated_growth: 0.35 }).growth
     for (const moat of ['wide', 'monopoly'] as const) {
       const v = twoStageValuation({
@@ -39,20 +39,15 @@ describe('over-optimism downside boundary (F.3 asymmetric stress — cap re-deri
         absurd_multiple: buffettMungerStrategy.valuation.fv_absurd_multiple,
         horizon: stage1HorizonForMoat(buffettMungerStrategy, moat),
       })
-      // End-stage MoS: uniform base + the weak-moat-durability widening (above-GDP growth is a durability
-      // claim), plus the high-terminal-value-share increment when this faded FV's TV share exceeds the flag.
-      const widening = VALUATION_PARAMS.margin_of_safety_widening
-      const tvShare = v.terminal_value_pct_of_iv ?? 0
-      const mos = VALUATION_PARAMS.base_margin_of_safety
-        + widening.weak_moat_durability
-        + (tvShare > VALUATION_PARAMS.terminal_value_share_flag ? widening.high_terminal_value_share : 0)
-      const buyMult = ((v.fair_value ?? 0) * (1 - mos)) / oe_ps
-      // At cap 0.15 the over-optimistic 35% input (capped to 15%) lands at a defensible buy-below: the faded
-      // FV is ≈ 24.6× OE and the above-GDP-widened MoS (0.25 base + 0.10 weak-durability = 0.35) gives a
-      // buy-multiple ≈ 16× OE — far below the ~29×/62× the old flat 0.20 path produced. The cap + the Part D
-      // fade, not an output-side guard, are what contain it (cap_exceeded still fires as a warn flag).
-      expect(buyMult).toBeLessThan(25)
-      expect(buyMult).toBeLessThan(17)
+      // At cap 0.15 the over-optimistic 35% input (capped to 15%) lands at a defensible fair value: the faded
+      // FV is ≈ 24.6× OE — far below the ~36×/77× the old uncapped path produced. The cap + the Part D Step 2
+      // fade (g 15% → terminal 1.5% over years 6–10), not an output-side guard, are what contain it
+      // (cap_exceeded still fires as a warn flag). Margin of safety is no longer a deterministic config
+      // haircut — it comes from the synthesis joint price/moat judgment — so this guards only the cap+fade
+      // FV mechanism, which is the live deterministic part.
+      const fvMult = (v.fair_value ?? 0) / oe_ps
+      expect(fvMult).toBeLessThan(25)
+      expect(fvMult).toBeCloseTo(24.6, 1)
     }
   })
 

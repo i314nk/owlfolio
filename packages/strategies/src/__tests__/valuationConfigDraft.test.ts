@@ -7,7 +7,7 @@ import { buffettMungerStrategy } from '../buffettMunger'
 const tightened: ValuationParams = {
   ...VALUATION_PARAMS,
   version: 'valuation-test-tightened-1',
-  base_margin_of_safety: 0.30,
+  single_growth_cap: 0.12,
 }
 
 describe('buildValuationConfigChangeDraft (gated, anti-drift param-change path)', () => {
@@ -27,7 +27,7 @@ describe('buildValuationConfigChangeDraft (gated, anti-drift param-change path)'
     expect(draft.auto_applied).toBe(false)
     // The diff is computed, not asserted by the caller.
     expect(draft.changes).toEqual([
-      { path: 'base_margin_of_safety', previous: 0.25, next: 0.30 },
+      { path: 'single_growth_cap', previous: 0.15, next: 0.12 },
     ])
     // The anti-drift precondition: a backtest must be attached (spec §3.4).
     expect(draft.calibration_run_event_id).toBe('evt_calibration_run_1')

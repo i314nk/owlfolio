@@ -15,11 +15,6 @@ describe('Buffett-Munger two-stage DCF contract params', () => {
     expect(buffettMungerStrategy.valuation.discount_rate).toBe(0.1)
   })
 
-  // F.13 — UNIFORM base MoS 25% for every investable moat (collapsed from the old monopoly/wide tier table).
-  it('uniform base MoS (F.13): 25%', () => {
-    expect(buffettMungerStrategy.valuation.base_margin_of_safety).toBe(0.25)
-  })
-
   // F.13 — UNIFORM terminal g 1.5% for every investable moat (collapsed to wide's value).
   it('uniform terminal growth (F.13): 1.5% for wide and monopoly alike', () => {
     expect(buffettMungerStrategy.valuation.terminal_growth).toBe(0.015)
@@ -135,7 +130,7 @@ describe('Acceptance #1 — reference valuation regression (computed, not truste
       ceiling_multiple: buffettMungerStrategy.valuation.valuation_multiple_ceiling,
       horizon: stage1HorizonForMoat(buffettMungerStrategy, 'monopoly'),
     })
-    const mos = 0.25 // F.13 uniform base MoS (buffettMungerStrategy.valuation.base_margin_of_safety)
+    const mos = 0.25 // local test haircut to derive a reference buy price; not a live config field
     const buy = fv * (1 - mos)
     // Pinned computed values (truth per spec §4 instruction); F.13 uniform params + Part D Step 2 fade.
     expect(fv).toBeCloseTo(1367.7824, 3)
@@ -154,7 +149,7 @@ describe('Acceptance #1 — reference valuation regression (computed, not truste
       ceiling_multiple: buffettMungerStrategy.valuation.valuation_multiple_ceiling,
       horizon: stage1HorizonForMoat(buffettMungerStrategy, 'wide'),
     })
-    const mos = 0.25 // F.13 uniform base MoS (buffettMungerStrategy.valuation.base_margin_of_safety)
+    const mos = 0.25 // local test haircut to derive a reference buy price; not a live config field
     const buy = fv * (1 - mos)
     // Computed (Part D Step 2 fade, g 3% → 1.5%): stage1 703.4297 + terminal 592.1290 = 1295.5587
     // (implied 12.956×); buy @25% = 971.6690.
@@ -228,30 +223,39 @@ describe('Part D Step 2 — linear stage-1 growth fade', () => {
 })
 
 // ---------------------------------------------------------------------------
-// Acceptance test #2 (spec §4): all parameters readable from config; changing MOS in the config
-// changes the buy price with NO code change.
+// Acceptance test #2 (spec §4): all parameters readable from config; changing a param in the config
+// changes the fair value with NO code change. (Margin of safety is no longer a deterministic config
+// haircut — it comes from the synthesis joint price/moat judgment — so the live config-driven property
+// is exercised here via the growth-cap, which still feeds twoStageValuation directly.)
 // ---------------------------------------------------------------------------
-describe('Acceptance #2 — config-driven (changing a param changes the buy price, no code change)', () => {
-  it('changing MOS in the params object changes the buy price', async () => {
+describe('Acceptance #2 — config-driven (changing a param changes the fair value, no code change)', () => {
+  it('changing the growth cap in the params object changes the fair value', async () => {
     const { VALUATION_PARAMS } = await import('../valuationParams')
     const oe_ps = 100
-    const fv = twoStageFairValuePerShare({
+    // High ceiling_multiple so the 18× sanity clamp does not bind for either cap — this isolates the
+    // growth-cap effect on the underlying faded fair value (both caps would otherwise clamp to 18× and tie).
+    const ceiling_multiple = 1000
+    // Same valuation engine, two different growth caps pulled from a config object — no code change.
+    const fvAtDefaultCap = twoStageFairValuePerShare({
       oe_ps,
-      g: 0.04,
+      g: VALUATION_PARAMS.single_growth_cap,
       terminal_g: VALUATION_PARAMS.terminal_growth,
       discount: VALUATION_PARAMS.discount_rate,
-      ceiling_multiple: VALUATION_PARAMS.fv_cap_multiple,
+      ceiling_multiple,
       horizon: VALUATION_PARAMS.stage1_horizon,
     })
-    // Same valuation engine, two different MOS values pulled from a config object — no code change.
-    const buyAtDefaultMos = fv * (1 - VALUATION_PARAMS.base_margin_of_safety)
     const tighterConfig = {
       ...VALUATION_PARAMS,
-      base_margin_of_safety: 0.30,
+      single_growth_cap: 0.10,
     }
-    const buyAtTighterMos = fv * (1 - tighterConfig.base_margin_of_safety)
-    expect(buyAtTighterMos).toBeLessThan(buyAtDefaultMos)
-    expect(buyAtTighterMos).toBeCloseTo(fv * 0.70, 6)
-    expect(buyAtDefaultMos).toBeCloseTo(fv * 0.75, 6) // uniform base MoS is now 25% (F.13)
+    const fvAtTighterCap = twoStageFairValuePerShare({
+      oe_ps,
+      g: tighterConfig.single_growth_cap,
+      terminal_g: tighterConfig.terminal_growth,
+      discount: tighterConfig.discount_rate,
+      ceiling_multiple,
+      horizon: tighterConfig.stage1_horizon,
+    })
+    expect(fvAtTighterCap).toBeLessThan(fvAtDefaultCap) // a tighter growth cap lowers fair value
   })
 })
