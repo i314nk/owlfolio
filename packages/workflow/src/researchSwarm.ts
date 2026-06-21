@@ -359,8 +359,8 @@ export type FundamentalsDeps = {
   ) => Promise<AverageMarketCapResult>
   // F.2 (SHIPPED): the discount risk-free anchor is the COMPLIANT app-config savings rate threaded into the
   // deep-dive command (`risk_free_rate`), NOT a live Treasury fetch. The former `resolveTreasuryYield`
-  // override + `resolveTreasuryYieldValue` helper were retired here; the marketData Treasury exports remain
-  // (a later dead-surface slice removes them) but are no longer called in the discount path.
+  // override + `resolveTreasuryYieldValue` helper were retired here, and the now-dead marketData Treasury
+  // fetch/exports have since been removed entirely.
 }
 
 /**
