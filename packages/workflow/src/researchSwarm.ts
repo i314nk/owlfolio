@@ -2665,6 +2665,29 @@ export async function runResearchDeepDivePhase(
     }
   }
 
+  // (d2) DIRECT self-coherence: the model's valuation_status vs its OWN proposed buy-below (in_buy_zone).
+  // The model owns BOTH the qualitative label AND the buy-below number; when they disagree about TODAY's
+  // price the read is internally incoherent (e.g. "EXPENSIVE" while the price is at/below the price it said
+  // it would buy at). The (d/e) check above catches this only INDIRECTLY via market-implied growth — a
+  // contradiction with normal-band implied growth would slip through. This is the direct check. Flag-only —
+  // never blocks/clamps the verdict; the model owns the judgment, the human reconciles.
+  if (in_buy_zone !== undefined && buy_below !== undefined && current_price !== undefined) {
+    if (valuation_status === 'EXPENSIVE' && in_buy_zone === true) {
+      sanity_flags.push(
+        `sanity_status_contradicts_buy_zone: model labels the valuation EXPENSIVE, yet today's price `
+        + `($${current_price.toFixed(2)}) is at/below its OWN proposed buy-below ($${buy_below.toFixed(2)}) — `
+        + `the label and the buy threshold disagree about today's price. Reconcile (an over-pessimistic label, `
+        + `or a buy-below set too high).`,
+      )
+    } else if (valuation_status === 'ATTRACTIVE' && in_buy_zone === false) {
+      sanity_flags.push(
+        `sanity_status_contradicts_buy_zone: model labels the valuation ATTRACTIVE, yet today's price `
+        + `($${current_price.toFixed(2)}) is ABOVE its OWN proposed buy-below ($${buy_below.toFixed(2)}) — `
+        + `it calls the price attractive but would not buy at it. Reconcile.`,
+      )
+    }
+  }
+
   // (f) the model's proposed_buy_below implies (reverse-DCF at that price) an absurd growth.
   if (
     buy_below !== undefined

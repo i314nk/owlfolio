@@ -1657,6 +1657,43 @@ describe('RELIGHTENED DECISION — model proposes buy-below; deterministic side 
     expect(flags.some((f) => /implied_growth_above_cap/.test(f))).toBe(false)
   })
 
+  it('SANITY (self-coherence): status EXPENSIVE + price within the model\'s OWN buy-below (in_buy_zone) → contradicts-buy-zone flag (verdict NOT blocked)', async () => {
+    // The model's two outputs disagree about TODAY's price: it labels the valuation EXPENSIVE yet sets a
+    // proposed_buy_below ABOVE the current price (so in_buy_zone is true — it would buy here per its own
+    // threshold). The direct self-coherence check must flag it, independent of where market-implied growth
+    // sits (the (d/e) implied-growth proxy only catches this indirectly). Flag-only — verdict unchanged.
+    const { valuation, cp } = await runRelit({
+      id: 'coherence-expensive-inzone', price: 200, valuationStatus: 'EXPENSIVE', investmentVerdict: 'WATCH', proposedBuyBelow: 240,
+    })
+    expect(valuation?.['in_buy_zone']).toBe(true)
+    const flags = (valuation?.['sanity_flags'] as string[] | undefined) ?? []
+    expect(flags.some((f) => /contradicts_buy_zone/.test(f) && /expensive/i.test(f))).toBe(true)
+    expect(cp?.investment_verdict).toBe('WATCH')
+  })
+
+  it('SANITY (self-coherence): status ATTRACTIVE + price ABOVE the model\'s OWN buy-below → contradicts-buy-zone flag (verdict NOT blocked)', async () => {
+    // Symmetric: the model calls it ATTRACTIVE yet its buy-below is BELOW today's price (in_buy_zone false —
+    // it would not buy at today's price). Self-contradiction → flag.
+    const { valuation, cp } = await runRelit({
+      id: 'coherence-attractive-outzone', price: 600, valuationStatus: 'ATTRACTIVE', investmentVerdict: 'BUY', proposedBuyBelow: 400,
+    })
+    expect(valuation?.['in_buy_zone']).toBe(false)
+    const flags = (valuation?.['sanity_flags'] as string[] | undefined) ?? []
+    expect(flags.some((f) => /contradicts_buy_zone/.test(f) && /attractive/i.test(f))).toBe(true)
+    expect(cp?.investment_verdict).toBe('BUY')
+  })
+
+  it('SANITY (self-coherence CLEAN): status EXPENSIVE + price ABOVE the buy-below (normal expensive) → NO contradicts-buy-zone flag', async () => {
+    // The coherent expensive case (KO-like): EXPENSIVE label AND price above the buy-below (in_buy_zone false).
+    // The label and the buy threshold AGREE — no self-coherence flag.
+    const { valuation } = await runRelit({
+      id: 'coherence-clean', price: 300, valuationStatus: 'EXPENSIVE', investmentVerdict: 'WATCH', proposedBuyBelow: 200,
+    })
+    expect(valuation?.['in_buy_zone']).toBe(false)
+    const flags = (valuation?.['sanity_flags'] as string[] | undefined) ?? []
+    expect(flags.some((f) => /contradicts_buy_zone/.test(f))).toBe(false)
+  })
+
   it('IMPLIED EXIT MULTIPLE (surfaced): a normal case computes a sane, name-specific implied_exit_multiple', async () => {
     // A normal mid price → the flag-only sanity block backs out the exit P/OE the price requires
     // (current price grown at the discount over the horizon ÷ owner earnings grown at the market-implied
