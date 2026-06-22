@@ -59,6 +59,19 @@ describe('DataSafetyPanel', () => {
     expect(html).toContain('operator must run the restore archive and verification commands')
   })
 
+  it('SAFETY: hides the destructive bulk-reset control unless explicitly gated on', () => {
+    // The most important safety property: in normal operation (no bulkResetEnabled), the dev/test
+    // wholesale-clear control must be ABSENT — not a disabled stub. (The enabled render mounts a
+    // client control that needs the app-router context; its render is covered in BulkResetControl.test.tsx.)
+    const withoutProp = renderToStaticMarkup(createElement(DataSafetyPanel, { dataSafety: makeDataSafety() }))
+    expect(withoutProp).not.toContain('bulk-reset-control')
+    expect(withoutProp).not.toContain('Developer / test tools')
+
+    const disabled = renderToStaticMarkup(createElement(DataSafetyPanel, { dataSafety: makeDataSafety(), bulkResetEnabled: false }))
+    expect(disabled).not.toContain('bulk-reset-control')
+    expect(disabled).not.toContain('Developer / test tools')
+  })
+
   it('does not expose secret, auth, or credential paths in rendered data safety output', () => {
     const html = renderToStaticMarkup(createElement(DataSafetyPanel, {
       dataSafety: makeDataSafety({

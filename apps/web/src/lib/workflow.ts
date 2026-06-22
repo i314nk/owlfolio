@@ -1,5 +1,6 @@
-import { readFile } from 'node:fs/promises'
+import { readFile, readdir, rm } from 'node:fs/promises'
 import { join } from 'node:path'
+import { DatabaseSync } from 'node:sqlite'
 import { spawn } from 'node:child_process'
 import { createHash } from 'node:crypto'
 
@@ -85,6 +86,7 @@ import type { StatusBadgeTone } from '../components/StatusBadge'
 import { getDemoResearchCaseFromStore, getDemoWatchlistItemsFromStore } from './demo'
 import type { OnboardingState } from './onboarding'
 import { buildProviderStatusRows } from './providerStatus'
+import { isResearchResetEnabled, type DevToolsEnv } from './devTools'
 
 export type WorkflowMode = AppConfig['mode']
 
@@ -2524,4 +2526,71 @@ export function resolveModelIdForProvider(config: Pick<AppConfig, 'provider'>): 
   }
 
   return 'gpt-5.5'
+}
+
+export type ResearchLedgerResetSummary = {
+  cleared_events: number
+}
+
+/**
+ * DESTRUCTIVE dev/test-only wholesale clear of the active local ledger + source bundles.
+ *
+ * Honest scope: this clears the WHOLE active ledger at `state.config.ledger_path` — not just research
+ * runs. The append-only `SQLiteEventStore` has no per-aggregate delete, and a partial rebuild would risk
+ * dangling references (holdings/capital/watchlist events reference research cases and each other), so this
+ * truncates the entire `ledger_events` table. App configuration is PRESERVED: the environment stays
+ * configured (same mode/provider/paths); only the event/ledger state is wiped.
+ *
+ * Live-safe by design: the dev server holds the sqlite file open, so we must NOT unlink the file. We open
+ * the DB directly with `DatabaseSync` and `DELETE` the rows (and reset `sqlite_sequence` so a fresh ledger
+ * starts at sequence 1), then close — leaving a valid, immediately-appendable empty ledger.
+ *
+ * This is SEPARATE from the append-only single-run archive (`archiveAppResearchCase`); it is the gated
+ * wholesale clear, guarded here as defense-in-depth even though the route also gates.
+ */
+export async function resetResearchLedgerState(
+  state: OnboardingState,
+  { env }: { env: DevToolsEnv },
+): Promise<ResearchLedgerResetSummary> {
+  if (!isResearchResetEnabled({ env, mode: state.config.mode })) {
+    throw new Error('Research/ledger reset is not enabled in this environment')
+  }
+
+  const ledgerPath = state.config.ledger_path
+  if (ledgerPath === undefined) {
+    // Uninitialized environment: nothing to clear. Harmless success.
+    return { cleared_events: 0 }
+  }
+
+  const db = new DatabaseSync(ledgerPath)
+  let clearedEvents: number
+  try {
+    const countRow = db.prepare('SELECT COUNT(*) AS count FROM ledger_events').get() as { count: number } | undefined
+    clearedEvents = countRow?.count ?? 0
+
+    db.exec('DELETE FROM ledger_events')
+
+    // Reset the AUTOINCREMENT counter so a re-seeded ledger starts at sequence 1. sqlite_sequence only
+    // exists once an AUTOINCREMENT row has been inserted; tolerate its absence on a never-written ledger.
+    try {
+      db.prepare('DELETE FROM sqlite_sequence WHERE name = ?').run('ledger_events')
+    } catch {
+      /* no sqlite_sequence row yet — nothing to reset */
+    }
+  } finally {
+    db.close()
+  }
+
+  // Clear the source-ledger bundle directory CONTENTS (keep the directory itself so the configured path
+  // stays valid for the next run).
+  const sourceLedgerPath = state.config.source_ledger_path
+  if (sourceLedgerPath !== undefined && sourceLedgerPath.length > 0) {
+    const entries = await readdir(sourceLedgerPath).catch(() => [] as string[])
+
+    await Promise.all(
+      entries.map((entry) => rm(join(sourceLedgerPath, entry), { force: true, recursive: true })),
+    )
+  }
+
+  return { cleared_events: clearedEvents }
 }

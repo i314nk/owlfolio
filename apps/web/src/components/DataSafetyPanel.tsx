@@ -1,11 +1,17 @@
 import { createElement, Fragment, type ReactNode } from 'react'
 
 import type { DataSafetyViewModel } from '../lib/dataSafety'
+import { BulkResetControl } from './BulkResetControl'
 import { RouteHeader } from './designSystem'
 import { StatusBadge } from './StatusBadge'
 
 export type DataSafetyPanelProps = {
   dataSafety: DataSafetyViewModel
+  /**
+   * Server-computed dev-tools gate. When false (normal personal-local operation) the destructive bulk
+   * reset control is ABSENT — not a disabled stub.
+   */
+  bulkResetEnabled?: boolean
 }
 
 /** Inline mono path/identifier styling (globals.css is not editable in this lane). */
@@ -28,7 +34,7 @@ function Code({ children }: { children: ReactNode }) {
  * honest state of restore is today. Local-first and conservative throughout —
  * status and proposal evidence only, never a destructive control.
  */
-export function DataSafetyPanel({ dataSafety }: DataSafetyPanelProps) {
+export function DataSafetyPanel({ dataSafety, bulkResetEnabled = false }: DataSafetyPanelProps) {
   return createElement(
     'main',
     { className: 'owl-route-frame owl-route-frame-narrow owl-data-safety-page' },
@@ -46,6 +52,26 @@ export function DataSafetyPanel({ dataSafety }: DataSafetyPanelProps) {
     createIncludedCategories(dataSafety),
     createExcludedCategories(dataSafety),
     createRestorePosture(dataSafety),
+    // The destructive wholesale clear is a dev/test tool, visually + textually separated below the calm
+    // status surfaces. Rendered ONLY when the server-side gate is enabled; ABSENT in normal operation.
+    bulkResetEnabled ? createBulkResetSection() : null,
+  )
+}
+
+// ── Developer / test tools (destructive, gated) ───────────────────────────────
+
+function createBulkResetSection() {
+  return createElement(
+    'section',
+    { 'aria-label': 'Developer and test tools', className: 'owl-section-card', style: { gap: 'var(--owl-space-3)' } },
+    createElement('p', { className: 'owl-section-accent', style: { color: 'var(--owl-color-risk-bright)' } }, 'Developer / test tools'),
+    createElement('h2', { className: 'owl-section-title' }, 'Destructive: clear all local state'),
+    createElement(
+      'p',
+      { className: 'owl-body' },
+      'This section is only visible because dev/test tools are enabled in this environment. It is the wholesale clear used for development and tests — it is distinct from, and far blunter than, the append-only single-run archive.',
+    ),
+    createElement(BulkResetControl),
   )
 }
 
