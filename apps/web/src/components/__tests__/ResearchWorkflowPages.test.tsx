@@ -543,7 +543,10 @@ describe('research and watchlist workflow pages', () => {
     expect(thesisCardHtml).toContain('Full thesis')
     expect(thesisCardHtml).not.toContain(fullThesis)
     expect(html).toContain(fullThesis)
-    expect(html).toContain('align-items:start')
+    // Masonry/flow packing (Priority 1): the decision-evidence cards reflow to content height in a CSS
+    // multi-column flow container — no rigid equal-height grid that leaves a void beside the long Risks card.
+    expect(html).toContain('data-testid="decision-evidence-flow"')
+    expect(html).toContain('data-owl-flow="masonry"')
     expect(html).toContain('Valuation')
     expect(html).toContain('EXPENSIVE')
     expect(html).toContain('Legacy dossier lacks structured owner-earnings assumptions; treat EXPENSIVE as a deep-dive valuation status, not a Quick Screen gate.')
@@ -1581,7 +1584,10 @@ describe('ResearchCasePanel — circle-of-competence judgment', () => {
     }
     const html = renderToStaticMarkup(createElement(ResearchCasePanel, { researchCase, mode: 'personal-local' }))
     expect(html).toContain('Outside competence — set aside')
-    expect(html).toContain('citation did not verify: src_unverified')
+    // Compact citation marker (Priority 5): the verbose inline id is gone from the reading line; an
+    // unverified cite is surfaced via the marker's title (full id preserved) — traceability is kept.
+    expect(html).toContain('data-testid="citation-marker"')
+    expect(html).toContain('Citation did not verify: src_unverified')
     expect(html).toContain('the predictability_breakers citations did NOT verify')
   })
 

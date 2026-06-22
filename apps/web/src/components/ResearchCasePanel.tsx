@@ -82,6 +82,68 @@ const collapsibleDetailsStyle = {
   padding: '1rem',
 }
 
+// ── Masonry / flow packing (Priority 1) ───────────────────────────────────────
+//
+// Rigid equal-height multi-column grids leave dead voids when a short card sits beside a long one
+// (e.g. three short evidence cards beside the long Risks card; a short lane beside a tall one). CSS
+// multi-column flow packs each card to its own content height and reflows to fill vertical space — the
+// lowest-risk no-JS approach that mirrors the file's existing inline-style idiom. Each child carries
+// `masonryItemStyle` (break-inside: avoid + inline-block full-width) so cards never split across columns
+// and pack with no equal-height gap. Tagged with a stable data attribute for the structural flow test.
+const masonryContainerStyle = {
+  columnGap: '0.9rem',
+  columns: '220px',
+} as const
+
+const masonryItemStyle = {
+  breakInside: 'avoid' as const,
+  display: 'inline-block',
+  marginBottom: '0.9rem',
+  width: '100%',
+}
+
+/**
+ * A masonry/flow container: CSS multi-column packing so variable-height cards reflow to content height
+ * with no equal-height voids. Children are expected to carry `masonryItemStyle`. `data-owl-flow` is the
+ * stable structural hook the layout test asserts (short + long cards coexist in one flow container).
+ */
+function createMasonryFlow(testId: string, children: ReactNode[]) {
+  return createElement(
+    'div',
+    { 'data-owl-flow': 'masonry', 'data-testid': testId, style: masonryContainerStyle },
+    ...children,
+  )
+}
+
+// ── Compact citation marker (Priority 5) ──────────────────────────────────────
+//
+// The verbose inline `[cited: sec_edgar_10k_<id>]` after every claim clutters the reading line. Replace
+// it with a COMPACT superscript marker (a small mono index + source glyph) — full traceability preserved:
+// the complete id stays discoverable via the `title` hover AND in the Evidence-and-sources section below.
+// A marker that did NOT verify is rendered in the risk tone and reads "✕" so an unverified cite is never
+// quietly hidden. Native owl-* tokens only.
+function createCitationMarker(citation: string, grounded: boolean | undefined, index: number) {
+  const verified = grounded !== false
+  return createElement(
+    'sup',
+    {
+      key: `cite-${index}-${citation}`,
+      'data-testid': 'citation-marker',
+      title: verified ? `Source: ${citation}` : `Citation did not verify: ${citation}`,
+      style: {
+        color: verified ? 'var(--owl-color-gold)' : 'var(--owl-color-risk-bright)',
+        cursor: 'help',
+        fontFamily: 'var(--owl-font-mono)',
+        fontSize: 'var(--owl-text-2xs)',
+        fontWeight: 800,
+        marginLeft: '0.2rem',
+        whiteSpace: 'nowrap' as const,
+      },
+    },
+    verified ? `[${index}]` : `[${index}✕]`,
+  )
+}
+
 // ── Gated-state detection ─────────────────────────────────────────────────────
 
 /**
@@ -194,17 +256,19 @@ export function ResearchCasePanel({ researchCase, mode = 'demo', configuredProvi
     createReAnalysisDiffPanel(researchCase),
     // ── 1c. Exit post-mortem (predicted vs realized) ─────────────────────────
     createPostMortemPanel(researchCase),
-    // ── 1d. Decision panel (R1): the model's verdict/valuation_status, the model-proposed buy-below +
-    //        in-buy-zone, and the flag-only sanity-check. The decision centerpiece. ──
+    // ── 1d. Decision panel (R1): the model's verdict/valuation_status, the key-figures strip (model
+    //        buy-below + live price + buy-zone + reference FV + price-implied assumptions), and the
+    //        flag-only sanity-check. The decision centerpiece. ──
     createDecisionPanel(researchCase, marketQuote),
+    // ── 1e. Margin-of-safety audit — LEADS the decision region (Priority 3): the synthesis-owned JOINT
+    //        judgment (price margin + moat durability, side by side), the human's central audit surface.
+    //        Promoted above the valuation reasoning so it is not blended into the decision/valuation prose. ──
+    createMarginOfSafetyAuditBlock(researchCase),
     // ── 2. Valuation panel — the model thesis + cited reasoning (owner-earnings basis, judged growth +
     //       rationale, discount), the reverse-DCF read (market-implied vs judged sustainable growth), the
     //       two hidden assumptions the price bakes in (implied growth + implied exit multiple), the
     //       reference FV cross-check, and the independent bear case (red-team). ──
     createValuationPanel(researchCase, marketQuote),
-    // ── 2a. Margin-of-safety audit — the synthesis-owned JOINT judgment (price margin + moat durability,
-    //        side by side), plus the key-wrong assumption + thesis-break triggers. ──
-    createMarginOfSafetyAuditBlock(researchCase),
     // ── 2b. Position plan (advisory) ─────────────────────────────────────────
     createPositionPlanPanel(positionPlan, promptForCapital),
     // ── 3. Four summary cards (always visible) ───────────────────────────────
@@ -365,18 +429,15 @@ function createCircleCompetencePanel(researchCase: AppResearchCase) {
         ? 'Outside competence — set aside (cashflow predictability uncertain)'
         : 'Outside competence — set aside'
 
+  // Compact citation markers (Priority 5): each claim's cite collapses to a superscript marker — full id
+  // on hover (title) and in the Evidence-and-sources section. Markers are numbered across the panel.
+  let citeIndex = 0
   const claimRow = (text: string, citation: string | undefined, grounded: boolean | undefined) =>
     createElement(
       'li',
       { key: `${text}:${citation ?? ''}`, style: { color: 'var(--owl-color-text)', fontSize: 'var(--owl-text-base)', lineHeight: 1.5, marginBottom: '0.3rem' } },
       createElement('span', null, text),
-      citation === undefined
-        ? null
-        : createElement(
-            'span',
-            { style: { color: grounded ? 'var(--owl-color-muted)' : '#fca5a5', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-xs)', marginLeft: '0.5rem' } },
-            grounded ? `[cited: ${citation}]` : `[citation did not verify: ${citation}]`,
-          ),
+      citation === undefined ? null : createCitationMarker(citation, grounded, ++citeIndex),
     )
 
   const drivers = circle.cashflow_drivers ?? []
@@ -967,6 +1028,14 @@ function createDecisionPanel(researchCase: AppResearchCase, marketQuote?: Market
   const inBuyZone = valuation.in_buy_zone
     ?? (livePrice !== undefined && buyBelow !== undefined ? livePrice <= buyBelow : undefined)
 
+  // Key-figures strip (Priority 2): the full decision-critical figure set LEADS as stat blocks, not buried
+  // in prose. Beyond buy-below / live price / buy-zone, surface the reference fair value (the cross-check,
+  // explicitly NOT the decision) and the two hidden assumptions the price bakes in — market-implied growth
+  // and the implied exit multiple — together. Prose reasoning stays below in the valuation panel.
+  const referenceFairValue = valuation.reference_fair_value ?? valuation.fair_value_per_share
+  const marketImpliedGrowth = valuation.market_implied_growth
+  const impliedExitMultiple = valuation.implied_exit_multiple
+
   return createElement(
     'section',
     {
@@ -993,10 +1062,13 @@ function createDecisionPanel(researchCase: AppResearchCase, marketQuote?: Market
         resolveValuationChipColor(valuationStatus),
       ),
     ),
-    // Model-proposed buy-below vs live price + the in-buy-zone arithmetic.
+    // Key figures — the decision-critical numbers lead as stat blocks (Priority 2). The model buy-below
+    // vs live price + the in-buy-zone arithmetic; the reference fair value cross-check; and the two hidden
+    // price-implied assumptions surfaced together.
+    createElement('p', { className: 'owl-section-accent', style: { marginTop: '0.2rem' } }, 'Key figures'),
     createElement(
       'div',
-      { className: 'owl-ledger-line', style: { marginTop: '0.2rem' } },
+      { 'data-testid': 'decision-key-figures', className: 'owl-ledger-line' },
       createValuationLedgerStat(
         'Model buy-below',
         buyBelow !== undefined ? `$${buyBelow.toFixed(2)}` : 'Pending',
@@ -1013,6 +1085,21 @@ function createDecisionPanel(researchCase: AppResearchCase, marketQuote?: Market
           ? 'Not computable'
           : inBuyZone ? 'In the buy zone' : 'Not in the buy zone',
         inBuyZone === true ? 'owl-ledger-figure-emerald' : '',
+      ),
+      createValuationLedgerStat(
+        'Reference fair value · cross-check, not the decision',
+        referenceFairValue !== undefined ? `$${referenceFairValue.toFixed(2)}` : 'Not yet available',
+        'owl-ledger-figure-money',
+      ),
+      createValuationLedgerStat(
+        'Market-implied growth',
+        marketImpliedGrowth !== undefined ? `${(marketImpliedGrowth * 100).toFixed(1)}%` : 'Not yet available',
+        '',
+      ),
+      createValuationLedgerStat(
+        'Implied exit multiple',
+        impliedExitMultiple !== undefined ? `${impliedExitMultiple.toFixed(1)}× OE` : 'Not yet available',
+        '',
       ),
     ),
     livePrice !== undefined && buyBelow !== undefined ? createElement(
@@ -1157,9 +1244,16 @@ function createMarginOfSafetyAuditBlock(researchCase: AppResearchCase) {
     {
       'data-testid': 'margin-of-safety-audit',
       className: 'owl-section-card',
-      style: { gap: '0.6rem' },
+      // Prominent gold accent (Priority 3): the joint MoS judgment is the human's central audit surface and
+      // LEADS the decision region — a clear accent rail + heading so it is not blended into the prose.
+      style: { gap: '0.6rem', borderLeft: '3px solid var(--owl-color-gold)' },
     },
     createElement('p', { className: 'owl-section-accent' }, 'Margin of safety (joint)'),
+    createElement(
+      'h2',
+      { style: { color: 'var(--owl-color-gold-bright)', fontFamily: 'var(--owl-font-display)', fontSize: 'var(--owl-text-lg)', letterSpacing: '-0.01em', margin: 0 } },
+      'The central audit: where the margin of safety rests',
+    ),
     createElement(
       'p',
       { style: { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-sm)', lineHeight: 1.5, margin: 0 } },
@@ -1810,21 +1904,14 @@ function createDecisionEvidence(researchCase: AppResearchCase) {
       },
     },
     createElement('p', { className: 'owl-section-accent' }, 'Decision evidence'),
-    createElement(
-      'div',
-      {
-        style: {
-          alignItems: 'start',
-          display: 'grid',
-          gap: '0.9rem',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
-        },
-      },
+    // Masonry/flow packing (Priority 1): the three short cards no longer leave a dead void beside the
+    // long Risks card — each packs to content height and reflows.
+    createMasonryFlow('decision-evidence-flow', [
       createDossierCard('Thesis', thesis, undefined, { note: 'Full thesis available in the disclosure below.' }),
       createDossierCard('Valuation', valuationText, researchCase.valuation_status, { note: valuationProvenanceNote(researchCase) }),
       createDossierCard('Shariah / compliance', shariahText, researchCase.shariah_status, { extra: createShariahRatioLedger(researchCase) }),
       createDossierCard('Risks / open questions', [...risks, ...openQuestions]),
-    ),
+    ]),
     createFullThesisDisclosure(fullThesis, thesis),
   )
 }
@@ -1877,31 +1964,35 @@ function createDossierCard(
     {
       'data-testid': `research-dossier-card-${slugifyDossierLabel(label)}`,
       style: {
+        ...masonryItemStyle,
         background: 'var(--owl-color-panel-deep)',
         border: '1px solid rgba(148, 163, 184, 0.14)',
         borderRadius: '0.85rem',
-        display: 'grid',
-        gap: '0.5rem',
         padding: '0.85rem',
       },
     },
+    // Inner grid preserves vertical rhythm — the article itself is inline-block (masonry item).
     createElement(
       'div',
-      { style: { alignItems: 'center', display: 'flex', flexWrap: 'wrap', gap: '0.45rem', justifyContent: 'space-between' } },
-      createElement('h3', { style: { color: '#f7f8ff', fontSize: 'var(--owl-text-base)', margin: 0 } }, label),
-      status === undefined ? null : createElement('span', { style: { color: 'var(--owl-color-gold-bright)', fontSize: 'var(--owl-text-sm)', fontWeight: 900 } }, status),
-    ),
-    contentItems.length === 1
-      ? createElement('p', { style: { color: '#dbe3ef', fontSize: 'var(--owl-text-base)', lineHeight: 1.5, margin: 0 } }, contentItems[0])
-      : createElement(
-        'ul',
-        { style: { color: '#dbe3ef', display: 'grid', fontSize: 'var(--owl-text-base)', gap: '0.35rem', lineHeight: 1.4, margin: 0, paddingLeft: '1rem' } },
-        ...contentItems.map((item) => createElement('li', { key: item }, item)),
+      { style: { display: 'grid', gap: '0.5rem' } },
+      createElement(
+        'div',
+        { style: { alignItems: 'center', display: 'flex', flexWrap: 'wrap', gap: '0.45rem', justifyContent: 'space-between' } },
+        createElement('h3', { style: { color: '#f7f8ff', fontSize: 'var(--owl-text-base)', margin: 0 } }, label),
+        status === undefined ? null : createElement('span', { style: { color: 'var(--owl-color-gold-bright)', fontSize: 'var(--owl-text-sm)', fontWeight: 900 } }, status),
       ),
-    options?.extra ?? null,
-    options?.note === undefined
-      ? null
-      : createElement('p', { style: { color: '#9aa4b7', fontSize: 'var(--owl-text-sm)', fontWeight: 750, lineHeight: 1.4, margin: 0 } }, options.note),
+      contentItems.length === 1
+        ? createElement('p', { style: { color: '#dbe3ef', fontSize: 'var(--owl-text-base)', lineHeight: 1.5, margin: 0 } }, contentItems[0])
+        : createElement(
+          'ul',
+          { style: { color: '#dbe3ef', display: 'grid', fontSize: 'var(--owl-text-base)', gap: '0.35rem', lineHeight: 1.4, margin: 0, paddingLeft: '1rem' } },
+          ...contentItems.map((item) => createElement('li', { key: item }, item)),
+        ),
+      options?.extra ?? null,
+      options?.note === undefined
+        ? null
+        : createElement('p', { style: { color: '#9aa4b7', fontSize: 'var(--owl-text-sm)', fontWeight: 750, lineHeight: 1.4, margin: 0 } }, options.note),
+    ),
   )
 }
 
@@ -2028,93 +2119,132 @@ function createSpecialistLanesGrid(researchCase: AppResearchCase) {
         `${allFindings.length} lane${allFindings.length !== 1 ? 's' : ''} · source-backed`,
       ),
     ),
-    createElement(
-      'div',
-      {
-        style: {
-          display: 'grid',
-          gap: '0.7rem',
-          gridTemplateColumns: 'repeat(2, 1fr)',
-        },
-      },
-      ...allFindings.map((finding) => createSpecialistLaneCard(finding)),
-    ),
+    // Masonry/flow packing (Priority 1): a short lane card no longer gaps beside a tall one — each lane
+    // packs to its own content height and reflows.
+    createMasonryFlow('specialist-lanes-flow', allFindings.map((finding) => createSpecialistLaneCard(finding))),
   )
 }
 
 type ResearchFindingCard = NonNullable<AppResearchCase['specialist_findings']>[number]
+
+/**
+ * Split a lane finding into its CONCLUSION (the bottom line — first sentence) and the supporting DETAIL
+ * (the remainder). Density treatment (Priority 4): the reader sees the verdict at a glance; the supporting
+ * reasoning is secondary, behind a disclosure. When the finding is a single short sentence there is no
+ * detail to defer.
+ */
+function splitLaneFinding(summary: string): { conclusion: string; detail: string | undefined } {
+  const compact = summary.trim().replace(/\s+/g, ' ')
+  if (compact.length <= 160) return { conclusion: compact, detail: undefined }
+  // Prefer a clean sentence boundary for the conclusion (the bottom line). Reject a first "sentence" that is
+  // itself a wall of text (>220 chars) — a run-on still needs the density treatment, so fall through.
+  const match = compact.match(/^(.+?[.!?])\s+(.*)$/s)
+  if (
+    match !== null && match[1] !== undefined && match[2] !== undefined &&
+    match[2].trim().length > 0 && match[1].trim().length <= 220
+  ) {
+    return { conclusion: match[1].trim(), detail: match[2].trim() }
+  }
+  // Run-on finding (no internal sentence break, or an over-long first sentence): split at the nearest word
+  // boundary so the disclosure still fires. conclusion (minus the ellipsis) + ' ' + detail === the original.
+  const space = compact.lastIndexOf(' ', 160)
+  const boundary = space > 80 ? space : 160
+  const detail = compact.slice(boundary).trim()
+  if (detail.length === 0) return { conclusion: compact, detail: undefined }
+  return { conclusion: `${compact.slice(0, boundary).trim()}…`, detail }
+}
 
 function createSpecialistLaneCard(finding: ResearchFindingCard) {
   const laneLabel = deepDiveLaneShortLabel(finding.specialist_lane)
   const sourceIds = finding.source_ids ?? []
   const isRiskyLane = finding.specialist_lane === 'risks' || finding.specialist_lane === 'risk'
   const confidenceClass = finding.confidence?.toLowerCase().includes('high') ? 'high' : 'normal'
+  const { conclusion, detail } = splitLaneFinding(finding.finding_summary ?? 'No lane summary recorded.')
 
   return createElement(
     'article',
     {
       key: finding.finding_id,
       style: {
+        ...masonryItemStyle,
         background: 'var(--owl-color-panel-elevated)',
         border: `1px solid ${isRiskyLane ? 'var(--owl-color-fiduciary)' : 'var(--owl-color-border)'}`,
         borderLeft: isRiskyLane ? '3px solid var(--owl-color-fiduciary)' : undefined,
         borderRadius: '0.7rem',
-        display: 'grid',
-        gap: '0.4rem',
         padding: '0.75rem 0.85rem',
       },
     },
-    // Lane name + confidence
+    // Inner grid preserves vertical rhythm — the article itself is inline-block (masonry item).
     createElement(
       'div',
-      { style: { alignItems: 'center', display: 'flex', justifyContent: 'space-between' } },
+      { style: { display: 'grid', gap: '0.4rem' } },
+      // Lane name + confidence (the lane verdict at a glance — KEEP: confidence chip + source count)
       createElement(
+        'div',
+        { style: { alignItems: 'center', display: 'flex', justifyContent: 'space-between' } },
+        createElement(
+          'span',
+          {
+            style: {
+              color: 'var(--owl-color-sand)',
+              fontFamily: 'var(--owl-font-mono)',
+              fontSize: 'var(--owl-text-xs)',
+              fontWeight: 800,
+              letterSpacing: '0.05em',
+              textTransform: 'uppercase' as const,
+            },
+          },
+          laneLabel,
+        ),
+        finding.confidence === undefined ? null : createElement(
+          'span',
+          {
+            style: {
+              border: `1px solid ${confidenceClass === 'high' ? 'rgba(52, 211, 153, 0.34)' : 'var(--owl-color-border)'}`,
+              borderRadius: '999px',
+              color: confidenceClass === 'high' ? '#bbf7d0' : 'var(--owl-color-muted)',
+              fontSize: 'var(--owl-text-2xs)',
+              padding: '0.12rem 0.45rem',
+            },
+          },
+          finding.confidence,
+        ),
+      ),
+      // Lane CONCLUSION — the bottom line, the reader sees it immediately (Priority 4).
+      createElement(
+        'p',
+        { style: { color: 'var(--owl-color-text)', fontSize: 'var(--owl-text-sm)', fontWeight: 600, lineHeight: 1.45, margin: 0 } },
+        conclusion,
+      ),
+      // Supporting DETAIL — secondary, behind a disclosure so the card stays scannable.
+      detail === undefined ? null : createElement(
+        'details',
+        { style: { margin: 0 } },
+        createElement(
+          'summary',
+          { style: { color: 'var(--owl-color-gold-bright)', cursor: 'pointer', fontSize: 'var(--owl-text-2xs)', fontWeight: 800, letterSpacing: '0.04em', textTransform: 'uppercase' as const } },
+          'Reasoning',
+        ),
+        createElement(
+          'p',
+          { style: { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-sm)', lineHeight: 1.5, margin: '0.4rem 0 0' } },
+          detail,
+        ),
+      ),
+      // Source count (KEEP)
+      sourceIds.length > 0 ? createElement(
         'span',
         {
           style: {
-            color: 'var(--owl-color-sand)',
+            color: 'var(--owl-color-quiet)',
             fontFamily: 'var(--owl-font-mono)',
-            fontSize: 'var(--owl-text-xs)',
-            fontWeight: 800,
-            letterSpacing: '0.05em',
-            textTransform: 'uppercase' as const,
-          },
-        },
-        laneLabel,
-      ),
-      finding.confidence === undefined ? null : createElement(
-        'span',
-        {
-          style: {
-            border: `1px solid ${confidenceClass === 'high' ? 'rgba(52, 211, 153, 0.34)' : 'var(--owl-color-border)'}`,
-            borderRadius: '999px',
-            color: confidenceClass === 'high' ? '#bbf7d0' : 'var(--owl-color-muted)',
             fontSize: 'var(--owl-text-2xs)',
-            padding: '0.12rem 0.45rem',
+            marginTop: '0.2rem',
           },
         },
-        finding.confidence,
-      ),
+        `${sourceIds.length} source${sourceIds.length !== 1 ? 's' : ''}`,
+      ) : null,
     ),
-    // Finding summary
-    createElement(
-      'p',
-      { style: { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-sm)', lineHeight: 1.45, margin: 0 } },
-      finding.finding_summary ?? 'No lane summary recorded.',
-    ),
-    // Source count
-    sourceIds.length > 0 ? createElement(
-      'span',
-      {
-        style: {
-          color: 'var(--owl-color-quiet)',
-          fontFamily: 'var(--owl-font-mono)',
-          fontSize: 'var(--owl-text-2xs)',
-          marginTop: '0.2rem',
-        },
-      },
-      `${sourceIds.length} source${sourceIds.length !== 1 ? 's' : ''}`,
-    ) : null,
   )
 }
 

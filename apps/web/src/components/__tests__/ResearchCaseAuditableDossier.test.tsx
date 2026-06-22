@@ -280,6 +280,126 @@ describe('ResearchCasePanel auditable dossier (R1)', () => {
     expect(html).toContain('Not yet available')
   })
 
+  // KEY-FIGURES STRIP (Priority 2) — the full decision-critical figure set LEADS the decision surface as
+  // scannable stat blocks, not buried in prose.
+  it('leads the decision surface with a key-figures strip carrying the full figure set', () => {
+    const html = render(baseCase({ implied_exit_multiple: 12.3 }), QUOTE)
+    expect(html).toContain('data-testid="decision-key-figures"')
+    // model buy-below, live price, in-buy-zone
+    expect(html).toContain('Model buy-below')
+    expect(html).toContain('Live price')
+    expect(html).toContain('Buy-zone')
+    // reference fair value, explicitly labelled the cross-check (not the decision)
+    expect(html).toContain('Reference fair value · cross-check, not the decision')
+    expect(html).toContain('$210.00')
+    // the two hidden price-implied assumptions surfaced together
+    expect(html).toContain('Market-implied growth')
+    expect(html).toContain('Implied exit multiple')
+    expect(html).toContain('12.3× OE')
+    // the strip uses the owl ledger-stat idiom
+    expect(html).toContain('owl-ledger-line')
+    expect(html).toContain('owl-ledger-stat')
+    // The key-figures strip leads the decision surface, above the valuation reasoning prose.
+    expect(html.indexOf('data-testid="decision-key-figures"')).toBeLessThan(html.indexOf('data-testid="valuation-reasoning"'))
+  })
+
+  it('renders honest "Not yet available" key figures when the price-implied assumptions are absent (legacy)', () => {
+    // A legacy case whose valuation carries neither market_implied_growth nor implied_exit_multiple.
+    const legacy = baseCase()
+    const valuation = { ...legacy.valuation } as Record<string, unknown>
+    delete valuation.market_implied_growth
+    delete valuation.implied_exit_multiple
+    delete valuation.reference_fair_value
+    const html = render({ ...legacy, valuation } as unknown as AppResearchCase, QUOTE)
+    expect(html).toContain('data-testid="decision-key-figures"')
+    expect(html).toContain('Not yet available')
+  })
+
+  // MARGIN-OF-SAFETY LEADS THE DECISION REGION (Priority 3) — promoted above the valuation reasoning panel.
+  it('leads the decision region with the margin-of-safety judgment (above the valuation reasoning)', () => {
+    const html = render(baseCase(), QUOTE)
+    const mosIndex = html.indexOf('data-testid="margin-of-safety-audit"')
+    const valuationReasoningIndex = html.indexOf('data-testid="valuation-reasoning"')
+    expect(mosIndex).toBeGreaterThan(-1)
+    expect(valuationReasoningIndex).toBeGreaterThan(-1)
+    // The MoS audit surface leads, above the valuation reasoning.
+    expect(mosIndex).toBeLessThan(valuationReasoningIndex)
+    // It carries a prominent gold accent rail (Priority 3 visual prominence).
+    const mosHtml = html.slice(mosIndex - 200, mosIndex + 400)
+    expect(mosHtml).toContain('var(--owl-color-gold)')
+  })
+
+  // MASONRY / FLOW PACKING (Priority 1) — a short card and a long card coexist in one CSS multi-column flow
+  // container (no rigid equal-height grid → no dead void). Pixel voids aren't unit-testable; assert structure.
+  it('packs the specialist lanes in a masonry/flow container where a short and a long card coexist', () => {
+    const conclusion = 'POOL faces a genuine moat risk from private-label encroachment across its core distribution niche.'
+    const reasoning =
+      'Big-box retailers have begun sourcing directly from manufacturers, compressing the distributor margin pool over successive cycles and pressuring returns on capital well below the historical baseline.'
+    const longText = `${conclusion} ${reasoning}`
+    const html = render({
+      ...baseCase(),
+      specialist_findings: [
+        { finding_id: 'f_short', specialist_lane: 'moat', finding_summary: 'Wide moat.', confidence: 'high', source_ids: ['s1'] },
+        { finding_id: 'f_long', specialist_lane: 'risks', finding_summary: longText, confidence: 'normal', source_ids: ['s2', 's3'] },
+      ],
+    } as unknown as AppResearchCase, QUOTE)
+    const flowStart = html.indexOf('data-testid="specialist-lanes-flow"')
+    expect(flowStart).toBeGreaterThan(-1)
+    // Both the short and the long card live inside the one flow container.
+    expect(html).toContain('data-owl-flow="masonry"')
+    expect(html).toContain('Wide moat.')
+    // The long card pulls its CONCLUSION to the top (at a glance, before the disclosure) and defers the
+    // supporting REASONING inside the lane's own <details> (density treatment, Priority 4).
+    const flowHtml = html.slice(flowStart)
+    const detailsIdx = flowHtml.indexOf('<details')
+    const detailsCloseIdx = flowHtml.indexOf('</details>', detailsIdx)
+    const conclusionIdx = flowHtml.indexOf(conclusion)
+    const reasoningIdx = flowHtml.indexOf(reasoning)
+    expect(detailsIdx).toBeGreaterThan(-1)
+    expect(conclusionIdx).toBeGreaterThan(-1)
+    // The conclusion is shown at a glance, ahead of the disclosure; the reasoning is deferred inside it.
+    expect(conclusionIdx).toBeLessThan(detailsIdx)
+    expect(reasoningIdx).toBeGreaterThan(detailsIdx)
+    expect(reasoningIdx).toBeLessThan(detailsCloseIdx)
+  })
+
+  it('still defers reasoning for a run-on lane finding with no internal sentence break (density)', () => {
+    // A wall of text with no sentence terminator must still split (word-boundary fallback) — no content lost.
+    const runOn = `${'durable scale advantage and recurring float compounding steadily '.repeat(5)}across cycles`
+    const html = render({
+      ...baseCase(),
+      specialist_findings: [
+        { finding_id: 'f_runon', specialist_lane: 'moat', finding_summary: runOn, confidence: 'high', source_ids: ['s1'] },
+      ],
+    } as unknown as AppResearchCase, QUOTE)
+    const flowStart = html.indexOf('data-testid="specialist-lanes-flow"')
+    const flowHtml = html.slice(flowStart)
+    // The run-on still produces a disclosure, and the trailing text survives inside it (no truncation).
+    expect(flowHtml).toContain('<details')
+    expect(flowHtml).toContain('across cycles')
+  })
+
+  // COMPACT CITATION MARKERS (Priority 5) — the verbose inline [cited: <id>] is gone from the reading line;
+  // a compact marker carries the full id on hover (title) and the id stays in the sources section.
+  it('renders compact citation markers (full id preserved via title), not verbose inline [cited: ...]', () => {
+    const html = render({
+      ...baseCase(),
+      circle_competence: {
+        in_competence: true,
+        cashflow_predictability: 'durably_predictable',
+        competence_reasoning: 'Understandable cashflow engine.',
+        cashflow_drivers: [{ driver: 'Recurring float', citation: 'sec_edgar_10k_abc', grounded: true }],
+        predictability_breakers: [{ breaker: 'Cat-loss tail', citation: 'sec_edgar_10k_def', grounded: true }],
+      },
+    } as unknown as AppResearchCase, QUOTE)
+    // Compact marker present; the verbose inline form is gone from the reading line.
+    expect(html).toContain('data-testid="citation-marker"')
+    expect(html).not.toContain('[cited: sec_edgar_10k_abc]')
+    // Full id remains discoverable via the marker's title (hover) — traceability preserved.
+    expect(html).toContain('title="Source: sec_edgar_10k_abc"')
+    expect(html).toContain('title="Source: sec_edgar_10k_def"')
+  })
+
   it('retires the growth-axis band viz and the band/gap ledger labels entirely', () => {
     const html = render(baseCase(), QUOTE)
     expect(html).not.toContain('data-testid="growth-band-axis"')
