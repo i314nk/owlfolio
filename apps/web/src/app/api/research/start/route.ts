@@ -5,7 +5,7 @@ import { getOnboardingState, getProviderReadinessSnapshot } from '../../../../li
 import { evaluateOnboardingGate } from '../../../../lib/onboardingGate'
 import { enqueueResearchRun } from '../../../../lib/workflow'
 
-function parseRequestBody(body: unknown): { ticker: string; company_id?: string } {
+function parseRequestBody(body: unknown): { ticker: string; company_id?: string; supersedes_research_case_id?: string } {
   if (body === null || typeof body !== 'object' || Array.isArray(body)) {
     throw new Error('Request body must be an object')
   }
@@ -18,9 +18,23 @@ function parseRequestBody(body: unknown): { ticker: string; company_id?: string 
     throw new Error('Ticker is required')
   }
 
+  // Optional explicit re-run supersession: when the dossier's "Re-run on current engine" action starts a
+  // NEW run that supersedes a specific prior case, it passes that case id here. Absent → today's behavior
+  // (a plain new run; auto-versioning still supersedes the latest case for the ticker). When PRESENT it
+  // must be a non-empty string — a `supersedes_research_case_id` key that is the wrong type or blank is a
+  // malformed request, not a silent fall-through to a plain run.
+  let supersedesResearchCaseId: string | undefined
+  if ('supersedes_research_case_id' in record && record.supersedes_research_case_id !== undefined) {
+    if (typeof record.supersedes_research_case_id !== 'string' || record.supersedes_research_case_id.trim().length === 0) {
+      throw new Error('supersedes_research_case_id must be a non-empty string')
+    }
+    supersedesResearchCaseId = record.supersedes_research_case_id.trim()
+  }
+
   return {
     ticker,
     ...(companyId === undefined || companyId.length === 0 ? {} : { company_id: companyId }),
+    ...(supersedesResearchCaseId === undefined ? {} : { supersedes_research_case_id: supersedesResearchCaseId }),
   }
 }
 

@@ -15,6 +15,18 @@ export type PendingResearchRun = {
   expected_provider_id?: string
   /** The mode the run was REQUESTED under (e.g. `personal-local`). Absent on legacy requests. */
   expected_mode?: string
+  /**
+   * The prior research case this run SUPERSEDES (set by an explicit "Re-run on current engine" action,
+   * or by auto-versioning). The worker threads this into the new case's `research_case_created` so the
+   * superseded case is hidden from active views. Absent → a plain new run (no supersession).
+   */
+  supersedes_research_case_id?: string
+  /**
+   * The lineage version the new case should be created at (1 for a first run, prior+1 for a re-run /
+   * auto-version). The worker threads this into `research_case_created` so a re-run dossier shows the
+   * correct `vN` lineage. Absent on legacy requests → the worker defaults to v1 (backward-compat).
+   */
+  version?: number
   requested_event_id: string
 }
 
@@ -55,6 +67,8 @@ export function projectPendingResearchRuns(
       ...(p.decision_id === undefined ? {} : { decision_id: String(p.decision_id) }),
       ...(p.expected_provider_id === undefined ? {} : { expected_provider_id: String(p.expected_provider_id) }),
       ...(p.expected_mode === undefined ? {} : { expected_mode: String(p.expected_mode) }),
+      ...(p.supersedes_research_case_id === undefined ? {} : { supersedes_research_case_id: String(p.supersedes_research_case_id) }),
+      ...(p.version === undefined ? {} : { version: Number(p.version) }),
       requested_event_id: e.event_id,
     })
   }

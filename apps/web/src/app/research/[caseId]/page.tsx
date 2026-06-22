@@ -3,7 +3,9 @@ import { notFound } from 'next/navigation'
 import { SQLiteEventStore } from '@owlfolio/ledger/sqliteEventStore'
 import { resolveCurrentPrice } from '@owlfolio/workflow/marketData'
 import type { MoatClass } from '@owlfolio/strategies/strategyContract'
+import { ENGINE_VERSION } from '@owlfolio/strategies/engineVersion'
 
+import { ResearchCaseActions } from './ResearchCaseActions'
 import { ResearchCasePanel } from '../../../components/ResearchCasePanel'
 import { ResearchCasePending } from '../../../components/ResearchCasePending'
 import { UnconfiguredNotice } from '../../../components/UnconfiguredNotice'
@@ -116,6 +118,11 @@ export default async function ResearchCasePage({ params }: ResearchCasePageProps
       }
     }
 
+    // Engine-version staleness (mirror buildEngineVersionMarker): a run is STALE when its engine_version
+    // is absent (pre-versioning) or differs from the current ENGINE_VERSION. Drives the re-run emphasis.
+    const caseEngineVersion = researchCase.valuation?.judgment?.engine_version
+    const engineStale = caseEngineVersion === undefined || caseEngineVersion !== ENGINE_VERSION
+
     return (
       <main className="owl-route-frame">
         <p className="owl-route-back-row">
@@ -123,6 +130,14 @@ export default async function ResearchCasePage({ params }: ResearchCasePageProps
             ← Back to command center
           </a>
         </p>
+        {state.config.mode === 'personal-local' ? (
+          <ResearchCaseActions
+            caseId={caseId}
+            ticker={researchCase.ticker}
+            isArchived={researchCase.archived === true}
+            engineStale={engineStale}
+          />
+        ) : null}
         {researchCase.archived === true ? (
           <p
             data-testid="research-case-archived-marker"

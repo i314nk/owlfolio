@@ -21,4 +21,18 @@ describe('projectPendingResearchRuns', () => {
     ])
     expect(pending).toHaveLength(0)
   })
+
+  it('surfaces re-run lineage (supersedes + version) so the worker creates the new case correctly', () => {
+    const [run] = projectPendingResearchRuns([
+      evt({ payload: { research_case_id: 'rc1', ticker: 'T', supersedes_research_case_id: 'rc_old', version: 3 } }),
+    ])
+    expect(run?.supersedes_research_case_id).toBe('rc_old')
+    expect(run?.version).toBe(3)
+  })
+
+  it('tolerates legacy requests with no lineage fields (backward-compat: omit, not default-stamp)', () => {
+    const [run] = projectPendingResearchRuns([evt({ payload: { research_case_id: 'rc1', ticker: 'T' } })])
+    expect(run).not.toHaveProperty('supersedes_research_case_id')
+    expect(run).not.toHaveProperty('version')
+  })
 })

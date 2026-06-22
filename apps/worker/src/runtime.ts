@@ -2545,6 +2545,13 @@ export async function runProcessResearchQueueTask(
           model_id: run.model_id ?? 'mock',
           decision_id: run.decision_id ?? `decision_${run.research_case_id}`,
           source_ledger_path: options.source_ledger_path,
+          // Re-run supersession: when the queued request named a prior case (explicit re-run or
+          // auto-versioning), thread it so the new case's `research_case_created` supersedes it and the
+          // prior case drops out of active views. Absent → a plain new run.
+          ...(run.supersedes_research_case_id === undefined ? {} : { supersedes_research_case_id: run.supersedes_research_case_id }),
+          // Lineage version (re-run / auto-version → prior+1) so the new dossier shows the correct vN.
+          // Absent on legacy requests → createResearchCase defaults to v1 (backward-compat).
+          ...(run.version === undefined ? {} : { version: run.version }),
           model_role_env: modelRoleEnv,
         },
         { ground, ...(options.maxToolCalls === undefined ? {} : { maxToolCalls: options.maxToolCalls }) },

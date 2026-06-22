@@ -313,7 +313,7 @@ function defaultSpawnDeepDiveWorker({ ledgerPath, sourceLedgerPath, appConfigPat
 
 export async function enqueueResearchRun(
   state: OnboardingState,
-  input: { ticker: string; company_id?: string },
+  input: { ticker: string; company_id?: string; supersedes_research_case_id?: string },
   deps: { spawn?: (paths: SpawnWorkerPaths) => void } = {},
 ): Promise<{ research_case_id: string }> {
   if (
@@ -343,14 +343,25 @@ export async function enqueueResearchRun(
 
   const store = new SQLiteEventStore(state.config.ledger_path)
   // Look up prior case for versioning before appending.
-  const priorCase = findLatestResearchCaseForTicker(await store.list(), ticker)
+  const allEvents = await store.list()
+  const priorCase = findLatestResearchCaseForTicker(allEvents, ticker)
   const action = selectResearchCaseAction({
     trigger: 'user',
     now: new Date(),
     ...(priorCase !== undefined ? { latestCase: { research_case_id: priorCase.research_case_id, created_at: priorCase.updated_at, version: priorCase.version } } : {}),
   })
-  const version = action === 'create_first' ? 1 : (priorCase?.version ?? 0) + 1
-  const supersedesId = action === 'create_version' ? priorCase?.research_case_id : undefined
+  // Supersession: an EXPLICIT re-run target (the dossier's "Re-run on current engine" action) takes
+  // precedence over auto-versioning. The new run supersedes the named case and bumps the version off
+  // it (so the new dossier is visibly v+1). Absent an explicit target, fall back to the auto-versioning
+  // policy (supersede the latest case for the ticker) — today's behavior.
+  const explicitSupersedesId = input.supersedes_research_case_id?.trim() || undefined
+  const explicitSupersededCase = explicitSupersedesId === undefined
+    ? undefined
+    : projectResearchCases(allEvents).find((c) => c.research_case_id === explicitSupersedesId)
+  const supersedesId = explicitSupersedesId ?? (action === 'create_version' ? priorCase?.research_case_id : undefined)
+  const version = explicitSupersedesId !== undefined
+    ? (explicitSupersededCase?.version ?? priorCase?.version ?? 0) + 1
+    : action === 'create_first' ? 1 : (priorCase?.version ?? 0) + 1
   try {
     const requestedEvent = await store.append({
       event_id: `evt_research_run_requested_${researchCaseId}`,
@@ -368,6 +379,11 @@ export async function enqueueResearchRun(
         model_id: resolveModelIdForProvider(state.config),
         requested_by: 'user_local',
         decision_id: decisionId,
+        version,
+        // Re-run supersession: record WHICH prior case this run supersedes so the production worker
+        // (which reads this event off the queue) threads it into the new case's `research_case_created`.
+        // Without this the worker would not know to supersede the prior case for an explicit re-run.
+        ...(supersedesId === undefined ? {} : { supersedes_research_case_id: supersedesId }),
         // Defense-in-depth: the request records the provider/mode it was made under so the
         // worker can fail closed if it loads a different config (e.g. silent demo/mock fallback)
         // instead of silently substituting a mock/demo dossier for a real personal-local run.
