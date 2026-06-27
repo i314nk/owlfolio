@@ -103,6 +103,22 @@ describe('submitReRun', () => {
     expect(result).toEqual({ ok: false, error: 'Out of circle of competence: SIC 6022' })
     expect(router.push).not.toHaveBeenCalled()
   })
+
+  it('invokes fetch bound to the global, never as a method on the deps object (Window-interface safety)', async () => {
+    // Regression: a bare browser `fetch` reached as `deps.fetch(...)` is invoked with `this = deps`, which
+    // the browser rejects ("'fetch' called on an object that does not implement interface Window"). The seam
+    // must bind to the global so `this` is the global regardless of how fetch was passed.
+    const seenThis: unknown[] = []
+    const probe = vi.fn(function (this: unknown) {
+      seenThis.push(this)
+      return Promise.resolve(jsonResponse({ research_case_id: 'rc_msft_2' }))
+    })
+    const router: ActionRouter = { push: vi.fn(), refresh: vi.fn() }
+
+    await submitReRun({ fetch: probe as unknown as typeof fetch, router, caseId: 'rc_msft_1', ticker: 'MSFT' })
+
+    expect(seenThis[0]).toBe(globalThis)
+  })
 })
 
 describe('submitArchive', () => {
@@ -130,5 +146,18 @@ describe('submitArchive', () => {
 
     expect(result).toEqual({ ok: false, error: 'Archive is only available in personal-local mode' })
     expect(router.push).not.toHaveBeenCalled()
+  })
+
+  it('invokes fetch bound to the global, never as a method on the deps object (Window-interface safety)', async () => {
+    const seenThis: unknown[] = []
+    const probe = vi.fn(function (this: unknown) {
+      seenThis.push(this)
+      return Promise.resolve(jsonResponse({ ok: true }))
+    })
+    const router: ActionRouter = { push: vi.fn(), refresh: vi.fn() }
+
+    await submitArchive({ fetch: probe as unknown as typeof fetch, router, caseId: 'rc_msft_1' })
+
+    expect(seenThis[0]).toBe(globalThis)
   })
 })

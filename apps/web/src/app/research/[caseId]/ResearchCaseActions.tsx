@@ -33,7 +33,11 @@ export async function submitReRun(
   deps: { fetch: typeof fetch; router: ActionRouter; caseId: string; ticker: string },
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   try {
-    const response = await deps.fetch('/api/research/start', {
+    // Bind to the global: the browser `fetch` rejects being invoked with a non-Window `this`
+    // ("'fetch' called on an object that does not implement interface Window"), which is what happens
+    // when it is reached as `deps.fetch(...)`. Binding makes the call this-safe however fetch was passed.
+    const doFetch = deps.fetch.bind(globalThis)
+    const response = await doFetch('/api/research/start', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ ticker: deps.ticker, supersedes_research_case_id: deps.caseId }),
@@ -59,7 +63,9 @@ export async function submitArchive(
   deps: { fetch: typeof fetch; router: ActionRouter; caseId: string },
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   try {
-    const response = await deps.fetch(`/api/research/${deps.caseId}/archive`, {
+    // Bind to the global (see submitReRun): the browser fetch rejects a non-Window `this`.
+    const doFetch = deps.fetch.bind(globalThis)
+    const response = await doFetch(`/api/research/${deps.caseId}/archive`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
     })
