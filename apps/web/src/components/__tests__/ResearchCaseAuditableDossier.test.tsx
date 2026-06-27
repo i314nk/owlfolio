@@ -431,3 +431,121 @@ describe('ResearchCasePanel auditable dossier uses the Owlfolio design system on
     expect(source).not.toContain('function createGrowthBandAxis')
   })
 })
+
+// ── Set-aside (circle-of-competence early exit) dossier ───────────────────────
+//
+// When the circle gate sets a candidate aside, the expensive 7-lane deep dive never ran: verdict PASS +
+// valuation_status INSUFFICIENT_DATA, the circle judgment, the outside_circle mirror flag, NO specialist
+// findings, NO valuation. The dossier must tell the honest short story (set aside, here's why) and OMIT the
+// full deep-dive scaffold — no "Pending" key-figures strip, no discount figure, no "Not yet available" MoS,
+// no empty lanes.
+
+function setAsideCase(): AppResearchCase {
+  return {
+    research_case_id: 'rc_set_aside_001',
+    version: 1,
+    superseded: false,
+    stage: 'decision_drafted',
+    company_id: 'company_set_aside',
+    ticker: 'SAS',
+    strategy_id: 'buffett-munger',
+    decision_id: 'decision_set_aside_001',
+    decision: 'PASS',
+    investment_verdict: 'PASS',
+    strategy_compliance: 'INSUFFICIENT_DATA',
+    valuation_status: 'INSUFFICIENT_DATA',
+    reason: 'Outside circle of competence — cashflow predictability could not be demonstrated from filings.',
+    thesis_summary: 'Set aside outside the circle of competence.',
+    next_required_action: 'No further research — set aside (outside the circle of competence).',
+    // Realistic set-aside shape: the swarm ALWAYS runs the quick screen before the circle gate, so a real
+    // set-aside carries quick_screen_id + screening_result. This keeps isLegacyDecisionDossier() false (as in
+    // production) so the collapsed audit trail renders the REAL quick-screen record — not the legacy fallback
+    // digest a quick_screen-less fixture would wrongly trip. The visible foreground stays clean either way.
+    quick_screen_id: 'quick_rc_set_aside_001',
+    screening_result: 'deep_dive_candidate',
+    engine_version: 'engine-test',
+    updated_at: '2026-06-09T12:00:00.000Z',
+    circle_competence: {
+      in_competence: false,
+      cashflow_predictability: 'not_predictable',
+      competence_reasoning: 'The cashflows depend on commodity prices the filings do not let us forecast.',
+      reason: 'circle_competence_unmet: the model judged this business’s cashflows NOT durably predictable.',
+      cashflow_drivers: [{ driver: 'Spot commodity spread', citation: 'sec_edgar_10k_sas', grounded: true }],
+      predictability_breakers: [{ breaker: 'Cyclical demand swings', citation: 'sec_edgar_10k_sas2', grounded: true }],
+    },
+    valuation: { circle_competence_unmet: true, outside_circle: true },
+    gate_checklist: [],
+    source_ids: [],
+    source_evidence: [],
+    ledger_timeline: [],
+  } as unknown as AppResearchCase
+}
+
+describe('ResearchCasePanel set-aside (circle early-exit) dossier', () => {
+  it('foregrounds the circle reasoning with a dominant set-aside headline and engine-version marker', () => {
+    const html = render(setAsideCase())
+    // Dominant set-aside state leads — calm gold, not a green PASS badge.
+    expect(html).toContain('data-testid="set-aside-dossier"')
+    expect(html).toContain('data-testid="set-aside-hero"')
+    expect(html).toContain('SET ASIDE')
+    expect(html).toContain('Set aside — outside circle of competence')
+    // The grounded circle judgment foregrounded (drivers, breakers, reasoning).
+    expect(html).toContain('data-testid="circle-competence"')
+    expect(html).toContain('Spot commodity spread')
+    expect(html).toContain('Cyclical demand swings')
+    expect(html).toContain('Outside competence — set aside')
+    // Engine-version provenance preserved.
+    expect(html).toContain('data-testid="engine-version-marker"')
+    // Citation traceability preserved (evidence/audit details still render).
+    expect(html).toContain('Evidence and audit details')
+  })
+
+  it('omits the entire deep-dive scaffold and all valuation noise', () => {
+    const html = render(setAsideCase(), QUOTE)
+    // None of the deep-dive scaffold testids render anywhere (these are unique to the full render).
+    expect(html).not.toContain('data-testid="decision-key-figures"')
+    expect(html).not.toContain('data-testid="decision-summary"')
+    expect(html).not.toContain('data-testid="margin-of-safety-audit"')
+    expect(html).not.toContain('data-testid="valuation-reasoning"')
+    expect(html).not.toContain('data-testid="specialist-lanes-flow"')
+    // The VISIBLE foreground (everything above the collapsed Evidence-and-audit details) carries no
+    // empty-placeholder valuation noise — no "Pending" key figures, no "Not yet available" MoS, no discount.
+    // (The collapsed audit details reuses the shared legacy quick-screen/deep-dive digest, same as the
+    // gated/reject path; that is the audit trail, not the deep-dive scaffold.)
+    const foreground = html.slice(0, html.indexOf('Evidence and audit details'))
+    expect(foreground).not.toContain('Not yet available')
+    expect(foreground).not.toContain('Pending')
+    expect(foreground).not.toContain('discount')
+  })
+
+  it('demotes verdict/valuation/strategy labels to a single quiet secondary metadata line', () => {
+    const html = render(setAsideCase())
+    // The raw labels appear only as the subordinate provenance line, not as four co-equal chips.
+    expect(html).toContain('data-testid="set-aside-meta"')
+    const metaIdx = html.indexOf('data-testid="set-aside-meta"')
+    const metaHtml = html.slice(metaIdx, html.indexOf('</p>', metaIdx))
+    expect(metaHtml).toContain('PASS')
+    expect(metaHtml).toContain('Valuation: INSUFFICIENT_DATA')
+    expect(metaHtml).toContain('Strategy: INSUFFICIENT_DATA')
+  })
+
+  it('does NOT treat a full deep-dive run (circle passed, has findings) as set aside', () => {
+    const html = render({
+      ...baseCase(),
+      circle_competence: { in_competence: true, cashflow_predictability: 'durably_predictable' },
+      specialist_findings: [
+        { finding_id: 'f1', specialist_lane: 'moat', finding_summary: 'Wide moat.', confidence: 'high', source_ids: ['s1'] },
+      ],
+    } as unknown as AppResearchCase, QUOTE)
+    expect(html).not.toContain('data-testid="set-aside-dossier"')
+    expect(html).toContain('data-testid="decision-key-figures"')
+    expect(html).toContain('data-testid="margin-of-safety-audit"')
+    expect(html).toContain('data-testid="specialist-lanes-flow"')
+  })
+
+  it('renders a legacy case with no circle data normally (not set aside)', () => {
+    const html = render(baseCase(), QUOTE)
+    expect(html).not.toContain('data-testid="set-aside-dossier"')
+    expect(html).toContain('data-testid="decision-key-figures"')
+  })
+})

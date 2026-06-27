@@ -183,6 +183,32 @@ function gatedReason(researchCase: AppResearchCase): { title: string; reason: st
   }
 }
 
+// ── Set-aside (early-exit) detection ──────────────────────────────────────────
+
+/**
+ * A case is "set aside" when the circle-of-competence gate failed AND the expensive 7-lane deep dive did
+ * NOT run. Such a run carries verdict PASS + valuation_status INSUFFICIENT_DATA, the circle judgment, and
+ * the `outside_circle`/`circle_competence_unmet` mirror flags — but no specialist findings, no valuation.
+ * Rendering the full deep-dive scaffold for it is incoherent (empty "Pending" key figures, a "Not yet
+ * available" MoS, empty lanes). This detector routes it to a coherent early-exit dossier instead.
+ *
+ * Conservative by design:
+ * - a full run that PASSED the circle gate (`in_competence === true`) is never set aside;
+ * - a run that produced specialist findings (the deep dive ran) is never set aside;
+ * - legacy runs with no circle data (both signals absent) render normally.
+ * Quick-screen rejects (stage 'rejected') are handled earlier by `isGatedCase` → `createGatedDossier`.
+ */
+function isSetAsideCase(researchCase: AppResearchCase): boolean {
+  const circle = researchCase.circle_competence
+  // A full run that PASSED the circle gate is never an early exit.
+  if (circle?.in_competence === true) return false
+  // The deep dive ran (it populated specialist findings) → not an early exit.
+  if ((researchCase.specialist_findings?.length ?? 0) > 0) return false
+  // The circle gate set it aside — the valuation mirror flag OR the circle outcome. Legacy runs with
+  // neither signal present fall through to false (render normally).
+  return researchCase.valuation?.outside_circle === true || circle?.in_competence === false
+}
+
 // ── Main component ────────────────────────────────────────────────────────────
 
 export function ResearchCasePanel({ researchCase, mode = 'demo', configuredProviderId, marketQuote, positionPlan, promptForCapital = false }: ResearchCasePanelProps) {
@@ -240,6 +266,15 @@ export function ResearchCasePanel({ researchCase, mode = 'demo', configuredProvi
       { style: { display: 'grid', gap: '1rem' } },
       mockWarningBanner,
       createAwaitingDeepDiveDossier(researchCase),
+    )
+  }
+
+  if (isSetAsideCase(researchCase)) {
+    return createElement(
+      'section',
+      { style: { display: 'grid', gap: '1rem' } },
+      mockWarningBanner,
+      createSetAsideDossier(researchCase),
     )
   }
 
@@ -756,6 +791,135 @@ function createAwaitingDeepDiveDossier(researchCase: AppResearchCase) {
       ),
     ),
     // Still render evidence for audit trail visibility
+    createEvidenceAndAuditDetails(researchCase),
+  )
+}
+
+// ── Set-aside (early-exit) state ──────────────────────────────────────────────
+//
+// When the circle-of-competence gate set a candidate aside, the deep dive never ran: there is no
+// valuation, no margin-of-safety, no specialist lanes — only the grounded judgment of WHY. This dossier
+// tells that honest short story and omits the full deep-dive scaffold entirely (no "Pending" key-figures
+// strip, no discount figure, no "Not yet available" MoS, no empty lanes).
+
+/**
+ * Set-aside hero — LEADS with the dominant set-aside state (a calm gold treatment, NOT a green PASS badge
+ * that would mislead). The raw verdict / valuation_status / strategy_compliance labels are demoted to a
+ * small, clearly-secondary mono/quiet provenance line — "Set aside" already explains the INSUFFICIENT_DATA
+ * placeholders, so the reader sees "set aside, here's why" rather than four co-equal labels to reconcile.
+ * Reuses the verdict-hero idioms (owl-section-card, owl-section-accent, owl-page-title, serif headline) and
+ * the shared `buildEngineVersionMarker` / `buildVersionBadge` provenance stamps.
+ */
+function createSetAsideHero(researchCase: AppResearchCase) {
+  const displayName = researchCase.ticker ?? researchCase.company_id ?? researchCase.research_case_id
+  const versionBadge = buildVersionBadge(researchCase)
+
+  // Subordinate provenance metadata: the raw labels as a single small mono/quiet line, not co-equal chips.
+  const metaParts = [
+    researchCase.investment_verdict ?? researchCase.decision,
+    researchCase.valuation_status === undefined ? undefined : `Valuation: ${researchCase.valuation_status}`,
+    researchCase.strategy_compliance === undefined ? undefined : `Strategy: ${researchCase.strategy_compliance}`,
+  ].filter((part): part is string => part !== undefined && part !== '')
+
+  return createElement(
+    'header',
+    {
+      className: 'owl-section-card',
+      'data-testid': 'set-aside-hero',
+      style: { borderLeft: '3px solid var(--owl-color-gold)', gap: '0.7rem' },
+    },
+    // kicker + version/engine provenance row
+    createElement(
+      'div',
+      { style: { alignItems: 'baseline', display: 'flex', gap: '0.75rem', justifyContent: 'space-between', flexWrap: 'wrap' } },
+      createElement('p', { className: 'owl-section-accent' }, 'Research dossier'),
+      createElement(
+        'div',
+        { style: { alignItems: 'flex-end', display: 'flex', flexDirection: 'column', gap: '0.2rem', textAlign: 'right' } },
+        versionBadge === null ? null : createElement(
+          'span',
+          { style: { color: 'var(--owl-color-quiet)', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-xs)' } },
+          versionBadge,
+        ),
+        buildEngineVersionMarker(researchCase),
+      ),
+    ),
+    // Ticker (serif page title — the briefing's subject)
+    createElement('h1', { className: 'owl-page-title', style: { lineHeight: 1, margin: 0 } }, displayName),
+    // Company
+    createElement(
+      'p',
+      { style: { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-base)', margin: 0 } },
+      researchCase.company_id ?? 'Unknown company',
+    ),
+    // Dominant set-aside state — the headline the reader sees first (calm gold, never a green PASS badge).
+    createElement(
+      'div',
+      { style: { alignItems: 'center', display: 'flex', flexWrap: 'wrap', gap: '0.6rem', marginTop: '0.15rem' } },
+      createElement(
+        'span',
+        {
+          'data-testid': 'set-aside-badge',
+          style: {
+            background: 'rgba(214, 178, 94, 0.15)',
+            border: '1px solid rgba(214, 178, 94, 0.45)',
+            borderRadius: '0.6rem',
+            color: 'var(--owl-color-gold-bright)',
+            fontFamily: 'var(--owl-font-mono)',
+            fontSize: 'var(--owl-text-md)',
+            fontWeight: 800,
+            letterSpacing: '0.06em',
+            padding: '0.3rem 0.8rem',
+          },
+        },
+        'SET ASIDE',
+      ),
+    ),
+    createElement(
+      'h2',
+      { className: 'owl-section-title', style: { fontFamily: 'var(--owl-font-display)', fontSize: 'var(--owl-text-lg)', margin: 0 } },
+      'Set aside — outside circle of competence',
+    ),
+    createElement(
+      'p',
+      { style: { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-base)', lineHeight: 1.55, margin: 0 } },
+      'The circle-of-competence gate set this candidate aside before the expensive 7-lane deep dive ran. There is no valuation or deep-dive analysis to show — only the grounded judgment of why it was set aside, below.',
+    ),
+    // Subordinate provenance metadata (small, quiet mono — NOT co-equal chips).
+    metaParts.length === 0 ? null : createElement(
+      'p',
+      {
+        'data-testid': 'set-aside-meta',
+        style: {
+          color: 'var(--owl-color-quiet)',
+          fontFamily: 'var(--owl-font-mono)',
+          fontSize: 'var(--owl-text-2xs)',
+          letterSpacing: '0.04em',
+          margin: 0,
+        },
+      },
+      metaParts.join(' · '),
+    ),
+  )
+}
+
+/**
+ * Set-aside dossier — the coherent early-exit read. Renders ONLY: the reconciled hero, the grounded
+ * circle-of-competence judgment FOREGROUNDED (cited drivers + predictability-breakers + reasoning = the
+ * whole "why"), and the evidence/audit details (citation traceability). The re-analysis diff and exit
+ * post-mortem are collapsible no-ops that render null without data — included for the rare set-aside re-run
+ * while staying clean. Deliberately OMITS the deep-dive scaffold (decision/key-figures strip, MoS audit,
+ * valuation panel, decision-evidence cards, specialist lanes, forecasts, admit/sizing/sell, watchlist
+ * promotion) — none of it ever populated for a set-aside run.
+ */
+function createSetAsideDossier(researchCase: AppResearchCase) {
+  return createElement(
+    'section',
+    { 'data-testid': 'set-aside-dossier', style: { display: 'grid', gap: '1rem' } },
+    createSetAsideHero(researchCase),
+    createCircleCompetencePanel(researchCase),
+    createReAnalysisDiffPanel(researchCase),
+    createPostMortemPanel(researchCase),
     createEvidenceAndAuditDetails(researchCase),
   )
 }
