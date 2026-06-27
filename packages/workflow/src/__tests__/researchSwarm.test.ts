@@ -1100,6 +1100,9 @@ function configurableSwarmProvider(opts: {
   // captures 'bad' ids as unavailable (no content_hash), so a citation pointing at 'src_qs_bad_1' is
   // captured-but-unverified — it must NOT count as grounded after the fix.
   quickScreenProposesGoodBad?: boolean
+  // Regression repro: the quick screen proposes NO sources at all (proposed_sources: []) — the no-tools
+  // production shape after the schema fix. The run must still succeed, grounded by the harness pre-fetch.
+  quickScreenProposesEmpty?: boolean
 }) {
   const src = (id: string) => ({ source_id: id, title: 'T', url: 'https://www.sec.gov/Archives/edgar/data/0/test-10k.htm', excerpt: 'e' })
   let laneCall = 0
@@ -1131,9 +1134,11 @@ function configurableSwarmProvider(opts: {
           valuation_sanity: 'Reasonable', shariah_status: 'CONDITIONAL',
           red_flags: ['None identified'], confidence: 'high', caveats: ['Mock caveat'],
           screening_result: 'deep_dive_candidate',
-          proposed_sources: opts.quickScreenProposesGoodBad === true
-            ? [src('src_qs_good_1'), src('src_qs_bad_1')]
-            : [src('src_qs_1')],
+          proposed_sources: opts.quickScreenProposesEmpty === true
+            ? []
+            : opts.quickScreenProposesGoodBad === true
+              ? [src('src_qs_good_1'), src('src_qs_bad_1')]
+              : [src('src_qs_1')],
         }
       }
       if (schemaName === 'BuffettMungerLaneFinding') {
@@ -2158,7 +2163,61 @@ describe('quick screen — tool-grounded firewall', () => {
       .map((c: unknown[]) => (c[0] as { prompt?: string; response_format?: { schema_name?: string } }))
       .find((r) => r.response_format?.schema_name === 'BuffettMungerQuickScreen')?.prompt
     expect(qsPrompt).toContain(filingId)
-    expect(qsPrompt).toContain('PRE-VERIFIED PRIMARY SOURCES')
+    // QUICK-SCREEN-specific block (NOT the citation-field-oriented buildPreVerifiedSourcesBlock).
+    expect(qsPrompt).toContain('HARNESS PRE-VERIFIED PRIMARY FILING')
+    // The block must instruct an EMPTY proposed_sources when nothing extra is fetched (no source_id-as-url).
+    expect(qsPrompt).toContain('proposed_sources is for REAL fetched URLs ONLY')
+  })
+
+  it('SUCCEEDS with EMPTY proposed_sources on a no-tools provider — grounding is via the harness pre-fetch, not a model-proposed source (the regression repro)', async () => {
+    // The exact regression (TSM real codex re-run): the tool-grounded quick screen on the NO-TOOLS codex
+    // provider got the harness pre-verified-filing block injected; ProposedSourcesSchema.min(1) forced the
+    // model to emit a proposed_source and — with no citation field on the quick-screen schema — it put the
+    // harness source_id into proposed_sources[0].url → invalid-URL → structured-output rejected → the run
+    // failed. AFTER the fix the schema allows EMPTY proposed_sources, so the model proposes nothing and the
+    // run STILL SUCCEEDS: the gate is grounded purely by the harness-injected + folded 20-F filing id.
+    const tsmcFundamentals: Fundamentals = {
+      cik: '0001046179',
+      entity_name: 'TAIWAN SEMICONDUCTOR MANUFACTURING CO LTD',
+      currency: 'USD',
+      latest_annual: {
+        fiscal_year: 2024, currency: 'USD', net_income_musd: 36500, revenue_musd: 90000,
+        d_and_a_musd: 18000, capex_musd: 30000, sbc_musd: 0, diluted_shares_m: 5186,
+        shares_outstanding_m: 5186, total_debt_musd: 30000, cash_and_securities_musd: 60000,
+        interest_expense_musd: 400,
+      },
+      annual_series: [
+        { fiscal_year: 2024, currency: 'USD', net_income_musd: 36500, revenue_musd: 90000, d_and_a_musd: 18000, capex_musd: 30000, sbc_musd: 0, diluted_shares_m: 5186 },
+      ],
+      filings: [
+        { form: '20-F', filed: '2025-04-15', url: 'https://www.sec.gov/Archives/edgar/data/1046179/000104621925000010/tsm-20241231.htm' },
+      ],
+    }
+    const store = new InMemoryEventStore()
+    const provider = configurableSwarmProvider({ laneCount: buffettMungerDeepDiveLanes.length, quickScreenProposesEmpty: true })
+    const sourceLedgerPath = await mkdtemp(join(tmpdir(), 'owlfolio-qs-empty-'))
+    await runStrategyResearchSwarm(
+      store, provider as never,
+      {
+        research_case_id: 'rc_qs_empty', company_id: 'c', ticker: 'TSM',
+        strategy_id: 'buffett-munger', actor_id: 'user_local', idempotency_key: 'qs_empty_k',
+        model_id: 'mock', decision_id: 'decision_qs_empty', source_ledger_path: sourceLedgerPath,
+      },
+      { ground: allVerifiedGround, laneConcurrency: 4, fetchFundamentals: async () => tsmcFundamentals },
+    )
+    const events = await store.list()
+    // The run SUCCEEDED — the quick screen drafted and a decision was reached (before the fix it threw).
+    const qsEvent = events.find((e) => e.event_type === 'quick_screen_drafted')
+    expect(qsEvent).toBeDefined()
+    expect(events.some((e) => e.event_type === 'decision_drafted')).toBe(true)
+    // Grounding held via the harness pre-fetch even though the model proposed NOTHING: the 20-F filing id
+    // is the gate's only verified source.
+    const filingId = 'sec_edgar_20f_0001046179_fy2024'
+    const qsSourceIds = (qsEvent?.payload as { source_ids?: string[] }).source_ids ?? []
+    expect(qsSourceIds).toEqual([filingId])
+    const projections = projectResearchCases(events as Parameters<typeof projectResearchCases>[0])
+    const cp = projections.find((c) => c.research_case_id === 'rc_qs_empty')
+    expect(cp?.quick_screen_source_ids).toEqual([filingId])
   })
 
   it('RESIDUAL fail-closed: a non-EDGAR name on a no-tools provider (no fundamentals + no verified model source) fails closed', async () => {

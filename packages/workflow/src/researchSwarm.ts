@@ -106,6 +106,7 @@ import {
   resolveEngineCommit,
   buildPrimaryFilingBlock,
   buildPreVerifiedSourcesBlock,
+  buildQuickScreenFilingBlock,
   type MoatLaneJudgment,
   type ShariahLaneJudgment,
   type JudgmentDegraded,
@@ -556,7 +557,11 @@ export async function runStrategyResearchSwarm(
       if (captured !== undefined && grounded.verified_ids.includes(sourceId)) {
         remember([captured]) // part of the verified corpus from this point on
         qsPrimaryFilingSourceId = sourceId
-        qsPreVerifiedSourcesBlock = buildPreVerifiedSourcesBlock([sourceId])
+        // QUICK-SCREEN-specific block (NOT buildPreVerifiedSourcesBlock): the quick-screen schema has no
+        // citation field, so a source_id must NEVER be put into proposed_sources. This block injects the
+        // verified filing's id (for reference) + the harness-fetched financials (to ground the worth-it
+        // read) and ends with the explicit "proposed_sources is REAL URLs only / empty [] is fine" rule.
+        qsPreVerifiedSourcesBlock = buildQuickScreenFilingBlock(qsFundamentals, sourceId)
       }
     }
   }
@@ -573,11 +578,12 @@ export async function runStrategyResearchSwarm(
       + `This is a two-step gate — NOT a full analysis. Keep responses brief; the deep dive handles detail.\n\n`
       + `GROUND YOURSELF IN THE PRIMARY FILING BEFORE JUDGING — do NOT judge from your prior knowledge of `
       + `the brand. A harness-verified copy of the company's latest annual filing is provided below (see `
-      + `PRE-VERIFIED PRIMARY SOURCES, when present): base BOTH gate judgments on its described business `
-      + `activities and revenue mix and cite its source_id. If grounded fetch tools are available, you may `
-      + `also call search_filings to find the latest annual filing (a 10-K for US issuers, a 20-F for `
-      + `foreign private issuers such as TSMC, or a 40-F for Canadian issuers) and fetch_source to read it. `
-      + `Reading ONE primary filing is enough for this fast gate.\n\n`
+      + `HARNESS PRE-VERIFIED PRIMARY FILING, when present): ground BOTH gate judgments in it — STEP 1 in its `
+      + `described business activities / revenue mix, STEP 2 in the harness-fetched financials shown there. `
+      + `That filing is ALREADY harness-verified, so you do NOT need to fetch or propose anything to be `
+      + `grounded. If grounded fetch tools are available you MAY additionally call search_filings (10-K for US `
+      + `issuers, 20-F for foreign private issuers such as TSMC, 40-F for Canadian issuers) and fetch_source `
+      + `to read more, but it is optional. Reading ONE primary filing is enough for this fast gate.\n\n`
       + `STEP 1 — Shariah permissibility: based on the filing's DESCRIBED business activities and revenue `
       + `mix, assess whether the company's primary business is permissible under Islamic finance principles. `
       + `If the core business is clearly haram (e.g. conventional banking, alcohol, weapons, tobacco, adult `
@@ -589,8 +595,12 @@ export async function runStrategyResearchSwarm(
       + `no durable business, chronic losses, terminal industry), set screening_result to 'reject'. Otherwise `
       + `set screening_result to 'deep_dive_candidate'.\n\n`
       + `Return a brief assessment in each field. Do NOT perform per-dimension deep analysis — that is the `
-      + `deep dive's job. Cite the primary filing in proposed_sources and cite only what you read.`
-      // Inject the harness's pre-verified primary-filing source_id (exactly like the circle gate at :816).
+      + `deep dive's job. proposed_sources is for REAL fetched URLs ONLY — NEVER put a source_id or an `
+      + `invented URL there; if you fetched no additional real URL, return proposed_sources as an empty array `
+      + `[] (the pre-verified filing already grounds this gate).`
+      // Inject the harness's QUICK-SCREEN-specific pre-verified filing block (financials + the empty-
+      // proposed_sources rule). NOT buildPreVerifiedSourcesBlock — the quick-screen schema has no citation
+      // field, so a source_id must never be routed into proposed_sources (the invalid-URL regression).
       + (qsPreVerifiedSourcesBlock ?? ''),
     timeout_ms: AGENT_TIMEOUT_MS,
     schema_name: 'BuffettMungerQuickScreen',

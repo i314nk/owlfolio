@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { ProposedSourcesSchema } from './groundedAgent'
+import { ProposedSourceSchema, ProposedSourcesSchema } from './groundedAgent'
 
 // ---------------------------------------------------------------------------
 // Per-stage Zod schemas (each includes proposed_sources for grounding)
@@ -17,7 +17,16 @@ export const QuickScreenAgentSchema = z.object({
   confidence: z.enum(['low', 'medium', 'high']),
   caveats: z.array(z.string().min(1)).min(1),
   screening_result: z.enum(['pass', 'reject', 'needs_data', 'deep_dive_candidate']),
-  proposed_sources: ProposedSourcesSchema,
+  // QUICK-SCREEN ONLY: proposed_sources allows EMPTY (no `.min(1)`). On the configured no-tools codex
+  // provider the gate's grounding comes from the HARNESS pre-fetch (the verified primary filing is injected
+  // and its source_id is folded into qs.verified_ids), so the model does NOT need to propose any source. The
+  // shared ProposedSourcesSchema (min 1) forced the model to emit something and — with no citation field on
+  // this schema to hold a source_id — it put the harness source_id into proposed_sources[0].url, an invalid
+  // URL that rejected the whole structured output (the research_run_failed regression). Empty is now valid;
+  // any REAL fetched URLs the model proposes still flow through unchanged. All OTHER stage schemas keep
+  // ProposedSourcesSchema (min 1). z.infer of both is ProposedSource[], so the runGroundedAgentWithTools
+  // `T extends { proposed_sources: ... }` constraint is still satisfied.
+  proposed_sources: z.array(ProposedSourceSchema),
 })
 
 export const LaneAgentSchema = z.object({
