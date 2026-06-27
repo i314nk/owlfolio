@@ -1,7 +1,6 @@
 import type { EventStore } from '@owlfolio/ledger/eventStore'
 import type { ActorType, LedgerEventEnvelope } from '@owlfolio/ledger/eventEnvelope'
 import { buffettMungerStrategy, discountRate, twoStageValuation } from '@owlfolio/strategies/buffettMunger'
-import { evaluateChecklistCompletion } from '@owlfolio/strategies/checklist'
 import type { ChecklistAudit } from '@owlfolio/strategies/checklistParams'
 import { VALUATION_PARAMS } from '@owlfolio/strategies/valuationParams'
 import { resolveResearchStrategyRef } from './researchStrategyRef'
@@ -86,10 +85,9 @@ type WatchlistDraftCreatedPayload = {
    */
   frozen_iv_valuation_version?: string
   /**
-   * The human's plain-language thesis (doc Gate 0 `[Hu]`), distinct from the agent-drafted
-   * `thesis_summary`. A signed thesis is the human's FINAL commitment; it is required + non-empty on
-   * admit. In the audit-and-decide model the human starts from `signed_thesis_draft` (the agent-drafted
-   * thesis) and either AFFIRMS it verbatim or AMENDS it — either way THIS is the persisted final.
+   * The thesis line recorded for the watched name, distinct from the agent-drafted `thesis_summary`.
+   * Review-and-promote: this is SERVER-SOURCED (from the agent draft) for provenance — it is no longer a
+   * required human-authored gate. Persisted append-only so the name carries a thesis.
    */
   signed_thesis: string
   /**
@@ -104,11 +102,11 @@ type WatchlistDraftCreatedPayload = {
    */
   thesis_amended: boolean
   /**
-   * The harness-marshaled audit captured at sign-off (audit-and-decide model): one business finding per
-   * business item + the human's single cognitive acknowledgement. Admission is COMPLETION-BLOCKED: every
-   * business item must carry a non-empty finding AND `cognitive_acknowledged === true` before this event is
-   * appended (see confirmWatchlistDraft). DECISION-NEUTRAL: no score/count/weight is derived — the audit
-   * forces the question, it never answers or ranks it.
+   * The server-marshaled audit captured at promote: one business finding per business item (a pure read of
+   * the case projection) + a cognitive acknowledgement flag. Review-and-promote: this is recorded for the
+   * audit trail but DOES NOT gate the admit (the gate was removed; the human's explicit promote is the
+   * commitment). DECISION-NEUTRAL: no score/count/weight is derived. Legacy events with the old fully-gated
+   * audit still project unchanged.
    */
   checklist_audit: ChecklistAudit
   user_approved: false
@@ -153,17 +151,23 @@ export type ConfirmWatchlistDraftCommand = {
    * provenance (see payload doc).
    */
   frozen_iv_valuation_version?: string | undefined
-  /** The human's required, non-empty FINAL signed thesis (Gate 0 `[Hu]`) — affirmed or amended. */
+  /**
+   * The FINAL signed thesis recorded for provenance. Review-and-promote: this is SERVER-SOURCED by the
+   * caller (from the agent draft) — it is NO LONGER a human-authored gate and is no longer required to be
+   * non-empty by this command. Persisted append-only so the watched name carries a thesis line.
+   */
   signed_thesis: string
   /**
-   * The agent-drafted thesis the human reviewed (the audit-and-decide draft). REQUIRED so the
-   * affirm-vs-amend provenance (`thesis_amended`) can be derived: `signed_thesis` is compared against it.
+   * The agent-drafted thesis used to derive the affirm-vs-amend provenance (`thesis_amended` =
+   * `signed_thesis !== signed_thesis_draft`). On the normal review-and-promote path the caller sets this to
+   * the SAME value as `signed_thesis`, so `thesis_amended` is false.
    */
   signed_thesis_draft: string
   /**
-   * The harness-marshaled audit (business findings + cognitive acknowledgement). REQUIRED: the admit is
-   * COMPLETION-BLOCKED — every business item must carry a non-empty finding AND `cognitive_acknowledged`
-   * must be true, or the admit is rejected before any append (mirroring the signed_thesis guard).
+   * The server-marshaled audit (business findings + cognitive acknowledgement) recorded append-only for the
+   * audit trail. Review-and-promote: this NO LONGER GATES the admit — it is provenance, not a completion
+   * block. The findings are a pure read of the case projection; `cognitive_acknowledged` is honestly false
+   * when no human reflection was required.
    */
   checklist_audit: ChecklistAudit
   actor_id: string
@@ -199,30 +203,23 @@ export async function confirmWatchlistDraft(
   store: WatchlistEventStore,
   command: ConfirmWatchlistDraftCommand,
 ): Promise<WatchlistDraftCreated> {
-  // Admit is human-authored: no auto-admit by worker/provider/system.
+  // Admit is human-authored: no auto-admit by worker/provider/system. This is the ONE remaining
+  // completion-block on this transition — the human's explicit "Promote" click is the commitment.
   const actorType: ActorType = command.actor_type ?? 'user'
   if (actorType !== 'user') {
     throw new Error(
       `Watchlist admit must be human-authored (actor_type 'user'); received '${actorType}'. No auto-admit.`,
     )
   }
-  // The signed thesis is the human's commitment — required, non-empty.
-  if (command.signed_thesis.trim().length === 0) {
-    throw new Error('Watchlist admit requires a non-empty signed_thesis (the human commitment).')
-  }
-  // COMPLETION-BLOCK (audit-and-decide): the harness-marshaled audit must be fully marshaled +
-  // acknowledged before admit — same throw-before-append shape as the signed_thesis guard.
-  // Decision-NEUTRAL: the evaluator only tells us WHICH blockers are still open (business items lacking a
-  // finding, plus the cognitive acknowledgement); it never scores/counts them, and a "risk present"
-  // finding never auto-rejects. We throw the missing ids so the human knows what still needs attention.
-  const checklistCompletion = evaluateChecklistCompletion(command.checklist_audit)
-  if (!checklistCompletion.complete) {
-    throw new Error(
-      `Watchlist admit requires a complete audit; missing: ${checklistCompletion.missing.join(', ')}`,
-    )
-  }
+  // REVIEW-AND-PROMOTE (ceremony removed, substance kept): we no longer REQUIRE a human-authored signed
+  // thesis or a complete cognitive-acknowledged checklist before admit. The dossier (bear case, key wrong
+  // assumption, thesis-break triggers) is the analysis the decision rests on, and the human's explicit
+  // promote is the authored transition. The signed_thesis + signed_thesis_draft + checklist_audit are still
+  // persisted append-only for provenance (server-sourced by the caller), but they do not GATE the admit. The
+  // Shariah gate (asserted by the caller before this command) remains the real compliance block.
 
-  // Affirm vs. amend provenance: the human either signed the agent draft verbatim or amended it.
+  // Affirm vs. amend provenance: the caller server-sources both fields to the same value, so this derives
+  // false on the normal path. Legacy/explicit callers that pass distinct values still record honestly.
   const thesisAmended = command.signed_thesis.trim() !== command.signed_thesis_draft.trim()
 
   const selectedStrategy = resolveResearchStrategyRef(command)
@@ -260,8 +257,8 @@ export async function confirmWatchlistDraft(
     // The agent draft the human reviewed + whether they amended it (affirm-vs-amend provenance).
     signed_thesis_draft: command.signed_thesis_draft,
     thesis_amended: thesisAmended,
-    // Persisted append-only as part of the human sign-off, alongside signed_thesis (verified complete
-    // above). The harness marshals the business findings; the human acknowledges the cognitive reflection.
+    // Persisted append-only for the audit trail (review-and-promote: provenance, not a gate). The server
+    // marshals the business findings; cognitive_acknowledged is honest (false when no reflection was required).
     checklist_audit: command.checklist_audit,
     user_approved: false,
     created_by_actor_type: 'user',
@@ -286,8 +283,8 @@ export async function confirmWatchlistDraft(
 
   const storedEvent = await store.append(event as LedgerEventEnvelope<unknown>)
 
-  // CONSOLIDATED SINGLE GATED STEP (Phase 8 S4): the admission's real human judgment (signed thesis +
-  // the full checklist + the caller's Shariah gate) is captured HERE, at this one gated transition. The
+  // CONSOLIDATED SINGLE GATED STEP (Phase 8 S4): the admission's real human judgment (the explicit promote
+  // click + the caller's Shariah gate) is captured HERE, at this one gated transition. The
   // former second human step (`approveWatchlistDraft` / "confirm watchlist draft") added no new human
   // input — it only re-asserted the SAME already-passed Shariah gate. So we emit the `watchlist_draft_confirmed`
   // event ATOMICALLY alongside the created draft: the item lands user_approved:true in one step.

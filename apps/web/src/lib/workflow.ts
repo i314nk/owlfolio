@@ -827,20 +827,9 @@ export function monitorAlertsForHolding(alerts: MonitorAlert[], holdingId: strin
 export async function promoteResearchCaseToWatchlist(
   state: OnboardingState,
   researchCaseId: string,
-  signedThesis: string,
-  cognitiveAcknowledged = false,
 ) {
   if (!state.is_initialized || state.config.mode !== 'personal-local' || state.config.ledger_path === undefined) {
     throw new Error('Personal-local workflow is not initialized')
-  }
-
-  // The signed thesis is the HUMAN commitment that makes admission a real decision. In the audit-and-decide
-  // model it is PRE-FILLED from the agent draft (affirm-or-amend), but it must still be non-empty after the
-  // human's final edit — an emptied thesis cannot be signed. Rejected here so a blank thesis can never be
-  // admitted.
-  const humanSignedThesis = signedThesis.trim()
-  if (humanSignedThesis.length === 0) {
-    throw new Error('A human-signed thesis is required to promote a research case to the watchlist')
   }
 
   const store = new SQLiteEventStore(state.config.ledger_path)
@@ -874,16 +863,23 @@ export async function promoteResearchCaseToWatchlist(
       ? researchCase.next_required_action ?? `Watch ${ticker} after drafted decision ${researchCase.decision}`
       : `Watch ${ticker}: ${researchCase.reason}`
 
-    // AUDIT-AND-DECIDE provenance (server-marshaled, NEVER client-authored):
-    //  - signed_thesis_draft: the agent draft the human reviewed — the SAME value the admit form pre-filled,
-    //    so the affirm-vs-amend decision (`thesis_amended`) is computed against what the human actually saw.
-    //  - checklist_audit: one finding per business item (a pure read of THIS case's projection) + the human's
-    //    single cognitive acknowledgement. confirmWatchlistDraft completion-blocks on it (throw-before-append).
-    const signedThesisDraft = resolveAdmissionThesisDraft(researchCase)
+    // REVIEW-AND-PROMOTE provenance (entirely SERVER-SOURCED, never client-authored). The human's explicit
+    // "Promote" click is the commitment; we no longer require them to re-author a thesis or tick a checklist.
+    //  - signed_thesis: sourced from the agent draft (resolveAdmissionThesisDraft) so the ledger event still
+    //    carries a non-empty thesis for provenance. Falls back to the case reason / a synthesized line if the
+    //    draft is ever empty (it normally is not — the resolver has its own fallbacks).
+    //  - signed_thesis_draft: the SAME value, so `thesis_amended` derives false (no human amendment occurred).
+    //  - checklist_audit: the server-marshaled business findings (a pure read of THIS case's projection) are
+    //    recorded for the audit trail, NOT as a gate. cognitive_acknowledged is HONESTLY false — no human
+    //    reflection was required by this flow (confirmWatchlistDraft no longer blocks on it).
+    const agentThesisDraft = resolveAdmissionThesisDraft(researchCase)
+    const serverSignedThesis = agentThesisDraft.trim().length > 0
+      ? agentThesisDraft
+      : researchCase.reason ?? 'Promoted to watchlist after review'
     const checklistAudit: ChecklistAudit = {
       version: CHECKLIST_PARAMS.version,
       business_findings: resolveBusinessFindings(researchCase),
-      cognitive_acknowledged: cognitiveAcknowledged,
+      cognitive_acknowledged: false,
     }
 
     // FREEZE the buy-below at admit (Task 4.2b): snapshot the Phase-1 valuation buy-below and record the
@@ -921,8 +917,8 @@ export async function promoteResearchCaseToWatchlist(
       // The version provenance is the sign-off valuation provenance; recorded whenever the reference can be
       // derived.
       ...(hasFrozenReference ? { frozen_iv_valuation_version: VALUATION_PARAMS.version } : {}),
-      signed_thesis: humanSignedThesis,
-      signed_thesis_draft: signedThesisDraft,
+      signed_thesis: serverSignedThesis,
+      signed_thesis_draft: serverSignedThesis,
       checklist_audit: checklistAudit,
       actor_id: 'user_local',
       idempotency_key: `decision:${researchCase.research_case_id}:watchlist:v1`,

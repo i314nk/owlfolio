@@ -38,8 +38,6 @@ function expectedReferenceFairValue(oe_ps: number, g: number): number {
   }).fair_value as number
 }
 
-const HUMAN_SIGNED_THESIS =
-  'I am admitting this name: durable franchise, low permanent-loss risk, buying with a margin of safety.'
 
 function makeState(ledgerPath: string, sourceLedgerPath: string) {
   return {
@@ -134,7 +132,7 @@ describe('promoteResearchCaseToWatchlist — freeze a REFERENCE fair value at si
       verdict_state: { band_low: 0.06, band_high: 0.10 },
     })
 
-    const promoted = await promoteResearchCaseToWatchlist(state, research_case_id, HUMAN_SIGNED_THESIS, true)
+    const promoted = await promoteResearchCaseToWatchlist(state, research_case_id)
 
     expect(promoted.frozen_oe_ps).toBe(10)
     expect(promoted.frozen_iv_valuation_version).toBe(VALUATION_PARAMS.version)
@@ -169,7 +167,7 @@ describe('promoteResearchCaseToWatchlist — freeze a REFERENCE fair value at si
     // A valuation WITH a discounted buy-below but NO oe_ps.
     const { research_case_id } = await seedCase(ledgerPath, { buy_price_per_share: 150 })
 
-    const promoted = await promoteResearchCaseToWatchlist(state, research_case_id, HUMAN_SIGNED_THESIS, true)
+    const promoted = await promoteResearchCaseToWatchlist(state, research_case_id)
 
     expect(promoted.frozen_oe_ps).toBeUndefined()
     expect(promoted.frozen_reference_fair_value).toBeUndefined()

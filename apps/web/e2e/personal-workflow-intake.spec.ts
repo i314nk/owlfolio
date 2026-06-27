@@ -120,17 +120,9 @@ test('personal-local mode can create the first research case from the command ce
   const researchCaseId = new URL(page.url()).pathname.split('/').at(-1)
   expect(researchCaseId).toMatch(/^rc_msft_/)
 
-  // Audit-and-decide admission: the thesis is harness-drafted and PRE-FILLED; the human affirms it as-is
-  // (amend is optional). Here we amend it so the downstream "User confirmed" / signed-thesis assertions
-  // remain meaningful with a known MSFT string.
-  const signedThesis = page.getByLabel(/signed thesis/i)
-  await expect(signedThesis).not.toHaveValue('')
-  await signedThesis.fill('Admitting MSFT: durable quality compounder bought with a margin of safety.')
-
-  // Single cognitive-reflection acknowledgement (replaces the per-item checklist). The promote button
-  // stays disabled until the thesis is non-empty AND this single acknowledgement is checked.
-  await page.getByLabel(/I have reflected on these reasoning checks for my own thinking/i).check()
-
+  // Review-and-promote: the dossier analysis (bear case, key wrong assumption, thesis-break triggers) is
+  // surfaced above; the human reviews it and promotes in one gated step. No required thesis text, no
+  // checklist ceremony — the promote click itself is the human commitment.
   const promoteButton = page.getByRole('button', { name: /promote to watchlist/i })
   await expect(promoteButton).toBeEnabled()
   await promoteButton.click()

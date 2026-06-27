@@ -13,15 +13,17 @@ import { CHECKLIST_PARAMS, listCognitiveItems } from '@owlfolio/strategies/check
 // checklist is REACHABLE from EVERY live sign-off flow and that its load-bearing invariants hold in the
 // committed code, not just in the unit tests:
 //
-//   A1. REACHABLE in BOTH sign-off flows — admission (confirmWatchlistDraft) AND re-underwrite (BOTH
-//       confirmHoldingReviewDraft AND overrideHoldingReviewDraft) each call evaluateChecklistCompletion(
-//       and BLOCK on it (a throw on `!...complete`). The web routes/fns wire each host.
+//   A1. REACHABLE in the RE-UNDERWRITE sign-off flows — confirmHoldingReviewDraft AND
+//       overrideHoldingReviewDraft each call evaluateChecklistCompletion( and BLOCK on it (a throw on
+//       `!...complete`). REVIEW-AND-PROMOTE: admission (confirmWatchlistDraft) NO LONGER gates on the
+//       checklist — the human's explicit promote is the commitment — so it must NOT call the evaluator.
+//       The web routes/fns still wire each host.
 //   A2. DECISION-NEUTRAL (no-scoring) — ENGINE + the three sign-off hosts + the evidence layer carry NO
-//       scoring/tally identifier (mirrors the no-Kelly grep), AND the three checklist UI forms render NO
+//       scoring/tally identifier (mirrors the no-Kelly grep), AND the checklist UI surfaces render NO
 //       count/progress badge (a count is a score in disguise).
 //   A3. COGNITIVE-HUMAN-ONLY — no host/route/workflow pre-fills or suggests cognitive answers, and the
 //       cognitive items in CHECKLIST_PARAMS carry NO `reads` field (so the evidence layer can never
-//       marshal them). The forms seed every answer EMPTY.
+//       marshal them). The re-underwrite forms seed every answer EMPTY; the promote form has no ack at all.
 //   A4. EXTENSIBLE — the evaluator iterates the business items (CHECKLIST_PARAMS.items / listBusinessItems(…))
 //       and so does the web findings layer (no hardcoded per-item id list in the evaluator, hosts, OR the
 //       findings layer), so a newly-added business item is automatically required with no code change.
@@ -91,13 +93,15 @@ function functionSlice(src: string, signature: string): string {
   return boundary === -1 ? src.slice(start) : src.slice(start, start + signature.length + boundary)
 }
 
-describe('Phase 7 S5 wiring conformance — A1: the checklist gates EVERY live sign-off flow', () => {
-  it('admission (confirmWatchlistDraft) calls evaluateChecklistCompletion AND blocks on it', () => {
+describe('Phase 7 S5 wiring conformance — A1: the checklist gates the re-underwrite sign-off flows', () => {
+  it('admission (confirmWatchlistDraft) NO LONGER gates on the checklist (review-and-promote)', () => {
+    // Review-and-promote removed the watchlist completion-block: the dossier is the analysis and the human's
+    // explicit promote click is the commitment. confirmWatchlistDraft must no longer call/throw on the
+    // checklist evaluator. (The Shariah gate, asserted by the caller, remains the real compliance block.)
     const slice = stripComments(functionSlice(watchlistWorkflowSrc, 'export async function confirmWatchlistDraft'))
     expect(slice, 'confirmWatchlistDraft must exist as a host slice').not.toBe('')
-    expect(slice, 'admission must call evaluateChecklistCompletion').toMatch(/evaluateChecklistCompletion\(/)
-    expect(slice, 'admission must BLOCK on the completion (throw on !complete)').toMatch(
-      /if\s*\(\s*!\s*\w*[Cc]ompletion\.complete\s*\)[\s\S]*?throw\b/,
+    expect(slice, 'admission must NOT call evaluateChecklistCompletion anymore').not.toMatch(
+      /evaluateChecklistCompletion\(/,
     )
   })
 
@@ -241,15 +245,14 @@ describe('Phase 7 S5 wiring conformance — A3: cognitive items are HUMAN-ONLY (
     )
   })
 
-  it('the three forms never seed the cognitive reflection (audit-and-decide: the single ack starts unchecked)', () => {
+  it('the re-underwrite forms never seed the cognitive reflection (the single ack starts unchecked)', () => {
+    // Review-and-promote removed the cognitive ack from the WATCHLIST form entirely (it is now a plain
+    // promote button). The two re-underwrite forms still carry the single ack, and it must NEVER be seeded.
     for (const [name, src] of [
-      ['WatchlistPromotionForm', watchlistPromotionFormSrc],
       ['HoldingReviewChecklistConfirm', holdingReviewConfirmFormSrc],
       ['HoldingReviewOverrideForm', holdingReviewOverrideFormSrc],
     ] as const) {
       const code = stripComments(src)
-      // Audit-and-decide: the human posts exactly ONE cognitive-reflection acknowledgement, and it is NEVER
-      // seeded — the ack state starts false (the agent must not pre-acknowledge the human's reflection).
       expect(code, `${name} must post the single cognitive acknowledgement`).toContain(
         'cognitive_reflection_acknowledged',
       )
@@ -260,6 +263,12 @@ describe('Phase 7 S5 wiring conformance — A3: cognitive items are HUMAN-ONLY (
       expect(code, `${name} must not author per-item checklist notes`).not.toContain('checklist_note[')
       expect(code, `${name} must not author per-item checklist affirmations`).not.toContain('checklist_addressed[')
     }
+
+    // The watchlist promote form must NOT carry the cognitive ack anymore (the gate was removed).
+    const watchlistCode = stripComments(watchlistPromotionFormSrc)
+    expect(watchlistCode, 'WatchlistPromotionForm must no longer post a cognitive acknowledgement').not.toContain(
+      'cognitive_reflection_acknowledged',
+    )
   })
 })
 

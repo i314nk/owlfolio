@@ -575,10 +575,9 @@ describe('research and watchlist workflow pages', () => {
     expect(html).not.toContain('Raw stage token')
     expect(html).not.toContain('/home/hermes_agent')
     expect(html).not.toContain('private/local/path')
-    // The thesis appears twice on a decision_drafted case: once in the dossier full-thesis readout, and
-    // once PRE-FILLED into the audit-and-decide admission textarea (`Watch MSFT: <reason>`), which the
-    // human affirms or amends. Both are intentional; there is no accidental third duplication.
-    expect([...html.matchAll(/Microsoft remains a high-quality Buffett-Munger business/g)]).toHaveLength(2)
+    // The thesis appears once on a decision_drafted case: in the dossier full-thesis readout. Review-and-
+    // promote removed the admission thesis textarea, so there is no second (pre-filled) copy.
+    expect([...html.matchAll(/Microsoft remains a high-quality Buffett-Munger business/g)]).toHaveLength(1)
   })
 
   it('renders harness-computed AAOIFI Shariah ratios + EDGAR OE-bridge provenance when present', () => {
@@ -736,22 +735,16 @@ describe('research and watchlist workflow pages', () => {
     expect(demoHtml).not.toContain('Promote to watchlist')
     expect(demoHtml).not.toContain('/api/research/rc_msft_001/watchlist')
 
-    // Audit-and-decide admit control: the human AUDITS the harness's marshaled analysis and decides.
-    // A required textarea named signed_thesis is present...
-    expect(personalHtml).toContain('name="signed_thesis"')
-    expect(personalHtml).toMatch(/<textarea[^>]*\brequired\b/)
-    // ...the signed-thesis textarea is PRE-FILLED with the agent draft (affirm-or-amend). For this case
-    // (no `reason`) the draft is the next_required_action. Scope the check to the textarea's own content.
-    const textareaMatch = personalHtml.match(/<textarea\b[^>]*name="signed_thesis"[^>]*>([\s\S]*?)<\/textarea>/)
-    expect(textareaMatch).not.toBeNull()
-    expect(textareaMatch?.[1]).toBe('Promote the drafted decision into a watchlist draft.')
-    // ...the single cognitive acknowledgement gates the decision (no 17-field gating).
-    expect(personalHtml).toContain('name="cognitive_reflection_acknowledged"')
-    // ...the human never authors per-item findings in this audit-and-decide form.
+    // Review-and-promote control: the dossier above is the analysis; the control is a single explicit
+    // "Promote to watchlist" button. There is NO thesis textarea, NO checklist fieldsets, NO cognitive ack.
+    expect(personalHtml).not.toContain('name="signed_thesis"')
+    expect(personalHtml).not.toContain('<textarea')
+    expect(personalHtml).not.toContain('name="cognitive_reflection_acknowledged"')
     expect(personalHtml).not.toContain('checklist_note[')
     expect(personalHtml).not.toContain('checklist_addressed[')
-    // ...and the promote button starts DISABLED until the human acknowledges the reflection.
-    expect(personalHtml).toMatch(/<button[^>]*\bdisabled\b[^>]*>Promote to watchlist/)
+    // ...and the promote button is always enabled (the human's click IS the commitment, no gating).
+    expect(personalHtml).toMatch(/<button[^>]*type="submit"[^>]*>Promote to watchlist/)
+    expect(personalHtml).not.toMatch(/<button[^>]*\bdisabled\b[^>]*>Promote to watchlist/)
   })
 
   it('renders an empty personal-local portfolio state with workflow guidance and provenance', () => {
@@ -1291,8 +1284,8 @@ describe('research and watchlist workflow pages', () => {
     expect(html).toContain('Uncited references caveat')
     expect(html).toContain('some-blog-post')
 
-    // The signed-thesis human-decision control stays present (admit stays a real human decision).
-    expect(html).toContain('Your signed thesis (required)')
+    // The promote control stays present (admit stays a real human decision — the explicit promote click).
+    expect(html).toContain('Promote to watchlist')
   })
 
   it('shows the on-demand request control and no fabricated recommendation when none is persisted', () => {

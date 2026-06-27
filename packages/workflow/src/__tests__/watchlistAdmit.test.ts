@@ -116,41 +116,35 @@ describe('admit candidate → watched (Task 4.2b)', () => {
     expect(item?.locked_buy_below).toBe(742.5)
   })
 
-  it('rejects an admit with an empty or whitespace-only signed thesis (human commitment is mandatory)', async () => {
+  it('admits even with an empty signed thesis (review-and-promote: thesis is provenance, not a gate)', async () => {
     const store = new InMemoryEventStore()
     await seedCase(store)
 
-    await expect(confirmWatchlistDraft(store, admitCommand({ signed_thesis: '' }))).rejects.toThrow(/signed[_ ]thesis/i)
-    await expect(confirmWatchlistDraft(store, admitCommand({ signed_thesis: '   ' }))).rejects.toThrow(/signed[_ ]thesis/i)
+    // The signed thesis is server-sourced for provenance; an empty one no longer blocks the admit.
+    const created = await confirmWatchlistDraft(store, admitCommand({ signed_thesis: '', signed_thesis_draft: '' }))
+    expect(created.event_type).toBe('watchlist_draft_created')
+    expect(created.signed_thesis).toBe('')
+
+    const [item] = projectWatchlist(await store.list())
+    expect(item?.user_approved).toBe(true)
   })
 
-  it('blocks admit when the audit is incomplete (the integrity completion-block)', async () => {
+  it('admits even with an incomplete audit (review-and-promote: the audit is provenance, not a gate)', async () => {
     const store = new InMemoryEventStore()
     await seedCase(store)
 
-    // Drop one business finding entirely (missing marshaled finding).
-    const missingOne = completeChecklistAudit()
-    delete missingOne.business_findings['moat_erosion']
-    await expect(confirmWatchlistDraft(store, admitCommand({ checklist_audit: missingOne }))).rejects.toThrow(
-      /complete audit; missing:.*moat_erosion/i,
-    )
+    // Drop one business finding + withhold the cognitive ack: neither blocks anymore.
+    const incomplete = completeChecklistAudit()
+    delete incomplete.business_findings['moat_erosion']
+    incomplete.cognitive_acknowledged = false
 
-    // A whitespace-only finding does NOT count as marshaled.
-    const emptyFinding = completeChecklistAudit()
-    emptyFinding.business_findings['quality_of_earnings'] = '   '
-    await expect(confirmWatchlistDraft(store, admitCommand({ checklist_audit: emptyFinding }))).rejects.toThrow(
-      /missing:.*quality_of_earnings/i,
-    )
+    const created = await confirmWatchlistDraft(store, admitCommand({ checklist_audit: incomplete }))
+    expect(created.event_type).toBe('watchlist_draft_created')
 
-    // The cognitive acknowledgement not given blocks admit.
-    const noAck = completeChecklistAudit()
-    noAck.cognitive_acknowledged = false
-    await expect(confirmWatchlistDraft(store, admitCommand({ checklist_audit: noAck }))).rejects.toThrow(
-      /complete audit; missing:.*cognitive_acknowledgement/i,
-    )
-
-    // None of the blocked attempts appended a draft.
-    expect((await store.list()).some((event) => event.event_type === 'watchlist_draft_created')).toBe(false)
+    // The (incomplete) audit is persisted verbatim — provenance, not a completion block.
+    const [item] = projectWatchlist(await store.list())
+    expect(item?.checklist_audit?.cognitive_acknowledged).toBe(false)
+    expect(item?.checklist_audit?.business_findings['moat_erosion']).toBeUndefined()
   })
 
   it('persists the harness audit on the signed artifact and projects it (auditable)', async () => {
@@ -273,16 +267,13 @@ describe('consolidated single-step admission (Phase 8 S4)', () => {
     expect(item?.confirmed_by_actor_type).toBe('user')
   })
 
-  it('STILL gates the single step on signed_thesis + the full checklist (Phase 4/7 gates preserved) — no confirmed event leaks on a blocked admit', async () => {
+  it('STILL gates the single step on the human actor (no auto-admit) — no event leaks on a non-user admit', async () => {
     const store = new InMemoryEventStore()
     await seedCase(store)
 
-    // Empty signed thesis is rejected BEFORE any append (neither created nor confirmed leaks).
-    await expect(confirmWatchlistDraft(store, admitCommand({ signed_thesis: '   ' }))).rejects.toThrow(/signed[_ ]thesis/i)
-    // An incomplete audit is rejected before any append.
-    const missingOne = completeChecklistAudit()
-    delete missingOne.business_findings['moat_erosion']
-    await expect(confirmWatchlistDraft(store, admitCommand({ checklist_audit: missingOne }))).rejects.toThrow(/missing/i)
+    // Review-and-promote removed the thesis/checklist gates, but admit is STILL human-authored only: a
+    // worker/provider actor is rejected BEFORE any append (neither created nor confirmed leaks).
+    await expect(confirmWatchlistDraft(store, admitCommand({ actor_type: 'worker' }))).rejects.toThrow(/auto-admit|user/i)
 
     const events = await store.list()
     expect(events.some((event) => event.event_type === 'watchlist_draft_created')).toBe(false)

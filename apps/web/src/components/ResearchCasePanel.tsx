@@ -8,8 +8,6 @@ import { buffettMungerStrategy, discountRate } from '@owlfolio/strategies/buffet
 import { ENGINE_VERSION } from '@owlfolio/strategies/engineVersion'
 import { isDeepDiveComplete } from '@owlfolio/workflow/admitAssessment'
 
-import { resolveAdmissionThesisDraft, resolveBusinessFindings } from '../lib/checklistEvidence'
-
 import type { PositionPlan, PositionTranche } from '../lib/positionPlan'
 
 import { AdmitRecommendationRequest } from './AdmitRecommendationRequest'
@@ -3464,17 +3462,12 @@ function createSellDecisionPanel(researchCase: AppResearchCase) {
 }
 
 function createWatchlistPromotionAction(researchCase: AppResearchCase) {
-  // Audit-and-decide admit control: the HARNESS marshals the analysis and the human AUDITS it. The
-  // signed-thesis textarea is PRE-FILLED with the agent draft (affirm-or-amend), and the 11 business
-  // findings render read-only — both are PURE reads of this case's persisted projection (no engine call).
-  // The server re-derives the SAME draft + findings at sign-off, so the client can neither author a
-  // finding nor spoof the draft.
-  const thesisDraft = resolveAdmissionThesisDraft(researchCase)
-  const businessFindings = resolveBusinessFindings(researchCase)
+  // Review-and-promote: the dossier above (bear case, key wrong assumption, thesis-break triggers) IS the
+  // analysis the decision rests on. The control is a single explicit "Promote to watchlist" button — the
+  // human's click is the authored transition. No thesis re-authoring, no checklist gate (the server sources
+  // the audit/thesis provenance for the ledger event).
   return createElement(WatchlistPromotionForm, {
     researchCaseId: researchCase.research_case_id,
-    thesisDraft,
-    businessFindings,
   })
 }
 

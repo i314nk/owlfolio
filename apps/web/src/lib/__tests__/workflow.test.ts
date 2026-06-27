@@ -42,12 +42,8 @@ import {
   getInvestableCapital,
 } from '../workflow'
 
-// The human-typed signed thesis required to admit a case to the watchlist (Task 4.3). There is no
-// auto-fallback to the agent summary on this path, so the helper must be given a real human thesis.
-const HUMAN_SIGNED_THESIS = 'I am admitting this name: durable franchise, low permanent-loss risk, buying with a margin of safety.'
-
-// Audit-and-decide: a complete harness-marshaled audit (one finding per business item + the human ack) so
-// a direct confirmWatchlistDraft call clears the completion-block.
+// A server-marshaled audit (one finding per business item + an ack flag) for a DIRECT confirmWatchlistDraft
+// call. Review-and-promote: this is provenance, not a gate — confirmWatchlistDraft no longer blocks on it.
 const COMPLETE_AUDIT = {
   version: CHECKLIST_PARAMS.version,
   business_findings: Object.fromEntries(listBusinessItems().map((item) => [item.id, `Marshaled finding for ${item.id}.`])),
@@ -421,7 +417,7 @@ describe('workflow helpers', () => {
 
     const created = await setupMsftResearchCaseInLedger(ledgerPath)
     // Phase 8 S4: the single gated promote lands the item user-confirmed (both events emitted atomically).
-    const promoted = await promoteResearchCaseToWatchlist(state, created.research_case_id, HUMAN_SIGNED_THESIS, true)
+    const promoted = await promoteResearchCaseToWatchlist(state, created.research_case_id)
     const confirmStore = new SQLiteEventStore(ledgerPath)
     const confirmed = projectWatchlist(await confirmStore.list()).find((item) => item.watchlist_item_id === promoted.watchlist_item_id)
     confirmStore.close()
@@ -616,9 +612,9 @@ describe('workflow helpers', () => {
 
     const created = await setupMsftResearchCaseInLedger(ledgerPath)
 
-    const first = await promoteResearchCaseToWatchlist(state, created.research_case_id, HUMAN_SIGNED_THESIS, true)
+    const first = await promoteResearchCaseToWatchlist(state, created.research_case_id)
     // Re-adding the same case is the owner clicking the button twice; it must be a no-op.
-    const second = await promoteResearchCaseToWatchlist(state, created.research_case_id, HUMAN_SIGNED_THESIS, true)
+    const second = await promoteResearchCaseToWatchlist(state, created.research_case_id)
 
     expect(second.watchlist_item_id).toBe(first.watchlist_item_id)
     // The id is deterministic per research case (not time-based), preserving the watch_<ticker>_ shape.
@@ -654,8 +650,8 @@ describe('workflow helpers', () => {
     }
   })
 
-  it('rejects a watchlist promotion with no human-typed thesis (no auto-fallback to the agent summary)', async () => {
-    const projectDir = await mkdtemp(join(tmpdir(), 'owlfolio-watchlist-no-thesis-'))
+  it('records a server-sourced, non-empty signed thesis on promote (no human authoring required)', async () => {
+    const projectDir = await mkdtemp(join(tmpdir(), 'owlfolio-watchlist-server-thesis-'))
     dirs.push(projectDir)
 
     const ledgerPath = join(projectDir, 'data', 'personal-ledger.sqlite')
@@ -676,57 +672,21 @@ describe('workflow helpers', () => {
     }
 
     const created = await setupMsftResearchCaseInLedger(ledgerPath)
-
-    // Empty / whitespace human thesis must be rejected — the agent draft is NEVER auto-filled in here.
-    await expect(promoteResearchCaseToWatchlist(state, created.research_case_id, '')).rejects.toThrow(
-      /human-signed thesis is required/,
-    )
-    await expect(promoteResearchCaseToWatchlist(state, created.research_case_id, '   ')).rejects.toThrow(
-      /human-signed thesis is required/,
-    )
-
-    // No watchlist draft was created — the rubber-stamp path is closed.
-    const store = new SQLiteEventStore(ledgerPath)
-    try {
-      const events = await store.list()
-      expect(events.some((event) => event.event_type === 'watchlist_draft_created')).toBe(false)
-    } finally {
-      store.close()
-    }
-  })
-
-  it('persists the human-typed signed thesis verbatim — not the agent thesis_summary', async () => {
-    const projectDir = await mkdtemp(join(tmpdir(), 'owlfolio-watchlist-human-thesis-'))
-    dirs.push(projectDir)
-
-    const ledgerPath = join(projectDir, 'data', 'personal-ledger.sqlite')
-    const sourceLedgerPath = join(projectDir, 'data', 'source-ledger')
-    const state = {
-      config: {
-        ...defaultPersonalLocalAppConfig(),
-        provider: {
-          provider_id: 'mock-provider' as const,
-          support_level: 'certified' as const,
-          model_id: 'mock-buffett-munger-demo',
-        },
-        initialized_at: '2026-05-31T12:00:00.000Z',
-        ledger_path: ledgerPath,
-        source_ledger_path: sourceLedgerPath,
-      },
-      is_initialized: true,
-    }
-
-    const created = await setupMsftResearchCaseInLedger(ledgerPath)
-    const promoted = await promoteResearchCaseToWatchlist(state, created.research_case_id, `  ${HUMAN_SIGNED_THESIS}  `, true)
+    // Review-and-promote: no thesis/ack arguments — the explicit promote is the commitment.
+    const promoted = await promoteResearchCaseToWatchlist(state, created.research_case_id)
 
     const store = new SQLiteEventStore(ledgerPath)
     try {
       const draft = (await store.list()).find((event) => event.event_type === 'watchlist_draft_created')
       const payload = draft?.payload as Record<string, unknown> | undefined
-      // The signed thesis is the human's own words (trimmed), NOT the agent's thesis_summary.
-      expect(payload?.['signed_thesis']).toBe(HUMAN_SIGNED_THESIS)
-      expect(payload?.['signed_thesis']).not.toBe(payload?.['thesis_summary'])
-      expect(payload?.['signed_thesis']).not.toContain('Microsoft screens as a durable quality compounder')
+      // The signed thesis is server-sourced from the agent draft — non-empty, recorded as an affirm.
+      expect(typeof payload?.['signed_thesis']).toBe('string')
+      expect((payload?.['signed_thesis'] as string).length).toBeGreaterThan(0)
+      expect(payload?.['signed_thesis']).toBe(payload?.['signed_thesis_draft'])
+      expect(payload?.['thesis_amended']).toBe(false)
+      // Honest: no human reflection was required, so the cognitive ack is false.
+      const audit = payload?.['checklist_audit'] as { cognitive_acknowledged?: boolean } | undefined
+      expect(audit?.cognitive_acknowledged).toBe(false)
       expect(promoted.watchlist_item_id).toMatch(/^watch_msft_/)
     } finally {
       store.close()
@@ -764,7 +724,7 @@ describe('workflow helpers', () => {
       }
 
       const created = await setupMsftResearchCaseInLedger(ledgerPath)
-      const promoted = await promoteResearchCaseToWatchlist(state, created.research_case_id, HUMAN_SIGNED_THESIS, true)
+      const promoted = await promoteResearchCaseToWatchlist(state, created.research_case_id)
       const openedHolding = await openPersonalHoldingFromWatchlist(state, promoted.watchlist_item_id)
       const unsupportedProviderState = {
         ...state,
@@ -846,7 +806,7 @@ describe('workflow helpers', () => {
         causation_id: 'evt_analysis_rc_blocked_001',
       })
 
-      await expect(promoteResearchCaseToWatchlist(state, researchCase.research_case_id, HUMAN_SIGNED_THESIS, true)).rejects.toThrow(/Shariah gate blocked watchlist_promotion/)
+      await expect(promoteResearchCaseToWatchlist(state, researchCase.research_case_id)).rejects.toThrow(/Shariah gate blocked watchlist_promotion/)
       const events = await store.list()
       // Phase 8 S4: the consolidated single step preserves the Shariah gate — a non-compliant case is
       // blocked BEFORE any append, so NEITHER the created draft NOR the atomic confirmation leaks.
@@ -891,7 +851,7 @@ describe('workflow helpers', () => {
     }
 
     const created = await setupMsftResearchCaseInLedger(ledgerPath)
-    const promoted = await promoteResearchCaseToWatchlist(state, created.research_case_id, HUMAN_SIGNED_THESIS, true)
+    const promoted = await promoteResearchCaseToWatchlist(state, created.research_case_id)
 
     await expect(openPersonalHoldingFromWatchlist(state, promoted.watchlist_item_id, {
       shares: '0',

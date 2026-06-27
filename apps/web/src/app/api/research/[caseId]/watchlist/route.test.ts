@@ -105,22 +105,13 @@ describe('/api/research/[caseId]/watchlist', () => {
     await rm(tempDir, { force: true, recursive: true })
   })
 
-  // The human-typed signed thesis is REQUIRED on this path (Task 4.3) — there is no auto-fallback to the
-  // agent draft — so the route is posted with a form-encoded signed_thesis like the real admit control.
-  const HUMAN_SIGNED_THESIS = 'I am admitting ADBE: wide-moat franchise, low permanent-loss risk, fair-to-cheap.'
-
-  // Audit-and-decide: the human posts only the final signed thesis + the SINGLE cognitive acknowledgement.
-  // No per-item findings are posted — the server marshals them at sign-off.
-  function callRoute(caseId: string, signedThesis: string = HUMAN_SIGNED_THESIS, acknowledged = true) {
-    const form = new URLSearchParams()
-    form.set('signed_thesis', signedThesis)
-    if (acknowledged) {
-      form.set('cognitive_reflection_acknowledged', 'on')
-    }
+  // Review-and-promote: the human's explicit "Promote" click is the commitment — the route reads NO body
+  // (no signed_thesis, no cognitive ack). We post an empty body, like the simple promote button.
+  function callRoute(caseId: string) {
     return POST(new Request(`http://localhost/api/research/${caseId}/watchlist`, {
       method: 'POST',
       headers: { 'content-type': 'application/x-www-form-urlencoded' },
-      body: form.toString(),
+      body: '',
     }), {
       params: Promise.resolve({ caseId }),
     })
@@ -140,10 +131,10 @@ describe('/api/research/[caseId]/watchlist', () => {
       const draftEvents = events.filter((event) => event.event_type === 'watchlist_draft_created')
       expect(draftEvents).toHaveLength(1)
       expect(draftEvents[0]?.actor_type).toBe('user')
-      // The signed thesis is the human's typed text passed through — never the agent thesis_summary.
+      // The signed thesis is SERVER-SOURCED for provenance (non-empty), no human authoring required.
       const payload = draftEvents[0]?.payload as Record<string, unknown> | undefined
-      expect(payload?.['signed_thesis']).toBe(HUMAN_SIGNED_THESIS)
-      expect(payload?.['signed_thesis']).not.toBe(payload?.['thesis_summary'])
+      expect(typeof payload?.['signed_thesis']).toBe('string')
+      expect((payload?.['signed_thesis'] as string).length).toBeGreaterThan(0)
 
       // Phase 8 S4: the single gated promote emits the confirmation atomically alongside the draft.
       expect(events.filter((event) => event.event_type === 'watchlist_draft_confirmed')).toHaveLength(1)
@@ -180,25 +171,6 @@ describe('/api/research/[caseId]/watchlist', () => {
     }
   })
 
-  it('rejects an admit with no human-typed thesis (no auto-fallback to the agent summary)', async () => {
-    const caseId = await seedCompletedAdbeCase(ledgerPath)
-
-    const response = await callRoute(caseId, '   ')
-    expect(response.status).toBe(400)
-    await expect(response.json()).resolves.toMatchObject({
-      error: expect.stringMatching(/human-signed thesis is required/),
-    })
-
-    // No watchlist draft was created — the rubber-stamp path is closed.
-    const store = new SQLiteEventStore(ledgerPath)
-    try {
-      const events = await store.list()
-      expect(events.some((event) => event.event_type === 'watchlist_draft_created')).toBe(false)
-    } finally {
-      store.close()
-    }
-  })
-
   it('marshals the business findings server-side and persists the audit (auditable) with affirm provenance', async () => {
     const caseId = await seedCompletedAdbeCase(ledgerPath)
 
@@ -215,77 +187,14 @@ describe('/api/research/[caseId]/watchlist', () => {
       }
       // The server marshaled one finding per BUSINESS item — the human never posted them.
       expect(Object.keys(payload.checklist_audit?.business_findings ?? {})).toHaveLength(listBusinessItems().length)
-      expect(payload.checklist_audit?.cognitive_acknowledged).toBe(true)
-      // The human typed a thesis DISTINCT from the agent draft, so it's recorded as an amendment.
+      // HONEST: no human reflection was required by review-and-promote, so the ack is false.
+      expect(payload.checklist_audit?.cognitive_acknowledged).toBe(false)
+      // The signed thesis is server-sourced to the SAME value as the draft, so it records as an affirm.
       expect(payload.signed_thesis_draft).toBeTruthy()
-      expect(payload.thesis_amended).toBe(true)
+      expect(payload.thesis_amended).toBe(false)
 
       const [item] = projectWatchlist(events)
       expect(Object.keys(item?.checklist_audit?.business_findings ?? {})).toHaveLength(listBusinessItems().length)
-    } finally {
-      store.close()
-    }
-  })
-
-  it('records an AFFIRM (thesis_amended=false) when the human signs the agent draft verbatim', async () => {
-    const caseId = await seedCompletedAdbeCase(ledgerPath)
-
-    // The seeded case has reason "Durable quality business..."; the agent draft thesis is `Watch ADBE: <reason>`.
-    const agentDraft = 'Watch ADBE: Durable quality business at a fair valuation; watch for a wider margin of safety.'
-    await expect(callRoute(caseId, agentDraft)).rejects.toMatchObject({ digest: expect.stringContaining('NEXT_REDIRECT') })
-
-    const store = new SQLiteEventStore(ledgerPath)
-    try {
-      const draft = (await store.list()).find((event) => event.event_type === 'watchlist_draft_created')
-      const payload = draft?.payload as { thesis_amended?: boolean; signed_thesis?: string; signed_thesis_draft?: string }
-      expect(payload.signed_thesis).toBe(payload.signed_thesis_draft)
-      expect(payload.thesis_amended).toBe(false)
-    } finally {
-      store.close()
-    }
-  })
-
-  it('returns 400 when the single cognitive acknowledgement is missing (completion-block)', async () => {
-    const caseId = await seedCompletedAdbeCase(ledgerPath)
-
-    const response = await callRoute(caseId, HUMAN_SIGNED_THESIS, false)
-    expect(response.status).toBe(400)
-    await expect(response.json()).resolves.toMatchObject({
-      error: expect.stringMatching(/complete audit.*cognitive_acknowledgement/),
-    })
-
-    // No draft was appended — the completion-block closed the path.
-    const store = new SQLiteEventStore(ledgerPath)
-    try {
-      const events = await store.list()
-      expect(events.some((event) => event.event_type === 'watchlist_draft_created')).toBe(false)
-    } finally {
-      store.close()
-    }
-  })
-
-  it('succeeds with ZERO business free-text posted: the server marshals findings, the human only acks', async () => {
-    const caseId = await seedCompletedAdbeCase(ledgerPath)
-
-    // Post ONLY the thesis + the single ack — no business findings at all (acceptance gate §6.2).
-    const form = new URLSearchParams()
-    form.set('signed_thesis', HUMAN_SIGNED_THESIS)
-    form.set('cognitive_reflection_acknowledged', 'on')
-    await expect(POST(new Request(`http://localhost/api/research/${caseId}/watchlist`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/x-www-form-urlencoded' },
-      body: form.toString(),
-    }), { params: Promise.resolve({ caseId }) })).rejects.toMatchObject({
-      digest: expect.stringContaining('NEXT_REDIRECT'),
-    })
-
-    const store = new SQLiteEventStore(ledgerPath)
-    try {
-      const events = await store.list()
-      const draft = events.find((event) => event.event_type === 'watchlist_draft_created')
-      const payload = draft?.payload as { checklist_audit?: { business_findings: Record<string, string> } }
-      // The findings were marshaled server-side even though the client posted none.
-      expect(Object.keys(payload.checklist_audit?.business_findings ?? {})).toHaveLength(listBusinessItems().length)
     } finally {
       store.close()
     }

@@ -25,17 +25,10 @@ test('monthly accounting report renders projected current period after a valuati
   const researchCaseId = new URL(page.url()).pathname.split('/').at(-1)
   expect(researchCaseId).toMatch(/^rc_msft_/)
 
-  // Audit-and-decide admission: the thesis is harness-drafted and PRE-FILLED; the human affirms it as-is
-  // (amend is optional). This spec doesn't assert on the thesis text, so we affirm the pre-filled draft.
-  const signedThesis = page.getByLabel(/signed thesis/i)
-  await expect(signedThesis).not.toHaveValue('')
-
-  // Single cognitive-reflection acknowledgement (replaces the per-item checklist) gates the promote.
-  await page.getByLabel(/I have reflected on these reasoning checks for my own thinking/i).check()
-
+  // Review-and-promote: no required thesis text, no checklist ceremony — the human reviews the dossier
+  // and promotes in one gated step.
   const promoteButton = page.getByRole('button', { name: /promote to watchlist/i })
   await expect(promoteButton).toBeEnabled()
-  // Phase 8 S4: the single gated promote lands the item user-confirmed — no second "confirm" click.
   await promoteButton.click()
   await page.getByLabel('Shares').fill('3.25')
   await page.getByLabel('Cost basis per share').fill('812.40')
