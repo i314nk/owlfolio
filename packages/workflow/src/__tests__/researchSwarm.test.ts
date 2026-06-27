@@ -12,6 +12,7 @@ import type { AnnualFacts } from '../secEdgar'
 import { buffettMungerDeepDiveLanes } from '../strategyResearchPipeline'
 import { groundProposedSourcesDeterministic, type CapturedSource } from '../sourceGrounding'
 import { CashflowDriverSchema, PredictabilityBreakerSchema } from '../researchSwarmSchemas'
+import { ENGINE_VERSION } from '@owlfolio/strategies/engineVersion'
 
 // MARGIN-OF-SAFETY AUDIT SURFACE — the synthesis decision now REQUIRES key_wrong_assumption +
 // thesis_break_triggers (forward-looking model risk judgments). Shared substantive fixture spread into
@@ -749,6 +750,11 @@ describe('runStrategyResearchSwarm short-circuit on Shariah NON_COMPLIANT', () =
     expect(types).toContain('quick_screen_drafted')
     expect(types).toContain('buffett_munger_analysis_drafted')
     expect(types).toContain('decision_drafted')
+
+    // The REJECT early-exit analysis event must stamp the engine version at the payload ROOT (so a fresh
+    // reject reads as the current engine, not "unknown · pre-versioning").
+    const rejectAnalysis = events.find((e) => e.event_type === 'buffett_munger_analysis_drafted')
+    expect((rejectAnalysis?.payload as Record<string, unknown>)?.['engine_version']).toBe(ENGINE_VERSION)
 
     // Decision must be PASS
     const decisionEvent = events.find((e) => e.event_type === 'decision_drafted')
@@ -4427,6 +4433,17 @@ describe('circle-of-competence gate', () => {
     expect(cp?.investment_verdict ?? cp?.decision).toBe('PASS')
     expect(cp?.investment_verdict ?? cp?.decision).not.toBe('RESEARCH_MORE')
     expect(cp?.valuation?.circle_competence_unmet).toBe(true)
+  })
+
+  it('SET-ASIDE early-exit stamps engine_version at the analysis payload ROOT (and projects it top-level)', async () => {
+    const { events, cp } = await runCircle('rc_circle_engine_version', { cashflow_predictability: 'not_predictable', driverCite: 'src_circle_driver', breakerCite: 'src_circle_breaker' })
+    // The set-aside path emits the analysis event WITHOUT running the deep dive — it must still stamp the
+    // root engine_version so the dossier marker reads as the current engine rather than "unknown".
+    const analysis = events.find((e) => e.event_type === 'buffett_munger_analysis_drafted')
+    expect((analysis?.payload as Record<string, unknown>)?.['engine_version']).toBe(ENGINE_VERSION)
+    // And it must project to the TOP-LEVEL field (the set-aside event has no valuation.judgment block).
+    expect(cp?.engine_version).toBe(ENGINE_VERSION)
+    expect(cp?.valuation?.judgment).toBeUndefined()
   })
 
   it("3. uncertain → SET ASIDE (PASS), 7 lanes do NOT run", async () => {

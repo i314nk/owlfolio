@@ -533,7 +533,7 @@ type JudgmentProjection = {
 
 // Best-effort engine-commit provenance: read ONLY from the env var (never shell out to git). Omitted when
 // the var is unset or empty so legacy/local runs simply carry no commit field.
-function resolveEngineCommit(): string | undefined {
+export function resolveEngineCommit(): string | undefined {
   const commit = process.env.OWLFOLIO_ENGINE_COMMIT
   return commit !== undefined && commit.trim() !== '' ? commit.trim() : undefined
 }

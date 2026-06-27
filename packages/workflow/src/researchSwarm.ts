@@ -47,6 +47,7 @@ import { computeIncrementalRoic, demonstratedOwnerEarningsGrowth, estimateMainte
 import { resolveFundamentalsForTicker } from './fundamentalsProvider'
 import { evaluateBaseRateBurden, type BaseRateBurdenFlag } from './baseRateBurden'
 import { BASE_RATES } from '@owlfolio/strategies/baseRates'
+import { ENGINE_VERSION } from '@owlfolio/strategies/engineVersion'
 import { SOURCE_POLICY } from '@owlfolio/strategies/sourcePolicy'
 import { createResearchCase, draftDecision } from './researchWorkflow'
 import {
@@ -102,6 +103,7 @@ import {
   parseLaneArguedGrowth,
   resolveJudgmentTiers,
   buildJudgmentProjection,
+  resolveEngineCommit,
   buildPrimaryFilingBlock,
   buildPreVerifiedSourcesBlock,
   type MoatLaneJudgment,
@@ -482,6 +484,9 @@ export async function runStrategyResearchSwarm(
   deps: { ground?: GroundFn; grounding?: GroundingDeps; laneConcurrency?: number; maxToolCalls?: number } & FundamentalsDeps = {},
 ) {
   const strategyRef = resolveResearchStrategyRef(command)
+  // Engine-version provenance: stamp the run's reasoning vintage (and best-effort commit) at the event
+  // payload ROOT so every emission site — including the early-exit reject/set-aside paths — carries it.
+  const engineCommit = resolveEngineCommit()
   const accumulated = new Map<string, CapturedSource>()
   const remember = (captured: CapturedSource[]) => captured.forEach((c) => accumulated.set(c.source_id, c))
 
@@ -590,6 +595,8 @@ export async function runStrategyResearchSwarm(
         research_case_id: command.research_case_id,
         company_id: command.company_id,
         ticker: command.ticker,
+        engine_version: ENGINE_VERSION,
+        ...(engineCommit === undefined ? {} : { engine_commit: engineCommit }),
         investment_verdict: 'PASS',
         strategy_compliance: strategyCompliance,
         shariah_status: analysisShariahStatus,
@@ -816,6 +823,9 @@ export async function runResearchDeepDivePhase(
   const strategyRef = resolveResearchStrategyRef(command)
   const accumulated = deps.accumulated ?? new Map<string, CapturedSource>()
   const remember = (captured: CapturedSource[]) => captured.forEach((c) => accumulated.set(c.source_id, c))
+  // Engine-version provenance stamped at the analysis payload ROOT — on BOTH the circle-gate set-aside
+  // early-exit and the full deep-dive emission below (best-effort commit; omitted when unset).
+  const engineCommit = resolveEngineCommit()
 
   const lanes = buffettMungerDeepDiveLanes
 
@@ -974,6 +984,8 @@ export async function runResearchDeepDivePhase(
         research_case_id: command.research_case_id,
         company_id: command.company_id,
         ticker: command.ticker,
+        engine_version: ENGINE_VERSION,
+        ...(engineCommit === undefined ? {} : { engine_commit: engineCommit }),
         investment_verdict: 'PASS',
         strategy_compliance: 'INSUFFICIENT_DATA',
         valuation_status: 'INSUFFICIENT_DATA',
@@ -2875,6 +2887,8 @@ export async function runResearchDeepDivePhase(
       research_case_id: command.research_case_id,
       company_id: command.company_id,
       ticker: command.ticker,
+      engine_version: ENGINE_VERSION,
+      ...(engineCommit === undefined ? {} : { engine_commit: engineCommit }),
       investment_verdict: gatedVerdict,
       strategy_compliance: dec.analysis.strategy_compliance,
       shariah_status: undefined, // will be set below

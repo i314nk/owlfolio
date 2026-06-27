@@ -905,8 +905,10 @@ function buildVersionBadge(researchCase: AppResearchCase): string | null {
 // Optional "· commit {short}" appended when engine_commit was stamped. Mirrors the dossier's existing mono/
 // muted provenance idioms (owl-font-mono, owl-text-2xs, owl-color-quiet/muted, gold-bright caution tone).
 function buildEngineVersionMarker(researchCase: AppResearchCase): ReactNode {
-  const engineVersion = researchCase.valuation?.judgment?.engine_version
-  const engineCommit = researchCase.valuation?.judgment?.engine_commit
+  // Read the ROOT-level stamp first (present on every run, incl. early-exit reject/set-aside paths), with the
+  // nested valuation.judgment.* as a legacy fallback for older full-run events that only carried it nested.
+  const engineVersion = researchCase.engine_version ?? researchCase.valuation?.judgment?.engine_version
+  const engineCommit = researchCase.engine_commit ?? researchCase.valuation?.judgment?.engine_commit
   const generatedDate = researchCase.updated_at === undefined
     ? undefined
     : new Date(researchCase.updated_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })

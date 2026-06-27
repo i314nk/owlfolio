@@ -90,3 +90,52 @@ describe('projectResearchCases — engine-version marker', () => {
     expect(rc.investment_verdict).toBe('WATCH')
   })
 })
+
+// ---------------------------------------------------------------------------
+// ROOT-level engine-version provenance: stamped at the event payload ROOT on every analysis emission
+// (full deep-dive AND the early-exit reject/set-aside paths, which carry NO valuation.judgment block).
+// ---------------------------------------------------------------------------
+
+function rootStampedAnalysis(root: Record<string, unknown>): LedgerEventEnvelope<unknown> {
+  return {
+    event_id: `evt_analysis_${RC}`,
+    event_type: 'buffett_munger_analysis_drafted',
+    aggregate_type: 'research_case',
+    aggregate_id: RC,
+    correlation_id: RC,
+    actor_type: 'provider',
+    actor_id: 'mock-provider',
+    payload: {
+      research_case_id: RC,
+      investment_verdict: 'PASS',
+      strategy_compliance: 'INSUFFICIENT_DATA',
+      valuation_status: 'INSUFFICIENT_DATA',
+      ...root,
+    },
+    source_ids: [],
+    created_at: '2026-06-03T00:00:00.000Z',
+    schema_version: 1,
+  }
+}
+
+describe('projectResearchCases — root engine-version provenance', () => {
+  it('projects root engine_version + engine_commit to the top-level case (no judgment block needed)', () => {
+    const cases = projectResearchCases([
+      created(),
+      rootStampedAnalysis({ engine_version: 'valuation-x / judgment-x', engine_commit: 'deadbee' }),
+    ])
+    const rc = cases.find((c) => c.research_case_id === RC)!
+    expect(rc.engine_version).toBe('valuation-x / judgment-x')
+    expect(rc.engine_commit).toBe('deadbee')
+    // The set-aside/reject paths carry no valuation.judgment block.
+    expect(rc.valuation?.judgment).toBeUndefined()
+  })
+
+  it('legacy-tolerant: an analysis event WITHOUT root engine_version projects undefined (not a default)', () => {
+    const cases = projectResearchCases([created(), rootStampedAnalysis({})])
+    const rc = cases.find((c) => c.research_case_id === RC)!
+    expect(rc.engine_version).toBeUndefined()
+    expect(rc.engine_commit).toBeUndefined()
+    expect(rc.investment_verdict).toBe('PASS')
+  })
+})

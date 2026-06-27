@@ -695,6 +695,15 @@ export type ResearchCaseProjection = {
   /** Circle-of-competence judgment (grounded model judgment that gated the deep-dive spend). */
   circle_competence?: ResearchCaseCircleCompetenceProjection
   valuation?: ResearchCaseValuationProjection
+  /**
+   * Engine-version marker stamped at the event payload ROOT on EVERY analysis emission (full deep-dive AND
+   * the early-exit reject/set-aside paths). The run's reasoning vintage. Legacy-tolerant: absent on
+   * pre-versioning events → undefined (never a current-engine default), so a stale run is surfaced rather
+   * than silently trusted. The dossier marker reads this first, falling back to `valuation.judgment.engine_version`.
+   */
+  engine_version?: string
+  /** Best-effort engine git commit provenance; present only when stamped (OWLFOLIO_ENGINE_COMMIT). */
+  engine_commit?: string
   /** Harness-computed AAOIFI Shariah financial ratios (absent → lane-proposed verdict was used). */
   shariah_financial?: ResearchCaseShariahFinancialProjection
   /** SHARIAH lane sector status judgment: compliant | conditional | non_compliant. */
@@ -1609,6 +1618,8 @@ function applyString(
     | 'shariah_sector_status'
     | 'confidence'
     | 'supersedes_research_case_id'
+    | 'engine_version'
+    | 'engine_commit'
   >,
   value: string | undefined,
 ): void {
@@ -1950,6 +1961,10 @@ export function projectResearchCases(events: LedgerEventEnvelope<unknown>[]): Re
       if (marginOfSafetyJudgment !== undefined) researchCase.margin_of_safety_judgment = marginOfSafetyJudgment
       const marginOfSafetyMoatUngrounded = getBoolean(event.payload, 'margin_of_safety_moat_ungrounded')
       if (marginOfSafetyMoatUngrounded !== undefined) researchCase.margin_of_safety_moat_ungrounded = marginOfSafetyMoatUngrounded
+      // Root-level engine-version provenance (stamped at all three emission sites). Legacy-tolerant:
+      // absent on pre-versioning events → undefined (so the dossier marker shows "unknown · pre-versioning").
+      applyString(researchCase, 'engine_version', getString(event.payload, 'engine_version'))
+      applyString(researchCase, 'engine_commit', getString(event.payload, 'engine_commit'))
       const valuation = getValuation(event.payload)
       if (valuation !== undefined) {
         researchCase.valuation = valuation
