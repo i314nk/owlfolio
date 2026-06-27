@@ -1979,23 +1979,30 @@ describe('legacy projection tolerance — old band verdict_state event still pro
 })
 
 describe('BUG 2 — resilient bookend swarm calls (retry + clean failure)', () => {
-  it('recovers when quick-screen times out once then succeeds (single retry)', async () => {
+  it('fails cleanly (ResearchSwarmStageError, quick_screen) on a single quick-screen timeout — the tool-grounded gate does not retry (matches the circle gate)', async () => {
+    // The quick screen now runs on the SAME tool-grounded path as the circle gate (runGroundedAgentWithTools),
+    // which — like the circle gate — has no bespoke retry. A single timeout therefore fails the stage cleanly
+    // instead of recovering on a second attempt. (Previously it ran via runGroundedAgentWithRetry → 1 retry.)
     const store = new InMemoryEventStore()
     const provider = configurableSwarmProvider({ laneCount: buffettMungerDeepDiveLanes.length, failQuickScreen: 1 })
     const sourceLedgerPath = await mkdtemp(join(tmpdir(), 'owlfolio-bug2-qs-recover-'))
-    const result = await runStrategyResearchSwarm(
-      store, provider as never,
-      {
-        research_case_id: 'rc_bug2_qs', company_id: 'c', ticker: 'AAPL',
-        strategy_id: 'buffett-munger', actor_id: 'user_local', idempotency_key: 'bug2qs_k',
-        model_id: 'mock', decision_id: 'decision_bug2qs', source_ledger_path: sourceLedgerPath,
-      },
-      { ground: allVerifiedGround, laneConcurrency: 4 },
-    )
-    // One retry happened: the run completed with a decision despite the first quick-screen timeout.
-    expect(result.decision).toBeDefined()
+    let caught: unknown
+    try {
+      await runStrategyResearchSwarm(
+        store, provider as never,
+        {
+          research_case_id: 'rc_bug2_qs', company_id: 'c', ticker: 'AAPL',
+          strategy_id: 'buffett-munger', actor_id: 'user_local', idempotency_key: 'bug2qs_k',
+          model_id: 'mock', decision_id: 'decision_bug2qs', source_ledger_path: sourceLedgerPath,
+        },
+        { ground: allVerifiedGround, laneConcurrency: 4 },
+      )
+    } catch (e) { caught = e }
+    expect(caught).toBeInstanceOf(ResearchSwarmStageError)
+    expect((caught as ResearchSwarmStageError).stage).toBe('quick_screen')
+    expect((caught as ResearchSwarmStageError).lanes_completed).toBe(false)
     const events = await store.list()
-    expect(events.some((e) => e.event_type === 'decision_drafted')).toBe(true)
+    expect(events.some((e) => e.event_type === 'decision_drafted')).toBe(false)
   })
 
   it('fails cleanly (ResearchSwarmStageError, quick_screen) when quick-screen times out persistently', async () => {
@@ -2017,8 +2024,8 @@ describe('BUG 2 — resilient bookend swarm calls (retry + clean failure)', () =
     expect(caught).toBeInstanceOf(ResearchSwarmStageError)
     expect((caught as ResearchSwarmStageError).stage).toBe('quick_screen')
     expect((caught as ResearchSwarmStageError).lanes_completed).toBe(false)
-    // Exactly two structured() attempts (initial + one retry) before failing.
-    expect(provider.structured).toHaveBeenCalledTimes(2)
+    // Exactly one structured() attempt — the tool-grounded quick screen does not retry (matches circle gate).
+    expect(provider.structured).toHaveBeenCalledTimes(1)
   })
 
   it('recovers when synthesis times out once then succeeds (single retry); lanes are not re-run', async () => {
@@ -2064,6 +2071,70 @@ describe('BUG 2 — resilient bookend swarm calls (retry + clean failure)', () =
     expect(findingCount).toBeGreaterThanOrEqual(buffettMungerDeepDiveLanes.length)
     // ...but synthesis/decision were NOT drafted (synthesis never succeeded).
     expect(events.some((e) => e.event_type === 'deep_dive_synthesis_drafted')).toBe(false)
+    expect(events.some((e) => e.event_type === 'decision_drafted')).toBe(false)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Quick-screen grounding firewall: the gate now runs on the SAME tool-grounded path as the circle gate and
+// the lanes (runGroundedAgentWithTools), so it must READ a content-hash-verified primary filing before
+// judging, and FAIL CLOSED when grounding yields zero verified sources.
+// ---------------------------------------------------------------------------
+describe('quick screen — tool-grounded firewall', () => {
+  it('grounds its judgment in verified sources (quick_screen_drafted carries verified source_ids + projection surfaces them)', async () => {
+    const store = new InMemoryEventStore()
+    const provider = configurableSwarmProvider({ laneCount: buffettMungerDeepDiveLanes.length })
+    const sourceLedgerPath = await mkdtemp(join(tmpdir(), 'owlfolio-qs-grounded-'))
+    await runStrategyResearchSwarm(
+      store, provider as never,
+      {
+        research_case_id: 'rc_qs_grounded', company_id: 'c', ticker: 'AAPL',
+        strategy_id: 'buffett-munger', actor_id: 'user_local', idempotency_key: 'qs_grounded_k',
+        model_id: 'mock', decision_id: 'decision_qs_grounded', source_ledger_path: sourceLedgerPath,
+      },
+      { ground: allVerifiedGround, laneConcurrency: 4 },
+    )
+    const events = await store.list()
+    const qsEvent = events.find((e) => e.event_type === 'quick_screen_drafted')
+    expect(qsEvent).toBeDefined()
+    // The gate grounded in ≥1 content-hash-verified source — the firewall the fix establishes.
+    expect((qsEvent?.payload as { source_ids?: string[] }).source_ids).toEqual(['src_qs_1'])
+    // …and the projection surfaces those ids so the dossier can render a quick-screen source count.
+    const projections = projectResearchCases(events as Parameters<typeof projectResearchCases>[0])
+    const cp = projections.find((c) => c.research_case_id === 'rc_qs_grounded')
+    expect(cp?.quick_screen_source_ids).toEqual(['src_qs_1'])
+  })
+
+  it('FAILS CLOSED when grounding yields zero verified sources (no judgment on an ungrounded prior)', async () => {
+    // The ground fn captures the proposed source but verifies NONE (no content_hash) → the quick screen has
+    // no verified source to anchor its judgment → the run throws before any lane runs.
+    const captureNoneVerified = async (sources: { source_id: string }[]) => ({
+      captured: sources.map((s) => ({
+        source_id: s.source_id, title: 't', url: 'https://example.com/x', excerpt: 'e',
+        availability: 'unavailable' as const, fetched_at: 'x',
+      })),
+      verified_ids: [] as string[],
+    })
+    const store = new InMemoryEventStore()
+    const provider = configurableSwarmProvider({ laneCount: buffettMungerDeepDiveLanes.length })
+    const sourceLedgerPath = await mkdtemp(join(tmpdir(), 'owlfolio-qs-failclosed-'))
+    let caught: unknown
+    try {
+      await runStrategyResearchSwarm(
+        store, provider as never,
+        {
+          research_case_id: 'rc_qs_failclosed', company_id: 'c', ticker: 'AAPL',
+          strategy_id: 'buffett-munger', actor_id: 'user_local', idempotency_key: 'qs_failclosed_k',
+          model_id: 'mock', decision_id: 'decision_qs_failclosed', source_ledger_path: sourceLedgerPath,
+        },
+        { ground: captureNoneVerified as GroundFn, laneConcurrency: 4 },
+      )
+    } catch (e) { caught = e }
+    expect(caught).toBeInstanceOf(Error)
+    expect((caught as Error).message).toMatch(/no verifiable grounded sources \(fail-closed\)/)
+    // No quick_screen_drafted, no lanes, no decision — the firewall stopped the run.
+    const events = await store.list()
+    expect(events.some((e) => e.event_type === 'quick_screen_drafted')).toBe(false)
     expect(events.some((e) => e.event_type === 'decision_drafted')).toBe(false)
   })
 })

@@ -679,6 +679,12 @@ export type ResearchCaseProjection = {
   strategy_version?: string
   quick_screen_id?: string
   screening_result?: string
+  /**
+   * Content-hash-verified source ids the quick-screen gate grounded its judgment in (from the
+   * `quick_screen_drafted` payload `source_ids`). Additive + optional: legacy quick-screen events that
+   * predate the tool-grounded gate carry none, so this stays undefined and the dossier renders 0/—.
+   */
+  quick_screen_source_ids?: string[]
   business_quality?: string
   moat?: string
   management_capital_allocation?: string
@@ -1640,7 +1646,7 @@ function applyBoolean(
 
 function applyStringArray(
   target: ResearchCaseProjection,
-  key: keyof Pick<ResearchCaseProjection, 'red_flags' | 'caveats' | 'risks' | 'open_questions' | 'thesis_break_triggers'>,
+  key: keyof Pick<ResearchCaseProjection, 'red_flags' | 'caveats' | 'risks' | 'open_questions' | 'thesis_break_triggers' | 'quick_screen_source_ids'>,
   value: string[] | undefined,
 ): void {
   if (value !== undefined) {
@@ -1772,6 +1778,7 @@ export function projectResearchCases(events: LedgerEventEnvelope<unknown>[]): Re
       applyString(researchCase, 'strategy_version', getString(event.payload, 'strategy_version'))
       applyString(researchCase, 'quick_screen_id', getString(event.payload, 'quick_screen_id'))
       applyString(researchCase, 'screening_result', screeningResult)
+      applyStringArray(researchCase, 'quick_screen_source_ids', getStringArray(event.payload, 'source_ids'))
       applyString(researchCase, 'business_quality', getString(event.payload, 'business_quality'))
       applyString(researchCase, 'moat', getString(event.payload, 'moat'))
       applyString(researchCase, 'management_capital_allocation', getString(event.payload, 'management_capital_allocation'))

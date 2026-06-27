@@ -549,3 +549,37 @@ describe('ResearchCasePanel set-aside (circle early-exit) dossier', () => {
     expect(html).toContain('data-testid="decision-key-figures"')
   })
 })
+
+// The quick screen is now tool-grounded: it reads a verified primary filing before judging. The dossier
+// surfaces the count of grounded quick-screen sources so the grounding is visible (not "0 sources").
+describe('ResearchCasePanel quick-screen grounded source count', () => {
+  function quickScreenCase(quickScreenSourceIds?: string[]): AppResearchCase {
+    return {
+      ...baseCase(),
+      quick_screen_id: 'quick_rc_dossier_001',
+      screening_result: 'deep_dive_candidate',
+      business_quality: 'Strong',
+      ...(quickScreenSourceIds === undefined ? {} : { quick_screen_source_ids: quickScreenSourceIds }),
+    } as unknown as AppResearchCase
+  }
+
+  it('renders the grounded quick-screen source count when quick-screen sources are present', () => {
+    const html = render(quickScreenCase(['src_qs_1', 'src_qs_2']), QUOTE)
+    expect(html).toContain('Single-agent business-quality gate')
+    expect(html).toContain('Sources')
+    expect(html).toContain('2 sources')
+  })
+
+  it('renders the singular form for exactly one grounded quick-screen source', () => {
+    const html = render(quickScreenCase(['src_qs_1']), QUOTE)
+    expect(html).toContain('1 source')
+    expect(html).not.toContain('1 sources')
+  })
+
+  it('renders gracefully ("—") for a legacy quick screen with no grounded sources', () => {
+    const html = render(quickScreenCase(), QUOTE)
+    expect(html).toContain('Single-agent business-quality gate')
+    // No crash; the Sources line falls back to an em dash.
+    expect(html).toContain('—')
+  })
+})

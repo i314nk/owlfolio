@@ -2598,6 +2598,9 @@ function createQuickScreenPanel(researchCase: AppResearchCase) {
   const intro = legacyDossier
     ? 'Legacy decision has no standalone Quick Screen event; use this as a business-quality digest of the existing dossier before spending more analysis budget.'
     : 'Quick Screen is a selected-strategy first pass for business quality, moat, management, financial quality, red flags, and Shariah/data availability. Valuation belongs in deep dive and this card never mutates watchlist or holding state without explicit approval.'
+  // The grounded quick-screen source ids land on the projection from the `quick_screen_drafted` payload;
+  // additive + optional so legacy events (no tool-grounded sources) leave this undefined → empty list.
+  const quickScreenSourceIds = researchCase.quick_screen_source_ids ?? []
 
   return createElement(
     'section',
@@ -2626,6 +2629,15 @@ function createQuickScreenPanel(researchCase: AppResearchCase) {
       createDetail('Red flags', redFlags.join('; ')),
       createDetail('Uncertainty / caveats', `${researchCase.confidence ?? 'Pending'} — ${caveats.join('; ')}`),
       createDetail('Valuation belongs in deep dive', researchCase.valuation_sanity ?? 'Owner-earnings valuation runs in deep dive.'),
+      // Grounding visibility: the quick screen now tool-grounds its judgment in fetched filings, so surface
+      // the count of content-hash-verified sources it cited (consistent with the lane "N sources" chips).
+      // Legacy dossiers that predate the tool-grounded gate carry none — render "—", never crash.
+      createDetail(
+        'Sources',
+        quickScreenSourceIds.length === 0
+          ? '—'
+          : `${quickScreenSourceIds.length} source${quickScreenSourceIds.length === 1 ? '' : 's'}`,
+      ),
       createDetail('Source ids', researchCase.source_ids.length === 0 ? 'No source IDs recorded' : researchCase.source_ids.join(', ')),
     ),
   )

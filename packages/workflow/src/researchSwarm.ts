@@ -512,35 +512,56 @@ export async function runStrategyResearchSwarm(
   // model-tiering: the quick screen runs on the `quick_screen` role (T2). Default = the run's provider/model.
   const quickScreenRuntime = resolveRoleRuntime('quick_screen', provider, command)
   try {
-    qs = await runGroundedAgentWithRetry(quickScreenRuntime.provider, {
+    // GROUNDED quick screen: the gate runs on the SAME tool-grounded path as the circle gate and every
+    // deep-dive lane (runGroundedAgentWithTools) — the model must fetch and READ the primary filing before
+    // judging, so BOTH gate decisions (Shariah permissibility + worth-investigating) are grounded in the
+    // filing's described business activities, not the model's training prior of the brand. The harness
+    // post-hoc cite-verifies the captured sources; the fail-closed check below is the grounding firewall.
+    const { degraded_no_tools: _qsDegraded, ...qsAgent } = await runGroundedAgentWithTools(quickScreenRuntime.provider, {
     run_id: `run_${command.research_case_id}_quick_screen`,
     model_id: quickScreenRuntime.model_id,
     prompt: `You are the Buffett-Munger quick-screen gate agent for ${command.ticker} (${command.company_id}). `
       + `This is a two-step gate — NOT a full analysis. Keep responses brief; the deep dive handles detail.\n\n`
-      + `STEP 1 — Shariah permissibility: assess whether the company's primary business is permissible under `
-      + `Islamic finance principles. If the core business is clearly haram (e.g. conventional banking, alcohol, `
-      + `weapons, tobacco, adult content), set shariah_status to 'NON_COMPLIANT' and screening_result to 'reject'. `
-      + `If the business is clearly halal or the status is uncertain/conditional, set shariah_status accordingly `
-      + `('COMPLIANT', 'CONDITIONAL', or 'PENDING') and continue to step 2.\n\n`
-      + `STEP 2 (only if not NON_COMPLIANT) — Business quality worth-investigating check: is this company `
-      + `worth a deep dive under Buffett-Munger criteria? If clearly inadequate (e.g. no durable business, `
-      + `chronic losses, terminal industry), set screening_result to 'reject'. Otherwise set screening_result `
-      + `to 'deep_dive_candidate'.\n\n`
-      + `Return a brief assessment in each field. Do NOT perform per-dimension deep analysis — that is the deep dive's job. `
-      + `Gather primary/secondary sources and return them in proposed_sources with real URLs.`,
+      + `FIRST, GROUND YOURSELF IN THE PRIMARY FILING. Use the grounded tools before judging: call `
+      + `search_filings to find the company's latest annual filing (a 10-K for US issuers, a 20-F for `
+      + `foreign private issuers such as TSMC, or a 40-F for Canadian issuers), then call fetch_source to `
+      + `fetch and READ it. Base BOTH gate judgments on what the filing actually says — do NOT judge from `
+      + `your prior knowledge of the brand. Reading ONE primary filing is enough for this fast gate.\n\n`
+      + `STEP 1 — Shariah permissibility: based on the filing's DESCRIBED business activities and revenue `
+      + `mix, assess whether the company's primary business is permissible under Islamic finance principles. `
+      + `If the core business is clearly haram (e.g. conventional banking, alcohol, weapons, tobacco, adult `
+      + `content), set shariah_status to 'NON_COMPLIANT' and screening_result to 'reject'. If the business is `
+      + `clearly halal or the status is uncertain/conditional, set shariah_status accordingly ('COMPLIANT', `
+      + `'CONDITIONAL', or 'PENDING') and continue to step 2.\n\n`
+      + `STEP 2 (only if not NON_COMPLIANT) — Business quality worth-investigating check, grounded in the `
+      + `filing: is this company worth a deep dive under Buffett-Munger criteria? If clearly inadequate (e.g. `
+      + `no durable business, chronic losses, terminal industry), set screening_result to 'reject'. Otherwise `
+      + `set screening_result to 'deep_dive_candidate'.\n\n`
+      + `Return a brief assessment in each field. Do NOT perform per-dimension deep analysis — that is the `
+      + `deep dive's job. Return the primary filing(s) you fetched in proposed_sources and cite only what you read.`,
     timeout_ms: AGENT_TIMEOUT_MS,
     schema_name: 'BuffettMungerQuickScreen',
-    }, QuickScreenAgentSchema, deps)
+    }, QuickScreenAgentSchema, {
+      ...(deps.ground === undefined ? {} : { ground: deps.ground }),
+      ...(deps.grounding === undefined ? {} : { grounding: deps.grounding }),
+      ...(deps.fetchFundamentals === undefined ? {} : { fetchFundamentals: deps.fetchFundamentals }),
+      ...(deps.maxToolCalls === undefined ? {} : { maxToolCalls: deps.maxToolCalls }),
+    })
+    void _qsDegraded
+    qs = qsAgent
   } catch (error) {
-    // Quick-screen retry exhausted: fail the run cleanly (no lanes ran yet) rather than throw a raw
+    // Quick-screen tool loop failed: fail the run cleanly (no lanes ran yet) rather than throw a raw
     // provider/timeout error past the swarm boundary. The worker records this as research_run_failed.
+    // (The circle gate relies on this same stage-error path — there is no bespoke retry here.)
     throw new ResearchSwarmStageError('quick_screen', error, { lanes_completed: false })
   }
   remember(qs.captured)
 
-  // I1: fail-closed if quick screen produced no verifiable sources
+  // I1: fail-closed if the quick screen grounded in ZERO content-hash-verified sources — i.e. it could not
+  // read the filing it was asked to judge from. This is the grounding firewall: the gate may only proceed
+  // when its judgments are anchored to ≥1 verified primary source, not the model's training prior.
   if (qs.verified_ids.length === 0) {
-    throw new Error(`Quick screen for ${command.ticker} produced no verifiable sources (fail-closed).`)
+    throw new Error(`Quick screen for ${command.ticker} produced no verifiable grounded sources (fail-closed).`)
   }
 
   const quickScreen = await draftQuickScreen(store, {
