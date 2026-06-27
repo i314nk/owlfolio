@@ -8,7 +8,9 @@ import { ENGINE_VERSION } from '@owlfolio/strategies/engineVersion'
 import { ResearchCaseActions } from './ResearchCaseActions'
 import { ResearchCasePanel } from '../../../components/ResearchCasePanel'
 import { ResearchCasePending } from '../../../components/ResearchCasePending'
+import { ResearchRunProgress } from '../../../components/ResearchRunProgress'
 import { UnconfiguredNotice } from '../../../components/UnconfiguredNotice'
+import { resolveRunProgress } from '../../../lib/researchRunProgress'
 import { buildPositionPlan, type PositionPlan } from '../../../lib/positionPlan'
 import { getDemoResearchCase, resolveDemoLedgerPath } from '../../../lib/demo'
 import { isUnconfiguredForUser } from '../../../lib/modeView'
@@ -74,6 +76,32 @@ export default async function ResearchCasePage({ params }: ResearchCasePageProps
         )
       }
       researchCase = view.researchCase
+
+      // Mid-run gate: the case row exists (`ready`) but the multi-minute deep dive (quick-screen → circle →
+      // 7 lanes → synthesis → decision) is still running. Drive an animated, stage-aware "research running…"
+      // view off the projected stage + specialist findings until the run reaches a terminal/awaiting-approval
+      // state, at which point we fall through to the dossier / approval rendering. (Demo cases are seeded
+      // terminal, so demo mode never reaches this branch — no demo wiring needed.)
+      const progress = resolveRunProgress({
+        stage: researchCase.stage,
+        specialistFindingCount: researchCase.specialist_findings?.length ?? 0,
+      })
+      if (progress.inProgress) {
+        return (
+          <main className="owl-route-frame owl-route-frame-narrow">
+            <p className="owl-route-back-row">
+              <a className="owl-back-link owl-focusable" href="/">
+                ← Back to command center
+              </a>
+            </p>
+            <ResearchRunProgress
+              caseId={caseId}
+              initial={progress}
+              {...(researchCase.ticker !== undefined ? { ticker: researchCase.ticker } : {})}
+            />
+          </main>
+        )
+      }
     }
 
     // Fetch a live market quote server-side when the case has a ticker and a buy-below price.
