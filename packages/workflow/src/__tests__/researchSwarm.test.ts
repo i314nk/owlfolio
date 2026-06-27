@@ -2105,6 +2105,95 @@ describe('quick screen — tool-grounded firewall', () => {
     expect(cp?.quick_screen_source_ids).toEqual(['src_qs_1'])
   })
 
+  it('GROUNDS VIA HARNESS INJECTION on a NO-TOOLS provider — the production path (verified_ids includes the pre-fetched primary filing the model never proposed)', async () => {
+    // This is the completion the adversarial review demanded: configurableSwarmProvider is a NO-TOOLS
+    // provider (capabilities: {} → runGroundedAgentWithTools degrades), the SAME class as the live `openai`
+    // personal-local provider. With tool-grounding alone the gate would judge on the model's prior. Here we
+    // inject fundamentals (a 20-F filer — TSMC — the ticker that surfaced the bug); the HARNESS pre-fetches
+    // + grounds the 20-F and injects it, so verified_ids includes the filing id EVEN THOUGH the model's
+    // proposed_sources only carry src_qs_1. That proves grounding-via-injection, not via the model.
+    const tsmcFundamentals: Fundamentals = {
+      cik: '0001046179',
+      entity_name: 'TAIWAN SEMICONDUCTOR MANUFACTURING CO LTD',
+      currency: 'USD',
+      latest_annual: {
+        fiscal_year: 2024, currency: 'USD', net_income_musd: 36500, revenue_musd: 90000,
+        d_and_a_musd: 18000, capex_musd: 30000, sbc_musd: 0, diluted_shares_m: 5186,
+        shares_outstanding_m: 5186, total_debt_musd: 30000, cash_and_securities_musd: 60000,
+        interest_expense_musd: 400,
+      },
+      annual_series: [
+        { fiscal_year: 2024, currency: 'USD', net_income_musd: 36500, revenue_musd: 90000, d_and_a_musd: 18000, capex_musd: 30000, sbc_musd: 0, diluted_shares_m: 5186 },
+      ],
+      // 20-F (foreign private issuer), NOT 10-K — the across-forms selection must pick this.
+      filings: [
+        { form: '20-F', filed: '2025-04-15', url: 'https://www.sec.gov/Archives/edgar/data/1046179/000104621925000010/tsm-20241231.htm' },
+      ],
+    }
+    const store = new InMemoryEventStore()
+    const provider = configurableSwarmProvider({ laneCount: buffettMungerDeepDiveLanes.length })
+    const sourceLedgerPath = await mkdtemp(join(tmpdir(), 'owlfolio-qs-inject-'))
+    await runStrategyResearchSwarm(
+      store, provider as never,
+      {
+        research_case_id: 'rc_qs_inject', company_id: 'c', ticker: 'TSM',
+        strategy_id: 'buffett-munger', actor_id: 'user_local', idempotency_key: 'qs_inject_k',
+        model_id: 'mock', decision_id: 'decision_qs_inject', source_ledger_path: sourceLedgerPath,
+      },
+      { ground: allVerifiedGround, laneConcurrency: 4, fetchFundamentals: async () => tsmcFundamentals },
+    )
+    const events = await store.list()
+    const qsEvent = events.find((e) => e.event_type === 'quick_screen_drafted')
+    const filingId = 'sec_edgar_20f_0001046179_fy2024'
+    const qsSourceIds = (qsEvent?.payload as { source_ids?: string[] }).source_ids ?? []
+    // The harness-injected 20-F primary filing is in the gate's verified set (the model only proposed src_qs_1).
+    expect(qsSourceIds).toContain(filingId)
+    expect(qsSourceIds).toContain('src_qs_1')
+    // The projection surfaces it too (dossier source count includes the injected filing).
+    const projections = projectResearchCases(events as Parameters<typeof projectResearchCases>[0])
+    const cp = projections.find((c) => c.research_case_id === 'rc_qs_inject')
+    expect(cp?.quick_screen_source_ids).toContain(filingId)
+    // …and the across-forms 20-F filing id was actually INJECTED into the quick-screen prompt.
+    const qsPrompt = provider.structured.mock.calls
+      .map((c: unknown[]) => (c[0] as { prompt?: string; response_format?: { schema_name?: string } }))
+      .find((r) => r.response_format?.schema_name === 'BuffettMungerQuickScreen')?.prompt
+    expect(qsPrompt).toContain(filingId)
+    expect(qsPrompt).toContain('PRE-VERIFIED PRIMARY SOURCES')
+  })
+
+  it('RESIDUAL fail-closed: a non-EDGAR name on a no-tools provider (no fundamentals + no verified model source) fails closed', async () => {
+    // Production residual the review asked to document: when fundamentals do NOT resolve (fetchFundamentals
+    // returns undefined — a non-EDGAR/GCC name or EDGAR down) AND the no-tools provider's proposed source
+    // does not verify, there is nothing to ground → the firewall fails the gate closed. Correct + safe.
+    const captureNoneVerified = async (sources: { source_id: string }[]) => ({
+      captured: sources.map((s) => ({
+        source_id: s.source_id, title: 't', url: 'https://example.com/x', excerpt: 'e',
+        availability: 'unavailable' as const, fetched_at: 'x',
+      })),
+      verified_ids: [] as string[],
+    })
+    const store = new InMemoryEventStore()
+    const provider = configurableSwarmProvider({ laneCount: buffettMungerDeepDiveLanes.length })
+    const sourceLedgerPath = await mkdtemp(join(tmpdir(), 'owlfolio-qs-residual-'))
+    let caught: unknown
+    try {
+      await runStrategyResearchSwarm(
+        store, provider as never,
+        {
+          research_case_id: 'rc_qs_residual', company_id: 'c', ticker: 'PRIVATEGCC',
+          strategy_id: 'buffett-munger', actor_id: 'user_local', idempotency_key: 'qs_residual_k',
+          model_id: 'mock', decision_id: 'decision_qs_residual', source_ledger_path: sourceLedgerPath,
+        },
+        { ground: captureNoneVerified as GroundFn, laneConcurrency: 4, fetchFundamentals: async () => undefined },
+      )
+    } catch (e) { caught = e }
+    expect(caught).toBeInstanceOf(Error)
+    expect((caught as Error).message).toMatch(/no verifiable grounded sources \(fail-closed\)/)
+    const events = await store.list()
+    expect(events.some((e) => e.event_type === 'quick_screen_drafted')).toBe(false)
+    expect(events.some((e) => e.event_type === 'decision_drafted')).toBe(false)
+  })
+
   it('FAILS CLOSED when grounding yields zero verified sources (no judgment on an ungrounded prior)', async () => {
     // The ground fn captures the proposed source but verifies NONE (no content_hash) → the quick screen has
     // no verified source to anchor its judgment → the run throws before any lane runs.

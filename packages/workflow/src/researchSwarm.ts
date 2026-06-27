@@ -376,6 +376,16 @@ function isOfflineTestMode(): boolean {
 }
 
 /**
+ * Annual-report forms the quick-screen pre-fetch accepts as the primary filing: 10-K (US), 20-F (foreign
+ * private issuers such as TSMC), 40-F (Canadian issuers). Selecting ACROSS these three forms — NOT 10-K
+ * only — is what lets an FPI like TSMC (a 20-F filer, the ticker that surfaced this grounding bug) ground.
+ * `Fundamentals.filings` is already filtered to exactly these forms and sorted newest-first, so the first
+ * match is the latest annual filing. (The deep-dive's existing 10-K-only `.find` is intentionally left
+ * unchanged in this slice — see the note at its call site.)
+ */
+const QUICK_SCREEN_ANNUAL_FORMS = new Set(['10-K', '20-F', '40-F'])
+
+/**
  * Resolve fundamentals for a ticker, fail-closed and test-mode-gated. Never throws — any error yields
  * undefined so the swarm runs exactly as today (no regression when EDGAR is down / ticker is non-US).
  */
@@ -511,22 +521,63 @@ export async function runStrategyResearchSwarm(
   let qs: GroundedAgentResult<z.infer<typeof QuickScreenAgentSchema>>
   // model-tiering: the quick screen runs on the `quick_screen` role (T2). Default = the run's provider/model.
   const quickScreenRuntime = resolveRoleRuntime('quick_screen', provider, command)
+
+  // ---- Pre-fetch + ground the primary filing for the quick-screen grounding firewall ----
+  // CRITICAL: the configured personal-local provider (`openai`) declares 'multi-step-tool-loop':
+  // 'unsupported', so runGroundedAgentWithTools below takes its DEGRADED (no-tools) fallback — the model
+  // cannot actually call search_filings / fetch_source. Tool-grounding alone therefore does NOT close the
+  // hole on the live provider. To ground the gate on a no-tools provider (the production path), the harness
+  // deterministically pre-fetches the latest ANNUAL filing, grounds it as a verified primary source, and
+  // INJECTS it as a PRE-VERIFIED-SOURCES block — exactly as the circle gate (:816) and the deep-dive lanes
+  // do. A loop-capable provider ALSO gets live fetch tools (the runGroundedAgentWithTools switch); a
+  // no-tools provider gets grounding purely from this injection. When fundamentals do NOT resolve
+  // (non-EDGAR name / EDGAR down) AND the provider has no tools, there is nothing verifiable to cite and
+  // the fail-closed check below correctly fails the gate closed.
+  const qsFundamentals = await resolveFundamentals(command.ticker, deps)
+  let qsPrimaryFilingSourceId: string | undefined
+  let qsPreVerifiedSourcesBlock: string | undefined
+  if (qsFundamentals !== undefined) {
+    // Select the latest ANNUAL filing ACROSS 10-K / 20-F / 40-F (NOT 10-K-only — TSMC files a 20-F).
+    // `filings` is already filtered to these forms and sorted newest-first, so the first match is latest.
+    const annual = qsFundamentals.filings.find((x) => QUICK_SCREEN_ANNUAL_FORMS.has(x.form))
+    if (annual !== undefined) {
+      const formSlug = annual.form.toLowerCase().replace(/[^a-z0-9]/g, '')
+      const sourceId = `sec_edgar_${formSlug}_${qsFundamentals.cik}_fy${qsFundamentals.latest_annual.fiscal_year}`
+      const proposed: ProposedSource = {
+        source_id: sourceId,
+        title: `${qsFundamentals.entity_name} ${annual.form} (FY${qsFundamentals.latest_annual.fiscal_year}) — SEC EDGAR`,
+        url: annual.url,
+        excerpt: `Primary SEC EDGAR ${annual.form} filing for ${qsFundamentals.entity_name} (CIK ${qsFundamentals.cik}), filed ${annual.filed}.`,
+      }
+      // Ground the filing through the SAME path as model-proposed sources (content-hash + SSRF guard).
+      const ground = deps.ground ?? groundProposedSources
+      const grounded = await ground([proposed], deps.grounding)
+      const captured = grounded.captured[0]
+      if (captured !== undefined && grounded.verified_ids.includes(sourceId)) {
+        remember([captured]) // part of the verified corpus from this point on
+        qsPrimaryFilingSourceId = sourceId
+        qsPreVerifiedSourcesBlock = buildPreVerifiedSourcesBlock([sourceId])
+      }
+    }
+  }
+
   try {
-    // GROUNDED quick screen: the gate runs on the SAME tool-grounded path as the circle gate and every
-    // deep-dive lane (runGroundedAgentWithTools) — the model must fetch and READ the primary filing before
-    // judging, so BOTH gate decisions (Shariah permissibility + worth-investigating) are grounded in the
-    // filing's described business activities, not the model's training prior of the brand. The harness
-    // post-hoc cite-verifies the captured sources; the fail-closed check below is the grounding firewall.
+    // GROUNDED quick screen: the gate grounds BOTH decisions (Shariah permissibility + worth-investigating)
+    // in the harness-verified primary filing — the injected PRE-VERIFIED-SOURCES block (works on every
+    // provider, tools or not) plus, on loop-capable providers, live search_filings / fetch_source. The
+    // harness post-hoc cite-verifies the captured sources; the fail-closed check below is the firewall.
     const { degraded_no_tools: _qsDegraded, ...qsAgent } = await runGroundedAgentWithTools(quickScreenRuntime.provider, {
     run_id: `run_${command.research_case_id}_quick_screen`,
     model_id: quickScreenRuntime.model_id,
     prompt: `You are the Buffett-Munger quick-screen gate agent for ${command.ticker} (${command.company_id}). `
       + `This is a two-step gate — NOT a full analysis. Keep responses brief; the deep dive handles detail.\n\n`
-      + `FIRST, GROUND YOURSELF IN THE PRIMARY FILING. Use the grounded tools before judging: call `
-      + `search_filings to find the company's latest annual filing (a 10-K for US issuers, a 20-F for `
-      + `foreign private issuers such as TSMC, or a 40-F for Canadian issuers), then call fetch_source to `
-      + `fetch and READ it. Base BOTH gate judgments on what the filing actually says — do NOT judge from `
-      + `your prior knowledge of the brand. Reading ONE primary filing is enough for this fast gate.\n\n`
+      + `GROUND YOURSELF IN THE PRIMARY FILING BEFORE JUDGING — do NOT judge from your prior knowledge of `
+      + `the brand. A harness-verified copy of the company's latest annual filing is provided below (see `
+      + `PRE-VERIFIED PRIMARY SOURCES, when present): base BOTH gate judgments on its described business `
+      + `activities and revenue mix and cite its source_id. If grounded fetch tools are available, you may `
+      + `also call search_filings to find the latest annual filing (a 10-K for US issuers, a 20-F for `
+      + `foreign private issuers such as TSMC, or a 40-F for Canadian issuers) and fetch_source to read it. `
+      + `Reading ONE primary filing is enough for this fast gate.\n\n`
       + `STEP 1 — Shariah permissibility: based on the filing's DESCRIBED business activities and revenue `
       + `mix, assess whether the company's primary business is permissible under Islamic finance principles. `
       + `If the core business is clearly haram (e.g. conventional banking, alcohol, weapons, tobacco, adult `
@@ -538,7 +589,9 @@ export async function runStrategyResearchSwarm(
       + `no durable business, chronic losses, terminal industry), set screening_result to 'reject'. Otherwise `
       + `set screening_result to 'deep_dive_candidate'.\n\n`
       + `Return a brief assessment in each field. Do NOT perform per-dimension deep analysis — that is the `
-      + `deep dive's job. Return the primary filing(s) you fetched in proposed_sources and cite only what you read.`,
+      + `deep dive's job. Cite the primary filing in proposed_sources and cite only what you read.`
+      // Inject the harness's pre-verified primary-filing source_id (exactly like the circle gate at :816).
+      + (qsPreVerifiedSourcesBlock ?? ''),
     timeout_ms: AGENT_TIMEOUT_MS,
     schema_name: 'BuffettMungerQuickScreen',
     }, QuickScreenAgentSchema, {
@@ -557,9 +610,20 @@ export async function runStrategyResearchSwarm(
   }
   remember(qs.captured)
 
-  // I1: fail-closed if the quick screen grounded in ZERO content-hash-verified sources — i.e. it could not
-  // read the filing it was asked to judge from. This is the grounding firewall: the gate may only proceed
-  // when its judgments are anchored to ≥1 verified primary source, not the model's training prior.
+  // The harness pre-fetched primary filing is grounded by the harness (not the agent loop), so fold its id
+  // into the gate's verified set: the model was instructed to cite it via the injected block, but on a
+  // no-tools provider the harness grounding is the authoritative anchor. This is what puts the injected
+  // filing id in verified_ids (→ the fail-closed firewall counts it, draftQuickScreen records it, and the
+  // dossier source-count reflects it) on the production no-tools path.
+  if (qsPrimaryFilingSourceId !== undefined && !qs.verified_ids.includes(qsPrimaryFilingSourceId)) {
+    qs.verified_ids = [qsPrimaryFilingSourceId, ...qs.verified_ids]
+  }
+
+  // I1: fail-closed if the quick screen grounded in ZERO content-hash-verified sources — i.e. neither the
+  // harness pre-fetch nor the model produced a verifiable primary source. This is the grounding firewall:
+  // the gate may only proceed when its judgments are anchored to ≥1 verified source, not the training prior.
+  // RESIDUAL: a non-EDGAR name (GCC/private filer EDGAR cannot resolve) on a no-tools provider has nothing
+  // to ground → fails closed here. That is the correct, safe outcome, not a regression.
   if (qs.verified_ids.length === 0) {
     throw new Error(`Quick screen for ${command.ticker} produced no verifiable grounded sources (fail-closed).`)
   }
@@ -868,6 +932,9 @@ export async function runResearchDeepDivePhase(
   let primaryFilingBlock: string | undefined
   let primaryFilingSourceId: string | undefined
   if (fundamentals !== undefined) {
+    // NOTE: this is 10-K-ONLY and would miss a 20-F/40-F filer (e.g. TSMC). The quick-screen pre-fetch
+    // selects across all three annual forms (QUICK_SCREEN_ANNUAL_FORMS); broadening this deep-dive line is
+    // intentionally OUT OF SCOPE for this slice (it would shift the lane filing-block + sourceId shape).
     const tenK = fundamentals.filings.find((x) => x.form === '10-K')
     if (tenK !== undefined) {
       const sourceId = `sec_edgar_10k_${fundamentals.cik}_fy${fundamentals.latest_annual.fiscal_year}`
