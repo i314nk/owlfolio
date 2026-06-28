@@ -2337,34 +2337,114 @@ function createSpecialistLanesGrid(researchCase: AppResearchCase) {
     ? createLegacyDeepDiveFindings(researchCase)
     : findings
 
+  // GUARD: only the all-7-lanes-visible treatment fires for a real completed deep-dive (≥1 grounded lane
+  // finding). A legacy/empty/non-deep-dive case (no findings) behaves exactly as before — return null and let
+  // the set-aside / gated / awaiting / progress paths own their own rendering. Legacy dossiers always supply
+  // all 7 lanes via createLegacyDeepDiveFindings(), so they naturally produce zero incomplete placeholders.
   if (displayFindings.length === 0) return null
 
   const orderedLanes = ['business_quality', 'moat', 'management', 'financial_quality', 'shariah', 'risks', 'valuation']
-  const orderedFindings = orderedLanes
-    .map((lane) => displayFindings.find((f) => f.specialist_lane === lane))
-    .filter((f): f is NonNullable<typeof f> => f !== undefined)
+  // For a completed deep dive we render ALL SEVEN expected lanes IN ORDER: a grounded lane shows its full
+  // finding card; an expected lane with NO finding (silently skipped upstream when it grounded zero verifiable
+  // sources) shows an honest "incomplete" placeholder instead of vanishing. This is DISPLAY-ONLY — it does not
+  // re-emit events or change the swarm's correct fail-closed skip; it only makes the skip VISIBLE.
+  const laneSlots = orderedLanes.map((lane) => {
+    const finding = displayFindings.find((f) => f.specialist_lane === lane)
+    return finding === undefined
+      ? createSpecialistLaneIncompleteCard(lane)
+      : createSpecialistLaneCard(finding)
+  })
+  // Any grounded finding whose lane is NOT one of the 7 expected lanes still renders (remainder).
   const remainder = displayFindings.filter((f) => !orderedLanes.includes(f.specialist_lane ?? ''))
-  const allFindings = [...orderedFindings, ...remainder]
+  const groundedCount = orderedLanes.filter((lane) =>
+    displayFindings.some((f) => f.specialist_lane === lane),
+  ).length
+  const incompleteCount = orderedLanes.length - groundedCount
 
   // Collapsed by default (Priority 1): the dense per-lane reasoning lives behind the existing <details>
-  // idiom, with the lane count in the summary. Inside, each lane stacks FULL-WIDTH (one card per row) so
-  // long-form lane prose gets the full content width — no narrow masonry columns.
+  // idiom, with an HONEST grounded-vs-expected count in the summary. Inside, each lane stacks FULL-WIDTH
+  // (one card per row) so long-form lane prose gets the full content width — no narrow masonry columns.
   return createCollapsibleSection(
     'specialist-lanes-section',
-    `Deep-dive specialist lanes (${allFindings.length})`,
+    `Deep-dive specialist lanes (${groundedCount} of ${orderedLanes.length} grounded)`,
     false,
     [
       createElement(
         'p',
         { key: 'lanes-intro', style: { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-sm)', margin: 0 } },
-        `${allFindings.length} lane${allFindings.length !== 1 ? 's' : ''} · source-backed`,
+        incompleteCount > 0
+          ? `${groundedCount} of ${orderedLanes.length} lanes source-backed · ${incompleteCount} incomplete (no verifiable sources this run)`
+          : `${groundedCount} of ${orderedLanes.length} lanes source-backed`,
       ),
       createElement(
         'div',
         { key: 'lanes-flow', 'data-testid': 'specialist-lanes-flow', style: { display: 'grid', gap: '0.7rem' } },
-        ...allFindings.map((finding) => createSpecialistLaneCard(finding)),
+        ...laneSlots,
+        ...remainder.map((finding) => createSpecialistLaneCard(finding)),
       ),
     ],
+  )
+}
+
+// An EXPECTED deep-dive lane that grounded zero verifiable sources this run is silently skipped upstream (no
+// specialist_finding event is emitted — a correct fail-closed behavior). On the COMPLETED dossier we make that
+// skip VISIBLE with a calm, clearly-distinct "incomplete" placeholder so the lane never just vanishes (a
+// missing Management lane should read as attempted-and-dropped, not removed). Display-only; owl-* tokens.
+function createSpecialistLaneIncompleteCard(lane: string) {
+  const laneLabel = deepDiveLaneShortLabel(lane)
+  return createElement(
+    'article',
+    {
+      key: `incomplete-${lane}`,
+      'data-testid': `specialist-lane-incomplete-${lane}`,
+      style: {
+        background: 'var(--owl-color-panel)',
+        border: '1px dashed var(--owl-color-border)',
+        borderRadius: '0.7rem',
+        padding: '0.75rem 0.85rem',
+        width: '100%',
+      },
+    },
+    createElement(
+      'div',
+      { style: { display: 'grid', gap: '0.4rem' } },
+      createElement(
+        'div',
+        { style: { alignItems: 'center', display: 'flex', justifyContent: 'space-between' } },
+        createElement(
+          'span',
+          {
+            style: {
+              color: 'var(--owl-color-quiet)',
+              fontFamily: 'var(--owl-font-mono)',
+              fontSize: 'var(--owl-text-xs)',
+              fontWeight: 800,
+              letterSpacing: '0.05em',
+              textTransform: 'uppercase' as const,
+            },
+          },
+          laneLabel,
+        ),
+        createElement(
+          'span',
+          {
+            style: {
+              border: '1px solid var(--owl-color-border)',
+              borderRadius: '999px',
+              color: 'var(--owl-color-risk-bright)',
+              fontSize: 'var(--owl-text-2xs)',
+              padding: '0.12rem 0.45rem',
+            },
+          },
+          'Incomplete',
+        ),
+      ),
+      createElement(
+        'p',
+        { style: { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-sm)', lineHeight: 1.45, margin: 0 } },
+        'Incomplete — no verifiable sources grounded this run (not investment-grade; re-run before relying on it).',
+      ),
+    ),
   )
 }
 
