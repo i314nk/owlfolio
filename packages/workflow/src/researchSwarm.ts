@@ -1296,7 +1296,9 @@ export async function runResearchDeepDivePhase(
     if (lane === 'shariah') {
       const shariahRequired: RequiredFieldCheck<z.infer<typeof ShariahLaneSchema>>[] = [
         { name: 'sector_status', present: (a) => a.sector_status !== undefined, hint: "'compliant' | 'conditional' | 'non_compliant' confirmed with segment revenue" },
-        { name: 'impermissible_income', present: (a) => a.impermissible_income !== undefined, hint: 'non-permissible income in $MILLIONS (0 if fully permissible)' },
+        // null (undetermined — not separately disclosed) is an ACCEPTED, complete answer and counts as
+        // PRESENT; only a truly ABSENT field (undefined) triggers the retry/fallback. DO NOT guess 0.
+        { name: 'impermissible_income', present: (a) => a.impermissible_income !== undefined, hint: 'non-permissible income in $MILLIONS (0 ONLY if affirmatively zero; null if not separately disclosed — do NOT guess 0)' },
       ]
       const validated = await runValidatedAgent(laneRuntime.provider, {
         run_id: baseRunId,
@@ -2517,6 +2519,14 @@ export async function runResearchDeepDivePhase(
         bridge_source_fiscal_year?: number
       }
     | undefined
+  // FAIL-CLOSED on UNDETERMINED impermissible income. The lane emits impermissible_income = null when it
+  // could NOT extract / the filing does not separately disclose a quantified impermissible-income line.
+  // That is a DETERMINED-AS-UNDETERMINED answer (not an omission) — the harness must NOT compute a clean
+  // 0% purification from it (the compliance fail-OPEN bug). It flows to computeShariahFinancialRatios as
+  // null → computable:false → shariah_financial stays undefined → the verdict is UNDETERMINED, never a
+  // silent 0%/COMPLIANT.
+  const impermissibleIncomeUndetermined =
+    shariahJudgment !== undefined && shariahJudgment.impermissible_income === null
   // When EDGAR + market cap + the Shariah overlay are all present but the ratios still come back
   // not-computable (e.g. missing revenue → divide-by-zero), capture WHY so the genuinely-not-computable
   // branch surfaces a visible shariah_ratios_unverified flag (the dogfood had NO flag here).
@@ -2563,6 +2573,17 @@ export async function runResearchDeepDivePhase(
       'shariah_ratios_unverified: impermissible_income_not_emitted — the model omitted the Shariah judgment '
       + 'overlay (sector_status + impermissible_income), so the harness did NOT recompute the AAOIFI '
       + 'debt/cash/impermissible ratios; the Shariah verdict fell back to the lane (quick-screen) judgment.',
+    )
+  } else if (impermissibleIncomeUndetermined) {
+    // FAIL-CLOSED: the lane reported impermissible_income = null (undetermined — the filing does not
+    // separately disclose / it could not be quantified). The Shariah verdict is UNDETERMINED, NOT a
+    // clean 0% purification. Surface it explicitly so the human knows what to obtain before treating the
+    // name as compliant.
+    degradedFlags.push(
+      'shariah_ratios_unverified: impermissible_income_undetermined — the filing does not disclose / the '
+      + 'lane could not quantify a separate impermissible-income line, so the harness did NOT compute the '
+      + 'AAOIFI impermissible-income ratio. Purification CANNOT be determined; obtain the interest-income / '
+      + 'prohibited-revenue figure before treating this name as clean (it is NOT 0% / fully compliant).',
     )
   } else if (
     market_cap === undefined
@@ -3144,6 +3165,10 @@ export async function runResearchDeepDivePhase(
       // computable (EDGAR/market-cap/impermissible-income missing) — caller falls back to lane verdict.
       ...(shariah_financial !== undefined ? { shariah_financial } : {}),
       ...(shariahJudgment !== undefined ? { shariah_sector_status: shariahJudgment.sector_status } : {}),
+      // FAIL-CLOSED marker: the lane reported impermissible_income = null (undetermined), so the AAOIFI
+      // impermissible ratio + purification % could NOT be computed. Surfaced so the dossier renders the
+      // UNDETERMINED state honestly ("purification cannot be determined"), never a falsely-clean 0%.
+      ...(impermissibleIncomeUndetermined ? { shariah_impermissible_income_undetermined: true } : {}),
       // Mechanism 6: source-discipline summary — which lane-proposed sources the per-lane whitelist
       // rejected (count + per-lane/reason). Surfaced so a starved lane is visible, never hidden.
       ...(sourcePolicyRejections.length > 0
@@ -3208,8 +3233,14 @@ export async function runResearchDeepDivePhase(
         : shariah_financial.verdict === 'CONDITIONAL' ? 'CONDITIONAL'
         : 'NON_COMPLIANT')
       : undefined
-  const analysisShariahStatusForPhase: 'COMPLIANT' | 'CONDITIONAL' | 'NON_COMPLIANT' | 'UNKNOWN' =
+  // FAIL-CLOSED: a non_compliant SECTOR is a hard stop (NON_COMPLIANT). Otherwise, when impermissible
+  // income is UNDETERMINED (lane returned null) the status is a DISTINCT 'UNDETERMINED' — NOT a clean
+  // COMPLIANT and NOT a silent 0% purification; purification cannot be determined until the impermissible-
+  // income figure is obtained. Only with a real (computable) verdict does the harness status supersede the
+  // lane's proposed (quick-screen) status.
+  const analysisShariahStatusForPhase: 'COMPLIANT' | 'CONDITIONAL' | 'NON_COMPLIANT' | 'UNDETERMINED' | 'UNKNOWN' =
     sectorHardStop ? 'NON_COMPLIANT'
+    : impermissibleIncomeUndetermined ? 'UNDETERMINED'
     : harnessFinancialStatus ?? laneShariahStatus
 
   const analysisFinalPayload = {

@@ -2162,7 +2162,30 @@ function formatRatioPct(value: number): string {
  */
 function createShariahRatioLedger(researchCase: AppResearchCase): ReturnType<typeof createElement> | null {
   const sf = researchCase.shariah_financial
-  if (sf === undefined) return null
+  if (sf === undefined) {
+    // FAIL-CLOSED honesty: when impermissible income is UNDETERMINED (the lane could not extract a
+    // separate impermissible-income line) the harness did NOT compute the ratios. Render the undetermined
+    // state explicitly — NEVER a falsely-clean "0.0% purification / fully compliant". Otherwise no ledger.
+    if (researchCase.shariah_impermissible_income_undetermined !== true) return null
+    return createElement(
+      'div',
+      {
+        'data-testid': 'shariah-aaoifi-undetermined',
+        style: { borderTop: '1px solid rgba(148, 163, 184, 0.14)', display: 'grid', gap: '0.3rem', marginTop: '0.2rem', paddingTop: '0.45rem' },
+      },
+      createElement('p', { style: { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-sm)', fontWeight: 800, margin: 0 } }, 'AAOIFI financial ratios (harness-computed)'),
+      createElement(
+        'p',
+        { style: { color: 'var(--owl-color-gold-bright)', fontSize: 'var(--owl-text-sm)', fontWeight: 800, lineHeight: 1.4, margin: 0 } },
+        'Impermissible income undetermined — purification cannot be determined.',
+      ),
+      createElement(
+        'p',
+        { style: { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-sm)', lineHeight: 1.4, margin: 0 } },
+        'The filing does not separately disclose a quantifiable impermissible-income line. Obtain the interest-income / prohibited-revenue figure before treating this name as clean — it is not 0% / fully compliant.',
+      ),
+    )
+  }
   const EMERALD = 'var(--owl-color-emerald, #34d399)'
   const RISK = 'var(--owl-color-risk)'
 

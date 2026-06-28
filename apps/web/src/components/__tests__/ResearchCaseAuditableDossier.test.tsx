@@ -705,3 +705,35 @@ describe('ResearchCasePanel quick-screen grounded source count', () => {
     expect(html).toContain('—')
   })
 })
+
+describe('ResearchCasePanel Shariah compliance — fail-closed UNDETERMINED purification', () => {
+  it('renders the UNDETERMINED state honestly (purification cannot be determined, NOT 0.0%)', () => {
+    const html = render({
+      ...baseCase(),
+      shariah_status: 'UNDETERMINED',
+      // No shariah_financial (impermissible income undetermined → ratios not-computable).
+      shariah_impermissible_income_undetermined: true,
+    } as unknown as AppResearchCase, QUOTE)
+    expect(html).toContain('data-testid="shariah-aaoifi-undetermined"')
+    expect(html.toLowerCase()).toContain('purification cannot be determined')
+    // The fail-OPEN regression must NOT appear: no falsely-clean 0.0% purification on undetermined data.
+    expect(html).not.toContain('Purification: 0.0%')
+  })
+
+  it('a genuine computed verdict still renders the AAOIFI ratio ledger with its purification %', () => {
+    const html = render({
+      ...baseCase(),
+      shariah_status: 'CONDITIONAL',
+      shariah_financial: {
+        debt_ratio: 0.0134,
+        cash_securities_ratio: 0.0355,
+        impermissible_income_pct: 0.004,
+        verdict: 'CONDITIONAL',
+        purification_pct: 0.004,
+      },
+    } as unknown as AppResearchCase, QUOTE)
+    expect(html).toContain('data-testid="shariah-aaoifi-ledger"')
+    expect(html).toContain('Purification: 0.4%')
+    expect(html).not.toContain('data-testid="shariah-aaoifi-undetermined"')
+  })
+})

@@ -54,7 +54,12 @@ export type MoatLaneJudgment = {
 /** The SHARIAH lane's judgment overlay (the harness recomputes the AAOIFI ratios from this). */
 export type ShariahLaneJudgment = {
   sector_status: 'compliant' | 'conditional' | 'non_compliant'
-  impermissible_income: number
+  /**
+   * Non-permissible income in $M. `null` = UNDETERMINED — the lane could not extract / the filing does
+   * not separately disclose it. The harness fails CLOSED on null (ratios not-computable → UNDETERMINED
+   * verdict), NEVER treating it as a clean 0%. A numeric 0 is a real, affirmatively-verified value.
+   */
+  impermissible_income: number | null
 }
 
 /**

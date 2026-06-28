@@ -714,6 +714,13 @@ export type ResearchCaseProjection = {
   shariah_financial?: ResearchCaseShariahFinancialProjection
   /** SHARIAH lane sector status judgment: compliant | conditional | non_compliant. */
   shariah_sector_status?: string
+  /**
+   * FAIL-CLOSED marker: the SHARIAH lane reported impermissible_income = null (undetermined — not
+   * separately disclosed), so the AAOIFI impermissible ratio + purification % could NOT be computed and
+   * shariah_financial is absent. The dossier renders this as "purification cannot be determined" — never
+   * a falsely-clean 0% / fully compliant. Absent on legacy/genuine runs (numeric impermissible income).
+   */
+  shariah_impermissible_income_undetermined?: boolean
   /** Mechanism 6: source-discipline rejections (lane-proposed sources the whitelist excluded). */
   source_discipline?: ResearchCaseSourceDisciplineProjection
   /** Mechanism 5: red-team pass — strongest objection + the synthesis response + the deterministic flags. */
@@ -1983,6 +1990,11 @@ export function projectResearchCases(events: LedgerEventEnvelope<unknown>[]): Re
       const shariahFinancial = getShariahFinancial(event.payload)
       if (shariahFinancial !== undefined) {
         researchCase.shariah_financial = shariahFinancial
+      }
+      // FAIL-CLOSED undetermined marker (impermissible income not disclosed). Only set when explicitly
+      // true; legacy/genuine analyses (numeric impermissible income) never carry it → render unchanged.
+      if (getBoolean(event.payload, 'shariah_impermissible_income_undetermined') === true) {
+        researchCase.shariah_impermissible_income_undetermined = true
       }
       applyString(researchCase, 'shariah_sector_status', getString(event.payload, 'shariah_sector_status'))
       const sourceDiscipline = getSourceDiscipline(event.payload)

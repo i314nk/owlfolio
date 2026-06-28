@@ -2692,7 +2692,9 @@ describe('SEC EDGAR primary-filing wiring', () => {
 // diluted-shares to the 10-K and recomputes the three AAOIFI ratios + verdict + purification %.
 // ---------------------------------------------------------------------------
 function swarmFakeProviderWithShariah(
-  impermissible_income: number,
+  // `null` = the lane reports UNDETERMINED impermissible income (not separately disclosed) — the harness
+  // must fail closed to UNDETERMINED, never a clean 0%.
+  impermissible_income: number | null,
   sector_status: 'compliant' | 'conditional' | 'non_compliant' = 'conditional',
   bridgeOverride?: Record<string, number | string>,
   // When supplied, the decision agent emits a cited valuation_reasoning so the A1 grounding gate is MET
@@ -2888,6 +2890,62 @@ describe('EDGAR-anchored OE bridge + harness AAOIFI Shariah ratios', () => {
     // deep-dive prereq seeds as COMPLIANT.
     expect(cp?.shariah_financial).toBeUndefined()
     expect(cp?.shariah_status).toBe('COMPLIANT')
+  })
+
+  it('UNDETERMINED impermissible income (lane returns null) → fail-closed UNDETERMINED, NOT a clean 0% / COMPLIANT', async () => {
+    // The compliance fail-OPEN regression: when the filing does not separately disclose impermissible
+    // income the lane now returns null (undetermined). The harness must NOT compute a 0% purification /
+    // PASS — it fails closed to an UNDETERMINED verdict with no shariah_financial, and surfaces a
+    // "purification cannot be determined" flag.
+    const store = new InMemoryEventStore()
+    await seedDeepDivePrereqs(store)
+    const provider = swarmFakeProviderWithShariah(null, 'compliant')
+    await provider.structured({} as never)
+
+    await runResearchDeepDivePhase(store, provider as never, deepDiveCommand(), {
+      ground: verifyAllGround(),
+      laneConcurrency: 7,
+      fundamentals: costFundamentals,
+      resolvePrice: async () => ({ available: true, price_per_share: 968, currency: 'USD', as_of: 'x', source: 'test' }),
+    })
+
+    const events = await store.list()
+    const projections = projectResearchCases(events as Parameters<typeof projectResearchCases>[0])
+    const cp = projections.find((c) => c.research_case_id === 'rc_edgar')
+    // No harness ratios (impermissible income undetermined → not-computable). NEVER a 0%/COMPLIANT.
+    expect(cp?.shariah_financial).toBeUndefined()
+    expect(cp?.shariah_status).toBe('UNDETERMINED')
+    expect(cp?.shariah_impermissible_income_undetermined).toBe(true)
+    // The undetermined cause is surfaced (distinct from the omitted-overlay and market-cap causes).
+    const analysisEvent = events.find((e) => e.event_type === 'buffett_munger_analysis_drafted')
+    const valuation = (analysisEvent?.payload as Record<string, unknown>)?.['valuation'] as Record<string, unknown>
+    const degraded = (valuation?.['degraded_flags'] as string[] | undefined) ?? []
+    expect(degraded.join(' ')).toMatch(/shariah_ratios_unverified:\s*impermissible_income_undetermined/)
+    expect(degraded.join(' ')).toMatch(/[Pp]urification CANNOT be determined/)
+    expect(degraded.join(' ')).not.toMatch(/impermissible_income_not_emitted/)
+  })
+
+  it('GENUINE zero impermissible income (lane returns 0, sector compliant) → PASS / 0% (unchanged)', async () => {
+    // Replay-safety + genuine-path guard: a real affirmatively-verified 0 still computes a clean PASS.
+    const store = new InMemoryEventStore()
+    await seedDeepDivePrereqs(store)
+    const provider = swarmFakeProviderWithShariah(0, 'compliant')
+    await provider.structured({} as never)
+
+    await runResearchDeepDivePhase(store, provider as never, deepDiveCommand(), {
+      ground: verifyAllGround(),
+      laneConcurrency: 7,
+      fundamentals: costFundamentals,
+      resolvePrice: async () => ({ available: true, price_per_share: 968, currency: 'USD', as_of: 'x', source: 'test' }),
+    })
+
+    const events = await store.list()
+    const projections = projectResearchCases(events as Parameters<typeof projectResearchCases>[0])
+    const cp = projections.find((c) => c.research_case_id === 'rc_edgar')
+    expect(cp?.shariah_financial?.verdict).toBe('PASS')
+    expect(cp?.shariah_financial?.purification_pct).toBe(0)
+    expect(cp?.shariah_status).toBe('COMPLIANT')
+    expect(cp?.shariah_impermissible_income_undetermined).toBeUndefined()
   })
 
   it('sector non_compliant is a hard stop even when financial ratios pass', async () => {
