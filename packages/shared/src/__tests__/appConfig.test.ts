@@ -385,6 +385,51 @@ describe('mergeSavingsSleeveConfig', () => {
     mergeSavingsSleeveConfig(partial)
     expect(partial).toEqual({ savings_expected_profit_rate: 0.03 })
   })
+
+  // VINTAGE (#3) — savings_rate_set_at: optional, legacy-tolerant, stamped on a write that sets a non-default
+  // rate (injected clock); preserved on round-trip; absent for default / legacy / never-set configs.
+  it('leaves savings_rate_set_at undefined for default and legacy configs (never-set)', () => {
+    expect(mergeSavingsSleeveConfig().savings_rate_set_at).toBeUndefined()
+    expect(mergeSavingsSleeveConfig({ savings_expected_profit_rate: 0.03 }).savings_rate_set_at).toBeUndefined()
+    // legacy config with a non-default rate but NO vintage stays "not set" when no clock is injected (load).
+    expect(mergeSavingsSleeveConfig({ savings_expected_profit_rate: 0.04 }).savings_rate_set_at).toBeUndefined()
+  })
+
+  it('stamps savings_rate_set_at with the injected clock when a non-default rate is set/changed', () => {
+    const now = '2026-06-28T09:00:00.000Z'
+    expect(
+      mergeSavingsSleeveConfig({ savings_expected_profit_rate: 0.03 }, { now }).savings_rate_set_at,
+    ).toBe(now)
+    // a CHANGE from a prior rate re-stamps.
+    expect(
+      mergeSavingsSleeveConfig({ savings_expected_profit_rate: 0.04 }, { now, previousRate: 0.03 }).savings_rate_set_at,
+    ).toBe(now)
+  })
+
+  it('does NOT stamp when the rate is the default, or unchanged from the previous rate', () => {
+    const now = '2026-06-28T09:00:00.000Z'
+    // setting to the frozen default never stamps a vintage (default = "not set").
+    expect(mergeSavingsSleeveConfig({ savings_expected_profit_rate: 0.02 }, { now }).savings_rate_set_at).toBeUndefined()
+    // an unchanged non-default rate (e.g. a write that only touches equity_risk_margin) preserves vintage, no re-stamp.
+    expect(
+      mergeSavingsSleeveConfig(
+        { savings_expected_profit_rate: 0.03, savings_rate_set_at: '2026-01-01T00:00:00.000Z' },
+        { now, previousRate: 0.03 },
+      ).savings_rate_set_at,
+    ).toBe('2026-01-01T00:00:00.000Z')
+  })
+
+  it('preserves a valid incoming vintage on round-trip and drops an invalid one', () => {
+    expect(
+      mergeSavingsSleeveConfig({ savings_expected_profit_rate: 0.03, savings_rate_set_at: '2026-02-15T00:00:00.000Z' }).savings_rate_set_at,
+    ).toBe('2026-02-15T00:00:00.000Z')
+    expect(
+      mergeSavingsSleeveConfig({ savings_expected_profit_rate: 0.03, savings_rate_set_at: 'not-a-date' as never }).savings_rate_set_at,
+    ).toBeUndefined()
+    expect(
+      mergeSavingsSleeveConfig({ savings_expected_profit_rate: 0.03, savings_rate_set_at: '' }).savings_rate_set_at,
+    ).toBeUndefined()
+  })
 })
 
 describe('app config defaults include the savings sleeve', () => {

@@ -185,6 +185,7 @@ export default async function ResearchCasePage({ params }: ResearchCasePageProps
           researchCase={researchCase}
           mode={state.config.mode}
           configuredProviderId={state.config.provider.provider_id}
+          {...(state.config.savings !== undefined ? { savings: state.config.savings } : {})}
           {...(marketQuote !== undefined ? { marketQuote } : {})}
           {...(positionPlan !== undefined ? { positionPlan } : {})}
           promptForCapital={promptForCapital}

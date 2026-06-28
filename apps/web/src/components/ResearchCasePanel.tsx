@@ -4,6 +4,7 @@ import type {
   ResearchCaseSellBiasCaveatProjection,
   ResearchCaseSellWorstCaseProjection,
 } from '@owlfolio/ledger/projections/researchCaseProjection'
+import type { SavingsSleeveConfig } from '@owlfolio/shared'
 import { buffettMungerStrategy, discountRate } from '@owlfolio/strategies/buffettMunger'
 import { ENGINE_VERSION } from '@owlfolio/strategies/engineVersion'
 import { isDeepDiveComplete } from '@owlfolio/workflow/admitAssessment'
@@ -42,6 +43,12 @@ export type ResearchCasePanelProps = {
   marketQuote?: MarketQuote
   positionPlan?: PositionPlan
   promptForCapital?: boolean
+  /**
+   * The owner's compliant savings sleeve config (from app-config). Drives the discount-anchor VINTAGE line:
+   * the savings rate is the discount's risk-free anchor, and `savings_rate_set_at` makes a stale/never-set
+   * anchor visible. Absent → the dossier shows the frozen default and flags "not set".
+   */
+  savings?: SavingsSleeveConfig
 }
 
 // ── Shared style tokens ───────────────────────────────────────────────────────
@@ -100,32 +107,58 @@ function createCollapsibleSection(
   )
 }
 
-// ── Compact citation marker (Priority 5) ──────────────────────────────────────
+// ── Source anchor id sanitization ─────────────────────────────────────────────
 //
-// The verbose inline `[cited: sec_edgar_10k_<id>]` after every claim clutters the reading line. Replace
-// it with a COMPACT superscript marker (a small mono index + source glyph) — full traceability preserved:
-// the complete id stays discoverable via the `title` hover AND in the Evidence-and-sources section below.
-// A marker that did NOT verify is rendered in the risk tone and reads "✕" so an unverified cite is never
-// quietly hidden. Native owl-* tokens only.
+// Citation strings and evidence source ids must produce the SAME url-safe fragment so a compact marker
+// anchor (`#source-<id>`) lands on its matching evidence entry (`id="source-<id>"`). Strip everything
+// outside [A-Za-z0-9_-] to a single hyphen so href and id agree byte-for-byte.
+function sanitizeSourceAnchorId(raw: string): string {
+  return raw.replace(/[^A-Za-z0-9_-]+/g, '-')
+}
+
+/** The DOM id / href fragment for an evidence source — shared by markers and evidence entries. */
+function sourceAnchorId(raw: string): string {
+  return `source-${sanitizeSourceAnchorId(raw)}`
+}
+
+// ── Compact citation marker (Priority 5 + accessibility) ───────────────────────
+//
+// The verbose inline `[cited: sec_edgar_10k_<id>]` after every claim clutters the reading line. It is a
+// COMPACT superscript marker — but NOT hover-only: the marker is a real in-page anchor link to its source
+// entry, keyboard-focusable (owl-focusable → visible focus ring) with an `aria-label` that NAMES the source,
+// so keyboard + screen-reader users reach the evidence without a mouse hover. Full traceability is preserved:
+// the complete id stays in the `title` hover, the accessible name, AND in the always-visible Sources section.
+// A marker that did NOT verify is rendered in the risk tone, reads "✕", and its aria-label notes it "did not
+// verify". Native owl-* tokens only.
 function createCitationMarker(citation: string, grounded: boolean | undefined, index: number) {
   const verified = grounded !== false
+  const anchor = `#${sourceAnchorId(citation)}`
   return createElement(
     'sup',
     {
       key: `cite-${index}-${citation}`,
-      'data-testid': 'citation-marker',
-      title: verified ? `Source: ${citation}` : `Citation did not verify: ${citation}`,
-      style: {
-        color: verified ? 'var(--owl-color-gold)' : 'var(--owl-color-risk-bright)',
-        cursor: 'help',
-        fontFamily: 'var(--owl-font-mono)',
-        fontSize: 'var(--owl-text-2xs)',
-        fontWeight: 800,
-        marginLeft: '0.2rem',
-        whiteSpace: 'nowrap' as const,
-      },
+      style: { marginLeft: '0.2rem', whiteSpace: 'nowrap' as const },
     },
-    verified ? `[${index}]` : `[${index}✕]`,
+    createElement(
+      'a',
+      {
+        'data-testid': 'citation-marker',
+        className: 'owl-focusable',
+        href: anchor,
+        title: verified ? `Source: ${citation}` : `Citation did not verify: ${citation}`,
+        'aria-label': verified
+          ? `Source: ${citation} — jump to evidence`
+          : `Source: ${citation} — did not verify; jump to evidence`,
+        style: {
+          color: verified ? 'var(--owl-color-gold)' : 'var(--owl-color-risk-bright)',
+          fontFamily: 'var(--owl-font-mono)',
+          fontSize: 'var(--owl-text-2xs)',
+          fontWeight: 800,
+          textDecoration: 'none',
+        },
+      },
+      verified ? `[${index}]` : `[${index}✕]`,
+    ),
   )
 }
 
@@ -196,7 +229,7 @@ function isSetAsideCase(researchCase: AppResearchCase): boolean {
 
 // ── Main component ────────────────────────────────────────────────────────────
 
-export function ResearchCasePanel({ researchCase, mode = 'demo', configuredProviderId, marketQuote, positionPlan, promptForCapital = false }: ResearchCasePanelProps) {
+export function ResearchCasePanel({ researchCase, mode = 'demo', configuredProviderId, marketQuote, positionPlan, promptForCapital = false, savings }: ResearchCasePanelProps) {
   // Defense-in-depth UI honesty: warn when a personal-local case was authored by the built-in mock
   // provider instead of the configured provider — a placeholder/mock run can never masquerade as a real
   // grounded dossier. In demo mode (mock is the legitimate, expected provider) the banner never shows.
@@ -288,7 +321,7 @@ export function ResearchCasePanel({ researchCase, mode = 'demo', configuredProvi
     //       rationale, discount), the reverse-DCF read (market-implied vs judged sustainable growth), the
     //       two hidden assumptions the price bakes in (implied growth + implied exit multiple), the
     //       reference FV cross-check, and the independent bear case (red-team). ──
-    createValuationPanel(researchCase, marketQuote),
+    createValuationPanel(researchCase, marketQuote, savings),
     // ── 2b. Position plan (advisory) ─────────────────────────────────────────
     createPositionPlanPanel(positionPlan, promptForCapital),
     // ── 2c. Shariah / compliance — the unique AAOIFI ratio ledger (the per-dimension shariah finding
@@ -310,8 +343,9 @@ export function ResearchCasePanel({ researchCase, mode = 'demo', configuredProvi
     canPromoteToWatchlist ? createWatchlistPromotionAction(researchCase) : null,
     // ── 6. Actions row ──────────────────────────────────────────────────────
     createActionsRow(),
-    // ── 7. Evidence and audit details (collapsed, e2e anchor) ────────────────
-    createEvidenceAndAuditDetails(researchCase),
+    // ── 7. Evidence and audit details — Sources surfaced always-visible (anchor targets never hidden),
+    //       the rest of the audit trail stays in the collapsed details (e2e anchor) ──
+    createEvidenceAndAuditDetails(researchCase, { alwaysVisibleSources: true }),
   )
 }
 
@@ -1467,7 +1501,51 @@ function createSanityFlags(flags: string[]) {
   )
 }
 
-function createValuationPanel(researchCase: AppResearchCase, marketQuote?: MarketQuote) {
+// ── Discount-anchor vintage (savings-rate provenance) ─────────────────────────
+//
+// The discount's risk-free anchor is the compliant savings rate (savings + a uniform equity premium =
+// discount). There is no record of WHEN that rate was set, so a stale value would drift silently. This small
+// mono/quiet line surfaces the breakdown AND the vintage so a stale/never-set anchor is VISIBLE:
+//   - set:    "Discount 7.5% = compliant savings 2.0% + equity premium 5.5% · savings rate last set Jun 28 2026"
+//   - unset:  "Discount 7.5% = … · savings rate: using default 2.0% — not set"
+// Read-only: it never changes discount math (the live rate already flows through discountRate()).
+function createDiscountAnchorProvenance(savings?: SavingsSleeveConfig) {
+  const v = buffettMungerStrategy.valuation
+  const pct = (frac: number) => `${(frac * 100).toFixed(1)}%`
+
+  const configuredRate = savings?.savings_expected_profit_rate
+  const hasValidRate = typeof configuredRate === 'number' && Number.isFinite(configuredRate) && configuredRate > 0
+  const savingsRate = hasValidRate ? configuredRate : v.savings_rate_default
+  const liveDiscount = discountRate(buffettMungerStrategy, hasValidRate ? savingsRate : undefined)
+  // The anchor is "the frozen default" whenever the effective rate equals it (no config, or an explicit rate
+  // that happens to equal the default) — that is the case the vintage flags as never-owner-set.
+  const isDefaultRate = savingsRate === v.savings_rate_default
+
+  const setAt = savings?.savings_rate_set_at
+  const setAtValid = typeof setAt === 'string' && setAt.trim() !== '' && !Number.isNaN(Date.parse(setAt))
+  const vintageText = setAtValid
+    ? `savings rate last set ${new Date(setAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`
+    : isDefaultRate
+      ? `savings rate: using default ${pct(v.savings_rate_default)} — not set`
+      : `savings rate: ${pct(savingsRate)} — set date not recorded`
+
+  return createElement(
+    'p',
+    {
+      'data-testid': 'discount-anchor-provenance',
+      style: {
+        color: 'var(--owl-color-quiet)',
+        fontFamily: 'var(--owl-font-mono)',
+        fontSize: 'var(--owl-text-2xs)',
+        lineHeight: 1.5,
+        margin: '0.5rem 0 0',
+      },
+    },
+    `Discount ${pct(liveDiscount)} = compliant savings ${pct(savingsRate)} + equity premium ${pct(v.equity_premium)} · ${vintageText}`,
+  )
+}
+
+function createValuationPanel(researchCase: AppResearchCase, marketQuote?: MarketQuote, savings?: SavingsSleeveConfig) {
   const valuation = researchCase.valuation
   if (valuation === undefined) return null
 
@@ -1671,6 +1749,9 @@ function createValuationPanel(researchCase: AppResearchCase, marketQuote?: Marke
       createValuationLedgerStat('Runway', runway ?? 'Pending', ''),
       createValuationLedgerStat('Discount', discountLabel, ''),
     ),
+    // Discount-anchor vintage: the savings-rate breakdown + WHEN it was set (or "not set" for the frozen
+    // default), so a stale/never-set risk-free anchor is visible rather than silently trusted.
+    createDiscountAnchorProvenance(savings),
     // Judgment provenance (Priority 2): the moat / runway "proposed → resolved" anchor reads are PROSE, not
     // numerics — they belong as labeled mono/muted text lines, never crammed into numeric stat-blocks.
     (moatAnchorLabel !== undefined || runwayAnchorLabel !== undefined) ? createElement(
@@ -2412,8 +2493,13 @@ function createSpecialistLaneCard(finding: ResearchFindingCard) {
 
 // ── Evidence and audit details (collapsed, e2e anchor) ────────────────────────
 
-function createEvidenceAndAuditDetails(researchCase: AppResearchCase) {
-  return createElement(
+// `alwaysVisibleSources` (full dossier only): the cited Sources list is rendered as an ALWAYS-VISIBLE block
+// ABOVE the collapsed audit details so the citation-marker anchors land on a target that is never hidden —
+// keyboard/SR users reach the evidence without expanding a `<details>`. The set-aside / gated / awaiting
+// dossiers keep the original single collapsed block (those paths are intentionally minimal — markers there
+// still resolve via the browser's fragment auto-expand of `<details>`).
+function createEvidenceAndAuditDetails(researchCase: AppResearchCase, options: { alwaysVisibleSources?: boolean } = {}) {
+  const details = createElement(
     'details',
     {
       style: {
@@ -2437,13 +2523,23 @@ function createEvidenceAndAuditDetails(researchCase: AppResearchCase) {
     createElement(
       'div',
       { style: { display: 'grid', gap: '1rem', marginTop: '1rem' } },
-      createEvidenceAndSourcesPanel(researchCase),
+      // When the Sources list is surfaced always-visible above, it is NOT duplicated inside the details.
+      options.alwaysVisibleSources ? null : createEvidenceAndSourcesPanel(researchCase),
       createGateChecklistPanel(researchCase),
       createLedgerTimelinePanel(researchCase),
       // Quick screen and deep-dive panels preserved for unit-test assertions
       createQuickScreenCollapsible(researchCase),
       createDeepDiveCollapsible(researchCase),
     ),
+  )
+
+  if (!options.alwaysVisibleSources) return details
+
+  return createElement(
+    'div',
+    { style: { display: 'grid', gap: '1rem' } },
+    createEvidenceAndSourcesPanel(researchCase),
+    details,
   )
 }
 
@@ -2535,10 +2631,15 @@ function createLedgerTimelinePanel(researchCase: AppResearchCase) {
 }
 
 function createEvidenceCard(source: AppSourceEvidence) {
+  // Stable anchor target: the marker links (`#source-<id>`) land here. `scrollMarginTop` keeps the
+  // landed card clear of any sticky header. The humanized title + the audit id name WHICH filing the
+  // claim cites, so a reader sees the source per-claim without a hover.
+  const filingLabel = humanizeAuditSourceId(source.source_id)
   return createElement(
     'article',
     {
       key: source.source_id,
+      id: sourceAnchorId(source.source_id),
       style: {
         background: 'var(--owl-color-panel-deep)',
         border: '1px solid rgba(148, 163, 184, 0.14)',
@@ -2546,9 +2647,13 @@ function createEvidenceCard(source: AppSourceEvidence) {
         display: 'grid',
         gap: '0.45rem',
         padding: '0.95rem',
+        scrollMarginTop: '5rem',
       },
     },
     createElement('h3', { style: { color: '#f7f8ff', fontSize: 'var(--owl-text-md)', margin: 0 } }, source.title),
+    filingLabel === source.title
+      ? null
+      : createElement('p', { style: { color: 'var(--owl-color-muted)', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-xs)', margin: 0 } }, filingLabel),
     createElement('p', { style: { color: '#cbd5e1', lineHeight: 1.55, margin: 0 } }, source.excerpt),
     source.url === undefined
       ? null

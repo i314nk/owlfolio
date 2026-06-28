@@ -5,6 +5,8 @@ import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 
+import type { SavingsSleeveConfig } from '@owlfolio/shared'
+
 import { ResearchCasePanel } from '../ResearchCasePanel'
 import type { MarketQuote } from '../ResearchCasePanel'
 import type { AppResearchCase } from '../../lib/workflow'
@@ -437,6 +439,64 @@ describe('ResearchCasePanel auditable dossier (R1)', () => {
     expect(html).toContain('title="Source: sec_edgar_10k_def"')
   })
 
+  // ACCESSIBLE CITATIONS — markers are NOT hover-only: each is a real keyboard/SR-reachable in-page anchor
+  // to its source entry (owl-focusable + aria-label naming the source), so a keyboard / screen-reader user
+  // reaches the evidence without a mouse hover.
+  it('renders citation markers as focusable in-page anchors with a source-naming aria-label', () => {
+    const html = render({
+      ...baseCase(),
+      circle_competence: {
+        in_competence: true,
+        cashflow_predictability: 'durably_predictable',
+        cashflow_drivers: [{ driver: 'Recurring float', citation: 'sec_edgar_10k_abc', grounded: true }],
+      },
+    } as unknown as AppResearchCase, QUOTE)
+    // The marker is an anchor to the matching source entry, keyboard-focusable, with an accessible name.
+    expect(html).toContain('href="#source-sec_edgar_10k_abc"')
+    expect(html).toContain('owl-focusable')
+    expect(html).toContain('aria-label="Source: sec_edgar_10k_abc — jump to evidence"')
+  })
+
+  // The unverified-citation variant keeps its distinct (risk-tone) treatment AND an aria-label that says it
+  // did not verify — an unverified cite is never quietly hidden, even from a screen reader.
+  it('marks an unverified citation distinctly and notes "did not verify" in its accessible name', () => {
+    const html = render({
+      ...baseCase(),
+      circle_competence: {
+        in_competence: true,
+        cashflow_predictability: 'durably_predictable',
+        cashflow_drivers: [{ driver: 'Unverified driver', citation: 'sec_edgar_10k_xyz', grounded: false }],
+      },
+    } as unknown as AppResearchCase, QUOTE)
+    expect(html).toContain('aria-label="Source: sec_edgar_10k_xyz — did not verify; jump to evidence"')
+    expect(html).toContain('title="Citation did not verify: sec_edgar_10k_xyz"')
+    // The distinct risk tone is applied (not the verified gold tone).
+    expect(html).toContain('var(--owl-color-risk-bright)')
+  })
+
+  // The evidence entry the marker links to carries the matching stable id, so the anchor lands on it. The
+  // Sources list is surfaced always-visible (the anchor target is never hidden behind a collapsed details).
+  it('gives each evidence source the stable anchor id the citation marker links to', () => {
+    const html = render({
+      ...baseCase(),
+      source_evidence: [
+        { source_id: 'sec_edgar_10k_abc', title: 'Berkshire 10-K FY2025', excerpt: 'Float drivers.' },
+      ],
+      circle_competence: {
+        in_competence: true,
+        cashflow_predictability: 'durably_predictable',
+        cashflow_drivers: [{ driver: 'Recurring float', citation: 'sec_edgar_10k_abc', grounded: true }],
+      },
+    } as unknown as AppResearchCase, QUOTE)
+    // Marker href and evidence id agree (sanitized consistently) so the in-page jump resolves.
+    expect(html).toContain('href="#source-sec_edgar_10k_abc"')
+    expect(html).toContain('id="source-sec_edgar_10k_abc"')
+    // The Sources list is rendered ABOVE (outside) the collapsed "Evidence and audit details" block.
+    const sourceIdIdx = html.indexOf('id="source-sec_edgar_10k_abc"')
+    expect(sourceIdIdx).toBeGreaterThan(-1)
+    expect(sourceIdIdx).toBeLessThan(html.indexOf('Evidence and audit details'))
+  })
+
   it('retires the growth-axis band viz and the band/gap ledger labels entirely', () => {
     const html = render(baseCase(), QUOTE)
     expect(html).not.toContain('data-testid="growth-band-axis"')
@@ -759,5 +819,50 @@ describe('ResearchCasePanel Shariah compliance — fail-closed UNDETERMINED puri
     expect(html).toContain('data-testid="shariah-aaoifi-ledger"')
     expect(html).toContain('Purification: 0.4%')
     expect(html).not.toContain('data-testid="shariah-aaoifi-undetermined"')
+  })
+})
+
+// DISCOUNT-ANCHOR VINTAGE (#3) — the discount's risk-free anchor is the compliant savings rate. The dossier
+// surfaces the breakdown AND when that rate was last set, so a stale / never-set anchor is VISIBLE rather
+// than silently trusted. Read-only: it never changes the discount math (the rate flows via discountRate()).
+describe('ResearchCasePanel discount-anchor vintage', () => {
+  function renderWithSavings(savings?: SavingsSleeveConfig): string {
+    return renderToStaticMarkup(
+      createElement(ResearchCasePanel, {
+        researchCase: baseCase(),
+        mode: 'personal-local',
+        marketQuote: QUOTE,
+        ...(savings === undefined ? {} : { savings }),
+      }),
+    )
+  }
+
+  it('shows the savings-rate vintage line when the rate has been set', () => {
+    const html = renderWithSavings({
+      savings_expected_profit_rate: 0.03,
+      savings_model: 'mudarabah',
+      equity_risk_margin: 0.05,
+      savings_rate_set_at: '2026-06-28T00:00:00.000Z',
+    })
+    expect(html).toContain('data-testid="discount-anchor-provenance"')
+    expect(html).toContain('compliant savings 3.0%')
+    expect(html).toContain('equity premium 5.5%')
+    expect(html).toContain('savings rate last set Jun 28, 2026')
+  })
+
+  it('flags "using default — not set" when no savings rate vintage is recorded', () => {
+    const html = renderWithSavings({
+      savings_expected_profit_rate: 0.02,
+      savings_model: 'mudarabah',
+      equity_risk_margin: 0.05,
+    })
+    expect(html).toContain('data-testid="discount-anchor-provenance"')
+    expect(html).toContain('savings rate: using default 2.0% — not set')
+  })
+
+  it('renders a legacy config with no savings sleeve as "not set" (no crash)', () => {
+    const html = renderWithSavings(undefined)
+    expect(html).toContain('data-testid="discount-anchor-provenance"')
+    expect(html).toContain('savings rate: using default 2.0% — not set')
   })
 })
