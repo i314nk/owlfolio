@@ -1160,7 +1160,7 @@ function createVerdictSummaryText(researchCase: AppResearchCase): string {
  *   - the MODEL-proposed buy-below vs the live price, with the arithmetic in-buy-zone read,
  *   - the deterministic flag-only sanity-check (`sanity_flags`) as advisory amber annotations.
  * The sanity-check FLAGS internal absurdity; it NEVER blocks the verdict. The reasoning to audit
- * (cited valuation_reasoning, the reference FV cross-check, market-implied growth, the bear case) lives
+ * (cited valuation_reasoning, market-implied growth, the implied multiples, the bear case) lives
  * in the valuation panel beneath. Native owl-*; no band/gap axis.
  */
 function createDecisionPanel(researchCase: AppResearchCase, marketQuote?: MarketQuote) {
@@ -1183,10 +1183,9 @@ function createDecisionPanel(researchCase: AppResearchCase, marketQuote?: Market
     ?? (livePrice !== undefined && buyBelow !== undefined ? livePrice <= buyBelow : undefined)
 
   // Key-figures strip (Priority 2): the full decision-critical figure set LEADS as stat blocks, not buried
-  // in prose. Beyond buy-below / live price / buy-zone, surface the reference fair value (the cross-check,
-  // explicitly NOT the decision) and the two hidden assumptions the price bakes in — market-implied growth
-  // and the implied exit multiple — together. Prose reasoning stays below in the valuation panel.
-  const referenceFairValue = valuation.reference_fair_value ?? valuation.fair_value_per_share
+  // in prose. Beyond buy-below / live price / buy-zone, surface the two hidden assumptions the price bakes in
+  // — market-implied growth (reverse-DCF) and the implied exit multiple — together. Prose reasoning stays
+  // below in the valuation panel. (forward-DCF removal: the dollar reference fair value is gone.)
   const marketImpliedGrowth = valuation.market_implied_growth
   const impliedExitMultiple = valuation.implied_exit_multiple
 
@@ -1217,8 +1216,8 @@ function createDecisionPanel(researchCase: AppResearchCase, marketQuote?: Market
       ),
     ),
     // Key figures — the decision-critical numbers lead as stat blocks (Priority 2). The model buy-below
-    // vs live price + the in-buy-zone arithmetic; the reference fair value cross-check; and the two hidden
-    // price-implied assumptions surfaced together.
+    // vs live price + the in-buy-zone arithmetic; and the two hidden price-implied assumptions surfaced
+    // together. (forward-DCF removal: the dollar reference fair value stat is gone.)
     createElement('p', { className: 'owl-section-accent', style: { marginTop: '0.2rem' } }, 'Key figures'),
     createElement(
       'div',
@@ -1239,12 +1238,6 @@ function createDecisionPanel(researchCase: AppResearchCase, marketQuote?: Market
           ? 'Not computable'
           : inBuyZone ? 'In the buy zone' : 'Not in the buy zone',
         inBuyZone === true ? 'owl-ledger-figure-emerald' : '',
-      ),
-      createValuationLedgerStat(
-        'Reference fair value',
-        referenceFairValue !== undefined ? `$${referenceFairValue.toFixed(2)}` : 'Not yet available',
-        'owl-ledger-figure-money',
-        'cross-check, not the decision',
       ),
       createValuationLedgerStat(
         'Market-implied growth',
@@ -1480,9 +1473,8 @@ function createValuationPanel(researchCase: AppResearchCase, marketQuote?: Marke
 
   const pctPts = (frac: number) => `${(frac * 100).toFixed(1)}%`
 
-  // RELIGHTENED DECISION (R1): the MODEL's cited reasoning is the substance to audit. The reference fair
-  // value is a deterministic CROSS-CHECK only (not the decision); market-implied growth is the richness read.
-  const referenceFairValue = valuation.reference_fair_value ?? valuation.fair_value_per_share
+  // RELIGHTENED DECISION (R1): the MODEL's cited reasoning is the substance to audit. The reverse-DCF
+  // market-implied growth is the richness read. (forward-DCF removal: the dollar reference fair value is gone.)
   const marketImpliedGrowth = valuation.market_implied_growth
   const reasoning = valuation.valuation_reasoning
   const discountRateVal = valuation.discount_rate
@@ -1596,7 +1588,7 @@ function createValuationPanel(researchCase: AppResearchCase, marketQuote?: Marke
     createElement(
       'p',
       { style: { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-sm)', lineHeight: 1.5, margin: 0 } },
-      'The reasoning to audit. The model proposed the verdict and the buy-below above; here it shows its work. The deterministic fair value is a cross-check only — it is not the decision.',
+      'The reasoning to audit. The model proposed the verdict and the buy-below above; here it shows its work. The reverse-DCF market-implied growth is the valuation cross-check — the decision rests on the model buy-below.',
     ),
     // The MODEL's cited valuation reasoning — it shows its work (owner-earnings basis, the growth it
     // assumed + WHY, the discount rationale). The substance the human audits.
@@ -1661,17 +1653,12 @@ function createValuationPanel(researchCase: AppResearchCase, marketQuote?: Marke
       { style: { color: 'var(--owl-color-quiet)', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-2xs)', margin: '0.2rem 0 0' } },
       `Market $${marketQuote.price_per_share.toFixed(2)} (${marketQuote.currency}) · Yahoo Finance, as of ${new Date(marketQuote.as_of).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`,
     ) : null,
-    // Key figures — the ledger-line of the valuation. The reference fair value is the deterministic
-    // CROSS-CHECK (clearly labeled NOT the decision); the model's buy-below + verdict drive the decision.
+    // Key figures — the ledger-line of the valuation. The model's buy-below + verdict drive the decision;
+    // the reverse-DCF market-implied growth + the implied multiples are the kept valuation lens.
+    // (forward-DCF removal: the dollar reference fair value stat is gone.)
     createElement(
       'div',
       { className: 'owl-ledger-line', style: { marginTop: '1rem' } },
-      createValuationLedgerStat(
-        'Reference fair value',
-        referenceFairValue !== undefined ? `$${referenceFairValue.toFixed(2)}` : 'Pending',
-        'owl-ledger-figure-money',
-        'cross-check (not the decision)',
-      ),
       createValuationLedgerStat(
         'Market-implied growth',
         marketImpliedGrowth !== undefined ? pctPts(marketImpliedGrowth) : 'Pending',

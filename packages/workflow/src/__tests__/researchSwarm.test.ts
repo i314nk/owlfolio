@@ -944,11 +944,12 @@ describe('runStrategyResearchSwarm with MockProvider + deterministic grounder', 
     expect(caseProjection?.valuation?.growth_basis).toBe('none')
     // terminal g — UNIFORM for every investable moat (F.13) = 0.015
     expect(caseProjection?.valuation?.terminal_growth_rate).toBe(0.015)
-    // fair_value_per_share is the headline forward-DCF at the model's 0.18 assumed growth — a positive
-    // presentation reference. At g=0.18 it exceeds the 18× OE cap (a SURFACED flag, not a truncation).
-    expect(caseProjection?.valuation?.fair_value_per_share ?? 0).toBeGreaterThan(0)
+    // forward-DCF removal: the dollar fair_value_per_share is no longer surfaced. The internal forward FV
+    // (g=0.18) still drives the kept cap_exceeded flag (exceeds the 18× OE cap — a SURFACED flag, not a
+    // truncation) and the implied_multiple ratio.
+    expect(caseProjection?.valuation?.fair_value_per_share).toBeUndefined()
     expect(caseProjection?.valuation?.cap_exceeded).toBe(true)
-    // implied multiple = headline FV (g=0.18) / OE — above the no-growth ~10.75× since growth lifts the FV.
+    // implied multiple = internal forward FV (g=0.18) / OE — above the no-growth ~10.75× since growth lifts it.
     expect(caseProjection?.valuation?.implied_multiple ?? 0).toBeGreaterThan(10.75)
     // margin_of_safety (the MoS-as-price-haircut field) is RETIRED.
     expect((caseProjection?.valuation as Record<string, unknown> | undefined)?.margin_of_safety).toBeUndefined()
@@ -1295,18 +1296,17 @@ describe('BUG 1 — valuation per-share units (÷ shares_outstanding)', () => {
     expect(cp?.valuation?.demonstrated_growth_reference).toBeCloseTo(0, 6)
     expect(cp?.valuation?.growth_basis).toBe('none')
     expect(cp?.valuation?.terminal_growth_rate).toBe(0.015)
-    // fair_value_per_share is the headline forward-DCF at the model's 0.06 assumed growth — ABOVE the old
-    // g=0 credited-g FV (~204.78). buy_price_per_share is the MODEL's proposed_buy_below (default 150).
-    expect(cp?.valuation?.fair_value_per_share ?? 0).toBeGreaterThan(204.78)
+    // forward-DCF removal: the dollar fair_value_per_share is no longer surfaced. buy_price_per_share is the
+    // MODEL's proposed_buy_below (default 150). The per-share UNITS are still proven by the implied_multiple
+    // (= internal forward FV / OE), a ratio independent of total-vs-per-share scaling.
+    expect(cp?.valuation?.fair_value_per_share).toBeUndefined()
     expect(cp?.valuation?.buy_price_per_share).toBe(150)
-    expect(cp?.valuation?.implied_multiple ?? 0).toBeGreaterThan(10.75)
     expect(cp?.valuation?.runway).toBe('proven')
     expect(cp?.valuation?.value_basis).toBe('two_stage_dcf')
-    // Sanity: per-share value, never the buggy ~100x value. F.2 — under the lower savings-anchor discount
-    // (7.5%, was 10%) the g=0.06 FV is ≈ $417.7 (~21.9× OE), which now EXCEEDS the 18× cap: cap_exceeded is a
-    // SURFACED flag (Phase 1.6), not a truncation, and the value stays well under the absurd guard.
-    expect(cp?.valuation?.fair_value_per_share ?? 0).toBeLessThan(1000)
-    expect(cp?.valuation?.fair_value_per_share ?? 0).toBeCloseTo(417.7, 0)
+    // Sanity: per-share units, never the buggy ~100x value. F.2 — under the lower savings-anchor discount
+    // (7.5%) the g=0.06 internal FV is ≈ $417.7 / OE $19.05 ≈ 21.9× OE, which EXCEEDS the 18× cap:
+    // cap_exceeded is a SURFACED flag (Phase 1.6). The implied multiple proves the per-share scaling.
+    expect(cp?.valuation?.implied_multiple ?? 0).toBeCloseTo(21.9, 0)
     expect(cp?.valuation?.cap_exceeded).toBe(true)
     // valuation_status must still read EXPENSIVE vs a ~$968 price
     expect(cp?.valuation_status).toBe('EXPENSIVE')
@@ -1384,11 +1384,11 @@ describe('Two-stage DCF harness growth path (Phase 1.3 one growth path + gates)'
     expect(cp?.valuation?.growth_rate).toBeCloseTo(0.06, 6)
     expect(cp?.valuation?.demonstrated_growth_reference).toBeCloseTo(0, 6)
     expect(cp?.valuation?.growth_basis).toBe('none')
-    // headline forward-DCF at g=0.06 (above the g=0 floor): a positive per-share value. F.2 — at the lower
-    // savings-anchor discount (7.5%) the FV (~21.9× OE) now exceeds the 18× cap (a surfaced flag, not a
-    // truncation), still well under the absurd guard.
-    expect(cp?.valuation?.fair_value_per_share).toBeGreaterThan(19.05)
-    expect(cp?.valuation?.fair_value_per_share ?? 0).toBeLessThan(1000)
+    // forward-DCF removal: the dollar fair_value_per_share is no longer surfaced. The internal forward-DCF at
+    // g=0.06 still drives the kept implied_multiple (~21.9× OE) and cap_exceeded flag. F.2 — at the lower
+    // savings-anchor discount (7.5%) it exceeds the 18× cap (a surfaced flag, not a truncation).
+    expect(cp?.valuation?.fair_value_per_share).toBeUndefined()
+    expect(cp?.valuation?.implied_multiple ?? 0).toBeCloseTo(21.9, 0)
     expect(cp?.valuation?.cap_exceeded).toBe(true)
   })
 
@@ -1487,31 +1487,19 @@ describe('Two-stage DCF harness growth path (Phase 1.3 one growth path + gates)'
     // Buy-below is locked from harness numbers; even with a model BUY it never escalates above WATCH here.
     expect(cp?.valuation?.buy_price_per_share).toBeGreaterThan(0)
 
-    // ---- Phase 2: fair-value RANGE + reverse-DCF market-implied growth (this case has a price) ----
-    // A formatted low–high (base) range is attached. HEADLINE-GROWTH INVERSION: the sensitivity band now
-    // straddles the HEADLINE growth (the model's assumed_growth 0.06), so its base equals the headline
-    // fair_value_per_share (one consolidated forward-DCF). The band WIDTH still widens with the demonstrated
-    // EDGAR history's depth (6 usable points < 8 → thin-history widening), so the band is reasonably wide.
-    const fvRange = cp?.valuation?.fair_value_range
-    expect(fvRange).toBeDefined()
-    expect(fvRange).toMatch(/^\$\d+–\$\d+ \(base \$\d+\)$/)
-    const fvBase = Number(/\(base \$(\d+)\)/.exec(fvRange ?? '')?.[1])
-    expect(fvBase).toBeGreaterThan(0)
-    expect(fvBase).toBeLessThan(1000)
-    // The range base equals the headline fair_value_per_share (the band centers on the headline growth).
-    expect(fvBase).toBeCloseTo(Math.round(cp?.valuation?.fair_value_per_share ?? 0), 0)
-    // Thin EDGAR history (6 usable points < 8) → the band_fraction is widened → a non-trivial range width.
-    const fvLow = Number(/^\$(\d+)/.exec(fvRange ?? '')?.[1])
-    const fvHigh = Number(/–\$(\d+)/.exec(fvRange ?? '')?.[1])
-    expect((fvHigh - fvLow) / fvBase).toBeGreaterThan(0.2)
-    // Demonstrated growth (~10%) is below the named cap here → NOT cap-limited (the flag is omitted).
-    expect(cp?.valuation?.valuation_cap_binding).toBeUndefined()
+    // ---- reverse-DCF market-implied growth (this case has a price) ----
+    // forward-DCF removal: the dollar fair_value_range / fair_value_per_share / valuation_cap_binding are no
+    // longer surfaced. The kept valuation lens is the reverse-DCF market-implied growth; implied_multiple
+    // (a ratio from the internal forward FV) is still surfaced.
+    expect(cp?.valuation?.fair_value_per_share).toBeUndefined()
+    expect((cp?.valuation as Record<string, unknown> | undefined)?.['fair_value_range']).toBeUndefined()
+    expect(typeof cp?.valuation?.implied_multiple).toBe('number')
     // A current price was injected (50) with positive OE/share → market-implied growth is computable.
     expect(typeof cp?.valuation?.market_implied_growth).toBe('number')
     expect(Number.isFinite(cp?.valuation?.market_implied_growth ?? NaN)).toBe(true)
   })
 
-  it('fail-closed: no current price → no market_implied_growth (omitted, not fabricated); point FV kept', async () => {
+  it('fail-closed: no current price → no market_implied_growth (omitted, not fabricated); internal valuation still computes', async () => {
     // Same growing EDGAR series, but the price resolver FAILS → no current price.
     const series: AnnualFacts[] = []
     for (let i = 0; i < 6; i += 1) {
@@ -1545,9 +1533,10 @@ describe('Two-stage DCF harness growth path (Phase 1.3 one growth path + gates)'
     )
     const projections = projectResearchCases((await store.list()) as Parameters<typeof projectResearchCases>[0])
     const cp = projections.find((c) => c.research_case_id === 'rc_noprice')
-    // Point fair value (and its range) still compute — they don't need a price.
-    expect(cp?.valuation?.fair_value_per_share).toBeGreaterThan(0)
-    expect(cp?.valuation?.fair_value_range).toBeDefined()
+    // The internal forward-DCF still computes (no price needed) — surfaced via the implied_multiple ratio.
+    // forward-DCF removal: the dollar fair_value_per_share / fair_value_range are no longer surfaced.
+    expect(cp?.valuation?.fair_value_per_share).toBeUndefined()
+    expect(typeof cp?.valuation?.implied_multiple).toBe('number')
     // Fail-closed: no price → market_implied_growth is OMITTED (never fabricated).
     expect(cp?.valuation?.market_implied_growth).toBeUndefined()
   })
@@ -1614,16 +1603,15 @@ describe('RELIGHTENED DECISION — model proposes buy-below; deterministic side 
     return { events, valuation, cp: projections.find((c) => c.research_case_id === `rc_${opts.id}`) }
   }
 
-  it('BUY-BELOW ← MODEL: buy_below === the model\'s proposed_buy_below, and the reference FV is a DIFFERENT number', async () => {
-    // The model proposes 150; its assumed growth (6%) gives a reference cross-check FV that is NOT 150.
+  it('BUY-BELOW ← MODEL: buy_below === the model\'s proposed_buy_below; the forward reference FV is no longer surfaced', async () => {
+    // The model proposes 150; the buy-below is the model's verbatim number (NOT derived from any FV).
     const { valuation, cp } = await runRelit({ id: 'buybelow-model', price: 300, proposedBuyBelow: 150, assumedGrowth: 0.06 })
     // Recorded buy-below IS the model's proposed number (verbatim).
     expect(cp?.valuation?.buy_price_per_share).toBe(150)
     expect(valuation?.['proposed_buy_below']).toBe(150)
-    // reference_fair_value is the forward-DCF cross-check at the model's assumed growth — a DIFFERENT number.
-    const refFv = valuation?.['reference_fair_value']
-    expect(typeof refFv).toBe('number')
-    expect(refFv).not.toBe(150)
+    // forward-DCF removal: the dollar reference_fair_value / fair_value_per_share are no longer emitted.
+    expect(valuation?.['reference_fair_value']).toBeUndefined()
+    expect(valuation?.['fair_value_per_share']).toBeUndefined()
     // The model's cited valuation reasoning rides along.
     const vr = valuation?.['valuation_reasoning'] as Record<string, unknown> | undefined
     expect(vr?.['assumed_growth']).toBe(0.06)
@@ -1880,18 +1868,17 @@ describe('RELIGHTENED DECISION — model proposes buy-below; deterministic side 
     expect(valuation?.['demonstrated_growth_reference']).toBeCloseTo(0, 6)
   })
 
-  it('HEADLINE FORWARD-DCF FV is computed from assumed_growth (NOT credited-g), consolidated with reference_fair_value', async () => {
-    // assumed_growth 0.06 ≠ credited-g 0 → the headline fair_value_per_share must equal the two-stage FV at
-    // g = 0.06 (i.e. equal to reference_fair_value), NOT the g=0 credited-g FV (~204.78 for these inputs).
+  it('INTERNAL forward-DCF is computed from assumed_growth (NOT credited-g); the dollar FV is not surfaced', async () => {
+    // assumed_growth 0.06 ≠ credited-g 0 → the internal two-stage FV is at g = 0.06. forward-DCF removal: the
+    // dollar fair_value_per_share / reference_fair_value are NO LONGER surfaced; the kept signals are the
+    // headline growth_rate (the model's assumed_growth) + the implied_multiple (ratio of the internal FV).
     const { cp, valuation } = await runRelit({ id: 'headline-fv', price: 300, proposedBuyBelow: 150, assumedGrowth: 0.06 })
-    const fv = cp?.valuation?.fair_value_per_share
-    const refFv = valuation?.['reference_fair_value'] as number | undefined
-    expect(typeof fv).toBe('number')
-    expect(typeof refFv).toBe('number')
-    // ONE consolidated forward-DCF: the headline FV IS the reference FV (both from assumed_growth).
-    expect(fv).toBeCloseTo(refFv as number, 2)
-    // It is the g=0.06 FV, materially ABOVE the g=0 credited-g FV (~204.78) for these inputs.
-    expect(fv as number).toBeGreaterThan(210)
+    expect(cp?.valuation?.fair_value_per_share).toBeUndefined()
+    expect(valuation?.['reference_fair_value']).toBeUndefined()
+    expect(cp?.valuation?.growth_rate).toBeCloseTo(0.06, 6)
+    // The internal forward FV at g=0.06 is materially above the g=0 case (~204.78 / OE 19.05 ≈ 10.75×), so
+    // the surfaced implied_multiple exceeds 11× for these inputs.
+    expect(cp?.valuation?.implied_multiple ?? 0).toBeGreaterThan(11)
   })
 
   it('credited-g → demonstrated-history reference + ADVISORY flag when assumed_growth materially exceeds it (verdict NOT blocked)', async () => {
@@ -3873,7 +3860,10 @@ describe('Silent-degradation cascade — fields omitted (live dogfood shape)', (
     const { cp } = await runOmitted({ synthesis: { moat_class: 'wide', runway: 'proven' }, id: 'omit-val-grounded', keepMoatRubric: true })
     expect(cp?.valuation?.moat_class).toBe('wide')
     expect(cp?.valuation?.moat_passes_gate).toBe(true)
-    expect(cp?.valuation?.fair_value_per_share).toBeDefined()
+    // forward-DCF removal: the dollar fair_value_per_share is no longer surfaced; the internal forward FV
+    // still computes, proven via the kept implied_multiple ratio.
+    expect(cp?.valuation?.fair_value_per_share).toBeUndefined()
+    expect(cp?.valuation?.implied_multiple).toBeDefined()
     expect(cp?.valuation?.buy_price_per_share).toBeDefined()
   })
 
@@ -3903,7 +3893,10 @@ describe('Silent-degradation cascade — fields omitted (live dogfood shape)', (
     // is the model's cited assumed_growth (0.06). (Was: growth_rate === 0 — the old credited-g headline.)
     expect(cp?.valuation?.demonstrated_growth_reference).toBeCloseTo(0, 6)
     expect(cp?.valuation?.growth_rate).toBeCloseTo(0.06, 6)
-    expect(cp?.valuation?.fair_value_per_share).toBeDefined()
+    // forward-DCF removal: the dollar fair_value_per_share is no longer surfaced; the internal forward FV
+    // still computes, proven via the kept implied_multiple ratio.
+    expect(cp?.valuation?.fair_value_per_share).toBeUndefined()
+    expect(cp?.valuation?.implied_multiple).toBeDefined()
     const valuation = analysisPayload?.['valuation'] as Record<string, unknown>
     const degraded = (valuation?.['degraded_flags'] as string[] | undefined) ?? []
     expect(degraded.join(' ')).toMatch(/valuation_degraded:\s*demonstrated_growth_reference_floored_g0/)
@@ -4542,10 +4535,12 @@ describe('§2 reference FV + implied-exit-multiple — gated on grounded assumed
     expect(Number.isFinite(valuation?.['market_implied_growth'] as number)).toBe(true)
   })
 
-  it('GROUNDED assumed_growth (citation verifies) → all three present (no false omission)', async () => {
+  it('GROUNDED assumed_growth (citation verifies) → kept §2 references present (no false omission)', async () => {
     const { cp, valuation } = await runWithGrowthCitation('rc_s2_grounded', 'src_dec_1')
     expect(cp?.valuation?.synthesis_grounding_unmet).toBeUndefined()
-    expect(typeof valuation?.['reference_fair_value']).toBe('number')
+    // forward-DCF removal: the dollar reference_fair_value is no longer surfaced even when grounded. The kept
+    // §2 reference (implied_exit_multiple) + the reverse-DCF market_implied_growth are present.
+    expect(valuation?.['reference_fair_value']).toBeUndefined()
     expect(typeof valuation?.['implied_exit_multiple']).toBe('number')
     expect(typeof valuation?.['market_implied_growth']).toBe('number')
   })

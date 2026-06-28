@@ -128,10 +128,32 @@ describe('ResearchCasePanel auditable dossier (R1)', () => {
     expect(html.toLowerCase()).toContain('assumes')
   })
 
-  it('labels the reference fair value as a deterministic cross-check, not the decision', () => {
+  it('forward-DCF removal: does NOT surface the dollar reference fair value (even from a legacy-shape case), while the reverse-DCF read still shows', () => {
+    // baseCase() carries the retired forward-DCF reference_fair_value: 210 (legacy shape). The dossier must
+    // NOT render it ($210.00) nor any "reference fair value" / "cross-check (not the decision)" label — a
+    // dollar reference FV below the model buy-below read as a contradiction. The reverse-DCF market-implied
+    // growth read stays.
     const html = render(baseCase(), QUOTE)
-    expect(html).toContain('$210.00')
-    expect(html.toLowerCase()).toContain('cross-check (not the decision)')
+    expect(html).not.toContain('$210.00')
+    expect(html.toLowerCase()).not.toContain('reference fair value')
+    expect(html.toLowerCase()).not.toContain('cross-check (not the decision)')
+    expect(html.toLowerCase()).toContain('the market implies')
+  })
+
+  it('forward-DCF removal (fresh shape): a case with NO reference_fair_value / fair_value_per_share renders no forward-FV figure, while the reverse-DCF read still shows', () => {
+    // A fresh-shape case (post-removal emission): neither the dollar reference_fair_value nor
+    // fair_value_per_share is present. The dossier must render no "reference fair value" / "cross-check"
+    // label and no forward-FV figure, while the reverse-DCF market-implied growth read still shows.
+    const fresh = baseCase()
+    const valuation = { ...fresh.valuation } as Record<string, unknown>
+    delete valuation.reference_fair_value
+    delete valuation.fair_value_per_share
+    const html = render({ ...fresh, valuation } as unknown as AppResearchCase, QUOTE)
+    expect(html.toLowerCase()).not.toContain('reference fair value')
+    // The dollar-FV "cross-check" labels are gone (a generic "valuation cross-check" prose note is fine).
+    expect(html.toLowerCase()).not.toContain('cross-check (not the decision)')
+    expect(html.toLowerCase()).not.toContain('cross-check, not the decision')
+    expect(html.toLowerCase()).toContain('the market implies')
   })
 
   it('surfaces the market-implied growth read', () => {
@@ -291,9 +313,11 @@ describe('ResearchCasePanel auditable dossier (R1)', () => {
     expect(html).toContain('Buy-zone')
     // reference fair value, with a SHORT label and a small secondary cross-check sub-note (not a giant
     // inline label that wraps to several lines).
-    expect(html).toContain('Reference fair value')
-    expect(html).toContain('cross-check, not the decision')
-    expect(html).toContain('$210.00')
+    // forward-DCF removal: the dollar reference fair value stat is gone even though baseCase carries the
+    // legacy reference_fair_value (no label, no cross-check sub-note, no $210.00 figure).
+    expect(html).not.toContain('Reference fair value')
+    expect(html.toLowerCase()).not.toContain('cross-check, not the decision')
+    expect(html).not.toContain('$210.00')
     // the two hidden price-implied assumptions surfaced together
     expect(html).toContain('Market-implied growth')
     expect(html).toContain('Implied exit multiple')

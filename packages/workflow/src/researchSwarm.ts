@@ -63,7 +63,6 @@ import { ingestManualSourceBundle } from './sourceLedger'
 import { resolveResearchStrategyRef } from './researchStrategyRef'
 import { buffettMungerStrategy, creditedGrowth, discountRate, moatPassesGate, ownerEarningsAtHorizon, stage1HorizonForMoat, terminalGrowthForMoat, twoStageValuation } from '@owlfolio/strategies/buffettMunger'
 import { computeShariahFinancialRatios } from '@owlfolio/strategies/shariahFinancialRatios'
-import { valuationSensitivity, type ValuationSensitivity } from '@owlfolio/strategies/valuationSensitivity'
 import { marketImpliedGrowth } from '@owlfolio/strategies/reverseDcf'
 // NOTE (R1): sustainableGrowthBand + requiredGrowthGap are no longer imported here — the relightened
 // decision stopped using the band/gap engines (they are deleted entirely in R2). The model now proposes
@@ -2197,18 +2196,10 @@ export async function runResearchDeepDivePhase(
   const valuation_multiple_ceiling = buffettMungerStrategy.valuation.valuation_multiple_ceiling
 
   const valuationCaveats: string[] = []
-  let fair_value_per_share: number | undefined
   let implied_multiple: number | undefined
   let terminal_growth_rate: number | undefined
   let terminal_value_pct_of_iv: number | undefined
   let cap_exceeded = false
-  // Phase 2 (reverse-DCF + sensitivity wiring): a low/base/high fair-value RANGE and the cap-binding
-  // flag. Computed inside the valuation block when a point FV is produced; market-implied growth is
-  // computed later (needs the resolved current price). Presentation/attachment only — no math change.
-  let valuationSensitivityResult: ValuationSensitivity | undefined
-  let fair_value_range: string | undefined
-  let fair_value_range_basis: string | undefined
-  let valuation_cap_binding: boolean | undefined
 
   // NOTE (R1): maintenance-capex confidence was a widening input for the retired required_growth_gap engine
   // (deleted in R2). The relightened decision no longer widens a deterministic conservatism knob — the
@@ -2228,11 +2219,6 @@ export async function runResearchDeepDivePhase(
     ? demonstratedOwnerEarningsGrowth(fundamentals.annual_series)
     : undefined
   const demonstrated_growth = demonstratedGrowthResult?.growth ?? 0
-  // Phase 2 sensitivity inputs: usable owner-earnings history depth + whether the robust slope diverged
-  // from the Theil–Sen cross-check (high dispersion). Both widen the fair-value band (honest uncertainty).
-  const demonstrated_points_used = demonstratedGrowthResult?.points_used ?? 0
-  const demonstrated_high_dispersion =
-    demonstratedGrowthResult?.flags.some((f) => /dispersion/i.test(f)) ?? false
   if (demonstratedGrowthResult !== undefined) {
     for (const flag of demonstratedGrowthResult.flags) {
       degradedFlags.push(`demonstrated_growth: ${flag}`)
@@ -2309,15 +2295,13 @@ export async function runResearchDeepDivePhase(
     // Stage-1 horizon — UNIFORM 10 yrs for every investable moat (F.13); the moatClass arg validates the gate.
     const horizon = stage1HorizonForMoat(buffettMungerStrategy, moatClass)
     // terminal_growth_rate is the per-moat Gordon stage; set it WHENEVER the gate passes with a usable OE/sh,
-    // independent of whether a headline FV is produced — the §2 reference FV, implied_exit_multiple, and the
-    // reverse-DCF market_implied_growth all consume it (they fail-closed on undefined otherwise).
+    // independent of whether a headline FV is produced — implied_exit_multiple and the reverse-DCF
+    // market_implied_growth both consume it (they fail-closed on undefined otherwise).
     terminal_growth_rate = terminal_g
-    // HEADLINE forward-DCF — the CONSOLIDATED single forward-DCF reference, computed from the MODEL's cited
-    // assumed_growth (headline_growth), NOT the capped credited-g. This is the SAME value the §2
-    // reference_fair_value computes; we compute it ONCE here so there is one forward-DCF FV from one grounded
-    // growth (no two competing FVs). Labelled a SECONDARY reference (market-implied growth is the primary
-    // lens). Computed only when assumed_growth is grounded + usable (A1); an ungrounded assumed_growth leaves
-    // the headline FV undefined (degrade per A1 — we do NOT fall back to credited-g as the headline).
+    // INTERNAL forward-DCF (NOT surfaced): computed from the MODEL's cited assumed_growth (headline_growth)
+    // ONLY to derive the implied_multiple + the terminal-share / cap sanity flags. The dollar fair value
+    // itself is no longer emitted or displayed (forward-DCF removal). Computed only when assumed_growth is
+    // grounded + usable (A1); an ungrounded assumed_growth leaves it undefined.
     if (headline_growth !== undefined) {
     // Phase 1.5/1.6: rich two-stage valuation — surfaces terminal_value_pct_of_iv, flags cap_exceeded
     // (no silent truncation), and discards only an absurd (units-bug) value.
@@ -2339,7 +2323,8 @@ export async function runResearchDeepDivePhase(
         `Valuation discarded: computed fair value per share (${computedFairValue !== undefined && Number.isFinite(computedFairValue) ? computedFairValue.toFixed(2) : 'non-finite/absurd'}) is implausible — owner-earnings inputs likely mis-scaled. No buy price emitted.`,
       )
     } else {
-      fair_value_per_share = computedFairValue
+      // forward-DCF removal: the dollar forward FV is no longer surfaced; it is used here ONLY to derive the
+      // implied_multiple ratio + the terminal-share / cap sanity flags.
       implied_multiple = computedFairValue / normalized_owner_earnings_per_share
       // Phase 1.5: flag a high terminal-value share (the dominant uncertainty).
       const highTvShare = terminal_value_pct_of_iv > buffettMungerStrategy.valuation.terminal_value_share_flag
@@ -2368,47 +2353,13 @@ export async function runResearchDeepDivePhase(
       // market-implied growth rises to the buy-threshold (band_low − required_gap). It is derived below,
       // once the sustainable-growth band and required gap are computed (see the verdict-band section).
 
-      // ---- Phase 2: sensitivity RANGE around the HEADLINE FV (attachment/presentation only) ----
-      // A low/base/high fair-value band straddling the HEADLINE growth (the model's assumed_growth), so the
-      // band's base equals fair_value_per_share (consolidated — one forward-DCF from one grounded growth).
-      // The band WIDTH still widens with the demonstrated growth measure's own uncertainty (thin history /
-      // dispersion) — the honest history-depth signal. We pass the SAME oe_ps, terminal, discount and horizon
-      // the point valuation used. The math (cap, fade, discount) is unchanged.
-      valuationSensitivityResult = valuationSensitivity(buffettMungerStrategy, {
-        oe_ps: normalized_owner_earnings_per_share,
-        demonstrated_growth: headline_growth,
-        points_used: demonstrated_points_used,
-        high_dispersion: demonstrated_high_dispersion,
-        terminal_g,
-        discount,
-        horizon,
-      })
-      valuation_cap_binding = valuationSensitivityResult.cap_binding
-      if (
-        valuationSensitivityResult.computable
-        && valuationSensitivityResult.fair_value_low !== undefined
-        && valuationSensitivityResult.fair_value_base !== undefined
-        && valuationSensitivityResult.fair_value_high !== undefined
-      ) {
-        const lo = Math.round(valuationSensitivityResult.fair_value_low)
-        const base = Math.round(valuationSensitivityResult.fair_value_base)
-        const hi = Math.round(valuationSensitivityResult.fair_value_high)
-        fair_value_range = `$${lo}–$${hi} (base $${base})`
-        // Honest "why is the range wide" note: a wide band (≳40%) driven by thin usable owner-earnings
-        // history and/or dispersion → say so, so a thin-history name reads as uncertain, not precise.
-        const rangePct = valuationSensitivityResult.range_pct
-        const pts = valuationSensitivityResult.uncertainty.points_used
-        if (rangePct !== undefined && rangePct >= 0.40) {
-          const causes: string[] = []
-          if (pts > 0 && pts < 8) causes.push(`only ${pts} years of usable owner-earnings history`)
-          if (valuationSensitivityResult.uncertainty.high_dispersion) causes.push('high growth dispersion')
-          fair_value_range_basis = causes.length > 0
-            ? `Range is wide (±${Math.round((rangePct / 2) * 100)}%) because ${causes.join(' and ')} anchor the growth estimate — treat it as honestly uncertain, not precise.`
-            : `Range spans ±${Math.round((rangePct / 2) * 100)}% — treat the base as a central estimate, not a precise target.`
-        }
-      }
+      // forward-DCF removal: the forward two-stage DCF "reference fair value" (the dollar fair_value_per_share
+      // / reference_fair_value / fair_value_range band) is no longer surfaced — it read as a contradiction
+      // against the model's buy-below. The reverse-DCF (market-implied growth) is the kept valuation lens. The
+      // forward FV is still computed internally above ONLY to derive the implied_multiple + the terminal-share
+      // / cap sanity flags; it is never emitted or displayed.
     }
-    } // end if (headline_growth !== undefined) — the headline forward-DCF FV from the model's assumed growth
+    } // end if (headline_growth !== undefined) — internal forward-DCF for the implied multiple + sanity flags
   }
 
   // ---- Market cap + harness-computed AAOIFI Shariah FINANCIAL ratios ----
@@ -2619,8 +2570,6 @@ export async function runResearchDeepDivePhase(
   // longer DECIDE the verdict — they are deleted in R2; here we simply STOP using them.
   //
   //   buy_below            = the MODEL's proposed_buy_below (recorded VERBATIM — NOT derived from any FV).
-  //   reference_fair_value = twoStageValuation at the model's assumed_growth + owner-earnings basis — a
-  //                          CROSS-CHECK reference ONLY (NOT the decision driver, NOT the buy-below source).
   //   market_implied_growth = the reverse-DCF of today's price (computed above) — the crazy-detector.
   //   sanity_flags[]       = flag-only absurdity checks (SYMMETRIC: catches both an over-optimistic and an
   //                          over-pessimistic model read). NEVER blocks the verdict.
@@ -2633,42 +2582,10 @@ export async function runResearchDeepDivePhase(
   const assumed_growth = dr?.assumed_growth
   const valuation_status = dec.analysis.valuation_status
 
-  // reference_fair_value — the CONSOLIDATED forward-DCF reference at the MODEL's assumed growth. After the
-  // headline inversion the HEADLINE fair_value_per_share IS the forward-DCF at assumed_growth, so the
-  // reference equals it (one forward-DCF from one grounded growth — no two competing FVs). When the headline
-  // FV was produced we surface it (rounded) as the reference; otherwise we fail-closed to recomputing it from
-  // assumed_growth on the SAME basis (e.g. an edge case where the headline branch did not run). This is a
-  // REFERENCE only — it never feeds the verdict or the buy-below.
-  // A1 SYMMETRY: the reference FV CONSUMES the model's assumed_growth, so it is gated on the SAME
-  // cite-verified-assumed-growth signal the headline uses (headline_growth !== undefined, i.e.
-  // assumedGrowthUsable — grounding met). When the assumed_growth is present but ungrounded the headline FV
-  // is already undefined; we must NOT fall back to recomputing a reference from the ungrounded growth
-  // (that would be confident output on ungrounded input). Both branches require the grounded signal.
-  let reference_fair_value: number | undefined
-  if (headline_growth !== undefined && fair_value_per_share !== undefined && Number.isFinite(fair_value_per_share) && fair_value_per_share > 0) {
-    reference_fair_value = Math.round(fair_value_per_share * 100) / 100
-  } else if (
-    headline_growth !== undefined
-    && normalized_owner_earnings_per_share !== undefined
-    && normalized_owner_earnings_per_share > 0
-    && terminal_growth_rate !== undefined
-    && assumed_growth !== undefined
-    && Number.isFinite(assumed_growth)
-  ) {
-    const refHorizon = stage1HorizonForMoat(buffettMungerStrategy, moatClass)
-    const refFv = twoStageValuation({
-      oe_ps: normalized_owner_earnings_per_share,
-      g: assumed_growth,
-      terminal_g: terminal_growth_rate,
-      discount,
-      ceiling_multiple: valuation_multiple_ceiling,
-      absurd_multiple: buffettMungerStrategy.valuation.fv_absurd_multiple,
-      horizon: refHorizon,
-    }).fair_value
-    if (refFv !== undefined && Number.isFinite(refFv) && refFv > 0 && refFv <= MAX_PLAUSIBLE_FAIR_VALUE_PER_SHARE) {
-      reference_fair_value = Math.round(refFv * 100) / 100
-    }
-  }
+  // forward-DCF removal: the forward two-stage DCF "reference fair value" (a dollar cross-check FV at the
+  // model's assumed growth) is no longer computed or surfaced — a dollar reference FV below the model's
+  // buy-below read as a contradiction. The reverse-DCF market-implied growth (computed above) is the kept
+  // valuation lens; the buy-below is the model's own number.
 
   // buy_below = the MODEL's proposed number (NOT a derived FV). Recorded verbatim when finite + positive.
   const buy_below = (typeof dec.analysis.proposed_buy_below === 'number'
@@ -2729,15 +2646,15 @@ export async function runResearchDeepDivePhase(
   // ---- sanity_flags: SYMMETRIC, flag-only absurdity detector (NEVER blocks the verdict) ----
   // It must catch BOTH an over-optimistic and an over-pessimistic model read:
   //   - market-implied growth above a sane bound (reverse-DCF above_cap / above_gdp);
-  //   - the reference FV's terminal-value share above the configured flag threshold;
-  //   - the reference implied multiple above the fv_cap_multiple (cap_exceeded);
   //   - status ATTRACTIVE while the market already prices implausibly-high growth (over-optimistic);
   //   - status EXPENSIVE while the market implies only modest growth (over-pessimistic — re-check);
   //   - the model's proposed_buy_below implies (reverse-DCF at that price) an absurd growth.
+  // (forward-DCF removal: the old reference-FV terminal-share + reference-FV-cap-multiple sanity flags —
+  // which compared against the now-removed dollar reference fair value — are dropped. The reverse-DCF +
+  // exit-multiple sanity outputs below are the kept lens.)
   const sanity_flags: string[] = []
   const singleGrowthCap = buffettMungerStrategy.valuation.single_growth_cap
   const gdpThreshold = buffettMungerStrategy.valuation.gdp_growth_threshold
-  const tvShareFlag = buffettMungerStrategy.valuation.terminal_value_share_flag
   const fvCapMultiple = valuation_multiple_ceiling
 
   // (a) market-implied growth above a sane bound.
@@ -2747,41 +2664,6 @@ export async function runResearchDeepDivePhase(
       + `owner-earnings growth — above the ${(singleGrowthCap * 100).toFixed(0)}% forecasting-humility cap. The market `
       + `already prices in growth the method would refuse to underwrite; treat the price as rich.`,
     )
-  }
-
-  // (b) reference FV terminal-value share too high (the reference estimate is mostly a distant guess).
-  if (
-    reference_fair_value !== undefined
-    && normalized_owner_earnings_per_share !== undefined
-    && normalized_owner_earnings_per_share > 0
-    && terminal_growth_rate !== undefined
-    && assumed_growth !== undefined
-  ) {
-    const refHorizon = stage1HorizonForMoat(buffettMungerStrategy, moatClass)
-    const refResult = twoStageValuation({
-      oe_ps: normalized_owner_earnings_per_share,
-      g: assumed_growth,
-      terminal_g: terminal_growth_rate,
-      discount,
-      ceiling_multiple: valuation_multiple_ceiling,
-      absurd_multiple: buffettMungerStrategy.valuation.fv_absurd_multiple,
-      horizon: refHorizon,
-    })
-    if (refResult.terminal_value_pct_of_iv > tvShareFlag) {
-      sanity_flags.push(
-        `sanity_reference_terminal_share_high: the reference cross-check FV at the model's ${(assumed_growth * 100).toFixed(1)}% `
-        + `assumed growth is ${(refResult.terminal_value_pct_of_iv * 100).toFixed(0)}% terminal value (> ${(tvShareFlag * 100).toFixed(0)}%) — most of the `
-        + `reference is a distant-future guess. Re-check the model's growth assumption.`,
-      )
-    }
-    // (c) reference implied multiple above the fv cap (the reference FV is richer than the sanity cap).
-    const refMultiple = reference_fair_value / normalized_owner_earnings_per_share
-    if (refMultiple > fvCapMultiple) {
-      sanity_flags.push(
-        `sanity_reference_cap_exceeded: the reference cross-check FV implies ${refMultiple.toFixed(1)}× owner earnings `
-        + `(> ${fvCapMultiple}× sanity cap) at the model's assumed growth — re-check the growth/terminal inputs.`,
-      )
-    }
   }
 
   // (d/e) SYMMETRIC valuation_status vs evidence contradiction (both directions).
@@ -3091,7 +2973,11 @@ export async function runResearchDeepDivePhase(
         // (vs genuinely narrow) — verdict routed to RESEARCH_MORE. Surfaced like synthesis_grounding_unmet.
         ...(moat_grounding_unmet ? { moat_grounding_unmet: true } : {}),
         ...(moatGroundingReason !== undefined ? { moat_grounding_reason: moatGroundingReason } : {}),
-        ...(fair_value_per_share !== undefined ? { fair_value_per_share } : {}),
+        // forward-DCF removal: fair_value_per_share / reference_fair_value / fair_value_range /
+        // fair_value_range_basis / valuation_cap_binding (the dollar forward two-stage DCF "reference fair
+        // value" and its band) are NO LONGER emitted — a dollar reference FV below the model's buy-below read
+        // as a contradiction. implied_multiple (a ratio derived from the internal forward FV) is kept, as are
+        // the reverse-DCF market_implied_growth + implied_exit_multiple — the kept valuation lens.
         ...(implied_multiple !== undefined ? { implied_multiple } : {}),
         ...(terminal_value_pct_of_iv !== undefined ? { terminal_value_pct_of_iv } : {}),
         ...(cap_exceeded ? { cap_exceeded: true } : {}),
@@ -3099,22 +2985,13 @@ export async function runResearchDeepDivePhase(
         // verbatim — NOT a derived FV). The band/gap engines no longer source it. proposed_buy_below
         // mirrors it as the explicit model-provenance field.
         ...(buy_below !== undefined ? { buy_price_per_share: buy_below, proposed_buy_below: buy_below } : {}),
-        // Phase 2: the fair-value RANGE (low–high, base) — the dossier leads with this instead of the
-        // point FV. Omitted when not computable (point FV still stands as the base).
-        ...(fair_value_range !== undefined ? { fair_value_range } : {}),
-        ...(fair_value_range_basis !== undefined ? { fair_value_range_basis } : {}),
         // Phase 2: the near-term growth TODAY'S PRICE implies (reverse-DCF) — the crazy-detector. Omitted
         // when no price.
         ...(market_implied_growth !== undefined ? { market_implied_growth } : {}),
-        // Phase 2: the base FV is cap-LIMITED (demonstrated growth above the named cap), not estimate-limited.
-        ...(valuation_cap_binding ? { valuation_cap_binding: true } : {}),
         // RELIGHTENED DECISION (R1) — the deterministic sanity layer (flag-only, NEVER blocks the verdict):
-        //   reference_fair_value = forward-DCF cross-check at the MODEL's assumed growth (a reference, not the
-        //     decision driver, not the buy-below source);
         //   in_buy_zone          = pure arithmetic current_price <= buy_below;
         //   sanity_flags[]       = SYMMETRIC absurdity flags (over-optimistic + over-pessimistic catches);
         //   valuation_reasoning  = the MODEL's cited valuation basis (it shows its work).
-        ...(reference_fair_value !== undefined ? { reference_fair_value } : {}),
         ...(in_buy_zone !== undefined ? { in_buy_zone } : {}),
         // implied_exit_multiple = current price / forward owner earnings (OE grown to the explicit horizon at
         // the MODEL's assumed growth; no discount-compounding factor) — the exit P/OE the live price requires;

@@ -686,9 +686,10 @@ describe('research and watchlist workflow pages', () => {
     expect(html).toContain('$147.00')
     expect(html.toLowerCase()).toContain('the market implies')
     expect(html).toContain('18.0%')
-    // The reference fair value (falls back to fair_value_per_share) is labeled a cross-check, not the decision.
-    expect(html).toContain('$210.00')
-    expect(html.toLowerCase()).toContain('cross-check (not the decision)')
+    // forward-DCF removal: the dollar reference fair value (fair_value_per_share) is no longer surfaced — no
+    // $210.00 figure, no "cross-check" label.
+    expect(html).not.toContain('$210.00')
+    expect(html.toLowerCase()).not.toContain('cross-check (not the decision)')
     // The retired growth-axis band viz + band/gap labels are gone.
     expect(html).not.toContain('data-testid="growth-band-axis"')
     expect(html).not.toContain('Sustainable band')

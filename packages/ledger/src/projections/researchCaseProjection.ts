@@ -1465,8 +1465,11 @@ function getValuation(payload: Record<string, unknown>): ResearchCaseValuationPr
   if (owner_earnings_bridge !== undefined) projected.owner_earnings_bridge = owner_earnings_bridge
   const normalized_owner_earnings_per_share = getNumber(value, 'normalized_owner_earnings_per_share')
   if (normalized_owner_earnings_per_share !== undefined) projected.normalized_owner_earnings_per_share = normalized_owner_earnings_per_share
-  const fair_value_per_share = getNumber(value, 'fair_value_per_share')
-  if (fair_value_per_share !== undefined) projected.fair_value_per_share = fair_value_per_share
+  // forward-DCF removal: the dollar forward two-stage DCF "reference fair value" (fair_value_per_share /
+  // reference_fair_value / fair_value_range / fair_value_range_basis / valuation_cap_binding) is no longer
+  // surfaced — a dollar reference FV below the model's buy-below read as a contradiction. REPLAY-SAFE: legacy
+  // events that still carry these fields project without error (the fields are simply read-and-ignored, never
+  // copied onto the projection). The reverse-DCF (market_implied_growth) + implied_multiple are kept.
   const implied_multiple = getNumber(value, 'implied_multiple')
   if (implied_multiple !== undefined) projected.implied_multiple = implied_multiple
   // NOTE: the legacy margin_of_safety / margin_of_safety_applied / margin_of_safety_widening_reasons fields
@@ -1488,21 +1491,13 @@ function getValuation(payload: Record<string, unknown>): ResearchCaseValuationPr
   if (moat_grounding_reason !== undefined) projected.moat_grounding_reason = moat_grounding_reason
   const buy_price_per_share = getNumber(value, 'buy_price_per_share')
   if (buy_price_per_share !== undefined) projected.buy_price_per_share = buy_price_per_share
-  const fair_value_range = getString(value, 'fair_value_range')
-  if (fair_value_range !== undefined) projected.fair_value_range = fair_value_range
-  const fair_value_range_basis = getString(value, 'fair_value_range_basis')
-  if (fair_value_range_basis !== undefined) projected.fair_value_range_basis = fair_value_range_basis
   const market_implied_growth = getNumber(value, 'market_implied_growth')
   if (market_implied_growth !== undefined) projected.market_implied_growth = market_implied_growth
-  const valuation_cap_binding = getBoolean(value, 'valuation_cap_binding')
-  if (valuation_cap_binding !== undefined) projected.valuation_cap_binding = valuation_cap_binding
   const incremental_roic_basis = getString(value, 'incremental_roic_basis')
   if (incremental_roic_basis !== undefined) projected.incremental_roic_basis = incremental_roic_basis
   // RELIGHTENED DECISION (R1): the model's buy-below + the deterministic flag-only sanity layer.
   const proposed_buy_below = getNumber(value, 'proposed_buy_below')
   if (proposed_buy_below !== undefined) projected.proposed_buy_below = proposed_buy_below
-  const reference_fair_value = getNumber(value, 'reference_fair_value')
-  if (reference_fair_value !== undefined) projected.reference_fair_value = reference_fair_value
   const in_buy_zone = getBoolean(value, 'in_buy_zone')
   if (in_buy_zone !== undefined) projected.in_buy_zone = in_buy_zone
   const implied_exit_multiple = getNumber(value, 'implied_exit_multiple')

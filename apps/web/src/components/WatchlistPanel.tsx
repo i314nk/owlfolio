@@ -267,9 +267,9 @@ function createVerdictBandDetails(item: AppWatchlistItem) {
   if (verdict.market_implied_growth !== undefined) {
     lines.push(createDetail('Market-implied growth', fmtPct(verdict.market_implied_growth)))
   }
-  if (verdict.reference_fair_value !== undefined) {
-    lines.push(createDetail('Reference fair value', `$${verdict.reference_fair_value.toFixed(2)} — cross-check (not the decision)`))
-  }
+  // forward-DCF removal: the dollar reference fair value (cross-check) line is gone — a dollar reference FV
+  // below the model's buy-below read as a contradiction. The reverse-DCF market-implied growth above is the
+  // kept valuation lens.
 
   const staleness = verdict.is_stale === undefined
     ? 'Case freshness unknown'
