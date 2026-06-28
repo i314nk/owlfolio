@@ -104,7 +104,9 @@ test('personal-local mode can create the first research case from the command ce
   await page.getByRole('button', { name: /create research case/i }).click()
 
   await expect(page).toHaveURL(/\/research\/rc_msft_/)
-  await expect(page.getByRole('heading', { name: 'MSFT' })).toBeVisible()
+  // exact: the accessible-sources change adds <h3>"MSFT primary/secondary source" headings in the evidence
+  // section, so a loose 'MSFT' heading match is now ambiguous — pin to the dossier <h1> title.
+  await expect(page.getByRole('heading', { name: 'MSFT', exact: true })).toBeVisible()
   await expect(page.getByText('Research dossier')).toBeVisible()
   await expect(page.getByText('Verdict summary')).toBeVisible()
   await expect(page.getByText('WATCH', { exact: true }).first()).toBeVisible()
@@ -129,7 +131,7 @@ test('personal-local mode can create the first research case from the command ce
   // Phase 8 S4: admission is a SINGLE gated step — the promote lands the item user-confirmed (the
   // former separate "confirm watchlist draft" action + its interstitial state are gone). No second click.
   await expect(page).toHaveURL('/watchlist')
-  await expect(page.getByRole('heading', { name: 'MSFT' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'MSFT', exact: true })).toBeVisible()
   await expect(page.getByText('User confirmed')).toBeVisible()
   await expect(page.getByText('Draft — awaiting user confirmation')).toHaveCount(0)
   await expect(page.getByRole('button', { name: /confirm watchlist draft/i })).toHaveCount(0)
@@ -152,14 +154,14 @@ test('personal-local mode can create the first research case from the command ce
   await page.getByRole('button', { name: /record initial holding/i }).click()
 
   await expect(page).toHaveURL('/watchlist')
-  await expect(page.getByRole('heading', { name: 'MSFT' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'MSFT', exact: true })).toBeVisible()
   await expect(page.getByText('Holding recorded')).toBeVisible()
   await expect(page.getByText('Holding open')).toBeVisible()
   await expect(page.getByRole('button', { name: /record initial holding/i })).toHaveCount(0)
 
   await page.goto('/portfolio')
   await expect(page.getByRole('heading', { name: 'Portfolio', exact: true })).toBeVisible()
-  await expect(page.getByRole('heading', { name: 'MSFT' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'MSFT', exact: true })).toBeVisible()
   await expect(page.getByText('Shares: 3.25')).toBeVisible()
   await expect(page.getByText('CONDITIONAL — allowed')).toBeVisible()
   await expect(page.getByText('Required Shariah sources: mock_msft_primary, mock_msft_secondary')).toBeVisible()
