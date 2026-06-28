@@ -109,9 +109,8 @@ test('personal-local mode can create the first research case from the command ce
   await expect(page.getByText('Verdict summary')).toBeVisible()
   await expect(page.getByText('WATCH', { exact: true }).first()).toBeVisible()
   await expect(page.getByRole('heading', { name: 'Thesis' })).toBeVisible()
-  await expect(page.getByRole('heading', { name: 'Valuation' })).toBeVisible()
-  await expect(page.getByRole('heading', { name: 'Shariah / compliance' })).toBeVisible()
-  await expect(page.getByRole('heading', { name: 'Risks / open questions' })).toBeVisible()
+  // The per-dimension valuation/shariah/risks cards were consolidated away; the whole-case thesis is the
+  // one home for decision-evidence, and per-dimension findings live in the (collapsed) specialist lanes.
   await expect(page.getByText(/decision_drafted/i).first()).not.toBeVisible()
   await page.getByText('Evidence and audit details', { exact: true }).click()
   await expect(page.locator('article').filter({ hasText: 'MSFT primary source' }).getByText('mock_msft_primary', { exact: true })).toBeVisible()

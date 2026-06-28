@@ -289,8 +289,10 @@ describe('ResearchCasePanel auditable dossier (R1)', () => {
     expect(html).toContain('Model buy-below')
     expect(html).toContain('Live price')
     expect(html).toContain('Buy-zone')
-    // reference fair value, explicitly labelled the cross-check (not the decision)
-    expect(html).toContain('Reference fair value · cross-check, not the decision')
+    // reference fair value, with a SHORT label and a small secondary cross-check sub-note (not a giant
+    // inline label that wraps to several lines).
+    expect(html).toContain('Reference fair value')
+    expect(html).toContain('cross-check, not the decision')
     expect(html).toContain('$210.00')
     // the two hidden price-implied assumptions surfaced together
     expect(html).toContain('Market-implied growth')
@@ -329,9 +331,10 @@ describe('ResearchCasePanel auditable dossier (R1)', () => {
     expect(mosHtml).toContain('var(--owl-color-gold)')
   })
 
-  // MASONRY / FLOW PACKING (Priority 1) — a short card and a long card coexist in one CSS multi-column flow
-  // container (no rigid equal-height grid → no dead void). Pixel voids aren't unit-testable; assert structure.
-  it('packs the specialist lanes in a masonry/flow container where a short and a long card coexist', () => {
+  // VERTICAL STACKING + COLLAPSIBLE (Priority 1) — the specialist lanes section is collapsed by default
+  // (<details>) and the lane cards stack FULL-WIDTH (one per row), no CSS multi-column masonry. A short and
+  // a long card coexist in the one full-width flow container.
+  it('stacks the specialist lanes full-width inside a collapsed <details> section (no masonry)', () => {
     const conclusion = 'POOL faces a genuine moat risk from private-label encroachment across its core distribution niche.'
     const reasoning =
       'Big-box retailers have begun sourcing directly from manufacturers, compressing the distributor margin pool over successive cycles and pressuring returns on capital well below the historical baseline.'
@@ -345,8 +348,18 @@ describe('ResearchCasePanel auditable dossier (R1)', () => {
     } as unknown as AppResearchCase, QUOTE)
     const flowStart = html.indexOf('data-testid="specialist-lanes-flow"')
     expect(flowStart).toBeGreaterThan(-1)
-    // Both the short and the long card live inside the one flow container.
-    expect(html).toContain('data-owl-flow="masonry"')
+    // The section is collapsible (a <details> with the lane count in the summary), collapsed by default.
+    const sectionStart = html.indexOf('data-testid="specialist-lanes-section"')
+    expect(sectionStart).toBeGreaterThan(-1)
+    expect(sectionStart).toBeLessThan(flowStart)
+    const sectionTag = html.slice(sectionStart - 60, sectionStart)
+    expect(sectionTag).toContain('<details')
+    // Collapsed by default: the section <details> carries no `open` attribute.
+    expect(html.slice(sectionStart - 60, html.indexOf('>', sectionStart))).not.toContain('open=""')
+    expect(html).toContain('Deep-dive specialist lanes (2)')
+    // The masonry multi-column packing is gone.
+    expect(html).not.toContain('data-owl-flow="masonry"')
+    // Both the short and the long card live inside the one full-width flow container.
     expect(html).toContain('Wide moat.')
     // The long card pulls its CONCLUSION to the top (at a glance, before the disclosure) and defers the
     // supporting REASONING inside the lane's own <details> (density treatment, Priority 4).
@@ -409,6 +422,115 @@ describe('ResearchCasePanel auditable dossier (R1)', () => {
     expect(html).not.toContain('Sustainable band')
     expect(html).not.toContain('Required growth gap')
     expect(html).not.toContain('Buy-threshold growth')
+  })
+
+  // JUDGMENT PROVENANCE (Priority 2) — the moat / runway "proposed → resolved" anchor reads are PROSE; they
+  // belong as labeled text lines, never crammed into numeric ledger-stat blocks.
+  it('renders the moat/runway judgment provenance as labeled text, not inside numeric ledger-stats', () => {
+    const html = render(baseCase({
+      judgment: {
+        moat: { proposed_tier: 'wide', resolved_tier: 'moderate', grounded_driver_count: 3, anchor_computable: false },
+        runway: { proposed_tier: 'proven', resolved_tier: 'proven', grounded_driver_count: 2, anchor_computable: false },
+      },
+    } as unknown as Partial<ResearchCaseValuationProjection>), QUOTE)
+    // The prose anchor reads are gone from the numeric stat-strip (no "Moat anchor"/"Runway anchor" stats).
+    expect(html).not.toContain('Moat anchor')
+    expect(html).not.toContain('Runway anchor')
+    // They render in a dedicated Judgment provenance text block instead — the provenance prose lives there.
+    const provIdx = html.indexOf('data-testid="judgment-provenance"')
+    expect(provIdx).toBeGreaterThan(-1)
+    const provHtml = html.slice(provIdx, html.indexOf('</div>', provIdx))
+    expect(provHtml).toContain('proposed →')
+    expect(html).toContain('Moat: WIDE proposed → MODERATE resolved')
+    expect(html).toContain('Runway: PROVEN proposed → PROVEN resolved')
+  })
+
+  // CONSOLIDATION (Priority 3) — per-dimension findings live ONLY in the lanes; valuation reasoning ONLY in
+  // the Valuation box; the decision-evidence section keeps ONLY the unique whole-case thesis. The unique
+  // AAOIFI ratio ledger is preserved (relocated to its own compliance block), not lost.
+  it('keeps only the thesis card and removes the duplicated valuation/shariah/risks cards', () => {
+    const html = render({
+      ...baseCase(),
+      valuation_rationale: 'Duplicated valuation rationale card text.',
+      shariah_rationale: 'Duplicated shariah rationale card text.',
+      risks: ['Duplicated risk card line.'],
+      shariah_financial: {
+        debt_ratio: 0.0134,
+        cash_securities_ratio: 0.0355,
+        impermissible_income_pct: 0.004,
+        verdict: 'PASS',
+        purification_pct: 0.004,
+      },
+    } as unknown as AppResearchCase, QUOTE)
+    // The whole-case thesis still renders.
+    expect(html).toContain('data-testid="research-dossier-card-thesis"')
+    // The duplicated per-dimension cards are gone.
+    expect(html).not.toContain('data-testid="research-dossier-card-valuation"')
+    expect(html).not.toContain('data-testid="research-dossier-card-shariah-compliance"')
+    expect(html).not.toContain('data-testid="research-dossier-card-risks-open-questions"')
+    // The unique AAOIFI ratio ledger is preserved in its own compliance block.
+    expect(html).toContain('data-testid="compliance-ratios"')
+    expect(html).toContain('AAOIFI financial ratios (harness-computed)')
+  })
+
+  // MoS BODY (Priority 5) — LEAD with the synthesis-owned joint reasoning; render the per-source columns
+  // ONLY when their reasoning is present; never an empty "No reasoning recorded" column.
+  it('leads the MoS box with the joint reasoning and renders no empty per-source column when both absent', () => {
+    const html = render({
+      ...baseCase(),
+      margin_of_safety_judgment: {
+        sources: ['price', 'moat'],
+        adequacy: 'adequate',
+        reasoning: 'The price gap plus the grounded moat jointly supply an adequate margin.',
+      },
+    } as unknown as AppResearchCase, QUOTE)
+    expect(html).toContain('The price gap plus the grounded moat jointly supply an adequate margin.')
+    // No empty per-source columns / "No reasoning recorded" placeholders dominate the box.
+    expect(html).not.toContain('No reasoning recorded')
+    // The compact rests-on note replaces the empty boxes.
+    expect(html).toContain('Margin rests on: price gap + moat durability')
+    // The joint reasoning leads the box, above the rests-on line.
+    const mosIdx = html.indexOf('data-testid="margin-of-safety-audit"')
+    const reasoningIdx = html.indexOf('The price gap plus the grounded moat jointly supply an adequate margin.')
+    const restsOnIdx = html.indexOf('Rests on:')
+    expect(reasoningIdx).toBeGreaterThan(mosIdx)
+    expect(reasoningIdx).toBeLessThan(restsOnIdx)
+  })
+
+  it('renders only the per-source MoS column whose reasoning is present', () => {
+    const html = render({
+      ...baseCase(),
+      margin_of_safety_judgment: {
+        sources: ['price', 'moat'],
+        price_gap_reasoning: 'Price sits 25% below the model buy-below.',
+        adequacy: 'adequate',
+        reasoning: 'Joint judgment leads.',
+      },
+    } as unknown as AppResearchCase, QUOTE)
+    // Price reasoning present → its column renders; the moat column is absent (no moat_durability_reasoning).
+    expect(html).toContain('Price margin')
+    expect(html).toContain('Price sits 25% below the model buy-below.')
+    expect(html).not.toContain('Moat durability')
+    expect(html).not.toContain('No reasoning recorded')
+  })
+
+  // COLLAPSIBLE DEFAULTS (Priority 1) — the lanes section collapses; the decision + MoS surfaces stay open.
+  it('collapses the lanes section by default while the decision + MoS surfaces stay open', () => {
+    const html = render({
+      ...baseCase(),
+      specialist_findings: [
+        { finding_id: 'f1', specialist_lane: 'moat', finding_summary: 'Wide moat.', confidence: 'high', source_ids: ['s1'] },
+      ],
+    } as unknown as AppResearchCase, QUOTE)
+    const lanesIdx = html.indexOf('data-testid="specialist-lanes-section"')
+    expect(lanesIdx).toBeGreaterThan(-1)
+    // The lanes section <details> carries no `open` attribute (collapsed by default).
+    expect(html.slice(lanesIdx - 60, html.indexOf('>', lanesIdx))).not.toContain('open=""')
+    // The decision + MoS surfaces are plain <section>s (always visible), not collapsed behind <details>.
+    const decisionIdx = html.indexOf('data-testid="decision-summary"')
+    const mosIdx = html.indexOf('data-testid="margin-of-safety-audit"')
+    expect(html.slice(decisionIdx - 60, decisionIdx)).toContain('<section')
+    expect(html.slice(mosIdx - 60, mosIdx)).toContain('<section')
   })
 })
 

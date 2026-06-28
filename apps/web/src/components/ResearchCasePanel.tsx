@@ -80,36 +80,23 @@ const collapsibleDetailsStyle = {
   padding: '1rem',
 }
 
-// ── Masonry / flow packing (Priority 1) ───────────────────────────────────────
+// ── Collapsible section helper (Priority 1) ────────────────────────────────────
 //
-// Rigid equal-height multi-column grids leave dead voids when a short card sits beside a long one
-// (e.g. three short evidence cards beside the long Risks card; a short lane beside a tall one). CSS
-// multi-column flow packs each card to its own content height and reflows to fill vertical space — the
-// lowest-risk no-JS approach that mirrors the file's existing inline-style idiom. Each child carries
-// `masonryItemStyle` (break-inside: avoid + inline-block full-width) so cards never split across columns
-// and pack with no equal-height gap. Tagged with a stable data attribute for the structural flow test.
-const masonryContainerStyle = {
-  columnGap: '0.9rem',
-  columns: '220px',
-} as const
-
-const masonryItemStyle = {
-  breakInside: 'avoid' as const,
-  display: 'inline-block',
-  marginBottom: '0.9rem',
-  width: '100%',
-}
-
-/**
- * A masonry/flow container: CSS multi-column packing so variable-height cards reflow to content height
- * with no equal-height voids. Children are expected to carry `masonryItemStyle`. `data-owl-flow` is the
- * stable structural hook the layout test asserts (short + long cards coexist in one flow container).
- */
-function createMasonryFlow(testId: string, children: ReactNode[]) {
+// The dossier reads as a single-column VERTICAL stack: the decision essentials stay open, and dense
+// supporting sections collapse behind the file's existing <details>/<summary> idiom. Children stack
+// FULL-WIDTH (one row each) so long-form prose is never crammed into narrow masonry columns — every
+// finding and lane gets the full content width it needs.
+function createCollapsibleSection(
+  testId: string,
+  summaryText: string,
+  open: boolean,
+  children: ReactNode[],
+) {
   return createElement(
-    'div',
-    { 'data-owl-flow': 'masonry', 'data-testid': testId, style: masonryContainerStyle },
-    ...children,
+    'details',
+    { 'data-testid': testId, style: collapsibleDetailsStyle, ...(open ? { open: true } : {}) },
+    createElement('summary', { style: collapsibleSummaryStyle }, summaryText),
+    createElement('div', { style: { display: 'grid', gap: '0.7rem', marginTop: '0.75rem' } }, ...children),
   )
 }
 
@@ -304,9 +291,12 @@ export function ResearchCasePanel({ researchCase, mode = 'demo', configuredProvi
     createValuationPanel(researchCase, marketQuote),
     // ── 2b. Position plan (advisory) ─────────────────────────────────────────
     createPositionPlanPanel(positionPlan, promptForCapital),
-    // ── 3. Four summary cards (always visible) ───────────────────────────────
+    // ── 2c. Shariah / compliance — the unique AAOIFI ratio ledger (the per-dimension shariah finding
+    //        lives in the specialist lane; this is the harness-computed ratio surface, one home). ──
+    createComplianceRatioBlock(researchCase),
+    // ── 3. Whole-case thesis (the synthesis narrative; per-dimension findings live in the lanes) ──────
     createDecisionEvidence(researchCase),
-    // ── 4. Visible specialist lanes ──────────────────────────────────────────
+    // ── 4. Deep-dive specialist lanes (collapsed by default; each lane stacks full-width) ────────────
     createSpecialistLanesGrid(researchCase),
     // ── 4b. Falsifiable forecasts (calibration scaffold) ─────────────────────
     createForecastsPanel(researchCase),
@@ -1251,9 +1241,10 @@ function createDecisionPanel(researchCase: AppResearchCase, marketQuote?: Market
         inBuyZone === true ? 'owl-ledger-figure-emerald' : '',
       ),
       createValuationLedgerStat(
-        'Reference fair value · cross-check, not the decision',
+        'Reference fair value',
         referenceFairValue !== undefined ? `$${referenceFairValue.toFixed(2)}` : 'Not yet available',
         'owl-ledger-figure-money',
+        'cross-check, not the decision',
       ),
       createValuationLedgerStat(
         'Market-implied growth',
@@ -1312,14 +1303,14 @@ function createMarginOfSafetyAuditBlock(researchCase: AppResearchCase) {
             ? '#fbbf24'
             : '#fca5a5'
 
-        // The two substitutable MoS sources, shown SIDE BY SIDE (a two-column grid): the PRICE margin and
-        // the grounded MOAT-DURABILITY thesis. Each column states whether the margin rests on that source.
-        const sourceColumn = (
-          title: string,
-          rests: boolean,
-          reasoning: string | undefined,
-          highStakesBadge: ReactNode,
-        ) => createElement(
+        // Whether each per-source reasoning was actually recorded. On real runs both are usually absent (the
+        // synthesis owns the JOINT reasoning below); we never render an empty "No reasoning recorded" column.
+        const hasPriceReasoning = mosJudgment.price_gap_reasoning !== undefined && mosJudgment.price_gap_reasoning.trim().length > 0
+        const hasMoatReasoning = mosJudgment.moat_durability_reasoning !== undefined && mosJudgment.moat_durability_reasoning.trim().length > 0
+        const hasJointReasoning = mosJudgment.reasoning !== undefined && mosJudgment.reasoning.trim().length > 0
+
+        // A per-source column, rendered ONLY when its reasoning is present (full width, one per row).
+        const sourceColumn = (title: string, rests: boolean, reasoning: string) => createElement(
           'div',
           {
             key: title,
@@ -1342,11 +1333,8 @@ function createMarginOfSafetyAuditBlock(researchCase: AppResearchCase) {
               { style: { color: rests ? 'var(--owl-color-text)' : 'var(--owl-color-quiet)', fontSize: 'var(--owl-text-xs)', fontWeight: 700 } },
               rests ? 'margin rests here' : 'not a source',
             ),
-            highStakesBadge,
           ),
-          reasoning !== undefined
-            ? createElement('p', { style: { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-sm)', lineHeight: 1.5, margin: 0 } }, reasoning)
-            : createElement('p', { style: { color: 'var(--owl-color-quiet)', fontSize: 'var(--owl-text-sm)', margin: 0 } }, rests ? 'No reasoning recorded.' : '—'),
+          createElement('p', { style: { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-sm)', lineHeight: 1.5, margin: 0 } }, reasoning),
         )
 
         const moatBadge = restsOnMoat
@@ -1357,21 +1345,27 @@ function createMarginOfSafetyAuditBlock(researchCase: AppResearchCase) {
             )
           : null
 
+        // Per-source columns appear ONLY when their reasoning is present (price first, then moat — side by
+        // side when both). When both are absent (the common case) a compact one-line "Margin rests on" note
+        // replaces the empty boxes.
+        const columns: ReactNode[] = []
+        if (hasPriceReasoning) columns.push(sourceColumn('Price margin', restsOnPrice, mosJudgment.price_gap_reasoning ?? ''))
+        if (hasMoatReasoning) columns.push(sourceColumn('Moat durability', restsOnMoat, mosJudgment.moat_durability_reasoning ?? ''))
+
         return createElement(
           'div',
           { style: { display: 'flex', flexDirection: 'column' as const, gap: '0.5rem' } },
+          // LEAD with the synthesis-owned joint reasoning — the prominent body paragraph (the real judgment).
+          hasJointReasoning
+            ? createElement('p', { style: { color: 'var(--owl-color-text)', fontSize: 'var(--owl-text-md)', lineHeight: 1.6, margin: 0 } }, mosJudgment.reasoning)
+            : null,
+          // Then the rests-on / adequacy line, carrying the MOAT-SOURCED badge.
           createElement(
             'div',
-            { style: { color: adequacyColor, fontWeight: 700 } },
-            `Rests on: ${sourcesLabel} · adequacy (audit-only, not a gate): ${mosJudgment.adequacy}`,
+            { style: { alignItems: 'center', color: adequacyColor, display: 'flex', flexWrap: 'wrap' as const, fontWeight: 700, gap: '0.5rem' } },
+            createElement('span', null, `Rests on: ${sourcesLabel} · adequacy (audit-only, not a gate): ${mosJudgment.adequacy}`),
+            moatBadge,
           ),
-          createElement(
-            'div',
-            { style: { display: 'grid', gap: '0.6rem', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' } },
-            sourceColumn('Price margin', restsOnPrice, mosJudgment.price_gap_reasoning, null),
-            sourceColumn('Moat durability', restsOnMoat, mosJudgment.moat_durability_reasoning, moatBadge),
-          ),
-          createElement('p', { style: { color: 'var(--owl-color-text)', fontSize: 'var(--owl-text-base)', lineHeight: 1.55, margin: 0 } }, mosJudgment.reasoning),
           mosMoatUngrounded
             ? createElement(
                 'p',
@@ -1379,6 +1373,14 @@ function createMarginOfSafetyAuditBlock(researchCase: AppResearchCase) {
                 'Incoherent: margin claims a moat source but the moat is not grounded / did not pass the moat gate.',
               )
             : null,
+          // Per-source columns when present; otherwise a compact note (no empty boxes).
+          columns.length > 0
+            ? createElement(
+                'div',
+                { style: { display: 'grid', gap: '0.6rem', gridTemplateColumns: columns.length > 1 ? 'repeat(auto-fit, minmax(220px, 1fr))' : '1fr' } },
+                ...columns,
+              )
+            : createElement('p', { style: { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-sm)', margin: 0 } }, `Margin rests on: ${sourcesLabel}.`),
         )
       })()
 
@@ -1421,7 +1423,7 @@ function createMarginOfSafetyAuditBlock(researchCase: AppResearchCase) {
     createElement(
       'p',
       { style: { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-sm)', lineHeight: 1.5, margin: 0 } },
-      'The margin of safety rests on two substitutable sources — the price-vs-value gap and moat durability — shown side by side. Below them, the one assumption that breaks the thesis and the observable triggers that would invalidate it. The model\'s forward-looking risk reasoning for you to audit.',
+      'The synthesis-owned joint judgment leads — where the margin of safety rests, across two substitutable sources (the price-vs-value gap and moat durability). Below it, the one assumption that breaks the thesis and the observable triggers that would invalidate it. The model\'s forward-looking risk reasoning for you to audit.',
     ),
     jointJudgment,
     auditRow('Key-wrong assumption', keyWrongAssumptionLine),
@@ -1665,9 +1667,10 @@ function createValuationPanel(researchCase: AppResearchCase, marketQuote?: Marke
       'div',
       { className: 'owl-ledger-line', style: { marginTop: '1rem' } },
       createValuationLedgerStat(
-        'Reference fair value · cross-check (not the decision)',
+        'Reference fair value',
         referenceFairValue !== undefined ? `$${referenceFairValue.toFixed(2)}` : 'Pending',
         'owl-ledger-figure-money',
+        'cross-check (not the decision)',
       ),
       createValuationLedgerStat(
         'Market-implied growth',
@@ -1679,10 +1682,25 @@ function createValuationPanel(researchCase: AppResearchCase, marketQuote?: Marke
       createValuationLedgerStat('Owner earnings / sh', valuation.normalized_owner_earnings_per_share !== undefined ? `$${valuation.normalized_owner_earnings_per_share.toFixed(2)}` : 'Pending', 'owl-ledger-figure-money'),
       createValuationLedgerStat('Terminal g', terminalGrowthRate !== undefined ? `${(terminalGrowthRate * 100).toFixed(0)}%` : 'Pending', ''),
       createValuationLedgerStat('Runway', runway ?? 'Pending', ''),
-      ...(moatAnchorLabel !== undefined ? [createValuationLedgerStat('Moat anchor', moatAnchorLabel, '')] : []),
-      ...(runwayAnchorLabel !== undefined ? [createValuationLedgerStat('Runway anchor', runwayAnchorLabel, '')] : []),
       createValuationLedgerStat('Discount', discountLabel, ''),
     ),
+    // Judgment provenance (Priority 2): the moat / runway "proposed → resolved" anchor reads are PROSE, not
+    // numerics — they belong as labeled mono/muted text lines, never crammed into numeric stat-blocks.
+    (moatAnchorLabel !== undefined || runwayAnchorLabel !== undefined) ? createElement(
+      'div',
+      { 'data-testid': 'judgment-provenance', style: { display: 'grid', gap: '0.25rem', marginTop: '0.7rem' } },
+      createElement('p', { style: { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-sm)', fontWeight: 800, margin: 0 } }, 'Judgment provenance'),
+      moatAnchorLabel === undefined ? null : createElement(
+        'p',
+        { style: { color: 'var(--owl-color-muted)', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-xs)', lineHeight: 1.5, margin: 0 } },
+        `Moat: ${moatAnchorLabel}`,
+      ),
+      runwayAnchorLabel === undefined ? null : createElement(
+        'p',
+        { style: { color: 'var(--owl-color-muted)', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-xs)', lineHeight: 1.5, margin: 0 } },
+        `Runway: ${runwayAnchorLabel}`,
+      ),
+    ) : null,
     // Mechanism 3: base-rate burden — exceptional claims lacking structural evidence (surfaced, never passed).
     unmetBaseRateFlags.length > 0 ? createElement(
       'div',
@@ -2022,17 +2040,29 @@ function createTrancheRow(tranche: PositionTranche, currency: string) {
  * One figure in the valuation ledger-line: a mono uppercase label over a
  * tabular mono figure. `figureClass` carries the money/emerald/risk modifiers.
  */
-function createValuationLedgerStat(label: string, value: string, figureClass: string) {
+function createValuationLedgerStat(label: string, value: string, figureClass: string, subNote?: string) {
   return createElement(
     'article',
     { key: label, className: 'owl-ledger-stat' },
     createElement('p', { className: 'owl-ledger-label' }, label),
     createElement('p', { className: `owl-ledger-figure ${figureClass}`.trim() }, value),
+    // Optional small mono/quiet secondary note beneath the figure — keeps the LABEL short and scannable
+    // (e.g. "cross-check") instead of an over-long inline label that wraps to several lines.
+    subNote === undefined ? null : createElement(
+      'p',
+      { style: { color: 'var(--owl-color-quiet)', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-2xs)', letterSpacing: '0.04em', margin: 0 } },
+      subNote,
+    ),
   )
 }
 
-// ── Decision evidence (4 summary cards) ──────────────────────────────────────
-
+// ── Whole-case thesis (the synthesis narrative — one home) ────────────────────
+//
+// Consolidation (Priority 3): the old four-card "decision evidence" duplicated content shown elsewhere —
+// the Valuation card duplicated the Valuation box, the Shariah card duplicated the shariah lane (its unique
+// AAOIFI ratio ledger now lives in createComplianceRatioBlock), and the Risks card duplicated the risks
+// lane + the MoS thesis-break triggers. Per-dimension findings now live ONLY in the specialist lanes; what
+// remains here is the unique whole-case thesis (the synthesis narrative), full-width.
 function createDecisionEvidence(researchCase: AppResearchCase) {
   const fullThesis = firstNonEmpty([
     researchCase.thesis_summary,
@@ -2042,23 +2072,6 @@ function createDecisionEvidence(researchCase: AppResearchCase) {
 
   const thesis = createConciseDossierSummary(fullThesis, researchCase.ticker ?? researchCase.company_id)
 
-  const valuationText = researchCase.valuation_rationale?.trim().length
-    ? researchCase.valuation_rationale
-    : createFallbackValuationText(researchCase)
-
-  const shariahText = researchCase.shariah_rationale?.trim().length
-    ? researchCase.shariah_rationale
-    : `Needs structured Shariah detail. Current compliance gate: ${researchCase.shariah_status ?? 'Pending'}.`
-
-  const risks = researchCase.risks !== undefined && researchCase.risks.length > 0
-    ? researchCase.risks
-    : researchCase.caveats !== undefined && researchCase.caveats.length > 0
-      ? researchCase.caveats
-      : ['No separately structured risks are recorded yet; review the thesis and source evidence before action.']
-  const openQuestions = researchCase.open_questions !== undefined && researchCase.open_questions.length > 0
-    ? researchCase.open_questions
-    : [researchCase.next_required_action ?? 'Continue source-backed review before any user-authored transition.']
-
   return createElement(
     'section',
     {
@@ -2067,52 +2080,29 @@ function createDecisionEvidence(researchCase: AppResearchCase) {
         gap: '0.75rem',
       },
     },
-    createElement('p', { className: 'owl-section-accent' }, 'Decision evidence'),
-    // Masonry/flow packing (Priority 1): the three short cards no longer leave a dead void beside the
-    // long Risks card — each packs to content height and reflows.
-    createMasonryFlow('decision-evidence-flow', [
-      createDossierCard('Thesis', thesis, undefined, { note: 'Full thesis available in the disclosure below.' }),
-      createDossierCard('Valuation', valuationText, researchCase.valuation_status, { note: valuationProvenanceNote(researchCase) }),
-      createDossierCard('Shariah / compliance', shariahText, researchCase.shariah_status, { extra: createShariahRatioLedger(researchCase) }),
-      createDossierCard('Risks / open questions', [...risks, ...openQuestions]),
-    ]),
+    createElement('p', { className: 'owl-section-accent' }, 'Thesis'),
+    createDossierCard('Thesis', thesis, undefined, { note: 'Full thesis available in the disclosure below.' }),
     createFullThesisDisclosure(fullThesis, thesis),
   )
 }
 
 /**
- * OE-bridge provenance note for the Valuation card: when the bridge was anchored to the SEC 10-K we
- * say so (with the fiscal year); otherwise it is model-estimated. Returns undefined when no bridge
- * basis was recorded (legacy cases) so the note element is omitted.
+ * Shariah / compliance — the unique harness-computed AAOIFI ratio ledger, given its own compact home (the
+ * per-dimension shariah finding lives in the specialist lane). Returns null when no harness ratios exist.
  */
-function valuationProvenanceNote(researchCase: AppResearchCase): string | undefined {
-  const basis = researchCase.valuation?.bridge_basis
-  if (basis === 'sec_edgar') {
-    const fy = researchCase.valuation?.bridge_fiscal_year
-    return fy !== undefined
-      ? `Owner earnings computed from SEC 10-K FY${fy}.`
-      : 'Owner earnings computed from SEC 10-K.'
-  }
-  if (basis === 'model_proposed') {
-    return 'Owner earnings are model-estimated (no SEC primary filing available).'
-  }
-  return undefined
-}
-
-function createFallbackValuationText(researchCase: AppResearchCase): string {
-  const valuation = researchCase.valuation
-  if (valuation?.buy_price_per_share !== undefined) {
-    const discount = valuation.discount_rate !== undefined ? `${Math.round(valuation.discount_rate * 100)}%` : DEFAULT_DISCOUNT_LABEL
-    // Buy-below is the model-proposed price-to-buy-below carried with its cited reasoning (not a derived haircut).
-    const fair = valuation.fair_value_per_share !== undefined ? `fair value $${valuation.fair_value_per_share.toFixed(2)} → ` : ''
-    return `${fair}buy below $${valuation.buy_price_per_share}/sh · ${discount} savings-anchored discount. Quality is not in question; price is.`
-  }
-  if (researchCase.owner_earnings_valuation !== undefined) {
-    return researchCase.owner_earnings_valuation.summary
-      ?? 'Owner-earnings valuation details are available in the deep-dive valuation lane below.'
-  }
-  const valuationStatus = researchCase.valuation_status ?? 'Pending'
-  return `Legacy dossier lacks structured owner-earnings assumptions; treat ${valuationStatus} as a deep-dive valuation status, not a Quick Screen gate.`
+function createComplianceRatioBlock(researchCase: AppResearchCase) {
+  const ledger = createShariahRatioLedger(researchCase)
+  if (ledger === null) return null
+  return createElement(
+    'section',
+    {
+      'data-testid': 'compliance-ratios',
+      className: 'owl-section-card',
+      style: { gap: '0.5rem' },
+    },
+    createElement('p', { className: 'owl-section-accent' }, 'Shariah / compliance'),
+    ledger,
+  )
 }
 
 function createDossierCard(
@@ -2128,14 +2118,14 @@ function createDossierCard(
     {
       'data-testid': `research-dossier-card-${slugifyDossierLabel(label)}`,
       style: {
-        ...masonryItemStyle,
         background: 'var(--owl-color-panel-deep)',
         border: '1px solid rgba(148, 163, 184, 0.14)',
         borderRadius: '0.85rem',
         padding: '0.85rem',
+        width: '100%',
       },
     },
-    // Inner grid preserves vertical rhythm — the article itself is inline-block (masonry item).
+    // Inner grid preserves vertical rhythm — the card is a full-width row in the vertical stack.
     createElement(
       'div',
       { style: { display: 'grid', gap: '0.5rem' } },
@@ -2265,27 +2255,25 @@ function createSpecialistLanesGrid(researchCase: AppResearchCase) {
   const remainder = displayFindings.filter((f) => !orderedLanes.includes(f.specialist_lane ?? ''))
   const allFindings = [...orderedFindings, ...remainder]
 
-  return createElement(
-    'section',
-    {
-      className: 'owl-section-card',
-      style: {
-        gap: '0.7rem',
-      },
-    },
-    createElement(
-      'div',
-      { style: { alignItems: 'baseline', display: 'flex', flexWrap: 'wrap', gap: '0.5rem', justifyContent: 'space-between' } },
-      createElement('p', { className: 'owl-section-accent' }, 'Deep-dive specialist lanes'),
+  // Collapsed by default (Priority 1): the dense per-lane reasoning lives behind the existing <details>
+  // idiom, with the lane count in the summary. Inside, each lane stacks FULL-WIDTH (one card per row) so
+  // long-form lane prose gets the full content width — no narrow masonry columns.
+  return createCollapsibleSection(
+    'specialist-lanes-section',
+    `Deep-dive specialist lanes (${allFindings.length})`,
+    false,
+    [
       createElement(
-        'span',
-        { style: { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-sm)' } },
+        'p',
+        { key: 'lanes-intro', style: { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-sm)', margin: 0 } },
         `${allFindings.length} lane${allFindings.length !== 1 ? 's' : ''} · source-backed`,
       ),
-    ),
-    // Masonry/flow packing (Priority 1): a short lane card no longer gaps beside a tall one — each lane
-    // packs to its own content height and reflows.
-    createMasonryFlow('specialist-lanes-flow', allFindings.map((finding) => createSpecialistLaneCard(finding))),
+      createElement(
+        'div',
+        { key: 'lanes-flow', 'data-testid': 'specialist-lanes-flow', style: { display: 'grid', gap: '0.7rem' } },
+        ...allFindings.map((finding) => createSpecialistLaneCard(finding)),
+      ),
+    ],
   )
 }
 
@@ -2330,15 +2318,15 @@ function createSpecialistLaneCard(finding: ResearchFindingCard) {
     {
       key: finding.finding_id,
       style: {
-        ...masonryItemStyle,
         background: 'var(--owl-color-panel-elevated)',
         border: `1px solid ${isRiskyLane ? 'var(--owl-color-fiduciary)' : 'var(--owl-color-border)'}`,
         borderLeft: isRiskyLane ? '3px solid var(--owl-color-fiduciary)' : undefined,
         borderRadius: '0.7rem',
         padding: '0.75rem 0.85rem',
+        width: '100%',
       },
     },
-    // Inner grid preserves vertical rhythm — the article itself is inline-block (masonry item).
+    // Inner grid preserves vertical rhythm — the card is a full-width row in the vertical stack.
     createElement(
       'div',
       { style: { display: 'grid', gap: '0.4rem' } },

@@ -36,11 +36,10 @@ test('default home page renders the demo command center and research demo workfl
   await expect(page.getByText('Verdict summary')).toBeVisible()
   await expect(page.getByText('WATCH', { exact: true }).first()).toBeVisible()
   await expect(page.getByRole('heading', { name: 'Thesis' })).toBeVisible()
-  await expect(page.getByRole('heading', { name: 'Valuation' })).toBeVisible()
-  await expect(page.getByText('FAIR', { exact: true }).first()).toBeVisible()
-  await expect(page.getByRole('heading', { name: 'Shariah / compliance' })).toBeVisible()
-  await expect(page.getByText('COMPLIANT', { exact: true }).first()).toBeVisible()
-  await expect(page.getByRole('heading', { name: 'Risks / open questions' })).toBeVisible()
+  // The per-dimension valuation/shariah/risks cards were consolidated away; valuation + Shariah status
+  // surface on the verdict-hero chips and the findings live in the (collapsed) specialist lanes.
+  await expect(page.getByText('FAIR').first()).toBeVisible()
+  await expect(page.getByText('COMPLIANT').first()).toBeVisible()
   await page.getByText('Evidence and audit details', { exact: true }).click()
   await expect(page.getByText('Gate checklist')).toBeVisible()
 })
