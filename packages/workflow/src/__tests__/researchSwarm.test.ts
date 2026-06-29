@@ -944,11 +944,12 @@ describe('runStrategyResearchSwarm with MockProvider + deterministic grounder', 
     expect(caseProjection?.valuation?.growth_basis).toBe('none')
     // terminal g — UNIFORM for every investable moat (F.13) = 0.015
     expect(caseProjection?.valuation?.terminal_growth_rate).toBe(0.015)
-    // fair_value_per_share is the headline forward-DCF at the model's 0.18 assumed growth — a positive
-    // presentation reference. At g=0.18 it exceeds the 18× OE cap (a SURFACED flag, not a truncation).
-    expect(caseProjection?.valuation?.fair_value_per_share ?? 0).toBeGreaterThan(0)
+    // forward-DCF removal: the dollar fair_value_per_share is no longer surfaced. The internal forward FV
+    // (g=0.18) still drives the kept cap_exceeded flag (exceeds the 18× OE cap — a SURFACED flag, not a
+    // truncation) and the implied_multiple ratio.
+    expect(caseProjection?.valuation?.fair_value_per_share).toBeUndefined()
     expect(caseProjection?.valuation?.cap_exceeded).toBe(true)
-    // implied multiple = headline FV (g=0.18) / OE — above the no-growth ~10.75× since growth lifts the FV.
+    // implied multiple = internal forward FV (g=0.18) / OE — above the no-growth ~10.75× since growth lifts it.
     expect(caseProjection?.valuation?.implied_multiple ?? 0).toBeGreaterThan(10.75)
     // margin_of_safety (the MoS-as-price-haircut field) is RETIRED.
     expect((caseProjection?.valuation as Record<string, unknown> | undefined)?.margin_of_safety).toBeUndefined()
@@ -1100,6 +1101,9 @@ function configurableSwarmProvider(opts: {
   // captures 'bad' ids as unavailable (no content_hash), so a citation pointing at 'src_qs_bad_1' is
   // captured-but-unverified — it must NOT count as grounded after the fix.
   quickScreenProposesGoodBad?: boolean
+  // Regression repro: the quick screen proposes NO sources at all (proposed_sources: []) — the no-tools
+  // production shape after the schema fix. The run must still succeed, grounded by the harness pre-fetch.
+  quickScreenProposesEmpty?: boolean
 }) {
   const src = (id: string) => ({ source_id: id, title: 'T', url: 'https://www.sec.gov/Archives/edgar/data/0/test-10k.htm', excerpt: 'e' })
   let laneCall = 0
@@ -1131,9 +1135,11 @@ function configurableSwarmProvider(opts: {
           valuation_sanity: 'Reasonable', shariah_status: 'CONDITIONAL',
           red_flags: ['None identified'], confidence: 'high', caveats: ['Mock caveat'],
           screening_result: 'deep_dive_candidate',
-          proposed_sources: opts.quickScreenProposesGoodBad === true
-            ? [src('src_qs_good_1'), src('src_qs_bad_1')]
-            : [src('src_qs_1')],
+          proposed_sources: opts.quickScreenProposesEmpty === true
+            ? []
+            : opts.quickScreenProposesGoodBad === true
+              ? [src('src_qs_good_1'), src('src_qs_bad_1')]
+              : [src('src_qs_1')],
         }
       }
       if (schemaName === 'BuffettMungerLaneFinding') {
@@ -1290,18 +1296,17 @@ describe('BUG 1 — valuation per-share units (÷ shares_outstanding)', () => {
     expect(cp?.valuation?.demonstrated_growth_reference).toBeCloseTo(0, 6)
     expect(cp?.valuation?.growth_basis).toBe('none')
     expect(cp?.valuation?.terminal_growth_rate).toBe(0.015)
-    // fair_value_per_share is the headline forward-DCF at the model's 0.06 assumed growth — ABOVE the old
-    // g=0 credited-g FV (~204.78). buy_price_per_share is the MODEL's proposed_buy_below (default 150).
-    expect(cp?.valuation?.fair_value_per_share ?? 0).toBeGreaterThan(204.78)
+    // forward-DCF removal: the dollar fair_value_per_share is no longer surfaced. buy_price_per_share is the
+    // MODEL's proposed_buy_below (default 150). The per-share UNITS are still proven by the implied_multiple
+    // (= internal forward FV / OE), a ratio independent of total-vs-per-share scaling.
+    expect(cp?.valuation?.fair_value_per_share).toBeUndefined()
     expect(cp?.valuation?.buy_price_per_share).toBe(150)
-    expect(cp?.valuation?.implied_multiple ?? 0).toBeGreaterThan(10.75)
     expect(cp?.valuation?.runway).toBe('proven')
     expect(cp?.valuation?.value_basis).toBe('two_stage_dcf')
-    // Sanity: per-share value, never the buggy ~100x value. F.2 — under the lower savings-anchor discount
-    // (7.5%, was 10%) the g=0.06 FV is ≈ $417.7 (~21.9× OE), which now EXCEEDS the 18× cap: cap_exceeded is a
-    // SURFACED flag (Phase 1.6), not a truncation, and the value stays well under the absurd guard.
-    expect(cp?.valuation?.fair_value_per_share ?? 0).toBeLessThan(1000)
-    expect(cp?.valuation?.fair_value_per_share ?? 0).toBeCloseTo(417.7, 0)
+    // Sanity: per-share units, never the buggy ~100x value. F.2 — under the lower savings-anchor discount
+    // (7.5%) the g=0.06 internal FV is ≈ $417.7 / OE $19.05 ≈ 21.9× OE, which EXCEEDS the 18× cap:
+    // cap_exceeded is a SURFACED flag (Phase 1.6). The implied multiple proves the per-share scaling.
+    expect(cp?.valuation?.implied_multiple ?? 0).toBeCloseTo(21.9, 0)
     expect(cp?.valuation?.cap_exceeded).toBe(true)
     // valuation_status must still read EXPENSIVE vs a ~$968 price
     expect(cp?.valuation_status).toBe('EXPENSIVE')
@@ -1379,11 +1384,11 @@ describe('Two-stage DCF harness growth path (Phase 1.3 one growth path + gates)'
     expect(cp?.valuation?.growth_rate).toBeCloseTo(0.06, 6)
     expect(cp?.valuation?.demonstrated_growth_reference).toBeCloseTo(0, 6)
     expect(cp?.valuation?.growth_basis).toBe('none')
-    // headline forward-DCF at g=0.06 (above the g=0 floor): a positive per-share value. F.2 — at the lower
-    // savings-anchor discount (7.5%) the FV (~21.9× OE) now exceeds the 18× cap (a surfaced flag, not a
-    // truncation), still well under the absurd guard.
-    expect(cp?.valuation?.fair_value_per_share).toBeGreaterThan(19.05)
-    expect(cp?.valuation?.fair_value_per_share ?? 0).toBeLessThan(1000)
+    // forward-DCF removal: the dollar fair_value_per_share is no longer surfaced. The internal forward-DCF at
+    // g=0.06 still drives the kept implied_multiple (~21.9× OE) and cap_exceeded flag. F.2 — at the lower
+    // savings-anchor discount (7.5%) it exceeds the 18× cap (a surfaced flag, not a truncation).
+    expect(cp?.valuation?.fair_value_per_share).toBeUndefined()
+    expect(cp?.valuation?.implied_multiple ?? 0).toBeCloseTo(21.9, 0)
     expect(cp?.valuation?.cap_exceeded).toBe(true)
   })
 
@@ -1482,31 +1487,19 @@ describe('Two-stage DCF harness growth path (Phase 1.3 one growth path + gates)'
     // Buy-below is locked from harness numbers; even with a model BUY it never escalates above WATCH here.
     expect(cp?.valuation?.buy_price_per_share).toBeGreaterThan(0)
 
-    // ---- Phase 2: fair-value RANGE + reverse-DCF market-implied growth (this case has a price) ----
-    // A formatted low–high (base) range is attached. HEADLINE-GROWTH INVERSION: the sensitivity band now
-    // straddles the HEADLINE growth (the model's assumed_growth 0.06), so its base equals the headline
-    // fair_value_per_share (one consolidated forward-DCF). The band WIDTH still widens with the demonstrated
-    // EDGAR history's depth (6 usable points < 8 → thin-history widening), so the band is reasonably wide.
-    const fvRange = cp?.valuation?.fair_value_range
-    expect(fvRange).toBeDefined()
-    expect(fvRange).toMatch(/^\$\d+–\$\d+ \(base \$\d+\)$/)
-    const fvBase = Number(/\(base \$(\d+)\)/.exec(fvRange ?? '')?.[1])
-    expect(fvBase).toBeGreaterThan(0)
-    expect(fvBase).toBeLessThan(1000)
-    // The range base equals the headline fair_value_per_share (the band centers on the headline growth).
-    expect(fvBase).toBeCloseTo(Math.round(cp?.valuation?.fair_value_per_share ?? 0), 0)
-    // Thin EDGAR history (6 usable points < 8) → the band_fraction is widened → a non-trivial range width.
-    const fvLow = Number(/^\$(\d+)/.exec(fvRange ?? '')?.[1])
-    const fvHigh = Number(/–\$(\d+)/.exec(fvRange ?? '')?.[1])
-    expect((fvHigh - fvLow) / fvBase).toBeGreaterThan(0.2)
-    // Demonstrated growth (~10%) is below the named cap here → NOT cap-limited (the flag is omitted).
-    expect(cp?.valuation?.valuation_cap_binding).toBeUndefined()
+    // ---- reverse-DCF market-implied growth (this case has a price) ----
+    // forward-DCF removal: the dollar fair_value_range / fair_value_per_share / valuation_cap_binding are no
+    // longer surfaced. The kept valuation lens is the reverse-DCF market-implied growth; implied_multiple
+    // (a ratio from the internal forward FV) is still surfaced.
+    expect(cp?.valuation?.fair_value_per_share).toBeUndefined()
+    expect((cp?.valuation as Record<string, unknown> | undefined)?.['fair_value_range']).toBeUndefined()
+    expect(typeof cp?.valuation?.implied_multiple).toBe('number')
     // A current price was injected (50) with positive OE/share → market-implied growth is computable.
     expect(typeof cp?.valuation?.market_implied_growth).toBe('number')
     expect(Number.isFinite(cp?.valuation?.market_implied_growth ?? NaN)).toBe(true)
   })
 
-  it('fail-closed: no current price → no market_implied_growth (omitted, not fabricated); point FV kept', async () => {
+  it('fail-closed: no current price → no market_implied_growth (omitted, not fabricated); internal valuation still computes', async () => {
     // Same growing EDGAR series, but the price resolver FAILS → no current price.
     const series: AnnualFacts[] = []
     for (let i = 0; i < 6; i += 1) {
@@ -1540,9 +1533,10 @@ describe('Two-stage DCF harness growth path (Phase 1.3 one growth path + gates)'
     )
     const projections = projectResearchCases((await store.list()) as Parameters<typeof projectResearchCases>[0])
     const cp = projections.find((c) => c.research_case_id === 'rc_noprice')
-    // Point fair value (and its range) still compute — they don't need a price.
-    expect(cp?.valuation?.fair_value_per_share).toBeGreaterThan(0)
-    expect(cp?.valuation?.fair_value_range).toBeDefined()
+    // The internal forward-DCF still computes (no price needed) — surfaced via the implied_multiple ratio.
+    // forward-DCF removal: the dollar fair_value_per_share / fair_value_range are no longer surfaced.
+    expect(cp?.valuation?.fair_value_per_share).toBeUndefined()
+    expect(typeof cp?.valuation?.implied_multiple).toBe('number')
     // Fail-closed: no price → market_implied_growth is OMITTED (never fabricated).
     expect(cp?.valuation?.market_implied_growth).toBeUndefined()
   })
@@ -1609,16 +1603,15 @@ describe('RELIGHTENED DECISION — model proposes buy-below; deterministic side 
     return { events, valuation, cp: projections.find((c) => c.research_case_id === `rc_${opts.id}`) }
   }
 
-  it('BUY-BELOW ← MODEL: buy_below === the model\'s proposed_buy_below, and the reference FV is a DIFFERENT number', async () => {
-    // The model proposes 150; its assumed growth (6%) gives a reference cross-check FV that is NOT 150.
+  it('BUY-BELOW ← MODEL: buy_below === the model\'s proposed_buy_below; the forward reference FV is no longer surfaced', async () => {
+    // The model proposes 150; the buy-below is the model's verbatim number (NOT derived from any FV).
     const { valuation, cp } = await runRelit({ id: 'buybelow-model', price: 300, proposedBuyBelow: 150, assumedGrowth: 0.06 })
     // Recorded buy-below IS the model's proposed number (verbatim).
     expect(cp?.valuation?.buy_price_per_share).toBe(150)
     expect(valuation?.['proposed_buy_below']).toBe(150)
-    // reference_fair_value is the forward-DCF cross-check at the model's assumed growth — a DIFFERENT number.
-    const refFv = valuation?.['reference_fair_value']
-    expect(typeof refFv).toBe('number')
-    expect(refFv).not.toBe(150)
+    // forward-DCF removal: the dollar reference_fair_value / fair_value_per_share are no longer emitted.
+    expect(valuation?.['reference_fair_value']).toBeUndefined()
+    expect(valuation?.['fair_value_per_share']).toBeUndefined()
     // The model's cited valuation reasoning rides along.
     const vr = valuation?.['valuation_reasoning'] as Record<string, unknown> | undefined
     expect(vr?.['assumed_growth']).toBe(0.06)
@@ -1875,18 +1868,17 @@ describe('RELIGHTENED DECISION — model proposes buy-below; deterministic side 
     expect(valuation?.['demonstrated_growth_reference']).toBeCloseTo(0, 6)
   })
 
-  it('HEADLINE FORWARD-DCF FV is computed from assumed_growth (NOT credited-g), consolidated with reference_fair_value', async () => {
-    // assumed_growth 0.06 ≠ credited-g 0 → the headline fair_value_per_share must equal the two-stage FV at
-    // g = 0.06 (i.e. equal to reference_fair_value), NOT the g=0 credited-g FV (~204.78 for these inputs).
+  it('INTERNAL forward-DCF is computed from assumed_growth (NOT credited-g); the dollar FV is not surfaced', async () => {
+    // assumed_growth 0.06 ≠ credited-g 0 → the internal two-stage FV is at g = 0.06. forward-DCF removal: the
+    // dollar fair_value_per_share / reference_fair_value are NO LONGER surfaced; the kept signals are the
+    // headline growth_rate (the model's assumed_growth) + the implied_multiple (ratio of the internal FV).
     const { cp, valuation } = await runRelit({ id: 'headline-fv', price: 300, proposedBuyBelow: 150, assumedGrowth: 0.06 })
-    const fv = cp?.valuation?.fair_value_per_share
-    const refFv = valuation?.['reference_fair_value'] as number | undefined
-    expect(typeof fv).toBe('number')
-    expect(typeof refFv).toBe('number')
-    // ONE consolidated forward-DCF: the headline FV IS the reference FV (both from assumed_growth).
-    expect(fv).toBeCloseTo(refFv as number, 2)
-    // It is the g=0.06 FV, materially ABOVE the g=0 credited-g FV (~204.78) for these inputs.
-    expect(fv as number).toBeGreaterThan(210)
+    expect(cp?.valuation?.fair_value_per_share).toBeUndefined()
+    expect(valuation?.['reference_fair_value']).toBeUndefined()
+    expect(cp?.valuation?.growth_rate).toBeCloseTo(0.06, 6)
+    // The internal forward FV at g=0.06 is materially above the g=0 case (~204.78 / OE 19.05 ≈ 10.75×), so
+    // the surfaced implied_multiple exceeds 11× for these inputs.
+    expect(cp?.valuation?.implied_multiple ?? 0).toBeGreaterThan(11)
   })
 
   it('credited-g → demonstrated-history reference + ADVISORY flag when assumed_growth materially exceeds it (verdict NOT blocked)', async () => {
@@ -1979,23 +1971,30 @@ describe('legacy projection tolerance — old band verdict_state event still pro
 })
 
 describe('BUG 2 — resilient bookend swarm calls (retry + clean failure)', () => {
-  it('recovers when quick-screen times out once then succeeds (single retry)', async () => {
+  it('fails cleanly (ResearchSwarmStageError, quick_screen) on a single quick-screen timeout — the tool-grounded gate does not retry (matches the circle gate)', async () => {
+    // The quick screen now runs on the SAME tool-grounded path as the circle gate (runGroundedAgentWithTools),
+    // which — like the circle gate — has no bespoke retry. A single timeout therefore fails the stage cleanly
+    // instead of recovering on a second attempt. (Previously it ran via runGroundedAgentWithRetry → 1 retry.)
     const store = new InMemoryEventStore()
     const provider = configurableSwarmProvider({ laneCount: buffettMungerDeepDiveLanes.length, failQuickScreen: 1 })
     const sourceLedgerPath = await mkdtemp(join(tmpdir(), 'owlfolio-bug2-qs-recover-'))
-    const result = await runStrategyResearchSwarm(
-      store, provider as never,
-      {
-        research_case_id: 'rc_bug2_qs', company_id: 'c', ticker: 'AAPL',
-        strategy_id: 'buffett-munger', actor_id: 'user_local', idempotency_key: 'bug2qs_k',
-        model_id: 'mock', decision_id: 'decision_bug2qs', source_ledger_path: sourceLedgerPath,
-      },
-      { ground: allVerifiedGround, laneConcurrency: 4 },
-    )
-    // One retry happened: the run completed with a decision despite the first quick-screen timeout.
-    expect(result.decision).toBeDefined()
+    let caught: unknown
+    try {
+      await runStrategyResearchSwarm(
+        store, provider as never,
+        {
+          research_case_id: 'rc_bug2_qs', company_id: 'c', ticker: 'AAPL',
+          strategy_id: 'buffett-munger', actor_id: 'user_local', idempotency_key: 'bug2qs_k',
+          model_id: 'mock', decision_id: 'decision_bug2qs', source_ledger_path: sourceLedgerPath,
+        },
+        { ground: allVerifiedGround, laneConcurrency: 4 },
+      )
+    } catch (e) { caught = e }
+    expect(caught).toBeInstanceOf(ResearchSwarmStageError)
+    expect((caught as ResearchSwarmStageError).stage).toBe('quick_screen')
+    expect((caught as ResearchSwarmStageError).lanes_completed).toBe(false)
     const events = await store.list()
-    expect(events.some((e) => e.event_type === 'decision_drafted')).toBe(true)
+    expect(events.some((e) => e.event_type === 'decision_drafted')).toBe(false)
   })
 
   it('fails cleanly (ResearchSwarmStageError, quick_screen) when quick-screen times out persistently', async () => {
@@ -2017,8 +2016,8 @@ describe('BUG 2 — resilient bookend swarm calls (retry + clean failure)', () =
     expect(caught).toBeInstanceOf(ResearchSwarmStageError)
     expect((caught as ResearchSwarmStageError).stage).toBe('quick_screen')
     expect((caught as ResearchSwarmStageError).lanes_completed).toBe(false)
-    // Exactly two structured() attempts (initial + one retry) before failing.
-    expect(provider.structured).toHaveBeenCalledTimes(2)
+    // Exactly one structured() attempt — the tool-grounded quick screen does not retry (matches circle gate).
+    expect(provider.structured).toHaveBeenCalledTimes(1)
   })
 
   it('recovers when synthesis times out once then succeeds (single retry); lanes are not re-run', async () => {
@@ -2064,6 +2063,213 @@ describe('BUG 2 — resilient bookend swarm calls (retry + clean failure)', () =
     expect(findingCount).toBeGreaterThanOrEqual(buffettMungerDeepDiveLanes.length)
     // ...but synthesis/decision were NOT drafted (synthesis never succeeded).
     expect(events.some((e) => e.event_type === 'deep_dive_synthesis_drafted')).toBe(false)
+    expect(events.some((e) => e.event_type === 'decision_drafted')).toBe(false)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Quick-screen grounding firewall: the gate now runs on the SAME tool-grounded path as the circle gate and
+// the lanes (runGroundedAgentWithTools), so it must READ a content-hash-verified primary filing before
+// judging, and FAIL CLOSED when grounding yields zero verified sources.
+// ---------------------------------------------------------------------------
+describe('quick screen — tool-grounded firewall', () => {
+  it('grounds its judgment in verified sources (quick_screen_drafted carries verified source_ids + projection surfaces them)', async () => {
+    const store = new InMemoryEventStore()
+    const provider = configurableSwarmProvider({ laneCount: buffettMungerDeepDiveLanes.length })
+    const sourceLedgerPath = await mkdtemp(join(tmpdir(), 'owlfolio-qs-grounded-'))
+    await runStrategyResearchSwarm(
+      store, provider as never,
+      {
+        research_case_id: 'rc_qs_grounded', company_id: 'c', ticker: 'AAPL',
+        strategy_id: 'buffett-munger', actor_id: 'user_local', idempotency_key: 'qs_grounded_k',
+        model_id: 'mock', decision_id: 'decision_qs_grounded', source_ledger_path: sourceLedgerPath,
+      },
+      { ground: allVerifiedGround, laneConcurrency: 4 },
+    )
+    const events = await store.list()
+    const qsEvent = events.find((e) => e.event_type === 'quick_screen_drafted')
+    expect(qsEvent).toBeDefined()
+    // The gate grounded in ≥1 content-hash-verified source — the firewall the fix establishes.
+    expect((qsEvent?.payload as { source_ids?: string[] }).source_ids).toEqual(['src_qs_1'])
+    // …and the projection surfaces those ids so the dossier can render a quick-screen source count.
+    const projections = projectResearchCases(events as Parameters<typeof projectResearchCases>[0])
+    const cp = projections.find((c) => c.research_case_id === 'rc_qs_grounded')
+    expect(cp?.quick_screen_source_ids).toEqual(['src_qs_1'])
+  })
+
+  it('GROUNDS VIA HARNESS INJECTION on a NO-TOOLS provider — the production path (verified_ids includes the pre-fetched primary filing the model never proposed)', async () => {
+    // This is the completion the adversarial review demanded: configurableSwarmProvider is a NO-TOOLS
+    // provider (capabilities: {} → runGroundedAgentWithTools degrades), the SAME class as the live `openai`
+    // personal-local provider. With tool-grounding alone the gate would judge on the model's prior. Here we
+    // inject fundamentals (a 20-F filer — TSMC — the ticker that surfaced the bug); the HARNESS pre-fetches
+    // + grounds the 20-F and injects it, so verified_ids includes the filing id EVEN THOUGH the model's
+    // proposed_sources only carry src_qs_1. That proves grounding-via-injection, not via the model.
+    const tsmcFundamentals: Fundamentals = {
+      cik: '0001046179',
+      entity_name: 'TAIWAN SEMICONDUCTOR MANUFACTURING CO LTD',
+      currency: 'USD',
+      latest_annual: {
+        fiscal_year: 2024, currency: 'USD', net_income_musd: 36500, revenue_musd: 90000,
+        d_and_a_musd: 18000, capex_musd: 30000, sbc_musd: 0, diluted_shares_m: 5186,
+        shares_outstanding_m: 5186, total_debt_musd: 30000, cash_and_securities_musd: 60000,
+        interest_expense_musd: 400,
+      },
+      annual_series: [
+        { fiscal_year: 2024, currency: 'USD', net_income_musd: 36500, revenue_musd: 90000, d_and_a_musd: 18000, capex_musd: 30000, sbc_musd: 0, diluted_shares_m: 5186 },
+      ],
+      // 20-F (foreign private issuer), NOT 10-K — the across-forms selection must pick this.
+      filings: [
+        { form: '20-F', filed: '2025-04-15', url: 'https://www.sec.gov/Archives/edgar/data/1046179/000104621925000010/tsm-20241231.htm' },
+      ],
+    }
+    const store = new InMemoryEventStore()
+    const provider = configurableSwarmProvider({ laneCount: buffettMungerDeepDiveLanes.length })
+    const sourceLedgerPath = await mkdtemp(join(tmpdir(), 'owlfolio-qs-inject-'))
+    await runStrategyResearchSwarm(
+      store, provider as never,
+      {
+        research_case_id: 'rc_qs_inject', company_id: 'c', ticker: 'TSM',
+        strategy_id: 'buffett-munger', actor_id: 'user_local', idempotency_key: 'qs_inject_k',
+        model_id: 'mock', decision_id: 'decision_qs_inject', source_ledger_path: sourceLedgerPath,
+      },
+      { ground: allVerifiedGround, laneConcurrency: 4, fetchFundamentals: async () => tsmcFundamentals },
+    )
+    const events = await store.list()
+    const qsEvent = events.find((e) => e.event_type === 'quick_screen_drafted')
+    const filingId = 'sec_edgar_20f_0001046179_fy2024'
+    const qsSourceIds = (qsEvent?.payload as { source_ids?: string[] }).source_ids ?? []
+    // The harness-injected 20-F primary filing is in the gate's verified set (the model only proposed src_qs_1).
+    expect(qsSourceIds).toContain(filingId)
+    expect(qsSourceIds).toContain('src_qs_1')
+    // The projection surfaces it too (dossier source count includes the injected filing).
+    const projections = projectResearchCases(events as Parameters<typeof projectResearchCases>[0])
+    const cp = projections.find((c) => c.research_case_id === 'rc_qs_inject')
+    expect(cp?.quick_screen_source_ids).toContain(filingId)
+    // …and the across-forms 20-F filing id was actually INJECTED into the quick-screen prompt.
+    const qsPrompt = provider.structured.mock.calls
+      .map((c: unknown[]) => (c[0] as { prompt?: string; response_format?: { schema_name?: string } }))
+      .find((r) => r.response_format?.schema_name === 'BuffettMungerQuickScreen')?.prompt
+    expect(qsPrompt).toContain(filingId)
+    // QUICK-SCREEN-specific block (NOT the citation-field-oriented buildPreVerifiedSourcesBlock).
+    expect(qsPrompt).toContain('HARNESS PRE-VERIFIED PRIMARY FILING')
+    // The block must instruct an EMPTY proposed_sources when nothing extra is fetched (no source_id-as-url).
+    expect(qsPrompt).toContain('proposed_sources is for REAL fetched URLs ONLY')
+  })
+
+  it('SUCCEEDS with EMPTY proposed_sources on a no-tools provider — grounding is via the harness pre-fetch, not a model-proposed source (the regression repro)', async () => {
+    // The exact regression (TSM real codex re-run): the tool-grounded quick screen on the NO-TOOLS codex
+    // provider got the harness pre-verified-filing block injected; ProposedSourcesSchema.min(1) forced the
+    // model to emit a proposed_source and — with no citation field on the quick-screen schema — it put the
+    // harness source_id into proposed_sources[0].url → invalid-URL → structured-output rejected → the run
+    // failed. AFTER the fix the schema allows EMPTY proposed_sources, so the model proposes nothing and the
+    // run STILL SUCCEEDS: the gate is grounded purely by the harness-injected + folded 20-F filing id.
+    const tsmcFundamentals: Fundamentals = {
+      cik: '0001046179',
+      entity_name: 'TAIWAN SEMICONDUCTOR MANUFACTURING CO LTD',
+      currency: 'USD',
+      latest_annual: {
+        fiscal_year: 2024, currency: 'USD', net_income_musd: 36500, revenue_musd: 90000,
+        d_and_a_musd: 18000, capex_musd: 30000, sbc_musd: 0, diluted_shares_m: 5186,
+        shares_outstanding_m: 5186, total_debt_musd: 30000, cash_and_securities_musd: 60000,
+        interest_expense_musd: 400,
+      },
+      annual_series: [
+        { fiscal_year: 2024, currency: 'USD', net_income_musd: 36500, revenue_musd: 90000, d_and_a_musd: 18000, capex_musd: 30000, sbc_musd: 0, diluted_shares_m: 5186 },
+      ],
+      filings: [
+        { form: '20-F', filed: '2025-04-15', url: 'https://www.sec.gov/Archives/edgar/data/1046179/000104621925000010/tsm-20241231.htm' },
+      ],
+    }
+    const store = new InMemoryEventStore()
+    const provider = configurableSwarmProvider({ laneCount: buffettMungerDeepDiveLanes.length, quickScreenProposesEmpty: true })
+    const sourceLedgerPath = await mkdtemp(join(tmpdir(), 'owlfolio-qs-empty-'))
+    await runStrategyResearchSwarm(
+      store, provider as never,
+      {
+        research_case_id: 'rc_qs_empty', company_id: 'c', ticker: 'TSM',
+        strategy_id: 'buffett-munger', actor_id: 'user_local', idempotency_key: 'qs_empty_k',
+        model_id: 'mock', decision_id: 'decision_qs_empty', source_ledger_path: sourceLedgerPath,
+      },
+      { ground: allVerifiedGround, laneConcurrency: 4, fetchFundamentals: async () => tsmcFundamentals },
+    )
+    const events = await store.list()
+    // The run SUCCEEDED — the quick screen drafted and a decision was reached (before the fix it threw).
+    const qsEvent = events.find((e) => e.event_type === 'quick_screen_drafted')
+    expect(qsEvent).toBeDefined()
+    expect(events.some((e) => e.event_type === 'decision_drafted')).toBe(true)
+    // Grounding held via the harness pre-fetch even though the model proposed NOTHING: the 20-F filing id
+    // is the gate's only verified source.
+    const filingId = 'sec_edgar_20f_0001046179_fy2024'
+    const qsSourceIds = (qsEvent?.payload as { source_ids?: string[] }).source_ids ?? []
+    expect(qsSourceIds).toEqual([filingId])
+    const projections = projectResearchCases(events as Parameters<typeof projectResearchCases>[0])
+    const cp = projections.find((c) => c.research_case_id === 'rc_qs_empty')
+    expect(cp?.quick_screen_source_ids).toEqual([filingId])
+  })
+
+  it('RESIDUAL fail-closed: a non-EDGAR name on a no-tools provider (no fundamentals + no verified model source) fails closed', async () => {
+    // Production residual the review asked to document: when fundamentals do NOT resolve (fetchFundamentals
+    // returns undefined — a non-EDGAR/GCC name or EDGAR down) AND the no-tools provider's proposed source
+    // does not verify, there is nothing to ground → the firewall fails the gate closed. Correct + safe.
+    const captureNoneVerified = async (sources: { source_id: string }[]) => ({
+      captured: sources.map((s) => ({
+        source_id: s.source_id, title: 't', url: 'https://example.com/x', excerpt: 'e',
+        availability: 'unavailable' as const, fetched_at: 'x',
+      })),
+      verified_ids: [] as string[],
+    })
+    const store = new InMemoryEventStore()
+    const provider = configurableSwarmProvider({ laneCount: buffettMungerDeepDiveLanes.length })
+    const sourceLedgerPath = await mkdtemp(join(tmpdir(), 'owlfolio-qs-residual-'))
+    let caught: unknown
+    try {
+      await runStrategyResearchSwarm(
+        store, provider as never,
+        {
+          research_case_id: 'rc_qs_residual', company_id: 'c', ticker: 'PRIVATEGCC',
+          strategy_id: 'buffett-munger', actor_id: 'user_local', idempotency_key: 'qs_residual_k',
+          model_id: 'mock', decision_id: 'decision_qs_residual', source_ledger_path: sourceLedgerPath,
+        },
+        { ground: captureNoneVerified as GroundFn, laneConcurrency: 4, fetchFundamentals: async () => undefined },
+      )
+    } catch (e) { caught = e }
+    expect(caught).toBeInstanceOf(Error)
+    expect((caught as Error).message).toMatch(/no verifiable grounded sources \(fail-closed\)/)
+    const events = await store.list()
+    expect(events.some((e) => e.event_type === 'quick_screen_drafted')).toBe(false)
+    expect(events.some((e) => e.event_type === 'decision_drafted')).toBe(false)
+  })
+
+  it('FAILS CLOSED when grounding yields zero verified sources (no judgment on an ungrounded prior)', async () => {
+    // The ground fn captures the proposed source but verifies NONE (no content_hash) → the quick screen has
+    // no verified source to anchor its judgment → the run throws before any lane runs.
+    const captureNoneVerified = async (sources: { source_id: string }[]) => ({
+      captured: sources.map((s) => ({
+        source_id: s.source_id, title: 't', url: 'https://example.com/x', excerpt: 'e',
+        availability: 'unavailable' as const, fetched_at: 'x',
+      })),
+      verified_ids: [] as string[],
+    })
+    const store = new InMemoryEventStore()
+    const provider = configurableSwarmProvider({ laneCount: buffettMungerDeepDiveLanes.length })
+    const sourceLedgerPath = await mkdtemp(join(tmpdir(), 'owlfolio-qs-failclosed-'))
+    let caught: unknown
+    try {
+      await runStrategyResearchSwarm(
+        store, provider as never,
+        {
+          research_case_id: 'rc_qs_failclosed', company_id: 'c', ticker: 'AAPL',
+          strategy_id: 'buffett-munger', actor_id: 'user_local', idempotency_key: 'qs_failclosed_k',
+          model_id: 'mock', decision_id: 'decision_qs_failclosed', source_ledger_path: sourceLedgerPath,
+        },
+        { ground: captureNoneVerified as GroundFn, laneConcurrency: 4 },
+      )
+    } catch (e) { caught = e }
+    expect(caught).toBeInstanceOf(Error)
+    expect((caught as Error).message).toMatch(/no verifiable grounded sources \(fail-closed\)/)
+    // No quick_screen_drafted, no lanes, no decision — the firewall stopped the run.
+    const events = await store.list()
+    expect(events.some((e) => e.event_type === 'quick_screen_drafted')).toBe(false)
     expect(events.some((e) => e.event_type === 'decision_drafted')).toBe(false)
   })
 })
@@ -2543,7 +2749,9 @@ describe('Slice B: recent interim filings (8-K / 10-Q narrative)', () => {
 // diluted-shares to the 10-K and recomputes the three AAOIFI ratios + verdict + purification %.
 // ---------------------------------------------------------------------------
 function swarmFakeProviderWithShariah(
-  impermissible_income: number,
+  // `null` = the lane reports UNDETERMINED impermissible income (not separately disclosed) — the harness
+  // must fail closed to UNDETERMINED, never a clean 0%.
+  impermissible_income: number | null,
   sector_status: 'compliant' | 'conditional' | 'non_compliant' = 'conditional',
   bridgeOverride?: Record<string, number | string>,
   // When supplied, the decision agent emits a cited valuation_reasoning so the A1 grounding gate is MET
@@ -2739,6 +2947,62 @@ describe('EDGAR-anchored OE bridge + harness AAOIFI Shariah ratios', () => {
     // deep-dive prereq seeds as COMPLIANT.
     expect(cp?.shariah_financial).toBeUndefined()
     expect(cp?.shariah_status).toBe('COMPLIANT')
+  })
+
+  it('UNDETERMINED impermissible income (lane returns null) → fail-closed UNDETERMINED, NOT a clean 0% / COMPLIANT', async () => {
+    // The compliance fail-OPEN regression: when the filing does not separately disclose impermissible
+    // income the lane now returns null (undetermined). The harness must NOT compute a 0% purification /
+    // PASS — it fails closed to an UNDETERMINED verdict with no shariah_financial, and surfaces a
+    // "purification cannot be determined" flag.
+    const store = new InMemoryEventStore()
+    await seedDeepDivePrereqs(store)
+    const provider = swarmFakeProviderWithShariah(null, 'compliant')
+    await provider.structured({} as never)
+
+    await runResearchDeepDivePhase(store, provider as never, deepDiveCommand(), {
+      ground: verifyAllGround(),
+      laneConcurrency: 7,
+      fundamentals: costFundamentals,
+      resolvePrice: async () => ({ available: true, price_per_share: 968, currency: 'USD', as_of: 'x', source: 'test' }),
+    })
+
+    const events = await store.list()
+    const projections = projectResearchCases(events as Parameters<typeof projectResearchCases>[0])
+    const cp = projections.find((c) => c.research_case_id === 'rc_edgar')
+    // No harness ratios (impermissible income undetermined → not-computable). NEVER a 0%/COMPLIANT.
+    expect(cp?.shariah_financial).toBeUndefined()
+    expect(cp?.shariah_status).toBe('UNDETERMINED')
+    expect(cp?.shariah_impermissible_income_undetermined).toBe(true)
+    // The undetermined cause is surfaced (distinct from the omitted-overlay and market-cap causes).
+    const analysisEvent = events.find((e) => e.event_type === 'buffett_munger_analysis_drafted')
+    const valuation = (analysisEvent?.payload as Record<string, unknown>)?.['valuation'] as Record<string, unknown>
+    const degraded = (valuation?.['degraded_flags'] as string[] | undefined) ?? []
+    expect(degraded.join(' ')).toMatch(/shariah_ratios_unverified:\s*impermissible_income_undetermined/)
+    expect(degraded.join(' ')).toMatch(/[Pp]urification CANNOT be determined/)
+    expect(degraded.join(' ')).not.toMatch(/impermissible_income_not_emitted/)
+  })
+
+  it('GENUINE zero impermissible income (lane returns 0, sector compliant) → PASS / 0% (unchanged)', async () => {
+    // Replay-safety + genuine-path guard: a real affirmatively-verified 0 still computes a clean PASS.
+    const store = new InMemoryEventStore()
+    await seedDeepDivePrereqs(store)
+    const provider = swarmFakeProviderWithShariah(0, 'compliant')
+    await provider.structured({} as never)
+
+    await runResearchDeepDivePhase(store, provider as never, deepDiveCommand(), {
+      ground: verifyAllGround(),
+      laneConcurrency: 7,
+      fundamentals: costFundamentals,
+      resolvePrice: async () => ({ available: true, price_per_share: 968, currency: 'USD', as_of: 'x', source: 'test' }),
+    })
+
+    const events = await store.list()
+    const projections = projectResearchCases(events as Parameters<typeof projectResearchCases>[0])
+    const cp = projections.find((c) => c.research_case_id === 'rc_edgar')
+    expect(cp?.shariah_financial?.verdict).toBe('PASS')
+    expect(cp?.shariah_financial?.purification_pct).toBe(0)
+    expect(cp?.shariah_status).toBe('COMPLIANT')
+    expect(cp?.shariah_impermissible_income_undetermined).toBeUndefined()
   })
 
   it('sector non_compliant is a hard stop even when financial ratios pass', async () => {
@@ -3666,7 +3930,10 @@ describe('Silent-degradation cascade — fields omitted (live dogfood shape)', (
     const { cp } = await runOmitted({ synthesis: { moat_class: 'wide', runway: 'proven' }, id: 'omit-val-grounded', keepMoatRubric: true })
     expect(cp?.valuation?.moat_class).toBe('wide')
     expect(cp?.valuation?.moat_passes_gate).toBe(true)
-    expect(cp?.valuation?.fair_value_per_share).toBeDefined()
+    // forward-DCF removal: the dollar fair_value_per_share is no longer surfaced; the internal forward FV
+    // still computes, proven via the kept implied_multiple ratio.
+    expect(cp?.valuation?.fair_value_per_share).toBeUndefined()
+    expect(cp?.valuation?.implied_multiple).toBeDefined()
     expect(cp?.valuation?.buy_price_per_share).toBeDefined()
   })
 
@@ -3696,7 +3963,10 @@ describe('Silent-degradation cascade — fields omitted (live dogfood shape)', (
     // is the model's cited assumed_growth (0.06). (Was: growth_rate === 0 — the old credited-g headline.)
     expect(cp?.valuation?.demonstrated_growth_reference).toBeCloseTo(0, 6)
     expect(cp?.valuation?.growth_rate).toBeCloseTo(0.06, 6)
-    expect(cp?.valuation?.fair_value_per_share).toBeDefined()
+    // forward-DCF removal: the dollar fair_value_per_share is no longer surfaced; the internal forward FV
+    // still computes, proven via the kept implied_multiple ratio.
+    expect(cp?.valuation?.fair_value_per_share).toBeUndefined()
+    expect(cp?.valuation?.implied_multiple).toBeDefined()
     const valuation = analysisPayload?.['valuation'] as Record<string, unknown>
     const degraded = (valuation?.['degraded_flags'] as string[] | undefined) ?? []
     expect(degraded.join(' ')).toMatch(/valuation_degraded:\s*demonstrated_growth_reference_floored_g0/)
@@ -4335,10 +4605,12 @@ describe('§2 reference FV + implied-exit-multiple — gated on grounded assumed
     expect(Number.isFinite(valuation?.['market_implied_growth'] as number)).toBe(true)
   })
 
-  it('GROUNDED assumed_growth (citation verifies) → all three present (no false omission)', async () => {
+  it('GROUNDED assumed_growth (citation verifies) → kept §2 references present (no false omission)', async () => {
     const { cp, valuation } = await runWithGrowthCitation('rc_s2_grounded', 'src_dec_1')
     expect(cp?.valuation?.synthesis_grounding_unmet).toBeUndefined()
-    expect(typeof valuation?.['reference_fair_value']).toBe('number')
+    // forward-DCF removal: the dollar reference_fair_value is no longer surfaced even when grounded. The kept
+    // §2 reference (implied_exit_multiple) + the reverse-DCF market_implied_growth are present.
+    expect(valuation?.['reference_fair_value']).toBeUndefined()
     expect(typeof valuation?.['implied_exit_multiple']).toBe('number')
     expect(typeof valuation?.['market_implied_growth']).toBe('number')
   })

@@ -71,8 +71,10 @@ describe('WatchlistPanel model-verdict sections', () => {
     expect(html).toContain('Not in the buy zone')
     expect(html).toContain('Market-implied growth')
     expect(html).toContain('9.0%')
-    // The reference fair value is labeled a cross-check, not the decision.
-    expect(html).toContain('cross-check (not the decision)')
+    // forward-DCF removal: the dollar reference fair value line is gone even though the verdict carries the
+    // legacy reference_fair_value: 210 (no figure, no "cross-check" label).
+    expect(html).not.toContain('$210.00')
+    expect(html.toLowerCase()).not.toContain('cross-check (not the decision)')
     // The retired band/gap + price-vs-FV framing is gone.
     expect(html).not.toContain('Sustainable band')
     expect(html).not.toContain('Required growth gap')

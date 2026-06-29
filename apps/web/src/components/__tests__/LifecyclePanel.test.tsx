@@ -90,12 +90,15 @@ describe('LifecyclePanel', () => {
     expect(order).toEqual([...order].sort((a, b) => a - b))
   })
 
-  it('renders each name with ticker, company, buy-below and fair value where present', () => {
+  it('renders each name with ticker, company and buy-below; the forward-DCF fair value is no longer shown', () => {
     const html = render([watchedHealthy])
     expect(html).toContain('WTCH')
     expect(html).toContain('Watched Co')
     expect(html).toContain('$90')
-    expect(html).toContain('$120')
+    // forward-DCF removal: the dollar "Fair value" line is gone even though the projection carries the legacy
+    // fair_value_per_share: 120 (a dollar reference FV read as a contradiction against the buy-below).
+    expect(html).not.toContain('Fair value')
+    expect(html).not.toContain('$120')
   })
 
   it('flags a deteriorating watched name (falsifier tripped) with its reason — NOT healthy — and shows no prune action yet', () => {

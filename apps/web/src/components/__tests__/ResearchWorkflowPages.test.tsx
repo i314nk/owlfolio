@@ -55,11 +55,11 @@ describe('research and watchlist workflow pages', () => {
       expect(html).toContain('Verdict summary')
       expect(html).toContain('WATCH')
       expect(html).toContain('Thesis')
+      // Valuation status + Shariah status surface on the verdict-hero chips (the per-dimension cards were
+      // consolidated away — findings now live only in the specialist lanes).
       expect(html).toContain('Valuation')
       expect(html).toContain('FAIR')
-      expect(html).toContain('Shariah / compliance')
       expect(html).toContain('COMPLIANT')
-      expect(html).toContain('Risks / open questions')
       expect(html).toContain('Gate checklist')
       expect(html).toContain('Quality business')
       expect(html).toContain('Evidence source context')
@@ -533,28 +533,28 @@ describe('research and watchlist workflow pages', () => {
     expect(html).not.toContain('WATCH based on valuation EXPENSIVE')
     expect(html).toContain('Next action')
     expect(html).toContain('Thesis')
+    // Consolidation (Priority 3): the decision-evidence section keeps ONLY the unique whole-case thesis; the
+    // duplicated per-dimension valuation/shariah/risks cards were removed (findings live in the lanes).
     const thesisCardStart = html.indexOf('data-testid="research-dossier-card-thesis"')
-    const valuationCardStart = html.indexOf('data-testid="research-dossier-card-valuation"')
     expect(thesisCardStart).toBeGreaterThan(-1)
-    expect(valuationCardStart).toBeGreaterThan(thesisCardStart)
-    const thesisCardHtml = html.slice(thesisCardStart, valuationCardStart)
+    expect(html).not.toContain('data-testid="research-dossier-card-valuation"')
+    expect(html).not.toContain('data-testid="research-dossier-card-shariah-compliance"')
+    expect(html).not.toContain('data-testid="research-dossier-card-risks-open-questions"')
+    const thesisCardHtml = html.slice(thesisCardStart, html.indexOf('</article>', thesisCardStart))
     expect(thesisCardHtml).toContain('High-quality Buffett-Munger business')
     expect(thesisCardHtml).not.toContain('very high')
     expect(thesisCardHtml).toContain('Full thesis')
     expect(thesisCardHtml).not.toContain(fullThesis)
+    // The full thesis renders in the disclosure below the card.
     expect(html).toContain(fullThesis)
-    // Masonry/flow packing (Priority 1): the decision-evidence cards reflow to content height in a CSS
-    // multi-column flow container — no rigid equal-height grid that leaves a void beside the long Risks card.
-    expect(html).toContain('data-testid="decision-evidence-flow"')
-    expect(html).toContain('data-owl-flow="masonry"')
+    // The masonry multi-column packing is gone.
+    expect(html).not.toContain('data-owl-flow="masonry"')
+    // Valuation status + Shariah status surface on the verdict-hero chips.
     expect(html).toContain('Valuation')
     expect(html).toContain('EXPENSIVE')
-    expect(html).toContain('Legacy dossier lacks structured owner-earnings assumptions; treat EXPENSIVE as a deep-dive valuation status, not a Quick Screen gate.')
     expect(html).not.toContain('Current valuation gate')
-    expect(html).toContain('Shariah / compliance')
     expect(html).toContain('CONDITIONAL')
-    expect(html).toContain('Needs structured Shariah detail')
-    expect(html).toContain('Risks / open questions')
+    // The risks lane (collapsed) carries the honest no-structured-risks fallback.
     expect(html).toContain('No separately structured risks are recorded yet')
     expect(html).toContain('Single-agent business-quality gate')
     expect(html).toContain('Legacy decision has no standalone Quick Screen event; use this as a business-quality digest of the existing dossier before spending more analysis budget.')
@@ -666,7 +666,8 @@ describe('research and watchlist workflow pages', () => {
       mode: 'personal-local',
     }))
 
-    // AAOIFI ratio mini-ledger in the Shariah / compliance card.
+    // AAOIFI ratio mini-ledger in the relocated Shariah / compliance block.
+    expect(html).toContain('data-testid="compliance-ratios"')
     expect(html).toContain('AAOIFI financial ratios (harness-computed)')
     expect(html).toContain('Debt / market cap')
     expect(html).toContain('Cash + securities / market cap')
@@ -685,9 +686,10 @@ describe('research and watchlist workflow pages', () => {
     expect(html).toContain('$147.00')
     expect(html.toLowerCase()).toContain('the market implies')
     expect(html).toContain('18.0%')
-    // The reference fair value (falls back to fair_value_per_share) is labeled a cross-check, not the decision.
-    expect(html).toContain('$210.00')
-    expect(html.toLowerCase()).toContain('cross-check (not the decision)')
+    // forward-DCF removal: the dollar reference fair value (fair_value_per_share) is no longer surfaced — no
+    // $210.00 figure, no "cross-check" label.
+    expect(html).not.toContain('$210.00')
+    expect(html.toLowerCase()).not.toContain('cross-check (not the decision)')
     // The retired growth-axis band viz + band/gap labels are gone.
     expect(html).not.toContain('data-testid="growth-band-axis"')
     expect(html).not.toContain('Sustainable band')

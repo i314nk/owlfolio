@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { ProposedSourcesSchema } from './groundedAgent'
+import { ProposedSourceSchema, ProposedSourcesSchema } from './groundedAgent'
 
 // ---------------------------------------------------------------------------
 // Per-stage Zod schemas (each includes proposed_sources for grounding)
@@ -17,7 +17,16 @@ export const QuickScreenAgentSchema = z.object({
   confidence: z.enum(['low', 'medium', 'high']),
   caveats: z.array(z.string().min(1)).min(1),
   screening_result: z.enum(['pass', 'reject', 'needs_data', 'deep_dive_candidate']),
-  proposed_sources: ProposedSourcesSchema,
+  // QUICK-SCREEN ONLY: proposed_sources allows EMPTY (no `.min(1)`). On the configured no-tools codex
+  // provider the gate's grounding comes from the HARNESS pre-fetch (the verified primary filing is injected
+  // and its source_id is folded into qs.verified_ids), so the model does NOT need to propose any source. The
+  // shared ProposedSourcesSchema (min 1) forced the model to emit something and — with no citation field on
+  // this schema to hold a source_id — it put the harness source_id into proposed_sources[0].url, an invalid
+  // URL that rejected the whole structured output (the research_run_failed regression). Empty is now valid;
+  // any REAL fetched URLs the model proposes still flow through unchanged. All OTHER stage schemas keep
+  // ProposedSourcesSchema (min 1). z.infer of both is ProposedSource[], so the runGroundedAgentWithTools
+  // `T extends { proposed_sources: ... }` constraint is still satisfied.
+  proposed_sources: z.array(ProposedSourceSchema),
 })
 
 export const LaneAgentSchema = z.object({
@@ -56,8 +65,11 @@ export const OwnerEarningsBridgeSchema = z.object({
 // harness divides this by EDGAR revenue — it does NOT trust the model's own ratio arithmetic.
 const ShariahJudgmentSchema = z.object({
   sector_status: z.enum(['compliant', 'conditional', 'non_compliant']),
-  // Impermissible income in $MILLIONS (same scale as EDGAR revenue). 0 when fully permissible.
-  impermissible_income: z.number().min(0),
+  // Impermissible income in $MILLIONS (same scale as EDGAR revenue). 0 ONLY when the filing
+  // affirmatively shows zero impermissible income; null when the impermissible-income line cannot be
+  // found/quantified (undetermined) — DO NOT guess 0. A false 0 produces a falsely-clean compliance
+  // verdict (fail-OPEN: missing data → bogus 0% purification); null fails closed to UNDETERMINED.
+  impermissible_income: z.number().min(0).nullable(),
 })
 
 // NOTE (runway reframe): the per-row LaneRubricSchema (rubric_scores 0/1/2 + proposed_tier +
@@ -401,9 +413,10 @@ export const VALUATION_LANE_DISCOUNT_NOTE =
 // the JUDGMENT only; the harness recomputes the AAOIFI ratios + verdict + purification % from filings.
 export const SHARIAH_OVERLAY_PROMPT =
   ` As the SHARIAH lane you ALSO produce the judgment overlay — REQUIRED, do not omit (omitting it leaves the AAOIFI ratios unverified and flags shariah_ratios_unverified): `
-  + `sector_status ('compliant' | 'conditional' | 'non_compliant') confirmed with segment revenue, and impermissible_income — the dollar amount in $MILLIONS of non-permissible income (interest income on cash, prohibited-segment revenue), 0 if fully permissible. `
+  + `sector_status ('compliant' | 'conditional' | 'non_compliant') confirmed with segment revenue, and impermissible_income — the dollar amount in $MILLIONS of non-permissible income (interest income on cash + prohibited-segment revenue). `
+  + `Set impermissible_income to that $M figure ONLY IF the filing discloses it or lets you quantify it. Set it to 0 ONLY when the filing AFFIRMATIVELY shows zero impermissible income. If the filing does NOT provide a separately quantifiable impermissible-income line, set impermissible_income to null (undetermined) — DO NOT default to 0: a false 0 produces a falsely-clean compliance verdict (the harness then reports 0% purification / fully compliant on data you never actually found). null is an ACCEPTED, complete answer; the harness fails closed to UNDETERMINED rather than clean. `
   + `The harness recomputes the AAOIFI debt/cash/impermissible ratios + verdict + purification % from the primary filings + market cap; do NOT compute the ratios yourself. `
-  + `EXAMPLE (shape only): {"sector_status":"compliant","impermissible_income":128.0}.`
+  + `EXAMPLE (disclosed): {"sector_status":"compliant","impermissible_income":128.0}. EXAMPLE (not separately disclosed): {"sector_status":"compliant","impermissible_income":null}.`
 
 // CIRCLE-OF-COMPETENCE judgment prompt (the sequential pre-deep-dive gate). The model must DEMONSTRATE
 // understanding, not assert it — and grounding BOTH clauses is the bar. Ungrounded = outside competence.

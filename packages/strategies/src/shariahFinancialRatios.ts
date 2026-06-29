@@ -27,6 +27,15 @@ export type ShariahFinancialRatioInputs = {
    * Interest-bearing debt, $millions (EDGAR total_debt). MISSING (`undefined`) is treated as 0 — a
    * company with no reported interest-bearing debt legitimately has a 0% debt ratio. An explicit
    * non-finite value (NaN) is a data-corruption signal and is rejected.
+   *
+   * FLAW-FAMILY NOTE (vs impermissible_income below): treating a MISSING debt/cash figure as 0 is
+   * defensible HERE because the EDGAR harness extracts total_debt / cash_and_securities STRUCTURALLY
+   * from the balance sheet — an absent value means the line is genuinely zero/near-zero, not "the
+   * model failed to find it". impermissible_income is the OPPOSITE: it is a MODEL JUDGMENT (interest
+   * income / prohibited-segment revenue the LLM reads out of the filing), so a missing value means
+   * "could not extract", and defaulting it to 0 fails OPEN (a falsely-clean 0% purification). That is
+   * why impermissible_income carries an explicit `null` undetermined state and is fail-CLOSED below,
+   * while debt/cash keep the missing→0 convention.
    */
   interest_bearing_debt: number | undefined
   /** Cash + interest-bearing securities, $millions (EDGAR cash_and_securities). MISSING → 0 (see above). */
@@ -35,8 +44,15 @@ export type ShariahFinancialRatioInputs = {
   total_revenue: number | undefined
   /** Market cap, $millions (current price × diluted shares; spec wants 36-mo avg — see caller TODO). REQUIRED. */
   market_cap: number | undefined
-  /** Impermissible income, $millions — the LLM SHARIAH lane's JUDGMENT (interest income etc.). */
-  impermissible_income: number
+  /**
+   * Impermissible income, $millions — the LLM SHARIAH lane's JUDGMENT (interest income etc.).
+   * `null` = UNDETERMINED: the filing does not separately disclose / the model could not extract a
+   * quantified impermissible-income line. FAIL-CLOSED — undetermined must NEVER compute a 0% (a false
+   * 0 produces a falsely-clean PASS / 0% purification); it returns computable:false so the caller
+   * surfaces an UNDETERMINED verdict instead of a clean 0%. A genuine 0 the model affirmatively
+   * verified is still a real value and computes normally.
+   */
+  impermissible_income: number | null
 }
 
 export type ShariahFinancialVerdict = 'PASS' | 'CONDITIONAL' | 'FAIL'
@@ -103,6 +119,14 @@ export function computeShariahFinancialRatios(
   const cash = cash_and_securities === undefined ? 0 : cash_and_securities
   if (!isNonNegativeFinite(cash)) {
     return { computable: false, reason: 'cash_and_securities is invalid (non-finite)' }
+  }
+  // FAIL-CLOSED on UNDETERMINED impermissible income. `null` = the SHARIAH lane could not extract /
+  // the filing does not separately disclose a quantified impermissible-income line. We must NOT treat
+  // that as 0 (which would compute a falsely-clean 0% purification / PASS — the compliance fail-OPEN);
+  // instead it is not-computable so the caller surfaces an UNDETERMINED verdict. A genuine numeric 0
+  // (the model affirmatively verified zero impermissible income) falls through and computes normally.
+  if (impermissible_income === null) {
+    return { computable: false, reason: 'impermissible_income undetermined' }
   }
   if (!isNonNegativeFinite(impermissible_income)) {
     return { computable: false, reason: 'impermissible_income is missing or invalid' }

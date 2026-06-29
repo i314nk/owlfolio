@@ -63,7 +63,6 @@ import { ingestManualSourceBundle } from './sourceLedger'
 import { resolveResearchStrategyRef } from './researchStrategyRef'
 import { buffettMungerStrategy, creditedGrowth, discountRate, moatPassesGate, ownerEarningsAtHorizon, stage1HorizonForMoat, terminalGrowthForMoat, twoStageValuation } from '@owlfolio/strategies/buffettMunger'
 import { computeShariahFinancialRatios } from '@owlfolio/strategies/shariahFinancialRatios'
-import { valuationSensitivity, type ValuationSensitivity } from '@owlfolio/strategies/valuationSensitivity'
 import { marketImpliedGrowth } from '@owlfolio/strategies/reverseDcf'
 // NOTE (R1): sustainableGrowthBand + requiredGrowthGap are no longer imported here — the relightened
 // decision stopped using the band/gap engines (they are deleted entirely in R2). The model now proposes
@@ -107,6 +106,7 @@ import {
   buildPrimaryFilingBlock,
   buildRecentFilingsBlock,
   buildPreVerifiedSourcesBlock,
+  buildQuickScreenFilingBlock,
   type MoatLaneJudgment,
   type ShariahLaneJudgment,
   type JudgmentDegraded,
@@ -377,6 +377,16 @@ function isOfflineTestMode(): boolean {
 }
 
 /**
+ * Annual-report forms the quick-screen pre-fetch accepts as the primary filing: 10-K (US), 20-F (foreign
+ * private issuers such as TSMC), 40-F (Canadian issuers). Selecting ACROSS these three forms — NOT 10-K
+ * only — is what lets an FPI like TSMC (a 20-F filer, the ticker that surfaced this grounding bug) ground.
+ * `Fundamentals.filings` is already filtered to exactly these forms and sorted newest-first, so the first
+ * match is the latest annual filing. (The deep-dive's existing 10-K-only `.find` is intentionally left
+ * unchanged in this slice — see the note at its call site.)
+ */
+const QUICK_SCREEN_ANNUAL_FORMS = new Set(['10-K', '20-F', '40-F'])
+
+/**
  * Resolve fundamentals for a ticker, fail-closed and test-mode-gated. Never throws — any error yields
  * undefined so the swarm runs exactly as today (no regression when EDGAR is down / ticker is non-US).
  */
@@ -512,36 +522,120 @@ export async function runStrategyResearchSwarm(
   let qs: GroundedAgentResult<z.infer<typeof QuickScreenAgentSchema>>
   // model-tiering: the quick screen runs on the `quick_screen` role (T2). Default = the run's provider/model.
   const quickScreenRuntime = resolveRoleRuntime('quick_screen', provider, command)
+
+  // ---- Pre-fetch + ground the primary filing for the quick-screen grounding firewall ----
+  // CRITICAL: the configured personal-local provider (`openai`) declares 'multi-step-tool-loop':
+  // 'unsupported', so runGroundedAgentWithTools below takes its DEGRADED (no-tools) fallback — the model
+  // cannot actually call search_filings / fetch_source. Tool-grounding alone therefore does NOT close the
+  // hole on the live provider. To ground the gate on a no-tools provider (the production path), the harness
+  // deterministically pre-fetches the latest ANNUAL filing, grounds it as a verified primary source, and
+  // INJECTS it as a PRE-VERIFIED-SOURCES block — exactly as the circle gate (:816) and the deep-dive lanes
+  // do. A loop-capable provider ALSO gets live fetch tools (the runGroundedAgentWithTools switch); a
+  // no-tools provider gets grounding purely from this injection. When fundamentals do NOT resolve
+  // (non-EDGAR name / EDGAR down) AND the provider has no tools, there is nothing verifiable to cite and
+  // the fail-closed check below correctly fails the gate closed.
+  const qsFundamentals = await resolveFundamentals(command.ticker, deps)
+  let qsPrimaryFilingSourceId: string | undefined
+  let qsPreVerifiedSourcesBlock: string | undefined
+  if (qsFundamentals !== undefined) {
+    // Select the latest ANNUAL filing ACROSS 10-K / 20-F / 40-F (NOT 10-K-only — TSMC files a 20-F).
+    // `filings` is already filtered to these forms and sorted newest-first, so the first match is latest.
+    const annual = qsFundamentals.filings.find((x) => QUICK_SCREEN_ANNUAL_FORMS.has(x.form))
+    if (annual !== undefined) {
+      const formSlug = annual.form.toLowerCase().replace(/[^a-z0-9]/g, '')
+      const sourceId = `sec_edgar_${formSlug}_${qsFundamentals.cik}_fy${qsFundamentals.latest_annual.fiscal_year}`
+      const proposed: ProposedSource = {
+        source_id: sourceId,
+        title: `${qsFundamentals.entity_name} ${annual.form} (FY${qsFundamentals.latest_annual.fiscal_year}) — SEC EDGAR`,
+        url: annual.url,
+        excerpt: `Primary SEC EDGAR ${annual.form} filing for ${qsFundamentals.entity_name} (CIK ${qsFundamentals.cik}), filed ${annual.filed}.`,
+      }
+      // Ground the filing through the SAME path as model-proposed sources (content-hash + SSRF guard).
+      const ground = deps.ground ?? groundProposedSources
+      const grounded = await ground([proposed], deps.grounding)
+      const captured = grounded.captured[0]
+      if (captured !== undefined && grounded.verified_ids.includes(sourceId)) {
+        remember([captured]) // part of the verified corpus from this point on
+        qsPrimaryFilingSourceId = sourceId
+        // QUICK-SCREEN-specific block (NOT buildPreVerifiedSourcesBlock): the quick-screen schema has no
+        // citation field, so a source_id must NEVER be put into proposed_sources. This block injects the
+        // verified filing's id (for reference) + the harness-fetched financials (to ground the worth-it
+        // read) and ends with the explicit "proposed_sources is REAL URLs only / empty [] is fine" rule.
+        qsPreVerifiedSourcesBlock = buildQuickScreenFilingBlock(qsFundamentals, sourceId)
+      }
+    }
+  }
+
   try {
-    qs = await runGroundedAgentWithRetry(quickScreenRuntime.provider, {
+    // GROUNDED quick screen: the gate grounds BOTH decisions (Shariah permissibility + worth-investigating)
+    // in the harness-verified primary filing — the injected PRE-VERIFIED-SOURCES block (works on every
+    // provider, tools or not) plus, on loop-capable providers, live search_filings / fetch_source. The
+    // harness post-hoc cite-verifies the captured sources; the fail-closed check below is the firewall.
+    const { degraded_no_tools: _qsDegraded, ...qsAgent } = await runGroundedAgentWithTools(quickScreenRuntime.provider, {
     run_id: `run_${command.research_case_id}_quick_screen`,
     model_id: quickScreenRuntime.model_id,
     prompt: `You are the Buffett-Munger quick-screen gate agent for ${command.ticker} (${command.company_id}). `
       + `This is a two-step gate — NOT a full analysis. Keep responses brief; the deep dive handles detail.\n\n`
-      + `STEP 1 — Shariah permissibility: assess whether the company's primary business is permissible under `
-      + `Islamic finance principles. If the core business is clearly haram (e.g. conventional banking, alcohol, `
-      + `weapons, tobacco, adult content), set shariah_status to 'NON_COMPLIANT' and screening_result to 'reject'. `
-      + `If the business is clearly halal or the status is uncertain/conditional, set shariah_status accordingly `
-      + `('COMPLIANT', 'CONDITIONAL', or 'PENDING') and continue to step 2.\n\n`
-      + `STEP 2 (only if not NON_COMPLIANT) — Business quality worth-investigating check: is this company `
-      + `worth a deep dive under Buffett-Munger criteria? If clearly inadequate (e.g. no durable business, `
-      + `chronic losses, terminal industry), set screening_result to 'reject'. Otherwise set screening_result `
-      + `to 'deep_dive_candidate'.\n\n`
-      + `Return a brief assessment in each field. Do NOT perform per-dimension deep analysis — that is the deep dive's job. `
-      + `Gather primary/secondary sources and return them in proposed_sources with real URLs.`,
+      + `GROUND YOURSELF IN THE PRIMARY FILING BEFORE JUDGING — do NOT judge from your prior knowledge of `
+      + `the brand. A harness-verified copy of the company's latest annual filing is provided below (see `
+      + `HARNESS PRE-VERIFIED PRIMARY FILING, when present): ground BOTH gate judgments in it — STEP 1 in its `
+      + `described business activities / revenue mix, STEP 2 in the harness-fetched financials shown there. `
+      + `That filing is ALREADY harness-verified, so you do NOT need to fetch or propose anything to be `
+      + `grounded. If grounded fetch tools are available you MAY additionally call search_filings (10-K for US `
+      + `issuers, 20-F for foreign private issuers such as TSMC, 40-F for Canadian issuers) and fetch_source `
+      + `to read more, but it is optional. Reading ONE primary filing is enough for this fast gate.\n\n`
+      + `STEP 1 — Shariah permissibility: based on the filing's DESCRIBED business activities and revenue `
+      + `mix, assess whether the company's primary business is permissible under Islamic finance principles. `
+      + `If the core business is clearly haram (e.g. conventional banking, alcohol, weapons, tobacco, adult `
+      + `content), set shariah_status to 'NON_COMPLIANT' and screening_result to 'reject'. If the business is `
+      + `clearly halal or the status is uncertain/conditional, set shariah_status accordingly ('COMPLIANT', `
+      + `'CONDITIONAL', or 'PENDING') and continue to step 2.\n\n`
+      + `STEP 2 (only if not NON_COMPLIANT) — Business quality worth-investigating check, grounded in the `
+      + `filing: is this company worth a deep dive under Buffett-Munger criteria? If clearly inadequate (e.g. `
+      + `no durable business, chronic losses, terminal industry), set screening_result to 'reject'. Otherwise `
+      + `set screening_result to 'deep_dive_candidate'.\n\n`
+      + `Return a brief assessment in each field. Do NOT perform per-dimension deep analysis — that is the `
+      + `deep dive's job. proposed_sources is for REAL fetched URLs ONLY — NEVER put a source_id or an `
+      + `invented URL there; if you fetched no additional real URL, return proposed_sources as an empty array `
+      + `[] (the pre-verified filing already grounds this gate).`
+      // Inject the harness's QUICK-SCREEN-specific pre-verified filing block (financials + the empty-
+      // proposed_sources rule). NOT buildPreVerifiedSourcesBlock — the quick-screen schema has no citation
+      // field, so a source_id must never be routed into proposed_sources (the invalid-URL regression).
+      + (qsPreVerifiedSourcesBlock ?? ''),
     timeout_ms: AGENT_TIMEOUT_MS,
     schema_name: 'BuffettMungerQuickScreen',
-    }, QuickScreenAgentSchema, deps)
+    }, QuickScreenAgentSchema, {
+      ...(deps.ground === undefined ? {} : { ground: deps.ground }),
+      ...(deps.grounding === undefined ? {} : { grounding: deps.grounding }),
+      ...(deps.fetchFundamentals === undefined ? {} : { fetchFundamentals: deps.fetchFundamentals }),
+      ...(deps.maxToolCalls === undefined ? {} : { maxToolCalls: deps.maxToolCalls }),
+    })
+    void _qsDegraded
+    qs = qsAgent
   } catch (error) {
-    // Quick-screen retry exhausted: fail the run cleanly (no lanes ran yet) rather than throw a raw
+    // Quick-screen tool loop failed: fail the run cleanly (no lanes ran yet) rather than throw a raw
     // provider/timeout error past the swarm boundary. The worker records this as research_run_failed.
+    // (The circle gate relies on this same stage-error path — there is no bespoke retry here.)
     throw new ResearchSwarmStageError('quick_screen', error, { lanes_completed: false })
   }
   remember(qs.captured)
 
-  // I1: fail-closed if quick screen produced no verifiable sources
+  // The harness pre-fetched primary filing is grounded by the harness (not the agent loop), so fold its id
+  // into the gate's verified set: the model was instructed to cite it via the injected block, but on a
+  // no-tools provider the harness grounding is the authoritative anchor. This is what puts the injected
+  // filing id in verified_ids (→ the fail-closed firewall counts it, draftQuickScreen records it, and the
+  // dossier source-count reflects it) on the production no-tools path.
+  if (qsPrimaryFilingSourceId !== undefined && !qs.verified_ids.includes(qsPrimaryFilingSourceId)) {
+    qs.verified_ids = [qsPrimaryFilingSourceId, ...qs.verified_ids]
+  }
+
+  // I1: fail-closed if the quick screen grounded in ZERO content-hash-verified sources — i.e. neither the
+  // harness pre-fetch nor the model produced a verifiable primary source. This is the grounding firewall:
+  // the gate may only proceed when its judgments are anchored to ≥1 verified source, not the training prior.
+  // RESIDUAL: a non-EDGAR name (GCC/private filer EDGAR cannot resolve) on a no-tools provider has nothing
+  // to ground → fails closed here. That is the correct, safe outcome, not a regression.
   if (qs.verified_ids.length === 0) {
-    throw new Error(`Quick screen for ${command.ticker} produced no verifiable sources (fail-closed).`)
+    throw new Error(`Quick screen for ${command.ticker} produced no verifiable grounded sources (fail-closed).`)
   }
 
   const quickScreen = await draftQuickScreen(store, {
@@ -855,6 +949,9 @@ export async function runResearchDeepDivePhase(
   let primaryFilingBlock: string | undefined
   let primaryFilingSourceId: string | undefined
   if (fundamentals !== undefined) {
+    // NOTE: this is 10-K-ONLY and would miss a 20-F/40-F filer (e.g. TSMC). The quick-screen pre-fetch
+    // selects across all three annual forms (QUICK_SCREEN_ANNUAL_FORMS); broadening this deep-dive line is
+    // intentionally OUT OF SCOPE for this slice (it would shift the lane filing-block + sourceId shape).
     const tenK = fundamentals.filings.find((x) => x.form === '10-K')
     if (tenK !== undefined) {
       const sourceId = `sec_edgar_10k_${fundamentals.cik}_fy${fundamentals.latest_annual.fiscal_year}`
@@ -1240,7 +1337,9 @@ export async function runResearchDeepDivePhase(
     if (lane === 'shariah') {
       const shariahRequired: RequiredFieldCheck<z.infer<typeof ShariahLaneSchema>>[] = [
         { name: 'sector_status', present: (a) => a.sector_status !== undefined, hint: "'compliant' | 'conditional' | 'non_compliant' confirmed with segment revenue" },
-        { name: 'impermissible_income', present: (a) => a.impermissible_income !== undefined, hint: 'non-permissible income in $MILLIONS (0 if fully permissible)' },
+        // null (undetermined — not separately disclosed) is an ACCEPTED, complete answer and counts as
+        // PRESENT; only a truly ABSENT field (undefined) triggers the retry/fallback. DO NOT guess 0.
+        { name: 'impermissible_income', present: (a) => a.impermissible_income !== undefined, hint: 'non-permissible income in $MILLIONS (0 ONLY if affirmatively zero; null if not separately disclosed — do NOT guess 0)' },
       ]
       const validated = await runValidatedAgent(laneRuntime.provider, {
         run_id: baseRunId,
@@ -2141,18 +2240,10 @@ export async function runResearchDeepDivePhase(
   const valuation_multiple_ceiling = buffettMungerStrategy.valuation.valuation_multiple_ceiling
 
   const valuationCaveats: string[] = []
-  let fair_value_per_share: number | undefined
   let implied_multiple: number | undefined
   let terminal_growth_rate: number | undefined
   let terminal_value_pct_of_iv: number | undefined
   let cap_exceeded = false
-  // Phase 2 (reverse-DCF + sensitivity wiring): a low/base/high fair-value RANGE and the cap-binding
-  // flag. Computed inside the valuation block when a point FV is produced; market-implied growth is
-  // computed later (needs the resolved current price). Presentation/attachment only — no math change.
-  let valuationSensitivityResult: ValuationSensitivity | undefined
-  let fair_value_range: string | undefined
-  let fair_value_range_basis: string | undefined
-  let valuation_cap_binding: boolean | undefined
 
   // NOTE (R1): maintenance-capex confidence was a widening input for the retired required_growth_gap engine
   // (deleted in R2). The relightened decision no longer widens a deterministic conservatism knob — the
@@ -2172,11 +2263,6 @@ export async function runResearchDeepDivePhase(
     ? demonstratedOwnerEarningsGrowth(fundamentals.annual_series)
     : undefined
   const demonstrated_growth = demonstratedGrowthResult?.growth ?? 0
-  // Phase 2 sensitivity inputs: usable owner-earnings history depth + whether the robust slope diverged
-  // from the Theil–Sen cross-check (high dispersion). Both widen the fair-value band (honest uncertainty).
-  const demonstrated_points_used = demonstratedGrowthResult?.points_used ?? 0
-  const demonstrated_high_dispersion =
-    demonstratedGrowthResult?.flags.some((f) => /dispersion/i.test(f)) ?? false
   if (demonstratedGrowthResult !== undefined) {
     for (const flag of demonstratedGrowthResult.flags) {
       degradedFlags.push(`demonstrated_growth: ${flag}`)
@@ -2253,15 +2339,13 @@ export async function runResearchDeepDivePhase(
     // Stage-1 horizon — UNIFORM 10 yrs for every investable moat (F.13); the moatClass arg validates the gate.
     const horizon = stage1HorizonForMoat(buffettMungerStrategy, moatClass)
     // terminal_growth_rate is the per-moat Gordon stage; set it WHENEVER the gate passes with a usable OE/sh,
-    // independent of whether a headline FV is produced — the §2 reference FV, implied_exit_multiple, and the
-    // reverse-DCF market_implied_growth all consume it (they fail-closed on undefined otherwise).
+    // independent of whether a headline FV is produced — implied_exit_multiple and the reverse-DCF
+    // market_implied_growth both consume it (they fail-closed on undefined otherwise).
     terminal_growth_rate = terminal_g
-    // HEADLINE forward-DCF — the CONSOLIDATED single forward-DCF reference, computed from the MODEL's cited
-    // assumed_growth (headline_growth), NOT the capped credited-g. This is the SAME value the §2
-    // reference_fair_value computes; we compute it ONCE here so there is one forward-DCF FV from one grounded
-    // growth (no two competing FVs). Labelled a SECONDARY reference (market-implied growth is the primary
-    // lens). Computed only when assumed_growth is grounded + usable (A1); an ungrounded assumed_growth leaves
-    // the headline FV undefined (degrade per A1 — we do NOT fall back to credited-g as the headline).
+    // INTERNAL forward-DCF (NOT surfaced): computed from the MODEL's cited assumed_growth (headline_growth)
+    // ONLY to derive the implied_multiple + the terminal-share / cap sanity flags. The dollar fair value
+    // itself is no longer emitted or displayed (forward-DCF removal). Computed only when assumed_growth is
+    // grounded + usable (A1); an ungrounded assumed_growth leaves it undefined.
     if (headline_growth !== undefined) {
     // Phase 1.5/1.6: rich two-stage valuation — surfaces terminal_value_pct_of_iv, flags cap_exceeded
     // (no silent truncation), and discards only an absurd (units-bug) value.
@@ -2283,7 +2367,8 @@ export async function runResearchDeepDivePhase(
         `Valuation discarded: computed fair value per share (${computedFairValue !== undefined && Number.isFinite(computedFairValue) ? computedFairValue.toFixed(2) : 'non-finite/absurd'}) is implausible — owner-earnings inputs likely mis-scaled. No buy price emitted.`,
       )
     } else {
-      fair_value_per_share = computedFairValue
+      // forward-DCF removal: the dollar forward FV is no longer surfaced; it is used here ONLY to derive the
+      // implied_multiple ratio + the terminal-share / cap sanity flags.
       implied_multiple = computedFairValue / normalized_owner_earnings_per_share
       // Phase 1.5: flag a high terminal-value share (the dominant uncertainty).
       const highTvShare = terminal_value_pct_of_iv > buffettMungerStrategy.valuation.terminal_value_share_flag
@@ -2312,47 +2397,13 @@ export async function runResearchDeepDivePhase(
       // market-implied growth rises to the buy-threshold (band_low − required_gap). It is derived below,
       // once the sustainable-growth band and required gap are computed (see the verdict-band section).
 
-      // ---- Phase 2: sensitivity RANGE around the HEADLINE FV (attachment/presentation only) ----
-      // A low/base/high fair-value band straddling the HEADLINE growth (the model's assumed_growth), so the
-      // band's base equals fair_value_per_share (consolidated — one forward-DCF from one grounded growth).
-      // The band WIDTH still widens with the demonstrated growth measure's own uncertainty (thin history /
-      // dispersion) — the honest history-depth signal. We pass the SAME oe_ps, terminal, discount and horizon
-      // the point valuation used. The math (cap, fade, discount) is unchanged.
-      valuationSensitivityResult = valuationSensitivity(buffettMungerStrategy, {
-        oe_ps: normalized_owner_earnings_per_share,
-        demonstrated_growth: headline_growth,
-        points_used: demonstrated_points_used,
-        high_dispersion: demonstrated_high_dispersion,
-        terminal_g,
-        discount,
-        horizon,
-      })
-      valuation_cap_binding = valuationSensitivityResult.cap_binding
-      if (
-        valuationSensitivityResult.computable
-        && valuationSensitivityResult.fair_value_low !== undefined
-        && valuationSensitivityResult.fair_value_base !== undefined
-        && valuationSensitivityResult.fair_value_high !== undefined
-      ) {
-        const lo = Math.round(valuationSensitivityResult.fair_value_low)
-        const base = Math.round(valuationSensitivityResult.fair_value_base)
-        const hi = Math.round(valuationSensitivityResult.fair_value_high)
-        fair_value_range = `$${lo}–$${hi} (base $${base})`
-        // Honest "why is the range wide" note: a wide band (≳40%) driven by thin usable owner-earnings
-        // history and/or dispersion → say so, so a thin-history name reads as uncertain, not precise.
-        const rangePct = valuationSensitivityResult.range_pct
-        const pts = valuationSensitivityResult.uncertainty.points_used
-        if (rangePct !== undefined && rangePct >= 0.40) {
-          const causes: string[] = []
-          if (pts > 0 && pts < 8) causes.push(`only ${pts} years of usable owner-earnings history`)
-          if (valuationSensitivityResult.uncertainty.high_dispersion) causes.push('high growth dispersion')
-          fair_value_range_basis = causes.length > 0
-            ? `Range is wide (±${Math.round((rangePct / 2) * 100)}%) because ${causes.join(' and ')} anchor the growth estimate — treat it as honestly uncertain, not precise.`
-            : `Range spans ±${Math.round((rangePct / 2) * 100)}% — treat the base as a central estimate, not a precise target.`
-        }
-      }
+      // forward-DCF removal: the forward two-stage DCF "reference fair value" (the dollar fair_value_per_share
+      // / reference_fair_value / fair_value_range band) is no longer surfaced — it read as a contradiction
+      // against the model's buy-below. The reverse-DCF (market-implied growth) is the kept valuation lens. The
+      // forward FV is still computed internally above ONLY to derive the implied_multiple + the terminal-share
+      // / cap sanity flags; it is never emitted or displayed.
     }
-    } // end if (headline_growth !== undefined) — the headline forward-DCF FV from the model's assumed growth
+    } // end if (headline_growth !== undefined) — internal forward-DCF for the implied multiple + sanity flags
   }
 
   // ---- Market cap + harness-computed AAOIFI Shariah FINANCIAL ratios ----
@@ -2463,6 +2514,14 @@ export async function runResearchDeepDivePhase(
         bridge_source_fiscal_year?: number
       }
     | undefined
+  // FAIL-CLOSED on UNDETERMINED impermissible income. The lane emits impermissible_income = null when it
+  // could NOT extract / the filing does not separately disclose a quantified impermissible-income line.
+  // That is a DETERMINED-AS-UNDETERMINED answer (not an omission) — the harness must NOT compute a clean
+  // 0% purification from it (the compliance fail-OPEN bug). It flows to computeShariahFinancialRatios as
+  // null → computable:false → shariah_financial stays undefined → the verdict is UNDETERMINED, never a
+  // silent 0%/COMPLIANT.
+  const impermissibleIncomeUndetermined =
+    shariahJudgment !== undefined && shariahJudgment.impermissible_income === null
   // When EDGAR + market cap + the Shariah overlay are all present but the ratios still come back
   // not-computable (e.g. missing revenue → divide-by-zero), capture WHY so the genuinely-not-computable
   // branch surfaces a visible shariah_ratios_unverified flag (the dogfood had NO flag here).
@@ -2510,6 +2569,17 @@ export async function runResearchDeepDivePhase(
       + 'overlay (sector_status + impermissible_income), so the harness did NOT recompute the AAOIFI '
       + 'debt/cash/impermissible ratios; the Shariah verdict fell back to the lane (quick-screen) judgment.',
     )
+  } else if (impermissibleIncomeUndetermined) {
+    // FAIL-CLOSED: the lane reported impermissible_income = null (undetermined — the filing does not
+    // separately disclose / it could not be quantified). The Shariah verdict is UNDETERMINED, NOT a
+    // clean 0% purification. Surface it explicitly so the human knows what to obtain before treating the
+    // name as compliant.
+    degradedFlags.push(
+      'shariah_ratios_unverified: impermissible_income_undetermined — the filing does not disclose / the '
+      + 'lane could not quantify a separate impermissible-income line, so the harness did NOT compute the '
+      + 'AAOIFI impermissible-income ratio. Purification CANNOT be determined; obtain the interest-income / '
+      + 'prohibited-revenue figure before treating this name as clean (it is NOT 0% / fully compliant).',
+    )
   } else if (
     market_cap === undefined
     && fundamentals?.latest_annual !== undefined
@@ -2544,8 +2614,6 @@ export async function runResearchDeepDivePhase(
   // longer DECIDE the verdict — they are deleted in R2; here we simply STOP using them.
   //
   //   buy_below            = the MODEL's proposed_buy_below (recorded VERBATIM — NOT derived from any FV).
-  //   reference_fair_value = twoStageValuation at the model's assumed_growth + owner-earnings basis — a
-  //                          CROSS-CHECK reference ONLY (NOT the decision driver, NOT the buy-below source).
   //   market_implied_growth = the reverse-DCF of today's price (computed above) — the crazy-detector.
   //   sanity_flags[]       = flag-only absurdity checks (SYMMETRIC: catches both an over-optimistic and an
   //                          over-pessimistic model read). NEVER blocks the verdict.
@@ -2558,42 +2626,10 @@ export async function runResearchDeepDivePhase(
   const assumed_growth = dr?.assumed_growth
   const valuation_status = dec.analysis.valuation_status
 
-  // reference_fair_value — the CONSOLIDATED forward-DCF reference at the MODEL's assumed growth. After the
-  // headline inversion the HEADLINE fair_value_per_share IS the forward-DCF at assumed_growth, so the
-  // reference equals it (one forward-DCF from one grounded growth — no two competing FVs). When the headline
-  // FV was produced we surface it (rounded) as the reference; otherwise we fail-closed to recomputing it from
-  // assumed_growth on the SAME basis (e.g. an edge case where the headline branch did not run). This is a
-  // REFERENCE only — it never feeds the verdict or the buy-below.
-  // A1 SYMMETRY: the reference FV CONSUMES the model's assumed_growth, so it is gated on the SAME
-  // cite-verified-assumed-growth signal the headline uses (headline_growth !== undefined, i.e.
-  // assumedGrowthUsable — grounding met). When the assumed_growth is present but ungrounded the headline FV
-  // is already undefined; we must NOT fall back to recomputing a reference from the ungrounded growth
-  // (that would be confident output on ungrounded input). Both branches require the grounded signal.
-  let reference_fair_value: number | undefined
-  if (headline_growth !== undefined && fair_value_per_share !== undefined && Number.isFinite(fair_value_per_share) && fair_value_per_share > 0) {
-    reference_fair_value = Math.round(fair_value_per_share * 100) / 100
-  } else if (
-    headline_growth !== undefined
-    && normalized_owner_earnings_per_share !== undefined
-    && normalized_owner_earnings_per_share > 0
-    && terminal_growth_rate !== undefined
-    && assumed_growth !== undefined
-    && Number.isFinite(assumed_growth)
-  ) {
-    const refHorizon = stage1HorizonForMoat(buffettMungerStrategy, moatClass)
-    const refFv = twoStageValuation({
-      oe_ps: normalized_owner_earnings_per_share,
-      g: assumed_growth,
-      terminal_g: terminal_growth_rate,
-      discount,
-      ceiling_multiple: valuation_multiple_ceiling,
-      absurd_multiple: buffettMungerStrategy.valuation.fv_absurd_multiple,
-      horizon: refHorizon,
-    }).fair_value
-    if (refFv !== undefined && Number.isFinite(refFv) && refFv > 0 && refFv <= MAX_PLAUSIBLE_FAIR_VALUE_PER_SHARE) {
-      reference_fair_value = Math.round(refFv * 100) / 100
-    }
-  }
+  // forward-DCF removal: the forward two-stage DCF "reference fair value" (a dollar cross-check FV at the
+  // model's assumed growth) is no longer computed or surfaced — a dollar reference FV below the model's
+  // buy-below read as a contradiction. The reverse-DCF market-implied growth (computed above) is the kept
+  // valuation lens; the buy-below is the model's own number.
 
   // buy_below = the MODEL's proposed number (NOT a derived FV). Recorded verbatim when finite + positive.
   const buy_below = (typeof dec.analysis.proposed_buy_below === 'number'
@@ -2654,15 +2690,15 @@ export async function runResearchDeepDivePhase(
   // ---- sanity_flags: SYMMETRIC, flag-only absurdity detector (NEVER blocks the verdict) ----
   // It must catch BOTH an over-optimistic and an over-pessimistic model read:
   //   - market-implied growth above a sane bound (reverse-DCF above_cap / above_gdp);
-  //   - the reference FV's terminal-value share above the configured flag threshold;
-  //   - the reference implied multiple above the fv_cap_multiple (cap_exceeded);
   //   - status ATTRACTIVE while the market already prices implausibly-high growth (over-optimistic);
   //   - status EXPENSIVE while the market implies only modest growth (over-pessimistic — re-check);
   //   - the model's proposed_buy_below implies (reverse-DCF at that price) an absurd growth.
+  // (forward-DCF removal: the old reference-FV terminal-share + reference-FV-cap-multiple sanity flags —
+  // which compared against the now-removed dollar reference fair value — are dropped. The reverse-DCF +
+  // exit-multiple sanity outputs below are the kept lens.)
   const sanity_flags: string[] = []
   const singleGrowthCap = buffettMungerStrategy.valuation.single_growth_cap
   const gdpThreshold = buffettMungerStrategy.valuation.gdp_growth_threshold
-  const tvShareFlag = buffettMungerStrategy.valuation.terminal_value_share_flag
   const fvCapMultiple = valuation_multiple_ceiling
 
   // (a) market-implied growth above a sane bound.
@@ -2672,41 +2708,6 @@ export async function runResearchDeepDivePhase(
       + `owner-earnings growth — above the ${(singleGrowthCap * 100).toFixed(0)}% forecasting-humility cap. The market `
       + `already prices in growth the method would refuse to underwrite; treat the price as rich.`,
     )
-  }
-
-  // (b) reference FV terminal-value share too high (the reference estimate is mostly a distant guess).
-  if (
-    reference_fair_value !== undefined
-    && normalized_owner_earnings_per_share !== undefined
-    && normalized_owner_earnings_per_share > 0
-    && terminal_growth_rate !== undefined
-    && assumed_growth !== undefined
-  ) {
-    const refHorizon = stage1HorizonForMoat(buffettMungerStrategy, moatClass)
-    const refResult = twoStageValuation({
-      oe_ps: normalized_owner_earnings_per_share,
-      g: assumed_growth,
-      terminal_g: terminal_growth_rate,
-      discount,
-      ceiling_multiple: valuation_multiple_ceiling,
-      absurd_multiple: buffettMungerStrategy.valuation.fv_absurd_multiple,
-      horizon: refHorizon,
-    })
-    if (refResult.terminal_value_pct_of_iv > tvShareFlag) {
-      sanity_flags.push(
-        `sanity_reference_terminal_share_high: the reference cross-check FV at the model's ${(assumed_growth * 100).toFixed(1)}% `
-        + `assumed growth is ${(refResult.terminal_value_pct_of_iv * 100).toFixed(0)}% terminal value (> ${(tvShareFlag * 100).toFixed(0)}%) — most of the `
-        + `reference is a distant-future guess. Re-check the model's growth assumption.`,
-      )
-    }
-    // (c) reference implied multiple above the fv cap (the reference FV is richer than the sanity cap).
-    const refMultiple = reference_fair_value / normalized_owner_earnings_per_share
-    if (refMultiple > fvCapMultiple) {
-      sanity_flags.push(
-        `sanity_reference_cap_exceeded: the reference cross-check FV implies ${refMultiple.toFixed(1)}× owner earnings `
-        + `(> ${fvCapMultiple}× sanity cap) at the model's assumed growth — re-check the growth/terminal inputs.`,
-      )
-    }
   }
 
   // (d/e) SYMMETRIC valuation_status vs evidence contradiction (both directions).
@@ -3016,7 +3017,11 @@ export async function runResearchDeepDivePhase(
         // (vs genuinely narrow) — verdict routed to RESEARCH_MORE. Surfaced like synthesis_grounding_unmet.
         ...(moat_grounding_unmet ? { moat_grounding_unmet: true } : {}),
         ...(moatGroundingReason !== undefined ? { moat_grounding_reason: moatGroundingReason } : {}),
-        ...(fair_value_per_share !== undefined ? { fair_value_per_share } : {}),
+        // forward-DCF removal: fair_value_per_share / reference_fair_value / fair_value_range /
+        // fair_value_range_basis / valuation_cap_binding (the dollar forward two-stage DCF "reference fair
+        // value" and its band) are NO LONGER emitted — a dollar reference FV below the model's buy-below read
+        // as a contradiction. implied_multiple (a ratio derived from the internal forward FV) is kept, as are
+        // the reverse-DCF market_implied_growth + implied_exit_multiple — the kept valuation lens.
         ...(implied_multiple !== undefined ? { implied_multiple } : {}),
         ...(terminal_value_pct_of_iv !== undefined ? { terminal_value_pct_of_iv } : {}),
         ...(cap_exceeded ? { cap_exceeded: true } : {}),
@@ -3024,22 +3029,13 @@ export async function runResearchDeepDivePhase(
         // verbatim — NOT a derived FV). The band/gap engines no longer source it. proposed_buy_below
         // mirrors it as the explicit model-provenance field.
         ...(buy_below !== undefined ? { buy_price_per_share: buy_below, proposed_buy_below: buy_below } : {}),
-        // Phase 2: the fair-value RANGE (low–high, base) — the dossier leads with this instead of the
-        // point FV. Omitted when not computable (point FV still stands as the base).
-        ...(fair_value_range !== undefined ? { fair_value_range } : {}),
-        ...(fair_value_range_basis !== undefined ? { fair_value_range_basis } : {}),
         // Phase 2: the near-term growth TODAY'S PRICE implies (reverse-DCF) — the crazy-detector. Omitted
         // when no price.
         ...(market_implied_growth !== undefined ? { market_implied_growth } : {}),
-        // Phase 2: the base FV is cap-LIMITED (demonstrated growth above the named cap), not estimate-limited.
-        ...(valuation_cap_binding ? { valuation_cap_binding: true } : {}),
         // RELIGHTENED DECISION (R1) — the deterministic sanity layer (flag-only, NEVER blocks the verdict):
-        //   reference_fair_value = forward-DCF cross-check at the MODEL's assumed growth (a reference, not the
-        //     decision driver, not the buy-below source);
         //   in_buy_zone          = pure arithmetic current_price <= buy_below;
         //   sanity_flags[]       = SYMMETRIC absurdity flags (over-optimistic + over-pessimistic catches);
         //   valuation_reasoning  = the MODEL's cited valuation basis (it shows its work).
-        ...(reference_fair_value !== undefined ? { reference_fair_value } : {}),
         ...(in_buy_zone !== undefined ? { in_buy_zone } : {}),
         // implied_exit_multiple = current price / forward owner earnings (OE grown to the explicit horizon at
         // the MODEL's assumed growth; no discount-compounding factor) — the exit P/OE the live price requires;
@@ -3090,6 +3086,10 @@ export async function runResearchDeepDivePhase(
       // computable (EDGAR/market-cap/impermissible-income missing) — caller falls back to lane verdict.
       ...(shariah_financial !== undefined ? { shariah_financial } : {}),
       ...(shariahJudgment !== undefined ? { shariah_sector_status: shariahJudgment.sector_status } : {}),
+      // FAIL-CLOSED marker: the lane reported impermissible_income = null (undetermined), so the AAOIFI
+      // impermissible ratio + purification % could NOT be computed. Surfaced so the dossier renders the
+      // UNDETERMINED state honestly ("purification cannot be determined"), never a falsely-clean 0%.
+      ...(impermissibleIncomeUndetermined ? { shariah_impermissible_income_undetermined: true } : {}),
       // Mechanism 6: source-discipline summary — which lane-proposed sources the per-lane whitelist
       // rejected (count + per-lane/reason). Surfaced so a starved lane is visible, never hidden.
       ...(sourcePolicyRejections.length > 0
@@ -3154,8 +3154,14 @@ export async function runResearchDeepDivePhase(
         : shariah_financial.verdict === 'CONDITIONAL' ? 'CONDITIONAL'
         : 'NON_COMPLIANT')
       : undefined
-  const analysisShariahStatusForPhase: 'COMPLIANT' | 'CONDITIONAL' | 'NON_COMPLIANT' | 'UNKNOWN' =
+  // FAIL-CLOSED: a non_compliant SECTOR is a hard stop (NON_COMPLIANT). Otherwise, when impermissible
+  // income is UNDETERMINED (lane returned null) the status is a DISTINCT 'UNDETERMINED' — NOT a clean
+  // COMPLIANT and NOT a silent 0% purification; purification cannot be determined until the impermissible-
+  // income figure is obtained. Only with a real (computable) verdict does the harness status supersede the
+  // lane's proposed (quick-screen) status.
+  const analysisShariahStatusForPhase: 'COMPLIANT' | 'CONDITIONAL' | 'NON_COMPLIANT' | 'UNDETERMINED' | 'UNKNOWN' =
     sectorHardStop ? 'NON_COMPLIANT'
+    : impermissibleIncomeUndetermined ? 'UNDETERMINED'
     : harnessFinancialStatus ?? laneShariahStatus
 
   const analysisFinalPayload = {

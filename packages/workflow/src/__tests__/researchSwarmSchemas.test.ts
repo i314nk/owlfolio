@@ -1,5 +1,38 @@
 import { describe, expect, it } from 'vitest'
-import { DecisionAgentSchema, VALUATION_LANE_DISCOUNT_NOTE } from '../researchSwarmSchemas'
+import { DecisionAgentSchema, SHARIAH_OVERLAY_PROMPT, ShariahLaneSchema, VALUATION_LANE_DISCOUNT_NOTE } from '../researchSwarmSchemas'
+
+// Fail-CLOSED Shariah overlay: impermissible_income is nullable so the lane can signal UNDETERMINED
+// (the filing does not separately disclose it) instead of a falsely-clean 0. null is an ACCEPTED,
+// complete value; the harness fails closed to UNDETERMINED rather than computing a 0% purification.
+describe('ShariahLaneSchema impermissible_income (nullable = undetermined, fail-closed)', () => {
+  const base = {
+    finding_summary: 's',
+    confidence: 'medium' as const,
+    caveats: ['c'],
+    proposed_sources: [{ source_id: 'src_1', title: 'T', url: 'https://www.sec.gov/x', excerpt: 'e' }],
+    sector_status: 'compliant' as const,
+  }
+
+  it('accepts null (undetermined — not separately disclosed) as a present, valid value', () => {
+    const parsed = ShariahLaneSchema.safeParse({ ...base, impermissible_income: null })
+    expect(parsed.success).toBe(true)
+    if (parsed.success) expect(parsed.data.impermissible_income).toBeNull()
+  })
+
+  it('accepts a genuine 0 and a genuine positive (unchanged)', () => {
+    expect(ShariahLaneSchema.safeParse({ ...base, impermissible_income: 0 }).success).toBe(true)
+    expect(ShariahLaneSchema.safeParse({ ...base, impermissible_income: 128 }).success).toBe(true)
+  })
+
+  it('rejects a negative impermissible income', () => {
+    expect(ShariahLaneSchema.safeParse({ ...base, impermissible_income: -1 }).success).toBe(false)
+  })
+
+  it('instructs the model to use null (not 0) when the line cannot be quantified', () => {
+    expect(SHARIAH_OVERLAY_PROMPT).toMatch(/null/)
+    expect(SHARIAH_OVERLAY_PROMPT).toMatch(/do NOT default to 0/i)
+  })
+})
 
 // RELIGHTENED DECISION (R1): the model OWNS the valuation. The decision agent now emits proposed_buy_below
 // (the price below which it would buy — recorded verbatim, NOT a derived FV) and valuation_reasoning (the
