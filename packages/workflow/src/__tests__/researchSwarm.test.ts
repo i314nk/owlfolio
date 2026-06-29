@@ -2303,6 +2303,10 @@ const costFundamentals: Fundamentals = {
   filings: [
     { form: '10-K', filed: '2025-10-08', url: 'https://www.sec.gov/Archives/edgar/data/909832/000090983225000101/cost-20250831.htm' },
   ],
+  recent_filings: [
+    { form: '8-K', filed: '2026-01-15', url: 'https://www.sec.gov/Archives/edgar/data/909832/000090983226000010/cost-8k.htm' },
+    { form: '10-Q', filed: '2025-12-10', url: 'https://www.sec.gov/Archives/edgar/data/909832/000090983225000120/cost-10q.htm' },
+  ],
 }
 
 // Ground fn that verifies every proposed source (including the injected EDGAR 10-K).
@@ -2463,6 +2467,72 @@ describe('SEC EDGAR primary-filing wiring', () => {
     }
     const prompts = provider.structured.mock.calls.map((c: unknown[]) => (c[0] as { prompt?: string }).prompt).filter((p): p is string => typeof p === "string")
     expect(prompts.every((p) => !p.includes('Primary filing data (SEC EDGAR'))).toBe(true)
+  })
+})
+
+describe('Slice B: recent interim filings (8-K / 10-Q narrative)', () => {
+  // Ground that verifies everything EXCEPT the recent interim filings (to exercise the fail-closed path).
+  function groundExceptRecent(): GroundFn {
+    return (async (sources: { source_id: string }[]) => ({
+      captured: sources.map((s) => ({
+        source_id: s.source_id, title: 't', url: 'https://example.com/x', excerpt: 'e',
+        availability: 'available' as const, fetched_at: 'x', content_hash: 'sha256:1',
+      })),
+      verified_ids: sources.filter((s) => !s.source_id.startsWith('sec_edgar_recent_')).map((s) => s.source_id),
+    })) as unknown as GroundFn
+  }
+
+  function promptsFrom(provider: ReturnType<typeof swarmFakeProvider>): string[] {
+    return provider.structured.mock.calls.map((c: unknown[]) => (c[0] as { prompt?: string }).prompt).filter((p): p is string => typeof p === 'string')
+  }
+
+  it('grounds 8-K + 10-Q and surfaces them as read_source affordances to the QUALITATIVE lanes only', async () => {
+    const store = new InMemoryEventStore()
+    await seedDeepDivePrereqs(store)
+    const provider = swarmFakeProvider()
+    await provider.structured({} as never) // skip quick screen
+
+    await runResearchDeepDivePhase(store, provider as never, deepDiveCommand(), {
+      ground: verifyAllGround(), laneConcurrency: 7, fundamentals: costFundamentals,
+    })
+
+    const prompts = promptsFrom(provider)
+    const risks = prompts.find((p) => p.includes('risks specialist'))
+    const moat = prompts.find((p) => p.includes('moat specialist'))
+    const valuation = prompts.find((p) => p.includes('valuation specialist'))
+    const financial = prompts.find((p) => p.includes('financial_quality specialist'))
+
+    // Qualitative lanes get the block, with read_source affordances for BOTH the 8-K and the 10-Q.
+    for (const p of [risks, moat]) {
+      expect(p).toBeDefined()
+      expect(p).toContain('RECENT INTERIM FILINGS')
+      expect(p).toContain('8-K filed 2026-01-15')
+      expect(p).toContain('10-Q filed 2025-12-10')
+      expect(p).toMatch(/read_source\("sec_edgar_recent_/)
+    }
+    // Numeric lanes do NOT — interim numbers must not tempt the recompute.
+    expect(valuation).toBeDefined()
+    expect(valuation).not.toContain('RECENT INTERIM FILINGS')
+    expect(financial).not.toContain('RECENT INTERIM FILINGS')
+
+    // The interim filings are grounded into the corpus (recorded to the source ledger like any source).
+    const events = await store.list()
+    const finding = events.find((e) => e.event_type === 'specialist_finding_recorded')
+    expect(finding).toBeDefined()
+  })
+
+  it('fail-closed: when the interim filings do not ground, no block is injected and the swarm completes', async () => {
+    const store = new InMemoryEventStore()
+    await seedDeepDivePrereqs(store)
+    const provider = swarmFakeProvider()
+    await provider.structured({} as never)
+
+    const result = await runResearchDeepDivePhase(store, provider as never, deepDiveCommand(), {
+      ground: groundExceptRecent(), laneConcurrency: 7, fundamentals: costFundamentals,
+    })
+
+    expect(promptsFrom(provider).every((p) => !p.includes('RECENT INTERIM FILINGS'))).toBe(true)
+    expect(result.decision).toBeDefined()
   })
 })
 

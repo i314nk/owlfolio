@@ -628,6 +628,27 @@ export function buildPreVerifiedSourcesBlock(sourceIds: readonly string[]): stri
 }
 
 /**
+ * Build the RECENT INTERIM FILINGS affordance block — 8-K / 10-Q narrative grounded for interim recency
+ * (Slice B). Lists the harness-verified readable source_ids (form + filed date) and instructs the model
+ * to read_source them for thesis-break developments. NUMBERS are explicitly out of bounds (the harness
+ * computes valuation on the annual basis only). Returns '' for an empty list.
+ */
+export function buildRecentFilingsBlock(
+  entries: readonly { source_id: string; form: string; filed: string }[],
+): string {
+  if (entries.length === 0) return ''
+  const lines = entries.map((e) => `  - ${e.form} filed ${e.filed}: read_source("${e.source_id}")`).join('\n')
+  return (
+    `\n\nRECENT INTERIM FILINGS (8-K material events + 10-Q narrative filed SINCE the latest annual report — `
+    + `already fetched + content-verified by the harness). READ them by Item/section with read_source for `
+    + `recent developments that can break the thesis: impairments, guidance cuts, executive departures, `
+    + `M&A, litigation, updated risk factors:\n${lines}\n`
+    + `Use these for QUALITATIVE / recency context and cite the source_id. Do NOT use interim quarterly `
+    + `NUMBERS for valuation — the harness computes valuation on the ANNUAL basis only.`
+  )
+}
+
+/**
  * Build a compact, grounded primary-filing context block for injection into a lane prompt. Includes
  * the OE-bridge raw inputs, revenue, debt, cash, interest expense, the multi-year series, and the
  * grounded EDGAR source_id the lane MUST cite.

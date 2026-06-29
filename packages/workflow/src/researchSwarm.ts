@@ -43,7 +43,7 @@ export {
   type GroundedAgentResult,
   type SynthesisResponse,
 }
-import { computeIncrementalRoic, demonstratedOwnerEarningsGrowth, estimateMaintenanceCapex, ownerEarningsVsFcfDiagnostic, type Fundamentals, type SecEdgarDeps } from './secEdgar'
+import { computeIncrementalRoic, demonstratedOwnerEarningsGrowth, estimateMaintenanceCapex, ownerEarningsVsFcfDiagnostic, selectRecentReadableFilings, type Fundamentals, type SecEdgarDeps } from './secEdgar'
 import { resolveFundamentalsForTicker } from './fundamentalsProvider'
 import { evaluateBaseRateBurden, type BaseRateBurdenFlag } from './baseRateBurden'
 import { BASE_RATES } from '@owlfolio/strategies/baseRates'
@@ -105,6 +105,7 @@ import {
   buildJudgmentProjection,
   resolveEngineCommit,
   buildPrimaryFilingBlock,
+  buildRecentFilingsBlock,
   buildPreVerifiedSourcesBlock,
   type MoatLaneJudgment,
   type ShariahLaneJudgment,
@@ -815,6 +816,12 @@ async function judgeCircleCompetence(
   return agent
 }
 
+/** Max recent 8-K/10-Q filings grounded as readable interim-recency documents (Slice B). */
+const RECENT_READABLE_MAX = 6
+/** Lanes that receive the recent-interim-filings affordance — the QUALITATIVE lanes only (the numeric
+ * lanes are deliberately excluded so interim 10-Q numbers never tempt the valuation/Shariah recompute). */
+const RECENT_FILINGS_LANES = new Set<string>(['risks', 'moat', 'management', 'business_quality'])
+
 export async function runResearchDeepDivePhase(
   store: SwarmStore,
   provider: Provider,
@@ -868,6 +875,36 @@ export async function runResearchDeepDivePhase(
       }
     }
   }
+  // ---- Slice B: ground recent 8-K / 10-Q NARRATIVE as readable documents (interim recency) ----
+  // Mirrors the 10-K grounding: fetch + sha256 + ledger via the SAME path, remembered into `accumulated`
+  // so the qualitative lanes can READ them by Item via read_source. NUMBERS are never parsed here (the
+  // annual-only recompute is untouched). Fail-closed: anything that does not ground is simply absent and
+  // the lanes run on the annual floor as today.
+  let recentFilingsBlock: string | undefined
+  if (fundamentals !== undefined) {
+    const recent = selectRecentReadableFilings(fundamentals, { max: RECENT_READABLE_MAX })
+    if (recent.length > 0) {
+      const ground = deps.ground ?? groundProposedSources
+      const proposed: ProposedSource[] = recent.map((file, i) => ({
+        source_id: `sec_edgar_recent_${fundamentals.cik}_${i}_${file.filed}`,
+        title: `${fundamentals.entity_name} ${file.form} filed ${file.filed} — SEC EDGAR`,
+        url: file.url,
+        excerpt: `${file.form} interim filing for ${fundamentals.entity_name}, filed ${file.filed}.`,
+      }))
+      const grounded = await ground(proposed, deps.grounding)
+      const verifiedSet = new Set(grounded.verified_ids)
+      const verifiedRecent = recent
+        .map((file, i) => ({ file, source_id: proposed[i]!.source_id }))
+        .filter((x) => verifiedSet.has(x.source_id))
+      if (verifiedRecent.length > 0) {
+        remember(grounded.captured.filter((c) => verifiedSet.has(c.source_id)))
+        recentFilingsBlock = buildRecentFilingsBlock(
+          verifiedRecent.map((x) => ({ source_id: x.source_id, form: x.file.form, filed: x.file.filed })),
+        )
+      }
+    }
+  }
+
   // The PRE-VERIFIED-SOURCES block lists the harness's already-content-hash-verified EDGAR primary
   // source_ids and instructs the agent to cite THOSE for filing-backed claims (instead of inventing its
   // own SEC archive URLs, which fetch unreliably). Surfaced to the circle gate, the moat lane, and the
@@ -1103,6 +1140,7 @@ export async function runResearchDeepDivePhase(
       + `Produce a source-backed finding for the ${lane} lane only. Gather your own sources; return them in proposed_sources with real URLs. `
       + `SOURCE DISCIPLINE (Mechanism 6): this lane reasons from PRIMARY documents. ${sourceDiscipline}`
       + (injectFilingNumbers ? primaryFilingBlock : '')
+      + (recentFilingsBlock !== undefined && RECENT_FILINGS_LANES.has(lane) ? recentFilingsBlock : '')
 
     const baseRunId = `run_${command.research_case_id}_${swarmSeg(lane)}`
     // The grounded EDGAR 10-K is a guaranteed verified primary citation for the injected lanes —
