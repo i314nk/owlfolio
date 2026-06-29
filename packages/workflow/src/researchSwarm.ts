@@ -782,7 +782,7 @@ const MAINTENANCE_CAPEX_DIVERGENCE_FRACTION = 0.20
 async function judgeCircleCompetence(
   provider: Provider,
   command: RunResearchDeepDivePhaseCommand,
-  deps: { ground?: GroundFn; grounding?: GroundingDeps; maxToolCalls?: number; preVerifiedSourcesBlock?: string } & FundamentalsDeps,
+  deps: { ground?: GroundFn; grounding?: GroundingDeps; maxToolCalls?: number; preVerifiedSourcesBlock?: string; readCorpus?: ReadonlyMap<string, CapturedSource> } & FundamentalsDeps,
 ) {
   // The circle judgment runs on the synthesis role (T1 — the high-stakes judgment tier). Default = the
   // run's provider/model so single-provider runs are unchanged; an override can pin it onto a frontier model.
@@ -808,6 +808,7 @@ async function judgeCircleCompetence(
       ...(deps.grounding === undefined ? {} : { grounding: deps.grounding }),
       ...(deps.fetchFundamentals === undefined ? {} : { fetchFundamentals: deps.fetchFundamentals }),
       ...(deps.maxToolCalls === undefined ? {} : { maxToolCalls: deps.maxToolCalls }),
+      ...(deps.readCorpus === undefined ? {} : { readCorpus: deps.readCorpus }),
     },
   )
   void _circleDegraded
@@ -888,6 +889,8 @@ export async function runResearchDeepDivePhase(
   const circle = await judgeCircleCompetence(provider, command, {
     ...deps,
     ...(preVerifiedSourcesBlock === undefined ? {} : { preVerifiedSourcesBlock }),
+    // Let the circle gate READ the harness-grounded EDGAR 10-K by Item (already in `accumulated`).
+    readCorpus: accumulated,
   })
   remember(circle.captured)
   // Build the verified cite-check set from ONLY content_hash-confirmed sources (the SAME hardened primitive
@@ -1137,6 +1140,7 @@ export async function runResearchDeepDivePhase(
         lane,
         requiredFields: moatRequired,
         useToolLoop: true,
+        readCorpus: accumulated,
         ...(deps.fetchFundamentals === undefined ? {} : { fetchFundamentals: deps.fetchFundamentals }),
       })
       const agent = validated.status === 'ok' ? validated.result : validated.lastResult
@@ -1211,6 +1215,7 @@ export async function runResearchDeepDivePhase(
         lane,
         requiredFields: shariahRequired,
         useToolLoop: true,
+        readCorpus: accumulated,
         ...(deps.fetchFundamentals === undefined ? {} : { fetchFundamentals: deps.fetchFundamentals }),
       })
       const agent = validated.status === 'ok' ? validated.result : validated.lastResult
@@ -1252,6 +1257,7 @@ export async function runResearchDeepDivePhase(
       schema_name: 'BuffettMungerLaneFinding',
     }, LaneAgentSchema, {
       ...deps,
+      readCorpus: accumulated,
       ...(deps.fetchFundamentals === undefined ? {} : { fetchFundamentals: deps.fetchFundamentals }),
     }, { lane })
     void _laneDegraded

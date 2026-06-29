@@ -197,6 +197,24 @@ const DEFAULT_TOOL_EXCERPT_CHARS = 1_200
 let toolSourceCounter = 0
 
 /**
+ * Build the effective read corpus. Harness-pre-grounded sources (`preGrounded`) take PRECEDENCE over
+ * the loop's own in-loop captures on an id collision: a same-id in-loop capture NEVER overrides a
+ * harness-verified source (even if it disagrees on hash — the verified one wins, the disagreeing copy
+ * is dropped). This keeps "same id, two sources, which content" from becoming a laundering seam.
+ */
+export function mergeReadCorpus(
+  preGrounded: ReadonlyMap<string, CapturedSource> | undefined,
+  inLoop: readonly CapturedSource[],
+): Map<string, CapturedSource> {
+  const merged = new Map<string, CapturedSource>()
+  for (const c of inLoop) merged.set(c.source_id, c) // in-loop first
+  if (preGrounded !== undefined) {
+    for (const [id, c] of preGrounded) merged.set(id, c) // pre-grounded overlays → wins on collision
+  }
+  return merged
+}
+
+/**
  * Build the harness-owned grounded tool executor + the accumulators it fills. fetch_source routes a url
  * through groundProposedSourcesForLane (the per-lane whitelist gate + SSRF + sha256 + ledger capture) and
  * returns the model a TRUNCATED excerpt of the captured bytes + the VERIFIED source_id + availability —
@@ -285,9 +303,8 @@ export function buildGroundedToolExecutor(deps: GroundedToolDeps = {}): Grounded
       if (sourceId.length === 0) {
         return 'TOOL ERROR: read_source requires a non-empty `source_id` argument (a verified source_id from a prior fetch_source or the pre-verified primary-sources block).'
       }
-      // Effective corpus: harness-supplied pre-grounded sources overlaid with this loop's own captures.
-      const readCorpus = new Map<string, CapturedSource>(deps.readCorpus ?? [])
-      for (const c of captured) readCorpus.set(c.source_id, c)
+      // Effective corpus: harness pre-grounded sources WIN over this loop's own captures (mergeReadCorpus).
+      const corpus = mergeReadCorpus(deps.readCorpus, captured)
 
       const readOpts: ReadSourceOptions = {
         ...(typeof a.section === 'string' && a.section.trim().length > 0 ? { section: a.section.trim() } : {}),
@@ -295,7 +312,7 @@ export function buildGroundedToolExecutor(deps: GroundedToolDeps = {}): Grounded
         ...(typeof a.limit === 'number' && Number.isFinite(a.limit) ? { limit: a.limit } : {}),
         ...(lane !== undefined ? { lane } : {}),
       }
-      const read = await readGroundedSource(sourceId, readCorpus, readOpts, deps.grounding)
+      const read = await readGroundedSource(sourceId, corpus, readOpts, deps.grounding)
       if (!read.ok) {
         // Anti-laundering: a failed/uncitable read NEVER adds the id to verified_ids.
         return formatReadFailure(sourceId, read.reason, read.available_items)
@@ -365,7 +382,7 @@ export async function runGroundedAgentWithTools<T extends { proposed_sources: z.
   provider: Provider,
   request: GroundedAgentRequest,
   schema: ZodType<T>,
-  deps: { ground?: GroundFn; grounding?: GroundingDeps; fetchFundamentals?: (ticker: string, d?: SecEdgarDeps) => Promise<Fundamentals | undefined>; maxToolCalls?: number } = {},
+  deps: { ground?: GroundFn; grounding?: GroundingDeps; fetchFundamentals?: (ticker: string, d?: SecEdgarDeps) => Promise<Fundamentals | undefined>; maxToolCalls?: number; readCorpus?: ReadonlyMap<string, CapturedSource> } = {},
   opts: { lane?: string } = {},
 ): Promise<GroundedAgentResult<T> & { degraded_no_tools: boolean }> {
   const supportsLoop = provider.capabilities['multi-step-tool-loop'] !== 'unsupported' && typeof provider.runToolLoop === 'function'
@@ -380,6 +397,7 @@ export async function runGroundedAgentWithTools<T extends { proposed_sources: z.
     ...(deps.ground === undefined ? {} : { ground: deps.ground }),
     ...(deps.grounding === undefined ? {} : { grounding: deps.grounding }),
     ...(deps.fetchFundamentals === undefined ? {} : { fetchFundamentals: deps.fetchFundamentals }),
+    ...(deps.readCorpus === undefined ? {} : { readCorpus: deps.readCorpus }),
   })
 
   const loop = await provider.runToolLoop!(

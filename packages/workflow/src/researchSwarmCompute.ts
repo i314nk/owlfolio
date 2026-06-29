@@ -617,6 +617,9 @@ export function buildPreVerifiedSourcesBlock(sourceIds: readonly string[]): stri
     `\n\nPRE-VERIFIED PRIMARY SOURCES (already fetched + content-verified by the harness — cite THESE `
     + `source_ids for filing-backed claims; do NOT invent your own SEC archive URLs, which fetch `
     + `unreliably and will FAIL the harness cite-check): [${ids.join(', ')}]. `
+    + `You can READ these sources by Item with the read_source tool — e.g. read_source(source_id, section="1A") `
+    + `for Risk Factors, "1" for Business, "7" for MD&A — to ground your qualitative reasoning in the primary `
+    + `filing text rather than memory. `
     + `For any filing-backed claim — the moat qualitative rows, the circle-of-competence cashflow drivers `
     + `and predictability breakers, and the valuation owner-earnings / assumed-growth citations — set the `
     + `citation to one of these pre-verified source_ids. You may still propose ADDITIONAL sources for `

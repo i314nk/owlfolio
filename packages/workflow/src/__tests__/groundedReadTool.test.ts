@@ -5,7 +5,8 @@ import { fileURLToPath } from 'node:url'
 
 import { describe, expect, it } from 'vitest'
 
-import { buildGroundedToolExecutor, GROUNDED_TOOL_NAMES, GROUNDED_TOOL_PARAMETERS } from '../groundedAgent.js'
+import { buildGroundedToolExecutor, GROUNDED_TOOL_NAMES, GROUNDED_TOOL_PARAMETERS, mergeReadCorpus } from '../groundedAgent.js'
+import { buildPreVerifiedSourcesBlock } from '../researchSwarmCompute.js'
 import type { CapturedSource } from '../sourceGrounding.js'
 
 const here = dirname(fileURLToPath(import.meta.url))
@@ -72,5 +73,34 @@ describe('read_source executor handler', () => {
     expect(out).toContain('section_not_found')
     expect(out).toContain('1A')
     expect(tool.verified_ids).not.toContain('sec_10k')
+  })
+})
+
+describe('corpus threading safety', () => {
+  it('PRECEDENCE: harness-pre-grounded wins on id collision — a disagreeing in-loop capture never overrides', () => {
+    const preGrounded = new Map([['x', cap({ source_id: 'x', content: sample10k, content_hash: sha(sample10k) })]])
+    const inLoop = [cap({ source_id: 'x', content: 'TAMPERED', content_hash: sha('TAMPERED') })]
+    const merged = mergeReadCorpus(preGrounded, inLoop)
+    expect(merged.get('x')!.content).toBe(sample10k)
+    expect(merged.get('x')!.content_hash).toBe(sha(sample10k))
+  })
+
+  it('LANE SURVIVES THREADING: a pre-grounded filing (no explicit category) is gated by its URL → readable in moat', async () => {
+    // source_category omitted — the lane gate must still classify the sec.gov URL as a filing and admit it.
+    const { source_category: _omit, ...filing } = cap({ source_id: 'sec_x', content: sample10k, content_hash: sha(sample10k) })
+    void _omit
+    const tool = buildGroundedToolExecutor({ lane: 'moat', readCorpus: corpus(filing) })
+    const out = await tool.executor('read_source', { source_id: 'sec_x', section: '1A' })
+    expect(out).toContain('status=available')
+    expect(tool.verified_ids).toContain('sec_x')
+  })
+})
+
+describe('pre-verified sources prompt affordance', () => {
+  it('tells the model the pre-verified source_ids are READABLE via read_source by Item', () => {
+    const block = buildPreVerifiedSourcesBlock(['sec_edgar_10k_x'])
+    expect(block).toContain('read_source')
+    expect(block).toContain('PRE-VERIFIED PRIMARY SOURCES')
+    expect(block).toContain('do NOT invent your own SEC archive URLs')
   })
 })
