@@ -2,6 +2,7 @@ import { z, type ZodType } from 'zod'
 import type { Provider, ProviderToolExecutor } from '@owlfolio/providers'
 import { groundProposedSources, groundProposedSourcesForLane, type CapturedSource, type GroundingDeps, type ProposedSource, type SourcePolicyRejection } from './sourceGrounding'
 import { fetchCompanyFundamentals, type Fundamentals, type SecEdgarDeps } from './secEdgar'
+import { readGroundedSource, type ReadSourceOptions, type ReadSourceResult } from './sourceRead'
 
 // ---------------------------------------------------------------------------
 // Grounded-agent primitives (extracted from researchSwarm so they can be imported by BOTH the swarm
@@ -124,7 +125,7 @@ export async function runGroundedAgentWithRetry<T extends { proposed_sources: z.
 // ---------------------------------------------------------------------------
 
 /** The grounded tool names the harness exposes to the model (the provider tool_allowlist for the loop). */
-export const GROUNDED_TOOL_NAMES = ['fetch_source', 'search_filings'] as const
+export const GROUNDED_TOOL_NAMES = ['fetch_source', 'search_filings', 'read_source'] as const
 
 /**
  * OpenAI-function-tool `parameters` JSON Schemas for the grounded tools. Passed to the provider so the
@@ -149,6 +150,17 @@ export const GROUNDED_TOOL_PARAMETERS: Record<string, unknown> = {
       query: { type: 'string', description: 'Optional free-text note about what you are looking for (advisory only).' },
     },
   },
+  read_source: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['source_id'],
+    properties: {
+      source_id: { type: 'string', description: 'A VERIFIED source_id (from a prior fetch_source result or the pre-verified primary-sources block) whose already-grounded text you want to read. The harness re-verifies the content hash before returning text; a mismatch returns status=uncitable.' },
+      section: { type: 'string', description: 'Optional 10-K Item to read — "1" (Business), "1A" (Risk Factors), "7" (MD&A). Validated against the source\'s readable-section index; an unknown Item returns uncitable (not empty) with the available sections listed. Omit to get the section index.' },
+      offset: { type: 'integer', description: 'Optional pagination offset (characters) for documents that do not parse into Items.' },
+      limit: { type: 'integer', description: 'Optional maximum characters to return for this read.' },
+    },
+  },
 }
 
 export type GroundedToolDeps = {
@@ -162,6 +174,12 @@ export type GroundedToolDeps = {
   fetchFundamentals?: (ticker: string, deps?: SecEdgarDeps) => Promise<Fundamentals | undefined>
   /** Max chars of the captured excerpt returned to the model per fetch_source (keeps context bounded). */
   maxExcerptChars?: number
+  /**
+   * Already-grounded sources the model may READ via read_source (e.g. the harness-pre-verified EDGAR
+   * 10-K, plus prior lanes' captures). Merged with this loop's own fetch_source captures. The read is
+   * still hash-verified and lane-gated, so a source here is no more permissive than a cited one.
+   */
+  readCorpus?: ReadonlyMap<string, CapturedSource>
 }
 
 export type GroundedToolExecutor = {
@@ -261,6 +279,32 @@ export function buildGroundedToolExecutor(deps: GroundedToolDeps = {}): Grounded
       )
     }
 
+    if (toolName === 'read_source') {
+      const a = args as { source_id?: unknown; section?: unknown; offset?: unknown; limit?: unknown }
+      const sourceId = typeof a?.source_id === 'string' ? a.source_id.trim() : ''
+      if (sourceId.length === 0) {
+        return 'TOOL ERROR: read_source requires a non-empty `source_id` argument (a verified source_id from a prior fetch_source or the pre-verified primary-sources block).'
+      }
+      // Effective corpus: harness-supplied pre-grounded sources overlaid with this loop's own captures.
+      const readCorpus = new Map<string, CapturedSource>(deps.readCorpus ?? [])
+      for (const c of captured) readCorpus.set(c.source_id, c)
+
+      const readOpts: ReadSourceOptions = {
+        ...(typeof a.section === 'string' && a.section.trim().length > 0 ? { section: a.section.trim() } : {}),
+        ...(typeof a.offset === 'number' && Number.isFinite(a.offset) ? { offset: a.offset } : {}),
+        ...(typeof a.limit === 'number' && Number.isFinite(a.limit) ? { limit: a.limit } : {}),
+        ...(lane !== undefined ? { lane } : {}),
+      }
+      const read = await readGroundedSource(sourceId, readCorpus, readOpts, deps.grounding)
+      if (!read.ok) {
+        // Anti-laundering: a failed/uncitable read NEVER adds the id to verified_ids.
+        return formatReadFailure(sourceId, read.reason, read.available_items)
+      }
+      // A successful read is hash-verified AND in-lane → the source is citable in this loop.
+      verified.add(sourceId)
+      return formatReadResult(read)
+    }
+
     return `TOOL ERROR: unknown tool ${toolName}.`
   }
 
@@ -283,6 +327,31 @@ function formatFetchResult(cap: CapturedSource, isVerified: boolean, excerptChar
     return `${head}\n(The source could not be content-verified; you may NOT cite ${cap.source_id}. Try another primary source.)`
   }
   return `${head}\ncontent_hash=${cap.content_hash ?? 'n/a'}\nexcerpt: ${excerpt}`
+}
+
+/** Format a successful read_source result (hash-verified, in-lane) for the model. */
+function formatReadResult(read: Extract<ReadSourceResult, { ok: true }>): string {
+  const sectionLabel = read.section !== undefined ? ` section=${read.section}` : ''
+  const itemsLine = read.available_items !== undefined ? `\nreadable_sections: ${read.available_items.join(', ')}` : ''
+  const more = read.truncated === true ? `\n(truncated — continue with offset=${read.next_offset})` : ''
+  return `READ source_id=${read.source_id}${sectionLabel} status=available${itemsLine}\n${read.text}${more}`
+}
+
+/**
+ * Format a failed/uncitable read_source result. The explicit `content_hash_mismatch` code is the
+ * executor-layer twin of the read-layer anti-laundering guard: the model is told the source is NOT
+ * readable, never handed the stale excerpt or an unverified copy.
+ */
+function formatReadFailure(sourceId: string, reason: string, availableItems?: string[]): string {
+  const code = reason.includes('content-verified for reading') ? 'content_hash_mismatch'
+    : reason.includes('not found in the verified corpus') ? 'unknown_source_id'
+    : reason.startsWith('excluded_by_lane_policy') ? reason
+    : reason.startsWith('section "') ? 'section_not_found'
+    : reason
+  const itemsLine = availableItems !== undefined && availableItems.length > 0
+    ? ` available_sections=${availableItems.join(',')}`
+    : ''
+  return `READ source_id=${sourceId} status=uncitable reason=${code}${itemsLine}`
 }
 
 /**
