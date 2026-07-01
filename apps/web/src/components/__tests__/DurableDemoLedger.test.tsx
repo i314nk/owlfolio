@@ -95,7 +95,7 @@ describe('durable demo ledger read models', () => {
       })
 
       const html = renderToStaticMarkup(createElement(ResearchCasePanel, { researchCase }))
-      expect(html).toContain('Ledger Timeline')
+      expect(html).toContain('Ledger timeline')
       expect(html).toContain('How did this state come to exist?')
       expect(html).toContain('provider:mock-provider')
       expect(html).toContain('WATCH / CONDITIONAL / Shariah COMPLIANT')

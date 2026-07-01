@@ -129,3 +129,64 @@ describe('projectResearchCases — authored_by_provider_id', () => {
     expect(rc.authored_by_provider_id).toBeUndefined()
   })
 })
+
+// ---------------------------------------------------------------------------
+// The executing MODEL id (e.g. `gpt-5.5`) lives only in `research_run_requested`, which arrives BEFORE
+// `research_case_created` on the same aggregate. The projection stashes it and assigns it to the case that
+// actually exists — never fabricating a case from a lone request, and tolerating legacy runs with no request.
+// ---------------------------------------------------------------------------
+
+function runRequested(modelId?: string): LedgerEventEnvelope<unknown> {
+  return {
+    event_id: `evt_requested_${RC}`,
+    event_type: 'research_run_requested',
+    aggregate_type: 'research_case',
+    aggregate_id: RC,
+    correlation_id: RC,
+    actor_type: 'user',
+    actor_id: 'user_local',
+    payload: {
+      research_case_id: RC,
+      ticker: 'TST',
+      ...(modelId !== undefined ? { model_id: modelId } : {}),
+      expected_provider_id: 'openai',
+    },
+    source_ids: [],
+    created_at: '2026-05-31T00:00:00.000Z',
+    schema_version: 1,
+  }
+}
+
+describe('projectResearchCases — authored_by_model_id', () => {
+  it('records the executing model id from research_run_requested (which precedes creation)', () => {
+    const cases = projectResearchCases([
+      runRequested('gpt-5.5'),
+      created(),
+      analysisDrafted({ actor_type: 'provider', actor_id: 'openai' }),
+    ])
+    const rc = cases.find((c) => c.research_case_id === RC)!
+    expect(rc.authored_by_model_id).toBe('gpt-5.5')
+    // The transient pre-creation request must not disturb the stage machine.
+    expect(rc.authored_by_provider_id).toBe('openai')
+  })
+
+  it('leaves authored_by_model_id undefined for legacy runs with no request event', () => {
+    const cases = projectResearchCases([
+      created(),
+      analysisDrafted({ actor_type: 'provider', actor_id: 'openai' }),
+    ])
+    const rc = cases.find((c) => c.research_case_id === RC)!
+    expect(rc.authored_by_model_id).toBeUndefined()
+  })
+
+  it('never fabricates a case from a lone request with no creation event', () => {
+    const cases = projectResearchCases([runRequested('gpt-5.5')])
+    expect(cases.find((c) => c.research_case_id === RC)).toBeUndefined()
+  })
+
+  it('tolerates a request event that carries no model_id', () => {
+    const cases = projectResearchCases([runRequested(undefined), created()])
+    const rc = cases.find((c) => c.research_case_id === RC)!
+    expect(rc.authored_by_model_id).toBeUndefined()
+  })
+})

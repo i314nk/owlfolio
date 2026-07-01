@@ -463,9 +463,74 @@ a:focus-visible {
 
 .owl-route-frame {
   display: grid;
+  /* Single column capped to the container: `minmax(0, 1fr)` stops the implicit
+     auto-sized track from growing to a wide child's max-content (which would
+     overflow max-width and force horizontal scroll/zoom-out on the dossier). */
+  grid-template-columns: minmax(0, 1fr);
   gap: 1rem;
   margin: 0 auto;
   max-width: 1040px;
+}
+
+/* Implicit single-column grid stacks (the dossier uses `display: grid` purely for
+   `gap`) must cap their auto column to the container. Without this, the implicit
+   column grows to a child's unwrapped max-content (a long paragraph on one line),
+   overflowing the frame and forcing horizontal scroll / zoom-out. `grid-auto-columns`
+   only sizes implicit tracks, so explicit multi-column grids (stat rows, lane grids)
+   are untouched; `:where()` keeps specificity 0 so any explicit template still wins. */
+:where(.owl-route-frame *) {
+  grid-auto-columns: minmax(0, 1fr);
+}
+
+/* Collapsible info-box card — the ONE shared look for every top-level dossier box, so they read as a
+   uniform stack (same elevated panel, border, radius, padding) rather than patched-together panels of
+   differing darkness. The title row is a clickable <summary> (a custom disclosure caret + the accent
+   title + an optional right-aligned one-line hint); the body is revealed on expand. */
+.owl-collapsible-card {
+  background: var(--owl-color-panel-elevated);
+  border: 1px solid var(--owl-color-border);
+  /* Gold hue on the left edge of every card by default. Boxes that carry their own semantic rail via an
+     inline border-left (e.g. Circle of competence: green when in-competence, red when outside) override this. */
+  border-left: 3px solid var(--owl-color-gold);
+  border-radius: var(--owl-radius-panel);
+  box-shadow: var(--owl-shadow-panel);
+  display: grid;
+  gap: var(--owl-space-2);
+  padding: var(--owl-space-4) var(--owl-space-5);
+}
+.owl-collapsible-card > .owl-collapsible-card-summary {
+  align-items: baseline;
+  cursor: pointer;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem 0.75rem;
+  list-style: none;
+  user-select: none;
+}
+/* Slightly larger card headline (title + hint) than the default eyebrow accent, for readability. */
+.owl-collapsible-card > .owl-collapsible-card-summary > .owl-section-accent {
+  font-size: var(--owl-text-sm);
+}
+.owl-collapsible-card > .owl-collapsible-card-summary::-webkit-details-marker {
+  display: none;
+}
+.owl-collapsible-card > .owl-collapsible-card-summary::before {
+  color: var(--owl-color-gold);
+  content: "\25B8"; /* ▸ */
+  display: inline-block;
+  font-size: 0.8em;
+  transition: transform 0.15s ease;
+}
+.owl-collapsible-card[open] > .owl-collapsible-card-summary::before {
+  transform: rotate(90deg);
+}
+.owl-collapsible-card-hint {
+  color: var(--owl-color-muted);
+  font-family: var(--owl-font-mono);
+  font-size: var(--owl-text-sm);
+  font-weight: 600;
+  margin-left: auto; /* push the headline to the RIGHT of the card header */
+  text-align: right;
 }
 
 .owl-route-frame-narrow {

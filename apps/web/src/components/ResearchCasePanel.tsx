@@ -1,4 +1,4 @@
-import { createElement, type ReactNode } from 'react'
+import { Children, createElement, isValidElement, type ReactNode } from 'react'
 
 import type {
   ResearchCaseSellBiasCaveatProjection,
@@ -101,9 +101,54 @@ function createCollapsibleSection(
 ) {
   return createElement(
     'details',
-    { 'data-testid': testId, style: collapsibleDetailsStyle, ...(open ? { open: true } : {}) },
-    createElement('summary', { style: collapsibleSummaryStyle }, summaryText),
-    createElement('div', { style: { display: 'grid', gap: '0.7rem', marginTop: '0.75rem' } }, ...children),
+    { 'data-testid': testId, className: 'owl-collapsible-card', ...(open ? { open: true } : {}) },
+    createElement(
+      'summary',
+      { className: 'owl-collapsible-card-summary' },
+      createElement('span', { className: 'owl-section-accent', style: { margin: 0 } }, summaryText),
+    ),
+    createElement('div', { style: { display: 'grid', gap: '0.7rem', marginTop: '0.35rem' } }, ...children),
+  )
+}
+
+// ── Collapsible info-box wrapper ──────────────────────────────────────────────
+//
+// Turns an already-rendered section card into a collapsed drop-down WITHOUT rewriting the section's body:
+// the card's FIRST child must be its `owl-section-accent` title — that title moves into a <summary> (plus an
+// optional one-line "basic info" hint), and the remaining children become the expandable body. The card
+// keeps its own testid / className / style (e.g. the MoS gold rail). `open` renders it expanded; the hero
+// and the decision panel stay open, every other box collapses. Passes null/non-elements through untouched
+// (sections that render nothing).
+function makeCollapsible(section: ReactNode, open: boolean, hint?: ReactNode): ReactNode {
+  if (!isValidElement(section)) return section
+  const props = section.props as {
+    children?: ReactNode
+    className?: string
+    style?: Record<string, string>
+    'data-testid'?: string
+  }
+  const kids = Children.toArray(props.children)
+  const [titleEl, ...rest] = kids
+  const title = isValidElement(titleEl) ? (titleEl.props as { children?: ReactNode }).children : ''
+  // Keep ONLY the accent left-rail from the section's own inline style (e.g. the MoS/circle/position-plan
+  // gold/green rail); drop per-box background/padding/gap so the shared .owl-collapsible-card class drives a
+  // uniform card look. This is what stops the boxes reading as patched-together panels of differing darkness.
+  const accentRail = props.style?.borderLeft === undefined ? undefined : { borderLeft: props.style.borderLeft }
+  return createElement(
+    'details',
+    {
+      'data-testid': props['data-testid'],
+      className: 'owl-collapsible-card',
+      ...(open ? { open: true } : {}),
+      ...(accentRail ? { style: accentRail } : {}),
+    },
+    createElement(
+      'summary',
+      { className: 'owl-collapsible-card-summary' },
+      createElement('span', { className: 'owl-section-accent', style: { margin: 0 } }, title),
+      hint === undefined || hint === null || hint === '' ? null : createElement('span', { className: 'owl-collapsible-card-hint' }, hint),
+    ),
+    ...rest,
   )
 }
 
@@ -296,39 +341,63 @@ export function ResearchCasePanel({ researchCase, mode = 'demo', configuredProvi
     )
   }
 
+  // Headline summaries shown on each collapsed info-box, so its key result is visible WITHOUT expanding
+  // (the drop-down holds the "why"). The hero and circle box carry their own headline as the first line;
+  // these hints enrich the generic-titled boxes.
+  const hintValuation = researchCase.valuation
+  const hintVerdict = researchCase.investment_verdict ?? researchCase.decision
+  const hintBuyBelow = hintValuation?.proposed_buy_below ?? hintValuation?.buy_price_per_share
+  const hintInBuyZone = hintValuation?.in_buy_zone
+    ?? (marketQuote?.price_per_share !== undefined && hintBuyBelow !== undefined
+      ? marketQuote.price_per_share <= hintBuyBelow
+      : undefined)
+  const decisionHint = [
+    hintVerdict,
+    hintBuyBelow === undefined ? undefined : `buy-below $${hintBuyBelow.toFixed(2)}`,
+    hintInBuyZone === undefined ? undefined : (hintInBuyZone ? 'in buy zone' : 'not in buy zone'),
+  ].filter((part): part is string => part !== undefined).join(' · ') || undefined
+  const mosAdequacy = researchCase.margin_of_safety_judgment?.adequacy
+  const mosHint = mosAdequacy === undefined ? undefined : `margin ${mosAdequacy}`
+  // Valuation headline: the moat tier + discount rate on the right of the card header (mirrors the in-card
+  // moat label). Reuses the same DEFAULT_DISCOUNT_LABEL fallback as the valuation panel.
+  const valDiscountRate = researchCase.valuation?.discount_rate
+  const valDiscountLabel = valDiscountRate !== undefined ? `${Math.round(valDiscountRate * 100)}%` : DEFAULT_DISCOUNT_LABEL
+  const valuationHint = researchCase.valuation === undefined
+    ? undefined
+    : `${(researchCase.valuation.moat_class ?? 'unknown').toUpperCase()} MOAT · ${valDiscountLabel} DISCOUNT`
+  // Position-plan headline (right side of its collapsed header): moat tier + entry-cap tag.
+  const positionPlanHint = positionPlan?.investable ? `${positionPlan.moat_class.toUpperCase()} MOAT · ENTRY CAP` : undefined
+
   return createElement(
     'section',
     { style: { display: 'grid', gap: '1rem' } },
     // ── 0. Mock-provider honesty banner (personal-local, mock-authored, real provider configured) ──
     mockWarningBanner,
-    // ── 1. Verdict hero ─────────────────────────────────────────────────────
+    // ── 1. Verdict hero (the always-visible top-level headline: ticker, verdict badges, engine/model) ──
     createVerdictHero(researchCase),
-    // ── 1·circle. Circle-of-competence judgment (the grounded gate that admits/sets-aside the spend) ──
-    createCircleCompetencePanel(researchCase),
-    // ── 1b. What changed since last case (re-analysis diff) ──────────────────
-    createReAnalysisDiffPanel(researchCase),
+    // ── 1·circle. Circle-of-competence judgment (collapsed; its verdict heading — e.g. "cashflows durably
+    //        predictable — in competence" — is the visible summary, the drivers/breakers are the drill-down) ──
+    makeCollapsible(createCircleCompetencePanel(researchCase), false),
     // ── 1c. Exit post-mortem (predicted vs realized) ─────────────────────────
     createPostMortemPanel(researchCase),
     // ── 1d. Decision panel (R1): the model's verdict/valuation_status, the key-figures strip (model
     //        buy-below + live price + buy-zone + reference FV + price-implied assumptions), and the
     //        flag-only sanity-check. The decision centerpiece. ──
-    createDecisionPanel(researchCase, marketQuote),
+    makeCollapsible(createDecisionPanel(researchCase, marketQuote), true, decisionHint),
     // ── 1e. Margin-of-safety audit — LEADS the decision region (Priority 3): the synthesis-owned JOINT
     //        judgment (price margin + moat durability, side by side), the human's central audit surface.
     //        Promoted above the valuation reasoning so it is not blended into the decision/valuation prose. ──
-    createMarginOfSafetyAuditBlock(researchCase),
+    makeCollapsible(createMarginOfSafetyAuditBlock(researchCase), false, mosHint),
     // ── 2. Valuation panel — the model thesis + cited reasoning (owner-earnings basis, judged growth +
     //       rationale, discount), the reverse-DCF read (market-implied vs judged sustainable growth), the
     //       two hidden assumptions the price bakes in (implied growth + implied exit multiple), the
     //       reference FV cross-check, and the independent bear case (red-team). ──
-    createValuationPanel(researchCase, marketQuote, savings),
+    makeCollapsible(createValuationPanel(researchCase, marketQuote, savings), false, valuationHint),
     // ── 2b. Position plan (advisory) ─────────────────────────────────────────
-    createPositionPlanPanel(positionPlan, promptForCapital),
+    makeCollapsible(createPositionPlanPanel(positionPlan, promptForCapital), false, positionPlanHint),
     // ── 2c. Shariah / compliance — the unique AAOIFI ratio ledger (the per-dimension shariah finding
     //        lives in the specialist lane; this is the harness-computed ratio surface, one home). ──
-    createComplianceRatioBlock(researchCase),
-    // ── 3. Whole-case thesis (the synthesis narrative; per-dimension findings live in the lanes) ──────
-    createDecisionEvidence(researchCase),
+    makeCollapsible(createComplianceRatioBlock(researchCase), false, researchCase.shariah_status),
     // ── 4. Deep-dive specialist lanes (collapsed by default; each lane stacks full-width) ────────────
     createSpecialistLanesGrid(researchCase),
     // ── 4b. Falsifiable forecasts (calibration scaffold) ─────────────────────
@@ -343,9 +412,13 @@ export function ResearchCasePanel({ researchCase, mode = 'demo', configuredProvi
     canPromoteToWatchlist ? createWatchlistPromotionAction(researchCase) : null,
     // ── 6. Actions row ──────────────────────────────────────────────────────
     createActionsRow(),
-    // ── 7. Evidence and audit details — Sources surfaced always-visible (anchor targets never hidden),
-    //       the rest of the audit trail stays in the collapsed details (e2e anchor) ──
-    createEvidenceAndAuditDetails(researchCase, { alwaysVisibleSources: true }),
+    // ── 6b. What changed since last analysis (re-analysis diff) — grouped with the audit trail at the
+    //        bottom, not competing with the current verdict at the top. Collapsed by default. ──
+    createReAnalysisDiffPanel(researchCase),
+    // ── 7. Evidence & sources — collapsed by default like the other info boxes; sources live INSIDE the
+    //       drop-down. Citation markers (#source-<id>) still resolve: the browser auto-expands a <details>
+    //       when navigating to a fragment inside it. ──
+    createEvidenceAndAuditDetails(researchCase),
   )
 }
 
@@ -402,8 +475,12 @@ function createReAnalysisDiffPanel(researchCase: AppResearchCase) {
   }
   return createElement(
     'details',
-    { 'aria-label': 'What changed since last case', style: { ...collapsibleDetailsStyle }, open: true },
-    createElement('summary', { style: collapsibleSummaryStyle }, 'What changed since last case'),
+    { 'aria-label': 'What changed since last case', className: 'owl-collapsible-card' },
+    createElement(
+      'summary',
+      { className: 'owl-collapsible-card-summary' },
+      createElement('span', { className: 'owl-section-accent', style: { margin: 0 } }, 'What changed since last case'),
+    ),
     createElement('p', { style: { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-sm)', margin: '0.5rem 0' } }, `Re-analysis supersedes ${diff.prior_research_case_id}. The harness records the field-level diff.`),
     createElement(
       'ul',
@@ -536,8 +613,12 @@ function createForecastsPanel(researchCase: AppResearchCase) {
   }
   return createElement(
     'details',
-    { 'aria-label': 'Falsifiable forecasts', style: { ...collapsibleDetailsStyle } },
-    createElement('summary', { style: collapsibleSummaryStyle }, `Falsifiable forecasts (${forecasts.length})`),
+    { 'aria-label': 'Falsifiable forecasts', className: 'owl-collapsible-card' },
+    createElement(
+      'summary',
+      { className: 'owl-collapsible-card-summary' },
+      createElement('span', { className: 'owl-section-accent', style: { margin: 0 } }, `Falsifiable forecasts (${forecasts.length})`),
+    ),
     createElement('p', { style: { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-sm)', margin: '0.5rem 0' } }, 'Resolvable claims with probabilities; they resolve on annual reports and accrue a per-lane calibration (Brier) score over time.'),
     createElement(
       'ul',
@@ -954,12 +1035,7 @@ const NOT_YET = createElement('span', { style: { color: 'var(--owl-color-quiet)'
 
 function createVerdictHero(researchCase: AppResearchCase) {
   const displayName = researchCase.ticker ?? researchCase.company_id ?? researchCase.research_case_id
-  const verdict = researchCase.investment_verdict ?? researchCase.decision ?? 'Research pending'
-  const verdictColors = resolveVerdictColors(verdict)
   const nextAction = researchCase.next_required_action ?? 'Continue the review workflow'
-  const valuation = researchCase.valuation
-  const moatClass = valuation?.moat_class
-  const moatPassesGate = valuation?.moat_passes_gate
   const versionBadge = buildVersionBadge(researchCase)
 
   return createElement(
@@ -1005,67 +1081,15 @@ function createVerdictHero(researchCase: AppResearchCase) {
       { style: { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-base)', margin: 0 } },
       researchCase.company_id ?? 'Unknown company',
     ),
-    // Verdict + valuation chip row
-    createElement(
-      'div',
-      { style: { alignItems: 'center', display: 'flex', flexWrap: 'wrap', gap: '0.6rem' } },
-      // Verdict badge
-      createElement(
-        'span',
-        {
-          style: {
-            background: verdictColors.bg,
-            border: `1px solid ${verdictColors.border}`,
-            borderRadius: '0.6rem',
-            color: verdictColors.text,
-            fontFamily: 'var(--owl-font-mono)',
-            fontSize: 'var(--owl-text-md)',
-            fontWeight: 800,
-            letterSpacing: '0.06em',
-            padding: '0.3rem 0.8rem',
-          },
-        },
-        verdict,
-      ),
-      // Valuation chip
-      researchCase.valuation_status === undefined ? null : createPill(
-        `Valuation: ${researchCase.valuation_status}`,
-        resolveValuationChipColor(researchCase.valuation_status),
-      ),
-      // WATCH-FAIR verdict-band chip (valuation-recalibration-spec §2): the "wonderful at fair"
-      // human-discretion zone. A distinct gold chip so the human sees the quality-at-fair opportunity.
-      valuation?.verdict_state?.state === 'WATCH-FAIR' ? createPill(
-        'WATCH-FAIR',
-        { bg: 'rgba(214, 178, 94, 0.18)', border: 'rgba(214, 178, 94, 0.5)', text: 'var(--owl-color-gold-bright)' },
-      ) : null,
-    ),
-    // Status chips
-    createElement(
-      'div',
-      { style: { display: 'flex', flexWrap: 'wrap', gap: '0.45rem' } },
-      // Moat chip
-      moatClass === undefined ? null : createPill(
-        moatPassesGate === true
-          ? `Moat: ${moatClass} ✓ passes ≥ wide`
-          : `Moat: ${moatClass}`,
-        { bg: 'rgba(34, 197, 94, 0.14)', border: 'rgba(134, 239, 172, 0.38)', text: '#bbf7d0' },
-      ),
-      // Shariah chip
-      createStatusChip('Shariah', researchCase.shariah_status ?? 'Pending', resolveShariahChipColor(researchCase.shariah_status)),
-      // Strategy chip
-      createStatusChip('Strategy', researchCase.strategy_compliance ?? 'Pending', resolveComplianceChipColor(researchCase.strategy_compliance)),
-    ),
+    // (The verdict / valuation / moat / Shariah / strategy chips were removed here — the same facts now read
+    // as the scannable bullet list inside the Verdict summary below, so they are no longer duplicated.)
     // Verdict summary section
     createElement('hr', { className: 'owl-rule', style: { marginTop: '0.15rem' } }),
     createElement(
       'section',
       { style: { display: 'grid', gap: '0.5rem' } },
       createElement('p', { className: 'owl-section-accent' }, 'Verdict summary'),
-      createElement(
-        'p',
-        { style: { color: 'var(--owl-color-text)', fontSize: 'var(--owl-text-md)', lineHeight: 1.6, margin: 0 } },
-        createVerdictSummaryText(researchCase),
-      ),
+      createVerdictSummaryBody(researchCase),
       // Next action
       createElement(
         'p',
@@ -1100,6 +1124,14 @@ function buildEngineVersionMarker(researchCase: AppResearchCase): ReactNode {
     : new Date(researchCase.updated_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
   const commitSuffix = engineCommit === undefined ? '' : ` · commit ${engineCommit.slice(0, 7)}`
 
+  // "run by {provider} / {model}" — who executed this run (provider from the authoring event, model from the
+  // run request). Either may be absent on older cases; show whatever is known, or nothing.
+  const provider = researchCase.authored_by_provider_id
+  const model = researchCase.authored_by_model_id
+  const authorSuffix = provider === undefined
+    ? (model === undefined ? '' : ` · run by ${model}`)
+    : ` · run by ${provider}${model === undefined ? '' : ` / ${model}`}`
+
   const baseStyle = {
     color: 'var(--owl-color-quiet)',
     fontFamily: 'var(--owl-font-mono)',
@@ -1110,7 +1142,7 @@ function buildEngineVersionMarker(researchCase: AppResearchCase): ReactNode {
     return createElement(
       'span',
       { 'data-testid': 'engine-version-marker', style: baseStyle },
-      `Engine version unknown · pre-versioning${commitSuffix}`,
+      `Engine version unknown · pre-versioning${commitSuffix}${authorSuffix}`,
     )
   }
 
@@ -1119,7 +1151,7 @@ function buildEngineVersionMarker(researchCase: AppResearchCase): ReactNode {
   const marker = createElement(
     'span',
     { 'data-testid': 'engine-version-marker', style: baseStyle },
-    `Engine ${engineVersion}${generatedSuffix}${commitSuffix}`,
+    `Engine ${engineVersion}${generatedSuffix}${commitSuffix}${authorSuffix}`,
   )
   if (isCurrent) return marker
 
@@ -1151,39 +1183,55 @@ function resolveVerdictColors(verdict: string): { bg: string; border: string; te
   return { bg: 'rgba(148, 163, 184, 0.12)', border: 'rgba(148, 163, 184, 0.28)', text: 'var(--owl-color-muted)' }
 }
 
-function createVerdictSummaryText(researchCase: AppResearchCase): string {
+// The hero verdict summary: the model's THESIS as prose, then the key judgments as scannable BULLETS
+// (verdict, valuation + market-implied growth + buy-below, moat, margin of safety, Shariah). Each bullet is
+// omitted when its datum is absent, so the list stays honest. The full per-card detail lives in the boxes.
+function createVerdictSummaryBody(researchCase: AppResearchCase): ReactNode {
   const verdict = researchCase.investment_verdict ?? researchCase.decision
-  const valuation = researchCase.valuation_status
+  const valuationStatus = researchCase.valuation_status
+  const moat = researchCase.valuation?.moat_class
+  const impliedGrowth = researchCase.valuation?.market_implied_growth
+  const buyBelow = researchCase.valuation?.proposed_buy_below ?? researchCase.valuation?.buy_price_per_share
+  const mosAdequacy = researchCase.margin_of_safety_judgment?.adequacy
   const shariah = researchCase.shariah_status
-  const strategy = researchCase.strategy_compliance
 
-  const fullThesis = firstNonEmpty([
-    researchCase.thesis_summary,
-    researchCase.evidence_summary,
-    researchCase.reason,
-  ])
+  // The WHOLE thesis leads the verdict summary as prose (the standalone Thesis box was removed — this is now
+  // its only home), followed by the scannable judgment bullets below.
+  const fullThesis = firstNonEmpty([researchCase.thesis_summary, researchCase.evidence_summary, researchCase.reason])
+  const thesis = fullThesis ?? (verdict === undefined ? 'This dossier is waiting for a source-backed investment reason.' : undefined)
 
-  if (verdict !== undefined) {
-    const qualityContext = [
-      strategy === undefined ? undefined : `strategy ${strategy}`,
-      shariah === undefined ? undefined : `Shariah ${shariah}`,
-    ].filter((gate): gate is string => gate !== undefined)
-    const qualitySentence = qualityContext.length === 0
-      ? 'Review the dossier evidence before any user-authored transition.'
-      : `Quality/compliance context: ${qualityContext.join(', ')}.`
-    const valuationSentence = valuation === undefined
-      ? 'Owner-earnings valuation should be handled in the deep-dive workstream when available.'
-      : `Valuation status ${valuation} is tracked inside the deep-dive valuation workstream, not treated as a Quick Screen pass/fail gate.`
-    const statusText = `Verdict is a drafted strategy decision: ${verdict}. ${qualitySentence} ${valuationSentence}`
-    if (fullThesis !== undefined) {
-      const subject = researchCase.ticker ?? researchCase.company_id
-      const concise = createConciseDossierSummary(fullThesis, subject)
-      return `${concise} — ${statusText}`
-    }
-    return statusText
-  }
+  const valuationValue = [
+    valuationStatus === undefined ? undefined : valuationStatus.toLowerCase(),
+    impliedGrowth === undefined ? undefined : `market implies ~${(impliedGrowth * 100).toFixed(1)}% growth`,
+    buyBelow === undefined ? undefined : `model buy-below $${buyBelow.toFixed(2)}`,
+  ].filter((p): p is string => p !== undefined).join(' · ')
 
-  return fullThesis ?? 'This dossier is waiting for a source-backed investment reason.'
+  const points: Array<[string, string]> = []
+  if (verdict !== undefined) points.push(['Verdict', verdict])
+  if (valuationValue.length > 0) points.push(['Valuation', valuationValue])
+  if (moat !== undefined) points.push(['Moat', moat])
+  if (mosAdequacy !== undefined) points.push(['Margin of safety', mosAdequacy])
+  if (shariah !== undefined) points.push(['Shariah', shariah])
+
+  return createElement(
+    'div',
+    { style: { display: 'grid', gap: '0.6rem' } },
+    thesis === undefined ? null : createElement(
+      'p',
+      { style: { color: 'var(--owl-color-text)', fontSize: 'var(--owl-text-md)', lineHeight: 1.6, margin: 0 } },
+      thesis,
+    ),
+    points.length === 0 ? null : createElement(
+      'ul',
+      { style: { color: 'var(--owl-color-muted)', display: 'grid', gap: '0.3rem', listStyle: 'disc', margin: 0, paddingLeft: '1.15rem' } },
+      ...points.map(([label, value]) => createElement(
+        'li',
+        { key: label, style: { fontSize: 'var(--owl-text-base)', lineHeight: 1.5 } },
+        createElement('strong', { style: { color: 'var(--owl-color-sand)' } }, `${label}: `),
+        value,
+      )),
+    ),
+  )
 }
 
 // ── Decision panel (R1) ───────────────────────────────────────────────────────
@@ -1556,7 +1604,6 @@ function createValuationPanel(researchCase: AppResearchCase, marketQuote?: Marke
   const marketImpliedGrowth = valuation.market_implied_growth
   const reasoning = valuation.valuation_reasoning
   const discountRateVal = valuation.discount_rate
-  const moatClass = valuation.moat_class ?? 'unknown'
   const roic = valuation.roic
   const incrementalRoic = valuation.incremental_roic
   const growthRate = valuation.growth_rate
@@ -1609,7 +1656,6 @@ function createValuationPanel(researchCase: AppResearchCase, marketQuote?: Marke
   const redTeamUnaddressed = redTeam?.objection_unaddressed === true
 
   const discountLabel = discountRateVal !== undefined ? `${Math.round(discountRateVal * 100)}%` : DEFAULT_DISCOUNT_LABEL
-  const moatLabel = `${moatClass.toUpperCase()} MOAT · ${discountLabel} DISCOUNT`
 
   // Judged-growth label: the model's judged sustainable g (early years) fading to terminal g_t. growth_rate
   // is now the MODEL's cite-verified assumed/judged growth; the capped demonstrated CAGR is the
@@ -1644,25 +1690,9 @@ function createValuationPanel(researchCase: AppResearchCase, marketQuote?: Marke
         gap: '0.5rem',
       },
     },
-    // Header row
-    createElement(
-      'div',
-      { style: { alignItems: 'baseline', display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.5rem' } },
-      createElement('p', { className: 'owl-section-accent' }, 'Valuation'),
-      createElement(
-        'span',
-        {
-          style: {
-            color: 'var(--owl-color-accent-bright)',
-            fontFamily: 'var(--owl-font-mono)',
-            fontSize: 'var(--owl-text-xs)',
-            fontWeight: 800,
-            letterSpacing: '0.06em',
-          },
-        },
-        moatLabel,
-      ),
-    ),
+    // Accent title (the collapsible wrapper lifts it into the summary; the moat + discount label lives on the
+    // right of the collapsed header via the valuation hint, so it is not repeated here).
+    createElement('p', { className: 'owl-section-accent' }, 'Valuation'),
     createElement(
       'p',
       { style: { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-sm)', lineHeight: 1.5, margin: 0 } },
@@ -1960,25 +1990,9 @@ function createPositionPlanPanel(plan: PositionPlan | undefined, promptForCapita
   return createElement(
     'div',
     { style: { ...cardStyle, borderLeft: '3px solid var(--owl-color-gold)', display: 'grid', gap: '0.75rem' } },
-    // Header
-    createElement(
-      'div',
-      { style: { alignItems: 'baseline', display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.5rem' } },
-      createElement('p', { style: labelStyle }, 'Position plan · advisory'),
-      createElement(
-        'span',
-        {
-          style: {
-            color: 'var(--owl-color-gold-bright)',
-            fontFamily: 'var(--owl-font-mono)',
-            fontSize: 'var(--owl-text-xs)',
-            fontWeight: 800,
-            letterSpacing: '0.06em',
-          },
-        },
-        `${plan.moat_class.toUpperCase()} MOAT · ENTRY CAP`,
-      ),
-    ),
+    // Accent title FIRST (the collapsible wrapper lifts it into the summary; the moat + entry-cap tag lives
+    // on the right of the collapsed header via the position-plan hint, so it is not repeated here).
+    createElement('p', { style: labelStyle }, 'Position plan · advisory'),
     // Target weight + target value
     createElement(
       'div',
@@ -2131,28 +2145,6 @@ function createValuationLedgerStat(label: string, value: string, figureClass: st
 // AAOIFI ratio ledger now lives in createComplianceRatioBlock), and the Risks card duplicated the risks
 // lane + the MoS thesis-break triggers. Per-dimension findings now live ONLY in the specialist lanes; what
 // remains here is the unique whole-case thesis (the synthesis narrative), full-width.
-function createDecisionEvidence(researchCase: AppResearchCase) {
-  const fullThesis = firstNonEmpty([
-    researchCase.thesis_summary,
-    researchCase.reason,
-    researchCase.evidence_summary,
-  ]) ?? 'No investment thesis has been drafted yet.'
-
-  const thesis = createConciseDossierSummary(fullThesis, researchCase.ticker ?? researchCase.company_id)
-
-  return createElement(
-    'section',
-    {
-      className: 'owl-workflow-card owl-section-card',
-      style: {
-        gap: '0.75rem',
-      },
-    },
-    createElement('p', { className: 'owl-section-accent' }, 'Thesis'),
-    createDossierCard('Thesis', thesis, undefined, { note: 'Full thesis available in the disclosure below.' }),
-    createFullThesisDisclosure(fullThesis, thesis),
-  )
-}
 
 /**
  * Shariah / compliance — the unique harness-computed AAOIFI ratio ledger, given its own compact home (the
@@ -2173,50 +2165,6 @@ function createComplianceRatioBlock(researchCase: AppResearchCase) {
   )
 }
 
-function createDossierCard(
-  label: string,
-  content: string | string[],
-  status?: string,
-  options?: { note?: string | undefined; extra?: ReturnType<typeof createElement> | null | undefined },
-) {
-  const contentItems = Array.isArray(content) ? content : [content]
-
-  return createElement(
-    'article',
-    {
-      'data-testid': `research-dossier-card-${slugifyDossierLabel(label)}`,
-      style: {
-        background: 'var(--owl-color-panel-deep)',
-        border: '1px solid rgba(148, 163, 184, 0.14)',
-        borderRadius: '0.85rem',
-        padding: '0.85rem',
-        width: '100%',
-      },
-    },
-    // Inner grid preserves vertical rhythm — the card is a full-width row in the vertical stack.
-    createElement(
-      'div',
-      { style: { display: 'grid', gap: '0.5rem' } },
-      createElement(
-        'div',
-        { style: { alignItems: 'center', display: 'flex', flexWrap: 'wrap', gap: '0.45rem', justifyContent: 'space-between' } },
-        createElement('h3', { style: { color: '#f7f8ff', fontSize: 'var(--owl-text-base)', margin: 0 } }, label),
-        status === undefined ? null : createElement('span', { style: { color: 'var(--owl-color-gold-bright)', fontSize: 'var(--owl-text-sm)', fontWeight: 900 } }, status),
-      ),
-      contentItems.length === 1
-        ? createElement('p', { style: { color: '#dbe3ef', fontSize: 'var(--owl-text-base)', lineHeight: 1.5, margin: 0 } }, contentItems[0])
-        : createElement(
-          'ul',
-          { style: { color: '#dbe3ef', display: 'grid', fontSize: 'var(--owl-text-base)', gap: '0.35rem', lineHeight: 1.4, margin: 0, paddingLeft: '1rem' } },
-          ...contentItems.map((item) => createElement('li', { key: item }, item)),
-        ),
-      options?.extra ?? null,
-      options?.note === undefined
-        ? null
-        : createElement('p', { style: { color: '#9aa4b7', fontSize: 'var(--owl-text-sm)', fontWeight: 750, lineHeight: 1.4, margin: 0 } }, options.note),
-    ),
-  )
-}
 
 /** Format a fraction as a percentage with one decimal (0.0134 → "1.3%"). */
 function formatRatioPct(value: number): string {
@@ -2291,39 +2239,6 @@ function createShariahRatioLedger(researchCase: AppResearchCase): ReturnType<typ
       { style: { alignItems: 'baseline', color: '#dbe3ef', display: 'flex', fontSize: 'var(--owl-text-sm)', gap: '0.4rem', justifyContent: 'space-between', marginTop: '0.15rem' } },
       createElement('span', { style: { fontWeight: 800 } }, `Verdict: ${verdict}`),
       createElement('span', { style: { color: verdictColor, fontWeight: 800 } }, `Purification: ${purification}`),
-    ),
-  )
-}
-
-function createFullThesisDisclosure(fullThesis: string, conciseThesis: string) {
-  if (fullThesis === conciseThesis) return null
-
-  return createElement(
-    'details',
-    {
-      style: {
-        background: 'var(--owl-color-panel-deep)',
-        border: '1px solid rgba(148, 163, 184, 0.12)',
-        borderRadius: '0.85rem',
-        padding: '0.85rem',
-      },
-    },
-    createElement(
-      'summary',
-      {
-        style: {
-          color: 'var(--owl-color-gold-bright)',
-          cursor: 'pointer',
-          fontSize: 'var(--owl-text-base)',
-          fontWeight: 900,
-        },
-      },
-      'Full thesis',
-    ),
-    createElement(
-      'p',
-      { style: { color: '#dbe3ef', lineHeight: 1.6, margin: '0.75rem 0 0' } },
-      fullThesis,
     ),
   )
 }
@@ -2571,7 +2486,7 @@ function createSpecialistLaneCard(finding: ResearchFindingCard) {
   )
 }
 
-// ── Evidence and audit details (collapsed, e2e anchor) ────────────────────────
+// ── Evidence & sources (collapsed drop-down; sources + audit trail, e2e anchor) ──
 
 // `alwaysVisibleSources` (full dossier only): the cited Sources list is rendered as an ALWAYS-VISIBLE block
 // ABOVE the collapsed audit details so the citation-marker anchors land on a target that is never hidden —
@@ -2581,35 +2496,20 @@ function createSpecialistLaneCard(finding: ResearchFindingCard) {
 function createEvidenceAndAuditDetails(researchCase: AppResearchCase, options: { alwaysVisibleSources?: boolean } = {}) {
   const details = createElement(
     'details',
-    {
-      style: {
-        ...cardStyle,
-        display: 'grid',
-        gap: '1rem',
-      },
-    },
+    { className: 'owl-collapsible-card' },
     createElement(
       'summary',
-      {
-        style: {
-          color: '#f7f8ff',
-          cursor: 'pointer',
-          fontSize: 'var(--owl-text-md)',
-          fontWeight: 900,
-        },
-      },
-      'Evidence and audit details',
+      { className: 'owl-collapsible-card-summary' },
+      createElement('span', { className: 'owl-section-accent', style: { margin: 0 } }, 'Evidence & sources'),
     ),
     createElement(
       'div',
-      { style: { display: 'grid', gap: '1rem', marginTop: '1rem' } },
-      // When the Sources list is surfaced always-visible above, it is NOT duplicated inside the details.
+      { style: { display: 'grid', gap: '0.85rem', marginTop: '1rem' } },
+      // Sources (each filing collapses to its title). The gate checklist (empty/legacy) and the deep-dive lane
+      // findings (already shown in the top-level Deep-dive lanes box) were removed to declutter this drop-down.
       options.alwaysVisibleSources ? null : createEvidenceAndSourcesPanel(researchCase),
-      createGateChecklistPanel(researchCase),
       createLedgerTimelinePanel(researchCase),
-      // Quick screen and deep-dive panels preserved for unit-test assertions
       createQuickScreenCollapsible(researchCase),
-      createDeepDiveCollapsible(researchCase),
     ),
   )
 
@@ -2652,42 +2552,14 @@ function createEvidenceAndSourcesPanel(researchCase: AppResearchCase) {
   )
 }
 
-function createGateChecklistPanel(researchCase: AppResearchCase) {
-  return createElement(
-    'section',
-    { style: cardStyle },
-    createElement('h2', { style: { fontSize: 'var(--owl-text-lg)', margin: '0 0 1rem' } }, 'Gate checklist'),
-    createElement(
-      'ul',
-      { style: { display: 'grid', gap: '0.75rem', listStyle: 'none', margin: 0, padding: 0 } },
-      ...researchCase.gate_checklist.map((gate) =>
-        createElement(
-          'li',
-          {
-            key: gate.label,
-            style: { alignItems: 'center', display: 'flex', flexWrap: 'wrap', gap: '0.6rem' },
-          },
-          createElement(StatusBadge, { tone: gate.tone }, gate.status),
-          createElement(
-            'span',
-            { style: { display: 'grid', gap: '0.25rem' } },
-            createElement('span', { style: { fontWeight: 700 } }, gate.label),
-            createElement('span', { style: { color: '#9aa4b7', fontSize: 'var(--owl-text-base)' } }, `Evidence source context: ${describeGateEvidence(gate.label, researchCase.source_ids)}`),
-          ),
-        ),
-      ),
-    ),
-  )
-}
-
 function createLedgerTimelinePanel(researchCase: AppResearchCase) {
   return createElement(
-    'section',
-    { style: cardStyle },
-    createElement('h2', { style: { fontSize: 'var(--owl-text-lg)', margin: '0 0 0.35rem' } }, 'Ledger Timeline'),
+    'details',
+    { style: collapsibleDetailsStyle },
+    createElement('summary', { style: collapsibleSummaryStyle }, 'Ledger timeline'),
     createElement(
       'p',
-      { style: { color: '#9aa4b7', fontSize: 'var(--owl-text-base)', margin: '0 0 1rem' } },
+      { style: { color: '#9aa4b7', fontSize: 'var(--owl-text-base)', margin: '0.6rem 0 1rem' } },
       'How did this state come to exist?',
     ),
     createElement(
@@ -2711,12 +2583,12 @@ function createLedgerTimelinePanel(researchCase: AppResearchCase) {
 }
 
 function createEvidenceCard(source: AppSourceEvidence) {
-  // Stable anchor target: the marker links (`#source-<id>`) land here. `scrollMarginTop` keeps the
-  // landed card clear of any sticky header. The humanized title + the audit id name WHICH filing the
-  // claim cites, so a reader sees the source per-claim without a hover.
+  // Each filing collapses to its title; the excerpt / URL / audit id reveal on expand. Stable anchor target:
+  // the marker links (`#source-<id>`) land here and the browser auto-expands this <details> (and its Evidence
+  // ancestor) on fragment navigation. `scrollMarginTop` keeps the landed card clear of any sticky header.
   const filingLabel = humanizeAuditSourceId(source.source_id)
   return createElement(
-    'article',
+    'details',
     {
       key: source.source_id,
       id: sourceAnchorId(source.source_id),
@@ -2724,24 +2596,30 @@ function createEvidenceCard(source: AppSourceEvidence) {
         background: 'var(--owl-color-panel-deep)',
         border: '1px solid rgba(148, 163, 184, 0.14)',
         borderRadius: '0.9rem',
-        display: 'grid',
-        gap: '0.45rem',
-        padding: '0.95rem',
+        padding: '0.85rem 0.95rem',
         scrollMarginTop: '5rem',
       },
     },
-    createElement('h3', { style: { color: '#f7f8ff', fontSize: 'var(--owl-text-md)', margin: 0 } }, source.title),
-    filingLabel === source.title
-      ? null
-      : createElement('p', { style: { color: 'var(--owl-color-muted)', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-xs)', margin: 0 } }, filingLabel),
-    createElement('p', { style: { color: '#cbd5e1', lineHeight: 1.55, margin: 0 } }, source.excerpt),
-    source.url === undefined
-      ? null
-      : createElement('a', { href: source.url, rel: 'noreferrer', style: { color: 'var(--owl-color-gold-bright)', fontSize: 'var(--owl-text-base)', fontWeight: 800 } }, 'Open source URL'),
-    source.citation_locator === undefined
-      ? null
-      : createElement('p', { style: { color: '#9aa4b7', fontSize: 'var(--owl-text-base)', margin: 0 } }, `Citation: ${source.citation_locator}`),
-    createElement(SourceChip, { id: source.source_id, label: 'Audit source id' }),
+    createElement(
+      'summary',
+      { style: { color: '#f7f8ff', cursor: 'pointer', fontSize: 'var(--owl-text-md)', fontWeight: 700 } },
+      source.title,
+    ),
+    createElement(
+      'div',
+      { style: { display: 'grid', gap: '0.45rem', marginTop: '0.6rem' } },
+      filingLabel === source.title
+        ? null
+        : createElement('p', { style: { color: 'var(--owl-color-muted)', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-xs)', margin: 0 } }, filingLabel),
+      createElement('p', { style: { color: '#cbd5e1', lineHeight: 1.55, margin: 0 } }, source.excerpt),
+      source.url === undefined
+        ? null
+        : createElement('a', { href: source.url, rel: 'noreferrer', style: { color: 'var(--owl-color-gold-bright)', fontSize: 'var(--owl-text-base)', fontWeight: 800 } }, 'Open source URL'),
+      source.citation_locator === undefined
+        ? null
+        : createElement('p', { style: { color: '#9aa4b7', fontSize: 'var(--owl-text-base)', margin: 0 } }, `Citation: ${source.citation_locator}`),
+      createElement(SourceChip, { id: source.source_id, label: 'Audit source id' }),
+    ),
   )
 }
 
@@ -2828,155 +2706,6 @@ function createQuickScreenPanel(researchCase: AppResearchCase) {
 
 // ── Deep dive collapsible (preserved for unit-test assertions, lives inside audit details) ──
 
-function createDeepDiveCollapsible(researchCase: AppResearchCase) {
-  const inner = createDeepDivePanel(researchCase)
-  if (inner === null) return null
-
-  return createElement(
-    'details',
-    { style: collapsibleDetailsStyle },
-    createElement('summary', { style: collapsibleSummaryStyle }, 'Deep-dive lane findings'),
-    createElement('div', { style: { marginTop: '0.85rem' } }, inner),
-  )
-}
-
-function createDeepDivePanel(researchCase: AppResearchCase) {
-  const legacyDossier = isLegacyDecisionDossier(researchCase)
-  const findings = researchCase.specialist_findings ?? []
-  const displayFindings = findings.length === 0 && legacyDossier
-    ? createLegacyDeepDiveFindings(researchCase)
-    : findings
-  const ownerValuation = researchCase.owner_earnings_valuation
-    ?? findings.find((finding) => finding.specialist_lane === 'valuation')?.owner_earnings_valuation
-    ?? (legacyDossier ? createLegacyOwnerEarningsValuation(researchCase) : undefined)
-
-  if (displayFindings.length === 0 && ownerValuation === undefined && researchCase.deep_dive_id === undefined) {
-    return null
-  }
-
-  const orderedLanes = ['business_quality', 'moat', 'management', 'financial_quality', 'shariah', 'risks', 'valuation']
-  const cards = orderedLanes
-    .map((lane) => displayFindings.find((finding) => finding.specialist_lane === lane))
-    .filter((finding): finding is NonNullable<typeof finding> => finding !== undefined)
-
-  return createElement(
-    'section',
-    { className: 'owl-workflow-card', style: { ...cardStyle, display: 'grid', gap: '1rem' } },
-    createElement('p', { style: labelStyle }, 'Deep dive dossier'),
-    createElement(
-      'h2',
-      { style: { fontSize: 'var(--owl-text-lg)', margin: 0 } },
-      'Swarm lane findings',
-    ),
-    createElement(
-      'p',
-      { style: { color: '#9aa4b7', margin: 0 } },
-      'Deep dive separates business quality from valuation. The valuation lane is the owner-earnings buy-price workstream and should carry assumptions, sources, confidence, and caveats when available.',
-    ),
-    cards.length === 0
-      ? createElement('p', { style: { color: '#cbd5e1', margin: 0 } }, 'No lane findings have been recorded yet.')
-      : createElement(
-        'div',
-        { style: { display: 'grid', gap: '0.85rem', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))' } },
-        ...cards.map((finding) => createDeepDiveFindingCard(finding)),
-      ),
-    ownerValuation === undefined ? null : createOwnerEarningsValuationCard(ownerValuation),
-  )
-}
-
-function createDeepDiveFindingCard(finding: ResearchFindingCard) {
-  const laneLabel = deepDiveLaneLabel(finding.specialist_lane)
-  const caveats = finding.caveats ?? []
-  const sourceIds = finding.source_ids ?? []
-
-  return createElement(
-    'article',
-    {
-      key: finding.finding_id,
-      style: {
-        background: 'var(--owl-color-panel-deep)',
-        border: '1px solid rgba(148, 163, 184, 0.14)',
-        borderRadius: '0.95rem',
-        display: 'grid',
-        gap: '0.65rem',
-        padding: '1rem',
-      },
-    },
-    createElement(
-      'div',
-      { style: { alignItems: 'center', display: 'flex', flexWrap: 'wrap', gap: '0.55rem', justifyContent: 'space-between' } },
-      createElement('h3', { style: { color: '#f7f8ff', fontSize: 'var(--owl-text-md)', margin: 0 } }, laneLabel),
-      finding.confidence === undefined ? null : createElement('span', { style: { color: 'var(--owl-color-gold-bright)', fontSize: 'var(--owl-text-sm)', fontWeight: 900 } }, finding.confidence),
-    ),
-    createElement('p', { style: { color: '#dbe3ef', lineHeight: 1.55, margin: 0 } }, finding.finding_summary ?? 'No lane summary recorded.'),
-    caveats.length === 0
-      ? null
-      : createElement(
-        'ul',
-        { style: { color: '#9aa4b7', display: 'grid', gap: '0.35rem', lineHeight: 1.45, margin: 0, paddingLeft: '1.1rem' } },
-        ...caveats.map((caveat) => createElement('li', { key: caveat }, caveat)),
-      ),
-    sourceIds.length === 0 ? null : createDetail('Source ids', sourceIds.join(', ')),
-  )
-}
-
-function createOwnerEarningsValuationCard(ownerValuation: NonNullable<AppResearchCase['owner_earnings_valuation']>) {
-  const assumptions = ownerValuation.assumptions ?? []
-  const caveats = ownerValuation.caveats ?? []
-  const sources = ownerValuation.sources ?? []
-
-  return createElement(
-    'article',
-    {
-      style: {
-        background: 'rgba(22, 163, 74, 0.08)',
-        border: '1px solid var(--owl-color-border-strong)',
-        borderRadius: '1rem',
-        display: 'grid',
-        gap: '0.75rem',
-        padding: '1rem',
-      },
-    },
-    createElement('p', { style: labelStyle }, 'Owner-earnings valuation lane'),
-    ownerValuation.summary === undefined
-      ? null
-      : createElement('p', { style: { color: '#dbe3ef', lineHeight: 1.55, margin: 0 } }, ownerValuation.summary),
-    createElement(
-      'div',
-      { style: { display: 'grid', gap: '0.65rem', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' } },
-      createDetail('Normalized owner earnings', ownerValuation.normalized_owner_earnings ?? 'Pending'),
-      createDetail('Fair value range', ownerValuation.fair_value_range ?? 'Pending'),
-      createDetail('Buy-price range', ownerValuation.buy_price_range ?? 'Pending'),
-      createDetail('Margin of safety', ownerValuation.margin_of_safety ?? 'Pending'),
-      createDetail('Confidence', ownerValuation.confidence ?? 'Pending'),
-      createDetail('Sources', sources.length === 0 ? 'No source IDs recorded' : sources.join(', ')),
-    ),
-    assumptions.length === 0
-      ? null
-      : createElement(
-        'section',
-        { style: { display: 'grid', gap: '0.45rem' } },
-        createElement('h3', { style: { color: '#f7f8ff', fontSize: 'var(--owl-text-md)', margin: 0 } }, 'Assumptions'),
-        createElement(
-          'ul',
-          { style: { color: '#dbe3ef', display: 'grid', gap: '0.35rem', lineHeight: 1.45, margin: 0, paddingLeft: '1.1rem' } },
-          ...assumptions.map((assumption) => createElement('li', { key: assumption }, assumption)),
-        ),
-      ),
-    caveats.length === 0
-      ? null
-      : createElement(
-        'section',
-        { style: { display: 'grid', gap: '0.45rem' } },
-        createElement('h3', { style: { color: '#f7f8ff', fontSize: 'var(--owl-text-md)', margin: 0 } }, 'Caveats'),
-        createElement(
-          'ul',
-          { style: { color: '#dbe3ef', display: 'grid', gap: '0.35rem', lineHeight: 1.45, margin: 0, paddingLeft: '1.1rem' } },
-          ...caveats.map((caveat) => createElement('li', { key: caveat }, caveat)),
-        ),
-      ),
-  )
-}
 
 // ── Watchlist promotion & actions ─────────────────────────────────────────────
 
@@ -3695,20 +3424,6 @@ function createPill(label: string, colors: ChipColors) {
   )
 }
 
-function resolveShariahChipColor(status?: string): ChipColors {
-  if (status === 'COMPLIANT') return { bg: 'rgba(34, 197, 94, 0.14)', border: 'rgba(134, 239, 172, 0.38)', text: '#bbf7d0' }
-  if (status === 'CONDITIONAL') return { bg: 'rgba(20, 184, 166, 0.12)', border: 'rgba(94, 234, 212, 0.28)', text: '#99f6e4' }
-  if (status === 'NON_COMPLIANT') return { bg: 'rgba(239, 68, 68, 0.14)', border: 'rgba(252, 165, 165, 0.36)', text: '#fecaca' }
-  return { bg: 'rgba(148, 163, 184, 0.1)', border: 'rgba(148, 163, 184, 0.28)', text: 'var(--owl-color-muted)' }
-}
-
-function resolveComplianceChipColor(status?: string): ChipColors {
-  if (status === 'COMPLIANT' || status === 'PASS') return { bg: 'rgba(34, 197, 94, 0.14)', border: 'rgba(134, 239, 172, 0.38)', text: '#bbf7d0' }
-  if (status === 'CONDITIONAL') return { bg: 'rgba(214, 178, 94, 0.14)', border: 'rgba(243, 223, 177, 0.36)', text: '#f3dfb1' }
-  if (status === 'FAIL') return { bg: 'rgba(239, 68, 68, 0.14)', border: 'rgba(252, 165, 165, 0.36)', text: '#fecaca' }
-  return { bg: 'rgba(148, 163, 184, 0.1)', border: 'rgba(148, 163, 184, 0.28)', text: 'var(--owl-color-muted)' }
-}
-
 function resolveValuationChipColor(status?: string): ChipColors {
   if (status === 'FAIR' || status === 'UNDERVALUED') return { bg: 'rgba(34, 197, 94, 0.14)', border: 'rgba(134, 239, 172, 0.38)', text: '#bbf7d0' }
   if (status === 'EXPENSIVE') return { bg: 'rgba(214, 178, 94, 0.14)', border: 'rgba(243, 223, 177, 0.36)', text: '#f0d999' }
@@ -3716,41 +3431,7 @@ function resolveValuationChipColor(status?: string): ChipColors {
   return { bg: 'rgba(148, 163, 184, 0.1)', border: 'rgba(148, 163, 184, 0.28)', text: 'var(--owl-color-muted)' }
 }
 
-function createStatusChip(label: string, value: string, colors: ChipColors) {
-  return createElement(
-    'span',
-    {
-      key: label,
-      style: {
-        alignItems: 'baseline',
-        background: colors.bg,
-        border: `1px solid ${colors.border}`,
-        borderRadius: '999px',
-        color: colors.text,
-        display: 'inline-flex',
-        fontSize: 'var(--owl-text-sm)',
-        fontWeight: 700,
-        gap: '0.32rem',
-        padding: '0.3rem 0.65rem',
-      },
-    },
-    createElement('span', { style: { color: '#9aa4b7', fontWeight: 600 } }, `${label}:`),
-    value,
-  )
-}
-
 // ── Lane labels (full, with " lane" suffix, used in deep-dive section) ────────
-
-function deepDiveLaneLabel(lane?: string): string {
-  if (lane === 'business_quality') return 'Business quality lane'
-  if (lane === 'moat') return 'Moat lane'
-  if (lane === 'management') return 'Management lane'
-  if (lane === 'financial_quality') return 'Financial quality lane'
-  if (lane === 'shariah') return 'Shariah lane'
-  if (lane === 'risks' || lane === 'risk') return 'Risk lane'
-  if (lane === 'valuation') return 'Owner earnings buy-price lane'
-  return `${humanizeToken(lane ?? 'unknown')} lane`
-}
 
 // Short labels for the visible specialist grid (no " lane" suffix)
 function deepDiveLaneShortLabel(lane?: string): string {
@@ -3874,19 +3555,6 @@ function createLegacyDeepDiveFindings(researchCase: AppResearchCase): ResearchFi
   ]
 }
 
-function createLegacyOwnerEarningsValuation(researchCase: AppResearchCase): NonNullable<AppResearchCase['owner_earnings_valuation']> {
-  return {
-    summary: `Legacy dossier has valuation status ${researchCase.valuation_status ?? 'Pending'} but no owner-earnings buy-price range recorded.`,
-    assumptions: ['No owner-earnings assumptions were recorded for this legacy dossier.'],
-    fair_value_range: 'Not recorded',
-    buy_price_range: 'Not recorded',
-    margin_of_safety: 'Not recorded',
-    sources: researchCase.source_ids,
-    confidence: 'legacy fallback',
-    caveats: ['Missing owner-earnings assumptions are a deep-dive gap, not a Quick Screen failure.'],
-  }
-}
-
 // ── Utility functions ─────────────────────────────────────────────────────────
 
 function createConciseDossierSummary(thesis: string, subject?: string): string {
@@ -3931,9 +3599,6 @@ function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
-function slugifyDossierLabel(label: string): string {
-  return label.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
-}
 
 function firstNonEmpty(values: Array<string | undefined>): string | undefined {
   return values.find((value) => value !== undefined && value.trim().length > 0)
@@ -3963,10 +3628,6 @@ function humanizeAuditSourceId(sourceId: string): string {
   }).join(' ')
 }
 
-function describeGateEvidence(label: string, sourceIds: string[]) {
-  if (sourceIds.length === 0) return `${label} is awaiting source-backed evidence.`
-  return `${label} is tied to ${sourceIds.join(', ')}.`
-}
 
 function createDetail(label: string, value: string) {
   return createElement(
