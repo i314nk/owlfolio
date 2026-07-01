@@ -491,10 +491,30 @@ describe('ResearchCasePanel auditable dossier (R1)', () => {
     // Marker href and evidence id agree (sanitized consistently) so the in-page jump resolves.
     expect(html).toContain('href="#source-sec_edgar_10k_abc"')
     expect(html).toContain('id="source-sec_edgar_10k_abc"')
-    // The Sources list is rendered ABOVE (outside) the collapsed "Evidence and audit details" block.
+    // The Sources list now lives INSIDE the collapsed "Evidence & sources" drop-down (the anchor ids are
+    // still present; the browser auto-expands the <details> when a citation navigates to a source fragment).
+    expect(html).toContain('Evidence &amp; sources')
     const sourceIdIdx = html.indexOf('id="source-sec_edgar_10k_abc"')
     expect(sourceIdIdx).toBeGreaterThan(-1)
-    expect(sourceIdIdx).toBeLessThan(html.indexOf('Evidence and audit details'))
+    expect(sourceIdIdx).toBeGreaterThan(html.indexOf('Evidence &amp; sources'))
+  })
+
+  it('states which provider and model the run was executed by in the engine marker', () => {
+    const html = render({
+      ...baseCase(),
+      authored_by_provider_id: 'openai',
+      authored_by_model_id: 'gpt-5.5',
+    } as unknown as AppResearchCase, QUOTE)
+    expect(html).toContain('run by openai / gpt-5.5')
+  })
+
+  it('shows just the provider when the model id is absent (legacy run)', () => {
+    const html = render({
+      ...baseCase(),
+      authored_by_provider_id: 'openai',
+    } as unknown as AppResearchCase, QUOTE)
+    expect(html).toContain('run by openai')
+    expect(html).not.toContain('run by openai /')
   })
 
   it('retires the growth-axis band viz and the band/gap ledger labels entirely', () => {
@@ -532,7 +552,7 @@ describe('ResearchCasePanel auditable dossier (R1)', () => {
   // CONSOLIDATION (Priority 3) — per-dimension findings live ONLY in the lanes; valuation reasoning ONLY in
   // the Valuation box; the decision-evidence section keeps ONLY the unique whole-case thesis. The unique
   // AAOIFI ratio ledger is preserved (relocated to its own compliance block), not lost.
-  it('keeps only the thesis card and removes the duplicated valuation/shariah/risks cards', () => {
+  it('removes the duplicated valuation/shariah/risks cards; the thesis lives in the verdict summary', () => {
     const html = render({
       ...baseCase(),
       valuation_rationale: 'Duplicated valuation rationale card text.',
@@ -546,8 +566,9 @@ describe('ResearchCasePanel auditable dossier (R1)', () => {
         purification_pct: 0.004,
       },
     } as unknown as AppResearchCase, QUOTE)
-    // The whole-case thesis still renders.
-    expect(html).toContain('data-testid="research-dossier-card-thesis"')
+    // The whole-case thesis now lives in the hero verdict summary (the standalone Thesis card was removed).
+    expect(html).toContain('Verdict summary')
+    expect(html).not.toContain('data-testid="research-dossier-card-thesis"')
     // The duplicated per-dimension cards are gone.
     expect(html).not.toContain('data-testid="research-dossier-card-valuation"')
     expect(html).not.toContain('data-testid="research-dossier-card-shariah-compliance"')
@@ -599,7 +620,7 @@ describe('ResearchCasePanel auditable dossier (R1)', () => {
   })
 
   // COLLAPSIBLE DEFAULTS (Priority 1) — the lanes section collapses; the decision + MoS surfaces stay open.
-  it('collapses the lanes section by default while the decision + MoS surfaces stay open', () => {
+  it('makes every info-box a <details>: lanes + MoS collapsed, the decision box expanded by default', () => {
     const html = render({
       ...baseCase(),
       specialist_findings: [
@@ -610,11 +631,16 @@ describe('ResearchCasePanel auditable dossier (R1)', () => {
     expect(lanesIdx).toBeGreaterThan(-1)
     // The lanes section <details> carries no `open` attribute (collapsed by default).
     expect(html.slice(lanesIdx - 60, html.indexOf('>', lanesIdx))).not.toContain('open=""')
-    // The decision + MoS surfaces are plain <section>s (always visible), not collapsed behind <details>.
+    // The decision box is now a collapsible <details>, EXPANDED by default (its headline summary stays visible).
     const decisionIdx = html.indexOf('data-testid="decision-summary"')
+    const decisionTag = html.slice(decisionIdx - 80, html.indexOf('>', decisionIdx))
+    expect(decisionTag).toContain('<details')
+    expect(decisionTag).toContain('open=""')
+    // MoS is a collapsed <details> info-box (headline + drill-down), no `open` attribute.
     const mosIdx = html.indexOf('data-testid="margin-of-safety-audit"')
-    expect(html.slice(decisionIdx - 60, decisionIdx)).toContain('<section')
-    expect(html.slice(mosIdx - 60, mosIdx)).toContain('<section')
+    const mosTag = html.slice(mosIdx - 80, html.indexOf('>', mosIdx))
+    expect(mosTag).toContain('<details')
+    expect(mosTag).not.toContain('open=""')
   })
 })
 
@@ -779,8 +805,8 @@ describe('ResearchCasePanel set-aside (circle early-exit) dossier', () => {
     expect(html).toContain('Outside competence — set aside')
     // Engine-version provenance preserved.
     expect(html).toContain('data-testid="engine-version-marker"')
-    // Citation traceability preserved (evidence/audit details still render).
-    expect(html).toContain('Evidence and audit details')
+    // Citation traceability preserved (evidence/sources still render).
+    expect(html).toContain('Evidence &amp; sources')
   })
 
   it('omits the entire deep-dive scaffold and all valuation noise', () => {
@@ -795,7 +821,7 @@ describe('ResearchCasePanel set-aside (circle early-exit) dossier', () => {
     // empty-placeholder valuation noise — no "Pending" key figures, no "Not yet available" MoS, no discount.
     // (The collapsed audit details reuses the shared legacy quick-screen/deep-dive digest, same as the
     // gated/reject path; that is the audit trail, not the deep-dive scaffold.)
-    const foreground = html.slice(0, html.indexOf('Evidence and audit details'))
+    const foreground = html.slice(0, html.indexOf('Evidence &amp; sources'))
     expect(foreground).not.toContain('Not yet available')
     expect(foreground).not.toContain('Pending')
     expect(foreground).not.toContain('discount')

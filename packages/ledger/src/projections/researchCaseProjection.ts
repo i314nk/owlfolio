@@ -672,6 +672,13 @@ export type ResearchCaseProjection = {
    * Only set when `actor_type === 'provider'`; undefined for older / user-authored / non-provider runs.
    */
   authored_by_provider_id?: string
+  /**
+   * The model id the run was executed with (e.g. `gpt-5.5`), captured from the `research_run_requested`
+   * event's `model_id`. Undefined for legacy cases whose run-request predates model capture, or runs with
+   * no request event. Surfaced alongside `authored_by_provider_id` so the dossier can state which
+   * provider/model produced the analysis.
+   */
+  authored_by_model_id?: string
   candidate_id?: string
   company_id?: string
   ticker?: string
@@ -1745,9 +1752,22 @@ function upsertCase(
 
 export function projectResearchCases(events: LedgerEventEnvelope<unknown>[]): ResearchCaseProjection[] {
   const researchCases = new Map<string, ResearchCaseProjection>()
+  // `research_run_requested` (which carries the executing `model_id`) arrives BEFORE `research_case_created`
+  // on the same aggregate. Stash model ids here and assign after the loop — never create a phantom case from
+  // a lone request, and never disturb the stage machine.
+  const modelByCase = new Map<string, string>()
 
   for (const event of events) {
     if (!isRecord(event.payload)) {
+      continue
+    }
+
+    if (event.event_type === 'research_run_requested') {
+      const researchCaseId = researchCaseIdFor(event, event.payload)
+      const modelId = getString(event.payload, 'model_id')
+      if (researchCaseId !== undefined && modelId !== undefined && !modelByCase.has(researchCaseId)) {
+        modelByCase.set(researchCaseId, modelId)
+      }
       continue
     }
 
@@ -2141,6 +2161,14 @@ export function projectResearchCases(events: LedgerEventEnvelope<unknown>[]): Re
       const existing = researchCases.get(researchCaseId)
       const researchCase = upsertCase(researchCases, researchCaseId, existing?.stage ?? 'discovered', existing?.updated_at ?? event.created_at)
       researchCase.archived = true
+    }
+  }
+
+  // Assign the executing model id to cases that actually exist (never fabricate a case from a lone request).
+  for (const [researchCaseId, modelId] of modelByCase) {
+    const researchCase = researchCases.get(researchCaseId)
+    if (researchCase !== undefined && researchCase.authored_by_model_id === undefined) {
+      researchCase.authored_by_model_id = modelId
     }
   }
 
