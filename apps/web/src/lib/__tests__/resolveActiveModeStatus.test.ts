@@ -19,7 +19,7 @@ describe('resolveActiveModeStatus demo/mock production honesty', () => {
     })
 
     expect(status.kind).toBe('unconfigured')
-    expect(status.label).toBe('Not set up — choose a mode')
+    expect(status.label).toBe('No provider configured')
     expect(status.href).toBe(ACTIVE_MODE_FIX_HREF)
     expect(status.label).not.toContain('mock-provider')
     expect(status.label).not.toContain('Demo')

@@ -1,0 +1,19 @@
+{
+  "name": "@owlfolio/cli",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx src/index.ts",
+    "lint": "eslint . --max-warnings=0",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@owlfolio/ledger": "workspace:*",
+    "@owlfolio/onboarding": "workspace:*",
+    "@owlfolio/providers": "workspace:*",
+    "@owlfolio/shared": "workspace:*"
+  },
+  "devDependencies": {
+    "tsx": "4.21.0"
+  }
+}

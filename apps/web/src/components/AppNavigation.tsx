@@ -6,6 +6,7 @@ import { usePathname } from 'next/navigation'
 
 import { ActiveModeIndicator } from './ActiveModeIndicator'
 import type { ActiveModeStatus } from '../lib/activeModeStatus'
+import type { ModelSwitcher } from '../lib/resolveModelSwitcher'
 
 type NavItem = { href: string; label: string }
 
@@ -57,6 +58,11 @@ export type AppNavigationProps = {
    * not-ready state.
    */
   activeModeStatus?: ActiveModeStatus
+  /**
+   * When ≥2 models are reachable across connected providers, the indicator becomes an interactive grouped
+   * model switcher. Resolved server-side by `resolveModelSwitcher`; absent → the plain status indicator.
+   */
+  modelSwitcher?: ModelSwitcher
 }
 
 const SEARCH_TRIGGER_HREF = '/audit?focus=1'
@@ -89,7 +95,7 @@ function isActiveRoute(pathname: string, href: string): boolean {
   return pathname === href || pathname.startsWith(`${href}/`)
 }
 
-export const AppNavigation: FunctionComponent<AppNavigationProps> = function AppNavigation({ isSetupComplete = true, activeModeStatus }: AppNavigationProps) {
+export const AppNavigation: FunctionComponent<AppNavigationProps> = function AppNavigation({ isSetupComplete = true, activeModeStatus, modelSwitcher }: AppNavigationProps) {
   const pathname = usePathname() ?? '/'
 
   useEffect(() => {
@@ -147,7 +153,10 @@ export const AppNavigation: FunctionComponent<AppNavigationProps> = function App
       // always on screen and clickable-to-fix on every not-ready state.
       activeModeStatus === undefined
         ? null
-        : createElement(ActiveModeIndicator, { status: activeModeStatus }),
+        : createElement(ActiveModeIndicator, {
+            status: activeModeStatus,
+            ...(modelSwitcher === undefined ? {} : { modelSwitcher }),
+          }),
       createElement(
         'div',
         { className: 'owl-nav-sections' },

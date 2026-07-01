@@ -64,30 +64,26 @@ describe('provider status model', () => {
     await rm(projectDir, { recursive: true, force: true })
   })
 
-  it('keeps CLI-backed providers experimental even when local credentials make them ready', async () => {
+  it('keeps API-key providers experimental even when keys make them ready', async () => {
     const projectDir = await mkdtemp(join(tmpdir(), 'owlfolio-provider-status-empty-'))
     const rows = await buildProviderStatusRows({
       env: {
-        ANTHROPIC_API_KEY: 'test-key',
+        OPENROUTER_API_KEY: 'test-key',
         OPENAI_API_KEY: 'test-key',
         OWLFOLIO_PROJECT_DIR: projectDir,
       },
     })
 
-    expect(rows.find((row) => row.provider_id === 'claude')).toMatchObject({
-      provider_id: 'claude',
-      readiness_state: 'experimental',
-      effective_support_level: 'experimental',
-      is_ready: true,
-      last_certification_report: undefined,
-    })
-    expect(rows.find((row) => row.provider_id === 'openai')).toMatchObject({
-      provider_id: 'openai',
-      readiness_state: 'experimental',
-      effective_support_level: 'experimental',
-      is_ready: true,
-      last_certification_report: undefined,
-    })
+    // Surviving providers stay experimental — never auto-promoted just because a key makes them ready.
+    for (const providerId of ['openrouter', 'openai-api'] as const) {
+      expect(rows.find((row) => row.provider_id === providerId)).toMatchObject({
+        provider_id: providerId,
+        readiness_state: 'experimental',
+        effective_support_level: 'experimental',
+        is_ready: true,
+        last_certification_report: undefined,
+      })
+    }
 
     await rm(projectDir, { recursive: true, force: true })
   })
@@ -97,23 +93,17 @@ describe('provider status model', () => {
     const rows = await buildProviderStatusRows({
       env: {
         OPENAI_API_KEY: 'secret-openai-key',
-        GEMINI_HOME: '/secret/gemini/home',
-        OWLFOLIO_CODEX_AUTH_PATH: '/definitely/missing/codex-auth.json',
         OWLFOLIO_PROJECT_DIR: projectDir,
       } as any,
     })
 
-    const openAiCodex = rows.find((row) => row.provider_id === 'openai') as any
+    const openAiApi = rows.find((row) => row.provider_id === 'openai-api') as any
     const openRouter = rows.find((row) => row.provider_id === 'openrouter') as any
 
-    expect(openAiCodex).toMatchObject({
-      provider_surface_id: 'openai-codex-cli',
-      runtime_kind: 'cli',
+    expect(openAiApi).toMatchObject({
+      provider_surface_id: 'openai-api',
+      runtime_kind: 'direct_api',
       auth_mode: 'api_key',
-      billing_mode: 'subscription_entitlement',
-      quota_source: 'subscription_tier',
-      quota_status: 'unknown',
-      data_policy_source: 'subscription_workspace_policy',
       retention_or_zdr_status: 'not_verified',
       workflow_role: 'research_draft',
     })
@@ -127,8 +117,8 @@ describe('provider status model', () => {
       model_role: 'Meta-aggregator candidate',
     })
 
-    expect(openAiCodex.provider_surface_id).not.toBe(openRouter.provider_surface_id)
-    for (const row of [openAiCodex, openRouter]) {
+    expect(openAiApi.provider_surface_id).not.toBe(openRouter.provider_surface_id)
+    for (const row of [openAiApi, openRouter]) {
       expect(row.status_rows.map((statusRow: { label: string }) => statusRow.label)).toEqual(expect.arrayContaining([
         'Surface',
         'Auth mode',
@@ -150,23 +140,18 @@ describe('provider status model', () => {
     const rows = await buildProviderStatusRows({
       env: {
         OWLFOLIO_PROJECT_DIR: projectDir,
-        OWLFOLIO_CLAUDE_CREDENTIALS_PATH: '/definitely/missing/claude-credentials.json',
-        OWLFOLIO_CODEX_AUTH_PATH: '/definitely/missing/codex-auth.json',
       },
     })
 
-    expect(rows.find((row) => row.provider_id === 'claude')).toMatchObject({
-      readiness_state: 'unready',
-      effective_support_level: 'experimental',
-      is_ready: false,
-      auth_source: 'missing',
-    })
-    expect(rows.find((row) => row.provider_id === 'openai')).toMatchObject({
-      readiness_state: 'unready',
-      effective_support_level: 'experimental',
-      is_ready: false,
-      auth_source: 'missing',
-    })
+    // Missing credentials do NOT bump support level — surviving providers stay experimental + not-ready.
+    for (const providerId of ['openai-api', 'openrouter'] as const) {
+      expect(rows.find((row) => row.provider_id === providerId)).toMatchObject({
+        readiness_state: 'unready',
+        effective_support_level: 'experimental',
+        is_ready: false,
+        auth_source: 'missing',
+      })
+    }
 
     await rm(projectDir, { recursive: true, force: true })
   })
@@ -196,75 +181,11 @@ describe('provider status model', () => {
     await rm(projectDir, { recursive: true, force: true })
   })
 
-  it('keeps latest certification reports distinct and selects the readiness-matched auth target', async () => {
-    const projectDir = await mkdtemp(join(tmpdir(), 'owlfolio-provider-status-targets-'))
-    const reportDir = join(projectDir, 'data', 'provider-certifications')
-    await mkdir(reportDir, { recursive: true })
-    const codexCached = unsupportedCompletedReport('openai')
-    const codexApiKey: CertificationReport = {
-      ...unsupportedCompletedReport('openai'),
-      certification_report_id: 'cert_openai-codex-cli_api_key_research_draft_gpt-5-5_2026-06-03T00-00-00-000Z',
-      target: {
-        ...unsupportedCompletedReport('openai').target,
-        auth_mode: 'api_key',
-      },
-      generated_at: '2026-06-03T00:00:00.000Z',
-      summary: 'API-key certification is newer and should only gate API-key readiness.',
-    }
-    await writeFile(join(reportDir, 'openai-cached.latest.json'), JSON.stringify(codexCached, null, 2), 'utf8')
-    await writeFile(join(reportDir, 'openai-api-key.latest.json'), JSON.stringify(codexApiKey, null, 2), 'utf8')
-
-    const reports = await getLatestProviderCertificationReports({ env: { OWLFOLIO_PROJECT_DIR: projectDir } })
-    const rows = await buildProviderStatusRows({
-      env: {
-        OPENAI_API_KEY: 'credential-present-but-certification-blocks-workflow',
-        OWLFOLIO_PROJECT_DIR: projectDir,
-      },
-    })
-
-    expect(reports.filter((report) => report.provider_id === 'openai')).toHaveLength(2)
-    expect(rows.find((row) => row.provider_id === 'openai')?.last_certification_report).toMatchObject({
-      certification_report_id: codexApiKey.certification_report_id,
-      generated_at: codexApiKey.generated_at,
-    })
-
-    await rm(projectDir, { recursive: true, force: true })
-  })
-
-  it('does not apply a certification report for a different auth target to current readiness', async () => {
-    const cachedSessionReport: CertificationReport = {
-      ...unsupportedCompletedReport('openai'),
-      certification_report_id: 'cert_openai_cli_cached_certified',
-      support_level: 'certified',
-      summary: 'CLI cached session is certified but must not gate API-key readiness.',
-    }
-    const projectDir = await writeReportFixture(cachedSessionReport)
-
-    const rows = await buildProviderStatusRows({
-      env: {
-        OPENAI_API_KEY: 'credential-present-without-api-key-certification',
-        OWLFOLIO_PROJECT_DIR: projectDir,
-      },
-    })
-    const openai = rows.find((row) => row.provider_id === 'openai')
-
-    expect(openai).toMatchObject({
-      provider_id: 'openai',
-      readiness_state: 'experimental',
-      effective_support_level: 'experimental',
-      is_ready: true,
-      auth_source: 'OPENAI_API_KEY',
-      last_certification_report: undefined,
-    })
-
-    await rm(projectDir, { recursive: true, force: true })
-  })
-
   it('keeps reports distinct when target vendor/runtime/schema differs even with the same surface auth model and role', async () => {
     const projectDir = await mkdtemp(join(tmpdir(), 'owlfolio-provider-status-exact-targets-'))
     const reportDir = join(projectDir, 'data', 'provider-certifications')
     await mkdir(reportDir, { recursive: true })
-    const cliTarget = unsupportedCompletedReport('openai')
+    const cliTarget = unsupportedCompletedReport('openrouter')
     const runtimeVariant: CertificationReport = {
       ...cliTarget,
       certification_report_id: 'cert_openai_codex_same_surface_direct_runtime',
@@ -280,7 +201,7 @@ describe('provider status model', () => {
 
     const reports = await getLatestProviderCertificationReports({ env: { OWLFOLIO_PROJECT_DIR: projectDir } })
 
-    expect(reports.filter((report) => report.provider_id === 'openai')).toHaveLength(2)
+    expect(reports.filter((report) => report.provider_id === 'openrouter')).toHaveLength(2)
     expect(reports.map((report) => report.certification_report_id)).toEqual(expect.arrayContaining([
       cliTarget.certification_report_id,
       runtimeVariant.certification_report_id,
@@ -291,9 +212,9 @@ describe('provider status model', () => {
 
   it('fails closed when a completed certification report marks a credential-present provider unsupported', async () => {
     const projectDir = await writeReportFixture({
-      ...unsupportedCompletedReport('claude'),
+      ...unsupportedCompletedReport('openai-api'),
       target: {
-        ...unsupportedCompletedReport('claude').target,
+        ...unsupportedCompletedReport('openai-api').target,
         auth_mode: 'api_key',
       },
     })
@@ -304,10 +225,10 @@ describe('provider status model', () => {
         OWLFOLIO_PROJECT_DIR: projectDir,
       },
     })
-    const claude = rows.find((row) => row.provider_id === 'claude')
+    const claude = rows.find((row) => row.provider_id === 'openai-api')
 
     expect(claude).toMatchObject({
-      provider_id: 'claude',
+      provider_id: 'openai-api',
       readiness_state: 'unready',
       is_ready: false,
       auth_source: 'certification report',
@@ -324,10 +245,10 @@ describe('provider status model', () => {
 
   it('fails closed when latest certification requires reauth or is quota-limited even if support is otherwise certified', async () => {
     const reauthReport: CertificationReport = {
-      ...unsupportedCompletedReport('claude'),
+      ...unsupportedCompletedReport('openai-api'),
       certification_report_id: 'cert_claude_reauth_required',
       target: {
-        ...unsupportedCompletedReport('claude').target,
+        ...unsupportedCompletedReport('openai-api').target,
         auth_mode: 'api_key',
       },
       run_status: 'reauth-required',
@@ -343,7 +264,7 @@ describe('provider status model', () => {
         OWLFOLIO_PROJECT_DIR: projectDir,
       },
     })
-    const claude = rows.find((row) => row.provider_id === 'claude')
+    const claude = rows.find((row) => row.provider_id === 'openai-api')
 
     expect(claude).toMatchObject({
       readiness_state: 'unready',
@@ -360,10 +281,10 @@ describe('provider status model', () => {
     await rm(projectDir, { recursive: true, force: true })
 
     const quotaProjectDir = await writeReportFixture({
-      ...unsupportedCompletedReport('openai'),
+      ...unsupportedCompletedReport('openrouter'),
       certification_report_id: 'cert_openai_quota_limited',
       target: {
-        ...unsupportedCompletedReport('openai').target,
+        ...unsupportedCompletedReport('openrouter').target,
         auth_mode: 'api_key',
       },
       run_status: 'quota-limited',
@@ -374,7 +295,7 @@ describe('provider status model', () => {
     const quotaRows = await buildProviderStatusRows({
       env: { OPENAI_API_KEY: 'credential-present-but-quota-limited', OWLFOLIO_PROJECT_DIR: quotaProjectDir },
     })
-    const openai = quotaRows.find((row) => row.provider_id === 'openai')
+    const openai = quotaRows.find((row) => row.provider_id === 'openrouter')
     expect(openai).toMatchObject({
       readiness_state: 'unready',
       is_ready: false,
@@ -414,7 +335,7 @@ describe('provider status model', () => {
 
   it('displays explicit not-configured certification artifacts for unavailable real providers', async () => {
     const projectDir = await writeReportFixture(createNotConfiguredCertificationReport({
-      provider_id: 'claude',
+      provider_id: 'openai-api',
       generated_at: '2026-06-01T00:00:00.000Z',
       capabilities: {
         'text-generation': 'native',
@@ -423,52 +344,48 @@ describe('provider status model', () => {
         'streaming-observability': 'adapter',
         'multi-step-tool-loop': 'unsupported',
       },
-      reason: 'Claude subscription access disabled',
+      reason: 'Direct API live certification failed',
       auth_mode: 'api_key',
     }))
 
     const rows = await buildProviderStatusRows({
       env: {
-        ANTHROPIC_API_KEY: 'credential-file-exists-but-live-certification-failed',
+        OPENAI_API_KEY: 'credential-file-exists-but-live-certification-failed',
         OWLFOLIO_PROJECT_DIR: projectDir,
       },
     })
-    const claude = rows.find((row) => row.provider_id === 'claude')
+    const openaiApi = rows.find((row) => row.provider_id === 'openai-api')
 
-    expect(claude).toMatchObject({
-      provider_id: 'claude',
+    expect(openaiApi).toMatchObject({
+      provider_id: 'openai-api',
       readiness_state: 'unready',
       is_ready: false,
       auth_source: 'certification report',
-      status_label: 'Claude subscription access disabled',
+      status_label: 'Direct API live certification failed',
       effective_support_level: 'unsupported',
       last_certification_report: {
         run_status: 'not-configured',
-        not_run_reason: 'Claude subscription access disabled',
+        not_run_reason: 'Direct API live certification failed',
         support_level: 'unsupported',
       },
     })
-    expect((claude as any)?.status_rows.map((statusRow: { label: string; value: string }) => [statusRow.label, statusRow.value])).toEqual(expect.arrayContaining([
-      ['Surface', 'claude-cli'],
+    expect((openaiApi as any)?.status_rows.map((statusRow: { label: string; value: string }) => [statusRow.label, statusRow.value])).toEqual(expect.arrayContaining([
+      ['Surface', 'openai-api'],
       ['Auth mode', 'api_key'],
-      ['Billing/quota', 'subscription_entitlement; quota unknown'],
-      ['Privacy posture', 'subscription_workspace_policy; not_verified'],
       ['Role certification', 'research_draft: unsupported'],
-      ['Local availability', 'Locally runnable'],
-      ['Credential status', 'Credentials blocked by latest certification report'],
       ['Catalog support', 'experimental'],
       ['Effective support', 'unsupported'],
       ['Workflow certification', 'Report not configured'],
       ['Allowed use', 'Blocked for provider-backed workflow starts'],
     ]))
-    expect(claude?.last_certification_report?.summary).toContain('Certification not run')
+    expect(openaiApi?.last_certification_report?.summary).toContain('Certification not run')
 
     await rm(projectDir, { recursive: true, force: true })
   })
 
   it('shows an OpenAI not-configured report as the effective support gate even with credentials present', async () => {
     const projectDir = await writeReportFixture(createNotConfiguredCertificationReport({
-      provider_id: 'openai',
+      provider_id: 'openrouter',
       generated_at: '2026-06-01T00:00:00.000Z',
       capabilities: {
         'text-generation': 'native',
@@ -477,39 +394,35 @@ describe('provider status model', () => {
         'streaming-observability': 'adapter',
         'multi-step-tool-loop': 'unsupported',
       },
-      reason: 'Codex CLI structured-output schema rejected',
+      reason: 'OpenRouter structured-output certification rejected',
       auth_mode: 'api_key',
     }))
 
     const rows = await buildProviderStatusRows({
       env: {
-        OPENAI_API_KEY: 'credential-present-but-certification-blocks-workflow',
+        OPENROUTER_API_KEY: 'credential-present-but-certification-blocks-workflow',
         OWLFOLIO_PROJECT_DIR: projectDir,
       },
     })
-    const openai = rows.find((row) => row.provider_id === 'openai')
+    const openrouter = rows.find((row) => row.provider_id === 'openrouter')
 
-    expect(openai).toMatchObject({
-      provider_id: 'openai',
+    expect(openrouter).toMatchObject({
+      provider_id: 'openrouter',
       readiness_state: 'unready',
       is_ready: false,
       auth_source: 'certification report',
-      status_label: 'Codex CLI structured-output schema rejected',
+      status_label: 'OpenRouter structured-output certification rejected',
       effective_support_level: 'unsupported',
       last_certification_report: {
         run_status: 'not-configured',
-        not_run_reason: 'Codex CLI structured-output schema rejected',
+        not_run_reason: 'OpenRouter structured-output certification rejected',
         support_level: 'unsupported',
       },
     })
-    expect((openai as any)?.status_rows.map((statusRow: { label: string; value: string }) => [statusRow.label, statusRow.value])).toEqual(expect.arrayContaining([
-      ['Surface', 'openai-codex-cli'],
+    expect((openrouter as any)?.status_rows.map((statusRow: { label: string; value: string }) => [statusRow.label, statusRow.value])).toEqual(expect.arrayContaining([
+      ['Surface', 'openrouter-api'],
       ['Auth mode', 'api_key'],
-      ['Billing/quota', 'subscription_entitlement; quota unknown'],
-      ['Privacy posture', 'subscription_workspace_policy; not_verified'],
       ['Role certification', 'research_draft: unsupported'],
-      ['Local availability', 'Locally runnable'],
-      ['Credential status', 'Credentials blocked by latest certification report'],
       ['Catalog support', 'experimental'],
       ['Effective support', 'unsupported'],
       ['Workflow certification', 'Report not configured'],
@@ -586,16 +499,16 @@ describe('model-tiering — buildModelRegistrySection', () => {
   })
 })
 
-function unsupportedCompletedReport(providerId: 'mock-provider' | 'claude' | 'openai'): CertificationReport {
+function unsupportedCompletedReport(providerId: 'mock-provider' | 'openai-api' | 'openrouter'): CertificationReport {
   return {
     certification_report_id: `cert_${providerId}_unsupported_completed`,
     provider_id: providerId,
     target: {
-      provider_surface_id: providerId === 'claude' ? 'claude-cli' : providerId === 'openai' ? 'openai-codex-cli' : 'mock-provider',
-      vendor_id: providerId === 'claude' ? 'anthropic' : providerId === 'openai' ? 'openai' : 'mock',
-      runtime_kind: providerId === 'mock-provider' ? 'built_in' : 'cli',
-      auth_mode: providerId === 'mock-provider' ? 'built_in_demo' : 'cli_cached_session',
-      model_id: providerId === 'claude' ? 'claude-sonnet-4-6' : providerId === 'openai' ? 'gpt-5.5' : 'mock-research-v2',
+      provider_surface_id: providerId === 'openai-api' ? 'openai-api' : providerId === 'openrouter' ? 'openrouter-api' : 'mock-provider',
+      vendor_id: providerId === 'openai-api' ? 'openai' : providerId === 'openrouter' ? 'openrouter' : 'mock',
+      runtime_kind: providerId === 'mock-provider' ? 'built_in' : 'direct_api',
+      auth_mode: providerId === 'mock-provider' ? 'built_in_demo' : 'api_key',
+      model_id: providerId === 'openai-api' ? 'gpt-5.5' : providerId === 'openrouter' ? 'openrouter/auto' : 'mock-research-v2',
       workflow_role: 'research_draft',
       schema_version: 1,
     },

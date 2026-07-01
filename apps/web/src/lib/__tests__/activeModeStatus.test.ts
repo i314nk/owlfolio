@@ -20,7 +20,7 @@ describe('selectActiveModeStatus', () => {
     const status = selectActiveModeStatus(baseInput({ mode: 'unconfigured' }))
 
     expect(status.kind).toBe('unconfigured')
-    expect(status.label).toBe('Not set up — choose a mode')
+    expect(status.label).toBe('No provider configured')
     expect(status.href).toBe(PROVIDERS_HREF)
   })
 

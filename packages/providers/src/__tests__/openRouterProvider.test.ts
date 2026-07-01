@@ -102,6 +102,34 @@ describe('OpenRouterProvider (live execution path)', () => {
     await provider.complete(request)
   })
 
+  it('generalizes to a direct OpenAI-compatible endpoint (custom baseUrl/key, reasoning omitted)', async () => {
+    const fetchImpl = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+      const headers = new Headers(init?.headers)
+      expect(String(url)).toBe('https://api.example.com/v1/chat/completions')
+      expect(headers.get('Authorization')).toBe('Bearer direct-k')
+      const body = JSON.parse(init?.body as string)
+      // Direct endpoints that reject OpenRouter's `reasoning` param are configured with an empty reasoningBody.
+      expect(body.reasoning).toBeUndefined()
+      return jsonResponse({ choices: [{ message: { content: 'ok' } }] })
+    })
+    const provider = new OpenRouterProvider({
+      env: { EXAMPLE_API_KEY: 'direct-k' },
+      apiKeyEnvVar: 'EXAMPLE_API_KEY',
+      baseUrl: 'https://api.example.com/v1',
+      label: 'Example',
+      reasoningBody: {},
+      fetch: fetchImpl as unknown as typeof fetch,
+    })
+    expect(provider.isReady()).toBe(true)
+    await provider.complete(request)
+    expect(fetchImpl).toHaveBeenCalledOnce()
+  })
+
+  it('uses the configured label + key env var in the missing-credential error', async () => {
+    const provider = new OpenRouterProvider({ env: {}, apiKeyEnvVar: 'EXAMPLE_API_KEY', label: 'Example' })
+    await expect(provider.complete(request)).rejects.toThrow(/Example is not configured: missing EXAMPLE_API_KEY/)
+  })
+
   it('validates structured output against the schema and strips reasoning fences', async () => {
     const schema = z.object({ verdict: z.string() })
     const fetchImpl = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {

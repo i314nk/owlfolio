@@ -35,25 +35,25 @@ async function writeQualified(dir: string, providerId: string): Promise<void> {
 describe('buildAutoModelRoleOverrides', () => {
   it('returns empty overrides when only ONE real reasoning provider is connected (single provider -> inherit)', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'owl-autotier-'))
-    await writeQualified(dir, 'claude')
+    await writeQualified(dir, 'openrouter')
     // Injected readiness: only claude is connected.
     const result = await buildAutoModelRoleOverrides({
       processEnv: {},
       qualificationDir: dir,
-      getReadiness: async (providerId) => ({ is_ready: providerId === 'claude' }),
+      getReadiness: async (providerId) => ({ is_ready: providerId === 'openrouter' }),
     })
     expect(result.overrides).toEqual({})
   })
 
   it('derives T1/T2/T3 overrides when two qualified reasoning providers are connected', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'owl-autotier-'))
-    await writeQualified(dir, 'claude')
-    await writeQualified(dir, 'openai')
+    await writeQualified(dir, 'openrouter')
+    await writeQualified(dir, 'openai-api')
 
     const result = await buildAutoModelRoleOverrides({
       processEnv: {},
       qualificationDir: dir,
-      getReadiness: async (providerId) => ({ is_ready: providerId === 'claude' || providerId === 'openai' }),
+      getReadiness: async (providerId) => ({ is_ready: providerId === 'openrouter' || providerId === 'openai-api' }),
     })
 
     // A reasoning provider got pinned for synthesis (T1).

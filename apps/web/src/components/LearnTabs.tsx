@@ -15,6 +15,7 @@ import {
 } from '@owlfolio/strategies/shariahFinancialRatios'
 import { CHECKLIST_PARAMS, type ChecklistCategory } from '@owlfolio/strategies/checklistParams'
 import { buffettMungerDeepDiveLanes } from '@owlfolio/workflow/strategyResearchPipeline'
+import { curatedRealTierModelsForProvider } from '@owlfolio/providers/modelCatalog'
 
 // ── Live contract values (rendered, never hard-coded) ───────────────────────
 const strategy = buffettMungerStrategy
@@ -515,6 +516,33 @@ function ShariahTab(): ReactNode {
   )
 }
 
+// Recommended models per tier, rendered LIVE from the curated OpenRouter catalog (never hard-coded here) so
+// the Learn copy stays in sync as the owner curates the shortlist. Grouped T1 → T2 → T3.
+const TIER_HEADINGS: Record<'T1' | 'T2' | 'T3', string> = {
+  T1: 'T1 — Frontier (synthesis, moat/Shariah)',
+  T2: 'T2 — Mid (quick screen, red-team)',
+  T3: 'T3 — Cheap / high-volume (monitors, entity resolution)',
+}
+
+function recommendedModelsByTier(): ReactNode {
+  const curated = curatedRealTierModelsForProvider('openrouter')
+  return cardGrid((['T1', 'T2', 'T3'] as const).map((tier) => {
+    const models = curated.filter((model) => model.tier_suitability.includes(tier))
+    return {
+      key: tier,
+      eyebrow: TIER_HEADINGS[tier],
+      body: createElement(
+        'span',
+        null,
+        ...models.flatMap((model, index) => [
+          index === 0 ? null : createElement('br', { key: `br-${model.model_id}` }),
+          mono(model.model_id),
+        ]),
+      ),
+    }
+  }), '260px')
+}
+
 // 6 — Model Tiering & Trust
 function TieringTab(): ReactNode {
   return createElement(
@@ -537,6 +565,28 @@ function TieringTab(): ReactNode {
       ]),
     }),
     PanelSection({
+      eyebrow: 'Choosing a model',
+      title: 'Pick a reasoning model the harness can drive — the choice is yours',
+      lead: createElement(
+        'span',
+        null,
+        'The OpenRouter picker searches the ',
+        gold('full live catalog'),
+        ', filtered to ',
+        gold('reasoning models the harness can actually drive'),
+        ' — reasoning plus function tool-calling (for the grounded loop) plus structured JSON output (for synthesis). Non-reasoning models, and models missing tools or structured output, are filtered out because they would only ever fail a run. Beyond that hard floor, ',
+        gold('the responsibility is yours'),
+        ': certification is a deeper, optional audit (it proves a specific model honors grounding + the security invariants), not a prerequisite for use — you can point the harness at any capable reasoning model and it runs experimental until you decide it fits the job. Weaker models degrade into visible retries and failed runs, never silent verdict poisoning.',
+      ),
+      children: createElement(
+        'div',
+        { style: { display: 'grid', gap: 'var(--owl-space-3)' } },
+        createElement('p', { style: microLabel }, 'Recommended for the job (curated, by tier)'),
+        recommendedModelsByTier(),
+        caveat('These are hand-picked reasoning models that clear the harness floor and suit each tier — read live from the curated catalog, so they stay current. They are recommendations, not a lock: any reasoning model in the picker is selectable, and the T3 tier can run a cheaper/local model to keep high-volume scanning near-free.'),
+      ),
+    }),
+    PanelSection({
       eyebrow: 'Trust defenses',
       title: 'What makes the harness model-agnostic',
       lead: 'These run on every lane output regardless of which model produced it, so a weaker model degrades into visible retries and failed runs — never silent verdict poisoning.',
@@ -555,6 +605,103 @@ function TieringTab(): ReactNode {
   )
 }
 
+// A terminal command block: monospace, deep panel, gold text — matches the valuation formula block styling.
+function commandBlock(lines: ReactNode[]): ReactNode {
+  return createElement(
+    'div',
+    {
+      style: {
+        background: 'var(--owl-color-panel-deep)',
+        border: '1px solid var(--owl-color-border)',
+        borderRadius: 'var(--owl-radius-card)',
+        padding: '0.9rem 1rem',
+        fontFamily: 'var(--owl-font-mono)',
+        fontSize: 'var(--owl-text-sm)',
+        color: 'var(--owl-color-gold-vivid)',
+        lineHeight: 1.9,
+        overflowX: 'auto',
+      },
+    },
+    ...lines.map((line, index) => createElement('div', { key: index }, line)),
+  )
+}
+
+// 7 — The CLI
+function CliTab(): ReactNode {
+  return createElement(
+    'div',
+    { style: { display: 'grid', gap: 'var(--owl-space-4)' } },
+    PanelSection({
+      eyebrow: 'Developer & admin operations',
+      title: 'The CLI — onboarding, status, and diagnostics from the terminal',
+      lead: createElement(
+        'span',
+        null,
+        'The web app is the primary product surface; the CLI is for ',
+        gold('developer and admin operations'),
+        ' against the ',
+        gold('same local config, env file, and ledger'),
+        '. It launches the app, reports readiness, and diagnoses setup — it ',
+        gold('never trades, never authors a decision, and never moves a name between lifecycle states'),
+        '. Those remain web + human-authored.',
+      ),
+      children: createElement(
+        'div',
+        { style: { display: 'grid', gap: 'var(--owl-space-3)' } },
+        createElement('p', { style: microLabel }, 'Run it — a short owlfolio command'),
+        commandBlock([
+          createElement('span', null, 'owlfolio ', gold('<command>'), '          # e.g.  owlfolio doctor'),
+          createElement('span', null, './owlfolio ', gold('<command>'), '        # from the repo root, no setup'),
+          createElement('span', null, 'corepack pnpm owlfolio ', gold('<command>'), '  # zero-setup alternative'),
+        ]),
+        createElement('p', { style: { ...bodyStyle, fontSize: 'var(--owl-text-sm)' } }, createElement(
+          'span',
+          null,
+          'To call ',
+          mono('owlfolio'),
+          ' from anywhere, put the repo-root launcher on your PATH once — symlink it (',
+          mono('ln -s "$PWD/owlfolio" ~/.local/bin/owlfolio'),
+          '), add a shell alias, or run ',
+          mono('corepack pnpm link --global'),
+          ' from the repo root.',
+        )),
+      ),
+    }),
+    PanelSection({
+      eyebrow: 'Commands',
+      title: 'Three commands — launch, inspect, diagnose',
+      lead: createElement(
+        'span',
+        null,
+        'The CLI is deliberately small. Onboarding — mode, provider, API keys, model, capital — all lives in the ',
+        gold('browser'),
+        ' (it is the same shared surface, so nothing can drift), so the CLI keeps only what the browser cannot do from a terminal.',
+      ),
+      children: cardGrid([
+        { key: 'start', eyebrow: 'start', body: createElement('span', null, 'Launch the web app and open the browser to ', mono('127.0.0.1:3000'), ' — the single entrypoint. All setup happens there.') },
+        { key: 'status', eyebrow: 'status', body: 'Read-only: the current mode, provider/model, readiness, and the onboarding gate. Headless-safe — never prompts.' },
+        { key: 'doctor', eyebrow: 'doctor', body: 'Diagnose config, the credential file (+ 0600 permissions), the ledger, and certification state — the first thing to run when something looks off.' },
+      ], '240px'),
+    }),
+    PanelSection({
+      eyebrow: 'Runtime overrides',
+      title: 'Point the CLI at a specific workspace',
+      lead: 'The CLI honors the same environment overrides as the web app and worker, so you can run it against an isolated project directory (a sandbox) instead of the default.',
+      children: createElement(
+        'div',
+        { style: { display: 'grid', gap: 'var(--owl-space-3)' } },
+        commandBlock([
+          createElement('span', null, gold('OWLFOLIO_PROJECT_DIR'), '        # workspace root (config, env file, ledger live under it)'),
+          createElement('span', null, gold('OWLFOLIO_APP_CONFIG_PATH'), '     # explicit app-config.json path'),
+          createElement('span', null, gold('OWLFOLIO_ENV_FILE'), '            # the local key store (never committed)'),
+          createElement('span', null, gold('OWLFOLIO_PERSONAL_LEDGER_PATH'), ' # the personal-local SQLite ledger'),
+        ]),
+        caveat('The CLI is dry-run/admin by constitution: it reads and writes config, credentials, and onboarding state, but it never executes an investment action, confirms a watchlist entry, opens a holding, or authorizes a purification payment — every irreversible transition is authored by a human in the web workflow.'),
+      ),
+    }),
+  )
+}
+
 export const LEARN_TABS: LearnTab[] = [
   { id: 'strategy', label: 'Strategy & Valuation', render: StrategyTab },
   { id: 'swarm', label: 'The Research Swarm', render: SwarmTab },
@@ -562,6 +709,7 @@ export const LEARN_TABS: LearnTab[] = [
   { id: 'lifecycle', label: 'Lifecycle', render: LifecycleTab },
   { id: 'shariah', label: 'Shariah by Design', render: ShariahTab },
   { id: 'tiering', label: 'Model Tiering & Trust', render: TieringTab },
+  { id: 'cli', label: 'The CLI', render: CliTab },
 ]
 
 /** Pure keyboard-nav helper: returns the next active index for a roving tablist. */

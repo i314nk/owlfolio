@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { DecisionAgentSchema, VALUATION_LANE_DISCOUNT_NOTE } from '../researchSwarmSchemas'
+import { DecisionAgentSchema, RISKS_RECENCY_NOTE, VALUATION_LANE_DISCOUNT_NOTE } from '../researchSwarmSchemas'
 
 // RELIGHTENED DECISION (R1): the model OWNS the valuation. The decision agent now emits proposed_buy_below
 // (the price below which it would buy — recorded verbatim, NOT a derived FV) and valuation_reasoning (the
@@ -176,5 +176,24 @@ describe('VALUATION_LANE_DISCOUNT_NOTE (the harness owns the discount — F.2 co
     expect(VALUATION_LANE_DISCOUNT_NOTE).toMatch(/(?:must not|do not|not)[^.]*(?:required return|discount rate|cost of capital|wacc|hurdle)/i)
     // The lane must NOT anchor to the 10-year Treasury (negation present).
     expect(VALUATION_LANE_DISCOUNT_NOTE).toMatch(/(?:not|n't)[^.]*treasur/i)
+  })
+})
+
+// ---------------------------------------------------------------------------------------------------
+// Recency framing (provider tree ⇄ EDGAR tree handoff): the risks lane is the "web tier" (the only
+// allow_unknown lane), so it is where web/media recency could masquerade as decision-grade. This note —
+// appended to the risks lane's sourceDiscipline in researchSwarm.ts — keeps both trees honest: web recency
+// is best-effort COLOR; thesis-critical recency (material 8-Ks) is grounded by the EDGAR tree, not web.
+// Pinned so the framing can't be silently dropped. See docs/architecture/read-source-contract.md.
+// ---------------------------------------------------------------------------------------------------
+describe('RISKS_RECENCY_NOTE (web tier is risk color; 8-Ks grounded by EDGAR)', () => {
+  it('frames web/media recency as best-effort color, not decision-grade, and points 8-K recency at EDGAR', () => {
+    // Web/media recency is COLOR, not decision-grade primary evidence.
+    expect(RISKS_RECENCY_NOTE).toMatch(/color/i)
+    expect(RISKS_RECENCY_NOTE).toMatch(/not decision-grade/i)
+    // Thesis-critical recency (material 8-K events) is grounded by the EDGAR tree, not by web/media here.
+    expect(RISKS_RECENCY_NOTE).toMatch(/8-K/)
+    expect(RISKS_RECENCY_NOTE).toMatch(/EDGAR/)
+    expect(RISKS_RECENCY_NOTE).toMatch(/not by web/i)
   })
 })

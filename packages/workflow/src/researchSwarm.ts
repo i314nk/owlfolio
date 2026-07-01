@@ -93,6 +93,7 @@ import {
   SHARIAH_OVERLAY_PROMPT,
   CIRCLE_COMPETENCE_PROMPT,
   VALUATION_LANE_DISCOUNT_NOTE,
+  RISKS_RECENCY_NOTE,
   PRIMARY_FILING_LANES,
 } from './researchSwarmSchemas'
 // Deterministic harness compute (judgment-tier resolution, projection builders, OE-bridge filing block,
@@ -1090,7 +1091,7 @@ export async function runResearchDeepDivePhase(
     const laneRole: ModelRoleId = lane === 'moat' ? 'lane_moat' : lane === 'shariah' ? 'lane_shariah' : 'lanes_default'
     const laneRuntime = resolveRoleRuntime(laneRole, provider, command)
     const sourceDiscipline = lane === 'risks'
-      ? `As the RISKS lane you may cite anything — knowing the consensus IS the job.`
+      ? `As the RISKS lane you may cite anything — knowing the consensus IS the job.${RISKS_RECENCY_NOTE}`
       : lane === 'management'
         ? `Cite filings, proxies (DEF 14A), transcripts, and insider-trading data; media profiles will be rejected.`
         : lane === 'shariah'

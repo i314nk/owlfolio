@@ -15,6 +15,7 @@ import { POST } from './route'
 const originalEnv = {
   OWLFOLIO_APP_CONFIG_PATH: process.env.OWLFOLIO_APP_CONFIG_PATH,
   OWLFOLIO_PROJECT_DIR: process.env.OWLFOLIO_PROJECT_DIR,
+  OPENROUTER_API_KEY: process.env.OPENROUTER_API_KEY,
 }
 
 const SOURCE_IDS = ['src_a', 'src_b']
@@ -114,6 +115,10 @@ describe('/api/research/[caseId]/admit-judgment', () => {
     ledgerPath = join(tempDir, 'personal.sqlite')
     process.env.OWLFOLIO_APP_CONFIG_PATH = appConfigPath
     process.env.OWLFOLIO_PROJECT_DIR = tempDir
+    // The default personal-local provider is OpenRouter; make it deterministically ready so the
+    // route's fail-closed readiness gate doesn't 400 the happy paths (the not-ready path is covered
+    // explicitly via readinessOverride below).
+    process.env.OPENROUTER_API_KEY = 'test-openrouter-key'
     await writeFile(appConfigPath, JSON.stringify({
       ...defaultPersonalLocalAppConfig(),
       ledger_path: ledgerPath,
@@ -172,7 +177,7 @@ describe('/api/research/[caseId]/admit-judgment', () => {
   it('fail-closed when the provider is not ready', async () => {
     const caseId = await seedCase(ledgerPath)
     // Force readiness false by pointing config at an unconfigured/unsupported provider via env stub.
-    const deps = { ...okDeps(), readinessOverride: { is_ready: false, provider_id: 'claude', status_label: 'not configured' } }
+    const deps = { ...okDeps(), readinessOverride: { is_ready: false, provider_id: 'openrouter', status_label: 'not configured' } }
     const res = await callRoute(caseId, deps)
     expect(res.status).toBe(400)
     const body = await res.json() as { error: { code?: string } }

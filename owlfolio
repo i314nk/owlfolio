@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+# Owlfolio CLI launcher — a short, hermes-style entrypoint for the local-first workflow CLI.
+#
+# Usage:
+#   ./owlfolio <command>          # from the repo root
+#   owlfolio <command>            # after putting this launcher on your PATH (see below)
+#
+# Put it on your PATH once, then call `owlfolio` from anywhere:
+#   ln -s "$(pwd)/owlfolio" ~/.local/bin/owlfolio      # if ~/.local/bin is on PATH
+#   # or add an alias to your shell rc:  alias owlfolio="$(pwd)/owlfolio"
+#
+# The repo is build-free (TypeScript run through tsx), so this execs the workspace's local tsx binary on
+# the CLI entry — no build step, no global install of the package itself. Resolves the repo root even when
+# invoked through a symlink, so a PATH symlink Just Works.
+set -euo pipefail
+
+# Follow symlinks to find the real launcher location (and thus the repo root).
+source="${BASH_SOURCE[0]}"
+while [ -L "$source" ]; do
+  dir="$(cd -P "$(dirname "$source")" >/dev/null 2>&1 && pwd)"
+  source="$(readlink "$source")"
+  [[ $source != /* ]] && source="$dir/$source"
+done
+root="$(cd -P "$(dirname "$source")" >/dev/null 2>&1 && pwd)"
+
+tsx="$root/node_modules/.bin/tsx"
+if [ ! -x "$tsx" ]; then
+  echo "owlfolio: dependencies not installed — run 'corepack pnpm install' in $root first." >&2
+  exit 1
+fi
+
+exec "$tsx" "$root/apps/cli/src/index.ts" "$@"

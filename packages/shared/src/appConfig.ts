@@ -7,7 +7,7 @@
 export const owlfolioModeValues = ['unconfigured', 'demo', 'personal-local'] as const
 export type OwlfolioMode = (typeof owlfolioModeValues)[number]
 
-export const providerIdValues = ['mock-provider', 'claude', 'openai', 'openrouter'] as const
+export const providerIdValues = ['mock-provider', 'openrouter', 'openai-api', 'anthropic-api', 'gemini-developer-api'] as const
 export type ProviderId = (typeof providerIdValues)[number]
 
 export const providerSupportLevelValues = ['certified', 'experimental', 'unsupported'] as const
@@ -421,9 +421,14 @@ export const defaultDemoAppConfig = (): AppConfig => ({
 export const defaultPersonalLocalAppConfig = (): AppConfig => ({
   version: 1,
   mode: 'personal-local',
+  // Default personal-local provider is OpenRouter — the proven grounded function-calling tool-loop path.
+  // (The Codex CLI/OAuth and Claude CLI/OAuth providers were retired; the surviving providers are OpenRouter
+  // + the direct API-key providers.) A fresh personal-local honestly shows "provider not connected" until
+  // OPENROUTER_API_KEY is set.
   provider: {
-    provider_id: 'claude',
+    provider_id: 'openrouter',
     support_level: 'experimental',
+    model_id: 'anthropic/claude-opus-4.8',
   },
   strategy_id: 'buffett-munger',
   shariah: defaultShariahDefaults(),

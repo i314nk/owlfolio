@@ -26,7 +26,7 @@ import type { WatchlistProjection } from '@owlfolio/ledger/projections/watchlist
 import { projectWatchlist } from '@owlfolio/ledger/projections/watchlistProjection'
 import type { EventStore } from '@owlfolio/ledger/eventStore'
 import { SQLiteEventStore } from '@owlfolio/ledger/sqliteEventStore'
-import { resolveProvider } from '@owlfolio/providers'
+import { getProviderCatalog, resolveProvider } from '@owlfolio/providers'
 import { VALUATION_PARAMS } from '@owlfolio/strategies/valuationParams'
 import { CHECKLIST_PARAMS, type ChecklistAudit } from '@owlfolio/strategies/checklistParams'
 import { resolveAdmissionThesisDraft, resolveBusinessFindings } from './checklistEvidence'
@@ -2517,11 +2517,10 @@ export function resolveModelIdForProvider(config: Pick<AppConfig, 'provider'>): 
     return 'mock-buffett-munger-demo'
   }
 
-  if (config.provider.provider_id === 'claude') {
-    return 'claude-sonnet-4-6'
-  }
-
-  return 'gpt-5.5'
+  // For real providers, fall back to the catalog's curated default model for the selected provider
+  // (e.g. openrouter/auto, gpt-5.5, claude-sonnet-4-6, gemini-3.5-flash) rather than a single hard-coded id.
+  const entry = getProviderCatalog().find((candidate) => candidate.provider_id === config.provider.provider_id)
+  return entry?.default_model_id ?? 'openrouter/auto'
 }
 
 export type ResearchLedgerResetSummary = {

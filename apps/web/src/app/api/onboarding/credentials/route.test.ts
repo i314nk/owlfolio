@@ -54,12 +54,12 @@ describe('/api/onboarding/credentials', () => {
   }
 
   it('writes the key to the local env file and records a provider-connected event WITHOUT the secret', async () => {
-    const response = await POST(form('ANTHROPIC_API_KEY', SECRET))
+    const response = await POST(form('OPENAI_API_KEY', SECRET))
     expect([200, 303]).toContain(response.status)
 
     // The secret is in the local env file only.
     const rawEnv = await readFile(envPath, 'utf8')
-    expect(rawEnv).toContain('ANTHROPIC_API_KEY=')
+    expect(rawEnv).toContain('OPENAI_API_KEY=')
     expect(rawEnv).toContain(SECRET)
 
     // The ledger records the connection but NEVER the secret.
@@ -71,7 +71,7 @@ describe('/api/onboarding/credentials', () => {
       const serialized = JSON.stringify(events)
       expect(serialized).not.toContain(SECRET)
       expect(serialized).not.toContain('supersecret')
-      expect(serialized).toContain('ANTHROPIC_API_KEY')
+      expect(serialized).toContain('OPENAI_API_KEY')
     } finally {
       store.close()
     }

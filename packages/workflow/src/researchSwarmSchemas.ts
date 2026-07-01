@@ -405,6 +405,17 @@ export const SHARIAH_OVERLAY_PROMPT =
   + `The harness recomputes the AAOIFI debt/cash/impermissible ratios + verdict + purification % from the primary filings + market cap; do NOT compute the ratios yourself. `
   + `EXAMPLE (shape only): {"sector_status":"compliant","impermissible_income":128.0}.`
 
+// RISKS-lane recency framing (the "web tier"). The risks lane is the only allow_unknown lane — it may cite
+// web/media — so it is the seam where recency could masquerade as decision-grade. This note keeps both
+// trees honest: web/media recency is best-effort COLOR; thesis-critical recency (material 8-K events) is
+// grounded by the EDGAR tree as hashed primary documents (see docs/architecture/read-source-contract.md),
+// not by web here. Appended to the risks lane's sourceDiscipline in researchSwarm.ts. Leading space so it
+// concatenates cleanly onto the preceding sentence.
+export const RISKS_RECENCY_NOTE =
+  ` This is best-effort recency/consensus COLOR, not decision-grade primary evidence: thesis-critical `
+  + `recency (material 8-K events — impairment, guidance cut, exec departure, M&A, litigation) is grounded `
+  + `by the EDGAR tree as hashed primary documents, not by web/media here.`
+
 // CIRCLE-OF-COMPETENCE judgment prompt (the sequential pre-deep-dive gate). The model must DEMONSTRATE
 // understanding, not assert it — and grounding BOTH clauses is the bar. Ungrounded = outside competence.
 export const CIRCLE_COMPETENCE_PROMPT =

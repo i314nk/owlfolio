@@ -36,11 +36,33 @@ importers:
         specifier: 4.1.7
         version: 4.1.7(@types/node@25.9.1)(vite@8.0.14(@types/node@25.9.1)(esbuild@0.27.7)(tsx@4.21.0))
 
+  apps/cli:
+    dependencies:
+      '@owlfolio/ledger':
+        specifier: workspace:*
+        version: link:../../packages/ledger
+      '@owlfolio/onboarding':
+        specifier: workspace:*
+        version: link:../../packages/onboarding
+      '@owlfolio/providers':
+        specifier: workspace:*
+        version: link:../../packages/providers
+      '@owlfolio/shared':
+        specifier: workspace:*
+        version: link:../../packages/shared
+    devDependencies:
+      tsx:
+        specifier: 4.21.0
+        version: 4.21.0
+
   apps/web:
     dependencies:
       '@owlfolio/ledger':
         specifier: workspace:*
         version: link:../../packages/ledger
+      '@owlfolio/onboarding':
+        specifier: workspace:*
+        version: link:../../packages/onboarding
       '@owlfolio/providers':
         specifier: workspace:*
         version: link:../../packages/providers
@@ -93,6 +115,24 @@ importers:
         version: 4.21.0
 
   packages/ledger: {}
+
+  packages/onboarding:
+    dependencies:
+      '@owlfolio/ledger':
+        specifier: workspace:*
+        version: link:../ledger
+      '@owlfolio/providers':
+        specifier: workspace:*
+        version: link:../providers
+      '@owlfolio/shared':
+        specifier: workspace:*
+        version: link:../shared
+      '@owlfolio/strategies':
+        specifier: workspace:*
+        version: link:../strategies
+      '@owlfolio/workflow':
+        specifier: workspace:*
+        version: link:../workflow
 
   packages/providers:
     dependencies:

@@ -9,6 +9,7 @@
   },
   "dependencies": {
     "@owlfolio/ledger": "workspace:*",
+    "@owlfolio/onboarding": "workspace:*",
     "@owlfolio/providers": "workspace:*",
     "@owlfolio/shared": "workspace:*",
     "@owlfolio/strategies": "workspace:*",

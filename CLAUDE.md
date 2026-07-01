@@ -37,26 +37,52 @@ OWLFOLIO_PROVIDER_CERTIFICATION_DIR=$PWD/data/provider-certifications
 
 `data/`, `.next/`, `test-results/`, `playwright-report/`, `*.tsbuildinfo`, `.playwright-runtime/`, `.live-openai-runtime/`, and `.worktrees/` are runtime/generated artifacts and must not be committed unless a tracked fixture or certification report is intentionally updated.
 
+## CLI
+
+The web app is the primary surface; the CLI is a small inspect/diagnose/launch tool. All onboarding (mode, provider, API keys, model, capital) lives in the browser, so the CLI is deliberately three commands. A repo-root `owlfolio` launcher runs it with no build step (it execs the workspace `tsx` on `apps/cli/src/index.ts`):
+
+```bash
+owlfolio start      # launch the app + open the browser to http://127.0.0.1:3000 (onboarding happens there)
+owlfolio status     # mode, provider/model, readiness, and the onboarding gate (read-only, headless-safe)
+owlfolio doctor     # diagnose config, the credential file (+ 0600 perms), the ledger, and certification state
+```
+
+Invocation forms, in order of brevity:
+
+```bash
+owlfolio <command>                # after putting the launcher on PATH: ln -s "$PWD/owlfolio" ~/.local/bin/owlfolio, a shell alias, or `corepack pnpm link --global`
+./owlfolio <command>              # from the repo root, no setup
+corepack pnpm owlfolio <command>  # zero-setup alternative (root package script)
+```
+
+The CLI is non-interactive and never authors an irreversible transition (no trades, watchlist confirmations, holding opens, Shariah overrides, or purification payments) — those remain web + human-authored. It honors the same `OWLFOLIO_*` runtime overrides as the app and worker.
+
 ## Providers
+
+The whole CLI/OAuth provider lane (Codex `openai`/`openai-codex-cli`, Claude CLI `claude`, Gemini CLI `gemini-cli`) was **retired**. Surviving providers are the function-calling tool-loop providers below. The `openai`/`anthropic` **vendor** ids and their models are preserved (they back the `*-api` providers and OpenRouter routes); only the CLI **providers** were removed.
 
 Current provider IDs:
 
 - `mock-provider`: certified deterministic demo/test provider.
-- `openai` / `openai-codex-cli`: experimental OpenAI Codex CLI-backed personal-local path.
-- `claude`: experimental Claude CLI-backed path, but the latest local certification report marks it unsupported/not-configured in this environment.
-- `openai-api`: direct OpenAI API candidate; locally runnable with `OPENAI_API_KEY` but fail-closed until target-specific latest certification is recorded.
-- `gemini-developer-api`: direct Gemini Developer API candidate; experimental/fail-closed until privacy posture and target-specific latest certification are recorded.
-- `gemini-cli`: Google/Gemini CLI sign-in onboarding lane; setup-only until an execution adapter and certification report exist.
+- `openrouter`: the default personal-local provider — an OpenAI-compatible meta-aggregator that routes one `OPENROUTER_API_KEY` to many models. Proven grounded tool-loop; experimental/fail-closed until each *routed model* has its own target-specific certification report.
+- `openai-api`: direct OpenAI API (OpenAI-compatible adapter); locally runnable with `OPENAI_API_KEY`, experimental/fail-closed until a target-specific latest certification is recorded.
+- `anthropic-api`: direct Anthropic API (OpenAI-compatible adapter); locally runnable with `ANTHROPIC_API_KEY`, experimental/fail-closed likewise. Distinct from the retired Claude CLI login.
+- `gemini-developer-api`: direct Gemini Developer API candidate; experimental/fail-closed until privacy posture and a target-specific latest certification are recorded.
 
-Provider claims must be bounded by `data/provider-certifications/*.latest.json` and `docs/architecture/owlfolio-v2-provider-model-support.md`. Do not describe any direct API or CLI surface as certified/live/autonomous until a corresponding target-specific latest report exists and passes the required scenarios.
+The three direct API-key providers are `OpenRouterProvider` instances configured per-endpoint, so they share OpenRouter's certified `runToolLoop`.
+
+Provider claims must be bounded by `data/provider-certifications/*.latest.json` and `docs/architecture/owlfolio-v2-provider-model-support.md`. Do not describe any direct API surface as certified/live/autonomous until a corresponding target-specific latest report exists and passes the required scenarios.
 
 Credential/readiness checks use:
 
-- Claude: `ANTHROPIC_API_KEY` or `OWLFOLIO_CLAUDE_CREDENTIALS_PATH` / default Claude credentials.
-- OpenAI/Codex: `OPENAI_API_KEY`, `CODEX_ACCESS_TOKEN`, `OWLFOLIO_CODEX_AUTH_PATH`, or `CODEX_HOME`.
-- Gemini: `GEMINI_API_KEY` / `GOOGLE_API_KEY` for the Developer API candidate; `GEMINI_HOME`, `OWLFOLIO_GEMINI_CLI_AUTH_PATH`, and `OWLFOLIO_GEMINI_CLI_STATUS` for the setup-only CLI lane.
+- OpenRouter: `OPENROUTER_API_KEY`.
+- OpenAI: `OPENAI_API_KEY`.
+- Anthropic: `ANTHROPIC_API_KEY`.
+- Gemini: `GEMINI_API_KEY` / `GOOGLE_API_KEY`.
 
-Readiness is not certification. If a latest certification report is `not-configured`, `unsupported`, or `experimental`, UI/docs should say so even if a credential file exists.
+Keys are stored in the local env file (`OWLFOLIO_ENV_FILE`, default `~/.owlfolio/.env`), never the ledger, logs, or git.
+
+Readiness is not certification. If a latest certification report is `not-configured`, `unsupported`, or `experimental`, UI/docs should say so even if a credential file exists. Certification is a deeper, optional audit — a capable reasoning model (reasoning + tool-calling + structured output, the OpenRouter picker's floor) can be used before a report exists; responsibility for the choice sits with the user. For any live model-calling cert/test on OpenRouter, use GLM (owner preference: cheapest with the highest intelligence index) via `OWLFOLIO_CERTIFY_MODEL`.
 
 ## Worker
 

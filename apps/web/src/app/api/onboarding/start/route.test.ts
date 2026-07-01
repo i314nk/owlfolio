@@ -19,6 +19,7 @@ const originalEnv = {
   GEMINI_API_KEY: process.env.GEMINI_API_KEY,
   GOOGLE_API_KEY: process.env.GOOGLE_API_KEY,
   ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY,
+  OPENROUTER_API_KEY: process.env.OPENROUTER_API_KEY,
   OWLFOLIO_TEST_MODE: process.env.OWLFOLIO_TEST_MODE,
 }
 
@@ -37,6 +38,8 @@ describe('/api/onboarding/start', () => {
     delete process.env.GEMINI_API_KEY
     delete process.env.GOOGLE_API_KEY
     delete process.env.ANTHROPIC_API_KEY
+    // Strip the OpenRouter key so the default provider is deterministically not-ready (missing creds).
+    delete process.env.OPENROUTER_API_KEY
     delete process.env.OWLFOLIO_TEST_MODE
   })
 
@@ -56,7 +59,7 @@ describe('/api/onboarding/start', () => {
       method: 'POST',
       body: JSON.stringify({
         mode: 'personal-local',
-        provider: { provider_id: 'claude', support_level: 'experimental' },
+        provider: { provider_id: 'openrouter', support_level: 'experimental' },
       }),
     }))
     const payload = await response.json()
@@ -65,17 +68,19 @@ describe('/api/onboarding/start', () => {
     expect(payload).toEqual({
       error: {
         code: 'provider_not_ready',
-        message: 'Provider claude is not ready: Missing Claude credentials',
+        // OpenRouter is the default provider; with its key stripped it is deterministically not-ready
+        // on the missing-credentials reason.
+        message: 'Provider openrouter is not ready: Missing OPENROUTER_API_KEY; the OpenRouter adapter is live but needs a key, and each routed model still requires its own certification report.',
       },
     })
   })
 
   it('rejects initializing personal-local mode when latest certification makes credential-present provider effectively unready', async () => {
-    process.env.ANTHROPIC_API_KEY = 'credential-file-exists-but-live-certification-failed'
+    process.env.OPENROUTER_API_KEY = 'credential-present-but-latest-certification-failed'
     const reportDir = join(tempDir, 'data', 'provider-certifications')
     await mkdir(reportDir, { recursive: true })
-    await writeFile(join(reportDir, 'claude.latest.json'), JSON.stringify(createNotConfiguredCertificationReport({
-      provider_id: 'claude',
+    await writeFile(join(reportDir, 'openrouter.latest.json'), JSON.stringify(createNotConfiguredCertificationReport({
+      provider_id: 'openrouter',
       generated_at: '2026-06-02T00:00:00.000Z',
       auth_mode: 'api_key',
       capabilities: {
@@ -85,14 +90,14 @@ describe('/api/onboarding/start', () => {
         'streaming-observability': 'adapter',
         'multi-step-tool-loop': 'unsupported',
       },
-      reason: 'Claude Code subscription access disabled',
+      reason: 'OpenRouter routing disabled by latest certification report',
     })), 'utf8')
 
     const response = await POST(new Request('http://localhost/api/onboarding/start', {
       method: 'POST',
       body: JSON.stringify({
         mode: 'personal-local',
-        provider: { provider_id: 'claude', support_level: 'experimental' },
+        provider: { provider_id: 'openrouter', support_level: 'experimental' },
       }),
     }))
     const payload = await response.json()
@@ -101,7 +106,7 @@ describe('/api/onboarding/start', () => {
     expect(payload).toEqual({
       error: {
         code: 'provider_not_ready',
-        message: 'Provider claude is not ready: Claude Code subscription access disabled',
+        message: 'Provider openrouter is not ready: OpenRouter routing disabled by latest certification report',
       },
     })
   })

@@ -1,9 +1,7 @@
 import type { ProviderId, ProviderSupportLevel } from '@owlfolio/shared'
 
 import type { CertificationReport } from './certificationContract'
-import { ClaudeCliProvider } from './claudeCliProvider'
 import { MockProvider } from './mockProvider'
-import { OpenAICodexCliProvider } from './openaiCodexCliProvider'
 import { OpenRouterProvider } from './openRouterProvider'
 import type {
   ProviderAuthMode,
@@ -66,8 +64,6 @@ export type ProviderCatalogEntry = {
 export type ProviderModelTier = 'frontier' | 'experimental'
 
 const mockCapabilities = new MockProvider().capabilities
-const claudeCapabilities = new ClaudeCliProvider().capabilities
-const openAICapabilities = new OpenAICodexCliProvider().capabilities
 const openRouterCapabilities = new OpenRouterProvider({ apiKey: 'catalog-capability-placeholder' }).capabilities
 
 const unsupportedRoleCapabilities: ProviderRoleCapabilities = {
@@ -76,17 +72,6 @@ const unsupportedRoleCapabilities: ProviderRoleCapabilities = {
   url_context: 'unsupported',
   file_context: 'unsupported',
   source_bundle_production: 'unsupported',
-  code_execution: 'unsupported',
-  computer_use: 'unsupported',
-  browser_use: 'unsupported',
-}
-
-const draftRoleCapabilities: ProviderRoleCapabilities = {
-  source_grounding: 'adapter',
-  citation_metadata: 'adapter',
-  url_context: 'unsupported',
-  file_context: 'adapter',
-  source_bundle_production: 'adapter',
   code_execution: 'unsupported',
   computer_use: 'unsupported',
   browser_use: 'unsupported',
@@ -126,52 +111,6 @@ const catalog: ProviderCatalogEntry[] = [
     capabilities: { ...mockCapabilities },
   },
   {
-    provider_id: 'claude',
-    provider_surface_id: 'claude-cli',
-    vendor_id: 'anthropic',
-    provider_family_id: 'anthropic',
-    compatibility_provider_id: 'claude',
-    label: 'Claude',
-    support_level: 'experimental',
-    visible_in_onboarding: true,
-    description: 'CLI-backed real provider path behind readiness and certification checks.',
-    runtime_kind: 'cli',
-    auth_mode: 'cli_cached_session',
-    default_model_id: 'claude-sonnet-4-6',
-    credential_source_categories: ['env_var', 'configured_secret_file', 'default_cli_config'],
-    billing: { billing_mode: 'subscription_entitlement', quota_source: 'subscription_tier', quota_status: 'unknown' },
-    privacy: { data_policy_source: 'subscription_workspace_policy', retention_or_zdr_status: 'not_verified' },
-    automation: { headless_supported: false, scheduled_workflow_supported: false, automation_suitability: 'personal_local_interactive' },
-    workflow_roles: ['research_draft', 'source_bundle_draft'],
-    role_capabilities: draftRoleCapabilities,
-    capabilities: { ...claudeCapabilities },
-    investment_grade_candidate: true,
-    model_tier: 'frontier',
-  },
-  {
-    provider_id: 'openai',
-    provider_surface_id: 'openai-codex-cli',
-    vendor_id: 'openai',
-    provider_family_id: 'openai',
-    compatibility_provider_id: 'openai',
-    label: 'OpenAI Codex CLI',
-    support_level: 'experimental',
-    visible_in_onboarding: true,
-    description: 'CLI-backed Codex provider path behind readiness and certification checks.',
-    runtime_kind: 'cli',
-    auth_mode: 'cli_cached_session',
-    default_model_id: 'gpt-5.5',
-    credential_source_categories: ['env_var', 'configured_secret_file', 'default_cli_config'],
-    billing: { billing_mode: 'subscription_entitlement', quota_source: 'subscription_tier', quota_status: 'unknown' },
-    privacy: { data_policy_source: 'subscription_workspace_policy', retention_or_zdr_status: 'not_verified' },
-    automation: { headless_supported: false, scheduled_workflow_supported: false, automation_suitability: 'personal_local_interactive' },
-    workflow_roles: ['research_draft', 'source_bundle_draft'],
-    role_capabilities: draftRoleCapabilities,
-    capabilities: { ...openAICapabilities },
-    investment_grade_candidate: true,
-    model_tier: 'frontier',
-  },
-  {
     provider_id: 'openrouter',
     provider_surface_id: 'openrouter-api',
     vendor_id: 'openrouter',
@@ -186,6 +125,75 @@ const catalog: ProviderCatalogEntry[] = [
     credential_source_categories: ['env_var'],
     billing: { billing_mode: 'platform_api_billing', quota_source: 'api_project', quota_status: 'unknown' },
     privacy: { data_policy_source: 'unknown', retention_or_zdr_status: 'not_verified' },
+    automation: { headless_supported: true, scheduled_workflow_supported: false, automation_suitability: 'unknown' },
+    workflow_roles: ['research_draft', 'source_bundle_draft'],
+    role_capabilities: unsupportedRoleCapabilities,
+    capabilities: { ...openRouterCapabilities },
+    investment_grade_candidate: true,
+    model_tier: 'frontier',
+  },
+  // ── Direct OpenAI-compatible API surfaces (key path). Execute via the generalized OpenAI-compatible
+  // adapter (OpenRouterProvider configured per-endpoint). Experimental + fail-closed until a target-specific
+  // certification report exists; never described as certified/live. ──
+  {
+    provider_id: 'openai-api',
+    provider_surface_id: 'openai-api',
+    vendor_id: 'openai',
+    provider_family_id: 'openai',
+    label: 'OpenAI (API key)',
+    support_level: 'experimental',
+    visible_in_onboarding: true,
+    description: 'Direct OpenAI API (OPENAI_API_KEY) — distinct from the Codex CLI lane. Experimental and fail-closed until a target-specific certification report exists.',
+    runtime_kind: 'direct_api',
+    auth_mode: 'api_key',
+    default_model_id: 'gpt-5.5',
+    credential_source_categories: ['env_var'],
+    billing: { billing_mode: 'platform_api_billing', quota_source: 'api_project', quota_status: 'unknown' },
+    privacy: { data_policy_source: 'unknown', retention_or_zdr_status: 'not_verified' },
+    automation: { headless_supported: true, scheduled_workflow_supported: false, automation_suitability: 'unknown' },
+    workflow_roles: ['research_draft', 'source_bundle_draft'],
+    role_capabilities: unsupportedRoleCapabilities,
+    capabilities: { ...openRouterCapabilities },
+    investment_grade_candidate: true,
+    model_tier: 'frontier',
+  },
+  {
+    provider_id: 'anthropic-api',
+    provider_surface_id: 'anthropic-api',
+    vendor_id: 'anthropic',
+    provider_family_id: 'anthropic',
+    label: 'Anthropic (Claude API key)',
+    support_level: 'experimental',
+    visible_in_onboarding: true,
+    description: 'Direct Anthropic API (ANTHROPIC_API_KEY) via the OpenAI-compatible surface — distinct from the retired Claude CLI login. Experimental and fail-closed until a target-specific certification report exists.',
+    runtime_kind: 'direct_api',
+    auth_mode: 'api_key',
+    default_model_id: 'claude-sonnet-4-6',
+    credential_source_categories: ['env_var'],
+    billing: { billing_mode: 'platform_api_billing', quota_source: 'api_project', quota_status: 'unknown' },
+    privacy: { data_policy_source: 'unknown', retention_or_zdr_status: 'not_verified' },
+    automation: { headless_supported: true, scheduled_workflow_supported: false, automation_suitability: 'unknown' },
+    workflow_roles: ['research_draft', 'source_bundle_draft'],
+    role_capabilities: unsupportedRoleCapabilities,
+    capabilities: { ...openRouterCapabilities },
+    investment_grade_candidate: true,
+    model_tier: 'frontier',
+  },
+  {
+    provider_id: 'gemini-developer-api',
+    provider_surface_id: 'gemini-developer-api',
+    vendor_id: 'google',
+    provider_family_id: 'google',
+    label: 'Gemini (Google API key)',
+    support_level: 'experimental',
+    visible_in_onboarding: true,
+    description: 'Direct Gemini Developer API (GEMINI_API_KEY) via the OpenAI-compatible surface. Experimental and fail-closed; the free-tier privacy posture blocks certified support until verified.',
+    runtime_kind: 'direct_api',
+    auth_mode: 'api_key',
+    default_model_id: 'gemini-3.5-flash',
+    credential_source_categories: ['env_var'],
+    billing: { billing_mode: 'platform_api_billing', quota_source: 'api_project', quota_status: 'unknown' },
+    privacy: { data_policy_source: 'api_free_training_possible', retention_or_zdr_status: 'not_verified' },
     automation: { headless_supported: true, scheduled_workflow_supported: false, automation_suitability: 'unknown' },
     workflow_roles: ['research_draft', 'source_bundle_draft'],
     role_capabilities: unsupportedRoleCapabilities,

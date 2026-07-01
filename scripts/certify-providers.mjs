@@ -1,3 +1,6 @@
+// Certifying a live provider makes REAL, PAID model calls. Surviving providers are OpenRouter + the direct
+// API-key providers; use the GLM 5.2 Max model on OpenRouter for cert/test runs (cheapest with the highest
+// intelligence-index score) via OWLFOLIO_CERTIFY_MODEL.
 import { mkdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 

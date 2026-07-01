@@ -36,7 +36,7 @@ describe('evaluateOnboardingGate (acceptance test 1 — deep-dive refusal)', () 
 
       const store = new SQLiteEventStore(ledgerPath)
       try {
-        await recordProviderConnectedEvent(store, { provider_id: 'anthropic', env_key_name: 'ANTHROPIC_API_KEY', connected_at: '2026-06-09T00:00:00Z' })
+        await recordProviderConnectedEvent(store, { provider_id: 'openai', env_key_name: 'OPENAI_API_KEY', connected_at: '2026-06-09T00:00:00Z' })
         await store.append({
           event_id: 'evt_investable_capital_set_1',
           event_type: 'investable_capital_set',

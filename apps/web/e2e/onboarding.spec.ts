@@ -23,40 +23,32 @@ test('programmatic init lands a set-up command center (replaces the wizard start
   await page.goto('/')
   await expect(page.getByRole('heading', { name: /command center/i })).toBeVisible()
 
-  // The guided-setup surface reflects the configured personal-local mock-provider connection.
+  // The guided-setup surface reflects the configured personal-local mock-provider connection. The
+  // redundant mode toggle + "Current/Set up" status were removed (one local mode; selecting a provider
+  // sets up personal-local) — the surface is now just the provider/model picker.
   await page.goto('/settings/providers')
   const guidedSetup = page.getByRole('region', { name: /guided setup/i })
-  await expect(guidedSetup.getByRole('heading', { name: /guided setup/i })).toBeVisible()
-  await expect(guidedSetup.getByText('Current: personal-local')).toBeVisible()
-  await expect(guidedSetup.getByText('Set up', { exact: true })).toBeVisible()
+  await expect(guidedSetup.getByRole('heading', { name: /choose a provider and model/i })).toBeVisible()
 })
 
-test('the guided-setup mode switch offers Demo + Personal-local', async ({ page }) => {
-  await page.goto('/settings/providers')
-  const guidedSetup = page.getByRole('region', { name: /guided setup/i })
-  const modeSwitch = guidedSetup.getByLabel('Mode switch', { exact: true })
-
-  // Demo is only present under the test harness (mock-provider option present); Personal-local always is.
-  await expect(modeSwitch.getByRole('button', { name: 'Demo', exact: true })).toBeVisible()
-  await expect(modeSwitch.getByRole('button', { name: 'Personal-local', exact: true })).toBeVisible()
-})
-
-test('the provider toggle offers Demo + ChatGPT/Codex + OpenRouter + Claude Code (Gemini retired)', async ({ page }) => {
+test('the provider toggle offers Demo + ChatGPT/Codex + OpenRouter + the direct-API providers', async ({ page }) => {
   await page.goto('/settings/providers')
   const guidedSetup = page.getByRole('region', { name: /guided setup/i })
   const selection = guidedSetup.getByLabel('Provider and model selection', { exact: true })
 
-  // Gemini lane stays retired.
-  await expect(selection.getByRole('button', { name: /use gemini/i })).toHaveCount(0)
-
-  // The four connection options render as toggle buttons.
+  // The connection options render as toggle buttons: demo + the local Codex/OpenRouter lanes + the three
+  // direct-API providers (Anthropic / OpenAI / Gemini), each keyed by its own API key.
   await expect(selection.getByRole('button', { name: /try demo mode/i })).toBeVisible()
   await expect(selection.getByRole('button', { name: /use chatgpt\/codex/i })).toBeVisible()
   await expect(selection.getByRole('button', { name: /use openrouter/i })).toBeVisible()
-  await expect(selection.getByRole('button', { name: /use claude code/i })).toBeVisible()
+  await expect(selection.getByRole('button', { name: /use anthropic \(claude\)/i })).toBeVisible()
+  await expect(selection.getByRole('button', { name: /use openai \(api key\)/i })).toBeVisible()
+  await expect(selection.getByRole('button', { name: /use gemini \(google\)/i })).toBeVisible()
+  // The retired Claude *CLI* login lane is not a connection card.
+  await expect(selection.getByRole('button', { name: /use claude code/i })).toHaveCount(0)
 })
 
-test('OpenRouter and Claude Code show a tier-grouped model dropdown; Codex shows a fixed model', async ({ page }) => {
+test('OpenRouter and Anthropic show a tier-grouped model dropdown; Codex shows a fixed model', async ({ page }) => {
   await page.goto('/settings/providers')
   const guidedSetup = page.getByRole('region', { name: /guided setup/i })
   const selection = guidedSetup.getByLabel('Provider and model selection', { exact: true })
@@ -75,20 +67,19 @@ test('OpenRouter and Claude Code show a tier-grouped model dropdown; Codex shows
   await expect(openRouterSelect.locator('optgroup[label="Tier 3"]')).toHaveCount(1)
   await expect(openRouterSelect.locator('option[value="anthropic/claude-opus-4.8"]')).toHaveCount(1)
 
-  // Claude Code: same tier-grouped chooser with Claude models.
-  await selection.getByRole('button', { name: /use claude code/i }).click()
+  // Anthropic (direct API key): same tier-grouped chooser with Claude models. (The retired Claude *CLI*
+  // login is gone; Anthropic is now a real, selectable direct-API provider keyed by ANTHROPIC_API_KEY.)
+  await selection.getByRole('button', { name: /use anthropic \(claude\)/i }).click()
   const claudeSelect = guidedSetup.getByRole('combobox', { name: /choose one model/i })
   await expect(claudeSelect.locator('option[value="claude-opus-4-8"]')).toHaveCount(1)
   await expect(claudeSelect.locator('option[value="claude-haiku-4-5"]')).toHaveCount(1)
 })
 
-test('the providers page surfaces honest readiness/gating verdicts (Codex blocked, Claude unsupported)', async ({ page }) => {
+test('the providers page places model-quality responsibility on the user (no trust gate)', async ({ page }) => {
   await page.goto('/settings/providers')
 
-  // The Trust & certification section preserves the honest, fail-closed gating verdicts that the wizard
-  // formerly surfaced as "Needs setup" when a local session is unready.
-  await expect(page.getByRole('heading', { name: /trust & certification/i })).toBeVisible()
-  await expect(
-    page.getByLabel('Claude trust primary status', { exact: true }).getByText('Effective support (gating source of truth): unsupported', { exact: true }),
-  ).toBeVisible()
+  // The heavy "Trust gate" / certification section was removed — research quality depends on the model
+  // the user chooses, and that responsibility is theirs. The honest framing stays on the selection surface.
+  await expect(page.getByRole('heading', { name: /trust & certification/i })).toHaveCount(0)
+  await expect(page.getByText(/Research quality depends on the model you choose/i)).toBeVisible()
 })

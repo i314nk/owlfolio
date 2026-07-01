@@ -22,7 +22,7 @@ function render(initialTabId?: string): string {
 }
 
 describe('LearnTabs', () => {
-  it('exposes the six harness-spec tabs in order', () => {
+  it('exposes the harness-spec tabs in order, including the CLI tab', () => {
     expect(LEARN_TABS.map((tab) => tab.id)).toEqual([
       'strategy',
       'swarm',
@@ -30,7 +30,31 @@ describe('LearnTabs', () => {
       'lifecycle',
       'shariah',
       'tiering',
+      'cli',
     ])
+  })
+
+  it('documents model selection: reasoning-only picker + curated recommendations by tier', () => {
+    const html = render('tiering')
+    expect(html).toContain('reasoning models the harness can actually drive')
+    expect(html).toContain('Recommended for the job')
+    // A curated T1 recommendation is rendered live from the catalog.
+    expect(html).toContain('anthropic/claude-opus-4.8')
+    // Tier headings present.
+    expect(html).toContain('T1 — Frontier')
+    expect(html).toContain('T3 — Cheap / high-volume')
+  })
+
+  it('documents the CLI: the short owlfolio command, the commands, and its dry-run boundary', () => {
+    const html = render('cli')
+    // The short, hermes-style entrypoint is the headline form.
+    expect(html).toContain('owlfolio ')
+    expect(html).toContain('owlfolio doctor')
+    // The zero-setup pnpm alternative and the PATH setup are documented too.
+    expect(html).toContain('corepack pnpm owlfolio')
+    expect(html).toContain('OWLFOLIO_PROJECT_DIR')
+    // The CLI never authors irreversible transitions.
+    expect(html).toContain('never executes an investment action')
   })
 
   it('renders an accessible tablist with one tab per spec area', () => {

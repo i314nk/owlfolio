@@ -698,7 +698,7 @@ describe('workflow helpers', () => {
     dirs.push(projectDir)
     const reportDir = join(projectDir, 'data', 'provider-certifications')
     await mkdir(reportDir, { recursive: true })
-    await writeFile(join(reportDir, 'claude.latest.json'), JSON.stringify(unsupportedCompletedReport('claude')), 'utf8')
+    await writeFile(join(reportDir, 'openrouter.latest.json'), JSON.stringify(unsupportedCompletedReport('openrouter')), 'utf8')
 
     const previousCertificationDir = process.env.OWLFOLIO_PROVIDER_CERTIFICATION_DIR
     const previousAnthropicKey = process.env.ANTHROPIC_API_KEY
@@ -731,7 +731,7 @@ describe('workflow helpers', () => {
         config: {
           ...state.config,
           provider: {
-            provider_id: 'claude' as const,
+            provider_id: 'openrouter' as const,
             support_level: 'experimental' as const,
             model_id: 'claude-sonnet-4',
           },
@@ -739,7 +739,7 @@ describe('workflow helpers', () => {
       }
 
       await expect(createPersonalHoldingReviewDraft(unsupportedProviderState, openedHolding.holding_id))
-        .rejects.toThrow('Provider claude is not ready: 0/13 scenarios passed; provider support level is unsupported.')
+        .rejects.toThrow('Provider openrouter is not ready: 0/13 scenarios passed; provider support level is unsupported.')
     } finally {
       if (previousCertificationDir === undefined) {
         delete process.env.OWLFOLIO_PROVIDER_CERTIFICATION_DIR
@@ -889,13 +889,21 @@ describe('workflow helpers', () => {
     })).rejects.toThrow('Valuation date must use YYYY-MM-DD format')
   })
 
-  it('defaults openai provider runs to a ChatGPT-backed Codex-supported model id', () => {
+  it('defaults a provider without an explicit model id to its curated catalog default model', () => {
+    // openai-api → gpt-5.5 (the catalog default for the direct OpenAI API surface)
     expect(resolveModelIdForProvider({
       provider: {
-        provider_id: 'openai',
+        provider_id: 'openai-api',
         support_level: 'experimental',
       },
     })).toBe('gpt-5.5')
+    // openrouter → openrouter/auto (its own catalog default), not a hard-coded fallback
+    expect(resolveModelIdForProvider({
+      provider: {
+        provider_id: 'openrouter',
+        support_level: 'experimental',
+      },
+    })).toBe('openrouter/auto')
   })
 
   it('projects the selected strategy research pipeline into cockpit sections', async () => {
@@ -1522,16 +1530,16 @@ describe('workflow helpers', () => {
   })
 })
 
-function unsupportedCompletedReport(providerId: 'claude' | 'openai'): CertificationReport {
+function unsupportedCompletedReport(providerId: 'openrouter' | 'openai-api'): CertificationReport {
   return {
     certification_report_id: `cert_${providerId}_unsupported_completed`,
     provider_id: providerId,
     target: {
-      provider_surface_id: providerId === 'claude' ? 'claude-cli' : 'openai-codex-cli',
-      vendor_id: providerId === 'claude' ? 'anthropic' : 'openai',
-      runtime_kind: 'cli',
-      auth_mode: 'cli_cached_session',
-      model_id: providerId === 'claude' ? 'claude-sonnet-4-6' : 'gpt-5.5',
+      provider_surface_id: providerId === 'openrouter' ? 'openrouter-api' : 'openai-api',
+      vendor_id: providerId === 'openrouter' ? 'openrouter' : 'openai',
+      runtime_kind: 'direct_api',
+      auth_mode: 'api_key',
+      model_id: providerId === 'openrouter' ? 'openrouter/auto' : 'gpt-5.5',
       workflow_role: 'research_draft',
       schema_version: 1,
     },

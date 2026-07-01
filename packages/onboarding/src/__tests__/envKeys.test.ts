@@ -132,4 +132,11 @@ describe('isEnvKeyPathGitIgnored', () => {
   it('flags a non-ignored in-repo path', () => {
     expect(isEnvKeyPathGitIgnored('/repo/config/keys.txt', '/repo')).toBe(false)
   })
+
+  it('treats any path safe when the project dir is not a git working tree (e.g. a local sandbox)', () => {
+    // The same in-repo-looking path that is flagged when repoIsGitWorkTree=true is safe when the project
+    // dir is not a git repo — nothing under it can ever be committed.
+    expect(isEnvKeyPathGitIgnored('/sandbox/owlfolio.env', '/sandbox', false)).toBe(true)
+    expect(isEnvKeyPathGitIgnored('/repo/config/keys.txt', '/repo', false)).toBe(true)
+  })
 })

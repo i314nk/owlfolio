@@ -18,6 +18,7 @@ const originalEnv = {
   OWLFOLIO_PROVIDER_CERTIFICATION_DIR: process.env.OWLFOLIO_PROVIDER_CERTIFICATION_DIR,
   OWLFOLIO_CLAUDE_CREDENTIALS_PATH: process.env.OWLFOLIO_CLAUDE_CREDENTIALS_PATH,
   ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY,
+  OPENROUTER_API_KEY: process.env.OPENROUTER_API_KEY,
   OWLFOLIO_ENV_FILE: process.env.OWLFOLIO_ENV_FILE,
   OWLFOLIO_MARKET_DATA_API_KEY: process.env.OWLFOLIO_MARKET_DATA_API_KEY,
 }
@@ -34,12 +35,19 @@ describe('/api/research/start', () => {
     delete process.env.OWLFOLIO_PROVIDER_CERTIFICATION_DIR
     process.env.OWLFOLIO_CLAUDE_CREDENTIALS_PATH = join(tempDir, 'missing-claude-credentials.json')
     delete process.env.ANTHROPIC_API_KEY
+    // Strip the OpenRouter key so the default provider is deterministically not-ready (missing creds),
+    // independent of the developer machine's environment.
+    delete process.env.OPENROUTER_API_KEY
     // Isolate the env-key file and market-data signal so the gate is deterministic.
     process.env.OWLFOLIO_ENV_FILE = join(tempDir, '.env')
     delete process.env.OWLFOLIO_MARKET_DATA_API_KEY
 
     await writeFile(appConfigPath, JSON.stringify({
       ...defaultPersonalLocalAppConfig(),
+      // Pin Claude as the not-ready provider fixture: the env above strips its credentials, so readiness
+      // is deterministically not-ready. (The default personal-local provider is now OpenAI/Codex, which
+      // is ready in this environment, so it can't serve as the "unready provider" fixture.)
+      provider: { provider_id: 'openrouter', support_level: 'experimental' },
       ledger_path: join(tempDir, 'personal.sqlite'),
       source_ledger_path: join(tempDir, 'source-ledger'),
       initialized_at: '2026-06-01T00:00:00.000Z',
@@ -98,17 +106,19 @@ describe('/api/research/start', () => {
     expect(payload).toEqual({
       error: {
         code: 'provider_not_ready',
-        message: 'Provider claude is not ready: Missing Claude credentials',
+        // OpenRouter is the default provider; with its key stripped it is deterministically not-ready
+        // on the missing-credentials reason (the OpenRouter adapter is live but needs a key).
+        message: 'Provider openrouter is not ready: Missing OPENROUTER_API_KEY; the OpenRouter adapter is live but needs a key, and each routed model still requires its own certification report.',
       },
     })
   })
 
   it('returns a clean 400 JSON error when latest certification makes credential-present provider effectively unready', async () => {
-    process.env.ANTHROPIC_API_KEY = 'credential-file-exists-but-live-certification-failed'
+    process.env.OPENROUTER_API_KEY = 'credential-present-but-latest-certification-failed'
     const reportDir = join(tempDir, 'data', 'provider-certifications')
     await mkdir(reportDir, { recursive: true })
-    await writeFile(join(reportDir, 'claude.latest.json'), JSON.stringify(createNotConfiguredCertificationReport({
-      provider_id: 'claude',
+    await writeFile(join(reportDir, 'openrouter.latest.json'), JSON.stringify(createNotConfiguredCertificationReport({
+      provider_id: 'openrouter',
       generated_at: '2026-06-02T00:00:00.000Z',
       auth_mode: 'api_key',
       capabilities: {
@@ -118,7 +128,7 @@ describe('/api/research/start', () => {
         'streaming-observability': 'adapter',
         'multi-step-tool-loop': 'unsupported',
       },
-      reason: 'Claude Code subscription access disabled',
+      reason: 'OpenRouter routing disabled by latest certification report',
     })), 'utf8')
 
     const response = await POST(new Request('http://localhost/api/research/start', {
@@ -131,7 +141,7 @@ describe('/api/research/start', () => {
     expect(payload).toEqual({
       error: {
         code: 'provider_not_ready',
-        message: 'Provider claude is not ready: Claude Code subscription access disabled',
+        message: 'Provider openrouter is not ready: OpenRouter routing disabled by latest certification report',
       },
     })
   })

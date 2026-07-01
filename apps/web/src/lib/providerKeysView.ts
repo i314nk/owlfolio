@@ -1,10 +1,12 @@
 import { getProviderCatalog, curatedRealTierModelsForProvider } from '@owlfolio/providers'
+import type { ProviderId } from '@owlfolio/shared'
 import { modelRoleIds, resolveModelForRole, type ModelRoleId } from '@owlfolio/strategies/modelRegistry'
 import { isModelQualified } from '@owlfolio/workflow/modelQualification'
 
 import {
   isEnvKeyPathGitIgnored,
   listEnvKeyStatuses,
+  readAllEnvKeys,
   resolveEnvKeyFilePath,
   type EnvKeyOptions,
 } from './envKeys'
@@ -13,12 +15,11 @@ import { MODEL_REGISTRY } from '@owlfolio/strategies/modelRegistry'
 import { evaluateOnboardingGate } from './onboardingGate'
 import {
   LLM_API_KEY_GROUPS,
-  TOOL_DATA_KEY_GROUPS,
   llmRegistrySelectability,
   oauthLoginExpiryView,
   type LlmKeyGroup,
 } from './providerKeys'
-import { buildProviderStatusRows, resolveProviderCertificationReportDir } from './providerStatus'
+import { resolveProviderCertificationReportDir } from './providerStatus'
 import { getProviderReadiness, type ProviderReadinessEnv } from './providerReadiness'
 import type {
   ProviderKeyGroupView,
@@ -26,8 +27,7 @@ import type {
   ProviderKeysPanelProps,
   ProviderLoginRow,
   ProviderRoleConfigView,
-  RoleConfigProviderOption,
-  RoleConfigRow,
+  TierConfigRow,
 } from '../components/ProviderKeysPanel'
 
 // Each registry role's tier + a one-line "what this role does" (the spec's tier table, condensed). Kept
@@ -47,14 +47,28 @@ const MODEL_ROLE_TIER_INFO: Record<ModelRoleId, { tier: 'T1' | 'T2' | 'T3'; desc
 
 const ROLE_CONFIG_GUIDANCE: string[] = [
   'Tier philosophy: T1 (frontier) runs synthesis and the moat/Shariah lanes; T2 (mid) runs the quick screen and red team; T3 (cheap/local) runs the monitors and entity resolution. T0 work (valuation math, ratio checks, accounting) is deterministic code — never a model.',
-  'Defaults inherit the run’s provider/model. Override any role here to pin it onto a different provider/model. Overrides live in the local env file (~/.owlfolio/.env) as OWLFOLIO_MODEL_ROLE_<ROLE> entries — models are config, swap them anytime; Clear restores the default-inherit.',
-  'Qualification note: a provider should pass the golden-set qualification before you rely on it for production research. A role pointed at a provider with no connected credentials runs fail-closed.',
+  'Pick one model per tier. Each tier lists the models that fit it for the provider you choose (for OpenRouter, the vendor models that fit the tier). Your choice applies to every swarm role in that tier; Clear restores the default-inherit (the run’s provider/model). Selections live in the local env file (~/.owlfolio/.env) as OWLFOLIO_MODEL_ROLE_<ROLE> entries — swap them anytime.',
+  'Qualification note: a provider should pass the golden-set qualification before you rely on it for production research. A tier pointed at a provider with no connected credentials runs fail-closed.',
 ]
+
+const TIER_DESCRIPTION: Record<'T1' | 'T2' | 'T3', string> = {
+  T1: 'Frontier — synthesis and the moat/Shariah classification lanes. The highest-stakes reasoning.',
+  T2: 'Mid — the quick screen (kill/continue) and the adversarial red-team cross-check.',
+  T3: 'Cheap / local — high-volume monitors and near-deterministic entity/ticker resolution.',
+}
+
+const TIER_ORDER: ReadonlyArray<'T1' | 'T2' | 'T3'> = ['T1', 'T2', 'T3']
 
 export type BuildProviderKeysPanelArgs = {
   ledgerPath: string | undefined
   envKeyOptions?: EnvKeyOptions
   repoRoot: string
+  /**
+   * Whether `repoRoot` is actually inside a git working tree (the page resolves this from the filesystem).
+   * Defaults to `true`. When `false` (e.g. a local sandbox project dir that is not a git repo), an env file
+   * under it is reported safe — no false "NOT git-ignored" warning.
+   */
+  repoIsGitWorkTree?: boolean
   processEnv?: ProviderReadinessEnv & Record<string, string | undefined>
   activeProviderId: string
   activeModel: string
@@ -70,10 +84,9 @@ function authMethodLabel(authMode: string | undefined): string {
   return authMode ?? 'Unknown'
 }
 
-const CONNECT_COMMAND: Record<string, string> = {
-  'openai-codex-cli': 'codex login',
-  'claude-cli': 'claude login',
-}
+// No CLI/OAuth login providers remain (Codex/Claude/Gemini CLI retired); surviving providers are API-key
+// surfaces. Kept as a map for any future login lane; empty today.
+const CONNECT_COMMAND: Record<string, string> = {}
 
 export async function buildProviderKeysPanelProps(args: BuildProviderKeysPanelArgs): Promise<ProviderKeysPanelProps> {
   const envKeyOptions = args.envKeyOptions ?? {}
@@ -81,38 +94,48 @@ export async function buildProviderKeysPanelProps(args: BuildProviderKeysPanelAr
 
   // Env-file header.
   const envPath = envKeyOptions.envPath ?? resolveEnvKeyFilePath({ env: processEnv })
-  const envFile = { path: envPath, is_git_ignored: isEnvKeyPathGitIgnored(envPath, args.repoRoot) }
+  const envFile = { path: envPath, is_git_ignored: isEnvKeyPathGitIgnored(envPath, args.repoRoot, args.repoIsGitWorkTree ?? true) }
 
-  // Sections B + C: masked key statuses + registry selectability.
+  // Readiness/status MUST see keys stored in the local env file (OWLFOLIO_ENV_FILE), not just the
+  // process env — otherwise a key set via this page reads as "set" (Section B keys) yet "not connected"
+  // (readiness/trust/login rows), contradicting itself. Overlay the file keys for every readiness and
+  // certification computation below. (Section B key statuses read the file directly already.)
+  const effectiveEnv = { ...processEnv, ...(await readAllEnvKeys(envKeyOptions)) }
+
+  // Section B: masked LLM key statuses + registry selectability. (Non-LLM tool/data keys are no
+  // longer surfaced as onboarding — they are pipeline concerns with env defaults, still settable via env.)
   const llmGroups = await buildKeyGroupViews(LLM_API_KEY_GROUPS, envKeyOptions, true)
-  const toolGroups = await buildKeyGroupViews(TOOL_DATA_KEY_GROUPS, envKeyOptions, false)
 
   // Section B: per-tier model configuration (replaces the old read-only summary).
   const roleConfig = await buildProviderRoleConfigView({
     activeProviderId: args.activeProviderId,
     activeModel: args.activeModel,
     envKeyOptions,
-    processEnv,
+    processEnv: effectiveEnv,
     ...(args.cwd === undefined ? {} : { cwd: args.cwd }),
   })
 
   // Section A: provider login rows (OAuth / CLI / subscription).
-  const loginRows = await buildLoginRows(processEnv)
+  const loginRows = await buildLoginRows(effectiveEnv)
+
+  // The active provider's readiness over the SAME effective env the readiness sections use, so the gate's
+  // "frontier LLM connected" item agrees with the readiness badges (no "ready here, missing there").
+  let configuredProviderReady = false
+  try {
+    configuredProviderReady = (await getProviderReadiness(args.activeProviderId as ProviderId, effectiveEnv)).is_ready
+  } catch {
+    // Active provider not in the catalog — leave as not-ready.
+  }
 
   // The onboarding gate (composes ledger + env-key signals).
   const onboardingGate = await evaluateOnboardingGate({
     ledgerPath: args.ledgerPath,
     envKeyOptions,
-    processEnv,
+    processEnv: effectiveEnv,
+    configuredProviderReady,
   })
 
-  // Trust & certification rows (folded in from the retired /providers page) — fail-closed honest.
-  const trustRows = await buildProviderStatusRows({
-    env: processEnv,
-    ...(args.cwd === undefined ? {} : { cwd: args.cwd }),
-  })
-
-  return { envFile, onboardingGate, loginRows, llmGroups, toolGroups, roleConfig, trustRows }
+  return { envFile, onboardingGate, loginRows, llmGroups, roleConfig }
 }
 
 /**
@@ -138,55 +161,61 @@ export async function buildProviderRoleConfigView(args: {
     ...(args.cwd === undefined ? {} : { cwd: args.cwd }),
     env: args.processEnv,
   })
-  const providers: RoleConfigProviderOption[] = await Promise.all(
+  // Readiness/qualification for each catalog provider that can run a research draft — used only to mark a
+  // tier's RESOLVED provider connected/qualified (the badge), never to offer a per-tier provider picker.
+  const statusByProvider = new Map<string, { connected: boolean; qualified: boolean }>()
+  await Promise.all(
     getProviderCatalog()
       .filter((provider) => provider.workflow_roles.includes('research_draft'))
       .map(async (provider) => {
         const readiness = await getProviderReadiness(provider.provider_id, args.processEnv)
         const qualified = await isModelQualified(provider.provider_id, { dir: qualificationDir })
-        return {
-          provider_id: provider.provider_id,
-          label: provider.label,
-          is_connected: readiness.is_ready,
-          is_qualified: qualified.has_report && qualified.qualified,
-          // Curated REASONING models only (reasoning-only by construction) feed the role selectors.
-          curated_models: curatedRealTierModelsForProvider(provider.provider_id).map((model) => ({
-            model_id: model.model_id,
-            tier_suitability: model.tier_suitability,
-            note: model.note,
-          })),
-        }
+        statusByProvider.set(provider.provider_id, {
+          connected: readiness.is_ready,
+          qualified: qualified.has_report && qualified.qualified,
+        })
       }),
   )
-  const connectedById = new Map(providers.map((p) => [p.provider_id, p.is_connected]))
-  const qualifiedById = new Map(providers.map((p) => [p.provider_id, p.is_qualified]))
 
-  const roles: RoleConfigRow[] = modelRoleIds.map((role) => {
-    const resolved = resolveModelForRole(role, {
+  // The PRIMARY provider drives the per-tier model menus: each tier offers ONLY that provider's curated
+  // models that fit the tier (for OpenRouter, the vendor models that fit). No per-tier provider picker.
+  const activeProvider = getProviderCatalog().find((provider) => provider.provider_id === args.activeProviderId)
+  const activeProviderLabel = activeProvider?.label ?? args.activeProviderId
+  const activeModels = curatedRealTierModelsForProvider(args.activeProviderId)
+
+  // One row per TIER (T1/T2/T3). All roles in a tier are set together, so a representative role (the
+  // first mapped to the tier) carries the resolved provider/model/source the row displays + prefills.
+  const tiers: TierConfigRow[] = TIER_ORDER.map((tier) => {
+    const tierRoles = modelRoleIds.filter((role) => MODEL_ROLE_TIER_INFO[role].tier === tier)
+    const representative = tierRoles[0] ?? modelRoleIds[0]!
+    const resolved = resolveModelForRole(representative, {
       fallbackProviderId: args.activeProviderId,
       fallbackModel: args.activeModel,
       env: mergedEnv,
     })
-    const envKeyName = modelRoleEnvKeyForRole(role)
+    const envKeyName = modelRoleEnvKeyForRole(representative)
     // SOURCE: a key present in the env FILE wins (the selector wrote it); else a process-env value; else
     // the registry default (which inherits the run's provider/model).
-    const source: RoleConfigRow['source'] = fileOverrides[envKeyName] !== undefined
+    const source: TierConfigRow['source'] = fileOverrides[envKeyName] !== undefined
       ? 'file'
       : args.processEnv[envKeyName] !== undefined
         ? 'env'
         : 'default'
-    const info = MODEL_ROLE_TIER_INFO[role]
+    const resolvedStatus = statusByProvider.get(resolved.provider_id)
     return {
-      role,
-      tier: info.tier,
-      description: info.description,
+      tier,
+      description: TIER_DESCRIPTION[tier],
+      roles: tierRoles,
       resolved_provider_id: resolved.provider_id,
       resolved_model: resolved.model,
       resolved_temperature: resolved.temperature,
-      overridden: resolved.overridden,
       source,
-      target_provider_connected: connectedById.get(resolved.provider_id) ?? false,
-      target_provider_qualified: qualifiedById.get(resolved.provider_id) ?? false,
+      target_provider_connected: resolvedStatus?.connected ?? false,
+      target_provider_qualified: resolvedStatus?.qualified ?? false,
+      // The PRIMARY provider's curated models that fit this tier — the dropdown options.
+      model_options: activeModels
+        .filter((model) => model.tier_suitability.includes(tier))
+        .map((model) => ({ model_id: model.model_id, note: model.note })),
       // The current value (so the selector can prefill); never a secret — it's a provider:model@temp string.
       ...(mergedEnv[envKeyName] === undefined ? {} : { current_value: mergedEnv[envKeyName] }),
     }
@@ -198,8 +227,9 @@ export async function buildProviderRoleConfigView(args: {
     no_model_note:
       'T0 — No model, ever: valuation math, Shariah ratio verification, purification arithmetic, accounting, '
       + 'scheduling, 13F/EDGAR parsing, and Magic Formula ranking are deterministic by constitution (pure code).',
-    providers,
-    roles,
+    active_provider_id: args.activeProviderId,
+    active_provider_label: activeProviderLabel,
+    tiers,
   }
 }
 
@@ -240,7 +270,7 @@ async function buildKeyGroupViews(
 
 async function buildLoginRows(env: ProviderReadinessEnv): Promise<ProviderLoginRow[]> {
   const loginProviders = getProviderCatalog().filter(
-    (provider) => provider.runtime_kind === 'cli' || provider.auth_mode === 'oauth_browser_login',
+    (provider) => provider.visible_in_onboarding && (provider.runtime_kind === 'cli' || provider.auth_mode === 'oauth_browser_login'),
   )
 
   const rows = await Promise.all(

@@ -131,9 +131,6 @@ describe('Owlfolio local backup runtime inventory', () => {
       cwd: projectDir,
       env: {
         OWLFOLIO_PROJECT_DIR: projectDir,
-        OWLFOLIO_CODEX_AUTH_PATH: join(projectDir, 'secrets', 'provider-token.txt'),
-        CODEX_HOME: join(projectDir, 'secrets', 'codex-home'),
-        GEMINI_HOME: join(projectDir, 'secrets', 'gemini-home'),
       },
       now: () => '2026-06-03T12:00:00.000Z',
       gitCommit: async () => 'testcommit',

@@ -1,6 +1,3 @@
-import { existsSync } from 'node:fs'
-import { dirname, join, parse } from 'node:path'
-
 import {
   projectCommandCenterSummary,
   type CommandCenterApprovalQueueItem,
@@ -24,13 +21,18 @@ import { projectWatchlist, type WatchlistProjection } from '@owlfolio/ledger/pro
 import { SQLiteEventStore } from '@owlfolio/ledger/sqliteEventStore'
 import type { AppConfig } from '@owlfolio/shared'
 
+import { getDefaultDemoStore } from '@owlfolio/onboarding/demoLedger'
+
 import type { StatusBadgeTone } from '../components/StatusBadge'
 import { buildMonthlyAccountingReport } from './accounting'
-import { DEMO_RESEARCH_CASE_ID, seedDemoLedger } from './demoSeed'
+import { DEMO_RESEARCH_CASE_ID } from './demoSeed'
 import { isUnconfiguredForUser } from './modeView'
 import { buildProviderStatusRows, type ProviderStatusRow } from './providerStatus'
 
 export { seedDemoLedger } from './demoSeed'
+// Demo-ledger plumbing now lives in @owlfolio/onboarding; re-exported here so existing
+// importers of '../lib/demo' (research/lifecycle/performance/audit pages, onboarding) are unchanged.
+export { resolveDemoLedgerPath, resetDefaultDemoStore, getDemoEvents } from '@owlfolio/onboarding/demoLedger'
 
 export type PipelineCounts = {
   research_cases: number
@@ -140,66 +142,12 @@ const demoGateChecklist: DemoGateChecklistItem[] = [
   { label: 'Margin of safety', status: 'Watch', tone: 'warning' },
 ]
 
-let defaultDemoStore: SQLiteEventStore | undefined
-
-type DemoLedgerEnv = {
-  OWLFOLIO_DEMO_LEDGER_PATH?: string
-  OWLFOLIO_PROJECT_DIR?: string
-}
-
-type ResolveDemoLedgerPathOptions = {
-  cwd?: string
-  env?: DemoLedgerEnv
-}
-
 export type SetupAwareCommandCenterInput = {
   config: AppConfig
   is_initialized: boolean
   provider_status_rows?: ProviderStatusRow[]
   store?: EventStore
   env?: { readonly [key: string]: string | undefined }
-}
-
-export function resolveDemoLedgerPath({ cwd = process.cwd(), env = process.env as DemoLedgerEnv }: ResolveDemoLedgerPathOptions = {}): string {
-  if (env.OWLFOLIO_DEMO_LEDGER_PATH !== undefined && env.OWLFOLIO_DEMO_LEDGER_PATH.length > 0) {
-    return env.OWLFOLIO_DEMO_LEDGER_PATH
-  }
-
-  const projectRoot = env.OWLFOLIO_PROJECT_DIR ?? findWorkspaceRoot(cwd) ?? cwd
-  return join(projectRoot, 'data', 'demo-ledger.sqlite')
-}
-
-function findWorkspaceRoot(start: string): string | undefined {
-  let current = start
-  const { root } = parse(start)
-
-  while (true) {
-    if (existsSync(join(current, 'pnpm-workspace.yaml'))) {
-      return current
-    }
-
-    if (current === root) {
-      return undefined
-    }
-
-    current = dirname(current)
-  }
-}
-
-export async function resetDefaultDemoStore(): Promise<void> {
-  defaultDemoStore?.close()
-  defaultDemoStore = undefined
-}
-
-async function getDefaultDemoStore(): Promise<EventStore> {
-  defaultDemoStore ??= new SQLiteEventStore(resolveDemoLedgerPath())
-  await seedDemoLedger(defaultDemoStore)
-  return defaultDemoStore
-}
-
-export async function getDemoEvents(): Promise<LedgerEventEnvelope<unknown>[]> {
-  const store = await getDefaultDemoStore()
-  return store.list()
 }
 
 export async function getDemoEventsFromStore(store: EventStore): Promise<LedgerEventEnvelope<unknown>[]> {
@@ -408,14 +356,16 @@ function supportLevelLabel(supportLevel: ProviderStatusRow['effective_support_le
 
 function humanizeProvider(providerId: AppConfig['provider']['provider_id']): string {
   switch (providerId) {
-    case 'claude':
-      return 'Claude'
-    case 'openai':
-      return 'OpenAI Codex CLI'
     case 'mock-provider':
       return 'Mock provider'
     case 'openrouter':
       return 'OpenRouter'
+    case 'openai-api':
+      return 'OpenAI (API key)'
+    case 'anthropic-api':
+      return 'Anthropic (Claude API key)'
+    case 'gemini-developer-api':
+      return 'Gemini (Google API key)'
   }
 }
 
