@@ -50,6 +50,37 @@ describe('onboarding helpers', () => {
     })
   })
 
+  it('stamps the savings-rate vintage when the write sets a non-default savings rate (injected clock)', async () => {
+    await withTempProject(async (projectDir) => {
+      const now = '2026-06-28T10:00:00.000Z'
+      const updated = await updateOnboardingConfig(
+        { savings: { savings_expected_profit_rate: 0.035, savings_model: 'mudarabah', equity_risk_margin: 0.05 } },
+        { env: { OWLFOLIO_PROJECT_DIR: projectDir }, now },
+      )
+
+      expect(updated.savings?.savings_expected_profit_rate).toBe(0.035)
+      expect(updated.savings?.savings_rate_set_at).toBe(now)
+
+      // A later write that does NOT change the rate must not re-stamp the vintage.
+      const unchanged = await updateOnboardingConfig(
+        { savings: { savings_expected_profit_rate: 0.035, savings_model: 'mudarabah', equity_risk_margin: 0.06 } },
+        { env: { OWLFOLIO_PROJECT_DIR: projectDir }, now: '2026-07-01T00:00:00.000Z' },
+      )
+      expect(unchanged.savings?.savings_expected_profit_rate).toBe(0.035)
+      expect(unchanged.savings?.equity_risk_margin).toBe(0.06)
+      expect(unchanged.savings?.savings_rate_set_at).toBe(now)
+    })
+  })
+
+  it('leaves the savings-rate vintage unset when no savings write occurs (default rate)', async () => {
+    await withTempProject(async (projectDir) => {
+      const updated = await updateOnboardingConfig(
+        { mode: 'personal-local' },
+        { env: { OWLFOLIO_PROJECT_DIR: projectDir }, now: '2026-06-28T10:00:00.000Z' },
+      )
+      expect(updated.savings?.savings_rate_set_at).toBeUndefined()
+    })
+  })
 
   it('initializes demo mode with seeded durable ledger events', async () => {
     await withTempProject(async (projectDir) => {

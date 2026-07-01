@@ -42,7 +42,7 @@ describe('ledger replay projections', () => {
     expect((rc?.valuation?.sanity_flags ?? []).some((f) => /exit multiple/i.test(f))).toBe(true)
   })
 
-  it('legacy-tolerant: an analysis event whose valuation block omits implied_exit_multiple still projects (field undefined)', () => {
+  it('legacy-tolerant: an analysis event carrying the retired forward reference_fair_value still projects (read-and-ignored, not surfaced)', () => {
     const legacy: LedgerEventEnvelope<unknown>[] = [
       events[0]!,
       {
@@ -51,15 +51,19 @@ describe('ledger replay projections', () => {
         payload: {
           investment_verdict: 'WATCH', strategy_compliance: 'CONDITIONAL', shariah_status: 'COMPLIANT', valuation_status: 'FAIR',
           next_required_action: 'x',
-          // Legacy valuation block: the sanity layer existed but predates implied_exit_multiple.
-          valuation: { moat_class: 'wide', reference_fair_value: 200, in_buy_zone: false },
+          // Legacy valuation block: carries the retired forward-DCF reference_fair_value + fair_value_per_share.
+          valuation: { moat_class: 'wide', reference_fair_value: 200, fair_value_per_share: 210, in_buy_zone: false },
         },
         source_ids: [], created_at: '2026-05-27T00:01:00.000Z', schema_version: 1,
       },
     ]
+    // REPLAY-SAFE: the legacy event projects without error; the retired forward-DCF dollar fair values are
+    // read-and-ignored (never surfaced onto the projection).
     const [rc] = projectResearchCases(legacy)
     expect(rc?.valuation).toBeDefined()
-    expect(rc?.valuation?.reference_fair_value).toBe(200)
+    expect(rc?.valuation?.moat_class).toBe('wide')
+    expect(rc?.valuation?.reference_fair_value).toBeUndefined()
+    expect(rc?.valuation?.fair_value_per_share).toBeUndefined()
     expect(rc?.valuation?.implied_exit_multiple).toBeUndefined()
   })
 

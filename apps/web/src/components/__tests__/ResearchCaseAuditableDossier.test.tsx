@@ -5,6 +5,8 @@ import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 
+import type { SavingsSleeveConfig } from '@owlfolio/shared'
+
 import { ResearchCasePanel } from '../ResearchCasePanel'
 import type { MarketQuote } from '../ResearchCasePanel'
 import type { AppResearchCase } from '../../lib/workflow'
@@ -128,10 +130,32 @@ describe('ResearchCasePanel auditable dossier (R1)', () => {
     expect(html.toLowerCase()).toContain('assumes')
   })
 
-  it('labels the reference fair value as a deterministic cross-check, not the decision', () => {
+  it('forward-DCF removal: does NOT surface the dollar reference fair value (even from a legacy-shape case), while the reverse-DCF read still shows', () => {
+    // baseCase() carries the retired forward-DCF reference_fair_value: 210 (legacy shape). The dossier must
+    // NOT render it ($210.00) nor any "reference fair value" / "cross-check (not the decision)" label — a
+    // dollar reference FV below the model buy-below read as a contradiction. The reverse-DCF market-implied
+    // growth read stays.
     const html = render(baseCase(), QUOTE)
-    expect(html).toContain('$210.00')
-    expect(html.toLowerCase()).toContain('cross-check (not the decision)')
+    expect(html).not.toContain('$210.00')
+    expect(html.toLowerCase()).not.toContain('reference fair value')
+    expect(html.toLowerCase()).not.toContain('cross-check (not the decision)')
+    expect(html.toLowerCase()).toContain('the market implies')
+  })
+
+  it('forward-DCF removal (fresh shape): a case with NO reference_fair_value / fair_value_per_share renders no forward-FV figure, while the reverse-DCF read still shows', () => {
+    // A fresh-shape case (post-removal emission): neither the dollar reference_fair_value nor
+    // fair_value_per_share is present. The dossier must render no "reference fair value" / "cross-check"
+    // label and no forward-FV figure, while the reverse-DCF market-implied growth read still shows.
+    const fresh = baseCase()
+    const valuation = { ...fresh.valuation } as Record<string, unknown>
+    delete valuation.reference_fair_value
+    delete valuation.fair_value_per_share
+    const html = render({ ...fresh, valuation } as unknown as AppResearchCase, QUOTE)
+    expect(html.toLowerCase()).not.toContain('reference fair value')
+    // The dollar-FV "cross-check" labels are gone (a generic "valuation cross-check" prose note is fine).
+    expect(html.toLowerCase()).not.toContain('cross-check (not the decision)')
+    expect(html.toLowerCase()).not.toContain('cross-check, not the decision')
+    expect(html.toLowerCase()).toContain('the market implies')
   })
 
   it('surfaces the market-implied growth read', () => {
@@ -289,9 +313,13 @@ describe('ResearchCasePanel auditable dossier (R1)', () => {
     expect(html).toContain('Model buy-below')
     expect(html).toContain('Live price')
     expect(html).toContain('Buy-zone')
-    // reference fair value, explicitly labelled the cross-check (not the decision)
-    expect(html).toContain('Reference fair value · cross-check, not the decision')
-    expect(html).toContain('$210.00')
+    // reference fair value, with a SHORT label and a small secondary cross-check sub-note (not a giant
+    // inline label that wraps to several lines).
+    // forward-DCF removal: the dollar reference fair value stat is gone even though baseCase carries the
+    // legacy reference_fair_value (no label, no cross-check sub-note, no $210.00 figure).
+    expect(html).not.toContain('Reference fair value')
+    expect(html.toLowerCase()).not.toContain('cross-check, not the decision')
+    expect(html).not.toContain('$210.00')
     // the two hidden price-implied assumptions surfaced together
     expect(html).toContain('Market-implied growth')
     expect(html).toContain('Implied exit multiple')
@@ -329,9 +357,10 @@ describe('ResearchCasePanel auditable dossier (R1)', () => {
     expect(mosHtml).toContain('var(--owl-color-gold)')
   })
 
-  // MASONRY / FLOW PACKING (Priority 1) — a short card and a long card coexist in one CSS multi-column flow
-  // container (no rigid equal-height grid → no dead void). Pixel voids aren't unit-testable; assert structure.
-  it('packs the specialist lanes in a masonry/flow container where a short and a long card coexist', () => {
+  // VERTICAL STACKING + COLLAPSIBLE (Priority 1) — the specialist lanes section is collapsed by default
+  // (<details>) and the lane cards stack FULL-WIDTH (one per row), no CSS multi-column masonry. A short and
+  // a long card coexist in the one full-width flow container.
+  it('stacks the specialist lanes full-width inside a collapsed <details> section (no masonry)', () => {
     const conclusion = 'POOL faces a genuine moat risk from private-label encroachment across its core distribution niche.'
     const reasoning =
       'Big-box retailers have begun sourcing directly from manufacturers, compressing the distributor margin pool over successive cycles and pressuring returns on capital well below the historical baseline.'
@@ -345,8 +374,18 @@ describe('ResearchCasePanel auditable dossier (R1)', () => {
     } as unknown as AppResearchCase, QUOTE)
     const flowStart = html.indexOf('data-testid="specialist-lanes-flow"')
     expect(flowStart).toBeGreaterThan(-1)
-    // Both the short and the long card live inside the one flow container.
-    expect(html).toContain('data-owl-flow="masonry"')
+    // The section is collapsible (a <details> with the lane count in the summary), collapsed by default.
+    const sectionStart = html.indexOf('data-testid="specialist-lanes-section"')
+    expect(sectionStart).toBeGreaterThan(-1)
+    expect(sectionStart).toBeLessThan(flowStart)
+    const sectionTag = html.slice(sectionStart - 60, sectionStart)
+    expect(sectionTag).toContain('<details')
+    // Collapsed by default: the section <details> carries no `open` attribute.
+    expect(html.slice(sectionStart - 60, html.indexOf('>', sectionStart))).not.toContain('open=""')
+    expect(html).toContain('Deep-dive specialist lanes (2 of 7 grounded)')
+    // The masonry multi-column packing is gone.
+    expect(html).not.toContain('data-owl-flow="masonry"')
+    // Both the short and the long card live inside the one full-width flow container.
     expect(html).toContain('Wide moat.')
     // The long card pulls its CONCLUSION to the top (at a glance, before the disclosure) and defers the
     // supporting REASONING inside the lane's own <details> (density treatment, Priority 4).
@@ -400,6 +439,64 @@ describe('ResearchCasePanel auditable dossier (R1)', () => {
     expect(html).toContain('title="Source: sec_edgar_10k_def"')
   })
 
+  // ACCESSIBLE CITATIONS — markers are NOT hover-only: each is a real keyboard/SR-reachable in-page anchor
+  // to its source entry (owl-focusable + aria-label naming the source), so a keyboard / screen-reader user
+  // reaches the evidence without a mouse hover.
+  it('renders citation markers as focusable in-page anchors with a source-naming aria-label', () => {
+    const html = render({
+      ...baseCase(),
+      circle_competence: {
+        in_competence: true,
+        cashflow_predictability: 'durably_predictable',
+        cashflow_drivers: [{ driver: 'Recurring float', citation: 'sec_edgar_10k_abc', grounded: true }],
+      },
+    } as unknown as AppResearchCase, QUOTE)
+    // The marker is an anchor to the matching source entry, keyboard-focusable, with an accessible name.
+    expect(html).toContain('href="#source-sec_edgar_10k_abc"')
+    expect(html).toContain('owl-focusable')
+    expect(html).toContain('aria-label="Source: sec_edgar_10k_abc — jump to evidence"')
+  })
+
+  // The unverified-citation variant keeps its distinct (risk-tone) treatment AND an aria-label that says it
+  // did not verify — an unverified cite is never quietly hidden, even from a screen reader.
+  it('marks an unverified citation distinctly and notes "did not verify" in its accessible name', () => {
+    const html = render({
+      ...baseCase(),
+      circle_competence: {
+        in_competence: true,
+        cashflow_predictability: 'durably_predictable',
+        cashflow_drivers: [{ driver: 'Unverified driver', citation: 'sec_edgar_10k_xyz', grounded: false }],
+      },
+    } as unknown as AppResearchCase, QUOTE)
+    expect(html).toContain('aria-label="Source: sec_edgar_10k_xyz — did not verify; jump to evidence"')
+    expect(html).toContain('title="Citation did not verify: sec_edgar_10k_xyz"')
+    // The distinct risk tone is applied (not the verified gold tone).
+    expect(html).toContain('var(--owl-color-risk-bright)')
+  })
+
+  // The evidence entry the marker links to carries the matching stable id, so the anchor lands on it. The
+  // Sources list is surfaced always-visible (the anchor target is never hidden behind a collapsed details).
+  it('gives each evidence source the stable anchor id the citation marker links to', () => {
+    const html = render({
+      ...baseCase(),
+      source_evidence: [
+        { source_id: 'sec_edgar_10k_abc', title: 'Berkshire 10-K FY2025', excerpt: 'Float drivers.' },
+      ],
+      circle_competence: {
+        in_competence: true,
+        cashflow_predictability: 'durably_predictable',
+        cashflow_drivers: [{ driver: 'Recurring float', citation: 'sec_edgar_10k_abc', grounded: true }],
+      },
+    } as unknown as AppResearchCase, QUOTE)
+    // Marker href and evidence id agree (sanitized consistently) so the in-page jump resolves.
+    expect(html).toContain('href="#source-sec_edgar_10k_abc"')
+    expect(html).toContain('id="source-sec_edgar_10k_abc"')
+    // The Sources list is rendered ABOVE (outside) the collapsed "Evidence and audit details" block.
+    const sourceIdIdx = html.indexOf('id="source-sec_edgar_10k_abc"')
+    expect(sourceIdIdx).toBeGreaterThan(-1)
+    expect(sourceIdIdx).toBeLessThan(html.indexOf('Evidence and audit details'))
+  })
+
   it('retires the growth-axis band viz and the band/gap ledger labels entirely', () => {
     const html = render(baseCase(), QUOTE)
     expect(html).not.toContain('data-testid="growth-band-axis"')
@@ -409,6 +506,192 @@ describe('ResearchCasePanel auditable dossier (R1)', () => {
     expect(html).not.toContain('Sustainable band')
     expect(html).not.toContain('Required growth gap')
     expect(html).not.toContain('Buy-threshold growth')
+  })
+
+  // JUDGMENT PROVENANCE (Priority 2) — the moat / runway "proposed → resolved" anchor reads are PROSE; they
+  // belong as labeled text lines, never crammed into numeric ledger-stat blocks.
+  it('renders the moat/runway judgment provenance as labeled text, not inside numeric ledger-stats', () => {
+    const html = render(baseCase({
+      judgment: {
+        moat: { proposed_tier: 'wide', resolved_tier: 'moderate', grounded_driver_count: 3, anchor_computable: false },
+        runway: { proposed_tier: 'proven', resolved_tier: 'proven', grounded_driver_count: 2, anchor_computable: false },
+      },
+    } as unknown as Partial<ResearchCaseValuationProjection>), QUOTE)
+    // The prose anchor reads are gone from the numeric stat-strip (no "Moat anchor"/"Runway anchor" stats).
+    expect(html).not.toContain('Moat anchor')
+    expect(html).not.toContain('Runway anchor')
+    // They render in a dedicated Judgment provenance text block instead — the provenance prose lives there.
+    const provIdx = html.indexOf('data-testid="judgment-provenance"')
+    expect(provIdx).toBeGreaterThan(-1)
+    const provHtml = html.slice(provIdx, html.indexOf('</div>', provIdx))
+    expect(provHtml).toContain('proposed →')
+    expect(html).toContain('Moat: WIDE proposed → MODERATE resolved')
+    expect(html).toContain('Runway: PROVEN proposed → PROVEN resolved')
+  })
+
+  // CONSOLIDATION (Priority 3) — per-dimension findings live ONLY in the lanes; valuation reasoning ONLY in
+  // the Valuation box; the decision-evidence section keeps ONLY the unique whole-case thesis. The unique
+  // AAOIFI ratio ledger is preserved (relocated to its own compliance block), not lost.
+  it('keeps only the thesis card and removes the duplicated valuation/shariah/risks cards', () => {
+    const html = render({
+      ...baseCase(),
+      valuation_rationale: 'Duplicated valuation rationale card text.',
+      shariah_rationale: 'Duplicated shariah rationale card text.',
+      risks: ['Duplicated risk card line.'],
+      shariah_financial: {
+        debt_ratio: 0.0134,
+        cash_securities_ratio: 0.0355,
+        impermissible_income_pct: 0.004,
+        verdict: 'PASS',
+        purification_pct: 0.004,
+      },
+    } as unknown as AppResearchCase, QUOTE)
+    // The whole-case thesis still renders.
+    expect(html).toContain('data-testid="research-dossier-card-thesis"')
+    // The duplicated per-dimension cards are gone.
+    expect(html).not.toContain('data-testid="research-dossier-card-valuation"')
+    expect(html).not.toContain('data-testid="research-dossier-card-shariah-compliance"')
+    expect(html).not.toContain('data-testid="research-dossier-card-risks-open-questions"')
+    // The unique AAOIFI ratio ledger is preserved in its own compliance block.
+    expect(html).toContain('data-testid="compliance-ratios"')
+    expect(html).toContain('AAOIFI financial ratios (harness-computed)')
+  })
+
+  // MoS BODY (Priority 5) — LEAD with the synthesis-owned joint reasoning; render the per-source columns
+  // ONLY when their reasoning is present; never an empty "No reasoning recorded" column.
+  it('leads the MoS box with the joint reasoning and renders no empty per-source column when both absent', () => {
+    const html = render({
+      ...baseCase(),
+      margin_of_safety_judgment: {
+        sources: ['price', 'moat'],
+        adequacy: 'adequate',
+        reasoning: 'The price gap plus the grounded moat jointly supply an adequate margin.',
+      },
+    } as unknown as AppResearchCase, QUOTE)
+    expect(html).toContain('The price gap plus the grounded moat jointly supply an adequate margin.')
+    // No empty per-source columns / "No reasoning recorded" placeholders dominate the box.
+    expect(html).not.toContain('No reasoning recorded')
+    // The compact rests-on note replaces the empty boxes.
+    expect(html).toContain('Margin rests on: price gap + moat durability')
+    // The joint reasoning leads the box, above the rests-on line.
+    const mosIdx = html.indexOf('data-testid="margin-of-safety-audit"')
+    const reasoningIdx = html.indexOf('The price gap plus the grounded moat jointly supply an adequate margin.')
+    const restsOnIdx = html.indexOf('Rests on:')
+    expect(reasoningIdx).toBeGreaterThan(mosIdx)
+    expect(reasoningIdx).toBeLessThan(restsOnIdx)
+  })
+
+  it('renders only the per-source MoS column whose reasoning is present', () => {
+    const html = render({
+      ...baseCase(),
+      margin_of_safety_judgment: {
+        sources: ['price', 'moat'],
+        price_gap_reasoning: 'Price sits 25% below the model buy-below.',
+        adequacy: 'adequate',
+        reasoning: 'Joint judgment leads.',
+      },
+    } as unknown as AppResearchCase, QUOTE)
+    // Price reasoning present → its column renders; the moat column is absent (no moat_durability_reasoning).
+    expect(html).toContain('Price margin')
+    expect(html).toContain('Price sits 25% below the model buy-below.')
+    expect(html).not.toContain('Moat durability')
+    expect(html).not.toContain('No reasoning recorded')
+  })
+
+  // COLLAPSIBLE DEFAULTS (Priority 1) — the lanes section collapses; the decision + MoS surfaces stay open.
+  it('collapses the lanes section by default while the decision + MoS surfaces stay open', () => {
+    const html = render({
+      ...baseCase(),
+      specialist_findings: [
+        { finding_id: 'f1', specialist_lane: 'moat', finding_summary: 'Wide moat.', confidence: 'high', source_ids: ['s1'] },
+      ],
+    } as unknown as AppResearchCase, QUOTE)
+    const lanesIdx = html.indexOf('data-testid="specialist-lanes-section"')
+    expect(lanesIdx).toBeGreaterThan(-1)
+    // The lanes section <details> carries no `open` attribute (collapsed by default).
+    expect(html.slice(lanesIdx - 60, html.indexOf('>', lanesIdx))).not.toContain('open=""')
+    // The decision + MoS surfaces are plain <section>s (always visible), not collapsed behind <details>.
+    const decisionIdx = html.indexOf('data-testid="decision-summary"')
+    const mosIdx = html.indexOf('data-testid="margin-of-safety-audit"')
+    expect(html.slice(decisionIdx - 60, decisionIdx)).toContain('<section')
+    expect(html.slice(mosIdx - 60, mosIdx)).toContain('<section')
+  })
+})
+
+// ALL SEVEN LANES VISIBLE (honest skip surfacing) — a deep-dive lane that grounded zero verifiable sources is
+// silently skipped upstream (no specialist_finding event). On a COMPLETED dossier the lanes section must still
+// render all 7 expected lanes: grounded lanes as full cards, the missing ones as honest "incomplete"
+// placeholders, with a grounded-vs-expected header count. Display-only; the upstream skip is unchanged.
+describe('ResearchCasePanel specialist lanes surface all 7 expected lanes', () => {
+  const ALL_LANES = ['business_quality', 'moat', 'management', 'financial_quality', 'shariah', 'risks', 'valuation']
+
+  it('renders the 3 missing lanes as incomplete placeholders when only 4 of 7 grounded', () => {
+    const html = render({
+      ...baseCase(),
+      specialist_findings: [
+        { finding_id: 'f_moat', specialist_lane: 'moat', finding_summary: 'Wide moat.', confidence: 'high', source_ids: ['s1'] },
+        { finding_id: 'f_shariah', specialist_lane: 'shariah', finding_summary: 'Compliant.', confidence: 'high', source_ids: ['s2'] },
+        { finding_id: 'f_risks', specialist_lane: 'risks', finding_summary: 'Manageable risks.', confidence: 'normal', source_ids: ['s3'] },
+        { finding_id: 'f_val', specialist_lane: 'valuation', finding_summary: 'Fairly priced.', confidence: 'normal', source_ids: ['s4'] },
+      ],
+    } as unknown as AppResearchCase, QUOTE)
+    // Honest grounded-vs-expected count in the section header.
+    expect(html).toContain('Deep-dive specialist lanes (4 of 7 grounded)')
+    // All seven lane labels are present (grounded + incomplete).
+    expect(html).toContain('Business quality')
+    expect(html).toContain('Moat')
+    expect(html).toContain('Management')
+    expect(html).toContain('Financial quality')
+    expect(html).toContain('Shariah')
+    expect(html).toContain('Risks')
+    expect(html).toContain('Valuation')
+    // The three ungrounded lanes render as incomplete placeholders with stable testids.
+    expect(html).toContain('data-testid="specialist-lane-incomplete-business_quality"')
+    expect(html).toContain('data-testid="specialist-lane-incomplete-management"')
+    expect(html).toContain('data-testid="specialist-lane-incomplete-financial_quality"')
+    // The grounded lanes are NOT placeholders.
+    expect(html).not.toContain('data-testid="specialist-lane-incomplete-moat"')
+    expect(html).not.toContain('data-testid="specialist-lane-incomplete-risks"')
+    // The placeholder carries the honest, non-investment-grade status.
+    expect(html.toLowerCase()).toContain('no verifiable sources grounded this run')
+  })
+
+  it('renders all 7 as normal cards (no incomplete placeholders) when all 7 grounded', () => {
+    const html = render({
+      ...baseCase(),
+      specialist_findings: ALL_LANES.map((lane, i) => ({
+        finding_id: `f_${lane}`,
+        specialist_lane: lane,
+        finding_summary: `${lane} summary.`,
+        confidence: 'normal',
+        source_ids: [`s${i}`],
+      })),
+    } as unknown as AppResearchCase, QUOTE)
+    expect(html).toContain('Deep-dive specialist lanes (7 of 7 grounded)')
+    for (const lane of ALL_LANES) {
+      expect(html).not.toContain(`data-testid="specialist-lane-incomplete-${lane}"`)
+    }
+  })
+
+  it('leaves a legacy dossier (no specialist_findings) unaffected — 7 legacy cards, no incomplete placeholders', () => {
+    // baseCase() is a legacy decision dossier (no standalone pipeline); it falls back to all 7 legacy lane
+    // cards. Those render as normal cards (current behavior), never as incomplete placeholders.
+    const html = render(baseCase(), QUOTE)
+    expect(html).toContain('data-testid="specialist-lanes-flow"')
+    expect(html).toContain('Deep-dive specialist lanes (7 of 7 grounded)')
+    for (const lane of ALL_LANES) {
+      expect(html).not.toContain(`data-testid="specialist-lane-incomplete-${lane}"`)
+    }
+  })
+
+  it('leaves a true empty / non-deep-dive case unaffected (no lanes section, no 7 incomplete cards)', () => {
+    // The set-aside dossier has no specialist_findings and is not a legacy fallback → the lanes section does
+    // not render at all, and certainly never 7 incomplete cards.
+    const html = render(setAsideCase(), QUOTE)
+    expect(html).not.toContain('data-testid="specialist-lanes-flow"')
+    for (const lane of ALL_LANES) {
+      expect(html).not.toContain(`data-testid="specialist-lane-incomplete-${lane}"`)
+    }
   })
 })
 
@@ -547,5 +830,116 @@ describe('ResearchCasePanel set-aside (circle early-exit) dossier', () => {
     const html = render(baseCase(), QUOTE)
     expect(html).not.toContain('data-testid="set-aside-dossier"')
     expect(html).toContain('data-testid="decision-key-figures"')
+  })
+})
+
+// The quick screen is now tool-grounded: it reads a verified primary filing before judging. The dossier
+// surfaces the count of grounded quick-screen sources so the grounding is visible (not "0 sources").
+describe('ResearchCasePanel quick-screen grounded source count', () => {
+  function quickScreenCase(quickScreenSourceIds?: string[]): AppResearchCase {
+    return {
+      ...baseCase(),
+      quick_screen_id: 'quick_rc_dossier_001',
+      screening_result: 'deep_dive_candidate',
+      business_quality: 'Strong',
+      ...(quickScreenSourceIds === undefined ? {} : { quick_screen_source_ids: quickScreenSourceIds }),
+    } as unknown as AppResearchCase
+  }
+
+  it('renders the grounded quick-screen source count when quick-screen sources are present', () => {
+    const html = render(quickScreenCase(['src_qs_1', 'src_qs_2']), QUOTE)
+    expect(html).toContain('Single-agent business-quality gate')
+    expect(html).toContain('Sources')
+    expect(html).toContain('2 sources')
+  })
+
+  it('renders the singular form for exactly one grounded quick-screen source', () => {
+    const html = render(quickScreenCase(['src_qs_1']), QUOTE)
+    expect(html).toContain('1 source')
+    expect(html).not.toContain('1 sources')
+  })
+
+  it('renders gracefully ("—") for a legacy quick screen with no grounded sources', () => {
+    const html = render(quickScreenCase(), QUOTE)
+    expect(html).toContain('Single-agent business-quality gate')
+    // No crash; the Sources line falls back to an em dash.
+    expect(html).toContain('—')
+  })
+})
+
+describe('ResearchCasePanel Shariah compliance — fail-closed UNDETERMINED purification', () => {
+  it('renders the UNDETERMINED state honestly (purification cannot be determined, NOT 0.0%)', () => {
+    const html = render({
+      ...baseCase(),
+      shariah_status: 'UNDETERMINED',
+      // No shariah_financial (impermissible income undetermined → ratios not-computable).
+      shariah_impermissible_income_undetermined: true,
+    } as unknown as AppResearchCase, QUOTE)
+    expect(html).toContain('data-testid="shariah-aaoifi-undetermined"')
+    expect(html.toLowerCase()).toContain('purification cannot be determined')
+    // The fail-OPEN regression must NOT appear: no falsely-clean 0.0% purification on undetermined data.
+    expect(html).not.toContain('Purification: 0.0%')
+  })
+
+  it('a genuine computed verdict still renders the AAOIFI ratio ledger with its purification %', () => {
+    const html = render({
+      ...baseCase(),
+      shariah_status: 'CONDITIONAL',
+      shariah_financial: {
+        debt_ratio: 0.0134,
+        cash_securities_ratio: 0.0355,
+        impermissible_income_pct: 0.004,
+        verdict: 'CONDITIONAL',
+        purification_pct: 0.004,
+      },
+    } as unknown as AppResearchCase, QUOTE)
+    expect(html).toContain('data-testid="shariah-aaoifi-ledger"')
+    expect(html).toContain('Purification: 0.4%')
+    expect(html).not.toContain('data-testid="shariah-aaoifi-undetermined"')
+  })
+})
+
+// DISCOUNT-ANCHOR VINTAGE (#3) — the discount's risk-free anchor is the compliant savings rate. The dossier
+// surfaces the breakdown AND when that rate was last set, so a stale / never-set anchor is VISIBLE rather
+// than silently trusted. Read-only: it never changes the discount math (the rate flows via discountRate()).
+describe('ResearchCasePanel discount-anchor vintage', () => {
+  function renderWithSavings(savings?: SavingsSleeveConfig): string {
+    return renderToStaticMarkup(
+      createElement(ResearchCasePanel, {
+        researchCase: baseCase(),
+        mode: 'personal-local',
+        marketQuote: QUOTE,
+        ...(savings === undefined ? {} : { savings }),
+      }),
+    )
+  }
+
+  it('shows the savings-rate vintage line when the rate has been set', () => {
+    const html = renderWithSavings({
+      savings_expected_profit_rate: 0.03,
+      savings_model: 'mudarabah',
+      equity_risk_margin: 0.05,
+      savings_rate_set_at: '2026-06-28T00:00:00.000Z',
+    })
+    expect(html).toContain('data-testid="discount-anchor-provenance"')
+    expect(html).toContain('compliant savings 3.0%')
+    expect(html).toContain('equity premium 5.5%')
+    expect(html).toContain('savings rate last set Jun 28, 2026')
+  })
+
+  it('flags "using default — not set" when no savings rate vintage is recorded', () => {
+    const html = renderWithSavings({
+      savings_expected_profit_rate: 0.02,
+      savings_model: 'mudarabah',
+      equity_risk_margin: 0.05,
+    })
+    expect(html).toContain('data-testid="discount-anchor-provenance"')
+    expect(html).toContain('savings rate: using default 2.0% — not set')
+  })
+
+  it('renders a legacy config with no savings sleeve as "not set" (no crash)', () => {
+    const html = renderWithSavings(undefined)
+    expect(html).toContain('data-testid="discount-anchor-provenance"')
+    expect(html).toContain('savings rate: using default 2.0% — not set')
   })
 })

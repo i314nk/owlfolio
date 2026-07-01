@@ -3,7 +3,7 @@ import { join } from 'node:path'
 
 import { SQLiteEventStore } from '@owlfolio/ledger/sqliteEventStore'
 import type { AppConfig, AutomationSettings, MarketUniverseConfig, ProviderSelection, ShariahDefaults } from '@owlfolio/shared'
-import { mergeAutomationSettings } from '@owlfolio/shared'
+import { mergeAutomationSettings, mergeSavingsSleeveConfig } from '@owlfolio/shared'
 
 import { loadAppConfig, resolveProjectRootFromCwd, resolveSourceLedgerPath, saveAppConfig, shouldUseTestDemoDefault } from './appConfigStore'
 import { resetDefaultDemoStore, resolveDemoLedgerPath } from './demoLedger'
@@ -27,6 +27,8 @@ type OnboardingEnv = {
 type OnboardingOptions = {
   cwd?: string
   env?: OnboardingEnv
+  /** Injectable clock (ISO timestamp) for deterministic vintage stamping in tests; defaults to now. */
+  now?: string
 }
 
 export type OnboardingState = {
@@ -73,6 +75,22 @@ export async function updateOnboardingConfig(update: OnboardingConfigUpdate, opt
       ...current.market_universe,
       ...update.market_universe,
     },
+    // Savings sleeve: when a write touches it, route through the merge so a non-default rate change STAMPS
+    // its vintage (`savings_rate_set_at`). NOTE: there is no dedicated owner-config input that sets the
+    // compliant savings rate today, so in practice this only fires if a future settings write supplies one.
+    ...(update.savings === undefined
+      ? {}
+      : {
+        savings: mergeSavingsSleeveConfig(
+          { ...current.savings, ...update.savings },
+          {
+            now: options.now ?? new Date().toISOString(),
+            ...(current.savings?.savings_expected_profit_rate === undefined
+              ? {}
+              : { previousRate: current.savings.savings_expected_profit_rate }),
+          },
+        ),
+      }),
   }
 
   await saveAppConfig(next, options)

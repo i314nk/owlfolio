@@ -93,6 +93,12 @@ export type Fundamentals = {
   annual_series: AnnualFacts[]
   filings: FilingRef[]
   /**
+   * Recent NON-annual readable filings (8-K material events + 10-Q quarterly reports, incl. amendments),
+   * newest-first — the interim-recency layer (Slice B). Grounded + read by NARRATIVE only; their numbers
+   * never enter `annual_series`/the recompute (the XBRL parse is annual-form-gated). Empty when none.
+   */
+  recent_filings?: FilingRef[]
+  /**
    * SEC Standard Industrial Classification code from the submissions endpoint (e.g. '7372'), when
    * present. Best-effort/fail-open: undefined when submissions are unavailable or omit it — never
    * fabricated. Reported verbatim (trimmed); not coerced or zero-padded.
@@ -649,6 +655,13 @@ const ANNUAL_FORMS = new Set(['10-K', '20-F', '40-F'])
 
 function isAnnualForm(form: string | undefined): boolean {
   return typeof form === 'string' && ANNUAL_FORMS.has(form)
+}
+
+/** Non-annual filings whose NARRATIVE is grounded + readable for interim recency (Slice B). */
+const RECENT_READABLE_FORMS = new Set(['8-K', '8-K/A', '10-Q', '10-Q/A'])
+
+function isRecentReadableForm(form: string | undefined): boolean {
+  return typeof form === 'string' && RECENT_READABLE_FORMS.has(form)
 }
 
 /** True when a taxonomy bucket has at least one concept with data. */
@@ -1314,7 +1327,12 @@ type Submissions = {
   }
 }
 
-function buildFilings(subs: Submissions | undefined, cik10: string): FilingRef[] {
+/** Build FilingRefs from the submissions index for forms matching `formMatches`, newest-first. */
+function buildFilingsWhere(
+  subs: Submissions | undefined,
+  cik10: string,
+  formMatches: (form: string | undefined) => boolean,
+): FilingRef[] {
   const recent = subs?.filings?.recent
   if (recent === undefined) return []
   const forms = recent.form ?? []
@@ -1326,7 +1344,7 @@ function buildFilings(subs: Submissions | undefined, cik10: string): FilingRef[]
   const filings: FilingRef[] = []
   for (let i = 0; i < forms.length; i++) {
     const form = forms[i]
-    if (!isAnnualForm(form)) continue
+    if (!formMatches(form)) continue
     const accession = accessions[i]
     const doc = docs[i]
     const filed = dates[i]
@@ -1341,6 +1359,32 @@ function buildFilings(subs: Submissions | undefined, cik10: string): FilingRef[]
   // newest first
   filings.sort((a, b) => (a.filed < b.filed ? 1 : a.filed > b.filed ? -1 : 0))
   return filings
+}
+
+/** Annual primary filings (10-K/20-F/40-F), newest-first. Unchanged behavior. */
+function buildFilings(subs: Submissions | undefined, cik10: string): FilingRef[] {
+  return buildFilingsWhere(subs, cik10, isAnnualForm)
+}
+
+/** Recent non-annual readable filings (8-K / 10-Q + amendments), newest-first (Slice B). */
+export function buildReadableRecentFilings(subs: Submissions | undefined, cik10: string): FilingRef[] {
+  return buildFilingsWhere(subs, cik10, isRecentReadableForm)
+}
+
+/**
+ * Select the recent readable filings to ground for interim recency: those filed AFTER the latest annual
+ * filing (the recency anchor), newest-first, capped. Pure / fail-closed: returns [] when there are no
+ * recent filings. A staler-than-the-annual filing is rejected (it predates the grounded floor).
+ */
+export function selectRecentReadableFilings(
+  f: { filings?: FilingRef[]; recent_filings?: FilingRef[] },
+  opts?: { max?: number; afterFiled?: string },
+): FilingRef[] {
+  const recent = f.recent_filings ?? []
+  const anchor = opts?.afterFiled ?? f.filings?.find((x) => isAnnualForm(x.form))?.filed
+  const filtered = anchor === undefined || anchor.length === 0 ? recent : recent.filter((x) => x.filed > anchor)
+  const sorted = [...filtered].sort((a, b) => (a.filed < b.filed ? 1 : a.filed > b.filed ? -1 : 0))
+  return sorted.slice(0, opts?.max ?? 6)
 }
 
 // ---------------------------------------------------------------------------
@@ -1386,6 +1430,7 @@ export async function fetchCompanyFundamentals(
     deps,
   )
   const filings = buildFilings(subs, cik10)
+  const recent_filings = buildReadableRecentFilings(subs, cik10)
 
   return {
     cik: cik10,
@@ -1394,6 +1439,7 @@ export async function fetchCompanyFundamentals(
     latest_annual,
     annual_series,
     filings,
+    recent_filings,
     // SIC sector/industry is best-effort/fail-open: present only when submissions carry it, trimmed
     // but not coerced/padded, and omitted (undefined) otherwise so it is never fabricated.
     ...optional('sic', trimmedString(subs?.sic)),

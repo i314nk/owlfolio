@@ -679,6 +679,12 @@ export type ResearchCaseProjection = {
   strategy_version?: string
   quick_screen_id?: string
   screening_result?: string
+  /**
+   * Content-hash-verified source ids the quick-screen gate grounded its judgment in (from the
+   * `quick_screen_drafted` payload `source_ids`). Additive + optional: legacy quick-screen events that
+   * predate the tool-grounded gate carry none, so this stays undefined and the dossier renders 0/—.
+   */
+  quick_screen_source_ids?: string[]
   business_quality?: string
   moat?: string
   management_capital_allocation?: string
@@ -708,6 +714,13 @@ export type ResearchCaseProjection = {
   shariah_financial?: ResearchCaseShariahFinancialProjection
   /** SHARIAH lane sector status judgment: compliant | conditional | non_compliant. */
   shariah_sector_status?: string
+  /**
+   * FAIL-CLOSED marker: the SHARIAH lane reported impermissible_income = null (undetermined — not
+   * separately disclosed), so the AAOIFI impermissible ratio + purification % could NOT be computed and
+   * shariah_financial is absent. The dossier renders this as "purification cannot be determined" — never
+   * a falsely-clean 0% / fully compliant. Absent on legacy/genuine runs (numeric impermissible income).
+   */
+  shariah_impermissible_income_undetermined?: boolean
   /** Mechanism 6: source-discipline rejections (lane-proposed sources the whitelist excluded). */
   source_discipline?: ResearchCaseSourceDisciplineProjection
   /** Mechanism 5: red-team pass — strongest objection + the synthesis response + the deterministic flags. */
@@ -1452,8 +1465,11 @@ function getValuation(payload: Record<string, unknown>): ResearchCaseValuationPr
   if (owner_earnings_bridge !== undefined) projected.owner_earnings_bridge = owner_earnings_bridge
   const normalized_owner_earnings_per_share = getNumber(value, 'normalized_owner_earnings_per_share')
   if (normalized_owner_earnings_per_share !== undefined) projected.normalized_owner_earnings_per_share = normalized_owner_earnings_per_share
-  const fair_value_per_share = getNumber(value, 'fair_value_per_share')
-  if (fair_value_per_share !== undefined) projected.fair_value_per_share = fair_value_per_share
+  // forward-DCF removal: the dollar forward two-stage DCF "reference fair value" (fair_value_per_share /
+  // reference_fair_value / fair_value_range / fair_value_range_basis / valuation_cap_binding) is no longer
+  // surfaced — a dollar reference FV below the model's buy-below read as a contradiction. REPLAY-SAFE: legacy
+  // events that still carry these fields project without error (the fields are simply read-and-ignored, never
+  // copied onto the projection). The reverse-DCF (market_implied_growth) + implied_multiple are kept.
   const implied_multiple = getNumber(value, 'implied_multiple')
   if (implied_multiple !== undefined) projected.implied_multiple = implied_multiple
   // NOTE: the legacy margin_of_safety / margin_of_safety_applied / margin_of_safety_widening_reasons fields
@@ -1475,21 +1491,13 @@ function getValuation(payload: Record<string, unknown>): ResearchCaseValuationPr
   if (moat_grounding_reason !== undefined) projected.moat_grounding_reason = moat_grounding_reason
   const buy_price_per_share = getNumber(value, 'buy_price_per_share')
   if (buy_price_per_share !== undefined) projected.buy_price_per_share = buy_price_per_share
-  const fair_value_range = getString(value, 'fair_value_range')
-  if (fair_value_range !== undefined) projected.fair_value_range = fair_value_range
-  const fair_value_range_basis = getString(value, 'fair_value_range_basis')
-  if (fair_value_range_basis !== undefined) projected.fair_value_range_basis = fair_value_range_basis
   const market_implied_growth = getNumber(value, 'market_implied_growth')
   if (market_implied_growth !== undefined) projected.market_implied_growth = market_implied_growth
-  const valuation_cap_binding = getBoolean(value, 'valuation_cap_binding')
-  if (valuation_cap_binding !== undefined) projected.valuation_cap_binding = valuation_cap_binding
   const incremental_roic_basis = getString(value, 'incremental_roic_basis')
   if (incremental_roic_basis !== undefined) projected.incremental_roic_basis = incremental_roic_basis
   // RELIGHTENED DECISION (R1): the model's buy-below + the deterministic flag-only sanity layer.
   const proposed_buy_below = getNumber(value, 'proposed_buy_below')
   if (proposed_buy_below !== undefined) projected.proposed_buy_below = proposed_buy_below
-  const reference_fair_value = getNumber(value, 'reference_fair_value')
-  if (reference_fair_value !== undefined) projected.reference_fair_value = reference_fair_value
   const in_buy_zone = getBoolean(value, 'in_buy_zone')
   if (in_buy_zone !== undefined) projected.in_buy_zone = in_buy_zone
   const implied_exit_multiple = getNumber(value, 'implied_exit_multiple')
@@ -1640,7 +1648,7 @@ function applyBoolean(
 
 function applyStringArray(
   target: ResearchCaseProjection,
-  key: keyof Pick<ResearchCaseProjection, 'red_flags' | 'caveats' | 'risks' | 'open_questions' | 'thesis_break_triggers'>,
+  key: keyof Pick<ResearchCaseProjection, 'red_flags' | 'caveats' | 'risks' | 'open_questions' | 'thesis_break_triggers' | 'quick_screen_source_ids'>,
   value: string[] | undefined,
 ): void {
   if (value !== undefined) {
@@ -1772,6 +1780,7 @@ export function projectResearchCases(events: LedgerEventEnvelope<unknown>[]): Re
       applyString(researchCase, 'strategy_version', getString(event.payload, 'strategy_version'))
       applyString(researchCase, 'quick_screen_id', getString(event.payload, 'quick_screen_id'))
       applyString(researchCase, 'screening_result', screeningResult)
+      applyStringArray(researchCase, 'quick_screen_source_ids', getStringArray(event.payload, 'source_ids'))
       applyString(researchCase, 'business_quality', getString(event.payload, 'business_quality'))
       applyString(researchCase, 'moat', getString(event.payload, 'moat'))
       applyString(researchCase, 'management_capital_allocation', getString(event.payload, 'management_capital_allocation'))
@@ -1976,6 +1985,11 @@ export function projectResearchCases(events: LedgerEventEnvelope<unknown>[]): Re
       const shariahFinancial = getShariahFinancial(event.payload)
       if (shariahFinancial !== undefined) {
         researchCase.shariah_financial = shariahFinancial
+      }
+      // FAIL-CLOSED undetermined marker (impermissible income not disclosed). Only set when explicitly
+      // true; legacy/genuine analyses (numeric impermissible income) never carry it → render unchanged.
+      if (getBoolean(event.payload, 'shariah_impermissible_income_undetermined') === true) {
+        researchCase.shariah_impermissible_income_undetermined = true
       }
       applyString(researchCase, 'shariah_sector_status', getString(event.payload, 'shariah_sector_status'))
       const sourceDiscipline = getSourceDiscipline(event.payload)

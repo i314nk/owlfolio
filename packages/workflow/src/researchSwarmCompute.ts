@@ -54,7 +54,12 @@ export type MoatLaneJudgment = {
 /** The SHARIAH lane's judgment overlay (the harness recomputes the AAOIFI ratios from this). */
 export type ShariahLaneJudgment = {
   sector_status: 'compliant' | 'conditional' | 'non_compliant'
-  impermissible_income: number
+  /**
+   * Non-permissible income in $M. `null` = UNDETERMINED — the lane could not extract / the filing does
+   * not separately disclose it. The harness fails CLOSED on null (ratios not-computable → UNDETERMINED
+   * verdict), NEVER treating it as a clean 0%. A numeric 0 is a real, affirmatively-verified value.
+   */
+  impermissible_income: number | null
 }
 
 /**
@@ -617,10 +622,34 @@ export function buildPreVerifiedSourcesBlock(sourceIds: readonly string[]): stri
     `\n\nPRE-VERIFIED PRIMARY SOURCES (already fetched + content-verified by the harness — cite THESE `
     + `source_ids for filing-backed claims; do NOT invent your own SEC archive URLs, which fetch `
     + `unreliably and will FAIL the harness cite-check): [${ids.join(', ')}]. `
+    + `You can READ these sources by Item with the read_source tool — e.g. read_source(source_id, section="1A") `
+    + `for Risk Factors, "1" for Business, "7" for MD&A — to ground your qualitative reasoning in the primary `
+    + `filing text rather than memory. `
     + `For any filing-backed claim — the moat qualitative rows, the circle-of-competence cashflow drivers `
     + `and predictability breakers, and the valuation owner-earnings / assumed-growth citations — set the `
     + `citation to one of these pre-verified source_ids. You may still propose ADDITIONAL sources for `
     + `non-EDGAR facts, but a filing-backed claim citing an unverified id will be dropped.`
+  )
+}
+
+/**
+ * Build the RECENT INTERIM FILINGS affordance block — 8-K / 10-Q narrative grounded for interim recency
+ * (Slice B). Lists the harness-verified readable source_ids (form + filed date) and instructs the model
+ * to read_source them for thesis-break developments. NUMBERS are explicitly out of bounds (the harness
+ * computes valuation on the annual basis only). Returns '' for an empty list.
+ */
+export function buildRecentFilingsBlock(
+  entries: readonly { source_id: string; form: string; filed: string }[],
+): string {
+  if (entries.length === 0) return ''
+  const lines = entries.map((e) => `  - ${e.form} filed ${e.filed}: read_source("${e.source_id}")`).join('\n')
+  return (
+    `\n\nRECENT INTERIM FILINGS (8-K material events + 10-Q narrative filed SINCE the latest annual report — `
+    + `already fetched + content-verified by the harness). READ them by Item/section with read_source for `
+    + `recent developments that can break the thesis: impairments, guidance cuts, executive departures, `
+    + `M&A, litigation, updated risk factors:\n${lines}\n`
+    + `Use these for QUALITATIVE / recency context and cite the source_id. Do NOT use interim quarterly `
+    + `NUMBERS for valuation — the harness computes valuation on the ANNUAL basis only.`
   )
 }
 
@@ -649,5 +678,35 @@ export function buildPrimaryFilingBlock(f: Fundamentals, sourceId: string): stri
     + `total_debt ${fmtMusd(la.total_debt_musd)}, cash_and_securities ${fmtMusd(la.cash_and_securities_musd)}, `
     + `interest_expense ${fmtMusd(la.interest_expense_musd)}.\n`
     + `Multi-year annual series (newest first, ${series.length} of ${f.annual_series.length} yrs):\n${seriesLines}`
+  )
+}
+
+/**
+ * Build the QUICK-SCREEN-specific grounded-filing block. UNLIKE buildPreVerifiedSourcesBlock /
+ * buildPrimaryFilingBlock (which instruct the model to put the source_id INTO proposed_sources / cite a
+ * source in proposed_sources — correct for the deep-dive/circle schemas that HAVE a `citation` field), the
+ * quick-screen schema has NO citation field, so a source_id must NEVER land in proposed_sources. This block
+ * (a) names the harness pre-verified filing source_id for reference, (b) folds in the real harness-fetched
+ * financials so the worth-investigating read is grounded in numbers, and (c) ends with an unambiguous rule:
+ * proposed_sources is for REAL fetched URLs ONLY — never a source_id, never an invented URL — and may be the
+ * empty array [] when the model fetched nothing extra (the filing is already harness-verified). This is the
+ * regression fix: the source_id-in-proposed_sources.url invalid-URL crash can no longer happen.
+ */
+export function buildQuickScreenFilingBlock(f: Fundamentals, sourceId: string): string {
+  const la = f.latest_annual
+  return (
+    `\n\nHARNESS PRE-VERIFIED PRIMARY FILING (already fetched + content-verified by the harness — this IS your `
+    + `grounding; you do NOT need to fetch or propose anything to be grounded). Reference source_id: ${sourceId} `
+    + `(${f.entity_name} ${la ? `FY${la.fiscal_year} ` : ''}annual filing, SEC EDGAR, CIK ${f.cik}). `
+    + `Ground STEP 1 (Shariah permissibility) in this filer's described business activities / revenue mix, and `
+    + `ground STEP 2 (worth-investigating) in these harness-fetched financials ($millions, share-millions):\n`
+    + (la
+      ? `Latest annual (FY${la.fiscal_year}): net_income ${fmtMusd(la.net_income_musd)}, revenue ${fmtMusd(la.revenue_musd)}, `
+        + `D&A ${fmtMusd(la.d_and_a_musd)}, total_capex ${fmtMusd(la.capex_musd)}, diluted_shares ${fmtShares(la.diluted_shares_m)}, `
+        + `total_debt ${fmtMusd(la.total_debt_musd)}, cash_and_securities ${fmtMusd(la.cash_and_securities_musd)}.\n`
+      : '')
+    + `PROPOSED_SOURCES RULE (read carefully): proposed_sources is for REAL fetched URLs ONLY — NEVER put a `
+    + `source_id (e.g. ${sourceId}) or an invented URL there. The filing above is already harness-verified, so `
+    + `if you did not fetch any ADDITIONAL real URL, return proposed_sources as an empty array [].`
   )
 }

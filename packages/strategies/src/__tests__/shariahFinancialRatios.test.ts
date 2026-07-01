@@ -148,6 +148,36 @@ describe('computeShariahFinancialRatios', () => {
     expect(noMarketCap.computable).toBe(false)
   })
 
+  it('UNDETERMINED impermissible income (null) → computable:false, NOT a 0% PASS (fail-closed)', () => {
+    // The compliance fail-OPEN guard: when the lane could not extract a separate impermissible-income
+    // line it passes null. The engine must NOT default it to 0 (which would compute a falsely-clean 0%
+    // purification / PASS) — it returns not-computable so the caller surfaces an UNDETERMINED verdict.
+    const result = computeShariahFinancialRatios({
+      interest_bearing_debt: 5_000,
+      cash_and_securities: 2_000,
+      total_revenue: 100_000,
+      market_cap: 500_000,
+      impermissible_income: null,
+    })
+    expect(result.computable).toBe(false)
+    if (result.computable) throw new Error('expected not-computable')
+    expect(result.reason).toBe('impermissible_income undetermined')
+  })
+
+  it('GENUINE zero impermissible income (0) → PASS / 0% (unchanged — distinct from null)', () => {
+    const result = computeShariahFinancialRatios({
+      interest_bearing_debt: 5_000,
+      cash_and_securities: 2_000,
+      total_revenue: 100_000,
+      market_cap: 500_000,
+      impermissible_income: 0,
+    })
+    expect(result.computable).toBe(true)
+    if (!result.computable) throw new Error('expected computable')
+    expect(result.verdict).toBe('PASS')
+    expect(result.purification_pct).toBe(0)
+  })
+
   it('divide-by-zero / missing inputs → computable:false (caller falls back to lane verdict)', () => {
     const zeroMarketCap = computeShariahFinancialRatios({
       interest_bearing_debt: 5_000,

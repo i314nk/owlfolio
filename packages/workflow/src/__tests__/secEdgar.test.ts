@@ -873,3 +873,31 @@ describe('demonstratedOwnerEarningsGrowth — robust log-linear OE/share growth'
     expect(r.growth).toBeUndefined()
   })
 })
+
+describe('10-Q numbers are quarantined from the annual recompute (Slice B)', () => {
+  it('a 10-Q fact never enters annual_series — only annual-form facts do', async () => {
+    const facts = {
+      cik: 1,
+      entityName: 'TESTCO',
+      facts: {
+        'us-gaap': {
+          NetIncomeLoss: {
+            units: {
+              USD: [
+                { start: '2025-01-01', end: '2025-12-31', val: 1_000_000_000, fy: 2025, fp: 'FY', form: '10-K', filed: '2026-02-01' },
+                // A 10-Q tagged with a full-year-duration period: the FORM guard (not just the duration
+                // guard) must exclude it, so its huge value never lands in annual_series.
+                { start: '2024-10-01', end: '2025-09-30', val: 999_000_000_000, fy: 2025, fp: 'Q3', form: '10-Q', filed: '2025-11-01' },
+              ],
+            },
+          },
+        },
+      },
+    }
+    const f = await fetchCompanyFundamentals('0000000001', { fetchImpl: fakeFactsFetch(facts) })
+    expect(f).toBeDefined()
+    expect(f!.latest_annual.fiscal_year).toBe(2025)
+    // The 10-K value (1e9 / 1e6 = 1000), NOT the 10-Q's 999,000 — interim numbers stay out of the recompute.
+    expect(f!.latest_annual.net_income_musd).toBe(1000)
+  })
+})

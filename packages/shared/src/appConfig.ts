@@ -54,6 +54,13 @@ export type SavingsSleeveConfig = {
    * deploying idle capital out of the sleeve. hurdle = savings_expected_profit_rate + equity_risk_margin.
    */
   equity_risk_margin: number
+  /**
+   * VINTAGE of the compliant savings rate: the ISO timestamp when `savings_expected_profit_rate` was last
+   * SET to an explicit (non-default) value. Optional + legacy-tolerant — ABSENT means the rate was never
+   * set by an owner (the frozen default is in force) or predates vintage tracking. Surfaced read-only so a
+   * stale risk-free anchor is VISIBLE rather than silently trusted; never participates in discount math.
+   */
+  savings_rate_set_at?: string
 }
 
 export type MarketUniverseConfig = {
@@ -210,22 +217,45 @@ const clampSavingsRate = (value: unknown, fallback: number): number => {
   return value
 }
 
+/** A valid vintage stamp is a non-empty, parseable date string; anything else is dropped (→ "not set"). */
+const normalizeVintage = (value: unknown): string | undefined => {
+  if (typeof value !== 'string' || value.trim() === '') return undefined
+  return Number.isNaN(Date.parse(value)) ? undefined : value
+}
+
 /**
  * Merge a (potentially partial, legacy, or invalid) savings sleeve config with the defaults without
  * mutating the input. Out-of-band / invalid rates fail closed to the default; `savings_model` is always
  * pinned to the single supported capital-stable model ('mudarabah') — no tiered-cash / sukuk variants.
+ *
+ * VINTAGE (`savings_rate_set_at`): records WHEN the rate was last set to an explicit non-default value, so a
+ * stale risk-free anchor is visible rather than silently trusted. The stamp is applied on a WRITE that
+ * changes/sets the rate — inject `options.now` from the write path (deterministic in tests); never read the
+ * clock here. Behaviour:
+ *   - `now` given + resolved rate is non-default + it differs from `options.previousRate` → stamp `now`.
+ *   - otherwise → preserve any valid incoming `savings_rate_set_at` (a load/round-trip keeps the recorded
+ *     vintage), or `undefined` when absent/invalid (legacy + default configs render as "not set").
  */
-export const mergeSavingsSleeveConfig = (partial?: Partial<SavingsSleeveConfig>): SavingsSleeveConfig => {
+export const mergeSavingsSleeveConfig = (
+  partial?: Partial<SavingsSleeveConfig>,
+  options: { now?: string; previousRate?: number } = {},
+): SavingsSleeveConfig => {
   if (partial === undefined) {
     return defaultSavingsSleeveConfig()
   }
+  const savingsRate = clampSavingsRate(
+    partial.savings_expected_profit_rate,
+    DEFAULT_SAVINGS_EXPECTED_PROFIT_RATE,
+  )
+  const stampsThisWrite = options.now !== undefined
+    && savingsRate !== DEFAULT_SAVINGS_EXPECTED_PROFIT_RATE
+    && savingsRate !== options.previousRate
+  const vintage = stampsThisWrite ? options.now : normalizeVintage(partial.savings_rate_set_at)
   return {
-    savings_expected_profit_rate: clampSavingsRate(
-      partial.savings_expected_profit_rate,
-      DEFAULT_SAVINGS_EXPECTED_PROFIT_RATE,
-    ),
+    savings_expected_profit_rate: savingsRate,
     savings_model: 'mudarabah',
     equity_risk_margin: clampSavingsRate(partial.equity_risk_margin, DEFAULT_EQUITY_RISK_MARGIN),
+    ...(vintage === undefined ? {} : { savings_rate_set_at: vintage }),
   }
 }
 

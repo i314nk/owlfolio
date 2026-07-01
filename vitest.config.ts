@@ -13,7 +13,10 @@ export default defineConfig({
     },
   },
   test: {
-    exclude: [...configDefaults.exclude, 'apps/web/e2e/**', '**/e2e/**', '.worktrees/**'],
+    // Exclude e2e (Playwright) and any nested git worktrees. Worktrees live under BOTH `.worktrees/`
+    // (manual) and `.claude/worktrees/` (harness-created); each is a full checkout whose src test copies
+    // would otherwise be scanned and double-run the suite. Match at any depth so a clean run stays clean.
+    exclude: [...configDefaults.exclude, 'apps/web/e2e/**', '**/e2e/**', '**/.worktrees/**', '**/.claude/**'],
     globals: true,
     passWithNoTests: true,
   },

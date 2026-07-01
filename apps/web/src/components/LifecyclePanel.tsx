@@ -250,9 +250,8 @@ function createValuationDetails(name: NameLifecycleProjection): ReactNode {
   if (name.buy_price_per_share !== undefined) {
     lines.push(createDetail('Buy below', `$${formatMoney(name.buy_price_per_share)}`))
   }
-  if (name.fair_value_per_share !== undefined) {
-    lines.push(createDetail('Fair value', `$${formatMoney(name.fair_value_per_share)}`))
-  }
+  // forward-DCF removal: the dollar forward-DCF "Fair value" line is gone — a dollar reference FV below the
+  // model's buy-below read as a contradiction. The buy-below above is the kept decision figure.
   if (name.shariah_gate_status !== undefined) {
     lines.push(createDetail('Shariah gate', name.shariah_gate_status))
   }
