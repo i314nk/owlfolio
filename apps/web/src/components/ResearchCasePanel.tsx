@@ -2263,17 +2263,25 @@ function createSpecialistLanesGrid(researchCase: AppResearchCase) {
   // finding card; an expected lane with NO finding (silently skipped upstream when it grounded zero verifiable
   // sources) shows an honest "incomplete" placeholder instead of vanishing. This is DISPLAY-ONLY — it does not
   // re-emit events or change the swarm's correct fail-closed skip; it only makes the skip VISIBLE.
+  // A lane counts as GROUNDED only when it emitted a finding AND that finding carries real written analysis.
+  // A finding with placeholder prose (e.g. the model emitted "..." for the valuation lane) is treated exactly
+  // like a missing lane: rendered as an honest "incomplete" slot, not a card showing a literal "...".
+  const laneFinding = (lane: string) => displayFindings.find((f) => f.specialist_lane === lane)
   const laneSlots = orderedLanes.map((lane) => {
-    const finding = displayFindings.find((f) => f.specialist_lane === lane)
-    return finding === undefined
-      ? createSpecialistLaneIncompleteCard(lane)
-      : createSpecialistLaneCard(finding)
+    const finding = laneFinding(lane)
+    if (finding === undefined) return createSpecialistLaneIncompleteCard(lane)
+    if (isPlaceholderLaneSummary(finding.finding_summary)) return createSpecialistLaneIncompleteCard(lane, 'empty')
+    return createSpecialistLaneCard(finding)
   })
-  // Any grounded finding whose lane is NOT one of the 7 expected lanes still renders (remainder).
-  const remainder = displayFindings.filter((f) => !orderedLanes.includes(f.specialist_lane ?? ''))
-  const groundedCount = orderedLanes.filter((lane) =>
-    displayFindings.some((f) => f.specialist_lane === lane),
-  ).length
+  // Any grounded finding whose lane is NOT one of the 7 expected lanes still renders (remainder), unless it too
+  // is an empty placeholder.
+  const remainder = displayFindings.filter(
+    (f) => !orderedLanes.includes(f.specialist_lane ?? '') && !isPlaceholderLaneSummary(f.finding_summary),
+  )
+  const groundedCount = orderedLanes.filter((lane) => {
+    const finding = laneFinding(lane)
+    return finding !== undefined && !isPlaceholderLaneSummary(finding.finding_summary)
+  }).length
   const incompleteCount = orderedLanes.length - groundedCount
 
   // Collapsed by default (Priority 1): the dense per-lane reasoning lives behind the existing <details>
@@ -2305,8 +2313,11 @@ function createSpecialistLanesGrid(researchCase: AppResearchCase) {
 // specialist_finding event is emitted — a correct fail-closed behavior). On the COMPLETED dossier we make that
 // skip VISIBLE with a calm, clearly-distinct "incomplete" placeholder so the lane never just vanishes (a
 // missing Management lane should read as attempted-and-dropped, not removed). Display-only; owl-* tokens.
-function createSpecialistLaneIncompleteCard(lane: string) {
+function createSpecialistLaneIncompleteCard(lane: string, variant: 'no-sources' | 'empty' = 'no-sources') {
   const laneLabel = deepDiveLaneShortLabel(lane)
+  const incompleteCopy = variant === 'empty'
+    ? 'Incomplete — the lane grounded sources but returned no written analysis this run (not investment-grade; re-run before relying on it).'
+    : 'Incomplete — no verifiable sources grounded this run (not investment-grade; re-run before relying on it).'
   return createElement(
     'article',
     {
@@ -2357,7 +2368,7 @@ function createSpecialistLaneIncompleteCard(lane: string) {
       createElement(
         'p',
         { style: { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-sm)', lineHeight: 1.45, margin: 0 } },
-        'Incomplete — no verifiable sources grounded this run (not investment-grade; re-run before relying on it).',
+        incompleteCopy,
       ),
     ),
   )
@@ -2371,25 +2382,37 @@ type ResearchFindingCard = NonNullable<AppResearchCase['specialist_findings']>[n
  * reasoning is secondary, behind a disclosure. When the finding is a single short sentence there is no
  * detail to defer.
  */
-function splitLaneFinding(summary: string): { conclusion: string; detail: string | undefined } {
+export function splitLaneFinding(summary: string): { conclusion: string; detail: string | undefined } {
   const compact = summary.trim().replace(/\s+/g, ' ')
   if (compact.length <= 160) return { conclusion: compact, detail: undefined }
-  // Prefer a clean sentence boundary for the conclusion (the bottom line). Reject a first "sentence" that is
-  // itself a wall of text (>220 chars) — a run-on still needs the density treatment, so fall through.
+  // Prefer a clean sentence boundary: the first sentence is the bottom line, the remainder goes behind the
+  // "Reasoning" disclosure. Allow a generous first-sentence length (≤320) so a normal lead sentence is shown
+  // whole rather than chopped.
   const match = compact.match(/^(.+?[.!?])\s+(.*)$/s)
   if (
     match !== null && match[1] !== undefined && match[2] !== undefined &&
-    match[2].trim().length > 0 && match[1].trim().length <= 220
+    match[2].trim().length > 0 && match[1].trim().length <= 320
   ) {
     return { conclusion: match[1].trim(), detail: match[2].trim() }
   }
-  // Run-on finding (no internal sentence break, or an over-long first sentence): split at the nearest word
-  // boundary so the disclosure still fires. conclusion (minus the ellipsis) + ' ' + detail === the original.
-  const space = compact.lastIndexOf(' ', 160)
-  const boundary = space > 80 ? space : 160
-  const detail = compact.slice(boundary).trim()
-  if (detail.length === 0) return { conclusion: compact, detail: undefined }
-  return { conclusion: `${compact.slice(0, boundary).trim()}…`, detail }
+  // No usable early sentence boundary (a single long sentence, or an over-long lead): show the FULL text —
+  // NEVER cut a sentence mid-word with an ellipsis (owner feedback). The whole lanes section is collapsed by
+  // default, so a longer card here is acceptable and strictly more honest than a truncated fragment.
+  return { conclusion: compact, detail: undefined }
+}
+
+/**
+ * A lane finding whose prose is empty or a bare placeholder — e.g. the model emitted "..." for a lane it
+ * deferred (the valuation lane can do this when its prompt tells it the harness owns the discount math). Such
+ * a lane grounded metadata (sources/confidence) but produced NO written analysis, so it is rendered as an
+ * honest "incomplete" slot rather than a card showing a literal "...".
+ */
+export function isPlaceholderLaneSummary(summary?: string): boolean {
+  if (summary === undefined) return true
+  const trimmed = summary.trim()
+  if (trimmed.length === 0) return true
+  // No alphanumeric content at all → a bare placeholder like "...", "…", ".", or "-".
+  return !/[a-z0-9]/i.test(trimmed)
 }
 
 function createSpecialistLaneCard(finding: ResearchFindingCard) {

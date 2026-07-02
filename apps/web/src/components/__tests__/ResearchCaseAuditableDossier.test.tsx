@@ -682,6 +682,26 @@ describe('ResearchCasePanel specialist lanes surface all 7 expected lanes', () =
     expect(html.toLowerCase()).toContain('no verifiable sources grounded this run')
   })
 
+  it('renders a placeholder-prose lane (model emitted "...") as incomplete, not a literal "..." card', () => {
+    const html = render({
+      ...baseCase(),
+      specialist_findings: [
+        { finding_id: 'f_bq', specialist_lane: 'business_quality', finding_summary: 'Fortress business.', confidence: 'high', source_ids: ['s1'] },
+        { finding_id: 'f_moat', specialist_lane: 'moat', finding_summary: 'Wide moat.', confidence: 'high', source_ids: ['s2'] },
+        { finding_id: 'f_mgmt', specialist_lane: 'management', finding_summary: 'Sound stewards.', confidence: 'high', source_ids: ['s3'] },
+        { finding_id: 'f_fq', specialist_lane: 'financial_quality', finding_summary: 'Elite margins.', confidence: 'high', source_ids: ['s4'] },
+        { finding_id: 'f_risks', specialist_lane: 'risks', finding_summary: 'Manageable risks.', confidence: 'normal', source_ids: ['s5'] },
+        // The valuation lane grounded 3 sources but the model returned only "..." — no written analysis.
+        { finding_id: 'f_val', specialist_lane: 'valuation', finding_summary: '...', confidence: 'high', source_ids: ['s6', 's7', 's8'] },
+      ],
+    } as unknown as AppResearchCase, QUOTE)
+    // The empty valuation lane is surfaced as an incomplete slot with the "returned no written analysis" reason…
+    expect(html).toContain('data-testid="specialist-lane-incomplete-valuation"')
+    expect(html.toLowerCase()).toContain('returned no written analysis')
+    // …and the grounded count reflects it honestly (5 real of 7, not 6).
+    expect(html).toContain('Deep-dive specialist lanes (5 of 7 grounded)')
+  })
+
   it('renders all 7 as normal cards (no incomplete placeholders) when all 7 grounded', () => {
     const html = render({
       ...baseCase(),
