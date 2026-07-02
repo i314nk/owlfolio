@@ -29,15 +29,26 @@ export const QuickScreenAgentSchema = z.object({
   proposed_sources: z.array(ProposedSourceSchema),
 })
 
+// A lane MUST produce written analysis, not a bare placeholder. `min(1)` accepted "..." (the model
+// deferring the valuation lane), which then rendered as an empty lane card. Require at least one
+// alphanumeric character so "...", "…", ".", "-", and whitespace fail validation → the agent loop
+// retries, and on exhaustion the lane is recorded incomplete rather than emitting empty prose.
+const laneFindingSummarySchema = z
+  .string()
+  .min(1)
+  .refine((value) => /[a-z0-9]/i.test(value), {
+    message: 'finding_summary must contain written analysis, not a placeholder',
+  })
+
 export const LaneAgentSchema = z.object({
-  finding_summary: z.string().min(1),
+  finding_summary: laneFindingSummarySchema,
   confidence: z.enum(['low', 'medium', 'high']),
   caveats: z.array(z.string().min(1)).min(1),
   proposed_sources: ProposedSourcesSchema,
 })
 
 const LaneAgentBaseShape = {
-  finding_summary: z.string().min(1),
+  finding_summary: laneFindingSummarySchema,
   confidence: z.enum(['low', 'medium', 'high']),
   caveats: z.array(z.string().min(1)).min(1),
   proposed_sources: ProposedSourcesSchema,

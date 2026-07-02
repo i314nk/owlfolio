@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { DecisionAgentSchema, RISKS_RECENCY_NOTE, SHARIAH_OVERLAY_PROMPT, ShariahLaneSchema, VALUATION_LANE_DISCOUNT_NOTE } from '../researchSwarmSchemas'
+import { DecisionAgentSchema, LaneAgentSchema, RISKS_RECENCY_NOTE, SHARIAH_OVERLAY_PROMPT, ShariahLaneSchema, VALUATION_LANE_DISCOUNT_NOTE } from '../researchSwarmSchemas'
 
 // Fail-CLOSED Shariah overlay: impermissible_income is nullable so the lane can signal UNDETERMINED
 // (the filing does not separately disclose it) instead of a falsely-clean 0. null is an ACCEPTED,
@@ -228,5 +228,17 @@ describe('RISKS_RECENCY_NOTE (web tier is risk color; 8-Ks grounded by EDGAR)', 
     expect(RISKS_RECENCY_NOTE).toMatch(/8-K/)
     expect(RISKS_RECENCY_NOTE).toMatch(/EDGAR/)
     expect(RISKS_RECENCY_NOTE).toMatch(/not by web/i)
+  })
+})
+
+describe('LaneAgentSchema rejects placeholder finding_summary', () => {
+  const valid = { confidence: 'high' as const, caveats: ['ok'], proposed_sources: [{ source_id: 'src_1', title: 'T', url: 'https://www.sec.gov/x', excerpt: 'e' }] }
+  it('rejects a "..." finding_summary (model deferred, no written analysis)', () => {
+    expect(LaneAgentSchema.safeParse({ ...valid, finding_summary: '...' }).success).toBe(false)
+    expect(LaneAgentSchema.safeParse({ ...valid, finding_summary: '   ' }).success).toBe(false)
+    expect(LaneAgentSchema.safeParse({ ...valid, finding_summary: '. -' }).success).toBe(false)
+  })
+  it('accepts real prose', () => {
+    expect(LaneAgentSchema.safeParse({ ...valid, finding_summary: 'Wide, durable moat.' }).success).toBe(true)
   })
 })
