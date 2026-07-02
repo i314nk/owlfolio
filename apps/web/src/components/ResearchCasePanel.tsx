@@ -249,7 +249,7 @@ function gatedReason(researchCase: AppResearchCase): { title: string; reason: st
 // ── Set-aside (early-exit) detection ──────────────────────────────────────────
 
 /**
- * A case is "set aside" when the circle-of-competence gate failed AND the expensive 7-lane deep dive did
+ * A case is "set aside" when the circle-of-competence gate failed AND the expensive 6-lane deep dive did
  * NOT run. Such a run carries verdict PASS + valuation_status INSUFFICIENT_DATA, the circle judgment, and
  * the `outside_circle`/`circle_competence_unmet` mirror flags — but no specialist findings, no valuation.
  * Rendering the full deep-dive scaffold for it is incoherent (empty "Pending" key figures, a "Not yet
@@ -542,7 +542,7 @@ function createPostMortemPanel(researchCase: AppResearchCase) {
 /**
  * Circle-of-competence judgment panel — the GROUNDED MODEL JUDGMENT that gated the deep-dive spend. Shows
  * the cited cashflow drivers, the cited predictability-breakers (the deeper test), and the in/outside
- * outcome with reasoning. When outside-competence, the case was SET ASIDE (verdict PASS) before the 7-lane
+ * outcome with reasoning. When outside-competence, the case was SET ASIDE (verdict PASS) before the 6-lane
  * deep dive ran. Legacy-tolerant: renders nothing when the case predates the circle gate.
  */
 function createCircleCompetencePanel(researchCase: AppResearchCase) {
@@ -752,7 +752,7 @@ function createGatedDossier(researchCase: AppResearchCase) {
           'div',
           { style: { alignItems: 'center', display: 'flex', gap: '0.6rem', fontSize: 'var(--owl-text-base)', color: 'var(--owl-color-quiet)' } },
           createElement('span', null, '—'),
-          createElement('span', { style: { color: 'var(--owl-color-quiet)' } }, 'Deep-dive swarm (7 lanes) — skipped'),
+          createElement('span', { style: { color: 'var(--owl-color-quiet)' } }, 'Deep-dive swarm (6 lanes) — skipped'),
         ),
       ),
       createElement(
@@ -862,7 +862,7 @@ function createAwaitingDeepDiveDossier(researchCase: AppResearchCase) {
           'div',
           { style: { alignItems: 'center', display: 'flex', gap: '0.6rem', fontSize: 'var(--owl-text-base)', color: 'var(--owl-color-quiet)' } },
           createElement('span', null, '—'),
-          createElement('span', { style: { color: 'var(--owl-color-quiet)' } }, 'Deep-dive swarm (7 lanes) — not yet started'),
+          createElement('span', { style: { color: 'var(--owl-color-quiet)' } }, 'Deep-dive swarm (6 lanes) — not yet started'),
         ),
       ) : null,
       // Run deep dive action
@@ -986,7 +986,7 @@ function createSetAsideHero(researchCase: AppResearchCase) {
     createElement(
       'p',
       { style: { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-base)', lineHeight: 1.55, margin: 0 } },
-      'The circle-of-competence gate set this candidate aside before the expensive 7-lane deep dive ran. There is no valuation or deep-dive analysis to show — only the grounded judgment of why it was set aside, below.',
+      'The circle-of-competence gate set this candidate aside before the expensive 6-lane deep dive ran. There is no valuation or deep-dive analysis to show — only the grounded judgment of why it was set aside, below.',
     ),
     // Subordinate provenance metadata (small, quiet mono — NOT co-equal chips).
     metaParts.length === 0 ? null : createElement(

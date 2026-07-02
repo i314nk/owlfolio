@@ -763,7 +763,7 @@ describe('ResearchCasePanel auditable dossier uses the Owlfolio design system on
 
 // ── Set-aside (circle-of-competence early exit) dossier ───────────────────────
 //
-// When the circle gate sets a candidate aside, the expensive 7-lane deep dive never ran: verdict PASS +
+// When the circle gate sets a candidate aside, the expensive 6-lane deep dive never ran: verdict PASS +
 // valuation_status INSUFFICIENT_DATA, the circle judgment, the outside_circle mirror flag, NO specialist
 // findings, NO valuation. The dossier must tell the honest short story (set aside, here's why) and OMIT the
 // full deep-dive scaffold — no "Pending" key-figures strip, no discount figure, no "Not yet available" MoS,

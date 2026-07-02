@@ -214,10 +214,6 @@ const LANE_DETAILS: Record<string, { name: string; assesses: string }> = {
     name: 'Risks',
     assesses: 'Permanent-capital-loss risks, leverage fragility, disruption, regulation, and the specific events that would break the thesis.',
   },
-  valuation: {
-    name: 'Valuation',
-    assesses: 'The reverse-DCF read — the growth today’s price implies — against the model’s judged sustainable growth, plus the owner-earnings bridge, ROIC and reinvestment inputs behind it; the model proposes the buy-below with cited reasoning, deterministically sanity-checked against a forward-DCF reference.',
-  },
 }
 
 const LANE_CARDS: LaneCard[] = buffettMungerDeepDiveLanes.map((lane) => {

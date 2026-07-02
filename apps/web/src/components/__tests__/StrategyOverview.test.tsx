@@ -19,9 +19,9 @@ function render(): string {
 }
 
 describe('StrategyOverview', () => {
-  it('renders all seven specialist lanes from the live lane list', () => {
+  it('renders all six specialist lanes from the live lane list', () => {
     const html = render()
-    expect(buffettMungerDeepDiveLanes).toHaveLength(7)
+    expect(buffettMungerDeepDiveLanes).toHaveLength(6)
     for (const lane of buffettMungerDeepDiveLanes) {
       expect(html).toContain(`data-lane="${lane}"`)
     }
@@ -31,7 +31,7 @@ describe('StrategyOverview', () => {
     const html = render()
     // a representative assessment phrase per the real lane focus
     expect(html).toContain('Durable competitive advantage')
-    expect(html).toContain('owner-earnings bridge')
+    expect(html).toContain('Owner-earnings normalization')
     // grounding statement appears on the lane cards
     expect(html).toContain('grounded agent')
     expect(html).toContain('cited to a harness-captured source')
