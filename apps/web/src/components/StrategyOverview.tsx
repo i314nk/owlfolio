@@ -32,6 +32,9 @@ const MIN_INVESTABLE_MOAT = strategy.valuation.min_investable_moat
 const TERMINAL_G_WIDE = terminalGrowthForMoat(strategy, 'wide')
 const SINGLE_GROWTH_CAP = strategy.valuation.single_growth_cap
 const GDP_GROWTH_THRESHOLD = strategy.valuation.gdp_growth_threshold
+// Stage-1 explicit window (years). Rendered live from the config — NEVER hard-coded as "ten-year" — so the
+// valuation prose + formula track the parameter (matches how the Learn page renders it).
+const STAGE1_HORIZON = strategy.valuation.stage1_horizon
 
 // Worked example — an investable compounder, computed from the live contract so the prose tracks params.
 // The DECISION lens is the reverse-DCF (market-implied vs the model's judged sustainable growth); the
@@ -507,7 +510,7 @@ export function StrategyOverview(): ReactNode {
         createElement('span', { style: goldText }, 'sustainable growth the model judges and cites'),
         '. If the price demands more than the business can durably deliver, it is expensive; if it demands less, there is room. That comparison — not a single computed number — is how cheapness is read. The ',
         createElement('span', { style: goldText }, 'forward two-stage discounted owner-earnings fair value is a LABELED REFERENCE cross-check'),
-        ', NOT the decision engine: a ten-year explicit window whose growth holds the judged rate for the early years then fades LINEARLY down to a small terminal rate over the trailing years, plus a perpetual terminal rate beyond it, all at the same savings-anchored discount (the compliant savings rate + a uniform equity premium, ',
+        `, NOT the decision engine: a ${STAGE1_HORIZON}-year explicit window whose growth holds the judged rate for the early years then fades LINEARLY down to a small terminal rate over the trailing years, plus a perpetual terminal rate beyond it, all at the same savings-anchored discount (the compliant savings rate + a uniform equity premium, `,
         createElement('span', { style: monoFigure }, pct(DISCOUNT)),
         ' today) — no WACC, no beta, ever. The model proposes the valuation — the owner earnings, the sustainable growth it judges and WHY, the discount — with cited reasoning, and proposes the buy-below. A light deterministic sanity-check flags internal absurdity (an implied growth the history cannot support, terminal-value dominance, a multiple out of bounds); it never blocks the verdict. You audit the reasoning and decide.',
       ),
@@ -535,7 +538,7 @@ export function StrategyOverview(): ReactNode {
           createElement('div', null, 'PRIMARY (reverse-DCF):  market_implied_g = the growth today’s price already demands  →  compare to g'),
           createElement('div', null, `g    = the model’s judged sustainable owner-earnings/share growth, cited; a deterministic sanity-check flags an unsupportable rate (above ${pct(SINGLE_GROWTH_CAP)}, or above ${pct(GDP_GROWTH_THRESHOLD)} → a moat-durability claim to weigh) — the flag is not the value source`),
           createElement('div', null, `gₜ   = terminal fade: ${pct(TERMINAL_G_WIDE)} for every investable moat (uniform)`),
-          createElement('div', null, `fair = Σ OE(1+g)ᵗ/(1+${pct(DISCOUNT)})ᵗ  [t=1..10]  +  OE(1+g)¹⁰(1+gₜ)/(${pct(DISCOUNT)}−gₜ) / (1+${pct(DISCOUNT)})¹⁰`),
+          createElement('div', null, `fair = Σ OE(1+g)ᵗ/(1+${pct(DISCOUNT)})ᵗ  [t=1..${STAGE1_HORIZON}]  +  OE(1+g)^${STAGE1_HORIZON}(1+gₜ)/(${pct(DISCOUNT)}−gₜ) / (1+${pct(DISCOUNT)})^${STAGE1_HORIZON}`),
           createElement('div', null, `fair > ${MULTIPLE_CEILING}× OE → surfaced cap_exceeded sanity flag (not a silent truncation)`),
           createElement('div', null, 'ref  = forward-DCF cross-check fair value at the model’s assumed growth  (a sanity reference, NOT the decision)'),
           createElement('div', null, 'buy  = the MODEL’s proposed buy-below (cited reasoning) ; in_buy_zone = current_price ≤ buy-below'),
@@ -580,7 +583,7 @@ export function StrategyOverview(): ReactNode {
             createElement('span', { style: monoFigure }, `$${EX_OE}`),
             ` per share. If the price implies more than that, it is expensive; if less, there is room — and because ${pct(EX_G)} sits above GDP, a deterministic sanity-check flags it a moat-durability claim for the human to weigh. The forward two-stage number is only the LABELED REFERENCE: holding that rate for the early years, then fading it LINEARLY down to a `,
             createElement('span', { style: monoFigure }, pct(TERMINAL_G_WIDE)),
-            ' terminal rate over the trailing years of the ten-year window, gives a forward-DCF cross-check fair value of ',
+            ` terminal rate over the trailing years of the ${STAGE1_HORIZON}-year window, gives a forward-DCF cross-check fair value of `,
             createElement('span', { style: monoFigure }, `$${EX_FV.toFixed(0)}`),
             ` (${EX_IMPLIED.toFixed(1)}× owner earnings; a value above ${MULTIPLE_CEILING}× would raise a cap_exceeded sanity flag, not be truncated). That forward number is a sanity reference, NOT the decision: the model proposes the verdict and the buy-below with cited reasoning — the owner earnings it valued, the sustainable growth it judged and why, the discount — and the deterministic side only flags internal absurdity (e.g. an implied growth the history cannot support). You buy when the price has met the model’s proposed buy-below and the cited reasoning holds. A monopoly raises no terminal rate and shortens nothing — its extra durability is argued through the moat-durability input, where the human weights it.`,
           ),
