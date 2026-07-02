@@ -477,6 +477,67 @@ describe('runStrategyResearchSwarm', () => {
     expect(findingEvents.length).toBe(buffettMungerDeepDiveLanes.length - 1)
   })
 
+  it('fails closed with shariah_deep_screen_incomplete when the shariah lane grounds zero verified sources', async () => {
+    const store = new InMemoryEventStore()
+    const provider = swarmFakeProviderWithLaneIds(buffettMungerDeepDiveLanes)
+    // Ground verifies every source EXCEPT those belonging to the 'shariah' lane, so the shariah deep
+    // re-screen grounds zero verifiable sources and is skipped. The lane STILL emits its overlay
+    // (sector_status='compliant', impermissible_income=0) — the Case-2 gap: the harness would keep the
+    // quick-screen COMPLIANT with no visible "the deep re-screen did not run" caveat. It must fail closed.
+    const ground = async (sources: { source_id: string }[]) => {
+      const verified = sources.filter((s) => !s.source_id.includes('shariah'))
+      return {
+        captured: sources.map((s) => ({
+          source_id: s.source_id,
+          title: 't',
+          url: 'https://example.com/x',
+          excerpt: 'e',
+          availability: (s.source_id.includes('shariah') ? 'unavailable' : 'available') as 'available' | 'unavailable',
+          fetched_at: 'x',
+          ...(s.source_id.includes('shariah') ? {} : { content_hash: 'sha256:1' }),
+        })),
+        verified_ids: verified.map((s) => s.source_id),
+      }
+    }
+    const result = await runStrategyResearchSwarm(
+      store,
+      provider as never,
+      {
+        research_case_id: 'rc_shariah_skip',
+        company_id: 'c',
+        ticker: 'SHAR',
+        strategy_id: 'buffett-munger',
+        actor_id: 'user_local',
+        idempotency_key: 'k',
+        model_id: 'mock',
+        decision_id: 'd_shariah_skip',
+        source_ledger_path: '/tmp/owlfolio-swarm-shariah-skip',
+      },
+      { ground, laneConcurrency: 3 },
+    )
+
+    const events = await store.list()
+
+    // The shariah finding is skipped (zero verified sources) — as expected for a fail-closed skip.
+    const findingEvents = events.filter((e) => e.event_type === 'specialist_finding_recorded')
+    const shariahFinding = findingEvents.find((e) => (e.payload as Record<string, unknown>)['specialist_lane'] === 'shariah')
+    expect(shariahFinding).toBeUndefined()
+
+    // The analysis event must carry the fail-closed deep-screen-incomplete boolean flag ALONGSIDE the verdict
+    // (projected onto the case exactly like shariah_impermissible_income_undetermined).
+    const analysis = events.find((e) => e.event_type === 'buffett_munger_analysis_drafted')
+    expect(analysis).toBeDefined()
+    const analysisPayload = analysis!.payload as Record<string, unknown>
+    expect(analysisPayload['shariah_deep_screen_incomplete']).toBe(true)
+    // ...and it also surfaces in the decision open_questions (the shariah_ratios_unverified string channel).
+    const decision = events.find((e) => e.event_type === 'decision_drafted')
+    expect(decision).toBeDefined()
+    const openQuestions = ((decision!.payload as Record<string, unknown>)['open_questions'] as string[] | undefined) ?? []
+    expect(openQuestions.some((q) => q.includes('shariah_deep_screen_incomplete'))).toBe(true)
+
+    expect(result.decision).toBeDefined()
+  })
+
   it('excludes unverified sources from ledger events but records them as unavailable in the bundle', async () => {
     // Each stage proposes TWO sources: one whose id contains 'good' (verified) and one
     // containing 'bad' (unverified). The ground function verifies only the good ones.

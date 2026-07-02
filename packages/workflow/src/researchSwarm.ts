@@ -1410,6 +1410,16 @@ export async function runResearchDeepDivePhase(
   const shariahLaneResult = laneResults.find((l) => l.lane === 'shariah')
   const moatJudgment = moatLaneResult?.moat_judgment
   const shariahLaneJudgment = shariahLaneResult?.shariah_judgment
+  // FAIL-CLOSED (compliance is first-class): the SHARIAH lane is a PRIMARY_FILING_LANES member, but a lane
+  // that grounds ZERO content-hash-verified sources is SKIPPED (no specialist_finding_recorded) — so the
+  // deep RE-SCREEN (segment-revenue + impermissible-income, grounded on the lane's OWN sources) did not run.
+  // When that happens the dossier would otherwise keep the earlier quick-screen verdict (often COMPLIANT)
+  // with no visible "the deep re-screen did not ground" caveat. This boolean rides ALONGSIDE the quick-screen
+  // verdict — it never fabricates or flips a genuinely-computed verdict; it only marks the deep re-screen as
+  // incomplete so a human does not read a falsely-confident COMPLIANT. True whenever the shariah lane is
+  // absent or grounded no verifiable source (covers BOTH the overlay-present and overlay-omitted skips).
+  const shariahDeepScreenIncomplete =
+    shariahLaneResult === undefined || shariahLaneResult.verified_ids.length === 0
 
   // ---- Judgment objectivity (Mechanisms 1+2): rubric → mechanical anchor → bounded ±1 adjustment ----
   // The MOAT lane supplied the moat/runway rubric (spec-correct decomposition). The harness RE-VERIFIES
@@ -1919,6 +1929,16 @@ export async function runResearchDeepDivePhase(
   // attempts) — surfaced exactly like the synthesis path so the gap is visible, not silent.
   if (moatLaneResult?.judgment_retry_degraded !== undefined) degradedFlags.push(moatLaneResult.judgment_retry_degraded)
   if (shariahLaneResult?.judgment_retry_degraded !== undefined) degradedFlags.push(shariahLaneResult.judgment_retry_degraded)
+  // FAIL-CLOSED deep-screen caveat: the shariah lane grounded zero verifiable sources (skipped), so the
+  // deep RE-SCREEN did not run. Surface it in the string channel (open_questions) alongside the projected
+  // boolean — the verdict rests on the quick-screen gate, NOT a grounded deep re-screen.
+  if (shariahDeepScreenIncomplete) {
+    degradedFlags.push(
+      'shariah_ratios_unverified: shariah_deep_screen_incomplete — the Shariah deep re-screen (segment-revenue '
+      + '+ impermissible-income) grounded no verifiable source and was skipped, so the harness did NOT re-verify '
+      + 'compliance this run; the Shariah verdict rests on the earlier quick-screen gate. Re-run before relying on it.',
+    )
+  }
   if (judgment.moat?.judgment_degraded === 'rubric_not_emitted' || judgment.runway?.judgment_degraded === 'rubric_not_emitted') {
     degradedFlags.push(
       'judgment_degraded: rubric_not_emitted — the model omitted the grounded moat/runway thesis; the moat '
@@ -3086,6 +3106,11 @@ export async function runResearchDeepDivePhase(
       // impermissible ratio + purification % could NOT be computed. Surfaced so the dossier renders the
       // UNDETERMINED state honestly ("purification cannot be determined"), never a falsely-clean 0%.
       ...(impermissibleIncomeUndetermined ? { shariah_impermissible_income_undetermined: true } : {}),
+      // FAIL-CLOSED marker: the SHARIAH deep re-screen lane grounded no verifiable source (skipped), so the
+      // deep compliance re-verification did NOT run. Rides ALONGSIDE the (quick-screen) verdict — it never
+      // flips a genuinely-computed verdict; the dossier renders a calm "compliance not deep-verified this run"
+      // caveat so a human does not read a falsely-confident COMPLIANT.
+      ...(shariahDeepScreenIncomplete ? { shariah_deep_screen_incomplete: true } : {}),
       // Mechanism 6: source-discipline summary — which lane-proposed sources the per-lane whitelist
       // rejected (count + per-lane/reason). Surfaced so a starved lane is visible, never hidden.
       ...(sourcePolicyRejections.length > 0

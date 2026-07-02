@@ -2178,11 +2178,38 @@ function formatRatioPct(value: number): string {
  */
 function createShariahRatioLedger(researchCase: AppResearchCase): ReturnType<typeof createElement> | null {
   const sf = researchCase.shariah_financial
+  // FAIL-CLOSED caveat: the SHARIAH deep re-screen lane grounded no verifiable source (skipped), so the deep
+  // compliance re-verification did NOT run this run — the verdict rests on the earlier quick-screen gate.
+  // Rendered ALONGSIDE whatever verdict/ratios exist (it never flips them), so a human does not read a
+  // falsely-confident COMPLIANT. Absent on legacy events and on runs whose shariah lane grounded a source.
+  const deepScreenCaveat = researchCase.shariah_deep_screen_incomplete === true
+    ? createElement(
+        'div',
+        {
+          'data-testid': 'shariah-deep-screen-incomplete',
+          style: { borderTop: '1px solid rgba(148, 163, 184, 0.14)', display: 'grid', gap: '0.3rem', marginTop: '0.2rem', paddingTop: '0.45rem' },
+        },
+        createElement(
+          'p',
+          { style: { color: 'var(--owl-color-gold-bright)', fontSize: 'var(--owl-text-sm)', fontWeight: 800, lineHeight: 1.4, margin: 0 } },
+          'Compliance not deep-verified this run.',
+        ),
+        createElement(
+          'p',
+          { style: { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-sm)', lineHeight: 1.4, margin: 0 } },
+          'The Shariah deep re-screen cited no verified source. Any ratios shown rest on ungrounded model output rather than a grounded re-screen, and the compliance read leans on the quick-screen gate. Re-run before relying on it.',
+        ),
+      )
+    : null
   if (sf === undefined) {
     // FAIL-CLOSED honesty: when impermissible income is UNDETERMINED (the lane could not extract a
     // separate impermissible-income line) the harness did NOT compute the ratios. Render the undetermined
     // state explicitly — NEVER a falsely-clean "0.0% purification / fully compliant". Otherwise no ledger.
-    if (researchCase.shariah_impermissible_income_undetermined !== true) return null
+    if (researchCase.shariah_impermissible_income_undetermined !== true) {
+      // No harness ratios AND not undetermined — but if the deep re-screen was skipped, still surface the
+      // caveat on its own so a skipped re-screen is never silent (would otherwise render nothing).
+      return deepScreenCaveat
+    }
     return createElement(
       'div',
       {
@@ -2200,6 +2227,7 @@ function createShariahRatioLedger(researchCase: AppResearchCase): ReturnType<typ
         { style: { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-sm)', lineHeight: 1.4, margin: 0 } },
         'The filing does not separately disclose a quantifiable impermissible-income line. Obtain the interest-income / prohibited-revenue figure before treating this name as clean — it is not 0% / fully compliant.',
       ),
+      deepScreenCaveat,
     )
   }
   const EMERALD = 'var(--owl-color-emerald, #34d399)'
@@ -2240,6 +2268,7 @@ function createShariahRatioLedger(researchCase: AppResearchCase): ReturnType<typ
       createElement('span', { style: { fontWeight: 800 } }, `Verdict: ${verdict}`),
       createElement('span', { style: { color: verdictColor, fontWeight: 800 } }, `Purification: ${purification}`),
     ),
+    deepScreenCaveat,
   )
 }
 

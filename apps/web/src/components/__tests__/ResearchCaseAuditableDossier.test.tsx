@@ -989,3 +989,23 @@ describe('ResearchCasePanel discount-anchor vintage', () => {
     expect(html).toContain('savings rate: using default 2.0% — not set')
   })
 })
+
+describe('ResearchCasePanel Shariah deep-screen-incomplete caveat (fail-closed)', () => {
+  it('surfaces the "compliance not deep-verified this run" caveat when the shariah deep re-screen was skipped', () => {
+    const html = render(
+      { ...baseCase(), shariah_deep_screen_incomplete: true } as unknown as AppResearchCase,
+      QUOTE,
+    )
+    expect(html).toContain('data-testid="shariah-deep-screen-incomplete"')
+    expect(html).toContain('Compliance not deep-verified this run.')
+    expect(html).toContain('cited no verified source')
+    // The quick-screen verdict is NOT flipped — it still reads COMPLIANT alongside the caveat.
+    expect(html).toContain('COMPLIANT')
+  })
+
+  it('omits the caveat when the shariah deep re-screen grounded (legacy/normal run — flag absent)', () => {
+    const html = render(baseCase(), QUOTE)
+    expect(html).not.toContain('data-testid="shariah-deep-screen-incomplete"')
+    expect(html).not.toContain('Compliance not deep-verified this run.')
+  })
+})
