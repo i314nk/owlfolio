@@ -334,6 +334,52 @@ describe('workflow helpers', () => {
       }
     })
 
+    async function appendRunRequestedAt(store: SQLiteEventStore, researchCaseId: string, createdAt: string): Promise<void> {
+      await store.append({
+        event_id: `evt_research_run_requested_${researchCaseId}`,
+        event_type: 'research_run_requested',
+        aggregate_type: 'research_case',
+        aggregate_id: researchCaseId,
+        correlation_id: researchCaseId,
+        actor_type: 'user',
+        actor_id: 'user_local',
+        payload: { research_case_id: researchCaseId, ticker: 'MSFT', company_id: 'company_msft', requested_by: 'user_local' },
+        source_ids: [],
+        created_at: createdAt,
+        schema_version: 1,
+        idempotency_key: `research-run-request:${researchCaseId}:v1`,
+      })
+    }
+
+    it('fails a run left pending past the start-timeout (worker never started → no infinite spinner)', async () => {
+      const store = new SQLiteEventStore()
+      try {
+        // Requested 10 minutes ago, never claimed / no case created → the worker never ran.
+        await appendRunRequestedAt(store, 'rc_stuck_001', new Date(Date.now() - 10 * 60_000).toISOString())
+        const view = await resolveResearchCaseView(store, 'personal-local', 'rc_stuck_001')
+        expect(view.status).toBe('failed')
+        if (view.status === 'failed') {
+          expect(view.error_summary).toMatch(/did not start|no progress/i)
+        }
+      } finally {
+        store.close()
+      }
+    })
+
+    it('stays pending while the (configurable) start-timeout has not elapsed', async () => {
+      const store = new SQLiteEventStore()
+      try {
+        // Same 10-minutes-old request, but a generous 30-minute timeout → still legitimately in flight.
+        await appendRunRequestedAt(store, 'rc_within_001', new Date(Date.now() - 10 * 60_000).toISOString())
+        const view = await resolveResearchCaseView(store, 'personal-local', 'rc_within_001', undefined, {
+          pendingTimeoutMs: 30 * 60_000,
+        })
+        expect(view.status).toBe('pending')
+      } finally {
+        store.close()
+      }
+    })
+
     it('resolves to the real case once research_case_created is appended', async () => {
       const store = new SQLiteEventStore()
       try {

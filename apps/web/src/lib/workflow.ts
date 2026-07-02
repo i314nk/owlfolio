@@ -658,11 +658,34 @@ function eventResearchCaseId(event: LedgerEventEnvelope<unknown>): string {
   return event.aggregate_id
 }
 
+/**
+ * How long a run may sit "requested/claimed but no dossier yet" before the UI stops showing the
+ * animated loader and reports a failure instead. A worker that is going to run claims + starts building
+ * the case within seconds (even allowing for a cold pnpm/tsx spawn), so a run with NO progress past this
+ * window means the worker never started (bad provider/model config, a spawn/env fault, or a crash before
+ * the first event). Without this the loader spins forever. Env-overridable; default 180s (6x the normal
+ * cold-start headroom). Distinct from the worker-side abandoned-run watchdog, which can only reap cases
+ * that already reached `research_case_created` AND only runs when a worker actually ticks.
+ */
+const DEFAULT_RESEARCH_PENDING_TIMEOUT_MS = 180_000
+
+function resolveResearchPendingTimeoutMs(env: { readonly [key: string]: string | undefined }): number {
+  const raw = env.OWLFOLIO_RESEARCH_PENDING_TIMEOUT_MS
+  if (raw !== undefined && raw.length > 0) {
+    const parsed = Number.parseInt(raw, 10)
+    if (Number.isFinite(parsed) && parsed > 0) {
+      return parsed
+    }
+  }
+  return DEFAULT_RESEARCH_PENDING_TIMEOUT_MS
+}
+
 export async function resolveResearchCaseView(
   store: EventStore,
   mode: WorkflowMode,
   caseId: string,
   sourceLedgerPath?: string,
+  options: { now?: Date; pendingTimeoutMs?: number } = {},
 ): Promise<ResearchCaseView> {
   const events = await store.list()
 
@@ -690,7 +713,23 @@ export async function resolveResearchCaseView(
     return { status: 'failed', ...(typeof summary === 'string' ? { error_summary: summary } : {}) }
   }
 
-  // requested/claimed but not yet created → the worker is still building the case.
+  // requested/claimed but not yet created → the worker should be building the case. Guard against an
+  // infinite loader: if the newest run event is older than the start-timeout, the worker never started (or
+  // died before its first event) — fail closed with a reason instead of spinning forever.
+  const pendingTimeoutMs = options.pendingTimeoutMs ?? resolveResearchPendingTimeoutMs(process.env)
+  const nowMs = (options.now ?? new Date()).getTime()
+  const latestRunEventMs = runEvents.reduce((newest, event) => {
+    const ms = new Date(event.created_at).getTime()
+    return Number.isFinite(ms) && ms > newest ? ms : newest
+  }, 0)
+  if (latestRunEventMs > 0 && nowMs - latestRunEventMs > pendingTimeoutMs) {
+    const minutes = Math.max(1, Math.round((nowMs - latestRunEventMs) / 60_000))
+    return {
+      status: 'failed',
+      error_summary: `The research worker did not start or produce a dossier (no progress for ${minutes} min). This usually means the worker could not run — check the provider and model in Settings, then start a new run.`,
+    }
+  }
+
   return { status: 'pending' }
 }
 
