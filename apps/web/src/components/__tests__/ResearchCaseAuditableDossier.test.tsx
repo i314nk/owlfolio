@@ -382,7 +382,7 @@ describe('ResearchCasePanel auditable dossier (R1)', () => {
     expect(sectionTag).toContain('<details')
     // Collapsed by default: the section <details> carries no `open` attribute.
     expect(html.slice(sectionStart - 60, html.indexOf('>', sectionStart))).not.toContain('open=""')
-    expect(html).toContain('Deep-dive specialist lanes (2 of 7 grounded)')
+    expect(html).toContain('Deep-dive specialist lanes (2 of 6 grounded)')
     // The masonry multi-column packing is gone.
     expect(html).not.toContain('data-owl-flow="masonry"')
     // Both the short and the long card live inside the one full-width flow container.
@@ -644,40 +644,39 @@ describe('ResearchCasePanel auditable dossier (R1)', () => {
   })
 })
 
-// ALL SEVEN LANES VISIBLE (honest skip surfacing) — a deep-dive lane that grounded zero verifiable sources is
+// ALL SIX LANES VISIBLE (honest skip surfacing) — a deep-dive lane that grounded zero verifiable sources is
 // silently skipped upstream (no specialist_finding event). On a COMPLETED dossier the lanes section must still
-// render all 7 expected lanes: grounded lanes as full cards, the missing ones as honest "incomplete"
+// render all 6 expected lanes: grounded lanes as full cards, the missing ones as honest "incomplete"
 // placeholders, with a grounded-vs-expected header count. Display-only; the upstream skip is unchanged.
-describe('ResearchCasePanel specialist lanes surface all 7 expected lanes', () => {
-  const ALL_LANES = ['business_quality', 'moat', 'management', 'financial_quality', 'shariah', 'risks', 'valuation']
+describe('ResearchCasePanel specialist lanes surface all 6 expected lanes', () => {
+  const ALL_LANES = ['business_quality', 'moat', 'management', 'financial_quality', 'shariah', 'risks']
 
-  it('renders the 3 missing lanes as incomplete placeholders when only 4 of 7 grounded', () => {
+  it('renders the 2 missing lanes as incomplete placeholders when only 4 of 6 grounded', () => {
     const html = render({
       ...baseCase(),
       specialist_findings: [
         { finding_id: 'f_moat', specialist_lane: 'moat', finding_summary: 'Wide moat.', confidence: 'high', source_ids: ['s1'] },
         { finding_id: 'f_shariah', specialist_lane: 'shariah', finding_summary: 'Compliant.', confidence: 'high', source_ids: ['s2'] },
         { finding_id: 'f_risks', specialist_lane: 'risks', finding_summary: 'Manageable risks.', confidence: 'normal', source_ids: ['s3'] },
-        { finding_id: 'f_val', specialist_lane: 'valuation', finding_summary: 'Fairly priced.', confidence: 'normal', source_ids: ['s4'] },
+        { finding_id: 'f_fq', specialist_lane: 'financial_quality', finding_summary: 'Elite margins.', confidence: 'normal', source_ids: ['s4'] },
       ],
     } as unknown as AppResearchCase, QUOTE)
     // Honest grounded-vs-expected count in the section header.
-    expect(html).toContain('Deep-dive specialist lanes (4 of 7 grounded)')
-    // All seven lane labels are present (grounded + incomplete).
+    expect(html).toContain('Deep-dive specialist lanes (4 of 6 grounded)')
+    // All six lane labels are present (grounded + incomplete).
     expect(html).toContain('Business quality')
     expect(html).toContain('Moat')
     expect(html).toContain('Management')
     expect(html).toContain('Financial quality')
     expect(html).toContain('Shariah')
     expect(html).toContain('Risks')
-    expect(html).toContain('Valuation')
-    // The three ungrounded lanes render as incomplete placeholders with stable testids.
+    // The two ungrounded lanes render as incomplete placeholders with stable testids.
     expect(html).toContain('data-testid="specialist-lane-incomplete-business_quality"')
     expect(html).toContain('data-testid="specialist-lane-incomplete-management"')
-    expect(html).toContain('data-testid="specialist-lane-incomplete-financial_quality"')
     // The grounded lanes are NOT placeholders.
     expect(html).not.toContain('data-testid="specialist-lane-incomplete-moat"')
     expect(html).not.toContain('data-testid="specialist-lane-incomplete-risks"')
+    expect(html).not.toContain('data-testid="specialist-lane-incomplete-financial_quality"')
     // The placeholder carries the honest, non-investment-grade status.
     expect(html.toLowerCase()).toContain('no verifiable sources grounded this run')
   })
@@ -689,20 +688,20 @@ describe('ResearchCasePanel specialist lanes surface all 7 expected lanes', () =
         { finding_id: 'f_bq', specialist_lane: 'business_quality', finding_summary: 'Fortress business.', confidence: 'high', source_ids: ['s1'] },
         { finding_id: 'f_moat', specialist_lane: 'moat', finding_summary: 'Wide moat.', confidence: 'high', source_ids: ['s2'] },
         { finding_id: 'f_mgmt', specialist_lane: 'management', finding_summary: 'Sound stewards.', confidence: 'high', source_ids: ['s3'] },
-        { finding_id: 'f_fq', specialist_lane: 'financial_quality', finding_summary: 'Elite margins.', confidence: 'high', source_ids: ['s4'] },
+        { finding_id: 'f_shariah', specialist_lane: 'shariah', finding_summary: 'Compliant.', confidence: 'high', source_ids: ['s4'] },
         { finding_id: 'f_risks', specialist_lane: 'risks', finding_summary: 'Manageable risks.', confidence: 'normal', source_ids: ['s5'] },
-        // The valuation lane grounded 3 sources but the model returned only "..." — no written analysis.
-        { finding_id: 'f_val', specialist_lane: 'valuation', finding_summary: '...', confidence: 'high', source_ids: ['s6', 's7', 's8'] },
+        // The financial_quality lane grounded 3 sources but the model returned only "..." — no written analysis.
+        { finding_id: 'f_fq', specialist_lane: 'financial_quality', finding_summary: '...', confidence: 'high', source_ids: ['s6', 's7', 's8'] },
       ],
     } as unknown as AppResearchCase, QUOTE)
-    // The empty valuation lane is surfaced as an incomplete slot with the "returned no written analysis" reason…
-    expect(html).toContain('data-testid="specialist-lane-incomplete-valuation"')
+    // The empty financial_quality lane is surfaced as an incomplete slot with the "returned no written analysis" reason…
+    expect(html).toContain('data-testid="specialist-lane-incomplete-financial_quality"')
     expect(html.toLowerCase()).toContain('returned no written analysis')
-    // …and the grounded count reflects it honestly (5 real of 7, not 6).
-    expect(html).toContain('Deep-dive specialist lanes (5 of 7 grounded)')
+    // …and the grounded count reflects it honestly (5 real of 6, not 6).
+    expect(html).toContain('Deep-dive specialist lanes (5 of 6 grounded)')
   })
 
-  it('renders all 7 as normal cards (no incomplete placeholders) when all 7 grounded', () => {
+  it('renders all 6 as normal cards (no incomplete placeholders) when all 6 grounded', () => {
     const html = render({
       ...baseCase(),
       specialist_findings: ALL_LANES.map((lane, i) => ({
@@ -713,26 +712,27 @@ describe('ResearchCasePanel specialist lanes surface all 7 expected lanes', () =
         source_ids: [`s${i}`],
       })),
     } as unknown as AppResearchCase, QUOTE)
-    expect(html).toContain('Deep-dive specialist lanes (7 of 7 grounded)')
+    expect(html).toContain('Deep-dive specialist lanes (6 of 6 grounded)')
     for (const lane of ALL_LANES) {
       expect(html).not.toContain(`data-testid="specialist-lane-incomplete-${lane}"`)
     }
   })
 
-  it('leaves a legacy dossier (no specialist_findings) unaffected — 7 legacy cards, no incomplete placeholders', () => {
+  it('leaves a legacy dossier (no specialist_findings) unaffected — 6 ordered lanes grounded, no incomplete placeholders', () => {
     // baseCase() is a legacy decision dossier (no standalone pipeline); it falls back to all 7 legacy lane
-    // cards. Those render as normal cards (current behavior), never as incomplete placeholders.
+    // findings. The 6 orderedLanes render as normal cards; the legacy valuation finding lands in remainder
+    // and also renders normally. No incomplete placeholders appear.
     const html = render(baseCase(), QUOTE)
     expect(html).toContain('data-testid="specialist-lanes-flow"')
-    expect(html).toContain('Deep-dive specialist lanes (7 of 7 grounded)')
+    expect(html).toContain('Deep-dive specialist lanes (6 of 6 grounded)')
     for (const lane of ALL_LANES) {
       expect(html).not.toContain(`data-testid="specialist-lane-incomplete-${lane}"`)
     }
   })
 
-  it('leaves a true empty / non-deep-dive case unaffected (no lanes section, no 7 incomplete cards)', () => {
+  it('leaves a true empty / non-deep-dive case unaffected (no lanes section, no incomplete cards)', () => {
     // The set-aside dossier has no specialist_findings and is not a legacy fallback → the lanes section does
-    // not render at all, and certainly never 7 incomplete cards.
+    // not render at all, and certainly never shows incomplete cards.
     const html = render(setAsideCase(), QUOTE)
     expect(html).not.toContain('data-testid="specialist-lanes-flow"')
     for (const lane of ALL_LANES) {

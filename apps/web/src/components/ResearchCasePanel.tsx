@@ -2252,20 +2252,21 @@ function createSpecialistLanesGrid(researchCase: AppResearchCase) {
     ? createLegacyDeepDiveFindings(researchCase)
     : findings
 
-  // GUARD: only the all-7-lanes-visible treatment fires for a real completed deep-dive (≥1 grounded lane
+  // GUARD: only the all-6-lanes-visible treatment fires for a real completed deep-dive (≥1 grounded lane
   // finding). A legacy/empty/non-deep-dive case (no findings) behaves exactly as before — return null and let
-  // the set-aside / gated / awaiting / progress paths own their own rendering. Legacy dossiers always supply
-  // all 7 lanes via createLegacyDeepDiveFindings(), so they naturally produce zero incomplete placeholders.
+  // the set-aside / gated / awaiting / progress paths own their own rendering. Legacy dossiers supply all
+  // 7 findings via createLegacyDeepDiveFindings(); the 6 orderedLanes are all grounded, valuation lands in
+  // remainder, and no incomplete placeholders appear.
   if (displayFindings.length === 0) return null
 
-  const orderedLanes = ['business_quality', 'moat', 'management', 'financial_quality', 'shariah', 'risks', 'valuation']
-  // For a completed deep dive we render ALL SEVEN expected lanes IN ORDER: a grounded lane shows its full
+  const orderedLanes = ['business_quality', 'moat', 'management', 'financial_quality', 'shariah', 'risks']
+  // For a completed deep dive we render ALL SIX expected lanes IN ORDER: a grounded lane shows its full
   // finding card; an expected lane with NO finding (silently skipped upstream when it grounded zero verifiable
   // sources) shows an honest "incomplete" placeholder instead of vanishing. This is DISPLAY-ONLY — it does not
   // re-emit events or change the swarm's correct fail-closed skip; it only makes the skip VISIBLE.
   // A lane counts as GROUNDED only when it emitted a finding AND that finding carries real written analysis.
-  // A finding with placeholder prose (e.g. the model emitted "..." for the valuation lane) is treated exactly
-  // like a missing lane: rendered as an honest "incomplete" slot, not a card showing a literal "...".
+  // A finding with placeholder prose (e.g. the model emitted "..." for a lane) is treated exactly like a
+  // missing lane: rendered as an honest "incomplete" slot, not a card showing a literal "...".
   const laneFinding = (lane: string) => displayFindings.find((f) => f.specialist_lane === lane)
   const laneSlots = orderedLanes.map((lane) => {
     const finding = laneFinding(lane)
@@ -2273,7 +2274,7 @@ function createSpecialistLanesGrid(researchCase: AppResearchCase) {
     if (isPlaceholderLaneSummary(finding.finding_summary)) return createSpecialistLaneIncompleteCard(lane, 'empty')
     return createSpecialistLaneCard(finding)
   })
-  // Any grounded finding whose lane is NOT one of the 7 expected lanes still renders (remainder), unless it too
+  // Any grounded finding whose lane is NOT one of the 6 expected lanes still renders (remainder), unless it too
   // is an empty placeholder.
   const remainder = displayFindings.filter(
     (f) => !orderedLanes.includes(f.specialist_lane ?? '') && !isPlaceholderLaneSummary(f.finding_summary),
@@ -2397,7 +2398,7 @@ export function splitLaneFinding(summary: string): { conclusion: string; detail:
   }
   // No usable early sentence boundary (a single long sentence, or an over-long lead): show the FULL text —
   // NEVER cut a sentence mid-word with an ellipsis (owner feedback). The whole lanes section is collapsed by
-  // default, so a longer card here is acceptable and strictly more honest than a truncated fragment.
+  // default, so a longer card here is acceptable and strictly more honest than a cut-off fragment.
   return { conclusion: compact, detail: undefined }
 }
 
