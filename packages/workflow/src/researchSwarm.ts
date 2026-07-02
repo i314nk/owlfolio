@@ -91,7 +91,6 @@ import {
   MOAT_RUBRIC_PROMPT,
   SHARIAH_OVERLAY_PROMPT,
   CIRCLE_COMPETENCE_PROMPT,
-  VALUATION_LANE_DISCOUNT_NOTE,
   RISKS_RECENCY_NOTE,
   PRIMARY_FILING_LANES,
 } from './researchSwarmSchemas'
@@ -934,7 +933,7 @@ export async function runResearchDeepDivePhase(
 
   // ---- Pre-fetch SEC EDGAR primary-filing fundamentals (fail-closed, test-mode-gated) ----
   // When fundamentals resolve, we ground the latest 10-K as a verified primary source and inject the
-  // raw filing numbers into the financial_quality / valuation / shariah lanes so those lanes ground on
+  // raw filing numbers into the financial_quality / shariah lanes so those lanes ground on
   // filings instead of dropping when IR/news is blocked. When they do not resolve (non-US ticker,
   // EDGAR down, test mode w/o injection), the lanes run EXACTLY as today — no regression.
   //
@@ -1011,16 +1010,16 @@ export async function runResearchDeepDivePhase(
     ? buildPreVerifiedSourcesBlock([primaryFilingSourceId])
     : undefined
 
-  // ---- CIRCLE-OF-COMPETENCE GATE (sequential pre-deep-dive stage — gates the 7-lane spend) ----
+  // ---- CIRCLE-OF-COMPETENCE GATE (sequential pre-deep-dive stage — gates the 6-lane spend) ----
   // The circle of competence is a GROUNDED MODEL JUDGMENT, not a config screen: "do I understand THIS
   // business well enough to assess its cashflow predictability?" It runs as its OWN call (NOT an 8th
-  // parallel lane) at the START of the deep-dive phase, BEFORE the expensive 7 lanes — the cheap quick
+  // parallel lane) at the START of the deep-dive phase, BEFORE the expensive 6 lanes — the cheap quick
   // screen already ran. The model must DEMONSTRATE understanding: cite-verify BOTH the cashflow drivers
   // AND what would make them unpredictable, held to the SAME rigor. Binary outcome:
-  //   - in-competence  → proceed to the 7-lane deep dive + synthesis + decision (today's path).
+  //   - in-competence  → proceed to the 6-lane deep dive + synthesis + decision (today's path).
   //   - outside-competence (model says so, OR fail-closed on EITHER ungrounded clause) → SET ASIDE: emit a
   //     terminal decision with verdict PASS carrying competence_reasoning + the circle_competence_unmet
-  //     flag; the 7 lanes do NOT run. NEVER RESEARCH_MORE — a valid, common, CORRECT Buffett output.
+  //     flag; the 6 lanes do NOT run. NEVER RESEARCH_MORE — a valid, common, CORRECT Buffett output.
   const circle = await judgeCircleCompetence(provider, command, {
     ...deps,
     ...(preVerifiedSourcesBlock === undefined ? {} : { preVerifiedSourcesBlock }),
@@ -1106,7 +1105,7 @@ export async function runResearchDeepDivePhase(
   } satisfies LedgerEventEnvelope<unknown>)
 
   if (!inCompetence) {
-    // ---- OUTSIDE COMPETENCE → SET ASIDE (terminal PASS) — the 7 lanes do NOT run ----
+    // ---- OUTSIDE COMPETENCE → SET ASIDE (terminal PASS) — the 6 lanes do NOT run ----
     const circleSourceIds = [...new Set([...command.quick_screen_source_ids, ...circle.verified_ids])]
     const setAsideReason = `Set aside — outside the circle of competence. ${circle.analysis.competence_reasoning}`
     const analysisEvent: LedgerEventEnvelope<unknown> = {
@@ -1379,18 +1378,14 @@ export async function runResearchDeepDivePhase(
       }
     }
 
-    // ---- Generic lanes (financial_quality, valuation, management, risks, …) ----
+    // ---- Generic lanes (financial_quality, management, risks, …) ----
     // Deep-dive lanes gather REAL primary sources via the grounded tool loop when the provider supports it
     // (Phase 1 fetch_source/search_filings → Phase 2 structured), else fall back to propose-then-verify
     // UNCHANGED (Codex's internal sandbox gather, mock). The grounding/citation verification is identical.
     const { degraded_no_tools: _laneDegraded, ...agent } = await runGroundedAgentWithTools(laneRuntime.provider, {
       run_id: baseRunId,
       model_id: laneRuntime.model_id,
-      // F.2 conformance: the valuation lane MUST be told the harness owns the discount, else (as the
-      // generic basePrompt alone) the model free-lances a textbook DCF with its own required return + a
-      // 10-year-Treasury anchor (its training prior), contradicting the system's deterministic discount.
-      // Appended ONLY for the valuation lane; the other generic lanes keep the plain basePrompt.
-      prompt: basePrompt + (lane === 'valuation' ? VALUATION_LANE_DISCOUNT_NOTE : ''),
+      prompt: basePrompt,
       timeout_ms: AGENT_TIMEOUT_MS,
       schema_name: 'BuffettMungerLaneFinding',
     }, LaneAgentSchema, {
@@ -1483,12 +1478,12 @@ export async function runResearchDeepDivePhase(
     throw new Error(`No specialist lane produced a verifiable source for ${command.ticker}; research aborted (fail-closed).`)
   }
 
-  // ---- Mechanism 5: Red-Team Pass (after the 7 lanes, BEFORE synthesis) ----
+  // ---- Mechanism 5: Red-Team Pass (after the 6 lanes, BEFORE synthesis) ----
   // One adversarial grounded agent whose ONLY mandate is to break the case. It receives a compact
   // digest of the lane findings + the mechanically-computed anchor tiers + the verified source corpus,
   // and cites the SAME corpus (it is the consensus-knowing lane — allowed all source categories). Its
   // strongest objection is cite-checked; synthesis is then OBLIGED to answer it or downgrade. A
-  // red-team timeout DEGRADES (red_team_incomplete) — the run continues so a completed 7-lane deep dive
+  // red-team timeout DEGRADES (red_team_incomplete) — the run continues so a completed 6-lane deep dive
   // is never discarded. model-tiering-spec: the red team now resolves the `red_team` registry role —
   // when an override pins a DIFFERENT provider/model it genuinely runs on a different model than the
   // lanes (catches shared-narrative error single-model cross-checks cannot). Default = the run's model.

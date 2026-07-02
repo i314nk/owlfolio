@@ -189,7 +189,7 @@ export async function runRedTeamPass(
     }
   } catch (error) {
     // Degrade, never abort: the red team is mandatory but its FAILURE must not discard a completed
-    // 7-lane deep dive. Synthesis proceeds and the dossier records that the red team did not complete.
+    // 6-lane deep dive. Synthesis proceeds and the dossier records that the red team did not complete.
     return {
       status: 'red_team_incomplete',
       reason: error instanceof Error ? error.message : String(error),

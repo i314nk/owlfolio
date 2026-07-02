@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { DecisionAgentSchema, LaneAgentSchema, RISKS_RECENCY_NOTE, SHARIAH_OVERLAY_PROMPT, ShariahLaneSchema, VALUATION_LANE_DISCOUNT_NOTE } from '../researchSwarmSchemas'
+import { DecisionAgentSchema, LaneAgentSchema, RISKS_RECENCY_NOTE, SHARIAH_OVERLAY_PROMPT, ShariahLaneSchema } from '../researchSwarmSchemas'
 
 // Fail-CLOSED Shariah overlay: impermissible_income is nullable so the lane can signal UNDETERMINED
 // (the filing does not separately disclose it) instead of a falsely-clean 0. null is an ACCEPTED,
@@ -192,26 +192,6 @@ describe('DecisionAgentSchema (model proposes buy-below + cited valuation reason
 })
 
 // ---------------------------------------------------------------------------------------------------
-// F.2 conformance: the valuation specialist-lane prompt MUST tell the lane the HARNESS owns the discount,
-// so the model does not free-lance a textbook DCF with its own required return + a Treasury anchor (its
-// training prior) that contradicts the system's deterministic config-driven discount. This positive
-// assertion pins that the constraint can't be silently removed; the supersededTermConsistency tripwire
-// (packages/strategies) guards the negative side (a Treasury / self-required-return slipping in as-current).
-// ---------------------------------------------------------------------------------------------------
-describe('VALUATION_LANE_DISCOUNT_NOTE (the harness owns the discount — F.2 conformance)', () => {
-  it('states the harness owns the discount, savings-anchored, and prohibits a self-chosen required return', () => {
-    // The harness owns the discount.
-    expect(VALUATION_LANE_DISCOUNT_NOTE).toMatch(/harness/i)
-    expect(VALUATION_LANE_DISCOUNT_NOTE).toMatch(/owns the discount/i)
-    // The anchor is the compliant SAVINGS rate (not the interest-bearing Treasury).
-    expect(VALUATION_LANE_DISCOUNT_NOTE).toMatch(/savings/i)
-    // A do-NOT-specify-your-own-required-return / discount / cost-of-capital prohibition is present.
-    expect(VALUATION_LANE_DISCOUNT_NOTE).toMatch(/(?:must not|do not|not)[^.]*(?:required return|discount rate|cost of capital|wacc|hurdle)/i)
-    // The lane must NOT anchor to the 10-year Treasury (negation present).
-    expect(VALUATION_LANE_DISCOUNT_NOTE).toMatch(/(?:not|n't)[^.]*treasur/i)
-  })
-})
-
 // ---------------------------------------------------------------------------------------------------
 // Recency framing (provider tree ⇄ EDGAR tree handoff): the risks lane is the "web tier" (the only
 // allow_unknown lane), so it is where web/media recency could masquerade as decision-grade. This note —
