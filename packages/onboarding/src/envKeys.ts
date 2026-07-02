@@ -123,6 +123,34 @@ export async function readAllEnvKeys(options: EnvKeyOptions = {}): Promise<Recor
   return out
 }
 
+/**
+ * Load the local env-file keys into `target` (default `process.env`) so a credential saved via the providers
+ * page is usable by the RUNTIME — the run-start gate, the spawned worker, and the provider adapters — not
+ * just the readiness UI. Called once at server/worker startup.
+ *
+ * Shell/exported vars WIN: an already-set, non-empty `target[name]` is never overwritten (so a value exported
+ * before launch always takes precedence). Only SAFE_KEY_NAME (SCREAMING_SNAKE_CASE) names are applied.
+ * Returns the NAMES that were hydrated (never values) for optional startup logging.
+ */
+export async function hydrateProcessEnvFromEnvKeys(
+  options: EnvKeyOptions = {},
+  target: Record<string, string | undefined> = process.env as Record<string, string | undefined>,
+): Promise<string[]> {
+  const fileKeys = await readAllEnvKeys(options)
+  const hydrated: string[] = []
+  for (const [name, value] of Object.entries(fileKeys)) {
+    if (!SAFE_KEY_NAME.test(name)) {
+      continue
+    }
+    const existing = target[name]
+    if (existing === undefined || existing.length === 0) {
+      target[name] = value
+      hydrated.push(name)
+    }
+  }
+  return hydrated
+}
+
 /** Build masked status for the requested names — the ONLY shape that reaches the client. */
 export async function listEnvKeyStatuses(names: string[], options: EnvKeyOptions = {}): Promise<EnvKeyStatus[]> {
   const map = await readEnvMap(envPathFrom(options))
