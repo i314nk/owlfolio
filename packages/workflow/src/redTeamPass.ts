@@ -4,11 +4,12 @@ import { runGroundedAgentWithRetry, ProposedSourcesSchema, SynthesisResponseSche
 import { AGENT_TIMEOUT_MS } from './researchSwarmSchemas'
 import { runValidatedAgent, type RequiredFieldCheck } from './runValidatedAgent'
 import { isCitationGrounded, type GroundingDeps } from './sourceGrounding'
+import { buffettMungerDeepDiveLanes } from './strategyResearchPipeline'
 
 // ---------------------------------------------------------------------------
 // judgment-objectivity-layer-spec Mechanism 5 — Red-Team Pass (pre-Synthesis, mandatory)
 //
-// After the 7 deep-dive lanes complete and BEFORE synthesis, one adversarial grounded agent run
+// After the 6 deep-dive lanes complete and BEFORE synthesis, one adversarial grounded agent run
 // whose ONLY mandate is to break the case. It receives a compact digest of all lane findings (incl.
 // the resolved rubric tiers) + the verified source corpus, and must cite the SAME corpus (it is the
 // consensus-knowing lane — like RISKS it may use ALL source categories). Synthesis then MUST answer
@@ -110,7 +111,7 @@ function buildRedTeamPrompt(args: RunRedTeamPassArgs): string {
   return (
     `You are the Buffett-Munger RED-TEAM agent for ${args.ticker}. Your ONLY job is to BREAK this case. `
     + `Do not balance, hedge, or restate the bull thesis — find the strongest reason this is a mistake.\n\n`
-    + `The 7 deep-dive lanes concluded (shared narrative below). The harness resolved moat=${args.caseDigest.moat_class}, `
+    + `The ${buffettMungerDeepDiveLanes.length} deep-dive lanes concluded (shared narrative below). The harness resolved moat=${args.caseDigest.moat_class}, `
     + `runway=${args.caseDigest.runway}${cg !== undefined ? `, credited growth g=${(cg * 100).toFixed(1)}%` : ''}`
     + `${ir !== undefined ? `, incremental ROIC=${(ir * 100).toFixed(0)}%` : ''}.\n\n`
     + `Lane findings:\n${laneLines}\n\n`
