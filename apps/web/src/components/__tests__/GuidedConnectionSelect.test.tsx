@@ -1,3 +1,4 @@
+import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 
@@ -170,5 +171,20 @@ describe('GuidedConnectionSelect helpers', () => {
     }
     const fixed = defaultModelForConnection({ key: 'demo', provider: mockProvider, mode: 'demo', title: '', badge: '', description: '', modelChoice: 'fixed' })
     expect(fixed).toBe('mock-buffett-munger-demo')
+  })
+
+  it('renders an explicit "Set model" button + confirmation for the OpenRouter searchable picker', () => {
+    const connection = openRouterConnection()
+    const liveModels = [{ id: 'z-ai/glm-5.2-max', name: 'GLM 5.2 Max' }] as unknown as Parameters<typeof renderModelSelection>[3]
+
+    const html = renderToStaticMarkup(
+      createElement('div', null, renderModelSelection(connection, undefined, () => {}, liveModels)),
+    )
+
+    // The searchable input AND an explicit commit button both render (no more per-keystroke auto-persist).
+    expect(html).toContain('Search or enter an OpenRouter model id')
+    expect(html).toContain('Set model')
+    // With no model set yet, the confirmation line prompts the user to Set one.
+    expect(html).toContain('No model set yet')
   })
 })

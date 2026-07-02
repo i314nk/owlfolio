@@ -1,6 +1,6 @@
 'use client'
 
-import { createElement, type CSSProperties } from 'react'
+import { createElement, useState, type CSSProperties } from 'react'
 
 import { curatedRealTierModelsForProvider, type CuratedModel, type ModelTierSuitability } from '@owlfolio/providers/modelCatalog'
 import type { OpenRouterCatalogModel } from '@owlfolio/providers/openRouterModels'
@@ -322,7 +322,12 @@ export function renderModelSelection(
   // OpenRouter routes to hundreds of models; when the live catalog is available, offer a SEARCHABLE picker
   // over the full list (curated picks surfaced first as recommended) instead of only the curated shortlist.
   if (selectedConnection.provider.provider_id === 'openrouter' && openRouterModels.length > 0) {
-    return renderSearchableOpenRouterModelPicker(selectedConnection.provider, selectedModelId, onSelectModel, openRouterModels)
+    return createElement(OpenRouterModelPicker, {
+      provider: selectedConnection.provider,
+      selectedModelId,
+      onSelectModel,
+      liveModels: openRouterModels,
+    })
   }
 
   if (selectedConnection.modelChoice === 'fixed') {
@@ -387,32 +392,59 @@ const modelHintStyle: CSSProperties = {
  * user enter any model id (e.g. a brand-new route) directly. Curated/qualified picks are surfaced first;
  * every other model is honestly flagged experimental + fail-closed until it has its own certification report.
  */
-function renderSearchableOpenRouterModelPicker(
-  provider: ProviderOption,
-  selectedModelId: string | undefined,
-  onSelectModel: (provider: ProviderOption, modelId: string) => void,
-  liveModels: OpenRouterCatalogModel[],
-) {
+/**
+ * OpenRouter model picker: a CONTROLLED search input over the live catalog (curated picks first) plus an
+ * explicit "Set model" button. Previously the input auto-persisted on every keystroke, which wrote
+ * partial/invalid ids and made the choice feel like it never took. Now the model is committed only when Set
+ * is clicked — disabled until the entered value is non-empty AND differs from the current selection. The
+ * active model is shown beneath so the user gets clear confirmation.
+ */
+function OpenRouterModelPicker({ provider, selectedModelId, onSelectModel, liveModels }: {
+  provider: ProviderOption
+  selectedModelId: string | undefined
+  onSelectModel: (provider: ProviderOption, modelId: string) => void
+  liveModels: OpenRouterCatalogModel[]
+}) {
   const datalistId = 'owl-openrouter-live-models'
   const curated = curatedRealTierModelsForProvider('openrouter')
   const curatedIds = new Set(curated.map((model) => model.model_id))
   const liveOnly = liveModels.filter((model) => !curatedIds.has(model.id))
 
+  const [pendingModel, setPendingModel] = useState(selectedModelId ?? '')
+  const trimmed = pendingModel.trim()
+  const isCurrent = trimmed === (selectedModelId ?? '')
+  const canSet = trimmed.length > 0 && !isCurrent
+
   return createElement(
     'label',
-    { style: { display: 'grid', gap: '0.5rem', margin: '0 0 1rem', maxWidth: '480px' } },
+    { style: { display: 'grid', gap: '0.5rem', margin: '0 0 1rem', maxWidth: '520px' } },
     createElement('span', { style: modelLabelStyle }, 'Model (search all OpenRouter models)'),
-    createElement('input', {
-      type: 'text',
-      list: datalistId,
-      'aria-label': 'Search or enter an OpenRouter model id',
-      className: 'owl-select owl-focusable',
-      placeholder: 'Search or type any model id (e.g. z-ai/glm-5.2-max)',
-      defaultValue: selectedModelId ?? '',
-      onChange: (event: Event) => {
-        onSelectModel(provider, (event.target as HTMLInputElement).value.trim())
-      },
-    }),
+    createElement(
+      'div',
+      { style: { alignItems: 'center', display: 'flex', flexWrap: 'wrap', gap: '0.5rem' } },
+      createElement('input', {
+        type: 'text',
+        list: datalistId,
+        'aria-label': 'Search or enter an OpenRouter model id',
+        className: 'owl-select owl-focusable',
+        placeholder: 'Search or type any model id (e.g. z-ai/glm-5.2-max)',
+        value: pendingModel,
+        onChange: (event: Event) => setPendingModel((event.target as HTMLInputElement).value),
+        style: { flex: '1 1 16rem' },
+      }),
+      createElement('button', {
+        type: 'button',
+        className: 'owl-button owl-button-secondary owl-focusable',
+        'aria-label': 'Set the selected OpenRouter model',
+        disabled: !canSet,
+        onClick: () => {
+          if (canSet) {
+            onSelectModel(provider, trimmed)
+          }
+        },
+        style: { flex: '0 0 auto' },
+      }, 'Set model'),
+    ),
     createElement(
       'datalist',
       { id: datalistId },
@@ -426,6 +458,15 @@ function renderSearchableOpenRouterModelPicker(
         { key: `live:${model.id}`, value: model.id },
         model.name,
       )),
+    ),
+    createElement(
+      'span',
+      { style: modelValueStyle },
+      selectedModelId === undefined || selectedModelId.length === 0
+        ? 'No model set yet — search or type a model id, then click Set model.'
+        : isCurrent
+          ? `Active model: ${selectedModelId}`
+          : `Active model: ${selectedModelId} — click Set model to switch to “${trimmed}”.`,
     ),
     createElement(
       'span',
