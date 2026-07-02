@@ -35,7 +35,9 @@ export const ValuationReasoningSchema = z.object({
   // GROUNDING: the source_id (or content_hash) of a VERIFIED primary source backing the assumed-growth
   // rationale — cite-checked exactly like owner_earnings_citation.
   assumed_growth_citation: z.string().min(1),
-  // OPTIONAL: the model's discount-rate reasoning, if it argues one.
+  // OPTIONAL, legacy/tolerated: the harness owns the discount (see the DISCOUNT OWNERSHIP guard in the
+  // prompt), so the model is instructed NOT to choose its own rate. Retained optional for schema
+  // back-compat; a populated value is not expected and is not used to override the harness discount.
   discount_rationale: z.string().optional(),
 })
 export type ValuationReasoning = z.infer<typeof ValuationReasoningSchema>
@@ -70,7 +72,7 @@ export type ValuationReasoningOutcome =
   | { status: 'ok'; valuation_reasoning: ValuationReasoning; verified_ids: string[]; captured: CapturedSource[] }
   | { status: 'failed'; reason: string; attempts: number }
 
-function buildValuationReasoningPrompt(args: RunValuationReasoningPassArgs): string {
+export function buildValuationReasoningPrompt(args: RunValuationReasoningPassArgs): string {
   const laneLines = args.laneDigest
     .map((l) => `  - ${l.lane} (${l.confidence}): ${l.finding_summary}`)
     .join('\n')
@@ -99,6 +101,12 @@ function buildValuationReasoningPrompt(args: RunValuationReasoningPassArgs): str
     + `GROUNDING (non-negotiable): the harness deterministically cite-checks owner_earnings_citation and `
     + `assumed_growth_citation against the grounded corpus and FAILS CLOSED when either is absent or does not `
     + `verify. Available corpus source_ids: ${corpus}. ${steer}Return your sources in proposed_sources with real URLs.\n`
+    + `DISCOUNT OWNERSHIP (the harness owns the discount, not you): the harness discounts owner earnings `
+    + `deterministically at a single config-driven uniform rate (the compliant savings rate plus a fixed equity `
+    + `premium) — the SAME for every business. Do NOT specify, assume, or assert your own discount rate, cost of `
+    + `capital, WACC, or required return, and do NOT present a textbook DCF or an intrinsic-value range computed `
+    + `off a self-chosen rate; that math is the harness's job. Reason about VALUE only: the owner-earnings basis, `
+    + `the durability of growth, and a qualitative cheap / fair / expensive read versus today's price.\n`
     + `EXAMPLE (shape only): {"valuation_reasoning":{"owner_earnings_basis":"FY25 owner earnings $8.4B per the 10-K",`
     + `"owner_earnings_citation":"sec_edgar_10k_<cik>_fy<year>","assumed_growth":0.06,`
     + `"assumed_growth_rationale":"mid-single-digit, grounded in segment capex","assumed_growth_citation":"sec_edgar_10k_<cik>_fy<year>"}}.`
