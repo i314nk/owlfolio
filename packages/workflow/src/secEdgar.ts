@@ -65,6 +65,14 @@ export type AnnualFacts = {
   total_debt_musd?: number
   cash_and_securities_musd?: number
   interest_expense_musd?: number
+  /**
+   * Interest income (annual flow), $millions — the deterministic AAOIFI impermissible-income proxy for
+   * the Shariah purification recompute (no filing discloses an "impermissible income" line; disclosed
+   * interest income is the computable input). Prefers the pure interest concept; the combined
+   * interest-and-dividend variant (MSFT's tag) is a CONSERVATIVE-overcount fallback. May be absent —
+   * the recompute then stays fail-closed UNDETERMINED.
+   */
+  interest_income_musd?: number
   /** Stockholders' equity (instant), $millions — for the invested-capital proxy. */
   stockholders_equity_musd?: number
   /** Operating income/loss (annual flow), $millions — for the NOPAT proxy. */
@@ -916,6 +924,12 @@ type ConceptMap = {
   debtFallback: string[]
   cash: string[]
   shortTermInvestments: string[]
+  /**
+   * Interest income (annual flow) — the Shariah purification input. PRECEDENCE-ORDERED, per-year: the
+   * pure interest concept first; combined interest-and-dividend variants are conservative-overcount
+   * fallbacks. Empty/absent per year degrades gracefully (recompute stays fail-closed UNDETERMINED).
+   */
+  interestIncome: string[]
   interest: string
   stockholdersEquity: string
   operatingIncome: string
@@ -1008,6 +1022,14 @@ const US_GAAP_CONCEPTS: ConceptMap = {
     'AvailableForSaleSecuritiesCurrent',
     'DebtSecuritiesHeldToMaturityAmortizedCostAfterAllowanceForCreditLoss',
   ],
+  // Interest income: the pure interest concept first; MSFT tags the combined interest-and-dividend
+  // variant (dividends included = conservative overcount for purification, accepted); the operating
+  // variant is a last-resort (financials-adjacent filers).
+  interestIncome: [
+    'InvestmentIncomeInterest',
+    'InvestmentIncomeInterestAndDividend',
+    'InterestAndDividendIncomeOperating',
+  ],
   interest: 'InterestExpense',
   stockholdersEquity: 'StockholdersEquity',
   operatingIncome: 'OperatingIncomeLoss',
@@ -1057,6 +1079,9 @@ const IFRS_CONCEPTS: ConceptMap = {
   debtFallback: [],
   cash: ['CashAndCashEquivalents'],
   shortTermInvestments: [],
+  // IFRS interest income best-effort (Novo-class filers disclose finance income variants); absent for a
+  // given filer → degrades to fail-closed UNDETERMINED, exactly like a missing us-gaap tag.
+  interestIncome: ['InterestIncome', 'InterestRevenueCalculatedUsingEffectiveInterestMethod'],
   interest: 'InterestExpense',
   stockholdersEquity: 'Equity',
   operatingIncome: 'ProfitLossFromOperatingActivities',
@@ -1250,6 +1275,8 @@ function buildAnnualSeries(facts: CompanyFacts, taxonomy: Taxonomy, currency: Re
   const cash = firstPopulatedByYear(facts, taxonomy, cm.cash)
   const shortTermInv = firstPopulatedByYear(facts, taxonomy, cm.shortTermInvestments)
   const interest = annualByFiscalYear(facts, taxonomy, cm.interest)
+  // Interest income (flow) per fiscal year — pure concept first, combined variants as per-year fallbacks.
+  const interestIncome = firstPopulatedByYear(facts, taxonomy, cm.interestIncome)
   // Gross PP&E (instant) per fiscal year — first populated candidate wins; absent → Greenwald proxy degrades.
   const grossPpe = firstPopulatedByYear(facts, taxonomy, cm.grossPpe)
   const stockholdersEquity = annualByFiscalYear(facts, taxonomy, cm.stockholdersEquity)
@@ -1279,26 +1306,31 @@ function buildAnnualSeries(facts: CompanyFacts, taxonomy: Taxonomy, currency: Re
       ?? filedMetaRev.map((m) => m.get(fy)).find((v) => v !== undefined)
       ?? filedMetaDa.map((m) => m.get(fy)).find((v) => v !== undefined)
 
-    series.push({
-      fiscal_year: fy,
-      currency,
-      ...optional('filed', filedMeta?.filed),
-      ...optional('period_end', filedMeta?.period_end),
-      ...optional('net_income_musd', toMusd(netIncome.get(fy))),
-      ...optional('revenue_musd', toMusd(revenue.get(fy))),
-      ...optional('d_and_a_musd', toMusd(dAndA.get(fy))),
-      ...optional('capex_musd', toMusd(capex.get(fy))),
-      ...optional('gross_ppe_musd', toMusd(grossPpe.get(fy))),
-      ...optional('sbc_musd', toMusd(sbc.get(fy))),
-      ...optional('diluted_shares_m', toMshares(dilutedShares.get(fy))),
-      ...optional('shares_outstanding_m', toMshares(sharesOut.get(fy))),
-      ...optional('total_debt_musd', toMusd(totalDebtRaw)),
-      ...optional('cash_and_securities_musd', toMusd(cashRaw)),
-      ...optional('interest_expense_musd', toMusd(interest.get(fy))),
-      ...optional('stockholders_equity_musd', toMusd(stockholdersEquity.get(fy))),
-      ...optional('operating_income_musd', toMusd(operatingIncome.get(fy))),
-      ...optional('income_tax_expense_musd', toMusd(incomeTax.get(fy))),
-    })
+    // Imperative conditional assignment (not chained `...optional(...)` spreads): 17 optional spreads
+    // exceed tsc's union-complexity limit (TS2590 — each spread doubles the candidate union), and
+    // exactOptionalPropertyTypes permits assigning a checked-defined value directly.
+    const row: AnnualFacts = { fiscal_year: fy, currency }
+    const set = <K extends keyof AnnualFacts>(key: K, value: AnnualFacts[K] | undefined): void => {
+      if (value !== undefined) row[key] = value
+    }
+    set('filed', filedMeta?.filed)
+    set('period_end', filedMeta?.period_end)
+    set('net_income_musd', toMusd(netIncome.get(fy)))
+    set('revenue_musd', toMusd(revenue.get(fy)))
+    set('d_and_a_musd', toMusd(dAndA.get(fy)))
+    set('capex_musd', toMusd(capex.get(fy)))
+    set('gross_ppe_musd', toMusd(grossPpe.get(fy)))
+    set('sbc_musd', toMusd(sbc.get(fy)))
+    set('diluted_shares_m', toMshares(dilutedShares.get(fy)))
+    set('shares_outstanding_m', toMshares(sharesOut.get(fy)))
+    set('total_debt_musd', toMusd(totalDebtRaw))
+    set('cash_and_securities_musd', toMusd(cashRaw))
+    set('interest_expense_musd', toMusd(interest.get(fy)))
+    set('interest_income_musd', toMusd(interestIncome.get(fy)))
+    set('stockholders_equity_musd', toMusd(stockholdersEquity.get(fy)))
+    set('operating_income_musd', toMusd(operatingIncome.get(fy)))
+    set('income_tax_expense_musd', toMusd(incomeTax.get(fy)))
+    series.push(row)
   }
   return series
 }

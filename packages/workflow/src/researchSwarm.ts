@@ -2517,14 +2517,33 @@ export async function runResearchDeepDivePhase(
         bridge_source_fiscal_year?: number
       }
     | undefined
-  // FAIL-CLOSED on UNDETERMINED impermissible income. The lane emits impermissible_income = null when it
+  // HARNESS-OWNED impermissible income: no filing discloses an "impermissible income" line, so the pass
+  // honestly returns null for nearly every ticker — which left the deep screen permanently UNDETERMINED.
+  // The deterministic AAOIFI-computable proxy is disclosed interest income, extracted from XBRL
+  // (fundamentals.latest_annual.interest_income_musd). Precedence: a pass null falls back to the XBRL
+  // figure; when BOTH are numeric the CONSERVATIVE max wins (the model may quantify prohibited-segment
+  // revenue beyond interest, but may never silently undercount below the disclosed interest income —
+  // purification errs high, never low).
+  const xbrlInterestIncome = fundamentals?.latest_annual?.interest_income_musd
+  const modelImpermissible = shariahJudgment?.impermissible_income
+  const effectiveImpermissibleIncome: number | null =
+    modelImpermissible === undefined ? null
+    : modelImpermissible === null ? (xbrlInterestIncome ?? null)
+    : xbrlInterestIncome !== undefined ? Math.max(modelImpermissible, xbrlInterestIncome)
+    : modelImpermissible
+  const impermissibleIncomeFromXbrl =
+    xbrlInterestIncome !== undefined
+    && shariahJudgment !== undefined
+    && effectiveImpermissibleIncome === xbrlInterestIncome
+    && modelImpermissible !== xbrlInterestIncome
+  // FAIL-CLOSED on UNDETERMINED impermissible income. The pass emits impermissible_income = null when it
   // could NOT extract / the filing does not separately disclose a quantified impermissible-income line.
   // That is a DETERMINED-AS-UNDETERMINED answer (not an omission) — the harness must NOT compute a clean
-  // 0% purification from it (the compliance fail-OPEN bug). It flows to computeShariahFinancialRatios as
-  // null → computable:false → shariah_financial stays undefined → the verdict is UNDETERMINED, never a
-  // silent 0%/COMPLIANT.
+  // 0% purification from it (the compliance fail-OPEN bug). Reached only when the XBRL fallback is ALSO
+  // absent: it flows to computeShariahFinancialRatios as null → computable:false → shariah_financial
+  // stays undefined → the verdict is UNDETERMINED, never a silent 0%/COMPLIANT.
   const impermissibleIncomeUndetermined =
-    shariahJudgment !== undefined && shariahJudgment.impermissible_income === null
+    shariahJudgment !== undefined && effectiveImpermissibleIncome === null
   // When EDGAR + market cap + the Shariah overlay are all present but the ratios still come back
   // not-computable (e.g. missing revenue → divide-by-zero), capture WHY so the genuinely-not-computable
   // branch surfaces a visible shariah_ratios_unverified flag (the dogfood had NO flag here).
@@ -2542,7 +2561,7 @@ export async function runResearchDeepDivePhase(
       cash_and_securities: la.cash_and_securities_musd,
       total_revenue: la.revenue_musd,
       market_cap,
-      impermissible_income: shariahJudgment.impermissible_income,
+      impermissible_income: effectiveImpermissibleIncome,
     })
     if (ratios.computable) {
       shariah_financial = {
@@ -2582,6 +2601,18 @@ export async function runResearchDeepDivePhase(
       + 'lane could not quantify a separate impermissible-income line, so the harness did NOT compute the '
       + 'AAOIFI impermissible-income ratio. Purification CANNOT be determined; obtain the interest-income / '
       + 'prohibited-revenue figure before treating this name as clean (it is NOT 0% / fully compliant).',
+    )
+  } else if (impermissibleIncomeFromXbrl) {
+    // PROVENANCE (not a degradation): the AAOIFI impermissible-income input came from the harness's
+    // XBRL-extracted interest income (deterministic, from the same annual facts as the other ratio
+    // inputs) — either the pass returned null (not separately disclosed in the narrative it saw) or its
+    // figure undercut the disclosed interest income and the conservative max won. Visible so the human
+    // knows the number's source; purification is computed, never silently 0%.
+    degradedFlags.push(
+      `shariah_impermissible_income_xbrl: the impermissible-income input (${effectiveImpermissibleIncome}M) `
+      + 'is the harness-extracted XBRL interest income of the latest annual facts (InvestmentIncome* '
+      + 'concepts) — the deterministic AAOIFI proxy. The purification % is computed from it; verify the '
+      + 'figure against the filing\'s investment-income note if precision matters.',
     )
   } else if (
     market_cap === undefined

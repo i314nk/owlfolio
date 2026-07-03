@@ -3186,6 +3186,75 @@ describe('EDGAR-anchored OE bridge + harness AAOIFI Shariah ratios', () => {
     expect(degraded.join(' ')).not.toMatch(/impermissible_income_not_emitted/)
   })
 
+  it('null impermissible income + XBRL interest income present → harness computes from the XBRL figure (no UNDETERMINED)', async () => {
+    // No filing discloses an "impermissible income" line, so the pass honestly returns null for nearly
+    // every ticker — permanent UNDETERMINED. The harness now extracts disclosed interest income from
+    // XBRL (the AAOIFI computable proxy) and OWNS the number: a null from the pass falls back to the
+    // deterministic XBRL figure instead of failing closed, with visible provenance.
+    const store = new InMemoryEventStore()
+    await seedDeepDivePrereqs(store)
+    const provider = swarmFakeProviderWithShariah(null, 'compliant')
+    await provider.structured({} as never)
+
+    const withInterestIncome: Fundamentals = {
+      ...costFundamentals,
+      latest_annual: { ...costFundamentals.latest_annual, interest_income_musd: 300 },
+    }
+    await runResearchDeepDivePhase(store, provider as never, deepDiveCommand(), {
+      ground: verifyAllGround(),
+      laneConcurrency: 7,
+      fundamentals: withInterestIncome,
+      resolvePrice: async () => ({ available: true, price_per_share: 968, currency: 'USD', as_of: 'x', source: 'test' }),
+    })
+
+    const events = await store.list()
+    const projections = projectResearchCases(events as Parameters<typeof projectResearchCases>[0])
+    const cp = projections.find((c) => c.research_case_id === 'rc_edgar')
+    // Ratios computable from the XBRL interest income — a real purification %, not UNDETERMINED.
+    expect(cp?.shariah_financial?.verdict).toBe('CONDITIONAL')
+    expect(cp?.shariah_financial?.purification_pct).toBeCloseTo(300 / 275235, 8)
+    expect(cp?.shariah_status).toBe('CONDITIONAL')
+    expect(cp?.shariah_impermissible_income_undetermined).toBeUndefined()
+    const analysisEvent = events.find((e) => e.event_type === 'buffett_munger_analysis_drafted')
+    const valuation = (analysisEvent?.payload as Record<string, unknown>)?.['valuation'] as Record<string, unknown>
+    const degraded = (valuation?.['degraded_flags'] as string[] | undefined) ?? []
+    // Provenance is visible; the fail-closed UNDETERMINED flag is NOT raised.
+    expect(degraded.join(' ')).toMatch(/impermissible_income_xbrl/)
+    expect(degraded.join(' ')).not.toMatch(/impermissible_income_undetermined/)
+  })
+
+  it('model impermissible income BELOW the XBRL interest income → conservative max wins (flagged)', async () => {
+    // The model may quantify prohibited-segment revenue beyond interest, so a HIGHER model figure is
+    // kept; but a model figure BELOW the deterministic XBRL interest income is an undercount — the
+    // harness takes the max (purification errs high, never silently low).
+    const store = new InMemoryEventStore()
+    await seedDeepDivePrereqs(store)
+    const provider = swarmFakeProviderWithShariah(100, 'compliant')
+    await provider.structured({} as never)
+
+    const withInterestIncome: Fundamentals = {
+      ...costFundamentals,
+      latest_annual: { ...costFundamentals.latest_annual, interest_income_musd: 300 },
+    }
+    await runResearchDeepDivePhase(store, provider as never, deepDiveCommand(), {
+      ground: verifyAllGround(),
+      laneConcurrency: 7,
+      fundamentals: withInterestIncome,
+      resolvePrice: async () => ({ available: true, price_per_share: 968, currency: 'USD', as_of: 'x', source: 'test' }),
+    })
+
+    const events = await store.list()
+    const projections = projectResearchCases(events as Parameters<typeof projectResearchCases>[0])
+    const cp = projections.find((c) => c.research_case_id === 'rc_edgar')
+    expect(cp?.shariah_financial?.verdict).toBe('CONDITIONAL')
+    // purification reflects the XBRL 300 (over revenue), not the model's 100.
+    expect(cp?.shariah_financial?.purification_pct).toBeCloseTo(300 / 275235, 8)
+    const analysisEvent = events.find((e) => e.event_type === 'buffett_munger_analysis_drafted')
+    const valuation = (analysisEvent?.payload as Record<string, unknown>)?.['valuation'] as Record<string, unknown>
+    const degraded = (valuation?.['degraded_flags'] as string[] | undefined) ?? []
+    expect(degraded.join(' ')).toMatch(/impermissible_income_xbrl/)
+  })
+
   it('GENUINE zero impermissible income (lane returns 0, sector compliant) → PASS / 0% (unchanged)', async () => {
     // Replay-safety + genuine-path guard: a real affirmatively-verified 0 still computes a clean PASS.
     const store = new InMemoryEventStore()

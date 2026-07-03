@@ -554,6 +554,33 @@ describe('annual_series spans concept transitions (per-year per-field resolution
     expect(fy2023?.revenue_musd).toBeCloseTo(200, 0)
   })
 
+  // Shariah purification input: interest income extracted deterministically from XBRL (no filing has an
+  // "impermissible income" line; the AAOIFI-computable proxy is disclosed interest income). MSFT-style
+  // filers tag the combined `InvestmentIncomeInterestAndDividend`; the pure `InvestmentIncomeInterest`
+  // is preferred when present (the combined variant conservatively overcounts by including dividends).
+  it('extracts interest income per year, preferring the pure interest concept over the combined variant', async () => {
+    const facts = {
+      entityName: 'InterestCo',
+      facts: {
+        'us-gaap': {
+          NetIncomeLoss: annualFacts({ 2024: 100, 2025: 110 }),
+          Revenues: annualFacts({ 2024: 1000, 2025: 1100 }),
+          // Pure interest tagged only for 2025; the combined variant spans both years.
+          InvestmentIncomeInterest: annualFacts({ 2025: 30 }),
+          InvestmentIncomeInterestAndDividend: annualFacts({ 2024: 25, 2025: 32 }),
+        },
+      },
+    }
+    const f = await fetchCompanyFundamentals('0000000001', { fetchImpl: fakeFactsFetch(facts) })
+    expect(f).toBeDefined()
+    if (f === undefined) return
+    // 2025 resolves from the PURE interest concept (30, not the combined 32).
+    expect(f.latest_annual.interest_income_musd).toBeCloseTo(30, 0)
+    // 2024 falls back to the combined variant (conservative overcount accepted).
+    const fy2024 = f.annual_series.find((a) => a.fiscal_year === 2024)
+    expect(fy2024?.interest_income_musd).toBeCloseTo(25, 0)
+  })
+
   // FIX (as-of staleness bug): the `filed` availability date must be FIRST-disclosure (earliest 10-K that
   // reported the period), NOT the latest comparative. A 10-K restates 2-3 prior years as comparatives, so
   // latest-filed-wins tagged every fiscal year with a filing ~2-3 yrs too late and made the as-of backtest
