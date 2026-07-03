@@ -64,18 +64,6 @@ export const OwnerEarningsBridgeSchema = z.object({
   shares_outstanding: z.number(),
 })
 
-// SHARIAH lane JUDGMENT overlay (the LLM identifies; the harness recomputes the financial ratios).
-// sector_status confirms the Stage-0 finding with segment data; impermissible_income is the dollar
-// amount ($MILLIONS) of non-permissible income (interest income, prohibited-segment revenue). The
-// harness divides this by EDGAR revenue — it does NOT trust the model's own ratio arithmetic.
-const ShariahJudgmentSchema = z.object({
-  sector_status: z.enum(['compliant', 'conditional', 'non_compliant']),
-  // Impermissible income in $MILLIONS (same scale as EDGAR revenue). 0 ONLY when the filing
-  // affirmatively shows zero impermissible income; null when the impermissible-income line cannot be
-  // found/quantified (undetermined) — DO NOT guess 0. A false 0 produces a falsely-clean compliance
-  // verdict (fail-OPEN: missing data → bogus 0% purification); null fails closed to UNDETERMINED.
-  impermissible_income: z.number().min(0).nullable(),
-})
 
 // NOTE (runway reframe): the per-row LaneRubricSchema (rubric_scores 0/1/2 + proposed_tier +
 // adjustment_evidence) was the input shape for the MOAT (db691ac) and then the RUNWAY (this reframe) lane
@@ -87,7 +75,8 @@ const ShariahJudgmentSchema = z.object({
 // Per-lane JUDGMENT schemas (spec-correct decomposition — Integration Point #1).
 // Each judgment-heavy LANE produces its OWN judgment. B6 reframe: the moat lane emits a GROUNDED CITED
 // THESIS (moat_drivers + proposed_moat_class — mirror of the circle gate) PLUS the (still-rubric) runway
-// axis; the shariah lane emits the sector_status + impermissible_income overlay as REQUIRED. These are
+// axis; the sector_status + impermissible_income overlay is now produced by the focused
+// Shariah-reasoning pass (shariahReasoningPass), not a parallel lane. These are
 // small, FOCUSED schemas (the lane's base finding + just its judgment block) so a live model is not asked
 // to fill one giant monolithic synthesis schema (the dogfood failure). Each is run under runValidatedAgent
 // with its judgment fields as requiredFields — the retry FORCES them; only after 2 fails does the visible
@@ -150,15 +139,6 @@ export const MoatLaneSchema = z.object({
   proposed_runway: z.enum(['proven', 'limited', 'none']),
   // The model's narrative runway reasoning.
   runway_reasoning: z.string().min(1),
-})
-
-export const ShariahLaneSchema = z.object({
-  ...LaneAgentBaseShape,
-  // The SHARIAH lane's own judgment overlay (REQUIRED on this lane's schema): sector_status +
-  // impermissible_income ($M). The harness recomputes the AAOIFI ratios from EDGAR + market cap +
-  // this lane-supplied impermissible_income — it does NOT trust the model's own ratio arithmetic.
-  sector_status: ShariahJudgmentSchema.shape.sector_status,
-  impermissible_income: ShariahJudgmentSchema.shape.impermissible_income,
 })
 
 // ---------------------------------------------------------------------------
@@ -224,11 +204,12 @@ export const DecisionAgentSchema = z.object({
   open_questions: z.array(z.string().min(1)).min(1),
   // NOTE (spec-correct decomposition): the moat_class / runway / runway_exceptional / moat_rubric /
   // runway_rubric judgment fields now live on the MOAT lane's schema (MoatLaneSchema), and the Shariah
-  // sector_status + impermissible_income overlay lives on the SHARIAH lane's schema (ShariahLaneSchema).
+  // sector_status + impermissible_income overlay is produced by the focused shariah reasoning pass
+  // (shariahReasoningPass) — not by a synthesis field.
   // The judgment-objectivity spec assigns rubric scoring to the producing LANE — so the synthesis schema
   // no longer carries them (the dogfood failure: a live model omitted them from this monolithic schema).
   // The harness reads moat_class/runway/rubrics from the moat lane output and the Shariah overlay from
-  // the shariah lane output; synthesis keeps only synthesis_response (its red-team obligation).
+  // the focused pass output; synthesis keeps only synthesis_response (its red-team obligation).
   growth_assumptions: z.string().min(1),
   // Owner-earnings bridge — totals in $millions, judgment-grounded
   owner_earnings_bridge: OwnerEarningsBridgeSchema,
@@ -391,15 +372,6 @@ export const MOAT_RUBRIC_PROMPT =
   + `EXAMPLE moat_drivers (shape only): [{"advantage":"concentrate price increases stick with no volume loss","citation":"sec_edgar_10k_<cik>_fy<year>"},{"advantage":"global brand + bottler distribution scale advantage","citation":"<verified-source_id>"}]. `
   + `EXAMPLE runway_drivers (shape only): [{"headroom":"emerging-market per-capita consumption under 1/4 of developed markets — decades of volume runway","citation":"sec_edgar_10k_<cik>_fy<year>"},{"headroom":"announced bottling-capacity expansion deploys capital at >20% incremental ROIC","citation":"<verified-source_id>"}].`
 
-// SHARIAH-lane judgment overlay instructions (moved here from the synthesis prompt). The lane supplies
-// the JUDGMENT only; the harness recomputes the AAOIFI ratios + verdict + purification % from filings.
-export const SHARIAH_OVERLAY_PROMPT =
-  ` As the SHARIAH lane you ALSO produce the judgment overlay — REQUIRED, do not omit (omitting it leaves the AAOIFI ratios unverified and flags shariah_ratios_unverified): `
-  + `sector_status ('compliant' | 'conditional' | 'non_compliant') confirmed with segment revenue, and impermissible_income — the dollar amount in $MILLIONS of non-permissible income (interest income on cash + prohibited-segment revenue). `
-  + `Set impermissible_income to that $M figure ONLY IF the filing discloses it or lets you quantify it. Set it to 0 ONLY when the filing AFFIRMATIVELY shows zero impermissible income. If the filing does NOT provide a separately quantifiable impermissible-income line, set impermissible_income to null (undetermined) — DO NOT default to 0: a false 0 produces a falsely-clean compliance verdict (the harness then reports 0% purification / fully compliant on data you never actually found). null is an ACCEPTED, complete answer; the harness fails closed to UNDETERMINED rather than clean. `
-  + `The harness recomputes the AAOIFI debt/cash/impermissible ratios + verdict + purification % from the primary filings + market cap; do NOT compute the ratios yourself. `
-  + `EXAMPLE (disclosed): {"sector_status":"compliant","impermissible_income":128.0}. EXAMPLE (not separately disclosed): {"sector_status":"compliant","impermissible_income":null}.`
-
 // RISKS-lane recency framing (the "web tier"). The risks lane is the only allow_unknown lane — it may cite
 // web/media — so it is the seam where recency could masquerade as decision-grade. This note keeps both
 // trees honest: web/media recency is best-effort COLOR; thesis-critical recency (material 8-K events) is
@@ -441,4 +413,4 @@ export const CIRCLE_COMPETENCE_PROMPT =
 // moat lane does NOT get the full primary-filing NUMBERS block (that stays on the financial lanes), so
 // neither the moat nor the runway thesis gets the numbers block — only the citable id; injectFiling only
 // governs the withFiling verified-id force-add for the moat lane (see researchSwarm.ts).
-export const PRIMARY_FILING_LANES: ReadonlySet<string> = new Set(['financial_quality', 'shariah', 'moat'])
+export const PRIMARY_FILING_LANES: ReadonlySet<string> = new Set(['financial_quality', 'moat'])

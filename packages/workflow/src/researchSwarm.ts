@@ -83,14 +83,12 @@ import {
   QuickScreenAgentSchema,
   LaneAgentSchema,
   MoatLaneSchema,
-  ShariahLaneSchema,
   DecisionAgentSchema,
   MoatCrossCheckSchema,
   ShariahCrossCheckSchema,
   CircleCompetenceSchema,
   AGENT_TIMEOUT_MS,
   MOAT_RUBRIC_PROMPT,
-  SHARIAH_OVERLAY_PROMPT,
   CIRCLE_COMPETENCE_PROMPT,
   RISKS_RECENCY_NOTE,
   PRIMARY_FILING_LANES,
@@ -152,8 +150,6 @@ export type LaneOutcome = {
   policy_rejections?: SourcePolicyRejection[]
   /** MOAT lane only: its rubric/holistic judgment (spec-correct: the lane scores its own rubric). */
   moat_judgment?: MoatLaneJudgment
-  /** SHARIAH lane only: its sector/impermissible-income overlay (harness recomputes the ratios). */
-  shariah_judgment?: ShariahLaneJudgment
   /** Visible per-lane degradation: the lane omitted its REQUIRED judgment block after schema-retry. */
   judgment_retry_degraded?: string
 }
@@ -934,8 +930,8 @@ export async function runResearchDeepDivePhase(
 
   // ---- Pre-fetch SEC EDGAR primary-filing fundamentals (fail-closed, test-mode-gated) ----
   // When fundamentals resolve, we ground the latest 10-K as a verified primary source and inject the
-  // raw filing numbers into the financial_quality / shariah lanes so those lanes ground on
-  // filings instead of dropping when IR/news is blocked. When they do not resolve (non-US ticker,
+  // raw filing numbers into the financial_quality / moat lanes (PRIMARY_FILING_LANES) so those lanes
+  // ground on filings instead of dropping when IR/news is blocked. When they do not resolve (non-US ticker,
   // EDGAR down, test mode w/o injection), the lanes run EXACTLY as today — no regression.
   //
   // citation/corpus-alignment fix (KO regression): this runs BEFORE the circle gate (not after, where it
@@ -1011,16 +1007,16 @@ export async function runResearchDeepDivePhase(
     ? buildPreVerifiedSourcesBlock([primaryFilingSourceId])
     : undefined
 
-  // ---- CIRCLE-OF-COMPETENCE GATE (sequential pre-deep-dive stage — gates the 6-lane spend) ----
+  // ---- CIRCLE-OF-COMPETENCE GATE (sequential pre-deep-dive stage — gates the 5-lane spend) ----
   // The circle of competence is a GROUNDED MODEL JUDGMENT, not a config screen: "do I understand THIS
   // business well enough to assess its cashflow predictability?" It runs as its OWN call (NOT an 8th
-  // parallel lane) at the START of the deep-dive phase, BEFORE the expensive 6 lanes — the cheap quick
+  // parallel lane) at the START of the deep-dive phase, BEFORE the expensive 5 lanes — the cheap quick
   // screen already ran. The model must DEMONSTRATE understanding: cite-verify BOTH the cashflow drivers
   // AND what would make them unpredictable, held to the SAME rigor. Binary outcome:
-  //   - in-competence  → proceed to the 6-lane deep dive + synthesis + decision (today's path).
+  //   - in-competence  → proceed to the 5-lane deep dive + synthesis + decision (today's path).
   //   - outside-competence (model says so, OR fail-closed on EITHER ungrounded clause) → SET ASIDE: emit a
   //     terminal decision with verdict PASS carrying competence_reasoning + the circle_competence_unmet
-  //     flag; the 6 lanes do NOT run. NEVER RESEARCH_MORE — a valid, common, CORRECT Buffett output.
+  //     flag; the 5 lanes do NOT run. NEVER RESEARCH_MORE — a valid, common, CORRECT Buffett output.
   const circle = await judgeCircleCompetence(provider, command, {
     ...deps,
     ...(preVerifiedSourcesBlock === undefined ? {} : { preVerifiedSourcesBlock }),
@@ -1106,7 +1102,7 @@ export async function runResearchDeepDivePhase(
   } satisfies LedgerEventEnvelope<unknown>)
 
   if (!inCompetence) {
-    // ---- OUTSIDE COMPETENCE → SET ASIDE (terminal PASS) — the 6 lanes do NOT run ----
+    // ---- OUTSIDE COMPETENCE → SET ASIDE (terminal PASS) — the 5 lanes do NOT run ----
     const circleSourceIds = [...new Set([...command.quick_screen_source_ids, ...circle.verified_ids])]
     const setAsideReason = `Set aside — outside the circle of competence. ${circle.analysis.competence_reasoning}`
     const analysisEvent: LedgerEventEnvelope<unknown> = {
@@ -1222,18 +1218,16 @@ export async function runResearchDeepDivePhase(
     // gates the prompt numbers block and EXCLUDES the moat lane.
     const injectFiling = primaryFilingBlock !== undefined && PRIMARY_FILING_LANES.has(lane)
     const injectFilingNumbers = injectFiling && lane !== 'moat'
-    // model-tiering: the highest-stakes lanes resolve their OWN registry role (moat → lane_moat,
-    // shariah → lane_shariah); every other lane uses lanes_default. Default = the run's provider/model
-    // so single-provider runs are unchanged; an override can pin moat/shariah onto a stronger model.
-    const laneRole: ModelRoleId = lane === 'moat' ? 'lane_moat' : lane === 'shariah' ? 'lane_shariah' : 'lanes_default'
+    // model-tiering: the highest-stakes lane resolves its OWN registry role (moat → lane_moat);
+    // every other lane uses lanes_default. Default = the run's provider/model so single-provider
+    // runs are unchanged; an override can pin moat onto a stronger model.
+    const laneRole: ModelRoleId = lane === 'moat' ? 'lane_moat' : 'lanes_default'
     const laneRuntime = resolveRoleRuntime(laneRole, provider, command)
     const sourceDiscipline = lane === 'risks'
       ? `As the RISKS lane you may cite anything — knowing the consensus IS the job.${RISKS_RECENCY_NOTE}`
       : lane === 'management'
         ? `Cite filings, proxies (DEF 14A), transcripts, and insider-trading data; media profiles will be rejected.`
-        : lane === 'shariah'
-          ? `Cite filings, segment disclosures, and Shariah screening providers; sell-side/media will be rejected.`
-          : `Cite filings, transcripts, regulatory/statistical data, and company disclosures; sell-side research, financial media, investor write-ups, and blogs will be rejected.`
+        : `Cite filings, transcripts, regulatory/statistical data, and company disclosures; sell-side research, financial media, investor write-ups, and blogs will be rejected.`
     const basePrompt = `You are the Buffett-Munger ${lane} specialist agent for ${command.ticker}. `
       + `Produce a source-backed finding for the ${lane} lane only. Gather your own sources; return them in proposed_sources with real URLs. `
       + `SOURCE DISCIPLINE (Mechanism 6): this lane reasons from PRIMARY documents. ${sourceDiscipline}`
@@ -1328,53 +1322,6 @@ export async function runResearchDeepDivePhase(
         ...(agent.policy_rejections.length > 0 ? { policy_rejections: agent.policy_rejections } : {}),
         ...(validated.status === 'failed'
           ? { judgment_retry_degraded: `moat_lane_schema_retry_exhausted: the model omitted [${validated.missing.join(', ')}] after ${validated.attempts} attempts (${validated.reason}). Resolved holistically.` }
-          : {}),
-      }
-    }
-
-    // ---- SHARIAH lane: emits its OWN sector_status + impermissible_income overlay ----
-    // The harness recomputes the AAOIFI ratios from EDGAR + market cap + this lane-supplied
-    // impermissible_income. Required under runValidatedAgent; after 2 fails → shariah_ratios_unverified.
-    if (lane === 'shariah') {
-      const shariahRequired: RequiredFieldCheck<z.infer<typeof ShariahLaneSchema>>[] = [
-        { name: 'sector_status', present: (a) => a.sector_status !== undefined, hint: "'compliant' | 'conditional' | 'non_compliant' confirmed with segment revenue" },
-        // null (undetermined — not separately disclosed) is an ACCEPTED, complete answer and counts as
-        // PRESENT; only a truly ABSENT field (undefined) triggers the retry/fallback. DO NOT guess 0.
-        { name: 'impermissible_income', present: (a) => a.impermissible_income !== undefined, hint: 'non-permissible income in $MILLIONS (0 ONLY if affirmatively zero; null if not separately disclosed — do NOT guess 0)' },
-      ]
-      const validated = await runValidatedAgent(laneRuntime.provider, {
-        run_id: baseRunId,
-        model_id: laneRuntime.model_id,
-        prompt: basePrompt + SHARIAH_OVERLAY_PROMPT,
-        timeout_ms: AGENT_TIMEOUT_MS,
-        schema_name: 'BuffettMungerShariahLane',
-      }, ShariahLaneSchema, {
-        ...deps,
-        lane,
-        requiredFields: shariahRequired,
-        useToolLoop: true,
-        readCorpus: accumulated,
-        ...(deps.fetchFundamentals === undefined ? {} : { fetchFundamentals: deps.fetchFundamentals }),
-      })
-      const agent = validated.status === 'ok' ? validated.result : validated.lastResult
-      if (agent === undefined) {
-        throw new Error(`Shariah lane produced no parseable output: ${validated.status === 'failed' ? validated.reason : 'unknown'}`)
-      }
-      remember(agent.captured)
-      const a = agent.analysis
-      // Only surface the overlay when BOTH required fields are present (a schema-valid live model always
-      // has them; the fallback path leaves shariah_judgment undefined → shariah_ratios_unverified flag).
-      const overlayPresent = a.sector_status !== undefined && a.impermissible_income !== undefined
-      return {
-        lane,
-        finding_summary: a.finding_summary,
-        confidence: a.confidence,
-        caveats: a.caveats,
-        verified_ids: withFiling(agent.verified_ids),
-        ...(overlayPresent ? { shariah_judgment: { sector_status: a.sector_status, impermissible_income: a.impermissible_income } } : {}),
-        ...(agent.policy_rejections.length > 0 ? { policy_rejections: agent.policy_rejections } : {}),
-        ...(validated.status === 'failed'
-          ? { judgment_retry_degraded: `shariah_lane_schema_retry_exhausted: the model omitted [${validated.missing.join(', ')}] after ${validated.attempts} attempts (${validated.reason}).` }
           : {}),
       }
     }
@@ -1486,12 +1433,12 @@ export async function runResearchDeepDivePhase(
     throw new Error(`No specialist lane produced a verifiable source for ${command.ticker}; research aborted (fail-closed).`)
   }
 
-  // ---- Mechanism 5: Red-Team Pass (after the 6 lanes, BEFORE synthesis) ----
+  // ---- Mechanism 5: Red-Team Pass (after the 5 lanes, BEFORE synthesis) ----
   // One adversarial grounded agent whose ONLY mandate is to break the case. It receives a compact
   // digest of the lane findings + the mechanically-computed anchor tiers + the verified source corpus,
   // and cites the SAME corpus (it is the consensus-knowing lane — allowed all source categories). Its
   // strongest objection is cite-checked; synthesis is then OBLIGED to answer it or downgrade. A
-  // red-team timeout DEGRADES (red_team_incomplete) — the run continues so a completed 6-lane deep dive
+  // red-team timeout DEGRADES (red_team_incomplete) — the run continues so a completed 5-lane deep dive
   // is never discarded. model-tiering-spec: the red team now resolves the `red_team` registry role —
   // when an override pins a DIFFERENT provider/model it genuinely runs on a different model than the
   // lanes (catches shared-narrative error single-model cross-checks cannot). Default = the run's model.

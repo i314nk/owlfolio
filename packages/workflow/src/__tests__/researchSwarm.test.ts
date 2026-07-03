@@ -129,7 +129,7 @@ function runwayThesisForTier(tier: 'none' | 'limited' | 'proven', cite: string) 
 }
 
 // Shared per-lane judgment payloads for the schema-name-keyed fakes (spec-correct decomposition: the
-// MOAT lane emits its grounded moat + runway theses, the SHARIAH lane emits its overlay).
+// MOAT lane emits its grounded moat + runway theses).
 function fakeMoatLanePayload(src: (id: string) => unknown) {
   return {
     finding_summary: 'Moat lane finding', confidence: 'medium' as const, caveats: ['Mock moat caveat'],
@@ -140,14 +140,6 @@ function fakeMoatLanePayload(src: (id: string) => unknown) {
     proposed_sources: [src('src_lane_moat')],
   }
 }
-function fakeShariahLanePayload(src: (id: string) => unknown) {
-  return {
-    finding_summary: 'Shariah lane finding', confidence: 'medium' as const, caveats: ['Mock shariah caveat'],
-    sector_status: 'compliant' as const, impermissible_income: 0,
-    proposed_sources: [src('src_lane_shariah')],
-  }
-}
-
 // Shared in-competence circle-of-competence payload for the existing fake providers (so the pre-deep-dive
 // circle gate PASSES and the deep dive proceeds exactly as before). The two citation source_ids
 // (src_circle_driver / src_circle_breaker) verify under every test's ground fn (they contain neither
@@ -197,7 +189,6 @@ function swarmFakeProvider() {
         }
       }
       if (schemaName === 'BuffettMungerMoatLane') return fakeMoatLanePayload(src)
-      if (schemaName === 'BuffettMungerShariahLane') return fakeShariahLanePayload(src)
       if (schemaName === 'BuffettMungerLaneFinding') {
         const n = laneCall++
         return {
@@ -309,13 +300,6 @@ function swarmFakeProviderWithLaneIds(_lanes: readonly string[]) {
           proposed_sources: [src('src_moat_1')],
         }
       }
-      if (schemaName === 'BuffettMungerShariahLane') {
-        return {
-          finding_summary: 'shariah lane finding', confidence: 'medium' as const, caveats: ['Mock lane caveat'],
-          sector_status: 'compliant' as const, impermissible_income: 0,
-          proposed_sources: [src('src_shariah_1')],
-        }
-      }
       if (schemaName === 'BuffettMungerLaneFinding') {
         const lane = laneFromPrompt(req.prompt)
         return {
@@ -414,7 +398,7 @@ describe('runStrategyResearchSwarm', () => {
     const types = events.map((e) => e.event_type)
     expect(types).toContain('research_case_created')
     expect(types).toContain('quick_screen_drafted')
-    expect(types.filter((t) => t === 'specialist_finding_recorded').length).toBeGreaterThanOrEqual(6)
+    expect(types.filter((t) => t === 'specialist_finding_recorded').length).toBeGreaterThanOrEqual(5)
     expect(types).toContain('deep_dive_synthesis_drafted')
     expect(types).toContain('decision_drafted')
     expect(result.decision).toBeDefined()
@@ -473,30 +457,30 @@ describe('runStrategyResearchSwarm', () => {
     })
     expect(moatFinding).toBeUndefined()
 
-    // All other lanes (5 of 6) must have their findings recorded
+    // All other lanes (4 of 5) must have their findings recorded
     expect(findingEvents.length).toBe(buffettMungerDeepDiveLanes.length - 1)
   })
 
-  it('fails closed with shariah_deep_screen_incomplete when the shariah lane grounds zero verified sources', async () => {
+  it('fails closed with shariah_deep_screen_incomplete when the shariah-reasoning pass fails via provider fall-through', async () => {
     const store = new InMemoryEventStore()
     const provider = swarmFakeProviderWithLaneIds(buffettMungerDeepDiveLanes)
-    // Ground verifies every source EXCEPT those belonging to the 'shariah' lane, so the shariah deep
-    // re-screen grounds zero verifiable sources and is skipped. The lane STILL emits its overlay
-    // (sector_status='compliant', impermissible_income=0) — the Case-2 gap: the harness would keep the
-    // quick-screen COMPLIANT with no visible "the deep re-screen did not run" caveat. It must fail closed.
+    // swarmFakeProviderWithLaneIds has no BuffettMungerShariahReasoning handler, so the Shariah-reasoning
+    // pass falls through to the synthesis payload (missing shariah_judgment field). Schema validation
+    // fails and runValidatedAgent exhausts its retries → shariahPassOutcome = { status: 'failed' }.
+    // There is no shariah lane, so no source_id filtering on 'shariah' is needed — all sources are
+    // passed through normally; the pass failure is entirely driven by the provider fall-through.
     const ground = async (sources: { source_id: string }[]) => {
-      const verified = sources.filter((s) => !s.source_id.includes('shariah'))
       return {
         captured: sources.map((s) => ({
           source_id: s.source_id,
           title: 't',
           url: 'https://example.com/x',
           excerpt: 'e',
-          availability: (s.source_id.includes('shariah') ? 'unavailable' : 'available') as 'available' | 'unavailable',
+          availability: 'available' as 'available' | 'unavailable',
           fetched_at: 'x',
-          ...(s.source_id.includes('shariah') ? {} : { content_hash: 'sha256:1' }),
+          content_hash: 'sha256:1',
         })),
-        verified_ids: verified.map((s) => s.source_id),
+        verified_ids: sources.map((s) => s.source_id),
       }
     }
     const result = await runStrategyResearchSwarm(
@@ -518,7 +502,7 @@ describe('runStrategyResearchSwarm', () => {
 
     const events = await store.list()
 
-    // The shariah finding is skipped (zero verified sources) — as expected for a fail-closed skip.
+    // The shariah lane is removed — no shariah specialist finding is recorded.
     const findingEvents = events.filter((e) => e.event_type === 'specialist_finding_recorded')
     const shariahFinding = findingEvents.find((e) => (e.payload as Record<string, unknown>)['specialist_lane'] === 'shariah')
     expect(shariahFinding).toBeUndefined()
@@ -538,14 +522,12 @@ describe('runStrategyResearchSwarm', () => {
     expect(result.decision).toBeDefined()
   })
 
-  it('fails closed with shariah_deep_screen_incomplete when the focused shariah-reasoning pass fails (lane grounds sources)', async () => {
-    // Task 3 target: when the shariah-reasoning PASS fails — not the lane — the fail-closed flag fires.
-    // The shariah lane DOES ground a verifiable source (allVerifiedGround verifies every proposed source),
-    // so the OLD lane-based flag (shariahLaneResult.verified_ids.length === 0) would NOT fire here.
-    // Only the NEW pass-based flag (shariahPassOutcome.status !== 'ok') correctly fires.
-    // We drive the pass to fail via omitShariahOverlay: true — the provider returns no shariah_judgment
-    // on the BuffettMungerShariahReasoning call, schema-validation fails (required field missing), and
-    // runValidatedAgent exhausts its retries → shariahPassOutcome = { status: 'failed', ... }.
+  it('fails closed with shariah_deep_screen_incomplete when the focused shariah-reasoning pass fails', async () => {
+    // The shariah lane is removed; shariah_deep_screen_incomplete is now exclusively keyed off the
+    // focused Shariah-reasoning pass outcome. We drive the pass to fail via omitShariahOverlay: true —
+    // the provider returns no shariah_judgment on the BuffettMungerShariahReasoning call,
+    // schema-validation fails (required field missing), and runValidatedAgent exhausts its retries
+    // → shariahPassOutcome = { status: 'failed', ... }.
     const store = new InMemoryEventStore()
     const provider = configurableSwarmProvider({
       laneCount: buffettMungerDeepDiveLanes.length,
@@ -909,7 +891,7 @@ describe('runStrategyResearchSwarm with MockProvider + deterministic grounder', 
 
     expect(types).toContain('research_case_created')
     expect(types).toContain('quick_screen_drafted')
-    expect(types.filter((t) => t === 'specialist_finding_recorded').length).toBeGreaterThanOrEqual(6)
+    expect(types.filter((t) => t === 'specialist_finding_recorded').length).toBeGreaterThanOrEqual(5)
     expect(types).toContain('deep_dive_synthesis_drafted')
     expect(types).toContain('decision_drafted')
     expect(result.decision).toBeDefined()
@@ -1181,7 +1163,7 @@ function configurableSwarmProvider(opts: {
   // redTeamCitations: which corpus source_ids the red team's strongest objection cites.
   redTeamCitations?: string[]
   // Spec-correct decomposition: the MOAT lane omits its rubric (→ rubric_not_emitted holistic fallback)
-  // and/or the SHARIAH lane omits its overlay (→ shariah_ratios_unverified) — the live-dogfood shape.
+  // and/or the Shariah-reasoning pass omits its overlay (→ shariah_ratios_unverified) — the live-dogfood shape.
   omitMoatRubric?: boolean
   omitShariahOverlay?: boolean
   // Founding-risk fix: omit valuation_reasoning entirely (→ synthesis_grounding_unmet) — the live shape.
@@ -1274,14 +1256,6 @@ function configurableSwarmProvider(opts: {
             ? {}
             : moatThesisForTier(moatClass, 'src_lane_moat')),
           proposed_sources: [src('src_lane_moat')],
-        }
-      }
-      if (schemaName === 'BuffettMungerShariahLane') {
-        return {
-          finding_summary: 'Shariah lane finding', confidence: 'high',
-          caveats: ['Mock shariah caveat'],
-          ...(opts.omitShariahOverlay === true ? {} : { sector_status: 'compliant', impermissible_income: 0 }),
-          proposed_sources: [src('src_lane_shariah')],
         }
       }
       // Focused Shariah-reasoning pass (always-on): the overlay the harness recompute now sources from.
@@ -2665,7 +2639,7 @@ function deepDiveCommand() {
 }
 
 describe('SEC EDGAR primary-filing wiring', () => {
-  it('grounds the 10-K and injects primary numbers into financial_quality/shariah lanes', async () => {
+  it('grounds the 10-K and injects primary numbers into the financial_quality lane', async () => {
     const store = new InMemoryEventStore()
     await seedDeepDivePrereqs(store)
 
@@ -2679,19 +2653,18 @@ describe('SEC EDGAR primary-filing wiring', () => {
       fundamentals: costFundamentals,
     })
 
-    // The structured() prompts for the two financial lanes must contain the primary-filing block.
+    // The structured() prompt for the financial_quality lane must contain the primary-filing block.
+    // (Shariah is no longer a parallel lane — its overlay comes from the focused Shariah-reasoning pass.)
     const prompts = provider.structured.mock.calls.map((c: unknown[]) => (c[0] as { prompt?: string }).prompt).filter((p): p is string => typeof p === "string")
     const financialLanePrompt = prompts.find((p) => p.includes('financial_quality specialist'))
-    const shariahLanePrompt = prompts.find((p) => p.includes('shariah specialist'))
     const moatLanePrompt = prompts.find((p) => p.includes('moat specialist'))
 
-    for (const p of [financialLanePrompt, shariahLanePrompt]) {
-      expect(p).toBeDefined()
-      expect(p).toContain('Primary filing data (SEC EDGAR, FY2025')
-      expect(p).toContain('$8,099M') // net income, $millions
-      expect(p).toContain('sec_edgar_10k_0000909832_fy2025')
-    }
-    // Non-financial lanes (e.g. moat) must NOT receive the injection.
+    expect(financialLanePrompt).toBeDefined()
+    expect(financialLanePrompt).toContain('Primary filing data (SEC EDGAR, FY2025')
+    expect(financialLanePrompt).toContain('$8,099M') // net income, $millions
+    expect(financialLanePrompt).toContain('sec_edgar_10k_0000909832_fy2025')
+
+    // Non-financial lanes (e.g. moat) must NOT receive the numbers injection.
     expect(moatLanePrompt).toBeDefined()
     expect(moatLanePrompt).not.toContain('Primary filing data (SEC EDGAR')
 
@@ -5000,7 +4973,7 @@ describe('circle-of-competence gate', () => {
     // The judgment was recorded and the deep dive ran (lanes + synthesis).
     expect(types).toContain('circle_competence_judged')
     expect(types).toContain('deep_dive_started')
-    expect(types.filter((t) => t === 'specialist_finding_recorded').length).toBeGreaterThanOrEqual(6)
+    expect(types.filter((t) => t === 'specialist_finding_recorded').length).toBeGreaterThanOrEqual(5)
     expect(types).toContain('deep_dive_synthesis_drafted')
     expect(types).toContain('decision_drafted')
     // The model's (gated) verdict flows through — NOT a circle set-aside.

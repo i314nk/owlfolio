@@ -23,7 +23,6 @@ export const PIPELINE_SPECIALIST_LANES = [
   'moat',
   'management',
   'financial_quality',
-  'shariah',
   'risks',
 ] as const
 
