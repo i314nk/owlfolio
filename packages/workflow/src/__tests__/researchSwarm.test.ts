@@ -538,6 +538,53 @@ describe('runStrategyResearchSwarm', () => {
     expect(result.decision).toBeDefined()
   })
 
+  it('fails closed with shariah_deep_screen_incomplete when the focused shariah-reasoning pass fails (lane grounds sources)', async () => {
+    // Task 3 target: when the shariah-reasoning PASS fails — not the lane — the fail-closed flag fires.
+    // The shariah lane DOES ground a verifiable source (allVerifiedGround verifies every proposed source),
+    // so the OLD lane-based flag (shariahLaneResult.verified_ids.length === 0) would NOT fire here.
+    // Only the NEW pass-based flag (shariahPassOutcome.status !== 'ok') correctly fires.
+    // We drive the pass to fail via omitShariahOverlay: true — the provider returns no shariah_judgment
+    // on the BuffettMungerShariahReasoning call, schema-validation fails (required field missing), and
+    // runValidatedAgent exhausts its retries → shariahPassOutcome = { status: 'failed', ... }.
+    const store = new InMemoryEventStore()
+    const provider = configurableSwarmProvider({
+      laneCount: buffettMungerDeepDiveLanes.length,
+      omitShariahOverlay: true,
+    })
+    const sourceLedgerPath = await mkdtemp(join(tmpdir(), 'owlfolio-shariah-pass-fail-'))
+    await runStrategyResearchSwarm(
+      store,
+      provider as never,
+      {
+        research_case_id: 'rc_shariah_pass_fail',
+        company_id: 'c',
+        ticker: 'SHAR',
+        strategy_id: 'buffett-munger',
+        actor_id: 'user_local',
+        idempotency_key: 'k',
+        model_id: 'mock',
+        decision_id: 'd_shariah_pass_fail',
+        source_ledger_path: sourceLedgerPath,
+      },
+      { ground: allVerifiedGround, laneConcurrency: 4 },
+    )
+
+    const events = await store.list()
+
+    // The analysis event must carry the fail-closed deep-screen-incomplete flag ALONGSIDE the verdict.
+    const analysis = events.find((e) => e.event_type === 'buffett_munger_analysis_drafted')
+    expect(analysis).toBeDefined()
+    const analysisPayload = analysis!.payload as Record<string, unknown>
+    expect(analysisPayload['shariah_deep_screen_incomplete']).toBe(true)
+    // The Shariah verdict must NOT be flipped — the flag rides ALONGSIDE the quick-screen verdict.
+    expect(analysisPayload['shariah_status']).toBe('CONDITIONAL')
+    // The caveat must surface in the decision open_questions (the shariah_ratios_unverified string channel).
+    const decision = events.find((e) => e.event_type === 'decision_drafted')
+    expect(decision).toBeDefined()
+    const openQuestions = ((decision!.payload as Record<string, unknown>)['open_questions'] as string[] | undefined) ?? []
+    expect(openQuestions.some((q) => /shariah_ratios_unverified:.*shariah_deep_screen_incomplete/.test(q))).toBe(true)
+  })
+
   it('excludes unverified sources from ledger events but records them as unavailable in the bundle', async () => {
     // Each stage proposes TWO sources: one whose id contains 'good' (verified) and one
     // containing 'bad' (unverified). The ground function verifies only the good ones.
