@@ -652,7 +652,6 @@ describe('strategy-agnostic research pipeline foundation', () => {
       'specialist_finding_recorded',
       'specialist_finding_recorded',
       'specialist_finding_recorded',
-      'specialist_finding_recorded',
       'deep_dive_synthesis_drafted',
       'deep_dive_completed',
     ])
@@ -1067,5 +1066,15 @@ describe('strategy-agnostic research pipeline foundation', () => {
       expect.objectContaining({ research_case_id: 'rc_pass_001', stage: 'pass', strategy_id: 'buffett-munger', strategy_version: '1.0.0' }),
       expect.objectContaining({ research_case_id: 'rc_reject_001', stage: 'rejected', strategy_id: 'income-quality', strategy_version: '0.1.0' }),
     ]))
+  })
+})
+
+describe('deep-dive lanes exclude the redundant valuation lane', () => {
+  it('runs 6 lanes and does NOT include valuation (owned by the focused valuation pass)', () => {
+    expect(buffettMungerDeepDiveLanes).not.toContain('valuation')
+    expect(buffettMungerDeepDiveLanes.length).toBe(6)
+    expect([...buffettMungerDeepDiveLanes]).toEqual([
+      'business_quality', 'moat', 'management', 'financial_quality', 'shariah', 'risks',
+    ])
   })
 })

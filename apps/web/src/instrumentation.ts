@@ -1,5 +1,3 @@
-import { hydrateProcessEnvFromEnvKeys } from '@owlfolio/onboarding/envKeys'
-
 /**
  * Next.js startup hook (runs once, before the server handles requests).
  *
@@ -10,10 +8,13 @@ import { hydrateProcessEnvFromEnvKeys } from '@owlfolio/onboarding/envKeys'
  */
 export async function register(): Promise<void> {
   // Only the Node.js server runtime can read the local file; the Edge runtime has no fs access.
+  // The import is deferred INSIDE this guard so Turbopack never bundles the fs/os-backed envKeys module
+  // for the Edge instrumentation runtime (a static top-level import fails to compile there).
   if (process.env.NEXT_RUNTIME !== 'nodejs') {
     return
   }
   try {
+    const { hydrateProcessEnvFromEnvKeys } = await import('@owlfolio/onboarding/envKeys')
     const hydrated = await hydrateProcessEnvFromEnvKeys()
     if (hydrated.length > 0) {
       // Log NAMES only — never values (security invariant).

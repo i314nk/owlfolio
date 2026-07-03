@@ -29,15 +29,26 @@ export const QuickScreenAgentSchema = z.object({
   proposed_sources: z.array(ProposedSourceSchema),
 })
 
+// A lane MUST produce written analysis, not a bare placeholder. `min(1)` accepted "..." (the model
+// deferring the valuation lane), which then rendered as an empty lane card. Require at least one
+// alphanumeric character so "...", "…", ".", "-", and whitespace fail validation → the agent loop
+// retries, and on exhaustion the lane is recorded incomplete rather than emitting empty prose.
+const laneFindingSummarySchema = z
+  .string()
+  .min(1)
+  .refine((value) => /[a-z0-9]/i.test(value), {
+    message: 'finding_summary must contain written analysis, not a placeholder',
+  })
+
 export const LaneAgentSchema = z.object({
-  finding_summary: z.string().min(1),
+  finding_summary: laneFindingSummarySchema,
   confidence: z.enum(['low', 'medium', 'high']),
   caveats: z.array(z.string().min(1)).min(1),
   proposed_sources: ProposedSourcesSchema,
 })
 
 const LaneAgentBaseShape = {
-  finding_summary: z.string().min(1),
+  finding_summary: laneFindingSummarySchema,
   confidence: z.enum(['low', 'medium', 'high']),
   caveats: z.array(z.string().min(1)).min(1),
   proposed_sources: ProposedSourcesSchema,
@@ -386,29 +397,6 @@ export const MOAT_RUBRIC_PROMPT =
   + `EXAMPLE moat_drivers (shape only): [{"advantage":"concentrate price increases stick with no volume loss","citation":"sec_edgar_10k_<cik>_fy<year>"},{"advantage":"global brand + bottler distribution scale advantage","citation":"<verified-source_id>"}]. `
   + `EXAMPLE runway_drivers (shape only): [{"headroom":"emerging-market per-capita consumption under 1/4 of developed markets — decades of volume runway","citation":"sec_edgar_10k_<cik>_fy<year>"},{"headroom":"announced bottling-capacity expansion deploys capital at >20% incremental ROIC","citation":"<verified-source_id>"}].`
 
-// VALUATION-lane discount-ownership note (F.2 conformance). The harness OWNS the discount + the
-// intrinsic-value computation deterministically; the valuation lane must reason about VALUE, not free-lance
-// a textbook DCF with its own required return / cost of capital / government-bond anchor (the model's
-// training prior), which would contradict the system's config-driven uniform discount. Appended ONLY to the
-// valuation lane's prompt (NOT the other generic lanes). PHRASING NOTE (consistency tripwire): the discount
-// prohibitions in the constant below are NEGATIONS ("do NOT …"), deliberately phrased so they do NOT match the
-// superseded-discount patterns in supersededTermConsistency.test.ts — no allow-list entry is needed, and those
-// patterns still catch any NEW as-current discount methodology that slips into a lane prompt.
-export const VALUATION_LANE_DISCOUNT_NOTE =
-  ` DISCOUNT OWNERSHIP (read carefully — THE HARNESS OWNS THE DISCOUNT, not you): the harness discounts `
-  + `owner earnings deterministically at a single config-driven UNIFORM rate (the compliant SAVINGS rate `
-  + `plus a fixed equity premium, ≈7.5% by default, the SAME for every business). The risk-free anchor is `
-  + `the compliant SAVINGS rate the owner can actually hold — it is explicitly NOT the interest-bearing `
-  + `10-year Treasury, which a compliant investor cannot hold, so do NOT anchor your reasoning to the `
-  + `10-year Treasury or any government-bond yield. Therefore you MUST NOT specify, assume, or assert your `
-  + `own required return, discount rate, cost of capital, WACC, or hurdle (do NOT, for example, assert a `
-  + `9-10% required return) and you MUST NOT present a textbook DCF or an intrinsic-value range computed off `
-  + `a self-chosen rate — that math is the harness's job and your numbers would contradict the system's `
-  + `deterministic discount. INSTEAD, reason about VALUE: the owner-earnings BASIS (normalized owner `
-  + `earnings, the maintenance-capex and one-off adjustments behind it), the DURABILITY and defensibility of `
-  + `growth, and a QUALITATIVE cheap / fair / expensive read versus today's price. Leave the discount rate `
-  + `and the intrinsic-value / DCF computation entirely to the harness.`
-
 // SHARIAH-lane judgment overlay instructions (moved here from the synthesis prompt). The lane supplies
 // the JUDGMENT only; the harness recomputes the AAOIFI ratios + verdict + purification % from filings.
 export const SHARIAH_OVERLAY_PROMPT =
@@ -459,4 +447,4 @@ export const CIRCLE_COMPETENCE_PROMPT =
 // moat lane does NOT get the full primary-filing NUMBERS block (that stays on the financial lanes), so
 // neither the moat nor the runway thesis gets the numbers block — only the citable id; injectFiling only
 // governs the withFiling verified-id force-add for the moat lane (see researchSwarm.ts).
-export const PRIMARY_FILING_LANES: ReadonlySet<string> = new Set(['financial_quality', 'valuation', 'shariah', 'moat'])
+export const PRIMARY_FILING_LANES: ReadonlySet<string> = new Set(['financial_quality', 'shariah', 'moat'])

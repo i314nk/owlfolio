@@ -77,7 +77,7 @@ describe('runLaneSwarm', () => {
       if (lane === 'risks') throw new Error('lane boom')
       return { lane, finding_summary: `${lane} ok`, confidence: 'medium' as const, caveats: [], verified_ids: [lane] }
     })
-    const results = await runLaneSwarm(['moat', 'risks', 'valuation'], runLane, { concurrency: 2 })
+    const results = await runLaneSwarm(['moat', 'risks', 'business_quality'], runLane, { concurrency: 2 })
     expect(results).toHaveLength(3)
     expect(results.find((r) => r.lane === 'risks')?.status).toBe('incomplete')
     expect(results.find((r) => r.lane === 'moat')?.status).toBe('complete')
@@ -414,7 +414,7 @@ describe('runStrategyResearchSwarm', () => {
     const types = events.map((e) => e.event_type)
     expect(types).toContain('research_case_created')
     expect(types).toContain('quick_screen_drafted')
-    expect(types.filter((t) => t === 'specialist_finding_recorded').length).toBeGreaterThanOrEqual(7)
+    expect(types.filter((t) => t === 'specialist_finding_recorded').length).toBeGreaterThanOrEqual(6)
     expect(types).toContain('deep_dive_synthesis_drafted')
     expect(types).toContain('decision_drafted')
     expect(result.decision).toBeDefined()
@@ -473,8 +473,69 @@ describe('runStrategyResearchSwarm', () => {
     })
     expect(moatFinding).toBeUndefined()
 
-    // All other lanes (6 of 7) must have their findings recorded
+    // All other lanes (5 of 6) must have their findings recorded
     expect(findingEvents.length).toBe(buffettMungerDeepDiveLanes.length - 1)
+  })
+
+  it('fails closed with shariah_deep_screen_incomplete when the shariah lane grounds zero verified sources', async () => {
+    const store = new InMemoryEventStore()
+    const provider = swarmFakeProviderWithLaneIds(buffettMungerDeepDiveLanes)
+    // Ground verifies every source EXCEPT those belonging to the 'shariah' lane, so the shariah deep
+    // re-screen grounds zero verifiable sources and is skipped. The lane STILL emits its overlay
+    // (sector_status='compliant', impermissible_income=0) — the Case-2 gap: the harness would keep the
+    // quick-screen COMPLIANT with no visible "the deep re-screen did not run" caveat. It must fail closed.
+    const ground = async (sources: { source_id: string }[]) => {
+      const verified = sources.filter((s) => !s.source_id.includes('shariah'))
+      return {
+        captured: sources.map((s) => ({
+          source_id: s.source_id,
+          title: 't',
+          url: 'https://example.com/x',
+          excerpt: 'e',
+          availability: (s.source_id.includes('shariah') ? 'unavailable' : 'available') as 'available' | 'unavailable',
+          fetched_at: 'x',
+          ...(s.source_id.includes('shariah') ? {} : { content_hash: 'sha256:1' }),
+        })),
+        verified_ids: verified.map((s) => s.source_id),
+      }
+    }
+    const result = await runStrategyResearchSwarm(
+      store,
+      provider as never,
+      {
+        research_case_id: 'rc_shariah_skip',
+        company_id: 'c',
+        ticker: 'SHAR',
+        strategy_id: 'buffett-munger',
+        actor_id: 'user_local',
+        idempotency_key: 'k',
+        model_id: 'mock',
+        decision_id: 'd_shariah_skip',
+        source_ledger_path: '/tmp/owlfolio-swarm-shariah-skip',
+      },
+      { ground, laneConcurrency: 3 },
+    )
+
+    const events = await store.list()
+
+    // The shariah finding is skipped (zero verified sources) — as expected for a fail-closed skip.
+    const findingEvents = events.filter((e) => e.event_type === 'specialist_finding_recorded')
+    const shariahFinding = findingEvents.find((e) => (e.payload as Record<string, unknown>)['specialist_lane'] === 'shariah')
+    expect(shariahFinding).toBeUndefined()
+
+    // The analysis event must carry the fail-closed deep-screen-incomplete boolean flag ALONGSIDE the verdict
+    // (projected onto the case exactly like shariah_impermissible_income_undetermined).
+    const analysis = events.find((e) => e.event_type === 'buffett_munger_analysis_drafted')
+    expect(analysis).toBeDefined()
+    const analysisPayload = analysis!.payload as Record<string, unknown>
+    expect(analysisPayload['shariah_deep_screen_incomplete']).toBe(true)
+    // ...and it also surfaces in the decision open_questions (the shariah_ratios_unverified string channel).
+    const decision = events.find((e) => e.event_type === 'decision_drafted')
+    expect(decision).toBeDefined()
+    const openQuestions = ((decision!.payload as Record<string, unknown>)['open_questions'] as string[] | undefined) ?? []
+    expect(openQuestions.some((q) => q.includes('shariah_deep_screen_incomplete'))).toBe(true)
+
+    expect(result.decision).toBeDefined()
   })
 
   it('excludes unverified sources from ledger events but records them as unavailable in the bundle', async () => {
@@ -774,7 +835,7 @@ describe('runStrategyResearchSwarm short-circuit on Shariah NON_COMPLIANT', () =
 })
 
 describe('runStrategyResearchSwarm with MockProvider + deterministic grounder', () => {
-  it('completes end-to-end: research_case_created, quick_screen_drafted, >=7 specialist_finding_recorded, deep_dive_synthesis_drafted, decision_drafted', async () => {
+  it('completes end-to-end: research_case_created, quick_screen_drafted, >=6 specialist_finding_recorded, deep_dive_synthesis_drafted, decision_drafted', async () => {
     const sourceLedgerPath = await mkdtemp(join(tmpdir(), 'owlfolio-mock-swarm-'))
     const store = new InMemoryEventStore()
     const provider = new MockProvider()
@@ -801,7 +862,7 @@ describe('runStrategyResearchSwarm with MockProvider + deterministic grounder', 
 
     expect(types).toContain('research_case_created')
     expect(types).toContain('quick_screen_drafted')
-    expect(types.filter((t) => t === 'specialist_finding_recorded').length).toBeGreaterThanOrEqual(7)
+    expect(types.filter((t) => t === 'specialist_finding_recorded').length).toBeGreaterThanOrEqual(6)
     expect(types).toContain('deep_dive_synthesis_drafted')
     expect(types).toContain('decision_drafted')
     expect(result.decision).toBeDefined()
@@ -2275,7 +2336,7 @@ describe('quick screen — tool-grounded firewall', () => {
 })
 
 // ---------------------------------------------------------------------------
-// Mechanism 5 — Red-Team Pass (orchestrator integration): runs after the 7 lanes, before synthesis;
+// Mechanism 5 — Red-Team Pass (orchestrator integration): runs after the 6 lanes, before synthesis;
 // synthesis must answer the strongest objection or downgrade; the harness enforces the response
 // deterministically (red_team_objection_unaddressed + open_questions) and degrades on timeout.
 // ---------------------------------------------------------------------------
@@ -2546,7 +2607,7 @@ function deepDiveCommand() {
 }
 
 describe('SEC EDGAR primary-filing wiring', () => {
-  it('grounds the 10-K and injects primary numbers into financial_quality/valuation/shariah lanes', async () => {
+  it('grounds the 10-K and injects primary numbers into financial_quality/shariah lanes', async () => {
     const store = new InMemoryEventStore()
     await seedDeepDivePrereqs(store)
 
@@ -2560,14 +2621,13 @@ describe('SEC EDGAR primary-filing wiring', () => {
       fundamentals: costFundamentals,
     })
 
-    // The structured() prompts for the three financial lanes must contain the primary-filing block.
+    // The structured() prompts for the two financial lanes must contain the primary-filing block.
     const prompts = provider.structured.mock.calls.map((c: unknown[]) => (c[0] as { prompt?: string }).prompt).filter((p): p is string => typeof p === "string")
     const financialLanePrompt = prompts.find((p) => p.includes('financial_quality specialist'))
-    const valuationLanePrompt = prompts.find((p) => p.includes('valuation specialist'))
     const shariahLanePrompt = prompts.find((p) => p.includes('shariah specialist'))
     const moatLanePrompt = prompts.find((p) => p.includes('moat specialist'))
 
-    for (const p of [financialLanePrompt, valuationLanePrompt, shariahLanePrompt]) {
+    for (const p of [financialLanePrompt, shariahLanePrompt]) {
       expect(p).toBeDefined()
       expect(p).toContain('Primary filing data (SEC EDGAR, FY2025')
       expect(p).toContain('$8,099M') // net income, $millions
@@ -2705,7 +2765,6 @@ describe('Slice B: recent interim filings (8-K / 10-Q narrative)', () => {
     const prompts = promptsFrom(provider)
     const risks = prompts.find((p) => p.includes('risks specialist'))
     const moat = prompts.find((p) => p.includes('moat specialist'))
-    const valuation = prompts.find((p) => p.includes('valuation specialist'))
     const financial = prompts.find((p) => p.includes('financial_quality specialist'))
 
     // Qualitative lanes get the block, with read_source affordances for BOTH the 8-K and the 10-Q.
@@ -2717,8 +2776,6 @@ describe('Slice B: recent interim filings (8-K / 10-Q narrative)', () => {
       expect(p).toMatch(/read_source\("sec_edgar_recent_/)
     }
     // Numeric lanes do NOT — interim numbers must not tempt the recompute.
-    expect(valuation).toBeDefined()
-    expect(valuation).not.toContain('RECENT INTERIM FILINGS')
     expect(financial).not.toContain('RECENT INTERIM FILINGS')
 
     // The interim filings are grounded into the corpus (recorded to the source ledger like any source).
@@ -4617,10 +4674,10 @@ describe('§2 reference FV + implied-exit-multiple — gated on grounded assumed
 })
 
 // ---------------------------------------------------------------------------
-// CIRCLE-OF-COMPETENCE gate — a sequential GROUNDED MODEL JUDGMENT that gates the 7-lane deep-dive spend.
+// CIRCLE-OF-COMPETENCE gate — a sequential GROUNDED MODEL JUDGMENT that gates the 6-lane deep-dive spend.
 // The model must DEMONSTRATE understanding by cite-verifying BOTH the cashflow drivers AND what would make
 // them unpredictable (same rigor). Ungrounded EITHER clause = outside competence (fail-closed). Binary
-// outcome: in-competence → run the 7 lanes; outside-competence → set aside (PASS), never RESEARCH_MORE.
+// outcome: in-competence → run the 6 lanes; outside-competence → set aside (PASS), never RESEARCH_MORE.
 // ---------------------------------------------------------------------------
 describe('circle-of-competence gate', () => {
   // A swarm fake provider whose circle judgment reports a cashflow_predictability verdict and cites
@@ -4749,19 +4806,19 @@ describe('circle-of-competence gate', () => {
     return { store, events, types: events.map((e) => e.event_type), cp: cases.find((c) => c.research_case_id === research_case_id), result }
   }
 
-  it('1. durably_predictable + both clauses grounded (non-empty text) → gate passes, the 7-lane deep dive runs', async () => {
+  it('1. durably_predictable + both clauses grounded (non-empty text) → gate passes, the 6-lane deep dive runs', async () => {
     const { types, cp } = await runCircle('rc_circle_in', { cashflow_predictability: 'durably_predictable', driverCite: 'src_circle_driver', breakerCite: 'src_circle_breaker' })
     // The judgment was recorded and the deep dive ran (lanes + synthesis).
     expect(types).toContain('circle_competence_judged')
     expect(types).toContain('deep_dive_started')
-    expect(types.filter((t) => t === 'specialist_finding_recorded').length).toBeGreaterThanOrEqual(7)
+    expect(types.filter((t) => t === 'specialist_finding_recorded').length).toBeGreaterThanOrEqual(6)
     expect(types).toContain('deep_dive_synthesis_drafted')
     expect(types).toContain('decision_drafted')
     // The model's (gated) verdict flows through — NOT a circle set-aside.
     expect(cp?.investment_verdict ?? cp?.decision).not.toBe(undefined)
   })
 
-  it('2. not_predictable (understood but cyclical — the MU case) WITH grounded substantive clauses → SET ASIDE (PASS), 7 lanes do NOT run', async () => {
+  it('2. not_predictable (understood but cyclical — the MU case) WITH grounded substantive clauses → SET ASIDE (PASS), 6 lanes do NOT run', async () => {
     // Bug B: the model understands the business and grounds BOTH clauses, but judges the cashflows
     // not durably predictable. The gate must set aside on the verdict, NOT proceed.
     const { types, cp } = await runCircle('rc_circle_not_predictable', { cashflow_predictability: 'not_predictable', driverCite: 'src_circle_driver', breakerCite: 'src_circle_breaker' })
@@ -4788,7 +4845,7 @@ describe('circle-of-competence gate', () => {
     expect(cp?.valuation?.judgment).toBeUndefined()
   })
 
-  it("3. uncertain → SET ASIDE (PASS), 7 lanes do NOT run", async () => {
+  it("3. uncertain → SET ASIDE (PASS), 6 lanes do NOT run", async () => {
     const { types, cp } = await runCircle('rc_circle_uncertain', { cashflow_predictability: 'uncertain', driverCite: 'src_circle_driver', breakerCite: 'src_circle_breaker' })
     expect(types).not.toContain('deep_dive_started')
     expect(cp?.investment_verdict ?? cp?.decision).toBe('PASS')

@@ -254,7 +254,6 @@ function SwarmTab(): ReactNode {
     financial_quality: 'Every raw harness input: the owner-earnings bridge, incremental ROIC, leverage, and accounting quality.',
     shariah: 'Sector status and the AAOIFI financial ratios, plus the purification percentage — a screening aid, not a ruling.',
     risks: 'The pre-mortem, the thesis-break triggers, and the single assumption that, if wrong, breaks the case.',
-    valuation: 'The reverse-DCF read — the growth today’s price implies vs the model’s judged sustainable growth — plus the owner-earnings inputs behind it; the model proposes the buy-below with cited reasoning, deterministically sanity-checked against a forward-DCF reference.',
   }
   return createElement(
     'div',
@@ -287,12 +286,21 @@ function SwarmTab(): ReactNode {
       eyebrow: 'The specialists',
       title: `${LANE_COUNT} grounded lanes`,
       lead: 'Each dimension runs as its own focused, grounded agent in parallel — holding the whole framework in one model call degrades quality. The lane list is read live from the workflow contract.',
-      children: cardGrid(
-        buffettMungerDeepDiveLanes.map((lane) => ({
-          key: lane,
-          eyebrow: lane,
-          body: laneDetails[lane] ?? '',
-        })),
+      children: createElement(
+        'div',
+        { style: { display: 'grid', gap: '0.75rem' } },
+        cardGrid(
+          buffettMungerDeepDiveLanes.map((lane) => ({
+            key: lane,
+            eyebrow: lane,
+            body: laneDetails[lane] ?? '',
+          })),
+        ),
+        createElement(
+          'p',
+          { style: { ...bodyStyle, fontSize: 'var(--owl-text-sm)', color: 'var(--owl-color-quiet)' } },
+          'Valuation is not one of the six parallel lanes — a dedicated focused pass runs after the six lanes conclude and proposes the owner-earnings value and buy-below during synthesis.',
+        ),
       ),
     }),
   )

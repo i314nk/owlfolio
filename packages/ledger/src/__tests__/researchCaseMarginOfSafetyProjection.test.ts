@@ -111,6 +111,25 @@ describe('projectResearchCases — margin-of-safety audit surface', () => {
     expect(rc.margin_of_safety_moat_ungrounded).toBe(true)
   })
 
+  // FAIL-CLOSED: the shariah deep re-screen lane grounded no verifiable source (skipped), so the deep
+  // compliance re-verification did NOT run. The boolean projects onto the case; the shariah_status verdict
+  // (COMPLIANT, from the quick-screen gate) is left untouched — the flag rides ALONGSIDE, never flips it.
+  it('projects the shariah_deep_screen_incomplete flag when present, without flipping shariah_status', () => {
+    const cases = projectResearchCases([
+      created(),
+      analysisDrafted({ shariah_deep_screen_incomplete: true }),
+    ])
+    const rc = cases.find((c) => c.research_case_id === RC)!
+    expect(rc.shariah_deep_screen_incomplete).toBe(true)
+    expect(rc.shariah_status).toBe('COMPLIANT')
+  })
+
+  it('legacy-tolerant: an analysis event WITHOUT shariah_deep_screen_incomplete projects it as undefined', () => {
+    const cases = projectResearchCases([created(), analysisDrafted({})])
+    const rc = cases.find((c) => c.research_case_id === RC)!
+    expect(rc.shariah_deep_screen_incomplete).toBeUndefined()
+  })
+
   // LEGACY TOLERANCE: an OLD event carrying the retired legacy `margin_of_safety` STRING (from the haircut
   // era, on the owner-earnings valuation block) must still project WITHOUT throwing and WITHOUT being
   // mistaken for the new structured judgment.

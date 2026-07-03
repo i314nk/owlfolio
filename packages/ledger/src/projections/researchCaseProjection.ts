@@ -728,6 +728,14 @@ export type ResearchCaseProjection = {
    * a falsely-clean 0% / fully compliant. Absent on legacy/genuine runs (numeric impermissible income).
    */
   shariah_impermissible_income_undetermined?: boolean
+  /**
+   * FAIL-CLOSED marker: the SHARIAH deep re-screen lane grounded ZERO content-hash-verified sources and was
+   * skipped, so the deep compliance re-verification (segment-revenue + impermissible-income) did NOT run this
+   * run. The verdict rests on the earlier quick-screen gate, NOT a grounded deep re-screen. The dossier
+   * renders a calm "compliance not deep-verified this run" caveat so a human does not read a falsely-confident
+   * COMPLIANT. Absent on legacy events and on runs where the shariah lane grounded at least one source.
+   */
+  shariah_deep_screen_incomplete?: boolean
   /** Mechanism 6: source-discipline rejections (lane-proposed sources the whitelist excluded). */
   source_discipline?: ResearchCaseSourceDisciplineProjection
   /** Mechanism 5: red-team pass — strongest objection + the synthesis response + the deterministic flags. */
@@ -2010,6 +2018,11 @@ export function projectResearchCases(events: LedgerEventEnvelope<unknown>[]): Re
       // true; legacy/genuine analyses (numeric impermissible income) never carry it → render unchanged.
       if (getBoolean(event.payload, 'shariah_impermissible_income_undetermined') === true) {
         researchCase.shariah_impermissible_income_undetermined = true
+      }
+      // FAIL-CLOSED deep-screen marker: the shariah deep re-screen lane grounded no verifiable source (skipped).
+      // Only set when explicitly true; legacy events / runs whose shariah lane grounded a source never carry it.
+      if (getBoolean(event.payload, 'shariah_deep_screen_incomplete') === true) {
+        researchCase.shariah_deep_screen_incomplete = true
       }
       applyString(researchCase, 'shariah_sector_status', getString(event.payload, 'shariah_sector_status'))
       const sourceDiscipline = getSourceDiscipline(event.payload)

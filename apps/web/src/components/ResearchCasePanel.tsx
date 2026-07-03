@@ -249,7 +249,7 @@ function gatedReason(researchCase: AppResearchCase): { title: string; reason: st
 // ── Set-aside (early-exit) detection ──────────────────────────────────────────
 
 /**
- * A case is "set aside" when the circle-of-competence gate failed AND the expensive 7-lane deep dive did
+ * A case is "set aside" when the circle-of-competence gate failed AND the expensive 6-lane deep dive did
  * NOT run. Such a run carries verdict PASS + valuation_status INSUFFICIENT_DATA, the circle judgment, and
  * the `outside_circle`/`circle_competence_unmet` mirror flags — but no specialist findings, no valuation.
  * Rendering the full deep-dive scaffold for it is incoherent (empty "Pending" key figures, a "Not yet
@@ -542,7 +542,7 @@ function createPostMortemPanel(researchCase: AppResearchCase) {
 /**
  * Circle-of-competence judgment panel — the GROUNDED MODEL JUDGMENT that gated the deep-dive spend. Shows
  * the cited cashflow drivers, the cited predictability-breakers (the deeper test), and the in/outside
- * outcome with reasoning. When outside-competence, the case was SET ASIDE (verdict PASS) before the 7-lane
+ * outcome with reasoning. When outside-competence, the case was SET ASIDE (verdict PASS) before the 6-lane
  * deep dive ran. Legacy-tolerant: renders nothing when the case predates the circle gate.
  */
 function createCircleCompetencePanel(researchCase: AppResearchCase) {
@@ -752,7 +752,7 @@ function createGatedDossier(researchCase: AppResearchCase) {
           'div',
           { style: { alignItems: 'center', display: 'flex', gap: '0.6rem', fontSize: 'var(--owl-text-base)', color: 'var(--owl-color-quiet)' } },
           createElement('span', null, '—'),
-          createElement('span', { style: { color: 'var(--owl-color-quiet)' } }, 'Deep-dive swarm (7 lanes) — skipped'),
+          createElement('span', { style: { color: 'var(--owl-color-quiet)' } }, 'Deep-dive swarm (6 lanes) — skipped'),
         ),
       ),
       createElement(
@@ -862,7 +862,7 @@ function createAwaitingDeepDiveDossier(researchCase: AppResearchCase) {
           'div',
           { style: { alignItems: 'center', display: 'flex', gap: '0.6rem', fontSize: 'var(--owl-text-base)', color: 'var(--owl-color-quiet)' } },
           createElement('span', null, '—'),
-          createElement('span', { style: { color: 'var(--owl-color-quiet)' } }, 'Deep-dive swarm (7 lanes) — not yet started'),
+          createElement('span', { style: { color: 'var(--owl-color-quiet)' } }, 'Deep-dive swarm (6 lanes) — not yet started'),
         ),
       ) : null,
       // Run deep dive action
@@ -986,7 +986,7 @@ function createSetAsideHero(researchCase: AppResearchCase) {
     createElement(
       'p',
       { style: { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-base)', lineHeight: 1.55, margin: 0 } },
-      'The circle-of-competence gate set this candidate aside before the expensive 7-lane deep dive ran. There is no valuation or deep-dive analysis to show — only the grounded judgment of why it was set aside, below.',
+      'The circle-of-competence gate set this candidate aside before the expensive 6-lane deep dive ran. There is no valuation or deep-dive analysis to show — only the grounded judgment of why it was set aside, below.',
     ),
     // Subordinate provenance metadata (small, quiet mono — NOT co-equal chips).
     metaParts.length === 0 ? null : createElement(
@@ -2178,11 +2178,38 @@ function formatRatioPct(value: number): string {
  */
 function createShariahRatioLedger(researchCase: AppResearchCase): ReturnType<typeof createElement> | null {
   const sf = researchCase.shariah_financial
+  // FAIL-CLOSED caveat: the SHARIAH deep re-screen lane grounded no verifiable source (skipped), so the deep
+  // compliance re-verification did NOT run this run — the verdict rests on the earlier quick-screen gate.
+  // Rendered ALONGSIDE whatever verdict/ratios exist (it never flips them), so a human does not read a
+  // falsely-confident COMPLIANT. Absent on legacy events and on runs whose shariah lane grounded a source.
+  const deepScreenCaveat = researchCase.shariah_deep_screen_incomplete === true
+    ? createElement(
+        'div',
+        {
+          'data-testid': 'shariah-deep-screen-incomplete',
+          style: { borderTop: '1px solid rgba(148, 163, 184, 0.14)', display: 'grid', gap: '0.3rem', marginTop: '0.2rem', paddingTop: '0.45rem' },
+        },
+        createElement(
+          'p',
+          { style: { color: 'var(--owl-color-gold-bright)', fontSize: 'var(--owl-text-sm)', fontWeight: 800, lineHeight: 1.4, margin: 0 } },
+          'Compliance not deep-verified this run.',
+        ),
+        createElement(
+          'p',
+          { style: { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-sm)', lineHeight: 1.4, margin: 0 } },
+          'The Shariah deep re-screen cited no verified source. Any ratios shown rest on ungrounded model output rather than a grounded re-screen, and the compliance read leans on the quick-screen gate. Re-run before relying on it.',
+        ),
+      )
+    : null
   if (sf === undefined) {
     // FAIL-CLOSED honesty: when impermissible income is UNDETERMINED (the lane could not extract a
     // separate impermissible-income line) the harness did NOT compute the ratios. Render the undetermined
     // state explicitly — NEVER a falsely-clean "0.0% purification / fully compliant". Otherwise no ledger.
-    if (researchCase.shariah_impermissible_income_undetermined !== true) return null
+    if (researchCase.shariah_impermissible_income_undetermined !== true) {
+      // No harness ratios AND not undetermined — but if the deep re-screen was skipped, still surface the
+      // caveat on its own so a skipped re-screen is never silent (would otherwise render nothing).
+      return deepScreenCaveat
+    }
     return createElement(
       'div',
       {
@@ -2200,6 +2227,7 @@ function createShariahRatioLedger(researchCase: AppResearchCase): ReturnType<typ
         { style: { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-sm)', lineHeight: 1.4, margin: 0 } },
         'The filing does not separately disclose a quantifiable impermissible-income line. Obtain the interest-income / prohibited-revenue figure before treating this name as clean — it is not 0% / fully compliant.',
       ),
+      deepScreenCaveat,
     )
   }
   const EMERALD = 'var(--owl-color-emerald, #34d399)'
@@ -2240,6 +2268,7 @@ function createShariahRatioLedger(researchCase: AppResearchCase): ReturnType<typ
       createElement('span', { style: { fontWeight: 800 } }, `Verdict: ${verdict}`),
       createElement('span', { style: { color: verdictColor, fontWeight: 800 } }, `Purification: ${purification}`),
     ),
+    deepScreenCaveat,
   )
 }
 
@@ -2252,28 +2281,37 @@ function createSpecialistLanesGrid(researchCase: AppResearchCase) {
     ? createLegacyDeepDiveFindings(researchCase)
     : findings
 
-  // GUARD: only the all-7-lanes-visible treatment fires for a real completed deep-dive (≥1 grounded lane
+  // GUARD: only the all-6-lanes-visible treatment fires for a real completed deep-dive (≥1 grounded lane
   // finding). A legacy/empty/non-deep-dive case (no findings) behaves exactly as before — return null and let
-  // the set-aside / gated / awaiting / progress paths own their own rendering. Legacy dossiers always supply
-  // all 7 lanes via createLegacyDeepDiveFindings(), so they naturally produce zero incomplete placeholders.
+  // the set-aside / gated / awaiting / progress paths own their own rendering. Legacy dossiers supply all
+  // 7 findings via createLegacyDeepDiveFindings(); the 6 orderedLanes are all grounded, valuation lands in
+  // remainder, and no incomplete placeholders appear.
   if (displayFindings.length === 0) return null
 
-  const orderedLanes = ['business_quality', 'moat', 'management', 'financial_quality', 'shariah', 'risks', 'valuation']
-  // For a completed deep dive we render ALL SEVEN expected lanes IN ORDER: a grounded lane shows its full
+  const orderedLanes = ['business_quality', 'moat', 'management', 'financial_quality', 'shariah', 'risks']
+  // For a completed deep dive we render ALL SIX expected lanes IN ORDER: a grounded lane shows its full
   // finding card; an expected lane with NO finding (silently skipped upstream when it grounded zero verifiable
   // sources) shows an honest "incomplete" placeholder instead of vanishing. This is DISPLAY-ONLY — it does not
   // re-emit events or change the swarm's correct fail-closed skip; it only makes the skip VISIBLE.
+  // A lane counts as GROUNDED only when it emitted a finding AND that finding carries real written analysis.
+  // A finding with placeholder prose (e.g. the model emitted "..." for a lane) is treated exactly like a
+  // missing lane: rendered as an honest "incomplete" slot, not a card showing a literal "...".
+  const laneFinding = (lane: string) => displayFindings.find((f) => f.specialist_lane === lane)
   const laneSlots = orderedLanes.map((lane) => {
-    const finding = displayFindings.find((f) => f.specialist_lane === lane)
-    return finding === undefined
-      ? createSpecialistLaneIncompleteCard(lane)
-      : createSpecialistLaneCard(finding)
+    const finding = laneFinding(lane)
+    if (finding === undefined) return createSpecialistLaneIncompleteCard(lane)
+    if (isPlaceholderLaneSummary(finding.finding_summary)) return createSpecialistLaneIncompleteCard(lane, 'empty')
+    return createSpecialistLaneCard(finding)
   })
-  // Any grounded finding whose lane is NOT one of the 7 expected lanes still renders (remainder).
-  const remainder = displayFindings.filter((f) => !orderedLanes.includes(f.specialist_lane ?? ''))
-  const groundedCount = orderedLanes.filter((lane) =>
-    displayFindings.some((f) => f.specialist_lane === lane),
-  ).length
+  // Any grounded finding whose lane is NOT one of the 6 expected lanes still renders (remainder), unless it too
+  // is an empty placeholder.
+  const remainder = displayFindings.filter(
+    (f) => !orderedLanes.includes(f.specialist_lane ?? '') && !isPlaceholderLaneSummary(f.finding_summary),
+  )
+  const groundedCount = orderedLanes.filter((lane) => {
+    const finding = laneFinding(lane)
+    return finding !== undefined && !isPlaceholderLaneSummary(finding.finding_summary)
+  }).length
   const incompleteCount = orderedLanes.length - groundedCount
 
   // Collapsed by default (Priority 1): the dense per-lane reasoning lives behind the existing <details>
@@ -2305,8 +2343,11 @@ function createSpecialistLanesGrid(researchCase: AppResearchCase) {
 // specialist_finding event is emitted — a correct fail-closed behavior). On the COMPLETED dossier we make that
 // skip VISIBLE with a calm, clearly-distinct "incomplete" placeholder so the lane never just vanishes (a
 // missing Management lane should read as attempted-and-dropped, not removed). Display-only; owl-* tokens.
-function createSpecialistLaneIncompleteCard(lane: string) {
+function createSpecialistLaneIncompleteCard(lane: string, variant: 'no-sources' | 'empty' = 'no-sources') {
   const laneLabel = deepDiveLaneShortLabel(lane)
+  const incompleteCopy = variant === 'empty'
+    ? 'Incomplete — the lane grounded sources but returned no written analysis this run (not investment-grade; re-run before relying on it).'
+    : 'Incomplete — no verifiable sources grounded this run (not investment-grade; re-run before relying on it).'
   return createElement(
     'article',
     {
@@ -2357,7 +2398,7 @@ function createSpecialistLaneIncompleteCard(lane: string) {
       createElement(
         'p',
         { style: { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-sm)', lineHeight: 1.45, margin: 0 } },
-        'Incomplete — no verifiable sources grounded this run (not investment-grade; re-run before relying on it).',
+        incompleteCopy,
       ),
     ),
   )
@@ -2371,25 +2412,37 @@ type ResearchFindingCard = NonNullable<AppResearchCase['specialist_findings']>[n
  * reasoning is secondary, behind a disclosure. When the finding is a single short sentence there is no
  * detail to defer.
  */
-function splitLaneFinding(summary: string): { conclusion: string; detail: string | undefined } {
+export function splitLaneFinding(summary: string): { conclusion: string; detail: string | undefined } {
   const compact = summary.trim().replace(/\s+/g, ' ')
   if (compact.length <= 160) return { conclusion: compact, detail: undefined }
-  // Prefer a clean sentence boundary for the conclusion (the bottom line). Reject a first "sentence" that is
-  // itself a wall of text (>220 chars) — a run-on still needs the density treatment, so fall through.
+  // Prefer a clean sentence boundary: the first sentence is the bottom line, the remainder goes behind the
+  // "Reasoning" disclosure. Allow a generous first-sentence length (≤320) so a normal lead sentence is shown
+  // whole rather than chopped.
   const match = compact.match(/^(.+?[.!?])\s+(.*)$/s)
   if (
     match !== null && match[1] !== undefined && match[2] !== undefined &&
-    match[2].trim().length > 0 && match[1].trim().length <= 220
+    match[2].trim().length > 0 && match[1].trim().length <= 320
   ) {
     return { conclusion: match[1].trim(), detail: match[2].trim() }
   }
-  // Run-on finding (no internal sentence break, or an over-long first sentence): split at the nearest word
-  // boundary so the disclosure still fires. conclusion (minus the ellipsis) + ' ' + detail === the original.
-  const space = compact.lastIndexOf(' ', 160)
-  const boundary = space > 80 ? space : 160
-  const detail = compact.slice(boundary).trim()
-  if (detail.length === 0) return { conclusion: compact, detail: undefined }
-  return { conclusion: `${compact.slice(0, boundary).trim()}…`, detail }
+  // No usable early sentence boundary (a single long sentence, or an over-long lead): show the FULL text —
+  // NEVER cut a sentence mid-word with an ellipsis (owner feedback). The whole lanes section is collapsed by
+  // default, so a longer card here is acceptable and strictly more honest than a cut-off fragment.
+  return { conclusion: compact, detail: undefined }
+}
+
+/**
+ * A lane finding whose prose is empty or a bare placeholder — e.g. the model emitted "..." for a lane it
+ * deferred (the valuation lane can do this when its prompt tells it the harness owns the discount math). Such
+ * a lane grounded metadata (sources/confidence) but produced NO written analysis, so it is rendered as an
+ * honest "incomplete" slot rather than a card showing a literal "...".
+ */
+export function isPlaceholderLaneSummary(summary?: string): boolean {
+  if (summary === undefined) return true
+  const trimmed = summary.trim()
+  if (trimmed.length === 0) return true
+  // No alphanumeric content at all → a bare placeholder like "...", "…", ".", or "-".
+  return !/[a-z0-9]/i.test(trimmed)
 }
 
 function createSpecialistLaneCard(finding: ResearchFindingCard) {

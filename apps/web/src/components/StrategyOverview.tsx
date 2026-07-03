@@ -214,10 +214,6 @@ const LANE_DETAILS: Record<string, { name: string; assesses: string }> = {
     name: 'Risks',
     assesses: 'Permanent-capital-loss risks, leverage fragility, disruption, regulation, and the specific events that would break the thesis.',
   },
-  valuation: {
-    name: 'Valuation',
-    assesses: 'The reverse-DCF read — the growth today’s price implies — against the model’s judged sustainable growth, plus the owner-earnings bridge, ROIC and reinvestment inputs behind it; the model proposes the buy-below with cited reasoning, deterministically sanity-checked against a forward-DCF reference.',
-  },
 }
 
 const LANE_CARDS: LaneCard[] = buffettMungerDeepDiveLanes.map((lane) => {
@@ -472,7 +468,16 @@ export function StrategyOverview(): ReactNode {
       title: `The specialist swarm — ${buffettMungerDeepDiveLanes.length} grounded lanes`,
       lead:
         'The deep dive is swarm-only by design: holding the whole framework in one model call degrades quality, so each dimension runs as its own focused, grounded agent in parallel. Every lane gathers its own sources, and every cited source is fetched and content-hashed by the harness — not trusted from the model. Each lane runs as its own grounded agent — every claim cited to a harness-captured source.',
-      children: LaneGrid(),
+      children: createElement(
+        'div',
+        { style: { display: 'flex', flexDirection: 'column', gap: '0.75rem' } },
+        LaneGrid(),
+        createElement(
+          'p',
+          { style: { ...bodyStyle, fontSize: 'var(--owl-text-sm)', color: 'var(--owl-color-quiet)' } },
+          'Valuation is not one of the parallel lanes — after the six lanes conclude, a dedicated focused pass proposes the owner-earnings value and buy-below during synthesis.',
+        ),
+      ),
     }),
 
     // 4. Moat taxonomy & gate
