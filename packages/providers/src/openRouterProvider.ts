@@ -135,22 +135,39 @@ function sanitizeToolName(name: string): string {
   return name.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 128)
 }
 
-/** Recursively remove object keys whose value is null, so a nullable-strict field reads as absent. */
-function stripNullProperties(value: unknown): unknown {
-  if (Array.isArray(value)) {
-    return value.map((item) => stripNullProperties(item))
-  }
-  if (value === null || typeof value !== 'object') {
-    return value
-  }
-  const out: Record<string, unknown> = {}
-  for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
-    if (entry === null) {
-      continue
+/**
+ * Remove ONLY the null-valued object keys the schema actually rejected (by Zod issue path), so an
+ * originally-OPTIONAL field emitted as null (strict mode forces every key, `makeNullable` lets the model
+ * emit null instead of fabricating) reads as absent — while a genuinely REQUIRED-nullable field's null
+ * (e.g. the Shariah pass's impermissible_income, where null = "not separately disclosed", fail-closed)
+ * survives to validation. A blanket pre-parse null-strip destroyed that honest answer.
+ * Returns true when at least one key was removed (progress — the caller re-validates).
+ */
+function removeRejectedNulls(parsed: unknown, issues: readonly { path: PropertyKey[] }[]): boolean {
+  let removed = false
+  for (const issue of issues) {
+    if (issue.path.length === 0) continue
+    let parent: unknown = parsed
+    for (const segment of issue.path.slice(0, -1)) {
+      if (parent === null || typeof parent !== 'object') {
+        parent = undefined
+        break
+      }
+      parent = (parent as Record<PropertyKey, unknown>)[segment]
     }
-    out[key] = stripNullProperties(entry)
+    const key = issue.path[issue.path.length - 1]
+    // Only delete a null-valued plain-object property (array elements are left alone — deleting would
+    // shift indexes; the schema error then surfaces as-is).
+    if (
+      key !== undefined && typeof key === 'string'
+      && parent !== null && typeof parent === 'object' && !Array.isArray(parent)
+      && (parent as Record<string, unknown>)[key] === null
+    ) {
+      delete (parent as Record<string, unknown>)[key]
+      removed = true
+    }
   }
-  return out
+  return removed
 }
 
 /** A natural-language hint preserving a dropped JSON-schema `format` constraint for strict-mode models. */
@@ -479,15 +496,22 @@ export class OpenRouterProvider implements Provider {
     const raw = this.messageTextFrom(response)
     let parsed: unknown
     try {
-      parsed = stripNullProperties(JSON.parse(this.stripJsonFences(raw)))
+      parsed = JSON.parse(this.stripJsonFences(raw))
     } catch (error) {
       throw new Error(`Structured output validation failed: ${this.label} returned invalid JSON (${error instanceof Error ? error.message : 'unknown error'})`)
     }
-    const validated = schema.safeParse(parsed)
-    if (!validated.success) {
-      throw new Error(`Structured output validation failed: ${validated.error.message}`)
+    // Validate as-is first so a schema-ACCEPTED null (a required-nullable field's meaningful answer)
+    // survives; only nulls the schema rejects are removed (per issue path) and validation retried.
+    // Terminates: every retry must have removed at least one key, else it throws.
+    for (;;) {
+      const validated = schema.safeParse(parsed)
+      if (validated.success) {
+        return validated.data
+      }
+      if (!removeRejectedNulls(parsed, validated.error.issues)) {
+        throw new Error(`Structured output validation failed: ${validated.error.message}`)
+      }
     }
-    return validated.data
   }
 
   private async createChatCompletion(

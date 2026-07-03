@@ -171,6 +171,29 @@ describe('OpenRouterProvider (live execution path)', () => {
     expect(result.reason).toBeUndefined()
   })
 
+  it('preserves an emitted null for a REQUIRED nullable field (null is a meaningful answer, not absence)', async () => {
+    // Regression: the Shariah reasoning pass declares impermissible_income as required-and-nullable —
+    // null = "not separately disclosed, fail closed to UNDETERMINED". Stripping that null before
+    // validation deletes the model's honest answer and fails the pass on every non-disclosing filer.
+    const schema = z.object({ sector_status: z.string(), impermissible_income: z.number().min(0).nullable() })
+    const fetchImpl = vi.fn(async () => jsonResponse({ choices: [{ message: { content: '{"sector_status":"compliant","impermissible_income":null}' } }] }))
+    const provider = new OpenRouterProvider({ env: { OPENROUTER_API_KEY: 'k' }, fetch: fetchImpl as unknown as typeof fetch })
+    const result = await provider.structured({ ...request, task_kind: 'structured-output', response_format: { kind: 'json-schema', schema_name: 'T' } }, schema)
+    expect(result.sector_status).toBe('compliant')
+    expect(result.impermissible_income).toBeNull()
+  })
+
+  it('strips a rejected optional-field null while preserving an accepted nullable null in the SAME payload', async () => {
+    // Mixed payload: `note` is optional (null on the wire only because strict mode synthesized
+    // nullability — must read as absent) while `amount` is genuinely nullable (null must survive).
+    const schema = z.object({ amount: z.number().nullable(), note: z.string().optional() })
+    const fetchImpl = vi.fn(async () => jsonResponse({ choices: [{ message: { content: '{"amount":null,"note":null}' } }] }))
+    const provider = new OpenRouterProvider({ env: { OPENROUTER_API_KEY: 'k' }, fetch: fetchImpl as unknown as typeof fetch })
+    const result = await provider.structured({ ...request, task_kind: 'structured-output', response_format: { kind: 'json-schema', schema_name: 'T' } }, schema)
+    expect(result.amount).toBeNull()
+    expect(result.note).toBeUndefined()
+  })
+
   it('strips json-schema keywords OpenAI strict mode rejects (format uri, $schema dialect)', async () => {
     const schema = z.object({ url: z.string().url() })
     let sentSchema: any
