@@ -433,6 +433,8 @@ describe('workflow helpers', () => {
         expect(view.status).toBe('failed')
         if (view.status === 'failed') {
           expect(view.error_summary).toBe('provider timed out')
+          // Ticker recovered from the run-request payload → the failed page can offer a re-run.
+          expect(view.ticker).toBe('MSFT')
         }
       } finally {
         store.close()
@@ -471,6 +473,8 @@ describe('workflow helpers', () => {
         expect(view.status).toBe('failed')
         if (view.status === 'failed') {
           expect(view.error_summary).toBe('synthesis stage failed after retry')
+          // Ticker carried from the projected case → the failed page can offer a re-run.
+          expect(view.ticker).toBe('ADBE')
         }
       } finally {
         store.close()
