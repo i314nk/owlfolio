@@ -54,7 +54,7 @@ type OpenRouterChatMessage = {
 type OpenRouterChatResponse = {
   id?: string
   choices?: Array<{ message?: OpenRouterChatMessage; finish_reason?: string }>
-  error?: { message?: string; code?: string | number; type?: string }
+  error?: { message?: string; code?: string | number; type?: string; metadata?: { raw?: string; provider_name?: string } }
 }
 
 /** An OpenAI-compatible chat message on the wire (assistant tool_calls + tool results for the loop). */
@@ -71,6 +71,9 @@ type OpenRouterWireMessage = {
 
 /** How many gather rounds the loop allows independent of the per-round tool cap (defensive bound). */
 const MAX_TOOL_LOOP_ROUNDS = 24
+
+/** Numeric range keywords Anthropic's structured output rejects on the wire (dropped; Zod re-enforces). */
+const NUMERIC_RANGE_KEYWORDS = ['minimum', 'maximum', 'exclusiveMinimum', 'exclusiveMaximum']
 
 /**
  * OpenAI's strict json_schema mode (used by openai/* routes via OpenRouter → Azure) rejects any object
@@ -93,9 +96,12 @@ function toStrictJsonSchema(node: unknown): unknown {
   const out: Record<string, unknown> = {}
   for (const [key, value] of Object.entries(record)) {
     // OpenAI strict json_schema mode rejects unsupported keywords. `format` values like `uri` (emitted by
-    // z.string().url()) and the `$schema` dialect marker are not accepted; drop them. The real contract is
-    // still enforced by our Zod validation after parsing, so dropping these from the wire schema is safe.
-    if (key === '$schema' || key === 'format') {
+    // z.string().url()) and the `$schema` dialect marker are not accepted; drop them. Anthropic's
+    // structured output additionally 400s on numeric range keywords ("For 'number' type, property
+    // 'minimum' is not supported" — live-probed 2026-07-03), so z.number().min(0) breaks anthropic/*
+    // routes; drop those too. The real contract is still enforced by our Zod validation after parsing,
+    // so dropping these from the wire schema is safe.
+    if (key === '$schema' || key === 'format' || NUMERIC_RANGE_KEYWORDS.includes(key)) {
       continue
     }
     out[key] = toStrictJsonSchema(value)
@@ -108,6 +114,18 @@ function toStrictJsonSchema(node: unknown): unknown {
     if (hint !== undefined) {
       out.description = typeof out.description === 'string' && out.description.length > 0 ? `${out.description} ${hint}` : hint
     }
+  }
+  // Preserve dropped numeric bounds as a natural-language hint (same pattern as `format` above) so the
+  // model still respects the range; Zod re-enforces it after parsing and the validated-agent retry
+  // bounces violations.
+  const rangeHints: string[] = []
+  if (typeof record.minimum === 'number') rangeHints.push(`>= ${record.minimum}`)
+  if (typeof record.maximum === 'number') rangeHints.push(`<= ${record.maximum}`)
+  if (typeof record.exclusiveMinimum === 'number') rangeHints.push(`> ${record.exclusiveMinimum}`)
+  if (typeof record.exclusiveMaximum === 'number') rangeHints.push(`< ${record.exclusiveMaximum}`)
+  if (rangeHints.length > 0) {
+    const hint = `Must be ${rangeHints.join(' and ')}.`
+    out.description = typeof out.description === 'string' && out.description.length > 0 ? `${out.description} ${hint}` : hint
   }
   if (out.type === 'object' && out.properties !== null && typeof out.properties === 'object') {
     const properties = out.properties as Record<string, unknown>
@@ -588,7 +606,14 @@ export class OpenRouterProvider implements Provider {
   }
 
   private failureMessageFrom(response: Response, body: OpenRouterChatResponse): string {
-    const rawDiagnostic = body.error?.message ?? response.statusText ?? 'unknown error'
+    // OpenRouter wraps routed-provider failures as a bare "Provider returned error"; the actionable
+    // upstream diagnostic (e.g. Anthropic's schema-keyword rejection) lives in error.metadata.raw.
+    // Surface it so a degraded flag in the ledger is diagnosable without re-running the request.
+    const upstreamRaw = body.error?.metadata?.raw
+    const upstream = typeof upstreamRaw === 'string' && upstreamRaw.trim().length > 0
+      ? ` [${body.error?.metadata?.provider_name ?? 'upstream'}: ${upstreamRaw.slice(0, 500)}]`
+      : ''
+    const rawDiagnostic = `${body.error?.message ?? response.statusText ?? 'unknown error'}${upstream}`
     const diagnostic = redactProviderDiagnostic(rawDiagnostic)
     const code = `${body.error?.code ?? ''} ${body.error?.type ?? ''}`
     const status = response.status === 200 && typeof body.error?.code === 'number' ? body.error.code : response.status

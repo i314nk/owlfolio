@@ -194,6 +194,28 @@ describe('OpenRouterProvider (live execution path)', () => {
     expect(result.note).toBeUndefined()
   })
 
+  it('strips numeric range keywords the Anthropic route rejects (minimum/maximum), preserving them as description hints', async () => {
+    // Live-probed 2026-07-03: Anthropic structured output 400s on `minimum` for number types
+    // ("property 'minimum' is not supported") — the Shariah pass's z.number().min(0) was the only
+    // numeric bound on any wire schema and failed the pass on anthropic/* routes. Zod still enforces
+    // the real bound after parsing (the validated-agent retry bounces violations).
+    const schema = z.object({ impermissible_income: z.number().min(0).nullable(), score: z.number().max(10) })
+    let sentSchema: any
+    const fetchImpl = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+      sentSchema = JSON.parse(init?.body as string).response_format.json_schema.schema
+      return jsonResponse({ choices: [{ message: { content: '{"impermissible_income":null,"score":5}' } }] })
+    })
+    const provider = new OpenRouterProvider({ env: { OPENROUTER_API_KEY: 'k' }, fetch: fetchImpl as unknown as typeof fetch })
+    const result = await provider.structured({ ...request, task_kind: 'structured-output', response_format: { kind: 'json-schema', schema_name: 'T' } }, schema)
+    expect(JSON.stringify(sentSchema)).not.toMatch(/"minimum"|"maximum"/)
+    // zod v4 emits .nullable() as anyOf: [{type:number,minimum:0},{type:null}] — the hint must land on
+    // the anyOf branch that carried the bound.
+    expect(JSON.stringify(sentSchema.properties.impermissible_income)).toMatch(/>= 0/)
+    expect(JSON.stringify(sentSchema.properties.score)).toMatch(/<= 10/)
+    expect(result.impermissible_income).toBeNull()
+    expect(result.score).toBe(5)
+  })
+
   it('strips json-schema keywords OpenAI strict mode rejects (format uri, $schema dialect)', async () => {
     const schema = z.object({ url: z.string().url() })
     let sentSchema: any
@@ -217,6 +239,21 @@ describe('OpenRouterProvider (live execution path)', () => {
     await expect(
       provider.structured({ ...request, task_kind: 'structured-output', response_format: { kind: 'json-schema', schema_name: 'T' } }, schema),
     ).rejects.toThrow(/Structured output validation failed/)
+  })
+
+  it('surfaces the routed provider\'s raw upstream error (error.metadata.raw) in the failure message', async () => {
+    // OpenRouter wraps upstream 400s as a bare "Provider returned error" and puts the actionable
+    // diagnostic (e.g. Anthropic's "property 'minimum' is not supported") in error.metadata.raw —
+    // without it the ledger's degraded flag is undiagnosable.
+    const fetchImpl = vi.fn(async () => jsonResponse({
+      error: {
+        message: 'Provider returned error',
+        code: 400,
+        metadata: { raw: '{"type":"error","error":{"type":"invalid_request_error","message":"output_config.format.schema: For \'number\' type, property \'minimum\' is not supported"}}', provider_name: 'Anthropic' },
+      },
+    }, { status: 400, statusText: 'Bad Request' }))
+    const provider = new OpenRouterProvider({ env: { OPENROUTER_API_KEY: 'k' }, fetch: fetchImpl as unknown as typeof fetch })
+    await expect(provider.complete(request)).rejects.toThrow(/property 'minimum' is not supported/)
   })
 
   it('classifies a 401 as an authentication failure', async () => {
