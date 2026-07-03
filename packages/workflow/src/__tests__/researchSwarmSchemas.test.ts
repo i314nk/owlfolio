@@ -211,12 +211,17 @@ describe('RISKS_RECENCY_NOTE (web tier is risk color; 8-Ks grounded by EDGAR)', 
   })
 })
 
-describe('LaneAgentSchema rejects placeholder finding_summary', () => {
+// REGRESSION GUARD: finding_summary must NOT be placeholder-guarded at the schema level. A refine that
+// rejected "..." failed the whole structured output and discarded the lane's grounded sources → the lane
+// skipped (vanished) whenever the model returned a lazy placeholder. Placeholder handling lives at DISPLAY
+// time (isPlaceholderLaneSummary) so the lane stays present with its sources. Do NOT re-add a schema refine.
+describe('LaneAgentSchema tolerates a placeholder finding_summary (handled at display, not schema)', () => {
   const valid = { confidence: 'high' as const, caveats: ['ok'], proposed_sources: [{ source_id: 'src_1', title: 'T', url: 'https://www.sec.gov/x', excerpt: 'e' }] }
-  it('rejects a "..." finding_summary (model deferred, no written analysis)', () => {
-    expect(LaneAgentSchema.safeParse({ ...valid, finding_summary: '...' }).success).toBe(false)
-    expect(LaneAgentSchema.safeParse({ ...valid, finding_summary: '   ' }).success).toBe(false)
-    expect(LaneAgentSchema.safeParse({ ...valid, finding_summary: '. -' }).success).toBe(false)
+  it('ACCEPTS a "..." finding_summary so the lane is recorded (with sources), not discarded', () => {
+    expect(LaneAgentSchema.safeParse({ ...valid, finding_summary: '...' }).success).toBe(true)
+  })
+  it('still rejects an empty finding_summary (min length 1)', () => {
+    expect(LaneAgentSchema.safeParse({ ...valid, finding_summary: '' }).success).toBe(false)
   })
   it('accepts real prose', () => {
     expect(LaneAgentSchema.safeParse({ ...valid, finding_summary: 'Wide, durable moat.' }).success).toBe(true)
