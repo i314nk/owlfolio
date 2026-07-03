@@ -78,6 +78,20 @@ describe('OpenRouterProvider (live execution path)', () => {
     expect(url).toContain('/chat/completions')
   })
 
+  it('pins a low sampling temperature on every request (valuation-judgment run-to-run reproducibility)', async () => {
+    // Back-to-back live runs on the SAME model + filing produced 26%-apart owner-earnings/share purely
+    // from judgment-input wander at the route's default temperature (~1.0). Pin low. Live-probed
+    // 2026-07-03: both anthropic/* (with unified reasoning) and z-ai/* routes accept temperature 0.2.
+    let sentBody: any
+    const fetchImpl = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+      sentBody = JSON.parse(init?.body as string)
+      return jsonResponse({ choices: [{ message: { content: 'ok' } }] })
+    })
+    const provider = new OpenRouterProvider({ env: { OPENROUTER_API_KEY: 'k' }, fetch: fetchImpl as unknown as typeof fetch })
+    await provider.complete(request)
+    expect(sentBody.temperature).toBe(0.2)
+  })
+
   it('requests reasoning/thinking for the routed model (owner requirement)', async () => {
     const fetchImpl = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
       const body = JSON.parse(init?.body as string)

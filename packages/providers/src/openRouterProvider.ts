@@ -76,6 +76,15 @@ const MAX_TOOL_LOOP_ROUNDS = 24
 const NUMERIC_RANGE_KEYWORDS = ['minimum', 'maximum', 'exclusiveMinimum', 'exclusiveMaximum']
 
 /**
+ * Pinned sampling temperature for every call. At the routes' default (~1.0), back-to-back runs on the
+ * SAME model + filing wandered 26% apart on owner-earnings/share purely from judgment-input sampling
+ * (maintenance-capex tier, argued growth). Low-but-nonzero keeps judgments stable without the degenerate
+ * repetition some routes exhibit at exactly 0. Live-probed 2026-07-03: anthropic/* (with the unified
+ * reasoning param — OpenRouter normalizes the thinking/temperature conflict) and z-ai/* both accept it.
+ */
+const SAMPLING_TEMPERATURE = 0.2
+
+/**
  * OpenAI's strict json_schema mode (used by openai/* routes via OpenRouter → Azure) rejects any object
  * schema where `required` does not list EVERY key in `properties`, and requires `additionalProperties:
  * false`. Zod's `toJSONSchema` emits optional fields as non-required, so a permissive route (DeepSeek R1)
@@ -545,6 +554,7 @@ export class OpenRouterProvider implements Provider {
       model: request.model_id,
       messages: messages ?? [{ role: 'user', content: request.prompt }],
       max_tokens: request.budget.max_tokens,
+      temperature: SAMPLING_TEMPERATURE,
       // OWNER REQUIREMENT: reasoning/thinking enabled. For OpenRouter this is the unified `reasoning` param
       // (Anthropic thinking, OpenAI reasoning effort, DeepSeek R1 native). Direct OpenAI-compat surfaces that
       // reject an unknown `reasoning` param are configured with an empty reasoningBody (omitted) instead.
