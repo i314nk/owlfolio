@@ -286,12 +286,21 @@ function SwarmTab(): ReactNode {
       eyebrow: 'The specialists',
       title: `${LANE_COUNT} grounded lanes`,
       lead: 'Each dimension runs as its own focused, grounded agent in parallel — holding the whole framework in one model call degrades quality. The lane list is read live from the workflow contract.',
-      children: cardGrid(
-        buffettMungerDeepDiveLanes.map((lane) => ({
-          key: lane,
-          eyebrow: lane,
-          body: laneDetails[lane] ?? '',
-        })),
+      children: createElement(
+        'div',
+        { style: { display: 'grid', gap: '0.75rem' } },
+        cardGrid(
+          buffettMungerDeepDiveLanes.map((lane) => ({
+            key: lane,
+            eyebrow: lane,
+            body: laneDetails[lane] ?? '',
+          })),
+        ),
+        createElement(
+          'p',
+          { style: { ...bodyStyle, fontSize: 'var(--owl-text-sm)', color: 'var(--owl-color-quiet)' } },
+          'Valuation is not one of the six parallel lanes — a dedicated focused pass runs after the six lanes conclude and proposes the owner-earnings value and buy-below during synthesis.',
+        ),
       ),
     }),
   )
