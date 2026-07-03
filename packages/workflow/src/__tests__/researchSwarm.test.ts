@@ -1237,6 +1237,17 @@ function configurableSwarmProvider(opts: {
           proposed_sources: [src('src_lane_shariah')],
         }
       }
+      // Focused Shariah-reasoning pass (always-on): the overlay the harness recompute now sources from.
+      // omitShariahOverlay omits shariah_judgment (schema-invalid → the pass fails → the harness fails
+      // CLOSED to the impermissible_income_not_emitted degradation — the live dogfood shape).
+      if (schemaName === 'BuffettMungerShariahReasoning') {
+        return {
+          ...(opts.omitShariahOverlay === true
+            ? {}
+            : { shariah_judgment: { sector_status: 'compliant', impermissible_income: 0, sector_citation: 'src_shariah_reasoning' } }),
+          proposed_sources: [src('src_shariah_reasoning')],
+        }
+      }
       if (schemaName === 'BuffettMungerRedTeam') {
         if (rtFails > 0) { rtFails--; throw new Error('Codex CLI timed out') }
         return {
@@ -2851,6 +2862,15 @@ function swarmFakeProviderWithShariah(
           proposed_sources: [src('src_lane_shariah')],
         }
       }
+      // Focused Shariah-reasoning pass (always-on) — the overlay the harness AAOIFI recompute now sources
+      // from. Mirrors the lane's sector_status + impermissible_income params (impermissible_income may be
+      // null = UNDETERMINED, which the pass accepts and the harness fails CLOSED on).
+      if (schemaName === 'BuffettMungerShariahReasoning') {
+        return {
+          shariah_judgment: { sector_status, impermissible_income, sector_citation: 'src_shariah_reasoning' },
+          proposed_sources: [src('src_shariah_reasoning')],
+        }
+      }
       if (schemaName === 'BuffettMungerLaneFinding') {
         const n = laneCall++
         return { finding_summary: `Lane ${n}`, confidence: 'medium', caveats: ['c'], proposed_sources: [src(`src_lane_${n}`)] }
@@ -2956,6 +2976,113 @@ describe('EDGAR-anchored OE bridge + harness AAOIFI Shariah ratios', () => {
     expect(cp?.valuation?.discount_inputs?.risk_free_basis).toBe('config_default')
     expect(cp?.valuation?.discount_inputs?.risk_free_rate).toBeCloseTo(0.02, 10)
     expect(cp?.valuation?.discount_rate).toBeCloseTo(0.075, 10)
+  })
+
+  it('sources the AAOIFI recompute overlay from the focused Shariah-reasoning PASS (not the lane)', async () => {
+    // Proves Task 2: the harness recompute reads shariahLaneJudgment from the ALWAYS-ON focused
+    // Shariah-reasoning pass, NOT the deep-dive lane. The lane OMITS its overlay (sector_status +
+    // impermissible_income), yet the pass supplies a grounded compliant/0 judgment — so the AAOIFI ratios
+    // still compute (shariah_financial present) and there is NO impermissible_income_not_emitted flag. If
+    // the recompute had stayed on the (now-omitted) lane overlay, it would have failed closed instead.
+    const store = new InMemoryEventStore()
+    await seedDeepDivePrereqs(store)
+    const src = (id: string) => ({ source_id: id, title: 'T', url: 'https://www.sec.gov/Archives/edgar/data/0/test-10k.htm', excerpt: 'e' })
+    let laneCall = 0
+    const provider = {
+      provider_id: 'fake-swarm-shariah-pass-only',
+      capabilities: {} as never,
+      complete: vi.fn(),
+      runWithTools: vi.fn(),
+      structured: vi.fn(async (req: { response_format?: { schema_name?: string } }) => {
+        const schemaName = req.response_format?.schema_name
+        if (schemaName === 'BuffettMungerCircleCompetence') return fakeCirclePayload(src)
+        if (schemaName === 'BuffettMungerQuickScreen') {
+          return {
+            summary: 's', business_quality: 'b', moat: 'm', management_capital_allocation: 'mc',
+            financial_quality: 'fq', valuation_sanity: 'vs', shariah_status: 'CONDITIONAL',
+            red_flags: ['None'], confidence: 'high', caveats: ['c'],
+            screening_result: 'deep_dive_candidate', proposed_sources: [src('src_qs_1')],
+          }
+        }
+        if (schemaName === 'BuffettMungerMoatLane') {
+          return {
+            finding_summary: 'Moat lane', confidence: 'medium', caveats: ['c'],
+            ...moatThesisForTier('wide', 'src_lane_moat'), runway: 'proven',
+            ...runwayThesisForTier('proven', 'src_lane_moat'),
+            proposed_sources: [src('src_lane_moat')],
+          }
+        }
+        // The SHARIAH LANE grounds a source but deliberately OMITS the sector/impermissible-income overlay.
+        if (schemaName === 'BuffettMungerShariahLane') {
+          return {
+            finding_summary: 'Shariah lane', confidence: 'medium', caveats: ['c'],
+            proposed_sources: [src('src_lane_shariah')],
+          }
+        }
+        // The focused PASS is the SOLE source of the overlay the harness recomputes from.
+        if (schemaName === 'BuffettMungerShariahReasoning') {
+          return {
+            shariah_judgment: { sector_status: 'compliant', impermissible_income: 0, sector_citation: 'src_shariah_reasoning' },
+            proposed_sources: [src('src_shariah_reasoning')],
+          }
+        }
+        if (schemaName === 'BuffettMungerLaneFinding') {
+          const n = laneCall++
+          return { finding_summary: `Lane ${n}`, confidence: 'medium', caveats: ['c'], proposed_sources: [src(`src_lane_${n}`)] }
+        }
+        if (schemaName === 'BuffettMungerRedTeam') {
+          return {
+            strongest_bear_case: 'b', weakest_rubric_items: [], moat_decay_scenario: 'd', growth_credit_attack: 'g',
+            shared_narrative_blindspots: [], strongest_objection: { claim: 'c', severity: 'low', citations: ['src_qs_1'] },
+            proposed_sources: [src('src_qs_1')],
+          }
+        }
+        if (schemaName === 'BuffettMungerRedTeamResponse') {
+          return {
+            synthesis_response: { mode: 'answered_with_evidence', text: 'Rebutted with cited filing evidence.' },
+            proposed_sources: [src('src_qs_1')],
+          }
+        }
+        return {
+          investment_verdict: 'WATCH', strategy_compliance: 'CONDITIONAL', valuation_status: 'EXPENSIVE',
+          next_required_action: 'Await MoS.', decision_reason: 'Quality but pricey', thesis_summary: 'Compounder',
+          evidence_summary: 'Covered', valuation_rationale: 'Elevated', shariah_rationale: 'Clean',
+          synthesis_summary: 'Reviewed', risks: ['Valuation'], open_questions: ['MoS'],
+          ...DECISION_MOS_FIXTURE,
+          growth_assumptions: 'Two-stage DCF; banded g.',
+          owner_earnings_bridge: {
+            net_income: 8099, depreciation_amortization: 999, maintenance_capex: 1,
+            maintenance_capex_proxy_tier: '80', stock_based_comp: 1,
+            normalized_working_capital_change: 0, shares_outstanding: 1,
+          },
+          roic: 0.30, incremental_roic: 0.20, reinvestment_rate: 0.43, proposed_buy_below: 150,
+          proposed_sources: [src('src_dec_1')],
+        }
+      }),
+    }
+
+    await runResearchDeepDivePhase(store, provider as never, deepDiveCommand(), {
+      ground: verifyAllGround(),
+      laneConcurrency: 7,
+      fundamentals: costFundamentals,
+      resolvePrice: async () => ({ available: true, price_per_share: 968, currency: 'USD', as_of: 'x', source: 'test' }),
+    })
+
+    const events = await store.list()
+    const projections = projectResearchCases(events as Parameters<typeof projectResearchCases>[0])
+    const cp = projections.find((c) => c.research_case_id === 'rc_edgar')
+
+    // The AAOIFI recompute ran → shariah_financial exists ONLY because shariahJudgment (from the PASS) is
+    // present, even though the lane omitted its overlay. A genuine 0 impermissible income → clean PASS.
+    expect(cp?.shariah_financial).toBeDefined()
+    expect(cp?.shariah_financial?.verdict).toBe('PASS')
+    expect(cp?.shariah_status).toBe('COMPLIANT')
+    expect(cp?.shariah_sector_status).toBe('compliant')
+    // The pass supplied the overlay, so the omitted-overlay fail-closed flag must NOT be present.
+    const analysisEvent = events.find((e) => e.event_type === 'buffett_munger_analysis_drafted')
+    const valuation = (analysisEvent?.payload as Record<string, unknown>)?.['valuation'] as Record<string, unknown>
+    const degraded = (valuation?.['degraded_flags'] as string[] | undefined) ?? []
+    expect(degraded.join(' ')).not.toMatch(/impermissible_income_not_emitted/)
   })
 
   it('F.2 — threads the compliant app-config savings rate into the discount (basis compliant_savings)', async () => {
@@ -4081,6 +4208,13 @@ describe('runStrategyResearchSwarm — schema-validation + retry (harness defens
             proposed_sources: [src('src_lane_shariah')],
           }
         }
+        // Focused Shariah-reasoning pass (always-on): the overlay the harness recompute sources from.
+        if (schemaName === 'BuffettMungerShariahReasoning') {
+          return {
+            shariah_judgment: { sector_status: 'compliant', impermissible_income: 0, sector_citation: 'src_shariah_reasoning' },
+            proposed_sources: [src('src_shariah_reasoning')],
+          }
+        }
         if (schemaName === 'BuffettMungerRedTeam') {
           return {
             strongest_bear_case: 'b', weakest_rubric_items: [], moat_decay_scenario: 'd', growth_credit_attack: 'g',
@@ -4256,6 +4390,14 @@ function crossCheckSwarmProvider(opts: {
           finding_summary: 'Shariah lane', confidence: 'high', caveats: ['c'],
           sector_status: opts.primarySector ?? 'compliant', impermissible_income: 0,
           proposed_sources: [src('src_lane_shariah')],
+        }
+      }
+      // Focused Shariah-reasoning pass (always-on): the PRIMARY sector status the harness recompute +
+      // Shariah sector cross-check now source from (the cross-check second model then re-classifies it).
+      if (schemaName === 'BuffettMungerShariahReasoning') {
+        return {
+          shariah_judgment: { sector_status: opts.primarySector ?? 'compliant', impermissible_income: 0, sector_citation: 'src_shariah_reasoning' },
+          proposed_sources: [src('src_shariah_reasoning')],
         }
       }
       if (schemaName === 'MoatCrossCheck') {

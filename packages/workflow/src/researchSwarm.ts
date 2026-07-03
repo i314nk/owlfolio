@@ -70,6 +70,7 @@ import { marketImpliedGrowth } from '@owlfolio/strategies/reverseDcf'
 import { fetchAverageMarketCap, resolveCurrentPrice, type AverageMarketCapResult, type MarketDataDeps, type PriceQuote } from './marketData'
 import { runRedTeamPass, runRedTeamResponsePass, buildRedTeamLayer, type RedTeamLaneDigest, type RedTeamResult } from './redTeamPass'
 import { runValuationReasoningPass, type ValuationReasoning } from './valuationReasoningPass'
+import { runShariahReasoningPass } from './shariahReasoningPass'
 import {
   resolveCrossCheck,
   compareMoatClass,
@@ -1409,7 +1410,10 @@ export async function runResearchDeepDivePhase(
   const moatLaneResult = laneResults.find((l) => l.lane === 'moat')
   const shariahLaneResult = laneResults.find((l) => l.lane === 'shariah')
   const moatJudgment = moatLaneResult?.moat_judgment
-  const shariahLaneJudgment = shariahLaneResult?.shariah_judgment
+  // NOTE: shariahLaneJudgment is no longer read off the parallel deep-dive lane — it is now sourced from
+  // the ALWAYS-ON focused Shariah-reasoning pass (runShariahReasoningPass, invoked below once the corpus
+  // digest is assembled). See the derivation after synthesisRuntime. shariahLaneResult itself is retained
+  // for the fail-closed shariah_deep_screen_incomplete flag (a LATER task rewires that).
   // FAIL-CLOSED (compliance is first-class): the SHARIAH lane is a PRIMARY_FILING_LANES member, but a lane
   // that grounds ZERO content-hash-verified sources is SKIPPED (no specialist_finding_recorded) — so the
   // deep RE-SCREEN (segment-revenue + impermissible-income, grounded on the lane's OWN sources) did not run.
@@ -1548,6 +1552,36 @@ export async function runResearchDeepDivePhase(
   // model-tiering-spec: the synthesis runs on the `synthesis` registry role (T1). Default = the run's
   // provider/model so single-provider runs are unchanged; an override can pin it onto a frontier model.
   const synthesisRuntime = resolveRoleRuntime('synthesis', provider, command)
+
+  // ---- FOCUSED Shariah-reasoning pass (ALWAYS-ON) ----
+  // The Shariah compliance overlay (sector_status + impermissible_income + a grounded sector_citation) is
+  // produced by a dedicated focused, grounded, retried call — the SAME cite-check discipline as the
+  // valuation-reasoning pass — instead of being read off the parallel deep-dive lane. It runs
+  // UNCONDITIONALLY (every deep dive) and reuses the SAME laneDigest / corpus / pre-verified-EDGAR inputs
+  // the valuation pass assembles. Its output becomes shariahLaneJudgment, which the AAOIFI recompute below
+  // (and the synthesis reconciliation prompt) source from. On failure the overlay is left undefined so the
+  // recompute fails CLOSED to UNDETERMINED (the visible shariah_ratios_unverified degradation) — never a
+  // silently-clean verdict. (sector_citation is retained for cite-checking, NOT the ratio recompute, so
+  // only sector_status + impermissible_income map onto the ShariahLaneJudgment shape here.)
+  const shariahPassOutcome = await runShariahReasoningPass(
+    synthesisRuntime.provider,
+    {
+      research_case_id: command.research_case_id,
+      ticker: command.ticker,
+      model_id: synthesisRuntime.model_id,
+      laneDigest,
+      corpusSourceIds: [...accumulated.values()].map((s) => s.source_id),
+      preVerifiedSourceIds: primaryFilingSourceId !== undefined ? [primaryFilingSourceId] : [],
+    },
+    { ...(deps.ground === undefined ? {} : { ground: deps.ground }), ...(deps.grounding === undefined ? {} : { grounding: deps.grounding }) },
+  )
+  const shariahLaneJudgment: ShariahLaneJudgment | undefined = shariahPassOutcome.status === 'ok'
+    ? {
+        sector_status: shariahPassOutcome.shariah_judgment.sector_status,
+        impermissible_income: shariahPassOutcome.shariah_judgment.impermissible_income,
+      }
+    : undefined
+
   // A live red-team objection (survived cite-check) makes a red-team RESPONSE required — produced by the
   // dedicated runRedTeamResponsePass below (the focused decomposition), NOT by the synthesis schema.
   const redTeamObjectionLive = redTeam.status === 'complete' && redTeam.strongest_objection.citations.length > 0
@@ -1621,7 +1655,7 @@ export async function runResearchDeepDivePhase(
       // SHARIAH specialist lanes — NOT here. The harness has already resolved them; the resolved tiers are
       // handed to you below for RECONCILIATION only (you do not re-score them).
       + `The MOAT lane resolved moat_class='${judgment.moat!.resolved_moat_class}' and reinvestment runway='${judgment.runway!.resolved_runway}'`
-      + (shariahLaneJudgment !== undefined ? `; the SHARIAH lane assessed sector_status='${shariahLaneJudgment.sector_status}'` : '')
+      + (shariahLaneJudgment !== undefined ? `; the Shariah screen assessed sector_status='${shariahLaneJudgment.sector_status}'` : '')
       + `. Reconcile your verdict + rationale with these resolved classifications; do NOT re-score the rubrics. `
       + `Cite sources in proposed_sources with real URLs.`
       // citation/corpus-alignment (KO regression): surface the harness's already-verified EDGAR source_id
@@ -2483,7 +2517,7 @@ export async function runResearchDeepDivePhase(
   // sector_status, the second model re-classifies the sector and the conservative (stricter) status
   // holds on disagreement (+ human escalation). The impermissible_income overlay is untouched (it feeds
   // the harness ratio recompute, not a model classification).
-  // Spec-correct decomposition: the overlay now comes from the SHARIAH lane output, not the synthesis schema.
+  // Spec-correct decomposition: the overlay now comes from the always-on Shariah-reasoning pass (via shariahLaneJudgment above), not the lane and not the synthesis schema.
   let shariahJudgment: ShariahLaneJudgment | undefined = shariahLaneJudgment
   const shariahCrossCheckRuntime = resolveCrossCheckRuntime('lane_shariah_crosscheck', provider, command)
   if (shariahCrossCheckRuntime !== undefined && shariahJudgment !== undefined) {
