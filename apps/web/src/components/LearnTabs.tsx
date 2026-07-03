@@ -252,7 +252,6 @@ function SwarmTab(): ReactNode {
     moat: 'The moat and its reinvestment runway as a grounded, cite-verified thesis — every claim cited to a fetched source; a quant anchor from filings only corroborates, it does not set a numeric score.',
     management: 'Capital allocation, candor, incentives, and the SBC trend — from filings and proxies, not media profiles.',
     financial_quality: 'Every raw harness input: the owner-earnings bridge, incremental ROIC, leverage, and accounting quality.',
-    shariah: 'Sector status and the AAOIFI financial ratios, plus the purification percentage — a screening aid, not a ruling.',
     risks: 'The pre-mortem, the thesis-break triggers, and the single assumption that, if wrong, breaks the case.',
   }
   return createElement(
@@ -299,7 +298,7 @@ function SwarmTab(): ReactNode {
         createElement(
           'p',
           { style: { ...bodyStyle, fontSize: 'var(--owl-text-sm)', color: 'var(--owl-color-quiet)' } },
-          'Valuation is not one of the six parallel lanes — a dedicated focused pass runs after the six lanes conclude and proposes the owner-earnings value and buy-below during synthesis.',
+          'Valuation and Shariah compliance are not parallel lanes — each runs as a dedicated focused pass after the five lanes conclude: valuation proposes the owner-earnings value and buy-below during synthesis, and the Shariah pass produces the grounded compliance overlay (the harness recomputes the AAOIFI ratios from filings).',
         ),
       ),
     }),

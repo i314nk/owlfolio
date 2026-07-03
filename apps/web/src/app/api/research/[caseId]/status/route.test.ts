@@ -29,7 +29,7 @@ async function createCase(ledgerPath: string, rc: string): Promise<void> {
   }
 }
 
-/** Append N specialist_finding_recorded events → an in-flight deep dive at N/6. */
+/** Append N specialist_finding_recorded events → an in-flight deep dive at N/5. */
 async function recordFindings(ledgerPath: string, rc: string, count: number): Promise<void> {
   const store = new SQLiteEventStore(ledgerPath)
   try {
@@ -142,8 +142,8 @@ describe('/api/research/[caseId]/status', () => {
     expect(body.inProgress).toBe(true)
     expect(body.failed).toBe(false)
     expect(body.currentStage).toBe('deep_dive')
-    expect(body.lanes).toEqual({ completed: 3, total: 6 })
-    expect(body.label).toBe('Deep dive — 3/6 specialists')
+    expect(body.lanes).toEqual({ completed: 3, total: 5 })
+    expect(body.label).toBe('Deep dive — 3/5 specialists')
     expect(body.stage).toBe('specialist_finding_recorded')
   })
 

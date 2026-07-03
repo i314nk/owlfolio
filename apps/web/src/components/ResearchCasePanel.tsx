@@ -249,7 +249,7 @@ function gatedReason(researchCase: AppResearchCase): { title: string; reason: st
 // ── Set-aside (early-exit) detection ──────────────────────────────────────────
 
 /**
- * A case is "set aside" when the circle-of-competence gate failed AND the expensive 6-lane deep dive did
+ * A case is "set aside" when the circle-of-competence gate failed AND the expensive 5-lane deep dive did
  * NOT run. Such a run carries verdict PASS + valuation_status INSUFFICIENT_DATA, the circle judgment, and
  * the `outside_circle`/`circle_competence_unmet` mirror flags — but no specialist findings, no valuation.
  * Rendering the full deep-dive scaffold for it is incoherent (empty "Pending" key figures, a "Not yet
@@ -542,7 +542,7 @@ function createPostMortemPanel(researchCase: AppResearchCase) {
 /**
  * Circle-of-competence judgment panel — the GROUNDED MODEL JUDGMENT that gated the deep-dive spend. Shows
  * the cited cashflow drivers, the cited predictability-breakers (the deeper test), and the in/outside
- * outcome with reasoning. When outside-competence, the case was SET ASIDE (verdict PASS) before the 6-lane
+ * outcome with reasoning. When outside-competence, the case was SET ASIDE (verdict PASS) before the 5-lane
  * deep dive ran. Legacy-tolerant: renders nothing when the case predates the circle gate.
  */
 function createCircleCompetencePanel(researchCase: AppResearchCase) {
@@ -752,7 +752,7 @@ function createGatedDossier(researchCase: AppResearchCase) {
           'div',
           { style: { alignItems: 'center', display: 'flex', gap: '0.6rem', fontSize: 'var(--owl-text-base)', color: 'var(--owl-color-quiet)' } },
           createElement('span', null, '—'),
-          createElement('span', { style: { color: 'var(--owl-color-quiet)' } }, 'Deep-dive swarm (6 lanes) — skipped'),
+          createElement('span', { style: { color: 'var(--owl-color-quiet)' } }, 'Deep-dive swarm (5 lanes) — skipped'),
         ),
       ),
       createElement(
@@ -862,7 +862,7 @@ function createAwaitingDeepDiveDossier(researchCase: AppResearchCase) {
           'div',
           { style: { alignItems: 'center', display: 'flex', gap: '0.6rem', fontSize: 'var(--owl-text-base)', color: 'var(--owl-color-quiet)' } },
           createElement('span', null, '—'),
-          createElement('span', { style: { color: 'var(--owl-color-quiet)' } }, 'Deep-dive swarm (6 lanes) — not yet started'),
+          createElement('span', { style: { color: 'var(--owl-color-quiet)' } }, 'Deep-dive swarm (5 lanes) — not yet started'),
         ),
       ) : null,
       // Run deep dive action
@@ -986,7 +986,7 @@ function createSetAsideHero(researchCase: AppResearchCase) {
     createElement(
       'p',
       { style: { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-base)', lineHeight: 1.55, margin: 0 } },
-      'The circle-of-competence gate set this candidate aside before the expensive 6-lane deep dive ran. There is no valuation or deep-dive analysis to show — only the grounded judgment of why it was set aside, below.',
+      'The circle-of-competence gate set this candidate aside before the expensive 5-lane deep dive ran. There is no valuation or deep-dive analysis to show — only the grounded judgment of why it was set aside, below.',
     ),
     // Subordinate provenance metadata (small, quiet mono — NOT co-equal chips).
     metaParts.length === 0 ? null : createElement(
@@ -2281,15 +2281,15 @@ function createSpecialistLanesGrid(researchCase: AppResearchCase) {
     ? createLegacyDeepDiveFindings(researchCase)
     : findings
 
-  // GUARD: only the all-6-lanes-visible treatment fires for a real completed deep-dive (≥1 grounded lane
+  // GUARD: only the all-5-lanes-visible treatment fires for a real completed deep-dive (≥1 grounded lane
   // finding). A legacy/empty/non-deep-dive case (no findings) behaves exactly as before — return null and let
   // the set-aside / gated / awaiting / progress paths own their own rendering. Legacy dossiers supply all
-  // 7 findings via createLegacyDeepDiveFindings(); the 6 orderedLanes are all grounded, valuation lands in
-  // remainder, and no incomplete placeholders appear.
+  // 7 findings via createLegacyDeepDiveFindings(); the 5 orderedLanes are all grounded, shariah and valuation
+  // land in remainder, and no incomplete placeholders appear.
   if (displayFindings.length === 0) return null
 
-  const orderedLanes = ['business_quality', 'moat', 'management', 'financial_quality', 'shariah', 'risks']
-  // For a completed deep dive we render ALL SIX expected lanes IN ORDER: a grounded lane shows its full
+  const orderedLanes = ['business_quality', 'moat', 'management', 'financial_quality', 'risks']
+  // For a completed deep dive we render ALL FIVE expected lanes IN ORDER: a grounded lane shows its full
   // finding card; an expected lane with NO finding (silently skipped upstream when it grounded zero verifiable
   // sources) shows an honest "incomplete" placeholder instead of vanishing. This is DISPLAY-ONLY — it does not
   // re-emit events or change the swarm's correct fail-closed skip; it only makes the skip VISIBLE.
@@ -2303,8 +2303,8 @@ function createSpecialistLanesGrid(researchCase: AppResearchCase) {
     if (isPlaceholderLaneSummary(finding.finding_summary)) return createSpecialistLaneIncompleteCard(lane, 'empty')
     return createSpecialistLaneCard(finding)
   })
-  // Any grounded finding whose lane is NOT one of the 6 expected lanes still renders (remainder), unless it too
-  // is an empty placeholder.
+  // Any grounded finding whose lane is NOT one of the 5 expected lanes still renders (remainder), unless it too
+  // is an empty placeholder. Legacy shariah and valuation findings render here.
   const remainder = displayFindings.filter(
     (f) => !orderedLanes.includes(f.specialist_lane ?? '') && !isPlaceholderLaneSummary(f.finding_summary),
   )

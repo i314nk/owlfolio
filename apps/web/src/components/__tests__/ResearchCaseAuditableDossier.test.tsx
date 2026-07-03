@@ -382,7 +382,7 @@ describe('ResearchCasePanel auditable dossier (R1)', () => {
     expect(sectionTag).toContain('<details')
     // Collapsed by default: the section <details> carries no `open` attribute.
     expect(html.slice(sectionStart - 60, html.indexOf('>', sectionStart))).not.toContain('open=""')
-    expect(html).toContain('Deep-dive specialist lanes (2 of 6 grounded)')
+    expect(html).toContain('Deep-dive specialist lanes (2 of 5 grounded)')
     // The masonry multi-column packing is gone.
     expect(html).not.toContain('data-owl-flow="masonry"')
     // Both the short and the long card live inside the one full-width flow container.
@@ -644,14 +644,15 @@ describe('ResearchCasePanel auditable dossier (R1)', () => {
   })
 })
 
-// ALL SIX LANES VISIBLE (honest skip surfacing) — a deep-dive lane that grounded zero verifiable sources is
+// ALL FIVE LANES VISIBLE (honest skip surfacing) — a deep-dive lane that grounded zero verifiable sources is
 // silently skipped upstream (no specialist_finding event). On a COMPLETED dossier the lanes section must still
-// render all 6 expected lanes: grounded lanes as full cards, the missing ones as honest "incomplete"
+// render all 5 expected lanes: grounded lanes as full cards, the missing ones as honest "incomplete"
 // placeholders, with a grounded-vs-expected header count. Display-only; the upstream skip is unchanged.
-describe('ResearchCasePanel specialist lanes surface all 6 expected lanes', () => {
-  const ALL_LANES = ['business_quality', 'moat', 'management', 'financial_quality', 'shariah', 'risks']
+// Shariah runs as a dedicated focused pass (not a parallel lane) and renders via the Shariah panel / remainder.
+describe('ResearchCasePanel specialist lanes surface all 5 expected lanes', () => {
+  const ALL_LANES = ['business_quality', 'moat', 'management', 'financial_quality', 'risks']
 
-  it('renders the 2 missing lanes as incomplete placeholders when only 4 of 6 grounded', () => {
+  it('renders the 2 missing lanes as incomplete placeholders when only 3 of 5 grounded (shariah finding goes to remainder)', () => {
     const html = render({
       ...baseCase(),
       specialist_findings: [
@@ -661,22 +662,24 @@ describe('ResearchCasePanel specialist lanes surface all 6 expected lanes', () =
         { finding_id: 'f_fq', specialist_lane: 'financial_quality', finding_summary: 'Elite margins.', confidence: 'normal', source_ids: ['s4'] },
       ],
     } as unknown as AppResearchCase, QUOTE)
-    // Honest grounded-vs-expected count in the section header.
-    expect(html).toContain('Deep-dive specialist lanes (4 of 6 grounded)')
-    // All six lane labels are present (grounded + incomplete).
+    // Honest grounded-vs-expected count in the section header (shariah is not an ordered lane).
+    expect(html).toContain('Deep-dive specialist lanes (3 of 5 grounded)')
+    // All five ordered lane labels are present (grounded + incomplete); shariah renders via remainder.
     expect(html).toContain('Business quality')
     expect(html).toContain('Moat')
     expect(html).toContain('Management')
     expect(html).toContain('Financial quality')
     expect(html).toContain('Shariah')
     expect(html).toContain('Risks')
-    // The two ungrounded lanes render as incomplete placeholders with stable testids.
+    // The two ungrounded ordered lanes render as incomplete placeholders with stable testids.
     expect(html).toContain('data-testid="specialist-lane-incomplete-business_quality"')
     expect(html).toContain('data-testid="specialist-lane-incomplete-management"')
-    // The grounded lanes are NOT placeholders.
+    // The grounded ordered lanes are NOT placeholders.
     expect(html).not.toContain('data-testid="specialist-lane-incomplete-moat"')
     expect(html).not.toContain('data-testid="specialist-lane-incomplete-risks"')
     expect(html).not.toContain('data-testid="specialist-lane-incomplete-financial_quality"')
+    // Shariah is not an ordered lane — no incomplete placeholder for it.
+    expect(html).not.toContain('data-testid="specialist-lane-incomplete-shariah"')
     // The placeholder carries the honest, non-investment-grade status.
     expect(html.toLowerCase()).toContain('no verifiable sources grounded this run')
   })
@@ -697,11 +700,11 @@ describe('ResearchCasePanel specialist lanes surface all 6 expected lanes', () =
     // The empty financial_quality lane is surfaced as an incomplete slot with the "returned no written analysis" reason…
     expect(html).toContain('data-testid="specialist-lane-incomplete-financial_quality"')
     expect(html.toLowerCase()).toContain('returned no written analysis')
-    // …and the grounded count reflects it honestly (5 real of 6, not 6).
-    expect(html).toContain('Deep-dive specialist lanes (5 of 6 grounded)')
+    // …and the grounded count reflects it honestly (4 real of 5, not 5; shariah goes to remainder).
+    expect(html).toContain('Deep-dive specialist lanes (4 of 5 grounded)')
   })
 
-  it('renders all 6 as normal cards (no incomplete placeholders) when all 6 grounded', () => {
+  it('renders all 5 as normal cards (no incomplete placeholders) when all 5 grounded', () => {
     const html = render({
       ...baseCase(),
       specialist_findings: ALL_LANES.map((lane, i) => ({
@@ -712,19 +715,19 @@ describe('ResearchCasePanel specialist lanes surface all 6 expected lanes', () =
         source_ids: [`s${i}`],
       })),
     } as unknown as AppResearchCase, QUOTE)
-    expect(html).toContain('Deep-dive specialist lanes (6 of 6 grounded)')
+    expect(html).toContain('Deep-dive specialist lanes (5 of 5 grounded)')
     for (const lane of ALL_LANES) {
       expect(html).not.toContain(`data-testid="specialist-lane-incomplete-${lane}"`)
     }
   })
 
-  it('leaves a legacy dossier (no specialist_findings) unaffected — 6 ordered lanes grounded, no incomplete placeholders', () => {
+  it('leaves a legacy dossier (no specialist_findings) unaffected — 5 ordered lanes grounded, no incomplete placeholders', () => {
     // baseCase() is a legacy decision dossier (no standalone pipeline); it falls back to all 7 legacy lane
-    // findings. The 6 orderedLanes render as normal cards; the legacy valuation finding lands in remainder
-    // and also renders normally. No incomplete placeholders appear.
+    // findings. The 5 orderedLanes render as normal cards; legacy shariah and valuation findings land in
+    // remainder and also render normally. No incomplete placeholders appear.
     const html = render(baseCase(), QUOTE)
     expect(html).toContain('data-testid="specialist-lanes-flow"')
-    expect(html).toContain('Deep-dive specialist lanes (6 of 6 grounded)')
+    expect(html).toContain('Deep-dive specialist lanes (5 of 5 grounded)')
     for (const lane of ALL_LANES) {
       expect(html).not.toContain(`data-testid="specialist-lane-incomplete-${lane}"`)
     }
@@ -763,7 +766,7 @@ describe('ResearchCasePanel auditable dossier uses the Owlfolio design system on
 
 // ── Set-aside (circle-of-competence early exit) dossier ───────────────────────
 //
-// When the circle gate sets a candidate aside, the expensive 6-lane deep dive never ran: verdict PASS +
+// When the circle gate sets a candidate aside, the expensive 5-lane deep dive never ran: verdict PASS +
 // valuation_status INSUFFICIENT_DATA, the circle judgment, the outside_circle mirror flag, NO specialist
 // findings, NO valuation. The dossier must tell the honest short story (set aside, here's why) and OMIT the
 // full deep-dive scaffold — no "Pending" key-figures strip, no discount figure, no "Not yet available" MoS,

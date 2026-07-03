@@ -78,7 +78,7 @@ export default async function ResearchCasePage({ params }: ResearchCasePageProps
       researchCase = view.researchCase
 
       // Mid-run gate: the case row exists (`ready`) but the multi-minute deep dive (quick-screen → circle →
-      // 6 lanes → synthesis → decision) is still running. Drive an animated, stage-aware "research running…"
+      // 5 lanes → synthesis → decision) is still running. Drive an animated, stage-aware "research running…"
       // view off the projected stage + specialist findings until the run reaches a terminal/awaiting-approval
       // state, at which point we fall through to the dossier / approval rendering. (Demo cases are seeded
       // terminal, so demo mode never reaches this branch — no demo wiring needed.)

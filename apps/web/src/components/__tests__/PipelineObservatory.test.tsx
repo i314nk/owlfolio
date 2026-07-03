@@ -15,7 +15,7 @@ import type {
 const pipeline: PipelineProjection = {
   stage_counts: [
     { key: 'quick_screen', label: 'Quick screen', count: 5, health: 'ok' },
-    { key: 'deep_dive', label: 'Deep dive · 6 lanes', count: 2, health: 'warn' },
+    { key: 'deep_dive', label: 'Deep dive · 5 lanes', count: 2, health: 'warn' },
     { key: 'synthesis', label: 'Synthesis', count: 1, health: 'ok' },
     { key: 'decision', label: 'Decision', count: 4, health: 'ok' },
     { key: 'watchlist', label: 'Watchlist', count: 2, health: 'ok' },
@@ -24,7 +24,7 @@ const pipeline: PipelineProjection = {
   ],
   summary: { active_runs: 1, awaiting_approval: 1, failed_recent: 0, grounded_sources: 8 },
   runs: [
-    { research_case_id: 'rc-msft', ticker: 'MSFT', version: 2, stage_label: 'Deep dive (2/6 lanes)', status: 'running', source_count: 8, started_at: '2026-06-08T00:00:06Z', updated_at: '2026-06-08T00:00:06Z' },
+    { research_case_id: 'rc-msft', ticker: 'MSFT', version: 2, stage_label: 'Deep dive (2/5 lanes)', status: 'running', source_count: 8, started_at: '2026-06-08T00:00:06Z', updated_at: '2026-06-08T00:00:06Z' },
     { research_case_id: 'rc-rej', ticker: 'ADULT', version: 1, stage_label: 'Rejected', status: 'rejected', verdict: 'Shariah', source_count: 2, started_at: '2026-06-08T00:00:01Z', updated_at: '2026-06-08T00:00:01Z' },
   ],
 }
@@ -54,7 +54,7 @@ describe('PipelineObservatory', () => {
     expect(html).toContain('Active runs')
     expect(html).toContain('Grounded sources')
     expect(html).toContain('Pipeline flow')
-    expect(html).toContain('Deep dive · 6 lanes')
+    expect(html).toContain('Deep dive · 5 lanes')
     expect(html).toContain('MSFT')
     expect(html).toContain('running')
     expect(html).toContain('Shariah')

@@ -8,9 +8,9 @@ function stateOf(progress: ReturnType<typeof resolveRunProgress>, key: ResearchR
   return progress.stages.find((stage) => stage.key === key)?.state
 }
 
-describe('loading-screen lane total tracks the 6-lane deep dive', () => {
-  it('is 6', () => {
-    expect(DEEP_DIVE_LANE_TOTAL).toBe(6)
+describe('loading-screen lane total tracks the 5-lane deep dive', () => {
+  it('is 5', () => {
+    expect(DEEP_DIVE_LANE_TOTAL).toBe(5)
   })
 
   it('matches the source buffettMungerDeepDiveLanes array length (drift guard)', () => {
@@ -73,20 +73,20 @@ describe('resolveRunProgress — stage mapping', () => {
   })
 })
 
-describe('resolveRunProgress — lane count drives the N/6 deep-dive label', () => {
+describe('resolveRunProgress — lane count drives the N/5 deep-dive label', () => {
   it('reflects the specialist finding count', () => {
     const p = resolveRunProgress({ stage: 'deep_dive_in_progress', specialistFindingCount: 3 })
-    expect(p.lanes).toEqual({ completed: 3, total: 6 })
-    expect(p.stages.find((s) => s.key === 'deep_dive')?.label).toBe('Deep dive — 3/6 specialists')
+    expect(p.lanes).toEqual({ completed: 3, total: 5 })
+    expect(p.stages.find((s) => s.key === 'deep_dive')?.label).toBe('Deep dive — 3/5 specialists')
   })
 
-  it('caps the completed count at 6 and floors at 0', () => {
-    expect(resolveRunProgress({ stage: 'deep_dive_in_progress', specialistFindingCount: 99 }).lanes.completed).toBe(6)
+  it('caps the completed count at 5 and floors at 0', () => {
+    expect(resolveRunProgress({ stage: 'deep_dive_in_progress', specialistFindingCount: 99 }).lanes.completed).toBe(5)
     expect(resolveRunProgress({ stage: 'deep_dive_in_progress', specialistFindingCount: -5 }).lanes.completed).toBe(0)
   })
 
-  it('defaults to 0/6 when no count is supplied', () => {
-    expect(resolveRunProgress({ stage: 'deep_dive_in_progress' }).lanes).toEqual({ completed: 0, total: 6 })
+  it('defaults to 0/5 when no count is supplied', () => {
+    expect(resolveRunProgress({ stage: 'deep_dive_in_progress' }).lanes).toEqual({ completed: 0, total: 5 })
   })
 })
 
@@ -107,14 +107,14 @@ describe('resolveRunProgress — pauses and terminals', () => {
     'watchlist_draft',
     'holding',
   ] as const)('terminal stage %s → currentStage done, NOT in progress', (stage) => {
-    const p = resolveRunProgress({ stage, specialistFindingCount: 6 })
+    const p = resolveRunProgress({ stage, specialistFindingCount: 5 })
     expect(p.currentStage).toBe('done')
     expect(p.inProgress).toBe(false)
     expect(p.awaitingApproval).toBe(false)
   })
 
-  it('a full terminal run (6 lanes) marks every stage done', () => {
-    const p = resolveRunProgress({ stage: 'decision_drafted', specialistFindingCount: 6 })
+  it('a full terminal run (5 lanes) marks every stage done', () => {
+    const p = resolveRunProgress({ stage: 'decision_drafted', specialistFindingCount: 5 })
     expect(p.stages.every((s) => s.state === 'done')).toBe(true)
   })
 })

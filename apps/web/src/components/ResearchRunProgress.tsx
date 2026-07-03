@@ -121,7 +121,7 @@ export function ResearchRunProgress({
     createElement(
       'p',
       { className: 'owl-empty-state-description' },
-      'The deep dive runs through a quick screen, the circle of competence, six specialist lanes, synthesis, and a decision. This page updates as each stage completes.',
+      'The deep dive runs through a quick screen, the circle of competence, five specialist lanes, synthesis, and a decision. This page updates as each stage completes.',
     ),
     createElement(
       'ol',
