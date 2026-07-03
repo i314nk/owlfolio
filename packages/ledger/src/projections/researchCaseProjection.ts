@@ -462,6 +462,19 @@ export type ResearchCaseShariahFinancialProjection = {
   market_cap_basis?: string
   /** Fiscal year of the EDGAR primary data the ratios used. */
   bridge_source_fiscal_year?: number
+  /**
+   * Itemized composition of the impermissible-income input — interest income, dividend income,
+   * cash-instrument investment income (each with its XBRL concept), plus any model-quantified residual.
+   * The dossier SHOWS every line; their sum is the figure the purification % was computed from.
+   */
+  impermissible_income_lines?: ResearchCaseImpermissibleIncomeLineProjection[]
+}
+
+/** One itemized impermissible-income component (XBRL concept or model residual), $millions. */
+export type ResearchCaseImpermissibleIncomeLineProjection = {
+  concept: string
+  label: string
+  amount_musd: number
 }
 
 /**
@@ -1565,6 +1578,20 @@ function getShariahFinancial(payload: Record<string, unknown>): ResearchCaseShar
   if (market_cap_basis !== undefined) projected.market_cap_basis = market_cap_basis
   const bridge_source_fiscal_year = getNumber(value, 'bridge_source_fiscal_year')
   if (bridge_source_fiscal_year !== undefined) projected.bridge_source_fiscal_year = bridge_source_fiscal_year
+  const rawLines = value['impermissible_income_lines']
+  if (Array.isArray(rawLines)) {
+    const lines: ResearchCaseImpermissibleIncomeLineProjection[] = []
+    for (const raw of rawLines) {
+      if (!isRecord(raw)) continue
+      const concept = getString(raw, 'concept')
+      const label = getString(raw, 'label')
+      const amount_musd = getNumber(raw, 'amount_musd')
+      if (concept !== undefined && label !== undefined && amount_musd !== undefined) {
+        lines.push({ concept, label, amount_musd })
+      }
+    }
+    if (lines.length > 0) projected.impermissible_income_lines = lines
+  }
   return Object.keys(projected).length === 0 ? undefined : projected
 }
 

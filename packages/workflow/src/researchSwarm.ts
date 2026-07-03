@@ -43,7 +43,7 @@ export {
   type GroundedAgentResult,
   type SynthesisResponse,
 }
-import { computeIncrementalRoic, demonstratedOwnerEarningsGrowth, estimateMaintenanceCapex, ownerEarningsVsFcfDiagnostic, selectRecentReadableFilings, type Fundamentals, type SecEdgarDeps } from './secEdgar'
+import { computeIncrementalRoic, demonstratedOwnerEarningsGrowth, estimateMaintenanceCapex, ownerEarningsVsFcfDiagnostic, selectRecentReadableFilings, type Fundamentals, type ImpermissibleIncomeLine, type SecEdgarDeps } from './secEdgar'
 import { resolveFundamentalsForTicker } from './fundamentalsProvider'
 import { evaluateBaseRateBurden, type BaseRateBurdenFlag } from './baseRateBurden'
 import { BASE_RATES } from '@owlfolio/strategies/baseRates'
@@ -2515,27 +2515,56 @@ export async function runResearchDeepDivePhase(
         market_cap_basis: 'avg_36mo_x_diluted_shares' | 'current_price_x_diluted_shares'
         market_cap_months?: number
         bridge_source_fiscal_year?: number
+        /** Itemized composition of the impermissible-income input (interest, dividends, model residual). */
+        impermissible_income_lines?: ImpermissibleIncomeLine[]
       }
     | undefined
   // HARNESS-OWNED impermissible income: no filing discloses an "impermissible income" line, so the pass
   // honestly returns null for nearly every ticker — which left the deep screen permanently UNDETERMINED.
-  // The deterministic AAOIFI-computable proxy is disclosed interest income, extracted from XBRL
-  // (fundamentals.latest_annual.interest_income_musd). Precedence: a pass null falls back to the XBRL
-  // figure; when BOTH are numeric the CONSERVATIVE max wins (the model may quantify prohibited-segment
-  // revenue beyond interest, but may never silently undercount below the disclosed interest income —
-  // purification errs high, never low).
-  const xbrlInterestIncome = fundamentals?.latest_annual?.interest_income_musd
+  // The deterministic AAOIFI-computable components are the ITEMIZED XBRL lines (interest income,
+  // dividend income, cash-instrument investment income — fundamentals.latest_annual.
+  // impermissible_income_lines); their sum is the harness figure. Precedence: a pass null falls back to
+  // the XBRL total; when BOTH are numeric the CONSERVATIVE max wins (the model may quantify
+  // prohibited-segment revenue beyond interest/dividends, but may never silently undercount below the
+  // disclosed components — purification errs high, never low).
+  const xbrlImpermissibleLines = fundamentals?.latest_annual?.impermissible_income_lines
+  const xbrlImpermissibleTotal =
+    xbrlImpermissibleLines !== undefined && xbrlImpermissibleLines.length > 0
+      ? xbrlImpermissibleLines.reduce((sum, line) => sum + line.amount_musd, 0)
+      : undefined
   const modelImpermissible = shariahJudgment?.impermissible_income
   const effectiveImpermissibleIncome: number | null =
     modelImpermissible === undefined ? null
-    : modelImpermissible === null ? (xbrlInterestIncome ?? null)
-    : xbrlInterestIncome !== undefined ? Math.max(modelImpermissible, xbrlInterestIncome)
+    : modelImpermissible === null ? (xbrlImpermissibleTotal ?? null)
+    : xbrlImpermissibleTotal !== undefined ? Math.max(modelImpermissible, xbrlImpermissibleTotal)
     : modelImpermissible
   const impermissibleIncomeFromXbrl =
-    xbrlInterestIncome !== undefined
+    xbrlImpermissibleTotal !== undefined
     && shariahJudgment !== undefined
-    && effectiveImpermissibleIncome === xbrlInterestIncome
-    && modelImpermissible !== xbrlInterestIncome
+    && effectiveImpermissibleIncome === xbrlImpermissibleTotal
+    && modelImpermissible !== xbrlImpermissibleTotal
+  // The SHOWN composition — every line that makes up the effective figure, so the dossier itemizes it
+  // (interest income, dividend income, etc.). When the model's larger figure won the conservative max,
+  // the excess over the disclosed components is shown as an explicit model-residual line (the total
+  // always equals the sum of its shown lines).
+  const impermissibleIncomeShownLines: ImpermissibleIncomeLine[] | undefined = (() => {
+    if (effectiveImpermissibleIncome === null || shariahJudgment === undefined) return undefined
+    if (xbrlImpermissibleLines !== undefined && xbrlImpermissibleTotal !== undefined && xbrlImpermissibleLines.length > 0) {
+      if (effectiveImpermissibleIncome === xbrlImpermissibleTotal) return xbrlImpermissibleLines
+      return [
+        ...xbrlImpermissibleLines,
+        {
+          concept: 'model_judgment',
+          label: 'model-quantified additional impermissible income (beyond disclosed interest/dividends)',
+          amount_musd: effectiveImpermissibleIncome - xbrlImpermissibleTotal,
+        },
+      ]
+    }
+    if (effectiveImpermissibleIncome > 0) {
+      return [{ concept: 'model_judgment', label: 'model-quantified impermissible income', amount_musd: effectiveImpermissibleIncome }]
+    }
+    return undefined // affirmatively-verified zero — nothing to itemize
+  })()
   // FAIL-CLOSED on UNDETERMINED impermissible income. The pass emits impermissible_income = null when it
   // could NOT extract / the filing does not separately disclose a quantified impermissible-income line.
   // That is a DETERMINED-AS-UNDETERMINED answer (not an omission) — the harness must NOT compute a clean
@@ -2575,6 +2604,7 @@ export async function runResearchDeepDivePhase(
         market_cap_basis,
         ...(avgMarketCap !== undefined ? { market_cap_months: avgMarketCap.months } : {}),
         bridge_source_fiscal_year: la.fiscal_year,
+        ...(impermissibleIncomeShownLines !== undefined ? { impermissible_income_lines: impermissibleIncomeShownLines } : {}),
       }
     } else {
       shariahRatioNotComputableReason = ratios.reason
@@ -2608,11 +2638,14 @@ export async function runResearchDeepDivePhase(
     // inputs) — either the pass returned null (not separately disclosed in the narrative it saw) or its
     // figure undercut the disclosed interest income and the conservative max won. Visible so the human
     // knows the number's source; purification is computed, never silently 0%.
+    const composition = (xbrlImpermissibleLines ?? [])
+      .map((line) => `${line.label} ${line.amount_musd}M (${line.concept})`)
+      .join(' + ')
     degradedFlags.push(
-      `shariah_impermissible_income_xbrl: the impermissible-income input (${effectiveImpermissibleIncome}M) `
-      + 'is the harness-extracted XBRL interest income of the latest annual facts (InvestmentIncome* '
-      + 'concepts) — the deterministic AAOIFI proxy. The purification % is computed from it; verify the '
-      + 'figure against the filing\'s investment-income note if precision matters.',
+      `shariah_impermissible_income_xbrl: the impermissible-income input (${effectiveImpermissibleIncome}M `
+      + `= ${composition}) is the harness-extracted XBRL composition of the latest annual facts — the `
+      + 'deterministic AAOIFI components. The purification % is computed from it; verify the lines '
+      + 'against the filing\'s investment-income note if precision matters.',
     )
   } else if (
     market_cap === undefined

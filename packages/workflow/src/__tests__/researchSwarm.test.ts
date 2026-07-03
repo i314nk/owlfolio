@@ -3198,7 +3198,13 @@ describe('EDGAR-anchored OE bridge + harness AAOIFI Shariah ratios', () => {
 
     const withInterestIncome: Fundamentals = {
       ...costFundamentals,
-      latest_annual: { ...costFundamentals.latest_annual, interest_income_musd: 300 },
+      latest_annual: {
+        ...costFundamentals.latest_annual,
+        impermissible_income_lines: [
+          { concept: 'InvestmentIncomeInterest', label: 'interest income', amount_musd: 200 },
+          { concept: 'InvestmentIncomeDividend', label: 'dividend income', amount_musd: 100 },
+        ],
+      },
     }
     await runResearchDeepDivePhase(store, provider as never, deepDiveCommand(), {
       ground: verifyAllGround(),
@@ -3210,13 +3216,25 @@ describe('EDGAR-anchored OE bridge + harness AAOIFI Shariah ratios', () => {
     const events = await store.list()
     const projections = projectResearchCases(events as Parameters<typeof projectResearchCases>[0])
     const cp = projections.find((c) => c.research_case_id === 'rc_edgar')
-    // Ratios computable from the XBRL interest income — a real purification %, not UNDETERMINED.
+    // Ratios computable from the XBRL component total (200 + 100) — a real purification %, not UNDETERMINED.
     expect(cp?.shariah_financial?.verdict).toBe('CONDITIONAL')
     expect(cp?.shariah_financial?.purification_pct).toBeCloseTo(300 / 275235, 8)
     expect(cp?.shariah_status).toBe('CONDITIONAL')
     expect(cp?.shariah_impermissible_income_undetermined).toBeUndefined()
+    // ALL impermissible-income lines are SHOWN — through the PROJECTION (what the UI reads), itemized.
+    expect(cp?.shariah_financial?.impermissible_income_lines).toEqual([
+      { concept: 'InvestmentIncomeInterest', label: 'interest income', amount_musd: 200 },
+      { concept: 'InvestmentIncomeDividend', label: 'dividend income', amount_musd: 100 },
+    ])
     const analysisEvent = events.find((e) => e.event_type === 'buffett_munger_analysis_drafted')
-    const valuation = (analysisEvent?.payload as Record<string, unknown>)?.['valuation'] as Record<string, unknown>
+    const payload = analysisEvent?.payload as Record<string, unknown>
+    // And on the recorded ledger payload itself.
+    const sf = payload?.['shariah_financial'] as Record<string, unknown>
+    expect(sf?.['impermissible_income_lines']).toEqual([
+      { concept: 'InvestmentIncomeInterest', label: 'interest income', amount_musd: 200 },
+      { concept: 'InvestmentIncomeDividend', label: 'dividend income', amount_musd: 100 },
+    ])
+    const valuation = payload?.['valuation'] as Record<string, unknown>
     const degraded = (valuation?.['degraded_flags'] as string[] | undefined) ?? []
     // Provenance is visible; the fail-closed UNDETERMINED flag is NOT raised.
     expect(degraded.join(' ')).toMatch(/impermissible_income_xbrl/)
@@ -3234,7 +3252,12 @@ describe('EDGAR-anchored OE bridge + harness AAOIFI Shariah ratios', () => {
 
     const withInterestIncome: Fundamentals = {
       ...costFundamentals,
-      latest_annual: { ...costFundamentals.latest_annual, interest_income_musd: 300 },
+      latest_annual: {
+        ...costFundamentals.latest_annual,
+        impermissible_income_lines: [
+          { concept: 'InvestmentIncomeInterest', label: 'interest income', amount_musd: 300 },
+        ],
+      },
     }
     await runResearchDeepDivePhase(store, provider as never, deepDiveCommand(), {
       ground: verifyAllGround(),
@@ -3250,9 +3273,53 @@ describe('EDGAR-anchored OE bridge + harness AAOIFI Shariah ratios', () => {
     // purification reflects the XBRL 300 (over revenue), not the model's 100.
     expect(cp?.shariah_financial?.purification_pct).toBeCloseTo(300 / 275235, 8)
     const analysisEvent = events.find((e) => e.event_type === 'buffett_munger_analysis_drafted')
-    const valuation = (analysisEvent?.payload as Record<string, unknown>)?.['valuation'] as Record<string, unknown>
+    const payload = analysisEvent?.payload as Record<string, unknown>
+    const sf = payload?.['shariah_financial'] as Record<string, unknown>
+    // The shown lines are the XBRL composition (the model's lower 100 lost the conservative max).
+    expect(sf?.['impermissible_income_lines']).toEqual([
+      { concept: 'InvestmentIncomeInterest', label: 'interest income', amount_musd: 300 },
+    ])
+    const valuation = payload?.['valuation'] as Record<string, unknown>
     const degraded = (valuation?.['degraded_flags'] as string[] | undefined) ?? []
     expect(degraded.join(' ')).toMatch(/impermissible_income_xbrl/)
+  })
+
+  it('model impermissible income ABOVE the XBRL total → model wins, shown as XBRL lines + a model residual line', async () => {
+    // A model figure ABOVE the disclosed interest/dividend total legitimately carries prohibited-segment
+    // revenue the XBRL concepts cannot see — the max keeps it, and the shown composition itemizes the
+    // XBRL lines plus the model residual so the total is fully accounted for.
+    const store = new InMemoryEventStore()
+    await seedDeepDivePrereqs(store)
+    const provider = swarmFakeProviderWithShariah(500, 'compliant')
+    await provider.structured({} as never)
+
+    const withInterestIncome: Fundamentals = {
+      ...costFundamentals,
+      latest_annual: {
+        ...costFundamentals.latest_annual,
+        impermissible_income_lines: [
+          { concept: 'InvestmentIncomeInterest', label: 'interest income', amount_musd: 300 },
+        ],
+      },
+    }
+    await runResearchDeepDivePhase(store, provider as never, deepDiveCommand(), {
+      ground: verifyAllGround(),
+      laneConcurrency: 7,
+      fundamentals: withInterestIncome,
+      resolvePrice: async () => ({ available: true, price_per_share: 968, currency: 'USD', as_of: 'x', source: 'test' }),
+    })
+
+    const events = await store.list()
+    const projections = projectResearchCases(events as Parameters<typeof projectResearchCases>[0])
+    const cp = projections.find((c) => c.research_case_id === 'rc_edgar')
+    expect(cp?.shariah_financial?.purification_pct).toBeCloseTo(500 / 275235, 8)
+    const analysisEvent = events.find((e) => e.event_type === 'buffett_munger_analysis_drafted')
+    const sf = (analysisEvent?.payload as Record<string, unknown>)?.['shariah_financial'] as Record<string, unknown>
+    const lines = sf?.['impermissible_income_lines'] as Array<{ concept: string; amount_musd: number }>
+    expect(lines?.map((l) => [l.concept, l.amount_musd])).toEqual([
+      ['InvestmentIncomeInterest', 300],
+      ['model_judgment', 200],
+    ])
   })
 
   it('GENUINE zero impermissible income (lane returns 0, sector compliant) → PASS / 0% (unchanged)', async () => {

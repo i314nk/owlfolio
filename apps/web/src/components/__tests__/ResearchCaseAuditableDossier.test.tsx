@@ -946,6 +946,33 @@ describe('ResearchCasePanel Shariah compliance — fail-closed UNDETERMINED puri
     expect(html).toContain('Purification: 0.4%')
     expect(html).not.toContain('data-testid="shariah-aaoifi-undetermined"')
   })
+
+  it('itemizes every impermissible-income line (interest, dividends, model residual) in the AAOIFI ledger', () => {
+    // Owner requirement: ALL impermissible-income components are SHOWN — the composition the
+    // purification % was computed from, not one opaque number.
+    const html = render({
+      ...baseCase(),
+      shariah_status: 'CONDITIONAL',
+      shariah_financial: {
+        debt_ratio: 0.0134,
+        cash_securities_ratio: 0.0355,
+        impermissible_income_pct: 0.004,
+        verdict: 'CONDITIONAL',
+        purification_pct: 0.004,
+        impermissible_income_lines: [
+          { concept: 'InvestmentIncomeInterest', label: 'interest income', amount_musd: 2790 },
+          { concept: 'InvestmentIncomeDividend', label: 'dividend income', amount_musd: 120 },
+          { concept: 'model_judgment', label: 'model-quantified additional impermissible income (beyond disclosed interest/dividends)', amount_musd: 90 },
+        ],
+      },
+    } as unknown as AppResearchCase, QUOTE)
+    expect(html).toContain('data-testid="shariah-impermissible-income-lines"')
+    expect(html).toContain('interest income')
+    expect(html).toContain('dividend income')
+    expect(html).toContain('$2,790M')
+    expect(html).toContain('$120M')
+    expect(html).toContain('$90M')
+  })
 })
 
 // DISCOUNT-ANCHOR VINTAGE (#3) — the discount's risk-free anchor is the compliant savings rate. The dossier

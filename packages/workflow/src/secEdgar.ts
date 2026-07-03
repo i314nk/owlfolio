@@ -66,19 +66,28 @@ export type AnnualFacts = {
   cash_and_securities_musd?: number
   interest_expense_musd?: number
   /**
-   * Interest income (annual flow), $millions — the deterministic AAOIFI impermissible-income proxy for
-   * the Shariah purification recompute (no filing discloses an "impermissible income" line; disclosed
-   * interest income is the computable input). Prefers the pure interest concept; the combined
-   * interest-and-dividend variant (MSFT's tag) is a CONSERVATIVE-overcount fallback. May be absent —
-   * the recompute then stays fail-closed UNDETERMINED.
+   * Itemized impermissible-income components (annual flows), $millions — the deterministic AAOIFI
+   * purification inputs for the Shariah recompute (no filing discloses an "impermissible income" line;
+   * the computable components are disclosed interest income, dividend income, and cash-instrument
+   * investment income). Each line carries its XBRL concept + human label so the dossier SHOWS the
+   * composition. Selection never double-counts: pure interest + separate dividend are itemized when
+   * tagged; the combined interest-and-dividend variant is used ONLY when the pure concept is absent.
+   * May be absent — the recompute then stays fail-closed UNDETERMINED.
    */
-  interest_income_musd?: number
+  impermissible_income_lines?: ImpermissibleIncomeLine[]
   /** Stockholders' equity (instant), $millions — for the invested-capital proxy. */
   stockholders_equity_musd?: number
   /** Operating income/loss (annual flow), $millions — for the NOPAT proxy. */
   operating_income_musd?: number
   /** Income tax expense/benefit (annual flow), $millions — for the effective-tax-rate NOPAT proxy. */
   income_tax_expense_musd?: number
+}
+
+/** One itemized impermissible-income component: the XBRL concept it resolved from, a human label, $M. */
+export type ImpermissibleIncomeLine = {
+  concept: string
+  label: string
+  amount_musd: number
 }
 
 export type FilingRef = {
@@ -925,11 +934,13 @@ type ConceptMap = {
   cash: string[]
   shortTermInvestments: string[]
   /**
-   * Interest income (annual flow) — the Shariah purification input. PRECEDENCE-ORDERED, per-year: the
-   * pure interest concept first; combined interest-and-dividend variants are conservative-overcount
-   * fallbacks. Empty/absent per year degrades gracefully (recompute stays fail-closed UNDETERMINED).
+   * Impermissible-income components (Shariah purification inputs), each PRECEDENCE-ORDERED per year.
+   * `interest` (pure interest income) and `dividend` are itemized side by side when tagged; `combined`
+   * (interest-and-dividend rollups) is used ONLY for years the pure interest concept does not report —
+   * it already contains dividends, so it is never stacked on the itemized lines (no double-count).
+   * Absent per year degrades gracefully (recompute stays fail-closed UNDETERMINED).
    */
-  interestIncome: string[]
+  impermissibleIncome: { interest: string[]; dividend: string[]; combined: string[] }
   interest: string
   stockholdersEquity: string
   operatingIncome: string
@@ -1022,14 +1033,15 @@ const US_GAAP_CONCEPTS: ConceptMap = {
     'AvailableForSaleSecuritiesCurrent',
     'DebtSecuritiesHeldToMaturityAmortizedCostAfterAllowanceForCreditLoss',
   ],
-  // Interest income: the pure interest concept first; MSFT tags the combined interest-and-dividend
-  // variant (dividends included = conservative overcount for purification, accepted); the operating
-  // variant is a last-resort (financials-adjacent filers).
-  interestIncome: [
-    'InvestmentIncomeInterest',
-    'InvestmentIncomeInterestAndDividend',
-    'InterestAndDividendIncomeOperating',
-  ],
+  // Impermissible-income components: pure interest + separate dividend itemized when tagged; MSFT tags
+  // the combined interest-and-dividend variant (dividends included = conservative overcount, accepted)
+  // — used only when the pure concept is absent; the operating variant is a last-resort (financials-
+  // adjacent filers).
+  impermissibleIncome: {
+    interest: ['InvestmentIncomeInterest'],
+    dividend: ['InvestmentIncomeDividend'],
+    combined: ['InvestmentIncomeInterestAndDividend', 'InterestAndDividendIncomeOperating'],
+  },
   interest: 'InterestExpense',
   stockholdersEquity: 'StockholdersEquity',
   operatingIncome: 'OperatingIncomeLoss',
@@ -1079,9 +1091,14 @@ const IFRS_CONCEPTS: ConceptMap = {
   debtFallback: [],
   cash: ['CashAndCashEquivalents'],
   shortTermInvestments: [],
-  // IFRS interest income best-effort (Novo-class filers disclose finance income variants); absent for a
+  // IFRS impermissible-income best-effort: pure interest concepts only (no reliable dividend/combined
+  // concepts mapped yet — `FinanceIncome` folds in FX gains and would overcount noisily). Absent for a
   // given filer → degrades to fail-closed UNDETERMINED, exactly like a missing us-gaap tag.
-  interestIncome: ['InterestIncome', 'InterestRevenueCalculatedUsingEffectiveInterestMethod'],
+  impermissibleIncome: {
+    interest: ['InterestIncome', 'InterestRevenueCalculatedUsingEffectiveInterestMethod'],
+    dividend: [],
+    combined: [],
+  },
   interest: 'InterestExpense',
   stockholdersEquity: 'Equity',
   operatingIncome: 'ProfitLossFromOperatingActivities',
@@ -1153,6 +1170,75 @@ function firstPopulatedByYear(facts: CompanyFacts, taxonomy: Taxonomy, concepts:
     }
   }
   return out
+}
+
+/** firstPopulatedByYear, but each year also remembers WHICH concept won — so an itemized line can cite it. */
+function firstPopulatedByYearWithConcept(
+  facts: CompanyFacts,
+  taxonomy: Taxonomy,
+  concepts: string[],
+): Map<number, { concept: string; value: number }> {
+  const out = new Map<number, { concept: string; value: number }>()
+  for (const c of concepts) {
+    const m = annualByFiscalYear(facts, taxonomy, c)
+    for (const [fy, v] of m) {
+      if (!out.has(fy)) out.set(fy, { concept: c, value: v })
+    }
+  }
+  return out
+}
+
+/** Human labels for the impermissible-income concepts (shown as itemized dossier lines). */
+const IMPERMISSIBLE_INCOME_LABELS: Record<string, string> = {
+  InvestmentIncomeInterest: 'interest income',
+  InvestmentIncomeDividend: 'dividend income',
+  InvestmentIncomeInterestAndDividend: 'interest and dividend income (combined)',
+  InterestAndDividendIncomeOperating: 'interest and dividend income (operating)',
+  InterestIncome: 'interest income',
+  InterestRevenueCalculatedUsingEffectiveInterestMethod: 'interest revenue (effective interest method)',
+}
+
+/**
+ * Itemized impermissible-income lines for one fiscal year, non-overlapping: the pure interest concept +
+ * a separate dividend concept are itemized side by side; the combined interest-and-dividend rollup is
+ * used ONLY when the pure interest concept is absent (it already contains dividends, so the separate
+ * dividend line is then skipped too — never stacked). Returns undefined when nothing is tagged.
+ */
+function impermissibleIncomeLinesFor(
+  fy: number,
+  impInterest: Map<number, { concept: string; value: number }>,
+  impDividend: Map<number, { concept: string; value: number }>,
+  impCombined: Map<number, { concept: string; value: number }>,
+): ImpermissibleIncomeLine[] | undefined {
+  const line = (hit: { concept: string; value: number }): ImpermissibleIncomeLine | undefined => {
+    const amount = toMusd(hit.value)
+    return amount === undefined ? undefined : {
+      concept: hit.concept,
+      label: IMPERMISSIBLE_INCOME_LABELS[hit.concept] ?? hit.concept,
+      amount_musd: amount,
+    }
+  }
+  const interestHit = impInterest.get(fy)
+  const lines: ImpermissibleIncomeLine[] = []
+  if (interestHit !== undefined) {
+    const interestLine = line(interestHit)
+    if (interestLine !== undefined) lines.push(interestLine)
+    const dividendHit = impDividend.get(fy)
+    const dividendLine = dividendHit !== undefined ? line(dividendHit) : undefined
+    if (dividendLine !== undefined) lines.push(dividendLine)
+  } else {
+    const combinedHit = impCombined.get(fy)
+    const combinedLine = combinedHit !== undefined ? line(combinedHit) : undefined
+    if (combinedLine !== undefined) {
+      lines.push(combinedLine)
+    } else {
+      // No interest, no combined: a lone dividend line is still an itemizable component.
+      const dividendHit = impDividend.get(fy)
+      const dividendLine = dividendHit !== undefined ? line(dividendHit) : undefined
+      if (dividendLine !== undefined) lines.push(dividendLine)
+    }
+  }
+  return lines.length > 0 ? lines : undefined
 }
 
 /**
@@ -1275,8 +1361,11 @@ function buildAnnualSeries(facts: CompanyFacts, taxonomy: Taxonomy, currency: Re
   const cash = firstPopulatedByYear(facts, taxonomy, cm.cash)
   const shortTermInv = firstPopulatedByYear(facts, taxonomy, cm.shortTermInvestments)
   const interest = annualByFiscalYear(facts, taxonomy, cm.interest)
-  // Interest income (flow) per fiscal year — pure concept first, combined variants as per-year fallbacks.
-  const interestIncome = firstPopulatedByYear(facts, taxonomy, cm.interestIncome)
+  // Impermissible-income components (flows) per fiscal year, each resolved with its winning concept so
+  // the itemized line can cite it.
+  const impInterest = firstPopulatedByYearWithConcept(facts, taxonomy, cm.impermissibleIncome.interest)
+  const impDividend = firstPopulatedByYearWithConcept(facts, taxonomy, cm.impermissibleIncome.dividend)
+  const impCombined = firstPopulatedByYearWithConcept(facts, taxonomy, cm.impermissibleIncome.combined)
   // Gross PP&E (instant) per fiscal year — first populated candidate wins; absent → Greenwald proxy degrades.
   const grossPpe = firstPopulatedByYear(facts, taxonomy, cm.grossPpe)
   const stockholdersEquity = annualByFiscalYear(facts, taxonomy, cm.stockholdersEquity)
@@ -1326,7 +1415,7 @@ function buildAnnualSeries(facts: CompanyFacts, taxonomy: Taxonomy, currency: Re
     set('total_debt_musd', toMusd(totalDebtRaw))
     set('cash_and_securities_musd', toMusd(cashRaw))
     set('interest_expense_musd', toMusd(interest.get(fy)))
-    set('interest_income_musd', toMusd(interestIncome.get(fy)))
+    set('impermissible_income_lines', impermissibleIncomeLinesFor(fy, impInterest, impDividend, impCombined))
     set('stockholders_equity_musd', toMusd(stockholdersEquity.get(fy)))
     set('operating_income_musd', toMusd(operatingIncome.get(fy)))
     set('income_tax_expense_musd', toMusd(incomeTax.get(fy)))

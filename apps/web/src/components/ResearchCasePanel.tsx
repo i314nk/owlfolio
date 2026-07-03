@@ -2252,6 +2252,26 @@ function createShariahRatioLedger(researchCase: AppResearchCase): ReturnType<typ
   const verdictColor = verdict === 'FAIL' ? RISK : verdict === 'PASS' ? EMERALD : 'var(--owl-color-gold-bright)'
   const purification = sf.purification_pct !== undefined ? formatRatioPct(sf.purification_pct) : '0.0%'
 
+  // Itemized impermissible-income composition (owner requirement: SHOW every line — interest income,
+  // dividend income, any model-quantified residual — not one opaque number). Sums to the figure the
+  // purification % was computed from; absent for pre-itemization ledger events.
+  const impermissibleLines = (sf.impermissible_income_lines ?? []).length === 0
+    ? null
+    : createElement(
+        'div',
+        {
+          'data-testid': 'shariah-impermissible-income-lines',
+          style: { display: 'grid', gap: '0.2rem', margin: '0.1rem 0 0.05rem', paddingLeft: '0.8rem' },
+        },
+        ...(sf.impermissible_income_lines ?? []).map((line) =>
+          createElement(
+            'div',
+            { key: `${line.concept}:${line.label}`, style: { alignItems: 'baseline', color: '#9aa4b7', display: 'flex', fontSize: 'var(--owl-text-xs)', gap: '0.4rem', justifyContent: 'space-between' } },
+            createElement('span', null, `· ${line.label}`),
+            createElement('span', { style: { fontFamily: 'var(--owl-font-mono)' } }, `$${line.amount_musd.toLocaleString('en-US')}M`),
+          )),
+      )
+
   return createElement(
     'div',
     {
@@ -2262,6 +2282,7 @@ function createShariahRatioLedger(researchCase: AppResearchCase): ReturnType<typ
     row('Debt / market cap', sf.debt_ratio, '< 30%', 0.3),
     row('Cash + securities / market cap', sf.cash_securities_ratio, '< 30%', 0.3),
     row('Impermissible income / revenue', sf.impermissible_income_pct, '< 5%', 0.05),
+    impermissibleLines,
     createElement(
       'div',
       { style: { alignItems: 'baseline', color: '#dbe3ef', display: 'flex', fontSize: 'var(--owl-text-sm)', gap: '0.4rem', justifyContent: 'space-between', marginTop: '0.15rem' } },
