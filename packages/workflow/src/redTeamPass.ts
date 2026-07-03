@@ -9,7 +9,7 @@ import { buffettMungerDeepDiveLanes } from './strategyResearchPipeline'
 // ---------------------------------------------------------------------------
 // judgment-objectivity-layer-spec Mechanism 5 — Red-Team Pass (pre-Synthesis, mandatory)
 //
-// After the 6 deep-dive lanes complete and BEFORE synthesis, one adversarial grounded agent run
+// After the 5 deep-dive lanes complete and BEFORE synthesis, one adversarial grounded agent run
 // whose ONLY mandate is to break the case. It receives a compact digest of all lane findings (incl.
 // the resolved rubric tiers) + the verified source corpus, and must cite the SAME corpus (it is the
 // consensus-knowing lane — like RISKS it may use ALL source categories). Synthesis then MUST answer
@@ -190,7 +190,7 @@ export async function runRedTeamPass(
     }
   } catch (error) {
     // Degrade, never abort: the red team is mandatory but its FAILURE must not discard a completed
-    // 6-lane deep dive. Synthesis proceeds and the dossier records that the red team did not complete.
+    // 5-lane deep dive. Synthesis proceeds and the dossier records that the red team did not complete.
     return {
       status: 'red_team_incomplete',
       reason: error instanceof Error ? error.message : String(error),

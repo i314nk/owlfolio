@@ -2368,7 +2368,7 @@ describe('quick screen — tool-grounded firewall', () => {
 })
 
 // ---------------------------------------------------------------------------
-// Mechanism 5 — Red-Team Pass (orchestrator integration): runs after the 6 lanes, before synthesis;
+// Mechanism 5 — Red-Team Pass (orchestrator integration): runs after the 5 lanes, before synthesis;
 // synthesis must answer the strongest objection or downgrade; the harness enforces the response
 // deterministically (red_team_objection_unaddressed + open_questions) and degrades on timeout.
 // ---------------------------------------------------------------------------
@@ -4836,10 +4836,10 @@ describe('§2 reference FV + implied-exit-multiple — gated on grounded assumed
 })
 
 // ---------------------------------------------------------------------------
-// CIRCLE-OF-COMPETENCE gate — a sequential GROUNDED MODEL JUDGMENT that gates the 6-lane deep-dive spend.
+// CIRCLE-OF-COMPETENCE gate — a sequential GROUNDED MODEL JUDGMENT that gates the 5-lane deep-dive spend.
 // The model must DEMONSTRATE understanding by cite-verifying BOTH the cashflow drivers AND what would make
 // them unpredictable (same rigor). Ungrounded EITHER clause = outside competence (fail-closed). Binary
-// outcome: in-competence → run the 6 lanes; outside-competence → set aside (PASS), never RESEARCH_MORE.
+// outcome: in-competence → run the 5 lanes; outside-competence → set aside (PASS), never RESEARCH_MORE.
 // ---------------------------------------------------------------------------
 describe('circle-of-competence gate', () => {
   // A swarm fake provider whose circle judgment reports a cashflow_predictability verdict and cites
@@ -4968,7 +4968,7 @@ describe('circle-of-competence gate', () => {
     return { store, events, types: events.map((e) => e.event_type), cp: cases.find((c) => c.research_case_id === research_case_id), result }
   }
 
-  it('1. durably_predictable + both clauses grounded (non-empty text) → gate passes, the 6-lane deep dive runs', async () => {
+  it('1. durably_predictable + both clauses grounded (non-empty text) → gate passes, the 5-lane deep dive runs', async () => {
     const { types, cp } = await runCircle('rc_circle_in', { cashflow_predictability: 'durably_predictable', driverCite: 'src_circle_driver', breakerCite: 'src_circle_breaker' })
     // The judgment was recorded and the deep dive ran (lanes + synthesis).
     expect(types).toContain('circle_competence_judged')
@@ -4980,7 +4980,7 @@ describe('circle-of-competence gate', () => {
     expect(cp?.investment_verdict ?? cp?.decision).not.toBe(undefined)
   })
 
-  it('2. not_predictable (understood but cyclical — the MU case) WITH grounded substantive clauses → SET ASIDE (PASS), 6 lanes do NOT run', async () => {
+  it('2. not_predictable (understood but cyclical — the MU case) WITH grounded substantive clauses → SET ASIDE (PASS), 5 lanes do NOT run', async () => {
     // Bug B: the model understands the business and grounds BOTH clauses, but judges the cashflows
     // not durably predictable. The gate must set aside on the verdict, NOT proceed.
     const { types, cp } = await runCircle('rc_circle_not_predictable', { cashflow_predictability: 'not_predictable', driverCite: 'src_circle_driver', breakerCite: 'src_circle_breaker' })
@@ -5007,7 +5007,7 @@ describe('circle-of-competence gate', () => {
     expect(cp?.valuation?.judgment).toBeUndefined()
   })
 
-  it("3. uncertain → SET ASIDE (PASS), 6 lanes do NOT run", async () => {
+  it("3. uncertain → SET ASIDE (PASS), 5 lanes do NOT run", async () => {
     const { types, cp } = await runCircle('rc_circle_uncertain', { cashflow_predictability: 'uncertain', driverCite: 'src_circle_driver', breakerCite: 'src_circle_breaker' })
     expect(types).not.toContain('deep_dive_started')
     expect(cp?.investment_verdict ?? cp?.decision).toBe('PASS')

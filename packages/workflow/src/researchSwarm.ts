@@ -1504,12 +1504,16 @@ export async function runResearchDeepDivePhase(
   // recompute fails CLOSED to UNDETERMINED (the visible shariah_ratios_unverified degradation) — never a
   // silently-clean verdict. (sector_citation is retained for cite-checking, NOT the ratio recompute, so
   // only sector_status + impermissible_income map onto the ShariahLaneJudgment shape here.)
+  // model-tiering-spec: the Shariah pass runs on the `lane_shariah` registry role — this is the highest-
+  // stakes hard-stop classification, so it respects any operator override pinned on lane_shariah. Falls
+  // back to the run's provider/model when no override is configured (identical behavior to before).
+  const shariahPassRuntime = resolveRoleRuntime('lane_shariah', provider, command)
   const shariahPassOutcome = await runShariahReasoningPass(
-    synthesisRuntime.provider,
+    shariahPassRuntime.provider,
     {
       research_case_id: command.research_case_id,
       ticker: command.ticker,
-      model_id: synthesisRuntime.model_id,
+      model_id: shariahPassRuntime.model_id,
       laneDigest,
       corpusSourceIds: [...accumulated.values()].map((s) => s.source_id),
       preVerifiedSourceIds: primaryFilingSourceId !== undefined ? [primaryFilingSourceId] : [],
