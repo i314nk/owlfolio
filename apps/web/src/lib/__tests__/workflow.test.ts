@@ -438,6 +438,91 @@ describe('workflow helpers', () => {
         store.close()
       }
     })
+
+    it('reports failed for a MID-RUN failure (case created, non-terminal stage) instead of the eternal loader', async () => {
+      // The ADBE loading-forever bug: the case row existed (deep dive mid-flight), synthesis failed →
+      // research_run_failed appended — but the ready branch never consulted it, so the page re-rendered
+      // the animated progress view forever. A failure on a non-terminal case must surface as failed.
+      const store = new SQLiteEventStore()
+      try {
+        await appendRunRequested(store, 'rc_midfail_001')
+        await createResearchCase(store, {
+          research_case_id: 'rc_midfail_001',
+          company_id: 'company_adbe',
+          ticker: 'ADBE',
+          strategy_id: 'buffett-munger',
+          strategy_version: '1.0.0',
+          actor_id: 'user_local',
+        })
+        await store.append({
+          event_id: 'evt_research_run_failed_rc_midfail_001',
+          event_type: 'research_run_failed',
+          aggregate_type: 'research_case',
+          aggregate_id: 'rc_midfail_001',
+          correlation_id: 'rc_midfail_001',
+          actor_type: 'worker',
+          actor_id: 'owlfolio-worker',
+          payload: { research_case_id: 'rc_midfail_001', run_id: 'run_rc_midfail_001', failed_at: new Date().toISOString(), error_summary: 'synthesis stage failed after retry' },
+          source_ids: [],
+          created_at: new Date().toISOString(),
+          schema_version: 1,
+        })
+        const view = await resolveResearchCaseView(store, 'personal-local', 'rc_midfail_001')
+        expect(view.status).toBe('failed')
+        if (view.status === 'failed') {
+          expect(view.error_summary).toBe('synthesis stage failed after retry')
+        }
+      } finally {
+        store.close()
+      }
+    })
+
+    it('keeps the dossier (ready) when a failure event exists but the case already reached a terminal stage', async () => {
+      // Defensive guard: never hide a completed dossier behind a failed screen (e.g. a watchdog reaping
+      // a stale run record after the decision was already drafted).
+      const store = new SQLiteEventStore()
+      try {
+        await appendRunRequested(store, 'rc_lateflag_001')
+        await createResearchCase(store, {
+          research_case_id: 'rc_lateflag_001',
+          company_id: 'company_adbe',
+          ticker: 'ADBE',
+          strategy_id: 'buffett-munger',
+          strategy_version: '1.0.0',
+          actor_id: 'user_local',
+        })
+        await store.append({
+          event_id: 'evt_decision_drafted_rc_lateflag_001',
+          event_type: 'decision_drafted',
+          aggregate_type: 'research_case',
+          aggregate_id: 'rc_lateflag_001',
+          correlation_id: 'rc_lateflag_001',
+          actor_type: 'worker',
+          actor_id: 'owlfolio-worker',
+          payload: { research_case_id: 'rc_lateflag_001', decision_id: 'dec_001', decision: 'watch', user_approved: false, reason: 'r' },
+          source_ids: [],
+          created_at: new Date().toISOString(),
+          schema_version: 1,
+        })
+        await store.append({
+          event_id: 'evt_research_run_failed_rc_lateflag_001',
+          event_type: 'research_run_failed',
+          aggregate_type: 'research_case',
+          aggregate_id: 'rc_lateflag_001',
+          correlation_id: 'rc_lateflag_001',
+          actor_type: 'worker',
+          actor_id: 'owlfolio-worker',
+          payload: { research_case_id: 'rc_lateflag_001', run_id: 'run_rc_lateflag_001', failed_at: new Date().toISOString(), error_summary: 'stale run reaped' },
+          source_ids: [],
+          created_at: new Date().toISOString(),
+          schema_version: 1,
+        })
+        const view = await resolveResearchCaseView(store, 'personal-local', 'rc_lateflag_001')
+        expect(view.status).toBe('ready')
+      } finally {
+        store.close()
+      }
+    })
   })
 
   it('promotes and confirms a drafted personal-local decision into a user-approved watchlist item', async () => {

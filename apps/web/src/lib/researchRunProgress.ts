@@ -75,6 +75,15 @@ function labelFor(key: ResearchRunStageKey, lanes: { completed: number; total: n
  * Map the fine-grained projection stage to the coarse current step. The worker proceeds straight from the
  * quick-screen to the circle judgment in automatic mode, so `quick_screened` reads as circle-current.
  */
+/**
+ * True when the projected stage maps to the terminal 'done' step — a dossier/decision exists. Used by
+ * the case-view resolver to decide whether a `research_run_failed` event means "the run died mid-flight
+ * → show the failed view" (non-terminal) or "the dossier already exists → never hide it" (terminal).
+ */
+export function isTerminalResearchStage(stage: ResearchCaseStage | undefined): boolean {
+  return mapStageToCurrent(stage) === 'done'
+}
+
 function mapStageToCurrent(stage: ResearchCaseStage | undefined): ResearchRunStageKey | 'done' {
   switch (stage) {
     case undefined:

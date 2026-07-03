@@ -30,6 +30,7 @@ import { getProviderCatalog, resolveProvider } from '@owlfolio/providers'
 import { VALUATION_PARAMS } from '@owlfolio/strategies/valuationParams'
 import { CHECKLIST_PARAMS, type ChecklistAudit } from '@owlfolio/strategies/checklistParams'
 import { resolveAdmissionThesisDraft, resolveBusinessFindings } from './checklistEvidence'
+import { isTerminalResearchStage } from './researchRunProgress'
 import { resolveAppConfigPath } from './appConfigStore'
 import { resolveProviderCertificationReportDir } from './providerStatus'
 import type { AppConfig } from '@owlfolio/shared'
@@ -647,6 +648,16 @@ const RESEARCH_RUN_EVENT_TYPES: ReadonlySet<string> = new Set([
   'research_run_failed',
 ])
 
+/** The worker's error_summary off a research_run_failed event payload, when present. */
+function failureSummaryFrom(event: LedgerEventEnvelope<unknown>): string | undefined {
+  const payload = event.payload
+  const summary =
+    payload !== null && typeof payload === 'object'
+      ? (payload as Record<string, unknown>).error_summary
+      : undefined
+  return typeof summary === 'string' ? summary : undefined
+}
+
 function eventResearchCaseId(event: LedgerEventEnvelope<unknown>): string {
   const payload = event.payload
   if (payload !== null && typeof payload === 'object') {
@@ -689,9 +700,22 @@ export async function resolveResearchCaseView(
 ): Promise<ResearchCaseView> {
   const events = await store.list()
 
-  // 1. Case already created → render the real dossier.
+  // 1. Case already created → render the real dossier — UNLESS the run died mid-flight. A
+  //    `research_run_failed` on a case that never reached a terminal stage means the worker failed
+  //    between `research_case_created` and the dossier (e.g. synthesis validation exhausted); without
+  //    this check the ready branch renders the animated progress view FOREVER (the client poller sees
+  //    failed, triggers a server re-render, and the server serves the loader again — the ADBE
+  //    loading-forever bug). A case that DID reach a terminal stage keeps its dossier: never hide a
+  //    completed dossier behind a failed screen.
   const researchCase = projectResearchCases(events).find((candidate) => candidate.research_case_id === caseId)
   if (researchCase !== undefined) {
+    const midRunFailure = events.find(
+      (event) => event.event_type === 'research_run_failed' && eventResearchCaseId(event) === caseId,
+    )
+    if (midRunFailure !== undefined && !isTerminalResearchStage(researchCase.stage)) {
+      const summary = failureSummaryFrom(midRunFailure)
+      return { status: 'failed', ...(summary !== undefined ? { error_summary: summary } : {}) }
+    }
     return { status: 'ready', researchCase: await buildPersonalResearchCase(events, researchCase, sourceLedgerPath) }
   }
 
@@ -705,12 +729,8 @@ export async function resolveResearchCaseView(
 
   const failed = runEvents.find((event) => event.event_type === 'research_run_failed')
   if (failed !== undefined) {
-    const payload = failed.payload
-    const summary =
-      payload !== null && typeof payload === 'object'
-        ? (payload as Record<string, unknown>).error_summary
-        : undefined
-    return { status: 'failed', ...(typeof summary === 'string' ? { error_summary: summary } : {}) }
+    const summary = failureSummaryFrom(failed)
+    return { status: 'failed', ...(summary !== undefined ? { error_summary: summary } : {}) }
   }
 
   // requested/claimed but not yet created → the worker should be building the case. Guard against an
