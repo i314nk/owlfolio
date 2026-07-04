@@ -23,13 +23,14 @@ function usage(): string {
     '  corepack pnpm --filter @owlfolio/worker dev -- --task-kind review_reminder',
     '  corepack pnpm --filter @owlfolio/worker dev -- --task-kind watchlist_monitor',
     '  corepack pnpm --filter @owlfolio/worker dev -- --task-kind holding_review_draft',
+    '  corepack pnpm --filter @owlfolio/worker dev -- --task-kind re_review_check',
     '  corepack pnpm --filter @owlfolio/worker dev -- --task-kind purification_projection',
     '',
     'Options:',
     '  --once              Run one worker tick (currently the only mode).',
     '  --dry-run           Only execute mock-safe dry-run task handlers (default).',
     '  --define-defaults   Ensure default safe scheduled tasks exist before running.',
-    '  --task-kind KIND    Limit this tick to review_reminder, watchlist_monitor, holding_review_draft, portfolio_valuation_refresh, or purification_projection.',
+    '  --task-kind KIND    Limit this tick to review_reminder, watchlist_monitor, holding_review_draft, re_review_check, portfolio_valuation_refresh, or purification_projection.',
     '  --help              Show this help.',
     '',
     'Environment:',
@@ -139,7 +140,10 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       dry_run: options.dry_run,
       provider,
       provider_readiness: providerReadiness,
+      // re_review_check needs the persisted decision corpus for its new-filings delta.
+      source_ledger_path: runtime.source_ledger_path,
       ...(runtime.config.provider.model_id === undefined ? {} : { provider_model_id: runtime.config.provider.model_id }),
+      ...(runtime.config.automation === undefined ? {} : { automation: runtime.config.automation }),
       ...(options.task_kind === undefined ? {} : { task_kind: options.task_kind }),
     })
     console.log(JSON.stringify({ runtime, result }, null, 2))

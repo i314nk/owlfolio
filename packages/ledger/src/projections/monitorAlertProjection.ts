@@ -31,6 +31,7 @@ export type MonitorAlertKind =
   | 'sell_review'
   | 'annual_rerun'
   | 'staleness'
+  | 'thesis_re_review'
 
 export type MonitorAlertSeverity = 'info' | 'attention' | 'urgent'
 
@@ -293,6 +294,45 @@ function shariahGraceAlert(
   }]
 }
 
+/**
+ * Thesis re-review diff (research_case_re_review_recorded): BROKEN → urgent, WEAKENED → attention,
+ * UNVERIFIED → info (the pass could not cite-verify — a data problem, not a thesis verdict), INTACT →
+ * silent (an intact thesis is not actionable). Always an OBSERVATION pointing at the dossier — the
+ * human decides whether the full supersession re-run is warranted.
+ */
+function reReviewAlert(event: LedgerEventEnvelope<unknown>, payload: Record<string, unknown>): MonitorAlert[] {
+  const assessment = getString(payload, 'assessment')
+  if (assessment !== 'BROKEN' && assessment !== 'WEAKENED' && assessment !== 'UNVERIFIED') {
+    return []
+  }
+  const researchCaseId = getString(payload, 'research_case_id') ?? event.aggregate_id
+  const ticker = getString(payload, 'ticker')
+  const label = ticker ?? researchCaseId
+  const newFilings = payload['new_filings']
+  const filingCount = Array.isArray(newFilings) ? newFilings.length : 0
+  const severity: MonitorAlertSeverity = assessment === 'BROKEN' ? 'urgent' : assessment === 'WEAKENED' ? 'attention' : 'info'
+  const detail = assessment === 'BROKEN'
+    ? `${getString(payload, 'broken_claim') ?? 'A load-bearing thesis claim'} is contradicted by ${filingCount} new filing(s). The decision itself is unchanged — review the diff and decide on the full re-run.`
+    : assessment === 'WEAKENED'
+      ? `The thesis weakened on ${getString(payload, 'weakened_dimension') ?? 'a dimension'} vs ${filingCount} new filing(s). Review the diff; escalation is your call.`
+      : 'The re-review could not cite-verify its decisive evidence (fail-closed) — no thesis claim either way. Review the dossier.'
+  return [{
+    id: getString(payload, 're_review_id') ?? event.event_id,
+    kind: 'thesis_re_review',
+    subject: {
+      ...(ticker === undefined ? {} : { ticker }),
+      research_case_id: researchCaseId,
+    },
+    severity,
+    headline: `${label}: thesis re-review ${assessment}`,
+    detail,
+    recorded_at: event.created_at,
+    is_observation: true,
+    is_draft: false,
+    human_action: { label: 'Open dossier', href: `/research/${researchCaseId}` },
+  }]
+}
+
 function sellReviewAlert(event: LedgerEventEnvelope<unknown>, payload: Record<string, unknown>): MonitorAlert[] {
   const holdingId = getString(payload, 'holding_id') ?? event.aggregate_id
   const ticker = getString(payload, 'ticker')
@@ -374,6 +414,9 @@ export function projectMonitorAlerts(
         break
       case 'holding_sell_review_drafted':
         produced = sellReviewAlert(event, event.payload)
+        break
+      case 'research_case_re_review_recorded':
+        produced = reReviewAlert(event, event.payload)
         break
       default:
         continue

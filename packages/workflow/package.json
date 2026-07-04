@@ -53,6 +53,8 @@
     "./cheapnessScreen": "./src/cheapnessScreen.ts",
     "./admitJudgment": "./src/admitJudgment.ts",
     "./downsideFloor": "./src/downsideFloor.ts",
-    "./researchRunWatchdog": "./src/researchRunWatchdog.ts"
+    "./researchRunWatchdog": "./src/researchRunWatchdog.ts",
+    "./reReviewTrigger": "./src/reReviewTrigger.ts",
+    "./thesisReReview": "./src/thesisReReview.ts"
   }
 }

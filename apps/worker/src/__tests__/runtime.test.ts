@@ -579,8 +579,9 @@ describe('worker runtime', () => {
     await defineDefaultScheduledTasks(store, { now: () => '2026-06-01T08:00:00.000Z' })
 
     const definitions = (await store.list()).filter((event) => event.event_type === 'scheduled_task_defined')
-    expect(definitions).toHaveLength(11)
+    expect(definitions).toHaveLength(12)
     expect(definitions.map((event) => event.payload)).toEqual([
+      expect.objectContaining({ task_kind: 're_review_check', cadence: '0 6 1 */3 *', dry_run: true, enabled: true }),
       expect.objectContaining({ task_kind: 'review_reminder', dry_run: true, enabled: true }),
       expect.objectContaining({ task_kind: 'watchlist_monitor', dry_run: true, enabled: true }),
       expect.objectContaining({ task_kind: 'holdings_monitor', dry_run: true, enabled: true }),
