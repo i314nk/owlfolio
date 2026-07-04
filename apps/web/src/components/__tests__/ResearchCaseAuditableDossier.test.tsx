@@ -158,6 +158,25 @@ describe('ResearchCasePanel auditable dossier (R1)', () => {
     expect(html.toLowerCase()).toContain('the market implies')
   })
 
+  it('renders an honest degraded decision card for RESEARCH_MORE runs with no buy figures (never silently omits the section)', () => {
+    // The SPGI dogfood: a run whose synthesis could not ground a valuation clamps to RESEARCH_MORE with
+    // no buy-below / no sanity flags / no buy-zone read — and the decision card vanished entirely. The
+    // card must instead STATE the outcome: the verdict, and why no buy signal is recordable.
+    const fresh = baseCase()
+    const html = render({
+      ...fresh,
+      investment_verdict: 'RESEARCH_MORE',
+      valuation_status: 'INSUFFICIENT_DATA',
+      decision: 'RESEARCH_MORE',
+      reason: 'BUY not recordable: missing the data a buy signal needs.',
+      valuation: { moat_class: 'wide', moat_passes_gate: true },
+    } as unknown as AppResearchCase, QUOTE)
+    expect(html).toContain('data-testid="decision-summary"')
+    expect(html).toContain('RESEARCH_MORE')
+    expect(html.toLowerCase()).toContain('no recordable buy signal')
+    expect(html).toContain('BUY not recordable: missing the data a buy signal needs.')
+  })
+
   it('shows the model-assumed sustainable growth in the decision key figures, beside the market-implied read', () => {
     // Owner requirement: the decision card must show the MODEL's assumed sustainable growth (its own
     // judgment) next to the market-implied growth (what the price demands), so the gap is readable at

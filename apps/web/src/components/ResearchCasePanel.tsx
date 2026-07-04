@@ -1251,9 +1251,45 @@ function createDecisionPanel(researchCase: AppResearchCase, marketQuote?: Market
 
   const buyBelow = valuation.proposed_buy_below ?? valuation.buy_price_per_share
   const sanityFlags = valuation.sanity_flags ?? []
-  // Nothing decision-relevant to lead with → let the valuation panel carry it.
+  // No decision-relevant FIGURES (no buy-below, no flags, no buy-zone read): a RESEARCH_MORE /
+  // INSUFFICIENT_DATA run whose synthesis could not ground a valuation. The card must STATE that
+  // outcome, never silently vanish (the SPGI dogfood: the whole decision section disappeared). Only a
+  // case with NO verdict at all (mid-run) still returns null — the progress view owns those.
   if (buyBelow === undefined && sanityFlags.length === 0 && valuation.in_buy_zone === undefined) {
-    return null
+    const degradedVerdict = researchCase.investment_verdict ?? researchCase.decision
+    if (degradedVerdict === undefined) return null
+    return createElement(
+      'details',
+      { 'data-testid': 'decision-summary', className: 'owl-collapsible-card', open: true },
+      createElement(
+        'summary',
+        { className: 'owl-collapsible-card-summary' },
+        createElement('span', { className: 'owl-section-accent', style: { margin: 0 } }, 'The decision'),
+        createElement('span', { className: 'owl-collapsible-card-hint' }, `${degradedVerdict} · no recordable buy signal`),
+      ),
+      createElement(
+        'p',
+        { style: { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-sm)', lineHeight: 1.5, margin: 0 } },
+        'No recordable buy signal: the run did not produce a usable buy-below (the synthesis could not ground '
+        + 'a valuation, or the price was unavailable), so there are no decision figures to show. The recorded '
+        + 'verdict and the reason are below — re-run when the gap is addressed.',
+      ),
+      createElement(
+        'div',
+        { style: { alignItems: 'center', display: 'flex', flexWrap: 'wrap', gap: '0.6rem' } },
+        createPill(`Verdict: ${degradedVerdict}`, resolveVerdictColors(degradedVerdict)),
+        ...(researchCase.valuation_status !== undefined
+          ? [createPill(`Valuation: ${researchCase.valuation_status}`, resolveValuationChipColor(researchCase.valuation_status))]
+          : []),
+      ),
+      ...(researchCase.reason !== undefined && researchCase.reason.length > 0
+        ? [createElement(
+            'p',
+            { style: { color: '#dbe3ef', fontSize: 'var(--owl-text-base)', lineHeight: 1.55, margin: 0 } },
+            researchCase.reason,
+          )]
+        : []),
+    )
   }
 
   const verdict = researchCase.investment_verdict ?? researchCase.decision
