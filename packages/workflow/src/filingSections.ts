@@ -35,8 +35,11 @@ export function htmlToText(html: string): string {
 export type FilingItem = { item: string; title?: string; text: string }
 
 // A real Item heading is "Item <n>[<letter>]." followed by whitespace. Requiring the period + space
-// avoids matching mid-prose phrases like "line item 5 of the schedule".
-const ITEM_HEADING = /\bItem\s+(\d{1,2})([A-C])?\.\s/gi
+// avoids matching mid-prose phrases like "line item 5 of the schedule". The period may be separated
+// from the number by whitespace ("Item 7 . Management's…") — filers whose HTML splits the number and
+// the period into separate tags render exactly that after tag-stripping (the SPGI budget-exhaustion
+// bug: Items 6/7/7A were invisible, and the model burned its tool budget retrying them).
+const ITEM_HEADING = /\bItem\s+(\d{1,2})([A-C])?\s{0,2}\.\s/gi
 
 // Below this, a segment is a TOC line / stub, not a real section — fail closed.
 const MIN_SECTION_CHARS = 60
