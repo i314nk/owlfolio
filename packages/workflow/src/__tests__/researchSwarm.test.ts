@@ -145,9 +145,17 @@ function fakeMoatLanePayload(src: (id: string) => unknown) {
 // (src_circle_driver / src_circle_breaker) verify under every test's ground fn (they contain neither
 // 'moat' nor 'bad', the only substrings the filtering grounds exclude).
 function fakeCirclePayload(src: (id: string) => unknown) {
+  // Two cited drivers + two cited breakers: meets the default circle-gate evidence floor (min 2/2),
+  // mirroring what a live model produces now that the gate prompt asks for at least that many.
   return {
-    cashflow_drivers: [{ driver: 'Recurring revenue grounded in the 10-K', citation: 'src_circle_driver' }],
-    predictability_breakers: [{ breaker: 'Cyclicality / customer concentration risk', citation: 'src_circle_breaker' }],
+    cashflow_drivers: [
+      { driver: 'Recurring revenue grounded in the 10-K', citation: 'src_circle_driver' },
+      { driver: 'Membership renewal economics grounded in the 10-K', citation: 'src_circle_driver' },
+    ],
+    predictability_breakers: [
+      { breaker: 'Cyclicality / customer concentration risk', citation: 'src_circle_breaker' },
+      { breaker: 'Margin compression from input-cost inflation', citation: 'src_circle_breaker' },
+    ],
     competence_reasoning: 'Understandable cashflow engine demonstrated from filings.',
     cashflow_predictability: 'durably_predictable',
     proposed_sources: [src('src_circle_driver'), src('src_circle_breaker')],
@@ -3072,6 +3080,146 @@ describe('DEF 14A proxy grounding (management + moat)', () => {
   })
 })
 
+describe('circle-gate hardening: k-sample agreement + evidence floors', () => {
+  function circleCallCount(provider: ReturnType<typeof swarmFakeProvider>): number {
+    return provider.structured.mock.calls
+      .filter((c: unknown[]) => (c[0] as { response_format?: { schema_name?: string } })?.response_format?.schema_name === 'BuffettMungerCircleCompetence')
+      .length
+  }
+
+  /** Wrap the fake provider so successive CIRCLE calls return the given predictability enums in order. */
+  function withCirclePredictabilities(provider: ReturnType<typeof swarmFakeProvider>, enums: string[]): void {
+    const orig = provider.structured.getMockImplementation()!
+    let circleCall = 0
+    provider.structured.mockImplementation(async (req: { response_format?: { schema_name?: string } }) => {
+      const payload = await orig(req) as Record<string, unknown>
+      if (req?.response_format?.schema_name === 'BuffettMungerCircleCompetence') {
+        const forced = enums[Math.min(circleCall, enums.length - 1)]
+        circleCall += 1
+        return { ...payload, cashflow_predictability: forced } as never
+      }
+      return payload as never
+    })
+  }
+
+  async function circleEvent(store: InMemoryEventStore) {
+    const events = await store.list()
+    return events.find((e) => e.event_type === 'circle_competence_judged')!.payload as Record<string, unknown>
+  }
+
+  it('LIVE-FLIP REPRO: with default k=2, a durable→uncertain disagreement sets the case aside (fail-closed)', async () => {
+    const store = new InMemoryEventStore()
+    await seedDeepDivePrereqs(store)
+    const provider = swarmFakeProvider()
+    withCirclePredictabilities(provider, ['durably_predictable', 'uncertain'])
+    await provider.structured({} as never) // skip quick screen
+
+    const result = await runResearchDeepDivePhase(store, provider as never, deepDiveCommand(), {
+      ground: verifyAllGround(), laneConcurrency: 7, fundamentals: costFundamentals,
+    })
+
+    expect(result.set_aside_outside_circle).toBe(true)
+    const payload = await circleEvent(store)
+    expect(payload.in_competence).toBe(false)
+    expect((payload.gate_samples as unknown[]).length).toBe(2)
+    expect(payload.gate_config).toMatchObject({ k_samples: 2, min_drivers: 2, min_breakers: 2 })
+    expect(String(payload.reason)).toContain('sample 2')
+    // No lanes ran.
+    const events = await store.list()
+    expect(events.some((e) => e.event_type === 'specialist_finding_recorded')).toBe(false)
+  })
+
+  it('default k=2: two agreeing durable samples enter the deep dive (two circle calls made)', async () => {
+    const store = new InMemoryEventStore()
+    await seedDeepDivePrereqs(store)
+    const provider = swarmFakeProvider()
+    await provider.structured({} as never)
+
+    const result = await runResearchDeepDivePhase(store, provider as never, deepDiveCommand(), {
+      ground: verifyAllGround(), laneConcurrency: 7, fundamentals: costFundamentals,
+    })
+
+    expect(result.set_aside_outside_circle).toBeUndefined()
+    expect(circleCallCount(provider)).toBe(2)
+    const payload = await circleEvent(store)
+    expect(payload.in_competence).toBe(true)
+    expect((payload.gate_samples as unknown[]).length).toBe(2)
+  })
+
+  it('k=1 threaded restores single-sample behavior (regression pin: exactly one circle call)', async () => {
+    const store = new InMemoryEventStore()
+    await seedDeepDivePrereqs(store)
+    const provider = swarmFakeProvider()
+    await provider.structured({} as never)
+
+    const result = await runResearchDeepDivePhase(store, provider as never, {
+      ...deepDiveCommand(),
+      circle_gate: { k_samples: 1, min_drivers: 1, min_breakers: 1 },
+    }, { ground: verifyAllGround(), laneConcurrency: 7, fundamentals: costFundamentals })
+
+    expect(result.set_aside_outside_circle).toBeUndefined()
+    expect(circleCallCount(provider)).toBe(1)
+  })
+
+  it('evidence floor: 1 grounded driver under min_drivers=2 sets aside even when durably_predictable', async () => {
+    const store = new InMemoryEventStore()
+    await seedDeepDivePrereqs(store)
+    const provider = swarmFakeProvider()
+    // Thin the circle gather down to a single driver (still cited + grounded).
+    const orig = provider.structured.getMockImplementation()!
+    provider.structured.mockImplementation(async (req: { response_format?: { schema_name?: string } }) => {
+      const payload = await orig(req) as Record<string, unknown> & { cashflow_drivers?: unknown[] }
+      if (req?.response_format?.schema_name === 'BuffettMungerCircleCompetence') {
+        return { ...payload, cashflow_drivers: (payload.cashflow_drivers as unknown[]).slice(0, 1) } as never
+      }
+      return payload as never
+    })
+    await provider.structured({} as never)
+
+    const result = await runResearchDeepDivePhase(store, provider as never, {
+      ...deepDiveCommand(),
+      circle_gate: { k_samples: 1, min_drivers: 2, min_breakers: 2 },
+    }, { ground: verifyAllGround(), laneConcurrency: 7, fundamentals: costFundamentals })
+
+    expect(result.set_aside_outside_circle).toBe(true)
+    const payload = await circleEvent(store)
+    expect(String(payload.reason)).toMatch(/floor|grounded cashflow driver/i)
+  })
+
+  it('fail-fast: a dissenting first sample stops sampling (no wasted second call)', async () => {
+    const store = new InMemoryEventStore()
+    await seedDeepDivePrereqs(store)
+    const provider = swarmFakeProvider()
+    withCirclePredictabilities(provider, ['uncertain'])
+    await provider.structured({} as never)
+
+    const result = await runResearchDeepDivePhase(store, provider as never, deepDiveCommand(), {
+      ground: verifyAllGround(), laneConcurrency: 7, fundamentals: costFundamentals,
+    })
+
+    expect(result.set_aside_outside_circle).toBe(true)
+    expect(circleCallCount(provider)).toBe(1)
+  })
+
+  it('the gate prompt asks for the configured evidence floors', async () => {
+    const store = new InMemoryEventStore()
+    await seedDeepDivePrereqs(store)
+    const provider = swarmFakeProvider()
+    await provider.structured({} as never)
+
+    await runResearchDeepDivePhase(store, provider as never, {
+      ...deepDiveCommand(),
+      circle_gate: { k_samples: 1, min_drivers: 3, min_breakers: 4 },
+    }, { ground: verifyAllGround(), laneConcurrency: 7, fundamentals: costFundamentals })
+
+    const circlePrompt = provider.structured.mock.calls
+      .map((c: unknown[]) => c[0] as { response_format?: { schema_name?: string }; prompt?: string })
+      .find((r) => r.response_format?.schema_name === 'BuffettMungerCircleCompetence')?.prompt
+    expect(circlePrompt).toContain('at least 3')
+    expect(circlePrompt).toContain('at least 4')
+  })
+})
+
 describe('foreign filer (20-F primary + 6-K interim) narrative grounding', () => {
   const novoFundamentals: Fundamentals = {
     ...costFundamentals,
@@ -5385,7 +5533,9 @@ describe('circle-of-competence gate', () => {
     })
     const result = await runStrategyResearchSwarm(
       store, provider as never,
-      { research_case_id, company_id: 'c', ticker: 'CIRC', strategy_id: 'buffett-munger', actor_id: 'user_local', idempotency_key: 'k', model_id: 'mock', decision_id: `d_${research_case_id}`, source_ledger_path: '/tmp/owlfolio-circle' },
+      // circle_gate pinned to the BASE single-sample 1/1 mechanics — this describe tests the Bug A/B
+      // grounding semantics with one driver + one breaker; the k-sample/floor hardening has its own suite.
+      { research_case_id, company_id: 'c', ticker: 'CIRC', strategy_id: 'buffett-munger', actor_id: 'user_local', idempotency_key: 'k', model_id: 'mock', decision_id: `d_${research_case_id}`, source_ledger_path: '/tmp/owlfolio-circle', circle_gate: { k_samples: 1, min_drivers: 1, min_breakers: 1 } },
       { ground: circleGround(opts.unverified ?? new Set()), laneConcurrency: 3 },
     )
     const events = await store.list()
@@ -5507,6 +5657,7 @@ describe('margin-of-safety joint judgment (synthesis-owned: price AND/OR moat)',
         research_case_id: `rc_${id}`, company_id: 'c', ticker: 'TST',
         strategy_id: 'buffett-munger', actor_id: 'user_local', idempotency_key: `${id}_k`,
         model_id: 'mock', decision_id: `decision_${id}`, source_ledger_path: sourceLedgerPath,
+        circle_gate: { k_samples: 1, min_drivers: 1, min_breakers: 1 },
       },
       {
         ground: allVerifiedGround, laneConcurrency: 4,

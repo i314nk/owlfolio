@@ -15,6 +15,9 @@ import {
   anchorNetIncomeToEdgar,
 } from './rangeSanity'
 import { runValidatedAgent, ValidatedAgentFailedError, type RequiredFieldCheck } from './runValidatedAgent'
+// Shared CONSTS/clamps only (defaults + bounds for the circle-gate knobs) — the workflow package never
+// LOADS app config; callers resolve settings and thread them via the command.
+import { clampCircleGateKSamples, clampCircleGateMinBreakers, clampCircleGateMinDrivers } from '@owlfolio/shared/appConfig'
 import { groundProposedSources, isCitationGrounded, mergeCapturedIntoCorpus, type CapturedSource, type GroundingDeps, type ProposedSource, type SourcePolicyRejection } from './sourceGrounding'
 // Grounded-agent primitives live in a cycle-free module (groundedAgent) so BOTH this orchestrator AND
 // the red-team pass can import them without a circular module-evaluation dependency. Re-exported below
@@ -901,20 +904,29 @@ async function judgeCircleCompetence(
   provider: Provider,
   command: RunResearchDeepDivePhaseCommand,
   deps: { ground?: GroundFn; grounding?: GroundingDeps; maxToolCalls?: number; preVerifiedSourcesBlock?: string; readCorpus?: ReadonlyMap<string, CapturedSource> } & FundamentalsDeps,
+  opts: { sampleIndex?: number; minDrivers?: number; minBreakers?: number } = {},
 ) {
   // The circle judgment runs on the synthesis role (T1 — the high-stakes judgment tier). Default = the
   // run's provider/model so single-provider runs are unchanged; an override can pin it onto a frontier model.
   const circleRuntime = resolveRoleRuntime('synthesis', provider, command)
+  // Evidence-floor gather instruction: tell the model how many cited clauses the harness requires so a
+  // thin gather is a MODEL shortfall, not a moving harness target.
+  const floorNote = opts.minDrivers !== undefined && opts.minBreakers !== undefined
+    ? ` Provide at least ${opts.minDrivers} distinct cited cashflow_drivers and at least ${opts.minBreakers} distinct cited predictability_breakers — fewer grounded clauses fails closed to outside-competence.`
+    : ''
   const prompt = `You are the Buffett-Munger circle-of-competence gate for ${command.ticker} (${command.company_id}). `
     + CIRCLE_COMPETENCE_PROMPT
+    + floorNote
     // citation/corpus-alignment: surface the harness's already-verified EDGAR primary source_id so the
     // cashflow_drivers / predictability_breakers cite an id that reliably verifies (the cite-check below
     // grounds on it) instead of the model's own flaky SEC-archive id.
     + (deps.preVerifiedSourcesBlock ?? '')
+  // Sample 1 keeps the historical run_id; later agreement samples get a suffix so per-call run ids stay unique.
+  const sampleSuffix = opts.sampleIndex !== undefined && opts.sampleIndex > 0 ? `_s${opts.sampleIndex + 1}` : ''
   const { degraded_no_tools: _circleDegraded, ...agent } = await runGroundedAgentWithTools(
     circleRuntime.provider,
     {
-      run_id: `run_${command.research_case_id}_circle_competence`,
+      run_id: `run_${command.research_case_id}_circle_competence${sampleSuffix}`,
       model_id: circleRuntime.model_id,
       prompt,
       timeout_ms: AGENT_TIMEOUT_MS,
@@ -1087,51 +1099,102 @@ export async function runResearchDeepDivePhase(
   //   - outside-competence (model says so, OR fail-closed on EITHER ungrounded clause) → SET ASIDE: emit a
   //     terminal decision with verdict PASS carrying competence_reasoning + the circle_competence_unmet
   //     flag; the 5 lanes do NOT run. NEVER RESEARCH_MORE — a valid, common, CORRECT Buffett output.
-  const circle = await judgeCircleCompetence(provider, command, {
-    ...deps,
-    ...(preVerifiedSourcesBlock === undefined ? {} : { preVerifiedSourcesBlock }),
-    // Let the circle gate READ the harness-grounded EDGAR 10-K by Item (already in `accumulated`).
-    readCorpus: accumulated,
-  })
-  remember(circle.captured)
-  // Build the verified cite-check set from ONLY content_hash-confirmed sources (the SAME hardened primitive
-  // the §2/A1/rubric cite-checks use — a captured-but-unverified id must NOT satisfy a citation).
+  // Gate knobs: command (caller-resolved config) clamped through the SHARED helpers — undefined falls
+  // back to the shared defaults, so caller omission can never soften the gate below the default posture.
+  const gateKSamples = clampCircleGateKSamples(command.circle_gate?.k_samples)
+  const gateMinDrivers = clampCircleGateMinDrivers(command.circle_gate?.min_drivers)
+  const gateMinBreakers = clampCircleGateMinBreakers(command.circle_gate?.min_breakers)
+
+  // ---- k-SAMPLE AGREEMENT (gate hardening) ----
+  // The gate is sampled up to k times; the deep dive is entered only on a UNANIMOUS in-competence vote.
+  // Motivation (live dogfood): a single sampled judgment flipped durable↔uncertain across same-model,
+  // same-filings runs — one flip decided the whole 7-lane spend. Sampling FAIL-FAST: the first dissenting
+  // sample decides set-aside and later samples are never spent. Every sample's captured sources are
+  // remembered (mergeCapturedIntoCorpus makes same-id re-captures safe).
+  type CircleSample = {
+    analysis: (Awaited<ReturnType<typeof judgeCircleCompetence>>)['analysis']
+    verified_ids: string[]
+    groundedDrivers: { driver?: string; citation: string }[]
+    groundedBreakers: { breaker?: string; citation: string }[]
+    predictability: string
+    inCompetence: boolean
+    unmetReason?: string
+  }
+  const circleSamples: CircleSample[] = []
+  for (let sampleIndex = 0; sampleIndex < gateKSamples; sampleIndex++) {
+    const circle = await judgeCircleCompetence(provider, command, {
+      ...deps,
+      ...(preVerifiedSourcesBlock === undefined ? {} : { preVerifiedSourcesBlock }),
+      // Let the circle gate READ the harness-grounded EDGAR 10-K by Item (already in `accumulated`).
+      readCorpus: accumulated,
+    }, { sampleIndex, minDrivers: gateMinDrivers, minBreakers: gateMinBreakers })
+    remember(circle.captured)
+    // Build the verified cite-check set from ONLY content_hash-confirmed sources (the SAME hardened
+    // primitive the §2/A1/rubric cite-checks use) — recomputed per sample as the corpus grows.
+    const circleVerified = new Set<string>()
+    for (const s of accumulated.values()) {
+      if (s.content_hash === undefined) continue
+      circleVerified.add(s.content_hash)
+      circleVerified.add(s.source_id)
+    }
+    // Bug A: a claim counts grounded ONLY when its TEXT is non-empty AND its citation cite-verifies. An
+    // empty claim with a verified citation MUST NOT count (the MU run cleared N=M=1 on citations alone).
+    const groundedDrivers = circle.analysis.cashflow_drivers.filter(
+      (d) => (d.driver?.trim().length ?? 0) > 0 && isCitationGrounded(d.citation, circleVerified),
+    )
+    const groundedBreakers = circle.analysis.predictability_breakers.filter(
+      (b) => (b.breaker?.trim().length ?? 0) > 0 && isCitationGrounded(b.citation, circleVerified),
+    )
+    // Bug B: the gate keys off the cashflow_predictability ENUM. A sample votes in-competence ONLY when
+    // the model judged 'durably_predictable' AND both clauses meet the GROUNDED evidence floors
+    // (≥ min_drivers grounded, non-empty cashflow drivers AND ≥ min_breakers grounded, non-empty
+    // predictability breakers). 'not_predictable' / 'uncertain' / a thin gather → fail-closed dissent.
+    const predictability = circle.analysis.cashflow_predictability
+    const driversGrounded = groundedDrivers.length >= gateMinDrivers
+    const breakersGrounded = groundedBreakers.length >= gateMinBreakers
+    const inCompetence = predictability === 'durably_predictable' && driversGrounded && breakersGrounded
+    const samplePrefix = gateKSamples > 1 ? `sample ${sampleIndex + 1}/${gateKSamples} dissented — ` : ''
+    const unmetReason = inCompetence
+      ? undefined
+      : predictability !== 'durably_predictable'
+        ? `circle_competence_unmet: ${samplePrefix}the model judged this business's cashflows ${predictability === 'not_predictable' ? 'NOT durably predictable' : 'of UNCERTAIN predictability'} `
+          + '— understanding the business is not the same as competence to value it; cyclical/commodity/unpredictable '
+          + 'cashflows are outside the circle. A valid, common, correct Buffett output. Set aside.'
+        : !driversGrounded
+          ? `circle_competence_unmet: ${samplePrefix}the model judged the cashflows durably predictable but only `
+            + `${groundedDrivers.length} grounded cashflow driver(s) met the evidence floor of ${gateMinDrivers} — a thin or `
+            + 'ungrounded gather is outside competence (fail-closed). Set aside.'
+          : `circle_competence_unmet: ${samplePrefix}the model grounded the cashflow drivers but only `
+            + `${groundedBreakers.length} grounded predictability breaker(s) met the evidence floor of ${gateMinBreakers} — `
+            + 'the deeper clause is held to the same rigor (fail-closed). Set aside.'
+    circleSamples.push({
+      analysis: circle.analysis,
+      verified_ids: circle.verified_ids,
+      groundedDrivers,
+      groundedBreakers,
+      predictability,
+      inCompetence,
+      ...(unmetReason === undefined ? {} : { unmetReason }),
+    })
+    if (!inCompetence) break // fail-fast: one dissent decides; don't spend the remaining samples
+  }
+
+  const inCompetence = circleSamples.length === gateKSamples && circleSamples.every((s) => s.inCompetence)
+  // The REPRESENTATIVE sample backs the top-level judgment payload: the dissenting sample when set aside
+  // (its enum/evidence explain the outcome), else the first agreeing sample.
+  const representative = circleSamples.find((s) => !s.inCompetence) ?? circleSamples[0]!
+  const circle = { analysis: representative.analysis, verified_ids: representative.verified_ids }
+  const groundedDrivers = representative.groundedDrivers
+  const groundedBreakers = representative.groundedBreakers
+  const predictability = representative.predictability
+  const circleUnmetReason = representative.unmetReason
+  // Cite-check set over the FINAL corpus (all samples' captures included) for the payload grounded flags.
   const circleVerified = new Set<string>()
   for (const s of accumulated.values()) {
     if (s.content_hash === undefined) continue
     circleVerified.add(s.content_hash)
     circleVerified.add(s.source_id)
   }
-  // Bug A: a claim counts grounded ONLY when its TEXT is non-empty AND its citation cite-verifies. An empty
-  // claim with a verified citation MUST NOT count (the MU run cleared N=M=1 on citations alone).
-  const groundedDrivers = circle.analysis.cashflow_drivers.filter(
-    (d) => (d.driver?.trim().length ?? 0) > 0 && isCitationGrounded(d.citation, circleVerified),
-  )
-  const groundedBreakers = circle.analysis.predictability_breakers.filter(
-    (b) => (b.breaker?.trim().length ?? 0) > 0 && isCitationGrounded(b.citation, circleVerified),
-  )
-  // Bug B: the gate now keys off the cashflow_predictability ENUM, not a boolean that conflated
-  // "I understand the business" with "the cashflows are durably predictable". The gate proceeds
-  // (in-competence) ONLY when the model judged 'durably_predictable' AND BOTH clauses ground (≥1 grounded,
-  // non-empty cashflow driver AND ≥1 grounded, non-empty predictability breaker). 'not_predictable' OR
-  // 'uncertain' OR EITHER clause ungrounded → fail closed to outside-competence (set aside).
-  const predictability = circle.analysis.cashflow_predictability
-  const driversGrounded = groundedDrivers.length >= 1
-  const breakersGrounded = groundedBreakers.length >= 1
-  const inCompetence = predictability === 'durably_predictable' && driversGrounded && breakersGrounded
-  const circleUnmetReason = inCompetence
-    ? undefined
-    : predictability !== 'durably_predictable'
-      ? `circle_competence_unmet: the model judged this business's cashflows ${predictability === 'not_predictable' ? 'NOT durably predictable' : 'of UNCERTAIN predictability'} `
-        + '— understanding the business is not the same as competence to value it; cyclical/commodity/unpredictable '
-        + 'cashflows are outside the circle. A valid, common, correct Buffett output. Set aside.'
-      : !driversGrounded
-        ? 'circle_competence_unmet: the model judged the cashflows durably predictable but its cashflow_drivers '
-          + 'were empty or their citations did NOT verify against the corpus — ungrounded predictability is '
-          + 'outside competence (fail-closed). Set aside.'
-        : 'circle_competence_unmet: the model grounded the cashflow drivers but its predictability_breakers '
-          + 'were empty or their citations did NOT verify — the deeper clause is held to the same rigor; '
-          + 'ungrounded = outside competence (fail-closed). Set aside.'
 
   // Project-ready circle judgment payload (the cited drivers + breakers + outcome + reasoning). The resolved
   // `in_competence` boolean is DERIVED (durably_predictable && grounded) and kept as the internal/legacy
@@ -1150,6 +1213,16 @@ export async function runResearchDeepDivePhase(
       breaker: b.breaker ?? '',
       citation: b.citation,
       grounded: (b.breaker?.trim().length ?? 0) > 0 && isCitationGrounded(b.citation, circleVerified),
+    })),
+    // Gate-hardening visibility (additive): the knobs this run gated under + a per-sample summary, so a
+    // set-aside names WHICH sample dissented and a flip across samples is auditable, never silent.
+    gate_config: { k_samples: gateKSamples, min_drivers: gateMinDrivers, min_breakers: gateMinBreakers },
+    gate_samples: circleSamples.map((s, i) => ({
+      sample: i + 1,
+      in_competence: s.inCompetence,
+      model_claimed_predictability: s.predictability,
+      grounded_drivers: s.groundedDrivers.length,
+      grounded_breakers: s.groundedBreakers.length,
     })),
     ...(circleUnmetReason !== undefined ? { circle_competence_unmet: true, reason: circleUnmetReason } : {}),
   }
