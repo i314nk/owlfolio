@@ -1654,6 +1654,8 @@ describe('RELIGHTENED DECISION — model proposes buy-below; deterministic side 
     proposedBuyBelow?: number
     assumedGrowth?: number
     moatClass?: 'narrow' | 'moderate' | 'wide' | 'monopoly'
+    /** Optional EDGAR fundamentals — supply a real series when a test needs a demonstrated history. */
+    fundamentals?: Fundamentals
   }) {
     const store = new InMemoryEventStore()
     const provider = configurableSwarmProvider({
@@ -1686,6 +1688,7 @@ describe('RELIGHTENED DECISION — model proposes buy-below; deterministic side 
       {
         ground: allVerifiedGround,
         laneConcurrency: 4,
+        ...(opts.fundamentals !== undefined ? { fundamentals: opts.fundamentals } : {}),
         resolvePrice: async () => ({ available: true as const, price_per_share: opts.price, currency: 'USD', as_of: '2026-06-01T00:00:00Z', source: 'fixture' }),
       },
     )
@@ -1849,6 +1852,63 @@ describe('RELIGHTENED DECISION — model proposes buy-below; deterministic side 
     expect(((valuation?.['sanity_flags'] as string[] | undefined) ?? []).every((f) => !/exit multiple/i.test(f))).toBe(true)
   })
 
+  it('SANITY: assumed-vs-demonstrated does NOT fire when NO demonstrated history exists (growth_basis none)', async () => {
+    // The Visa data gap: a multi-class filer whose companyfacts carries no consolidated share count →
+    // zero OE/share points → demonstrated reference floored to 0 with growth_basis 'none'. Comparing
+    // the model's growth against that artificial 0% ("above the ~0.0% demonstrated history") is a data
+    // artifact, not evidence — the flag must stay silent; the floored-g0 degraded flag already tells the
+    // honest "history unavailable" story.
+    const store = new InMemoryEventStore()
+    const provider = configurableSwarmProvider({
+      laneCount: buffettMungerDeepDiveLanes.length,
+      synthesis: { moat_class: 'wide', runway: 'proven', incremental_roic: 0.20, reinvestment_rate: 0.43, proposed_buy_below: 300,
+        valuation_reasoning: { owner_earnings_basis: 'b', owner_earnings_citation: 'src_dec_1', assumed_growth: 0.1, assumed_growth_rationale: 'r', assumed_growth_citation: 'src_dec_1' } },
+      investmentVerdict: 'WATCH',
+    })
+    const sourceLedgerPath = await mkdtemp(join(tmpdir(), 'owlfolio-nohistory-'))
+    const noSharesFundamentals: Fundamentals = {
+      ...costFundamentals,
+      // Visa-shape: every year misses the diluted share count → zero OE/share points.
+      annual_series: costFundamentals.annual_series.map(({ diluted_shares_m: _drop, ...rest }) => rest),
+    }
+    await runStrategyResearchSwarm(
+      store, provider as never,
+      {
+        research_case_id: 'rc_nohistory', company_id: 'c', ticker: 'V',
+        strategy_id: 'buffett-munger', actor_id: 'user_local', idempotency_key: 'nohistory_k',
+        model_id: 'mock', decision_id: 'decision_nohistory', source_ledger_path: sourceLedgerPath,
+      },
+      {
+        ground: allVerifiedGround, laneConcurrency: 4,
+        fundamentals: noSharesFundamentals,
+        resolvePrice: async () => ({ available: true as const, price_per_share: 360, currency: 'USD', as_of: 'x', source: 'test' }),
+      },
+    )
+    const analysisEvent = (await store.list()).find((e) => e.event_type === 'buffett_munger_analysis_drafted')
+    const valuation = (analysisEvent?.payload as Record<string, unknown> | undefined)?.['valuation'] as Record<string, unknown> | undefined
+    expect(valuation?.['growth_basis']).toBe('none')
+    const flags = (valuation?.['sanity_flags'] as string[] | undefined) ?? []
+    expect(flags.some((f) => /assumed_growth_above_demonstrated_history/.test(f))).toBe(false)
+  })
+
+  it('SANITY (owner rule): the above-cap check applies to the MODEL\'s assumed growth, never the market-implied read', async () => {
+    // The forecasting-humility cap disciplines what the METHOD will underwrite — the model's judgment.
+    // The market-implied growth is a descriptive reverse-DCF fact about today's price; flagging IT
+    // against OUR cap conflated model-derived and market-implied metrics (owner correction). A high
+    // price alone must NOT fire an above-cap flag; a model assumed growth above the cap MUST.
+    const { valuation: richPrice } = await runRelit({
+      id: 'cap-market-side', price: 800, valuationStatus: 'FAIR', investmentVerdict: 'WATCH', proposedBuyBelow: 850, assumedGrowth: 0.06,
+    })
+    const richFlags = (richPrice?.['sanity_flags'] as string[] | undefined) ?? []
+    expect(richFlags.some((f) => /implied_growth_above_cap/.test(f))).toBe(false)
+
+    const { valuation: boldModel } = await runRelit({
+      id: 'cap-model-side', price: 200, valuationStatus: 'FAIR', investmentVerdict: 'WATCH', proposedBuyBelow: 250, assumedGrowth: 0.2,
+    })
+    const boldFlags = (boldModel?.['sanity_flags'] as string[] | undefined) ?? []
+    expect(boldFlags.some((f) => /sanity_assumed_growth_above_cap/.test(f) && /20\.0%/.test(f))).toBe(true)
+  })
+
   it('GATE (owner rule) — model BUY with the price ABOVE its own buy-below → recorded WATCH (thesis surfaced)', async () => {
     // The Visa dogfood: the model said BUY with buy-below $290 while the price was $362 — "buy below
     // $290" at $362 means WAIT. The recorded verdict derates to WATCH by the model's OWN arithmetic;
@@ -1963,7 +2023,7 @@ describe('RELIGHTENED DECISION — model proposes buy-below; deterministic side 
   })
 
   it('a sanity flag NEVER blocks: even with a flag firing, the model verdict passes the cheap gates unchanged', async () => {
-    // High price → above-cap implied-growth flag fires; model says BUY; moat wide, sector compliant, price
+    // High price → the exit-multiple sanity flag fires; model says BUY; moat wide, sector compliant, price
     // present, buy-below present AND the price is in the model's own buy zone (so the owner-rule buy-zone
     // ARITHMETIC gate stays out of the way) → the model BUY is recorded (the flag is advisory only).
     const { valuation, cp } = await runRelit({ id: 'flag-noblock', price: 600, investmentVerdict: 'BUY', proposedBuyBelow: 650 })
@@ -2000,14 +2060,19 @@ describe('RELIGHTENED DECISION — model proposes buy-below; deterministic side 
   })
 
   it('credited-g → demonstrated-history reference + ADVISORY flag when assumed_growth materially exceeds it (verdict NOT blocked)', async () => {
-    // assumed_growth 0.06 >> demonstrated/credited-g 0 (no series) → the advisory "model assumes growth
-    // above demonstrated history" flag fires, but the model's verdict passes through unchanged.
-    const { cp, valuation } = await runRelit({ id: 'advisory-flag', price: 200, investmentVerdict: 'WATCH', proposedBuyBelow: 250, assumedGrowth: 0.06 })
+    // A REAL demonstrated history (costFundamentals: log-linear OE/share slope ≈ 14%/yr) with an
+    // assumed_growth of 0.20 materially above it → the advisory "model assumes growth above demonstrated
+    // history" flag fires, but the model's verdict passes through unchanged. (A no-series case no longer
+    // fires this flag — comparing against the artificial 0% floor was the Visa data-artifact bug.)
+    const { cp, valuation } = await runRelit({
+      id: 'advisory-flag', price: 200, investmentVerdict: 'WATCH', proposedBuyBelow: 250, assumedGrowth: 0.2,
+      fundamentals: costFundamentals,
+    })
     const flags = (valuation?.['sanity_flags'] as string[] | undefined) ?? []
     expect(flags.some((f) => /above demonstrated history/i.test(f))).toBe(true)
-    // The demonstrated-history reference is surfaced; the headline growth stays the model's assumed_growth.
-    expect(valuation?.['demonstrated_growth_reference']).toBeCloseTo(0, 6)
-    expect(cp?.valuation?.growth_rate).toBeCloseTo(0.06, 6)
+    // The demonstrated-history reference is a REAL positive rate; the headline stays the model's number.
+    expect(valuation?.['demonstrated_growth_reference'] as number).toBeGreaterThan(0)
+    expect(cp?.valuation?.growth_rate).toBeCloseTo(0.2, 6)
     // Advisory only — never blocks/changes the model verdict.
     expect(cp?.investment_verdict).toBe('WATCH')
   })

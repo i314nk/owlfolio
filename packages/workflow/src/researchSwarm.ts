@@ -2311,17 +2311,11 @@ export async function runResearchDeepDivePhase(
     && modelAssumedGrowth !== undefined
     && Number.isFinite(modelAssumedGrowth)
     && modelAssumedGrowth >= 0
-  // Sanity guard (mirrors the existing implausible-growth flag path): an assumed growth above the named
-  // single_growth_cap is FLAGGED, not silently trusted — the human audits whether the cited source defends
-  // it. The flag is advisory; the value is still recorded as the model's headline (the model owns it).
+  // An assumed growth above the named single_growth_cap is FLAGGED, not silently trusted — the human
+  // audits whether the cited source defends it. The flag is advisory; the value is still recorded as the
+  // model's headline (the model owns it). Emitted ONCE, in the sanity_flags channel (block (a) of the
+  // sanity checks below) — the cap applies to the MODEL's judgment, never the market-implied read.
   const headline_growth: number | undefined = assumedGrowthUsable ? modelAssumedGrowth : undefined
-  if (moat_passes_gate && assumedGrowthUsable && modelAssumedGrowth > buffettMungerStrategy.valuation.single_growth_cap) {
-    degradedFlags.push(
-      `assumed_growth_above_cap: the model's cited assumed growth ${(modelAssumedGrowth * 100).toFixed(1)}% is above the `
-      + `${(buffettMungerStrategy.valuation.single_growth_cap * 100).toFixed(0)}% forecasting-humility cap — flagged as `
-      + `implausible for sanity, not silently trusted. Verify the durable cited source before relying on the headline.`,
-    )
-  }
 
   // Plausibility ceiling for a per-share fair value. A per-share owner-earnings valuation for any
   // real equity is far below this; anything at/above it signals a units bug (e.g. totals not divided
@@ -2768,12 +2762,15 @@ export async function runResearchDeepDivePhase(
   const gdpThreshold = buffettMungerStrategy.valuation.gdp_growth_threshold
   const fvCapMultiple = valuation_multiple_ceiling
 
-  // (a) market-implied growth above a sane bound.
-  if (market_implied_growth !== undefined && market_implied_growth > singleGrowthCap) {
+  // (a) MODEL-assumed growth above the forecasting-humility cap. OWNER RULE (2026-07-04): the cap
+  // disciplines what the METHOD will underwrite — the model's OWN judgment — never the market-implied
+  // read, which is a descriptive reverse-DCF fact about today's price (the market may imply whatever it
+  // wants; price richness surfaces via the contradiction checks below and the exit-multiple bound).
+  if (headline_growth !== undefined && headline_growth > singleGrowthCap) {
     sanity_flags.push(
-      `sanity_implied_growth_above_cap: today's price implies ~${(market_implied_growth * 100).toFixed(1)}% near-term `
-      + `owner-earnings growth — above the ${(singleGrowthCap * 100).toFixed(0)}% forecasting-humility cap. The market `
-      + `already prices in growth the method would refuse to underwrite; treat the price as rich.`,
+      `sanity_assumed_growth_above_cap: the model's assumed sustainable growth ~${(headline_growth * 100).toFixed(1)}% `
+      + `is above the ${(singleGrowthCap * 100).toFixed(0)}% forecasting-humility cap — growth the method would refuse `
+      + `to underwrite. Verify the cited durable source before relying on the headline.`,
     )
   }
 
@@ -2864,6 +2861,11 @@ export async function runResearchDeepDivePhase(
   if (
     moat_passes_gate
     && headline_growth !== undefined
+    // Only when a demonstrated history EXISTS (the Visa data gap): a multi-class filer whose
+    // companyfacts carries no consolidated share count yields zero OE/share points and a floored-to-0%
+    // reference (growth_basis 'none'). Comparing the model's growth against that artificial 0% is a data
+    // artifact, not evidence — the floored-g0 degraded flag already tells the "history unavailable" story.
+    && growth_basis !== 'none'
     && headline_growth > effective_growth_rate + DEMONSTRATED_HISTORY_MARGIN
   ) {
     sanity_flags.push(
