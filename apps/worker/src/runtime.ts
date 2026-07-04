@@ -54,7 +54,7 @@ import { buffettMungerStrategy } from '@owlfolio/strategies/buffettMunger'
 import { VALUATION_PARAMS } from '@owlfolio/strategies/valuationParams'
 import type { ShariahFinancialRatioInputs } from '@owlfolio/strategies/shariahFinancialRatios'
 import { selectResearchCaseAction } from '@owlfolio/workflow/researchCasePolicy'
-import { runStrategyResearchSwarm, runResearchDeepDivePhase, type GroundFn } from '@owlfolio/workflow/researchSwarm'
+import { runStrategyResearchSwarm, runResearchDeepDivePhase, type CircleGateSettings, type GroundFn } from '@owlfolio/workflow/researchSwarm'
 import { findAbandonedResearchRuns, resolveRunWatchdogStalenessMs } from '@owlfolio/workflow/researchRunWatchdog'
 import { resolveModelRoleEnv } from '@owlfolio/strategies/modelRoleEnvFile'
 import { runDiscovery13f } from '@owlfolio/workflow/discovery13f'
@@ -2439,6 +2439,8 @@ export async function runProcessResearchQueueTask(
     ground?: GroundFn
     /** Advanced research-depth knob: per-lane grounded-tool-call cap (undefined → loop default). */
     maxToolCalls?: number
+    /** Circle-gate hardening knobs (k-sample agreement + evidence floors; undefined → shared defaults). */
+    circle_gate?: CircleGateSettings
     /**
      * Defense-in-depth fail-closed guard inputs. These describe the config the worker ACTUALLY loaded
      * (provider_id + mode + the config path it read). If a run's `research_run_requested` recorded an
@@ -2553,6 +2555,7 @@ export async function runProcessResearchQueueTask(
           // Absent on legacy requests → createResearchCase defaults to v1 (backward-compat).
           ...(run.version === undefined ? {} : { version: run.version }),
           model_role_env: modelRoleEnv,
+          ...(options.circle_gate === undefined ? {} : { circle_gate: options.circle_gate }),
         },
         { ground, ...(options.maxToolCalls === undefined ? {} : { maxToolCalls: options.maxToolCalls }) },
       )
@@ -2600,6 +2603,8 @@ export async function runProcessDeepDiveQueueTask(
     ground?: GroundFn
     /** Advanced research-depth knob: per-lane grounded-tool-call cap (undefined → loop default). */
     maxToolCalls?: number
+    /** Circle-gate hardening knobs (k-sample agreement + evidence floors; undefined → shared defaults). */
+    circle_gate?: CircleGateSettings
     /**
      * F.2 — the COMPLIANT risk-free SAVINGS rate (Mudarabah expected profit) from the app-config savings
      * sleeve, threaded into the deep-dive discount anchor. Omitted → the swarm fails closed to the strategy's
@@ -2641,6 +2646,7 @@ export async function runProcessDeepDiveQueueTask(
           // to the strategy savings_rate_default in the swarm when absent).
           ...(options.risk_free_rate === undefined ? {} : { risk_free_rate: options.risk_free_rate }),
           model_role_env: modelRoleEnv,
+          ...(options.circle_gate === undefined ? {} : { circle_gate: options.circle_gate }),
         },
         { ground, ...(options.maxToolCalls === undefined ? {} : { maxToolCalls: options.maxToolCalls }) },
       )

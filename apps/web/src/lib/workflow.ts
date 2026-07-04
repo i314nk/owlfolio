@@ -34,6 +34,17 @@ import { isTerminalResearchStage } from './researchRunProgress'
 import { resolveAppConfigPath } from './appConfigStore'
 import { resolveProviderCertificationReportDir } from './providerStatus'
 import type { AppConfig } from '@owlfolio/shared'
+import { mergeAutomationSettings } from '@owlfolio/shared/appConfig'
+
+/** Resolve the clamped circle-gate hardening knobs from app config (k-sample agreement + evidence floors). */
+function resolveCircleGateSettings(config: AppConfig): { k_samples: number; min_drivers: number; min_breakers: number } {
+  const automation = mergeAutomationSettings(config.automation)
+  return {
+    k_samples: automation.circle_gate_k_samples,
+    min_drivers: automation.circle_gate_min_drivers,
+    min_breakers: automation.circle_gate_min_breakers,
+  }
+}
 import {
   assertShariahGateAllowsTransition,
   confirmHoldingReviewDraft,
@@ -447,6 +458,7 @@ export async function enqueueResearchRun(
           // here, layered OVER the deterministic AUTO defaults (auto fills only unpinned roles).
           model_role_env: await resolveModelRoleEnv(),
           model_overrides: (await buildAutoModelRoleOverrides({ processEnv: process.env })).overrides,
+          circle_gate: resolveCircleGateSettings(state.config),
         },
         // Advanced research-depth knob: per-lane grounded-tool-call cap (undefined → loop default).
         { ground, ...(state.config.automation?.research_max_tool_calls === undefined ? {} : { maxToolCalls: state.config.automation.research_max_tool_calls }) },
@@ -545,6 +557,7 @@ export async function requestDeepDiveRun(
             // too, layered over the deterministic AUTO defaults (auto fills only unpinned roles).
             model_role_env: await resolveModelRoleEnv(),
             model_overrides: (await buildAutoModelRoleOverrides({ processEnv: process.env })).overrides,
+            circle_gate: resolveCircleGateSettings(state.config),
           },
           { ground, ...(state.config.automation?.research_max_tool_calls === undefined ? {} : { maxToolCalls: state.config.automation.research_max_tool_calls }) },
         )

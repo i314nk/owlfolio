@@ -90,14 +90,21 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     }
 
     const provider = resolveProvider({ provider_id: runtime.config.provider.provider_id })
-    // Advanced research-depth knob: per-lane grounded-tool-call cap (clamped, default-filled).
-    const maxToolCalls = mergeAutomationSettings(runtime.config.automation).research_max_tool_calls
+    // Advanced research knobs (clamped, default-filled): per-lane tool-call cap + circle-gate hardening.
+    const automation = mergeAutomationSettings(runtime.config.automation)
+    const maxToolCalls = automation.research_max_tool_calls
+    const circle_gate = {
+      k_samples: automation.circle_gate_k_samples,
+      min_drivers: automation.circle_gate_min_drivers,
+      min_breakers: automation.circle_gate_min_breakers,
+    }
 
     if (options.task_kind === 'process_research_queue') {
       const result = await runProcessResearchQueueTask(store, {
         provider,
         source_ledger_path: runtime.source_ledger_path,
         maxToolCalls,
+        circle_gate,
         // Defense-in-depth: let the task fail closed if the run requested a provider/mode that differs
         // from the config the worker actually loaded (e.g. a silent demo/mock fallback).
         loaded_provider_id: runtime.config.provider.provider_id,
@@ -116,6 +123,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         provider,
         source_ledger_path: runtime.source_ledger_path,
         maxToolCalls,
+        circle_gate,
         risk_free_rate,
       })
       console.log(JSON.stringify({ runtime, result }, null, 2))

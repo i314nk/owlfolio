@@ -198,6 +198,20 @@ type SwarmStore = EventStore<LedgerEventEnvelope<unknown>>
 // Command type
 // ---------------------------------------------------------------------------
 
+/**
+ * Circle-gate hardening settings (owner-editable via app-config automation settings, threaded by the
+ * web/worker caller — the workflow package never loads config). All optional; absent fields fall back
+ * to the shared DEFAULT_CIRCLE_GATE_* consts so caller omission cannot soften the gate.
+ */
+export type CircleGateSettings = {
+  /** Independent gate samples per run; deep dive entered only on a UNANIMOUS in-competence vote. */
+  k_samples?: number
+  /** Minimum GROUNDED cashflow drivers a sample must carry for its judgment to count. */
+  min_drivers?: number
+  /** Minimum GROUNDED predictability breakers a sample must carry for its judgment to count. */
+  min_breakers?: number
+}
+
 export type RunStrategyResearchSwarmCommand = {
   research_case_id: string
   company_id: string
@@ -211,6 +225,8 @@ export type RunStrategyResearchSwarmCommand = {
   source_ledger_path: string
   version?: number
   supersedes_research_case_id?: string
+  /** Circle-gate hardening knobs (k-sample agreement + evidence floors), forwarded to the deep dive. */
+  circle_gate?: CircleGateSettings
   /** Controls deep-dive gating.
    *  'automatic' (default): quick screen → deep dive → decision in one run.
    *  'review': quick screen → pause (deep_dive_approval_pending) → return without running deep dive.
@@ -253,6 +269,8 @@ export type RunResearchDeepDivePhaseCommand = {
    * over process.env, file wins). Omitted = `process.env` (historical default).
    */
   model_role_env?: Record<string, string | undefined>
+  /** Circle-gate hardening knobs (k-sample agreement + evidence floors). Absent → shared defaults. */
+  circle_gate?: CircleGateSettings
 }
 
 // ---------------------------------------------------------------------------
@@ -852,6 +870,8 @@ export async function runStrategyResearchSwarm(
     ...(command.model_overrides === undefined ? {} : { model_overrides: command.model_overrides }),
     // Forward the env source so file-configured tiers take effect in the deep-dive phase too.
     ...(command.model_role_env === undefined ? {} : { model_role_env: command.model_role_env }),
+    // Forward the circle-gate hardening knobs (k-sample agreement + evidence floors).
+    ...(command.circle_gate === undefined ? {} : { circle_gate: command.circle_gate }),
   }, { ...deps, accumulated })
 
   return {
