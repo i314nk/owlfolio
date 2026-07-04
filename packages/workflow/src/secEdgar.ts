@@ -674,8 +674,10 @@ function isAnnualForm(form: string | undefined): boolean {
   return typeof form === 'string' && ANNUAL_FORMS.has(form)
 }
 
-/** Non-annual filings whose NARRATIVE is grounded + readable for interim recency (Slice B). */
-const RECENT_READABLE_FORMS = new Set(['8-K', '8-K/A', '10-Q', '10-Q/A'])
+/** Non-annual filings whose NARRATIVE is grounded + readable for interim recency (Slice B). 6-K is the
+ * foreign-private-issuer interim/material-event equivalent of 8-K/10-Q — a heavy foreign filer emits
+ * many 6-Ks, but the filed-after-latest-annual anchor + the selection cap bound the grounding cost. */
+const RECENT_READABLE_FORMS = new Set(['8-K', '8-K/A', '10-Q', '10-Q/A', '6-K', '6-K/A'])
 
 function isRecentReadableForm(form: string | undefined): boolean {
   return typeof form === 'string' && RECENT_READABLE_FORMS.has(form)
@@ -1497,6 +1499,16 @@ export function buildReadableRecentFilings(subs: Submissions | undefined, cik10:
  * filing (the recency anchor), newest-first, capped. Pure / fail-closed: returns [] when there are no
  * recent filings. A staler-than-the-annual filing is rejected (it predates the grounded floor).
  */
+/**
+ * The latest PRIMARY ANNUAL filing across all annual forms (10-K US, 20-F/40-F foreign) — the document
+ * the deep dive grounds as the readable primary source. `filings` is already annual-filtered and
+ * newest-first, so the first annual match is the latest; the predicate is belt-and-braces. Pure /
+ * fail-closed: undefined when no annual filing exists (non-US-listed name, submissions unavailable).
+ */
+export function selectLatestAnnualFiling(f: { filings?: FilingRef[] }): FilingRef | undefined {
+  return f.filings?.find((x) => isAnnualForm(x.form))
+}
+
 export function selectRecentReadableFilings(
   f: { filings?: FilingRef[]; recent_filings?: FilingRef[] },
   opts?: { max?: number; afterFiled?: string },

@@ -2920,6 +2920,53 @@ describe('Slice B: recent interim filings (8-K / 10-Q narrative)', () => {
   })
 })
 
+describe('foreign filer (20-F primary + 6-K interim) narrative grounding', () => {
+  const novoFundamentals: Fundamentals = {
+    ...costFundamentals,
+    cik: '0000353278',
+    entity_name: 'NOVO NORDISK A S',
+    filings: [
+      { form: '20-F', filed: '2026-02-04', url: 'https://www.sec.gov/Archives/edgar/data/353278/000035327826000012/nvo-20251231.htm' },
+    ],
+    recent_filings: [
+      { form: '6-K', filed: '2026-04-30', url: 'https://www.sec.gov/Archives/edgar/data/353278/000035327826000044/nvo-6k-20260430.htm' },
+    ],
+  }
+
+  it('grounds the 20-F as the primary annual (form-slug id) and surfaces the 6-K interim affordance', async () => {
+    const store = new InMemoryEventStore()
+    await seedDeepDivePrereqs(store)
+    const provider = swarmFakeProvider()
+    await provider.structured({} as never) // skip quick screen
+
+    await runResearchDeepDivePhase(store, provider as never, deepDiveCommand(), {
+      ground: verifyAllGround(), laneConcurrency: 7, fundamentals: novoFundamentals,
+    })
+
+    const prompts = provider.structured.mock.calls.map((c: unknown[]) => (c[0] as { prompt?: string }).prompt).filter((p): p is string => typeof p === 'string')
+    const financial = prompts.find((p) => p.includes('financial_quality specialist'))
+    const moat = prompts.find((p) => p.includes('moat specialist'))
+    const risks = prompts.find((p) => p.includes('risks specialist'))
+
+    // Primary annual block grounds on the 20-F: form-slug source id + form-interpolated prose.
+    expect(financial).toBeDefined()
+    expect(financial).toContain('Primary filing data')
+    expect(financial).toContain('sec_edgar_20f_0000353278_fy2025')
+    expect(financial).toContain('20-F')
+    expect(financial).not.toContain('the latest 10-K') // prose must not claim a 10-K for a 20-F filer
+
+    // The PRE-VERIFIED PRIMARY SOURCES block carries the 20-F id to the qualitative lanes.
+    expect(moat).toBeDefined()
+    expect(moat).toContain('sec_edgar_20f_0000353278_fy2025')
+
+    // 6-K rides the interim-recency block exactly like an 8-K.
+    expect(risks).toBeDefined()
+    expect(risks).toContain('RECENT INTERIM FILINGS')
+    expect(risks).toContain('6-K filed 2026-04-30')
+    expect(risks).toMatch(/read_source\("sec_edgar_recent_/)
+  })
+})
+
 // ---------------------------------------------------------------------------
 // EDGAR-anchored OE bridge + harness-computed AAOIFI Shariah financial ratios.
 // "Judgment proposes, code computes": the LLM provides only the maintenance-capex tier, the

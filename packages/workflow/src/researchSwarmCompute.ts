@@ -644,7 +644,7 @@ export function buildRecentFilingsBlock(
   if (entries.length === 0) return ''
   const lines = entries.map((e) => `  - ${e.form} filed ${e.filed}: read_source("${e.source_id}")`).join('\n')
   return (
-    `\n\nRECENT INTERIM FILINGS (8-K material events + 10-Q narrative filed SINCE the latest annual report — `
+    `\n\nRECENT INTERIM FILINGS (8-K / 6-K material events + 10-Q interim narrative filed SINCE the latest annual report — `
     + `already fetched + content-verified by the harness). READ them by Item/section with read_source for `
     + `recent developments that can break the thesis: impairments, guidance cuts, executive departures, `
     + `M&A, litigation, updated risk factors:\n${lines}\n`
@@ -658,7 +658,7 @@ export function buildRecentFilingsBlock(
  * the OE-bridge raw inputs, revenue, debt, cash, interest expense, the multi-year series, and the
  * grounded EDGAR source_id the lane MUST cite.
  */
-export function buildPrimaryFilingBlock(f: Fundamentals, sourceId: string): string {
+export function buildPrimaryFilingBlock(f: Fundamentals, sourceId: string, form = '10-K'): string {
   const la = f.latest_annual
   const series = f.annual_series.slice(0, 11) // latest + up to 10 prior years
   const seriesLines = series.map((a) =>
@@ -669,9 +669,9 @@ export function buildPrimaryFilingBlock(f: Fundamentals, sourceId: string): stri
 
   return (
     `\n\nPrimary filing data (SEC EDGAR, FY${la.fiscal_year}, source ${sourceId}) — ${f.entity_name} (CIK ${f.cik}). `
-    + `These are RAW values from the latest 10-K, in $millions and share-millions. USE these primary numbers `
+    + `These are RAW values from the latest ${form}, in $millions and share-millions. USE these primary numbers `
     + `as the authoritative basis for your finding (you may still normalize, e.g. estimate the maintenance-capex `
-    + `fraction of total capex), and CITE source ${sourceId} (the EDGAR 10-K) in proposed_sources.\n`
+    + `fraction of total capex), and CITE source ${sourceId} (the EDGAR ${form}) in proposed_sources.\n`
     + `Latest annual (FY${la.fiscal_year}): net_income ${fmtMusd(la.net_income_musd)}, revenue ${fmtMusd(la.revenue_musd)}, `
     + `D&A ${fmtMusd(la.d_and_a_musd)}, total_capex ${fmtMusd(la.capex_musd)}, SBC ${fmtMusd(la.sbc_musd)}, `
     + `diluted_shares ${fmtShares(la.diluted_shares_m)}, shares_outstanding ${fmtShares(la.shares_outstanding_m)}, `

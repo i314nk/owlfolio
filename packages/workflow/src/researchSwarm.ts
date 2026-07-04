@@ -43,7 +43,7 @@ export {
   type GroundedAgentResult,
   type SynthesisResponse,
 }
-import { computeIncrementalRoic, demonstratedOwnerEarningsGrowth, estimateMaintenanceCapex, ownerEarningsVsFcfDiagnostic, selectRecentReadableFilings, type Fundamentals, type ImpermissibleIncomeLine, type SecEdgarDeps } from './secEdgar'
+import { computeIncrementalRoic, demonstratedOwnerEarningsGrowth, estimateMaintenanceCapex, ownerEarningsVsFcfDiagnostic, selectLatestAnnualFiling, selectRecentReadableFilings, type Fundamentals, type ImpermissibleIncomeLine, type SecEdgarDeps } from './secEdgar'
 import { resolveFundamentalsForTicker } from './fundamentalsProvider'
 import { evaluateBaseRateBurden, type BaseRateBurdenFlag } from './baseRateBurden'
 import { BASE_RATES } from '@owlfolio/strategies/baseRates'
@@ -946,26 +946,27 @@ export async function runResearchDeepDivePhase(
   let primaryFilingBlock: string | undefined
   let primaryFilingSourceId: string | undefined
   if (fundamentals !== undefined) {
-    // NOTE: this is 10-K-ONLY and would miss a 20-F/40-F filer (e.g. TSMC). The quick-screen pre-fetch
-    // selects across all three annual forms (QUICK_SCREEN_ANNUAL_FORMS); broadening this deep-dive line is
-    // intentionally OUT OF SCOPE for this slice (it would shift the lane filing-block + sourceId shape).
-    const tenK = fundamentals.filings.find((x) => x.form === '10-K')
-    if (tenK !== undefined) {
-      const sourceId = `sec_edgar_10k_${fundamentals.cik}_fy${fundamentals.latest_annual.fiscal_year}`
+    // Latest PRIMARY ANNUAL across all annual forms (10-K US, 20-F/40-F foreign — the TSMC/Novo case),
+    // mirroring the quick-screen pre-fetch. The form-slug id keeps 10-K filers on the IDENTICAL
+    // `sec_edgar_10k_…` id (zero persistence/test churn); 20-F/40-F filers get `20f`/`40f` ids.
+    const annual = selectLatestAnnualFiling(fundamentals)
+    if (annual !== undefined) {
+      const formSlug = annual.form.toLowerCase().replace(/[^a-z0-9]/g, '')
+      const sourceId = `sec_edgar_${formSlug}_${fundamentals.cik}_fy${fundamentals.latest_annual.fiscal_year}`
       const proposed: ProposedSource = {
         source_id: sourceId,
-        title: `${fundamentals.entity_name} 10-K (FY${fundamentals.latest_annual.fiscal_year}) — SEC EDGAR`,
-        url: tenK.url,
-        excerpt: `Primary SEC EDGAR 10-K filing for ${fundamentals.entity_name} (CIK ${fundamentals.cik}), filed ${tenK.filed}.`,
+        title: `${fundamentals.entity_name} ${annual.form} (FY${fundamentals.latest_annual.fiscal_year}) — SEC EDGAR`,
+        url: annual.url,
+        excerpt: `Primary SEC EDGAR ${annual.form} filing for ${fundamentals.entity_name} (CIK ${fundamentals.cik}), filed ${annual.filed}.`,
       }
-      // Ground the 10-K through the same path as model-proposed sources (content-hash + SSRF guard).
+      // Ground the annual filing through the same path as model-proposed sources (content-hash + SSRF guard).
       const ground = deps.ground ?? groundProposedSources
       const grounded = await ground([proposed], deps.grounding)
       const captured = grounded.captured[0]
       if (captured !== undefined && grounded.verified_ids.includes(sourceId)) {
         remember([captured])
         primaryFilingSourceId = sourceId
-        primaryFilingBlock = buildPrimaryFilingBlock(fundamentals, sourceId)
+        primaryFilingBlock = buildPrimaryFilingBlock(fundamentals, sourceId, annual.form)
       }
     }
   }
