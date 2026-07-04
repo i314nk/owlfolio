@@ -103,6 +103,43 @@ export type CapturedSource = {
   content?: string
 }
 
+/**
+ * Merge captured sources into a run's accumulated corpus under the SAME-ID guard (the write-side twin
+ * of mergeReadCorpus). Naive last-write-wins let a model RE-PROPOSAL of an already-grounded id — with
+ * whatever URL the model invented — clobber the harness capture (live dogfood bug: the synthesis model
+ * re-proposed the pre-verified 10-K id pointing at sec.gov/cgi-bin/browse-edgar, the SEARCH page, and
+ * the ledger record lost the real filing). Rules, per incoming capture:
+ *   - new id → added;
+ *   - same id, SAME content_hash → merge: the existing capture wins every conflicting field (its
+ *     provenance stamps survive), the re-capture only fills gaps (e.g. retained `content`);
+ *   - same id, DIFFERENT/absent hash vs a verified existing → the existing capture is KEPT and the
+ *     imposter dropped (first verified capture wins — the harness grounds first);
+ *   - unverified existing (no content_hash) vs a verified re-capture → upgraded to the verified one.
+ */
+export function mergeCapturedIntoCorpus(
+  corpus: Map<string, CapturedSource>,
+  captured: readonly CapturedSource[],
+): void {
+  for (const incoming of captured) {
+    const existing = corpus.get(incoming.source_id)
+    if (existing === undefined) {
+      corpus.set(incoming.source_id, incoming)
+      continue
+    }
+    if (existing.content_hash === undefined) {
+      // Existing capture never verified — a verified re-capture upgrades it; an unverified one keeps it.
+      if (incoming.content_hash !== undefined) corpus.set(incoming.source_id, incoming)
+      continue
+    }
+    if (incoming.content_hash === existing.content_hash) {
+      // Same bytes: existing wins conflicts (provenance preserved), incoming fills gaps (content, etc.).
+      corpus.set(incoming.source_id, { ...incoming, ...existing })
+      continue
+    }
+    // Different or missing hash under a verified id: keep the existing capture, drop the imposter.
+  }
+}
+
 export type GroundingDeps = {
   fetchImpl?: typeof fetch
   now?: () => Date

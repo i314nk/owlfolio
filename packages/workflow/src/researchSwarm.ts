@@ -15,7 +15,7 @@ import {
   anchorNetIncomeToEdgar,
 } from './rangeSanity'
 import { runValidatedAgent, ValidatedAgentFailedError, type RequiredFieldCheck } from './runValidatedAgent'
-import { groundProposedSources, isCitationGrounded, type CapturedSource, type GroundingDeps, type ProposedSource, type SourcePolicyRejection } from './sourceGrounding'
+import { groundProposedSources, isCitationGrounded, mergeCapturedIntoCorpus, type CapturedSource, type GroundingDeps, type ProposedSource, type SourcePolicyRejection } from './sourceGrounding'
 // Grounded-agent primitives live in a cycle-free module (groundedAgent) so BOTH this orchestrator AND
 // the red-team pass can import them without a circular module-evaluation dependency. Re-exported below
 // for existing importers (tests + workers import these from researchSwarm).
@@ -524,7 +524,9 @@ export async function runStrategyResearchSwarm(
   // payload ROOT so every emission site — including the early-exit reject/set-aside paths — carries it.
   const engineCommit = resolveEngineCommit()
   const accumulated = new Map<string, CapturedSource>()
-  const remember = (captured: CapturedSource[]) => captured.forEach((c) => accumulated.set(c.source_id, c))
+  // Same-id guard (mergeCapturedIntoCorpus): a model re-proposal of an already-grounded id can never
+  // clobber the verified capture — see the live browse-edgar dogfood bug documented on the helper.
+  const remember = (captured: CapturedSource[]) => mergeCapturedIntoCorpus(accumulated, captured)
 
   // ---- Create research case ----
   const researchCase = await createResearchCase(store, {
@@ -930,7 +932,9 @@ export async function runResearchDeepDivePhase(
 ) {
   const strategyRef = resolveResearchStrategyRef(command)
   const accumulated = deps.accumulated ?? new Map<string, CapturedSource>()
-  const remember = (captured: CapturedSource[]) => captured.forEach((c) => accumulated.set(c.source_id, c))
+  // Same-id guard (mergeCapturedIntoCorpus): a model re-proposal of an already-grounded id can never
+  // clobber the verified capture — see the live browse-edgar dogfood bug documented on the helper.
+  const remember = (captured: CapturedSource[]) => mergeCapturedIntoCorpus(accumulated, captured)
   // Engine-version provenance stamped at the analysis payload ROOT — on BOTH the circle-gate set-aside
   // early-exit and the full deep-dive emission below (best-effort commit; omitted when unset).
   const engineCommit = resolveEngineCommit()

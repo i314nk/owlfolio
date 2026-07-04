@@ -2993,6 +2993,62 @@ describe('DEF 14A proxy grounding (management + moat)', () => {
     }
   })
 
+  it('LIVE-BUG REPRO: a model re-proposal of the pre-verified id with a WRONG URL cannot clobber the harness capture in the ledger', async () => {
+    const { mkdtemp, rm } = await import('node:fs/promises')
+    const { tmpdir } = await import('node:os')
+    const { join } = await import('node:path')
+    const { createHash } = await import('node:crypto')
+    const { loadPersistedReadCorpus } = await import('../sourceLedgerRead.js')
+    const ledgerDir = await mkdtemp(join(tmpdir(), 'owlfolio-clobber-repro-'))
+    try {
+      const store = new InMemoryEventStore()
+      await seedDeepDivePrereqs(store)
+
+      // Every agent payload re-proposes the pre-verified 10-K id pointing at the EDGAR SEARCH page —
+      // exactly what the COST dogfood run's synthesis model did.
+      const provider = swarmFakeProvider()
+      const orig = provider.structured.getMockImplementation()!
+      provider.structured.mockImplementation(async (req: { response_format?: { schema_name?: string } }) => {
+        const payload = await orig(req) as Record<string, unknown> & { proposed_sources?: unknown[] }
+        if (Array.isArray(payload?.proposed_sources)) {
+          payload.proposed_sources = [...payload.proposed_sources, {
+            source_id: 'sec_edgar_10k_0000909832_fy2025',
+            title: 'Costco Wholesale Corp Form 10-K',
+            url: 'https://www.sec.gov/cgi-bin/browse-edgar',
+            excerpt: 'model-invented pointer',
+          }]
+        }
+        return payload as never
+      })
+      await provider.structured({} as never) // skip quick screen
+
+      // Ground stub: captures each source AT ITS OWN URL with hash = sha256(url) — so the harness
+      // Archives capture and the model's browse-edgar re-capture get DIFFERENT hashes.
+      const groundByUrl = (async (sources: { source_id: string; title: string; url: string; excerpt: string }[]) => ({
+        captured: sources.map((s) => ({
+          source_id: s.source_id, title: s.title, url: s.url, excerpt: s.excerpt,
+          availability: 'available' as const, fetched_at: 'x',
+          content_hash: `sha256:${createHash('sha256').update(s.url).digest('hex')}`,
+        })),
+        verified_ids: sources.map((s) => s.source_id),
+      })) as unknown as GroundFn
+
+      await runResearchDeepDivePhase(store, provider as never, { ...deepDiveCommand(), source_ledger_path: ledgerDir }, {
+        ground: groundByUrl, laneConcurrency: 7, fundamentals: costFundamentals,
+      })
+
+      const corpus = await loadPersistedReadCorpus({ source_ledger_path: ledgerDir, research_case_id: 'rc_edgar' })
+      const primary = corpus.get('sec_edgar_10k_0000909832_fy2025')
+      expect(primary).toBeDefined()
+      // The harness capture survives: Archives URL + provenance stamps, NOT the search page.
+      expect(primary!.url).toBe('https://www.sec.gov/Archives/edgar/data/909832/000090983225000101/cost-20250831.htm')
+      expect(primary!.form).toBe('10-K')
+      expect(primary!.filed).toBe('2025-10-08')
+    } finally {
+      await rm(ledgerDir, { recursive: true, force: true })
+    }
+  })
+
   it('fail-closed: when the proxy does not ground, no block appears and the swarm completes', async () => {
     const store = new InMemoryEventStore()
     await seedDeepDivePrereqs(store)
