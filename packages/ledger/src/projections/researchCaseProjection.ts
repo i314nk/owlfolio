@@ -681,6 +681,28 @@ export type ResearchCaseChecklistAudit = {
  */
 export type ResearchCaseChecklistAnswersProjection = Record<string, ResearchCaseChecklistAnswer>
 
+/**
+ * The thesis RE-REVIEW diff (research_case_re_review_recorded): a provider observation, recorded after
+ * the decision, comparing the filings that appeared SINCE the decision against the recorded thesis.
+ * assessment: INTACT | WEAKENED | BROKEN | UNVERIFIED (fail-closed). Never a verdict, never an action.
+ */
+export type ResearchCaseReReviewProjection = {
+  re_review_id: string
+  assessment: string
+  trigger_assessments: { trigger: string; tripped: string; evidence_citation: string; reasoning: string }[]
+  changed_dimensions: string[]
+  weakened_dimension?: string
+  broken_claim?: string
+  narrative?: string
+  prior_thesis_summary?: string
+  new_filings: { form: string; filed: string; url: string; weight: string }[]
+  skipped_filings: { form: string; filed: string; url: string; weight: string }[]
+  re_review_ungrounded?: boolean
+  ungrounded_reason?: string
+  checked_at?: string
+  recorded_at: string
+}
+
 export type ResearchCaseProjection = {
   research_case_id: string
   version: number
@@ -787,12 +809,22 @@ export type ResearchCaseProjection = {
   next_required_action?: string
   /**
    * MARGIN-OF-SAFETY AUDIT SURFACE — the synthesis decision's forward-looking model risk judgments.
+   * (See also ResearchCaseReReviewProjection below for the post-decision re-review diff.)
    * key_wrong_assumption: the SINGLE assumption that, if wrong, breaks the thesis. thesis_break_triggers:
    * the observable events that would invalidate it. Legacy-tolerant (optional, guarded reads) — absent for
    * old analysis events. NOT cite-verified (forward-looking model judgments, not current-fact claims).
    */
   key_wrong_assumption?: string
   thesis_break_triggers?: string[]
+  /**
+   * The latest thesis RE-REVIEW diff (research_case_re_review_recorded) — a provider OBSERVATION recorded
+   * AFTER the decision: "do the filings that appeared since the decision change any load-bearing claim?"
+   * Newest event wins. DEDICATED field by design: it never touches the decision-time fields
+   * (specialist_findings / thesis / verdict), so the dossier's decision basis stays point-in-time
+   * immutable. UNVERIFIED = the pass could not cite-verify its evidence (fail-closed), never a
+   * confident diff.
+   */
+  re_review?: ResearchCaseReReviewProjection
   /**
    * MARGIN-OF-SAFETY JOINT JUDGMENT (synthesis-owned) — the HEADLINE of the MoS audit surface. The margin of
    * safety comes from TWO SUBSTITUTABLE sources: the price-vs-value gap and moat durability. Synthesis names
@@ -2154,6 +2186,59 @@ export function projectResearchCases(events: LedgerEventEnvelope<unknown>[]): Re
       applyString(researchCase, 'shariah_rationale', getString(event.payload, 'shariah_rationale'))
       applyStringArray(researchCase, 'risks', getStringArray(event.payload, 'risks'))
       applyStringArray(researchCase, 'open_questions', getStringArray(event.payload, 'open_questions'))
+      continue
+    }
+
+    if (event.event_type === 'research_case_re_review_recorded') {
+      const researchCaseId = researchCaseIdFor(event, event.payload)
+      if (researchCaseId === undefined) {
+        continue
+      }
+      // An OBSERVATION about the case — attach without transitioning the case stage (admit-judgment pattern).
+      const existingCase = researchCases.get(researchCaseId)
+      const researchCase = upsertCase(researchCases, researchCaseId, existingCase?.stage ?? 'discovered', event.created_at)
+      const p = event.payload as Record<string, unknown>
+      const reReviewId = typeof p['re_review_id'] === 'string' ? p['re_review_id'] : undefined
+      const assessment = typeof p['assessment'] === 'string' ? p['assessment'] : undefined
+      if (reReviewId === undefined || assessment === undefined) {
+        continue // malformed — fail-open (skip), never a partial projection
+      }
+      const filings = (value: unknown) => Array.isArray(value)
+        ? value.flatMap((f) => (f !== null && typeof f === 'object'
+          ? [{
+              form: String((f as Record<string, unknown>)['form'] ?? ''),
+              filed: String((f as Record<string, unknown>)['filed'] ?? ''),
+              url: String((f as Record<string, unknown>)['url'] ?? ''),
+              weight: String((f as Record<string, unknown>)['weight'] ?? ''),
+            }]
+          : []))
+        : []
+      // Newest event wins (events fold in sequence order — the store's append order).
+      researchCase.re_review = {
+        re_review_id: reReviewId,
+        assessment,
+        trigger_assessments: Array.isArray(p['trigger_assessments'])
+          ? (p['trigger_assessments'] as unknown[]).flatMap((t) => (t !== null && typeof t === 'object'
+            ? [{
+                trigger: String((t as Record<string, unknown>)['trigger'] ?? ''),
+                tripped: String((t as Record<string, unknown>)['tripped'] ?? ''),
+                evidence_citation: String((t as Record<string, unknown>)['evidence_citation'] ?? ''),
+                reasoning: String((t as Record<string, unknown>)['reasoning'] ?? ''),
+              }]
+            : []))
+          : [],
+        changed_dimensions: getStringArray(event.payload, 'changed_dimensions') ?? [],
+        ...(typeof p['weakened_dimension'] === 'string' ? { weakened_dimension: p['weakened_dimension'] } : {}),
+        ...(typeof p['broken_claim'] === 'string' ? { broken_claim: p['broken_claim'] } : {}),
+        ...(typeof p['narrative'] === 'string' ? { narrative: p['narrative'] } : {}),
+        ...(typeof p['prior_thesis_summary'] === 'string' ? { prior_thesis_summary: p['prior_thesis_summary'] } : {}),
+        new_filings: filings(p['new_filings']),
+        skipped_filings: filings(p['skipped_filings']),
+        ...(p['re_review_ungrounded'] === true ? { re_review_ungrounded: true } : {}),
+        ...(typeof p['ungrounded_reason'] === 'string' ? { ungrounded_reason: p['ungrounded_reason'] } : {}),
+        ...(typeof p['checked_at'] === 'string' ? { checked_at: p['checked_at'] } : {}),
+        recorded_at: event.created_at,
+      }
       continue
     }
 

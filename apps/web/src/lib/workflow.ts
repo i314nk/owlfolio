@@ -47,16 +47,21 @@ function resolveCircleGateSettings(config: AppConfig): { k_samples: number; min_
 }
 import {
   assertShariahGateAllowsTransition,
+  checkForNewFilings,
   confirmHoldingReviewDraft,
   confirmWatchlistDraft,
   draftHoldingReview,
+  draftThesisReReview,
   evaluateResearchCaseShariahGate,
+  loadPriorThesis,
   openHoldingFromWatchlist,
   overrideHoldingReviewDraft,
   recordHoldingValuationSnapshot,
   rejectHoldingReviewDraft,
   defaultSourceLedgerStorage,
+  type CheckForNewFilingsDeps,
   type SourceLedgerBundle,
+  type ThesisReReviewRecordedPayload,
 } from '@owlfolio/workflow'
 import { selectResearchCaseAction } from '@owlfolio/workflow/researchCasePolicy'
 import { archiveResearchCase } from '@owlfolio/workflow/researchWorkflow'
@@ -1246,6 +1251,86 @@ export async function recordAdmitJudgment(
       admit_judgment_id: admitJudgmentId,
       recommendation: event.payload as Record<string, unknown>,
     }
+  } finally {
+    store.close()
+  }
+}
+
+export type RunReReviewDeps = {
+  /** Override the provider (test fake). Defaults to the configured provider. */
+  provider?: ReturnType<typeof resolveProvider>
+  /** Override the grounding fn (test). Defaults to the provider-appropriate live grounder. */
+  ground?: GroundFn
+  /** Injectable EDGAR resolver for the trigger check (test fixture). */
+  fetchFundamentals?: CheckForNewFilingsDeps['fetchFundamentals']
+}
+
+export type RunReReviewOutcome =
+  | { status: 'recorded'; re_review: ThesisReReviewRecordedPayload }
+  | { status: 'no_recorded_thesis' }
+  | { status: 'no_prior_corpus' }
+  | { status: 'no_new_filings'; checked_at: string }
+  | { status: 'fundamentals_unresolved' }
+
+/**
+ * On-demand thesis RE-REVIEW for a research case (Phase 1 of the re-review method):
+ *   1. TRIGGER — checkForNewFilings diffs discovery-now against the persisted source-ledger corpus the
+ *      decision stood on (fail-closed: a missing bundle is `no_prior_corpus`, never a fabricated delta).
+ *   2. PASS — draftThesisReReview grounds the delta and compares it against the RECORDED thesis
+ *      (thesis_summary, key_wrong_assumption, every thesis_break_trigger), emitting a DIFF observation
+ *      (`research_case_re_review_recorded`): INTACT | WEAKENED | BROKEN | UNVERIFIED (fail-closed).
+ * ZERO provider spend on every non-`recorded` outcome. Never a verdict, never a transition — a BROKEN
+ * diff points the human at the existing "Re-run on current engine" supersession action.
+ */
+export async function runResearchCaseReReview(
+  state: OnboardingState,
+  researchCaseId: string,
+  deps: RunReReviewDeps = {},
+): Promise<RunReReviewOutcome> {
+  if (!state.is_initialized || state.config.mode !== 'personal-local' || state.config.ledger_path === undefined) {
+    throw new Error('Personal-local workflow is not initialized')
+  }
+  const sourceLedgerPath = state.config.source_ledger_path
+  if (sourceLedgerPath === undefined) {
+    throw new Error('Re-review requires a configured source_ledger_path (the persisted decision corpus).')
+  }
+
+  const store = new SQLiteEventStore(state.config.ledger_path)
+  try {
+    const events = await store.list()
+    const prior = loadPriorThesis(events, researchCaseId)
+    if (prior === undefined) {
+      return { status: 'no_recorded_thesis' }
+    }
+    const ticker = prior.ticker
+    if (ticker === undefined) {
+      return { status: 'no_recorded_thesis' }
+    }
+
+    const check = await checkForNewFilings(
+      { ticker, research_case_id: researchCaseId, source_ledger_path: sourceLedgerPath },
+      deps.fetchFundamentals === undefined ? undefined : { fetchFundamentals: deps.fetchFundamentals },
+    )
+    if (check === undefined) {
+      return { status: 'fundamentals_unresolved' }
+    }
+    if (check.no_prior_corpus) {
+      return { status: 'no_prior_corpus' }
+    }
+    if (check.new_filings.length === 0) {
+      return { status: 'no_new_filings', checked_at: check.checked_at }
+    }
+
+    const provider = deps.provider ?? resolveProvider({ provider_id: state.config.provider.provider_id })
+    const recorded = await draftThesisReReview(store, provider, {
+      research_case_id: researchCaseId,
+      model_id: resolveModelIdForProvider(state.config),
+      causation_id: researchCaseId,
+      source_ledger_path: sourceLedgerPath,
+      check,
+    }, deps.ground === undefined ? {} : { ground: deps.ground })
+
+    return { status: 'recorded', re_review: recorded.payload }
   } finally {
     store.close()
   }

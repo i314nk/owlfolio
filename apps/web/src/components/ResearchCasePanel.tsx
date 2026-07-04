@@ -415,6 +415,7 @@ export function ResearchCasePanel({ researchCase, mode = 'demo', configuredProvi
     // ── 6b. What changed since last analysis (re-analysis diff) — grouped with the audit trail at the
     //        bottom, not competing with the current verdict at the top. Collapsed by default. ──
     createReAnalysisDiffPanel(researchCase),
+    createReReviewPanel(researchCase),
     // ── 7. Evidence & sources — collapsed by default like the other info boxes; sources live INSIDE the
     //       drop-down. Citation markers (#source-<id>) still resolve: the browser auto-expands a <details>
     //       when navigating to a fragment inside it. ──
@@ -493,6 +494,57 @@ function createReAnalysisDiffPanel(researchCase: AppResearchCase) {
         change.note === undefined ? null : createElement('span', { style: { color: 'var(--owl-color-muted)' } }, ` (${change.note})`),
       )),
     ),
+  )
+}
+
+/**
+ * "Thesis re-review — vs. new filings": the latest post-decision DIFF observation
+ * (research_case_re_review_recorded). Never a verdict — INTACT | WEAKENED | BROKEN | UNVERIFIED, with
+ * every recorded thesis-break trigger assessed against the filings that appeared since the decision.
+ * BROKEN opens expanded and points at the existing re-run action; UNVERIFIED is flagged loudly.
+ */
+function createReReviewPanel(researchCase: AppResearchCase) {
+  const reReview = researchCase.re_review
+  if (reReview === undefined) return null
+  const tone = reReview.assessment === 'BROKEN'
+    ? 'var(--owl-color-risk-bright)'
+    : reReview.assessment === 'INTACT'
+      ? '#4ade80'
+      : 'var(--owl-color-gold-bright)'
+  return createElement(
+    'details',
+    { 'aria-label': 'Thesis re-review vs new filings', className: 'owl-collapsible-card', ...(reReview.assessment === 'BROKEN' ? { open: true } : {}) },
+    createElement(
+      'summary',
+      { className: 'owl-collapsible-card-summary' },
+      createElement('span', { className: 'owl-section-accent', style: { margin: 0 } }, 'Thesis re-review — vs. new filings'),
+      createElement('span', {
+        'data-testid': 're-review-assessment',
+        style: { color: tone, fontFamily: 'var(--owl-font-mono)', fontWeight: 800, marginLeft: '0.6rem', letterSpacing: '0.05em' },
+      }, reReview.assessment),
+    ),
+    reReview.re_review_ungrounded === true
+      ? createElement('p', { style: { color: 'var(--owl-color-gold-bright)', fontSize: 'var(--owl-text-sm)', margin: '0.5rem 0' } }, `Unverified: ${reReview.ungrounded_reason ?? 'the pass could not cite-verify its evidence (fail-closed).'}`)
+      : null,
+    createElement('p', { style: { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-sm)', margin: '0.5rem 0' } },
+      `Filings new since this decision were compared against the recorded thesis${reReview.checked_at === undefined ? '' : ` (checked ${reReview.checked_at.slice(0, 10)})`}. An observation — the decision itself is unchanged.`),
+    reReview.narrative === undefined ? null : createElement('p', { style: { color: 'var(--owl-color-text)', fontSize: 'var(--owl-text-base)', margin: '0 0 0.5rem' } }, reReview.narrative),
+    reReview.broken_claim === undefined ? null : createElement('p', { style: { color: 'var(--owl-color-risk-bright)', fontSize: 'var(--owl-text-base)', margin: '0 0 0.5rem' } }, `Broken claim: ${reReview.broken_claim} — use "Re-run on current engine" for the full re-underwrite.`),
+    reReview.weakened_dimension === undefined ? null : createElement('p', { style: { color: 'var(--owl-color-gold-bright)', fontSize: 'var(--owl-text-base)', margin: '0 0 0.5rem' } }, `Weakened dimension: ${reReview.weakened_dimension}`),
+    reReview.trigger_assessments.length === 0
+      ? null
+      : createElement(
+          'ul',
+          { style: { display: 'grid', gap: '0.35rem', margin: 0, paddingLeft: '1.1rem' } },
+          ...reReview.trigger_assessments.map((assessment, index) => createElement(
+            'li',
+            { key: index, style: { color: 'var(--owl-color-text)', fontSize: 'var(--owl-text-sm)' } },
+            createElement('strong', null, `${assessment.tripped.toUpperCase()}: `),
+            `${assessment.trigger} — ${assessment.reasoning}`,
+          )),
+        ),
+    createElement('p', { style: { color: 'var(--owl-color-quiet)', fontSize: 'var(--owl-text-2xs)', fontFamily: 'var(--owl-font-mono)', margin: '0.6rem 0 0' } },
+      `Reviewed: ${reReview.new_filings.map((f) => `${f.form} ${f.filed}`).join(', ')}${reReview.skipped_filings.length > 0 ? ` · skipped ${reReview.skipped_filings.length}` : ''}`),
   )
 }
 
@@ -1022,6 +1074,7 @@ function createSetAsideDossier(researchCase: AppResearchCase) {
     createSetAsideHero(researchCase),
     createCircleCompetencePanel(researchCase),
     createReAnalysisDiffPanel(researchCase),
+    createReReviewPanel(researchCase),
     createPostMortemPanel(researchCase),
     createEvidenceAndAuditDetails(researchCase),
   )

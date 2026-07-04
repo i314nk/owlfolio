@@ -81,7 +81,41 @@ export async function submitArchive(
   }
 }
 
-type PendingAction = 'rerun' | 'archive' | undefined
+/**
+ * Run the on-demand thesis RE-REVIEW: check for filings NEW since this decision's persisted corpus and,
+ * when any exist, record a DIFF against the recorded thesis (an observation — never a verdict; a BROKEN
+ * diff points at the existing re-run action). Zero provider spend when nothing new was filed.
+ */
+export async function submitReReview(
+  deps: { fetch: typeof fetch; router: ActionRouter; caseId: string },
+): Promise<{ ok: true; note?: string } | { ok: false; error: string }> {
+  try {
+    // Bind to the global (see submitReRun): the browser fetch rejects a non-Window `this`.
+    const doFetch = deps.fetch.bind(globalThis)
+    const response = await doFetch(`/api/research/${deps.caseId}/re-review`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+    })
+    const body = await response.json().catch(() => ({}))
+    if (!response.ok) {
+      return { ok: false, error: resolveErrorMessage(body) }
+    }
+    if (body.status === 'recorded') {
+      deps.router.refresh()
+      return { ok: true }
+    }
+    const note = body.status === 'no_new_filings'
+      ? 'No new filings since this decision — the thesis re-review has nothing to compare.'
+      : body.status === 'no_prior_corpus'
+        ? 'No persisted source corpus for this case (it predates ledger persistence) — the honest refresh is a full re-run.'
+        : 'Could not resolve SEC filings for this ticker right now — try again later.'
+    return { ok: true, note }
+  } catch (caughtError) {
+    return { ok: false, error: caughtError instanceof Error ? caughtError.message : 'Unable to run the re-review' }
+  }
+}
+
+type PendingAction = 'rerun' | 'archive' | 'rereview' | undefined
 
 const confirmRowStyle: CSSProperties = {
   alignItems: 'center',
@@ -108,6 +142,7 @@ export function ResearchCaseActions({ caseId, ticker, isArchived, engineStale }:
   const [confirming, setConfirming] = useState<PendingAction>(undefined)
   const [submitting, setSubmitting] = useState<PendingAction>(undefined)
   const [error, setError] = useState<string | undefined>(undefined)
+  const [reReviewNote, setReReviewNote] = useState<string | undefined>(undefined)
 
   const isBusy = submitting !== undefined
   const reRunDisabled = ticker === undefined || isBusy
@@ -119,6 +154,20 @@ export function ResearchCaseActions({ caseId, ticker, isArchived, engineStale }:
     const result = await submitReRun({ fetch, router, caseId, ticker })
     if (result.ok) {
       setConfirming(undefined)
+    } else {
+      setError(result.error)
+    }
+    setSubmitting(undefined)
+  }
+
+  async function onConfirmReReview(): Promise<void> {
+    setSubmitting('rereview')
+    setError(undefined)
+    setReReviewNote(undefined)
+    const result = await submitReReview({ fetch, router, caseId })
+    if (result.ok) {
+      setConfirming(undefined)
+      if (result.note !== undefined) setReReviewNote(result.note)
     } else {
       setError(result.error)
     }
@@ -266,8 +315,52 @@ export function ResearchCaseActions({ caseId, ticker, isArchived, engineStale }:
       ticker === undefined
         ? createElement('span', { 'data-testid': 'research-case-rerun-disabled-hint', style: noteStyle }, 'no ticker on this case')
         : null,
+      confirming === 'rereview'
+        ? createElement(
+            'div',
+            { style: confirmRowStyle, 'data-testid': 'research-case-rereview-confirm' },
+            createElement(
+              'span',
+              { style: confirmTextStyle },
+              'Checks SEC EDGAR for filings NEW since this decision and, only if any exist, runs a grounded thesis re-review (uses provider quota). The diff is an observation — it never changes the verdict. Continue?',
+            ),
+            createElement(
+              'button',
+              {
+                type: 'button',
+                className: 'owl-button owl-button-secondary owl-focusable',
+                disabled: isBusy,
+                onClick: () => void onConfirmReReview(),
+              },
+              submitting === 'rereview' ? 'Checking…' : 'Confirm re-review',
+            ),
+            createElement(
+              'button',
+              { type: 'button', className: 'owl-button owl-button-secondary owl-focusable', disabled: isBusy, onClick: () => setConfirming(undefined) },
+              'Cancel',
+            ),
+          )
+        : createElement(
+            'button',
+            {
+              type: 'button',
+              className: 'owl-button owl-button-secondary owl-focusable',
+              style: { cursor: isBusy ? 'not-allowed' : 'pointer', opacity: isBusy ? 0.6 : 1 } as CSSProperties,
+              disabled: isBusy,
+              'data-testid': 'research-case-rereview-button',
+              onClick: () => {
+                setError(undefined)
+                setReReviewNote(undefined)
+                setConfirming('rereview')
+              },
+            },
+            'Check new filings / re-review',
+          ),
       archiveNode,
     ),
+    reReviewNote === undefined
+      ? null
+      : createElement('p', { 'data-testid': 'research-case-rereview-note', style: { ...noteStyle, margin: 0 } }, reReviewNote),
     error === undefined
       ? null
       : createElement(
