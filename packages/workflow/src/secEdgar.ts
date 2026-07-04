@@ -116,6 +116,13 @@ export type Fundamentals = {
    */
   recent_filings?: FilingRef[]
   /**
+   * Definitive annual proxy statements (DEF 14A only — no supplements/preliminaries/third-party
+   * solicitations), newest-first. Grounded + read by NARRATIVE only (executive comp structure,
+   * governance, insider ownership, related-party transactions); proxy numbers never enter the
+   * recompute. Empty when none.
+   */
+  proxy_filings?: FilingRef[]
+  /**
    * SEC Standard Industrial Classification code from the submissions endpoint (e.g. '7372'), when
    * present. Best-effort/fail-open: undefined when submissions are unavailable or omit it — never
    * fabricated. Reported verbatim (trimmed); not coerced or zero-padded.
@@ -681,6 +688,19 @@ const RECENT_READABLE_FORMS = new Set(['8-K', '8-K/A', '10-Q', '10-Q/A', '6-K', 
 
 function isRecentReadableForm(form: string | undefined): boolean {
   return typeof form === 'string' && RECENT_READABLE_FORMS.has(form)
+}
+
+/**
+ * The definitive annual proxy statement — EXACTLY 'DEF 14A'. Deliberately excluded: DEFA14A
+ * (supplemental soliciting material/ads, not the proxy), PRE 14A (preliminary, superseded by the DEF),
+ * PX14A6G (THIRD-PARTY exempt solicitations — activist letters; grounding those as "the company's
+ * proxy" would poison the management lane with adversarial outside material), DEFM14A (merger
+ * proxies — special-purpose) and DEFR14A (revised; rare). A miss fails closed to "no proxy grounded".
+ */
+const PROXY_FORMS = new Set(['DEF 14A'])
+
+function isProxyForm(form: string | undefined): boolean {
+  return typeof form === 'string' && PROXY_FORMS.has(form)
 }
 
 /** True when a taxonomy bucket has at least one concept with data. */
@@ -1494,6 +1514,23 @@ export function buildReadableRecentFilings(subs: Submissions | undefined, cik10:
   return buildFilingsWhere(subs, cik10, isRecentReadableForm)
 }
 
+/** Definitive annual proxy statements (DEF 14A only — see PROXY_FORMS), newest-first. */
+export function buildProxyFilings(subs: Submissions | undefined, cik10: string): FilingRef[] {
+  return buildFilingsWhere(subs, cik10, isProxyForm)
+}
+
+/**
+ * The latest definitive proxy statement to ground for the management lane. LATEST-ONLY contract — no
+ * recency anchor, unlike the interim selector: proxies file ~annually (typically AFTER the 10-K), so
+ * the latest DEF 14A legitimately may predate the latest annual filing and is still the current proxy.
+ * Pure / fail-closed: undefined when none.
+ */
+export function selectLatestProxyFiling(f: { proxy_filings?: FilingRef[] }): FilingRef | undefined {
+  const proxies = f.proxy_filings ?? []
+  if (proxies.length === 0) return undefined
+  return [...proxies].sort((a, b) => (a.filed < b.filed ? 1 : a.filed > b.filed ? -1 : 0))[0]
+}
+
 /**
  * Select the recent readable filings to ground for interim recency: those filed AFTER the latest annual
  * filing (the recency anchor), newest-first, capped. Pure / fail-closed: returns [] when there are no
@@ -1564,6 +1601,7 @@ export async function fetchCompanyFundamentals(
   )
   const filings = buildFilings(subs, cik10)
   const recent_filings = buildReadableRecentFilings(subs, cik10)
+  const proxy_filings = buildProxyFilings(subs, cik10)
 
   return {
     cik: cik10,
@@ -1573,6 +1611,7 @@ export async function fetchCompanyFundamentals(
     annual_series,
     filings,
     recent_filings,
+    proxy_filings,
     // SIC sector/industry is best-effort/fail-open: present only when submissions carry it, trimmed
     // but not coerced/padded, and omitted (undefined) otherwise so it is never fabricated.
     ...optional('sic', trimmedString(subs?.sic)),

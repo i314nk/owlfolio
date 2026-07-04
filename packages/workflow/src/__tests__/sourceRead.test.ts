@@ -78,4 +78,22 @@ describe('readGroundedSource', () => {
     expect(res.text.length).toBe(20)
     expect(res.next_offset).toBe(20)
   })
+
+  it('the STAMPED category drives the gate, not the URL heuristic: a proxy with a signal-free filename is readable in management + moat, refused by financial_quality', async () => {
+    // Real DEF 14A primaryDocument names carry no 'def14a'/'proxy' signal (e.g. cost-20251204.htm) —
+    // classifySourceCategory would say 'filing'. The harness stamps 'proxy' at grounding; that must win.
+    const proxy = cap({
+      source_id: 'sec_def14a', title: 'DEF 14A',
+      url: 'https://www.sec.gov/Archives/edgar/data/909832/000090983225000200/cost-20251204.htm',
+      source_category: 'proxy',
+    })
+    for (const lane of ['management', 'moat']) {
+      const res = await readGroundedSource('sec_def14a', corpusOf(proxy), { section: '1A', lane })
+      expect(res.ok).toBe(true)
+    }
+    const refused = await readGroundedSource('sec_def14a', corpusOf(proxy), { section: '1A', lane: 'financial_quality' })
+    expect(refused.ok).toBe(false)
+    if (refused.ok) throw new Error('expected refusal')
+    expect(refused.reason).toBe('excluded_by_lane_policy:proxy')
+  })
 })

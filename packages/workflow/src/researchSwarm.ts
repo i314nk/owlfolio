@@ -43,7 +43,7 @@ export {
   type GroundedAgentResult,
   type SynthesisResponse,
 }
-import { computeIncrementalRoic, demonstratedOwnerEarningsGrowth, estimateMaintenanceCapex, ownerEarningsVsFcfDiagnostic, selectLatestAnnualFiling, selectRecentReadableFilings, type Fundamentals, type ImpermissibleIncomeLine, type SecEdgarDeps } from './secEdgar'
+import { computeIncrementalRoic, demonstratedOwnerEarningsGrowth, estimateMaintenanceCapex, ownerEarningsVsFcfDiagnostic, selectLatestAnnualFiling, selectLatestProxyFiling, selectRecentReadableFilings, type Fundamentals, type ImpermissibleIncomeLine, type SecEdgarDeps } from './secEdgar'
 import { resolveFundamentalsForTicker } from './fundamentalsProvider'
 import { evaluateBaseRateBurden, type BaseRateBurdenFlag } from './baseRateBurden'
 import { BASE_RATES } from '@owlfolio/strategies/baseRates'
@@ -103,6 +103,7 @@ import {
   buildJudgmentProjection,
   resolveEngineCommit,
   buildPrimaryFilingBlock,
+  buildProxyBlock,
   buildRecentFilingsBlock,
   buildPreVerifiedSourcesBlock,
   buildQuickScreenFilingBlock,
@@ -913,6 +914,11 @@ const RECENT_READABLE_MAX = 6
  * lanes are deliberately excluded so interim 10-Q numbers never tempt the valuation/Shariah recompute). */
 const RECENT_FILINGS_LANES = new Set<string>(['risks', 'moat', 'management', 'business_quality'])
 
+/** Lanes that receive the LATEST PROXY STATEMENT affordance (3.1): management (incentives/comp —
+ * primary) + moat (dual-class/entrenchment/governance — owner-approved SOURCE_POLICY v2 widening).
+ * The numeric lanes are deliberately excluded; risks can already cite anything but has no comp mandate. */
+const PROXY_LANES = new Set<string>(['management', 'moat'])
+
 export async function runResearchDeepDivePhase(
   store: SwarmStore,
   provider: Provider,
@@ -964,7 +970,8 @@ export async function runResearchDeepDivePhase(
       const grounded = await ground([proposed], deps.grounding)
       const captured = grounded.captured[0]
       if (captured !== undefined && grounded.verified_ids.includes(sourceId)) {
-        remember([captured])
+        // Stamp filed/form so the ledger record carries the document's provenance (Axis B metadata).
+        remember([{ ...captured, filed: annual.filed, form: annual.form }])
         primaryFilingSourceId = sourceId
         primaryFilingBlock = buildPrimaryFilingBlock(fundamentals, sourceId, annual.form)
       }
@@ -992,10 +999,45 @@ export async function runResearchDeepDivePhase(
         .map((file, i) => ({ file, source_id: proposed[i]!.source_id }))
         .filter((x) => verifiedSet.has(x.source_id))
       if (verifiedRecent.length > 0) {
-        remember(grounded.captured.filter((c) => verifiedSet.has(c.source_id)))
+        // Stamp filed/form per capture so the ledger records carry document provenance (Axis B metadata).
+        const byId = new Map(verifiedRecent.map((x) => [x.source_id, x.file]))
+        remember(grounded.captured
+          .filter((c) => verifiedSet.has(c.source_id))
+          .map((c) => {
+            const file = byId.get(c.source_id)
+            return file === undefined ? c : { ...c, filed: file.filed, form: file.form }
+          }))
         recentFilingsBlock = buildRecentFilingsBlock(
           verifiedRecent.map((x) => ({ source_id: x.source_id, form: x.file.form, filed: x.file.filed })),
         )
+      }
+    }
+  }
+
+  // ---- 3.1: ground the LATEST DEF 14A proxy as a readable document (management + moat) ----
+  // The proxy is where incentive structure lives (comp linkage, insider ownership, governance,
+  // related-party). Read as TEXT for qualitative judgment — comp tables are never parsed into figures.
+  // The category is STAMPED 'proxy' at grounding because a real DEF 14A primaryDocument filename
+  // (e.g. cost-20251204.htm) carries no URL signal for the classifier; the stamp drives the lane gate
+  // (management + moat admit 'proxy' per SOURCE_POLICY v2; the numeric lanes reject it). Fail-closed:
+  // an ungrounded proxy is simply absent and the lanes run as today.
+  let proxyBlock: string | undefined
+  if (fundamentals !== undefined) {
+    const proxy = selectLatestProxyFiling(fundamentals)
+    if (proxy !== undefined) {
+      const ground = deps.ground ?? groundProposedSources
+      const proxySourceId = `sec_edgar_def14a_${fundamentals.cik}_${proxy.filed}`
+      const proposed: ProposedSource = {
+        source_id: proxySourceId,
+        title: `${fundamentals.entity_name} DEF 14A proxy statement filed ${proxy.filed} — SEC EDGAR`,
+        url: proxy.url,
+        excerpt: `Definitive annual proxy statement (DEF 14A) for ${fundamentals.entity_name}, filed ${proxy.filed}.`,
+      }
+      const grounded = await ground([proposed], deps.grounding)
+      const captured = grounded.captured[0]
+      if (captured !== undefined && grounded.verified_ids.includes(proxySourceId)) {
+        remember([{ ...captured, source_category: 'proxy' as const, filed: proxy.filed, form: proxy.form }])
+        proxyBlock = buildProxyBlock({ source_id: proxySourceId, filed: proxy.filed })
       }
     }
   }
@@ -1234,6 +1276,7 @@ export async function runResearchDeepDivePhase(
       + `SOURCE DISCIPLINE (Mechanism 6): this lane reasons from PRIMARY documents. ${sourceDiscipline}`
       + (injectFilingNumbers ? primaryFilingBlock : '')
       + (recentFilingsBlock !== undefined && RECENT_FILINGS_LANES.has(lane) ? recentFilingsBlock : '')
+      + (proxyBlock !== undefined && PROXY_LANES.has(lane) ? proxyBlock : '')
 
     const baseRunId = `run_${command.research_case_id}_${swarmSeg(lane)}`
     // The grounded EDGAR 10-K is a guaranteed verified primary citation for the injected lanes —

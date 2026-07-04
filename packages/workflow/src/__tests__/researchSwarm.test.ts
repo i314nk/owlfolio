@@ -2920,6 +2920,69 @@ describe('Slice B: recent interim filings (8-K / 10-Q narrative)', () => {
   })
 })
 
+describe('DEF 14A proxy grounding (management + moat)', () => {
+  const withProxy: Fundamentals = {
+    ...costFundamentals,
+    proxy_filings: [
+      { form: 'DEF 14A', filed: '2025-12-04', url: 'https://www.sec.gov/Archives/edgar/data/909832/000090983225000200/cost-20251204.htm' },
+      { form: 'DEF 14A', filed: '2024-12-05', url: 'https://www.sec.gov/Archives/edgar/data/909832/000090983224000180/cost-20241205.htm' },
+    ],
+  }
+
+  function promptsOf(provider: ReturnType<typeof swarmFakeProvider>): string[] {
+    return provider.structured.mock.calls.map((c: unknown[]) => (c[0] as { prompt?: string }).prompt).filter((p): p is string => typeof p === 'string')
+  }
+
+  it('grounds the LATEST proxy and surfaces the read_source affordance to management + moat only', async () => {
+    const store = new InMemoryEventStore()
+    await seedDeepDivePrereqs(store)
+    const provider = swarmFakeProvider()
+    await provider.structured({} as never) // skip quick screen
+
+    await runResearchDeepDivePhase(store, provider as never, deepDiveCommand(), {
+      ground: verifyAllGround(), laneConcurrency: 7, fundamentals: withProxy,
+    })
+
+    const prompts = promptsOf(provider)
+    const management = prompts.find((p) => p.includes('management specialist'))
+    const moat = prompts.find((p) => p.includes('moat specialist'))
+    const financial = prompts.find((p) => p.includes('financial_quality specialist'))
+    const risks = prompts.find((p) => p.includes('risks specialist'))
+
+    for (const p of [management, moat]) {
+      expect(p).toBeDefined()
+      expect(p).toContain('LATEST PROXY STATEMENT')
+      expect(p).toContain('read_source("sec_edgar_def14a_0000909832_2025-12-04")')
+      expect(p).not.toContain('2024-12-05') // latest only — the prior year's proxy is not grounded
+    }
+    // Numeric lanes and risks do not get the affordance block.
+    expect(financial).not.toContain('LATEST PROXY STATEMENT')
+    expect(risks).not.toContain('LATEST PROXY STATEMENT')
+  })
+
+  it('fail-closed: when the proxy does not ground, no block appears and the swarm completes', async () => {
+    const store = new InMemoryEventStore()
+    await seedDeepDivePrereqs(store)
+    const provider = swarmFakeProvider()
+    await provider.structured({} as never)
+
+    const groundExceptProxy = (async (sources: { source_id: string }[]) => ({
+      captured: sources.map((s) => ({
+        source_id: s.source_id, title: 't', url: 'https://example.com/x', excerpt: 'e',
+        availability: 'available' as const, fetched_at: 'x', content_hash: 'sha256:1',
+      })),
+      verified_ids: sources.filter((s) => !s.source_id.startsWith('sec_edgar_def14a_')).map((s) => s.source_id),
+    })) as unknown as GroundFn
+
+    const result = await runResearchDeepDivePhase(store, provider as never, deepDiveCommand(), {
+      ground: groundExceptProxy, laneConcurrency: 7, fundamentals: withProxy,
+    })
+
+    expect(promptsOf(provider).every((p) => !p.includes('LATEST PROXY STATEMENT'))).toBe(true)
+    expect(result.decision).toBeDefined()
+  })
+})
+
 describe('foreign filer (20-F primary + 6-K interim) narrative grounding', () => {
   const novoFundamentals: Fundamentals = {
     ...costFundamentals,

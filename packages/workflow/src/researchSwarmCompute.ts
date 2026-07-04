@@ -654,6 +654,25 @@ export function buildRecentFilingsBlock(
 }
 
 /**
+ * Build the LATEST PROXY STATEMENT affordance block (3.1) — the definitive DEF 14A grounded as a
+ * readable document for the management (+ moat) lanes. Points the model at incentive structure,
+ * governance, insider ownership, and related-party text; proxy NUMBERS are explicitly out of bounds
+ * (comp tables are read as text for qualitative judgment, never computed figures). Returns '' when
+ * no proxy grounded (append-safe).
+ */
+export function buildProxyBlock(entry: { source_id: string; filed: string } | undefined): string {
+  if (entry === undefined || entry.source_id.length === 0) return ''
+  return (
+    `\n\nLATEST PROXY STATEMENT (DEF 14A, filed ${entry.filed} — already fetched + content-verified by `
+    + `the harness). READ it with read_source("${entry.source_id}") for executive compensation structure `
+    + `and incentive alignment (EPS-linked vs revenue vs return-on-capital), insider ownership, board `
+    + `composition/independence, dual-class/entrenchment provisions, and related-party transactions; `
+    + `cite the source_id for proxy-backed claims. Do NOT use proxy numbers for valuation — the harness `
+    + `computes valuation on the annual filing basis only.`
+  )
+}
+
+/**
  * Build a compact, grounded primary-filing context block for injection into a lane prompt. Includes
  * the OE-bridge raw inputs, revenue, debt, cash, interest expense, the multi-year series, and the
  * grounded EDGAR source_id the lane MUST cite.

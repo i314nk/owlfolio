@@ -85,8 +85,15 @@ export type CapturedSource = {
   http_status?: number
   fetched_at: string
   citation_locator?: string
-  /** Mechanism 6: the classifier's source category (for dossier visibility). Set by the lane-aware path. */
+  /** Mechanism 6: the classifier's source category (for dossier visibility). Set by the lane-aware path,
+   * OR harness-stamped at grounding time when the true category is KNOWN from the submissions index and
+   * the URL carries no signal (a real DEF 14A filename like `cost-20251204.htm` classifies as 'filing' —
+   * the harness stamps 'proxy'). The read gate prefers this field over the URL heuristic. */
   source_category?: SourceCategory
+  /** ISO filing date of the underlying EDGAR document (harness-stamped at grounding; feeds the ledger). */
+  filed?: string
+  /** EDGAR form type ('10-K', 'DEF 14A', '8-K/A', …) (harness-stamped at grounding; feeds the ledger). */
+  form?: string
   /**
    * A2 (Slice A): the RAW fetched body, retained in-memory for the run so a tool-loop provider can READ
    * the grounded document (by Item) without a second fetch. Hashed identically to `content_hash`. NEVER
