@@ -80,6 +80,13 @@ export function buildShariahReasoningPrompt(args: RunShariahReasoningPassArgs): 
     `You are the Buffett-Munger Shariah-compliance overlay agent for ${args.ticker}. Your FOCUSED, REQUIRED job `
     + `is to produce a grounded shariah_judgment covering the sector/segment compliance verdict and the dollar `
     + `amount of impermissible income — GROUNDED on primary filings, CITED to verified sources.\n\n`
+    + `READ THE FILING (SPGI-class quantification): you have the read_source tool. Many filers do not tag `
+    + `interest income in XBRL and do not surface it in the lane digest — the number lives ONLY in the 10-K `
+    + `notes. READ the harness-verified primary filing by Item (read_source with the source_id and section, `
+    + `e.g. section="8" for the financial statements + notes, section="7" for MD&A) and LOCATE the interest `
+    + `income / investment income / prohibited-segment revenue lines; quantify impermissible_income from the `
+    + `text you actually READ, never from memory. If after reading you still cannot quantify it, null remains `
+    + `the honest answer.\n\n`
     + `Lane findings (the shared narrative to assess from):\n${laneLines}\n\n`
     + `Produce a single shariah_judgment with:\n`
     + `  - sector_status: 'compliant' | 'conditional' | 'non_compliant' — confirmed with segment revenue data, NOT `
@@ -120,7 +127,17 @@ export function buildShariahReasoningPrompt(args: RunShariahReasoningPassArgs): 
 export async function runShariahReasoningPass(
   provider: Provider,
   args: RunShariahReasoningPassArgs,
-  deps: { ground?: GroundFn; grounding?: GroundingDeps } = {},
+  deps: {
+    ground?: GroundFn
+    grounding?: GroundingDeps
+    /**
+     * The harness-verified read corpus (the SAME map the lanes read from). With it the pass runs the
+     * grounded TOOL LOOP and can read_source the primary filing's notes to QUANTIFY impermissible income
+     * (the SPGI-class gap: no XBRL tag, no digest mention — the number lives only in the filing text).
+     * Falls back to the one-shot propose-then-verify path on providers without the loop (mock/tests).
+     */
+    readCorpus?: ReadonlyMap<string, CapturedSource>
+  } = {},
 ): Promise<ShariahReasoningOutcome> {
   const requiredFields: RequiredFieldCheck<ShariahReasoningAnalysis>[] = [
     {
@@ -155,6 +172,10 @@ export async function runShariahReasoningPass(
         ...(deps.ground === undefined ? {} : { ground: deps.ground }),
         ...(deps.grounding === undefined ? {} : { grounding: deps.grounding }),
         requiredFields,
+        // Grounded tool loop: lets the pass READ the primary filing (read_source) to quantify
+        // impermissible income from the notes. Auto-falls back on providers without the loop.
+        useToolLoop: true,
+        ...(deps.readCorpus === undefined ? {} : { readCorpus: deps.readCorpus }),
       },
     )
     if (validated.status === 'ok') {

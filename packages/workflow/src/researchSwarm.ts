@@ -1518,7 +1518,13 @@ export async function runResearchDeepDivePhase(
       corpusSourceIds: [...accumulated.values()].map((s) => s.source_id),
       preVerifiedSourceIds: primaryFilingSourceId !== undefined ? [primaryFilingSourceId] : [],
     },
-    { ...(deps.ground === undefined ? {} : { ground: deps.ground }), ...(deps.grounding === undefined ? {} : { grounding: deps.grounding }) },
+    {
+      ...(deps.ground === undefined ? {} : { ground: deps.ground }),
+      ...(deps.grounding === undefined ? {} : { grounding: deps.grounding }),
+      // The same verified corpus the lanes read from — lets the pass read_source the filing's notes to
+      // QUANTIFY impermissible income (the SPGI-class gap: untagged in XBRL, absent from the digest).
+      readCorpus: accumulated,
+    },
   )
   const shariahLaneJudgment: ShariahLaneJudgment | undefined = shariahPassOutcome.status === 'ok'
     ? {
