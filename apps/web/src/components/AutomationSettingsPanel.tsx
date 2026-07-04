@@ -14,6 +14,10 @@ import type {
 // Import the runtime bounds from the appConfig subpath (NOT the '@owlfolio/shared' barrel, which
 // re-exports runtimeBackup → node:fs and cannot be bundled into this client component).
 import {
+  CIRCLE_GATE_EVIDENCE_FLOOR_MAX,
+  CIRCLE_GATE_EVIDENCE_FLOOR_MIN,
+  CIRCLE_GATE_K_SAMPLES_MAX,
+  CIRCLE_GATE_K_SAMPLES_MIN,
   RESEARCH_MAX_TOOL_CALLS_MAX,
   RESEARCH_MAX_TOOL_CALLS_MIN,
 } from '@owlfolio/shared/appConfig'
@@ -453,6 +457,51 @@ export function AutomationSettingsPanel({ initialAutomation }: AutomationSetting
             min: RESEARCH_MAX_TOOL_CALLS_MIN,
             max: RESEARCH_MAX_TOOL_CALLS_MAX,
             onChange: (v) => update('research_max_tool_calls', v),
+          }),
+        ),
+
+        createElement(
+          ControlRow,
+          {
+            label: 'Circle-gate agreement samples (advanced)',
+            helper: `How many independent circle-of-competence judgments a run samples; the deep dive is entered only when ALL agree the business is within competence. 1 = single judgment (fastest, can flip run-to-run); higher = steadier gate at one extra model call per sample. Range ${CIRCLE_GATE_K_SAMPLES_MIN}–${CIRCLE_GATE_K_SAMPLES_MAX}; default 2.`,
+          },
+          createElement(ControlNumber, {
+            label: 'Circle-gate agreement samples',
+            value: pendingSettings.circle_gate_k_samples,
+            min: CIRCLE_GATE_K_SAMPLES_MIN,
+            max: CIRCLE_GATE_K_SAMPLES_MAX,
+            onChange: (v) => update('circle_gate_k_samples', v),
+          }),
+        ),
+
+        createElement(
+          ControlRow,
+          {
+            label: 'Circle-gate evidence floor: cashflow drivers (advanced)',
+            helper: `Minimum cite-verified cashflow drivers each circle-gate judgment must ground; a thinner gather counts as outside the circle (fail-closed). Range ${CIRCLE_GATE_EVIDENCE_FLOOR_MIN}–${CIRCLE_GATE_EVIDENCE_FLOOR_MAX}; default 2.`,
+          },
+          createElement(ControlNumber, {
+            label: 'Circle-gate minimum grounded cashflow drivers',
+            value: pendingSettings.circle_gate_min_drivers,
+            min: CIRCLE_GATE_EVIDENCE_FLOOR_MIN,
+            max: CIRCLE_GATE_EVIDENCE_FLOOR_MAX,
+            onChange: (v) => update('circle_gate_min_drivers', v),
+          }),
+        ),
+
+        createElement(
+          ControlRow,
+          {
+            label: 'Circle-gate evidence floor: predictability breakers (advanced)',
+            helper: `Minimum cite-verified predictability breakers each circle-gate judgment must ground — the gate must understand what could BREAK the cashflows, not just what drives them. Range ${CIRCLE_GATE_EVIDENCE_FLOOR_MIN}–${CIRCLE_GATE_EVIDENCE_FLOOR_MAX}; default 2.`,
+          },
+          createElement(ControlNumber, {
+            label: 'Circle-gate minimum grounded predictability breakers',
+            value: pendingSettings.circle_gate_min_breakers,
+            min: CIRCLE_GATE_EVIDENCE_FLOOR_MIN,
+            max: CIRCLE_GATE_EVIDENCE_FLOOR_MAX,
+            onChange: (v) => update('circle_gate_min_breakers', v),
           }),
         ),
       ),

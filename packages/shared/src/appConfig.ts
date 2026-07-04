@@ -98,6 +98,22 @@ export const DEFAULT_RESEARCH_MAX_TOOL_CALLS = 10
 export const RESEARCH_MAX_TOOL_CALLS_MIN = 1
 export const RESEARCH_MAX_TOOL_CALLS_MAX = 50
 
+/**
+ * Circle-of-competence GATE hardening knobs (the deep-dive grounded model judgment, NOT the owner-policy
+ * hard-exclusion pre-filter below). The gate is sampled `k` times per run and the deep dive is entered
+ * only on a UNANIMOUS in-competence vote — k=1 restores the single-sample behavior; higher k kills
+ * run-to-run judgment flips at one extra model call per extra sample (cheap vs. the 7-lane spend it
+ * gates). The evidence floors are the minimum GROUNDED (cite-verified) cashflow drivers / predictability
+ * breakers a sample must carry for its judgment to count — a thinner gather votes set-aside (fail-closed).
+ */
+export const DEFAULT_CIRCLE_GATE_K_SAMPLES = 2
+export const CIRCLE_GATE_K_SAMPLES_MIN = 1
+export const CIRCLE_GATE_K_SAMPLES_MAX = 5
+export const DEFAULT_CIRCLE_GATE_MIN_DRIVERS = 2
+export const DEFAULT_CIRCLE_GATE_MIN_BREAKERS = 2
+export const CIRCLE_GATE_EVIDENCE_FLOOR_MIN = 1
+export const CIRCLE_GATE_EVIDENCE_FLOOR_MAX = 5
+
 export type AutomationSettings = {
   research_engine_enabled: boolean
   discovery: { enabled: boolean; cadence: AutomationCadenceDiscovery }
@@ -109,6 +125,12 @@ export type AutomationSettings = {
   price_refresh: { enabled: boolean; cadence: AutomationCadencePriceRefresh }
   /** Advanced: max grounded tool calls per research lane (Phase-1 gather cap). See the const docs above. */
   research_max_tool_calls: number
+  /** Advanced: circle-gate agreement samples (unanimous-to-enter; 1 = single-sample). See const docs. */
+  circle_gate_k_samples: number
+  /** Advanced: minimum GROUNDED cashflow drivers per circle-gate sample. See const docs. */
+  circle_gate_min_drivers: number
+  /** Advanced: minimum GROUNDED predictability breakers per circle-gate sample. See const docs. */
+  circle_gate_min_breakers: number
 }
 
 /** Clamp a (possibly invalid/legacy) max-tool-calls value into the supported integer band; default fallback. */
@@ -119,6 +141,22 @@ export const clampResearchMaxToolCalls = (value: unknown): number => {
   if (rounded > RESEARCH_MAX_TOOL_CALLS_MAX) return RESEARCH_MAX_TOOL_CALLS_MAX
   return rounded
 }
+
+/** Clamp a circle-gate knob into an integer band; non-finite/non-number falls back to the given default. */
+const clampCircleGateValue = (value: unknown, fallback: number, min: number, max: number): number => {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return fallback
+  const rounded = Math.round(value)
+  if (rounded < min) return min
+  if (rounded > max) return max
+  return rounded
+}
+
+export const clampCircleGateKSamples = (value: unknown): number =>
+  clampCircleGateValue(value, DEFAULT_CIRCLE_GATE_K_SAMPLES, CIRCLE_GATE_K_SAMPLES_MIN, CIRCLE_GATE_K_SAMPLES_MAX)
+export const clampCircleGateMinDrivers = (value: unknown): number =>
+  clampCircleGateValue(value, DEFAULT_CIRCLE_GATE_MIN_DRIVERS, CIRCLE_GATE_EVIDENCE_FLOOR_MIN, CIRCLE_GATE_EVIDENCE_FLOOR_MAX)
+export const clampCircleGateMinBreakers = (value: unknown): number =>
+  clampCircleGateValue(value, DEFAULT_CIRCLE_GATE_MIN_BREAKERS, CIRCLE_GATE_EVIDENCE_FLOOR_MIN, CIRCLE_GATE_EVIDENCE_FLOOR_MAX)
 
 /**
  * The owner-set OWNER-POLICY HARD-EXCLUSION policy the research harness CHECKS candidates against before
@@ -275,6 +313,9 @@ export const defaultAutomationSettings = (): AutomationSettings => ({
   purification: { enabled: true, cadence: 'quarterly' },
   price_refresh: { enabled: true, cadence: 'daily' },
   research_max_tool_calls: DEFAULT_RESEARCH_MAX_TOOL_CALLS,
+  circle_gate_k_samples: DEFAULT_CIRCLE_GATE_K_SAMPLES,
+  circle_gate_min_drivers: DEFAULT_CIRCLE_GATE_MIN_DRIVERS,
+  circle_gate_min_breakers: DEFAULT_CIRCLE_GATE_MIN_BREAKERS,
 })
 
 /**
@@ -341,6 +382,15 @@ export const mergeAutomationSettings = (partial?: Partial<AutomationSettings & {
     research_max_tool_calls: partial.research_max_tool_calls === undefined
       ? defaults.research_max_tool_calls
       : clampResearchMaxToolCalls(partial.research_max_tool_calls),
+    circle_gate_k_samples: partial.circle_gate_k_samples === undefined
+      ? defaults.circle_gate_k_samples
+      : clampCircleGateKSamples(partial.circle_gate_k_samples),
+    circle_gate_min_drivers: partial.circle_gate_min_drivers === undefined
+      ? defaults.circle_gate_min_drivers
+      : clampCircleGateMinDrivers(partial.circle_gate_min_drivers),
+    circle_gate_min_breakers: partial.circle_gate_min_breakers === undefined
+      ? defaults.circle_gate_min_breakers
+      : clampCircleGateMinBreakers(partial.circle_gate_min_breakers),
   }
 }
 
