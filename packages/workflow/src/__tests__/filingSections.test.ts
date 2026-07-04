@@ -34,6 +34,40 @@ describe('extractFilingSection (10-K Items)', () => {
     expect(section).not.toContain('designs and sells industrial widgets') // that's Item 1
   })
 
+  it('parses headings with a space before the period ("Item 7 .") — the SPGI markup-split form', () => {
+    // The SPGI budget-exhaustion bug: SPGI's 10-K HTML splits the Item number and the period into
+    // separate tags, so the stripped text reads "Item 7 . Management's Discussion…". The tight
+    // "Item 7." heading regex missed Items 6/7/7A entirely — the model burned its whole tool budget
+    // retrying a section the parser could not see, and the circle gate failed closed.
+    const body = (item: string, words: number) => Array.from({ length: words }, (_, i) => `${item}word${i}`).join(' ')
+    const doc = `<html><body>
+      Item 1. Business ${body('one', 40)}
+      Item 6 . [Reserved]
+      Item 7 . Management's Discussion and Analysis ${body('mdna', 40)}
+      Item 7A . Quantitative and Qualitative Disclosures ${body('qq', 40)}
+      Item 8. Financial Statements ${body('fin', 40)}
+    </body></html>`
+    const items = extractFilingItems(doc).map((i) => i.item)
+    expect(items).toContain('7')
+    expect(items).toContain('7A')
+    expect(extractFilingSection(doc, 'Item 7 MD&A')).toContain('mdnaword0')
+    expect(extractFilingSection(doc, '7A')).toContain('qqword0')
+    // The spaced heading must not bleed: Item 7 ends where 7A begins.
+    expect(extractFilingSection(doc, '7')).not.toContain('qqword0')
+  })
+
+  it('accepts a title-suffixed section key ("Item 1A Risk Factors") — the form models naturally write', () => {
+    // The stranded-run bug (3 live runs): models call read_source with the Item AND its title
+    // ("Item 1 Business", "Item 1A Risk Factors", "Item 7 MD&A") — the old normalizer folded the title
+    // into the key ("1ARISKFACTORS") so EVERY read failed with "section not found" + the index, and the
+    // circle gate honestly failed closed. Whether a run grounded was a coin flip on the model's wording.
+    expect(extractFilingSection(sample10k, 'Item 1A Risk Factors')).toContain('loss of a major customer')
+    expect(extractFilingSection(sample10k, 'Item 1 Business')).toContain('designs and sells industrial widgets')
+    expect(extractFilingSection(sample10k, 'Item 7 MD&A')).toBeDefined()
+    // The title must not corrupt the code: "Item 1 Business" is Item 1, NOT Item 1B.
+    expect(extractFilingSection(sample10k, 'Item 1 Business')).not.toContain('loss of a major customer')
+  })
+
   it('distinguishes Item 1 from Item 1A', () => {
     const item1 = extractFilingSection(sample10k, '1')!
     expect(item1).toContain('designs and sells industrial widgets')

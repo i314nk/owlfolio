@@ -20,6 +20,23 @@ export type ResearchCaseStage =
   | 'analysis_drafted'
   | 'decision_drafted'
   | 'watchlist_draft'
+  /** The run died mid-flight (`research_run_failed` on a non-terminal case) — no dossier was produced. */
+  | 'failed'
+
+/**
+ * Stages a late `research_run_failed` event may NOT downgrade: the case already produced its dossier /
+ * verdict (or was explicitly set aside), so a stale-run reap must never hide completed work behind a
+ * failed marker. Mirrors the terminal ('done') set of the web run-progress model.
+ */
+const RUN_FAILURE_IMMUNE_STAGES: ReadonlySet<ResearchCaseStage> = new Set([
+  'analysis_drafted',
+  'decision_drafted',
+  'pass',
+  'rejected',
+  'watchlist',
+  'watchlist_draft',
+  'holding',
+])
 
 export type ResearchCaseOwnerEarningsValuationProjection = {
   summary?: string
@@ -462,6 +479,19 @@ export type ResearchCaseShariahFinancialProjection = {
   market_cap_basis?: string
   /** Fiscal year of the EDGAR primary data the ratios used. */
   bridge_source_fiscal_year?: number
+  /**
+   * Itemized composition of the impermissible-income input — interest income, dividend income,
+   * cash-instrument investment income (each with its XBRL concept), plus any model-quantified residual.
+   * The dossier SHOWS every line; their sum is the figure the purification % was computed from.
+   */
+  impermissible_income_lines?: ResearchCaseImpermissibleIncomeLineProjection[]
+}
+
+/** One itemized impermissible-income component (XBRL concept or model residual), $millions. */
+export type ResearchCaseImpermissibleIncomeLineProjection = {
+  concept: string
+  label: string
+  amount_musd: number
 }
 
 /**
@@ -664,6 +694,8 @@ export type ResearchCaseProjection = {
    */
   archived: boolean
   stage: ResearchCaseStage
+  /** The worker's error summary from `research_run_failed` — set only when stage is 'failed'. */
+  run_failed_error_summary?: string
   /**
    * The provider that actually AUTHORED the run (defense-in-depth UI honesty): a placeholder/mock run
    * can never masquerade as a real grounded dossier. Derived from the authoring provider event's
@@ -1565,6 +1597,20 @@ function getShariahFinancial(payload: Record<string, unknown>): ResearchCaseShar
   if (market_cap_basis !== undefined) projected.market_cap_basis = market_cap_basis
   const bridge_source_fiscal_year = getNumber(value, 'bridge_source_fiscal_year')
   if (bridge_source_fiscal_year !== undefined) projected.bridge_source_fiscal_year = bridge_source_fiscal_year
+  const rawLines = value['impermissible_income_lines']
+  if (Array.isArray(rawLines)) {
+    const lines: ResearchCaseImpermissibleIncomeLineProjection[] = []
+    for (const raw of rawLines) {
+      if (!isRecord(raw)) continue
+      const concept = getString(raw, 'concept')
+      const label = getString(raw, 'label')
+      const amount_musd = getNumber(raw, 'amount_musd')
+      if (concept !== undefined && label !== undefined && amount_musd !== undefined) {
+        lines.push({ concept, label, amount_musd })
+      }
+    }
+    if (lines.length > 0) projected.impermissible_income_lines = lines
+  }
   return Object.keys(projected).length === 0 ? undefined : projected
 }
 
@@ -2174,6 +2220,29 @@ export function projectResearchCases(events: LedgerEventEnvelope<unknown>[]): Re
       const existing = researchCases.get(researchCaseId)
       const researchCase = upsertCase(researchCases, researchCaseId, existing?.stage ?? 'discovered', existing?.updated_at ?? event.created_at)
       researchCase.archived = true
+      continue
+    }
+
+    if (event.event_type === 'research_run_failed') {
+      // Mid-run failure honesty (the ADBE "in progress forever" bug): a run that died AFTER
+      // `research_case_created` left the case on its last in-flight stage, so every stage-reading
+      // consumer showed "in progress" forever. Move a NON-terminal existing case to stage 'failed' and
+      // carry the worker's error summary. Two guards: (1) a case that already reached a terminal stage
+      // is untouched — never hide a completed dossier behind a failed marker (e.g. a watchdog reaping a
+      // stale run record late); (2) NO case is fabricated from a lone failure event — the
+      // worker-never-started path stays with the view resolver's run-event handling.
+      const researchCaseId = researchCaseIdFor(event, event.payload)
+      if (researchCaseId === undefined) {
+        continue
+      }
+      const existing = researchCases.get(researchCaseId)
+      if (existing === undefined || RUN_FAILURE_IMMUNE_STAGES.has(existing.stage)) {
+        continue
+      }
+      existing.stage = 'failed'
+      existing.updated_at = event.created_at
+      const summary = isRecord(event.payload) ? getString(event.payload, 'error_summary') : undefined
+      if (summary !== undefined) existing.run_failed_error_summary = summary
     }
   }
 

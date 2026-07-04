@@ -35,15 +35,26 @@ export function htmlToText(html: string): string {
 export type FilingItem = { item: string; title?: string; text: string }
 
 // A real Item heading is "Item <n>[<letter>]." followed by whitespace. Requiring the period + space
-// avoids matching mid-prose phrases like "line item 5 of the schedule".
-const ITEM_HEADING = /\bItem\s+(\d{1,2})([A-C])?\.\s/gi
+// avoids matching mid-prose phrases like "line item 5 of the schedule". The period may be separated
+// from the number by whitespace ("Item 7 . Management's…") — filers whose HTML splits the number and
+// the period into separate tags render exactly that after tag-stripping (the SPGI budget-exhaustion
+// bug: Items 6/7/7A were invisible, and the model burned its tool budget retrying them).
+const ITEM_HEADING = /\bItem\s+(\d{1,2})([A-C])?\s{0,2}\.\s/gi
 
 // Below this, a segment is a TOC line / stub, not a real section — fail closed.
 const MIN_SECTION_CHARS = 60
 
-/** Normalize a loose section key ("Item 1A", "item 1a", " 1a ") to a canonical code ("1A"). */
+/**
+ * Normalize a loose section key to a canonical Item code ("1A"). Accepts the bare code ("1a", " 1A "),
+ * the Item prefix ("Item 1A"), AND a trailing section TITLE ("Item 1A Risk Factors", "Item 7 MD&A") —
+ * the form models naturally write when calling read_source. The title is ignored, and a title starting
+ * with a bare A-C letter cannot corrupt the code (the letter must not be followed by another letter, so
+ * "1 Business" is Item 1, never 1B). Unparseable input → '' (fail-closed, section not found).
+ */
 function normalizeItemKey(raw: string): string {
-  return raw.replace(/item/gi, '').replace(/[^0-9A-Za-z]/g, '').toUpperCase()
+  const m = raw.match(/(\d{1,2})\s*([A-Ca-c])?(?![A-Za-z])/)
+  if (m === null) return ''
+  return `${m[1]}${(m[2] ?? '').toUpperCase()}`
 }
 
 type Heading = { key: string; index: number }

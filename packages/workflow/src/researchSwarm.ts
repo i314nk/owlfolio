@@ -43,7 +43,7 @@ export {
   type GroundedAgentResult,
   type SynthesisResponse,
 }
-import { computeIncrementalRoic, demonstratedOwnerEarningsGrowth, estimateMaintenanceCapex, ownerEarningsVsFcfDiagnostic, selectRecentReadableFilings, type Fundamentals, type SecEdgarDeps } from './secEdgar'
+import { computeIncrementalRoic, demonstratedOwnerEarningsGrowth, estimateMaintenanceCapex, ownerEarningsVsFcfDiagnostic, selectRecentReadableFilings, type Fundamentals, type ImpermissibleIncomeLine, type SecEdgarDeps } from './secEdgar'
 import { resolveFundamentalsForTicker } from './fundamentalsProvider'
 import { evaluateBaseRateBurden, type BaseRateBurdenFlag } from './baseRateBurden'
 import { BASE_RATES } from '@owlfolio/strategies/baseRates'
@@ -70,6 +70,7 @@ import { marketImpliedGrowth } from '@owlfolio/strategies/reverseDcf'
 import { fetchAverageMarketCap, resolveCurrentPrice, type AverageMarketCapResult, type MarketDataDeps, type PriceQuote } from './marketData'
 import { runRedTeamPass, runRedTeamResponsePass, buildRedTeamLayer, type RedTeamLaneDigest, type RedTeamResult } from './redTeamPass'
 import { runValuationReasoningPass, type ValuationReasoning } from './valuationReasoningPass'
+import { runShariahReasoningPass } from './shariahReasoningPass'
 import {
   resolveCrossCheck,
   compareMoatClass,
@@ -82,14 +83,12 @@ import {
   QuickScreenAgentSchema,
   LaneAgentSchema,
   MoatLaneSchema,
-  ShariahLaneSchema,
   DecisionAgentSchema,
   MoatCrossCheckSchema,
   ShariahCrossCheckSchema,
   CircleCompetenceSchema,
   AGENT_TIMEOUT_MS,
   MOAT_RUBRIC_PROMPT,
-  SHARIAH_OVERLAY_PROMPT,
   CIRCLE_COMPETENCE_PROMPT,
   RISKS_RECENCY_NOTE,
   PRIMARY_FILING_LANES,
@@ -151,8 +150,6 @@ export type LaneOutcome = {
   policy_rejections?: SourcePolicyRejection[]
   /** MOAT lane only: its rubric/holistic judgment (spec-correct: the lane scores its own rubric). */
   moat_judgment?: MoatLaneJudgment
-  /** SHARIAH lane only: its sector/impermissible-income overlay (harness recomputes the ratios). */
-  shariah_judgment?: ShariahLaneJudgment
   /** Visible per-lane degradation: the lane omitted its REQUIRED judgment block after schema-retry. */
   judgment_retry_degraded?: string
 }
@@ -933,8 +930,8 @@ export async function runResearchDeepDivePhase(
 
   // ---- Pre-fetch SEC EDGAR primary-filing fundamentals (fail-closed, test-mode-gated) ----
   // When fundamentals resolve, we ground the latest 10-K as a verified primary source and inject the
-  // raw filing numbers into the financial_quality / shariah lanes so those lanes ground on
-  // filings instead of dropping when IR/news is blocked. When they do not resolve (non-US ticker,
+  // raw filing numbers into the financial_quality / moat lanes (PRIMARY_FILING_LANES) so those lanes
+  // ground on filings instead of dropping when IR/news is blocked. When they do not resolve (non-US ticker,
   // EDGAR down, test mode w/o injection), the lanes run EXACTLY as today — no regression.
   //
   // citation/corpus-alignment fix (KO regression): this runs BEFORE the circle gate (not after, where it
@@ -1010,16 +1007,16 @@ export async function runResearchDeepDivePhase(
     ? buildPreVerifiedSourcesBlock([primaryFilingSourceId])
     : undefined
 
-  // ---- CIRCLE-OF-COMPETENCE GATE (sequential pre-deep-dive stage — gates the 6-lane spend) ----
+  // ---- CIRCLE-OF-COMPETENCE GATE (sequential pre-deep-dive stage — gates the 5-lane spend) ----
   // The circle of competence is a GROUNDED MODEL JUDGMENT, not a config screen: "do I understand THIS
   // business well enough to assess its cashflow predictability?" It runs as its OWN call (NOT an 8th
-  // parallel lane) at the START of the deep-dive phase, BEFORE the expensive 6 lanes — the cheap quick
+  // parallel lane) at the START of the deep-dive phase, BEFORE the expensive 5 lanes — the cheap quick
   // screen already ran. The model must DEMONSTRATE understanding: cite-verify BOTH the cashflow drivers
   // AND what would make them unpredictable, held to the SAME rigor. Binary outcome:
-  //   - in-competence  → proceed to the 6-lane deep dive + synthesis + decision (today's path).
+  //   - in-competence  → proceed to the 5-lane deep dive + synthesis + decision (today's path).
   //   - outside-competence (model says so, OR fail-closed on EITHER ungrounded clause) → SET ASIDE: emit a
   //     terminal decision with verdict PASS carrying competence_reasoning + the circle_competence_unmet
-  //     flag; the 6 lanes do NOT run. NEVER RESEARCH_MORE — a valid, common, CORRECT Buffett output.
+  //     flag; the 5 lanes do NOT run. NEVER RESEARCH_MORE — a valid, common, CORRECT Buffett output.
   const circle = await judgeCircleCompetence(provider, command, {
     ...deps,
     ...(preVerifiedSourcesBlock === undefined ? {} : { preVerifiedSourcesBlock }),
@@ -1105,7 +1102,7 @@ export async function runResearchDeepDivePhase(
   } satisfies LedgerEventEnvelope<unknown>)
 
   if (!inCompetence) {
-    // ---- OUTSIDE COMPETENCE → SET ASIDE (terminal PASS) — the 6 lanes do NOT run ----
+    // ---- OUTSIDE COMPETENCE → SET ASIDE (terminal PASS) — the 5 lanes do NOT run ----
     const circleSourceIds = [...new Set([...command.quick_screen_source_ids, ...circle.verified_ids])]
     const setAsideReason = `Set aside — outside the circle of competence. ${circle.analysis.competence_reasoning}`
     const analysisEvent: LedgerEventEnvelope<unknown> = {
@@ -1221,18 +1218,16 @@ export async function runResearchDeepDivePhase(
     // gates the prompt numbers block and EXCLUDES the moat lane.
     const injectFiling = primaryFilingBlock !== undefined && PRIMARY_FILING_LANES.has(lane)
     const injectFilingNumbers = injectFiling && lane !== 'moat'
-    // model-tiering: the highest-stakes lanes resolve their OWN registry role (moat → lane_moat,
-    // shariah → lane_shariah); every other lane uses lanes_default. Default = the run's provider/model
-    // so single-provider runs are unchanged; an override can pin moat/shariah onto a stronger model.
-    const laneRole: ModelRoleId = lane === 'moat' ? 'lane_moat' : lane === 'shariah' ? 'lane_shariah' : 'lanes_default'
+    // model-tiering: the highest-stakes lane resolves its OWN registry role (moat → lane_moat);
+    // every other lane uses lanes_default. Default = the run's provider/model so single-provider
+    // runs are unchanged; an override can pin moat onto a stronger model.
+    const laneRole: ModelRoleId = lane === 'moat' ? 'lane_moat' : 'lanes_default'
     const laneRuntime = resolveRoleRuntime(laneRole, provider, command)
     const sourceDiscipline = lane === 'risks'
       ? `As the RISKS lane you may cite anything — knowing the consensus IS the job.${RISKS_RECENCY_NOTE}`
       : lane === 'management'
         ? `Cite filings, proxies (DEF 14A), transcripts, and insider-trading data; media profiles will be rejected.`
-        : lane === 'shariah'
-          ? `Cite filings, segment disclosures, and Shariah screening providers; sell-side/media will be rejected.`
-          : `Cite filings, transcripts, regulatory/statistical data, and company disclosures; sell-side research, financial media, investor write-ups, and blogs will be rejected.`
+        : `Cite filings, transcripts, regulatory/statistical data, and company disclosures; sell-side research, financial media, investor write-ups, and blogs will be rejected.`
     const basePrompt = `You are the Buffett-Munger ${lane} specialist agent for ${command.ticker}. `
       + `Produce a source-backed finding for the ${lane} lane only. Gather your own sources; return them in proposed_sources with real URLs. `
       + `SOURCE DISCIPLINE (Mechanism 6): this lane reasons from PRIMARY documents. ${sourceDiscipline}`
@@ -1331,53 +1326,6 @@ export async function runResearchDeepDivePhase(
       }
     }
 
-    // ---- SHARIAH lane: emits its OWN sector_status + impermissible_income overlay ----
-    // The harness recomputes the AAOIFI ratios from EDGAR + market cap + this lane-supplied
-    // impermissible_income. Required under runValidatedAgent; after 2 fails → shariah_ratios_unverified.
-    if (lane === 'shariah') {
-      const shariahRequired: RequiredFieldCheck<z.infer<typeof ShariahLaneSchema>>[] = [
-        { name: 'sector_status', present: (a) => a.sector_status !== undefined, hint: "'compliant' | 'conditional' | 'non_compliant' confirmed with segment revenue" },
-        // null (undetermined — not separately disclosed) is an ACCEPTED, complete answer and counts as
-        // PRESENT; only a truly ABSENT field (undefined) triggers the retry/fallback. DO NOT guess 0.
-        { name: 'impermissible_income', present: (a) => a.impermissible_income !== undefined, hint: 'non-permissible income in $MILLIONS (0 ONLY if affirmatively zero; null if not separately disclosed — do NOT guess 0)' },
-      ]
-      const validated = await runValidatedAgent(laneRuntime.provider, {
-        run_id: baseRunId,
-        model_id: laneRuntime.model_id,
-        prompt: basePrompt + SHARIAH_OVERLAY_PROMPT,
-        timeout_ms: AGENT_TIMEOUT_MS,
-        schema_name: 'BuffettMungerShariahLane',
-      }, ShariahLaneSchema, {
-        ...deps,
-        lane,
-        requiredFields: shariahRequired,
-        useToolLoop: true,
-        readCorpus: accumulated,
-        ...(deps.fetchFundamentals === undefined ? {} : { fetchFundamentals: deps.fetchFundamentals }),
-      })
-      const agent = validated.status === 'ok' ? validated.result : validated.lastResult
-      if (agent === undefined) {
-        throw new Error(`Shariah lane produced no parseable output: ${validated.status === 'failed' ? validated.reason : 'unknown'}`)
-      }
-      remember(agent.captured)
-      const a = agent.analysis
-      // Only surface the overlay when BOTH required fields are present (a schema-valid live model always
-      // has them; the fallback path leaves shariah_judgment undefined → shariah_ratios_unverified flag).
-      const overlayPresent = a.sector_status !== undefined && a.impermissible_income !== undefined
-      return {
-        lane,
-        finding_summary: a.finding_summary,
-        confidence: a.confidence,
-        caveats: a.caveats,
-        verified_ids: withFiling(agent.verified_ids),
-        ...(overlayPresent ? { shariah_judgment: { sector_status: a.sector_status, impermissible_income: a.impermissible_income } } : {}),
-        ...(agent.policy_rejections.length > 0 ? { policy_rejections: agent.policy_rejections } : {}),
-        ...(validated.status === 'failed'
-          ? { judgment_retry_degraded: `shariah_lane_schema_retry_exhausted: the model omitted [${validated.missing.join(', ')}] after ${validated.attempts} attempts (${validated.reason}).` }
-          : {}),
-      }
-    }
-
     // ---- Generic lanes (financial_quality, management, risks, …) ----
     // Deep-dive lanes gather REAL primary sources via the grounded tool loop when the provider supports it
     // (Phase 1 fetch_source/search_filings → Phase 2 structured), else fall back to propose-then-verify
@@ -1407,19 +1355,16 @@ export async function runResearchDeepDivePhase(
 
   // Extract the per-lane judgment outputs the harness now reads (instead of the synthesis schema).
   const moatLaneResult = laneResults.find((l) => l.lane === 'moat')
-  const shariahLaneResult = laneResults.find((l) => l.lane === 'shariah')
   const moatJudgment = moatLaneResult?.moat_judgment
-  const shariahLaneJudgment = shariahLaneResult?.shariah_judgment
-  // FAIL-CLOSED (compliance is first-class): the SHARIAH lane is a PRIMARY_FILING_LANES member, but a lane
-  // that grounds ZERO content-hash-verified sources is SKIPPED (no specialist_finding_recorded) — so the
-  // deep RE-SCREEN (segment-revenue + impermissible-income, grounded on the lane's OWN sources) did not run.
-  // When that happens the dossier would otherwise keep the earlier quick-screen verdict (often COMPLIANT)
-  // with no visible "the deep re-screen did not ground" caveat. This boolean rides ALONGSIDE the quick-screen
-  // verdict — it never fabricates or flips a genuinely-computed verdict; it only marks the deep re-screen as
-  // incomplete so a human does not read a falsely-confident COMPLIANT. True whenever the shariah lane is
-  // absent or grounded no verifiable source (covers BOTH the overlay-present and overlay-omitted skips).
-  const shariahDeepScreenIncomplete =
-    shariahLaneResult === undefined || shariahLaneResult.verified_ids.length === 0
+  // NOTE: shariahLaneJudgment is no longer read off the parallel deep-dive lane — it is now sourced from
+  // the ALWAYS-ON focused Shariah-reasoning pass (runShariahReasoningPass, invoked below once the corpus
+  // digest is assembled). See the derivation after synthesisRuntime.
+  // FAIL-CLOSED (compliance is first-class): shariahDeepScreenIncomplete is now keyed off the focused
+  // Shariah-reasoning PASS outcome — declared after shariahPassOutcome is resolved below. True whenever
+  // the pass returns status:'failed' (schema-invalid response, unverified citation, or timeout). This
+  // boolean rides ALONGSIDE the quick-screen verdict — it never fabricates or flips a genuinely-computed
+  // verdict; it only marks the deep re-screen as incomplete so a human does not read a falsely-confident
+  // COMPLIANT.
 
   // ---- Judgment objectivity (Mechanisms 1+2): rubric → mechanical anchor → bounded ±1 adjustment ----
   // The MOAT lane supplied the moat/runway rubric (spec-correct decomposition). The harness RE-VERIFIES
@@ -1488,12 +1433,12 @@ export async function runResearchDeepDivePhase(
     throw new Error(`No specialist lane produced a verifiable source for ${command.ticker}; research aborted (fail-closed).`)
   }
 
-  // ---- Mechanism 5: Red-Team Pass (after the 6 lanes, BEFORE synthesis) ----
+  // ---- Mechanism 5: Red-Team Pass (after the 5 lanes, BEFORE synthesis) ----
   // One adversarial grounded agent whose ONLY mandate is to break the case. It receives a compact
   // digest of the lane findings + the mechanically-computed anchor tiers + the verified source corpus,
   // and cites the SAME corpus (it is the consensus-knowing lane — allowed all source categories). Its
   // strongest objection is cite-checked; synthesis is then OBLIGED to answer it or downgrade. A
-  // red-team timeout DEGRADES (red_team_incomplete) — the run continues so a completed 6-lane deep dive
+  // red-team timeout DEGRADES (red_team_incomplete) — the run continues so a completed 5-lane deep dive
   // is never discarded. model-tiering-spec: the red team now resolves the `red_team` registry role —
   // when an override pins a DIFFERENT provider/model it genuinely runs on a different model than the
   // lanes (catches shared-narrative error single-model cross-checks cannot). Default = the run's model.
@@ -1548,6 +1493,50 @@ export async function runResearchDeepDivePhase(
   // model-tiering-spec: the synthesis runs on the `synthesis` registry role (T1). Default = the run's
   // provider/model so single-provider runs are unchanged; an override can pin it onto a frontier model.
   const synthesisRuntime = resolveRoleRuntime('synthesis', provider, command)
+
+  // ---- FOCUSED Shariah-reasoning pass (ALWAYS-ON) ----
+  // The Shariah compliance overlay (sector_status + impermissible_income + a grounded sector_citation) is
+  // produced by a dedicated focused, grounded, retried call — the SAME cite-check discipline as the
+  // valuation-reasoning pass — instead of being read off the parallel deep-dive lane. It runs
+  // UNCONDITIONALLY (every deep dive) and reuses the SAME laneDigest / corpus / pre-verified-EDGAR inputs
+  // the valuation pass assembles. Its output becomes shariahLaneJudgment, which the AAOIFI recompute below
+  // (and the synthesis reconciliation prompt) source from. On failure the overlay is left undefined so the
+  // recompute fails CLOSED to UNDETERMINED (the visible shariah_ratios_unverified degradation) — never a
+  // silently-clean verdict. (sector_citation is retained for cite-checking, NOT the ratio recompute, so
+  // only sector_status + impermissible_income map onto the ShariahLaneJudgment shape here.)
+  // model-tiering-spec: the Shariah pass runs on the `lane_shariah` registry role — this is the highest-
+  // stakes hard-stop classification, so it respects any operator override pinned on lane_shariah. Falls
+  // back to the run's provider/model when no override is configured (identical behavior to before).
+  const shariahPassRuntime = resolveRoleRuntime('lane_shariah', provider, command)
+  const shariahPassOutcome = await runShariahReasoningPass(
+    shariahPassRuntime.provider,
+    {
+      research_case_id: command.research_case_id,
+      ticker: command.ticker,
+      model_id: shariahPassRuntime.model_id,
+      laneDigest,
+      corpusSourceIds: [...accumulated.values()].map((s) => s.source_id),
+      preVerifiedSourceIds: primaryFilingSourceId !== undefined ? [primaryFilingSourceId] : [],
+    },
+    {
+      ...(deps.ground === undefined ? {} : { ground: deps.ground }),
+      ...(deps.grounding === undefined ? {} : { grounding: deps.grounding }),
+      // The same verified corpus the lanes read from — lets the pass read_source the filing's notes to
+      // QUANTIFY impermissible income (the SPGI-class gap: untagged in XBRL, absent from the digest).
+      readCorpus: accumulated,
+    },
+  )
+  const shariahLaneJudgment: ShariahLaneJudgment | undefined = shariahPassOutcome.status === 'ok'
+    ? {
+        sector_status: shariahPassOutcome.shariah_judgment.sector_status,
+        impermissible_income: shariahPassOutcome.shariah_judgment.impermissible_income,
+      }
+    : undefined
+  // Task 3: shariahDeepScreenIncomplete keys off the focused Shariah-reasoning PASS outcome.
+  // True whenever the pass returns status:'failed' (schema-invalid response, unverified citation, or
+  // timeout). The verdict is NOT flipped — this flag rides ALONGSIDE as a human-visible caveat.
+  const shariahDeepScreenIncomplete = shariahPassOutcome.status !== 'ok'
+
   // A live red-team objection (survived cite-check) makes a red-team RESPONSE required — produced by the
   // dedicated runRedTeamResponsePass below (the focused decomposition), NOT by the synthesis schema.
   const redTeamObjectionLive = redTeam.status === 'complete' && redTeam.strongest_objection.citations.length > 0
@@ -1621,7 +1610,7 @@ export async function runResearchDeepDivePhase(
       // SHARIAH specialist lanes — NOT here. The harness has already resolved them; the resolved tiers are
       // handed to you below for RECONCILIATION only (you do not re-score them).
       + `The MOAT lane resolved moat_class='${judgment.moat!.resolved_moat_class}' and reinvestment runway='${judgment.runway!.resolved_runway}'`
-      + (shariahLaneJudgment !== undefined ? `; the SHARIAH lane assessed sector_status='${shariahLaneJudgment.sector_status}'` : '')
+      + (shariahLaneJudgment !== undefined ? `; the Shariah screen assessed sector_status='${shariahLaneJudgment.sector_status}'` : '')
       + `. Reconcile your verdict + rationale with these resolved classifications; do NOT re-score the rubrics. `
       + `Cite sources in proposed_sources with real URLs.`
       // citation/corpus-alignment (KO regression): surface the harness's already-verified EDGAR source_id
@@ -1925,18 +1914,22 @@ export async function runResearchDeepDivePhase(
   if (redTeamResponseDegraded !== undefined) {
     degradedFlags.push(redTeamResponseDegraded)
   }
-  // Per-lane schema-retry exhaustion (the moat/shariah lane omitted its REQUIRED judgment block after 2
-  // attempts) — surfaced exactly like the synthesis path so the gap is visible, not silent.
+  // Per-lane schema-retry exhaustion (the moat lane omitted its REQUIRED judgment block after 2 attempts)
+  // — surfaced exactly like the synthesis path so the gap is visible, not silent.
   if (moatLaneResult?.judgment_retry_degraded !== undefined) degradedFlags.push(moatLaneResult.judgment_retry_degraded)
-  if (shariahLaneResult?.judgment_retry_degraded !== undefined) degradedFlags.push(shariahLaneResult.judgment_retry_degraded)
-  // FAIL-CLOSED deep-screen caveat: the shariah lane grounded zero verifiable sources (skipped), so the
-  // deep RE-SCREEN did not run. Surface it in the string channel (open_questions) alongside the projected
+  // Shariah-reasoning PASS failure: the focused pass returned status:'failed' (schema-invalid response,
+  // unverified citation, or timeout). Surfaced so the gap is visible alongside shariahDeepScreenIncomplete.
+  if (shariahPassOutcome.status === 'failed') {
+    degradedFlags.push(`shariah_reasoning_pass_failed: ${shariahPassOutcome.reason}`)
+  }
+  // FAIL-CLOSED deep-screen caveat: the Shariah-reasoning focused pass failed to ground, so the deep
+  // RE-SCREEN did not run. Surface it in the string channel (open_questions) alongside the projected
   // boolean — the verdict rests on the quick-screen gate, NOT a grounded deep re-screen.
   if (shariahDeepScreenIncomplete) {
     degradedFlags.push(
-      'shariah_ratios_unverified: shariah_deep_screen_incomplete — the Shariah deep re-screen (segment-revenue '
-      + '+ impermissible-income) grounded no verifiable source and was skipped, so the harness did NOT re-verify '
-      + 'compliance this run; the Shariah verdict rests on the earlier quick-screen gate. Re-run before relying on it.',
+      'shariah_ratios_unverified: shariah_deep_screen_incomplete — the focused Shariah-reasoning pass did not ground '
+      + '(schema-invalid response, unverified citation, or timeout), so the deep compliance re-screen '
+      + '(segment-revenue + impermissible-income) did not complete; the verdict rests on the quick-screen gate.',
     )
   }
   if (judgment.moat?.judgment_degraded === 'rubric_not_emitted' || judgment.runway?.judgment_degraded === 'rubric_not_emitted') {
@@ -2324,17 +2317,11 @@ export async function runResearchDeepDivePhase(
     && modelAssumedGrowth !== undefined
     && Number.isFinite(modelAssumedGrowth)
     && modelAssumedGrowth >= 0
-  // Sanity guard (mirrors the existing implausible-growth flag path): an assumed growth above the named
-  // single_growth_cap is FLAGGED, not silently trusted — the human audits whether the cited source defends
-  // it. The flag is advisory; the value is still recorded as the model's headline (the model owns it).
+  // An assumed growth above the named single_growth_cap is FLAGGED, not silently trusted — the human
+  // audits whether the cited source defends it. The flag is advisory; the value is still recorded as the
+  // model's headline (the model owns it). Emitted ONCE, in the sanity_flags channel (block (a) of the
+  // sanity checks below) — the cap applies to the MODEL's judgment, never the market-implied read.
   const headline_growth: number | undefined = assumedGrowthUsable ? modelAssumedGrowth : undefined
-  if (moat_passes_gate && assumedGrowthUsable && modelAssumedGrowth > buffettMungerStrategy.valuation.single_growth_cap) {
-    degradedFlags.push(
-      `assumed_growth_above_cap: the model's cited assumed growth ${(modelAssumedGrowth * 100).toFixed(1)}% is above the `
-      + `${(buffettMungerStrategy.valuation.single_growth_cap * 100).toFixed(0)}% forecasting-humility cap — flagged as `
-      + `implausible for sanity, not silently trusted. Verify the durable cited source before relying on the headline.`,
-    )
-  }
 
   // Plausibility ceiling for a per-share fair value. A per-share owner-earnings valuation for any
   // real equity is far below this; anything at/above it signals a units bug (e.g. totals not divided
@@ -2483,7 +2470,7 @@ export async function runResearchDeepDivePhase(
   // sector_status, the second model re-classifies the sector and the conservative (stricter) status
   // holds on disagreement (+ human escalation). The impermissible_income overlay is untouched (it feeds
   // the harness ratio recompute, not a model classification).
-  // Spec-correct decomposition: the overlay now comes from the SHARIAH lane output, not the synthesis schema.
+  // Spec-correct decomposition: the overlay now comes from the always-on Shariah-reasoning pass (via shariahLaneJudgment above), not the lane and not the synthesis schema.
   let shariahJudgment: ShariahLaneJudgment | undefined = shariahLaneJudgment
   const shariahCrossCheckRuntime = resolveCrossCheckRuntime('lane_shariah_crosscheck', provider, command)
   if (shariahCrossCheckRuntime !== undefined && shariahJudgment !== undefined) {
@@ -2528,16 +2515,64 @@ export async function runResearchDeepDivePhase(
         market_cap_basis: 'avg_36mo_x_diluted_shares' | 'current_price_x_diluted_shares'
         market_cap_months?: number
         bridge_source_fiscal_year?: number
+        /** Itemized composition of the impermissible-income input (interest, dividends, model residual). */
+        impermissible_income_lines?: ImpermissibleIncomeLine[]
       }
     | undefined
-  // FAIL-CLOSED on UNDETERMINED impermissible income. The lane emits impermissible_income = null when it
+  // HARNESS-OWNED impermissible income: no filing discloses an "impermissible income" line, so the pass
+  // honestly returns null for nearly every ticker — which left the deep screen permanently UNDETERMINED.
+  // The deterministic AAOIFI-computable components are the ITEMIZED XBRL lines (interest income,
+  // dividend income, cash-instrument investment income — fundamentals.latest_annual.
+  // impermissible_income_lines); their sum is the harness figure. Precedence: a pass null falls back to
+  // the XBRL total; when BOTH are numeric the CONSERVATIVE max wins (the model may quantify
+  // prohibited-segment revenue beyond interest/dividends, but may never silently undercount below the
+  // disclosed components — purification errs high, never low).
+  const xbrlImpermissibleLines = fundamentals?.latest_annual?.impermissible_income_lines
+  const xbrlImpermissibleTotal =
+    xbrlImpermissibleLines !== undefined && xbrlImpermissibleLines.length > 0
+      ? xbrlImpermissibleLines.reduce((sum, line) => sum + line.amount_musd, 0)
+      : undefined
+  const modelImpermissible = shariahJudgment?.impermissible_income
+  const effectiveImpermissibleIncome: number | null =
+    modelImpermissible === undefined ? null
+    : modelImpermissible === null ? (xbrlImpermissibleTotal ?? null)
+    : xbrlImpermissibleTotal !== undefined ? Math.max(modelImpermissible, xbrlImpermissibleTotal)
+    : modelImpermissible
+  const impermissibleIncomeFromXbrl =
+    xbrlImpermissibleTotal !== undefined
+    && shariahJudgment !== undefined
+    && effectiveImpermissibleIncome === xbrlImpermissibleTotal
+    && modelImpermissible !== xbrlImpermissibleTotal
+  // The SHOWN composition — every line that makes up the effective figure, so the dossier itemizes it
+  // (interest income, dividend income, etc.). When the model's larger figure won the conservative max,
+  // the excess over the disclosed components is shown as an explicit model-residual line (the total
+  // always equals the sum of its shown lines).
+  const impermissibleIncomeShownLines: ImpermissibleIncomeLine[] | undefined = (() => {
+    if (effectiveImpermissibleIncome === null || shariahJudgment === undefined) return undefined
+    if (xbrlImpermissibleLines !== undefined && xbrlImpermissibleTotal !== undefined && xbrlImpermissibleLines.length > 0) {
+      if (effectiveImpermissibleIncome === xbrlImpermissibleTotal) return xbrlImpermissibleLines
+      return [
+        ...xbrlImpermissibleLines,
+        {
+          concept: 'model_judgment',
+          label: 'model-quantified additional impermissible income (beyond disclosed interest/dividends)',
+          amount_musd: effectiveImpermissibleIncome - xbrlImpermissibleTotal,
+        },
+      ]
+    }
+    if (effectiveImpermissibleIncome > 0) {
+      return [{ concept: 'model_judgment', label: 'model-quantified impermissible income', amount_musd: effectiveImpermissibleIncome }]
+    }
+    return undefined // affirmatively-verified zero — nothing to itemize
+  })()
+  // FAIL-CLOSED on UNDETERMINED impermissible income. The pass emits impermissible_income = null when it
   // could NOT extract / the filing does not separately disclose a quantified impermissible-income line.
   // That is a DETERMINED-AS-UNDETERMINED answer (not an omission) — the harness must NOT compute a clean
-  // 0% purification from it (the compliance fail-OPEN bug). It flows to computeShariahFinancialRatios as
-  // null → computable:false → shariah_financial stays undefined → the verdict is UNDETERMINED, never a
-  // silent 0%/COMPLIANT.
+  // 0% purification from it (the compliance fail-OPEN bug). Reached only when the XBRL fallback is ALSO
+  // absent: it flows to computeShariahFinancialRatios as null → computable:false → shariah_financial
+  // stays undefined → the verdict is UNDETERMINED, never a silent 0%/COMPLIANT.
   const impermissibleIncomeUndetermined =
-    shariahJudgment !== undefined && shariahJudgment.impermissible_income === null
+    shariahJudgment !== undefined && effectiveImpermissibleIncome === null
   // When EDGAR + market cap + the Shariah overlay are all present but the ratios still come back
   // not-computable (e.g. missing revenue → divide-by-zero), capture WHY so the genuinely-not-computable
   // branch surfaces a visible shariah_ratios_unverified flag (the dogfood had NO flag here).
@@ -2555,7 +2590,7 @@ export async function runResearchDeepDivePhase(
       cash_and_securities: la.cash_and_securities_musd,
       total_revenue: la.revenue_musd,
       market_cap,
-      impermissible_income: shariahJudgment.impermissible_income,
+      impermissible_income: effectiveImpermissibleIncome,
     })
     if (ratios.computable) {
       shariah_financial = {
@@ -2569,6 +2604,7 @@ export async function runResearchDeepDivePhase(
         market_cap_basis,
         ...(avgMarketCap !== undefined ? { market_cap_months: avgMarketCap.months } : {}),
         bridge_source_fiscal_year: la.fiscal_year,
+        ...(impermissibleIncomeShownLines !== undefined ? { impermissible_income_lines: impermissibleIncomeShownLines } : {}),
       }
     } else {
       shariahRatioNotComputableReason = ratios.reason
@@ -2595,6 +2631,21 @@ export async function runResearchDeepDivePhase(
       + 'lane could not quantify a separate impermissible-income line, so the harness did NOT compute the '
       + 'AAOIFI impermissible-income ratio. Purification CANNOT be determined; obtain the interest-income / '
       + 'prohibited-revenue figure before treating this name as clean (it is NOT 0% / fully compliant).',
+    )
+  } else if (impermissibleIncomeFromXbrl) {
+    // PROVENANCE (not a degradation): the AAOIFI impermissible-income input came from the harness's
+    // XBRL-extracted interest income (deterministic, from the same annual facts as the other ratio
+    // inputs) — either the pass returned null (not separately disclosed in the narrative it saw) or its
+    // figure undercut the disclosed interest income and the conservative max won. Visible so the human
+    // knows the number's source; purification is computed, never silently 0%.
+    const composition = (xbrlImpermissibleLines ?? [])
+      .map((line) => `${line.label} ${line.amount_musd}M (${line.concept})`)
+      .join(' + ')
+    degradedFlags.push(
+      `shariah_impermissible_income_xbrl: the impermissible-income input (${effectiveImpermissibleIncome}M `
+      + `= ${composition}) is the harness-extracted XBRL composition of the latest annual facts — the `
+      + 'deterministic AAOIFI components. The purification % is computed from it; verify the lines '
+      + 'against the filing\'s investment-income note if precision matters.',
     )
   } else if (
     market_cap === undefined
@@ -2717,12 +2768,15 @@ export async function runResearchDeepDivePhase(
   const gdpThreshold = buffettMungerStrategy.valuation.gdp_growth_threshold
   const fvCapMultiple = valuation_multiple_ceiling
 
-  // (a) market-implied growth above a sane bound.
-  if (market_implied_growth !== undefined && market_implied_growth > singleGrowthCap) {
+  // (a) MODEL-assumed growth above the forecasting-humility cap. OWNER RULE (2026-07-04): the cap
+  // disciplines what the METHOD will underwrite — the model's OWN judgment — never the market-implied
+  // read, which is a descriptive reverse-DCF fact about today's price (the market may imply whatever it
+  // wants; price richness surfaces via the contradiction checks below and the exit-multiple bound).
+  if (headline_growth !== undefined && headline_growth > singleGrowthCap) {
     sanity_flags.push(
-      `sanity_implied_growth_above_cap: today's price implies ~${(market_implied_growth * 100).toFixed(1)}% near-term `
-      + `owner-earnings growth — above the ${(singleGrowthCap * 100).toFixed(0)}% forecasting-humility cap. The market `
-      + `already prices in growth the method would refuse to underwrite; treat the price as rich.`,
+      `sanity_assumed_growth_above_cap: the model's assumed sustainable growth ~${(headline_growth * 100).toFixed(1)}% `
+      + `is above the ${(singleGrowthCap * 100).toFixed(0)}% forecasting-humility cap — growth the method would refuse `
+      + `to underwrite. Verify the cited durable source before relying on the headline.`,
     )
   }
 
@@ -2813,6 +2867,11 @@ export async function runResearchDeepDivePhase(
   if (
     moat_passes_gate
     && headline_growth !== undefined
+    // Only when a demonstrated history EXISTS (the Visa data gap): a multi-class filer whose
+    // companyfacts carries no consolidated share count yields zero OE/share points and a floored-to-0%
+    // reference (growth_basis 'none'). Comparing the model's growth against that artificial 0% is a data
+    // artifact, not evidence — the floored-g0 degraded flag already tells the "history unavailable" story.
+    && growth_basis !== 'none'
     && headline_growth > effective_growth_rate + DEMONSTRATED_HISTORY_MARGIN
   ) {
     sanity_flags.push(
@@ -2839,8 +2898,26 @@ export async function runResearchDeepDivePhase(
       + 'price was unavailable — owner earnings, shares, or the price fetch) — defaulting to RESEARCH_MORE.'
     : undefined
 
+  // OWNER RULE (2026-07-04, the Visa dogfood): a model BUY at a price ABOVE the model's OWN buy-below is
+  // not a recordable buy signal — "buy below $290" at a $362 price means WAIT, i.e. WATCH, by the
+  // model's own arithmetic. This is pure arithmetic on the model's own numbers (exactly like in_buy_zone
+  // itself), NOT a judgment override: the model's verdict + full reasoning stay recorded verbatim in the
+  // decision agent's channel; only the RECORDED verdict derates to WATCH, with the reason surfaced.
+  const buyOutOfBuyZone =
+    moat_passes_gate
+    && !sectorShariahFail
+    && !buyDataUnconfirmed
+    && dec.analysis.investment_verdict === 'BUY'
+    && in_buy_zone === false
+  const buyOutOfZoneReason = buyOutOfBuyZone && buy_below !== undefined && current_price !== undefined
+    ? `buy_out_of_buy_zone: the model verdict is BUY with its OWN buy-below at $${buy_below.toFixed(2)} while `
+      + `the live price is $${current_price.toFixed(2)} — above the model's own buy zone. Recorded as WATCH `
+      + 'until the price enters the zone; the BUY thesis itself is preserved below for auditing.'
+    : undefined
+
   // Apply the cheap deterministic gates ONLY: moat below wide → PASS; Shariah sector/financial FAIL → PASS;
-  // missing buy data → RESEARCH_MORE. Otherwise the MODEL's verdict passes through. Sanity flags NEVER gate.
+  // missing buy data → RESEARCH_MORE; BUY above the model's own buy-below → WATCH. Otherwise the MODEL's
+  // verdict passes through. Sanity flags NEVER gate.
   const gatedVerdict = !moat_passes_gate
     // A moat below the gate routes by WHY: an UNGROUNDED moat claim (the model reached for wide+ but the
     // cite-verified rows didn't back it / the rubric wasn't scored) is INCOMPLETE -> RESEARCH_MORE; a
@@ -2856,7 +2933,9 @@ export async function runResearchDeepDivePhase(
         ? ('RESEARCH_MORE' as const)
         : buyDataUnconfirmed
           ? ('RESEARCH_MORE' as const)
-          : dec.analysis.investment_verdict
+          : buyOutOfBuyZone
+            ? ('WATCH' as const)
+            : dec.analysis.investment_verdict
   const gatedReason = !moat_passes_gate
     ? (moat_grounding_unmet
         ? `${moatGroundingReason} ${dec.analysis.decision_reason}`
@@ -2867,7 +2946,9 @@ export async function runResearchDeepDivePhase(
         ? `${synthesisGroundingReason} ${dec.analysis.decision_reason}`
         : buyDataUnconfirmed
           ? `${buyClampReason} ${dec.analysis.decision_reason}`
-          : dec.analysis.decision_reason
+          : buyOutOfZoneReason !== undefined
+            ? `${buyOutOfZoneReason} ${dec.analysis.decision_reason}`
+            : dec.analysis.decision_reason
 
   // ---- MARGIN-OF-SAFETY JOINT JUDGMENT (synthesis-owned) — Guard 1 + Guard 2 ----------------------------
   // GUARD 1: adequacy is an AUDIT judgment ONLY. NOTHING above (gatedVerdict / gatedReason / the moat gate /
@@ -3106,10 +3187,10 @@ export async function runResearchDeepDivePhase(
       // impermissible ratio + purification % could NOT be computed. Surfaced so the dossier renders the
       // UNDETERMINED state honestly ("purification cannot be determined"), never a falsely-clean 0%.
       ...(impermissibleIncomeUndetermined ? { shariah_impermissible_income_undetermined: true } : {}),
-      // FAIL-CLOSED marker: the SHARIAH deep re-screen lane grounded no verifiable source (skipped), so the
-      // deep compliance re-verification did NOT run. Rides ALONGSIDE the (quick-screen) verdict — it never
-      // flips a genuinely-computed verdict; the dossier renders a calm "compliance not deep-verified this run"
-      // caveat so a human does not read a falsely-confident COMPLIANT.
+      // FAIL-CLOSED marker: the focused Shariah-reasoning PASS did not ground (schema-invalid response,
+      // unverified citation, or timeout), so the deep compliance re-verification did NOT run. Rides ALONGSIDE
+      // the (quick-screen) verdict — it never flips a genuinely-computed verdict; the dossier renders a calm
+      // "compliance not deep-verified this run" caveat so a human does not read a falsely-confident COMPLIANT.
       ...(shariahDeepScreenIncomplete ? { shariah_deep_screen_incomplete: true } : {}),
       // Mechanism 6: source-discipline summary — which lane-proposed sources the per-lane whitelist
       // rejected (count + per-lane/reason). Surfaced so a starved lane is visible, never hidden.
@@ -3235,6 +3316,9 @@ export async function runResearchDeepDivePhase(
       // HIGH safety: a model BUY clamped to RESEARCH_MORE because no buy band was computable is always
       // surfaced — the human sees exactly why the BUY was not recorded.
       ...(buyClampReason !== undefined ? [buyClampReason] : []),
+      // OWNER RULE: a model BUY derated to WATCH because the price is above the model's OWN buy-below is
+      // always surfaced — the human sees the BUY thesis is intact and exactly what price re-arms it.
+      ...(buyOutOfZoneReason !== undefined ? [buyOutOfZoneReason] : []),
       ...baseRateCaveats,
       ...degradedFlags,
       // Dual-model cross-check disagreements → automatic human escalation (conservative answer holds).

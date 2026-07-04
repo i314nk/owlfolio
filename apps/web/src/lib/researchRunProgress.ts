@@ -3,7 +3,7 @@ import type { ResearchCaseStage } from '@owlfolio/ledger/projections/researchCas
 /**
  * The user-facing ordered checklist of a deep-dive research run. This is a PRESENTATION model — a stable,
  * coarse projection of the much finer-grained `ResearchCaseStage` event ladder into the six steps a person
- * actually waits through (quick-screen → circle → 6 lanes → synthesis → decision). Keep it a PURE function
+ * actually waits through (quick-screen → circle → 5 lanes → synthesis → decision). Keep it a PURE function
  * over plain inputs so the progress UI can be driven from the projection without a DB.
  */
 export type ResearchRunStageKey = 'queued' | 'quick_screen' | 'circle' | 'deep_dive' | 'synthesis' | 'decision'
@@ -31,18 +31,19 @@ export type RunProgress = {
 export type ResolveRunProgressInput = {
   /** The projected case stage. Absent (e.g. the run is enqueued but the case row is not yet created) → queued. */
   stage?: ResearchCaseStage
-  /** Count of recorded specialist findings — drives the live deep-dive "N/6" lane count. */
+  /** Count of recorded specialist findings — drives the live deep-dive "N/5" lane count. */
   specialistFindingCount?: number
   /** True when a `research_run_failed` event exists for the case. */
   failed?: boolean
 }
 
 /**
- * The six Buffett-Munger deep-dive specialist lanes (business_quality, moat, management, financial_quality,
- * shariah, risks). Hardcoded here to keep this module a pure, dependency-light presentation helper;
+ * The five Buffett-Munger deep-dive specialist lanes (business_quality, moat, management, financial_quality,
+ * risks). Hardcoded here to keep this module a pure, dependency-light presentation helper;
  * it mirrors `buffettMungerDeepDiveLanes.length` in `@owlfolio/workflow` (kept in sync by intent).
+ * Shariah runs as an always-on focused pass (not a parallel lane), so it is not counted here.
  */
-export const DEEP_DIVE_LANE_TOTAL = 6
+export const DEEP_DIVE_LANE_TOTAL = 5
 
 const STAGE_ORDER: readonly ResearchRunStageKey[] = [
   'queued',
@@ -74,6 +75,15 @@ function labelFor(key: ResearchRunStageKey, lanes: { completed: number; total: n
  * Map the fine-grained projection stage to the coarse current step. The worker proceeds straight from the
  * quick-screen to the circle judgment in automatic mode, so `quick_screened` reads as circle-current.
  */
+/**
+ * True when the projected stage maps to the terminal 'done' step — a dossier/decision exists. Used by
+ * the case-view resolver to decide whether a `research_run_failed` event means "the run died mid-flight
+ * → show the failed view" (non-terminal) or "the dossier already exists → never hide it" (terminal).
+ */
+export function isTerminalResearchStage(stage: ResearchCaseStage | undefined): boolean {
+  return mapStageToCurrent(stage) === 'done'
+}
+
 function mapStageToCurrent(stage: ResearchCaseStage | undefined): ResearchRunStageKey | 'done' {
   switch (stage) {
     case undefined:
@@ -115,7 +125,7 @@ function buildStages(
   if (currentStage === 'done') {
     // Terminal. A circle SET-ASIDE (or a quick-screen reject) jumps to a terminal stage WITHOUT running the
     // deep dive, so mark the deep_dive/synthesis steps 'pending' (skipped) — not 'done' — when no lane ever
-    // recorded a finding. A full run completes with all six lanes, so those read 'done'.
+    // recorded a finding. A full run completes with all five lanes, so those read 'done'.
     const deepDiveRan = lanes.completed > 0
     return STAGE_ORDER.map((key) => {
       const skipped = (key === 'deep_dive' || key === 'synthesis') && !deepDiveRan

@@ -30,6 +30,7 @@ import { getProviderCatalog, resolveProvider } from '@owlfolio/providers'
 import { VALUATION_PARAMS } from '@owlfolio/strategies/valuationParams'
 import { CHECKLIST_PARAMS, type ChecklistAudit } from '@owlfolio/strategies/checklistParams'
 import { resolveAdmissionThesisDraft, resolveBusinessFindings } from './checklistEvidence'
+import { isTerminalResearchStage } from './researchRunProgress'
 import { resolveAppConfigPath } from './appConfigStore'
 import { resolveProviderCertificationReportDir } from './providerStatus'
 import type { AppConfig } from '@owlfolio/shared'
@@ -638,7 +639,8 @@ export async function getAppResearchCaseFromStore(
 export type ResearchCaseView =
   | { status: 'ready'; researchCase: AppResearchCase }
   | { status: 'pending' }
-  | { status: 'failed'; error_summary?: string }
+  /** `ticker` (from the projected case or the run-request payload) lets the failed page offer a re-run. */
+  | { status: 'failed'; error_summary?: string; ticker?: string }
   | { status: 'unknown' }
 
 const RESEARCH_RUN_EVENT_TYPES: ReadonlySet<string> = new Set([
@@ -646,6 +648,20 @@ const RESEARCH_RUN_EVENT_TYPES: ReadonlySet<string> = new Set([
   'research_run_claimed',
   'research_run_failed',
 ])
+
+function isRecordValue(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+}
+
+/** The worker's error_summary off a research_run_failed event payload, when present. */
+function failureSummaryFrom(event: LedgerEventEnvelope<unknown>): string | undefined {
+  const payload = event.payload
+  const summary =
+    payload !== null && typeof payload === 'object'
+      ? (payload as Record<string, unknown>).error_summary
+      : undefined
+  return typeof summary === 'string' ? summary : undefined
+}
 
 function eventResearchCaseId(event: LedgerEventEnvelope<unknown>): string {
   const payload = event.payload
@@ -689,9 +705,26 @@ export async function resolveResearchCaseView(
 ): Promise<ResearchCaseView> {
   const events = await store.list()
 
-  // 1. Case already created → render the real dossier.
+  // 1. Case already created → render the real dossier — UNLESS the run died mid-flight. A
+  //    `research_run_failed` on a case that never reached a terminal stage means the worker failed
+  //    between `research_case_created` and the dossier (e.g. synthesis validation exhausted); without
+  //    this check the ready branch renders the animated progress view FOREVER (the client poller sees
+  //    failed, triggers a server re-render, and the server serves the loader again — the ADBE
+  //    loading-forever bug). A case that DID reach a terminal stage keeps its dossier: never hide a
+  //    completed dossier behind a failed screen.
   const researchCase = projectResearchCases(events).find((candidate) => candidate.research_case_id === caseId)
   if (researchCase !== undefined) {
+    const midRunFailure = events.find(
+      (event) => event.event_type === 'research_run_failed' && eventResearchCaseId(event) === caseId,
+    )
+    if (midRunFailure !== undefined && !isTerminalResearchStage(researchCase.stage)) {
+      const summary = failureSummaryFrom(midRunFailure)
+      return {
+        status: 'failed',
+        ...(summary !== undefined ? { error_summary: summary } : {}),
+        ...(researchCase.ticker !== undefined ? { ticker: researchCase.ticker } : {}),
+      }
+    }
     return { status: 'ready', researchCase: await buildPersonalResearchCase(events, researchCase, sourceLedgerPath) }
   }
 
@@ -703,14 +736,20 @@ export async function resolveResearchCaseView(
     return { status: 'unknown' }
   }
 
+  // Ticker recovered from any run-lifecycle payload (research_run_requested carries it) so a failed
+  // view can offer a re-run even when the case row was never created.
+  const runTicker = runEvents
+    .map((event) => (isRecordValue(event.payload) ? event.payload.ticker : undefined))
+    .find((value): value is string => typeof value === 'string' && value.length > 0)
+
   const failed = runEvents.find((event) => event.event_type === 'research_run_failed')
   if (failed !== undefined) {
-    const payload = failed.payload
-    const summary =
-      payload !== null && typeof payload === 'object'
-        ? (payload as Record<string, unknown>).error_summary
-        : undefined
-    return { status: 'failed', ...(typeof summary === 'string' ? { error_summary: summary } : {}) }
+    const summary = failureSummaryFrom(failed)
+    return {
+      status: 'failed',
+      ...(summary !== undefined ? { error_summary: summary } : {}),
+      ...(runTicker !== undefined ? { ticker: runTicker } : {}),
+    }
   }
 
   // requested/claimed but not yet created → the worker should be building the case. Guard against an
@@ -727,6 +766,7 @@ export async function resolveResearchCaseView(
     return {
       status: 'failed',
       error_summary: `The research worker did not start or produce a dossier (no progress for ${minutes} min). This usually means the worker could not run — check the provider and model in Settings, then start a new run.`,
+      ...(runTicker !== undefined ? { ticker: runTicker } : {}),
     }
   }
 
@@ -2287,6 +2327,8 @@ function nextActionForResearchCase(researchCase: ResearchCaseProjection): string
       return 'Monitor watchlist thesis'
     case 'holding':
       return 'Review holding in portfolio'
+    case 'failed':
+      return 'Run failed mid-flight — open the case for the error and re-run'
     case 'rejected':
     case 'pass':
       return 'No action required'

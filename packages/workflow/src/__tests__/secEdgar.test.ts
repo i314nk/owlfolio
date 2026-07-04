@@ -554,6 +554,44 @@ describe('annual_series spans concept transitions (per-year per-field resolution
     expect(fy2023?.revenue_musd).toBeCloseTo(200, 0)
   })
 
+  // Shariah purification input: impermissible-income LINES extracted deterministically from XBRL (no
+  // filing has an "impermissible income" line; the AAOIFI-computable components are disclosed interest
+  // income, dividend income, and cash-instrument investment income). Each line is itemized (concept +
+  // label + $M) so the dossier SHOWS the composition, and the selection never double-counts: the pure
+  // interest concept + a separate dividend concept are both itemized when tagged; the combined
+  // interest-and-dividend variant (MSFT's tag) is used ONLY when the pure concept is absent.
+  it('itemizes impermissible-income lines per year without double-counting the combined variant', async () => {
+    const facts = {
+      entityName: 'InterestCo',
+      facts: {
+        'us-gaap': {
+          NetIncomeLoss: annualFacts({ 2024: 100, 2025: 110 }),
+          Revenues: annualFacts({ 2024: 1000, 2025: 1100 }),
+          // 2025 tags the pure interest concept AND a separate dividend concept AND the combined
+          // variant; 2024 tags only the combined variant.
+          InvestmentIncomeInterest: annualFacts({ 2025: 30 }),
+          InvestmentIncomeDividend: annualFacts({ 2025: 4 }),
+          InvestmentIncomeInterestAndDividend: annualFacts({ 2024: 25, 2025: 32 }),
+        },
+      },
+    }
+    const f = await fetchCompanyFundamentals('0000000001', { fetchImpl: fakeFactsFetch(facts) })
+    expect(f).toBeDefined()
+    if (f === undefined) return
+    // 2025: itemized pure interest (30) + dividend (4); the combined 32 is NOT stacked on top.
+    const lines2025 = f.latest_annual.impermissible_income_lines
+    expect(lines2025?.map((l) => [l.concept, l.amount_musd])).toEqual([
+      ['InvestmentIncomeInterest', 30],
+      ['InvestmentIncomeDividend', 4],
+    ])
+    expect(lines2025?.every((l) => l.label.length > 0)).toBe(true)
+    // 2024: only the combined variant → a single combined line (conservative overcount accepted).
+    const fy2024 = f.annual_series.find((a) => a.fiscal_year === 2024)
+    expect(fy2024?.impermissible_income_lines?.map((l) => [l.concept, l.amount_musd])).toEqual([
+      ['InvestmentIncomeInterestAndDividend', 25],
+    ])
+  })
+
   // FIX (as-of staleness bug): the `filed` availability date must be FIRST-disclosure (earliest 10-K that
   // reported the period), NOT the latest comparative. A 10-K restates 2-3 prior years as comparatives, so
   // latest-filed-wins tagged every fiscal year with a filing ~2-3 yrs too late and made the as-of backtest

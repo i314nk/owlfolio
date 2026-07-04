@@ -19,9 +19,9 @@ function render(): string {
 }
 
 describe('StrategyOverview', () => {
-  it('renders all six specialist lanes from the live lane list', () => {
+  it('renders all five specialist lanes from the live lane list', () => {
     const html = render()
-    expect(buffettMungerDeepDiveLanes).toHaveLength(6)
+    expect(buffettMungerDeepDiveLanes).toHaveLength(5)
     for (const lane of buffettMungerDeepDiveLanes) {
       expect(html).toContain(`data-lane="${lane}"`)
     }

@@ -249,7 +249,7 @@ function gatedReason(researchCase: AppResearchCase): { title: string; reason: st
 // ── Set-aside (early-exit) detection ──────────────────────────────────────────
 
 /**
- * A case is "set aside" when the circle-of-competence gate failed AND the expensive 6-lane deep dive did
+ * A case is "set aside" when the circle-of-competence gate failed AND the expensive 5-lane deep dive did
  * NOT run. Such a run carries verdict PASS + valuation_status INSUFFICIENT_DATA, the circle judgment, and
  * the `outside_circle`/`circle_competence_unmet` mirror flags — but no specialist findings, no valuation.
  * Rendering the full deep-dive scaffold for it is incoherent (empty "Pending" key figures, a "Not yet
@@ -542,7 +542,7 @@ function createPostMortemPanel(researchCase: AppResearchCase) {
 /**
  * Circle-of-competence judgment panel — the GROUNDED MODEL JUDGMENT that gated the deep-dive spend. Shows
  * the cited cashflow drivers, the cited predictability-breakers (the deeper test), and the in/outside
- * outcome with reasoning. When outside-competence, the case was SET ASIDE (verdict PASS) before the 6-lane
+ * outcome with reasoning. When outside-competence, the case was SET ASIDE (verdict PASS) before the 5-lane
  * deep dive ran. Legacy-tolerant: renders nothing when the case predates the circle gate.
  */
 function createCircleCompetencePanel(researchCase: AppResearchCase) {
@@ -752,7 +752,7 @@ function createGatedDossier(researchCase: AppResearchCase) {
           'div',
           { style: { alignItems: 'center', display: 'flex', gap: '0.6rem', fontSize: 'var(--owl-text-base)', color: 'var(--owl-color-quiet)' } },
           createElement('span', null, '—'),
-          createElement('span', { style: { color: 'var(--owl-color-quiet)' } }, 'Deep-dive swarm (6 lanes) — skipped'),
+          createElement('span', { style: { color: 'var(--owl-color-quiet)' } }, 'Deep-dive swarm (5 lanes) — skipped'),
         ),
       ),
       createElement(
@@ -862,7 +862,7 @@ function createAwaitingDeepDiveDossier(researchCase: AppResearchCase) {
           'div',
           { style: { alignItems: 'center', display: 'flex', gap: '0.6rem', fontSize: 'var(--owl-text-base)', color: 'var(--owl-color-quiet)' } },
           createElement('span', null, '—'),
-          createElement('span', { style: { color: 'var(--owl-color-quiet)' } }, 'Deep-dive swarm (6 lanes) — not yet started'),
+          createElement('span', { style: { color: 'var(--owl-color-quiet)' } }, 'Deep-dive swarm (5 lanes) — not yet started'),
         ),
       ) : null,
       // Run deep dive action
@@ -986,7 +986,7 @@ function createSetAsideHero(researchCase: AppResearchCase) {
     createElement(
       'p',
       { style: { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-base)', lineHeight: 1.55, margin: 0 } },
-      'The circle-of-competence gate set this candidate aside before the expensive 6-lane deep dive ran. There is no valuation or deep-dive analysis to show — only the grounded judgment of why it was set aside, below.',
+      'The circle-of-competence gate set this candidate aside before the expensive 5-lane deep dive ran. There is no valuation or deep-dive analysis to show — only the grounded judgment of why it was set aside, below.',
     ),
     // Subordinate provenance metadata (small, quiet mono — NOT co-equal chips).
     metaParts.length === 0 ? null : createElement(
@@ -1251,9 +1251,45 @@ function createDecisionPanel(researchCase: AppResearchCase, marketQuote?: Market
 
   const buyBelow = valuation.proposed_buy_below ?? valuation.buy_price_per_share
   const sanityFlags = valuation.sanity_flags ?? []
-  // Nothing decision-relevant to lead with → let the valuation panel carry it.
+  // No decision-relevant FIGURES (no buy-below, no flags, no buy-zone read): a RESEARCH_MORE /
+  // INSUFFICIENT_DATA run whose synthesis could not ground a valuation. The card must STATE that
+  // outcome, never silently vanish (the SPGI dogfood: the whole decision section disappeared). Only a
+  // case with NO verdict at all (mid-run) still returns null — the progress view owns those.
   if (buyBelow === undefined && sanityFlags.length === 0 && valuation.in_buy_zone === undefined) {
-    return null
+    const degradedVerdict = researchCase.investment_verdict ?? researchCase.decision
+    if (degradedVerdict === undefined) return null
+    return createElement(
+      'details',
+      { 'data-testid': 'decision-summary', className: 'owl-collapsible-card', open: true },
+      createElement(
+        'summary',
+        { className: 'owl-collapsible-card-summary' },
+        createElement('span', { className: 'owl-section-accent', style: { margin: 0 } }, 'The decision'),
+        createElement('span', { className: 'owl-collapsible-card-hint' }, `${degradedVerdict} · no recordable buy signal`),
+      ),
+      createElement(
+        'p',
+        { style: { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-sm)', lineHeight: 1.5, margin: 0 } },
+        'No recordable buy signal: the run did not produce a usable buy-below (the synthesis could not ground '
+        + 'a valuation, or the price was unavailable), so there are no decision figures to show. The recorded '
+        + 'verdict and the reason are below — re-run when the gap is addressed.',
+      ),
+      createElement(
+        'div',
+        { style: { alignItems: 'center', display: 'flex', flexWrap: 'wrap', gap: '0.6rem' } },
+        createPill(`Verdict: ${degradedVerdict}`, resolveVerdictColors(degradedVerdict)),
+        ...(researchCase.valuation_status !== undefined
+          ? [createPill(`Valuation: ${researchCase.valuation_status}`, resolveValuationChipColor(researchCase.valuation_status))]
+          : []),
+      ),
+      ...(researchCase.reason !== undefined && researchCase.reason.length > 0
+        ? [createElement(
+            'p',
+            { style: { color: '#dbe3ef', fontSize: 'var(--owl-text-base)', lineHeight: 1.55, margin: 0 } },
+            researchCase.reason,
+          )]
+        : []),
+    )
   }
 
   const verdict = researchCase.investment_verdict ?? researchCase.decision
@@ -1270,6 +1306,10 @@ function createDecisionPanel(researchCase: AppResearchCase, marketQuote?: Market
   // below in the valuation panel. (forward-DCF removal: the dollar reference fair value is gone.)
   const marketImpliedGrowth = valuation.market_implied_growth
   const impliedExitMultiple = valuation.implied_exit_multiple
+  // The model's assumed sustainable growth: the headline growth_rate IS the model's cite-verified
+  // assumed_growth (architecture inversion); fall back to the raw valuation_reasoning field for
+  // legacy shapes that predate the headline field.
+  const modelAssumedGrowth = valuation.growth_rate ?? valuation.valuation_reasoning?.assumed_growth
 
   return createElement(
     'section',
@@ -1321,13 +1361,20 @@ function createDecisionPanel(researchCase: AppResearchCase, marketQuote?: Market
           : inBuyZone ? 'In the buy zone' : 'Not in the buy zone',
         inBuyZone === true ? 'owl-ledger-figure-emerald' : '',
       ),
+      // The MODEL's assumed sustainable growth sits BESIDE the market-implied read (owner requirement):
+      // the gap between what the model judges sustainable and what the price demands is the decision.
+      createValuationLedgerStat(
+        'Model assumed growth',
+        modelAssumedGrowth !== undefined ? `${(modelAssumedGrowth * 100).toFixed(1)}%` : 'Not yet available',
+        '',
+      ),
       createValuationLedgerStat(
         'Market-implied growth',
         marketImpliedGrowth !== undefined ? `${(marketImpliedGrowth * 100).toFixed(1)}%` : 'Not yet available',
         '',
       ),
       createValuationLedgerStat(
-        'Implied exit multiple',
+        'Market-implied exit multiple',
         impliedExitMultiple !== undefined ? `${impliedExitMultiple.toFixed(1)}× OE` : 'Not yet available',
         '',
       ),
@@ -1665,8 +1712,8 @@ function createValuationPanel(researchCase: AppResearchCase, marketQuote?: Marke
   const runwayLabel = runway !== undefined ? ` · ${runway} runway` : ''
   const roicGateLabel = growthRate !== undefined
     ? growthRate > 0
-      ? `judged g=${(growthRate * 100).toFixed(0)}%${fadeLabel}${eligRoic !== undefined ? ` · incremental ROIC ${(eligRoic * 100).toFixed(0)}% > 10%` : ''}${runwayLabel}`
-      : `judged g=0%${fadeLabel}${eligRoic !== undefined ? ` · incremental ROIC ${(eligRoic * 100).toFixed(0)}% ≤ 10% (no growth credit)` : ' (no growth credit)'}${runwayLabel}`
+      ? `model-judged g=${(growthRate * 100).toFixed(0)}%${fadeLabel}${eligRoic !== undefined ? ` · incremental ROIC ${(eligRoic * 100).toFixed(0)}% > 10% (filings)` : ''}${runwayLabel}`
+      : `model-judged g=0%${fadeLabel}${eligRoic !== undefined ? ` · incremental ROIC ${(eligRoic * 100).toFixed(0)}% ≤ 10% (filings, no growth credit)` : ' (no growth credit)'}${runwayLabel}`
     : undefined
 
   // The assumed growth the model used (its number, cited). growth_rate is now this same headline value;
@@ -1742,12 +1789,12 @@ function createValuationPanel(researchCase: AppResearchCase, marketQuote?: Marke
       { 'data-testid': 'price-implied-assumptions', style: { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-sm)', lineHeight: 1.5, margin: '0.3rem 0 0' } },
       'Today\'s price bakes in two assumptions: ',
       marketImpliedGrowth !== undefined
-        ? createElement('span', null, createElement('strong', { style: { color: 'var(--owl-color-sand)' } }, `${pctPts(marketImpliedGrowth)} implied growth`), ' (the rate the business must compound at to justify the price)')
-        : createElement('span', null, 'an implied growth (not computable without a live price)'),
+        ? createElement('span', null, createElement('strong', { style: { color: 'var(--owl-color-sand)' } }, `${pctPts(marketImpliedGrowth)} market-implied growth`), ' (the rate the business must compound at to justify the price)')
+        : createElement('span', null, 'a market-implied growth (not computable without a live price)'),
       ', and ',
       impliedExitMultiple !== undefined
-        ? createElement('span', null, createElement('strong', { style: { color: 'var(--owl-color-sand)' } }, `a ${impliedExitMultiple.toFixed(1)}× implied exit multiple`), ' (the owner-earnings multiple the price must still command at the horizon).')
-        : createElement('span', null, 'an implied exit multiple (not yet computed).'),
+        ? createElement('span', null, createElement('strong', { style: { color: 'var(--owl-color-sand)' } }, `a ${impliedExitMultiple.toFixed(1)}× market-implied exit multiple`), ' (the owner-earnings multiple the price must still command at the horizon).')
+        : createElement('span', null, 'a market-implied exit multiple (not yet computed).'),
     ) : null,
     // ROIC gate / growth note
     roicGateLabel !== undefined ? createElement(
@@ -1772,12 +1819,16 @@ function createValuationPanel(researchCase: AppResearchCase, marketQuote?: Marke
         marketImpliedGrowth !== undefined ? pctPts(marketImpliedGrowth) : 'Pending',
         '',
       ),
-      createValuationLedgerStat('Implied multiple', impliedMultiple !== undefined ? `${impliedMultiple.toFixed(1)}× OE` : 'Pending', ''),
-      createValuationLedgerStat('Implied exit multiple', impliedExitMultiple !== undefined ? `${impliedExitMultiple.toFixed(1)}× OE` : 'Pending', ''),
-      createValuationLedgerStat('Owner earnings / sh', valuation.normalized_owner_earnings_per_share !== undefined ? `$${valuation.normalized_owner_earnings_per_share.toFixed(2)}` : 'Pending', 'owl-ledger-figure-money'),
-      createValuationLedgerStat('Terminal g', terminalGrowthRate !== undefined ? `${(terminalGrowthRate * 100).toFixed(0)}%` : 'Pending', ''),
-      createValuationLedgerStat('Runway', runway ?? 'Pending', ''),
-      createValuationLedgerStat('Discount', discountLabel, ''),
+      // Provenance-labeled (owner requirement, the Visa dogfood): every stat says WHO derived it —
+      // market-implied (reverse-DCF of today's price), model (the model's grounded judgment/bridge), or
+      // policy (harness/strategy constants) — so the reader never mistakes a price-derived figure for a
+      // model judgment or vice versa.
+      createValuationLedgerStat('Market-implied multiple', impliedMultiple !== undefined ? `${impliedMultiple.toFixed(1)}× OE` : 'Pending', ''),
+      createValuationLedgerStat('Market-implied exit multiple', impliedExitMultiple !== undefined ? `${impliedExitMultiple.toFixed(1)}× OE` : 'Pending', ''),
+      createValuationLedgerStat('Owner earnings / sh (model)', valuation.normalized_owner_earnings_per_share !== undefined ? `$${valuation.normalized_owner_earnings_per_share.toFixed(2)}` : 'Pending', 'owl-ledger-figure-money'),
+      createValuationLedgerStat('Terminal g (policy)', terminalGrowthRate !== undefined ? `${(terminalGrowthRate * 100).toFixed(0)}%` : 'Pending', ''),
+      createValuationLedgerStat('Runway (model)', runway ?? 'Pending', ''),
+      createValuationLedgerStat('Discount (policy)', discountLabel, ''),
     ),
     // Discount-anchor vintage: the savings-rate breakdown + WHEN it was set (or "not set" for the frozen
     // default), so a stale/never-set risk-free anchor is visible rather than silently trusted.
@@ -2161,7 +2212,35 @@ function createComplianceRatioBlock(researchCase: AppResearchCase) {
       style: { gap: '0.5rem' },
     },
     createElement('p', { className: 'owl-section-accent' }, 'Shariah / compliance'),
+    createSectorPermissibilityRow(researchCase),
     ledger,
+  )
+}
+
+/**
+ * The SECTOR permissibility judgment — whether the BUSINESS ACTIVITIES themselves are permissible —
+ * stated ABOVE the financial ratios (AAOIFI's own order: the sector gate precedes the ratio screens).
+ * Sourced from the grounded Shariah pass's sector_status. Owner requirement (the Visa dogfood): the
+ * compliance section must not read as numbers-only. Absent on legacy events without the field.
+ */
+function createSectorPermissibilityRow(researchCase: AppResearchCase) {
+  const sector = researchCase.shariah_sector_status
+  if (sector !== 'compliant' && sector !== 'conditional' && sector !== 'non_compliant') return null
+  const EMERALD = 'var(--owl-color-emerald, #34d399)'
+  const label = sector === 'compliant'
+    ? 'Permissible ✓'
+    : sector === 'conditional'
+      ? 'Conditional — borderline activity, review'
+      : 'Not permissible ✗'
+  const color = sector === 'compliant' ? EMERALD : sector === 'conditional' ? 'var(--owl-color-gold-bright)' : 'var(--owl-color-risk)'
+  return createElement(
+    'div',
+    {
+      'data-testid': 'shariah-sector-permissibility',
+      style: { alignItems: 'baseline', color: '#dbe3ef', display: 'flex', fontSize: 'var(--owl-text-sm)', gap: '0.4rem', justifyContent: 'space-between' },
+    },
+    createElement('span', null, 'Business activities (sector, grounded Shariah pass)'),
+    createElement('span', { style: { color, fontWeight: 800 } }, label),
   )
 }
 
@@ -2252,6 +2331,26 @@ function createShariahRatioLedger(researchCase: AppResearchCase): ReturnType<typ
   const verdictColor = verdict === 'FAIL' ? RISK : verdict === 'PASS' ? EMERALD : 'var(--owl-color-gold-bright)'
   const purification = sf.purification_pct !== undefined ? formatRatioPct(sf.purification_pct) : '0.0%'
 
+  // Itemized impermissible-income composition (owner requirement: SHOW every line — interest income,
+  // dividend income, any model-quantified residual — not one opaque number). Sums to the figure the
+  // purification % was computed from; absent for pre-itemization ledger events.
+  const impermissibleLines = (sf.impermissible_income_lines ?? []).length === 0
+    ? null
+    : createElement(
+        'div',
+        {
+          'data-testid': 'shariah-impermissible-income-lines',
+          style: { display: 'grid', gap: '0.2rem', margin: '0.1rem 0 0.05rem', paddingLeft: '0.8rem' },
+        },
+        ...(sf.impermissible_income_lines ?? []).map((line) =>
+          createElement(
+            'div',
+            { key: `${line.concept}:${line.label}`, style: { alignItems: 'baseline', color: '#9aa4b7', display: 'flex', fontSize: 'var(--owl-text-xs)', gap: '0.4rem', justifyContent: 'space-between' } },
+            createElement('span', null, `· ${line.label}`),
+            createElement('span', { style: { fontFamily: 'var(--owl-font-mono)' } }, `$${line.amount_musd.toLocaleString('en-US')}M`),
+          )),
+      )
+
   return createElement(
     'div',
     {
@@ -2262,6 +2361,7 @@ function createShariahRatioLedger(researchCase: AppResearchCase): ReturnType<typ
     row('Debt / market cap', sf.debt_ratio, '< 30%', 0.3),
     row('Cash + securities / market cap', sf.cash_securities_ratio, '< 30%', 0.3),
     row('Impermissible income / revenue', sf.impermissible_income_pct, '< 5%', 0.05),
+    impermissibleLines,
     createElement(
       'div',
       { style: { alignItems: 'baseline', color: '#dbe3ef', display: 'flex', fontSize: 'var(--owl-text-sm)', gap: '0.4rem', justifyContent: 'space-between', marginTop: '0.15rem' } },
@@ -2281,15 +2381,15 @@ function createSpecialistLanesGrid(researchCase: AppResearchCase) {
     ? createLegacyDeepDiveFindings(researchCase)
     : findings
 
-  // GUARD: only the all-6-lanes-visible treatment fires for a real completed deep-dive (≥1 grounded lane
+  // GUARD: only the all-5-lanes-visible treatment fires for a real completed deep-dive (≥1 grounded lane
   // finding). A legacy/empty/non-deep-dive case (no findings) behaves exactly as before — return null and let
   // the set-aside / gated / awaiting / progress paths own their own rendering. Legacy dossiers supply all
-  // 7 findings via createLegacyDeepDiveFindings(); the 6 orderedLanes are all grounded, valuation lands in
-  // remainder, and no incomplete placeholders appear.
+  // 7 findings via createLegacyDeepDiveFindings(); the 5 orderedLanes are all grounded, shariah and valuation
+  // land in remainder, and no incomplete placeholders appear.
   if (displayFindings.length === 0) return null
 
-  const orderedLanes = ['business_quality', 'moat', 'management', 'financial_quality', 'shariah', 'risks']
-  // For a completed deep dive we render ALL SIX expected lanes IN ORDER: a grounded lane shows its full
+  const orderedLanes = ['business_quality', 'moat', 'management', 'financial_quality', 'risks']
+  // For a completed deep dive we render ALL FIVE expected lanes IN ORDER: a grounded lane shows its full
   // finding card; an expected lane with NO finding (silently skipped upstream when it grounded zero verifiable
   // sources) shows an honest "incomplete" placeholder instead of vanishing. This is DISPLAY-ONLY — it does not
   // re-emit events or change the swarm's correct fail-closed skip; it only makes the skip VISIBLE.
@@ -2303,8 +2403,8 @@ function createSpecialistLanesGrid(researchCase: AppResearchCase) {
     if (isPlaceholderLaneSummary(finding.finding_summary)) return createSpecialistLaneIncompleteCard(lane, 'empty')
     return createSpecialistLaneCard(finding)
   })
-  // Any grounded finding whose lane is NOT one of the 6 expected lanes still renders (remainder), unless it too
-  // is an empty placeholder.
+  // Any grounded finding whose lane is NOT one of the 5 expected lanes still renders (remainder), unless it too
+  // is an empty placeholder. Legacy shariah and valuation findings render here.
   const remainder = displayFindings.filter(
     (f) => !orderedLanes.includes(f.specialist_lane ?? '') && !isPlaceholderLaneSummary(f.finding_summary),
   )

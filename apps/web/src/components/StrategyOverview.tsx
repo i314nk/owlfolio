@@ -206,10 +206,6 @@ const LANE_DETAILS: Record<string, { name: string; assesses: string }> = {
     name: 'Financial quality',
     assesses: 'Owner-earnings normalization (NI + D&A − maintenance capex − SBC − ΔNWC), ROIC, reinvestment, cash conversion, and accounting quality.',
   },
-  shariah: {
-    name: 'Shariah',
-    assesses: 'Whether the core business and financial ratios are permissible — a local screening aid, not a professional Shariah ruling.',
-  },
   risks: {
     name: 'Risks',
     assesses: 'Permanent-capital-loss risks, leverage fragility, disruption, regulation, and the specific events that would break the thesis.',
@@ -475,7 +471,7 @@ export function StrategyOverview(): ReactNode {
         createElement(
           'p',
           { style: { ...bodyStyle, fontSize: 'var(--owl-text-sm)', color: 'var(--owl-color-quiet)' } },
-          'Valuation is not one of the parallel lanes — after the six lanes conclude, a dedicated focused pass proposes the owner-earnings value and buy-below during synthesis.',
+          'Valuation and Shariah compliance are not parallel lanes — each runs as a dedicated focused pass after the five lanes conclude: valuation proposes the owner-earnings value and buy-below during synthesis, and the Shariah pass produces the grounded compliance overlay (the harness recomputes the AAOIFI ratios from filings).',
         ),
       ),
     }),

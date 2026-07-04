@@ -1,38 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { DecisionAgentSchema, LaneAgentSchema, RISKS_RECENCY_NOTE, SHARIAH_OVERLAY_PROMPT, ShariahLaneSchema } from '../researchSwarmSchemas'
-
-// Fail-CLOSED Shariah overlay: impermissible_income is nullable so the lane can signal UNDETERMINED
-// (the filing does not separately disclose it) instead of a falsely-clean 0. null is an ACCEPTED,
-// complete value; the harness fails closed to UNDETERMINED rather than computing a 0% purification.
-describe('ShariahLaneSchema impermissible_income (nullable = undetermined, fail-closed)', () => {
-  const base = {
-    finding_summary: 's',
-    confidence: 'medium' as const,
-    caveats: ['c'],
-    proposed_sources: [{ source_id: 'src_1', title: 'T', url: 'https://www.sec.gov/x', excerpt: 'e' }],
-    sector_status: 'compliant' as const,
-  }
-
-  it('accepts null (undetermined — not separately disclosed) as a present, valid value', () => {
-    const parsed = ShariahLaneSchema.safeParse({ ...base, impermissible_income: null })
-    expect(parsed.success).toBe(true)
-    if (parsed.success) expect(parsed.data.impermissible_income).toBeNull()
-  })
-
-  it('accepts a genuine 0 and a genuine positive (unchanged)', () => {
-    expect(ShariahLaneSchema.safeParse({ ...base, impermissible_income: 0 }).success).toBe(true)
-    expect(ShariahLaneSchema.safeParse({ ...base, impermissible_income: 128 }).success).toBe(true)
-  })
-
-  it('rejects a negative impermissible income', () => {
-    expect(ShariahLaneSchema.safeParse({ ...base, impermissible_income: -1 }).success).toBe(false)
-  })
-
-  it('instructs the model to use null (not 0) when the line cannot be quantified', () => {
-    expect(SHARIAH_OVERLAY_PROMPT).toMatch(/null/)
-    expect(SHARIAH_OVERLAY_PROMPT).toMatch(/do NOT default to 0/i)
-  })
-})
+import { DecisionAgentSchema, LaneAgentSchema, RISKS_RECENCY_NOTE } from '../researchSwarmSchemas'
 
 // RELIGHTENED DECISION (R1): the model OWNS the valuation. The decision agent now emits proposed_buy_below
 // (the price below which it would buy — recorded verbatim, NOT a derived FV) and valuation_reasoning (the
@@ -211,12 +178,17 @@ describe('RISKS_RECENCY_NOTE (web tier is risk color; 8-Ks grounded by EDGAR)', 
   })
 })
 
-describe('LaneAgentSchema rejects placeholder finding_summary', () => {
+// REGRESSION GUARD: finding_summary must NOT be placeholder-guarded at the schema level. A refine that
+// rejected "..." failed the whole structured output and discarded the lane's grounded sources → the lane
+// skipped (vanished) whenever the model returned a lazy placeholder. Placeholder handling lives at DISPLAY
+// time (isPlaceholderLaneSummary) so the lane stays present with its sources. Do NOT re-add a schema refine.
+describe('LaneAgentSchema tolerates a placeholder finding_summary (handled at display, not schema)', () => {
   const valid = { confidence: 'high' as const, caveats: ['ok'], proposed_sources: [{ source_id: 'src_1', title: 'T', url: 'https://www.sec.gov/x', excerpt: 'e' }] }
-  it('rejects a "..." finding_summary (model deferred, no written analysis)', () => {
-    expect(LaneAgentSchema.safeParse({ ...valid, finding_summary: '...' }).success).toBe(false)
-    expect(LaneAgentSchema.safeParse({ ...valid, finding_summary: '   ' }).success).toBe(false)
-    expect(LaneAgentSchema.safeParse({ ...valid, finding_summary: '. -' }).success).toBe(false)
+  it('ACCEPTS a "..." finding_summary so the lane is recorded (with sources), not discarded', () => {
+    expect(LaneAgentSchema.safeParse({ ...valid, finding_summary: '...' }).success).toBe(true)
+  })
+  it('still rejects an empty finding_summary (min length 1)', () => {
+    expect(LaneAgentSchema.safeParse({ ...valid, finding_summary: '' }).success).toBe(false)
   })
   it('accepts real prose', () => {
     expect(LaneAgentSchema.safeParse({ ...valid, finding_summary: 'Wide, durable moat.' }).success).toBe(true)

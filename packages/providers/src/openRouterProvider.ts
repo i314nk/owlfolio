@@ -54,7 +54,7 @@ type OpenRouterChatMessage = {
 type OpenRouterChatResponse = {
   id?: string
   choices?: Array<{ message?: OpenRouterChatMessage; finish_reason?: string }>
-  error?: { message?: string; code?: string | number; type?: string }
+  error?: { message?: string; code?: string | number; type?: string; metadata?: { raw?: string; provider_name?: string } }
 }
 
 /** An OpenAI-compatible chat message on the wire (assistant tool_calls + tool results for the loop). */
@@ -71,6 +71,18 @@ type OpenRouterWireMessage = {
 
 /** How many gather rounds the loop allows independent of the per-round tool cap (defensive bound). */
 const MAX_TOOL_LOOP_ROUNDS = 24
+
+/** Numeric range keywords Anthropic's structured output rejects on the wire (dropped; Zod re-enforces). */
+const NUMERIC_RANGE_KEYWORDS = ['minimum', 'maximum', 'exclusiveMinimum', 'exclusiveMaximum']
+
+/**
+ * Pinned sampling temperature for every call. At the routes' default (~1.0), back-to-back runs on the
+ * SAME model + filing wandered 26% apart on owner-earnings/share purely from judgment-input sampling
+ * (maintenance-capex tier, argued growth). Low-but-nonzero keeps judgments stable without the degenerate
+ * repetition some routes exhibit at exactly 0. Live-probed 2026-07-03: anthropic/* (with the unified
+ * reasoning param — OpenRouter normalizes the thinking/temperature conflict) and z-ai/* both accept it.
+ */
+const SAMPLING_TEMPERATURE = 0.2
 
 /**
  * OpenAI's strict json_schema mode (used by openai/* routes via OpenRouter → Azure) rejects any object
@@ -93,9 +105,12 @@ function toStrictJsonSchema(node: unknown): unknown {
   const out: Record<string, unknown> = {}
   for (const [key, value] of Object.entries(record)) {
     // OpenAI strict json_schema mode rejects unsupported keywords. `format` values like `uri` (emitted by
-    // z.string().url()) and the `$schema` dialect marker are not accepted; drop them. The real contract is
-    // still enforced by our Zod validation after parsing, so dropping these from the wire schema is safe.
-    if (key === '$schema' || key === 'format') {
+    // z.string().url()) and the `$schema` dialect marker are not accepted; drop them. Anthropic's
+    // structured output additionally 400s on numeric range keywords ("For 'number' type, property
+    // 'minimum' is not supported" — live-probed 2026-07-03), so z.number().min(0) breaks anthropic/*
+    // routes; drop those too. The real contract is still enforced by our Zod validation after parsing,
+    // so dropping these from the wire schema is safe.
+    if (key === '$schema' || key === 'format' || NUMERIC_RANGE_KEYWORDS.includes(key)) {
       continue
     }
     out[key] = toStrictJsonSchema(value)
@@ -108,6 +123,18 @@ function toStrictJsonSchema(node: unknown): unknown {
     if (hint !== undefined) {
       out.description = typeof out.description === 'string' && out.description.length > 0 ? `${out.description} ${hint}` : hint
     }
+  }
+  // Preserve dropped numeric bounds as a natural-language hint (same pattern as `format` above) so the
+  // model still respects the range; Zod re-enforces it after parsing and the validated-agent retry
+  // bounces violations.
+  const rangeHints: string[] = []
+  if (typeof record.minimum === 'number') rangeHints.push(`>= ${record.minimum}`)
+  if (typeof record.maximum === 'number') rangeHints.push(`<= ${record.maximum}`)
+  if (typeof record.exclusiveMinimum === 'number') rangeHints.push(`> ${record.exclusiveMinimum}`)
+  if (typeof record.exclusiveMaximum === 'number') rangeHints.push(`< ${record.exclusiveMaximum}`)
+  if (rangeHints.length > 0) {
+    const hint = `Must be ${rangeHints.join(' and ')}.`
+    out.description = typeof out.description === 'string' && out.description.length > 0 ? `${out.description} ${hint}` : hint
   }
   if (out.type === 'object' && out.properties !== null && typeof out.properties === 'object') {
     const properties = out.properties as Record<string, unknown>
@@ -135,22 +162,39 @@ function sanitizeToolName(name: string): string {
   return name.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 128)
 }
 
-/** Recursively remove object keys whose value is null, so a nullable-strict field reads as absent. */
-function stripNullProperties(value: unknown): unknown {
-  if (Array.isArray(value)) {
-    return value.map((item) => stripNullProperties(item))
-  }
-  if (value === null || typeof value !== 'object') {
-    return value
-  }
-  const out: Record<string, unknown> = {}
-  for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
-    if (entry === null) {
-      continue
+/**
+ * Remove ONLY the null-valued object keys the schema actually rejected (by Zod issue path), so an
+ * originally-OPTIONAL field emitted as null (strict mode forces every key, `makeNullable` lets the model
+ * emit null instead of fabricating) reads as absent — while a genuinely REQUIRED-nullable field's null
+ * (e.g. the Shariah pass's impermissible_income, where null = "not separately disclosed", fail-closed)
+ * survives to validation. A blanket pre-parse null-strip destroyed that honest answer.
+ * Returns true when at least one key was removed (progress — the caller re-validates).
+ */
+function removeRejectedNulls(parsed: unknown, issues: readonly { path: PropertyKey[] }[]): boolean {
+  let removed = false
+  for (const issue of issues) {
+    if (issue.path.length === 0) continue
+    let parent: unknown = parsed
+    for (const segment of issue.path.slice(0, -1)) {
+      if (parent === null || typeof parent !== 'object') {
+        parent = undefined
+        break
+      }
+      parent = (parent as Record<PropertyKey, unknown>)[segment]
     }
-    out[key] = stripNullProperties(entry)
+    const key = issue.path[issue.path.length - 1]
+    // Only delete a null-valued plain-object property (array elements are left alone — deleting would
+    // shift indexes; the schema error then surfaces as-is).
+    if (
+      key !== undefined && typeof key === 'string'
+      && parent !== null && typeof parent === 'object' && !Array.isArray(parent)
+      && (parent as Record<string, unknown>)[key] === null
+    ) {
+      delete (parent as Record<string, unknown>)[key]
+      removed = true
+    }
   }
-  return out
+  return removed
 }
 
 /** A natural-language hint preserving a dropped JSON-schema `format` constraint for strict-mode models. */
@@ -479,15 +523,22 @@ export class OpenRouterProvider implements Provider {
     const raw = this.messageTextFrom(response)
     let parsed: unknown
     try {
-      parsed = stripNullProperties(JSON.parse(this.stripJsonFences(raw)))
+      parsed = JSON.parse(this.stripJsonFences(raw))
     } catch (error) {
       throw new Error(`Structured output validation failed: ${this.label} returned invalid JSON (${error instanceof Error ? error.message : 'unknown error'})`)
     }
-    const validated = schema.safeParse(parsed)
-    if (!validated.success) {
-      throw new Error(`Structured output validation failed: ${validated.error.message}`)
+    // Validate as-is first so a schema-ACCEPTED null (a required-nullable field's meaningful answer)
+    // survives; only nulls the schema rejects are removed (per issue path) and validation retried.
+    // Terminates: every retry must have removed at least one key, else it throws.
+    for (;;) {
+      const validated = schema.safeParse(parsed)
+      if (validated.success) {
+        return validated.data
+      }
+      if (!removeRejectedNulls(parsed, validated.error.issues)) {
+        throw new Error(`Structured output validation failed: ${validated.error.message}`)
+      }
     }
-    return validated.data
   }
 
   private async createChatCompletion(
@@ -503,6 +554,7 @@ export class OpenRouterProvider implements Provider {
       model: request.model_id,
       messages: messages ?? [{ role: 'user', content: request.prompt }],
       max_tokens: request.budget.max_tokens,
+      temperature: SAMPLING_TEMPERATURE,
       // OWNER REQUIREMENT: reasoning/thinking enabled. For OpenRouter this is the unified `reasoning` param
       // (Anthropic thinking, OpenAI reasoning effort, DeepSeek R1 native). Direct OpenAI-compat surfaces that
       // reject an unknown `reasoning` param are configured with an empty reasoningBody (omitted) instead.
@@ -564,7 +616,14 @@ export class OpenRouterProvider implements Provider {
   }
 
   private failureMessageFrom(response: Response, body: OpenRouterChatResponse): string {
-    const rawDiagnostic = body.error?.message ?? response.statusText ?? 'unknown error'
+    // OpenRouter wraps routed-provider failures as a bare "Provider returned error"; the actionable
+    // upstream diagnostic (e.g. Anthropic's schema-keyword rejection) lives in error.metadata.raw.
+    // Surface it so a degraded flag in the ledger is diagnosable without re-running the request.
+    const upstreamRaw = body.error?.metadata?.raw
+    const upstream = typeof upstreamRaw === 'string' && upstreamRaw.trim().length > 0
+      ? ` [${body.error?.metadata?.provider_name ?? 'upstream'}: ${upstreamRaw.slice(0, 500)}]`
+      : ''
+    const rawDiagnostic = `${body.error?.message ?? response.statusText ?? 'unknown error'}${upstream}`
     const diagnostic = redactProviderDiagnostic(rawDiagnostic)
     const code = `${body.error?.code ?? ''} ${body.error?.type ?? ''}`
     const status = response.status === 200 && typeof body.error?.code === 'number' ? body.error.code : response.status

@@ -54,6 +54,29 @@ describe('ResearchLibrary', () => {
     expect(html).not.toContain('In progress')
   })
 
+  it('renders a failed case under the Failed runs group with a FAILED chip (not "In progress")', () => {
+    // The ADBE bug: a mid-run failure left the case in the "In progress" group forever. The projection
+    // now stages it 'failed'; the library shows it honestly with its own group + chip.
+    const html = renderToStaticMarkup(
+      createElement(ResearchLibrary, {
+        mode: 'personal-local',
+        selectedStrategyLabel: 'Selected strategy: buffett-munger',
+        cases: [
+          researchCase({
+            research_case_id: 'rc_adbe_failed',
+            ticker: 'ADBE',
+            stage: 'failed',
+            run_failed_error_summary: 'synthesis stage failed after retry',
+          }),
+        ],
+      }),
+    )
+    expect(html).toContain('Failed runs')
+    expect(html).toContain('>FAILED<')
+    expect(html).toContain('Run failed')
+    expect(html).not.toContain('In progress')
+  })
+
   it('groups cases by verdict and renders dossier links with verdict chips', () => {
     const html = renderToStaticMarkup(
       createElement(ResearchLibrary, {

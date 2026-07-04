@@ -30,7 +30,7 @@ export type ResearchLibraryProps = {
 }
 
 // ── Verdict classification ───────────────────────────────────────────────────
-type VerdictKind = 'buy' | 'watch' | 'avoid' | 'pass' | 'in_progress'
+type VerdictKind = 'buy' | 'watch' | 'avoid' | 'pass' | 'in_progress' | 'failed'
 
 type VerdictChip = { label: string; bg: string; border: string; color: string }
 
@@ -40,6 +40,7 @@ const VERDICT_CHIP: Record<VerdictKind, VerdictChip> = {
   avoid: { label: 'AVOID', bg: 'rgba(239,68,68,0.13)', border: 'rgba(239,68,68,0.4)', color: '#fca5a5' },
   pass: { label: 'PASS', bg: 'rgba(148,163,184,0.12)', border: 'rgba(148,163,184,0.3)', color: '#cbd5e1' },
   in_progress: { label: 'IN PROGRESS', bg: 'rgba(214,178,94,0.12)', border: 'rgba(214,178,94,0.34)', color: '#f0d999' },
+  failed: { label: 'FAILED', bg: 'rgba(239,68,68,0.1)', border: 'rgba(239,68,68,0.35)', color: '#fda4af' },
 }
 
 const TERMINAL_STAGES: ReadonlySet<ResearchCaseStage> = new Set([
@@ -62,6 +63,11 @@ function verdictFor(researchCase: ResearchCaseProjection): VerdictKind {
   const raw = (researchCase.investment_verdict ?? researchCase.decision ?? '').toUpperCase()
   const stage = researchCase.stage
 
+  // A mid-flight run failure produced NO verdict — it must never read as "in progress" (the ADBE
+  // eternal-in-progress bug) nor inherit any verdict bucket.
+  if (stage === 'failed') {
+    return 'failed'
+  }
   if (stage === 'rejected') {
     return 'avoid'
   }
@@ -116,6 +122,7 @@ const STAGE_LABEL: Partial<Record<ResearchCaseStage, string>> = {
   holding: 'Open holding',
   rejected: 'Rejected',
   pass: 'Passed',
+  failed: 'Run failed',
 }
 
 function stageLabel(stage: ResearchCaseStage): string {
@@ -332,6 +339,7 @@ type LibraryGroup = { kind: VerdictKind; title: string; description: string }
 
 const GROUP_ORDER: LibraryGroup[] = [
   { kind: 'in_progress', title: 'In progress', description: 'Cases still moving through quick screen, deep dive, or synthesis.' },
+  { kind: 'failed', title: 'Failed runs', description: 'Runs that died mid-flight — open one to see the error and start a re-run.' },
   { kind: 'buy', title: 'Buy candidates', description: 'Cases whose decision reads as a buy or an open holding.' },
   { kind: 'watch', title: 'Watch', description: 'Cases worth monitoring before any capital is committed.' },
   { kind: 'avoid', title: 'Avoided', description: 'Cases rejected on the quality, valuation, or Shariah gates.' },
@@ -340,6 +348,7 @@ const GROUP_ORDER: LibraryGroup[] = [
 
 const GROUP_EYEBROW: Record<VerdictKind, string> = {
   in_progress: 'Open files',
+  failed: 'Needs attention',
   buy: 'Conviction',
   watch: 'Under observation',
   avoid: 'Set aside',
