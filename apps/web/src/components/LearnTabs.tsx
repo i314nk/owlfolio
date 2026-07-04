@@ -313,7 +313,55 @@ function checklistPromptList(category: ChecklistCategory): ReactNode {
   return bullets(items.map((item) => createElement('span', { key: item.id }, item.prompt)))
 }
 
-// 3 — Judgment Objectivity
+// 3 — Sources & Grounding (the document set + the grounding architecture)
+function SourcesTab(): ReactNode {
+  return createElement(
+    'div',
+    { style: { display: 'grid', gap: 'var(--owl-space-4)' } },
+
+    PanelSection({
+      eyebrow: 'What the engine reads',
+      title: 'The grounded document set — SEC EDGAR primary filings',
+      lead: createElement('span', null,
+        'Every research run stands on primary documents the harness itself fetched from SEC EDGAR — never on what a model remembers. The governing rule for every addition: ',
+        createElement('span', { style: goldText }, 'Ground the text; quarantine the numbers'),
+        ' — narrative documents are readable evidence; only audited ANNUAL figures ever enter the recomputed valuation.',
+      ),
+      children: cardGrid([
+        { key: 'annual', eyebrow: 'Annual report', title: '10-K / 20-F / 40-F', body: createElement('span', null, 'The primary annual filing (foreign filers included — a 20-F grounds like a 10-K). Its XBRL numbers (~11 years) anchor the owner-earnings bridge, ROIC, and the Shariah ratios; its text is readable by Item — ', mono('read_source(id, section="1A")'), ' for Risk Factors, Item 1 Business, Item 7 MD&A.') },
+        { key: 'interim', eyebrow: 'Interim recency', title: '8-K / 10-Q / 6-K narrative', body: 'Material events and quarterly narrative filed SINCE the latest annual report — where thesis-breaks first surface (impairments, guidance cuts, executive departures, M&A, litigation). Read as text by the qualitative lanes; interim NUMBERS never enter the valuation recompute.' },
+        { key: 'proxy', eyebrow: 'Incentives & governance', title: 'DEF 14A proxy statement', body: 'The definitive annual proxy — executive compensation structure, incentive alignment, insider ownership, board independence, dual-class/entrenchment provisions. Read by the management and moat lanes; supplements and third-party solicitations are excluded.' },
+        { key: 'market', eyebrow: 'Market data', title: 'Price & market cap', body: 'Current price and the trailing 36-month average market cap come from live market data — the only non-EDGAR inputs. Used for the reverse-DCF lens and the Shariah balance-sheet ratios; EDGAR remains the source of truth for every fundamental.' },
+      ]),
+    }),
+
+    PanelSection({
+      eyebrow: 'How a source becomes citable',
+      title: 'The model may propose; only the harness verifies',
+      lead: 'Retrieval never happens inside the model. Whether a source is harness-discovered (the filing index) or model-proposed (a URL in its output), the same pipeline decides whether it can ever be cited.',
+      children: bullets([
+        createElement('span', null, createElement('span', { style: goldText }, 'Fetch + guard'), ' — the harness performs the HTTP fetch itself behind an SSRF guard (public hosts only, re-checked on every redirect hop).'),
+        createElement('span', null, createElement('span', { style: goldText }, 'Hash + ledger'), ' — the fetched bytes are SHA-256 content-hashed and recorded in the source ledger; the hash is what a citation is later checked against, so a claim can only cite bytes the harness actually captured.'),
+        createElement('span', null, createElement('span', { style: goldText }, 'Lane whitelist'), ' — each lane admits only its allowed source categories (the quality lanes: primary documents only; management adds proxies and insider data; risks may read anything). A rejected source is recorded, never silently dropped.'),
+        createElement('span', null, createElement('span', { style: goldText }, 'Verified reads'), ' — ', mono('read_source'), ' returns a document section only after re-verifying its content hash; a mismatch makes the source uncitable rather than serving stale or wrong bytes.'),
+        createElement('span', null, createElement('span', { style: goldText }, 'Fail closed'), ' — anything that cannot be fetched, hashed, or verified is simply absent: the lane runs on what grounded and flags the gap. Missing evidence is a visible hole, never a fabricated citation.'),
+      ]),
+    }),
+
+    PanelSection({
+      eyebrow: 'Durable memory',
+      title: 'Auditable forever — pointers and hashes, re-verified on demand',
+      lead: 'The source ledger persists what each decision stood on: for every source, its URL, content hash, filing form, and filed date — never the document text.',
+      children: bullets([
+        createElement('span', null, 'EDGAR Archives URLs are ', createElement('span', { style: goldText }, 'immutable'), ' — a filing at its accession URL never changes. So any future reader (or a re-review) can ', createElement('span', { style: goldText }, 're-fetch'), ' the URL, hash-match against the ledger, and read exactly what the original decision was grounded on.'),
+        'A tampered or drifted document fails the hash check and becomes uncitable — the audit trail cannot be silently rewritten.',
+        'Comparing freshly-discovered filings against the persisted ledger yields the "what is new since the decision" delta — the substrate for thesis re-reviews.',
+      ]),
+    }),
+  )
+}
+
+// 4 — Judgment Objectivity
 function JudgmentTab(): ReactNode {
   return createElement(
     'div',
@@ -329,6 +377,7 @@ function JudgmentTab(): ReactNode {
         { key: 'redteam', eyebrow: 'Red-team pass', title: 'Break the case', body: 'Before synthesis, one adversarial agent — ideally on a different model — must build the strongest bear case. Synthesis must answer its strongest objection or downgrade.' },
         { key: 'failclosed', eyebrow: 'Fail closed', title: 'Abstain, never fabricate', body: 'A claim the harness cannot tie to a fetched source is rejected mechanically — the lane abstains and flags the gap rather than inventing support. Missing evidence becomes a visible hole, never a confident guess.' },
         { key: 'sources', eyebrow: 'Source discipline', title: 'Primary documents only', body: 'Judgment-heavy lanes read primary documents only — filings, transcripts, regulatory data. Sell-side research and financial media are excluded so the model cannot return the consensus dressed as analysis.' },
+        { key: 'ksample', eyebrow: 'Agreement sampling', title: 'One judgment never decides the spend', body: 'The circle-of-competence gate is sampled multiple times per run and the deep dive is entered only on a unanimous in-competence vote, with each sample required to meet a grounded evidence floor (minimum cite-verified cashflow drivers and predictability breakers). A single flipped judgment sets the case aside — recorded, never silent. Sample count and floors are tunable in Settings.' },
       ]),
     }),
     PanelSection({
@@ -712,6 +761,7 @@ function CliTab(): ReactNode {
 export const LEARN_TABS: LearnTab[] = [
   { id: 'strategy', label: 'Strategy & Valuation', render: StrategyTab },
   { id: 'swarm', label: 'The Research Swarm', render: SwarmTab },
+  { id: 'sources', label: 'Sources & Grounding', render: SourcesTab },
   { id: 'judgment', label: 'Judgment Objectivity', render: JudgmentTab },
   { id: 'lifecycle', label: 'Lifecycle', render: LifecycleTab },
   { id: 'shariah', label: 'Shariah by Design', render: ShariahTab },

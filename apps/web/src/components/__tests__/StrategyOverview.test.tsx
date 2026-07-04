@@ -104,6 +104,13 @@ describe('StrategyOverview', () => {
     expect(html).toContain('No — rejected')
   })
 
+  it('documents the circle-of-competence hard gate: k-sample unanimous agreement + grounded evidence floors', () => {
+    const html = render()
+    expect(html).toContain('Within the circle of competence')
+    expect(html).toContain('unanimous')
+    expect(html).toContain('evidence floor')
+  })
+
   it('renders the tranche ladders (cold 40/30/30 + normal 60/40) read from sizing params', () => {
     const html = render()
     // both named ladders appear

@@ -22,16 +22,51 @@ function render(initialTabId?: string): string {
 }
 
 describe('LearnTabs', () => {
-  it('exposes the harness-spec tabs in order, including the CLI tab', () => {
+  it('exposes the harness-spec tabs in order, including the sources and CLI tabs', () => {
     expect(LEARN_TABS.map((tab) => tab.id)).toEqual([
       'strategy',
       'swarm',
+      'sources',
       'judgment',
       'lifecycle',
       'shariah',
       'tiering',
       'cli',
     ])
+  })
+
+  it('documents the grounded document set: annual by Item, interim narrative, proxy, and the text/numbers boundary', () => {
+    const html = render('sources')
+    // The document set
+    expect(html).toContain('10-K')
+    expect(html).toContain('20-F')
+    expect(html).toContain('8-K')
+    expect(html).toContain('10-Q')
+    expect(html).toContain('6-K')
+    expect(html).toContain('DEF 14A')
+    // Readable by Item + the governing principle
+    expect(html).toContain('read_source')
+    expect(html).toContain('Ground the text; quarantine the numbers')
+  })
+
+  it('documents the grounding pipeline: propose/verify split, SHA-256 + source ledger, lane whitelist, fail-closed reads', () => {
+    const html = render('sources')
+    expect(html).toContain('SHA-256')
+    expect(html).toContain('source ledger')
+    expect(html).toContain('SSRF')
+    // The one-line invariant
+    expect(html).toContain('may propose')
+    expect(html).toContain('harness')
+    // Cross-run auditability via immutable URLs
+    expect(html).toContain('immutable')
+    expect(html).toContain('re-fetch')
+  })
+
+  it('documents the circle-gate hardening: k-sample unanimous agreement + grounded evidence floors, settings-tunable', () => {
+    const html = render('judgment')
+    expect(html).toContain('unanimous')
+    expect(html).toContain('evidence floor')
+    expect(html).toContain('Settings')
   })
 
   it('documents model selection: reasoning-only picker + curated recommendations by tier', () => {

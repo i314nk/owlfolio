@@ -600,6 +600,7 @@ export function StrategyOverview(): ReactNode {
       children: createElement(
         'ul',
         { style: { ...bodyStyle, margin: 0, paddingLeft: '1.1rem', display: 'flex', flexDirection: 'column', gap: '0.4rem' } },
+        createElement('li', null, createElement('span', { style: goldText }, 'Within the circle of competence'), ' — a grounded model judgment sampled multiple times per run: the deep dive is entered only on a unanimous in-competence vote, each sample meeting a grounded evidence floor (cite-verified cashflow drivers and predictability breakers). Uncertain or unpredictable cashflows are set aside — a correct Buffett output, not a failure. Sample count and floors are tunable in Settings.'),
         createElement('li', null, createElement('span', { style: goldText }, 'Moat ≥ wide'), ' — narrow/moderate are rejected and forced to PASS.'),
         createElement('li', null, createElement('span', { style: goldText }, 'Honest growth path'), ` — growth is the model’s judged sustainable owner-earnings/share rate with cited reasoning; a deterministic sanity-check flags an unsupportable rate (above ${pct(SINGLE_GROWTH_CAP)}, or above ${pct(GDP_GROWTH_THRESHOLD)} → a moat-durability claim) rather than setting the number.`),
         createElement('li', null, createElement('span', { style: goldText }, 'Positive owner earnings'), ' — normalized owner earnings must be positive.'),
