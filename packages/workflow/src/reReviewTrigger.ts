@@ -68,7 +68,18 @@ const WEIGHT_ORDER: Record<FilingTriggerWeight, number> = { strong: 0, medium: 1
  * worth.
  */
 export async function checkForNewFilings(
-  input: { ticker: string; research_case_id: string; source_ledger_path: string },
+  input: {
+    ticker: string
+    research_case_id: string
+    source_ledger_path: string
+    /**
+     * The decision/last-synthesis timestamp (ISO). Filings filed before this DATE are excluded —
+     * without it, a company's entire UNREAD filing history looks "new" (the corpus only holds what the
+     * run read). Date-granular and inclusive on the decision day: a same-day filing may have landed
+     * after synthesis, and the corpus diff already drops anything actually read.
+     */
+    since?: string
+  },
   deps?: CheckForNewFilingsDeps,
 ): Promise<NewFilingsCheck | undefined> {
   const fetchFundamentals = deps?.fetchFundamentals ?? fetchCompanyFundamentals
@@ -96,11 +107,15 @@ export async function checkForNewFilings(
   }
   const corpus = bundleToReadCorpus(bundle)
 
+  // Date bound: keep only filings filed ON or AFTER the decision date (date-granular, inclusive).
+  const sinceDate = input.since?.slice(0, 10)
+  const filedSince = (filing: FilingRef) => sinceDate === undefined || filing.filed >= sinceDate
+
   // Weighted candidates = interim + proxy filings; annual filings feed only the honesty flag.
   const candidates: WeightedNewFiling[] = [
     ...(fundamentals.recent_filings ?? []),
     ...(fundamentals.proxy_filings ?? []),
-  ].flatMap((filing) => {
+  ].filter(filedSince).flatMap((filing) => {
     const weight = filingFormWeight(filing.form)
     return weight === undefined ? [] : [{ ...filing, weight }]
   })
@@ -109,7 +124,7 @@ export async function checkForNewFilings(
     .sort((a, b) => WEIGHT_ORDER[a.weight] - WEIGHT_ORDER[b.weight]
       || (a.filed < b.filed ? 1 : a.filed > b.filed ? -1 : 0))
 
-  const newAnnual = selectFilingsNotInCorpus(fundamentals.filings ?? [], corpus)[0]
+  const newAnnual = selectFilingsNotInCorpus((fundamentals.filings ?? []).filter(filedSince), corpus)[0]
 
   return {
     ticker: input.ticker,

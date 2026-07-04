@@ -130,6 +130,27 @@ describe('checkForNewFilings', () => {
     expect(await checkForNewFilings(input(projectDir), deps(undefined))).toBeUndefined()
   })
 
+  it('SINCE bound: filings filed before the decision date are excluded even when not in the corpus', async () => {
+    // The decision corpus only holds what the run READ (~6 interim filings) — without the since bound,
+    // a company's entire unread 8-K history looks "new" (live dogfood found COST surfacing 8-Ks back to
+    // 2022). The trigger is "filed SINCE the last synthesis", not "everything the run didn't read".
+    const projectDir = await makeTempDir('owlfolio-rr-since-')
+    await seedBundle(projectDir, [KNOWN_10Q_URL])
+    const f = fundamentalsWith({
+      recent_filings: [
+        { form: '8-K', filed: '2022-03-09', url: 'https://www.sec.gov/x/8k-ancient.htm' }, // unread, old
+        { form: '8-K', filed: '2026-07-04', url: 'https://www.sec.gov/x/8k-decision-day.htm' }, // same day, unread
+        { form: '8-K', filed: '2026-07-20', url: 'https://www.sec.gov/x/8k-fresh.htm' }, // genuinely new
+      ],
+      filings: [{ form: '10-K', filed: '2024-10-08', url: 'https://www.sec.gov/x/old-10k.htm' }], // pre-decision annual
+    })
+    const check = await checkForNewFilings({ ...input(projectDir), since: '2026-07-04T12:55:27.155Z' }, deps(f))
+    // Same-day stays (it may have landed after synthesis; the corpus diff already drops anything read).
+    expect(check!.new_filings.map((x) => x.filed)).toEqual(['2026-07-20', '2026-07-04'])
+    // The old unread annual is NOT flagged as due either.
+    expect(check!.new_annual_filing).toBeUndefined()
+  })
+
   it('a NEW annual filing raises the honesty flag but never enters the weighted delta', async () => {
     const projectDir = await makeTempDir('owlfolio-rr-annual-')
     await seedBundle(projectDir, [KNOWN_10Q_URL])

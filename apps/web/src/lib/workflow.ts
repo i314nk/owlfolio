@@ -1308,7 +1308,14 @@ export async function runResearchCaseReReview(
     }
 
     const check = await checkForNewFilings(
-      { ticker, research_case_id: researchCaseId, source_ledger_path: sourceLedgerPath },
+      {
+        ticker,
+        research_case_id: researchCaseId,
+        source_ledger_path: sourceLedgerPath,
+        // The delta is "filed SINCE the decision" — without this bound the entire unread filing
+        // history looks new (the corpus only holds what the run read).
+        ...(prior.decided_at === undefined ? {} : { since: prior.decided_at }),
+      },
       deps.fetchFundamentals === undefined ? undefined : { fetchFundamentals: deps.fetchFundamentals },
     )
     if (check === undefined) {

@@ -1740,7 +1740,14 @@ async function runReReviewCheckTask(
 
   for (const [ticker, researchCase] of latestByTicker) {
     const check = await checkForNewFilings(
-      { ticker, research_case_id: researchCase.research_case_id, source_ledger_path: sourceLedgerPath },
+      {
+        ticker,
+        research_case_id: researchCase.research_case_id,
+        source_ledger_path: sourceLedgerPath,
+        // "Filed SINCE the last recorded look at this case" — updated_at bumps on the decision AND on a
+        // later re-review, so the window naturally advances past what was already assessed.
+        since: researchCase.updated_at,
+      },
       reReviewDeps.fetchFundamentals === undefined ? undefined : { fetchFundamentals: reReviewDeps.fetchFundamentals },
     )
     if (check === undefined) {
