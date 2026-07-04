@@ -1327,7 +1327,7 @@ function createDecisionPanel(researchCase: AppResearchCase, marketQuote?: Market
         '',
       ),
       createValuationLedgerStat(
-        'Implied exit multiple',
+        'Market-implied exit multiple',
         impliedExitMultiple !== undefined ? `${impliedExitMultiple.toFixed(1)}× OE` : 'Not yet available',
         '',
       ),
@@ -1665,8 +1665,8 @@ function createValuationPanel(researchCase: AppResearchCase, marketQuote?: Marke
   const runwayLabel = runway !== undefined ? ` · ${runway} runway` : ''
   const roicGateLabel = growthRate !== undefined
     ? growthRate > 0
-      ? `judged g=${(growthRate * 100).toFixed(0)}%${fadeLabel}${eligRoic !== undefined ? ` · incremental ROIC ${(eligRoic * 100).toFixed(0)}% > 10%` : ''}${runwayLabel}`
-      : `judged g=0%${fadeLabel}${eligRoic !== undefined ? ` · incremental ROIC ${(eligRoic * 100).toFixed(0)}% ≤ 10% (no growth credit)` : ' (no growth credit)'}${runwayLabel}`
+      ? `model-judged g=${(growthRate * 100).toFixed(0)}%${fadeLabel}${eligRoic !== undefined ? ` · incremental ROIC ${(eligRoic * 100).toFixed(0)}% > 10% (filings)` : ''}${runwayLabel}`
+      : `model-judged g=0%${fadeLabel}${eligRoic !== undefined ? ` · incremental ROIC ${(eligRoic * 100).toFixed(0)}% ≤ 10% (filings, no growth credit)` : ' (no growth credit)'}${runwayLabel}`
     : undefined
 
   // The assumed growth the model used (its number, cited). growth_rate is now this same headline value;
@@ -1742,12 +1742,12 @@ function createValuationPanel(researchCase: AppResearchCase, marketQuote?: Marke
       { 'data-testid': 'price-implied-assumptions', style: { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-sm)', lineHeight: 1.5, margin: '0.3rem 0 0' } },
       'Today\'s price bakes in two assumptions: ',
       marketImpliedGrowth !== undefined
-        ? createElement('span', null, createElement('strong', { style: { color: 'var(--owl-color-sand)' } }, `${pctPts(marketImpliedGrowth)} implied growth`), ' (the rate the business must compound at to justify the price)')
-        : createElement('span', null, 'an implied growth (not computable without a live price)'),
+        ? createElement('span', null, createElement('strong', { style: { color: 'var(--owl-color-sand)' } }, `${pctPts(marketImpliedGrowth)} market-implied growth`), ' (the rate the business must compound at to justify the price)')
+        : createElement('span', null, 'a market-implied growth (not computable without a live price)'),
       ', and ',
       impliedExitMultiple !== undefined
-        ? createElement('span', null, createElement('strong', { style: { color: 'var(--owl-color-sand)' } }, `a ${impliedExitMultiple.toFixed(1)}× implied exit multiple`), ' (the owner-earnings multiple the price must still command at the horizon).')
-        : createElement('span', null, 'an implied exit multiple (not yet computed).'),
+        ? createElement('span', null, createElement('strong', { style: { color: 'var(--owl-color-sand)' } }, `a ${impliedExitMultiple.toFixed(1)}× market-implied exit multiple`), ' (the owner-earnings multiple the price must still command at the horizon).')
+        : createElement('span', null, 'a market-implied exit multiple (not yet computed).'),
     ) : null,
     // ROIC gate / growth note
     roicGateLabel !== undefined ? createElement(
@@ -1772,12 +1772,16 @@ function createValuationPanel(researchCase: AppResearchCase, marketQuote?: Marke
         marketImpliedGrowth !== undefined ? pctPts(marketImpliedGrowth) : 'Pending',
         '',
       ),
-      createValuationLedgerStat('Implied multiple', impliedMultiple !== undefined ? `${impliedMultiple.toFixed(1)}× OE` : 'Pending', ''),
-      createValuationLedgerStat('Implied exit multiple', impliedExitMultiple !== undefined ? `${impliedExitMultiple.toFixed(1)}× OE` : 'Pending', ''),
-      createValuationLedgerStat('Owner earnings / sh', valuation.normalized_owner_earnings_per_share !== undefined ? `$${valuation.normalized_owner_earnings_per_share.toFixed(2)}` : 'Pending', 'owl-ledger-figure-money'),
-      createValuationLedgerStat('Terminal g', terminalGrowthRate !== undefined ? `${(terminalGrowthRate * 100).toFixed(0)}%` : 'Pending', ''),
-      createValuationLedgerStat('Runway', runway ?? 'Pending', ''),
-      createValuationLedgerStat('Discount', discountLabel, ''),
+      // Provenance-labeled (owner requirement, the Visa dogfood): every stat says WHO derived it —
+      // market-implied (reverse-DCF of today's price), model (the model's grounded judgment/bridge), or
+      // policy (harness/strategy constants) — so the reader never mistakes a price-derived figure for a
+      // model judgment or vice versa.
+      createValuationLedgerStat('Market-implied multiple', impliedMultiple !== undefined ? `${impliedMultiple.toFixed(1)}× OE` : 'Pending', ''),
+      createValuationLedgerStat('Market-implied exit multiple', impliedExitMultiple !== undefined ? `${impliedExitMultiple.toFixed(1)}× OE` : 'Pending', ''),
+      createValuationLedgerStat('Owner earnings / sh (model)', valuation.normalized_owner_earnings_per_share !== undefined ? `$${valuation.normalized_owner_earnings_per_share.toFixed(2)}` : 'Pending', 'owl-ledger-figure-money'),
+      createValuationLedgerStat('Terminal g (policy)', terminalGrowthRate !== undefined ? `${(terminalGrowthRate * 100).toFixed(0)}%` : 'Pending', ''),
+      createValuationLedgerStat('Runway (model)', runway ?? 'Pending', ''),
+      createValuationLedgerStat('Discount (policy)', discountLabel, ''),
     ),
     // Discount-anchor vintage: the savings-rate breakdown + WHEN it was set (or "not set" for the frozen
     // default), so a stale/never-set risk-free anchor is visible rather than silently trusted.
@@ -2161,7 +2165,35 @@ function createComplianceRatioBlock(researchCase: AppResearchCase) {
       style: { gap: '0.5rem' },
     },
     createElement('p', { className: 'owl-section-accent' }, 'Shariah / compliance'),
+    createSectorPermissibilityRow(researchCase),
     ledger,
+  )
+}
+
+/**
+ * The SECTOR permissibility judgment — whether the BUSINESS ACTIVITIES themselves are permissible —
+ * stated ABOVE the financial ratios (AAOIFI's own order: the sector gate precedes the ratio screens).
+ * Sourced from the grounded Shariah pass's sector_status. Owner requirement (the Visa dogfood): the
+ * compliance section must not read as numbers-only. Absent on legacy events without the field.
+ */
+function createSectorPermissibilityRow(researchCase: AppResearchCase) {
+  const sector = researchCase.shariah_sector_status
+  if (sector !== 'compliant' && sector !== 'conditional' && sector !== 'non_compliant') return null
+  const EMERALD = 'var(--owl-color-emerald, #34d399)'
+  const label = sector === 'compliant'
+    ? 'Permissible ✓'
+    : sector === 'conditional'
+      ? 'Conditional — borderline activity, review'
+      : 'Not permissible ✗'
+  const color = sector === 'compliant' ? EMERALD : sector === 'conditional' ? 'var(--owl-color-gold-bright)' : 'var(--owl-color-risk)'
+  return createElement(
+    'div',
+    {
+      'data-testid': 'shariah-sector-permissibility',
+      style: { alignItems: 'baseline', color: '#dbe3ef', display: 'flex', fontSize: 'var(--owl-text-sm)', gap: '0.4rem', justifyContent: 'space-between' },
+    },
+    createElement('span', null, 'Business activities (sector, grounded Shariah pass)'),
+    createElement('span', { style: { color, fontWeight: 800 } }, label),
   )
 }
 

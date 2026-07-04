@@ -2890,8 +2890,26 @@ export async function runResearchDeepDivePhase(
       + 'price was unavailable — owner earnings, shares, or the price fetch) — defaulting to RESEARCH_MORE.'
     : undefined
 
+  // OWNER RULE (2026-07-04, the Visa dogfood): a model BUY at a price ABOVE the model's OWN buy-below is
+  // not a recordable buy signal — "buy below $290" at a $362 price means WAIT, i.e. WATCH, by the
+  // model's own arithmetic. This is pure arithmetic on the model's own numbers (exactly like in_buy_zone
+  // itself), NOT a judgment override: the model's verdict + full reasoning stay recorded verbatim in the
+  // decision agent's channel; only the RECORDED verdict derates to WATCH, with the reason surfaced.
+  const buyOutOfBuyZone =
+    moat_passes_gate
+    && !sectorShariahFail
+    && !buyDataUnconfirmed
+    && dec.analysis.investment_verdict === 'BUY'
+    && in_buy_zone === false
+  const buyOutOfZoneReason = buyOutOfBuyZone && buy_below !== undefined && current_price !== undefined
+    ? `buy_out_of_buy_zone: the model verdict is BUY with its OWN buy-below at $${buy_below.toFixed(2)} while `
+      + `the live price is $${current_price.toFixed(2)} — above the model's own buy zone. Recorded as WATCH `
+      + 'until the price enters the zone; the BUY thesis itself is preserved below for auditing.'
+    : undefined
+
   // Apply the cheap deterministic gates ONLY: moat below wide → PASS; Shariah sector/financial FAIL → PASS;
-  // missing buy data → RESEARCH_MORE. Otherwise the MODEL's verdict passes through. Sanity flags NEVER gate.
+  // missing buy data → RESEARCH_MORE; BUY above the model's own buy-below → WATCH. Otherwise the MODEL's
+  // verdict passes through. Sanity flags NEVER gate.
   const gatedVerdict = !moat_passes_gate
     // A moat below the gate routes by WHY: an UNGROUNDED moat claim (the model reached for wide+ but the
     // cite-verified rows didn't back it / the rubric wasn't scored) is INCOMPLETE -> RESEARCH_MORE; a
@@ -2907,7 +2925,9 @@ export async function runResearchDeepDivePhase(
         ? ('RESEARCH_MORE' as const)
         : buyDataUnconfirmed
           ? ('RESEARCH_MORE' as const)
-          : dec.analysis.investment_verdict
+          : buyOutOfBuyZone
+            ? ('WATCH' as const)
+            : dec.analysis.investment_verdict
   const gatedReason = !moat_passes_gate
     ? (moat_grounding_unmet
         ? `${moatGroundingReason} ${dec.analysis.decision_reason}`
@@ -2918,7 +2938,9 @@ export async function runResearchDeepDivePhase(
         ? `${synthesisGroundingReason} ${dec.analysis.decision_reason}`
         : buyDataUnconfirmed
           ? `${buyClampReason} ${dec.analysis.decision_reason}`
-          : dec.analysis.decision_reason
+          : buyOutOfZoneReason !== undefined
+            ? `${buyOutOfZoneReason} ${dec.analysis.decision_reason}`
+            : dec.analysis.decision_reason
 
   // ---- MARGIN-OF-SAFETY JOINT JUDGMENT (synthesis-owned) — Guard 1 + Guard 2 ----------------------------
   // GUARD 1: adequacy is an AUDIT judgment ONLY. NOTHING above (gatedVerdict / gatedReason / the moat gate /
@@ -3286,6 +3308,9 @@ export async function runResearchDeepDivePhase(
       // HIGH safety: a model BUY clamped to RESEARCH_MORE because no buy band was computable is always
       // surfaced — the human sees exactly why the BUY was not recorded.
       ...(buyClampReason !== undefined ? [buyClampReason] : []),
+      // OWNER RULE: a model BUY derated to WATCH because the price is above the model's OWN buy-below is
+      // always surfaced — the human sees the BUY thesis is intact and exactly what price re-arms it.
+      ...(buyOutOfZoneReason !== undefined ? [buyOutOfZoneReason] : []),
       ...baseRateCaveats,
       ...degradedFlags,
       // Dual-model cross-check disagreements → automatic human escalation (conservative answer holds).

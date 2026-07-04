@@ -166,7 +166,7 @@ describe('ResearchCasePanel auditable dossier (R1)', () => {
 
   it('surfaces the implied exit multiple (§2 flag-only sanity output) as a ledger line', () => {
     const html = render(baseCase({ implied_exit_multiple: 7.8 }), QUOTE)
-    expect(html).toContain('Implied exit multiple')
+    expect(html).toContain('Market-implied exit multiple')
     expect(html).toContain('7.8× OE')
   })
 
@@ -178,7 +178,7 @@ describe('ResearchCasePanel auditable dossier (R1)', () => {
       ],
     }), QUOTE)
     // The ledger line shows the multiple.
-    expect(html).toContain('Implied exit multiple')
+    expect(html).toContain('Market-implied exit multiple')
     expect(html).toContain('21.4× OE')
     // The directional flag annotation renders inside the advisory (non-blocking) sanity-flags panel.
     expect(html).toContain('data-testid="sanity-flags"')
@@ -322,7 +322,7 @@ describe('ResearchCasePanel auditable dossier (R1)', () => {
     expect(html).not.toContain('$210.00')
     // the two hidden price-implied assumptions surfaced together
     expect(html).toContain('Market-implied growth')
-    expect(html).toContain('Implied exit multiple')
+    expect(html).toContain('Market-implied exit multiple')
     expect(html).toContain('12.3× OE')
     // the strip uses the owl ledger-stat idiom
     expect(html).toContain('owl-ledger-line')
@@ -945,6 +945,43 @@ describe('ResearchCasePanel Shariah compliance — fail-closed UNDETERMINED puri
     expect(html).toContain('data-testid="shariah-aaoifi-ledger"')
     expect(html).toContain('Purification: 0.4%')
     expect(html).not.toContain('data-testid="shariah-aaoifi-undetermined"')
+  })
+
+  it('states the sector permissibility judgment (business activities) above the AAOIFI ratios', () => {
+    // Owner complaint (the Visa dogfood): the Shariah section only talked numbers — nothing about
+    // whether the BUSINESS is permissible. The pass's grounded sector_status is now stated first.
+    const html = render({
+      ...baseCase(),
+      shariah_status: 'CONDITIONAL',
+      shariah_sector_status: 'compliant',
+      shariah_financial: {
+        debt_ratio: 0.041,
+        cash_securities_ratio: 0.028,
+        impermissible_income_pct: 0.02,
+        verdict: 'CONDITIONAL',
+        purification_pct: 0.02,
+      },
+    } as unknown as AppResearchCase, QUOTE)
+    expect(html).toContain('data-testid="shariah-sector-permissibility"')
+    expect(html).toContain('Business activities')
+    expect(html).toContain('Permissible')
+  })
+
+  it('states a non-compliant sector as NOT permissible', () => {
+    const html = render({
+      ...baseCase(),
+      shariah_status: 'NON_COMPLIANT',
+      shariah_sector_status: 'non_compliant',
+      shariah_financial: {
+        debt_ratio: 0.041,
+        cash_securities_ratio: 0.028,
+        impermissible_income_pct: 0.02,
+        verdict: 'FAIL',
+        purification_pct: 0.02,
+      },
+    } as unknown as AppResearchCase, QUOTE)
+    expect(html).toContain('data-testid="shariah-sector-permissibility"')
+    expect(html).toContain('Not permissible')
   })
 
   it('itemizes every impermissible-income line (interest, dividends, model residual) in the AAOIFI ledger', () => {

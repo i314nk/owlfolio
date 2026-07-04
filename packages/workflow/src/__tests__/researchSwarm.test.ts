@@ -1717,8 +1717,10 @@ describe('RELIGHTENED DECISION — model proposes buy-below; deterministic side 
     // gated only by the cheap gates) is NOT blocked by the flag. F.2 — at the lower savings-anchor discount
     // (7.5%, was 10%) a given price implies LESS growth, so the price is raised to 800 (implied ≈ 17.6%,
     // comfortably above the 15% cap; at the old 10% discount 600 already cleared the cap).
+    // buy-below 850 keeps the price IN the model's own buy zone so the owner-rule buy-zone gate (an
+    // arithmetic gate, not a sanity flag) does not derate the BUY — this test isolates flag-never-blocks.
     const { valuation, cp } = await runRelit({
-      id: 'sanity-optimistic', price: 800, valuationStatus: 'ATTRACTIVE', investmentVerdict: 'BUY', proposedBuyBelow: 550,
+      id: 'sanity-optimistic', price: 800, valuationStatus: 'ATTRACTIVE', investmentVerdict: 'BUY', proposedBuyBelow: 850,
     })
     const flags = (valuation?.['sanity_flags'] as string[] | undefined) ?? []
     expect(flags.length).toBeGreaterThan(0)
@@ -1772,7 +1774,9 @@ describe('RELIGHTENED DECISION — model proposes buy-below; deterministic side 
     expect(valuation?.['in_buy_zone']).toBe(false)
     const flags = (valuation?.['sanity_flags'] as string[] | undefined) ?? []
     expect(flags.some((f) => /contradicts_buy_zone/.test(f) && /attractive/i.test(f))).toBe(true)
-    expect(cp?.investment_verdict).toBe('BUY')
+    // OWNER RULE (2026-07-04): the out-of-zone BUY no longer passes through flag-only — it derates to
+    // WATCH by the model's own arithmetic (see the buy_out_of_buy_zone gate tests).
+    expect(cp?.investment_verdict).toBe('WATCH')
   })
 
   it('SANITY (self-coherence CLEAN): status EXPENSIVE + price ABOVE the buy-below (normal expensive) → NO contradicts-buy-zone flag', async () => {
@@ -1807,8 +1811,9 @@ describe('RELIGHTENED DECISION — model proposes buy-below; deterministic side 
     const flags = (valuation?.['sanity_flags'] as string[] | undefined) ?? []
     expect(flags.some((f) => /exit multiple/i.test(f) && /above a defensible exit/i.test(f))).toBe(true)
     expect(typeof valuation?.['implied_exit_multiple']).toBe('number')
-    // FLAG NEVER BLOCKS: the cheap gates still pass the model BUY through.
-    expect(cp?.investment_verdict).toBe('BUY')
+    // The exit-multiple SANITY FLAG itself never blocks; the verdict here derates to WATCH only because
+    // the price ($600) is above the model's own buy-below ($590) — the owner-rule buy-zone gate.
+    expect(cp?.investment_verdict).toBe('WATCH')
   })
 
   it('IMPLIED EXIT MULTIPLE (clean): a normal price does NOT fire the exit-multiple flag', async () => {
@@ -1842,6 +1847,25 @@ describe('RELIGHTENED DECISION — model proposes buy-below; deterministic side 
     const valuation = (analysisEvent?.payload as Record<string, unknown> | undefined)?.['valuation'] as Record<string, unknown> | undefined
     expect(valuation?.['implied_exit_multiple']).toBeUndefined()
     expect(((valuation?.['sanity_flags'] as string[] | undefined) ?? []).every((f) => !/exit multiple/i.test(f))).toBe(true)
+  })
+
+  it('GATE (owner rule) — model BUY with the price ABOVE its own buy-below → recorded WATCH (thesis surfaced)', async () => {
+    // The Visa dogfood: the model said BUY with buy-below $290 while the price was $362 — "buy below
+    // $290" at $362 means WAIT. The recorded verdict derates to WATCH by the model's OWN arithmetic;
+    // the reason (with both prices) is surfaced in open_questions so the human sees what re-arms it.
+    const { cp } = await runRelit({
+      id: 'buyzone-derate', price: 360, valuationStatus: 'ATTRACTIVE', investmentVerdict: 'BUY', proposedBuyBelow: 290,
+    })
+    expect(cp?.investment_verdict).toBe('WATCH')
+    expect((cp?.open_questions ?? []).some((q) => /buy_out_of_buy_zone/.test(q) && /\$290\.00/.test(q) && /\$360\.00/.test(q))).toBe(true)
+  })
+
+  it('GATE (owner rule) — model BUY with the price AT/BELOW its own buy-below stays BUY', async () => {
+    const { cp } = await runRelit({
+      id: 'buyzone-inzone', price: 280, valuationStatus: 'ATTRACTIVE', investmentVerdict: 'BUY', proposedBuyBelow: 290,
+    })
+    expect(cp?.investment_verdict).toBe('BUY')
+    expect((cp?.open_questions ?? []).some((q) => /buy_out_of_buy_zone/.test(q))).toBe(false)
   })
 
   it('GATE preserved — moat below wide → PASS regardless of the model verdict', async () => {
@@ -1940,8 +1964,9 @@ describe('RELIGHTENED DECISION — model proposes buy-below; deterministic side 
 
   it('a sanity flag NEVER blocks: even with a flag firing, the model verdict passes the cheap gates unchanged', async () => {
     // High price → above-cap implied-growth flag fires; model says BUY; moat wide, sector compliant, price
-    // present, buy-below present → the model BUY is recorded (the flag is advisory only).
-    const { valuation, cp } = await runRelit({ id: 'flag-noblock', price: 600, investmentVerdict: 'BUY', proposedBuyBelow: 580 })
+    // present, buy-below present AND the price is in the model's own buy zone (so the owner-rule buy-zone
+    // ARITHMETIC gate stays out of the way) → the model BUY is recorded (the flag is advisory only).
+    const { valuation, cp } = await runRelit({ id: 'flag-noblock', price: 600, investmentVerdict: 'BUY', proposedBuyBelow: 650 })
     expect(((valuation?.['sanity_flags'] as string[] | undefined) ?? []).length).toBeGreaterThan(0)
     expect(cp?.investment_verdict).toBe('BUY')
   })
