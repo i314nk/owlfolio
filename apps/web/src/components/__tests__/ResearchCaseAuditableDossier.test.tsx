@@ -158,6 +158,16 @@ describe('ResearchCasePanel auditable dossier (R1)', () => {
     expect(html.toLowerCase()).toContain('the market implies')
   })
 
+  it('shows the model-assumed sustainable growth in the decision key figures, beside the market-implied read', () => {
+    // Owner requirement: the decision card must show the MODEL's assumed sustainable growth (its own
+    // judgment) next to the market-implied growth (what the price demands), so the gap is readable at
+    // the point of decision. baseCase: growth_rate 0.06 (the model's headline assumed growth).
+    const html = render(baseCase(), QUOTE)
+    const keyFigures = html.slice(html.indexOf('decision-key-figures'))
+    expect(keyFigures).toContain('Model assumed growth')
+    expect(keyFigures).toContain('6.0%')
+  })
+
   it('surfaces the market-implied growth read', () => {
     const html = render(baseCase(), QUOTE)
     expect(html.toLowerCase()).toContain('the market implies')

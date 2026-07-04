@@ -1270,6 +1270,10 @@ function createDecisionPanel(researchCase: AppResearchCase, marketQuote?: Market
   // below in the valuation panel. (forward-DCF removal: the dollar reference fair value is gone.)
   const marketImpliedGrowth = valuation.market_implied_growth
   const impliedExitMultiple = valuation.implied_exit_multiple
+  // The model's assumed sustainable growth: the headline growth_rate IS the model's cite-verified
+  // assumed_growth (architecture inversion); fall back to the raw valuation_reasoning field for
+  // legacy shapes that predate the headline field.
+  const modelAssumedGrowth = valuation.growth_rate ?? valuation.valuation_reasoning?.assumed_growth
 
   return createElement(
     'section',
@@ -1320,6 +1324,13 @@ function createDecisionPanel(researchCase: AppResearchCase, marketQuote?: Market
           ? 'Not computable'
           : inBuyZone ? 'In the buy zone' : 'Not in the buy zone',
         inBuyZone === true ? 'owl-ledger-figure-emerald' : '',
+      ),
+      // The MODEL's assumed sustainable growth sits BESIDE the market-implied read (owner requirement):
+      // the gap between what the model judges sustainable and what the price demands is the decision.
+      createValuationLedgerStat(
+        'Model assumed growth',
+        modelAssumedGrowth !== undefined ? `${(modelAssumedGrowth * 100).toFixed(1)}%` : 'Not yet available',
+        '',
       ),
       createValuationLedgerStat(
         'Market-implied growth',
