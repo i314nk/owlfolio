@@ -23,6 +23,18 @@ export type SourceLedgerRecord = {
   ingested_by_actor_id?: string
   proposed_by_actor_type?: SourceLedgerActorType
   proposed_by_actor_id?: string
+  // ---- Cross-run enrichment (Axis B): TOP-LEVEL typed fields, deliberately NOT in the metadata map —
+  // sanitizeMetadata silently drops any string containing '/' (looksSensitiveValue), which would eat
+  // form values like '8-K/A'; and the cross-run resolver reads these back without guessing at a
+  // Record<string, unknown>. All optional + additive.
+  /** Lane-discipline category stamped at grounding time ('proxy', 'filing', …). */
+  source_category?: string
+  /** EDGAR form type ('DEF 14A', '8-K/A', …). */
+  filing_form?: string
+  /** ISO filing date of the underlying document. */
+  filed?: string
+  /** Per-source grounding timestamp (the bundle-level captured_at is write-time and resets on overwrite). */
+  fetched_at?: string
   metadata: Record<string, unknown>
 }
 
@@ -49,6 +61,11 @@ type ManualSourceBaseInput = {
   title?: string
   citation_locator?: string
   content_hash?: string
+  /** Cross-run enrichment (Axis B) — persisted top-level on the record; see SourceLedgerRecord. */
+  source_category?: string
+  filing_form?: string
+  filed?: string
+  fetched_at?: string
   metadata?: Record<string, unknown>
 }
 
@@ -171,6 +188,10 @@ async function buildManualSourceRecord(input: {
     captured_at: input.capturedAt,
     ...(input.source.title === undefined ? {} : { title: input.source.title }),
     ...(input.source.citation_locator === undefined ? {} : { citation_locator: input.source.citation_locator }),
+    ...(input.source.source_category === undefined ? {} : { source_category: input.source.source_category }),
+    ...(input.source.filing_form === undefined ? {} : { filing_form: input.source.filing_form }),
+    ...(input.source.filed === undefined ? {} : { filed: input.source.filed }),
+    ...(input.source.fetched_at === undefined ? {} : { fetched_at: input.source.fetched_at }),
     ingested_by_actor_type: input.ingestedByActorType,
     ingested_by_actor_id: input.input.ingested_by_actor_id,
     proposed_by_actor_type: input.proposedByActorType,
@@ -250,7 +271,8 @@ function isMissingFileError(error: unknown): boolean {
     && (error as { code?: unknown }).code === 'ENOENT'
 }
 
-function assertSafeSourceLedgerSlug(value: string, label: string): void {
+/** Path-traversal guard on ids that become bundle filenames — shared with the read side (sourceLedgerRead). */
+export function assertSafeSourceLedgerSlug(value: string, label: string): void {
   if (!/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(value)) {
     throw new Error(`${label} must be a safe source-ledger slug`)
   }
@@ -378,6 +400,14 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
 }
 
+/**
+ * OVERWRITE semantics (load-bearing for cross-run consumers): each write REPLACES the per-case bundle
+ * file wholesale with exactly the records passed. Within one run this is monotone (every ingest site
+ * maps the full accumulated corpus), but a FUTURE run for the same research_case_id that starts a fresh
+ * corpus and ingests at its end would CLOBBER the prior run's records. Any cross-run writer (re-review)
+ * MUST read-before-write — seed its corpus from `loadPersistedReadCorpus` (sourceLedgerRead) or union the
+ * records — before ingesting. Merge-on-write is a deliberate later slice, not implicit behavior.
+ */
 async function persistSourceLedgerBundle(input: {
   source_ledger_path: string
   research_case_id: string

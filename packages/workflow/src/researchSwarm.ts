@@ -59,7 +59,7 @@ import {
   draftDeepDiveSynthesis,
   completeDeepDive,
 } from './strategyResearchPipeline'
-import { ingestManualSourceBundle } from './sourceLedger'
+import { ingestManualSourceBundle, type ManualUrlEvidenceSourceInput } from './sourceLedger'
 import { resolveResearchStrategyRef } from './researchStrategyRef'
 import { buffettMungerStrategy, creditedGrowth, discountRate, moatPassesGate, ownerEarningsAtHorizon, stage1HorizonForMoat, terminalGrowthForMoat, twoStageValuation } from '@owlfolio/strategies/buffettMunger'
 import { computeShariahFinancialRatios } from '@owlfolio/strategies/shariahFinancialRatios'
@@ -261,6 +261,33 @@ export type RunResearchDeepDivePhaseCommand = {
 
 function swarmSeg(value: string): string {
   return value.trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '')
+}
+
+/**
+ * Map captured sources to source-ledger inputs — the ONE mapping shared by every ingest site, carrying
+ * the Axis B cross-run enrichment (source_category / filed / form→filing_form / fetched_at) as TYPED
+ * TOP-LEVEL fields (the metadata sanitizer silently drops '/'-containing strings like '8-K/A'). The
+ * cross-run resolver (sourceLedgerRead) reads these back to rebuild a lane-gated read corpus. Document
+ * CONTENT is never mapped — the ledger persists pointers + hashes only.
+ */
+function toLedgerSourceInputs(captured: CapturedSource[], researchCaseId: string): ManualUrlEvidenceSourceInput[] {
+  return captured.map((c) => ({
+    source_id: c.source_id,
+    kind: 'url' as const,
+    title: c.title,
+    url: c.url,
+    excerpt: c.excerpt,
+    availability: c.availability,
+    ...(c.content_hash === undefined ? {} : { content_hash: c.content_hash }),
+    ...(c.source_category === undefined ? {} : { source_category: c.source_category }),
+    ...(c.form === undefined ? {} : { filing_form: c.form }),
+    ...(c.filed === undefined ? {} : { filed: c.filed }),
+    fetched_at: c.fetched_at,
+    metadata: {
+      research_case_id: researchCaseId,
+      ...(c.http_status === undefined ? {} : { http_status: c.http_status }),
+    },
+  }))
 }
 
 // ---------------------------------------------------------------------------
@@ -742,19 +769,7 @@ export async function runStrategyResearchSwarm(
         proposed_by_actor_id: provider.provider_id,
         ingested_by_actor_type: 'system',
         ingested_by_actor_id: 'research_workflow',
-        sources: capturedSoFar.map((c) => ({
-          source_id: c.source_id,
-          kind: 'url' as const,
-          title: c.title,
-          url: c.url,
-          excerpt: c.excerpt,
-          availability: c.availability,
-          ...(c.content_hash === undefined ? {} : { content_hash: c.content_hash }),
-          metadata: {
-            research_case_id: command.research_case_id,
-            ...(c.http_status === undefined ? {} : { http_status: c.http_status }),
-          },
-        })),
+        sources: toLedgerSourceInputs(capturedSoFar, command.research_case_id),
       })
     }
 
@@ -781,19 +796,7 @@ export async function runStrategyResearchSwarm(
         proposed_by_actor_id: provider.provider_id,
         ingested_by_actor_type: 'system',
         ingested_by_actor_id: 'research_workflow',
-        sources: capturedSoFar.map((c) => ({
-          source_id: c.source_id,
-          kind: 'url' as const,
-          title: c.title,
-          url: c.url,
-          excerpt: c.excerpt,
-          availability: c.availability,
-          ...(c.content_hash === undefined ? {} : { content_hash: c.content_hash }),
-          metadata: {
-            research_case_id: command.research_case_id,
-            ...(c.http_status === undefined ? {} : { http_status: c.http_status }),
-          },
-        })),
+        sources: toLedgerSourceInputs(capturedSoFar, command.research_case_id),
       })
     }
 
@@ -1207,16 +1210,7 @@ export async function runResearchDeepDivePhase(
         proposed_by_actor_id: provider.provider_id,
         ingested_by_actor_type: 'system',
         ingested_by_actor_id: 'research_workflow',
-        sources: capturedSoFar.map((c) => ({
-          source_id: c.source_id,
-          kind: 'url' as const,
-          title: c.title,
-          url: c.url,
-          excerpt: c.excerpt,
-          availability: c.availability,
-          ...(c.content_hash === undefined ? {} : { content_hash: c.content_hash }),
-          metadata: { research_case_id: command.research_case_id, ...(c.http_status === undefined ? {} : { http_status: c.http_status }) },
-        })),
+        sources: toLedgerSourceInputs(capturedSoFar, command.research_case_id),
       })
     }
 
@@ -3387,19 +3381,7 @@ export async function runResearchDeepDivePhase(
       proposed_by_actor_id: provider.provider_id,
       ingested_by_actor_type: 'system',
       ingested_by_actor_id: 'research_workflow',
-      sources: captured.map((c) => ({
-        source_id: c.source_id,
-        kind: 'url' as const,
-        title: c.title,
-        url: c.url,
-        excerpt: c.excerpt,
-        availability: c.availability,
-        ...(c.content_hash === undefined ? {} : { content_hash: c.content_hash }),
-        metadata: {
-          research_case_id: command.research_case_id,
-          ...(c.http_status === undefined ? {} : { http_status: c.http_status }),
-        },
-      })),
+      sources: toLedgerSourceInputs(captured, command.research_case_id),
     })
   }
 

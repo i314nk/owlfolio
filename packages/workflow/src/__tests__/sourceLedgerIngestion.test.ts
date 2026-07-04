@@ -323,4 +323,58 @@ describe('manual source-bundle ingestion', () => {
       availability_verification: 'provider_claimed',
     })
   })
+
+  it('persists source_category / filing_form / filed / fetched_at as TOP-LEVEL record fields (Axis B)', async () => {
+    const projectDir = await makeTempDir('owlfolio-source-enrichment-')
+
+    const bundle = await ingestManualSourceBundle({
+      source_ledger_path: join(projectDir, 'source-ledger'),
+      research_case_id: 'rc_enrichment',
+      ticker: 'COST',
+      strategy_id: 'buffett-munger',
+      ingested_by_actor_type: 'system',
+      ingested_by_actor_id: 'research_workflow',
+      sources: [{
+        source_id: 'sec_edgar_def14a_0000909832_2025-12-04',
+        kind: 'url',
+        url: 'https://www.sec.gov/Archives/edgar/data/909832/000090983225000200/cost-20251204.htm',
+        content_hash: 'sha256:abc',
+        availability: 'available',
+        source_category: 'proxy',
+        filing_form: 'DEF 14A',
+        filed: '2025-12-04',
+        fetched_at: '2026-07-04T00:00:00.000Z',
+      }],
+    })
+
+    expect(bundle.records[0]).toMatchObject({
+      source_category: 'proxy',
+      filing_form: 'DEF 14A',
+      filed: '2025-12-04',
+      fetched_at: '2026-07-04T00:00:00.000Z',
+    })
+  })
+
+  it('DOCUMENTATION: a metadata value containing "/" (e.g. the form "8-K/A") is silently dropped by the sanitizer — the reason the enrichment fields are top-level, not metadata', async () => {
+    const projectDir = await makeTempDir('owlfolio-source-slash-redaction-')
+
+    const bundle = await ingestManualSourceBundle({
+      source_ledger_path: join(projectDir, 'source-ledger'),
+      research_case_id: 'rc_slash_redaction',
+      ticker: 'COST',
+      strategy_id: 'buffett-munger',
+      ingested_by_actor_type: 'system',
+      ingested_by_actor_id: 'research_workflow',
+      sources: [{
+        source_id: 'src_slash',
+        kind: 'url',
+        url: 'https://example.test/filing',
+        metadata: { form_in_metadata: '8-K/A', safe_note: 'kept' },
+      }],
+    })
+
+    const metadata = bundle.records[0]?.metadata ?? {}
+    expect(metadata).not.toHaveProperty('form_in_metadata')
+    expect(metadata).toMatchObject({ safe_note: 'kept' })
+  })
 })

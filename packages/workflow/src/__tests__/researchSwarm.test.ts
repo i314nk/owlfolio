@@ -2960,6 +2960,39 @@ describe('DEF 14A proxy grounding (management + moat)', () => {
     expect(risks).not.toContain('LATEST PROXY STATEMENT')
   })
 
+  it('AXIS B end-to-end: the run persists category/filed/form to the ledger, and a NEW run resolves + lane-gates from it', async () => {
+    const { mkdtemp, rm } = await import('node:fs/promises')
+    const { tmpdir } = await import('node:os')
+    const { join } = await import('node:path')
+    const { loadPersistedReadCorpus } = await import('../sourceLedgerRead.js')
+    const ledgerDir = await mkdtemp(join(tmpdir(), 'owlfolio-axisb-e2e-'))
+    try {
+      const store = new InMemoryEventStore()
+      await seedDeepDivePrereqs(store)
+      const provider = swarmFakeProvider()
+      await provider.structured({} as never)
+
+      await runResearchDeepDivePhase(store, provider as never, { ...deepDiveCommand(), source_ledger_path: ledgerDir }, {
+        ground: verifyAllGround(), laneConcurrency: 7, fundamentals: withProxy,
+      })
+
+      // A fresh "run" resolves the persisted corpus — the proxy carries its provenance + category.
+      const corpus = await loadPersistedReadCorpus({ source_ledger_path: ledgerDir, research_case_id: 'rc_edgar' })
+      const proxy = corpus.get('sec_edgar_def14a_0000909832_2025-12-04')
+      expect(proxy).toBeDefined()
+      expect(proxy!.source_category).toBe('proxy')
+      expect(proxy!.filed).toBe('2025-12-04')
+      expect(proxy!.form).toBe('DEF 14A')
+      expect(proxy!.content).toBeUndefined() // pointers + hashes only
+      // The 8-K interim filing also carries provenance cross-run.
+      const interim = [...corpus.values()].find((c) => c.form === '8-K')
+      expect(interim).toBeDefined()
+      expect(interim!.filed).toBe('2026-01-15')
+    } finally {
+      await rm(ledgerDir, { recursive: true, force: true })
+    }
+  })
+
   it('fail-closed: when the proxy does not ground, no block appears and the swarm completes', async () => {
     const store = new InMemoryEventStore()
     await seedDeepDivePrereqs(store)
