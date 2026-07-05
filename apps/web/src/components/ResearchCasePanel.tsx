@@ -526,6 +526,9 @@ function createReReviewPanel(researchCase: AppResearchCase) {
     reReview.re_review_ungrounded === true
       ? createElement('p', { style: { color: 'var(--owl-color-gold-bright)', fontSize: 'var(--owl-text-sm)', margin: '0.5rem 0' } }, `Unverified: ${reReview.ungrounded_reason ?? 'the pass could not cite-verify its evidence (fail-closed).'}`)
       : null,
+    reReview.assessment === 'INCONCLUSIVE'
+      ? createElement('p', { style: { color: 'var(--owl-color-gold-bright)', fontSize: 'var(--owl-text-sm)', margin: '0.5rem 0' } }, 'The new filings carried no assessable signal for any recorded break trigger (e.g. announcement covers without exhibit data) — not evidence the thesis is intact, and not evidence it is broken.')
+      : null,
     createElement('p', { style: { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-sm)', margin: '0.5rem 0' } },
       `Filings new since this decision were compared against the recorded thesis${reReview.checked_at === undefined ? '' : ` (checked ${reReview.checked_at.slice(0, 10)})`}. An observation — the decision itself is unchanged.`),
     reReview.narrative === undefined ? null : createElement('p', { style: { color: 'var(--owl-color-text)', fontSize: 'var(--owl-text-base)', margin: '0 0 0.5rem' } }, reReview.narrative),

@@ -87,8 +87,14 @@ export const ThesisReReviewSchema = z.object({
   proposed_sources: ProposedSourcesSchema,
 })
 
-/** Payload assessment is a SUPERSET of the model enum: fail-closed drafts degrade to UNVERIFIED. */
-export type ReReviewAssessment = 'INTACT' | 'WEAKENED' | 'BROKEN' | 'UNVERIFIED'
+/**
+ * Payload assessment is a SUPERSET of the model enum — two harness-derived degradations:
+ * UNVERIFIED = decisive evidence failed the cite-check (a verification failure);
+ * INCONCLUSIVE = citations verified but NOTHING was assessable — the model claimed INTACT while every
+ * recorded trigger came back 'unclear' and no dimension changed. Absence of assessable evidence is not
+ * evidence of an intact thesis; INTACT must be affirmative.
+ */
+export type ReReviewAssessment = 'INTACT' | 'WEAKENED' | 'BROKEN' | 'UNVERIFIED' | 'INCONCLUSIVE'
 
 /** Mirror of the interim-recency cap in the deep dive (RECENT_READABLE_MAX). */
 export const MAX_RE_REVIEW_FILINGS = 6
@@ -192,7 +198,7 @@ function buildReReviewPrompt(prior: PriorThesis, reviewed: { filing: WeightedNew
     focusHints,
     priorCorpusLine,
     'For each recorded trigger return {trigger, tripped: yes|no|unclear, evidence_citation, reasoning} — a yes/no judgment MUST cite a verified NEW-filing source_id; use "unclear" when the new filings do not speak to the trigger.',
-    'Set overall_assessment: INTACT (no load-bearing claim changed), WEAKENED (name the weakened_dimension), or BROKEN (name the broken_claim contradicted by the new filings).',
+    'Set overall_assessment: INTACT (the VERIFIED content affirmatively shows no load-bearing claim changed — if nothing was assessable, the harness records INCONCLUSIVE instead; do not strain to sound decisive), WEAKENED (name the weakened_dimension), or BROKEN (name the broken_claim contradicted by the new filings).',
     'List every cited id in source_ids; cite ONLY verified ids. Return only the structured JSON fields.',
   ].filter((line) => line.length > 0).join(' ')
 }
@@ -305,6 +311,15 @@ export async function draftThesisReReview(
       ? `re_review_ungrounded: ${decisiveUncited.length} decisive trigger assessment(s) cite sources that did not verify — a yes/no judgment must cite verified NEW-filing evidence (fail-closed). Degraded to UNVERIFIED.`
       : 're_review_ungrounded: the pass produced no verified citations (fail-closed). Degraded to UNVERIFIED — never a confident diff on unverified evidence.'
 
+  // HARNESS-DERIVED (never the model's self-report): a claimed INTACT where EVERY recorded trigger is
+  // 'unclear' and no dimension changed is INCONCLUSIVE — the delta carried no assessable signal (e.g.
+  // 8-K announcement covers without exhibits). Distinct from UNVERIFIED: the citations verified fine.
+  const allTriggersUnclear = structured.trigger_assessments.length > 0
+    && structured.trigger_assessments.every((t) => t.tripped === 'unclear')
+  const isInconclusive = structured.overall_assessment === 'INTACT'
+    && allTriggersUnclear
+    && structured.changed_dimensions.length === 0
+
   const reReviewId = `rr_${command.research_case_id}_${createHash('sha256')
     .update([...command.check.new_filings.map((f) => normalizeUrlKey(f.url))].sort().join('\n'))
     .digest('hex').slice(0, 12)}`
@@ -313,7 +328,7 @@ export async function draftThesisReReview(
     re_review_id: reReviewId,
     research_case_id: command.research_case_id,
     ...(prior.ticker === undefined ? {} : { ticker: prior.ticker }),
-    assessment: isGrounded ? structured.overall_assessment : 'UNVERIFIED',
+    assessment: !isGrounded ? 'UNVERIFIED' : isInconclusive ? 'INCONCLUSIVE' : structured.overall_assessment,
     trigger_assessments: structured.trigger_assessments,
     changed_dimensions: structured.changed_dimensions,
     ...(structured.weakened_dimension === undefined ? {} : { weakened_dimension: structured.weakened_dimension }),

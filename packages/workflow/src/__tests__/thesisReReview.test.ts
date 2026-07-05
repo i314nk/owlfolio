@@ -240,6 +240,32 @@ describe('draftThesisReReview', () => {
     expect(recorded.re_review_ungrounded).toBeUndefined()
   })
 
+  it('HARNESS-DERIVED: a model INTACT with EVERY trigger unclear and no changed dimensions records INCONCLUSIVE (live-fire find)', async () => {
+    // Live GLM run: 8-K announcement covers + an unreadable 10-Q → all three triggers 'unclear', yet the
+    // model self-reported INTACT "by default". Absence of assessable evidence is not evidence of an
+    // intact thesis — the harness downgrades to INCONCLUSIVE. INTACT must be affirmative.
+    const projectDir = await makeTempDir('owlfolio-rr-inconclusive-')
+    const sourceLedgerPath = join(projectDir, 'source-ledger')
+    await seedPriorBundle(sourceLedgerPath)
+    const store = new InMemoryEventStore()
+    await seedDecidedCase(store)
+    const provider = reReviewProvider((ids) => ({
+      ...intactPayload(ids),
+      trigger_assessments: [
+        { trigger: 'Renewal rate drops below 88%', tripped: 'unclear', evidence_citation: ids[0]!, reasoning: 'no renewal figures in the readable content' },
+        { trigger: 'A major membership-fee revolt', tripped: 'unclear', evidence_citation: ids[0]!, reasoning: 'not addressed by the new filings' },
+      ],
+    }))
+
+    const recorded = await draftThesisReReview(store, provider as never, {
+      research_case_id: CASE_ID, model_id: 'test-model', causation_id: 'evt_decision',
+      source_ledger_path: sourceLedgerPath, check: check({}),
+    }, { ground: verifyAllGround })
+
+    expect(recorded.assessment).toBe('INCONCLUSIVE')
+    expect(recorded.re_review_ungrounded).toBeUndefined() // citations verified fine — this is not a verification failure
+  })
+
   it('caps the reviewed delta at MAX_RE_REVIEW_FILINGS strongest-first and records the skipped remainder', async () => {
     const projectDir = await makeTempDir('owlfolio-rr-cap-')
     const sourceLedgerPath = join(projectDir, 'source-ledger')

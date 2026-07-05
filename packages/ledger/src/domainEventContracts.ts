@@ -829,8 +829,10 @@ export const domainEventContracts: readonly DomainEventContract[] = [
     // the filings that appeared SINCE the decision (the delta vs the persisted source-ledger corpus the
     // decision stood on) are grounded and compared against the RECORDED thesis — thesis_summary,
     // key_wrong_assumption, and every recorded thesis_break_trigger assessed individually. The output is
-    // a DIFF (INTACT | WEAKENED | BROKEN | UNVERIFIED — UNVERIFIED = the pass could not cite-verify its
-    // decisive evidence, fail-closed), NEVER a fresh verdict and NEVER an auto-action: the case does not
+    // a DIFF (INTACT | WEAKENED | BROKEN | UNVERIFIED | INCONCLUSIVE — UNVERIFIED = the pass could not
+    // cite-verify its decisive evidence, fail-closed; INCONCLUSIVE = citations verified but nothing was
+    // assessable, harness-derived from an all-unclear "INTACT" — absence of assessable evidence is not
+    // evidence of an intact thesis), NEVER a fresh verdict and NEVER an auto-action: the case does not
     // transition, findings/synthesis/decision are untouched (point-in-time integrity), and the full
     // re-verdict remains the human-initiated v2 supersession re-run (which a BROKEN diff points at).
     // Idempotency is delta-content-keyed: the same set of new filings converges to one recorded diff.

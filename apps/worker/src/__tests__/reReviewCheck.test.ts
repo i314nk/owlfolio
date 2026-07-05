@@ -264,5 +264,8 @@ describe('monitorAlertProjection thesis_re_review', () => {
     }
     const intact = projectMonitorAlerts([reReviewEvent('INTACT')])
     expect(intact.find((a) => a.kind === 'thesis_re_review')).toBeUndefined()
+    // INCONCLUSIVE (no assessable signal in the delta) is dossier-visible, never an action prompt.
+    const inconclusive = projectMonitorAlerts([reReviewEvent('INCONCLUSIVE')])
+    expect(inconclusive.find((a) => a.kind === 'thesis_re_review')).toBeUndefined()
   })
 })

@@ -297,8 +297,9 @@ function shariahGraceAlert(
 /**
  * Thesis re-review diff (research_case_re_review_recorded): BROKEN → urgent, WEAKENED → attention,
  * UNVERIFIED → info (the pass could not cite-verify — a data problem, not a thesis verdict), INTACT →
- * silent (an intact thesis is not actionable). Always an OBSERVATION pointing at the dossier — the
- * human decides whether the full supersession re-run is warranted.
+ * silent (an intact thesis is not actionable), INCONCLUSIVE → silent (the delta carried no assessable
+ * signal — visible on the dossier card, not an action prompt). Always an OBSERVATION pointing at the
+ * dossier — the human decides whether the full supersession re-run is warranted.
  */
 function reReviewAlert(event: LedgerEventEnvelope<unknown>, payload: Record<string, unknown>): MonitorAlert[] {
   const assessment = getString(payload, 'assessment')
