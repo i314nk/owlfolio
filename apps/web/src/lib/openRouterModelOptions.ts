@@ -21,6 +21,12 @@ export type OpenRouterModelOptionsEnv = { OPENROUTER_API_KEY?: string; [key: str
 export async function getOpenRouterModelOptions(
   env: OpenRouterModelOptionsEnv = process.env,
 ): Promise<OpenRouterCatalogModel[]> {
+  // Hermetic tests: never reach the live OpenRouter catalog (a public endpoint, so it would otherwise
+  // succeed whenever the machine has network). Returning empty makes the wizard render the deterministic
+  // curated tier-grouped picker instead of the network-dependent searchable picker, so e2e is stable.
+  if (env.OWLFOLIO_TEST_MODE === 'playwright' || env.VITEST !== undefined || process.env.VITEST !== undefined) {
+    return []
+  }
   const now = Date.now()
   if (cache !== undefined && now - cache.at < TTL_MS) {
     return cache.models
