@@ -34,6 +34,36 @@ describe('extractFilingSection (10-K Items)', () => {
     expect(section).not.toContain('designs and sells industrial widgets') // that's Item 1
   })
 
+  it('parses em-dash body headings ("Item 2—Management\'s…") — the COST 10-Q form (live re-review find)', () => {
+    // COST's 10-Q body headings use an em-dash ("Item 1—Financial Statements") while its TOC uses the
+    // dotted form ("Item 1. Financial Statements 3"). The period-only heading regex saw ONLY the TOC
+    // lines, so every "section" the reader returned was a TOC entry with a page number — the live
+    // re-review read 96 chars of "MD&A" and correctly reported it could not assess anything.
+    const body = (item: string, words: number) => Array.from({ length: words }, (_, i) => `${item}word${i}`).join(' ')
+    const doc = `<html><body>
+      Item 1. Financial Statements 3
+      Item 2. Management&#8217;s Discussion and Analysis of Financial Condition and Results of Operations 17
+      Item 3. Quantitative and Qualitative Disclosures About Market Risk 24
+      PART I&#8212;FINANCIAL INFORMATION
+      Item 1&#8212;Financial Statements ${body('fin', 40)}
+      Item 2&#8212;Management&#8217;s Discussion and Analysis ${body('mdna', 40)}
+      Item 3&#8212;Quantitative and Qualitative Disclosures ${body('mkt', 40)}
+    </body></html>`
+    const mdna = extractFilingSection(doc, '2')
+    expect(mdna).toBeDefined()
+    expect(mdna!).toContain('mdnaword0') // the BODY, not the 96-char TOC line
+    expect(mdna!).not.toContain('mktword0') // boundary: ends where Item 3 begins
+    expect(extractFilingSection(doc, '1')).toContain('finword0')
+  })
+
+  it('an em-dash after an Item number in PROSE is not a heading ("holds Item 5—the disputed one—")', () => {
+    // The dash form must not over-match mid-sentence references; require a capitalized section title.
+    const doc = `<html><body>
+      Item 1. Business ${'x '.repeat(80)} the schedule holds Item 5&#8212;the disputed one&#8212;for later review ${'y '.repeat(80)}
+    </body></html>`
+    expect(extractFilingItems(doc).map((i) => i.item)).not.toContain('5')
+  })
+
   it('parses headings with a space before the period ("Item 7 .") — the SPGI markup-split form', () => {
     // The SPGI budget-exhaustion bug: SPGI's 10-K HTML splits the Item number and the period into
     // separate tags, so the stripped text reads "Item 7 . Management's Discussion…". The tight

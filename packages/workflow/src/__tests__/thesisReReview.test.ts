@@ -12,6 +12,8 @@ import {
   buildReReviewIdempotencyKey,
   draftThesisReReview,
   loadPriorThesis,
+  reReviewToolBudget,
+  selectReviewedFilings,
 } from '../thesisReReview.js'
 import { ingestManualSourceBundle } from '../sourceLedger'
 import type { GroundFn } from '../groundedAgent'
@@ -284,6 +286,31 @@ describe('draftThesisReReview', () => {
 
     expect(recorded.new_filings).toHaveLength(MAX_RE_REVIEW_FILINGS)
     expect(recorded.skipped_filings).toHaveLength(2)
+  })
+
+  it('FORM DIVERSITY: the cap never lets 8-K covers crowd out the one 10-Q (live-fire find)', () => {
+    // Live round 3: 7 filings, strongest-first cap of 6 — six strong 8-K announcement covers made the
+    // cut, and the single medium 10-Q (the document that actually CARRIES the renewal/sales/margin
+    // data) was skipped. The cap must keep the newest filing of each distinct form, then fill by
+    // strength.
+    const eightKs: WeightedNewFiling[] = Array.from({ length: MAX_RE_REVIEW_FILINGS }, (_, i) => ({
+      form: '8-K', filed: `2026-06-${String(20 - i).padStart(2, '0')}`, url: `https://www.sec.gov/x/8k-${i}.htm`, weight: 'strong' as const,
+    }))
+    const tenQ: WeightedNewFiling = { form: '10-Q', filed: '2026-05-30', url: 'https://www.sec.gov/x/10q.htm', weight: 'medium' }
+    const { reviewed, skipped } = selectReviewedFilings([...eightKs, tenQ], MAX_RE_REVIEW_FILINGS)
+    expect(reviewed).toHaveLength(MAX_RE_REVIEW_FILINGS)
+    expect(reviewed.some((f) => f.form === '10-Q')).toBe(true) // the 10-Q always makes the cut
+    expect(skipped).toHaveLength(1)
+    expect(skipped[0]!.form).toBe('8-K') // the OLDEST 8-K is what gets dropped
+    expect(skipped[0]!.filed).toBe('2026-06-15')
+  })
+
+  it('tool budget scales with the reviewed delta (live-fire find: 6 filings starved the 10-call default)', () => {
+    // The live run read five 8-Ks and had budget left only for the 10-Q's section INDEX — never its
+    // MD&A. Each reviewed filing needs up to two reads (index + section) plus slack for the prompt
+    // affordances and prior-corpus re-reads.
+    expect(reReviewToolBudget(1)).toBeGreaterThanOrEqual(6)
+    expect(reReviewToolBudget(MAX_RE_REVIEW_FILINGS)).toBeGreaterThanOrEqual(4 + 2 * MAX_RE_REVIEW_FILINGS)
   })
 
   it('idempotency is delta-content-keyed: same delta converges, a new filing re-fires', () => {

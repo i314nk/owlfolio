@@ -99,6 +99,44 @@ export type ReReviewAssessment = 'INTACT' | 'WEAKENED' | 'BROKEN' | 'UNVERIFIED'
 /** Mirror of the interim-recency cap in the deep dive (RECENT_READABLE_MAX). */
 export const MAX_RE_REVIEW_FILINGS = 6
 
+/**
+ * Tool budget scaled to the reviewed delta (live-fire find: 6 filings starved the loop's 10-call
+ * default — the model read five 8-Ks and had budget left only for the 10-Q's section INDEX, never its
+ * MD&A). Two reads per filing (index + section) plus slack for prior-corpus re-reads.
+ */
+export function reReviewToolBudget(reviewedFilings: number): number {
+  return 4 + 2 * Math.max(1, reviewedFilings)
+}
+
+/**
+ * Cap the reviewed delta with FORM DIVERSITY (live-fire find: strongest-first alone let six strong
+ * 8-K announcement covers crowd out the single medium 10-Q — the document that actually carries the
+ * renewal/sales/margin data). The newest filing of each distinct form always makes the cut; remaining
+ * slots fill in the check's strongest-first, newest-first order. Both lists preserve that order.
+ */
+export function selectReviewedFilings(
+  newFilings: readonly WeightedNewFiling[],
+  max: number,
+): { reviewed: WeightedNewFiling[]; skipped: WeightedNewFiling[] } {
+  const seenForms = new Set<string>()
+  const selected = new Set<WeightedNewFiling>()
+  for (const filing of newFilings) {
+    if (selected.size >= max) break
+    if (!seenForms.has(filing.form)) {
+      seenForms.add(filing.form)
+      selected.add(filing)
+    }
+  }
+  for (const filing of newFilings) {
+    if (selected.size >= max) break
+    selected.add(filing)
+  }
+  return {
+    reviewed: newFilings.filter((filing) => selected.has(filing)),
+    skipped: newFilings.filter((filing) => !selected.has(filing)),
+  }
+}
+
 const RE_REVIEW_TIMEOUT_MS = 120_000
 
 // ── Idempotency (delta-content-keyed) ─────────────────────────────────────────
@@ -225,9 +263,9 @@ export async function draftThesisReReview(
     throw new Error(`No recorded thesis for ${command.research_case_id} — a diff has nothing to compare against.`)
   }
 
-  // Cap the delta strongest-first (the check is already ordered strong→weak, newest-first).
-  const reviewedFilings = command.check.new_filings.slice(0, MAX_RE_REVIEW_FILINGS)
-  const skippedFilings = command.check.new_filings.slice(MAX_RE_REVIEW_FILINGS)
+  // Cap the delta with form diversity (the check is ordered strong→weak, newest-first; every distinct
+  // form keeps its newest filing — a 10-Q must never be crowded out by 8-K covers).
+  const { reviewed: reviewedFilings, skipped: skippedFilings } = selectReviewedFilings(command.check.new_filings, MAX_RE_REVIEW_FILINGS)
 
   // Ground the delta harness-side (the deep-dive Slice-B pattern): deterministic ids, provenance stamps,
   // DEF 14A stamped 'proxy' (a real proxy filename carries no URL signal for the classifier).
@@ -278,7 +316,7 @@ export async function draftThesisReReview(
     {
       ground,
       ...(deps.grounding === undefined ? {} : { grounding: deps.grounding }),
-      ...(deps.maxToolCalls === undefined ? {} : { maxToolCalls: deps.maxToolCalls }),
+      maxToolCalls: deps.maxToolCalls ?? reReviewToolBudget(reviewedFilings.length),
       readCorpus,
     },
   )

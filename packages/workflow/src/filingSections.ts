@@ -34,12 +34,18 @@ export function htmlToText(html: string): string {
 
 export type FilingItem = { item: string; title?: string; text: string }
 
-// A real Item heading is "Item <n>[<letter>]." followed by whitespace. Requiring the period + space
-// avoids matching mid-prose phrases like "line item 5 of the schedule". The period may be separated
-// from the number by whitespace ("Item 7 . Management's…") — filers whose HTML splits the number and
-// the period into separate tags render exactly that after tag-stripping (the SPGI budget-exhaustion
-// bug: Items 6/7/7A were invisible, and the model burned its tool budget retrying them).
-const ITEM_HEADING = /\bItem\s+(\d{1,2})([A-C])?\s{0,2}\.\s/gi
+// A real Item heading is "Item <n>[<letter>]" followed by a separator: a period + whitespace
+// ("Item 7. Management's…"), OR an em/en dash into a Capitalized title ("Item 2—Management's…").
+// Requiring the separator avoids matching mid-prose phrases like "line item 5 of the schedule".
+// The period may be separated from the number by whitespace ("Item 7 . Management's…") — filers whose
+// HTML splits the number and the period into separate tags render exactly that after tag-stripping
+// (the SPGI budget-exhaustion bug: Items 6/7/7A were invisible, and the model burned its tool budget
+// retrying them). The DASH form is how some filers write BODY headings while their TOC uses the dotted
+// form (the COST 10-Q live re-review find: only TOC lines parsed, so every "section" was a page-number
+// stub); the dash requires a following capital/quote so prose ("Item 5—the disputed one—") never matches.
+// NB: NO /i flag — the dash branch's Capitalized-title guard ([A-Z…]) must be case-SENSITIVE (an /i
+// flag would make it match lowercase prose too). The word's own casings are spelled out instead.
+const ITEM_HEADING = /\b(?:Item|ITEM|item)\s+(\d{1,2})([A-Ca-c])?\s{0,2}(?:\.\s|\s?[—–]\s?(?=[A-Z“"'(0-9]))/g
 
 // Below this, a segment is a TOC line / stub, not a real section — fail closed.
 const MIN_SECTION_CHARS = 60
