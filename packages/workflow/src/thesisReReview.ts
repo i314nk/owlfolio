@@ -21,8 +21,9 @@ import { projectResearchCases } from '@owlfolio/ledger/projections/researchCaseP
 import type { Provider } from '@owlfolio/providers'
 import { z } from 'zod'
 
-import { ProposedSourcesSchema, runGroundedAgentWithTools, mergeReadCorpus, type GroundFn } from './groundedAgent'
+import { runGroundedAgentWithTools, mergeReadCorpus, type GroundFn } from './groundedAgent'
 import type { NewFilingsCheck, WeightedNewFiling } from './reReviewTrigger'
+import { discoverEightKExhibits } from './secEdgar'
 import { groundProposedSources, groundProposedSourcesDeterministic, mergeCapturedIntoCorpus, type CapturedSource, type GroundingDeps, type ProposedSource } from './sourceGrounding'
 import { loadPersistedReadCorpus } from './sourceLedgerRead'
 
@@ -84,7 +85,17 @@ export const ThesisReReviewSchema = z.object({
   broken_claim: z.string().optional(),
   narrative: z.string().min(1),
   source_ids: z.array(z.string().min(1)),
-  proposed_sources: ProposedSourcesSchema,
+  // Same SHAPE as ProposedSourcesSchema (the loop's type bound) but with a TOLERANT url: in the tools
+  // loop grounding happens via tool calls DURING the run, and nothing re-fetches this final array — a
+  // live model echoing a source id in a url field must not invalidate an otherwise verified diff
+  // (live-fire find). Every path that actually fetches keeps its SSRF guard.
+  proposed_sources: z.array(z.object({
+    source_id: z.string().min(1),
+    title: z.string().min(1),
+    url: z.string().min(1),
+    excerpt: z.string().min(1),
+    citation_locator: z.string().optional(),
+  })).min(1),
 })
 
 /**
@@ -98,6 +109,9 @@ export type ReReviewAssessment = 'INTACT' | 'WEAKENED' | 'BROKEN' | 'UNVERIFIED'
 
 /** Mirror of the interim-recency cap in the deep dive (RECENT_READABLE_MAX). */
 export const MAX_RE_REVIEW_FILINGS = 6
+
+/** Total EX-99 exhibit fetches per re-review (bounds the extra EDGAR traffic + grounding cost). */
+export const MAX_RE_REVIEW_EXHIBITS = 4
 
 /**
  * Tool budget scaled to the reviewed delta (live-fire find: 6 filings starved the loop's 10-call
@@ -205,6 +219,8 @@ export type DraftThesisReReviewCommand = {
 export type DraftThesisReReviewDeps = {
   ground?: GroundFn
   grounding?: GroundingDeps
+  /** Injectable 8-K exhibit discovery (tests/offline). Defaults to the live accession-index lookup. */
+  discoverExhibits?: (primaryDocUrl: string) => Promise<string[]>
   maxToolCalls?: number
   now?: () => string
 }
@@ -213,12 +229,23 @@ function formSlug(form: string): string {
   return form.toLowerCase().replace(/[^a-z0-9]/g, '')
 }
 
-function buildReReviewPrompt(prior: PriorThesis, reviewed: { filing: WeightedNewFiling; source_id: string }[], priorCorpusIds: string[]): string {
+function buildReReviewPrompt(
+  prior: PriorThesis,
+  reviewed: { filing: WeightedNewFiling; source_id: string }[],
+  priorCorpusIds: string[],
+  exhibitIdsByParent: ReadonlyMap<string, string[]> = new Map(),
+): string {
   const triggerLines = prior.thesis_break_triggers.length > 0
     ? prior.thesis_break_triggers.map((t, i) => `  ${i + 1}. ${t}`).join('\n')
     : '  (none recorded — assess the overall thesis only; trigger_assessments may be empty)'
   const filingLines = reviewed
-    .map(({ filing, source_id }) => `  - ${filing.form} filed ${filing.filed} [${filing.weight} trigger]: read_source("${source_id}")`)
+    .map(({ filing, source_id }) => {
+      const exhibits = exhibitIdsByParent.get(source_id) ?? []
+      const exhibitLines = exhibits
+        .map((id) => `\n      · EX-99 press-release exhibit (THE DATA behind the cover — read this for figures): read_source("${id}")`)
+        .join('')
+      return `  - ${filing.form} filed ${filing.filed} [${filing.weight} trigger]: read_source("${source_id}")${exhibitLines}`
+    })
     .join('\n')
   const focusHints = 'Focus by form: 8-K/6-K → material events (impairments, guidance changes, executive departures, M&A, litigation); '
     + '10-Q → interim narrative trend vs the thesis dimensions (numbers are CONTEXT, never a revaluation); DEF 14A → compensation/governance/insider changes.'
@@ -280,12 +307,44 @@ export async function draftThesisReReview(
     url: filing.url,
     excerpt: `${filing.form} filed ${filing.filed} — new since the recorded decision.`,
   }))
+
+  // EXHIBIT DISCOVERY (the exhibit arc): an 8-K's primary document is usually an announcement cover —
+  // the data (renewal rates / comparable sales / margins) lives in its EX-99 press-release exhibits
+  // (live find on COST). Discover per reviewed 8-K, cap the TOTAL extra fetches, and ground exhibits
+  // alongside with parent-derived ids so the model can read them like any other verified source.
+  // Mock-provider runs stay offline (no live index.json fetch), mirroring the deterministic grounder.
+  const discoverExhibits = deps.discoverExhibits ?? (
+    provider.provider_id === 'mock-provider'
+      ? async () => []
+      : (url: string) => discoverEightKExhibits(url, deps.grounding?.fetchImpl === undefined ? undefined : { fetchImpl: deps.grounding.fetchImpl })
+  )
+  const exhibitParents = new Map<string, string>() // exhibit source_id → parent filing source_id
+  for (let i = 0; i < reviewedFilings.length; i++) {
+    const filing = reviewedFilings[i]!
+    if (filing.form !== '8-K' && filing.form !== '8-K/A') continue
+    if (exhibitParents.size >= MAX_RE_REVIEW_EXHIBITS) break
+    const parentId = proposed[i]!.source_id
+    const exhibitUrls = await discoverExhibits(filing.url)
+    for (let n = 0; n < exhibitUrls.length && exhibitParents.size < MAX_RE_REVIEW_EXHIBITS; n++) {
+      const exhibitId = `${parentId}_ex${n + 1}`
+      exhibitParents.set(exhibitId, parentId)
+      proposed.push({
+        source_id: exhibitId,
+        title: `${prior.ticker ?? command.research_case_id} 8-K filed ${filing.filed} — EX-99 exhibit ${n + 1} (press release)`,
+        url: exhibitUrls[n]!,
+        excerpt: `EX-99 exhibit of the ${filing.filed} 8-K — the release content behind the announcement cover.`,
+      })
+    }
+  }
+
+  const filingByProposalId = new Map(reviewedFilings.map((filing, i) => [proposed[i]!.source_id, filing]))
   const grounded = await ground(proposed, deps.grounding)
   const verifiedSet = new Set(grounded.verified_ids)
   const deltaCaptures = grounded.captured
     .filter((c) => verifiedSet.has(c.source_id))
-    .map((c, i) => {
-      const filing = reviewedFilings[proposed.findIndex((p) => p.source_id === c.source_id)] ?? reviewedFilings[i]
+    .map((c) => {
+      const parentId = exhibitParents.get(c.source_id)
+      const filing = filingByProposalId.get(parentId ?? c.source_id)
       return filing === undefined
         ? c
         : { ...c, filed: filing.filed, form: filing.form, ...(filing.form === 'DEF 14A' ? { source_category: 'proxy' as const } : {}) }
@@ -293,6 +352,7 @@ export async function draftThesisReReview(
   const reviewed = reviewedFilings
     .map((filing, i) => ({ filing, source_id: proposed[i]!.source_id }))
     .filter((entry) => verifiedSet.has(entry.source_id))
+  const verifiedExhibitIds = [...exhibitParents.keys()].filter((id) => verifiedSet.has(id))
 
   // Read corpus = the PRIOR persisted corpus (content-less → A1 re-fetch+hash-verify on read) overlaid
   // with the fresh delta captures. Pre-grounded wins on id collisions (mergeReadCorpus semantics).
@@ -308,7 +368,14 @@ export async function draftThesisReReview(
     {
       run_id: `run_${command.research_case_id}_re_review`,
       model_id: command.model_id,
-      prompt: buildReReviewPrompt(prior, reviewed, [...priorCorpus.keys()]),
+      prompt: buildReReviewPrompt(prior, reviewed, [...priorCorpus.keys()], (() => {
+        const byParent = new Map<string, string[]>()
+        for (const exhibitId of verifiedExhibitIds) {
+          const parentId = exhibitParents.get(exhibitId)!
+          byParent.set(parentId, [...(byParent.get(parentId) ?? []), exhibitId])
+        }
+        return byParent
+      })()),
       timeout_ms: RE_REVIEW_TIMEOUT_MS,
       schema_name: 'BuffettMungerThesisReReview',
     },
@@ -316,7 +383,7 @@ export async function draftThesisReReview(
     {
       ground,
       ...(deps.grounding === undefined ? {} : { grounding: deps.grounding }),
-      maxToolCalls: deps.maxToolCalls ?? reReviewToolBudget(reviewedFilings.length),
+      maxToolCalls: deps.maxToolCalls ?? reReviewToolBudget(reviewedFilings.length + verifiedExhibitIds.length),
       readCorpus,
     },
   )

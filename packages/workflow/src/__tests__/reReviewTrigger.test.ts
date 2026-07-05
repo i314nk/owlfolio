@@ -4,7 +4,7 @@ import { join } from 'node:path'
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { checkForNewFilings, filingFormWeight, type CheckForNewFilingsDeps } from '../reReviewTrigger.js'
+import { checkForNewFilings, eightKItemWeight, filingFormWeight, type CheckForNewFilingsDeps } from '../reReviewTrigger.js'
 import { ingestManualSourceBundle } from '../sourceLedger'
 import type { Fundamentals } from '../secEdgar.js'
 
@@ -70,6 +70,31 @@ describe('filingFormWeight', () => {
   })
 })
 
+describe('eightKItemWeight (v2 item-code weighting)', () => {
+  it('unscheduled thesis-break items are STRONG', () => {
+    expect(eightKItemWeight('2.06,9.01')).toBe('strong') // material impairment
+    expect(eightKItemWeight('4.02')).toBe('strong') // non-reliance / restatement
+    expect(eightKItemWeight('5.02,9.01')).toBe('strong') // exec/director departure (COST live: CEO-succession 8-K)
+    expect(eightKItemWeight('1.01')).toBe('strong') // material agreement (M&A)
+    expect(eightKItemWeight('1.03')).toBe('strong') // bankruptcy
+    expect(eightKItemWeight('2.02,5.02')).toBe('strong') // max wins on multi-item
+  })
+
+  it('scheduled/ambiguous items are MEDIUM — visible, never auto-spend', () => {
+    expect(eightKItemWeight('2.02,9.01')).toBe('medium') // earnings release (COST live: the quarterly noise)
+    expect(eightKItemWeight('8.01,9.01')).toBe('medium') // other events (COST live: dividend declaration)
+    expect(eightKItemWeight('7.01')).toBe('medium') // Reg FD
+    expect(eightKItemWeight('5.07,8.01')).toBe('medium') // shareholder votes (COST live)
+    expect(eightKItemWeight('9.01')).toBe('medium') // exhibits-only
+  })
+
+  it('missing/unparseable item metadata fails toward attention: STRONG', () => {
+    expect(eightKItemWeight(undefined)).toBe('strong')
+    expect(eightKItemWeight('')).toBe('strong')
+    expect(eightKItemWeight('garbage')).toBe('strong')
+  })
+})
+
 describe('checkForNewFilings', () => {
   const input = (projectDir: string) => ({
     ticker: 'COST',
@@ -128,6 +153,24 @@ describe('checkForNewFilings', () => {
     const projectDir = await makeTempDir('owlfolio-rr-nofund-')
     await seedBundle(projectDir, [KNOWN_10Q_URL])
     expect(await checkForNewFilings(input(projectDir), deps(undefined))).toBeUndefined()
+  })
+
+  it('an 8-K carrying item codes takes its ITEM weight — a routine earnings 8-K is medium, not strong', async () => {
+    const projectDir = await makeTempDir('owlfolio-rr-items-')
+    await seedBundle(projectDir, [KNOWN_10Q_URL])
+    const f = fundamentalsWith({
+      recent_filings: [
+        { form: '8-K', filed: '2026-06-20', url: 'https://www.sec.gov/x/8k-earnings.htm', items: '2.02,9.01' },
+        { form: '8-K', filed: '2026-06-18', url: 'https://www.sec.gov/x/8k-exec.htm', items: '5.02,9.01' },
+        { form: '8-K', filed: '2026-06-15', url: 'https://www.sec.gov/x/8k-noitems.htm' },
+      ] as never,
+    })
+    const check = await checkForNewFilings(input(projectDir), deps(f))
+    const byUrl = new Map(check!.new_filings.map((x) => [x.url, x.weight]))
+    expect(byUrl.get('https://www.sec.gov/x/8k-earnings.htm')).toBe('medium')
+    expect(byUrl.get('https://www.sec.gov/x/8k-exec.htm')).toBe('strong')
+    expect(byUrl.get('https://www.sec.gov/x/8k-noitems.htm')).toBe('strong') // no metadata → attention
+    expect(check!.strongest_trigger).toBe('strong')
   })
 
   it('SINCE bound: filings filed before the decision date are excluded even when not in the corpus', async () => {

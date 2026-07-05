@@ -9,6 +9,7 @@ import { InMemoryEventStore } from '@owlfolio/ledger/eventStore'
 import type { LedgerEventEnvelope } from '@owlfolio/ledger/eventEnvelope'
 import {
   MAX_RE_REVIEW_FILINGS,
+  ThesisReReviewSchema,
   buildReReviewIdempotencyKey,
   draftThesisReReview,
   loadPriorThesis,
@@ -303,6 +304,58 @@ describe('draftThesisReReview', () => {
     expect(skipped).toHaveLength(1)
     expect(skipped[0]!.form).toBe('8-K') // the OLDEST 8-K is what gets dropped
     expect(skipped[0]!.filed).toBe('2026-06-15')
+  })
+
+  it('EXHIBIT GROUNDING: a reviewed 8-K grounds its EX-99 exhibits alongside the cover (live-fire find)', async () => {
+    // The announcement cover carries no numbers — the press-release exhibit does. The pass discovers
+    // exhibits per reviewed 8-K (injectable), grounds them with parent-derived ids, and offers them in
+    // the read affordance. 10-Qs/proxies get no exhibit lookup.
+    const projectDir = await makeTempDir('owlfolio-rr-exhibits-')
+    const sourceLedgerPath = join(projectDir, 'source-ledger')
+    await seedPriorBundle(sourceLedgerPath)
+    const store = new InMemoryEventStore()
+    await seedDecidedCase(store)
+    const provider = reReviewProvider(intactPayload)
+
+    const proposals: { source_id: string; url: string }[] = []
+    const spyGround = (async (sources: { source_id: string; title: string; url: string; excerpt: string }[]) => {
+      proposals.push(...sources.map((s) => ({ source_id: s.source_id, url: s.url })))
+      return (verifyAllGround as unknown as (s: unknown) => unknown)(sources)
+    }) as unknown as GroundFn
+
+    const discoverExhibits = vi.fn(async (url: string) => (url === NEW_8K.url
+      ? ['https://www.sec.gov/Archives/edgar/data/909832/000090983225000164/costex9918-k121125.htm']
+      : []))
+
+    await draftThesisReReview(store, provider as never, {
+      research_case_id: CASE_ID, model_id: 'test-model', causation_id: 'evt_decision',
+      source_ledger_path: sourceLedgerPath,
+      check: check({ new_filings: [NEW_8K, { form: '10-Q', filed: '2026-06-25', url: 'https://www.sec.gov/x/10q.htm', weight: 'medium' }] }),
+    }, { ground: spyGround, discoverExhibits })
+
+    // Discovery is 8-K-scoped.
+    expect(discoverExhibits).toHaveBeenCalledTimes(1)
+    expect(discoverExhibits).toHaveBeenCalledWith(NEW_8K.url)
+    // The exhibit was grounded with a parent-derived id.
+    const exhibit = proposals.find((p) => p.url.includes('costex991'))
+    expect(exhibit).toBeDefined()
+    expect(exhibit!.source_id).toMatch(/^rr_8k_2026-06-20_0_ex1$/)
+  })
+
+  it('the schema tolerates a malformed final proposed_sources url (live-fire find: one bad URL killed a verified diff)', () => {
+    // The tools loop grounds via tool calls DURING the loop; the final proposed_sources array is
+    // type-bound bookkeeping that nothing re-fetches. Live GLM echoed a source id in a url field and
+    // the strict .url() check threw away an otherwise fully-verified diff. Tolerant here; the SSRF
+    // guard still protects every path that actually fetches.
+    const parsed = ThesisReReviewSchema.safeParse({
+      overall_assessment: 'INTACT',
+      trigger_assessments: [{ trigger: 't', tripped: 'no', evidence_citation: 'rr_8k_2026-06-20_0', reasoning: 'r' }],
+      changed_dimensions: [],
+      narrative: 'n',
+      source_ids: ['rr_8k_2026-06-20_0'],
+      proposed_sources: [{ source_id: 's', title: 't', url: 'rr_8k_2025-12-11_0', excerpt: 'e' }],
+    })
+    expect(parsed.success).toBe(true)
   })
 
   it('tool budget scales with the reviewed delta (live-fire find: 6 filings starved the 10-call default)', () => {

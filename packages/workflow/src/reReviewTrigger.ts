@@ -27,6 +27,33 @@ export function filingFormWeight(form: string): FilingTriggerWeight | undefined 
   return undefined
 }
 
+/**
+ * 8-K item codes that are UNSCHEDULED thesis-break events — the appearance of any one IS the
+ * "something happened, re-check" signal (the design doc's strong class):
+ *   1.01/1.02 material agreement entry/termination · 1.03 bankruptcy · 2.01 acquisition/disposition
+ *   completed · 2.05 exit/disposal costs · 2.06 material impairment · 3.01 delisting notice ·
+ *   4.01 auditor change · 4.02 non-reliance on prior financials (restatement) · 5.01 change in
+ *   control · 5.02 director/officer departure or appointment.
+ * Everything else is SCHEDULED or AMBIGUOUS → medium (visible, never worker auto-spend): 2.02 results
+ * of operations (the quarterly earnings announcement — "scheduled freshness", like a 10-Q), 7.01 Reg
+ * FD, 8.01 other events (a catch-all: dividends AND litigation land here — unreadable without the
+ * document, so it stays visible at medium and the model reads it when a re-review runs), 5.03/5.07
+ * governance, 9.01 exhibits.
+ */
+const EIGHT_K_STRONG_ITEMS = new Set(['1.01', '1.02', '1.03', '2.01', '2.05', '2.06', '3.01', '4.01', '4.02', '5.01', '5.02'])
+
+/**
+ * Weight an 8-K by its EDGAR item codes ('2.02,9.01'). Max wins across items. FAIL TOWARD ATTENTION:
+ * missing or unparseable item metadata → strong (the v1 behavior) — a mis-weighted routine filing
+ * costs one bounded re-review; a silently demoted impairment costs a thesis.
+ */
+export function eightKItemWeight(items: string | undefined): FilingTriggerWeight {
+  if (items === undefined) return 'strong'
+  const codes = items.split(',').map((code) => code.trim()).filter((code) => /^\d{1,2}\.\d{2}$/.test(code))
+  if (codes.length === 0) return 'strong'
+  return codes.some((code) => EIGHT_K_STRONG_ITEMS.has(code)) ? 'strong' : 'medium'
+}
+
 export type WeightedNewFiling = FilingRef & { weight: FilingTriggerWeight }
 
 export type NewFilingsCheck = {
@@ -112,12 +139,18 @@ export async function checkForNewFilings(
   const filedSince = (filing: FilingRef) => sinceDate === undefined || filing.filed >= sinceDate
 
   // Weighted candidates = interim + proxy filings; annual filings feed only the honesty flag.
+  // An 8-K with item-code metadata takes its ITEM weight (v2): routine earnings/dividend 8-Ks demote
+  // to medium; unscheduled thesis-break items (and missing metadata) stay strong.
   const candidates: WeightedNewFiling[] = [
     ...(fundamentals.recent_filings ?? []),
     ...(fundamentals.proxy_filings ?? []),
   ].filter(filedSince).flatMap((filing) => {
-    const weight = filingFormWeight(filing.form)
-    return weight === undefined ? [] : [{ ...filing, weight }]
+    const formWeight = filingFormWeight(filing.form)
+    if (formWeight === undefined) return []
+    const weight = formWeight === 'strong' && (filing.form === '8-K' || filing.form === '8-K/A')
+      ? eightKItemWeight(filing.items)
+      : formWeight
+    return [{ ...filing, weight }]
   })
 
   const new_filings = (selectFilingsNotInCorpus(candidates, corpus) as WeightedNewFiling[])

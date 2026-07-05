@@ -94,6 +94,12 @@ export type FilingRef = {
   form: string
   filed: string
   url: string
+  /**
+   * 8-K item codes as EDGAR reports them ('2.02,9.01'), straight from the submissions index — the
+   * deterministic material-vs-routine signal (2.06 impairment vs 2.02 scheduled earnings). Absent for
+   * non-8-K forms and for filings whose metadata lacks it.
+   */
+  items?: string
 }
 
 export type Fundamentals = {
@@ -601,6 +607,45 @@ async function fetchSecJson<T>(rawUrl: string, deps?: SecEdgarDeps): Promise<T |
   } finally {
     clearTimeout(timer)
   }
+}
+
+// ---------------------------------------------------------------------------
+// 8-K exhibit discovery (the exhibit arc)
+// ---------------------------------------------------------------------------
+
+type AccessionIndex = { directory?: { item?: { name?: string }[] } }
+
+/** An EX-99 exhibit document: 'costex9918-k121125.htm', 'ex99-1.htm', 'pressex991.htm', … */
+const EXHIBIT_NAME = /ex.?-?99/i
+
+/**
+ * Discover the EX-99 press-release exhibits of an 8-K from its accession directory's index.json. The
+ * 8-K PRIMARY document is usually an announcement cover — the earnings data (renewal rates,
+ * comparable sales, margins) lives in the exhibits (live re-review find on COST). Returns up to two
+ * absolute Archives URLs, 99.1-style names first (lexicographic on the ex-number region ≈ 99.1 before
+ * 99.2). FAIL-CLOSED to [] on any guard/fetch/parse problem — the re-review then reads what it has.
+ */
+export async function discoverEightKExhibits(primaryDocUrl: string, deps?: SecEdgarDeps): Promise<string[]> {
+  let dirUrl: string
+  try {
+    const url = assertSecUrl(primaryDocUrl)
+    dirUrl = url.toString().replace(/\/[^/]*$/, '/')
+  } catch {
+    return []
+  }
+  const index = await fetchSecJson<AccessionIndex>(`${dirUrl}index.json`, deps)
+  const items = index?.directory?.item
+  if (!Array.isArray(items)) return []
+  const primaryName = primaryDocUrl.slice(primaryDocUrl.lastIndexOf('/') + 1)
+  return items
+    .map((item) => item?.name)
+    .filter((name): name is string => typeof name === 'string'
+      && name !== primaryName
+      && /\.html?$/i.test(name)
+      && EXHIBIT_NAME.test(name))
+    .sort()
+    .slice(0, 2)
+    .map((name) => `${dirUrl}${name}`)
 }
 
 // ---------------------------------------------------------------------------
@@ -1466,6 +1511,8 @@ type Submissions = {
       filingDate?: string[]
       accessionNumber?: string[]
       primaryDocument?: string[]
+      /** Parallel array of 8-K item-code strings ('2.02,9.01'); empty string for non-8-K rows. */
+      items?: string[]
     }
   }
 }
@@ -1482,6 +1529,7 @@ function buildFilingsWhere(
   const dates = recent.filingDate ?? []
   const accessions = recent.accessionNumber ?? []
   const docs = recent.primaryDocument ?? []
+  const itemsList = recent.items ?? []
   const cikInt = String(parseInt(cik10, 10))
 
   const filings: FilingRef[] = []
@@ -1491,12 +1539,14 @@ function buildFilingsWhere(
     const accession = accessions[i]
     const doc = docs[i]
     const filed = dates[i]
+    const items = itemsList[i]
     if (typeof accession !== 'string' || typeof doc !== 'string') continue
     const accNoDashes = accession.replace(/-/g, '')
     filings.push({
       form: form as string,
       filed: typeof filed === 'string' ? filed : '',
       url: `https://www.sec.gov/Archives/edgar/data/${cikInt}/${accNoDashes}/${doc}`,
+      ...(typeof items === 'string' && items.length > 0 ? { items } : {}),
     })
   }
   // newest first
