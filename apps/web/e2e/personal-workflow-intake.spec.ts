@@ -106,13 +106,16 @@ test('personal-local mode can create the first research case from the command ce
   // The verdict now renders as a "Verdict: WATCH" bullet in the (open-by-default) decision panel — the
   // standalone hero verdict chip was consolidated away, so an exact 'WATCH' text node no longer exists.
   await expect(page.getByText(/Verdict:\s*WATCH/).first()).toBeVisible()
-  await expect(page.getByRole('heading', { name: 'Thesis' })).toBeVisible()
-  // The per-dimension valuation/shariah/risks cards were consolidated away; the whole-case thesis is the
-  // one home for decision-evidence, and per-dimension findings live in the (collapsed) specialist lanes.
+  // The standalone "Thesis" heading/box was removed — the whole-case thesis now LEADS the decision panel
+  // as prose (its only home); the per-dimension valuation/shariah/risks cards were consolidated away and
+  // the per-dimension findings live in the (collapsed) specialist lanes.
+  await expect(page.getByText(/compounder/i).first()).toBeVisible()
   await expect(page.getByText(/decision_drafted/i).first()).not.toBeVisible()
-  await page.getByText('Evidence and audit details', { exact: true }).click()
-  await expect(page.locator('article').filter({ hasText: 'MSFT primary source' }).getByText('mock_msft_primary', { exact: true })).toBeVisible()
-  await expect(page.locator('article').filter({ hasText: 'MSFT secondary source' }).getByText('mock_msft_secondary', { exact: true })).toBeVisible()
+  await page.getByText('Evidence & sources', { exact: true }).click()
+  // Each grounded source is a collapsible <details> whose summary is its title; the audit source_id reveals
+  // on expand. Assert the MSFT-attributed source titles surface (they carry the mock_msft_* ids on expand).
+  await expect(page.getByText('MSFT primary source').first()).toBeVisible()
+  await expect(page.getByText('MSFT secondary source').first()).toBeVisible()
   await expect(page.getByText(/Costco|src_cost_/)).toHaveCount(0)
   const researchCaseId = new URL(page.url()).pathname.split('/').at(-1)
   expect(researchCaseId).toMatch(/^rc_msft_/)
