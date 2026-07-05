@@ -24,14 +24,6 @@ describe('selectActiveModeStatus', () => {
     expect(status.href).toBe(PROVIDERS_HREF)
   })
 
-  it('reports demo mode against the mock provider with no fix link', () => {
-    const status = selectActiveModeStatus(baseInput({ mode: 'demo' }))
-
-    expect(status.kind).toBe('demo')
-    expect(status.label).toBe('Demo · mock-provider (sample data)')
-    expect(status.href).toBeUndefined()
-  })
-
   it('reports personal-local with the provider not connected as clickable', () => {
     const status = selectActiveModeStatus(
       baseInput({ providerConnected: false, capitalSet: false }),

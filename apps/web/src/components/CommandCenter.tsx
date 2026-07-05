@@ -2,7 +2,7 @@ import { createElement, Fragment, type ReactNode } from 'react'
 
 import { OwlButtonLink, SourceChip } from './designSystem'
 import { StatusBadge } from './StatusBadge'
-import type { AppCommandCenter, CommandCenterDiscoverySignal, MonitorAlert } from '../lib/demo'
+import type { AppCommandCenter, CommandCenterDiscoverySignal, MonitorAlert } from '../lib/commandCenter'
 
 export type CommandCenterProps = {
   dashboard: AppCommandCenter
@@ -663,7 +663,7 @@ function buildActionCards(dashboard: AppCommandCenter): ActionCard[] {
   if (isProviderReadinessWarning(dashboard.provider_status)) {
     cards.push({
       category: 'Local assistant setup needed',
-      description: 'Owlfolio cannot use the selected local assistant yet. Open provider details for the technical checks, or keep using demo mode while setup is incomplete.',
+      description: 'Owlfolio cannot use the selected local assistant yet. Open provider details for the technical checks to finish setup.',
       href: '/settings/providers',
       label: 'Open setup details',
       title: 'Finish local assistant setup',

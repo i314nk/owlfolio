@@ -45,30 +45,20 @@ describe('providerReadiness', () => {
     expect(JSON.stringify(readiness)).not.toContain('secret-browser-cookie')
   })
 
-  it('lists provider options in onboarding order with frozen support semantics', () => {
+  it('lists real provider options in onboarding order, excluding the internal mock provider', () => {
     const options = getProviderOptions()
 
     // The CLI/OAuth lanes (Codex, Claude CLI, Gemini CLI) were retired; surviving providers are OpenRouter
-    // + the direct API-key providers (openai-api/anthropic-api/gemini-developer-api).
-    expect(options.map((provider) => provider.provider_id)).toEqual(['mock-provider', 'openrouter', 'openai-api', 'anthropic-api', 'gemini-developer-api'])
-    expect(options.map((provider) => provider.provider_surface_id)).toEqual(['mock-provider', 'openrouter-api', 'openai-api', 'anthropic-api', 'gemini-developer-api'])
-    expect(options.map((provider) => provider.support_level)).toEqual(['certified', 'experimental', 'experimental', 'experimental', 'experimental'])
-  })
-
-  it('excludes mock-provider from options for a production (non-test) env', () => {
-    const options = getProviderOptions({ OWLFOLIO_DISABLE_TEST_DEFAULTS: '1' })
-
-    expect(options.map((provider) => provider.provider_id)).not.toContain('mock-provider')
-    // Real providers remain available so the unconfigured → personal-local path still works.
+    // + the direct API-key providers. The mock provider is internal (e2e/unit/cert) and is never offered.
     expect(options.map((provider) => provider.provider_id)).toEqual(['openrouter', 'openai-api', 'anthropic-api', 'gemini-developer-api'])
+    expect(options.map((provider) => provider.provider_surface_id)).toEqual(['openrouter-api', 'openai-api', 'anthropic-api', 'gemini-developer-api'])
+    expect(options.map((provider) => provider.support_level)).toEqual(['experimental', 'experimental', 'experimental', 'experimental'])
   })
 
-  it('includes mock-provider in options under the test harness env', () => {
-    const playwright = getProviderOptions({ OWLFOLIO_TEST_MODE: 'playwright' })
-    expect(playwright.map((provider) => provider.provider_id)).toContain('mock-provider')
-
-    const vitest = getProviderOptions({ VITEST: '1' })
-    expect(vitest.map((provider) => provider.provider_id)).toContain('mock-provider')
+  it('never offers the mock provider in the picker, even under the test harness env', () => {
+    for (const env of [{}, { OWLFOLIO_TEST_MODE: 'playwright' }, { VITEST: '1' }]) {
+      expect(getProviderOptions(env).map((provider) => provider.provider_id)).not.toContain('mock-provider')
+    }
   })
 
   it('marks OpenRouter ready when OPENROUTER_API_KEY is present (live adapter), but flags certification is still required', async () => {

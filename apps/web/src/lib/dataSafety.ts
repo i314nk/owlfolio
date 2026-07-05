@@ -65,7 +65,6 @@ const sensitivePathTerms = [
 
 const roleLabels: Record<RuntimeBackupEntryRole, string> = {
   app_config: 'App configuration',
-  demo_ledger: 'Demo ledger',
   personal_ledger: 'Personal ledger',
   provider_certifications: 'Provider certification metadata',
   source_ledger: 'Source ledger',
@@ -75,7 +74,6 @@ const roleLabels: Record<RuntimeBackupEntryRole, string> = {
 
 const roleFallbackPathLabels: Record<RuntimeBackupEntryRole, string> = {
   app_config: 'allowlisted app configuration path',
-  demo_ledger: 'allowlisted demo ledger path',
   personal_ledger: 'allowlisted personal ledger path',
   provider_certifications: 'allowlisted provider certification metadata directory',
   source_ledger: 'allowlisted source ledger directory',

@@ -5,7 +5,7 @@ import { dirname, isAbsolute, join, parse, relative, resolve } from 'node:path'
 
 type AppConfig = {
   version: 1
-  mode: 'unconfigured' | 'demo' | 'personal-local'
+  mode: 'unconfigured' | 'personal-local'
   provider: {
     provider_id: 'mock-provider' | 'openrouter' | 'openai-api' | 'anthropic-api' | 'gemini-developer-api'
     support_level: 'certified' | 'experimental' | 'unsupported'
@@ -28,10 +28,10 @@ type AppConfig = {
   initialized_at?: string
 }
 
-function defaultDemoAppConfig(): AppConfig {
+function defaultUnconfiguredAppConfig(): AppConfig {
   return {
     version: 1,
-    mode: 'demo',
+    mode: 'unconfigured',
     provider: {
       provider_id: 'mock-provider',
       support_level: 'certified',
@@ -55,7 +55,6 @@ function defaultDemoAppConfig(): AppConfig {
 export type RuntimeBackupEnv = {
   OWLFOLIO_PROJECT_DIR?: string
   OWLFOLIO_APP_CONFIG_PATH?: string
-  OWLFOLIO_DEMO_LEDGER_PATH?: string
   OWLFOLIO_PERSONAL_LEDGER_PATH?: string
   OWLFOLIO_LEDGER_PATH?: string
   OWLFOLIO_SOURCE_LEDGER_PATH?: string
@@ -64,7 +63,6 @@ export type RuntimeBackupEnv = {
 
 export type RuntimeBackupEntryRole =
   | 'app_config'
-  | 'demo_ledger'
   | 'personal_ledger'
   | 'worker_ledger'
   | 'source_ledger'
@@ -137,7 +135,6 @@ export type RestoreDryRunPlan = {
   }>
   verification_env: {
     OWLFOLIO_APP_CONFIG_PATH: string
-    OWLFOLIO_DEMO_LEDGER_PATH: string
     OWLFOLIO_PERSONAL_LEDGER_PATH: string
     OWLFOLIO_LEDGER_PATH: string
     OWLFOLIO_SOURCE_LEDGER_PATH: string
@@ -230,7 +227,7 @@ function entry({
 
 async function loadAppConfig(configPath: string): Promise<AppConfig> {
   if (!existsSync(configPath)) {
-    return defaultDemoAppConfig()
+    return defaultUnconfiguredAppConfig()
   }
 
   const raw = JSON.parse(await readFile(configPath, 'utf8')) as AppConfig
@@ -274,13 +271,6 @@ export async function resolveRuntimeBackupInventory({
       reason: 'allowlisted app configuration with provider IDs and local runtime path fields only',
     }),
     entry({
-      role: 'demo_ledger',
-      absolutePath: resolvePath(projectDir, env.OWLFOLIO_DEMO_LEDGER_PATH ?? join('data', 'demo-ledger.sqlite')),
-      source: env.OWLFOLIO_DEMO_LEDGER_PATH === undefined ? 'default' : 'env',
-      projectDir,
-      reason: 'optional deterministic demo ledger when present',
-    }),
-    entry({
       role: 'personal_ledger',
       absolutePath: resolvePath(projectDir, env.OWLFOLIO_PERSONAL_LEDGER_PATH ?? appConfig.ledger_path ?? join('data', 'personal-ledger.sqlite')),
       source: personalLedgerSource,
@@ -320,7 +310,7 @@ export async function resolveRuntimeBackupInventory({
 }
 
 function isSqliteLedgerRole(role: RuntimeBackupEntryRole): boolean {
-  return role === 'demo_ledger' || role === 'personal_ledger' || role === 'worker_ledger'
+  return role === 'personal_ledger' || role === 'worker_ledger'
 }
 
 function sidecarPaths(pathValue: string): string[] {
@@ -425,7 +415,6 @@ export function buildRestoreDryRunPlan({
   const runtimeRoot = join(restoreRoot, 'runtime')
   const appConfigPath = join(runtimeRoot, firstManifestPath(manifest, 'app_config') ?? 'data/app-config.json')
   const personalLedgerPath = join(runtimeRoot, firstManifestPath(manifest, 'personal_ledger') ?? 'data/personal-ledger.sqlite')
-  const demoLedgerPath = join(runtimeRoot, firstManifestPath(manifest, 'demo_ledger') ?? 'data/demo-ledger.sqlite')
   const workerLedgerPath = join(runtimeRoot, firstManifestPath(manifest, 'worker_ledger') ?? firstManifestPath(manifest, 'personal_ledger') ?? 'data/owlfolio-ledger.sqlite')
   const sourceLedgerPath = join(runtimeRoot, 'data', 'source-ledger')
   const providerCertificationDir = join(runtimeRoot, 'data', 'provider-certifications')
@@ -444,14 +433,13 @@ export function buildRestoreDryRunPlan({
     provider: manifest.app_config.provider,
     counts: {
       files: manifest.files.length,
-      ledgers: manifest.files.filter((file) => file.role === 'demo_ledger' || file.role === 'personal_ledger' || file.role === 'worker_ledger').length,
+      ledgers: manifest.files.filter((file) => file.role === 'personal_ledger' || file.role === 'worker_ledger').length,
       source_bundles: manifest.files.filter((file) => file.role === 'source_ledger').length,
       provider_reports: manifest.files.filter((file) => file.role === 'provider_certifications').length,
     },
     path_rewrites: pathRewrites,
     verification_env: {
       OWLFOLIO_APP_CONFIG_PATH: appConfigPath,
-      OWLFOLIO_DEMO_LEDGER_PATH: demoLedgerPath,
       OWLFOLIO_PERSONAL_LEDGER_PATH: personalLedgerPath,
       OWLFOLIO_LEDGER_PATH: workerLedgerPath,
       OWLFOLIO_SOURCE_LEDGER_PATH: sourceLedgerPath,

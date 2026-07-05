@@ -31,7 +31,7 @@ const ctaButtonStyle: CSSProperties = {
 
 function getResearchBlockMessage(mode: OwlfolioMode, initialized: boolean): string {
   if (mode === 'unconfigured') {
-    return 'No mode is chosen yet. Choose a mode to begin, then set up a personal-local workflow to record durable research cases.'
+    return 'This workspace is not set up yet. Connect a provider to set up a personal-local workflow and record durable research cases.'
   }
 
   if (mode === 'personal-local' && !initialized) {
@@ -65,7 +65,7 @@ export default async function ResearchIntakePage() {
           <li>
             The research intake form requires personal credentials and a writable personal ledger so actions are auditable and replay-safe.
           </li>
-          <li>Demo mode and uninitialized states are intentionally read-only for workflow previews.</li>
+          <li>Uninitialized states are intentionally read-only for workflow previews.</li>
         </ul>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem' }}>
           <Link className="owl-focusable" href="/settings/providers" style={ctaButtonStyle}>

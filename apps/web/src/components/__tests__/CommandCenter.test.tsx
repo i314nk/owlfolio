@@ -4,7 +4,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { SQLiteEventStore } from '@owlfolio/ledger/sqliteEventStore'
-import { defaultDemoAppConfig, defaultPersonalLocalAppConfig, defaultUnconfiguredAppConfig } from '@owlfolio/shared'
+import { defaultPersonalLocalAppConfig, defaultUnconfiguredAppConfig } from '@owlfolio/shared'
 
 const mockedNavigation = vi.hoisted(() => ({ pathname: '/' }))
 
@@ -14,7 +14,7 @@ vi.mock('next/navigation', () => ({
 
 import { AppNavigation, isAuditSearchShortcut } from '../AppNavigation'
 import { CommandCenter } from '../CommandCenter'
-import { getDemoCommandCenterFromStore, getSetupAwareCommandCenter, seedDemoLedger, type AppCommandCenter } from '../../lib/demo'
+import { getSetupAwareCommandCenter, type AppCommandCenter } from '../../lib/commandCenter'
 
 beforeEach(() => {
   mockedNavigation.pathname = '/'
@@ -120,37 +120,6 @@ describe('AppNavigation', () => {
   })
 })
 describe('CommandCenter', () => {
-  it('renders demo workflow status and the next recommended action', async () => {
-    const store = new SQLiteEventStore()
-    try {
-      await seedDemoLedger(store)
-      const dashboard = await getDemoCommandCenterFromStore(store)
-      const html = renderToStaticMarkup(createElement(CommandCenter, { dashboard }))
-
-      expect(html).toContain('Owlfolio')
-      expect(html).toContain('Command Center')
-      expect(html).toContain('Fiduciary briefing')
-      expect(html).toContain('Setup ready')
-      expect(html).toContain('Mock provider / demo mode')
-      expect(html).toContain('Buffett-Munger default')
-      expect(html).toContain('SQLite durable event source')
-      expect(html).toContain('Research cases')
-      expect(html).toContain('Watchlist drafts')
-      expect(html).toContain('Confirmed watchlist')
-      expect(html).toContain('Open holdings')
-      expect(html).toContain('Pending user actions')
-      expect(html).not.toContain('current Owlfolio v0.2 slice')
-      expect(html).toContain('COST is a legacy unconfirmed watchlist draft — re-admit from research')
-      expect(html).toContain('Watchlist draft created')
-      expect(html).toContain('class="owl-source-chip-label"')
-      expect(html).toContain('Audit event')
-      expect(html).toContain('evt_demo_watchlist_001')
-      expect(html).not.toContain('watchlist_draft_created by user:user_local')
-    } finally {
-      store.close()
-    }
-  })
-
   it('renders a choose-a-mode setup state for an unconfigured app and never demo data', async () => {
     const dashboard = await getSetupAwareCommandCenter({
       config: defaultUnconfiguredAppConfig(),
@@ -158,9 +127,9 @@ describe('CommandCenter', () => {
     })
     const html = renderToStaticMarkup(createElement(CommandCenter, { dashboard }))
 
-    // It must steer toward choosing a mode / running setup, never silently render demo data.
-    expect(dashboard.setup_status).toBe('Choose a mode to begin')
-    expect(html).toContain('Choose a mode to begin')
+    // It must steer toward running setup, never silently render demo data.
+    expect(dashboard.setup_status).toBe('Set up your workflow to begin')
+    expect(html).toContain('Set up your workflow to begin')
     expect(html).toContain('Continue setup')
     // No demo seed labels leak into the unconfigured command center.
     expect(html).not.toContain('Mock provider / demo mode')
@@ -174,38 +143,6 @@ describe('CommandCenter', () => {
       open_holdings: 0,
       pending_user_actions: 0,
     })
-  })
-
-  it('renders a stale demo config as the choose-a-mode setup state in production, never demo data', async () => {
-    const dashboard = await getSetupAwareCommandCenter({
-      config: defaultDemoAppConfig(),
-      is_initialized: true,
-      env: { OWLFOLIO_DISABLE_TEST_DEFAULTS: '1' },
-    })
-    const html = renderToStaticMarkup(createElement(CommandCenter, { dashboard }))
-
-    expect(dashboard.setup_status).toBe('Choose a mode to begin')
-    expect(html).toContain('Choose a mode to begin')
-    expect(html).not.toContain('Mock provider / demo mode')
-  })
-
-  it('still renders the seeded demo command center for a demo config in test mode', async () => {
-    const store = new SQLiteEventStore()
-    try {
-      await seedDemoLedger(store)
-      const dashboard = await getSetupAwareCommandCenter({
-        config: defaultDemoAppConfig(),
-        is_initialized: true,
-        store,
-        env: { VITEST: '1' },
-      })
-      const html = renderToStaticMarkup(createElement(CommandCenter, { dashboard }))
-
-      expect(html).toContain('Mock provider / demo mode')
-      expect(dashboard.setup_status).not.toBe('Choose a mode to begin')
-    } finally {
-      store.close()
-    }
   })
 
   it('renders setup-needed status for uninitialized personal local mode', async () => {
@@ -393,7 +330,7 @@ describe('CommandCenter', () => {
       expect(html).toContain('Provider: OpenRouter unsupported — OpenRouter routing blocked by latest certification report')
       expect(html).toContain('Finish local assistant setup')
       expect(html).toContain('Open setup details')
-      expect(html).toContain('Owlfolio cannot use the selected local assistant yet. Open provider details for the technical checks, or keep using demo mode while setup is incomplete.')
+      expect(html).toContain('Owlfolio cannot use the selected local assistant yet. Open provider details for the technical checks to finish setup.')
       expect(html).toContain('href="/settings/providers"')
       expect(html).not.toContain('Review credentials, support level, and certification evidence')
       expect(html).not.toContain('support level, and certification evidence')

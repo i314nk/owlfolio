@@ -6,7 +6,6 @@ import type { LedgerEventEnvelope } from '@owlfolio/ledger/eventEnvelope'
 
 import { getOnboardingState } from '../../../../../lib/onboarding'
 import { isUnconfiguredForUser } from '../../../../../lib/modeView'
-import { resolveDemoLedgerPath } from '../../../../../lib/demo'
 import { resolveRunProgress, type RunProgress } from '../../../../../lib/researchRunProgress'
 
 /**
@@ -22,7 +21,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ cas
     return NextResponse.json({ error: 'Unconfigured' }, { status: 404 })
   }
 
-  const ledgerPath = state.config.mode === 'demo' ? resolveDemoLedgerPath() : state.config.ledger_path
+  const ledgerPath = state.config.ledger_path
   if (ledgerPath === undefined) {
     return NextResponse.json({ error: 'Personal-local workflow is not initialized' }, { status: 404 })
   }

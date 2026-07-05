@@ -3,43 +3,33 @@ import { access, mkdir, readFile, writeFile } from 'node:fs/promises'
 import { dirname as pathDirname, join, parse } from 'node:path'
 import { homedir } from 'node:os'
 
-import { defaultDemoAppConfig, defaultUnconfiguredAppConfig, type AppConfig } from '@owlfolio/shared'
+import { defaultUnconfiguredAppConfig, owlfolioModeValues, type AppConfig } from '@owlfolio/shared'
 
 type AppConfigEnv = {
   [key: string]: string | undefined
   OWLFOLIO_APP_CONFIG_PATH?: string
   OWLFOLIO_PROJECT_DIR?: string
-  OWLFOLIO_TEST_MODE?: string
-  VITEST?: string
-  /** Test-only escape hatch: force the real-install (unconfigured) default even under the test runner. */
-  OWLFOLIO_DISABLE_TEST_DEFAULTS?: string
 }
 
 /**
- * Whether the new-install default should stay `demo` (the usable test path) rather than flipping to the
- * real-install `unconfigured` default. True under playwright e2e and vitest unit runs so the existing
- * suite (e.g. `demo-mode.spec.ts`) stays green before S5 migrates e2e to programmatic init. The
- * `OWLFOLIO_DISABLE_TEST_DEFAULTS` flag lets a test deliberately exercise the production branch.
+ * The default config for an install with no config file yet: always `unconfigured` (nothing silently
+ * falls through to a working mode). Tests that need a usable workspace initialize `personal-local`
+ * programmatically via the onboarding init seam.
  */
-export function shouldUseTestDemoDefault(env: AppConfigEnv): boolean {
-  if (env.OWLFOLIO_DISABLE_TEST_DEFAULTS === '1') {
-    return false
+export function defaultAppConfigForNewInstall(_env: AppConfigEnv = process.env as AppConfigEnv): AppConfig {
+  return defaultUnconfiguredAppConfig()
+}
+
+/**
+ * Coerce a config read from disk: a retired/unknown `mode` (e.g. a stale `"demo"` from before demo mode
+ * was removed) reads back as `unconfigured` so the app presents the honest "connect a provider" state
+ * rather than an invalid mode. All other fields pass through untouched.
+ */
+function coercePersistedConfig(raw: AppConfig): AppConfig {
+  if ((owlfolioModeValues as readonly string[]).includes(raw.mode)) {
+    return raw
   }
-  return (
-    env.OWLFOLIO_TEST_MODE === 'playwright'
-    || env.VITEST !== undefined
-    || process.env.OWLFOLIO_TEST_MODE === 'playwright'
-    || process.env.VITEST !== undefined
-  )
-}
-
-/**
- * The default config for an install with no config file yet. A REAL fresh install is `unconfigured`
- * (so nothing silently falls through to demo); the TEST path stays `demo` so the existing suite is
- * usable without onboarding. See `shouldUseTestDemoDefault`.
- */
-export function defaultAppConfigForNewInstall(env: AppConfigEnv = process.env as AppConfigEnv): AppConfig {
-  return shouldUseTestDemoDefault(env) ? defaultDemoAppConfig() : defaultUnconfiguredAppConfig()
+  return { ...raw, mode: 'unconfigured' }
 }
 
 type AppConfigStoreOptions = {
@@ -78,7 +68,7 @@ export async function loadAppConfig(options: AppConfigStoreOptions = {}): Promis
   }
 
   const raw = await readFile(configPath, 'utf8')
-  return JSON.parse(raw) as AppConfig
+  return coercePersistedConfig(JSON.parse(raw) as AppConfig)
 }
 
 export async function saveAppConfig(config: AppConfig, options: AppConfigStoreOptions = {}): Promise<void> {

@@ -28,7 +28,6 @@ Useful runtime path overrides:
 ```bash
 OWLFOLIO_PROJECT_DIR=$PWD
 OWLFOLIO_APP_CONFIG_PATH=$PWD/data/app-config.json
-OWLFOLIO_DEMO_LEDGER_PATH=$PWD/data/demo-ledger.sqlite
 OWLFOLIO_PERSONAL_LEDGER_PATH=$PWD/data/personal-ledger.sqlite
 OWLFOLIO_LEDGER_PATH=$PWD/data/owlfolio-ledger.sqlite
 OWLFOLIO_SOURCE_LEDGER_PATH=$PWD/data/source-ledger

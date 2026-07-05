@@ -3,7 +3,6 @@ import { SQLiteEventStore } from '@owlfolio/ledger/sqliteEventStore'
 
 import { UnconfiguredNotice } from '../../components/UnconfiguredNotice'
 import { WatchlistPanel } from '../../components/WatchlistPanel'
-import { getDemoEvents, getDemoMonitorAlerts, getDemoWatchlistItems } from '../../lib/demo'
 import { isUnconfiguredForUser } from '../../lib/modeView'
 import { getOnboardingState } from '../../lib/onboarding'
 import { enrichWatchlistItemsWithVerdict, getAppMonitorAlertsFromStore, getAppWatchlistItemsFromStore, type AppWatchlistItem, type MonitorAlert } from '../../lib/workflow'
@@ -13,12 +12,7 @@ export default async function WatchlistPage() {
   if (isUnconfiguredForUser(state.config)) {
     return <UnconfiguredNotice feature="Watchlist" />
   }
-  const { items: watchlistItems, alerts } = state.config.mode === 'demo'
-    ? {
-        items: enrichWatchlistItemsWithVerdict(await getDemoWatchlistItems(), projectResearchCases(await getDemoEvents())),
-        alerts: await getDemoMonitorAlerts(),
-      }
-    : await loadPersonalWatchlist(state.config.ledger_path)
+  const { items: watchlistItems, alerts } = await loadPersonalWatchlist(state.config.ledger_path)
 
   return (
     <main className="owl-route-frame">

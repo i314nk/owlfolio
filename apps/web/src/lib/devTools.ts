@@ -21,7 +21,6 @@ const DEV_TOOLS_OPT_IN = '1'
  *
  *  - the e2e test harness is driving the app (`OWLFOLIO_TEST_MODE === 'playwright'`); or
  *  - the operator has explicitly opted into dev tools (`OWLFOLIO_DEV_TOOLS === '1'`); or
- *  - the app is in `demo` mode (which is itself test-only / not a production user surface).
  *
  * A plain `personal-local` (or `unconfigured`) environment WITHOUT the dev opt-in returns `false`, so the
  * API route 404s and the UI control renders nothing. This is intentionally distinct from the append-only
@@ -29,7 +28,7 @@ const DEV_TOOLS_OPT_IN = '1'
  */
 export function isResearchResetEnabled({
   env,
-  mode,
+  mode: _mode,
 }: {
   env: DevToolsEnv
   mode: AppConfig['mode']
@@ -42,5 +41,5 @@ export function isResearchResetEnabled({
     return true
   }
 
-  return mode === 'demo'
+  return false
 }

@@ -1,103 +1,16 @@
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it } from 'vitest'
 
-import * as researchCaseTimelineProjection from '@owlfolio/ledger/projections/researchCaseTimelineProjection'
 import type { ResearchCaseAdmitRecommendationProjection } from '@owlfolio/ledger/projections/researchCaseProjection'
 import { SQLiteEventStore } from '@owlfolio/ledger/sqliteEventStore'
 import { buildPositionPlan } from '../../lib/positionPlan'
-import { CommandCenter } from '../CommandCenter'
 import { PortfolioPanel } from '../PortfolioPanel'
 import { ResearchCasePanel } from '../ResearchCasePanel'
 import { WatchlistPanel } from '../WatchlistPanel'
 import { getAppWatchlistItemsFromStore, type AppResearchCase, type AppWatchlistItem, type MonitorAlert } from '../../lib/workflow'
-import {
-  getDemoCommandCenterFromStore,
-  getDemoResearchCaseFromStore,
-  getDemoWatchlistItemsFromStore,
-  seedDemoLedger,
-} from '../../lib/demo'
-
-async function withSeededStore<T>(fn: (store: SQLiteEventStore) => Promise<T>): Promise<T> {
-  const store = new SQLiteEventStore()
-  try {
-    await seedDemoLedger(store)
-    return await fn(store)
-  } finally {
-    store.close()
-  }
-}
 
 describe('research and watchlist workflow pages', () => {
-  it('renders a complete demo research case with gates, sources, and next action', async () => {
-    const timelineSpy = vi.spyOn(researchCaseTimelineProjection, 'projectResearchCaseTimeline')
-
-    await withSeededStore(async (store) => {
-      const researchCase = await getDemoResearchCaseFromStore(store, 'rc_cost_001')
-
-      expect(researchCase.ledger_timeline.map((entry) => entry.event_type)).toEqual([
-        'research_case_created',
-        'buffett_munger_analysis_drafted',
-        'decision_drafted',
-        'watchlist_draft_created',
-      ])
-      expect(researchCase.ledger_timeline[1]).toMatchObject({
-        actor_label: 'provider:mock-provider',
-        summary: 'WATCH / CONDITIONAL / Shariah COMPLIANT',
-      })
-      expect(researchCase.source_ids).toContain('src_cost_10k_2025')
-      expect(timelineSpy).toHaveBeenCalledTimes(1)
-
-      const html = renderToStaticMarkup(createElement(ResearchCasePanel, { researchCase }))
-
-      expect(html).toContain('COST')
-      expect(html).toContain('Research dossier')
-      expect(html).toContain('Verdict summary')
-      expect(html).toContain('WATCH')
-      // Valuation / Shariah / verdict now surface as the verdict-summary bullet list (the hero chips and the
-      // per-dimension cards were removed — findings live only in the specialist lanes).
-      expect(html).toContain('Valuation')
-      // The valuation bullet lowercases the status (e.g. "fair"); Shariah keeps its raw status.
-      expect(html.toLowerCase()).toContain('fair')
-      expect(html).toContain('COMPLIANT')
-      expect(html).toContain('class="owl-source-chip')
-      expect(html).toContain('src_cost_10k_2025')
-      expect(html).toContain('Ledger timeline')
-      expect(html).toContain('Review COST research case and confirm the watchlist draft')
-      expect(html).not.toContain('#ecfdf5')
-      expect(html).not.toContain('#f0fdf4')
-      expect(html).not.toContain('#047857')
-    })
-  })
-
-  it('renders draft watchlist state before user confirmation', async () => {
-    await withSeededStore(async (store) => {
-      const watchlistItems = await getDemoWatchlistItemsFromStore(store)
-
-      const html = renderToStaticMarkup(createElement(WatchlistPanel, { items: watchlistItems }))
-
-      expect(html).toContain('Watchlist')
-      expect(html).toContain('COST')
-      expect(html).toContain('buffett-munger')
-      expect(html).toContain('Durable quality compounder; wait for the market-implied growth to fall below the sustainable band.')
-      expect(html).toContain('Buy-zone status')
-      expect(html).toContain('Not set')
-      expect(html).toContain('Provider draft state')
-      expect(html).toContain('Created by actor')
-      expect(html).toContain('user:user_local')
-      expect(html).toContain('Last updated')
-      expect(html).toContain('2026-05-27T00:03:00.000Z')
-      expect(html).toContain('User decision checkpoint')
-      expect(html).toContain('Research case link')
-      expect(html).toContain('href="/research/rc_cost_001"')
-      expect(html).toContain('View research dossier')
-      // Phase 8 S4: admission is one gated step, so a bare unconfirmed item is only a legacy artifact.
-      expect(html).toContain('Legacy unconfirmed draft')
-      expect(html).not.toContain('#ecfdf5')
-      expect(html).not.toContain('#047857')
-    })
-  })
-
   it('no longer renders a separate watchlist confirmation action (Phase 8 S4: admission is one gated step)', () => {
     const draftItem: AppWatchlistItem = {
       watchlist_item_id: 'watch_msft_001',
@@ -116,10 +29,6 @@ describe('research and watchlist workflow pages', () => {
       items: [draftItem],
       mode: 'personal-local',
     }))
-    const demoDraftHtml = renderToStaticMarkup(createElement(WatchlistPanel, {
-      items: [draftItem],
-      mode: 'demo',
-    }))
     const personalConfirmedHtml = renderToStaticMarkup(createElement(WatchlistPanel, {
       items: [{
         ...draftItem,
@@ -134,8 +43,6 @@ describe('research and watchlist workflow pages', () => {
     // admission lands the item user-confirmed in one gated step (signed thesis + checklist + Shariah).
     expect(personalDraftHtml).not.toContain('/api/watchlist/watch_msft_001/confirm')
     expect(personalDraftHtml).not.toContain('Confirm watchlist draft')
-    expect(demoDraftHtml).not.toContain('Confirm watchlist draft')
-    expect(demoDraftHtml).not.toContain('/api/watchlist/watch_msft_001/confirm')
     expect(personalConfirmedHtml).toContain('User confirmed')
     expect(personalConfirmedHtml).not.toContain('Confirm watchlist draft')
     expect(personalConfirmedHtml).not.toContain('/api/watchlist/watch_msft_001/confirm')
@@ -267,10 +174,6 @@ describe('research and watchlist workflow pages', () => {
       items: [confirmedItem],
       mode: 'personal-local',
     }))
-    const demoConfirmedHtml = renderToStaticMarkup(createElement(WatchlistPanel, {
-      items: [confirmedItem],
-      mode: 'demo',
-    }))
     const { confirmed_by_actor_type: _confirmedByActorType, confirmed_by_actor_id: _confirmedByActorId, ...draftItem } = confirmedItem
     const personalDraftHtml = renderToStaticMarkup(createElement(WatchlistPanel, {
       items: [{ ...draftItem, user_approved: false }],
@@ -291,8 +194,6 @@ describe('research and watchlist workflow pages', () => {
     expect(personalConfirmedHtml).toContain('name="opened_at"')
     expect(personalConfirmedHtml).toContain('background:var(--owl-color-panel-elevated)')
     expect(personalConfirmedHtml).toContain('color:#f7f8ff')
-    expect(demoConfirmedHtml).not.toContain('Record initial holding')
-    expect(demoConfirmedHtml).not.toContain('/api/watchlist/watch_msft_001/open-holding')
     expect(personalDraftHtml).not.toContain('Record initial holding')
     expect(personalDraftHtml).not.toContain('/api/watchlist/watch_msft_001/open-holding')
     expect(personalHeldHtml).toContain('Holding recorded')
@@ -612,18 +513,12 @@ describe('research and watchlist workflow pages', () => {
       researchCase: decisionDraftedResearchCase,
       mode: 'personal-local',
     }))
-    const demoHtml = renderToStaticMarkup(createElement(ResearchCasePanel, {
-      researchCase: decisionDraftedResearchCase,
-      mode: 'demo',
-    }))
 
     expect(personalHtml).toContain('action="/api/research/rc_msft_001/watchlist"')
     expect(personalHtml).toContain('method="post"')
     expect(personalHtml).toContain('Promote to watchlist')
     expect(personalHtml).toContain('color:var(--owl-color-gold-bright)')
     expect(personalHtml).not.toContain('color:#3730a3')
-    expect(demoHtml).not.toContain('Promote to watchlist')
-    expect(demoHtml).not.toContain('/api/research/rc_msft_001/watchlist')
 
     // Review-and-promote control: the dossier above is the analysis; the control is a single explicit
     // "Promote to watchlist" button. There is NO thesis textarea, NO checklist fieldsets, NO cognitive ack.
@@ -1005,18 +900,6 @@ describe('research and watchlist workflow pages', () => {
     expect(blockedHoldingHtml).toContain('non_compliant_income_ratio')
   })
 
-  it('links the command center to the demo research case and watchlist', async () => {
-    await withSeededStore(async (store) => {
-      const dashboard = await getDemoCommandCenterFromStore(store)
-      const html = renderToStaticMarkup(createElement(CommandCenter, { dashboard }))
-
-      expect(html).toContain('href="/research/rc_cost_001"')
-      expect(html).toContain('View demo research case')
-      expect(html).toContain('href="/watchlist"')
-      expect(html).toContain('Open watchlist drafts')
-    })
-  })
-
   function sizeableResearchCase(): AppResearchCase {
     return {
       research_case_id: 'rc_msft_sizeable',
@@ -1307,8 +1190,8 @@ describe('research and watchlist workflow pages', () => {
 
 // ---------------------------------------------------------------------------
 // Defense-in-depth UI honesty: warn when a personal-local dossier was authored by the
-// built-in mock provider instead of the user's configured provider. In demo mode (where
-// mock is the legitimate, expected provider) the banner never shows.
+// built-in mock provider instead of the user's configured provider. When the configured
+// provider IS mock-provider (the internal test/cert provider) the banner never shows.
 // ---------------------------------------------------------------------------
 
 describe('ResearchCasePanel — mock-provider warning banner', () => {
@@ -1354,15 +1237,6 @@ describe('ResearchCasePanel — mock-provider warning banner', () => {
       researchCase: mockAuthoredCase(),
       mode: 'personal-local',
       configuredProviderId: 'mock-provider',
-    }))
-    expect(html).not.toContain('data-testid="mock-provider-warning"')
-  })
-
-  it('hides the warning in demo mode (mock is the legitimate provider there)', () => {
-    const html = renderToStaticMarkup(createElement(ResearchCasePanel, {
-      researchCase: mockAuthoredCase(),
-      mode: 'demo',
-      configuredProviderId: 'openai',
     }))
     expect(html).not.toContain('data-testid="mock-provider-warning"')
   })

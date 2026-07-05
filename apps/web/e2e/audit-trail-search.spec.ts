@@ -9,7 +9,7 @@ type FilterCollisionCheck = {
   actorSelectWidth: number
 }
 
-async function initializeDemoWorkflow(page: Page, request: APIRequestContext): Promise<void> {
+async function initializeWorkflow(page: Page, request: APIRequestContext): Promise<void> {
   await initWorkflow(request)
   await page.goto('/')
   await expect(page).toHaveURL('/')
@@ -71,7 +71,7 @@ test.beforeEach(async ({ request }) => {
 })
 
 test('audit trail command affordance link focuses query search input', async ({ page, request }) => {
-  await initializeDemoWorkflow(page, request)
+  await initializeWorkflow(page, request)
 
   await page
     .getByRole('navigation', { name: /primary owlfolio navigation/i })
@@ -84,7 +84,7 @@ test('audit trail command affordance link focuses query search input', async ({ 
 })
 
 test('audit filters keep actor and related controls from overlapping at desktop width', async ({ page, request }) => {
-  await initializeDemoWorkflow(page, request)
+  await initializeWorkflow(page, request)
   await page.setViewportSize({ width: 1366, height: 900 })
   await page.goto('/audit')
 

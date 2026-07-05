@@ -3,7 +3,6 @@ import { SQLiteEventStore } from '@owlfolio/ledger/sqliteEventStore'
 import { AccountingMonthlyReport } from '../../../components/AccountingMonthlyReport'
 import { UnconfiguredNotice } from '../../../components/UnconfiguredNotice'
 import { buildMonthlyAccountingReport, getAccountingReportFromStore } from '../../../lib/accounting'
-import { getDemoEvents } from '../../../lib/demo'
 import { isUnconfiguredForUser } from '../../../lib/modeView'
 import { getOnboardingState, type OnboardingState } from '../../../lib/onboarding'
 
@@ -27,10 +26,6 @@ export default async function AccountingMonthlyPage() {
 }
 
 async function loadAccountingReport(state: OnboardingState) {
-  if (state.config.mode === 'demo') {
-    return buildMonthlyAccountingReport(await getDemoEvents())
-  }
-
   if (state.config.ledger_path === undefined) {
     return buildMonthlyAccountingReport([])
   }

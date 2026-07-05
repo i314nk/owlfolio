@@ -22,7 +22,7 @@ import type { ProviderOption } from '../lib/providerReadiness'
  */
 
 export type ConnectionOption = {
-  /** Stable card id: 'demo' | 'codex' | 'openrouter' | a direct-API provider id. */
+  /** Stable card id: 'openrouter' | a direct-API provider id. */
   key: string
   provider: ProviderOption
   mode: AppConfig['mode']
@@ -99,21 +99,8 @@ const modelValueStyle: CSSProperties = {
 }
 
 export function buildConnectionOptions(providerOptions: ProviderOption[]): ConnectionOption[] {
-  const mockProvider = providerOptions.find((provider) => provider.provider_id === 'mock-provider')
   const openRouterProvider = providerOptions.find((provider) => provider.provider_surface_id === 'openrouter-api' || provider.provider_id === 'openrouter')
   const options: ConnectionOption[] = []
-
-  if (mockProvider !== undefined) {
-    options.push({
-      key: 'demo',
-      provider: mockProvider,
-      mode: 'demo',
-      title: 'Try demo mode',
-      badge: 'Demo',
-      description: 'Open a safe sample workspace with local mock data. No account is required.',
-      modelChoice: 'fixed',
-    })
-  }
 
   if (openRouterProvider !== undefined) {
     options.push({
@@ -180,7 +167,7 @@ export function providerModeForOption(
     return 'personal-local'
   }
 
-  return allowAdvancedPersonalMockProvider ? currentMode : 'demo'
+  return allowAdvancedPersonalMockProvider ? currentMode : 'personal-local'
 }
 
 /**
@@ -315,7 +302,7 @@ export function renderModelSelection(
   onSelectModel: (provider: ProviderOption, modelId: string) => void,
   openRouterModels: OpenRouterCatalogModel[] = [],
 ) {
-  if (selectedConnection === undefined || selectedConnection.mode === 'demo') {
+  if (selectedConnection === undefined) {
     return null
   }
 

@@ -17,7 +17,6 @@ export const ACTIVE_MODE_FIX_HREF = '/settings/providers'
 
 export type ActiveModeStatusKind =
   | 'unconfigured'
-  | 'demo'
   | 'provider-not-connected'
   | 'capital-not-set'
   | 'ready'
@@ -45,13 +44,6 @@ export function selectActiveModeStatus(input: ActiveModeStatusInput): ActiveMode
       kind: 'unconfigured',
       label: 'No provider configured',
       href: ACTIVE_MODE_FIX_HREF,
-    }
-  }
-
-  if (input.mode === 'demo') {
-    return {
-      kind: 'demo',
-      label: 'Demo · mock-provider (sample data)',
     }
   }
 

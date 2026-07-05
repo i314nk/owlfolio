@@ -1,7 +1,7 @@
 import { createElement } from 'react'
 
 import { CommandCenter } from '../components/CommandCenter'
-import { getSetupAwareCommandCenter } from '../lib/demo'
+import { getSetupAwareCommandCenter } from '../lib/commandCenter'
 import { getOnboardingState } from '../lib/onboarding'
 
 export default async function HomePage() {

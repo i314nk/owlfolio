@@ -7,7 +7,6 @@ import {
   DEFAULT_CIRCLE_OF_COMPETENCE,
   defaultAutomationSettings,
   defaultCircleOfCompetenceConfig,
-  defaultDemoAppConfig,
   defaultPersonalLocalAppConfig,
   defaultUnconfiguredAppConfig,
   owlfolioModeValues,
@@ -20,12 +19,12 @@ import {
   mergeSavingsSleeveConfig,
 } from '../appConfig'
 
-describe('three-state mode model', () => {
-  it('includes unconfigured as an explicit enum member alongside demo and personal-local', () => {
-    expect(owlfolioModeValues).toEqual(['unconfigured', 'demo', 'personal-local'])
+describe('two-state mode model', () => {
+  it('includes unconfigured as an explicit enum member alongside personal-local', () => {
+    expect(owlfolioModeValues).toEqual(['unconfigured', 'personal-local'])
   })
 
-  it('defaultUnconfiguredAppConfig is an explicit unconfigured config that never carries demo seed state', () => {
+  it('defaultUnconfiguredAppConfig is an explicit unconfigured config that points at no ledger', () => {
     const config = defaultUnconfiguredAppConfig()
     expect(config.mode).toBe('unconfigured')
     // Unconfigured must not be initialized or point at any ledger.
@@ -37,8 +36,7 @@ describe('three-state mode model', () => {
     expect(config.shariah.enabled).toBe(true)
   })
 
-  it('demo and personal-local defaults keep their explicit modes', () => {
-    expect(defaultDemoAppConfig().mode).toBe('demo')
+  it('defaultPersonalLocalAppConfig keeps its explicit mode', () => {
     expect(defaultPersonalLocalAppConfig().mode).toBe('personal-local')
   })
 })
@@ -301,22 +299,12 @@ describe('mergeCircleOfCompetenceConfig', () => {
   })
 })
 
-describe('defaultDemoAppConfig back-compat', () => {
-  it('includes automation with defaults', () => {
-    const config = defaultDemoAppConfig()
-    expect(config.automation).toEqual(defaultAutomationSettings())
-  })
-
-  it('includes a permissive circle_of_competence by default', () => {
-    const config = defaultDemoAppConfig()
-    expect(config.circle_of_competence).toEqual(defaultCircleOfCompetenceConfig())
-  })
-
+describe('legacy config back-compat', () => {
   it('parses correctly when automation is absent (legacy config)', () => {
     // Simulate a legacy config read from disk (no automation field)
     const legacyConfig = {
       version: 1 as const,
-      mode: 'demo' as const,
+      mode: 'personal-local' as const,
       provider: { provider_id: 'mock-provider' as const, support_level: 'certified' as const, model_id: 'mock-buffett-munger-demo' },
       strategy_id: 'buffett-munger' as const,
       shariah: { enabled: true, policy_basis: 'AAOIFI' as const, allow_conditional: true, non_compliant_income_threshold: 0.05 },
@@ -453,16 +441,11 @@ describe('mergeSavingsSleeveConfig', () => {
 })
 
 describe('app config defaults include the savings sleeve', () => {
-  it('demo config carries the default savings sleeve', () => {
-    expect(defaultDemoAppConfig().savings).toEqual(defaultSavingsSleeveConfig())
-  })
-
   it('personal-local config carries the default savings sleeve', () => {
     expect(defaultPersonalLocalAppConfig().savings).toEqual(defaultSavingsSleeveConfig())
   })
 
   it('leaves version unchanged at 1 (additive field, no migration)', () => {
-    expect(defaultDemoAppConfig().version).toBe(1)
     expect(defaultPersonalLocalAppConfig().version).toBe(1)
   })
 })

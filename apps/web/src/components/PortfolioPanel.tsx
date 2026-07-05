@@ -104,7 +104,7 @@ const decisionQuickLinkStyle = {
  * Returns a Fragment so each section is a direct child of the route frame and
  * inherits the app's staggered reveal.
  */
-export function PortfolioPanel({ holdings, mode = 'demo', valuationRefresh, investableCapital, alerts = [] }: PortfolioPanelProps) {
+export function PortfolioPanel({ holdings, mode = 'personal-local', valuationRefresh, investableCapital, alerts = [] }: PortfolioPanelProps) {
   const totalCostBasis = holdings.reduce((sum, holding) => sum + holding.total_cost_basis, 0)
   const totalCurrentValue = holdings.reduce((sum, holding) => sum + (holding.latest_market_value ?? 0), 0)
 

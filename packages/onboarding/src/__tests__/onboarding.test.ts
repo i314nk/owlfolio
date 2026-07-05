@@ -5,7 +5,6 @@ import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
 import { SQLiteEventStore } from '@owlfolio/ledger/sqliteEventStore'
-import { getDemoSeedEvents } from '../demoSeed'
 import { getOnboardingState, initializeSelectedMode, resetOnboardingRuntime, switchMode, updateOnboardingConfig } from '../onboarding'
 
 describe('onboarding helpers', () => {
@@ -22,7 +21,7 @@ describe('onboarding helpers', () => {
     await withTempProject(async (projectDir) => {
       const state = await getOnboardingState({ env: { OWLFOLIO_PROJECT_DIR: projectDir } })
 
-      expect(state.config.mode).toBe('demo')
+      expect(state.config.mode).toBe('unconfigured')
       expect(state.config.provider.provider_id).toBe('mock-provider')
       expect(state.is_initialized).toBe(false)
     })
@@ -82,51 +81,7 @@ describe('onboarding helpers', () => {
     })
   })
 
-  it('initializes demo mode with seeded durable ledger events', async () => {
-    await withTempProject(async (projectDir) => {
-      const updated = await initializeSelectedMode(
-        {
-          mode: 'demo',
-          provider: { provider_id: 'mock-provider', support_level: 'certified', model_id: 'mock-buffett-munger-demo' },
-        },
-        { env: { OWLFOLIO_PROJECT_DIR: projectDir } },
-      )
-
-      expect(updated.mode).toBe('demo')
-      expect(updated.ledger_path).toBeDefined()
-      expect(updated.source_ledger_path).toBe(join(projectDir, 'data', 'source-ledger'))
-      expect(updated.initialized_at).toBeDefined()
-
-      const store = new SQLiteEventStore(updated.ledger_path!)
-      try {
-        const events = await store.list()
-        expect(events).toHaveLength(getDemoSeedEvents().length)
-      } finally {
-        store.close()
-      }
-    })
-  })
-
-  it('refuses to initialize demo mode outside test mode', async () => {
-    await withTempProject(async (projectDir) => {
-      await expect(
-        initializeSelectedMode(
-          { mode: 'demo', provider: { provider_id: 'mock-provider', support_level: 'certified', model_id: 'mock-buffett-munger-demo' } },
-          { env: { OWLFOLIO_PROJECT_DIR: projectDir, OWLFOLIO_DISABLE_TEST_DEFAULTS: '1' } },
-        ),
-      ).rejects.toThrow(/Demo mode is retired in production/)
-    })
-  })
-
-  it('refuses to switch into demo mode outside test mode', async () => {
-    await withTempProject(async (projectDir) => {
-      await expect(
-        switchMode('demo', { env: { OWLFOLIO_PROJECT_DIR: projectDir, OWLFOLIO_DISABLE_TEST_DEFAULTS: '1' } }),
-      ).rejects.toThrow(/Demo mode is retired in production/)
-    })
-  })
-
-  it('still allows personal-local init and switch outside test mode', async () => {
+  it('allows personal-local init and switch back to unconfigured', async () => {
     await withTempProject(async (projectDir) => {
       const env = { OWLFOLIO_PROJECT_DIR: projectDir, OWLFOLIO_DISABLE_TEST_DEFAULTS: '1' }
       const initialized = await initializeSelectedMode(
@@ -185,7 +140,7 @@ describe('onboarding helpers', () => {
     })
   })
 
-  it('re-init (switchMode) is idempotent and non-destructive across demo↔personal-local re-entry', async () => {
+  it('re-init (switchMode) is idempotent and non-destructive across unconfigured↔personal-local re-entry', async () => {
     await withTempProject(async (projectDir) => {
       const env = { OWLFOLIO_PROJECT_DIR: projectDir }
 
@@ -226,13 +181,12 @@ describe('onboarding helpers', () => {
       }
       expect(await countEvents(personalLedgerPath)).toBe(1)
 
-      // Switch personal → demo: must NOT wipe/re-seed the personal ledger, points at the demo ledger.
-      const demoConfig = await switchMode('demo', { env })
-      expect(demoConfig.mode).toBe('demo')
-      expect(demoConfig.ledger_path).not.toBe(personalLedgerPath)
-      expect(await countEvents(personalLedgerPath)).toBe(1) // personal events preserved
+      // Switch personal → unconfigured: unconfigured carries no ledger, and must NOT wipe the personal ledger.
+      const unconfiguredConfig = await switchMode('unconfigured', { env })
+      expect(unconfiguredConfig.mode).toBe('unconfigured')
+      expect(await countEvents(personalLedgerPath)).toBe(1) // personal events preserved on disk
 
-      // Switch demo → personal: personal ledger + its event survive untouched, timestamp unchanged.
+      // Switch unconfigured → personal: personal ledger + its event survive untouched, timestamp unchanged.
       const backToPersonal = await switchMode('personal-local', { env })
       expect(backToPersonal.mode).toBe('personal-local')
       expect(backToPersonal.ledger_path).toBe(personalLedgerPath)
@@ -240,23 +194,23 @@ describe('onboarding helpers', () => {
       expect(await countEvents(personalLedgerPath)).toBe(1)
 
       // Round-trip again to be sure re-entry is repeatable.
-      await switchMode('demo', { env })
+      await switchMode('unconfigured', { env })
       const finalPersonal = await switchMode('personal-local', { env })
       expect(await countEvents(personalLedgerPath)).toBe(1)
       expect(finalPersonal.initialized_at).toBe(personalInitializedAt)
     })
   })
 
-  it('re-selecting the current mode appends nothing, re-seeds nothing, and leaves initialized_at unchanged', async () => {
+  it('re-selecting the current mode appends nothing and leaves initialized_at unchanged', async () => {
     await withTempProject(async (projectDir) => {
       const env = { OWLFOLIO_PROJECT_DIR: projectDir }
 
-      const demoConfig = await initializeSelectedMode(
-        { mode: 'demo', provider: { provider_id: 'mock-provider', support_level: 'certified', model_id: 'mock-buffett-munger-demo' } },
+      const personalConfig = await initializeSelectedMode(
+        { mode: 'personal-local', provider: { provider_id: 'openrouter', support_level: 'certified' } },
         { env },
       )
-      const demoLedgerPath = demoConfig.ledger_path!
-      const demoInitializedAt = demoConfig.initialized_at!
+      const personalLedgerPath = personalConfig.ledger_path!
+      const personalInitializedAt = personalConfig.initialized_at!
 
       const countEvents = async (path: string): Promise<number> => {
         const store = new SQLiteEventStore(path)
@@ -266,15 +220,14 @@ describe('onboarding helpers', () => {
           store.close()
         }
       }
-      const seededCount = await countEvents(demoLedgerPath)
-      expect(seededCount).toBe(getDemoSeedEvents().length)
+      expect(await countEvents(personalLedgerPath)).toBe(0) // personal-local starts empty
 
-      // Re-selecting the SAME mode must be a no-op: no extra events, no duplicate seed, same timestamp.
-      const reselected = await switchMode('demo', { env })
-      expect(reselected.mode).toBe('demo')
-      expect(reselected.initialized_at).toBe(demoInitializedAt)
-      expect(reselected.ledger_path).toBe(demoLedgerPath)
-      expect(await countEvents(demoLedgerPath)).toBe(seededCount) // seed not re-applied / duplicated
+      // Re-selecting the SAME mode must be a no-op: no extra events, same timestamp/ledger.
+      const reselected = await switchMode('personal-local', { env })
+      expect(reselected.mode).toBe('personal-local')
+      expect(reselected.initialized_at).toBe(personalInitializedAt)
+      expect(reselected.ledger_path).toBe(personalLedgerPath)
+      expect(await countEvents(personalLedgerPath)).toBe(0)
     })
   })
 
@@ -282,8 +235,8 @@ describe('onboarding helpers', () => {
     await withTempProject(async (projectDir) => {
       await initializeSelectedMode(
         {
-          mode: 'demo',
-          provider: { provider_id: 'mock-provider', support_level: 'certified', model_id: 'mock-buffett-munger-demo' },
+          mode: 'personal-local',
+          provider: { provider_id: 'openrouter', support_level: 'certified' },
         },
         { env: { OWLFOLIO_PROJECT_DIR: projectDir } },
       )
@@ -291,7 +244,7 @@ describe('onboarding helpers', () => {
       await resetOnboardingRuntime({ env: { OWLFOLIO_PROJECT_DIR: projectDir } })
 
       const state = await getOnboardingState({ env: { OWLFOLIO_PROJECT_DIR: projectDir } })
-      expect(state.config.mode).toBe('demo')
+      expect(state.config.mode).toBe('unconfigured')
       expect(state.is_initialized).toBe(false)
       expect(state.config.ledger_path).toBeUndefined()
       expect(state.config.source_ledger_path).toBeUndefined()

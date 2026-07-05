@@ -59,7 +59,7 @@ function bandFor(item: AppWatchlistItem): VerdictBand {
   return 'UNCLASSIFIED'
 }
 
-export function WatchlistPanel({ items, mode = 'demo', alerts = [] }: WatchlistPanelProps) {
+export function WatchlistPanel({ items, mode = 'personal-local', alerts = [] }: WatchlistPanelProps) {
   const sectionsForBand = (band: VerdictBand) => {
     const bandItems = items.filter((item) => bandFor(item) === band)
     if (bandItems.length === 0) {

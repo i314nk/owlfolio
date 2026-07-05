@@ -3,7 +3,6 @@ import { SQLiteEventStore } from '@owlfolio/ledger/sqliteEventStore'
 
 import { LifecyclePanel } from '../../components/LifecyclePanel'
 import { UnconfiguredNotice } from '../../components/UnconfiguredNotice'
-import { getDemoEvents } from '../../lib/demo'
 import { isUnconfiguredForUser } from '../../lib/modeView'
 import { getOnboardingState } from '../../lib/onboarding'
 
@@ -12,9 +11,7 @@ export default async function LifecyclePage() {
   if (isUnconfiguredForUser(state.config)) {
     return <UnconfiguredNotice feature="Lifecycle" />
   }
-  const names = state.config.mode === 'demo'
-    ? projectNameLifecycle(await getDemoEvents())
-    : await loadPersonalLifecycle(state.config.ledger_path)
+  const names = await loadPersonalLifecycle(state.config.ledger_path)
 
   return (
     <main className="owl-route-frame">

@@ -7,7 +7,6 @@ import {
   type AuditActivityFilters,
   type AuditCaseGroup,
 } from '../lib/audit'
-import type { WorkflowMode } from '../lib/workflow'
 import { RouteHeader } from './designSystem'
 
 // ── Inline styles for surfaces that have no shared class yet ──────────────────
@@ -214,7 +213,6 @@ const ACTOR_BADGE_STYLES: Record<ActorCategory, CSSProperties> = {
 type AuditActivityPanelProps = {
   events: AuditActivityEvent[]
   filters?: AuditActivityFilters
-  mode: WorkflowMode
 }
 
 /**
@@ -225,8 +223,8 @@ type AuditActivityPanelProps = {
  * fiduciary ledger. Leads with the summary, keeps the powerful filters but
  * presents them cleanly, then renders events grouped by research case.
  */
-export function AuditActivityPanel({ events, filters = {}, mode }: AuditActivityPanelProps) {
-  const ledger = mode === 'demo' ? 'Demo ledger event stream' : 'Personal local ledger event stream'
+export function AuditActivityPanel({ events, filters = {} }: AuditActivityPanelProps) {
+  const ledger = 'Personal local ledger event stream'
   const view = deriveAuditActivityView(events, filters)
 
   return createElement(

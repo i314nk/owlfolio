@@ -10,7 +10,7 @@ describe('UnconfiguredNotice', () => {
 
     // It names the gated feature and explains nothing is set up yet.
     expect(html).toContain('Watchlist')
-    expect(html).toContain('Choose a mode to begin')
+    expect(html).toContain('Connect a provider to begin')
     // It steers toward provider/onboarding setup — NEVER demo data.
     expect(html).toContain('href="/settings/providers"')
     // It must not pretend there is data: no demo seed labels.

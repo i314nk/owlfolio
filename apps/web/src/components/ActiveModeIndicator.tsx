@@ -29,8 +29,7 @@ export function ActiveModeIndicator({ status, modelSwitcher }: ActiveModeIndicat
   }
 
   const isReady = status.kind === 'ready'
-  const isDemo = status.kind === 'demo'
-  const tone = isReady ? 'ready' : isDemo ? 'demo' : 'attention'
+  const tone = isReady ? 'ready' : 'attention'
 
   const content = createElement('span', { className: 'owl-active-mode-label' }, status.label)
 

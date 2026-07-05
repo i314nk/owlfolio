@@ -31,15 +31,15 @@ test('programmatic init lands a set-up command center (replaces the wizard start
   await expect(guidedSetup.getByRole('heading', { name: /choose a provider and model/i })).toBeVisible()
 })
 
-test('the provider toggle offers Demo + ChatGPT/Codex + OpenRouter + the direct-API providers', async ({ page }) => {
+test('the provider toggle offers the real providers, and never the internal mock provider', async ({ page }) => {
   await page.goto('/settings/providers')
   const guidedSetup = page.getByRole('region', { name: /guided setup/i })
   const selection = guidedSetup.getByLabel('Provider and model selection', { exact: true })
 
-  // The connection options render as toggle buttons: demo + the local Codex/OpenRouter lanes + the three
-  // direct-API providers (Anthropic / OpenAI / Gemini), each keyed by its own API key.
-  await expect(selection.getByRole('button', { name: /try demo mode/i })).toBeVisible()
-  await expect(selection.getByRole('button', { name: /use chatgpt\/codex/i })).toBeVisible()
+  // The connection options render as toggle buttons: OpenRouter + the three direct-API providers
+  // (Anthropic / OpenAI / Gemini), each keyed by its own API key. The internal mock provider (and the
+  // retired "Try demo mode" card) are NOT offered — demo mode was removed.
+  await expect(selection.getByRole('button', { name: /try demo mode/i })).toHaveCount(0)
   await expect(selection.getByRole('button', { name: /use openrouter/i })).toBeVisible()
   await expect(selection.getByRole('button', { name: /use anthropic \(claude\)/i })).toBeVisible()
   await expect(selection.getByRole('button', { name: /use openai \(api key\)/i })).toBeVisible()
@@ -48,15 +48,12 @@ test('the provider toggle offers Demo + ChatGPT/Codex + OpenRouter + the direct-
   await expect(selection.getByRole('button', { name: /use claude code/i })).toHaveCount(0)
 })
 
-test('OpenRouter and Anthropic show a tier-grouped model dropdown; Codex shows a fixed model', async ({ page }) => {
+test('OpenRouter and Anthropic show a tier-grouped model dropdown', async ({ page }) => {
   await page.goto('/settings/providers')
   const guidedSetup = page.getByRole('region', { name: /guided setup/i })
   const selection = guidedSetup.getByLabel('Provider and model selection', { exact: true })
 
-  // Codex: fixed model, no chooser.
-  await selection.getByRole('button', { name: /use chatgpt\/codex/i }).click()
-  await expect(guidedSetup.getByLabel('Fixed model')).toContainText('gpt-5.5')
-  await expect(guidedSetup.getByRole('combobox', { name: /choose one model/i })).toHaveCount(0)
+  // (The Codex/ChatGPT CLI connection lane was retired — it is no longer a connection card.)
 
   // OpenRouter: tier-grouped dropdown with all curated options.
   await selection.getByRole('button', { name: /use openrouter/i }).click()

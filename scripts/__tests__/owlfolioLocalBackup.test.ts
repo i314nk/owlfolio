@@ -48,7 +48,6 @@ describe('Owlfolio local backup runtime inventory', () => {
       env: {
         OWLFOLIO_PROJECT_DIR: projectDir,
         OWLFOLIO_APP_CONFIG_PATH: configPath,
-        OWLFOLIO_DEMO_LEDGER_PATH: join(projectDir, 'env-ledgers', 'demo.sqlite'),
         OWLFOLIO_PERSONAL_LEDGER_PATH: join(projectDir, 'env-ledgers', 'personal.sqlite'),
         OWLFOLIO_LEDGER_PATH: join(projectDir, 'env-ledgers', 'worker.sqlite'),
         OWLFOLIO_SOURCE_LEDGER_PATH: join(projectDir, 'env-source-ledger'),
@@ -59,7 +58,6 @@ describe('Owlfolio local backup runtime inventory', () => {
     expect(inventory.project_dir).toBe(projectDir)
     expect(inventory.included_entries.map((entry) => [entry.role, entry.absolute_path])).toEqual([
       ['app_config', configPath],
-      ['demo_ledger', join(projectDir, 'env-ledgers', 'demo.sqlite')],
       ['personal_ledger', join(projectDir, 'env-ledgers', 'personal.sqlite')],
       ['worker_ledger', join(projectDir, 'env-ledgers', 'worker.sqlite')],
       ['source_ledger', join(projectDir, 'env-source-ledger')],

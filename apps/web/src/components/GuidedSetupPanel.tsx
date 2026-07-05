@@ -49,7 +49,7 @@ const subtleTextStyle: CSSProperties = {
   margin: 0,
 }
 
-type SwitchableMode = Extract<AppConfig['mode'], 'demo' | 'personal-local'>
+type SwitchableMode = Extract<AppConfig['mode'], 'personal-local'>
 
 export function GuidedSetupPanel({ initialConfig, initialIsInitialized, providerOptions, openRouterModels = [] }: GuidedSetupPanelProps) {
   const [config, setConfig] = useState<AppConfig>(initialConfig)
@@ -84,11 +84,7 @@ export function GuidedSetupPanel({ initialConfig, initialIsInitialized, provider
   }
 
   function onSelectConnection(option: ConnectionOption) {
-    // Demo card → switch to demo mode; any real connection → personal-local + provider/model selection.
-    if (option.mode === 'demo') {
-      void switchToMode('demo')
-      return
-    }
+    // Any connection → personal-local + provider/model selection.
     const provider = providerSelectionForConnection(config.provider, option)
     setConfig((current) => ({ ...current, provider }))
     void switchToMode('personal-local').then(() => persistConfig(provider))

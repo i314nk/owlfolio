@@ -206,7 +206,6 @@ describe('generic audit activity', () => {
         sourceId: 'evt_source',
         timeOrder: 'desc',
       },
-      mode: 'personal-local',
     }))
 
     expect(html).toContain('Audit activity')

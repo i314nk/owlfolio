@@ -1294,8 +1294,8 @@ describe('workflow helpers', () => {
     }
   })
 
-  it('keeps demo mode routed through the seeded demo loaders', () => {
-    expect(resolveActiveWorkflowMode({ mode: 'demo' })).toBe('demo')
+  it('passes the config mode through as the active workflow mode', () => {
+    expect(resolveActiveWorkflowMode({ mode: 'unconfigured' })).toBe('unconfigured')
     expect(resolveActiveWorkflowMode({ mode: 'personal-local' })).toBe('personal-local')
   })
 
