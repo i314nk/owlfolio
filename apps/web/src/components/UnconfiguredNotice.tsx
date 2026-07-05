@@ -8,10 +8,10 @@ export type UnconfiguredNoticeProps = {
 }
 
 /**
- * The first-class "choose a mode to begin" state for an UNCONFIGURED app (the explicit three-state
- * default). It NEVER renders demo data and NEVER a misleading empty configured-workflow view — it
- * steers the user to pick a mode via provider/onboarding setup. Rendered by every mode-branching page
- * before it would otherwise fall through to demo or empty-personal data.
+ * The first-class "connect a provider to begin" state for an UNCONFIGURED app. It NEVER renders a
+ * misleading empty configured-workflow view — it steers the user to set up a personal-local workflow
+ * via provider/onboarding setup. Rendered by every gated page before it would otherwise fall through
+ * to empty-personal data.
  */
 export function UnconfiguredNotice({ feature }: UnconfiguredNoticeProps) {
   return createElement(
@@ -24,14 +24,14 @@ export function UnconfiguredNotice({ feature }: UnconfiguredNoticeProps) {
     ),
     createElement(RouteHeader, {
       kicker: 'Owlfolio',
-      title: `${feature} — choose a mode to begin`,
+      title: `${feature} — connect a provider to begin`,
       description:
-        'This workspace is not set up yet. Choose a mode to begin: explore with demo data, or set up a personal-local workflow. Until then, Owlfolio will not show demo data here.',
+        'This workspace is not set up yet. Connect a provider to set up a personal-local workflow. Until then, Owlfolio will not show any data here.',
     }),
     createElement(EmptyState, {
-      title: 'Choose a mode to begin',
+      title: 'Connect a provider to begin',
       description:
-        'Start setup to pick demo mode or a personal-local workflow. Review provider readiness first if you want to connect a local AI assistant.',
+        'Start setup to configure a personal-local workflow. Review provider readiness first if you want to connect a local AI assistant.',
       primaryAction: createElement(OwlButtonLink, { href: '/settings/providers' }, 'Continue setup'),
     }),
   )

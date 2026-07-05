@@ -3,7 +3,6 @@ import { SQLiteEventStore } from '@owlfolio/ledger/sqliteEventStore'
 import { PurificationReport } from '../../components/PurificationReport'
 import { UnconfiguredNotice } from '../../components/UnconfiguredNotice'
 import { buildPurificationReport, getPurificationReportFromStore } from '../../lib/purification'
-import { getDemoEvents } from '../../lib/demo'
 import { isUnconfiguredForUser } from '../../lib/modeView'
 import { getOnboardingState, type OnboardingState } from '../../lib/onboarding'
 
@@ -27,10 +26,6 @@ export default async function PurificationPage() {
 }
 
 async function loadPurificationReport(state: OnboardingState) {
-  if (state.config.mode === 'demo') {
-    return buildPurificationReport(await getDemoEvents())
-  }
-
   if (state.config.ledger_path === undefined) {
     return buildPurificationReport([])
   }

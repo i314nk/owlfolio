@@ -39,8 +39,8 @@ describe('resolveModelSwitcher', () => {
     expect((openrouter?.models.length ?? 0)).toBeGreaterThanOrEqual(2)
   })
 
-  it('returns undefined in demo mode (the switcher is a personal-local affordance)', async () => {
-    const config: AppConfig = { ...defaultPersonalLocalAppConfig(), mode: 'demo' }
+  it('returns undefined for a non-personal-local mode (the switcher is a personal-local affordance)', async () => {
+    const config: AppConfig = { ...defaultPersonalLocalAppConfig(), mode: 'unconfigured' }
     expect(await resolveModelSwitcher(config, { OPENROUTER_API_KEY: 'or-key', ANTHROPIC_API_KEY: 'an-key' })).toBeUndefined()
   })
 

@@ -48,7 +48,7 @@ const drillDown: PipelineDrillDown = {
 describe('PipelineObservatory', () => {
   it('renders KPIs, flow map, runs table and drill-down', () => {
     const html = renderToStaticMarkup(
-      createElement(PipelineObservatory, { pipeline, drillDown, selectedCaseId: 'rc-msft', mode: 'demo' }),
+      createElement(PipelineObservatory, { pipeline, drillDown, selectedCaseId: 'rc-msft', mode: 'personal-local' }),
     )
     expect(html).toContain('Strategy pipeline observatory')
     expect(html).toContain('Active runs')
@@ -65,7 +65,7 @@ describe('PipelineObservatory', () => {
 
   it('renders distinct verdict-state badges (TOO-HARD / GATED / WATCH-FAIR) and a red-team step slot', () => {
     const html = renderToStaticMarkup(
-      createElement(PipelineObservatory, { pipeline, drillDown, selectedCaseId: 'rc-msft', mode: 'demo' }),
+      createElement(PipelineObservatory, { pipeline, drillDown, selectedCaseId: 'rc-msft', mode: 'personal-local' }),
     )
     expect(html).toContain('data-verdict-state="TOO-HARD"')
     expect(html).toContain('data-verdict-state="GATED"')

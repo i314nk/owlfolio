@@ -101,7 +101,6 @@ import {
 } from '@owlfolio/ledger/projections/investableCapitalProjection'
 
 import type { StatusBadgeTone } from '../components/StatusBadge'
-import { getDemoResearchCaseFromStore, getDemoWatchlistItemsFromStore } from './demo'
 import type { OnboardingState } from './onboarding'
 import { buildProviderStatusRows } from './providerStatus'
 import { isResearchResetEnabled, type DevToolsEnv } from './devTools'
@@ -289,8 +288,8 @@ type SpawnWorkerPaths = {
   sourceLedgerPath: string
   /**
    * The app-config file the web app itself resolved. The spawned worker MUST read the same file,
-   * otherwise it falls back to defaultDemoAppConfig() (mode `demo`, provider `mock-provider`) and a
-   * personal-local run silently executes the mock swarm. This is the load-bearing fix.
+   * otherwise it falls back to the unconfigured default (provider `mock-provider`) and a personal-local
+   * run silently executes the mock swarm. This is the load-bearing fix.
    */
   appConfigPath: string
   /** Provider-certification report dir, propagated so the worker's readiness/cert checks match the web app's. */
@@ -627,14 +626,10 @@ export async function archiveAppResearchCase(
 
 export async function getAppResearchCaseFromStore(
   store: EventStore,
-  mode: WorkflowMode,
+  _mode: WorkflowMode,
   caseId: string,
   sourceLedgerPath?: string,
 ): Promise<AppResearchCase> {
-  if (mode === 'demo') {
-    return getDemoResearchCaseFromStore(store, caseId)
-  }
-
   const events = await store.list()
   const researchCase = projectResearchCases(events).find((candidate) => candidate.research_case_id === caseId)
   if (researchCase === undefined) {
@@ -794,25 +789,19 @@ export async function resolveResearchCaseView(
 
 export async function getAppWatchlistItemsFromStore(
   store: EventStore,
-  mode: WorkflowMode,
+  _mode: WorkflowMode,
 ): Promise<AppWatchlistItem[]> {
-  if (mode === 'demo') {
-    return getDemoWatchlistItemsFromStore(store)
-  }
-
   return buildPersonalWatchlistItems(await store.list())
 }
 
 export async function getAppResearchPipelineFromStore(
   store: EventStore,
-  mode: WorkflowMode,
+  _mode: WorkflowMode,
   selectedStrategyId: string,
 ): Promise<AppResearchPipeline> {
   const events = await store.list()
   const researchCases = projectResearchCases(events)
-  const watchlistItems = mode === 'demo'
-    ? await getDemoWatchlistItemsFromStore(store)
-    : buildPersonalWatchlistItems(events)
+  const watchlistItems = buildPersonalWatchlistItems(events)
   const discoveryCandidates = projectDiscoveryCandidates(events)
   const selectedResearchCases = researchCases.filter((researchCase) => belongsToStrategy(researchCase, selectedStrategyId))
   const selectedWatchlistItems = watchlistItems.filter((item) => item.strategy_id === undefined || item.strategy_id === selectedStrategyId)

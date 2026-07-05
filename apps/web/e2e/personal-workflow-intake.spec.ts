@@ -27,10 +27,9 @@ test('personal-local mode can create the first research case from the command ce
 
   await page.goto('/')
   const initialPrimaryNav = page.getByRole('navigation', { name: /primary owlfolio navigation/i })
-  // In playwright test mode the fresh (reset) default is demo mode (mock-provider sample data); the
-  // app-wide workspace indicator shows it as plain text (demo has no fix-link). initWorkflow() below
-  // switches to personal-local.
-  await expect(initialPrimaryNav.getByText(/mock-provider \(sample data\)/i)).toBeVisible()
+  // The fresh (reset) default is now `unconfigured`; the app-wide workspace indicator shows the honest
+  // "no provider configured" state. initWorkflow() below sets up personal-local.
+  await expect(initialPrimaryNav.getByText(/no provider configured/i)).toBeVisible()
 
   // Programmatic init (mock-provider + personal-local) replaces driving the wizard UI. The e2e no longer
   // depends on the wizard to perform setup; the wizard can be deleted in the follow-up slice.
@@ -104,7 +103,9 @@ test('personal-local mode can create the first research case from the command ce
   await expect(page.getByRole('heading', { name: 'MSFT', exact: true })).toBeVisible()
   await expect(page.getByText('Research dossier')).toBeVisible()
   await expect(page.getByText('Verdict summary')).toBeVisible()
-  await expect(page.getByText('WATCH', { exact: true }).first()).toBeVisible()
+  // The verdict now renders as a "Verdict: WATCH" bullet in the (open-by-default) decision panel — the
+  // standalone hero verdict chip was consolidated away, so an exact 'WATCH' text node no longer exists.
+  await expect(page.getByText(/Verdict:\s*WATCH/).first()).toBeVisible()
   await expect(page.getByRole('heading', { name: 'Thesis' })).toBeVisible()
   // The per-dimension valuation/shariah/risks cards were consolidated away; the whole-case thesis is the
   // one home for decision-evidence, and per-dimension findings live in the (collapsed) specialist lanes.

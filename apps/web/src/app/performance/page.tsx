@@ -4,7 +4,6 @@ import type { PerformanceBenchmarkPoint } from '@owlfolio/workflow/performancePr
 
 import { PerformancePanel } from '../../components/PerformancePanel'
 import { UnconfiguredNotice } from '../../components/UnconfiguredNotice'
-import { getDemoEvents } from '../../lib/demo'
 import { isUnconfiguredForUser } from '../../lib/modeView'
 import { getOnboardingState, type OnboardingState } from '../../lib/onboarding'
 import {
@@ -54,10 +53,6 @@ async function loadPerformanceReport(
   state: OnboardingState,
   benchmarkSeries: PerformanceBenchmarkPoint[] | undefined,
 ): Promise<AppPerformanceReport> {
-  if (state.config.mode === 'demo') {
-    return buildPerformanceReport(await getDemoEvents(), benchmarkSeries)
-  }
-
   if (state.config.ledger_path === undefined) {
     return buildPerformanceReport([], benchmarkSeries)
   }

@@ -20,17 +20,6 @@ describe('ActiveModeIndicator', () => {
     expect(html).toContain('data-active-mode-kind="ready"')
   })
 
-  it('renders the demo state as plain text', () => {
-    const html = renderToStaticMarkup(
-      createElement(ActiveModeIndicator, {
-        status: { kind: 'demo', label: 'Demo · mock-provider (sample data)' },
-      }),
-    )
-
-    expect(html).toContain('Demo · mock-provider (sample data)')
-    expect(html).not.toContain('href=')
-  })
-
   it('renders unconfigured as a clickable link to the providers fix page', () => {
     const html = renderToStaticMarkup(
       createElement(ActiveModeIndicator, {

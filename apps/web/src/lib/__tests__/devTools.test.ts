@@ -4,7 +4,7 @@ import { isResearchResetEnabled } from '../devTools'
 
 /**
  * The crux of the safety design: the destructive bulk reset must NOT be enabled in normal personal-local
- * operation, and must be enabled under the test harness, the explicit dev opt-in, or demo mode.
+ * operation, and must be enabled under the test harness or the explicit dev opt-in.
  */
 describe('isResearchResetEnabled', () => {
   it('is FALSE for plain personal-local (no flags) — invisible in normal operation', () => {
@@ -31,9 +31,5 @@ describe('isResearchResetEnabled', () => {
 
   it('is FALSE when OWLFOLIO_TEST_MODE is set to a non-playwright value', () => {
     expect(isResearchResetEnabled({ env: { OWLFOLIO_TEST_MODE: 'vitest' }, mode: 'personal-local' })).toBe(false)
-  })
-
-  it('is TRUE in demo mode (demo is itself test-only, not a production surface)', () => {
-    expect(isResearchResetEnabled({ env: {}, mode: 'demo' })).toBe(true)
   })
 })

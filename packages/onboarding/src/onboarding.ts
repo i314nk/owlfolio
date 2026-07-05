@@ -1,13 +1,10 @@
 import { rm } from 'node:fs/promises'
 import { join } from 'node:path'
 
-import { SQLiteEventStore } from '@owlfolio/ledger/sqliteEventStore'
 import type { AppConfig, AutomationSettings, MarketUniverseConfig, ProviderSelection, ShariahDefaults } from '@owlfolio/shared'
 import { mergeAutomationSettings, mergeSavingsSleeveConfig } from '@owlfolio/shared'
 
-import { loadAppConfig, resolveProjectRootFromCwd, resolveSourceLedgerPath, saveAppConfig, shouldUseTestDemoDefault } from './appConfigStore'
-import { resetDefaultDemoStore, resolveDemoLedgerPath } from './demoLedger'
-import { seedDemoLedger } from './demoSeed'
+import { loadAppConfig, resolveProjectRootFromCwd, resolveSourceLedgerPath, saveAppConfig } from './appConfigStore'
 import { getProviderOptions, type ProviderReadiness } from './providerReadiness'
 import { buildProviderStatusRows } from './providerStatus'
 
@@ -15,7 +12,6 @@ type OnboardingEnv = {
   [key: string]: string | undefined
   OWLFOLIO_PROJECT_DIR?: string
   OWLFOLIO_APP_CONFIG_PATH?: string
-  OWLFOLIO_DEMO_LEDGER_PATH?: string
   OWLFOLIO_PERSONAL_LEDGER_PATH?: string
   OWLFOLIO_PROVIDER_CERTIFICATION_DIR?: string
   ANTHROPIC_API_KEY?: string
@@ -42,16 +38,6 @@ export type OnboardingConfigUpdate = Partial<Omit<AppConfig, 'provider' | 'shari
   market_universe?: Partial<MarketUniverseConfig>
 }
 
-/**
- * Defense-in-depth write-path guard: demo mode is retired in the user-facing product. It may only be
- * entered under the test harness (playwright e2e / vitest), gated by `shouldUseTestDemoDefault`. Any
- * other caller attempting to seed or switch into demo throws — even if a request is crafted directly.
- */
-function assertModeAllowed(mode: AppConfig['mode'], options: OnboardingOptions): void {
-  if (mode === 'demo' && !shouldUseTestDemoDefault((options.env ?? process.env) as OnboardingEnv)) {
-    throw new Error('Demo mode is retired in production')
-  }
-}
 
 export async function getOnboardingState(options: OnboardingOptions = {}): Promise<OnboardingState> {
   const config = await loadAppConfig(options)
@@ -167,17 +153,8 @@ export async function getProviderReadinessSnapshot(config: AppConfig, options: O
 }
 
 export async function initializeSelectedMode(update: OnboardingConfigUpdate = {}, options: OnboardingOptions = {}): Promise<AppConfig> {
-  // Guard before any persistence so a rejected demo init never writes mode to disk.
-  const prospectiveMode = update.mode ?? (await loadAppConfig(options)).mode
-  assertModeAllowed(prospectiveMode, options)
-
   const config = await updateOnboardingConfig(update, options)
-  const ledgerPath = config.mode === 'demo'
-    ? resolveDemoLedgerPath({
-        ...(options.cwd !== undefined ? { cwd: options.cwd } : {}),
-        ...(options.env !== undefined ? { env: options.env } : {}),
-      })
-    : resolvePersonalLedgerPath(options)
+  const ledgerPath = resolvePersonalLedgerPath(options)
   const sourceLedgerPath = resolveSourceLedgerPath(options)
 
   const initializedConfig: AppConfig = {
@@ -185,15 +162,6 @@ export async function initializeSelectedMode(update: OnboardingConfigUpdate = {}
     ledger_path: ledgerPath,
     source_ledger_path: sourceLedgerPath,
     initialized_at: new Date().toISOString(),
-  }
-
-  const store = new SQLiteEventStore(ledgerPath)
-  try {
-    if (initializedConfig.mode === 'demo') {
-      await seedDemoLedger(store)
-    }
-  } finally {
-    store.close()
   }
 
   await saveAppConfig(initializedConfig, options)
@@ -204,44 +172,25 @@ export async function initializeSelectedMode(update: OnboardingConfigUpdate = {}
  * Resolve the durable ledger path for a chosen, initializable mode. `unconfigured` has no ledger.
  */
 function resolveLedgerPathForMode(mode: AppConfig['mode'], options: OnboardingOptions): string | undefined {
-  if (mode === 'demo') {
-    return resolveDemoLedgerPath({
-      ...(options.cwd !== undefined ? { cwd: options.cwd } : {}),
-      ...(options.env !== undefined ? { env: options.env } : {}),
-    })
-  }
   if (mode === 'personal-local') {
     return resolvePersonalLedgerPath(options)
   }
   return undefined
 }
 
-/** Number of events currently in the ledger at `ledgerPath` (0 if new/empty). */
-async function countLedgerEvents(ledgerPath: string): Promise<number> {
-  const store = new SQLiteEventStore(ledgerPath)
-  try {
-    return (await store.list()).length
-  } finally {
-    store.close()
-  }
-}
-
 /**
- * Idempotent, non-destructive mode switch / re-init (three-state mode model). Unlike the first-run
+ * Idempotent, non-destructive mode switch / re-init (two-state mode model). Unlike the first-run
  * `initializeSelectedMode`, this is safe to call on RE-ENTRY:
  *
- *  (i)   Re-selecting the CURRENT mode (already initialized) is a no-op — it appends nothing, re-seeds
- *        nothing, and leaves `initialized_at` UNCHANGED (other code may depend on that timestamp).
- *  (ii)  Switching demo↔personal-local repoints `ledger_path` at the OTHER mode's ledger WITHOUT
- *        wiping or re-seeding either ledger; the previous mode's events are preserved.
- *  (iii) A demo ledger is only seeded when it is actually empty/new (it is also event-level
- *        idempotent), so an existing demo ledger is never re-seeded.
+ *  (i)  Re-selecting the CURRENT mode (already initialized) is a no-op — it appends nothing and leaves
+ *       `initialized_at` UNCHANGED (other code may depend on that timestamp).
+ *  (ii) Switching between `unconfigured` and `personal-local` repoints `ledger_path` WITHOUT wiping the
+ *       personal ledger; its events are preserved.
  *
  * `initialized_at` is set once (first time the app leaves `unconfigured`/uninitialized) and preserved
  * thereafter.
  */
 export async function switchMode(mode: AppConfig['mode'], options: OnboardingOptions = {}): Promise<AppConfig> {
-  assertModeAllowed(mode, options)
   const current = await loadAppConfig(options)
 
   // (i) No-op when re-selecting the already-initialized current mode.
@@ -263,18 +212,6 @@ export async function switchMode(mode: AppConfig['mode'], options: OnboardingOpt
     ...(ledgerPath === undefined ? {} : { ledger_path: ledgerPath }),
     source_ledger_path: sourceLedgerPath,
     ...(initializedAt === undefined ? {} : { initialized_at: initializedAt }),
-  }
-
-  // (iii) Seed the demo ledger only when it is empty/new (event-level idempotent regardless).
-  if (mode === 'demo' && ledgerPath !== undefined) {
-    if ((await countLedgerEvents(ledgerPath)) === 0) {
-      const store = new SQLiteEventStore(ledgerPath)
-      try {
-        await seedDemoLedger(store)
-      } finally {
-        store.close()
-      }
-    }
   }
 
   await saveAppConfig(next, options)
@@ -299,16 +236,12 @@ export async function getOnboardingProviderOptions(options: OnboardingOptions = 
 }
 
 export async function resetOnboardingRuntime(options: OnboardingOptions = {}): Promise<void> {
-  await resetDefaultDemoStore()
-
   const appConfigPath = resolveAppConfigPathForReset(options)
-  const demoLedgerPath = resolveDemoLedgerPath(options)
   const personalLedgerPath = resolvePersonalLedgerPath(options)
   const sourceLedgerPath = resolveSourceLedgerPath(options)
 
   await Promise.all([
     rm(appConfigPath, { force: true }),
-    rm(demoLedgerPath, { force: true }),
     rm(personalLedgerPath, { force: true }),
     rm(sourceLedgerPath, { force: true, recursive: true }),
   ])

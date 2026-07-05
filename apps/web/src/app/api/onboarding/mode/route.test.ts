@@ -67,15 +67,4 @@ describe('POST /api/onboarding/mode', () => {
       }
     }
   })
-
-  it('still accepts demo mode under the test harness', async () => {
-    const config = { mode: 'demo', provider: { provider_id: 'mock-provider' }, ledger_path: '/x', initialized_at: '2026-01-01' }
-    switchModeMock.mockResolvedValue(config)
-    getOnboardingStateMock.mockResolvedValue({ config, is_initialized: true })
-
-    const response = await POST(jsonRequest({ mode: 'demo' }))
-    expect(response.status).toBe(200)
-    expect(switchModeMock).toHaveBeenCalledTimes(1)
-    expect(switchModeMock).toHaveBeenCalledWith('demo')
-  })
 })

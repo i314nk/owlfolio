@@ -5,7 +5,6 @@ import { describe, expect, it } from 'vitest'
 import {
   buildConnectionOptions,
   buildTierGroupedModelOptions,
-  defaultModelForConnection,
   providerModeForOption,
   providerSelectionForConnection,
   providerSelectionForOption,
@@ -47,13 +46,13 @@ const providerOptions: ProviderOption[] = [
 ]
 
 describe('GuidedConnectionSelect helpers', () => {
-  it('forces advanced mock-provider selection back to demo mode outside Playwright test mode', () => {
+  it('resolves mock-provider selection to personal-local (demo mode is retired)', () => {
     const mockProvider = providerOptions.find((provider) => provider.provider_id === 'mock-provider')
     if (mockProvider === undefined) {
       throw new Error('mock provider fixture missing')
     }
 
-    expect(providerModeForOption('personal-local', mockProvider)).toBe('demo')
+    expect(providerModeForOption('personal-local', mockProvider)).toBe('personal-local')
     expect(providerModeForOption('personal-local', mockProvider, true)).toBe('personal-local')
   })
 
@@ -158,19 +157,6 @@ describe('GuidedConnectionSelect helpers', () => {
       { key: 'openrouter', provider: openRouterProvider, mode: 'personal-local', title: '', badge: '', description: '', modelChoice: 'choose' },
     )
     expect(selection.model_id).toBe('google/gemini-3.5-flash')
-  })
-
-  it('pins the demo fixed model via defaultModelForConnection', () => {
-    const mockProvider: ProviderOption = {
-      provider_id: 'mock-provider',
-      provider_surface_id: 'mock-provider',
-      label: 'Mock provider',
-      support_level: 'certified',
-      description: 'Deterministic demo path',
-      default_model_id: 'mock-buffett-munger-demo',
-    }
-    const fixed = defaultModelForConnection({ key: 'demo', provider: mockProvider, mode: 'demo', title: '', badge: '', description: '', modelChoice: 'fixed' })
-    expect(fixed).toBe('mock-buffett-munger-demo')
   })
 
   it('renders an explicit "Set model" button + confirmation for the OpenRouter searchable picker', () => {

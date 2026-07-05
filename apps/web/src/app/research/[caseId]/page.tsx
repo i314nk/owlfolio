@@ -12,11 +12,10 @@ import { ResearchRunProgress } from '../../../components/ResearchRunProgress'
 import { UnconfiguredNotice } from '../../../components/UnconfiguredNotice'
 import { resolveRunProgress } from '../../../lib/researchRunProgress'
 import { buildPositionPlan, type PositionPlan } from '../../../lib/positionPlan'
-import { getDemoResearchCase, resolveDemoLedgerPath } from '../../../lib/demo'
 import { isUnconfiguredForUser } from '../../../lib/modeView'
 import { getOnboardingState } from '../../../lib/onboarding'
 import { getInvestableCapital, resolveResearchCaseView } from '../../../lib/workflow'
-import type { AppResearchCase, ResearchCaseView } from '../../../lib/workflow'
+import type { ResearchCaseView } from '../../../lib/workflow'
 import type { MarketQuote } from '../../../components/ResearchCasePanel'
 
 const INVESTABLE_MOAT_CLASSES: ReadonlySet<string> = new Set(['wide', 'monopoly'])
@@ -33,83 +32,77 @@ export default async function ResearchCasePage({ params }: ResearchCasePageProps
   }
 
   try {
-    let researchCase: AppResearchCase
-    if (state.config.mode === 'demo') {
-      researchCase = await getDemoResearchCase(caseId)
-    } else {
-      // Personal-local: tolerate the post-start race where the web path has appended
-      // `research_run_requested` but the WORKER has not yet authored `research_case_created`.
-      const view = await loadPersonalResearchCaseView(caseId, state.config.ledger_path, state.config.source_ledger_path)
-      if (view.status === 'unknown') {
-        notFound()
-      }
-      if (view.status === 'pending') {
-        return (
-          <main className="owl-route-frame owl-route-frame-narrow">
-            <p className="owl-route-back-row">
-              <a className="owl-back-link owl-focusable" href="/">
-                ← Back to command center
-              </a>
+    // Personal-local: tolerate the post-start race where the web path has appended
+    // `research_run_requested` but the WORKER has not yet authored `research_case_created`.
+    const view = await loadPersonalResearchCaseView(caseId, state.config.ledger_path, state.config.source_ledger_path)
+    if (view.status === 'unknown') {
+      notFound()
+    }
+    if (view.status === 'pending') {
+      return (
+        <main className="owl-route-frame owl-route-frame-narrow">
+          <p className="owl-route-back-row">
+            <a className="owl-back-link owl-focusable" href="/">
+              ← Back to command center
+            </a>
+          </p>
+          <ResearchCasePending caseId={caseId} />
+        </main>
+      )
+    }
+    if (view.status === 'failed') {
+      return (
+        <main className="owl-route-frame owl-route-frame-narrow">
+          <p className="owl-route-back-row">
+            <a className="owl-back-link owl-focusable" href="/">
+              ← Back to command center
+            </a>
+          </p>
+          {/* Re-run + archive for the failed run: reuses the dossier's actions (the re-run supersedes
+              this failed case, so it drops out of active views once the fresh run lands). Rendered only
+              when the ticker is recoverable — without it a re-run cannot be keyed. */}
+          {view.ticker !== undefined ? (
+            <ResearchCaseActions caseId={caseId} ticker={view.ticker} isArchived={false} engineStale={false} />
+          ) : null}
+          <section className="owl-section-card">
+            <p className="owl-empty-state-kicker">Research run failed</p>
+            <h2 className="owl-section-title">This research run did not complete</h2>
+            <p className="owl-empty-state-description">
+              The research worker reported a failure for <code>{caseId}</code>
+              {view.error_summary === undefined ? '.' : `: ${view.error_summary}`}{' '}
+              {view.ticker !== undefined
+                ? 'Use “Re-run on current engine” above to start a fresh run for this ticker, or start a new research case from the command center.'
+                : 'You can start a new research case from the command center.'}
             </p>
-            <ResearchCasePending caseId={caseId} />
-          </main>
-        )
-      }
-      if (view.status === 'failed') {
-        return (
-          <main className="owl-route-frame owl-route-frame-narrow">
-            <p className="owl-route-back-row">
-              <a className="owl-back-link owl-focusable" href="/">
-                ← Back to command center
-              </a>
-            </p>
-            {/* Re-run + archive for the failed run: reuses the dossier's actions (the re-run supersedes
-                this failed case, so it drops out of active views once the fresh run lands). Rendered only
-                when the ticker is recoverable — without it a re-run cannot be keyed. */}
-            {view.ticker !== undefined ? (
-              <ResearchCaseActions caseId={caseId} ticker={view.ticker} isArchived={false} engineStale={false} />
-            ) : null}
-            <section className="owl-section-card">
-              <p className="owl-empty-state-kicker">Research run failed</p>
-              <h2 className="owl-section-title">This research run did not complete</h2>
-              <p className="owl-empty-state-description">
-                The research worker reported a failure for <code>{caseId}</code>
-                {view.error_summary === undefined ? '.' : `: ${view.error_summary}`}{' '}
-                {view.ticker !== undefined
-                  ? 'Use “Re-run on current engine” above to start a fresh run for this ticker, or start a new research case from the command center.'
-                  : 'You can start a new research case from the command center.'}
-              </p>
-            </section>
-          </main>
-        )
-      }
-      researchCase = view.researchCase
+          </section>
+        </main>
+      )
+    }
+    const researchCase = view.researchCase
 
-      // Mid-run gate: the case row exists (`ready`) but the multi-minute deep dive (quick-screen → circle →
-      // 5 lanes → synthesis → decision) is still running. Drive an animated, stage-aware "research running…"
-      // view off the projected stage + specialist findings until the run reaches a terminal/awaiting-approval
-      // state, at which point we fall through to the dossier / approval rendering. (Demo cases are seeded
-      // terminal, so demo mode never reaches this branch — no demo wiring needed.)
-      const progress = resolveRunProgress({
-        stage: researchCase.stage,
-        specialistFindingCount: researchCase.specialist_findings?.length ?? 0,
-      })
-      if (progress.inProgress) {
-        return (
-          <main className="owl-route-frame owl-route-frame-narrow">
-            <p className="owl-route-back-row">
-              <a className="owl-back-link owl-focusable" href="/">
-                ← Back to command center
-              </a>
-            </p>
-            <ResearchRunProgress
-              caseId={caseId}
-              initial={progress}
-              {...(researchCase.ticker !== undefined ? { ticker: researchCase.ticker } : {})}
-            />
-          </main>
-        )
-      }
+    // Mid-run gate: the case row exists (`ready`) but the multi-minute deep dive (quick-screen → circle →
+    // 5 lanes → synthesis → decision) is still running. Drive an animated, stage-aware "research running…"
+    // view off the projected stage + specialist findings until the run reaches a terminal/awaiting-approval
+    // state, at which point we fall through to the dossier / approval rendering.
+    const progress = resolveRunProgress({
+      stage: researchCase.stage,
+      specialistFindingCount: researchCase.specialist_findings?.length ?? 0,
+    })
+    if (progress.inProgress) {
+      return (
+        <main className="owl-route-frame owl-route-frame-narrow">
+          <p className="owl-route-back-row">
+            <a className="owl-back-link owl-focusable" href="/">
+              ← Back to command center
+            </a>
+          </p>
+          <ResearchRunProgress
+            caseId={caseId}
+            initial={progress}
+            {...(researchCase.ticker !== undefined ? { ticker: researchCase.ticker } : {})}
+          />
+        </main>
+      )
     }
 
     // Fetch a live market quote server-side when the case has a ticker and a buy-below price.
@@ -141,7 +134,7 @@ export default async function ResearchCasePage({ params }: ResearchCasePageProps
 
     let positionPlan: PositionPlan | undefined
     let promptForCapital = false
-    if (moatIsInvestable && buyPrice !== undefined && state.config.mode === 'personal-local') {
+    if (moatIsInvestable && buyPrice !== undefined) {
       const investableCapital = await getInvestableCapital(state.config.ledger_path)
       if (investableCapital !== undefined) {
         positionPlan = buildPositionPlan({
@@ -166,14 +159,12 @@ export default async function ResearchCasePage({ params }: ResearchCasePageProps
             ← Back to command center
           </a>
         </p>
-        {state.config.mode === 'personal-local' ? (
-          <ResearchCaseActions
-            caseId={caseId}
-            ticker={researchCase.ticker}
-            isArchived={researchCase.archived === true}
-            engineStale={engineStale}
-          />
-        ) : null}
+        <ResearchCaseActions
+          caseId={caseId}
+          ticker={researchCase.ticker}
+          isArchived={researchCase.archived === true}
+          engineStale={engineStale}
+        />
         {researchCase.archived === true ? (
           <p
             data-testid="research-case-archived-marker"
@@ -201,7 +192,7 @@ export default async function ResearchCasePage({ params }: ResearchCasePageProps
       </main>
     )
   } catch (error) {
-    if (error instanceof Error && (error.message.startsWith('Unknown demo research case:') || error.message.startsWith('Unknown research case:'))) {
+    if (error instanceof Error && error.message.startsWith('Unknown research case:')) {
       notFound()
     }
 
@@ -218,7 +209,7 @@ async function loadPersonalResearchCaseView(
     notFound()
   }
 
-  const store = new SQLiteEventStore(ledgerPath ?? resolveDemoLedgerPath())
+  const store = new SQLiteEventStore(ledgerPath)
   try {
     return await resolveResearchCaseView(store, 'personal-local', caseId, sourceLedgerPath)
   } finally {

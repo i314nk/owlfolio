@@ -3,10 +3,9 @@ import { SQLiteEventStore } from '@owlfolio/ledger/sqliteEventStore'
 import { AuditActivityPanel } from '../../components/AuditActivityPanel'
 import { AuditSearchFocusBridge } from '../../components/AuditSearchFocusBridge'
 import { UnconfiguredNotice } from '../../components/UnconfiguredNotice'
-import { getDemoEvents } from '../../lib/demo'
 import { isUnconfiguredForUser } from '../../lib/modeView'
 import { getOnboardingState, type OnboardingState } from '../../lib/onboarding'
-import { getAuditActivityEventsFromStore, projectAuditActivityEvents, type AuditActivityFilters } from '../../lib/audit'
+import { getAuditActivityEventsFromStore, type AuditActivityFilters } from '../../lib/audit'
 
 type AuditPageProps = {
   searchParams?: Promise<Record<string, string | string[] | undefined>>
@@ -30,16 +29,12 @@ export default async function AuditPage({ searchParams }: AuditPageProps) {
         </a>
       </p>
       <AuditSearchFocusBridge focusSearchInput={focusSearchInput} />
-      <AuditActivityPanel events={events} filters={filters} mode={state.config.mode} />
+      <AuditActivityPanel events={events} filters={filters} />
     </main>
   )
 }
 
 async function loadAuditActivity(state: OnboardingState) {
-  if (state.config.mode === 'demo') {
-    return projectAuditActivityEvents(await getDemoEvents())
-  }
-
   if (state.config.ledger_path === undefined) {
     return []
   }

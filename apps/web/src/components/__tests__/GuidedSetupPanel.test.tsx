@@ -15,7 +15,7 @@ function baseProps(overrides: Partial<GuidedSetupPanelProps> = {}): GuidedSetupP
   return {
     initialConfig: {
       version: 1,
-      mode: 'demo',
+      mode: 'personal-local',
       provider: { provider_id: 'mock-provider', support_level: 'certified', model_id: 'mock-buffett-munger-demo' },
       strategy_id: 'buffett-munger',
     } as GuidedSetupPanelProps['initialConfig'],
@@ -36,7 +36,6 @@ describe('GuidedSetupPanel — guided onboarding surface', () => {
 
   it('renders the shared provider toggle + tier-grouped model selection', () => {
     const html = renderToStaticMarkup(createElement(GuidedSetupPanel, baseProps()))
-    expect(html).toContain('Try demo mode')
     expect(html).toContain('Use OpenRouter')
     expect(html).toContain('Use OpenAI (API key)')
     // The CLI/OAuth lanes (Codex, Claude CLI) were retired — not onboarding connections.
@@ -85,10 +84,5 @@ describe('GuidedSetupPanel — guided onboarding surface', () => {
     expect(html).not.toContain('About demo mode')
     // Real connections remain.
     expect(html).toContain('Use OpenRouter')
-  })
-
-  it('shows the demo connection card when mock-provider is present (test harness)', () => {
-    const html = renderToStaticMarkup(createElement(GuidedSetupPanel, baseProps()))
-    expect(html).toContain('Try demo mode')
   })
 })

@@ -3,10 +3,9 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { createNotConfiguredCertificationReport } from '@owlfolio/providers'
-import { defaultPersonalLocalAppConfig } from '@owlfolio/shared'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
-import { POST, normalizeOnboardingStartUpdate } from './route'
+import { POST } from './route'
 
 const originalEnv = {
   OWLFOLIO_APP_CONFIG_PATH: process.env.OWLFOLIO_APP_CONFIG_PATH,
@@ -109,43 +108,6 @@ describe('/api/onboarding/start', () => {
         message: 'Provider openrouter is not ready: OpenRouter routing disabled by latest certification report',
       },
     })
-  })
-
-  it('normalizes personal-local mock-provider starts back to demo outside Playwright test mode', () => {
-    const current = defaultPersonalLocalAppConfig()
-
-    expect(normalizeOnboardingStartUpdate({
-      mode: 'personal-local',
-      provider: { provider_id: 'mock-provider', support_level: 'certified' },
-    }, current)).toMatchObject({ mode: 'demo' })
-    expect(normalizeOnboardingStartUpdate({
-      mode: 'personal-local',
-      provider: { provider_id: 'mock-provider', support_level: 'certified' },
-    }, current, { OWLFOLIO_TEST_MODE: 'playwright' })).toMatchObject({ mode: 'personal-local' })
-  })
-
-  it('normalizes partial mock-provider starts when the saved config is already personal-local', () => {
-    expect(normalizeOnboardingStartUpdate({
-      provider: { provider_id: 'mock-provider', support_level: 'certified' },
-    }, defaultPersonalLocalAppConfig())).toMatchObject({ mode: 'demo' })
-  })
-
-  it('allows initializing demo mode with the certified mock provider', async () => {
-    const response = await POST(new Request('http://localhost/api/onboarding/start', {
-      method: 'POST',
-      body: JSON.stringify({
-        mode: 'demo',
-        provider: { provider_id: 'mock-provider', support_level: 'certified', model_id: 'mock-buffett-munger-demo' },
-      }),
-    }))
-    const payload = await response.json()
-
-    expect(response.status).toBe(200)
-    expect(payload.config).toMatchObject({
-      mode: 'demo',
-      provider: { provider_id: 'mock-provider', support_level: 'certified' },
-    })
-    expect(payload.next_destination).toBe('/')
   })
 
   it('rejects a retired provider id (gemini-cli) as an unknown provider — fail-closed after the OpenRouter + Codex CLI reduction', async () => {

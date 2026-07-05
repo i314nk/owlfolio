@@ -196,7 +196,7 @@ describe('worker runtime', () => {
     await mkdir(join(projectDir, 'config'), { recursive: true })
     await writeFile(configPath, JSON.stringify({
       version: 1,
-      mode: 'demo',
+      mode: 'personal-local',
       provider: { provider_id: 'mock-provider', support_level: 'certified', model_id: 'mock-buffett-munger-demo' },
       strategy_id: 'buffett-munger',
       shariah: {
@@ -229,7 +229,7 @@ describe('worker runtime', () => {
     await mkdir(join(projectDir, 'data'), { recursive: true })
     await writeFile(configPath, JSON.stringify({
       version: 1,
-      mode: 'demo',
+      mode: 'personal-local',
       provider: { provider_id: 'mock-provider', support_level: 'certified', model_id: 'mock-buffett-munger-demo' },
       strategy_id: 'buffett-munger',
       shariah: {

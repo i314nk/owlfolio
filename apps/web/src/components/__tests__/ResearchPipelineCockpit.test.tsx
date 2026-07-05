@@ -53,7 +53,7 @@ describe('ResearchPipelineCockpit', () => {
 
   it('keeps low-clutter empty sections visible without expanding explanations inline', () => {
     const html = renderToStaticMarkup(createElement(ResearchPipelineCockpit, {
-      mode: 'demo',
+      mode: 'personal-local',
       selectedStrategyLabel: 'Default strategy: buffett-munger',
       sections: [
         section('Discovered'),

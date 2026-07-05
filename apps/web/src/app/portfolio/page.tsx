@@ -18,9 +18,7 @@ export default async function PortfolioPage() {
   }
   const { holdings, alerts } = await loadHoldings(state.config.ledger_path, state.config.mode)
   const valuationRefresh = buildValuationRefreshSummary(holdings)
-  const investableCapital = state.config.mode === 'personal-local'
-    ? await getInvestableCapital(state.config.ledger_path)
-    : undefined
+  const investableCapital = await getInvestableCapital(state.config.ledger_path)
 
   return (
     <main className="owl-route-frame owl-route-frame-wide">
@@ -41,9 +39,9 @@ export default async function PortfolioPage() {
 }
 
 // `mode` is the full WorkflowMode for type-safety, but the page short-circuits unconfigured before
-// calling this, so in practice only 'demo' | 'personal-local' reach here.
+// calling this, so in practice only 'personal-local' reaches here.
 async function loadHoldings(ledgerPath: string | undefined, mode: WorkflowMode): Promise<{ holdings: PortfolioHolding[]; alerts: MonitorAlert[] }> {
-  if (ledgerPath === undefined && mode !== 'demo') {
+  if (ledgerPath === undefined) {
     return { holdings: [], alerts: [] }
   }
 

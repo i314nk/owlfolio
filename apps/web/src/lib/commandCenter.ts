@@ -12,27 +12,12 @@ import {
 } from '@owlfolio/ledger/projections/discoveryCandidateProjection'
 import type { LedgerEventEnvelope } from '@owlfolio/ledger/eventEnvelope'
 import type { EventStore } from '@owlfolio/ledger/eventStore'
-import { projectResearchCases, type ResearchCaseProjection } from '@owlfolio/ledger/projections/researchCaseProjection'
-import {
-  projectResearchCaseTimeline,
-  type ResearchCaseTimelineEntry,
-} from '@owlfolio/ledger/projections/researchCaseTimelineProjection'
-import { projectWatchlist, type WatchlistProjection } from '@owlfolio/ledger/projections/watchlistProjection'
 import { SQLiteEventStore } from '@owlfolio/ledger/sqliteEventStore'
 import type { AppConfig } from '@owlfolio/shared'
 
-import { getDefaultDemoStore } from '@owlfolio/onboarding/demoLedger'
-
-import type { StatusBadgeTone } from '../components/StatusBadge'
 import { buildMonthlyAccountingReport } from './accounting'
-import { DEMO_RESEARCH_CASE_ID } from './demoSeed'
 import { isUnconfiguredForUser } from './modeView'
 import { buildProviderStatusRows, type ProviderStatusRow } from './providerStatus'
-
-export { seedDemoLedger } from './demoSeed'
-// Demo-ledger plumbing now lives in @owlfolio/onboarding; re-exported here so existing
-// importers of '../lib/demo' (research/lifecycle/performance/audit pages, onboarding) are unchanged.
-export { resolveDemoLedgerPath, resetDefaultDemoStore, getDemoEvents } from '@owlfolio/onboarding/demoLedger'
 
 export type PipelineCounts = {
   research_cases: number
@@ -117,31 +102,6 @@ function buildDiscoverySignals(events: LedgerEventEnvelope<unknown>[], limit = 3
     .slice(0, limit)
 }
 
-export type DemoCommandCenter = AppCommandCenter
-
-export type DemoGateChecklistItem = {
-  label: string
-  status: string
-  tone: StatusBadgeTone
-}
-
-export type DemoResearchCase = ResearchCaseProjection & {
-  gate_checklist: DemoGateChecklistItem[]
-  source_ids: string[]
-  source_evidence: []
-  ledger_timeline: ResearchCaseTimelineEntry[]
-}
-
-export type DemoWatchlistItem = WatchlistProjection & {
-  buy_zone_status?: string
-}
-
-const demoGateChecklist: DemoGateChecklistItem[] = [
-  { label: 'Quality business', status: 'Pass', tone: 'success' },
-  { label: 'Management alignment', status: 'Review', tone: 'neutral' },
-  { label: 'Margin of safety', status: 'Watch', tone: 'warning' },
-]
-
 export type SetupAwareCommandCenterInput = {
   config: AppConfig
   is_initialized: boolean
@@ -150,36 +110,18 @@ export type SetupAwareCommandCenterInput = {
   env?: { readonly [key: string]: string | undefined }
 }
 
-export async function getDemoEventsFromStore(store: EventStore): Promise<LedgerEventEnvelope<unknown>[]> {
-  return store.list()
-}
-
-export async function getDemoCommandCenter(): Promise<DemoCommandCenter> {
-  return getDemoCommandCenterFromStore(await getDefaultDemoStore())
-}
-
-export async function getDemoCommandCenterFromStore(store: EventStore): Promise<DemoCommandCenter> {
-  const events = await getDemoEventsFromStore(store)
-  const summary = projectCommandCenterSummary(events)
-
-  return buildDemoCommandCenter(summary, events)
-}
-
 export async function getSetupAwareCommandCenter({ config, is_initialized, provider_status_rows, store, env }: SetupAwareCommandCenterInput): Promise<AppCommandCenter> {
-  // EXPLICIT unconfigured branch (three-state mode model). An unconfigured app has made no mode
-  // choice and has no ledger — it must steer to setup, NEVER render demo data and never claim an
-  // initialized ledger. In PRODUCTION a stale persisted `demo` config is also treated as
-  // unconfigured (demo is a test-only harness), so it takes this branch instead of rendering seeded
-  // demo data. Checked FIRST — and BEFORE the demo branch — so it can never fall through; in TEST
-  // mode `isUnconfiguredForUser` returns false for demo, so the demo branch below still fires.
+  // EXPLICIT unconfigured branch (two-state mode model). An unconfigured app has made no mode choice and
+  // has no ledger — it must steer to setup, never claim an initialized ledger. Checked FIRST so it can
+  // never fall through into the personal-local rendering path.
   if (isUnconfiguredForUser(config, env)) {
     return {
       product_name: 'Owlfolio',
-      setup_status: 'Choose a mode to begin',
+      setup_status: 'Set up your workflow to begin',
       provider_status: 'Provider: not selected yet',
       strategy_status: 'Strategy: Buffett-Munger default',
       shariah_status: config.shariah.enabled ? 'Shariah: enabled by default' : 'Shariah: disabled',
-      ledger_status: 'Ledger: no mode chosen yet',
+      ledger_status: 'Ledger: not set up yet',
       pipeline_counts: {
         research_cases: 0,
         watchlist_drafts: 0,
@@ -187,19 +129,15 @@ export async function getSetupAwareCommandCenter({ config, is_initialized, provi
         open_holdings: 0,
         pending_user_actions: 0,
       },
-      next_recommended_action: 'Choose a mode to begin — explore demo data or set up a personal-local workflow',
+      next_recommended_action: 'Connect a provider to set up your personal-local workflow',
       approval_queue: [],
       holding_review_prompts: [],
-      recent_activity: [{ event_id: 'placeholder:no-mode-chosen-yet', label: 'No mode chosen yet' }],
+      recent_activity: [{ event_id: 'placeholder:not-set-up-yet', label: 'Not set up yet' }],
       monitor_alerts: [],
       discovery_signals: [],
       primary_action: { href: '/settings/providers', label: 'Continue setup' },
       secondary_action: { href: '/settings/providers', label: 'Review provider readiness' },
     }
-  }
-
-  if (config.mode === 'demo') {
-    return store === undefined ? getDemoCommandCenter() : getDemoCommandCenterFromStore(store)
   }
 
   if (!is_initialized || config.ledger_path === undefined) {
@@ -265,38 +203,6 @@ export async function getSetupAwareCommandCenter({ config, is_initialized, provi
     }
   } finally {
     ownedStore?.close()
-  }
-}
-
-function buildDemoCommandCenter(
-  summary: ReturnType<typeof projectCommandCenterSummary>,
-  events: LedgerEventEnvelope<unknown>[],
-): DemoCommandCenter {
-  const accountingAlert = buildAccountingAlert(events)
-
-  return {
-    product_name: 'Owlfolio',
-    setup_status: 'Setup ready',
-    provider_status: 'Provider: Mock provider / demo mode',
-    strategy_status: 'Strategy: Buffett-Munger default',
-    shariah_status: 'Shariah: enabled by default',
-    ledger_status: 'Ledger: SQLite durable event source',
-    pipeline_counts: summary.pipeline_counts,
-    next_recommended_action: summary.next_recommended_action,
-    approval_queue: summary.approval_queue,
-    holding_review_prompts: summary.holding_review_prompts,
-    ...(accountingAlert === undefined ? {} : { accounting_alert: accountingAlert }),
-    recent_activity: summary.recent_activity,
-    monitor_alerts: projectMonitorAlerts(events),
-    discovery_signals: buildDiscoverySignals(events),
-    primary_action: {
-      href: `/research/${summary.primary_research_case_id ?? DEMO_RESEARCH_CASE_ID}`,
-      label: 'View demo research case',
-    },
-    secondary_action: {
-      href: '/watchlist',
-      label: 'Open watchlist drafts',
-    },
   }
 }
 
@@ -367,52 +273,4 @@ function humanizeProvider(providerId: AppConfig['provider']['provider_id']): str
     case 'gemini-developer-api':
       return 'Gemini (Google API key)'
   }
-}
-
-export async function getDemoResearchCases(): Promise<DemoResearchCase[]> {
-  return getDemoResearchCasesFromStore(await getDefaultDemoStore())
-}
-
-export async function getDemoResearchCasesFromStore(store: EventStore): Promise<DemoResearchCase[]> {
-  return projectDemoResearchCases(await getDemoEventsFromStore(store))
-}
-
-export async function getDemoResearchCase(caseId: string): Promise<DemoResearchCase> {
-  return getDemoResearchCaseFromStore(await getDefaultDemoStore(), caseId)
-}
-
-export async function getDemoResearchCaseFromStore(store: EventStore, caseId: string): Promise<DemoResearchCase> {
-  const researchCase = (await getDemoResearchCasesFromStore(store)).find((candidate) => candidate.research_case_id === caseId)
-
-  if (researchCase === undefined) {
-    throw new Error(`Unknown demo research case: ${caseId}`)
-  }
-
-  return researchCase
-}
-
-export async function getDemoWatchlistItems(): Promise<DemoWatchlistItem[]> {
-  return getDemoWatchlistItemsFromStore(await getDefaultDemoStore())
-}
-
-export async function getDemoWatchlistItemsFromStore(store: EventStore): Promise<DemoWatchlistItem[]> {
-  return projectWatchlist(await getDemoEventsFromStore(store)).map((item) => ({ ...item }))
-}
-
-export async function getDemoMonitorAlerts(): Promise<MonitorAlert[]> {
-  return projectMonitorAlerts(await getDemoEventsFromStore(await getDefaultDemoStore()))
-}
-
-function projectDemoResearchCases(events: LedgerEventEnvelope<unknown>[]): DemoResearchCase[] {
-  return projectResearchCases(events).map((researchCase) => {
-    const timeline = projectResearchCaseTimeline(events, researchCase.research_case_id)
-
-    return {
-      ...researchCase,
-      gate_checklist: demoGateChecklist.map((gate) => ({ ...gate })),
-      source_ids: [...new Set(timeline.flatMap((entry) => entry.source_ids))],
-      source_evidence: [],
-      ledger_timeline: timeline,
-    }
-  })
 }

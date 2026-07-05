@@ -80,7 +80,7 @@ describe('runProcessResearchQueueTask', () => {
       // Loaded config is the deterministic mock/demo path — does NOT match the request's expectation.
       provider: new MockProvider(),
       loaded_provider_id: 'mock-provider',
-      loaded_mode: 'demo',
+      loaded_mode: 'unconfigured',
       config_path: '/tmp/owlfolio-worker-research-mismatch/app-config.json',
       source_ledger_path: '/tmp/owlfolio-worker-research-mismatch',
       now: () => new Date('2026-06-08T02:00:00Z'),
@@ -149,7 +149,7 @@ describe('runProcessResearchQueueTask', () => {
       provider: new MockProvider(),
       // Even though loaded provider/mode differ, a legacy request without an expectation must still run.
       loaded_provider_id: 'mock-provider',
-      loaded_mode: 'demo',
+      loaded_mode: 'unconfigured',
       config_path: __filename,
       source_ledger_path: '/tmp/owlfolio-worker-research-legacy',
       now: () => new Date('2026-06-08T00:00:00Z'),

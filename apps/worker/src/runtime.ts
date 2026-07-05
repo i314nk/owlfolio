@@ -34,7 +34,7 @@ import {
   type ProviderVendorId,
   type ProviderWorkflowRole,
 } from '@owlfolio/providers'
-import { defaultDemoAppConfig, mergeAutomationSettings, type AppConfig, type AutomationSettings } from '@owlfolio/shared'
+import { defaultUnconfiguredAppConfig, mergeAutomationSettings, type AppConfig, type AutomationSettings } from '@owlfolio/shared'
 import { draftHoldingReview, type ThesisHealth } from '@owlfolio/workflow/holdingReviewWorkflow'
 import { checkForNewFilings, type CheckForNewFilingsDeps } from '@owlfolio/workflow/reReviewTrigger'
 import { draftThesisReReview, type DraftThesisReReviewDeps } from '@owlfolio/workflow/thesisReReview'
@@ -258,7 +258,7 @@ function resolveConfigPath(projectDir: string, env: WorkerRuntimeEnv): string {
 
 async function loadConfig(configPath: string): Promise<AppConfig> {
   if (!existsSync(configPath)) {
-    return defaultDemoAppConfig()
+    return defaultUnconfiguredAppConfig()
   }
 
   return JSON.parse(await readFile(configPath, 'utf8')) as AppConfig
