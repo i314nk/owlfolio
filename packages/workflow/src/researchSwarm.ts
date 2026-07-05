@@ -47,6 +47,7 @@ export {
   type SynthesisResponse,
 }
 import { computeIncrementalRoic, demonstratedOwnerEarningsGrowth, estimateMaintenanceCapex, ownerEarningsVsFcfDiagnostic, selectLatestAnnualFiling, selectLatestProxyFiling, selectRecentReadableFilings, type Fundamentals, type ImpermissibleIncomeLine, type SecEdgarDeps } from './secEdgar'
+import { resolveInsiderSummary, type InsiderSummary, type InsiderSummaryComputed } from './secForm4'
 import { resolveFundamentalsForTicker } from './fundamentalsProvider'
 import { evaluateBaseRateBurden, type BaseRateBurdenFlag } from './baseRateBurden'
 import { BASE_RATES } from '@owlfolio/strategies/baseRates'
@@ -107,6 +108,7 @@ import {
   resolveEngineCommit,
   buildPrimaryFilingBlock,
   buildProxyBlock,
+  buildInsiderBlock,
   buildRecentFilingsBlock,
   buildPreVerifiedSourcesBlock,
   buildQuickScreenFilingBlock,
@@ -407,6 +409,16 @@ export type FundamentalsDeps = {
     diluted_shares: number,
     deps?: MarketDataDeps,
   ) => Promise<AverageMarketCapResult>
+  /**
+   * Pre-resolved insider-transaction summary (§3.3). Takes precedence over the live Form 4 fetch; tests
+   * inject this directly so the management-lane insider block is deterministic without touching the network.
+   */
+  insiderSummary?: InsiderSummary
+  /**
+   * Override the per-document Form 4 fetch (tests inject fixtures). Used only on the live path when
+   * `insiderSummary` is absent and the run is not in offline test mode.
+   */
+  fetchForm4Document?: (url: string) => Promise<string | undefined>
   // F.2 (SHIPPED): the discount risk-free anchor is the COMPLIANT app-config savings rate threaded into the
   // deep-dive command (`risk_free_rate`), NOT a live Treasury fetch. The former `resolveTreasuryYield`
   // override + `resolveTreasuryYieldValue` helper were retired here, and the now-dead marketData Treasury
@@ -956,6 +968,11 @@ const RECENT_FILINGS_LANES = new Set<string>(['risks', 'moat', 'management', 'bu
  * The numeric lanes are deliberately excluded; risks can already cite anything but has no comp mandate. */
 const PROXY_LANES = new Set<string>(['management', 'moat'])
 
+/** Lanes that receive the INSIDER TRANSACTIONS (Form 4) affordance (§3.3): MANAGEMENT only — insider
+ * buying/selling is a management-quality / capital-allocation signal. Deterministically parsed by the
+ * harness (secForm4.ts); mechanical RSU/tax activity is excluded from the discretionary figures. */
+const INSIDER_LANES = new Set<string>(['management'])
+
 export async function runResearchDeepDivePhase(
   store: SwarmStore,
   provider: Provider,
@@ -1078,6 +1095,31 @@ export async function runResearchDeepDivePhase(
         remember([{ ...captured, source_category: 'proxy' as const, filed: proxy.filed, form: proxy.form }])
         proxyBlock = buildProxyBlock({ source_id: proxySourceId, filed: proxy.filed })
       }
+    }
+  }
+
+  // ---- 3.3: INSIDER TRANSACTIONS (Form 4) — deterministic summary for the MANAGEMENT lane ----
+  // The harness fetches + parses the recent Form 4 documents (secForm4.ts) from the submissions Form 4
+  // list, ONLY in the deep dive so the ~cap-40 per-document fetch cost never burdens the quick screen.
+  // Discretionary open-market (P/S) trades are the management-quality signal; mechanical RSU/option/tax
+  // activity is surfaced separately and NEVER counted as insider selling. Fail-closed + test-mode-gated
+  // exactly like the proxy/interim affordances: an uncomputable summary is simply absent and the lane
+  // runs as today. `insiderSummary` is also carried forward for the re-review cluster trigger.
+  let insiderBlock: string | undefined
+  let insiderSummaryComputed: InsiderSummaryComputed | undefined
+  if (fundamentals !== undefined) {
+    let summary: InsiderSummary | undefined = deps.insiderSummary
+    if (summary === undefined && !isOfflineTestMode()) {
+      const asOf = new Date().toISOString().slice(0, 10)
+      summary = await resolveInsiderSummary(
+        fundamentals.form4_filings ?? [],
+        { asOf },
+        deps.fetchForm4Document !== undefined ? { fetchDocument: deps.fetchForm4Document } : undefined,
+      )
+    }
+    if (summary !== undefined && summary.computable) {
+      insiderSummaryComputed = summary
+      insiderBlock = buildInsiderBlock(summary)
     }
   }
 
@@ -1368,6 +1410,7 @@ export async function runResearchDeepDivePhase(
       + (injectFilingNumbers ? primaryFilingBlock : '')
       + (recentFilingsBlock !== undefined && RECENT_FILINGS_LANES.has(lane) ? recentFilingsBlock : '')
       + (proxyBlock !== undefined && PROXY_LANES.has(lane) ? proxyBlock : '')
+      + (insiderBlock !== undefined && INSIDER_LANES.has(lane) ? insiderBlock : '')
 
     const baseRunId = `run_${command.research_case_id}_${swarmSeg(lane)}`
     // The grounded EDGAR 10-K is a guaranteed verified primary citation for the injected lanes —
@@ -3189,6 +3232,9 @@ export async function runResearchDeepDivePhase(
       // Circle-of-competence judgment (in-competence here — the gate passed; the deep dive ran). Carried on
       // the analysis so the dossier always shows the grounded competence judgment that admitted this spend.
       circle_competence: circleJudgmentPayload,
+      // Insider Form 4 summary (§3.3) — the deterministic harness computation persisted so the dossier
+      // renders it model-independently (the management lane only READS it; it may or may not echo it).
+      ...(insiderSummaryComputed !== undefined ? { insider_summary: insiderSummaryComputed } : {}),
       quick_screen: undefined, // populated below
       valuation: {
         moat_class: moatClass,

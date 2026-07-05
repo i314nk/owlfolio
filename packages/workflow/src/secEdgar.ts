@@ -129,6 +129,12 @@ export type Fundamentals = {
    */
   proxy_filings?: FilingRef[]
   /**
+   * Insider ownership filings (Form 4 / 4/A) from the submissions index, newest-first — the LIST only
+   * (cheap; no XML fetched here). secForm4.ts fetches and deterministically parses the selected subset in
+   * the deep-dive phase (avoiding the per-document fetch cost on the quick screen). Empty when none.
+   */
+  form4_filings?: FilingRef[]
+  /**
    * SEC Standard Industrial Classification code from the submissions endpoint (e.g. '7372'), when
    * present. Best-effort/fail-open: undefined when submissions are unavailable or omit it — never
    * fabricated. Reported verbatim (trimmed); not coerced or zero-padded.
@@ -746,6 +752,15 @@ const PROXY_FORMS = new Set(['DEF 14A'])
 
 function isProxyForm(form: string | undefined): boolean {
   return typeof form === 'string' && PROXY_FORMS.has(form)
+}
+
+/** Insider ownership statements of changes — Form 4 (and its amendment 4/A). Section 16 officers,
+ * directors, and 10% owners must file within two business days of a transaction; the XML is parsed
+ * deterministically by secForm4.ts (never grounded as narrative). A miss fails closed to "no insider data". */
+const FORM_4_FORMS = new Set(['4', '4/A'])
+
+function isForm4(form: string | undefined): boolean {
+  return typeof form === 'string' && FORM_4_FORMS.has(form)
 }
 
 /** True when a taxonomy bucket has at least one concept with data. */
@@ -1570,6 +1585,19 @@ export function buildProxyFilings(subs: Submissions | undefined, cik10: string):
 }
 
 /**
+ * Insider ownership filings (Form 4 / 4/A — see FORM_4_FORMS), newest-first. EDGAR's `primaryDocument`
+ * for a Form 4 is the XSL-RENDERED HTML (e.g. `xslF345X06/form4.xml`); the machine-readable ownership XML
+ * is the same filename with that render-prefix stripped. We rewrite the URL to the raw XML so secForm4's
+ * parser reads the structured document, not the HTML rendering.
+ */
+export function buildForm4Filings(subs: Submissions | undefined, cik10: string): FilingRef[] {
+  return buildFilingsWhere(subs, cik10, isForm4).map((f) => ({
+    ...f,
+    url: f.url.replace(/\/xsl[^/]*\/(?=[^/]+\.xml$)/i, '/'),
+  }))
+}
+
+/**
  * The latest definitive proxy statement to ground for the management lane. LATEST-ONLY contract — no
  * recency anchor, unlike the interim selector: proxies file ~annually (typically AFTER the 10-K), so
  * the latest DEF 14A legitimately may predate the latest annual filing and is still the current proxy.
@@ -1652,6 +1680,7 @@ export async function fetchCompanyFundamentals(
   const filings = buildFilings(subs, cik10)
   const recent_filings = buildReadableRecentFilings(subs, cik10)
   const proxy_filings = buildProxyFilings(subs, cik10)
+  const form4_filings = buildForm4Filings(subs, cik10)
 
   return {
     cik: cik10,
@@ -1662,6 +1691,7 @@ export async function fetchCompanyFundamentals(
     filings,
     recent_filings,
     proxy_filings,
+    form4_filings,
     // SIC sector/industry is best-effort/fail-open: present only when submissions carry it, trimmed
     // but not coerced/padded, and omitted (undefined) otherwise so it is never fabricated.
     ...optional('sic', trimmedString(subs?.sic)),

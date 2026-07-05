@@ -703,6 +703,36 @@ export type ResearchCaseReReviewProjection = {
   recorded_at: string
 }
 
+/** Deterministic insider-selling cluster within the summary's cluster window (Form 4, §3.3). */
+export type ResearchCaseInsiderClusterProjection = {
+  window_days?: number
+  discretionary_sell_count?: number
+  distinct_sellers?: number
+  net_sell_value?: number
+}
+
+/**
+ * Deterministic insider-transaction summary (SEC Form 4, §3.3), computed by the harness during the deep
+ * dive and carried on the analysis event. Discretionary open-market (P/S) activity is the signal;
+ * mechanical RSU/option/tax disposals are surfaced separately and never counted as selling. All fields
+ * optional / legacy-tolerant.
+ */
+export type ResearchCaseInsiderSummaryProjection = {
+  as_of?: string
+  window_months?: number
+  discretionary_buy_shares?: number
+  discretionary_sell_shares?: number
+  discretionary_buy_value?: number
+  discretionary_sell_value?: number
+  distinct_buyers?: number
+  distinct_sellers?: number
+  officer_director_sell_shares?: number
+  ten_percent_owner_sell_shares?: number
+  mechanical_disposed_shares?: number
+  cluster?: ResearchCaseInsiderClusterProjection
+  window_truncated?: boolean
+}
+
 export type ResearchCaseProjection = {
   research_case_id: string
   version: number
@@ -761,6 +791,8 @@ export type ResearchCaseProjection = {
   owner_earnings_valuation?: ResearchCaseOwnerEarningsValuationProjection
   /** Circle-of-competence judgment (grounded model judgment that gated the deep-dive spend). */
   circle_competence?: ResearchCaseCircleCompetenceProjection
+  /** Deterministic insider Form 4 summary (§3.3), when the deep dive computed one. */
+  insider_summary?: ResearchCaseInsiderSummaryProjection
   valuation?: ResearchCaseValuationProjection
   /**
    * Engine-version marker stamped at the event payload ROOT on EVERY analysis emission (full deep-dive AND
@@ -1476,6 +1508,37 @@ function getSellRecommendation(
   return projected
 }
 
+function getInsiderSummary(payload: Record<string, unknown>): ResearchCaseInsiderSummaryProjection | undefined {
+  const value = payload['insider_summary']
+  if (!isRecord(value)) {
+    return undefined
+  }
+  const projected: ResearchCaseInsiderSummaryProjection = {}
+  const numKeys = [
+    'window_months', 'discretionary_buy_shares', 'discretionary_sell_shares', 'discretionary_buy_value',
+    'discretionary_sell_value', 'distinct_buyers', 'distinct_sellers', 'officer_director_sell_shares',
+    'ten_percent_owner_sell_shares', 'mechanical_disposed_shares',
+  ] as const
+  for (const key of numKeys) {
+    const n = getNumber(value, key)
+    if (n !== undefined) projected[key] = n
+  }
+  const as_of = getString(value, 'as_of')
+  if (as_of !== undefined) projected.as_of = as_of
+  const window_truncated = typeof value['window_truncated'] === 'boolean' ? value['window_truncated'] : undefined
+  if (window_truncated !== undefined) projected.window_truncated = window_truncated
+  const clusterRaw = value['cluster']
+  if (isRecord(clusterRaw)) {
+    const cluster: ResearchCaseInsiderClusterProjection = {}
+    for (const key of ['window_days', 'discretionary_sell_count', 'distinct_sellers', 'net_sell_value'] as const) {
+      const n = getNumber(clusterRaw, key)
+      if (n !== undefined) cluster[key] = n
+    }
+    projected.cluster = cluster
+  }
+  return projected
+}
+
 function getValuation(payload: Record<string, unknown>): ResearchCaseValuationProjection | undefined {
   const value = payload['valuation']
   if (!isRecord(value)) {
@@ -2087,6 +2150,10 @@ export function projectResearchCases(events: LedgerEventEnvelope<unknown>[]): Re
       const circleCompetence = getCircleCompetence(event.payload)
       if (circleCompetence !== undefined) {
         researchCase.circle_competence = circleCompetence
+      }
+      const insiderSummary = getInsiderSummary(event.payload)
+      if (insiderSummary !== undefined) {
+        researchCase.insider_summary = insiderSummary
       }
       const shariahFinancial = getShariahFinancial(event.payload)
       if (shariahFinancial !== undefined) {

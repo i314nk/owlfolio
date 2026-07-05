@@ -148,6 +148,44 @@ describe('/api/research/[caseId]/re-review', () => {
     }
   })
 
+  it('surfaces a threshold insider-selling cluster even with no new conventional filings (§3.3, zero-spend)', async () => {
+    await seedCase(ledgerPath, sourceLedgerPath)
+    const saleXml = (owner: string) =>
+      `<?xml version="1.0"?><ownershipDocument><documentType>4</documentType><periodOfReport>2026-06-15</periodOfReport>`
+      + `<issuer><issuerCik>1</issuerCik><issuerTradingSymbol>TST</issuerTradingSymbol></issuer>`
+      + `<reportingOwner><reportingOwnerId><rptOwnerCik>9</rptOwnerCik><rptOwnerName>${owner}</rptOwnerName></reportingOwnerId>`
+      + `<reportingOwnerRelationship><isOfficer>true</isOfficer><officerTitle>CFO</officerTitle></reportingOwnerRelationship></reportingOwner>`
+      + `<nonDerivativeTable><nonDerivativeTransaction><securityTitle><value>Common Stock</value></securityTitle>`
+      + `<transactionDate><value>2026-06-15</value></transactionDate><transactionCoding><transactionCode>S</transactionCode></transactionCoding>`
+      + `<transactionAmounts><transactionShares><value>1000</value></transactionShares>`
+      + `<transactionPricePerShare><value>50</value></transactionPricePerShare>`
+      + `<transactionAcquiredDisposedCode><value>D</value></transactionAcquiredDisposedCode></transactionAmounts>`
+      + `</nonDerivativeTransaction></nonDerivativeTable></ownershipDocument>`
+    const provider = fakeProvider()
+    // The 10-Q is already in the seeded corpus → no NEW conventional filings; two insiders sold since the decision.
+    const fundamentals = {
+      cik: '1', entity_name: 'TST', currency: 'USD',
+      latest_annual: { fiscal_year: 2025, currency: 'USD' }, annual_series: [], filings: [],
+      recent_filings: [{ form: '10-Q', filed: '2026-06-03', url: KNOWN_10K }],
+      form4_filings: [
+        { form: '4', filed: '2026-06-20', url: 'https://www.sec.gov/x/f4a.xml' },
+        { form: '4', filed: '2026-06-22', url: 'https://www.sec.gov/x/f4b.xml' },
+      ],
+    } as unknown as Fundamentals
+    const res = await callRoute(RC, {
+      provider, ground,
+      fetchFundamentals: async () => fundamentals,
+      fetchForm4Document: async (url: string) => (url.includes('f4b') ? saleXml('Bravo Betty') : saleXml('Alpha Adam')),
+    })
+    expect(res.status).toBe(200)
+    const body = await res.json() as { status: string; insider_cluster?: { distinct_sellers: number; meets_threshold: boolean } }
+    expect(body.status).toBe('no_new_filings')
+    expect(body.insider_cluster).toBeDefined()
+    expect(body.insider_cluster?.distinct_sellers).toBe(2)
+    expect(body.insider_cluster?.meets_threshold).toBe(true)
+    expect(provider.structured).not.toHaveBeenCalled() // still zero provider spend
+  })
+
   it('zero-spend: no new filings → 200 no_new_filings, no event, provider never called', async () => {
     await seedCase(ledgerPath, sourceLedgerPath)
     const provider = fakeProvider()

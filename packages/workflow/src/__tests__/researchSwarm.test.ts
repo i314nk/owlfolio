@@ -2656,6 +2656,7 @@ describe('Mechanism 5 — red-team pass + synthesis obligation', () => {
 
 import type { Fundamentals } from '../secEdgar'
 import { runResearchDeepDivePhase } from '../researchSwarm'
+import { computeInsiderSummary } from '../secForm4'
 import { createResearchCase } from '../researchWorkflow'
 
 async function seedDeepDivePrereqs(store: InMemoryEventStore): Promise<void> {
@@ -2772,6 +2773,54 @@ describe('SEC EDGAR primary-filing wiring', () => {
       && (e.payload as { specialist_lane?: string }).specialist_lane === 'financial_quality')
     expect((finFinding?.payload as { source_ids: string[] }).source_ids)
       .toContain('sec_edgar_10k_0000909832_fy2025')
+  })
+
+  it('injects the INSIDER TRANSACTIONS (Form 4) block into the management lane ONLY (§3.3)', async () => {
+    const store = new InMemoryEventStore()
+    await seedDeepDivePrereqs(store)
+
+    const provider = swarmFakeProvider()
+    await provider.structured({} as never) // skip the quick-screen call
+
+    const insiderSummary = computeInsiderSummary(
+      [
+        {
+          issuer_symbol: 'COST',
+          issuer_cik: '0000909832',
+          period_of_report: '2026-06-01',
+          owner: { name: 'Jane Officer', cik: '9', is_officer: true, is_director: false, is_ten_percent_owner: false, officer_title: 'CEO' },
+          transactions: [
+            { security_title: 'Common Stock', transaction_date: '2026-06-10', code: 'S', transaction_class: 'discretionary_sell', acquired_disposed: 'D', shares: 5000, price_per_share: 150, shares_owned_following: 45000, direct_or_indirect: 'D', derivative: false },
+          ],
+        },
+      ],
+      { asOf: '2026-06-30' },
+    )
+
+    await runResearchDeepDivePhase(store, provider as never, deepDiveCommand(), {
+      ground: verifyAllGround(),
+      laneConcurrency: 7,
+      fundamentals: costFundamentals,
+      insiderSummary,
+    })
+
+    const prompts = provider.structured.mock.calls.map((c: unknown[]) => (c[0] as { prompt?: string }).prompt).filter((p): p is string => typeof p === 'string')
+    const managementLanePrompt = prompts.find((p) => p.includes('management specialist'))
+    const financialLanePrompt = prompts.find((p) => p.includes('financial_quality specialist'))
+
+    expect(managementLanePrompt).toBeDefined()
+    expect(managementLanePrompt).toContain('INSIDER TRANSACTIONS (SEC Form 4')
+    expect(managementLanePrompt).toContain('Discretionary SELLS: 5,000 shares')
+    // Other lanes must NOT receive the insider block.
+    expect(financialLanePrompt).toBeDefined()
+    expect(financialLanePrompt).not.toContain('INSIDER TRANSACTIONS')
+
+    // The computed summary is persisted on the analysis event so the dossier can render it model-independently.
+    const events = await store.list()
+    const analysis = events.find((e) => e.event_type === 'buffett_munger_analysis_drafted')
+    const persisted = (analysis?.payload as { insider_summary?: { discretionary_sell_shares?: number; distinct_sellers?: number } }).insider_summary
+    expect(persisted?.discretionary_sell_shares).toBe(5000)
+    expect(persisted?.distinct_sellers).toBe(1)
   })
 
   it('surfaces the pre-verified EDGAR source_id + cite-instruction to the circle, moat, and decision prompts', async () => {

@@ -37,6 +37,7 @@ export async function POST(_request: Request, { params }: ReReviewRouteContext, 
     ...(deps.provider === undefined ? {} : { provider: deps.provider }),
     ...(deps.ground === undefined ? {} : { ground: deps.ground }),
     ...(deps.fetchFundamentals === undefined ? {} : { fetchFundamentals: deps.fetchFundamentals }),
+    ...(deps.fetchForm4Document === undefined ? {} : { fetchForm4Document: deps.fetchForm4Document }),
   }
 
   try {

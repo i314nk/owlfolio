@@ -6,6 +6,7 @@ import {
   type ResolveRubricTierResult,
 } from './judgmentAnchor'
 import type { AnnualFacts, Fundamentals } from './secEdgar'
+import type { InsiderSummaryComputed } from './secForm4'
 import { isCitationGrounded } from './sourceGrounding'
 
 /** A single cited durable competitive advantage from the MOAT lane's grounded thesis (B6 reframe). */
@@ -669,6 +670,36 @@ export function buildProxyBlock(entry: { source_id: string; filed: string } | un
     + `composition/independence, dual-class/entrenchment provisions, and related-party transactions; `
     + `cite the source_id for proxy-backed claims. Do NOT use proxy numbers for valuation — the harness `
     + `computes valuation on the annual filing basis only.`
+  )
+}
+
+/**
+ * Build the INSIDER TRANSACTIONS affordance block (§3.3) — the deterministically-parsed Form 4 summary
+ * injected into the MANAGEMENT lane. This is a harness OBSERVATION (computed, not narrative to read):
+ * discretionary open-market buys/sells only; mechanical RSU/option/tax activity is surfaced separately so
+ * it is never mistaken for insider selling. Always given a computable summary; callers omit it otherwise.
+ */
+export function buildInsiderBlock(summary: InsiderSummaryComputed): string {
+  const usd = (v: number) => `$${Math.round(v).toLocaleString('en-US')}`
+  const sh = (v: number) => v.toLocaleString('en-US')
+  const clusterLine = summary.cluster === undefined
+    ? ''
+    : `\n  - CLUSTER: ${summary.cluster.discretionary_sell_count} discretionary sale(s) by `
+      + `${summary.cluster.distinct_sellers} insider(s) within ${summary.cluster.window_days} days `
+      + `(~${usd(summary.cluster.net_sell_value)} net).`
+  const truncatedNote = summary.window_truncated
+    ? ` (NOTE: filing window capped — older Form 4s beyond the cap are not included, so counts are a recent-window floor.)`
+    : ''
+  return (
+    `\n\nINSIDER TRANSACTIONS (SEC Form 4, trailing ${summary.window_months} months as of ${summary.as_of} — `
+    + `deterministically parsed by the harness; treat as an OBSERVATION, do NOT re-derive or fetch).${truncatedNote} `
+    + `Discretionary OPEN-MARKET activity only — option/RSU exercises, grants, and tax-withholding are mechanical and EXCLUDED from these buy/sell figures:\n`
+    + `  - Discretionary BUYS: ${sh(summary.discretionary_buy_shares)} shares (~${usd(summary.discretionary_buy_value)}) by ${summary.distinct_buyers} insider(s).\n`
+    + `  - Discretionary SELLS: ${sh(summary.discretionary_sell_shares)} shares (~${usd(summary.discretionary_sell_value)}) by ${summary.distinct_sellers} insider(s); `
+    + `officers/directors ${sh(summary.officer_director_sell_shares)} shares, 10% owners ${sh(summary.ten_percent_owner_sell_shares)} shares.\n`
+    + `  - Mechanical (RSU vest / option exercise / tax withholding), NOT sales: ${sh(summary.mechanical_disposed_shares)} shares disposed.`
+    + `${clusterLine}\n`
+    + `Weigh this as a management-quality signal (insider conviction vs distribution). Cite it as harness-computed Form 4 data; NEVER treat mechanical vesting/withholding as discretionary insider selling.`
   )
 }
 

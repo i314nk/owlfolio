@@ -11,9 +11,27 @@
 // re-run is the right tool there, not a re-review.
 
 import { fetchCompanyFundamentals, type FilingRef, type Fundamentals, type SecEdgarDeps } from './secEdgar'
+import { resolveInsiderSummary } from './secForm4'
 import { bundleToReadCorpus, readSourceLedgerBundle, selectFilingsNotInCorpus } from './sourceLedgerRead'
 
 export type FilingTriggerWeight = 'strong' | 'medium' | 'weak'
+
+/**
+ * A discretionary insider-selling CLUSTER (§3.3) computed from the Form 4 documents filed since the
+ * decision: an UNSCHEDULED event (Form 4s land within two business days of the trade). Only OPEN-MARKET
+ * sells (code S) count — RSU/option/tax mechanics are excluded by the parser. Fires (meets_threshold) when
+ * at least INSIDER_CLUSTER_MIN_SELLERS distinct insiders sold, deterministically — never a model judgment.
+ */
+export type InsiderClusterTrigger = {
+  distinct_sellers: number
+  discretionary_sell_shares: number
+  discretionary_sell_value: number
+  filings_considered: number
+  meets_threshold: boolean
+}
+
+/** A cluster is >= 2 distinct insiders making discretionary open-market sales in the since-window. */
+const INSIDER_CLUSTER_MIN_SELLERS = 2
 
 /**
  * Pure form → trigger-strength mapping. 8-K/6-K (+ amendments) → strong; 10-Q (+/A) → medium;
@@ -75,6 +93,12 @@ export type NewFilingsCheck = {
    * re-run is due; re-review is the wrong tool. Surfaced, never weighted into new_filings.
    */
   new_annual_filing?: FilingRef
+  /**
+   * Discretionary insider-selling cluster from Form 4s filed since the decision (§3.3). Present when any
+   * discretionary insider selling occurred in the window; `meets_threshold` marks a true cluster (which
+   * also forces `strongest_trigger` to 'strong'). Absent when no Form 4 activity / all mechanical.
+   */
+  insider_cluster?: InsiderClusterTrigger
   checked_at: string
 }
 
@@ -83,6 +107,8 @@ export type CheckForNewFilingsDeps = {
   fetchFundamentals?: (ticker: string, deps?: SecEdgarDeps) => Promise<Fundamentals | undefined>
   secEdgar?: SecEdgarDeps
   now?: () => string
+  /** Injectable per-document Form 4 fetch (tests). Defaults to the live SEC fetch inside resolveInsiderSummary. */
+  fetchForm4Document?: (url: string) => Promise<string | undefined>
 }
 
 const WEIGHT_ORDER: Record<FilingTriggerWeight, number> = { strong: 0, medium: 1, weak: 2 }
@@ -159,14 +185,40 @@ export async function checkForNewFilings(
 
   const newAnnual = selectFilingsNotInCorpus((fundamentals.filings ?? []).filter(filedSince), corpus)[0]
 
+  // Form 4 discretionary-sale cluster (§3.3): parse only the NEW Form 4s filed since the decision
+  // (bounded), classify discretionary sales, and fire a STRONG trigger when >= 2 insiders sold. Fail-open:
+  // any fetch/parse gap simply yields no cluster; mechanical RSU/tax activity is excluded by the parser.
+  const newForm4 = (fundamentals.form4_filings ?? []).filter(filedSince)
+  let insider_cluster: InsiderClusterTrigger | undefined
+  if (newForm4.length > 0) {
+    const summary = await resolveInsiderSummary(
+      newForm4,
+      { asOf: checked_at.slice(0, 10), windowMonths: 60 },
+      deps?.fetchForm4Document !== undefined ? { fetchDocument: deps.fetchForm4Document } : undefined,
+    )
+    if (summary.computable && summary.distinct_sellers > 0) {
+      insider_cluster = {
+        distinct_sellers: summary.distinct_sellers,
+        discretionary_sell_shares: summary.discretionary_sell_shares,
+        discretionary_sell_value: summary.discretionary_sell_value,
+        filings_considered: summary.filings_considered,
+        meets_threshold: summary.distinct_sellers >= INSIDER_CLUSTER_MIN_SELLERS,
+      }
+    }
+  }
+
+  const filingWeight = new_filings.length > 0 ? new_filings[0]!.weight : undefined
+  const strongest: FilingTriggerWeight | undefined = insider_cluster?.meets_threshold ? 'strong' : filingWeight
+
   return {
     ticker: input.ticker,
     research_case_id: input.research_case_id,
     new_filings,
-    ...(new_filings.length > 0 ? { strongest_trigger: new_filings[0]!.weight } : {}),
+    ...(strongest !== undefined ? { strongest_trigger: strongest } : {}),
     prior_corpus_size: corpus.size,
     no_prior_corpus: false,
     ...(newAnnual === undefined ? {} : { new_annual_filing: newAnnual }),
+    ...(insider_cluster === undefined ? {} : { insider_cluster }),
     checked_at,
   }
 }

@@ -37,12 +37,20 @@ export async function submitReReview(
       deps.router.refresh()
       return { ok: true }
     }
-    const note = body.status === 'no_new_filings'
-      ? 'No new filings since this decision — the thesis re-review has nothing to compare.'
+    // A threshold-meeting insider-selling cluster (§3.3) is a STRONG signal even with no new conventional
+    // filings — surface it instead of a bare "nothing to compare".
+    const cluster = body.insider_cluster as { distinct_sellers?: number; discretionary_sell_value?: number } | undefined
+    const insiderNote = cluster === undefined
+      ? ''
+      : ` Insider-selling cluster (STRONG): ${cluster.distinct_sellers ?? 0} insiders sold ~$${Math.round(cluster.discretionary_sell_value ?? 0).toLocaleString('en-US')} recently — consider a full re-run.`
+    const base = body.status === 'no_new_filings'
+      ? (cluster === undefined
+          ? 'No new filings since this decision — the thesis re-review has nothing to compare.'
+          : 'No new conventional filings since this decision, but an insider-selling cluster fired.')
       : body.status === 'no_prior_corpus'
         ? 'No persisted source corpus for this case (it predates ledger persistence) — the honest refresh is a full re-run.'
         : 'Could not resolve SEC filings for this ticker right now — try again later.'
-    return { ok: true, note }
+    return { ok: true, note: `${base}${insiderNote}` }
   } catch (caughtError) {
     return { ok: false, error: caughtError instanceof Error ? caughtError.message : 'Unable to run the re-review' }
   }

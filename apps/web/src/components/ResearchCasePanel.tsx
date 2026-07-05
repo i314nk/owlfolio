@@ -400,6 +400,8 @@ export function ResearchCasePanel({ researchCase, mode = 'demo', configuredProvi
     makeCollapsible(createComplianceRatioBlock(researchCase), false, researchCase.shariah_status),
     // ── 4. Deep-dive specialist lanes (collapsed by default; each lane stacks full-width) ────────────
     createSpecialistLanesGrid(researchCase),
+    // ── 4·insider. Insider activity (Form 4) — deterministic harness summary, model-independent ───────
+    createInsiderActivityPanel(researchCase),
     // ── 4b. Falsifiable forecasts (calibration scaffold) ─────────────────────
     createForecastsPanel(researchCase),
     // ── 4c. Admit recommendation (advisory) + on-demand request (personal-local) ──
@@ -503,6 +505,39 @@ function createReAnalysisDiffPanel(researchCase: AppResearchCase) {
  * every recorded thesis-break trigger assessed against the filings that appeared since the decision.
  * BROKEN opens expanded and points at the existing re-run action; UNVERIFIED is flagged loudly.
  */
+// ── Insider activity (Form 4, §3.3) ──────────────────────────────────────────
+// Deterministic, harness-computed insider-transaction summary rendered independently of what the
+// management lane said. Discretionary open-market (P/S) trades are the signal; mechanical RSU/option/tax
+// disposals are shown SEPARATELY so they are never read as selling. Absent (null) when no summary.
+function createInsiderActivityPanel(researchCase: AppResearchCase) {
+  const s = researchCase.insider_summary
+  if (s === undefined) return null
+  const sh = (n?: number) => (n ?? 0).toLocaleString('en-US')
+  const usd = (n?: number) => `$${Math.round(n ?? 0).toLocaleString('en-US')}`
+  const rowStyle = { color: 'var(--owl-color-text)', fontSize: 'var(--owl-text-base)' }
+  const rows: ReactNode[] = [
+    createElement('li', { key: 'sell', style: { ...rowStyle, color: 'var(--owl-color-risk-bright)' } },
+      `Discretionary sells: ${sh(s.discretionary_sell_shares)} shares (~${usd(s.discretionary_sell_value)}) by ${s.distinct_sellers ?? 0} insider(s)`
+      + `${(s.officer_director_sell_shares ?? 0) > 0 ? ` — officers/directors ${sh(s.officer_director_sell_shares)} shares` : ''}`
+      + `${(s.ten_percent_owner_sell_shares ?? 0) > 0 ? `, 10% owners ${sh(s.ten_percent_owner_sell_shares)} shares` : ''}`),
+    createElement('li', { key: 'buy', style: rowStyle },
+      `Discretionary buys: ${sh(s.discretionary_buy_shares)} shares (~${usd(s.discretionary_buy_value)}) by ${s.distinct_buyers ?? 0} insider(s)`),
+    createElement('li', { key: 'mech', style: { ...rowStyle, color: 'var(--owl-color-muted)' } },
+      `Mechanical (RSU vest / option exercise / tax withholding), NOT sales: ${sh(s.mechanical_disposed_shares)} shares disposed`),
+  ]
+  if (s.cluster !== undefined) {
+    rows.push(createElement('li', { key: 'cluster', style: { ...rowStyle, color: 'var(--owl-color-gold-bright)', fontWeight: 700 } },
+      `Cluster: ${s.cluster.discretionary_sell_count ?? 0} discretionary sale(s) by ${s.cluster.distinct_sellers ?? 0} insider(s) within ${s.cluster.window_days ?? 0} days (~${usd(s.cluster.net_sell_value)} net)`))
+  }
+  const children: ReactNode[] = [
+    createElement('p', { key: 'meta', style: { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-sm)', margin: '0 0 0.4rem' } },
+      `SEC Form 4, trailing ${s.window_months ?? 12} months${s.as_of === undefined ? '' : ` as of ${s.as_of}`} — harness-computed observation. Discretionary open-market trades only; mechanical RSU/option/tax activity is shown separately, never as selling.`
+      + `${s.window_truncated === true ? ' Filing window capped — counts are a recent-window floor.' : ''}`),
+    createElement('ul', { key: 'rows', style: { display: 'grid', gap: '0.35rem', margin: 0, paddingLeft: '1.1rem' } }, ...rows),
+  ]
+  return createCollapsibleSection('insider-activity-card', 'Insider activity (Form 4)', false, children)
+}
+
 function createReReviewPanel(researchCase: AppResearchCase) {
   const reReview = researchCase.re_review
   if (reReview === undefined) return null

@@ -1,12 +1,19 @@
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdtemp, rm, readFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { dirname, join } from 'node:path'
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { checkForNewFilings, eightKItemWeight, filingFormWeight, type CheckForNewFilingsDeps } from '../reReviewTrigger.js'
 import { ingestManualSourceBundle } from '../sourceLedger'
 import type { Fundamentals } from '../secEdgar.js'
+
+const fixtureDir = join(dirname(fileURLToPath(import.meta.url)), '..', '__fixtures__', 'sec-edgar')
+async function saleFixtureFor(ownerName: string): Promise<string> {
+  const xml = await readFile(join(fixtureDir, 'insider-form4-sale.xml'), 'utf8')
+  return xml.replace('Doe John A', ownerName)
+}
 
 const dirs: string[] = []
 async function makeTempDir(prefix: string) {
@@ -202,5 +209,75 @@ describe('checkForNewFilings', () => {
     const check = await checkForNewFilings(input(projectDir), deps(f))
     expect(check!.new_annual_filing).toEqual(newTenK)
     expect(check!.new_filings).toEqual([])
+  })
+})
+
+describe('checkForNewFilings — insider Form 4 cluster (§3.3)', () => {
+  const input = (projectDir: string) => ({
+    ticker: 'COST',
+    research_case_id: 'rc_cost',
+    source_ledger_path: join(projectDir, 'source-ledger'),
+    since: '2026-01-01',
+  })
+
+  it('fires a STRONG insider_cluster when >=2 insiders made discretionary sales since the decision', async () => {
+    const projectDir = await makeTempDir('owlfolio-rr-insider-')
+    await seedBundle(projectDir, [KNOWN_10Q_URL])
+    const aXml = await saleFixtureFor('Alpha Adam')
+    const bXml = await saleFixtureFor('Bravo Betty')
+    const f = fundamentalsWith({
+      form4_filings: [
+        { form: '4', filed: '2026-06-20', url: 'https://www.sec.gov/x/form4-a.xml' },
+        { form: '4', filed: '2026-06-22', url: 'https://www.sec.gov/x/form4-b.xml' },
+      ],
+    })
+    const clusterDeps: CheckForNewFilingsDeps = {
+      fetchFundamentals: vi.fn(async () => f),
+      now: () => '2026-07-05T00:00:00.000Z',
+      fetchForm4Document: async (url) => (url.includes('form4-b') ? bXml : aXml),
+    }
+    const check = await checkForNewFilings(input(projectDir), clusterDeps)
+    expect(check?.insider_cluster).toBeDefined()
+    expect(check?.insider_cluster?.distinct_sellers).toBe(2)
+    expect(check?.insider_cluster?.meets_threshold).toBe(true)
+    expect(check?.strongest_trigger).toBe('strong')
+  })
+
+  it('does NOT fire for a single insider sale (not a cluster)', async () => {
+    const projectDir = await makeTempDir('owlfolio-rr-insider-single-')
+    await seedBundle(projectDir, [KNOWN_10Q_URL])
+    const aXml = await saleFixtureFor('Alpha Adam')
+    const f = fundamentalsWith({
+      form4_filings: [{ form: '4', filed: '2026-06-20', url: 'https://www.sec.gov/x/form4-a.xml' }],
+      recent_filings: [],
+    })
+    const singleDeps: CheckForNewFilingsDeps = {
+      fetchFundamentals: vi.fn(async () => f),
+      now: () => '2026-07-05T00:00:00.000Z',
+      fetchForm4Document: async () => aXml,
+    }
+    const check = await checkForNewFilings(input(projectDir), singleDeps)
+    expect(check?.insider_cluster?.meets_threshold ?? false).toBe(false)
+    expect(check?.strongest_trigger).toBeUndefined()
+  })
+
+  it('ignores RSU/mechanical-only Form 4 activity (no discretionary sales, no cluster)', async () => {
+    const projectDir = await makeTempDir('owlfolio-rr-insider-rsu-')
+    await seedBundle(projectDir, [KNOWN_10Q_URL])
+    const rsuXml = await readFile(join(fixtureDir, 'aapl-form4-rsu.xml'), 'utf8')
+    const f = fundamentalsWith({
+      form4_filings: [
+        { form: '4', filed: '2026-06-18', url: 'https://www.sec.gov/x/form4-r1.xml' },
+        { form: '4', filed: '2026-06-19', url: 'https://www.sec.gov/x/form4-r2.xml' },
+      ],
+      recent_filings: [],
+    })
+    const rsuDeps: CheckForNewFilingsDeps = {
+      fetchFundamentals: vi.fn(async () => f),
+      now: () => '2026-07-05T00:00:00.000Z',
+      fetchForm4Document: async () => rsuXml,
+    }
+    const check = await checkForNewFilings(input(projectDir), rsuDeps)
+    expect(check?.insider_cluster?.meets_threshold ?? false).toBe(false)
   })
 })

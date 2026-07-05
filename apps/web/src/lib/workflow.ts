@@ -60,6 +60,7 @@ import {
   rejectHoldingReviewDraft,
   defaultSourceLedgerStorage,
   type CheckForNewFilingsDeps,
+  type InsiderClusterTrigger,
   type SourceLedgerBundle,
   type ThesisReReviewRecordedPayload,
 } from '@owlfolio/workflow'
@@ -1263,13 +1264,15 @@ export type RunReReviewDeps = {
   ground?: GroundFn
   /** Injectable EDGAR resolver for the trigger check (test fixture). */
   fetchFundamentals?: CheckForNewFilingsDeps['fetchFundamentals']
+  /** Injectable per-document Form 4 fetch for the insider-cluster trigger (test fixture). */
+  fetchForm4Document?: CheckForNewFilingsDeps['fetchForm4Document']
 }
 
 export type RunReReviewOutcome =
-  | { status: 'recorded'; re_review: ThesisReReviewRecordedPayload }
+  | { status: 'recorded'; re_review: ThesisReReviewRecordedPayload; insider_cluster?: InsiderClusterTrigger }
   | { status: 'no_recorded_thesis' }
   | { status: 'no_prior_corpus' }
-  | { status: 'no_new_filings'; checked_at: string }
+  | { status: 'no_new_filings'; checked_at: string; insider_cluster?: InsiderClusterTrigger }
   | { status: 'fundamentals_unresolved' }
 
 /**
@@ -1316,7 +1319,12 @@ export async function runResearchCaseReReview(
         // history looks new (the corpus only holds what the run read).
         ...(prior.decided_at === undefined ? {} : { since: prior.decided_at }),
       },
-      deps.fetchFundamentals === undefined ? undefined : { fetchFundamentals: deps.fetchFundamentals },
+      deps.fetchFundamentals === undefined && deps.fetchForm4Document === undefined
+        ? undefined
+        : {
+            ...(deps.fetchFundamentals === undefined ? {} : { fetchFundamentals: deps.fetchFundamentals }),
+            ...(deps.fetchForm4Document === undefined ? {} : { fetchForm4Document: deps.fetchForm4Document }),
+          },
     )
     if (check === undefined) {
       return { status: 'fundamentals_unresolved' }
@@ -1324,8 +1332,11 @@ export async function runResearchCaseReReview(
     if (check.no_prior_corpus) {
       return { status: 'no_prior_corpus' }
     }
+    // A threshold-meeting insider-selling cluster (§3.3) is a STRONG signal in its own right — surface it
+    // even when there are no new conventional filings, rather than silently reporting "no new filings".
+    const insiderCluster = check.insider_cluster?.meets_threshold === true ? check.insider_cluster : undefined
     if (check.new_filings.length === 0) {
-      return { status: 'no_new_filings', checked_at: check.checked_at }
+      return { status: 'no_new_filings', checked_at: check.checked_at, ...(insiderCluster === undefined ? {} : { insider_cluster: insiderCluster }) }
     }
 
     const provider = deps.provider ?? resolveProvider({ provider_id: state.config.provider.provider_id })
@@ -1337,7 +1348,7 @@ export async function runResearchCaseReReview(
       check,
     }, deps.ground === undefined ? {} : { ground: deps.ground })
 
-    return { status: 'recorded', re_review: recorded.payload }
+    return { status: 'recorded', re_review: recorded.payload, ...(insiderCluster === undefined ? {} : { insider_cluster: insiderCluster }) }
   } finally {
     store.close()
   }
