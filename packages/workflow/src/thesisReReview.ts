@@ -292,8 +292,12 @@ export async function draftThesisReReview(
 
   // FAIL CLOSED: grounded only when (a) ≥1 verified source exists, (b) every DECISIVE (yes/no) trigger
   // assessment cites a verified source, and (c) the diff cites at least one verified id overall.
+  // A citation may carry MULTIPLE ids joined by separators (live models do: 'rr_a; rr_b; rr_c') —
+  // ≥1 verified token grounds it; an all-unverified citation still degrades.
+  const citationVerified = (citation: string) =>
+    citation.split(/[;,\s]+/).filter((token) => token.length > 0).some((token) => verified.has(token))
   const decisiveUncited = structured.trigger_assessments
-    .filter((t) => t.tripped !== 'unclear' && !verified.has(t.evidence_citation))
+    .filter((t) => t.tripped !== 'unclear' && !citationVerified(t.evidence_citation))
   const isGrounded = verified.size > 0 && groundedCitations.length > 0 && decisiveUncited.length === 0
   const ungroundedReason = isGrounded
     ? undefined

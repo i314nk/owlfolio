@@ -214,6 +214,32 @@ describe('draftThesisReReview', () => {
     expect(recorded.ungrounded_reason).toMatch(/cite|verif/i)
   })
 
+  it('a decisive assessment citing MULTIPLE joined ids stays grounded when at least one verifies (live-fire find)', async () => {
+    // The live GLM run cited 'rr_a; rr_b; rr_c' in one evidence_citation. Exact-match would degrade a
+    // legitimately-cited decisive judgment to UNVERIFIED — fail-closed but false noise. Split-and-any:
+    // ≥1 verified token grounds the citation; ALL-unverified still degrades (next test above).
+    const projectDir = await makeTempDir('owlfolio-rr-multicite-')
+    const sourceLedgerPath = join(projectDir, 'source-ledger')
+    await seedPriorBundle(sourceLedgerPath)
+    const store = new InMemoryEventStore()
+    await seedDecidedCase(store)
+    const provider = reReviewProvider((ids) => ({
+      ...intactPayload(ids),
+      trigger_assessments: [
+        { trigger: 'Renewal rate drops below 88%', tripped: 'no', evidence_citation: `${ids[0]!}; some_unverified_id`, reasoning: 'renewal reported fine' },
+        { trigger: 'A major membership-fee revolt', tripped: 'no', evidence_citation: ids[0]!, reasoning: 'no fee action' },
+      ],
+    }))
+
+    const recorded = await draftThesisReReview(store, provider as never, {
+      research_case_id: CASE_ID, model_id: 'test-model', causation_id: 'evt_decision',
+      source_ledger_path: sourceLedgerPath, check: check({}),
+    }, { ground: verifyAllGround })
+
+    expect(recorded.assessment).toBe('INTACT')
+    expect(recorded.re_review_ungrounded).toBeUndefined()
+  })
+
   it('caps the reviewed delta at MAX_RE_REVIEW_FILINGS strongest-first and records the skipped remainder', async () => {
     const projectDir = await makeTempDir('owlfolio-rr-cap-')
     const sourceLedgerPath = join(projectDir, 'source-ledger')
