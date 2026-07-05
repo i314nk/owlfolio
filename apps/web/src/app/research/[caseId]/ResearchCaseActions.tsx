@@ -4,6 +4,10 @@ import { createElement, useState, type CSSProperties, type ReactNode } from 'rea
 import { useRouter } from 'next/navigation'
 
 import { resolveErrorMessage } from '../new/resolveErrorMessage'
+// The re-review submit is SHARED with the watchlist/portfolio launches; re-exported so the dossier's
+// confirm-row treatment and its tests keep one import site.
+import { submitReReview } from '../../../components/ReReviewButton'
+export { submitReReview }
 
 // NOTE: this file uses `createElement` rather than JSX to match the repo convention — the apps/web Next
 // tsconfig sets `jsx: preserve`, so any component IMPORTED under vitest must avoid JSX syntax to transform
@@ -78,40 +82,6 @@ export async function submitArchive(
     return { ok: true }
   } catch (caughtError) {
     return { ok: false, error: caughtError instanceof Error ? caughtError.message : 'Unable to archive this run' }
-  }
-}
-
-/**
- * Run the on-demand thesis RE-REVIEW: check for filings NEW since this decision's persisted corpus and,
- * when any exist, record a DIFF against the recorded thesis (an observation — never a verdict; a BROKEN
- * diff points at the existing re-run action). Zero provider spend when nothing new was filed.
- */
-export async function submitReReview(
-  deps: { fetch: typeof fetch; router: ActionRouter; caseId: string },
-): Promise<{ ok: true; note?: string } | { ok: false; error: string }> {
-  try {
-    // Bind to the global (see submitReRun): the browser fetch rejects a non-Window `this`.
-    const doFetch = deps.fetch.bind(globalThis)
-    const response = await doFetch(`/api/research/${deps.caseId}/re-review`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-    })
-    const body = await response.json().catch(() => ({}))
-    if (!response.ok) {
-      return { ok: false, error: resolveErrorMessage(body) }
-    }
-    if (body.status === 'recorded') {
-      deps.router.refresh()
-      return { ok: true }
-    }
-    const note = body.status === 'no_new_filings'
-      ? 'No new filings since this decision — the thesis re-review has nothing to compare.'
-      : body.status === 'no_prior_corpus'
-        ? 'No persisted source corpus for this case (it predates ledger persistence) — the honest refresh is a full re-run.'
-        : 'Could not resolve SEC filings for this ticker right now — try again later.'
-    return { ok: true, note }
-  } catch (caughtError) {
-    return { ok: false, error: caughtError instanceof Error ? caughtError.message : 'Unable to run the re-review' }
   }
 }
 

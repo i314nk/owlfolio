@@ -226,6 +226,27 @@ describe('research and watchlist workflow pages', () => {
     expect(html).toContain('Draft — you author')
   })
 
+  it('renders the on-demand re-review launch per holding with a research case', () => {
+    const html = renderToStaticMarkup(createElement(PortfolioPanel, {
+      holdings: [{
+        holding_id: 'holding_msft_001',
+        watchlist_item_id: 'watch_msft_001',
+        research_case_id: 'rc_msft_001',
+        company_id: 'company_msft',
+        ticker: 'MSFT',
+        shares: 10,
+        cost_basis_per_share: 100,
+        total_cost_basis: 1000,
+        currency: 'USD',
+        opened_at: '2026-05-01',
+        updated_at: '2026-05-31T12:00:00.000Z',
+      }],
+      mode: 'personal-local',
+    }))
+    expect(html).toContain('data-testid="rereview-button"')
+    expect(html).toContain('Check new filings / re-review')
+  })
+
   it('renders a personal-local open-holding action only for confirmed watchlist items without holdings', () => {
     const confirmedItem: AppWatchlistItem = {
       watchlist_item_id: 'watch_msft_001',
