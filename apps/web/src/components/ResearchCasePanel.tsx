@@ -539,12 +539,22 @@ function createReReviewPanel(researchCase: AppResearchCase) {
       : createElement(
           'ul',
           { style: { display: 'grid', gap: '0.35rem', margin: 0, paddingLeft: '1.1rem' } },
-          ...reReview.trigger_assessments.map((assessment, index) => createElement(
-            'li',
-            { key: index, style: { color: 'var(--owl-color-text)', fontSize: 'var(--owl-text-sm)' } },
-            createElement('strong', null, `${assessment.tripped.toUpperCase()}: `),
-            `${assessment.trigger} — ${assessment.reasoning}`,
-          )),
+          ...reReview.trigger_assessments.map((assessment, index) => {
+            // Verdict vocabulary, not the model's raw yes/no/unclear: "NO" on a break trigger is a
+            // double-negative ("no, it didn't trip" = good news reading as a negative).
+            const label = assessment.tripped === 'yes' ? 'BROKEN' : assessment.tripped === 'no' ? 'INTACT' : 'INCONCLUSIVE'
+            const labelTone = assessment.tripped === 'yes'
+              ? 'var(--owl-color-risk-bright)'
+              : assessment.tripped === 'no'
+                ? '#4ade80'
+                : 'var(--owl-color-gold-bright)'
+            return createElement(
+              'li',
+              { key: index, style: { color: 'var(--owl-color-text)', fontSize: 'var(--owl-text-sm)' } },
+              createElement('strong', { style: { color: labelTone } }, `${label}: `),
+              `${assessment.trigger} — ${assessment.reasoning}`,
+            )
+          }),
         ),
     createElement('p', { style: { color: 'var(--owl-color-quiet)', fontSize: 'var(--owl-text-2xs)', fontFamily: 'var(--owl-font-mono)', margin: '0.6rem 0 0' } },
       `Reviewed: ${reReview.new_filings.map((f) => `${f.form} ${f.filed}`).join(', ')}${reReview.skipped_filings.length > 0 ? ` · skipped ${reReview.skipped_filings.length}` : ''}`),
