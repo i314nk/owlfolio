@@ -74,6 +74,13 @@ function isValidPartialAutomation(body: unknown): body is Partial<AutomationSett
     return false
   }
 
+  // Circle-gate hardening knobs: numbers; mergeAutomationSettings clamps them into their bands.
+  for (const key of ['circle_gate_k_samples', 'circle_gate_min_drivers', 'circle_gate_min_breakers'] as const) {
+    if (key in b && typeof b[key] !== 'number') {
+      return false
+    }
+  }
+
   return true
 }
 

@@ -6,16 +6,17 @@ This document is a planning and certification handoff for the Owlfolio v2 provid
 
 ## Current implementation baseline
 
-The current v2 repo has these catalog/runtime paths:
+The current v2 repo has these catalog/runtime paths. **Update 2026-06-29:** the entire CLI/OAuth lane — Codex (`openai` / `openai-codex-cli`, app-server and one-shot exec), Claude CLI (`claude` / `claude-cli`), and Gemini CLI (`gemini-cli`) — was **excised**. Surviving providers are `mock-provider` plus OpenRouter and the direct API-key providers, all on the function-calling tool-loop. The `openai`/`anthropic` **vendor** ids and their models are preserved (they back `openai-api`/`anthropic-api` + OpenRouter routes); only the CLI **providers** were removed.
 
 | Owlfolio provider id | Runtime path | Current catalog label | Current certification stance |
 |---|---|---:|---|
 | `mock-provider` | deterministic in-process provider | `certified` | Certified for the audited local/demo vertical slice and regression tests. |
-| `claude` | Claude CLI-backed adapter | `experimental` | Personal-local/dev path only until certification proves full workflow parity. |
-| `openai` / `openai-codex-cli` | OpenAI Codex CLI-backed adapter | `experimental` | Personal-local/dev path only until certification proves full workflow parity. |
-| `openai-api` | Direct OpenAI API candidate | `experimental` | Adapter exists and is separate from Codex CLI; latest target-specific report is unsupported/not-configured until a direct API credential is available. |
-| `gemini-developer-api` | Direct Gemini Developer API candidate | `experimental` | Adapter exists and is separate from Gemini CLI; latest target-specific report is unsupported/not-configured; paid Developer API remains an experimental candidate behind privacy/security gates, while free/unpaid posture is unsuitable for production autonomous private-investment workflows. |
-| `gemini-cli` | Google/Gemini CLI onboarding lane | `experimental` | Setup/sign-in lane only; no execution adapter/certification yet. |
+| `openrouter` | OpenAI-compatible meta-aggregator (`OpenRouterProvider`); the default grounded-loop provider | `experimental` | Proven `runToolLoop`; routes one key to many models, so each routed model still needs its own target-specific certification report before it is trusted. Fail-closed until then. |
+| `openai-api` | Direct OpenAI API (OpenAI-compatible adapter = `OpenRouterProvider` configured per-endpoint) | `experimental` | Shares OpenRouter's `runToolLoop`; distinct from the retired Codex CLI lane. Fail-closed until a target-specific report exists. |
+| `anthropic-api` | Direct Anthropic API (OpenAI-compatible adapter) | `experimental` | Shares OpenRouter's `runToolLoop`; distinct from the retired Claude CLI lane. Fail-closed until a target-specific report exists. |
+| `gemini-developer-api` | Direct Gemini Developer API (OpenAI-compatible adapter) | `experimental` | Shares OpenRouter's `runToolLoop`; distinct from the retired Gemini CLI lane; paid Developer API remains an experimental candidate behind privacy/security gates, free/unpaid posture unsuitable for production. Fail-closed until a target-specific report exists. |
+
+**Grounding deny-bridge invariant (all surviving providers).** Native/provider-side web search is disabled (or risks-lane-only), and every grounded tool call routes through the harness-injected `ProviderToolExecutor`. Confirmed by inspection (2026-06-29): `OpenRouterProvider.createChatCompletion` sends only `model` + `messages` + `max_tokens` + the unified `reasoning` param + our function `tools`/`response_format` — **no OpenRouter `plugins` field and no `:online` model suffix**, so it cannot quietly web-search into a decision lane. The direct API-key providers are `OpenRouterProvider` instances and inherit this body construction. When configuring any provider, prove the native-disable took by inspecting the *sent* request, not just the config struct.
 
 ## Research execution model and grounding contract (2026-06-09)
 
@@ -24,6 +25,8 @@ Research no longer runs as a single LLM call. The web app enqueues a `research_r
 Every cited source is subject to a **harness-side grounding invariant**: agents propose citations, and the harness fetches each URL (public sources only, fail-closed, SSRF-guarded) and content-hashes it. Only harness-verified sources are attached to ledger events; unverifiable ones are recorded in the source bundle as `unavailable` and excluded from findings. The mock/demo path uses a deterministic grounder (no network); real providers use the fetching grounder.
 
 The provider certification's `source-grounded-research-task` enforces this same invariant: a provider fails the scenario unless its cited sources are harness-verified (actually fetched and content-hashed). A provider that returns plausible-but-unfetchable or fabricated citations therefore cannot reach certified support for grounded research.
+
+**Read path + recency tiering (provider tree ⇄ EDGAR tree seam).** Grounded filings are hashed but their full text is not retained, so a section-aware, hash-verified `read_source(source_id, {section, offset, limit})` grounded tool lets a model read the 10-K; its contract (owned by the EDGAR tree, consumed unchanged by the provider tool loop) is specified in [`read-source-contract.md`](./read-source-contract.md). Post-10-K recency tiers by type: **material 8-K events are grounded** by the EDGAR tree as hashed readable documents, while the **web tier stays risk color** — best-effort recency/consensus context, never a cover for an ungrounded gap. This split is stated to the model in the `risks`-lane brief (`RISKS_RECENCY_NOTE` in `packages/workflow/src/researchSwarm.ts`).
 
 ## Latest live certification evidence
 

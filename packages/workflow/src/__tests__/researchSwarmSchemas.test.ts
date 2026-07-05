@@ -1,38 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { DecisionAgentSchema, SHARIAH_OVERLAY_PROMPT, ShariahLaneSchema, VALUATION_LANE_DISCOUNT_NOTE } from '../researchSwarmSchemas'
-
-// Fail-CLOSED Shariah overlay: impermissible_income is nullable so the lane can signal UNDETERMINED
-// (the filing does not separately disclose it) instead of a falsely-clean 0. null is an ACCEPTED,
-// complete value; the harness fails closed to UNDETERMINED rather than computing a 0% purification.
-describe('ShariahLaneSchema impermissible_income (nullable = undetermined, fail-closed)', () => {
-  const base = {
-    finding_summary: 's',
-    confidence: 'medium' as const,
-    caveats: ['c'],
-    proposed_sources: [{ source_id: 'src_1', title: 'T', url: 'https://www.sec.gov/x', excerpt: 'e' }],
-    sector_status: 'compliant' as const,
-  }
-
-  it('accepts null (undetermined — not separately disclosed) as a present, valid value', () => {
-    const parsed = ShariahLaneSchema.safeParse({ ...base, impermissible_income: null })
-    expect(parsed.success).toBe(true)
-    if (parsed.success) expect(parsed.data.impermissible_income).toBeNull()
-  })
-
-  it('accepts a genuine 0 and a genuine positive (unchanged)', () => {
-    expect(ShariahLaneSchema.safeParse({ ...base, impermissible_income: 0 }).success).toBe(true)
-    expect(ShariahLaneSchema.safeParse({ ...base, impermissible_income: 128 }).success).toBe(true)
-  })
-
-  it('rejects a negative impermissible income', () => {
-    expect(ShariahLaneSchema.safeParse({ ...base, impermissible_income: -1 }).success).toBe(false)
-  })
-
-  it('instructs the model to use null (not 0) when the line cannot be quantified', () => {
-    expect(SHARIAH_OVERLAY_PROMPT).toMatch(/null/)
-    expect(SHARIAH_OVERLAY_PROMPT).toMatch(/do NOT default to 0/i)
-  })
-})
+import { DecisionAgentSchema, LaneAgentSchema, RISKS_RECENCY_NOTE } from '../researchSwarmSchemas'
 
 // RELIGHTENED DECISION (R1): the model OWNS the valuation. The decision agent now emits proposed_buy_below
 // (the price below which it would buy — recorded verbatim, NOT a derived FV) and valuation_reasoning (the
@@ -192,22 +159,38 @@ describe('DecisionAgentSchema (model proposes buy-below + cited valuation reason
 })
 
 // ---------------------------------------------------------------------------------------------------
-// F.2 conformance: the valuation specialist-lane prompt MUST tell the lane the HARNESS owns the discount,
-// so the model does not free-lance a textbook DCF with its own required return + a Treasury anchor (its
-// training prior) that contradicts the system's deterministic config-driven discount. This positive
-// assertion pins that the constraint can't be silently removed; the supersededTermConsistency tripwire
-// (packages/strategies) guards the negative side (a Treasury / self-required-return slipping in as-current).
 // ---------------------------------------------------------------------------------------------------
-describe('VALUATION_LANE_DISCOUNT_NOTE (the harness owns the discount — F.2 conformance)', () => {
-  it('states the harness owns the discount, savings-anchored, and prohibits a self-chosen required return', () => {
-    // The harness owns the discount.
-    expect(VALUATION_LANE_DISCOUNT_NOTE).toMatch(/harness/i)
-    expect(VALUATION_LANE_DISCOUNT_NOTE).toMatch(/owns the discount/i)
-    // The anchor is the compliant SAVINGS rate (not the interest-bearing Treasury).
-    expect(VALUATION_LANE_DISCOUNT_NOTE).toMatch(/savings/i)
-    // A do-NOT-specify-your-own-required-return / discount / cost-of-capital prohibition is present.
-    expect(VALUATION_LANE_DISCOUNT_NOTE).toMatch(/(?:must not|do not|not)[^.]*(?:required return|discount rate|cost of capital|wacc|hurdle)/i)
-    // The lane must NOT anchor to the 10-year Treasury (negation present).
-    expect(VALUATION_LANE_DISCOUNT_NOTE).toMatch(/(?:not|n't)[^.]*treasur/i)
+// Recency framing (provider tree ⇄ EDGAR tree handoff): the risks lane is the "web tier" (the only
+// allow_unknown lane), so it is where web/media recency could masquerade as decision-grade. This note —
+// appended to the risks lane's sourceDiscipline in researchSwarm.ts — keeps both trees honest: web recency
+// is best-effort COLOR; thesis-critical recency (material 8-Ks) is grounded by the EDGAR tree, not web.
+// Pinned so the framing can't be silently dropped. See docs/architecture/read-source-contract.md.
+// ---------------------------------------------------------------------------------------------------
+describe('RISKS_RECENCY_NOTE (web tier is risk color; 8-Ks grounded by EDGAR)', () => {
+  it('frames web/media recency as best-effort color, not decision-grade, and points 8-K recency at EDGAR', () => {
+    // Web/media recency is COLOR, not decision-grade primary evidence.
+    expect(RISKS_RECENCY_NOTE).toMatch(/color/i)
+    expect(RISKS_RECENCY_NOTE).toMatch(/not decision-grade/i)
+    // Thesis-critical recency (material 8-K events) is grounded by the EDGAR tree, not by web/media here.
+    expect(RISKS_RECENCY_NOTE).toMatch(/8-K/)
+    expect(RISKS_RECENCY_NOTE).toMatch(/EDGAR/)
+    expect(RISKS_RECENCY_NOTE).toMatch(/not by web/i)
+  })
+})
+
+// REGRESSION GUARD: finding_summary must NOT be placeholder-guarded at the schema level. A refine that
+// rejected "..." failed the whole structured output and discarded the lane's grounded sources → the lane
+// skipped (vanished) whenever the model returned a lazy placeholder. Placeholder handling lives at DISPLAY
+// time (isPlaceholderLaneSummary) so the lane stays present with its sources. Do NOT re-add a schema refine.
+describe('LaneAgentSchema tolerates a placeholder finding_summary (handled at display, not schema)', () => {
+  const valid = { confidence: 'high' as const, caveats: ['ok'], proposed_sources: [{ source_id: 'src_1', title: 'T', url: 'https://www.sec.gov/x', excerpt: 'e' }] }
+  it('ACCEPTS a "..." finding_summary so the lane is recorded (with sources), not discarded', () => {
+    expect(LaneAgentSchema.safeParse({ ...valid, finding_summary: '...' }).success).toBe(true)
+  })
+  it('still rejects an empty finding_summary (min length 1)', () => {
+    expect(LaneAgentSchema.safeParse({ ...valid, finding_summary: '' }).success).toBe(false)
+  })
+  it('accepts real prose', () => {
+    expect(LaneAgentSchema.safeParse({ ...valid, finding_summary: 'Wide, durable moat.' }).success).toBe(true)
   })
 })

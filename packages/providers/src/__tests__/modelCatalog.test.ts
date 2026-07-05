@@ -34,15 +34,15 @@ describe('curated reasoning-model catalog', () => {
     }
   })
 
-  it('anchors on the repo defaults: openai/codex CLI -> gpt-5.5 (T1/T2)', () => {
-    const models = curatedModelsForProvider('openai')
+  it('anchors on the repo defaults: direct OpenAI API -> gpt-5.5 (T1/T2)', () => {
+    const models = curatedModelsForProvider('openai-api')
     const gpt = models.find((m) => m.model_id === 'gpt-5.5')
     expect(gpt).toBeDefined()
     expect(gpt?.tier_suitability).toEqual(expect.arrayContaining(['T1', 'T2']))
   })
 
-  it('claude curated set leads with the frontier reasoning models', () => {
-    const models = curatedModelsForProvider('claude')
+  it('direct Anthropic API curated set leads with the frontier reasoning models', () => {
+    const models = curatedModelsForProvider('anthropic-api')
     const ids = models.map((m) => m.model_id)
     expect(ids).toContain('claude-opus-4-8')
     expect(ids).toContain('claude-sonnet-4-6')
@@ -77,8 +77,8 @@ describe('curated reasoning-model catalog', () => {
   })
 
   it('isCuratedModel recognises a known curated model and rejects an uncurated id', () => {
-    expect(isCuratedModel('claude', 'claude-opus-4-8')).toBe(true)
-    expect(isCuratedModel('claude', 'some-unverified-model')).toBe(false)
+    expect(isCuratedModel('anthropic-api', 'claude-opus-4-8')).toBe(true)
+    expect(isCuratedModel('anthropic-api', 'some-unverified-model')).toBe(false)
     expect(isCuratedModel('unknown-provider', 'claude-opus-4-8')).toBe(false)
   })
 

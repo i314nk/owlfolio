@@ -78,6 +78,20 @@ describe('OpenRouterProvider (live execution path)', () => {
     expect(url).toContain('/chat/completions')
   })
 
+  it('pins a low sampling temperature on every request (valuation-judgment run-to-run reproducibility)', async () => {
+    // Back-to-back live runs on the SAME model + filing produced 26%-apart owner-earnings/share purely
+    // from judgment-input wander at the route's default temperature (~1.0). Pin low. Live-probed
+    // 2026-07-03: both anthropic/* (with unified reasoning) and z-ai/* routes accept temperature 0.2.
+    let sentBody: any
+    const fetchImpl = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+      sentBody = JSON.parse(init?.body as string)
+      return jsonResponse({ choices: [{ message: { content: 'ok' } }] })
+    })
+    const provider = new OpenRouterProvider({ env: { OPENROUTER_API_KEY: 'k' }, fetch: fetchImpl as unknown as typeof fetch })
+    await provider.complete(request)
+    expect(sentBody.temperature).toBe(0.2)
+  })
+
   it('requests reasoning/thinking for the routed model (owner requirement)', async () => {
     const fetchImpl = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
       const body = JSON.parse(init?.body as string)
@@ -100,6 +114,34 @@ describe('OpenRouterProvider (live execution path)', () => {
     })
     const provider = new OpenRouterProvider({ env: { OPENROUTER_API_KEY: 'k' }, fetch: fetchImpl as unknown as typeof fetch })
     await provider.complete(request)
+  })
+
+  it('generalizes to a direct OpenAI-compatible endpoint (custom baseUrl/key, reasoning omitted)', async () => {
+    const fetchImpl = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+      const headers = new Headers(init?.headers)
+      expect(String(url)).toBe('https://api.example.com/v1/chat/completions')
+      expect(headers.get('Authorization')).toBe('Bearer direct-k')
+      const body = JSON.parse(init?.body as string)
+      // Direct endpoints that reject OpenRouter's `reasoning` param are configured with an empty reasoningBody.
+      expect(body.reasoning).toBeUndefined()
+      return jsonResponse({ choices: [{ message: { content: 'ok' } }] })
+    })
+    const provider = new OpenRouterProvider({
+      env: { EXAMPLE_API_KEY: 'direct-k' },
+      apiKeyEnvVar: 'EXAMPLE_API_KEY',
+      baseUrl: 'https://api.example.com/v1',
+      label: 'Example',
+      reasoningBody: {},
+      fetch: fetchImpl as unknown as typeof fetch,
+    })
+    expect(provider.isReady()).toBe(true)
+    await provider.complete(request)
+    expect(fetchImpl).toHaveBeenCalledOnce()
+  })
+
+  it('uses the configured label + key env var in the missing-credential error', async () => {
+    const provider = new OpenRouterProvider({ env: {}, apiKeyEnvVar: 'EXAMPLE_API_KEY', label: 'Example' })
+    await expect(provider.complete(request)).rejects.toThrow(/Example is not configured: missing EXAMPLE_API_KEY/)
   })
 
   it('validates structured output against the schema and strips reasoning fences', async () => {
@@ -143,6 +185,51 @@ describe('OpenRouterProvider (live execution path)', () => {
     expect(result.reason).toBeUndefined()
   })
 
+  it('preserves an emitted null for a REQUIRED nullable field (null is a meaningful answer, not absence)', async () => {
+    // Regression: the Shariah reasoning pass declares impermissible_income as required-and-nullable —
+    // null = "not separately disclosed, fail closed to UNDETERMINED". Stripping that null before
+    // validation deletes the model's honest answer and fails the pass on every non-disclosing filer.
+    const schema = z.object({ sector_status: z.string(), impermissible_income: z.number().min(0).nullable() })
+    const fetchImpl = vi.fn(async () => jsonResponse({ choices: [{ message: { content: '{"sector_status":"compliant","impermissible_income":null}' } }] }))
+    const provider = new OpenRouterProvider({ env: { OPENROUTER_API_KEY: 'k' }, fetch: fetchImpl as unknown as typeof fetch })
+    const result = await provider.structured({ ...request, task_kind: 'structured-output', response_format: { kind: 'json-schema', schema_name: 'T' } }, schema)
+    expect(result.sector_status).toBe('compliant')
+    expect(result.impermissible_income).toBeNull()
+  })
+
+  it('strips a rejected optional-field null while preserving an accepted nullable null in the SAME payload', async () => {
+    // Mixed payload: `note` is optional (null on the wire only because strict mode synthesized
+    // nullability — must read as absent) while `amount` is genuinely nullable (null must survive).
+    const schema = z.object({ amount: z.number().nullable(), note: z.string().optional() })
+    const fetchImpl = vi.fn(async () => jsonResponse({ choices: [{ message: { content: '{"amount":null,"note":null}' } }] }))
+    const provider = new OpenRouterProvider({ env: { OPENROUTER_API_KEY: 'k' }, fetch: fetchImpl as unknown as typeof fetch })
+    const result = await provider.structured({ ...request, task_kind: 'structured-output', response_format: { kind: 'json-schema', schema_name: 'T' } }, schema)
+    expect(result.amount).toBeNull()
+    expect(result.note).toBeUndefined()
+  })
+
+  it('strips numeric range keywords the Anthropic route rejects (minimum/maximum), preserving them as description hints', async () => {
+    // Live-probed 2026-07-03: Anthropic structured output 400s on `minimum` for number types
+    // ("property 'minimum' is not supported") — the Shariah pass's z.number().min(0) was the only
+    // numeric bound on any wire schema and failed the pass on anthropic/* routes. Zod still enforces
+    // the real bound after parsing (the validated-agent retry bounces violations).
+    const schema = z.object({ impermissible_income: z.number().min(0).nullable(), score: z.number().max(10) })
+    let sentSchema: any
+    const fetchImpl = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+      sentSchema = JSON.parse(init?.body as string).response_format.json_schema.schema
+      return jsonResponse({ choices: [{ message: { content: '{"impermissible_income":null,"score":5}' } }] })
+    })
+    const provider = new OpenRouterProvider({ env: { OPENROUTER_API_KEY: 'k' }, fetch: fetchImpl as unknown as typeof fetch })
+    const result = await provider.structured({ ...request, task_kind: 'structured-output', response_format: { kind: 'json-schema', schema_name: 'T' } }, schema)
+    expect(JSON.stringify(sentSchema)).not.toMatch(/"minimum"|"maximum"/)
+    // zod v4 emits .nullable() as anyOf: [{type:number,minimum:0},{type:null}] — the hint must land on
+    // the anyOf branch that carried the bound.
+    expect(JSON.stringify(sentSchema.properties.impermissible_income)).toMatch(/>= 0/)
+    expect(JSON.stringify(sentSchema.properties.score)).toMatch(/<= 10/)
+    expect(result.impermissible_income).toBeNull()
+    expect(result.score).toBe(5)
+  })
+
   it('strips json-schema keywords OpenAI strict mode rejects (format uri, $schema dialect)', async () => {
     const schema = z.object({ url: z.string().url() })
     let sentSchema: any
@@ -166,6 +253,21 @@ describe('OpenRouterProvider (live execution path)', () => {
     await expect(
       provider.structured({ ...request, task_kind: 'structured-output', response_format: { kind: 'json-schema', schema_name: 'T' } }, schema),
     ).rejects.toThrow(/Structured output validation failed/)
+  })
+
+  it('surfaces the routed provider\'s raw upstream error (error.metadata.raw) in the failure message', async () => {
+    // OpenRouter wraps upstream 400s as a bare "Provider returned error" and puts the actionable
+    // diagnostic (e.g. Anthropic's "property 'minimum' is not supported") in error.metadata.raw —
+    // without it the ledger's degraded flag is undiagnosable.
+    const fetchImpl = vi.fn(async () => jsonResponse({
+      error: {
+        message: 'Provider returned error',
+        code: 400,
+        metadata: { raw: '{"type":"error","error":{"type":"invalid_request_error","message":"output_config.format.schema: For \'number\' type, property \'minimum\' is not supported"}}', provider_name: 'Anthropic' },
+      },
+    }, { status: 400, statusText: 'Bad Request' }))
+    const provider = new OpenRouterProvider({ env: { OPENROUTER_API_KEY: 'k' }, fetch: fetchImpl as unknown as typeof fetch })
+    await expect(provider.complete(request)).rejects.toThrow(/property 'minimum' is not supported/)
   })
 
   it('classifies a 401 as an authentication failure', async () => {

@@ -3,6 +3,7 @@ import { Fraunces, Hanken_Grotesk, JetBrains_Mono } from 'next/font/google'
 
 import { AppNavigation } from './AppNavigation'
 import type { ActiveModeStatus } from '../lib/activeModeStatus'
+import type { ModelSwitcher } from '../lib/resolveModelSwitcher'
 
 // Self-hosted (no runtime CDN) refined-luxury type system.
 // Display serif for titles/section headings, warm grotesk body, mono for labels/figures.
@@ -31,6 +32,7 @@ export type AppShellProps = {
   children?: ReactNode
   isSetupComplete?: boolean
   activeModeStatus?: ActiveModeStatus
+  modelSwitcher?: ModelSwitcher
 }
 
 export type OwlCardProps = {
@@ -81,13 +83,14 @@ const shellStatusItems = [
   { label: 'Provider readiness', value: 'Shown inline' },
 ]
 
-export function AppShell({ children, isSetupComplete = true, activeModeStatus }: AppShellProps) {
+export function AppShell({ children, isSetupComplete = true, activeModeStatus, modelSwitcher }: AppShellProps) {
   return createElement(
     'div',
     { className: `owl-app-shell ${fontVariableClassName}`, 'data-owl-shell': 'clean-sidebar' },
     createElement(AppNavigation, {
       isSetupComplete,
       ...(activeModeStatus === undefined ? {} : { activeModeStatus }),
+      ...(modelSwitcher === undefined ? {} : { modelSwitcher }),
     }),
     createElement(
       'div',

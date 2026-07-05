@@ -8,7 +8,7 @@ import {
   type GroundFn,
   type ProposedSourcesSchema,
 } from './groundedAgent'
-import type { GroundingDeps } from './sourceGrounding'
+import type { CapturedSource, GroundingDeps } from './sourceGrounding'
 import type { Fundamentals, SecEdgarDeps } from './secEdgar'
 
 // ---------------------------------------------------------------------------
@@ -100,6 +100,8 @@ export type RunValidatedAgentOptions<T extends WithProposedSources> = {
   useToolLoop?: boolean
   /** EDGAR fetcher for the loop's search_filings tool (injectable for tests). */
   fetchFundamentals?: (ticker: string, deps?: SecEdgarDeps) => Promise<Fundamentals | undefined>
+  /** Already-grounded sources the loop may READ via read_source (threaded to the executor). */
+  readCorpus?: ReadonlyMap<string, CapturedSource>
 }
 
 function buildBounce<T>(basePrompt: string, missing: RequiredFieldCheck<T>[], reason: string): string {
@@ -142,6 +144,7 @@ export async function runValidatedAgent<T extends WithProposedSources>(
       const loopDeps = {
         ...deps,
         ...(options.fetchFundamentals === undefined ? {} : { fetchFundamentals: options.fetchFundamentals }),
+        ...(options.readCorpus === undefined ? {} : { readCorpus: options.readCorpus }),
       }
       const { degraded_no_tools: _degraded, ...rest } = await runGroundedAgentWithTools(provider, req, schema, loopDeps, groundOpts)
       void _degraded

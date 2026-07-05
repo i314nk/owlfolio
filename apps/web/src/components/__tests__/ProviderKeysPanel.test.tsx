@@ -43,40 +43,31 @@ function baseProps(overrides: Partial<ProviderKeysPanelProps> = {}): ProviderKey
         keys: [{ name: 'ANTHROPIC_API_KEY', description: 'Anthropic Claude API key.', is_set: false, advanced: false }],
       },
     ],
-    toolGroups: [
-      {
-        id: 'market-data',
-        label: 'Market data',
-        get_key_url: 'https://example.com/key',
-        selectable_in_registry: false,
-        keys: [{ name: 'OWLFOLIO_MARKET_DATA_API_KEY', description: 'Market-data API key.', is_set: false, advanced: false }],
-      },
-    ],
     roleConfig: {
       registry_version: 'model-registry-2026-06-1',
       guidance: ['Tier philosophy: T1 frontier, T2 mid, T3 cheap; T0 is never a model.'],
       no_model_note: 'T0 — No model, ever.',
-      providers: [
+      // Tier menus are scoped to the primary provider (OpenAI here).
+      active_provider_id: 'openai',
+      active_provider_label: 'OpenAI',
+      tiers: [
         {
-          provider_id: 'openai', label: 'OpenAI', is_connected: true, is_qualified: false,
-          curated_models: [{ model_id: 'gpt-5.5', tier_suitability: ['T1', 'T2'], note: 'Reasoning model.' }],
+          tier: 'T1', description: 'Frontier synthesis + moat/Shariah lanes.', roles: ['synthesis', 'lane_moat', 'lane_shariah'],
+          resolved_provider_id: 'openai', resolved_model: 'gpt-5.5', resolved_temperature: 0.1,
+          source: 'default', target_provider_connected: true, target_provider_qualified: true,
+          model_options: [{ model_id: 'gpt-5.5', note: 'Reasoning model.' }],
         },
         {
-          provider_id: 'claude', label: 'Claude', is_connected: false, is_qualified: false,
-          curated_models: [{ model_id: 'claude-opus-4-8', tier_suitability: ['T1'], note: 'Frontier reasoning.' }],
-        },
-        { provider_id: 'mock-provider', label: 'Mock', is_connected: true, is_qualified: true, curated_models: [] },
-      ],
-      roles: [
-        {
-          role: 'synthesis', tier: 'T1', description: 'Frontier synthesis.',
-          resolved_provider_id: 'mock-provider', resolved_model: 'mock-demo', resolved_temperature: 0.1,
-          overridden: false, source: 'default', target_provider_connected: true, target_provider_qualified: true,
+          tier: 'T2', description: 'Quick screen + red team.', roles: ['quick_screen', 'red_team'],
+          resolved_provider_id: 'openai', resolved_model: 'gpt-5.5', resolved_temperature: 0.2,
+          source: 'default', target_provider_connected: true, target_provider_qualified: true,
+          model_options: [{ model_id: 'gpt-5.5', note: 'Reasoning model.' }],
         },
         {
-          role: 'monitors', tier: 'T3', description: 'Cheap monitors.',
-          resolved_provider_id: 'mock-provider', resolved_model: 'mock-demo', resolved_temperature: 0.1,
-          overridden: false, source: 'default', target_provider_connected: true, target_provider_qualified: true,
+          tier: 'T3', description: 'Monitors + entity resolution.', roles: ['monitors', 'entity_resolve'],
+          resolved_provider_id: 'openai', resolved_model: 'gpt-5.5', resolved_temperature: 0.0,
+          source: 'default', target_provider_connected: true, target_provider_qualified: true,
+          model_options: [],
         },
       ],
     },
@@ -89,11 +80,10 @@ describe('ProviderKeysPanel — onboarding gate (acceptance test 1)', () => {
     const html = renderToStaticMarkup(createElement(ProviderKeysPanel, baseProps()))
     expect(html).toContain('At least one frontier LLM provider connected')
     expect(html).toContain('Investable capital set in the ledger')
-    // Market-data is no longer a gate item (EDGAR direct) — only provider + capital gate research.
-    expect(html).not.toContain('A market-data key set')
     expect(html).toContain('Cannot start a deep dive')
-    // Market-data remains a SETTABLE tool key on the page (just not a blocker).
-    expect(html).toContain('OWLFOLIO_MARKET_DATA_API_KEY')
+    // Non-LLM tool/data keys (market-data/EDGAR/search) are no longer surfaced as onboarding.
+    expect(html).not.toContain('OWLFOLIO_MARKET_DATA_API_KEY')
+    expect(html).not.toContain('Tool & data keys')
   })
 })
 
@@ -102,6 +92,18 @@ describe('ProviderKeysPanel — env file header + masking', () => {
     const html = renderToStaticMarkup(createElement(ProviderKeysPanel, baseProps()))
     expect(html).toContain('/home/test/.owlfolio/.env')
     expect(html.toLowerCase()).toContain('git-ignored')
+  })
+})
+
+describe('ProviderKeysPanel — provider logins section', () => {
+  it('hides the OAuth/subscription login section entirely when no login providers exist', () => {
+    // Post CLI/OAuth excision the catalog yields no login rows; the panel must not advertise an empty
+    // "Provider logins (OAuth / subscription)" lane the product no longer has.
+    const html = renderToStaticMarkup(createElement(ProviderKeysPanel, baseProps({ loginRows: [] })))
+    expect(html).not.toContain('Provider logins (OAuth / subscription)')
+    expect(html).not.toContain('Owlfolio has no in-app OAuth')
+    // Section B (API-key + per-tier model config) still renders.
+    expect(html).toContain('ANTHROPIC_API_KEY')
   })
 })
 
@@ -116,74 +118,57 @@ describe('ProviderKeysPanel — registry selectability (acceptance test 2)', () 
     expect(html).toContain('…K3jQAA')
   })
 
-  it('renders the per-role configuration table with the current resolution + guidance', () => {
+  it('renders three tier selectors (T1/T2/T3) with the current resolution + guidance', () => {
     const html = renderToStaticMarkup(createElement(ProviderKeysPanel, baseProps()))
+    // The three tiers and the roles each one covers.
     expect(html).toContain('synthesis')
     expect(html).toContain('monitors')
+    expect(html).toContain('Covers:')
     expect(html).toContain('model-registry-2026-06-1')
-    // Current resolution + guidance + the selector posting to the model-roles route.
-    expect(html).toContain('mock-provider/mock-demo')
+    // Current resolution + guidance + the selector posting to the model-roles route by TIER.
+    expect(html).toContain('openai/gpt-5.5')
     expect(html).toContain('Tier philosophy')
     expect(html).toContain('/api/settings/model-roles')
-    // A provider dropdown option for each catalog provider.
+    expect(html).toContain('name="tier"')
+    expect(html).toContain('value="T1"')
+    // The menus are scoped to the primary provider (shown by label, not a per-tier provider picker).
+    expect(html).toContain('Primary provider')
     expect(html).toContain('OpenAI')
   })
 })
 
-describe('ProviderKeysPanel — per-role config honesty (not-connected warning + source)', () => {
-  it('shows a fail-closed warning when a role targets an unconnected provider, never fake-green', () => {
+describe('ProviderKeysPanel — per-tier config honesty (not-connected warning + source)', () => {
+  it('shows a fail-closed warning when a tier targets an unconnected provider, never fake-green', () => {
     const props = baseProps()
-    props.roleConfig.roles[0] = {
-      role: 'synthesis', tier: 'T1', description: 'Frontier synthesis.',
+    props.roleConfig.tiers[0] = {
+      tier: 'T1', description: 'Frontier synthesis.', roles: ['synthesis', 'lane_moat'],
       resolved_provider_id: 'deepseek', resolved_model: 'r1', resolved_temperature: 0.1,
-      overridden: true, source: 'file', target_provider_connected: false, target_provider_qualified: false,
-      current_value: 'deepseek:r1@0.1',
+      source: 'file', target_provider_connected: false, target_provider_qualified: false,
+      current_value: 'deepseek:r1@0.1', model_options: [],
     }
     const html = renderToStaticMarkup(createElement(ProviderKeysPanel, props))
     expect(html).toContain('provider not connected')
-    expect(html).toContain('File override')
-    // An overridden role exposes a Clear affordance to restore the default-inherit.
+    expect(html).toContain('Pinned')
+    // A pinned tier exposes a Clear affordance to restore the default-inherit.
     expect(html).toContain('clear')
   })
 })
 
-describe('ProviderKeysPanel — curated reasoning-model dropdowns + uncurated warning', () => {
-  it('lists curated reasoning models of connected providers in the selector datalist', () => {
+describe('ProviderKeysPanel — tier model dropdown (scoped to the primary provider)', () => {
+  it('renders a real model dropdown of the primary provider tier-fitting models (no free-form box)', () => {
     const html = renderToStaticMarkup(createElement(ProviderKeysPanel, baseProps()))
-    // The curated reasoning model id appears as a datalist option.
+    // The primary provider's T1/T2 model appears as a <select> <option> ...
     expect(html).toContain('gpt-5.5')
-    // The datalist is wired to the model input.
-    expect(html).toContain('curated-models-synthesis')
-    // A model that fits the role's tier is annotated.
-    expect(html).toContain('fits T1')
+    expect(html).toContain('name="model"')
+    // ... and the old free-form datalist is gone.
+    expect(html).not.toContain('curated-models-T1')
+    expect(html).not.toContain('or type any')
   })
 
-  it('warns when a role is pinned onto an UNCURATED (free-form) model', () => {
-    const props = baseProps()
-    // deepseek:r1 is not in any curated list above -> uncurated escape hatch warning.
-    props.roleConfig.roles[0] = {
-      role: 'synthesis', tier: 'T1', description: 'Frontier synthesis.',
-      resolved_provider_id: 'deepseek', resolved_model: 'r1', resolved_temperature: 0.1,
-      overridden: true, source: 'file', target_provider_connected: false, target_provider_qualified: false,
-      current_value: 'deepseek:r1@0.1',
-    }
-    const html = renderToStaticMarkup(createElement(ProviderKeysPanel, props))
-    expect(html).toContain('Uncurated model')
-    expect(html.toLowerCase()).toContain('verify it supports extended reasoning')
-  })
-
-  it('does NOT warn when the pinned model IS a curated reasoning model', () => {
-    const props = baseProps()
-    props.roleConfig.roles[0] = {
-      role: 'synthesis', tier: 'T1', description: 'Frontier synthesis.',
-      resolved_provider_id: 'openai', resolved_model: 'gpt-5.5', resolved_temperature: 0.1,
-      overridden: true, source: 'file', target_provider_connected: true, target_provider_qualified: false,
-      current_value: 'openai:gpt-5.5@0.1',
-    }
-    // Drop the monitors row so the only role is the curated synthesis pin.
-    props.roleConfig.roles = [props.roleConfig.roles[0]!]
-    const html = renderToStaticMarkup(createElement(ProviderKeysPanel, props))
-    expect(html).not.toContain('Uncurated model')
+  it('shows an inherits-the-run-default note for a tier the primary provider has no curated model for', () => {
+    const html = renderToStaticMarkup(createElement(ProviderKeysPanel, baseProps()))
+    // T3 has model_options: [] in the fixture (OpenAI has no curated T3 model).
+    expect(html).toContain('inherits the run default')
   })
 })
 

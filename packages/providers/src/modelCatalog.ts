@@ -60,16 +60,6 @@ const CURATED_MODELS: Partial<Record<ProviderId, CuratedModel[]>> = {
       demo_only: true,
     },
   ],
-  // Anthropic Claude — all current models are thinking-enabled (adaptive thinking).
-  claude: [
-    { model_id: 'claude-opus-4-8', reasoning: true, tier_suitability: ['T1'], note: 'Frontier reasoning (adaptive thinking) — best for synthesis and the highest-stakes lanes.' },
-    { model_id: 'claude-sonnet-4-6', reasoning: true, tier_suitability: ['T1', 'T2'], note: 'Strong reasoning at lower cost (adaptive thinking) — frontier lanes or mid-tier cross-check.' },
-    { model_id: 'claude-haiku-4-5', reasoning: true, tier_suitability: ['T3'], note: 'Fast/cheap with thinking — fine for T3 monitors/entity resolution; not a frontier-lane choice.' },
-  ],
-  // OpenAI Codex CLI surface — gpt-5.5 is the reasoning anchor and the subscription workhorse lane.
-  openai: [
-    { model_id: 'gpt-5.5', reasoning: true, tier_suitability: ['T1', 'T2'], note: 'Reasoning model behind the Codex CLI — frontier synthesis or mid-tier cross-check.' },
-  ],
   // OpenRouter meta-aggregator — the current-generation reasoning candidate menu (one API key routes to
   // every model). Per-route certification is still required separately. EXACT PINNED IDS (not aliases),
   // each verified live. SHORT + tiered: T1 frontier reasoning, T2 mid/cost-aware, T3 cheap/high-volume.
@@ -89,6 +79,22 @@ const CURATED_MODELS: Partial<Record<ProviderId, CuratedModel[]>> = {
     { model_id: 'deepseek/deepseek-v4-flash', reasoning: true, tier_suitability: ['T3'], note: 'DeepSeek V4 Flash — cheap/high-volume reasoning for monitors.' },
     { model_id: 'qwen/qwen3.6-flash', reasoning: true, tier_suitability: ['T3'], note: 'Qwen3.6 Flash — cheap/high-volume reasoning for monitors.' },
     { model_id: 'google/gemini-3.1-flash-lite', reasoning: true, tier_suitability: ['T3'], note: 'Gemini 3.1 Flash Lite — cheapest tier for high-volume scanning.' },
+  ],
+  // Direct Anthropic API (OpenAI-compatible surface) — native Claude ids (no openrouter `anthropic/` prefix).
+  'anthropic-api': [
+    { model_id: 'claude-opus-4-8', reasoning: true, tier_suitability: ['T1'], note: 'Claude Opus 4.8 (direct Anthropic API) — frontier reasoning for synthesis + highest-stakes lanes.' },
+    { model_id: 'claude-sonnet-4-6', reasoning: true, tier_suitability: ['T1', 'T2'], note: 'Claude Sonnet 4.6 (direct) — strong reasoning at lower cost; frontier or mid-tier cross-check.' },
+    { model_id: 'claude-haiku-4-5', reasoning: true, tier_suitability: ['T3'], note: 'Claude Haiku 4.5 (direct) — fast/cheap with thinking for T3 monitors/entity resolution.' },
+  ],
+  // Direct OpenAI API — native gpt ids.
+  'openai-api': [
+    { model_id: 'gpt-5.5', reasoning: true, tier_suitability: ['T1', 'T2'], note: 'GPT-5.5 (direct OpenAI API) — frontier synthesis or mid-tier cross-check.' },
+  ],
+  // Direct Gemini Developer API — native gemini ids (no openrouter `google/` prefix).
+  'gemini-developer-api': [
+    { model_id: 'gemini-3.1-pro-preview', reasoning: true, tier_suitability: ['T1'], note: 'Gemini 3.1 Pro (direct) — Google frontier reasoning, long context.' },
+    { model_id: 'gemini-3.5-flash', reasoning: true, tier_suitability: ['T2'], note: 'Gemini 3.5 Flash (direct) — cost-aware reasoning for the mid tier.' },
+    { model_id: 'gemini-3.1-flash-lite', reasoning: true, tier_suitability: ['T3'], note: 'Gemini 3.1 Flash Lite (direct) — cheapest tier for high-volume scanning.' },
   ],
 }
 

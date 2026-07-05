@@ -1,6 +1,7 @@
 import { createElement, Fragment } from 'react'
 
 import { OwlValuationChip, RouteHeader, SourceChip } from './designSystem'
+import { ReReviewButton } from './ReReviewButton'
 import { StatusBadge } from './StatusBadge'
 import type { AppWatchlistItem, MonitorAlert, WorkflowMode } from '../lib/workflow'
 
@@ -337,6 +338,9 @@ function createDecisionCheckpoint(item: AppWatchlistItem, mode: WorkflowMode) {
       createDetail('Confirmed by actor', item.user_approved ? formatActor(item.confirmed_by_actor_type, item.confirmed_by_actor_id, 'confirmed', item.updated_at) : 'Not user-confirmed yet'),
       item.holding_id === undefined ? createDetail('Position status', 'Not opened yet') : createDetail('Position status', 'Holding open'),
       createResearchCaseLink(item.research_case_id),
+      // On-demand thesis re-review vs filings NEW since this case's decision — an observation launch;
+      // a recorded diff surfaces as a monitor alert + the dossier card, never a state change here.
+      item.research_case_id === undefined ? null : createElement(ReReviewButton, { caseId: item.research_case_id }),
     ),
     openHoldingForm,
   )

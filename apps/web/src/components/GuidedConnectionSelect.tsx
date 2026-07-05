@@ -1,9 +1,10 @@
 'use client'
 
-import { createElement, type CSSProperties } from 'react'
+import { createElement, useState, type CSSProperties } from 'react'
 
 import { curatedRealTierModelsForProvider, type CuratedModel, type ModelTierSuitability } from '@owlfolio/providers/modelCatalog'
-import type { AppConfig } from '@owlfolio/shared'
+import type { OpenRouterCatalogModel } from '@owlfolio/providers/openRouterModels'
+import type { AppConfig, ProviderId } from '@owlfolio/shared'
 
 import type { ProviderOption } from '../lib/providerReadiness'
 
@@ -21,14 +22,15 @@ import type { ProviderOption } from '../lib/providerReadiness'
  */
 
 export type ConnectionOption = {
-  key: 'codex' | 'demo' | 'openrouter' | 'claude'
+  /** Stable card id: 'demo' | 'codex' | 'openrouter' | a direct-API provider id. */
+  key: string
   provider: ProviderOption
   mode: AppConfig['mode']
   title: string
   badge: string
   description: string
   /**
-   * 'fixed': single hard-wired model (Codex gpt-5.5 / demo mock) — no chooser.
+   * 'fixed': single hard-wired model (demo mock) — no chooser.
    * 'choose': the user picks ONE model from the tier-grouped dropdown.
    */
   modelChoice: 'fixed' | 'choose'
@@ -98,9 +100,7 @@ const modelValueStyle: CSSProperties = {
 
 export function buildConnectionOptions(providerOptions: ProviderOption[]): ConnectionOption[] {
   const mockProvider = providerOptions.find((provider) => provider.provider_id === 'mock-provider')
-  const codexProvider = providerOptions.find((provider) => provider.provider_surface_id === 'openai-codex-cli' || provider.provider_id === 'openai')
   const openRouterProvider = providerOptions.find((provider) => provider.provider_surface_id === 'openrouter-api' || provider.provider_id === 'openrouter')
-  const claudeProvider = providerOptions.find((provider) => provider.provider_surface_id === 'claude-cli' || provider.provider_id === 'claude')
   const options: ConnectionOption[] = []
 
   if (mockProvider !== undefined) {
@@ -111,18 +111,6 @@ export function buildConnectionOptions(providerOptions: ProviderOption[]): Conne
       title: 'Try demo mode',
       badge: 'Demo',
       description: 'Open a safe sample workspace with local mock data. No account is required.',
-      modelChoice: 'fixed',
-    })
-  }
-
-  if (codexProvider !== undefined) {
-    options.push({
-      key: 'codex',
-      provider: codexProvider,
-      mode: 'personal-local',
-      title: 'Use ChatGPT/Codex',
-      badge: 'Local AI',
-      description: 'Use a ChatGPT/Codex sign-in that already exists on this computer. Runs the gpt-5.5 model.',
       modelChoice: 'fixed',
     })
   }
@@ -139,20 +127,45 @@ export function buildConnectionOptions(providerOptions: ProviderOption[]): Conne
     })
   }
 
-  if (claudeProvider !== undefined) {
-    options.push({
-      key: 'claude',
-      provider: claudeProvider,
-      mode: 'personal-local',
-      title: 'Use Claude Code',
-      badge: 'Local AI',
-      description: 'Use a Claude Code / Anthropic sign-in on this computer. Pick one Claude model below.',
-      modelChoice: 'choose',
-    })
+  // Direct-API providers: each is a real OpenAI-compatible provider selected with its own API key. They
+  // offer a curated multi-model list, so each is a 'choose' card (the user pins one model below).
+  for (const directApi of DIRECT_API_CONNECTIONS) {
+    const provider = providerOptions.find((option) => option.provider_id === directApi.provider_id)
+    if (provider !== undefined) {
+      options.push({
+        key: directApi.provider_id,
+        provider,
+        mode: 'personal-local',
+        title: directApi.title,
+        badge: 'API key',
+        description: directApi.description,
+        modelChoice: 'choose',
+      })
+    }
   }
 
   return options
 }
+
+// Direct-API connection cards (real OpenAI-compatible providers keyed by their own API key). Kept honest:
+// these stay experimental until target-specific certification exists — research quality is the model you pick.
+const DIRECT_API_CONNECTIONS: { provider_id: ProviderId; title: string; description: string }[] = [
+  {
+    provider_id: 'anthropic-api',
+    title: 'Use Anthropic (Claude)',
+    description: 'An Anthropic API key drives Claude models directly. Pick one model below; readiness needs ANTHROPIC_API_KEY.',
+  },
+  {
+    provider_id: 'openai-api',
+    title: 'Use OpenAI (API key)',
+    description: 'An OpenAI API key drives GPT models directly. Pick one model below; readiness needs OPENAI_API_KEY.',
+  },
+  {
+    provider_id: 'gemini-developer-api',
+    title: 'Use Gemini (Google)',
+    description: 'A Gemini Developer API key drives Google models directly. Pick one model below; readiness needs GEMINI_API_KEY.',
+  },
+]
 
 export function isConnectionSelected(option: ConnectionOption, providerId: AppConfig['provider']['provider_id']): boolean {
   return option.provider.provider_id === providerId
@@ -250,6 +263,12 @@ export type GuidedConnectionSelectProps = {
   selectedModelId: string | undefined
   onSelectConnection: (option: ConnectionOption) => void
   onSelectModel: (provider: ProviderOption, modelId: string) => void
+  /**
+   * OpenRouter's live model catalog (fetched server-side, cached, fail-closed). When present, the OpenRouter
+   * connection shows a searchable picker over the FULL catalog instead of only the curated shortlist. Empty
+   * (fetch failed / non-OpenRouter) falls back to the curated tier-grouped `<select>`.
+   */
+  openRouterModels?: OpenRouterCatalogModel[]
 }
 
 /**
@@ -263,6 +282,7 @@ export function GuidedConnectionSelect({
   selectedModelId,
   onSelectConnection,
   onSelectModel,
+  openRouterModels = [],
 }: GuidedConnectionSelectProps) {
   const selectedConnection = connectionOptions.find((option) => isConnectionSelected(option, selectedProviderId))
 
@@ -285,7 +305,7 @@ export function GuidedConnectionSelect({
         createElement('span', { style: cardDescriptionStyle }, option.description),
       )),
     ),
-    renderModelSelection(selectedConnection, selectedModelId, onSelectModel),
+    renderModelSelection(selectedConnection, selectedModelId, onSelectModel, openRouterModels),
   )
 }
 
@@ -293,9 +313,21 @@ export function renderModelSelection(
   selectedConnection: ConnectionOption | undefined,
   selectedModelId: string | undefined,
   onSelectModel: (provider: ProviderOption, modelId: string) => void,
+  openRouterModels: OpenRouterCatalogModel[] = [],
 ) {
   if (selectedConnection === undefined || selectedConnection.mode === 'demo') {
     return null
+  }
+
+  // OpenRouter routes to hundreds of models; when the live catalog is available, offer a SEARCHABLE picker
+  // over the full list (curated picks surfaced first as recommended) instead of only the curated shortlist.
+  if (selectedConnection.provider.provider_id === 'openrouter' && openRouterModels.length > 0) {
+    return createElement(OpenRouterModelPicker, {
+      provider: selectedConnection.provider,
+      selectedModelId,
+      onSelectModel,
+      liveModels: openRouterModels,
+    })
   }
 
   if (selectedConnection.modelChoice === 'fixed') {
@@ -344,6 +376,102 @@ export function renderModelSelection(
         )),
       )),
     ),
+    ),
+  )
+}
+
+const modelHintStyle: CSSProperties = {
+  color: 'var(--owl-color-quiet)',
+  fontSize: 'var(--owl-text-2xs)',
+  lineHeight: 1.4,
+}
+
+/**
+ * Searchable OpenRouter model picker over the FULL live catalog. A native `<input list>` + `<datalist>`
+ * gives free-text + browser autocomplete across hundreds of models with no heavy client JS, and lets the
+ * user enter any model id (e.g. a brand-new route) directly. Curated/qualified picks are surfaced first;
+ * every other model is honestly flagged experimental + fail-closed until it has its own certification report.
+ */
+/**
+ * OpenRouter model picker: a CONTROLLED search input over the live catalog (curated picks first) plus an
+ * explicit "Set model" button. Previously the input auto-persisted on every keystroke, which wrote
+ * partial/invalid ids and made the choice feel like it never took. Now the model is committed only when Set
+ * is clicked — disabled until the entered value is non-empty AND differs from the current selection. The
+ * active model is shown beneath so the user gets clear confirmation.
+ */
+function OpenRouterModelPicker({ provider, selectedModelId, onSelectModel, liveModels }: {
+  provider: ProviderOption
+  selectedModelId: string | undefined
+  onSelectModel: (provider: ProviderOption, modelId: string) => void
+  liveModels: OpenRouterCatalogModel[]
+}) {
+  const datalistId = 'owl-openrouter-live-models'
+  const curated = curatedRealTierModelsForProvider('openrouter')
+  const curatedIds = new Set(curated.map((model) => model.model_id))
+  const liveOnly = liveModels.filter((model) => !curatedIds.has(model.id))
+
+  const [pendingModel, setPendingModel] = useState(selectedModelId ?? '')
+  const trimmed = pendingModel.trim()
+  const isCurrent = trimmed === (selectedModelId ?? '')
+  const canSet = trimmed.length > 0 && !isCurrent
+
+  return createElement(
+    'label',
+    { style: { display: 'grid', gap: '0.5rem', margin: '0 0 1rem', maxWidth: '520px' } },
+    createElement('span', { style: modelLabelStyle }, 'Model (search all OpenRouter models)'),
+    createElement(
+      'div',
+      { style: { alignItems: 'center', display: 'flex', flexWrap: 'wrap', gap: '0.5rem' } },
+      createElement('input', {
+        type: 'text',
+        list: datalistId,
+        'aria-label': 'Search or enter an OpenRouter model id',
+        className: 'owl-select owl-focusable',
+        placeholder: 'Search or type any model id (e.g. z-ai/glm-5.2-max)',
+        value: pendingModel,
+        onChange: (event: Event) => setPendingModel((event.target as HTMLInputElement).value),
+        style: { flex: '1 1 16rem' },
+      }),
+      createElement('button', {
+        type: 'button',
+        className: 'owl-button owl-button-secondary owl-focusable',
+        'aria-label': 'Set the selected OpenRouter model',
+        disabled: !canSet,
+        onClick: () => {
+          if (canSet) {
+            onSelectModel(provider, trimmed)
+          }
+        },
+        style: { flex: '0 0 auto' },
+      }, 'Set model'),
+    ),
+    createElement(
+      'datalist',
+      { id: datalistId },
+      ...curated.map((model) => createElement(
+        'option',
+        { key: `curated:${model.model_id}`, value: model.model_id },
+        `${model.model_id} — recommended · ${model.tier_suitability.join('/')}`,
+      )),
+      ...liveOnly.map((model) => createElement(
+        'option',
+        { key: `live:${model.id}`, value: model.id },
+        model.name,
+      )),
+    ),
+    createElement(
+      'span',
+      { style: modelValueStyle },
+      selectedModelId === undefined || selectedModelId.length === 0
+        ? 'No model set yet — search or type a model id, then click Set model.'
+        : isCurrent
+          ? `Active model: ${selectedModelId}`
+          : `Active model: ${selectedModelId} — click Set model to switch to “${trimmed}”.`,
+    ),
+    createElement(
+      'span',
+      { style: modelHintStyle },
+      `Searching OpenRouter's reasoning models the harness can drive (${liveModels.length} — reasoning + tool-calling + structured output; non-reasoning and incompatible models are filtered out). Curated picks are recommended; any other model is your call — it runs experimental until you decide it fits the job.`,
     ),
   )
 }

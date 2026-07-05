@@ -5,6 +5,7 @@ import './globals.css'
 import { AppShell } from '../components/designSystem'
 import { getOnboardingState } from '../lib/onboarding'
 import { resolveActiveModeStatus } from '../lib/resolveActiveModeStatus'
+import { resolveModelSwitcher } from '../lib/resolveModelSwitcher'
 
 export const metadata: Metadata = {
   title: 'Owlfolio Command Center',
@@ -14,6 +15,7 @@ export const metadata: Metadata = {
 export default async function RootLayout({ children }: { children: ReactNode }) {
   const onboarding = await getOnboardingState()
   const activeModeStatus = await resolveActiveModeStatus(onboarding.config)
+  const modelSwitcher = await resolveModelSwitcher(onboarding.config)
 
   return createElement(
     'html',
@@ -23,7 +25,11 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
       null,
       createElement(
         AppShell,
-        { isSetupComplete: onboarding.is_initialized, activeModeStatus },
+        {
+          isSetupComplete: onboarding.is_initialized,
+          activeModeStatus,
+          ...(modelSwitcher === undefined ? {} : { modelSwitcher }),
+        },
         children,
       ),
     ),

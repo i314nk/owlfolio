@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# owlfolio CLI launcher. Resolves the repo root from this script's own location and runs the tsx
+# CLI, so `bin/owlfolio <command>` (or a PATH symlink to it) works from any working directory.
+# Mirrors the `corepack pnpm owlfolio` script for users who prefer a single binary on PATH.
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+exec env NODE_OPTIONS="--disable-warning=ExperimentalWarning" \
+  corepack pnpm exec tsx "$REPO_ROOT/apps/cli/src/index.ts" "$@"

@@ -129,6 +129,26 @@ describe('mergeAutomationSettings', () => {
     expect(merged.price_refresh).toEqual({ enabled: true, cadence: 'daily' })
   })
 
+  it('circle-gate knobs: defaults when absent (k=2, floors 2/2)', () => {
+    const merged = mergeAutomationSettings({ research_engine_enabled: true })
+    expect(merged.circle_gate_k_samples).toBe(2)
+    expect(merged.circle_gate_min_drivers).toBe(2)
+    expect(merged.circle_gate_min_breakers).toBe(2)
+  })
+
+  it('circle-gate knobs: honor valid values and clamp into [1,5]', () => {
+    const merged = mergeAutomationSettings({ circle_gate_k_samples: 3, circle_gate_min_drivers: 1, circle_gate_min_breakers: 4 })
+    expect(merged.circle_gate_k_samples).toBe(3)
+    expect(merged.circle_gate_min_drivers).toBe(1)
+    expect(merged.circle_gate_min_breakers).toBe(4)
+    expect(mergeAutomationSettings({ circle_gate_k_samples: 0 }).circle_gate_k_samples).toBe(1)
+    expect(mergeAutomationSettings({ circle_gate_k_samples: 99 }).circle_gate_k_samples).toBe(5)
+    expect(mergeAutomationSettings({ circle_gate_min_drivers: -1 }).circle_gate_min_drivers).toBe(1)
+    expect(mergeAutomationSettings({ circle_gate_min_breakers: 7 }).circle_gate_min_breakers).toBe(5)
+    expect(mergeAutomationSettings({ circle_gate_k_samples: Number.NaN }).circle_gate_k_samples).toBe(2)
+    expect(mergeAutomationSettings({ circle_gate_k_samples: 2.6 }).circle_gate_k_samples).toBe(3)
+  })
+
   it('research_max_tool_calls: honors a valid value', () => {
     expect(mergeAutomationSettings({ research_max_tool_calls: 18 }).research_max_tool_calls).toBe(18)
   })

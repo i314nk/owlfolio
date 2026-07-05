@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
 
-import { ClaudeCliProvider } from '../claudeCliProvider'
+import { OpenRouterProvider } from '../openRouterProvider'
 import {
   createNotConfiguredCertificationReport,
   createQuotaLimitedCertificationReport,
@@ -11,8 +11,11 @@ import {
 } from '../certificationRunner'
 import { certificationScenarioIds } from '../certificationContract'
 import { MockProvider } from '../mockProvider'
-import { OpenAICodexCliProvider } from '../openaiCodexCliProvider'
 import type { Provider, ProviderCapabilities, ProviderCompletion, ProviderRunRequest, ProviderToolRun } from '../providerContract'
+
+// Surviving canonical API-key provider capabilities, used to populate test fakes that previously borrowed
+// the retired Codex/Claude CLI providers' capability maps.
+const apiKeyProviderCapabilities = new OpenRouterProvider({ apiKey: 'cert-test' }).capabilities
 
 const fixedGeneratedAt = '2026-06-01T00:00:00.000Z'
 
@@ -87,8 +90,8 @@ class AuthFailingProvider implements Provider {
 }
 
 class SecretLeakingAuthFailingProvider implements Provider {
-  readonly provider_id = 'openai'
-  readonly capabilities = new OpenAICodexCliProvider().capabilities
+  readonly provider_id = 'openrouter'
+  readonly capabilities = apiKeyProviderCapabilities
 
   complete(_request: ProviderRunRequest): Promise<ProviderCompletion> {
     throw new Error('auth failed OPENAI_API_KEY=*** at /tmp/secret/codex/auth.json using Bearer bearer-secret-token Cookie: owl_session=fake-cookie-value')
@@ -229,56 +232,54 @@ describe('provider certification runner', () => {
 
   it('creates explicit not-configured reports when a provider cannot be run', () => {
     const report = createNotConfiguredCertificationReport({
-      provider_id: 'claude',
+      provider_id: 'openrouter',
       generated_at: fixedGeneratedAt,
-      capabilities: new ClaudeCliProvider().capabilities,
-      reason: 'Missing Claude credentials',
+      capabilities: apiKeyProviderCapabilities,
+      reason: 'Missing OpenRouter credentials',
     })
 
+    expect(report.certification_report_id).toContain('openrouter-api_api_key_research_draft')
     expect(report).toMatchObject({
-      certification_report_id: 'cert_claude-cli_cli_cached_session_research_draft_claude-sonnet-4-6_2026-06-01T00-00-00-000Z_not-configured',
-      provider_id: 'claude',
+      provider_id: 'openrouter',
       target: {
-        provider_surface_id: 'claude-cli',
-        vendor_id: 'anthropic',
-        runtime_kind: 'cli',
-        auth_mode: 'cli_cached_session',
-        model_id: 'claude-sonnet-4-6',
+        provider_surface_id: 'openrouter-api',
+        vendor_id: 'openrouter',
+        runtime_kind: 'direct_api',
+        auth_mode: 'api_key',
         workflow_role: 'research_draft',
         schema_version: 1,
       },
       run_status: 'not-configured',
-      not_run_reason: 'Missing Claude credentials',
+      not_run_reason: 'Missing OpenRouter credentials',
       support_level: 'unsupported',
     })
     expect(report.cases).toHaveLength(certificationScenarioIds.length)
     expect(report.cases.every((caseResult) => caseResult.status === 'not-run' && caseResult.passed === false)).toBe(true)
-    expect(report.summary).toContain('Certification not run: Missing Claude credentials')
+    expect(report.summary).toContain('Certification not run: Missing OpenRouter credentials')
   })
 
   it('redacts raw credential paths and secret-like values from not-configured certification reports', () => {
     const report = createNotConfiguredCertificationReport({
-      provider_id: 'openai',
+      provider_id: 'openrouter',
       generated_at: fixedGeneratedAt,
-      capabilities: new OpenAICodexCliProvider().capabilities,
-      reason: 'Codex auth failed at /tmp/secret/codex/auth.json with OPENAI_API_KEY=*** token *** and service_account private_key abc123 Set-Cookie: sid=fake-cookie-value',
+      capabilities: apiKeyProviderCapabilities,
+      reason: 'Provider auth failed at /tmp/secret/provider/auth.json with OPENROUTER_API_KEY=*** token *** and service_account private_key abc123 Set-Cookie: sid=fake-cookie-value',
     })
     const serialized = JSON.stringify(report)
 
     expect(report).toMatchObject({
-      provider_id: 'openai',
+      provider_id: 'openrouter',
       target: {
-        provider_surface_id: 'openai-codex-cli',
-        auth_mode: 'cli_cached_session',
-        runtime_kind: 'cli',
-        model_id: 'gpt-5.5',
+        provider_surface_id: 'openrouter-api',
+        auth_mode: 'api_key',
+        runtime_kind: 'direct_api',
         workflow_role: 'research_draft',
       },
       run_status: 'not-configured',
       support_level: 'unsupported',
     })
     expect(report.not_run_reason).toContain('[redacted-path]')
-    expect(serialized).not.toContain('/tmp/secret/codex/auth.json')
+    expect(serialized).not.toContain('/tmp/secret/provider/auth.json')
     expect(serialized).not.toContain('***')
     expect(serialized).not.toContain('abc123')
     expect(serialized).not.toContain('fake-cookie-value')
@@ -312,12 +313,12 @@ describe('provider certification runner', () => {
     })
 
     expect(report.target).toMatchObject({
-      provider_surface_id: 'openai-codex-cli',
+      provider_surface_id: 'openrouter-api',
       auth_mode: 'cli_access_token',
       model_id: 'gpt-5.5',
       workflow_role: 'research_draft',
     })
-    expect(report.certification_report_id).toContain('openai-codex-cli_cli_access_token_research_draft_gpt-5-5')
+    expect(report.certification_report_id).toContain('openrouter-api_cli_access_token_research_draft_gpt-5-5')
   })
 
   it('includes explicit safety/readiness scenarios in the certification contract', () => {
@@ -332,16 +333,16 @@ describe('provider certification runner', () => {
 
   it('creates explicit reauth-required and quota-limited reports with redacted details', () => {
     const reauthReport = createReauthRequiredCertificationReport({
-      provider_id: 'openai',
+      provider_id: 'openrouter',
       generated_at: fixedGeneratedAt,
-      capabilities: new OpenAICodexCliProvider().capabilities,
-      reason: 'Codex cached login expired at /tmp/secret/codex/auth.json with CODEX_ACCESS_TOKEN=***',
+      capabilities: apiKeyProviderCapabilities,
+      reason: 'Provider login expired at /tmp/secret/provider/auth.json with PROVIDER_ACCESS_TOKEN=***',
     })
     const quotaReport = createQuotaLimitedCertificationReport({
-      provider_id: 'openai',
+      provider_id: 'openrouter',
       generated_at: fixedGeneratedAt,
-      capabilities: new OpenAICodexCliProvider().capabilities,
-      reason: 'Codex quota exhausted for Bearer bearer-secret-token',
+      capabilities: apiKeyProviderCapabilities,
+      reason: 'Provider quota exhausted for Bearer bearer-secret-token',
     })
     const serialized = JSON.stringify([reauthReport, quotaReport])
 
@@ -357,7 +358,7 @@ describe('provider certification runner', () => {
     })
     expect(reauthReport.cases.every((caseResult) => caseResult.status === 'not-run')).toBe(true)
     expect(quotaReport.cases.every((caseResult) => caseResult.status === 'not-run')).toBe(true)
-    expect(serialized).not.toContain('/tmp/secret/codex/auth.json')
+    expect(serialized).not.toContain('/tmp/secret/provider/auth.json')
     expect(serialized).not.toContain('***')
     expect(serialized).not.toContain('bearer-secret-token')
   })
@@ -452,16 +453,6 @@ describe('provider certification runner', () => {
     expect(report.support_level).not.toBe('certified')
   })
 
-  it('keeps Claude and OpenAI catalog claims below unsupported native tool-loop certification', () => {
-    expect(new ClaudeCliProvider().capabilities).toMatchObject({
-      'tool-function-calling': 'unsupported',
-      'multi-step-tool-loop': 'unsupported',
-    })
-    expect(new OpenAICodexCliProvider().capabilities).toMatchObject({
-      'tool-function-calling': 'unsupported',
-      'multi-step-tool-loop': 'unsupported',
-    })
-  })
 })
 
 // Compile-time schema fidelity guard for the structured-output certification case.

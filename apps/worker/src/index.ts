@@ -23,13 +23,14 @@ function usage(): string {
     '  corepack pnpm --filter @owlfolio/worker dev -- --task-kind review_reminder',
     '  corepack pnpm --filter @owlfolio/worker dev -- --task-kind watchlist_monitor',
     '  corepack pnpm --filter @owlfolio/worker dev -- --task-kind holding_review_draft',
+    '  corepack pnpm --filter @owlfolio/worker dev -- --task-kind re_review_check',
     '  corepack pnpm --filter @owlfolio/worker dev -- --task-kind purification_projection',
     '',
     'Options:',
     '  --once              Run one worker tick (currently the only mode).',
     '  --dry-run           Only execute mock-safe dry-run task handlers (default).',
     '  --define-defaults   Ensure default safe scheduled tasks exist before running.',
-    '  --task-kind KIND    Limit this tick to review_reminder, watchlist_monitor, holding_review_draft, portfolio_valuation_refresh, or purification_projection.',
+    '  --task-kind KIND    Limit this tick to review_reminder, watchlist_monitor, holding_review_draft, re_review_check, portfolio_valuation_refresh, or purification_projection.',
     '  --help              Show this help.',
     '',
     'Environment:',
@@ -90,14 +91,21 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     }
 
     const provider = resolveProvider({ provider_id: runtime.config.provider.provider_id })
-    // Advanced research-depth knob: per-lane grounded-tool-call cap (clamped, default-filled).
-    const maxToolCalls = mergeAutomationSettings(runtime.config.automation).research_max_tool_calls
+    // Advanced research knobs (clamped, default-filled): per-lane tool-call cap + circle-gate hardening.
+    const automation = mergeAutomationSettings(runtime.config.automation)
+    const maxToolCalls = automation.research_max_tool_calls
+    const circle_gate = {
+      k_samples: automation.circle_gate_k_samples,
+      min_drivers: automation.circle_gate_min_drivers,
+      min_breakers: automation.circle_gate_min_breakers,
+    }
 
     if (options.task_kind === 'process_research_queue') {
       const result = await runProcessResearchQueueTask(store, {
         provider,
         source_ledger_path: runtime.source_ledger_path,
         maxToolCalls,
+        circle_gate,
         // Defense-in-depth: let the task fail closed if the run requested a provider/mode that differs
         // from the config the worker actually loaded (e.g. a silent demo/mock fallback).
         loaded_provider_id: runtime.config.provider.provider_id,
@@ -116,6 +124,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         provider,
         source_ledger_path: runtime.source_ledger_path,
         maxToolCalls,
+        circle_gate,
         risk_free_rate,
       })
       console.log(JSON.stringify({ runtime, result }, null, 2))
@@ -131,7 +140,10 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       dry_run: options.dry_run,
       provider,
       provider_readiness: providerReadiness,
+      // re_review_check needs the persisted decision corpus for its new-filings delta.
+      source_ledger_path: runtime.source_ledger_path,
       ...(runtime.config.provider.model_id === undefined ? {} : { provider_model_id: runtime.config.provider.model_id }),
+      ...(runtime.config.automation === undefined ? {} : { automation: runtime.config.automation }),
       ...(options.task_kind === undefined ? {} : { task_kind: options.task_kind }),
     })
     console.log(JSON.stringify({ runtime, result }, null, 2))

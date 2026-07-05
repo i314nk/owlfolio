@@ -4,6 +4,7 @@ import type { InvestableCapitalSnapshot } from '@owlfolio/ledger/projections/inv
 
 import { OwlButtonLink, OwlRingGauge, OwlValuationChip, RouteHeader, type OwlValuationKind } from './designSystem'
 import { HoldingReviewChecklistConfirm } from './HoldingReviewChecklistConfirm'
+import { ReReviewButton } from './ReReviewButton'
 import { HoldingReviewOverrideForm } from './HoldingReviewOverrideForm'
 import type { AppHolding, MonitorAlert, WorkflowMode } from '../lib/workflow'
 import { StatusBadge } from './StatusBadge'
@@ -412,6 +413,9 @@ function createConfirmedPortfolioState(holding: AppHolding) {
     ...(holding.latest_review_evidence_summary === undefined ? [] : [createDetail('Review evidence', holding.latest_review_evidence_summary)]),
     ...(holding.latest_review_uncertainty === undefined ? [] : [createDetail('Review uncertainty', holding.latest_review_uncertainty)]),
     ...(holding.next_review_at === undefined ? [] : [createDetail('Next review', holding.next_review_at)]),
+    // On-demand thesis re-review vs filings NEW since this holding's decision — an observation launch;
+    // a recorded diff surfaces as a monitor alert + the dossier card, never a portfolio action.
+    ...(holding.research_case_id === undefined ? [] : [createElement(ReReviewButton, { caseId: holding.research_case_id })]),
     ...(hasAuditIds
       ? [createElement(
         'details',

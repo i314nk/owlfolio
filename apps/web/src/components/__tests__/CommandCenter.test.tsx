@@ -216,7 +216,7 @@ describe('CommandCenter', () => {
     const html = renderToStaticMarkup(createElement(CommandCenter, { dashboard }))
 
     expect(html).toContain('Setup required')
-    expect(html).toContain('Provider: Claude not ready yet')
+    expect(html).toContain('Provider: OpenRouter not ready yet')
     expect(html).toContain('Strategy: Buffett-Munger default')
     expect(html).toContain('Ledger: not initialized yet')
     expect(html).toContain('Complete onboarding and initialize the personal local ledger')
@@ -274,6 +274,9 @@ describe('CommandCenter', () => {
       const dashboard = await getSetupAwareCommandCenter({
         config: {
           ...defaultPersonalLocalAppConfig(),
+          // The default OpenRouter provider with no key configured: experimental + not ready,
+          // a deterministic "needs setup" provider line (experimental trips the readiness warning).
+          provider: { provider_id: 'openrouter', support_level: 'experimental' },
           initialized_at: '2026-05-28T12:00:00.000Z',
           ledger_path: ':memory:',
         },
@@ -283,7 +286,7 @@ describe('CommandCenter', () => {
       const html = renderToStaticMarkup(createElement(CommandCenter, { dashboard }))
 
       expect(html).toContain('Personal local mode initialized')
-      expect(html).toContain('Provider: Claude unsupported')
+      expect(html).toContain('Provider: OpenRouter experimental')
       expect(html).toContain('Finish local assistant setup')
       expect(html).toContain('Research cases')
       expect(html).toContain('0')
@@ -324,35 +327,38 @@ describe('CommandCenter', () => {
       const dashboard = await getSetupAwareCommandCenter({
         config: {
           ...defaultPersonalLocalAppConfig(),
+          // OpenRouter config — matches the injected OpenRouter readiness row below. A latest
+          // certification report has gated it to unsupported (the deterministic blocked path).
+          provider: { provider_id: 'openrouter', support_level: 'experimental' },
           initialized_at: '2026-05-28T12:00:00.000Z',
           ledger_path: ':memory:',
         },
         is_initialized: true,
         provider_status_rows: [
           {
-            provider_id: 'claude',
-            provider_surface_id: 'claude-cli',
-            vendor_id: 'anthropic',
-            runtime_kind: 'cli',
-            auth_mode: 'cli_cached_session',
+            provider_id: 'openrouter',
+            provider_surface_id: 'openrouter-api',
+            vendor_id: 'openrouter',
+            runtime_kind: 'direct_api',
+            auth_mode: 'api_key',
             workflow_role: 'research_draft',
-            billing_mode: 'subscription_entitlement',
-            quota_source: 'subscription_tier',
+            billing_mode: 'platform_api_billing',
+            quota_source: 'api_project',
             quota_status: 'unknown',
-            data_policy_source: 'subscription_workspace_policy',
+            data_policy_source: 'unknown',
             retention_or_zdr_status: 'not_verified',
-            headless_supported: false,
+            headless_supported: true,
             scheduled_workflow_supported: false,
-            automation_suitability: 'personal_local_interactive',
-            label: 'Claude',
-            description: 'Claude CLI personal-local adapter',
+            automation_suitability: 'unknown',
+            label: 'OpenRouter',
+            description: 'OpenRouter meta-aggregator adapter',
             catalog_support_level: 'experimental',
             effective_support_level: 'unsupported',
             readiness_state: 'unready',
             is_ready: false,
             auth_source: 'certification report',
-            status_label: 'Claude subscription access disabled',
-            model_role: 'Personal-local research/dev fallback',
+            status_label: 'OpenRouter routing blocked by latest certification report',
+            model_role: 'Meta-aggregator candidate',
             limitations: [],
             capabilities: {
               'multi-step-tool-loop': 'unsupported',
@@ -370,8 +376,8 @@ describe('CommandCenter', () => {
               'browser-use': 'unsupported',
             },
             status_rows: [
-              { label: 'Local availability', value: 'Locally runnable', tone: 'success', description: 'Locally runnable via Claude subscription credentials' },
-              { label: 'Credential status', value: 'Credentials blocked by latest certification report', tone: 'danger', description: 'Claude subscription access disabled' },
+              { label: 'Local availability', value: 'Routable', tone: 'success', description: 'Routable via OpenRouter API credentials' },
+              { label: 'Credential status', value: 'Credentials blocked by latest certification report', tone: 'danger', description: 'OpenRouter routing blocked by latest certification report' },
               { label: 'Catalog support', value: 'experimental', tone: 'warning', description: 'Static provider matrix claim.' },
               { label: 'Effective support', value: 'unsupported', tone: 'danger', description: 'Gating source of truth from latest certification evidence.' },
               { label: 'Workflow certification', value: 'No certification report recorded', tone: 'warning', description: 'No persisted certification evidence exists for this provider.' },
@@ -384,7 +390,7 @@ describe('CommandCenter', () => {
       })
       const html = renderToStaticMarkup(createElement(CommandCenter, { dashboard }))
 
-      expect(html).toContain('Provider: Claude unsupported — Claude subscription access disabled')
+      expect(html).toContain('Provider: OpenRouter unsupported — OpenRouter routing blocked by latest certification report')
       expect(html).toContain('Finish local assistant setup')
       expect(html).toContain('Open setup details')
       expect(html).toContain('Owlfolio cannot use the selected local assistant yet. Open provider details for the technical checks, or keep using demo mode while setup is incomplete.')
@@ -400,7 +406,7 @@ describe('CommandCenter', () => {
   it('renders direct next-action cards in priority order across workflow warnings and reminders', () => {
     const html = renderToStaticMarkup(createElement(CommandCenter, {
       dashboard: makeDashboard({
-        provider_status: 'Provider: Claude not ready yet',
+        provider_status: 'Provider: OpenRouter not ready yet',
         pipeline_counts: {
           research_cases: 2,
           watchlist_drafts: 2,

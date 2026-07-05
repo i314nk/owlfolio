@@ -148,4 +148,30 @@ describe('POST /api/settings/automation', () => {
     expect(response.status).toBe(200)
     expect(body.automation).toEqual(mergeAutomationSettings({}))
   })
+
+  it('accepts circle-gate knobs, clamping out-of-band values into their ranges', async () => {
+    const response = await POST(new Request('http://localhost/api/settings/automation', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ circle_gate_k_samples: 3, circle_gate_min_drivers: 99, circle_gate_min_breakers: 1 }),
+    }))
+    const body = await response.json()
+
+    expect(response.status).toBe(200)
+    expect(body.automation.circle_gate_k_samples).toBe(3)
+    expect(body.automation.circle_gate_min_drivers).toBe(5) // clamped to the ceiling
+    expect(body.automation.circle_gate_min_breakers).toBe(1)
+  })
+
+  it('rejects a non-numeric circle-gate knob with 400', async () => {
+    const response = await POST(new Request('http://localhost/api/settings/automation', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ circle_gate_k_samples: 'two' }),
+    }))
+
+    expect(response.status).toBe(400)
+    const body = await response.json()
+    expect(body.error.code).toBe('invalid_automation_update')
+  })
 })

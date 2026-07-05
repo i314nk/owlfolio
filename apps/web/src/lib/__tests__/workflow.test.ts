@@ -334,6 +334,52 @@ describe('workflow helpers', () => {
       }
     })
 
+    async function appendRunRequestedAt(store: SQLiteEventStore, researchCaseId: string, createdAt: string): Promise<void> {
+      await store.append({
+        event_id: `evt_research_run_requested_${researchCaseId}`,
+        event_type: 'research_run_requested',
+        aggregate_type: 'research_case',
+        aggregate_id: researchCaseId,
+        correlation_id: researchCaseId,
+        actor_type: 'user',
+        actor_id: 'user_local',
+        payload: { research_case_id: researchCaseId, ticker: 'MSFT', company_id: 'company_msft', requested_by: 'user_local' },
+        source_ids: [],
+        created_at: createdAt,
+        schema_version: 1,
+        idempotency_key: `research-run-request:${researchCaseId}:v1`,
+      })
+    }
+
+    it('fails a run left pending past the start-timeout (worker never started → no infinite spinner)', async () => {
+      const store = new SQLiteEventStore()
+      try {
+        // Requested 10 minutes ago, never claimed / no case created → the worker never ran.
+        await appendRunRequestedAt(store, 'rc_stuck_001', new Date(Date.now() - 10 * 60_000).toISOString())
+        const view = await resolveResearchCaseView(store, 'personal-local', 'rc_stuck_001')
+        expect(view.status).toBe('failed')
+        if (view.status === 'failed') {
+          expect(view.error_summary).toMatch(/did not start|no progress/i)
+        }
+      } finally {
+        store.close()
+      }
+    })
+
+    it('stays pending while the (configurable) start-timeout has not elapsed', async () => {
+      const store = new SQLiteEventStore()
+      try {
+        // Same 10-minutes-old request, but a generous 30-minute timeout → still legitimately in flight.
+        await appendRunRequestedAt(store, 'rc_within_001', new Date(Date.now() - 10 * 60_000).toISOString())
+        const view = await resolveResearchCaseView(store, 'personal-local', 'rc_within_001', undefined, {
+          pendingTimeoutMs: 30 * 60_000,
+        })
+        expect(view.status).toBe('pending')
+      } finally {
+        store.close()
+      }
+    })
+
     it('resolves to the real case once research_case_created is appended', async () => {
       const store = new SQLiteEventStore()
       try {
@@ -387,7 +433,96 @@ describe('workflow helpers', () => {
         expect(view.status).toBe('failed')
         if (view.status === 'failed') {
           expect(view.error_summary).toBe('provider timed out')
+          // Ticker recovered from the run-request payload → the failed page can offer a re-run.
+          expect(view.ticker).toBe('MSFT')
         }
+      } finally {
+        store.close()
+      }
+    })
+
+    it('reports failed for a MID-RUN failure (case created, non-terminal stage) instead of the eternal loader', async () => {
+      // The ADBE loading-forever bug: the case row existed (deep dive mid-flight), synthesis failed →
+      // research_run_failed appended — but the ready branch never consulted it, so the page re-rendered
+      // the animated progress view forever. A failure on a non-terminal case must surface as failed.
+      const store = new SQLiteEventStore()
+      try {
+        await appendRunRequested(store, 'rc_midfail_001')
+        await createResearchCase(store, {
+          research_case_id: 'rc_midfail_001',
+          company_id: 'company_adbe',
+          ticker: 'ADBE',
+          strategy_id: 'buffett-munger',
+          strategy_version: '1.0.0',
+          actor_id: 'user_local',
+        })
+        await store.append({
+          event_id: 'evt_research_run_failed_rc_midfail_001',
+          event_type: 'research_run_failed',
+          aggregate_type: 'research_case',
+          aggregate_id: 'rc_midfail_001',
+          correlation_id: 'rc_midfail_001',
+          actor_type: 'worker',
+          actor_id: 'owlfolio-worker',
+          payload: { research_case_id: 'rc_midfail_001', run_id: 'run_rc_midfail_001', failed_at: new Date().toISOString(), error_summary: 'synthesis stage failed after retry' },
+          source_ids: [],
+          created_at: new Date().toISOString(),
+          schema_version: 1,
+        })
+        const view = await resolveResearchCaseView(store, 'personal-local', 'rc_midfail_001')
+        expect(view.status).toBe('failed')
+        if (view.status === 'failed') {
+          expect(view.error_summary).toBe('synthesis stage failed after retry')
+          // Ticker carried from the projected case → the failed page can offer a re-run.
+          expect(view.ticker).toBe('ADBE')
+        }
+      } finally {
+        store.close()
+      }
+    })
+
+    it('keeps the dossier (ready) when a failure event exists but the case already reached a terminal stage', async () => {
+      // Defensive guard: never hide a completed dossier behind a failed screen (e.g. a watchdog reaping
+      // a stale run record after the decision was already drafted).
+      const store = new SQLiteEventStore()
+      try {
+        await appendRunRequested(store, 'rc_lateflag_001')
+        await createResearchCase(store, {
+          research_case_id: 'rc_lateflag_001',
+          company_id: 'company_adbe',
+          ticker: 'ADBE',
+          strategy_id: 'buffett-munger',
+          strategy_version: '1.0.0',
+          actor_id: 'user_local',
+        })
+        await store.append({
+          event_id: 'evt_decision_drafted_rc_lateflag_001',
+          event_type: 'decision_drafted',
+          aggregate_type: 'research_case',
+          aggregate_id: 'rc_lateflag_001',
+          correlation_id: 'rc_lateflag_001',
+          actor_type: 'worker',
+          actor_id: 'owlfolio-worker',
+          payload: { research_case_id: 'rc_lateflag_001', decision_id: 'dec_001', decision: 'watch', user_approved: false, reason: 'r' },
+          source_ids: [],
+          created_at: new Date().toISOString(),
+          schema_version: 1,
+        })
+        await store.append({
+          event_id: 'evt_research_run_failed_rc_lateflag_001',
+          event_type: 'research_run_failed',
+          aggregate_type: 'research_case',
+          aggregate_id: 'rc_lateflag_001',
+          correlation_id: 'rc_lateflag_001',
+          actor_type: 'worker',
+          actor_id: 'owlfolio-worker',
+          payload: { research_case_id: 'rc_lateflag_001', run_id: 'run_rc_lateflag_001', failed_at: new Date().toISOString(), error_summary: 'stale run reaped' },
+          source_ids: [],
+          created_at: new Date().toISOString(),
+          schema_version: 1,
+        })
+        const view = await resolveResearchCaseView(store, 'personal-local', 'rc_lateflag_001')
+        expect(view.status).toBe('ready')
       } finally {
         store.close()
       }
@@ -698,7 +833,7 @@ describe('workflow helpers', () => {
     dirs.push(projectDir)
     const reportDir = join(projectDir, 'data', 'provider-certifications')
     await mkdir(reportDir, { recursive: true })
-    await writeFile(join(reportDir, 'claude.latest.json'), JSON.stringify(unsupportedCompletedReport('claude')), 'utf8')
+    await writeFile(join(reportDir, 'openrouter.latest.json'), JSON.stringify(unsupportedCompletedReport('openrouter')), 'utf8')
 
     const previousCertificationDir = process.env.OWLFOLIO_PROVIDER_CERTIFICATION_DIR
     const previousAnthropicKey = process.env.ANTHROPIC_API_KEY
@@ -731,7 +866,7 @@ describe('workflow helpers', () => {
         config: {
           ...state.config,
           provider: {
-            provider_id: 'claude' as const,
+            provider_id: 'openrouter' as const,
             support_level: 'experimental' as const,
             model_id: 'claude-sonnet-4',
           },
@@ -739,7 +874,7 @@ describe('workflow helpers', () => {
       }
 
       await expect(createPersonalHoldingReviewDraft(unsupportedProviderState, openedHolding.holding_id))
-        .rejects.toThrow('Provider claude is not ready: 0/13 scenarios passed; provider support level is unsupported.')
+        .rejects.toThrow('Provider openrouter is not ready: 0/13 scenarios passed; provider support level is unsupported.')
     } finally {
       if (previousCertificationDir === undefined) {
         delete process.env.OWLFOLIO_PROVIDER_CERTIFICATION_DIR
@@ -889,13 +1024,21 @@ describe('workflow helpers', () => {
     })).rejects.toThrow('Valuation date must use YYYY-MM-DD format')
   })
 
-  it('defaults openai provider runs to a ChatGPT-backed Codex-supported model id', () => {
+  it('defaults a provider without an explicit model id to its curated catalog default model', () => {
+    // openai-api → gpt-5.5 (the catalog default for the direct OpenAI API surface)
     expect(resolveModelIdForProvider({
       provider: {
-        provider_id: 'openai',
+        provider_id: 'openai-api',
         support_level: 'experimental',
       },
     })).toBe('gpt-5.5')
+    // openrouter → openrouter/auto (its own catalog default), not a hard-coded fallback
+    expect(resolveModelIdForProvider({
+      provider: {
+        provider_id: 'openrouter',
+        support_level: 'experimental',
+      },
+    })).toBe('openrouter/auto')
   })
 
   it('projects the selected strategy research pipeline into cockpit sections', async () => {
@@ -1522,16 +1665,16 @@ describe('workflow helpers', () => {
   })
 })
 
-function unsupportedCompletedReport(providerId: 'claude' | 'openai'): CertificationReport {
+function unsupportedCompletedReport(providerId: 'openrouter' | 'openai-api'): CertificationReport {
   return {
     certification_report_id: `cert_${providerId}_unsupported_completed`,
     provider_id: providerId,
     target: {
-      provider_surface_id: providerId === 'claude' ? 'claude-cli' : 'openai-codex-cli',
-      vendor_id: providerId === 'claude' ? 'anthropic' : 'openai',
-      runtime_kind: 'cli',
-      auth_mode: 'cli_cached_session',
-      model_id: providerId === 'claude' ? 'claude-sonnet-4-6' : 'gpt-5.5',
+      provider_surface_id: providerId === 'openrouter' ? 'openrouter-api' : 'openai-api',
+      vendor_id: providerId === 'openrouter' ? 'openrouter' : 'openai',
+      runtime_kind: 'direct_api',
+      auth_mode: 'api_key',
+      model_id: providerId === 'openrouter' ? 'openrouter/auto' : 'gpt-5.5',
       workflow_role: 'research_draft',
       schema_version: 1,
     },

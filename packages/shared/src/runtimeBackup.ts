@@ -7,7 +7,7 @@ type AppConfig = {
   version: 1
   mode: 'unconfigured' | 'demo' | 'personal-local'
   provider: {
-    provider_id: 'mock-provider' | 'claude' | 'openai' | 'openrouter'
+    provider_id: 'mock-provider' | 'openrouter' | 'openai-api' | 'anthropic-api' | 'gemini-developer-api'
     support_level: 'certified' | 'experimental' | 'unsupported'
     model_id?: string
   }
@@ -60,11 +60,6 @@ export type RuntimeBackupEnv = {
   OWLFOLIO_LEDGER_PATH?: string
   OWLFOLIO_SOURCE_LEDGER_PATH?: string
   OWLFOLIO_PROVIDER_CERTIFICATION_DIR?: string
-  OWLFOLIO_CLAUDE_CREDENTIALS_PATH?: string
-  OWLFOLIO_CODEX_AUTH_PATH?: string
-  OWLFOLIO_GEMINI_CLI_AUTH_PATH?: string
-  CODEX_HOME?: string
-  GEMINI_HOME?: string
 }
 
 export type RuntimeBackupEntryRole =

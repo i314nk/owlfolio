@@ -77,7 +77,7 @@ describe('runLaneSwarm', () => {
       if (lane === 'risks') throw new Error('lane boom')
       return { lane, finding_summary: `${lane} ok`, confidence: 'medium' as const, caveats: [], verified_ids: [lane] }
     })
-    const results = await runLaneSwarm(['moat', 'risks', 'valuation'], runLane, { concurrency: 2 })
+    const results = await runLaneSwarm(['moat', 'risks', 'business_quality'], runLane, { concurrency: 2 })
     expect(results).toHaveLength(3)
     expect(results.find((r) => r.lane === 'risks')?.status).toBe('incomplete')
     expect(results.find((r) => r.lane === 'moat')?.status).toBe('complete')
@@ -129,7 +129,7 @@ function runwayThesisForTier(tier: 'none' | 'limited' | 'proven', cite: string) 
 }
 
 // Shared per-lane judgment payloads for the schema-name-keyed fakes (spec-correct decomposition: the
-// MOAT lane emits its grounded moat + runway theses, the SHARIAH lane emits its overlay).
+// MOAT lane emits its grounded moat + runway theses).
 function fakeMoatLanePayload(src: (id: string) => unknown) {
   return {
     finding_summary: 'Moat lane finding', confidence: 'medium' as const, caveats: ['Mock moat caveat'],
@@ -140,22 +140,22 @@ function fakeMoatLanePayload(src: (id: string) => unknown) {
     proposed_sources: [src('src_lane_moat')],
   }
 }
-function fakeShariahLanePayload(src: (id: string) => unknown) {
-  return {
-    finding_summary: 'Shariah lane finding', confidence: 'medium' as const, caveats: ['Mock shariah caveat'],
-    sector_status: 'compliant' as const, impermissible_income: 0,
-    proposed_sources: [src('src_lane_shariah')],
-  }
-}
-
 // Shared in-competence circle-of-competence payload for the existing fake providers (so the pre-deep-dive
 // circle gate PASSES and the deep dive proceeds exactly as before). The two citation source_ids
 // (src_circle_driver / src_circle_breaker) verify under every test's ground fn (they contain neither
 // 'moat' nor 'bad', the only substrings the filtering grounds exclude).
 function fakeCirclePayload(src: (id: string) => unknown) {
+  // Two cited drivers + two cited breakers: meets the default circle-gate evidence floor (min 2/2),
+  // mirroring what a live model produces now that the gate prompt asks for at least that many.
   return {
-    cashflow_drivers: [{ driver: 'Recurring revenue grounded in the 10-K', citation: 'src_circle_driver' }],
-    predictability_breakers: [{ breaker: 'Cyclicality / customer concentration risk', citation: 'src_circle_breaker' }],
+    cashflow_drivers: [
+      { driver: 'Recurring revenue grounded in the 10-K', citation: 'src_circle_driver' },
+      { driver: 'Membership renewal economics grounded in the 10-K', citation: 'src_circle_driver' },
+    ],
+    predictability_breakers: [
+      { breaker: 'Cyclicality / customer concentration risk', citation: 'src_circle_breaker' },
+      { breaker: 'Margin compression from input-cost inflation', citation: 'src_circle_breaker' },
+    ],
     competence_reasoning: 'Understandable cashflow engine demonstrated from filings.',
     cashflow_predictability: 'durably_predictable',
     proposed_sources: [src('src_circle_driver'), src('src_circle_breaker')],
@@ -197,7 +197,6 @@ function swarmFakeProvider() {
         }
       }
       if (schemaName === 'BuffettMungerMoatLane') return fakeMoatLanePayload(src)
-      if (schemaName === 'BuffettMungerShariahLane') return fakeShariahLanePayload(src)
       if (schemaName === 'BuffettMungerLaneFinding') {
         const n = laneCall++
         return {
@@ -309,13 +308,6 @@ function swarmFakeProviderWithLaneIds(_lanes: readonly string[]) {
           proposed_sources: [src('src_moat_1')],
         }
       }
-      if (schemaName === 'BuffettMungerShariahLane') {
-        return {
-          finding_summary: 'shariah lane finding', confidence: 'medium' as const, caveats: ['Mock lane caveat'],
-          sector_status: 'compliant' as const, impermissible_income: 0,
-          proposed_sources: [src('src_shariah_1')],
-        }
-      }
       if (schemaName === 'BuffettMungerLaneFinding') {
         const lane = laneFromPrompt(req.prompt)
         return {
@@ -414,7 +406,7 @@ describe('runStrategyResearchSwarm', () => {
     const types = events.map((e) => e.event_type)
     expect(types).toContain('research_case_created')
     expect(types).toContain('quick_screen_drafted')
-    expect(types.filter((t) => t === 'specialist_finding_recorded').length).toBeGreaterThanOrEqual(7)
+    expect(types.filter((t) => t === 'specialist_finding_recorded').length).toBeGreaterThanOrEqual(5)
     expect(types).toContain('deep_dive_synthesis_drafted')
     expect(types).toContain('decision_drafted')
     expect(result.decision).toBeDefined()
@@ -473,8 +465,114 @@ describe('runStrategyResearchSwarm', () => {
     })
     expect(moatFinding).toBeUndefined()
 
-    // All other lanes (6 of 7) must have their findings recorded
+    // All other lanes (4 of 5) must have their findings recorded
     expect(findingEvents.length).toBe(buffettMungerDeepDiveLanes.length - 1)
+  })
+
+  it('fails closed with shariah_deep_screen_incomplete when the shariah-reasoning pass fails via provider fall-through', async () => {
+    const store = new InMemoryEventStore()
+    const provider = swarmFakeProviderWithLaneIds(buffettMungerDeepDiveLanes)
+    // swarmFakeProviderWithLaneIds has no BuffettMungerShariahReasoning handler, so the Shariah-reasoning
+    // pass falls through to the synthesis payload (missing shariah_judgment field). Schema validation
+    // fails and runValidatedAgent exhausts its retries → shariahPassOutcome = { status: 'failed' }.
+    // There is no shariah lane, so no source_id filtering on 'shariah' is needed — all sources are
+    // passed through normally; the pass failure is entirely driven by the provider fall-through.
+    const ground = async (sources: { source_id: string }[]) => {
+      return {
+        captured: sources.map((s) => ({
+          source_id: s.source_id,
+          title: 't',
+          url: 'https://example.com/x',
+          excerpt: 'e',
+          availability: 'available' as 'available' | 'unavailable',
+          fetched_at: 'x',
+          content_hash: 'sha256:1',
+        })),
+        verified_ids: sources.map((s) => s.source_id),
+      }
+    }
+    const result = await runStrategyResearchSwarm(
+      store,
+      provider as never,
+      {
+        research_case_id: 'rc_shariah_skip',
+        company_id: 'c',
+        ticker: 'SHAR',
+        strategy_id: 'buffett-munger',
+        actor_id: 'user_local',
+        idempotency_key: 'k',
+        model_id: 'mock',
+        decision_id: 'd_shariah_skip',
+        source_ledger_path: '/tmp/owlfolio-swarm-shariah-skip',
+      },
+      { ground, laneConcurrency: 3 },
+    )
+
+    const events = await store.list()
+
+    // The shariah lane is removed — no shariah specialist finding is recorded.
+    const findingEvents = events.filter((e) => e.event_type === 'specialist_finding_recorded')
+    const shariahFinding = findingEvents.find((e) => (e.payload as Record<string, unknown>)['specialist_lane'] === 'shariah')
+    expect(shariahFinding).toBeUndefined()
+
+    // The analysis event must carry the fail-closed deep-screen-incomplete boolean flag ALONGSIDE the verdict
+    // (projected onto the case exactly like shariah_impermissible_income_undetermined).
+    const analysis = events.find((e) => e.event_type === 'buffett_munger_analysis_drafted')
+    expect(analysis).toBeDefined()
+    const analysisPayload = analysis!.payload as Record<string, unknown>
+    expect(analysisPayload['shariah_deep_screen_incomplete']).toBe(true)
+    // ...and it also surfaces in the decision open_questions (the shariah_ratios_unverified string channel).
+    const decision = events.find((e) => e.event_type === 'decision_drafted')
+    expect(decision).toBeDefined()
+    const openQuestions = ((decision!.payload as Record<string, unknown>)['open_questions'] as string[] | undefined) ?? []
+    expect(openQuestions.some((q) => q.includes('shariah_deep_screen_incomplete'))).toBe(true)
+
+    expect(result.decision).toBeDefined()
+  })
+
+  it('fails closed with shariah_deep_screen_incomplete when the focused shariah-reasoning pass fails', async () => {
+    // The shariah lane is removed; shariah_deep_screen_incomplete is now exclusively keyed off the
+    // focused Shariah-reasoning pass outcome. We drive the pass to fail via omitShariahOverlay: true —
+    // the provider returns no shariah_judgment on the BuffettMungerShariahReasoning call,
+    // schema-validation fails (required field missing), and runValidatedAgent exhausts its retries
+    // → shariahPassOutcome = { status: 'failed', ... }.
+    const store = new InMemoryEventStore()
+    const provider = configurableSwarmProvider({
+      laneCount: buffettMungerDeepDiveLanes.length,
+      omitShariahOverlay: true,
+    })
+    const sourceLedgerPath = await mkdtemp(join(tmpdir(), 'owlfolio-shariah-pass-fail-'))
+    await runStrategyResearchSwarm(
+      store,
+      provider as never,
+      {
+        research_case_id: 'rc_shariah_pass_fail',
+        company_id: 'c',
+        ticker: 'SHAR',
+        strategy_id: 'buffett-munger',
+        actor_id: 'user_local',
+        idempotency_key: 'k',
+        model_id: 'mock',
+        decision_id: 'd_shariah_pass_fail',
+        source_ledger_path: sourceLedgerPath,
+      },
+      { ground: allVerifiedGround, laneConcurrency: 4 },
+    )
+
+    const events = await store.list()
+
+    // The analysis event must carry the fail-closed deep-screen-incomplete flag ALONGSIDE the verdict.
+    const analysis = events.find((e) => e.event_type === 'buffett_munger_analysis_drafted')
+    expect(analysis).toBeDefined()
+    const analysisPayload = analysis!.payload as Record<string, unknown>
+    expect(analysisPayload['shariah_deep_screen_incomplete']).toBe(true)
+    // The Shariah verdict must NOT be flipped — the flag rides ALONGSIDE the quick-screen verdict.
+    expect(analysisPayload['shariah_status']).toBe('CONDITIONAL')
+    // The caveat must surface in the decision open_questions (the shariah_ratios_unverified string channel).
+    const decision = events.find((e) => e.event_type === 'decision_drafted')
+    expect(decision).toBeDefined()
+    const openQuestions = ((decision!.payload as Record<string, unknown>)['open_questions'] as string[] | undefined) ?? []
+    expect(openQuestions.some((q) => /shariah_ratios_unverified:.*shariah_deep_screen_incomplete/.test(q))).toBe(true)
   })
 
   it('excludes unverified sources from ledger events but records them as unavailable in the bundle', async () => {
@@ -774,7 +872,7 @@ describe('runStrategyResearchSwarm short-circuit on Shariah NON_COMPLIANT', () =
 })
 
 describe('runStrategyResearchSwarm with MockProvider + deterministic grounder', () => {
-  it('completes end-to-end: research_case_created, quick_screen_drafted, >=7 specialist_finding_recorded, deep_dive_synthesis_drafted, decision_drafted', async () => {
+  it('completes end-to-end: research_case_created, quick_screen_drafted, >=6 specialist_finding_recorded, deep_dive_synthesis_drafted, decision_drafted', async () => {
     const sourceLedgerPath = await mkdtemp(join(tmpdir(), 'owlfolio-mock-swarm-'))
     const store = new InMemoryEventStore()
     const provider = new MockProvider()
@@ -801,7 +899,7 @@ describe('runStrategyResearchSwarm with MockProvider + deterministic grounder', 
 
     expect(types).toContain('research_case_created')
     expect(types).toContain('quick_screen_drafted')
-    expect(types.filter((t) => t === 'specialist_finding_recorded').length).toBeGreaterThanOrEqual(7)
+    expect(types.filter((t) => t === 'specialist_finding_recorded').length).toBeGreaterThanOrEqual(5)
     expect(types).toContain('deep_dive_synthesis_drafted')
     expect(types).toContain('decision_drafted')
     expect(result.decision).toBeDefined()
@@ -1073,7 +1171,7 @@ function configurableSwarmProvider(opts: {
   // redTeamCitations: which corpus source_ids the red team's strongest objection cites.
   redTeamCitations?: string[]
   // Spec-correct decomposition: the MOAT lane omits its rubric (→ rubric_not_emitted holistic fallback)
-  // and/or the SHARIAH lane omits its overlay (→ shariah_ratios_unverified) — the live-dogfood shape.
+  // and/or the Shariah-reasoning pass omits its overlay (→ shariah_ratios_unverified) — the live-dogfood shape.
   omitMoatRubric?: boolean
   omitShariahOverlay?: boolean
   // Founding-risk fix: omit valuation_reasoning entirely (→ synthesis_grounding_unmet) — the live shape.
@@ -1168,12 +1266,15 @@ function configurableSwarmProvider(opts: {
           proposed_sources: [src('src_lane_moat')],
         }
       }
-      if (schemaName === 'BuffettMungerShariahLane') {
+      // Focused Shariah-reasoning pass (always-on): the overlay the harness recompute now sources from.
+      // omitShariahOverlay omits shariah_judgment (schema-invalid → the pass fails → the harness fails
+      // CLOSED to the impermissible_income_not_emitted degradation — the live dogfood shape).
+      if (schemaName === 'BuffettMungerShariahReasoning') {
         return {
-          finding_summary: 'Shariah lane finding', confidence: 'high',
-          caveats: ['Mock shariah caveat'],
-          ...(opts.omitShariahOverlay === true ? {} : { sector_status: 'compliant', impermissible_income: 0 }),
-          proposed_sources: [src('src_lane_shariah')],
+          ...(opts.omitShariahOverlay === true
+            ? {}
+            : { shariah_judgment: { sector_status: 'compliant', impermissible_income: 0, sector_citation: 'src_shariah_reasoning' } }),
+          proposed_sources: [src('src_shariah_reasoning')],
         }
       }
       if (schemaName === 'BuffettMungerRedTeam') {
@@ -1561,6 +1662,8 @@ describe('RELIGHTENED DECISION — model proposes buy-below; deterministic side 
     proposedBuyBelow?: number
     assumedGrowth?: number
     moatClass?: 'narrow' | 'moderate' | 'wide' | 'monopoly'
+    /** Optional EDGAR fundamentals — supply a real series when a test needs a demonstrated history. */
+    fundamentals?: Fundamentals
   }) {
     const store = new InMemoryEventStore()
     const provider = configurableSwarmProvider({
@@ -1593,6 +1696,7 @@ describe('RELIGHTENED DECISION — model proposes buy-below; deterministic side 
       {
         ground: allVerifiedGround,
         laneConcurrency: 4,
+        ...(opts.fundamentals !== undefined ? { fundamentals: opts.fundamentals } : {}),
         resolvePrice: async () => ({ available: true as const, price_per_share: opts.price, currency: 'USD', as_of: '2026-06-01T00:00:00Z', source: 'fixture' }),
       },
     )
@@ -1624,8 +1728,10 @@ describe('RELIGHTENED DECISION — model proposes buy-below; deterministic side 
     // gated only by the cheap gates) is NOT blocked by the flag. F.2 — at the lower savings-anchor discount
     // (7.5%, was 10%) a given price implies LESS growth, so the price is raised to 800 (implied ≈ 17.6%,
     // comfortably above the 15% cap; at the old 10% discount 600 already cleared the cap).
+    // buy-below 850 keeps the price IN the model's own buy zone so the owner-rule buy-zone gate (an
+    // arithmetic gate, not a sanity flag) does not derate the BUY — this test isolates flag-never-blocks.
     const { valuation, cp } = await runRelit({
-      id: 'sanity-optimistic', price: 800, valuationStatus: 'ATTRACTIVE', investmentVerdict: 'BUY', proposedBuyBelow: 550,
+      id: 'sanity-optimistic', price: 800, valuationStatus: 'ATTRACTIVE', investmentVerdict: 'BUY', proposedBuyBelow: 850,
     })
     const flags = (valuation?.['sanity_flags'] as string[] | undefined) ?? []
     expect(flags.length).toBeGreaterThan(0)
@@ -1679,7 +1785,9 @@ describe('RELIGHTENED DECISION — model proposes buy-below; deterministic side 
     expect(valuation?.['in_buy_zone']).toBe(false)
     const flags = (valuation?.['sanity_flags'] as string[] | undefined) ?? []
     expect(flags.some((f) => /contradicts_buy_zone/.test(f) && /attractive/i.test(f))).toBe(true)
-    expect(cp?.investment_verdict).toBe('BUY')
+    // OWNER RULE (2026-07-04): the out-of-zone BUY no longer passes through flag-only — it derates to
+    // WATCH by the model's own arithmetic (see the buy_out_of_buy_zone gate tests).
+    expect(cp?.investment_verdict).toBe('WATCH')
   })
 
   it('SANITY (self-coherence CLEAN): status EXPENSIVE + price ABOVE the buy-below (normal expensive) → NO contradicts-buy-zone flag', async () => {
@@ -1714,8 +1822,9 @@ describe('RELIGHTENED DECISION — model proposes buy-below; deterministic side 
     const flags = (valuation?.['sanity_flags'] as string[] | undefined) ?? []
     expect(flags.some((f) => /exit multiple/i.test(f) && /above a defensible exit/i.test(f))).toBe(true)
     expect(typeof valuation?.['implied_exit_multiple']).toBe('number')
-    // FLAG NEVER BLOCKS: the cheap gates still pass the model BUY through.
-    expect(cp?.investment_verdict).toBe('BUY')
+    // The exit-multiple SANITY FLAG itself never blocks; the verdict here derates to WATCH only because
+    // the price ($600) is above the model's own buy-below ($590) — the owner-rule buy-zone gate.
+    expect(cp?.investment_verdict).toBe('WATCH')
   })
 
   it('IMPLIED EXIT MULTIPLE (clean): a normal price does NOT fire the exit-multiple flag', async () => {
@@ -1749,6 +1858,82 @@ describe('RELIGHTENED DECISION — model proposes buy-below; deterministic side 
     const valuation = (analysisEvent?.payload as Record<string, unknown> | undefined)?.['valuation'] as Record<string, unknown> | undefined
     expect(valuation?.['implied_exit_multiple']).toBeUndefined()
     expect(((valuation?.['sanity_flags'] as string[] | undefined) ?? []).every((f) => !/exit multiple/i.test(f))).toBe(true)
+  })
+
+  it('SANITY: assumed-vs-demonstrated does NOT fire when NO demonstrated history exists (growth_basis none)', async () => {
+    // The Visa data gap: a multi-class filer whose companyfacts carries no consolidated share count →
+    // zero OE/share points → demonstrated reference floored to 0 with growth_basis 'none'. Comparing
+    // the model's growth against that artificial 0% ("above the ~0.0% demonstrated history") is a data
+    // artifact, not evidence — the flag must stay silent; the floored-g0 degraded flag already tells the
+    // honest "history unavailable" story.
+    const store = new InMemoryEventStore()
+    const provider = configurableSwarmProvider({
+      laneCount: buffettMungerDeepDiveLanes.length,
+      synthesis: { moat_class: 'wide', runway: 'proven', incremental_roic: 0.20, reinvestment_rate: 0.43, proposed_buy_below: 300,
+        valuation_reasoning: { owner_earnings_basis: 'b', owner_earnings_citation: 'src_dec_1', assumed_growth: 0.1, assumed_growth_rationale: 'r', assumed_growth_citation: 'src_dec_1' } },
+      investmentVerdict: 'WATCH',
+    })
+    const sourceLedgerPath = await mkdtemp(join(tmpdir(), 'owlfolio-nohistory-'))
+    const noSharesFundamentals: Fundamentals = {
+      ...costFundamentals,
+      // Visa-shape: every year misses the diluted share count → zero OE/share points.
+      annual_series: costFundamentals.annual_series.map(({ diluted_shares_m: _drop, ...rest }) => rest),
+    }
+    await runStrategyResearchSwarm(
+      store, provider as never,
+      {
+        research_case_id: 'rc_nohistory', company_id: 'c', ticker: 'V',
+        strategy_id: 'buffett-munger', actor_id: 'user_local', idempotency_key: 'nohistory_k',
+        model_id: 'mock', decision_id: 'decision_nohistory', source_ledger_path: sourceLedgerPath,
+      },
+      {
+        ground: allVerifiedGround, laneConcurrency: 4,
+        fundamentals: noSharesFundamentals,
+        resolvePrice: async () => ({ available: true as const, price_per_share: 360, currency: 'USD', as_of: 'x', source: 'test' }),
+      },
+    )
+    const analysisEvent = (await store.list()).find((e) => e.event_type === 'buffett_munger_analysis_drafted')
+    const valuation = (analysisEvent?.payload as Record<string, unknown> | undefined)?.['valuation'] as Record<string, unknown> | undefined
+    expect(valuation?.['growth_basis']).toBe('none')
+    const flags = (valuation?.['sanity_flags'] as string[] | undefined) ?? []
+    expect(flags.some((f) => /assumed_growth_above_demonstrated_history/.test(f))).toBe(false)
+  })
+
+  it('SANITY (owner rule): the above-cap check applies to the MODEL\'s assumed growth, never the market-implied read', async () => {
+    // The forecasting-humility cap disciplines what the METHOD will underwrite — the model's judgment.
+    // The market-implied growth is a descriptive reverse-DCF fact about today's price; flagging IT
+    // against OUR cap conflated model-derived and market-implied metrics (owner correction). A high
+    // price alone must NOT fire an above-cap flag; a model assumed growth above the cap MUST.
+    const { valuation: richPrice } = await runRelit({
+      id: 'cap-market-side', price: 800, valuationStatus: 'FAIR', investmentVerdict: 'WATCH', proposedBuyBelow: 850, assumedGrowth: 0.06,
+    })
+    const richFlags = (richPrice?.['sanity_flags'] as string[] | undefined) ?? []
+    expect(richFlags.some((f) => /implied_growth_above_cap/.test(f))).toBe(false)
+
+    const { valuation: boldModel } = await runRelit({
+      id: 'cap-model-side', price: 200, valuationStatus: 'FAIR', investmentVerdict: 'WATCH', proposedBuyBelow: 250, assumedGrowth: 0.2,
+    })
+    const boldFlags = (boldModel?.['sanity_flags'] as string[] | undefined) ?? []
+    expect(boldFlags.some((f) => /sanity_assumed_growth_above_cap/.test(f) && /20\.0%/.test(f))).toBe(true)
+  })
+
+  it('GATE (owner rule) — model BUY with the price ABOVE its own buy-below → recorded WATCH (thesis surfaced)', async () => {
+    // The Visa dogfood: the model said BUY with buy-below $290 while the price was $362 — "buy below
+    // $290" at $362 means WAIT. The recorded verdict derates to WATCH by the model's OWN arithmetic;
+    // the reason (with both prices) is surfaced in open_questions so the human sees what re-arms it.
+    const { cp } = await runRelit({
+      id: 'buyzone-derate', price: 360, valuationStatus: 'ATTRACTIVE', investmentVerdict: 'BUY', proposedBuyBelow: 290,
+    })
+    expect(cp?.investment_verdict).toBe('WATCH')
+    expect((cp?.open_questions ?? []).some((q) => /buy_out_of_buy_zone/.test(q) && /\$290\.00/.test(q) && /\$360\.00/.test(q))).toBe(true)
+  })
+
+  it('GATE (owner rule) — model BUY with the price AT/BELOW its own buy-below stays BUY', async () => {
+    const { cp } = await runRelit({
+      id: 'buyzone-inzone', price: 280, valuationStatus: 'ATTRACTIVE', investmentVerdict: 'BUY', proposedBuyBelow: 290,
+    })
+    expect(cp?.investment_verdict).toBe('BUY')
+    expect((cp?.open_questions ?? []).some((q) => /buy_out_of_buy_zone/.test(q))).toBe(false)
   })
 
   it('GATE preserved — moat below wide → PASS regardless of the model verdict', async () => {
@@ -1846,9 +2031,10 @@ describe('RELIGHTENED DECISION — model proposes buy-below; deterministic side 
   })
 
   it('a sanity flag NEVER blocks: even with a flag firing, the model verdict passes the cheap gates unchanged', async () => {
-    // High price → above-cap implied-growth flag fires; model says BUY; moat wide, sector compliant, price
-    // present, buy-below present → the model BUY is recorded (the flag is advisory only).
-    const { valuation, cp } = await runRelit({ id: 'flag-noblock', price: 600, investmentVerdict: 'BUY', proposedBuyBelow: 580 })
+    // High price → the exit-multiple sanity flag fires; model says BUY; moat wide, sector compliant, price
+    // present, buy-below present AND the price is in the model's own buy zone (so the owner-rule buy-zone
+    // ARITHMETIC gate stays out of the way) → the model BUY is recorded (the flag is advisory only).
+    const { valuation, cp } = await runRelit({ id: 'flag-noblock', price: 600, investmentVerdict: 'BUY', proposedBuyBelow: 650 })
     expect(((valuation?.['sanity_flags'] as string[] | undefined) ?? []).length).toBeGreaterThan(0)
     expect(cp?.investment_verdict).toBe('BUY')
   })
@@ -1882,14 +2068,19 @@ describe('RELIGHTENED DECISION — model proposes buy-below; deterministic side 
   })
 
   it('credited-g → demonstrated-history reference + ADVISORY flag when assumed_growth materially exceeds it (verdict NOT blocked)', async () => {
-    // assumed_growth 0.06 >> demonstrated/credited-g 0 (no series) → the advisory "model assumes growth
-    // above demonstrated history" flag fires, but the model's verdict passes through unchanged.
-    const { cp, valuation } = await runRelit({ id: 'advisory-flag', price: 200, investmentVerdict: 'WATCH', proposedBuyBelow: 250, assumedGrowth: 0.06 })
+    // A REAL demonstrated history (costFundamentals: log-linear OE/share slope ≈ 14%/yr) with an
+    // assumed_growth of 0.20 materially above it → the advisory "model assumes growth above demonstrated
+    // history" flag fires, but the model's verdict passes through unchanged. (A no-series case no longer
+    // fires this flag — comparing against the artificial 0% floor was the Visa data-artifact bug.)
+    const { cp, valuation } = await runRelit({
+      id: 'advisory-flag', price: 200, investmentVerdict: 'WATCH', proposedBuyBelow: 250, assumedGrowth: 0.2,
+      fundamentals: costFundamentals,
+    })
     const flags = (valuation?.['sanity_flags'] as string[] | undefined) ?? []
     expect(flags.some((f) => /above demonstrated history/i.test(f))).toBe(true)
-    // The demonstrated-history reference is surfaced; the headline growth stays the model's assumed_growth.
-    expect(valuation?.['demonstrated_growth_reference']).toBeCloseTo(0, 6)
-    expect(cp?.valuation?.growth_rate).toBeCloseTo(0.06, 6)
+    // The demonstrated-history reference is a REAL positive rate; the headline stays the model's number.
+    expect(valuation?.['demonstrated_growth_reference'] as number).toBeGreaterThan(0)
+    expect(cp?.valuation?.growth_rate).toBeCloseTo(0.2, 6)
     // Advisory only — never blocks/changes the model verdict.
     expect(cp?.investment_verdict).toBe('WATCH')
   })
@@ -2275,7 +2466,7 @@ describe('quick screen — tool-grounded firewall', () => {
 })
 
 // ---------------------------------------------------------------------------
-// Mechanism 5 — Red-Team Pass (orchestrator integration): runs after the 7 lanes, before synthesis;
+// Mechanism 5 — Red-Team Pass (orchestrator integration): runs after the 5 lanes, before synthesis;
 // synthesis must answer the strongest objection or downgrade; the harness enforces the response
 // deterministically (red_team_objection_unaddressed + open_questions) and degrades on timeout.
 // ---------------------------------------------------------------------------
@@ -2465,6 +2656,7 @@ describe('Mechanism 5 — red-team pass + synthesis obligation', () => {
 
 import type { Fundamentals } from '../secEdgar'
 import { runResearchDeepDivePhase } from '../researchSwarm'
+import { computeInsiderSummary } from '../secForm4'
 import { createResearchCase } from '../researchWorkflow'
 
 async function seedDeepDivePrereqs(store: InMemoryEventStore): Promise<void> {
@@ -2509,6 +2701,10 @@ const costFundamentals: Fundamentals = {
   filings: [
     { form: '10-K', filed: '2025-10-08', url: 'https://www.sec.gov/Archives/edgar/data/909832/000090983225000101/cost-20250831.htm' },
   ],
+  recent_filings: [
+    { form: '8-K', filed: '2026-01-15', url: 'https://www.sec.gov/Archives/edgar/data/909832/000090983226000010/cost-8k.htm' },
+    { form: '10-Q', filed: '2025-12-10', url: 'https://www.sec.gov/Archives/edgar/data/909832/000090983225000120/cost-10q.htm' },
+  ],
 }
 
 // Ground fn that verifies every proposed source (including the injected EDGAR 10-K).
@@ -2542,7 +2738,7 @@ function deepDiveCommand() {
 }
 
 describe('SEC EDGAR primary-filing wiring', () => {
-  it('grounds the 10-K and injects primary numbers into financial_quality/valuation/shariah lanes', async () => {
+  it('grounds the 10-K and injects primary numbers into the financial_quality lane', async () => {
     const store = new InMemoryEventStore()
     await seedDeepDivePrereqs(store)
 
@@ -2556,20 +2752,18 @@ describe('SEC EDGAR primary-filing wiring', () => {
       fundamentals: costFundamentals,
     })
 
-    // The structured() prompts for the three financial lanes must contain the primary-filing block.
+    // The structured() prompt for the financial_quality lane must contain the primary-filing block.
+    // (Shariah is no longer a parallel lane — its overlay comes from the focused Shariah-reasoning pass.)
     const prompts = provider.structured.mock.calls.map((c: unknown[]) => (c[0] as { prompt?: string }).prompt).filter((p): p is string => typeof p === "string")
     const financialLanePrompt = prompts.find((p) => p.includes('financial_quality specialist'))
-    const valuationLanePrompt = prompts.find((p) => p.includes('valuation specialist'))
-    const shariahLanePrompt = prompts.find((p) => p.includes('shariah specialist'))
     const moatLanePrompt = prompts.find((p) => p.includes('moat specialist'))
 
-    for (const p of [financialLanePrompt, valuationLanePrompt, shariahLanePrompt]) {
-      expect(p).toBeDefined()
-      expect(p).toContain('Primary filing data (SEC EDGAR, FY2025')
-      expect(p).toContain('$8,099M') // net income, $millions
-      expect(p).toContain('sec_edgar_10k_0000909832_fy2025')
-    }
-    // Non-financial lanes (e.g. moat) must NOT receive the injection.
+    expect(financialLanePrompt).toBeDefined()
+    expect(financialLanePrompt).toContain('Primary filing data (SEC EDGAR, FY2025')
+    expect(financialLanePrompt).toContain('$8,099M') // net income, $millions
+    expect(financialLanePrompt).toContain('sec_edgar_10k_0000909832_fy2025')
+
+    // Non-financial lanes (e.g. moat) must NOT receive the numbers injection.
     expect(moatLanePrompt).toBeDefined()
     expect(moatLanePrompt).not.toContain('Primary filing data (SEC EDGAR')
 
@@ -2579,6 +2773,54 @@ describe('SEC EDGAR primary-filing wiring', () => {
       && (e.payload as { specialist_lane?: string }).specialist_lane === 'financial_quality')
     expect((finFinding?.payload as { source_ids: string[] }).source_ids)
       .toContain('sec_edgar_10k_0000909832_fy2025')
+  })
+
+  it('injects the INSIDER TRANSACTIONS (Form 4) block into the management lane ONLY (§3.3)', async () => {
+    const store = new InMemoryEventStore()
+    await seedDeepDivePrereqs(store)
+
+    const provider = swarmFakeProvider()
+    await provider.structured({} as never) // skip the quick-screen call
+
+    const insiderSummary = computeInsiderSummary(
+      [
+        {
+          issuer_symbol: 'COST',
+          issuer_cik: '0000909832',
+          period_of_report: '2026-06-01',
+          owner: { name: 'Jane Officer', cik: '9', is_officer: true, is_director: false, is_ten_percent_owner: false, officer_title: 'CEO' },
+          transactions: [
+            { security_title: 'Common Stock', transaction_date: '2026-06-10', code: 'S', transaction_class: 'discretionary_sell', acquired_disposed: 'D', shares: 5000, price_per_share: 150, shares_owned_following: 45000, direct_or_indirect: 'D', derivative: false },
+          ],
+        },
+      ],
+      { asOf: '2026-06-30' },
+    )
+
+    await runResearchDeepDivePhase(store, provider as never, deepDiveCommand(), {
+      ground: verifyAllGround(),
+      laneConcurrency: 7,
+      fundamentals: costFundamentals,
+      insiderSummary,
+    })
+
+    const prompts = provider.structured.mock.calls.map((c: unknown[]) => (c[0] as { prompt?: string }).prompt).filter((p): p is string => typeof p === 'string')
+    const managementLanePrompt = prompts.find((p) => p.includes('management specialist'))
+    const financialLanePrompt = prompts.find((p) => p.includes('financial_quality specialist'))
+
+    expect(managementLanePrompt).toBeDefined()
+    expect(managementLanePrompt).toContain('INSIDER TRANSACTIONS (SEC Form 4')
+    expect(managementLanePrompt).toContain('Discretionary SELLS: 5,000 shares')
+    // Other lanes must NOT receive the insider block.
+    expect(financialLanePrompt).toBeDefined()
+    expect(financialLanePrompt).not.toContain('INSIDER TRANSACTIONS')
+
+    // The computed summary is persisted on the analysis event so the dossier can render it model-independently.
+    const events = await store.list()
+    const analysis = events.find((e) => e.event_type === 'buffett_munger_analysis_drafted')
+    const persisted = (analysis?.payload as { insider_summary?: { discretionary_sell_shares?: number; distinct_sellers?: number } }).insider_summary
+    expect(persisted?.discretionary_sell_shares).toBe(5000)
+    expect(persisted?.distinct_sellers).toBe(1)
   })
 
   it('surfaces the pre-verified EDGAR source_id + cite-instruction to the circle, moat, and decision prompts', async () => {
@@ -2672,6 +2914,408 @@ describe('SEC EDGAR primary-filing wiring', () => {
   })
 })
 
+describe('Slice B: recent interim filings (8-K / 10-Q narrative)', () => {
+  // Ground that verifies everything EXCEPT the recent interim filings (to exercise the fail-closed path).
+  function groundExceptRecent(): GroundFn {
+    return (async (sources: { source_id: string }[]) => ({
+      captured: sources.map((s) => ({
+        source_id: s.source_id, title: 't', url: 'https://example.com/x', excerpt: 'e',
+        availability: 'available' as const, fetched_at: 'x', content_hash: 'sha256:1',
+      })),
+      verified_ids: sources.filter((s) => !s.source_id.startsWith('sec_edgar_recent_')).map((s) => s.source_id),
+    })) as unknown as GroundFn
+  }
+
+  function promptsFrom(provider: ReturnType<typeof swarmFakeProvider>): string[] {
+    return provider.structured.mock.calls.map((c: unknown[]) => (c[0] as { prompt?: string }).prompt).filter((p): p is string => typeof p === 'string')
+  }
+
+  it('grounds 8-K + 10-Q and surfaces them as read_source affordances to the QUALITATIVE lanes only', async () => {
+    const store = new InMemoryEventStore()
+    await seedDeepDivePrereqs(store)
+    const provider = swarmFakeProvider()
+    await provider.structured({} as never) // skip quick screen
+
+    await runResearchDeepDivePhase(store, provider as never, deepDiveCommand(), {
+      ground: verifyAllGround(), laneConcurrency: 7, fundamentals: costFundamentals,
+    })
+
+    const prompts = promptsFrom(provider)
+    const risks = prompts.find((p) => p.includes('risks specialist'))
+    const moat = prompts.find((p) => p.includes('moat specialist'))
+    const financial = prompts.find((p) => p.includes('financial_quality specialist'))
+
+    // Qualitative lanes get the block, with read_source affordances for BOTH the 8-K and the 10-Q.
+    for (const p of [risks, moat]) {
+      expect(p).toBeDefined()
+      expect(p).toContain('RECENT INTERIM FILINGS')
+      expect(p).toContain('8-K filed 2026-01-15')
+      expect(p).toContain('10-Q filed 2025-12-10')
+      expect(p).toMatch(/read_source\("sec_edgar_recent_/)
+    }
+    // Numeric lanes do NOT — interim numbers must not tempt the recompute.
+    expect(financial).not.toContain('RECENT INTERIM FILINGS')
+
+    // The interim filings are grounded into the corpus (recorded to the source ledger like any source).
+    const events = await store.list()
+    const finding = events.find((e) => e.event_type === 'specialist_finding_recorded')
+    expect(finding).toBeDefined()
+  })
+
+  it('fail-closed: when the interim filings do not ground, no block is injected and the swarm completes', async () => {
+    const store = new InMemoryEventStore()
+    await seedDeepDivePrereqs(store)
+    const provider = swarmFakeProvider()
+    await provider.structured({} as never)
+
+    const result = await runResearchDeepDivePhase(store, provider as never, deepDiveCommand(), {
+      ground: groundExceptRecent(), laneConcurrency: 7, fundamentals: costFundamentals,
+    })
+
+    expect(promptsFrom(provider).every((p) => !p.includes('RECENT INTERIM FILINGS'))).toBe(true)
+    expect(result.decision).toBeDefined()
+  })
+})
+
+describe('DEF 14A proxy grounding (management + moat)', () => {
+  const withProxy: Fundamentals = {
+    ...costFundamentals,
+    proxy_filings: [
+      { form: 'DEF 14A', filed: '2025-12-04', url: 'https://www.sec.gov/Archives/edgar/data/909832/000090983225000200/cost-20251204.htm' },
+      { form: 'DEF 14A', filed: '2024-12-05', url: 'https://www.sec.gov/Archives/edgar/data/909832/000090983224000180/cost-20241205.htm' },
+    ],
+  }
+
+  function promptsOf(provider: ReturnType<typeof swarmFakeProvider>): string[] {
+    return provider.structured.mock.calls.map((c: unknown[]) => (c[0] as { prompt?: string }).prompt).filter((p): p is string => typeof p === 'string')
+  }
+
+  it('grounds the LATEST proxy and surfaces the read_source affordance to management + moat only', async () => {
+    const store = new InMemoryEventStore()
+    await seedDeepDivePrereqs(store)
+    const provider = swarmFakeProvider()
+    await provider.structured({} as never) // skip quick screen
+
+    await runResearchDeepDivePhase(store, provider as never, deepDiveCommand(), {
+      ground: verifyAllGround(), laneConcurrency: 7, fundamentals: withProxy,
+    })
+
+    const prompts = promptsOf(provider)
+    const management = prompts.find((p) => p.includes('management specialist'))
+    const moat = prompts.find((p) => p.includes('moat specialist'))
+    const financial = prompts.find((p) => p.includes('financial_quality specialist'))
+    const risks = prompts.find((p) => p.includes('risks specialist'))
+
+    for (const p of [management, moat]) {
+      expect(p).toBeDefined()
+      expect(p).toContain('LATEST PROXY STATEMENT')
+      expect(p).toContain('read_source("sec_edgar_def14a_0000909832_2025-12-04")')
+      expect(p).not.toContain('2024-12-05') // latest only — the prior year's proxy is not grounded
+    }
+    // Numeric lanes and risks do not get the affordance block.
+    expect(financial).not.toContain('LATEST PROXY STATEMENT')
+    expect(risks).not.toContain('LATEST PROXY STATEMENT')
+  })
+
+  it('AXIS B end-to-end: the run persists category/filed/form to the ledger, and a NEW run resolves + lane-gates from it', async () => {
+    const { mkdtemp, rm } = await import('node:fs/promises')
+    const { tmpdir } = await import('node:os')
+    const { join } = await import('node:path')
+    const { loadPersistedReadCorpus } = await import('../sourceLedgerRead.js')
+    const ledgerDir = await mkdtemp(join(tmpdir(), 'owlfolio-axisb-e2e-'))
+    try {
+      const store = new InMemoryEventStore()
+      await seedDeepDivePrereqs(store)
+      const provider = swarmFakeProvider()
+      await provider.structured({} as never)
+
+      await runResearchDeepDivePhase(store, provider as never, { ...deepDiveCommand(), source_ledger_path: ledgerDir }, {
+        ground: verifyAllGround(), laneConcurrency: 7, fundamentals: withProxy,
+      })
+
+      // A fresh "run" resolves the persisted corpus — the proxy carries its provenance + category.
+      const corpus = await loadPersistedReadCorpus({ source_ledger_path: ledgerDir, research_case_id: 'rc_edgar' })
+      const proxy = corpus.get('sec_edgar_def14a_0000909832_2025-12-04')
+      expect(proxy).toBeDefined()
+      expect(proxy!.source_category).toBe('proxy')
+      expect(proxy!.filed).toBe('2025-12-04')
+      expect(proxy!.form).toBe('DEF 14A')
+      expect(proxy!.content).toBeUndefined() // pointers + hashes only
+      // The 8-K interim filing also carries provenance cross-run.
+      const interim = [...corpus.values()].find((c) => c.form === '8-K')
+      expect(interim).toBeDefined()
+      expect(interim!.filed).toBe('2026-01-15')
+    } finally {
+      await rm(ledgerDir, { recursive: true, force: true })
+    }
+  })
+
+  it('LIVE-BUG REPRO: a model re-proposal of the pre-verified id with a WRONG URL cannot clobber the harness capture in the ledger', async () => {
+    const { mkdtemp, rm } = await import('node:fs/promises')
+    const { tmpdir } = await import('node:os')
+    const { join } = await import('node:path')
+    const { createHash } = await import('node:crypto')
+    const { loadPersistedReadCorpus } = await import('../sourceLedgerRead.js')
+    const ledgerDir = await mkdtemp(join(tmpdir(), 'owlfolio-clobber-repro-'))
+    try {
+      const store = new InMemoryEventStore()
+      await seedDeepDivePrereqs(store)
+
+      // Every agent payload re-proposes the pre-verified 10-K id pointing at the EDGAR SEARCH page —
+      // exactly what the COST dogfood run's synthesis model did.
+      const provider = swarmFakeProvider()
+      const orig = provider.structured.getMockImplementation()!
+      provider.structured.mockImplementation(async (req: { response_format?: { schema_name?: string } }) => {
+        const payload = await orig(req) as Record<string, unknown> & { proposed_sources?: unknown[] }
+        if (Array.isArray(payload?.proposed_sources)) {
+          payload.proposed_sources = [...payload.proposed_sources, {
+            source_id: 'sec_edgar_10k_0000909832_fy2025',
+            title: 'Costco Wholesale Corp Form 10-K',
+            url: 'https://www.sec.gov/cgi-bin/browse-edgar',
+            excerpt: 'model-invented pointer',
+          }]
+        }
+        return payload as never
+      })
+      await provider.structured({} as never) // skip quick screen
+
+      // Ground stub: captures each source AT ITS OWN URL with hash = sha256(url) — so the harness
+      // Archives capture and the model's browse-edgar re-capture get DIFFERENT hashes.
+      const groundByUrl = (async (sources: { source_id: string; title: string; url: string; excerpt: string }[]) => ({
+        captured: sources.map((s) => ({
+          source_id: s.source_id, title: s.title, url: s.url, excerpt: s.excerpt,
+          availability: 'available' as const, fetched_at: 'x',
+          content_hash: `sha256:${createHash('sha256').update(s.url).digest('hex')}`,
+        })),
+        verified_ids: sources.map((s) => s.source_id),
+      })) as unknown as GroundFn
+
+      await runResearchDeepDivePhase(store, provider as never, { ...deepDiveCommand(), source_ledger_path: ledgerDir }, {
+        ground: groundByUrl, laneConcurrency: 7, fundamentals: costFundamentals,
+      })
+
+      const corpus = await loadPersistedReadCorpus({ source_ledger_path: ledgerDir, research_case_id: 'rc_edgar' })
+      const primary = corpus.get('sec_edgar_10k_0000909832_fy2025')
+      expect(primary).toBeDefined()
+      // The harness capture survives: Archives URL + provenance stamps, NOT the search page.
+      expect(primary!.url).toBe('https://www.sec.gov/Archives/edgar/data/909832/000090983225000101/cost-20250831.htm')
+      expect(primary!.form).toBe('10-K')
+      expect(primary!.filed).toBe('2025-10-08')
+    } finally {
+      await rm(ledgerDir, { recursive: true, force: true })
+    }
+  })
+
+  it('fail-closed: when the proxy does not ground, no block appears and the swarm completes', async () => {
+    const store = new InMemoryEventStore()
+    await seedDeepDivePrereqs(store)
+    const provider = swarmFakeProvider()
+    await provider.structured({} as never)
+
+    const groundExceptProxy = (async (sources: { source_id: string }[]) => ({
+      captured: sources.map((s) => ({
+        source_id: s.source_id, title: 't', url: 'https://example.com/x', excerpt: 'e',
+        availability: 'available' as const, fetched_at: 'x', content_hash: 'sha256:1',
+      })),
+      verified_ids: sources.filter((s) => !s.source_id.startsWith('sec_edgar_def14a_')).map((s) => s.source_id),
+    })) as unknown as GroundFn
+
+    const result = await runResearchDeepDivePhase(store, provider as never, deepDiveCommand(), {
+      ground: groundExceptProxy, laneConcurrency: 7, fundamentals: withProxy,
+    })
+
+    expect(promptsOf(provider).every((p) => !p.includes('LATEST PROXY STATEMENT'))).toBe(true)
+    expect(result.decision).toBeDefined()
+  })
+})
+
+describe('circle-gate hardening: k-sample agreement + evidence floors', () => {
+  function circleCallCount(provider: ReturnType<typeof swarmFakeProvider>): number {
+    return provider.structured.mock.calls
+      .filter((c: unknown[]) => (c[0] as { response_format?: { schema_name?: string } })?.response_format?.schema_name === 'BuffettMungerCircleCompetence')
+      .length
+  }
+
+  /** Wrap the fake provider so successive CIRCLE calls return the given predictability enums in order. */
+  function withCirclePredictabilities(provider: ReturnType<typeof swarmFakeProvider>, enums: string[]): void {
+    const orig = provider.structured.getMockImplementation()!
+    let circleCall = 0
+    provider.structured.mockImplementation(async (req: { response_format?: { schema_name?: string } }) => {
+      const payload = await orig(req) as Record<string, unknown>
+      if (req?.response_format?.schema_name === 'BuffettMungerCircleCompetence') {
+        const forced = enums[Math.min(circleCall, enums.length - 1)]
+        circleCall += 1
+        return { ...payload, cashflow_predictability: forced } as never
+      }
+      return payload as never
+    })
+  }
+
+  async function circleEvent(store: InMemoryEventStore) {
+    const events = await store.list()
+    return events.find((e) => e.event_type === 'circle_competence_judged')!.payload as Record<string, unknown>
+  }
+
+  it('LIVE-FLIP REPRO: with default k=2, a durable→uncertain disagreement sets the case aside (fail-closed)', async () => {
+    const store = new InMemoryEventStore()
+    await seedDeepDivePrereqs(store)
+    const provider = swarmFakeProvider()
+    withCirclePredictabilities(provider, ['durably_predictable', 'uncertain'])
+    await provider.structured({} as never) // skip quick screen
+
+    const result = await runResearchDeepDivePhase(store, provider as never, deepDiveCommand(), {
+      ground: verifyAllGround(), laneConcurrency: 7, fundamentals: costFundamentals,
+    })
+
+    expect(result.set_aside_outside_circle).toBe(true)
+    const payload = await circleEvent(store)
+    expect(payload.in_competence).toBe(false)
+    expect((payload.gate_samples as unknown[]).length).toBe(2)
+    expect(payload.gate_config).toMatchObject({ k_samples: 2, min_drivers: 2, min_breakers: 2 })
+    expect(String(payload.reason)).toContain('sample 2')
+    // No lanes ran.
+    const events = await store.list()
+    expect(events.some((e) => e.event_type === 'specialist_finding_recorded')).toBe(false)
+  })
+
+  it('default k=2: two agreeing durable samples enter the deep dive (two circle calls made)', async () => {
+    const store = new InMemoryEventStore()
+    await seedDeepDivePrereqs(store)
+    const provider = swarmFakeProvider()
+    await provider.structured({} as never)
+
+    const result = await runResearchDeepDivePhase(store, provider as never, deepDiveCommand(), {
+      ground: verifyAllGround(), laneConcurrency: 7, fundamentals: costFundamentals,
+    })
+
+    expect(result.set_aside_outside_circle).toBeUndefined()
+    expect(circleCallCount(provider)).toBe(2)
+    const payload = await circleEvent(store)
+    expect(payload.in_competence).toBe(true)
+    expect((payload.gate_samples as unknown[]).length).toBe(2)
+  })
+
+  it('k=1 threaded restores single-sample behavior (regression pin: exactly one circle call)', async () => {
+    const store = new InMemoryEventStore()
+    await seedDeepDivePrereqs(store)
+    const provider = swarmFakeProvider()
+    await provider.structured({} as never)
+
+    const result = await runResearchDeepDivePhase(store, provider as never, {
+      ...deepDiveCommand(),
+      circle_gate: { k_samples: 1, min_drivers: 1, min_breakers: 1 },
+    }, { ground: verifyAllGround(), laneConcurrency: 7, fundamentals: costFundamentals })
+
+    expect(result.set_aside_outside_circle).toBeUndefined()
+    expect(circleCallCount(provider)).toBe(1)
+  })
+
+  it('evidence floor: 1 grounded driver under min_drivers=2 sets aside even when durably_predictable', async () => {
+    const store = new InMemoryEventStore()
+    await seedDeepDivePrereqs(store)
+    const provider = swarmFakeProvider()
+    // Thin the circle gather down to a single driver (still cited + grounded).
+    const orig = provider.structured.getMockImplementation()!
+    provider.structured.mockImplementation(async (req: { response_format?: { schema_name?: string } }) => {
+      const payload = await orig(req) as Record<string, unknown> & { cashflow_drivers?: unknown[] }
+      if (req?.response_format?.schema_name === 'BuffettMungerCircleCompetence') {
+        return { ...payload, cashflow_drivers: (payload.cashflow_drivers as unknown[]).slice(0, 1) } as never
+      }
+      return payload as never
+    })
+    await provider.structured({} as never)
+
+    const result = await runResearchDeepDivePhase(store, provider as never, {
+      ...deepDiveCommand(),
+      circle_gate: { k_samples: 1, min_drivers: 2, min_breakers: 2 },
+    }, { ground: verifyAllGround(), laneConcurrency: 7, fundamentals: costFundamentals })
+
+    expect(result.set_aside_outside_circle).toBe(true)
+    const payload = await circleEvent(store)
+    expect(String(payload.reason)).toMatch(/floor|grounded cashflow driver/i)
+  })
+
+  it('fail-fast: a dissenting first sample stops sampling (no wasted second call)', async () => {
+    const store = new InMemoryEventStore()
+    await seedDeepDivePrereqs(store)
+    const provider = swarmFakeProvider()
+    withCirclePredictabilities(provider, ['uncertain'])
+    await provider.structured({} as never)
+
+    const result = await runResearchDeepDivePhase(store, provider as never, deepDiveCommand(), {
+      ground: verifyAllGround(), laneConcurrency: 7, fundamentals: costFundamentals,
+    })
+
+    expect(result.set_aside_outside_circle).toBe(true)
+    expect(circleCallCount(provider)).toBe(1)
+  })
+
+  it('the gate prompt asks for the configured evidence floors', async () => {
+    const store = new InMemoryEventStore()
+    await seedDeepDivePrereqs(store)
+    const provider = swarmFakeProvider()
+    await provider.structured({} as never)
+
+    await runResearchDeepDivePhase(store, provider as never, {
+      ...deepDiveCommand(),
+      circle_gate: { k_samples: 1, min_drivers: 3, min_breakers: 4 },
+    }, { ground: verifyAllGround(), laneConcurrency: 7, fundamentals: costFundamentals })
+
+    const circlePrompt = provider.structured.mock.calls
+      .map((c: unknown[]) => c[0] as { response_format?: { schema_name?: string }; prompt?: string })
+      .find((r) => r.response_format?.schema_name === 'BuffettMungerCircleCompetence')?.prompt
+    expect(circlePrompt).toContain('at least 3')
+    expect(circlePrompt).toContain('at least 4')
+  })
+})
+
+describe('foreign filer (20-F primary + 6-K interim) narrative grounding', () => {
+  const novoFundamentals: Fundamentals = {
+    ...costFundamentals,
+    cik: '0000353278',
+    entity_name: 'NOVO NORDISK A S',
+    filings: [
+      { form: '20-F', filed: '2026-02-04', url: 'https://www.sec.gov/Archives/edgar/data/353278/000035327826000012/nvo-20251231.htm' },
+    ],
+    recent_filings: [
+      { form: '6-K', filed: '2026-04-30', url: 'https://www.sec.gov/Archives/edgar/data/353278/000035327826000044/nvo-6k-20260430.htm' },
+    ],
+  }
+
+  it('grounds the 20-F as the primary annual (form-slug id) and surfaces the 6-K interim affordance', async () => {
+    const store = new InMemoryEventStore()
+    await seedDeepDivePrereqs(store)
+    const provider = swarmFakeProvider()
+    await provider.structured({} as never) // skip quick screen
+
+    await runResearchDeepDivePhase(store, provider as never, deepDiveCommand(), {
+      ground: verifyAllGround(), laneConcurrency: 7, fundamentals: novoFundamentals,
+    })
+
+    const prompts = provider.structured.mock.calls.map((c: unknown[]) => (c[0] as { prompt?: string }).prompt).filter((p): p is string => typeof p === 'string')
+    const financial = prompts.find((p) => p.includes('financial_quality specialist'))
+    const moat = prompts.find((p) => p.includes('moat specialist'))
+    const risks = prompts.find((p) => p.includes('risks specialist'))
+
+    // Primary annual block grounds on the 20-F: form-slug source id + form-interpolated prose.
+    expect(financial).toBeDefined()
+    expect(financial).toContain('Primary filing data')
+    expect(financial).toContain('sec_edgar_20f_0000353278_fy2025')
+    expect(financial).toContain('20-F')
+    expect(financial).not.toContain('the latest 10-K') // prose must not claim a 10-K for a 20-F filer
+
+    // The PRE-VERIFIED PRIMARY SOURCES block carries the 20-F id to the qualitative lanes.
+    expect(moat).toBeDefined()
+    expect(moat).toContain('sec_edgar_20f_0000353278_fy2025')
+
+    // 6-K rides the interim-recency block exactly like an 8-K.
+    expect(risks).toBeDefined()
+    expect(risks).toContain('RECENT INTERIM FILINGS')
+    expect(risks).toContain('6-K filed 2026-04-30')
+    expect(risks).toMatch(/read_source\("sec_edgar_recent_/)
+  })
+})
+
 // ---------------------------------------------------------------------------
 // EDGAR-anchored OE bridge + harness-computed AAOIFI Shariah financial ratios.
 // "Judgment proposes, code computes": the LLM provides only the maintenance-capex tier, the
@@ -2722,6 +3366,15 @@ function swarmFakeProviderWithShariah(
           finding_summary: 'Shariah lane', confidence: 'medium', caveats: ['c'],
           sector_status, impermissible_income,
           proposed_sources: [src('src_lane_shariah')],
+        }
+      }
+      // Focused Shariah-reasoning pass (always-on) — the overlay the harness AAOIFI recompute now sources
+      // from. Mirrors the lane's sector_status + impermissible_income params (impermissible_income may be
+      // null = UNDETERMINED, which the pass accepts and the harness fails CLOSED on).
+      if (schemaName === 'BuffettMungerShariahReasoning') {
+        return {
+          shariah_judgment: { sector_status, impermissible_income, sector_citation: 'src_shariah_reasoning' },
+          proposed_sources: [src('src_shariah_reasoning')],
         }
       }
       if (schemaName === 'BuffettMungerLaneFinding') {
@@ -2831,6 +3484,113 @@ describe('EDGAR-anchored OE bridge + harness AAOIFI Shariah ratios', () => {
     expect(cp?.valuation?.discount_rate).toBeCloseTo(0.075, 10)
   })
 
+  it('sources the AAOIFI recompute overlay from the focused Shariah-reasoning PASS (not the lane)', async () => {
+    // Proves Task 2: the harness recompute reads shariahLaneJudgment from the ALWAYS-ON focused
+    // Shariah-reasoning pass, NOT the deep-dive lane. The lane OMITS its overlay (sector_status +
+    // impermissible_income), yet the pass supplies a grounded compliant/0 judgment — so the AAOIFI ratios
+    // still compute (shariah_financial present) and there is NO impermissible_income_not_emitted flag. If
+    // the recompute had stayed on the (now-omitted) lane overlay, it would have failed closed instead.
+    const store = new InMemoryEventStore()
+    await seedDeepDivePrereqs(store)
+    const src = (id: string) => ({ source_id: id, title: 'T', url: 'https://www.sec.gov/Archives/edgar/data/0/test-10k.htm', excerpt: 'e' })
+    let laneCall = 0
+    const provider = {
+      provider_id: 'fake-swarm-shariah-pass-only',
+      capabilities: {} as never,
+      complete: vi.fn(),
+      runWithTools: vi.fn(),
+      structured: vi.fn(async (req: { response_format?: { schema_name?: string } }) => {
+        const schemaName = req.response_format?.schema_name
+        if (schemaName === 'BuffettMungerCircleCompetence') return fakeCirclePayload(src)
+        if (schemaName === 'BuffettMungerQuickScreen') {
+          return {
+            summary: 's', business_quality: 'b', moat: 'm', management_capital_allocation: 'mc',
+            financial_quality: 'fq', valuation_sanity: 'vs', shariah_status: 'CONDITIONAL',
+            red_flags: ['None'], confidence: 'high', caveats: ['c'],
+            screening_result: 'deep_dive_candidate', proposed_sources: [src('src_qs_1')],
+          }
+        }
+        if (schemaName === 'BuffettMungerMoatLane') {
+          return {
+            finding_summary: 'Moat lane', confidence: 'medium', caveats: ['c'],
+            ...moatThesisForTier('wide', 'src_lane_moat'), runway: 'proven',
+            ...runwayThesisForTier('proven', 'src_lane_moat'),
+            proposed_sources: [src('src_lane_moat')],
+          }
+        }
+        // The SHARIAH LANE grounds a source but deliberately OMITS the sector/impermissible-income overlay.
+        if (schemaName === 'BuffettMungerShariahLane') {
+          return {
+            finding_summary: 'Shariah lane', confidence: 'medium', caveats: ['c'],
+            proposed_sources: [src('src_lane_shariah')],
+          }
+        }
+        // The focused PASS is the SOLE source of the overlay the harness recomputes from.
+        if (schemaName === 'BuffettMungerShariahReasoning') {
+          return {
+            shariah_judgment: { sector_status: 'compliant', impermissible_income: 0, sector_citation: 'src_shariah_reasoning' },
+            proposed_sources: [src('src_shariah_reasoning')],
+          }
+        }
+        if (schemaName === 'BuffettMungerLaneFinding') {
+          const n = laneCall++
+          return { finding_summary: `Lane ${n}`, confidence: 'medium', caveats: ['c'], proposed_sources: [src(`src_lane_${n}`)] }
+        }
+        if (schemaName === 'BuffettMungerRedTeam') {
+          return {
+            strongest_bear_case: 'b', weakest_rubric_items: [], moat_decay_scenario: 'd', growth_credit_attack: 'g',
+            shared_narrative_blindspots: [], strongest_objection: { claim: 'c', severity: 'low', citations: ['src_qs_1'] },
+            proposed_sources: [src('src_qs_1')],
+          }
+        }
+        if (schemaName === 'BuffettMungerRedTeamResponse') {
+          return {
+            synthesis_response: { mode: 'answered_with_evidence', text: 'Rebutted with cited filing evidence.' },
+            proposed_sources: [src('src_qs_1')],
+          }
+        }
+        return {
+          investment_verdict: 'WATCH', strategy_compliance: 'CONDITIONAL', valuation_status: 'EXPENSIVE',
+          next_required_action: 'Await MoS.', decision_reason: 'Quality but pricey', thesis_summary: 'Compounder',
+          evidence_summary: 'Covered', valuation_rationale: 'Elevated', shariah_rationale: 'Clean',
+          synthesis_summary: 'Reviewed', risks: ['Valuation'], open_questions: ['MoS'],
+          ...DECISION_MOS_FIXTURE,
+          growth_assumptions: 'Two-stage DCF; banded g.',
+          owner_earnings_bridge: {
+            net_income: 8099, depreciation_amortization: 999, maintenance_capex: 1,
+            maintenance_capex_proxy_tier: '80', stock_based_comp: 1,
+            normalized_working_capital_change: 0, shares_outstanding: 1,
+          },
+          roic: 0.30, incremental_roic: 0.20, reinvestment_rate: 0.43, proposed_buy_below: 150,
+          proposed_sources: [src('src_dec_1')],
+        }
+      }),
+    }
+
+    await runResearchDeepDivePhase(store, provider as never, deepDiveCommand(), {
+      ground: verifyAllGround(),
+      laneConcurrency: 7,
+      fundamentals: costFundamentals,
+      resolvePrice: async () => ({ available: true, price_per_share: 968, currency: 'USD', as_of: 'x', source: 'test' }),
+    })
+
+    const events = await store.list()
+    const projections = projectResearchCases(events as Parameters<typeof projectResearchCases>[0])
+    const cp = projections.find((c) => c.research_case_id === 'rc_edgar')
+
+    // The AAOIFI recompute ran → shariah_financial exists ONLY because shariahJudgment (from the PASS) is
+    // present, even though the lane omitted its overlay. A genuine 0 impermissible income → clean PASS.
+    expect(cp?.shariah_financial).toBeDefined()
+    expect(cp?.shariah_financial?.verdict).toBe('PASS')
+    expect(cp?.shariah_status).toBe('COMPLIANT')
+    expect(cp?.shariah_sector_status).toBe('compliant')
+    // The pass supplied the overlay, so the omitted-overlay fail-closed flag must NOT be present.
+    const analysisEvent = events.find((e) => e.event_type === 'buffett_munger_analysis_drafted')
+    const valuation = (analysisEvent?.payload as Record<string, unknown>)?.['valuation'] as Record<string, unknown>
+    const degraded = (valuation?.['degraded_flags'] as string[] | undefined) ?? []
+    expect(degraded.join(' ')).not.toMatch(/impermissible_income_not_emitted/)
+  })
+
   it('F.2 — threads the compliant app-config savings rate into the discount (basis compliant_savings)', async () => {
     const store = new InMemoryEventStore()
     await seedDeepDivePrereqs(store)
@@ -2910,6 +3670,142 @@ describe('EDGAR-anchored OE bridge + harness AAOIFI Shariah ratios', () => {
     expect(degraded.join(' ')).toMatch(/shariah_ratios_unverified:\s*impermissible_income_undetermined/)
     expect(degraded.join(' ')).toMatch(/[Pp]urification CANNOT be determined/)
     expect(degraded.join(' ')).not.toMatch(/impermissible_income_not_emitted/)
+  })
+
+  it('null impermissible income + XBRL interest income present → harness computes from the XBRL figure (no UNDETERMINED)', async () => {
+    // No filing discloses an "impermissible income" line, so the pass honestly returns null for nearly
+    // every ticker — permanent UNDETERMINED. The harness now extracts disclosed interest income from
+    // XBRL (the AAOIFI computable proxy) and OWNS the number: a null from the pass falls back to the
+    // deterministic XBRL figure instead of failing closed, with visible provenance.
+    const store = new InMemoryEventStore()
+    await seedDeepDivePrereqs(store)
+    const provider = swarmFakeProviderWithShariah(null, 'compliant')
+    await provider.structured({} as never)
+
+    const withInterestIncome: Fundamentals = {
+      ...costFundamentals,
+      latest_annual: {
+        ...costFundamentals.latest_annual,
+        impermissible_income_lines: [
+          { concept: 'InvestmentIncomeInterest', label: 'interest income', amount_musd: 200 },
+          { concept: 'InvestmentIncomeDividend', label: 'dividend income', amount_musd: 100 },
+        ],
+      },
+    }
+    await runResearchDeepDivePhase(store, provider as never, deepDiveCommand(), {
+      ground: verifyAllGround(),
+      laneConcurrency: 7,
+      fundamentals: withInterestIncome,
+      resolvePrice: async () => ({ available: true, price_per_share: 968, currency: 'USD', as_of: 'x', source: 'test' }),
+    })
+
+    const events = await store.list()
+    const projections = projectResearchCases(events as Parameters<typeof projectResearchCases>[0])
+    const cp = projections.find((c) => c.research_case_id === 'rc_edgar')
+    // Ratios computable from the XBRL component total (200 + 100) — a real purification %, not UNDETERMINED.
+    expect(cp?.shariah_financial?.verdict).toBe('CONDITIONAL')
+    expect(cp?.shariah_financial?.purification_pct).toBeCloseTo(300 / 275235, 8)
+    expect(cp?.shariah_status).toBe('CONDITIONAL')
+    expect(cp?.shariah_impermissible_income_undetermined).toBeUndefined()
+    // ALL impermissible-income lines are SHOWN — through the PROJECTION (what the UI reads), itemized.
+    expect(cp?.shariah_financial?.impermissible_income_lines).toEqual([
+      { concept: 'InvestmentIncomeInterest', label: 'interest income', amount_musd: 200 },
+      { concept: 'InvestmentIncomeDividend', label: 'dividend income', amount_musd: 100 },
+    ])
+    const analysisEvent = events.find((e) => e.event_type === 'buffett_munger_analysis_drafted')
+    const payload = analysisEvent?.payload as Record<string, unknown>
+    // And on the recorded ledger payload itself.
+    const sf = payload?.['shariah_financial'] as Record<string, unknown>
+    expect(sf?.['impermissible_income_lines']).toEqual([
+      { concept: 'InvestmentIncomeInterest', label: 'interest income', amount_musd: 200 },
+      { concept: 'InvestmentIncomeDividend', label: 'dividend income', amount_musd: 100 },
+    ])
+    const valuation = payload?.['valuation'] as Record<string, unknown>
+    const degraded = (valuation?.['degraded_flags'] as string[] | undefined) ?? []
+    // Provenance is visible; the fail-closed UNDETERMINED flag is NOT raised.
+    expect(degraded.join(' ')).toMatch(/impermissible_income_xbrl/)
+    expect(degraded.join(' ')).not.toMatch(/impermissible_income_undetermined/)
+  })
+
+  it('model impermissible income BELOW the XBRL interest income → conservative max wins (flagged)', async () => {
+    // The model may quantify prohibited-segment revenue beyond interest, so a HIGHER model figure is
+    // kept; but a model figure BELOW the deterministic XBRL interest income is an undercount — the
+    // harness takes the max (purification errs high, never silently low).
+    const store = new InMemoryEventStore()
+    await seedDeepDivePrereqs(store)
+    const provider = swarmFakeProviderWithShariah(100, 'compliant')
+    await provider.structured({} as never)
+
+    const withInterestIncome: Fundamentals = {
+      ...costFundamentals,
+      latest_annual: {
+        ...costFundamentals.latest_annual,
+        impermissible_income_lines: [
+          { concept: 'InvestmentIncomeInterest', label: 'interest income', amount_musd: 300 },
+        ],
+      },
+    }
+    await runResearchDeepDivePhase(store, provider as never, deepDiveCommand(), {
+      ground: verifyAllGround(),
+      laneConcurrency: 7,
+      fundamentals: withInterestIncome,
+      resolvePrice: async () => ({ available: true, price_per_share: 968, currency: 'USD', as_of: 'x', source: 'test' }),
+    })
+
+    const events = await store.list()
+    const projections = projectResearchCases(events as Parameters<typeof projectResearchCases>[0])
+    const cp = projections.find((c) => c.research_case_id === 'rc_edgar')
+    expect(cp?.shariah_financial?.verdict).toBe('CONDITIONAL')
+    // purification reflects the XBRL 300 (over revenue), not the model's 100.
+    expect(cp?.shariah_financial?.purification_pct).toBeCloseTo(300 / 275235, 8)
+    const analysisEvent = events.find((e) => e.event_type === 'buffett_munger_analysis_drafted')
+    const payload = analysisEvent?.payload as Record<string, unknown>
+    const sf = payload?.['shariah_financial'] as Record<string, unknown>
+    // The shown lines are the XBRL composition (the model's lower 100 lost the conservative max).
+    expect(sf?.['impermissible_income_lines']).toEqual([
+      { concept: 'InvestmentIncomeInterest', label: 'interest income', amount_musd: 300 },
+    ])
+    const valuation = payload?.['valuation'] as Record<string, unknown>
+    const degraded = (valuation?.['degraded_flags'] as string[] | undefined) ?? []
+    expect(degraded.join(' ')).toMatch(/impermissible_income_xbrl/)
+  })
+
+  it('model impermissible income ABOVE the XBRL total → model wins, shown as XBRL lines + a model residual line', async () => {
+    // A model figure ABOVE the disclosed interest/dividend total legitimately carries prohibited-segment
+    // revenue the XBRL concepts cannot see — the max keeps it, and the shown composition itemizes the
+    // XBRL lines plus the model residual so the total is fully accounted for.
+    const store = new InMemoryEventStore()
+    await seedDeepDivePrereqs(store)
+    const provider = swarmFakeProviderWithShariah(500, 'compliant')
+    await provider.structured({} as never)
+
+    const withInterestIncome: Fundamentals = {
+      ...costFundamentals,
+      latest_annual: {
+        ...costFundamentals.latest_annual,
+        impermissible_income_lines: [
+          { concept: 'InvestmentIncomeInterest', label: 'interest income', amount_musd: 300 },
+        ],
+      },
+    }
+    await runResearchDeepDivePhase(store, provider as never, deepDiveCommand(), {
+      ground: verifyAllGround(),
+      laneConcurrency: 7,
+      fundamentals: withInterestIncome,
+      resolvePrice: async () => ({ available: true, price_per_share: 968, currency: 'USD', as_of: 'x', source: 'test' }),
+    })
+
+    const events = await store.list()
+    const projections = projectResearchCases(events as Parameters<typeof projectResearchCases>[0])
+    const cp = projections.find((c) => c.research_case_id === 'rc_edgar')
+    expect(cp?.shariah_financial?.purification_pct).toBeCloseTo(500 / 275235, 8)
+    const analysisEvent = events.find((e) => e.event_type === 'buffett_munger_analysis_drafted')
+    const sf = (analysisEvent?.payload as Record<string, unknown>)?.['shariah_financial'] as Record<string, unknown>
+    const lines = sf?.['impermissible_income_lines'] as Array<{ concept: string; amount_musd: number }>
+    expect(lines?.map((l) => [l.concept, l.amount_musd])).toEqual([
+      ['InvestmentIncomeInterest', 300],
+      ['model_judgment', 200],
+    ])
   })
 
   it('GENUINE zero impermissible income (lane returns 0, sector compliant) → PASS / 0% (unchanged)', async () => {
@@ -3954,6 +4850,13 @@ describe('runStrategyResearchSwarm — schema-validation + retry (harness defens
             proposed_sources: [src('src_lane_shariah')],
           }
         }
+        // Focused Shariah-reasoning pass (always-on): the overlay the harness recompute sources from.
+        if (schemaName === 'BuffettMungerShariahReasoning') {
+          return {
+            shariah_judgment: { sector_status: 'compliant', impermissible_income: 0, sector_citation: 'src_shariah_reasoning' },
+            proposed_sources: [src('src_shariah_reasoning')],
+          }
+        }
         if (schemaName === 'BuffettMungerRedTeam') {
           return {
             strongest_bear_case: 'b', weakest_rubric_items: [], moat_decay_scenario: 'd', growth_credit_attack: 'g',
@@ -4129,6 +5032,14 @@ function crossCheckSwarmProvider(opts: {
           finding_summary: 'Shariah lane', confidence: 'high', caveats: ['c'],
           sector_status: opts.primarySector ?? 'compliant', impermissible_income: 0,
           proposed_sources: [src('src_lane_shariah')],
+        }
+      }
+      // Focused Shariah-reasoning pass (always-on): the PRIMARY sector status the harness recompute +
+      // Shariah sector cross-check now source from (the cross-check second model then re-classifies it).
+      if (schemaName === 'BuffettMungerShariahReasoning') {
+        return {
+          shariah_judgment: { sector_status: opts.primarySector ?? 'compliant', impermissible_income: 0, sector_citation: 'src_shariah_reasoning' },
+          proposed_sources: [src('src_shariah_reasoning')],
         }
       }
       if (schemaName === 'MoatCrossCheck') {
@@ -4547,10 +5458,10 @@ describe('§2 reference FV + implied-exit-multiple — gated on grounded assumed
 })
 
 // ---------------------------------------------------------------------------
-// CIRCLE-OF-COMPETENCE gate — a sequential GROUNDED MODEL JUDGMENT that gates the 7-lane deep-dive spend.
+// CIRCLE-OF-COMPETENCE gate — a sequential GROUNDED MODEL JUDGMENT that gates the 5-lane deep-dive spend.
 // The model must DEMONSTRATE understanding by cite-verifying BOTH the cashflow drivers AND what would make
 // them unpredictable (same rigor). Ungrounded EITHER clause = outside competence (fail-closed). Binary
-// outcome: in-competence → run the 7 lanes; outside-competence → set aside (PASS), never RESEARCH_MORE.
+// outcome: in-competence → run the 5 lanes; outside-competence → set aside (PASS), never RESEARCH_MORE.
 // ---------------------------------------------------------------------------
 describe('circle-of-competence gate', () => {
   // A swarm fake provider whose circle judgment reports a cashflow_predictability verdict and cites
@@ -4671,7 +5582,9 @@ describe('circle-of-competence gate', () => {
     })
     const result = await runStrategyResearchSwarm(
       store, provider as never,
-      { research_case_id, company_id: 'c', ticker: 'CIRC', strategy_id: 'buffett-munger', actor_id: 'user_local', idempotency_key: 'k', model_id: 'mock', decision_id: `d_${research_case_id}`, source_ledger_path: '/tmp/owlfolio-circle' },
+      // circle_gate pinned to the BASE single-sample 1/1 mechanics — this describe tests the Bug A/B
+      // grounding semantics with one driver + one breaker; the k-sample/floor hardening has its own suite.
+      { research_case_id, company_id: 'c', ticker: 'CIRC', strategy_id: 'buffett-munger', actor_id: 'user_local', idempotency_key: 'k', model_id: 'mock', decision_id: `d_${research_case_id}`, source_ledger_path: '/tmp/owlfolio-circle', circle_gate: { k_samples: 1, min_drivers: 1, min_breakers: 1 } },
       { ground: circleGround(opts.unverified ?? new Set()), laneConcurrency: 3 },
     )
     const events = await store.list()
@@ -4679,19 +5592,19 @@ describe('circle-of-competence gate', () => {
     return { store, events, types: events.map((e) => e.event_type), cp: cases.find((c) => c.research_case_id === research_case_id), result }
   }
 
-  it('1. durably_predictable + both clauses grounded (non-empty text) → gate passes, the 7-lane deep dive runs', async () => {
+  it('1. durably_predictable + both clauses grounded (non-empty text) → gate passes, the 5-lane deep dive runs', async () => {
     const { types, cp } = await runCircle('rc_circle_in', { cashflow_predictability: 'durably_predictable', driverCite: 'src_circle_driver', breakerCite: 'src_circle_breaker' })
     // The judgment was recorded and the deep dive ran (lanes + synthesis).
     expect(types).toContain('circle_competence_judged')
     expect(types).toContain('deep_dive_started')
-    expect(types.filter((t) => t === 'specialist_finding_recorded').length).toBeGreaterThanOrEqual(7)
+    expect(types.filter((t) => t === 'specialist_finding_recorded').length).toBeGreaterThanOrEqual(5)
     expect(types).toContain('deep_dive_synthesis_drafted')
     expect(types).toContain('decision_drafted')
     // The model's (gated) verdict flows through — NOT a circle set-aside.
     expect(cp?.investment_verdict ?? cp?.decision).not.toBe(undefined)
   })
 
-  it('2. not_predictable (understood but cyclical — the MU case) WITH grounded substantive clauses → SET ASIDE (PASS), 7 lanes do NOT run', async () => {
+  it('2. not_predictable (understood but cyclical — the MU case) WITH grounded substantive clauses → SET ASIDE (PASS), 5 lanes do NOT run', async () => {
     // Bug B: the model understands the business and grounds BOTH clauses, but judges the cashflows
     // not durably predictable. The gate must set aside on the verdict, NOT proceed.
     const { types, cp } = await runCircle('rc_circle_not_predictable', { cashflow_predictability: 'not_predictable', driverCite: 'src_circle_driver', breakerCite: 'src_circle_breaker' })
@@ -4718,7 +5631,7 @@ describe('circle-of-competence gate', () => {
     expect(cp?.valuation?.judgment).toBeUndefined()
   })
 
-  it("3. uncertain → SET ASIDE (PASS), 7 lanes do NOT run", async () => {
+  it("3. uncertain → SET ASIDE (PASS), 5 lanes do NOT run", async () => {
     const { types, cp } = await runCircle('rc_circle_uncertain', { cashflow_predictability: 'uncertain', driverCite: 'src_circle_driver', breakerCite: 'src_circle_breaker' })
     expect(types).not.toContain('deep_dive_started')
     expect(cp?.investment_verdict ?? cp?.decision).toBe('PASS')
@@ -4793,6 +5706,7 @@ describe('margin-of-safety joint judgment (synthesis-owned: price AND/OR moat)',
         research_case_id: `rc_${id}`, company_id: 'c', ticker: 'TST',
         strategy_id: 'buffett-munger', actor_id: 'user_local', idempotency_key: `${id}_k`,
         model_id: 'mock', decision_id: `decision_${id}`, source_ledger_path: sourceLedgerPath,
+        circle_gate: { k_samples: 1, min_drivers: 1, min_breakers: 1 },
       },
       {
         ground: allVerifiedGround, laneConcurrency: 4,

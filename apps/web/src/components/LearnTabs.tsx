@@ -15,6 +15,7 @@ import {
 } from '@owlfolio/strategies/shariahFinancialRatios'
 import { CHECKLIST_PARAMS, type ChecklistCategory } from '@owlfolio/strategies/checklistParams'
 import { buffettMungerDeepDiveLanes } from '@owlfolio/workflow/strategyResearchPipeline'
+import { curatedRealTierModelsForProvider } from '@owlfolio/providers/modelCatalog'
 
 // ── Live contract values (rendered, never hard-coded) ───────────────────────
 const strategy = buffettMungerStrategy
@@ -251,9 +252,7 @@ function SwarmTab(): ReactNode {
     moat: 'The moat and its reinvestment runway as a grounded, cite-verified thesis — every claim cited to a fetched source; a quant anchor from filings only corroborates, it does not set a numeric score.',
     management: 'Capital allocation, candor, incentives, and the SBC trend — from filings and proxies, not media profiles.',
     financial_quality: 'Every raw harness input: the owner-earnings bridge, incremental ROIC, leverage, and accounting quality.',
-    shariah: 'Sector status and the AAOIFI financial ratios, plus the purification percentage — a screening aid, not a ruling.',
     risks: 'The pre-mortem, the thesis-break triggers, and the single assumption that, if wrong, breaks the case.',
-    valuation: 'The reverse-DCF read — the growth today’s price implies vs the model’s judged sustainable growth — plus the owner-earnings inputs behind it; the model proposes the buy-below with cited reasoning, deterministically sanity-checked against a forward-DCF reference.',
   }
   return createElement(
     'div',
@@ -286,12 +285,21 @@ function SwarmTab(): ReactNode {
       eyebrow: 'The specialists',
       title: `${LANE_COUNT} grounded lanes`,
       lead: 'Each dimension runs as its own focused, grounded agent in parallel — holding the whole framework in one model call degrades quality. The lane list is read live from the workflow contract.',
-      children: cardGrid(
-        buffettMungerDeepDiveLanes.map((lane) => ({
-          key: lane,
-          eyebrow: lane,
-          body: laneDetails[lane] ?? '',
-        })),
+      children: createElement(
+        'div',
+        { style: { display: 'grid', gap: '0.75rem' } },
+        cardGrid(
+          buffettMungerDeepDiveLanes.map((lane) => ({
+            key: lane,
+            eyebrow: lane,
+            body: laneDetails[lane] ?? '',
+          })),
+        ),
+        createElement(
+          'p',
+          { style: { ...bodyStyle, fontSize: 'var(--owl-text-sm)', color: 'var(--owl-color-quiet)' } },
+          'Valuation and Shariah compliance are not parallel lanes — each runs as a dedicated focused pass after the five lanes conclude: valuation proposes the owner-earnings value and buy-below during synthesis, and the Shariah pass produces the grounded compliance overlay (the harness recomputes the AAOIFI ratios from filings).',
+        ),
       ),
     }),
   )
@@ -305,7 +313,55 @@ function checklistPromptList(category: ChecklistCategory): ReactNode {
   return bullets(items.map((item) => createElement('span', { key: item.id }, item.prompt)))
 }
 
-// 3 — Judgment Objectivity
+// 3 — Sources & Grounding (the document set + the grounding architecture)
+function SourcesTab(): ReactNode {
+  return createElement(
+    'div',
+    { style: { display: 'grid', gap: 'var(--owl-space-4)' } },
+
+    PanelSection({
+      eyebrow: 'What the engine reads',
+      title: 'The grounded document set — SEC EDGAR primary filings',
+      lead: createElement('span', null,
+        'Every research run stands on primary documents the harness itself fetched from SEC EDGAR — never on what a model remembers. The governing rule for every addition: ',
+        createElement('span', { style: goldText }, 'Ground the text; quarantine the numbers'),
+        ' — narrative documents are readable evidence; only audited ANNUAL figures ever enter the recomputed valuation.',
+      ),
+      children: cardGrid([
+        { key: 'annual', eyebrow: 'Annual report', title: '10-K / 20-F / 40-F', body: createElement('span', null, 'The primary annual filing (foreign filers included — a 20-F grounds like a 10-K). Its XBRL numbers (~11 years) anchor the owner-earnings bridge, ROIC, and the Shariah ratios; its text is readable by Item — ', mono('read_source(id, section="1A")'), ' for Risk Factors, Item 1 Business, Item 7 MD&A.') },
+        { key: 'interim', eyebrow: 'Interim recency', title: '8-K / 10-Q / 6-K narrative', body: 'Material events and quarterly narrative filed SINCE the latest annual report — where thesis-breaks first surface (impairments, guidance cuts, executive departures, M&A, litigation). Read as text by the qualitative lanes; interim NUMBERS never enter the valuation recompute.' },
+        { key: 'proxy', eyebrow: 'Incentives & governance', title: 'DEF 14A proxy statement', body: 'The definitive annual proxy — executive compensation structure, incentive alignment, insider ownership, board independence, dual-class/entrenchment provisions. Read by the management and moat lanes; supplements and third-party solicitations are excluded.' },
+        { key: 'market', eyebrow: 'Market data', title: 'Price & market cap', body: 'Current price and the trailing 36-month average market cap come from live market data — the only non-EDGAR inputs. Used for the reverse-DCF lens and the Shariah balance-sheet ratios; EDGAR remains the source of truth for every fundamental.' },
+      ]),
+    }),
+
+    PanelSection({
+      eyebrow: 'How a source becomes citable',
+      title: 'The model may propose; only the harness verifies',
+      lead: 'Retrieval never happens inside the model. Whether a source is harness-discovered (the filing index) or model-proposed (a URL in its output), the same pipeline decides whether it can ever be cited.',
+      children: bullets([
+        createElement('span', null, createElement('span', { style: goldText }, 'Fetch + guard'), ' — the harness performs the HTTP fetch itself behind an SSRF guard (public hosts only, re-checked on every redirect hop).'),
+        createElement('span', null, createElement('span', { style: goldText }, 'Hash + ledger'), ' — the fetched bytes are SHA-256 content-hashed and recorded in the source ledger; the hash is what a citation is later checked against, so a claim can only cite bytes the harness actually captured.'),
+        createElement('span', null, createElement('span', { style: goldText }, 'Lane whitelist'), ' — each lane admits only its allowed source categories (the quality lanes: primary documents only; management adds proxies and insider data; risks may read anything). A rejected source is recorded, never silently dropped.'),
+        createElement('span', null, createElement('span', { style: goldText }, 'Verified reads'), ' — ', mono('read_source'), ' returns a document section only after re-verifying its content hash; a mismatch makes the source uncitable rather than serving stale or wrong bytes.'),
+        createElement('span', null, createElement('span', { style: goldText }, 'Fail closed'), ' — anything that cannot be fetched, hashed, or verified is simply absent: the lane runs on what grounded and flags the gap. Missing evidence is a visible hole, never a fabricated citation.'),
+      ]),
+    }),
+
+    PanelSection({
+      eyebrow: 'Durable memory',
+      title: 'Auditable forever — pointers and hashes, re-verified on demand',
+      lead: 'The source ledger persists what each decision stood on: for every source, its URL, content hash, filing form, and filed date — never the document text.',
+      children: bullets([
+        createElement('span', null, 'EDGAR Archives URLs are ', createElement('span', { style: goldText }, 'immutable'), ' — a filing at its accession URL never changes. So any future reader (or a re-review) can ', createElement('span', { style: goldText }, 're-fetch'), ' the URL, hash-match against the ledger, and read exactly what the original decision was grounded on.'),
+        'A tampered or drifted document fails the hash check and becomes uncitable — the audit trail cannot be silently rewritten.',
+        'Comparing freshly-discovered filings against the persisted ledger yields the "what is new since the decision" delta — the substrate for thesis re-reviews.',
+      ]),
+    }),
+  )
+}
+
+// 4 — Judgment Objectivity
 function JudgmentTab(): ReactNode {
   return createElement(
     'div',
@@ -321,6 +377,7 @@ function JudgmentTab(): ReactNode {
         { key: 'redteam', eyebrow: 'Red-team pass', title: 'Break the case', body: 'Before synthesis, one adversarial agent — ideally on a different model — must build the strongest bear case. Synthesis must answer its strongest objection or downgrade.' },
         { key: 'failclosed', eyebrow: 'Fail closed', title: 'Abstain, never fabricate', body: 'A claim the harness cannot tie to a fetched source is rejected mechanically — the lane abstains and flags the gap rather than inventing support. Missing evidence becomes a visible hole, never a confident guess.' },
         { key: 'sources', eyebrow: 'Source discipline', title: 'Primary documents only', body: 'Judgment-heavy lanes read primary documents only — filings, transcripts, regulatory data. Sell-side research and financial media are excluded so the model cannot return the consensus dressed as analysis.' },
+        { key: 'ksample', eyebrow: 'Agreement sampling', title: 'One judgment never decides the spend', body: 'The circle-of-competence gate is sampled multiple times per run and the deep dive is entered only on a unanimous in-competence vote, with each sample required to meet a grounded evidence floor (minimum cite-verified cashflow drivers and predictability breakers). A single flipped judgment sets the case aside — recorded, never silent. Sample count and floors are tunable in Settings.' },
       ]),
     }),
     PanelSection({
@@ -515,6 +572,33 @@ function ShariahTab(): ReactNode {
   )
 }
 
+// Recommended models per tier, rendered LIVE from the curated OpenRouter catalog (never hard-coded here) so
+// the Learn copy stays in sync as the owner curates the shortlist. Grouped T1 → T2 → T3.
+const TIER_HEADINGS: Record<'T1' | 'T2' | 'T3', string> = {
+  T1: 'T1 — Frontier (synthesis, moat/Shariah)',
+  T2: 'T2 — Mid (quick screen, red-team)',
+  T3: 'T3 — Cheap / high-volume (monitors, entity resolution)',
+}
+
+function recommendedModelsByTier(): ReactNode {
+  const curated = curatedRealTierModelsForProvider('openrouter')
+  return cardGrid((['T1', 'T2', 'T3'] as const).map((tier) => {
+    const models = curated.filter((model) => model.tier_suitability.includes(tier))
+    return {
+      key: tier,
+      eyebrow: TIER_HEADINGS[tier],
+      body: createElement(
+        'span',
+        null,
+        ...models.flatMap((model, index) => [
+          index === 0 ? null : createElement('br', { key: `br-${model.model_id}` }),
+          mono(model.model_id),
+        ]),
+      ),
+    }
+  }), '260px')
+}
+
 // 6 — Model Tiering & Trust
 function TieringTab(): ReactNode {
   return createElement(
@@ -537,6 +621,28 @@ function TieringTab(): ReactNode {
       ]),
     }),
     PanelSection({
+      eyebrow: 'Choosing a model',
+      title: 'Pick a reasoning model the harness can drive — the choice is yours',
+      lead: createElement(
+        'span',
+        null,
+        'The OpenRouter picker searches the ',
+        gold('full live catalog'),
+        ', filtered to ',
+        gold('reasoning models the harness can actually drive'),
+        ' — reasoning plus function tool-calling (for the grounded loop) plus structured JSON output (for synthesis). Non-reasoning models, and models missing tools or structured output, are filtered out because they would only ever fail a run. Beyond that hard floor, ',
+        gold('the responsibility is yours'),
+        ': certification is a deeper, optional audit (it proves a specific model honors grounding + the security invariants), not a prerequisite for use — you can point the harness at any capable reasoning model and it runs experimental until you decide it fits the job. Weaker models degrade into visible retries and failed runs, never silent verdict poisoning.',
+      ),
+      children: createElement(
+        'div',
+        { style: { display: 'grid', gap: 'var(--owl-space-3)' } },
+        createElement('p', { style: microLabel }, 'Recommended for the job (curated, by tier)'),
+        recommendedModelsByTier(),
+        caveat('These are hand-picked reasoning models that clear the harness floor and suit each tier — read live from the curated catalog, so they stay current. They are recommendations, not a lock: any reasoning model in the picker is selectable, and the T3 tier can run a cheaper/local model to keep high-volume scanning near-free.'),
+      ),
+    }),
+    PanelSection({
       eyebrow: 'Trust defenses',
       title: 'What makes the harness model-agnostic',
       lead: 'These run on every lane output regardless of which model produced it, so a weaker model degrades into visible retries and failed runs — never silent verdict poisoning.',
@@ -555,13 +661,112 @@ function TieringTab(): ReactNode {
   )
 }
 
+// A terminal command block: monospace, deep panel, gold text — matches the valuation formula block styling.
+function commandBlock(lines: ReactNode[]): ReactNode {
+  return createElement(
+    'div',
+    {
+      style: {
+        background: 'var(--owl-color-panel-deep)',
+        border: '1px solid var(--owl-color-border)',
+        borderRadius: 'var(--owl-radius-card)',
+        padding: '0.9rem 1rem',
+        fontFamily: 'var(--owl-font-mono)',
+        fontSize: 'var(--owl-text-sm)',
+        color: 'var(--owl-color-gold-vivid)',
+        lineHeight: 1.9,
+        overflowX: 'auto',
+      },
+    },
+    ...lines.map((line, index) => createElement('div', { key: index }, line)),
+  )
+}
+
+// 7 — The CLI
+function CliTab(): ReactNode {
+  return createElement(
+    'div',
+    { style: { display: 'grid', gap: 'var(--owl-space-4)' } },
+    PanelSection({
+      eyebrow: 'Developer & admin operations',
+      title: 'The CLI — onboarding, status, and diagnostics from the terminal',
+      lead: createElement(
+        'span',
+        null,
+        'The web app is the primary product surface; the CLI is for ',
+        gold('developer and admin operations'),
+        ' against the ',
+        gold('same local config, env file, and ledger'),
+        '. It launches the app, reports readiness, and diagnoses setup — it ',
+        gold('never trades, never authors a decision, and never moves a name between lifecycle states'),
+        '. Those remain web + human-authored.',
+      ),
+      children: createElement(
+        'div',
+        { style: { display: 'grid', gap: 'var(--owl-space-3)' } },
+        createElement('p', { style: microLabel }, 'Run it — a short owlfolio command'),
+        commandBlock([
+          createElement('span', null, 'owlfolio ', gold('<command>'), '          # e.g.  owlfolio doctor'),
+          createElement('span', null, './owlfolio ', gold('<command>'), '        # from the repo root, no setup'),
+          createElement('span', null, 'corepack pnpm owlfolio ', gold('<command>'), '  # zero-setup alternative'),
+        ]),
+        createElement('p', { style: { ...bodyStyle, fontSize: 'var(--owl-text-sm)' } }, createElement(
+          'span',
+          null,
+          'To call ',
+          mono('owlfolio'),
+          ' from anywhere, put the repo-root launcher on your PATH once — symlink it (',
+          mono('ln -s "$PWD/owlfolio" ~/.local/bin/owlfolio'),
+          '), add a shell alias, or run ',
+          mono('corepack pnpm link --global'),
+          ' from the repo root.',
+        )),
+      ),
+    }),
+    PanelSection({
+      eyebrow: 'Commands',
+      title: 'Three commands — launch, inspect, diagnose',
+      lead: createElement(
+        'span',
+        null,
+        'The CLI is deliberately small. Onboarding — mode, provider, API keys, model, capital — all lives in the ',
+        gold('browser'),
+        ' (it is the same shared surface, so nothing can drift), so the CLI keeps only what the browser cannot do from a terminal.',
+      ),
+      children: cardGrid([
+        { key: 'start', eyebrow: 'start', body: createElement('span', null, 'Launch the web app and open the browser to ', mono('127.0.0.1:3000'), ' — the single entrypoint. All setup happens there.') },
+        { key: 'status', eyebrow: 'status', body: 'Read-only: the current mode, provider/model, readiness, and the onboarding gate. Headless-safe — never prompts.' },
+        { key: 'doctor', eyebrow: 'doctor', body: 'Diagnose config, the credential file (+ 0600 permissions), the ledger, and certification state — the first thing to run when something looks off.' },
+      ], '240px'),
+    }),
+    PanelSection({
+      eyebrow: 'Runtime overrides',
+      title: 'Point the CLI at a specific workspace',
+      lead: 'The CLI honors the same environment overrides as the web app and worker, so you can run it against an isolated project directory (a sandbox) instead of the default.',
+      children: createElement(
+        'div',
+        { style: { display: 'grid', gap: 'var(--owl-space-3)' } },
+        commandBlock([
+          createElement('span', null, gold('OWLFOLIO_PROJECT_DIR'), '        # workspace root (config, env file, ledger live under it)'),
+          createElement('span', null, gold('OWLFOLIO_APP_CONFIG_PATH'), '     # explicit app-config.json path'),
+          createElement('span', null, gold('OWLFOLIO_ENV_FILE'), '            # the local key store (never committed)'),
+          createElement('span', null, gold('OWLFOLIO_PERSONAL_LEDGER_PATH'), ' # the personal-local SQLite ledger'),
+        ]),
+        caveat('The CLI is dry-run/admin by constitution: it reads and writes config, credentials, and onboarding state, but it never executes an investment action, confirms a watchlist entry, opens a holding, or authorizes a purification payment — every irreversible transition is authored by a human in the web workflow.'),
+      ),
+    }),
+  )
+}
+
 export const LEARN_TABS: LearnTab[] = [
   { id: 'strategy', label: 'Strategy & Valuation', render: StrategyTab },
   { id: 'swarm', label: 'The Research Swarm', render: SwarmTab },
+  { id: 'sources', label: 'Sources & Grounding', render: SourcesTab },
   { id: 'judgment', label: 'Judgment Objectivity', render: JudgmentTab },
   { id: 'lifecycle', label: 'Lifecycle', render: LifecycleTab },
   { id: 'shariah', label: 'Shariah by Design', render: ShariahTab },
   { id: 'tiering', label: 'Model Tiering & Trust', render: TieringTab },
+  { id: 'cli', label: 'The CLI', render: CliTab },
 ]
 
 /** Pure keyboard-nav helper: returns the next active index for a roving tablist. */

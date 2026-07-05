@@ -20,6 +20,23 @@ export type ResearchCaseStage =
   | 'analysis_drafted'
   | 'decision_drafted'
   | 'watchlist_draft'
+  /** The run died mid-flight (`research_run_failed` on a non-terminal case) — no dossier was produced. */
+  | 'failed'
+
+/**
+ * Stages a late `research_run_failed` event may NOT downgrade: the case already produced its dossier /
+ * verdict (or was explicitly set aside), so a stale-run reap must never hide completed work behind a
+ * failed marker. Mirrors the terminal ('done') set of the web run-progress model.
+ */
+const RUN_FAILURE_IMMUNE_STAGES: ReadonlySet<ResearchCaseStage> = new Set([
+  'analysis_drafted',
+  'decision_drafted',
+  'pass',
+  'rejected',
+  'watchlist',
+  'watchlist_draft',
+  'holding',
+])
 
 export type ResearchCaseOwnerEarningsValuationProjection = {
   summary?: string
@@ -462,6 +479,19 @@ export type ResearchCaseShariahFinancialProjection = {
   market_cap_basis?: string
   /** Fiscal year of the EDGAR primary data the ratios used. */
   bridge_source_fiscal_year?: number
+  /**
+   * Itemized composition of the impermissible-income input — interest income, dividend income,
+   * cash-instrument investment income (each with its XBRL concept), plus any model-quantified residual.
+   * The dossier SHOWS every line; their sum is the figure the purification % was computed from.
+   */
+  impermissible_income_lines?: ResearchCaseImpermissibleIncomeLineProjection[]
+}
+
+/** One itemized impermissible-income component (XBRL concept or model residual), $millions. */
+export type ResearchCaseImpermissibleIncomeLineProjection = {
+  concept: string
+  label: string
+  amount_musd: number
 }
 
 /**
@@ -651,6 +681,58 @@ export type ResearchCaseChecklistAudit = {
  */
 export type ResearchCaseChecklistAnswersProjection = Record<string, ResearchCaseChecklistAnswer>
 
+/**
+ * The thesis RE-REVIEW diff (research_case_re_review_recorded): a provider observation, recorded after
+ * the decision, comparing the filings that appeared SINCE the decision against the recorded thesis.
+ * assessment: INTACT | WEAKENED | BROKEN | UNVERIFIED (fail-closed). Never a verdict, never an action.
+ */
+export type ResearchCaseReReviewProjection = {
+  re_review_id: string
+  assessment: string
+  trigger_assessments: { trigger: string; tripped: string; evidence_citation: string; reasoning: string }[]
+  changed_dimensions: string[]
+  weakened_dimension?: string
+  broken_claim?: string
+  narrative?: string
+  prior_thesis_summary?: string
+  new_filings: { form: string; filed: string; url: string; weight: string }[]
+  skipped_filings: { form: string; filed: string; url: string; weight: string }[]
+  re_review_ungrounded?: boolean
+  ungrounded_reason?: string
+  checked_at?: string
+  recorded_at: string
+}
+
+/** Deterministic insider-selling cluster within the summary's cluster window (Form 4, §3.3). */
+export type ResearchCaseInsiderClusterProjection = {
+  window_days?: number
+  discretionary_sell_count?: number
+  distinct_sellers?: number
+  net_sell_value?: number
+}
+
+/**
+ * Deterministic insider-transaction summary (SEC Form 4, §3.3), computed by the harness during the deep
+ * dive and carried on the analysis event. Discretionary open-market (P/S) activity is the signal;
+ * mechanical RSU/option/tax disposals are surfaced separately and never counted as selling. All fields
+ * optional / legacy-tolerant.
+ */
+export type ResearchCaseInsiderSummaryProjection = {
+  as_of?: string
+  window_months?: number
+  discretionary_buy_shares?: number
+  discretionary_sell_shares?: number
+  discretionary_buy_value?: number
+  discretionary_sell_value?: number
+  distinct_buyers?: number
+  distinct_sellers?: number
+  officer_director_sell_shares?: number
+  ten_percent_owner_sell_shares?: number
+  mechanical_disposed_shares?: number
+  cluster?: ResearchCaseInsiderClusterProjection
+  window_truncated?: boolean
+}
+
 export type ResearchCaseProjection = {
   research_case_id: string
   version: number
@@ -664,6 +746,8 @@ export type ResearchCaseProjection = {
    */
   archived: boolean
   stage: ResearchCaseStage
+  /** The worker's error summary from `research_run_failed` — set only when stage is 'failed'. */
+  run_failed_error_summary?: string
   /**
    * The provider that actually AUTHORED the run (defense-in-depth UI honesty): a placeholder/mock run
    * can never masquerade as a real grounded dossier. Derived from the authoring provider event's
@@ -672,6 +756,13 @@ export type ResearchCaseProjection = {
    * Only set when `actor_type === 'provider'`; undefined for older / user-authored / non-provider runs.
    */
   authored_by_provider_id?: string
+  /**
+   * The model id the run was executed with (e.g. `gpt-5.5`), captured from the `research_run_requested`
+   * event's `model_id`. Undefined for legacy cases whose run-request predates model capture, or runs with
+   * no request event. Surfaced alongside `authored_by_provider_id` so the dossier can state which
+   * provider/model produced the analysis.
+   */
+  authored_by_model_id?: string
   candidate_id?: string
   company_id?: string
   ticker?: string
@@ -700,6 +791,8 @@ export type ResearchCaseProjection = {
   owner_earnings_valuation?: ResearchCaseOwnerEarningsValuationProjection
   /** Circle-of-competence judgment (grounded model judgment that gated the deep-dive spend). */
   circle_competence?: ResearchCaseCircleCompetenceProjection
+  /** Deterministic insider Form 4 summary (§3.3), when the deep dive computed one. */
+  insider_summary?: ResearchCaseInsiderSummaryProjection
   valuation?: ResearchCaseValuationProjection
   /**
    * Engine-version marker stamped at the event payload ROOT on EVERY analysis emission (full deep-dive AND
@@ -721,6 +814,14 @@ export type ResearchCaseProjection = {
    * a falsely-clean 0% / fully compliant. Absent on legacy/genuine runs (numeric impermissible income).
    */
   shariah_impermissible_income_undetermined?: boolean
+  /**
+   * FAIL-CLOSED marker: the SHARIAH deep re-screen lane grounded ZERO content-hash-verified sources and was
+   * skipped, so the deep compliance re-verification (segment-revenue + impermissible-income) did NOT run this
+   * run. The verdict rests on the earlier quick-screen gate, NOT a grounded deep re-screen. The dossier
+   * renders a calm "compliance not deep-verified this run" caveat so a human does not read a falsely-confident
+   * COMPLIANT. Absent on legacy events and on runs where the shariah lane grounded at least one source.
+   */
+  shariah_deep_screen_incomplete?: boolean
   /** Mechanism 6: source-discipline rejections (lane-proposed sources the whitelist excluded). */
   source_discipline?: ResearchCaseSourceDisciplineProjection
   /** Mechanism 5: red-team pass — strongest objection + the synthesis response + the deterministic flags. */
@@ -740,12 +841,22 @@ export type ResearchCaseProjection = {
   next_required_action?: string
   /**
    * MARGIN-OF-SAFETY AUDIT SURFACE — the synthesis decision's forward-looking model risk judgments.
+   * (See also ResearchCaseReReviewProjection below for the post-decision re-review diff.)
    * key_wrong_assumption: the SINGLE assumption that, if wrong, breaks the thesis. thesis_break_triggers:
    * the observable events that would invalidate it. Legacy-tolerant (optional, guarded reads) — absent for
    * old analysis events. NOT cite-verified (forward-looking model judgments, not current-fact claims).
    */
   key_wrong_assumption?: string
   thesis_break_triggers?: string[]
+  /**
+   * The latest thesis RE-REVIEW diff (research_case_re_review_recorded) — a provider OBSERVATION recorded
+   * AFTER the decision: "do the filings that appeared since the decision change any load-bearing claim?"
+   * Newest event wins. DEDICATED field by design: it never touches the decision-time fields
+   * (specialist_findings / thesis / verdict), so the dossier's decision basis stays point-in-time
+   * immutable. UNVERIFIED = the pass could not cite-verify its evidence (fail-closed), never a
+   * confident diff.
+   */
+  re_review?: ResearchCaseReReviewProjection
   /**
    * MARGIN-OF-SAFETY JOINT JUDGMENT (synthesis-owned) — the HEADLINE of the MoS audit surface. The margin of
    * safety comes from TWO SUBSTITUTABLE sources: the price-vs-value gap and moat durability. Synthesis names
@@ -1397,6 +1508,37 @@ function getSellRecommendation(
   return projected
 }
 
+function getInsiderSummary(payload: Record<string, unknown>): ResearchCaseInsiderSummaryProjection | undefined {
+  const value = payload['insider_summary']
+  if (!isRecord(value)) {
+    return undefined
+  }
+  const projected: ResearchCaseInsiderSummaryProjection = {}
+  const numKeys = [
+    'window_months', 'discretionary_buy_shares', 'discretionary_sell_shares', 'discretionary_buy_value',
+    'discretionary_sell_value', 'distinct_buyers', 'distinct_sellers', 'officer_director_sell_shares',
+    'ten_percent_owner_sell_shares', 'mechanical_disposed_shares',
+  ] as const
+  for (const key of numKeys) {
+    const n = getNumber(value, key)
+    if (n !== undefined) projected[key] = n
+  }
+  const as_of = getString(value, 'as_of')
+  if (as_of !== undefined) projected.as_of = as_of
+  const window_truncated = typeof value['window_truncated'] === 'boolean' ? value['window_truncated'] : undefined
+  if (window_truncated !== undefined) projected.window_truncated = window_truncated
+  const clusterRaw = value['cluster']
+  if (isRecord(clusterRaw)) {
+    const cluster: ResearchCaseInsiderClusterProjection = {}
+    for (const key of ['window_days', 'discretionary_sell_count', 'distinct_sellers', 'net_sell_value'] as const) {
+      const n = getNumber(clusterRaw, key)
+      if (n !== undefined) cluster[key] = n
+    }
+    projected.cluster = cluster
+  }
+  return projected
+}
+
 function getValuation(payload: Record<string, unknown>): ResearchCaseValuationProjection | undefined {
   const value = payload['valuation']
   if (!isRecord(value)) {
@@ -1550,6 +1692,20 @@ function getShariahFinancial(payload: Record<string, unknown>): ResearchCaseShar
   if (market_cap_basis !== undefined) projected.market_cap_basis = market_cap_basis
   const bridge_source_fiscal_year = getNumber(value, 'bridge_source_fiscal_year')
   if (bridge_source_fiscal_year !== undefined) projected.bridge_source_fiscal_year = bridge_source_fiscal_year
+  const rawLines = value['impermissible_income_lines']
+  if (Array.isArray(rawLines)) {
+    const lines: ResearchCaseImpermissibleIncomeLineProjection[] = []
+    for (const raw of rawLines) {
+      if (!isRecord(raw)) continue
+      const concept = getString(raw, 'concept')
+      const label = getString(raw, 'label')
+      const amount_musd = getNumber(raw, 'amount_musd')
+      if (concept !== undefined && label !== undefined && amount_musd !== undefined) {
+        lines.push({ concept, label, amount_musd })
+      }
+    }
+    if (lines.length > 0) projected.impermissible_income_lines = lines
+  }
   return Object.keys(projected).length === 0 ? undefined : projected
 }
 
@@ -1745,9 +1901,22 @@ function upsertCase(
 
 export function projectResearchCases(events: LedgerEventEnvelope<unknown>[]): ResearchCaseProjection[] {
   const researchCases = new Map<string, ResearchCaseProjection>()
+  // `research_run_requested` (which carries the executing `model_id`) arrives BEFORE `research_case_created`
+  // on the same aggregate. Stash model ids here and assign after the loop — never create a phantom case from
+  // a lone request, and never disturb the stage machine.
+  const modelByCase = new Map<string, string>()
 
   for (const event of events) {
     if (!isRecord(event.payload)) {
+      continue
+    }
+
+    if (event.event_type === 'research_run_requested') {
+      const researchCaseId = researchCaseIdFor(event, event.payload)
+      const modelId = getString(event.payload, 'model_id')
+      if (researchCaseId !== undefined && modelId !== undefined && !modelByCase.has(researchCaseId)) {
+        modelByCase.set(researchCaseId, modelId)
+      }
       continue
     }
 
@@ -1982,6 +2151,10 @@ export function projectResearchCases(events: LedgerEventEnvelope<unknown>[]): Re
       if (circleCompetence !== undefined) {
         researchCase.circle_competence = circleCompetence
       }
+      const insiderSummary = getInsiderSummary(event.payload)
+      if (insiderSummary !== undefined) {
+        researchCase.insider_summary = insiderSummary
+      }
       const shariahFinancial = getShariahFinancial(event.payload)
       if (shariahFinancial !== undefined) {
         researchCase.shariah_financial = shariahFinancial
@@ -1990,6 +2163,11 @@ export function projectResearchCases(events: LedgerEventEnvelope<unknown>[]): Re
       // true; legacy/genuine analyses (numeric impermissible income) never carry it → render unchanged.
       if (getBoolean(event.payload, 'shariah_impermissible_income_undetermined') === true) {
         researchCase.shariah_impermissible_income_undetermined = true
+      }
+      // FAIL-CLOSED deep-screen marker: the shariah deep re-screen lane grounded no verifiable source (skipped).
+      // Only set when explicitly true; legacy events / runs whose shariah lane grounded a source never carry it.
+      if (getBoolean(event.payload, 'shariah_deep_screen_incomplete') === true) {
+        researchCase.shariah_deep_screen_incomplete = true
       }
       applyString(researchCase, 'shariah_sector_status', getString(event.payload, 'shariah_sector_status'))
       const sourceDiscipline = getSourceDiscipline(event.payload)
@@ -2078,6 +2256,59 @@ export function projectResearchCases(events: LedgerEventEnvelope<unknown>[]): Re
       continue
     }
 
+    if (event.event_type === 'research_case_re_review_recorded') {
+      const researchCaseId = researchCaseIdFor(event, event.payload)
+      if (researchCaseId === undefined) {
+        continue
+      }
+      // An OBSERVATION about the case — attach without transitioning the case stage (admit-judgment pattern).
+      const existingCase = researchCases.get(researchCaseId)
+      const researchCase = upsertCase(researchCases, researchCaseId, existingCase?.stage ?? 'discovered', event.created_at)
+      const p = event.payload as Record<string, unknown>
+      const reReviewId = typeof p['re_review_id'] === 'string' ? p['re_review_id'] : undefined
+      const assessment = typeof p['assessment'] === 'string' ? p['assessment'] : undefined
+      if (reReviewId === undefined || assessment === undefined) {
+        continue // malformed — fail-open (skip), never a partial projection
+      }
+      const filings = (value: unknown) => Array.isArray(value)
+        ? value.flatMap((f) => (f !== null && typeof f === 'object'
+          ? [{
+              form: String((f as Record<string, unknown>)['form'] ?? ''),
+              filed: String((f as Record<string, unknown>)['filed'] ?? ''),
+              url: String((f as Record<string, unknown>)['url'] ?? ''),
+              weight: String((f as Record<string, unknown>)['weight'] ?? ''),
+            }]
+          : []))
+        : []
+      // Newest event wins (events fold in sequence order — the store's append order).
+      researchCase.re_review = {
+        re_review_id: reReviewId,
+        assessment,
+        trigger_assessments: Array.isArray(p['trigger_assessments'])
+          ? (p['trigger_assessments'] as unknown[]).flatMap((t) => (t !== null && typeof t === 'object'
+            ? [{
+                trigger: String((t as Record<string, unknown>)['trigger'] ?? ''),
+                tripped: String((t as Record<string, unknown>)['tripped'] ?? ''),
+                evidence_citation: String((t as Record<string, unknown>)['evidence_citation'] ?? ''),
+                reasoning: String((t as Record<string, unknown>)['reasoning'] ?? ''),
+              }]
+            : []))
+          : [],
+        changed_dimensions: getStringArray(event.payload, 'changed_dimensions') ?? [],
+        ...(typeof p['weakened_dimension'] === 'string' ? { weakened_dimension: p['weakened_dimension'] } : {}),
+        ...(typeof p['broken_claim'] === 'string' ? { broken_claim: p['broken_claim'] } : {}),
+        ...(typeof p['narrative'] === 'string' ? { narrative: p['narrative'] } : {}),
+        ...(typeof p['prior_thesis_summary'] === 'string' ? { prior_thesis_summary: p['prior_thesis_summary'] } : {}),
+        new_filings: filings(p['new_filings']),
+        skipped_filings: filings(p['skipped_filings']),
+        ...(p['re_review_ungrounded'] === true ? { re_review_ungrounded: true } : {}),
+        ...(typeof p['ungrounded_reason'] === 'string' ? { ungrounded_reason: p['ungrounded_reason'] } : {}),
+        ...(typeof p['checked_at'] === 'string' ? { checked_at: p['checked_at'] } : {}),
+        recorded_at: event.created_at,
+      }
+      continue
+    }
+
     if (event.event_type === 'watchlist_draft_created') {
       const researchCaseId = researchCaseIdFor(event, event.payload)
       if (researchCaseId === undefined) {
@@ -2141,6 +2372,37 @@ export function projectResearchCases(events: LedgerEventEnvelope<unknown>[]): Re
       const existing = researchCases.get(researchCaseId)
       const researchCase = upsertCase(researchCases, researchCaseId, existing?.stage ?? 'discovered', existing?.updated_at ?? event.created_at)
       researchCase.archived = true
+      continue
+    }
+
+    if (event.event_type === 'research_run_failed') {
+      // Mid-run failure honesty (the ADBE "in progress forever" bug): a run that died AFTER
+      // `research_case_created` left the case on its last in-flight stage, so every stage-reading
+      // consumer showed "in progress" forever. Move a NON-terminal existing case to stage 'failed' and
+      // carry the worker's error summary. Two guards: (1) a case that already reached a terminal stage
+      // is untouched — never hide a completed dossier behind a failed marker (e.g. a watchdog reaping a
+      // stale run record late); (2) NO case is fabricated from a lone failure event — the
+      // worker-never-started path stays with the view resolver's run-event handling.
+      const researchCaseId = researchCaseIdFor(event, event.payload)
+      if (researchCaseId === undefined) {
+        continue
+      }
+      const existing = researchCases.get(researchCaseId)
+      if (existing === undefined || RUN_FAILURE_IMMUNE_STAGES.has(existing.stage)) {
+        continue
+      }
+      existing.stage = 'failed'
+      existing.updated_at = event.created_at
+      const summary = isRecord(event.payload) ? getString(event.payload, 'error_summary') : undefined
+      if (summary !== undefined) existing.run_failed_error_summary = summary
+    }
+  }
+
+  // Assign the executing model id to cases that actually exist (never fabricate a case from a lone request).
+  for (const [researchCaseId, modelId] of modelByCase) {
+    const researchCase = researchCases.get(researchCaseId)
+    if (researchCase !== undefined && researchCase.authored_by_model_id === undefined) {
+      researchCase.authored_by_model_id = modelId
     }
   }
 

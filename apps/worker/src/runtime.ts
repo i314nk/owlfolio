@@ -36,6 +36,8 @@ import {
 } from '@owlfolio/providers'
 import { defaultDemoAppConfig, mergeAutomationSettings, type AppConfig, type AutomationSettings } from '@owlfolio/shared'
 import { draftHoldingReview, type ThesisHealth } from '@owlfolio/workflow/holdingReviewWorkflow'
+import { checkForNewFilings, type CheckForNewFilingsDeps } from '@owlfolio/workflow/reReviewTrigger'
+import { draftThesisReReview, type DraftThesisReReviewDeps } from '@owlfolio/workflow/thesisReReview'
 import { resolveCurrentPrice, type PriceSource } from '@owlfolio/workflow/marketData'
 import {
   evaluateWatchlistBuyWindow,
@@ -54,7 +56,7 @@ import { buffettMungerStrategy } from '@owlfolio/strategies/buffettMunger'
 import { VALUATION_PARAMS } from '@owlfolio/strategies/valuationParams'
 import type { ShariahFinancialRatioInputs } from '@owlfolio/strategies/shariahFinancialRatios'
 import { selectResearchCaseAction } from '@owlfolio/workflow/researchCasePolicy'
-import { runStrategyResearchSwarm, runResearchDeepDivePhase, type GroundFn } from '@owlfolio/workflow/researchSwarm'
+import { runStrategyResearchSwarm, runResearchDeepDivePhase, type CircleGateSettings, type GroundFn } from '@owlfolio/workflow/researchSwarm'
 import { findAbandonedResearchRuns, resolveRunWatchdogStalenessMs } from '@owlfolio/workflow/researchRunWatchdog'
 import { resolveModelRoleEnv } from '@owlfolio/strategies/modelRoleEnvFile'
 import { runDiscovery13f } from '@owlfolio/workflow/discovery13f'
@@ -122,6 +124,13 @@ export type RunScheduledTasksOptions = WorkerClock & {
   run_id?: (task: ScheduledTaskProjection) => string
   priceSource?: PriceSource
   automation?: AutomationSettings
+  /** Source-ledger bundle dir — required by re_review_check (the new-filings delta vs the decision corpus). */
+  source_ledger_path?: string
+  /** Injectable seams for the re_review_check task (test fixtures; live passes nothing). */
+  reReview?: {
+    fetchFundamentals?: CheckForNewFilingsDeps['fetchFundamentals']
+    ground?: DraftThesisReReviewDeps['ground']
+  }
   /** Optional injectable Shariah-ratio source for the quarterly re-screen / grace monitors. */
   shariahRatioSource?: ShariahRatioSource
   /**
@@ -520,9 +529,27 @@ function defaultTaskDefinitions(automation?: AutomationSettings): ScheduledTaskP
   // price_refresh drives portfolio_valuation_refresh (frequent market-price poll)
   const priceRefreshCron = cadenceToCron(cfg.price_refresh.cadence, CRON_DAILY_VALUATION)
   const purificationCron = cadenceToCron(cfg.purification.cadence, CRON_QUARTERLY)
-  // TODO: annual reanalysis task (follow-up) — cfg.reanalysis drives the annual full-swarm; no worker task yet
+  // TODO: annual reanalysis task (follow-up) — cfg.reanalysis drives the annual full-swarm; no worker task
+  // yet. The INTERIM filings-delta side now has a consumer: re_review_check (quarterly, below).
 
   return [
+    {
+      // Thesis re-review check: the new-filings delta vs each decided case's persisted corpus; strong
+      // triggers (8-K/6-K) run a grounded diff vs the recorded thesis (research_case_re_review_recorded).
+      // Quarterly = the 10-Q rhythm. Manual today (--task-kind re_review_check); the future scheduler
+      // fires this same task — nothing here loops or polls.
+      scheduled_task_id: 'task_re_review_check_quarterly',
+      task_kind: 're_review_check',
+      cadence: CRON_QUARTERLY,
+      enabled: cfg.thesis_review.enabled,
+      dry_run: true,
+      retry_policy: { max_attempts: 2, retry_delay_ms: DEFAULT_RETRY_DELAY_MS },
+      safety: {
+        mock_safe: true,
+        auto_approve_investment_actions: false,
+        auto_approve_portfolio_actions: false,
+      },
+    },
     {
       scheduled_task_id: 'task_review_reminders_daily',
       task_kind: 'review_reminder',
@@ -1658,12 +1685,147 @@ async function runHoldingReviewDraftTask(
   }
 }
 
+/** Grounded re-reviews per tick — a hard provider-spend cap; overflow is named in observations. */
+const MAX_RE_REVIEWS_PER_TICK = 3
+
+/**
+ * `re_review_check` (Phase 1 of the re-review method — MANUAL today, scheduler-shaped): for every
+ * active decided case, diff discovery-now against the persisted decision corpus (checkForNewFilings).
+ * STRONG triggers (8-K/6-K) run ONE grounded diff vs the recorded thesis (research_case_re_review_recorded,
+ * capped per tick); medium/weak triggers and non-computable deltas are OBSERVATIONS with zero provider
+ * spend. BROKEN on a HELD name escalates the existing versioned full re-run (human still decides);
+ * watched/researched BROKEN is record-only — the monitor alert is the push surface. One tick, no loop.
+ */
+async function runReReviewCheckTask(
+  store: EventStore<LedgerEventEnvelope<unknown>>,
+  options: TaskHandlerOptions,
+): Promise<TaskResult> {
+  if (options.provider === undefined || options.provider_readiness === undefined) {
+    throw new Error('re_review_check requires a certified provider readiness check before creating re-review events')
+  }
+  assertProviderReadyForExecution(options.provider, options.provider_readiness)
+
+  const observations: string[] = []
+  if (options.source_ledger_path === undefined) {
+    return {
+      result_summary: 're_review_check skipped: no source_ledger_path configured (the delta needs the persisted decision corpus)',
+      observations: ['source_ledger_path is not configured — new-filings deltas are not computable'],
+      human_approval_required: false,
+      events_appended: 0,
+    }
+  }
+  const sourceLedgerPath = options.source_ledger_path
+
+  const events = await store.list()
+  const holdings = projectHoldings(events)
+  // Selection: the latest non-superseded, non-archived case per ticker with a RECORDED thesis.
+  const activeCases = projectResearchCases(events)
+    .filter((c) => !c.superseded && !c.archived
+      && c.ticker !== undefined
+      && typeof c.thesis_summary === 'string' && c.thesis_summary.trim().length > 0)
+  const latestByTicker = new Map<string, ResearchCaseProjection>()
+  for (const candidate of activeCases) {
+    const key = candidate.ticker!.toUpperCase()
+    const existing = latestByTicker.get(key)
+    if (existing === undefined || candidate.version > existing.version) {
+      latestByTicker.set(key, candidate)
+    }
+  }
+
+  const reReviewEventIds: string[] = []
+  let escalationEventsAppended = 0
+  let spent = 0
+  const modelId = options.provider_model_id ?? 'mock-buffett-munger-monitor'
+  const reReviewDeps = options.reReview ?? {}
+
+  for (const [ticker, researchCase] of latestByTicker) {
+    const check = await checkForNewFilings(
+      {
+        ticker,
+        research_case_id: researchCase.research_case_id,
+        source_ledger_path: sourceLedgerPath,
+        // "Filed SINCE the last recorded look at this case" — updated_at bumps on the decision AND on a
+        // later re-review, so the window naturally advances past what was already assessed.
+        since: researchCase.updated_at,
+      },
+      reReviewDeps.fetchFundamentals === undefined ? undefined : { fetchFundamentals: reReviewDeps.fetchFundamentals },
+    )
+    if (check === undefined) {
+      observations.push(`${ticker}: SEC filings unresolvable — no re-review claim either way (fail-closed)`)
+      continue
+    }
+    if (check.no_prior_corpus) {
+      observations.push(`${ticker}: no persisted decision corpus — delta not computable; the honest refresh is a full re-run`)
+      continue
+    }
+    if (check.new_filings.length === 0) {
+      observations.push(`${ticker}: no new filings since the decision — thesis re-review has nothing to compare`)
+      continue
+    }
+    if (check.strongest_trigger !== 'strong') {
+      // Medium/weak (10-Q / proxy) — surface, spend nothing; the human can run the on-demand re-review.
+      observations.push(`${ticker}: ${check.new_filings.length} new ${check.strongest_trigger}-trigger filing(s) — re-review available on demand (no auto-spend below a strong trigger)`)
+      continue
+    }
+    if (spent >= MAX_RE_REVIEWS_PER_TICK) {
+      observations.push(`${ticker}: strong trigger detected but the per-tick re-review cap (${MAX_RE_REVIEWS_PER_TICK}) is spent — run the on-demand re-review`)
+      continue
+    }
+    spent += 1
+
+    const recorded = await draftThesisReReview(store, options.provider, {
+      research_case_id: researchCase.research_case_id,
+      model_id: modelId,
+      causation_id: `evt_scheduled_task_run_started_${options.scheduled_task_run_id}`,
+      source_ledger_path: sourceLedgerPath,
+      check,
+    }, reReviewDeps.ground === undefined ? {} : { ground: reReviewDeps.ground })
+    reReviewEventIds.push(recorded.event_id)
+    observations.push(`${ticker}: thesis re-review ${recorded.assessment} vs ${recorded.new_filings.length} new filing(s) — an observation, the decision is unchanged`)
+
+    // BROKEN + HELD → escalate the existing versioned full re-run (a draft; the human still decides).
+    if (recorded.assessment === 'BROKEN') {
+      const heldHolding = holdings.find((h) => h.ticker?.toUpperCase() === ticker)
+      if (heldHolding !== undefined) {
+        const escalationResult = await maybeEnqueueEscalationReanalysis(store, {
+          ticker,
+          holding: heldHolding,
+          reviewDraftEventId: recorded.event_id,
+          thesisHealth: 'BROKEN',
+          scheduledTaskRunId: options.scheduled_task_run_id,
+          escalationTrigger: 're_review_thesis_broken',
+          ...(options.now === undefined ? {} : { now: options.now }),
+          ...(options.automation?.research_engine_enabled === undefined
+            ? {}
+            : { researchEngineEnabled: options.automation.research_engine_enabled }),
+        })
+        observations.push(escalationResult.observation)
+        escalationEventsAppended += escalationResult.eventsAppended
+      } else {
+        observations.push(`${ticker}: thesis BROKEN on a non-held name — recorded only; escalation is the human's call`)
+      }
+    }
+  }
+
+  return {
+    result_summary: `re_review_check dry-run: ${reReviewEventIds.length} thesis re-review diff(s) recorded (cap ${MAX_RE_REVIEWS_PER_TICK}/tick); observations only below a strong trigger; no verdict or portfolio action taken`,
+    observations,
+    ...(reReviewEventIds.length === 0 ? {} : { proposal_event_ids: reReviewEventIds }),
+    human_approval_required: reReviewEventIds.length > 0,
+    events_appended: reReviewEventIds.length + escalationEventsAppended,
+  }
+}
+
 type EscalationOptions = {
   ticker: string
-  holding: ReturnType<typeof projectHoldings>[number]
+  /** Structural subset — a projected holding satisfies it; the re-review path passes the same shape. */
+  holding: { holding_id: string; company_id?: string | undefined; strategy_id?: string | undefined }
+  /** The event that detected the break (holding_review_drafted OR research_case_re_review_recorded). */
   reviewDraftEventId: string
-  thesisHealth: ThesisHealth
+  thesisHealth: string
   scheduledTaskRunId: string
+  /** Which detector escalated (default: the holding review). Recorded verbatim in the payload. */
+  escalationTrigger?: 'thesis_impaired_holding_review' | 're_review_thesis_broken'
   now?: () => string
   researchEngineEnabled?: boolean
 }
@@ -1728,9 +1890,11 @@ async function maybeEnqueueEscalationReanalysis(
       decision_id: decisionId,
       version,
       ...(supersedesId === undefined ? {} : { supersedes_research_case_id: supersedesId }),
-      escalation_trigger: 'thesis_impaired_holding_review',
+      escalation_trigger: options.escalationTrigger ?? 'thesis_impaired_holding_review',
       escalation_thesis_health: thesisHealth,
-      escalation_holding_review_event_id: reviewDraftEventId,
+      ...(options.escalationTrigger === 're_review_thesis_broken'
+        ? { escalation_re_review_event_id: reviewDraftEventId }
+        : { escalation_holding_review_event_id: reviewDraftEventId }),
       escalation_holding_id: options.holding.holding_id,
       requested_by: WORKER_ACTOR_ID,
     },
@@ -2244,6 +2408,10 @@ async function runTaskHandler(
     return runHoldingReviewDraftTask(store, options)
   }
 
+  if (task.task_kind === 're_review_check') {
+    return runReReviewCheckTask(store, options)
+  }
+
   if (task.task_kind === 'portfolio_valuation_refresh') {
     return runPortfolioValuationRefreshTask(store, options)
   }
@@ -2439,6 +2607,8 @@ export async function runProcessResearchQueueTask(
     ground?: GroundFn
     /** Advanced research-depth knob: per-lane grounded-tool-call cap (undefined → loop default). */
     maxToolCalls?: number
+    /** Circle-gate hardening knobs (k-sample agreement + evidence floors; undefined → shared defaults). */
+    circle_gate?: CircleGateSettings
     /**
      * Defense-in-depth fail-closed guard inputs. These describe the config the worker ACTUALLY loaded
      * (provider_id + mode + the config path it read). If a run's `research_run_requested` recorded an
@@ -2553,6 +2723,7 @@ export async function runProcessResearchQueueTask(
           // Absent on legacy requests → createResearchCase defaults to v1 (backward-compat).
           ...(run.version === undefined ? {} : { version: run.version }),
           model_role_env: modelRoleEnv,
+          ...(options.circle_gate === undefined ? {} : { circle_gate: options.circle_gate }),
         },
         { ground, ...(options.maxToolCalls === undefined ? {} : { maxToolCalls: options.maxToolCalls }) },
       )
@@ -2600,6 +2771,8 @@ export async function runProcessDeepDiveQueueTask(
     ground?: GroundFn
     /** Advanced research-depth knob: per-lane grounded-tool-call cap (undefined → loop default). */
     maxToolCalls?: number
+    /** Circle-gate hardening knobs (k-sample agreement + evidence floors; undefined → shared defaults). */
+    circle_gate?: CircleGateSettings
     /**
      * F.2 — the COMPLIANT risk-free SAVINGS rate (Mudarabah expected profit) from the app-config savings
      * sleeve, threaded into the deep-dive discount anchor. Omitted → the swarm fails closed to the strategy's
@@ -2641,6 +2814,7 @@ export async function runProcessDeepDiveQueueTask(
           // to the strategy savings_rate_default in the swarm when absent).
           ...(options.risk_free_rate === undefined ? {} : { risk_free_rate: options.risk_free_rate }),
           model_role_env: modelRoleEnv,
+          ...(options.circle_gate === undefined ? {} : { circle_gate: options.circle_gate }),
         },
         { ground, ...(options.maxToolCalls === undefined ? {} : { maxToolCalls: options.maxToolCalls }) },
       )

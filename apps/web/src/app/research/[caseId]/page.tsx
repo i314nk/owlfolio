@@ -63,13 +63,21 @@ export default async function ResearchCasePage({ params }: ResearchCasePageProps
                 ← Back to command center
               </a>
             </p>
+            {/* Re-run + archive for the failed run: reuses the dossier's actions (the re-run supersedes
+                this failed case, so it drops out of active views once the fresh run lands). Rendered only
+                when the ticker is recoverable — without it a re-run cannot be keyed. */}
+            {view.ticker !== undefined ? (
+              <ResearchCaseActions caseId={caseId} ticker={view.ticker} isArchived={false} engineStale={false} />
+            ) : null}
             <section className="owl-section-card">
               <p className="owl-empty-state-kicker">Research run failed</p>
               <h2 className="owl-section-title">This research run did not complete</h2>
               <p className="owl-empty-state-description">
                 The research worker reported a failure for <code>{caseId}</code>
-                {view.error_summary === undefined ? '.' : `: ${view.error_summary}`} You can start a new
-                research case from the command center.
+                {view.error_summary === undefined ? '.' : `: ${view.error_summary}`}{' '}
+                {view.ticker !== undefined
+                  ? 'Use “Re-run on current engine” above to start a fresh run for this ticker, or start a new research case from the command center.'
+                  : 'You can start a new research case from the command center.'}
               </p>
             </section>
           </main>
@@ -78,7 +86,7 @@ export default async function ResearchCasePage({ params }: ResearchCasePageProps
       researchCase = view.researchCase
 
       // Mid-run gate: the case row exists (`ready`) but the multi-minute deep dive (quick-screen → circle →
-      // 7 lanes → synthesis → decision) is still running. Drive an animated, stage-aware "research running…"
+      // 5 lanes → synthesis → decision) is still running. Drive an animated, stage-aware "research running…"
       // view off the projected stage + specialist findings until the run reaches a terminal/awaiting-approval
       // state, at which point we fall through to the dossier / approval rendering. (Demo cases are seeded
       // terminal, so demo mode never reaches this branch — no demo wiring needed.)

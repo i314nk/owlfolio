@@ -3,16 +3,23 @@
 import { useEffect } from 'react'
 
 /**
- * A tiny client island that wires every `[data-owl-copy]` button on the keys
- * page to the clipboard. The copied value is always a terminal command (e.g.
- * `codex login`) — never a secret. Keeping this isolated lets the page stay a
- * server component.
+ * A tiny client island for the keys page. It wires:
+ *  - every `[data-owl-copy]` button to the clipboard (the copied value is always a terminal command
+ *    like `codex login` — never a secret); and
+ *  - the `[data-owl-refresh]` button to a page reload, which re-runs the server-side readiness check
+ *    (the page is force-dynamic) after the user signs in / sets a key in their terminal.
+ * Keeping this isolated lets the page stay a server component.
  */
 export function ProviderKeysCopyScript() {
   useEffect(() => {
     function onClick(event: MouseEvent) {
       const target = event.target
       if (!(target instanceof HTMLElement)) {
+        return
+      }
+      // Refresh control: re-resolve every login/key status by reloading the force-dynamic page.
+      if (target.closest('[data-owl-refresh]') instanceof HTMLElement) {
+        window.location.reload()
         return
       }
       const button = target.closest('[data-owl-copy]')

@@ -10,22 +10,24 @@ import {
 } from '../providerKeys'
 
 describe('LLM and tool/data key catalogs', () => {
-  it('lists the reduced LLM provider key set (OpenRouter is the one API-key lane) with env var entries and a Get key link', () => {
+  it('lists the LLM provider key groups (Anthropic/OpenAI/Gemini/OpenRouter) with env var entries and a Get key link', () => {
     const labels = LLM_API_KEY_GROUPS.map((group) => group.label)
-    // After the OpenRouter + Codex CLI reduction the LLM key surface is OpenRouter (the single API key
-    // routing to every curated model) plus the Anthropic/OpenAI keys backing the kept CLI lanes.
+    // The direct API-key providers each have a key group; OpenRouter remains the one meta-aggregator key.
     expect(labels).toEqual(
-      expect.arrayContaining(['Anthropic', 'OpenAI', 'OpenRouter']),
+      expect.arrayContaining(['Anthropic', 'OpenAI', 'Gemini (Google)', 'OpenRouter']),
     )
-    // The retired direct-provider key groups are gone.
-    expect(labels).not.toContain('Gemini')
+    // The unwired direct-provider key groups stay retired.
     expect(labels).not.toContain('DeepSeek')
     expect(labels).not.toContain('Qwen / DashScope')
     expect(labels).not.toContain('Kimi / Moonshot')
     expect(labels).not.toContain('Mistral')
     const anthropic = LLM_API_KEY_GROUPS.find((group) => group.label === 'Anthropic')
-    expect(anthropic?.get_key_url).toMatch(/^https:\/\//)
     expect(anthropic?.keys.some((key) => key.name === 'ANTHROPIC_API_KEY')).toBe(true)
+    const gemini = LLM_API_KEY_GROUPS.find((group) => group.label === 'Gemini (Google)')
+    expect(gemini?.keys.some((key) => key.name === 'GEMINI_API_KEY')).toBe(true)
+    const openai = LLM_API_KEY_GROUPS.find((group) => group.label === 'OpenAI')
+    expect(openai?.get_key_url).toMatch(/^https:\/\//)
+    expect(openai?.keys.some((key) => key.name === 'OPENAI_API_KEY')).toBe(true)
     for (const group of LLM_API_KEY_GROUPS) {
       for (const key of group.keys) {
         expect(key.description.length).toBeGreaterThan(0)
@@ -45,10 +47,10 @@ describe('LLM and tool/data key catalogs', () => {
 
 describe('llmRegistrySelectability (acceptance test 2)', () => {
   it('marks a provider selectable once its API key is set', () => {
-    const withoutKey = llmRegistrySelectability({ ANTHROPIC_API_KEY: false })
-    const withKey = llmRegistrySelectability({ ANTHROPIC_API_KEY: true })
-    expect(withoutKey.anthropic).toBe(false)
-    expect(withKey.anthropic).toBe(true)
+    const withoutKey = llmRegistrySelectability({ OPENAI_API_KEY: false })
+    const withKey = llmRegistrySelectability({ OPENAI_API_KEY: true })
+    expect(withoutKey.openai).toBe(false)
+    expect(withKey.openai).toBe(true)
   })
 })
 

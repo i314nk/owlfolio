@@ -65,6 +65,16 @@ export type AnnualFacts = {
   total_debt_musd?: number
   cash_and_securities_musd?: number
   interest_expense_musd?: number
+  /**
+   * Itemized impermissible-income components (annual flows), $millions — the deterministic AAOIFI
+   * purification inputs for the Shariah recompute (no filing discloses an "impermissible income" line;
+   * the computable components are disclosed interest income, dividend income, and cash-instrument
+   * investment income). Each line carries its XBRL concept + human label so the dossier SHOWS the
+   * composition. Selection never double-counts: pure interest + separate dividend are itemized when
+   * tagged; the combined interest-and-dividend variant is used ONLY when the pure concept is absent.
+   * May be absent — the recompute then stays fail-closed UNDETERMINED.
+   */
+  impermissible_income_lines?: ImpermissibleIncomeLine[]
   /** Stockholders' equity (instant), $millions — for the invested-capital proxy. */
   stockholders_equity_musd?: number
   /** Operating income/loss (annual flow), $millions — for the NOPAT proxy. */
@@ -73,10 +83,23 @@ export type AnnualFacts = {
   income_tax_expense_musd?: number
 }
 
+/** One itemized impermissible-income component: the XBRL concept it resolved from, a human label, $M. */
+export type ImpermissibleIncomeLine = {
+  concept: string
+  label: string
+  amount_musd: number
+}
+
 export type FilingRef = {
   form: string
   filed: string
   url: string
+  /**
+   * 8-K item codes as EDGAR reports them ('2.02,9.01'), straight from the submissions index — the
+   * deterministic material-vs-routine signal (2.06 impairment vs 2.02 scheduled earnings). Absent for
+   * non-8-K forms and for filings whose metadata lacks it.
+   */
+  items?: string
 }
 
 export type Fundamentals = {
@@ -92,6 +115,25 @@ export type Fundamentals = {
   latest_annual: AnnualFacts
   annual_series: AnnualFacts[]
   filings: FilingRef[]
+  /**
+   * Recent NON-annual readable filings (8-K material events + 10-Q quarterly reports, incl. amendments),
+   * newest-first — the interim-recency layer (Slice B). Grounded + read by NARRATIVE only; their numbers
+   * never enter `annual_series`/the recompute (the XBRL parse is annual-form-gated). Empty when none.
+   */
+  recent_filings?: FilingRef[]
+  /**
+   * Definitive annual proxy statements (DEF 14A only — no supplements/preliminaries/third-party
+   * solicitations), newest-first. Grounded + read by NARRATIVE only (executive comp structure,
+   * governance, insider ownership, related-party transactions); proxy numbers never enter the
+   * recompute. Empty when none.
+   */
+  proxy_filings?: FilingRef[]
+  /**
+   * Insider ownership filings (Form 4 / 4/A) from the submissions index, newest-first — the LIST only
+   * (cheap; no XML fetched here). secForm4.ts fetches and deterministically parses the selected subset in
+   * the deep-dive phase (avoiding the per-document fetch cost on the quick screen). Empty when none.
+   */
+  form4_filings?: FilingRef[]
   /**
    * SEC Standard Industrial Classification code from the submissions endpoint (e.g. '7372'), when
    * present. Best-effort/fail-open: undefined when submissions are unavailable or omit it — never
@@ -574,6 +616,45 @@ async function fetchSecJson<T>(rawUrl: string, deps?: SecEdgarDeps): Promise<T |
 }
 
 // ---------------------------------------------------------------------------
+// 8-K exhibit discovery (the exhibit arc)
+// ---------------------------------------------------------------------------
+
+type AccessionIndex = { directory?: { item?: { name?: string }[] } }
+
+/** An EX-99 exhibit document: 'costex9918-k121125.htm', 'ex99-1.htm', 'pressex991.htm', … */
+const EXHIBIT_NAME = /ex.?-?99/i
+
+/**
+ * Discover the EX-99 press-release exhibits of an 8-K from its accession directory's index.json. The
+ * 8-K PRIMARY document is usually an announcement cover — the earnings data (renewal rates,
+ * comparable sales, margins) lives in the exhibits (live re-review find on COST). Returns up to two
+ * absolute Archives URLs, 99.1-style names first (lexicographic on the ex-number region ≈ 99.1 before
+ * 99.2). FAIL-CLOSED to [] on any guard/fetch/parse problem — the re-review then reads what it has.
+ */
+export async function discoverEightKExhibits(primaryDocUrl: string, deps?: SecEdgarDeps): Promise<string[]> {
+  let dirUrl: string
+  try {
+    const url = assertSecUrl(primaryDocUrl)
+    dirUrl = url.toString().replace(/\/[^/]*$/, '/')
+  } catch {
+    return []
+  }
+  const index = await fetchSecJson<AccessionIndex>(`${dirUrl}index.json`, deps)
+  const items = index?.directory?.item
+  if (!Array.isArray(items)) return []
+  const primaryName = primaryDocUrl.slice(primaryDocUrl.lastIndexOf('/') + 1)
+  return items
+    .map((item) => item?.name)
+    .filter((name): name is string => typeof name === 'string'
+      && name !== primaryName
+      && /\.html?$/i.test(name)
+      && EXHIBIT_NAME.test(name))
+    .sort()
+    .slice(0, 2)
+    .map((name) => `${dirUrl}${name}`)
+}
+
+// ---------------------------------------------------------------------------
 // Ticker -> CIK
 // ---------------------------------------------------------------------------
 
@@ -649,6 +730,37 @@ const ANNUAL_FORMS = new Set(['10-K', '20-F', '40-F'])
 
 function isAnnualForm(form: string | undefined): boolean {
   return typeof form === 'string' && ANNUAL_FORMS.has(form)
+}
+
+/** Non-annual filings whose NARRATIVE is grounded + readable for interim recency (Slice B). 6-K is the
+ * foreign-private-issuer interim/material-event equivalent of 8-K/10-Q — a heavy foreign filer emits
+ * many 6-Ks, but the filed-after-latest-annual anchor + the selection cap bound the grounding cost. */
+const RECENT_READABLE_FORMS = new Set(['8-K', '8-K/A', '10-Q', '10-Q/A', '6-K', '6-K/A'])
+
+function isRecentReadableForm(form: string | undefined): boolean {
+  return typeof form === 'string' && RECENT_READABLE_FORMS.has(form)
+}
+
+/**
+ * The definitive annual proxy statement — EXACTLY 'DEF 14A'. Deliberately excluded: DEFA14A
+ * (supplemental soliciting material/ads, not the proxy), PRE 14A (preliminary, superseded by the DEF),
+ * PX14A6G (THIRD-PARTY exempt solicitations — activist letters; grounding those as "the company's
+ * proxy" would poison the management lane with adversarial outside material), DEFM14A (merger
+ * proxies — special-purpose) and DEFR14A (revised; rare). A miss fails closed to "no proxy grounded".
+ */
+const PROXY_FORMS = new Set(['DEF 14A'])
+
+function isProxyForm(form: string | undefined): boolean {
+  return typeof form === 'string' && PROXY_FORMS.has(form)
+}
+
+/** Insider ownership statements of changes — Form 4 (and its amendment 4/A). Section 16 officers,
+ * directors, and 10% owners must file within two business days of a transaction; the XML is parsed
+ * deterministically by secForm4.ts (never grounded as narrative). A miss fails closed to "no insider data". */
+const FORM_4_FORMS = new Set(['4', '4/A'])
+
+function isForm4(form: string | undefined): boolean {
+  return typeof form === 'string' && FORM_4_FORMS.has(form)
 }
 
 /** True when a taxonomy bucket has at least one concept with data. */
@@ -903,6 +1015,14 @@ type ConceptMap = {
   debtFallback: string[]
   cash: string[]
   shortTermInvestments: string[]
+  /**
+   * Impermissible-income components (Shariah purification inputs), each PRECEDENCE-ORDERED per year.
+   * `interest` (pure interest income) and `dividend` are itemized side by side when tagged; `combined`
+   * (interest-and-dividend rollups) is used ONLY for years the pure interest concept does not report —
+   * it already contains dividends, so it is never stacked on the itemized lines (no double-count).
+   * Absent per year degrades gracefully (recompute stays fail-closed UNDETERMINED).
+   */
+  impermissibleIncome: { interest: string[]; dividend: string[]; combined: string[] }
   interest: string
   stockholdersEquity: string
   operatingIncome: string
@@ -995,6 +1115,15 @@ const US_GAAP_CONCEPTS: ConceptMap = {
     'AvailableForSaleSecuritiesCurrent',
     'DebtSecuritiesHeldToMaturityAmortizedCostAfterAllowanceForCreditLoss',
   ],
+  // Impermissible-income components: pure interest + separate dividend itemized when tagged; MSFT tags
+  // the combined interest-and-dividend variant (dividends included = conservative overcount, accepted)
+  // — used only when the pure concept is absent; the operating variant is a last-resort (financials-
+  // adjacent filers).
+  impermissibleIncome: {
+    interest: ['InvestmentIncomeInterest'],
+    dividend: ['InvestmentIncomeDividend'],
+    combined: ['InvestmentIncomeInterestAndDividend', 'InterestAndDividendIncomeOperating'],
+  },
   interest: 'InterestExpense',
   stockholdersEquity: 'StockholdersEquity',
   operatingIncome: 'OperatingIncomeLoss',
@@ -1044,6 +1173,14 @@ const IFRS_CONCEPTS: ConceptMap = {
   debtFallback: [],
   cash: ['CashAndCashEquivalents'],
   shortTermInvestments: [],
+  // IFRS impermissible-income best-effort: pure interest concepts only (no reliable dividend/combined
+  // concepts mapped yet — `FinanceIncome` folds in FX gains and would overcount noisily). Absent for a
+  // given filer → degrades to fail-closed UNDETERMINED, exactly like a missing us-gaap tag.
+  impermissibleIncome: {
+    interest: ['InterestIncome', 'InterestRevenueCalculatedUsingEffectiveInterestMethod'],
+    dividend: [],
+    combined: [],
+  },
   interest: 'InterestExpense',
   stockholdersEquity: 'Equity',
   operatingIncome: 'ProfitLossFromOperatingActivities',
@@ -1115,6 +1252,75 @@ function firstPopulatedByYear(facts: CompanyFacts, taxonomy: Taxonomy, concepts:
     }
   }
   return out
+}
+
+/** firstPopulatedByYear, but each year also remembers WHICH concept won — so an itemized line can cite it. */
+function firstPopulatedByYearWithConcept(
+  facts: CompanyFacts,
+  taxonomy: Taxonomy,
+  concepts: string[],
+): Map<number, { concept: string; value: number }> {
+  const out = new Map<number, { concept: string; value: number }>()
+  for (const c of concepts) {
+    const m = annualByFiscalYear(facts, taxonomy, c)
+    for (const [fy, v] of m) {
+      if (!out.has(fy)) out.set(fy, { concept: c, value: v })
+    }
+  }
+  return out
+}
+
+/** Human labels for the impermissible-income concepts (shown as itemized dossier lines). */
+const IMPERMISSIBLE_INCOME_LABELS: Record<string, string> = {
+  InvestmentIncomeInterest: 'interest income',
+  InvestmentIncomeDividend: 'dividend income',
+  InvestmentIncomeInterestAndDividend: 'interest and dividend income (combined)',
+  InterestAndDividendIncomeOperating: 'interest and dividend income (operating)',
+  InterestIncome: 'interest income',
+  InterestRevenueCalculatedUsingEffectiveInterestMethod: 'interest revenue (effective interest method)',
+}
+
+/**
+ * Itemized impermissible-income lines for one fiscal year, non-overlapping: the pure interest concept +
+ * a separate dividend concept are itemized side by side; the combined interest-and-dividend rollup is
+ * used ONLY when the pure interest concept is absent (it already contains dividends, so the separate
+ * dividend line is then skipped too — never stacked). Returns undefined when nothing is tagged.
+ */
+function impermissibleIncomeLinesFor(
+  fy: number,
+  impInterest: Map<number, { concept: string; value: number }>,
+  impDividend: Map<number, { concept: string; value: number }>,
+  impCombined: Map<number, { concept: string; value: number }>,
+): ImpermissibleIncomeLine[] | undefined {
+  const line = (hit: { concept: string; value: number }): ImpermissibleIncomeLine | undefined => {
+    const amount = toMusd(hit.value)
+    return amount === undefined ? undefined : {
+      concept: hit.concept,
+      label: IMPERMISSIBLE_INCOME_LABELS[hit.concept] ?? hit.concept,
+      amount_musd: amount,
+    }
+  }
+  const interestHit = impInterest.get(fy)
+  const lines: ImpermissibleIncomeLine[] = []
+  if (interestHit !== undefined) {
+    const interestLine = line(interestHit)
+    if (interestLine !== undefined) lines.push(interestLine)
+    const dividendHit = impDividend.get(fy)
+    const dividendLine = dividendHit !== undefined ? line(dividendHit) : undefined
+    if (dividendLine !== undefined) lines.push(dividendLine)
+  } else {
+    const combinedHit = impCombined.get(fy)
+    const combinedLine = combinedHit !== undefined ? line(combinedHit) : undefined
+    if (combinedLine !== undefined) {
+      lines.push(combinedLine)
+    } else {
+      // No interest, no combined: a lone dividend line is still an itemizable component.
+      const dividendHit = impDividend.get(fy)
+      const dividendLine = dividendHit !== undefined ? line(dividendHit) : undefined
+      if (dividendLine !== undefined) lines.push(dividendLine)
+    }
+  }
+  return lines.length > 0 ? lines : undefined
 }
 
 /**
@@ -1237,6 +1443,11 @@ function buildAnnualSeries(facts: CompanyFacts, taxonomy: Taxonomy, currency: Re
   const cash = firstPopulatedByYear(facts, taxonomy, cm.cash)
   const shortTermInv = firstPopulatedByYear(facts, taxonomy, cm.shortTermInvestments)
   const interest = annualByFiscalYear(facts, taxonomy, cm.interest)
+  // Impermissible-income components (flows) per fiscal year, each resolved with its winning concept so
+  // the itemized line can cite it.
+  const impInterest = firstPopulatedByYearWithConcept(facts, taxonomy, cm.impermissibleIncome.interest)
+  const impDividend = firstPopulatedByYearWithConcept(facts, taxonomy, cm.impermissibleIncome.dividend)
+  const impCombined = firstPopulatedByYearWithConcept(facts, taxonomy, cm.impermissibleIncome.combined)
   // Gross PP&E (instant) per fiscal year — first populated candidate wins; absent → Greenwald proxy degrades.
   const grossPpe = firstPopulatedByYear(facts, taxonomy, cm.grossPpe)
   const stockholdersEquity = annualByFiscalYear(facts, taxonomy, cm.stockholdersEquity)
@@ -1266,26 +1477,31 @@ function buildAnnualSeries(facts: CompanyFacts, taxonomy: Taxonomy, currency: Re
       ?? filedMetaRev.map((m) => m.get(fy)).find((v) => v !== undefined)
       ?? filedMetaDa.map((m) => m.get(fy)).find((v) => v !== undefined)
 
-    series.push({
-      fiscal_year: fy,
-      currency,
-      ...optional('filed', filedMeta?.filed),
-      ...optional('period_end', filedMeta?.period_end),
-      ...optional('net_income_musd', toMusd(netIncome.get(fy))),
-      ...optional('revenue_musd', toMusd(revenue.get(fy))),
-      ...optional('d_and_a_musd', toMusd(dAndA.get(fy))),
-      ...optional('capex_musd', toMusd(capex.get(fy))),
-      ...optional('gross_ppe_musd', toMusd(grossPpe.get(fy))),
-      ...optional('sbc_musd', toMusd(sbc.get(fy))),
-      ...optional('diluted_shares_m', toMshares(dilutedShares.get(fy))),
-      ...optional('shares_outstanding_m', toMshares(sharesOut.get(fy))),
-      ...optional('total_debt_musd', toMusd(totalDebtRaw)),
-      ...optional('cash_and_securities_musd', toMusd(cashRaw)),
-      ...optional('interest_expense_musd', toMusd(interest.get(fy))),
-      ...optional('stockholders_equity_musd', toMusd(stockholdersEquity.get(fy))),
-      ...optional('operating_income_musd', toMusd(operatingIncome.get(fy))),
-      ...optional('income_tax_expense_musd', toMusd(incomeTax.get(fy))),
-    })
+    // Imperative conditional assignment (not chained `...optional(...)` spreads): 17 optional spreads
+    // exceed tsc's union-complexity limit (TS2590 — each spread doubles the candidate union), and
+    // exactOptionalPropertyTypes permits assigning a checked-defined value directly.
+    const row: AnnualFacts = { fiscal_year: fy, currency }
+    const set = <K extends keyof AnnualFacts>(key: K, value: AnnualFacts[K] | undefined): void => {
+      if (value !== undefined) row[key] = value
+    }
+    set('filed', filedMeta?.filed)
+    set('period_end', filedMeta?.period_end)
+    set('net_income_musd', toMusd(netIncome.get(fy)))
+    set('revenue_musd', toMusd(revenue.get(fy)))
+    set('d_and_a_musd', toMusd(dAndA.get(fy)))
+    set('capex_musd', toMusd(capex.get(fy)))
+    set('gross_ppe_musd', toMusd(grossPpe.get(fy)))
+    set('sbc_musd', toMusd(sbc.get(fy)))
+    set('diluted_shares_m', toMshares(dilutedShares.get(fy)))
+    set('shares_outstanding_m', toMshares(sharesOut.get(fy)))
+    set('total_debt_musd', toMusd(totalDebtRaw))
+    set('cash_and_securities_musd', toMusd(cashRaw))
+    set('interest_expense_musd', toMusd(interest.get(fy)))
+    set('impermissible_income_lines', impermissibleIncomeLinesFor(fy, impInterest, impDividend, impCombined))
+    set('stockholders_equity_musd', toMusd(stockholdersEquity.get(fy)))
+    set('operating_income_musd', toMusd(operatingIncome.get(fy)))
+    set('income_tax_expense_musd', toMusd(incomeTax.get(fy)))
+    series.push(row)
   }
   return series
 }
@@ -1310,37 +1526,113 @@ type Submissions = {
       filingDate?: string[]
       accessionNumber?: string[]
       primaryDocument?: string[]
+      /** Parallel array of 8-K item-code strings ('2.02,9.01'); empty string for non-8-K rows. */
+      items?: string[]
     }
   }
 }
 
-function buildFilings(subs: Submissions | undefined, cik10: string): FilingRef[] {
+/** Build FilingRefs from the submissions index for forms matching `formMatches`, newest-first. */
+function buildFilingsWhere(
+  subs: Submissions | undefined,
+  cik10: string,
+  formMatches: (form: string | undefined) => boolean,
+): FilingRef[] {
   const recent = subs?.filings?.recent
   if (recent === undefined) return []
   const forms = recent.form ?? []
   const dates = recent.filingDate ?? []
   const accessions = recent.accessionNumber ?? []
   const docs = recent.primaryDocument ?? []
+  const itemsList = recent.items ?? []
   const cikInt = String(parseInt(cik10, 10))
 
   const filings: FilingRef[] = []
   for (let i = 0; i < forms.length; i++) {
     const form = forms[i]
-    if (!isAnnualForm(form)) continue
+    if (!formMatches(form)) continue
     const accession = accessions[i]
     const doc = docs[i]
     const filed = dates[i]
+    const items = itemsList[i]
     if (typeof accession !== 'string' || typeof doc !== 'string') continue
     const accNoDashes = accession.replace(/-/g, '')
     filings.push({
       form: form as string,
       filed: typeof filed === 'string' ? filed : '',
       url: `https://www.sec.gov/Archives/edgar/data/${cikInt}/${accNoDashes}/${doc}`,
+      ...(typeof items === 'string' && items.length > 0 ? { items } : {}),
     })
   }
   // newest first
   filings.sort((a, b) => (a.filed < b.filed ? 1 : a.filed > b.filed ? -1 : 0))
   return filings
+}
+
+/** Annual primary filings (10-K/20-F/40-F), newest-first. Unchanged behavior. */
+function buildFilings(subs: Submissions | undefined, cik10: string): FilingRef[] {
+  return buildFilingsWhere(subs, cik10, isAnnualForm)
+}
+
+/** Recent non-annual readable filings (8-K / 10-Q + amendments), newest-first (Slice B). */
+export function buildReadableRecentFilings(subs: Submissions | undefined, cik10: string): FilingRef[] {
+  return buildFilingsWhere(subs, cik10, isRecentReadableForm)
+}
+
+/** Definitive annual proxy statements (DEF 14A only — see PROXY_FORMS), newest-first. */
+export function buildProxyFilings(subs: Submissions | undefined, cik10: string): FilingRef[] {
+  return buildFilingsWhere(subs, cik10, isProxyForm)
+}
+
+/**
+ * Insider ownership filings (Form 4 / 4/A — see FORM_4_FORMS), newest-first. EDGAR's `primaryDocument`
+ * for a Form 4 is the XSL-RENDERED HTML (e.g. `xslF345X06/form4.xml`); the machine-readable ownership XML
+ * is the same filename with that render-prefix stripped. We rewrite the URL to the raw XML so secForm4's
+ * parser reads the structured document, not the HTML rendering.
+ */
+export function buildForm4Filings(subs: Submissions | undefined, cik10: string): FilingRef[] {
+  return buildFilingsWhere(subs, cik10, isForm4).map((f) => ({
+    ...f,
+    url: f.url.replace(/\/xsl[^/]*\/(?=[^/]+\.xml$)/i, '/'),
+  }))
+}
+
+/**
+ * The latest definitive proxy statement to ground for the management lane. LATEST-ONLY contract — no
+ * recency anchor, unlike the interim selector: proxies file ~annually (typically AFTER the 10-K), so
+ * the latest DEF 14A legitimately may predate the latest annual filing and is still the current proxy.
+ * Pure / fail-closed: undefined when none.
+ */
+export function selectLatestProxyFiling(f: { proxy_filings?: FilingRef[] }): FilingRef | undefined {
+  const proxies = f.proxy_filings ?? []
+  if (proxies.length === 0) return undefined
+  return [...proxies].sort((a, b) => (a.filed < b.filed ? 1 : a.filed > b.filed ? -1 : 0))[0]
+}
+
+/**
+ * Select the recent readable filings to ground for interim recency: those filed AFTER the latest annual
+ * filing (the recency anchor), newest-first, capped. Pure / fail-closed: returns [] when there are no
+ * recent filings. A staler-than-the-annual filing is rejected (it predates the grounded floor).
+ */
+/**
+ * The latest PRIMARY ANNUAL filing across all annual forms (10-K US, 20-F/40-F foreign) — the document
+ * the deep dive grounds as the readable primary source. `filings` is already annual-filtered and
+ * newest-first, so the first annual match is the latest; the predicate is belt-and-braces. Pure /
+ * fail-closed: undefined when no annual filing exists (non-US-listed name, submissions unavailable).
+ */
+export function selectLatestAnnualFiling(f: { filings?: FilingRef[] }): FilingRef | undefined {
+  return f.filings?.find((x) => isAnnualForm(x.form))
+}
+
+export function selectRecentReadableFilings(
+  f: { filings?: FilingRef[]; recent_filings?: FilingRef[] },
+  opts?: { max?: number; afterFiled?: string },
+): FilingRef[] {
+  const recent = f.recent_filings ?? []
+  const anchor = opts?.afterFiled ?? f.filings?.find((x) => isAnnualForm(x.form))?.filed
+  const filtered = anchor === undefined || anchor.length === 0 ? recent : recent.filter((x) => x.filed > anchor)
+  const sorted = [...filtered].sort((a, b) => (a.filed < b.filed ? 1 : a.filed > b.filed ? -1 : 0))
+  return sorted.slice(0, opts?.max ?? 6)
 }
 
 // ---------------------------------------------------------------------------
@@ -1386,6 +1678,9 @@ export async function fetchCompanyFundamentals(
     deps,
   )
   const filings = buildFilings(subs, cik10)
+  const recent_filings = buildReadableRecentFilings(subs, cik10)
+  const proxy_filings = buildProxyFilings(subs, cik10)
+  const form4_filings = buildForm4Filings(subs, cik10)
 
   return {
     cik: cik10,
@@ -1394,6 +1689,9 @@ export async function fetchCompanyFundamentals(
     latest_annual,
     annual_series,
     filings,
+    recent_filings,
+    proxy_filings,
+    form4_filings,
     // SIC sector/industry is best-effort/fail-open: present only when submissions carry it, trimmed
     // but not coerced/padded, and omitted (undefined) otherwise so it is never fabricated.
     ...optional('sic', trimmedString(subs?.sic)),

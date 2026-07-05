@@ -12,15 +12,18 @@ import { projectHoldings } from './holdingProjection'
  * projections plus the raw event stream (for per-run timelines + lane timing).
  */
 
-/** The canonical Buffett-Munger deep-dive specialist lanes (kept in sync with the strategy set). */
+/**
+ * The canonical Buffett-Munger deep-dive specialist lanes (kept in sync with the strategy set).
+ * Valuation is NOT a parallel lane — it is a dedicated focused pass run during synthesis.
+ * See: packages/workflow/src/strategyResearchPipeline.ts (buffettMungerDeepDiveLanes).
+ * The drift-guard test in __tests__/pipelineSpecialistLanesSync.test.ts catches any divergence.
+ */
 export const PIPELINE_SPECIALIST_LANES = [
   'business_quality',
   'moat',
   'management',
   'financial_quality',
-  'shariah',
   'risks',
-  'valuation',
 ] as const
 
 export type PipelineStageKey =

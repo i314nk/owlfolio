@@ -13,6 +13,7 @@ import { POST } from './route'
 const originalEnv = {
   OWLFOLIO_APP_CONFIG_PATH: process.env.OWLFOLIO_APP_CONFIG_PATH,
   OWLFOLIO_PROJECT_DIR: process.env.OWLFOLIO_PROJECT_DIR,
+  OPENROUTER_API_KEY: process.env.OPENROUTER_API_KEY,
 }
 
 const RC = 'rc_sell_route'
@@ -126,6 +127,10 @@ describe('/api/research/[caseId]/sell-decision', () => {
     ledgerPath = join(tempDir, 'personal.sqlite')
     process.env.OWLFOLIO_APP_CONFIG_PATH = appConfigPath
     process.env.OWLFOLIO_PROJECT_DIR = tempDir
+    // The default personal-local provider is OpenRouter; make it deterministically ready so the
+    // route's fail-closed readiness gate doesn't 400 the happy paths (the not-ready path is covered
+    // explicitly via readinessOverride below).
+    process.env.OPENROUTER_API_KEY = 'test-openrouter-key'
     await writeFile(appConfigPath, JSON.stringify({
       ...defaultPersonalLocalAppConfig(),
       ledger_path: ledgerPath,
@@ -190,7 +195,7 @@ describe('/api/research/[caseId]/sell-decision', () => {
     await seedHeld(ledgerPath)
     const res = await callRoute(RC, { trigger: 'valuation_inverted' }, {
       ...priceDeps(90),
-      readinessOverride: { is_ready: false, provider_id: 'claude', status_label: 'not configured' },
+      readinessOverride: { is_ready: false, provider_id: 'openrouter', status_label: 'not configured' },
     })
     expect(res.status).toBe(400)
     const body = await res.json() as { error: { code?: string } }

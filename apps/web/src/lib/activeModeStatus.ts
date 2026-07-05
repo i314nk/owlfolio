@@ -43,7 +43,7 @@ export function selectActiveModeStatus(input: ActiveModeStatusInput): ActiveMode
   if (input.mode === 'unconfigured') {
     return {
       kind: 'unconfigured',
-      label: 'Not set up — choose a mode',
+      label: 'No provider configured',
       href: ACTIVE_MODE_FIX_HREF,
     }
   }

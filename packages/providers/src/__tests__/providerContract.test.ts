@@ -30,11 +30,13 @@ describe('provider contract freeze', () => {
   it('locks provider support semantics and onboarding visibility', () => {
     const catalog = getProviderCatalog()
 
-    expect(catalog.find((provider) => provider.provider_id === 'claude')).toMatchObject({
+    // The CLI/OAuth providers (Codex, Claude CLI, Gemini CLI) were retired; surviving providers are
+    // OpenRouter + the direct API-key providers, all experimental and fail-closed until certified.
+    expect(catalog.find((provider) => provider.provider_id === 'openrouter')).toMatchObject({
       support_level: 'experimental',
       visible_in_onboarding: true,
     })
-    expect(catalog.find((provider) => provider.provider_id === 'openai')).toMatchObject({
+    expect(catalog.find((provider) => provider.provider_id === 'openai-api')).toMatchObject({
       support_level: 'experimental',
       visible_in_onboarding: true,
     })

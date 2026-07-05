@@ -87,6 +87,15 @@ describe('SOURCE_POLICY per-lane whitelist', () => {
     }
   })
 
+  it('MOAT admits the proxy (governance/dual-class/entrenchment is moat-relevant) — the OTHER classification lanes still reject it', () => {
+    expect(isCategoryAllowedForLane('moat', 'proxy')).toBe(true)
+    for (const lane of ['financial_quality', 'valuation', 'business_quality']) {
+      expect(isCategoryAllowedForLane(lane, 'proxy')).toBe(false)
+    }
+    // The widening is a deliberate, versioned act — pin the bump.
+    expect(SOURCE_POLICY.version).toBe('source-policy-2026-07-mechanism-6-v2-moat-proxy')
+  })
+
   it('MANAGEMENT admits proxies + insider data + transcripts, rejects financial_media (media profile)', () => {
     expect(isCategoryAllowedForLane('management', 'proxy')).toBe(true)
     expect(isCategoryAllowedForLane('management', 'insider_data')).toBe(true)

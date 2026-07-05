@@ -75,10 +75,17 @@ const CLASSIFICATION_POLICY: LaneSourcePolicy = {
  * The frozen DEFAULT per-lane source policy (spec Mechanism 6 table). Bump `version` on any change.
  */
 export const SOURCE_POLICY: SourcePolicy = Object.freeze({
-  version: 'source-policy-2026-06-mechanism-6-v1',
+  version: 'source-policy-2026-07-mechanism-6-v2-moat-proxy',
   lanes: {
     business_quality: CLASSIFICATION_POLICY,
-    moat: CLASSIFICATION_POLICY,
+    // MOAT: classification policy + the definitive proxy statement (owner-approved widening, 2026-07):
+    // dual-class structures, entrenchment, and governance ARE moat-relevant, and the DEF 14A is a
+    // company-authored primary SEC document. The other classification lanes stay proxy-free.
+    moat: {
+      allow: [...PRIMARY_DOCS, 'proxy'],
+      exclude: NARRATIVE,
+      allow_unknown: false,
+    },
     financial_quality: CLASSIFICATION_POLICY,
     valuation: CLASSIFICATION_POLICY,
     // MANAGEMENT: filings, proxies, transcripts, insider-trading data; EXCLUDE media profiles.

@@ -1,12 +1,15 @@
+import { existsSync } from 'node:fs'
+import { dirname, join, resolve } from 'node:path'
+
 import { createElement } from 'react'
 
 import { ProviderKeysPanel } from '../../../components/ProviderKeysPanel'
 import { ActiveModeIndicator } from '../../../components/ActiveModeIndicator'
 import { GuidedSetupPanel } from '../../../components/GuidedSetupPanel'
 import { BoundariesFooter } from '../../../components/designSystem'
-import { getOnboardingProviderOptions, getOnboardingState, getProviderReadinessSnapshot } from '../../../lib/onboarding'
-import { evaluateOnboardingGate } from '../../../lib/onboardingGate'
+import { getOnboardingProviderOptions, getOnboardingState } from '../../../lib/onboarding'
 import { buildProviderKeysPanelProps } from '../../../lib/providerKeysView'
+import { getOpenRouterModelOptions } from '../../../lib/openRouterModelOptions'
 import { resolveProjectRootFromCwd } from '../../../lib/appConfigStore'
 import { resolveModelIdForProvider } from '../../../lib/workflow'
 import { resolveActiveModeStatus } from '../../../lib/resolveActiveModeStatus'
@@ -14,13 +17,32 @@ import { ProviderKeysCopyScript } from './ProviderKeysCopyScript'
 
 export const dynamic = 'force-dynamic'
 
+/** Walk up from `dir` looking for a `.git` entry — true iff the dir is inside a git working tree. */
+function isInsideGitWorkTree(dir: string): boolean {
+  let current = resolve(dir)
+  for (;;) {
+    if (existsSync(join(current, '.git'))) {
+      return true
+    }
+    const parent = dirname(current)
+    if (parent === current) {
+      return false
+    }
+    current = parent
+  }
+}
+
 export default async function ProviderKeysSettingsPage() {
   const state = await getOnboardingState()
   const repoRoot = process.env.OWLFOLIO_PROJECT_DIR ?? resolveProjectRootFromCwd(process.cwd())
+  // The env-file safety warning only matters when the project dir is actually a git working tree; a local
+  // sandbox project dir that is not a git repo can never commit secrets, so suppress the false warning.
+  const repoIsGitWorkTree = isInsideGitWorkTree(repoRoot)
 
   const props = await buildProviderKeysPanelProps({
     ledgerPath: state.config.ledger_path,
     repoRoot,
+    repoIsGitWorkTree,
     processEnv: process.env,
     activeProviderId: state.config.provider.provider_id,
     activeModel: resolveModelIdForProvider(state.config),
@@ -30,18 +52,14 @@ export default async function ProviderKeysSettingsPage() {
   // unambiguous here too. DISPLAY ONLY — derived from config + readiness + the S4 gate.
   const activeModeStatus = await resolveActiveModeStatus(state.config)
 
-  // Guided-setup inputs: provider options for the shared toggle/dropdown, and the S4 gate's outstanding
-  // items so the end-to-end path (mode → provider → capital → run) stays visible. The frontier-LLM gate
-  // item is satisfied by verified readiness for the configured provider (readiness IS the connection),
-  // mirroring resolveActiveModeStatus.
+  // Guided-setup input: the provider options for the shared provider/model picker. (The onboarding gate's
+  // outstanding items are rendered by ProviderKeysPanel via buildProviderKeysPanelProps; capital is set on
+  // the Portfolio page, surfaced as a gate hint there.)
   const providerOptions = await getOnboardingProviderOptions({ env: process.env })
-  const configuredProviderReady = state.config.mode === 'personal-local'
-    ? (await getProviderReadinessSnapshot(state.config, { env: process.env })).is_ready
-    : false
-  const gate = await evaluateOnboardingGate({
-    ledgerPath: state.config.ledger_path,
-    configuredProviderReady,
-  })
+
+  // OpenRouter's full live catalog for the searchable model picker (cached, fail-closed to the curated
+  // shortlist when offline / unreachable). Only the OpenRouter connection consumes it.
+  const openRouterModels = await getOpenRouterModelOptions(process.env)
 
   return createElement(
     'div',
@@ -51,7 +69,7 @@ export default async function ProviderKeysSettingsPage() {
       initialConfig: state.config,
       initialIsInitialized: state.is_initialized,
       providerOptions,
-      missingItems: gate.missing_items,
+      openRouterModels,
     }),
     createElement(ProviderKeysPanel, props),
     createElement(ProviderKeysCopyScript, {}),

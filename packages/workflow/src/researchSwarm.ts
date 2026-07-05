@@ -15,7 +15,10 @@ import {
   anchorNetIncomeToEdgar,
 } from './rangeSanity'
 import { runValidatedAgent, ValidatedAgentFailedError, type RequiredFieldCheck } from './runValidatedAgent'
-import { groundProposedSources, isCitationGrounded, type CapturedSource, type GroundingDeps, type ProposedSource, type SourcePolicyRejection } from './sourceGrounding'
+// Shared CONSTS/clamps only (defaults + bounds for the circle-gate knobs) — the workflow package never
+// LOADS app config; callers resolve settings and thread them via the command.
+import { clampCircleGateKSamples, clampCircleGateMinBreakers, clampCircleGateMinDrivers } from '@owlfolio/shared/appConfig'
+import { groundProposedSources, isCitationGrounded, mergeCapturedIntoCorpus, type CapturedSource, type GroundingDeps, type ProposedSource, type SourcePolicyRejection } from './sourceGrounding'
 // Grounded-agent primitives live in a cycle-free module (groundedAgent) so BOTH this orchestrator AND
 // the red-team pass can import them without a circular module-evaluation dependency. Re-exported below
 // for existing importers (tests + workers import these from researchSwarm).
@@ -43,7 +46,8 @@ export {
   type GroundedAgentResult,
   type SynthesisResponse,
 }
-import { computeIncrementalRoic, demonstratedOwnerEarningsGrowth, estimateMaintenanceCapex, ownerEarningsVsFcfDiagnostic, type Fundamentals, type SecEdgarDeps } from './secEdgar'
+import { computeIncrementalRoic, demonstratedOwnerEarningsGrowth, estimateMaintenanceCapex, ownerEarningsVsFcfDiagnostic, selectLatestAnnualFiling, selectLatestProxyFiling, selectRecentReadableFilings, type Fundamentals, type ImpermissibleIncomeLine, type SecEdgarDeps } from './secEdgar'
+import { resolveInsiderSummary, type InsiderSummary, type InsiderSummaryComputed } from './secForm4'
 import { resolveFundamentalsForTicker } from './fundamentalsProvider'
 import { evaluateBaseRateBurden, type BaseRateBurdenFlag } from './baseRateBurden'
 import { BASE_RATES } from '@owlfolio/strategies/baseRates'
@@ -59,7 +63,7 @@ import {
   draftDeepDiveSynthesis,
   completeDeepDive,
 } from './strategyResearchPipeline'
-import { ingestManualSourceBundle } from './sourceLedger'
+import { ingestManualSourceBundle, type ManualUrlEvidenceSourceInput } from './sourceLedger'
 import { resolveResearchStrategyRef } from './researchStrategyRef'
 import { buffettMungerStrategy, creditedGrowth, discountRate, moatPassesGate, ownerEarningsAtHorizon, stage1HorizonForMoat, terminalGrowthForMoat, twoStageValuation } from '@owlfolio/strategies/buffettMunger'
 import { computeShariahFinancialRatios } from '@owlfolio/strategies/shariahFinancialRatios'
@@ -70,6 +74,7 @@ import { marketImpliedGrowth } from '@owlfolio/strategies/reverseDcf'
 import { fetchAverageMarketCap, resolveCurrentPrice, type AverageMarketCapResult, type MarketDataDeps, type PriceQuote } from './marketData'
 import { runRedTeamPass, runRedTeamResponsePass, buildRedTeamLayer, type RedTeamLaneDigest, type RedTeamResult } from './redTeamPass'
 import { runValuationReasoningPass, type ValuationReasoning } from './valuationReasoningPass'
+import { runShariahReasoningPass } from './shariahReasoningPass'
 import {
   resolveCrossCheck,
   compareMoatClass,
@@ -82,16 +87,14 @@ import {
   QuickScreenAgentSchema,
   LaneAgentSchema,
   MoatLaneSchema,
-  ShariahLaneSchema,
   DecisionAgentSchema,
   MoatCrossCheckSchema,
   ShariahCrossCheckSchema,
   CircleCompetenceSchema,
   AGENT_TIMEOUT_MS,
   MOAT_RUBRIC_PROMPT,
-  SHARIAH_OVERLAY_PROMPT,
   CIRCLE_COMPETENCE_PROMPT,
-  VALUATION_LANE_DISCOUNT_NOTE,
+  RISKS_RECENCY_NOTE,
   PRIMARY_FILING_LANES,
 } from './researchSwarmSchemas'
 // Deterministic harness compute (judgment-tier resolution, projection builders, OE-bridge filing block,
@@ -104,6 +107,9 @@ import {
   buildJudgmentProjection,
   resolveEngineCommit,
   buildPrimaryFilingBlock,
+  buildProxyBlock,
+  buildInsiderBlock,
+  buildRecentFilingsBlock,
   buildPreVerifiedSourcesBlock,
   buildQuickScreenFilingBlock,
   type MoatLaneJudgment,
@@ -150,8 +156,6 @@ export type LaneOutcome = {
   policy_rejections?: SourcePolicyRejection[]
   /** MOAT lane only: its rubric/holistic judgment (spec-correct: the lane scores its own rubric). */
   moat_judgment?: MoatLaneJudgment
-  /** SHARIAH lane only: its sector/impermissible-income overlay (harness recomputes the ratios). */
-  shariah_judgment?: ShariahLaneJudgment
   /** Visible per-lane degradation: the lane omitted its REQUIRED judgment block after schema-retry. */
   judgment_retry_degraded?: string
 }
@@ -199,6 +203,20 @@ type SwarmStore = EventStore<LedgerEventEnvelope<unknown>>
 // Command type
 // ---------------------------------------------------------------------------
 
+/**
+ * Circle-gate hardening settings (owner-editable via app-config automation settings, threaded by the
+ * web/worker caller — the workflow package never loads config). All optional; absent fields fall back
+ * to the shared DEFAULT_CIRCLE_GATE_* consts so caller omission cannot soften the gate.
+ */
+export type CircleGateSettings = {
+  /** Independent gate samples per run; deep dive entered only on a UNANIMOUS in-competence vote. */
+  k_samples?: number
+  /** Minimum GROUNDED cashflow drivers a sample must carry for its judgment to count. */
+  min_drivers?: number
+  /** Minimum GROUNDED predictability breakers a sample must carry for its judgment to count. */
+  min_breakers?: number
+}
+
 export type RunStrategyResearchSwarmCommand = {
   research_case_id: string
   company_id: string
@@ -212,6 +230,8 @@ export type RunStrategyResearchSwarmCommand = {
   source_ledger_path: string
   version?: number
   supersedes_research_case_id?: string
+  /** Circle-gate hardening knobs (k-sample agreement + evidence floors), forwarded to the deep dive. */
+  circle_gate?: CircleGateSettings
   /** Controls deep-dive gating.
    *  'automatic' (default): quick screen → deep dive → decision in one run.
    *  'review': quick screen → pause (deep_dive_approval_pending) → return without running deep dive.
@@ -254,6 +274,8 @@ export type RunResearchDeepDivePhaseCommand = {
    * over process.env, file wins). Omitted = `process.env` (historical default).
    */
   model_role_env?: Record<string, string | undefined>
+  /** Circle-gate hardening knobs (k-sample agreement + evidence floors). Absent → shared defaults. */
+  circle_gate?: CircleGateSettings
 }
 
 // ---------------------------------------------------------------------------
@@ -262,6 +284,33 @@ export type RunResearchDeepDivePhaseCommand = {
 
 function swarmSeg(value: string): string {
   return value.trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '')
+}
+
+/**
+ * Map captured sources to source-ledger inputs — the ONE mapping shared by every ingest site, carrying
+ * the Axis B cross-run enrichment (source_category / filed / form→filing_form / fetched_at) as TYPED
+ * TOP-LEVEL fields (the metadata sanitizer silently drops '/'-containing strings like '8-K/A'). The
+ * cross-run resolver (sourceLedgerRead) reads these back to rebuild a lane-gated read corpus. Document
+ * CONTENT is never mapped — the ledger persists pointers + hashes only.
+ */
+function toLedgerSourceInputs(captured: CapturedSource[], researchCaseId: string): ManualUrlEvidenceSourceInput[] {
+  return captured.map((c) => ({
+    source_id: c.source_id,
+    kind: 'url' as const,
+    title: c.title,
+    url: c.url,
+    excerpt: c.excerpt,
+    availability: c.availability,
+    ...(c.content_hash === undefined ? {} : { content_hash: c.content_hash }),
+    ...(c.source_category === undefined ? {} : { source_category: c.source_category }),
+    ...(c.form === undefined ? {} : { filing_form: c.form }),
+    ...(c.filed === undefined ? {} : { filed: c.filed }),
+    fetched_at: c.fetched_at,
+    metadata: {
+      research_case_id: researchCaseId,
+      ...(c.http_status === undefined ? {} : { http_status: c.http_status }),
+    },
+  }))
 }
 
 // ---------------------------------------------------------------------------
@@ -360,6 +409,16 @@ export type FundamentalsDeps = {
     diluted_shares: number,
     deps?: MarketDataDeps,
   ) => Promise<AverageMarketCapResult>
+  /**
+   * Pre-resolved insider-transaction summary (§3.3). Takes precedence over the live Form 4 fetch; tests
+   * inject this directly so the management-lane insider block is deterministic without touching the network.
+   */
+  insiderSummary?: InsiderSummary
+  /**
+   * Override the per-document Form 4 fetch (tests inject fixtures). Used only on the live path when
+   * `insiderSummary` is absent and the run is not in offline test mode.
+   */
+  fetchForm4Document?: (url: string) => Promise<string | undefined>
   // F.2 (SHIPPED): the discount risk-free anchor is the COMPLIANT app-config savings rate threaded into the
   // deep-dive command (`risk_free_rate`), NOT a live Treasury fetch. The former `resolveTreasuryYield`
   // override + `resolveTreasuryYieldValue` helper were retired here, and the now-dead marketData Treasury
@@ -498,7 +557,9 @@ export async function runStrategyResearchSwarm(
   // payload ROOT so every emission site — including the early-exit reject/set-aside paths — carries it.
   const engineCommit = resolveEngineCommit()
   const accumulated = new Map<string, CapturedSource>()
-  const remember = (captured: CapturedSource[]) => captured.forEach((c) => accumulated.set(c.source_id, c))
+  // Same-id guard (mergeCapturedIntoCorpus): a model re-proposal of an already-grounded id can never
+  // clobber the verified capture — see the live browse-edgar dogfood bug documented on the helper.
+  const remember = (captured: CapturedSource[]) => mergeCapturedIntoCorpus(accumulated, captured)
 
   // ---- Create research case ----
   const researchCase = await createResearchCase(store, {
@@ -743,19 +804,7 @@ export async function runStrategyResearchSwarm(
         proposed_by_actor_id: provider.provider_id,
         ingested_by_actor_type: 'system',
         ingested_by_actor_id: 'research_workflow',
-        sources: capturedSoFar.map((c) => ({
-          source_id: c.source_id,
-          kind: 'url' as const,
-          title: c.title,
-          url: c.url,
-          excerpt: c.excerpt,
-          availability: c.availability,
-          ...(c.content_hash === undefined ? {} : { content_hash: c.content_hash }),
-          metadata: {
-            research_case_id: command.research_case_id,
-            ...(c.http_status === undefined ? {} : { http_status: c.http_status }),
-          },
-        })),
+        sources: toLedgerSourceInputs(capturedSoFar, command.research_case_id),
       })
     }
 
@@ -782,19 +831,7 @@ export async function runStrategyResearchSwarm(
         proposed_by_actor_id: provider.provider_id,
         ingested_by_actor_type: 'system',
         ingested_by_actor_id: 'research_workflow',
-        sources: capturedSoFar.map((c) => ({
-          source_id: c.source_id,
-          kind: 'url' as const,
-          title: c.title,
-          url: c.url,
-          excerpt: c.excerpt,
-          availability: c.availability,
-          ...(c.content_hash === undefined ? {} : { content_hash: c.content_hash }),
-          metadata: {
-            research_case_id: command.research_case_id,
-            ...(c.http_status === undefined ? {} : { http_status: c.http_status }),
-          },
-        })),
+        sources: toLedgerSourceInputs(capturedSoFar, command.research_case_id),
       })
     }
 
@@ -848,6 +885,8 @@ export async function runStrategyResearchSwarm(
     ...(command.model_overrides === undefined ? {} : { model_overrides: command.model_overrides }),
     // Forward the env source so file-configured tiers take effect in the deep-dive phase too.
     ...(command.model_role_env === undefined ? {} : { model_role_env: command.model_role_env }),
+    // Forward the circle-gate hardening knobs (k-sample agreement + evidence floors).
+    ...(command.circle_gate === undefined ? {} : { circle_gate: command.circle_gate }),
   }, { ...deps, accumulated })
 
   return {
@@ -876,21 +915,30 @@ const MAINTENANCE_CAPEX_DIVERGENCE_FRACTION = 0.20
 async function judgeCircleCompetence(
   provider: Provider,
   command: RunResearchDeepDivePhaseCommand,
-  deps: { ground?: GroundFn; grounding?: GroundingDeps; maxToolCalls?: number; preVerifiedSourcesBlock?: string } & FundamentalsDeps,
+  deps: { ground?: GroundFn; grounding?: GroundingDeps; maxToolCalls?: number; preVerifiedSourcesBlock?: string; readCorpus?: ReadonlyMap<string, CapturedSource> } & FundamentalsDeps,
+  opts: { sampleIndex?: number; minDrivers?: number; minBreakers?: number } = {},
 ) {
   // The circle judgment runs on the synthesis role (T1 — the high-stakes judgment tier). Default = the
   // run's provider/model so single-provider runs are unchanged; an override can pin it onto a frontier model.
   const circleRuntime = resolveRoleRuntime('synthesis', provider, command)
+  // Evidence-floor gather instruction: tell the model how many cited clauses the harness requires so a
+  // thin gather is a MODEL shortfall, not a moving harness target.
+  const floorNote = opts.minDrivers !== undefined && opts.minBreakers !== undefined
+    ? ` Provide at least ${opts.minDrivers} distinct cited cashflow_drivers and at least ${opts.minBreakers} distinct cited predictability_breakers — fewer grounded clauses fails closed to outside-competence.`
+    : ''
   const prompt = `You are the Buffett-Munger circle-of-competence gate for ${command.ticker} (${command.company_id}). `
     + CIRCLE_COMPETENCE_PROMPT
+    + floorNote
     // citation/corpus-alignment: surface the harness's already-verified EDGAR primary source_id so the
     // cashflow_drivers / predictability_breakers cite an id that reliably verifies (the cite-check below
     // grounds on it) instead of the model's own flaky SEC-archive id.
     + (deps.preVerifiedSourcesBlock ?? '')
+  // Sample 1 keeps the historical run_id; later agreement samples get a suffix so per-call run ids stay unique.
+  const sampleSuffix = opts.sampleIndex !== undefined && opts.sampleIndex > 0 ? `_s${opts.sampleIndex + 1}` : ''
   const { degraded_no_tools: _circleDegraded, ...agent } = await runGroundedAgentWithTools(
     circleRuntime.provider,
     {
-      run_id: `run_${command.research_case_id}_circle_competence`,
+      run_id: `run_${command.research_case_id}_circle_competence${sampleSuffix}`,
       model_id: circleRuntime.model_id,
       prompt,
       timeout_ms: AGENT_TIMEOUT_MS,
@@ -902,11 +950,28 @@ async function judgeCircleCompetence(
       ...(deps.grounding === undefined ? {} : { grounding: deps.grounding }),
       ...(deps.fetchFundamentals === undefined ? {} : { fetchFundamentals: deps.fetchFundamentals }),
       ...(deps.maxToolCalls === undefined ? {} : { maxToolCalls: deps.maxToolCalls }),
+      ...(deps.readCorpus === undefined ? {} : { readCorpus: deps.readCorpus }),
     },
   )
   void _circleDegraded
   return agent
 }
+
+/** Max recent 8-K/10-Q filings grounded as readable interim-recency documents (Slice B). */
+const RECENT_READABLE_MAX = 6
+/** Lanes that receive the recent-interim-filings affordance — the QUALITATIVE lanes only (the numeric
+ * lanes are deliberately excluded so interim 10-Q numbers never tempt the valuation/Shariah recompute). */
+const RECENT_FILINGS_LANES = new Set<string>(['risks', 'moat', 'management', 'business_quality'])
+
+/** Lanes that receive the LATEST PROXY STATEMENT affordance (3.1): management (incentives/comp —
+ * primary) + moat (dual-class/entrenchment/governance — owner-approved SOURCE_POLICY v2 widening).
+ * The numeric lanes are deliberately excluded; risks can already cite anything but has no comp mandate. */
+const PROXY_LANES = new Set<string>(['management', 'moat'])
+
+/** Lanes that receive the INSIDER TRANSACTIONS (Form 4) affordance (§3.3): MANAGEMENT only — insider
+ * buying/selling is a management-quality / capital-allocation signal. Deterministically parsed by the
+ * harness (secForm4.ts); mechanical RSU/tax activity is excluded from the discretionary figures. */
+const INSIDER_LANES = new Set<string>(['management'])
 
 export async function runResearchDeepDivePhase(
   store: SwarmStore,
@@ -916,7 +981,9 @@ export async function runResearchDeepDivePhase(
 ) {
   const strategyRef = resolveResearchStrategyRef(command)
   const accumulated = deps.accumulated ?? new Map<string, CapturedSource>()
-  const remember = (captured: CapturedSource[]) => captured.forEach((c) => accumulated.set(c.source_id, c))
+  // Same-id guard (mergeCapturedIntoCorpus): a model re-proposal of an already-grounded id can never
+  // clobber the verified capture — see the live browse-edgar dogfood bug documented on the helper.
+  const remember = (captured: CapturedSource[]) => mergeCapturedIntoCorpus(accumulated, captured)
   // Engine-version provenance stamped at the analysis payload ROOT — on BOTH the circle-gate set-aside
   // early-exit and the full deep-dive emission below (best-effort commit; omitted when unset).
   const engineCommit = resolveEngineCommit()
@@ -925,8 +992,8 @@ export async function runResearchDeepDivePhase(
 
   // ---- Pre-fetch SEC EDGAR primary-filing fundamentals (fail-closed, test-mode-gated) ----
   // When fundamentals resolve, we ground the latest 10-K as a verified primary source and inject the
-  // raw filing numbers into the financial_quality / valuation / shariah lanes so those lanes ground on
-  // filings instead of dropping when IR/news is blocked. When they do not resolve (non-US ticker,
+  // raw filing numbers into the financial_quality / moat lanes (PRIMARY_FILING_LANES) so those lanes
+  // ground on filings instead of dropping when IR/news is blocked. When they do not resolve (non-US ticker,
   // EDGAR down, test mode w/o injection), the lanes run EXACTLY as today — no regression.
   //
   // citation/corpus-alignment fix (KO regression): this runs BEFORE the circle gate (not after, where it
@@ -941,29 +1008,121 @@ export async function runResearchDeepDivePhase(
   let primaryFilingBlock: string | undefined
   let primaryFilingSourceId: string | undefined
   if (fundamentals !== undefined) {
-    // NOTE: this is 10-K-ONLY and would miss a 20-F/40-F filer (e.g. TSMC). The quick-screen pre-fetch
-    // selects across all three annual forms (QUICK_SCREEN_ANNUAL_FORMS); broadening this deep-dive line is
-    // intentionally OUT OF SCOPE for this slice (it would shift the lane filing-block + sourceId shape).
-    const tenK = fundamentals.filings.find((x) => x.form === '10-K')
-    if (tenK !== undefined) {
-      const sourceId = `sec_edgar_10k_${fundamentals.cik}_fy${fundamentals.latest_annual.fiscal_year}`
+    // Latest PRIMARY ANNUAL across all annual forms (10-K US, 20-F/40-F foreign — the TSMC/Novo case),
+    // mirroring the quick-screen pre-fetch. The form-slug id keeps 10-K filers on the IDENTICAL
+    // `sec_edgar_10k_…` id (zero persistence/test churn); 20-F/40-F filers get `20f`/`40f` ids.
+    const annual = selectLatestAnnualFiling(fundamentals)
+    if (annual !== undefined) {
+      const formSlug = annual.form.toLowerCase().replace(/[^a-z0-9]/g, '')
+      const sourceId = `sec_edgar_${formSlug}_${fundamentals.cik}_fy${fundamentals.latest_annual.fiscal_year}`
       const proposed: ProposedSource = {
         source_id: sourceId,
-        title: `${fundamentals.entity_name} 10-K (FY${fundamentals.latest_annual.fiscal_year}) — SEC EDGAR`,
-        url: tenK.url,
-        excerpt: `Primary SEC EDGAR 10-K filing for ${fundamentals.entity_name} (CIK ${fundamentals.cik}), filed ${tenK.filed}.`,
+        title: `${fundamentals.entity_name} ${annual.form} (FY${fundamentals.latest_annual.fiscal_year}) — SEC EDGAR`,
+        url: annual.url,
+        excerpt: `Primary SEC EDGAR ${annual.form} filing for ${fundamentals.entity_name} (CIK ${fundamentals.cik}), filed ${annual.filed}.`,
       }
-      // Ground the 10-K through the same path as model-proposed sources (content-hash + SSRF guard).
+      // Ground the annual filing through the same path as model-proposed sources (content-hash + SSRF guard).
       const ground = deps.ground ?? groundProposedSources
       const grounded = await ground([proposed], deps.grounding)
       const captured = grounded.captured[0]
       if (captured !== undefined && grounded.verified_ids.includes(sourceId)) {
-        remember([captured])
+        // Stamp filed/form so the ledger record carries the document's provenance (Axis B metadata).
+        remember([{ ...captured, filed: annual.filed, form: annual.form }])
         primaryFilingSourceId = sourceId
-        primaryFilingBlock = buildPrimaryFilingBlock(fundamentals, sourceId)
+        primaryFilingBlock = buildPrimaryFilingBlock(fundamentals, sourceId, annual.form)
       }
     }
   }
+  // ---- Slice B: ground recent 8-K / 10-Q NARRATIVE as readable documents (interim recency) ----
+  // Mirrors the 10-K grounding: fetch + sha256 + ledger via the SAME path, remembered into `accumulated`
+  // so the qualitative lanes can READ them by Item via read_source. NUMBERS are never parsed here (the
+  // annual-only recompute is untouched). Fail-closed: anything that does not ground is simply absent and
+  // the lanes run on the annual floor as today.
+  let recentFilingsBlock: string | undefined
+  if (fundamentals !== undefined) {
+    const recent = selectRecentReadableFilings(fundamentals, { max: RECENT_READABLE_MAX })
+    if (recent.length > 0) {
+      const ground = deps.ground ?? groundProposedSources
+      const proposed: ProposedSource[] = recent.map((file, i) => ({
+        source_id: `sec_edgar_recent_${fundamentals.cik}_${i}_${file.filed}`,
+        title: `${fundamentals.entity_name} ${file.form} filed ${file.filed} — SEC EDGAR`,
+        url: file.url,
+        excerpt: `${file.form} interim filing for ${fundamentals.entity_name}, filed ${file.filed}.`,
+      }))
+      const grounded = await ground(proposed, deps.grounding)
+      const verifiedSet = new Set(grounded.verified_ids)
+      const verifiedRecent = recent
+        .map((file, i) => ({ file, source_id: proposed[i]!.source_id }))
+        .filter((x) => verifiedSet.has(x.source_id))
+      if (verifiedRecent.length > 0) {
+        // Stamp filed/form per capture so the ledger records carry document provenance (Axis B metadata).
+        const byId = new Map(verifiedRecent.map((x) => [x.source_id, x.file]))
+        remember(grounded.captured
+          .filter((c) => verifiedSet.has(c.source_id))
+          .map((c) => {
+            const file = byId.get(c.source_id)
+            return file === undefined ? c : { ...c, filed: file.filed, form: file.form }
+          }))
+        recentFilingsBlock = buildRecentFilingsBlock(
+          verifiedRecent.map((x) => ({ source_id: x.source_id, form: x.file.form, filed: x.file.filed })),
+        )
+      }
+    }
+  }
+
+  // ---- 3.1: ground the LATEST DEF 14A proxy as a readable document (management + moat) ----
+  // The proxy is where incentive structure lives (comp linkage, insider ownership, governance,
+  // related-party). Read as TEXT for qualitative judgment — comp tables are never parsed into figures.
+  // The category is STAMPED 'proxy' at grounding because a real DEF 14A primaryDocument filename
+  // (e.g. cost-20251204.htm) carries no URL signal for the classifier; the stamp drives the lane gate
+  // (management + moat admit 'proxy' per SOURCE_POLICY v2; the numeric lanes reject it). Fail-closed:
+  // an ungrounded proxy is simply absent and the lanes run as today.
+  let proxyBlock: string | undefined
+  if (fundamentals !== undefined) {
+    const proxy = selectLatestProxyFiling(fundamentals)
+    if (proxy !== undefined) {
+      const ground = deps.ground ?? groundProposedSources
+      const proxySourceId = `sec_edgar_def14a_${fundamentals.cik}_${proxy.filed}`
+      const proposed: ProposedSource = {
+        source_id: proxySourceId,
+        title: `${fundamentals.entity_name} DEF 14A proxy statement filed ${proxy.filed} — SEC EDGAR`,
+        url: proxy.url,
+        excerpt: `Definitive annual proxy statement (DEF 14A) for ${fundamentals.entity_name}, filed ${proxy.filed}.`,
+      }
+      const grounded = await ground([proposed], deps.grounding)
+      const captured = grounded.captured[0]
+      if (captured !== undefined && grounded.verified_ids.includes(proxySourceId)) {
+        remember([{ ...captured, source_category: 'proxy' as const, filed: proxy.filed, form: proxy.form }])
+        proxyBlock = buildProxyBlock({ source_id: proxySourceId, filed: proxy.filed })
+      }
+    }
+  }
+
+  // ---- 3.3: INSIDER TRANSACTIONS (Form 4) — deterministic summary for the MANAGEMENT lane ----
+  // The harness fetches + parses the recent Form 4 documents (secForm4.ts) from the submissions Form 4
+  // list, ONLY in the deep dive so the ~cap-40 per-document fetch cost never burdens the quick screen.
+  // Discretionary open-market (P/S) trades are the management-quality signal; mechanical RSU/option/tax
+  // activity is surfaced separately and NEVER counted as insider selling. Fail-closed + test-mode-gated
+  // exactly like the proxy/interim affordances: an uncomputable summary is simply absent and the lane
+  // runs as today. `insiderSummary` is also carried forward for the re-review cluster trigger.
+  let insiderBlock: string | undefined
+  let insiderSummaryComputed: InsiderSummaryComputed | undefined
+  if (fundamentals !== undefined) {
+    let summary: InsiderSummary | undefined = deps.insiderSummary
+    if (summary === undefined && !isOfflineTestMode()) {
+      const asOf = new Date().toISOString().slice(0, 10)
+      summary = await resolveInsiderSummary(
+        fundamentals.form4_filings ?? [],
+        { asOf },
+        deps.fetchForm4Document !== undefined ? { fetchDocument: deps.fetchForm4Document } : undefined,
+      )
+    }
+    if (summary !== undefined && summary.computable) {
+      insiderSummaryComputed = summary
+      insiderBlock = buildInsiderBlock(summary)
+    }
+  }
+
   // The PRE-VERIFIED-SOURCES block lists the harness's already-content-hash-verified EDGAR primary
   // source_ids and instructs the agent to cite THOSE for filing-backed claims (instead of inventing its
   // own SEC archive URLs, which fetch unreliably). Surfaced to the circle gate, the moat lane, and the
@@ -972,59 +1131,112 @@ export async function runResearchDeepDivePhase(
     ? buildPreVerifiedSourcesBlock([primaryFilingSourceId])
     : undefined
 
-  // ---- CIRCLE-OF-COMPETENCE GATE (sequential pre-deep-dive stage — gates the 7-lane spend) ----
+  // ---- CIRCLE-OF-COMPETENCE GATE (sequential pre-deep-dive stage — gates the 5-lane spend) ----
   // The circle of competence is a GROUNDED MODEL JUDGMENT, not a config screen: "do I understand THIS
   // business well enough to assess its cashflow predictability?" It runs as its OWN call (NOT an 8th
-  // parallel lane) at the START of the deep-dive phase, BEFORE the expensive 7 lanes — the cheap quick
+  // parallel lane) at the START of the deep-dive phase, BEFORE the expensive 5 lanes — the cheap quick
   // screen already ran. The model must DEMONSTRATE understanding: cite-verify BOTH the cashflow drivers
   // AND what would make them unpredictable, held to the SAME rigor. Binary outcome:
-  //   - in-competence  → proceed to the 7-lane deep dive + synthesis + decision (today's path).
+  //   - in-competence  → proceed to the 5-lane deep dive + synthesis + decision (today's path).
   //   - outside-competence (model says so, OR fail-closed on EITHER ungrounded clause) → SET ASIDE: emit a
   //     terminal decision with verdict PASS carrying competence_reasoning + the circle_competence_unmet
-  //     flag; the 7 lanes do NOT run. NEVER RESEARCH_MORE — a valid, common, CORRECT Buffett output.
-  const circle = await judgeCircleCompetence(provider, command, {
-    ...deps,
-    ...(preVerifiedSourcesBlock === undefined ? {} : { preVerifiedSourcesBlock }),
-  })
-  remember(circle.captured)
-  // Build the verified cite-check set from ONLY content_hash-confirmed sources (the SAME hardened primitive
-  // the §2/A1/rubric cite-checks use — a captured-but-unverified id must NOT satisfy a citation).
+  //     flag; the 5 lanes do NOT run. NEVER RESEARCH_MORE — a valid, common, CORRECT Buffett output.
+  // Gate knobs: command (caller-resolved config) clamped through the SHARED helpers — undefined falls
+  // back to the shared defaults, so caller omission can never soften the gate below the default posture.
+  const gateKSamples = clampCircleGateKSamples(command.circle_gate?.k_samples)
+  const gateMinDrivers = clampCircleGateMinDrivers(command.circle_gate?.min_drivers)
+  const gateMinBreakers = clampCircleGateMinBreakers(command.circle_gate?.min_breakers)
+
+  // ---- k-SAMPLE AGREEMENT (gate hardening) ----
+  // The gate is sampled up to k times; the deep dive is entered only on a UNANIMOUS in-competence vote.
+  // Motivation (live dogfood): a single sampled judgment flipped durable↔uncertain across same-model,
+  // same-filings runs — one flip decided the whole 7-lane spend. Sampling FAIL-FAST: the first dissenting
+  // sample decides set-aside and later samples are never spent. Every sample's captured sources are
+  // remembered (mergeCapturedIntoCorpus makes same-id re-captures safe).
+  type CircleSample = {
+    analysis: (Awaited<ReturnType<typeof judgeCircleCompetence>>)['analysis']
+    verified_ids: string[]
+    groundedDrivers: { driver?: string; citation: string }[]
+    groundedBreakers: { breaker?: string; citation: string }[]
+    predictability: string
+    inCompetence: boolean
+    unmetReason?: string
+  }
+  const circleSamples: CircleSample[] = []
+  for (let sampleIndex = 0; sampleIndex < gateKSamples; sampleIndex++) {
+    const circle = await judgeCircleCompetence(provider, command, {
+      ...deps,
+      ...(preVerifiedSourcesBlock === undefined ? {} : { preVerifiedSourcesBlock }),
+      // Let the circle gate READ the harness-grounded EDGAR 10-K by Item (already in `accumulated`).
+      readCorpus: accumulated,
+    }, { sampleIndex, minDrivers: gateMinDrivers, minBreakers: gateMinBreakers })
+    remember(circle.captured)
+    // Build the verified cite-check set from ONLY content_hash-confirmed sources (the SAME hardened
+    // primitive the §2/A1/rubric cite-checks use) — recomputed per sample as the corpus grows.
+    const circleVerified = new Set<string>()
+    for (const s of accumulated.values()) {
+      if (s.content_hash === undefined) continue
+      circleVerified.add(s.content_hash)
+      circleVerified.add(s.source_id)
+    }
+    // Bug A: a claim counts grounded ONLY when its TEXT is non-empty AND its citation cite-verifies. An
+    // empty claim with a verified citation MUST NOT count (the MU run cleared N=M=1 on citations alone).
+    const groundedDrivers = circle.analysis.cashflow_drivers.filter(
+      (d) => (d.driver?.trim().length ?? 0) > 0 && isCitationGrounded(d.citation, circleVerified),
+    )
+    const groundedBreakers = circle.analysis.predictability_breakers.filter(
+      (b) => (b.breaker?.trim().length ?? 0) > 0 && isCitationGrounded(b.citation, circleVerified),
+    )
+    // Bug B: the gate keys off the cashflow_predictability ENUM. A sample votes in-competence ONLY when
+    // the model judged 'durably_predictable' AND both clauses meet the GROUNDED evidence floors
+    // (≥ min_drivers grounded, non-empty cashflow drivers AND ≥ min_breakers grounded, non-empty
+    // predictability breakers). 'not_predictable' / 'uncertain' / a thin gather → fail-closed dissent.
+    const predictability = circle.analysis.cashflow_predictability
+    const driversGrounded = groundedDrivers.length >= gateMinDrivers
+    const breakersGrounded = groundedBreakers.length >= gateMinBreakers
+    const inCompetence = predictability === 'durably_predictable' && driversGrounded && breakersGrounded
+    const samplePrefix = gateKSamples > 1 ? `sample ${sampleIndex + 1}/${gateKSamples} dissented — ` : ''
+    const unmetReason = inCompetence
+      ? undefined
+      : predictability !== 'durably_predictable'
+        ? `circle_competence_unmet: ${samplePrefix}the model judged this business's cashflows ${predictability === 'not_predictable' ? 'NOT durably predictable' : 'of UNCERTAIN predictability'} `
+          + '— understanding the business is not the same as competence to value it; cyclical/commodity/unpredictable '
+          + 'cashflows are outside the circle. A valid, common, correct Buffett output. Set aside.'
+        : !driversGrounded
+          ? `circle_competence_unmet: ${samplePrefix}the model judged the cashflows durably predictable but only `
+            + `${groundedDrivers.length} grounded cashflow driver(s) met the evidence floor of ${gateMinDrivers} — a thin or `
+            + 'ungrounded gather is outside competence (fail-closed). Set aside.'
+          : `circle_competence_unmet: ${samplePrefix}the model grounded the cashflow drivers but only `
+            + `${groundedBreakers.length} grounded predictability breaker(s) met the evidence floor of ${gateMinBreakers} — `
+            + 'the deeper clause is held to the same rigor (fail-closed). Set aside.'
+    circleSamples.push({
+      analysis: circle.analysis,
+      verified_ids: circle.verified_ids,
+      groundedDrivers,
+      groundedBreakers,
+      predictability,
+      inCompetence,
+      ...(unmetReason === undefined ? {} : { unmetReason }),
+    })
+    if (!inCompetence) break // fail-fast: one dissent decides; don't spend the remaining samples
+  }
+
+  const inCompetence = circleSamples.length === gateKSamples && circleSamples.every((s) => s.inCompetence)
+  // The REPRESENTATIVE sample backs the top-level judgment payload: the dissenting sample when set aside
+  // (its enum/evidence explain the outcome), else the first agreeing sample.
+  const representative = circleSamples.find((s) => !s.inCompetence) ?? circleSamples[0]!
+  const circle = { analysis: representative.analysis, verified_ids: representative.verified_ids }
+  const groundedDrivers = representative.groundedDrivers
+  const groundedBreakers = representative.groundedBreakers
+  const predictability = representative.predictability
+  const circleUnmetReason = representative.unmetReason
+  // Cite-check set over the FINAL corpus (all samples' captures included) for the payload grounded flags.
   const circleVerified = new Set<string>()
   for (const s of accumulated.values()) {
     if (s.content_hash === undefined) continue
     circleVerified.add(s.content_hash)
     circleVerified.add(s.source_id)
   }
-  // Bug A: a claim counts grounded ONLY when its TEXT is non-empty AND its citation cite-verifies. An empty
-  // claim with a verified citation MUST NOT count (the MU run cleared N=M=1 on citations alone).
-  const groundedDrivers = circle.analysis.cashflow_drivers.filter(
-    (d) => (d.driver?.trim().length ?? 0) > 0 && isCitationGrounded(d.citation, circleVerified),
-  )
-  const groundedBreakers = circle.analysis.predictability_breakers.filter(
-    (b) => (b.breaker?.trim().length ?? 0) > 0 && isCitationGrounded(b.citation, circleVerified),
-  )
-  // Bug B: the gate now keys off the cashflow_predictability ENUM, not a boolean that conflated
-  // "I understand the business" with "the cashflows are durably predictable". The gate proceeds
-  // (in-competence) ONLY when the model judged 'durably_predictable' AND BOTH clauses ground (≥1 grounded,
-  // non-empty cashflow driver AND ≥1 grounded, non-empty predictability breaker). 'not_predictable' OR
-  // 'uncertain' OR EITHER clause ungrounded → fail closed to outside-competence (set aside).
-  const predictability = circle.analysis.cashflow_predictability
-  const driversGrounded = groundedDrivers.length >= 1
-  const breakersGrounded = groundedBreakers.length >= 1
-  const inCompetence = predictability === 'durably_predictable' && driversGrounded && breakersGrounded
-  const circleUnmetReason = inCompetence
-    ? undefined
-    : predictability !== 'durably_predictable'
-      ? `circle_competence_unmet: the model judged this business's cashflows ${predictability === 'not_predictable' ? 'NOT durably predictable' : 'of UNCERTAIN predictability'} `
-        + '— understanding the business is not the same as competence to value it; cyclical/commodity/unpredictable '
-        + 'cashflows are outside the circle. A valid, common, correct Buffett output. Set aside.'
-      : !driversGrounded
-        ? 'circle_competence_unmet: the model judged the cashflows durably predictable but its cashflow_drivers '
-          + 'were empty or their citations did NOT verify against the corpus — ungrounded predictability is '
-          + 'outside competence (fail-closed). Set aside.'
-        : 'circle_competence_unmet: the model grounded the cashflow drivers but its predictability_breakers '
-          + 'were empty or their citations did NOT verify — the deeper clause is held to the same rigor; '
-          + 'ungrounded = outside competence (fail-closed). Set aside.'
 
   // Project-ready circle judgment payload (the cited drivers + breakers + outcome + reasoning). The resolved
   // `in_competence` boolean is DERIVED (durably_predictable && grounded) and kept as the internal/legacy
@@ -1043,6 +1255,16 @@ export async function runResearchDeepDivePhase(
       breaker: b.breaker ?? '',
       citation: b.citation,
       grounded: (b.breaker?.trim().length ?? 0) > 0 && isCitationGrounded(b.citation, circleVerified),
+    })),
+    // Gate-hardening visibility (additive): the knobs this run gated under + a per-sample summary, so a
+    // set-aside names WHICH sample dissented and a flip across samples is auditable, never silent.
+    gate_config: { k_samples: gateKSamples, min_drivers: gateMinDrivers, min_breakers: gateMinBreakers },
+    gate_samples: circleSamples.map((s, i) => ({
+      sample: i + 1,
+      in_competence: s.inCompetence,
+      model_claimed_predictability: s.predictability,
+      grounded_drivers: s.groundedDrivers.length,
+      grounded_breakers: s.groundedBreakers.length,
     })),
     ...(circleUnmetReason !== undefined ? { circle_competence_unmet: true, reason: circleUnmetReason } : {}),
   }
@@ -1065,7 +1287,7 @@ export async function runResearchDeepDivePhase(
   } satisfies LedgerEventEnvelope<unknown>)
 
   if (!inCompetence) {
-    // ---- OUTSIDE COMPETENCE → SET ASIDE (terminal PASS) — the 7 lanes do NOT run ----
+    // ---- OUTSIDE COMPETENCE → SET ASIDE (terminal PASS) — the 5 lanes do NOT run ----
     const circleSourceIds = [...new Set([...command.quick_screen_source_ids, ...circle.verified_ids])]
     const setAsideReason = `Set aside — outside the circle of competence. ${circle.analysis.competence_reasoning}`
     const analysisEvent: LedgerEventEnvelope<unknown> = {
@@ -1127,16 +1349,7 @@ export async function runResearchDeepDivePhase(
         proposed_by_actor_id: provider.provider_id,
         ingested_by_actor_type: 'system',
         ingested_by_actor_id: 'research_workflow',
-        sources: capturedSoFar.map((c) => ({
-          source_id: c.source_id,
-          kind: 'url' as const,
-          title: c.title,
-          url: c.url,
-          excerpt: c.excerpt,
-          availability: c.availability,
-          ...(c.content_hash === undefined ? {} : { content_hash: c.content_hash }),
-          metadata: { research_case_id: command.research_case_id, ...(c.http_status === undefined ? {} : { http_status: c.http_status }) },
-        })),
+        sources: toLedgerSourceInputs(capturedSoFar, command.research_case_id),
       })
     }
 
@@ -1181,22 +1394,23 @@ export async function runResearchDeepDivePhase(
     // gates the prompt numbers block and EXCLUDES the moat lane.
     const injectFiling = primaryFilingBlock !== undefined && PRIMARY_FILING_LANES.has(lane)
     const injectFilingNumbers = injectFiling && lane !== 'moat'
-    // model-tiering: the highest-stakes lanes resolve their OWN registry role (moat → lane_moat,
-    // shariah → lane_shariah); every other lane uses lanes_default. Default = the run's provider/model
-    // so single-provider runs are unchanged; an override can pin moat/shariah onto a stronger model.
-    const laneRole: ModelRoleId = lane === 'moat' ? 'lane_moat' : lane === 'shariah' ? 'lane_shariah' : 'lanes_default'
+    // model-tiering: the highest-stakes lane resolves its OWN registry role (moat → lane_moat);
+    // every other lane uses lanes_default. Default = the run's provider/model so single-provider
+    // runs are unchanged; an override can pin moat onto a stronger model.
+    const laneRole: ModelRoleId = lane === 'moat' ? 'lane_moat' : 'lanes_default'
     const laneRuntime = resolveRoleRuntime(laneRole, provider, command)
     const sourceDiscipline = lane === 'risks'
-      ? `As the RISKS lane you may cite anything — knowing the consensus IS the job.`
+      ? `As the RISKS lane you may cite anything — knowing the consensus IS the job.${RISKS_RECENCY_NOTE}`
       : lane === 'management'
         ? `Cite filings, proxies (DEF 14A), transcripts, and insider-trading data; media profiles will be rejected.`
-        : lane === 'shariah'
-          ? `Cite filings, segment disclosures, and Shariah screening providers; sell-side/media will be rejected.`
-          : `Cite filings, transcripts, regulatory/statistical data, and company disclosures; sell-side research, financial media, investor write-ups, and blogs will be rejected.`
+        : `Cite filings, transcripts, regulatory/statistical data, and company disclosures; sell-side research, financial media, investor write-ups, and blogs will be rejected.`
     const basePrompt = `You are the Buffett-Munger ${lane} specialist agent for ${command.ticker}. `
       + `Produce a source-backed finding for the ${lane} lane only. Gather your own sources; return them in proposed_sources with real URLs. `
       + `SOURCE DISCIPLINE (Mechanism 6): this lane reasons from PRIMARY documents. ${sourceDiscipline}`
       + (injectFilingNumbers ? primaryFilingBlock : '')
+      + (recentFilingsBlock !== undefined && RECENT_FILINGS_LANES.has(lane) ? recentFilingsBlock : '')
+      + (proxyBlock !== undefined && PROXY_LANES.has(lane) ? proxyBlock : '')
+      + (insiderBlock !== undefined && INSIDER_LANES.has(lane) ? insiderBlock : '')
 
     const baseRunId = `run_${command.research_case_id}_${swarmSeg(lane)}`
     // The grounded EDGAR 10-K is a guaranteed verified primary citation for the injected lanes —
@@ -1234,6 +1448,7 @@ export async function runResearchDeepDivePhase(
         lane,
         requiredFields: moatRequired,
         useToolLoop: true,
+        readCorpus: accumulated,
         ...(deps.fetchFundamentals === undefined ? {} : { fetchFundamentals: deps.fetchFundamentals }),
       })
       const agent = validated.status === 'ok' ? validated.result : validated.lastResult
@@ -1289,68 +1504,19 @@ export async function runResearchDeepDivePhase(
       }
     }
 
-    // ---- SHARIAH lane: emits its OWN sector_status + impermissible_income overlay ----
-    // The harness recomputes the AAOIFI ratios from EDGAR + market cap + this lane-supplied
-    // impermissible_income. Required under runValidatedAgent; after 2 fails → shariah_ratios_unverified.
-    if (lane === 'shariah') {
-      const shariahRequired: RequiredFieldCheck<z.infer<typeof ShariahLaneSchema>>[] = [
-        { name: 'sector_status', present: (a) => a.sector_status !== undefined, hint: "'compliant' | 'conditional' | 'non_compliant' confirmed with segment revenue" },
-        // null (undetermined — not separately disclosed) is an ACCEPTED, complete answer and counts as
-        // PRESENT; only a truly ABSENT field (undefined) triggers the retry/fallback. DO NOT guess 0.
-        { name: 'impermissible_income', present: (a) => a.impermissible_income !== undefined, hint: 'non-permissible income in $MILLIONS (0 ONLY if affirmatively zero; null if not separately disclosed — do NOT guess 0)' },
-      ]
-      const validated = await runValidatedAgent(laneRuntime.provider, {
-        run_id: baseRunId,
-        model_id: laneRuntime.model_id,
-        prompt: basePrompt + SHARIAH_OVERLAY_PROMPT,
-        timeout_ms: AGENT_TIMEOUT_MS,
-        schema_name: 'BuffettMungerShariahLane',
-      }, ShariahLaneSchema, {
-        ...deps,
-        lane,
-        requiredFields: shariahRequired,
-        useToolLoop: true,
-        ...(deps.fetchFundamentals === undefined ? {} : { fetchFundamentals: deps.fetchFundamentals }),
-      })
-      const agent = validated.status === 'ok' ? validated.result : validated.lastResult
-      if (agent === undefined) {
-        throw new Error(`Shariah lane produced no parseable output: ${validated.status === 'failed' ? validated.reason : 'unknown'}`)
-      }
-      remember(agent.captured)
-      const a = agent.analysis
-      // Only surface the overlay when BOTH required fields are present (a schema-valid live model always
-      // has them; the fallback path leaves shariah_judgment undefined → shariah_ratios_unverified flag).
-      const overlayPresent = a.sector_status !== undefined && a.impermissible_income !== undefined
-      return {
-        lane,
-        finding_summary: a.finding_summary,
-        confidence: a.confidence,
-        caveats: a.caveats,
-        verified_ids: withFiling(agent.verified_ids),
-        ...(overlayPresent ? { shariah_judgment: { sector_status: a.sector_status, impermissible_income: a.impermissible_income } } : {}),
-        ...(agent.policy_rejections.length > 0 ? { policy_rejections: agent.policy_rejections } : {}),
-        ...(validated.status === 'failed'
-          ? { judgment_retry_degraded: `shariah_lane_schema_retry_exhausted: the model omitted [${validated.missing.join(', ')}] after ${validated.attempts} attempts (${validated.reason}).` }
-          : {}),
-      }
-    }
-
-    // ---- Generic lanes (financial_quality, valuation, management, risks, …) ----
+    // ---- Generic lanes (financial_quality, management, risks, …) ----
     // Deep-dive lanes gather REAL primary sources via the grounded tool loop when the provider supports it
     // (Phase 1 fetch_source/search_filings → Phase 2 structured), else fall back to propose-then-verify
     // UNCHANGED (Codex's internal sandbox gather, mock). The grounding/citation verification is identical.
     const { degraded_no_tools: _laneDegraded, ...agent } = await runGroundedAgentWithTools(laneRuntime.provider, {
       run_id: baseRunId,
       model_id: laneRuntime.model_id,
-      // F.2 conformance: the valuation lane MUST be told the harness owns the discount, else (as the
-      // generic basePrompt alone) the model free-lances a textbook DCF with its own required return + a
-      // 10-year-Treasury anchor (its training prior), contradicting the system's deterministic discount.
-      // Appended ONLY for the valuation lane; the other generic lanes keep the plain basePrompt.
-      prompt: basePrompt + (lane === 'valuation' ? VALUATION_LANE_DISCOUNT_NOTE : ''),
+      prompt: basePrompt,
       timeout_ms: AGENT_TIMEOUT_MS,
       schema_name: 'BuffettMungerLaneFinding',
     }, LaneAgentSchema, {
       ...deps,
+      readCorpus: accumulated,
       ...(deps.fetchFundamentals === undefined ? {} : { fetchFundamentals: deps.fetchFundamentals }),
     }, { lane })
     void _laneDegraded
@@ -1367,9 +1533,16 @@ export async function runResearchDeepDivePhase(
 
   // Extract the per-lane judgment outputs the harness now reads (instead of the synthesis schema).
   const moatLaneResult = laneResults.find((l) => l.lane === 'moat')
-  const shariahLaneResult = laneResults.find((l) => l.lane === 'shariah')
   const moatJudgment = moatLaneResult?.moat_judgment
-  const shariahLaneJudgment = shariahLaneResult?.shariah_judgment
+  // NOTE: shariahLaneJudgment is no longer read off the parallel deep-dive lane — it is now sourced from
+  // the ALWAYS-ON focused Shariah-reasoning pass (runShariahReasoningPass, invoked below once the corpus
+  // digest is assembled). See the derivation after synthesisRuntime.
+  // FAIL-CLOSED (compliance is first-class): shariahDeepScreenIncomplete is now keyed off the focused
+  // Shariah-reasoning PASS outcome — declared after shariahPassOutcome is resolved below. True whenever
+  // the pass returns status:'failed' (schema-invalid response, unverified citation, or timeout). This
+  // boolean rides ALONGSIDE the quick-screen verdict — it never fabricates or flips a genuinely-computed
+  // verdict; it only marks the deep re-screen as incomplete so a human does not read a falsely-confident
+  // COMPLIANT.
 
   // ---- Judgment objectivity (Mechanisms 1+2): rubric → mechanical anchor → bounded ±1 adjustment ----
   // The MOAT lane supplied the moat/runway rubric (spec-correct decomposition). The harness RE-VERIFIES
@@ -1438,12 +1611,12 @@ export async function runResearchDeepDivePhase(
     throw new Error(`No specialist lane produced a verifiable source for ${command.ticker}; research aborted (fail-closed).`)
   }
 
-  // ---- Mechanism 5: Red-Team Pass (after the 7 lanes, BEFORE synthesis) ----
+  // ---- Mechanism 5: Red-Team Pass (after the 5 lanes, BEFORE synthesis) ----
   // One adversarial grounded agent whose ONLY mandate is to break the case. It receives a compact
   // digest of the lane findings + the mechanically-computed anchor tiers + the verified source corpus,
   // and cites the SAME corpus (it is the consensus-knowing lane — allowed all source categories). Its
   // strongest objection is cite-checked; synthesis is then OBLIGED to answer it or downgrade. A
-  // red-team timeout DEGRADES (red_team_incomplete) — the run continues so a completed 7-lane deep dive
+  // red-team timeout DEGRADES (red_team_incomplete) — the run continues so a completed 5-lane deep dive
   // is never discarded. model-tiering-spec: the red team now resolves the `red_team` registry role —
   // when an override pins a DIFFERENT provider/model it genuinely runs on a different model than the
   // lanes (catches shared-narrative error single-model cross-checks cannot). Default = the run's model.
@@ -1498,6 +1671,50 @@ export async function runResearchDeepDivePhase(
   // model-tiering-spec: the synthesis runs on the `synthesis` registry role (T1). Default = the run's
   // provider/model so single-provider runs are unchanged; an override can pin it onto a frontier model.
   const synthesisRuntime = resolveRoleRuntime('synthesis', provider, command)
+
+  // ---- FOCUSED Shariah-reasoning pass (ALWAYS-ON) ----
+  // The Shariah compliance overlay (sector_status + impermissible_income + a grounded sector_citation) is
+  // produced by a dedicated focused, grounded, retried call — the SAME cite-check discipline as the
+  // valuation-reasoning pass — instead of being read off the parallel deep-dive lane. It runs
+  // UNCONDITIONALLY (every deep dive) and reuses the SAME laneDigest / corpus / pre-verified-EDGAR inputs
+  // the valuation pass assembles. Its output becomes shariahLaneJudgment, which the AAOIFI recompute below
+  // (and the synthesis reconciliation prompt) source from. On failure the overlay is left undefined so the
+  // recompute fails CLOSED to UNDETERMINED (the visible shariah_ratios_unverified degradation) — never a
+  // silently-clean verdict. (sector_citation is retained for cite-checking, NOT the ratio recompute, so
+  // only sector_status + impermissible_income map onto the ShariahLaneJudgment shape here.)
+  // model-tiering-spec: the Shariah pass runs on the `lane_shariah` registry role — this is the highest-
+  // stakes hard-stop classification, so it respects any operator override pinned on lane_shariah. Falls
+  // back to the run's provider/model when no override is configured (identical behavior to before).
+  const shariahPassRuntime = resolveRoleRuntime('lane_shariah', provider, command)
+  const shariahPassOutcome = await runShariahReasoningPass(
+    shariahPassRuntime.provider,
+    {
+      research_case_id: command.research_case_id,
+      ticker: command.ticker,
+      model_id: shariahPassRuntime.model_id,
+      laneDigest,
+      corpusSourceIds: [...accumulated.values()].map((s) => s.source_id),
+      preVerifiedSourceIds: primaryFilingSourceId !== undefined ? [primaryFilingSourceId] : [],
+    },
+    {
+      ...(deps.ground === undefined ? {} : { ground: deps.ground }),
+      ...(deps.grounding === undefined ? {} : { grounding: deps.grounding }),
+      // The same verified corpus the lanes read from — lets the pass read_source the filing's notes to
+      // QUANTIFY impermissible income (the SPGI-class gap: untagged in XBRL, absent from the digest).
+      readCorpus: accumulated,
+    },
+  )
+  const shariahLaneJudgment: ShariahLaneJudgment | undefined = shariahPassOutcome.status === 'ok'
+    ? {
+        sector_status: shariahPassOutcome.shariah_judgment.sector_status,
+        impermissible_income: shariahPassOutcome.shariah_judgment.impermissible_income,
+      }
+    : undefined
+  // Task 3: shariahDeepScreenIncomplete keys off the focused Shariah-reasoning PASS outcome.
+  // True whenever the pass returns status:'failed' (schema-invalid response, unverified citation, or
+  // timeout). The verdict is NOT flipped — this flag rides ALONGSIDE as a human-visible caveat.
+  const shariahDeepScreenIncomplete = shariahPassOutcome.status !== 'ok'
+
   // A live red-team objection (survived cite-check) makes a red-team RESPONSE required — produced by the
   // dedicated runRedTeamResponsePass below (the focused decomposition), NOT by the synthesis schema.
   const redTeamObjectionLive = redTeam.status === 'complete' && redTeam.strongest_objection.citations.length > 0
@@ -1571,7 +1788,7 @@ export async function runResearchDeepDivePhase(
       // SHARIAH specialist lanes — NOT here. The harness has already resolved them; the resolved tiers are
       // handed to you below for RECONCILIATION only (you do not re-score them).
       + `The MOAT lane resolved moat_class='${judgment.moat!.resolved_moat_class}' and reinvestment runway='${judgment.runway!.resolved_runway}'`
-      + (shariahLaneJudgment !== undefined ? `; the SHARIAH lane assessed sector_status='${shariahLaneJudgment.sector_status}'` : '')
+      + (shariahLaneJudgment !== undefined ? `; the Shariah screen assessed sector_status='${shariahLaneJudgment.sector_status}'` : '')
       + `. Reconcile your verdict + rationale with these resolved classifications; do NOT re-score the rubrics. `
       + `Cite sources in proposed_sources with real URLs.`
       // citation/corpus-alignment (KO regression): surface the harness's already-verified EDGAR source_id
@@ -1875,10 +2092,24 @@ export async function runResearchDeepDivePhase(
   if (redTeamResponseDegraded !== undefined) {
     degradedFlags.push(redTeamResponseDegraded)
   }
-  // Per-lane schema-retry exhaustion (the moat/shariah lane omitted its REQUIRED judgment block after 2
-  // attempts) — surfaced exactly like the synthesis path so the gap is visible, not silent.
+  // Per-lane schema-retry exhaustion (the moat lane omitted its REQUIRED judgment block after 2 attempts)
+  // — surfaced exactly like the synthesis path so the gap is visible, not silent.
   if (moatLaneResult?.judgment_retry_degraded !== undefined) degradedFlags.push(moatLaneResult.judgment_retry_degraded)
-  if (shariahLaneResult?.judgment_retry_degraded !== undefined) degradedFlags.push(shariahLaneResult.judgment_retry_degraded)
+  // Shariah-reasoning PASS failure: the focused pass returned status:'failed' (schema-invalid response,
+  // unverified citation, or timeout). Surfaced so the gap is visible alongside shariahDeepScreenIncomplete.
+  if (shariahPassOutcome.status === 'failed') {
+    degradedFlags.push(`shariah_reasoning_pass_failed: ${shariahPassOutcome.reason}`)
+  }
+  // FAIL-CLOSED deep-screen caveat: the Shariah-reasoning focused pass failed to ground, so the deep
+  // RE-SCREEN did not run. Surface it in the string channel (open_questions) alongside the projected
+  // boolean — the verdict rests on the quick-screen gate, NOT a grounded deep re-screen.
+  if (shariahDeepScreenIncomplete) {
+    degradedFlags.push(
+      'shariah_ratios_unverified: shariah_deep_screen_incomplete — the focused Shariah-reasoning pass did not ground '
+      + '(schema-invalid response, unverified citation, or timeout), so the deep compliance re-screen '
+      + '(segment-revenue + impermissible-income) did not complete; the verdict rests on the quick-screen gate.',
+    )
+  }
   if (judgment.moat?.judgment_degraded === 'rubric_not_emitted' || judgment.runway?.judgment_degraded === 'rubric_not_emitted') {
     degradedFlags.push(
       'judgment_degraded: rubric_not_emitted — the model omitted the grounded moat/runway thesis; the moat '
@@ -2264,17 +2495,11 @@ export async function runResearchDeepDivePhase(
     && modelAssumedGrowth !== undefined
     && Number.isFinite(modelAssumedGrowth)
     && modelAssumedGrowth >= 0
-  // Sanity guard (mirrors the existing implausible-growth flag path): an assumed growth above the named
-  // single_growth_cap is FLAGGED, not silently trusted — the human audits whether the cited source defends
-  // it. The flag is advisory; the value is still recorded as the model's headline (the model owns it).
+  // An assumed growth above the named single_growth_cap is FLAGGED, not silently trusted — the human
+  // audits whether the cited source defends it. The flag is advisory; the value is still recorded as the
+  // model's headline (the model owns it). Emitted ONCE, in the sanity_flags channel (block (a) of the
+  // sanity checks below) — the cap applies to the MODEL's judgment, never the market-implied read.
   const headline_growth: number | undefined = assumedGrowthUsable ? modelAssumedGrowth : undefined
-  if (moat_passes_gate && assumedGrowthUsable && modelAssumedGrowth > buffettMungerStrategy.valuation.single_growth_cap) {
-    degradedFlags.push(
-      `assumed_growth_above_cap: the model's cited assumed growth ${(modelAssumedGrowth * 100).toFixed(1)}% is above the `
-      + `${(buffettMungerStrategy.valuation.single_growth_cap * 100).toFixed(0)}% forecasting-humility cap — flagged as `
-      + `implausible for sanity, not silently trusted. Verify the durable cited source before relying on the headline.`,
-    )
-  }
 
   // Plausibility ceiling for a per-share fair value. A per-share owner-earnings valuation for any
   // real equity is far below this; anything at/above it signals a units bug (e.g. totals not divided
@@ -2423,7 +2648,7 @@ export async function runResearchDeepDivePhase(
   // sector_status, the second model re-classifies the sector and the conservative (stricter) status
   // holds on disagreement (+ human escalation). The impermissible_income overlay is untouched (it feeds
   // the harness ratio recompute, not a model classification).
-  // Spec-correct decomposition: the overlay now comes from the SHARIAH lane output, not the synthesis schema.
+  // Spec-correct decomposition: the overlay now comes from the always-on Shariah-reasoning pass (via shariahLaneJudgment above), not the lane and not the synthesis schema.
   let shariahJudgment: ShariahLaneJudgment | undefined = shariahLaneJudgment
   const shariahCrossCheckRuntime = resolveCrossCheckRuntime('lane_shariah_crosscheck', provider, command)
   if (shariahCrossCheckRuntime !== undefined && shariahJudgment !== undefined) {
@@ -2468,16 +2693,64 @@ export async function runResearchDeepDivePhase(
         market_cap_basis: 'avg_36mo_x_diluted_shares' | 'current_price_x_diluted_shares'
         market_cap_months?: number
         bridge_source_fiscal_year?: number
+        /** Itemized composition of the impermissible-income input (interest, dividends, model residual). */
+        impermissible_income_lines?: ImpermissibleIncomeLine[]
       }
     | undefined
-  // FAIL-CLOSED on UNDETERMINED impermissible income. The lane emits impermissible_income = null when it
+  // HARNESS-OWNED impermissible income: no filing discloses an "impermissible income" line, so the pass
+  // honestly returns null for nearly every ticker — which left the deep screen permanently UNDETERMINED.
+  // The deterministic AAOIFI-computable components are the ITEMIZED XBRL lines (interest income,
+  // dividend income, cash-instrument investment income — fundamentals.latest_annual.
+  // impermissible_income_lines); their sum is the harness figure. Precedence: a pass null falls back to
+  // the XBRL total; when BOTH are numeric the CONSERVATIVE max wins (the model may quantify
+  // prohibited-segment revenue beyond interest/dividends, but may never silently undercount below the
+  // disclosed components — purification errs high, never low).
+  const xbrlImpermissibleLines = fundamentals?.latest_annual?.impermissible_income_lines
+  const xbrlImpermissibleTotal =
+    xbrlImpermissibleLines !== undefined && xbrlImpermissibleLines.length > 0
+      ? xbrlImpermissibleLines.reduce((sum, line) => sum + line.amount_musd, 0)
+      : undefined
+  const modelImpermissible = shariahJudgment?.impermissible_income
+  const effectiveImpermissibleIncome: number | null =
+    modelImpermissible === undefined ? null
+    : modelImpermissible === null ? (xbrlImpermissibleTotal ?? null)
+    : xbrlImpermissibleTotal !== undefined ? Math.max(modelImpermissible, xbrlImpermissibleTotal)
+    : modelImpermissible
+  const impermissibleIncomeFromXbrl =
+    xbrlImpermissibleTotal !== undefined
+    && shariahJudgment !== undefined
+    && effectiveImpermissibleIncome === xbrlImpermissibleTotal
+    && modelImpermissible !== xbrlImpermissibleTotal
+  // The SHOWN composition — every line that makes up the effective figure, so the dossier itemizes it
+  // (interest income, dividend income, etc.). When the model's larger figure won the conservative max,
+  // the excess over the disclosed components is shown as an explicit model-residual line (the total
+  // always equals the sum of its shown lines).
+  const impermissibleIncomeShownLines: ImpermissibleIncomeLine[] | undefined = (() => {
+    if (effectiveImpermissibleIncome === null || shariahJudgment === undefined) return undefined
+    if (xbrlImpermissibleLines !== undefined && xbrlImpermissibleTotal !== undefined && xbrlImpermissibleLines.length > 0) {
+      if (effectiveImpermissibleIncome === xbrlImpermissibleTotal) return xbrlImpermissibleLines
+      return [
+        ...xbrlImpermissibleLines,
+        {
+          concept: 'model_judgment',
+          label: 'model-quantified additional impermissible income (beyond disclosed interest/dividends)',
+          amount_musd: effectiveImpermissibleIncome - xbrlImpermissibleTotal,
+        },
+      ]
+    }
+    if (effectiveImpermissibleIncome > 0) {
+      return [{ concept: 'model_judgment', label: 'model-quantified impermissible income', amount_musd: effectiveImpermissibleIncome }]
+    }
+    return undefined // affirmatively-verified zero — nothing to itemize
+  })()
+  // FAIL-CLOSED on UNDETERMINED impermissible income. The pass emits impermissible_income = null when it
   // could NOT extract / the filing does not separately disclose a quantified impermissible-income line.
   // That is a DETERMINED-AS-UNDETERMINED answer (not an omission) — the harness must NOT compute a clean
-  // 0% purification from it (the compliance fail-OPEN bug). It flows to computeShariahFinancialRatios as
-  // null → computable:false → shariah_financial stays undefined → the verdict is UNDETERMINED, never a
-  // silent 0%/COMPLIANT.
+  // 0% purification from it (the compliance fail-OPEN bug). Reached only when the XBRL fallback is ALSO
+  // absent: it flows to computeShariahFinancialRatios as null → computable:false → shariah_financial
+  // stays undefined → the verdict is UNDETERMINED, never a silent 0%/COMPLIANT.
   const impermissibleIncomeUndetermined =
-    shariahJudgment !== undefined && shariahJudgment.impermissible_income === null
+    shariahJudgment !== undefined && effectiveImpermissibleIncome === null
   // When EDGAR + market cap + the Shariah overlay are all present but the ratios still come back
   // not-computable (e.g. missing revenue → divide-by-zero), capture WHY so the genuinely-not-computable
   // branch surfaces a visible shariah_ratios_unverified flag (the dogfood had NO flag here).
@@ -2495,7 +2768,7 @@ export async function runResearchDeepDivePhase(
       cash_and_securities: la.cash_and_securities_musd,
       total_revenue: la.revenue_musd,
       market_cap,
-      impermissible_income: shariahJudgment.impermissible_income,
+      impermissible_income: effectiveImpermissibleIncome,
     })
     if (ratios.computable) {
       shariah_financial = {
@@ -2509,6 +2782,7 @@ export async function runResearchDeepDivePhase(
         market_cap_basis,
         ...(avgMarketCap !== undefined ? { market_cap_months: avgMarketCap.months } : {}),
         bridge_source_fiscal_year: la.fiscal_year,
+        ...(impermissibleIncomeShownLines !== undefined ? { impermissible_income_lines: impermissibleIncomeShownLines } : {}),
       }
     } else {
       shariahRatioNotComputableReason = ratios.reason
@@ -2535,6 +2809,21 @@ export async function runResearchDeepDivePhase(
       + 'lane could not quantify a separate impermissible-income line, so the harness did NOT compute the '
       + 'AAOIFI impermissible-income ratio. Purification CANNOT be determined; obtain the interest-income / '
       + 'prohibited-revenue figure before treating this name as clean (it is NOT 0% / fully compliant).',
+    )
+  } else if (impermissibleIncomeFromXbrl) {
+    // PROVENANCE (not a degradation): the AAOIFI impermissible-income input came from the harness's
+    // XBRL-extracted interest income (deterministic, from the same annual facts as the other ratio
+    // inputs) — either the pass returned null (not separately disclosed in the narrative it saw) or its
+    // figure undercut the disclosed interest income and the conservative max won. Visible so the human
+    // knows the number's source; purification is computed, never silently 0%.
+    const composition = (xbrlImpermissibleLines ?? [])
+      .map((line) => `${line.label} ${line.amount_musd}M (${line.concept})`)
+      .join(' + ')
+    degradedFlags.push(
+      `shariah_impermissible_income_xbrl: the impermissible-income input (${effectiveImpermissibleIncome}M `
+      + `= ${composition}) is the harness-extracted XBRL composition of the latest annual facts — the `
+      + 'deterministic AAOIFI components. The purification % is computed from it; verify the lines '
+      + 'against the filing\'s investment-income note if precision matters.',
     )
   } else if (
     market_cap === undefined
@@ -2657,12 +2946,15 @@ export async function runResearchDeepDivePhase(
   const gdpThreshold = buffettMungerStrategy.valuation.gdp_growth_threshold
   const fvCapMultiple = valuation_multiple_ceiling
 
-  // (a) market-implied growth above a sane bound.
-  if (market_implied_growth !== undefined && market_implied_growth > singleGrowthCap) {
+  // (a) MODEL-assumed growth above the forecasting-humility cap. OWNER RULE (2026-07-04): the cap
+  // disciplines what the METHOD will underwrite — the model's OWN judgment — never the market-implied
+  // read, which is a descriptive reverse-DCF fact about today's price (the market may imply whatever it
+  // wants; price richness surfaces via the contradiction checks below and the exit-multiple bound).
+  if (headline_growth !== undefined && headline_growth > singleGrowthCap) {
     sanity_flags.push(
-      `sanity_implied_growth_above_cap: today's price implies ~${(market_implied_growth * 100).toFixed(1)}% near-term `
-      + `owner-earnings growth — above the ${(singleGrowthCap * 100).toFixed(0)}% forecasting-humility cap. The market `
-      + `already prices in growth the method would refuse to underwrite; treat the price as rich.`,
+      `sanity_assumed_growth_above_cap: the model's assumed sustainable growth ~${(headline_growth * 100).toFixed(1)}% `
+      + `is above the ${(singleGrowthCap * 100).toFixed(0)}% forecasting-humility cap — growth the method would refuse `
+      + `to underwrite. Verify the cited durable source before relying on the headline.`,
     )
   }
 
@@ -2753,6 +3045,11 @@ export async function runResearchDeepDivePhase(
   if (
     moat_passes_gate
     && headline_growth !== undefined
+    // Only when a demonstrated history EXISTS (the Visa data gap): a multi-class filer whose
+    // companyfacts carries no consolidated share count yields zero OE/share points and a floored-to-0%
+    // reference (growth_basis 'none'). Comparing the model's growth against that artificial 0% is a data
+    // artifact, not evidence — the floored-g0 degraded flag already tells the "history unavailable" story.
+    && growth_basis !== 'none'
     && headline_growth > effective_growth_rate + DEMONSTRATED_HISTORY_MARGIN
   ) {
     sanity_flags.push(
@@ -2779,8 +3076,26 @@ export async function runResearchDeepDivePhase(
       + 'price was unavailable — owner earnings, shares, or the price fetch) — defaulting to RESEARCH_MORE.'
     : undefined
 
+  // OWNER RULE (2026-07-04, the Visa dogfood): a model BUY at a price ABOVE the model's OWN buy-below is
+  // not a recordable buy signal — "buy below $290" at a $362 price means WAIT, i.e. WATCH, by the
+  // model's own arithmetic. This is pure arithmetic on the model's own numbers (exactly like in_buy_zone
+  // itself), NOT a judgment override: the model's verdict + full reasoning stay recorded verbatim in the
+  // decision agent's channel; only the RECORDED verdict derates to WATCH, with the reason surfaced.
+  const buyOutOfBuyZone =
+    moat_passes_gate
+    && !sectorShariahFail
+    && !buyDataUnconfirmed
+    && dec.analysis.investment_verdict === 'BUY'
+    && in_buy_zone === false
+  const buyOutOfZoneReason = buyOutOfBuyZone && buy_below !== undefined && current_price !== undefined
+    ? `buy_out_of_buy_zone: the model verdict is BUY with its OWN buy-below at $${buy_below.toFixed(2)} while `
+      + `the live price is $${current_price.toFixed(2)} — above the model's own buy zone. Recorded as WATCH `
+      + 'until the price enters the zone; the BUY thesis itself is preserved below for auditing.'
+    : undefined
+
   // Apply the cheap deterministic gates ONLY: moat below wide → PASS; Shariah sector/financial FAIL → PASS;
-  // missing buy data → RESEARCH_MORE. Otherwise the MODEL's verdict passes through. Sanity flags NEVER gate.
+  // missing buy data → RESEARCH_MORE; BUY above the model's own buy-below → WATCH. Otherwise the MODEL's
+  // verdict passes through. Sanity flags NEVER gate.
   const gatedVerdict = !moat_passes_gate
     // A moat below the gate routes by WHY: an UNGROUNDED moat claim (the model reached for wide+ but the
     // cite-verified rows didn't back it / the rubric wasn't scored) is INCOMPLETE -> RESEARCH_MORE; a
@@ -2796,7 +3111,9 @@ export async function runResearchDeepDivePhase(
         ? ('RESEARCH_MORE' as const)
         : buyDataUnconfirmed
           ? ('RESEARCH_MORE' as const)
-          : dec.analysis.investment_verdict
+          : buyOutOfBuyZone
+            ? ('WATCH' as const)
+            : dec.analysis.investment_verdict
   const gatedReason = !moat_passes_gate
     ? (moat_grounding_unmet
         ? `${moatGroundingReason} ${dec.analysis.decision_reason}`
@@ -2807,7 +3124,9 @@ export async function runResearchDeepDivePhase(
         ? `${synthesisGroundingReason} ${dec.analysis.decision_reason}`
         : buyDataUnconfirmed
           ? `${buyClampReason} ${dec.analysis.decision_reason}`
-          : dec.analysis.decision_reason
+          : buyOutOfZoneReason !== undefined
+            ? `${buyOutOfZoneReason} ${dec.analysis.decision_reason}`
+            : dec.analysis.decision_reason
 
   // ---- MARGIN-OF-SAFETY JOINT JUDGMENT (synthesis-owned) — Guard 1 + Guard 2 ----------------------------
   // GUARD 1: adequacy is an AUDIT judgment ONLY. NOTHING above (gatedVerdict / gatedReason / the moat gate /
@@ -2913,6 +3232,9 @@ export async function runResearchDeepDivePhase(
       // Circle-of-competence judgment (in-competence here — the gate passed; the deep dive ran). Carried on
       // the analysis so the dossier always shows the grounded competence judgment that admitted this spend.
       circle_competence: circleJudgmentPayload,
+      // Insider Form 4 summary (§3.3) — the deterministic harness computation persisted so the dossier
+      // renders it model-independently (the management lane only READS it; it may or may not echo it).
+      ...(insiderSummaryComputed !== undefined ? { insider_summary: insiderSummaryComputed } : {}),
       quick_screen: undefined, // populated below
       valuation: {
         moat_class: moatClass,
@@ -3046,6 +3368,11 @@ export async function runResearchDeepDivePhase(
       // impermissible ratio + purification % could NOT be computed. Surfaced so the dossier renders the
       // UNDETERMINED state honestly ("purification cannot be determined"), never a falsely-clean 0%.
       ...(impermissibleIncomeUndetermined ? { shariah_impermissible_income_undetermined: true } : {}),
+      // FAIL-CLOSED marker: the focused Shariah-reasoning PASS did not ground (schema-invalid response,
+      // unverified citation, or timeout), so the deep compliance re-verification did NOT run. Rides ALONGSIDE
+      // the (quick-screen) verdict — it never flips a genuinely-computed verdict; the dossier renders a calm
+      // "compliance not deep-verified this run" caveat so a human does not read a falsely-confident COMPLIANT.
+      ...(shariahDeepScreenIncomplete ? { shariah_deep_screen_incomplete: true } : {}),
       // Mechanism 6: source-discipline summary — which lane-proposed sources the per-lane whitelist
       // rejected (count + per-lane/reason). Surfaced so a starved lane is visible, never hidden.
       ...(sourcePolicyRejections.length > 0
@@ -3170,6 +3497,9 @@ export async function runResearchDeepDivePhase(
       // HIGH safety: a model BUY clamped to RESEARCH_MORE because no buy band was computable is always
       // surfaced — the human sees exactly why the BUY was not recorded.
       ...(buyClampReason !== undefined ? [buyClampReason] : []),
+      // OWNER RULE: a model BUY derated to WATCH because the price is above the model's OWN buy-below is
+      // always surfaced — the human sees the BUY thesis is intact and exactly what price re-arms it.
+      ...(buyOutOfZoneReason !== undefined ? [buyOutOfZoneReason] : []),
       ...baseRateCaveats,
       ...degradedFlags,
       // Dual-model cross-check disagreements → automatic human escalation (conservative answer holds).
@@ -3194,19 +3524,7 @@ export async function runResearchDeepDivePhase(
       proposed_by_actor_id: provider.provider_id,
       ingested_by_actor_type: 'system',
       ingested_by_actor_id: 'research_workflow',
-      sources: captured.map((c) => ({
-        source_id: c.source_id,
-        kind: 'url' as const,
-        title: c.title,
-        url: c.url,
-        excerpt: c.excerpt,
-        availability: c.availability,
-        ...(c.content_hash === undefined ? {} : { content_hash: c.content_hash }),
-        metadata: {
-          research_case_id: command.research_case_id,
-          ...(c.http_status === undefined ? {} : { http_status: c.http_status }),
-        },
-      })),
+      sources: toLedgerSourceInputs(captured, command.research_case_id),
     })
   }
 

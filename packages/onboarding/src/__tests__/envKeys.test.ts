@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
 import {
+  hydrateProcessEnvFromEnvKeys,
   isEnvKeyPathGitIgnored,
   listEnvKeyStatuses,
   maskSecretTail,
@@ -24,6 +25,46 @@ async function withTempEnvFile(assertion: (envPath: string) => Promise<void>) {
     await rm(dir, { force: true, recursive: true })
   }
 }
+
+describe('hydrateProcessEnvFromEnvKeys', () => {
+  it('loads an env-file key into the target env when it is not already set', async () => {
+    await withTempEnvFile(async (envPath) => {
+      await setEnvKey('OPENROUTER_API_KEY', SECRET, { envPath })
+      const target: Record<string, string | undefined> = {}
+      const hydrated = await hydrateProcessEnvFromEnvKeys({ envPath }, target)
+      expect(target.OPENROUTER_API_KEY).toBe(SECRET)
+      expect(hydrated).toContain('OPENROUTER_API_KEY')
+    })
+  })
+
+  it('never overwrites an already-set shell/exported value (exports win)', async () => {
+    await withTempEnvFile(async (envPath) => {
+      await setEnvKey('OPENROUTER_API_KEY', 'file-value', { envPath })
+      const target: Record<string, string | undefined> = { OPENROUTER_API_KEY: 'shell-value' }
+      const hydrated = await hydrateProcessEnvFromEnvKeys({ envPath }, target)
+      expect(target.OPENROUTER_API_KEY).toBe('shell-value')
+      expect(hydrated).not.toContain('OPENROUTER_API_KEY')
+    })
+  })
+
+  it('treats an empty existing value as unset and hydrates over it', async () => {
+    await withTempEnvFile(async (envPath) => {
+      await setEnvKey('OPENROUTER_API_KEY', SECRET, { envPath })
+      const target: Record<string, string | undefined> = { OPENROUTER_API_KEY: '' }
+      await hydrateProcessEnvFromEnvKeys({ envPath }, target)
+      expect(target.OPENROUTER_API_KEY).toBe(SECRET)
+    })
+  })
+
+  it('returns an empty list and mutates nothing when the env file is missing', async () => {
+    await withTempEnvFile(async (envPath) => {
+      const target: Record<string, string | undefined> = {}
+      const hydrated = await hydrateProcessEnvFromEnvKeys({ envPath }, target)
+      expect(hydrated).toEqual([])
+      expect(Object.keys(target)).toEqual([])
+    })
+  })
+})
 
 describe('maskSecretTail', () => {
   it('returns only a short tail and never the full secret', () => {
@@ -131,5 +172,12 @@ describe('isEnvKeyPathGitIgnored', () => {
 
   it('flags a non-ignored in-repo path', () => {
     expect(isEnvKeyPathGitIgnored('/repo/config/keys.txt', '/repo')).toBe(false)
+  })
+
+  it('treats any path safe when the project dir is not a git working tree (e.g. a local sandbox)', () => {
+    // The same in-repo-looking path that is flagged when repoIsGitWorkTree=true is safe when the project
+    // dir is not a git repo — nothing under it can ever be committed.
+    expect(isEnvKeyPathGitIgnored('/sandbox/owlfolio.env', '/sandbox', false)).toBe(true)
+    expect(isEnvKeyPathGitIgnored('/repo/config/keys.txt', '/repo', false)).toBe(true)
   })
 })

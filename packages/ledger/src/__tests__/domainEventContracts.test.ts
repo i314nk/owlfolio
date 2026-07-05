@@ -65,6 +65,7 @@ describe('Owlfolio v2 domain event boundary contracts', () => {
       'admit_judgment_recorded',
       'sizing_recommendation_recorded',
       'research_case_archived',
+      'research_case_re_review_recorded',
     ])
   })
 
@@ -76,6 +77,38 @@ describe('Owlfolio v2 domain event boundary contracts', () => {
       actor_type: 'user',
       projection_owner: 'discovery',
       payload_fields: ['research_case_id', 'archived_at', 'reason'],
+    })
+  })
+
+  it('freezes the re-review contract as a provider OBSERVATION diff — never a verdict, never an auto-action', () => {
+    // The re-review compares the filings that appeared SINCE the decision against the RECORDED thesis and
+    // records a DIFF (INTACT|WEAKENED|BROKEN|UNVERIFIED, fail-closed). It never transitions the case and
+    // never re-verdicts; the full re-verdict remains the human-initiated v2 supersession re-run.
+    expect(contract('research_case_re_review_recorded')).toMatchObject({
+      aggregate_type: 'research_case',
+      actor_type: 'provider',
+      actor_types: ['provider', 'worker'],
+      projection_owner: 'portfolio',
+      payload_fields: [
+        're_review_id',
+        'research_case_id',
+        'ticker',
+        'assessment',
+        'trigger_assessments',
+        'changed_dimensions',
+        'weakened_dimension',
+        'broken_claim',
+        'narrative',
+        'prior_thesis_summary',
+        'new_filings',
+        'skipped_filings',
+        'prior_corpus_size',
+        'checked_at',
+        're_review_ungrounded',
+        'ungrounded_reason',
+        'reviewed_by_actor_type',
+        'reviewed_by_actor_id',
+      ],
     })
   })
 

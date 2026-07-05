@@ -85,8 +85,59 @@ export type CapturedSource = {
   http_status?: number
   fetched_at: string
   citation_locator?: string
-  /** Mechanism 6: the classifier's source category (for dossier visibility). Set by the lane-aware path. */
+  /** Mechanism 6: the classifier's source category (for dossier visibility). Set by the lane-aware path,
+   * OR harness-stamped at grounding time when the true category is KNOWN from the submissions index and
+   * the URL carries no signal (a real DEF 14A filename like `cost-20251204.htm` classifies as 'filing' —
+   * the harness stamps 'proxy'). The read gate prefers this field over the URL heuristic. */
   source_category?: SourceCategory
+  /** ISO filing date of the underlying EDGAR document (harness-stamped at grounding; feeds the ledger). */
+  filed?: string
+  /** EDGAR form type ('10-K', 'DEF 14A', '8-K/A', …) (harness-stamped at grounding; feeds the ledger). */
+  form?: string
+  /**
+   * A2 (Slice A): the RAW fetched body, retained in-memory for the run so a tool-loop provider can READ
+   * the grounded document (by Item) without a second fetch. Hashed identically to `content_hash`. NEVER
+   * persisted to the source-ledger (the hash + immutable URL make it reproducible — see
+   * {@link readGroundedSourceContent}'s A1 verification path). Absent on cross-session reads.
+   */
+  content?: string
+}
+
+/**
+ * Merge captured sources into a run's accumulated corpus under the SAME-ID guard (the write-side twin
+ * of mergeReadCorpus). Naive last-write-wins let a model RE-PROPOSAL of an already-grounded id — with
+ * whatever URL the model invented — clobber the harness capture (live dogfood bug: the synthesis model
+ * re-proposed the pre-verified 10-K id pointing at sec.gov/cgi-bin/browse-edgar, the SEARCH page, and
+ * the ledger record lost the real filing). Rules, per incoming capture:
+ *   - new id → added;
+ *   - same id, SAME content_hash → merge: the existing capture wins every conflicting field (its
+ *     provenance stamps survive), the re-capture only fills gaps (e.g. retained `content`);
+ *   - same id, DIFFERENT/absent hash vs a verified existing → the existing capture is KEPT and the
+ *     imposter dropped (first verified capture wins — the harness grounds first);
+ *   - unverified existing (no content_hash) vs a verified re-capture → upgraded to the verified one.
+ */
+export function mergeCapturedIntoCorpus(
+  corpus: Map<string, CapturedSource>,
+  captured: readonly CapturedSource[],
+): void {
+  for (const incoming of captured) {
+    const existing = corpus.get(incoming.source_id)
+    if (existing === undefined) {
+      corpus.set(incoming.source_id, incoming)
+      continue
+    }
+    if (existing.content_hash === undefined) {
+      // Existing capture never verified — a verified re-capture upgrades it; an unverified one keeps it.
+      if (incoming.content_hash !== undefined) corpus.set(incoming.source_id, incoming)
+      continue
+    }
+    if (incoming.content_hash === existing.content_hash) {
+      // Same bytes: existing wins conflicts (provenance preserved), incoming fills gaps (content, etc.).
+      corpus.set(incoming.source_id, { ...incoming, ...existing })
+      continue
+    }
+    // Different or missing hash under a verified id: keep the existing capture, drop the imposter.
+  }
 }
 
 export type GroundingDeps = {
@@ -208,6 +259,9 @@ export async function fetchAndCaptureSource(
             http_status: response.status,
             content_hash: `sha256:${hash}`,
             excerpt: body.replace(/\s+/g, ' ').trim().slice(0, maxExcerpt) || source.excerpt,
+            // A2: retain the raw body in-memory (same bytes we just hashed) so a tool-loop provider can
+            // read the grounded document by Item this run without re-fetching. Not persisted to the ledger.
+            content: body,
           },
         }
       }
@@ -358,4 +412,75 @@ export async function groundProposedSourcesForLane(
   })
 
   return { captured, verified_ids: grounded.verified_ids, policy_rejections }
+}
+
+// ---------------------------------------------------------------------------
+// Slice A — verified read of an already-grounded document (A2 fast path + A1 verification path)
+// ---------------------------------------------------------------------------
+
+/**
+ * Re-fetch a URL for verification only: SSRF-guarded, manual redirects, NO retries (a verification read
+ * fails closed rather than retrying). Returns the raw body or undefined. Used by the A1 path below.
+ */
+async function refetchBodyForVerification(rawUrl: string, deps: GroundingDeps): Promise<string | undefined> {
+  const fetchFn = deps.fetchImpl ?? fetch
+  const timeoutMs = deps.timeoutMs ?? 20_000
+  const headers = {
+    'User-Agent': resolveSourceUserAgent(deps),
+    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+  }
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), timeoutMs)
+  try {
+    let currentUrl = rawUrl
+    for (let hop = 0; hop <= 3; hop++) {
+      try {
+        assertPublicHttpUrl(currentUrl)
+      } catch {
+        return undefined
+      }
+      const response = await fetchFn(currentUrl, { signal: controller.signal, redirect: 'manual', headers })
+      const isRedirect = [301, 302, 303, 307, 308].includes(response.status)
+      const location = response.headers.get('location')
+      if (isRedirect && location !== null) {
+        if (hop === 3) return undefined
+        currentUrl = new URL(location, currentUrl).toString()
+        continue
+      }
+      if (!response.ok) return undefined
+      return await response.text()
+    }
+    return undefined
+  } catch {
+    return undefined
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+/**
+ * Read the full body of an already-grounded source, content-verified against its ledgered hash.
+ *
+ *   A2 (fast path): use the raw body retained in-memory this run (`source.content`).
+ *   A1 (verification path): when no retained content (cross-session read), re-fetch the URL. EDGAR
+ *     Archives URLs are immutable, so the re-fetched bytes hash-match the ledgered value — a genuine
+ *     integrity check, not best-effort.
+ *
+ * EITHER way the returned body MUST hash to `source.content_hash`. On any mismatch this FAILS CLOSED to
+ * `undefined` (uncitable/unreadable) — it never returns the in-memory copy or an excerpt that does not
+ * match the hash, so the read path can never launder content that disagrees with what was verified.
+ */
+export async function readGroundedSourceContent(
+  source: CapturedSource,
+  deps: GroundingDeps = {},
+): Promise<string | undefined> {
+  const expected = source.content_hash
+  if (expected === undefined || !expected.startsWith('sha256:')) return undefined
+  const body = typeof source.content === 'string' && source.content.length > 0
+    ? source.content
+    : await refetchBodyForVerification(source.url, deps)
+  if (body === undefined) return undefined
+  const actual = `sha256:${createHash('sha256').update(body).digest('hex')}`
+  if (actual !== expected) return undefined // FAIL CLOSED: never return content that disagrees with its hash
+  return body
 }

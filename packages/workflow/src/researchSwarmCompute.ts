@@ -6,6 +6,7 @@ import {
   type ResolveRubricTierResult,
 } from './judgmentAnchor'
 import type { AnnualFacts, Fundamentals } from './secEdgar'
+import type { InsiderSummaryComputed } from './secForm4'
 import { isCitationGrounded } from './sourceGrounding'
 
 /** A single cited durable competitive advantage from the MOAT lane's grounded thesis (B6 reframe). */
@@ -622,6 +623,9 @@ export function buildPreVerifiedSourcesBlock(sourceIds: readonly string[]): stri
     `\n\nPRE-VERIFIED PRIMARY SOURCES (already fetched + content-verified by the harness — cite THESE `
     + `source_ids for filing-backed claims; do NOT invent your own SEC archive URLs, which fetch `
     + `unreliably and will FAIL the harness cite-check): [${ids.join(', ')}]. `
+    + `You can READ these sources by Item with the read_source tool — e.g. read_source(source_id, section="1A") `
+    + `for Risk Factors, "1" for Business, "7" for MD&A — to ground your qualitative reasoning in the primary `
+    + `filing text rather than memory. `
     + `For any filing-backed claim — the moat qualitative rows, the circle-of-competence cashflow drivers `
     + `and predictability breakers, and the valuation owner-earnings / assumed-growth citations — set the `
     + `citation to one of these pre-verified source_ids. You may still propose ADDITIONAL sources for `
@@ -630,11 +634,81 @@ export function buildPreVerifiedSourcesBlock(sourceIds: readonly string[]): stri
 }
 
 /**
+ * Build the RECENT INTERIM FILINGS affordance block — 8-K / 10-Q narrative grounded for interim recency
+ * (Slice B). Lists the harness-verified readable source_ids (form + filed date) and instructs the model
+ * to read_source them for thesis-break developments. NUMBERS are explicitly out of bounds (the harness
+ * computes valuation on the annual basis only). Returns '' for an empty list.
+ */
+export function buildRecentFilingsBlock(
+  entries: readonly { source_id: string; form: string; filed: string }[],
+): string {
+  if (entries.length === 0) return ''
+  const lines = entries.map((e) => `  - ${e.form} filed ${e.filed}: read_source("${e.source_id}")`).join('\n')
+  return (
+    `\n\nRECENT INTERIM FILINGS (8-K / 6-K material events + 10-Q interim narrative filed SINCE the latest annual report — `
+    + `already fetched + content-verified by the harness). READ them by Item/section with read_source for `
+    + `recent developments that can break the thesis: impairments, guidance cuts, executive departures, `
+    + `M&A, litigation, updated risk factors:\n${lines}\n`
+    + `Use these for QUALITATIVE / recency context and cite the source_id. Do NOT use interim quarterly `
+    + `NUMBERS for valuation — the harness computes valuation on the ANNUAL basis only.`
+  )
+}
+
+/**
+ * Build the LATEST PROXY STATEMENT affordance block (3.1) — the definitive DEF 14A grounded as a
+ * readable document for the management (+ moat) lanes. Points the model at incentive structure,
+ * governance, insider ownership, and related-party text; proxy NUMBERS are explicitly out of bounds
+ * (comp tables are read as text for qualitative judgment, never computed figures). Returns '' when
+ * no proxy grounded (append-safe).
+ */
+export function buildProxyBlock(entry: { source_id: string; filed: string } | undefined): string {
+  if (entry === undefined || entry.source_id.length === 0) return ''
+  return (
+    `\n\nLATEST PROXY STATEMENT (DEF 14A, filed ${entry.filed} — already fetched + content-verified by `
+    + `the harness). READ it with read_source("${entry.source_id}") for executive compensation structure `
+    + `and incentive alignment (EPS-linked vs revenue vs return-on-capital), insider ownership, board `
+    + `composition/independence, dual-class/entrenchment provisions, and related-party transactions; `
+    + `cite the source_id for proxy-backed claims. Do NOT use proxy numbers for valuation — the harness `
+    + `computes valuation on the annual filing basis only.`
+  )
+}
+
+/**
+ * Build the INSIDER TRANSACTIONS affordance block (§3.3) — the deterministically-parsed Form 4 summary
+ * injected into the MANAGEMENT lane. This is a harness OBSERVATION (computed, not narrative to read):
+ * discretionary open-market buys/sells only; mechanical RSU/option/tax activity is surfaced separately so
+ * it is never mistaken for insider selling. Always given a computable summary; callers omit it otherwise.
+ */
+export function buildInsiderBlock(summary: InsiderSummaryComputed): string {
+  const usd = (v: number) => `$${Math.round(v).toLocaleString('en-US')}`
+  const sh = (v: number) => v.toLocaleString('en-US')
+  const clusterLine = summary.cluster === undefined
+    ? ''
+    : `\n  - CLUSTER: ${summary.cluster.discretionary_sell_count} discretionary sale(s) by `
+      + `${summary.cluster.distinct_sellers} insider(s) within ${summary.cluster.window_days} days `
+      + `(~${usd(summary.cluster.net_sell_value)} net).`
+  const truncatedNote = summary.window_truncated
+    ? ` (NOTE: filing window capped — older Form 4s beyond the cap are not included, so counts are a recent-window floor.)`
+    : ''
+  return (
+    `\n\nINSIDER TRANSACTIONS (SEC Form 4, trailing ${summary.window_months} months as of ${summary.as_of} — `
+    + `deterministically parsed by the harness; treat as an OBSERVATION, do NOT re-derive or fetch).${truncatedNote} `
+    + `Discretionary OPEN-MARKET activity only — option/RSU exercises, grants, and tax-withholding are mechanical and EXCLUDED from these buy/sell figures:\n`
+    + `  - Discretionary BUYS: ${sh(summary.discretionary_buy_shares)} shares (~${usd(summary.discretionary_buy_value)}) by ${summary.distinct_buyers} insider(s).\n`
+    + `  - Discretionary SELLS: ${sh(summary.discretionary_sell_shares)} shares (~${usd(summary.discretionary_sell_value)}) by ${summary.distinct_sellers} insider(s); `
+    + `officers/directors ${sh(summary.officer_director_sell_shares)} shares, 10% owners ${sh(summary.ten_percent_owner_sell_shares)} shares.\n`
+    + `  - Mechanical (RSU vest / option exercise / tax withholding), NOT sales: ${sh(summary.mechanical_disposed_shares)} shares disposed.`
+    + `${clusterLine}\n`
+    + `Weigh this as a management-quality signal (insider conviction vs distribution). Cite it as harness-computed Form 4 data; NEVER treat mechanical vesting/withholding as discretionary insider selling.`
+  )
+}
+
+/**
  * Build a compact, grounded primary-filing context block for injection into a lane prompt. Includes
  * the OE-bridge raw inputs, revenue, debt, cash, interest expense, the multi-year series, and the
  * grounded EDGAR source_id the lane MUST cite.
  */
-export function buildPrimaryFilingBlock(f: Fundamentals, sourceId: string): string {
+export function buildPrimaryFilingBlock(f: Fundamentals, sourceId: string, form = '10-K'): string {
   const la = f.latest_annual
   const series = f.annual_series.slice(0, 11) // latest + up to 10 prior years
   const seriesLines = series.map((a) =>
@@ -645,9 +719,9 @@ export function buildPrimaryFilingBlock(f: Fundamentals, sourceId: string): stri
 
   return (
     `\n\nPrimary filing data (SEC EDGAR, FY${la.fiscal_year}, source ${sourceId}) — ${f.entity_name} (CIK ${f.cik}). `
-    + `These are RAW values from the latest 10-K, in $millions and share-millions. USE these primary numbers `
+    + `These are RAW values from the latest ${form}, in $millions and share-millions. USE these primary numbers `
     + `as the authoritative basis for your finding (you may still normalize, e.g. estimate the maintenance-capex `
-    + `fraction of total capex), and CITE source ${sourceId} (the EDGAR 10-K) in proposed_sources.\n`
+    + `fraction of total capex), and CITE source ${sourceId} (the EDGAR ${form}) in proposed_sources.\n`
     + `Latest annual (FY${la.fiscal_year}): net_income ${fmtMusd(la.net_income_musd)}, revenue ${fmtMusd(la.revenue_musd)}, `
     + `D&A ${fmtMusd(la.d_and_a_musd)}, total_capex ${fmtMusd(la.capex_musd)}, SBC ${fmtMusd(la.sbc_musd)}, `
     + `diluted_shares ${fmtShares(la.diluted_shares_m)}, shares_outstanding ${fmtShares(la.shares_outstanding_m)}, `

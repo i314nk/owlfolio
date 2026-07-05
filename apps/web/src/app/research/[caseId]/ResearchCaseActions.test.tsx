@@ -10,6 +10,7 @@ import {
   ResearchCaseActions,
   submitArchive,
   submitReRun,
+  submitReReview,
   type ActionRouter,
 } from './ResearchCaseActions'
 
@@ -159,5 +160,43 @@ describe('submitArchive', () => {
     await submitArchive({ fetch: probe as unknown as typeof fetch, router, caseId: 'rc_msft_1' })
 
     expect(seenThis[0]).toBe(globalThis)
+  })
+})
+
+describe('submitReReview', () => {
+  afterEach(() => vi.restoreAllMocks())
+
+  it('POSTs to the re-review route and refreshes when a diff was recorded', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ status: 'recorded', re_review: { assessment: 'INTACT' } }))
+    const router: ActionRouter = { push: vi.fn(), refresh: vi.fn() }
+
+    const result = await submitReReview({ fetch: fetchMock as unknown as typeof fetch, router, caseId: 'rc_msft_1' })
+
+    expect(result).toEqual({ ok: true })
+    expect(fetchMock).toHaveBeenCalledWith('/api/research/rc_msft_1/re-review', expect.objectContaining({ method: 'POST' }))
+    expect(router.refresh).toHaveBeenCalledTimes(1)
+  })
+
+  it('returns an informational note (no refresh) for zero-spend outcomes like no_new_filings', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ status: 'no_new_filings', checked_at: '2026-07-05T00:00:00.000Z' }))
+    const router: ActionRouter = { push: vi.fn(), refresh: vi.fn() }
+
+    const result = await submitReReview({ fetch: fetchMock as unknown as typeof fetch, router, caseId: 'rc_msft_1' })
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) throw new Error('expected ok')
+    expect(result.note).toMatch(/No new filings/)
+    expect(router.refresh).not.toHaveBeenCalled()
+  })
+
+  it('surfaces the resolved error on failure', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      jsonResponse({ error: { code: 'no_recorded_thesis', message: 'This case has no recorded thesis to compare against.' } }, { ok: false, status: 409 }),
+    )
+    const router: ActionRouter = { push: vi.fn(), refresh: vi.fn() }
+
+    const result = await submitReReview({ fetch: fetchMock as unknown as typeof fetch, router, caseId: 'rc_msft_1' })
+
+    expect(result).toEqual({ ok: false, error: 'This case has no recorded thesis to compare against.' })
   })
 })

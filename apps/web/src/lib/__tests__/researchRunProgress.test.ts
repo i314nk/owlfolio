@@ -1,10 +1,22 @@
 import { describe, expect, it } from 'vitest'
 
-import { resolveRunProgress, type ResearchRunStageKey } from '../researchRunProgress'
+import { buffettMungerDeepDiveLanes } from '@owlfolio/workflow/strategyResearchPipeline'
+
+import { resolveRunProgress, DEEP_DIVE_LANE_TOTAL, type ResearchRunStageKey } from '../researchRunProgress'
 
 function stateOf(progress: ReturnType<typeof resolveRunProgress>, key: ResearchRunStageKey) {
   return progress.stages.find((stage) => stage.key === key)?.state
 }
+
+describe('loading-screen lane total tracks the 5-lane deep dive', () => {
+  it('is 5', () => {
+    expect(DEEP_DIVE_LANE_TOTAL).toBe(5)
+  })
+
+  it('matches the source buffettMungerDeepDiveLanes array length (drift guard)', () => {
+    expect(DEEP_DIVE_LANE_TOTAL).toBe(buffettMungerDeepDiveLanes.length)
+  })
+})
 
 describe('resolveRunProgress — stage mapping', () => {
   it('a freshly created case (discovered) → queued, in progress', () => {
@@ -61,20 +73,20 @@ describe('resolveRunProgress — stage mapping', () => {
   })
 })
 
-describe('resolveRunProgress — lane count drives the N/7 deep-dive label', () => {
+describe('resolveRunProgress — lane count drives the N/5 deep-dive label', () => {
   it('reflects the specialist finding count', () => {
     const p = resolveRunProgress({ stage: 'deep_dive_in_progress', specialistFindingCount: 3 })
-    expect(p.lanes).toEqual({ completed: 3, total: 7 })
-    expect(p.stages.find((s) => s.key === 'deep_dive')?.label).toBe('Deep dive — 3/7 specialists')
+    expect(p.lanes).toEqual({ completed: 3, total: 5 })
+    expect(p.stages.find((s) => s.key === 'deep_dive')?.label).toBe('Deep dive — 3/5 specialists')
   })
 
-  it('caps the completed count at 7 and floors at 0', () => {
-    expect(resolveRunProgress({ stage: 'deep_dive_in_progress', specialistFindingCount: 99 }).lanes.completed).toBe(7)
+  it('caps the completed count at 5 and floors at 0', () => {
+    expect(resolveRunProgress({ stage: 'deep_dive_in_progress', specialistFindingCount: 99 }).lanes.completed).toBe(5)
     expect(resolveRunProgress({ stage: 'deep_dive_in_progress', specialistFindingCount: -5 }).lanes.completed).toBe(0)
   })
 
-  it('defaults to 0/7 when no count is supplied', () => {
-    expect(resolveRunProgress({ stage: 'deep_dive_in_progress' }).lanes).toEqual({ completed: 0, total: 7 })
+  it('defaults to 0/5 when no count is supplied', () => {
+    expect(resolveRunProgress({ stage: 'deep_dive_in_progress' }).lanes).toEqual({ completed: 0, total: 5 })
   })
 })
 
@@ -95,14 +107,14 @@ describe('resolveRunProgress — pauses and terminals', () => {
     'watchlist_draft',
     'holding',
   ] as const)('terminal stage %s → currentStage done, NOT in progress', (stage) => {
-    const p = resolveRunProgress({ stage, specialistFindingCount: 7 })
+    const p = resolveRunProgress({ stage, specialistFindingCount: 5 })
     expect(p.currentStage).toBe('done')
     expect(p.inProgress).toBe(false)
     expect(p.awaitingApproval).toBe(false)
   })
 
-  it('a full terminal run (7 lanes) marks every stage done', () => {
-    const p = resolveRunProgress({ stage: 'decision_drafted', specialistFindingCount: 7 })
+  it('a full terminal run (5 lanes) marks every stage done', () => {
+    const p = resolveRunProgress({ stage: 'decision_drafted', specialistFindingCount: 5 })
     expect(p.stages.every((s) => s.state === 'done')).toBe(true)
   })
 })

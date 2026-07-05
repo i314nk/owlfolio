@@ -4,6 +4,10 @@ import { createElement, useState, type CSSProperties, type ReactNode } from 'rea
 import { useRouter } from 'next/navigation'
 
 import { resolveErrorMessage } from '../new/resolveErrorMessage'
+// The re-review submit is SHARED with the watchlist/portfolio launches; re-exported so the dossier's
+// confirm-row treatment and its tests keep one import site.
+import { submitReReview } from '../../../components/ReReviewButton'
+export { submitReReview }
 
 // NOTE: this file uses `createElement` rather than JSX to match the repo convention — the apps/web Next
 // tsconfig sets `jsx: preserve`, so any component IMPORTED under vitest must avoid JSX syntax to transform
@@ -81,7 +85,7 @@ export async function submitArchive(
   }
 }
 
-type PendingAction = 'rerun' | 'archive' | undefined
+type PendingAction = 'rerun' | 'archive' | 'rereview' | undefined
 
 const confirmRowStyle: CSSProperties = {
   alignItems: 'center',
@@ -108,6 +112,7 @@ export function ResearchCaseActions({ caseId, ticker, isArchived, engineStale }:
   const [confirming, setConfirming] = useState<PendingAction>(undefined)
   const [submitting, setSubmitting] = useState<PendingAction>(undefined)
   const [error, setError] = useState<string | undefined>(undefined)
+  const [reReviewNote, setReReviewNote] = useState<string | undefined>(undefined)
 
   const isBusy = submitting !== undefined
   const reRunDisabled = ticker === undefined || isBusy
@@ -119,6 +124,20 @@ export function ResearchCaseActions({ caseId, ticker, isArchived, engineStale }:
     const result = await submitReRun({ fetch, router, caseId, ticker })
     if (result.ok) {
       setConfirming(undefined)
+    } else {
+      setError(result.error)
+    }
+    setSubmitting(undefined)
+  }
+
+  async function onConfirmReReview(): Promise<void> {
+    setSubmitting('rereview')
+    setError(undefined)
+    setReReviewNote(undefined)
+    const result = await submitReReview({ fetch, router, caseId })
+    if (result.ok) {
+      setConfirming(undefined)
+      if (result.note !== undefined) setReReviewNote(result.note)
     } else {
       setError(result.error)
     }
@@ -266,8 +285,52 @@ export function ResearchCaseActions({ caseId, ticker, isArchived, engineStale }:
       ticker === undefined
         ? createElement('span', { 'data-testid': 'research-case-rerun-disabled-hint', style: noteStyle }, 'no ticker on this case')
         : null,
+      confirming === 'rereview'
+        ? createElement(
+            'div',
+            { style: confirmRowStyle, 'data-testid': 'research-case-rereview-confirm' },
+            createElement(
+              'span',
+              { style: confirmTextStyle },
+              'Checks SEC EDGAR for filings NEW since this decision and, only if any exist, runs a grounded thesis re-review (uses provider quota). The diff is an observation — it never changes the verdict. Continue?',
+            ),
+            createElement(
+              'button',
+              {
+                type: 'button',
+                className: 'owl-button owl-button-secondary owl-focusable',
+                disabled: isBusy,
+                onClick: () => void onConfirmReReview(),
+              },
+              submitting === 'rereview' ? 'Checking…' : 'Confirm re-review',
+            ),
+            createElement(
+              'button',
+              { type: 'button', className: 'owl-button owl-button-secondary owl-focusable', disabled: isBusy, onClick: () => setConfirming(undefined) },
+              'Cancel',
+            ),
+          )
+        : createElement(
+            'button',
+            {
+              type: 'button',
+              className: 'owl-button owl-button-secondary owl-focusable',
+              style: { cursor: isBusy ? 'not-allowed' : 'pointer', opacity: isBusy ? 0.6 : 1 } as CSSProperties,
+              disabled: isBusy,
+              'data-testid': 'research-case-rereview-button',
+              onClick: () => {
+                setError(undefined)
+                setReReviewNote(undefined)
+                setConfirming('rereview')
+              },
+            },
+            'Check new filings / re-review',
+          ),
       archiveNode,
     ),
+    reReviewNote === undefined
+      ? null
+      : createElement('p', { 'data-testid': 'research-case-rereview-note', style: { ...noteStyle, margin: 0 } }, reReviewNote),
     error === undefined
       ? null
       : createElement(

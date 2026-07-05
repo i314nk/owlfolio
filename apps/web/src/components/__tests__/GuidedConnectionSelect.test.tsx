@@ -1,13 +1,28 @@
+import { createElement } from 'react'
+import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 
 import {
+  buildConnectionOptions,
   buildTierGroupedModelOptions,
   defaultModelForConnection,
   providerModeForOption,
   providerSelectionForConnection,
   providerSelectionForOption,
+  renderModelSelection,
+  type ConnectionOption,
 } from '../GuidedConnectionSelect'
 import type { ProviderOption } from '../../lib/providerReadiness'
+
+function openRouterConnection(): ConnectionOption {
+  const connection = buildConnectionOptions([
+    { provider_id: 'openrouter', provider_surface_id: 'openrouter-api', label: 'OpenRouter', support_level: 'experimental', description: 'Meta-aggregator', default_model_id: 'openrouter/auto' },
+  ]).find((option) => option.key === 'openrouter')
+  if (connection === undefined) {
+    throw new Error('openrouter connection fixture missing')
+  }
+  return connection
+}
 
 // These are the pure selection/menu helpers that back BOTH the guided-setup surface
 // (/settings/providers) and the shared GuidedConnectionSelect component. The standalone onboarding
@@ -22,39 +37,12 @@ const providerOptions: ProviderOption[] = [
     default_model_id: 'mock-buffett-munger-demo',
   },
   {
-    provider_id: 'claude',
-    provider_surface_id: 'claude-cli',
-    label: 'Claude',
-    support_level: 'experimental',
-    description: 'CLI-backed Claude provider path',
-    default_model_id: 'claude-sonnet-4-6',
-  },
-  {
     provider_id: 'openrouter',
     provider_surface_id: 'openrouter-api',
     label: 'OpenRouter',
     support_level: 'experimental',
     description: 'Meta-aggregator routing many models behind one API key',
     default_model_id: 'openrouter/auto',
-  },
-  {
-    provider_id: 'openai',
-    provider_surface_id: 'openai-codex-cli',
-    label: 'OpenAI',
-    support_level: 'experimental',
-    description: 'Recommended Codex CLI personal-local path; direct API certification remains advanced.',
-    default_model_id: 'gpt-5.5',
-    provider_family_label: 'OpenAI',
-    recommended_sign_in_label: 'Connect Codex',
-    recommended_sign_in_description: 'Run codex login outside Owlfolio; Owlfolio verifies the CLI session and never claims browser OAuth.',
-    simple_next_step: 'Run codex login outside Owlfolio, then refresh readiness.',
-    advanced_auth_options: [
-      {
-        label: 'OpenAI API key',
-        description: 'Use a direct OpenAI API key for certification-oriented provider runs.',
-        certification_note: 'Direct API certification remains separate from Codex CLI personal-local readiness.',
-      },
-    ],
   },
 ]
 
@@ -73,14 +61,45 @@ describe('GuidedConnectionSelect helpers', () => {
     const selected = providerSelectionForOption(
       { provider_id: 'mock-provider', support_level: 'certified', model_id: 'mock-buffett-munger-demo' },
       {
-        provider_id: 'openai',
-        label: 'OpenAI',
+        provider_id: 'openai-api',
+        label: 'OpenAI (API key)',
         support_level: 'experimental',
         description: 'Experimental provider path',
       },
     )
 
-    expect(selected).toEqual({ provider_id: 'openai', support_level: 'experimental' })
+    expect(selected).toEqual({ provider_id: 'openai-api', support_level: 'experimental' })
+  })
+
+  it('renders a SEARCHABLE picker over the full OpenRouter catalog when live models are provided', () => {
+    const html = renderToStaticMarkup(renderModelSelection(
+      openRouterConnection(),
+      undefined,
+      () => {},
+      [
+        { id: 'z-ai/glm-5.2', name: 'GLM 5.2', reasoning: true, tools: true, structured_output: true },
+        { id: 'anthropic/claude-opus-4.8', name: 'Claude Opus 4.8 (also curated)', reasoning: true, tools: true, structured_output: true },
+        { id: 'x-ai/grok-4.3', name: 'Grok 4.3 (also curated)', reasoning: true, tools: true, structured_output: true },
+      ],
+    ))
+    // The searchable input + its datalist over the live catalog.
+    expect(html).toContain('list="owl-openrouter-live-models"')
+    expect(html).toContain('Search or type any model id')
+    // A live-only model is selectable (the GLM the owner wanted).
+    expect(html).toContain('z-ai/glm-5.2')
+    // Curated picks are still surfaced (deduped against the live list, labelled recommended).
+    expect(html).toContain('anthropic/claude-opus-4.8')
+    expect(html).toContain('recommended')
+    // Honest framing: non-curated models are experimental / fail-closed.
+    expect(html).toContain('experimental')
+  })
+
+  it('falls back to the curated tier select for OpenRouter when no live models are available (fail-closed)', () => {
+    const html = renderToStaticMarkup(renderModelSelection(openRouterConnection(), undefined, () => {}, []))
+    expect(html).not.toContain('owl-openrouter-live-models')
+    // The curated tier-grouped <select> remains.
+    expect(html).toContain('Model (pick one)')
+    expect(html).toContain('anthropic/claude-opus-4.8')
   })
 
   it('groups the OpenRouter model dropdown by tier, reading the curated catalog (not hardcoded)', () => {
@@ -97,19 +116,8 @@ describe('GuidedConnectionSelect helpers', () => {
     expect(gptInT2).toBe(true)
   })
 
-  it('groups the Claude Code model dropdown by tier (Opus T1, Sonnet T1/T2, Haiku T3)', () => {
-    const groups = buildTierGroupedModelOptions('claude')
-    const tier1 = groups.find((group) => group.tier === 'T1')?.models.map((model) => model.model_id) ?? []
-    const tier3 = groups.find((group) => group.tier === 'T3')?.models.map((model) => model.model_id) ?? []
-
-    expect(tier1).toContain('claude-opus-4-8')
-    expect(tier1).toContain('claude-sonnet-4-6')
-    expect(tier3).toContain('claude-haiku-4-5')
-  })
-
-  it('seeds a curated default model id when selecting a choose-provider connection (OpenRouter / Claude Code)', () => {
+  it('seeds a curated default model id when selecting a choose-provider connection (OpenRouter)', () => {
     const openRouterProvider = providerOptions.find((provider) => provider.provider_id === 'openrouter')!
-    const claudeProvider = providerOptions.find((provider) => provider.provider_id === 'claude')!
 
     // OpenRouter: never the bare openrouter/auto default — the first curated real-tier model is pinned.
     const orSelection = providerSelectionForConnection(
@@ -118,12 +126,29 @@ describe('GuidedConnectionSelect helpers', () => {
     )
     expect(orSelection.model_id).toBe('anthropic/claude-opus-4.8')
     expect(orSelection.provider_id).toBe('openrouter')
+  })
 
-    const claudeSelection = providerSelectionForConnection(
-      { provider_id: 'mock-provider', support_level: 'certified', model_id: 'mock-buffett-munger-demo' },
-      { key: 'claude', provider: claudeProvider, mode: 'personal-local', title: '', badge: '', description: '', modelChoice: 'choose' },
-    )
-    expect(claudeSelection.model_id).toBe('claude-opus-4-8')
+  it('does not offer Claude as a connection option (claude login unsupported with third-party harnesses)', () => {
+    const options = buildConnectionOptions(providerOptions)
+    expect(options.map((option) => option.key)).not.toContain('claude')
+    // The retired Claude CLI login is gone; the Anthropic *API-key* provider is a distinct, selectable card.
+    expect(options.some((option) => option.title === 'Use Claude Code')).toBe(false)
+  })
+
+  it('offers the direct-API providers (Anthropic/OpenAI/Gemini) as selectable cards when present', () => {
+    const withDirectApi: ProviderOption[] = [
+      ...providerOptions,
+      { provider_id: 'anthropic-api', label: 'Anthropic (Claude API key)', support_level: 'experimental', description: 'Direct Anthropic API', default_model_id: 'claude-sonnet-4-6' },
+      { provider_id: 'openai-api', label: 'OpenAI (API key)', support_level: 'experimental', description: 'Direct OpenAI API', default_model_id: 'gpt-5.5' },
+      { provider_id: 'gemini-developer-api', label: 'Gemini (Google API key)', support_level: 'experimental', description: 'Direct Gemini API', default_model_id: 'gemini-3.5-flash' },
+    ]
+    const keys = buildConnectionOptions(withDirectApi).map((option) => option.key)
+    expect(keys).toContain('anthropic-api')
+    expect(keys).toContain('openai-api')
+    expect(keys).toContain('gemini-developer-api')
+    // All three are 'choose' cards (curated multi-model lists), not fixed-model.
+    const anthropic = buildConnectionOptions(withDirectApi).find((option) => option.key === 'anthropic-api')
+    expect(anthropic?.modelChoice).toBe('choose')
   })
 
   it('preserves an explicit model choice when re-selecting the same connection', () => {
@@ -135,16 +160,31 @@ describe('GuidedConnectionSelect helpers', () => {
     expect(selection.model_id).toBe('google/gemini-3.5-flash')
   })
 
-  it('pins the Codex fixed model via defaultModelForConnection', () => {
-    const codexProvider: ProviderOption = {
-      provider_id: 'openai',
-      provider_surface_id: 'openai-codex-cli',
-      label: 'OpenAI',
-      support_level: 'experimental',
-      description: 'Codex CLI path',
-      default_model_id: 'gpt-5.5',
+  it('pins the demo fixed model via defaultModelForConnection', () => {
+    const mockProvider: ProviderOption = {
+      provider_id: 'mock-provider',
+      provider_surface_id: 'mock-provider',
+      label: 'Mock provider',
+      support_level: 'certified',
+      description: 'Deterministic demo path',
+      default_model_id: 'mock-buffett-munger-demo',
     }
-    const fixed = defaultModelForConnection({ key: 'codex', provider: codexProvider, mode: 'personal-local', title: '', badge: '', description: '', modelChoice: 'fixed' })
-    expect(fixed).toBe('gpt-5.5')
+    const fixed = defaultModelForConnection({ key: 'demo', provider: mockProvider, mode: 'demo', title: '', badge: '', description: '', modelChoice: 'fixed' })
+    expect(fixed).toBe('mock-buffett-munger-demo')
+  })
+
+  it('renders an explicit "Set model" button + confirmation for the OpenRouter searchable picker', () => {
+    const connection = openRouterConnection()
+    const liveModels = [{ id: 'z-ai/glm-5.2-max', name: 'GLM 5.2 Max' }] as unknown as Parameters<typeof renderModelSelection>[3]
+
+    const html = renderToStaticMarkup(
+      createElement('div', null, renderModelSelection(connection, undefined, () => {}, liveModels)),
+    )
+
+    // The searchable input AND an explicit commit button both render (no more per-keystroke auto-persist).
+    expect(html).toContain('Search or enter an OpenRouter model id')
+    expect(html).toContain('Set model')
+    // With no model set yet, the confirmation line prompts the user to Set one.
+    expect(html).toContain('No model set yet')
   })
 })

@@ -26,25 +26,43 @@ import type { WatchlistProjection } from '@owlfolio/ledger/projections/watchlist
 import { projectWatchlist } from '@owlfolio/ledger/projections/watchlistProjection'
 import type { EventStore } from '@owlfolio/ledger/eventStore'
 import { SQLiteEventStore } from '@owlfolio/ledger/sqliteEventStore'
-import { resolveProvider } from '@owlfolio/providers'
+import { getProviderCatalog, resolveProvider } from '@owlfolio/providers'
 import { VALUATION_PARAMS } from '@owlfolio/strategies/valuationParams'
 import { CHECKLIST_PARAMS, type ChecklistAudit } from '@owlfolio/strategies/checklistParams'
 import { resolveAdmissionThesisDraft, resolveBusinessFindings } from './checklistEvidence'
+import { isTerminalResearchStage } from './researchRunProgress'
 import { resolveAppConfigPath } from './appConfigStore'
 import { resolveProviderCertificationReportDir } from './providerStatus'
 import type { AppConfig } from '@owlfolio/shared'
+import { mergeAutomationSettings } from '@owlfolio/shared/appConfig'
+
+/** Resolve the clamped circle-gate hardening knobs from app config (k-sample agreement + evidence floors). */
+function resolveCircleGateSettings(config: AppConfig): { k_samples: number; min_drivers: number; min_breakers: number } {
+  const automation = mergeAutomationSettings(config.automation)
+  return {
+    k_samples: automation.circle_gate_k_samples,
+    min_drivers: automation.circle_gate_min_drivers,
+    min_breakers: automation.circle_gate_min_breakers,
+  }
+}
 import {
   assertShariahGateAllowsTransition,
+  checkForNewFilings,
   confirmHoldingReviewDraft,
   confirmWatchlistDraft,
   draftHoldingReview,
+  draftThesisReReview,
   evaluateResearchCaseShariahGate,
+  loadPriorThesis,
   openHoldingFromWatchlist,
   overrideHoldingReviewDraft,
   recordHoldingValuationSnapshot,
   rejectHoldingReviewDraft,
   defaultSourceLedgerStorage,
+  type CheckForNewFilingsDeps,
+  type InsiderClusterTrigger,
   type SourceLedgerBundle,
+  type ThesisReReviewRecordedPayload,
 } from '@owlfolio/workflow'
 import { selectResearchCaseAction } from '@owlfolio/workflow/researchCasePolicy'
 import { archiveResearchCase } from '@owlfolio/workflow/researchWorkflow'
@@ -446,6 +464,7 @@ export async function enqueueResearchRun(
           // here, layered OVER the deterministic AUTO defaults (auto fills only unpinned roles).
           model_role_env: await resolveModelRoleEnv(),
           model_overrides: (await buildAutoModelRoleOverrides({ processEnv: process.env })).overrides,
+          circle_gate: resolveCircleGateSettings(state.config),
         },
         // Advanced research-depth knob: per-lane grounded-tool-call cap (undefined → loop default).
         { ground, ...(state.config.automation?.research_max_tool_calls === undefined ? {} : { maxToolCalls: state.config.automation.research_max_tool_calls }) },
@@ -544,6 +563,7 @@ export async function requestDeepDiveRun(
             // too, layered over the deterministic AUTO defaults (auto fills only unpinned roles).
             model_role_env: await resolveModelRoleEnv(),
             model_overrides: (await buildAutoModelRoleOverrides({ processEnv: process.env })).overrides,
+            circle_gate: resolveCircleGateSettings(state.config),
           },
           { ground, ...(state.config.automation?.research_max_tool_calls === undefined ? {} : { maxToolCalls: state.config.automation.research_max_tool_calls }) },
         )
@@ -638,7 +658,8 @@ export async function getAppResearchCaseFromStore(
 export type ResearchCaseView =
   | { status: 'ready'; researchCase: AppResearchCase }
   | { status: 'pending' }
-  | { status: 'failed'; error_summary?: string }
+  /** `ticker` (from the projected case or the run-request payload) lets the failed page offer a re-run. */
+  | { status: 'failed'; error_summary?: string; ticker?: string }
   | { status: 'unknown' }
 
 const RESEARCH_RUN_EVENT_TYPES: ReadonlySet<string> = new Set([
@@ -646,6 +667,20 @@ const RESEARCH_RUN_EVENT_TYPES: ReadonlySet<string> = new Set([
   'research_run_claimed',
   'research_run_failed',
 ])
+
+function isRecordValue(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+}
+
+/** The worker's error_summary off a research_run_failed event payload, when present. */
+function failureSummaryFrom(event: LedgerEventEnvelope<unknown>): string | undefined {
+  const payload = event.payload
+  const summary =
+    payload !== null && typeof payload === 'object'
+      ? (payload as Record<string, unknown>).error_summary
+      : undefined
+  return typeof summary === 'string' ? summary : undefined
+}
 
 function eventResearchCaseId(event: LedgerEventEnvelope<unknown>): string {
   const payload = event.payload
@@ -658,17 +693,57 @@ function eventResearchCaseId(event: LedgerEventEnvelope<unknown>): string {
   return event.aggregate_id
 }
 
+/**
+ * How long a run may sit "requested/claimed but no dossier yet" before the UI stops showing the
+ * animated loader and reports a failure instead. A worker that is going to run claims + starts building
+ * the case within seconds (even allowing for a cold pnpm/tsx spawn), so a run with NO progress past this
+ * window means the worker never started (bad provider/model config, a spawn/env fault, or a crash before
+ * the first event). Without this the loader spins forever. Env-overridable; default 180s (6x the normal
+ * cold-start headroom). Distinct from the worker-side abandoned-run watchdog, which can only reap cases
+ * that already reached `research_case_created` AND only runs when a worker actually ticks.
+ */
+const DEFAULT_RESEARCH_PENDING_TIMEOUT_MS = 180_000
+
+function resolveResearchPendingTimeoutMs(env: { readonly [key: string]: string | undefined }): number {
+  const raw = env.OWLFOLIO_RESEARCH_PENDING_TIMEOUT_MS
+  if (raw !== undefined && raw.length > 0) {
+    const parsed = Number.parseInt(raw, 10)
+    if (Number.isFinite(parsed) && parsed > 0) {
+      return parsed
+    }
+  }
+  return DEFAULT_RESEARCH_PENDING_TIMEOUT_MS
+}
+
 export async function resolveResearchCaseView(
   store: EventStore,
   mode: WorkflowMode,
   caseId: string,
   sourceLedgerPath?: string,
+  options: { now?: Date; pendingTimeoutMs?: number } = {},
 ): Promise<ResearchCaseView> {
   const events = await store.list()
 
-  // 1. Case already created → render the real dossier.
+  // 1. Case already created → render the real dossier — UNLESS the run died mid-flight. A
+  //    `research_run_failed` on a case that never reached a terminal stage means the worker failed
+  //    between `research_case_created` and the dossier (e.g. synthesis validation exhausted); without
+  //    this check the ready branch renders the animated progress view FOREVER (the client poller sees
+  //    failed, triggers a server re-render, and the server serves the loader again — the ADBE
+  //    loading-forever bug). A case that DID reach a terminal stage keeps its dossier: never hide a
+  //    completed dossier behind a failed screen.
   const researchCase = projectResearchCases(events).find((candidate) => candidate.research_case_id === caseId)
   if (researchCase !== undefined) {
+    const midRunFailure = events.find(
+      (event) => event.event_type === 'research_run_failed' && eventResearchCaseId(event) === caseId,
+    )
+    if (midRunFailure !== undefined && !isTerminalResearchStage(researchCase.stage)) {
+      const summary = failureSummaryFrom(midRunFailure)
+      return {
+        status: 'failed',
+        ...(summary !== undefined ? { error_summary: summary } : {}),
+        ...(researchCase.ticker !== undefined ? { ticker: researchCase.ticker } : {}),
+      }
+    }
     return { status: 'ready', researchCase: await buildPersonalResearchCase(events, researchCase, sourceLedgerPath) }
   }
 
@@ -680,17 +755,40 @@ export async function resolveResearchCaseView(
     return { status: 'unknown' }
   }
 
+  // Ticker recovered from any run-lifecycle payload (research_run_requested carries it) so a failed
+  // view can offer a re-run even when the case row was never created.
+  const runTicker = runEvents
+    .map((event) => (isRecordValue(event.payload) ? event.payload.ticker : undefined))
+    .find((value): value is string => typeof value === 'string' && value.length > 0)
+
   const failed = runEvents.find((event) => event.event_type === 'research_run_failed')
   if (failed !== undefined) {
-    const payload = failed.payload
-    const summary =
-      payload !== null && typeof payload === 'object'
-        ? (payload as Record<string, unknown>).error_summary
-        : undefined
-    return { status: 'failed', ...(typeof summary === 'string' ? { error_summary: summary } : {}) }
+    const summary = failureSummaryFrom(failed)
+    return {
+      status: 'failed',
+      ...(summary !== undefined ? { error_summary: summary } : {}),
+      ...(runTicker !== undefined ? { ticker: runTicker } : {}),
+    }
   }
 
-  // requested/claimed but not yet created → the worker is still building the case.
+  // requested/claimed but not yet created → the worker should be building the case. Guard against an
+  // infinite loader: if the newest run event is older than the start-timeout, the worker never started (or
+  // died before its first event) — fail closed with a reason instead of spinning forever.
+  const pendingTimeoutMs = options.pendingTimeoutMs ?? resolveResearchPendingTimeoutMs(process.env)
+  const nowMs = (options.now ?? new Date()).getTime()
+  const latestRunEventMs = runEvents.reduce((newest, event) => {
+    const ms = new Date(event.created_at).getTime()
+    return Number.isFinite(ms) && ms > newest ? ms : newest
+  }, 0)
+  if (latestRunEventMs > 0 && nowMs - latestRunEventMs > pendingTimeoutMs) {
+    const minutes = Math.max(1, Math.round((nowMs - latestRunEventMs) / 60_000))
+    return {
+      status: 'failed',
+      error_summary: `The research worker did not start or produce a dossier (no progress for ${minutes} min). This usually means the worker could not run — check the provider and model in Settings, then start a new run.`,
+      ...(runTicker !== undefined ? { ticker: runTicker } : {}),
+    }
+  }
+
   return { status: 'pending' }
 }
 
@@ -1154,6 +1252,103 @@ export async function recordAdmitJudgment(
       admit_judgment_id: admitJudgmentId,
       recommendation: event.payload as Record<string, unknown>,
     }
+  } finally {
+    store.close()
+  }
+}
+
+export type RunReReviewDeps = {
+  /** Override the provider (test fake). Defaults to the configured provider. */
+  provider?: ReturnType<typeof resolveProvider>
+  /** Override the grounding fn (test). Defaults to the provider-appropriate live grounder. */
+  ground?: GroundFn
+  /** Injectable EDGAR resolver for the trigger check (test fixture). */
+  fetchFundamentals?: CheckForNewFilingsDeps['fetchFundamentals']
+  /** Injectable per-document Form 4 fetch for the insider-cluster trigger (test fixture). */
+  fetchForm4Document?: CheckForNewFilingsDeps['fetchForm4Document']
+}
+
+export type RunReReviewOutcome =
+  | { status: 'recorded'; re_review: ThesisReReviewRecordedPayload; insider_cluster?: InsiderClusterTrigger }
+  | { status: 'no_recorded_thesis' }
+  | { status: 'no_prior_corpus' }
+  | { status: 'no_new_filings'; checked_at: string; insider_cluster?: InsiderClusterTrigger }
+  | { status: 'fundamentals_unresolved' }
+
+/**
+ * On-demand thesis RE-REVIEW for a research case (Phase 1 of the re-review method):
+ *   1. TRIGGER — checkForNewFilings diffs discovery-now against the persisted source-ledger corpus the
+ *      decision stood on (fail-closed: a missing bundle is `no_prior_corpus`, never a fabricated delta).
+ *   2. PASS — draftThesisReReview grounds the delta and compares it against the RECORDED thesis
+ *      (thesis_summary, key_wrong_assumption, every thesis_break_trigger), emitting a DIFF observation
+ *      (`research_case_re_review_recorded`): INTACT | WEAKENED | BROKEN | UNVERIFIED (fail-closed).
+ * ZERO provider spend on every non-`recorded` outcome. Never a verdict, never a transition — a BROKEN
+ * diff points the human at the existing "Re-run on current engine" supersession action.
+ */
+export async function runResearchCaseReReview(
+  state: OnboardingState,
+  researchCaseId: string,
+  deps: RunReReviewDeps = {},
+): Promise<RunReReviewOutcome> {
+  if (!state.is_initialized || state.config.mode !== 'personal-local' || state.config.ledger_path === undefined) {
+    throw new Error('Personal-local workflow is not initialized')
+  }
+  const sourceLedgerPath = state.config.source_ledger_path
+  if (sourceLedgerPath === undefined) {
+    throw new Error('Re-review requires a configured source_ledger_path (the persisted decision corpus).')
+  }
+
+  const store = new SQLiteEventStore(state.config.ledger_path)
+  try {
+    const events = await store.list()
+    const prior = loadPriorThesis(events, researchCaseId)
+    if (prior === undefined) {
+      return { status: 'no_recorded_thesis' }
+    }
+    const ticker = prior.ticker
+    if (ticker === undefined) {
+      return { status: 'no_recorded_thesis' }
+    }
+
+    const check = await checkForNewFilings(
+      {
+        ticker,
+        research_case_id: researchCaseId,
+        source_ledger_path: sourceLedgerPath,
+        // The delta is "filed SINCE the decision" — without this bound the entire unread filing
+        // history looks new (the corpus only holds what the run read).
+        ...(prior.decided_at === undefined ? {} : { since: prior.decided_at }),
+      },
+      deps.fetchFundamentals === undefined && deps.fetchForm4Document === undefined
+        ? undefined
+        : {
+            ...(deps.fetchFundamentals === undefined ? {} : { fetchFundamentals: deps.fetchFundamentals }),
+            ...(deps.fetchForm4Document === undefined ? {} : { fetchForm4Document: deps.fetchForm4Document }),
+          },
+    )
+    if (check === undefined) {
+      return { status: 'fundamentals_unresolved' }
+    }
+    if (check.no_prior_corpus) {
+      return { status: 'no_prior_corpus' }
+    }
+    // A threshold-meeting insider-selling cluster (§3.3) is a STRONG signal in its own right — surface it
+    // even when there are no new conventional filings, rather than silently reporting "no new filings".
+    const insiderCluster = check.insider_cluster?.meets_threshold === true ? check.insider_cluster : undefined
+    if (check.new_filings.length === 0) {
+      return { status: 'no_new_filings', checked_at: check.checked_at, ...(insiderCluster === undefined ? {} : { insider_cluster: insiderCluster }) }
+    }
+
+    const provider = deps.provider ?? resolveProvider({ provider_id: state.config.provider.provider_id })
+    const recorded = await draftThesisReReview(store, provider, {
+      research_case_id: researchCaseId,
+      model_id: resolveModelIdForProvider(state.config),
+      causation_id: researchCaseId,
+      source_ledger_path: sourceLedgerPath,
+      check,
+    }, deps.ground === undefined ? {} : { ground: deps.ground })
+
+    return { status: 'recorded', re_review: recorded.payload, ...(insiderCluster === undefined ? {} : { insider_cluster: insiderCluster }) }
   } finally {
     store.close()
   }
@@ -2248,6 +2443,8 @@ function nextActionForResearchCase(researchCase: ResearchCaseProjection): string
       return 'Monitor watchlist thesis'
     case 'holding':
       return 'Review holding in portfolio'
+    case 'failed':
+      return 'Run failed mid-flight — open the case for the error and re-run'
     case 'rejected':
     case 'pass':
       return 'No action required'
@@ -2517,11 +2714,10 @@ export function resolveModelIdForProvider(config: Pick<AppConfig, 'provider'>): 
     return 'mock-buffett-munger-demo'
   }
 
-  if (config.provider.provider_id === 'claude') {
-    return 'claude-sonnet-4-6'
-  }
-
-  return 'gpt-5.5'
+  // For real providers, fall back to the catalog's curated default model for the selected provider
+  // (e.g. openrouter/auto, gpt-5.5, claude-sonnet-4-6, gemini-3.5-flash) rather than a single hard-coded id.
+  const entry = getProviderCatalog().find((candidate) => candidate.provider_id === config.provider.provider_id)
+  return entry?.default_model_id ?? 'openrouter/auto'
 }
 
 export type ResearchLedgerResetSummary = {

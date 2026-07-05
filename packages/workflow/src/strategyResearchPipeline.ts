@@ -16,9 +16,7 @@ export const buffettMungerDeepDiveLanes = [
   'moat',
   'management',
   'financial_quality',
-  'shariah',
   'risks',
-  'valuation',
 ] as const satisfies readonly DeepDiveSpecialistLane[]
 
 export type OwnerEarningsValuationPayload = {

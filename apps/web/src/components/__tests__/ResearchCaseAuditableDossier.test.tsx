@@ -158,6 +158,35 @@ describe('ResearchCasePanel auditable dossier (R1)', () => {
     expect(html.toLowerCase()).toContain('the market implies')
   })
 
+  it('renders an honest degraded decision card for RESEARCH_MORE runs with no buy figures (never silently omits the section)', () => {
+    // The SPGI dogfood: a run whose synthesis could not ground a valuation clamps to RESEARCH_MORE with
+    // no buy-below / no sanity flags / no buy-zone read — and the decision card vanished entirely. The
+    // card must instead STATE the outcome: the verdict, and why no buy signal is recordable.
+    const fresh = baseCase()
+    const html = render({
+      ...fresh,
+      investment_verdict: 'RESEARCH_MORE',
+      valuation_status: 'INSUFFICIENT_DATA',
+      decision: 'RESEARCH_MORE',
+      reason: 'BUY not recordable: missing the data a buy signal needs.',
+      valuation: { moat_class: 'wide', moat_passes_gate: true },
+    } as unknown as AppResearchCase, QUOTE)
+    expect(html).toContain('data-testid="decision-summary"')
+    expect(html).toContain('RESEARCH_MORE')
+    expect(html.toLowerCase()).toContain('no recordable buy signal')
+    expect(html).toContain('BUY not recordable: missing the data a buy signal needs.')
+  })
+
+  it('shows the model-assumed sustainable growth in the decision key figures, beside the market-implied read', () => {
+    // Owner requirement: the decision card must show the MODEL's assumed sustainable growth (its own
+    // judgment) next to the market-implied growth (what the price demands), so the gap is readable at
+    // the point of decision. baseCase: growth_rate 0.06 (the model's headline assumed growth).
+    const html = render(baseCase(), QUOTE)
+    const keyFigures = html.slice(html.indexOf('decision-key-figures'))
+    expect(keyFigures).toContain('Model assumed growth')
+    expect(keyFigures).toContain('6.0%')
+  })
+
   it('surfaces the market-implied growth read', () => {
     const html = render(baseCase(), QUOTE)
     expect(html.toLowerCase()).toContain('the market implies')
@@ -166,7 +195,7 @@ describe('ResearchCasePanel auditable dossier (R1)', () => {
 
   it('surfaces the implied exit multiple (§2 flag-only sanity output) as a ledger line', () => {
     const html = render(baseCase({ implied_exit_multiple: 7.8 }), QUOTE)
-    expect(html).toContain('Implied exit multiple')
+    expect(html).toContain('Market-implied exit multiple')
     expect(html).toContain('7.8× OE')
   })
 
@@ -178,7 +207,7 @@ describe('ResearchCasePanel auditable dossier (R1)', () => {
       ],
     }), QUOTE)
     // The ledger line shows the multiple.
-    expect(html).toContain('Implied exit multiple')
+    expect(html).toContain('Market-implied exit multiple')
     expect(html).toContain('21.4× OE')
     // The directional flag annotation renders inside the advisory (non-blocking) sanity-flags panel.
     expect(html).toContain('data-testid="sanity-flags"')
@@ -322,7 +351,7 @@ describe('ResearchCasePanel auditable dossier (R1)', () => {
     expect(html).not.toContain('$210.00')
     // the two hidden price-implied assumptions surfaced together
     expect(html).toContain('Market-implied growth')
-    expect(html).toContain('Implied exit multiple')
+    expect(html).toContain('Market-implied exit multiple')
     expect(html).toContain('12.3× OE')
     // the strip uses the owl ledger-stat idiom
     expect(html).toContain('owl-ledger-line')
@@ -382,7 +411,7 @@ describe('ResearchCasePanel auditable dossier (R1)', () => {
     expect(sectionTag).toContain('<details')
     // Collapsed by default: the section <details> carries no `open` attribute.
     expect(html.slice(sectionStart - 60, html.indexOf('>', sectionStart))).not.toContain('open=""')
-    expect(html).toContain('Deep-dive specialist lanes (2 of 7 grounded)')
+    expect(html).toContain('Deep-dive specialist lanes (2 of 5 grounded)')
     // The masonry multi-column packing is gone.
     expect(html).not.toContain('data-owl-flow="masonry"')
     // Both the short and the long card live inside the one full-width flow container.
@@ -491,10 +520,30 @@ describe('ResearchCasePanel auditable dossier (R1)', () => {
     // Marker href and evidence id agree (sanitized consistently) so the in-page jump resolves.
     expect(html).toContain('href="#source-sec_edgar_10k_abc"')
     expect(html).toContain('id="source-sec_edgar_10k_abc"')
-    // The Sources list is rendered ABOVE (outside) the collapsed "Evidence and audit details" block.
+    // The Sources list now lives INSIDE the collapsed "Evidence & sources" drop-down (the anchor ids are
+    // still present; the browser auto-expands the <details> when a citation navigates to a source fragment).
+    expect(html).toContain('Evidence &amp; sources')
     const sourceIdIdx = html.indexOf('id="source-sec_edgar_10k_abc"')
     expect(sourceIdIdx).toBeGreaterThan(-1)
-    expect(sourceIdIdx).toBeLessThan(html.indexOf('Evidence and audit details'))
+    expect(sourceIdIdx).toBeGreaterThan(html.indexOf('Evidence &amp; sources'))
+  })
+
+  it('states which provider and model the run was executed by in the engine marker', () => {
+    const html = render({
+      ...baseCase(),
+      authored_by_provider_id: 'openai',
+      authored_by_model_id: 'gpt-5.5',
+    } as unknown as AppResearchCase, QUOTE)
+    expect(html).toContain('run by openai / gpt-5.5')
+  })
+
+  it('shows just the provider when the model id is absent (legacy run)', () => {
+    const html = render({
+      ...baseCase(),
+      authored_by_provider_id: 'openai',
+    } as unknown as AppResearchCase, QUOTE)
+    expect(html).toContain('run by openai')
+    expect(html).not.toContain('run by openai /')
   })
 
   it('retires the growth-axis band viz and the band/gap ledger labels entirely', () => {
@@ -532,7 +581,7 @@ describe('ResearchCasePanel auditable dossier (R1)', () => {
   // CONSOLIDATION (Priority 3) — per-dimension findings live ONLY in the lanes; valuation reasoning ONLY in
   // the Valuation box; the decision-evidence section keeps ONLY the unique whole-case thesis. The unique
   // AAOIFI ratio ledger is preserved (relocated to its own compliance block), not lost.
-  it('keeps only the thesis card and removes the duplicated valuation/shariah/risks cards', () => {
+  it('removes the duplicated valuation/shariah/risks cards; the thesis lives in the verdict summary', () => {
     const html = render({
       ...baseCase(),
       valuation_rationale: 'Duplicated valuation rationale card text.',
@@ -546,8 +595,9 @@ describe('ResearchCasePanel auditable dossier (R1)', () => {
         purification_pct: 0.004,
       },
     } as unknown as AppResearchCase, QUOTE)
-    // The whole-case thesis still renders.
-    expect(html).toContain('data-testid="research-dossier-card-thesis"')
+    // The whole-case thesis now lives in the hero verdict summary (the standalone Thesis card was removed).
+    expect(html).toContain('Verdict summary')
+    expect(html).not.toContain('data-testid="research-dossier-card-thesis"')
     // The duplicated per-dimension cards are gone.
     expect(html).not.toContain('data-testid="research-dossier-card-valuation"')
     expect(html).not.toContain('data-testid="research-dossier-card-shariah-compliance"')
@@ -599,7 +649,7 @@ describe('ResearchCasePanel auditable dossier (R1)', () => {
   })
 
   // COLLAPSIBLE DEFAULTS (Priority 1) — the lanes section collapses; the decision + MoS surfaces stay open.
-  it('collapses the lanes section by default while the decision + MoS surfaces stay open', () => {
+  it('makes every info-box a <details>: lanes + MoS collapsed, the decision box expanded by default', () => {
     const html = render({
       ...baseCase(),
       specialist_findings: [
@@ -610,53 +660,80 @@ describe('ResearchCasePanel auditable dossier (R1)', () => {
     expect(lanesIdx).toBeGreaterThan(-1)
     // The lanes section <details> carries no `open` attribute (collapsed by default).
     expect(html.slice(lanesIdx - 60, html.indexOf('>', lanesIdx))).not.toContain('open=""')
-    // The decision + MoS surfaces are plain <section>s (always visible), not collapsed behind <details>.
+    // The decision box is now a collapsible <details>, EXPANDED by default (its headline summary stays visible).
     const decisionIdx = html.indexOf('data-testid="decision-summary"')
+    const decisionTag = html.slice(decisionIdx - 80, html.indexOf('>', decisionIdx))
+    expect(decisionTag).toContain('<details')
+    expect(decisionTag).toContain('open=""')
+    // MoS is a collapsed <details> info-box (headline + drill-down), no `open` attribute.
     const mosIdx = html.indexOf('data-testid="margin-of-safety-audit"')
-    expect(html.slice(decisionIdx - 60, decisionIdx)).toContain('<section')
-    expect(html.slice(mosIdx - 60, mosIdx)).toContain('<section')
+    const mosTag = html.slice(mosIdx - 80, html.indexOf('>', mosIdx))
+    expect(mosTag).toContain('<details')
+    expect(mosTag).not.toContain('open=""')
   })
 })
 
-// ALL SEVEN LANES VISIBLE (honest skip surfacing) — a deep-dive lane that grounded zero verifiable sources is
+// ALL FIVE LANES VISIBLE (honest skip surfacing) — a deep-dive lane that grounded zero verifiable sources is
 // silently skipped upstream (no specialist_finding event). On a COMPLETED dossier the lanes section must still
-// render all 7 expected lanes: grounded lanes as full cards, the missing ones as honest "incomplete"
+// render all 5 expected lanes: grounded lanes as full cards, the missing ones as honest "incomplete"
 // placeholders, with a grounded-vs-expected header count. Display-only; the upstream skip is unchanged.
-describe('ResearchCasePanel specialist lanes surface all 7 expected lanes', () => {
-  const ALL_LANES = ['business_quality', 'moat', 'management', 'financial_quality', 'shariah', 'risks', 'valuation']
+// Shariah runs as a dedicated focused pass (not a parallel lane) and renders via the Shariah panel / remainder.
+describe('ResearchCasePanel specialist lanes surface all 5 expected lanes', () => {
+  const ALL_LANES = ['business_quality', 'moat', 'management', 'financial_quality', 'risks']
 
-  it('renders the 3 missing lanes as incomplete placeholders when only 4 of 7 grounded', () => {
+  it('renders the 2 missing lanes as incomplete placeholders when only 3 of 5 grounded (shariah finding goes to remainder)', () => {
     const html = render({
       ...baseCase(),
       specialist_findings: [
         { finding_id: 'f_moat', specialist_lane: 'moat', finding_summary: 'Wide moat.', confidence: 'high', source_ids: ['s1'] },
         { finding_id: 'f_shariah', specialist_lane: 'shariah', finding_summary: 'Compliant.', confidence: 'high', source_ids: ['s2'] },
         { finding_id: 'f_risks', specialist_lane: 'risks', finding_summary: 'Manageable risks.', confidence: 'normal', source_ids: ['s3'] },
-        { finding_id: 'f_val', specialist_lane: 'valuation', finding_summary: 'Fairly priced.', confidence: 'normal', source_ids: ['s4'] },
+        { finding_id: 'f_fq', specialist_lane: 'financial_quality', finding_summary: 'Elite margins.', confidence: 'normal', source_ids: ['s4'] },
       ],
     } as unknown as AppResearchCase, QUOTE)
-    // Honest grounded-vs-expected count in the section header.
-    expect(html).toContain('Deep-dive specialist lanes (4 of 7 grounded)')
-    // All seven lane labels are present (grounded + incomplete).
+    // Honest grounded-vs-expected count in the section header (shariah is not an ordered lane).
+    expect(html).toContain('Deep-dive specialist lanes (3 of 5 grounded)')
+    // All five ordered lane labels are present (grounded + incomplete); shariah renders via remainder.
     expect(html).toContain('Business quality')
     expect(html).toContain('Moat')
     expect(html).toContain('Management')
     expect(html).toContain('Financial quality')
     expect(html).toContain('Shariah')
     expect(html).toContain('Risks')
-    expect(html).toContain('Valuation')
-    // The three ungrounded lanes render as incomplete placeholders with stable testids.
+    // The two ungrounded ordered lanes render as incomplete placeholders with stable testids.
     expect(html).toContain('data-testid="specialist-lane-incomplete-business_quality"')
     expect(html).toContain('data-testid="specialist-lane-incomplete-management"')
-    expect(html).toContain('data-testid="specialist-lane-incomplete-financial_quality"')
-    // The grounded lanes are NOT placeholders.
+    // The grounded ordered lanes are NOT placeholders.
     expect(html).not.toContain('data-testid="specialist-lane-incomplete-moat"')
     expect(html).not.toContain('data-testid="specialist-lane-incomplete-risks"')
+    expect(html).not.toContain('data-testid="specialist-lane-incomplete-financial_quality"')
+    // Shariah is not an ordered lane — no incomplete placeholder for it.
+    expect(html).not.toContain('data-testid="specialist-lane-incomplete-shariah"')
     // The placeholder carries the honest, non-investment-grade status.
     expect(html.toLowerCase()).toContain('no verifiable sources grounded this run')
   })
 
-  it('renders all 7 as normal cards (no incomplete placeholders) when all 7 grounded', () => {
+  it('renders a placeholder-prose lane (model emitted "...") as incomplete, not a literal "..." card', () => {
+    const html = render({
+      ...baseCase(),
+      specialist_findings: [
+        { finding_id: 'f_bq', specialist_lane: 'business_quality', finding_summary: 'Fortress business.', confidence: 'high', source_ids: ['s1'] },
+        { finding_id: 'f_moat', specialist_lane: 'moat', finding_summary: 'Wide moat.', confidence: 'high', source_ids: ['s2'] },
+        { finding_id: 'f_mgmt', specialist_lane: 'management', finding_summary: 'Sound stewards.', confidence: 'high', source_ids: ['s3'] },
+        { finding_id: 'f_shariah', specialist_lane: 'shariah', finding_summary: 'Compliant.', confidence: 'high', source_ids: ['s4'] },
+        { finding_id: 'f_risks', specialist_lane: 'risks', finding_summary: 'Manageable risks.', confidence: 'normal', source_ids: ['s5'] },
+        // The financial_quality lane grounded 3 sources but the model returned only "..." — no written analysis.
+        { finding_id: 'f_fq', specialist_lane: 'financial_quality', finding_summary: '...', confidence: 'high', source_ids: ['s6', 's7', 's8'] },
+      ],
+    } as unknown as AppResearchCase, QUOTE)
+    // The empty financial_quality lane is surfaced as an incomplete slot with the "returned no written analysis" reason…
+    expect(html).toContain('data-testid="specialist-lane-incomplete-financial_quality"')
+    expect(html.toLowerCase()).toContain('returned no written analysis')
+    // …and the grounded count reflects it honestly (4 real of 5, not 5; shariah goes to remainder).
+    expect(html).toContain('Deep-dive specialist lanes (4 of 5 grounded)')
+  })
+
+  it('renders all 5 as normal cards (no incomplete placeholders) when all 5 grounded', () => {
     const html = render({
       ...baseCase(),
       specialist_findings: ALL_LANES.map((lane, i) => ({
@@ -667,26 +744,27 @@ describe('ResearchCasePanel specialist lanes surface all 7 expected lanes', () =
         source_ids: [`s${i}`],
       })),
     } as unknown as AppResearchCase, QUOTE)
-    expect(html).toContain('Deep-dive specialist lanes (7 of 7 grounded)')
+    expect(html).toContain('Deep-dive specialist lanes (5 of 5 grounded)')
     for (const lane of ALL_LANES) {
       expect(html).not.toContain(`data-testid="specialist-lane-incomplete-${lane}"`)
     }
   })
 
-  it('leaves a legacy dossier (no specialist_findings) unaffected — 7 legacy cards, no incomplete placeholders', () => {
+  it('leaves a legacy dossier (no specialist_findings) unaffected — 5 ordered lanes grounded, no incomplete placeholders', () => {
     // baseCase() is a legacy decision dossier (no standalone pipeline); it falls back to all 7 legacy lane
-    // cards. Those render as normal cards (current behavior), never as incomplete placeholders.
+    // findings. The 5 orderedLanes render as normal cards; legacy shariah and valuation findings land in
+    // remainder and also render normally. No incomplete placeholders appear.
     const html = render(baseCase(), QUOTE)
     expect(html).toContain('data-testid="specialist-lanes-flow"')
-    expect(html).toContain('Deep-dive specialist lanes (7 of 7 grounded)')
+    expect(html).toContain('Deep-dive specialist lanes (5 of 5 grounded)')
     for (const lane of ALL_LANES) {
       expect(html).not.toContain(`data-testid="specialist-lane-incomplete-${lane}"`)
     }
   })
 
-  it('leaves a true empty / non-deep-dive case unaffected (no lanes section, no 7 incomplete cards)', () => {
+  it('leaves a true empty / non-deep-dive case unaffected (no lanes section, no incomplete cards)', () => {
     // The set-aside dossier has no specialist_findings and is not a legacy fallback → the lanes section does
-    // not render at all, and certainly never 7 incomplete cards.
+    // not render at all, and certainly never shows incomplete cards.
     const html = render(setAsideCase(), QUOTE)
     expect(html).not.toContain('data-testid="specialist-lanes-flow"')
     for (const lane of ALL_LANES) {
@@ -717,7 +795,7 @@ describe('ResearchCasePanel auditable dossier uses the Owlfolio design system on
 
 // ── Set-aside (circle-of-competence early exit) dossier ───────────────────────
 //
-// When the circle gate sets a candidate aside, the expensive 7-lane deep dive never ran: verdict PASS +
+// When the circle gate sets a candidate aside, the expensive 5-lane deep dive never ran: verdict PASS +
 // valuation_status INSUFFICIENT_DATA, the circle judgment, the outside_circle mirror flag, NO specialist
 // findings, NO valuation. The dossier must tell the honest short story (set aside, here's why) and OMIT the
 // full deep-dive scaffold — no "Pending" key-figures strip, no discount figure, no "Not yet available" MoS,
@@ -779,8 +857,8 @@ describe('ResearchCasePanel set-aside (circle early-exit) dossier', () => {
     expect(html).toContain('Outside competence — set aside')
     // Engine-version provenance preserved.
     expect(html).toContain('data-testid="engine-version-marker"')
-    // Citation traceability preserved (evidence/audit details still render).
-    expect(html).toContain('Evidence and audit details')
+    // Citation traceability preserved (evidence/sources still render).
+    expect(html).toContain('Evidence &amp; sources')
   })
 
   it('omits the entire deep-dive scaffold and all valuation noise', () => {
@@ -795,7 +873,7 @@ describe('ResearchCasePanel set-aside (circle early-exit) dossier', () => {
     // empty-placeholder valuation noise — no "Pending" key figures, no "Not yet available" MoS, no discount.
     // (The collapsed audit details reuses the shared legacy quick-screen/deep-dive digest, same as the
     // gated/reject path; that is the audit trail, not the deep-dive scaffold.)
-    const foreground = html.slice(0, html.indexOf('Evidence and audit details'))
+    const foreground = html.slice(0, html.indexOf('Evidence &amp; sources'))
     expect(foreground).not.toContain('Not yet available')
     expect(foreground).not.toContain('Pending')
     expect(foreground).not.toContain('discount')
@@ -897,6 +975,70 @@ describe('ResearchCasePanel Shariah compliance — fail-closed UNDETERMINED puri
     expect(html).toContain('Purification: 0.4%')
     expect(html).not.toContain('data-testid="shariah-aaoifi-undetermined"')
   })
+
+  it('states the sector permissibility judgment (business activities) above the AAOIFI ratios', () => {
+    // Owner complaint (the Visa dogfood): the Shariah section only talked numbers — nothing about
+    // whether the BUSINESS is permissible. The pass's grounded sector_status is now stated first.
+    const html = render({
+      ...baseCase(),
+      shariah_status: 'CONDITIONAL',
+      shariah_sector_status: 'compliant',
+      shariah_financial: {
+        debt_ratio: 0.041,
+        cash_securities_ratio: 0.028,
+        impermissible_income_pct: 0.02,
+        verdict: 'CONDITIONAL',
+        purification_pct: 0.02,
+      },
+    } as unknown as AppResearchCase, QUOTE)
+    expect(html).toContain('data-testid="shariah-sector-permissibility"')
+    expect(html).toContain('Business activities')
+    expect(html).toContain('Permissible')
+  })
+
+  it('states a non-compliant sector as NOT permissible', () => {
+    const html = render({
+      ...baseCase(),
+      shariah_status: 'NON_COMPLIANT',
+      shariah_sector_status: 'non_compliant',
+      shariah_financial: {
+        debt_ratio: 0.041,
+        cash_securities_ratio: 0.028,
+        impermissible_income_pct: 0.02,
+        verdict: 'FAIL',
+        purification_pct: 0.02,
+      },
+    } as unknown as AppResearchCase, QUOTE)
+    expect(html).toContain('data-testid="shariah-sector-permissibility"')
+    expect(html).toContain('Not permissible')
+  })
+
+  it('itemizes every impermissible-income line (interest, dividends, model residual) in the AAOIFI ledger', () => {
+    // Owner requirement: ALL impermissible-income components are SHOWN — the composition the
+    // purification % was computed from, not one opaque number.
+    const html = render({
+      ...baseCase(),
+      shariah_status: 'CONDITIONAL',
+      shariah_financial: {
+        debt_ratio: 0.0134,
+        cash_securities_ratio: 0.0355,
+        impermissible_income_pct: 0.004,
+        verdict: 'CONDITIONAL',
+        purification_pct: 0.004,
+        impermissible_income_lines: [
+          { concept: 'InvestmentIncomeInterest', label: 'interest income', amount_musd: 2790 },
+          { concept: 'InvestmentIncomeDividend', label: 'dividend income', amount_musd: 120 },
+          { concept: 'model_judgment', label: 'model-quantified additional impermissible income (beyond disclosed interest/dividends)', amount_musd: 90 },
+        ],
+      },
+    } as unknown as AppResearchCase, QUOTE)
+    expect(html).toContain('data-testid="shariah-impermissible-income-lines"')
+    expect(html).toContain('interest income')
+    expect(html).toContain('dividend income')
+    expect(html).toContain('$2,790M')
+    expect(html).toContain('$120M')
+    expect(html).toContain('$90M')
+  })
 })
 
 // DISCOUNT-ANCHOR VINTAGE (#3) — the discount's risk-free anchor is the compliant savings rate. The dossier
@@ -941,5 +1083,25 @@ describe('ResearchCasePanel discount-anchor vintage', () => {
     const html = renderWithSavings(undefined)
     expect(html).toContain('data-testid="discount-anchor-provenance"')
     expect(html).toContain('savings rate: using default 2.0% — not set')
+  })
+})
+
+describe('ResearchCasePanel Shariah deep-screen-incomplete caveat (fail-closed)', () => {
+  it('surfaces the "compliance not deep-verified this run" caveat when the shariah deep re-screen was skipped', () => {
+    const html = render(
+      { ...baseCase(), shariah_deep_screen_incomplete: true } as unknown as AppResearchCase,
+      QUOTE,
+    )
+    expect(html).toContain('data-testid="shariah-deep-screen-incomplete"')
+    expect(html).toContain('Compliance not deep-verified this run.')
+    expect(html).toContain('cited no verified source')
+    // The quick-screen verdict is NOT flipped — it still reads COMPLIANT alongside the caveat.
+    expect(html).toContain('COMPLIANT')
+  })
+
+  it('omits the caveat when the shariah deep re-screen grounded (legacy/normal run — flag absent)', () => {
+    const html = render(baseCase(), QUOTE)
+    expect(html).not.toContain('data-testid="shariah-deep-screen-incomplete"')
+    expect(html).not.toContain('Compliance not deep-verified this run.')
   })
 })

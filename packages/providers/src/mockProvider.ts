@@ -137,11 +137,15 @@ function mockCircleCompetenceForTicker(ticker: string) {
   const primaryCite = groundedSources[0].source_id
   const secondaryCite = groundedSources[1].source_id
   return {
+    // Two cited clauses each: meets the circle-gate default evidence floor (min 2 grounded drivers +
+    // 2 grounded breakers), mirroring what the hardened gate prompt asks a live model for.
     cashflow_drivers: [
       { driver: `${companyLabel} recurring membership/subscription revenue grounded in the 10-K`, citation: primaryCite },
+      { driver: `${companyLabel} installed-base renewal economics disclosed in the annual filing`, citation: primaryCite },
     ],
     predictability_breakers: [
       { breaker: `Cyclicality or customer-concentration risk that would make ${companyLabel}'s cashflows unpredictable`, citation: secondaryCite },
+      { breaker: `Competitive pricing pressure compressing ${companyLabel}'s unit economics`, citation: secondaryCite },
     ],
     competence_reasoning: `${companyLabel}'s cashflow engine is understandable and its cashflows are durably predictable, demonstrated from primary filings.`,
     cashflow_predictability: 'durably_predictable',

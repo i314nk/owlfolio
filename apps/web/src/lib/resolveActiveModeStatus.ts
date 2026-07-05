@@ -48,8 +48,20 @@ export async function resolveActiveModeStatus(
     })
   }
 
-  const readiness = await getProviderReadinessSnapshot(config)
-  const providerConnected = readiness.is_ready
+  // A config pinned to a retired/unknown provider (e.g. written before a provider lane was removed) must
+  // degrade to "not connected — reconfigure", never crash: this indicator is the app-wide shell rendered on
+  // EVERY page (including /_not-found, which prerenders at build time). Only an "Unknown provider" is
+  // tolerated here; any other readiness failure still surfaces.
+  let providerConnected: boolean
+  try {
+    const readiness = await getProviderReadinessSnapshot(config)
+    providerConnected = readiness.is_ready
+  } catch (error) {
+    if (!(error instanceof Error && error.message.startsWith('Unknown provider:'))) {
+      throw error
+    }
+    providerConnected = false
+  }
 
   const gate = await evaluateOnboardingGate({
     ledgerPath: config.ledger_path,

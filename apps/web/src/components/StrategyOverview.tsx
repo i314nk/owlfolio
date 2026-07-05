@@ -32,6 +32,9 @@ const MIN_INVESTABLE_MOAT = strategy.valuation.min_investable_moat
 const TERMINAL_G_WIDE = terminalGrowthForMoat(strategy, 'wide')
 const SINGLE_GROWTH_CAP = strategy.valuation.single_growth_cap
 const GDP_GROWTH_THRESHOLD = strategy.valuation.gdp_growth_threshold
+// Stage-1 explicit window (years). Rendered live from the config — NEVER hard-coded as "ten-year" — so the
+// valuation prose + formula track the parameter (matches how the Learn page renders it).
+const STAGE1_HORIZON = strategy.valuation.stage1_horizon
 
 // Worked example — an investable compounder, computed from the live contract so the prose tracks params.
 // The DECISION lens is the reverse-DCF (market-implied vs the model's judged sustainable growth); the
@@ -203,17 +206,9 @@ const LANE_DETAILS: Record<string, { name: string; assesses: string }> = {
     name: 'Financial quality',
     assesses: 'Owner-earnings normalization (NI + D&A − maintenance capex − SBC − ΔNWC), ROIC, reinvestment, cash conversion, and accounting quality.',
   },
-  shariah: {
-    name: 'Shariah',
-    assesses: 'Whether the core business and financial ratios are permissible — a local screening aid, not a professional Shariah ruling.',
-  },
   risks: {
     name: 'Risks',
     assesses: 'Permanent-capital-loss risks, leverage fragility, disruption, regulation, and the specific events that would break the thesis.',
-  },
-  valuation: {
-    name: 'Valuation',
-    assesses: 'The reverse-DCF read — the growth today’s price implies — against the model’s judged sustainable growth, plus the owner-earnings bridge, ROIC and reinvestment inputs behind it; the model proposes the buy-below with cited reasoning, deterministically sanity-checked against a forward-DCF reference.',
   },
 }
 
@@ -469,7 +464,16 @@ export function StrategyOverview(): ReactNode {
       title: `The specialist swarm — ${buffettMungerDeepDiveLanes.length} grounded lanes`,
       lead:
         'The deep dive is swarm-only by design: holding the whole framework in one model call degrades quality, so each dimension runs as its own focused, grounded agent in parallel. Every lane gathers its own sources, and every cited source is fetched and content-hashed by the harness — not trusted from the model. Each lane runs as its own grounded agent — every claim cited to a harness-captured source.',
-      children: LaneGrid(),
+      children: createElement(
+        'div',
+        { style: { display: 'flex', flexDirection: 'column', gap: '0.75rem' } },
+        LaneGrid(),
+        createElement(
+          'p',
+          { style: { ...bodyStyle, fontSize: 'var(--owl-text-sm)', color: 'var(--owl-color-quiet)' } },
+          'Valuation and Shariah compliance are not parallel lanes — each runs as a dedicated focused pass after the five lanes conclude: valuation proposes the owner-earnings value and buy-below during synthesis, and the Shariah pass produces the grounded compliance overlay (the harness recomputes the AAOIFI ratios from filings).',
+        ),
+      ),
     }),
 
     // 4. Moat taxonomy & gate
@@ -507,7 +511,7 @@ export function StrategyOverview(): ReactNode {
         createElement('span', { style: goldText }, 'sustainable growth the model judges and cites'),
         '. If the price demands more than the business can durably deliver, it is expensive; if it demands less, there is room. That comparison — not a single computed number — is how cheapness is read. The ',
         createElement('span', { style: goldText }, 'forward two-stage discounted owner-earnings fair value is a LABELED REFERENCE cross-check'),
-        ', NOT the decision engine: a ten-year explicit window whose growth holds the judged rate for the early years then fades LINEARLY down to a small terminal rate over the trailing years, plus a perpetual terminal rate beyond it, all at the same savings-anchored discount (the compliant savings rate + a uniform equity premium, ',
+        `, NOT the decision engine: a ${STAGE1_HORIZON}-year explicit window whose growth holds the judged rate for the early years then fades LINEARLY down to a small terminal rate over the trailing years, plus a perpetual terminal rate beyond it, all at the same savings-anchored discount (the compliant savings rate + a uniform equity premium, `,
         createElement('span', { style: monoFigure }, pct(DISCOUNT)),
         ' today) — no WACC, no beta, ever. The model proposes the valuation — the owner earnings, the sustainable growth it judges and WHY, the discount — with cited reasoning, and proposes the buy-below. A light deterministic sanity-check flags internal absurdity (an implied growth the history cannot support, terminal-value dominance, a multiple out of bounds); it never blocks the verdict. You audit the reasoning and decide.',
       ),
@@ -535,7 +539,7 @@ export function StrategyOverview(): ReactNode {
           createElement('div', null, 'PRIMARY (reverse-DCF):  market_implied_g = the growth today’s price already demands  →  compare to g'),
           createElement('div', null, `g    = the model’s judged sustainable owner-earnings/share growth, cited; a deterministic sanity-check flags an unsupportable rate (above ${pct(SINGLE_GROWTH_CAP)}, or above ${pct(GDP_GROWTH_THRESHOLD)} → a moat-durability claim to weigh) — the flag is not the value source`),
           createElement('div', null, `gₜ   = terminal fade: ${pct(TERMINAL_G_WIDE)} for every investable moat (uniform)`),
-          createElement('div', null, `fair = Σ OE(1+g)ᵗ/(1+${pct(DISCOUNT)})ᵗ  [t=1..10]  +  OE(1+g)¹⁰(1+gₜ)/(${pct(DISCOUNT)}−gₜ) / (1+${pct(DISCOUNT)})¹⁰`),
+          createElement('div', null, `fair = Σ OE(1+g)ᵗ/(1+${pct(DISCOUNT)})ᵗ  [t=1..${STAGE1_HORIZON}]  +  OE(1+g)^${STAGE1_HORIZON}(1+gₜ)/(${pct(DISCOUNT)}−gₜ) / (1+${pct(DISCOUNT)})^${STAGE1_HORIZON}`),
           createElement('div', null, `fair > ${MULTIPLE_CEILING}× OE → surfaced cap_exceeded sanity flag (not a silent truncation)`),
           createElement('div', null, 'ref  = forward-DCF cross-check fair value at the model’s assumed growth  (a sanity reference, NOT the decision)'),
           createElement('div', null, 'buy  = the MODEL’s proposed buy-below (cited reasoning) ; in_buy_zone = current_price ≤ buy-below'),
@@ -580,7 +584,7 @@ export function StrategyOverview(): ReactNode {
             createElement('span', { style: monoFigure }, `$${EX_OE}`),
             ` per share. If the price implies more than that, it is expensive; if less, there is room — and because ${pct(EX_G)} sits above GDP, a deterministic sanity-check flags it a moat-durability claim for the human to weigh. The forward two-stage number is only the LABELED REFERENCE: holding that rate for the early years, then fading it LINEARLY down to a `,
             createElement('span', { style: monoFigure }, pct(TERMINAL_G_WIDE)),
-            ' terminal rate over the trailing years of the ten-year window, gives a forward-DCF cross-check fair value of ',
+            ` terminal rate over the trailing years of the ${STAGE1_HORIZON}-year window, gives a forward-DCF cross-check fair value of `,
             createElement('span', { style: monoFigure }, `$${EX_FV.toFixed(0)}`),
             ` (${EX_IMPLIED.toFixed(1)}× owner earnings; a value above ${MULTIPLE_CEILING}× would raise a cap_exceeded sanity flag, not be truncated). That forward number is a sanity reference, NOT the decision: the model proposes the verdict and the buy-below with cited reasoning — the owner earnings it valued, the sustainable growth it judged and why, the discount — and the deterministic side only flags internal absurdity (e.g. an implied growth the history cannot support). You buy when the price has met the model’s proposed buy-below and the cited reasoning holds. A monopoly raises no terminal rate and shortens nothing — its extra durability is argued through the moat-durability input, where the human weights it.`,
           ),
@@ -596,6 +600,7 @@ export function StrategyOverview(): ReactNode {
       children: createElement(
         'ul',
         { style: { ...bodyStyle, margin: 0, paddingLeft: '1.1rem', display: 'flex', flexDirection: 'column', gap: '0.4rem' } },
+        createElement('li', null, createElement('span', { style: goldText }, 'Within the circle of competence'), ' — a grounded model judgment sampled multiple times per run: the deep dive is entered only on a unanimous in-competence vote, each sample meeting a grounded evidence floor (cite-verified cashflow drivers and predictability breakers). Uncertain or unpredictable cashflows are set aside — a correct Buffett output, not a failure. Sample count and floors are tunable in Settings.'),
         createElement('li', null, createElement('span', { style: goldText }, 'Moat ≥ wide'), ' — narrow/moderate are rejected and forced to PASS.'),
         createElement('li', null, createElement('span', { style: goldText }, 'Honest growth path'), ` — growth is the model’s judged sustainable owner-earnings/share rate with cited reasoning; a deterministic sanity-check flags an unsupportable rate (above ${pct(SINGLE_GROWTH_CAP)}, or above ${pct(GDP_GROWTH_THRESHOLD)} → a moat-durability claim) rather than setting the number.`),
         createElement('li', null, createElement('span', { style: goldText }, 'Positive owner earnings'), ' — normalized owner earnings must be positive.'),

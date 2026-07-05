@@ -1,0 +1,30 @@
+{
+  "name": "@owlfolio/onboarding",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "lint": "eslint . --max-warnings=0",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@owlfolio/ledger": "workspace:*",
+    "@owlfolio/providers": "workspace:*",
+    "@owlfolio/shared": "workspace:*",
+    "@owlfolio/strategies": "workspace:*",
+    "@owlfolio/workflow": "workspace:*"
+  },
+  "exports": {
+    ".": "./src/index.ts",
+    "./appConfigStore": "./src/appConfigStore.ts",
+    "./envKeys": "./src/envKeys.ts",
+    "./providerReadiness": "./src/providerReadiness.ts",
+    "./providerStatus": "./src/providerStatus.ts",
+    "./providerKeys": "./src/providerKeys.ts",
+    "./providerConnections": "./src/providerConnections.ts",
+    "./demoSeed": "./src/demoSeed.ts",
+    "./demoLedger": "./src/demoLedger.ts",
+    "./onboarding": "./src/onboarding.ts",
+    "./onboardingGate": "./src/onboardingGate.ts",
+    "./capital": "./src/capital.ts"
+  }
+}

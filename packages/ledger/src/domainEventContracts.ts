@@ -78,6 +78,7 @@ export const domainEventTypes = [
   'admit_judgment_recorded',
   'sizing_recommendation_recorded',
   'research_case_archived',
+  'research_case_re_review_recorded',
 ] as const
 
 export type DomainEventType = (typeof domainEventTypes)[number]
@@ -822,6 +823,44 @@ export const domainEventContracts: readonly DomainEventContract[] = [
     actor_type: 'user',
     projection_owner: 'discovery',
     payload_fields: ['research_case_id', 'archived_at', 'reason'],
+  },
+  {
+    // Thesis RE-REVIEW (the freshness layer). A provider-authored OBSERVATION recorded AFTER a decision:
+    // the filings that appeared SINCE the decision (the delta vs the persisted source-ledger corpus the
+    // decision stood on) are grounded and compared against the RECORDED thesis — thesis_summary,
+    // key_wrong_assumption, and every recorded thesis_break_trigger assessed individually. The output is
+    // a DIFF (INTACT | WEAKENED | BROKEN | UNVERIFIED | INCONCLUSIVE — UNVERIFIED = the pass could not
+    // cite-verify its decisive evidence, fail-closed; INCONCLUSIVE = citations verified but nothing was
+    // assessable, harness-derived from an all-unclear "INTACT" — absence of assessable evidence is not
+    // evidence of an intact thesis), NEVER a fresh verdict and NEVER an auto-action: the case does not
+    // transition, findings/synthesis/decision are untouched (point-in-time integrity), and the full
+    // re-verdict remains the human-initiated v2 supersession re-run (which a BROKEN diff points at).
+    // Idempotency is delta-content-keyed: the same set of new filings converges to one recorded diff.
+    event_type: 'research_case_re_review_recorded',
+    aggregate_type: 'research_case',
+    actor_type: 'provider',
+    actor_types: ['provider', 'worker'],
+    projection_owner: 'portfolio',
+    payload_fields: [
+      're_review_id',
+      'research_case_id',
+      'ticker',
+      'assessment',
+      'trigger_assessments',
+      'changed_dimensions',
+      'weakened_dimension',
+      'broken_claim',
+      'narrative',
+      'prior_thesis_summary',
+      'new_filings',
+      'skipped_filings',
+      'prior_corpus_size',
+      'checked_at',
+      're_review_ungrounded',
+      'ungrounded_reason',
+      'reviewed_by_actor_type',
+      'reviewed_by_actor_id',
+    ],
   },
 ] as const
 

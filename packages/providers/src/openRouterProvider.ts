@@ -1,5 +1,7 @@
 import { z, type ZodType } from 'zod'
 
+import type { ProviderId } from '@owlfolio/shared'
+
 import { redactProviderDiagnostic } from './providerSecurity'
 import type {
   Provider,
@@ -21,6 +23,21 @@ export type OpenRouterProviderOptions = {
   apiKey?: string
   baseUrl?: string
   fetch?: typeof fetch
+  // Generalization knobs so this OpenAI-compatible adapter also serves the direct OpenAI/Anthropic/Gemini
+  // `/chat/completions` surfaces. Defaults preserve OpenRouter behavior byte-identically.
+  /** provider_id this instance reports (default 'openrouter'). */
+  providerId?: ProviderId
+  /** Display label used in observations/errors (default 'OpenRouter'). */
+  label?: string
+  /** Env var read for the API key when `apiKey` is not passed (default 'OPENROUTER_API_KEY'). */
+  apiKeyEnvVar?: string
+  /** Extra body merged into every request (default OpenRouter's unified reasoning param). Pass {} to omit. */
+  reasoningBody?: Record<string, unknown>
+  /** Extra request headers (default OpenRouter attribution headers). */
+  extraHeaders?: Record<string, string>
+  /** provider_surface_id / vendor_id fallbacks for run metadata (default OpenRouter's). */
+  surfaceId?: NonNullable<ProviderRunMetadata['provider_surface_id']>
+  vendorId?: NonNullable<ProviderRunMetadata['vendor_id']>
 }
 
 type OpenRouterChatMessage = {
@@ -37,7 +54,7 @@ type OpenRouterChatMessage = {
 type OpenRouterChatResponse = {
   id?: string
   choices?: Array<{ message?: OpenRouterChatMessage; finish_reason?: string }>
-  error?: { message?: string; code?: string | number; type?: string }
+  error?: { message?: string; code?: string | number; type?: string; metadata?: { raw?: string; provider_name?: string } }
 }
 
 /** An OpenAI-compatible chat message on the wire (assistant tool_calls + tool results for the loop). */
@@ -54,6 +71,18 @@ type OpenRouterWireMessage = {
 
 /** How many gather rounds the loop allows independent of the per-round tool cap (defensive bound). */
 const MAX_TOOL_LOOP_ROUNDS = 24
+
+/** Numeric range keywords Anthropic's structured output rejects on the wire (dropped; Zod re-enforces). */
+const NUMERIC_RANGE_KEYWORDS = ['minimum', 'maximum', 'exclusiveMinimum', 'exclusiveMaximum']
+
+/**
+ * Pinned sampling temperature for every call. At the routes' default (~1.0), back-to-back runs on the
+ * SAME model + filing wandered 26% apart on owner-earnings/share purely from judgment-input sampling
+ * (maintenance-capex tier, argued growth). Low-but-nonzero keeps judgments stable without the degenerate
+ * repetition some routes exhibit at exactly 0. Live-probed 2026-07-03: anthropic/* (with the unified
+ * reasoning param — OpenRouter normalizes the thinking/temperature conflict) and z-ai/* both accept it.
+ */
+const SAMPLING_TEMPERATURE = 0.2
 
 /**
  * OpenAI's strict json_schema mode (used by openai/* routes via OpenRouter → Azure) rejects any object
@@ -76,9 +105,12 @@ function toStrictJsonSchema(node: unknown): unknown {
   const out: Record<string, unknown> = {}
   for (const [key, value] of Object.entries(record)) {
     // OpenAI strict json_schema mode rejects unsupported keywords. `format` values like `uri` (emitted by
-    // z.string().url()) and the `$schema` dialect marker are not accepted; drop them. The real contract is
-    // still enforced by our Zod validation after parsing, so dropping these from the wire schema is safe.
-    if (key === '$schema' || key === 'format') {
+    // z.string().url()) and the `$schema` dialect marker are not accepted; drop them. Anthropic's
+    // structured output additionally 400s on numeric range keywords ("For 'number' type, property
+    // 'minimum' is not supported" — live-probed 2026-07-03), so z.number().min(0) breaks anthropic/*
+    // routes; drop those too. The real contract is still enforced by our Zod validation after parsing,
+    // so dropping these from the wire schema is safe.
+    if (key === '$schema' || key === 'format' || NUMERIC_RANGE_KEYWORDS.includes(key)) {
       continue
     }
     out[key] = toStrictJsonSchema(value)
@@ -91,6 +123,18 @@ function toStrictJsonSchema(node: unknown): unknown {
     if (hint !== undefined) {
       out.description = typeof out.description === 'string' && out.description.length > 0 ? `${out.description} ${hint}` : hint
     }
+  }
+  // Preserve dropped numeric bounds as a natural-language hint (same pattern as `format` above) so the
+  // model still respects the range; Zod re-enforces it after parsing and the validated-agent retry
+  // bounces violations.
+  const rangeHints: string[] = []
+  if (typeof record.minimum === 'number') rangeHints.push(`>= ${record.minimum}`)
+  if (typeof record.maximum === 'number') rangeHints.push(`<= ${record.maximum}`)
+  if (typeof record.exclusiveMinimum === 'number') rangeHints.push(`> ${record.exclusiveMinimum}`)
+  if (typeof record.exclusiveMaximum === 'number') rangeHints.push(`< ${record.exclusiveMaximum}`)
+  if (rangeHints.length > 0) {
+    const hint = `Must be ${rangeHints.join(' and ')}.`
+    out.description = typeof out.description === 'string' && out.description.length > 0 ? `${out.description} ${hint}` : hint
   }
   if (out.type === 'object' && out.properties !== null && typeof out.properties === 'object') {
     const properties = out.properties as Record<string, unknown>
@@ -118,22 +162,39 @@ function sanitizeToolName(name: string): string {
   return name.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 128)
 }
 
-/** Recursively remove object keys whose value is null, so a nullable-strict field reads as absent. */
-function stripNullProperties(value: unknown): unknown {
-  if (Array.isArray(value)) {
-    return value.map((item) => stripNullProperties(item))
-  }
-  if (value === null || typeof value !== 'object') {
-    return value
-  }
-  const out: Record<string, unknown> = {}
-  for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
-    if (entry === null) {
-      continue
+/**
+ * Remove ONLY the null-valued object keys the schema actually rejected (by Zod issue path), so an
+ * originally-OPTIONAL field emitted as null (strict mode forces every key, `makeNullable` lets the model
+ * emit null instead of fabricating) reads as absent — while a genuinely REQUIRED-nullable field's null
+ * (e.g. the Shariah pass's impermissible_income, where null = "not separately disclosed", fail-closed)
+ * survives to validation. A blanket pre-parse null-strip destroyed that honest answer.
+ * Returns true when at least one key was removed (progress — the caller re-validates).
+ */
+function removeRejectedNulls(parsed: unknown, issues: readonly { path: PropertyKey[] }[]): boolean {
+  let removed = false
+  for (const issue of issues) {
+    if (issue.path.length === 0) continue
+    let parent: unknown = parsed
+    for (const segment of issue.path.slice(0, -1)) {
+      if (parent === null || typeof parent !== 'object') {
+        parent = undefined
+        break
+      }
+      parent = (parent as Record<PropertyKey, unknown>)[segment]
     }
-    out[key] = stripNullProperties(entry)
+    const key = issue.path[issue.path.length - 1]
+    // Only delete a null-valued plain-object property (array elements are left alone — deleting would
+    // shift indexes; the schema error then surfaces as-is).
+    if (
+      key !== undefined && typeof key === 'string'
+      && parent !== null && typeof parent === 'object' && !Array.isArray(parent)
+      && (parent as Record<string, unknown>)[key] === null
+    ) {
+      delete (parent as Record<string, unknown>)[key]
+      removed = true
+    }
   }
-  return out
+  return removed
 }
 
 /** A natural-language hint preserving a dropped JSON-schema `format` constraint for strict-mode models. */
@@ -169,12 +230,12 @@ function makeNullable(node: Record<string, unknown>): Record<string, unknown> {
  * truncation, not a real empty answer, so the adapter surfaces a precise diagnostic instead of a bare
  * empty string (which downstream callers would misread as a malformed/empty completion).
  */
-function truncatedReasoningDiagnostic(body: OpenRouterChatResponse): string | undefined {
+function truncatedReasoningDiagnostic(body: OpenRouterChatResponse, label: string): string | undefined {
   const choice = body.choices?.[0]
   const content = choice?.message?.content
   const hasContent = typeof content === 'string' && content.trim().length > 0
   if (!hasContent && choice?.finish_reason === 'length') {
-    return 'OpenRouter response was truncated (finish_reason=length) before any visible content was produced — the reasoning budget likely consumed the entire max_tokens. Increase max_tokens for this reasoning model.'
+    return `${label} response was truncated (finish_reason=length) before any visible content was produced — the reasoning budget likely consumed the entire max_tokens. Increase max_tokens for this reasoning model.`
   }
   return undefined
 }
@@ -191,7 +252,7 @@ function truncatedReasoningDiagnostic(body: OpenRouterChatResponse): string | un
  * certification/qualification harness gates whether a routed target is trusted for real research.
  */
 export class OpenRouterProvider implements Provider {
-  readonly provider_id = 'openrouter'
+  readonly provider_id: ProviderId
   readonly capabilities: ProviderCapabilities = {
     'text-generation': 'adapter',
     'structured-output': 'adapter',
@@ -210,14 +271,31 @@ export class OpenRouterProvider implements Provider {
 
   private readonly env: NodeJS.ProcessEnv
   private readonly apiKey: string | undefined
+  private readonly apiKeyEnvVar: string
   private readonly baseUrl: string
   private readonly fetchImpl: typeof fetch
+  private readonly label: string
+  private readonly reasoningBody: Record<string, unknown>
+  private readonly extraHeaders: Record<string, string>
+  private readonly surfaceId: NonNullable<ProviderRunMetadata['provider_surface_id']>
+  private readonly vendorId: NonNullable<ProviderRunMetadata['vendor_id']>
 
   constructor(options: OpenRouterProviderOptions = {}) {
     this.env = { ...process.env, ...options.env }
-    this.apiKey = options.apiKey ?? this.env.OPENROUTER_API_KEY
+    this.provider_id = options.providerId ?? 'openrouter'
+    this.label = options.label ?? 'OpenRouter'
+    this.apiKeyEnvVar = options.apiKeyEnvVar ?? 'OPENROUTER_API_KEY'
+    this.apiKey = options.apiKey ?? this.env[this.apiKeyEnvVar]
     this.baseUrl = (options.baseUrl ?? 'https://openrouter.ai/api/v1').replace(/\/+$/, '')
     this.fetchImpl = options.fetch ?? fetch
+    this.reasoningBody = options.reasoningBody ?? { reasoning: { enabled: true } }
+    this.extraHeaders = options.extraHeaders ?? {
+      // OpenRouter attribution headers (optional but recommended for ranking/usage clarity).
+      'HTTP-Referer': 'https://github.com/owlfolio/owlfolio',
+      'X-Title': 'Owlfolio',
+    }
+    this.surfaceId = options.surfaceId ?? 'openrouter-api'
+    this.vendorId = options.vendorId ?? 'openrouter'
   }
 
   /**
@@ -231,7 +309,7 @@ export class OpenRouterProvider implements Provider {
 
   async complete(request: ProviderRunRequest): Promise<ProviderCompletion> {
     const response = await this.createChatCompletion(request, {})
-    const truncated = truncatedReasoningDiagnostic(response)
+    const truncated = truncatedReasoningDiagnostic(response, this.label)
     if (truncated !== undefined) {
       throw new Error(truncated)
     }
@@ -241,8 +319,8 @@ export class OpenRouterProvider implements Provider {
       text,
       metadata: this.metadataFor(request),
       observations: [
-        this.observation('queued', 'OpenRouter queued the request.'),
-        this.observation('completed', 'OpenRouter completed the request.'),
+        this.observation('queued', `${this.label} queued the request.`),
+        this.observation('completed', `${this.label} completed the request.`),
       ],
       finish_reason: 'completed',
     }
@@ -259,7 +337,7 @@ export class OpenRouterProvider implements Provider {
         },
       },
     })
-    const truncated = truncatedReasoningDiagnostic(response)
+    const truncated = truncatedReasoningDiagnostic(response, this.label)
     if (truncated !== undefined) {
       throw new Error(`Structured output validation failed: ${truncated}`)
     }
@@ -295,9 +373,9 @@ export class OpenRouterProvider implements Provider {
       text: this.messageTextFrom(response).trim(),
       metadata: this.metadataFor(request),
       observations: [
-        this.observation('queued', 'OpenRouter queued the tool-capable request.'),
-        ...toolCalls.map((toolCall) => this.observation('tool-call', `OpenRouter requested Owlfolio-owned tool ${toolCall.tool_name}.`)),
-        this.observation('completed', 'OpenRouter completed the tool-capable request.'),
+        this.observation('queued', `${this.label} queued the tool-capable request.`),
+        ...toolCalls.map((toolCall) => this.observation('tool-call', `${this.label} requested Owlfolio-owned tool ${toolCall.tool_name}.`)),
+        this.observation('completed', `${this.label} completed the tool-capable request.`),
       ],
       tool_calls: toolCalls,
       finish_reason: toolCalls.length > 0 ? 'tool-calls' : 'completed',
@@ -336,7 +414,7 @@ export class OpenRouterProvider implements Provider {
 
     const messages: OpenRouterWireMessage[] = [{ role: 'user', content: request.prompt }]
     const rounds: ProviderToolLoopRound[] = []
-    const observations: ProviderObservation[] = [this.observation('queued', 'OpenRouter queued the grounded tool loop.')]
+    const observations: ProviderObservation[] = [this.observation('queued', `${this.label} queued the grounded tool loop.`)]
     const maxToolCalls = Math.max(0, request.budget.max_tool_calls)
     let executedToolCalls = 0
     let sawToolCall = false
@@ -344,7 +422,7 @@ export class OpenRouterProvider implements Provider {
     // ---- Phase 1: grounded gather loop ----
     for (let round = 0; round < MAX_TOOL_LOOP_ROUNDS; round++) {
       const response = await this.createChatCompletion(request, { tools, tool_choice: 'auto' }, messages)
-      const truncated = truncatedReasoningDiagnostic(response)
+      const truncated = truncatedReasoningDiagnostic(response, this.label)
       if (truncated !== undefined) {
         throw new Error(truncated)
       }
@@ -393,7 +471,7 @@ export class OpenRouterProvider implements Provider {
         }
         executedToolCalls++
         rounds.push({ tool_name: originalName, args, result })
-        observations.push(this.observation('tool-call', `OpenRouter grounded tool ${originalName} executed by the harness.`))
+        observations.push(this.observation('tool-call', `${this.label} grounded tool ${originalName} executed by the harness.`))
         messages.push({ role: 'tool', tool_call_id: toolCallId, content: result })
       }
 
@@ -425,12 +503,12 @@ export class OpenRouterProvider implements Provider {
         },
       ],
     )
-    const truncated = truncatedReasoningDiagnostic(synthesis)
+    const truncated = truncatedReasoningDiagnostic(synthesis, this.label)
     if (truncated !== undefined) {
       throw new Error(`Structured output validation failed: ${truncated}`)
     }
     const analysis = this.parseStructured(synthesis, schema)
-    observations.push(this.observation('completed', 'OpenRouter completed the grounded tool loop.'))
+    observations.push(this.observation('completed', `${this.label} completed the grounded tool loop.`))
 
     return {
       analysis,
@@ -445,15 +523,22 @@ export class OpenRouterProvider implements Provider {
     const raw = this.messageTextFrom(response)
     let parsed: unknown
     try {
-      parsed = stripNullProperties(JSON.parse(this.stripJsonFences(raw)))
+      parsed = JSON.parse(this.stripJsonFences(raw))
     } catch (error) {
-      throw new Error(`Structured output validation failed: OpenRouter returned invalid JSON (${error instanceof Error ? error.message : 'unknown error'})`)
+      throw new Error(`Structured output validation failed: ${this.label} returned invalid JSON (${error instanceof Error ? error.message : 'unknown error'})`)
     }
-    const validated = schema.safeParse(parsed)
-    if (!validated.success) {
-      throw new Error(`Structured output validation failed: ${validated.error.message}`)
+    // Validate as-is first so a schema-ACCEPTED null (a required-nullable field's meaningful answer)
+    // survives; only nulls the schema rejects are removed (per issue path) and validation retried.
+    // Terminates: every retry must have removed at least one key, else it throws.
+    for (;;) {
+      const validated = schema.safeParse(parsed)
+      if (validated.success) {
+        return validated.data
+      }
+      if (!removeRejectedNulls(parsed, validated.error.issues)) {
+        throw new Error(`Structured output validation failed: ${validated.error.message}`)
+      }
     }
-    return validated.data
   }
 
   private async createChatCompletion(
@@ -462,17 +547,18 @@ export class OpenRouterProvider implements Provider {
     messages?: OpenRouterWireMessage[],
   ): Promise<OpenRouterChatResponse> {
     if (this.apiKey === undefined || this.apiKey.length === 0) {
-      throw new Error('OpenRouter is not configured: missing OPENROUTER_API_KEY')
+      throw new Error(`${this.label} is not configured: missing ${this.apiKeyEnvVar}`)
     }
 
     const body = this.omitUndefined({
       model: request.model_id,
       messages: messages ?? [{ role: 'user', content: request.prompt }],
       max_tokens: request.budget.max_tokens,
-      // OWNER REQUIREMENT: reasoning/thinking enabled. OpenRouter's unified `reasoning` param toggles
-      // extended thinking across providers (Anthropic thinking, OpenAI reasoning effort, DeepSeek R1's
-      // native reasoning). `enabled: true` lets each routed provider apply its default reasoning budget.
-      reasoning: { enabled: true },
+      temperature: SAMPLING_TEMPERATURE,
+      // OWNER REQUIREMENT: reasoning/thinking enabled. For OpenRouter this is the unified `reasoning` param
+      // (Anthropic thinking, OpenAI reasoning effort, DeepSeek R1 native). Direct OpenAI-compat surfaces that
+      // reject an unknown `reasoning` param are configured with an empty reasoningBody (omitted) instead.
+      ...this.reasoningBody,
       ...extraBody,
     })
 
@@ -483,17 +569,15 @@ export class OpenRouterProvider implements Provider {
         headers: {
           Authorization: `Bearer ${this.apiKey}`,
           'Content-Type': 'application/json',
-          // OpenRouter attribution headers (optional but recommended for ranking/usage clarity).
-          'HTTP-Referer': 'https://github.com/owlfolio/owlfolio',
-          'X-Title': 'Owlfolio',
+          ...this.extraHeaders,
         },
         body: JSON.stringify(body),
       }, request.timeout_ms)
     } catch (error) {
       if (this.isAbortError(error)) {
-        throw new Error(`OpenRouter timed out after ${request.timeout_ms}ms`)
+        throw new Error(`${this.label} timed out after ${request.timeout_ms}ms`)
       }
-      throw new Error(`OpenRouter request failed: ${redactProviderDiagnostic(error)}`)
+      throw new Error(`${this.label} request failed: ${redactProviderDiagnostic(error)}`)
     }
 
     const parsed = await this.parseResponseBody(response)
@@ -527,23 +611,30 @@ export class OpenRouterProvider implements Provider {
     try {
       return JSON.parse(text) as OpenRouterChatResponse
     } catch (error) {
-      throw new Error(`OpenRouter returned invalid JSON: ${redactProviderDiagnostic(error)}`)
+      throw new Error(`${this.label} returned invalid JSON: ${redactProviderDiagnostic(error)}`)
     }
   }
 
   private failureMessageFrom(response: Response, body: OpenRouterChatResponse): string {
-    const rawDiagnostic = body.error?.message ?? response.statusText ?? 'unknown error'
+    // OpenRouter wraps routed-provider failures as a bare "Provider returned error"; the actionable
+    // upstream diagnostic (e.g. Anthropic's schema-keyword rejection) lives in error.metadata.raw.
+    // Surface it so a degraded flag in the ledger is diagnosable without re-running the request.
+    const upstreamRaw = body.error?.metadata?.raw
+    const upstream = typeof upstreamRaw === 'string' && upstreamRaw.trim().length > 0
+      ? ` [${body.error?.metadata?.provider_name ?? 'upstream'}: ${upstreamRaw.slice(0, 500)}]`
+      : ''
+    const rawDiagnostic = `${body.error?.message ?? response.statusText ?? 'unknown error'}${upstream}`
     const diagnostic = redactProviderDiagnostic(rawDiagnostic)
     const code = `${body.error?.code ?? ''} ${body.error?.type ?? ''}`
     const status = response.status === 200 && typeof body.error?.code === 'number' ? body.error.code : response.status
-    const statusPrefix = `OpenRouter failed with status ${status} ${response.statusText || ''}`.trim()
+    const statusPrefix = `${this.label} failed with status ${status} ${response.statusText || ''}`.trim()
 
     if (status === 429 || /quota|rate.?limit|too_many_requests|insufficient.?(credits|balance)/i.test(`${code} ${rawDiagnostic}`)) {
-      return `OpenRouter quota or rate limit failure: ${diagnostic}`
+      return `${this.label} quota or rate limit failure: ${diagnostic}`
     }
 
     if (status === 401 || status === 403 || /auth|unauthorized|forbidden|invalid_api_key|no auth credentials/i.test(`${code} ${rawDiagnostic}`)) {
-      return `OpenRouter authentication failure: ${diagnostic}`
+      return `${this.label} authentication failure: ${diagnostic}`
     }
 
     return `${statusPrefix}: ${diagnostic}`
@@ -589,8 +680,8 @@ export class OpenRouterProvider implements Provider {
   private metadataFor(request: ProviderRunRequest): ProviderRunMetadata {
     return {
       provider_id: this.provider_id,
-      provider_surface_id: request.provider_surface_id ?? 'openrouter-api',
-      vendor_id: request.vendor_id ?? 'openrouter',
+      provider_surface_id: request.provider_surface_id ?? this.surfaceId,
+      vendor_id: request.vendor_id ?? this.vendorId,
       runtime_kind: request.runtime_kind ?? 'direct_api',
       auth_mode: request.auth_mode ?? 'api_key',
       ...(request.workflow_role === undefined ? {} : { workflow_role: request.workflow_role }),

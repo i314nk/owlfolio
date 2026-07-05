@@ -409,17 +409,17 @@ describe('worker runtime', () => {
     expect(quotaReadiness).toMatchObject({ is_ready: false })
     expect(quotaReadiness.status_label).not.toContain('bearer-secret-token')
 
-    const cliReadiness = await resolveWorkerProviderReadiness({
-      provider_id: 'openai',
+    const openRouterReadiness = await resolveWorkerProviderReadiness({
+      provider_id: 'openrouter',
       provider_certification_dir: reportDir,
     })
-    expect(cliReadiness).toMatchObject({
+    expect(openRouterReadiness).toMatchObject({
       is_ready: false,
-      provider_surface_id: 'openai-codex-cli',
-      runtime_kind: 'cli',
-      auth_mode: 'cli_cached_session',
+      provider_surface_id: 'openrouter-api',
+      runtime_kind: 'direct_api',
+      auth_mode: 'api_key',
     })
-    expect(cliReadiness.status_label).toMatch(/not certified for scheduled workflows/i)
+    expect(openRouterReadiness.status_label).toMatch(/not certified for scheduled workflows/i)
   })
 
   it('worker readiness requires certification target to match scheduled monitoring execution', async () => {
@@ -579,8 +579,9 @@ describe('worker runtime', () => {
     await defineDefaultScheduledTasks(store, { now: () => '2026-06-01T08:00:00.000Z' })
 
     const definitions = (await store.list()).filter((event) => event.event_type === 'scheduled_task_defined')
-    expect(definitions).toHaveLength(11)
+    expect(definitions).toHaveLength(12)
     expect(definitions.map((event) => event.payload)).toEqual([
+      expect.objectContaining({ task_kind: 're_review_check', cadence: '0 6 1 */3 *', dry_run: true, enabled: true }),
       expect.objectContaining({ task_kind: 'review_reminder', dry_run: true, enabled: true }),
       expect.objectContaining({ task_kind: 'watchlist_monitor', dry_run: true, enabled: true }),
       expect.objectContaining({ task_kind: 'holdings_monitor', dry_run: true, enabled: true }),
