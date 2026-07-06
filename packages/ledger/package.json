@@ -28,6 +28,7 @@
     "./projections/pipelineProjection": "./src/projections/pipelineProjection.ts",
     "./projections/investableCapitalProjection": "./src/projections/investableCapitalProjection.ts",
     "./projections/positionPostMortemProjection": "./src/projections/positionPostMortemProjection.ts",
-    "./projections/forecastCalibrationProjection": "./src/projections/forecastCalibrationProjection.ts"
+    "./projections/forecastCalibrationProjection": "./src/projections/forecastCalibrationProjection.ts",
+    "./projections/priceSnapshotProjection": "./src/projections/priceSnapshotProjection.ts"
   }
 }

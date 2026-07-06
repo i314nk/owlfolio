@@ -4,7 +4,7 @@ import type { ResearchCaseProjection } from '@owlfolio/ledger/projections/resear
 
 import { enrichWatchlistItemsWithVerdict, type AppWatchlistItem } from '../workflow'
 
-function watchlistItem(id: string, researchCaseId: string): AppWatchlistItem {
+function watchlistItem(id: string, researchCaseId: string, ticker?: string): AppWatchlistItem {
   return {
     watchlist_item_id: id,
     research_case_id: researchCaseId,
@@ -14,6 +14,7 @@ function watchlistItem(id: string, researchCaseId: string): AppWatchlistItem {
     created_by_actor_type: 'provider',
     created_by_actor_id: 'harness',
     user_approved: false,
+    ...(ticker !== undefined ? { ticker } : {}),
   } as AppWatchlistItem
 }
 
@@ -75,5 +76,35 @@ describe('enrichWatchlistItemsWithVerdict', () => {
     expect(enriched?.verdict?.in_buy_zone).toBe(false)
     expect(enriched?.verdict?.market_implied_growth).toBe(0.09)
     expect(enriched?.verdict?.sanity_flags).toEqual(['Implied growth exceeds the demonstrated CAGR.'])
+  })
+
+  it('populates market_price_per_share, distance_to_buy_pct, in_buy_zone, and price_as_of from the snapshots map', () => {
+    const items = [watchlistItem('w1', 'rc1', 'MSFT')]
+    const cases = [researchCase('rc1', '2026-05-01T00:00:00.000Z', 500, 'WATCH')]
+    const snapshots = new Map([['MSFT', { price_per_share: 420, as_of: '2026-07-05T00:00:00.000Z' }]])
+    const [enriched] = enrichWatchlistItemsWithVerdict(items, cases, new Date('2026-07-05T00:00:00.000Z'), snapshots)
+    expect(enriched?.verdict?.market_price_per_share).toBe(420)
+    expect(enriched?.verdict?.distance_to_buy_pct).toBeCloseTo(((420 - 500) / 500) * 100)
+    expect(enriched?.verdict?.in_buy_zone).toBe(true)
+    expect(enriched?.verdict?.price_as_of).toBe('2026-07-05T00:00:00.000Z')
+  })
+
+  it('leaves market price fields undefined when the snapshots map is empty (no regression)', () => {
+    const items = [watchlistItem('w1', 'rc1', 'MSFT')]
+    const cases = [researchCase('rc1', '2026-05-01T00:00:00.000Z', 500, 'WATCH')]
+    const [enriched] = enrichWatchlistItemsWithVerdict(items, cases, new Date('2026-07-05T00:00:00.000Z'))
+    expect(enriched?.verdict?.market_price_per_share).toBeUndefined()
+    expect(enriched?.verdict?.distance_to_buy_pct).toBeUndefined()
+    expect(enriched?.verdict?.price_as_of).toBeUndefined()
+  })
+
+  it('skips snapshot enrichment when item.ticker is undefined', () => {
+    const items = [watchlistItem('w1', 'rc1')]  // no ticker
+    const cases = [researchCase('rc1', '2026-05-01T00:00:00.000Z', 500, 'WATCH')]
+    const snapshots = new Map([['MSFT', { price_per_share: 420, as_of: '2026-07-05T00:00:00.000Z' }]])
+    const [enriched] = enrichWatchlistItemsWithVerdict(items, cases, new Date('2026-07-05T00:00:00.000Z'), snapshots)
+    expect(enriched?.verdict?.market_price_per_share).toBeUndefined()
+    expect(enriched?.verdict?.distance_to_buy_pct).toBeUndefined()
+    expect(enriched?.verdict?.price_as_of).toBeUndefined()
   })
 })

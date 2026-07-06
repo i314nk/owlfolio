@@ -55,6 +55,7 @@
     "./downsideFloor": "./src/downsideFloor.ts",
     "./researchRunWatchdog": "./src/researchRunWatchdog.ts",
     "./reReviewTrigger": "./src/reReviewTrigger.ts",
-    "./thesisReReview": "./src/thesisReReview.ts"
+    "./thesisReReview": "./src/thesisReReview.ts",
+    "./priceRefresh": "./src/priceRefresh.ts"
   }
 }

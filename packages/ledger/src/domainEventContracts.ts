@@ -79,6 +79,7 @@ export const domainEventTypes = [
   'sizing_recommendation_recorded',
   'research_case_archived',
   'research_case_re_review_recorded',
+  'price_snapshot_recorded',
 ] as const
 
 export type DomainEventType = (typeof domainEventTypes)[number]
@@ -861,6 +862,14 @@ export const domainEventContracts: readonly DomainEventContract[] = [
       'reviewed_by_actor_type',
       'reviewed_by_actor_id',
     ],
+  },
+  {
+    event_type: 'price_snapshot_recorded',
+    aggregate_type: 'portfolio',
+    actor_type: 'worker',
+    actor_types: ['user', 'worker'],
+    projection_owner: 'portfolio',
+    payload_fields: ['snapshot_id', 'ticker', 'price_per_share', 'currency', 'as_of', 'source', 'checked_at'],
   },
 ] as const
 

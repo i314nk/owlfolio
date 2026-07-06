@@ -258,6 +258,14 @@ function createVerdictBandDetails(item: AppWatchlistItem) {
   } else {
     lines.push(createDetail('Distance to buy price', 'No live market quote — distance not available'))
   }
+  if (verdict.market_price_per_share !== undefined) {
+    const priceStr = `$${verdict.market_price_per_share.toFixed(2)}`
+    const asOf = verdict.price_as_of !== undefined ? ` · as of ${verdict.price_as_of.slice(0, 10)}` : ''
+    const distPct = verdict.distance_to_buy_pct !== undefined
+      ? ` · ${verdict.distance_to_buy_pct > 0 ? '+' : ''}${verdict.distance_to_buy_pct.toFixed(0)}% to buy`
+      : ''
+    lines.push(createDetail('Current price', `${priceStr}${asOf}${distPct}`))
+  }
   if (verdict.in_buy_zone !== undefined) {
     lines.push(createDetail(
       'Buy-zone',

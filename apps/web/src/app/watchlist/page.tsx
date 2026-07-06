@@ -1,6 +1,8 @@
 import { projectResearchCases } from '@owlfolio/ledger/projections/researchCaseProjection'
+import { projectLatestPriceSnapshots } from '@owlfolio/ledger/projections/priceSnapshotProjection'
 import { SQLiteEventStore } from '@owlfolio/ledger/sqliteEventStore'
 
+import { RefreshPricesButton } from '../../components/RefreshPricesButton'
 import { UnconfiguredNotice } from '../../components/UnconfiguredNotice'
 import { WatchlistPanel } from '../../components/WatchlistPanel'
 import { isUnconfiguredForUser } from '../../lib/modeView'
@@ -20,6 +22,7 @@ export default async function WatchlistPage() {
         <a className="owl-back-link owl-focusable" href="/">
           ← Back to command center
         </a>
+        <RefreshPricesButton />
       </p>
       <WatchlistPanel items={watchlistItems} mode={state.config.mode} alerts={alerts} />
     </main>
@@ -36,7 +39,7 @@ async function loadPersonalWatchlist(ledgerPath: string | undefined): Promise<{ 
     const items = await getAppWatchlistItemsFromStore(store, 'personal-local')
     const events = await store.list()
     return {
-      items: enrichWatchlistItemsWithVerdict(items, projectResearchCases(events)),
+      items: enrichWatchlistItemsWithVerdict(items, projectResearchCases(events), new Date(), projectLatestPriceSnapshots(events)),
       alerts: await getAppMonitorAlertsFromStore(store),
     }
   } finally {

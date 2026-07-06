@@ -89,6 +89,7 @@ import { SIZING_PARAMS } from '@owlfolio/strategies/sizingParams'
 import { projectAccountingSnapshot } from '@owlfolio/ledger/projections/accountingProjection'
 import { resolveFundamentalsForTicker } from '@owlfolio/workflow/fundamentalsProvider'
 import { resolveCurrentPrice, type PriceQuote } from '@owlfolio/workflow/marketData'
+import { runPriceRefresh, type PriceRefreshResult, type RunPriceRefreshDeps } from '@owlfolio/workflow/priceRefresh'
 import type { Fundamentals } from '@owlfolio/workflow/secEdgar'
 import type { LedgerEventEnvelope } from '@owlfolio/ledger/eventEnvelope'
 import { resolveModelRoleEnv } from './modelRoleEnv'
@@ -166,8 +167,10 @@ export type AppWatchlistVerdict = {
   sanity_flags?: string[]
   /** Current market price per share, when a quote is available (else undefined → "no live quote"). */
   market_price_per_share?: number
-  /** Signed distance of market vs buy price as a fraction (negative = below buy price = in the window). */
+  /** Signed distance of market vs buy price as a PERCENT (negative = below buy price = in the window). */
   distance_to_buy_pct?: number
+  /** ISO timestamp of the price snapshot used for market_price_per_share (from the ledger snapshot). */
+  price_as_of?: string
   /** The case's last-updated timestamp — basis for the staleness read. */
   case_updated_at?: string
   /** True when the linked case is older than the staleness window (>12 months) and must be re-run. */
@@ -186,6 +189,7 @@ export function enrichWatchlistItemsWithVerdict(
   items: AppWatchlistItem[],
   cases: ResearchCaseProjection[],
   now: Date = new Date(),
+  snapshots: Map<string, { price_per_share: number; as_of: string }> = new Map(),
 ): AppWatchlistItem[] {
   const caseById = new Map(cases.map((c) => [c.research_case_id, c]))
   return items.map((item) => {
@@ -208,6 +212,13 @@ export function enrichWatchlistItemsWithVerdict(
       ...(valuation.in_buy_zone === undefined ? {} : { in_buy_zone: valuation.in_buy_zone }),
       ...(valuation.sanity_flags === undefined ? {} : { sanity_flags: valuation.sanity_flags }),
       ...(valuation.market_implied_growth === undefined ? {} : { market_implied_growth: valuation.market_implied_growth }),
+    }
+    if (typeof item.ticker === 'string' && item.ticker.length > 0 && snapshots.has(item.ticker)) {
+      const snap = snapshots.get(item.ticker)!
+      verdict.market_price_per_share = snap.price_per_share
+      verdict.distance_to_buy_pct = ((snap.price_per_share - buyBelow) / buyBelow) * 100
+      verdict.in_buy_zone = snap.price_per_share <= buyBelow
+      verdict.price_as_of = snap.as_of
     }
     const updatedAt = linked?.updated_at
     if (updatedAt !== undefined) {
@@ -2708,6 +2719,20 @@ export function resolveModelIdForProvider(config: Pick<AppConfig, 'provider'>): 
   const entry = getProviderCatalog().find((candidate) => candidate.provider_id === config.provider.provider_id)
   return entry?.default_model_id ?? 'openrouter/auto'
 }
+
+/**
+ * On-demand price refresh for all tracked tickers (user-approved watchlist items + open holdings).
+ * Personal-local only. Opens and closes the SQLiteEventStore around the operation.
+ */
+export async function refreshPrices(state: OnboardingState, deps: RunPriceRefreshDeps = {}): Promise<PriceRefreshResult> {
+  if (!state.is_initialized || state.config.mode !== 'personal-local' || state.config.ledger_path === undefined) {
+    throw new Error('Personal-local workflow is not initialized')
+  }
+  const store = new SQLiteEventStore(state.config.ledger_path)
+  try { return await runPriceRefresh(store, deps) } finally { store.close() }
+}
+
+export type { PriceRefreshResult, RunPriceRefreshDeps }
 
 export type ResearchLedgerResetSummary = {
   cleared_events: number

@@ -2,6 +2,7 @@ import { findLatestResearchCaseForTicker, projectResearchCases } from '@owlfolio
 import { SQLiteEventStore } from '@owlfolio/ledger/sqliteEventStore'
 
 import { PortfolioPanel, type PortfolioHolding, type PortfolioValuationRefreshSummary } from '../../components/PortfolioPanel'
+import { RefreshPricesButton } from '../../components/RefreshPricesButton'
 import { UnconfiguredNotice } from '../../components/UnconfiguredNotice'
 import { isUnconfiguredForUser } from '../../lib/modeView'
 import { getOnboardingState } from '../../lib/onboarding'
@@ -26,6 +27,7 @@ export default async function PortfolioPage() {
         <a className="owl-back-link owl-focusable" href="/">
           ← Back to command center
         </a>
+        <RefreshPricesButton />
       </p>
       <PortfolioPanel
         holdings={holdings}
