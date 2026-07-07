@@ -1,10 +1,12 @@
 import { z } from 'zod'
 import type { Provider } from '@owlfolio/providers'
+import type { ImpermissibleIncomeLine } from './secEdgar'
 import { ProposedSourcesSchema, type GroundFn } from './groundedAgent'
 import { AGENT_TIMEOUT_MS } from './researchSwarmSchemas'
 import { runValidatedAgent, type RequiredFieldCheck } from './runValidatedAgent'
 import type { GroundingDeps, CapturedSource } from './sourceGrounding'
 import type { RedTeamLaneDigest } from './redTeamPass'
+import { readGroundedSource } from './sourceRead'
 
 // ---------------------------------------------------------------------------
 // Dedicated FOCUSED Shariah-reasoning call (mirrors valuationReasoningPass).
@@ -56,6 +58,8 @@ export type RunShariahReasoningPassArgs = {
    * id the harness reliably verifies, do NOT fetch a self-archive URL). May be empty.
    */
   preVerifiedSourceIds: string[]
+  /** XBRL-tagged impermissible-income lines from fundamentals.latest_annual (may be absent). */
+  impermissibleIncomeLines?: ImpermissibleIncomeLine[]
 }
 
 /** Outcome of the dedicated Shariah-reasoning call. `ok` carries the shariah_judgment; `failed` means
@@ -87,6 +91,10 @@ export function buildShariahReasoningPrompt(args: RunShariahReasoningPassArgs): 
     + `income / investment income / prohibited-segment revenue lines; quantify impermissible_income from the `
     + `text you actually READ, never from memory. If after reading you still cannot quantify it, null remains `
     + `the honest answer.\n\n`
+    + `If a "HARNESS IMPERMISSIBLE-INCOME GROUNDING" block appears below, the harness has already extracted `
+    + `the XBRL lines and/or the income-statement/notes disclosures for you — quantify impermissible_income `
+    + `directly from that block (you do NOT need tools). read_source is still available if your provider `
+    + `supports the tool loop.\n\n`
     + `Lane findings (the shared narrative to assess from):\n${laneLines}\n\n`
     + `Produce a single shariah_judgment with:\n`
     + `  - sector_status: 'compliant' | 'conditional' | 'non_compliant' — confirmed with segment revenue data, NOT `
@@ -157,13 +165,30 @@ export async function runShariahReasoningPass(
       hint: 'the source_id of a VERIFIED primary source confirming the sector/segment basis (a real grounded source_id, not prose)',
     },
   ]
+  // Harness-read the income-bearing sections (deterministic, works on no-tools providers) so the model can
+  // quantify impermissible income when XBRL doesn't tag it and it can't call read_source itself.
+  const incomeExcerpts: string[] = []
+  const primaryId = args.preVerifiedSourceIds.find((id) => id.trim().length > 0)
+  if (primaryId !== undefined && deps.readCorpus !== undefined) {
+    for (const section of ['8', '7']) {
+      try {
+        // Scan the FULL section: the interest-income disclosure often sits deep in a large Item 8/7
+        // (SPGI's net-interest-income line is ~99k chars in), so truncating to a small window silently
+        // drops it. The excerpter's own output is bounded (~2k), so reading the whole section is cheap.
+        const res = await readGroundedSource(primaryId, deps.readCorpus, { section, limit: 1_000_000 }, deps.grounding)
+        if (res.ok) incomeExcerpts.push(...extractImpermissibleIncomeExcerpts(res.text))
+      } catch { /* fail-closed: no excerpt from this section */ }
+    }
+  }
+  const incomeBlock = buildShariahIncomeBlock(args.impermissibleIncomeLines, [...new Set(incomeExcerpts)])
+
   try {
     const validated = await runValidatedAgent(
       provider,
       {
         run_id: `run_${args.research_case_id}_shariah_reasoning`,
         model_id: args.model_id,
-        prompt: buildShariahReasoningPrompt(args),
+        prompt: buildShariahReasoningPrompt(args) + (incomeBlock ?? ''),
         timeout_ms: AGENT_TIMEOUT_MS,
         schema_name: 'BuffettMungerShariahReasoning',
       },
@@ -191,4 +216,60 @@ export async function runShariahReasoningPass(
     // Provider/timeout error after retries — degrade visibly (the caller keeps Shariah grounding unmet).
     return { status: 'failed', reason: error instanceof Error ? error.message : String(error), attempts: 0 }
   }
+}
+
+/**
+ * Extract bounded excerpts around interest/investment/dividend-income mentions that carry a $ figure — the
+ * grounding the no-tools model needs to quantify impermissible income when XBRL doesn't tag it. Pure,
+ * deterministic, bounded output. Returns [] when nothing qualifies.
+ */
+export function extractImpermissibleIncomeExcerpts(
+  filingText: string,
+  opts: { maxWindows?: number; windowChars?: number; maxTotalChars?: number } = {},
+): string[] {
+  const maxWindows = opts.maxWindows ?? 8
+  const windowChars = opts.windowChars ?? 200
+  const maxTotal = opts.maxTotalChars ?? 2_000
+  const keyword = /(interest income|investment income|dividend income)/gi
+  const hasDollar = /\$\s?\d|\b\d[\d,]*(?:\.\d+)?\s*(million|billion|thousand)\b/i
+  const chosen: Array<{ start: number; text: string }> = []
+  let m: RegExpExecArray | null
+  while ((m = keyword.exec(filingText)) !== null) {
+    const half = Math.floor(windowChars / 2)
+    const start = Math.max(0, m.index - half)
+    const end = Math.min(filingText.length, m.index + m[0].length + half)
+    const text = filingText.slice(start, end).replace(/\s+/g, ' ').trim()
+    if (!hasDollar.test(text)) continue
+    if (chosen.some((c) => Math.abs(c.start - start) < windowChars)) continue
+    chosen.push({ start, text })
+    if (chosen.length >= maxWindows) break
+  }
+  const out: string[] = []
+  let total = 0
+  for (const c of chosen) {
+    if (total + c.text.length > maxTotal) break
+    out.push(c.text)
+    total += c.text.length
+  }
+  return out
+}
+
+export function buildShariahIncomeBlock(
+  lines: ImpermissibleIncomeLine[] | undefined,
+  excerpts: string[],
+): string | undefined {
+  const hasLines = lines !== undefined && lines.length > 0
+  if (!hasLines && excerpts.length === 0) return undefined
+  let block =
+    `\n\nHARNESS IMPERMISSIBLE-INCOME GROUNDING (quantify impermissible_income from THIS — interest income on `
+    + `cash + dividend/investment income + prohibited-segment revenue, in $M; null ONLY if genuinely not `
+    + `disclosed here):\n`
+  if (hasLines) {
+    block += `XBRL-tagged lines ($millions): ${lines!.map((l) => `${l.label} ${l.amount_musd}`).join('; ')}.\n`
+  }
+  if (excerpts.length > 0) {
+    block += `Disclosures extracted from the verified primary filing text:\n`
+      + excerpts.map((e) => `  - "${e}"`).join('\n') + '\n'
+  }
+  return block
 }

@@ -1695,6 +1695,9 @@ export async function runResearchDeepDivePhase(
       laneDigest,
       corpusSourceIds: [...accumulated.values()].map((s) => s.source_id),
       preVerifiedSourceIds: primaryFilingSourceId !== undefined ? [primaryFilingSourceId] : [],
+      ...(fundamentals?.latest_annual?.impermissible_income_lines === undefined
+        ? {}
+        : { impermissibleIncomeLines: fundamentals.latest_annual.impermissible_income_lines }),
     },
     {
       ...(deps.ground === undefined ? {} : { ground: deps.ground }),

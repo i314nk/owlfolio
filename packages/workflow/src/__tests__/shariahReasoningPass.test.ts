@@ -1,3 +1,38 @@
+import { extractImpermissibleIncomeExcerpts, buildShariahIncomeBlock } from '../shariahReasoningPass'
+
+describe('extractImpermissibleIncomeExcerpts', () => {
+  it('captures a window around an income keyword that has a dollar figure', () => {
+    const out = extractImpermissibleIncomeExcerpts('...blah... Interest income was $128 million in fiscal 2025, up from ...more...')
+    expect(out).toHaveLength(1)
+    expect(out[0]).toMatch(/interest income/i)
+    expect(out[0]).toMatch(/\$128 million/)
+  })
+  it('drops keyword mentions with no dollar figure', () => {
+    expect(extractImpermissibleIncomeExcerpts('We earn interest income on our cash balances (see note 4).')).toEqual([])
+  })
+  it('returns [] for irrelevant/empty text and caps the number of windows', () => {
+    expect(extractImpermissibleIncomeExcerpts('the quick brown fox')).toEqual([])
+    const many = Array.from({ length: 30 }, (_v, i) => `dividend income of $${i} million`).join(' ; ')
+    expect(extractImpermissibleIncomeExcerpts(many).length).toBeLessThanOrEqual(8)
+  })
+})
+
+describe('buildShariahIncomeBlock', () => {
+  it('includes XBRL lines when present', () => {
+    const b = buildShariahIncomeBlock([{ concept: 'InterestIncomeOther', label: 'interest income (other)', amount_musd: 4337 }], [])
+    expect(b).toMatch(/interest income \(other\) 4337/)
+  })
+  it('includes text excerpts when XBRL is absent', () => {
+    const b = buildShariahIncomeBlock(undefined, ['Interest income was $128 million'])
+    expect(b).toMatch(/\$128 million/)
+    expect(b).toMatch(/IMPERMISSIBLE-INCOME/)
+  })
+  it('returns undefined when there is neither', () => {
+    expect(buildShariahIncomeBlock(undefined, [])).toBeUndefined()
+    expect(buildShariahIncomeBlock([], [])).toBeUndefined()
+  })
+})
+
 import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
@@ -10,6 +45,7 @@ import type { Provider, ProviderToolExecutor, ProviderToolLoopRequest, ProviderT
 
 import { ShariahReasoningAgentSchema, buildShariahReasoningPrompt, runShariahReasoningPass } from '../shariahReasoningPass'
 import type { CapturedSource } from '../sourceGrounding'
+import type { GroundFn } from '../groundedAgent'
 
 describe('ShariahReasoningAgentSchema', () => {
   it('parses a grounded overlay (sector_status + impermissible_income + citation + proposed_sources)', () => {
@@ -115,5 +151,156 @@ describe('buildShariahReasoningPrompt', () => {
     })
     expect(prompt).toMatch(/read_source/)
     expect(prompt).toMatch(/interest income|investment income/i)
+  })
+
+  it('tells the model about the harness income block (no-tools fallback instruction)', () => {
+    const prompt = buildShariahReasoningPrompt({
+      research_case_id: 'rc_x', ticker: 'ACME', model_id: 'm',
+      laneDigest: [], corpusSourceIds: ['sec_edgar_10k_x'], preVerifiedSourceIds: ['sec_edgar_10k_x'],
+    })
+    expect(prompt).toMatch(/HARNESS IMPERMISSIBLE-INCOME GROUNDING/)
+    expect(prompt).toMatch(/you do NOT need tools/)
+  })
+})
+
+describe('runShariahReasoningPass (no-tools provider — harness injects income block)', () => {
+  const sha = (s: string) => `sha256:${createHash('sha256').update(s).digest('hex')}`
+  const filingText = 'Annual Report. Interest income was $128 million in fiscal 2025, up from $95 million. Total revenues were $4,500 million.'
+  const primaryId = 'sec_edgar_10k_harness_test'
+  const fakeSource: CapturedSource = {
+    source_id: primaryId,
+    title: 'Test 10-K',
+    url: 'https://www.sec.gov/Archives/edgar/data/99/test.htm',
+    excerpt: 'Annual Report.',
+    availability: 'available',
+    fetched_at: '2025-01-01T00:00:00.000Z',
+    content: filingText,
+    content_hash: sha(filingText),
+    source_category: 'filing',
+  }
+
+  // No-tools provider: multi-step-tool-loop is unsupported so runValidatedAgent falls back to
+  // provider.structured, which lets the test capture the full prompt the harness assembled.
+  // We verify the harness injection path (prompt capture) rather than the end-to-end status,
+  // because: the loop provider test already covers end-to-end status; the no-tools path is
+  // specifically about prompt augmentation that happens BEFORE structured() is called.
+  let capturedPrompt = ''
+  function makeNoToolsProvider(): Provider {
+    capturedPrompt = ''
+    return {
+      provider_id: 'fake-no-tools',
+      capabilities: {
+        'text-generation': 'adapter',
+        'structured-output': 'adapter',
+        'tool-function-calling': 'unsupported',
+        'streaming-observability': 'unsupported',
+        'multi-step-tool-loop': 'unsupported',
+        'source-grounding': 'unsupported',
+        'citation-metadata': 'unsupported',
+        'url-context': 'unsupported',
+        'file-context': 'unsupported',
+        'source-bundle-production': 'unsupported',
+        'code-execution': 'unsupported',
+        'computer-use': 'unsupported',
+        'browser-use': 'unsupported',
+      },
+      async complete() { throw new Error('not used') },
+      async runWithTools() { throw new Error('not used') },
+      async structured<T>(request: { prompt: string }, _schema: unknown): Promise<T> {
+        capturedPrompt = request.prompt
+        const output = {
+          shariah_judgment: { sector_status: 'compliant', impermissible_income: 128, sector_citation: primaryId },
+          proposed_sources: [{ source_id: primaryId, title: 'Test 10-K', url: 'https://www.sec.gov/Archives/edgar/data/99/test.htm', excerpt: 'Interest income was $128 million' }],
+        }
+        return output as T
+      },
+    } as unknown as Provider
+  }
+
+  it('injects HARNESS IMPERMISSIBLE-INCOME GROUNDING block and the $128M figure into the prompt (no-tools path)', async () => {
+    const provider = makeNoToolsProvider()
+    const readCorpus = new Map([[primaryId, fakeSource]])
+    // Fake ground: returns the source as verified so the structured path's cite-check passes.
+    const fakeGround: GroundFn = async (sources) => ({
+      captured: sources.map((s) => ({ ...fakeSource, source_id: s.source_id })),
+      verified_ids: sources.map((s) => s.source_id),
+    })
+
+    await runShariahReasoningPass(
+      provider,
+      {
+        research_case_id: 'rc_no_tools',
+        ticker: 'ACME',
+        model_id: 'm',
+        laneDigest: [],
+        corpusSourceIds: [primaryId],
+        preVerifiedSourceIds: [primaryId],
+      },
+      { ground: fakeGround, readCorpus },
+    )
+
+    // The harness should have read the filing (offset paging — unparseable as 10-K Items), extracted the
+    // interest-income window, built the block, and appended it to the prompt BEFORE calling structured.
+    expect(capturedPrompt).toContain('HARNESS IMPERMISSIBLE-INCOME GROUNDING')
+    expect(capturedPrompt).toContain('$128 million')
+  })
+
+  it('does NOT inject income block when there is no readCorpus and no impermissibleIncomeLines (fail-closed)', async () => {
+    // Regression guard: when neither a read corpus nor XBRL lines are available, the harness must
+    // not fabricate or inject anything — the prompt must arrive at the model unaugmented (fail-closed).
+    // NOTE: the base prompt itself refers to "HARNESS IMPERMISSIBLE-INCOME GROUNDING" in a conditional
+    // ("if a block appears below..."), so we check for the block's actual header which is only present
+    // when the harness injects content: 'HARNESS IMPERMISSIBLE-INCOME GROUNDING (quantify'.
+    const provider = makeNoToolsProvider()
+    const fakeGround: GroundFn = async (sources) => ({
+      captured: sources.map((s) => ({ ...fakeSource, source_id: s.source_id })),
+      verified_ids: sources.map((s) => s.source_id),
+    })
+
+    await runShariahReasoningPass(
+      provider,
+      {
+        research_case_id: 'rc_fail_closed',
+        ticker: 'ACME',
+        model_id: 'm',
+        laneDigest: [],
+        corpusSourceIds: [primaryId],
+        preVerifiedSourceIds: [primaryId],
+        // no impermissibleIncomeLines
+      },
+      { ground: fakeGround }, // no readCorpus
+    )
+
+    // The injected block starts with 'HARNESS IMPERMISSIBLE-INCOME GROUNDING (quantify'; the base
+    // prompt only has a quoted reference. Nothing injected → that prefix must be absent.
+    expect(capturedPrompt).not.toContain('HARNESS IMPERMISSIBLE-INCOME GROUNDING (quantify')
+  })
+
+  it('injects HARNESS IMPERMISSIBLE-INCOME GROUNDING block from XBRL lines even with no readCorpus (XBRL-present path)', async () => {
+    // Regression guard: when XBRL-tagged lines are supplied (impermissibleIncomeLines), the harness
+    // must inject the grounding block from those lines alone — no filing read required.
+    const provider = makeNoToolsProvider()
+    const fakeGround: GroundFn = async (sources) => ({
+      captured: sources.map((s) => ({ ...fakeSource, source_id: s.source_id })),
+      verified_ids: sources.map((s) => s.source_id),
+    })
+
+    await runShariahReasoningPass(
+      provider,
+      {
+        research_case_id: 'rc_xbrl_present',
+        ticker: 'ACME',
+        model_id: 'm',
+        laneDigest: [],
+        corpusSourceIds: [primaryId],
+        preVerifiedSourceIds: [primaryId],
+        impermissibleIncomeLines: [{ concept: 'InterestIncomeOther', label: 'interest income (other)', amount_musd: 4337 }],
+      },
+      { ground: fakeGround }, // no readCorpus
+    )
+
+    // The injected block's header (distinguishes actual injection from the base-prompt reference).
+    expect(capturedPrompt).toContain('HARNESS IMPERMISSIBLE-INCOME GROUNDING (quantify')
+    expect(capturedPrompt).toContain('interest income (other) 4337')
   })
 })
