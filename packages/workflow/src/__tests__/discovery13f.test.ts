@@ -13,6 +13,8 @@ import {
   runDiscovery13f,
   CLONER_LIST,
   __resetCompanyTickersCacheForTests,
+  fetchOpenFigiTickers,
+  __resetCusipTickerCacheForTests,
   type ManagerQuarter,
   type CompanyTickerEntry,
 } from '../discovery13f'
@@ -311,5 +313,93 @@ describe('runDiscovery13f', () => {
   it('fails closed in test_mode with no fetch deps (no live SEC in unit tests)', async () => {
     const { store } = makeMemoryStore()
     await expect(runDiscovery13f(store, { test_mode: true } as never)).rejects.toThrow()
+  })
+
+  it('resolves ticker by CUSIP (OpenFIGI) ahead of name-match, recording provenance', async () => {
+    __resetCompanyTickersCacheForTests()
+    const { store } = makeMemoryStore()
+    const cusipMap = new Map<string, string>([['22160K105', 'COST'], ['594918104', 'MSFT']])
+    await runDiscovery13f(store, { ...deps, test_mode: true, fetchCusipTickers: async () => cusipMap })
+    const candidates = projectDiscoveryCandidates(await store.list())
+    const cost = candidates.find((c) => c.ticker === 'COST')
+    expect((cost?.discovery_metadata as Record<string, unknown> | undefined)?.['ticker_resolution']).toBe('matched_by_cusip')
+  })
+
+  it('falls back to name-match when the CUSIP map lacks the cusip', async () => {
+    __resetCompanyTickersCacheForTests()
+    const { store } = makeMemoryStore()
+    await runDiscovery13f(store, { ...deps, test_mode: true, fetchCusipTickers: async () => new Map() })
+    const candidates = projectDiscoveryCandidates(await store.list())
+    const cost = candidates.find((c) => c.ticker === 'COST')
+    expect(cost).toBeDefined()
+    expect((cost?.discovery_metadata as Record<string, unknown> | undefined)?.['ticker_resolution']).toBe('matched_by_name')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// fetchOpenFigiTickers
+// ---------------------------------------------------------------------------
+
+describe('fetchOpenFigiTickers', () => {
+  beforeEach(() => __resetCusipTickerCacheForTests())
+
+  function figiFetch(map: Record<string, string | null>): typeof fetch {
+    return (async (_url: string, init?: RequestInit) => {
+      const jobs = JSON.parse(String(init?.body)) as Array<{ idValue: string }>
+      const body = jobs.map((j) => {
+        const t = map[j.idValue.toUpperCase()]
+        return t === null || t === undefined ? { warning: 'No identifier found.' } : { data: [{ ticker: t }] }
+      })
+      return { ok: true, json: async () => body } as Response
+    }) as unknown as typeof fetch
+  }
+
+  it('maps CUSIP -> upper-cased ticker, skipping no-data/warning jobs', async () => {
+    const out = await fetchOpenFigiTickers(['053015103', '02079K107', 'BADCUSIP00'], {
+      fetchImpl: figiFetch({ '053015103': 'ADP', '02079K107': 'GOOG', BADCUSIP00: null }),
+    })
+    expect(out.get('053015103')).toBe('ADP')
+    expect(out.get('02079K107')).toBe('GOOG')
+    expect(out.has('BADCUSIP00')).toBe(false)
+  })
+
+  it('resolves distinct share-class CUSIPs to distinct tickers', async () => {
+    const out = await fetchOpenFigiTickers(['02079K107', '02079K305'], {
+      fetchImpl: figiFetch({ '02079K107': 'GOOG', '02079K305': 'GOOGL' }),
+    })
+    expect(out.get('02079K107')).toBe('GOOG')
+    expect(out.get('02079K305')).toBe('GOOGL')
+  })
+
+  it('chunks >10 cusips into multiple requests', async () => {
+    let calls = 0
+    const fetchImpl = (async (_u: string, init?: RequestInit) => {
+      calls += 1
+      const jobs = JSON.parse(String(init?.body)) as Array<{ idValue: string }>
+      return { ok: true, json: async () => jobs.map((j) => ({ data: [{ ticker: `T${j.idValue}` }] })) } as Response
+    }) as unknown as typeof fetch
+    const cusips = Array.from({ length: 23 }, (_v, i) => `CUSIP${i.toString().padStart(5, '0')}`)
+    const out = await fetchOpenFigiTickers(cusips, { fetchImpl })
+    expect(calls).toBe(3)
+    expect(out.size).toBe(23)
+  })
+
+  it('is fail-closed: a non-200 / throwing fetch yields an empty map, never throws', async () => {
+    const bad = (async () => { throw new Error('network down') }) as unknown as typeof fetch
+    await expect(fetchOpenFigiTickers(['053015103'], { fetchImpl: bad })).resolves.toEqual(new Map())
+    const non200 = (async () => ({ ok: false } as Response)) as unknown as typeof fetch
+    await expect(fetchOpenFigiTickers(['053015103'], { fetchImpl: non200 })).resolves.toEqual(new Map())
+  })
+
+  it('caches resolved cusips across calls (no second fetch)', async () => {
+    let calls = 0
+    const fetchImpl = (async (_u: string, init?: RequestInit) => {
+      calls += 1
+      const jobs = JSON.parse(String(init?.body)) as Array<{ idValue: string }>
+      return { ok: true, json: async () => jobs.map(() => ({ data: [{ ticker: 'ADP' }] })) } as Response
+    }) as unknown as typeof fetch
+    await fetchOpenFigiTickers(['053015103'], { fetchImpl })
+    await fetchOpenFigiTickers(['053015103'], { fetchImpl })
+    expect(calls).toBe(1)
   })
 })

@@ -539,10 +539,77 @@ async function fetchCompanyTickersDefault(deps?: Sec13fDeps): Promise<CompanyTic
   return companyTickersCache
 }
 
+// ---------------------------------------------------------------------------
+// OpenFIGI CUSIP -> ticker resolution (keyless, cached, fail-closed)
+// ---------------------------------------------------------------------------
+
+const OPENFIGI_MAPPING_URL = 'https://api.openfigi.com/v3/mapping'
+const OPENFIGI_CHUNK_SIZE = 10 // keyless job limit per request
+
+let cusipTickerCache: Map<string, string> | undefined
+
+/** Test-only hook to reset the module-level CUSIP->ticker cache. */
+export function __resetCusipTickerCacheForTests(): void {
+  cusipTickerCache = undefined
+}
+
+/**
+ * Resolve CUSIP -> US ticker via OpenFIGI's free KEYLESS mapping API (10 jobs/request). Fail-closed: any
+ * error (network, non-200, bad JSON, chunk failure) contributes nothing — returns the map of whatever
+ * resolved and NEVER throws. Cached across runs (CUSIP->ticker is stable). Returns only the requested
+ * cusips that resolved.
+ */
+export async function fetchOpenFigiTickers(cusips: string[], deps?: Sec13fDeps): Promise<Map<string, string>> {
+  const cache = cusipTickerCache ?? (cusipTickerCache = new Map<string, string>())
+  const requested = [...new Set(cusips.map((c) => c.toUpperCase()).filter((c) => c.length > 0))]
+  const missing = requested.filter((c) => !cache.has(c))
+  const fetchFn = deps?.fetchImpl ?? fetch
+  const timeoutMs = deps?.timeoutMs ?? SEC_DEFAULT_TIMEOUT_MS
+
+  for (let i = 0; i < missing.length; i += OPENFIGI_CHUNK_SIZE) {
+    const chunk = missing.slice(i, i + OPENFIGI_CHUNK_SIZE)
+    let url: URL
+    try { url = assertPublicHttpUrl(OPENFIGI_MAPPING_URL) } catch { continue }
+    const controller = new AbortController()
+    const timer = setTimeout(() => { controller.abort() }, timeoutMs)
+    try {
+      const response = await fetchFn(url.toString(), {
+        method: 'POST',
+        signal: controller.signal,
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify(chunk.map((cusip) => ({ idType: 'ID_CUSIP', idValue: cusip, exchCode: 'US' }))),
+      })
+      if (!response.ok) continue
+      const jobs = (await response.json()) as Array<{ data?: Array<{ ticker?: unknown }> }>
+      if (!Array.isArray(jobs)) continue
+      jobs.forEach((job, idx) => {
+        const cusip = chunk[idx]
+        const ticker = job?.data?.[0]?.ticker
+        if (cusip !== undefined && typeof ticker === 'string' && ticker.length > 0) {
+          cache.set(cusip, ticker.toUpperCase())
+        }
+      })
+    } catch {
+      continue
+    } finally {
+      clearTimeout(timer)
+    }
+  }
+
+  const out = new Map<string, string>()
+  for (const cusip of requested) {
+    const ticker = cache.get(cusip)
+    if (ticker !== undefined) out.set(cusip, ticker)
+  }
+  return out
+}
+
 export type RunDiscovery13fDeps = {
   /** Live fetch is the default; tests inject these to avoid the network. */
   fetchManagerQuarters?: (managers: readonly ClonerManager[]) => Promise<ManagerQuarter[]>
   fetchCompanyTickers?: () => Promise<CompanyTickerEntry[]>
+  /** CUSIP -> ticker resolver (defaults to keyless OpenFIGI live; injected in tests). */
+  fetchCusipTickers?: (cusips: string[]) => Promise<Map<string, string>>
   /** Manager list override (defaults to CLONER_LIST). */
   cloners?: readonly ClonerManager[]
   /** Strategy ref recorded on each candidate. */
@@ -627,6 +694,12 @@ export async function runDiscovery13f(
   const excludedCusips = new Set(survivors.filter((s) => s.excluded).map((s) => s.cusip))
   result.sector_excluded = excludedCusips.size
 
+  const resolveCusips = deps.fetchCusipTickers
+    ?? (deps.test_mode === true ? async () => new Map<string, string>() : (cs: string[]) => fetchOpenFigiTickers(cs, deps.sec))
+  const cusipTickerMap = await resolveCusips(
+    signals.filter((s) => !excludedCusips.has(s.cusip)).map((s) => s.cusip.toUpperCase()),
+  )
+
   const existing = projectDiscoveryCandidates(await store.list())
   const existingDedupe = new Set(existing.map((c) => c.dedupe_key))
 
@@ -636,9 +709,23 @@ export async function runDiscovery13f(
       continue
     }
 
-    const resolved = resolveIssuerTicker(signal.issuer, tickers)
-    if (resolved.resolution === 'unresolved') result.unresolved += 1
-    const ticker = resolved.ticker ?? `UNRESOLVED:${signal.cusip}`
+    const cusipTicker = cusipTickerMap.get(signal.cusip.toUpperCase())
+    let ticker: string
+    let tickerResolution: 'matched_by_cusip' | 'matched_by_name' | 'unresolved'
+    if (cusipTicker !== undefined) {
+      ticker = cusipTicker.toUpperCase()
+      tickerResolution = 'matched_by_cusip'
+    } else {
+      const resolved = resolveIssuerTicker(signal.issuer, tickers)
+      if (resolved.resolution === 'matched' && resolved.ticker !== undefined) {
+        ticker = resolved.ticker
+        tickerResolution = 'matched_by_name'
+      } else {
+        ticker = `UNRESOLVED:${signal.cusip}`
+        tickerResolution = 'unresolved'
+        result.unresolved += 1
+      }
+    }
 
     // Normalize the CUSIP ONCE and use the same value for BOTH the dedupe key and the candidate id, so
     // the id can never collide for two CUSIPs that the dedupe key treats as distinct.
@@ -661,7 +748,7 @@ export async function runDiscovery13f(
       conviction_pct: signal.conviction_pct,
       cusip: signal.cusip,
       period,
-      ticker_resolution: resolved.resolution,
+      ticker_resolution: tickerResolution,
       rationale: `${signal.signal_type} from ${signal.contributing_managers.join(', ')} (conviction ${(signal.conviction_pct * 100).toFixed(1)}% of portfolio)`,
     }
 
