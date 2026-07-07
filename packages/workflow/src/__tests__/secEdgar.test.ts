@@ -592,6 +592,59 @@ describe('annual_series spans concept transitions (per-year per-field resolution
     ])
   })
 
+  it('extracts impermissible income from the broadened gross-income concepts (SPGI/GOOGL/COST/V class)', async () => {
+    for (const [concept, value] of [
+      ['InvestmentIncomeNet', 30],                 // SPGI
+      ['InterestIncomeOther', 12],                 // GOOGL
+      ['InvestmentIncomeNonoperating', 8],         // COST
+      ['InterestAndDividendIncomeSecurities', 15], // V
+    ] as const) {
+      const facts = {
+        entityName: 'X',
+        facts: { 'us-gaap': {
+          NetIncomeLoss: annualFacts({ 2025: 100 }),
+          Revenues: annualFacts({ 2025: 1000 }),
+          [concept]: annualFacts({ 2025: value }),
+        } },
+      }
+      const f = await fetchCompanyFundamentals('0000000001', { fetchImpl: fakeFactsFetch(facts) })
+      expect(f?.latest_annual.impermissible_income_lines?.map((l) => [l.concept, l.amount_musd])).toEqual([[concept, value]])
+      expect(f?.latest_annual.impermissible_income_lines?.every((l) => l.label.length > 0)).toBe(true)
+    }
+  })
+
+  it('does NOT extract nets or over-broad income concepts (accuracy: never overstate purification)', async () => {
+    for (const concept of [
+      'InterestIncomeExpenseNet', 'InterestIncomeExpenseNonoperatingNet',
+      'InterestAndOtherIncome', 'OtherIncome', 'OtherNonoperatingIncomeExpense',
+    ]) {
+      const facts = {
+        entityName: 'X',
+        facts: { 'us-gaap': {
+          NetIncomeLoss: annualFacts({ 2025: 100 }),
+          Revenues: annualFacts({ 2025: 1000 }),
+          [concept]: annualFacts({ 2025: 50 }),
+        } },
+      }
+      const f = await fetchCompanyFundamentals('0000000001', { fetchImpl: fakeFactsFetch(facts) })
+      expect(f?.latest_annual.impermissible_income_lines).toBeUndefined()
+    }
+  })
+
+  it('prefers the pure interest concept over the broadened combined concepts (no double-count)', async () => {
+    const facts = {
+      entityName: 'X',
+      facts: { 'us-gaap': {
+        NetIncomeLoss: annualFacts({ 2025: 100 }),
+        Revenues: annualFacts({ 2025: 1000 }),
+        InvestmentIncomeInterest: annualFacts({ 2025: 30 }),
+        InvestmentIncomeNet: annualFacts({ 2025: 45 }),
+      } },
+    }
+    const f = await fetchCompanyFundamentals('0000000001', { fetchImpl: fakeFactsFetch(facts) })
+    expect(f?.latest_annual.impermissible_income_lines?.map((l) => l.concept)).toEqual(['InvestmentIncomeInterest'])
+  })
+
   // FIX (as-of staleness bug): the `filed` availability date must be FIRST-disclosure (earliest 10-K that
   // reported the period), NOT the latest comparative. A 10-K restates 2-3 prior years as comparatives, so
   // latest-filed-wins tagged every fiscal year with a filing ~2-3 yrs too late and made the as-of backtest

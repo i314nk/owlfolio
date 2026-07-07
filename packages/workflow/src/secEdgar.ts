@@ -1118,11 +1118,23 @@ const US_GAAP_CONCEPTS: ConceptMap = {
   // Impermissible-income components: pure interest + separate dividend itemized when tagged; MSFT tags
   // the combined interest-and-dividend variant (dividends included = conservative overcount, accepted)
   // — used only when the pure concept is absent; the operating variant is a last-resort (financials-
-  // adjacent filers).
+  // adjacent filers). InterestIncomeOther covers GOOGL-class filers that tag gross interest separately.
+  // Broadened combined set covers SPGI (InvestmentIncomeNet), COST (InvestmentIncomeNonoperating),
+  // V (InterestAndDividendIncomeSecurities). Excluded concepts (never added here):
+  //   - Nets like InterestIncomeExpenseNet / InterestIncomeExpenseNonoperatingNet: income minus expense,
+  //     can be negative, would understate purification obligation.
+  //   - Over-broad blends like InterestAndOtherIncome / OtherIncome / OtherNonoperatingIncomeExpense:
+  //     mix permissible income → overstate purification (Shariah accuracy principle).
   impermissibleIncome: {
-    interest: ['InvestmentIncomeInterest'],
+    interest: ['InvestmentIncomeInterest', 'InterestIncomeOther'],
     dividend: ['InvestmentIncomeDividend'],
-    combined: ['InvestmentIncomeInterestAndDividend', 'InterestAndDividendIncomeOperating'],
+    combined: [
+      'InvestmentIncomeInterestAndDividend',
+      'InterestAndDividendIncomeOperating',
+      'InterestAndDividendIncomeSecurities',
+      'InvestmentIncomeNet',
+      'InvestmentIncomeNonoperating',
+    ],
   },
   interest: 'InterestExpense',
   stockholdersEquity: 'StockholdersEquity',
@@ -1278,6 +1290,10 @@ const IMPERMISSIBLE_INCOME_LABELS: Record<string, string> = {
   InterestAndDividendIncomeOperating: 'interest and dividend income (operating)',
   InterestIncome: 'interest income',
   InterestRevenueCalculatedUsingEffectiveInterestMethod: 'interest revenue (effective interest method)',
+  InterestIncomeOther: 'interest income (other)',
+  InterestAndDividendIncomeSecurities: 'interest and dividend income (securities)',
+  InvestmentIncomeNet: 'net investment income',
+  InvestmentIncomeNonoperating: 'nonoperating investment income',
 }
 
 /**
