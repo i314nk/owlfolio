@@ -87,9 +87,15 @@ export function findAbandonedResearchRuns({
   // The projection does NOT fold `research_run_failed` into the stage, so scan the events directly
   // for which cases already carry a failure (terminal — no second failure owed).
   const failedCaseIds = new Set<string>()
+  const claimedCaseIds = new Set<string>()
   for (const event of events) {
     if (event.event_type === 'research_run_failed') {
       failedCaseIds.add(event.aggregate_id)
+    }
+    if (event.event_type === 'research_run_claimed') {
+      const payload = event.payload as Record<string, unknown> | undefined
+      const id = typeof payload?.['research_case_id'] === 'string' ? (payload['research_case_id'] as string) : event.aggregate_id
+      claimedCaseIds.add(id)
     }
   }
 
@@ -99,6 +105,13 @@ export function findAbandonedResearchRuns({
       continue
     }
     if (TERMINAL_STAGES.has(researchCase.stage) || !ABANDONABLE_STAGES.has(researchCase.stage)) {
+      continue
+    }
+    // A case still at `discovered` is only an in-flight run if a worker actually CLAIMED it (and then
+    // died before advancing it). A discovery-promoted case sits at `discovered` with NO claim — it is
+    // idle/not-started, not abandoned — so it must never be reaped. (Before discovery-promote, intake
+    // always claimed a run immediately, so `discovered` implied in-flight; that invariant no longer holds.)
+    if (researchCase.stage === 'discovered' && !claimedCaseIds.has(researchCase.research_case_id)) {
       continue
     }
     if (failedCaseIds.has(researchCase.research_case_id)) {

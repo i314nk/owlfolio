@@ -83,6 +83,11 @@ import {
 import { MINIMUM_HOLD_TRIGGERS as MINIMUM_HOLD_TRIGGER_LIST } from '@owlfolio/strategies/minimumHoldGuard'
 import { projectNameLifecycle } from '@owlfolio/ledger/projections/nameLifecycleProjection'
 import { screenCheapness } from '@owlfolio/workflow/cheapnessScreen'
+import {
+  queueDiscoveryCandidateForQuickScreen,
+  rejectDiscoveryCandidate as rejectDiscoveryCandidateEvent,
+  promoteDiscoveryCandidateToResearchCase,
+} from '@owlfolio/workflow/discoveryCandidateWorkflow'
 import type { ClusteredPosition } from '@owlfolio/strategies/correlatedClusters'
 import type { MoatClass } from '@owlfolio/strategies/strategyContract'
 import { SIZING_PARAMS } from '@owlfolio/strategies/sizingParams'
@@ -294,7 +299,7 @@ export function resolveActiveWorkflowMode(config: Pick<AppConfig, 'mode'>): Work
   return config.mode
 }
 
-type SpawnWorkerPaths = {
+export type SpawnWorkerPaths = {
   ledgerPath: string
   sourceLedgerPath: string
   /**
@@ -339,6 +344,42 @@ function defaultSpawnDeepDiveWorker({ ledgerPath, sourceLedgerPath, appConfigPat
     stdio: 'ignore',
   })
   child.unref()
+}
+
+function defaultSpawnDiscoveryWorker({ ledgerPath, sourceLedgerPath, appConfigPath, providerCertificationDir }: SpawnWorkerPaths): void {
+  // --define-defaults ensures the discovery_13f scheduled task exists in the ledger before
+  // runScheduledTasks selects it (it filters over projectScheduledTasks, i.e. store events, not the
+  // in-memory definitions). OWLFOLIO_DISCOVERY_13F_ENABLED=1 (below) means it is defined enabled.
+  const child = spawn('corepack', ['pnpm', '--filter', '@owlfolio/worker', 'dev', '--', '--once', '--define-defaults', '--task-kind', 'discovery_13f'], {
+    cwd: process.env.OWLFOLIO_PROJECT_DIR ?? process.cwd(),
+    env: {
+      ...process.env,
+      OWLFOLIO_LEDGER_PATH: ledgerPath,
+      OWLFOLIO_SOURCE_LEDGER_PATH: sourceLedgerPath,
+      OWLFOLIO_PROJECT_DIR: process.env.OWLFOLIO_PROJECT_DIR ?? process.cwd(),
+      OWLFOLIO_APP_CONFIG_PATH: appConfigPath,
+      OWLFOLIO_DISCOVERY_13F_ENABLED: '1',
+      ...(providerCertificationDir === undefined ? {} : { OWLFOLIO_PROVIDER_CERTIFICATION_DIR: providerCertificationDir }),
+    },
+    detached: true,
+    stdio: 'ignore',
+  })
+  child.unref()
+}
+
+export type EnqueueDiscoveryRunDeps = { spawn?: (paths: SpawnWorkerPaths) => void }
+
+export async function enqueueDiscoveryRun(state: OnboardingState, deps: EnqueueDiscoveryRunDeps = {}): Promise<{ started: true }> {
+  if (!state.is_initialized || state.config.mode !== 'personal-local' || state.config.ledger_path === undefined || state.config.source_ledger_path === undefined) {
+    throw new Error('Personal-local workflow is not initialized')
+  }
+  ;(deps.spawn ?? defaultSpawnDiscoveryWorker)({
+    ledgerPath: state.config.ledger_path,
+    sourceLedgerPath: state.config.source_ledger_path,
+    appConfigPath: resolveAppConfigPath(),
+    providerCertificationDir: resolveProviderCertificationReportDir(),
+  })
+  return { started: true }
 }
 
 export async function enqueueResearchRun(
@@ -493,6 +534,97 @@ export async function enqueueResearchRun(
   })
 
   return { research_case_id: researchCaseId }
+}
+
+/**
+ * Enqueue a research run for an EXISTING case (e.g. a discovery-promoted case that was created but never
+ * had a run requested). This is distinct from `enqueueResearchRun` which creates a NEW case. This appends
+ * a `research_run_requested` event for the given `caseId` (the case must already exist in the ledger)
+ * and spawns the worker to process it.
+ */
+export async function startResearchRun(
+  state: OnboardingState,
+  caseId: string,
+  deps: { spawn?: (paths: SpawnWorkerPaths) => void } = {},
+): Promise<{ research_case_id: string }> {
+  if (
+    !state.is_initialized
+    || state.config.mode !== 'personal-local'
+    || state.config.ledger_path === undefined
+    || state.config.source_ledger_path === undefined
+  ) {
+    throw new Error('Personal-local workflow is not initialized')
+  }
+
+  const store = new SQLiteEventStore(state.config.ledger_path)
+  try {
+    const events = await store.list()
+
+    // Find the existing case.
+    const rc = projectResearchCases(events).find((c) => c.research_case_id === caseId)
+    if (rc === undefined) {
+      throw new Error(`Unknown research case: ${caseId}`)
+    }
+
+    // Guard double-start: refuse if a run has already been requested or claimed for this case.
+    const alreadyStarted = events.some((e) => {
+      if (e.event_type !== 'research_run_requested' && e.event_type !== 'research_run_claimed') return false
+      const payload = e.payload
+      const payloadCaseId =
+        payload !== null && typeof payload === 'object'
+          ? (payload as Record<string, unknown>).research_case_id
+          : undefined
+      const id = typeof payloadCaseId === 'string' && payloadCaseId.length > 0 ? payloadCaseId : e.aggregate_id
+      return id === caseId
+    })
+    if (alreadyStarted) {
+      throw new Error(`Research run already started for ${caseId}`)
+    }
+
+    const ticker = rc.ticker
+    if (ticker === undefined) {
+      throw new Error(`Research case ${caseId} has no ticker`)
+    }
+
+    const decisionId = `decision_${ticker.toLowerCase()}_${Date.now()}`
+
+    await store.append({
+      event_id: `evt_research_run_requested_${caseId}`,
+      event_type: 'research_run_requested',
+      aggregate_type: 'research_case',
+      aggregate_id: caseId,
+      correlation_id: caseId,
+      actor_type: 'user',
+      actor_id: 'user_local',
+      payload: {
+        research_case_id: caseId,
+        ticker,
+        ...(rc.company_id !== undefined ? { company_id: rc.company_id } : {}),
+        strategy_id: state.config.strategy_id,
+        model_id: resolveModelIdForProvider(state.config),
+        requested_by: 'user_local',
+        decision_id: decisionId,
+        version: rc.version ?? 1,
+        expected_provider_id: state.config.provider.provider_id,
+        expected_mode: state.config.mode,
+      },
+      source_ids: [],
+      created_at: new Date().toISOString(),
+      schema_version: 1,
+      idempotency_key: `research-run-request:${caseId}:v1`,
+    })
+  } finally {
+    store.close()
+  }
+
+  ;(deps.spawn ?? defaultSpawnWorker)({
+    ledgerPath: state.config.ledger_path,
+    sourceLedgerPath: state.config.source_ledger_path,
+    appConfigPath: resolveAppConfigPath(),
+    providerCertificationDir: resolveProviderCertificationReportDir(),
+  })
+
+  return { research_case_id: caseId }
 }
 
 export async function requestDeepDiveRun(
@@ -2799,4 +2931,57 @@ export async function resetResearchLedgerState(
   }
 
   return { cleared_events: clearedEvents }
+}
+
+function personalLocalStore(state: OnboardingState): SQLiteEventStore {
+  if (!state.is_initialized || state.config.mode !== 'personal-local' || state.config.ledger_path === undefined) {
+    throw new Error('Personal-local workflow is not initialized')
+  }
+  return new SQLiteEventStore(state.config.ledger_path)
+}
+
+export async function acceptDiscoveryCandidate(state: OnboardingState, candidateId: string): Promise<void> {
+  const store = personalLocalStore(state)
+  try {
+    await queueDiscoveryCandidateForQuickScreen(store, {
+      candidate_id: candidateId,
+      queue_id: `queue_${candidateId}_${Date.now()}`,
+      causation_id: `web_triage_${candidateId}`,
+      actor_id: 'user_local',
+    })
+  } finally {
+    store.close()
+  }
+}
+
+export async function rejectDiscoveryCandidate(state: OnboardingState, candidateId: string, reason: string): Promise<void> {
+  const store = personalLocalStore(state)
+  try {
+    await rejectDiscoveryCandidateEvent(store, {
+      candidate_id: candidateId,
+      reason: reason.trim() || 'Rejected from discovery triage',
+      causation_id: `web_triage_${candidateId}`,
+      actor_id: 'user_local',
+    })
+  } finally {
+    store.close()
+  }
+}
+
+export async function promoteDiscoveryCandidate(state: OnboardingState, candidateId: string): Promise<{ research_case_id: string }> {
+  const store = personalLocalStore(state)
+  try {
+    const candidate = projectDiscoveryCandidates(await store.list()).find((c) => c.candidate_id === candidateId)
+    if (candidate === undefined) throw new Error(`Discovery candidate ${candidateId} not found`)
+    const researchCaseId = `rc_${candidate.ticker.toLowerCase()}_${Date.now()}`
+    await promoteDiscoveryCandidateToResearchCase(store, {
+      candidate_id: candidateId,
+      research_case_id: researchCaseId,
+      causation_id: `web_triage_${candidateId}`,
+      actor_id: 'user_local',
+    })
+    return { research_case_id: researchCaseId }
+  } finally {
+    store.close()
+  }
 }

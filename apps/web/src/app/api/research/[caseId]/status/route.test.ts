@@ -174,4 +174,18 @@ describe('/api/research/[caseId]/status', () => {
     expect(body.failed).toBe(true)
     expect(body.inProgress).toBe(false)
   })
+
+  it('a promoted case with no run requested → 200 with inProgress false + notStarted true', async () => {
+    // Seed a case (research_case_created) but do NOT append any research_run_requested event.
+    const rc = 'rc_status_not_started'
+    await createCase(ledgerPath, rc)
+
+    const res = await callRoute(rc)
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as StatusBody & { notStarted?: boolean }
+    expect(body.inProgress).toBe(false)
+    expect(body.failed).toBe(false)
+    expect(body.notStarted).toBe(true)
+    expect(body.currentStage).toBe('not_started')
+  })
 })

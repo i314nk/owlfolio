@@ -1,11 +1,13 @@
 import { notFound } from 'next/navigation'
 
 import { SQLiteEventStore } from '@owlfolio/ledger/sqliteEventStore'
+import type { LedgerEventEnvelope } from '@owlfolio/ledger/eventEnvelope'
 import { resolveCurrentPrice } from '@owlfolio/workflow/marketData'
 import type { MoatClass } from '@owlfolio/strategies/strategyContract'
 import { ENGINE_VERSION } from '@owlfolio/strategies/engineVersion'
 
 import { ResearchCaseActions } from './ResearchCaseActions'
+import { StartResearchButton } from './StartResearchButton'
 import { ResearchCasePanel } from '../../../components/ResearchCasePanel'
 import { ResearchCasePending } from '../../../components/ResearchCasePending'
 import { ResearchRunProgress } from '../../../components/ResearchRunProgress'
@@ -34,7 +36,7 @@ export default async function ResearchCasePage({ params }: ResearchCasePageProps
   try {
     // Personal-local: tolerate the post-start race where the web path has appended
     // `research_run_requested` but the WORKER has not yet authored `research_case_created`.
-    const view = await loadPersonalResearchCaseView(caseId, state.config.ledger_path, state.config.source_ledger_path)
+    const { view, events } = await loadPersonalResearchCaseView(caseId, state.config.ledger_path, state.config.source_ledger_path)
     if (view.status === 'unknown') {
       notFound()
     }
@@ -79,6 +81,33 @@ export default async function ResearchCasePage({ params }: ResearchCasePageProps
       )
     }
     const researchCase = view.researchCase
+
+    // Check whether a run has been requested for this case. A discovery-promoted case has a
+    // `research_case_created` event (stage 'discovered') but NO `research_run_requested` event —
+    // without this check, `resolveRunProgress` maps stage='discovered' to inProgress:true and the
+    // page shows a permanent spinner. Render "Ready to research" instead.
+    const runRequested = events.some(
+      (e) =>
+        (e.event_type === 'research_run_requested' || e.event_type === 'research_run_claimed') &&
+        (String((e.payload as Record<string, unknown> | undefined)?.['research_case_id'] ?? e.aggregate_id) === caseId),
+    )
+    if (researchCase.stage === 'discovered' && !runRequested) {
+      return (
+        <main className="owl-route-frame owl-route-frame-narrow">
+          <p className="owl-route-back-row">
+            <a className="owl-back-link owl-focusable" href="/">
+              ← Back to command center
+            </a>
+          </p>
+          <section className="owl-section-card">
+            <p className="owl-empty-state-kicker">Ready to research</p>
+            <h2 className="owl-section-title">{researchCase.ticker ?? caseId}</h2>
+            <p className="owl-empty-state-description">This candidate hasn&apos;t been analyzed yet.</p>
+            <StartResearchButton caseId={caseId} />
+          </section>
+        </main>
+      )
+    }
 
     // Mid-run gate: the case row exists (`ready`) but the multi-minute deep dive (quick-screen → circle →
     // 5 lanes → synthesis → decision) is still running. Drive an animated, stage-aware "research running…"
@@ -204,14 +233,17 @@ async function loadPersonalResearchCaseView(
   caseId: string,
   ledgerPath: string | undefined,
   sourceLedgerPath: string | undefined,
-): Promise<ResearchCaseView> {
+): Promise<{ view: ResearchCaseView; events: LedgerEventEnvelope<unknown>[] }> {
   if (ledgerPath === undefined) {
     notFound()
   }
 
   const store = new SQLiteEventStore(ledgerPath)
   try {
-    return await resolveResearchCaseView(store, 'personal-local', caseId, sourceLedgerPath)
+    // Read events once for the runRequested check; resolveResearchCaseView reads them again internally.
+    const events = await store.list()
+    const view = await resolveResearchCaseView(store, 'personal-local', caseId, sourceLedgerPath)
+    return { view, events }
   } finally {
     store.close()
   }

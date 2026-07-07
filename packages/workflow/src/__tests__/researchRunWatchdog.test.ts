@@ -61,6 +61,39 @@ describe('findAbandonedResearchRuns', () => {
     expect(result).toEqual([])
   })
 
+  it('does NOT flag a discovery-promoted case at `discovered` with NO run claimed (idle, never started)', () => {
+    // Promoted-from-discovery case: created 2h ago, sits at `discovered`, no run was ever requested/claimed.
+    const events = [
+      event({
+        event_type: 'research_case_created',
+        aggregate_id: 'rc_idle',
+        created_at: '2026-06-08T00:00:00.000Z',
+        payload: { research_case_id: 'rc_idle', ticker: 'IDLE', strategy_id: 'buffett-munger' },
+      }),
+    ]
+    const result = findAbandonedResearchRuns({ events, now: NOW, stalenessMs: STALENESS_MS })
+    expect(result).toEqual([])
+  })
+
+  it('DOES flag a `discovered` case that WAS claimed but stalled (worker died right after claiming)', () => {
+    const events = [
+      event({
+        event_type: 'research_case_created',
+        aggregate_id: 'rc_claimed',
+        created_at: '2026-06-08T00:00:00.000Z',
+        payload: { research_case_id: 'rc_claimed', ticker: 'CLM', strategy_id: 'buffett-munger' },
+      }),
+      event({
+        event_type: 'research_run_claimed',
+        aggregate_id: 'rc_claimed',
+        created_at: '2026-06-08T00:30:00.000Z',
+        payload: { research_case_id: 'rc_claimed' },
+      }),
+    ]
+    const result = findAbandonedResearchRuns({ events, now: NOW, stalenessMs: STALENESS_MS })
+    expect(result.map((r) => r.research_case_id)).toEqual(['rc_claimed'])
+  })
+
   it('does NOT flag a terminal (decision_drafted) case even when stale', () => {
     const events = [
       ...inFlightCase('rc_done', 'DONE', '2026-06-08T00:30:00.000Z'),

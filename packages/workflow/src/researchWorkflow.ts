@@ -166,6 +166,17 @@ function buildDemoProviderRequest(command: RunDemoBuffettMungerAnalysisCommand, 
 }
 
 export async function createResearchCase(store: ResearchEventStore, command: CreateResearchCaseCommand): Promise<ResearchCaseCreated> {
+  const researchCaseEventId = eventId('evt_research_case_created', command.research_case_id)
+
+  // Idempotent on the deterministic event id: a discovery-promoted case is created at PROMOTE time, then
+  // the worker's swarm calls createResearchCase again with the SAME research_case_id when the run starts.
+  // Re-appending would collide on `evt_research_case_created_${id}` (UNIQUE event_id). Return the existing
+  // creation event instead. Re-runs use a fresh research_case_id, so they never hit this branch.
+  const existing = (await store.list()).find((candidate) => candidate.event_id === researchCaseEventId)
+  if (existing !== undefined) {
+    return mergeEventPayload(existing as LedgerEventEnvelope<ResearchCaseCreatedPayload>)
+  }
+
   const selectedStrategy = resolveResearchStrategyRef(command)
   const payload: ResearchCaseCreatedPayload = {
     research_case_id: command.research_case_id,
@@ -177,7 +188,7 @@ export async function createResearchCase(store: ResearchEventStore, command: Cre
   }
 
   const event: LedgerEventEnvelope<ResearchCaseCreatedPayload> = {
-    event_id: eventId('evt_research_case_created', command.research_case_id),
+    event_id: researchCaseEventId,
     event_type: 'research_case_created',
     aggregate_type: 'research_case',
     aggregate_id: command.research_case_id,

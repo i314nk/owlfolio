@@ -22,6 +22,7 @@ import type { EventStore } from '@owlfolio/ledger/eventStore'
 import type { LedgerEventEnvelope } from '@owlfolio/ledger/eventEnvelope'
 import { projectDiscoveryCandidates } from '@owlfolio/ledger/projections/discoveryCandidateProjection'
 import { assertPublicHttpUrl } from './sourceGrounding'
+import { resolveResearchStrategyRef } from './researchStrategyRef'
 
 // ---------------------------------------------------------------------------
 // SEC fetch (SSRF guard + fail-closed) — same pattern as secEdgar.ts
@@ -580,7 +581,14 @@ export async function runDiscovery13f(
   const cloners = deps.cloners ?? CLONER_LIST
   const now = deps.now ?? nowIso
   const strategyId = deps.strategy_id ?? 'buffett-munger'
-  const strategyVersion = deps.strategy_version ?? '2026.06'
+  // Stamp the strategy's CANONICAL version (buffett-munger@1.0.0), not a bespoke '2026.06' string — a
+  // promoted candidate becomes a research case the pipeline runs, and the swarm guards that the case's
+  // strategy_version matches the pipeline's. resolveResearchStrategyRef honours an explicit override and
+  // otherwise resolves the registered version.
+  const strategyVersion = resolveResearchStrategyRef({
+    strategy_id: strategyId,
+    ...(deps.strategy_version === undefined ? {} : { strategy_version: deps.strategy_version }),
+  }).strategy_version
 
   if (deps.test_mode === true && (deps.fetchManagerQuarters === undefined || deps.fetchCompanyTickers === undefined)) {
     throw new Error('runDiscovery13f test_mode requires injected fetchManagerQuarters + fetchCompanyTickers (no live SEC in tests)')

@@ -250,6 +250,9 @@ describe('runDiscovery13f', () => {
     expect(tickers).toContain('MSFT')
     expect(candidates.find((c) => c.ticker === 'ALLY')).toBeUndefined()
     expect(candidates.every((c) => c.discovery_source === '13f_clone')).toBe(true)
+    // Candidates stamp the strategy's CANONICAL version (buffett-munger@1.0.0), so a promoted case
+    // matches the pipeline's strategy-version guard — NOT a bespoke '2026.06'.
+    expect(candidates.every((c) => c.strategy_id === 'buffett-munger' && c.strategy_version === '1.0.0')).toBe(true)
     expect(result.candidates_created).toBeGreaterThan(0)
   })
 

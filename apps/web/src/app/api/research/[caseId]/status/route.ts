@@ -57,6 +57,30 @@ export async function GET(_request: Request, { params }: { params: Promise<{ cas
     return NextResponse.json(toBody(progress), { status: 200 })
   }
 
+  // If no run has been requested/claimed yet for a case at the initial 'discovered' stage
+  // (e.g. a discovery-promoted case), report not_started so the client can render a
+  // "Ready to research" view rather than a permanent spinner.
+  const runRequested = events.some(
+    (e) =>
+      (e.event_type === 'research_run_requested' || e.event_type === 'research_run_claimed') &&
+      eventResearchCaseId(e) === caseId,
+  )
+  if (!runRequested && !failed && researchCase.stage === 'discovered') {
+    return NextResponse.json(
+      {
+        stage: researchCase.stage,
+        currentStage: 'not_started',
+        inProgress: false,
+        failed: false,
+        awaitingApproval: false,
+        notStarted: true,
+        lanes: { completed: 0, total: 5 },
+        stages: [],
+      },
+      { status: 200 },
+    )
+  }
+
   const progress = resolveRunProgress({
     stage: researchCase.stage,
     specialistFindingCount: researchCase.specialist_findings?.length ?? 0,
