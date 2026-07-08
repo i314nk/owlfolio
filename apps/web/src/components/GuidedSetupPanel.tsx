@@ -1,6 +1,7 @@
 'use client'
 
 import { createElement, useMemo, useState, type CSSProperties } from 'react'
+import { useRouter } from 'next/navigation'
 
 import type { AppConfig } from '@owlfolio/shared'
 
@@ -53,6 +54,19 @@ const subtleTextStyle: CSSProperties = {
 
 type SwitchableMode = Extract<AppConfig['mode'], 'personal-local'>
 
+/**
+ * useRouter tolerant of running OUTSIDE an app-router mount (static renders in unit tests) — the same
+ * pattern as ReReviewButton: in the app it is the real router; outside it degrades to a location shim
+ * that only matters on user interaction, which never happens in a static render.
+ */
+function useSafeRouter(): { refresh: () => void } {
+  try {
+    return useRouter()
+  } catch {
+    return { refresh: () => { window.location.reload() } }
+  }
+}
+
 export function GuidedSetupPanel({ initialConfig, initialIsInitialized, providerOptions, openRouterModels = [], modelCapability }: GuidedSetupPanelProps) {
   const [config, setConfig] = useState<AppConfig>(initialConfig)
   // Initialization + busy state are tracked for the config/mode write paths; the mode toggle UI that read
@@ -60,6 +74,7 @@ export function GuidedSetupPanel({ initialConfig, initialIsInitialized, provider
   const [, setIsInitialized] = useState(initialIsInitialized)
   const [, setIsBusy] = useState(false)
   const [errorMessage, setErrorMessage] = useState<string>()
+  const router = useSafeRouter()
 
   const connectionOptions = useMemo<ConnectionOption[]>(() => buildConnectionOptions(providerOptions), [providerOptions])
 
@@ -78,6 +93,9 @@ export function GuidedSetupPanel({ initialConfig, initialIsInitialized, provider
       const payload = (await response.json()) as { config: AppConfig; is_initialized: boolean }
       setConfig(payload.config)
       setIsInitialized(payload.is_initialized)
+      // Refresh the server-rendered surfaces so the top-left workspace indicator (layout-resolved)
+      // immediately reflects the newly saved provider/model + its capability verdict.
+      router.refresh()
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : 'Unknown error saving selection')
     } finally {
