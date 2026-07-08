@@ -6,7 +6,7 @@ import { getLatestProviderCertificationReports } from './providerStatus'
 
 export type ModelCapabilityNote =
   | { state: 'capable'; summary: string; verified_at: string }
-  | { state: 'failed'; summary: string; verified_at: string }
+  | { state: 'failed'; summary: string; verified_at: string; failure_reasons: string[] }
   | { state: 'unverified' }
 
 /**
@@ -29,9 +29,12 @@ export async function getModelCapabilityNote(providerId: string, modelId: string
     const total = latest.cases.length
     const passed = latest.cases.filter((entry) => entry.passed).length
     const summary = `${passed}/${total} probe scenarios passed`
-    return passed === total
-      ? { state: 'capable', summary, verified_at: latest.generated_at }
-      : { state: 'failed', summary, verified_at: latest.generated_at }
+    if (passed === total) return { state: 'capable', summary, verified_at: latest.generated_at }
+    // The user-facing WHY: each failed scenario with its recorded reason (never just a count).
+    const failure_reasons = latest.cases
+      .filter((entry) => !entry.passed)
+      .map((entry) => `${entry.scenario_id}: ${typeof entry.details === 'string' && entry.details.length > 0 ? entry.details : entry.status}`)
+    return { state: 'failed', summary, verified_at: latest.generated_at, failure_reasons }
   } catch {
     return { state: 'unverified' }
   }

@@ -56,6 +56,7 @@ describe('getModelCapabilityNote', () => {
     expect(note.state).toBe('failed')
     if (note.state !== 'failed') throw new Error('expected failed')
     expect(note.summary).toBe('1/2 probe scenarios passed')
+    expect(note.failure_reasons).toEqual(['multi-step-tool-loop: declared unsupported'])
     expect(await getModelCapabilityNote('openrouter', 'some/other-model')).toEqual({ state: 'unverified' })
   })
 

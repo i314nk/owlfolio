@@ -186,16 +186,22 @@ describe('model capability note (the saved probe verdict)', () => {
     modelCapability,
   })
 
-  it('renders the recorded verdict top-of-selection with the Verify form', () => {
+  it('renders the recorded verdict top-of-selection with the Verify button', () => {
     const html = renderToStaticMarkup(createElement(GuidedConnectionSelect, noteProps({ state: 'capable', summary: '4/4 probe scenarios passed' })))
     expect(html).toContain('data-testid="model-capability-note"')
     expect(html).toContain('Model verified capable — 4/4 probe scenarios passed')
     expect(html).toContain('data-testid="verify-model-button"')
-    expect(html).toContain('action="/api/providers/verify-model"')
+    expect(html).toContain('Re-verify model')
   })
 
-  it('failed and unverified states are honest; no prop → no note', () => {
-    expect(renderToStaticMarkup(createElement(GuidedConnectionSelect, noteProps({ state: 'failed', summary: '2/4 probe scenarios passed' })))).toContain('failed the capability probe')
+  it('failed state shows the per-scenario WHY; unverified is honest; no prop → no note', () => {
+    const failed = renderToStaticMarkup(createElement(GuidedConnectionSelect, noteProps({
+      state: 'failed', summary: '2/4 probe scenarios passed',
+      failure_reasons: ['multi-step-tool-loop: provider declared the capability unsupported'],
+    } as never)))
+    expect(failed).toContain('failed the capability probe')
+    expect(failed).toContain('data-testid="verify-model-failure-reasons"')
+    expect(failed).toContain('multi-step-tool-loop: provider declared the capability unsupported')
     expect(renderToStaticMarkup(createElement(GuidedConnectionSelect, noteProps({ state: 'unverified' })))).toContain('not verified yet')
     const { modelCapability: _unused, ...bare } = noteProps({ state: 'unverified' })
     void _unused

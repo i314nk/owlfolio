@@ -69,7 +69,7 @@ export async function POST(request: Request, _context?: unknown, deps: VerifyMod
       model_id: modelId,
       support_level: report.support_level,
       summary: report.summary,
-      scenarios: report.cases.map((entry) => ({ scenario_id: entry.scenario_id, passed: entry.passed, status: entry.status })),
+      scenarios: report.cases.map((entry) => ({ scenario_id: entry.scenario_id, passed: entry.passed, status: entry.status, details: entry.details })),
     }, { status: 200 })
   } catch (error) {
     const message = error instanceof Error ? error.message : 'verification failed'
