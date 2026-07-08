@@ -36,6 +36,8 @@ export type GuidedSetupPanelProps = {
   providerOptions: ProviderOption[]
   /** OpenRouter's live model catalog for the searchable picker (optional; empty falls back to curated). */
   openRouterModels?: OpenRouterCatalogModel[]
+  /** The saved capability verdict for the active provider+model (see GuidedConnectionSelect). */
+  modelCapability?: { state: 'capable' | 'failed' | 'unverified'; summary?: string; verified_at?: string }
 }
 
 // The selection card uses the canonical .owl-section-card panel, with a slightly tighter gap to match
@@ -51,7 +53,7 @@ const subtleTextStyle: CSSProperties = {
 
 type SwitchableMode = Extract<AppConfig['mode'], 'personal-local'>
 
-export function GuidedSetupPanel({ initialConfig, initialIsInitialized, providerOptions, openRouterModels = [] }: GuidedSetupPanelProps) {
+export function GuidedSetupPanel({ initialConfig, initialIsInitialized, providerOptions, openRouterModels = [], modelCapability }: GuidedSetupPanelProps) {
   const [config, setConfig] = useState<AppConfig>(initialConfig)
   // Initialization + busy state are tracked for the config/mode write paths; the mode toggle UI that read
   // them was removed (personal-local is the only user mode), so only the setters are referenced now.
@@ -144,6 +146,7 @@ export function GuidedSetupPanel({ initialConfig, initialIsInitialized, provider
         onSelectConnection,
         onSelectModel,
         openRouterModels,
+        ...(modelCapability === undefined ? {} : { modelCapability }),
       }),
       errorMessage === undefined ? null : createElement('p', { role: 'alert', style: { color: 'var(--owl-color-risk-bright)', fontWeight: 700, margin: 0 } }, errorMessage),
     ),

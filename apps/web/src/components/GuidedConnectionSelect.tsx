@@ -256,6 +256,12 @@ export type GuidedConnectionSelectProps = {
    * (fetch failed / non-OpenRouter) falls back to the curated tier-grouped `<select>`.
    */
   openRouterModels?: OpenRouterCatalogModel[]
+  /**
+   * The SAVED capability verdict for the ACTIVE provider+model (read from the persisted capability-
+   * probe / certification reports). Rendered as the top-left note of the model selection; absent →
+   * the note is omitted entirely (e.g. onboarding contexts that don't thread it).
+   */
+  modelCapability?: { state: 'capable' | 'failed' | 'unverified'; summary?: string; verified_at?: string }
 }
 
 /**
@@ -270,12 +276,40 @@ export function GuidedConnectionSelect({
   onSelectConnection,
   onSelectModel,
   openRouterModels = [],
+  modelCapability,
 }: GuidedConnectionSelectProps) {
   const selectedConnection = connectionOptions.find((option) => isConnectionSelected(option, selectedProviderId))
+
+  // Top-left capability note: the RECORDED probe verdict for the active model, with the probe button
+  // beside it. Verify once — the verdict is persisted as a certification report and read back here.
+  const capabilityNote = modelCapability === undefined ? null : createElement(
+    'div',
+    { 'data-testid': 'model-capability-note', style: { alignItems: 'center', display: 'flex', flexWrap: 'wrap', gap: '0.6rem' } },
+    createElement('span', {
+      style: {
+        color: modelCapability.state === 'capable' ? '#4ade80' : modelCapability.state === 'failed' ? 'var(--owl-color-risk-bright)' : 'var(--owl-color-gold-bright)',
+        fontFamily: 'var(--owl-font-mono)',
+        fontSize: 'var(--owl-text-sm)',
+        fontWeight: 700,
+      },
+    },
+      modelCapability.state === 'capable'
+        ? `✓ Model verified capable — ${modelCapability.summary ?? ''}`
+        : modelCapability.state === 'failed'
+          ? `✗ Model failed the capability probe — ${modelCapability.summary ?? ''}`
+          : 'Model not verified yet — run the capability probe'),
+    createElement(
+      'form',
+      { action: '/api/providers/verify-model', method: 'post', style: { display: 'inline-flex' } },
+      createElement('button', { className: 'owl-button owl-button-secondary owl-focusable', type: 'submit', 'data-testid': 'verify-model-button' }, 'Verify model'),
+    ),
+    createElement('span', { style: { color: 'var(--owl-color-quiet)', fontSize: 'var(--owl-text-2xs)' } }, 'Runs the tool-loop + structured-output probe against the saved model. Uses provider quota.'),
+  )
 
   return createElement(
     'div',
     { 'aria-label': 'Provider and model selection', style: { display: 'grid', gap: '1rem' } },
+    capabilityNote,
     createElement(
       'div',
       { style: cardGridStyle },

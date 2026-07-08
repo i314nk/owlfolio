@@ -231,12 +231,3 @@ describe('ProviderKeysPanel — restart-to-apply signal', () => {
     expect(html.split('saved — restart to apply').length - 1).toBe(1)
   })
 })
-
-describe('ProviderKeysPanel — capability probe', () => {
-  it('offers the Verify current model form posting to the verify-model route', () => {
-    const html = renderToStaticMarkup(createElement(ProviderKeysPanel, baseProps()))
-    expect(html).toContain('data-testid="verify-model-button"')
-    expect(html).toContain('action="/api/providers/verify-model"')
-    expect(html).toContain('Uses provider quota')
-  })
-})
