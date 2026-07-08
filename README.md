@@ -17,6 +17,25 @@
 
 ---
 
+## See it in action
+
+**Setup** — clone, `pnpm dev`, onboard in the browser, and the Command Center is live:
+
+![Setup: from unconfigured to a live Command Center](docs/assets/readme-setup.gif)
+
+**An analysis** — a real grounded dossier (Costco): verdict, valuation, lane findings, and the
+thesis re-review card checking the recorded break triggers against newly-filed documents (renewal
+rate, comp sales, and gross margin read out of the hash-verified filings):
+
+![An example analysis dossier with the thesis re-review card](docs/assets/readme-analysis.gif)
+
+**The pages** — intake → dossier → promote to watchlist → record the lot → portfolio valuation →
+accounting, pipeline, lifecycle, audit trail, the Learn docs, and the strategy overview:
+
+![A tour of the main pages](docs/assets/readme-pages.gif)
+
+---
+
 ## What it is
 
 Owlfolio runs a strategy-driven research workflow (default: Buffett-Munger) on
@@ -93,15 +112,50 @@ The core design rule is **"code computes, judgment proposes"**:
   been exercised end-to-end. Nearly all live testing so far ran through
   OpenRouter with a single routed model; the other providers are experimental
   and largely unexercised.
+- **Grounding quality depends on the routed model's tool support.** When a
+  routed model does not support the multi-step tool loop, the grounded agent
+  degrades to a no-tools path: the harness pre-verifies and injects the filing
+  text instead of the model reading it mid-run via `read_source`. Judgments
+  stay grounded and cite-checked either way, but interactive reads need a
+  tool-loop-capable model.
 - No broker sync, live trading, automatic portfolio actions, market-data
   ingestion hardening, tax-grade accounting, or formal Shariah scholar review.
 - A historical (as-of-date) backtester is deferred pending point-in-time data
   quality.
-- Known issues: two Playwright e2e specs (monthly accounting, workflow intake)
-  are failing and under diagnosis; the Next/Turbopack NFT import-trace warning
-  noted below.
+- Known issue: the Next/Turbopack NFT import-trace warning noted below.
 
 Gaps are tracked in `docs/ALPHA_READINESS.md`.
+
+---
+
+## Where this is headed
+
+The intent is a **personal fiduciary analyst that runs on your machine** — an
+always-on research department for one investor, with the judgment loop of a
+disciplined value shop and the audit trail of an accounting system:
+
+- **From human-fired to scheduled.** Every capability is already a one-tick,
+  cadence-tagged unit. The next structural arc is the scheduler that fires
+  them unattended — quarterly re-review sweeps when new filings land, daily
+  price checks against frozen buy-belows, discovery sweeps feeding the
+  candidate pipeline — governed by an explicit unattended-spend policy so an
+  idle machine can never silently burn provider budget.
+- **The agent watches; you decide — permanently.** "Human-authored
+  irreversible transitions" is a design commitment, not an alpha limitation.
+  The end state is not an auto-trader: it is a system that reads every filing
+  the day it lands, keeps every thesis honestly marked (intact / weakened /
+  broken), and interrupts you only when something crosses a line you defined.
+- **Trust through evidence, not claims.** Per-model certification runs you can
+  execute yourself, the golden-set qualification gate, dual-model cross-checks
+  on the judgments that matter most, and eventually a point-in-time backtester
+  — so the system's track record is a recorded artifact, not marketing.
+- **Shariah-complete workflows.** Screening, purification, and zakat
+  accounting as first-class, auditable ledger domains — aiming for
+  scholar-reviewable methodology, while staying honest that software is not a
+  fatwa.
+- **Local forever.** Your research, ledger, and keys stay on your machine. The
+  only thing that leaves is a grounded, SSRF-guarded fetch to a public filing
+  archive or the model provider you chose.
 
 ---
 
@@ -263,8 +317,9 @@ corepack pnpm certify:providers
 
 Known warning: Next/Turbopack can emit an NFT/import-trace warning involving
 local filesystem helpers (`next.config.mjs` / `appConfigStore` / `onboarding`).
-Known issue: several e2e specs are currently failing (pre-existing, under
-diagnosis); the unit/integration suite (2,300+ tests) is the green gate.
+The Playwright e2e suite is green (8/8) as of this branch — the two previously
+failing specs were fixed (an invalid-HTML hydration bug on the watchlist and
+portfolio pages).
 
 ---
 

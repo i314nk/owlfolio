@@ -18,12 +18,14 @@ export default async function WatchlistPage() {
 
   return (
     <main className="owl-route-frame">
-      <p className="owl-route-back-row">
+      {/* div, not p: RefreshPricesButton renders a <div>, and <p> cannot contain block elements —
+          the invalid nesting caused a hydration failure that tripped the intake e2e spec. */}
+      <div className="owl-route-back-row">
         <a className="owl-back-link owl-focusable" href="/">
           ← Back to command center
         </a>
         <RefreshPricesButton />
-      </p>
+      </div>
       <WatchlistPanel items={watchlistItems} mode={state.config.mode} alerts={alerts} />
     </main>
   )
