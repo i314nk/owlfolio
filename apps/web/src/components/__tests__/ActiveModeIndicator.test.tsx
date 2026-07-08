@@ -3,6 +3,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it, vi } from 'vitest'
 
 import { ActiveModeIndicator } from '../ActiveModeIndicator'
+import { ActiveModelSwitcher } from '../ActiveModelSwitcher'
 
 // The interactive switcher uses the App Router; stub it so SSR rendering does not require a router context.
 vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh: () => undefined }) }))
@@ -73,6 +74,7 @@ describe('ActiveModeIndicator', () => {
         modelSwitcher: {
           active_provider_id: 'openrouter',
           active_model_id: 'anthropic/claude-opus-4.8',
+      active_model_capability: 'unverified' as const,
           providers: [
             { provider_id: 'openrouter', label: 'OpenRouter', support_level: 'experimental', models: [{ model_id: 'anthropic/claude-opus-4.8' }, { model_id: 'openai/gpt-5.5' }] },
             { provider_id: 'anthropic-api', label: 'Anthropic', support_level: 'experimental', models: [{ model_id: 'claude-sonnet-4-6' }] },
@@ -89,5 +91,20 @@ describe('ActiveModeIndicator', () => {
     expect(html).toContain('claude-sonnet-4-6')
     // The active model is the selected option.
     expect(html).toMatch(/<option[^>]*selected[^>]*>anthropic\/claude-opus-4\.8<\/option>/)
+  })
+})
+
+describe('workspace model capability line', () => {
+  it('shows the saved probe verdict under the model select', () => {
+    const html = renderToStaticMarkup(createElement(ActiveModelSwitcher, {
+      switcher: {
+        active_provider_id: 'openrouter',
+        active_model_id: 'z-ai/glm-5.2',
+        active_model_capability: 'capable',
+        providers: [{ provider_id: 'openrouter', label: 'OpenRouter', support_level: 'experimental', models: [{ model_id: 'z-ai/glm-5.2' }] }],
+      },
+    }))
+    expect(html).toContain('data-testid="workspace-model-capability"')
+    expect(html).toContain('✓ verified capable')
   })
 })

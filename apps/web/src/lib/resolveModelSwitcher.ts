@@ -2,6 +2,7 @@ import { curatedRealTierModelsForProvider } from '@owlfolio/providers'
 import type { AppConfig, ProviderId } from '@owlfolio/shared'
 
 import { getOnboardingProviderOptions } from './onboarding'
+import { getModelCapabilityNote } from './modelCapability'
 import { getProviderReadiness, type ProviderReadinessEnv } from './providerReadiness'
 import { resolveModelIdForProvider } from './workflow'
 
@@ -35,6 +36,8 @@ export type ModelSwitcher = {
   active_provider_id: ProviderId
   active_model_id: string
   providers: ModelSwitcherProvider[]
+  /** The SAVED capability-probe verdict for the active model (read from the persisted reports). */
+  active_model_capability: 'capable' | 'failed' | 'unverified'
 }
 
 export async function resolveModelSwitcher(
@@ -93,9 +96,12 @@ export async function resolveModelSwitcher(
     return undefined
   }
 
+  const capability = await getModelCapabilityNote(config.provider.provider_id, activeModelId)
+
   return {
     active_provider_id: config.provider.provider_id,
     active_model_id: activeModelId,
     providers,
+    active_model_capability: capability.state,
   }
 }
