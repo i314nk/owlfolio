@@ -125,3 +125,49 @@ describe('buildProviderKeysPanelProps', () => {
     })
   })
 })
+
+describe('key runtime state (restart-to-apply signal)', () => {
+  it('flags a key CHANGED on disk after boot as stale_changed and a file-only key as not_loaded', async () => {
+    await withTemp(async (dir) => {
+      const envPath = join(dir, '.env')
+      await setEnvKey('OPENAI_API_KEY', 'sk-openai-NEW-file-value', { envPath })
+      await setEnvKey('OPENROUTER_API_KEY', 'sk-or-saved-after-boot', { envPath })
+
+      const props = await buildProviderKeysPanelProps({
+        ledgerPath: undefined,
+        envKeyOptions: { envPath },
+        repoRoot: dir,
+        // The running server booted with a DIFFERENT OpenAI key and no OpenRouter key at all.
+        processEnv: { OPENAI_API_KEY: 'sk-openai-OLD-boot-value' },
+        activeProviderId: 'mock-provider',
+        activeModel: 'mock-demo',
+      })
+
+      const openaiKey = props.llmGroups.find((g) => g.id === 'openai')?.keys.find((k) => k.name === 'OPENAI_API_KEY')
+      expect(openaiKey?.runtime_state).toBe('stale_changed')
+      const openrouterKey = props.llmGroups.find((g) => g.id === 'openrouter')?.keys.find((k) => k.name === 'OPENROUTER_API_KEY')
+      expect(openrouterKey?.runtime_state).toBe('not_loaded')
+      // No raw secret leaks through the new field.
+      const serialized = JSON.stringify(props)
+      expect(serialized).not.toContain('sk-openai-NEW-file-value')
+      expect(serialized).not.toContain('sk-or-saved-after-boot')
+    })
+  })
+
+  it('a key whose file and process values MATCH is active (no restart nag)', async () => {
+    await withTemp(async (dir) => {
+      const envPath = join(dir, '.env')
+      await setEnvKey('OPENAI_API_KEY', 'sk-openai-same', { envPath })
+      const props = await buildProviderKeysPanelProps({
+        ledgerPath: undefined,
+        envKeyOptions: { envPath },
+        repoRoot: dir,
+        processEnv: { OPENAI_API_KEY: 'sk-openai-same' },
+        activeProviderId: 'mock-provider',
+        activeModel: 'mock-demo',
+      })
+      const openaiKey = props.llmGroups.find((g) => g.id === 'openai')?.keys.find((k) => k.name === 'OPENAI_API_KEY')
+      expect(openaiKey?.runtime_state).toBe('active')
+    })
+  })
+})

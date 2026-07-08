@@ -211,3 +211,23 @@ describe('ProviderKeysPanel — counter chips (honest empty states)', () => {
     expect(html).toMatch(/0 of 1/)
   })
 })
+
+describe('ProviderKeysPanel — restart-to-apply signal', () => {
+  it('shows the restart chip when a key is stale/not-loaded, and no chip when active', () => {
+    const props = baseProps()
+    props.llmGroups = [{
+      id: 'openrouter',
+      label: 'OpenRouter',
+      get_key_url: 'https://openrouter.ai/keys',
+      selectable_in_registry: true,
+      keys: [
+        { name: 'OPENROUTER_API_KEY', description: 'OpenRouter key.', is_set: true, tail: '…AB12', advanced: false, runtime_state: 'stale_changed' },
+        { name: 'OPENAI_API_KEY', description: 'OpenAI key.', is_set: true, tail: '…CD34', advanced: false, runtime_state: 'active' },
+      ],
+    }]
+    const html = renderToStaticMarkup(createElement(ProviderKeysPanel, props))
+    expect(html).toContain('saved — restart to apply')
+    // Exactly one chip: the active key must not nag.
+    expect(html.split('saved — restart to apply').length - 1).toBe(1)
+  })
+})

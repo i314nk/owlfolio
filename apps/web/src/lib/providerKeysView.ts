@@ -3,6 +3,7 @@ import type { ProviderId } from '@owlfolio/shared'
 import { modelRoleIds, resolveModelForRole, type ModelRoleId } from '@owlfolio/strategies/modelRegistry'
 import { isModelQualified } from '@owlfolio/workflow/modelQualification'
 
+import { assessEnvKeyRuntimeState } from '@owlfolio/onboarding'
 import {
   isEnvKeyPathGitIgnored,
   listEnvKeyStatuses,
@@ -104,7 +105,7 @@ export async function buildProviderKeysPanelProps(args: BuildProviderKeysPanelAr
 
   // Section B: masked LLM key statuses + registry selectability. (Non-LLM tool/data keys are no
   // longer surfaced as onboarding — they are pipeline concerns with env defaults, still settable via env.)
-  const llmGroups = await buildKeyGroupViews(LLM_API_KEY_GROUPS, envKeyOptions, true)
+  const llmGroups = await buildKeyGroupViews(LLM_API_KEY_GROUPS, envKeyOptions, true, processEnv)
 
   // Section B: per-tier model configuration (replaces the old read-only summary).
   const roleConfig = await buildProviderRoleConfigView({
@@ -237,10 +238,14 @@ async function buildKeyGroupViews(
   groups: LlmKeyGroup[],
   envKeyOptions: EnvKeyOptions,
   isLlm: boolean,
+  processEnv: Record<string, string | undefined> = {},
 ): Promise<ProviderKeyGroupView[]> {
   const allNames = groups.flatMap((group) => group.keys.map((key) => key.name))
   const statuses = await listEnvKeyStatuses(allNames, envKeyOptions)
   const statusByName = new Map(statuses.map((status) => [status.name, status]))
+  // Runtime divergence: the file is read fresh here, but the RUNNING server (and the worker it
+  // spawns) only sees what hydrated into process.env at boot — surface the mismatch per key.
+  const fileEnv = await readAllEnvKeys(envKeyOptions)
   const setKeys: Record<string, boolean> = {}
   for (const status of statuses) {
     setKeys[status.name] = status.is_set
@@ -256,6 +261,7 @@ async function buildKeyGroupViews(
         is_set: status?.is_set ?? false,
         ...(status?.tail === undefined ? {} : { tail: status.tail }),
         ...(key.advanced === undefined ? {} : { advanced: key.advanced }),
+        runtime_state: assessEnvKeyRuntimeState(key.name, processEnv, fileEnv),
       }
     })
     return {
