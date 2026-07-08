@@ -284,7 +284,14 @@ export function GuidedConnectionSelect({
   // beside it. Verify once — the verdict is persisted as a certification report and read back here.
   // Clicking Verify fetches the probe with a live spinner and surfaces the WHY on failure (both the
   // failed scenarios' recorded reasons and any probe-run error).
-  const capabilityNote = modelCapability === undefined ? null : createElement(ModelCapabilityProbe, { initial: modelCapability })
+  // KEYED BY THE ACTIVE MODEL: the probe holds its verdict in component state (so a just-run probe
+  // updates in place), which would otherwise survive a router.refresh() and keep showing the PREVIOUS
+  // model's verdict after a new model is Set. The key remounts it, adopting the fresh server-computed
+  // note for the newly saved model.
+  const capabilityNote = modelCapability === undefined ? null : createElement(ModelCapabilityProbe, {
+    key: `${selectedProviderId}:${selectedModelId ?? 'none'}`,
+    initial: modelCapability,
+  })
 
   return createElement(
     'div',
