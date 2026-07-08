@@ -52,6 +52,12 @@ export type ProviderKeyView = {
   is_set: boolean
   tail?: string
   advanced?: boolean
+  /**
+   * The key's RUNTIME state: 'active' (the running server has this value), 'stale_changed' (the file
+   * changed after boot — the server still runs the OLD value), 'not_loaded' (saved after boot — the
+   * server has NO value), 'absent'. Keys hydrate only at startup, so stale/not-loaded need a restart.
+   */
+  runtime_state?: 'active' | 'stale_changed' | 'not_loaded' | 'absent'
 }
 
 export type ProviderKeyGroupView = {
@@ -529,6 +535,11 @@ function renderKeyRow(key: ProviderKeyView): ReactNode {
       { style: { alignItems: 'center', display: 'flex', flexWrap: 'wrap', gap: 'var(--owl-space-2)' } },
       createElement('p', { style: { ...monoValueStyle, fontWeight: 700, margin: 0 } }, key.name),
       createElement(StatusBadge, { tone: key.is_set ? 'success' : 'neutral' }, key.is_set ? 'set' : 'not set'),
+      // Restart-to-apply signal: the file says one thing, the running server another (keys hydrate
+      // only at boot). Without this chip the page reads "set/connected" while a run would fail.
+      key.runtime_state === 'stale_changed' || key.runtime_state === 'not_loaded'
+        ? createElement(StatusBadge, { tone: 'warning' }, 'saved — restart to apply')
+        : null,
       key.is_set && key.tail !== undefined
         ? createElement('span', { style: { ...monoLabelStyle, marginLeft: 'auto' } }, key.tail)
         : null,

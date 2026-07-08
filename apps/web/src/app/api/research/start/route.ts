@@ -1,5 +1,7 @@
 import { NextResponse } from 'next/server'
 
+import { preflightProviderKeyGuard, readAllEnvKeys, type PreflightKeyGuardResult } from '@owlfolio/onboarding'
+
 import { evaluateCircleGate } from '../../../../lib/circleGate'
 import { getOnboardingState, getProviderReadinessSnapshot } from '../../../../lib/onboarding'
 import { evaluateOnboardingGate } from '../../../../lib/onboardingGate'
@@ -38,11 +40,33 @@ function parseRequestBody(body: unknown): { ticker: string; company_id?: string;
   }
 }
 
-export async function POST(request: Request) {
+/** Test-only seam for the pre-flight key guard (fake env-file read / fake live validation). */
+type StartRouteDeps = {
+  keyGuard?: (providerId: string) => Promise<PreflightKeyGuardResult>
+}
+
+export async function POST(request: Request, _context?: unknown, deps: StartRouteDeps = {}) {
   try {
     const runtimeOptions = { env: process.env }
     const state = await getOnboardingState()
     const parsed = parseRequestBody(await request.json())
+    // PRE-FLIGHT KEY GUARD (reliability) — deliberately BEFORE the readiness gate: keys hydrate into
+    // process.env once at server boot, and the spawned worker inherits that env — so a key saved or
+    // changed via the UI after boot means the RUN would use a stale/missing key and die mid-swarm
+    // (while the providers page, which reads the file fresh, says "connected"). The guard fails fast
+    // with the honest fix ("restart to apply") where the readiness gate would only say "missing key",
+    // and live-validates the run-effective OpenRouter key (definitive 401/403 blocks; the probe fails
+    // open on network flakiness). A truly-absent key falls through to the readiness gate below.
+    const keyGuard = deps.keyGuard ?? (async (providerId: string) => preflightProviderKeyGuard({
+      providerId,
+      processEnv: process.env,
+      fileEnv: await readAllEnvKeys({ env: process.env }),
+    }))
+    const guard = await keyGuard(state.config.provider.provider_id)
+    if (!guard.ok) {
+      return NextResponse.json({ error: { code: guard.code, message: guard.message } }, { status: 400 })
+    }
+
     const readiness = await getProviderReadinessSnapshot(state.config, runtimeOptions)
 
     if (!readiness.is_ready) {
