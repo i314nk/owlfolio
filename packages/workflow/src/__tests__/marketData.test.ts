@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 
-import { fetchPriceHistory, resolveCurrentPrice, YahooPriceSource, type MarketDataDeps, type PriceQuoteSymbol } from '../marketData.js'
+import { fetchFxRateToUsd, fetchPriceHistory, marketCapInReportingCurrency, resolveCurrentPrice, YahooPriceSource, type MarketDataDeps, type PriceQuoteSymbol } from '../marketData.js'
 
 type FetchImpl = NonNullable<MarketDataDeps['fetchImpl']>
 
@@ -331,3 +331,74 @@ describe('fetchPriceHistory', () => {
     expect(fetchImpl).not.toHaveBeenCalled()
   })
 })
+
+// ---------------------------------------------------------------------------
+// Task 1 — fetchFxRateToUsd
+// ---------------------------------------------------------------------------
+
+describe('fetchFxRateToUsd', () => {
+  it('returns 1 for USD with no fetch', async () => {
+    const fetchImpl = makeOkFetch({})
+    const rate = await fetchFxRateToUsd('USD', withFetch(fetchImpl))
+    expect(rate).toBe(1)
+    expect(fetchImpl).not.toHaveBeenCalled()
+  })
+
+  it('parses the DKKUSD=X chart meta into the rate', async () => {
+    const body = {
+      chart: {
+        result: [{ meta: { regularMarketPrice: 0.145, currency: 'USD', regularMarketTime: 1 } }],
+        error: null,
+      },
+    }
+    const fetchImpl = makeOkFetch(body)
+    const rate = await fetchFxRateToUsd('DKK', withFetch(fetchImpl))
+    expect(rate).toBeCloseTo(0.145, 4)
+    expect(fetchImpl).toHaveBeenCalledOnce()
+    const calledUrl = String((fetchImpl as ReturnType<typeof vi.fn>).mock.calls[0]?.[0])
+    expect(calledUrl).toContain('DKKUSD%3DX')
+    expect(calledUrl).toContain('query1.finance.yahoo.com')
+  })
+
+  it('returns undefined on fetch error', async () => {
+    const result = await fetchFxRateToUsd('DKK', withFetch(makeFailFetch(new Error('net'))))
+    expect(result).toBeUndefined()
+  })
+
+  it('returns undefined on missing meta (empty JSON)', async () => {
+    const result = await fetchFxRateToUsd('DKK', withFetch(makeOkFetch({})))
+    expect(result).toBeUndefined()
+  })
+
+  it('returns undefined on http error', async () => {
+    const result = await fetchFxRateToUsd('DKK', withFetch(makeHttpErrorFetch(404)))
+    expect(result).toBeUndefined()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Task 2 — marketCapInReportingCurrency
+// ---------------------------------------------------------------------------
+
+describe('marketCapInReportingCurrency', () => {
+  it('passes USD market cap through unchanged when reporting currency is USD', () => {
+    expect(marketCapInReportingCurrency(13000, 'USD', 1)).toBe(13000)
+  })
+
+  it('divides a USD market cap by the FX rate to get the reporting currency', () => {
+    expect(marketCapInReportingCurrency(13000, 'DKK', 0.145)).toBeCloseTo(13000 / 0.145, 2)
+  })
+
+  it('returns undefined for a missing rate', () => {
+    expect(marketCapInReportingCurrency(13000, 'DKK', undefined)).toBeUndefined()
+  })
+
+  it('returns undefined for a zero rate', () => {
+    expect(marketCapInReportingCurrency(13000, 'DKK', 0)).toBeUndefined()
+  })
+
+  it('returns undefined for a negative rate', () => {
+    expect(marketCapInReportingCurrency(13000, 'DKK', -1)).toBeUndefined()
+  })
+})
+

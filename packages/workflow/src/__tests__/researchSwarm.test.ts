@@ -4187,6 +4187,117 @@ describe('EDGAR-anchored OE bridge + harness AAOIFI Shariah ratios', () => {
     const degraded = (valuation?.['degraded_flags'] as string[] | undefined) ?? []
     expect(degraded.join(' ')).toMatch(/synthesis_grounding_unmet/)
   })
+
+  // ---- FX / IFRS currency-normalization (Task 3 — IFRS/20-F Shariah currency normalization) ----
+  // Foreign 20-F filers (e.g. NVO) report fundamentals in their local currency (DKK) while the market cap
+  // derived from Yahoo/US-listed ADR prices is in USD. Without FX conversion the ratios mix currencies and
+  // can be off by the USD/DKK rate (~6.9×). These tests verify the conversion path and its fail-closed guard.
+  it('DKK filer + USD market cap + known FX rate → debt_ratio computed in DKK (not raw USD)', async () => {
+    // Simulate a 20-F filer (NVO-shaped): latest_annual.currency = 'DKK', fundamentals in DKK millions.
+    // The ADR is priced in USD on US exchanges → market_cap is in USD.
+    // With rate = 0.145 (1 DKK = 0.145 USD), market_cap_dkk = market_cap_usd / 0.145.
+    const dkkFundamentals = {
+      ...costFundamentals,
+      currency: 'DKK',
+      latest_annual: { ...costFundamentals.latest_annual, currency: 'DKK' },
+    }
+    // Impermissible income in DKK millions (≈0.4% of DKK revenue — same proportion as before).
+    const impPermDkk = 0.004 * 275235
+    const rate = 0.145 // 1 DKK = 0.145 USD
+    const priceUsd = 968
+    const sharesM = 444.8
+    const marketCapUsd = priceUsd * sharesM // $MILLIONS
+    const marketCapDkk = marketCapUsd / rate
+
+    const store = new InMemoryEventStore()
+    await seedDeepDivePrereqs(store)
+    const provider = swarmFakeProviderWithShariah(impPermDkk)
+    await provider.structured({} as never)
+
+    await runResearchDeepDivePhase(store, provider as never, deepDiveCommand(), {
+      ground: verifyAllGround(),
+      laneConcurrency: 7,
+      fundamentals: dkkFundamentals,
+      resolvePrice: async () => ({ available: true, price_per_share: priceUsd, currency: 'USD', as_of: 'x', source: 'test' }),
+      resolveFxRate: async (currency) => {
+        if (currency === 'DKK') return rate
+        return undefined
+      },
+    })
+
+    const events = await store.list()
+    const projections = projectResearchCases(events as Parameters<typeof projectResearchCases>[0])
+    const cp = projections.find((c) => c.research_case_id === 'rc_edgar')
+
+    // Ratios are computed in DKK: denominators are marketCapDkk (not marketCapUsd).
+    // debt_ratio = total_debt_dkk / marketCapDkk = 5788 / (968*444.8/0.145)
+    expect(cp?.shariah_financial?.debt_ratio).toBeCloseTo(costFundamentals.latest_annual.total_debt_musd! / marketCapDkk, 6)
+    // market_cap recorded is the DKK-denominated value (consistent with DKK fundamentals).
+    expect(cp?.shariah_financial?.market_cap).toBeCloseTo(marketCapDkk, 0)
+    // Verdict computes (the ratio still passes < 0.30 in DKK).
+    expect(cp?.shariah_financial).toBeDefined()
+    // The ~6.9× difference vs. a raw-USD debt_ratio confirms the conversion happened.
+    const rawUsdDebtRatio = costFundamentals.latest_annual.total_debt_musd! / marketCapUsd
+    expect(cp?.shariah_financial?.debt_ratio).not.toBeCloseTo(rawUsdDebtRatio, 3)
+  })
+
+  it('DKK filer + USD market cap + FX rate unavailable → shariah_financial undefined (fail-closed)', async () => {
+    // If the FX rate cannot be resolved (Yahoo down, currency unknown), the harness must NOT mix currencies.
+    // It fails closed: ratios are not-computable, shariah_financial stays undefined (UNDETERMINED verdict).
+    const dkkFundamentals = {
+      ...costFundamentals,
+      currency: 'DKK',
+      latest_annual: { ...costFundamentals.latest_annual, currency: 'DKK' },
+    }
+    const impPermDkk = 0.004 * 275235
+
+    const store = new InMemoryEventStore()
+    await seedDeepDivePrereqs(store)
+    const provider = swarmFakeProviderWithShariah(impPermDkk)
+    await provider.structured({} as never)
+
+    await runResearchDeepDivePhase(store, provider as never, deepDiveCommand(), {
+      ground: verifyAllGround(),
+      laneConcurrency: 7,
+      fundamentals: dkkFundamentals,
+      resolvePrice: async () => ({ available: true, price_per_share: 968, currency: 'USD', as_of: 'x', source: 'test' }),
+      // resolveFxRate returns undefined → currencies differ, rate unavailable → fail-closed.
+      resolveFxRate: async () => undefined,
+    })
+
+    const events = await store.list()
+    const projections = projectResearchCases(events as Parameters<typeof projectResearchCases>[0])
+    const cp = projections.find((c) => c.research_case_id === 'rc_edgar')
+    // No mixed-currency ratios: shariah_financial must be absent.
+    expect(cp?.shariah_financial).toBeUndefined()
+  })
+
+  it('USD filer (currency USD) → no FX fetch, ratios unchanged vs. baseline', async () => {
+    // For US-domiciled filers (la.currency === market_cap_currency === USD) the FX path is entirely
+    // bypassed: resolveFxRate must never be called, and the ratios are identical to the baseline test.
+    const store = new InMemoryEventStore()
+    await seedDeepDivePrereqs(store)
+    const provider = swarmFakeProviderWithShariah(0.004 * 275235)
+    await provider.structured({} as never)
+
+    let fxCalled = false
+    await runResearchDeepDivePhase(store, provider as never, deepDiveCommand(), {
+      ground: verifyAllGround(),
+      laneConcurrency: 7,
+      fundamentals: costFundamentals, // USD filer
+      resolvePrice: async () => ({ available: true, price_per_share: 968, currency: 'USD', as_of: 'x', source: 'test' }),
+      resolveFxRate: async () => { fxCalled = true; return 1 },
+    })
+
+    const events = await store.list()
+    const projections = projectResearchCases(events as Parameters<typeof projectResearchCases>[0])
+    const cp = projections.find((c) => c.research_case_id === 'rc_edgar')
+    // FX resolver must never be invoked for a USD filer.
+    expect(fxCalled).toBe(false)
+    // Ratios computed as normal (baseline).
+    expect(cp?.shariah_financial?.debt_ratio).toBeCloseTo(0.0134, 3)
+    expect(cp?.shariah_financial?.market_cap).toBeCloseTo(968 * 444.8, 0)
+  })
 })
 
 // ---------------------------------------------------------------------------

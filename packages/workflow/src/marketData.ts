@@ -520,6 +520,68 @@ export function cumulativeSplitFactorAfter(splits: ReadonlyArray<SplitEvent>, as
   return factor
 }
 
+// ---------------------------------------------------------------------------
+// FX helpers — IFRS/20-F Shariah currency normalization
+// ---------------------------------------------------------------------------
+
+/**
+ * Keyless Yahoo FX: the multiplier converting 1 unit of `currency` to USD (e.g. DKK→USD ≈ 0.145). Returns 1
+ * for USD without a fetch. Fail-closed: any error / missing meta / non-finite / non-positive → undefined.
+ */
+export async function fetchFxRateToUsd(currency: string, deps?: MarketDataDeps): Promise<number | undefined> {
+  if (currency === 'USD') return 1
+  const sym = `${currency}USD=X`
+  const rawUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(sym)}?interval=1d&range=1d`
+
+  let url: URL
+  try {
+    url = assertPublicHttpUrl(rawUrl)
+  } catch {
+    return undefined
+  }
+
+  const timeoutMs = deps?.timeoutMs ?? YAHOO_DEFAULT_TIMEOUT_MS
+  const fetchFn = deps?.fetchImpl ?? fetch
+  const controller = new AbortController()
+  const timer = setTimeout(() => { controller.abort() }, timeoutMs)
+
+  try {
+    const response = await fetchFn(url.toString(), {
+      signal: controller.signal,
+      headers: {
+        'User-Agent': 'Mozilla/5.0',
+        'Accept': 'application/json',
+      },
+    })
+    if (!response.ok) return undefined
+    const json = await response.json() as YahooChartResponse
+    const quote = parseYahooChart(json, sym)
+    if (quote.available && Number.isFinite(quote.price_per_share) && quote.price_per_share > 0) {
+      return quote.price_per_share
+    }
+    return undefined
+  } catch {
+    return undefined
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+/**
+ * Convert a USD market cap into `reportingCurrency` so it is dimensionally consistent with reporting-currency
+ * fundamentals. `usdRate` is the currency→USD multiplier from fetchFxRateToUsd. USD passthrough; otherwise
+ * divide by the rate. Returns undefined when the rate is missing/non-finite/≤0 (fail-closed).
+ */
+export function marketCapInReportingCurrency(
+  marketCapUsd: number,
+  reportingCurrency: string,
+  usdRate: number | undefined,
+): number | undefined {
+  if (reportingCurrency === 'USD') return marketCapUsd
+  if (usdRate === undefined || !Number.isFinite(usdRate) || usdRate <= 0) return undefined
+  return marketCapUsd / usdRate
+}
+
 export const defaultPriceSource: PriceSource = new YahooPriceSource()
 
 /**

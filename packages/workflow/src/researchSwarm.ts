@@ -71,7 +71,7 @@ import { marketImpliedGrowth } from '@owlfolio/strategies/reverseDcf'
 // NOTE (R1): sustainableGrowthBand + requiredGrowthGap are no longer imported here — the relightened
 // decision stopped using the band/gap engines (they are deleted entirely in R2). The model now proposes
 // the verdict + valuation + buy-below; the deterministic side only sanity-checks + applies the cheap gates.
-import { fetchAverageMarketCap, resolveCurrentPrice, type AverageMarketCapResult, type MarketDataDeps, type PriceQuote } from './marketData'
+import { fetchAverageMarketCap, fetchFxRateToUsd, marketCapInReportingCurrency, resolveCurrentPrice, type AverageMarketCapResult, type MarketDataDeps, type PriceQuote } from './marketData'
 import { runRedTeamPass, runRedTeamResponsePass, buildRedTeamLayer, type RedTeamLaneDigest, type RedTeamResult } from './redTeamPass'
 import { runValuationReasoningPass, type ValuationReasoning } from './valuationReasoningPass'
 import { runShariahReasoningPass } from './shariahReasoningPass'
@@ -419,6 +419,14 @@ export type FundamentalsDeps = {
    * `insiderSummary` is absent and the run is not in offline test mode.
    */
   fetchForm4Document?: (url: string) => Promise<string | undefined>
+  /**
+   * Override the FX-rate resolver (currency → USD multiplier) for test injection. Used in the Shariah
+   * block to convert a USD market cap into the filer's reporting currency for foreign filers (IFRS/20-F).
+   * Defaults to the live Yahoo FX fetch outside offline test mode; fail-closed: undefined → not-computable.
+   * Only called when `la.currency !== market_cap_currency` (i.e., the filer reports in a non-USD currency
+   * while market_cap is quoted in USD — the ADR case). USD-filer runs never call it.
+   */
+  resolveFxRate?: (currency: string) => Promise<number | undefined>
   // F.2 (SHIPPED): the discount risk-free anchor is the COMPLIANT app-config savings rate threaded into the
   // deep-dive command (`risk_free_rate`), NOT a live Treasury fetch. The former `resolveTreasuryYield`
   // override + `resolveTreasuryYieldValue` helper were retired here, and the now-dead marketData Treasury
@@ -508,7 +516,7 @@ async function resolveAverageMarketCapValue(
   ticker: string,
   diluted_shares: number,
   deps: FundamentalsDeps,
-): Promise<{ market_cap: number; months: number } | undefined> {
+): Promise<{ market_cap: number; months: number; currency: string } | undefined> {
   const resolver = deps.resolveAverageMarketCap
     ?? (isOfflineTestMode()
       ? undefined
@@ -518,13 +526,31 @@ async function resolveAverageMarketCapValue(
     if (attempt > 0) await priceRetryBackoff()
     try {
       const result = await resolver(ticker, diluted_shares)
-      if (result.available) return { market_cap: result.market_cap, months: result.months }
+      if (result.available) return { market_cap: result.market_cap, months: result.months, currency: result.currency }
       // available:false — transient; retry once, then give up.
     } catch {
       // Thrown transient error — retry once, then give up.
     }
   }
   return undefined
+}
+
+/**
+ * Resolve the FX rate for `currency` → USD, fail-closed and test-mode-gated. Returns 1 for USD (passthrough),
+ * undefined on any failure so the Shariah block can fail closed (UNDETERMINED) rather than mixing currencies.
+ * Tests inject `deps.resolveFxRate`; in offline test mode without an override this returns undefined (fail-closed).
+ */
+async function resolveFxRateValue(currency: string, deps: FundamentalsDeps): Promise<number | undefined> {
+  const resolver = deps.resolveFxRate
+    ?? (isOfflineTestMode()
+      ? undefined
+      : ((c: string) => fetchFxRateToUsd(c)))
+  if (resolver === undefined) return undefined
+  try {
+    return await resolver(currency)
+  } catch {
+    return undefined
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -2604,6 +2630,9 @@ export async function runResearchDeepDivePhase(
   const market_cap = avgMarketCap?.market_cap ?? spotMarketCap
   const market_cap_basis: 'avg_36mo_x_diluted_shares' | 'current_price_x_diluted_shares' =
     avgMarketCap !== undefined ? 'avg_36mo_x_diluted_shares' : 'current_price_x_diluted_shares'
+  // The currency of the market_cap figure. Yahoo prices US-listed tickers (including ADRs) in USD.
+  // The avg path carries an explicit currency from the Yahoo chart meta; the spot path defaults to USD.
+  const market_cap_currency: string = avgMarketCap?.currency ?? 'USD'
 
   // ---- Phase 2: reverse-DCF market-implied growth (attachment/presentation only) ----
   // "What near-term owner-earnings growth does TODAY'S price imply?" — inverts the SAME faded two-stage
@@ -2764,31 +2793,50 @@ export async function runResearchDeepDivePhase(
     && shariahJudgment !== undefined
   ) {
     const la = fundamentals.latest_annual
-    const ratios = computeShariahFinancialRatios({
-      // Missing interest-bearing debt / cash → treated as 0 (a near-zero-debt firm legitimately has a
-      // 0% debt ratio, not NaN → not-computable). Revenue + market cap are the only required inputs.
-      interest_bearing_debt: la.total_debt_musd,
-      cash_and_securities: la.cash_and_securities_musd,
-      total_revenue: la.revenue_musd,
-      market_cap,
-      impermissible_income: effectiveImpermissibleIncome,
-    })
-    if (ratios.computable) {
-      shariah_financial = {
-        computable: true,
-        debt_ratio: ratios.debt_ratio,
-        cash_securities_ratio: ratios.cash_securities_ratio,
-        impermissible_income_pct: ratios.impermissible_income_pct,
-        verdict: ratios.verdict,
-        purification_pct: ratios.purification_pct,
-        market_cap,
-        market_cap_basis,
-        ...(avgMarketCap !== undefined ? { market_cap_months: avgMarketCap.months } : {}),
-        bridge_source_fiscal_year: la.fiscal_year,
-        ...(impermissibleIncomeShownLines !== undefined ? { impermissible_income_lines: impermissibleIncomeShownLines } : {}),
-      }
+    // Currency-normalize: fundamentals are in the filer's reporting currency (DKK for a 20-F filer) but
+    // market_cap is in market_cap_currency (USD for a US-listed ADR). The AAOIFI ratios are dimensionless,
+    // so convert the ONE mismatched number — market_cap — into the reporting currency. Fail-closed: if the
+    // currencies differ and we cannot get a rate, leave the verdict UNDETERMINED rather than mix currencies.
+    let market_cap_for_ratios: number | undefined = market_cap
+    if (la.currency !== market_cap_currency) {
+      // The market_cap is in market_cap_currency (typically USD for an ADR). fetchFxRateToUsd returns the
+      // multiplier: 1 unit of `la.currency` → USD. Dividing the USD market cap by that rate converts it
+      // into the filer's reporting currency (e.g. USD/DKK_per_USD = DKK).
+      const usdRate = market_cap_currency === 'USD' ? await resolveFxRateValue(la.currency, deps) : undefined
+      market_cap_for_ratios = usdRate === undefined ? undefined : marketCapInReportingCurrency(market_cap, la.currency, usdRate)
+    }
+    // Fail-closed guard: if FX conversion failed (currencies differ but rate unavailable), do not mix
+    // currencies — leave the ratios not-computable so the caller surfaces UNDETERMINED.
+    if (market_cap_for_ratios === undefined) {
+      shariahRatioNotComputableReason = 'currency_conversion_unavailable'
     } else {
-      shariahRatioNotComputableReason = ratios.reason
+      // market_cap_for_ratios is narrowed to number here — TypeScript can see it is defined.
+      const ratios = computeShariahFinancialRatios({
+        // Missing interest-bearing debt / cash → treated as 0 (a near-zero-debt firm legitimately has a
+        // 0% debt ratio, not NaN → not-computable). Revenue + market cap are the only required inputs.
+        interest_bearing_debt: la.total_debt_musd,
+        cash_and_securities: la.cash_and_securities_musd,
+        total_revenue: la.revenue_musd,
+        market_cap: market_cap_for_ratios,
+        impermissible_income: effectiveImpermissibleIncome,
+      })
+      if (ratios.computable) {
+        shariah_financial = {
+          computable: true,
+          debt_ratio: ratios.debt_ratio,
+          cash_securities_ratio: ratios.cash_securities_ratio,
+          impermissible_income_pct: ratios.impermissible_income_pct,
+          verdict: ratios.verdict,
+          purification_pct: ratios.purification_pct,
+          market_cap: market_cap_for_ratios,
+          market_cap_basis,
+          ...(avgMarketCap !== undefined ? { market_cap_months: avgMarketCap.months } : {}),
+          bridge_source_fiscal_year: la.fiscal_year,
+          ...(impermissibleIncomeShownLines !== undefined ? { impermissible_income_lines: impermissibleIncomeShownLines } : {}),
+        }
+      } else {
+        shariahRatioNotComputableReason = ratios.reason
+      }
     }
   }
 
