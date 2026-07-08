@@ -477,3 +477,15 @@ describe('certification schema fixture', () => {
     }).investment_verdict).toBe('WATCH')
   })
 })
+
+describe('scenario subset (the per-model capability probe)', () => {
+  it('runs ONLY the requested scenarios and reports over that subset', async () => {
+    const provider = new MockProvider()
+    const report = await runProviderCertification(provider, {
+      model_id: 'mock-buffett-munger-demo',
+      scenarios: ['simple-completion', 'structured-json-output'],
+    })
+    expect(report.cases.map((c) => c.scenario_id).sort()).toEqual(['simple-completion', 'structured-json-output'])
+    expect(report.summary).toContain('2/2 scenarios')
+  })
+})

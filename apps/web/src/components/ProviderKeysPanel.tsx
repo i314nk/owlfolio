@@ -353,6 +353,15 @@ function renderModelRoleConfig(roleConfig: ProviderRoleConfigView) {
   return createElement(
     'div',
     { 'aria-label': 'Per-tier model configuration', style: { background: 'var(--owl-color-panel-deep)', border: '1px solid var(--owl-color-border)', borderRadius: '0.7rem', display: 'grid', gap: 'var(--owl-space-3)', padding: '0.85rem 0.95rem' } },
+    // Capability probe: one user-fired run of the certification's capability core (completion /
+    // structured JSON / tool round-trip / multi-step loop) against the ACTIVE model, persisted as a
+    // target-specific report — the recorded answer to "does this routed model honor the loop?".
+    createElement(
+      'form',
+      { action: '/api/providers/verify-model', method: 'post', style: { alignItems: 'center', display: 'flex', flexWrap: 'wrap', gap: 'var(--owl-space-2)' } },
+      createElement('button', { className: 'owl-button owl-button-secondary owl-focusable', type: 'submit', 'data-testid': 'verify-model-button' }, 'Verify current model'),
+      createElement('span', { style: subtleTextStyle }, 'Runs the capability probe (tool loop + structured output) against the active model and records the result as a certification report. Uses provider quota.'),
+    ),
     createElement('p', { style: monoLabelStyle }, `Model tiers · registry ${roleConfig.registry_version}`),
     // ── Guidance block (the tier philosophy, in the design system's editorial voice) ──
     createElement(

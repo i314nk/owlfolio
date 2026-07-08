@@ -42,6 +42,11 @@ export type CertificationRunnerOptions = {
   auth_mode?: ProviderAuthMode
   workflow_role?: ProviderWorkflowRole
   ground_sources?: CertificationGroundSourcesFn
+  /**
+   * Optional scenario subset (the per-model capability probe runs just the capability core instead of
+   * the full 18-scenario audit). Default: all scenarios. Unknown ids are simply ignored.
+   */
+  scenarios?: CertificationScenarioId[]
 }
 
 type UnavailableCertificationReportOptions = {
@@ -135,7 +140,10 @@ export async function runProviderCertification(
     target,
     ...(options.ground_sources === undefined ? {} : { ground_sources: options.ground_sources }),
   }
-  const scenarios = getCertificationScenarios()
+  const scenarioFilter = options.scenarios === undefined ? undefined : new Set(options.scenarios)
+  const scenarios = getCertificationScenarios().filter(
+    (scenario) => scenarioFilter === undefined || scenarioFilter.has(scenario.scenario_id),
+  )
   const cases: CertificationCaseResult[] = []
 
   for (const scenario of scenarios) {
