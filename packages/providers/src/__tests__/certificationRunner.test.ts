@@ -489,3 +489,22 @@ describe('scenario subset (the per-model capability probe)', () => {
     expect(report.summary).toContain('2/2 scenarios')
   })
 })
+
+describe('multi-step-tool-loop task honesty (Opus 4.8 false-negative fix)', () => {
+  it('the prompt itself REQUIRES two fetches, so an efficient single call is a real failure, not thrift', async () => {
+    let seenPrompt = ''
+    const provider = new MockProvider()
+    const originalRunWithTools = provider.runWithTools.bind(provider)
+    provider.runWithTools = async (req) => {
+      seenPrompt = req.prompt
+      return originalRunWithTools(req)
+    }
+    const report = await runProviderCertification(provider, {
+      model_id: 'mock-buffett-munger-demo',
+      scenarios: ['multi-step-tool-loop'],
+    })
+    expect(seenPrompt).toMatch(/MUST call source\.fetch twice/)
+    expect(seenPrompt).toMatch(/Do not answer before both fetches complete/)
+    expect(report.cases[0]!.passed).toBe(true)
+  })
+})

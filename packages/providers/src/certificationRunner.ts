@@ -433,15 +433,20 @@ async function runCertificationScenario(
       }
       case 'multi-step-tool-loop':
       case 'end-to-end-demo-workflow': {
+        // The TASK must genuinely require two calls: the old prompt ("run the demo workflow… with
+        // source.fetch available") was solvable with one efficient fetch, so a capable model (live
+        // false negative: Claude Opus 4.8) answered after one call and failed an arbitrary count.
+        // Now the prompt demands two DISTINCT fetches and forbids answering before both — a 1-call
+        // run is a real inability to chain, not efficiency.
         const run = await provider.runWithTools(baseRequest(provider, scenario.scenario_id, options, {
           task_kind: 'tool-loop',
-          prompt: 'Run the certified demo workflow for ticker COST with source.fetch available.',
+          prompt: 'Certification task: you MUST call source.fetch twice — first for ticker COST, then a second, separate call for ticker MSFT. Do not answer before both fetches complete. Then answer in one sentence naming both fetched sources.',
           budget: { max_tool_calls: 2, max_tokens: 2_000 },
           tool_allowlist: ['source.fetch'],
           response_format: { kind: 'text' },
         }))
         if (run.tool_calls.length < 2) {
-          throw new Error(`Provider returned ${run.tool_calls.length} tool call(s), but multi-step certification requires at least 2`)
+          throw new Error(`Provider made ${run.tool_calls.length} tool call(s) where the task explicitly required 2 sequential source.fetch calls (finish reason: ${run.finish_reason}) — the model did not sustain a multi-step tool loop`)
         }
         assertNoDirectLedgerWrites(run)
         return passedCase(scenario, `Observed ${run.tool_calls.length} tool call(s) with finish reason ${run.finish_reason}.`, capabilityGates)
