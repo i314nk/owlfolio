@@ -95,6 +95,55 @@ describe('/api/research/start', () => {
     }), 'utf8')
   }
 
+  // The pre-flight key guard runs BEFORE the readiness gate and, for an ACTIVE OpenRouter key, its
+  // default live-validates against the provider — unit tests with a key set must inject a fake guard
+  // (guardOk) or they would hit the network.
+  const guardOk = { keyGuard: async () => ({ ok: true as const }) }
+
+  describe('pre-flight key guard (fail fast instead of a dead mid-swarm run)', () => {
+    it('key saved to the env file AFTER server boot → 400 provider_key_not_loaded with a restart message (real file read)', async () => {
+      // The file has the key; process.env does not (hydration happens only at boot).
+      await writeFile(join(tempDir, '.env'), 'OPENROUTER_API_KEY=sk-or-saved-after-boot\n', 'utf8')
+      const response = await POST(new Request('http://localhost/api/research/start', {
+        method: 'POST',
+        body: JSON.stringify({ ticker: 'MSFT' }),
+      }))
+      const payload = await response.json()
+      expect(response.status).toBe(400)
+      expect(payload.error.code).toBe('provider_key_not_loaded')
+      expect(payload.error.message).toMatch(/restart/i)
+      expect(await researchRunRequestedCount()).toBe(0)
+    })
+
+    it('key CHANGED on disk after boot → 400 provider_key_stale (the run would use the old key)', async () => {
+      process.env.OPENROUTER_API_KEY = 'sk-or-old-boot-key'
+      await writeFile(join(tempDir, '.env'), 'OPENROUTER_API_KEY=sk-or-new-file-key\n', 'utf8')
+      const response = await POST(new Request('http://localhost/api/research/start', {
+        method: 'POST',
+        body: JSON.stringify({ ticker: 'MSFT' }),
+      }))
+      const payload = await response.json()
+      expect(response.status).toBe(400)
+      expect(payload.error.code).toBe('provider_key_stale')
+      expect(payload.error.message).toMatch(/restart/i)
+      expect(await researchRunRequestedCount()).toBe(0)
+    })
+
+    it('run-effective key rejected by the live probe → 400 provider_key_invalid (injected guard)', async () => {
+      process.env.OPENROUTER_API_KEY = 'sk-or-revoked'
+      const response = await POST(new Request('http://localhost/api/research/start', {
+        method: 'POST',
+        body: JSON.stringify({ ticker: 'MSFT' }),
+      }), undefined, {
+        keyGuard: async () => ({ ok: false as const, code: 'provider_key_invalid' as const, message: 'The OPENROUTER_API_KEY was rejected by the provider (invalid or revoked).' }),
+      })
+      const payload = await response.json()
+      expect(response.status).toBe(400)
+      expect(payload.error.code).toBe('provider_key_invalid')
+      expect(await researchRunRequestedCount()).toBe(0)
+    })
+  })
+
   it('returns a clean 400 JSON error when research is requested with an unready provider', async () => {
     const response = await POST(new Request('http://localhost/api/research/start', {
       method: 'POST',
@@ -134,7 +183,7 @@ describe('/api/research/start', () => {
     const response = await POST(new Request('http://localhost/api/research/start', {
       method: 'POST',
       body: JSON.stringify({ ticker: 'MSFT' }),
-    }))
+    }), undefined, guardOk)
     const payload = await response.json()
 
     expect(response.status).toBe(400)
