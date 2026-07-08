@@ -20,8 +20,17 @@ Scope: automation-first local-use candidate readiness for the TypeScript/pnpm Ow
 >   fail-closed), 8-K item-code trigger weighting, escalation drafts on broken held theses.
 > - **Worker grew to twelve one-tick task kinds** (see `docs/WORKER.md`); still no scheduler by design.
 > - **Read-only CLI** (`owlfolio start|status|doctor`) added; onboarding/decisions stay in the browser.
-> - **Known issue:** several Playwright e2e specs currently fail (under diagnosis); the
->   unit/integration suite (2,300+ tests) is the green gate.
+> - **Insider Form 4 signal shipped:** deterministic transaction parsing (never a model judgment), a
+>   computed management-lane digest, a sell-cluster trigger, and a dossier card.
+> - **Demo mode removed:** the app is now unconfigured → personal-local; `mock-provider` remains for
+>   tests/e2e only.
+> - **On-demand discovery + price checks shipped:** 13F harvest + triage into research candidates, and
+>   watchlist/portfolio price checks — human-fired.
+> - **Honest test posture:** the tiered model setup is designed but NOT yet exercised end-to-end;
+>   nearly all live testing ran through OpenRouter with a single routed model, and the other providers
+>   remain experimental and largely unexercised.
+> - **Known issue:** two Playwright e2e specs currently fail (monthly accounting, workflow intake —
+>   under diagnosis); the unit/integration suite (2,400+ tests) is the green gate.
 
 ## Release position
 
@@ -109,7 +118,7 @@ Current gate result (2026-07-05, re-review merge closeout):
 - `corepack pnpm lint`: passed with `--max-warnings=0` across the touched packages.
 - `corepack pnpm audit --filter @owlfolio/web --prod --audit-level moderate`: passed, no known vulnerabilities.
 - `NODE_OPTIONS=--disable-warning=ExperimentalWarning corepack pnpm --filter @owlfolio/web exec next build`: passed.
-- `corepack pnpm e2e`: **4 failed / 6 passed — a known pre-existing issue under diagnosis** (demo-mode home, onboarding provider-toggle, and intake specs); treat the unit/integration suite as the green gate until fixed.
+- `corepack pnpm e2e`: **2 failed / 6 passed (2026-07-08)** — the monthly-accounting and workflow-intake specs remain under diagnosis (the demo-mode spec was removed with demo mode; the onboarding specs were fixed). Treat the unit/integration suite as the green gate until fixed.
 
 Known warning observed during `next build`: Next/Turbopack emitted one NFT/import-trace warning around local filesystem helpers (`next.config.mjs`, `appConfigStore`, `onboarding`, `api/testing/reset`). The build exited 0 and no generated/runtime artifacts appeared in git status; keep this as a known warning rather than a release blocker unless it expands, changes behavior, or starts tracing sensitive runtime files.
 

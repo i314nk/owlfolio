@@ -245,5 +245,9 @@ describe('LearnTabs', () => {
     expect(html).toContain('T1')
     expect(html).toContain('T0')
     expect(html.toLowerCase()).toContain('if it can be computed, compute it')
+    // Honest status (owner): the tiered setup is DESIGN, not proven behavior — live testing so far
+    // ran through OpenRouter with a single routed model.
+    expect(html.toLowerCase()).toContain('not been exercised end-to-end')
+    expect(html.toLowerCase()).toContain('openrouter with a single routed model')
   })
 })

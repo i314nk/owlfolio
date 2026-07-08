@@ -659,6 +659,9 @@ function TieringTab(): ReactNode {
     caveat(
       'Specific model names live in the registry and will go stale; the registry plus the qualification eval are what stay true. Provider support in this local alpha is bounded by the certification reports — readiness is not certification, and no provider is described as live or certified beyond what a target-specific report records.',
     ),
+    caveat(
+      'Honest status: the tiered setup itself has not been exercised end-to-end yet — live testing so far ran through OpenRouter with a single routed model, and the other providers remain experimental and largely unexercised. Treat tier routing as design intent, not proven behavior, until a multi-tier run is recorded.',
+    ),
   )
 }
 

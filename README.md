@@ -64,6 +64,12 @@ The core design rule is **"code computes, judgment proposes"**:
   INTACT / WEAKENED / BROKEN — or, honestly, INCONCLUSIVE / UNVERIFIED when the
   evidence can't support a verdict. A broken thesis on a held name escalates a
   full re-run draft; a human still decides everything.
+- **Insider Form 4 signal**: deterministic parsing of insider transactions
+  (never a model judgment), a computed digest for the management lane, a
+  sell-cluster trigger, and a dossier card.
+- **On-demand discovery and price checks**: a 13F harvest + triage into
+  research candidates, and watchlist/portfolio price checks — both
+  human-fired.
 - A small read-only CLI (`owlfolio start|status|doctor`) for launch/inspect/
   diagnose; all onboarding and decisions live in the browser.
 - A local worker that runs **one tick at a time** (`--once`), dry-run/mock-safe,
@@ -82,35 +88,71 @@ The core design rule is **"code computes, judgment proposes"**:
   grounded tool loop and are usable with an API key; certification is an
   **optional deeper audit** a user can run per model, and support labels stay
   `experimental` until a target-specific report exists.
-- **Insider forms (Forms 3/4/5)** — in progress on a branch (deterministic
-  parsing for the management lane and insider-activity trigger signals).
+- **The tiered model setup is untested.** The model-tiering design (routing
+  different reasoning tiers to different pipeline stages) exists but has not
+  been exercised end-to-end. Nearly all live testing so far ran through
+  OpenRouter with a single routed model; the other providers are experimental
+  and largely unexercised.
 - No broker sync, live trading, automatic portfolio actions, market-data
   ingestion hardening, tax-grade accounting, or formal Shariah scholar review.
 - A historical (as-of-date) backtester is deferred pending point-in-time data
   quality.
-- Known issues: a handful of Playwright e2e specs are failing and under
-  diagnosis; the Next/Turbopack NFT import-trace warning noted below.
+- Known issues: two Playwright e2e specs (monthly accounting, workflow intake)
+  are failing and under diagnosis; the Next/Turbopack NFT import-trace warning
+  noted below.
 
 Gaps are tracked in `docs/ALPHA_READINESS.md`.
 
 ---
 
-## Quick start
+## Install & run the dashboard
 
-Requires Node + Corepack. From the repo root:
+Prerequisites: **Node.js 20+** (Corepack ships with it) and **git**. No
+database to install — the ledger is a local SQLite file the app creates for
+you.
+
+**1. Clone and install**
 
 ```bash
+git clone https://github.com/i314nk/owlfolio.git
+cd owlfolio
 corepack enable
 corepack pnpm install
+```
+
+**2. Start the app**
+
+```bash
 corepack pnpm dev
 ```
 
-Open `http://127.0.0.1:3000` and complete onboarding in the browser (mode,
-provider, API key, model, capital). Runtime state lives locally under `data/`
-(git-ignored); API keys live in a local env file (`OWLFOLIO_ENV_FILE`, default
-`~/.owlfolio/.env`) — never in the ledger, logs, or git.
+…or use the zero-setup launcher, which starts the app *and* opens your
+browser:
 
-Isolated run with explicit paths:
+```bash
+./owlfolio start
+```
+
+**3. Open the dashboard**
+
+Go to `http://127.0.0.1:3000`. First launch walks you through onboarding in
+the browser — pick personal-local mode, choose a provider (OpenRouter is the
+default: create a key at openrouter.ai, paste it in), pick a model, and set
+your investable capital. That's it: the Command Center is your dashboard, and
+you can start your first research run from there.
+
+Everything is local: runtime state lives under `data/` (git-ignored), and API
+keys live in a local env file (`OWLFOLIO_ENV_FILE`, default `~/.owlfolio/.env`)
+— never in the ledger, logs, or git.
+
+To check the install or diagnose problems:
+
+```bash
+./owlfolio status   # mode, provider/model, readiness, onboarding gate
+./owlfolio doctor   # config, credential file permissions, ledger, certifications
+```
+
+Optional — run with explicit isolated paths:
 
 ```bash
 OWLFOLIO_PROJECT_DIR=$PWD \
@@ -158,11 +200,11 @@ tool loop.
 
 | Provider id | Role | Support |
 | --- | --- | --- |
-| `mock-provider` | Deterministic demo/test provider | **Certified** for the local/demo slice and regression tests. |
-| `openrouter` | Default personal-local provider — one `OPENROUTER_API_KEY` routes to many models | Experimental. Proven grounded tool loop; usable with a key, model choice is yours. |
-| `openai-api` | Direct OpenAI API (`OPENAI_API_KEY`) | Experimental; usable with a key. |
-| `anthropic-api` | Direct Anthropic API (`ANTHROPIC_API_KEY`) | Experimental; usable with a key. |
-| `gemini-developer-api` | Direct Gemini Developer API (`GEMINI_API_KEY`/`GOOGLE_API_KEY`) | Experimental; usable with a key. Privacy posture caveats apply. |
+| `mock-provider` | Deterministic test provider (tests/e2e only — demo mode was removed; the app is unconfigured → personal-local) | **Certified** for the audited test slice. |
+| `openrouter` | Default personal-local provider — one `OPENROUTER_API_KEY` routes to many models | Experimental. Proven grounded tool loop; **this is where nearly all live testing has happened**. Model choice is yours. |
+| `openai-api` | Direct OpenAI API (`OPENAI_API_KEY`) | Experimental; usable with a key, largely unexercised. |
+| `anthropic-api` | Direct Anthropic API (`ANTHROPIC_API_KEY`) | Experimental; usable with a key, largely unexercised. |
+| `gemini-developer-api` | Direct Gemini Developer API (`GEMINI_API_KEY`/`GOOGLE_API_KEY`) | Experimental; usable with a key, largely unexercised. Privacy posture caveats apply. |
 
 **Certification is the user's responsibility and optional**: pick a capable
 reasoning model (reasoning + tool calling + structured output — the model
