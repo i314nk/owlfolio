@@ -4,11 +4,17 @@ The worker is a local, ledger-first process for scheduled task runtime and obser
 
 ## Safety model
 
-Current handlers are dry-run/mock-safe only:
+Current handlers are dry-run/mock-safe only. Every task is ONE-TICK (`--once` is the only mode) and
+scheduler-shaped: cadence metadata rides the `scheduled_task_defined` events, but **no scheduler
+exists yet** — nothing evaluates the cron strings; a human (or, later, a scheduler) fires each tick.
+Scheduled-task kinds:
 
 - `review_reminder`: projects due/upcoming holding-review prompts and records observations.
-- `watchlist_monitor`: projects confirmed watchlist items, optionally runs a certified scheduled-monitoring provider, and records monitoring observations/provider-run events.
-- `holding_review_draft`: beta proposal-only job for due holdings. It requires a certified provider readiness check, appends provider-authored `holding_review_drafted` proposal events only, and leaves confirmation/rejection to the approval queue.
+- `watchlist_monitor` / `holdings_monitor`: deterministic buy-window / tranche / concentration / staleness monitors; append `*_monitor_alert_recorded` observation events surfaced by the monitor-alert projection.
+- `holding_review_draft`: proposal-only grounded review for due holdings; requires a provider readiness check, appends provider-authored `holding_review_drafted` events only, and a broken thesis escalates a versioned full-reanalysis *draft*.
+- `re_review_check`: the thesis re-review sweep — diffs filings NEW since each decided case's persisted corpus (8-K item-code-weighted); strong triggers run a grounded thesis diff (`research_case_re_review_recorded`), capped per tick; medium/weak triggers are observations with zero provider spend.
+- `shariah_rescreen`, `portfolio_valuation_refresh`, `purification_projection`, `forecast_resolution`, `discovery_13f`, `falsifier_check`, `re_underwrite`: deterministic/cadence passes over ledger + injected data.
+- `process_research_queue` / `process_deep_dive_queue`: the research-run executors, auto-spawned per run by the web app (the only automatic invocations today).
 
 The worker never auto-approves investment decisions, watchlist confirmations, holding reviews, holding opens, buys, sells, Shariah overrides, purification payments, or portfolio actions. Completed run payloads include `auto_approved_actions: 0`; live/non-dry-run task execution is skipped. Provider-backed tasks fail closed before provider/proposal events when readiness is missing, unsupported, quota-limited, reauth-required, or target-mismatched.
 
@@ -36,6 +42,7 @@ Limit a tick to one task kind:
 ```bash
 corepack pnpm --filter @owlfolio/worker dev -- --task-kind review_reminder
 corepack pnpm --filter @owlfolio/worker dev -- --task-kind watchlist_monitor
+corepack pnpm --filter @owlfolio/worker dev -- --task-kind re_review_check
 ```
 
 Use an isolated test ledger:
@@ -48,11 +55,11 @@ corepack pnpm worker -- --once --dry-run --define-defaults
 
 ## Ledger events
 
-Default task setup appends idempotent `scheduled_task_defined` events for:
-
-- `task_review_reminders_daily`
-- `task_watchlist_monitor_daily`
-- `task_holding_review_drafts_daily`
+Default task setup appends idempotent `scheduled_task_defined` events for the twelve scheduled task
+kinds (reviews, monitors, Shariah re-screen, valuation refresh, purification, forecast resolution,
+13F discovery, the falsifier/re-underwrite cadence passes, and the quarterly
+`task_re_review_check_quarterly`), each carrying its cadence cron string as metadata for the future
+scheduler.
 
 Each run appends:
 

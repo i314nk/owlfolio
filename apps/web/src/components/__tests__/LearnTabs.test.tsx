@@ -231,6 +231,13 @@ describe('LearnTabs', () => {
     expect(html.toLowerCase()).toContain('deteriorating')
     expect(html.toLowerCase()).toContain('no prune action yet')
     expect(html.toLowerCase()).toContain('screened out')
+    // The SHIPPED thesis re-review is part of the lifecycle story: the filings-since-decision delta
+    // diffed against the recorded thesis, in verdict vocabulary, human-fired today (no scheduler).
+    expect(html.toLowerCase()).toContain('thesis re-review')
+    expect(html.toLowerCase()).toContain('since a decision')
+    expect(html.toLowerCase()).toContain('intact, weakened, broken')
+    expect(html.toLowerCase()).toContain('inconclusive')
+    expect(html.toLowerCase()).toContain('no scheduler fires it yet')
   })
 
   it('describes the four model tiers including the compute-everything T0 rule', () => {

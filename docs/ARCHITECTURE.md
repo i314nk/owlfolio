@@ -105,24 +105,24 @@ Projection rules matter as much as event writes:
 
 Provider support is evidence-bounded. The catalog in `packages/providers/src/providerCatalog.ts` is not enough by itself; latest certification reports under `data/provider-certifications/*.latest.json` determine effective support labels in the UI and docs.
 
-Current alpha support:
+Current alpha support (**update 2026-06-29**: the whole CLI/OAuth lane — Codex CLI, Claude CLI, Gemini CLI — was retired; surviving providers share one function-calling grounded tool loop):
 
 | Provider id | Adapter path | Effective support |
 | --- | --- | --- |
 | `mock-provider` | Deterministic in-process provider | Certified for demo/test/e2e; not real research intelligence. |
-| `openai` / `openai-codex-cli` | OpenAI Codex CLI-backed adapter | Experimental personal-local path; latest report passes 9/13 scenarios. |
-| `claude` | Claude CLI-backed adapter | Unsupported/not-configured in this environment per latest report. |
-| `openai-api` | Direct OpenAI API candidate | Unsupported/not-configured locally until target-specific certification passes. |
-| `gemini-developer-api` | Direct Gemini Developer API candidate | Unsupported/not-configured locally until privacy posture and target-specific certification pass. |
-| `gemini-cli` | Gemini CLI sign-in discovery lane | Setup-only; no execution adapter/certification yet. |
+| `openrouter` | OpenAI-compatible meta-aggregator (`OpenRouterProvider`); the default personal-local provider | Experimental. Proven grounded tool loop; usable with a key — model choice/certification is the user's responsibility. |
+| `openai-api` | Direct OpenAI API (OpenAI-compatible adapter) | Experimental; usable with a key. |
+| `anthropic-api` | Direct Anthropic API (OpenAI-compatible adapter) | Experimental; usable with a key. |
+| `gemini-developer-api` | Direct Gemini Developer API candidate | Experimental; usable with a key. Privacy posture caveats apply. |
 
-Direct Anthropic/Perplexity/OpenRouter/xAI/DeepSeek/Qwen/local OpenAI-compatible API adapters are future candidates until implemented and certified.
+The three direct API-key providers are `OpenRouterProvider` instances configured per-endpoint, so they share OpenRouter's `runToolLoop`. Native/provider-side web search is disabled by construction — the harness executor is the only egress.
 
-Readiness inputs:
+Readiness inputs (keys live in the local env file `OWLFOLIO_ENV_FILE`, default `~/.owlfolio/.env`):
 
-- Claude: `ANTHROPIC_API_KEY` or Claude credentials path.
-- OpenAI/Codex: `OPENAI_API_KEY`, `CODEX_ACCESS_TOKEN`, `OWLFOLIO_CODEX_AUTH_PATH`, or `CODEX_HOME`.
-- Gemini: `GEMINI_API_KEY`/`GOOGLE_API_KEY` for the Developer API candidate, or Gemini CLI auth/status paths for the setup-only CLI lane.
+- OpenRouter: `OPENROUTER_API_KEY`.
+- OpenAI: `OPENAI_API_KEY`.
+- Anthropic: `ANTHROPIC_API_KEY`.
+- Gemini: `GEMINI_API_KEY` / `GOOGLE_API_KEY`.
 
 Readiness is not certification. A credential file cannot override a latest `not-configured`, `unsupported`, or partial certification report, and no real-provider path should be described as live/autonomous until the target-specific report says it is supported.
 

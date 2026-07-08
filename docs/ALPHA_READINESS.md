@@ -1,7 +1,27 @@
 # Owlfolio v2 local-use candidate readiness
 
-Date: 2026-06-07
+Date: 2026-06-07 · **Updated: 2026-07-08**
 Scope: automation-first local-use candidate readiness for the TypeScript/pnpm Owlfolio v2 branch after provider-surface, research-pipeline, accounting, purification, and Data Safety hardening.
+
+> **Update 2026-07-08.** Major changes since the 2026-06-07 baseline:
+>
+> - **Provider excision (2026-06-29):** the whole CLI/OAuth lane (Codex CLI, Claude CLI, Gemini CLI)
+>   was retired. Surviving providers: `mock-provider` (certified) plus `openrouter` (the new default),
+>   `openai-api`, `anthropic-api`, `gemini-developer-api` — all experimental/fail-closed on one shared
+>   function-calling grounded tool loop. Native/provider web search is disabled by construction.
+> - **EDGAR grounding deepened:** annual filings readable by Item via a hash-verified `read_source`
+>   tool; 8-K/10-Q/6-K interim narrative grounded (10-Q numbers quarantined); DEF 14A proxies for the
+>   management lane; EX-99 press-release exhibits grounded alongside 8-K covers; cross-run source
+>   bundles persist pointers + hashes for re-fetch-and-verify audit.
+> - **Circle-of-competence gate hardened:** k-sample unanimous agreement + grounded evidence floors,
+>   Settings-tunable; set-aside is a recorded early exit.
+> - **Thesis re-review shipped:** on-demand (dossier/watchlist/portfolio) and worker-tick diffs of
+>   filings filed since a decision vs the recorded thesis (`INTACT|WEAKENED|BROKEN|INCONCLUSIVE|UNVERIFIED`,
+>   fail-closed), 8-K item-code trigger weighting, escalation drafts on broken held theses.
+> - **Worker grew to twelve one-tick task kinds** (see `docs/WORKER.md`); still no scheduler by design.
+> - **Read-only CLI** (`owlfolio start|status|doctor`) added; onboarding/decisions stay in the browser.
+> - **Known issue:** several Playwright e2e specs currently fail (under diagnosis); the
+>   unit/integration suite (2,300+ tests) is the green gate.
 
 ## Release position
 
@@ -33,14 +53,14 @@ Latest persisted reports are under `data/provider-certifications/` and are summa
 
 | Provider id / surface | Latest report | Effective local-use status | Notes |
 | --- | --- | --- | --- |
-| `mock-provider` | `mock-provider.latest.json` | Certified | Completed; 13/13 scenarios passed. Deterministic provider for demo/test/e2e only, not real research intelligence. |
-| `openai` / `openai-codex-cli` | `openai.latest.json` | Experimental | Completed; 9/13 scenarios passed with Codex CLI/OAuth. Unsupported tool-loop capabilities and a source-grounded timeout block certified status. Personal-local only; not production/headless certification. |
-| `claude` | `claude.latest.json` | Unsupported/not configured in this environment | Latest report says Claude Code subscription access is disabled. A credential-file presence check is not enough to claim readiness. |
-| `openai-api` | `openai-api.latest.json` | Unsupported/not configured in this environment | Target-specific direct API report is recorded for `openai-api` / `api_key` / `research_draft` / `gpt-4.1-mini`; the run was skipped as not configured because no direct API credential was available. |
-| `gemini-developer-api` | `gemini-developer-api.latest.json` | Unsupported/not configured in this environment | Target-specific report is recorded for `gemini-developer-api` / `api_key` / `research_draft` / `gemini-2.5-pro`; the run was skipped as not configured because no Developer API key was available. Gemini CLI sign-in, Vertex/service-account lanes, and Developer API certification remain separate. Privacy posture still blocks production/autonomous claims: free/unpaid Developer API is unsuitable for private-investment workflows, paid Developer API remains experimental behind privacy/security gates, and Vertex/Gemini Enterprise should be evaluated separately for ZDR/data residency. |
-| `gemini-cli` | none recorded yet | Setup-only personal-local lane | UI/onboarding models Google/Gemini CLI sign-in as an experimental local lane, but no execution adapter/certification exists yet. |
+| `mock-provider` | `mock-provider.latest.json` | Certified | Deterministic provider for demo/test/e2e only, not real research intelligence. |
+| `openrouter` | none target-specific yet | Experimental (the default personal-local provider) | Proven grounded `runToolLoop` in live product use; usable with `OPENROUTER_API_KEY`. Model choice + optional per-model certification are the user's responsibility; support labels stay experimental until a report exists. |
+| `openai-api` | `openai-api.latest.json` (historical) | Experimental | Shares OpenRouter's tool loop; distinct from the retired Codex CLI lane; usable with a key. |
+| `anthropic-api` | none recorded yet | Experimental | Shares OpenRouter's tool loop; distinct from the retired Claude CLI lane; usable with a key. |
+| `gemini-developer-api` | `gemini-developer-api.latest.json` (historical) | Experimental | Usable with a key. Privacy posture still blocks production/autonomous claims; paid Developer API remains experimental behind privacy/security gates. |
+| retired: `openai`/`openai-codex-cli`, `claude`, `gemini-cli` | `openai.latest.json`, `claude.latest.json` (historical evidence) | Removed 2026-06-29 | The CLI/OAuth lane was excised; these reports remain as dated evidence only and must not be read as current support. |
 
-Provider claims must not exceed this evidence. OpenAI and Gemini direct API candidates are implemented as bounded experimental surfaces, not certified live providers; current target-specific direct API reports are unsupported/not configured until credentials, privacy posture, and certification scenarios pass. Anthropic, Perplexity/OpenRouter/xAI/DeepSeek/Qwen/local OpenAI-compatible servers remain future candidates until implemented and certified.
+Provider claims must not exceed this evidence. **Certification has shifted to the user's responsibility and is optional before use**: a capable reasoning model (reasoning + tool-calling + structured output, the model picker's floor) can be selected and used immediately; the certification runner is a deeper per-model audit a user may run for recorded evidence. Docs/UI never describe a surface as certified/live/autonomous without a passing target-specific latest report.
 
 ## Shariah, accounting, and purification boundaries
 
@@ -61,12 +81,11 @@ Provider claims must not exceed this evidence. OpenAI and Gemini direct API cand
 
 The local worker is dry-run/mock-safe for alpha. It can define default scheduled tasks and append run lifecycle events, but it must not auto-approve investment decisions or create irreversible portfolio/accounting/purification actions.
 
-Supported handlers now:
-
-- `review_reminder`: observes due/upcoming holding reviews.
-- `watchlist_monitor`: observes confirmed watchlist items.
-
-The worker command surface is documented in `docs/WORKER.md`.
+Twelve one-tick task kinds are defined (reviews, deterministic monitors, Shariah re-screen,
+valuation refresh, purification, forecast resolution, 13F discovery, the thesis re-review sweep, and
+the research/deep-dive queue executors). All are human-fired today — cadence cron strings are
+recorded as metadata, but no scheduler evaluates them yet (a deliberate gap pending an
+unattended-spend policy). The worker command surface is documented in `docs/WORKER.md`.
 
 ## Verification gate
 
@@ -82,15 +101,15 @@ NODE_OPTIONS=--disable-warning=ExperimentalWarning corepack pnpm --filter @owlfo
 corepack pnpm e2e
 ```
 
-Current gate result from the 2026-06-03 phase-4 closeout: green with a documented known warning.
+Current gate result (2026-07-05, re-review merge closeout):
 
 - `git diff --check`: passed.
 - `corepack pnpm typecheck`: passed across the workspace.
-- `corepack pnpm test`: passed, 49 test files / 258 tests.
-- `corepack pnpm lint`: passed; package lint scripts are placeholders where noted by the workspace.
+- `corepack pnpm test`: passed, 2,381 tests.
+- `corepack pnpm lint`: passed with `--max-warnings=0` across the touched packages.
 - `corepack pnpm audit --filter @owlfolio/web --prod --audit-level moderate`: passed, no known vulnerabilities.
 - `NODE_OPTIONS=--disable-warning=ExperimentalWarning corepack pnpm --filter @owlfolio/web exec next build`: passed.
-- `corepack pnpm e2e`: passed, 5/5 Playwright specs.
+- `corepack pnpm e2e`: **4 failed / 6 passed — a known pre-existing issue under diagnosis** (demo-mode home, onboarding provider-toggle, and intake specs); treat the unit/integration suite as the green gate until fixed.
 
 Known warning observed during `next build`: Next/Turbopack emitted one NFT/import-trace warning around local filesystem helpers (`next.config.mjs`, `appConfigStore`, `onboarding`, `api/testing/reset`). The build exited 0 and no generated/runtime artifacts appeared in git status; keep this as a known warning rather than a release blocker unless it expands, changes behavior, or starts tracing sensitive runtime files.
 

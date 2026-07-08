@@ -21,8 +21,7 @@ All events use the shared `LedgerEventEnvelope` shape with `schema_version: 1`, 
 `support_level` is a product/certification label, not a wishlist. A provider catalog entry must not advertise capabilities above the adapter returned by `resolveProvider()`:
 
 - `mock-provider` is certified because it is deterministic and covers the audited demo/test vertical slice.
-- `claude` is currently the CLI-backed adapter, but the latest local certification report marks it `unsupported`/`not-configured` in this environment because Claude Code subscription access is disabled. Credential-file presence alone must not make it ready.
-- `openai` is currently the Codex CLI-backed adapter and remains `experimental`; the latest report records partial live certification evidence, not full workflow parity.
+- The CLI/OAuth provider lane (Codex CLI, Claude CLI, Gemini CLI) was retired on 2026-06-29. The surviving live providers — `openrouter` (the default), `openai-api`, `anthropic-api`, `gemini-developer-api` — share one function-calling grounded tool loop, are usable once a key is configured, and stay labeled `experimental`: per-model certification is an optional deeper audit whose responsibility sits with the user, and support labels never rise above the latest recorded report.
 
 Direct API adapters can later receive separate provider IDs or revised labels after their certification reports land. Until then, provider status UI/API paths must derive readiness and effective support from the latest persisted certification report, not from catalog optimism or credential presence alone.
 

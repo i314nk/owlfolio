@@ -2,53 +2,102 @@
 
 # Owlfolio v2
 
-**An automation-first local investment workflow OS with a Shariah-by-design ledger.**
-
-Owlfolio v2 is a TypeScript rewrite for local-first investment workflows:
-strategy-based discovery, quick screens, deep dives, decision drafts, watchlist
-and holding transitions, automatic portfolio/accounting/purification
-projections, provider readiness evidence, scheduled worker observations, and an
-immutable audit trail.
+**A local-first investment research workflow with harness-verified grounding and a Shariah-by-design ledger.**
 
 </div>
 
+> ## ⚠️ Status: alpha, under active development
+>
+> Owlfolio v2 is a personal project in **active development**. It is an **alpha**:
+> features are incomplete, interfaces change without notice, and some documented
+> capabilities are deliberately gated off until they pass verification. It is a
+> local workflow tool — **not** a robo-advisor, a brokerage integration, tax
+> software, a fatwa engine, or investment advice. Run it locally, read the
+> limitations below, and treat every model output as a draft for a human to judge.
+
 ---
 
-## Current local-use candidate status
+## What it is
 
-This branch is an automation-first local-use candidate, not the older
-Python/FastAPI product, a public beta, or a production SaaS. The primary app is
-a local Next.js web UI backed by a SQLite event ledger. The CLI is secondary;
-the local worker handles dry-run scheduled task ticks and records observations
-without taking portfolio actions.
+Owlfolio runs a strategy-driven research workflow (default: Buffett-Munger) on
+your own machine: discovery → quick screen → a multi-agent deep dive → a drafted
+decision → watchlist/holding transitions you explicitly author → ongoing
+re-review as new SEC filings land. Everything is recorded in an append-only
+SQLite event ledger with causation/correlation IDs, so every number and claim is
+auditable back to its source.
 
-Built local-use surfaces:
+The core design rule is **"code computes, judgment proposes"**:
 
-- Command Center with setup-aware status, next actions, accounting prompts, and recent ledger activity.
-- Browser onboarding for demo and personal-local mode.
-- Strategy-based research cockpit for discovery, quick screen, deep dive, decision draft, watchlist, and holding outcomes.
-- Default Buffett-Munger strategy posture with future selectable strategies treated as experimental until policy/audit/provider gates are complete.
-- Provider-authored draft recommendations with source/audit evidence.
-- Watchlist draft, explicit user confirmation, and open-holding transitions.
-- Portfolio page for holdings, lot entry, manual valuation, and holding review actions.
-- Automatic local portfolio, monthly accounting, and purification projections from ledger events.
-- Purification obligations/payments projection and report page.
-- Shariah workflow gates and policy projections in the ledger layer.
-- Audit activity page over append-only ledger events.
-- Provider status page using latest certification reports.
-- Local worker for dry-run scheduled `review_reminder` and `watchlist_monitor` tasks.
+- Deterministic code computes numbers (owner earnings, ratios, valuations,
+  purification amounts). Models never set a figure anyone acts on.
+- Models propose judgments (moat, risks, thesis) — but every citable source is
+  fetched by the harness itself (SSRF-guarded, SEC-host-allowlisted),
+  SHA-256-hashed, and recorded in a source ledger. Citations that don't verify
+  are discarded, and judgments built on them fail closed to a visibly flagged
+  abstain. A model cannot cite what the harness didn't verify.
 
-Full-v2 gaps are tracked honestly in `docs/ALPHA_READINESS.md`: direct API
-provider parity certification, production-grade autonomous discovery/research, broker sync or
-live trading, hardened market/broker-statement ingestion, tax-grade accounting,
-formal Shariah scholar review, and non-default strategy certification are not
-complete.
+### The grounded document set (SEC EDGAR)
+
+- Annual reports — 10-K, 20-F, 40-F — numbers via XBRL company facts, text
+  readable by Item through a hash-verified `read_source` tool.
+- Interim filings — 8-K (weighted by item code: impairments/restatements/exec
+  departures are strong signals, routine earnings announcements are not, and
+  the EX-99 press-release exhibits are grounded alongside the cover), 10-Q
+  (narrative readable; interim numbers quarantined as context), 6-K for foreign
+  filers.
+- DEF 14A proxy statements for the management/governance lane.
+- Cross-run persistence: source bundles store pointers + hashes (never
+  content); EDGAR's immutable archive URLs let any source be re-fetched and
+  re-verified on demand, forever.
+
+### Built and working today (local alpha)
+
+- Browser onboarding, Command Center, research cockpit, watchlist, portfolio,
+  purification/accounting projections, audit trail, provider status, and a
+  Learn section documenting the strategy and grounding architecture.
+- The multi-agent research swarm with a hardened circle-of-competence gate
+  (k-sample unanimous agreement + grounded evidence floors, tunable in
+  Settings) — "outside the circle" is a recorded early exit, not a failure.
+- **Thesis re-review**: on demand (dossier, watchlist, and portfolio pages) or
+  via a worker tick, Owlfolio diffs the filings that appeared since a decision
+  against the recorded thesis and its break triggers, and records
+  INTACT / WEAKENED / BROKEN — or, honestly, INCONCLUSIVE / UNVERIFIED when the
+  evidence can't support a verdict. A broken thesis on a held name escalates a
+  full re-run draft; a human still decides everything.
+- A small read-only CLI (`owlfolio start|status|doctor`) for launch/inspect/
+  diagnose; all onboarding and decisions live in the browser.
+- A local worker that runs **one tick at a time** (`--once`), dry-run/mock-safe,
+  recording observations and drafts. It never auto-approves investment
+  decisions, trades, confirmations, Shariah overrides, or payments.
+
+### Not done yet (deliberately)
+
+- **No scheduler / unattended automation.** Every worker task is
+  scheduler-shaped (one-tick, cadence metadata recorded), but nothing fires
+  them automatically yet. That arc is gated on an explicit unattended-spend
+  policy.
+- **Provider/model choice is the user's responsibility.** Only the
+  deterministic mock provider carries a certification report. OpenRouter (the
+  default) and the direct OpenAI/Anthropic/Gemini API adapters run a proven
+  grounded tool loop and are usable with an API key; certification is an
+  **optional deeper audit** a user can run per model, and support labels stay
+  `experimental` until a target-specific report exists.
+- **Insider forms (Forms 3/4/5)** — in progress on a branch (deterministic
+  parsing for the management lane and insider-activity trigger signals).
+- No broker sync, live trading, automatic portfolio actions, market-data
+  ingestion hardening, tax-grade accounting, or formal Shariah scholar review.
+- A historical (as-of-date) backtester is deferred pending point-in-time data
+  quality.
+- Known issues: a handful of Playwright e2e specs are failing and under
+  diagnosis; the Next/Turbopack NFT import-trace warning noted below.
+
+Gaps are tracked in `docs/ALPHA_READINESS.md`.
 
 ---
 
 ## Quick start
 
-Requires Node/Corepack. From the repo root:
+Requires Node + Corepack. From the repo root:
 
 ```bash
 corepack enable
@@ -56,19 +105,18 @@ corepack pnpm install
 corepack pnpm dev
 ```
 
-Open `http://127.0.0.1:3000` and complete onboarding. The app stores runtime
-state locally under `data/` by default; `data/` is ignored by git.
+Open `http://127.0.0.1:3000` and complete onboarding in the browser (mode,
+provider, API key, model, capital). Runtime state lives locally under `data/`
+(git-ignored); API keys live in a local env file (`OWLFOLIO_ENV_FILE`, default
+`~/.owlfolio/.env`) — never in the ledger, logs, or git.
 
-Useful isolated local run:
+Isolated run with explicit paths:
 
 ```bash
 OWLFOLIO_PROJECT_DIR=$PWD \
-OWLFOLIO_APP_CONFIG_PATH=$PWD/.playwright-runtime/app-config.json \
-OWLFOLIO_DEMO_LEDGER_PATH=$PWD/.playwright-runtime/demo-ledger.sqlite \
-OWLFOLIO_PERSONAL_LEDGER_PATH=$PWD/.playwright-runtime/personal-ledger.sqlite \
-OWLFOLIO_CLAUDE_CREDENTIALS_PATH=$PWD/.playwright-runtime/missing-claude.json \
-OWLFOLIO_CODEX_AUTH_PATH=$PWD/.playwright-runtime/missing-codex-auth.json \
-ANTHROPIC_API_KEY= OPENAI_API_KEY= \
+OWLFOLIO_APP_CONFIG_PATH=$PWD/data/app-config.json \
+OWLFOLIO_PERSONAL_LEDGER_PATH=$PWD/data/personal-ledger.sqlite \
+OWLFOLIO_SOURCE_LEDGER_PATH=$PWD/data/source-ledger \
 corepack pnpm dev
 ```
 
@@ -78,96 +126,82 @@ corepack pnpm dev
 
 ```text
 apps/
-  web/       Next.js web app and API routes
-  worker/    local scheduled-task worker
+  web/       Next.js web app and API routes (the primary surface)
+  worker/    local one-tick scheduled-task worker (dry-run/mock-safe)
+  cli/       read-only launch/inspect/diagnose CLI (owlfolio start|status|doctor)
 packages/
-  ledger/    SQLite event store, event contracts, projections
+  ledger/    append-only SQLite event store, event contracts, projections
+  workflow/  research swarm, grounding, EDGAR adapters, re-review, reviews
   providers/ provider catalog, adapters, certification runner
+  strategies/ Buffett-Munger strategy policy: source policy, valuation, checklist
   shared/    app config and shared domain/provider types
   shariah/   Shariah policy helpers
-  strategies/ strategy package placeholder/reference surface
-  workflow/  workflow helpers for research, watchlist, holdings, reviews
-scripts/
-  certify-providers.mjs
 ```
 
 Important docs:
 
-- `CLAUDE.md` — current agent/development instructions for this TypeScript branch.
-- `docs/ALPHA_READINESS.md` — release gate, verification status, limitations, remaining v2 gaps.
+- `CLAUDE.md` — current development instructions for this TypeScript branch.
+- `docs/ALPHA_READINESS.md` — release gate, verification status, remaining gaps.
 - `docs/WORKER.md` — worker safety model and commands.
-- `docs/architecture/owlfolio-v2-domain-boundaries.md` — ledger event families and route ownership.
-- `docs/architecture/owlfolio-v2-provider-model-support.md` — provider support matrix and latest certification evidence.
-- `docs/superpowers/specs/2026-05-27-owlfolio-v02-typescript-design.md` — original v2 design target.
+- `docs/architecture/owlfolio-v2-domain-boundaries.md` — event families and route ownership.
+- `docs/architecture/owlfolio-v2-provider-model-support.md` — provider support matrix (the bounding document for all support claims).
 
 ---
 
 ## Provider support
 
-Owlfolio distinguishes provider readiness from provider certification.
+Owlfolio distinguishes **readiness** (a key is configured) from
+**certification** (a recorded report proving the grounded research contract).
+The retired CLI/OAuth lanes (Codex CLI, Claude CLI, Gemini CLI) were removed on
+2026-06-29; the surviving providers all share one function-calling grounded
+tool loop.
 
-| Provider id | Current role | Latest local-use support |
+| Provider id | Role | Support |
 | --- | --- | --- |
-| `mock-provider` | Deterministic demo/test provider | Certified; latest report passes 13/13 scenarios. |
-| `openai` / `openai-codex-cli` | OpenAI Codex CLI-backed development path | Experimental personal-local path; latest report passes 9/13 scenarios and lacks certified tool-loop parity. |
-| `claude` | Claude CLI-backed development path | Unsupported/not-configured in this environment; latest report says Claude Code subscription access is disabled. |
-| `openai-api` | Direct OpenAI API candidate | Experimental and fail-closed until a target-specific latest certification report is recorded. |
-| `gemini-developer-api` | Direct Gemini Developer API candidate | Experimental and fail-closed until privacy posture and target-specific certification are recorded. |
-| `gemini-cli` | Google/Gemini CLI sign-in onboarding lane | Setup-only personal-local lane; execution adapter/certification is not implemented yet. |
+| `mock-provider` | Deterministic demo/test provider | **Certified** for the local/demo slice and regression tests. |
+| `openrouter` | Default personal-local provider — one `OPENROUTER_API_KEY` routes to many models | Experimental. Proven grounded tool loop; usable with a key, model choice is yours. |
+| `openai-api` | Direct OpenAI API (`OPENAI_API_KEY`) | Experimental; usable with a key. |
+| `anthropic-api` | Direct Anthropic API (`ANTHROPIC_API_KEY`) | Experimental; usable with a key. |
+| `gemini-developer-api` | Direct Gemini Developer API (`GEMINI_API_KEY`/`GOOGLE_API_KEY`) | Experimental; usable with a key. Privacy posture caveats apply. |
 
-Direct OpenAI and Gemini API adapters are present as bounded candidates, not
-certified Owlfolio providers, until target-specific latest certification reports
-exist. Direct Anthropic/Perplexity/OpenRouter/xAI/DeepSeek/Qwen/local API
-adapters remain future candidates until implemented and certified.
-
-Readiness inputs:
-
-- Claude: `ANTHROPIC_API_KEY` or Claude credential file (`OWLFOLIO_CLAUDE_CREDENTIALS_PATH`).
-- OpenAI/Codex: `OPENAI_API_KEY`, `CODEX_ACCESS_TOKEN`, `OWLFOLIO_CODEX_AUTH_PATH`, or `CODEX_HOME`.
-- Gemini: `GEMINI_API_KEY`/`GOOGLE_API_KEY` for the Developer API candidate, or `GEMINI_HOME`/`OWLFOLIO_GEMINI_CLI_AUTH_PATH` plus status flags for the setup-only CLI lane.
-
-Latest reports live in `data/provider-certifications/*.latest.json` and are the
-source of truth for support labels surfaced in docs/UI.
-
----
-
-## Data Safety boundary
-
-Owlfolio local-use runtime data can include sensitive investment research,
-source bundles, holdings, valuations, Shariah/accounting/purification context,
-and provider certification metadata. The app and runbooks keep credentials,
-provider auth homes, API keys, CLI session files, build outputs, and test
-artifacts out of backup manifests. Web Data Safety surfaces are status/proposal
-views only; destructive restore remains operator-managed until a reviewed flow
-exists.
+**Certification is the user's responsibility and optional**: pick a capable
+reasoning model (reasoning + tool calling + structured output — the model
+picker's floor) and you can run research immediately; the certification runner
+(`pnpm certify:providers`) is a deeper per-model audit you may run when you
+want recorded evidence, and support labels stay `experimental` until such a
+report exists. Either way the grounding harness is what protects you: docs/UI
+never claim more than the latest report proves, and native/provider-side web
+search is disabled by construction — the harness executor is the only egress.
 
 ---
 
 ## Worker
 
-Run one dry-run tick:
+Run one dry-run tick from the repo root:
 
 ```bash
 corepack pnpm worker -- --once --dry-run --define-defaults
 ```
 
-Run a specific handler:
+Limit a tick to one task kind:
 
 ```bash
 corepack pnpm --filter @owlfolio/worker dev -- --task-kind review_reminder
 corepack pnpm --filter @owlfolio/worker dev -- --task-kind watchlist_monitor
+corepack pnpm --filter @owlfolio/worker dev -- --task-kind re_review_check
 ```
 
-The alpha worker is intentionally conservative. It records scheduled-task run
-lifecycle events and observations, but it does not auto-approve investment
-decisions, trades, watchlist confirmations, holding opens, Shariah overrides,
-or purification payments.
+Twelve task kinds exist (reviews, monitors, Shariah re-screen, valuation
+refresh, purification, forecast resolution, 13F discovery, thesis re-review
+checks, and the research/deep-dive queues). All are one-tick and human-gated:
+the worker records observations and drafts, and provider spend is bounded
+(e.g. the re-review sweep only spends on strong triggers, capped per tick).
 
 ---
 
 ## Verification
 
-Final release gate commands:
+Gates on the final tree:
 
 ```bash
 git diff --check
@@ -186,13 +220,13 @@ corepack pnpm certify:providers
 ```
 
 Known warning: Next/Turbopack can emit an NFT/import-trace warning involving
-local filesystem helpers in `next.config.mjs` / `appConfigStore` / `onboarding`.
-The build is only acceptable if it exits 0 and no generated/runtime artifacts
-remain in git status.
+local filesystem helpers (`next.config.mjs` / `appConfigStore` / `onboarding`).
+Known issue: several e2e specs are currently failing (pre-existing, under
+diagnosis); the unit/integration suite (2,300+ tests) is the green gate.
 
 ---
 
-## Shariah/accounting/purification limitations
+## Shariah / accounting / purification limitations
 
 Owlfolio is Shariah-by-design, but the alpha is not a fatwa engine, broker, tax
 system, or accounting firm:
@@ -206,10 +240,11 @@ system, or accounting firm:
 
 ## Development rules
 
-- Use TypeScript/pnpm commands, not the retired Python `owlfolio` CLI instructions.
-- Write tests before behavior changes; confirm RED before implementation.
-- Keep runtime/generated artifacts out of commits: `data/`, `.next/`, `test-results/`, `playwright-report/`, `*.tsbuildinfo`, `.playwright-runtime/`, `.live-openai-runtime/`, `.worktrees/`.
-- Do not raise provider support claims above the latest certification report.
+- TypeScript/pnpm only; the old Python `owlfolio` CLI instructions are retired.
+- TDD for behavior changes: failing test first, confirm RED, then implement.
+- Keep runtime/generated artifacts out of commits: `data/`, `.next/`, `test-results/`, `playwright-report/`, `*.tsbuildinfo`, `.playwright-runtime/`, `.worktrees/`.
+- Never raise provider support claims above the latest certification report.
 - Keep provider/worker-authored drafts separate from explicit user-authored ledger transitions.
+- No secrets in git, logs, or provider reports.
 
 MIT — see `LICENSE`.
