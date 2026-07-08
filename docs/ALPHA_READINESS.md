@@ -29,8 +29,10 @@ Scope: automation-first local-use candidate readiness for the TypeScript/pnpm Ow
 > - **Honest test posture:** the tiered model setup is designed but NOT yet exercised end-to-end;
 >   nearly all live testing ran through OpenRouter with a single routed model, and the other providers
 >   remain experimental and largely unexercised.
-> - **Known issue:** two Playwright e2e specs currently fail (monthly accounting, workflow intake —
->   under diagnosis); the unit/integration suite (2,400+ tests) is the green gate.
+> - **e2e green again (2026-07-08):** the two failing specs (monthly accounting, workflow intake)
+>   shared one root cause — the on-demand price-check button (a `<div>`) nested inside a `<p>` on the
+>   watchlist/portfolio pages, invalid HTML that failed hydration and swallowed form interactions.
+>   Fixed; the suite is 8/8.
 
 ## Release position
 
@@ -118,7 +120,7 @@ Current gate result (2026-07-05, re-review merge closeout):
 - `corepack pnpm lint`: passed with `--max-warnings=0` across the touched packages.
 - `corepack pnpm audit --filter @owlfolio/web --prod --audit-level moderate`: passed, no known vulnerabilities.
 - `NODE_OPTIONS=--disable-warning=ExperimentalWarning corepack pnpm --filter @owlfolio/web exec next build`: passed.
-- `corepack pnpm e2e`: **2 failed / 6 passed (2026-07-08)** — the monthly-accounting and workflow-intake specs remain under diagnosis (the demo-mode spec was removed with demo mode; the onboarding specs were fixed). Treat the unit/integration suite as the green gate until fixed.
+- `corepack pnpm e2e`: **8/8 passed (2026-07-08)** — the monthly-accounting and workflow-intake specs were fixed (one shared hydration root cause on the watchlist/portfolio pages).
 
 Known warning observed during `next build`: Next/Turbopack emitted one NFT/import-trace warning around local filesystem helpers (`next.config.mjs`, `appConfigStore`, `onboarding`, `api/testing/reset`). The build exited 0 and no generated/runtime artifacts appeared in git status; keep this as a known warning rather than a release blocker unless it expands, changes behavior, or starts tracing sensitive runtime files.
 

@@ -19,14 +19,14 @@ afterEach(async () => { process.env = { ...originalEnv }; await rm(tempDir, { fo
 describe('POST /api/discovery/run', () => {
   it('spawns discovery and returns 202', async () => {
     const spawn = vi.fn()
-    const res = await POST(new Request('http://localhost/api/discovery/run', { method: 'POST' }), { spawn } as never)
+    const res = await POST(new Request('http://localhost/api/discovery/run', { method: 'POST' }), undefined, { spawn } as never)
     expect(res.status).toBe(202)
     expect(await res.json()).toEqual({ started: true })
     expect(spawn).toHaveBeenCalledTimes(1)
   })
   it('returns 409 when unconfigured', async () => {
     process.env.OWLFOLIO_APP_CONFIG_PATH = join(tempDir, 'missing.json')
-    const res = await POST(new Request('http://localhost/api/discovery/run', { method: 'POST' }), { spawn: vi.fn() } as never)
+    const res = await POST(new Request('http://localhost/api/discovery/run', { method: 'POST' }), undefined, { spawn: vi.fn() } as never)
     expect(res.status).toBe(409)
   })
 })

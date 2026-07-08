@@ -142,9 +142,7 @@ describe('/api/prices/refresh', () => {
       store.close()
     }
 
-    const res = await POST(
-      new Request('http://localhost/api/prices/refresh', { method: 'POST' }),
-      { priceSource: fakeSource({ MSFT: 420 }) },
+    const res = await POST(new Request('http://localhost/api/prices/refresh', { method: 'POST' }), undefined, { priceSource: fakeSource({ MSFT: 420 }) },
     )
     expect(res.status).toBe(200)
     const body = await res.json() as { refreshed: string[]; unavailable: string[]; buy_zone_hits: string[] }
@@ -156,9 +154,7 @@ describe('/api/prices/refresh', () => {
     // Point config path at a nonexistent file → getOnboardingState returns unconfigured (is_initialized: false)
     process.env.OWLFOLIO_APP_CONFIG_PATH = join(tempDir, 'no-such-config.json')
 
-    const res = await POST(
-      new Request('http://localhost/api/prices/refresh', { method: 'POST' }),
-      {},
+    const res = await POST(new Request('http://localhost/api/prices/refresh', { method: 'POST' }), undefined, {},
     )
     expect(res.status).toBe(409)
     const body = await res.json() as { error: string }

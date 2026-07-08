@@ -23,12 +23,13 @@ export default async function PortfolioPage() {
 
   return (
     <main className="owl-route-frame owl-route-frame-wide">
-      <p className="owl-route-back-row">
+      {/* div, not p: RefreshPricesButton renders a <div>, and <p> cannot contain block elements. */}
+      <div className="owl-route-back-row">
         <a className="owl-back-link owl-focusable" href="/">
           ← Back to command center
         </a>
         <RefreshPricesButton />
-      </p>
+      </div>
       <PortfolioPanel
         holdings={holdings}
         mode={state.config.mode}
