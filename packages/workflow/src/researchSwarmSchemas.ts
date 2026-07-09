@@ -388,20 +388,30 @@ export const RISKS_RECENCY_NOTE =
 export const CIRCLE_COMPETENCE_PROMPT =
   `You are the Buffett-Munger CIRCLE-OF-COMPETENCE gate. The question is NOT "do I understand this `
   + `business?" — it is "are THIS business's cashflows DURABLY PREDICTABLE enough to value with confidence?". `
-  + `These are DIFFERENT: understanding the business is NOT the same as competence to value it. A business you `
-  + `understand well but whose cashflows are CYCLICAL, COMMODITY-DRIVEN, or otherwise UNPREDICTABLE (think a `
-  + `well-understood memory-chip maker whose earnings swing with a commodity price cycle) is NOT durably `
-  + `predictable — that is OUTSIDE the circle (set aside), and it is a VALID, COMMON, CORRECT Buffett answer. `
+  + `These are DIFFERENT: understanding the business is NOT the same as competence to value it. `
+  + `BOTH answers are equally valid Buffett outputs when demonstrated: setting a genuinely unpredictable `
+  + `business aside is correct, and judging a genuinely durable business in-circle is EQUALLY correct — do `
+  + `not treat "outside" as the safe answer. `
   + `You must DEMONSTRATE your judgment, not assert it: cite (from primary filings) the specific DRIVERS that `
   + `make this business's cashflows DURABLE/predictable (cashflow_drivers — each with concrete TEXT describing `
   + `the driver AND a citation: the source_id of a VERIFIED primary source you fetched) AND what would make `
   + `those cashflows UNPREDICTABLE (predictability_breakers — each ALSO with concrete TEXT + a cited verified `
   + `primary source; this clause is held to the SAME rigor as the drivers — do NOT hand-wave it as prose, and `
-  + `do NOT omit the text). Then set cashflow_predictability: 'durably_predictable' ONLY if the drivers `
-  + `genuinely support durable predictability AND the breakers are not dominant; otherwise 'not_predictable' `
-  + `(you understand it but the cashflows are not durably predictable) or 'uncertain'. If you cannot GROUND `
-  + `BOTH clauses, you are OUTSIDE the circle (the harness fails closed). Do NOT rationalize predictability you `
-  + `cannot demonstrate. Gather your own primary sources and return them in proposed_sources with real URLs; `
+  + `do NOT omit the text). IMPORTANT — the breakers you were required to list do NOT by themselves imply `
+  + `unpredictability: EVERY durable business has real, citable breakers (litigation, competition, regulation, `
+  + `technology shifts). The judgment is whether the DRIVERS dominate THROUGH A FULL ECONOMIC CYCLE, not `
+  + `whether breakers exist. CALIBRATION for cashflow_predictability: 'durably_predictable' = the core `
+  + `revenue is recurring/contractual/network/consumer-staple in nature and owner earnings would stay `
+  + `recognizably stable across a decade INCLUDING recessions (think a dominant beverage brand, a `
+  + `warehouse-club membership model, a payments network, a toll-road-like franchise) — ordinary cyclical `
+  + `wiggle and headline risks do NOT disqualify it; 'not_predictable' = earnings are DOMINATED by forces `
+  + `you cannot forecast — commodity prices, credit/issuance cycles, binary product or legal outcomes `
+  + `(think a memory-chip maker whose earnings swing with a commodity price cycle); 'uncertain' = you `
+  + `genuinely CANNOT make the through-cycle judgment from the filings — it is NOT a safe middle ground `
+  + `for "the business has risks", and choosing it because breakers exist is a MISCALIBRATION. If you `
+  + `cannot GROUND BOTH clauses, you are OUTSIDE the circle (the harness fails closed). Do NOT rationalize `
+  + `predictability you cannot demonstrate — and equally, do NOT manufacture doubt you cannot ground. `
+  + `Gather your own primary sources and return them in proposed_sources with real URLs; `
   + `cite real grounded source_ids in every citation field. Also give competence_reasoning (your narrative).`
 
 // Lanes that receive the primary-filing data injection (they consume hard financials). The MOAT lane is
