@@ -80,6 +80,7 @@ export const domainEventTypes = [
   'research_case_archived',
   'research_case_re_review_recorded',
   'price_snapshot_recorded',
+  'shariah_gate_judged',
 ] as const
 
 export type DomainEventType = (typeof domainEventTypes)[number]
@@ -870,6 +871,31 @@ export const domainEventContracts: readonly DomainEventContract[] = [
     actor_types: ['user', 'worker'],
     projection_owner: 'portfolio',
     payload_fields: ['snapshot_id', 'ticker', 'price_per_share', 'currency', 'as_of', 'source', 'checked_at'],
+  },
+  {
+    // Restructure Phase 1: the FRONT Shariah gate — a provider-authored judgment recorded BEFORE any
+    // deep-dive lane spend. allowed=false is a hard stop (sector non-compliant, or the deterministic
+    // AAOIFI ratio verdict FAILs); gate_incomplete=true marks a pass outage that proceeded VISIBLY
+    // undetermined (never fabricated compliance, never a self-outage block). stage_cost carries the
+    // per-stage spend the future scheduler's unattended-spend policy will read.
+    event_type: 'shariah_gate_judged',
+    aggregate_type: 'research_case',
+    actor_type: 'provider',
+    projection_owner: 'worker_status',
+    payload_fields: [
+      'shariah_gate_id',
+      'research_case_id',
+      'company_id',
+      'ticker',
+      'allowed',
+      'sector_status',
+      'impermissible_income',
+      'ratio_verdict',
+      'gate_incomplete',
+      'reason',
+      'corpus_source_ids',
+      'stage_cost',
+    ],
   },
 ] as const
 
