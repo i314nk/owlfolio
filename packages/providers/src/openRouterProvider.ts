@@ -482,32 +482,54 @@ export class OpenRouterProvider implements Provider {
     }
 
     // ---- Phase 2: structured synthesis (json schema, NO tools) ----
-    const synthesis = await this.createChatCompletion(
-      request,
-      {
-        response_format: {
-          type: 'json_schema',
-          json_schema: {
-            name: request.response_format.kind === 'json-schema' ? request.response_format.schema_name : 'owlfolio_structured_response',
-            strict: true,
-            schema: toStrictJsonSchema(z.toJSONSchema(schema)),
-          },
+    // Final synthesis with ONE schema-repair retry (live find: Kimi K2 Thinking returned a circle-gate
+    // object missing required judgment fields and the whole run died on first parse). On validation
+    // failure the model gets its own reply back plus the exact validation errors and one chance to
+    // return corrected JSON — a judgment field is never invented harness-side. A second failure throws.
+    const synthesisFormat = {
+      response_format: {
+        type: 'json_schema' as const,
+        json_schema: {
+          name: request.response_format.kind === 'json-schema' ? request.response_format.schema_name : 'owlfolio_structured_response',
+          strict: true,
+          schema: toStrictJsonSchema(z.toJSONSchema(schema)),
         },
       },
-      [
-        ...messages,
-        {
-          role: 'user',
-          content:
-            'Now produce your final answer as JSON matching the required schema. Cite ONLY the source ids surfaced by the tool results above; do not invent or cite any source you did not fetch through the tools.',
-        },
-      ],
-    )
-    const truncated = truncatedReasoningDiagnostic(synthesis, this.label)
-    if (truncated !== undefined) {
-      throw new Error(`Structured output validation failed: ${truncated}`)
     }
-    const analysis = this.parseStructured(synthesis, schema)
+    let synthesisMessages = [
+      ...messages,
+      {
+        role: 'user' as const,
+        content:
+          'Now produce your final answer as JSON matching the required schema. Cite ONLY the source ids surfaced by the tool results above; do not invent or cite any source you did not fetch through the tools.',
+      },
+    ]
+    let analysis: T | undefined
+    let lastParseError: Error | undefined
+    for (let attempt = 0; attempt < 2 && analysis === undefined; attempt++) {
+      const synthesis = await this.createChatCompletion(request, synthesisFormat, synthesisMessages)
+      const truncated = truncatedReasoningDiagnostic(synthesis, this.label)
+      if (truncated !== undefined) {
+        throw new Error(`Structured output validation failed: ${truncated}`)
+      }
+      try {
+        analysis = this.parseStructured(synthesis, schema)
+      } catch (error) {
+        lastParseError = error instanceof Error ? error : new Error(String(error))
+        observations.push(this.observation('running', `${this.label} structured output failed validation; requesting a corrected response (attempt ${attempt + 1}).`))
+        synthesisMessages = [
+          ...synthesisMessages,
+          { role: 'assistant' as const, content: this.messageTextFrom(synthesis) },
+          {
+            role: 'user' as const,
+            content: `Your previous response failed schema validation with these errors:\n${lastParseError.message}\nReturn ONLY the corrected JSON object matching the required schema — include EVERY required field and use only the allowed enum values.`,
+          },
+        ]
+      }
+    }
+    if (analysis === undefined) {
+      throw lastParseError ?? new Error('Structured output validation failed')
+    }
     observations.push(this.observation('completed', `${this.label} completed the grounded tool loop.`))
 
     return {

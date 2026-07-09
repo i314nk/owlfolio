@@ -11,7 +11,7 @@ import { runGroundedAgent, ProposedSourcesSchema, runLaneSwarm, runStrategyResea
 import type { AnnualFacts } from '../secEdgar'
 import { buffettMungerDeepDiveLanes } from '../strategyResearchPipeline'
 import { groundProposedSourcesDeterministic, type CapturedSource } from '../sourceGrounding'
-import { CashflowDriverSchema, PredictabilityBreakerSchema } from '../researchSwarmSchemas'
+import { CIRCLE_COMPETENCE_PROMPT, CashflowDriverSchema, PredictabilityBreakerSchema } from '../researchSwarmSchemas'
 import { ENGINE_VERSION } from '@owlfolio/strategies/engineVersion'
 
 // MARGIN-OF-SAFETY AUDIT SURFACE — the synthesis decision now REQUIRES key_wrong_assumption +
@@ -5897,5 +5897,30 @@ describe('margin-of-safety joint judgment (synthesis-owned: price AND/OR moat)',
     }, 'mos-guard2-ungrounded')
     expect(cp?.valuation?.moat_passes_gate).toBe(false)
     expect(cp?.margin_of_safety_moat_ungrounded).toBe(true)
+  })
+})
+
+describe('circle-gate prompt calibration (live find: Kimi K2 marked Visa "uncertain")', () => {
+  it('the rubric is symmetric, decouples the evidence floor from the verdict, and anchors the enum', () => {
+    // Live miscalibration: the old rubric validated only the set-aside, and the 3/3 evidence floor
+    // FORCED three well-cited breakers which then read as "dominant" — Visa came back 'uncertain' on
+    // real-but-ordinary risks (interchange litigation). The rubric must state that required breakers
+    // do not imply unpredictability and that 'uncertain' is not a safe harbor.
+    expect(CIRCLE_COMPETENCE_PROMPT).toContain('BOTH answers are equally valid')
+    expect(CIRCLE_COMPETENCE_PROMPT).toContain('do NOT by themselves imply')
+    expect(CIRCLE_COMPETENCE_PROMPT).toContain('THROUGH A FULL ECONOMIC CYCLE')
+    expect(CIRCLE_COMPETENCE_PROMPT).toContain('payments network')
+    expect(CIRCLE_COMPETENCE_PROMPT).toContain('NOT a safe middle ground')
+    expect(CIRCLE_COMPETENCE_PROMPT).toContain('do NOT manufacture doubt')
+  })
+})
+
+describe('prompt calibration fixes (2026-07-09 audit)', () => {
+  it('synthesis decouples the mandated audit artifacts from the verdict', async () => {
+    const src = await readFile(new URL('../researchSwarm.ts', import.meta.url), 'utf8')
+    expect(src).toContain('do NOT argue against your own verdict')
+    expect(src).toContain('not evidence of fragility')
+    // Moat cross-check guards BOTH directions.
+    expect(src).toContain('do NOT manufacture narrowness the filings do not support')
   })
 })

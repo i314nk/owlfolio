@@ -256,6 +256,12 @@ export type GuidedConnectionSelectProps = {
    * (fetch failed / non-OpenRouter) falls back to the curated tier-grouped `<select>`.
    */
   openRouterModels?: OpenRouterCatalogModel[]
+  /**
+   * The SAVED capability verdict for the ACTIVE provider+model (read from the persisted capability-
+   * probe / certification reports). Rendered as the top-left note of the model selection; absent →
+   * the note is omitted entirely (e.g. onboarding contexts that don't thread it).
+   */
+  modelCapability?: { state: 'capable' | 'failed' | 'unverified'; summary?: string; verified_at?: string; failure_reasons?: string[] }
 }
 
 /**
@@ -270,12 +276,27 @@ export function GuidedConnectionSelect({
   onSelectConnection,
   onSelectModel,
   openRouterModels = [],
+  modelCapability,
 }: GuidedConnectionSelectProps) {
   const selectedConnection = connectionOptions.find((option) => isConnectionSelected(option, selectedProviderId))
+
+  // Top-left capability note: the RECORDED probe verdict for the active model, with the probe button
+  // beside it. Verify once — the verdict is persisted as a certification report and read back here.
+  // Clicking Verify fetches the probe with a live spinner and surfaces the WHY on failure (both the
+  // failed scenarios' recorded reasons and any probe-run error).
+  // KEYED BY THE ACTIVE MODEL: the probe holds its verdict in component state (so a just-run probe
+  // updates in place), which would otherwise survive a router.refresh() and keep showing the PREVIOUS
+  // model's verdict after a new model is Set. The key remounts it, adopting the fresh server-computed
+  // note for the newly saved model.
+  const capabilityNote = modelCapability === undefined ? null : createElement(ModelCapabilityProbe, {
+    key: `${selectedProviderId}:${selectedModelId ?? 'none'}`,
+    initial: modelCapability,
+  })
 
   return createElement(
     'div',
     { 'aria-label': 'Provider and model selection', style: { display: 'grid', gap: '1rem' } },
+    capabilityNote,
     createElement(
       'div',
       { style: cardGridStyle },
@@ -460,5 +481,93 @@ function OpenRouterModelPicker({ provider, selectedModelId, onSelectModel, liveM
       { style: modelHintStyle },
       `Searching OpenRouter's reasoning models the harness can drive (${liveModels.length} — reasoning + tool-calling + structured output; non-reasoning and incompatible models are filtered out). Curated picks are recommended; any other model is your call — it runs experimental until you decide it fits the job.`,
     ),
+  )
+}
+
+// ── Model capability probe (stateful) ────────────────────────────────────────
+
+type CapabilityNoteView = { state: 'capable' | 'failed' | 'unverified'; summary?: string; verified_at?: string; failure_reasons?: string[] }
+
+/**
+ * The capability note + Verify button. Runs the probe via fetch so the user gets a live spinner
+ * instead of a frozen page, updates the verdict in place from the response, and shows the honest WHY
+ * on failure: per-scenario recorded reasons for a completed-but-failing probe, or the route's error
+ * for a run that could not complete. The verdict itself is persisted server-side (certification
+ * report), so a reload shows the same state.
+ */
+export function ModelCapabilityProbe({ initial }: { initial: CapabilityNoteView }) {
+  const [note, setNote] = useState<CapabilityNoteView>(initial)
+  const [running, setRunning] = useState(false)
+  const [probeError, setProbeError] = useState<string | undefined>(undefined)
+
+  async function onVerify(): Promise<void> {
+    setRunning(true)
+    setProbeError(undefined)
+    try {
+      const response = await fetch('/api/providers/verify-model', { method: 'post', headers: { accept: 'application/json' } })
+      const body = await response.json().catch(() => ({}))
+      if (!response.ok) {
+        setProbeError(body?.error?.message ?? `verification failed (HTTP ${response.status})`)
+        return
+      }
+      const scenarios = (body.scenarios ?? []) as { scenario_id: string; passed: boolean; status: string; details?: string }[]
+      const passed = scenarios.filter((entry) => entry.passed).length
+      const summary = `${passed}/${scenarios.length} probe scenarios passed`
+      if (passed === scenarios.length && scenarios.length > 0) {
+        setNote({ state: 'capable', summary })
+      } else {
+        setNote({
+          state: 'failed',
+          summary,
+          failure_reasons: scenarios
+            .filter((entry) => !entry.passed)
+            .map((entry) => `${entry.scenario_id}: ${entry.details !== undefined && entry.details.length > 0 ? entry.details : entry.status}`),
+        })
+      }
+    } catch (caughtError) {
+      setProbeError(caughtError instanceof Error ? caughtError.message : 'verification failed')
+    } finally {
+      setRunning(false)
+    }
+  }
+
+  const tone = note.state === 'capable' ? '#4ade80' : note.state === 'failed' ? 'var(--owl-color-risk-bright)' : 'var(--owl-color-gold-bright)'
+  const label = note.state === 'capable'
+    ? `✓ Model verified capable — ${note.summary ?? ''}`
+    : note.state === 'failed'
+      ? `✗ Model failed the capability probe — ${note.summary ?? ''}`
+      : 'Model not verified yet — run the capability probe'
+
+  return createElement(
+    'div',
+    { 'data-testid': 'model-capability-note', style: { display: 'grid', gap: '0.45rem' } },
+    createElement(
+      'div',
+      { style: { alignItems: 'center', display: 'flex', flexWrap: 'wrap', gap: '0.6rem' } },
+      createElement('span', { style: { color: tone, fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-sm)', fontWeight: 700 } }, label),
+      running
+        ? createElement(
+            'span',
+            { 'data-testid': 'verify-model-running', style: { alignItems: 'center', display: 'inline-flex', gap: '0.45rem', color: 'var(--owl-color-gold-bright)', fontSize: 'var(--owl-text-sm)' } },
+            createElement('span', { className: 'owl-run-progress-spinner', 'aria-hidden': true }),
+            'Verifying — running the probe scenarios…',
+          )
+        : createElement(
+            'button',
+            { className: 'owl-button owl-button-secondary owl-focusable', type: 'button', 'data-testid': 'verify-model-button', onClick: () => void onVerify() },
+            note.state === 'unverified' ? 'Verify model' : 'Re-verify model',
+          ),
+      createElement('span', { style: { color: 'var(--owl-color-quiet)', fontSize: 'var(--owl-text-2xs)' } }, 'Runs the tool-loop + structured-output probe against the saved model. Uses provider quota.'),
+    ),
+    note.state === 'failed' && (note.failure_reasons?.length ?? 0) > 0
+      ? createElement(
+          'ul',
+          { 'data-testid': 'verify-model-failure-reasons', style: { color: 'var(--owl-color-risk-bright)', fontSize: 'var(--owl-text-sm)', margin: 0, paddingLeft: '1.1rem' } },
+          ...note.failure_reasons!.map((reason, index) => createElement('li', { key: index }, reason)),
+        )
+      : null,
+    probeError === undefined
+      ? null
+      : createElement('p', { 'data-testid': 'verify-model-error', style: { color: 'var(--owl-color-risk-bright)', fontSize: 'var(--owl-text-sm)', margin: 0 } }, `Probe could not complete: ${probeError}`),
   )
 }

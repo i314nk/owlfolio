@@ -454,3 +454,48 @@ describe('OpenRouterProvider (grounded multi-step tool loop — runToolLoop)', (
     await expect(provider.runToolLoop(toolRequest, schema, executor)).rejects.toThrow(/truncated|reasoning budget/i)
   })
 })
+
+describe('structured-output repair retry (live find: Kimi K2 missing judgment fields)', () => {
+  it('feeds validation errors back and accepts the corrected second response', async () => {
+    const RepairSchema = z.object({ verdict: z.string().min(1), reasons: z.array(z.string()).min(1) })
+    let synthesisCalls = 0
+    const bodies: any[] = []
+    const fetchImpl = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+      const body = JSON.parse(init?.body as string)
+      bodies.push(body)
+      // Gather-phase calls (no json_schema format) return plain text; the FIRST synthesis call omits
+      // a required field, the repair call returns the corrected object.
+      if (body.response_format?.type !== 'json_schema') {
+        return jsonResponse({ choices: [{ message: { content: 'gathered.' } }] })
+      }
+      synthesisCalls += 1
+      const content = synthesisCalls === 1
+        ? JSON.stringify({ verdict: 'WATCH' })
+        : JSON.stringify({ verdict: 'WATCH', reasons: ['fixed'] })
+      return jsonResponse({ choices: [{ message: { content } }] })
+    })
+    const provider = new OpenRouterProvider({ env: { OPENROUTER_API_KEY: 'k' }, fetch: fetchImpl as unknown as typeof fetch })
+    const run = await provider.runToolLoop(
+      { ...request, task_kind: 'tool-loop', response_format: { kind: 'json-schema', schema_name: 'Repair' } },
+      RepairSchema,
+      { executeTool: async () => ({ ok: true }) } as never,
+    )
+    expect(run.analysis).toEqual({ verdict: 'WATCH', reasons: ['fixed'] })
+    // The repair request carried the validation errors + the model's own prior reply.
+    const repairBody = bodies[bodies.length - 1]
+    const repairPrompt = JSON.stringify(repairBody.messages)
+    expect(repairPrompt).toContain('failed schema validation')
+    expect(repairPrompt).toContain('reasons')
+  })
+
+  it('a second failure still throws (no infinite repair, no invented judgment)', async () => {
+    const RepairSchema = z.object({ verdict: z.string().min(1), reasons: z.array(z.string()).min(1) })
+    const fetchImpl = vi.fn(async () => jsonResponse({ choices: [{ message: { content: JSON.stringify({ verdict: 'WATCH' }) } }] }))
+    const provider = new OpenRouterProvider({ env: { OPENROUTER_API_KEY: 'k' }, fetch: fetchImpl as unknown as typeof fetch })
+    await expect(provider.runToolLoop(
+      { ...request, task_kind: 'tool-loop', response_format: { kind: 'json-schema', schema_name: 'Repair' } },
+      RepairSchema,
+      { executeTool: async () => ({ ok: true }) } as never,
+    )).rejects.toThrow(/Structured output validation failed/)
+  })
+})

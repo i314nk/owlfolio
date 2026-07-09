@@ -6,6 +6,7 @@ import { createElement } from 'react'
 import { ProviderKeysPanel } from '../../../components/ProviderKeysPanel'
 import { ActiveModeIndicator } from '../../../components/ActiveModeIndicator'
 import { GuidedSetupPanel } from '../../../components/GuidedSetupPanel'
+import { getModelCapabilityNote } from '../../../lib/modelCapability'
 import { BoundariesFooter } from '../../../components/designSystem'
 import { getOnboardingProviderOptions, getOnboardingState } from '../../../lib/onboarding'
 import { buildProviderKeysPanelProps } from '../../../lib/providerKeysView'
@@ -70,6 +71,8 @@ export default async function ProviderKeysSettingsPage() {
       initialIsInitialized: state.is_initialized,
       providerOptions,
       openRouterModels,
+      // The SAVED capability verdict for the active provider+model (persisted by the probe).
+      modelCapability: await getModelCapabilityNote(state.config.provider.provider_id, state.config.provider.model_id),
     }),
     createElement(ProviderKeysPanel, props),
     createElement(ProviderKeysCopyScript, {}),

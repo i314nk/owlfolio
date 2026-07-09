@@ -17,7 +17,32 @@ export const ProposedSourceSchema = z.object({
   excerpt: z.string().min(1),
   citation_locator: z.string().optional(),
 })
-export const ProposedSourcesSchema = z.array(ProposedSourceSchema).min(1)
+
+/**
+ * SANITIZED proposed-sources array (live find: Kimi K2 Thinking killed a full research run by
+ * emitting one proposed_sources entry with no title/url). The only LOAD-BEARING field is the url —
+ * every proposal is still harness-fetched, SSRF-guarded, and hash-verified before it can be cited, so
+ * a filled-in display title can never launder anything. Salvage rule: an entry with a usable url keeps
+ * it and gets display fields defaulted from it; an entry WITHOUT a url is ungroundable and is dropped.
+ * If nothing survives, min(1) still fails — a model that proposed no groundable source is a real
+ * failure, not a flake.
+ */
+export const ProposedSourcesSchema = z.preprocess((value) => {
+  if (!Array.isArray(value)) return value
+  return value.flatMap((entry) => {
+    if (entry === null || typeof entry !== 'object') return []
+    const record = entry as Record<string, unknown>
+    const url = typeof record['url'] === 'string' && record['url'].length > 0 ? record['url'] : undefined
+    if (url === undefined) return []
+    return [{
+      source_id: typeof record['source_id'] === 'string' && record['source_id'].length > 0 ? record['source_id'] : url,
+      title: typeof record['title'] === 'string' && record['title'].length > 0 ? record['title'] : url,
+      url,
+      excerpt: typeof record['excerpt'] === 'string' && record['excerpt'].length > 0 ? record['excerpt'] : 'model-proposed source (no excerpt returned)',
+      ...(typeof record['citation_locator'] === 'string' ? { citation_locator: record['citation_locator'] } : {}),
+    }]
+  })
+}, z.array(ProposedSourceSchema).min(1))
 
 export type GroundFn = (
   sources: z.infer<typeof ProposedSourcesSchema>,

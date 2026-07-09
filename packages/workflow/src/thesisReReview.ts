@@ -263,7 +263,7 @@ function buildReReviewPrompt(
     focusHints,
     priorCorpusLine,
     'For each recorded trigger return {trigger, tripped: yes|no|unclear, evidence_citation, reasoning} — a yes/no judgment MUST cite a verified NEW-filing source_id; use "unclear" when the new filings do not speak to the trigger.',
-    'Set overall_assessment: INTACT (the VERIFIED content affirmatively shows no load-bearing claim changed — if nothing was assessable, the harness records INCONCLUSIVE instead; do not strain to sound decisive), WEAKENED (name the weakened_dimension), or BROKEN (name the broken_claim contradicted by the new filings).',
+    'Set overall_assessment: INTACT (the VERIFIED content affirmatively shows no load-bearing claim changed — if nothing was assessable, the harness records INCONCLUSIVE instead; do not strain to sound decisive), WEAKENED (name the weakened_dimension), or BROKEN (name the broken_claim contradicted by the new filings). Guard BOTH directions: do not over-interpret ordinary noise into WEAKENED/BROKEN, and do not under-interpret a genuine contradiction into INTACT — judge what the verified text actually shows.',
     'List every cited id in source_ids; cite ONLY verified ids. Return only the structured JSON fields.',
   ].filter((line) => line.length > 0).join(' ')
 }

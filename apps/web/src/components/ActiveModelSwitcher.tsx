@@ -98,5 +98,25 @@ export function ActiveModelSwitcher({ switcher }: ActiveModelSwitcherProps) {
         ),
       ),
     ),
+    // The saved capability-probe verdict for the active model, right under the model select — the
+    // workspace answers "is this model verified?" at a glance (verify/re-verify on Settings → Providers).
+    createElement('span', {
+      'data-testid': 'workspace-model-capability',
+      style: {
+        color: switcher.active_model_capability === 'capable'
+          ? '#4ade80'
+          : switcher.active_model_capability === 'failed'
+            ? 'var(--owl-color-risk-bright)'
+            : 'var(--owl-color-gold-bright)',
+        fontFamily: 'var(--owl-font-mono)',
+        fontSize: 'var(--owl-text-2xs)',
+        letterSpacing: '0.04em',
+      },
+    },
+      switcher.active_model_capability === 'capable'
+        ? '✓ verified capable'
+        : switcher.active_model_capability === 'failed'
+          ? '✗ failed capability probe'
+          : 'model unverified'),
   )
 }

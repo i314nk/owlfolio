@@ -3,6 +3,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 
 import {
+  GuidedConnectionSelect,
   buildConnectionOptions,
   buildTierGroupedModelOptions,
   providerModeForOption,
@@ -172,5 +173,38 @@ describe('GuidedConnectionSelect helpers', () => {
     expect(html).toContain('Set model')
     // With no model set yet, the confirmation line prompts the user to Set one.
     expect(html).toContain('No model set yet')
+  })
+})
+
+describe('model capability note (the saved probe verdict)', () => {
+  const noteProps = (modelCapability: { state: 'capable' | 'failed' | 'unverified'; summary?: string }) => ({
+    connectionOptions: [],
+    selectedProviderId: 'openrouter' as const,
+    selectedModelId: 'z-ai/glm-5.2',
+    onSelectConnection: () => {},
+    onSelectModel: () => {},
+    modelCapability,
+  })
+
+  it('renders the recorded verdict top-of-selection with the Verify button', () => {
+    const html = renderToStaticMarkup(createElement(GuidedConnectionSelect, noteProps({ state: 'capable', summary: '4/4 probe scenarios passed' })))
+    expect(html).toContain('data-testid="model-capability-note"')
+    expect(html).toContain('Model verified capable — 4/4 probe scenarios passed')
+    expect(html).toContain('data-testid="verify-model-button"')
+    expect(html).toContain('Re-verify model')
+  })
+
+  it('failed state shows the per-scenario WHY; unverified is honest; no prop → no note', () => {
+    const failed = renderToStaticMarkup(createElement(GuidedConnectionSelect, noteProps({
+      state: 'failed', summary: '2/4 probe scenarios passed',
+      failure_reasons: ['multi-step-tool-loop: provider declared the capability unsupported'],
+    } as never)))
+    expect(failed).toContain('failed the capability probe')
+    expect(failed).toContain('data-testid="verify-model-failure-reasons"')
+    expect(failed).toContain('multi-step-tool-loop: provider declared the capability unsupported')
+    expect(renderToStaticMarkup(createElement(GuidedConnectionSelect, noteProps({ state: 'unverified' })))).toContain('not verified yet')
+    const { modelCapability: _unused, ...bare } = noteProps({ state: 'unverified' })
+    void _unused
+    expect(renderToStaticMarkup(createElement(GuidedConnectionSelect, bare))).not.toContain('model-capability-note')
   })
 })
