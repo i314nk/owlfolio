@@ -173,3 +173,28 @@ currently lives in the quick-screen PROMPT; AAOIFI ratios compute in synthesis (
 **Do-not-break list:** ticker→company resolution (currently a quick-screen side effect — verify
 where company_id resolution happens and preserve it), the review-pause worker/UI flow
 (deep_dive_approval_pending event consumers), set-aside dossier coherence, old-case rendering.
+
+### S1b wiring spec (pinned 2026-07-09; S1a = commit 48aee5a)
+
+Insert in `runStrategyResearchSwarm` (researchSwarm.ts) immediately AFTER the pre-verified block
+build (`qsPreVerifiedSourcesBlock`, ~L655) and BEFORE the quick-screen call:
+
+1. `const shariahGateRuntime = resolveRoleRuntime('lane_shariah', provider, command)`
+2. `runShariahGatePhase(store, { research_case_id, company_id, ticker, model_id:
+   shariahGateRuntime.model_id, causation_event_id: researchCase.event_id }, { reasoningPass: () =>
+   runShariahReasoningPass(shariahGateRuntime.provider, { research_case_id, ticker, model_id,
+   laneDigest: [], corpusSourceIds: [...accumulated.values()].map(s => s.source_id),
+   preVerifiedSourceIds: qsPrimaryFilingSourceId ? [qsPrimaryFilingSourceId] : [],
+   impermissibleIncomeLines: qsFundamentals?.latest_annual?.impermissible_income_lines }, { ground,
+   grounding, readCorpus: accumulated }), corpusSourceIds, /* ratioInputs: SKIP in S1b — market cap
+   resolves later; synthesis recompute unchanged */ })`
+3. `if (!gate.allowed)`: emit the set-aside exactly like the quick-screen `isRejected` block
+   (~L751-843: buffett_munger_analysis_drafted PASS + decision + same return shape) with
+   rejectionReason = gate.reason, strategyCompliance 'NON_COMPLIANT', shariah_status from the gate —
+   read the FULL isRejected block first and mirror its return contract precisely.
+4. Orchestration test: swarm test fake returns sector_status 'non_compliant' from the Shariah-pass
+   schema → assert shariah_gate_judged(allowed:false) + PASS decision + ZERO quick-screen/lane events
+   … plus the happy path: gate open → the run proceeds exactly as before (event sequence unchanged
+   apart from the new leading gate event).
+5. NOTE: after S1b the reasoning pass runs TWICE per full run (gate + post-lane). Acceptable for one
+   slice; S2 dedupes by reusing the gate's judgment at synthesis when the corpus hash is unchanged.
