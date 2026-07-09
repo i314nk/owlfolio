@@ -133,3 +133,43 @@ existing projections/UI keep working, now with lens attribution for the dossier.
   USD correctly + a re-run shows the valuation artifact + T0 MoS grade on the dossier; phase 3 = a
   full run shows the four-lens panel with at least one honestly-clean lens.
 - Commit per slice on `pipeline-restructure`; PR at the end of each phase (owner merges).
+
+---
+
+## Phase 1 implementation notes (seam map, 2026-07-09)
+
+**Favorable finding:** the circle gate ALREADY runs before the lanes (researchSwarm.ts ~1160 circle →
+~1390 queueDeepDive → ~1413 lanes). Phase 1's surgery is therefore the QUICK-SCREEN REPLACEMENT, not
+a circle move. The Shariah reasoning pass currently runs AFTER lanes (~1715); the sector judgment
+currently lives in the quick-screen PROMPT; AAOIFI ratios compute in synthesis (~2814) and take
+`impermissible_income` (a model judgment) as input.
+
+**Slices:**
+- **S1 — the front Shariah gate**: new `shariah_gate_judged` event (contract + projection stage).
+  Composition: deterministic AAOIFI ratio math on fundamentals + market cap (computable pre-lane;
+  impermissible income UNDETERMINED at this point is fine — it refines later in the pass) + ONE
+  grounded model call = `runShariahReasoningPass` moved to the front, seeded with the pre-verified
+  EDGAR filing block (the same injection the quick screen gets today; no lanes exist yet so no
+  laneDigest — the relocation notes anticipated this). NON_COMPLIANT → the existing set-aside
+  dossier path (reuse the quick-screen short-circuit code at ~751-843, reworded reason).
+- **S2 — retire the quick screen**: remove the call + prompt; REDIRECT the causation chain
+  (`queued_for_deep_dive.causation_id` = quick_screen event → the shariah/circle gate event —
+  the riskiest coupling; thread the gate event id through). Keep `draftQuickScreen` code for
+  legacy replay only. The circle gate inherits gate-#2 position unchanged.
+- **S3 — the approval pause successor**: `quick_screen_approval` is retired from UI/route;
+  its SEMANTICS survive as `deep_dive_approval` ('automatic' | 'review', default 'review') applied
+  AFTER the two gates pass and BEFORE lane spend (the pause is now behind the cheap gates — better
+  than today). mergeAutomationSettings migrates the old key's value; the stale key is tolerated.
+- **S4 — taxonomy + copy tail**: researchCaseProjection gains 'shariah_gate_judged' stage
+  (legacy 'quick_screened' folds read-only); pipelineProjection PipelineStageKey 'quick_screen' →
+  'shariah_gate' (+ 'circle' exists); researchRunProgress already has 'circle'; PipelineObservatory
+  labels; Learn/strategy copy pins ("quick screen" → the two-gate story); e2e specs updated to the
+  new flow (they set quick_screen_approval: 'automatic' — becomes deep_dive_approval).
+- **S5 — cost stamping**: ProviderRunMetadata gains optional `input_tokens/output_tokens`
+  (OpenRouter runToolLoop captures usage from the API response but doesn't surface it — plumb it),
+  and every stage-event append site stamps `stage_cost: { provider_calls, input_tokens?,
+  output_tokens?, wall_ms }`.
+
+**Do-not-break list:** ticker→company resolution (currently a quick-screen side effect — verify
+where company_id resolution happens and preserve it), the review-pause worker/UI flow
+(deep_dive_approval_pending event consumers), set-aside dossier coherence, old-case rendering.
