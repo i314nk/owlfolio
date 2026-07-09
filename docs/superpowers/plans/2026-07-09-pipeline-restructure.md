@@ -1,0 +1,135 @@
+# Pipeline Restructure — gates first, focused passes, Munger lattice
+
+**Status:** approved direction (owner, 2026-07-09). Implementation on branch `pipeline-restructure`.
+**Prereqs (all landed):** Shariah gate A/B/C reliability slices; calibrated + k-sample circle gate;
+structured-output repair retry; partial-source salvage; capability probe; prompt-calibration audit.
+
+## Why
+
+The deep dive's spine has three structural debts, each proven by live dogfooding:
+
+1. **The quick screen is a fragile, redundant single point of failure.** One parse/auth failure kills
+   the run; its Shariah-activity + worth-it checks duplicate what the (now reliable) Shariah gate and
+   the (now calibrated) circle gate do better. Its rubric also carries a known pass-forward bias we
+   agreed NOT to fix because the stage is being retired.
+2. **Synthesis is overloaded.** One call owns verdict + the whole valuation judgment + the
+   margin-of-safety self-grade + break triggers + risks. The week's structured-output failures were
+   synthesis-shaped; the biggest schema fails most and dilutes attention per judgment.
+3. **Expensive lanes run before cheap gates.** Names that were never going to pass (non-compliant,
+   outside-circle) burn five lane calls first.
+
+Design rule throughout: **code computes, judgment proposes** — every judgment gets one focused call;
+everything gradable by arithmetic is graded by arithmetic.
+
+## Target spine
+
+```
+intake → SHARIAH GATE (deterministic sector exclusion + AAOIFI ratios; reasoning pass only if needed)
+       → CIRCLE GATE (calibrated k-sample; existing machinery, unchanged)
+       → 5 LANES in parallel (unchanged: moat, risks, management, business_quality, financial)
+       → VALUATION PASS (new focused call)
+       → T0 MARGIN-OF-SAFETY GRADE (deterministic)
+       → SYNTHESIS (slimmed: reconcile + verdict + MoS narrative + audit artifacts)
+       → MUNGER LATTICE PASS (reframed red team)
+       → decision draft → (existing: cross-checks, admit, watchlist…)
+```
+
+Lanes stay **parallel** (independence prevents anchoring); the **spine** is sequential where data
+dependencies exist. Set-asides at either gate produce the existing coherent set-aside dossier.
+
+---
+
+## Phase 1 — front-load the gates, retire the quick screen
+
+- Move the Shariah gate to the front: deterministic sector exclusion + AAOIFI ratio computation run
+  BEFORE any lane spend (they already exist — A/B/C made them reliable); `runShariahReasoningPass`
+  runs only when the deterministic result needs judgment, seeded with the grounded corpus (relocation
+  findings preserved in `~/.claude/plans/create-a-seperate-git-serialized-newell.md`).
+- Circle gate stays as-is (calibrated prompt, k-sample unanimity, evidence floors, settings) but is
+  now the SECOND gate; the quick screen's "worth-it" judgment is absorbed by it ("durably
+  predictable" is a stricter form of "worth a deep dive").
+- **Retire the quick screen** — the tail that must not be tripped over:
+  - Projections stay legacy-tolerant: old cases carry `quick_screen_drafted` events; folds keep
+    working (read-only compat, no new emissions).
+  - `quick_screen_approval` automation setting: remove from UI + settings route; `mergeAutomationSettings`
+    tolerates the stale persisted key (drop silently).
+  - E2e specs drive the quick-screen flow (`personal-workflow-intake`, `accounting-monthly` set
+    `quick_screen_approval: 'automatic'`) — update to the new gate flow.
+  - Pipeline page / research progress labels: stage taxonomy changes (quick_screen → shariah_gate +
+    circle_gate stages); update `researchRunProgress` labels + PipelineObservatory stage map.
+  - Learn/strategy copy pins ("quick screen is a lightweight Shariah-first gate…") — update copy + tests.
+- **Per-stage cost stamping (scheduler prerequisite):** every stage event gains
+  `stage_cost: { provider_calls, input_tokens?, output_tokens?, wall_ms }` (whatever the provider
+  reports; wall_ms always). Additive payload fields; contract doc updated. This is the data the
+  unattended-spend policy will be written against.
+
+## Phase 2 — the valuation pass + deterministic MoS
+
+- **New focused call `valuation_judgment_drafted`** between lanes and synthesis. Inputs: the financial
+  lane's grounded owner-earnings bridge (T0-computed), the resolved moat class, circle-gate
+  drivers/breakers. Owns exactly what synthesis carries today (moved, not redesigned):
+  `owner_earnings_basis` + citation (cite-checked), `assumed_growth` + rationale + citation
+  (cite-checked), `proposed_buy_below` (verbatim), `valuation_status` — with the existing
+  deterministic rails (market-implied-growth cross-check both directions, growth caps) unchanged.
+- **Foreign-filer FX (the deferred B follow-up) lands HERE:** the pass receives the reporting
+  currency + the ADR ratio context; fair-value/buy-below emitted in the PRICE currency with the FX
+  conversion computed by T0 code (never the model). NVO is the acceptance case (DKK fundamentals,
+  USD ADR).
+- **T0 margin-of-safety grade:** adequacy (`adequate|thin|inadequate`) becomes arithmetic — price
+  discount (buy-below vs reference value) measured against the required margin for the resolved moat
+  tier (the required-MoS-by-moat-class params already exist; post-mortems use them). The model no
+  longer grades its own margin. Synthesis keeps the NARRATIVE: which source (price/moat/both) the
+  margin rests on and why — judgment about substitution, not the grade.
+- **Synthesis slims** to reconciliation + verdict + `key_wrong_assumption`/`thesis_break_triggers`
+  (with the audit-bookkeeping decoupling line already shipped) + the MoS narrative, consuming the
+  valuation artifact.
+- **Cheap re-underwrite unlock:** the annual re-underwrite becomes gates + valuation pass + synthesis
+  on fresh numbers, REUSING lane findings when the re-review filing delta shows nothing qualitative
+  changed. (Design the events for it now; the re-underwrite wiring itself may be a follow-up.)
+
+## Phase 3 — the Munger lattice (red team reframed)
+
+One pass, fixed lens set, structured per-lens findings (NOT five provider calls):
+
+- **Inversion** — how does this fail? Attacks the recorded thesis AND the valuation artifact's
+  assumed_growth specifically.
+- **Incentives** — where do comp structure (grounded proxy) / insider behavior (Form 4 digest,
+  already computed) corrupt the exact metrics the thesis relies on?
+- **Psychology of misjudgment** — which classic biases is THIS thesis most exposed to (social proof,
+  authority halo, commitment to a prior verdict…)? ADVISORY-ONLY findings, labeled as reasoning.
+- **Second-order effects** — competitor/customer/supplier responses the thesis assumes away.
+
+Rules (learned this week): each lens states "no material finding" is an equally valid answer
+(symmetric framing — no manufactured objections); factual claims are cite-checked, psychology flags
+are advisory-labeled; the pass still emits ONE `strongest_objection` synthesized from the lenses so
+existing projections/UI keep working, now with lens attribution for the dossier.
+
+## Threaded throughout
+
+- **Insider refinements:** Form 4 sell-cluster counts as a STRONG re-review trigger in
+  `checkForNewFilings` (deterministic thresholds); the re-review pass gains a computed
+  "insider delta since decision" context block; the dossier insider card moves into the management
+  lane's section, promoting to the decision layer only when the cluster threshold trips.
+- **Stage-resume-friendly events:** each stage event carries enough (corpus refs, stage inputs hash)
+  that a future re-run can resume from the failed stage. Design-only this arc — no resume engine yet.
+- **Red-team/cross-check ordering:** moat + Shariah cross-checks unchanged; the lattice pass replaces
+  the red-team slot after synthesis.
+
+## Deliberately out of scope
+
+- The scheduler (next arc; consumes the cost stamps).
+- The dossier-as-argument display redesign (own arc after the stages settle; the lattice's
+  lens-attributed output is designed for it).
+- Provider fallback mid-run; partial-run resume ENGINE (events designed for it only).
+- Golden-set qualification button (queued separately).
+- Shariah cross-check "stricter-when-in-doubt" (owner policy, untouched).
+
+## Verification
+
+- TDD per slice; projections legacy-tolerance pinned (old quick-screen cases still render).
+- Full gates per phase: workspace suite, typecheck/lint 0, `next build`, e2e (updated specs) 8/8.
+- Live dogfood per phase on the sandbox: phase 1 = a non-compliant ticker + an outside-circle ticker
+  die cheaply at the gates (zero lane spend, coherent set-aside dossiers); phase 2 = NVO values in
+  USD correctly + a re-run shows the valuation artifact + T0 MoS grade on the dossier; phase 3 = a
+  full run shows the four-lens panel with at least one honestly-clean lens.
+- Commit per slice on `pipeline-restructure`; PR at the end of each phase (owner merges).
