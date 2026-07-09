@@ -5914,3 +5914,13 @@ describe('circle-gate prompt calibration (live find: Kimi K2 marked Visa "uncert
     expect(CIRCLE_COMPETENCE_PROMPT).toContain('do NOT manufacture doubt')
   })
 })
+
+describe('prompt calibration fixes (2026-07-09 audit)', () => {
+  it('synthesis decouples the mandated audit artifacts from the verdict', async () => {
+    const src = await readFile(new URL('../researchSwarm.ts', import.meta.url), 'utf8')
+    expect(src).toContain('do NOT argue against your own verdict')
+    expect(src).toContain('not evidence of fragility')
+    // Moat cross-check guards BOTH directions.
+    expect(src).toContain('do NOT manufacture narrowness the filings do not support')
+  })
+})

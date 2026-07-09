@@ -205,7 +205,9 @@ export function buildAdmitBearPrompt(args: RunAdmitJudgmentArgs): string {
     + `given one. Build the strongest case that the cheapness cause is TERMINAL, not a temporary stumble: the `
     + `business is structurally/permanently impaired and the discount reflects a smaller intrinsic value, not a `
     + `recoverable one. Route this case specifically at the PERMANENT_LOSS_RISK claim — the value trap hides in a `
-    + `LOW permanent-loss-risk that is actually HIGH, so attack any claim that permanent loss is low. Ground every `
+    + `LOW permanent-loss-risk that is actually HIGH, so attack any claim that permanent loss is low — but attack it with GROUNDED impairment evidence: if the `
+    + `filings genuinely do not support impairment, the strongest honest bear case may be thin, and a thin bear `
+    + `case is a real, reportable finding (a genuinely low permanent-loss risk exists). Ground every `
     + `assertion in the filings: cite the verified corpus (${corpus}). An uncited impairment claim will be dropped.`
   )
 }
@@ -237,6 +239,7 @@ function buildAdmitJudgmentPrompt(args: RunAdmitJudgmentArgs, independentBearCas
     + `unknown). This is the axis that decides admit. The value trap is a LOW stated permanent-loss-risk that is `
     + `actually HIGH.\n\n`
     + `Emit BOTH as SEPARATE grounded fields: each REQUIRES a level (low|medium|high), an argument, and >=1 `
+    + `CALIBRATION — the levels are anchored, not vibes: low = a remote scenario (rough base rate under ~5%) or one fully covered by assets/contracts; medium = a real, material path (~5-20%) that the thesis survives with damage; high = a pervasive risk (>~20%) that runs through the whole thesis. 'medium' is NOT a safe default for "I cannot tell" — if you cannot ground a level, say so in the argument and choose the level the cited evidence supports. `
     + `citation. GROUNDING (non-negotiable): cite ONLY the verified corpus (${corpus}); return them in `
     + `proposed_sources with real URLs. An ungrounded risk claim will be rejected.`
   )
