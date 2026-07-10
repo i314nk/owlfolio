@@ -74,6 +74,7 @@ import { marketImpliedGrowth } from '@owlfolio/strategies/reverseDcf'
 import { fetchAverageMarketCap, fetchFxRateToUsd, marketCapInReportingCurrency, resolveCurrentPrice, type AverageMarketCapResult, type MarketDataDeps, type PriceQuote } from './marketData'
 import { runRedTeamPass, runRedTeamResponsePass, buildRedTeamLayer, type RedTeamLaneDigest, type RedTeamResult } from './redTeamPass'
 import { runValuationReasoningPass, type ValuationReasoning } from './valuationReasoningPass'
+import { runShariahGatePhase } from './shariahGatePhase'
 import { runShariahReasoningPass } from './shariahReasoningPass'
 import {
   resolveCrossCheck,
@@ -649,6 +650,120 @@ export async function runStrategyResearchSwarm(
         // read) and ends with the explicit "proposed_sources is REAL URLs only / empty [] is fine" rule.
         qsPreVerifiedSourcesBlock = buildQuickScreenFilingBlock(qsFundamentals, sourceId)
       }
+    }
+  }
+
+  // ---- Restructure Phase 1 (S1b): the FRONT Shariah gate ----
+  // The grounded sector judgment runs BEFORE any further model spend (quick screen today, lanes after
+  // S2): the reasoning pass moved forward, seeded with the harness-grounded primary filing (no lanes
+  // exist yet, so laneDigest is empty). A NON-COMPLIANT sector (or, when computable this early, an
+  // AAOIFI ratio FAIL) sets the case aside with the same coherent PASS dossier as the quick-screen
+  // rejection path; a pass outage proceeds VISIBLY undetermined (gate_incomplete) — the downstream
+  // Shariah machinery still fails closed. NOTE: until S2 dedupes, the reasoning pass also still runs
+  // post-lane (unchanged) — the gate adds one call, and removes five lane calls on gated names.
+  const shariahGateRuntime = resolveRoleRuntime('lane_shariah', provider, command)
+  const shariahGate = await runShariahGatePhase(store, {
+    research_case_id: command.research_case_id,
+    company_id: command.company_id,
+    ticker: command.ticker,
+    model_id: shariahGateRuntime.model_id,
+    causation_event_id: researchCase.event_id,
+  }, {
+    reasoningPass: () => runShariahReasoningPass(
+      shariahGateRuntime.provider,
+      {
+        research_case_id: command.research_case_id,
+        ticker: command.ticker,
+        model_id: shariahGateRuntime.model_id,
+        laneDigest: [],
+        corpusSourceIds: [...accumulated.values()].map((c) => c.source_id),
+        preVerifiedSourceIds: qsPrimaryFilingSourceId !== undefined ? [qsPrimaryFilingSourceId] : [],
+        ...(qsFundamentals?.latest_annual?.impermissible_income_lines === undefined
+          ? {}
+          : { impermissibleIncomeLines: qsFundamentals.latest_annual.impermissible_income_lines }),
+      },
+      {
+        ...(deps.ground === undefined ? {} : { ground: deps.ground }),
+        ...(deps.grounding === undefined ? {} : { grounding: deps.grounding }),
+        readCorpus: accumulated,
+      },
+    ),
+    corpusSourceIds: [...accumulated.values()].map((c) => c.source_id),
+  })
+
+  if (!shariahGate.allowed) {
+    const rejectionReason = `Set aside at the Shariah gate: ${shariahGate.reason}`
+    const gatePayload = shariahGate.event.payload as Record<string, unknown>
+    const gateSetAsideAnalysisEvent: LedgerEventEnvelope<unknown> = {
+      event_id: `evt_buffett_munger_analysis_drafted_${command.research_case_id}`,
+      event_type: 'buffett_munger_analysis_drafted',
+      aggregate_type: 'research_case',
+      aggregate_id: command.research_case_id,
+      correlation_id: command.research_case_id,
+      causation_id: shariahGate.event_id,
+      actor_type: 'provider',
+      actor_id: provider.provider_id,
+      payload: {
+        research_case_id: command.research_case_id,
+        company_id: command.company_id,
+        ticker: command.ticker,
+        engine_version: ENGINE_VERSION,
+        ...(engineCommit === undefined ? {} : { engine_commit: engineCommit }),
+        investment_verdict: 'PASS',
+        strategy_compliance: 'NON_COMPLIANT',
+        shariah_status: 'NON_COMPLIANT',
+        valuation_status: 'INSUFFICIENT_DATA',
+        next_required_action: 'No further research required; case set aside at the Shariah gate.',
+        shariah_gate: {
+          sector_status: gatePayload['sector_status'],
+          ...(gatePayload['ratio_verdict'] === undefined ? {} : { ratio_verdict: gatePayload['ratio_verdict'] }),
+          reason: shariahGate.reason,
+        },
+      },
+      source_ids: shariahGate.event.source_ids,
+      created_at: new Date().toISOString(),
+      schema_version: 1,
+      idempotency_key: `analysis:${command.research_case_id}:v1`,
+    }
+    const gateSetAsideAnalysis = await store.append(gateSetAsideAnalysisEvent)
+
+    const gateSetAsideDecision = await draftDecision(store, {
+      research_case_id: command.research_case_id,
+      decision_id: command.decision_id,
+      decision: 'PASS',
+      reason: rejectionReason,
+      thesis_summary: rejectionReason,
+      evidence_summary: rejectionReason,
+      valuation_rationale: 'Not assessed — case set aside at the Shariah gate before the deep dive.',
+      shariah_rationale: shariahGate.reason,
+      risks: [],
+      open_questions: [],
+      causation_id: shariahGate.event_id,
+      source_ids: shariahGate.event.source_ids,
+      idempotency_key: `decision:${command.research_case_id}:v1`,
+    })
+
+    const capturedSoFar = [...accumulated.values()]
+    if (capturedSoFar.length > 0) {
+      await ingestManualSourceBundle({
+        source_ledger_path: command.source_ledger_path,
+        research_case_id: command.research_case_id,
+        ticker: command.ticker,
+        strategy_id: command.strategy_id,
+        provider_id: provider.provider_id,
+        proposed_by_actor_type: 'provider',
+        proposed_by_actor_id: provider.provider_id,
+        ingested_by_actor_type: 'system',
+        ingested_by_actor_id: 'research_workflow',
+        sources: toLedgerSourceInputs(capturedSoFar, command.research_case_id),
+      })
+    }
+
+    return {
+      research_case: researchCase,
+      shariah_gate: shariahGate.event,
+      analysis: gateSetAsideAnalysis,
+      decision: gateSetAsideDecision,
     }
   }
 

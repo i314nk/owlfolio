@@ -49,6 +49,8 @@ export type ShariahGatePhaseResult = {
   allowed: boolean
   reason: string
   event_id: string
+  /** The stored gate event (causation anchor + verified sector-citation source_ids for the set-aside). */
+  event: LedgerEventEnvelope<unknown>
   judgment?: { sector_status: ShariahGateSectorStatus; impermissible_income: number | null }
 }
 
@@ -113,12 +115,13 @@ export async function runShariahGatePhase(
     schema_version: 1,
     idempotency_key: `shariah-gate:${command.research_case_id}:v1`,
   }
-  await store.append(event as LedgerEventEnvelope<unknown>)
+  const stored = await store.append(event as LedgerEventEnvelope<unknown>)
 
   return {
     allowed,
     reason,
     event_id: event.event_id,
+    event: stored,
     ...(passOk ? { judgment: { sector_status: sectorStatus, impermissible_income: impermissibleIncome } } : {}),
   }
 }

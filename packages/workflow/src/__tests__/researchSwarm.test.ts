@@ -860,14 +860,179 @@ describe('runStrategyResearchSwarm short-circuit on Shariah NON_COMPLIANT', () =
     const decisionPayload = decisionEvent?.payload as Record<string, unknown>
     expect(decisionPayload?.['decision']).toBe('PASS')
 
-    // Provider must have been called exactly once (for the quick screen only)
-    expect(nonCompliantProvider.structured).toHaveBeenCalledTimes(1)
+    // S1b: the front Shariah gate's reasoning pass now precedes the quick screen (it fails gracefully
+    // under this fake → gate opens gate_incomplete). Quick-screen spend itself is still exactly one call.
+    const qsCalls = (nonCompliantProvider.structured as ReturnType<typeof vi.fn>).mock.calls.filter(
+      (c) => (c[0] as { response_format?: { schema_name?: string } }).response_format?.schema_name === 'BuffettMungerQuickScreen',
+    )
+    expect(qsCalls).toHaveLength(1)
 
     // The result must have a decision defined and no deep_dive field
     expect(result.decision).toBeDefined()
     expect((result as { deep_dive?: unknown }).deep_dive).toBeUndefined()
 
     // Run must complete without throwing
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Restructure Phase 1 / S1b — the FRONT Shariah gate wired into the swarm: the grounded sector
+// judgment runs BEFORE the quick screen (before ANY further stage spend). A NON-COMPLIANT sector
+// closes the gate → the coherent set-aside dossier (analysis + PASS decision) with ZERO quick-screen
+// or lane events; an open gate leads the otherwise-unchanged sequence with a shariah_gate_judged event.
+// ---------------------------------------------------------------------------
+describe('runStrategyResearchSwarm front Shariah gate (S1b)', () => {
+  const gateGround = async (sources: { source_id: string }[]) => ({
+    captured: sources.map((s) => ({
+      source_id: s.source_id,
+      title: 't',
+      url: 'https://example.com/x',
+      excerpt: 'e',
+      availability: 'available' as const,
+      fetched_at: 'x',
+      content_hash: 'sha256:1',
+    })),
+    verified_ids: sources.map((s) => s.source_id),
+  })
+
+  it('closed gate (NON_COMPLIANT sector) → set-aside dossier with ZERO quick-screen/lane spend', async () => {
+    const store = new InMemoryEventStore()
+    const provider = {
+      provider_id: 'fake-gate-closed',
+      capabilities: {} as never,
+      complete: vi.fn(),
+      runWithTools: vi.fn(),
+      structured: vi.fn(async (req: { response_format?: { schema_name?: string } }) => {
+        const schemaName = req.response_format?.schema_name
+        if (schemaName === 'BuffettMungerShariahReasoning') {
+          return {
+            shariah_judgment: {
+              sector_status: 'non_compliant',
+              impermissible_income: null,
+              sector_citation: 'src_gate_10k',
+            },
+            proposed_sources: [{
+              source_id: 'src_gate_10k',
+              title: 'FY 10-K — business is riba-based lending',
+              url: 'https://www.sec.gov/Archives/edgar/data/0/gate-10k.htm',
+              excerpt: 'The company derives substantially all revenue from interest-based lending.',
+            }],
+          }
+        }
+        throw new Error(`unexpected post-gate structured call: ${String(schemaName)} — the closed gate must stop ALL further stage spend`)
+      }),
+    }
+
+    const sourceLedgerPath = await mkdtemp(join(tmpdir(), 'owlfolio-gate-closed-'))
+    const result = await runStrategyResearchSwarm(
+      store,
+      provider as never,
+      {
+        research_case_id: 'rc_gate_closed',
+        company_id: 'riba_corp',
+        ticker: 'RIBA',
+        strategy_id: 'buffett-munger',
+        actor_id: 'user_local',
+        idempotency_key: 'gate_k',
+        model_id: 'mock',
+        decision_id: 'decision_gate_closed',
+        source_ledger_path: sourceLedgerPath,
+      },
+      { ground: gateGround },
+    )
+
+    const events = await store.list()
+    const types = events.map((e) => e.event_type)
+
+    // The gate judged and CLOSED.
+    const gate = events.find((e) => e.event_type === 'shariah_gate_judged')
+    expect(gate).toBeDefined()
+    const gatePayload = gate?.payload as Record<string, unknown>
+    expect(gatePayload['allowed']).toBe(false)
+    expect(gatePayload['sector_status']).toBe('non_compliant')
+
+    // ZERO downstream stage spend or events.
+    expect(types).not.toContain('quick_screen_drafted')
+    expect(types).not.toContain('queued_for_deep_dive')
+    expect(types).not.toContain('specialist_finding_recorded')
+    expect(types).not.toContain('deep_dive_synthesis_drafted')
+
+    // The coherent set-aside dossier: analysis + PASS decision, caused by the gate event.
+    const analysis = events.find((e) => e.event_type === 'buffett_munger_analysis_drafted')
+    expect(analysis).toBeDefined()
+    expect(analysis?.causation_id).toBe(gate?.event_id)
+    const analysisPayload = analysis?.payload as Record<string, unknown>
+    expect(analysisPayload['investment_verdict']).toBe('PASS')
+    expect(analysisPayload['shariah_status']).toBe('NON_COMPLIANT')
+    expect(analysisPayload['engine_version']).toBe(ENGINE_VERSION)
+    expect((analysisPayload['shariah_gate'] as Record<string, unknown>)['sector_status']).toBe('non_compliant')
+
+    const decision = events.find((e) => e.event_type === 'decision_drafted')
+    expect(decision).toBeDefined()
+    expect((decision?.payload as Record<string, unknown>)['decision']).toBe('PASS')
+
+    expect(result.decision).toBeDefined()
+    expect((result as { shariah_gate?: unknown }).shariah_gate).toBeDefined()
+    expect((result as { deep_dive?: unknown }).deep_dive).toBeUndefined()
+  })
+
+  it('open gate (compliant sector) → shariah_gate_judged leads the otherwise-unchanged full sequence', async () => {
+    const store = new InMemoryEventStore()
+    const base = swarmFakeProvider()
+    const baseStructured = base.structured
+    const provider = {
+      ...base,
+      structured: vi.fn(async (req: { response_format?: { schema_name?: string } }) => {
+        if (req.response_format?.schema_name === 'BuffettMungerShariahReasoning') {
+          return {
+            shariah_judgment: { sector_status: 'compliant', impermissible_income: 0, sector_citation: 'src_gate_ok' },
+            proposed_sources: [{
+              source_id: 'src_gate_ok',
+              title: 'FY 10-K — compliant operating business',
+              url: 'https://www.sec.gov/Archives/edgar/data/0/gate-ok-10k.htm',
+              excerpt: 'Revenue derives from the sale of goods and services.',
+            }],
+          }
+        }
+        return baseStructured(req as never)
+      }),
+    }
+
+    const result = await runStrategyResearchSwarm(
+      store,
+      provider as never,
+      {
+        research_case_id: 'rc_gate_open',
+        company_id: 'company_test',
+        ticker: 'TEST',
+        strategy_id: 'buffett-munger',
+        actor_id: 'user_local',
+        idempotency_key: 'gate_open_k',
+        model_id: 'mock',
+        decision_id: 'decision_gate_open',
+        source_ledger_path: '/tmp/owlfolio-gate-open-test-sources',
+      },
+      { ground: gateGround, laneConcurrency: 3 },
+    )
+
+    const events = await store.list()
+    const types = events.map((e) => e.event_type)
+
+    // The gate judged OPEN, and it precedes the quick screen in the ledger sequence.
+    const gateIndex = types.indexOf('shariah_gate_judged')
+    expect(gateIndex).toBeGreaterThanOrEqual(0)
+    const gatePayload = events[gateIndex]?.payload as Record<string, unknown>
+    expect(gatePayload['allowed']).toBe(true)
+    expect(gatePayload['sector_status']).toBe('compliant')
+    expect(gatePayload['gate_incomplete']).toBeUndefined()
+    expect(gateIndex).toBeLessThan(types.indexOf('quick_screen_drafted'))
+
+    // The rest of the sequence is unchanged.
+    expect(types).toContain('quick_screen_drafted')
+    expect(types.filter((t) => t === 'specialist_finding_recorded').length).toBeGreaterThanOrEqual(5)
+    expect(types).toContain('deep_dive_synthesis_drafted')
+    expect(types).toContain('decision_drafted')
+    expect(result.decision).toBeDefined()
   })
 })
 
@@ -2207,8 +2372,12 @@ describe('BUG 2 — resilient bookend swarm calls (retry + clean failure)', () =
     expect(caught).toBeInstanceOf(ResearchSwarmStageError)
     expect((caught as ResearchSwarmStageError).stage).toBe('quick_screen')
     expect((caught as ResearchSwarmStageError).lanes_completed).toBe(false)
-    // Exactly one structured() attempt — the tool-grounded quick screen does not retry (matches circle gate).
-    expect(provider.structured).toHaveBeenCalledTimes(1)
+    // Exactly one QUICK-SCREEN structured() attempt — the tool-grounded quick screen does not retry
+    // (matches circle gate). S1b: the front Shariah gate's pass also calls structured() before it.
+    const qsAttempts = (provider.structured as ReturnType<typeof vi.fn>).mock.calls.filter(
+      (c) => (c[0] as { response_format?: { schema_name?: string } }).response_format?.schema_name === 'BuffettMungerQuickScreen',
+    )
+    expect(qsAttempts).toHaveLength(1)
   })
 
   it('recovers when synthesis times out once then succeeds (single retry); lanes are not re-run', async () => {
