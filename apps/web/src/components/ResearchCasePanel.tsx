@@ -215,23 +215,32 @@ function createCitationMarker(citation: string, grounded: boolean | undefined, i
  * - stage is 'pass' with moat_passes_gate === false — below wide-moat gate
  */
 function isGatedCase(researchCase: AppResearchCase): boolean {
+  // A CLOSED front Shariah gate is a gated set-aside regardless of the final projected stage — the
+  // set-aside's analysis/decision events advance the stage past 'rejected' (dogfood find: JPM rendered
+  // the generic decision dossier with no gate rationale).
+  if (researchCase.shariah_gate?.allowed === false) return true
   if (researchCase.stage === 'rejected') return true
   if (researchCase.stage === 'pass' && researchCase.valuation?.moat_passes_gate === false) return true
   return false
 }
 
 function gatedReason(researchCase: AppResearchCase): { title: string; reason: string; failingGate: string } {
-  if (researchCase.stage === 'rejected') {
-    const frontGate = researchCase.shariah_gate
-    if (frontGate !== undefined && frontGate.allowed === false) {
-      return {
-        title: 'Set aside at the Shariah gate · deep dive skipped',
-        reason: frontGate.reason ?? 'The grounded sector judgment found the core business non-compliant. The gate stops here by design: no deep-dive swarm was run, so no provider cost was spent.',
-        failingGate: frontGate.ratio_verdict === 'FAIL'
-          ? 'Shariah gate — AAOIFI financial ratios FAIL'
-          : `Shariah gate — sector ${frontGate.sector_status ?? 'non_compliant'}`,
-      }
+  const frontGate = researchCase.shariah_gate
+  if (frontGate !== undefined && frontGate.allowed === false) {
+    const incomeNote = typeof frontGate.impermissible_income === 'number'
+      ? ` · impermissible income $${frontGate.impermissible_income.toLocaleString('en-US')}M per the cited filing`
+      : ''
+    return {
+      title: 'Set aside at the Shariah gate · deep dive skipped',
+      reason: frontGate.sector_reasoning
+        ?? frontGate.reason
+        ?? 'The grounded sector judgment found the core business non-compliant. The gate stops here by design: no deep-dive swarm was run, so no provider cost was spent.',
+      failingGate: frontGate.ratio_verdict === 'FAIL'
+        ? `Shariah gate — AAOIFI financial ratios FAIL${incomeNote}`
+        : `Shariah gate — sector ${frontGate.sector_status ?? 'non_compliant'}${incomeNote}`,
     }
+  }
+  if (researchCase.stage === 'rejected') {
     const shariahFail = researchCase.shariah_status === 'NON_COMPLIANT'
     if (shariahFail) {
       return {

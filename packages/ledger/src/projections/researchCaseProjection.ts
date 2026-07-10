@@ -783,6 +783,9 @@ export type ResearchCaseProjection = {
   shariah_gate?: {
     allowed?: boolean
     sector_status?: string
+    /** The model's grounded rationale (which activities/revenue mix drive the verdict). */
+    sector_reasoning?: string
+    impermissible_income?: number
     ratio_verdict?: string
     gate_incomplete?: boolean
     reason?: string
@@ -1957,11 +1960,15 @@ export function projectResearchCases(events: LedgerEventEnvelope<unknown>[]): Re
       applyString(researchCase, 'company_id', getString(event.payload, 'company_id'))
       applyString(researchCase, 'ticker', getString(event.payload, 'ticker'))
       const gateSector = getString(event.payload, 'sector_status')
+      const gateSectorReasoning = getString(event.payload, 'sector_reasoning')
+      const gateIncome = getNumber(event.payload, 'impermissible_income')
       const gateRatioVerdict = getString(event.payload, 'ratio_verdict')
       const gateReason = getString(event.payload, 'reason')
       researchCase.shariah_gate = {
         allowed,
         ...(gateSector === undefined ? {} : { sector_status: gateSector }),
+        ...(gateSectorReasoning === undefined ? {} : { sector_reasoning: gateSectorReasoning }),
+        ...(gateIncome === undefined ? {} : { impermissible_income: gateIncome }),
         ...(gateRatioVerdict === undefined ? {} : { ratio_verdict: gateRatioVerdict }),
         ...(event.payload['gate_incomplete'] === true ? { gate_incomplete: true } : {}),
         ...(gateReason === undefined ? {} : { reason: gateReason }),

@@ -27,6 +27,9 @@ import { readGroundedSource } from './sourceRead'
 // The dedicated call's judgment schema: the three Shariah overlay fields the model supplies.
 export const ShariahReasoningJudgmentSchema = z.object({
   sector_status: z.enum(['compliant', 'conditional', 'non_compliant']),
+  // The grounded WHY (dogfood find: a gate-closed dossier with no rationale is unreviewable): which
+  // business activities / revenue mix drive the verdict, per the cited filing. Brief prose, filing-based.
+  sector_reasoning: z.string().min(1),
   // $M of non-permissible income; null = undetermined (NOT separately disclosed). NEVER guess 0.
   // 0 ONLY when the filing affirmatively shows zero impermissible income.
   // A false 0 produces a falsely-clean compliance verdict (fail-OPEN); null fails closed to UNDETERMINED.
@@ -107,6 +110,9 @@ export function buildShariahReasoningPrompt(args: RunShariahReasoningPassArgs): 
     + `(undetermined) — DO NOT default to 0: a false 0 produces a falsely-clean compliance verdict (the harness `
     + `then reports 0% purification / fully compliant on data you never actually found). null is an ACCEPTED, `
     + `complete answer; the harness fails closed to UNDETERMINED rather than clean.\n`
+    + `  - sector_reasoning: REQUIRED — 1-3 sentences explaining WHY, grounded in the cited filing's described `
+    + `business activities / segment revenue mix (e.g. which segments are permissible, which activity is borderline `
+    + `or prohibited, and roughly how large it is). This is the rationale a human reads on the dossier.\n`
     + `  - sector_citation: REQUIRED — the source_id of a VERIFIED primary source confirming the sector/segment `
     + `basis (a real grounded source_id, NOT prose).\n\n`
     + `GROUNDING (non-negotiable): the harness deterministically cite-checks sector_citation against the grounded `
@@ -117,9 +123,11 @@ export function buildShariahReasoningPrompt(args: RunShariahReasoningPassArgs): 
     + `do NOT compute the ratios or purification yourself — your job is to supply the grounded judgment inputs `
     + `(sector_status, impermissible_income, sector_citation) so the harness can do the arithmetic correctly.\n`
     + `EXAMPLE (disclosed): {"shariah_judgment":{"sector_status":"compliant","impermissible_income":128.0,`
+    + `"sector_reasoning":"Revenue is warehouse retail of general merchandise; interest income of $128M on cash is the only impermissible line.",`
     + `"sector_citation":"sec_edgar_10k_<cik>_fy<year>"}}.`
     + ` EXAMPLE (not separately disclosed): {"shariah_judgment":{"sector_status":"compliant",`
-    + `"impermissible_income":null,"sector_citation":"sec_edgar_10k_<cik>_fy<year>"}}.`
+    + `"impermissible_income":null,"sector_reasoning":"All reported segments sell permissible goods; interest income is not separately quantified.",`
+    + `"sector_citation":"sec_edgar_10k_<cik>_fy<year>"}}.`
   )
 }
 

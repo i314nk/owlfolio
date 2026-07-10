@@ -25,7 +25,7 @@ const COMMAND = {
 function passOutcome(sector: 'compliant' | 'conditional' | 'non_compliant', impermissible: number | null) {
   return {
     status: 'ok' as const,
-    shariah_judgment: { sector_status: sector, impermissible_income: impermissible, sector_citation: 'src_10k' },
+    shariah_judgment: { sector_reasoning: 'Grounded sector basis (test fixture).', sector_status: sector, impermissible_income: impermissible, sector_citation: 'src_10k' },
   }
 }
 
@@ -58,8 +58,11 @@ describe('runShariahGatePhase (the front gate)', () => {
     const { result, store } = await run({}, passOutcome('non_compliant', null))
     expect(result.allowed).toBe(false)
     expect(result.reason).toMatch(/non.compliant|sector/i)
+    // Dogfood pin: the model's grounded WHY rides the event AND the human-facing reason string.
+    expect(result.reason).toContain('Grounded sector basis (test fixture).')
     const gate = (await store.list()).find((e) => e.event_type === 'shariah_gate_judged')!
     expect((gate.payload as Record<string, unknown>).allowed).toBe(false)
+    expect((gate.payload as Record<string, unknown>).sector_reasoning).toBe('Grounded sector basis (test fixture).')
   })
 
   it('deterministic AAOIFI ratio FAIL → gate CLOSED even when the sector is compliant', async () => {

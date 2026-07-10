@@ -889,6 +889,7 @@ export const domainEventContracts: readonly DomainEventContract[] = [
       'ticker',
       'allowed',
       'sector_status',
+      'sector_reasoning',
       'impermissible_income',
       'ratio_verdict',
       'gate_incomplete',

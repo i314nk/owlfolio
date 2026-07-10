@@ -71,6 +71,11 @@ export async function runShariahGatePhase(
   const passOk = outcome.status === 'ok'
   const sectorStatus: ShariahGateSectorStatus = passOk ? outcome.shariah_judgment.sector_status : 'undetermined'
   const impermissibleIncome = passOk ? outcome.shariah_judgment.impermissible_income : null
+  // The grounded WHY (dogfood find: a set-aside dossier must explain itself). Optional on legacy-shaped
+  // outcomes; when present it is carried on the event AND folded into the human-facing reason strings.
+  const sectorReasoning = passOk && typeof (outcome.shariah_judgment as { sector_reasoning?: unknown }).sector_reasoning === 'string'
+    ? (outcome.shariah_judgment as { sector_reasoning: string }).sector_reasoning
+    : undefined
 
   // Deterministic AAOIFI verdict when the inputs exist this early (code computes; the model only
   // supplied impermissible_income — null flows through as undetermined inside the ratio math).
@@ -79,14 +84,15 @@ export async function runShariahGatePhase(
     : computeShariahFinancialRatios({ ...deps.ratioInputs, impermissible_income: impermissibleIncome ?? null })
   const ratioVerdict = ratioResult !== undefined && ratioResult.computable ? ratioResult.verdict : undefined
 
+  const incomeNote = typeof impermissibleIncome === 'number' ? ` Impermissible income per the cited filing: $${impermissibleIncome.toLocaleString('en-US')}M.` : ''
   let allowed = true
-  let reason = 'shariah_gate_open: no hard stop — the deep dive may spend.'
+  let reason = `shariah_gate_open: no hard stop — the deep dive may spend.${sectorReasoning === undefined ? '' : ` ${sectorReasoning}`}${incomeNote}`
   if (sectorStatus === 'non_compliant') {
     allowed = false
-    reason = 'shariah_gate_closed: the grounded sector judgment is NON-COMPLIANT — a hard stop before any lane spend.'
+    reason = `shariah_gate_closed: the grounded sector judgment is NON-COMPLIANT — a hard stop before any lane spend.${sectorReasoning === undefined ? '' : ` ${sectorReasoning}`}${incomeNote}`
   } else if (ratioVerdict === 'FAIL') {
     allowed = false
-    reason = 'shariah_gate_closed: the deterministic AAOIFI financial ratios FAIL — a hard stop before any lane spend.'
+    reason = `shariah_gate_closed: the deterministic AAOIFI financial ratios FAIL — a hard stop before any lane spend.${sectorReasoning === undefined ? '' : ` ${sectorReasoning}`}${incomeNote}`
   } else if (!passOk) {
     reason = 'shariah_gate_open: the sector judgment could not be grounded (gate_incomplete) — proceeding; the downstream Shariah machinery still fails closed to UNDETERMINED.'
   }
@@ -108,6 +114,7 @@ export async function runShariahGatePhase(
       ticker: command.ticker,
       allowed,
       sector_status: sectorStatus,
+      ...(sectorReasoning === undefined ? {} : { sector_reasoning: sectorReasoning }),
       impermissible_income: impermissibleIncome,
       ...(ratioVerdict === undefined ? {} : { ratio_verdict: ratioVerdict }),
       ...(passOk ? {} : { gate_incomplete: true }),

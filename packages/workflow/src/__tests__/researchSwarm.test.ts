@@ -621,7 +621,7 @@ describe('runStrategyResearchSwarm', () => {
           if (schemaName === 'BuffettMungerShariahReasoning') {
             // The front gate's pass — one good (the cited sector basis), one bad source.
             return {
-              shariah_judgment: { sector_status: 'compliant', impermissible_income: 0, sector_citation: 'src_shariah_pass_good_1' },
+              shariah_judgment: { sector_reasoning: 'Grounded sector basis (test fixture).', sector_status: 'compliant', impermissible_income: 0, sector_citation: 'src_shariah_pass_good_1' },
               proposed_sources: [src('src_shariah_pass_good_1'), src('src_shariah_pass_bad_1')],
             }
           }
@@ -809,7 +809,7 @@ describe('runStrategyResearchSwarm front Shariah gate (S1b)', () => {
         const schemaName = req.response_format?.schema_name
         if (schemaName === 'BuffettMungerShariahReasoning') {
           return {
-            shariah_judgment: {
+            shariah_judgment: { sector_reasoning: 'Grounded sector basis (test fixture).',
               sector_status: 'non_compliant',
               impermissible_income: null,
               sector_citation: 'src_gate_10k',
@@ -869,6 +869,8 @@ describe('runStrategyResearchSwarm front Shariah gate (S1b)', () => {
     expect(analysisPayload['shariah_status']).toBe('NON_COMPLIANT')
     expect(analysisPayload['engine_version']).toBe(ENGINE_VERSION)
     expect((analysisPayload['shariah_gate'] as Record<string, unknown>)['sector_status']).toBe('non_compliant')
+    // Dogfood pin: the set-aside dossier carries the model's grounded WHY, not just the gate verdict.
+    expect((analysisPayload['shariah_gate'] as Record<string, unknown>)['sector_reasoning']).toContain('Grounded sector basis')
 
     const decision = events.find((e) => e.event_type === 'decision_drafted')
     expect(decision).toBeDefined()
@@ -888,7 +890,7 @@ describe('runStrategyResearchSwarm front Shariah gate (S1b)', () => {
       structured: vi.fn(async (req: { response_format?: { schema_name?: string } }) => {
         if (req.response_format?.schema_name === 'BuffettMungerShariahReasoning') {
           return {
-            shariah_judgment: { sector_status: 'compliant', impermissible_income: 0, sector_citation: 'src_gate_ok' },
+            shariah_judgment: { sector_reasoning: 'Grounded sector basis (test fixture).', sector_status: 'compliant', impermissible_income: 0, sector_citation: 'src_gate_ok' },
             proposed_sources: [{
               source_id: 'src_gate_ok',
               title: 'FY 10-K — compliant operating business',
@@ -1348,7 +1350,7 @@ function configurableSwarmProvider(opts: {
         return {
           ...(opts.omitShariahOverlay === true
             ? {}
-            : { shariah_judgment: { sector_status: 'compliant', impermissible_income: 0, sector_citation: 'src_shariah_reasoning' } }),
+            : { shariah_judgment: { sector_reasoning: 'Grounded sector basis (test fixture).', sector_status: 'compliant', impermissible_income: 0, sector_citation: 'src_shariah_reasoning' } }),
           proposed_sources: [src('src_shariah_reasoning')],
         }
       }
@@ -3197,7 +3199,7 @@ function swarmFakeProviderWithShariah(
       // null = UNDETERMINED, which the pass accepts and the harness fails CLOSED on).
       if (schemaName === 'BuffettMungerShariahReasoning') {
         return {
-          shariah_judgment: { sector_status, impermissible_income, sector_citation: 'src_shariah_reasoning' },
+          shariah_judgment: { sector_reasoning: 'Grounded sector basis (test fixture).', sector_status, impermissible_income, sector_citation: 'src_shariah_reasoning' },
           proposed_sources: [src('src_shariah_reasoning')],
         }
       }
@@ -3352,7 +3354,7 @@ describe('EDGAR-anchored OE bridge + harness AAOIFI Shariah ratios', () => {
         // The focused PASS is the SOLE source of the overlay the harness recomputes from.
         if (schemaName === 'BuffettMungerShariahReasoning') {
           return {
-            shariah_judgment: { sector_status: 'compliant', impermissible_income: 0, sector_citation: 'src_shariah_reasoning' },
+            shariah_judgment: { sector_reasoning: 'Grounded sector basis (test fixture).', sector_status: 'compliant', impermissible_income: 0, sector_citation: 'src_shariah_reasoning' },
             proposed_sources: [src('src_shariah_reasoning')],
           }
         }
@@ -4788,7 +4790,7 @@ describe('runStrategyResearchSwarm — schema-validation + retry (harness defens
         // Focused Shariah-reasoning pass (always-on): the overlay the harness recompute sources from.
         if (schemaName === 'BuffettMungerShariahReasoning') {
           return {
-            shariah_judgment: { sector_status: 'compliant', impermissible_income: 0, sector_citation: 'src_shariah_reasoning' },
+            shariah_judgment: { sector_reasoning: 'Grounded sector basis (test fixture).', sector_status: 'compliant', impermissible_income: 0, sector_citation: 'src_shariah_reasoning' },
             proposed_sources: [src('src_shariah_reasoning')],
           }
         }
@@ -4973,7 +4975,7 @@ function crossCheckSwarmProvider(opts: {
       // Shariah sector cross-check now source from (the cross-check second model then re-classifies it).
       if (schemaName === 'BuffettMungerShariahReasoning') {
         return {
-          shariah_judgment: { sector_status: opts.primarySector ?? 'compliant', impermissible_income: 0, sector_citation: 'src_shariah_reasoning' },
+          shariah_judgment: { sector_reasoning: 'Grounded sector basis (test fixture).', sector_status: opts.primarySector ?? 'compliant', impermissible_income: 0, sector_citation: 'src_shariah_reasoning' },
           proposed_sources: [src('src_shariah_reasoning')],
         }
       }

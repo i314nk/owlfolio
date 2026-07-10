@@ -693,6 +693,8 @@ export async function runStrategyResearchSwarm(
         next_required_action: 'No further research required; case set aside at the Shariah gate.',
         shariah_gate: {
           sector_status: gatePayload['sector_status'],
+          ...(gatePayload['sector_reasoning'] === undefined ? {} : { sector_reasoning: gatePayload['sector_reasoning'] }),
+          ...(gatePayload['impermissible_income'] === undefined ? {} : { impermissible_income: gatePayload['impermissible_income'] }),
           ...(gatePayload['ratio_verdict'] === undefined ? {} : { ratio_verdict: gatePayload['ratio_verdict'] }),
           reason: shariahGate.reason,
         },
@@ -1703,6 +1705,9 @@ export async function runResearchDeepDivePhase(
         status: 'ok' as const,
         shariah_judgment: {
           sector_status: frontGateSector,
+          sector_reasoning: typeof frontGatePayload?.['sector_reasoning'] === 'string'
+            ? frontGatePayload['sector_reasoning']
+            : 'Reused from the front Shariah gate judgment (corpus unchanged since the gate).',
           impermissible_income: typeof frontGatePayload?.['impermissible_income'] === 'number'
             ? frontGatePayload['impermissible_income']
             : null,
@@ -3511,6 +3516,7 @@ export async function runResearchDeepDivePhase(
     ? {
         shariah_gate: {
           sector_status: gateSectorStatus,
+          ...(gateEventPayload?.['sector_reasoning'] === undefined ? {} : { sector_reasoning: gateEventPayload['sector_reasoning'] }),
           ...(gateEventPayload?.['ratio_verdict'] === undefined ? {} : { ratio_verdict: gateEventPayload['ratio_verdict'] }),
           ...(gateEventPayload?.['gate_incomplete'] === true ? { gate_incomplete: true } : {}),
           reason: String(gateEventPayload?.['reason'] ?? ''),
