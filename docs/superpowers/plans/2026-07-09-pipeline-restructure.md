@@ -169,6 +169,12 @@ currently lives in the quick-screen PROMPT; AAOIFI ratios compute in synthesis (
   (OpenRouter runToolLoop captures usage from the API response but doesn't surface it — plumb it),
   and every stage-event append site stamps `stage_cost: { provider_calls, input_tokens?,
   output_tokens?, wall_ms }`.
+  - LANDED (Phase 1): the token plumb end-to-end (adapter sums usage across gather rounds +
+    synthesis + repair retries → metadata → GroundedAgentResult.usage), `stage_cost` on
+    `shariah_gate_judged` (S1a) and on `circle_competence_judged` (k samples + tokens + wall time).
+  - RESIDUAL (ride Phase 2's valuation-pass event work): stamping the lane/synthesis/red-team
+    stages — their events flow through the fixed-payload pipeline helpers and the lane outcomes
+    don't surface usage yet; Phase 2 touches those seams anyway.
 
 **Do-not-break list:** ticker→company resolution (currently a quick-screen side effect — verify
 where company_id resolution happens and preserve it), the review-pause worker/UI flow

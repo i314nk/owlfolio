@@ -175,6 +175,14 @@ export interface ProviderRunMetadata {
   tool_allowlist: string[]
   task_kind: ProviderTaskKind
   response_format: ProviderResponseFormat
+  /**
+   * S5 cost stamping: total tokens the provider API reported for this run, summed across every
+   * request the run issued (tool-loop rounds + synthesis + repair retries). Optional — absent when
+   * the provider/route does not report usage. This is the raw data the scheduler's unattended-spend
+   * policy will be written against.
+   */
+  input_tokens?: number
+  output_tokens?: number
 }
 
 export interface ProviderObservation {

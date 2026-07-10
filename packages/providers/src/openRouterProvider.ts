@@ -54,6 +54,8 @@ type OpenRouterChatMessage = {
 type OpenRouterChatResponse = {
   id?: string
   choices?: Array<{ message?: OpenRouterChatMessage; finish_reason?: string }>
+  /** OpenAI-compatible usage block (OpenRouter forwards it for most routed models). */
+  usage?: { prompt_tokens?: number; completion_tokens?: number }
   error?: { message?: string; code?: string | number; type?: string; metadata?: { raw?: string; provider_name?: string } }
 }
 
@@ -414,6 +416,16 @@ export class OpenRouterProvider implements Provider {
 
     const messages: OpenRouterWireMessage[] = [{ role: 'user', content: request.prompt }]
     const rounds: ProviderToolLoopRound[] = []
+    // S5 cost stamping: sum reported usage across EVERY request this loop issues (gather rounds,
+    // synthesis, repair retries). Undefined until the route reports usage at least once.
+    let inputTokens: number | undefined
+    let outputTokens: number | undefined
+    const addUsage = (response: OpenRouterChatResponse): void => {
+      const usage = response.usage
+      if (usage === undefined) return
+      if (typeof usage.prompt_tokens === 'number') inputTokens = (inputTokens ?? 0) + usage.prompt_tokens
+      if (typeof usage.completion_tokens === 'number') outputTokens = (outputTokens ?? 0) + usage.completion_tokens
+    }
     const observations: ProviderObservation[] = [this.observation('queued', `${this.label} queued the grounded tool loop.`)]
     const maxToolCalls = Math.max(0, request.budget.max_tool_calls)
     let executedToolCalls = 0
@@ -422,6 +434,7 @@ export class OpenRouterProvider implements Provider {
     // ---- Phase 1: grounded gather loop ----
     for (let round = 0; round < MAX_TOOL_LOOP_ROUNDS; round++) {
       const response = await this.createChatCompletion(request, { tools, tool_choice: 'auto' }, messages)
+      addUsage(response)
       const truncated = truncatedReasoningDiagnostic(response, this.label)
       if (truncated !== undefined) {
         throw new Error(truncated)
@@ -508,6 +521,7 @@ export class OpenRouterProvider implements Provider {
     let lastParseError: Error | undefined
     for (let attempt = 0; attempt < 2 && analysis === undefined; attempt++) {
       const synthesis = await this.createChatCompletion(request, synthesisFormat, synthesisMessages)
+      addUsage(synthesis)
       const truncated = truncatedReasoningDiagnostic(synthesis, this.label)
       if (truncated !== undefined) {
         throw new Error(`Structured output validation failed: ${truncated}`)
@@ -535,7 +549,11 @@ export class OpenRouterProvider implements Provider {
     return {
       analysis,
       rounds,
-      metadata: this.metadataFor(request),
+      metadata: {
+        ...this.metadataFor(request),
+        ...(inputTokens === undefined ? {} : { input_tokens: inputTokens }),
+        ...(outputTokens === undefined ? {} : { output_tokens: outputTokens }),
+      },
       observations,
       degraded_no_tools: !sawToolCall,
     }

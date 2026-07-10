@@ -933,6 +933,12 @@ describe('runStrategyResearchSwarm front Shariah gate (S1b)', () => {
 
     // The rest of the sequence is unchanged — and the retired quick screen never appears.
     expect(types).not.toContain('quick_screen_drafted')
+
+    // S5 cost stamping: the circle stage carries its spend (k grounded samples + wall time).
+    const circleEvent = events.find((e) => e.event_type === 'circle_competence_judged')
+    const circleCost = (circleEvent?.payload as { stage_cost?: { provider_calls?: number; wall_ms?: number } }).stage_cost
+    expect(circleCost?.provider_calls).toBeGreaterThanOrEqual(1)
+    expect(typeof circleCost?.wall_ms).toBe('number')
     expect(types.filter((t) => t === 'specialist_finding_recorded').length).toBeGreaterThanOrEqual(5)
     expect(types).toContain('deep_dive_synthesis_drafted')
     expect(types).toContain('decision_drafted')

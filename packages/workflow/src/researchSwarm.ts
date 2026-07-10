@@ -1069,6 +1069,10 @@ export async function runResearchDeepDivePhase(
     unmetReason?: string
   }
   const circleSamples: CircleSample[] = []
+  // S5 cost stamping: the circle stage's wall time + summed reported tokens across its k samples.
+  const circleStartedAt = Date.now()
+  let circleInputTokens: number | undefined
+  let circleOutputTokens: number | undefined
   for (let sampleIndex = 0; sampleIndex < gateKSamples; sampleIndex++) {
     const circle = await judgeCircleCompetence(provider, command, {
       ...deps,
@@ -1077,6 +1081,8 @@ export async function runResearchDeepDivePhase(
       readCorpus: accumulated,
     }, { sampleIndex, minDrivers: gateMinDrivers, minBreakers: gateMinBreakers })
     remember(circle.captured)
+    if (circle.usage?.input_tokens !== undefined) circleInputTokens = (circleInputTokens ?? 0) + circle.usage.input_tokens
+    if (circle.usage?.output_tokens !== undefined) circleOutputTokens = (circleOutputTokens ?? 0) + circle.usage.output_tokens
     // Build the verified cite-check set from ONLY content_hash-confirmed sources (the SAME hardened
     // primitive the §2/A1/rubric cite-checks use) — recomputed per sample as the corpus grows.
     const circleVerified = new Set<string>()
@@ -1185,7 +1191,19 @@ export async function runResearchDeepDivePhase(
     causation_id: command.gate_event_id,
     actor_type: 'provider',
     actor_id: provider.provider_id,
-    payload: { research_case_id: command.research_case_id, company_id: command.company_id, ticker: command.ticker, ...freshCircleJudgmentPayload },
+    payload: {
+      research_case_id: command.research_case_id,
+      company_id: command.company_id,
+      ticker: command.ticker,
+      ...freshCircleJudgmentPayload,
+      // S5 cost stamping: this stage's spend (k grounded samples) — scheduler unattended-spend data.
+      stage_cost: {
+        provider_calls: circleSamples.length,
+        ...(circleInputTokens === undefined ? {} : { input_tokens: circleInputTokens }),
+        ...(circleOutputTokens === undefined ? {} : { output_tokens: circleOutputTokens }),
+        wall_ms: Date.now() - circleStartedAt,
+      },
+    },
     source_ids: [...new Set([...groundedDrivers.map((d) => d.citation), ...groundedBreakers.map((b) => b.citation), ...circle.verified_ids])],
     created_at: new Date().toISOString(),
     schema_version: 1,

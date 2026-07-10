@@ -66,6 +66,8 @@ export type GroundedAgentResult<T> = {
   verified_ids: string[]
   /** Mechanism 6: sources rejected by the per-lane source whitelist (only set when `lane` is passed). */
   policy_rejections: SourcePolicyRejection[]
+  /** S5 cost stamping: token usage the provider reported for this call (absent when not reported). */
+  usage?: { input_tokens?: number; output_tokens?: number }
 }
 
 export async function runGroundedAgent<T extends { proposed_sources: z.infer<typeof ProposedSourcesSchema> }>(
@@ -443,12 +445,17 @@ export async function runGroundedAgentWithTools<T extends { proposed_sources: z.
 
   // The harness-accumulated captured/verified sources are the AUTHORITATIVE grounding set — the analysis
   // may cite only ids in tool.verified_ids (post-hoc verification by the caller still enforces this).
+  const loopUsage = {
+    ...(loop.metadata.input_tokens === undefined ? {} : { input_tokens: loop.metadata.input_tokens }),
+    ...(loop.metadata.output_tokens === undefined ? {} : { output_tokens: loop.metadata.output_tokens }),
+  }
   return {
     analysis: loop.analysis,
     captured: tool.captured,
     verified_ids: tool.verified_ids,
     policy_rejections: tool.policy_rejections,
     degraded_no_tools: loop.degraded_no_tools,
+    ...(Object.keys(loopUsage).length === 0 ? {} : { usage: loopUsage }),
   }
 }
 

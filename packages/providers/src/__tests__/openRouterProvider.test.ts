@@ -378,6 +378,44 @@ describe('OpenRouterProvider (grounded multi-step tool loop — runToolLoop)', (
     expect(call).toBe(3)
   })
 
+  it('S5 cost stamping: sums reported usage across every loop request into metadata token totals', async () => {
+    const executor = vi.fn(async () => 'FETCHED source_id=src_1 available excerpt="real bytes"')
+    let call = 0
+    const fetchImpl = vi.fn(async () => {
+      call += 1
+      if (call === 1) {
+        return jsonResponse({
+          usage: { prompt_tokens: 100, completion_tokens: 10 },
+          choices: [{
+            message: {
+              content: null,
+              tool_calls: [{ id: 'c1', type: 'function', function: { name: 'fetch_source', arguments: '{"url":"https://www.sec.gov/x"}' } }],
+            },
+          }],
+        })
+      }
+      if (call === 2) {
+        return jsonResponse({ usage: { prompt_tokens: 200, completion_tokens: 20 }, choices: [{ message: { content: 'gathered enough' } }] })
+      }
+      return jsonResponse({ usage: { prompt_tokens: 300, completion_tokens: 30 }, choices: [{ message: { content: '{"finding":"wide moat","source_ids":["src_1"]}' } }] })
+    })
+
+    const provider = new OpenRouterProvider({ env: { OPENROUTER_API_KEY: 'k' }, fetch: fetchImpl as unknown as typeof fetch })
+    const result = await provider.runToolLoop(toolRequest, schema, executor)
+
+    expect(result.metadata.input_tokens).toBe(600)
+    expect(result.metadata.output_tokens).toBe(60)
+  })
+
+  it('S5 cost stamping: metadata omits token totals when the route reports no usage', async () => {
+    const executor = vi.fn(async () => 'unused')
+    const fetchImpl = vi.fn(async () => jsonResponse({ choices: [{ message: { content: '{"finding":"wide moat","source_ids":["src_1"]}' } }] }))
+    const provider = new OpenRouterProvider({ env: { OPENROUTER_API_KEY: 'k' }, fetch: fetchImpl as unknown as typeof fetch })
+    const result = await provider.runToolLoop(toolRequest, schema, executor)
+    expect(result.metadata.input_tokens).toBeUndefined()
+    expect(result.metadata.output_tokens).toBeUndefined()
+  })
+
   it('handles parallel tool_calls in one round', async () => {
     const executor = vi.fn(async (toolName: string) => `ran ${toolName}`)
     let call = 0
