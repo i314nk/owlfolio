@@ -5208,6 +5208,41 @@ describe('runStrategyResearchSwarm — synthesis own-grounding fail-closed (foun
     expect(cp?.investment_verdict ?? cp?.decision).not.toBe('BUY')
   })
 
+  it('Test 1b — CITATION-ALIGNED grounding (dogfood 2026-07-10): the decision proposes nothing of its own but CITES the corpus-verified filing → verdict passes through', async () => {
+    // Live COST/SPGI shape: the citation-alignment steer tells the decision agent to cite the
+    // harness-verified id instead of re-fetching its own copy. Kimi obeyed — valuation citations
+    // verified against the hash-verified corpus — but proposed no NEW source, so the old Layer-1
+    // check (dec.verified_ids empty) clamped a fully-cite-verified verdict to RESEARCH_MORE.
+    const groundExceptDecision = async (sources: { source_id: string }[]) => {
+      const verifiable = sources.filter((s) => !s.source_id.startsWith('src_dec'))
+      return {
+        captured: sources.map((s) => {
+          const ok = !s.source_id.startsWith('src_dec')
+          return {
+            source_id: s.source_id, title: 't', url: 'https://example.com/x', excerpt: 'e',
+            availability: (ok ? 'available' : 'unavailable') as 'available' | 'unavailable',
+            fetched_at: 'x', ...(ok ? { content_hash: 'sha256:1' } : {}),
+          }
+        }),
+        verified_ids: verifiable.map((s) => s.source_id),
+      }
+    }
+    const { cp } = await runWithSynthesis('rc_g_aligned', {
+      investmentVerdict: 'WATCH',
+      synthesis: {
+        valuation_reasoning: {
+          owner_earnings_basis: 'FY25 owner earnings per the 10-K bridge.',
+          owner_earnings_citation: 'src_lane_0', // a lane-grounded, hash-verified corpus id
+          assumed_growth: 0.06,
+          assumed_growth_rationale: 'Growth grounded in segment capex per the corpus filing.',
+          assumed_growth_citation: 'src_lane_0',
+        },
+      },
+    }, groundExceptDecision)
+    expect(cp?.valuation?.synthesis_grounding_unmet).toBeUndefined()
+    expect(cp?.investment_verdict ?? cp?.decision).toBe('WATCH')
+  })
+
   it('Test 2 — UNGROUNDED GROWTH citation (not in corpus): verdict RESEARCH_MORE + synthesis_grounding_unmet', async () => {
     const { cp } = await runWithSynthesis('rc_g_growth', {
       investmentVerdict: 'BUY',

@@ -1960,6 +1960,20 @@ export async function runResearchDeepDivePhase(
     }
   }
 
+  // ---- Citation-alignment fold (dogfood 2026-07-10: live COST/SPGI) ----
+  // The decision agent is STEERED to cite the harness-verified EDGAR id instead of re-fetching its own
+  // copy of the filing — so a cite-VERIFIED corpus source must satisfy the own-grounding layer. Fold
+  // the verified valuation-citation ids into dec.verified_ids (source_id-shaped only — never a raw
+  // content hash, since these ids flow into event source_ids). The layer still fails closed when the
+  // agent cited nothing verifiable at all (Test 1: its citations do not verify → nothing folds).
+  for (const cite of [g.ownerCite, g.growthCite]) {
+    if (cite === undefined || dec.verified_ids.includes(cite)) continue
+    const corpusMatch = accumulated.get(cite)
+    if (corpusMatch !== undefined && corpusMatch.content_hash !== undefined) {
+      dec.verified_ids = [...dec.verified_ids, cite]
+    }
+  }
+
   const ownerEarningsCitation = g.ownerCite
   const assumedGrowthCitation = g.growthCite
   const ownerEarningsGrounded = g.ownerGrounded
