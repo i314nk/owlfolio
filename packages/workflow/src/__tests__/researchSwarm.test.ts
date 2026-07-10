@@ -1799,14 +1799,12 @@ describe('RELIGHTENED DECISION — model proposes buy-below; deterministic side 
     expect(typeof vr?.['owner_earnings_basis']).toBe('string')
   })
 
-  it('SANITY (over-OPTIMISTIC): status ATTRACTIVE + market implies implausibly HIGH growth → a sanity flag (verdict NOT blocked)', async () => {
-    // A very high price → reverse-DCF implies a growth above the 15% cap; the model nonetheless says
-    // ATTRACTIVE — the symmetric sanity-check must fire the over-optimistic catch. The model verdict (BUY,
-    // gated only by the cheap gates) is NOT blocked by the flag. F.2 — at the lower savings-anchor discount
-    // (7.5%, was 10%) a given price implies LESS growth, so the price is raised to 800 (implied ≈ 17.6%,
-    // comfortably above the 15% cap; at the old 10% discount 600 already cleared the cap).
-    // buy-below 850 keeps the price IN the model's own buy zone so the owner-rule buy-zone gate (an
-    // arithmetic gate, not a sanity flag) does not derate the BUY — this test isolates flag-never-blocks.
+  it('SANITY (over-OPTIMISTIC): status ATTRACTIVE + market implies implausibly HIGH growth → flag fires AND the T0 buy-below gate derates the BUY', async () => {
+    // A very high price → reverse-DCF implies growth above the 15% cap; the model nonetheless says
+    // ATTRACTIVE — the symmetric sanity-check must fire the over-optimistic catch. OWNER RULE
+    // (2026-07-10 SPGI dogfood): the FLAG still never blocks, but a BUY in this shape can no longer
+    // survive — an in-zone buy-below above such a price necessarily ALSO implies above-cap growth, so
+    // the T0 buy_below_implies_absurd_growth GATE (arithmetic, not the flag) derates the BUY to WATCH.
     const { valuation, cp } = await runRelit({
       id: 'sanity-optimistic', price: 800, valuationStatus: 'ATTRACTIVE', investmentVerdict: 'BUY', proposedBuyBelow: 850,
     })
@@ -1814,7 +1812,8 @@ describe('RELIGHTENED DECISION — model proposes buy-below; deterministic side 
     expect(flags.length).toBeGreaterThan(0)
     expect(flags.some((f) => /attractive/i.test(f) && /implausible|cap/i.test(f))).toBe(true)
     // FLAG NEVER BLOCKS: the model BUY (with a buy-below + price present) is recorded, not clamped.
-    expect(cp?.investment_verdict).toBe('BUY')
+    expect(cp?.investment_verdict).toBe('WATCH')
+    expect((cp?.open_questions ?? []).some((q) => /buy_below_implies_absurd_growth/.test(q))).toBe(true)
   })
 
   it('SANITY (over-PESSIMISTIC): status EXPENSIVE + market implies only MODEST growth → a sanity flag (verdict NOT blocked)', async () => {
@@ -2011,6 +2010,17 @@ describe('RELIGHTENED DECISION — model proposes buy-below; deterministic side 
     })
     expect(cp?.investment_verdict).toBe('BUY')
     expect((cp?.open_questions ?? []).some((q) => /buy_out_of_buy_zone/.test(q))).toBe(false)
+  })
+
+  it('GATE (owner rule, 2026-07-10 SPGI dogfood) — model BUY whose OWN buy-below implies growth ABOVE the cap → recorded WATCH', async () => {
+    // Live SPGI shape: price inside the model's aggressive buy zone, but the buy-below itself prices
+    // in growth the method's single-growth cap refuses to underwrite (harness fair value was ~half
+    // the model's buy-below). Arithmetic on the model's own numbers → derate to WATCH, thesis kept.
+    const { cp } = await runRelit({
+      id: 'buyzone-absurd', price: 280, valuationStatus: 'ATTRACTIVE', investmentVerdict: 'BUY', proposedBuyBelow: 800,
+    })
+    expect(cp?.investment_verdict).toBe('WATCH')
+    expect((cp?.open_questions ?? []).some((q) => /buy_below_implies_absurd_growth/.test(q))).toBe(true)
   })
 
   it('GATE preserved — moat below wide → PASS regardless of the model verdict', async () => {

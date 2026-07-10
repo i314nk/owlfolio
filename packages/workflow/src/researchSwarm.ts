@@ -3072,6 +3072,7 @@ export async function runResearchDeepDivePhase(
   }
 
   // (f) the model's proposed_buy_below implies (reverse-DCF at that price) an absurd growth.
+  let buyBelowImpliedGrowth: number | undefined
   if (
     buy_below !== undefined
     && normalized_owner_earnings_per_share !== undefined
@@ -3085,6 +3086,9 @@ export async function runResearchDeepDivePhase(
       discount,
       horizon: stage1HorizonForMoat(buffettMungerStrategy, moatClass),
     })
+    if (buyImplied.status === 'solved' && buyImplied.implied_growth !== undefined) {
+      buyBelowImpliedGrowth = buyImplied.implied_growth
+    }
     if (buyImplied.status === 'solved' && buyImplied.implied_growth !== undefined && buyImplied.implied_growth > singleGrowthCap) {
       sanity_flags.push(
         `sanity_buy_below_implies_absurd_growth: the model's proposed buy-below ($${buy_below.toFixed(2)}) still implies `
@@ -3164,6 +3168,27 @@ export async function runResearchDeepDivePhase(
       + 'until the price enters the zone; the BUY thesis itself is preserved below for auditing.'
     : undefined
 
+  // OWNER RULE (2026-07-10, the SPGI dogfood): a model BUY whose OWN buy-below still implies growth ABOVE
+  // the method's single-growth underwriting cap is not a recordable buy signal — by the method's own
+  // arithmetic, even the "buy" price already pays for growth the method refuses to credit (live SPGI: a
+  // $450 buy-below implying ~16.7% vs the harness's ~$247 fair value; every sanity flag fired and the BUY
+  // still recorded). Same family as the buy-zone clamp: pure T0 arithmetic on the model's own numbers,
+  // conservative-only (BUY → WATCH, never touches WATCH/PASS), the model's full thesis stays recorded.
+  const buyBelowAbsurd =
+    moat_passes_gate
+    && !sectorShariahFail
+    && !buyDataUnconfirmed
+    && !buyOutOfBuyZone
+    && dec.analysis.investment_verdict === 'BUY'
+    && buyBelowImpliedGrowth !== undefined
+    && buyBelowImpliedGrowth > singleGrowthCap
+  const buyBelowAbsurdReason = buyBelowAbsurd && buy_below !== undefined && buyBelowImpliedGrowth !== undefined
+    ? `buy_below_implies_absurd_growth: the model verdict is BUY, but its OWN buy-below ($${buy_below.toFixed(2)}) `
+      + `already implies ~${(buyBelowImpliedGrowth * 100).toFixed(1)}% growth — above the ${(singleGrowthCap * 100).toFixed(0)}% cap the method `
+      + 'underwrites. Recorded as WATCH: even at the proposed buy price the market would be paying for growth '
+      + 'the method refuses to credit. The BUY thesis itself is preserved below for auditing.'
+    : undefined
+
   // Apply the cheap deterministic gates ONLY: moat below wide → PASS; Shariah sector/financial FAIL → PASS;
   // missing buy data → RESEARCH_MORE; BUY above the model's own buy-below → WATCH. Otherwise the MODEL's
   // verdict passes through. Sanity flags NEVER gate.
@@ -3184,7 +3209,9 @@ export async function runResearchDeepDivePhase(
           ? ('RESEARCH_MORE' as const)
           : buyOutOfBuyZone
             ? ('WATCH' as const)
-            : dec.analysis.investment_verdict
+            : buyBelowAbsurd
+              ? ('WATCH' as const)
+              : dec.analysis.investment_verdict
   const gatedReason = !moat_passes_gate
     ? (moat_grounding_unmet
         ? `${moatGroundingReason} ${dec.analysis.decision_reason}`
@@ -3197,7 +3224,9 @@ export async function runResearchDeepDivePhase(
           ? `${buyClampReason} ${dec.analysis.decision_reason}`
           : buyOutOfZoneReason !== undefined
             ? `${buyOutOfZoneReason} ${dec.analysis.decision_reason}`
-            : dec.analysis.decision_reason
+            : buyBelowAbsurdReason !== undefined
+              ? `${buyBelowAbsurdReason} ${dec.analysis.decision_reason}`
+              : dec.analysis.decision_reason
 
   // ---- MARGIN-OF-SAFETY JOINT JUDGMENT (synthesis-owned) — Guard 1 + Guard 2 ----------------------------
   // GUARD 1: adequacy is an AUDIT judgment ONLY. NOTHING above (gatedVerdict / gatedReason / the moat gate /
@@ -3594,6 +3623,9 @@ export async function runResearchDeepDivePhase(
       // OWNER RULE: a model BUY derated to WATCH because the price is above the model's OWN buy-below is
       // always surfaced — the human sees the BUY thesis is intact and exactly what price re-arms it.
       ...(buyOutOfZoneReason !== undefined ? [buyOutOfZoneReason] : []),
+      // OWNER RULE (SPGI dogfood): a model BUY derated to WATCH because its OWN buy-below already prices
+      // in above-cap growth is always surfaced — the human sees why the buy price itself is not credible.
+      ...(buyBelowAbsurdReason !== undefined ? [buyBelowAbsurdReason] : []),
       ...baseRateCaveats,
       ...degradedFlags,
       // Dual-model cross-check disagreements → automatic human escalation (conservative answer holds).
