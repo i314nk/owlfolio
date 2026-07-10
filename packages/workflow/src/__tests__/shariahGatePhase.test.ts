@@ -92,3 +92,41 @@ describe('runShariahGatePhase (the front gate)', () => {
     expect(payload.gate_incomplete).toBe(true)
   })
 })
+
+describe('runShariahGatePhase — entity-mention guard (live contamination find, 2026-07-10)', () => {
+  const GUARDED_COMMAND = { ...COMMAND, entity_name: 'TESTCO INDUSTRIES INC' }
+
+  it('discards a wrong-company narrative → gate_incomplete (open, undetermined), never a trusted verdict', async () => {
+    const store = new InMemoryEventStore<LedgerEventEnvelope<unknown>>()
+    const result = await runShariahGatePhase(store, GUARDED_COMMAND, {
+      reasoningPass: (async () => ({
+        status: 'ok' as const,
+        // The narrative describes ANOTHER company — mentions neither the ticker nor the entity.
+        shariah_judgment: { sector_status: 'compliant', sector_reasoning: 'MegaBank Corp derives revenue from interest-based lending.', impermissible_income: 5, sector_citation: 'src_10k' },
+      })) as never,
+      corpusSourceIds: ['src_10k'],
+    })
+    expect(result.allowed).toBe(true) // open — never a self-inflicted block
+    expect(result.judgment).toBeUndefined() // the contaminated judgment is NOT trusted
+    const payload = (await store.list()).find((e) => e.event_type === 'shariah_gate_judged')!.payload as Record<string, unknown>
+    expect(payload.sector_status).toBe('undetermined')
+    expect(payload.gate_incomplete).toBe(true)
+    expect(payload.entity_mismatch_discarded).toBe(true)
+    expect(result.reason).toMatch(/wrong-company/)
+  })
+
+  it('accepts a narrative that names the entity (or ticker) — judged normally', async () => {
+    const store = new InMemoryEventStore<LedgerEventEnvelope<unknown>>()
+    const result = await runShariahGatePhase(store, GUARDED_COMMAND, {
+      reasoningPass: (async () => ({
+        status: 'ok' as const,
+        shariah_judgment: { sector_status: 'non_compliant', sector_reasoning: 'Testco Industries derives core revenue from prohibited activities.', impermissible_income: 100, sector_citation: 'src_10k' },
+      })) as never,
+      corpusSourceIds: ['src_10k'],
+    })
+    expect(result.allowed).toBe(false)
+    const payload = (await store.list()).find((e) => e.event_type === 'shariah_gate_judged')!.payload as Record<string, unknown>
+    expect(payload.sector_status).toBe('non_compliant')
+    expect(payload.entity_mismatch_discarded).toBeUndefined()
+  })
+})

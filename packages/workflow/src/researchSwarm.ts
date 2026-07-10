@@ -640,6 +640,8 @@ export async function runStrategyResearchSwarm(
     ticker: command.ticker,
     model_id: shariahGateRuntime.model_id,
     causation_event_id: researchCase.event_id,
+    // Powers the gate's deterministic entity-mention guard (wrong-company narrative → gate_incomplete).
+    ...(qsFundamentals?.entity_name === undefined ? {} : { entity_name: qsFundamentals.entity_name }),
   }, {
     reasoningPass: () => runShariahReasoningPass(
       shariahGateRuntime.provider,

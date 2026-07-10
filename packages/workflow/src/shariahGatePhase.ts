@@ -28,6 +28,12 @@ export type ShariahGateCommand = {
   model_id: string
   /** The event this gate is caused by (research_case_created / research_run_claimed). */
   causation_event_id: string
+  /**
+   * The EDGAR entity name (when fundamentals resolved) — powers the deterministic entity-mention
+   * guard below (live dogfood: a concurrent same-model run returned ANOTHER company's sector
+   * narrative; the guard downgrades such a response to gate_incomplete instead of trusting it).
+   */
+  entity_name?: string
 }
 
 type ReasoningPassOutcome = Awaited<ReturnType<typeof runShariahReasoningPass>>
@@ -68,14 +74,35 @@ export async function runShariahGatePhase(
   const startedAt = Date.now()
 
   const outcome = await deps.reasoningPass()
-  const passOk = outcome.status === 'ok'
-  const sectorStatus: ShariahGateSectorStatus = passOk ? outcome.shariah_judgment.sector_status : 'undetermined'
-  const impermissibleIncome = passOk ? outcome.shariah_judgment.impermissible_income : null
+  let passOk = outcome.status === 'ok'
+  // ---- Deterministic entity-mention guard (dogfood find, 2026-07-10) ----
+  // Three concurrent same-model gate calls produced one response whose narrative described a DIFFERENT
+  // company (provider/model-layer contamination — the harness-seeded corpus + citation were verifiably
+  // correct). The judgment prompt names the ticker and the filing names the entity, so an honest
+  // narrative mentions one of them. When it mentions neither, the response cannot be trusted as a
+  // judgment of THIS company: treat the pass as FAILED → the gate opens VISIBLY undetermined
+  // (gate_incomplete) and the downstream Shariah machinery still fails closed. Never a silent accept.
+  let entityMismatch = false
+  if (passOk && outcome.status === 'ok' && command.entity_name !== undefined) {
+    const reasoningText = String((outcome.shariah_judgment as { sector_reasoning?: unknown }).sector_reasoning ?? '').toLowerCase()
+    if (reasoningText.length > 0) {
+      const hints: string[] = [command.ticker.toLowerCase()]
+      const entityToken = (command.entity_name ?? '').split(/[\s,./]+/).find((w) => w.replace(/[^a-z0-9&']/gi, '').length >= 3)
+      if (entityToken !== undefined) hints.push(entityToken.toLowerCase())
+      if (!hints.some((h) => h.length > 0 && reasoningText.includes(h))) {
+        entityMismatch = true
+        passOk = false
+      }
+    }
+  }
+  const sectorStatus: ShariahGateSectorStatus = passOk && outcome.status === 'ok' ? outcome.shariah_judgment.sector_status : 'undetermined'
+  const impermissibleIncome = passOk && outcome.status === 'ok' ? outcome.shariah_judgment.impermissible_income : null
   // The grounded WHY (dogfood find: a set-aside dossier must explain itself). Optional on legacy-shaped
   // outcomes; when present it is carried on the event AND folded into the human-facing reason strings.
-  const sectorReasoning = passOk && typeof (outcome.shariah_judgment as { sector_reasoning?: unknown }).sector_reasoning === 'string'
+  const sectorReasoning = passOk && outcome.status === 'ok' && typeof (outcome.shariah_judgment as { sector_reasoning?: unknown }).sector_reasoning === 'string'
     ? (outcome.shariah_judgment as { sector_reasoning: string }).sector_reasoning
     : undefined
+
 
   // Deterministic AAOIFI verdict when the inputs exist this early (code computes; the model only
   // supplied impermissible_income — null flows through as undetermined inside the ratio math).
@@ -94,7 +121,9 @@ export async function runShariahGatePhase(
     allowed = false
     reason = `shariah_gate_closed: the deterministic AAOIFI financial ratios FAIL — a hard stop before any lane spend.${sectorReasoning === undefined ? '' : ` ${sectorReasoning}`}${incomeNote}`
   } else if (!passOk) {
-    reason = 'shariah_gate_open: the sector judgment could not be grounded (gate_incomplete) — proceeding; the downstream Shariah machinery still fails closed to UNDETERMINED.'
+    reason = entityMismatch
+      ? `shariah_gate_open: the sector narrative did not mention ${command.ticker}${command.entity_name === undefined ? '' : ` / ${command.entity_name}`} — the response was discarded as a suspected wrong-company judgment (gate_incomplete). Proceeding; the downstream Shariah machinery still fails closed to UNDETERMINED.`
+      : 'shariah_gate_open: the sector judgment could not be grounded (gate_incomplete) — proceeding; the downstream Shariah machinery still fails closed to UNDETERMINED.'
   }
 
   const gateId = `shariah_gate_${command.research_case_id}`
@@ -118,11 +147,12 @@ export async function runShariahGatePhase(
       impermissible_income: impermissibleIncome,
       ...(ratioVerdict === undefined ? {} : { ratio_verdict: ratioVerdict }),
       ...(passOk ? {} : { gate_incomplete: true }),
+      ...(entityMismatch ? { entity_mismatch_discarded: true } : {}),
       reason,
       corpus_source_ids: deps.corpusSourceIds,
       stage_cost: { provider_calls: 1, wall_ms: Date.now() - startedAt },
     },
-    source_ids: passOk && typeof outcome.shariah_judgment.sector_citation === 'string' ? [outcome.shariah_judgment.sector_citation] : [],
+    source_ids: passOk && outcome.status === 'ok' && typeof outcome.shariah_judgment.sector_citation === 'string' ? [outcome.shariah_judgment.sector_citation] : [],
     created_at: now(),
     schema_version: 1,
     idempotency_key: `shariah-gate:${command.research_case_id}:v1`,
@@ -134,7 +164,7 @@ export async function runShariahGatePhase(
     reason,
     event_id: event.event_id,
     event: stored,
-    ...(passOk
+    ...(passOk && outcome.status === 'ok'
       ? {
           judgment: { sector_status: sectorStatus, impermissible_income: impermissibleIncome },
           pass_captured: outcome.captured,
