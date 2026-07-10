@@ -77,7 +77,6 @@ const MODEL_ROLE_TIERS: Record<ModelRoleId, { tier: ModelTier; description: stri
   lane_moat: { tier: 'T1', description: 'Frontier — moat classification is the highest-stakes call.' },
   lane_shariah: { tier: 'T1', description: 'Frontier — Shariah sector status is a hard-stop classification.' },
   lanes_default: { tier: 'T1', description: 'Deep-dive lanes (T1/T2) — source-backed specialist findings.' },
-  quick_screen: { tier: 'T2', description: 'Mid — kill/continue over one report; a wrong continue dies in deep dive.' },
   red_team: { tier: 'T2', description: 'Mid — adversarial cross-check; a different model catches shared-narrative error.' },
   monitors: { tier: 'T3', description: 'Cheap/local — high-volume daily scanning, low judgment.' },
   entity_resolve: { tier: 'T3', description: 'Cheap/local — near-deterministic entity/ticker resolution (temp 0).' },

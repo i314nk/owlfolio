@@ -481,7 +481,7 @@ describe('model-tiering — buildModelRegistrySection', () => {
     expect(section.roles.every((r) => r.temperature >= 0 && r.temperature <= 0.3)).toBe(true)
     // Tiers cover the high-stakes T1 lanes + the T2/T3 roles.
     expect(section.roles.find((r) => r.role === 'lane_moat')?.tier).toBe('T1')
-    expect(section.roles.find((r) => r.role === 'quick_screen')?.tier).toBe('T2')
+    expect(section.roles.find((r) => r.role === 'red_team')?.tier).toBe('T2')
     expect(section.roles.find((r) => r.role === 'monitors')?.tier).toBe('T3')
     expect(section.no_model_note).toContain('No model, ever')
   })

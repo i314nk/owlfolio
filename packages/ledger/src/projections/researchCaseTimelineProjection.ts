@@ -70,6 +70,11 @@ function summarizeEvent(event: LedgerEventEnvelope<unknown>): string {
     return `Created research case for ${getString(event.payload, 'ticker') ?? event.aggregate_id}`
   }
 
+  if (event.event_type === 'shariah_gate_judged') {
+    return `Shariah gate judged: ${event.payload['allowed'] === true ? 'OPEN' : 'CLOSED'} (${getString(event.payload, 'sector_status') ?? 'undetermined'})`
+  }
+
+  // Legacy (pre-restructure) cases still carry quick-screen events.
   if (event.event_type === 'quick_screen_drafted') {
     return `Quick screen drafted: ${getString(event.payload, 'screening_result') ?? 'UNKNOWN'}`
   }

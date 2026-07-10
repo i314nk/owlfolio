@@ -14,7 +14,7 @@ test('monthly accounting report renders projected current period after a valuati
   await page.getByRole('link', { name: /open research cockpit/i }).first().click()
   await expect(page).toHaveURL('/research')
   await page.getByRole('link', { name: /manual ticker intake/i }).click()
-  // Run research straight through (default 'review' would pause after the quick screen)
+  // Run research straight through (default 'review' would pause behind the front gates)
   const automationResponse = await request.post('/api/settings/automation', {
     data: { deep_dive_approval: 'automatic' },
   })

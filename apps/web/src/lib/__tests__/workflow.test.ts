@@ -1266,7 +1266,7 @@ describe('workflow helpers', () => {
 
       expect(pipeline.selectedStrategyLabel).toBe('Selected strategy: buffett-munger')
       expect(sectionItems['Discovered']).toEqual([`${discovered.ticker} — ${discovered.company_name}`])
-      expect(sectionItems['Quick Screen']).toEqual(expect.arrayContaining([
+      expect(sectionItems['Front Gates']).toEqual(expect.arrayContaining([
         `${quickScreenCandidate.ticker} — ${quickScreenCandidate.company_name}`,
         'QKCS',
       ]))

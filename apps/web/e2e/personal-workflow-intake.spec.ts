@@ -88,7 +88,7 @@ test('personal-local mode can create the first research case from the command ce
   await expect(page).toHaveURL('/research/new')
 
   // Set deep_dive_approval to 'automatic' so this run completes straight through
-  // (default is 'review' which pauses after quick screen; the e2e needs the full run)
+  // (default is 'review' which pauses behind the front gates; the e2e needs the full run)
   const automationResponse = await request.post('/api/settings/automation', {
     data: { deep_dive_approval: 'automatic' },
   })

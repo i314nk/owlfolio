@@ -39,7 +39,7 @@ describe('projectPipeline — stage counts', () => {
 
     const projection = projectPipeline(events)
     const byKey = Object.fromEntries(projection.stage_counts.map((s) => [s.key, s.count]))
-    expect(byKey.quick_screen).toBe(1)
+    expect(byKey.shariah_gate).toBe(1)
     expect(byKey.deep_dive).toBe(1)
     expect(byKey.watchlist).toBe(1)
     expect(byKey.holding).toBe(1)
@@ -180,7 +180,7 @@ describe('projectPipeline — a recorded run-failure is discarded from the ACTIV
     ]
     const projection = projectPipeline(events)
     const byKey = Object.fromEntries(projection.stage_counts.map((s) => [s.key, s.count]))
-    expect(byKey.quick_screen).toBe(0)
+    expect(byKey.shariah_gate).toBe(0)
     expect(projection.summary.failed_recent).toBe(1)
     expect(projection.runs.find((r) => r.research_case_id === 'fq')?.status).toBe('failed')
   })

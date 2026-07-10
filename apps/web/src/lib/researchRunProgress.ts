@@ -3,10 +3,10 @@ import type { ResearchCaseStage } from '@owlfolio/ledger/projections/researchCas
 /**
  * The user-facing ordered checklist of a deep-dive research run. This is a PRESENTATION model — a stable,
  * coarse projection of the much finer-grained `ResearchCaseStage` event ladder into the six steps a person
- * actually waits through (quick-screen → circle → 5 lanes → synthesis → decision). Keep it a PURE function
+ * actually waits through (Shariah gate → circle → 5 lanes → synthesis → decision). Keep it a PURE function
  * over plain inputs so the progress UI can be driven from the projection without a DB.
  */
-export type ResearchRunStageKey = 'queued' | 'quick_screen' | 'circle' | 'deep_dive' | 'synthesis' | 'decision'
+export type ResearchRunStageKey = 'queued' | 'shariah_gate' | 'circle' | 'deep_dive' | 'synthesis' | 'decision'
 
 export type RunProgressStageState = 'done' | 'current' | 'pending'
 
@@ -47,7 +47,7 @@ export const DEEP_DIVE_LANE_TOTAL = 5
 
 const STAGE_ORDER: readonly ResearchRunStageKey[] = [
   'queued',
-  'quick_screen',
+  'shariah_gate',
   'circle',
   'deep_dive',
   'synthesis',
@@ -58,8 +58,8 @@ function labelFor(key: ResearchRunStageKey, lanes: { completed: number; total: n
   switch (key) {
     case 'queued':
       return 'Queued — fetching filings'
-    case 'quick_screen':
-      return 'Quick screen — Shariah + worth-it gate'
+    case 'shariah_gate':
+      return 'Shariah gate — grounded sector + AAOIFI read'
     case 'circle':
       return 'Circle of competence'
     case 'deep_dive':
@@ -72,8 +72,9 @@ function labelFor(key: ResearchRunStageKey, lanes: { completed: number; total: n
 }
 
 /**
- * Map the fine-grained projection stage to the coarse current step. The worker proceeds straight from the
- * quick-screen to the circle judgment in automatic mode, so `quick_screened` reads as circle-current.
+ * Map the fine-grained projection stage to the coarse current step. The swarm proceeds straight from the
+ * front Shariah gate to the circle judgment, so a judged gate reads as circle-current (same for the
+ * legacy quick_screened stage on pre-restructure cases).
  */
 /**
  * True when the projected stage maps to the terminal 'done' step — a dossier/decision exists. Used by
@@ -89,7 +90,8 @@ function mapStageToCurrent(stage: ResearchCaseStage | undefined): ResearchRunSta
     case undefined:
     case 'discovered':
       return 'queued'
-    case 'quick_screened':
+    case 'shariah_gate_judged':
+    case 'quick_screened': // legacy (pre-restructure) cases
       return 'circle'
     // The approval pause is handled by the caller (awaitingApproval); kept coherent here.
     case 'awaiting_deep_dive_approval':
@@ -123,7 +125,7 @@ function buildStages(
   lanes: { completed: number; total: number },
 ): RunProgressStage[] {
   if (currentStage === 'done') {
-    // Terminal. A circle SET-ASIDE (or a quick-screen reject) jumps to a terminal stage WITHOUT running the
+    // Terminal. A circle SET-ASIDE (or a Shariah-gate closure) jumps to a terminal stage WITHOUT running the
     // deep dive, so mark the deep_dive/synthesis steps 'pending' (skipped) — not 'done' — when no lane ever
     // recorded a finding. A full run completes with all five lanes, so those read 'done'.
     const deepDiveRan = lanes.completed > 0

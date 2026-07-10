@@ -105,6 +105,7 @@ function verdictFor(researchCase: ResearchCaseProjection): VerdictKind {
 
 const STAGE_LABEL: Partial<Record<ResearchCaseStage, string>> = {
   discovered: 'Discovered',
+  shariah_gate_judged: 'Shariah gate judged',
   quick_screened: 'Quick screened',
   awaiting_deep_dive_approval: 'Awaiting deep-dive approval',
   queued_for_deep_dive: 'Queued for deep dive',

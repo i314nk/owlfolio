@@ -66,8 +66,8 @@ describe('resolveModelForRole', () => {
   })
 
   it('lets env override only the model, inheriting the fallback provider', () => {
-    const env = { OWLFOLIO_MODEL_ROLE_QUICK_SCREEN: 'codex-mini' }
-    const resolved = resolveModelForRole('quick_screen', { ...fallback, env })
+    const env = { OWLFOLIO_MODEL_ROLE_RED_TEAM: 'codex-mini' }
+    const resolved = resolveModelForRole('red_team', { ...fallback, env })
     expect(resolved.provider_id).toBe('mock-provider') // inherited
     expect(resolved.model).toBe('codex-mini')
     expect(resolved.overridden).toBe(true)
@@ -79,7 +79,6 @@ describe('resolveModelForRole', () => {
       'lanes_default',
       'lane_moat',
       'lane_shariah',
-      'quick_screen',
       'red_team',
       'monitors',
       'entity_resolve',

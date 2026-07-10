@@ -222,6 +222,16 @@ function isGatedCase(researchCase: AppResearchCase): boolean {
 
 function gatedReason(researchCase: AppResearchCase): { title: string; reason: string; failingGate: string } {
   if (researchCase.stage === 'rejected') {
+    const frontGate = researchCase.shariah_gate
+    if (frontGate !== undefined && frontGate.allowed === false) {
+      return {
+        title: 'Set aside at the Shariah gate · deep dive skipped',
+        reason: frontGate.reason ?? 'The grounded sector judgment found the core business non-compliant. The gate stops here by design: no deep-dive swarm was run, so no provider cost was spent.',
+        failingGate: frontGate.ratio_verdict === 'FAIL'
+          ? 'Shariah gate — AAOIFI financial ratios FAIL'
+          : `Shariah gate — sector ${frontGate.sector_status ?? 'non_compliant'}`,
+      }
+    }
     const shariahFail = researchCase.shariah_status === 'NON_COMPLIANT'
     if (shariahFail) {
       return {
@@ -765,7 +775,7 @@ function createGatedDossier(researchCase: AppResearchCase) {
       createElement(
         'p',
         { style: { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-base)', margin: '0 0 1rem' } },
-        `${researchCase.company_id ?? 'Unknown company'} · quick screen gate`,
+        `${researchCase.company_id ?? 'Unknown company'} · ${researchCase.shariah_gate !== undefined ? 'Shariah gate' : 'quick screen gate'}`,
       ),
       // reject header row
       createElement(
@@ -801,7 +811,7 @@ function createGatedDossier(researchCase: AppResearchCase) {
               padding: '0.28rem 0.7rem',
             },
           },
-          'Rejected at quick screen',
+          researchCase.shariah_gate !== undefined ? 'Set aside at the Shariah gate' : 'Rejected at quick screen',
         ),
         createElement(
           'span',
@@ -912,7 +922,7 @@ function createAwaitingDeepDiveDossier(researchCase: AppResearchCase) {
               padding: '0.28rem 0.7rem',
             },
           },
-          'Quick screen passed',
+          researchCase.shariah_gate !== undefined ? 'Front gates passed' : 'Quick screen passed',
         ),
         createElement(
           'span',
@@ -935,12 +945,12 @@ function createAwaitingDeepDiveDossier(researchCase: AppResearchCase) {
       createElement(
         'h2',
         { style: { color: 'var(--owl-color-gold-bright)', fontSize: 'var(--owl-text-md)', margin: '0 0 0.4rem' } },
-        'Quick screen passed — review and run the deep dive when ready',
+        'Front gates passed — review and run the deep dive when ready',
       ),
       createElement(
         'p',
         { style: { color: '#dbe3ef', fontSize: 'var(--owl-text-base)', lineHeight: 1.55, margin: '0 0 1rem' } },
-        'The quick screen found this company worth investigating. No deep-dive swarm has run yet — click "Run deep dive" to start the expensive swarm analysis.',
+        'The Shariah gate and the circle-of-competence gate both admitted this company. The expensive lane swarm has not run yet — click "Run deep dive" to start it.',
       ),
       // Quick-screen summary if available
       researchCase.screening_result !== undefined ? createElement(
@@ -3704,6 +3714,8 @@ function deepDiveLaneShortLabel(lane?: string): string {
 function isLegacyDecisionDossier(researchCase: AppResearchCase): boolean {
   const hasStandaloneResearchPipeline = researchCase.quick_screen_id !== undefined
     || researchCase.screening_result !== undefined
+    || researchCase.shariah_gate !== undefined
+    || researchCase.circle_competence !== undefined
     || researchCase.deep_dive_id !== undefined
     || researchCase.specialist_findings !== undefined
     || researchCase.owner_earnings_valuation !== undefined

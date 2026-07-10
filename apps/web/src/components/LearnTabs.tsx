@@ -272,10 +272,10 @@ function SwarmTab(): ReactNode {
     }),
     PanelSection({
       eyebrow: 'The pipeline',
-      title: 'Quick screen → deep dive → synthesis → decision',
-      lead: 'A cheap funnel kills roughly 90% of candidates before the expensive swarm runs. Survivors get the full multi-agent deep dive; synthesis reconciles the lanes; the result is a BUY / WATCH / PASS draft for a human.',
+      title: 'Shariah gate → circle gate → deep dive → synthesis → decision',
+      lead: 'Two cheap grounded gates kill most candidates before the expensive swarm runs. Survivors get the full multi-agent deep dive; synthesis reconciles the lanes; the result is a BUY / WATCH / PASS draft for a human.',
       children: bullets([
-        createElement('span', { key: 1 }, gold('Quick screen'), ' — Shariah sector gate, the owner-policy exclusion check (the config-set universe boundary), and a worth-it read over the latest annual report. The circle-of-competence judgment itself — durable predictability — is the model’s, made in the deep dive.'),
+        createElement('span', { key: 1 }, gold('Front gates'), ' — the grounded Shariah sector judgment (plus the deterministic AAOIFI ratios when computable) runs first, on the harness-verified annual filing; then the circle-of-competence judgment — durable predictability, cite-verified — decides whether the deep dive is worth spending on.'),
         createElement('span', { key: 2 }, gold('Deep-dive swarm'), ` — ${LANE_COUNT} specialist lanes run blind to each other, each grounding its own claims.`),
         createElement('span', { key: 3 }, gold('Synthesis'), ' — conflicts reconciled conservatively, hard gates applied, base-rate burden enforced.'),
         createElement('span', { key: 4 }, gold('Decision'), ' — a drafted verdict; the human authors the watchlist entry or closes the case.'),
@@ -464,7 +464,7 @@ function LifecycleTab(): ReactNode {
         ' — the agent never trades and never moves a name between states. The Lifecycle page renders this one list grouped by state.',
       ),
       children: bullets([
-        createElement('span', { key: 1 }, gold('Candidate'), ' — discovery (screen sweeps, spin-offs, user tickers, 13F / owner-operator cloning) plus the quick screen; the Shariah sector exclusion is applied before a candidate even enters the ledger, and ~90% die cheaply here.'),
+        createElement('span', { key: 1 }, gold('Candidate'), ' — discovery (screen sweeps, spin-offs, user tickers, 13F / owner-operator cloning) plus the front gates; the Shariah sector exclusion is applied before a candidate even enters the ledger, and most names die cheaply here.'),
         createElement('span', { key: 2 }, gold('Watched & held'), ' — entered only by an explicit human ledger entry; a holding records an already-executed trade. Position sizing on the watched→held step is a later phase.'),
         createElement('span', { key: 3 }, gold('Exited — two opposite meanings'), ' — an exit is either SOLD (a closed holding) or SCREENED OUT (research rejected / pass). The Lifecycle page shows which, because they mean opposite things; a name that comes back live keeps its prior-exit history.'),
       ]),
@@ -549,7 +549,7 @@ function ShariahTab(): ReactNode {
     PanelSection({
       eyebrow: 'Enforced at six points',
       title: 'Shariah is a property, not a single lane',
-      lead: 'Shariah compliance is enforced across discovery exclusion, the quick screen, the deep-dive lane, holdings ratio monitoring, the purification engine, and exit rules. A FAIL stops the case outright and is never price-overridable.',
+      lead: 'Shariah compliance is enforced across discovery exclusion, the front Shariah gate, the deep-dive reasoning pass, holdings ratio monitoring, the purification engine, and exit rules. A FAIL stops the case outright and is never price-overridable.',
       children: cardGrid([
         { key: 'sector', eyebrow: 'Sector screen', body: createElement('span', null, 'Segment-level revenue check; more than ', mono('5%'), ' impermissible core revenue screens the name out before any valuation is attempted.') },
         { key: 'debt', eyebrow: 'Debt ratio', body: createElement('span', null, 'Interest-bearing debt / market cap (36-mo avg) below ', mono(pct(AAOIFI_DEBT_RATIO_MAX)), ', computed by the harness from primary filings.') },
@@ -577,7 +577,7 @@ function ShariahTab(): ReactNode {
 // the Learn copy stays in sync as the owner curates the shortlist. Grouped T1 → T2 → T3.
 const TIER_HEADINGS: Record<'T1' | 'T2' | 'T3', string> = {
   T1: 'T1 — Frontier (synthesis, moat/Shariah)',
-  T2: 'T2 — Mid (quick screen, red-team)',
+  T2: 'T2 — Mid (red-team)',
   T3: 'T3 — Cheap / high-volume (monitors, entity resolution)',
 }
 
@@ -616,7 +616,7 @@ function TieringTab(): ReactNode {
       ),
       children: cardGrid([
         { key: 't1', eyebrow: 'T1 — Frontier', body: 'Synthesis and the highest-stakes lanes (moat, Shariah). Long-context reasoning and disciplined citation; errors here poison verdicts.' },
-        { key: 't2', eyebrow: 'T2 — Mid', body: 'Quick screen, worth-it read, verdict-draft writing. A wrong "continue" is cheap — it dies in the deep dive.' },
+        { key: 't2', eyebrow: 'T2 — Mid', body: 'The adversarial red-team cross-check and verdict-draft writing. Its output is always reconciled by a T1 synthesis.' },
         { key: 't3', eyebrow: 'T3 — Cheap / local', body: 'High-volume, low-judgment work: news and filing scans, trigger detection, entity resolution. Near-zero marginal cost.' },
         { key: 't0', eyebrow: 'T0 — No model, ever', body: 'Valuation math, Shariah ratios, purification arithmetic, accounting, 13F/EDGAR parsing. Deterministic by constitution.' },
       ]),

@@ -20,7 +20,7 @@
  * The swarm roles that resolve a model. Mapped to the spec's four tiers:
  *   T1 (frontier): synthesis, lane_moat, lane_shariah   — synthesis + the highest-stakes lanes
  *   T1/T2 (lanes): lanes_default                         — the remaining deep-dive lanes
- *   T2 (mid):      quick_screen, red_team                — kill/continue + adversarial cross-check
+ *   T2 (mid):      red_team                              — the adversarial cross-check
  *   T3 (cheap):    monitors, entity_resolve              — high-volume, low-judgment
  */
 export const modelRoleIds = [
@@ -28,7 +28,6 @@ export const modelRoleIds = [
   'lanes_default',
   'lane_moat',
   'lane_shariah',
-  'quick_screen',
   'red_team',
   'monitors',
   'entity_resolve',
@@ -48,14 +47,13 @@ export type ModelRoleTier = 'T1' | 'T2' | 'T3'
 /**
  * Canonical role → tier map (the single source of truth the UI and the auto-tier deriver both consume).
  * Per the model-tiering-spec tier table: synthesis + the moat/Shariah lanes + the deep-dive lanes +
- * their cross-checks are T1; quick_screen + red_team are T2; monitors + entity_resolve are T3.
+ * their cross-checks are T1; red_team is T2; monitors + entity_resolve are T3.
  */
 export const MODEL_ROLE_TIER: Record<ModelRoleId, ModelRoleTier> = {
   synthesis: 'T1',
   lanes_default: 'T1',
   lane_moat: 'T1',
   lane_shariah: 'T1',
-  quick_screen: 'T2',
   red_team: 'T2',
   monitors: 'T3',
   entity_resolve: 'T3',
@@ -89,7 +87,7 @@ export type ModelRegistry = {
  * provider/model — single-provider Codex/mock runs are unchanged). Only the low temperatures are set,
  * from the spec table:
  *   synthesis 0.1, lane_moat 0.1, lane_shariah 0.1 (highest-stakes classification — most deterministic)
- *   lanes_default 0.2, quick_screen 0.2, red_team 0.2
+ *   lanes_default 0.2, red_team 0.2
  *   monitors 0.1, entity_resolve 0.0 (entity/ticker resolution is near-deterministic)
  */
 export const MODEL_REGISTRY: ModelRegistry = Object.freeze({
@@ -99,7 +97,6 @@ export const MODEL_REGISTRY: ModelRegistry = Object.freeze({
     lanes_default: { temperature: 0.2 },
     lane_moat: { temperature: 0.1 },
     lane_shariah: { temperature: 0.1 },
-    quick_screen: { temperature: 0.2 },
     red_team: { temperature: 0.2 },
     monitors: { temperature: 0.1 },
     entity_resolve: { temperature: 0.0 },
