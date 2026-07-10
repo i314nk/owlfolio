@@ -72,7 +72,7 @@ describe('POST /api/settings/automation', () => {
     expect(response.status).toBe(200)
     expect(body.automation.research_engine_enabled).toBe(false)
     // Other defaults remain
-    expect(body.automation.quick_screen_approval).toBe(defaultAutomationSettings().quick_screen_approval)
+    expect(body.automation.deep_dive_approval).toBe(defaultAutomationSettings().deep_dive_approval)
     expect(body.automation.thesis_review).toEqual(defaultAutomationSettings().thesis_review)
     expect((body.automation as Record<string, unknown>).deep_dive_mode).toBeUndefined()
   })
@@ -101,11 +101,11 @@ describe('POST /api/settings/automation', () => {
     expect(getBody.automation.price_refresh).toEqual({ enabled: true, cadence: 'weekly' })
   })
 
-  it('rejects an invalid quick_screen_approval value with 400', async () => {
+  it('rejects an invalid deep_dive_approval value with 400', async () => {
     const response = await POST(new Request('http://localhost/api/settings/automation', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ quick_screen_approval: 'invalid_value' }),
+      body: JSON.stringify({ deep_dive_approval: 'invalid_value' }),
     }))
 
     expect(response.status).toBe(400)
@@ -113,11 +113,11 @@ describe('POST /api/settings/automation', () => {
     expect(body.error.code).toBe('invalid_automation_update')
   })
 
-  it('rejects removed auto_skip quick_screen_approval value with 400', async () => {
+  it('rejects removed auto_skip deep_dive_approval value with 400', async () => {
     const response = await POST(new Request('http://localhost/api/settings/automation', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ quick_screen_approval: 'auto_skip' }),
+      body: JSON.stringify({ deep_dive_approval: 'auto_skip' }),
     }))
 
     expect(response.status).toBe(400)

@@ -2609,6 +2609,8 @@ export async function runProcessResearchQueueTask(
     maxToolCalls?: number
     /** Circle-gate hardening knobs (k-sample agreement + evidence floors; undefined → shared defaults). */
     circle_gate?: CircleGateSettings
+    /** Deep-dive approval pause ('review' pauses behind the gates; undefined → automatic). */
+    deep_dive_approval?: 'automatic' | 'review'
     /**
      * Defense-in-depth fail-closed guard inputs. These describe the config the worker ACTUALLY loaded
      * (provider_id + mode + the config path it read). If a run's `research_run_requested` recorded an
@@ -2724,6 +2726,7 @@ export async function runProcessResearchQueueTask(
           ...(run.version === undefined ? {} : { version: run.version }),
           model_role_env: modelRoleEnv,
           ...(options.circle_gate === undefined ? {} : { circle_gate: options.circle_gate }),
+          ...(options.deep_dive_approval === undefined ? {} : { deep_dive_approval: options.deep_dive_approval }),
         },
         { ground, ...(options.maxToolCalls === undefined ? {} : { maxToolCalls: options.maxToolCalls }) },
       )

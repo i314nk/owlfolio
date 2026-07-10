@@ -46,7 +46,7 @@ describe('defaultAutomationSettings', () => {
     const settings = defaultAutomationSettings()
     expect(settings.research_engine_enabled).toBe(true)
     expect(settings.discovery).toEqual({ enabled: false, cadence: 'off' })
-    expect(settings.quick_screen_approval).toBe('review')
+    expect(settings.deep_dive_approval).toBe('review')
     expect(settings.watchlist_monitoring).toEqual({ enabled: true, cadence: 'daily' })
     expect(settings.thesis_review).toEqual({ enabled: true, cadence: 'quarterly' })
     expect(settings.reanalysis).toEqual({ cadence: 'annual' })
@@ -111,9 +111,19 @@ describe('mergeAutomationSettings', () => {
     expect(merged.research_engine_enabled).toBe(true)
   })
 
-  it('back-compat: clamps auto_skip quick_screen_approval to review', () => {
-    const merged = mergeAutomationSettings({ quick_screen_approval: 'auto_skip' as AutomationSettings['quick_screen_approval'] })
-    expect(merged.quick_screen_approval).toBe('review')
+  it('back-compat: clamps the removed auto_skip approval value to review (via the legacy key)', () => {
+    const merged = mergeAutomationSettings({ quick_screen_approval: 'auto_skip' } as Partial<AutomationSettings>)
+    expect(merged.deep_dive_approval).toBe('review')
+  })
+
+  it('back-compat: migrates the retired quick_screen_approval key to deep_dive_approval', () => {
+    const merged = mergeAutomationSettings({ quick_screen_approval: 'automatic' } as Partial<AutomationSettings>)
+    expect(merged.deep_dive_approval).toBe('automatic')
+  })
+
+  it('deep_dive_approval wins over a stale legacy quick_screen_approval key', () => {
+    const merged = mergeAutomationSettings({ deep_dive_approval: 'review', quick_screen_approval: 'automatic' } as Partial<AutomationSettings>)
+    expect(merged.deep_dive_approval).toBe('review')
   })
 
   it('back-compat: clamps removed reanalysis quarterly cadence to annual', () => {

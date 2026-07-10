@@ -510,7 +510,8 @@ export async function enqueueResearchRun(
           source_ledger_path: state.config.source_ledger_path,
           version,
           ...(supersedesId === undefined ? {} : { supersedes_research_case_id: supersedesId }),
-          quick_screen_approval: state.config.automation?.quick_screen_approval ?? 'review',
+          // mergeAutomationSettings migrates the retired quick_screen_approval key from older configs.
+          deep_dive_approval: mergeAutomationSettings(state.config.automation).deep_dive_approval,
           // model-tiering: file-configured per-role overrides (UI-managed env file = PINS) take effect
           // here, layered OVER the deterministic AUTO defaults (auto fills only unpinned roles).
           model_role_env: await resolveModelRoleEnv(),

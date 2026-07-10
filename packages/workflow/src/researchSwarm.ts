@@ -234,7 +234,7 @@ export type RunStrategyResearchSwarmCommand = {
    *  'automatic' (default): quick screen → deep dive → decision in one run.
    *  'review': quick screen → pause (deep_dive_approval_pending) → return without running deep dive.
    */
-  quick_screen_approval?: 'automatic' | 'review'
+  deep_dive_approval?: 'automatic' | 'review'
   /** model-tiering: optional per-role provider/model overrides (registry). Omitted = single-provider default. */
   model_overrides?: Partial<Record<ModelRoleId, ModelRoleOverride>>
   /**
@@ -274,6 +274,11 @@ export type RunResearchDeepDivePhaseCommand = {
   model_role_env?: Record<string, string | undefined>
   /** Circle-gate hardening knobs (k-sample agreement + evidence floors). Absent → shared defaults. */
   circle_gate?: CircleGateSettings
+  /**
+   * S3 — the deep-dive approval pause ('review' pauses AFTER the shariah + circle gates pass and
+   * BEFORE lane spend; the approval-resume path omits it). Absent → 'automatic'.
+   */
+  deep_dive_approval?: 'automatic' | 'review'
 }
 
 // ---------------------------------------------------------------------------
@@ -747,61 +752,7 @@ export async function runStrategyResearchSwarm(
     ...shariahGate.event.source_ids,
   ])]
 
-  // ---- Review gate: if quick_screen_approval === 'review', pause here ----
-  // (S3 renames the setting to deep_dive_approval; the pause now sits BEHIND the cheap front gate.)
-  if ((command.quick_screen_approval ?? 'automatic') === 'review') {
-    // Persist the gate-stage captured sources before pausing
-    const capturedSoFar = [...accumulated.values()]
-    if (capturedSoFar.length > 0) {
-      await ingestManualSourceBundle({
-        source_ledger_path: command.source_ledger_path,
-        research_case_id: command.research_case_id,
-        ticker: command.ticker,
-        strategy_id: command.strategy_id,
-        provider_id: provider.provider_id,
-        proposed_by_actor_type: 'provider',
-        proposed_by_actor_id: provider.provider_id,
-        ingested_by_actor_type: 'system',
-        ingested_by_actor_id: 'research_workflow',
-        sources: toLedgerSourceInputs(capturedSoFar, command.research_case_id),
-      })
-    }
-
-    const pendingEvent: LedgerEventEnvelope<unknown> = {
-      event_id: `evt_deep_dive_approval_pending_${command.research_case_id}`,
-      event_type: 'deep_dive_approval_pending',
-      aggregate_type: 'research_case',
-      aggregate_id: command.research_case_id,
-      correlation_id: command.research_case_id,
-      causation_id: shariahGate.event_id,
-      actor_type: 'system',
-      actor_id: 'research_workflow',
-      payload: {
-        research_case_id: command.research_case_id,
-        ticker: command.ticker,
-        company_id: command.company_id,
-        gate_source_ids: gateSourceIds,
-        gate_event_id: shariahGate.event_id,
-        decision_id: command.decision_id,
-        source_ledger_path: command.source_ledger_path,
-        strategy_id: command.strategy_id,
-        model_id: command.model_id,
-      },
-      source_ids: gateSourceIds,
-      created_at: new Date().toISOString(),
-      schema_version: 1,
-      idempotency_key: `deep-dive-approval-pending:${command.research_case_id}:v1`,
-    }
-    await store.append(pendingEvent)
-
-    return {
-      research_case: researchCase,
-      shariah_gate: shariahGate.event,
-      awaiting_deep_dive_approval: true,
-    }
-  }
-
-  // ---- Automatic mode: run deep dive immediately ----
+  // ---- Run the deep-dive phase (the approval pause now lives INSIDE it, behind the circle gate) ----
   const deepDiveResult = await runResearchDeepDivePhase(store, provider, {
     research_case_id: command.research_case_id,
     company_id: command.company_id,
@@ -819,6 +770,9 @@ export async function runStrategyResearchSwarm(
     ...(command.model_role_env === undefined ? {} : { model_role_env: command.model_role_env }),
     // Forward the circle-gate hardening knobs (k-sample agreement + evidence floors).
     ...(command.circle_gate === undefined ? {} : { circle_gate: command.circle_gate }),
+    // S3: the deep-dive approval pause is applied INSIDE the phase, AFTER both cheap gates pass and
+    // BEFORE any lane spend. The approval-resume path calls the phase without this key (automatic).
+    ...(command.deep_dive_approval === undefined ? {} : { deep_dive_approval: command.deep_dive_approval }),
   }, { ...deps, accumulated })
 
   return {
@@ -1079,6 +1033,26 @@ export async function runResearchDeepDivePhase(
   const gateMinDrivers = clampCircleGateMinDrivers(command.circle_gate?.min_drivers)
   const gateMinBreakers = clampCircleGateMinBreakers(command.circle_gate?.min_breakers)
 
+  // ---- S3 stage-resume: reuse a decisive circle judgment on the approval-resume path ----
+  // The deep-dive approval pause (below) sits AFTER the circle gate, so an approved resume re-enters
+  // this phase with the circle judgment ALREADY recorded. Re-sampling would re-spend provider calls
+  // and could FLIP the judgment after the human approved the spend — the ledger event IS the
+  // judgment, so reuse it. Only an in-competence event short-circuits (a set-aside case has a
+  // terminal decision and is never resumed).
+  const priorDecisiveCircle = (await store.list()).find(
+    (e) => e.event_type === 'circle_competence_judged'
+      && e.aggregate_id === command.research_case_id
+      && (e.payload as Record<string, unknown>)['in_competence'] === true,
+  )
+
+  let circleJudgmentPayload: Record<string, unknown>
+  let circleVerifiedIds: string[]
+  if (priorDecisiveCircle !== undefined) {
+    const { research_case_id: _rc, company_id: _co, ticker: _tk, ...reusedJudgment } =
+      priorDecisiveCircle.payload as Record<string, unknown>
+    circleJudgmentPayload = reusedJudgment
+    circleVerifiedIds = [...priorDecisiveCircle.source_ids]
+  } else {
   // ---- k-SAMPLE AGREEMENT (gate hardening) ----
   // The gate is sampled up to k times; the deep dive is entered only on a UNANIMOUS in-competence vote.
   // Motivation (live dogfood): a single sampled judgment flipped durable↔uncertain across same-model,
@@ -1173,7 +1147,7 @@ export async function runResearchDeepDivePhase(
   // Project-ready circle judgment payload (the cited drivers + breakers + outcome + reasoning). The resolved
   // `in_competence` boolean is DERIVED (durably_predictable && grounded) and kept as the internal/legacy
   // proceed/set-aside signal; cashflow_predictability + model_claimed_predictability carry the enum.
-  const circleJudgmentPayload = {
+  const freshCircleJudgmentPayload = {
     in_competence: inCompetence,
     cashflow_predictability: predictability,
     model_claimed_predictability: predictability,
@@ -1211,7 +1185,7 @@ export async function runResearchDeepDivePhase(
     causation_id: command.gate_event_id,
     actor_type: 'provider',
     actor_id: provider.provider_id,
-    payload: { research_case_id: command.research_case_id, company_id: command.company_id, ticker: command.ticker, ...circleJudgmentPayload },
+    payload: { research_case_id: command.research_case_id, company_id: command.company_id, ticker: command.ticker, ...freshCircleJudgmentPayload },
     source_ids: [...new Set([...groundedDrivers.map((d) => d.citation), ...groundedBreakers.map((b) => b.citation), ...circle.verified_ids])],
     created_at: new Date().toISOString(),
     schema_version: 1,
@@ -1244,7 +1218,7 @@ export async function runResearchDeepDivePhase(
         // Carry the circle judgment on the valuation block (the dossier reads circle_competence_unmet here)
         // AND as a first-class circle_competence field (projected legacy-tolerantly).
         valuation: { circle_competence_unmet: true, outside_circle: true },
-        circle_competence: circleJudgmentPayload,
+        circle_competence: freshCircleJudgmentPayload,
       },
       source_ids: circleSourceIds,
       created_at: new Date().toISOString(),
@@ -1293,11 +1267,69 @@ export async function runResearchDeepDivePhase(
     }
   }
 
+  circleJudgmentPayload = freshCircleJudgmentPayload
+  circleVerifiedIds = circle.verified_ids
+  } // end fresh circle judgment (else branch of the stage-resume reuse)
+
   // Seed the queue/start events with the gate-verified sources UNIONED with the circle gate's
   // verified sources. The front gate can legitimately open with an empty verified set
   // (gate_incomplete — its pass failed but it must not block on its own outage); by this point the
   // circle gate has grounded its clauses, so the union satisfies the pipeline's ≥1-source contract.
-  const deepDiveSeedSourceIds = [...new Set([...command.gate_source_ids, ...circle.verified_ids])]
+  const deepDiveSeedSourceIds = [...new Set([...command.gate_source_ids, ...circleVerifiedIds])]
+
+  // ---- S3: the deep-dive approval pause — BEHIND both cheap gates, BEFORE any lane spend ----
+  // 'review' pauses here (deep_dive_approval_pending; the web approve action appends
+  // deep_dive_run_requested and the resume re-enters this phase WITHOUT the key → proceeds, reusing
+  // the recorded circle judgment above). The human approves the expensive 5-lane spend knowing the
+  // name passed the Shariah gate AND the circle gate.
+  if ((command.deep_dive_approval ?? 'automatic') === 'review') {
+    const capturedSoFar = [...accumulated.values()]
+    if (capturedSoFar.length > 0) {
+      await ingestManualSourceBundle({
+        source_ledger_path: command.source_ledger_path,
+        research_case_id: command.research_case_id,
+        ticker: command.ticker,
+        strategy_id: command.strategy_id,
+        provider_id: provider.provider_id,
+        proposed_by_actor_type: 'provider',
+        proposed_by_actor_id: provider.provider_id,
+        ingested_by_actor_type: 'system',
+        ingested_by_actor_id: 'research_workflow',
+        sources: toLedgerSourceInputs(capturedSoFar, command.research_case_id),
+      })
+    }
+
+    const pendingEvent: LedgerEventEnvelope<unknown> = {
+      event_id: `evt_deep_dive_approval_pending_${command.research_case_id}`,
+      event_type: 'deep_dive_approval_pending',
+      aggregate_type: 'research_case',
+      aggregate_id: command.research_case_id,
+      correlation_id: command.research_case_id,
+      causation_id: command.gate_event_id,
+      actor_type: 'system',
+      actor_id: 'research_workflow',
+      payload: {
+        research_case_id: command.research_case_id,
+        ticker: command.ticker,
+        company_id: command.company_id,
+        gate_source_ids: deepDiveSeedSourceIds,
+        gate_event_id: command.gate_event_id,
+        decision_id: command.decision_id,
+        source_ledger_path: command.source_ledger_path,
+        strategy_id: command.strategy_id,
+        model_id: command.model_id,
+      },
+      source_ids: deepDiveSeedSourceIds,
+      created_at: new Date().toISOString(),
+      schema_version: 1,
+      idempotency_key: `deep-dive-approval-pending:${command.research_case_id}:v1`,
+    }
+    await store.append(pendingEvent)
+
+    return {
+      awaiting_deep_dive_approval: true as const,
+    }
+  }
 
   const queued = await queueDeepDive(store, {
     research_case_id: command.research_case_id,

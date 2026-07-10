@@ -24,7 +24,7 @@ function isValidPartialAutomation(body: unknown): body is Partial<AutomationSett
     return false
   }
 
-  if ('quick_screen_approval' in b && !(['automatic', 'review'] as string[]).includes(b.quick_screen_approval as string)) {
+  if ('deep_dive_approval' in b && !(['automatic', 'review'] as string[]).includes(b.deep_dive_approval as string)) {
     return false
   }
 

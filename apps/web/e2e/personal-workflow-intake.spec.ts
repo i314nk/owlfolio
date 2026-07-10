@@ -87,10 +87,10 @@ test('personal-local mode can create the first research case from the command ce
   await page.getByRole('link', { name: /manual ticker intake/i }).click()
   await expect(page).toHaveURL('/research/new')
 
-  // Set quick_screen_approval to 'automatic' so this run completes straight through
+  // Set deep_dive_approval to 'automatic' so this run completes straight through
   // (default is 'review' which pauses after quick screen; the e2e needs the full run)
   const automationResponse = await request.post('/api/settings/automation', {
-    data: { quick_screen_approval: 'automatic' },
+    data: { deep_dive_approval: 'automatic' },
   })
   expect(automationResponse.ok()).toBe(true)
 

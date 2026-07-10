@@ -106,6 +106,9 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         source_ledger_path: runtime.source_ledger_path,
         maxToolCalls,
         circle_gate,
+        // The deep-dive approval pause honors the SAME merged automation setting the web path uses —
+        // a worker-executed run pauses behind the gates exactly like an in-process one.
+        deep_dive_approval: automation.deep_dive_approval,
         // Defense-in-depth: let the task fail closed if the run requested a provider/mode that differs
         // from the config the worker actually loaded (e.g. a silent demo/mock fallback).
         loaded_provider_id: runtime.config.provider.provider_id,

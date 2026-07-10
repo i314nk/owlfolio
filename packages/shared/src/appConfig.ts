@@ -116,7 +116,8 @@ export const CIRCLE_GATE_EVIDENCE_FLOOR_MAX = 5
 export type AutomationSettings = {
   research_engine_enabled: boolean
   discovery: { enabled: boolean; cadence: AutomationCadenceDiscovery }
-  quick_screen_approval: 'automatic' | 'review'
+  /** Approval pause for the deep dive — applied BEHIND the cheap gates, before lane spend. */
+  deep_dive_approval: 'automatic' | 'review'
   watchlist_monitoring: { enabled: boolean; cadence: AutomationCadenceWatchlist }
   thesis_review: { enabled: boolean; cadence: AutomationCadenceThesisReview }
   reanalysis: { cadence: AutomationCadenceReanalysis }
@@ -305,7 +306,7 @@ export const defaultMarketUniverseConfig = (): MarketUniverseConfig => ({
 export const defaultAutomationSettings = (): AutomationSettings => ({
   research_engine_enabled: true,
   discovery: { enabled: false, cadence: 'off' },
-  quick_screen_approval: 'review',
+  deep_dive_approval: 'review',
   watchlist_monitoring: { enabled: true, cadence: 'daily' },
   thesis_review: { enabled: true, cadence: 'quarterly' },
   reanalysis: { cadence: 'annual' },
@@ -327,7 +328,7 @@ export const defaultAutomationSettings = (): AutomationSettings => ({
  * - valuation_refresh: ignored (replaced by price_refresh — back-compat callers must
  *   migrate via holding_reviews → thesis_review if needed)
  * - holding_reviews: mapped to thesis_review if thesis_review is absent
- * - quick_screen_approval 'auto_skip': clamped to 'review'
+ * - quick_screen_approval: migrated to deep_dive_approval (same values; 'auto_skip' clamps to 'review')
  * - reanalysis cadence 'quarterly': clamped to 'annual'
  */
 export const mergeAutomationSettings = (partial?: Partial<AutomationSettings & {
@@ -353,13 +354,15 @@ export const mergeAutomationSettings = (partial?: Partial<AutomationSettings & {
     }
     : undefined)
 
-  // Back-compat: clamp removed quick_screen_approval values to 'review'
-  const rawApproval = partial.quick_screen_approval as string | undefined
-  const quick_screen_approval: AutomationSettings['quick_screen_approval'] =
+  // Back-compat: the retired quick_screen_approval key migrates to deep_dive_approval (the pause
+  // moved behind the front gates); removed values ('auto_skip', anything else) clamp to 'review'.
+  const rawApproval = (partial.deep_dive_approval
+    ?? (partial as { quick_screen_approval?: unknown }).quick_screen_approval) as string | undefined
+  const deep_dive_approval: AutomationSettings['deep_dive_approval'] =
     rawApproval === 'automatic' ? 'automatic'
     : rawApproval === 'review' ? 'review'
     : rawApproval !== undefined ? 'review' // clamp 'auto_skip' or any other removed value
-    : defaults.quick_screen_approval
+    : defaults.deep_dive_approval
 
   // Back-compat: clamp removed reanalysis cadence values to 'annual'
   const rawReanalysisCadence = partial.reanalysis?.cadence as string | undefined
@@ -372,7 +375,7 @@ export const mergeAutomationSettings = (partial?: Partial<AutomationSettings & {
   return {
     research_engine_enabled: partial.research_engine_enabled ?? defaults.research_engine_enabled,
     discovery: partial.discovery ?? defaults.discovery,
-    quick_screen_approval,
+    deep_dive_approval,
     watchlist_monitoring: partial.watchlist_monitoring ?? defaults.watchlist_monitoring,
     thesis_review: thesisReviewRaw ?? defaults.thesis_review,
     reanalysis: partial.reanalysis !== undefined ? { cadence: reanalysisCadence } : defaults.reanalysis,
