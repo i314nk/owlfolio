@@ -2320,7 +2320,11 @@ export async function runResearchDeepDivePhase(
     // be finite and within [0, total capex]. It cannot be negative; it cannot exceed total capex (that is
     // not maintenance — it is a units/logic error). Outside the envelope → reject the model's value with a
     // VISIBLE flag and fall back to the SAFE value (the proxy reference, else the legacy tier fallback).
-    const safeMaint = maintenance_capex_proxy_reference ?? legacyMaint
+    // The FALLBACK is held to the SAME envelope (SPGI dogfood 2026-07-10): on amortization-heavy filers
+    // the D&A-tied proxy can exceed total capex by multiples — substituting it after rejecting the
+    // model's value for the same violation understates OE and skews every implied-growth/fair-value read.
+    const uncappedSafeMaint = maintenance_capex_proxy_reference ?? legacyMaint
+    const safeMaint = Number.isFinite(edgar_capex) ? Math.min(uncappedSafeMaint, edgar_capex) : uncappedSafeMaint
     const modelMaint = modelBridge.maintenance_capex
     if (!Number.isFinite(edgar_capex)) {
       // Without a total-capex upper bound the envelope cannot be enforced — fall back to the safe value.

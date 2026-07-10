@@ -3923,6 +3923,41 @@ describe('EDGAR-anchored OE bridge + harness AAOIFI Shariah ratios', () => {
     expect(cp?.investment_verdict).toBeDefined()
   })
 
+  it('amortization-heavy filer (SPGI dogfood 2026-07-10): the envelope FALLBACK is capped at total capex — never a proxy that violates the same envelope', async () => {
+    // SPGI live shape: D&A ($1.2B, merger-amortization heavy) dwarfs total capex ($195M). The model's
+    // maintenance_capex (350) is rejected against the envelope [0, 195] — but the Greenwald/D&A proxy
+    // fallback (~D&A-scaled, >> 195) violated the SAME envelope, understating OE and overstating every
+    // implied-growth/fair-value read. The fallback must be clamped to total capex.
+    const amortHeavy = {
+      ...costFundamentals,
+      latest_annual: { ...costFundamentals.latest_annual, d_and_a_musd: 1200, capex_musd: 195 },
+      annual_series: costFundamentals.annual_series!.map((y) => ({ ...y, d_and_a_musd: 1200, capex_musd: 195 })),
+    }
+    const store = new InMemoryEventStore()
+    await seedDeepDivePrereqs(store)
+    const provider = swarmFakeProviderWithShariah(0.004 * 275235, 'conditional', {
+      net_income: 8099, depreciation_amortization: 999, maintenance_capex: 350,
+      maintenance_capex_proxy_tier: '80', stock_based_comp: 1,
+      normalized_working_capital_change: 0, shares_outstanding: 1,
+    })
+    await provider.structured({} as never)
+
+    await runResearchDeepDivePhase(store, provider as never, deepDiveCommand(), {
+      ground: verifyAllGround(),
+      laneConcurrency: 7,
+      fundamentals: amortHeavy,
+      resolvePrice: async () => ({ available: true, price_per_share: 968, currency: 'USD', as_of: 'x', source: 'test' }),
+    })
+
+    const events = await store.list()
+    const projections = projectResearchCases(events as Parameters<typeof projectResearchCases>[0])
+    const cp = projections.find((c) => c.research_case_id === 'rc_edgar')
+    const boundMaint = cp?.valuation?.owner_earnings_bridge?.maintenance_capex
+    // The binding value must respect the envelope: ≤ total capex (195) — never the uncapped D&A proxy.
+    expect(boundMaint).toBeDefined()
+    expect(boundMaint!).toBeLessThanOrEqual(195)
+  })
+
   it('rejects a model maintenance_capex above total capex (envelope) and falls back to the proxy with a visible flag', async () => {
     // Model judges maintenance_capex = 6000 — ABOVE total capex (5498); that is not maintenance, it is a
     // units/logic error. The deterministic envelope rejects it and falls back to the conservative proxy
