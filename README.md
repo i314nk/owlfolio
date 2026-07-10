@@ -39,7 +39,8 @@ accounting, pipeline, lifecycle, audit trail, the Learn docs, and the strategy o
 ## What it is
 
 Owlfolio runs a strategy-driven research workflow (default: Buffett-Munger) on
-your own machine: discovery → quick screen → a multi-agent deep dive → a drafted
+your own machine: discovery → a grounded Shariah gate → a circle-of-competence
+gate → a multi-agent deep dive → a drafted
 decision → watchlist/holding transitions you explicitly author → ongoing
 re-review as new SEC filings land. Everything is recorded in an append-only
 SQLite event ledger with causation/correlation IDs, so every number and claim is

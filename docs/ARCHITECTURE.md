@@ -12,7 +12,8 @@ Target workflow:
 Onboarding
   -> Default Buffett-Munger strategy posture (future selectable strategies remain experimental until gated)
   -> Discovery queue
-  -> Quick screen
+  -> Shariah gate (grounded sector judgment + AAOIFI ratios, pre-spend)
+  -> Circle-of-competence gate
   -> Deep dive
   -> Synthesis / decision draft
   -> User-confirmed watchlist item
@@ -66,7 +67,7 @@ Primary routes:
 | `/` | Command Center with setup status, workflow counts, next action, accounting/review prompts, recent activity. |
 | `/onboarding` | Demo/personal-local setup and provider readiness flow. |
 | `/research/new` | Secondary manual ticker intake into the strategy pipeline. |
-| `/research` | Strategy pipeline cockpit: discovery, quick screen, deep dive, decision drafts, watchlist, and outcomes. |
+| `/research` | Strategy pipeline cockpit: discovery, the front gates (Shariah + circle), deep dive, decision drafts, watchlist, and outcomes. |
 | `/research/[caseId]` | Review a research case and draft watchlist recommendation. |
 | `/watchlist` | Confirm watchlist drafts and open holdings. |
 | `/portfolio` | Holdings, lot entry, valuations, holding review decisions. |
@@ -84,7 +85,7 @@ API routes are colocated under `apps/web/src/app/api/**` and are local-app route
 
 Key event families:
 
-- Research/watchlist/holding workflow events, including discovery candidates, quick screens, deep dives, decision drafts, and explicit user transitions.
+- Research/watchlist/holding workflow events, including discovery candidates, gate judgments (Shariah + circle; legacy quick-screen events fold read-only), deep dives, decision drafts, and explicit user transitions.
 - Holding valuation and review events.
 - Scheduled task definition/run lifecycle events.
 - Provider run and certification report events.
