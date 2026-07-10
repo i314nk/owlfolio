@@ -1,4 +1,5 @@
 import { Children, createElement, isValidElement, type ReactNode } from 'react'
+import { RunDeepDiveButton } from './RunDeepDiveButton'
 
 import type {
   ResearchCaseSellBiasCaveatProjection,
@@ -995,32 +996,12 @@ function createAwaitingDeepDiveDossier(researchCase: AppResearchCase) {
           createElement('span', { style: { color: 'var(--owl-color-quiet)' } }, 'Deep-dive swarm (5 lanes) — not yet started'),
         ),
       ) : null,
-      // Run deep dive action
+      // Run deep dive action (client-side POST + in-place refresh — the old plain-HTML form navigated
+      // the browser to the raw JSON API response; dogfood find 2026-07-10).
       createElement(
         'div',
         { style: { marginTop: '0.5rem' } },
-        createElement(
-          'form',
-          { action: `/api/research/${researchCase.research_case_id}/deep-dive`, method: 'post' },
-          createElement(
-            'button',
-            {
-              type: 'submit',
-              style: {
-                background: 'var(--owl-color-accent)',
-                border: 0,
-                borderRadius: '999px',
-                color: '#ffffff',
-                cursor: 'pointer',
-                font: 'inherit',
-                fontSize: 'var(--owl-text-base)',
-                fontWeight: 900,
-                padding: '0.75rem 1.2rem',
-              },
-            },
-            'Run deep dive',
-          ),
-        ),
+        createElement(RunDeepDiveButton, { caseId: researchCase.research_case_id }),
       ),
     ),
     // Still render evidence for audit trail visibility
