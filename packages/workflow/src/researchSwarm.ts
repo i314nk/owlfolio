@@ -56,7 +56,6 @@ import { SOURCE_POLICY } from '@owlfolio/strategies/sourcePolicy'
 import { createResearchCase, draftDecision } from './researchWorkflow'
 import {
   buffettMungerDeepDiveLanes,
-  draftQuickScreen,
   queueDeepDive,
   startDeepDive,
   recordSpecialistFinding,
@@ -85,7 +84,6 @@ import {
   type ShariahSectorStatus,
 } from './dualModelCrossCheck'
 import {
-  QuickScreenAgentSchema,
   LaneAgentSchema,
   MoatLaneSchema,
   DecisionAgentSchema,
@@ -112,7 +110,6 @@ import {
   buildInsiderBlock,
   buildRecentFilingsBlock,
   buildPreVerifiedSourcesBlock,
-  buildQuickScreenFilingBlock,
   type MoatLaneJudgment,
   type ShariahLaneJudgment,
   type JudgmentDegraded,
@@ -257,10 +254,10 @@ export type RunResearchDeepDivePhaseCommand = {
   model_id: string
   decision_id: string
   source_ledger_path: string
-  /** Source ids from the quick screen — used to seed queueDeepDive */
-  quick_screen_source_ids: string[]
-  /** event_id of the quick_screen_drafted event — used as causation_id */
-  quick_screen_event_id: string
+  /** Source ids verified at the front Shariah gate (legacy: the quick screen) — seed queueDeepDive */
+  gate_source_ids: string[]
+  /** event_id of the shariah_gate_judged event (legacy: quick_screen_drafted) — used as causation_id */
+  gate_event_id: string
   /**
    * F.2 — the COMPLIANT risk-free SAVINGS rate (Mudarabah expected profit, decimal) from the app-config
    * savings sleeve (`savings_expected_profit_rate`), used as the discount risk-free anchor. The SAME
@@ -558,16 +555,6 @@ async function resolveFxRateValue(currency: string, deps: FundamentalsDeps): Pro
 // Helpers for mapping shariah status
 // ---------------------------------------------------------------------------
 
-function toAnalysisShariahStatus(
-  rawShariahStatus: 'COMPLIANT' | 'CONDITIONAL' | 'NON_COMPLIANT' | 'PENDING',
-): 'COMPLIANT' | 'CONDITIONAL' | 'NON_COMPLIANT' | 'UNKNOWN' {
-  // Map qs.analysis.shariah_status (which may be 'PENDING') to the valid analysis set
-  // (COMPLIANT | CONDITIONAL | NON_COMPLIANT | UNKNOWN). PENDING -> CONDITIONAL.
-  if (rawShariahStatus === 'COMPLIANT') return 'COMPLIANT'
-  if (rawShariahStatus === 'NON_COMPLIANT') return 'NON_COMPLIANT'
-  if (rawShariahStatus === 'CONDITIONAL') return 'CONDITIONAL'
-  return 'CONDITIONAL' // PENDING maps to CONDITIONAL (data available but not yet resolved)
-}
 
 // ---------------------------------------------------------------------------
 // Orchestrator
@@ -579,7 +566,6 @@ export async function runStrategyResearchSwarm(
   command: RunStrategyResearchSwarmCommand,
   deps: { ground?: GroundFn; grounding?: GroundingDeps; laneConcurrency?: number; maxToolCalls?: number } & FundamentalsDeps = {},
 ) {
-  const strategyRef = resolveResearchStrategyRef(command)
   // Engine-version provenance: stamp the run's reasoning vintage (and best-effort commit) at the event
   // payload ROOT so every emission site — including the early-exit reject/set-aside paths — carries it.
   const engineCommit = resolveEngineCommit()
@@ -601,29 +587,15 @@ export async function runStrategyResearchSwarm(
     ...(command.supersedes_research_case_id === undefined ? {} : { supersedes_research_case_id: command.supersedes_research_case_id }),
   })
 
-  // ---- Quick screen agent (Shariah-first gate) ----
-  // The quick screen is a two-step gate:
-  //   1. Shariah compliance: if NON_COMPLIANT, reject immediately — do not run the deep dive.
-  //   2. Business quality: if clearly not worth investigating, reject.
-  // Only 'deep_dive_candidate' cases with non-NON_COMPLIANT Shariah status proceed to the expensive deep dive.
-  let qs: GroundedAgentResult<z.infer<typeof QuickScreenAgentSchema>>
-  // model-tiering: the quick screen runs on the `quick_screen` role (T2). Default = the run's provider/model.
-  const quickScreenRuntime = resolveRoleRuntime('quick_screen', provider, command)
-
-  // ---- Pre-fetch + ground the primary filing for the quick-screen grounding firewall ----
-  // CRITICAL: the configured personal-local provider (`openai`) declares 'multi-step-tool-loop':
-  // 'unsupported', so runGroundedAgentWithTools below takes its DEGRADED (no-tools) fallback — the model
-  // cannot actually call search_filings / fetch_source. Tool-grounding alone therefore does NOT close the
-  // hole on the live provider. To ground the gate on a no-tools provider (the production path), the harness
-  // deterministically pre-fetches the latest ANNUAL filing, grounds it as a verified primary source, and
-  // INJECTS it as a PRE-VERIFIED-SOURCES block — exactly as the circle gate (:816) and the deep-dive lanes
-  // do. A loop-capable provider ALSO gets live fetch tools (the runGroundedAgentWithTools switch); a
-  // no-tools provider gets grounding purely from this injection. When fundamentals do NOT resolve
-  // (non-EDGAR name / EDGAR down) AND the provider has no tools, there is nothing verifiable to cite and
-  // the fail-closed check below correctly fails the gate closed.
+  // ---- Pre-fetch + ground the primary filing for the front Shariah gate ----
+  // The harness deterministically pre-fetches the latest ANNUAL filing and grounds it as a verified
+  // primary source BEFORE any model spend — the front gate's reasoning pass is seeded with it (via
+  // preVerifiedSourceIds + readCorpus), which is what grounds the sector judgment on a no-tools
+  // provider (the production path). When fundamentals do NOT resolve (non-EDGAR name / EDGAR down)
+  // the gate proceeds VISIBLY undetermined (gate_incomplete); the circle gate downstream still fails
+  // closed to outside-competence when nothing verifiable grounds its clauses.
   const qsFundamentals = await resolveFundamentals(command.ticker, deps)
   let qsPrimaryFilingSourceId: string | undefined
-  let qsPreVerifiedSourcesBlock: string | undefined
   if (qsFundamentals !== undefined) {
     // Select the latest ANNUAL filing ACROSS 10-K / 20-F / 40-F (NOT 10-K-only — TSMC files a 20-F).
     // `filings` is already filtered to these forms and sorted newest-first, so the first match is latest.
@@ -644,23 +616,18 @@ export async function runStrategyResearchSwarm(
       if (captured !== undefined && grounded.verified_ids.includes(sourceId)) {
         remember([captured]) // part of the verified corpus from this point on
         qsPrimaryFilingSourceId = sourceId
-        // QUICK-SCREEN-specific block (NOT buildPreVerifiedSourcesBlock): the quick-screen schema has no
-        // citation field, so a source_id must NEVER be put into proposed_sources. This block injects the
-        // verified filing's id (for reference) + the harness-fetched financials (to ground the worth-it
-        // read) and ends with the explicit "proposed_sources is REAL URLs only / empty [] is fine" rule.
-        qsPreVerifiedSourcesBlock = buildQuickScreenFilingBlock(qsFundamentals, sourceId)
       }
     }
   }
 
-  // ---- Restructure Phase 1 (S1b): the FRONT Shariah gate ----
-  // The grounded sector judgment runs BEFORE any further model spend (quick screen today, lanes after
-  // S2): the reasoning pass moved forward, seeded with the harness-grounded primary filing (no lanes
-  // exist yet, so laneDigest is empty). A NON-COMPLIANT sector (or, when computable this early, an
-  // AAOIFI ratio FAIL) sets the case aside with the same coherent PASS dossier as the quick-screen
-  // rejection path; a pass outage proceeds VISIBLY undetermined (gate_incomplete) — the downstream
-  // Shariah machinery still fails closed. NOTE: until S2 dedupes, the reasoning pass also still runs
-  // post-lane (unchanged) — the gate adds one call, and removes five lane calls on gated names.
+  // ---- The FRONT Shariah gate (gate #1) ----
+  // The grounded sector judgment runs BEFORE any further model spend: the reasoning pass moved
+  // forward, seeded with the harness-grounded primary filing (no lanes exist yet, so laneDigest is
+  // empty). A NON-COMPLIANT sector (or, when computable this early, an AAOIFI ratio FAIL) sets the
+  // case aside with a coherent PASS dossier; a pass outage proceeds VISIBLY undetermined
+  // (gate_incomplete) — the downstream Shariah machinery still fails closed. The circle gate (gate #2,
+  // inside the deep-dive phase, pre-lane) absorbs the retired quick screen's "worth a deep dive"
+  // judgment — "durably predictable" is the stricter form of it.
   const shariahGateRuntime = resolveRoleRuntime('lane_shariah', provider, command)
   const shariahGate = await runShariahGatePhase(store, {
     research_case_id: command.research_case_id,
@@ -690,6 +657,11 @@ export async function runStrategyResearchSwarm(
     ),
     corpusSourceIds: [...accumulated.values()].map((c) => c.source_id),
   })
+  // Corpus continuity: fold the gate pass's grounded captures into the run corpus so its verified
+  // citations stay readable/citable by the circle gate, the lanes, and the cross-stage cite-checks.
+  if (shariahGate.pass_captured !== undefined) {
+    remember(shariahGate.pass_captured)
+  }
 
   if (!shariahGate.allowed) {
     const rejectionReason = `Set aside at the Shariah gate: ${shariahGate.reason}`
@@ -767,199 +739,18 @@ export async function runStrategyResearchSwarm(
     }
   }
 
-  try {
-    // GROUNDED quick screen: the gate grounds BOTH decisions (Shariah permissibility + worth-investigating)
-    // in the harness-verified primary filing — the injected PRE-VERIFIED-SOURCES block (works on every
-    // provider, tools or not) plus, on loop-capable providers, live search_filings / fetch_source. The
-    // harness post-hoc cite-verifies the captured sources; the fail-closed check below is the firewall.
-    const { degraded_no_tools: _qsDegraded, ...qsAgent } = await runGroundedAgentWithTools(quickScreenRuntime.provider, {
-    run_id: `run_${command.research_case_id}_quick_screen`,
-    model_id: quickScreenRuntime.model_id,
-    prompt: `You are the Buffett-Munger quick-screen gate agent for ${command.ticker} (${command.company_id}). `
-      + `This is a two-step gate — NOT a full analysis. Keep responses brief; the deep dive handles detail.\n\n`
-      + `GROUND YOURSELF IN THE PRIMARY FILING BEFORE JUDGING — do NOT judge from your prior knowledge of `
-      + `the brand. A harness-verified copy of the company's latest annual filing is provided below (see `
-      + `HARNESS PRE-VERIFIED PRIMARY FILING, when present): ground BOTH gate judgments in it — STEP 1 in its `
-      + `described business activities / revenue mix, STEP 2 in the harness-fetched financials shown there. `
-      + `That filing is ALREADY harness-verified, so you do NOT need to fetch or propose anything to be `
-      + `grounded. If grounded fetch tools are available you MAY additionally call search_filings (10-K for US `
-      + `issuers, 20-F for foreign private issuers such as TSMC, 40-F for Canadian issuers) and fetch_source `
-      + `to read more, but it is optional. Reading ONE primary filing is enough for this fast gate.\n\n`
-      + `STEP 1 — Shariah permissibility: based on the filing's DESCRIBED business activities and revenue `
-      + `mix, assess whether the company's primary business is permissible under Islamic finance principles. `
-      + `If the core business is clearly haram (e.g. conventional banking, alcohol, weapons, tobacco, adult `
-      + `content), set shariah_status to 'NON_COMPLIANT' and screening_result to 'reject'. If the business is `
-      + `clearly halal or the status is uncertain/conditional, set shariah_status accordingly ('COMPLIANT', `
-      + `'CONDITIONAL', or 'PENDING') and continue to step 2.\n\n`
-      + `STEP 2 (only if not NON_COMPLIANT) — Business quality worth-investigating check, grounded in the `
-      + `filing: is this company worth a deep dive under Buffett-Munger criteria? If clearly inadequate (e.g. `
-      + `no durable business, chronic losses, terminal industry), set screening_result to 'reject'. Otherwise `
-      + `set screening_result to 'deep_dive_candidate'.\n\n`
-      + `Return a brief assessment in each field. Do NOT perform per-dimension deep analysis — that is the `
-      + `deep dive's job. proposed_sources is for REAL fetched URLs ONLY — NEVER put a source_id or an `
-      + `invented URL there; if you fetched no additional real URL, return proposed_sources as an empty array `
-      + `[] (the pre-verified filing already grounds this gate).`
-      // Inject the harness's QUICK-SCREEN-specific pre-verified filing block (financials + the empty-
-      // proposed_sources rule). NOT buildPreVerifiedSourcesBlock — the quick-screen schema has no citation
-      // field, so a source_id must never be routed into proposed_sources (the invalid-URL regression).
-      + (qsPreVerifiedSourcesBlock ?? ''),
-    timeout_ms: AGENT_TIMEOUT_MS,
-    schema_name: 'BuffettMungerQuickScreen',
-    }, QuickScreenAgentSchema, {
-      ...(deps.ground === undefined ? {} : { ground: deps.ground }),
-      ...(deps.grounding === undefined ? {} : { grounding: deps.grounding }),
-      ...(deps.fetchFundamentals === undefined ? {} : { fetchFundamentals: deps.fetchFundamentals }),
-      ...(deps.maxToolCalls === undefined ? {} : { maxToolCalls: deps.maxToolCalls }),
-    })
-    void _qsDegraded
-    qs = qsAgent
-  } catch (error) {
-    // Quick-screen tool loop failed: fail the run cleanly (no lanes ran yet) rather than throw a raw
-    // provider/timeout error past the swarm boundary. The worker records this as research_run_failed.
-    // (The circle gate relies on this same stage-error path — there is no bespoke retry here.)
-    throw new ResearchSwarmStageError('quick_screen', error, { lanes_completed: false })
-  }
-  remember(qs.captured)
-
-  // The harness pre-fetched primary filing is grounded by the harness (not the agent loop), so fold its id
-  // into the gate's verified set: the model was instructed to cite it via the injected block, but on a
-  // no-tools provider the harness grounding is the authoritative anchor. This is what puts the injected
-  // filing id in verified_ids (→ the fail-closed firewall counts it, draftQuickScreen records it, and the
-  // dossier source-count reflects it) on the production no-tools path.
-  if (qsPrimaryFilingSourceId !== undefined && !qs.verified_ids.includes(qsPrimaryFilingSourceId)) {
-    qs.verified_ids = [qsPrimaryFilingSourceId, ...qs.verified_ids]
-  }
-
-  // I1: fail-closed if the quick screen grounded in ZERO content-hash-verified sources — i.e. neither the
-  // harness pre-fetch nor the model produced a verifiable primary source. This is the grounding firewall:
-  // the gate may only proceed when its judgments are anchored to ≥1 verified source, not the training prior.
-  // RESIDUAL: a non-EDGAR name (GCC/private filer EDGAR cannot resolve) on a no-tools provider has nothing
-  // to ground → fails closed here. That is the correct, safe outcome, not a regression.
-  if (qs.verified_ids.length === 0) {
-    throw new Error(`Quick screen for ${command.ticker} produced no verifiable grounded sources (fail-closed).`)
-  }
-
-  const quickScreen = await draftQuickScreen(store, {
-    research_case_id: command.research_case_id,
-    quick_screen_id: `quick_${swarmSeg(command.research_case_id)}`,
-    company_id: command.company_id,
-    ticker: command.ticker,
-    ...strategyRef,
-    screening_result: qs.analysis.screening_result,
-    summary: qs.analysis.summary,
-    business_quality: qs.analysis.business_quality,
-    moat: qs.analysis.moat,
-    management_capital_allocation: qs.analysis.management_capital_allocation,
-    financial_quality: qs.analysis.financial_quality,
-    valuation_sanity: qs.analysis.valuation_sanity,
-    shariah_status: qs.analysis.shariah_status,
-    red_flags: qs.analysis.red_flags,
-    confidence: qs.analysis.confidence,
-    caveats: qs.analysis.caveats,
-    source_ids: qs.verified_ids,
-    actor_id: provider.provider_id,
-    idempotency_key: `quick-screen:${command.research_case_id}:v1`,
-  })
-
-  const analysisShariahStatus = toAnalysisShariahStatus(qs.analysis.shariah_status)
-
-  // ---- Shariah-first gate: short-circuit if rejected at quick screen ----
-  // Reject if: Shariah NON_COMPLIANT OR business quality clearly inadequate (screening_result = 'reject').
-  const isRejected =
-    qs.analysis.screening_result === 'reject' || qs.analysis.shariah_status === 'NON_COMPLIANT'
-
-  if (isRejected) {
-    // Determine the rejection reason for the brief thesis/evidence/rationale
-    const rejectionReason = qs.analysis.shariah_status === 'NON_COMPLIANT'
-      ? `Rejected at quick screen: Shariah non-compliant — ${qs.analysis.summary}`
-      : `Rejected at quick screen: business quality insufficient — ${qs.analysis.summary}`
-
-    // Strategy compliance on the analysis: NON_COMPLIANT if Shariah rejected, else INSUFFICIENT_DATA
-    const strategyCompliance: 'NON_COMPLIANT' | 'INSUFFICIENT_DATA' =
-      qs.analysis.shariah_status === 'NON_COMPLIANT' ? 'NON_COMPLIANT' : 'INSUFFICIENT_DATA'
-
-    const shortCircuitAnalysisEvent: LedgerEventEnvelope<unknown> = {
-      event_id: `evt_buffett_munger_analysis_drafted_${command.research_case_id}`,
-      event_type: 'buffett_munger_analysis_drafted',
-      aggregate_type: 'research_case',
-      aggregate_id: command.research_case_id,
-      correlation_id: command.research_case_id,
-      causation_id: quickScreen.event_id,
-      actor_type: 'provider',
-      actor_id: provider.provider_id,
-      payload: {
-        research_case_id: command.research_case_id,
-        company_id: command.company_id,
-        ticker: command.ticker,
-        engine_version: ENGINE_VERSION,
-        ...(engineCommit === undefined ? {} : { engine_commit: engineCommit }),
-        investment_verdict: 'PASS',
-        strategy_compliance: strategyCompliance,
-        shariah_status: analysisShariahStatus,
-        valuation_status: 'INSUFFICIENT_DATA',
-        next_required_action: 'No further research required; case rejected at quick screen.',
-        quick_screen: {
-          summary: qs.analysis.summary,
-          business_quality: qs.analysis.business_quality,
-          moat: qs.analysis.moat,
-          management_capital_allocation: qs.analysis.management_capital_allocation,
-          financial_quality: qs.analysis.financial_quality,
-          valuation_sanity: qs.analysis.valuation_sanity,
-          screening_result: qs.analysis.screening_result,
-          confidence: qs.analysis.confidence,
-        },
-      },
-      source_ids: qs.verified_ids,
-      created_at: new Date().toISOString(),
-      schema_version: 1,
-      idempotency_key: `analysis:${command.research_case_id}:v1`,
-    }
-    const shortCircuitAnalysis = await store.append(shortCircuitAnalysisEvent)
-
-    const shortCircuitDecision = await draftDecision(store, {
-      research_case_id: command.research_case_id,
-      decision_id: command.decision_id,
-      decision: 'PASS',
-      reason: rejectionReason,
-      thesis_summary: rejectionReason,
-      evidence_summary: rejectionReason,
-      valuation_rationale: 'Not assessed — case rejected at quick screen.',
-      shariah_rationale: qs.analysis.summary,
-      risks: qs.analysis.red_flags,
-      open_questions: qs.analysis.caveats,
-      causation_id: quickScreen.event_id,
-      source_ids: qs.verified_ids,
-      idempotency_key: `decision:${command.research_case_id}:v1`,
-    })
-
-    // Persist source bundle for the quick-screen-only captured sources
-    const capturedSoFar = [...accumulated.values()]
-    if (capturedSoFar.length > 0) {
-      await ingestManualSourceBundle({
-        source_ledger_path: command.source_ledger_path,
-        research_case_id: command.research_case_id,
-        ticker: command.ticker,
-        strategy_id: command.strategy_id,
-        provider_id: provider.provider_id,
-        proposed_by_actor_type: 'provider',
-        proposed_by_actor_id: provider.provider_id,
-        ingested_by_actor_type: 'system',
-        ingested_by_actor_id: 'research_workflow',
-        sources: toLedgerSourceInputs(capturedSoFar, command.research_case_id),
-      })
-    }
-
-    return {
-      research_case: researchCase,
-      quick_screen: quickScreen,
-      analysis: shortCircuitAnalysis,
-      decision: shortCircuitDecision,
-    }
-  }
+  // Sources verified at the front gate: the harness-grounded primary filing + the gate's verified
+  // sector citation. These seed the deep-dive phase (queueDeepDive source_ids + the circle/queue
+  // causation chain) exactly as the retired quick screen's verified set used to.
+  const gateSourceIds = [...new Set([
+    ...(qsPrimaryFilingSourceId !== undefined ? [qsPrimaryFilingSourceId] : []),
+    ...shariahGate.event.source_ids,
+  ])]
 
   // ---- Review gate: if quick_screen_approval === 'review', pause here ----
+  // (S3 renames the setting to deep_dive_approval; the pause now sits BEHIND the cheap front gate.)
   if ((command.quick_screen_approval ?? 'automatic') === 'review') {
-    // Persist quick-screen sources before pausing
+    // Persist the gate-stage captured sources before pausing
     const capturedSoFar = [...accumulated.values()]
     if (capturedSoFar.length > 0) {
       await ingestManualSourceBundle({
@@ -982,21 +773,21 @@ export async function runStrategyResearchSwarm(
       aggregate_type: 'research_case',
       aggregate_id: command.research_case_id,
       correlation_id: command.research_case_id,
-      causation_id: quickScreen.event_id,
+      causation_id: shariahGate.event_id,
       actor_type: 'system',
       actor_id: 'research_workflow',
       payload: {
         research_case_id: command.research_case_id,
         ticker: command.ticker,
         company_id: command.company_id,
-        quick_screen_source_ids: qs.verified_ids,
-        quick_screen_event_id: quickScreen.event_id,
+        gate_source_ids: gateSourceIds,
+        gate_event_id: shariahGate.event_id,
         decision_id: command.decision_id,
         source_ledger_path: command.source_ledger_path,
         strategy_id: command.strategy_id,
         model_id: command.model_id,
       },
-      source_ids: qs.verified_ids,
+      source_ids: gateSourceIds,
       created_at: new Date().toISOString(),
       schema_version: 1,
       idempotency_key: `deep-dive-approval-pending:${command.research_case_id}:v1`,
@@ -1005,7 +796,7 @@ export async function runStrategyResearchSwarm(
 
     return {
       research_case: researchCase,
-      quick_screen: quickScreen,
+      shariah_gate: shariahGate.event,
       awaiting_deep_dive_approval: true,
     }
   }
@@ -1020,8 +811,8 @@ export async function runStrategyResearchSwarm(
     model_id: command.model_id,
     decision_id: command.decision_id,
     source_ledger_path: command.source_ledger_path,
-    quick_screen_source_ids: qs.verified_ids,
-    quick_screen_event_id: quickScreen.event_id,
+    gate_source_ids: gateSourceIds,
+    gate_event_id: shariahGate.event_id,
     // model-tiering: forward per-role overrides so the deep-dive lanes + dual-model cross-check honor them.
     ...(command.model_overrides === undefined ? {} : { model_overrides: command.model_overrides }),
     // Forward the env source so file-configured tiers take effect in the deep-dive phase too.
@@ -1032,7 +823,7 @@ export async function runStrategyResearchSwarm(
 
   return {
     research_case: researchCase,
-    quick_screen: quickScreen,
+    shariah_gate: shariahGate.event,
     ...deepDiveResult,
   }
 }
@@ -1410,14 +1201,14 @@ export async function runResearchDeepDivePhase(
     ...(circleUnmetReason !== undefined ? { circle_competence_unmet: true, reason: circleUnmetReason } : {}),
   }
 
-  // Emit the circle judgment event (causation = the quick-screen event; this is the first deep-dive stage).
+  // Emit the circle judgment event (causation = the front-gate event; this is the first deep-dive stage).
   const circleJudged = await store.append({
     event_id: `evt_circle_competence_judged_${command.research_case_id}`,
     event_type: 'circle_competence_judged',
     aggregate_type: 'research_case',
     aggregate_id: command.research_case_id,
     correlation_id: command.research_case_id,
-    causation_id: command.quick_screen_event_id,
+    causation_id: command.gate_event_id,
     actor_type: 'provider',
     actor_id: provider.provider_id,
     payload: { research_case_id: command.research_case_id, company_id: command.company_id, ticker: command.ticker, ...circleJudgmentPayload },
@@ -1429,7 +1220,7 @@ export async function runResearchDeepDivePhase(
 
   if (!inCompetence) {
     // ---- OUTSIDE COMPETENCE → SET ASIDE (terminal PASS) — the 5 lanes do NOT run ----
-    const circleSourceIds = [...new Set([...command.quick_screen_source_ids, ...circle.verified_ids])]
+    const circleSourceIds = [...new Set([...command.gate_source_ids, ...circle.verified_ids])]
     const setAsideReason = `Set aside — outside the circle of competence. ${circle.analysis.competence_reasoning}`
     const analysisEvent: LedgerEventEnvelope<unknown> = {
       event_id: `evt_buffett_munger_analysis_drafted_${command.research_case_id}`,
@@ -1502,12 +1293,18 @@ export async function runResearchDeepDivePhase(
     }
   }
 
+  // Seed the queue/start events with the gate-verified sources UNIONED with the circle gate's
+  // verified sources. The front gate can legitimately open with an empty verified set
+  // (gate_incomplete — its pass failed but it must not block on its own outage); by this point the
+  // circle gate has grounded its clauses, so the union satisfies the pipeline's ≥1-source contract.
+  const deepDiveSeedSourceIds = [...new Set([...command.gate_source_ids, ...circle.verified_ids])]
+
   const queued = await queueDeepDive(store, {
     research_case_id: command.research_case_id,
     queue_id: `queue_${swarmSeg(command.research_case_id)}`,
     ...strategyRef,
-    source_ids: command.quick_screen_source_ids,
-    causation_id: command.quick_screen_event_id,
+    source_ids: deepDiveSeedSourceIds,
+    causation_id: command.gate_event_id,
     actor_id: 'research_workflow',
     idempotency_key: `deep-dive-queue:${command.research_case_id}:v1`,
   })
@@ -1517,7 +1314,7 @@ export async function runResearchDeepDivePhase(
     deep_dive_id: `deep_${swarmSeg(command.research_case_id)}`,
     ...strategyRef,
     specialist_lanes: lanes,
-    source_ids: command.quick_screen_source_ids,
+    source_ids: deepDiveSeedSourceIds,
     causation_id: queued.event_id,
     actor_id: 'research_workflow',
     idempotency_key: `deep-dive-start:${command.research_case_id}:v1`,
@@ -1827,7 +1624,44 @@ export async function runResearchDeepDivePhase(
   // stakes hard-stop classification, so it respects any operator override pinned on lane_shariah. Falls
   // back to the run's provider/model when no override is configured (identical behavior to before).
   const shariahPassRuntime = resolveRoleRuntime('lane_shariah', provider, command)
-  const shariahPassOutcome = await runShariahReasoningPass(
+  // S2 dedupe: the SAME reasoning pass already ran at the front gate. When the verified corpus is
+  // UNCHANGED since the gate judged (no lane/stage grounded a new source), re-running it would re-ask
+  // the same question of the same evidence — reuse the gate's grounded judgment instead. Any corpus
+  // growth (the normal full-run case) re-runs the pass so the judgment refines on lane evidence. A
+  // gate_incomplete or undetermined gate never short-circuits this refinement.
+  const frontGateEvent = (await store.list()).find(
+    (e) => e.event_id === command.gate_event_id && e.event_type === 'shariah_gate_judged',
+  )
+  const frontGatePayload = frontGateEvent?.payload as Record<string, unknown> | undefined
+  const frontGateSectorRaw = frontGatePayload?.['sector_status']
+  const frontGateSector: 'compliant' | 'conditional' | 'non_compliant' | undefined =
+    frontGateSectorRaw === 'compliant' || frontGateSectorRaw === 'conditional' || frontGateSectorRaw === 'non_compliant'
+      ? frontGateSectorRaw
+      : undefined
+  const frontGateCorpusIds = Array.isArray(frontGatePayload?.['corpus_source_ids'])
+    ? new Set((frontGatePayload['corpus_source_ids'] as unknown[]).map(String))
+    : undefined
+  const corpusIdsNow = [...accumulated.values()].map((s) => s.source_id)
+  const reusableGateJudgment =
+    frontGateCorpusIds !== undefined
+    && frontGatePayload?.['gate_incomplete'] !== true
+    && frontGateSector !== undefined
+    && corpusIdsNow.length === frontGateCorpusIds.size
+    && corpusIdsNow.every((id) => frontGateCorpusIds.has(id))
+  const shariahPassOutcome = reusableGateJudgment
+    ? {
+        status: 'ok' as const,
+        shariah_judgment: {
+          sector_status: frontGateSector,
+          impermissible_income: typeof frontGatePayload?.['impermissible_income'] === 'number'
+            ? frontGatePayload['impermissible_income']
+            : null,
+          sector_citation: frontGateEvent?.source_ids[0] ?? '',
+        },
+        verified_ids: [...(frontGateEvent?.source_ids ?? [])],
+        captured: [] as CapturedSource[],
+      }
+    : await runShariahReasoningPass(
     shariahPassRuntime.provider,
     {
       research_case_id: command.research_case_id,
@@ -2141,7 +1975,7 @@ export async function runResearchDeepDivePhase(
 
   const allVerified = [
     ...new Set([
-      ...command.quick_screen_source_ids,
+      ...command.gate_source_ids,
       ...findings.flatMap((f) => f.source_ids),
       ...dec.verified_ids,
     ]),
@@ -3401,7 +3235,7 @@ export async function runResearchDeepDivePhase(
       // Insider Form 4 summary (§3.3) — the deterministic harness computation persisted so the dossier
       // renders it model-independently (the management lane only READS it; it may or may not echo it).
       ...(insiderSummaryComputed !== undefined ? { insider_summary: insiderSummaryComputed } : {}),
-      quick_screen: undefined, // populated below
+      // The admitting-gate block (shariah_gate, or quick_screen on a legacy resume) is added below.
       valuation: {
         moat_class: moatClass,
         moat_passes_gate,
@@ -3577,20 +3411,27 @@ export async function runResearchDeepDivePhase(
     idempotency_key: `analysis:${command.research_case_id}:v1`,
   }
 
-  // Resolve shariah status from ledger (quick screen event stored there)
-  // We need to recover the quick-screen analysis — re-read from ledger or use an in-memory flag.
-  // Since this function can be called independently, we re-read the quick-screen event.
-  const qsEventFromStore = (await store.list()).find(
-    (e) => e.event_id === command.quick_screen_event_id,
+  // Resolve the FALLBACK proposed Shariah status from the ledger gate event. Since this function can
+  // be called independently (the approval-resume path), we re-read the event by gate_event_id. Two
+  // shapes exist: the front shariah_gate_judged event carries `sector_status`
+  // (compliant/conditional/non_compliant/undetermined); a LEGACY pending run's quick_screen_drafted
+  // event carries `shariah_status` (COMPLIANT/…/PENDING). Both map conservatively (unknown →
+  // CONDITIONAL, never a fabricated COMPLIANT).
+  const gateEventFromStore = (await store.list()).find(
+    (e) => e.event_id === command.gate_event_id,
   )
-  const qsPayload = qsEventFromStore?.payload as Record<string, unknown> | undefined
-  const rawShariahStatus = qsPayload?.['shariah_status'] as 'COMPLIANT' | 'CONDITIONAL' | 'NON_COMPLIANT' | 'PENDING' | undefined
-  // Lane-proposed (quick-screen) fallback status.
+  const gateEventPayload = gateEventFromStore?.payload as Record<string, unknown> | undefined
+  const gateSectorStatus = gateEventPayload?.['sector_status'] as 'compliant' | 'conditional' | 'non_compliant' | 'undetermined' | undefined
+  const rawShariahStatus = gateEventPayload?.['shariah_status'] as 'COMPLIANT' | 'CONDITIONAL' | 'NON_COMPLIANT' | 'PENDING' | undefined
   const laneShariahStatus: 'COMPLIANT' | 'CONDITIONAL' | 'NON_COMPLIANT' | 'UNKNOWN' =
-    rawShariahStatus === 'COMPLIANT' ? 'COMPLIANT'
-    : rawShariahStatus === 'NON_COMPLIANT' ? 'NON_COMPLIANT'
-    : rawShariahStatus === 'CONDITIONAL' ? 'CONDITIONAL'
-    : 'CONDITIONAL'
+    gateSectorStatus !== undefined
+      ? (gateSectorStatus === 'compliant' ? 'COMPLIANT'
+        : gateSectorStatus === 'non_compliant' ? 'NON_COMPLIANT'
+        : 'CONDITIONAL')
+      : rawShariahStatus === 'COMPLIANT' ? 'COMPLIANT'
+      : rawShariahStatus === 'NON_COMPLIANT' ? 'NON_COMPLIANT'
+      : rawShariahStatus === 'CONDITIONAL' ? 'CONDITIONAL'
+      : 'CONDITIONAL'
 
   // Recorded Shariah status: SECTOR is a hard stop independent of the financial ratios — a
   // non_compliant sector forces NON_COMPLIANT even when the balance-sheet ratios pass. Otherwise the
@@ -3613,19 +3454,34 @@ export async function runResearchDeepDivePhase(
     : impermissibleIncomeUndetermined ? 'UNDETERMINED'
     : harnessFinancialStatus ?? laneShariahStatus
 
+  // Carry the admitting gate's judgment on the analysis. Current runs record the front-gate summary
+  // under `shariah_gate`; a LEGACY approval-resume (gate_event_id → an old quick_screen_drafted
+  // event) still records the historical `quick_screen` sub-object so old dossiers stay coherent.
+  const gateOrQuickScreenBlock = gateSectorStatus !== undefined
+    ? {
+        shariah_gate: {
+          sector_status: gateSectorStatus,
+          ...(gateEventPayload?.['ratio_verdict'] === undefined ? {} : { ratio_verdict: gateEventPayload['ratio_verdict'] }),
+          ...(gateEventPayload?.['gate_incomplete'] === true ? { gate_incomplete: true } : {}),
+          reason: String(gateEventPayload?.['reason'] ?? ''),
+        },
+      }
+    : {
+        quick_screen: {
+          summary: String(gateEventPayload?.['summary'] ?? ''),
+          business_quality: String(gateEventPayload?.['business_quality'] ?? ''),
+          moat: String(gateEventPayload?.['moat'] ?? ''),
+          management_capital_allocation: String(gateEventPayload?.['management_capital_allocation'] ?? ''),
+          financial_quality: String(gateEventPayload?.['financial_quality'] ?? ''),
+          valuation_sanity: String(gateEventPayload?.['valuation_sanity'] ?? ''),
+          screening_result: String(gateEventPayload?.['screening_result'] ?? ''),
+          confidence: String(gateEventPayload?.['confidence'] ?? ''),
+        },
+      }
   const analysisFinalPayload = {
     ...(analysisEvent.payload as Record<string, unknown>),
     shariah_status: analysisShariahStatusForPhase,
-    quick_screen: {
-      summary: String(qsPayload?.['summary'] ?? ''),
-      business_quality: String(qsPayload?.['business_quality'] ?? ''),
-      moat: String(qsPayload?.['moat'] ?? ''),
-      management_capital_allocation: String(qsPayload?.['management_capital_allocation'] ?? ''),
-      financial_quality: String(qsPayload?.['financial_quality'] ?? ''),
-      valuation_sanity: String(qsPayload?.['valuation_sanity'] ?? ''),
-      screening_result: String(qsPayload?.['screening_result'] ?? ''),
-      confidence: String(qsPayload?.['confidence'] ?? ''),
-    },
+    ...gateOrQuickScreenBlock,
   }
 
   const analysis = await store.append({ ...analysisEvent, payload: analysisFinalPayload })

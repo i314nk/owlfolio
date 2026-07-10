@@ -52,6 +52,11 @@ export type ShariahGatePhaseResult = {
   /** The stored gate event (causation anchor + verified sector-citation source_ids for the set-aside). */
   event: LedgerEventEnvelope<unknown>
   judgment?: { sector_status: ShariahGateSectorStatus; impermissible_income: number | null }
+  /**
+   * The reasoning pass's captured (grounded) sources — the caller folds these into the run corpus so
+   * the gate's verified citations stay readable/citable by every later stage (corpus continuity).
+   */
+  pass_captured?: Extract<ReasoningPassOutcome, { status: 'ok' }>['captured']
 }
 
 export async function runShariahGatePhase(
@@ -122,6 +127,11 @@ export async function runShariahGatePhase(
     reason,
     event_id: event.event_id,
     event: stored,
-    ...(passOk ? { judgment: { sector_status: sectorStatus, impermissible_income: impermissibleIncome } } : {}),
+    ...(passOk
+      ? {
+          judgment: { sector_status: sectorStatus, impermissible_income: impermissibleIncome },
+          pass_captured: outcome.captured,
+        }
+      : {}),
   }
 }

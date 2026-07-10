@@ -2808,8 +2808,8 @@ export async function runProcessDeepDiveQueueTask(
           model_id: run.model_id ?? 'mock',
           decision_id: run.decision_id ?? `decision_${run.research_case_id}`,
           source_ledger_path: run.source_ledger_path ?? options.source_ledger_path,
-          quick_screen_source_ids: run.quick_screen_source_ids,
-          quick_screen_event_id: run.quick_screen_event_id,
+          gate_source_ids: run.gate_source_ids,
+          gate_event_id: run.gate_event_id,
           // F.2 — thread the compliant app-config savings rate as the discount risk-free anchor (fail-closed
           // to the strategy savings_rate_default in the swarm when absent).
           ...(options.risk_free_rate === undefined ? {} : { risk_free_rate: options.risk_free_rate }),

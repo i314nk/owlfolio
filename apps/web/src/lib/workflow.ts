@@ -699,8 +699,8 @@ export async function requestDeepDiveRun(
             model_id: pendingRun.model_id ?? resolveModelIdForProvider(state.config),
             decision_id: pendingRun.decision_id ?? `decision_${researchCaseId}`,
             source_ledger_path: pendingRun.source_ledger_path ?? state.config.source_ledger_path,
-            quick_screen_source_ids: pendingRun.quick_screen_source_ids,
-            quick_screen_event_id: pendingRun.quick_screen_event_id,
+            gate_source_ids: pendingRun.gate_source_ids,
+            gate_event_id: pendingRun.gate_event_id,
             // model-tiering: file-configured per-role overrides (PINS) take effect in the deep-dive phase
             // too, layered over the deterministic AUTO defaults (auto fills only unpinned roles).
             model_role_env: await resolveModelRoleEnv(),

@@ -209,8 +209,8 @@ function swarmFakeProvider() {
       if (schemaName === 'BuffettMungerRedTeam') {
         return {
           strongest_bear_case: 'b', weakest_rubric_items: [], moat_decay_scenario: 'd', growth_credit_attack: 'g',
-          shared_narrative_blindspots: [], strongest_objection: { claim: 'c', severity: 'low', citations: ['src_qs_1'] },
-          proposed_sources: [src('src_qs_1')],
+          shared_narrative_blindspots: [], strongest_objection: { claim: 'c', severity: 'low', citations: ['src_shariah_reasoning'] },
+          proposed_sources: [src('src_shariah_reasoning')],
         }
       }
       if (schemaName === 'BuffettMungerRedTeamResponse') {
@@ -370,7 +370,7 @@ function swarmFakeProviderWithLaneIds(_lanes: readonly string[]) {
 }
 
 describe('runStrategyResearchSwarm', () => {
-  it('drives quick screen, a per-lane swarm, synthesis and a grounded decision', async () => {
+  it('drives the front Shariah gate, a per-lane swarm, synthesis and a grounded decision', async () => {
     const store = new InMemoryEventStore()
     const provider = swarmFakeProvider()
     const ground = async (sources: { source_id: string }[]) => ({
@@ -405,7 +405,8 @@ describe('runStrategyResearchSwarm', () => {
     const events = await store.list()
     const types = events.map((e) => e.event_type)
     expect(types).toContain('research_case_created')
-    expect(types).toContain('quick_screen_drafted')
+    expect(types).toContain('shariah_gate_judged')
+    expect(types).not.toContain('quick_screen_drafted') // retired (S2): the front gate replaced it
     expect(types.filter((t) => t === 'specialist_finding_recorded').length).toBeGreaterThanOrEqual(5)
     expect(types).toContain('deep_dive_synthesis_drafted')
     expect(types).toContain('decision_drafted')
@@ -617,6 +618,13 @@ describe('runStrategyResearchSwarm', () => {
               proposed_sources: [src('src_qs_good_1'), src('src_qs_bad_1')],
             }
           }
+          if (schemaName === 'BuffettMungerShariahReasoning') {
+            // The front gate's pass — one good (the cited sector basis), one bad source.
+            return {
+              shariah_judgment: { sector_status: 'compliant', impermissible_income: 0, sector_citation: 'src_shariah_pass_good_1' },
+              proposed_sources: [src('src_shariah_pass_good_1'), src('src_shariah_pass_bad_1')],
+            }
+          }
           if (schemaName === 'BuffettMungerMoatLane') {
             return {
               finding_summary: 'moat lane finding', confidence: 'medium' as const, caveats: ['Mock lane caveat'],
@@ -770,111 +778,6 @@ describe('runStrategyResearchSwarm', () => {
   })
 })
 
-describe('runStrategyResearchSwarm short-circuit on Shariah NON_COMPLIANT', () => {
-  it('skips deep dive and emits a PASS decision when quick screen returns NON_COMPLIANT', async () => {
-    const store = new InMemoryEventStore()
-
-    // Fake provider that returns NON_COMPLIANT + reject at quick screen; should never be called for lane/synthesis
-    const nonCompliantProvider = {
-      provider_id: 'fake-non-compliant',
-      capabilities: {} as never,
-      complete: vi.fn(),
-      runWithTools: vi.fn(),
-      structured: vi.fn(async () => ({
-        summary: 'Primary business involves conventional interest-based banking.',
-        business_quality: 'Large bank; well-capitalised.',
-        moat: 'Wide network moat, but business model is riba-based.',
-        management_capital_allocation: 'Shareholder-friendly but irrelevant given non-compliance.',
-        financial_quality: 'Strong balance sheet.',
-        valuation_sanity: 'Not assessed.',
-        shariah_status: 'NON_COMPLIANT',
-        red_flags: ['Core business is conventional interest-based banking (riba)'],
-        confidence: 'high',
-        caveats: ['Mock non-compliant quick screen'],
-        screening_result: 'reject',
-        proposed_sources: [
-          {
-            source_id: 'src_bank_non_compliant_1',
-            title: 'Bank Non-Compliant Source',
-            url: 'https://example.com/bank-non-compliant',
-            excerpt: 'Bank operates conventional interest-based products.',
-          },
-        ],
-      })),
-    }
-
-    const ground = async (sources: { source_id: string }[]) => ({
-      captured: sources.map((s) => ({
-        source_id: s.source_id,
-        title: 't',
-        url: 'https://example.com/x',
-        excerpt: 'e',
-        availability: 'available' as const,
-        fetched_at: 'x',
-        content_hash: 'sha256:1',
-      })),
-      verified_ids: sources.map((s) => s.source_id),
-    })
-
-    const sourceLedgerPath = await mkdtemp(join(tmpdir(), 'owlfolio-short-circuit-'))
-
-    const result = await runStrategyResearchSwarm(
-      store,
-      nonCompliantProvider as never,
-      {
-        research_case_id: 'rc_non_compliant',
-        company_id: 'bank_corp',
-        ticker: 'BANK',
-        strategy_id: 'buffett-munger',
-        actor_id: 'user_local',
-        idempotency_key: 'nc_k',
-        model_id: 'mock',
-        decision_id: 'decision_non_compliant',
-        source_ledger_path: sourceLedgerPath,
-      },
-      { ground },
-    )
-
-    const events = await store.list()
-    const types = events.map((e) => e.event_type)
-
-    // Deep-dive events must NOT be present
-    expect(types).not.toContain('specialist_finding_recorded')
-    expect(types).not.toContain('deep_dive_started')
-    expect(types).not.toContain('queued_for_deep_dive')
-    expect(types).not.toContain('deep_dive_synthesis_drafted')
-
-    // Quick screen and decision must be present
-    expect(types).toContain('quick_screen_drafted')
-    expect(types).toContain('buffett_munger_analysis_drafted')
-    expect(types).toContain('decision_drafted')
-
-    // The REJECT early-exit analysis event must stamp the engine version at the payload ROOT (so a fresh
-    // reject reads as the current engine, not "unknown · pre-versioning").
-    const rejectAnalysis = events.find((e) => e.event_type === 'buffett_munger_analysis_drafted')
-    expect((rejectAnalysis?.payload as Record<string, unknown>)?.['engine_version']).toBe(ENGINE_VERSION)
-
-    // Decision must be PASS
-    const decisionEvent = events.find((e) => e.event_type === 'decision_drafted')
-    expect(decisionEvent).toBeDefined()
-    const decisionPayload = decisionEvent?.payload as Record<string, unknown>
-    expect(decisionPayload?.['decision']).toBe('PASS')
-
-    // S1b: the front Shariah gate's reasoning pass now precedes the quick screen (it fails gracefully
-    // under this fake → gate opens gate_incomplete). Quick-screen spend itself is still exactly one call.
-    const qsCalls = (nonCompliantProvider.structured as ReturnType<typeof vi.fn>).mock.calls.filter(
-      (c) => (c[0] as { response_format?: { schema_name?: string } }).response_format?.schema_name === 'BuffettMungerQuickScreen',
-    )
-    expect(qsCalls).toHaveLength(1)
-
-    // The result must have a decision defined and no deep_dive field
-    expect(result.decision).toBeDefined()
-    expect((result as { deep_dive?: unknown }).deep_dive).toBeUndefined()
-
-    // Run must complete without throwing
-  })
-})
-
 // ---------------------------------------------------------------------------
 // Restructure Phase 1 / S1b — the FRONT Shariah gate wired into the swarm: the grounded sector
 // judgment runs BEFORE the quick screen (before ANY further stage spend). A NON-COMPLIANT sector
@@ -1025,10 +928,11 @@ describe('runStrategyResearchSwarm front Shariah gate (S1b)', () => {
     expect(gatePayload['allowed']).toBe(true)
     expect(gatePayload['sector_status']).toBe('compliant')
     expect(gatePayload['gate_incomplete']).toBeUndefined()
-    expect(gateIndex).toBeLessThan(types.indexOf('quick_screen_drafted'))
+    // The gate leads: it precedes the circle gate (the first deep-dive stage).
+    expect(gateIndex).toBeLessThan(types.indexOf('circle_competence_judged'))
 
-    // The rest of the sequence is unchanged.
-    expect(types).toContain('quick_screen_drafted')
+    // The rest of the sequence is unchanged — and the retired quick screen never appears.
+    expect(types).not.toContain('quick_screen_drafted')
     expect(types.filter((t) => t === 'specialist_finding_recorded').length).toBeGreaterThanOrEqual(5)
     expect(types).toContain('deep_dive_synthesis_drafted')
     expect(types).toContain('decision_drafted')
@@ -1037,7 +941,7 @@ describe('runStrategyResearchSwarm front Shariah gate (S1b)', () => {
 })
 
 describe('runStrategyResearchSwarm with MockProvider + deterministic grounder', () => {
-  it('completes end-to-end: research_case_created, quick_screen_drafted, >=6 specialist_finding_recorded, deep_dive_synthesis_drafted, decision_drafted', async () => {
+  it('completes end-to-end: research_case_created, shariah_gate_judged, >=5 specialist_finding_recorded, deep_dive_synthesis_drafted, decision_drafted', async () => {
     const sourceLedgerPath = await mkdtemp(join(tmpdir(), 'owlfolio-mock-swarm-'))
     const store = new InMemoryEventStore()
     const provider = new MockProvider()
@@ -1063,7 +967,7 @@ describe('runStrategyResearchSwarm with MockProvider + deterministic grounder', 
     const types = events.map((e) => e.event_type)
 
     expect(types).toContain('research_case_created')
-    expect(types).toContain('quick_screen_drafted')
+    expect(types).toContain('shariah_gate_judged')
     expect(types.filter((t) => t === 'specialist_finding_recorded').length).toBeGreaterThanOrEqual(5)
     expect(types).toContain('deep_dive_synthesis_drafted')
     expect(types).toContain('decision_drafted')
@@ -1453,9 +1357,9 @@ function configurableSwarmProvider(opts: {
           strongest_objection: {
             claim: 'Growth credit depends on incremental ROIC the firm likely cannot sustain.',
             severity: 'high',
-            citations: opts.redTeamCitations ?? ['src_qs_1'],
+            citations: opts.redTeamCitations ?? ['src_lane_0'],
           },
-          proposed_sources: [src('src_qs_1')],
+          proposed_sources: [src('src_lane_0')],
         }
       }
       // dedicated red-team-RESPONSE call (the focused decomposition). The synthesis_response that answers
@@ -2327,59 +2231,6 @@ describe('legacy projection tolerance — old band verdict_state event still pro
 })
 
 describe('BUG 2 — resilient bookend swarm calls (retry + clean failure)', () => {
-  it('fails cleanly (ResearchSwarmStageError, quick_screen) on a single quick-screen timeout — the tool-grounded gate does not retry (matches the circle gate)', async () => {
-    // The quick screen now runs on the SAME tool-grounded path as the circle gate (runGroundedAgentWithTools),
-    // which — like the circle gate — has no bespoke retry. A single timeout therefore fails the stage cleanly
-    // instead of recovering on a second attempt. (Previously it ran via runGroundedAgentWithRetry → 1 retry.)
-    const store = new InMemoryEventStore()
-    const provider = configurableSwarmProvider({ laneCount: buffettMungerDeepDiveLanes.length, failQuickScreen: 1 })
-    const sourceLedgerPath = await mkdtemp(join(tmpdir(), 'owlfolio-bug2-qs-recover-'))
-    let caught: unknown
-    try {
-      await runStrategyResearchSwarm(
-        store, provider as never,
-        {
-          research_case_id: 'rc_bug2_qs', company_id: 'c', ticker: 'AAPL',
-          strategy_id: 'buffett-munger', actor_id: 'user_local', idempotency_key: 'bug2qs_k',
-          model_id: 'mock', decision_id: 'decision_bug2qs', source_ledger_path: sourceLedgerPath,
-        },
-        { ground: allVerifiedGround, laneConcurrency: 4 },
-      )
-    } catch (e) { caught = e }
-    expect(caught).toBeInstanceOf(ResearchSwarmStageError)
-    expect((caught as ResearchSwarmStageError).stage).toBe('quick_screen')
-    expect((caught as ResearchSwarmStageError).lanes_completed).toBe(false)
-    const events = await store.list()
-    expect(events.some((e) => e.event_type === 'decision_drafted')).toBe(false)
-  })
-
-  it('fails cleanly (ResearchSwarmStageError, quick_screen) when quick-screen times out persistently', async () => {
-    const store = new InMemoryEventStore()
-    const provider = configurableSwarmProvider({ laneCount: buffettMungerDeepDiveLanes.length, failQuickScreen: 99 })
-    const sourceLedgerPath = await mkdtemp(join(tmpdir(), 'owlfolio-bug2-qs-fail-'))
-    let caught: unknown
-    try {
-      await runStrategyResearchSwarm(
-        store, provider as never,
-        {
-          research_case_id: 'rc_bug2_qsfail', company_id: 'c', ticker: 'AAPL',
-          strategy_id: 'buffett-munger', actor_id: 'user_local', idempotency_key: 'bug2qsf_k',
-          model_id: 'mock', decision_id: 'decision_bug2qsf', source_ledger_path: sourceLedgerPath,
-        },
-        { ground: allVerifiedGround, laneConcurrency: 4 },
-      )
-    } catch (e) { caught = e }
-    expect(caught).toBeInstanceOf(ResearchSwarmStageError)
-    expect((caught as ResearchSwarmStageError).stage).toBe('quick_screen')
-    expect((caught as ResearchSwarmStageError).lanes_completed).toBe(false)
-    // Exactly one QUICK-SCREEN structured() attempt — the tool-grounded quick screen does not retry
-    // (matches circle gate). S1b: the front Shariah gate's pass also calls structured() before it.
-    const qsAttempts = (provider.structured as ReturnType<typeof vi.fn>).mock.calls.filter(
-      (c) => (c[0] as { response_format?: { schema_name?: string } }).response_format?.schema_name === 'BuffettMungerQuickScreen',
-    )
-    expect(qsAttempts).toHaveLength(1)
-  })
-
   it('recovers when synthesis times out once then succeeds (single retry); lanes are not re-run', async () => {
     const store = new InMemoryEventStore()
     const provider = configurableSwarmProvider({ laneCount: buffettMungerDeepDiveLanes.length, failSynthesis: 1 })
@@ -2432,208 +2283,6 @@ describe('BUG 2 — resilient bookend swarm calls (retry + clean failure)', () =
 // the lanes (runGroundedAgentWithTools), so it must READ a content-hash-verified primary filing before
 // judging, and FAIL CLOSED when grounding yields zero verified sources.
 // ---------------------------------------------------------------------------
-describe('quick screen — tool-grounded firewall', () => {
-  it('grounds its judgment in verified sources (quick_screen_drafted carries verified source_ids + projection surfaces them)', async () => {
-    const store = new InMemoryEventStore()
-    const provider = configurableSwarmProvider({ laneCount: buffettMungerDeepDiveLanes.length })
-    const sourceLedgerPath = await mkdtemp(join(tmpdir(), 'owlfolio-qs-grounded-'))
-    await runStrategyResearchSwarm(
-      store, provider as never,
-      {
-        research_case_id: 'rc_qs_grounded', company_id: 'c', ticker: 'AAPL',
-        strategy_id: 'buffett-munger', actor_id: 'user_local', idempotency_key: 'qs_grounded_k',
-        model_id: 'mock', decision_id: 'decision_qs_grounded', source_ledger_path: sourceLedgerPath,
-      },
-      { ground: allVerifiedGround, laneConcurrency: 4 },
-    )
-    const events = await store.list()
-    const qsEvent = events.find((e) => e.event_type === 'quick_screen_drafted')
-    expect(qsEvent).toBeDefined()
-    // The gate grounded in ≥1 content-hash-verified source — the firewall the fix establishes.
-    expect((qsEvent?.payload as { source_ids?: string[] }).source_ids).toEqual(['src_qs_1'])
-    // …and the projection surfaces those ids so the dossier can render a quick-screen source count.
-    const projections = projectResearchCases(events as Parameters<typeof projectResearchCases>[0])
-    const cp = projections.find((c) => c.research_case_id === 'rc_qs_grounded')
-    expect(cp?.quick_screen_source_ids).toEqual(['src_qs_1'])
-  })
-
-  it('GROUNDS VIA HARNESS INJECTION on a NO-TOOLS provider — the production path (verified_ids includes the pre-fetched primary filing the model never proposed)', async () => {
-    // This is the completion the adversarial review demanded: configurableSwarmProvider is a NO-TOOLS
-    // provider (capabilities: {} → runGroundedAgentWithTools degrades), the SAME class as the live `openai`
-    // personal-local provider. With tool-grounding alone the gate would judge on the model's prior. Here we
-    // inject fundamentals (a 20-F filer — TSMC — the ticker that surfaced the bug); the HARNESS pre-fetches
-    // + grounds the 20-F and injects it, so verified_ids includes the filing id EVEN THOUGH the model's
-    // proposed_sources only carry src_qs_1. That proves grounding-via-injection, not via the model.
-    const tsmcFundamentals: Fundamentals = {
-      cik: '0001046179',
-      entity_name: 'TAIWAN SEMICONDUCTOR MANUFACTURING CO LTD',
-      currency: 'USD',
-      latest_annual: {
-        fiscal_year: 2024, currency: 'USD', net_income_musd: 36500, revenue_musd: 90000,
-        d_and_a_musd: 18000, capex_musd: 30000, sbc_musd: 0, diluted_shares_m: 5186,
-        shares_outstanding_m: 5186, total_debt_musd: 30000, cash_and_securities_musd: 60000,
-        interest_expense_musd: 400,
-      },
-      annual_series: [
-        { fiscal_year: 2024, currency: 'USD', net_income_musd: 36500, revenue_musd: 90000, d_and_a_musd: 18000, capex_musd: 30000, sbc_musd: 0, diluted_shares_m: 5186 },
-      ],
-      // 20-F (foreign private issuer), NOT 10-K — the across-forms selection must pick this.
-      filings: [
-        { form: '20-F', filed: '2025-04-15', url: 'https://www.sec.gov/Archives/edgar/data/1046179/000104621925000010/tsm-20241231.htm' },
-      ],
-    }
-    const store = new InMemoryEventStore()
-    const provider = configurableSwarmProvider({ laneCount: buffettMungerDeepDiveLanes.length })
-    const sourceLedgerPath = await mkdtemp(join(tmpdir(), 'owlfolio-qs-inject-'))
-    await runStrategyResearchSwarm(
-      store, provider as never,
-      {
-        research_case_id: 'rc_qs_inject', company_id: 'c', ticker: 'TSM',
-        strategy_id: 'buffett-munger', actor_id: 'user_local', idempotency_key: 'qs_inject_k',
-        model_id: 'mock', decision_id: 'decision_qs_inject', source_ledger_path: sourceLedgerPath,
-      },
-      { ground: allVerifiedGround, laneConcurrency: 4, fetchFundamentals: async () => tsmcFundamentals },
-    )
-    const events = await store.list()
-    const qsEvent = events.find((e) => e.event_type === 'quick_screen_drafted')
-    const filingId = 'sec_edgar_20f_0001046179_fy2024'
-    const qsSourceIds = (qsEvent?.payload as { source_ids?: string[] }).source_ids ?? []
-    // The harness-injected 20-F primary filing is in the gate's verified set (the model only proposed src_qs_1).
-    expect(qsSourceIds).toContain(filingId)
-    expect(qsSourceIds).toContain('src_qs_1')
-    // The projection surfaces it too (dossier source count includes the injected filing).
-    const projections = projectResearchCases(events as Parameters<typeof projectResearchCases>[0])
-    const cp = projections.find((c) => c.research_case_id === 'rc_qs_inject')
-    expect(cp?.quick_screen_source_ids).toContain(filingId)
-    // …and the across-forms 20-F filing id was actually INJECTED into the quick-screen prompt.
-    const qsPrompt = provider.structured.mock.calls
-      .map((c: unknown[]) => (c[0] as { prompt?: string; response_format?: { schema_name?: string } }))
-      .find((r) => r.response_format?.schema_name === 'BuffettMungerQuickScreen')?.prompt
-    expect(qsPrompt).toContain(filingId)
-    // QUICK-SCREEN-specific block (NOT the citation-field-oriented buildPreVerifiedSourcesBlock).
-    expect(qsPrompt).toContain('HARNESS PRE-VERIFIED PRIMARY FILING')
-    // The block must instruct an EMPTY proposed_sources when nothing extra is fetched (no source_id-as-url).
-    expect(qsPrompt).toContain('proposed_sources is for REAL fetched URLs ONLY')
-  })
-
-  it('SUCCEEDS with EMPTY proposed_sources on a no-tools provider — grounding is via the harness pre-fetch, not a model-proposed source (the regression repro)', async () => {
-    // The exact regression (TSM real codex re-run): the tool-grounded quick screen on the NO-TOOLS codex
-    // provider got the harness pre-verified-filing block injected; ProposedSourcesSchema.min(1) forced the
-    // model to emit a proposed_source and — with no citation field on the quick-screen schema — it put the
-    // harness source_id into proposed_sources[0].url → invalid-URL → structured-output rejected → the run
-    // failed. AFTER the fix the schema allows EMPTY proposed_sources, so the model proposes nothing and the
-    // run STILL SUCCEEDS: the gate is grounded purely by the harness-injected + folded 20-F filing id.
-    const tsmcFundamentals: Fundamentals = {
-      cik: '0001046179',
-      entity_name: 'TAIWAN SEMICONDUCTOR MANUFACTURING CO LTD',
-      currency: 'USD',
-      latest_annual: {
-        fiscal_year: 2024, currency: 'USD', net_income_musd: 36500, revenue_musd: 90000,
-        d_and_a_musd: 18000, capex_musd: 30000, sbc_musd: 0, diluted_shares_m: 5186,
-        shares_outstanding_m: 5186, total_debt_musd: 30000, cash_and_securities_musd: 60000,
-        interest_expense_musd: 400,
-      },
-      annual_series: [
-        { fiscal_year: 2024, currency: 'USD', net_income_musd: 36500, revenue_musd: 90000, d_and_a_musd: 18000, capex_musd: 30000, sbc_musd: 0, diluted_shares_m: 5186 },
-      ],
-      filings: [
-        { form: '20-F', filed: '2025-04-15', url: 'https://www.sec.gov/Archives/edgar/data/1046179/000104621925000010/tsm-20241231.htm' },
-      ],
-    }
-    const store = new InMemoryEventStore()
-    const provider = configurableSwarmProvider({ laneCount: buffettMungerDeepDiveLanes.length, quickScreenProposesEmpty: true })
-    const sourceLedgerPath = await mkdtemp(join(tmpdir(), 'owlfolio-qs-empty-'))
-    await runStrategyResearchSwarm(
-      store, provider as never,
-      {
-        research_case_id: 'rc_qs_empty', company_id: 'c', ticker: 'TSM',
-        strategy_id: 'buffett-munger', actor_id: 'user_local', idempotency_key: 'qs_empty_k',
-        model_id: 'mock', decision_id: 'decision_qs_empty', source_ledger_path: sourceLedgerPath,
-      },
-      { ground: allVerifiedGround, laneConcurrency: 4, fetchFundamentals: async () => tsmcFundamentals },
-    )
-    const events = await store.list()
-    // The run SUCCEEDED — the quick screen drafted and a decision was reached (before the fix it threw).
-    const qsEvent = events.find((e) => e.event_type === 'quick_screen_drafted')
-    expect(qsEvent).toBeDefined()
-    expect(events.some((e) => e.event_type === 'decision_drafted')).toBe(true)
-    // Grounding held via the harness pre-fetch even though the model proposed NOTHING: the 20-F filing id
-    // is the gate's only verified source.
-    const filingId = 'sec_edgar_20f_0001046179_fy2024'
-    const qsSourceIds = (qsEvent?.payload as { source_ids?: string[] }).source_ids ?? []
-    expect(qsSourceIds).toEqual([filingId])
-    const projections = projectResearchCases(events as Parameters<typeof projectResearchCases>[0])
-    const cp = projections.find((c) => c.research_case_id === 'rc_qs_empty')
-    expect(cp?.quick_screen_source_ids).toEqual([filingId])
-  })
-
-  it('RESIDUAL fail-closed: a non-EDGAR name on a no-tools provider (no fundamentals + no verified model source) fails closed', async () => {
-    // Production residual the review asked to document: when fundamentals do NOT resolve (fetchFundamentals
-    // returns undefined — a non-EDGAR/GCC name or EDGAR down) AND the no-tools provider's proposed source
-    // does not verify, there is nothing to ground → the firewall fails the gate closed. Correct + safe.
-    const captureNoneVerified = async (sources: { source_id: string }[]) => ({
-      captured: sources.map((s) => ({
-        source_id: s.source_id, title: 't', url: 'https://example.com/x', excerpt: 'e',
-        availability: 'unavailable' as const, fetched_at: 'x',
-      })),
-      verified_ids: [] as string[],
-    })
-    const store = new InMemoryEventStore()
-    const provider = configurableSwarmProvider({ laneCount: buffettMungerDeepDiveLanes.length })
-    const sourceLedgerPath = await mkdtemp(join(tmpdir(), 'owlfolio-qs-residual-'))
-    let caught: unknown
-    try {
-      await runStrategyResearchSwarm(
-        store, provider as never,
-        {
-          research_case_id: 'rc_qs_residual', company_id: 'c', ticker: 'PRIVATEGCC',
-          strategy_id: 'buffett-munger', actor_id: 'user_local', idempotency_key: 'qs_residual_k',
-          model_id: 'mock', decision_id: 'decision_qs_residual', source_ledger_path: sourceLedgerPath,
-        },
-        { ground: captureNoneVerified as GroundFn, laneConcurrency: 4, fetchFundamentals: async () => undefined },
-      )
-    } catch (e) { caught = e }
-    expect(caught).toBeInstanceOf(Error)
-    expect((caught as Error).message).toMatch(/no verifiable grounded sources \(fail-closed\)/)
-    const events = await store.list()
-    expect(events.some((e) => e.event_type === 'quick_screen_drafted')).toBe(false)
-    expect(events.some((e) => e.event_type === 'decision_drafted')).toBe(false)
-  })
-
-  it('FAILS CLOSED when grounding yields zero verified sources (no judgment on an ungrounded prior)', async () => {
-    // The ground fn captures the proposed source but verifies NONE (no content_hash) → the quick screen has
-    // no verified source to anchor its judgment → the run throws before any lane runs.
-    const captureNoneVerified = async (sources: { source_id: string }[]) => ({
-      captured: sources.map((s) => ({
-        source_id: s.source_id, title: 't', url: 'https://example.com/x', excerpt: 'e',
-        availability: 'unavailable' as const, fetched_at: 'x',
-      })),
-      verified_ids: [] as string[],
-    })
-    const store = new InMemoryEventStore()
-    const provider = configurableSwarmProvider({ laneCount: buffettMungerDeepDiveLanes.length })
-    const sourceLedgerPath = await mkdtemp(join(tmpdir(), 'owlfolio-qs-failclosed-'))
-    let caught: unknown
-    try {
-      await runStrategyResearchSwarm(
-        store, provider as never,
-        {
-          research_case_id: 'rc_qs_failclosed', company_id: 'c', ticker: 'AAPL',
-          strategy_id: 'buffett-munger', actor_id: 'user_local', idempotency_key: 'qs_failclosed_k',
-          model_id: 'mock', decision_id: 'decision_qs_failclosed', source_ledger_path: sourceLedgerPath,
-        },
-        { ground: captureNoneVerified as GroundFn, laneConcurrency: 4 },
-      )
-    } catch (e) { caught = e }
-    expect(caught).toBeInstanceOf(Error)
-    expect((caught as Error).message).toMatch(/no verifiable grounded sources \(fail-closed\)/)
-    // No quick_screen_drafted, no lanes, no decision — the firewall stopped the run.
-    const events = await store.list()
-    expect(events.some((e) => e.event_type === 'quick_screen_drafted')).toBe(false)
-    expect(events.some((e) => e.event_type === 'decision_drafted')).toBe(false)
-  })
-})
-
 // ---------------------------------------------------------------------------
 // Mechanism 5 — Red-Team Pass (orchestrator integration): runs after the 5 lanes, before synthesis;
 // synthesis must answer the strongest objection or downgrade; the harness enforces the response
@@ -2666,8 +2315,8 @@ describe('Mechanism 5 — red-team pass + synthesis obligation', () => {
     expect(result.decision).toBeDefined()
     expect(cp?.red_team?.status).toBe('complete')
     expect(cp?.red_team?.strongest_objection?.claim).toMatch(/incremental ROIC/i)
-    // Cite-checked against the corpus (src_qs_1 is verified).
-    expect(cp?.red_team?.strongest_objection?.citations).toEqual(['src_qs_1'])
+    // Cite-checked against the corpus (src_lane_0 is a verified lane source).
+    expect(cp?.red_team?.strongest_objection?.citations).toEqual(['src_lane_0'])
     expect(cp?.red_team?.synthesis_response?.mode).toBe('answered_with_evidence')
     expect(cp?.red_team?.objection_unaddressed).toBeUndefined()
     // No red_team_objection_unaddressed open question.
@@ -2788,7 +2437,7 @@ describe('Mechanism 5 — red-team pass + synthesis obligation', () => {
   })
 
   it('records the answer from the dedicated red-team-response call (no unaddressed flag) when it answers', async () => {
-    // A live objection (src_qs_1 verified) → the dedicated call runs and answers it → the answer is
+    // A live objection (src_lane_0 verified) → the dedicated call runs and answers it → the answer is
     // recorded on the red-team layer and there is NO red_team_objection_unaddressed flag.
     const store = new InMemoryEventStore()
     const provider = configurableSwarmProvider({
@@ -2901,8 +2550,8 @@ function deepDiveCommand() {
     model_id: 'mock',
     decision_id: 'decision_edgar',
     source_ledger_path: '/tmp/owlfolio-edgar-test-sources',
-    quick_screen_source_ids: ['src_qs_1'],
-    quick_screen_event_id: 'evt_qs_1',
+    gate_source_ids: ['src_qs_1'],
+    gate_event_id: 'evt_qs_1',
   }
 }
 
@@ -3553,8 +3202,8 @@ function swarmFakeProviderWithShariah(
       if (schemaName === 'BuffettMungerRedTeam') {
         return {
           strongest_bear_case: 'b', weakest_rubric_items: [], moat_decay_scenario: 'd', growth_credit_attack: 'g',
-          shared_narrative_blindspots: [], strongest_objection: { claim: 'c', severity: 'low', citations: ['src_qs_1'] },
-          proposed_sources: [src('src_qs_1')],
+          shared_narrative_blindspots: [], strongest_objection: { claim: 'c', severity: 'low', citations: ['src_shariah_reasoning'] },
+          proposed_sources: [src('src_shariah_reasoning')],
         }
       }
       if (schemaName === 'BuffettMungerRedTeamResponse') {
@@ -3708,8 +3357,8 @@ describe('EDGAR-anchored OE bridge + harness AAOIFI Shariah ratios', () => {
         if (schemaName === 'BuffettMungerRedTeam') {
           return {
             strongest_bear_case: 'b', weakest_rubric_items: [], moat_decay_scenario: 'd', growth_credit_attack: 'g',
-            shared_narrative_blindspots: [], strongest_objection: { claim: 'c', severity: 'low', citations: ['src_qs_1'] },
-            proposed_sources: [src('src_qs_1')],
+            shared_narrative_blindspots: [], strongest_objection: { claim: 'c', severity: 'low', citations: ['src_shariah_reasoning'] },
+            proposed_sources: [src('src_shariah_reasoning')],
           }
         }
         if (schemaName === 'BuffettMungerRedTeamResponse') {
@@ -5140,8 +4789,8 @@ describe('runStrategyResearchSwarm — schema-validation + retry (harness defens
         if (schemaName === 'BuffettMungerRedTeam') {
           return {
             strongest_bear_case: 'b', weakest_rubric_items: [], moat_decay_scenario: 'd', growth_credit_attack: 'g',
-            shared_narrative_blindspots: [], strongest_objection: { claim: 'c', severity: 'low', citations: ['src_qs_1'] },
-            proposed_sources: [src('src_qs_1')],
+            shared_narrative_blindspots: [], strongest_objection: { claim: 'c', severity: 'low', citations: ['src_shariah_reasoning'] },
+            proposed_sources: [src('src_shariah_reasoning')],
           }
         }
         if (schemaName === 'BuffettMungerRedTeamResponse') {
@@ -5332,8 +4981,8 @@ function crossCheckSwarmProvider(opts: {
       if (schemaName === 'BuffettMungerRedTeam') {
         return {
           strongest_bear_case: 'b', weakest_rubric_items: [], moat_decay_scenario: 'd', growth_credit_attack: 'a',
-          shared_narrative_blindspots: [], strongest_objection: { claim: 'c', severity: 'low', citations: ['src_qs_1'] },
-          proposed_sources: [src('src_qs_1')],
+          shared_narrative_blindspots: [], strongest_objection: { claim: 'c', severity: 'low', citations: ['src_shariah_reasoning'] },
+          proposed_sources: [src('src_shariah_reasoning')],
         }
       }
       // synthesis/decision
@@ -5485,9 +5134,10 @@ describe('runStrategyResearchSwarm — model_role_env (file-configured tier over
       { ground, laneConcurrency: 3 },
     )
 
-    // The red-team pass ran on the env-configured model; the quick screen kept the run default.
+    // The red-team pass ran on the env-configured model; the circle gate (synthesis role, no
+    // override configured) kept the run default.
     expect(modelBySchema.get('BuffettMungerRedTeam')).toBe('env-red-team-model')
-    expect(modelBySchema.get('BuffettMungerQuickScreen')).toBe('run-default-model')
+    expect(modelBySchema.get('BuffettMungerCircleCompetence')).toBe('run-default-model')
   })
 })
 
@@ -5813,8 +5463,8 @@ describe('circle-of-competence gate', () => {
         if (schemaName === 'BuffettMungerRedTeam') {
           return {
             strongest_bear_case: 'b', weakest_rubric_items: [], moat_decay_scenario: 'd', growth_credit_attack: 'g',
-            shared_narrative_blindspots: [], strongest_objection: { claim: 'c', severity: 'low', citations: ['src_qs_1'] },
-            proposed_sources: [src('src_qs_1')],
+            shared_narrative_blindspots: [], strongest_objection: { claim: 'c', severity: 'low', citations: ['src_shariah_reasoning'] },
+            proposed_sources: [src('src_shariah_reasoning')],
           }
         }
         if (schemaName === 'BuffettMungerRedTeamResponse') {
