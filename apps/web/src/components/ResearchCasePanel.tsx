@@ -865,7 +865,16 @@ function createGatedDossier(researchCase: AppResearchCase) {
           'div',
           { style: { alignItems: 'center', display: 'flex', gap: '0.6rem', fontSize: 'var(--owl-text-base)', color: 'var(--owl-color-quiet)' } },
           createElement('span', null, '—'),
-          createElement('span', { style: { color: 'var(--owl-color-quiet)' } }, 'Business-quality check — skipped (gated)'),
+          // The stage the closed gate short-circuited: on current runs that is the circle-of-competence
+          // gate (which absorbed the retired quick screen's business-quality read); legacy quick-screen
+          // rejects keep the historical label.
+          createElement(
+            'span',
+            { style: { color: 'var(--owl-color-quiet)' } },
+            researchCase.shariah_gate !== undefined
+              ? 'Circle-of-competence gate — skipped (gated)'
+              : 'Business-quality check — skipped (gated)',
+          ),
         ),
         createElement(
           'div',
@@ -877,7 +886,9 @@ function createGatedDossier(researchCase: AppResearchCase) {
       createElement(
         'p',
         { style: { color: 'var(--owl-color-quiet)', fontSize: 'var(--owl-text-sm)', margin: '0 0 1rem' } },
-        'Evidence and the quick-screen assessment are recorded in the audit trail.',
+        researchCase.shariah_gate !== undefined
+          ? 'Evidence and the gate judgment are recorded in the audit trail.'
+          : 'Evidence and the quick-screen assessment are recorded in the audit trail.',
       ),
     ),
     // Still render evidence for audit trail visibility
