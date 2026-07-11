@@ -1989,11 +1989,11 @@ export async function runResearchDeepDivePhase(
       break
     }
   }
-  let g = groundValuation(valuationReasoning)
+  const g = groundValuation(valuationReasoning)
   // The VALUATION part of the grounding gate (owner-earnings + assumed-growth citations). The dec.verified_ids
   // layer (the agent grounded at least one source of its OWN) is independent of the valuation_reasoning and is
   // NOT something the focused call can repair — it stays evaluated on the decision agent itself.
-  let valuationGroundingUnmet =
+  const valuationGroundingUnmet =
     valuationReasoning === undefined || !g.ownerGrounded || !g.growthGrounded
 
   // ---- FOCUSED valuation-reasoning fallback (the focused decomposition) ----
