@@ -1147,3 +1147,59 @@ describe('ResearchCasePanel Shariah deep-screen-incomplete caveat (fail-closed)'
     expect(html).not.toContain('Compliance not deep-verified this run.')
   })
 })
+
+// S5 (Phase 3 pillars) — the MANAGEMENT pillar card: resolved integrity/talent tiers, the veto
+// badge naming the failed trait, unverified-flag labeling, the T0 strip, and the retained-earnings
+// test rendered honestly (deferred-on-data, never a fabricated number).
+describe('management pillar card (S5)', () => {
+  it('renders the veto badge, tiers, labeled flags, T0 strip, and the retained-earnings result', () => {
+    const html = render({
+      ...baseCase(),
+      management_judgment: {
+        resolved_integrity: 'red_flag',
+        resolved_talent: 'adequate',
+        integrity: {
+          comp_structure: { summary: 'Bonus on revenue growth alone.', alignment: 'misaligned', citation: 'src_def14a' },
+          comp_grounded: true,
+          flags: [
+            { claim: 'Undisclosed related-party purchases', severity: 'high', citation: 'src_def14a', grounded: true },
+            { claim: 'Rumored option backdating', severity: 'high', citation: 'src_blog', grounded: false },
+          ],
+          grounded_high_flag_count: 1,
+          proposed_integrity: 'red_flag',
+          integrity_reasoning: 'Cited related-party dealing.',
+        },
+        talent: {
+          talent_drivers: [{ evidence: 'Debt paid down through the cycle', citation: 'src_10k', grounded: true }],
+          grounded_driver_count: 1,
+          proposed_talent: 'excellent',
+          talent_reasoning: 'One grounded driver.',
+          talent_grounding_capped: true,
+        },
+        talent_t0: {
+          roic: { computable: true, band: 'solid', median_roic: 0.12, latest_roic: 0.11, years_used: 8 },
+          payout: { computable: true, years_used: 8, dividend_paying_years: 8, buyback_years: 6, payout_ratio_latest: 0.55, buybacks_below_sbc: true },
+          debt: { computable: false, reason: 'total debt not tagged for the latest year' },
+        },
+        retained_earnings: { computable: false, reason: 'price history unavailable: fetch failed' },
+      },
+      management_veto_applied: 'integrity',
+      management_veto_reason: 'management_veto (integrity): grounded red flag.',
+    } as unknown as AppResearchCase, QUOTE)
+    expect(html).toContain('data-testid="management-pillar-card"')
+    expect(html).toContain('MANAGEMENT VETO (integrity)')
+    expect(html).toContain('Integrity: RED FLAG')
+    expect(html).toContain('Talent: ADEQUATE')
+    expect(html).toContain('cite-verified): Undisclosed related-party purchases')
+    expect(html).toContain('UNVERIFIED — carries no weight): Rumored option backdating')
+    expect(html).toContain('ROIC: median 12.0% — solid')
+    expect(html).toContain('buybacks below SBC')
+    expect(html).toContain('Debt: not computable (total debt not tagged for the latest year)')
+    expect(html).toContain('Retained-earnings test (Buffett): deferred on data')
+  })
+
+  it('renders nothing when no management judgment exists (legacy cases)', () => {
+    const html = render(baseCase(), QUOTE)
+    expect(html).not.toContain('management-pillar-card')
+  })
+})

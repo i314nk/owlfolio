@@ -181,6 +181,78 @@ export const MoatLaneSchema = z.object({
   peer_standout: PeerStandoutSchema.optional(),
 })
 
+// ---------------------------------------------------------------------------------------------------
+// MANAGEMENT lane (S5, Phase 3 pillars): the pillar's two core traits (owner-locked 2026-07-11) —
+// INTEGRITY (communication monitoring + executive-comp structure) and TALENT (ROIC / dividends &
+// buybacks / debt management, reconciled against the injected harness T0 block). Both judgment
+// blocks are OPTIONAL at the schema level (degrade-not-destroy) and retry-FORCED via requiredFields.
+// The worst tiers (red_flag / poor) carry veto teeth downstream, so grounding is the bar: the
+// resolver honors them only on cite-verified evidence.
+// ---------------------------------------------------------------------------------------------------
+export const ManagementIntegritySchema = z.object({
+  // Candor evidence from the company's OWN words — filings narrative (MD&A), shareholder letters,
+  // earnings calls where a transcript actually grounds. Each observation cite-verified.
+  communication_observations: z.array(z.object({
+    observation: z.string().min(1),
+    citation: z.string().min(1),
+  })).min(1),
+  // HOW management is paid — the compensation categories/metrics from the DEF 14A (grounded proxyBlock).
+  comp_structure: z.object({
+    summary: z.string().min(1),
+    incentive_metrics: z.array(z.string()).optional(),
+    alignment: z.enum(['aligned', 'mixed', 'misaligned']),
+    // Must cite the grounded DEF 14A source_id (or another corpus-verified source).
+    citation: z.string().min(1),
+  }),
+  // Cited integrity red flags (related-party dealings, restatements, candor failures, egregious
+  // comp). MAY be empty; a HIGH-severity flag that GROUNDS is the only thing that can veto a BUY.
+  integrity_flags: z.array(z.object({
+    claim: z.string().min(1),
+    severity: z.enum(['low', 'medium', 'high']),
+    citation: z.string().min(1),
+  })),
+  proposed_integrity: z.enum(['clean', 'concerns', 'red_flag']),
+  integrity_reasoning: z.string().min(1),
+})
+
+export const ManagementTalentSchema = z.object({
+  // The cited capital-allocation evidence (buyback timing vs value, acquisition discipline,
+  // dividend consistency, deleveraging). Must RECONCILE with the injected T0 block, not re-derive it.
+  talent_drivers: z.array(z.object({
+    evidence: z.string().min(1),
+    citation: z.string().min(1),
+  })).min(1),
+  proposed_talent: z.enum(['excellent', 'adequate', 'poor']),
+  talent_reasoning: z.string().min(1),
+})
+
+export const ManagementLaneSchema = z.object({
+  ...LaneAgentBaseShape,
+  integrity: ManagementIntegritySchema.optional(),
+  talent: ManagementTalentSchema.optional(),
+})
+
+export const MANAGEMENT_PILLAR_PROMPT =
+  ` As the MANAGEMENT lane you ALSO produce the management-pillar judgment — the two core traits, `
+  + `each as a GROUNDED CITED THESIS (argue it, do not assert it). `
+  + `TRAIT 1 — INTEGRITY: monitor management's COMMUNICATION through the grounded filings (MD&A candor, `
+  + `shareholder-letter language where present, earnings-call transcripts ONLY if a transcript source `
+  + `actually verifies) — emit communication_observations [{observation, citation}]. Assess HOW `
+  + `management is PAID from the DEF 14A proxy: comp_structure {summary, incentive_metrics, alignment, `
+  + `citation} — cite the grounded proxy source_id. Emit integrity_flags [{claim, severity, citation}] `
+  + `for cited red flags (related-party dealings, restatements, candor failures, egregious pay); an `
+  + `empty list is a valid answer. Then proposed_integrity ('clean' | 'concerns' | 'red_flag') + `
+  + `integrity_reasoning. A grounded HIGH-severity flag VETOES an unattended BUY downstream — claim `
+  + `'red_flag' only on cite-verified evidence; 'clean' must also be DEMONSTRATED (grounded comp citation `
+  + `+ at least one grounded observation), not asserted. `
+  + `TRAIT 2 — TALENT: judge capital allocation against the HARNESS-COMPUTED T0 observations injected `
+  + `above (ROIC, dividends & buybacks discipline, debt management, the retained-earnings test) — `
+  + `RECONCILE with those numbers, never re-derive them. Emit talent_drivers [{evidence, citation}] `
+  + `(buyback timing vs value, acquisition discipline, dividend consistency, deleveraging), then `
+  + `proposed_talent ('excellent' | 'adequate' | 'poor') + talent_reasoning. 'excellent' is honored only `
+  + `with >=2 grounded distinct drivers; 'poor' (which also vetoes a BUY) only when grounded. `
+  + `GROUNDING IS THE BAR: ungrounded claims resolve 'undetermined' and carry no weight either way.`
+
 // ---------------------------------------------------------------------------
 // CIRCLE-OF-COMPETENCE judgment schema (sequential PRE-deep-dive stage).
 //

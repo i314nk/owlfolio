@@ -424,6 +424,7 @@ export function ResearchCasePanel({ researchCase, mode = 'personal-local', confi
     // ── 4. Deep-dive specialist lanes (collapsed by default; each lane stacks full-width) ────────────
     createSpecialistLanesGrid(researchCase),
     // ── 4·insider. Insider activity (Form 4) — deterministic harness summary, model-independent ───────
+    createManagementPillarPanel(researchCase),
     createInsiderActivityPanel(researchCase),
     // ── 4b. Falsifiable forecasts (calibration scaffold) ─────────────────────
     createForecastsPanel(researchCase),
@@ -559,6 +560,82 @@ function createInsiderActivityPanel(researchCase: AppResearchCase) {
     createElement('ul', { key: 'rows', style: { display: 'grid', gap: '0.35rem', margin: 0, paddingLeft: '1.1rem' } }, ...rows),
   ]
   return createCollapsibleSection('insider-activity-card', 'Insider activity (Form 4)', false, children)
+}
+
+// S5 (Phase 3 pillars): the MANAGEMENT pillar — the two core traits (integrity + talent), the
+// harness T0 observations (ROIC / payout / debt), and the retained-earnings test. Everything is
+// grounded-or-labeled: unverified flags say so, not-computable T0 lines say why, and a fired veto
+// renders loud. Opens automatically when the veto fired.
+function createManagementPillarPanel(researchCase: AppResearchCase) {
+  const mj = researchCase.management_judgment
+  if (mj === undefined) return null
+  const vetoTrait = researchCase.management_veto_applied
+  const muted = { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-sm)', margin: '0.35rem 0' }
+  const mono = { color: 'var(--owl-color-muted)', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-xs)', lineHeight: 1.5, margin: 0 }
+  const tierTone = (tier?: string) => tier === 'red_flag' || tier === 'poor'
+    ? 'var(--owl-color-risk-bright)'
+    : tier === 'undetermined'
+      ? 'var(--owl-color-gold-bright)'
+      : 'var(--owl-color-text)'
+
+  const children: ReactNode[] = []
+  if (vetoTrait !== undefined) {
+    children.push(createElement('p', {
+      key: 'veto', 'data-testid': 'management-veto-badge',
+      style: { color: 'var(--owl-color-risk-bright)', fontWeight: 800, fontSize: 'var(--owl-text-base)', margin: '0 0 0.5rem' },
+    }, `MANAGEMENT VETO (${vetoTrait}): ${researchCase.management_veto_reason ?? 'BUY clamped to RESEARCH_MORE.'}`))
+  }
+  children.push(createElement('p', { key: 'tiers', style: { margin: '0 0 0.4rem', fontSize: 'var(--owl-text-base)' } },
+    createElement('strong', { style: { color: tierTone(mj.resolved_integrity) } }, `Integrity: ${(mj.resolved_integrity ?? 'undetermined').replace(/_/g, ' ').toUpperCase()}`),
+    ' · ',
+    createElement('strong', { style: { color: tierTone(mj.resolved_talent) } }, `Talent: ${(mj.resolved_talent ?? 'undetermined').toUpperCase()}`),
+    mj.judgment_degraded === true ? createElement('span', { style: { color: 'var(--owl-color-gold-bright)' } }, ' — the lane omitted its judgment blocks (resolved undetermined, never a silent clean)') : null,
+    mj.t0_contradicts_talent === true ? createElement('span', { style: { color: 'var(--owl-color-gold-bright)' } }, ' — advisory: the grounded EXCELLENT sits on a weak T0 ROIC') : null,
+  ))
+  const comp = mj.integrity?.comp_structure
+  if (comp?.summary !== undefined) {
+    children.push(createElement('p', { key: 'comp', style: muted },
+      `Pay structure (DEF 14A${mj.integrity?.comp_grounded === true ? ', cited' : ', citation UNVERIFIED'}): ${comp.summary}`
+      + `${comp.alignment !== undefined ? ` — ${comp.alignment}` : ''}`
+      + `${(comp.incentive_metrics ?? []).length > 0 ? ` [${(comp.incentive_metrics ?? []).join(', ')}]` : ''}`))
+  }
+  for (const [i, f] of (mj.integrity?.flags ?? []).entries()) {
+    children.push(createElement('p', { key: `flag-${i}`, style: { ...muted, color: f.grounded === true ? 'var(--owl-color-risk-bright)' : 'var(--owl-color-gold-bright)' } },
+      `Integrity flag (${f.severity ?? 'unrated'}${f.grounded === true ? ', cite-verified' : ', UNVERIFIED — carries no weight'}): ${f.claim}`))
+  }
+  for (const [i, o] of (mj.integrity?.communication_observations ?? []).entries()) {
+    children.push(createElement('p', { key: `obs-${i}`, style: mono },
+      `Communication: ${o.observation} ${o.grounded === true ? '(cited)' : '(uncited)'}`))
+  }
+  for (const [i, d] of (mj.talent?.talent_drivers ?? []).entries()) {
+    children.push(createElement('p', { key: `drv-${i}`, style: mono },
+      `Talent driver: ${d.evidence} ${d.grounded === true ? '(cited)' : '(uncited)'}`))
+  }
+  // The T0 strip + the retained-earnings test — self-describing computable unions, rendered honestly.
+  const t0 = mj.talent_t0 as { roic?: Record<string, unknown>; payout?: Record<string, unknown>; debt?: Record<string, unknown> } | undefined
+  const t0Line = (label: string, block?: Record<string, unknown>, fmt?: (b: Record<string, unknown>) => string) =>
+    block === undefined
+      ? null
+      : createElement('p', { key: `t0-${label}`, style: mono },
+          block['computable'] === true && fmt !== undefined
+            ? `${label}: ${fmt(block)}`
+            : `${label}: not computable (${String(block['reason'] ?? 'insufficient data')})`)
+  children.push(
+    createElement('p', { key: 't0-head', style: { ...muted, fontWeight: 800, marginTop: '0.6rem' } }, 'Harness T0 observations (the model reconciles; it never re-derives):'),
+    t0Line('ROIC', t0?.roic, (b) => `median ${((b['median_roic'] as number) * 100).toFixed(1)}% — ${String(b['band'])}`),
+    t0Line('Payout', t0?.payout, (b) => `dividends ${String(b['dividend_paying_years'])}/${String(b['years_used'])} yrs, buybacks ${String(b['buyback_years'])}/${String(b['years_used'])}${b['payout_ratio_latest'] !== undefined ? `, ratio ${((b['payout_ratio_latest'] as number) * 100).toFixed(0)}% of NI` : ''}${b['buybacks_below_sbc'] === true ? ' — buybacks below SBC (only mop up dilution)' : ''}`),
+    t0Line('Debt', t0?.debt, (b) => `total $${Math.round(b['latest_total_debt_musd'] as number)}M${b['interest_coverage'] !== undefined ? `, coverage ${(b['interest_coverage'] as number).toFixed(0)}×` : ''}`),
+  )
+  const retained = mj.retained_earnings
+  if (retained !== undefined) {
+    children.push(createElement('p', {
+      key: 'retained', 'data-testid': 'retained-earnings-test',
+      style: { ...mono, color: retained['computable'] === true ? (retained['passes'] === true ? '#4ade80' : 'var(--owl-color-risk-bright)') : 'var(--owl-color-gold-bright)' },
+    }, retained['computable'] === true
+      ? `Retained-earnings test (Buffett): ${retained['passes'] === true ? 'PASSES' : 'FAILS'} — ${String(retained['note'] ?? '')}`
+      : `Retained-earnings test (Buffett): deferred on data (${String(retained['reason'] ?? 'not computable')})`))
+  }
+  return createCollapsibleSection('management-pillar-card', 'Management pillar — integrity & talent', vetoTrait !== undefined, children)
 }
 
 function createReReviewPanel(researchCase: AppResearchCase) {

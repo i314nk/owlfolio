@@ -51,6 +51,8 @@ import { resolveInsiderSummary, type InsiderSummary, type InsiderSummaryComputed
 import { resolveFundamentalsForTicker } from './fundamentalsProvider'
 import { evaluateBaseRateBurden, type BaseRateBurdenFlag } from './baseRateBurden'
 import { computeMoatTests, type MoatTests } from './moatTests'
+import { buildManagementTalentBlock, computeManagementTalentT0, type ManagementTalentT0 } from './managementT0'
+import { runRetainedEarningsTest, type RetainedEarningsTestResult } from './retainedEarningsTest'
 import { BASE_RATES } from '@owlfolio/strategies/baseRates'
 import { ENGINE_VERSION } from '@owlfolio/strategies/engineVersion'
 import { SOURCE_POLICY } from '@owlfolio/strategies/sourcePolicy'
@@ -65,7 +67,7 @@ import {
 } from './strategyResearchPipeline'
 import { ingestManualSourceBundle, type ManualUrlEvidenceSourceInput } from './sourceLedger'
 import { resolveResearchStrategyRef } from './researchStrategyRef'
-import { buffettMungerStrategy, creditedGrowth, discountRate, moatPassesGate, ownerEarningsAtHorizon, stage1HorizonForMoat, terminalGrowthForMoat, twoStageValuation } from '@owlfolio/strategies/buffettMunger'
+import { buffettMungerStrategy, creditedGrowth, discountRate, MANAGEMENT_PILLAR_POLICY, moatPassesGate, ownerEarningsAtHorizon, stage1HorizonForMoat, terminalGrowthForMoat, twoStageValuation } from '@owlfolio/strategies/buffettMunger'
 import { curatedAdrRatio } from '@owlfolio/strategies/adrRatios'
 import { computeShariahFinancialRatios } from '@owlfolio/strategies/shariahFinancialRatios'
 import { marketImpliedGrowth } from '@owlfolio/strategies/reverseDcf'
@@ -88,12 +90,14 @@ import {
 import {
   LaneAgentSchema,
   MoatLaneSchema,
+  ManagementLaneSchema,
   DecisionAgentSchema,
   MoatCrossCheckSchema,
   ShariahCrossCheckSchema,
   CircleCompetenceSchema,
   AGENT_TIMEOUT_MS,
   MOAT_PILLAR_PROMPT,
+  MANAGEMENT_PILLAR_PROMPT,
   CIRCLE_COMPETENCE_PROMPT,
   RISKS_RECENCY_NOTE,
   PRIMARY_FILING_LANES,
@@ -112,6 +116,9 @@ import {
   buildInsiderBlock,
   buildRecentFilingsBlock,
   buildPreVerifiedSourcesBlock,
+  resolveManagementJudgment,
+  type ManagementLaneThesis,
+  type ResolvedManagementJudgment,
   type MoatLaneJudgment,
   type ShariahLaneJudgment,
   type JudgmentDegraded,
@@ -156,6 +163,8 @@ export type LaneOutcome = {
   policy_rejections?: SourcePolicyRejection[]
   /** MOAT lane only: its rubric/holistic judgment (spec-correct: the lane scores its own rubric). */
   moat_judgment?: MoatLaneJudgment
+  /** MANAGEMENT lane only (S5): its raw integrity/talent judgment blocks (resolved by the harness). */
+  management_judgment?: ManagementLaneThesis
   /** Visible per-lane degradation: the lane omitted its REQUIRED judgment block after schema-retry. */
   judgment_retry_degraded?: string
   /** Phase 2 V5 — stage-cost inputs (tokens reported by the provider + wall time for this lane). */
@@ -433,6 +442,11 @@ export type FundamentalsDeps = {
    * `insiderSummary` is absent and the run is not in offline test mode.
    */
   fetchForm4Document?: (url: string) => Promise<string | undefined>
+  /**
+   * S5: pre-resolved retained-earnings test result (tests inject; e2e fixtures). Takes precedence over
+   * the live price-history fetch. Absent + offline test mode → the test is simply not computed.
+   */
+  retainedEarnings?: RetainedEarningsTestResult
   /**
    * Override the FX-rate resolver (currency → USD multiplier) for test injection. Used in the Shariah
    * block to convert a USD market cap into the filer's reporting currency for foreign filers (IFRS/20-F).
@@ -1027,6 +1041,25 @@ export async function runResearchDeepDivePhase(
     }
   }
 
+  // ---- S5 (Phase 3): MANAGEMENT TALENT T0 + the retained-earnings test — the observation block ----
+  // The owner's three talent criteria (ROIC / payout discipline / debt management) computed
+  // deterministically from the EDGAR series, plus Buffett's retained-earnings test ($1 retained →
+  // >=$1 of market value) from split-adjusted price history. Injected into the management lane as a
+  // reconcile-contract block (like the insider block) and PERSISTED on the analysis payload. Each
+  // piece fails closed independently; offline test mode never touches the network.
+  let managementTalentT0: ManagementTalentT0 | undefined
+  let retainedEarnings: RetainedEarningsTestResult | undefined
+  let managementTalentBlock: string | undefined
+  if (fundamentals?.annual_series !== undefined && fundamentals.annual_series.length > 0) {
+    managementTalentT0 = computeManagementTalentT0(fundamentals.annual_series)
+    if (deps.retainedEarnings !== undefined) {
+      retainedEarnings = deps.retainedEarnings
+    } else if (!isOfflineTestMode()) {
+      retainedEarnings = await runRetainedEarningsTest(command.ticker, fundamentals.annual_series)
+    }
+    managementTalentBlock = `\n${buildManagementTalentBlock(managementTalentT0, retainedEarnings)}\n`
+  }
+
   // The PRE-VERIFIED-SOURCES block lists the harness's already-content-hash-verified EDGAR primary
   // source_ids and instructs the agent to cite THOSE for filing-backed claims (instead of inventing its
   // own SEC archive URLs, which fetch unreliably). Surfaced to the circle gate, the moat lane, and the
@@ -1418,6 +1451,8 @@ export async function runResearchDeepDivePhase(
       + (recentFilingsBlock !== undefined && RECENT_FILINGS_LANES.has(lane) ? recentFilingsBlock : '')
       + (proxyBlock !== undefined && PROXY_LANES.has(lane) ? proxyBlock : '')
       + (insiderBlock !== undefined && INSIDER_LANES.has(lane) ? insiderBlock : '')
+      // S5: the harness-computed talent T0 + retained-earnings observations (management lane only).
+      + (managementTalentBlock !== undefined && lane === 'management' ? managementTalentBlock : '')
 
     const baseRunId = `run_${command.research_case_id}_${swarmSeg(lane)}`
     // The grounded EDGAR 10-K is a guaranteed verified primary citation for the injected lanes —
@@ -1524,7 +1559,57 @@ export async function runResearchDeepDivePhase(
       }
     }
 
-    // ---- Generic lanes (financial_quality, management, risks, …) ----
+    // ---- MANAGEMENT lane (S5, Phase 3): the pillar's two traits as GROUNDED CITED THESES ----
+    // INTEGRITY (communication candor + DEF 14A comp structure) and TALENT (capital allocation,
+    // reconciled against the injected T0 block). Mirrors the moat branch: runValidatedAgent with the
+    // judgment blocks retry-FORCED; after retries the resolver fails closed to 'undetermined'
+    // (never a silent clean bill, and the veto can only ever fire on grounded evidence).
+    if (lane === 'management') {
+      const mgmtRequired: RequiredFieldCheck<z.infer<typeof ManagementLaneSchema>>[] = [
+        { name: 'integrity', present: (a) => a.integrity !== undefined, hint: 'the integrity judgment block: communication_observations [{observation, citation}], comp_structure {summary, alignment, citation → the grounded DEF 14A id}, integrity_flags, proposed_integrity, integrity_reasoning' },
+        { name: 'talent', present: (a) => a.talent !== undefined, hint: 'the talent judgment block: talent_drivers [{evidence, citation}], proposed_talent, talent_reasoning — reconciled with the injected T0 observations' },
+      ]
+      const validated = await runValidatedAgent(laneRuntime.provider, {
+        run_id: baseRunId,
+        model_id: laneRuntime.model_id,
+        prompt: basePrompt + MANAGEMENT_PILLAR_PROMPT + (preVerifiedSourcesBlock ?? ''),
+        timeout_ms: AGENT_TIMEOUT_MS,
+        schema_name: 'BuffettMungerManagementLane',
+      }, ManagementLaneSchema, {
+        ...deps,
+        lane,
+        requiredFields: mgmtRequired,
+        useToolLoop: true,
+        readCorpus: accumulated,
+        ...(deps.fetchFundamentals === undefined ? {} : { fetchFundamentals: deps.fetchFundamentals }),
+      })
+      const agent = validated.status === 'ok' ? validated.result : validated.lastResult
+      if (agent === undefined) {
+        throw new Error(`Management lane produced no parseable output: ${validated.status === 'failed' ? validated.reason : 'unknown'}`)
+      }
+      remember(agent.captured)
+      const a = agent.analysis
+      const management_judgment: ManagementLaneThesis = {
+        ...(a.integrity !== undefined ? { integrity: a.integrity } : {}),
+        ...(a.talent !== undefined ? { talent: a.talent } : {}),
+      }
+      return {
+        lane,
+        finding_summary: a.finding_summary,
+        confidence: a.confidence,
+        caveats: a.caveats,
+        verified_ids: withFiling(agent.verified_ids),
+        ...(agent.usage === undefined ? {} : { usage: agent.usage }),
+        wall_ms: Date.now() - laneStartedAt,
+        management_judgment,
+        ...(agent.policy_rejections.length > 0 ? { policy_rejections: agent.policy_rejections } : {}),
+        ...(validated.status === 'failed'
+          ? { judgment_retry_degraded: `management_lane_schema_retry_exhausted: the model omitted [${validated.missing.join(', ')}] after ${validated.attempts} attempts (${validated.reason}). Resolved undetermined.` }
+          : {}),
+      }
+    }
+
+    // ---- Generic lanes (financial_quality, risks, …) ----
     // Deep-dive lanes gather REAL primary sources via the grounded tool loop when the provider supports it
     // (Phase 1 fetch_source/search_filings → Phase 2 structured), else fall back to propose-then-verify
     // UNCHANGED (Codex's internal sandbox gather, mock). The grounding/citation verification is identical.
@@ -1556,6 +1641,9 @@ export async function runResearchDeepDivePhase(
   // Extract the per-lane judgment outputs the harness now reads (instead of the synthesis schema).
   const moatLaneResult = laneResults.find((l) => l.lane === 'moat')
   const moatJudgment = moatLaneResult?.moat_judgment
+  // S5: the management lane's raw integrity/talent blocks (resolved below once the verified-citation
+  // set is assembled). A missing lane / omitted blocks resolve 'undetermined' — never a silent clean.
+  const managementLaneThesis = laneResults.find((l) => l.lane === 'management')?.management_judgment ?? {}
   // NOTE: shariahLaneJudgment is no longer read off the parallel deep-dive lane — it is now sourced from
   // the ALWAYS-ON focused Shariah-reasoning pass (runShariahReasoningPass, invoked below once the corpus
   // digest is assembled). See the derivation after synthesisRuntime.
@@ -1593,6 +1681,13 @@ export async function runResearchDeepDivePhase(
     ...(moatJudgment?.runway !== undefined ? { holisticRunway: moatJudgment.runway } : {}),
     ...(fundamentals?.annual_series !== undefined ? { series: fundamentals.annual_series } : {}),
     verifiedCitationHashes,
+  })
+
+  // ---- S5 (Phase 3): resolve the MANAGEMENT pillar judgment (integrity + talent, grounded-only) ----
+  const managementJudgment: ResolvedManagementJudgment = resolveManagementJudgment({
+    thesis: managementLaneThesis,
+    verifiedCitationHashes,
+    ...(managementTalentT0?.roic.computable === true ? { t0RoicBand: managementTalentT0.roic.band } : {}),
   })
 
   // ---- Record specialist findings ----
@@ -3422,6 +3517,32 @@ export async function runResearchDeepDivePhase(
       + 'the method refuses to credit. The BUY thesis itself is preserved below for auditing.'
     : undefined
 
+  // OWNER RULE (2026-07-11, Phase 3 S5): the MANAGEMENT VETO — "no price compensates for management
+  // you can't trust", and the owner extended it to TALENT: a model BUY on a GROUNDED worst-tier
+  // management judgment (integrity red_flag OR poor capital-allocation talent) derates to
+  // RESEARCH_MORE with the reason NAMING the failed trait. Escalate-to-human, never an auto-PASS.
+  // The resolver grounds these tiers only on cite-verified evidence (a hallucinated flag renders
+  // "unverified" and resolves undetermined), so this clamp can never fire on an ungrounded claim.
+  const managementVetoTrait: 'integrity' | 'talent' | undefined =
+    MANAGEMENT_PILLAR_POLICY.integrity_veto === 'clamp'
+    && moat_passes_gate
+    && !sectorShariahFail
+    && dec.analysis.investment_verdict === 'BUY'
+      ? (managementJudgment.resolved_integrity === 'red_flag'
+          ? 'integrity'
+          : managementJudgment.resolved_talent === 'poor'
+            ? 'talent'
+            : undefined)
+      : undefined
+  const managementVetoReason = managementVetoTrait !== undefined
+    ? `management_veto (${managementVetoTrait}): the model verdict is BUY but the management pillar resolved a GROUNDED `
+      + (managementVetoTrait === 'integrity'
+          ? 'integrity RED FLAG (a cite-verified high-severity finding)'
+          : 'POOR capital-allocation talent (cite-verified)')
+      + ' — no price compensates for management you cannot trust. Recorded as RESEARCH_MORE pending human '
+      + 'verification of the cited evidence; the BUY thesis is preserved for auditing.'
+    : undefined
+
   // OWNER RULE (2026-07-11, Phase 3 S3): "a narrowing moat is a sell signal no matter how wide it still
   // looks." A model BUY on a GROUNDED narrowing moat direction derates to WATCH with the reason surfaced.
   // The resolver only resolves 'narrowing' when >=1 direction driver cite-verified (an ungrounded or
@@ -3457,15 +3578,17 @@ export async function runResearchDeepDivePhase(
       // investment_verdict is NOT used. (The all-corpus check at I1 stays as the all-empty backstop.)
       : synthesisGroundingUnmet
         ? ('RESEARCH_MORE' as const)
-        : buyDataUnconfirmed
+        : managementVetoTrait !== undefined
           ? ('RESEARCH_MORE' as const)
-          : buyOutOfBuyZone
-            ? ('WATCH' as const)
-            : buyBelowAbsurd
+          : buyDataUnconfirmed
+            ? ('RESEARCH_MORE' as const)
+            : buyOutOfBuyZone
               ? ('WATCH' as const)
-              : moatNarrowing
+              : buyBelowAbsurd
                 ? ('WATCH' as const)
-                : dec.analysis.investment_verdict
+                : moatNarrowing
+                  ? ('WATCH' as const)
+                  : dec.analysis.investment_verdict
   const gatedReason = !moat_passes_gate
     ? (moat_grounding_unmet
         ? `${moatGroundingReason} ${dec.analysis.decision_reason}`
@@ -3474,15 +3597,17 @@ export async function runResearchDeepDivePhase(
       ? `Shariah ${shariahJudgment?.sector_status === 'non_compliant' ? 'sector' : 'financial'} status FAIL — pass. ${dec.analysis.decision_reason}`
       : synthesisGroundingUnmet
         ? `${synthesisGroundingReason} ${dec.analysis.decision_reason}`
-        : buyDataUnconfirmed
-          ? `${buyClampReason} ${dec.analysis.decision_reason}`
-          : buyOutOfZoneReason !== undefined
-            ? `${buyOutOfZoneReason} ${dec.analysis.decision_reason}`
-            : buyBelowAbsurdReason !== undefined
-              ? `${buyBelowAbsurdReason} ${dec.analysis.decision_reason}`
-              : moatNarrowingReason !== undefined
-                ? `${moatNarrowingReason} ${dec.analysis.decision_reason}`
-                : dec.analysis.decision_reason
+        : managementVetoReason !== undefined
+          ? `${managementVetoReason} ${dec.analysis.decision_reason}`
+          : buyDataUnconfirmed
+            ? `${buyClampReason} ${dec.analysis.decision_reason}`
+            : buyOutOfZoneReason !== undefined
+              ? `${buyOutOfZoneReason} ${dec.analysis.decision_reason}`
+              : buyBelowAbsurdReason !== undefined
+                ? `${buyBelowAbsurdReason} ${dec.analysis.decision_reason}`
+                : moatNarrowingReason !== undefined
+                  ? `${moatNarrowingReason} ${dec.analysis.decision_reason}`
+                  : dec.analysis.decision_reason
 
   // ---- MARGIN-OF-SAFETY JOINT JUDGMENT (synthesis-owned) — Guard 1 + Guard 2 ----------------------------
   // GUARD 1: adequacy is an AUDIT judgment ONLY. NOTHING above (gatedVerdict / gatedReason / the moat gate /
@@ -3611,6 +3736,16 @@ export async function runResearchDeepDivePhase(
       ...(insiderSummaryComputed !== undefined ? { insider_summary: insiderSummaryComputed } : {}),
       // S2 (Phase 3): the three named moat tests (T0) — pillar-2 display/judgment context.
       ...(moatTests !== undefined ? { moat_tests: moatTests } : {}),
+      // S5 (Phase 3): the MANAGEMENT pillar — the resolved integrity/talent judgment (grounded-only
+      // teeth), the injected talent T0 observations, and the retained-earnings test. The veto flags
+      // record when-and-why the rail fired so the dossier explains the clamp.
+      management_judgment: {
+        ...managementJudgment,
+        ...(managementTalentT0 !== undefined ? { talent_t0: managementTalentT0 } : {}),
+        ...(retainedEarnings !== undefined ? { retained_earnings: retainedEarnings } : {}),
+      },
+      ...(managementVetoTrait !== undefined ? { management_veto_applied: managementVetoTrait } : {}),
+      ...(managementVetoReason !== undefined ? { management_veto_reason: managementVetoReason } : {}),
       // The admitting-gate block (shariah_gate, or quick_screen on a legacy resume) is added below.
       valuation: {
         moat_class: moatClass,
@@ -3925,6 +4060,9 @@ export async function runResearchDeepDivePhase(
       // OWNER RULE (Phase 3 S3): a model BUY derated to WATCH on a GROUNDED narrowing moat is always
       // surfaced — the human sees the sell-signal principle applied and the cited direction evidence.
       ...(moatNarrowingReason !== undefined ? [moatNarrowingReason] : []),
+      // OWNER RULE (Phase 3 S5): a model BUY clamped by the MANAGEMENT VETO is always surfaced —
+      // the human sees WHICH trait failed (integrity vs talent) and what evidence to verify.
+      ...(managementVetoReason !== undefined ? [managementVetoReason] : []),
       ...baseRateCaveats,
       ...degradedFlags,
       // Dual-model cross-check disagreements → automatic human escalation (conservative answer holds).

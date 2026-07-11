@@ -854,6 +854,15 @@ export type ResearchCaseProjection = {
    * half is the moat lane's labeled judgment). Absent on legacy events / runs without fundamentals.
    */
   moat_tests?: ResearchCaseMoatTestsProjection
+  /**
+   * The management pillar's resolved judgment (S5, Phase 3): integrity (communication + comp) and
+   * talent (capital allocation), grounded-only teeth, plus the injected talent T0 observations and
+   * the retained-earnings test. Absent on legacy events.
+   */
+  management_judgment?: ResearchCaseManagementJudgmentProjection
+  /** Which trait fired the management veto ('integrity' | 'talent'), when the BUY clamp applied. */
+  management_veto_applied?: string
+  management_veto_reason?: string
   valuation?: ResearchCaseValuationProjection
   /**
    * Engine-version marker stamped at the event payload ROOT on EVERY analysis emission (full deep-dive AND
@@ -1676,6 +1685,116 @@ function getMoatTest(value: unknown): ResearchCaseMoatTestProjection | undefined
   return projected
 }
 
+/**
+ * The management pillar's resolved judgment (S5) — a tolerant structural copy: the harness resolved
+ * it; the projection re-displays. Nested T0/retained blocks are self-describing computable unions,
+ * copied with the same tolerant primitive as the moat tests.
+ */
+export type ResearchCaseManagementJudgmentProjection = {
+  resolved_integrity?: string
+  resolved_talent?: string
+  judgment_degraded?: boolean
+  t0_contradicts_talent?: boolean
+  integrity?: {
+    communication_observations?: { observation: string; citation: string; grounded?: boolean }[]
+    comp_structure?: { summary?: string; incentive_metrics?: string[]; alignment?: string; citation?: string }
+    comp_grounded?: boolean
+    flags?: { claim: string; severity?: string; citation: string; grounded?: boolean }[]
+    grounded_high_flag_count?: number
+    proposed_integrity?: string
+    integrity_reasoning?: string
+  }
+  talent?: {
+    talent_drivers?: { evidence: string; citation: string; grounded?: boolean }[]
+    grounded_driver_count?: number
+    proposed_talent?: string
+    talent_reasoning?: string
+    talent_grounding_capped?: boolean
+  }
+  talent_t0?: Record<string, unknown>
+  retained_earnings?: Record<string, unknown>
+}
+
+function getManagementJudgment(payload: Record<string, unknown>): ResearchCaseManagementJudgmentProjection | undefined {
+  const value = payload['management_judgment']
+  if (!isRecord(value)) return undefined
+  const projected: ResearchCaseManagementJudgmentProjection = {}
+  const resolved_integrity = getString(value, 'resolved_integrity')
+  if (resolved_integrity !== undefined) projected.resolved_integrity = resolved_integrity
+  const resolved_talent = getString(value, 'resolved_talent')
+  if (resolved_talent !== undefined) projected.resolved_talent = resolved_talent
+  if (value['judgment_degraded'] === true) projected.judgment_degraded = true
+  if (value['t0_contradicts_talent'] === true) projected.t0_contradicts_talent = true
+  const rawIntegrity = value['integrity']
+  if (isRecord(rawIntegrity)) {
+    const integrity: NonNullable<ResearchCaseManagementJudgmentProjection['integrity']> = {}
+    const rawObs = rawIntegrity['communication_observations']
+    if (Array.isArray(rawObs)) {
+      const obs = rawObs.filter(isRecord)
+        .map((o) => ({ observation: getString(o, 'observation'), citation: getString(o, 'citation'), grounded: o['grounded'] === true }))
+        .filter((o): o is { observation: string; citation: string; grounded: boolean } => o.observation !== undefined && o.citation !== undefined)
+      if (obs.length > 0) integrity.communication_observations = obs
+    }
+    const rawComp = rawIntegrity['comp_structure']
+    if (isRecord(rawComp)) {
+      const comp: NonNullable<NonNullable<ResearchCaseManagementJudgmentProjection['integrity']>['comp_structure']> = {}
+      const summary = getString(rawComp, 'summary')
+      if (summary !== undefined) comp.summary = summary
+      const alignment = getString(rawComp, 'alignment')
+      if (alignment !== undefined) comp.alignment = alignment
+      const citation = getString(rawComp, 'citation')
+      if (citation !== undefined) comp.citation = citation
+      const metrics = getStringArray(rawComp, 'incentive_metrics')
+      if (metrics !== undefined) comp.incentive_metrics = metrics
+      integrity.comp_structure = comp
+    }
+    if (typeof rawIntegrity['comp_grounded'] === 'boolean') integrity.comp_grounded = rawIntegrity['comp_grounded']
+    const rawFlags = rawIntegrity['flags']
+    if (Array.isArray(rawFlags)) {
+      const flags = rawFlags.filter(isRecord)
+        .map((f) => {
+          const severity = getString(f, 'severity')
+          return {
+            claim: getString(f, 'claim'), citation: getString(f, 'citation'), grounded: f['grounded'] === true,
+            ...(severity !== undefined ? { severity } : {}),
+          }
+        })
+        .filter((f): f is { claim: string; citation: string; grounded: boolean; severity?: string } => f.claim !== undefined && f.citation !== undefined)
+      if (flags.length > 0) integrity.flags = flags
+    }
+    const ghfc = getNumber(rawIntegrity, 'grounded_high_flag_count')
+    if (ghfc !== undefined) integrity.grounded_high_flag_count = ghfc
+    const proposed_integrity = getString(rawIntegrity, 'proposed_integrity')
+    if (proposed_integrity !== undefined) integrity.proposed_integrity = proposed_integrity
+    const integrity_reasoning = getString(rawIntegrity, 'integrity_reasoning')
+    if (integrity_reasoning !== undefined) integrity.integrity_reasoning = integrity_reasoning
+    projected.integrity = integrity
+  }
+  const rawTalent = value['talent']
+  if (isRecord(rawTalent)) {
+    const talent: NonNullable<ResearchCaseManagementJudgmentProjection['talent']> = {}
+    const rawDrivers = rawTalent['talent_drivers']
+    if (Array.isArray(rawDrivers)) {
+      const drivers = rawDrivers.filter(isRecord)
+        .map((d) => ({ evidence: getString(d, 'evidence'), citation: getString(d, 'citation'), grounded: d['grounded'] === true }))
+        .filter((d): d is { evidence: string; citation: string; grounded: boolean } => d.evidence !== undefined && d.citation !== undefined)
+      if (drivers.length > 0) talent.talent_drivers = drivers
+    }
+    const gdc = getNumber(rawTalent, 'grounded_driver_count')
+    if (gdc !== undefined) talent.grounded_driver_count = gdc
+    const proposed_talent = getString(rawTalent, 'proposed_talent')
+    if (proposed_talent !== undefined) talent.proposed_talent = proposed_talent
+    const talent_reasoning = getString(rawTalent, 'talent_reasoning')
+    if (talent_reasoning !== undefined) talent.talent_reasoning = talent_reasoning
+    if (rawTalent['talent_grounding_capped'] === true) talent.talent_grounding_capped = true
+    projected.talent = talent
+  }
+  // The T0 + retained blocks are harness-computed self-describing unions — carried as tolerant records.
+  if (isRecord(value['talent_t0'])) projected.talent_t0 = value['talent_t0'] as Record<string, unknown>
+  if (isRecord(value['retained_earnings'])) projected.retained_earnings = value['retained_earnings'] as Record<string, unknown>
+  return projected
+}
+
 function getMoatTests(payload: Record<string, unknown>): ResearchCaseMoatTestsProjection | undefined {
   const value = payload['moat_tests']
   if (!isRecord(value)) return undefined
@@ -2408,6 +2527,14 @@ export function projectResearchCases(events: LedgerEventEnvelope<unknown>[]): Re
       if (moatTests !== undefined) {
         researchCase.moat_tests = moatTests
       }
+      const managementJudgment = getManagementJudgment(event.payload)
+      if (managementJudgment !== undefined) {
+        researchCase.management_judgment = managementJudgment
+      }
+      const managementVetoApplied = getString(event.payload, 'management_veto_applied')
+      if (managementVetoApplied !== undefined) researchCase.management_veto_applied = managementVetoApplied
+      const managementVetoReason = getString(event.payload, 'management_veto_reason')
+      if (managementVetoReason !== undefined) researchCase.management_veto_reason = managementVetoReason
       const shariahFinancial = getShariahFinancial(event.payload)
       if (shariahFinancial !== undefined) {
         researchCase.shariah_financial = shariahFinancial

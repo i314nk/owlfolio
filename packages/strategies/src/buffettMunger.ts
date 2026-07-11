@@ -439,6 +439,17 @@ const rawBuffettMungerStrategy = {
 export const buffettMungerStrategy = strategyContractSchema.parse(rawBuffettMungerStrategy)
 
 /**
+ * S5 (Phase 3, owner-locked 2026-07-11): the MANAGEMENT-pillar veto shape. Buffett's ordering —
+ * integrity, intelligence, energy; "no price compensates for management you can't trust." With
+ * 'clamp' (the owner default) a model BUY on a GROUNDED worst-tier management judgment (integrity
+ * red_flag OR poor talent) derates to RESEARCH_MORE, the reason NAMING the failed trait — an
+ * escalate-to-human, never an auto-PASS. 'flag' renders the dossier badge only (no verdict change).
+ * The resolver only ever grounds these tiers on cite-verified evidence, so the veto cannot fire on
+ * hallucination either way.
+ */
+export const MANAGEMENT_PILLAR_POLICY: { integrity_veto: 'clamp' | 'flag' } = { integrity_veto: 'clamp' }
+
+/**
  * Look up the conviction-tiered target full position weight for a given moat class.
  * Only investable moat classes (wide, monopoly) have target weights.
  * narrow and moderate are rejected before sizing is considered.

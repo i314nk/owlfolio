@@ -154,6 +154,30 @@ function fakeMoatLanePayload(src: (id: string) => unknown) {
 // circle gate PASSES and the deep dive proceeds exactly as before). The two citation source_ids
 // (src_circle_driver / src_circle_breaker) verify under every test's ground fn (they contain neither
 // 'moat' nor 'bad', the only substrings the filtering grounds exclude).
+// MANAGEMENT lane (S5): the two-trait judgment with grounded citations, so the shared fakes stay
+// schema-complete under the retry-forced requiredFields (mirror of fakeMoatLanePayload).
+function fakeManagementLanePayload(src: (id: string) => unknown, cite = 'src_lane_mgmt') {
+  return {
+    finding_summary: 'Management lane finding', confidence: 'medium' as const, caveats: ['Mock management caveat'],
+    integrity: {
+      communication_observations: [{ observation: 'MD&A discusses setbacks plainly, quantified', citation: cite }],
+      comp_structure: { summary: 'Bonus on ROIC + FCF/share; PSUs on relative TSR.', incentive_metrics: ['ROIC'], alignment: 'aligned' as const, citation: cite },
+      integrity_flags: [],
+      proposed_integrity: 'clean' as const,
+      integrity_reasoning: 'Candid communication; owner-aligned comp.',
+    },
+    talent: {
+      talent_drivers: [
+        { evidence: 'Decade of high incremental ROIC through cycles', citation: cite },
+        { evidence: 'Buybacks concentrated below intrinsic value', citation: cite },
+      ],
+      proposed_talent: 'excellent' as const,
+      talent_reasoning: 'Disciplined allocation reconciling with the T0 block.',
+    },
+    proposed_sources: [src(cite)],
+  }
+}
+
 function fakeCirclePayload(src: (id: string) => unknown) {
   // Two cited drivers + two cited breakers: meets the default circle-gate evidence floor (min 2/2),
   // mirroring what a live model produces now that the gate prompt asks for at least that many.
@@ -205,6 +229,9 @@ function swarmFakeProvider() {
           screening_result: 'deep_dive_candidate',
           proposed_sources: [src('src_qs_1')],
         }
+      }
+      if (schemaName === 'BuffettMungerManagementLane') {
+        return fakeManagementLanePayload(src)
       }
       if (schemaName === 'BuffettMungerMoatLane') return fakeMoatLanePayload(src)
       if (schemaName === 'BuffettMungerLaneFinding') {
@@ -310,6 +337,9 @@ function swarmFakeProviderWithLaneIds(_lanes: readonly string[]) {
         }
       }
       // Lane source id encodes the lane name (from the prompt) so ground can filter by lane.
+      if (schemaName === 'BuffettMungerManagementLane') {
+        return fakeManagementLanePayload(src)
+      }
       if (schemaName === 'BuffettMungerMoatLane') {
         return {
           finding_summary: 'moat lane finding', confidence: 'medium' as const, caveats: ['Mock lane caveat'],
@@ -634,6 +664,9 @@ describe('runStrategyResearchSwarm', () => {
               shariah_judgment: { sector_reasoning: 'Grounded sector basis (test fixture).', sector_status: 'compliant', impermissible_income: 0, sector_citation: 'src_shariah_pass_good_1' },
               proposed_sources: [src('src_shariah_pass_good_1'), src('src_shariah_pass_bad_1')],
             }
+          }
+          if (schemaName === 'BuffettMungerManagementLane') {
+            return fakeManagementLanePayload(src)
           }
           if (schemaName === 'BuffettMungerMoatLane') {
             return {
@@ -1281,6 +1314,9 @@ function configurableSwarmProvider(opts: {
   // S3 (Phase 3): extra fields spread LAST into the BuffettMungerMoatLane response, so a test can
   // override the shared defaults (e.g. a grounded 'narrowing' direction for the WATCH-clamp pin).
   moatLaneExtras?: Record<string, unknown>
+  // S5 (Phase 3): extra fields spread LAST into the BuffettMungerManagementLane response (e.g. a
+  // grounded integrity red flag for the management-veto pin).
+  managementLaneExtras?: Record<string, unknown>
   // Spec-correct decomposition: the MOAT lane omits its rubric (→ rubric_not_emitted holistic fallback)
   // and/or the Shariah-reasoning pass omits its overlay (→ shariah_ratios_unverified) — the live-dogfood shape.
   omitMoatRubric?: boolean
@@ -1363,6 +1399,9 @@ function configurableSwarmProvider(opts: {
           finding_summary: `Lane ${n} finding`, confidence: 'high',
           caveats: ['Mock lane caveat'], proposed_sources: [src(`src_lane_${n}`)],
         }
+      }
+      if (schemaName === 'BuffettMungerManagementLane') {
+        return { ...fakeManagementLanePayload(src), ...(opts.managementLaneExtras ?? {}) }
       }
       if (schemaName === 'BuffettMungerMoatLane') {
         const moatClass = opts.synthesis?.moat_class ?? 'wide'
@@ -3279,6 +3318,9 @@ function swarmFakeProviderWithShariah(
           screening_result: 'deep_dive_candidate', proposed_sources: [src('src_qs_1')],
         }
       }
+      if (schemaName === 'BuffettMungerManagementLane') {
+        return fakeManagementLanePayload(src)
+      }
       if (schemaName === 'BuffettMungerMoatLane') {
         return {
           finding_summary: 'Moat lane', confidence: 'medium', caveats: ['c'],
@@ -3461,6 +3503,9 @@ describe('EDGAR-anchored OE bridge + harness AAOIFI Shariah ratios', () => {
             red_flags: ['None'], confidence: 'high', caveats: ['c'],
             screening_result: 'deep_dive_candidate', proposed_sources: [src('src_qs_1')],
           }
+        }
+        if (schemaName === 'BuffettMungerManagementLane') {
+          return fakeManagementLanePayload(src)
         }
         if (schemaName === 'BuffettMungerMoatLane') {
           return {
@@ -4797,6 +4842,9 @@ describe('SUBSTITUTION-BOUNDARY INVARIANT — moat gate cannot pass on quant alo
             proposed_sources: [src('src_qs_1')],
           }
         }
+        if (schemaName === 'BuffettMungerManagementLane') {
+          return fakeManagementLanePayload(src)
+        }
         if (schemaName === 'BuffettMungerMoatLane') {
           return {
             finding_summary: 'Moat lane', confidence: 'high', caveats: ['c'],
@@ -5046,6 +5094,9 @@ describe('runStrategyResearchSwarm — schema-validation + retry (harness defens
           const n = laneCall++
           return { finding_summary: `Lane ${n}`, confidence: 'high', caveats: ['c'], proposed_sources: [src(`src_lane_${n}`)] }
         }
+        if (schemaName === 'BuffettMungerManagementLane') {
+          return fakeManagementLanePayload(src)
+        }
         if (schemaName === 'BuffettMungerMoatLane') {
           return {
             finding_summary: 'Moat lane', confidence: 'high', caveats: ['c'],
@@ -5226,6 +5277,9 @@ function crossCheckSwarmProvider(opts: {
       if (schemaName === 'BuffettMungerLaneFinding') {
         const n = laneCall++
         return { finding_summary: `Lane ${n}`, confidence: 'high', caveats: ['c'], proposed_sources: [src(`src_lane_${n}`)] }
+      }
+      if (schemaName === 'BuffettMungerManagementLane') {
+        return fakeManagementLanePayload(src)
       }
       if (schemaName === 'BuffettMungerMoatLane') {
         // The PRIMARY moat class is the moat lane's grounded thesis (what the cross-check second model checks).
@@ -5759,6 +5813,9 @@ describe('circle-of-competence gate', () => {
             shariah_status: 'COMPLIANT', red_flags: ['None identified'], confidence: 'high', caveats: ['Mock caveat'],
             screening_result: 'deep_dive_candidate', proposed_sources: [src('src_qs_1')],
           }
+        }
+        if (schemaName === 'BuffettMungerManagementLane') {
+          return fakeManagementLanePayload(src)
         }
         if (schemaName === 'BuffettMungerMoatLane') {
           return {
@@ -6303,5 +6360,117 @@ describe('S3 — moat pillar judgment: taxonomy/direction/peer persisted + the n
       },
     })
     expect(cp?.investment_verdict).toBe('BUY')
+  })
+})
+
+// ---------------------------------------------------------------------------------------------------
+// S5 (Phase 3 pillars): the MANAGEMENT VETO — "no price compensates for management you can't trust",
+// extended by the owner to talent. BUY + a GROUNDED worst-tier management judgment (integrity
+// red_flag OR poor talent) → RESEARCH_MORE with the reason NAMING the failed trait. Ungrounded
+// claims have no teeth. The resolved judgment + T0 block persist on the analysis payload.
+// ---------------------------------------------------------------------------------------------------
+describe('S5 — management pillar: persisted judgment + the veto rail', () => {
+  async function runMgmt(opts: {
+    id: string
+    investmentVerdict?: 'BUY' | 'WATCH' | 'PASS' | 'RESEARCH_MORE'
+    managementLaneExtras?: Record<string, unknown>
+  }) {
+    const store = new InMemoryEventStore()
+    const provider = configurableSwarmProvider({
+      laneCount: buffettMungerDeepDiveLanes.length,
+      ...(opts.managementLaneExtras !== undefined ? { managementLaneExtras: opts.managementLaneExtras } : {}),
+      synthesis: {
+        moat_class: 'wide', runway: 'proven', incremental_roic: 0.20, reinvestment_rate: 0.43,
+        proposed_buy_below: 290,
+        valuation_reasoning: {
+          owner_earnings_basis: 'FY25 owner earnings per the 10-K bridge.',
+          owner_earnings_citation: 'src_dec_1',
+          assumed_growth: 0.06,
+          assumed_growth_rationale: 'Cited.',
+          assumed_growth_citation: 'src_dec_1',
+        },
+      },
+      investmentVerdict: opts.investmentVerdict ?? 'WATCH',
+      valuationStatus: 'ATTRACTIVE',
+    })
+    const sourceLedgerPath = await mkdtemp(join(tmpdir(), `owlfolio-s5-${opts.id}-`))
+    await runStrategyResearchSwarm(
+      store, provider as never,
+      {
+        research_case_id: `rc_${opts.id}`, company_id: 'c', ticker: 'COST',
+        strategy_id: 'buffett-munger', actor_id: 'user_local', idempotency_key: `${opts.id}_k`,
+        model_id: 'mock', decision_id: `decision_${opts.id}`, source_ledger_path: sourceLedgerPath,
+      },
+      {
+        ground: allVerifiedGround, laneConcurrency: 4,
+        resolvePrice: async () => ({ available: true as const, price_per_share: 250, currency: 'USD', as_of: '2026-06-01T00:00:00Z', source: 'fixture' }),
+      },
+    )
+    const events = await store.list()
+    const projections = projectResearchCases(events as Parameters<typeof projectResearchCases>[0])
+    const analysisEvent = events.find((e) => e.event_type === 'buffett_munger_analysis_drafted')
+    const payload = analysisEvent?.payload as Record<string, unknown> | undefined
+    return { payload, cp: projections.find((c) => c.research_case_id === `rc_${opts.id}`) }
+  }
+
+  it('persists the resolved management judgment (grounded clean + excellent) on the analysis payload', async () => {
+    const { payload, cp } = await runMgmt({ id: 's5-persist' })
+    const mj = payload?.['management_judgment'] as Record<string, unknown> | undefined
+    expect(mj?.['resolved_integrity']).toBe('clean')
+    expect(mj?.['resolved_talent']).toBe('excellent')
+    expect(payload?.['management_veto_applied']).toBeUndefined()
+    expect(cp?.investment_verdict).toBe('WATCH') // the model's verdict passes through untouched
+  })
+
+  it('VETO (integrity): BUY + a GROUNDED high-severity integrity flag → RESEARCH_MORE naming the trait', async () => {
+    const { cp, payload } = await runMgmt({
+      id: 's5-veto-integrity', investmentVerdict: 'BUY',
+      managementLaneExtras: {
+        integrity: {
+          communication_observations: [{ observation: 'MD&A candor', citation: 'src_lane_mgmt' }],
+          comp_structure: { summary: 'ok', alignment: 'mixed', citation: 'src_lane_mgmt' },
+          integrity_flags: [{ claim: 'Undisclosed related-party purchases from a director-controlled vendor', severity: 'high', citation: 'src_lane_mgmt' }],
+          proposed_integrity: 'red_flag',
+          integrity_reasoning: 'Cited related-party dealing.',
+        },
+      },
+    })
+    expect(cp?.investment_verdict).toBe('RESEARCH_MORE')
+    expect(payload?.['management_veto_applied']).toBe('integrity')
+    expect((cp?.open_questions ?? []).some((q) => /management_veto \(integrity\)/.test(q) && /no price compensates/i.test(q))).toBe(true)
+  })
+
+  it('VETO (talent): BUY + GROUNDED poor talent → RESEARCH_MORE naming the trait', async () => {
+    const { cp, payload } = await runMgmt({
+      id: 's5-veto-talent', investmentVerdict: 'BUY',
+      managementLaneExtras: {
+        talent: {
+          talent_drivers: [{ evidence: 'Serial dilutive acquisitions written down within 3 years', citation: 'src_lane_mgmt' }],
+          proposed_talent: 'poor',
+          talent_reasoning: 'Empire building.',
+        },
+      },
+    })
+    expect(cp?.investment_verdict).toBe('RESEARCH_MORE')
+    expect(payload?.['management_veto_applied']).toBe('talent')
+  })
+
+  it('an UNGROUNDED red flag has no teeth: BUY survives; the judgment resolves undetermined', async () => {
+    const { cp, payload } = await runMgmt({
+      id: 's5-veto-ungrounded', investmentVerdict: 'BUY',
+      managementLaneExtras: {
+        integrity: {
+          communication_observations: [{ observation: 'MD&A candor', citation: 'src_lane_mgmt' }],
+          comp_structure: { summary: 'ok', alignment: 'mixed', citation: 'src_lane_mgmt' },
+          integrity_flags: [{ claim: 'Rumored self-dealing', severity: 'high', citation: 'src_never_captured' }],
+          proposed_integrity: 'red_flag',
+          integrity_reasoning: 'Ungrounded rumor.',
+        },
+      },
+    })
+    expect(cp?.investment_verdict).toBe('BUY')
+    const mj = payload?.['management_judgment'] as Record<string, unknown> | undefined
+    expect(mj?.['resolved_integrity']).toBe('undetermined')
+    expect(payload?.['management_veto_applied']).toBeUndefined()
   })
 })

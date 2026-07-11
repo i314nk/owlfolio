@@ -196,10 +196,21 @@ function mockMoatLaneForTicker(ticker: string) {
     confidence: 'medium' as const,
     caveats: [`Mock moat finding — not investment-grade; run a real provider before any decision.`],
     moat_drivers: [
-      { advantage: `${companyLabel} documented pricing power — price increases stick without volume loss.`, citation: primaryCite },
-      { advantage: `${companyLabel} sustained market-share gains versus funded entrants over the last decade.`, citation: secondaryCite },
-      { advantage: `${companyLabel} cost/scale + distribution advantage competitors cannot replicate.`, citation: primaryCite },
+      { advantage: `${companyLabel} documented pricing power — price increases stick without volume loss.`, citation: primaryCite, moat_type: 'brand' as const },
+      { advantage: `${companyLabel} sustained market-share gains versus funded entrants over the last decade.`, citation: secondaryCite, moat_type: 'scale_advantage' as const },
+      { advantage: `${companyLabel} cost/scale + distribution advantage competitors cannot replicate.`, citation: primaryCite, moat_type: 'cost_advantage' as const },
     ],
+    // S3 pillar extensions: a grounded stable direction + an in-line peer judgment (labeled model-asserted).
+    moat_direction: 'stable' as const,
+    direction_drivers: [
+      { evidence: `${companyLabel} share and price realization stable across the filing window.`, citation: primaryCite },
+    ],
+    direction_reasoning: `No cited evidence of erosion or widening for ${companyLabel}.`,
+    peer_standout: {
+      peers: [{ name: 'Mock Peer Co', gross_margin_note: '~30% FY2025 gross margin' }],
+      judgment: 'in_line' as const,
+      reasoning: `${companyLabel} gross margin sits roughly in line with the named mock peer.`,
+    },
     proposed_moat_class: 'monopoly' as const,
     moat_reasoning: `${companyLabel} combines durable pricing power, share durability, and a structural cost/scale advantage — a grounded monopoly-class moat.`,
     runway: 'proven' as const,
@@ -209,6 +220,44 @@ function mockMoatLaneForTicker(ticker: string) {
     ],
     proposed_runway: 'proven' as const,
     runway_reasoning: `${companyLabel} can deploy incremental capital at high ROIC for years with visible remaining headroom — a grounded proven runway.`,
+    proposed_sources: groundedSources,
+  }
+}
+
+// MANAGEMENT lane (S5, Phase 3 pillars): emits the two-trait judgment — integrity (communication +
+// DEF 14A comp structure) and talent (capital allocation reconciled with the injected T0 block) —
+// each cited to grounded mock source_ids so the resolver honors them.
+function mockManagementLaneForTicker(ticker: string) {
+  const companyLabel = companyLabelForTicker(ticker)
+  const groundedSources = mockSourcesForTicker(ticker)
+  const primaryCite = groundedSources[0].source_id
+  const secondaryCite = groundedSources[1].source_id
+  return {
+    finding_summary: `${companyLabel} management lane: candid communication, owner-aligned pay, disciplined capital allocation.`,
+    confidence: 'medium' as const,
+    caveats: [`Mock management finding — not investment-grade; run a real provider before any decision.`],
+    integrity: {
+      communication_observations: [
+        { observation: `${companyLabel} MD&A discusses setbacks plainly and quantifies them.`, citation: primaryCite },
+      ],
+      comp_structure: {
+        summary: `Cash bonus on ROIC and per-share FCF growth; PSUs on 3-year relative TSR.`,
+        incentive_metrics: ['ROIC', 'FCF/share', 'relative TSR'],
+        alignment: 'aligned' as const,
+        citation: secondaryCite,
+      },
+      integrity_flags: [],
+      proposed_integrity: 'clean' as const,
+      integrity_reasoning: `${companyLabel} communicates candidly and pays on owner-aligned metrics.`,
+    },
+    talent: {
+      talent_drivers: [
+        { evidence: `${companyLabel} a decade of high returns on incremental capital through two cycles.`, citation: primaryCite },
+        { evidence: `${companyLabel} buybacks concentrated in drawdown years below intrinsic value.`, citation: secondaryCite },
+      ],
+      proposed_talent: 'excellent' as const,
+      talent_reasoning: `${companyLabel} capital-allocation record reconciles with the harness T0 observations.`,
+    },
     proposed_sources: groundedSources,
   }
 }
@@ -524,6 +573,8 @@ export class MockProvider implements Provider {
           return mockLaneFindingForTicker(ticker)
         case 'BuffettMungerMoatLane':
           return mockMoatLaneForTicker(ticker)
+        case 'BuffettMungerManagementLane':
+          return mockManagementLaneForTicker(ticker)
         case 'BuffettMungerShariahLane':
           return mockShariahLaneForTicker(ticker)
         case 'BuffettMungerSynthesisDecision':

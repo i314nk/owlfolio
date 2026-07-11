@@ -95,6 +95,158 @@ export type MoatLaneJudgment = {
   runway_thesis?: RunwayThesisInput
 }
 
+// ---------------------------------------------------------------------------------------------------
+// S5 (Phase 3 pillars): the MANAGEMENT pillar's judgment — two core traits (owner-locked 2026-07-11):
+// INTEGRITY (communication monitoring via filings/letters/calls + executive-comp structure from the
+// DEF 14A) and TALENT (ROIC / dividends-and-buybacks / debt management, reconciled against the
+// injected T0 block). Same grounding spine as the moat/circle. The WORST tiers (red_flag / poor)
+// carry VETO teeth downstream (BUY → RESEARCH_MORE naming the failed trait), so they are honored
+// ONLY when grounded — the veto can never fire on hallucination.
+// ---------------------------------------------------------------------------------------------------
+
+/** The management lane's raw judgment blocks (both optional — absent = degrade, never silent-clean). */
+export type ManagementLaneThesis = {
+  integrity?: {
+    communication_observations: Array<{ observation: string; citation: string }>
+    comp_structure: { summary: string; incentive_metrics?: string[] | undefined; alignment: 'aligned' | 'mixed' | 'misaligned'; citation: string }
+    integrity_flags: Array<{ claim: string; severity: 'low' | 'medium' | 'high'; citation: string }>
+    proposed_integrity: 'clean' | 'concerns' | 'red_flag'
+    integrity_reasoning: string
+  }
+  talent?: {
+    talent_drivers: Array<{ evidence: string; citation: string }>
+    proposed_talent: 'excellent' | 'adequate' | 'poor'
+    talent_reasoning: string
+  }
+}
+
+export type ResolvedManagementJudgment = {
+  /** clean/concerns honored per grounding; red_flag ONLY with a grounded HIGH-severity flag. */
+  resolved_integrity: 'clean' | 'concerns' | 'red_flag' | 'undetermined'
+  /** excellent needs >=2 grounded drivers (capped to adequate below); poor honored only when grounded. */
+  resolved_talent: 'excellent' | 'adequate' | 'poor' | 'undetermined'
+  integrity?: {
+    communication_observations: Array<{ observation: string; citation: string; grounded: boolean }>
+    comp_structure: { summary: string; incentive_metrics?: string[] | undefined; alignment: 'aligned' | 'mixed' | 'misaligned'; citation: string }
+    comp_grounded: boolean
+    flags: Array<{ claim: string; severity: 'low' | 'medium' | 'high'; citation: string; grounded: boolean }>
+    grounded_high_flag_count: number
+    proposed_integrity: 'clean' | 'concerns' | 'red_flag'
+    integrity_reasoning: string
+  }
+  talent?: {
+    talent_drivers: Array<{ evidence: string; citation: string; grounded: boolean }>
+    grounded_driver_count: number
+    proposed_talent: 'excellent' | 'adequate' | 'poor'
+    talent_reasoning: string
+    /** True when an 'excellent' proposal was capped by the grounded-driver count. */
+    talent_grounding_capped?: boolean
+  }
+  /** Set when the lane omitted its judgment blocks (retry exhausted) — surfaced, never silent. */
+  judgment_degraded?: boolean
+  /** Advisory: a grounded excellent talent sits on a WEAK T0 ROIC band. Surfaced, never blocks. */
+  t0_contradicts_talent?: boolean
+}
+
+/** Minimum grounded talent drivers for 'excellent' (mirror of the moat's wide threshold). */
+const GROUNDED_DRIVERS_FOR_EXCELLENT = 2
+
+export function resolveManagementJudgment(args: {
+  thesis: ManagementLaneThesis
+  verifiedCitationHashes: ReadonlySet<string>
+  /** The T0 ROIC band (from computeManagementTalentT0) for the advisory contradiction flag. */
+  t0RoicBand?: 'excellent' | 'solid' | 'weak'
+}): ResolvedManagementJudgment {
+  const { thesis, verifiedCitationHashes } = args
+  const grounded = (text: string | undefined, citation: string | undefined): boolean =>
+    (text?.trim().length ?? 0) > 0 && citation !== undefined && isCitationGrounded(citation, verifiedCitationHashes)
+
+  // ---- INTEGRITY ----
+  let resolved_integrity: ResolvedManagementJudgment['resolved_integrity'] = 'undetermined'
+  let integrity: ResolvedManagementJudgment['integrity']
+  if (thesis.integrity !== undefined) {
+    const obs = thesis.integrity.communication_observations.map((o) => ({
+      observation: o.observation ?? '',
+      citation: o.citation,
+      grounded: grounded(o.observation, o.citation),
+    }))
+    const comp_grounded = isCitationGrounded(thesis.integrity.comp_structure.citation, verifiedCitationHashes)
+    const flags = thesis.integrity.integrity_flags.map((f) => ({
+      claim: f.claim ?? '',
+      severity: f.severity,
+      citation: f.citation,
+      grounded: grounded(f.claim, f.citation),
+    }))
+    const grounded_high_flag_count = flags.filter((f) => f.grounded && f.severity === 'high').length
+    const groundedObsCount = obs.filter((o) => o.grounded).length
+    const groundedFlagCount = flags.filter((f) => f.grounded).length
+    // red_flag ONLY on a grounded high-severity flag (veto teeth); concerns needs SOME grounded
+    // evidence; clean must be DEMONSTRATED (grounded comp citation + >=1 grounded observation) —
+    // an unverifiable "all clear" is undetermined, not clean.
+    resolved_integrity = thesis.integrity.proposed_integrity === 'red_flag'
+      ? (grounded_high_flag_count >= 1 ? 'red_flag' : 'undetermined')
+      : thesis.integrity.proposed_integrity === 'concerns'
+        ? (groundedFlagCount >= 1 || groundedObsCount >= 1 ? 'concerns' : 'undetermined')
+        : (comp_grounded && groundedObsCount >= 1 ? 'clean' : 'undetermined')
+    integrity = {
+      communication_observations: obs,
+      comp_structure: thesis.integrity.comp_structure,
+      comp_grounded,
+      flags,
+      grounded_high_flag_count,
+      proposed_integrity: thesis.integrity.proposed_integrity,
+      integrity_reasoning: thesis.integrity.integrity_reasoning,
+    }
+  }
+
+  // ---- TALENT ----
+  let resolved_talent: ResolvedManagementJudgment['resolved_talent'] = 'undetermined'
+  let talent: ResolvedManagementJudgment['talent']
+  let talent_grounding_capped = false
+  if (thesis.talent !== undefined) {
+    const drivers = thesis.talent.talent_drivers.map((d) => ({
+      evidence: d.evidence ?? '',
+      citation: d.citation,
+      grounded: grounded(d.evidence, d.citation),
+    }))
+    const grounded_driver_count = new Set(
+      drivers.filter((d) => d.grounded).map((d) => d.evidence.trim().toLowerCase()),
+    ).size
+    if (thesis.talent.proposed_talent === 'poor') {
+      // poor carries veto teeth — honored only when grounded.
+      resolved_talent = grounded_driver_count >= 1 ? 'poor' : 'undetermined'
+    } else if (thesis.talent.proposed_talent === 'excellent') {
+      resolved_talent = grounded_driver_count >= GROUNDED_DRIVERS_FOR_EXCELLENT
+        ? 'excellent'
+        : grounded_driver_count >= 1
+          ? 'adequate'
+          : 'undetermined'
+      talent_grounding_capped = resolved_talent !== 'excellent' && grounded_driver_count >= 1
+    } else {
+      resolved_talent = grounded_driver_count >= 1 ? 'adequate' : 'undetermined'
+    }
+    talent = {
+      talent_drivers: drivers,
+      grounded_driver_count,
+      proposed_talent: thesis.talent.proposed_talent,
+      talent_reasoning: thesis.talent.talent_reasoning,
+      ...(talent_grounding_capped ? { talent_grounding_capped: true } : {}),
+    }
+  }
+
+  const judgment_degraded = thesis.integrity === undefined && thesis.talent === undefined
+  const t0_contradicts_talent = resolved_talent === 'excellent' && args.t0RoicBand === 'weak'
+
+  return {
+    resolved_integrity,
+    resolved_talent,
+    ...(integrity !== undefined ? { integrity } : {}),
+    ...(talent !== undefined ? { talent } : {}),
+    ...(judgment_degraded ? { judgment_degraded: true } : {}),
+    ...(t0_contradicts_talent ? { t0_contradicts_talent: true } : {}),
+  }
+}
+
 /** The SHARIAH lane's judgment overlay (the harness recomputes the AAOIFI ratios from this). */
 export type ShariahLaneJudgment = {
   sector_status: 'compliant' | 'conditional' | 'non_compliant'
