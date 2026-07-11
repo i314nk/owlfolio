@@ -204,3 +204,52 @@ build (`qsPreVerifiedSourcesBlock`, ~L655) and BEFORE the quick-screen call:
    apart from the new leading gate event).
 5. NOTE: after S1b the reasoning pass runs TWICE per full run (gate + post-lane). Acceptable for one
    slice; S2 dedupes by reusing the gate's judgment at synthesis when the corpus hash is unchanged.
+
+---
+
+## Phase 2 implementation notes (pinned 2026-07-11; branch `phase2-valuation-pass` off main@283df3b)
+
+Dogfood targets from the Phase-1 live week: the model buy-below swing ($340/$450/$420 across three
+SPGI runs), kimi under-filling monolithic synthesis fields (net_income 0, missing buy-below,
+decision_reason "BUY"), and the SPGI amortization collision (merger-intangible D&A vs maintenance
+capex fighting inside one field).
+
+**Slices:**
+- **V1 — the always-on valuation pass + event**: PROMOTE the existing focused
+  `runValuationReasoningPass` (today a fallback when the monolithic decision drops
+  valuation_reasoning) to an ALWAYS-ON stage between the lanes and synthesis, emitting
+  `valuation_judgment_drafted` (contract + stage_cost + researchCaseProjection stage). It owns what
+  synthesis carries today (MOVED, not redesigned): owner_earnings_basis + citation (cite-checked),
+  assumed_growth + rationale + citation (cite-checked), proposed_buy_below (verbatim),
+  valuation_status. Inputs: the T0 EDGAR OE bridge, the resolved moat tier, circle drivers/breakers.
+  Existing deterministic rails unchanged (implied-growth cross-checks both directions, growth caps,
+  the absurd-buy-below WATCH clamp). Synthesis stops REQUIRING valuation_reasoning once V4 lands;
+  V1 keeps the monolithic fields tolerated-but-ignored.
+- **V2 — T0 margin-of-safety grade**: adequacy (`adequate|thin|inadequate`) becomes arithmetic —
+  price discount (buy-below vs the harness reference value) vs the required margin for the resolved
+  moat tier (required-MoS-by-moat params exist; post-mortems use them). The model no longer grades
+  its own margin; margin_of_safety_judgment keeps ONLY the narrative (sources + reasoning), the
+  grade field is harness-computed. Audit-only posture preserved (Guard 1: never gates).
+- **V3 — foreign-filer FX**: the pass receives reporting currency + ADR ratio context; fair-value /
+  buy-below emitted in the PRICE currency with the conversion computed by T0 code (never the model).
+  NVO is the acceptance case (DKK fundamentals, USD ADR). Builds on the existing
+  resolveFxRateValue + the DKK AAOIFI ratio handling.
+- **V4 — synthesis slims**: DecisionAgentSchema drops the valuation-owned fields (bridge fields,
+  proposed_buy_below, valuation_reasoning, valuation_status); synthesis consumes the V1 artifact and
+  keeps verdict + reconciliation + key_wrong_assumption/thesis_break_triggers + the MoS NARRATIVE.
+  Kimi reliability bet: smaller focused schemas are where it is dependable.
+- **V5 — S5 stage-cost residual**: stamp `stage_cost` on lane findings, red team, the new valuation
+  event, and synthesis (thread GroundedAgentResult.usage through LaneOutcome + the pass outcomes).
+- **V6 — amortization add-back (design + cite-gated input)**: an explicit
+  `intangible_amortization_addback` line in the OE bridge (model-judged, cite-gated, bounded by the
+  EDGAR amortization figure) so amortization-heavy filers (SPGI) stop expressing the judgment by
+  distorting maintenance_capex. Envelope: [0, min(D&A, EDGAR-reported intangible amortization when
+  tagged)]. Advisory divergence flag mirrors maintenance_capex_below_proxy.
+
+**Do-not-break list:** the monolithic-decision fallback path until V4 completes; legacy dossiers
+rendering valuation off the analysis payload; the buy-zone/absurd-growth clamp family (now keyed off
+the V1 artifact's buy-below); admit-judgment cite-checks; re-review + post-mortem readers of
+margin_of_safety_judgment.
+
+**Acceptance (live, per plan):** NVO values in USD correctly; a re-run shows the valuation artifact +
+T0 MoS grade on the dossier; buy-below run-to-run variance visibly bounded by the arithmetic rails.
