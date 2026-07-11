@@ -830,6 +830,12 @@ export type ResearchCaseProjection = {
   circle_competence?: ResearchCaseCircleCompetenceProjection
   /** Deterministic insider Form 4 summary (§3.3), when the deep dive computed one. */
   insider_summary?: ResearchCaseInsiderSummaryProjection
+  /**
+   * The three named moat tests (S2, Phase 3 pillars) — T0 over the EDGAR series: capital efficiency
+   * (ROIC bands), two-engine (revenue + margin trend), standout (company-side gross margin; the peer
+   * half is the moat lane's labeled judgment). Absent on legacy events / runs without fundamentals.
+   */
+  moat_tests?: ResearchCaseMoatTestsProjection
   valuation?: ResearchCaseValuationProjection
   /**
    * Engine-version marker stamped at the event payload ROOT on EVERY analysis emission (full deep-dive AND
@@ -1543,6 +1549,72 @@ function getSellRecommendation(
   }
   const requires_human_signoff = getBoolean(payload, 'requires_human_signoff')
   if (requires_human_signoff !== undefined) projected.requires_human_signoff = requires_human_signoff
+  return projected
+}
+
+/**
+ * One named moat test (tolerant flat shape over the computable/not-computable union): the harness
+ * computed it T0; the projection re-displays, never re-derives. Unknown keys are dropped.
+ */
+export type ResearchCaseMoatTestProjection = {
+  computable?: boolean
+  reason?: string
+  note?: string
+  years_used?: number
+  // capital efficiency
+  band?: string
+  median_roic?: number
+  latest_roic?: number
+  // two-engine
+  revenue_engine?: boolean
+  margin_engine?: boolean
+  passes?: boolean
+  revenue_cagr?: number
+  margin_trend_bps_per_year?: number
+  // standout (company side)
+  basis?: string
+  gross_margin_latest?: number
+  gross_margin_median?: number
+  gross_margin_trend_bps_per_year?: number
+}
+
+export type ResearchCaseMoatTestsProjection = {
+  capital_efficiency?: ResearchCaseMoatTestProjection
+  two_engine?: ResearchCaseMoatTestProjection
+  standout?: ResearchCaseMoatTestProjection
+}
+
+function getMoatTest(value: unknown): ResearchCaseMoatTestProjection | undefined {
+  if (!isRecord(value)) return undefined
+  const projected: ResearchCaseMoatTestProjection = {}
+  for (const key of ['computable', 'revenue_engine', 'margin_engine', 'passes'] as const) {
+    const v = value[key]
+    if (typeof v === 'boolean') projected[key] = v
+  }
+  for (const key of [
+    'years_used', 'median_roic', 'latest_roic', 'revenue_cagr', 'margin_trend_bps_per_year',
+    'gross_margin_latest', 'gross_margin_median', 'gross_margin_trend_bps_per_year',
+  ] as const) {
+    const n = getNumber(value, key)
+    if (n !== undefined) projected[key] = n
+  }
+  for (const key of ['reason', 'note', 'band', 'basis'] as const) {
+    const s = getString(value, key)
+    if (s !== undefined) projected[key] = s
+  }
+  return projected
+}
+
+function getMoatTests(payload: Record<string, unknown>): ResearchCaseMoatTestsProjection | undefined {
+  const value = payload['moat_tests']
+  if (!isRecord(value)) return undefined
+  const projected: ResearchCaseMoatTestsProjection = {}
+  const ce = getMoatTest(value['capital_efficiency'])
+  if (ce !== undefined) projected.capital_efficiency = ce
+  const te = getMoatTest(value['two_engine'])
+  if (te !== undefined) projected.two_engine = te
+  const so = getMoatTest(value['standout'])
+  if (so !== undefined) projected.standout = so
   return projected
 }
 
@@ -2260,6 +2332,10 @@ export function projectResearchCases(events: LedgerEventEnvelope<unknown>[]): Re
       const insiderSummary = getInsiderSummary(event.payload)
       if (insiderSummary !== undefined) {
         researchCase.insider_summary = insiderSummary
+      }
+      const moatTests = getMoatTests(event.payload)
+      if (moatTests !== undefined) {
+        researchCase.moat_tests = moatTests
       }
       const shariahFinancial = getShariahFinancial(event.payload)
       if (shariahFinancial !== undefined) {

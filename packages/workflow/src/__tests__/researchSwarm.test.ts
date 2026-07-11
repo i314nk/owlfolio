@@ -6086,3 +6086,99 @@ describe('prompt calibration fixes (2026-07-09 audit)', () => {
     expect(src).toContain('do NOT manufacture narrowness the filings do not support')
   })
 })
+
+// ---------------------------------------------------------------------------------------------------
+// S2 (Phase 3 pillars): the owner's three NAMED moat tests (capital efficiency / two-engine /
+// standout) are computed T0 from the EDGAR series and PERSISTED on the analysis payload +
+// projection. They are display/judgment context in this slice — never a gate by themselves.
+// ---------------------------------------------------------------------------------------------------
+describe('S2 — moat_tests persisted on the analysis event and projection', () => {
+  function testsSeries(): AnnualFacts[] {
+    const series: AnnualFacts[] = []
+    for (let i = 0; i < 6; i += 1) {
+      const fy = 2019 + i
+      const rev = Math.round(10000 * Math.pow(1.06, i))
+      series.push({
+        fiscal_year: fy, currency: 'USD',
+        net_income_musd: Math.round(1000 * Math.pow(1.1, i)), revenue_musd: rev,
+        d_and_a_musd: 200, capex_musd: 200, sbc_musd: 0, diluted_shares_m: 100,
+        operating_income_musd: Math.round(rev * (0.25 + 0.005 * i)),
+        income_tax_expense_musd: 0,
+        stockholders_equity_musd: Math.round(rev * (0.25 + 0.005 * i) * 5), // ROIC 20% every year
+        gross_profit_musd: Math.round(rev * 0.55),
+      })
+    }
+    return series
+  }
+
+  it('persists all three named tests (computable) on the payload and the projection', async () => {
+    const series = testsSeries()
+    const fundamentals: Fundamentals = {
+      cik: '0000000001', entity_name: 'TESTS INC', currency: 'USD',
+      latest_annual: series[series.length - 1]!, annual_series: series,
+      filings: [{ form: '10-K', filed: '2024-02-01', url: 'https://www.sec.gov/Archives/edgar/data/1/x.htm' }],
+    }
+    const store = new InMemoryEventStore()
+    const provider = configurableSwarmProvider({
+      laneCount: buffettMungerDeepDiveLanes.length,
+      synthesis: { moat_class: 'wide', runway: 'proven', incremental_roic: 0.20, reinvestment_rate: 0.40 },
+    })
+    const sourceLedgerPath = await mkdtemp(join(tmpdir(), 'owlfolio-moattests-'))
+    await runStrategyResearchSwarm(
+      store, provider as never,
+      {
+        research_case_id: 'rc_moattests', company_id: 'c', ticker: 'TST',
+        strategy_id: 'buffett-munger', actor_id: 'user_local', idempotency_key: 'moattests_k',
+        model_id: 'mock', decision_id: 'decision_moattests', source_ledger_path: sourceLedgerPath,
+      },
+      {
+        ground: allVerifiedGround, laneConcurrency: 4, fundamentals,
+        resolvePrice: async () => ({ available: true, price_per_share: 50, currency: 'USD', as_of: 'x', source: 'test' }),
+      },
+    )
+    const events = await store.list()
+    const analysis = events.find((e) => e.event_type === 'buffett_munger_analysis_drafted')
+    const tests = (analysis?.payload as Record<string, unknown>)?.['moat_tests'] as {
+      capital_efficiency?: { computable?: boolean; band?: string }
+      two_engine?: { computable?: boolean; passes?: boolean }
+      standout?: { computable?: boolean; basis?: string }
+    } | undefined
+    expect(tests).toBeDefined()
+    expect(tests?.capital_efficiency?.computable).toBe(true)
+    expect(tests?.capital_efficiency?.band).toBe('excellent')
+    expect(tests?.two_engine?.computable).toBe(true)
+    expect(tests?.two_engine?.passes).toBe(true)
+    expect(tests?.standout?.computable).toBe(true)
+    expect(tests?.standout?.basis).toBe('gross_margin')
+
+    const projections = projectResearchCases(events as Parameters<typeof projectResearchCases>[0])
+    const cp = projections.find((c) => c.research_case_id === 'rc_moattests') as (typeof projections)[number] & {
+      moat_tests?: { capital_efficiency?: { band?: string } }
+    }
+    expect(cp?.moat_tests?.capital_efficiency?.band).toBe('excellent')
+  })
+
+  it('omits moat_tests entirely when no EDGAR fundamentals exist (nothing to compute over)', async () => {
+    const store = new InMemoryEventStore()
+    const provider = configurableSwarmProvider({
+      laneCount: buffettMungerDeepDiveLanes.length,
+      synthesis: { moat_class: 'wide', runway: 'proven' },
+    })
+    const sourceLedgerPath = await mkdtemp(join(tmpdir(), 'owlfolio-moattests-none-'))
+    await runStrategyResearchSwarm(
+      store, provider as never,
+      {
+        research_case_id: 'rc_moattests_none', company_id: 'c', ticker: 'TSN',
+        strategy_id: 'buffett-munger', actor_id: 'user_local', idempotency_key: 'moattests_none_k',
+        model_id: 'mock', decision_id: 'decision_moattests_none', source_ledger_path: sourceLedgerPath,
+      },
+      { ground: allVerifiedGround, laneConcurrency: 4 },
+    )
+    const events = await store.list()
+    const analysis = events.find((e) => e.event_type === 'buffett_munger_analysis_drafted')
+    expect((analysis?.payload as Record<string, unknown>)?.['moat_tests']).toBeUndefined()
+    const projections = projectResearchCases(events as Parameters<typeof projectResearchCases>[0])
+    const cp = projections.find((c) => c.research_case_id === 'rc_moattests_none') as Record<string, unknown> | undefined
+    expect(cp?.['moat_tests']).toBeUndefined()
+  })
+})

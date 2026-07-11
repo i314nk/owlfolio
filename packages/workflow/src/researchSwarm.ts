@@ -50,6 +50,7 @@ import { computeIncrementalRoic, demonstratedOwnerEarningsGrowth, estimateMainte
 import { resolveInsiderSummary, type InsiderSummary, type InsiderSummaryComputed } from './secForm4'
 import { resolveFundamentalsForTicker } from './fundamentalsProvider'
 import { evaluateBaseRateBurden, type BaseRateBurdenFlag } from './baseRateBurden'
+import { computeMoatTests, type MoatTests } from './moatTests'
 import { BASE_RATES } from '@owlfolio/strategies/baseRates'
 import { ENGINE_VERSION } from '@owlfolio/strategies/engineVersion'
 import { SOURCE_POLICY } from '@owlfolio/strategies/sourcePolicy'
@@ -3477,6 +3478,16 @@ export async function runResearchDeepDivePhase(
   // rubric scores + anchor-vs-proposed tier + whether the bounded adjustment was applied + violations.
   const judgmentProjection = buildJudgmentProjection(judgment)
 
+  // ---- S2 (Phase 3): the owner's three NAMED moat tests, pure T0 over the EDGAR series ----
+  // Capital efficiency (ROIC bands) / two-engine (revenue + margin trend) / standout (company-side
+  // gross margin; the peer half is the moat lane's labeled judgment). Display/judgment context —
+  // each test fails closed independently; the block never gates a verdict by itself. Omitted
+  // entirely when no EDGAR series exists (nothing to compute over — never fabricated).
+  const moatTests: MoatTests | undefined =
+    fundamentals?.annual_series !== undefined && fundamentals.annual_series.length > 0
+      ? computeMoatTests(fundamentals.annual_series)
+      : undefined
+
   // ---- Mechanism 3: base-rate burden check (deterministic flag + conservative downgrade hook) ----
   // Any case that BEATS a base rate (monopoly classification, credited g in the 4-5% band, a >20%
   // ROIC-sustained forecast, a margin-expansion claim) must carry a STRUCTURAL exceptionality
@@ -3564,6 +3575,8 @@ export async function runResearchDeepDivePhase(
       // Insider Form 4 summary (§3.3) — the deterministic harness computation persisted so the dossier
       // renders it model-independently (the management lane only READS it; it may or may not echo it).
       ...(insiderSummaryComputed !== undefined ? { insider_summary: insiderSummaryComputed } : {}),
+      // S2 (Phase 3): the three named moat tests (T0) — pillar-2 display/judgment context.
+      ...(moatTests !== undefined ? { moat_tests: moatTests } : {}),
       // The admitting-gate block (shariah_gate, or quick_screen on a legacy resume) is added below.
       valuation: {
         moat_class: moatClass,
