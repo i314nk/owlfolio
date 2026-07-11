@@ -4,8 +4,6 @@ import { createElement, useCallback, useRef, useState, type CSSProperties, type 
 
 import {
   buffettMungerStrategy,
-  discountRate,
-  terminalGrowthForMoat,
 } from '@owlfolio/strategies/buffettMunger'
 import { SELL_PARAMS } from '@owlfolio/strategies/sellParams'
 import {
@@ -15,21 +13,18 @@ import {
 } from '@owlfolio/strategies/shariahFinancialRatios'
 import { CHECKLIST_PARAMS, type ChecklistCategory } from '@owlfolio/strategies/checklistParams'
 import { buffettMungerDeepDiveLanes } from '@owlfolio/workflow/strategyResearchPipeline'
+import { VALUATION_PARAMS } from '@owlfolio/strategies/valuationParams'
 import { curatedRealTierModelsForProvider } from '@owlfolio/providers/modelCatalog'
 
 // ── Live contract values (rendered, never hard-coded) ───────────────────────
 const strategy = buffettMungerStrategy
-const DISCOUNT = discountRate(strategy)
-const MULTIPLE_CEILING = strategy.valuation.valuation_multiple_ceiling
 const MIN_INVESTABLE_MOAT = strategy.valuation.min_investable_moat
 // RELIGHTENED DECISION (R1): the deterministic required_growth_gap / band engine is RETIRED. The MODEL now
 // proposes the verdict, the valuation, and the buy-below with cited reasoning; the deterministic side emits
 // a flag-only sanity-check. No band/gap display constant remains. Terminal g + horizon stay uniform.
-const TERMINAL_G_WIDE = terminalGrowthForMoat(strategy, 'wide')
 const SINGLE_GROWTH_CAP = strategy.valuation.single_growth_cap
 const GDP_GROWTH_THRESHOLD = strategy.valuation.gdp_growth_threshold
 const STAGE1_HORIZON = strategy.valuation.stage1_horizon
-const GROWTH_FADE_YEARS = strategy.valuation.growth_fade_years
 const LANE_COUNT = buffettMungerDeepDiveLanes.length
 // Phase 6 sell parameters (rendered live from the versioned config, never hard-coded).
 const MIN_HOLD_MONTHS = SELL_PARAMS.minimum_hold_months
@@ -154,30 +149,34 @@ function StrategyTab(): ReactNode {
       lead: createElement(
         'span',
         null,
-        'The harness invests in a small number of understandable businesses with durable economic moats and honest management. The model proposes the valuation — the owner earnings, the growth it assumes and why, the discount — and a buy-below, all with cited reasoning; a light deterministic sanity-check flags internal absurdity, the human audits and decides. A candidate is investable only when its moat class is at least ',
+        'The harness invests in a small number of understandable businesses with durable economic moats and honest management. The harness computes the intrinsic value deterministically from the filing’s free cash flow; the model contributes two cited judgments — the growth and the industry exit multiple; the human audits and decides. A candidate is investable only when its moat class is at least ',
         gold(MIN_INVESTABLE_MOAT),
         ' — narrow and moderate moats are forced to PASS before price is ever considered.',
       ),
       children: cardGrid([
-        { key: 'oe', eyebrow: 'Owner earnings', body: createElement('span', null, 'OE = ', mono('NI + D&A − maintenance capex − SBC − ΔNWC'), '. SBC is a real expense; the harness never models dilution on top of it.') },
+        { key: 'fcf', eyebrow: 'Free cash flow', body: createElement('span', null, 'FCF = ', mono('CFO − capex'), ' — tagged XBRL facts, no maintenance-capex proxy, no assumptions. No tagged CFO → honestly unpriced (fail-closed).') },
         { key: 'gate', eyebrow: 'Wide-moat gate', body: 'Synthesis reconciles lane conflicts conservatively — lower tier, lower growth, or PASS, never an average.' },
       ]),
     }),
     PanelSection({
       eyebrow: 'Value',
-      title: 'Reverse-DCF first — the market’s implied growth as the lens',
+      title: 'The book model — FCF forward ten years, an exit multiple, a margin of safety',
       lead: createElement(
         'span',
         null,
-        'The primary lens is the ',
-        gold('reverse-DCF'),
-        ': read the growth today’s price already demands and compare it to the ',
-        gold('sustainable growth the model judges and cites'),
-        '. Cheapness is that comparison, not a single computed number. The ',
-        gold('forward two-stage discounted owner-earnings fair value is a LABELED REFERENCE cross-check'),
-        ', NOT the decision: a stage-1 horizon whose growth holds the judged rate for the early years then fades LINEARLY down to a small terminal rate over the trailing years, plus a perpetual terminal rate beyond it, all at the same savings-anchored discount (the compliant savings rate + a uniform equity premium, ',
-        mono(pct(DISCOUNT)),
-        ' today) — no WACC, no beta, ever. The model proposes the verdict and the buy-below with cited reasoning, and the deterministic side only flags internal absurdity (it never blocks the verdict). The discount, the horizon, and the terminal rate stay uniform across investable moats; a monopoly earns higher terminal value through the moat-durability input, not by stretching the horizon. The live parameters below are read from the versioned valuation config, not hard-coded here.',
+        'Intrinsic value is ',
+        gold('computed, not judged'),
+        ': project the filing’s free cash flow forward ',
+        mono(`${STAGE1_HORIZON} years`),
+        ' at the model’s cited growth, add a terminal sale at the model’s cited industry exit multiple (clamped ',
+        mono(`${VALUATION_PARAMS.exit_multiple_min}–${VALUATION_PARAMS.exit_multiple_max}×`),
+        '), adjust for net cash, and discount everything at the flat ',
+        mono(pct(VALUATION_PARAMS.required_return_default)),
+        ' required return — “anything less, buy the index.” The buy threshold is ',
+        gold(`IV less a ${pct(VALUATION_PARAMS.required_margin_of_safety)} margin of safety (rule 7)`),
+        '; a ',
+        gold(`${pct(VALUATION_PARAMS.load_up_margin)} discount marks the load-up zone (rule 8)`),
+        '. The market-implied growth — the same model inverted against today’s price — is the cross-check lens; deterministic sanity flags surface absurdity but never block. The live parameters below are read from the versioned valuation config, not hard-coded here.',
       ),
       children: createElement(
         'div',
@@ -198,20 +197,19 @@ function StrategyTab(): ReactNode {
               overflowX: 'auto',
             },
           },
-          createElement('div', null, 'PRIMARY (reverse-DCF):  market_implied_g = the growth today’s price already demands  →  compare to g'),
-          createElement('div', null, `g    = the model’s judged sustainable owner-earnings/share growth, cited; a deterministic sanity-check flags an unsupportable rate (above ${pct(SINGLE_GROWTH_CAP)}, or above ${pct(GDP_GROWTH_THRESHOLD)} → moat-durability claim) — the flag is not the value source`),
-          createElement('div', null, `stage 1 = ${STAGE1_HORIZON} yrs; g holds, then fades LINEARLY to gₜ over the trailing ${GROWTH_FADE_YEARS} yrs (uniform for every investable moat)`),
-          createElement('div', null, `gₜ   = terminal rate: ${pct(TERMINAL_G_WIDE)} (uniform; the fade lands here by year ${STAGE1_HORIZON})`),
-          createElement('div', null, `fair > ${MULTIPLE_CEILING}× OE → surfaced cap_exceeded sanity flag (not a silent truncation)`),
-          createElement('div', null, 'ref  = forward-DCF cross-check fair value at the model’s assumed growth  (a sanity reference, NOT the decision)'),
-          createElement('div', null, 'buy  = the MODEL’s proposed buy-below (cited reasoning) ; in_buy_zone = current_price ≤ buy-below'),
+          createElement('div', null, 'FCF  = cash from operations − capital expenditures   (tagged XBRL facts, T0)'),
+          createElement('div', null, `g    = the model’s judged FCF growth, cited; sanity-flagged above ${pct(SINGLE_GROWTH_CAP)} (or ${pct(GDP_GROWTH_THRESHOLD)} → a moat-durability claim)`),
+          createElement('div', null, `exit = the model’s judged industry P/FCF at year ${STAGE1_HORIZON}; clamped ${VALUATION_PARAMS.exit_multiple_min}–${VALUATION_PARAMS.exit_multiple_max}×, fallback ${VALUATION_PARAMS.exit_multiple_fallback}× when uncited/invalid`),
+          createElement('div', null, `IV   = Σ FCF(1+g)ᵗ/(1+r)ᵗ  +  FCF(1+g)^${STAGE1_HORIZON} × exit / (1+r)^${STAGE1_HORIZON}  +  cash − debt,  per share`),
+          createElement('div', null, `buy  = IV × ${(1 - VALUATION_PARAMS.required_margin_of_safety).toFixed(2)} (rule 7)   ·   load-up = IV × ${(1 - VALUATION_PARAMS.load_up_margin).toFixed(2)} (rule 8)`),
+          createElement('div', null, 'lens = market-implied growth (the same model inverted against today’s price)'),
         ),
         cardGrid([
-          { key: 'd', eyebrow: 'Uniform discount', body: createElement('span', null, 'the same savings-anchored rate (', mono(pct(DISCOUNT)), ') for every business — no beta, no quality knob; a lower savings rate lowers it.') },
-          { key: 'rdcf', eyebrow: 'Reverse-DCF lens', body: 'The primary read: the growth the price implies vs the model’s judged sustainable growth. Cheapness is that gap, not a single number.' },
-          { key: 'g', eyebrow: 'Judged growth', body: createElement('span', null, 'The model’s judged sustainable rate, cited; a sanity-check flags an unsupportable rate (above ', mono(pct(SINGLE_GROWTH_CAP)), ', or above GDP → a moat-durability claim) — it never sets the number.') },
-          { key: 'cap', eyebrow: 'Sanity flag', body: createElement('span', null, mono(`${MULTIPLE_CEILING}×`), ' owner earnings raises a cap_exceeded flag — surfaced, never silently truncated.') },
-          { key: 'buy', eyebrow: 'Model buy-below', body: createElement('span', null, 'The model proposes the buy-below with cited reasoning; you buy when the price meets it and the reasoning holds. The deterministic sanity-check flags absurdity but never blocks the verdict.') },
+          { key: 'r', eyebrow: 'Required return', body: createElement('span', null, 'the flat ', mono(pct(VALUATION_PARAMS.required_return_default)), ' hurdle for every business (user-settable) — no beta, no quality knob. It doubles as the active-vs-passive bar.') },
+          { key: 'rdcf', eyebrow: 'Market-implied lens', body: 'The cross-check: the growth today’s price demands under the same book model vs the model’s cited growth. The gap is the read.' },
+          { key: 'g', eyebrow: 'Judged growth', body: createElement('span', null, 'The model’s cited FCF growth; a sanity-check flags an unsupportable rate (above ', mono(pct(SINGLE_GROWTH_CAP)), ', or above GDP → a moat-durability claim) — it never sets the number.') },
+          { key: 'exit', eyebrow: 'Exit multiple', body: createElement('span', null, 'The model’s judged industry P/FCF, cited-or-labeled; the harness clamps to ', mono(`${VALUATION_PARAMS.exit_multiple_min}–${VALUATION_PARAMS.exit_multiple_max}×`), ' and falls back to a conservative ', mono(`${VALUATION_PARAMS.exit_multiple_fallback}×`), ' when ungrounded.') },
+          { key: 'buy', eyebrow: 'Computed thresholds', body: createElement('span', null, 'Buy below = IV less the ', mono(pct(VALUATION_PARAMS.required_margin_of_safety)), ' margin (rule 7); load up below the ', mono(pct(VALUATION_PARAMS.load_up_margin)), ' line (rule 8). The model’s own price view is recorded as an advisory cross-check.') },
         ], '200px'),
       ),
     }),

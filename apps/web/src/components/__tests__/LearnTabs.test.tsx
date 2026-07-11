@@ -142,23 +142,21 @@ describe('LearnTabs', () => {
     expect(nextTabIndex(2, 'a', LEARN_TABS.length)).toBe(2) // ignored key
   })
 
-  it('renders the live two-stage DCF params + the R1 model-proposes-buy-below reframe on the strategy panel', () => {
+  it('E2c: renders the live BOOK-model params (FCF, exit band, 15% required return, 30/50 margins)', () => {
     const html = render('strategy')
     const lower = html.toLowerCase()
-    // Live params still render: 18× cap + the savings-anchored discount. F.2 — the discount anchor is the
-    // compliant savings rate (effective default 7.5%), which the Learn panel rounds to a whole percent (8%).
-    expect(html).toContain('18×')
-    expect(html).toContain('8%')
-    // R1 reframe: the model proposes the verdict/valuation/buy-below with cited reasoning; the two-stage
-    // DCF is a cross-check sanity reference, not the decision; a sanity-check flags absurdity, human decides.
-    expect(lower).toContain('the model proposes')
-    expect(lower).toContain('cited reasoning')
-    expect(lower).toContain('buy-below')
-    expect(lower).toContain('cross-check')
-    expect(lower).toContain('sanity-check')
-    // The monopoly tier no longer loosens valuation — it is described as a durability signal.
-    expect(lower).toContain('durability')
-    expect(lower).toContain('uniform')
+    // Live params from the versioned valuation config: the 8–20× exit band + the flat 15% required return.
+    expect(html).toContain('8–20×')
+    expect(html).toContain('15%')
+    expect(html).toContain('30%')
+    expect(html).toContain('50%')
+    // The book reframe: the harness computes the intrinsic value; the model's two cited judgments.
+    expect(lower).toContain('cfo − capex')
+    expect(lower).toContain('exit multiple')
+    expect(lower).toContain('margin of safety')
+    expect(lower).toContain('market-implied growth')
+    // FCF is honest fail-closed (no proxy).
+    expect(lower).toContain('fail-closed')
     // The retired band/gap framing must NOT be reintroduced (Phase-8 tripwire — retired band/MoS terms).
     expect(lower).not.toContain('required growth gap')
     expect(lower).not.toContain('sustainable-growth band')

@@ -152,13 +152,14 @@ const SUPERSEDED_PATTERNS: SupersededPattern[] = [
     // qualitative `owner_earnings_valuation.margin_of_safety` lane string lives in ResearchCasePanel, and
     // the post-mortem field lives in packages. (The `widenedMarginOfSafety`/`marginOfSafetyForMoat`
     // functions were removed as dead code.)
-    label: 'margin of safety as a PRICE haircut — retired; the model proposes a buy-below with cited reasoning (R1)',
-    pattern: /margin of safety|\bMoS\b|fair[\s-]value range|provisional[\s-]*MoS/i,
+    // B2/E2c UPDATE (2026-07-12): "margin of safety" is CURRENT vocabulary again — the BOOK method's
+    // rule 7 (buy ≥30% below IV) and rule 8 (load up ≥50% below) are COMPUTED margins off the FCF
+    // intrinsic value, owner-locked. What stays retired is the R1-era HAIRCUT/RANGE framing: a
+    // "fair-value range" and a "provisional MoS" applied as a price haircut to a forward fair value.
+    // The pattern now targets only the retired framings; the book's margin-of-safety copy is current.
+    label: 'MoS as a fair-value-range price HAIRCUT — retired framing (R1); the book 30/50 margins are current',
+    pattern: /fair[\s-]value range|provisional[\s-]*MoS|MoS[\s-]*haircut|haircut(?:ed)?\s+(?:the\s+)?fair\s+value/i,
     scan: UI_COPY_SCAN_SET,
-    // RELIGHTENED DECISION (R1): the MoS-as-haircut framing is now fully GONE from the UI copy (the
-    // StrategyOverview retirement comment that named "price-discount margin of safety" was removed when the
-    // band/gap copy was reframed to model-proposes-buy-below). No allow entry is needed — the term must not
-    // appear in the UI copy at all.
     allow: [],
   },
   {
@@ -172,26 +173,9 @@ const SUPERSEDED_PATTERNS: SupersededPattern[] = [
           '**`fv_cap_multiple = 18`** is a **surfaced sanity FLAG, not a hard truncation** (Phase 1.6): when the raw FV exceeds 18× OE the harness sets a `cap_exceeded` flag (which **widens the MoS**) and KEEPS the value. Only at/above `fv_absurd_multiple = 100×` OE is the value discarded as a units/scale-error guard. (The old 18× hard cap is gone.)',
         reason: '§4.3 explicitly says the 18× multiple is a surfaced flag, NOT a hard truncation/hard cap.',
       },
-      {
-        file: 'apps/web/src/components/StrategyOverview.tsx',
-        snippet: '`fair > ${MULTIPLE_CEILING}× OE → surfaced cap_exceeded sanity flag (not a silent truncation)`',
-        reason: 'StrategyOverview surfaced-flag worked example states it is NOT a silent truncation.',
-      },
-      {
-        file: 'apps/web/src/components/StrategyOverview.tsx',
-        snippet: 'cap_exceeded sanity flag, not be truncated',
-        reason: 'StrategyOverview prose: a value above the multiple raises a flag, is NOT truncated.',
-      },
-      {
-        file: 'apps/web/src/components/LearnTabs.tsx',
-        snippet: '`fair > ${MULTIPLE_CEILING}× OE → surfaced cap_exceeded sanity flag (not a silent truncation)`',
-        reason: 'LearnTabs surfaced-flag worked example states it is NOT a silent truncation.',
-      },
-      {
-        file: 'apps/web/src/components/LearnTabs.tsx',
-        snippet: 'owner earnings raises a cap_exceeded flag — surfaced, never silently truncated.',
-        reason: 'LearnTabs prose: the multiple raises a surfaced flag, is NEVER silently truncated.',
-      },
+      // E2 (2026-07-12): the cap_exceeded machinery is retired with the OE DCF — the UI copy no
+      // longer mentions caps/truncation at all, so no UI allow entries remain (the doc entry above
+      // stays until the strategy doc is revised).
     ],
   },
   // ─── Phase-8 cohesion sweep: the newly-retired DECISION mechanisms (R1 model-decides rework) ──────────

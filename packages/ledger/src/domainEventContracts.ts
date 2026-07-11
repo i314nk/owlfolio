@@ -898,14 +898,15 @@ export const domainEventContracts: readonly DomainEventContract[] = [
       'company_id',
       'ticker',
       'status',
-      'owner_earnings_basis',
-      'owner_earnings_citation',
+      // E2 (2026-07-12): owner_earnings_basis / owner_earnings_citation / owner_earnings_bridge are
+      // RETIRED (legacy events keep them; the projection tolerates by ignore). The stage's judgments
+      // are the growth (cited) and the industry exit multiple.
       'assumed_growth',
       'assumed_growth_rationale',
       'assumed_growth_citation',
       'proposed_buy_below',
       'valuation_status',
-      'owner_earnings_bridge',
+      'industry_exit_multiple',
       'corpus_source_ids',
       'stage_cost',
     ],

@@ -2,11 +2,9 @@ import { createElement, type CSSProperties, type ReactNode } from 'react'
 
 import {
   buffettMungerStrategy,
-  creditedGrowth,
-  discountRate,
-  terminalGrowthForMoat,
-  twoStageFairValuePerShare,
 } from '@owlfolio/strategies/buffettMunger'
+import { fcfIntrinsicValuePerShare } from '@owlfolio/strategies/bookValuation'
+import { VALUATION_PARAMS } from '@owlfolio/strategies/valuationParams'
 import { buffettMungerDeepDiveLanes } from '@owlfolio/workflow/strategyResearchPipeline'
 import {
   SIZING_PARAMS,
@@ -23,13 +21,10 @@ import { RouteHeader, OwlValuationChip } from './designSystem'
 
 // ── Live contract values (rendered, never hard-coded) ───────────────────────
 const strategy = buffettMungerStrategy
-const DISCOUNT = discountRate(strategy)
-const MULTIPLE_CEILING = strategy.valuation.valuation_multiple_ceiling
 const MIN_INVESTABLE_MOAT = strategy.valuation.min_investable_moat
 // RELIGHTENED DECISION (R1): the deterministic required_growth_gap / band engine is RETIRED. The MODEL now
 // proposes the verdict, the valuation, and the buy-below with cited reasoning; the deterministic side emits
 // a flag-only sanity-check. No band/gap display constant remains.
-const TERMINAL_G_WIDE = terminalGrowthForMoat(strategy, 'wide')
 const SINGLE_GROWTH_CAP = strategy.valuation.single_growth_cap
 const GDP_GROWTH_THRESHOLD = strategy.valuation.gdp_growth_threshold
 // Stage-1 explicit window (years). Rendered live from the config — NEVER hard-coded as "ten-year" — so the
@@ -41,18 +36,22 @@ const STAGE1_HORIZON = strategy.valuation.stage1_horizon
 // forward two-stage number below is computed only as the LABELED REFERENCE cross-check that corroborates
 // the model's reasoning, never as the decision. Here a 12% sustainable rate the model judges and cites is
 // under the deterministic sanity cap but above GDP, so a sanity-check flags it for the human to weigh.
-const EX_OE = 14
-const EX_JUDGED_G = 0.12
-const EX_GROWTH = creditedGrowth(strategy, { demonstrated_growth: EX_JUDGED_G })
-const EX_G = EX_GROWTH.growth
-const EX_FV = twoStageFairValuePerShare({
-  oe_ps: EX_OE,
-  g: EX_G,
-  terminal_g: TERMINAL_G_WIDE,
-  discount: DISCOUNT,
-  ceiling_multiple: MULTIPLE_CEILING,
-})
-const EX_IMPLIED = EX_FV / EX_OE
+// E2c worked example — the BOOK model on round numbers: FCF $2,000M / 100M sh, judged growth 6%,
+// a 15× industry exit multiple, net cash 0, at the 15% required return.
+const EX_FCF_MUSD = 2000
+const EX_SHARES_M = 100
+const EX_G = 0.06
+const EX_EXIT = 15
+const EX_IV = fcfIntrinsicValuePerShare({
+  fcf_musd: EX_FCF_MUSD,
+  growth: EX_G,
+  required_return: VALUATION_PARAMS.required_return_default,
+  exit_multiple: EX_EXIT,
+  shares_m: EX_SHARES_M,
+  horizon: VALUATION_PARAMS.stage1_horizon,
+})!.intrinsic_value_per_share
+const EX_BUY = EX_IV * (1 - VALUATION_PARAMS.required_margin_of_safety)
+const EX_LOAD = EX_IV * (1 - VALUATION_PARAMS.load_up_margin)
 const TARGET_WIDE = strategy.portfolio.target_weight_by_moat.wide
 const TARGET_MONOPOLY = strategy.portfolio.target_weight_by_moat.monopoly
 const TRANCHES = strategy.portfolio.entry_tranches
@@ -467,7 +466,7 @@ export function StrategyOverview(): ReactNode {
         createElement(
           'p',
           { style: { ...bodyStyle, fontSize: 'var(--owl-text-sm)', color: 'var(--owl-color-quiet)' } },
-          'Valuation and Shariah compliance are not parallel lanes — each runs as a dedicated focused pass after the five lanes conclude: valuation proposes the owner-earnings value and buy-below during synthesis, and the Shariah pass produces the grounded compliance overlay (the harness recomputes the AAOIFI ratios from filings).',
+          'Valuation and Shariah compliance are not parallel lanes — each runs as a dedicated focused pass after the five lanes conclude: the valuation stage judges the growth and exit multiple the harness prices from, and the Shariah pass produces the grounded compliance overlay (the harness recomputes the AAOIFI ratios from filings).',
         ),
       ),
     }),
@@ -494,28 +493,30 @@ export function StrategyOverview(): ReactNode {
       }),
     }),
 
-    // 5. Valuation method — reverse-DCF primary, forward two-stage as a labeled reference
+    // 5. Valuation method — the BOOK model (E2c): FCF forward 10 years + exit multiple + net cash.
     Section({
       eyebrow: 'Value',
-      title: 'Valuation — reverse-DCF first, the market’s implied growth as the lens',
+      title: 'Valuation — the book model: FCF, ten years, an exit multiple, a margin of safety',
       lead: createElement(
         'span',
         null,
-        'The primary lens is the ',
-        createElement('span', { style: goldText }, 'reverse-DCF'),
-        ': extract the growth the live price already implies, then compare it to the ',
-        createElement('span', { style: goldText }, 'sustainable growth the model judges and cites'),
-        '. If the price demands more than the business can durably deliver, it is expensive; if it demands less, there is room. That comparison — not a single computed number — is how cheapness is read. The ',
-        createElement('span', { style: goldText }, 'forward two-stage discounted owner-earnings fair value is a LABELED REFERENCE cross-check'),
-        `, NOT the decision engine: a ${STAGE1_HORIZON}-year explicit window whose growth holds the judged rate for the early years then fades LINEARLY down to a small terminal rate over the trailing years, plus a perpetual terminal rate beyond it, all at the same savings-anchored discount (the compliant savings rate + a uniform equity premium, `,
-        createElement('span', { style: monoFigure }, pct(DISCOUNT)),
-        ' today) — no WACC, no beta, ever. The model proposes the valuation — the owner earnings, the sustainable growth it judges and WHY, the discount — with cited reasoning, and proposes the buy-below. A light deterministic sanity-check flags internal absurdity (an implied growth the history cannot support, terminal-value dominance, a multiple out of bounds); it never blocks the verdict. You audit the reasoning and decide.',
+        'The harness computes the intrinsic value ',
+        createElement('span', { style: goldText }, 'deterministically'),
+        ' from the filing’s ',
+        createElement('span', { style: goldText }, 'free cash flow (cash from operations − capital expenditures)'),
+        ' — both tagged XBRL facts, no estimates. The model contributes exactly two cited judgments: the ',
+        createElement('span', { style: goldText }, 'growth'),
+        ' it believes the free cash flow can sustain, and the ',
+        createElement('span', { style: goldText }, 'industry exit multiple'),
+        ` a buyer would plausibly pay in year ${STAGE1_HORIZON} (clamped to ${VALUATION_PARAMS.exit_multiple_min}–${VALUATION_PARAMS.exit_multiple_max}×, conservative ${VALUATION_PARAMS.exit_multiple_fallback}× fallback when uncited). Everything is discounted at the flat `,
+        createElement('span', { style: monoFigure }, pct(VALUATION_PARAMS.required_return_default)),
+        ' required return (user-settable) — “anything less, buy the index.” No WACC, no beta, ever. The market-implied growth (the same model inverted against today’s price) is the cross-check lens; deterministic sanity flags surface absurdity but never block. You audit the two judgments and decide.',
       ),
       children: createElement(
         'div',
         { style: { display: 'flex', flexDirection: 'column', gap: '0.9rem' } },
 
-        // Formula block — stays mono
+        // Formula block — the book's six steps, verbatim arithmetic.
         createElement(
           'div',
           {
@@ -531,42 +532,37 @@ export function StrategyOverview(): ReactNode {
               overflowX: 'auto',
             },
           },
-          createElement('div', null, 'OE   = NI + D&A − maintenance capex (Greenwald vs D&A floor, conservative) − SBC − ΔNWC'),
-          createElement('div', null, 'PRIMARY (reverse-DCF):  market_implied_g = the growth today’s price already demands  →  compare to g'),
-          createElement('div', null, `g    = the model’s judged sustainable owner-earnings/share growth, cited; a deterministic sanity-check flags an unsupportable rate (above ${pct(SINGLE_GROWTH_CAP)}, or above ${pct(GDP_GROWTH_THRESHOLD)} → a moat-durability claim to weigh) — the flag is not the value source`),
-          createElement('div', null, `gₜ   = terminal fade: ${pct(TERMINAL_G_WIDE)} for every investable moat (uniform)`),
-          createElement('div', null, `fair = Σ OE(1+g)ᵗ/(1+${pct(DISCOUNT)})ᵗ  [t=1..${STAGE1_HORIZON}]  +  OE(1+g)^${STAGE1_HORIZON}(1+gₜ)/(${pct(DISCOUNT)}−gₜ) / (1+${pct(DISCOUNT)})^${STAGE1_HORIZON}`),
-          createElement('div', null, `fair > ${MULTIPLE_CEILING}× OE → surfaced cap_exceeded sanity flag (not a silent truncation)`),
-          createElement('div', null, 'ref  = forward-DCF cross-check fair value at the model’s assumed growth  (a sanity reference, NOT the decision)'),
-          createElement('div', null, 'buy  = the MODEL’s proposed buy-below (cited reasoning) ; in_buy_zone = current_price ≤ buy-below'),
+          createElement('div', null, 'FCF  = cash from operations − capital expenditures   (tagged XBRL facts, T0 — no proxies)'),
+          createElement('div', null, `g    = the model’s judged FCF growth, CITED; sanity-flagged above ${pct(SINGLE_GROWTH_CAP)} (or ${pct(GDP_GROWTH_THRESHOLD)} → a moat-durability claim)`),
+          createElement('div', null, `exit = the model’s judged industry P/FCF at year ${STAGE1_HORIZON}, cited-or-labeled; clamped ${VALUATION_PARAMS.exit_multiple_min}–${VALUATION_PARAMS.exit_multiple_max}×, fallback ${VALUATION_PARAMS.exit_multiple_fallback}×`),
+          createElement('div', null, `IV   = Σ FCF(1+g)ᵗ/(1+r)ᵗ  [t=1..${STAGE1_HORIZON}]  +  FCF(1+g)^${STAGE1_HORIZON} × exit / (1+r)^${STAGE1_HORIZON}  +  cash − debt,  per share`),
+          createElement('div', null, `r    = the required return, flat ${pct(VALUATION_PARAMS.required_return_default)} default (Settings)`),
+          createElement('div', null, `buy  = IV × ${(1 - VALUATION_PARAMS.required_margin_of_safety).toFixed(2)}   (rule 7 — never less than a ${pct(VALUATION_PARAMS.required_margin_of_safety)} margin of safety)`),
+          createElement('div', null, `load = IV × ${(1 - VALUATION_PARAMS.load_up_margin).toFixed(2)}   (rule 8 — a ${pct(VALUATION_PARAMS.load_up_margin)} discount marks “load up the truck”)`),
+          createElement('div', null, 'lens = market-implied growth: the SAME model inverted against today’s price (the crazy-detector)'),
         ),
 
-        // Growth is the model's judged sustainable rate (cited); the cap + above-GDP threshold are sanity FLAGS.
-        createElement('p', { style: microLabel }, 'Growth — the model’s judged sustainable rate, sanity-flagged'),
+        createElement('p', { style: microLabel }, 'The model’s two judgments — everything else is arithmetic'),
         Table({
-          headings: ['Growth control', 'Value'],
+          headings: ['Judgment', 'Discipline'],
           rows: [
-            [createElement('span', { style: goldText }, 'Source'), createElement('span', { style: monoFigure }, 'model-judged sustainable rate (cited)')],
-            [createElement('span', { style: goldText }, 'Sanity flag — unsupportable rate'), createElement('span', { style: monoFigure }, `> ${pct(SINGLE_GROWTH_CAP)}`)],
-            [createElement('span', { style: goldText }, 'Sanity flag — above-GDP durability claim'), createElement('span', { style: monoFigure }, `> ${pct(GDP_GROWTH_THRESHOLD)}`)],
+            [createElement('span', { style: goldText }, 'Assumed FCF growth'), createElement('span', { style: monoFigure }, `cited; sanity-flagged > ${pct(SINGLE_GROWTH_CAP)}`)],
+            [createElement('span', { style: goldText }, 'Industry exit multiple'), createElement('span', { style: monoFigure }, `cited-or-labeled; clamped ${VALUATION_PARAMS.exit_multiple_min}–${VALUATION_PARAMS.exit_multiple_max}×`)],
           ],
         }),
 
-        // Valuation params — UNIFORM across investable moats (F.13). A monopoly is a durability signal that
-        // earns higher terminal value through the moat-durability input, NOT a license to lower the safety
-        // margin, extend the horizon, or raise terminal growth. Those are uniform for wide and monopoly alike.
         createElement('p', { style: microLabel }, 'Valuation parameters — uniform across investable moats'),
         Table({
           headings: ['Parameter', 'Value (wide & monopoly)'],
           rows: [
-            [createElement('span', { style: goldText }, 'Discount rate'), createElement('span', { style: monoFigure }, pct(DISCOUNT))],
-            [createElement('span', { style: goldText }, 'Terminal g'), createElement('span', { style: monoFigure }, pct(TERMINAL_G_WIDE))],
-            [createElement('span', { style: goldText }, 'Buy-below'), createElement('span', { style: monoFigure }, 'model-proposed (cited)')],
+            [createElement('span', { style: goldText }, 'Required return (discount)'), createElement('span', { style: monoFigure }, `${pct(VALUATION_PARAMS.required_return_default)} default, user-settable`)],
+            [createElement('span', { style: goldText }, 'Buy margin (rule 7)'), createElement('span', { style: monoFigure }, `≥ ${pct(VALUATION_PARAMS.required_margin_of_safety)} below IV`)],
+            [createElement('span', { style: goldText }, 'Load-up margin (rule 8)'), createElement('span', { style: monoFigure }, `≥ ${pct(VALUATION_PARAMS.load_up_margin)} below IV`)],
           ],
         }),
-        createElement('p', { style: { ...bodyStyle, margin: '0.2rem 0 0' } }, 'A monopoly is a durability signal — more confidence the cash flows persist, which earns higher terminal value through the moat-durability input — not a license to stretch the horizon or raise the terminal rate. The buy decision is the model’s proposed buy-below with cited reasoning, sanity-checked but never overridden by determinism.'),
+        createElement('p', { style: { ...bodyStyle, margin: '0.2rem 0 0' } }, 'A monopoly is a durability signal — more confidence the cash flows persist — not a license to stretch the horizon or shave the margin. The thresholds are computed; the model’s own price view is recorded as an advisory cross-check and reconciled by a divergence flag.'),
 
-        // Worked example — computed from the live contract.
+        // Worked example — computed from the live book model.
         createElement(
           'div',
           { style: { ...bodyStyle, background: 'var(--owl-color-panel)', border: '1px solid var(--owl-color-border)', borderRadius: 'var(--owl-radius-card)', padding: '0.85rem 1rem' } },
@@ -574,15 +570,19 @@ export function StrategyOverview(): ReactNode {
           createElement(
             'p',
             { style: { margin: 0 } },
-            'Start with the reverse-DCF lens: read the growth the live price already demands, and set it beside the ',
+            'A business generating ',
+            createElement('span', { style: monoFigure }, `$${EX_FCF_MUSD.toLocaleString('en-US')}M`),
+            ` of free cash flow on ${EX_SHARES_M}M shares ($${(EX_FCF_MUSD / EX_SHARES_M).toFixed(0)}/sh), with a cited `,
             createElement('span', { style: monoFigure }, pct(EX_G)),
-            ' sustainable growth the model judges and cites for owner earnings of ',
-            createElement('span', { style: monoFigure }, `$${EX_OE}`),
-            ` per share. If the price implies more than that, it is expensive; if less, there is room — and because ${pct(EX_G)} sits above GDP, a deterministic sanity-check flags it a moat-durability claim for the human to weigh. The forward two-stage number is only the LABELED REFERENCE: holding that rate for the early years, then fading it LINEARLY down to a `,
-            createElement('span', { style: monoFigure }, pct(TERMINAL_G_WIDE)),
-            ` terminal rate over the trailing years of the ${STAGE1_HORIZON}-year window, gives a forward-DCF cross-check fair value of `,
-            createElement('span', { style: monoFigure }, `$${EX_FV.toFixed(0)}`),
-            ` (${EX_IMPLIED.toFixed(1)}× owner earnings; a value above ${MULTIPLE_CEILING}× would raise a cap_exceeded sanity flag, not be truncated). That forward number is a sanity reference, NOT the decision: the model proposes the verdict and the buy-below with cited reasoning — the owner earnings it valued, the sustainable growth it judged and why, the discount — and the deterministic side only flags internal absurdity (e.g. an implied growth the history cannot support). You buy when the price has met the model’s proposed buy-below and the cited reasoning holds. A monopoly raises no terminal rate and shortens nothing — its extra durability is argued through the moat-durability input, where the human weights it.`,
+            ` judged growth and a cited ${EX_EXIT}× industry exit multiple, at the `,
+            createElement('span', { style: monoFigure }, pct(VALUATION_PARAMS.required_return_default)),
+            ' required return: intrinsic value ',
+            createElement('span', { style: monoFigure }, `$${EX_IV.toFixed(2)}`),
+            ' per share → buy below ',
+            createElement('span', { style: monoFigure }, `$${EX_BUY.toFixed(2)}`),
+            ' (rule 7), load up below ',
+            createElement('span', { style: monoFigure }, `$${EX_LOAD.toFixed(2)}`),
+            ' (rule 8). The market-implied growth read against the live price tells you what the market is assuming; when even the model’s own advisory buy price implies growth above the cap, the rails say so. At a 15% hurdle, buy zones are rare by design — anything less, buy the index (the passive sleeve is the default home for capital).',
           ),
         ),
       ),
@@ -598,8 +598,8 @@ export function StrategyOverview(): ReactNode {
         { style: { ...bodyStyle, margin: 0, paddingLeft: '1.1rem', display: 'flex', flexDirection: 'column', gap: '0.4rem' } },
         createElement('li', null, createElement('span', { style: goldText }, 'Within the circle of competence'), ' — a grounded model judgment sampled multiple times per run: the deep dive is entered only on a unanimous in-competence vote, each sample meeting a grounded evidence floor (cite-verified cashflow drivers and predictability breakers). Uncertain or unpredictable cashflows are set aside — a correct Buffett output, not a failure. Sample count and floors are tunable in Settings.'),
         createElement('li', null, createElement('span', { style: goldText }, 'Moat ≥ wide'), ' — narrow/moderate are rejected and forced to PASS.'),
-        createElement('li', null, createElement('span', { style: goldText }, 'Honest growth path'), ` — growth is the model’s judged sustainable owner-earnings/share rate with cited reasoning; a deterministic sanity-check flags an unsupportable rate (above ${pct(SINGLE_GROWTH_CAP)}, or above ${pct(GDP_GROWTH_THRESHOLD)} → a moat-durability claim) rather than setting the number.`),
-        createElement('li', null, createElement('span', { style: goldText }, 'Positive owner earnings'), ' — normalized owner earnings must be positive.'),
+        createElement('li', null, createElement('span', { style: goldText }, 'Honest growth path'), ` — growth is the model’s judged FCF growth with cited reasoning; a deterministic sanity-check flags an unsupportable rate (above ${pct(SINGLE_GROWTH_CAP)}, or above ${pct(GDP_GROWTH_THRESHOLD)} → a moat-durability claim) rather than setting the number.`),
+        createElement('li', null, createElement('span', { style: goldText }, 'Positive free cash flow'), ' — the book model does not price a cash-burning year; no tagged CFO means honestly unpriced (fail-closed), never a proxy.'),
         createElement('li', null, createElement('span', { style: goldText }, 'Safe balance sheet'), ' — leverage must not create unacceptable fragility.'),
         createElement('li', null, createElement('span', { style: goldText }, 'Shariah compliant or conditional'), ' — non-compliant cases stop at the front Shariah gate.'),
       ),
@@ -675,7 +675,7 @@ export function StrategyOverview(): ReactNode {
             [
               createElement('span', { style: goldText }, 'Deployment hurdle'),
               createElement('span', { style: monoFigure }, `~${pct(DEPLOYMENT_HURDLE, 1)}`),
-              `A candidate's owner-earnings yield must clear savings (~${pct(DEFAULT_SAVINGS_EXPECTED_PROFIT_RATE, 1)}) + an equity-risk margin (~${pct(DEFAULT_EQUITY_RISK_MARGIN, 1)}) to deploy out of savings.`,
+              `A candidate's FCF yield must clear savings (~${pct(DEFAULT_SAVINGS_EXPECTED_PROFIT_RATE, 1)}) + an equity-risk margin (~${pct(DEFAULT_EQUITY_RISK_MARGIN, 1)}) to deploy out of savings.`,
             ],
           ],
         }),
@@ -819,7 +819,7 @@ export function StrategyOverview(): ReactNode {
           rows: [
             [createElement('span', { style: goldText }, 'thesis broke'), 'The durable advantage or the original bet no longer holds.'],
             [createElement('span', { style: goldText }, 'valuation inverted'), createElement('span', null, 'Price reached the frozen intrinsic value. Pabrai recant: do NOT sell winners at 90–95% of IV — fires only at/above ', createElement('span', { style: monoFigure }, pct(SELL_IV_FRACTION)), ' of the sign-off-frozen IV (a hard threshold; biased to hold below it).')],
-            [createElement('span', { style: goldText }, 'better opportunity'), createElement('span', null, 'A materially higher net owner-earnings yield — at least ', createElement('span', { style: monoFigure }, pct(BETTER_OPP_MIN_MARGIN, 1)), ' after switching friction — and it ALSO always needs human sign-off.')],
+            [createElement('span', { style: goldText }, 'better opportunity'), createElement('span', null, 'A materially higher net FCF yield — at least ', createElement('span', { style: monoFigure }, pct(BETTER_OPP_MIN_MARGIN, 1)), ' after switching friction — and it ALSO always needs human sign-off.')],
             [createElement('span', { style: goldText }, 'original mistake'), 'The underwriting was wrong from the start — admit it and exit rather than anchor to the entry price.'],
           ],
         }),

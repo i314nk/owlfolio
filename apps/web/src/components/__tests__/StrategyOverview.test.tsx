@@ -7,10 +7,7 @@ vi.mock('next/navigation', () => ({
 }))
 
 import { StrategyOverview } from '../StrategyOverview'
-import {
-  buffettMungerStrategy,
-  discountRate,
-} from '@owlfolio/strategies/buffettMunger'
+import { buffettMungerStrategy } from '@owlfolio/strategies/buffettMunger'
 import { buffettMungerDeepDiveLanes } from '@owlfolio/workflow/strategyResearchPipeline'
 import { SIZING_PARAMS } from '@owlfolio/strategies/sizingParams'
 
@@ -38,15 +35,11 @@ describe('StrategyOverview', () => {
     expect(html).toContain('cited to a harness-captured source')
   })
 
-  it('renders the savings-anchored discount rate from the contract', () => {
+  it('E2c: renders the flat required return from the versioned valuation config', () => {
     const html = render()
-    // F.2 — the effective default discount is the compliant savings anchor (2%) + uniform premium (5.5%) = 7.5%.
-    const discountPct = `${discountRate(buffettMungerStrategy) * 100}%` // 7.5%
-    expect(discountPct).toBe('7.5%')
-    // The panel renders the discount rounded to a whole percent (pct() digits=0) → 8%.
-    const discountPctRounded = `${Math.round(discountRate(buffettMungerStrategy) * 100)}%` // 8%
-    expect(discountPctRounded).toBe('8%')
-    expect(html).toContain('8%')
+    // The book discount: the flat 15% required return (user-settable), NOT the savings anchor.
+    expect(html).toContain('15%')
+    expect(html.toLowerCase()).toContain('required return')
   })
 
   it('reframes the decision to model-proposes-buy-below + deterministic sanity-check + human-decides (R1)', () => {
@@ -72,29 +65,17 @@ describe('StrategyOverview', () => {
     expect(html).not.toContain('growth-points')
   })
 
-  it('leads with reverse-DCF and demotes the two-stage DCF to a labeled reference, not the decision (R1)', () => {
+  it('E2c: teaches the BOOK model — computed IV off FCF, the two cited judgments, the 30/50 margins', () => {
     const html = render()
     const lower = html.toLowerCase()
-    // Reverse-DCF is the PRIMARY lens: market-implied growth vs the model's judged sustainable growth.
-    expect(lower).toContain('reverse-dcf')
-    expect(lower).toContain('market’s implied growth')
-    expect(lower).toContain('judged sustainable')
-    // Two-stage framing + terminal fade survive, but as the labeled reference.
-    expect(html).toContain('two-stage')
-    expect(lower).toContain('terminal')
-    expect(lower).toContain('runway')
-    // The forward two-stage fair value is a labeled REFERENCE cross-check, NOT the decision engine.
-    expect(lower).toContain('labeled reference')
-    expect(lower).toContain('cross-check')
-    expect(lower).toContain('not the decision')
-    // Growth is the model's judged sustainable rate; the cap is a deterministic sanity flag, not the source.
-    expect(lower).toContain('sanity-check flags')
-    expect(lower).toContain('sanity flag')
-    // No stale single-stage equity-bond prose, and no stale "credited"/"forecasting-humility cap" framing.
-    expect(lower).not.toContain('equity bond')
-    expect(html).not.toContain('OE / (')
-    expect(lower).not.toContain('credited')
-    expect(lower).not.toContain('forecasting-humility')
+    expect(lower).toContain('free cash flow')
+    expect(lower).toContain('exit multiple')
+    expect(lower).toContain('rule 7')
+    expect(lower).toContain('rule 8')
+    expect(lower).toContain('market-implied growth')
+    // The OE-era framing is gone.
+    expect(lower).not.toContain('owner-earnings fair value')
+    expect(lower).not.toContain('reverse-dcf first')
   })
 
   it('renders the wide-moat gate and rejects sub-wide moats', () => {
