@@ -550,7 +550,8 @@ export type ResearchCaseAdmitRiskFieldProjection = {
 
 /** Cheapness summary (Phase-1 OE / EV) that surfaced the name for the admit judgment. */
 export type ResearchCaseAdmitCheapnessProjection = {
-  owner_earnings_yield?: number
+  /** E2: the FCF yield (legacy events carry owner_earnings_yield onto the same slot). */
+  fcf_yield?: number
   ev?: number
   cheap?: boolean
   reason?: string
@@ -1420,8 +1421,8 @@ function getAdmitRiskField(value: unknown): ResearchCaseAdmitRiskFieldProjection
 function getAdmitCheapness(value: unknown): ResearchCaseAdmitCheapnessProjection | undefined {
   if (!isRecord(value)) return undefined
   const projected: ResearchCaseAdmitCheapnessProjection = {}
-  const owner_earnings_yield = getNumber(value, 'owner_earnings_yield')
-  if (owner_earnings_yield !== undefined) projected.owner_earnings_yield = owner_earnings_yield
+  const fcf_yield = getNumber(value, 'fcf_yield') ?? getNumber(value, 'owner_earnings_yield')
+  if (fcf_yield !== undefined) projected.fcf_yield = fcf_yield
   const ev = getNumber(value, 'ev')
   if (ev !== undefined) projected.ev = ev
   const cheap = getBoolean(value, 'cheap')

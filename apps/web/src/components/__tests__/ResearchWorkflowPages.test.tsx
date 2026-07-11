@@ -464,14 +464,13 @@ describe('research and watchlist workflow pages', () => {
     expect(html).toContain('&lt; 30%')
     expect(html).toContain('&lt; 5%')
     expect(html).toContain('Purification: 0.4%')
-    // OE-bridge provenance (note + EDGAR chip).
-    expect(html).toContain('Owner earnings computed from SEC 10-K FY2025')
-    expect(html).toContain('SEC EDGAR')
+    // E2: the OE-bridge provenance display is retired (the FCF-basis block renders on new events).
+    expect(html).not.toContain('Owner earnings computed from SEC 10-K FY2025')
     // RELIGHTENED DECISION (R1): the dossier LEADS with the model decision panel — the model-proposed
     // buy-below (here falling back to buy_price_per_share) and the market-implied growth read. The retired
     // growth-axis band viz + band/gap labels are gone.
     expect(html).toContain('data-testid="decision-summary"')
-    expect(html).toContain('Model buy-below')
+    expect(html).toContain('Buy below (computed)')
     expect(html).toContain('$147.00')
     expect(html.toLowerCase()).toContain('the market implies')
     expect(html).toContain('18.0%')
@@ -1016,7 +1015,7 @@ describe('research and watchlist workflow pages', () => {
         admittable: true,
         reason: 'High uncertainty with low permanent-loss risk is the opportunity; admittable.',
         buy_below: 120,
-        cheapness: { owner_earnings_yield: 0.085, ev: 4200, cheap: true, reason: 'Cheap on Phase-1 owner-earnings yield.' },
+        cheapness: { fcf_yield: 0.085, ev: 4200, cheap: true, reason: 'Cheap on Phase-1 owner-earnings yield.' },
         uncited_refs: ['some-blog-post'],
         recorded_at: '2026-06-08T12:30:00.000Z',
       },
@@ -1049,8 +1048,8 @@ describe('research and watchlist workflow pages', () => {
     expect(html).toContain('Advisory: admittable')
     expect(html).toContain('High uncertainty with low permanent-loss risk is the opportunity')
 
-    // Cheapness summary (OE yield / EV).
-    expect(html).toContain('Owner-earnings yield 8.5%')
+    // Cheapness summary (FCF yield / EV).
+    expect(html).toContain('FCF yield 8.5%')
     expect(html).toContain('EV ≈ $4,200M')
 
     // Uncited refs surfaced as a caveat (not hidden).

@@ -175,8 +175,10 @@ function gateOverrideChecks(events: LedgerEventEnvelope<unknown>[]): GateOverrid
     if (researchCase.valuation?.moat_passes_gate === false) failing.push('moat')
     const shariah = (researchCase.shariah_status ?? researchCase.shariah_financial?.verdict ?? '').toUpperCase()
     if (shariah === 'FAIL' || shariah === 'NON_COMPLIANT') failing.push('shariah')
-    const oePs = researchCase.valuation?.normalized_owner_earnings_per_share
-    if (oePs !== undefined && oePs <= 0) failing.push('oe_positive')
+    // E2: the cash-generation hard gate reads the FCF basis on new events (legacy OE/share kept read-only).
+    const fcfMusd = (researchCase.valuation as { fcf_basis?: { fcf_musd?: number } } | undefined)?.fcf_basis?.fcf_musd
+    const legacyOePs = researchCase.valuation?.normalized_owner_earnings_per_share
+    if ((fcfMusd !== undefined && fcfMusd <= 0) || (legacyOePs !== undefined && legacyOePs <= 0)) failing.push('cash_generation_positive')
 
     const check: GateOverrideCheckInput = {
       research_case_id: researchCase.research_case_id,

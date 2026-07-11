@@ -104,7 +104,7 @@ describe('ResearchCasePanel auditable dossier (R1)', () => {
     expect(html).toContain('EXPENSIVE')
     // The decision panel and the model-proposed buy-below.
     expect(html).toContain('data-testid="decision-summary"')
-    expect(html).toContain('Model buy-below')
+    expect(html).toContain('Buy below (computed)')
     expect(html).toContain('$147.00')
     // The live price + the arithmetic in-buy-zone read (price 168 > buy-below 147 → not in zone).
     expect(html).toContain('$168.00')
@@ -120,10 +120,11 @@ describe('ResearchCasePanel auditable dossier (R1)', () => {
     expect(html.toLowerCase()).toContain('does not block')
   })
 
-  it('shows the cited valuation_reasoning beneath (owner-earnings basis, assumed growth + why, discount)', () => {
+  it('E2: shows the cited valuation_reasoning (growth + why, discount) — the OE basis is retired from display', () => {
     const html = render(baseCase(), QUOTE)
     expect(html).toContain('data-testid="valuation-reasoning"')
-    expect(html).toContain('FY2025 10-K owner earnings of $16.27/sh')
+    // The legacy owner-earnings basis text no longer renders (the harness owns the FCF basis).
+    expect(html).not.toContain('FY2025 10-K owner earnings of $16.27/sh')
     expect(html).toContain('Reinvestment 40% × incremental ROIC 20%')
     expect(html).toContain('10% flat discount')
     // The assumed growth surfaced as the model's, with the rationale.
@@ -196,7 +197,7 @@ describe('ResearchCasePanel auditable dossier (R1)', () => {
   it('surfaces the implied exit multiple (§2 flag-only sanity output) as a ledger line', () => {
     const html = render(baseCase({ implied_exit_multiple: 7.8 }), QUOTE)
     expect(html).toContain('Market-implied exit multiple')
-    expect(html).toContain('7.8× OE')
+    expect(html).toContain('7.8× FCF (yr-10)')
   })
 
   it('renders the implied-exit-multiple directional flag annotation when it fires (high), alongside the line', () => {
@@ -208,7 +209,7 @@ describe('ResearchCasePanel auditable dossier (R1)', () => {
     }), QUOTE)
     // The ledger line shows the multiple.
     expect(html).toContain('Market-implied exit multiple')
-    expect(html).toContain('21.4× OE')
+    expect(html).toContain('21.4× FCF (yr-10)')
     // The directional flag annotation renders inside the advisory (non-blocking) sanity-flags panel.
     expect(html).toContain('data-testid="sanity-flags"')
     expect(html.toLowerCase()).toContain('above a defensible exit')
@@ -286,7 +287,7 @@ describe('ResearchCasePanel auditable dossier (R1)', () => {
     const html = render(baseCase({ implied_exit_multiple: 12.3 }), QUOTE)
     expect(html).toContain('data-testid="decision-key-figures"')
     // model buy-below, live price, in-buy-zone
-    expect(html).toContain('Model buy-below')
+    expect(html).toContain('Buy below (computed)')
     expect(html).toContain('Live price')
     expect(html).toContain('Buy-zone')
     // reference fair value, with a SHORT label and a small secondary cross-check sub-note (not a giant
@@ -299,7 +300,7 @@ describe('ResearchCasePanel auditable dossier (R1)', () => {
     // the two hidden price-implied assumptions surfaced together
     expect(html).toContain('Market-implied growth')
     expect(html).toContain('Market-implied exit multiple')
-    expect(html).toContain('12.3× OE')
+    expect(html).toContain('12.3× FCF (yr-10)')
     // the strip uses the owl ledger-stat idiom
     expect(html).toContain('owl-ledger-line')
     expect(html).toContain('owl-ledger-stat')

@@ -26,7 +26,7 @@ const baseArgs = (): SizingAssessmentArgs => ({
     permanent_loss_level: 'low',
     uncertainty_level: 'low',
     entry_price_per_share: 100,
-    owner_earnings_yield: 0.12, // well above the hurdle
+    fcf_yield: 0.12, // well above the hurdle
     sic: '73',
   },
   // S2 floor read off the persisted admit recommendation. Sound net-cash floor at $90 → tiny downside.
@@ -157,7 +157,7 @@ describe('computeSizingRecommendation — the S6 sizing assembler', () => {
   describe('deployment hurdle is the FIRST gate (short-circuit)', () => {
     it('below the hurdle → hold_in_savings (the CORRECT posture)', () => {
       const args = baseArgs()
-      args.candidate.owner_earnings_yield = 0.05 // below hurdle 0.07
+      args.candidate.fcf_yield = 0.05 // below hurdle 0.07
       const result = computeSizingRecommendation(args)
       expect(result.status).toBe('hold_in_savings')
       if (result.status !== 'hold_in_savings') throw new Error('expected hold_in_savings')
@@ -169,15 +169,15 @@ describe('computeSizingRecommendation — the S6 sizing assembler', () => {
       // Below the hurdle AND the floor is cannot_floor. If the assembler computed the floor it would return
       // cannot_size; gate-first means it returns hold_in_savings WITHOUT ever reading the floor.
       const args = baseArgs()
-      args.candidate.owner_earnings_yield = 0.01 // far below hurdle
+      args.candidate.fcf_yield = 0.01 // far below hurdle
       args.downside_floor = { cannot_floor: true }
       const result = computeSizingRecommendation(args)
       expect(result.status).toBe('hold_in_savings')
     })
 
-    it('a non-finite owner_earnings_yield (no candidate yield) → hold_in_savings', () => {
+    it('a non-finite fcf_yield (no candidate yield) → hold_in_savings', () => {
       const args = baseArgs()
-      args.candidate.owner_earnings_yield = Number.NaN
+      args.candidate.fcf_yield = Number.NaN
       const result = computeSizingRecommendation(args)
       expect(result.status).toBe('hold_in_savings')
     })
@@ -279,7 +279,7 @@ describe('B6 — rule 8 load-up advisory', () => {
     const base = (extra: Record<string, unknown>) => mod.computeSizingRecommendation({
       candidate: {
         ticker: 'T', moat_class: 'wide', permanent_loss_level: 'low', uncertainty_level: 'low',
-        entry_price_per_share: 100, owner_earnings_yield: 0.12, sic: '73',
+        entry_price_per_share: 100, fcf_yield: 0.12, sic: '73',
       },
       downside_floor: {
         downside_floor_per_share: 90,

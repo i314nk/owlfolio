@@ -1784,15 +1784,21 @@ function createDecisionPanel(researchCase: AppResearchCase, marketQuote?: Market
         resolveValuationChipColor(valuationStatus),
       ),
     ),
-    // Key figures — the decision-critical numbers lead as stat blocks (Priority 2). The model buy-below
-    // vs live price + the in-buy-zone arithmetic; and the two hidden price-implied assumptions surfaced
-    // together. (forward-DCF removal: the dollar reference fair value stat is gone.)
+    // Key figures — the decision-critical numbers lead as stat blocks (Priority 2). E2: the buy-below
+    // is the COMPUTED book threshold (IV × 0.70); the intrinsic value leads beside it.
     createElement('p', { className: 'owl-section-accent', style: { marginTop: '0.2rem' } }, 'Key figures'),
     createElement(
       'div',
       { 'data-testid': 'decision-key-figures', className: 'owl-ledger-line' },
+      (researchCase.valuation as { intrinsic_value_per_share?: number } | undefined)?.intrinsic_value_per_share !== undefined
+        ? createValuationLedgerStat(
+            'Intrinsic value (computed)',
+            `$${(researchCase.valuation as { intrinsic_value_per_share?: number }).intrinsic_value_per_share!.toFixed(2)}`,
+            'owl-ledger-figure-money',
+          )
+        : null,
       createValuationLedgerStat(
-        'Model buy-below',
+        'Buy below (computed)',
         buyBelow !== undefined ? `$${buyBelow.toFixed(2)}` : 'Pending',
         'owl-ledger-figure-money',
       ),
@@ -1832,7 +1838,7 @@ function createDecisionPanel(researchCase: AppResearchCase, marketQuote?: Market
       ),
       createValuationLedgerStat(
         'Market-implied exit multiple',
-        impliedExitMultiple !== undefined ? `${impliedExitMultiple.toFixed(1)}× OE` : 'Not yet available',
+        impliedExitMultiple !== undefined ? `${impliedExitMultiple.toFixed(1)}× FCF (yr-10)` : 'Not yet available',
         '',
       ),
     ),
@@ -1840,8 +1846,8 @@ function createDecisionPanel(researchCase: AppResearchCase, marketQuote?: Market
       'p',
       { style: { color: inBuyZone ? '#bbf7d0' : 'var(--owl-color-muted)', fontSize: 'var(--owl-text-base)', lineHeight: 1.5, margin: 0 } },
       inBuyZone
-        ? `Live price $${livePrice.toFixed(2)} is at or below the model buy-below $${buyBelow.toFixed(2)} — in the buy zone if the reasoning holds.`
-        : `Live price $${livePrice.toFixed(2)} is above the model buy-below $${buyBelow.toFixed(2)} — not in the buy zone yet.`,
+        ? `Live price $${livePrice.toFixed(2)} is at or below the computed buy-below $${buyBelow.toFixed(2)} — in the buy zone if the reasoning holds.`
+        : `Live price $${livePrice.toFixed(2)} is above the computed buy-below $${buyBelow.toFixed(2)} — not in the buy zone yet.`,
     ) : null,
     // The deterministic sanity-check flags — advisory amber annotations, never blocks.
     sanityFlags.length > 0 ? createSanityFlags(sanityFlags) : null,
@@ -2030,9 +2036,7 @@ function createValuationPanel(researchCase: AppResearchCase, marketQuote?: Marke
   const incrementalRoic = valuation.incremental_roic
   const growthRate = valuation.growth_rate
   const terminalGrowthRate = valuation.terminal_growth_rate
-  const reinvestmentRate = valuation.reinvestment_rate
   const runway = valuation.runway
-  const impliedMultiple = valuation.implied_multiple
   // §2 flag-only sanity output: the name-specific implied EXIT P/OE the live price requires (current price ÷
   // owner earnings grown to the horizon at the model's growth). Advisory; the directional over-high flag (if
   // it fired) already renders in the sanity-flags annotation. Absent → shown honestly as Pending.
@@ -2078,14 +2082,9 @@ function createValuationPanel(researchCase: AppResearchCase, marketQuote?: Marke
   // the fallback is retained for legacy events that predate the headline-growth inversion.
   const assumedGrowth = reasoning?.assumed_growth ?? growthRate
 
-  // Owner-earnings bridge summary for collapsible
-  const bridge = valuation.owner_earnings_bridge
-  const hasBridge = bridge !== undefined
-    && bridge.net_income !== undefined
-    && bridge.depreciation_amortization !== undefined
-    && bridge.maintenance_capex !== undefined
-    && bridge.stock_based_comp !== undefined
-    && bridge.normalized_working_capital_change !== undefined
+  // E2: the T0 FCF basis + the factual capex-vs-D&A note (the OE bridge is retired from display).
+  const fcfBasis = (valuation as { fcf_basis?: { fiscal_year?: number; cfo_musd?: number; capex_musd?: number; fcf_musd?: number; reporting_currency?: string; source_id?: string } }).fcf_basis
+  const capexVsDa = (valuation as { capex_vs_da?: { capex_to_d_and_a?: number; growth_capex_heavy?: boolean; note?: string } }).capex_vs_da
 
   return createElement(
     'div',
@@ -2101,7 +2100,7 @@ function createValuationPanel(researchCase: AppResearchCase, marketQuote?: Marke
     createElement(
       'p',
       { style: { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-sm)', lineHeight: 1.5, margin: 0 } },
-      'The reasoning to audit. The model proposed the verdict and the buy-below above; here it shows its work. The reverse-DCF market-implied growth is the valuation cross-check — the decision rests on the model buy-below.',
+      'The reasoning to audit. The harness computes the intrinsic value deterministically from the filing’s free cash flow; the model judges the growth and the exit multiple (cited). The market-implied growth is the price cross-check — the thresholds rest on the computed value.',
     ),
     // The MODEL's cited valuation reasoning — it shows its work (owner-earnings basis, the growth it
     // assumed + WHY, the discount rationale). The substance the human audits.
@@ -2112,12 +2111,7 @@ function createValuationPanel(researchCase: AppResearchCase, marketQuote?: Marke
         style: { display: 'grid', gap: '0.45rem', marginTop: '0.4rem' },
       },
       createElement('p', { className: 'owl-section-accent' }, 'Model valuation reasoning (cited)'),
-      reasoning.owner_earnings_basis !== undefined ? createElement(
-        'p',
-        { style: { color: '#dbe3ef', fontSize: 'var(--owl-text-base)', lineHeight: 1.55, margin: 0 } },
-        createElement('strong', { style: { color: 'var(--owl-color-sand)' } }, 'Owner-earnings basis: '),
-        reasoning.owner_earnings_basis,
-      ) : null,
+
       assumedGrowth !== undefined ? createElement(
         'p',
         { style: { color: '#dbe3ef', fontSize: 'var(--owl-text-base)', lineHeight: 1.55, margin: 0 } },
@@ -2181,10 +2175,15 @@ function createValuationPanel(researchCase: AppResearchCase, marketQuote?: Marke
       // market-implied (reverse-DCF of today's price), model (the model's grounded judgment/bridge), or
       // policy (harness/strategy constants) — so the reader never mistakes a price-derived figure for a
       // model judgment or vice versa.
-      createValuationLedgerStat('Market-implied multiple', impliedMultiple !== undefined ? `${impliedMultiple.toFixed(1)}× OE` : (moatGatedNotPriced ? 'Not priced (moat gate)' : 'Pending'), ''),
-      createValuationLedgerStat('Market-implied exit multiple', impliedExitMultiple !== undefined ? `${impliedExitMultiple.toFixed(1)}× OE` : (moatGatedNotPriced ? 'Not priced (moat gate)' : 'Pending'), ''),
-      createValuationLedgerStat('Owner earnings / sh (model)', valuation.normalized_owner_earnings_per_share !== undefined ? `$${valuation.normalized_owner_earnings_per_share.toFixed(2)}` : 'Pending', 'owl-ledger-figure-money'),
-      createValuationLedgerStat('Terminal g (policy)', terminalGrowthRate !== undefined ? `${(terminalGrowthRate * 100).toFixed(0)}%` : 'Pending', ''),
+      createValuationLedgerStat('Market-implied exit multiple', impliedExitMultiple !== undefined ? `${impliedExitMultiple.toFixed(1)}× FCF (yr-10)` : (moatGatedNotPriced ? 'Not priced (moat gate)' : 'Pending'), ''),
+      // E2: the T0 FCF basis (CFO − capex from the filing) replaces the owner-earnings stat.
+      createValuationLedgerStat(
+        'FCF basis (T0)',
+        fcfBasis?.fcf_musd !== undefined
+          ? `$${Math.round(fcfBasis.fcf_musd).toLocaleString('en-US')}M${fcfBasis.fiscal_year !== undefined ? ` (FY${fcfBasis.fiscal_year})` : ''}`
+          : 'Not computable',
+        'owl-ledger-figure-money',
+      ),
       createValuationLedgerStat('Runway (model)', runway ?? 'Pending', ''),
       createValuationLedgerStat('Discount (policy)', discountLabel, ''),
     ),
@@ -2241,77 +2240,36 @@ function createValuationPanel(researchCase: AppResearchCase, marketQuote?: Marke
       + `(${[...new Set((sourceDiscipline?.rejections ?? []).map((r) => r.reason).filter((r): r is string => r !== undefined))].join(', ')}). `
       + `Classification lanes reason from primary documents only.`,
     ) : null,
-    // Collapsible owner-earnings bridge
-    hasBridge && bridge !== undefined ? createElement(
-      'details',
-      { style: { marginTop: '0.5rem' } },
-      createElement(
-        'summary',
-        { style: { color: 'var(--owl-color-gold-bright)', cursor: 'pointer', fontSize: 'var(--owl-text-base)', fontWeight: 800 } },
-        'Owner-earnings bridge',
-      ),
-      createElement(
-        'div',
-        {
-          style: {
-            background: 'var(--owl-color-panel-deep)',
-            border: '1px solid rgba(148, 163, 184, 0.12)',
-            borderRadius: '0.7rem',
-            fontFamily: 'var(--owl-font-mono)',
-            fontSize: 'var(--owl-text-sm)',
-            marginTop: '0.5rem',
-            padding: '0.75rem 1rem',
-          },
+    // E2: the T0 FCF-basis provenance + the factual capex-vs-D&A note (the OE bridge is retired).
+    fcfBasis !== undefined || capexVsDa !== undefined ? createElement(
+      'div',
+      {
+        'data-testid': 'fcf-basis-block',
+        style: {
+          background: 'var(--owl-color-panel-deep)',
+          border: '1px solid rgba(148, 163, 184, 0.12)',
+          borderRadius: '0.7rem',
+          fontFamily: 'var(--owl-font-mono)',
+          fontSize: 'var(--owl-text-sm)',
+          marginTop: '0.5rem',
+          padding: '0.75rem 1rem',
         },
-        createElement('p', { style: { color: '#dbe3ef', margin: '0 0 0.4rem' } },
-          `NI $${bridge.net_income}M + D&A $${bridge.depreciation_amortization}M − maint capex $${bridge.maintenance_capex}M − SBC $${bridge.stock_based_comp}M − ΔWC ${bridge.normalized_working_capital_change !== undefined ? (bridge.normalized_working_capital_change < 0 ? `($${Math.abs(bridge.normalized_working_capital_change)}M)` : `$${bridge.normalized_working_capital_change}M`) : '?'}`,
-        ),
-        bridge.shares_outstanding !== undefined ? createElement('p', { style: { color: '#9aa4b7', margin: '0 0 0.4rem' } },
-          `÷ ${bridge.shares_outstanding}M diluted shares`,
-        ) : null,
-        createElement('p', { style: { color: '#bbf7d0', fontWeight: 800, margin: 0 } },
-          `= OE $${valuation.normalized_owner_earnings_per_share?.toFixed(2) ?? '?'}/sh`,
-        ),
-        reinvestmentRate !== undefined && roic !== undefined ? createElement('p', { style: { color: '#9aa4b7', margin: '0.4rem 0 0' } },
-          `ROIC ${(roic * 100).toFixed(0)}%${incrementalRoic !== undefined ? ` · incremental ROIC ${(incrementalRoic * 100).toFixed(0)}%` : ''} · reinvestment rate ${(reinvestmentRate * 100).toFixed(0)}%`,
-        ) : null,
-        bridge.maintenance_capex_proxy_tier !== undefined ? createElement('p', { style: { color: '#9aa4b7', fontSize: 'var(--owl-text-xs)', margin: '0.25rem 0 0' } },
-          `Maint. capex proxy tier: ${bridge.maintenance_capex_proxy_tier}th percentile of D&A`,
-        ) : null,
-        createOwnerEarningsProvenanceLine(valuation),
-      ),
+      },
+      fcfBasis !== undefined ? createElement('p', { style: { color: '#dbe3ef', margin: '0 0 0.4rem' } },
+        `FCF = CFO ${fcfBasis.cfo_musd !== undefined ? `$${Math.round(fcfBasis.cfo_musd).toLocaleString('en-US')}M` : '?'} − capex ${fcfBasis.capex_musd !== undefined ? `$${Math.round(fcfBasis.capex_musd).toLocaleString('en-US')}M` : '?'}`
+        + `${fcfBasis.fcf_musd !== undefined ? ` = $${Math.round(fcfBasis.fcf_musd).toLocaleString('en-US')}M` : ''}`
+        + `${fcfBasis.fiscal_year !== undefined ? ` (FY${fcfBasis.fiscal_year}` : ''}${fcfBasis.reporting_currency !== undefined && fcfBasis.fiscal_year !== undefined ? `, ${fcfBasis.reporting_currency})` : fcfBasis.fiscal_year !== undefined ? ')' : ''}`,
+      ) : null,
+      fcfBasis?.source_id !== undefined ? createElement('p', { style: { color: '#9aa4b7', fontSize: 'var(--owl-text-xs)', margin: '0 0 0.4rem' } },
+        `T0 — tagged XBRL facts from ${fcfBasis.source_id}`,
+      ) : null,
+      capexVsDa?.note !== undefined ? createElement('p', { style: { color: capexVsDa.growth_capex_heavy === true ? 'var(--owl-color-gold-bright)' : '#9aa4b7', margin: 0 } },
+        capexVsDa.note,
+      ) : null,
     ) : null,
   )
 }
 
-/**
- * Provenance line inside the owner-earnings bridge: 'Owner earnings computed from SEC 10-K FY{year}'
- * with an EDGAR source chip when bridge_basis === 'sec_edgar', else a model-estimated note.
- */
-function createOwnerEarningsProvenanceLine(
-  valuation: NonNullable<AppResearchCase['valuation']>,
-): ReturnType<typeof createElement> | null {
-  const basis = valuation.bridge_basis
-  if (basis === undefined) return null
-  if (basis === 'sec_edgar') {
-    const fy = valuation.bridge_fiscal_year
-    return createElement(
-      'p',
-      { 'data-testid': 'oe-bridge-provenance', style: { alignItems: 'center', color: '#bbf7d0', display: 'flex', flexWrap: 'wrap', fontSize: 'var(--owl-text-xs)', gap: '0.4rem', margin: '0.4rem 0 0' } },
-      createElement('span', null, fy !== undefined ? `Owner earnings computed from SEC 10-K FY${fy}` : 'Owner earnings computed from SEC 10-K'),
-      createElement(
-        'span',
-        { style: { background: 'rgba(52, 211, 153, 0.14)', borderRadius: '0.4rem', color: 'var(--owl-color-emerald, #34d399)', fontWeight: 800, padding: '0.05rem 0.4rem' } },
-        'SEC EDGAR',
-      ),
-    )
-  }
-  return createElement(
-    'p',
-    { 'data-testid': 'oe-bridge-provenance', style: { color: '#9aa4b7', fontSize: 'var(--owl-text-xs)', margin: '0.4rem 0 0' } },
-    'Owner earnings are model-estimated (no SEC primary filing available).',
-  )
-}
 
 // ── Position plan (advisory) ──────────────────────────────────────────────────
 
@@ -3282,7 +3240,7 @@ function createAdmitRecommendationPanel(researchCase: AppResearchCase) {
   const admittable = rec.admittable === true
   const callLabel = rec.impairment_call ?? 'unresolved'
   const cheapness = rec.cheapness
-  const oeYield = cheapness?.owner_earnings_yield
+  const fcfYield = (cheapness as { fcf_yield?: number } | undefined)?.fcf_yield
   const ev = cheapness?.ev
   const uncitedRefs = rec.uncited_refs ?? []
 
@@ -3367,7 +3325,7 @@ function createAdmitRecommendationPanel(researchCase: AppResearchCase) {
       rec.reason,
     ),
     // Cheapness summary (owner-earnings yield / EV).
-    (oeYield === undefined && ev === undefined) ? null : createElement(
+    (fcfYield === undefined && ev === undefined) ? null : createElement(
       'div',
       {
         'data-testid': 'admit-cheapness',
@@ -3377,7 +3335,7 @@ function createAdmitRecommendationPanel(researchCase: AppResearchCase) {
       createElement(
         'p',
         { style: { color: 'var(--owl-color-text)', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-base)', margin: 0 } },
-        oeYield === undefined ? 'Owner-earnings yield not computed' : `Owner-earnings yield ${(oeYield * 100).toFixed(1)}%`,
+        fcfYield === undefined ? 'FCF yield not computed' : `FCF yield ${(fcfYield * 100).toFixed(1)}%`,
         ev === undefined ? '' : ` · EV ≈ $${Math.round(ev).toLocaleString('en-US')}M`,
         rec.buy_below === undefined ? '' : ` · buy below $${rec.buy_below}`,
       ),
@@ -3622,7 +3580,7 @@ const SELL_REASON_CODE_LABEL: Record<string, string> = {
   thesis_broken: 'rule 10 (rotten) / rule 11 (changed) — the durable advantage or the bet no longer holds: sell or leave',
   permanent_impairment: 'rule 10 (rotten) — permanent impairment; the loss is not recoverable inside the thesis',
   valuation_inverted: 'rule 12 (lock in a profit) — price reached / exceeded the frozen intrinsic value',
-  better_opportunity: 'better opportunity — a materially higher net OE yield clears the switching hurdle',
+  better_opportunity: 'better opportunity — a materially higher net FCF yield clears the switching hurdle',
   original_mistake: 'original mistake — the underwriting was wrong from the start; admit it and exit',
   minimum_hold_released: 'minimum-hold guard released the review',
   minimum_hold_active: 'rule 13 (great stays great) — the guard is holding a fixable problem inside the window',

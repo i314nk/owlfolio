@@ -23,7 +23,7 @@ const baseArgs = (): SizingAssessmentArgs => ({
     permanent_loss_level: 'low',
     uncertainty_level: 'low',
     entry_price_per_share: 100,
-    owner_earnings_yield: 0.12,
+    fcf_yield: 0.12,
     sic: '73',
   },
   downside_floor: {

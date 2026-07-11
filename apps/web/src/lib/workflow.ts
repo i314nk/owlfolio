@@ -1709,7 +1709,7 @@ export async function recordSizingRecommendation(
           market_cap_musd: freshPrice * dilutedShares,
           gate_passing: true,
         })
-        ownerEarningsYield = cheap.owner_earnings_yield ?? 0
+        ownerEarningsYield = (cheap as { fcf_yield?: number }).fcf_yield ?? 0
       }
     }
 
@@ -1750,7 +1750,7 @@ export async function recordSizingRecommendation(
         permanent_loss_level: permanentLossLevel,
         uncertainty_level: uncertaintyLevel,
         entry_price_per_share: buyBelow,
-        owner_earnings_yield: ownerEarningsYield,
+        fcf_yield: ownerEarningsYield,
       },
       downside_floor: downsideFloor,
       held_book: heldBook,

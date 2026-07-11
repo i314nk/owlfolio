@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest'
 
 import { screenCheapness } from '../cheapnessScreen'
-import { ownerEarningsPerShareSeries, type AnnualFacts, type Fundamentals } from '../secEdgar'
+import { fcfPerShareSeries, type AnnualFacts, type Fundamentals } from '../secEdgar'
 
 /**
  * Fixture builder: a single-year fundamentals payload whose latest annual carries meaningful SBC and a
- * maintenance-capex haircut (capex > D&A) so a NAIVE NI-based "owner earnings" (e.g. NI + D&A) would
- * differ materially from the Phase-1 normalized OE (NI + D&A − min(D&A,capex) − SBC). This lets the
+ * distinct CFO so a NAIVE NI-based cash proxy would differ materially from the book FCF
+ * (CFO − capex). This lets the
  * no-drift test prove the screen reads the Phase-1 series rather than recomputing a shortcut.
  */
 function makeFundamentals(overrides?: Partial<AnnualFacts>, omit?: (keyof AnnualFacts)[]): Fundamentals {
@@ -15,7 +15,8 @@ function makeFundamentals(overrides?: Partial<AnnualFacts>, omit?: (keyof Annual
     currency: 'USD',
     net_income_musd: 1000,
     d_and_a_musd: 200,
-    capex_musd: 300, // capex > D&A ⇒ maintenance capex = min(200,300) = 200
+    capex_musd: 300,
+    cfo_musd: 1200, // E2: FCF = 1200 − 300 = 900
     sbc_musd: 150, // meaningful SBC, subtracted by Phase-1 OE
     diluted_shares_m: 100,
     total_debt_musd: 500,
@@ -34,13 +35,12 @@ function makeFundamentals(overrides?: Partial<AnnualFacts>, omit?: (keyof Annual
 }
 
 describe('screenCheapness', () => {
-  // Phase-1 normalized OE/share = (1000 + 200 − min(200,300) − 150) / 100 = 850/100 = 8.5
-  // → total normalized OE = 8.5 × 100 shares = 850 musd.
-  const PHASE1_OE_MUSD = 850
+  // E2: the book FCF = CFO 1200 − capex 300 = 900 musd (no proxy, no SBC assumptions).
+  const BOOK_FCF_MUSD = 900
 
   it('surfaces a gate-passing cheap name', () => {
     const fundamentals = makeFundamentals()
-    // EV = market_cap + debt − cash = 10,000 + 500 − 200 = 10,300; yield = 850/10,300 ≈ 0.0825 ≥ 1/18.
+    // EV = market_cap + debt − cash = 10,000 + 500 − 200 = 10,300; yield = 900/10,300 ≈ 0.0874 ≥ 1/20.
     const result = screenCheapness({
       fundamentals,
       market_cap_musd: 10_000,
@@ -48,9 +48,9 @@ describe('screenCheapness', () => {
     })
     expect(result.surfaced).toBe(true)
     expect(result.cheap).toBe(true)
-    expect(result.owner_earnings_musd).toBe(PHASE1_OE_MUSD)
+    expect(result.fcf_musd).toBe(BOOK_FCF_MUSD)
     expect(result.ev_musd).toBe(10_300)
-    expect(result.owner_earnings_yield).toBeCloseTo(850 / 10_300, 6)
+    expect(result.fcf_yield).toBeCloseTo(900 / 10_300, 6)
   })
 
   it('does NOT surface a cheap-but-not-gate-passing name (cheapness alone is not the signal)', () => {
@@ -66,7 +66,7 @@ describe('screenCheapness', () => {
 
   it('does NOT surface a gate-passing but expensive name', () => {
     const fundamentals = makeFundamentals()
-    // Big market cap ⇒ tiny yield ⇒ not cheap. EV ≈ 50,300; yield = 850/50,300 ≈ 0.0169 < 1/18.
+    // Big market cap ⇒ tiny yield ⇒ not cheap. EV ≈ 50,300; yield = 900/50,300 ≈ 0.0179 < 1/20.
     const result = screenCheapness({
       fundamentals,
       market_cap_musd: 50_000,
@@ -78,26 +78,26 @@ describe('screenCheapness', () => {
 
   it('uses the Phase-1 normalized OE (no-drift discipline gate, not a shortcut)', () => {
     const fundamentals = makeFundamentals()
-    const phase1Series = ownerEarningsPerShareSeries(fundamentals.annual_series)
-    const phase1Latest = phase1Series[phase1Series.length - 1]!
+    const bookSeries = fcfPerShareSeries(fundamentals.annual_series)
+    const bookLatest = bookSeries[bookSeries.length - 1]!
     const dilutedShares = fundamentals.latest_annual.diluted_shares_m!
-    const phase1OeMusd = phase1Latest.oe_ps * dilutedShares
+    const bookFcfMusd = bookLatest.oe_ps * dilutedShares
 
-    // A naive NI+D&A OE (no maint-capex haircut, no SBC) would be (1000+200)×100 = 120,000 — clearly different.
-    const naiveOeMusd = (1000 + 200) * 100
-    expect(phase1OeMusd).not.toBe(naiveOeMusd)
+    // A naive NI-based cash proxy (NI + D&A) would be (1000+200) = 1,200 musd — different from CFO − capex.
+    const naiveMusd = 1000 + 200
+    expect(bookFcfMusd).not.toBe(naiveMusd)
 
     const result = screenCheapness({
       fundamentals,
       market_cap_musd: 1_000_000,
       gate_passing: true,
     })
-    expect(result.owner_earnings_musd).toBe(phase1OeMusd)
-    expect(result.owner_earnings_musd).not.toBe(naiveOeMusd)
+    expect(result.fcf_musd).toBe(bookFcfMusd)
+    expect(result.fcf_musd).not.toBe(naiveMusd)
   })
 
-  it('fails closed when OE ≤ 0', () => {
-    const fundamentals = makeFundamentals({ net_income_musd: -2000 })
+  it('fails closed when FCF ≤ 0', () => {
+    const fundamentals = makeFundamentals({ cfo_musd: 100 }) // FCF = 100 − 300 = −200
     const result = screenCheapness({
       fundamentals,
       market_cap_musd: 1_000_000,

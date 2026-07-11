@@ -95,7 +95,7 @@ export type SizingCandidate = {
   uncertainty_level: RiskLevel
   entry_price_per_share: number
   /** Candidate's owner-earnings yield at entry (drives the S5 deployment hurdle). */
-  owner_earnings_yield: number
+  fcf_yield: number
   /** From Fundamentals.sic — the S4 cluster key (optional). */
   sic?: string
   /** Optional named scenario tags — the S4 default-empty secondary cluster seam. */
@@ -141,7 +141,7 @@ export function computeSizingRecommendation(args: SizingAssessmentArgs): SizingA
   //    Not clearing (or no candidate yield) → hold_in_savings, the CORRECT posture. Short-circuit.
   // -------------------------------------------------------------------------
   const hurdle = evaluateDeploymentHurdle({
-    owner_earnings_yield: candidate.owner_earnings_yield,
+    fcf_yield: candidate.fcf_yield,
     savings_expected_profit_rate: args.savings_expected_profit_rate,
     equity_risk_margin: args.equity_risk_margin,
   })

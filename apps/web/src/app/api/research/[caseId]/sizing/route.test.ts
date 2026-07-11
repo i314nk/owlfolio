@@ -23,7 +23,7 @@ const SOURCE_IDS = ['src_a', 'src_b']
 function makeFundamentals(): Fundamentals {
   const latest: AnnualFacts = {
     fiscal_year: 2024, currency: 'USD',
-    net_income_musd: 1000, d_and_a_musd: 200, capex_musd: 300, sbc_musd: 150,
+    net_income_musd: 1000, d_and_a_musd: 200, capex_musd: 300, cfo_musd: 1200, sbc_musd: 150,
     diluted_shares_m: 100, total_debt_musd: 500, cash_and_securities_musd: 200,
   }
   return { cik: '1', entity_name: 'Test Co', currency: 'USD', latest_annual: latest, annual_series: [latest], filings: [] }

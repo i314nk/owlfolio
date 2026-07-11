@@ -49,7 +49,7 @@ function admitJudgment(overrides: Record<string, unknown>, createdAt: string, ev
       admittable: true,
       reason: 'low permanent-loss + quality passes',
       buy_below: 42,
-      cheapness: { owner_earnings_yield: 0.0825, ev: 10_300, cheap: true },
+      cheapness: { owner_earnings_yield: 0.0825, ev: 10_300, cheap: true }, // legacy key → projects onto fcf_yield (two-era)
       downside_floor: { status: 'floor', floor_per_share: 5, basis: 'net_cash', reliability: 'sound', components: {} },
       is_observation: true,
       is_recommendation: false,
@@ -81,7 +81,7 @@ describe('projectResearchCases — admit_judgment_recorded', () => {
     // The independent bear case survives.
     expect(rec.impairment_bear_case).toContain('from filings')
     // The cheapness summary survives.
-    expect(rec.cheapness?.owner_earnings_yield).toBeCloseTo(0.0825, 6)
+    expect(rec.cheapness?.fcf_yield).toBeCloseTo(0.0825, 6)
     expect(rec.cheapness?.ev).toBe(10_300)
     // Phase 5 S2 — the concrete downside floor (incl. its basis) is projected from the persisted payload.
     expect(rec.downside_floor_per_share).toBe(5)

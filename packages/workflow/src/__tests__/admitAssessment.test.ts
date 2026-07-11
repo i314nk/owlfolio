@@ -17,7 +17,7 @@ function makeFundamentals(overrides?: Partial<AnnualFacts>): Fundamentals {
   const latest: AnnualFacts = {
     fiscal_year: 2024,
     currency: 'USD',
-    net_income_musd: 1000,
+    net_income_musd: 1000, cfo_musd: 1300,
     d_and_a_musd: 200,
     capex_musd: 300,
     sbc_musd: 150,
@@ -110,7 +110,7 @@ describe('runAdmitAssessment — the on-demand orchestrator', () => {
 
     // The cheapness summary is present (Phase-1 OE / EV — the screen's reader output).
     expect(out.recommendation.cheapness).toBeDefined()
-    expect(out.recommendation.cheapness?.owner_earnings_yield).toBeGreaterThan(0)
+    expect(out.recommendation.cheapness?.fcf_yield).toBeGreaterThan(0)
     expect(out.recommendation.cheapness?.ev).toBe(10_300)
 
     // admittable / impairment_call come from classifyAdmit (NOT the model).
