@@ -52,6 +52,7 @@ import { resolveFundamentalsForTicker } from './fundamentalsProvider'
 import { evaluateBaseRateBurden, type BaseRateBurdenFlag } from './baseRateBurden'
 import { computeMoatTests, type MoatTests } from './moatTests'
 import { buildManagementTalentBlock, computeManagementTalentT0, type ManagementTalentT0 } from './managementT0'
+import { buildMungerLattice, type MungerLattice } from './mungerLattice'
 import { runRetainedEarningsTest, type RetainedEarningsTestResult } from './retainedEarningsTest'
 import { BASE_RATES } from '@owlfolio/strategies/baseRates'
 import { ENGINE_VERSION } from '@owlfolio/strategies/engineVersion'
@@ -3879,6 +3880,42 @@ export async function runResearchDeepDivePhase(
     exceptionality_justifications: exceptionalityJustifications,
   })
   const baseRateFlagsUnmet: BaseRateBurdenFlag[] = baseRateBurden.flags.filter((f) => f.status === 'unmet')
+
+  // ---- S7 (Phase 3): the Munger mental-model LATTICE — deterministic assembly, no model self-reports ----
+  // inversion ← the red-team layer; base rates ← the burden flags; incentive analysis ← the grounded
+  // S5 comp structure; social proof ← the red team's cite-checked consensus_check. Each entry is
+  // 'applied' ONLY when its artifact exists and survived its cite-check (unavailable + reason otherwise).
+  const mungerLattice: MungerLattice = buildMungerLattice({
+    redTeam: redTeamLayer.status === 'complete' && redTeamLayer.strongest_objection !== undefined
+      ? {
+          status: 'complete',
+          strongest_objection: {
+            claim: redTeamLayer.strongest_objection.claim,
+            severity: (['low', 'medium', 'high'] as const).includes(redTeamLayer.strongest_objection.severity as 'low' | 'medium' | 'high')
+              ? redTeamLayer.strongest_objection.severity as 'low' | 'medium' | 'high'
+              : 'low',
+            citations: redTeamLayer.strongest_objection.citations,
+          },
+          ...(redTeamLayer.objection_unaddressed === true ? { objection_unaddressed: true } : {}),
+          ...(redTeamLayer.consensus_check !== undefined ? { consensus_check: redTeamLayer.consensus_check } : {}),
+        }
+      : { status: 'red_team_incomplete', reason: redTeamLayer.reason ?? 'red team did not complete' },
+    baseRateBurden: { flags: baseRateBurden.flags.map((f) => ({ claim: f.claim, status: f.status })) },
+    ...(managementJudgment.integrity !== undefined
+      ? {
+          managementJudgment: {
+            integrity: {
+              comp_structure: {
+                summary: managementJudgment.integrity.comp_structure.summary,
+                alignment: managementJudgment.integrity.comp_structure.alignment,
+                citation: managementJudgment.integrity.comp_structure.citation,
+              },
+              comp_grounded: managementJudgment.integrity.comp_grounded,
+            },
+          },
+        }
+      : {}),
+  })
   // Conservative downgrade hook: an unmet exceptional burden lowers the synthesis confidence and adds
   // an explicit caveat so the human sees the unmet structural burden (never silently passed).
   const baseRateCaveats = baseRateFlagsUnmet.map((f) =>
@@ -3946,6 +3983,8 @@ export async function runResearchDeepDivePhase(
       },
       ...(managementVetoTrait !== undefined ? { management_veto_applied: managementVetoTrait } : {}),
       ...(managementVetoReason !== undefined ? { management_veto_reason: managementVetoReason } : {}),
+      // S7 (Phase 3): the Munger lattice — deterministic; each entry applied-or-unavailable-with-reason.
+      munger_lattice: mungerLattice,
       // The admitting-gate block (shariah_gate, or quick_screen on a legacy resume) is added below.
       valuation: {
         moat_class: moatClass,

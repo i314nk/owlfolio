@@ -30,6 +30,20 @@ const StrongestObjectionSchema = z.object({
   citations: z.array(z.string().min(1)).min(1),
 })
 
+// S7 (Munger lattice — social proof): the red team is the consensus-knowing agent, so the
+// thesis-vs-consensus check rides THIS call (zero extra provider spend). Cite-checked like the
+// objection; an ungrounded consensus read carries no lattice weight. Optional at the schema level
+// (legacy tolerance); the prompt demands it.
+const ConsensusCheckSchema = z.object({
+  // What the market/street consensus on this name actually is.
+  consensus_view: z.string().min(1),
+  // Is THIS case's thesis just the consensus, or a variant view?
+  thesis_vs_consensus: z.enum(['consensus', 'variant']),
+  // REQUIRED when 'variant': what the thesis knows/weighs that the consensus does not.
+  variant_justification: z.string().optional(),
+  citations: z.array(z.string().min(1)).default([]),
+})
+
 export const RedTeamAgentSchema = z.object({
   strongest_bear_case: z.string().min(1),
   weakest_rubric_items: z.array(WeakRubricItemSchema).default([]),
@@ -37,6 +51,7 @@ export const RedTeamAgentSchema = z.object({
   growth_credit_attack: z.string().min(1),
   shared_narrative_blindspots: z.array(z.string().min(1)).default([]),
   strongest_objection: StrongestObjectionSchema,
+  consensus_check: ConsensusCheckSchema.optional(),
   proposed_sources: ProposedSourcesSchema,
 })
 
@@ -58,6 +73,14 @@ export type RedTeamOutput = {
   }
   /** source_ids cited by the objection that were NOT in the verified corpus (recorded, never hidden). */
   uncited_objection_refs?: string[]
+  /** S7: the cite-checked thesis-vs-consensus read (the Munger-lattice social-proof artifact). */
+  consensus_check?: {
+    consensus_view: string
+    thesis_vs_consensus: 'consensus' | 'variant'
+    variant_justification?: string | undefined
+    citations: string[]
+    grounded: boolean
+  }
 }
 
 /** Degraded red-team state when the adversarial run times out / fails — the run continues. */
@@ -118,8 +141,11 @@ function buildRedTeamPrompt(args: RunRedTeamPassArgs): string {
     + `Produce: (1) the strongest BEAR case; (2) the weakest-evidenced rubric items (lane + item + why); `
     + `(3) the moat-decay scenario (how the moat erodes over 5-10 yrs); (4) the growth-credit attack (why the `
     + `credited growth / incremental-ROIC is unjustified or mean-reverts); (5) shared-narrative blind spots the `
-    + `lanes all missed because they reasoned from the same documents; and (6) a SINGLE strongest_objection with a `
-    + `severity and citations.\n\n`
+    + `lanes all missed because they reasoned from the same documents; (6) a SINGLE strongest_objection with a `
+    + `severity and citations; and (7) consensus_check — the SOCIAL-PROOF test: state the actual market/street `
+    + `consensus on this name (consensus_view), judge whether THIS case's thesis is just that consensus or a `
+    + `variant view (thesis_vs_consensus), and — if variant — what the thesis weighs that the consensus does not `
+    + `(variant_justification). Cite the consensus read (citations); an uncited consensus check carries no weight.\n\n`
     + `GROUNDING (non-negotiable): you may cite ANY source category (you are the consensus-knowing lane), but every `
     + `objection must be GROUNDED — strongest_objection.citations and proposed_sources must reference the verified `
     + `corpus. Available corpus source_ids: ${corpus}. Cite from these and return them in proposed_sources with real URLs. `
@@ -187,6 +213,22 @@ export async function runRedTeamPass(
         citations,
       },
       ...(uncited.length > 0 ? { uncited_objection_refs: uncited } : {}),
+      // S7: cite-check the consensus read with the same primitive; grounded = >=1 verified citation.
+      ...(agent.analysis.consensus_check === undefined
+        ? {}
+        : (() => {
+            const cc = agent.analysis.consensus_check
+            const verified = cc.citations.filter((c) => isCitationGrounded(c, args.verifiedCitationHashes))
+            return {
+              consensus_check: {
+                consensus_view: cc.consensus_view,
+                thesis_vs_consensus: cc.thesis_vs_consensus,
+                ...(cc.variant_justification !== undefined ? { variant_justification: cc.variant_justification } : {}),
+                citations: verified,
+                grounded: verified.length > 0,
+              },
+            }
+          })()),
     }
   } catch (error) {
     // Degrade, never abort: the red team is mandatory but its FAILURE must not discard a completed
@@ -328,6 +370,14 @@ export type RedTeamLayer = {
     citations: string[]
   }
   uncited_objection_refs?: string[]
+  /** S7: the cite-checked thesis-vs-consensus read (the lattice's social-proof artifact). */
+  consensus_check?: {
+    consensus_view: string
+    thesis_vs_consensus: 'consensus' | 'variant'
+    variant_justification?: string | undefined
+    citations: string[]
+    grounded: boolean
+  }
   synthesis_response?: SynthesisResponse
   /**
    * Deterministic enforcement (Mechanism 5, "silence is not an option"): set when the red team
@@ -374,6 +424,7 @@ export function buildRedTeamLayer(args: {
     shared_narrative_blindspots: redTeam.shared_narrative_blindspots,
     strongest_objection: redTeam.strongest_objection,
     ...(redTeam.uncited_objection_refs !== undefined ? { uncited_objection_refs: redTeam.uncited_objection_refs } : {}),
+    ...(redTeam.consensus_check !== undefined ? { consensus_check: redTeam.consensus_check } : {}),
     ...(responseUsable ? { synthesis_response: synthesisResponse } : {}),
   }
 

@@ -435,6 +435,9 @@ export function ResearchCasePanel({ researchCase, mode = 'personal-local', confi
     // ── 2c. Shariah / compliance — the unique AAOIFI ratio ledger (the per-dimension shariah finding
     //        lives in the specialist lane; this is the harness-computed ratio surface, one home). ──
     makeCollapsible(createComplianceRatioBlock(researchCase), false, researchCase.shariah_status),
+    // ── 3b (S7). The Munger lattice — which mental models were APPLIED (derived from artifacts that
+    //        survived cite-check) vs unavailable-with-reason. Opens when the thesis IS the consensus. ──
+    createMungerLatticePanel(researchCase),
     // ── 4. Deep-dive specialist lanes (collapsed by default; each lane stacks full-width) ────────────
     createSpecialistLanesGrid(researchCase),
     // ── 4·insider. Insider activity (Form 4) — deterministic harness summary, model-independent ───────
@@ -650,6 +653,48 @@ function createManagementPillarPanel(researchCase: AppResearchCase) {
       : `Retained-earnings test (Buffett): deferred on data (${String(retained['reason'] ?? 'not computable')})`))
   }
   return createCollapsibleSection('management-pillar-card', 'Management pillar — integrity & talent', vetoTrait !== undefined, children)
+}
+
+// S7 (Phase 3 pillars): the Munger mental-model lattice — deterministic harness assembly. An entry
+// is APPLIED only when its artifact exists and survived its cite-check; unavailable entries say why.
+// The "thesis IS the consensus" social-proof caution opens the panel and renders loud.
+function createMungerLatticePanel(researchCase: AppResearchCase) {
+  const lattice = researchCase.munger_lattice
+  if (lattice?.entries === undefined || lattice.entries.length === 0) return null
+  const consensusCaution = lattice.entries.some((e) => e.model === 'social_proof' && e.status === 'applied' && /thesis IS the consensus/i.test(e.summary))
+  const labelFor = (model: string) => model === 'inversion'
+    ? 'Inversion'
+    : model === 'base_rates'
+      ? 'Base rates'
+      : model === 'incentive_analysis'
+        ? 'Incentive analysis'
+        : model === 'social_proof'
+          ? 'Social proof / consensus'
+          : model.replace(/_/g, ' ')
+  const children: ReactNode[] = [
+    createElement('p', { key: 'note', style: { color: 'var(--owl-color-quiet)', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-2xs)', lineHeight: 1.5, margin: 0 } },
+      lattice.note ?? 'Deterministic harness assembly — applied entries derive from cite-checked artifacts.'),
+    ...lattice.entries.map((entry, i) => createElement(
+      'p',
+      {
+        key: `lattice-${i}`,
+        'data-testid': `munger-lattice-${entry.model}`,
+        style: {
+          color: entry.status === 'unavailable'
+            ? 'var(--owl-color-gold-bright)'
+            : /thesis IS the consensus/i.test(entry.summary)
+              ? 'var(--owl-color-risk-bright)'
+              : 'var(--owl-color-text)',
+          fontSize: 'var(--owl-text-sm)',
+          lineHeight: 1.5,
+          margin: 0,
+        },
+      },
+      createElement('strong', {}, `${labelFor(entry.model)} — ${entry.status === 'applied' ? 'APPLIED' : 'UNAVAILABLE'}: `),
+      entry.status === 'applied' ? entry.summary : `${entry.summary} (${entry.reason ?? 'no artifact'})`,
+    )),
+  ]
+  return createCollapsibleSection('munger-lattice-card', 'Munger lattice — mental models applied', consensusCaution, children)
 }
 
 function createReReviewPanel(researchCase: AppResearchCase) {

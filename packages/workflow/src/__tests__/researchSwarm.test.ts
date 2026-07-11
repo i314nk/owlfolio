@@ -1313,6 +1313,8 @@ function configurableSwarmProvider(opts: {
   synthesisResponse?: { mode: 'answered_with_evidence' | 'accepted_downgraded'; text: string; downgrade?: { dimension: 'tier' | 'growth' | 'verdict'; from: string; to: string } }
   // redTeamCitations: which corpus source_ids the red team's strongest objection cites.
   redTeamCitations?: string[]
+  // S7: extra fields spread into the BuffettMungerRedTeam response (e.g. a consensus_check).
+  redTeamExtras?: Record<string, unknown>
   // S3 (Phase 3): extra fields spread LAST into the BuffettMungerMoatLane response, so a test can
   // override the shared defaults (e.g. a grounded 'narrowing' direction for the WATCH-clamp pin).
   moatLaneExtras?: Record<string, unknown>
@@ -1449,6 +1451,7 @@ function configurableSwarmProvider(opts: {
             severity: 'high',
             citations: opts.redTeamCitations ?? ['src_lane_0'],
           },
+          ...(opts.redTeamExtras ?? {}),
           proposed_sources: [src('src_lane_0')],
         }
       }
@@ -6558,5 +6561,90 @@ describe('S6 — early moat gate: zero Pillar 3–4 spend on a gate death; the o
     expect(schemaCalls).toContain('BuffettMungerManagementLane')
     expect(schemaCalls).toContain('BuffettMungerSynthesisDecision')
     expect(cp?.investment_verdict).toBe('WATCH')
+  })
+})
+
+// ---------------------------------------------------------------------------------------------------
+// S7 (Phase 3 pillars): the Munger lattice persists on the analysis payload — deterministic assembly
+// from the run's own artifacts (red team, base-rate burden, grounded comp structure, consensus check).
+// ---------------------------------------------------------------------------------------------------
+describe('S7 — munger_lattice persisted from the run artifacts', () => {
+  it('records all four entries; incentives APPLIED from the grounded comp; social proof from the consensus check', async () => {
+    const store = new InMemoryEventStore()
+    const provider = configurableSwarmProvider({
+      laneCount: buffettMungerDeepDiveLanes.length,
+      synthesis: { moat_class: 'wide', runway: 'proven', proposed_buy_below: 290,
+        valuation_reasoning: { owner_earnings_basis: 'b', owner_earnings_citation: 'src_dec_1', assumed_growth: 0.06, assumed_growth_rationale: 'r', assumed_growth_citation: 'src_dec_1' } },
+      synthesisResponse: { mode: 'answered_with_evidence', text: 'Rebutted with cited filing evidence.' },
+      redTeamExtras: {
+        consensus_check: {
+          consensus_view: 'The street sees a fully-valued quality compounder.',
+          thesis_vs_consensus: 'variant',
+          variant_justification: 'The thesis underwrites margin durability the street discounts.',
+          citations: ['src_lane_0'],
+        },
+      },
+    })
+    const sourceLedgerPath = await mkdtemp(join(tmpdir(), 'owlfolio-s7-lattice-'))
+    await runStrategyResearchSwarm(
+      store, provider as never,
+      {
+        research_case_id: 'rc_s7', company_id: 'c', ticker: 'LAT',
+        strategy_id: 'buffett-munger', actor_id: 'user_local', idempotency_key: 's7_k',
+        model_id: 'mock', decision_id: 'decision_s7', source_ledger_path: sourceLedgerPath,
+      },
+      {
+        ground: allVerifiedGround, laneConcurrency: 4,
+        resolvePrice: async () => ({ available: true as const, price_per_share: 250, currency: 'USD', as_of: 'x', source: 'fixture' }),
+      },
+    )
+    const events = await store.list()
+    const analysis = events.find((e) => e.event_type === 'buffett_munger_analysis_drafted')
+    const lattice = (analysis?.payload as Record<string, unknown>)['munger_lattice'] as {
+      entries?: Array<{ model: string; status: string; summary: string }>
+    } | undefined
+    expect(lattice?.entries?.map((e) => e.model)).toEqual(['inversion', 'base_rates', 'incentive_analysis', 'social_proof'])
+    const byModel = Object.fromEntries((lattice?.entries ?? []).map((e) => [e.model, e]))
+    expect(byModel['inversion']?.status).toBe('applied')
+    expect(byModel['incentive_analysis']?.status).toBe('applied') // grounded DEF 14A comp (S5 fake)
+    expect(byModel['social_proof']?.status).toBe('applied')
+    expect(byModel['social_proof']?.summary).toMatch(/variant/i)
+    // The consensus check also persists on the red-team layer (cite-checked).
+    const redTeam = (analysis?.payload as Record<string, unknown>)['red_team'] as { consensus_check?: { grounded?: boolean } } | undefined
+    expect(redTeam?.consensus_check?.grounded).toBe(true)
+    // And projects.
+    const projections = projectResearchCases(events as Parameters<typeof projectResearchCases>[0])
+    const cp = projections.find((c) => c.research_case_id === 'rc_s7') as Record<string, unknown> | undefined
+    expect((cp?.['munger_lattice'] as { entries?: unknown[] })?.entries).toHaveLength(4)
+  })
+
+  it('an omitted consensus check renders social proof UNAVAILABLE (no checkbox theater)', async () => {
+    const store = new InMemoryEventStore()
+    const provider = configurableSwarmProvider({
+      laneCount: buffettMungerDeepDiveLanes.length,
+      synthesis: { moat_class: 'wide', runway: 'proven', proposed_buy_below: 290,
+        valuation_reasoning: { owner_earnings_basis: 'b', owner_earnings_citation: 'src_dec_1', assumed_growth: 0.06, assumed_growth_rationale: 'r', assumed_growth_citation: 'src_dec_1' } },
+      synthesisResponse: { mode: 'answered_with_evidence', text: 'Rebutted.' },
+    })
+    const sourceLedgerPath = await mkdtemp(join(tmpdir(), 'owlfolio-s7-nocc-'))
+    await runStrategyResearchSwarm(
+      store, provider as never,
+      {
+        research_case_id: 'rc_s7_nocc', company_id: 'c', ticker: 'LAT',
+        strategy_id: 'buffett-munger', actor_id: 'user_local', idempotency_key: 's7_nocc_k',
+        model_id: 'mock', decision_id: 'decision_s7_nocc', source_ledger_path: sourceLedgerPath,
+      },
+      {
+        ground: allVerifiedGround, laneConcurrency: 4,
+        resolvePrice: async () => ({ available: true as const, price_per_share: 250, currency: 'USD', as_of: 'x', source: 'fixture' }),
+      },
+    )
+    const analysis = (await store.list()).find((e) => e.event_type === 'buffett_munger_analysis_drafted')
+    const lattice = (analysis?.payload as Record<string, unknown>)['munger_lattice'] as {
+      entries?: Array<{ model: string; status: string; reason?: string }>
+    } | undefined
+    const social = lattice?.entries?.find((e) => e.model === 'social_proof')
+    expect(social?.status).toBe('unavailable')
+    expect(social?.reason).toMatch(/no consensus check/i)
   })
 })
