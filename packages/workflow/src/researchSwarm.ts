@@ -157,6 +157,9 @@ export type LaneOutcome = {
   moat_judgment?: MoatLaneJudgment
   /** Visible per-lane degradation: the lane omitted its REQUIRED judgment block after schema-retry. */
   judgment_retry_degraded?: string
+  /** Phase 2 V5 — stage-cost inputs (tokens reported by the provider + wall time for this lane). */
+  usage?: { input_tokens?: number; output_tokens?: number }
+  wall_ms?: number
 }
 
 export type LaneSwarmResult = LaneOutcome & { status: 'complete' | 'incomplete' }
@@ -1387,6 +1390,7 @@ export async function runResearchDeepDivePhase(
 
   // ---- Per-lane swarm ----
   const laneResults = await runLaneSwarm(lanes, async (lane) => {
+    const laneStartedAt = Date.now() // Phase 2 V5: per-lane stage-cost wall clock
     // Inject the grounded primary-filing block into the financial-heavy lanes so they have a
     // guaranteed primary citation + real numbers. The lane MUST cite the EDGAR source_id.
     // injectFiling governs the verified-id FORCE-ADD + captured-corpus seeding (so the resolver 10-K id is
@@ -1498,6 +1502,8 @@ export async function runResearchDeepDivePhase(
         confidence: a.confidence,
         caveats: a.caveats,
         verified_ids: withFiling(agent.verified_ids),
+        ...(agent.usage === undefined ? {} : { usage: agent.usage }),
+        wall_ms: Date.now() - laneStartedAt,
         moat_judgment,
         ...(agent.policy_rejections.length > 0 ? { policy_rejections: agent.policy_rejections } : {}),
         ...(validated.status === 'failed'
@@ -1528,6 +1534,8 @@ export async function runResearchDeepDivePhase(
       finding_summary: agent.analysis.finding_summary,
       confidence: agent.analysis.confidence,
       caveats: agent.analysis.caveats,
+      ...(agent.usage === undefined ? {} : { usage: agent.usage }),
+      wall_ms: Date.now() - laneStartedAt,
       verified_ids: withFiling(agent.verified_ids),
       ...(agent.policy_rejections.length > 0 ? { policy_rejections: agent.policy_rejections } : {}),
     }
@@ -1600,6 +1608,15 @@ export async function runResearchDeepDivePhase(
       specialist_lane: lane.lane,
       finding_summary: lane.finding_summary,
       confidence: lane.confidence,
+      // Phase 2 V5: the lane's spend (1 grounded call; tokens when the provider reported usage).
+      ...(lane.wall_ms === undefined ? {} : {
+        stage_cost: {
+          provider_calls: 1,
+          ...(lane.usage?.input_tokens === undefined ? {} : { input_tokens: lane.usage.input_tokens }),
+          ...(lane.usage?.output_tokens === undefined ? {} : { output_tokens: lane.usage.output_tokens }),
+          wall_ms: lane.wall_ms,
+        },
+      }),
       caveats: lane.status === 'incomplete' ? [...lane.caveats, 'status:incomplete'] : lane.caveats,
       source_ids: lane.verified_ids,
       causation_id: started.event_id,
@@ -1623,6 +1640,7 @@ export async function runResearchDeepDivePhase(
   // when an override pins a DIFFERENT provider/model it genuinely runs on a different model than the
   // lanes (catches shared-narrative error single-model cross-checks cannot). Default = the run's model.
   const redTeamRuntime = resolveRoleRuntime('red_team', provider, command)
+  const redTeamStartedAt = Date.now() // Phase 2 V5: red-team stage-cost wall clock
   const corpusBeforeSynthesis = [...accumulated.values()]
   const corpusHashesBeforeSynthesis = new Set<string>()
   for (const s of corpusBeforeSynthesis) {
@@ -1891,6 +1909,7 @@ export async function runResearchDeepDivePhase(
   // (still-parsed) payload — recorded as a visible degraded flag below so the gap is never silent.
   // (Synthesis has no required overlay fields now; this remains for any future required-field addition.)
   let synthesisValidationDegraded: string | undefined
+  const synthesisStartedAt = Date.now() // Phase 2 V5: synthesis stage-cost wall clock
   try {
     const validated = await runValidatedAgent(synthesisRuntime.provider, {
     run_id: `run_${command.research_case_id}_synthesis`,
@@ -2103,6 +2122,11 @@ export async function runResearchDeepDivePhase(
     redTeam,
     synthesisResponse: redTeamSynthesisResponse,
   })
+  // Phase 2 V5: the red-team stage's spend (1 adversarial call; +1 focused response when it fired).
+  ;(redTeamLayer as Record<string, unknown>)['stage_cost'] = {
+    provider_calls: redTeamSynthesisResponse !== undefined ? 2 : 1,
+    wall_ms: Date.now() - redTeamStartedAt,
+  }
 
   const allVerified = [
     ...new Set([
@@ -2126,6 +2150,15 @@ export async function runResearchDeepDivePhase(
     : dec.analysis.open_questions
 
   const synthesis = await draftDeepDiveSynthesis(store, {
+    // Phase 2 V5: the synthesis stage's spend (the monolithic decision call; tokens when reported).
+    ...(dec.usage === undefined ? { stage_cost: { provider_calls: 1, wall_ms: Date.now() - synthesisStartedAt } } : {
+      stage_cost: {
+        provider_calls: 1,
+        ...(dec.usage.input_tokens === undefined ? {} : { input_tokens: dec.usage.input_tokens }),
+        ...(dec.usage.output_tokens === undefined ? {} : { output_tokens: dec.usage.output_tokens }),
+        wall_ms: Date.now() - synthesisStartedAt,
+      },
+    }),
     research_case_id: command.research_case_id,
     synthesis_id: `synthesis_${swarmSeg(command.research_case_id)}`,
     deep_dive_id: started.deep_dive_id,

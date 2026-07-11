@@ -949,6 +949,16 @@ describe('runStrategyResearchSwarm front Shariah gate (S1b)', () => {
     expect(types).toContain('decision_drafted')
     expect(result.decision).toBeDefined()
 
+    // Phase 2 V5: lanes + synthesis stamp their stage_cost (scheduler unattended-spend data).
+    const finding = events.find((e) => e.event_type === 'specialist_finding_recorded')
+    const findingCost = (finding?.payload as { stage_cost?: { provider_calls?: number; wall_ms?: number } }).stage_cost
+    expect(findingCost?.provider_calls).toBe(1)
+    expect(typeof findingCost?.wall_ms).toBe('number')
+    const synthEvent = events.find((e) => e.event_type === 'deep_dive_synthesis_drafted')
+    const synthCost = (synthEvent?.payload as { stage_cost?: { provider_calls?: number; wall_ms?: number } }).stage_cost
+    expect(synthCost?.provider_calls).toBe(1)
+    expect(typeof synthCost?.wall_ms).toBe('number')
+
     // F.2 threading pin: discount = 0.03 anchor + 0.055 equity premium, basis compliant_savings.
     const analysis = events.find((e) => e.event_type === 'buffett_munger_analysis_drafted')
     const av = (analysis?.payload as { valuation?: { discount_rate?: number; discount_inputs?: { risk_free_basis?: string } } }).valuation
