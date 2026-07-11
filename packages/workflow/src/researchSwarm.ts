@@ -2511,6 +2511,10 @@ export async function runResearchDeepDivePhase(
   // The lane's argued growth (if any) may only REDUCE the demonstrated rate. We pass the parsed lane rate
   // when present; creditedGrowth ignores it unless strictly lower. (Lane prose stays in growth_assumptions.)
   const laneArguedGrowth = parseLaneArguedGrowth(dec.analysis.growth_assumptions)
+  // Advisory notes produced BEFORE the sanity_flags block below exists (flag-relevance review,
+  // 2026-07-11): these are QUESTIONS for the human, not harness fallbacks — carrying them in
+  // degraded_flags made healthy dossiers read as damaged. Merged into sanity_flags at declaration.
+  const advisorySanityCarryover: string[] = []
   const growthResult = creditedGrowth(buffettMungerStrategy, {
     demonstrated_growth,
     ...(laneArguedGrowth !== undefined ? { agent_proposed_growth: laneArguedGrowth } : {}),
@@ -2520,7 +2524,7 @@ export async function runResearchDeepDivePhase(
     fundamentals?.annual_series !== undefined && demonstrated_growth > 0 ? 'edgar_oe_cagr' : 'none'
   // Above-GDP coupling flag → surfaced so growth is reviewed WITH the moat-durability input.
   if (moat_passes_gate && growthResult.above_gdp && growthResult.above_gdp_flag !== undefined) {
-    degradedFlags.push(growthResult.above_gdp_flag)
+    advisorySanityCarryover.push(growthResult.above_gdp_flag)
   }
   if (moat_passes_gate && effective_growth_rate === 0) {
     degradedFlags.push(
@@ -2613,9 +2617,9 @@ export async function runResearchDeepDivePhase(
           + `estimate is a guess about the distant future (a moat-durability judgment). Widens the margin of safety.`,
         )
       }
-      // Phase 1.6: the 18× OE cap is a SURFACED flag, not a truncation.
+      // Phase 1.6: the 18× OE cap is a SURFACED flag, not a truncation — an advisory sanity note.
       if (cap_exceeded) {
-        degradedFlags.push(
+        advisorySanityCarryover.push(
           `valuation_cap_exceeded: fair value ${computedFairValue.toFixed(2)} exceeds ${valuation_multiple_ceiling}× owner `
           + `earnings (${(valuation_multiple_ceiling * normalized_owner_earnings_per_share).toFixed(2)}) — a sanity flag, `
           + `not a truncation. Re-check the growth/terminal inputs before relying on the buy-below.`,
@@ -3016,7 +3020,7 @@ export async function runResearchDeepDivePhase(
   // (forward-DCF removal: the old reference-FV terminal-share + reference-FV-cap-multiple sanity flags —
   // which compared against the now-removed dollar reference fair value — are dropped. The reverse-DCF +
   // exit-multiple sanity outputs below are the kept lens.)
-  const sanity_flags: string[] = []
+  const sanity_flags: string[] = [...advisorySanityCarryover]
   const singleGrowthCap = buffettMungerStrategy.valuation.single_growth_cap
   const gdpThreshold = buffettMungerStrategy.valuation.gdp_growth_threshold
   const fvCapMultiple = valuation_multiple_ceiling
@@ -3058,15 +3062,19 @@ export async function runResearchDeepDivePhase(
   // it would buy at). The (d/e) check above catches this only INDIRECTLY via market-implied growth — a
   // contradiction with normal-band implied growth would slip through. This is the direct check. Flag-only —
   // never blocks/clamps the verdict; the model owns the judgment, the human reconciles.
+  // TOLERANCE (flag-relevance review, 2026-07-11): "ATTRACTIVE, but I'd buy a few percent lower" is a
+  // coherent value-investor position, not a contradiction — the flag fires only when the label and the
+  // buy threshold disagree about today's price by MORE than this band (live SPGI noise: $431 vs $420).
+  const BUY_ZONE_COHERENCE_TOLERANCE = 0.05
   if (in_buy_zone !== undefined && buy_below !== undefined && current_price !== undefined) {
-    if (valuation_status === 'EXPENSIVE' && in_buy_zone === true) {
+    if (valuation_status === 'EXPENSIVE' && in_buy_zone === true && current_price < buy_below * (1 - BUY_ZONE_COHERENCE_TOLERANCE)) {
       sanity_flags.push(
         `sanity_status_contradicts_buy_zone: model labels the valuation EXPENSIVE, yet today's price `
         + `($${current_price.toFixed(2)}) is at/below its OWN proposed buy-below ($${buy_below.toFixed(2)}) — `
         + `the label and the buy threshold disagree about today's price. Reconcile (an over-pessimistic label, `
         + `or a buy-below set too high).`,
       )
-    } else if (valuation_status === 'ATTRACTIVE' && in_buy_zone === false) {
+    } else if (valuation_status === 'ATTRACTIVE' && in_buy_zone === false && current_price > buy_below * (1 + BUY_ZONE_COHERENCE_TOLERANCE)) {
       sanity_flags.push(
         `sanity_status_contradicts_buy_zone: model labels the valuation ATTRACTIVE, yet today's price `
         + `($${current_price.toFixed(2)}) is ABOVE its OWN proposed buy-below ($${buy_below.toFixed(2)}) — `

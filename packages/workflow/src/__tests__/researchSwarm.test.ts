@@ -1838,6 +1838,17 @@ describe('RELIGHTENED DECISION — model proposes buy-below; deterministic side 
     expect(flags.some((f) => /implied_growth_above_cap/.test(f))).toBe(false)
   })
 
+  it('SANITY (self-coherence TOLERANCE, 2026-07-11): ATTRACTIVE with the price only slightly above the buy-below → NO flag (coherent "wait for my price")', async () => {
+    // Live SPGI noise: ATTRACTIVE with the price 2.6% above the model's buy-below fired the flag —
+    // but "attractive, I'd buy a few percent lower" is a coherent position. Inside the 5% band → quiet.
+    const { valuation } = await runRelit({
+      id: 'coherence-attractive-nearzone', price: 431, valuationStatus: 'ATTRACTIVE', investmentVerdict: 'WATCH', proposedBuyBelow: 420,
+    })
+    expect(valuation?.['in_buy_zone']).toBe(false)
+    const flags = (valuation?.['sanity_flags'] as string[] | undefined) ?? []
+    expect(flags.some((f) => /contradicts_buy_zone/.test(f))).toBe(false)
+  })
+
   it('SANITY (self-coherence): status EXPENSIVE + price within the model\'s OWN buy-below (in_buy_zone) → contradicts-buy-zone flag (verdict NOT blocked)', async () => {
     // The model's two outputs disagree about TODAY's price: it labels the valuation EXPENSIVE yet sets a
     // proposed_buy_below ABOVE the current price (so in_buy_zone is true — it would buy here per its own
