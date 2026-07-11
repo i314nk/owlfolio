@@ -214,6 +214,14 @@ SPGI runs), kimi under-filling monolithic synthesis fields (net_income 0, missin
 decision_reason "BUY"), and the SPGI amortization collision (merger-intangible D&A vs maintenance
 capex fighting inside one field).
 
+**Status (2026-07-11):** V1 DONE (510b7c7 + bb20521 — always-on stage, stage-first T0 inputs, one
+call per run). V2 DONE (b285dff — uniform required_margin_of_safety 0.25 provisional, T0 grade,
+adequacy retired to narrative-only; owner-validated shape). V3 DONE (d504f95 — option A: fx ×
+assumed-1 ADR w/ visible flag + curated strategies/adrRatios map; DKK pinned offline; NVO LIVE
+acceptance pending). V5 DONE (866258d — lane/synthesis/red-team stage costs). V4 + V6 remain; V4
+deliberately AFTER a live checkpoint (the monolithic fields are the safety net until the stage is
+proven grounded on the live model).
+
 **Slices:**
 - **V1 — the always-on valuation pass + event**: PROMOTE the existing focused
   `runValuationReasoningPass` (today a fallback when the monolithic decision drops
