@@ -192,7 +192,8 @@ export const CircleCompetenceSchema = z.object({
 export const DecisionAgentSchema = z.object({
   investment_verdict: z.enum(['BUY', 'WATCH', 'PASS', 'RESEARCH_MORE']),
   strategy_compliance: z.enum(['COMPLIANT', 'CONDITIONAL', 'NON_COMPLIANT', 'INSUFFICIENT_DATA']),
-  valuation_status: z.enum(['ATTRACTIVE', 'FAIR', 'EXPENSIVE', 'INSUFFICIENT_DATA']),
+  // Phase 2 V4: valuation_status is OWNED by the valuation stage (valuationReasoningPass) — dropped
+  // here (an emitted value is stripped as an unknown key; the stage artifact is the record).
   next_required_action: z.string().min(1),
   decision_reason: z.string().min(1),
   thesis_summary: z.string().min(1),
@@ -211,8 +212,7 @@ export const DecisionAgentSchema = z.object({
   // The harness reads moat_class/runway/rubrics from the moat lane output and the Shariah overlay from
   // the focused pass output; synthesis keeps only synthesis_response (its red-team obligation).
   growth_assumptions: z.string().min(1),
-  // Owner-earnings bridge — totals in $millions, judgment-grounded
-  owner_earnings_bridge: OwnerEarningsBridgeSchema,
+  // Phase 2 V4: the owner_earnings_bridge is OWNED by the valuation stage — dropped here.
   // ROIC inputs. `roic` is reported context; `incremental_roic` (normalized INCREMENTAL ROIC, a
   // fraction, e.g. 0.20) is context the deterministic side records (no longer drives a band verdict).
   roic: z.number(),
@@ -251,37 +251,11 @@ export const DecisionAgentSchema = z.object({
     // margin rests on and why; the human weighs it against the T0 grade).
     reasoning: z.string().min(1),
   }),
-  // RELIGHTENED DECISION (R1): the MODEL proposes the price below which it would buy, WITH its cited
-  // reasoning. This is the buy-below the harness records — NOT a number derived from any fair value.
-  // The deterministic side only sanity-checks it (flag-only, never blocks) + computes the arithmetic
-  // price-vs-buy-below comparison. Required in the schema, but a degraded/absent payload is tolerated by
-  // the harness (it falls back to INSUFFICIENT_DATA / RESEARCH_MORE rather than fabricating a number).
-  proposed_buy_below: z.number(),
-  // The model's CITED valuation reasoning (it shows its work). Replaces the retired band_economics block:
-  // the model OWNS the valuation judgment, so it states the owner-earnings basis it valued, the growth it
-  // assumed, WHY that growth is defensible (cited), and optionally the discount rationale. The harness uses
-  // assumed_growth + the owner-earnings basis ONLY to compute a reference cross-check fair value (a flag-
-  // only sanity-check), never to drive the verdict or the buy-below. Optional so a degraded payload still
-  // flows through (the sanity-check then simply has less to cross-check).
-  valuation_reasoning: z.object({
-    // Cited: the owner-earnings basis the model valued (e.g. "FY25 owner earnings $8.4B per the 10-K").
-    owner_earnings_basis: z.string().min(1),
-    // GROUNDING (founding-risk fix): the source_id (or content_hash) of a VERIFIED primary source from the
-    // model's own proposed_sources / the corpus that backs the owner-earnings figure — a real grounded
-    // source_id, NOT a prose hand-wave. The harness fail-closes the synthesis verdict when this does not
-    // verify against the post-synthesis corpus (deterministic grounding; relevance stays the human's audit).
-    owner_earnings_citation: z.string().min(1),
-    // The near-term growth the model assumed in its valuation (a fraction, e.g. 0.08).
-    assumed_growth: z.number(),
-    // Cited: WHY that growth is defensible (the durable-source argument the model is accountable for).
-    assumed_growth_rationale: z.string().min(1),
-    // GROUNDING (founding-risk fix): the source_id (or content_hash) of a VERIFIED primary source backing
-    // the assumed-growth rationale — a real grounded source_id, NOT a prose hand-wave. Cite-checked exactly
-    // like owner_earnings_citation; an absent/unverifiable citation fail-closes the synthesis verdict.
-    assumed_growth_citation: z.string().min(1),
-    // OPTIONAL: the model's discount-rate reasoning, if it argues one.
-    discount_rationale: z.string().optional(),
-  }).optional(),
+  // Phase 2 V4: proposed_buy_below + valuation_reasoning are OWNED by the valuation stage
+  // (valuationReasoningPass runs ALWAYS between the lanes and synthesis, cite-checked there). The
+  // monolithic schema no longer carries them — a live model kept under-filling these exact fields
+  // (SPGI/COST dogfood), and the focused stage is where the model is reliable. Emitted values are
+  // stripped as unknown keys; the stage artifact drives the T0 valuation (V1b).
   // judgment-objectivity-layer-spec Mechanism 5 — Red-Team Pass obligation. The synthesis_response that
   // answers the red team's strongest objection is NO LONGER produced here: a live model kept dropping it
   // from this monolithic schema (synthesis_schema_retry_exhausted: [synthesis_response]). Following the

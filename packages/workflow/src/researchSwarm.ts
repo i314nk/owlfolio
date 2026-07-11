@@ -1861,20 +1861,9 @@ export async function runResearchDeepDivePhase(
   // its OWN — so the citation fields are REQUIRED (runValidatedAgent retries when the model omits them). The
   // post-synthesis cite-check below then verifies they resolve against the corpus; absent/unverifiable →
   // synthesis_grounding_unmet → RESEARCH_MORE (the model's confident verdict is NOT recorded).
+  // Phase 2 V4: the valuation-citation required-field checks moved WITH the fields to the valuation
+  // stage (runValuationReasoningPass enforces its own citations); synthesis keeps only its audit surface.
   const synthesisRequiredFields: RequiredFieldCheck<z.infer<typeof DecisionAgentSchema>>[] = [
-    {
-      name: 'valuation_reasoning.owner_earnings_citation',
-      present: (a) => (a.valuation_reasoning?.owner_earnings_citation ?? '').length > 0,
-      hint: 'the source_id of a VERIFIED primary source backing the owner-earnings figure (a real grounded source_id, not prose)',
-    },
-    {
-      name: 'valuation_reasoning.assumed_growth_citation',
-      present: (a) => (a.valuation_reasoning?.assumed_growth_citation ?? '').length > 0,
-      hint: 'the source_id of a VERIFIED primary source backing the assumed-growth rationale (a real grounded source_id, not prose)',
-    },
-    // MARGIN-OF-SAFETY AUDIT SURFACE — required + substantive (the schema's .min(1) + the prompt's
-    // specificity instruction + this retry are the guard against empty/boilerplate). Forward-looking model
-    // risk judgments, so deliberately NOT cite-gated — an absent one does NOT route to RESEARCH_MORE.
     {
       name: 'key_wrong_assumption',
       present: (a) => (a.key_wrong_assumption ?? '').trim().length > 0,
@@ -1916,9 +1905,17 @@ export async function runResearchDeepDivePhase(
     model_id: synthesisRuntime.model_id,
     prompt: `You are the Buffett-Munger synthesis+decision agent for ${command.ticker}. `
       + `Using the lane findings, produce a verdict, thesis, evidence, valuation rationale, Shariah rationale, risks, open questions, and a synthesis summary. `
-      + `For the owner_earnings_bridge, provide company TOTALS in $millions from the latest 10-K (net_income, depreciation_amortization, maintenance_capex, stock_based_comp, normalized_working_capital_change) AND shares_outstanding (diluted weighted-average shares outstanding, in MILLIONS) so the harness can compute owner earnings per share. `
       + `Report incremental_roic (normalized INCREMENTAL ROIC as a fraction, e.g. 0.20) alongside reinvestment_rate (reported context). `
-      + `YOU OWN THE VALUATION JUDGMENT. REQUIRED — do not omit: proposed_buy_below — the per-share price BELOW which you would buy, your own number, with your cited reasoning (the harness records it verbatim; it does NOT derive it from any fair value). ALSO produce valuation_reasoning: owner_earnings_basis (CITED — the owner-earnings figure you valued), owner_earnings_citation (REQUIRED — the source_id of a VERIFIED primary source from YOUR proposed_sources / the corpus that backs the owner-earnings figure; a real grounded source_id, NOT a prose hand-wave), assumed_growth (the near-term growth you assumed, a fraction), assumed_growth_rationale (CITED — WHY that growth is defensible; a durable source, not "strong execution"), assumed_growth_citation (REQUIRED — the source_id of a VERIFIED primary source backing that growth rationale; again a real grounded source_id, NOT prose), and optionally discount_rationale. The harness deterministically cite-checks owner_earnings_citation and assumed_growth_citation against the grounded corpus and FAILS CLOSED (routes to RESEARCH_MORE) when either is absent or does not verify — cite real grounded sources of your own. Estimate HONESTLY — do NOT lowball and do NOT over-reach: a growth above ~15% or a price implying it will be FLAGGED as implausible. Set valuation_status (ATTRACTIVE | FAIR | EXPENSIVE | INSUFFICIENT_DATA) consistently with that evidence — the harness sanity-checks it against the market-implied growth in BOTH directions. `
+      // Phase 2 V4: the valuation judgment (owner-earnings bridge, assumed growth + citations, the
+      // buy-below, valuation_status) is OWNED by the dedicated valuation stage that already ran — the
+      // artifact is injected here for RECONCILIATION; this monolithic call no longer carries the fields.
+      + (valuationStageOutcome.status === 'ok'
+        ? `THE VALUATION STAGE already produced the grounded valuation judgment — reconcile with it, do NOT re-value: `
+          + `assumed_growth=${valuationStageOutcome.valuation_reasoning.assumed_growth}, `
+          + `${valuationStageOutcome.valuation_reasoning.proposed_buy_below !== undefined ? `proposed_buy_below=${valuationStageOutcome.valuation_reasoning.proposed_buy_below}, ` : ''}`
+          + `${valuationStageOutcome.valuation_reasoning.valuation_status !== undefined ? `valuation_status=${valuationStageOutcome.valuation_reasoning.valuation_status}, ` : ''}`
+          + `basis: ${valuationStageOutcome.valuation_reasoning.owner_earnings_basis} `
+        : `The valuation stage did not produce a grounded judgment (${valuationStageOutcome.status === 'failed' ? valuationStageOutcome.reason : 'unavailable'}) — the harness records the valuation as ungrounded; write your valuation_rationale accordingly (do not fabricate figures). `)
       + `MARGIN-OF-SAFETY AUDIT SURFACE — REQUIRED, do not omit: key_wrong_assumption and thesis_break_triggers, SPECIFIC to THIS business's thesis. key_wrong_assumption = the SINGLE assumption that, if WRONG, breaks this thesis — name a CONCRETE assumption you actually made (the assumed growth rate, the moat-durability claim, the maintenance-capex judgment), NOT a generic placeholder. thesis_break_triggers = the concrete, OBSERVABLE events that would invalidate the thesis, tied to THIS business (e.g. "gross margin falls below X%", "the top-2 customer concentration rises above Y%", "a funded entrant takes >Z% share") — NOT generic boilerplate like "if growth slows". Vague or generic answers are NOT acceptable. These are your forward-looking RISK reasoning for the human to audit; the harness does NOT cite-check them, but they MUST be substantive and business-specific. IMPORTANT: these REQUIRED audit artifacts do NOT argue against your own verdict — every sound thesis still has a nameable wrong-assumption and concrete break triggers; recording them is bookkeeping for the human, not evidence of fragility. Judge the verdict on the thesis itself. `
       + `MARGIN-OF-SAFETY JOINT JUDGMENT — REQUIRED, do not omit: margin_of_safety. YOU OWN this as a single joint judgment. The margin of safety comes from TWO SUBSTITUTABLE sources: (1) the PRICE-vs-value gap (your proposed_buy_below sits below value), and (2) MOAT DURABILITY (a fortress moat lets TIME bail out estimate error, so it needs LESS price discount). Name in 'sources' which source(s) THIS margin actually rests on — 'price', 'moat', or BOTH (they substitute: a wide-enough moat can carry a thinner price discount, and a deep-enough price discount can carry a narrower moat). For EACH named source give its reasoning: price_gap_reasoning when 'price' (WHY the price gap supplies margin for THIS business), moat_durability_reasoning when 'moat' (WHY the moat's durability supplies margin — and it MUST rest on the GROUNDED moat thesis the moat gate verified above, '${judgment.moat!.resolved_moat_class}', NOT a fresh moat claim). Then give a joint reasoning tying the named source(s) together. Be business-specific, NOT boilerplate. NOTE: do NOT grade the margin's adequacy — the harness computes the margin-of-safety GRADE arithmetically (the buy-below's discount to the reference value vs the uniform required margin); your job is the NARRATIVE of which source(s) carry the margin and why. `
       // The moat/runway classification + rubrics and the Shariah overlay are produced by the MOAT and
@@ -1986,9 +1983,9 @@ export async function runResearchDeepDivePhase(
   // Phase 2 V1b: the valuation STAGE's artifact is the PRIMARY valuation_reasoning; the monolithic
   // decision's block is the legacy fallback (tolerated until V4 drops it). The first candidate whose
   // citations cite-check wins; with none grounded the first candidate carries (visibly unmet below).
+  // Phase 2 V4: the STAGE is the only owner (the monolithic decision no longer carries the block).
   const valuationCandidates: ValuationReasoning[] = [
     ...(valuationStageOutcome.status === 'ok' ? [valuationStageOutcome.valuation_reasoning] : []),
-    ...(dec.analysis.valuation_reasoning !== undefined ? [dec.analysis.valuation_reasoning] : []),
   ]
   let valuationReasoning: ValuationReasoning | undefined = valuationCandidates[0]
   // Cite-check the (possibly-replaced) valuation_reasoning citations against the content_hash-verified corpus.
@@ -2347,10 +2344,8 @@ export async function runResearchDeepDivePhase(
     degradedFlags.push(moatGroundingReason)
   }
 
-  // Phase 2 V1b: the valuation stage's judged bridge inputs are PRIMARY; the monolithic block is the
-  // legacy fallback (V4 drops it from the decision schema).
-  const modelBridge = (valuationStageOutcome.status === 'ok' ? valuationStageOutcome.valuation_reasoning.owner_earnings_bridge : undefined)
-    ?? dec.analysis.owner_earnings_bridge
+  // Phase 2 V4: the valuation stage owns the judged bridge inputs (the monolithic block is gone).
+  const modelBridge = valuationStageOutcome.status === 'ok' ? valuationStageOutcome.valuation_reasoning.owner_earnings_bridge : undefined
 
   // ---- EDGAR-anchored owner-earnings bridge ("judgment proposes, code computes") ----
   // When EDGAR fundamentals are present, the harness anchors NI/D&A/capex/SBC/diluted-shares to the
@@ -2387,7 +2382,18 @@ export async function runResearchDeepDivePhase(
   let maintenance_capex_proxy_reference: number | undefined
 
   if (edgarBridgeUsable && edgarAnnual !== undefined) {
-    const maintenance_fraction = maintenanceFractionForTier(modelBridge.maintenance_capex_proxy_tier)
+    // Phase 2 V4: the judged bridge comes from the valuation stage; when the stage failed (or omitted
+    // it) the harness falls back to CONSERVATIVE deterministic defaults — the most maintenance-heavy
+    // tier ('80'), a zero NI normalization, ΔNWC 0 — deterministic facts + the conservative proxy, no
+    // judgment fabricated, with a visible flag below.
+    if (modelBridge === undefined) {
+      degradedFlags.push(
+        'bridge_judgment_unavailable: the valuation stage supplied no judged owner-earnings bridge — '
+        + "EDGAR-anchored conservative defaults used (tier '80' maintenance fraction, zero NI "
+        + 'normalization, ΔNWC 0). Owner earnings may be understated; re-run for a judged bridge.',
+      )
+    }
+    const maintenance_fraction = maintenanceFractionForTier(modelBridge?.maintenance_capex_proxy_tier ?? '80')
     const edgar_d_and_a = edgarAnnual.d_and_a_musd as number
     const edgar_capex = edgarAnnual.capex_musd as number
     // Net income is ANCHORED to EDGAR's reported figure. The model may propose a one-off NORMALIZATION
@@ -2395,7 +2401,7 @@ export async function runResearchDeepDivePhase(
     // |edgar NI|). A wild proposal — net_income 0 while EDGAR is substantially positive, non-finite, or a
     // delta beyond the band — is CLAMPED + flagged so the EDGAR anchor (not the model) owns the figure.
     // This fixes the prior no-op (edgar + (model − edgar) = model) that let net_income=0 void the valuation.
-    const niAnchor = anchorNetIncomeToEdgar(modelBridge.net_income, edgarAnnual.net_income_musd!)
+    const niAnchor = anchorNetIncomeToEdgar(modelBridge?.net_income ?? edgarAnnual.net_income_musd!, edgarAnnual.net_income_musd!)
     net_income = niAnchor.value
     if (niAnchor.clamped && niAnchor.flag !== undefined) degradedFlags.push(niAnchor.flag)
     d_and_a = edgar_d_and_a
@@ -2421,7 +2427,7 @@ export async function runResearchDeepDivePhase(
     // model's value for the same violation understates OE and skews every implied-growth/fair-value read.
     const uncappedSafeMaint = maintenance_capex_proxy_reference ?? legacyMaint
     const safeMaint = Number.isFinite(edgar_capex) ? Math.min(uncappedSafeMaint, edgar_capex) : uncappedSafeMaint
-    const modelMaint = modelBridge.maintenance_capex
+    const modelMaint = modelBridge?.maintenance_capex ?? safeMaint // stage-absent → the safe value binds
     if (!Number.isFinite(edgar_capex)) {
       // Without a total-capex upper bound the envelope cannot be enforced — fall back to the safe value.
       maintenance_capex = safeMaint
@@ -2457,6 +2463,18 @@ export async function runResearchDeepDivePhase(
     shares_outstanding = edgarAnnual.diluted_shares_m as number  // CURRENT diluted shares
     bridge_fiscal_year = edgarAnnual.fiscal_year
     bridge_source_id = primaryFilingSourceId
+  } else if (modelBridge === undefined) {
+    // Phase 2 V4: no EDGAR anchor AND no judged bridge — there is nothing to compute owner earnings
+    // from. Degrade visibly; the per-share valuation stays uncomputed (INSUFFICIENT_DATA downstream).
+    degradedFlags.push(
+      'bridge_judgment_unavailable: the valuation stage supplied no judged owner-earnings bridge and no '
+      + 'EDGAR fundamentals resolved — owner earnings not computable (fail-closed).',
+    )
+    net_income = Number.NaN
+    d_and_a = Number.NaN
+    maintenance_capex = Number.NaN
+    stock_based_comp = Number.NaN
+    shares_outstanding = Number.NaN
   } else {
     net_income = modelBridge.net_income
     d_and_a = modelBridge.depreciation_amortization
@@ -2479,11 +2497,12 @@ export async function runResearchDeepDivePhase(
   // exceeds |revenue| (or is non-finite) is implausible (units/scale error) and discarded (→ 0) with a
   // visible flag, rather than feeding a spurious OE swing. (The sign is preserved when accepted.)
   const revenueForNwc = fundamentals?.latest_annual?.revenue_musd
+  const proposedNwc = modelBridge?.normalized_working_capital_change ?? 0
   const nwcSanity = revenueForNwc !== undefined && Number.isFinite(revenueForNwc)
-    ? sanitizeWorkingCapitalChange(modelBridge.normalized_working_capital_change, { revenue: revenueForNwc })
-    : (Number.isFinite(modelBridge.normalized_working_capital_change)
-      ? { value: modelBridge.normalized_working_capital_change, rejected: false as const }
-      : { value: undefined, rejected: true as const, flag: `range_check_rejected: normalized_working_capital_change=${modelBridge.normalized_working_capital_change} is non-finite. Value discarded (treated as 0).` })
+    ? sanitizeWorkingCapitalChange(proposedNwc, { revenue: revenueForNwc })
+    : (Number.isFinite(proposedNwc)
+      ? { value: proposedNwc, rejected: false as const }
+      : { value: undefined, rejected: true as const, flag: `range_check_rejected: normalized_working_capital_change=${proposedNwc} is non-finite. Value discarded (treated as 0).` })
   if (nwcSanity.rejected && 'flag' in nwcSanity && nwcSanity.flag !== undefined) degradedFlags.push(nwcSanity.flag)
   const normalized_working_capital_change = nwcSanity.value ?? 0
 
@@ -2498,7 +2517,7 @@ export async function runResearchDeepDivePhase(
     net_income,
     depreciation_amortization: d_and_a,
     maintenance_capex,
-    maintenance_capex_proxy_tier: modelBridge.maintenance_capex_proxy_tier,
+    maintenance_capex_proxy_tier: modelBridge?.maintenance_capex_proxy_tier ?? '80',
     stock_based_comp,
     normalized_working_capital_change,
     shares_outstanding,
@@ -3088,9 +3107,9 @@ export async function runResearchDeepDivePhase(
   // (owner-earnings / price) is missing. There is NO band-derived verdict.
   const dr = valuationReasoning
   const assumed_growth = dr?.assumed_growth
-  // Phase 2 V1b: stage-first (the monolithic field is the legacy fallback until V4 drops it).
-  const valuation_status = (valuationStageOutcome.status === 'ok' ? valuationStageOutcome.valuation_reasoning.valuation_status : undefined)
-    ?? dec.analysis.valuation_status
+  // Phase 2 V4: the valuation stage owns valuation_status (undefined when the stage failed → the
+  // analysis emission falls back to INSUFFICIENT_DATA below, honestly).
+  const valuation_status = valuationStageOutcome.status === 'ok' ? valuationStageOutcome.valuation_reasoning.valuation_status : undefined
 
   // forward-DCF removal: the forward two-stage DCF "reference fair value" (a dollar cross-check FV at the
   // model's assumed growth) is no longer computed or surfaced — a dollar reference FV below the model's
@@ -3098,8 +3117,7 @@ export async function runResearchDeepDivePhase(
   // valuation lens; the buy-below is the model's own number.
 
   // buy_below = the MODEL's proposed number (NOT a derived FV). Recorded verbatim when finite + positive.
-  const proposedBuyBelowRaw = (valuationStageOutcome.status === 'ok' ? valuationStageOutcome.valuation_reasoning.proposed_buy_below : undefined)
-    ?? dec.analysis.proposed_buy_below
+  const proposedBuyBelowRaw = valuationStageOutcome.status === 'ok' ? valuationStageOutcome.valuation_reasoning.proposed_buy_below : undefined
   const buy_below = (typeof proposedBuyBelowRaw === 'number'
     && Number.isFinite(proposedBuyBelowRaw)
     && proposedBuyBelowRaw > 0)

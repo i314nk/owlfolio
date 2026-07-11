@@ -130,12 +130,15 @@ export function buildValuationReasoningPrompt(args: RunValuationReasoningPassArg
     + `  - assumed_growth_rationale: WHY that growth is defensible, CITED (a durable source, not "strong execution").\n`
     + `  - assumed_growth_citation: REQUIRED — the source_id of a VERIFIED primary source backing the growth `
     + `rationale (again a real grounded source_id, NOT prose).\n`
-    + `  - proposed_buy_below: the price (in the quote currency) at/below which you would buy — your judged `
+    + `  - proposed_buy_below: the price at/below which you would buy, in the US-LISTED quote currency (USD `
+    + `per ADR/share for foreign filers — NEVER the local-exchange or reporting currency) — your judged `
     + `margin-of-safety entry. The harness deterministically cross-checks it (reverse-DCF implied growth, `
     + `buy-zone coherence); an entry price that itself implies above-cap growth derates the verdict.\n`
     + `  - valuation_status: ATTRACTIVE | FAIR | EXPENSIVE | INSUFFICIENT_DATA — your qualitative read of `
     + `TODAY's price vs value (keep it coherent with your own proposed_buy_below).\n`
-    + `  - owner_earnings_bridge: your judged bridge INPUTS from the filing numbers above (net_income, `
+    + `  - owner_earnings_bridge: your judged bridge INPUTS from the filing numbers above, in the FILING'S `
+    + `REPORTING currency and labeled as such in your basis text (say "DKK 100.5B", not "$100.5B", for a DKK `
+    + `filer) (net_income, `
     + `depreciation_amortization, maintenance_capex + maintenance_capex_proxy_tier ('20'|'50'|'80'), `
     + `stock_based_comp, normalized_working_capital_change, shares_outstanding — $M and millions of shares). `
     + `The harness anchors NI/D&A/SBC/shares to EDGAR and bounds maintenance_capex by total capex; your real `
@@ -169,6 +172,23 @@ export async function runValuationReasoningPass(
   deps: { ground?: GroundFn; grounding?: GroundingDeps } = {},
 ): Promise<ValuationReasoningOutcome> {
   const requiredFields: RequiredFieldCheck<ValuationReasoningAnalysis>[] = [
+    // Phase 2 V4: the stage OWNS the buy-below / status / bridge — retry-forced (schema stays optional so
+    // an exhausted retry degrades to the visible failed outcome instead of a hard throw).
+    {
+      name: 'valuation_reasoning.proposed_buy_below',
+      present: (a) => typeof a.valuation_reasoning?.proposed_buy_below === 'number' && Number.isFinite(a.valuation_reasoning.proposed_buy_below) && a.valuation_reasoning.proposed_buy_below > 0,
+      hint: 'the price at/below which you would buy, in the US-LISTED quote currency (a positive number)',
+    },
+    {
+      name: 'valuation_reasoning.valuation_status',
+      present: (a) => a.valuation_reasoning?.valuation_status !== undefined,
+      hint: "ATTRACTIVE | FAIR | EXPENSIVE | INSUFFICIENT_DATA — your read of TODAY's price vs value",
+    },
+    {
+      name: 'valuation_reasoning.owner_earnings_bridge',
+      present: (a) => a.valuation_reasoning?.owner_earnings_bridge !== undefined,
+      hint: 'your judged bridge inputs (net_income, depreciation_amortization, maintenance_capex + proxy tier, stock_based_comp, normalized_working_capital_change, shares_outstanding) in the reporting currency',
+    },
     {
       name: 'valuation_reasoning.owner_earnings_citation',
       present: (a) => (a.valuation_reasoning?.owner_earnings_citation ?? '').length > 0,

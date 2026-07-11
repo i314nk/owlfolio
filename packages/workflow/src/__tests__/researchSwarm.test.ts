@@ -1286,6 +1286,9 @@ function configurableSwarmProvider(opts: {
     proposed_buy_below?: number
     valuation_status?: 'ATTRACTIVE' | 'FAIR' | 'EXPENSIVE' | 'INSUFFICIENT_DATA'
   }
+  // Phase 2 V4: make the STAGE omit its artifact (the retry-exhaust path) — the default now supplies
+  // the full artifact derived from the SAME synthesis overrides, since the stage owns the valuation.
+  stageOmitsValuation?: boolean
   // Counter the test reads to confirm the focused call fired (or, for the happy path, did NOT).
   valuationReasoningCalls?: { count: number }
   // A1 hole repro: the decision agent proposes BOTH a verified ('src_dec_good_1') and a
@@ -1404,11 +1407,28 @@ function configurableSwarmProvider(opts: {
       // FOCUSED valuation-reasoning call (the fallback when the monolithic decision drops/ungrounds it).
       if (schemaName === 'BuffettMungerValuationReasoning') {
         if (opts.valuationReasoningCalls !== undefined) opts.valuationReasoningCalls.count += 1
+        // Phase 2 V4: the STAGE owns the valuation — derive the full artifact from the SAME overrides the
+        // monolithic synthesis used to carry, so the deterministic-side tests keep their semantics.
+        if (opts.stageOmitsValuation === true) {
+          return { proposed_sources: [src('src_vr_focused_1')] }
+        }
+        const vrOverride = opts.synthesis?.valuation_reasoning ?? opts.valuationReasoningResponse
         return {
-          // Omit valuation_reasoning entirely when no response configured (→ the required field is missing →
-          // the focused call also fails to ground → RESEARCH_MORE + valuation_reasoning_retry_exhausted).
-          ...(opts.valuationReasoningResponse !== undefined ? { valuation_reasoning: opts.valuationReasoningResponse } : {}),
-          proposed_sources: [src('src_vr_focused_1')],
+          valuation_reasoning: {
+            ...(vrOverride ?? {
+              owner_earnings_basis: 'FY25 owner earnings per the 10-K bridge.',
+              owner_earnings_citation: 'src_dec_1',
+              assumed_growth: 0.06,
+              assumed_growth_rationale: 'Modest growth grounded in segment capex, cited to the 10-K.',
+              assumed_growth_citation: 'src_dec_1',
+            }),
+            proposed_buy_below: (vrOverride as { proposed_buy_below?: number } | undefined)?.proposed_buy_below
+              ?? opts.synthesis?.proposed_buy_below ?? 150,
+            valuation_status: (vrOverride as { valuation_status?: 'ATTRACTIVE' | 'FAIR' | 'EXPENSIVE' | 'INSUFFICIENT_DATA' } | undefined)?.valuation_status
+              ?? opts.valuationStatus ?? 'EXPENSIVE',
+            owner_earnings_bridge: opts.synthesis?.owner_earnings_bridge ?? baseBridge,
+          },
+          proposed_sources: [src('src_dec_1'), src('src_vr_focused_1')],
         }
       }
       // synthesis/decision (BuffettMungerSynthesisDecision)
@@ -3280,6 +3300,31 @@ function swarmFakeProviderWithShariah(
           proposed_sources: [src('src_qs_1')],
         }
       }
+      // Phase 2 V4: the valuation STAGE owns the bridge/buy-below/status/reasoning — serve the same
+      // overrides here (the monolithic fields below are stripped by the slimmed decision schema).
+      if (schemaName === 'BuffettMungerValuationReasoning') {
+        return {
+          valuation_reasoning: {
+            // Default = UNGROUNDED citations (preserves this fake's contract: no override → the A1
+            // grounding gate fails → RESEARCH_MORE, headline omitted) while the BRIDGE still binds.
+            ...(valuationReasoningOverride ?? {
+              owner_earnings_basis: 'FY OE per the 10-K bridge.',
+              owner_earnings_citation: 'src_ungrounded_basis',
+              assumed_growth: 0.06,
+              assumed_growth_rationale: 'Asserted, not grounded.',
+              assumed_growth_citation: 'src_ungrounded_basis',
+            }),
+            proposed_buy_below: 150,
+            valuation_status: 'EXPENSIVE',
+            owner_earnings_bridge: bridgeOverride ?? {
+              net_income: 8099, depreciation_amortization: 999, maintenance_capex: 1,
+              maintenance_capex_proxy_tier: '80', stock_based_comp: 1,
+              normalized_working_capital_change: 0, shares_outstanding: 1,
+            },
+          },
+          proposed_sources: [src('src_dec_1')],
+        }
+      }
       return {
         investment_verdict: 'WATCH', strategy_compliance: 'CONDITIONAL', valuation_status: 'EXPENSIVE',
         next_required_action: 'Await MoS.', decision_reason: 'Quality but pricey', thesis_summary: 'Compounder',
@@ -4317,8 +4362,11 @@ describe('FOCUSED valuation-reasoning fallback (when the monolithic decision dro
       assumed_growth: number
       assumed_growth_rationale: string
       assumed_growth_citation: string
+      proposed_buy_below?: number
+      valuation_status?: 'ATTRACTIVE' | 'FAIR' | 'EXPENSIVE' | 'INSUFFICIENT_DATA'
     }
     valuationReasoningCalls?: { count: number }
+    stageOmitsValuation?: boolean
     ground?: GroundFn
   }) {
     const store = new InMemoryEventStore()
@@ -4329,6 +4377,7 @@ describe('FOCUSED valuation-reasoning fallback (when the monolithic decision dro
       ...(opts.omitValuationReasoning !== undefined ? { omitValuationReasoning: opts.omitValuationReasoning } : {}),
       ...(opts.valuationReasoningResponse !== undefined ? { valuationReasoningResponse: opts.valuationReasoningResponse } : {}),
       ...(opts.valuationReasoningCalls !== undefined ? { valuationReasoningCalls: opts.valuationReasoningCalls } : {}),
+      ...(opts.stageOmitsValuation !== undefined ? { stageOmitsValuation: opts.stageOmitsValuation } : {}),
     })
     const sourceLedgerPath = await mkdtemp(join(tmpdir(), `owlfolio-vr-${opts.id}-`))
     await runStrategyResearchSwarm(
@@ -4407,7 +4456,7 @@ describe('FOCUSED valuation-reasoning fallback (when the monolithic decision dro
     const { valuation, cp } = await runVR({
       id: 'vr-exhausted',
       omitValuationReasoning: true,
-      // No valuationReasoningResponse → the focused call omits the required field → retries exhaust.
+      stageOmitsValuation: true, // V4: the stage is the only owner — force ITS omission for the exhaust path
     })
     expect(valuation?.['synthesis_grounding_unmet']).toBe(true)
     expect(cp?.investment_verdict).toBe('RESEARCH_MORE')
@@ -5536,7 +5585,9 @@ describe('runStrategyResearchSwarm — synthesis own-grounding fail-closed (foun
     // Wiring-conformance: with the decision agent producing NO valuation_reasoning at all (and so no
     // citations), the recorded decision verdict MUST be RESEARCH_MORE + synthesis_grounding_unmet — NEVER
     // the model's confident investment_verdict. This guards the founding-risk gate at the final verdict.
-    const { cp } = await runWithSynthesis('rc_g_trip', { investmentVerdict: 'BUY', omitValuationReasoning: true })
+    // V4: the STAGE is the sole owner — the tripwire now forces the stage to omit (the monolithic
+    // fields no longer exist to omit).
+    const { cp } = await runWithSynthesis('rc_g_trip', { investmentVerdict: 'BUY', omitValuationReasoning: true, stageOmitsValuation: true })
     expect(cp?.valuation?.synthesis_grounding_unmet).toBe(true)
     expect(cp?.investment_verdict ?? cp?.decision).toBe('RESEARCH_MORE')
     expect(cp?.investment_verdict ?? cp?.decision).not.toBe('BUY')
