@@ -992,3 +992,94 @@ describe('10-Q numbers are quarantined from the annual recompute (Slice B)', () 
     expect(f!.latest_annual.net_income_musd).toBe(1000)
   })
 })
+
+// ---------------------------------------------------------------------------------------------------
+// S1 (Phase 3 pillars): payout + gross-profit T0 foundations. The management-talent block and the
+// three named moat tests need gross profit (standout test), dividends and buybacks (payout
+// discipline, retained-earnings test) — none of which the adapter extracted before. All three are
+// OPTIONAL AnnualFacts fields: a filer that does not tag them yields undefined and every downstream
+// consumer must degrade to { computable: false } (fail-closed), mirroring gross_ppe_musd.
+// ---------------------------------------------------------------------------------------------------
+describe('S1 — gross profit, dividends, buybacks extraction', () => {
+  const M = 1_000_000
+  function annualFacts(values: Record<number, number>, unit = 'USD', scale = M): unknown {
+    const units: Record<string, unknown[]> = { [unit]: [] }
+    for (const [yearStr, val] of Object.entries(values)) {
+      const year = Number(yearStr)
+      ;(units[unit] as unknown[]).push({
+        start: `${year}-01-01`, end: `${year}-12-31`, val: val * scale,
+        form: '10-K', fy: year, fp: 'FY', filed: `${year + 1}-02-15`, frame: `CY${year}`,
+      })
+    }
+    return { label: 'x', units }
+  }
+  const base = {
+    NetIncomeLoss: annualFacts({ 2024: 90, 2025: 100 }),
+    Revenues: annualFacts({ 2024: 900, 2025: 1000 }),
+  }
+
+  it('extracts gross profit from the direct GrossProfit concept', async () => {
+    const facts = { entityName: 'GrossCo', facts: { 'us-gaap': { ...base, GrossProfit: annualFacts({ 2024: 360, 2025: 420 }) } } }
+    const f = await fetchCompanyFundamentals('0000000001', { fetchImpl: fakeFactsFetch(facts) })
+    expect(f?.latest_annual.gross_profit_musd).toBeCloseTo(420, 0)
+    expect(f?.annual_series.find((a) => a.fiscal_year === 2024)?.gross_profit_musd).toBeCloseTo(360, 0)
+  })
+
+  it('derives gross profit = revenue − COGS when GrossProfit is untagged (per year, both required)', async () => {
+    const facts = {
+      entityName: 'DeriveCo',
+      facts: { 'us-gaap': { ...base, CostOfRevenue: annualFacts({ 2025: 580 }) } }, // 2024 has no COGS
+    }
+    const f = await fetchCompanyFundamentals('0000000001', { fetchImpl: fakeFactsFetch(facts) })
+    expect(f?.latest_annual.gross_profit_musd).toBeCloseTo(420, 0) // 1000 − 580
+    // 2024: revenue tagged but COGS absent → NO derived figure (never fabricate from one side).
+    expect(f?.annual_series.find((a) => a.fiscal_year === 2024)?.gross_profit_musd).toBeUndefined()
+  })
+
+  it('derives via the CostOfGoodsAndServicesSold variant, and a tagged GrossProfit year is never overwritten', async () => {
+    const facts = {
+      entityName: 'MixCo',
+      facts: {
+        'us-gaap': {
+          ...base,
+          GrossProfit: annualFacts({ 2024: 350 }), // tagged for 2024 only
+          CostOfGoodsAndServicesSold: annualFacts({ 2024: 999, 2025: 600 }), // 2024 derived value would be 900−999 <0 — must not win
+        },
+      },
+    }
+    const f = await fetchCompanyFundamentals('0000000001', { fetchImpl: fakeFactsFetch(facts) })
+    expect(f?.annual_series.find((a) => a.fiscal_year === 2024)?.gross_profit_musd).toBeCloseTo(350, 0)
+    expect(f?.latest_annual.gross_profit_musd).toBeCloseTo(400, 0) // 2025 derived: 1000 − 600
+  })
+
+  it('extracts dividends paid with per-year precedence (common-stock concept first, combined fills the gaps)', async () => {
+    const facts = {
+      entityName: 'PayoutCo',
+      facts: {
+        'us-gaap': {
+          ...base,
+          PaymentsOfDividendsCommonStock: annualFacts({ 2025: 40 }),
+          PaymentsOfDividends: annualFacts({ 2024: 33, 2025: 44 }), // 2025 loses to the common-stock concept
+        },
+      },
+    }
+    const f = await fetchCompanyFundamentals('0000000001', { fetchImpl: fakeFactsFetch(facts) })
+    expect(f?.latest_annual.dividends_paid_musd).toBeCloseTo(40, 0)
+    expect(f?.annual_series.find((a) => a.fiscal_year === 2024)?.dividends_paid_musd).toBeCloseTo(33, 0)
+  })
+
+  it('extracts buybacks from PaymentsForRepurchaseOfCommonStock', async () => {
+    const facts = { entityName: 'BuybackCo', facts: { 'us-gaap': { ...base, PaymentsForRepurchaseOfCommonStock: annualFacts({ 2024: 12, 2025: 15 }) } } }
+    const f = await fetchCompanyFundamentals('0000000001', { fetchImpl: fakeFactsFetch(facts) })
+    expect(f?.latest_annual.buybacks_musd).toBeCloseTo(15, 0)
+    expect(f?.annual_series.find((a) => a.fiscal_year === 2024)?.buybacks_musd).toBeCloseTo(12, 0)
+  })
+
+  it('yields undefined for all three when the filer tags none of them (fail-closed downstream)', async () => {
+    const facts = { entityName: 'BareCo', facts: { 'us-gaap': { ...base } } }
+    const f = await fetchCompanyFundamentals('0000000001', { fetchImpl: fakeFactsFetch(facts) })
+    expect(f?.latest_annual.gross_profit_musd).toBeUndefined()
+    expect(f?.latest_annual.dividends_paid_musd).toBeUndefined()
+    expect(f?.latest_annual.buybacks_musd).toBeUndefined()
+  })
+})

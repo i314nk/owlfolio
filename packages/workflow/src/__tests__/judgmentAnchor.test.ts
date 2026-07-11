@@ -105,3 +105,20 @@ describe('computeRunwayAnchor — R1 from incremental ROIC', () => {
     expect(anchor.computable).toBe(false)
   })
 })
+
+// S1 (Phase 3 pillars): the per-year ratio helpers are exported so the moat tests (S2) and the
+// management talent block (S5) reuse the SAME arithmetic the anchor uses (one source of truth).
+describe('S1 — exported per-year ratio helpers', () => {
+  it('yearGrossMargin = gross_profit / revenue; undefined when either side is missing or revenue ≤ 0', async () => {
+    const { yearGrossMargin } = await import('../judgmentAnchor')
+    expect(yearGrossMargin({ fiscal_year: 2025, currency: 'USD', revenue_musd: 1000, gross_profit_musd: 420 })).toBeCloseTo(0.42, 6)
+    expect(yearGrossMargin({ fiscal_year: 2025, currency: 'USD', revenue_musd: 1000 })).toBeUndefined()
+    expect(yearGrossMargin({ fiscal_year: 2025, currency: 'USD', gross_profit_musd: 420 })).toBeUndefined()
+    expect(yearGrossMargin({ fiscal_year: 2025, currency: 'USD', revenue_musd: 0, gross_profit_musd: 1 })).toBeUndefined()
+  })
+  it('yearRoic and yearOperatingMargin are exported (S2 reuses the anchor arithmetic)', async () => {
+    const mod = await import('../judgmentAnchor')
+    expect(typeof mod.yearRoic).toBe('function')
+    expect(typeof mod.yearOperatingMargin).toBe('function')
+  })
+})

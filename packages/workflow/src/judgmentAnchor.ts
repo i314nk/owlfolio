@@ -129,8 +129,12 @@ function investedCapitalProxy(a: AnnualFacts): number | undefined {
   return equity + (Number.isFinite(debt) ? debt : 0) - (Number.isFinite(cash) ? cash : 0)
 }
 
-/** Per-year ROIC = NOPAT / invested capital. undefined when either proxy is missing/non-positive IC. */
-function yearRoic(a: AnnualFacts): number | undefined {
+/**
+ * Per-year ROIC = NOPAT / invested capital. undefined when either proxy is missing/non-positive IC.
+ * Exported (S1): the moat tests (capital-efficiency) and the management talent block reuse the SAME
+ * arithmetic the anchor uses — one source of truth, never recomputed differently.
+ */
+export function yearRoic(a: AnnualFacts): number | undefined {
   const nopat = nopatProxy(a)
   const ic = investedCapitalProxy(a)
   if (nopat === undefined || ic === undefined || !(ic > 0)) return undefined
@@ -138,11 +142,19 @@ function yearRoic(a: AnnualFacts): number | undefined {
 }
 
 /** Per-year operating margin = operating income / revenue. undefined when either is missing/<=0 rev. */
-function yearOperatingMargin(a: AnnualFacts): number | undefined {
+export function yearOperatingMargin(a: AnnualFacts): number | undefined {
   const op = a.operating_income_musd
   const rev = a.revenue_musd
   if (op === undefined || rev === undefined || !(rev > 0)) return undefined
   return op / rev
+}
+
+/** Per-year gross margin = gross profit / revenue. undefined when either is missing/<=0 rev. */
+export function yearGrossMargin(a: AnnualFacts): number | undefined {
+  const gp = a.gross_profit_musd
+  const rev = a.revenue_musd
+  if (gp === undefined || rev === undefined || !(rev > 0)) return undefined
+  return gp / rev
 }
 
 // ---------------------------------------------------------------------------

@@ -77,6 +77,16 @@ export type AnnualFacts = {
   impermissible_income_lines?: ImpermissibleIncomeLine[]
   /** Stockholders' equity (instant), $millions — for the invested-capital proxy. */
   stockholders_equity_musd?: number
+  /**
+   * Gross profit (annual flow), $millions — direct `GrossProfit`, else derived revenue − COGS for
+   * years where BOTH sides are tagged (never fabricated from one side). Drives the standout moat
+   * test's company-side gross-margin series. Absent → the test degrades to not-computable.
+   */
+  gross_profit_musd?: number
+  /** Dividends paid (cash outflow, annual flow), $millions — payout discipline + retained-earnings test. */
+  dividends_paid_musd?: number
+  /** Common-stock repurchases (cash outflow, annual flow), $millions — payout discipline. */
+  buybacks_musd?: number
   /** Operating income/loss (annual flow), $millions — for the NOPAT proxy. */
   operating_income_musd?: number
   /** Income tax expense/benefit (annual flow), $millions — for the effective-tax-rate NOPAT proxy. */
@@ -1029,6 +1039,14 @@ type ConceptMap = {
   incomeTax: string
   /** Gross PP&E (instant) — for the Greenwald maintenance-capex proxy (Phase 1.2). Empty when unmapped. */
   grossPpe: string[]
+  /** Gross profit (annual flow) — direct concept; per-year fallback derives revenue − COGS. */
+  grossProfit: string[]
+  /** Cost of revenue/goods-sold variants, for the derived gross-profit fallback ONLY. */
+  costOfRevenue: string[]
+  /** Dividends paid (cash outflow), per-year precedence: common-stock concept first, combined fills gaps. */
+  dividendsPaid: string[]
+  /** Common-stock repurchases (cash outflow). */
+  buybacks: string[]
 }
 
 const US_GAAP_CONCEPTS: ConceptMap = {
@@ -1144,6 +1162,15 @@ const US_GAAP_CONCEPTS: ConceptMap = {
   // depreciation variant some filers tag. Net PP&E is intentionally NOT used (the Greenwald proxy needs
   // gross). Absent → Greenwald degrades to the D&A floor.
   grossPpe: ['PropertyPlantAndEquipmentGross', 'PropertyPlantAndEquipmentGrossExcludingCapitalizedComputerSoftwareCosts'],
+  // Gross profit: the direct income-statement concept; filers that tag only revenue + COGS resolve via
+  // the derived revenue − COGS fallback in buildAnnualSeries (both sides required per year).
+  grossProfit: ['GrossProfit'],
+  costOfRevenue: ['CostOfRevenue', 'CostOfGoodsAndServicesSold', 'CostOfGoodsSold'],
+  // Dividends: the common-stock concept first (parent-only); the combined `PaymentsOfDividends`
+  // (may include preferred/NCI — a documented conservative overcount for the payout view) fills
+  // years the specific concept omits.
+  dividendsPaid: ['PaymentsOfDividendsCommonStock', 'PaymentsOfDividends'],
+  buybacks: ['PaymentsForRepurchaseOfCommonStock'],
 }
 
 // IFRS (ifrs-full) equivalents for a foreign private issuer's 20-F/40-F. Mapped per the probe of Novo
@@ -1200,6 +1227,12 @@ const IFRS_CONCEPTS: ConceptMap = {
   // IFRS gross PP&E (instant) best-effort: the gross cost-model carrying amount. Absent for many IFRS
   // filers (they disclose only net PP&E on the face) → Greenwald degrades to the D&A floor.
   grossPpe: ['PropertyPlantAndEquipmentGrossCarryingAmount', 'GrossCarryingAmountPropertyPlantAndEquipment'],
+  // IFRS payout/gross-profit best-effort (per the ifrs-full taxonomy's cash-flow examples); absent
+  // for a given filer → undefined, downstream degrades to not-computable exactly like grossPpe.
+  grossProfit: ['GrossProfit'],
+  costOfRevenue: ['CostOfSales'],
+  dividendsPaid: ['DividendsPaidClassifiedAsFinancingActivities', 'DividendsPaid'],
+  buybacks: ['PaymentsToAcquireOrRedeemEntitysShares'],
 }
 
 function conceptMapFor(taxonomy: Taxonomy): ConceptMap {
@@ -1466,6 +1499,18 @@ function buildAnnualSeries(facts: CompanyFacts, taxonomy: Taxonomy, currency: Re
   const impCombined = firstPopulatedByYearWithConcept(facts, taxonomy, cm.impermissibleIncome.combined)
   // Gross PP&E (instant) per fiscal year — first populated candidate wins; absent → Greenwald proxy degrades.
   const grossPpe = firstPopulatedByYear(facts, taxonomy, cm.grossPpe)
+  // Gross profit: the direct concept per year; for years it omits, derive revenue − COGS ONLY when
+  // both sides report that year (never fabricated from one side). A tagged year is never overwritten.
+  const grossProfit = firstPopulatedByYear(facts, taxonomy, cm.grossProfit)
+  const costOfRevenue = firstPopulatedByYear(facts, taxonomy, cm.costOfRevenue)
+  for (const [fy, rev] of revenue) {
+    if (grossProfit.has(fy)) continue
+    const cogs = costOfRevenue.get(fy)
+    if (cogs !== undefined) grossProfit.set(fy, rev - cogs)
+  }
+  // Payout flows (cash outflows, positive magnitudes as tagged), per-year precedence.
+  const dividendsPaid = firstPopulatedByYear(facts, taxonomy, cm.dividendsPaid)
+  const buybacks = firstPopulatedByYear(facts, taxonomy, cm.buybacks)
   const stockholdersEquity = annualByFiscalYear(facts, taxonomy, cm.stockholdersEquity)
   const operatingIncome = annualByFiscalYear(facts, taxonomy, cm.operatingIncome)
   const incomeTax = annualByFiscalYear(facts, taxonomy, cm.incomeTax)
@@ -1517,6 +1562,9 @@ function buildAnnualSeries(facts: CompanyFacts, taxonomy: Taxonomy, currency: Re
     set('stockholders_equity_musd', toMusd(stockholdersEquity.get(fy)))
     set('operating_income_musd', toMusd(operatingIncome.get(fy)))
     set('income_tax_expense_musd', toMusd(incomeTax.get(fy)))
+    set('gross_profit_musd', toMusd(grossProfit.get(fy)))
+    set('dividends_paid_musd', toMusd(dividendsPaid.get(fy)))
+    set('buybacks_musd', toMusd(buybacks.get(fy)))
     series.push(row)
   }
   return series
