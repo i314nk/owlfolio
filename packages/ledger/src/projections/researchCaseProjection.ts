@@ -297,6 +297,13 @@ export type ResearchCaseCircleCompetenceProjection = {
 }
 
 export type ResearchCaseValuationProjection = {
+  /** Phase 2 V3: the deterministic foreign-filer FX/ADR conversion provenance (price-currency basis). */
+  fx_conversion?: {
+    reporting_currency?: string
+    fx_rate_to_usd?: number
+    adr_ordinary_per_listed?: number
+    adr_ratio_source?: string
+  }
   /** Phase 2 V2: the T0-computed margin-of-safety grade (audit-only; the model no longer grades). */
   margin_of_safety_grade?: {
     grade: 'adequate' | 'thin' | 'inadequate'
@@ -1601,6 +1608,19 @@ function getValuation(payload: Record<string, unknown>): ResearchCaseValuationPr
       ...(risk_free_rate !== undefined ? { risk_free_rate } : {}),
       ...(risk_free_basis !== undefined ? { risk_free_basis } : {}),
       ...(equity_premium !== undefined ? { equity_premium } : {}),
+    }
+  }
+  const fxRaw = value['fx_conversion']
+  if (isRecord(fxRaw)) {
+    const rc = getString(fxRaw, 'reporting_currency')
+    const rate = getNumber(fxRaw, 'fx_rate_to_usd')
+    const ratio = getNumber(fxRaw, 'adr_ordinary_per_listed')
+    const ratioSource = getString(fxRaw, 'adr_ratio_source')
+    projected.fx_conversion = {
+      ...(rc !== undefined ? { reporting_currency: rc } : {}),
+      ...(rate !== undefined ? { fx_rate_to_usd: rate } : {}),
+      ...(ratio !== undefined ? { adr_ordinary_per_listed: ratio } : {}),
+      ...(ratioSource !== undefined ? { adr_ratio_source: ratioSource } : {}),
     }
   }
   const mosGradeRaw = value['margin_of_safety_grade']

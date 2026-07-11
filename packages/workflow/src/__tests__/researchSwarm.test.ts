@@ -4086,6 +4086,81 @@ describe('EDGAR-anchored OE bridge + harness AAOIFI Shariah ratios', () => {
   // Foreign 20-F filers (e.g. NVO) report fundamentals in their local currency (DKK) while the market cap
   // derived from Yahoo/US-listed ADR prices is in USD. Without FX conversion the ratios mix currencies and
   // can be off by the USD/DKK rate (~6.9×). These tests verify the conversion path and its fail-closed guard.
+  it('V3 (owner-validated option A) — DKK filer: per-share valuation runs in USD (fx × assumed 1:1 ADR), provenance + flag recorded', async () => {
+    // NVO-shaped 20-F filer: bridge/OE in DKK, price in USD. The T0 conversion must put EVERY per-share
+    // output in USD: oe_ps(USD) = oe_ps(DKK) × 1 (assumed ADR ratio, flagged) × 0.145.
+    const dkkFundamentals = {
+      ...costFundamentals,
+      currency: 'DKK',
+      latest_annual: { ...costFundamentals.latest_annual, currency: 'DKK' },
+    }
+    const rate = 0.145
+    // Price scaled so the USD-converted basis is PLAUSIBLE (~2.55 USD OE/share → ~11.8× at $30): the
+    // absurdity guards suppress outputs otherwise, and a naive unconverted DKK read would be ~1.7×.
+    const priceUsd = 30
+    const store = new InMemoryEventStore()
+    await seedDeepDivePrereqs(store)
+    const provider = swarmFakeProviderWithShariah(0.004 * 275235)
+    await provider.structured({} as never)
+
+    await runResearchDeepDivePhase(store, provider as never, deepDiveCommand(), {
+      ground: verifyAllGround(),
+      laneConcurrency: 7,
+      fundamentals: dkkFundamentals,
+      resolvePrice: async () => ({ available: true, price_per_share: priceUsd, currency: 'USD', as_of: 'x', source: 'test' }),
+      resolveFxRate: async (currency) => (currency === 'DKK' ? rate : undefined),
+    })
+    const events = await store.list()
+    const projections = projectResearchCases(events as Parameters<typeof projectResearchCases>[0])
+    const cp = projections.find((c) => c.research_case_id === 'rc_edgar')
+    const v = cp?.valuation
+    // Conversion provenance recorded (assumed 1:1 — no curated entry) + the visible assumption flag.
+    expect(v?.fx_conversion?.reporting_currency).toBe('DKK')
+    expect(v?.fx_conversion?.fx_rate_to_usd).toBe(rate)
+    expect(v?.fx_conversion?.adr_ordinary_per_listed).toBe(1)
+    expect(v?.fx_conversion?.adr_ratio_source).toBe('assumed_1')
+    const analysis = events.find((e) => e.event_type === 'buffett_munger_analysis_drafted')
+    const val = (analysis?.payload as { valuation?: { degraded_flags?: string[]; normalized_owner_earnings_per_share?: number; market_implied_growth?: number } }).valuation
+    expect((val?.degraded_flags ?? []).join(' ')).toMatch(/adr_ratio_assumed/)
+    // The reporting-currency OE/share stays as-recorded (DKK, per ordinary share)…
+    const oePsDkk = val?.normalized_owner_earnings_per_share
+    expect(oePsDkk).toBeDefined()
+    expect(oePsDkk!).toBeGreaterThan(10) // ≈17.6 DKK — clearly the unconverted reporting figure
+    // …while the reverse-DCF ran on the USD basis: $30 vs ≈$2.55/share (11.8×) solves to ≈−6.1% implied
+    // growth at the 7.5% default discount — a NAIVE unconverted read ($30 vs 17.6 "DKK-as-USD" = 1.7×)
+    // would solve wildly lower/not at all. Pinning the exact solved value proves the USD basis precisely.
+    expect(val?.market_implied_growth).toBeDefined()
+    expect(val?.market_implied_growth!).toBeCloseTo(-0.0606, 2)
+  })
+
+  it('V3 — DKK filer with NO FX rate: the per-share valuation is BLOCKED (fail-closed, flagged), never a silent currency mix', async () => {
+    const dkkFundamentals = {
+      ...costFundamentals,
+      currency: 'DKK',
+      latest_annual: { ...costFundamentals.latest_annual, currency: 'DKK' },
+    }
+    const store = new InMemoryEventStore()
+    await seedDeepDivePrereqs(store)
+    const provider = swarmFakeProviderWithShariah(0.004 * 275235)
+    await provider.structured({} as never)
+
+    await runResearchDeepDivePhase(store, provider as never, deepDiveCommand(), {
+      ground: verifyAllGround(),
+      laneConcurrency: 7,
+      fundamentals: dkkFundamentals,
+      resolvePrice: async () => ({ available: true, price_per_share: 968, currency: 'USD', as_of: 'x', source: 'test' }),
+      resolveFxRate: async () => undefined,
+    })
+    const events = await store.list()
+    const analysis = events.find((e) => e.event_type === 'buffett_munger_analysis_drafted')
+    const val = (analysis?.payload as { valuation?: Record<string, unknown> }).valuation
+    expect(((val?.['degraded_flags'] as string[] | undefined) ?? []).join(' ')).toMatch(/fx_unavailable_valuation_blocked/)
+    // No USD per-share outputs were fabricated off DKK numbers.
+    expect(val?.['implied_exit_multiple']).toBeUndefined()
+    expect(val?.['market_implied_growth']).toBeUndefined()
+    expect(val?.['fx_conversion']).toBeUndefined()
+  })
+
   it('DKK filer + USD market cap + known FX rate → debt_ratio computed in DKK (not raw USD)', async () => {
     // Simulate a 20-F filer (NVO-shaped): latest_annual.currency = 'DKK', fundamentals in DKK millions.
     // The ADR is priced in USD on US exchanges → market_cap is in USD.

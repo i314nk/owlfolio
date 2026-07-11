@@ -65,6 +65,7 @@ import {
 import { ingestManualSourceBundle, type ManualUrlEvidenceSourceInput } from './sourceLedger'
 import { resolveResearchStrategyRef } from './researchStrategyRef'
 import { buffettMungerStrategy, creditedGrowth, discountRate, moatPassesGate, ownerEarningsAtHorizon, stage1HorizonForMoat, terminalGrowthForMoat, twoStageValuation } from '@owlfolio/strategies/buffettMunger'
+import { curatedAdrRatio } from '@owlfolio/strategies/adrRatios'
 import { computeShariahFinancialRatios } from '@owlfolio/strategies/shariahFinancialRatios'
 import { marketImpliedGrowth } from '@owlfolio/strategies/reverseDcf'
 // NOTE (R1): sustainableGrowthBand + requiredGrowthGap are no longer imported here — the relightened
@@ -2488,6 +2489,45 @@ export async function runResearchDeepDivePhase(
     ? owner_earnings_total / shares_outstanding
     : undefined
 
+  // ---- Phase 2 V3 (owner-validated option A): foreign-filer FX — the price-currency per-share basis ----
+  // The bridge totals + OE/ordinary-share above are in the filing's REPORTING currency (DKK for NVO).
+  // The live price is quoted in USD per LISTED share (ADR for foreign filers). ALL per-share valuation
+  // math below (fair value, implied growth, buy zone, exit multiple, the MoS grade) must run in the
+  // PRICE currency, so the harness converts deterministically: oe/listed-share(USD) =
+  // oe/ordinary-share(reporting) × curated-or-assumed ADR ratio × fx(reporting→USD). A missing FX rate
+  // BLOCKS the per-share valuation (fail-closed, flagged) — never a silent currency mix (the NVO bug).
+  let oe_ps_valuation = normalized_owner_earnings_per_share
+  let fxConversion: { reporting_currency: string; price_currency: 'USD'; fx_rate_to_usd: number; adr_ordinary_per_listed: number; adr_ratio_source: 'curated' | 'assumed_1' } | undefined
+  if (oe_ps_valuation !== undefined && reporting_currency !== undefined && reporting_currency !== 'USD') {
+    const fxToUsd = await resolveFxRateValue(reporting_currency, deps)
+    const curatedRatio = curatedAdrRatio(command.ticker)
+    const adrRatio = curatedRatio ?? 1
+    if (fxToUsd === undefined || !Number.isFinite(fxToUsd) || fxToUsd <= 0) {
+      oe_ps_valuation = undefined
+      degradedFlags.push(
+        `fx_unavailable_valuation_blocked: the filer reports in ${reporting_currency} but no ${reporting_currency}→USD rate `
+        + `resolved — the per-share valuation (fair value / buy zone / implied growth / MoS grade) is blocked rather than `
+        + `mixing currencies (fail-closed). The AAOIFI ratio block handles its own conversion separately.`,
+      )
+    } else {
+      oe_ps_valuation = oe_ps_valuation * adrRatio * fxToUsd
+      fxConversion = {
+        reporting_currency,
+        price_currency: 'USD',
+        fx_rate_to_usd: fxToUsd,
+        adr_ordinary_per_listed: adrRatio,
+        adr_ratio_source: curatedRatio !== undefined ? 'curated' : 'assumed_1',
+      }
+      if (curatedRatio === undefined) {
+        degradedFlags.push(
+          `adr_ratio_assumed: 1 listed (ADR) share assumed = 1 ordinary share for ${command.ticker} — no curated ratio in `
+          + `ADR_ORDINARY_SHARES_PER_LISTED. If the real depositary ratio differs, per-share values are scaled wrong; `
+          + `curate the entry (strategies/adrRatios).`,
+        )
+      }
+    }
+  }
+
   // F.2 ANCHOR SWAP (SHIPPED): discount = the COMPLIANT risk-free SAVINGS rate (fail-closed to the config
   // default savings rate) + the fixed uniform equity premium (Phase 1.4 / Step 3). GLOBAL config, never an
   // agent input, no quality knob. The compliant investor's true risk-free is the savings rate they could
@@ -2633,12 +2673,12 @@ export async function runResearchDeepDivePhase(
     valuationCaveats.push(
       'Valuation not computed: shares_outstanding missing or non-positive — cannot derive owner earnings per share. Re-run with grounded share count before relying on any buy price.',
     )
-  } else if (normalized_owner_earnings_per_share !== undefined && normalized_owner_earnings_per_share <= 0) {
+  } else if (oe_ps_valuation !== undefined && oe_ps_valuation <= 0) {
     // Negative/zero owner earnings gate (Step 6 gate 2): record a caveat, emit no fair value.
     valuationCaveats.push(
-      `Valuation not computed: normalized owner earnings per share (${normalized_owner_earnings_per_share.toFixed(2)}) is not positive after SBC — fails the owner-earnings gate. No fair value or buy price emitted.`,
+      `Valuation not computed: normalized owner earnings per share (${oe_ps_valuation.toFixed(2)}) is not positive after SBC — fails the owner-earnings gate. No fair value or buy price emitted.`,
     )
-  } else if (moat_passes_gate && normalized_owner_earnings_per_share !== undefined) {
+  } else if (moat_passes_gate && oe_ps_valuation !== undefined) {
     const terminal_g = terminalGrowthForMoat(buffettMungerStrategy, moatClass)
     // Stage-1 horizon — UNIFORM 10 yrs for every investable moat (F.13); the moatClass arg validates the gate.
     const horizon = stage1HorizonForMoat(buffettMungerStrategy, moatClass)
@@ -2654,7 +2694,7 @@ export async function runResearchDeepDivePhase(
     // Phase 1.5/1.6: rich two-stage valuation — surfaces terminal_value_pct_of_iv, flags cap_exceeded
     // (no silent truncation), and discards only an absurd (units-bug) value.
     const valuation = twoStageValuation({
-      oe_ps: normalized_owner_earnings_per_share,
+      oe_ps: oe_ps_valuation,
       g: headline_growth,
       terminal_g,
       discount,
@@ -2673,8 +2713,8 @@ export async function runResearchDeepDivePhase(
     } else {
       // forward-DCF removal: the dollar forward FV is no longer surfaced; it is used here ONLY to derive the
       // implied_multiple ratio + the terminal-share / cap sanity flags (+ V2: the MoS grade reference).
-      implied_multiple = computedFairValue / normalized_owner_earnings_per_share
-      mosReferenceValue = Math.min(computedFairValue, valuation_multiple_ceiling * normalized_owner_earnings_per_share)
+      implied_multiple = computedFairValue / oe_ps_valuation
+      mosReferenceValue = Math.min(computedFairValue, valuation_multiple_ceiling * oe_ps_valuation)
       // Phase 1.5: flag a high terminal-value share (the dominant uncertainty).
       const highTvShare = terminal_value_pct_of_iv > buffettMungerStrategy.valuation.terminal_value_share_flag
       if (highTvShare) {
@@ -2688,7 +2728,7 @@ export async function runResearchDeepDivePhase(
       if (cap_exceeded) {
         advisorySanityCarryover.push(
           `valuation_cap_exceeded: fair value ${computedFairValue.toFixed(2)} exceeds ${valuation_multiple_ceiling}× owner `
-          + `earnings (${(valuation_multiple_ceiling * normalized_owner_earnings_per_share).toFixed(2)}) — a sanity flag, `
+          + `earnings (${(valuation_multiple_ceiling * oe_ps_valuation).toFixed(2)}) — a sanity flag, `
           + `not a truncation. Re-check the growth/terminal inputs before relying on the buy-below.`,
         )
       }
@@ -2748,13 +2788,13 @@ export async function runResearchDeepDivePhase(
   if (
     current_price !== undefined
     && terminal_growth_rate !== undefined
-    && normalized_owner_earnings_per_share !== undefined
-    && normalized_owner_earnings_per_share > 0
+    && oe_ps_valuation !== undefined
+    && oe_ps_valuation > 0
   ) {
     const impliedHorizon = stage1HorizonForMoat(buffettMungerStrategy, moatClass)
     const implied = marketImpliedGrowth({
       price: current_price,
-      oe_ps: normalized_owner_earnings_per_share,
+      oe_ps: oe_ps_valuation,
       terminal_g: terminal_growth_rate,
       discount,
       horizon: impliedHorizon,
@@ -3081,15 +3121,15 @@ export async function runResearchDeepDivePhase(
     headline_growth !== undefined
     && current_price !== undefined
     && current_price > 0
-    && normalized_owner_earnings_per_share !== undefined
-    && normalized_owner_earnings_per_share > 0
+    && oe_ps_valuation !== undefined
+    && oe_ps_valuation > 0
     && assumed_growth !== undefined
     && Number.isFinite(assumed_growth)
     && terminal_growth_rate !== undefined
   ) {
     const exitHorizon = stage1HorizonForMoat(buffettMungerStrategy, moatClass)
     const oeAtHorizon = ownerEarningsAtHorizon({
-      oe_ps: normalized_owner_earnings_per_share,
+      oe_ps: oe_ps_valuation,
       g: assumed_growth,
       terminal_g: terminal_growth_rate,
       horizon: exitHorizon,
@@ -3179,13 +3219,13 @@ export async function runResearchDeepDivePhase(
   let buyBelowImpliedGrowth: number | undefined
   if (
     buy_below !== undefined
-    && normalized_owner_earnings_per_share !== undefined
-    && normalized_owner_earnings_per_share > 0
+    && oe_ps_valuation !== undefined
+    && oe_ps_valuation > 0
     && terminal_growth_rate !== undefined
   ) {
     const buyImplied = marketImpliedGrowth({
       price: buy_below,
-      oe_ps: normalized_owner_earnings_per_share,
+      oe_ps: oe_ps_valuation,
       terminal_g: terminal_growth_rate,
       discount,
       horizon: stage1HorizonForMoat(buffettMungerStrategy, moatClass),
@@ -3486,6 +3526,10 @@ export async function runResearchDeepDivePhase(
         owner_earnings_bridge: bridge,
         owner_earnings_vs_fcf: ownerEarningsVsFcf,
         ...(normalized_owner_earnings_per_share !== undefined ? { normalized_owner_earnings_per_share } : {}),
+        // Phase 2 V3: the deterministic foreign-filer conversion provenance (reporting→USD × ADR ratio).
+        // normalized_owner_earnings_per_share above stays in the REPORTING currency (per ordinary share);
+        // every per-share valuation output below it is in the PRICE currency via this conversion.
+        ...(fxConversion !== undefined ? { fx_conversion: fxConversion } : {}),
         ...(valuationCaveats.length > 0 ? { valuation_caveats: valuationCaveats } : {}),
         // Visible degraded flags: each OPTIONAL structured field the model omitted (rubric, Shariah
         // overlay, growth inputs) is recorded here so the silent skips the live dogfood exposed are SEEN.
