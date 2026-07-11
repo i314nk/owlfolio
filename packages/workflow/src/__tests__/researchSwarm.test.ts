@@ -4247,7 +4247,7 @@ describe('FOCUSED valuation-reasoning fallback (when the monolithic decision dro
 
   it('Test 1 — decision DROPS valuation_reasoning, focused call produces it GROUNDED → verdict = model WATCH (not RESEARCH_MORE)', async () => {
     const calls = { count: 0 }
-    const { valuation, cp } = await runVR({
+    const { valuation, cp, events } = await runVR({
       id: 'vr-grounded',
       omitValuationReasoning: true,
       // The focused call grounds both citations in src_dec_1 (verified by allVerifiedGround into dec.verified_ids).
@@ -4268,6 +4268,14 @@ describe('FOCUSED valuation-reasoning fallback (when the monolithic decision dro
     // The focused valuation_reasoning rides along on the projection.
     const vr = valuation?.['valuation_reasoning'] as Record<string, unknown> | undefined
     expect(vr?.['assumed_growth']).toBe(0.06)
+
+    // Phase 2 V1: the stage records its artifact + stage_cost as valuation_judgment_drafted.
+    const vjEvent = events.find((e) => e.event_type === 'valuation_judgment_drafted')
+    expect(vjEvent).toBeDefined()
+    const vjPayload = vjEvent?.payload as Record<string, unknown>
+    expect(vjPayload['status']).toBe('ok')
+    expect(vjPayload['assumed_growth']).toBe(0.06)
+    expect((vjPayload['stage_cost'] as { provider_calls?: number }).provider_calls).toBe(1)
   })
 
   it('Test 2 — decision drops it AND the focused call ALSO fails to ground → RESEARCH_MORE + valuation_reasoning_retry_exhausted', async () => {
@@ -4282,15 +4290,19 @@ describe('FOCUSED valuation-reasoning fallback (when the monolithic decision dro
     expect(degraded.join(' ')).toMatch(/valuation_reasoning_retry_exhausted/)
   })
 
-  it('Test 3 — HAPPY PATH: decision produced a grounded valuation_reasoning → focused call is NOT invoked, verdict proceeds', async () => {
+  it('Test 3 — HAPPY PATH (Phase 2 V1): the valuation STAGE always runs exactly once; a grounded monolithic valuation_reasoning still proceeds without a second call', async () => {
     const calls = { count: 0 }
-    const { valuation, cp } = await runVR({
+    const { valuation, cp, events } = await runVR({
       id: 'vr-happy',
       // omitValuationReasoning defaults false → the decision agent supplies the grounded valuation_reasoning.
       valuationReasoningCalls: calls,
     })
-    // The focused call must be SKIPPED on the happy path.
-    expect(calls.count).toBe(0)
+    // Phase 2 V1: the focused valuation call is a DEDICATED ALWAYS-ON stage now (it may retry once under
+    // runValidatedAgent) — but the fallback NEVER issues an additional call beyond the stage's own attempts.
+    expect(calls.count).toBeGreaterThanOrEqual(1)
+    expect(calls.count).toBeLessThanOrEqual(2)
+    // The stage records its event even when the fake omits the required field (status 'failed').
+    expect(events.map((e) => e.event_type)).toContain('valuation_judgment_drafted')
     expect(valuation?.['synthesis_grounding_unmet']).toBeUndefined()
     expect(cp?.investment_verdict).toBe('WATCH')
   })

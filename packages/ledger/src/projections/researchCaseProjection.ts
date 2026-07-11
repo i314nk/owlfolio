@@ -12,6 +12,8 @@ export type ResearchCaseStage =
   | 'specialist_finding_recorded'
   | 'deep_dive_in_progress'
   | 'circle_competence_judged'
+  /** Phase 2: the dedicated valuation-judgment stage (between the lanes and synthesis). */
+  | 'valuation_judgment_drafted'
   | 'deep_dive_synthesis_drafted'
   | 'deep_dive_completed'
   | 'deep_dive_complete'
@@ -779,6 +781,8 @@ export type ResearchCaseProjection = {
    * predate the tool-grounded gate carry none, so this stays undefined and the dossier renders 0/—.
    */
   quick_screen_source_ids?: string[]
+  /** Phase 2: the dedicated valuation stage's artifact (grounded judgment inputs; T0 math stays harness-owned). */
+  valuation_judgment?: Record<string, unknown>
   /** The front Shariah gate's judgment (restructure gate #1): open/closed + the grounded sector read. */
   shariah_gate?: {
     allowed?: boolean
@@ -1973,6 +1977,16 @@ export function projectResearchCases(events: LedgerEventEnvelope<unknown>[]): Re
         ...(event.payload['gate_incomplete'] === true ? { gate_incomplete: true } : {}),
         ...(gateReason === undefined ? {} : { reason: gateReason }),
       }
+      continue
+    }
+
+    if (event.event_type === 'valuation_judgment_drafted') {
+      const researchCaseId = researchCaseIdFor(event, event.payload)
+      if (researchCaseId === undefined) {
+        continue
+      }
+      const researchCase = upsertCase(researchCases, researchCaseId, 'valuation_judgment_drafted', event.created_at)
+      researchCase.valuation_judgment = { ...event.payload }
       continue
     }
 

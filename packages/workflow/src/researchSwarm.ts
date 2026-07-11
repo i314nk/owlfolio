@@ -1634,6 +1634,79 @@ export async function runResearchDeepDivePhase(
   const laneDigest: RedTeamLaneDigest[] = laneResults
     .filter((l) => l.verified_ids.length > 0)
     .map((l) => ({ lane: l.lane, finding_summary: l.finding_summary, confidence: l.confidence }))
+  // ---- Phase 2 V1: the ALWAYS-ON valuation-judgment stage (between the lanes and synthesis) ----
+  // The focused valuation call is PROMOTED from a fallback to a dedicated stage: it owns the grounded
+  // valuation judgment (owner-earnings basis + assumed growth + citations, plus — V1 — the judged
+  // buy-below, valuation_status, and bridge inputs), recorded as `valuation_judgment_drafted` with its
+  // stage cost. In V1 the monolithic decision's fields are still tolerated; when the decision drops or
+  // fails to ground its valuation_reasoning, THIS artifact is adopted (no second focused call).
+  const valuationStageRuntime = resolveRoleRuntime('synthesis', provider, command)
+  const valuationStageStartedAt = Date.now()
+  const valuationStageOutcome = await runValuationReasoningPass(
+    valuationStageRuntime.provider,
+    {
+      research_case_id: command.research_case_id,
+      ticker: command.ticker,
+      model_id: valuationStageRuntime.model_id,
+      laneDigest,
+      corpusSourceIds: [...accumulated.values()].map((s) => s.source_id),
+      preVerifiedSourceIds: primaryFilingSourceId !== undefined ? [primaryFilingSourceId] : [],
+      caseDigest: {
+        moat_class: judgment.moat!.resolved_moat_class,
+        runway: judgment.runway!.resolved_runway,
+      },
+      ...(primaryFilingBlock === undefined ? {} : { primaryFilingBlock }),
+      circleDigest: {
+        drivers: (circleJudgmentPayload['cashflow_drivers'] as { driver?: string }[] | undefined ?? []).map((d) => d.driver ?? '').filter((d) => d.length > 0),
+        breakers: (circleJudgmentPayload['predictability_breakers'] as { breaker?: string }[] | undefined ?? []).map((b) => b.breaker ?? '').filter((b) => b.length > 0),
+      },
+    },
+    { ...(deps.ground === undefined ? {} : { ground: deps.ground }), ...(deps.grounding === undefined ? {} : { grounding: deps.grounding }) },
+  )
+  if (valuationStageOutcome.status === 'ok') {
+    remember(valuationStageOutcome.captured)
+  }
+  await store.append({
+    event_id: `evt_valuation_judgment_drafted_${command.research_case_id}`,
+    event_type: 'valuation_judgment_drafted',
+    aggregate_type: 'research_case',
+    aggregate_id: command.research_case_id,
+    correlation_id: command.research_case_id,
+    causation_id: started.event_id,
+    actor_type: 'provider',
+    actor_id: valuationStageRuntime.model_id,
+    payload: {
+      valuation_judgment_id: `valuation_${swarmSeg(command.research_case_id)}`,
+      research_case_id: command.research_case_id,
+      company_id: command.company_id,
+      ticker: command.ticker,
+      status: valuationStageOutcome.status,
+      ...(valuationStageOutcome.status === 'ok'
+        ? {
+            owner_earnings_basis: valuationStageOutcome.valuation_reasoning.owner_earnings_basis,
+            owner_earnings_citation: valuationStageOutcome.valuation_reasoning.owner_earnings_citation,
+            assumed_growth: valuationStageOutcome.valuation_reasoning.assumed_growth,
+            assumed_growth_rationale: valuationStageOutcome.valuation_reasoning.assumed_growth_rationale,
+            assumed_growth_citation: valuationStageOutcome.valuation_reasoning.assumed_growth_citation,
+            ...(valuationStageOutcome.valuation_reasoning.proposed_buy_below === undefined ? {} : { proposed_buy_below: valuationStageOutcome.valuation_reasoning.proposed_buy_below }),
+            ...(valuationStageOutcome.valuation_reasoning.valuation_status === undefined ? {} : { valuation_status: valuationStageOutcome.valuation_reasoning.valuation_status }),
+            ...(valuationStageOutcome.valuation_reasoning.owner_earnings_bridge === undefined ? {} : { owner_earnings_bridge: valuationStageOutcome.valuation_reasoning.owner_earnings_bridge }),
+          }
+        : { failure_reason: valuationStageOutcome.reason }),
+      corpus_source_ids: [...accumulated.values()].map((s) => s.source_id),
+      stage_cost: {
+        provider_calls: 1,
+        ...(valuationStageOutcome.status === 'ok' && valuationStageOutcome.usage?.input_tokens !== undefined ? { input_tokens: valuationStageOutcome.usage.input_tokens } : {}),
+        ...(valuationStageOutcome.status === 'ok' && valuationStageOutcome.usage?.output_tokens !== undefined ? { output_tokens: valuationStageOutcome.usage.output_tokens } : {}),
+        wall_ms: Date.now() - valuationStageStartedAt,
+      },
+    },
+    source_ids: valuationStageOutcome.status === 'ok' ? valuationStageOutcome.verified_ids : [],
+    created_at: new Date().toISOString(),
+    schema_version: 1,
+    idempotency_key: `valuation-judgment:${command.research_case_id}:v1`,
+  } satisfies LedgerEventEnvelope<unknown>)
+
   const redTeam: RedTeamResult = await runRedTeamPass(
     redTeamRuntime.provider,
     {
@@ -1924,19 +1997,9 @@ export async function runResearchDeepDivePhase(
   // happy path (the decision produced a grounded valuation_reasoning) NEVER fires this call.
   let valuationReasoningDegraded: string | undefined
   if (valuationGroundingUnmet) {
-    const vrRuntime = resolveRoleRuntime('synthesis', provider, command)
-    const vrOutcome = await runValuationReasoningPass(
-      vrRuntime.provider,
-      {
-        research_case_id: command.research_case_id,
-        ticker: command.ticker,
-        model_id: vrRuntime.model_id,
-        laneDigest,
-        corpusSourceIds: [...accumulated.values()].map((s) => s.source_id),
-        preVerifiedSourceIds: primaryFilingSourceId !== undefined ? [primaryFilingSourceId] : [],
-      },
-      { ...(deps.ground === undefined ? {} : { ground: deps.ground }), ...(deps.grounding === undefined ? {} : { grounding: deps.grounding }) },
-    )
+    // Phase 2 V1: the always-on valuation stage ALREADY produced the focused artifact — adopt it
+    // instead of issuing a second identical call (the pre-V1 fallback re-ran the pass here).
+    const vrOutcome = valuationStageOutcome
     if (vrOutcome.status === 'ok') {
       // Persist the focused call's captured sources into the corpus (like the red-team response) so the
       // cite-check below sees them, then RE-EVALUATE grounding against the focused result.
