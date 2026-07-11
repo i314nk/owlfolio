@@ -1203,3 +1203,50 @@ describe('management pillar card (S5)', () => {
     expect(html).not.toContain('management-pillar-card')
   })
 })
+
+// S8 (Phase 3 pillars) — the PILLAR frame: the dossier reads as Buffett's checklist applied in
+// order, and a gated case says structurally WHICH pillars never ran.
+describe('pillar frame (S8)', () => {
+  it('renders the pillar headers in checklist order with the moat-tests card under Pillar 2', () => {
+    const html = render({
+      ...baseCase(),
+      moat_tests: {
+        capital_efficiency: { computable: true, band: 'excellent', median_roic: 0.21, latest_roic: 0.2, years_used: 8, note: 'Median ROIC 21.0% over 8 years — excellent (>=15% — likely a moat).' },
+        two_engine: { computable: true, revenue_engine: true, margin_engine: true, passes: true, revenue_cagr: 0.07, margin_trend_bps_per_year: 30, years_used: 8, note: 'Both engines running.' },
+        standout: { computable: false, reason: 'gross profit not tagged by this filer (neither GrossProfit nor revenue−COGS resolves)' },
+      },
+    } as unknown as AppResearchCase, QUOTE)
+    const order = ['pillar-header-front-gate', 'pillar-header-pillar-1', 'pillar-header-pillar-2', 'pillar-header-pillar-3', 'pillar-header-pillar-4', 'pillar-header-synthesis']
+    const positions = order.map((id) => html.indexOf(`data-testid="${id}"`))
+    expect(positions.every((p) => p >= 0)).toBe(true)
+    expect([...positions]).toEqual([...positions].slice().sort((a, b) => a - b))
+    // The three named tests render computable-or-honestly-deferred under Pillar 2.
+    expect(html).toContain('data-testid="moat-tests-card"')
+    expect(html).toContain('EXCELLENT — Median ROIC 21.0%')
+    expect(html).toContain('PASSES — Both engines running.')
+    expect(html).toContain('not computable (gross profit not tagged')
+  })
+
+  it('a moat-gate-short-circuited case marks Pillars 3–4 "not evaluated — failed at the moat filter"', () => {
+    const html = render({
+      ...baseCase(),
+      moat_gate_short_circuited: true,
+    } as unknown as AppResearchCase, QUOTE)
+    expect(html).toContain('data-testid="moat-gate-short-circuit-banner"')
+    expect(html).toContain('data-testid="pillar-status-pillar-3"')
+    expect(html).toContain('data-testid="pillar-status-pillar-4"')
+    expect(html).toContain('not evaluated — failed at the moat filter')
+    // Pillars 1–2 carry no not-evaluated status (they ran).
+    expect(html).not.toContain('data-testid="pillar-status-pillar-1"')
+    expect(html).not.toContain('data-testid="pillar-status-pillar-2"')
+  })
+
+  it('a moat-gate-overridden run keeps the permanent label', () => {
+    const html = render({
+      ...baseCase(),
+      moat_gate_overridden: true,
+    } as unknown as AppResearchCase, QUOTE)
+    expect(html).toContain('data-testid="moat-gate-overridden-marker"')
+    expect(html).toContain('Moat gate overridden by user')
+  })
+})

@@ -247,12 +247,12 @@ function StrategyTab(): ReactNode {
 
 // 2 — The Research Swarm
 function SwarmTab(): ReactNode {
+  // S8 (Phase 3): the lanes ARE Buffett's pillars. Financial-quality numerics are owned by the
+  // valuation stage + harness T0 blocks; the adversarial risks duty lives in the red-team pass.
   const laneDetails: Record<string, string> = {
-    business_quality: 'How the business makes money, and whether 10-year owner earnings are predictable enough to value at all.',
-    moat: 'The moat and its reinvestment runway as a grounded, cite-verified thesis — every claim cited to a fetched source; a quant anchor from filings only corroborates, it does not set a numeric score.',
-    management: 'Capital allocation, candor, incentives, and the SBC trend — from filings and proxies, not media profiles.',
-    financial_quality: 'Every raw harness input: the owner-earnings bridge, incremental ROIC, leverage, and accounting quality.',
-    risks: 'The pre-mortem, the thesis-break triggers, and the single assumption that, if wrong, breaks the case.',
+    understand: 'Pillar 1 — how the business actually makes money: the model, unit economics, revenue/cost drivers, plus accounting quality (revenue recognition, one-offs, accruals).',
+    moat: 'Pillar 2 — the moat as a grounded cite-verified thesis: WHICH moat types ground, the direction (a grounded narrowing derates a BUY), the standout peer read, and the reinvestment runway. The three named tests (capital efficiency, two-engine, standout) are computed by the harness.',
+    management: 'Pillar 3 — integrity (communication candor + how executives are paid, from the DEF 14A) and talent (capital allocation reconciled against harness ROIC/payout/debt observations and the retained-earnings test). A grounded worst-tier judgment vetoes an unattended BUY.',
   }
   return createElement(
     'div',
@@ -272,13 +272,13 @@ function SwarmTab(): ReactNode {
     }),
     PanelSection({
       eyebrow: 'The pipeline',
-      title: 'Shariah gate → circle gate → deep dive → valuation → synthesis → decision',
-      lead: 'Two cheap grounded gates kill most candidates before the expensive swarm runs. Survivors get the full multi-agent deep dive; synthesis reconciles the lanes; the result is a BUY / WATCH / PASS draft for a human.',
+      title: 'Shariah gate → circle gate → understand + moat → MOAT GATE → management → valuation → synthesis → decision',
+      lead: 'Two cheap grounded gates kill most candidates before the expensive swarm runs. Survivors run Pillars 1–2 first; the moat gate then ends a below-gate case BEFORE Pillars 3–4 spend anything (a user override can run them anyway — the verdict still gates). Synthesis reconciles the pillars; the result is a BUY / WATCH / PASS draft for a human.',
       children: bullets([
         createElement('span', { key: 1 }, gold('Front gates'), ' — the grounded Shariah sector judgment (plus the deterministic AAOIFI ratios when computable) runs first, on the harness-verified annual filing; then the circle-of-competence judgment — durable predictability, cite-verified — decides whether the deep dive is worth spending on.'),
-        createElement('span', { key: 2 }, gold('Deep-dive swarm'), ` — ${LANE_COUNT} specialist lanes run blind to each other, each grounding its own claims.`),
+        createElement('span', { key: 2 }, gold('Pillar lanes'), ` — ${LANE_COUNT} specialist lanes (Buffett's pillars: understand, moat, management) ground their own claims; understand + moat run first and the MOAT GATE ends a below-gate case before management/valuation spend.`),
         createElement('span', { key: 3 }, gold('Valuation judgment'), ' — a dedicated grounded stage owns the owner-earnings bridge, assumed growth, and buy-below (cite-checked); the harness computes the margin-of-safety GRADE arithmetically against a uniform required margin — the model never grades its own margin.'),
-        createElement('span', { key: 5 }, gold('Synthesis'), ' — conflicts reconciled conservatively, hard gates applied, base-rate burden enforced.'),
+        createElement('span', { key: 5 }, gold('Synthesis'), ' — conflicts reconciled conservatively, hard gates applied, base-rate burden enforced, the Munger lattice assembled deterministically (a mental model counts as applied only when its artifact survived the cite-check).'),
         createElement('span', { key: 4 }, gold('Decision'), ' — a drafted verdict; the human authors the watchlist entry or closes the case.'),
       ]),
     }),
@@ -299,7 +299,7 @@ function SwarmTab(): ReactNode {
         createElement(
           'p',
           { style: { ...bodyStyle, fontSize: 'var(--owl-text-sm)', color: 'var(--owl-color-quiet)' } },
-          'Valuation and Shariah compliance are not parallel lanes — each runs as a dedicated focused pass after the five lanes conclude: valuation proposes the owner-earnings value and buy-below during synthesis, and the Shariah pass produces the grounded compliance overlay (the harness recomputes the AAOIFI ratios from filings).',
+          'Valuation (Pillar 4) and Shariah compliance are not parallel lanes — each runs as a dedicated focused pass: valuation proposes the owner-earnings bridge and growth (the harness computes the buy threshold from them), and the Shariah pass produces the grounded compliance overlay (the harness recomputes the AAOIFI ratios from filings). The retired business_quality / financial_quality / risks lanes live on in historical dossiers; their duties moved to the understand lane, the harness T0 blocks, and the red team.',
         ),
       ),
     }),

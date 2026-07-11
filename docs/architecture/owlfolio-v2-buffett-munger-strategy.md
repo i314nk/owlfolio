@@ -24,14 +24,43 @@ Discovery
   → Circle-of-competence gate (cite-verified predictability judgment; k-sample agreement)
        ↓ outside circle (or ungroundable) → set aside
        ↓ both gates open: [Automatic | Review-before-deep-dive]
-  → Swarm deep dive (moat / financials / risk / management / risks specialists — parallel, grounded)
-  → Valuation judgment (dedicated grounded stage: judged OE bridge + assumed growth + buy-below, cite-checked;
-     the harness computes the T0 margin-of-safety GRADE against a uniform required margin, and converts
-     foreign-filer per-share values into the price currency deterministically)
-  → Synthesis & decision (reconciliation; moat ≥ wide gate enforced here)
+  → PILLAR lanes, staged (Phase 3): understand + moat run first (parallel, grounded)
+       ↓ MOAT GATE (early): a below-gate resolved moat ends the run HERE — grounded-narrow → set-aside
+         PASS, ungrounded claim → RESEARCH_MORE; Pillars 3–4 spend nothing. A user-authored override
+         ("run remaining pillars anyway", recorded on the request event) runs them — the verdict still gates.
+  → Management pillar lane (integrity: communication + DEF 14A comp; talent: reconciled against the
+     harness ROIC/payout/debt T0 block + the retained-earnings test). A GROUNDED worst-tier judgment
+     (integrity red_flag OR poor talent) vetoes an unattended BUY → RESEARCH_MORE naming the trait.
+  → Valuation judgment (dedicated grounded stage: judged OE bridge + assumed growth + advisory buy price,
+     cite-checked; the harness computes the OPERATIVE buy threshold = min(DCF FV, 18×OE) × (1 − 25%) and
+     the T0 margin-of-safety GRADE, and converts foreign-filer per-share values deterministically)
+  → Synthesis & decision (reconciliation; the late moat gate stays as defense in depth; the Munger
+     lattice is assembled deterministically — inversion/base-rates/incentives/social-proof entries are
+     'applied' only when their artifacts survived the cite-check)
   → User-confirmed watchlist entry
   → Holding open (separate explicit ledger transition)
 ```
+
+### The four pillars (Phase 3)
+
+The deep-dive lanes ARE Buffett's pillars: `understand` (P1 — business model, unit economics,
+accounting quality; absorbs the retired business_quality + financial_quality narrative duties),
+`moat` (P2), `management` (P3). Pillar 4 (value) is the always-on valuation stage. The retired
+`risks` lane's adversarial duty lives in the red team; its web/consensus color is the red team's
+cite-checked `consensus_check` (the lattice's social-proof artifact). Historical 5-lane dossiers keep
+rendering forever (persisted lane ids are a stable contract).
+
+**The moat pillar** carries the owner's three named tests (harness-computed T0): **capital
+efficiency** (median-ROIC bands: ≥15 % excellent / 10–15 % solid / <10 % weak), **two-engine**
+(revenue growing AND operating margins holding/improving within a ±25 bps/yr dead-band), and
+**standout** (gross margin vs industry peers — the company side is T0; the peer side is the moat
+lane's cited-or-labeled judgment until peer-filing grounding ships). Capital efficiency + two-engine
+ARE the mechanical moat anchor (they replaced M1/M2); standout is displayed, not scored. The lane
+also tags each grounded driver with a moat TYPE (brand, switching costs, network effect, intangible
+assets, toll bridge, cost advantage, scale advantage, barrier to entry, monopoly position — distinct
+from the WIDTH class) and judges the moat DIRECTION: a grounded `narrowing` derates a BUY to WATCH
+("a narrowing moat is a sell signal no matter how wide it still looks"); an ungrounded direction
+resolves `undetermined` and carries no weight.
 
 **Research-case versioning.** The company is the aggregate; each user-initiated re-run supersedes the previous research case and records a new versioned investment-case ledger event. Earlier versions are retained in the ledger for audit.
 

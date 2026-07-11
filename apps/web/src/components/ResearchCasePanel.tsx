@@ -391,18 +391,29 @@ export function ResearchCasePanel({ researchCase, mode = 'personal-local', confi
   // Position-plan headline (right side of its collapsed header): moat tier + entry-cap tag.
   const positionPlanHint = positionPlan?.investable ? `${positionPlan.moat_class.toUpperCase()} MOAT · ENTRY CAP` : undefined
 
+  // ── S8 (Phase 3): the PILLAR frame — the dossier reads as Buffett's checklist applied in order.
+  // Front gate (Shariah) → P1 Understand → P2 Moat → P3 Management → P4 Value → Synthesis & decision.
+  // pillarStatus makes the gated-dossier invariant structural: a moat-gate death renders P3/P4
+  // "not evaluated — failed at the moat filter"; an outside-circle set-aside marks P2–P4 likewise.
+  const gateShortCircuited = researchCase.moat_gate_short_circuited === true
+  const outsideCircle = researchCase.circle_competence?.in_competence === false
+  const notEvaluatedReason = outsideCircle
+    ? 'not evaluated — outside the circle of competence'
+    : gateShortCircuited
+      ? 'not evaluated — failed at the moat filter'
+      : undefined
+  const p2Status = outsideCircle ? notEvaluatedReason : undefined
+  const p3p4Status = notEvaluatedReason
+
   return createElement(
     'section',
     { style: { display: 'grid', gap: '1rem' } },
     // ── 0. Mock-provider honesty banner (personal-local, mock-authored, real provider configured) ──
     mockWarningBanner,
-    // ── 1. Verdict hero (the always-visible top-level headline: ticker, verdict badges, engine/model) ──
+    // ── Verdict hero (the always-visible top-level headline: ticker, verdict badges, engine/model) ──
     createVerdictHero(researchCase),
-    // ── 1·circle. Circle-of-competence judgment (collapsed; its verdict heading — e.g. "cashflows durably
-    //        predictable — in competence" — is the visible summary, the drivers/breakers are the drill-down) ──
-    makeCollapsible(createCircleCompetencePanel(researchCase), false),
-    // ── 1b2 (S6). Moat-gate banners: a short-circuited case says WHY pillars 3–4 have no data (and
-    //        what re-arms them); an overridden run is PERMANENTLY labeled as user-authorized spend. ──
+    // ── S6 gate banners: a short-circuited case says WHY pillars 3–4 have no data (and what re-arms
+    //    them); an overridden run is PERMANENTLY labeled as user-authorized spend. ──
     researchCase.moat_gate_short_circuited === true
       ? createElement('p', {
           'data-testid': 'moat-gate-short-circuit-banner',
@@ -415,55 +426,84 @@ export function ResearchCasePanel({ researchCase, mode = 'personal-local', confi
           style: { color: 'var(--owl-color-gold-bright)', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-2xs)', fontWeight: 800, letterSpacing: '0.07em', margin: 0, textTransform: 'uppercase' as const },
         }, 'Moat gate overridden by user — this analysis ran past a failed moat gate; the verdict remains gated.')
       : null,
-    // ── 1c. Exit post-mortem (predicted vs realized) ─────────────────────────
+    // ── Exit post-mortem (predicted vs realized) ─────────────────────────────
     createPostMortemPanel(researchCase),
-    // ── 1d. Decision panel (R1): the model's verdict/valuation_status, the key-figures strip (model
-    //        buy-below + live price + buy-zone + reference FV + price-implied assumptions), and the
-    //        flag-only sanity-check. The decision centerpiece. ──
-    makeCollapsible(createDecisionPanel(researchCase, marketQuote), true, decisionHint),
-    // ── 1e. Margin-of-safety audit — LEADS the decision region (Priority 3): the synthesis-owned JOINT
-    //        judgment (price margin + moat durability, side by side), the human's central audit surface.
-    //        Promoted above the valuation reasoning so it is not blended into the decision/valuation prose. ──
-    makeCollapsible(createMarginOfSafetyAuditBlock(researchCase), false, mosHint),
-    // ── 2. Valuation panel — the model thesis + cited reasoning (owner-earnings basis, judged growth +
-    //       rationale, discount), the reverse-DCF read (market-implied vs judged sustainable growth), the
-    //       two hidden assumptions the price bakes in (implied growth + implied exit multiple), the
-    //       reference FV cross-check, and the independent bear case (red-team). ──
-    makeCollapsible(createValuationPanel(researchCase, marketQuote, savings), false, valuationHint),
-    // ── 2b. Position plan (advisory) ─────────────────────────────────────────
-    makeCollapsible(createPositionPlanPanel(positionPlan, promptForCapital), false, positionPlanHint),
-    // ── 2c. Shariah / compliance — the unique AAOIFI ratio ledger (the per-dimension shariah finding
-    //        lives in the specialist lane; this is the harness-computed ratio surface, one home). ──
+    // ── FRONT GATE — Shariah (precedes Buffett's four filters; sector judgment + AAOIFI ratios) ──
+    createPillarHeader('front-gate', 'Front gate — Shariah', undefined),
     makeCollapsible(createComplianceRatioBlock(researchCase), false, researchCase.shariah_status),
-    // ── 3b (S7). The Munger lattice — which mental models were APPLIED (derived from artifacts that
-    //        survived cite-check) vs unavailable-with-reason. Opens when the thesis IS the consensus. ──
+    // ── PILLAR 1 — Understand the business (the circle-of-competence judgment) ──
+    createPillarHeader('pillar-1', 'Pillar 1 — Understand the business', undefined),
+    makeCollapsible(createCircleCompetencePanel(researchCase), false),
+    // ── PILLAR 2 — Moat (the three named tests; the grounded judgment lives in the valuation panel's
+    //    judgment provenance + the moat lane card below) ──
+    createPillarHeader('pillar-2', 'Pillar 2 — Moat', p2Status),
+    p2Status === undefined ? createMoatTestsCard(researchCase) : null,
+    // ── PILLAR 3 — Management (integrity & talent + the deterministic insider summary) ──
+    createPillarHeader('pillar-3', 'Pillar 3 — Management', p3p4Status),
+    p3p4Status === undefined ? createManagementPillarPanel(researchCase) : null,
+    p3p4Status === undefined ? createInsiderActivityPanel(researchCase) : null,
+    // ── PILLAR 4 — Value the business (price is the LAST filter, never the first) ──
+    createPillarHeader('pillar-4', 'Pillar 4 — Value the business', p3p4Status),
+    makeCollapsible(createDecisionPanel(researchCase, marketQuote), true, decisionHint),
+    makeCollapsible(createMarginOfSafetyAuditBlock(researchCase), false, mosHint),
+    makeCollapsible(createValuationPanel(researchCase, marketQuote, savings), false, valuationHint),
+    makeCollapsible(createPositionPlanPanel(positionPlan, promptForCapital), false, positionPlanHint),
+    // ── SYNTHESIS & DECISION (the lattice, the lanes' full reasoning, forecasts, advisory panels) ──
+    createPillarHeader('synthesis', 'Synthesis & decision', undefined),
     createMungerLatticePanel(researchCase),
-    // ── 4. Deep-dive specialist lanes (collapsed by default; each lane stacks full-width) ────────────
     createSpecialistLanesGrid(researchCase),
-    // ── 4·insider. Insider activity (Form 4) — deterministic harness summary, model-independent ───────
-    createManagementPillarPanel(researchCase),
-    createInsiderActivityPanel(researchCase),
-    // ── 4b. Falsifiable forecasts (calibration scaffold) ─────────────────────
     createForecastsPanel(researchCase),
-    // ── 4c. Admit recommendation (advisory) + on-demand request (personal-local) ──
     showAdmitPanel ? createAdmitRecommendationPanel(researchCase) : null,
-    // ── 4d. Sizing recommendation (advisory, worst-case-first) + on-demand request (personal-local) ──
     showSizingPanel ? createSizingRecommendationPanel(researchCase) : null,
-    // ── 4e. Sell decision (advisory, worst-case-first; HELD context) + on-demand request (personal-local) ──
     showSellPanel ? createSellDecisionPanel(researchCase) : null,
-    // ── 5. Watchlist promotion (personal-local only) ─────────────────────────
     canPromoteToWatchlist ? createWatchlistPromotionAction(researchCase) : null,
-    // ── 6. Actions row ──────────────────────────────────────────────────────
     createActionsRow(),
-    // ── 6b. What changed since last analysis (re-analysis diff) — grouped with the audit trail at the
-    //        bottom, not competing with the current verdict at the top. Collapsed by default. ──
     createReAnalysisDiffPanel(researchCase),
     createReReviewPanel(researchCase),
-    // ── 7. Evidence & sources — collapsed by default like the other info boxes; sources live INSIDE the
-    //       drop-down. Citation markers (#source-<id>) still resolve: the browser auto-expands a <details>
-    //       when navigating to a fragment inside it. ──
+    // ── Evidence & sources — collapsed; citation markers (#source-<id>) still resolve. ──
     createEvidenceAndAuditDetails(researchCase),
   )
+}
+
+// ── S8: pillar section header — the dossier reads as the four filters applied in order. A pillar
+// that never ran says so in the header (the gated-dossier invariant, structurally). ──
+function createPillarHeader(id: string, title: string, status: string | undefined) {
+  return createElement(
+    'div',
+    {
+      'data-testid': `pillar-header-${id}`,
+      style: { alignItems: 'baseline', borderBottom: '1px solid var(--owl-color-border)', display: 'flex', flexWrap: 'wrap', gap: '0.6rem', marginTop: '0.4rem', paddingBottom: '0.25rem' },
+    },
+    createElement('span', { style: { color: 'var(--owl-color-text)', fontSize: 'var(--owl-text-sm)', fontWeight: 800, letterSpacing: '0.06em', textTransform: 'uppercase' as const } }, title),
+    status === undefined
+      ? null
+      : createElement('span', { 'data-testid': `pillar-status-${id}`, style: { color: 'var(--owl-color-gold-bright)', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-2xs)', letterSpacing: '0.05em' } }, status),
+  )
+}
+
+// ── S8: the three named moat tests (T0) — capital efficiency / two-engine / standout, each rendered
+// computable-or-honestly-deferred. The peer half of standout is the moat lane's labeled judgment
+// (see the valuation panel's judgment provenance). ──
+function createMoatTestsCard(researchCase: AppResearchCase) {
+  const tests = researchCase.moat_tests
+  if (tests === undefined) return null
+  const mono = { color: 'var(--owl-color-muted)', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-xs)', lineHeight: 1.5, margin: 0 }
+  const line = (testId: string, label: string, t?: { computable?: boolean; note?: string; reason?: string; passes?: boolean; band?: string }) =>
+    t === undefined
+      ? null
+      : createElement('p', { key: testId, 'data-testid': `moat-test-${testId}`, style: mono },
+          createElement('strong', { style: { color: 'var(--owl-color-text)' } }, `${label}: `),
+          t.computable === true
+            ? `${t.band !== undefined ? `${t.band.toUpperCase()} — ` : t.passes !== undefined ? `${t.passes ? 'PASSES' : 'FAILS'} — ` : ''}${t.note ?? ''}`
+            : `not computable (${t.reason ?? 'insufficient data'})`)
+  const children: ReactNode[] = [
+    createElement('p', { key: 'intro', style: { color: 'var(--owl-color-quiet)', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-2xs)', margin: 0 } },
+      'Harness-computed from the EDGAR annual series (T0). Capital efficiency + two-engine also form the mechanical moat anchor; standout is displayed, not scored — its peer half is the moat lane\u2019s labeled judgment.'),
+    line('capital-efficiency', 'Capital efficiency (ROIC bands)', tests.capital_efficiency),
+    line('two-engine', 'Two-engine (revenue + margins)', tests.two_engine),
+    line('standout', 'Standout (gross margin vs peers)', tests.standout),
+  ]
+  return createCollapsibleSection('moat-tests-card', 'The three moat tests (T0)', false, children)
 }
 
 // ── Mock-provider honesty banner ──────────────────────────────────────────────
