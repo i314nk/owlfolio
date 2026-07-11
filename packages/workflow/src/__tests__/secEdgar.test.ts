@@ -1083,3 +1083,74 @@ describe('S1 — gross profit, dividends, buybacks extraction', () => {
     expect(f?.latest_annual.buybacks_musd).toBeUndefined()
   })
 })
+
+// ---------------------------------------------------------------------------------------------------
+// B1 (Phase 4, book alignment): FCF + balance-sheet foundations. The book values FREE CASH FLOW
+// (CFO − capex) and names debt-to-equity + the CURRENT RATIO as the talent debt checks — none of
+// which the adapter extracted. All optional; missing tags degrade downstream to not-computable.
+// ---------------------------------------------------------------------------------------------------
+describe('B1 — cash from operations + current assets/liabilities extraction', () => {
+  const M = 1_000_000
+  function annualFacts(values: Record<number, number>, unit = 'USD', scale = M): unknown {
+    const units: Record<string, unknown[]> = { [unit]: [] }
+    for (const [yearStr, val] of Object.entries(values)) {
+      const year = Number(yearStr)
+      ;(units[unit] as unknown[]).push({
+        start: `${year}-01-01`, end: `${year}-12-31`, val: val * scale,
+        form: '10-K', fy: year, fp: 'FY', filed: `${year + 1}-02-15`, frame: `CY${year}`,
+      })
+    }
+    return { label: 'x', units }
+  }
+  function instantFacts(values: Record<number, number>, unit = 'USD', scale = M): unknown {
+    const units: Record<string, unknown[]> = { [unit]: [] }
+    for (const [yearStr, val] of Object.entries(values)) {
+      const year = Number(yearStr)
+      ;(units[unit] as unknown[]).push({ end: `${year}-12-31`, val: val * scale, form: '10-K', fy: year, fp: 'FY', filed: `${year + 1}-02-15` })
+    }
+    return { label: 'x', units }
+  }
+  const base = {
+    NetIncomeLoss: annualFacts({ 2024: 90, 2025: 100 }),
+    Revenues: annualFacts({ 2024: 900, 2025: 1000 }),
+  }
+
+  it('extracts CFO with per-year precedence (continuing-ops variant fills the gaps)', async () => {
+    const facts = {
+      entityName: 'CfoCo',
+      facts: {
+        'us-gaap': {
+          ...base,
+          NetCashProvidedByUsedInOperatingActivities: annualFacts({ 2025: 180 }),
+          NetCashProvidedByUsedInOperatingActivitiesContinuingOperations: annualFacts({ 2024: 150, 2025: 999 }),
+        },
+      },
+    }
+    const f = await fetchCompanyFundamentals('0000000001', { fetchImpl: fakeFactsFetch(facts) })
+    expect(f?.latest_annual.cfo_musd).toBeCloseTo(180, 0) // the canonical concept wins its year
+    expect(f?.annual_series.find((a) => a.fiscal_year === 2024)?.cfo_musd).toBeCloseTo(150, 0)
+  })
+
+  it('extracts current assets and current liabilities (instant, balance-sheet)', async () => {
+    const facts = {
+      entityName: 'RatioCo',
+      facts: {
+        'us-gaap': {
+          ...base,
+          AssetsCurrent: instantFacts({ 2024: 400, 2025: 440 }),
+          LiabilitiesCurrent: instantFacts({ 2024: 200, 2025: 210 }),
+        },
+      },
+    }
+    const f = await fetchCompanyFundamentals('0000000001', { fetchImpl: fakeFactsFetch(facts) })
+    expect(f?.latest_annual.current_assets_musd).toBeCloseTo(440, 0)
+    expect(f?.latest_annual.current_liabilities_musd).toBeCloseTo(210, 0)
+  })
+
+  it('yields undefined when untagged (fail-closed downstream)', async () => {
+    const f = await fetchCompanyFundamentals('0000000001', { fetchImpl: fakeFactsFetch({ entityName: 'Bare', facts: { 'us-gaap': { ...base } } }) })
+    expect(f?.latest_annual.cfo_musd).toBeUndefined()
+    expect(f?.latest_annual.current_assets_musd).toBeUndefined()
+    expect(f?.latest_annual.current_liabilities_musd).toBeUndefined()
+  })
+})

@@ -85,6 +85,12 @@ export type AnnualFacts = {
   gross_profit_musd?: number
   /** Dividends paid (cash outflow, annual flow), $millions — payout discipline + retained-earnings test. */
   dividends_paid_musd?: number
+  /** Net cash provided by operating activities (annual flow), $millions — the book's FCF = CFO − capex. */
+  cfo_musd?: number
+  /** Total current assets (instant), $millions — the current-ratio talent check. */
+  current_assets_musd?: number
+  /** Total current liabilities (instant), $millions — the current-ratio talent check. */
+  current_liabilities_musd?: number
   /** Common-stock repurchases (cash outflow, annual flow), $millions — payout discipline. */
   buybacks_musd?: number
   /** Operating income/loss (annual flow), $millions — for the NOPAT proxy. */
@@ -1047,6 +1053,12 @@ type ConceptMap = {
   dividendsPaid: string[]
   /** Common-stock repurchases (cash outflow). */
   buybacks: string[]
+  /** Net cash from operating activities (annual flow) — precedence-ordered per year. */
+  cfo: string[]
+  /** Total current assets (instant). */
+  currentAssets: string[]
+  /** Total current liabilities (instant). */
+  currentLiabilities: string[]
 }
 
 const US_GAAP_CONCEPTS: ConceptMap = {
@@ -1171,6 +1183,11 @@ const US_GAAP_CONCEPTS: ConceptMap = {
   // years the specific concept omits.
   dividendsPaid: ['PaymentsOfDividendsCommonStock', 'PaymentsOfDividends'],
   buybacks: ['PaymentsForRepurchaseOfCommonStock'],
+  // CFO: the canonical total first; the continuing-operations variant fills years for filers that
+  // tag only it (mirrors the debt-rollup precedence pattern).
+  cfo: ['NetCashProvidedByUsedInOperatingActivities', 'NetCashProvidedByUsedInOperatingActivitiesContinuingOperations'],
+  currentAssets: ['AssetsCurrent'],
+  currentLiabilities: ['LiabilitiesCurrent'],
 }
 
 // IFRS (ifrs-full) equivalents for a foreign private issuer's 20-F/40-F. Mapped per the probe of Novo
@@ -1233,6 +1250,9 @@ const IFRS_CONCEPTS: ConceptMap = {
   costOfRevenue: ['CostOfSales'],
   dividendsPaid: ['DividendsPaidClassifiedAsFinancingActivities', 'DividendsPaid'],
   buybacks: ['PaymentsToAcquireOrRedeemEntitysShares'],
+  cfo: ['CashFlowsFromUsedInOperatingActivities'],
+  currentAssets: ['CurrentAssets'],
+  currentLiabilities: ['CurrentLiabilities'],
 }
 
 function conceptMapFor(taxonomy: Taxonomy): ConceptMap {
@@ -1511,6 +1531,10 @@ function buildAnnualSeries(facts: CompanyFacts, taxonomy: Taxonomy, currency: Re
   // Payout flows (cash outflows, positive magnitudes as tagged), per-year precedence.
   const dividendsPaid = firstPopulatedByYear(facts, taxonomy, cm.dividendsPaid)
   const buybacks = firstPopulatedByYear(facts, taxonomy, cm.buybacks)
+  // B1 (book alignment): CFO (flow) + current assets/liabilities (instant) for FCF + the current ratio.
+  const cfo = firstPopulatedByYear(facts, taxonomy, cm.cfo)
+  const currentAssets = firstPopulatedByYear(facts, taxonomy, cm.currentAssets)
+  const currentLiabilities = firstPopulatedByYear(facts, taxonomy, cm.currentLiabilities)
   const stockholdersEquity = annualByFiscalYear(facts, taxonomy, cm.stockholdersEquity)
   const operatingIncome = annualByFiscalYear(facts, taxonomy, cm.operatingIncome)
   const incomeTax = annualByFiscalYear(facts, taxonomy, cm.incomeTax)
@@ -1565,6 +1589,9 @@ function buildAnnualSeries(facts: CompanyFacts, taxonomy: Taxonomy, currency: Re
     set('gross_profit_musd', toMusd(grossProfit.get(fy)))
     set('dividends_paid_musd', toMusd(dividendsPaid.get(fy)))
     set('buybacks_musd', toMusd(buybacks.get(fy)))
+    set('cfo_musd', toMusd(cfo.get(fy)))
+    set('current_assets_musd', toMusd(currentAssets.get(fy)))
+    set('current_liabilities_musd', toMusd(currentLiabilities.get(fy)))
     series.push(row)
   }
   return series

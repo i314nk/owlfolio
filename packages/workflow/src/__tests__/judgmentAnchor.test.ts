@@ -180,3 +180,13 @@ describe('S1 — exported per-year ratio helpers', () => {
     expect(typeof mod.yearOperatingMargin).toBe('function')
   })
 })
+
+// B1 (Phase 4): yearFcf — the book's free cash flow (CFO − capex), shared arithmetic.
+describe('B1 — yearFcf', () => {
+  it('FCF = CFO − capex; undefined when either side is missing', async () => {
+    const { yearFcf } = await import('../annualRatios')
+    expect(yearFcf({ fiscal_year: 2025, currency: 'USD', cfo_musd: 180, capex_musd: 40 })).toBeCloseTo(140, 6)
+    expect(yearFcf({ fiscal_year: 2025, currency: 'USD', cfo_musd: 180 })).toBeUndefined()
+    expect(yearFcf({ fiscal_year: 2025, currency: 'USD', capex_musd: 40 })).toBeUndefined()
+  })
+})

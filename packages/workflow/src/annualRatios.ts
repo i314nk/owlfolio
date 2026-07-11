@@ -57,6 +57,14 @@ export function yearOperatingMargin(a: AnnualFacts): number | undefined {
   return op / rev
 }
 
+/** Per-year FREE CASH FLOW (the book's basis) = CFO − capex. undefined when either is missing. */
+export function yearFcf(a: AnnualFacts): number | undefined {
+  const cfo = a.cfo_musd
+  const capex = a.capex_musd
+  if (cfo === undefined || capex === undefined || !Number.isFinite(cfo) || !Number.isFinite(capex)) return undefined
+  return cfo - capex
+}
+
 /** Per-year gross margin = gross profit / revenue. undefined when either is missing/<=0 rev. */
 export function yearGrossMargin(a: AnnualFacts): number | undefined {
   const gp = a.gross_profit_musd
