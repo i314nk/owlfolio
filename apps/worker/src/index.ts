@@ -100,12 +100,18 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       min_breakers: automation.circle_gate_min_breakers,
     }
 
+    // F.2 — the discount risk-free anchor is the COMPLIANT app-config savings rate (clamped fail-closed
+    // to default via the shared helper). Threaded into BOTH research paths so the automatic-mode run and
+    // the approval-resume value at the SAME discount.
+    const risk_free_rate = mergeSavingsSleeveConfig(runtime.config.savings).savings_expected_profit_rate
+
     if (options.task_kind === 'process_research_queue') {
       const result = await runProcessResearchQueueTask(store, {
         provider,
         source_ledger_path: runtime.source_ledger_path,
         maxToolCalls,
         circle_gate,
+        risk_free_rate,
         // The deep-dive approval pause honors the SAME merged automation setting the web path uses —
         // a worker-executed run pauses behind the gates exactly like an in-process one.
         deep_dive_approval: automation.deep_dive_approval,
@@ -120,9 +126,6 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     }
 
     if (options.task_kind === 'process_deep_dive_queue') {
-      // F.2 — the discount risk-free anchor is the COMPLIANT app-config savings rate (clamped fail-closed
-      // to default via the shared helper), NOT the retired interest-bearing Treasury yield.
-      const risk_free_rate = mergeSavingsSleeveConfig(runtime.config.savings).savings_expected_profit_rate
       const result = await runProcessDeepDiveQueueTask(store, {
         provider,
         source_ledger_path: runtime.source_ledger_path,

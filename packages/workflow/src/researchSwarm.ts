@@ -230,6 +230,12 @@ export type RunStrategyResearchSwarmCommand = {
   supersedes_research_case_id?: string
   /** Circle-gate hardening knobs (k-sample agreement + evidence floors), forwarded to the deep dive. */
   circle_gate?: CircleGateSettings
+  /**
+   * F.2 — the COMPLIANT risk-free SAVINGS rate (decimal) from the app-config savings sleeve, the
+   * valuation discount anchor. Forwarded to the deep-dive phase (previously only the approval-RESUME
+   * path carried it, so automatic-mode runs always failed closed to the default).
+   */
+  risk_free_rate?: number
   /** Controls deep-dive gating.
    *  'automatic' (default): quick screen → deep dive → decision in one run.
    *  'review': quick screen → pause (deep_dive_approval_pending) → return without running deep dive.
@@ -774,6 +780,9 @@ export async function runStrategyResearchSwarm(
     ...(command.model_role_env === undefined ? {} : { model_role_env: command.model_role_env }),
     // Forward the circle-gate hardening knobs (k-sample agreement + evidence floors).
     ...(command.circle_gate === undefined ? {} : { circle_gate: command.circle_gate }),
+    // F.2: forward the compliant savings anchor so automatic-mode valuations use the SAME discount
+    // as approval-resume ones (previously only the resume path threaded it).
+    ...(command.risk_free_rate === undefined ? {} : { risk_free_rate: command.risk_free_rate }),
     // S3: the deep-dive approval pause is applied INSIDE the phase, AFTER both cheap gates pass and
     // BEFORE any lane spend. The approval-resume path calls the phase without this key (automatic).
     ...(command.deep_dive_approval === undefined ? {} : { deep_dive_approval: command.deep_dive_approval }),

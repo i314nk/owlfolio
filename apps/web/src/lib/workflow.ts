@@ -34,6 +34,7 @@ import { isTerminalResearchStage } from './researchRunProgress'
 import { resolveAppConfigPath } from './appConfigStore'
 import { resolveProviderCertificationReportDir } from './providerStatus'
 import type { AppConfig } from '@owlfolio/shared'
+import { mergeSavingsSleeveConfig } from '@owlfolio/shared/appConfig'
 import { mergeAutomationSettings } from '@owlfolio/shared/appConfig'
 
 /** Resolve the clamped circle-gate hardening knobs from app config (k-sample agreement + evidence floors). */
@@ -517,6 +518,9 @@ export async function enqueueResearchRun(
           model_role_env: await resolveModelRoleEnv(),
           model_overrides: (await buildAutoModelRoleOverrides({ processEnv: process.env })).overrides,
           circle_gate: resolveCircleGateSettings(state.config),
+          // F.2: the compliant savings anchor (Settings → Valuation & capital) — same discount on the
+          // inline path as the worker paths.
+          risk_free_rate: mergeSavingsSleeveConfig(state.config.savings).savings_expected_profit_rate,
         },
         // Advanced research-depth knob: per-lane grounded-tool-call cap (undefined → loop default).
         { ground, ...(state.config.automation?.research_max_tool_calls === undefined ? {} : { maxToolCalls: state.config.automation.research_max_tool_calls }) },

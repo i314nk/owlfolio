@@ -916,6 +916,9 @@ describe('runStrategyResearchSwarm front Shariah gate (S1b)', () => {
         model_id: 'mock',
         decision_id: 'decision_gate_open',
         source_ledger_path: '/tmp/owlfolio-gate-open-test-sources',
+        // F.2 threading pin: the FRONT command's savings anchor must reach the deep-dive discount
+        // (previously only the approval-resume path carried it).
+        risk_free_rate: 0.03,
       },
       { ground: gateGround, laneConcurrency: 3 },
     )
@@ -945,6 +948,12 @@ describe('runStrategyResearchSwarm front Shariah gate (S1b)', () => {
     expect(types).toContain('deep_dive_synthesis_drafted')
     expect(types).toContain('decision_drafted')
     expect(result.decision).toBeDefined()
+
+    // F.2 threading pin: discount = 0.03 anchor + 0.055 equity premium, basis compliant_savings.
+    const analysis = events.find((e) => e.event_type === 'buffett_munger_analysis_drafted')
+    const av = (analysis?.payload as { valuation?: { discount_rate?: number; discount_inputs?: { risk_free_basis?: string } } }).valuation
+    expect(av?.discount_inputs?.risk_free_basis).toBe('compliant_savings')
+    expect(av?.discount_rate).toBeCloseTo(0.085, 6)
   })
 })
 

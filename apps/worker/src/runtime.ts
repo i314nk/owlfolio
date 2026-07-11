@@ -2611,6 +2611,8 @@ export async function runProcessResearchQueueTask(
     circle_gate?: CircleGateSettings
     /** Deep-dive approval pause ('review' pauses behind the gates; undefined → automatic). */
     deep_dive_approval?: 'automatic' | 'review'
+    /** F.2 — the compliant savings anchor (decimal) for the valuation discount. */
+    risk_free_rate?: number
     /**
      * Defense-in-depth fail-closed guard inputs. These describe the config the worker ACTUALLY loaded
      * (provider_id + mode + the config path it read). If a run's `research_run_requested` recorded an
@@ -2727,6 +2729,7 @@ export async function runProcessResearchQueueTask(
           model_role_env: modelRoleEnv,
           ...(options.circle_gate === undefined ? {} : { circle_gate: options.circle_gate }),
           ...(options.deep_dive_approval === undefined ? {} : { deep_dive_approval: options.deep_dive_approval }),
+          ...(options.risk_free_rate === undefined ? {} : { risk_free_rate: options.risk_free_rate }),
         },
         { ground, ...(options.maxToolCalls === undefined ? {} : { maxToolCalls: options.maxToolCalls }) },
       )
