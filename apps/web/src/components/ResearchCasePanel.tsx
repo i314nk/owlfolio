@@ -2373,7 +2373,20 @@ function createPositionPlanPanel(plan: PositionPlan | undefined, promptForCapita
     )
   }
 
-  if (!plan.investable) return null
+  // D2: a pillar-gated plan renders its NAMED refusal (honest, compact) instead of vanishing.
+  if (!plan.investable) {
+    if (plan.notes.length === 0) return null
+    return createElement(
+      'div',
+      { 'data-testid': 'position-plan-not-sizeable', style: { ...cardStyle, display: 'grid', gap: '0.4rem' } },
+      createElement('p', { style: labelStyle }, 'Position plan · advisory'),
+      ...plan.notes.map((note, i) => createElement(
+        'p',
+        { key: `pp-note-${i}`, style: { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-base)', margin: 0 } },
+        note,
+      )),
+    )
+  }
 
   const currency = 'USD'
 

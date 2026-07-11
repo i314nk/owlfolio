@@ -166,10 +166,20 @@ export default async function ResearchCasePage({ params }: ResearchCasePageProps
     if (moatIsInvestable && buyPrice !== undefined) {
       const investableCapital = await getInvestableCapital(state.config.ledger_path)
       if (investableCapital !== undefined) {
+        // D2 (book alignment): the plan reads the four pillars + the book zones — a failed pillar
+        // refuses to size (named), and the tranche ladder anchors to buy_below / load_up_below.
+        const loadUpBelow = researchCase.valuation?.load_up_below
         positionPlan = buildPositionPlan({
           moatClass: moatClass as MoatClass,
           buyPricePerShare: buyPrice,
           investableCapital: investableCapital.amount,
+          ...(loadUpBelow === undefined ? {} : { loadUpBelow }),
+          pillars: {
+            shariah_pass: researchCase.shariah_status !== 'NON_COMPLIANT',
+            in_circle: researchCase.circle_competence?.in_competence !== false,
+            moat_passes_gate: researchCase.valuation?.moat_passes_gate !== false,
+            management_vetoed: researchCase.management_veto_applied !== undefined,
+          },
         })
       } else {
         promptForCapital = true
