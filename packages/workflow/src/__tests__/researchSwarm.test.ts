@@ -2056,6 +2056,17 @@ describe('RELIGHTENED DECISION — model proposes buy-below; deterministic side 
     expect((cp?.open_questions ?? []).some((q) => /buy_below_implies_absurd_growth/.test(q))).toBe(true)
   })
 
+  it('NVO dogfood (2026-07-11) — a moat-FAILED set-aside surfaces NO buy zone (the buy-below sanity rails never ran)', async () => {
+    // Moat moderate → set-aside PASS: the valuation (and its implied-growth rails) is suppressed, so an
+    // unvetted model buy-below must not produce an "in buy zone" banner. The raw number stays recorded.
+    const { cp } = await runRelit({
+      id: 'buyzone-moatfail', price: 85, moatClass: 'moderate', investmentVerdict: 'BUY', proposedBuyBelow: 280,
+    })
+    expect(cp?.investment_verdict).toBe('PASS')
+    expect(cp?.valuation?.in_buy_zone).toBeUndefined()
+    expect(cp?.valuation?.proposed_buy_below ?? cp?.valuation?.buy_price_per_share).toBe(280)
+  })
+
   it('GATE preserved — moat below wide → PASS regardless of the model verdict', async () => {
     const { cp } = await runRelit({ id: 'gate-moat', price: 200, moatClass: 'moderate', investmentVerdict: 'BUY' })
     expect(cp?.investment_verdict).toBe('PASS')

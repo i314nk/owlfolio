@@ -3107,7 +3107,11 @@ export async function runResearchDeepDivePhase(
     : undefined
 
   // in_buy_zone — pure arithmetic comparison on the model's number (fine; it is arithmetic, not judgment).
-  const in_buy_zone = current_price !== undefined && buy_below !== undefined
+  // NVO dogfood (2026-07-11): computed ONLY when the moat gate passed. On a gate-failed set-aside the
+  // valuation is suppressed, so NONE of the buy-below sanity rails (implied-growth, absurdity) ran —
+  // surfacing "in buy zone" against an UNVETTED model number on a PASS dossier is misleading. The raw
+  // proposed_buy_below stays recorded for audit; the zone judgment requires an investable case.
+  const in_buy_zone = moat_passes_gate && current_price !== undefined && buy_below !== undefined
     ? current_price <= buy_below
     : undefined
 
