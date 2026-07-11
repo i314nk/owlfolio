@@ -1214,16 +1214,13 @@ export async function promoteResearchCaseToWatchlist(
     // thesis. Fall back to the verdict-band buy-below / 0 when the case has no valuation buy-below yet.
     const lockedBuyBelow = researchCase.valuation?.buy_price_per_share ?? 0
 
-    // FREEZE the owner-earnings/share + a REFERENCE fair value at sign-off (scope-reframe — the band/gap
-    // engine was removed). The lightened valuation-inverted SELL is a LIGHT price-vs-this-reference sanity
-    // FLAG (advisory; the human decides), never a band engine. The REFERENCE is derived inside
-    // confirmWatchlistDraft as the forward two-stage FV off the frozen oe_ps + the sign-off assumed growth
-    // (the case's verdict-band high edge, used here only as the growth assumption — not a band). FAIL-CLOSED:
-    // when the oe_ps is absent at sign-off the reference is frozen as `undefined` and the sell returns
-    // cannot_assess. frozen_iv_valuation_version is the sign-off valuation provenance.
-    const assumedGrowth = researchCase.valuation?.verdict_state?.band_high
-    const frozenOePs = researchCase.valuation?.normalized_owner_earnings_per_share
-    const hasFrozenReference = assumedGrowth !== undefined && frozenOePs !== undefined
+    // E2: FREEZE the BOOK intrinsic value at sign-off — the computed FCF reference the method margins
+    // off, snapshotted verbatim (no recompute, no owner-earnings derive). The lightened valuation-
+    // inverted SELL is a LIGHT price-vs-this-reference sanity FLAG (advisory; the human decides).
+    // FAIL-CLOSED: an unpriced case freezes `undefined` and the sell returns cannot_assess. Legacy
+    // events keep their persisted OE-derived references (read-only).
+    const frozenIntrinsicValue = researchCase.valuation?.intrinsic_value_per_share
+    const hasFrozenReference = frozenIntrinsicValue !== undefined
 
     return await confirmWatchlistDraft(store, {
       watchlist_item_id: watchlistItemId,
@@ -1236,10 +1233,7 @@ export async function promoteResearchCaseToWatchlist(
       thesis_summary: thesisSummary,
       locked_buy_below: lockedBuyBelow,
       buy_below_valuation_version: VALUATION_PARAMS.version,
-      ...(frozenOePs === undefined ? {} : { frozen_oe_ps: frozenOePs }),
-      // The sign-off assumed growth feeds the REFERENCE FV derivation inside confirmWatchlistDraft (not
-      // persisted; a derivation input only).
-      ...(assumedGrowth === undefined ? {} : { assumed_growth: assumedGrowth }),
+      ...(frozenIntrinsicValue === undefined ? {} : { frozen_reference_fair_value: frozenIntrinsicValue }),
       // The version provenance is the sign-off valuation provenance; recorded whenever the reference can be
       // derived.
       ...(hasFrozenReference ? { frozen_iv_valuation_version: VALUATION_PARAMS.version } : {}),

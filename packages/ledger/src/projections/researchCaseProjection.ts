@@ -452,6 +452,12 @@ export type ResearchCaseValuationProjection = {
   in_load_up_zone?: boolean
   /** 'fcf' (the book basis) | 'owner_earnings_fallback' (CFO untagged — margined off the OE reference). */
   valuation_basis?: string
+  /** E2: the BOOK intrinsic value per share (the computed FCF reference the thresholds margin off). */
+  intrinsic_value_per_share?: number
+  /** E2: the T0 FCF basis provenance (fiscal year, CFO, capex, FCF, currency, source id). */
+  fcf_basis?: { fiscal_year?: number; cfo_musd?: number; capex_musd?: number; fcf_musd?: number; reporting_currency?: string; source_id?: string }
+  /** E2 survivor: the purely factual capex-vs-D&A reinvestment-mix note (no maintenance proxy). */
+  capex_vs_da?: { total_capex_musd?: number; d_and_a_musd?: number; capex_to_d_and_a?: number; growth_capex_heavy?: boolean; note?: string }
   /** The resolved industry P/FCF exit multiple + its provenance (model_grounded/clamped/asserted/fallback). */
   exit_multiple_used?: number
   exit_multiple_source?: string
@@ -1942,6 +1948,29 @@ function getValuation(payload: Record<string, unknown>): ResearchCaseValuationPr
   // B2 (Phase 4): the load-up threshold/zone + the valuation basis + exit-multiple provenance.
   const load_up_below = getNumber(value, 'load_up_below')
   if (load_up_below !== undefined) projected.load_up_below = load_up_below
+  const intrinsic_value_per_share = getNumber(value, 'intrinsic_value_per_share')
+  if (intrinsic_value_per_share !== undefined) projected.intrinsic_value_per_share = intrinsic_value_per_share
+  const rawFcfBasis = value['fcf_basis']
+  if (isRecord(rawFcfBasis)) {
+    const fb: NonNullable<ResearchCaseValuationProjection['fcf_basis']> = {}
+    const fy = getNumber(rawFcfBasis, 'fiscal_year'); if (fy !== undefined) fb.fiscal_year = fy
+    const cfo = getNumber(rawFcfBasis, 'cfo_musd'); if (cfo !== undefined) fb.cfo_musd = cfo
+    const capex = getNumber(rawFcfBasis, 'capex_musd'); if (capex !== undefined) fb.capex_musd = capex
+    const fcf = getNumber(rawFcfBasis, 'fcf_musd'); if (fcf !== undefined) fb.fcf_musd = fcf
+    const cur = getString(rawFcfBasis, 'reporting_currency'); if (cur !== undefined) fb.reporting_currency = cur
+    const sid = getString(rawFcfBasis, 'source_id'); if (sid !== undefined) fb.source_id = sid
+    if (Object.keys(fb).length > 0) projected.fcf_basis = fb
+  }
+  const rawCapexDa = value['capex_vs_da']
+  if (isRecord(rawCapexDa)) {
+    const cd: NonNullable<ResearchCaseValuationProjection['capex_vs_da']> = {}
+    const tc = getNumber(rawCapexDa, 'total_capex_musd'); if (tc !== undefined) cd.total_capex_musd = tc
+    const da = getNumber(rawCapexDa, 'd_and_a_musd'); if (da !== undefined) cd.d_and_a_musd = da
+    const r = getNumber(rawCapexDa, 'capex_to_d_and_a'); if (r !== undefined) cd.capex_to_d_and_a = r
+    if (typeof rawCapexDa['growth_capex_heavy'] === 'boolean') cd.growth_capex_heavy = rawCapexDa['growth_capex_heavy']
+    const note = getString(rawCapexDa, 'note'); if (note !== undefined) cd.note = note
+    if (Object.keys(cd).length > 0) projected.capex_vs_da = cd
+  }
   const in_load_up_zone = getBoolean(value, 'in_load_up_zone')
   if (in_load_up_zone !== undefined) projected.in_load_up_zone = in_load_up_zone
   const valuation_basis = getString(value, 'valuation_basis')

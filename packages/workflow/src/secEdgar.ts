@@ -186,6 +186,18 @@ export function ownerEarningsPerShareSeries(series: AnnualFacts[]): OwnerEarning
   return out
 }
 
+/** Per-year FCF per diluted share (the book basis: CFO − capex). Years missing any input are skipped. */
+export function fcfPerShareSeries(series: AnnualFacts[]): OwnerEarningsPerSharePoint[] {
+  const out: OwnerEarningsPerSharePoint[] = []
+  for (const a of series) {
+    const { cfo_musd: cfo, capex_musd: capex, diluted_shares_m: shares } = a
+    if (![cfo, capex, shares].every((v) => typeof v === 'number' && Number.isFinite(v))) continue
+    if (!(shares! > 0)) continue
+    out.push({ fiscal_year: a.fiscal_year, oe_ps: (cfo! - capex!) / shares! })
+  }
+  return out
+}
+
 /**
  * Demonstrated historical owner-earnings-per-share growth (CAGR) — the honest, falsifiable near-recent-
  * history growth-path input (Buffett-Munger gap-closing Phase 1.3 / Part D Step 2). Computed from the
@@ -305,9 +317,10 @@ function theilSenSlope(points: { x: number; y: number }[]): number | undefined {
  */
 export function demonstratedOwnerEarningsGrowth(
   series: AnnualFacts[],
-  opts?: { windowYears?: number },
+  opts?: { windowYears?: number; metric?: 'owner_earnings' | 'fcf' },
 ): DemonstratedGrowthResult {
   const windowYears = opts?.windowYears ?? 10
+  const metric = opts?.metric ?? 'owner_earnings'
   const flags: string[] = []
 
   // Trailing window of the underlying AnnualFacts, ascending by fiscal year. We keep the AnnualFacts (not
@@ -358,8 +371,10 @@ export function demonstratedOwnerEarningsGrowth(
     flags.push(`split-adjusted ${formatSplitFactor(match.factor, match.forward)} at FY${cur.fiscal_year}`)
   }
 
-  // Recompute OE/share on the (possibly split-adjusted) facts via the canonical owner-earnings formula.
-  const pts = ownerEarningsPerShareSeries(adjustedFacts).sort((a, b) => a.fiscal_year - b.fiscal_year)
+  // Recompute the per-share metric on the (possibly split-adjusted) facts. E2: the 'fcf' metric is the
+  // book basis (CFO − capex, per diluted share) — no maintenance-capex proxy anywhere in it.
+  const pts = (metric === 'fcf' ? fcfPerShareSeries(adjustedFacts) : ownerEarningsPerShareSeries(adjustedFacts))
+    .sort((a, b) => a.fiscal_year - b.fiscal_year)
 
   // ---- Residual (non-split) per-share discontinuity flag ------------------------------------------
   // After split-adjustment, a remaining large year-over-year OE/share jump on positive points is a genuine
@@ -532,6 +547,35 @@ export function estimateMaintenanceCapex(series: AnnualFacts[]): MaintenanceCape
  * Owlfolio's valuation authority is owner earnings. This helper does NOT replace the OE bridge; it surfaces
  * when a reported-FCF/P-FCF calculator is probably conservative because total capex includes growth capex.
  */
+/** E2 survivor: the purely FACTUAL capex-vs-D&A read — no maintenance-capex proxy, no assumptions. */
+export type CapexVsDandANote = {
+  total_capex_musd?: number
+  d_and_a_musd?: number
+  capex_to_d_and_a?: number
+  /** capex ≥ 1.5× D&A — reported FCF likely understates steady-state owner economics for a grower. */
+  growth_capex_heavy: boolean
+  note: string
+}
+
+export function capexVsDandANote(latest: AnnualFacts | undefined): CapexVsDandANote {
+  const finite = (v: number | undefined): v is number => typeof v === 'number' && Number.isFinite(v)
+  const capex = finite(latest?.capex_musd) ? latest!.capex_musd : undefined
+  const da = finite(latest?.d_and_a_musd) ? latest!.d_and_a_musd : undefined
+  const ratio = capex !== undefined && da !== undefined && da > 0 ? capex / da : undefined
+  const heavy = ratio !== undefined && ratio >= GROWTH_CAPEX_HEAVY_CAPEX_TO_DA_RATIO
+  return {
+    ...(capex !== undefined ? { total_capex_musd: capex } : {}),
+    ...(da !== undefined ? { d_and_a_musd: da } : {}),
+    ...(ratio !== undefined ? { capex_to_d_and_a: ratio } : {}),
+    growth_capex_heavy: heavy,
+    note: ratio === undefined
+      ? 'capex vs D&A not computable (capex or D&A untagged) — cannot read the reinvestment mix.'
+      : heavy
+        ? `FACT: total capex is ${ratio.toFixed(1)}x D&A — a heavy reinvestment mix; reported FCF likely understates steady-state owner economics for a grower. Advisory only.`
+        : `FACT: total capex is ${ratio.toFixed(1)}x D&A — a maintenance-weighted reinvestment mix.`,
+  }
+}
+
 export function ownerEarningsVsFcfDiagnostic(
   latest: AnnualFacts | undefined,
   maintenanceCapex?: number,

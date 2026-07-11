@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { fcfIntrinsicValuePerShare, resolveExitMultiple } from '../bookValuation'
+import { fcfImpliedExitMultiple, fcfImpliedGrowth, fcfIntrinsicValuePerShare, resolveExitMultiple } from '../bookValuation'
 import { VALUATION_PARAMS } from '../valuationParams'
 
 // Phase 4 (book alignment): the book's valuation mechanics — 10y FCF projection, exit-multiple
@@ -67,5 +67,53 @@ describe('fcfIntrinsicValuePerShare — the book steps 1–5 (hand-checked)', ()
     expect(fcfIntrinsicValuePerShare({ fcf_musd: -5, growth: 0.05, required_return: 0.15, exit_multiple: 12, shares_m: 100 })).toBeUndefined()
     expect(fcfIntrinsicValuePerShare({ fcf_musd: 100, growth: 0.05, required_return: 0, exit_multiple: 12, shares_m: 100 })).toBeUndefined()
     expect(fcfIntrinsicValuePerShare({ fcf_musd: 100, growth: 0.05, required_return: 0.15, exit_multiple: 12, shares_m: 0 })).toBeUndefined()
+  })
+})
+
+// E2 (owner-locked 2026-07-12): OE is retired — the sanity lenses invert the SAME book model the
+// valuation uses. fcfImpliedGrowth = the growth TODAY'S price implies under the book model (round-trips
+// with fcfIntrinsicValuePerShare); fcfImpliedExitMultiple = the exit multiple the price demands at the
+// horizon given the model's growth (flag input when above the book band).
+describe('fcfImpliedGrowth (E2 — reverse of the book model)', () => {
+  const base = { fcf_musd: 7837, required_return: 0.15, exit_multiple: 20, cash_musd: 15284, total_debt_musd: 5788, shares_m: 444.803 }
+
+  it('round-trips: the growth implied by the IV computed at g=6% is ~6%', () => {
+    const iv = fcfIntrinsicValuePerShare({ ...base, growth: 0.06 })!
+    const g = fcfImpliedGrowth({ ...base, price_per_share: iv.intrinsic_value_per_share })
+    expect(g).toBeCloseTo(0.06, 3)
+  })
+
+  it('a price far above the g-cap solution still solves (high implied growth) and a bargain implies low/negative growth', () => {
+    const rich = fcfImpliedGrowth({ ...base, price_per_share: 550 })
+    expect(rich).toBeGreaterThan(0.13)
+    const cheap = fcfImpliedGrowth({ ...base, price_per_share: 120 })
+    expect(cheap).toBeLessThan(0.0)
+  })
+
+  it('fails closed on unusable inputs (no FCF, no shares, price at/below the net-cash floor)', () => {
+    expect(fcfImpliedGrowth({ ...base, fcf_musd: 0, price_per_share: 300 })).toBeUndefined()
+    expect(fcfImpliedGrowth({ ...base, shares_m: 0, price_per_share: 300 })).toBeUndefined()
+    // Price below net cash per share (~21.35): no growth (even deeply negative) explains it — undefined.
+    expect(fcfImpliedGrowth({ ...base, price_per_share: 5 })).toBeUndefined()
+  })
+})
+
+describe('fcfImpliedExitMultiple (E2)', () => {
+  const base = { fcf_musd: 7837, growth: 0.06, required_return: 0.15, cash_musd: 15284, total_debt_musd: 5788, shares_m: 444.803 }
+
+  it('round-trips: the multiple implied by the IV computed at 20× is ~20', () => {
+    const iv = fcfIntrinsicValuePerShare({ ...base, exit_multiple: 20 })!
+    const m = fcfImpliedExitMultiple({ ...base, price_per_share: iv.intrinsic_value_per_share })
+    expect(m).toBeCloseTo(20, 2)
+  })
+
+  it('a rich price implies a multiple above the book band (the flag input)', () => {
+    const m = fcfImpliedExitMultiple({ ...base, price_per_share: 550 })
+    expect(m).toBeGreaterThan(20)
+  })
+
+  it('fails closed on unusable inputs', () => {
+    expect(fcfImpliedExitMultiple({ ...base, fcf_musd: 0, price_per_share: 300 })).toBeUndefined()
+    expect(fcfImpliedExitMultiple({ ...base, shares_m: -1, price_per_share: 300 })).toBeUndefined()
   })
 })

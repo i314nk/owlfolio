@@ -315,17 +315,6 @@ function mockSynthesisDecisionForTicker(ticker: string) {
     // the MOAT lane (mockMoatLaneForTicker) and the sector_status / impermissible_income overlay from the
     // SHARIAH lane (mockShariahLaneForTicker). The synthesis schema no longer carries them.
     growth_assumptions: `${companyLabel} is credited the demonstrated owner-earnings/share CAGR — here illustrated at a near-term rate of 0.08 (above the 0.03 GDP threshold, so flagged as a moat-durability claim that widens the margin of safety), passed through the named single_growth_cap of 0.15 (the agent may argue the rate down, never up; no reinvestment×ROIC band). Owner earnings $14,000M ÷ 1,000M shares = $14/sh. Two-stage DCF (10yr horizon, linear fade over years 6–10 to a uniform 1.5% terminal, flat 10% discount) → fair value ≈ $237.64/sh (implied ≈17.0× OE, under the 18× fv_cap_multiple — a surfaced cap_exceeded flag, not a hard truncation). Uniform 25% MoS → buy below ≈ $178.23.`,
-    owner_earnings_bridge: {
-      // Company TOTALS in $millions, judgment-grounded. OE_total = 14000+4000−3000−2000−(−1000) = 14000.
-      // shares_outstanding 1000M → OE/sh = 14000/1000 = 14.
-      net_income: 14000,
-      depreciation_amortization: 4000,
-      maintenance_capex: 3000,
-      maintenance_capex_proxy_tier: '50' as const,
-      stock_based_comp: 2000,
-      normalized_working_capital_change: -1000,  // negative = structural WC release, adds to OE
-      shares_outstanding: 1000,
-    },
     roic: 0.25,
     // Normalized INCREMENTAL ROIC (fraction) — reported context (no longer drives a band verdict; R1).
     incremental_roic: 0.20,
@@ -358,10 +347,8 @@ function mockSynthesisDecisionForTicker(ticker: string) {
     //   - other names: a modest, defensible assumed_growth (0.06) — a CLEAN case (no sanity flag).
     proposed_buy_below: isCapitalLightMock(ticker) ? 320 : 150,
     valuation_reasoning: {
-      owner_earnings_basis: `${companyLabel} FY25 owner earnings ≈ $14B per the latest 10-K (NI + D&A − maintenance capex − SBC − ΔWC).`,
-      // Founding-risk fix: ground both valuation claims in the decision agent's OWN proposed (and verified)
-      // primary source so the harness's deterministic synthesis own-grounding cite-check passes.
-      owner_earnings_citation: `mock_${sourceSlugForTicker(ticker)}_primary`,
+      // E2: the OE basis/citation/bridge are retired — growth (cited) + the exit multiple are the
+      // model's remaining valuation judgments; the harness owns the FCF basis.
       assumed_growth: isCapitalLightMock(ticker) ? 0.18 : 0.06,
       assumed_growth_rationale: isCapitalLightMock(ticker)
         ? `${companyLabel} sustains capital-light operating-leverage growth per the latest 10-K cloud/services segment margin expansion at low incremental reinvestment.`
@@ -384,8 +371,6 @@ function mockValuationReasoningForTicker(ticker: string) {
   const companyLabel = companyLabelForTicker(ticker)
   return {
     valuation_reasoning: {
-      owner_earnings_basis: `${companyLabel} FY25 owner earnings ≈ $14B per the latest 10-K (NI + D&A − maintenance capex − SBC − ΔWC).`,
-      owner_earnings_citation: `mock_${sourceSlugForTicker(ticker)}_primary`,
       assumed_growth: isCapitalLightMock(ticker) ? 0.18 : 0.06,
       assumed_growth_rationale: isCapitalLightMock(ticker)
         ? `${companyLabel} sustains capital-light operating-leverage growth per the latest 10-K cloud/services segment margin expansion at low incremental reinvestment.`
@@ -394,15 +379,6 @@ function mockValuationReasoningForTicker(ticker: string) {
       proposed_buy_below: isCapitalLightMock(ticker) ? 320 : 150,
       valuation_status: 'EXPENSIVE' as const,
       industry_exit_multiple: { multiple: 15, basis_note: 'Mock industry norm: ~15× FCF (not investment-grade).' },
-      owner_earnings_bridge: {
-        net_income: 14000,
-        depreciation_amortization: 4000,
-        maintenance_capex: 3000,
-        maintenance_capex_proxy_tier: '50' as const,
-        stock_based_comp: 2000,
-        normalized_working_capital_change: -1000,
-        shares_outstanding: 1000,
-      },
     },
     proposed_sources: mockSourcesForTicker(ticker),
   }
