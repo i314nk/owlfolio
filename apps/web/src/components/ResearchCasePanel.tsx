@@ -378,8 +378,8 @@ export function ResearchCasePanel({ researchCase, mode = 'personal-local', confi
     hintBuyBelow === undefined ? undefined : `buy-below $${hintBuyBelow.toFixed(2)}`,
     hintInBuyZone === undefined ? undefined : (hintInBuyZone ? 'in buy zone' : 'not in buy zone'),
   ].filter((part): part is string => part !== undefined).join(' · ') || undefined
-  // Phase 2 V2: the T0-computed grade is primary; the legacy model-graded adequacy is the fallback.
-  const mosAdequacy = researchCase.valuation?.margin_of_safety_grade?.grade ?? researchCase.margin_of_safety_judgment?.adequacy
+  // D3: the T0-computed grade is the ONLY margin surface (the model-graded adequacy is retired).
+  const mosAdequacy = researchCase.valuation?.margin_of_safety_grade?.grade
   const mosHint = mosAdequacy === undefined ? undefined : `margin ${mosAdequacy}`
   // Valuation headline: the moat tier + discount rate on the right of the card header (mirrors the in-card
   // moat label). Reuses the same DEFAULT_DISCOUNT_LABEL fallback as the valuation panel.
@@ -1616,8 +1616,8 @@ function createVerdictSummaryBody(researchCase: AppResearchCase): ReactNode {
   const moat = researchCase.valuation?.moat_class
   const impliedGrowth = researchCase.valuation?.market_implied_growth
   const buyBelow = researchCase.valuation?.proposed_buy_below ?? researchCase.valuation?.buy_price_per_share
-  // Phase 2 V2: the T0-computed grade is primary; the legacy model-graded adequacy is the fallback.
-  const mosAdequacy = researchCase.valuation?.margin_of_safety_grade?.grade ?? researchCase.margin_of_safety_judgment?.adequacy
+  // D3: the T0-computed grade is the ONLY margin surface (the model-graded adequacy is retired).
+  const mosAdequacy = researchCase.valuation?.margin_of_safety_grade?.grade
   const shariah = researchCase.shariah_status
 
   // The WHOLE thesis leads the verdict summary as prose (the standalone Thesis box was removed — this is now

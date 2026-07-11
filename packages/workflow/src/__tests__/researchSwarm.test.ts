@@ -6066,7 +6066,7 @@ describe('circle-of-competence gate', () => {
 // The headline of the MoS audit surface. Guard 1: adequacy is audit-only, NEVER a gate. Guard 2: a
 // moat-sourced margin must rest on a grounded/gate-passing moat (incoherence flag otherwise).
 // ---------------------------------------------------------------------------
-describe('margin-of-safety joint judgment (synthesis-owned: price AND/OR moat)', () => {
+describe('D3: the joint margin-of-safety judgment is RETIRED from the engine', () => {
   async function runMos(synthesis: SynthesisOverrides, id: string, opts: { moatGateOverride?: boolean } = {}) {
     const store = new InMemoryEventStore()
     const provider = configurableSwarmProvider({ laneCount: buffettMungerDeepDiveLanes.length, synthesis })
@@ -6091,117 +6091,26 @@ describe('margin-of-safety joint judgment (synthesis-owned: price AND/OR moat)',
     return { events, analysisEvent, cp: projections.find((c) => c.research_case_id === `rc_${id}`) }
   }
 
-  it('Test 1 — produces the structured margin_of_safety (sources + per-source reasoning + adequacy) persisted + projected', async () => {
+  it('a synthesis that still emits margin_of_safety persists NO judgment fields (schema strips it)', async () => {
     const { analysisEvent, cp } = await runMos({
       moat_class: 'wide', runway: 'proven',
       margin_of_safety: {
         sources: ['price', 'moat'],
         price_gap_reasoning: 'Price sits well below the proposed buy-below.',
         moat_durability_reasoning: 'The grounded wide moat lets time bail out estimate error.',
-        adequacy: 'adequate', reasoning: 'Both sources jointly supply an adequate margin.',
+        adequacy: 'adequate',
+        reasoning: 'Legacy-model emission — the engine must ignore it.',
       },
-    }, 'mos-structured')
-    // Persisted on the analysis event under the distinct (non-legacy-colliding) key.
+    }, 'mos-retired')
     const payload = analysisEvent?.payload as Record<string, unknown>
-    const persisted = payload['margin_of_safety_judgment'] as { sources: string[]; adequacy?: string; reasoning: string }
-    expect(persisted).toBeDefined()
-    expect(persisted.sources).toEqual(['price', 'moat'])
-    // V2/V4 (live COST dogfood): a model-emitted adequacy is STRIPPED from new events — the T0
-    // margin_of_safety_grade is the only grade; the narrative fields carry.
-    expect(persisted.adequacy).toBeUndefined()
-    // Projected onto the case under the distinct key (NOT the legacy valuation.margin_of_safety string).
-    expect(cp?.margin_of_safety_judgment?.sources).toEqual(['price', 'moat'])
-    expect(cp?.margin_of_safety_judgment?.adequacy).toBeUndefined()
-    expect((cp?.margin_of_safety_judgment?.reasoning ?? '').length).toBeGreaterThan(0)
-    expect(cp?.margin_of_safety_judgment?.moat_durability_reasoning).toBeTruthy()
-  })
-
-  it('V2 — the T0 margin-of-safety GRADE: a deep-discount buy-below grades adequate; a premium buy-below grades inadequate (required_margin 0.30, audit-only)', async () => {
-    // The reference value is min(internal DCF FV, 18× OE) — exact dollars are model-input-dependent, so
-    // pin the two unambiguous ends: a buy-below of $1 (discount ≈ 100%) and one far above any FV.
-    const deep = await runMos({
-      moat_class: 'wide', runway: 'proven', proposed_buy_below: 1,
-      margin_of_safety: { sources: ['price'], price_gap_reasoning: 'Deep discount.', reasoning: 'Deep discount carries the margin.' },
-    }, 'mos-grade-deep')
-    const deepGrade = deep.cp?.valuation?.margin_of_safety_grade
-    expect(deepGrade?.grade).toBe('adequate')
-    expect(deepGrade?.required_margin).toBe(0.30)
-    expect(deepGrade?.price_discount_to_reference ?? 0).toBeGreaterThan(0.25)
-
-    const premium = await runMos({
-      moat_class: 'wide', runway: 'proven', proposed_buy_below: 8000,
-      margin_of_safety: { sources: ['price'], price_gap_reasoning: 'Premium price.', reasoning: 'No price margin.' },
-    }, 'mos-grade-premium')
-    const premiumGrade = premium.cp?.valuation?.margin_of_safety_grade
-    expect(premiumGrade?.grade).toBe('inadequate')
-    // Audit-only: the grade never gates — both runs record their (clamp-governed) verdicts identically
-    // to the adequacy era; no new gate reads the grade.
-  })
-
-  it('V2 — the joint judgment WITHOUT the retired adequacy field still persists + projects (narrative-only, the new model shape)', async () => {
-    const { analysisEvent, cp } = await runMos({
-      moat_class: 'wide', runway: 'proven',
-      margin_of_safety: {
-        sources: ['moat'],
-        moat_durability_reasoning: 'The grounded wide moat lets time bail out estimate error.',
-        reasoning: 'The moat carries the margin; the T0 grade quantifies the price side.',
-      },
-    }, 'mos-no-adequacy')
-    const persisted = (analysisEvent?.payload as Record<string, unknown>)['margin_of_safety_judgment'] as { sources: string[]; adequacy?: string }
-    expect(persisted.sources).toEqual(['moat'])
-    expect(persisted.adequacy).toBeUndefined()
-    expect(cp?.margin_of_safety_judgment?.sources).toEqual(['moat'])
-    expect(cp?.margin_of_safety_judgment?.adequacy).toBeUndefined()
-    expect((cp?.margin_of_safety_judgment?.reasoning ?? '').length).toBeGreaterThan(0)
-  })
-
-  it('Test 2 / GUARD 1 — the verdict + buy-below are UNCHANGED whether adequacy is adequate vs inadequate (adequacy never gates)', async () => {
-    const adequate = await runMos({
-      moat_class: 'wide', runway: 'proven', proposed_buy_below: 150,
-      margin_of_safety: { sources: ['price'], price_gap_reasoning: 'Below buy-below.', adequacy: 'adequate', reasoning: 'Adequate.' },
-    }, 'mos-guard1-adequate')
-    const inadequate = await runMos({
-      moat_class: 'wide', runway: 'proven', proposed_buy_below: 150,
-      margin_of_safety: { sources: ['price'], price_gap_reasoning: 'Below buy-below.', adequacy: 'inadequate', reasoning: 'Inadequate.' },
-    }, 'mos-guard1-inadequate')
-    // The gated verdict is IDENTICAL — adequacy does not feed any gate.
-    expect(inadequate.cp?.investment_verdict).toBe(adequate.cp?.investment_verdict)
-    // The recorded buy-below is IDENTICAL — adequacy does not change the model's number.
-    expect(inadequate.cp?.valuation?.buy_price_per_share).toBe(adequate.cp?.valuation?.buy_price_per_share)
-    expect(inadequate.cp?.valuation?.proposed_buy_below).toBe(adequate.cp?.valuation?.proposed_buy_below)
-    // And the next_required_action (the gate reason) does not mention adequacy.
-    expect((inadequate.cp?.next_required_action ?? '').toLowerCase()).not.toContain('inadequate')
-  })
-
-  it('Test 3a / GUARD 2 — a moat-sourced margin on a GROUNDED gate-passing moat is accepted (no incoherence flag)', async () => {
-    const { cp } = await runMos({
-      moat_class: 'wide', runway: 'proven',
-      margin_of_safety: {
-        sources: ['moat'],
-        moat_durability_reasoning: 'Grounded wide moat verified by the moat gate supplies durability margin.',
-        adequacy: 'adequate', reasoning: 'Moat durability carries the margin.',
-      },
-    }, 'mos-guard2-grounded')
-    expect(cp?.valuation?.moat_passes_gate).toBe(true)
-    expect(cp?.margin_of_safety_moat_ungrounded).toBeUndefined()
-    expect(cp?.margin_of_safety_judgment?.moat_durability_reasoning).toBeTruthy()
-  })
-
-  it('Test 3b / GUARD 2 — a moat-sourced margin claimed on an UNGROUNDED (non-gate-passing) moat surfaces margin_of_safety_moat_ungrounded', async () => {
-    // S6: a below-gate moat now short-circuits BEFORE synthesis by default — this guard exercises the
-    // OVERRIDE path ("run remaining pillars anyway"), where synthesis DOES run on a failed gate and
-    // the incoherent moat-sourced margin must still be flagged.
-    const { cp } = await runMos({
-      // A narrow moat fails the wide-moat gate → the moat is NOT grounded/gate-passing.
-      moat_class: 'narrow', runway: 'proven',
-      margin_of_safety: {
-        sources: ['moat'],
-        moat_durability_reasoning: 'Claims moat durability — but the moat did not pass the grounded gate.',
-        adequacy: 'adequate', reasoning: 'Incoherently rests the margin on an ungrounded moat.',
-      },
-    }, 'mos-guard2-ungrounded', { moatGateOverride: true })
-    expect(cp?.valuation?.moat_passes_gate).toBe(false)
-    expect(cp?.margin_of_safety_moat_ungrounded).toBe(true)
+    // The book's mechanical grade is the ONLY margin surface on new events.
+    expect(payload['margin_of_safety_judgment']).toBeUndefined()
+    expect(payload['margin_of_safety_moat_ungrounded']).toBeUndefined()
+    expect(cp !== undefined && 'margin_of_safety_judgment' in cp).toBe(false)
+    expect(cp !== undefined && 'margin_of_safety_moat_ungrounded' in cp).toBe(false)
+    // The T0 grade + the thesis-break audit fields still carry.
+    expect(payload['key_wrong_assumption']).toBeTruthy()
+    expect(payload['thesis_break_triggers']).toBeTruthy()
   })
 })
 

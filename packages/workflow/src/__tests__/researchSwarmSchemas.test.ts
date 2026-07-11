@@ -99,32 +99,17 @@ describe('DecisionAgentSchema (model proposes buy-below + cited valuation reason
     expect(parsed.success && parsed.data.thesis_break_triggers).toHaveLength(1)
   })
 
-  // MARGIN-OF-SAFETY JOINT JUDGMENT (synthesis-owned). The margin rests on TWO substitutable sources —
-  // price gap and moat durability — with per-source reasoning + a REASONED adequacy + reasoning.
-  it('REQUIRES a structured margin_of_safety (sources + adequacy + reasoning)', () => {
-    const { margin_of_safety: _omit, ...withoutMos } = base
-    void _omit
-    expect(DecisionAgentSchema.safeParse(withoutMos).success).toBe(false)
+  // D3: the joint MoS judgment is RETIRED — a legacy model's emission is STRIPPED as an unknown key
+  // (like the V4 valuation-owned fields), and its absence parses fine.
+  it('margin_of_safety is retired: emitted values are stripped as unknown keys, and absence parses', () => {
     const parsed = DecisionAgentSchema.safeParse(base)
     expect(parsed.success).toBe(true)
     if (parsed.success) {
-      expect(parsed.data.margin_of_safety.sources).toEqual(['price', 'moat'])
-      expect(parsed.data.margin_of_safety.adequacy).toBe('adequate')
-      expect(parsed.data.margin_of_safety.reasoning.length).toBeGreaterThan(0)
+      expect('margin_of_safety' in parsed.data).toBe(false)
     }
-  })
-
-  it('margin_of_safety.sources must be a non-empty subset of price|moat', () => {
-    expect(DecisionAgentSchema.safeParse({ ...base, margin_of_safety: { ...base.margin_of_safety, sources: [] } }).success).toBe(false)
-    expect(DecisionAgentSchema.safeParse({ ...base, margin_of_safety: { ...base.margin_of_safety, sources: ['liquidity'] } }).success).toBe(false)
-    expect(DecisionAgentSchema.safeParse({ ...base, margin_of_safety: { ...base.margin_of_safety, sources: ['price'] } }).success).toBe(true)
-    expect(DecisionAgentSchema.safeParse({ ...base, margin_of_safety: { ...base.margin_of_safety, sources: ['moat'] } }).success).toBe(true)
-  })
-
-  it('margin_of_safety.adequacy is one of adequate|thin|inadequate and reasoning is required', () => {
-    expect(DecisionAgentSchema.safeParse({ ...base, margin_of_safety: { ...base.margin_of_safety, adequacy: 'great' } }).success).toBe(false)
-    expect(DecisionAgentSchema.safeParse({ ...base, margin_of_safety: { ...base.margin_of_safety, reasoning: '' } }).success).toBe(false)
-    expect(DecisionAgentSchema.safeParse({ ...base, margin_of_safety: { ...base.margin_of_safety, adequacy: 'inadequate' as const } }).success).toBe(true)
+    const { margin_of_safety: _omit, ...withoutMos } = base
+    void _omit
+    expect(DecisionAgentSchema.safeParse(withoutMos).success).toBe(true)
   })
 })
 

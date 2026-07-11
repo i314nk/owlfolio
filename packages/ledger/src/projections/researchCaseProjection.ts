@@ -55,21 +55,6 @@ export type ResearchCaseOwnerEarningsValuationProjection = {
   caveats?: string[]
 }
 
-/**
- * MARGIN-OF-SAFETY JOINT JUDGMENT (synthesis-owned). The margin rests on one or both SUBSTITUTABLE sources —
- * the price-vs-value gap ('price') and moat durability ('moat') — with per-source reasoning + a reasoned
- * joint adequacy. NOTE: this is the NEW structured judgment, distinct from the retired legacy
- * `margin_of_safety` haircut STRING on ResearchCaseOwnerEarningsValuationProjection.
- */
-export type ResearchCaseMarginOfSafetyJudgment = {
-  sources: ('price' | 'moat')[]
-  price_gap_reasoning?: string
-  moat_durability_reasoning?: string
-  /** Legacy (pre-V2) model-graded adequacy — read-only; current runs carry the T0
-   *  valuation.margin_of_safety_grade instead. */
-  adequacy?: 'adequate' | 'thin' | 'inadequate'
-  reasoning: string
-}
 
 export type ResearchCaseSpecialistFindingProjection = {
   finding_id: string
@@ -971,21 +956,8 @@ export type ResearchCaseProjection = {
    * confident diff.
    */
   re_review?: ResearchCaseReReviewProjection
-  /**
-   * MARGIN-OF-SAFETY JOINT JUDGMENT (synthesis-owned) — the HEADLINE of the MoS audit surface. The margin of
-   * safety comes from TWO SUBSTITUTABLE sources: the price-vs-value gap and moat durability. Synthesis names
-   * which source(s) the margin rests on, gives the per-source reasoning, and a REASONED adequacy + reasoning.
-   * adequacy is audit-only (never a gate). Distinct field name (NOT the retired legacy `margin_of_safety`
-   * haircut string on the owner-earnings valuation block) so legacy events replay without collision.
-   * Legacy-tolerant: absent on old analysis events.
-   */
-  margin_of_safety_judgment?: ResearchCaseMarginOfSafetyJudgment
-  /**
-   * GUARD 2: set true when the synthesis claimed 'moat' as a margin-of-safety source but the moat was NOT
-   * grounded / did not pass the grounded moat gate — an incoherent moat-sourced margin (ungrounded moat =
-   * ungrounded margin), surfaced visibly rather than silently accepted. Legacy-tolerant (absent on old events).
-   */
-  margin_of_safety_moat_ungrounded?: boolean
+  // D3: margin_of_safety_judgment / margin_of_safety_moat_ungrounded are RETIRED — legacy events
+  // carrying the payload keys are tolerated by ignore (never projected).
   decision?: string
   user_approved?: boolean
   reason?: string
@@ -1037,34 +1009,6 @@ function getNumber(payload: Record<string, unknown>, key: string): number | unde
   return typeof value === 'number' && isFinite(value) ? value : undefined
 }
 
-/**
- * MARGIN-OF-SAFETY JOINT JUDGMENT (synthesis-owned) — legacy-tolerant extraction of the NEW structured
- * judgment. Distinct from the retired legacy `margin_of_safety` haircut STRING (which is intentionally never
- * projected). Only a well-formed judgment (≥1 valid source + valid adequacy + non-empty reasoning) projects;
- * anything else → undefined (graceful fallback). Never throws — old events without it simply project nothing.
- */
-function getMarginOfSafetyJudgment(
-  payload: Record<string, unknown>,
-  key: string,
-): ResearchCaseMarginOfSafetyJudgment | undefined {
-  const value = payload[key]
-  if (!isRecord(value)) return undefined
-  const rawSources = value['sources']
-  if (!Array.isArray(rawSources)) return undefined
-  const sources = rawSources.filter((s): s is 'price' | 'moat' => s === 'price' || s === 'moat')
-  if (sources.length === 0) return undefined
-  // Phase 2 V2: adequacy is legacy-optional (current runs carry the T0 grade on the valuation instead).
-  const adequacy = value['adequacy']
-  const validAdequacy = adequacy === 'adequate' || adequacy === 'thin' || adequacy === 'inadequate' ? adequacy : undefined
-  const reasoning = value['reasoning']
-  if (typeof reasoning !== 'string' || reasoning.trim().length === 0) return undefined
-  const judgment: ResearchCaseMarginOfSafetyJudgment = { sources, ...(validAdequacy === undefined ? {} : { adequacy: validAdequacy }), reasoning }
-  const priceGap = value['price_gap_reasoning']
-  if (typeof priceGap === 'string' && priceGap.length > 0) judgment.price_gap_reasoning = priceGap
-  const moatDurability = value['moat_durability_reasoning']
-  if (typeof moatDurability === 'string' && moatDurability.length > 0) judgment.moat_durability_reasoning = moatDurability
-  return judgment
-}
 
 /**
  * Extract the human checklist answers map from a payload, decision-neutrally — verbatim, no scoring.
@@ -2574,12 +2518,8 @@ export function projectResearchCases(events: LedgerEventEnvelope<unknown>[]): Re
       // MARGIN-OF-SAFETY AUDIT SURFACE — legacy-tolerant guarded reads (absent on old analysis events).
       applyString(researchCase, 'key_wrong_assumption', getString(event.payload, 'key_wrong_assumption'))
       applyStringArray(researchCase, 'thesis_break_triggers', getStringArray(event.payload, 'thesis_break_triggers'))
-      // MARGIN-OF-SAFETY JOINT JUDGMENT (synthesis-owned) + Guard-2 incoherence flag. Distinct field name so
-      // the retired legacy `margin_of_safety` haircut string never collides; old events simply project nothing.
-      const marginOfSafetyJudgment = getMarginOfSafetyJudgment(event.payload, 'margin_of_safety_judgment')
-      if (marginOfSafetyJudgment !== undefined) researchCase.margin_of_safety_judgment = marginOfSafetyJudgment
-      const marginOfSafetyMoatUngrounded = getBoolean(event.payload, 'margin_of_safety_moat_ungrounded')
-      if (marginOfSafetyMoatUngrounded !== undefined) researchCase.margin_of_safety_moat_ungrounded = marginOfSafetyMoatUngrounded
+      // D3: the joint MoS judgment is retired — legacy payload keys (margin_of_safety_judgment,
+      // margin_of_safety_moat_ungrounded) are tolerated by ignore.
       // Root-level engine-version provenance (stamped at all three emission sites). Legacy-tolerant:
       // absent on pre-versioning events → undefined (so the dossier marker shows "unknown · pre-versioning").
       applyString(researchCase, 'engine_version', getString(event.payload, 'engine_version'))

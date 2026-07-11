@@ -387,31 +387,10 @@ export const DecisionAgentSchema = z.object({
   // thesis_break_triggers: the observable events that would invalidate the thesis (concrete + tied to THIS
   // business — "gross margin falls below X%", "top-2 customer concentration rises" — not "if growth slows").
   thesis_break_triggers: z.array(z.string().min(1)).min(1),
-  // MARGIN-OF-SAFETY JOINT JUDGMENT (synthesis-owned) — the margin of safety comes from TWO SUBSTITUTABLE
-  // sources: the PRICE-vs-value gap and MOAT durability ("a fortress moat lets time bail out errors, so it
-  // needs less price discount"). Synthesis OWNS this as a single joint judgment, naming which source(s) the
-  // margin rests on, the per-source reasoning, and a REASONED adequacy + reasoning. GUARD: adequacy is an
-  // audit judgment DISPLAYED for the human — it is NEVER a gate (the retired MoS-as-haircut stays dead). A
-  // moat-sourced margin must rest on the GROUNDED moat-gate thesis (the harness flags a moat source claimed
-  // on an ungrounded moat). Cite-checked? No — like key_wrong_assumption it is forward-looking reasoning;
-  // required + substantive (the schema + synthesisRequiredFields retry + the prompt specificity are the guard).
-  margin_of_safety: z.object({
-    // Which substitutable source(s) the margin rests on. 'price' = the price-vs-value gap; 'moat' = moat
-    // durability bailing out time/error. At least one; both is valid (a discounted price AND a fortress moat).
-    sources: z.array(z.enum(['price', 'moat'])).min(1),
-    // Required-in-prompt when 'price' is a source: WHY the price-vs-value gap supplies adequate margin.
-    price_gap_reasoning: z.string().optional(),
-    // Required-in-prompt when 'moat' is a source: WHY moat durability supplies margin — anchored on the
-    // GROUNDED moat thesis the moat gate verified, NOT a fresh claim.
-    moat_durability_reasoning: z.string().optional(),
-    // Phase 2 V2 (owner-validated 2026-07-11): the GRADE is now T0-computed (margin_of_safety_grade on
-    // the valuation payload — the buy-below's discount to the reference value vs the uniform required
-    // margin). The model no longer grades its own margin; tolerated read-only on legacy payloads.
-    adequacy: z.enum(['adequate', 'thin', 'inadequate']).optional(),
-    // The joint reasoning tying the named source(s) together (the NARRATIVE — which source(s) the
-    // margin rests on and why; the human weighs it against the T0 grade).
-    reasoning: z.string().min(1),
-  }),
+  // D3 (owner feedback, post-B8): the JOINT margin-of-safety judgment is RETIRED — the book's
+  // mechanical 30%/50% thresholds (the T0 margin_of_safety_grade) own the margin. A legacy model that
+  // still emits `margin_of_safety` has it stripped as an unknown key; legacy ledger events keep theirs
+  // read-only (tolerated by ignore at the projection).
   // Phase 2 V4: proposed_buy_below + valuation_reasoning are OWNED by the valuation stage
   // (valuationReasoningPass runs ALWAYS between the lanes and synthesis, cite-checked there). The
   // monolithic schema no longer carries them — a live model kept under-filling these exact fields
