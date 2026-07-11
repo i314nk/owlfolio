@@ -223,7 +223,11 @@ back ALL D&A (OE = NI + D&A − maint − SBC − ΔNWC), so merger amortization
 construction — an explicit intangible_amortization_addback would DOUBLE-COUNT; the real SPGI
 collision (the D&A-tied proxy overstating maintenance capex) was fixed by the capex-envelope cap
 (e69fc51). Live-week riders shipped alongside: the gated-dossier invariant (no unvetted numbers on
-set-asides), no-buy-zone-on-moat-fail, 'Not priced (moat gate)' labels.
+set-asides), no-buy-zone-on-moat-fail, 'Not priced (moat gate)' labels, ΔNWC judgment guidance in
+the stage prompt (owner find: normalized_working_capital_change defaulted to 0 on every recorded
+bridge — no prompt guidance, no EDGAR WC data). FUTURE (post-Phase-3 candidate): extract the XBRL
+working-capital delta (IncreaseDecreaseInOperatingCapital family) into fundamentals as a
+deterministic ΔNWC anchor/verifier, mirroring the NI/D&A/SBC anchors.
 
 **Slices:**
 - **V1 — the always-on valuation pass + event**: PROMOTE the existing focused

@@ -69,10 +69,10 @@ describe('DecisionAgentSchema (model proposes buy-below + cited valuation reason
     expect(DecisionAgentSchema.safeParse(slim).success).toBe(true)
   })
 
-  it('valuation_reasoning is OPTIONAL — a degraded payload (buy-below only) still parses', () => {
+  it('a payload without any valuation fields parses (V4: the stage owns them)', () => {
     const parsed = DecisionAgentSchema.safeParse(base)
     expect(parsed.success).toBe(true)
-    expect(parsed.success && parsed.data.valuation_reasoning).toBeUndefined()
+    expect(parsed.success && (parsed.data as Record<string, unknown>)['valuation_reasoning']).toBeUndefined()
   })
 
   // Margin-of-safety audit surface: the SINGLE assumption that, if wrong, breaks the thesis +

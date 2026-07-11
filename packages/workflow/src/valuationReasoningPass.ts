@@ -142,7 +142,15 @@ export function buildValuationReasoningPrompt(args: RunValuationReasoningPassArg
     + `depreciation_amortization, maintenance_capex + maintenance_capex_proxy_tier ('20'|'50'|'80'), `
     + `stock_based_comp, normalized_working_capital_change, shares_outstanding — $M and millions of shares). `
     + `The harness anchors NI/D&A/SBC/shares to EDGAR and bounds maintenance_capex by total capex; your real `
-    + `judgment is the maintenance-vs-growth capex split.\n\n`
+    + `judgments are the maintenance-vs-growth capex split AND the normalized working-capital change.\n`
+    + `  - normalized_working_capital_change is a JUDGMENT, not a default: read the cash-flow statement's `
+    + `"changes in operating assets and liabilities" across the last 2-3 fiscal years (read_source the `
+    + `pre-verified filing, section 8) and estimate the STRUCTURAL recurring working-capital use of cash as `
+    + `the business grows — normalize away one-year swings. SIGN: positive = a recurring USE of cash `
+    + `(subtracts from owner earnings); negative = a structural release (adds). Enter 0 ONLY when the filing `
+    + `shows working capital roughly neutral across years — and if you enter 0, SAY WHY in `
+    + `owner_earnings_basis (e.g. "negative working-capital cycle; customers pay upfront"). A silent `
+    + `defaulted 0 overstates owner earnings for working-capital-hungry businesses.\n\n`
     + `GROUNDING (non-negotiable): the harness deterministically cite-checks owner_earnings_citation and `
     + `assumed_growth_citation against the grounded corpus and FAILS CLOSED when either is absent or does not `
     + `verify. Available corpus source_ids: ${corpus}. ${steer}Return your sources in proposed_sources with real URLs.\n`
