@@ -272,12 +272,13 @@ function SwarmTab(): ReactNode {
     }),
     PanelSection({
       eyebrow: 'The pipeline',
-      title: 'Shariah gate → circle gate → deep dive → synthesis → decision',
+      title: 'Shariah gate → circle gate → deep dive → valuation → synthesis → decision',
       lead: 'Two cheap grounded gates kill most candidates before the expensive swarm runs. Survivors get the full multi-agent deep dive; synthesis reconciles the lanes; the result is a BUY / WATCH / PASS draft for a human.',
       children: bullets([
         createElement('span', { key: 1 }, gold('Front gates'), ' — the grounded Shariah sector judgment (plus the deterministic AAOIFI ratios when computable) runs first, on the harness-verified annual filing; then the circle-of-competence judgment — durable predictability, cite-verified — decides whether the deep dive is worth spending on.'),
         createElement('span', { key: 2 }, gold('Deep-dive swarm'), ` — ${LANE_COUNT} specialist lanes run blind to each other, each grounding its own claims.`),
-        createElement('span', { key: 3 }, gold('Synthesis'), ' — conflicts reconciled conservatively, hard gates applied, base-rate burden enforced.'),
+        createElement('span', { key: 3 }, gold('Valuation judgment'), ' — a dedicated grounded stage owns the owner-earnings bridge, assumed growth, and buy-below (cite-checked); the harness computes the margin-of-safety GRADE arithmetically against a uniform required margin — the model never grades its own margin.'),
+        createElement('span', { key: 5 }, gold('Synthesis'), ' — conflicts reconciled conservatively, hard gates applied, base-rate burden enforced.'),
         createElement('span', { key: 4 }, gold('Decision'), ' — a drafted verdict; the human authors the watchlist entry or closes the case.'),
       ]),
     }),

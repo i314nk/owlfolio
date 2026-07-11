@@ -121,7 +121,7 @@ export function ResearchRunProgress({
     createElement(
       'p',
       { className: 'owl-empty-state-description' },
-      'The run passes through the Shariah gate, the circle of competence, five specialist lanes, synthesis, and a decision. This page updates as each stage completes.',
+      'The run passes through the Shariah gate, the circle of competence, five specialist lanes, the valuation judgment, synthesis, and a decision. This page updates as each stage completes.',
     ),
     createElement(
       'ol',

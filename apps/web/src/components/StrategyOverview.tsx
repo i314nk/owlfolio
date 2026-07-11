@@ -142,6 +142,7 @@ const PIPELINE_STEPS: { key: string; label: string; detail: string }[] = [
   { key: 'circle_gate', label: 'Circle of competence', detail: 'Predictability demonstrated, or set aside' },
   { key: 'gate', label: 'Automatic | Review', detail: 'Run now, or pause for approval' },
   { key: 'deep_dive', label: 'Deep-dive swarm', detail: `${buffettMungerDeepDiveLanes.length} grounded lanes, parallel` },
+  { key: 'valuation', label: 'Valuation judgment', detail: 'Focused grounded stage + T0 margin grade' },
   { key: 'synthesis', label: 'Synthesis', detail: 'Reconcile + ≥wide moat gate' },
   { key: 'decision', label: 'Decision', detail: 'BUY / WATCH / PASS draft' },
   { key: 'watchlist', label: 'Watchlist', detail: 'User-confirmed entry' },

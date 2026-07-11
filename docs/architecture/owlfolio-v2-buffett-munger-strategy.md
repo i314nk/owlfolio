@@ -24,15 +24,18 @@ Discovery
   → Circle-of-competence gate (cite-verified predictability judgment; k-sample agreement)
        ↓ outside circle (or ungroundable) → set aside
        ↓ both gates open: [Automatic | Review-before-deep-dive]
-  → Swarm deep dive (moat / financials / risk / management / valuation / synthesis specialists — parallel)
-  → Synthesis & decision (moat ≥ wide gate enforced here)
+  → Swarm deep dive (moat / financials / risk / management / risks specialists — parallel, grounded)
+  → Valuation judgment (dedicated grounded stage: judged OE bridge + assumed growth + buy-below, cite-checked;
+     the harness computes the T0 margin-of-safety GRADE against a uniform required margin, and converts
+     foreign-filer per-share values into the price currency deterministically)
+  → Synthesis & decision (reconciliation; moat ≥ wide gate enforced here)
   → User-confirmed watchlist entry
   → Holding open (separate explicit ledger transition)
 ```
 
 **Research-case versioning.** The company is the aggregate; each user-initiated re-run supersedes the previous research case and records a new versioned investment-case ledger event. Earlier versions are retained in the ledger for audit.
 
-Research runs as a **strategy-driven multi-agent swarm** (`runStrategyResearchSwarm`): the front Shariah-gate reasoning pass, the circle-of-competence judgment, concurrent per-lane specialist agents, and a synthesis/decision agent — each a separate provider call. Every cited source is subject to the harness-side grounding invariant (fetched and content-hashed by the harness, not by the model). See `docs/architecture/owlfolio-v2-provider-model-support.md` for the grounding contract.
+Research runs as a **strategy-driven multi-agent swarm** (`runStrategyResearchSwarm`): the front Shariah-gate reasoning pass, the circle-of-competence judgment, concurrent per-lane specialist agents, a dedicated valuation-judgment stage (`valuation_judgment_drafted` — it owns the owner-earnings bridge, assumed growth, buy-below, and valuation status; the monolithic synthesis no longer carries them), and a synthesis/decision agent — each a separate provider call. Every cited source is subject to the harness-side grounding invariant (fetched and content-hashed by the harness, not by the model). See `docs/architecture/owlfolio-v2-provider-model-support.md` for the grounding contract.
 
 ### Deep-dive approval gate (`deep_dive_approval`)
 
