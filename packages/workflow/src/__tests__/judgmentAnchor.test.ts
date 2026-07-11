@@ -62,13 +62,16 @@ function lowRoicSeries(): AnnualFacts[] {
 // Standout is DISPLAYED with them but NOT scored (its peer half is a labeled model judgment until
 // peer-filing grounding ships). The substitution boundary is unchanged: capped at MODERATE.
 describe('computeMoatAnchor — the owner\'s named tests as anchor components (CE, TE)', () => {
-  it('high-ROIC + growing + tight-margin series -> CE=2, TE=2, sub-score 4 -> MODERATE anchor (capped)', () => {
+  it('high-ROIC + growing + FLAT-margin series -> CE=2, TE=1 (B5 strict: flat is not expansion) -> MODERATE anchor', () => {
     const anchor = computeMoatAnchor(highRoicSeries())
     expect(anchor.computable).toBe(true)
     if (!anchor.computable) return
     expect(anchor.row_scores['CE']).toBe(2)
-    expect(anchor.row_scores['TE']).toBe(2)
-    expect(anchor.sub_score).toBe(4)
+    // B5 (book-strict): the fixture's margins are FLAT — the margin engine requires EXPANSION, so TE=1
+    // (revenue engine only). CE=2 alone still clears the moderate bar (a stable-margin compounder is
+    // not anchor-punished).
+    expect(anchor.row_scores['TE']).toBe(1)
+    expect(anchor.sub_score).toBe(3)
     // SUBSTITUTION BOUNDARY: a perfect computable sub-score (4/4) anchors at MODERATE, NOT wide. The quant
     // corroborates but cannot SUBSTITUTE for a grounded qualitative moat thesis.
     expect(anchor.anchor_tier).toBe('moderate')

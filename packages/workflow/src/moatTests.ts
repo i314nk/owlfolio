@@ -19,19 +19,34 @@ import { yearGrossMargin, yearOperatingMargin, yearRoic } from './annualRatios'
 /** Minimum usable years per test — same posture as MIN_YEARS_FOR_MOAT_ANCHOR. */
 export const MIN_YEARS_FOR_MOAT_TESTS = 5
 
-/** Margin-slope noise dead-band (bps/yr): a slope above −25bps/yr counts as holding/improving. */
+/** Margin-slope noise dead-band (bps/yr). B5 (book-strict): the margin ENGINE requires EXPANSION —
+ *  slope > +25bps/yr; within ±25 is 'flat'; below −25 is 'declining'. */
 export const MARGIN_SLOPE_DEADBAND_BPS_PER_YEAR = 25
 
 export type CapitalEfficiencyTest =
   | { computable: true; band: 'excellent' | 'solid' | 'weak'; median_roic: number; latest_roic: number; years_used: number; note: string }
   | { computable: false; reason: string }
 
+/**
+ * B5 (book-strict): the four-quadrant two-engine diagnostic. The book reads each quadrant:
+ *   both_engines            — revenue growing AND margins expanding → a real competitive advantage.
+ *   margin_only_cutting_back — margins improve but revenue slows → often cost-cutting, not a moat.
+ *   revenue_only_buying_growth — revenue grows but margins fall → likely buying growth (price cuts,
+ *                              ad spend, heavy investment) — watch whether it converts.
+ *   neither                 — no engine running.
+ * A FLAT margin (within the ±dead-band) is not expansion — the strict book test fails it (the
+ * quadrant then reads margin-side 'flat', diagnostic per the revenue side).
+ */
+export type TwoEngineDiagnostic = 'both_engines' | 'margin_only_cutting_back' | 'revenue_only_buying_growth' | 'neither'
+
 export type TwoEngineTest =
   | {
       computable: true
       revenue_engine: boolean
+      /** B5: TRUE only when margins are EXPANDING (slope > +dead-band) — the strict book reading. */
       margin_engine: boolean
       passes: boolean
+      diagnostic: TwoEngineDiagnostic
       revenue_cagr: number
       margin_trend_bps_per_year: number
       years_used: number
@@ -126,16 +141,35 @@ function twoEngine(window: AnnualFacts[]): TwoEngineTest {
   const revenueCagr = span > 0 ? Math.pow(last.y / first.y, 1 / span) - 1 : 0
   const marginSlopeBps = olsSlope(margins) * 10_000
   const revenueEngine = revenueCagr > 0
-  const marginEngine = marginSlopeBps >= -MARGIN_SLOPE_DEADBAND_BPS_PER_YEAR
+  // B5 (book-strict, owner-locked): the margin engine requires EXPANSION beyond the noise dead-band.
+  const marginEngine = marginSlopeBps > MARGIN_SLOPE_DEADBAND_BPS_PER_YEAR
+  const marginDeclining = marginSlopeBps < -MARGIN_SLOPE_DEADBAND_BPS_PER_YEAR
+  const diagnostic: TwoEngineDiagnostic = revenueEngine && marginEngine
+    ? 'both_engines'
+    : !revenueEngine && marginEngine
+      ? 'margin_only_cutting_back'
+      : revenueEngine && marginDeclining
+        ? 'revenue_only_buying_growth'
+        : 'neither'
+  const diagnosticNote = diagnostic === 'both_engines'
+    ? 'both engines running — a real competitive advantage signature'
+    : diagnostic === 'margin_only_cutting_back'
+      ? 'margins improve while revenue slows — often cost-cutting, not a moat'
+      : diagnostic === 'revenue_only_buying_growth'
+        ? 'revenue grows while margins fall — likely buying growth (price cuts / ad spend / heavy investment)'
+        : revenueEngine
+          ? 'revenue grows on flat margins — the strict test wants expansion'
+          : 'no engine running'
   return {
     computable: true,
     revenue_engine: revenueEngine,
     margin_engine: marginEngine,
     passes: revenueEngine && marginEngine,
+    diagnostic,
     revenue_cagr: revenueCagr,
     margin_trend_bps_per_year: marginSlopeBps,
     years_used: Math.min(revenues.length, margins.length),
-    note: `Revenue CAGR ${(revenueCagr * 100).toFixed(1)}%/yr; operating-margin trend ${marginSlopeBps.toFixed(0)}bps/yr (holding counts within a ±${MARGIN_SLOPE_DEADBAND_BPS_PER_YEAR}bps/yr dead-band). Both engines must run.`,
+    note: `Revenue CAGR ${(revenueCagr * 100).toFixed(1)}%/yr; operating-margin trend ${marginSlopeBps.toFixed(0)}bps/yr (expansion = > +${MARGIN_SLOPE_DEADBAND_BPS_PER_YEAR}bps/yr; the book test wants BOTH engines). Read: ${diagnosticNote}.`,
   }
 }
 

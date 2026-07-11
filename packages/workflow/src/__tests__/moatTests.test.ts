@@ -81,17 +81,20 @@ describe('computeMoatTests — two-engine (revenue growth + margin trend)', () =
     expect(t.revenue_engine).toBe(true)
     expect(t.margin_engine).toBe(true)
     expect(t.passes).toBe(true)
+    expect(t.diagnostic).toBe('both_engines')
     expect(t.revenue_cagr).toBeCloseTo(0.08, 2)
     expect(t.margin_trend_bps_per_year).toBeCloseTo(100, 0)
   })
 
-  it('flat margins survive the ±dead-band (holding is not a fail); declining beyond it fails the engine', () => {
+  it('B5 (book-strict): flat margins FAIL the engine (expansion required); the quadrant reads honestly', () => {
     const flat = series([2020, 2021, 2022, 2023, 2024].map((fy, i) => ({
       fy, revenue_musd: 1000 * Math.pow(1.05, i), operating_income_musd: 1000 * Math.pow(1.05, i) * 0.30,
     })))
     const tFlat = computeMoatTests(flat).two_engine
-    expect(tFlat.computable && tFlat.margin_engine).toBe(true)
-    expect(tFlat.computable && tFlat.passes).toBe(true)
+    expect(tFlat.computable && tFlat.margin_engine).toBe(false) // flat is NOT expansion (the book test)
+    expect(tFlat.computable && tFlat.passes).toBe(false)
+    expect(tFlat.computable && tFlat.diagnostic).toBe('neither') // revenue on, margins flat → not both_engines
+    expect(tFlat.computable && /flat margins/.test(tFlat.note)).toBe(true)
 
     const declining = series([2020, 2021, 2022, 2023, 2024].map((fy, i) => ({
       fy, revenue_musd: 1000 * Math.pow(1.05, i), operating_income_musd: 1000 * Math.pow(1.05, i) * (0.30 - 0.01 * i), // −100bps/yr
@@ -99,7 +102,17 @@ describe('computeMoatTests — two-engine (revenue growth + margin trend)', () =
     const tDecl = computeMoatTests(declining).two_engine
     expect(tDecl.computable && tDecl.margin_engine).toBe(false)
     expect(tDecl.computable && tDecl.passes).toBe(false)
+    expect(tDecl.computable && tDecl.diagnostic).toBe('revenue_only_buying_growth')
     expect(MARGIN_SLOPE_DEADBAND_BPS_PER_YEAR).toBe(25) // pinned constant (owner sanity-checked)
+  })
+
+  it('B5: the cutting-back quadrant — margins expand while revenue shrinks', () => {
+    const cutting = series([2020, 2021, 2022, 2023, 2024].map((fy, i) => ({
+      fy, revenue_musd: 1000 * Math.pow(0.98, i), operating_income_musd: 1000 * Math.pow(0.98, i) * (0.25 + 0.01 * i),
+    })))
+    const t = computeMoatTests(cutting).two_engine
+    expect(t.computable && t.diagnostic).toBe('margin_only_cutting_back')
+    expect(t.computable && t.passes).toBe(false)
   })
 
   it('shrinking revenue fails the revenue engine even with improving margins', () => {
