@@ -4129,8 +4129,9 @@ describe('EDGAR-anchored OE bridge + harness AAOIFI Shariah ratios', () => {
     // …while the reverse-DCF ran on the USD basis: $30 vs ≈$2.55/share (11.8×) solves to ≈−6.1% implied
     // growth at the 7.5% default discount — a NAIVE unconverted read ($30 vs 17.6 "DKK-as-USD" = 1.7×)
     // would solve wildly lower/not at all. Pinning the exact solved value proves the USD basis precisely.
-    expect(val?.market_implied_growth).toBeDefined()
-    expect(val?.market_implied_growth!).toBeCloseTo(-0.0606, 2)
+    const impliedGrowthUsd = val?.market_implied_growth
+    expect(impliedGrowthUsd).toBeDefined()
+    expect(impliedGrowthUsd).toBeCloseTo(-0.0606, 2)
   })
 
   it('V3 — DKK filer with NO FX rate: the per-share valuation is BLOCKED (fail-closed, flagged), never a silent currency mix', async () => {
