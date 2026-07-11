@@ -263,6 +263,12 @@ export type RunStrategyResearchSwarmCommand = {
    * tiers take effect. Omitted = `process.env` (the historical default — resolver behavior unchanged).
    */
   model_role_env?: Record<string, string | undefined>
+  /**
+   * S6 — USER-AUTHORED moat-gate override ("run remaining pillars anyway"): skips the EARLY moat-gate
+   * short-circuit so Pillars 3–4 run on a below-gate name. The LATE verdict rails are unchanged (the
+   * verdict still gates to PASS/RESEARCH_MORE) — the override buys the full analysis, never a pass.
+   */
+  moat_gate_override?: boolean
 }
 
 export type RunResearchDeepDivePhaseCommand = {
@@ -299,6 +305,8 @@ export type RunResearchDeepDivePhaseCommand = {
    * BEFORE lane spend; the approval-resume path omits it). Absent → 'automatic'.
    */
   deep_dive_approval?: 'automatic' | 'review'
+  /** S6 — skip the EARLY moat-gate short-circuit (user-authored override; the late rails still gate). */
+  moat_gate_override?: boolean
 }
 
 // ---------------------------------------------------------------------------
@@ -805,6 +813,8 @@ export async function runStrategyResearchSwarm(
     // S3: the deep-dive approval pause is applied INSIDE the phase, AFTER both cheap gates pass and
     // BEFORE any lane spend. The approval-resume path calls the phase without this key (automatic).
     ...(command.deep_dive_approval === undefined ? {} : { deep_dive_approval: command.deep_dive_approval }),
+    // S6: forward the user-authored moat-gate override (run remaining pillars anyway).
+    ...(command.moat_gate_override === undefined ? {} : { moat_gate_override: command.moat_gate_override }),
   }, { ...deps, accumulated })
 
   return {
@@ -879,7 +889,7 @@ async function judgeCircleCompetence(
 const RECENT_READABLE_MAX = 6
 /** Lanes that receive the recent-interim-filings affordance — the QUALITATIVE lanes only (the numeric
  * lanes are deliberately excluded so interim 10-Q numbers never tempt the valuation/Shariah recompute). */
-const RECENT_FILINGS_LANES = new Set<string>(['risks', 'moat', 'management', 'business_quality'])
+const RECENT_FILINGS_LANES = new Set<string>(['understand', 'moat', 'management'])
 
 /** Lanes that receive the LATEST PROXY STATEMENT affordance (3.1): management (incentives/comp —
  * primary) + moat (dual-class/entrenchment/governance — owner-approved SOURCE_POLICY v2 widening).
@@ -890,6 +900,142 @@ const PROXY_LANES = new Set<string>(['management', 'moat'])
  * buying/selling is a management-quality / capital-allocation signal. Deterministically parsed by the
  * harness (secForm4.ts); mechanical RSU/tax activity is excluded from the discretionary figures. */
 const INSIDER_LANES = new Set<string>(['management'])
+
+/**
+ * S6 (Phase 3, owner-locked): the EARLY MOAT-GATE short-circuit. A below-gate Pillar 2 ends the run
+ * HERE — Pillars 1–2 findings are recorded, a terminal analysis + decision is emitted, and the
+ * management/valuation/red-team/synthesis provider spend NEVER happens (the stage-cost record proves
+ * it). Mirrors the circle set-aside early-exit: a genuinely-narrow GROUNDED thesis is a set-aside
+ * (PASS); an UNGROUNDED wide claim is incomplete research (RESEARCH_MORE). The dossier renders
+ * Pillars 3–4 "not evaluated — failed at the moat filter" off moat_gate_short_circuited; the
+ * user-authored override re-run (moat_gate_override) is the "run remaining pillars anyway" path.
+ */
+async function emitMoatGateShortCircuit(args: {
+  store: SwarmStore
+  provider: Provider
+  command: RunResearchDeepDivePhaseCommand
+  strategyRef: ReturnType<typeof resolveResearchStrategyRef>
+  accumulated: Map<string, CapturedSource>
+  engineCommit: string | undefined
+  started: { deep_dive_id: string; event_id: string }
+  stageAResults: LaneSwarmResult[]
+  judgment: JudgmentResolution
+  moatTests?: MoatTests
+  circleJudgmentPayload?: unknown
+  moatGrounded: boolean
+}) {
+  const { store, provider, command, strategyRef, accumulated, engineCommit, started, stageAResults, judgment } = args
+
+  // Record the Pillar 1–2 findings (same contract as the full path — lanes with zero verified ids skip).
+  for (const lane of stageAResults) {
+    if (lane.verified_ids.length === 0) continue
+    await recordSpecialistFinding(store, {
+      research_case_id: command.research_case_id,
+      finding_id: `finding_${swarmSeg(command.research_case_id)}_${swarmSeg(lane.lane)}`,
+      deep_dive_id: started.deep_dive_id,
+      ...strategyRef,
+      specialist_lane: lane.lane,
+      finding_summary: lane.finding_summary,
+      confidence: lane.confidence,
+      ...(lane.wall_ms === undefined ? {} : {
+        stage_cost: {
+          provider_calls: 1,
+          ...(lane.usage?.input_tokens === undefined ? {} : { input_tokens: lane.usage.input_tokens }),
+          ...(lane.usage?.output_tokens === undefined ? {} : { output_tokens: lane.usage.output_tokens }),
+          wall_ms: lane.wall_ms,
+        },
+      }),
+      caveats: lane.status === 'incomplete' ? [...lane.caveats, 'status:incomplete'] : lane.caveats,
+      source_ids: lane.verified_ids,
+      causation_id: started.event_id,
+      actor_id: provider.provider_id,
+      idempotency_key: `specialist-finding:${command.research_case_id}:${lane.lane}:v1`,
+    })
+  }
+
+  const resolvedMoatClass = judgment.moat!.resolved_moat_class
+  const verdict = args.moatGrounded ? ('PASS' as const) : ('RESEARCH_MORE' as const)
+  const reason = args.moatGrounded
+    ? `Moat below the wide-moat gate (${resolvedMoatClass}, grounded) — set aside at the moat filter; Pillars 3–4 were not evaluated.`
+    : `Moat gate failed on an UNGROUNDED claim (the model reached for a gate-passing class the cite-verified drivers could not back; resolved '${resolvedMoatClass}') — research incomplete; Pillars 3–4 were not evaluated.`
+  const verifiedIds = [...new Set(stageAResults.flatMap((l) => l.verified_ids))]
+  const sourceIds = verifiedIds.length > 0 ? verifiedIds : command.gate_source_ids
+
+  const judgmentProjection = buildJudgmentProjection(judgment)
+  const analysisEvent: LedgerEventEnvelope<unknown> = {
+    event_id: `evt_buffett_munger_analysis_drafted_${command.research_case_id}`,
+    event_type: 'buffett_munger_analysis_drafted',
+    aggregate_type: 'research_case',
+    aggregate_id: command.research_case_id,
+    correlation_id: command.research_case_id,
+    causation_id: started.event_id,
+    actor_type: 'provider',
+    actor_id: provider.provider_id,
+    payload: {
+      research_case_id: command.research_case_id,
+      company_id: command.company_id,
+      ticker: command.ticker,
+      engine_version: ENGINE_VERSION,
+      ...(engineCommit === undefined ? {} : { engine_commit: engineCommit }),
+      investment_verdict: verdict,
+      strategy_compliance: 'INSUFFICIENT_DATA',
+      valuation_status: 'INSUFFICIENT_DATA',
+      next_required_action: args.moatGrounded
+        ? 'No further research — failed at the moat filter (Pillar 2). "Run remaining pillars anyway" re-runs with the gate overridden.'
+        : 'Re-run to ground the moat thesis — the gate failed on an ungrounded claim, not a demonstrated narrow moat.',
+      // GATED-DOSSIER INVARIANT (owner): the pillar frame reads this flag — Pillars 3–4 render
+      // "not evaluated — failed at the moat filter" (no numbers exist to quarantine: they never ran).
+      moat_gate_short_circuited: true,
+      ...(args.circleJudgmentPayload !== undefined ? { circle_competence: args.circleJudgmentPayload } : {}),
+      ...(args.moatTests !== undefined ? { moat_tests: args.moatTests } : {}),
+      valuation: {
+        moat_class: resolvedMoatClass,
+        moat_passes_gate: false,
+        runway: judgment.runway?.resolved_runway ?? 'none',
+        ...(args.moatGrounded ? {} : { moat_grounding_unmet: true }),
+        ...(judgmentProjection !== undefined ? { judgment: judgmentProjection } : {}),
+      },
+    },
+    source_ids: sourceIds,
+    created_at: new Date().toISOString(),
+    schema_version: 1,
+    idempotency_key: `analysis:${command.research_case_id}:v1`,
+  }
+  const analysis = await store.append(analysisEvent)
+  const decision = await draftDecision(store, {
+    research_case_id: command.research_case_id,
+    decision_id: command.decision_id,
+    decision: verdict,
+    reason,
+    thesis_summary: reason,
+    evidence_summary: `Pillars 1–2 ran (${stageAResults.map((l) => l.lane).join(', ')}); the moat gate ended the run before Pillar 3–4 spend.`,
+    valuation_rationale: 'Not assessed — the moat filter failed before the valuation pillar ran.',
+    shariah_rationale: 'Front gate passed; the deep Shariah pass was not reached (moat filter).',
+    risks: [reason],
+    open_questions: [reason],
+    causation_id: analysis.event_id,
+    source_ids: sourceIds,
+    idempotency_key: `decision:${command.research_case_id}:v1`,
+  })
+
+  const capturedSoFar = [...accumulated.values()]
+  if (capturedSoFar.length > 0) {
+    await ingestManualSourceBundle({
+      source_ledger_path: command.source_ledger_path,
+      research_case_id: command.research_case_id,
+      ticker: command.ticker,
+      strategy_id: command.strategy_id,
+      provider_id: provider.provider_id,
+      proposed_by_actor_type: 'provider',
+      proposed_by_actor_id: provider.provider_id,
+      ingested_by_actor_type: 'system',
+      ingested_by_actor_id: 'research_workflow',
+      sources: toLedgerSourceInputs(capturedSoFar, command.research_case_id),
+    })
+  }
+
+  return { analysis, decision, moat_gate_short_circuited: true as const, set_aside_outside_circle: undefined }
+}
 
 export async function runResearchDeepDivePhase(
   store: SwarmStore,
@@ -1040,6 +1186,17 @@ export async function runResearchDeepDivePhase(
       insiderBlock = buildInsiderBlock(summary)
     }
   }
+
+  // ---- S2 (Phase 3): the owner's three NAMED moat tests, pure T0 over the EDGAR series ----
+  // Capital efficiency (ROIC bands) / two-engine (revenue + margin trend) / standout (company-side
+  // gross margin; the peer half is the moat lane's labeled judgment). Display/judgment context —
+  // each test fails closed independently; the block never gates a verdict by itself. Omitted
+  // entirely when no EDGAR series exists (nothing to compute over — never fabricated). Computed
+  // BEFORE the lanes so the S6 early-gate short-circuit can carry it on the terminal dossier.
+  const moatTests: MoatTests | undefined =
+    fundamentals?.annual_series !== undefined && fundamentals.annual_series.length > 0
+      ? computeMoatTests(fundamentals.annual_series)
+      : undefined
 
   // ---- S5 (Phase 3): MANAGEMENT TALENT T0 + the retained-earnings test — the observation block ----
   // The owner's three talent criteria (ROIC / payout discipline / debt management) computed
@@ -1422,8 +1579,8 @@ export async function runResearchDeepDivePhase(
   })
 
 
-  // ---- Per-lane swarm ----
-  const laneResults = await runLaneSwarm(lanes, async (lane) => {
+  // ---- Per-lane runner (invoked in STAGES below — S6: the early moat gate sits between them) ----
+  const runLaneFn = async (lane: string): Promise<LaneOutcome> => {
     const laneStartedAt = Date.now() // Phase 2 V5: per-lane stage-cost wall clock
     // Inject the grounded primary-filing block into the financial-heavy lanes so they have a
     // guaranteed primary citation + real numbers. The lane MUST cite the EDGAR source_id.
@@ -1444,9 +1601,19 @@ export async function runResearchDeepDivePhase(
       : lane === 'management'
         ? `Cite filings, proxies (DEF 14A), transcripts, and insider-trading data; media profiles will be rejected.`
         : `Cite filings, transcripts, regulatory/statistical data, and company disclosures; sell-side research, financial media, investor write-ups, and blogs will be rejected.`
+    // S6: the pillar-1 lane's focus — it absorbs the retired business_quality lane AND
+    // financial_quality's accounting-quality duty (the numeric duties are nationalized: the always-on
+    // valuation stage, the T0 blocks, the moat tests).
+    const laneFocus = lane === 'understand'
+      ? ' PILLAR 1 — UNDERSTAND THE BUSINESS: explain how this business actually makes money — the '
+        + 'business model, unit economics, revenue and cost drivers, segment structure, customer/supplier '
+        + 'dynamics — AND the accounting quality (revenue recognition, one-offs, accrual red flags). '
+        + 'Do NOT re-derive valuation numbers; the harness owns those.'
+      : ''
     const basePrompt = `You are the Buffett-Munger ${lane} specialist agent for ${command.ticker}. `
       + `Produce a source-backed finding for the ${lane} lane only. Gather your own sources; return them in proposed_sources with real URLs. `
       + `SOURCE DISCIPLINE (Mechanism 6): this lane reasons from PRIMARY documents. ${sourceDiscipline}`
+      + laneFocus
       + (injectFilingNumbers ? primaryFilingBlock : '')
       + (recentFilingsBlock !== undefined && RECENT_FILINGS_LANES.has(lane) ? recentFilingsBlock : '')
       + (proxyBlock !== undefined && PROXY_LANES.has(lane) ? proxyBlock : '')
@@ -1636,14 +1803,20 @@ export async function runResearchDeepDivePhase(
       verified_ids: withFiling(agent.verified_ids),
       ...(agent.policy_rejections.length > 0 ? { policy_rejections: agent.policy_rejections } : {}),
     }
-  }, { concurrency: deps.laneConcurrency ?? 4 })
+  }
+
+  // ---- Stage A (Pillars 1–2): understand + moat — the moat gate is judged BEFORE Pillar 3–4 spend ----
+  // S6 (owner-locked): a below-gate moat SHORT-CIRCUITS the run by default (terminal dossier: Pillars
+  // 1–2 answered, Pillars 3–4 "not evaluated — failed at the moat filter"; management/valuation/red-
+  // team/synthesis provider spend never happens). A user-authored override (moat_gate_override) runs
+  // everything anyway; the LATE verdict rails still gate the verdict — the override buys analysis, not
+  // a pass. Historical 5-lane runs are unaffected (their events are already persisted).
+  const stageALanes = lanes.filter((l) => l !== 'management')
+  const stageAResults = await runLaneSwarm(stageALanes, runLaneFn, { concurrency: deps.laneConcurrency ?? 4 })
 
   // Extract the per-lane judgment outputs the harness now reads (instead of the synthesis schema).
-  const moatLaneResult = laneResults.find((l) => l.lane === 'moat')
+  const moatLaneResult = stageAResults.find((l) => l.lane === 'moat')
   const moatJudgment = moatLaneResult?.moat_judgment
-  // S5: the management lane's raw integrity/talent blocks (resolved below once the verified-citation
-  // set is assembled). A missing lane / omitted blocks resolve 'undetermined' — never a silent clean.
-  const managementLaneThesis = laneResults.find((l) => l.lane === 'management')?.management_judgment ?? {}
   // NOTE: shariahLaneJudgment is no longer read off the parallel deep-dive lane — it is now sourced from
   // the ALWAYS-ON focused Shariah-reasoning pass (runShariahReasoningPass, invoked below once the corpus
   // digest is assembled). See the derivation after synthesisRuntime.
@@ -1655,20 +1828,15 @@ export async function runResearchDeepDivePhase(
   // COMPLIANT.
 
   // ---- Judgment objectivity (Mechanisms 1+2): rubric → mechanical anchor → bounded ±1 adjustment ----
-  // The MOAT lane supplied the moat/runway rubric (spec-correct decomposition). The harness RE-VERIFIES
-  // the computable rows from EDGAR, computes the mechanical anchor, and resolves the final tier under the
-  // ±1 bound + citation rules (uncited/over-range rejected, not averaged; upward needs 2× evidence). The
-  // RESOLVED tier supersedes the holistic moat_class/runway for the valuation. When no rubric is supplied
-  // OR the resolved tier is not a valid downstream class, we fall back to the moat lane's holistic
-  // moat_class/runway (or a conservative default) — visibly flagged. Grounding/citation verification is
-  // unchanged. Resolved BEFORE the red team so its caseDigest sees the resolved tiers.
-  const verifiedCitationHashes = new Set<string>()
+  // Resolved from STAGE A alone (the management lane feeds neither the moat nor the runway axis) so
+  // the EARLY moat gate below judges the exact tier the late rails will see — one source of truth.
+  const stageACitationHashes = new Set<string>()
   for (const s of accumulated.values()) {
     // Only VERIFIED sources (content_hash present) enter the cite-check set — a captured-but-unverified
     // source_id (fetch failed: SSRF/404/redirect-exhausted/network) must not satisfy a citation.
     if (s.content_hash === undefined) continue
-    verifiedCitationHashes.add(s.content_hash)
-    verifiedCitationHashes.add(s.source_id) // a lane may cite by source_id; both are corpus-verified
+    stageACitationHashes.add(s.content_hash)
+    stageACitationHashes.add(s.source_id) // a lane may cite by source_id; both are corpus-verified
   }
   const judgment = resolveJudgmentTiers({
     // MOAT (B6 reframe): the grounded cited thesis (moat_drivers + proposed_moat_class). When the lane
@@ -1680,8 +1848,47 @@ export async function runResearchDeepDivePhase(
     // Holistic runway fallback so the resolved runway is NEVER undefined when the grounded thesis is omitted.
     ...(moatJudgment?.runway !== undefined ? { holisticRunway: moatJudgment.runway } : {}),
     ...(fundamentals?.annual_series !== undefined ? { series: fundamentals.annual_series } : {}),
-    verifiedCitationHashes,
+    verifiedCitationHashes: stageACitationHashes,
   })
+
+  // ---- S6: THE EARLY MOAT GATE — Pillar 2 must pass before Pillars 3–4 spend a token ----
+  // GROUNDED-vs-UNGROUNDED mirrors the late rails exactly: a genuinely-narrow grounded thesis is a
+  // set-aside (PASS); an unmet/capped/degraded thesis or an unbacked wide/monopoly claim is
+  // incomplete research (RESEARCH_MORE) — same routing the full pipeline applies.
+  const earlyResolvedMoatClass = judgment.moat!.resolved_moat_class
+  const earlyProposedTier = judgment.moat?.proposed_tier
+  const earlyMoatGrounded = !(
+    judgment.moat?.moat_grounding_unmet === true
+    || judgment.moat?.grounding_capped === true
+    || judgment.moat?.judgment_degraded === 'rubric_not_emitted'
+    || earlyProposedTier === 'wide' || earlyProposedTier === 'monopoly'
+  )
+  if (!moatPassesGate(buffettMungerStrategy, earlyResolvedMoatClass) && command.moat_gate_override !== true) {
+    return await emitMoatGateShortCircuit({
+      store, provider, command, strategyRef, accumulated, engineCommit,
+      started, stageAResults, judgment,
+      ...(moatTests !== undefined ? { moatTests } : {}),
+      ...(circleJudgmentPayload !== undefined ? { circleJudgmentPayload } : {}),
+      moatGrounded: earlyMoatGrounded,
+    })
+  }
+
+  // ---- Stage B (Pillar 3): management — runs only past the moat gate (or under the override) ----
+  const stageBResults = lanes.includes('management')
+    ? await runLaneSwarm(['management'], runLaneFn, { concurrency: 1 })
+    : []
+  const laneResults: LaneSwarmResult[] = [...stageAResults, ...stageBResults]
+  // S5: the management lane's raw integrity/talent blocks. A missing lane / omitted blocks resolve
+  // 'undetermined' — never a silent clean.
+  const managementLaneThesis = laneResults.find((l) => l.lane === 'management')?.management_judgment ?? {}
+
+  // The FULL verified-citation set (Stage A + Stage B) for every downstream cite-check.
+  const verifiedCitationHashes = new Set<string>()
+  for (const s of accumulated.values()) {
+    if (s.content_hash === undefined) continue
+    verifiedCitationHashes.add(s.content_hash)
+    verifiedCitationHashes.add(s.source_id)
+  }
 
   // ---- S5 (Phase 3): resolve the MANAGEMENT pillar judgment (integrity + talent, grounded-only) ----
   const managementJudgment: ResolvedManagementJudgment = resolveManagementJudgment({
@@ -3637,16 +3844,6 @@ export async function runResearchDeepDivePhase(
   // rubric scores + anchor-vs-proposed tier + whether the bounded adjustment was applied + violations.
   const judgmentProjection = buildJudgmentProjection(judgment)
 
-  // ---- S2 (Phase 3): the owner's three NAMED moat tests, pure T0 over the EDGAR series ----
-  // Capital efficiency (ROIC bands) / two-engine (revenue + margin trend) / standout (company-side
-  // gross margin; the peer half is the moat lane's labeled judgment). Display/judgment context —
-  // each test fails closed independently; the block never gates a verdict by itself. Omitted
-  // entirely when no EDGAR series exists (nothing to compute over — never fabricated).
-  const moatTests: MoatTests | undefined =
-    fundamentals?.annual_series !== undefined && fundamentals.annual_series.length > 0
-      ? computeMoatTests(fundamentals.annual_series)
-      : undefined
-
   // ---- Mechanism 3: base-rate burden check (deterministic flag + conservative downgrade hook) ----
   // Any case that BEATS a base rate (monopoly classification, credited g in the 4-5% band, a >20%
   // ROIC-sustained forecast, a margin-expansion claim) must carry a STRUCTURAL exceptionality
@@ -3736,6 +3933,9 @@ export async function runResearchDeepDivePhase(
       ...(insiderSummaryComputed !== undefined ? { insider_summary: insiderSummaryComputed } : {}),
       // S2 (Phase 3): the three named moat tests (T0) — pillar-2 display/judgment context.
       ...(moatTests !== undefined ? { moat_tests: moatTests } : {}),
+      // S6: permanent label — this analysis ran PAST a failed moat gate under the user-authored
+      // override. The verdict was still gated by the late rails; the label keeps the spend honest.
+      ...(command.moat_gate_override === true && !moat_passes_gate ? { moat_gate_overridden: true } : {}),
       // S5 (Phase 3): the MANAGEMENT pillar — the resolved integrity/talent judgment (grounded-only
       // teeth), the injected talent T0 observations, and the retained-earnings test. The veto flags
       // record when-and-why the rail fired so the dossier explains the clamp.

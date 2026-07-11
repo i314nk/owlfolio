@@ -863,6 +863,10 @@ export type ResearchCaseProjection = {
   /** Which trait fired the management veto ('integrity' | 'talent'), when the BUY clamp applied. */
   management_veto_applied?: string
   management_veto_reason?: string
+  /** S6: the run ended at the EARLY moat gate — Pillars 3–4 were never evaluated (no numbers exist). */
+  moat_gate_short_circuited?: boolean
+  /** S6: the run continued PAST a failed moat gate under the user-authored override (labeled spend). */
+  moat_gate_overridden?: boolean
   valuation?: ResearchCaseValuationProjection
   /**
    * Engine-version marker stamped at the event payload ROOT on EVERY analysis emission (full deep-dive AND
@@ -2535,6 +2539,8 @@ export function projectResearchCases(events: LedgerEventEnvelope<unknown>[]): Re
       if (managementVetoApplied !== undefined) researchCase.management_veto_applied = managementVetoApplied
       const managementVetoReason = getString(event.payload, 'management_veto_reason')
       if (managementVetoReason !== undefined) researchCase.management_veto_reason = managementVetoReason
+      if (getBoolean(event.payload, 'moat_gate_short_circuited') === true) researchCase.moat_gate_short_circuited = true
+      if (getBoolean(event.payload, 'moat_gate_overridden') === true) researchCase.moat_gate_overridden = true
       const shariahFinancial = getShariahFinancial(event.payload)
       if (shariahFinancial !== undefined) {
         researchCase.shariah_financial = shariahFinancial

@@ -26,14 +26,14 @@ function statusResponse(progress: RunProgress, ok = true): Response {
 }
 
 describe('ResearchRunProgress — render', () => {
-  it('renders the busy card, heading with the ticker, and the ordered stage checklist with the N/5 count', () => {
+  it('renders the busy card, heading with the ticker, and the ordered stage checklist with the N/3 count', () => {
     const html = render()
     expect(html).toContain('aria-busy="true"')
     expect(html).toContain('Researching MSFT…')
     expect(html).toContain('Queued — fetching filings')
     expect(html).toContain('Shariah gate — grounded sector + AAOIFI read')
     expect(html).toContain('Circle of competence')
-    expect(html).toContain('Deep dive — 3/5 specialists')
+    expect(html).toContain('Deep dive — 3/3 specialists')
     expect(html).toContain('Synthesis &amp; valuation')
     expect(html).toContain('Decision drafted')
     // The current stage carries the current state marker class.

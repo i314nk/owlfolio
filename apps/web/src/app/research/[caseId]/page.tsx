@@ -193,6 +193,7 @@ export default async function ResearchCasePage({ params }: ResearchCasePageProps
           ticker={researchCase.ticker}
           isArchived={researchCase.archived === true}
           engineStale={engineStale}
+          moatGated={researchCase.moat_gate_short_circuited === true}
         />
         {researchCase.archived === true ? (
           <p

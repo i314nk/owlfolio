@@ -401,6 +401,20 @@ export function ResearchCasePanel({ researchCase, mode = 'personal-local', confi
     // ── 1·circle. Circle-of-competence judgment (collapsed; its verdict heading — e.g. "cashflows durably
     //        predictable — in competence" — is the visible summary, the drivers/breakers are the drill-down) ──
     makeCollapsible(createCircleCompetencePanel(researchCase), false),
+    // ── 1b2 (S6). Moat-gate banners: a short-circuited case says WHY pillars 3–4 have no data (and
+    //        what re-arms them); an overridden run is PERMANENTLY labeled as user-authorized spend. ──
+    researchCase.moat_gate_short_circuited === true
+      ? createElement('p', {
+          'data-testid': 'moat-gate-short-circuit-banner',
+          style: { background: 'var(--owl-color-panel)', border: '1px solid var(--owl-color-border)', borderRadius: '0.6rem', color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-sm)', margin: 0, padding: '0.6rem 0.8rem' },
+        }, 'Failed at the moat filter (Pillar 2). Management, valuation, red team, and synthesis were NOT evaluated — no provider spend past the gate, so no numbers exist for those pillars. "Run remaining pillars anyway" starts a labeled override run.')
+      : null,
+    researchCase.moat_gate_overridden === true
+      ? createElement('p', {
+          'data-testid': 'moat-gate-overridden-marker',
+          style: { color: 'var(--owl-color-gold-bright)', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-2xs)', fontWeight: 800, letterSpacing: '0.07em', margin: 0, textTransform: 'uppercase' as const },
+        }, 'Moat gate overridden by user — this analysis ran past a failed moat gate; the verdict remains gated.')
+      : null,
     // ── 1c. Exit post-mortem (predicted vs realized) ─────────────────────────
     createPostMortemPanel(researchCase),
     // ── 1d. Decision panel (R1): the model's verdict/valuation_status, the key-figures strip (model
@@ -2622,8 +2636,16 @@ function createSpecialistLanesGrid(researchCase: AppResearchCase) {
   // land in remainder, and no incomplete placeholders appear.
   if (displayFindings.length === 0) return null
 
-  const orderedLanes = ['business_quality', 'moat', 'management', 'financial_quality', 'risks']
-  // For a completed deep dive we render ALL FIVE expected lanes IN ORDER: a grounded lane shows its full
+  // S6 (Phase 3 pillars): TWO-ERA lane rendering. New runs record the pillar lanes
+  // (understand/moat/management); historical runs recorded the legacy five. The dossier keys its
+  // expected-lane slots off which era the case's findings belong to, so a legacy case renders its
+  // five lanes untouched and a pillar case renders three — nothing ever vanishes either way.
+  const PILLAR_LANES = ['understand', 'moat', 'management']
+  const LEGACY_LANES = ['business_quality', 'moat', 'management', 'financial_quality', 'risks']
+  const findingLaneIds = new Set(displayFindings.map((f) => f.specialist_lane ?? ''))
+  const isLegacyCase = ['business_quality', 'financial_quality', 'risks'].some((l) => findingLaneIds.has(l))
+  const orderedLanes = isLegacyCase ? LEGACY_LANES : PILLAR_LANES
+  // For a completed deep dive we render ALL expected lanes IN ORDER: a grounded lane shows its full
   // finding card; an expected lane with NO finding (silently skipped upstream when it grounded zero verifiable
   // sources) shows an honest "incomplete" placeholder instead of vanishing. This is DISPLAY-ONLY — it does not
   // re-emit events or change the swarm's correct fail-closed skip; it only makes the skip VISIBLE.
@@ -2637,7 +2659,7 @@ function createSpecialistLanesGrid(researchCase: AppResearchCase) {
     if (isPlaceholderLaneSummary(finding.finding_summary)) return createSpecialistLaneIncompleteCard(lane, 'empty')
     return createSpecialistLaneCard(finding)
   })
-  // Any grounded finding whose lane is NOT one of the 5 expected lanes still renders (remainder), unless it too
+  // Any grounded finding whose lane is NOT one of the expected lanes still renders (remainder), unless it too
   // is an empty placeholder. Legacy shariah and valuation findings render here.
   const remainder = displayFindings.filter(
     (f) => !orderedLanes.includes(f.specialist_lane ?? '') && !isPlaceholderLaneSummary(f.finding_summary),
@@ -3822,6 +3844,7 @@ function resolveValuationChipColor(status?: string): ChipColors {
 
 // Short labels for the visible specialist grid (no " lane" suffix)
 function deepDiveLaneShortLabel(lane?: string): string {
+  if (lane === 'understand') return 'Understand the business'
   if (lane === 'business_quality') return 'Business quality'
   if (lane === 'moat') return 'Moat'
   if (lane === 'management') return 'Management'

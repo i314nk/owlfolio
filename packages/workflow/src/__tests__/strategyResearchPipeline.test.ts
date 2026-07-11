@@ -649,8 +649,6 @@ describe('strategy-agnostic research pipeline foundation', () => {
       'specialist_finding_recorded',
       'specialist_finding_recorded',
       'specialist_finding_recorded',
-      'specialist_finding_recorded',
-      'specialist_finding_recorded',
       'deep_dive_synthesis_drafted',
       'deep_dive_completed',
     ])
@@ -1068,19 +1066,14 @@ describe('strategy-agnostic research pipeline foundation', () => {
   })
 })
 
-describe('deep-dive lanes exclude the redundant valuation lane', () => {
-  it('runs 5 lanes and does NOT include valuation (owned by the focused valuation pass)', () => {
+// S6 (Phase 3 pillars): the deep-dive lanes ARE the Buffett pillars — understand (P1, absorbing the
+// retired business_quality + financial_quality accounting duty), moat (P2), management (P3). The
+// valuation/shariah passes stay focused stages; risks' adversarial duty lives in the red team.
+// Historical lane ids remain persisted-and-projected forever; only NEW runs use the pillar set.
+describe('deep-dive lanes are the Buffett pillars (S6)', () => {
+  it('runs the 3 pillar lanes and includes neither valuation nor shariah (focused passes own them)', () => {
     expect(buffettMungerDeepDiveLanes).not.toContain('valuation')
-    expect(buffettMungerDeepDiveLanes.length).toBe(5)
-    expect([...buffettMungerDeepDiveLanes]).toEqual([
-      'business_quality', 'moat', 'management', 'financial_quality', 'risks',
-    ])
-  })
-})
-
-describe('deep-dive lanes exclude the redundant shariah lane', () => {
-  it('runs 5 lanes and does NOT include shariah (owned by the focused shariah pass)', () => {
     expect(buffettMungerDeepDiveLanes).not.toContain('shariah')
-    expect([...buffettMungerDeepDiveLanes]).toEqual(['business_quality', 'moat', 'management', 'financial_quality', 'risks'])
+    expect([...buffettMungerDeepDiveLanes]).toEqual(['understand', 'moat', 'management'])
   })
 })

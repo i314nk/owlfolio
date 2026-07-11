@@ -447,7 +447,7 @@ describe('runStrategyResearchSwarm', () => {
     expect(types).toContain('research_case_created')
     expect(types).toContain('shariah_gate_judged')
     expect(types).not.toContain('quick_screen_drafted') // retired (S2): the front gate replaced it
-    expect(types.filter((t) => t === 'specialist_finding_recorded').length).toBeGreaterThanOrEqual(5)
+    expect(types.filter((t) => t === 'specialist_finding_recorded').length).toBeGreaterThanOrEqual(3)
     expect(types).toContain('deep_dive_synthesis_drafted')
     expect(types).toContain('decision_drafted')
     expect(result.decision).toBeDefined()
@@ -457,19 +457,21 @@ describe('runStrategyResearchSwarm', () => {
     const store = new InMemoryEventStore()
     const provider = swarmFakeProviderWithLaneIds(buffettMungerDeepDiveLanes)
     // Ground verifies all sources EXCEPT those belonging to the 'moat' lane
-    // (identified by source_id containing 'moat'). The moat lane will have
-    // verified_ids: [] and its specialist finding must be skipped — not crash the swarm.
+    // (identified by source_id 'src_understand_1' — the UNDERSTAND lane's proposal). S6 note: this
+    // regression is deliberately pointed at a NON-gating lane — an ungrounded MOAT lane now ends
+    // the run at the early moat gate by design (covered by the S6 gate tests). The understand lane
+    // will have verified_ids: [] and its specialist finding must be skipped — not crash the swarm.
     const ground = async (sources: { source_id: string }[]) => {
-      const verified = sources.filter((s) => !s.source_id.includes('moat'))
+      const verified = sources.filter((s) => !s.source_id.includes('understand'))
       return {
         captured: sources.map((s) => ({
           source_id: s.source_id,
           title: 't',
           url: 'https://example.com/x',
           excerpt: 'e',
-          availability: (s.source_id.includes('moat') ? 'unavailable' : 'available') as 'available' | 'unavailable',
+          availability: (s.source_id.includes('understand') ? 'unavailable' : 'available') as 'available' | 'unavailable',
           fetched_at: 'x',
-          ...(s.source_id.includes('moat') ? {} : { content_hash: 'sha256:1' }),
+          ...(s.source_id.includes('understand') ? {} : { content_hash: 'sha256:1' }),
         })),
         verified_ids: verified.map((s) => s.source_id),
       }
@@ -498,15 +500,15 @@ describe('runStrategyResearchSwarm', () => {
     expect(types).toContain('decision_drafted')
     expect(result.decision).toBeDefined()
 
-    // Moat finding must NOT be recorded
+    // The understand finding must NOT be recorded
     const findingEvents = events.filter((e) => e.event_type === 'specialist_finding_recorded')
-    const moatFinding = findingEvents.find((e) => {
+    const understandFinding = findingEvents.find((e) => {
       const p = e.payload as Record<string, unknown>
-      return p['specialist_lane'] === 'moat'
+      return p['specialist_lane'] === 'understand'
     })
-    expect(moatFinding).toBeUndefined()
+    expect(understandFinding).toBeUndefined()
 
-    // All other lanes (4 of 5) must have their findings recorded
+    // All other pillar lanes must have their findings recorded
     expect(findingEvents.length).toBe(buffettMungerDeepDiveLanes.length - 1)
   })
 
@@ -987,7 +989,7 @@ describe('runStrategyResearchSwarm front Shariah gate (S1b)', () => {
     const circleCost = (circleEvent?.payload as { stage_cost?: { provider_calls?: number; wall_ms?: number } }).stage_cost
     expect(circleCost?.provider_calls).toBeGreaterThanOrEqual(1)
     expect(typeof circleCost?.wall_ms).toBe('number')
-    expect(types.filter((t) => t === 'specialist_finding_recorded').length).toBeGreaterThanOrEqual(5)
+    expect(types.filter((t) => t === 'specialist_finding_recorded').length).toBeGreaterThanOrEqual(3)
     expect(types).toContain('deep_dive_synthesis_drafted')
     expect(types).toContain('decision_drafted')
     expect(result.decision).toBeDefined()
@@ -1011,7 +1013,7 @@ describe('runStrategyResearchSwarm front Shariah gate (S1b)', () => {
 })
 
 describe('runStrategyResearchSwarm with MockProvider + deterministic grounder', () => {
-  it('completes end-to-end: research_case_created, shariah_gate_judged, >=5 specialist_finding_recorded, deep_dive_synthesis_drafted, decision_drafted', async () => {
+  it('completes end-to-end: research_case_created, shariah_gate_judged, >=3 specialist_finding_recorded, deep_dive_synthesis_drafted, decision_drafted', async () => {
     const sourceLedgerPath = await mkdtemp(join(tmpdir(), 'owlfolio-mock-swarm-'))
     const store = new InMemoryEventStore()
     const provider = new MockProvider()
@@ -1038,7 +1040,7 @@ describe('runStrategyResearchSwarm with MockProvider + deterministic grounder', 
 
     expect(types).toContain('research_case_created')
     expect(types).toContain('shariah_gate_judged')
-    expect(types.filter((t) => t === 'specialist_finding_recorded').length).toBeGreaterThanOrEqual(5)
+    expect(types.filter((t) => t === 'specialist_finding_recorded').length).toBeGreaterThanOrEqual(3)
     expect(types).toContain('deep_dive_synthesis_drafted')
     expect(types).toContain('decision_drafted')
     expect(result.decision).toBeDefined()
@@ -2137,21 +2139,28 @@ describe('RELIGHTENED DECISION — model proposes buy-below; deterministic side 
     expect((cp?.open_questions ?? []).some((q) => /buy_below_implies_absurd_growth/.test(q))).toBe(true)
   })
 
-  it('NVO dogfood (2026-07-11) — a moat-FAILED set-aside surfaces NO buy zone (the buy-below sanity rails never ran)', async () => {
-    // Moat moderate → set-aside PASS: the valuation (and its implied-growth rails) is suppressed, so an
-    // unvetted model buy-below must not produce an "in buy zone" banner. The raw number stays recorded.
-    const { cp, valuation } = await runRelit({
+  it('S6 — a moat-FAILED case SHORT-CIRCUITS at the early gate: Pillars 3–4 never run, no buy numbers exist at all', async () => {
+    // S6 supersedes the NVO quarantine shape for NEW runs: the gate now fires BEFORE the management/
+    // valuation/red-team/synthesis spend, so there is no unvetted model number to quarantine — the
+    // gated-dossier invariant is satisfied by construction (nothing ran → nothing to mislabel).
+    const { cp, valuation, events } = await runRelit({
       id: 'buyzone-moatfail', price: 85, moatClass: 'moderate', investmentVerdict: 'BUY', proposedBuyBelow: 280,
     })
-    expect(cp?.investment_verdict).toBe('PASS')
+    expect(cp?.investment_verdict).toBe('PASS') // grounded moderate = a set-aside at the moat filter
     expect(cp?.valuation?.in_buy_zone).toBeUndefined()
-    // GATED-DOSSIER INVARIANT (owner, 2026-07-11): the unvetted model number is NOT a first-class
-    // judgment on a gated case — it lives only in the explicitly-labeled audit block.
     expect(cp?.valuation?.proposed_buy_below).toBeUndefined()
     expect(cp?.valuation?.buy_price_per_share).toBeUndefined()
-    const uvp = (valuation?.['unvetted_model_proposals'] as { proposed_buy_below?: number; note?: string } | undefined)
-    expect(uvp?.proposed_buy_below).toBe(280)
-    expect(uvp?.note).toMatch(/UNVETTED/)
+    const analysisEvent = events.find((e) => e.event_type === 'buffett_munger_analysis_drafted')
+    expect((analysisEvent?.payload as Record<string, unknown>)?.['moat_gate_short_circuited']).toBe(true)
+    // The Pillar 3–4 stages genuinely never ran — no valuation stage, no synthesis events.
+    const types = events.map((e) => e.event_type)
+    expect(types).not.toContain('valuation_judgment_drafted')
+    expect(types).not.toContain('deep_dive_synthesis_drafted')
+    expect(valuation?.['unvetted_model_proposals']).toBeUndefined()
+    // Only the Stage-A pillar findings were recorded (understand + moat, no management).
+    const findingLanes = events.filter((e) => e.event_type === 'specialist_finding_recorded')
+      .map((e) => (e.payload as { specialist_lane?: string }).specialist_lane)
+    expect(findingLanes).not.toContain('management')
   })
 
   it('GATE preserved — moat below wide → PASS regardless of the model verdict', async () => {
@@ -2704,7 +2713,7 @@ function deepDiveCommand() {
 }
 
 describe('SEC EDGAR primary-filing wiring', () => {
-  it('grounds the 10-K and injects primary numbers into the financial_quality lane', async () => {
+  it('grounds the 10-K and injects primary numbers into the understand lane (S6 pillar)', async () => {
     const store = new InMemoryEventStore()
     await seedDeepDivePrereqs(store)
 
@@ -2718,25 +2727,25 @@ describe('SEC EDGAR primary-filing wiring', () => {
       fundamentals: costFundamentals,
     })
 
-    // The structured() prompt for the financial_quality lane must contain the primary-filing block.
-    // (Shariah is no longer a parallel lane — its overlay comes from the focused Shariah-reasoning pass.)
+    // S6 (pillar lanes): the 'understand' lane (P1) now owns the primary-numbers injection the
+    // retired financial_quality lane used to receive.
     const prompts = provider.structured.mock.calls.map((c: unknown[]) => (c[0] as { prompt?: string }).prompt).filter((p): p is string => typeof p === "string")
-    const financialLanePrompt = prompts.find((p) => p.includes('financial_quality specialist'))
+    const understandLanePrompt = prompts.find((p) => p.includes('understand specialist'))
     const moatLanePrompt = prompts.find((p) => p.includes('moat specialist'))
 
-    expect(financialLanePrompt).toBeDefined()
-    expect(financialLanePrompt).toContain('Primary filing data (SEC EDGAR, FY2025')
-    expect(financialLanePrompt).toContain('$8,099M') // net income, $millions
-    expect(financialLanePrompt).toContain('sec_edgar_10k_0000909832_fy2025')
+    expect(understandLanePrompt).toBeDefined()
+    expect(understandLanePrompt).toContain('Primary filing data (SEC EDGAR, FY2025')
+    expect(understandLanePrompt).toContain('$8,099M') // net income, $millions
+    expect(understandLanePrompt).toContain('sec_edgar_10k_0000909832_fy2025')
 
-    // Non-financial lanes (e.g. moat) must NOT receive the numbers injection.
+    // The moat lane must NOT receive the numbers injection.
     expect(moatLanePrompt).toBeDefined()
     expect(moatLanePrompt).not.toContain('Primary filing data (SEC EDGAR')
 
-    // The grounded EDGAR 10-K must be persisted as a verified source on the financial lane findings.
+    // The grounded EDGAR 10-K must be persisted as a verified source on the understand lane findings.
     const events = await store.list()
     const finFinding = events.find((e) => e.event_type === 'specialist_finding_recorded'
-      && (e.payload as { specialist_lane?: string }).specialist_lane === 'financial_quality')
+      && (e.payload as { specialist_lane?: string }).specialist_lane === 'understand')
     expect((finFinding?.payload as { source_ids: string[] }).source_ids)
       .toContain('sec_edgar_10k_0000909832_fy2025')
   })
@@ -2772,14 +2781,14 @@ describe('SEC EDGAR primary-filing wiring', () => {
 
     const prompts = provider.structured.mock.calls.map((c: unknown[]) => (c[0] as { prompt?: string }).prompt).filter((p): p is string => typeof p === 'string')
     const managementLanePrompt = prompts.find((p) => p.includes('management specialist'))
-    const financialLanePrompt = prompts.find((p) => p.includes('financial_quality specialist'))
+    const understandLanePrompt2 = prompts.find((p) => p.includes('understand specialist'))
 
     expect(managementLanePrompt).toBeDefined()
     expect(managementLanePrompt).toContain('INSIDER TRANSACTIONS (SEC Form 4')
     expect(managementLanePrompt).toContain('Discretionary SELLS: 5,000 shares')
     // Other lanes must NOT receive the insider block.
-    expect(financialLanePrompt).toBeDefined()
-    expect(financialLanePrompt).not.toContain('INSIDER TRANSACTIONS')
+    expect(understandLanePrompt2).toBeDefined()
+    expect(understandLanePrompt2).not.toContain('INSIDER TRANSACTIONS')
 
     // The computed summary is persisted on the analysis event so the dossier can render it model-independently.
     const events = await store.list()
@@ -2907,20 +2916,19 @@ describe('Slice B: recent interim filings (8-K / 10-Q narrative)', () => {
     })
 
     const prompts = promptsFrom(provider)
-    const risks = prompts.find((p) => p.includes('risks specialist'))
+    // S6 (pillar lanes): the recency affordance now goes to understand + moat + management.
+    const understand = prompts.find((p) => p.includes('understand specialist'))
     const moat = prompts.find((p) => p.includes('moat specialist'))
-    const financial = prompts.find((p) => p.includes('financial_quality specialist'))
+    const management = prompts.find((p) => p.includes('management specialist'))
 
-    // Qualitative lanes get the block, with read_source affordances for BOTH the 8-K and the 10-Q.
-    for (const p of [risks, moat]) {
+    // The pillar lanes get the block, with read_source affordances for BOTH the 8-K and the 10-Q.
+    for (const p of [understand, moat, management]) {
       expect(p).toBeDefined()
       expect(p).toContain('RECENT INTERIM FILINGS')
       expect(p).toContain('8-K filed 2026-01-15')
       expect(p).toContain('10-Q filed 2025-12-10')
       expect(p).toMatch(/read_source\("sec_edgar_recent_/)
     }
-    // Numeric lanes do NOT — interim numbers must not tempt the recompute.
-    expect(financial).not.toContain('RECENT INTERIM FILINGS')
 
     // The interim filings are grounded into the corpus (recorded to the source ledger like any source).
     const events = await store.list()
@@ -2969,8 +2977,7 @@ describe('DEF 14A proxy grounding (management + moat)', () => {
     const prompts = promptsOf(provider)
     const management = prompts.find((p) => p.includes('management specialist'))
     const moat = prompts.find((p) => p.includes('moat specialist'))
-    const financial = prompts.find((p) => p.includes('financial_quality specialist'))
-    const risks = prompts.find((p) => p.includes('risks specialist'))
+    const understand = prompts.find((p) => p.includes('understand specialist'))
 
     for (const p of [management, moat]) {
       expect(p).toBeDefined()
@@ -2978,9 +2985,9 @@ describe('DEF 14A proxy grounding (management + moat)', () => {
       expect(p).toContain('read_source("sec_edgar_def14a_0000909832_2025-12-04")')
       expect(p).not.toContain('2024-12-05') // latest only — the prior year's proxy is not grounded
     }
-    // Numeric lanes and risks do not get the affordance block.
-    expect(financial).not.toContain('LATEST PROXY STATEMENT')
-    expect(risks).not.toContain('LATEST PROXY STATEMENT')
+    // The understand lane (P1) does not get the proxy affordance block.
+    expect(understand).toBeDefined()
+    expect(understand).not.toContain('LATEST PROXY STATEMENT')
   })
 
   it('AXIS B end-to-end: the run persists category/filed/form to the ledger, and a NEW run resolves + lane-gates from it', async () => {
@@ -3259,26 +3266,27 @@ describe('foreign filer (20-F primary + 6-K interim) narrative grounding', () =>
     })
 
     const prompts = provider.structured.mock.calls.map((c: unknown[]) => (c[0] as { prompt?: string }).prompt).filter((p): p is string => typeof p === 'string')
-    const financial = prompts.find((p) => p.includes('financial_quality specialist'))
+    const understand = prompts.find((p) => p.includes('understand specialist'))
     const moat = prompts.find((p) => p.includes('moat specialist'))
-    const risks = prompts.find((p) => p.includes('risks specialist'))
+    const management = prompts.find((p) => p.includes('management specialist'))
 
     // Primary annual block grounds on the 20-F: form-slug source id + form-interpolated prose.
-    expect(financial).toBeDefined()
-    expect(financial).toContain('Primary filing data')
-    expect(financial).toContain('sec_edgar_20f_0000353278_fy2025')
-    expect(financial).toContain('20-F')
-    expect(financial).not.toContain('the latest 10-K') // prose must not claim a 10-K for a 20-F filer
+    // S6 (pillar lanes): the understand lane (P1) owns the primary-numbers injection now.
+    expect(understand).toBeDefined()
+    expect(understand).toContain('Primary filing data')
+    expect(understand).toContain('sec_edgar_20f_0000353278_fy2025')
+    expect(understand).toContain('20-F')
+    expect(understand).not.toContain('the latest 10-K') // prose must not claim a 10-K for a 20-F filer
 
     // The PRE-VERIFIED PRIMARY SOURCES block carries the 20-F id to the qualitative lanes.
     expect(moat).toBeDefined()
     expect(moat).toContain('sec_edgar_20f_0000353278_fy2025')
 
-    // 6-K rides the interim-recency block exactly like an 8-K.
-    expect(risks).toBeDefined()
-    expect(risks).toContain('RECENT INTERIM FILINGS')
-    expect(risks).toContain('6-K filed 2026-04-30')
-    expect(risks).toMatch(/read_source\("sec_edgar_recent_/)
+    // 6-K rides the interim-recency block exactly like an 8-K (management is a recency lane).
+    expect(management).toBeDefined()
+    expect(management).toContain('RECENT INTERIM FILINGS')
+    expect(management).toContain('6-K filed 2026-04-30')
+    expect(management).toMatch(/read_source\("sec_edgar_recent_/)
   })
 })
 
@@ -5022,18 +5030,18 @@ describe('Silent-degradation cascade — fields omitted (live dogfood shape)', (
     expect(cp?.valuation?.buy_price_per_share).toBeDefined()
   })
 
-  it('records judgment_degraded + shariah-unverified flags and surfaces them in open_questions', async () => {
+  it('records shariah-unverified flags and surfaces them in open_questions (S6: on a grounded-moat run)', async () => {
+    // S6: an omitted MOAT rubric now short-circuits at the early gate (covered by A3 above), so the
+    // shariah-overlay degradation is exercised on a GROUNDED-moat run that reaches synthesis.
     const { analysisPayload, decisionPayload } = await runOmitted({
-      synthesis: { moat_class: 'wide', runway: 'proven' }, id: 'omit-flags',
+      synthesis: { moat_class: 'wide', runway: 'proven' }, id: 'omit-flags', keepMoatRubric: true,
     })
     const valuation = analysisPayload?.['valuation'] as Record<string, unknown>
     const degraded = (valuation?.['degraded_flags'] as string[] | undefined) ?? []
     // Every omitted structured field is a VISIBLE flag, not a silent skip.
-    expect(degraded.join(' ')).toMatch(/judgment_degraded:\s*rubric_not_emitted/)
     expect(degraded.join(' ')).toMatch(/shariah_ratios_unverified:\s*impermissible_income_not_emitted/)
     // and they reach the human via the decision open_questions (mirroring red_team_objection_unaddressed).
     const openQuestions = (decisionPayload?.['open_questions'] as string[] | undefined) ?? []
-    expect(openQuestions.join(' ')).toMatch(/rubric_not_emitted/)
     expect(openQuestions.join(' ')).toMatch(/impermissible_income_not_emitted/)
   })
 
@@ -5903,7 +5911,7 @@ describe('circle-of-competence gate', () => {
     // The judgment was recorded and the deep dive ran (lanes + synthesis).
     expect(types).toContain('circle_competence_judged')
     expect(types).toContain('deep_dive_started')
-    expect(types.filter((t) => t === 'specialist_finding_recorded').length).toBeGreaterThanOrEqual(5)
+    expect(types.filter((t) => t === 'specialist_finding_recorded').length).toBeGreaterThanOrEqual(3)
     expect(types).toContain('deep_dive_synthesis_drafted')
     expect(types).toContain('decision_drafted')
     // The model's (gated) verdict flows through — NOT a circle set-aside.
@@ -6002,7 +6010,7 @@ describe('circle-of-competence gate', () => {
 // moat-sourced margin must rest on a grounded/gate-passing moat (incoherence flag otherwise).
 // ---------------------------------------------------------------------------
 describe('margin-of-safety joint judgment (synthesis-owned: price AND/OR moat)', () => {
-  async function runMos(synthesis: SynthesisOverrides, id: string) {
+  async function runMos(synthesis: SynthesisOverrides, id: string, opts: { moatGateOverride?: boolean } = {}) {
     const store = new InMemoryEventStore()
     const provider = configurableSwarmProvider({ laneCount: buffettMungerDeepDiveLanes.length, synthesis })
     const sourceLedgerPath = await mkdtemp(join(tmpdir(), `owlfolio-mos-${id}-`))
@@ -6013,6 +6021,7 @@ describe('margin-of-safety joint judgment (synthesis-owned: price AND/OR moat)',
         strategy_id: 'buffett-munger', actor_id: 'user_local', idempotency_key: `${id}_k`,
         model_id: 'mock', decision_id: `decision_${id}`, source_ledger_path: sourceLedgerPath,
         circle_gate: { k_samples: 1, min_drivers: 1, min_breakers: 1 },
+        ...(opts.moatGateOverride === true ? { moat_gate_override: true } : {}),
       },
       {
         ground: allVerifiedGround, laneConcurrency: 4,
@@ -6122,6 +6131,9 @@ describe('margin-of-safety joint judgment (synthesis-owned: price AND/OR moat)',
   })
 
   it('Test 3b / GUARD 2 — a moat-sourced margin claimed on an UNGROUNDED (non-gate-passing) moat surfaces margin_of_safety_moat_ungrounded', async () => {
+    // S6: a below-gate moat now short-circuits BEFORE synthesis by default — this guard exercises the
+    // OVERRIDE path ("run remaining pillars anyway"), where synthesis DOES run on a failed gate and
+    // the incoherent moat-sourced margin must still be flagged.
     const { cp } = await runMos({
       // A narrow moat fails the wide-moat gate → the moat is NOT grounded/gate-passing.
       moat_class: 'narrow', runway: 'proven',
@@ -6130,7 +6142,7 @@ describe('margin-of-safety joint judgment (synthesis-owned: price AND/OR moat)',
         moat_durability_reasoning: 'Claims moat durability — but the moat did not pass the grounded gate.',
         adequacy: 'adequate', reasoning: 'Incoherently rests the margin on an ungrounded moat.',
       },
-    }, 'mos-guard2-ungrounded')
+    }, 'mos-guard2-ungrounded', { moatGateOverride: true })
     expect(cp?.valuation?.moat_passes_gate).toBe(false)
     expect(cp?.margin_of_safety_moat_ungrounded).toBe(true)
   })
@@ -6472,5 +6484,79 @@ describe('S5 — management pillar: persisted judgment + the veto rail', () => {
     const mj = payload?.['management_judgment'] as Record<string, unknown> | undefined
     expect(mj?.['resolved_integrity']).toBe('undetermined')
     expect(payload?.['management_veto_applied']).toBeUndefined()
+  })
+})
+
+// ---------------------------------------------------------------------------------------------------
+// S6 (Phase 3 pillars): the EARLY MOAT GATE — Pillar 2 must pass before Pillars 3–4 spend a token.
+// The stage-cost proof: on a gate death the management lane, valuation stage, red team, and synthesis
+// are NEVER CALLED (not just suppressed). The user-authored override runs everything anyway; the late
+// rails still gate the verdict — the override buys analysis, never a pass.
+// ---------------------------------------------------------------------------------------------------
+describe('S6 — early moat gate: zero Pillar 3–4 spend on a gate death; the override runs everything', () => {
+  async function runGate(opts: { id: string; moatClass: 'narrow' | 'moderate' | 'wide'; override?: boolean }) {
+    const store = new InMemoryEventStore()
+    const provider = configurableSwarmProvider({
+      laneCount: buffettMungerDeepDiveLanes.length,
+      synthesis: { moat_class: opts.moatClass, runway: 'proven', proposed_buy_below: 290,
+        valuation_reasoning: { owner_earnings_basis: 'b', owner_earnings_citation: 'src_dec_1', assumed_growth: 0.06, assumed_growth_rationale: 'r', assumed_growth_citation: 'src_dec_1' } },
+      investmentVerdict: 'WATCH',
+    })
+    const sourceLedgerPath = await mkdtemp(join(tmpdir(), `owlfolio-s6-${opts.id}-`))
+    await runStrategyResearchSwarm(
+      store, provider as never,
+      {
+        research_case_id: `rc_${opts.id}`, company_id: 'c', ticker: 'GTE',
+        strategy_id: 'buffett-munger', actor_id: 'user_local', idempotency_key: `${opts.id}_k`,
+        model_id: 'mock', decision_id: `decision_${opts.id}`, source_ledger_path: sourceLedgerPath,
+        ...(opts.override === true ? { moat_gate_override: true } : {}),
+      },
+      {
+        ground: allVerifiedGround, laneConcurrency: 4,
+        resolvePrice: async () => ({ available: true as const, price_per_share: 100, currency: 'USD', as_of: 'x', source: 'fixture' }),
+      },
+    )
+    const events = await store.list()
+    const schemaCalls = provider.structured.mock.calls
+      .map((c: unknown[]) => (c[0] as { response_format?: { schema_name?: string } }).response_format?.schema_name)
+      .filter((n): n is string => typeof n === 'string')
+    const projections = projectResearchCases(events as Parameters<typeof projectResearchCases>[0])
+    return { events, schemaCalls, cp: projections.find((c) => c.research_case_id === `rc_${opts.id}`) }
+  }
+
+  it('gate death (grounded moderate): terminal PASS with ZERO management/valuation/red-team/synthesis calls', async () => {
+    const { events, schemaCalls, cp } = await runGate({ id: 'gate-death', moatClass: 'moderate' })
+    expect(cp?.investment_verdict).toBe('PASS')
+    // The provider was NEVER asked for the Pillar 3–4 stages — the spend proof, not just suppression.
+    expect(schemaCalls).not.toContain('BuffettMungerManagementLane')
+    expect(schemaCalls).not.toContain('BuffettMungerValuationReasoning')
+    expect(schemaCalls).not.toContain('BuffettMungerRedTeam')
+    expect(schemaCalls).not.toContain('BuffettMungerSynthesisDecision')
+    const types = events.map((e) => e.event_type)
+    expect(types).not.toContain('valuation_judgment_drafted')
+    expect(types).not.toContain('deep_dive_synthesis_drafted')
+    expect(types).toContain('decision_drafted')
+    const analysis = events.find((e) => e.event_type === 'buffett_munger_analysis_drafted')
+    expect((analysis?.payload as Record<string, unknown>)['moat_gate_short_circuited']).toBe(true)
+  })
+
+  it('the OVERRIDE runs Pillars 3–4 on a failed gate; the LATE rails still gate the verdict to PASS', async () => {
+    const { events, schemaCalls, cp } = await runGate({ id: 'gate-override', moatClass: 'moderate', override: true })
+    // Everything ran under the override...
+    expect(schemaCalls).toContain('BuffettMungerManagementLane')
+    expect(schemaCalls).toContain('BuffettMungerSynthesisDecision')
+    const types = events.map((e) => e.event_type)
+    expect(types).toContain('deep_dive_synthesis_drafted')
+    // ...but the verdict is STILL gated (the override buys analysis, never a pass).
+    expect(cp?.investment_verdict).toBe('PASS')
+    const analysis = events.find((e) => e.event_type === 'buffett_munger_analysis_drafted')
+    expect((analysis?.payload as Record<string, unknown>)['moat_gate_short_circuited']).toBeUndefined()
+  })
+
+  it('a wide moat passes the early gate and the full pipeline runs unchanged', async () => {
+    const { schemaCalls, cp } = await runGate({ id: 'gate-pass', moatClass: 'wide' })
+    expect(schemaCalls).toContain('BuffettMungerManagementLane')
+    expect(schemaCalls).toContain('BuffettMungerSynthesisDecision')
+    expect(cp?.investment_verdict).toBe('WATCH')
   })
 })

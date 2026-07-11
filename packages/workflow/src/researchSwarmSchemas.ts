@@ -532,4 +532,4 @@ export const CIRCLE_COMPETENCE_PROMPT =
 // moat lane does NOT get the full primary-filing NUMBERS block (that stays on the financial lanes), so
 // neither the moat nor the runway thesis gets the numbers block — only the citable id; injectFiling only
 // governs the withFiling verified-id force-add for the moat lane (see researchSwarm.ts).
-export const PRIMARY_FILING_LANES: ReadonlySet<string> = new Set(['financial_quality', 'moat'])
+export const PRIMARY_FILING_LANES: ReadonlySet<string> = new Set(['understand', 'moat'])

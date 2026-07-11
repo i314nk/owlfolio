@@ -19,11 +19,9 @@ import { projectHoldings } from './holdingProjection'
  * The drift-guard test in __tests__/pipelineSpecialistLanesSync.test.ts catches any divergence.
  */
 export const PIPELINE_SPECIALIST_LANES = [
-  'business_quality',
+  'understand',
   'moat',
   'management',
-  'financial_quality',
-  'risks',
 ] as const
 
 export type PipelineStageKey =
@@ -116,9 +114,11 @@ function getString(payload: Record<string, unknown>, key: string): string | unde
 }
 
 const LANE_LABELS: Record<string, string> = {
-  business_quality: 'Business quality',
+  // S6 pillar lanes (current) — HISTORICAL lane ids below stay forever (persisted in old events).
+  understand: 'Understand the business',
   moat: 'Moat',
   management: 'Management',
+  business_quality: 'Business quality',
   financial_quality: 'Financial quality',
   shariah: 'Shariah',
   risks: 'Risks',

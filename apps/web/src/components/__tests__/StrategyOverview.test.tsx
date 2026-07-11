@@ -19,19 +19,20 @@ function render(): string {
 }
 
 describe('StrategyOverview', () => {
-  it('renders all five specialist lanes from the live lane list', () => {
+  it('renders the pillar lanes from the live lane list (S6)', () => {
     const html = render()
-    expect(buffettMungerDeepDiveLanes).toHaveLength(5)
+    expect([...buffettMungerDeepDiveLanes]).toEqual(['understand', 'moat', 'management'])
     for (const lane of buffettMungerDeepDiveLanes) {
       expect(html).toContain(`data-lane="${lane}"`)
     }
   })
 
-  it('describes what each lane assesses and that lanes are grounded agents', () => {
+  it('describes what each pillar lane assesses and that lanes are grounded agents', () => {
     const html = render()
     // a representative assessment phrase per the real lane focus
     expect(html).toContain('Durable competitive advantage')
-    expect(html).toContain('Owner-earnings normalization')
+    expect(html).toContain('How the business actually makes money')
+    expect(html).toContain('retained-earnings test')
     // grounding statement appears on the lane cards
     expect(html).toContain('grounded agent')
     expect(html).toContain('cited to a harness-captured source')

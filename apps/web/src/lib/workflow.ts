@@ -385,7 +385,7 @@ export async function enqueueDiscoveryRun(state: OnboardingState, deps: EnqueueD
 
 export async function enqueueResearchRun(
   state: OnboardingState,
-  input: { ticker: string; company_id?: string; supersedes_research_case_id?: string },
+  input: { ticker: string; company_id?: string; supersedes_research_case_id?: string; moat_gate_override?: boolean },
   deps: { spawn?: (paths: SpawnWorkerPaths) => void } = {},
 ): Promise<{ research_case_id: string }> {
   if (
@@ -456,6 +456,10 @@ export async function enqueueResearchRun(
         // (which reads this event off the queue) threads it into the new case's `research_case_created`.
         // Without this the worker would not know to supersede the prior case for an explicit re-run.
         ...(supersedesId === undefined ? {} : { supersedes_research_case_id: supersedesId }),
+        // S6: the USER-AUTHORED moat-gate override ("run remaining pillars anyway" on a gated dossier).
+        // Recorded on the user-authored request event — the audit trail of WHO chose to spend past the
+        // gate — and threaded to the swarm, which skips only the EARLY short-circuit (late rails gate).
+        ...(input.moat_gate_override === true ? { moat_gate_override: true } : {}),
         // Defense-in-depth: the request records the provider/mode it was made under so the
         // worker can fail closed if it loads a different config (e.g. silent demo/mock fallback)
         // instead of silently substituting a mock/demo dossier for a real personal-local run.
@@ -511,6 +515,7 @@ export async function enqueueResearchRun(
           source_ledger_path: state.config.source_ledger_path,
           version,
           ...(supersedesId === undefined ? {} : { supersedes_research_case_id: supersedesId }),
+          ...(input.moat_gate_override === true ? { moat_gate_override: true } : {}),
           // mergeAutomationSettings migrates the retired quick_screen_approval key from older configs.
           deep_dive_approval: mergeAutomationSettings(state.config.automation).deep_dive_approval,
           // model-tiering: file-configured per-role overrides (UI-managed env file = PINS) take effect

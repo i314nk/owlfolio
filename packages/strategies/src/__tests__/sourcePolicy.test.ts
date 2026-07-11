@@ -93,7 +93,7 @@ describe('SOURCE_POLICY per-lane whitelist', () => {
       expect(isCategoryAllowedForLane(lane, 'proxy')).toBe(false)
     }
     // The widening is a deliberate, versioned act — pin the bump.
-    expect(SOURCE_POLICY.version).toBe('source-policy-2026-07-mechanism-6-v2-moat-proxy')
+    expect(SOURCE_POLICY.version).toBe('source-policy-2026-07-mechanism-6-v3-pillar-lanes')
   })
 
   it('MANAGEMENT admits proxies + insider data + transcripts, rejects financial_media (media profile)', () => {

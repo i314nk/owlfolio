@@ -2723,6 +2723,9 @@ export async function runProcessResearchQueueTask(
           // auto-versioning), thread it so the new case's `research_case_created` supersedes it and the
           // prior case drops out of active views. Absent → a plain new run.
           ...(run.supersedes_research_case_id === undefined ? {} : { supersedes_research_case_id: run.supersedes_research_case_id }),
+          // S6: the user-authored moat-gate override — the early short-circuit is skipped; the late
+          // verdict rails still gate (the override buys analysis, never a pass).
+          ...(run.moat_gate_override === true ? { moat_gate_override: true } : {}),
           // Lineage version (re-run / auto-version → prior+1) so the new dossier shows the correct vN.
           // Absent on legacy requests → createResearchCase defaults to v1 (backward-compat).
           ...(run.version === undefined ? {} : { version: run.version }),

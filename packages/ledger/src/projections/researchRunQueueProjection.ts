@@ -21,6 +21,8 @@ export type PendingResearchRun = {
    * superseded case is hidden from active views. Absent → a plain new run (no supersession).
    */
   supersedes_research_case_id?: string
+  /** S6 — the user-authored moat-gate override ("run remaining pillars anyway") threaded to the swarm. */
+  moat_gate_override?: boolean
   /**
    * The lineage version the new case should be created at (1 for a first run, prior+1 for a re-run /
    * auto-version). The worker threads this into `research_case_created` so a re-run dossier shows the
@@ -70,6 +72,7 @@ export function projectPendingResearchRuns(
       ...(p.expected_provider_id === undefined ? {} : { expected_provider_id: String(p.expected_provider_id) }),
       ...(p.expected_mode === undefined ? {} : { expected_mode: String(p.expected_mode) }),
       ...(p.supersedes_research_case_id === undefined ? {} : { supersedes_research_case_id: String(p.supersedes_research_case_id) }),
+      ...(p.moat_gate_override === true ? { moat_gate_override: true } : {}),
       ...(p.version === undefined ? {} : { version: Number(p.version) }),
       requested_event_id: e.event_id,
     })

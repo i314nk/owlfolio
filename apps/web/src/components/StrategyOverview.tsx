@@ -191,26 +191,20 @@ function PipelineFlow(): ReactNode {
 // ── 3. Specialist swarm lanes (real lanes + what each assesses) ──────────────
 type LaneCard = { lane: string; name: string; assesses: string }
 
+// S6 (Phase 3): the lanes ARE Buffett's pillars. Financial-quality numerics are owned by the
+// always-on valuation stage + the harness T0 blocks; the adversarial risks duty lives in the red team.
 const LANE_DETAILS: Record<string, { name: string; assesses: string }> = {
-  business_quality: {
-    name: 'Business quality',
-    assesses: 'How the business actually makes money, its economics, and whether the franchise is understandable and durable.',
+  understand: {
+    name: 'Understand the business (Pillar 1)',
+    assesses: 'How the business actually makes money — the model, unit economics, revenue/cost drivers — plus accounting quality (revenue recognition, one-offs, accrual red flags).',
   },
   moat: {
-    name: 'Moat',
-    assesses: 'Durable competitive advantage, reinvestment runway, pricing power, and the evidence behind the moat class it assigns.',
+    name: 'Moat (Pillar 2)',
+    assesses: 'Durable competitive advantage: which moat TYPES ground, the moat direction (widening/narrowing), the standout peer comparison, reinvestment runway, and the evidence behind the moat class.',
   },
   management: {
-    name: 'Management',
-    assesses: 'Capital allocation, incentives, candor, insider alignment, and the stewardship track record of the people running it.',
-  },
-  financial_quality: {
-    name: 'Financial quality',
-    assesses: 'Owner-earnings normalization (NI + D&A − maintenance capex − SBC − ΔNWC), ROIC, reinvestment, cash conversion, and accounting quality.',
-  },
-  risks: {
-    name: 'Risks',
-    assesses: 'Permanent-capital-loss risks, leverage fragility, disruption, regulation, and the specific events that would break the thesis.',
+    name: 'Management (Pillar 3)',
+    assesses: 'Integrity (communication candor + how executives are paid, from the DEF 14A) and talent (capital allocation vs the harness ROIC/payout/debt observations and the retained-earnings test).',
   },
 }
 

@@ -11,12 +11,17 @@ export type QuickScreenConfidence = 'low' | 'medium' | 'high'
 export type DeepDiveConfidence = QuickScreenConfidence
 export type DeepDiveSpecialistLane = string
 
+// S6 (Phase 3 pillars, owner-locked 2026-07-11): the deep-dive lanes ARE the Buffett pillars.
+// 'understand' (Pillar 1) absorbs the retired business_quality lane + financial_quality's
+// accounting-quality duty; financial_quality's numeric duties were nationalized (the always-on
+// valuation stage, the S5 debt/T0 blocks, the S2 moat tests); risks' adversarial duty lives in the
+// red team, its web/consensus color in the red-team consensus check (S7). HISTORICAL lane ids
+// (business_quality / financial_quality / risks) remain PERSISTED in old events — projections and
+// the dossier stay tolerant of them forever; only NEW runs use the pillar set.
 export const buffettMungerDeepDiveLanes = [
-  'business_quality',
+  'understand',
   'moat',
   'management',
-  'financial_quality',
-  'risks',
 ] as const satisfies readonly DeepDiveSpecialistLane[]
 
 export type OwnerEarningsValuationPayload = {
