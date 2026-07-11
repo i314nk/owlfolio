@@ -1250,3 +1250,36 @@ describe('pillar frame (S8)', () => {
     expect(html).toContain('Moat gate overridden by user')
   })
 })
+
+// B3 (Phase 4) — the ONE-PAGER card renders the seven items under Pillar 1 and is absent on legacy cases.
+describe('the one-pager card (B3)', () => {
+  it('renders the seven items with the plain-English sentence leading', () => {
+    const html = render({
+      ...baseCase(),
+      one_pager: {
+        plain_english: 'Sells memberships that grant access to low-priced bulk goods.',
+        segments: ['Warehouses US', 'International'],
+        revenue_drivers: ['Membership fees', 'Merchandise at thin markups'],
+        most_profitable_segments: ['Membership fees'],
+        strengths: ['Renewal economics'],
+        weak_spots: ['Thin margins leave little room for error'],
+        growth_levers: ['New warehouses', 'Fee increases'],
+      },
+    } as unknown as AppResearchCase, QUOTE)
+    expect(html).toContain('data-testid="one-pager-card"')
+    expect(html).toContain('Sells memberships that grant access to low-priced bulk goods.')
+    expect(html).toContain('Where the real profits come from')
+    expect(html).toContain('Thin margins leave little room for error')
+    // Renders under the Pillar 1 header, before Pillar 2.
+    const p1 = html.indexOf('pillar-header-pillar-1')
+    const card = html.indexOf('one-pager-card')
+    const p2 = html.indexOf('pillar-header-pillar-2')
+    expect(p1).toBeLessThan(card)
+    expect(card).toBeLessThan(p2)
+  })
+
+  it('is absent on legacy cases (no one_pager projected)', () => {
+    const html = render(baseCase(), QUOTE)
+    expect(html).not.toContain('one-pager-card')
+  })
+})

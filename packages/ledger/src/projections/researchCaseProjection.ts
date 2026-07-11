@@ -874,6 +874,19 @@ export type ResearchCaseProjection = {
    */
   moat_tests?: ResearchCaseMoatTestsProjection
   /**
+   * The book's seven-item one-pager (B3, Phase 4) — the understand lane's Pillar 1 distillation.
+   * Present on gated dossiers too (Pillar 1 runs in Stage A). Absent on legacy events.
+   */
+  one_pager?: {
+    plain_english?: string
+    segments?: string[]
+    revenue_drivers?: string[]
+    most_profitable_segments?: string[]
+    strengths?: string[]
+    weak_spots?: string[]
+    growth_levers?: string[]
+  }
+  /**
    * The management pillar's resolved judgment (S5, Phase 3): integrity (communication + comp) and
    * talent (capital allocation), grounded-only teeth, plus the injected talent T0 observations and
    * the retained-earnings test. Absent on legacy events.
@@ -2586,6 +2599,17 @@ export function projectResearchCases(events: LedgerEventEnvelope<unknown>[]): Re
       const moatTests = getMoatTests(event.payload)
       if (moatTests !== undefined) {
         researchCase.moat_tests = moatTests
+      }
+      const rawOnePager = event.payload['one_pager']
+      if (isRecord(rawOnePager)) {
+        const op: NonNullable<ResearchCaseProjection['one_pager']> = {}
+        const plain_english = getString(rawOnePager, 'plain_english')
+        if (plain_english !== undefined) op.plain_english = plain_english
+        for (const key of ['segments', 'revenue_drivers', 'most_profitable_segments', 'strengths', 'weak_spots', 'growth_levers'] as const) {
+          const arr = getStringArray(rawOnePager, key)
+          if (arr !== undefined) op[key] = arr
+        }
+        if (Object.keys(op).length > 0) researchCase.one_pager = op
       }
       const managementJudgment = getManagementJudgment(event.payload)
       if (managementJudgment !== undefined) {

@@ -224,6 +224,26 @@ function mockMoatLaneForTicker(ticker: string) {
   }
 }
 
+// UNDERSTAND lane (B3, Phase 4): the book's seven-item one-pager distillation.
+function mockUnderstandLaneForTicker(ticker: string) {
+  const companyLabel = companyLabelForTicker(ticker)
+  return {
+    finding_summary: `${companyLabel} understand lane: membership-driven bulk retail with fee-led profits.`,
+    confidence: 'medium' as const,
+    caveats: [`Mock understand finding — not investment-grade; run a real provider before any decision.`],
+    one_pager: {
+      plain_english: `${companyLabel} sells memberships that grant access to low-priced bulk goods.`,
+      segments: ['Core operations', 'International', 'Digital'],
+      revenue_drivers: ['Membership fees', 'Merchandise sales at thin markups'],
+      most_profitable_segments: ['Membership fees (the bulk of operating profit)'],
+      strengths: ['Renewal economics', 'Scale purchasing power'],
+      weak_spots: ['Thin merchandise margins leave little room for error'],
+      growth_levers: ['New locations', 'Fee increases'],
+    },
+    proposed_sources: mockSourcesForTicker(ticker),
+  }
+}
+
 // MANAGEMENT lane (S5, Phase 3 pillars): emits the two-trait judgment — integrity (communication +
 // DEF 14A comp structure) and talent (capital allocation reconciled with the injected T0 block) —
 // each cited to grounded mock source_ids so the resolver honors them.
@@ -574,6 +594,8 @@ export class MockProvider implements Provider {
           return mockLaneFindingForTicker(ticker)
         case 'BuffettMungerMoatLane':
           return mockMoatLaneForTicker(ticker)
+        case 'BuffettMungerUnderstandLane':
+          return mockUnderstandLaneForTicker(ticker)
         case 'BuffettMungerManagementLane':
           return mockManagementLaneForTicker(ticker)
         case 'BuffettMungerShariahLane':

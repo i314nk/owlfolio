@@ -178,6 +178,23 @@ function fakeManagementLanePayload(src: (id: string) => unknown, cite = 'src_lan
   }
 }
 
+// UNDERSTAND lane (B3): the seven-item one-pager rides the shared fakes (retry-forced live).
+function fakeUnderstandLanePayload(src: (id: string) => unknown, cite = 'src_lane_understand') {
+  return {
+    finding_summary: 'Understand lane finding', confidence: 'medium' as const, caveats: ['Mock understand caveat'],
+    one_pager: {
+      plain_english: 'Sells memberships that grant access to low-priced bulk goods.',
+      segments: ['Warehouses US', 'Warehouses International', 'E-commerce'],
+      revenue_drivers: ['Membership fees', 'Merchandise sales at thin markups'],
+      most_profitable_segments: ['Membership fees (most of operating profit)'],
+      strengths: ['Membership renewal economics', 'Scale purchasing power'],
+      weak_spots: ['Thin merchandise margins leave little room for error'],
+      growth_levers: ['New warehouse openings', 'Membership fee increases'],
+    },
+    proposed_sources: [src(cite)],
+  }
+}
+
 function fakeCirclePayload(src: (id: string) => unknown) {
   // Two cited drivers + two cited breakers: meets the default circle-gate evidence floor (min 2/2),
   // mirroring what a live model produces now that the gate prompt asks for at least that many.
@@ -229,6 +246,9 @@ function swarmFakeProvider() {
           screening_result: 'deep_dive_candidate',
           proposed_sources: [src('src_qs_1')],
         }
+      }
+      if (schemaName === 'BuffettMungerUnderstandLane') {
+        return fakeUnderstandLanePayload(src)
       }
       if (schemaName === 'BuffettMungerManagementLane') {
         return fakeManagementLanePayload(src)
@@ -337,6 +357,9 @@ function swarmFakeProviderWithLaneIds(_lanes: readonly string[]) {
         }
       }
       // Lane source id encodes the lane name (from the prompt) so ground can filter by lane.
+      if (schemaName === 'BuffettMungerUnderstandLane') {
+        return fakeUnderstandLanePayload(src)
+      }
       if (schemaName === 'BuffettMungerManagementLane') {
         return fakeManagementLanePayload(src)
       }
@@ -666,6 +689,9 @@ describe('runStrategyResearchSwarm', () => {
               shariah_judgment: { sector_reasoning: 'Grounded sector basis (test fixture).', sector_status: 'compliant', impermissible_income: 0, sector_citation: 'src_shariah_pass_good_1' },
               proposed_sources: [src('src_shariah_pass_good_1'), src('src_shariah_pass_bad_1')],
             }
+          }
+          if (schemaName === 'BuffettMungerUnderstandLane') {
+            return fakeUnderstandLanePayload(src)
           }
           if (schemaName === 'BuffettMungerManagementLane') {
             return fakeManagementLanePayload(src)
@@ -1406,6 +1432,9 @@ function configurableSwarmProvider(opts: {
           caveats: ['Mock lane caveat'], proposed_sources: [src(`src_lane_${n}`)],
         }
       }
+      if (schemaName === 'BuffettMungerUnderstandLane') {
+        return fakeUnderstandLanePayload(src)
+      }
       if (schemaName === 'BuffettMungerManagementLane') {
         return { ...fakeManagementLanePayload(src), ...(opts.managementLaneExtras ?? {}) }
       }
@@ -1451,10 +1480,10 @@ function configurableSwarmProvider(opts: {
           strongest_objection: {
             claim: 'Growth credit depends on incremental ROIC the firm likely cannot sustain.',
             severity: 'high',
-            citations: opts.redTeamCitations ?? ['src_lane_0'],
+            citations: opts.redTeamCitations ?? ['src_lane_moat'],
           },
           ...(opts.redTeamExtras ?? {}),
-          proposed_sources: [src('src_lane_0')],
+          proposed_sources: [src('src_lane_moat')],
         }
       }
       // dedicated red-team-RESPONSE call (the focused decomposition). The synthesis_response that answers
@@ -2484,8 +2513,8 @@ describe('Mechanism 5 — red-team pass + synthesis obligation', () => {
     expect(result.decision).toBeDefined()
     expect(cp?.red_team?.status).toBe('complete')
     expect(cp?.red_team?.strongest_objection?.claim).toMatch(/incremental ROIC/i)
-    // Cite-checked against the corpus (src_lane_0 is a verified lane source).
-    expect(cp?.red_team?.strongest_objection?.citations).toEqual(['src_lane_0'])
+    // Cite-checked against the corpus (src_lane_moat is a verified lane source).
+    expect(cp?.red_team?.strongest_objection?.citations).toEqual(['src_lane_moat'])
     expect(cp?.red_team?.synthesis_response?.mode).toBe('answered_with_evidence')
     expect(cp?.red_team?.objection_unaddressed).toBeUndefined()
     // No red_team_objection_unaddressed open question.
@@ -2606,7 +2635,7 @@ describe('Mechanism 5 — red-team pass + synthesis obligation', () => {
   })
 
   it('records the answer from the dedicated red-team-response call (no unaddressed flag) when it answers', async () => {
-    // A live objection (src_lane_0 verified) → the dedicated call runs and answers it → the answer is
+    // A live objection (src_lane_moat verified) → the dedicated call runs and answers it → the answer is
     // recorded on the red-team layer and there is NO red_team_objection_unaddressed flag.
     const store = new InMemoryEventStore()
     const provider = configurableSwarmProvider({
@@ -3338,6 +3367,9 @@ function swarmFakeProviderWithShariah(
           screening_result: 'deep_dive_candidate', proposed_sources: [src('src_qs_1')],
         }
       }
+      if (schemaName === 'BuffettMungerUnderstandLane') {
+        return fakeUnderstandLanePayload(src)
+      }
       if (schemaName === 'BuffettMungerManagementLane') {
         return fakeManagementLanePayload(src)
       }
@@ -3522,6 +3554,9 @@ describe('EDGAR-anchored OE bridge + harness AAOIFI Shariah ratios', () => {
             red_flags: ['None'], confidence: 'high', caveats: ['c'],
             screening_result: 'deep_dive_candidate', proposed_sources: [src('src_qs_1')],
           }
+        }
+        if (schemaName === 'BuffettMungerUnderstandLane') {
+          return fakeUnderstandLanePayload(src)
         }
         if (schemaName === 'BuffettMungerManagementLane') {
           return fakeManagementLanePayload(src)
@@ -4860,6 +4895,9 @@ describe('SUBSTITUTION-BOUNDARY INVARIANT — moat gate cannot pass on quant alo
             proposed_sources: [src('src_qs_1')],
           }
         }
+        if (schemaName === 'BuffettMungerUnderstandLane') {
+          return fakeUnderstandLanePayload(src)
+        }
         if (schemaName === 'BuffettMungerManagementLane') {
           return fakeManagementLanePayload(src)
         }
@@ -5112,6 +5150,9 @@ describe('runStrategyResearchSwarm — schema-validation + retry (harness defens
           const n = laneCall++
           return { finding_summary: `Lane ${n}`, confidence: 'high', caveats: ['c'], proposed_sources: [src(`src_lane_${n}`)] }
         }
+        if (schemaName === 'BuffettMungerUnderstandLane') {
+          return fakeUnderstandLanePayload(src)
+        }
         if (schemaName === 'BuffettMungerManagementLane') {
           return fakeManagementLanePayload(src)
         }
@@ -5295,6 +5336,9 @@ function crossCheckSwarmProvider(opts: {
       if (schemaName === 'BuffettMungerLaneFinding') {
         const n = laneCall++
         return { finding_summary: `Lane ${n}`, confidence: 'high', caveats: ['c'], proposed_sources: [src(`src_lane_${n}`)] }
+      }
+      if (schemaName === 'BuffettMungerUnderstandLane') {
+        return fakeUnderstandLanePayload(src)
       }
       if (schemaName === 'BuffettMungerManagementLane') {
         return fakeManagementLanePayload(src)
@@ -5578,10 +5622,10 @@ describe('runStrategyResearchSwarm — synthesis own-grounding fail-closed (foun
       synthesis: {
         valuation_reasoning: {
           owner_earnings_basis: 'FY25 owner earnings per the 10-K bridge.',
-          owner_earnings_citation: 'src_lane_0', // a lane-grounded, hash-verified corpus id
+          owner_earnings_citation: 'src_lane_moat', // a lane-grounded, hash-verified corpus id
           assumed_growth: 0.06,
           assumed_growth_rationale: 'Growth grounded in segment capex per the corpus filing.',
-          assumed_growth_citation: 'src_lane_0',
+          assumed_growth_citation: 'src_lane_moat',
         },
       },
     }, groundExceptDecision)
@@ -5831,6 +5875,9 @@ describe('circle-of-competence gate', () => {
             shariah_status: 'COMPLIANT', red_flags: ['None identified'], confidence: 'high', caveats: ['Mock caveat'],
             screening_result: 'deep_dive_candidate', proposed_sources: [src('src_qs_1')],
           }
+        }
+        if (schemaName === 'BuffettMungerUnderstandLane') {
+          return fakeUnderstandLanePayload(src)
         }
         if (schemaName === 'BuffettMungerManagementLane') {
           return fakeManagementLanePayload(src)
@@ -6588,7 +6635,7 @@ describe('S7 — munger_lattice persisted from the run artifacts', () => {
           consensus_view: 'The street sees a fully-valued quality compounder.',
           thesis_vs_consensus: 'variant',
           variant_justification: 'The thesis underwrites margin durability the street discounts.',
-          citations: ['src_lane_0'],
+          citations: ['src_lane_moat'],
         },
       },
     })
@@ -6653,5 +6700,57 @@ describe('S7 — munger_lattice persisted from the run artifacts', () => {
     const social = lattice?.entries?.find((e) => e.model === 'social_proof')
     expect(social?.status).toBe('unavailable')
     expect(social?.reason).toMatch(/no consensus check/i)
+  })
+})
+
+// ---------------------------------------------------------------------------------------------------
+// B3 (Phase 4, book alignment): the ONE-PAGER — the understand lane's seven-item distillation
+// persists on the analysis payload + projection, INCLUDING on a moat-gate short-circuit (Pillar 1
+// ran in Stage A; its distillation renders on gated dossiers too).
+// ---------------------------------------------------------------------------------------------------
+describe('B3 — the one-pager persisted from the understand lane', () => {
+  async function runOnePager(opts: { id: string; moatClass: 'moderate' | 'wide' }) {
+    const store = new InMemoryEventStore()
+    const provider = configurableSwarmProvider({
+      laneCount: buffettMungerDeepDiveLanes.length,
+      synthesis: { moat_class: opts.moatClass, runway: 'proven', proposed_buy_below: 150,
+        valuation_reasoning: { owner_earnings_basis: 'b', owner_earnings_citation: 'src_dec_1', assumed_growth: 0.06, assumed_growth_rationale: 'r', assumed_growth_citation: 'src_dec_1' } },
+      investmentVerdict: 'WATCH',
+    })
+    const sourceLedgerPath = await mkdtemp(join(tmpdir(), `owlfolio-b3-${opts.id}-`))
+    await runStrategyResearchSwarm(
+      store, provider as never,
+      {
+        research_case_id: `rc_${opts.id}`, company_id: 'c', ticker: 'ONE',
+        strategy_id: 'buffett-munger', actor_id: 'user_local', idempotency_key: `${opts.id}_k`,
+        model_id: 'mock', decision_id: `decision_${opts.id}`, source_ledger_path: sourceLedgerPath,
+      },
+      {
+        ground: allVerifiedGround, laneConcurrency: 4,
+        resolvePrice: async () => ({ available: true as const, price_per_share: 120, currency: 'USD', as_of: 'x', source: 'fixture' }),
+      },
+    )
+    const events = await store.list()
+    const analysis = events.find((e) => e.event_type === 'buffett_munger_analysis_drafted')
+    const projections = projectResearchCases(events as Parameters<typeof projectResearchCases>[0])
+    return { payload: analysis?.payload as Record<string, unknown>, cp: projections.find((c) => c.research_case_id === `rc_${opts.id}`) as Record<string, unknown> | undefined }
+  }
+
+  it('persists the seven items on a full run and projects them', async () => {
+    const { payload, cp } = await runOnePager({ id: 'onepager-full', moatClass: 'wide' })
+    const op = payload['one_pager'] as Record<string, unknown> | undefined
+    expect(op?.['plain_english']).toMatch(/memberships/i)
+    expect((op?.['segments'] as string[]).length).toBeGreaterThan(0)
+    expect((op?.['growth_levers'] as string[]).length).toBeGreaterThan(0)
+    const projected = cp?.['one_pager'] as Record<string, unknown> | undefined
+    expect(projected?.['plain_english']).toMatch(/memberships/i)
+    expect((projected?.['weak_spots'] as string[]).length).toBeGreaterThan(0)
+  })
+
+  it('a moat-gate short-circuit STILL carries the one-pager (Pillar 1 ran in Stage A)', async () => {
+    const { payload, cp } = await runOnePager({ id: 'onepager-gated', moatClass: 'moderate' })
+    expect(payload['moat_gate_short_circuited']).toBe(true)
+    expect((payload['one_pager'] as Record<string, unknown> | undefined)?.['plain_english']).toMatch(/memberships/i)
+    expect((cp?.['one_pager'] as Record<string, unknown> | undefined)?.['plain_english']).toMatch(/memberships/i)
   })
 })

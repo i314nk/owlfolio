@@ -182,6 +182,48 @@ export const MoatLaneSchema = z.object({
 })
 
 // ---------------------------------------------------------------------------------------------------
+// UNDERSTAND lane (B3, Phase 4 book alignment): the ONE-PAGER — the book's distillation of Pillar 1.
+// "Now that you've broken down what the company is and how it makes its money, distill that
+// understanding into something simple and actionable." Seven required items (the book's bare
+// minimum). The one-pager is a JUDGMENT DISTILLATION riding a grounded lane — the lane's verified
+// sources ground it collectively (per-item citations would turn a one-pager into a bibliography);
+// the harness never re-derives it. Optional at the schema level (degrade-not-destroy) and
+// retry-FORCED via requiredFields, exactly like the moat/management judgment blocks.
+// ---------------------------------------------------------------------------------------------------
+export const OnePagerSchema = z.object({
+  /** 1. What the company does, in plain English — ONE sentence. */
+  plain_english: z.string().min(1),
+  /** 2. The company's major divisions/segments. */
+  segments: z.array(z.string().min(1)).min(1),
+  /** 3. The main revenue drivers (how it makes money). */
+  revenue_drivers: z.array(z.string().min(1)).min(1),
+  /** 4. Where the real profits come from. */
+  most_profitable_segments: z.array(z.string().min(1)).min(1),
+  /** 5. Key strengths / potential competitive advantages. */
+  strengths: z.array(z.string().min(1)).min(1),
+  /** 6. Key risks or weak spots — what could go wrong. */
+  weak_spots: z.array(z.string().min(1)).min(1),
+  /** 7. Growth levers — what will increase profits and expand the business. */
+  growth_levers: z.array(z.string().min(1)).min(1),
+})
+
+export const UnderstandLaneSchema = z.object({
+  ...LaneAgentBaseShape,
+  one_pager: OnePagerSchema.optional(),
+})
+
+export const UNDERSTAND_PILLAR_PROMPT =
+  ` As the UNDERSTAND lane you ALSO distill the business into the ONE-PAGER — a simple, actionable `
+  + `summary of the essence of the business, from the grounded filings (the 10-K first). Emit one_pager `
+  + `with EXACTLY these seven items: plain_english (what the company does, ONE sentence, no jargon); `
+  + `segments (the major divisions); revenue_drivers (bullet points on how it actually makes money); `
+  + `most_profitable_segments (where the real profits come from — not just the biggest revenue); `
+  + `strengths (what makes the business hard to compete with); weak_spots (what could go wrong); `
+  + `growth_levers (what will increase profits and expand the business). Every item must be SPECIFIC to `
+  + `THIS business — a one-pager that could describe any company is worthless. Keep it distilled: this `
+  + `is the page you would hand someone who has never heard of the company.`
+
+// ---------------------------------------------------------------------------------------------------
 // MANAGEMENT lane (S5, Phase 3 pillars): the pillar's two core traits (owner-locked 2026-07-11) —
 // INTEGRITY (communication monitoring + executive-comp structure) and TALENT (ROIC / dividends &
 // buybacks / debt management, reconciled against the injected harness T0 block). Both judgment

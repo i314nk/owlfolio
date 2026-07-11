@@ -431,9 +431,10 @@ export function ResearchCasePanel({ researchCase, mode = 'personal-local', confi
     // ── FRONT GATE — Shariah (precedes Buffett's four filters; sector judgment + AAOIFI ratios) ──
     createPillarHeader('front-gate', 'Front gate — Shariah', undefined),
     makeCollapsible(createComplianceRatioBlock(researchCase), false, researchCase.shariah_status),
-    // ── PILLAR 1 — Understand the business (the circle-of-competence judgment) ──
+    // ── PILLAR 1 — Understand the business (the circle-of-competence judgment + the one-pager) ──
     createPillarHeader('pillar-1', 'Pillar 1 — Understand the business', undefined),
     makeCollapsible(createCircleCompetencePanel(researchCase), false),
+    createOnePagerCard(researchCase),
     // ── PILLAR 2 — Moat (the three named tests; the grounded judgment lives in the valuation panel's
     //    judgment provenance + the moat lane card below) ──
     createPillarHeader('pillar-2', 'Pillar 2 — Moat', p2Status),
@@ -617,6 +618,36 @@ function createInsiderActivityPanel(researchCase: AppResearchCase) {
     createElement('ul', { key: 'rows', style: { display: 'grid', gap: '0.35rem', margin: 0, paddingLeft: '1.1rem' } }, ...rows),
   ]
   return createCollapsibleSection('insider-activity-card', 'Insider activity (Form 4)', false, children)
+}
+
+// B3 (Phase 4, book alignment): the ONE-PAGER — the understand lane's seven-item distillation of
+// Pillar 1 ("the page you would hand someone who has never heard of the company"). Renders on gated
+// dossiers too (Pillar 1 runs before the moat gate). Display verbatim; absent on legacy cases.
+function createOnePagerCard(researchCase: AppResearchCase) {
+  const op = researchCase.one_pager
+  if (op === undefined) return null
+  const listBlock = (label: string, items?: string[]) =>
+    items === undefined || items.length === 0
+      ? null
+      : createElement(
+          'div',
+          { key: label, style: { display: 'grid', gap: '0.25rem' } },
+          createElement('p', { style: { color: 'var(--owl-color-gold)', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-2xs)', fontWeight: 800, letterSpacing: '0.08em', margin: 0, textTransform: 'uppercase' as const } }, label),
+          createElement('ul', { style: { color: 'var(--owl-color-text)', fontSize: 'var(--owl-text-sm)', lineHeight: 1.5, margin: 0, paddingLeft: '1.1rem' } },
+            ...items.map((item, i) => createElement('li', { key: i }, item))),
+        )
+  const children: ReactNode[] = [
+    op.plain_english === undefined
+      ? null
+      : createElement('p', { 'data-testid': 'one-pager-plain-english', style: { color: 'var(--owl-color-text)', fontSize: 'var(--owl-text-base)', fontWeight: 700, lineHeight: 1.5, margin: 0 } }, op.plain_english),
+    listBlock('Core business segments', op.segments),
+    listBlock('How it makes money', op.revenue_drivers),
+    listBlock('Where the real profits come from', op.most_profitable_segments),
+    listBlock('Key strengths / competitive advantages', op.strengths),
+    listBlock('Key risks / weak spots', op.weak_spots),
+    listBlock('Growth levers', op.growth_levers),
+  ]
+  return createCollapsibleSection('one-pager-card', 'The one-pager', false, children)
 }
 
 // S5 (Phase 3 pillars): the MANAGEMENT pillar — the two core traits (integrity + talent), the

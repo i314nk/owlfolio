@@ -102,6 +102,8 @@ import {
   AGENT_TIMEOUT_MS,
   MOAT_PILLAR_PROMPT,
   MANAGEMENT_PILLAR_PROMPT,
+  UNDERSTAND_PILLAR_PROMPT,
+  UnderstandLaneSchema,
   CIRCLE_COMPETENCE_PROMPT,
   RISKS_RECENCY_NOTE,
   PRIMARY_FILING_LANES,
@@ -157,6 +159,17 @@ export class ResearchSwarmStageError extends Error {
   }
 }
 
+/** The book's one-pager (B3) as the lane emits it — carried verbatim to the payload + dossier. */
+export type OnePagerOutput = {
+  plain_english: string
+  segments: string[]
+  revenue_drivers: string[]
+  most_profitable_segments: string[]
+  strengths: string[]
+  weak_spots: string[]
+  growth_levers: string[]
+}
+
 export type LaneOutcome = {
   lane: string
   finding_summary: string
@@ -169,6 +182,8 @@ export type LaneOutcome = {
   moat_judgment?: MoatLaneJudgment
   /** MANAGEMENT lane only (S5): its raw integrity/talent judgment blocks (resolved by the harness). */
   management_judgment?: ManagementLaneThesis
+  /** UNDERSTAND lane only (B3): the book's seven-item one-pager distillation (display verbatim). */
+  one_pager?: OnePagerOutput
   /** Visible per-lane degradation: the lane omitted its REQUIRED judgment block after schema-retry. */
   judgment_retry_degraded?: string
   /** Phase 2 V5 — stage-cost inputs (tokens reported by the provider + wall time for this lane). */
@@ -1001,6 +1016,11 @@ async function emitMoatGateShortCircuit(args: {
       moat_gate_short_circuited: true,
       ...(args.circleJudgmentPayload !== undefined ? { circle_competence: args.circleJudgmentPayload } : {}),
       ...(args.moatTests !== undefined ? { moat_tests: args.moatTests } : {}),
+      // B3: Pillar 1 ran in Stage A — its one-pager renders even on a gated dossier.
+      ...((() => {
+        const op = stageAResults.find((l) => l.lane === 'understand')?.one_pager
+        return op !== undefined ? { one_pager: op } : {}
+      })()),
       valuation: {
         moat_class: resolvedMoatClass,
         moat_passes_gate: false,
@@ -1739,6 +1759,49 @@ export async function runResearchDeepDivePhase(
       }
     }
 
+    // ---- UNDERSTAND lane (B3, Phase 4): the grounded finding + the book's ONE-PAGER ----
+    // Mirrors the moat/management branches: runValidatedAgent with the one-pager retry-FORCED;
+    // after retries the lane still records (finding + sources) with the one-pager honestly absent.
+    if (lane === 'understand') {
+      const understandRequired: RequiredFieldCheck<z.infer<typeof UnderstandLaneSchema>>[] = [
+        { name: 'one_pager', present: (a) => a.one_pager !== undefined, hint: 'the seven-item one-pager: plain_english (one sentence), segments, revenue_drivers, most_profitable_segments, strengths, weak_spots, growth_levers' },
+      ]
+      const validated = await runValidatedAgent(laneRuntime.provider, {
+        run_id: baseRunId,
+        model_id: laneRuntime.model_id,
+        prompt: basePrompt + UNDERSTAND_PILLAR_PROMPT + (preVerifiedSourcesBlock ?? ''),
+        timeout_ms: AGENT_TIMEOUT_MS,
+        schema_name: 'BuffettMungerUnderstandLane',
+      }, UnderstandLaneSchema, {
+        ...deps,
+        lane,
+        requiredFields: understandRequired,
+        useToolLoop: true,
+        readCorpus: accumulated,
+        ...(deps.fetchFundamentals === undefined ? {} : { fetchFundamentals: deps.fetchFundamentals }),
+      })
+      const agent = validated.status === 'ok' ? validated.result : validated.lastResult
+      if (agent === undefined) {
+        throw new Error(`Understand lane produced no parseable output: ${validated.status === 'failed' ? validated.reason : 'unknown'}`)
+      }
+      remember(agent.captured)
+      const a = agent.analysis
+      return {
+        lane,
+        finding_summary: a.finding_summary,
+        confidence: a.confidence,
+        caveats: a.caveats,
+        verified_ids: withFiling(agent.verified_ids),
+        ...(agent.usage === undefined ? {} : { usage: agent.usage }),
+        wall_ms: Date.now() - laneStartedAt,
+        ...(a.one_pager !== undefined ? { one_pager: a.one_pager } : {}),
+        ...(agent.policy_rejections.length > 0 ? { policy_rejections: agent.policy_rejections } : {}),
+        ...(validated.status === 'failed'
+          ? { judgment_retry_degraded: `understand_lane_schema_retry_exhausted: the model omitted [${validated.missing.join(', ')}] after ${validated.attempts} attempts (${validated.reason}). The one-pager is absent.` }
+          : {}),
+      }
+    }
+
     // ---- MANAGEMENT lane (S5, Phase 3): the pillar's two traits as GROUNDED CITED THESES ----
     // INTEGRITY (communication candor + DEF 14A comp structure) and TALENT (capital allocation,
     // reconciled against the injected T0 block). Mirrors the moat branch: runValidatedAgent with the
@@ -1830,6 +1893,9 @@ export async function runResearchDeepDivePhase(
   // Extract the per-lane judgment outputs the harness now reads (instead of the synthesis schema).
   const moatLaneResult = stageAResults.find((l) => l.lane === 'moat')
   const moatJudgment = moatLaneResult?.moat_judgment
+  // B3: the understand lane's one-pager (stage A) — carried to the analysis payload verbatim,
+  // INCLUDING on the moat-gate short-circuit (Pillar 1 ran; its distillation is shown either way).
+  const onePager = stageAResults.find((l) => l.lane === 'understand')?.one_pager
   // NOTE: shariahLaneJudgment is no longer read off the parallel deep-dive lane — it is now sourced from
   // the ALWAYS-ON focused Shariah-reasoning pass (runShariahReasoningPass, invoked below once the corpus
   // digest is assembled). See the derivation after synthesisRuntime.
@@ -4073,6 +4139,8 @@ export async function runResearchDeepDivePhase(
       ...(insiderSummaryComputed !== undefined ? { insider_summary: insiderSummaryComputed } : {}),
       // S2 (Phase 3): the three named moat tests (T0) — pillar-2 display/judgment context.
       ...(moatTests !== undefined ? { moat_tests: moatTests } : {}),
+      // B3 (Phase 4): the understand lane's seven-item one-pager (the book's Pillar 1 distillation).
+      ...(onePager !== undefined ? { one_pager: onePager } : {}),
       // S6: permanent label — this analysis ran PAST a failed moat gate under the user-authored
       // override. The verdict was still gated by the late rails; the label keeps the spend honest.
       ...(command.moat_gate_override === true && !moat_passes_gate ? { moat_gate_overridden: true } : {}),
