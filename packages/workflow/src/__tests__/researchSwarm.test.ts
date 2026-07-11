@@ -2059,12 +2059,18 @@ describe('RELIGHTENED DECISION — model proposes buy-below; deterministic side 
   it('NVO dogfood (2026-07-11) — a moat-FAILED set-aside surfaces NO buy zone (the buy-below sanity rails never ran)', async () => {
     // Moat moderate → set-aside PASS: the valuation (and its implied-growth rails) is suppressed, so an
     // unvetted model buy-below must not produce an "in buy zone" banner. The raw number stays recorded.
-    const { cp } = await runRelit({
+    const { cp, valuation } = await runRelit({
       id: 'buyzone-moatfail', price: 85, moatClass: 'moderate', investmentVerdict: 'BUY', proposedBuyBelow: 280,
     })
     expect(cp?.investment_verdict).toBe('PASS')
     expect(cp?.valuation?.in_buy_zone).toBeUndefined()
-    expect(cp?.valuation?.proposed_buy_below ?? cp?.valuation?.buy_price_per_share).toBe(280)
+    // GATED-DOSSIER INVARIANT (owner, 2026-07-11): the unvetted model number is NOT a first-class
+    // judgment on a gated case — it lives only in the explicitly-labeled audit block.
+    expect(cp?.valuation?.proposed_buy_below).toBeUndefined()
+    expect(cp?.valuation?.buy_price_per_share).toBeUndefined()
+    const uvp = (valuation?.['unvetted_model_proposals'] as { proposed_buy_below?: number; note?: string } | undefined)
+    expect(uvp?.proposed_buy_below).toBe(280)
+    expect(uvp?.note).toMatch(/UNVETTED/)
   })
 
   it('GATE preserved — moat below wide → PASS regardless of the model verdict', async () => {

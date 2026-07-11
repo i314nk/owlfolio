@@ -3493,7 +3493,9 @@ export async function runResearchDeepDivePhase(
       investment_verdict: gatedVerdict,
       strategy_compliance: dec.analysis.strategy_compliance,
       shariah_status: undefined, // will be set below
-      valuation_status,
+      // GATED-DOSSIER INVARIANT: a moat-failed case has no vetted valuation verdict — align with the
+      // set-aside precedent (INSUFFICIENT_DATA) instead of surfacing the model's unvetted status.
+      valuation_status: moat_passes_gate ? valuation_status : 'INSUFFICIENT_DATA',
       next_required_action: moat_passes_gate ? dec.analysis.next_required_action : gatedReason,
       // MARGIN-OF-SAFETY AUDIT SURFACE — the model's forward-looking risk judgments (the SINGLE assumption
       // that, if wrong, breaks the thesis + the observable invalidating events). Carried verbatim from the
@@ -3589,9 +3591,21 @@ export async function runResearchDeepDivePhase(
         ...(terminal_value_pct_of_iv !== undefined ? { terminal_value_pct_of_iv } : {}),
         ...(cap_exceeded ? { cap_exceeded: true } : {}),
         // RELIGHTENED DECISION (R1): buy_price_per_share is the MODEL's proposed_buy_below (recorded
-        // verbatim — NOT a derived FV). The band/gap engines no longer source it. proposed_buy_below
-        // mirrors it as the explicit model-provenance field.
-        ...(buy_below !== undefined ? { buy_price_per_share: buy_below, proposed_buy_below: buy_below } : {}),
+        // verbatim — NOT a derived FV). GATED-DOSSIER INVARIANT (owner, 2026-07-11): on a moat-FAILED
+        // case the buy-below was never vetted (the implied-growth/absurdity rails only run for
+        // investable names), so it must NOT be emitted as a first-class judgment — it moves into the
+        // explicitly-labeled unvetted_model_proposals audit block instead. Either the pipeline ran and
+        // the numbers are vetted, or the dossier says GATED everywhere — never a mix.
+        ...(moat_passes_gate && buy_below !== undefined ? { buy_price_per_share: buy_below, proposed_buy_below: buy_below } : {}),
+        ...(!moat_passes_gate && (buy_below !== undefined || valuation_status !== undefined)
+          ? {
+              unvetted_model_proposals: {
+                ...(buy_below !== undefined ? { proposed_buy_below: buy_below } : {}),
+                ...(valuation_status !== undefined ? { valuation_status } : {}),
+                note: 'Recorded for audit only — the case was set aside at the moat gate BEFORE the buy-price sanity rails ran; these model proposals are UNVETTED.',
+              },
+            }
+          : {}),
         // Phase 2: the near-term growth TODAY'S PRICE implies (reverse-DCF) — the crazy-detector. Omitted
         // when no price.
         ...(market_implied_growth !== undefined ? { market_implied_growth } : {}),
