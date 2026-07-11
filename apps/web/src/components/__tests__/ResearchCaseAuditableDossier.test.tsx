@@ -253,9 +253,11 @@ describe('ResearchCasePanel auditable dossier (R1)', () => {
     expect(html).toContain('Not yet available')
   })
 
-  // MARGIN-OF-SAFETY JOINT JUDGMENT (synthesis-owned) — the HEADLINE of the MoS audit surface, ABOVE the
-  // key-wrong-assumption / thesis-break lines.
-  it('renders the structured margin-of-safety joint judgment as the HEADLINE above key-wrong/thesis-break', () => {
+  // D1 (owner feedback, post-B8): the pre-pillar JOINT MoS judgment is RETIRED from the dossier — the
+  // book's mechanical 30%/50% thresholds (margin_of_safety_grade, T0) own the margin now. A legacy case
+  // carrying the field renders NO joint headline; the thesis-break audit (key assumption + triggers)
+  // survives as its own card.
+  it('the pre-pillar joint MoS judgment no longer renders, even when the legacy field is present', () => {
     const html = render({
       ...baseCase(),
       key_wrong_assumption: 'The assumed 6% durable growth holds.',
@@ -266,71 +268,15 @@ describe('ResearchCasePanel auditable dossier (R1)', () => {
         adequacy: 'adequate',
         reasoning: 'Price gap and grounded moat jointly supply an adequate margin.',
       },
-    } as unknown as AppResearchCase, QUOTE)
-    expect(html).toContain('Margin of safety (joint)')
-    expect(html).toContain('Price sits 25% below the model buy-below.')
-    expect(html).toContain('The grounded wide moat lets time bail out estimate error.')
-    expect(html).toContain('Price gap and grounded moat jointly supply an adequate margin.')
-    expect(html.toLowerCase()).toContain('adequacy')
-    // The headline renders ABOVE the key-wrong-assumption line.
-    expect(html.indexOf('Margin of safety (joint)')).toBeLessThan(html.indexOf('Key-wrong assumption'))
-  })
-
-  it('surfaces the price margin AND the moat-durability thesis side by side in the MoS region (neither buried)', () => {
-    const html = render({
-      ...baseCase(),
-      margin_of_safety_judgment: {
-        sources: ['price', 'moat'],
-        price_gap_reasoning: 'Price sits 25% below the model buy-below.',
-        moat_durability_reasoning: 'The grounded wide moat lets time bail out estimate error.',
-        adequacy: 'adequate',
-        reasoning: 'Price gap and grounded moat jointly supply an adequate margin.',
-      },
-    } as unknown as AppResearchCase, QUOTE)
-    // Both source columns are labelled and present in the joint MoS region.
-    expect(html).toContain('Price margin')
-    expect(html).toContain('Moat durability')
-    // Both per-source reasonings render (neither is buried).
-    expect(html).toContain('Price sits 25% below the model buy-below.')
-    expect(html).toContain('The grounded wide moat lets time bail out estimate error.')
-    // They appear side by side: the price column precedes the moat column in render order.
-    expect(html.indexOf('Price margin')).toBeLessThan(html.indexOf('Moat durability'))
-  })
-
-  it('flags a MOAT-sourced margin visually (higher-stakes — scrutinize moat durability)', () => {
-    const html = render({
-      ...baseCase(),
-      margin_of_safety_judgment: {
-        sources: ['moat'],
-        moat_durability_reasoning: 'Grounded fortress moat carries the margin.',
-        adequacy: 'adequate',
-        reasoning: 'Moat durability carries the margin.',
-      },
-    } as unknown as AppResearchCase, QUOTE)
-    expect(html).toContain('data-testid="mos-moat-sourced"')
-    expect(html.toLowerCase()).toContain('scrutinize moat durability')
-  })
-
-  it('surfaces the Guard-2 incoherence flag when a moat-sourced margin rests on an ungrounded moat', () => {
-    const html = render({
-      ...baseCase(),
-      margin_of_safety_judgment: {
-        sources: ['moat'],
-        moat_durability_reasoning: 'Claims moat durability.',
-        adequacy: 'adequate',
-        reasoning: 'Incoherently rests on an ungrounded moat.',
-      },
       margin_of_safety_moat_ungrounded: true,
     } as unknown as AppResearchCase, QUOTE)
-    expect(html).toContain('data-testid="mos-moat-ungrounded"')
-    expect(html.toLowerCase()).toContain('not grounded')
-  })
-
-  it('falls back gracefully for the joint margin-of-safety headline when absent (legacy case, no crash)', () => {
-    const html = render(baseCase(), QUOTE)
-    expect(html).toContain('Margin of safety (joint)')
-    // No structured judgment → the honest not-yet-available fallback (no crash).
-    expect(html).toContain('Not yet available')
+    expect(html).not.toContain('Margin of safety (joint)')
+    expect(html).not.toContain('data-testid="mos-moat-sourced"')
+    expect(html).not.toContain('data-testid="mos-moat-ungrounded"')
+    expect(html).not.toContain('data-testid="margin-of-safety-audit"')
+    // The thesis-break audit survives (its own card).
+    expect(html).toContain('data-testid="thesis-break-audit"')
+    expect(html).toContain('The assumed 6% durable growth holds.')
   })
 
   // KEY-FIGURES STRIP (Priority 2) — the full decision-critical figure set LEADS the decision surface as
@@ -356,8 +302,8 @@ describe('ResearchCasePanel auditable dossier (R1)', () => {
     // the strip uses the owl ledger-stat idiom
     expect(html).toContain('owl-ledger-line')
     expect(html).toContain('owl-ledger-stat')
-    // The key-figures strip leads the decision surface, above the valuation reasoning prose.
-    expect(html.indexOf('data-testid="decision-key-figures"')).toBeLessThan(html.indexOf('data-testid="valuation-reasoning"'))
+    // D1: the decision moved to the END — the key-figures strip renders after the P4 valuation reasoning.
+    expect(html.indexOf('data-testid="decision-key-figures"')).toBeGreaterThan(html.indexOf('data-testid="valuation-reasoning"'))
   })
 
   it('renders honest "Not yet available" key figures when the price-implied assumptions are absent (legacy)', () => {
@@ -373,17 +319,20 @@ describe('ResearchCasePanel auditable dossier (R1)', () => {
   })
 
   // MARGIN-OF-SAFETY LEADS THE DECISION REGION (Priority 3) — promoted above the valuation reasoning panel.
-  it('leads the decision region with the margin-of-safety judgment (above the valuation reasoning)', () => {
+  it('D1: the DECISION comes at the end — after Pillar 4 valuation and the synthesis header', () => {
     const html = render(baseCase(), QUOTE)
-    const mosIndex = html.indexOf('data-testid="margin-of-safety-audit"')
+    const synthesisIndex = html.indexOf('data-testid="pillar-header-synthesis"')
+    const decisionIndex = html.indexOf('data-testid="decision-summary"')
     const valuationReasoningIndex = html.indexOf('data-testid="valuation-reasoning"')
-    expect(mosIndex).toBeGreaterThan(-1)
+    const thesisBreakIndex = html.indexOf('data-testid="thesis-break-audit"')
+    expect(synthesisIndex).toBeGreaterThan(-1)
+    expect(decisionIndex).toBeGreaterThan(-1)
     expect(valuationReasoningIndex).toBeGreaterThan(-1)
-    // The MoS audit surface leads, above the valuation reasoning.
-    expect(mosIndex).toBeLessThan(valuationReasoningIndex)
-    // It carries a prominent gold accent rail (Priority 3 visual prominence).
-    const mosHtml = html.slice(mosIndex - 200, mosIndex + 400)
-    expect(mosHtml).toContain('var(--owl-color-gold)')
+    // Price is the last FILTER; the decision is the last WORD: valuation (P4) → synthesis → decision.
+    expect(valuationReasoningIndex).toBeLessThan(synthesisIndex)
+    expect(synthesisIndex).toBeLessThan(decisionIndex)
+    // The thesis-break audit rides directly with the decision (after it, same end region).
+    expect(thesisBreakIndex).toBeGreaterThan(decisionIndex)
   })
 
   // VERTICAL STACKING + COLLAPSIBLE (Priority 1) — the specialist lanes section is collapsed by default
@@ -608,6 +557,49 @@ describe('ResearchCasePanel auditable dossier (R1)', () => {
     expect(html).toContain('PeerCo B ~31% FY2024 gross margin (model-asserted, not verified)')
   })
 
+  // D1 (owner feedback): the MOATS IDENTIFIED card — Pillar 2 opens with WHICH moats were found
+  // (grounded taxonomy chips + drivers + direction + peer standout) BEFORE the three named tests.
+  it('renders the moats-identified card in Pillar 2 carrying the taxonomy, direction, and peer labels', () => {
+    const html = render(baseCase({
+      judgment: {
+        moat: {
+          proposed_tier: 'wide', resolved_tier: 'wide', grounded_driver_count: 2, anchor_computable: false,
+          moat_drivers: [
+            { advantage: 'Membership flywheel locks in renewals', citation: 'src_10k', grounded: true, moat_type: 'switching_costs' },
+            { advantage: 'Kirkland private-label brand', citation: 'src_10k', grounded: true, moat_type: 'brand' },
+          ],
+          resolved_moat_types: ['switching_costs', 'brand'],
+          moat_direction: 'stable',
+          peer_standout: {
+            peers: [{ name: 'PeerCo A', gross_margin_note: '~38% FY2024 gross margin', citation: 'src_peer', model_asserted: false, grounded: true }],
+            judgment: 'stands_out',
+            reasoning: 'Above all named peers.',
+            grounded_peer_count: 1,
+          },
+        },
+      },
+    } as unknown as Partial<ResearchCaseValuationProjection>), QUOTE)
+    const cardStart = html.indexOf('data-testid="moats-identified-card"')
+    const cardEnd = html.indexOf('data-testid="moat-tests-card"')
+    expect(cardStart).toBeGreaterThan(-1)
+    const card = html.slice(cardStart, cardEnd)
+    expect(card).toContain('Moat types (grounded): switching costs, brand')
+    expect(card).toContain('Membership flywheel locks in renewals')
+    expect(card).toContain('Moat direction: STABLE (grounded)')
+    expect(card).toContain('PeerCo A ~38% FY2024 gross margin (cited)')
+    // The moat width + provenance line moved here from the valuation panel.
+    expect(card).toContain('WIDE proposed → WIDE resolved')
+  })
+
+  it('the moats-identified card renders an honest fallback on a pre-pillar case (no crash, class still shown)', () => {
+    const html = render(baseCase(), QUOTE)
+    const cardStart = html.indexOf('data-testid="moats-identified-card"')
+    expect(cardStart).toBeGreaterThan(-1)
+    const card = html.slice(cardStart, html.indexOf('data-testid="moat-tests-card"'))
+    expect(card).toContain('WIDE')
+    expect(card.toLowerCase()).toContain('predates')
+  })
+
   it('labels a claimed-but-ungrounded direction as undetermined with no weight (S3 fail-closed display)', () => {
     const html = render(baseCase({
       judgment: {
@@ -651,47 +643,8 @@ describe('ResearchCasePanel auditable dossier (R1)', () => {
 
   // MoS BODY (Priority 5) — LEAD with the synthesis-owned joint reasoning; render the per-source columns
   // ONLY when their reasoning is present; never an empty "No reasoning recorded" column.
-  it('leads the MoS box with the joint reasoning and renders no empty per-source column when both absent', () => {
-    const html = render({
-      ...baseCase(),
-      margin_of_safety_judgment: {
-        sources: ['price', 'moat'],
-        adequacy: 'adequate',
-        reasoning: 'The price gap plus the grounded moat jointly supply an adequate margin.',
-      },
-    } as unknown as AppResearchCase, QUOTE)
-    expect(html).toContain('The price gap plus the grounded moat jointly supply an adequate margin.')
-    // No empty per-source columns / "No reasoning recorded" placeholders dominate the box.
-    expect(html).not.toContain('No reasoning recorded')
-    // The compact rests-on note replaces the empty boxes.
-    expect(html).toContain('Margin rests on: price gap + moat durability')
-    // The joint reasoning leads the box, above the rests-on line.
-    const mosIdx = html.indexOf('data-testid="margin-of-safety-audit"')
-    const reasoningIdx = html.indexOf('The price gap plus the grounded moat jointly supply an adequate margin.')
-    const restsOnIdx = html.indexOf('Rests on:')
-    expect(reasoningIdx).toBeGreaterThan(mosIdx)
-    expect(reasoningIdx).toBeLessThan(restsOnIdx)
-  })
-
-  it('renders only the per-source MoS column whose reasoning is present', () => {
-    const html = render({
-      ...baseCase(),
-      margin_of_safety_judgment: {
-        sources: ['price', 'moat'],
-        price_gap_reasoning: 'Price sits 25% below the model buy-below.',
-        adequacy: 'adequate',
-        reasoning: 'Joint judgment leads.',
-      },
-    } as unknown as AppResearchCase, QUOTE)
-    // Price reasoning present → its column renders; the moat column is absent (no moat_durability_reasoning).
-    expect(html).toContain('Price margin')
-    expect(html).toContain('Price sits 25% below the model buy-below.')
-    expect(html).not.toContain('Moat durability')
-    expect(html).not.toContain('No reasoning recorded')
-  })
-
-  // COLLAPSIBLE DEFAULTS (Priority 1) — the lanes section collapses; the decision + MoS surfaces stay open.
-  it('makes every info-box a <details>: lanes + MoS collapsed, the decision box expanded by default', () => {
+  // COLLAPSIBLE DEFAULTS (Priority 1) — the lanes section collapses; the decision surface stays open.
+  it('makes every info-box a <details>: lanes + thesis-break collapsed, the decision box expanded by default', () => {
     const html = render({
       ...baseCase(),
       specialist_findings: [
@@ -707,8 +660,8 @@ describe('ResearchCasePanel auditable dossier (R1)', () => {
     const decisionTag = html.slice(decisionIdx - 80, html.indexOf('>', decisionIdx))
     expect(decisionTag).toContain('<details')
     expect(decisionTag).toContain('open=""')
-    // MoS is a collapsed <details> info-box (headline + drill-down), no `open` attribute.
-    const mosIdx = html.indexOf('data-testid="margin-of-safety-audit"')
+    // The thesis-break audit is a collapsed <details> info-box (headline + drill-down), no `open` attribute.
+    const mosIdx = html.indexOf('data-testid="thesis-break-audit"')
     const mosTag = html.slice(mosIdx - 80, html.indexOf('>', mosIdx))
     expect(mosTag).toContain('<details')
     expect(mosTag).not.toContain('open=""')
@@ -942,7 +895,7 @@ describe('ResearchCasePanel set-aside (circle early-exit) dossier', () => {
     } as unknown as AppResearchCase, QUOTE)
     expect(html).not.toContain('data-testid="set-aside-dossier"')
     expect(html).toContain('data-testid="decision-key-figures"')
-    expect(html).toContain('data-testid="margin-of-safety-audit"')
+    expect(html).toContain('data-testid="thesis-break-audit"')
     expect(html).toContain('data-testid="specialist-lanes-flow"')
   })
 
@@ -1220,6 +1173,14 @@ describe('pillar frame (S8)', () => {
     const positions = order.map((id) => html.indexOf(`data-testid="${id}"`))
     expect(positions.every((p) => p >= 0)).toBe(true)
     expect([...positions]).toEqual([...positions].slice().sort((a, b) => a - b))
+    // D1: the MOATS IDENTIFIED card leads Pillar 2, BEFORE the three named tests.
+    const p2 = html.indexOf('data-testid="pillar-header-pillar-2"')
+    const moatsCard = html.indexOf('data-testid="moats-identified-card"')
+    const testsCard = html.indexOf('data-testid="moat-tests-card"')
+    const p3 = html.indexOf('data-testid="pillar-header-pillar-3"')
+    expect(moatsCard).toBeGreaterThan(p2)
+    expect(moatsCard).toBeLessThan(testsCard)
+    expect(testsCard).toBeLessThan(p3)
     // The three named tests render computable-or-honestly-deferred under Pillar 2.
     expect(html).toContain('data-testid="moat-tests-card"')
     expect(html).toContain('EXCELLENT — Median ROIC 21.0%')

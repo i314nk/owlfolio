@@ -435,26 +435,29 @@ export function ResearchCasePanel({ researchCase, mode = 'personal-local', confi
     createPillarHeader('pillar-1', 'Pillar 1 — Understand the business', undefined),
     makeCollapsible(createCircleCompetencePanel(researchCase), false),
     createOnePagerCard(researchCase),
-    // ── PILLAR 2 — Moat (the three named tests; the grounded judgment lives in the valuation panel's
-    //    judgment provenance + the moat lane card below) ──
+    // ── PILLAR 2 — Moat: FIRST which moats were identified (taxonomy, drivers, direction, peers),
+    //    THEN whether the numbers back them (the three named tests). ──
     createPillarHeader('pillar-2', 'Pillar 2 — Moat', p2Status),
+    p2Status === undefined ? createMoatsIdentifiedCard(researchCase) : null,
     p2Status === undefined ? createMoatTestsCard(researchCase) : null,
     // ── PILLAR 3 — Management (integrity & talent + the deterministic insider summary) ──
     createPillarHeader('pillar-3', 'Pillar 3 — Management', p3p4Status),
     p3p4Status === undefined ? createManagementPillarPanel(researchCase) : null,
     p3p4Status === undefined ? createInsiderActivityPanel(researchCase) : null,
-    // ── PILLAR 4 — Value the business (price is the LAST filter, never the first) ──
+    // ── PILLAR 4 — Value the business (price is the LAST filter; the decision moves to the END) ──
     createPillarHeader('pillar-4', 'Pillar 4 — Value the business', p3p4Status),
-    makeCollapsible(createDecisionPanel(researchCase, marketQuote), true, decisionHint),
-    makeCollapsible(createMarginOfSafetyAuditBlock(researchCase), false, mosHint),
-    makeCollapsible(createValuationPanel(researchCase, marketQuote, savings), false, valuationHint),
-    makeCollapsible(createPositionPlanPanel(positionPlan, promptForCapital), false, positionPlanHint),
-    // ── SYNTHESIS & DECISION (the lattice, the lanes' full reasoning, forecasts, advisory panels) ──
+    makeCollapsible(createValuationPanel(researchCase, marketQuote, savings), true, valuationHint),
+    // ── SYNTHESIS & DECISION — the reasoning (lattice, lanes, forecasts) leads; the DECISION lands at
+    //    the end after all four pillars (D1, owner feedback), followed by the thesis-break audit and
+    //    the actionable plans (admit / position plan / sizing / sell). ──
     createPillarHeader('synthesis', 'Synthesis & decision', undefined),
     createMungerLatticePanel(researchCase),
     createSpecialistLanesGrid(researchCase),
     createForecastsPanel(researchCase),
+    makeCollapsible(createDecisionPanel(researchCase, marketQuote), true, decisionHint),
+    makeCollapsible(createThesisBreakAuditCard(researchCase), false, mosHint),
     showAdmitPanel ? createAdmitRecommendationPanel(researchCase) : null,
+    makeCollapsible(createPositionPlanPanel(positionPlan, promptForCapital), false, positionPlanHint),
     showSizingPanel ? createSizingRecommendationPanel(researchCase) : null,
     showSellPanel ? createSellDecisionPanel(researchCase) : null,
     canPromoteToWatchlist ? createWatchlistPromotionAction(researchCase) : null,
@@ -485,6 +488,102 @@ function createPillarHeader(id: string, title: string, status: string | undefine
 // ── S8: the three named moat tests (T0) — capital efficiency / two-engine / standout, each rendered
 // computable-or-honestly-deferred. The peer half of standout is the moat lane's labeled judgment
 // (see the valuation panel's judgment provenance). ──
+// ── D1 (owner feedback): the MOATS IDENTIFIED card — Pillar 2 opens with WHICH moats were found. ──
+//
+// The grounded taxonomy (which of the nine named moat types the cited drivers establish), the drivers
+// themselves, the width provenance (proposed → resolved vs the quant anchor), the direction (grounded-or-
+// labeled; narrowing carries the sell-signal principle), and the peer-standout judgment (per-peer
+// cited / model-asserted stamps). All of this reads BEFORE the three named tests — first what the moat IS,
+// then whether the numbers back it. Pre-pillar cases render an honest fallback (width only).
+function createMoatsIdentifiedCard(researchCase: AppResearchCase) {
+  const valuation = researchCase.valuation
+  if (valuation === undefined) return null
+  const moatJudgment = valuation.judgment?.moat
+
+  const mono = { color: 'var(--owl-color-muted)', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-xs)', lineHeight: 1.5, margin: 0 } as const
+
+  // Width headline: the resolved class + the gate read (always available — legacy cases carry moat_class).
+  const widthClass = (valuation.moat_class ?? 'unknown').toUpperCase()
+  const gateLabel = valuation.moat_passes_gate === true
+    ? 'passes the investability gate'
+    : valuation.moat_passes_gate === false
+      ? 'FAILS the investability gate'
+      : 'gate not judged'
+
+  // Width provenance (proposed → resolved · grounded drivers · quant corroboration) — moved from the
+  // valuation panel (D1): the moat pillar owns its own provenance.
+  const provenanceLabel = moatJudgment !== undefined
+    ? `${(moatJudgment.proposed_tier ?? '?').toUpperCase()} proposed → ${(moatJudgment.resolved_tier ?? '?').toUpperCase()} resolved`
+      + ` · ${moatJudgment.grounded_driver_count ?? 0} grounded driver(s)`
+      + ` · quant ${moatJudgment.anchor_computable === false ? 'n/a' : (moatJudgment.anchor_tier ?? '?').toUpperCase()}`
+    : undefined
+
+  // Taxonomy chips: types come from GROUNDED drivers only.
+  const moatTypes = moatJudgment?.resolved_moat_types
+  const moatTypesLabel = moatTypes !== undefined && moatTypes.length > 0
+    ? moatTypes.map((t) => t.replace(/_/g, ' ')).join(', ')
+    : undefined
+
+  // The drivers themselves — the cited advantages, each labeled with its taxonomy type + grounding.
+  const drivers = moatJudgment?.moat_drivers ?? []
+
+  // Direction: grounded-or-labeled; a narrowing moat is a sell signal no matter how wide it still looks.
+  const moatDirection = moatJudgment?.moat_direction
+  const moatDirectionLabel = moatDirection === undefined
+    ? undefined
+    : moatDirection === 'undetermined'
+      ? (moatJudgment?.direction_ungrounded === true ? 'undetermined (claimed but ungrounded — carries no weight)' : 'undetermined')
+      : `${moatDirection.toUpperCase()} (grounded)${moatDirection === 'narrowing' ? ' — a narrowing moat is a sell signal no matter how wide it still looks' : ''}`
+
+  // Peer standout: the model judgment with per-peer cited / model-asserted stamps.
+  const peerStandout = moatJudgment?.peer_standout
+  const peerStandoutLabel = peerStandout?.judgment === undefined
+    ? undefined
+    : `${peerStandout.judgment.replace(/_/g, ' ')} — ${(peerStandout.peers ?? [])
+        .map((peer) => `${peer.name} ${peer.gross_margin_note}${peer.model_asserted === true ? ' (model-asserted, not verified)' : ' (cited)'}`)
+        .join('; ')}`
+
+  return createElement(
+    'div',
+    { 'data-testid': 'moats-identified-card', className: 'owl-section-card', style: { gap: '0.45rem' } },
+    createElement('p', { className: 'owl-section-accent' }, 'Moats identified'),
+    createElement(
+      'p',
+      { style: { color: 'var(--owl-color-text)', fontSize: 'var(--owl-text-base)', fontWeight: 700, margin: 0 } },
+      `${widthClass} moat — ${gateLabel}`,
+    ),
+    provenanceLabel === undefined
+      ? createElement('p', { style: mono }, 'Moat taxonomy not recorded — this case predates the moat-pillar judgment display.')
+      : createElement('p', { style: mono }, `Moat: ${provenanceLabel}`),
+    moatTypesLabel === undefined ? null : createElement(
+      'p',
+      { 'data-testid': 'moat-types', style: mono },
+      `Moat types (grounded): ${moatTypesLabel}`,
+    ),
+    drivers.length === 0 ? null : createElement(
+      'ul',
+      { 'data-testid': 'moat-drivers-list', style: { color: 'var(--owl-color-muted)', display: 'grid', fontSize: 'var(--owl-text-sm)', gap: '0.25rem', margin: 0, paddingLeft: '1.1rem' } },
+      ...drivers.map((driver, i) => createElement(
+        'li',
+        { key: `moat-driver-${i}`, style: { lineHeight: 1.5 } },
+        `${driver.advantage}`
+        + `${driver.moat_type !== undefined ? ` — ${driver.moat_type.replace(/_/g, ' ')}` : ''}`
+        + `${driver.grounded ? ' (grounded)' : ' (uncited — carries no weight)'}`,
+      )),
+    ),
+    moatDirectionLabel === undefined ? null : createElement(
+      'p',
+      { 'data-testid': 'moat-direction', style: { ...mono, color: moatDirection === 'narrowing' ? 'var(--owl-color-down, #b91c1c)' : mono.color } },
+      `Moat direction: ${moatDirectionLabel}`,
+    ),
+    peerStandoutLabel === undefined ? null : createElement(
+      'p',
+      { 'data-testid': 'peer-standout', style: mono },
+      `Standout vs peers (model judgment): ${peerStandoutLabel}`,
+    ),
+  )
+}
+
 function createMoatTestsCard(researchCase: AppResearchCase) {
   const tests = researchCase.moat_tests
   if (tests === undefined) return null
@@ -1728,119 +1827,18 @@ function createDecisionPanel(researchCase: AppResearchCase, marketQuote?: Market
 }
 
 /**
- * MARGIN-OF-SAFETY AUDIT — the synthesis-owned risk surface, re-homed from the retired verdict-format block
- * into the decision region (directly beneath the decision panel). It surfaces, in order:
- *   1. the JOINT margin-of-safety judgment — the HEADLINE. The margin rests on TWO substitutable sources
- *      shown SIDE BY SIDE: the PRICE margin (price vs the model's judged value) and the MOAT-DURABILITY
- *      thesis (the grounded, cite-verified moat thesis). Neither is buried; adequacy + which source(s) it
- *      rests on are explicit. A moat-sourced margin is flagged higher-stakes; an ungrounded-moat source is
- *      flagged incoherent (Guard 2).
- *   2. the model's key_wrong_assumption (the one assumption that, if wrong, breaks the thesis).
- *   3. the thesis_break_triggers (observable events that would invalidate the thesis).
- * These are the model's forward-looking risk reasoning for the human to audit — NOT cite-gated. Absent
- * (legacy / not produced) → honest "Not yet available" fallback (no crash). Native owl-* tokens only.
+ * D1 (owner feedback): the THESIS-BREAK AUDIT — the model's forward-looking risk reasoning for the
+ * human to audit, riding with the decision at the end of the dossier:
+ *   1. the model's key_wrong_assumption (the one assumption that, if wrong, breaks the thesis).
+ *   2. the thesis_break_triggers (observable events that would invalidate the thesis).
+ * The pre-pillar JOINT margin-of-safety judgment was retired here — the book's mechanical 30%/50%
+ * thresholds (the T0 margin_of_safety_grade) own the margin; a model adequacy that could "rest on moat
+ * durability" is the substitutable-margin concept the 4-pillar method replaced. Deliberately NOT
+ * cite-gated. Absent fields render the honest "Not yet available" fallback (no crash).
  */
-function createMarginOfSafetyAuditBlock(researchCase: AppResearchCase) {
+function createThesisBreakAuditCard(researchCase: AppResearchCase) {
   // Only render once a deep-dive valuation exists (gated/awaiting states have their own dossiers).
   if (researchCase.valuation === undefined) return null
-
-  const mosJudgment = researchCase.margin_of_safety_judgment
-  const mosMoatUngrounded = researchCase.margin_of_safety_moat_ungrounded === true
-
-  // The joint margin-of-safety judgment — surface the PRICE margin and the MOAT-DURABILITY thesis SIDE BY
-  // SIDE so neither is buried; show adequacy + which source(s) the margin rests on.
-  const jointJudgment = mosJudgment === undefined
-    ? NOT_YET
-    : (() => {
-        const restsOnMoat = mosJudgment.sources.includes('moat')
-        const restsOnPrice = mosJudgment.sources.includes('price')
-        const sourcesLabel = mosJudgment.sources.map((s) => (s === 'moat' ? 'moat durability' : 'price gap')).join(' + ')
-        const adequacyColor = mosJudgment.adequacy === 'adequate'
-          ? 'var(--owl-color-positive, #4ade80)'
-          : mosJudgment.adequacy === 'thin'
-            ? '#fbbf24'
-            : '#fca5a5'
-
-        // Whether each per-source reasoning was actually recorded. On real runs both are usually absent (the
-        // synthesis owns the JOINT reasoning below); we never render an empty "No reasoning recorded" column.
-        const hasPriceReasoning = mosJudgment.price_gap_reasoning !== undefined && mosJudgment.price_gap_reasoning.trim().length > 0
-        const hasMoatReasoning = mosJudgment.moat_durability_reasoning !== undefined && mosJudgment.moat_durability_reasoning.trim().length > 0
-        const hasJointReasoning = mosJudgment.reasoning !== undefined && mosJudgment.reasoning.trim().length > 0
-
-        // A per-source column, rendered ONLY when its reasoning is present (full width, one per row).
-        const sourceColumn = (title: string, rests: boolean, reasoning: string) => createElement(
-          'div',
-          {
-            key: title,
-            style: {
-              background: rests ? 'rgba(214, 178, 94, 0.06)' : 'var(--owl-color-panel-deep)',
-              border: `1px solid ${rests ? 'rgba(214, 178, 94, 0.3)' : 'var(--owl-color-border)'}`,
-              borderRadius: '0.6rem',
-              display: 'flex',
-              flexDirection: 'column' as const,
-              gap: '0.3rem',
-              padding: '0.6rem 0.75rem',
-            },
-          },
-          createElement(
-            'div',
-            { style: { alignItems: 'center', display: 'flex', flexWrap: 'wrap' as const, gap: '0.4rem' } },
-            createElement('span', { style: { color: 'var(--owl-color-accent-bright)', fontSize: 'var(--owl-text-xs)', fontWeight: 800, letterSpacing: '0.06em', textTransform: 'uppercase' as const } }, title),
-            createElement(
-              'span',
-              { style: { color: rests ? 'var(--owl-color-text)' : 'var(--owl-color-quiet)', fontSize: 'var(--owl-text-xs)', fontWeight: 700 } },
-              rests ? 'margin rests here' : 'not a source',
-            ),
-          ),
-          createElement('p', { style: { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-sm)', lineHeight: 1.5, margin: 0 } }, reasoning),
-        )
-
-        const moatBadge = restsOnMoat
-          ? createElement(
-              'span',
-              { 'data-testid': 'mos-moat-sourced', style: { fontSize: 'var(--owl-text-2xs)', fontWeight: 700, color: '#fbbf24', border: '1px solid rgba(251,191,36,0.5)', borderRadius: '0.4rem', padding: '0.05rem 0.4rem' } },
-              'MOAT-SOURCED — scrutinize moat durability',
-            )
-          : null
-
-        // Per-source columns appear ONLY when their reasoning is present (price first, then moat — side by
-        // side when both). When both are absent (the common case) a compact one-line "Margin rests on" note
-        // replaces the empty boxes.
-        const columns: ReactNode[] = []
-        if (hasPriceReasoning) columns.push(sourceColumn('Price margin', restsOnPrice, mosJudgment.price_gap_reasoning ?? ''))
-        if (hasMoatReasoning) columns.push(sourceColumn('Moat durability', restsOnMoat, mosJudgment.moat_durability_reasoning ?? ''))
-
-        return createElement(
-          'div',
-          { style: { display: 'flex', flexDirection: 'column' as const, gap: '0.5rem' } },
-          // LEAD with the synthesis-owned joint reasoning — the prominent body paragraph (the real judgment).
-          hasJointReasoning
-            ? createElement('p', { style: { color: 'var(--owl-color-text)', fontSize: 'var(--owl-text-md)', lineHeight: 1.6, margin: 0 } }, mosJudgment.reasoning)
-            : null,
-          // Then the rests-on / adequacy line, carrying the MOAT-SOURCED badge.
-          createElement(
-            'div',
-            { style: { alignItems: 'center', color: adequacyColor, display: 'flex', flexWrap: 'wrap' as const, fontWeight: 700, gap: '0.5rem' } },
-            createElement('span', null, `Rests on: ${sourcesLabel} · adequacy (audit-only, not a gate): ${mosJudgment.adequacy}`),
-            moatBadge,
-          ),
-          mosMoatUngrounded
-            ? createElement(
-                'p',
-                { 'data-testid': 'mos-moat-ungrounded', style: { color: '#fca5a5', fontWeight: 700, margin: 0 } },
-                'Incoherent: margin claims a moat source but the moat is not grounded / did not pass the moat gate.',
-              )
-            : null,
-          // Per-source columns when present; otherwise a compact note (no empty boxes).
-          columns.length > 0
-            ? createElement(
-                'div',
-                { style: { display: 'grid', gap: '0.6rem', gridTemplateColumns: columns.length > 1 ? 'repeat(auto-fit, minmax(220px, 1fr))' : '1fr' } },
-                ...columns,
-              )
-            : createElement('p', { style: { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-sm)', margin: 0 } }, `Margin rests on: ${sourcesLabel}.`),
-        )
-      })()
 
   const keyWrongAssumption = researchCase.key_wrong_assumption
   const keyWrongAssumptionLine = keyWrongAssumption === undefined || keyWrongAssumption.trim().length === 0
@@ -1866,24 +1864,17 @@ function createMarginOfSafetyAuditBlock(researchCase: AppResearchCase) {
   return createElement(
     'section',
     {
-      'data-testid': 'margin-of-safety-audit',
+      'data-testid': 'thesis-break-audit',
       className: 'owl-section-card',
-      // Prominent gold accent (Priority 3): the joint MoS judgment is the human's central audit surface and
-      // LEADS the decision region — a clear accent rail + heading so it is not blended into the prose.
+      // The gold accent rail marks the human's audit surface riding with the decision.
       style: { gap: '0.6rem', borderLeft: '3px solid var(--owl-color-gold)' },
     },
-    createElement('p', { className: 'owl-section-accent' }, 'Margin of safety (joint)'),
-    createElement(
-      'h2',
-      { style: { color: 'var(--owl-color-gold-bright)', fontFamily: 'var(--owl-font-display)', fontSize: 'var(--owl-text-lg)', letterSpacing: '-0.01em', margin: 0 } },
-      'The central audit: where the margin of safety rests',
-    ),
+    createElement('p', { className: 'owl-section-accent' }, 'Thesis-break audit'),
     createElement(
       'p',
       { style: { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-sm)', lineHeight: 1.5, margin: 0 } },
-      'The synthesis-owned joint judgment leads — where the margin of safety rests, across two substitutable sources (the price-vs-value gap and moat durability). Below it, the one assumption that breaks the thesis and the observable triggers that would invalidate it. The model\'s forward-looking risk reasoning for you to audit.',
+      'The one assumption that, if wrong, breaks the thesis — and the observable triggers that would invalidate it. The model’s forward-looking risk reasoning for you to audit against the decision above.',
     ),
-    jointJudgment,
     auditRow('Key-wrong assumption', keyWrongAssumptionLine),
     auditRow('Thesis-break triggers', thesisBreakTriggersLine),
   )
@@ -2024,44 +2015,14 @@ function createValuationPanel(researchCase: AppResearchCase, marketQuote?: Marke
   // owner earnings grown to the horizon at the model's growth). Advisory; the directional over-high flag (if
   // it fired) already renders in the sanity-flags annotation. Absent → shown honestly as Pending.
   const impliedExitMultiple = valuation.implied_exit_multiple
-  // Judgment-objectivity layer (Mechanisms 1+2): mechanical anchor vs the lane's proposed tier vs the
-  // harness-resolved tier. Surfaced so the dossier shows where judgment moved the tier (and by how much).
-  const moatJudgment = valuation.judgment?.moat
-  // B6: the moat is the grounded cited thesis; the quant CORROBORATES. Show proposed → resolved + the
-  // grounded driver count + the quant corroboration tier (n/a when the EDGAR anchor was not computable).
-  const moatAnchorLabel = moatJudgment !== undefined
-    ? `${(moatJudgment.proposed_tier ?? '?').toUpperCase()} proposed → ${(moatJudgment.resolved_tier ?? '?').toUpperCase()} resolved`
-      + ` · ${moatJudgment.grounded_driver_count ?? 0} grounded driver(s)`
-      + ` · quant ${moatJudgment.anchor_computable === false ? 'n/a' : (moatJudgment.anchor_tier ?? '?').toUpperCase()}`
-    : undefined
-  // Runway reframe: the runway is the grounded cited thesis; the incremental-ROIC quant CORROBORATES. Show
-  // proposed → resolved + the grounded driver count + the quant corroboration tier (n/a when not computable).
+  // Judgment-objectivity layer (Mechanisms 1+2): the MOAT provenance (proposed → resolved, taxonomy,
+  // direction, peers) moved to the Pillar-2 moats card (D1); the runway read stays here with valuation.
   const runwayJudgment = valuation.judgment?.runway
   const runwayAnchorLabel = runwayJudgment !== undefined
     ? `${(runwayJudgment.proposed_tier ?? '?').toUpperCase()} proposed → ${(runwayJudgment.resolved_tier ?? '?').toUpperCase()} resolved`
       + ` · ${runwayJudgment.grounded_driver_count ?? 0} grounded driver(s)`
       + ` · quant ${runwayJudgment.anchor_computable === false ? 'n/a' : (runwayJudgment.anchor_tier ?? '?').toUpperCase()}`
     : undefined
-
-  // S3 (Phase 3 pillars): taxonomy chips + direction + peer standout — all grounded-or-labeled.
-  // Types come from GROUNDED drivers only; the direction says grounded vs claimed-but-ungrounded;
-  // each peer figure is explicitly "(cited)" or "(model-asserted, not verified)".
-  const moatTypes = moatJudgment?.resolved_moat_types
-  const moatTypesLabel = moatTypes !== undefined && moatTypes.length > 0
-    ? moatTypes.map((t) => t.replace(/_/g, ' ')).join(', ')
-    : undefined
-  const moatDirection = moatJudgment?.moat_direction
-  const moatDirectionLabel = moatDirection === undefined
-    ? undefined
-    : moatDirection === 'undetermined'
-      ? (moatJudgment?.direction_ungrounded === true ? 'undetermined (claimed but ungrounded — carries no weight)' : 'undetermined')
-      : `${moatDirection.toUpperCase()} (grounded)${moatDirection === 'narrowing' ? ' — a narrowing moat is a sell signal no matter how wide it still looks' : ''}`
-  const peerStandout = moatJudgment?.peer_standout
-  const peerStandoutLabel = peerStandout?.judgment === undefined
-    ? undefined
-    : `${peerStandout.judgment.replace(/_/g, ' ')} — ${(peerStandout.peers ?? [])
-        .map((p) => `${p.name} ${p.gross_margin_note}${p.model_asserted === true ? ' (model-asserted, not verified)' : ' (cited)'}`)
-        .join('; ')}`
 
   // Mechanism 3 (Base-Rate Constraints): claims that beat a base rate (monopoly, credited g 4-5%, >20%
   // ROIC, margin expansion) lacking a STRUCTURAL exceptionality justification are flagged
@@ -2216,35 +2177,13 @@ function createValuationPanel(researchCase: AppResearchCase, marketQuote?: Marke
     researchCase.valuation?.discount_inputs?.required_return !== undefined
       ? createRequiredReturnProvenance(researchCase)
       : createDiscountAnchorProvenance(savings),
-    // Judgment provenance (Priority 2): the moat / runway "proposed → resolved" anchor reads are PROSE, not
-    // numerics — they belong as labeled mono/muted text lines, never crammed into numeric stat-blocks.
-    (moatAnchorLabel !== undefined || runwayAnchorLabel !== undefined) ? createElement(
+    // Judgment provenance (Priority 2): the RUNWAY "proposed → resolved" anchor read is PROSE, not a
+    // numeric — a labeled mono/muted text line. The MOAT provenance moved to the Pillar-2 moats card (D1).
+    runwayAnchorLabel !== undefined ? createElement(
       'div',
       { 'data-testid': 'judgment-provenance', style: { display: 'grid', gap: '0.25rem', marginTop: '0.7rem' } },
       createElement('p', { style: { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-sm)', fontWeight: 800, margin: 0 } }, 'Judgment provenance'),
-      moatAnchorLabel === undefined ? null : createElement(
-        'p',
-        { style: { color: 'var(--owl-color-muted)', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-xs)', lineHeight: 1.5, margin: 0 } },
-        `Moat: ${moatAnchorLabel}`,
-      ),
-      // S3 (Phase 3 pillars): WHICH moat(s), the direction, and the standout peer comparison —
-      // grounded-or-labeled (types from grounded drivers only; peers stamped cited/model-asserted).
-      moatTypesLabel === undefined ? null : createElement(
-        'p',
-        { 'data-testid': 'moat-types', style: { color: 'var(--owl-color-muted)', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-xs)', lineHeight: 1.5, margin: 0 } },
-        `Moat types (grounded): ${moatTypesLabel}`,
-      ),
-      moatDirectionLabel === undefined ? null : createElement(
-        'p',
-        { 'data-testid': 'moat-direction', style: { color: moatDirection === 'narrowing' ? 'var(--owl-color-down, #b91c1c)' : 'var(--owl-color-muted)', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-xs)', lineHeight: 1.5, margin: 0 } },
-        `Moat direction: ${moatDirectionLabel}`,
-      ),
-      peerStandoutLabel === undefined ? null : createElement(
-        'p',
-        { 'data-testid': 'peer-standout', style: { color: 'var(--owl-color-muted)', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-xs)', lineHeight: 1.5, margin: 0 } },
-        `Standout vs peers (model judgment): ${peerStandoutLabel}`,
-      ),
-      runwayAnchorLabel === undefined ? null : createElement(
+      createElement(
         'p',
         { style: { color: 'var(--owl-color-muted)', fontFamily: 'var(--owl-font-mono)', fontSize: 'var(--owl-text-xs)', lineHeight: 1.5, margin: 0 } },
         `Runway: ${runwayAnchorLabel}`,
