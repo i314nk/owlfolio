@@ -3118,10 +3118,19 @@ export async function runResearchDeepDivePhase(
 
   // buy_below = the MODEL's proposed number (NOT a derived FV). Recorded verbatim when finite + positive.
   const proposedBuyBelowRaw = valuationStageOutcome.status === 'ok' ? valuationStageOutcome.valuation_reasoning.proposed_buy_below : undefined
-  const buy_below = (typeof proposedBuyBelowRaw === 'number'
+  // R1 SUPERSEDED (owner-approved 2026-07-11): the OPERATIVE buy-below is COMPUTED — the reference
+  // value margined by the uniform required margin. Live find: the model's free-standing price swung
+  // run-to-run ($350→$650 COST) while its structured judgments stayed stable; judgment now flows
+  // through the stage's INPUTS (growth, bridge) and the arithmetic produces the threshold ("if it can
+  // be computed, compute it" — and the Buffett structure: the entry price FOLLOWS from value and the
+  // required margin). The model's own price stays RECORDED as an ADVISORY cross-check below.
+  const modelProposedBuyBelow = (typeof proposedBuyBelowRaw === 'number'
     && Number.isFinite(proposedBuyBelowRaw)
     && proposedBuyBelowRaw > 0)
     ? proposedBuyBelowRaw
+    : undefined
+  const buy_below = (mosReferenceValue !== undefined && mosReferenceValue > 0)
+    ? Number((mosReferenceValue * (1 - buffettMungerStrategy.valuation.required_margin_of_safety)).toFixed(2))
     : undefined
 
   // in_buy_zone — pure arithmetic comparison on the model's number (fine; it is arithmetic, not judgment).
@@ -3140,9 +3149,11 @@ export async function runResearchDeepDivePhase(
   // margin (F.13: never moat-tiered — the moat's contribution to safety stays in the surfaced,
   // human-weighted channels). Audit-only, exactly like adequacy was: it NEVER gates the verdict.
   const requiredMos = buffettMungerStrategy.valuation.required_margin_of_safety
-  const margin_of_safety_grade = (buy_below !== undefined && mosReferenceValue !== undefined && mosReferenceValue > 0)
+  // Post-flip: the grade measures the MODEL's ADVISORY price (the computed operative threshold is
+  // 25%-margined by construction, so grading it would be a tautology).
+  const margin_of_safety_grade = (modelProposedBuyBelow !== undefined && mosReferenceValue !== undefined && mosReferenceValue > 0)
     ? (() => {
-        const discount = (mosReferenceValue - buy_below) / mosReferenceValue
+        const discount = (mosReferenceValue - modelProposedBuyBelow) / mosReferenceValue
         const grade: 'adequate' | 'thin' | 'inadequate' =
           discount >= requiredMos ? 'adequate' : discount >= requiredMos / 2 ? 'thin' : 'inadequate'
         return {
@@ -3257,29 +3268,40 @@ export async function runResearchDeepDivePhase(
     if (valuation_status === 'EXPENSIVE' && in_buy_zone === true && current_price < buy_below * (1 - BUY_ZONE_COHERENCE_TOLERANCE)) {
       sanity_flags.push(
         `sanity_status_contradicts_buy_zone: model labels the valuation EXPENSIVE, yet today's price `
-        + `($${current_price.toFixed(2)}) is at/below its OWN proposed buy-below ($${buy_below.toFixed(2)}) — `
+        + `($${current_price.toFixed(2)}) is at/below the METHOD's computed buy threshold ($${buy_below.toFixed(2)}) — `
         + `the label and the buy threshold disagree about today's price. Reconcile (an over-pessimistic label, `
         + `or a buy-below set too high).`,
       )
     } else if (valuation_status === 'ATTRACTIVE' && in_buy_zone === false && current_price > buy_below * (1 + BUY_ZONE_COHERENCE_TOLERANCE)) {
       sanity_flags.push(
         `sanity_status_contradicts_buy_zone: model labels the valuation ATTRACTIVE, yet today's price `
-        + `($${current_price.toFixed(2)}) is ABOVE its OWN proposed buy-below ($${buy_below.toFixed(2)}) — `
+        + `($${current_price.toFixed(2)}) is ABOVE the METHOD's computed buy threshold ($${buy_below.toFixed(2)}) — `
         + `it calls the price attractive but would not buy at it. Reconcile.`,
       )
     }
   }
 
+  // Advisory cross-check (R1 superseded, owner-approved 2026-07-11): the model's price view vs the
+  // METHOD's computed threshold — divergence >25% asks the human to reconcile.
+  if (buy_below !== undefined && buy_below > 0 && modelProposedBuyBelow !== undefined
+    && Math.abs(modelProposedBuyBelow - buy_below) / buy_below > 0.25) {
+    sanity_flags.push(
+      `buy_below_divergence: the model's ADVISORY buy price ($${modelProposedBuyBelow.toFixed(2)}) diverges `
+      + `>25% from the METHOD's computed threshold ($${buy_below.toFixed(2)} = reference less the required `
+      + `margin) — reconcile: the model would pay materially ${modelProposedBuyBelow > buy_below ? 'more' : 'less'} than the method.`,
+    )
+  }
+
   // (f) the model's proposed_buy_below implies (reverse-DCF at that price) an absurd growth.
   let buyBelowImpliedGrowth: number | undefined
   if (
-    buy_below !== undefined
+    modelProposedBuyBelow !== undefined
     && oe_ps_valuation !== undefined
     && oe_ps_valuation > 0
     && terminal_growth_rate !== undefined
   ) {
     const buyImplied = marketImpliedGrowth({
-      price: buy_below,
+      price: modelProposedBuyBelow,
       oe_ps: oe_ps_valuation,
       terminal_g: terminal_growth_rate,
       discount,
@@ -3290,7 +3312,7 @@ export async function runResearchDeepDivePhase(
     }
     if (buyImplied.status === 'solved' && buyImplied.implied_growth !== undefined && buyImplied.implied_growth > singleGrowthCap) {
       sanity_flags.push(
-        `sanity_buy_below_implies_absurd_growth: the model's proposed buy-below ($${buy_below.toFixed(2)}) still implies `
+        `sanity_buy_below_implies_absurd_growth: the model's ADVISORY proposed buy-below ($${modelProposedBuyBelow!.toFixed(2)}) still implies `
         + `~${(buyImplied.implied_growth * 100).toFixed(1)}% growth (above the ${(singleGrowthCap * 100).toFixed(0)}% cap) — even at the "buy" `
         + `price the market would price in growth the method would refuse to underwrite.`,
       )
@@ -3362,9 +3384,9 @@ export async function runResearchDeepDivePhase(
     && dec.analysis.investment_verdict === 'BUY'
     && in_buy_zone === false
   const buyOutOfZoneReason = buyOutOfBuyZone && buy_below !== undefined && current_price !== undefined
-    ? `buy_out_of_buy_zone: the model verdict is BUY with its OWN buy-below at $${buy_below.toFixed(2)} while `
-      + `the live price is $${current_price.toFixed(2)} — above the model's own buy zone. Recorded as WATCH `
-      + 'until the price enters the zone; the BUY thesis itself is preserved below for auditing.'
+    ? `buy_out_of_buy_zone: the model verdict is BUY while the live price ($${current_price.toFixed(2)}) sits `
+      + `above the METHOD's computed buy threshold ($${buy_below.toFixed(2)} = reference value less the uniform `
+      + `required margin). Recorded as WATCH until the price enters the zone; the BUY thesis is preserved for auditing.`
     : undefined
 
   // OWNER RULE (2026-07-10, the SPGI dogfood): a model BUY whose OWN buy-below still implies growth ABOVE
@@ -3382,7 +3404,7 @@ export async function runResearchDeepDivePhase(
     && buyBelowImpliedGrowth !== undefined
     && buyBelowImpliedGrowth > singleGrowthCap
   const buyBelowAbsurdReason = buyBelowAbsurd && buy_below !== undefined && buyBelowImpliedGrowth !== undefined
-    ? `buy_below_implies_absurd_growth: the model verdict is BUY, but its OWN buy-below ($${buy_below.toFixed(2)}) `
+    ? `buy_below_implies_absurd_growth: the model verdict is BUY, but its ADVISORY buy price ($${modelProposedBuyBelow!.toFixed(2)}) `
       + `already implies ~${(buyBelowImpliedGrowth * 100).toFixed(1)}% growth — above the ${(singleGrowthCap * 100).toFixed(0)}% cap the method `
       + 'underwrites. Recorded as WATCH: even at the proposed buy price the market would be paying for growth '
       + 'the method refuses to credit. The BUY thesis itself is preserved below for auditing.'
@@ -3621,10 +3643,12 @@ export async function runResearchDeepDivePhase(
         // explicitly-labeled unvetted_model_proposals audit block instead. Either the pipeline ran and
         // the numbers are vetted, or the dossier says GATED everywhere — never a mix.
         ...(moat_passes_gate && buy_below !== undefined ? { buy_price_per_share: buy_below, proposed_buy_below: buy_below } : {}),
-        ...(!moat_passes_gate && (buy_below !== undefined || valuation_status !== undefined)
+        // R1 superseded: the model's own price view, recorded as ADVISORY (the divergence flag reconciles).
+        ...(moat_passes_gate && modelProposedBuyBelow !== undefined ? { model_proposed_buy_below: modelProposedBuyBelow } : {}),
+        ...(!moat_passes_gate && (modelProposedBuyBelow !== undefined || valuation_status !== undefined)
           ? {
               unvetted_model_proposals: {
-                ...(buy_below !== undefined ? { proposed_buy_below: buy_below } : {}),
+                ...(modelProposedBuyBelow !== undefined ? { proposed_buy_below: modelProposedBuyBelow } : {}),
                 ...(valuation_status !== undefined ? { valuation_status } : {}),
                 note: 'Recorded for audit only — the case was set aside at the moat gate BEFORE the buy-price sanity rails ran; these model proposals are UNVETTED.',
               },

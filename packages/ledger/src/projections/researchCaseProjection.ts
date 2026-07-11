@@ -297,6 +297,9 @@ export type ResearchCaseCircleCompetenceProjection = {
 }
 
 export type ResearchCaseValuationProjection = {
+  /** R1 superseded (2026-07-11): the model's ADVISORY price view (the operative buy_price_per_share
+   *  is the computed threshold; the divergence flag reconciles the two). */
+  model_proposed_buy_below?: number
   /** Phase 2 V3: the deterministic foreign-filer FX/ADR conversion provenance (price-currency basis). */
   fx_conversion?: {
     reporting_currency?: string
@@ -1623,6 +1626,8 @@ function getValuation(payload: Record<string, unknown>): ResearchCaseValuationPr
       ...(ratioSource !== undefined ? { adr_ratio_source: ratioSource } : {}),
     }
   }
+  const modelProposedBuyBelow = getNumber(value, 'model_proposed_buy_below')
+  if (modelProposedBuyBelow !== undefined) projected.model_proposed_buy_below = modelProposedBuyBelow
   const mosGradeRaw = value['margin_of_safety_grade']
   if (isRecord(mosGradeRaw)) {
     const grade = mosGradeRaw['grade']

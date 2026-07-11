@@ -1149,8 +1149,10 @@ describe('runStrategyResearchSwarm with MockProvider + deterministic grounder', 
     expect((caseProjection?.valuation as Record<string, unknown> | undefined)?.margin_of_safety).toBeUndefined()
     // RELIGHTENED DECISION (R1): buy_price_per_share is the MODEL's proposed_buy_below (recorded verbatim).
     // The mock emits 320 for capital-light names (MSFT) — NOT a band/threshold-derived number.
-    expect(caseProjection?.valuation?.buy_price_per_share).toBe(320)
-    expect((caseProjection?.valuation as Record<string, unknown> | undefined)?.['proposed_buy_below']).toBe(320)
+    // R1 SUPERSEDED: the computed threshold = min(FV, 18×OE 252) × 0.75 = 189; the mock's 320 is advisory.
+    expect(caseProjection?.valuation?.buy_price_per_share).toBe(189)
+    expect((caseProjection?.valuation as Record<string, unknown> | undefined)?.['proposed_buy_below']).toBe(189)
+    expect((caseProjection?.valuation as Record<string, unknown> | undefined)?.['model_proposed_buy_below']).toBe(320)
     // value_basis
     expect(caseProjection?.valuation?.value_basis).toBe('two_stage_dcf')
     // owner_earnings_bridge projected (totals in $millions + shares_outstanding in millions)
@@ -1516,11 +1518,11 @@ describe('BUG 1 — valuation per-share units (÷ shares_outstanding)', () => {
     expect(cp?.valuation?.demonstrated_growth_reference).toBeCloseTo(0, 6)
     expect(cp?.valuation?.growth_basis).toBe('none')
     expect(cp?.valuation?.terminal_growth_rate).toBe(0.015)
-    // forward-DCF removal: the dollar fair_value_per_share is no longer surfaced. buy_price_per_share is the
-    // MODEL's proposed_buy_below (default 150). The per-share UNITS are still proven by the implied_multiple
-    // (= internal forward FV / OE), a ratio independent of total-vs-per-share scaling.
+    // forward-DCF removal: the dollar fair_value_per_share is no longer surfaced. R1 SUPERSEDED:
+    // buy_price_per_share is the COMPUTED threshold — min(FV 417.7, 18×OE 342.86) × 0.75 = 257.15
+    // (rounded 257.2). The per-share UNITS are still proven by the implied_multiple.
     expect(cp?.valuation?.fair_value_per_share).toBeUndefined()
-    expect(cp?.valuation?.buy_price_per_share).toBe(150)
+    expect(cp?.valuation?.buy_price_per_share).toBeCloseTo(257.2, 1)
     expect(cp?.valuation?.runway).toBe('proven')
     expect(cp?.valuation?.value_basis).toBe('two_stage_dcf')
     // Sanity: per-share units, never the buggy ~100x value. F.2 — under the lower savings-anchor discount
@@ -1562,10 +1564,10 @@ describe('BUG 1 — valuation per-share units (÷ shares_outstanding)', () => {
     // No bogus huge HARNESS fair value persisted (the deterministic point FV / OE-per-share fail closed).
     expect(cp?.valuation?.fair_value_per_share).toBeUndefined()
     expect(cp?.valuation?.normalized_owner_earnings_per_share).toBeUndefined()
-    // RELIGHTENED DECISION (R1): buy_price_per_share is the MODEL's proposed_buy_below — it is the model's
-    // own number, NOT derived from the harness valuation, so it is still recorded even when the harness FV
-    // fails closed (no OE/share). What the harness must NOT fabricate is a DERIVED price; this is not that.
-    expect(cp?.valuation?.buy_price_per_share).toBe(150)
+    // R1 SUPERSEDED: with no OE/share there is no reference value → NO computed buy threshold (the
+    // harness never fabricates a derived price). The model's price view survives as ADVISORY only.
+    expect(cp?.valuation?.buy_price_per_share).toBeUndefined()
+    expect((cp?.valuation as Record<string, unknown> | undefined)?.['model_proposed_buy_below']).toBe(150)
     // No reference cross-check FV (no OE/share to value against).
     expect((cp?.valuation as Record<string, unknown> | undefined)?.['reference_fair_value']).toBeUndefined()
     // A valuation caveat must be recorded on the analysis event
@@ -1644,10 +1646,11 @@ describe('Two-stage DCF harness growth path (Phase 1.3 one growth path + gates)'
         normalized_working_capital_change: 0, shares_outstanding: 50,
       },
     }, 'neg-oe')
-    // No positive OE/share → no point FV and no reference cross-check FV (both fail closed). The MODEL's
-    // proposed_buy_below is still recorded verbatim (R1: it is the model's number, not a harness-derived one).
+    // No positive OE/share → no point FV and no computed threshold (both fail closed; R1 superseded).
+    // The model's price view survives as ADVISORY only.
     expect(cp?.valuation?.fair_value_per_share).toBeUndefined()
-    expect(cp?.valuation?.buy_price_per_share).toBe(150)
+    expect(cp?.valuation?.buy_price_per_share).toBeUndefined()
+    expect((cp?.valuation as Record<string, unknown> | undefined)?.['model_proposed_buy_below']).toBe(150)
     expect((cp?.valuation as Record<string, unknown> | undefined)?.['reference_fair_value']).toBeUndefined()
     const analysisEvent = events.find((e) => e.event_type === 'buffett_munger_analysis_drafted')
     const valuation = (analysisEvent?.payload as Record<string, unknown>)?.['valuation'] as Record<string, unknown>
@@ -1826,12 +1829,13 @@ describe('RELIGHTENED DECISION — model proposes buy-below; deterministic side 
     return { events, valuation, cp: projections.find((c) => c.research_case_id === `rc_${opts.id}`) }
   }
 
-  it('BUY-BELOW ← MODEL: buy_below === the model\'s proposed_buy_below; the forward reference FV is no longer surfaced', async () => {
-    // The model proposes 150; the buy-below is the model's verbatim number (NOT derived from any FV).
+  it('BUY-BELOW ← COMPUTED (R1 superseded, owner-approved 2026-07-11): the operative threshold = reference × (1 − required margin); the model price is ADVISORY', async () => {
+    // The model proposes 150 (advisory); the OPERATIVE buy-below is computed from the reference value.
     const { valuation, cp } = await runRelit({ id: 'buybelow-model', price: 300, proposedBuyBelow: 150, assumedGrowth: 0.06 })
-    // Recorded buy-below IS the model's proposed number (verbatim).
-    expect(cp?.valuation?.buy_price_per_share).toBe(150)
-    expect(valuation?.['proposed_buy_below']).toBe(150)
+    // Recorded buy-below IS the computed threshold (fixture: FV≈342.9 → ×0.75 = 257.20).
+    expect(cp?.valuation?.buy_price_per_share).toBe(257.2)
+    expect(valuation?.['proposed_buy_below']).toBe(257.2)
+    expect(valuation?.['model_proposed_buy_below']).toBe(150)
     // forward-DCF removal: the dollar reference_fair_value / fair_value_per_share are no longer emitted.
     expect(valuation?.['reference_fair_value']).toBeUndefined()
     expect(valuation?.['fair_value_per_share']).toBeUndefined()
@@ -1853,9 +1857,10 @@ describe('RELIGHTENED DECISION — model proposes buy-below; deterministic side 
     const flags = (valuation?.['sanity_flags'] as string[] | undefined) ?? []
     expect(flags.length).toBeGreaterThan(0)
     expect(flags.some((f) => /attractive/i.test(f) && /implausible|cap/i.test(f))).toBe(true)
-    // FLAG NEVER BLOCKS: the model BUY (with a buy-below + price present) is recorded, not clamped.
+    // Post-flip: the price ($800) sits far above the COMPUTED threshold (257.20) → the zone gate
+    // derates the BUY to WATCH (the flag itself still never blocks).
     expect(cp?.investment_verdict).toBe('WATCH')
-    expect((cp?.open_questions ?? []).some((q) => /buy_below_implies_absurd_growth/.test(q))).toBe(true)
+    expect((cp?.open_questions ?? []).some((q) => /buy_out_of_buy_zone/.test(q))).toBe(true)
   })
 
   it('SANITY (over-PESSIMISTIC): status EXPENSIVE + market implies only MODEST growth → a sanity flag (verdict NOT blocked)', async () => {
@@ -1881,10 +1886,10 @@ describe('RELIGHTENED DECISION — model proposes buy-below; deterministic side 
   })
 
   it('SANITY (self-coherence TOLERANCE, 2026-07-11): ATTRACTIVE with the price only slightly above the buy-below → NO flag (coherent "wait for my price")', async () => {
-    // Live SPGI noise: ATTRACTIVE with the price 2.6% above the model's buy-below fired the flag —
-    // but "attractive, I'd buy a few percent lower" is a coherent position. Inside the 5% band → quiet.
+    // "Attractive, I'd buy a few percent lower" is a coherent position. Post-flip the tolerance is
+    // measured against the COMPUTED threshold (257.20): a price within the 5% band stays quiet.
     const { valuation } = await runRelit({
-      id: 'coherence-attractive-nearzone', price: 431, valuationStatus: 'ATTRACTIVE', investmentVerdict: 'WATCH', proposedBuyBelow: 420,
+      id: 'coherence-attractive-nearzone', price: 265, valuationStatus: 'ATTRACTIVE', investmentVerdict: 'WATCH', proposedBuyBelow: 420,
     })
     expect(valuation?.['in_buy_zone']).toBe(false)
     const flags = (valuation?.['sanity_flags'] as string[] | undefined) ?? []
@@ -2054,12 +2059,12 @@ describe('RELIGHTENED DECISION — model proposes buy-below; deterministic side 
       id: 'buyzone-derate', price: 360, valuationStatus: 'ATTRACTIVE', investmentVerdict: 'BUY', proposedBuyBelow: 290,
     })
     expect(cp?.investment_verdict).toBe('WATCH')
-    expect((cp?.open_questions ?? []).some((q) => /buy_out_of_buy_zone/.test(q) && /\$290\.00/.test(q) && /\$360\.00/.test(q))).toBe(true)
+    expect((cp?.open_questions ?? []).some((q) => /buy_out_of_buy_zone/.test(q) && /\$257\.20/.test(q) && /\$360\.00/.test(q))).toBe(true)
   })
 
   it('GATE (owner rule) — model BUY with the price AT/BELOW its own buy-below stays BUY', async () => {
     const { cp } = await runRelit({
-      id: 'buyzone-inzone', price: 280, valuationStatus: 'ATTRACTIVE', investmentVerdict: 'BUY', proposedBuyBelow: 290,
+      id: 'buyzone-inzone', price: 250, valuationStatus: 'ATTRACTIVE', investmentVerdict: 'BUY', proposedBuyBelow: 290,
     })
     expect(cp?.investment_verdict).toBe('BUY')
     expect((cp?.open_questions ?? []).some((q) => /buy_out_of_buy_zone/.test(q))).toBe(false)
@@ -2070,7 +2075,7 @@ describe('RELIGHTENED DECISION — model proposes buy-below; deterministic side 
     // in growth the method's single-growth cap refuses to underwrite (harness fair value was ~half
     // the model's buy-below). Arithmetic on the model's own numbers → derate to WATCH, thesis kept.
     const { cp } = await runRelit({
-      id: 'buyzone-absurd', price: 280, valuationStatus: 'ATTRACTIVE', investmentVerdict: 'BUY', proposedBuyBelow: 800,
+      id: 'buyzone-absurd', price: 250, valuationStatus: 'ATTRACTIVE', investmentVerdict: 'BUY', proposedBuyBelow: 800,
     })
     expect(cp?.investment_verdict).toBe('WATCH')
     expect((cp?.open_questions ?? []).some((q) => /buy_below_implies_absurd_growth/.test(q))).toBe(true)
@@ -2180,18 +2185,17 @@ describe('RELIGHTENED DECISION — model proposes buy-below; deterministic side 
     expect(cp?.investment_verdict).toBe('BUY')
   })
 
-  it('in_buy_zone is pure arithmetic: current_price <= buy_below', async () => {
+  it('in_buy_zone is pure arithmetic: current_price <= the COMPUTED buy threshold (257.20 on this fixture)', async () => {
     const { valuation: belowVal } = await runRelit({ id: 'inzone-yes', price: 100, proposedBuyBelow: 150 })
     expect(belowVal?.['in_buy_zone']).toBe(true)
-    const { valuation: aboveVal } = await runRelit({ id: 'inzone-no', price: 200, proposedBuyBelow: 150 })
+    const { valuation: aboveVal } = await runRelit({ id: 'inzone-no', price: 300, proposedBuyBelow: 150 })
     expect(aboveVal?.['in_buy_zone']).toBe(false)
   })
 
   it('a sanity flag NEVER blocks: even with a flag firing, the model verdict passes the cheap gates unchanged', async () => {
-    // High price → the exit-multiple sanity flag fires; model says BUY; moat wide, sector compliant, price
-    // present, buy-below present AND the price is in the model's own buy zone (so the owner-rule buy-zone
-    // ARITHMETIC gate stays out of the way) → the model BUY is recorded (the flag is advisory only).
-    const { valuation, cp } = await runRelit({ id: 'flag-noblock', price: 600, investmentVerdict: 'BUY', proposedBuyBelow: 650 })
+    // In-zone price (250 ≤ the computed 257.20) with a firing ADVISORY flag (the model's price view
+    // diverges >25% from the computed threshold → buy_below_divergence) → the model BUY is recorded.
+    const { valuation, cp } = await runRelit({ id: 'flag-noblock', price: 250, investmentVerdict: 'BUY', proposedBuyBelow: 650 })
     expect(((valuation?.['sanity_flags'] as string[] | undefined) ?? []).length).toBeGreaterThan(0)
     expect(cp?.investment_verdict).toBe('BUY')
   })
@@ -4448,7 +4452,9 @@ describe('FOCUSED valuation-reasoning fallback (when the monolithic decision dro
         valuation_status: 'FAIR',
       },
     })
-    expect(valuation?.['buy_price_per_share']).toBe(333)
+    // R1 superseded: the stage's 333 is the ADVISORY price; the operative threshold is computed.
+    expect(valuation?.['buy_price_per_share']).toBe(257.2)
+    expect(valuation?.['model_proposed_buy_below']).toBe(333)
     expect(cp?.valuation_status).toBe('FAIR')
   })
 
