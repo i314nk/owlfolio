@@ -3686,14 +3686,18 @@ function createSizingRecommendationPanel(researchCase: AppResearchCase) {
 //   - `cannot_assess`  → fail-closed neutral message (mirrors sizing's cannot_size).
 // The bias_caveats (disposition / anchoring) render as advisory notes. The close is ALWAYS human-authored.
 
+// B6 (book alignment): each reason maps onto the book's sell rules so the dossier speaks the
+// owner's vocabulary — rule 10 (a rotten business → sell), rule 11 (the business changed → ok to
+// leave), rule 12 (well beyond fair value → lock in a profit), rule 13 (a great business staying
+// great → ok to hold; the guard-held/hold postures ARE rule 13 working).
 const SELL_REASON_CODE_LABEL: Record<string, string> = {
-  thesis_broken: 'thesis broke — the durable advantage or the bet no longer holds',
-  permanent_impairment: 'permanent impairment — the loss is not recoverable inside the thesis',
-  valuation_inverted: 'valuation inverted — price reached / exceeded the frozen intrinsic value',
+  thesis_broken: 'rule 10 (rotten) / rule 11 (changed) — the durable advantage or the bet no longer holds: sell or leave',
+  permanent_impairment: 'rule 10 (rotten) — permanent impairment; the loss is not recoverable inside the thesis',
+  valuation_inverted: 'rule 12 (lock in a profit) — price reached / exceeded the frozen intrinsic value',
   better_opportunity: 'better opportunity — a materially higher net OE yield clears the switching hurdle',
-  original_mistake: 'original mistake — the underwriting was wrong from the start',
+  original_mistake: 'original mistake — the underwriting was wrong from the start; admit it and exit',
   minimum_hold_released: 'minimum-hold guard released the review',
-  minimum_hold_active: 'minimum-hold guard is holding (fixable problem inside the window)',
+  minimum_hold_active: 'rule 13 (great stays great) — the guard is holding a fixable problem inside the window',
   escalate_human_review: 'unresolved / incoherent — escalated for your judgment',
 }
 

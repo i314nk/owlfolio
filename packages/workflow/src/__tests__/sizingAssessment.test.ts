@@ -270,3 +270,37 @@ describe('computeSizingRecommendation — the S6 sizing assembler', () => {
     expect(SIZING_PARAMS.base_target_weight).toBe(0.10)
   })
 })
+
+// B6 (book rule 8): the load-up advisory rides the caveats when the zone flag is armed — advisory
+// only ("load up the truck"); the deployment/cluster caps still bind, and no engine math changes.
+describe('B6 — rule 8 load-up advisory', () => {
+  it('appends the rule_8_load_up caveat when in_load_up_zone is true (and not otherwise)', async () => {
+    const mod = await import('../sizingAssessment')
+    const base = (extra: Record<string, unknown>) => mod.computeSizingRecommendation({
+      candidate: {
+        ticker: 'T', moat_class: 'wide', permanent_loss_level: 'low', uncertainty_level: 'low',
+        entry_price_per_share: 100, owner_earnings_yield: 0.12, sic: '73',
+      },
+      downside_floor: {
+        downside_floor_per_share: 90,
+        downside_floor_basis: 'net_cash',
+        downside_floor_reliability: 'sound',
+      },
+      held_book: [],
+      book_nav: 1_000_000, investable_capital: 1_000_000,
+      savings_expected_profit_rate: 0.04, equity_risk_margin: 0.03,
+      buy_price_version: 'v1',
+      ...extra,
+    } as never)
+    const withZone = base({ in_load_up_zone: true })
+    const without = base({})
+    if (withZone.status === 'sizeable') {
+      expect(withZone.recommendation.caveats.join(' ')).toMatch(/rule_8_load_up/)
+    } else {
+      throw new Error(`expected sizeable, got ${withZone.status}`)
+    }
+    if (without.status === 'sizeable') {
+      expect(without.recommendation.caveats.join(' ')).not.toMatch(/rule_8_load_up/)
+    }
+  })
+})

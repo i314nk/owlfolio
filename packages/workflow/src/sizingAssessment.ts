@@ -120,6 +120,8 @@ export type SizingAssessmentArgs = {
   buy_price_version: string
   /** Optional regime temperature for ladder selection (deferred/hooked — defaults to normal). */
   temperature?: number
+  /** B6 (book rule 8): the price sits ≥50% below intrinsic value — surfaces the load-up advisory. */
+  in_load_up_zone?: boolean
   params?: SizingParams
 }
 
@@ -258,6 +260,16 @@ export function computeSizingRecommendation(args: SizingAssessmentArgs): SizingA
     caveats.push(
       `conviction scaled the target DOWN to ${(conviction.factor * 100).toFixed(0)}% of base `
       + `(${conviction.reason})`,
+    )
+  }
+
+  // B6 (book rule 8, ADVISORY — the human decides): a ≥50% discount to intrinsic value is the
+  // book's "load up the truck" moment — surface it beside the ladder, never silently escalate.
+  if (args.in_load_up_zone === true) {
+    caveats.push(
+      'rule_8_load_up: the price sits at or below the LOAD-UP threshold (≥50% below intrinsic value). '
+      + 'The book: "once you find a margin of safety, load up the truck" — consider deploying the full '
+      + 'target weight rather than laddering in. Advisory; the deployment/cluster caps above still bind.',
     )
   }
 

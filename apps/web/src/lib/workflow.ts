@@ -1685,6 +1685,8 @@ export async function recordSizingRecommendation(
       savings_expected_profit_rate: savingsRate,
       equity_risk_margin: equityRiskMargin,
       buy_price_version: SIZING_PARAMS.version,
+      // B6 (book rule 8): surface the load-up advisory when the case's zone flag is armed.
+      ...(researchCase.valuation?.in_load_up_zone === true ? { in_load_up_zone: true } : {}),
     })
 
     // Build the persisted payload. Idempotency keyed on case + the recommendation CONTENT (an identical
