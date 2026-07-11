@@ -38,8 +38,10 @@ export type PendingDeepDiveRun = {
   model_id?: string
   decision_id?: string
   source_ledger_path?: string
-  quick_screen_source_ids: string[]
-  quick_screen_event_id: string
+  /** Sources verified at the admitting front gate (legacy pending events: the quick screen). */
+  gate_source_ids: string[]
+  /** The admitting gate event (shariah_gate_judged; legacy pending events: quick_screen_drafted). */
+  gate_event_id: string
   requested_event_id: string
 }
 
@@ -111,10 +113,12 @@ export function projectPendingDeepDiveRuns(
     // Get the original deep_dive_approval_pending payload to recover context
     const approvalPayload = approvalPendingByCase.get(id)
 
-    const quick_screen_source_ids = Array.isArray(approvalPayload?.['quick_screen_source_ids'])
-      ? (approvalPayload['quick_screen_source_ids'] as unknown[]).map(String)
-      : []
-    const quick_screen_event_id = String(approvalPayload?.['quick_screen_event_id'] ?? '')
+    // S2 rename with legacy tolerance: current pending events carry gate_source_ids/gate_event_id
+    // (the front Shariah gate); events persisted before the quick-screen retirement carry
+    // quick_screen_source_ids/quick_screen_event_id. Both resume correctly.
+    const rawSourceIds = approvalPayload?.['gate_source_ids'] ?? approvalPayload?.['quick_screen_source_ids']
+    const gate_source_ids = Array.isArray(rawSourceIds) ? (rawSourceIds as unknown[]).map(String) : []
+    const gate_event_id = String(approvalPayload?.['gate_event_id'] ?? approvalPayload?.['quick_screen_event_id'] ?? '')
 
     pending.push({
       research_case_id: id,
@@ -124,8 +128,8 @@ export function projectPendingDeepDiveRuns(
       ...(approvalPayload?.['model_id'] !== undefined ? { model_id: String(approvalPayload['model_id']) } : {}),
       ...(approvalPayload?.['decision_id'] !== undefined ? { decision_id: String(approvalPayload['decision_id']) } : {}),
       ...(approvalPayload?.['source_ledger_path'] !== undefined ? { source_ledger_path: String(approvalPayload['source_ledger_path']) } : {}),
-      quick_screen_source_ids,
-      quick_screen_event_id,
+      gate_source_ids,
+      gate_event_id,
       requested_event_id: e.event_id,
     })
   }

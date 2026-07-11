@@ -359,20 +359,32 @@ function pipelinePayloadBase(
   }
 }
 
-async function requireDeepDiveCandidateQuickScreen(
+async function requireAdmittingGateEvent(
   store: ResearchPipelineEventStore,
   command: QueueDeepDiveCommand,
 ): Promise<void> {
   const researchCaseEvents = await store.listByAggregate('research_case', command.research_case_id)
-  const quickScreenEvent = researchCaseEvents.find(
-    (event) => event.event_id === command.causation_id && event.event_type === 'quick_screen_drafted' && isRecord(event.payload),
+  // The deep dive may only be queued by an ADMITTING gate decision. Current runs: the front
+  // shariah_gate_judged event with allowed: true. Legacy replays/resumes: a quick_screen_drafted
+  // event with screening_result 'deep_dive_candidate' (the retired quick screen's admit signal).
+  const gateEvent = researchCaseEvents.find(
+    (event) => event.event_id === command.causation_id
+      && (event.event_type === 'shariah_gate_judged' || event.event_type === 'quick_screen_drafted')
+      && isRecord(event.payload),
   )
 
-  if (quickScreenEvent === undefined || !isRecord(quickScreenEvent.payload)) {
-    throw new Error(`Deep dive queue requires a causative quick-screen event for ${command.research_case_id}`)
+  if (gateEvent === undefined || !isRecord(gateEvent.payload)) {
+    throw new Error(`Deep dive queue requires a causative admitting gate event for ${command.research_case_id}`)
   }
 
-  if (getString(quickScreenEvent.payload, 'screening_result') !== 'deep_dive_candidate') {
+  if (gateEvent.event_type === 'shariah_gate_judged') {
+    if (gateEvent.payload['allowed'] !== true) {
+      throw new Error('Deep dive queue requires an OPEN Shariah gate (allowed: true)')
+    }
+    return
+  }
+
+  if (getString(gateEvent.payload, 'screening_result') !== 'deep_dive_candidate') {
     throw new Error('Deep dive queue requires a quick-screen deep-dive candidate')
   }
 }
@@ -614,7 +626,7 @@ export async function queueDeepDive(
   store: ResearchPipelineEventStore,
   command: QueueDeepDiveCommand,
 ): Promise<DeepDiveQueued> {
-  await requireDeepDiveCandidateQuickScreen(store, command)
+  await requireAdmittingGateEvent(store, command)
   const payload: DeepDiveQueuedPayload = {
     ...pipelinePayloadBase(command),
     queue_id: requireNonEmptyString(command.queue_id, 'queue_id'),

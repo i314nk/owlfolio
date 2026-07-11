@@ -2,7 +2,10 @@ import type { LedgerEventEnvelope } from '../eventEnvelope'
 
 export type ResearchCaseStage =
   | 'discovered'
+  /** Legacy (pre-restructure): the retired quick screen judged this case. Folds read-only. */
   | 'quick_screened'
+  /** The front Shariah gate judged (restructure gate #1) — the first pipeline stage on current runs. */
+  | 'shariah_gate_judged'
   | 'awaiting_deep_dive_approval'
   | 'queued_for_deep_dive'
   | 'deep_dive_started'
@@ -776,6 +779,17 @@ export type ResearchCaseProjection = {
    * predate the tool-grounded gate carry none, so this stays undefined and the dossier renders 0/—.
    */
   quick_screen_source_ids?: string[]
+  /** The front Shariah gate's judgment (restructure gate #1): open/closed + the grounded sector read. */
+  shariah_gate?: {
+    allowed?: boolean
+    sector_status?: string
+    /** The model's grounded rationale (which activities/revenue mix drive the verdict). */
+    sector_reasoning?: string
+    impermissible_income?: number
+    ratio_verdict?: string
+    gate_incomplete?: boolean
+    reason?: string
+  }
   business_quality?: string
   moat?: string
   management_capital_allocation?: string
@@ -1931,6 +1945,34 @@ export function projectResearchCases(events: LedgerEventEnvelope<unknown>[]): Re
         researchCase.version = version
       }
       applyString(researchCase, 'supersedes_research_case_id', getString(event.payload, 'supersedes_research_case_id'))
+      continue
+    }
+
+    if (event.event_type === 'shariah_gate_judged') {
+      const researchCaseId = researchCaseIdFor(event, event.payload)
+      if (researchCaseId === undefined) {
+        continue
+      }
+      // A CLOSED gate is a terminal set-aside (the swarm drafts the PASS dossier right after); an open
+      // gate marks the case as having entered the pipeline's first stage.
+      const allowed = event.payload['allowed'] === true
+      const researchCase = upsertCase(researchCases, researchCaseId, allowed ? 'shariah_gate_judged' : 'rejected', event.created_at)
+      applyString(researchCase, 'company_id', getString(event.payload, 'company_id'))
+      applyString(researchCase, 'ticker', getString(event.payload, 'ticker'))
+      const gateSector = getString(event.payload, 'sector_status')
+      const gateSectorReasoning = getString(event.payload, 'sector_reasoning')
+      const gateIncome = getNumber(event.payload, 'impermissible_income')
+      const gateRatioVerdict = getString(event.payload, 'ratio_verdict')
+      const gateReason = getString(event.payload, 'reason')
+      researchCase.shariah_gate = {
+        allowed,
+        ...(gateSector === undefined ? {} : { sector_status: gateSector }),
+        ...(gateSectorReasoning === undefined ? {} : { sector_reasoning: gateSectorReasoning }),
+        ...(gateIncome === undefined ? {} : { impermissible_income: gateIncome }),
+        ...(gateRatioVerdict === undefined ? {} : { ratio_verdict: gateRatioVerdict }),
+        ...(event.payload['gate_incomplete'] === true ? { gate_incomplete: true } : {}),
+        ...(gateReason === undefined ? {} : { reason: gateReason }),
+      }
       continue
     }
 

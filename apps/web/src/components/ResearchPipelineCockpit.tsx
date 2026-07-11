@@ -138,7 +138,7 @@ export function ResearchPipelineCockpit({
       createElement(
         'p',
         { style: { ...mutedStyle, maxWidth: '58rem' } },
-        'Track the selected strategy from discovery through quick screen, deep dive, decision gate, watchlist, and terminal outcomes. Manual ticker intake stays available as a secondary path.',
+        'Track the selected strategy from discovery through the Shariah + circle gates, deep dive, decision gate, watchlist, and terminal outcomes. Manual ticker intake stays available as a secondary path.',
       ),
       createElement(
         'div',
@@ -161,7 +161,7 @@ export function ResearchPipelineCockpit({
         createElement(
           'p',
           { style: { color: '#cbd5e1', margin: '0.75rem 0 0' } },
-          'Discovery candidates enter a strategy queue, quick screens decide whether to pass, reject, request more data, or send to deep dive, and provider drafts never become watchlist or holding state without a user-authored transition.',
+          'Discovery candidates enter a strategy queue, the grounded Shariah gate and circle-of-competence gate decide cheaply whether the deep dive is worth spending on, and provider drafts never become watchlist or holding state without a user-authored transition.',
         ),
         createElement(
           'p',

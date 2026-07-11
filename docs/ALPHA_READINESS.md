@@ -43,7 +43,7 @@ Owlfolio v2 is an automation-first local-use candidate and personal-local operat
 - Local Next.js web app as the primary interface.
 - Browser onboarding for deterministic demo mode and personal-local mode.
 - Command Center with setup-aware status, workflow counts, next actions, accounting prompts, holding-review prompts, and recent ledger activity.
-- Strategy-based research cockpit from discovery to quick screen, deep dive, synthesis/decision, watchlist, and holding transitions.
+- Strategy-based research cockpit from discovery through the Shariah + circle-of-competence gates, deep dive, synthesis/decision, watchlist, and holding transitions.
 - Default Buffett-Munger strategy posture; future selectable strategies remain experimental until policy, audit, Shariah, valuation, and provider-certification gates are complete.
 - Provider-authored research/watchlist drafts with explicit source/audit evidence.
 - Explicit user confirmation for watchlist items.

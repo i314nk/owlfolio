@@ -50,14 +50,14 @@ import type { GroundFn } from '../groundedAgent'
 describe('ShariahReasoningAgentSchema', () => {
   it('parses a grounded overlay (sector_status + impermissible_income + citation + proposed_sources)', () => {
     const parsed = ShariahReasoningAgentSchema.safeParse({
-      shariah_judgment: { sector_status: 'compliant', impermissible_income: 128, sector_citation: 'sec_edgar_10k_x' },
+      shariah_judgment: { sector_reasoning: 'Grounded sector basis (test fixture).', sector_status: 'compliant', impermissible_income: 128, sector_citation: 'sec_edgar_10k_x' },
       proposed_sources: [{ source_id: 's1', title: 'T', url: 'https://www.sec.gov/x', excerpt: 'e' }],
     })
     expect(parsed.success).toBe(true)
   })
   it('accepts impermissible_income null (undetermined — never guessed 0)', () => {
     const parsed = ShariahReasoningAgentSchema.safeParse({
-      shariah_judgment: { sector_status: 'compliant', impermissible_income: null, sector_citation: 'sec_edgar_10k_x' },
+      shariah_judgment: { sector_reasoning: 'Grounded sector basis (test fixture).', sector_status: 'compliant', impermissible_income: null, sector_citation: 'sec_edgar_10k_x' },
       proposed_sources: [{ source_id: 's1', title: 'T', url: 'https://www.sec.gov/x', excerpt: 'e' }],
     })
     expect(parsed.success).toBe(true)
@@ -112,7 +112,7 @@ describe('runShariahReasoningPass (grounded tool loop — the SPGI-class quantif
     const provider = loopProvider(async (executor) => {
       readResult = await executor('read_source', { source_id: 'sec_edgar_10k_x', section: '1A' })
       return {
-        shariah_judgment: { sector_status: 'compliant', impermissible_income: 128, sector_citation: 'sec_edgar_10k_x' },
+        shariah_judgment: { sector_reasoning: 'Grounded sector basis (test fixture).', sector_status: 'compliant', impermissible_income: 128, sector_citation: 'sec_edgar_10k_x' },
         proposed_sources: [{ source_id: 'sec_edgar_10k_x', title: '10-K', url: 'https://www.sec.gov/Archives/edgar/data/1/x.htm', excerpt: 'e' }],
       }
     })
@@ -209,7 +209,7 @@ describe('runShariahReasoningPass (no-tools provider — harness injects income 
       async structured<T>(request: { prompt: string }, _schema: unknown): Promise<T> {
         capturedPrompt = request.prompt
         const output = {
-          shariah_judgment: { sector_status: 'compliant', impermissible_income: 128, sector_citation: primaryId },
+          shariah_judgment: { sector_reasoning: 'Grounded sector basis (test fixture).', sector_status: 'compliant', impermissible_income: 128, sector_citation: primaryId },
           proposed_sources: [{ source_id: primaryId, title: 'Test 10-K', url: 'https://www.sec.gov/Archives/edgar/data/99/test.htm', excerpt: 'Interest income was $128 million' }],
         }
         return output as T

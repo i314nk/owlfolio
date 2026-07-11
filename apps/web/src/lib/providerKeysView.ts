@@ -38,7 +38,6 @@ const MODEL_ROLE_TIER_INFO: Record<ModelRoleId, { tier: 'T1' | 'T2' | 'T3'; desc
   lane_moat: { tier: 'T1', description: 'Frontier — moat classification is the highest-stakes call.' },
   lane_shariah: { tier: 'T1', description: 'Frontier — Shariah sector status is a hard-stop classification.' },
   lanes_default: { tier: 'T1', description: 'Deep-dive lanes — source-backed specialist findings.' },
-  quick_screen: { tier: 'T2', description: 'Mid — kill/continue over one report; a wrong continue dies in deep dive.' },
   red_team: { tier: 'T2', description: 'Mid — adversarial cross-check; a different model catches shared-narrative error.' },
   monitors: { tier: 'T3', description: 'Cheap/local — high-volume daily scanning, low judgment.' },
   entity_resolve: { tier: 'T3', description: 'Cheap/local — near-deterministic entity/ticker resolution (temp 0).' },
@@ -47,14 +46,14 @@ const MODEL_ROLE_TIER_INFO: Record<ModelRoleId, { tier: 'T1' | 'T2' | 'T3'; desc
 }
 
 const ROLE_CONFIG_GUIDANCE: string[] = [
-  'Tier philosophy: T1 (frontier) runs synthesis and the moat/Shariah lanes; T2 (mid) runs the quick screen and red team; T3 (cheap/local) runs the monitors and entity resolution. T0 work (valuation math, ratio checks, accounting) is deterministic code — never a model.',
+  'Tier philosophy: T1 (frontier) runs synthesis and the moat/Shariah lanes; T2 (mid) runs the adversarial red team; T3 (cheap/local) runs the monitors and entity resolution. T0 work (valuation math, ratio checks, accounting) is deterministic code — never a model.',
   'Pick one model per tier. Each tier lists the models that fit it for the provider you choose (for OpenRouter, the vendor models that fit the tier). Your choice applies to every swarm role in that tier; Clear restores the default-inherit (the run’s provider/model). Selections live in the local env file (~/.owlfolio/.env) as OWLFOLIO_MODEL_ROLE_<ROLE> entries — swap them anytime.',
   'Qualification note: a provider should pass the golden-set qualification before you rely on it for production research. A tier pointed at a provider with no connected credentials runs fail-closed.',
 ]
 
 const TIER_DESCRIPTION: Record<'T1' | 'T2' | 'T3', string> = {
   T1: 'Frontier — synthesis and the moat/Shariah classification lanes. The highest-stakes reasoning.',
-  T2: 'Mid — the quick screen (kill/continue) and the adversarial red-team cross-check.',
+  T2: 'Mid — the adversarial red-team cross-check.',
   T3: 'Cheap / local — high-volume monitors and near-deterministic entity/ticker resolution.',
 }
 

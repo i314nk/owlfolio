@@ -19,9 +19,11 @@ Buffett-Munger is the default strategy for the Owlfolio v2 local-use candidate. 
 
 ```
 Discovery
-  → Quick screen (focused gate: Shariah permissibility + rough business-quality read)
-       ↓ rejected: Shariah non-compliant or clearly not worth investigating
-       ↓ passed: [Automatic | Review-before-deep-dive]
+  → Shariah gate (grounded sector judgment on the primary filing + deterministic AAOIFI ratios, pre-spend)
+       ↓ closed: sector non-compliant or ratio FAIL → coherent set-aside dossier, zero lane spend
+  → Circle-of-competence gate (cite-verified predictability judgment; k-sample agreement)
+       ↓ outside circle (or ungroundable) → set aside
+       ↓ both gates open: [Automatic | Review-before-deep-dive]
   → Swarm deep dive (moat / financials / risk / management / valuation / synthesis specialists — parallel)
   → Synthesis & decision (moat ≥ wide gate enforced here)
   → User-confirmed watchlist entry
@@ -30,22 +32,23 @@ Discovery
 
 **Research-case versioning.** The company is the aggregate; each user-initiated re-run supersedes the previous research case and records a new versioned investment-case ledger event. Earlier versions are retained in the ledger for audit.
 
-Research runs as a **strategy-driven multi-agent swarm** (`runStrategyResearchSwarm`): a quick-screen agent, concurrent per-lane specialist agents, and a synthesis/decision agent — each a separate provider call. Every cited source is subject to the harness-side grounding invariant (fetched and content-hashed by the harness, not by the model). See `docs/architecture/owlfolio-v2-provider-model-support.md` for the grounding contract.
+Research runs as a **strategy-driven multi-agent swarm** (`runStrategyResearchSwarm`): the front Shariah-gate reasoning pass, the circle-of-competence judgment, concurrent per-lane specialist agents, and a synthesis/decision agent — each a separate provider call. Every cited source is subject to the harness-side grounding invariant (fetched and content-hashed by the harness, not by the model). See `docs/architecture/owlfolio-v2-provider-model-support.md` for the grounding contract.
 
-### Quick-screen approval gate (`quick_screen_approval`)
+### Deep-dive approval gate (`deep_dive_approval`)
 
-After the quick screen passes there are two modes:
+After BOTH front gates pass (Shariah + circle of competence) there are two modes:
 
 | Mode | Behaviour | When used |
 |---|---|---|
-| **Automatic** | Quick screen passes → deep-dive swarm runs immediately in the same job | Scheduled / automated runs |
-| **Review** | Quick screen passes → research case pauses in an "awaiting deep-dive approval" state; user triggers the swarm when ready | Default for user-initiated runs |
+| **Automatic** | Gates pass → the 5-lane deep-dive swarm runs immediately in the same job | Scheduled / automated runs |
+| **Review** | Gates pass → the research case pauses in an "awaiting deep-dive approval" state; the user triggers the lane swarm when ready (the recorded circle judgment is reused on resume — no re-spend) | Default for user-initiated runs |
 
-The mode is configured in the `automation` settings (app config / Settings page).
+The mode is configured in the `automation` settings (app config / Settings page). The legacy
+`quick_screen_approval` key is migrated automatically.
 
 ### Why deep dive is swarm-only
 
-A single-agent deep dive was evaluated and **rejected**. Holding the full Buffett-Munger multi-lane context (moat taxonomy, financials, risk, management quality, valuation, Shariah synthesis) in one model call degrades output quality. Reliability lives entirely in the parallel specialist swarm, where each agent operates with a narrow, focused context. The quick screen is kept intentionally lightweight: it is a focused gate (not the full framework), so it can be a single agent call without quality loss.
+A single-agent deep dive was evaluated and **rejected**. Holding the full Buffett-Munger multi-lane context (moat taxonomy, financials, risk, management quality, valuation, Shariah synthesis) in one model call degrades output quality. Reliability lives entirely in the parallel specialist swarm, where each agent operates with a narrow, focused context. The front gates are kept intentionally lightweight: each is a focused single-question call (sector permissibility; cashflow predictability), so each can be a single grounded agent call without quality loss. (The earlier quick screen — one call carrying both questions plus a business-quality read — was retired in the 2026-07 pipeline restructure.)
 
 ---
 

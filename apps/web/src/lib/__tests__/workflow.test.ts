@@ -192,7 +192,7 @@ describe('workflow helpers', () => {
           source_ledger_path: sourceLedgerPath,
           automation: {
             ...defaultPersonalLocalAppConfig().automation!,
-            quick_screen_approval: 'automatic' as const,
+            deep_dive_approval: 'automatic' as const,
           },
         },
         is_initialized: true,
@@ -1266,7 +1266,7 @@ describe('workflow helpers', () => {
 
       expect(pipeline.selectedStrategyLabel).toBe('Selected strategy: buffett-munger')
       expect(sectionItems['Discovered']).toEqual([`${discovered.ticker} — ${discovered.company_name}`])
-      expect(sectionItems['Quick Screen']).toEqual(expect.arrayContaining([
+      expect(sectionItems['Front Gates']).toEqual(expect.arrayContaining([
         `${quickScreenCandidate.ticker} — ${quickScreenCandidate.company_name}`,
         'QKCS',
       ]))
@@ -1380,7 +1380,7 @@ describe('workflow helpers', () => {
     }
   })
 
-  it('stops the inline swarm after quick screen when quick_screen_approval is review (awaiting_deep_dive_approval)', async () => {
+  it('stops the inline swarm behind the gates when deep_dive_approval is review (awaiting_deep_dive_approval)', async () => {
     const previousTestMode = process.env.OWLFOLIO_TEST_MODE
     process.env.OWLFOLIO_TEST_MODE = 'playwright'
 
@@ -1406,7 +1406,7 @@ describe('workflow helpers', () => {
           // 'review' is the default but we set it explicitly to test the gate
           automation: {
             ...defaultPersonalLocalAppConfig().automation!,
-            quick_screen_approval: 'review' as const,
+            deep_dive_approval: 'review' as const,
           },
         },
         is_initialized: true,
@@ -1473,7 +1473,7 @@ describe('workflow helpers', () => {
           source_ledger_path: sourceLedgerPath,
           automation: {
             ...defaultPersonalLocalAppConfig().automation!,
-            quick_screen_approval: 'review' as const,
+            deep_dive_approval: 'review' as const,
           },
         },
         is_initialized: true,
@@ -1536,7 +1536,7 @@ describe('workflow helpers', () => {
           automation: {
             ...defaultPersonalLocalAppConfig().automation!,
             // 'automatic' — the case will already have a decision; not awaiting approval
-            quick_screen_approval: 'automatic' as const,
+            deep_dive_approval: 'automatic' as const,
           },
         },
         is_initialized: true,

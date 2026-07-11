@@ -439,8 +439,8 @@ function createAgentsDesk(dashboard: AppCommandCenter) {
   const cases = dashboard.pipeline_counts.research_cases
   const hasCases = cases > 0
   const stateLine = hasCases
-    ? `Tracking ${cases} ${cases === 1 ? 'case' : 'cases'} through the swarm — quick-screen and deep-dive lanes running under your value discipline.`
-    : 'No cases yet — point your agent at a ticker and the swarm runs the quick screen and deep-dive lanes.'
+    ? `Tracking ${cases} ${cases === 1 ? 'case' : 'cases'} through the swarm — front gates and deep-dive lanes running under your value discipline.`
+    : 'No cases yet — point your agent at a ticker and the swarm runs the front gates and deep-dive lanes.'
 
   const links: ReactNode[] = [
     createElement(OwlButtonLink, { href: '/research', key: 'cockpit' }, 'Open research cockpit'),

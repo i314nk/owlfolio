@@ -23,7 +23,7 @@ function modelCatalogLookup(providerId: string) {
 }
 
 const T1_ROLES: ModelRoleId[] = ['synthesis', 'lane_moat', 'lane_shariah', 'lanes_default', 'lane_moat_crosscheck', 'lane_shariah_crosscheck']
-const T2_ROLES: ModelRoleId[] = ['quick_screen', 'red_team']
+const T2_ROLES: ModelRoleId[] = ['red_team']
 const T3_ROLES: ModelRoleId[] = ['monitors', 'entity_resolve']
 
 describe('deriveAutoTierAssignment', () => {

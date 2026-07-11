@@ -138,7 +138,8 @@ function Section({
 // ── 2. Pipeline flow ─────────────────────────────────────────────────────────
 const PIPELINE_STEPS: { key: string; label: string; detail: string }[] = [
   { key: 'discovery', label: 'Discovery', detail: 'Candidate enters research' },
-  { key: 'quick_screen', label: 'Quick screen', detail: 'Shariah gate + worth-it read' },
+  { key: 'shariah_gate', label: 'Shariah gate', detail: 'Grounded sector judgment, pre-spend' },
+  { key: 'circle_gate', label: 'Circle of competence', detail: 'Predictability demonstrated, or set aside' },
   { key: 'gate', label: 'Automatic | Review', detail: 'Run now, or pause for approval' },
   { key: 'deep_dive', label: 'Deep-dive swarm', detail: `${buffettMungerDeepDiveLanes.length} grounded lanes, parallel` },
   { key: 'synthesis', label: 'Synthesis', detail: 'Reconcile + ≥wide moat gate' },
@@ -393,7 +394,7 @@ export function StrategyOverview(): ReactNode {
     Section({
       eyebrow: 'How a case moves',
       title: 'The pipeline',
-      lead: 'Each candidate flows through a fixed sequence. The quick screen is a lightweight Shariah-first gate; the expensive multi-agent deep dive only runs for cases worth it.',
+      lead: 'Each candidate flows through a fixed sequence. Two cheap gates run first — the grounded Shariah sector gate, then the circle-of-competence judgment; the expensive multi-agent deep dive only runs for names both gates admit.',
       children: PipelineFlow(),
     }),
 
@@ -605,7 +606,7 @@ export function StrategyOverview(): ReactNode {
         createElement('li', null, createElement('span', { style: goldText }, 'Honest growth path'), ` — growth is the model’s judged sustainable owner-earnings/share rate with cited reasoning; a deterministic sanity-check flags an unsupportable rate (above ${pct(SINGLE_GROWTH_CAP)}, or above ${pct(GDP_GROWTH_THRESHOLD)} → a moat-durability claim) rather than setting the number.`),
         createElement('li', null, createElement('span', { style: goldText }, 'Positive owner earnings'), ' — normalized owner earnings must be positive.'),
         createElement('li', null, createElement('span', { style: goldText }, 'Safe balance sheet'), ' — leverage must not create unacceptable fragility.'),
-        createElement('li', null, createElement('span', { style: goldText }, 'Shariah compliant or conditional'), ' — non-compliant cases stop at the quick screen.'),
+        createElement('li', null, createElement('span', { style: goldText }, 'Shariah compliant or conditional'), ' — non-compliant cases stop at the front Shariah gate.'),
       ),
     }),
 

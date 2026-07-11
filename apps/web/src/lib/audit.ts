@@ -382,6 +382,11 @@ function auditSummarizeEvent(event: LedgerEventEnvelope<unknown>, entityLabel: s
     }
   }
 
+  if (event.event_type === 'shariah_gate_judged' && payload !== undefined) {
+    const sector = typeof payload.sector_status === 'string' ? payload.sector_status : 'undetermined'
+    return `Shariah gate ${payload.allowed === true ? 'OPEN' : 'CLOSED'} (${sector}) for ${entityLabel}`
+  }
+
   if (event.event_type === 'quick_screen_drafted' && payload !== undefined) {
     const result = typeof payload.screening_result === 'string' ? payload.screening_result : undefined
     if (result !== undefined) {

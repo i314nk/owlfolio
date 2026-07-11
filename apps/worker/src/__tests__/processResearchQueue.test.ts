@@ -27,9 +27,12 @@ describe('runProcessResearchQueueTask', () => {
     expect(result.failed).toBe(0)
   })
 
-  it('records a research_run_failed event and continues without throwing when the swarm fails the grounding gate', async () => {
-    // Inject a ground function that always returns empty captures, forcing the
-    // swarm's quick-screen fail-closed (no verified sources → no decision_drafted).
+  it('sets an ungroundable run aside CHEAPLY at the gates (fail-closed set-aside, not a run failure)', async () => {
+    // Inject a ground function that always returns empty captures. Pre-restructure this tripped the
+    // quick screen's grounding firewall (research_run_failed). Now the front Shariah gate opens
+    // VISIBLY undetermined (gate_incomplete — it never blocks on its own outage) and the CIRCLE gate
+    // fails closed: with nothing verifiable to cite, competence cannot be demonstrated → a coherent
+    // conservative set-aside dossier (PASS decision) with ZERO lane spend. The loop continues.
     const failingGround: GroundFn = async () => ({ captured: [], verified_ids: [] })
 
     const store = new InMemoryEventStore()
@@ -40,7 +43,7 @@ describe('runProcessResearchQueueTask', () => {
       source_ids: [], created_at: '2026-06-08T00:00:00Z', schema_version: 1,
     } as never)
 
-    // Must not throw — one failed run must not abort the loop.
+    // Must not throw — an ungroundable run must not abort the loop.
     const result = await runProcessResearchQueueTask(store, {
       provider: new MockProvider(),
       source_ledger_path: '/tmp/owlfolio-worker-research-fail',
@@ -53,13 +56,18 @@ describe('runProcessResearchQueueTask', () => {
 
     // The run was claimed before the swarm ran.
     expect(types).toContain('research_run_claimed')
-    // A durable failure record must exist.
-    expect(types).toContain('research_run_failed')
-    // No decision was produced — the swarm failed before drafting one.
-    expect(types).not.toContain('decision_drafted')
-    // Failure count reflects the one failed run.
-    expect(result.failed).toBe(1)
-    // processed counts all claimed runs including failed ones.
+    // The two cheap gates judged; the case was set aside at the circle gate (grounding fail-closed).
+    expect(types).toContain('shariah_gate_judged')
+    expect(types).toContain('circle_competence_judged')
+    // ZERO expensive lane spend.
+    expect(types).not.toContain('specialist_finding_recorded')
+    expect(types).not.toContain('deep_dive_synthesis_drafted')
+    // A coherent conservative PASS decision was drafted — a set-aside, not a run failure.
+    const decision = events.find((e) => e.event_type === 'decision_drafted')
+    expect(decision).toBeDefined()
+    expect((decision?.payload as { decision?: string }).decision).toBe('PASS')
+    expect(types).not.toContain('research_run_failed')
+    expect(result.failed).toBe(0)
     expect(result.processed).toBe(1)
   })
 

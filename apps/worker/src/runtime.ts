@@ -2609,6 +2609,10 @@ export async function runProcessResearchQueueTask(
     maxToolCalls?: number
     /** Circle-gate hardening knobs (k-sample agreement + evidence floors; undefined → shared defaults). */
     circle_gate?: CircleGateSettings
+    /** Deep-dive approval pause ('review' pauses behind the gates; undefined → automatic). */
+    deep_dive_approval?: 'automatic' | 'review'
+    /** F.2 — the compliant savings anchor (decimal) for the valuation discount. */
+    risk_free_rate?: number
     /**
      * Defense-in-depth fail-closed guard inputs. These describe the config the worker ACTUALLY loaded
      * (provider_id + mode + the config path it read). If a run's `research_run_requested` recorded an
@@ -2724,6 +2728,8 @@ export async function runProcessResearchQueueTask(
           ...(run.version === undefined ? {} : { version: run.version }),
           model_role_env: modelRoleEnv,
           ...(options.circle_gate === undefined ? {} : { circle_gate: options.circle_gate }),
+          ...(options.deep_dive_approval === undefined ? {} : { deep_dive_approval: options.deep_dive_approval }),
+          ...(options.risk_free_rate === undefined ? {} : { risk_free_rate: options.risk_free_rate }),
         },
         { ground, ...(options.maxToolCalls === undefined ? {} : { maxToolCalls: options.maxToolCalls }) },
       )
@@ -2808,8 +2814,8 @@ export async function runProcessDeepDiveQueueTask(
           model_id: run.model_id ?? 'mock',
           decision_id: run.decision_id ?? `decision_${run.research_case_id}`,
           source_ledger_path: run.source_ledger_path ?? options.source_ledger_path,
-          quick_screen_source_ids: run.quick_screen_source_ids,
-          quick_screen_event_id: run.quick_screen_event_id,
+          gate_source_ids: run.gate_source_ids,
+          gate_event_id: run.gate_event_id,
           // F.2 — thread the compliant app-config savings rate as the discount risk-free anchor (fail-closed
           // to the strategy savings_rate_default in the swarm when absent).
           ...(options.risk_free_rate === undefined ? {} : { risk_free_rate: options.risk_free_rate }),

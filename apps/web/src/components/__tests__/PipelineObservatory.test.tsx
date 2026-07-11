@@ -14,7 +14,7 @@ import type {
 
 const pipeline: PipelineProjection = {
   stage_counts: [
-    { key: 'quick_screen', label: 'Quick screen', count: 5, health: 'ok' },
+    { key: 'shariah_gate', label: 'Shariah gate', count: 5, health: 'ok' },
     { key: 'deep_dive', label: 'Deep dive · 5 lanes', count: 2, health: 'warn' },
     { key: 'synthesis', label: 'Synthesis', count: 1, health: 'ok' },
     { key: 'decision', label: 'Decision', count: 4, health: 'ok' },

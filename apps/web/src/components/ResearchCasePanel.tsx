@@ -1,4 +1,5 @@
 import { Children, createElement, isValidElement, type ReactNode } from 'react'
+import { RunDeepDiveButton } from './RunDeepDiveButton'
 
 import type {
   ResearchCaseSellBiasCaveatProjection,
@@ -215,12 +216,31 @@ function createCitationMarker(citation: string, grounded: boolean | undefined, i
  * - stage is 'pass' with moat_passes_gate === false — below wide-moat gate
  */
 function isGatedCase(researchCase: AppResearchCase): boolean {
+  // A CLOSED front Shariah gate is a gated set-aside regardless of the final projected stage — the
+  // set-aside's analysis/decision events advance the stage past 'rejected' (dogfood find: JPM rendered
+  // the generic decision dossier with no gate rationale).
+  if (researchCase.shariah_gate?.allowed === false) return true
   if (researchCase.stage === 'rejected') return true
   if (researchCase.stage === 'pass' && researchCase.valuation?.moat_passes_gate === false) return true
   return false
 }
 
 function gatedReason(researchCase: AppResearchCase): { title: string; reason: string; failingGate: string } {
+  const frontGate = researchCase.shariah_gate
+  if (frontGate !== undefined && frontGate.allowed === false) {
+    const incomeNote = typeof frontGate.impermissible_income === 'number'
+      ? ` · impermissible income $${frontGate.impermissible_income.toLocaleString('en-US')}M per the cited filing`
+      : ''
+    return {
+      title: 'Set aside at the Shariah gate · deep dive skipped',
+      reason: frontGate.sector_reasoning
+        ?? frontGate.reason
+        ?? 'The grounded sector judgment found the core business non-compliant. The gate stops here by design: no deep-dive swarm was run, so no provider cost was spent.',
+      failingGate: frontGate.ratio_verdict === 'FAIL'
+        ? `Shariah gate — AAOIFI financial ratios FAIL${incomeNote}`
+        : `Shariah gate — sector ${frontGate.sector_status ?? 'non_compliant'}${incomeNote}`,
+    }
+  }
   if (researchCase.stage === 'rejected') {
     const shariahFail = researchCase.shariah_status === 'NON_COMPLIANT'
     if (shariahFail) {
@@ -765,7 +785,7 @@ function createGatedDossier(researchCase: AppResearchCase) {
       createElement(
         'p',
         { style: { color: 'var(--owl-color-muted)', fontSize: 'var(--owl-text-base)', margin: '0 0 1rem' } },
-        `${researchCase.company_id ?? 'Unknown company'} · quick screen gate`,
+        `${researchCase.company_id ?? 'Unknown company'} · ${researchCase.shariah_gate !== undefined ? 'Shariah gate' : 'quick screen gate'}`,
       ),
       // reject header row
       createElement(
@@ -801,7 +821,7 @@ function createGatedDossier(researchCase: AppResearchCase) {
               padding: '0.28rem 0.7rem',
             },
           },
-          'Rejected at quick screen',
+          researchCase.shariah_gate !== undefined ? 'Set aside at the Shariah gate' : 'Rejected at quick screen',
         ),
         createElement(
           'span',
@@ -846,7 +866,16 @@ function createGatedDossier(researchCase: AppResearchCase) {
           'div',
           { style: { alignItems: 'center', display: 'flex', gap: '0.6rem', fontSize: 'var(--owl-text-base)', color: 'var(--owl-color-quiet)' } },
           createElement('span', null, '—'),
-          createElement('span', { style: { color: 'var(--owl-color-quiet)' } }, 'Business-quality check — skipped (gated)'),
+          // The stage the closed gate short-circuited: on current runs that is the circle-of-competence
+          // gate (which absorbed the retired quick screen's business-quality read); legacy quick-screen
+          // rejects keep the historical label.
+          createElement(
+            'span',
+            { style: { color: 'var(--owl-color-quiet)' } },
+            researchCase.shariah_gate !== undefined
+              ? 'Circle-of-competence gate — skipped (gated)'
+              : 'Business-quality check — skipped (gated)',
+          ),
         ),
         createElement(
           'div',
@@ -858,7 +887,9 @@ function createGatedDossier(researchCase: AppResearchCase) {
       createElement(
         'p',
         { style: { color: 'var(--owl-color-quiet)', fontSize: 'var(--owl-text-sm)', margin: '0 0 1rem' } },
-        'Evidence and the quick-screen assessment are recorded in the audit trail.',
+        researchCase.shariah_gate !== undefined
+          ? 'Evidence and the gate judgment are recorded in the audit trail.'
+          : 'Evidence and the quick-screen assessment are recorded in the audit trail.',
       ),
     ),
     // Still render evidence for audit trail visibility
@@ -912,7 +943,7 @@ function createAwaitingDeepDiveDossier(researchCase: AppResearchCase) {
               padding: '0.28rem 0.7rem',
             },
           },
-          'Quick screen passed',
+          researchCase.shariah_gate !== undefined ? 'Front gates passed' : 'Quick screen passed',
         ),
         createElement(
           'span',
@@ -935,12 +966,12 @@ function createAwaitingDeepDiveDossier(researchCase: AppResearchCase) {
       createElement(
         'h2',
         { style: { color: 'var(--owl-color-gold-bright)', fontSize: 'var(--owl-text-md)', margin: '0 0 0.4rem' } },
-        'Quick screen passed — review and run the deep dive when ready',
+        'Front gates passed — review and run the deep dive when ready',
       ),
       createElement(
         'p',
         { style: { color: '#dbe3ef', fontSize: 'var(--owl-text-base)', lineHeight: 1.55, margin: '0 0 1rem' } },
-        'The quick screen found this company worth investigating. No deep-dive swarm has run yet — click "Run deep dive" to start the expensive swarm analysis.',
+        'The Shariah gate and the circle-of-competence gate both admitted this company. The expensive lane swarm has not run yet — click "Run deep dive" to start it.',
       ),
       // Quick-screen summary if available
       researchCase.screening_result !== undefined ? createElement(
@@ -965,32 +996,12 @@ function createAwaitingDeepDiveDossier(researchCase: AppResearchCase) {
           createElement('span', { style: { color: 'var(--owl-color-quiet)' } }, 'Deep-dive swarm (5 lanes) — not yet started'),
         ),
       ) : null,
-      // Run deep dive action
+      // Run deep dive action (client-side POST + in-place refresh — the old plain-HTML form navigated
+      // the browser to the raw JSON API response; dogfood find 2026-07-10).
       createElement(
         'div',
         { style: { marginTop: '0.5rem' } },
-        createElement(
-          'form',
-          { action: `/api/research/${researchCase.research_case_id}/deep-dive`, method: 'post' },
-          createElement(
-            'button',
-            {
-              type: 'submit',
-              style: {
-                background: 'var(--owl-color-accent)',
-                border: 0,
-                borderRadius: '999px',
-                color: '#ffffff',
-                cursor: 'pointer',
-                font: 'inherit',
-                fontSize: 'var(--owl-text-base)',
-                fontWeight: 900,
-                padding: '0.75rem 1.2rem',
-              },
-            },
-            'Run deep dive',
-          ),
-        ),
+        createElement(RunDeepDiveButton, { caseId: researchCase.research_case_id }),
       ),
     ),
     // Still render evidence for audit trail visibility
@@ -3704,6 +3715,8 @@ function deepDiveLaneShortLabel(lane?: string): string {
 function isLegacyDecisionDossier(researchCase: AppResearchCase): boolean {
   const hasStandaloneResearchPipeline = researchCase.quick_screen_id !== undefined
     || researchCase.screening_result !== undefined
+    || researchCase.shariah_gate !== undefined
+    || researchCase.circle_competence !== undefined
     || researchCase.deep_dive_id !== undefined
     || researchCase.specialist_findings !== undefined
     || researchCase.owner_earnings_valuation !== undefined

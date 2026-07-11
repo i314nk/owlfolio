@@ -31,7 +31,7 @@ describe('ResearchRunProgress — render', () => {
     expect(html).toContain('aria-busy="true"')
     expect(html).toContain('Researching MSFT…')
     expect(html).toContain('Queued — fetching filings')
-    expect(html).toContain('Quick screen — Shariah + worth-it gate')
+    expect(html).toContain('Shariah gate — grounded sector + AAOIFI read')
     expect(html).toContain('Circle of competence')
     expect(html).toContain('Deep dive — 3/5 specialists')
     expect(html).toContain('Synthesis &amp; valuation')

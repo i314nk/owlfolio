@@ -209,8 +209,8 @@ function swarmFakeProvider() {
       if (schemaName === 'BuffettMungerRedTeam') {
         return {
           strongest_bear_case: 'b', weakest_rubric_items: [], moat_decay_scenario: 'd', growth_credit_attack: 'g',
-          shared_narrative_blindspots: [], strongest_objection: { claim: 'c', severity: 'low', citations: ['src_qs_1'] },
-          proposed_sources: [src('src_qs_1')],
+          shared_narrative_blindspots: [], strongest_objection: { claim: 'c', severity: 'low', citations: ['src_shariah_reasoning'] },
+          proposed_sources: [src('src_shariah_reasoning')],
         }
       }
       if (schemaName === 'BuffettMungerRedTeamResponse') {
@@ -370,7 +370,7 @@ function swarmFakeProviderWithLaneIds(_lanes: readonly string[]) {
 }
 
 describe('runStrategyResearchSwarm', () => {
-  it('drives quick screen, a per-lane swarm, synthesis and a grounded decision', async () => {
+  it('drives the front Shariah gate, a per-lane swarm, synthesis and a grounded decision', async () => {
     const store = new InMemoryEventStore()
     const provider = swarmFakeProvider()
     const ground = async (sources: { source_id: string }[]) => ({
@@ -405,7 +405,8 @@ describe('runStrategyResearchSwarm', () => {
     const events = await store.list()
     const types = events.map((e) => e.event_type)
     expect(types).toContain('research_case_created')
-    expect(types).toContain('quick_screen_drafted')
+    expect(types).toContain('shariah_gate_judged')
+    expect(types).not.toContain('quick_screen_drafted') // retired (S2): the front gate replaced it
     expect(types.filter((t) => t === 'specialist_finding_recorded').length).toBeGreaterThanOrEqual(5)
     expect(types).toContain('deep_dive_synthesis_drafted')
     expect(types).toContain('decision_drafted')
@@ -617,6 +618,13 @@ describe('runStrategyResearchSwarm', () => {
               proposed_sources: [src('src_qs_good_1'), src('src_qs_bad_1')],
             }
           }
+          if (schemaName === 'BuffettMungerShariahReasoning') {
+            // The front gate's pass — one good (the cited sector basis), one bad source.
+            return {
+              shariah_judgment: { sector_reasoning: 'Grounded sector basis (test fixture).', sector_status: 'compliant', impermissible_income: 0, sector_citation: 'src_shariah_pass_good_1' },
+              proposed_sources: [src('src_shariah_pass_good_1'), src('src_shariah_pass_bad_1')],
+            }
+          }
           if (schemaName === 'BuffettMungerMoatLane') {
             return {
               finding_summary: 'moat lane finding', confidence: 'medium' as const, caveats: ['Mock lane caveat'],
@@ -770,109 +778,187 @@ describe('runStrategyResearchSwarm', () => {
   })
 })
 
-describe('runStrategyResearchSwarm short-circuit on Shariah NON_COMPLIANT', () => {
-  it('skips deep dive and emits a PASS decision when quick screen returns NON_COMPLIANT', async () => {
-    const store = new InMemoryEventStore()
+// ---------------------------------------------------------------------------
+// Restructure Phase 1 / S1b — the FRONT Shariah gate wired into the swarm: the grounded sector
+// judgment runs BEFORE the quick screen (before ANY further stage spend). A NON-COMPLIANT sector
+// closes the gate → the coherent set-aside dossier (analysis + PASS decision) with ZERO quick-screen
+// or lane events; an open gate leads the otherwise-unchanged sequence with a shariah_gate_judged event.
+// ---------------------------------------------------------------------------
+describe('runStrategyResearchSwarm front Shariah gate (S1b)', () => {
+  const gateGround = async (sources: { source_id: string }[]) => ({
+    captured: sources.map((s) => ({
+      source_id: s.source_id,
+      title: 't',
+      url: 'https://example.com/x',
+      excerpt: 'e',
+      availability: 'available' as const,
+      fetched_at: 'x',
+      content_hash: 'sha256:1',
+    })),
+    verified_ids: sources.map((s) => s.source_id),
+  })
 
-    // Fake provider that returns NON_COMPLIANT + reject at quick screen; should never be called for lane/synthesis
-    const nonCompliantProvider = {
-      provider_id: 'fake-non-compliant',
+  it('closed gate (NON_COMPLIANT sector) → set-aside dossier with ZERO quick-screen/lane spend', async () => {
+    const store = new InMemoryEventStore()
+    const provider = {
+      provider_id: 'fake-gate-closed',
       capabilities: {} as never,
       complete: vi.fn(),
       runWithTools: vi.fn(),
-      structured: vi.fn(async () => ({
-        summary: 'Primary business involves conventional interest-based banking.',
-        business_quality: 'Large bank; well-capitalised.',
-        moat: 'Wide network moat, but business model is riba-based.',
-        management_capital_allocation: 'Shareholder-friendly but irrelevant given non-compliance.',
-        financial_quality: 'Strong balance sheet.',
-        valuation_sanity: 'Not assessed.',
-        shariah_status: 'NON_COMPLIANT',
-        red_flags: ['Core business is conventional interest-based banking (riba)'],
-        confidence: 'high',
-        caveats: ['Mock non-compliant quick screen'],
-        screening_result: 'reject',
-        proposed_sources: [
-          {
-            source_id: 'src_bank_non_compliant_1',
-            title: 'Bank Non-Compliant Source',
-            url: 'https://example.com/bank-non-compliant',
-            excerpt: 'Bank operates conventional interest-based products.',
-          },
-        ],
-      })),
+      structured: vi.fn(async (req: { response_format?: { schema_name?: string } }) => {
+        const schemaName = req.response_format?.schema_name
+        if (schemaName === 'BuffettMungerShariahReasoning') {
+          return {
+            shariah_judgment: { sector_reasoning: 'Grounded sector basis (test fixture).',
+              sector_status: 'non_compliant',
+              impermissible_income: null,
+              sector_citation: 'src_gate_10k',
+            },
+            proposed_sources: [{
+              source_id: 'src_gate_10k',
+              title: 'FY 10-K — business is riba-based lending',
+              url: 'https://www.sec.gov/Archives/edgar/data/0/gate-10k.htm',
+              excerpt: 'The company derives substantially all revenue from interest-based lending.',
+            }],
+          }
+        }
+        throw new Error(`unexpected post-gate structured call: ${String(schemaName)} — the closed gate must stop ALL further stage spend`)
+      }),
     }
 
-    const ground = async (sources: { source_id: string }[]) => ({
-      captured: sources.map((s) => ({
-        source_id: s.source_id,
-        title: 't',
-        url: 'https://example.com/x',
-        excerpt: 'e',
-        availability: 'available' as const,
-        fetched_at: 'x',
-        content_hash: 'sha256:1',
-      })),
-      verified_ids: sources.map((s) => s.source_id),
-    })
-
-    const sourceLedgerPath = await mkdtemp(join(tmpdir(), 'owlfolio-short-circuit-'))
-
+    const sourceLedgerPath = await mkdtemp(join(tmpdir(), 'owlfolio-gate-closed-'))
     const result = await runStrategyResearchSwarm(
       store,
-      nonCompliantProvider as never,
+      provider as never,
       {
-        research_case_id: 'rc_non_compliant',
-        company_id: 'bank_corp',
-        ticker: 'BANK',
+        research_case_id: 'rc_gate_closed',
+        company_id: 'riba_corp',
+        ticker: 'RIBA',
         strategy_id: 'buffett-munger',
         actor_id: 'user_local',
-        idempotency_key: 'nc_k',
+        idempotency_key: 'gate_k',
         model_id: 'mock',
-        decision_id: 'decision_non_compliant',
+        decision_id: 'decision_gate_closed',
         source_ledger_path: sourceLedgerPath,
       },
-      { ground },
+      { ground: gateGround },
     )
 
     const events = await store.list()
     const types = events.map((e) => e.event_type)
 
-    // Deep-dive events must NOT be present
-    expect(types).not.toContain('specialist_finding_recorded')
-    expect(types).not.toContain('deep_dive_started')
+    // The gate judged and CLOSED.
+    const gate = events.find((e) => e.event_type === 'shariah_gate_judged')
+    expect(gate).toBeDefined()
+    const gatePayload = gate?.payload as Record<string, unknown>
+    expect(gatePayload['allowed']).toBe(false)
+    expect(gatePayload['sector_status']).toBe('non_compliant')
+
+    // ZERO downstream stage spend or events.
+    expect(types).not.toContain('quick_screen_drafted')
     expect(types).not.toContain('queued_for_deep_dive')
+    expect(types).not.toContain('specialist_finding_recorded')
     expect(types).not.toContain('deep_dive_synthesis_drafted')
 
-    // Quick screen and decision must be present
-    expect(types).toContain('quick_screen_drafted')
-    expect(types).toContain('buffett_munger_analysis_drafted')
-    expect(types).toContain('decision_drafted')
+    // The coherent set-aside dossier: analysis + PASS decision, caused by the gate event.
+    const analysis = events.find((e) => e.event_type === 'buffett_munger_analysis_drafted')
+    expect(analysis).toBeDefined()
+    expect(analysis?.causation_id).toBe(gate?.event_id)
+    const analysisPayload = analysis?.payload as Record<string, unknown>
+    expect(analysisPayload['investment_verdict']).toBe('PASS')
+    expect(analysisPayload['shariah_status']).toBe('NON_COMPLIANT')
+    expect(analysisPayload['engine_version']).toBe(ENGINE_VERSION)
+    expect((analysisPayload['shariah_gate'] as Record<string, unknown>)['sector_status']).toBe('non_compliant')
+    // Dogfood pin: the set-aside dossier carries the model's grounded WHY, not just the gate verdict.
+    expect((analysisPayload['shariah_gate'] as Record<string, unknown>)['sector_reasoning']).toContain('Grounded sector basis')
 
-    // The REJECT early-exit analysis event must stamp the engine version at the payload ROOT (so a fresh
-    // reject reads as the current engine, not "unknown · pre-versioning").
-    const rejectAnalysis = events.find((e) => e.event_type === 'buffett_munger_analysis_drafted')
-    expect((rejectAnalysis?.payload as Record<string, unknown>)?.['engine_version']).toBe(ENGINE_VERSION)
+    const decision = events.find((e) => e.event_type === 'decision_drafted')
+    expect(decision).toBeDefined()
+    expect((decision?.payload as Record<string, unknown>)['decision']).toBe('PASS')
 
-    // Decision must be PASS
-    const decisionEvent = events.find((e) => e.event_type === 'decision_drafted')
-    expect(decisionEvent).toBeDefined()
-    const decisionPayload = decisionEvent?.payload as Record<string, unknown>
-    expect(decisionPayload?.['decision']).toBe('PASS')
-
-    // Provider must have been called exactly once (for the quick screen only)
-    expect(nonCompliantProvider.structured).toHaveBeenCalledTimes(1)
-
-    // The result must have a decision defined and no deep_dive field
     expect(result.decision).toBeDefined()
+    expect((result as { shariah_gate?: unknown }).shariah_gate).toBeDefined()
     expect((result as { deep_dive?: unknown }).deep_dive).toBeUndefined()
+  })
 
-    // Run must complete without throwing
+  it('open gate (compliant sector) → shariah_gate_judged leads the otherwise-unchanged full sequence', async () => {
+    const store = new InMemoryEventStore()
+    const base = swarmFakeProvider()
+    const baseStructured = base.structured
+    const provider = {
+      ...base,
+      structured: vi.fn(async (req: { response_format?: { schema_name?: string } }) => {
+        if (req.response_format?.schema_name === 'BuffettMungerShariahReasoning') {
+          return {
+            shariah_judgment: { sector_reasoning: 'Grounded sector basis (test fixture).', sector_status: 'compliant', impermissible_income: 0, sector_citation: 'src_gate_ok' },
+            proposed_sources: [{
+              source_id: 'src_gate_ok',
+              title: 'FY 10-K — compliant operating business',
+              url: 'https://www.sec.gov/Archives/edgar/data/0/gate-ok-10k.htm',
+              excerpt: 'Revenue derives from the sale of goods and services.',
+            }],
+          }
+        }
+        return baseStructured(req as never)
+      }),
+    }
+
+    const result = await runStrategyResearchSwarm(
+      store,
+      provider as never,
+      {
+        research_case_id: 'rc_gate_open',
+        company_id: 'company_test',
+        ticker: 'TEST',
+        strategy_id: 'buffett-munger',
+        actor_id: 'user_local',
+        idempotency_key: 'gate_open_k',
+        model_id: 'mock',
+        decision_id: 'decision_gate_open',
+        source_ledger_path: '/tmp/owlfolio-gate-open-test-sources',
+        // F.2 threading pin: the FRONT command's savings anchor must reach the deep-dive discount
+        // (previously only the approval-resume path carried it).
+        risk_free_rate: 0.03,
+      },
+      { ground: gateGround, laneConcurrency: 3 },
+    )
+
+    const events = await store.list()
+    const types = events.map((e) => e.event_type)
+
+    // The gate judged OPEN, and it precedes the quick screen in the ledger sequence.
+    const gateIndex = types.indexOf('shariah_gate_judged')
+    expect(gateIndex).toBeGreaterThanOrEqual(0)
+    const gatePayload = events[gateIndex]?.payload as Record<string, unknown>
+    expect(gatePayload['allowed']).toBe(true)
+    expect(gatePayload['sector_status']).toBe('compliant')
+    expect(gatePayload['gate_incomplete']).toBeUndefined()
+    // The gate leads: it precedes the circle gate (the first deep-dive stage).
+    expect(gateIndex).toBeLessThan(types.indexOf('circle_competence_judged'))
+
+    // The rest of the sequence is unchanged — and the retired quick screen never appears.
+    expect(types).not.toContain('quick_screen_drafted')
+
+    // S5 cost stamping: the circle stage carries its spend (k grounded samples + wall time).
+    const circleEvent = events.find((e) => e.event_type === 'circle_competence_judged')
+    const circleCost = (circleEvent?.payload as { stage_cost?: { provider_calls?: number; wall_ms?: number } }).stage_cost
+    expect(circleCost?.provider_calls).toBeGreaterThanOrEqual(1)
+    expect(typeof circleCost?.wall_ms).toBe('number')
+    expect(types.filter((t) => t === 'specialist_finding_recorded').length).toBeGreaterThanOrEqual(5)
+    expect(types).toContain('deep_dive_synthesis_drafted')
+    expect(types).toContain('decision_drafted')
+    expect(result.decision).toBeDefined()
+
+    // F.2 threading pin: discount = 0.03 anchor + 0.055 equity premium, basis compliant_savings.
+    const analysis = events.find((e) => e.event_type === 'buffett_munger_analysis_drafted')
+    const av = (analysis?.payload as { valuation?: { discount_rate?: number; discount_inputs?: { risk_free_basis?: string } } }).valuation
+    expect(av?.discount_inputs?.risk_free_basis).toBe('compliant_savings')
+    expect(av?.discount_rate).toBeCloseTo(0.085, 6)
   })
 })
 
 describe('runStrategyResearchSwarm with MockProvider + deterministic grounder', () => {
-  it('completes end-to-end: research_case_created, quick_screen_drafted, >=6 specialist_finding_recorded, deep_dive_synthesis_drafted, decision_drafted', async () => {
+  it('completes end-to-end: research_case_created, shariah_gate_judged, >=5 specialist_finding_recorded, deep_dive_synthesis_drafted, decision_drafted', async () => {
     const sourceLedgerPath = await mkdtemp(join(tmpdir(), 'owlfolio-mock-swarm-'))
     const store = new InMemoryEventStore()
     const provider = new MockProvider()
@@ -898,7 +984,7 @@ describe('runStrategyResearchSwarm with MockProvider + deterministic grounder', 
     const types = events.map((e) => e.event_type)
 
     expect(types).toContain('research_case_created')
-    expect(types).toContain('quick_screen_drafted')
+    expect(types).toContain('shariah_gate_judged')
     expect(types.filter((t) => t === 'specialist_finding_recorded').length).toBeGreaterThanOrEqual(5)
     expect(types).toContain('deep_dive_synthesis_drafted')
     expect(types).toContain('decision_drafted')
@@ -1273,7 +1359,7 @@ function configurableSwarmProvider(opts: {
         return {
           ...(opts.omitShariahOverlay === true
             ? {}
-            : { shariah_judgment: { sector_status: 'compliant', impermissible_income: 0, sector_citation: 'src_shariah_reasoning' } }),
+            : { shariah_judgment: { sector_reasoning: 'Grounded sector basis (test fixture).', sector_status: 'compliant', impermissible_income: 0, sector_citation: 'src_shariah_reasoning' } }),
           proposed_sources: [src('src_shariah_reasoning')],
         }
       }
@@ -1288,9 +1374,9 @@ function configurableSwarmProvider(opts: {
           strongest_objection: {
             claim: 'Growth credit depends on incremental ROIC the firm likely cannot sustain.',
             severity: 'high',
-            citations: opts.redTeamCitations ?? ['src_qs_1'],
+            citations: opts.redTeamCitations ?? ['src_lane_0'],
           },
-          proposed_sources: [src('src_qs_1')],
+          proposed_sources: [src('src_lane_0')],
         }
       }
       // dedicated red-team-RESPONSE call (the focused decomposition). The synthesis_response that answers
@@ -1722,14 +1808,12 @@ describe('RELIGHTENED DECISION — model proposes buy-below; deterministic side 
     expect(typeof vr?.['owner_earnings_basis']).toBe('string')
   })
 
-  it('SANITY (over-OPTIMISTIC): status ATTRACTIVE + market implies implausibly HIGH growth → a sanity flag (verdict NOT blocked)', async () => {
-    // A very high price → reverse-DCF implies a growth above the 15% cap; the model nonetheless says
-    // ATTRACTIVE — the symmetric sanity-check must fire the over-optimistic catch. The model verdict (BUY,
-    // gated only by the cheap gates) is NOT blocked by the flag. F.2 — at the lower savings-anchor discount
-    // (7.5%, was 10%) a given price implies LESS growth, so the price is raised to 800 (implied ≈ 17.6%,
-    // comfortably above the 15% cap; at the old 10% discount 600 already cleared the cap).
-    // buy-below 850 keeps the price IN the model's own buy zone so the owner-rule buy-zone gate (an
-    // arithmetic gate, not a sanity flag) does not derate the BUY — this test isolates flag-never-blocks.
+  it('SANITY (over-OPTIMISTIC): status ATTRACTIVE + market implies implausibly HIGH growth → flag fires AND the T0 buy-below gate derates the BUY', async () => {
+    // A very high price → reverse-DCF implies growth above the 15% cap; the model nonetheless says
+    // ATTRACTIVE — the symmetric sanity-check must fire the over-optimistic catch. OWNER RULE
+    // (2026-07-10 SPGI dogfood): the FLAG still never blocks, but a BUY in this shape can no longer
+    // survive — an in-zone buy-below above such a price necessarily ALSO implies above-cap growth, so
+    // the T0 buy_below_implies_absurd_growth GATE (arithmetic, not the flag) derates the BUY to WATCH.
     const { valuation, cp } = await runRelit({
       id: 'sanity-optimistic', price: 800, valuationStatus: 'ATTRACTIVE', investmentVerdict: 'BUY', proposedBuyBelow: 850,
     })
@@ -1737,7 +1821,8 @@ describe('RELIGHTENED DECISION — model proposes buy-below; deterministic side 
     expect(flags.length).toBeGreaterThan(0)
     expect(flags.some((f) => /attractive/i.test(f) && /implausible|cap/i.test(f))).toBe(true)
     // FLAG NEVER BLOCKS: the model BUY (with a buy-below + price present) is recorded, not clamped.
-    expect(cp?.investment_verdict).toBe('BUY')
+    expect(cp?.investment_verdict).toBe('WATCH')
+    expect((cp?.open_questions ?? []).some((q) => /buy_below_implies_absurd_growth/.test(q))).toBe(true)
   })
 
   it('SANITY (over-PESSIMISTIC): status EXPENSIVE + market implies only MODEST growth → a sanity flag (verdict NOT blocked)', async () => {
@@ -1760,6 +1845,17 @@ describe('RELIGHTENED DECISION — model proposes buy-below; deterministic side 
     const flags = (valuation?.['sanity_flags'] as string[] | undefined) ?? []
     expect(flags.some((f) => /contradicts_evidence/.test(f))).toBe(false)
     expect(flags.some((f) => /implied_growth_above_cap/.test(f))).toBe(false)
+  })
+
+  it('SANITY (self-coherence TOLERANCE, 2026-07-11): ATTRACTIVE with the price only slightly above the buy-below → NO flag (coherent "wait for my price")', async () => {
+    // Live SPGI noise: ATTRACTIVE with the price 2.6% above the model's buy-below fired the flag —
+    // but "attractive, I'd buy a few percent lower" is a coherent position. Inside the 5% band → quiet.
+    const { valuation } = await runRelit({
+      id: 'coherence-attractive-nearzone', price: 431, valuationStatus: 'ATTRACTIVE', investmentVerdict: 'WATCH', proposedBuyBelow: 420,
+    })
+    expect(valuation?.['in_buy_zone']).toBe(false)
+    const flags = (valuation?.['sanity_flags'] as string[] | undefined) ?? []
+    expect(flags.some((f) => /contradicts_buy_zone/.test(f))).toBe(false)
   })
 
   it('SANITY (self-coherence): status EXPENSIVE + price within the model\'s OWN buy-below (in_buy_zone) → contradicts-buy-zone flag (verdict NOT blocked)', async () => {
@@ -1934,6 +2030,17 @@ describe('RELIGHTENED DECISION — model proposes buy-below; deterministic side 
     })
     expect(cp?.investment_verdict).toBe('BUY')
     expect((cp?.open_questions ?? []).some((q) => /buy_out_of_buy_zone/.test(q))).toBe(false)
+  })
+
+  it('GATE (owner rule, 2026-07-10 SPGI dogfood) — model BUY whose OWN buy-below implies growth ABOVE the cap → recorded WATCH', async () => {
+    // Live SPGI shape: price inside the model's aggressive buy zone, but the buy-below itself prices
+    // in growth the method's single-growth cap refuses to underwrite (harness fair value was ~half
+    // the model's buy-below). Arithmetic on the model's own numbers → derate to WATCH, thesis kept.
+    const { cp } = await runRelit({
+      id: 'buyzone-absurd', price: 280, valuationStatus: 'ATTRACTIVE', investmentVerdict: 'BUY', proposedBuyBelow: 800,
+    })
+    expect(cp?.investment_verdict).toBe('WATCH')
+    expect((cp?.open_questions ?? []).some((q) => /buy_below_implies_absurd_growth/.test(q))).toBe(true)
   })
 
   it('GATE preserved — moat below wide → PASS regardless of the model verdict', async () => {
@@ -2162,55 +2269,6 @@ describe('legacy projection tolerance — old band verdict_state event still pro
 })
 
 describe('BUG 2 — resilient bookend swarm calls (retry + clean failure)', () => {
-  it('fails cleanly (ResearchSwarmStageError, quick_screen) on a single quick-screen timeout — the tool-grounded gate does not retry (matches the circle gate)', async () => {
-    // The quick screen now runs on the SAME tool-grounded path as the circle gate (runGroundedAgentWithTools),
-    // which — like the circle gate — has no bespoke retry. A single timeout therefore fails the stage cleanly
-    // instead of recovering on a second attempt. (Previously it ran via runGroundedAgentWithRetry → 1 retry.)
-    const store = new InMemoryEventStore()
-    const provider = configurableSwarmProvider({ laneCount: buffettMungerDeepDiveLanes.length, failQuickScreen: 1 })
-    const sourceLedgerPath = await mkdtemp(join(tmpdir(), 'owlfolio-bug2-qs-recover-'))
-    let caught: unknown
-    try {
-      await runStrategyResearchSwarm(
-        store, provider as never,
-        {
-          research_case_id: 'rc_bug2_qs', company_id: 'c', ticker: 'AAPL',
-          strategy_id: 'buffett-munger', actor_id: 'user_local', idempotency_key: 'bug2qs_k',
-          model_id: 'mock', decision_id: 'decision_bug2qs', source_ledger_path: sourceLedgerPath,
-        },
-        { ground: allVerifiedGround, laneConcurrency: 4 },
-      )
-    } catch (e) { caught = e }
-    expect(caught).toBeInstanceOf(ResearchSwarmStageError)
-    expect((caught as ResearchSwarmStageError).stage).toBe('quick_screen')
-    expect((caught as ResearchSwarmStageError).lanes_completed).toBe(false)
-    const events = await store.list()
-    expect(events.some((e) => e.event_type === 'decision_drafted')).toBe(false)
-  })
-
-  it('fails cleanly (ResearchSwarmStageError, quick_screen) when quick-screen times out persistently', async () => {
-    const store = new InMemoryEventStore()
-    const provider = configurableSwarmProvider({ laneCount: buffettMungerDeepDiveLanes.length, failQuickScreen: 99 })
-    const sourceLedgerPath = await mkdtemp(join(tmpdir(), 'owlfolio-bug2-qs-fail-'))
-    let caught: unknown
-    try {
-      await runStrategyResearchSwarm(
-        store, provider as never,
-        {
-          research_case_id: 'rc_bug2_qsfail', company_id: 'c', ticker: 'AAPL',
-          strategy_id: 'buffett-munger', actor_id: 'user_local', idempotency_key: 'bug2qsf_k',
-          model_id: 'mock', decision_id: 'decision_bug2qsf', source_ledger_path: sourceLedgerPath,
-        },
-        { ground: allVerifiedGround, laneConcurrency: 4 },
-      )
-    } catch (e) { caught = e }
-    expect(caught).toBeInstanceOf(ResearchSwarmStageError)
-    expect((caught as ResearchSwarmStageError).stage).toBe('quick_screen')
-    expect((caught as ResearchSwarmStageError).lanes_completed).toBe(false)
-    // Exactly one structured() attempt — the tool-grounded quick screen does not retry (matches circle gate).
-    expect(provider.structured).toHaveBeenCalledTimes(1)
-  })
-
   it('recovers when synthesis times out once then succeeds (single retry); lanes are not re-run', async () => {
     const store = new InMemoryEventStore()
     const provider = configurableSwarmProvider({ laneCount: buffettMungerDeepDiveLanes.length, failSynthesis: 1 })
@@ -2263,208 +2321,6 @@ describe('BUG 2 — resilient bookend swarm calls (retry + clean failure)', () =
 // the lanes (runGroundedAgentWithTools), so it must READ a content-hash-verified primary filing before
 // judging, and FAIL CLOSED when grounding yields zero verified sources.
 // ---------------------------------------------------------------------------
-describe('quick screen — tool-grounded firewall', () => {
-  it('grounds its judgment in verified sources (quick_screen_drafted carries verified source_ids + projection surfaces them)', async () => {
-    const store = new InMemoryEventStore()
-    const provider = configurableSwarmProvider({ laneCount: buffettMungerDeepDiveLanes.length })
-    const sourceLedgerPath = await mkdtemp(join(tmpdir(), 'owlfolio-qs-grounded-'))
-    await runStrategyResearchSwarm(
-      store, provider as never,
-      {
-        research_case_id: 'rc_qs_grounded', company_id: 'c', ticker: 'AAPL',
-        strategy_id: 'buffett-munger', actor_id: 'user_local', idempotency_key: 'qs_grounded_k',
-        model_id: 'mock', decision_id: 'decision_qs_grounded', source_ledger_path: sourceLedgerPath,
-      },
-      { ground: allVerifiedGround, laneConcurrency: 4 },
-    )
-    const events = await store.list()
-    const qsEvent = events.find((e) => e.event_type === 'quick_screen_drafted')
-    expect(qsEvent).toBeDefined()
-    // The gate grounded in ≥1 content-hash-verified source — the firewall the fix establishes.
-    expect((qsEvent?.payload as { source_ids?: string[] }).source_ids).toEqual(['src_qs_1'])
-    // …and the projection surfaces those ids so the dossier can render a quick-screen source count.
-    const projections = projectResearchCases(events as Parameters<typeof projectResearchCases>[0])
-    const cp = projections.find((c) => c.research_case_id === 'rc_qs_grounded')
-    expect(cp?.quick_screen_source_ids).toEqual(['src_qs_1'])
-  })
-
-  it('GROUNDS VIA HARNESS INJECTION on a NO-TOOLS provider — the production path (verified_ids includes the pre-fetched primary filing the model never proposed)', async () => {
-    // This is the completion the adversarial review demanded: configurableSwarmProvider is a NO-TOOLS
-    // provider (capabilities: {} → runGroundedAgentWithTools degrades), the SAME class as the live `openai`
-    // personal-local provider. With tool-grounding alone the gate would judge on the model's prior. Here we
-    // inject fundamentals (a 20-F filer — TSMC — the ticker that surfaced the bug); the HARNESS pre-fetches
-    // + grounds the 20-F and injects it, so verified_ids includes the filing id EVEN THOUGH the model's
-    // proposed_sources only carry src_qs_1. That proves grounding-via-injection, not via the model.
-    const tsmcFundamentals: Fundamentals = {
-      cik: '0001046179',
-      entity_name: 'TAIWAN SEMICONDUCTOR MANUFACTURING CO LTD',
-      currency: 'USD',
-      latest_annual: {
-        fiscal_year: 2024, currency: 'USD', net_income_musd: 36500, revenue_musd: 90000,
-        d_and_a_musd: 18000, capex_musd: 30000, sbc_musd: 0, diluted_shares_m: 5186,
-        shares_outstanding_m: 5186, total_debt_musd: 30000, cash_and_securities_musd: 60000,
-        interest_expense_musd: 400,
-      },
-      annual_series: [
-        { fiscal_year: 2024, currency: 'USD', net_income_musd: 36500, revenue_musd: 90000, d_and_a_musd: 18000, capex_musd: 30000, sbc_musd: 0, diluted_shares_m: 5186 },
-      ],
-      // 20-F (foreign private issuer), NOT 10-K — the across-forms selection must pick this.
-      filings: [
-        { form: '20-F', filed: '2025-04-15', url: 'https://www.sec.gov/Archives/edgar/data/1046179/000104621925000010/tsm-20241231.htm' },
-      ],
-    }
-    const store = new InMemoryEventStore()
-    const provider = configurableSwarmProvider({ laneCount: buffettMungerDeepDiveLanes.length })
-    const sourceLedgerPath = await mkdtemp(join(tmpdir(), 'owlfolio-qs-inject-'))
-    await runStrategyResearchSwarm(
-      store, provider as never,
-      {
-        research_case_id: 'rc_qs_inject', company_id: 'c', ticker: 'TSM',
-        strategy_id: 'buffett-munger', actor_id: 'user_local', idempotency_key: 'qs_inject_k',
-        model_id: 'mock', decision_id: 'decision_qs_inject', source_ledger_path: sourceLedgerPath,
-      },
-      { ground: allVerifiedGround, laneConcurrency: 4, fetchFundamentals: async () => tsmcFundamentals },
-    )
-    const events = await store.list()
-    const qsEvent = events.find((e) => e.event_type === 'quick_screen_drafted')
-    const filingId = 'sec_edgar_20f_0001046179_fy2024'
-    const qsSourceIds = (qsEvent?.payload as { source_ids?: string[] }).source_ids ?? []
-    // The harness-injected 20-F primary filing is in the gate's verified set (the model only proposed src_qs_1).
-    expect(qsSourceIds).toContain(filingId)
-    expect(qsSourceIds).toContain('src_qs_1')
-    // The projection surfaces it too (dossier source count includes the injected filing).
-    const projections = projectResearchCases(events as Parameters<typeof projectResearchCases>[0])
-    const cp = projections.find((c) => c.research_case_id === 'rc_qs_inject')
-    expect(cp?.quick_screen_source_ids).toContain(filingId)
-    // …and the across-forms 20-F filing id was actually INJECTED into the quick-screen prompt.
-    const qsPrompt = provider.structured.mock.calls
-      .map((c: unknown[]) => (c[0] as { prompt?: string; response_format?: { schema_name?: string } }))
-      .find((r) => r.response_format?.schema_name === 'BuffettMungerQuickScreen')?.prompt
-    expect(qsPrompt).toContain(filingId)
-    // QUICK-SCREEN-specific block (NOT the citation-field-oriented buildPreVerifiedSourcesBlock).
-    expect(qsPrompt).toContain('HARNESS PRE-VERIFIED PRIMARY FILING')
-    // The block must instruct an EMPTY proposed_sources when nothing extra is fetched (no source_id-as-url).
-    expect(qsPrompt).toContain('proposed_sources is for REAL fetched URLs ONLY')
-  })
-
-  it('SUCCEEDS with EMPTY proposed_sources on a no-tools provider — grounding is via the harness pre-fetch, not a model-proposed source (the regression repro)', async () => {
-    // The exact regression (TSM real codex re-run): the tool-grounded quick screen on the NO-TOOLS codex
-    // provider got the harness pre-verified-filing block injected; ProposedSourcesSchema.min(1) forced the
-    // model to emit a proposed_source and — with no citation field on the quick-screen schema — it put the
-    // harness source_id into proposed_sources[0].url → invalid-URL → structured-output rejected → the run
-    // failed. AFTER the fix the schema allows EMPTY proposed_sources, so the model proposes nothing and the
-    // run STILL SUCCEEDS: the gate is grounded purely by the harness-injected + folded 20-F filing id.
-    const tsmcFundamentals: Fundamentals = {
-      cik: '0001046179',
-      entity_name: 'TAIWAN SEMICONDUCTOR MANUFACTURING CO LTD',
-      currency: 'USD',
-      latest_annual: {
-        fiscal_year: 2024, currency: 'USD', net_income_musd: 36500, revenue_musd: 90000,
-        d_and_a_musd: 18000, capex_musd: 30000, sbc_musd: 0, diluted_shares_m: 5186,
-        shares_outstanding_m: 5186, total_debt_musd: 30000, cash_and_securities_musd: 60000,
-        interest_expense_musd: 400,
-      },
-      annual_series: [
-        { fiscal_year: 2024, currency: 'USD', net_income_musd: 36500, revenue_musd: 90000, d_and_a_musd: 18000, capex_musd: 30000, sbc_musd: 0, diluted_shares_m: 5186 },
-      ],
-      filings: [
-        { form: '20-F', filed: '2025-04-15', url: 'https://www.sec.gov/Archives/edgar/data/1046179/000104621925000010/tsm-20241231.htm' },
-      ],
-    }
-    const store = new InMemoryEventStore()
-    const provider = configurableSwarmProvider({ laneCount: buffettMungerDeepDiveLanes.length, quickScreenProposesEmpty: true })
-    const sourceLedgerPath = await mkdtemp(join(tmpdir(), 'owlfolio-qs-empty-'))
-    await runStrategyResearchSwarm(
-      store, provider as never,
-      {
-        research_case_id: 'rc_qs_empty', company_id: 'c', ticker: 'TSM',
-        strategy_id: 'buffett-munger', actor_id: 'user_local', idempotency_key: 'qs_empty_k',
-        model_id: 'mock', decision_id: 'decision_qs_empty', source_ledger_path: sourceLedgerPath,
-      },
-      { ground: allVerifiedGround, laneConcurrency: 4, fetchFundamentals: async () => tsmcFundamentals },
-    )
-    const events = await store.list()
-    // The run SUCCEEDED — the quick screen drafted and a decision was reached (before the fix it threw).
-    const qsEvent = events.find((e) => e.event_type === 'quick_screen_drafted')
-    expect(qsEvent).toBeDefined()
-    expect(events.some((e) => e.event_type === 'decision_drafted')).toBe(true)
-    // Grounding held via the harness pre-fetch even though the model proposed NOTHING: the 20-F filing id
-    // is the gate's only verified source.
-    const filingId = 'sec_edgar_20f_0001046179_fy2024'
-    const qsSourceIds = (qsEvent?.payload as { source_ids?: string[] }).source_ids ?? []
-    expect(qsSourceIds).toEqual([filingId])
-    const projections = projectResearchCases(events as Parameters<typeof projectResearchCases>[0])
-    const cp = projections.find((c) => c.research_case_id === 'rc_qs_empty')
-    expect(cp?.quick_screen_source_ids).toEqual([filingId])
-  })
-
-  it('RESIDUAL fail-closed: a non-EDGAR name on a no-tools provider (no fundamentals + no verified model source) fails closed', async () => {
-    // Production residual the review asked to document: when fundamentals do NOT resolve (fetchFundamentals
-    // returns undefined — a non-EDGAR/GCC name or EDGAR down) AND the no-tools provider's proposed source
-    // does not verify, there is nothing to ground → the firewall fails the gate closed. Correct + safe.
-    const captureNoneVerified = async (sources: { source_id: string }[]) => ({
-      captured: sources.map((s) => ({
-        source_id: s.source_id, title: 't', url: 'https://example.com/x', excerpt: 'e',
-        availability: 'unavailable' as const, fetched_at: 'x',
-      })),
-      verified_ids: [] as string[],
-    })
-    const store = new InMemoryEventStore()
-    const provider = configurableSwarmProvider({ laneCount: buffettMungerDeepDiveLanes.length })
-    const sourceLedgerPath = await mkdtemp(join(tmpdir(), 'owlfolio-qs-residual-'))
-    let caught: unknown
-    try {
-      await runStrategyResearchSwarm(
-        store, provider as never,
-        {
-          research_case_id: 'rc_qs_residual', company_id: 'c', ticker: 'PRIVATEGCC',
-          strategy_id: 'buffett-munger', actor_id: 'user_local', idempotency_key: 'qs_residual_k',
-          model_id: 'mock', decision_id: 'decision_qs_residual', source_ledger_path: sourceLedgerPath,
-        },
-        { ground: captureNoneVerified as GroundFn, laneConcurrency: 4, fetchFundamentals: async () => undefined },
-      )
-    } catch (e) { caught = e }
-    expect(caught).toBeInstanceOf(Error)
-    expect((caught as Error).message).toMatch(/no verifiable grounded sources \(fail-closed\)/)
-    const events = await store.list()
-    expect(events.some((e) => e.event_type === 'quick_screen_drafted')).toBe(false)
-    expect(events.some((e) => e.event_type === 'decision_drafted')).toBe(false)
-  })
-
-  it('FAILS CLOSED when grounding yields zero verified sources (no judgment on an ungrounded prior)', async () => {
-    // The ground fn captures the proposed source but verifies NONE (no content_hash) → the quick screen has
-    // no verified source to anchor its judgment → the run throws before any lane runs.
-    const captureNoneVerified = async (sources: { source_id: string }[]) => ({
-      captured: sources.map((s) => ({
-        source_id: s.source_id, title: 't', url: 'https://example.com/x', excerpt: 'e',
-        availability: 'unavailable' as const, fetched_at: 'x',
-      })),
-      verified_ids: [] as string[],
-    })
-    const store = new InMemoryEventStore()
-    const provider = configurableSwarmProvider({ laneCount: buffettMungerDeepDiveLanes.length })
-    const sourceLedgerPath = await mkdtemp(join(tmpdir(), 'owlfolio-qs-failclosed-'))
-    let caught: unknown
-    try {
-      await runStrategyResearchSwarm(
-        store, provider as never,
-        {
-          research_case_id: 'rc_qs_failclosed', company_id: 'c', ticker: 'AAPL',
-          strategy_id: 'buffett-munger', actor_id: 'user_local', idempotency_key: 'qs_failclosed_k',
-          model_id: 'mock', decision_id: 'decision_qs_failclosed', source_ledger_path: sourceLedgerPath,
-        },
-        { ground: captureNoneVerified as GroundFn, laneConcurrency: 4 },
-      )
-    } catch (e) { caught = e }
-    expect(caught).toBeInstanceOf(Error)
-    expect((caught as Error).message).toMatch(/no verifiable grounded sources \(fail-closed\)/)
-    // No quick_screen_drafted, no lanes, no decision — the firewall stopped the run.
-    const events = await store.list()
-    expect(events.some((e) => e.event_type === 'quick_screen_drafted')).toBe(false)
-    expect(events.some((e) => e.event_type === 'decision_drafted')).toBe(false)
-  })
-})
-
 // ---------------------------------------------------------------------------
 // Mechanism 5 — Red-Team Pass (orchestrator integration): runs after the 5 lanes, before synthesis;
 // synthesis must answer the strongest objection or downgrade; the harness enforces the response
@@ -2497,8 +2353,8 @@ describe('Mechanism 5 — red-team pass + synthesis obligation', () => {
     expect(result.decision).toBeDefined()
     expect(cp?.red_team?.status).toBe('complete')
     expect(cp?.red_team?.strongest_objection?.claim).toMatch(/incremental ROIC/i)
-    // Cite-checked against the corpus (src_qs_1 is verified).
-    expect(cp?.red_team?.strongest_objection?.citations).toEqual(['src_qs_1'])
+    // Cite-checked against the corpus (src_lane_0 is a verified lane source).
+    expect(cp?.red_team?.strongest_objection?.citations).toEqual(['src_lane_0'])
     expect(cp?.red_team?.synthesis_response?.mode).toBe('answered_with_evidence')
     expect(cp?.red_team?.objection_unaddressed).toBeUndefined()
     // No red_team_objection_unaddressed open question.
@@ -2619,7 +2475,7 @@ describe('Mechanism 5 — red-team pass + synthesis obligation', () => {
   })
 
   it('records the answer from the dedicated red-team-response call (no unaddressed flag) when it answers', async () => {
-    // A live objection (src_qs_1 verified) → the dedicated call runs and answers it → the answer is
+    // A live objection (src_lane_0 verified) → the dedicated call runs and answers it → the answer is
     // recorded on the red-team layer and there is NO red_team_objection_unaddressed flag.
     const store = new InMemoryEventStore()
     const provider = configurableSwarmProvider({
@@ -2732,8 +2588,8 @@ function deepDiveCommand() {
     model_id: 'mock',
     decision_id: 'decision_edgar',
     source_ledger_path: '/tmp/owlfolio-edgar-test-sources',
-    quick_screen_source_ids: ['src_qs_1'],
-    quick_screen_event_id: 'evt_qs_1',
+    gate_source_ids: ['src_qs_1'],
+    gate_event_id: 'evt_qs_1',
   }
 }
 
@@ -3373,7 +3229,7 @@ function swarmFakeProviderWithShariah(
       // null = UNDETERMINED, which the pass accepts and the harness fails CLOSED on).
       if (schemaName === 'BuffettMungerShariahReasoning') {
         return {
-          shariah_judgment: { sector_status, impermissible_income, sector_citation: 'src_shariah_reasoning' },
+          shariah_judgment: { sector_reasoning: 'Grounded sector basis (test fixture).', sector_status, impermissible_income, sector_citation: 'src_shariah_reasoning' },
           proposed_sources: [src('src_shariah_reasoning')],
         }
       }
@@ -3384,8 +3240,8 @@ function swarmFakeProviderWithShariah(
       if (schemaName === 'BuffettMungerRedTeam') {
         return {
           strongest_bear_case: 'b', weakest_rubric_items: [], moat_decay_scenario: 'd', growth_credit_attack: 'g',
-          shared_narrative_blindspots: [], strongest_objection: { claim: 'c', severity: 'low', citations: ['src_qs_1'] },
-          proposed_sources: [src('src_qs_1')],
+          shared_narrative_blindspots: [], strongest_objection: { claim: 'c', severity: 'low', citations: ['src_shariah_reasoning'] },
+          proposed_sources: [src('src_shariah_reasoning')],
         }
       }
       if (schemaName === 'BuffettMungerRedTeamResponse') {
@@ -3528,7 +3384,7 @@ describe('EDGAR-anchored OE bridge + harness AAOIFI Shariah ratios', () => {
         // The focused PASS is the SOLE source of the overlay the harness recomputes from.
         if (schemaName === 'BuffettMungerShariahReasoning') {
           return {
-            shariah_judgment: { sector_status: 'compliant', impermissible_income: 0, sector_citation: 'src_shariah_reasoning' },
+            shariah_judgment: { sector_reasoning: 'Grounded sector basis (test fixture).', sector_status: 'compliant', impermissible_income: 0, sector_citation: 'src_shariah_reasoning' },
             proposed_sources: [src('src_shariah_reasoning')],
           }
         }
@@ -3539,8 +3395,8 @@ describe('EDGAR-anchored OE bridge + harness AAOIFI Shariah ratios', () => {
         if (schemaName === 'BuffettMungerRedTeam') {
           return {
             strongest_bear_case: 'b', weakest_rubric_items: [], moat_decay_scenario: 'd', growth_credit_attack: 'g',
-            shared_narrative_blindspots: [], strongest_objection: { claim: 'c', severity: 'low', citations: ['src_qs_1'] },
-            proposed_sources: [src('src_qs_1')],
+            shared_narrative_blindspots: [], strongest_objection: { claim: 'c', severity: 'low', citations: ['src_shariah_reasoning'] },
+            proposed_sources: [src('src_shariah_reasoning')],
           }
         }
         if (schemaName === 'BuffettMungerRedTeamResponse') {
@@ -4085,6 +3941,41 @@ describe('EDGAR-anchored OE bridge + harness AAOIFI Shariah ratios', () => {
     expect(flagsBlob).toMatch(/maintenance.capex.*below.*proxy|proxy.*maintenance.capex/i)
     // The verdict is not BLOCKED by the advisory flag (a verdict is still recorded — the run completes).
     expect(cp?.investment_verdict).toBeDefined()
+  })
+
+  it('amortization-heavy filer (SPGI dogfood 2026-07-10): the envelope FALLBACK is capped at total capex — never a proxy that violates the same envelope', async () => {
+    // SPGI live shape: D&A ($1.2B, merger-amortization heavy) dwarfs total capex ($195M). The model's
+    // maintenance_capex (350) is rejected against the envelope [0, 195] — but the Greenwald/D&A proxy
+    // fallback (~D&A-scaled, >> 195) violated the SAME envelope, understating OE and overstating every
+    // implied-growth/fair-value read. The fallback must be clamped to total capex.
+    const amortHeavy = {
+      ...costFundamentals,
+      latest_annual: { ...costFundamentals.latest_annual, d_and_a_musd: 1200, capex_musd: 195 },
+      annual_series: costFundamentals.annual_series!.map((y) => ({ ...y, d_and_a_musd: 1200, capex_musd: 195 })),
+    }
+    const store = new InMemoryEventStore()
+    await seedDeepDivePrereqs(store)
+    const provider = swarmFakeProviderWithShariah(0.004 * 275235, 'conditional', {
+      net_income: 8099, depreciation_amortization: 999, maintenance_capex: 350,
+      maintenance_capex_proxy_tier: '80', stock_based_comp: 1,
+      normalized_working_capital_change: 0, shares_outstanding: 1,
+    })
+    await provider.structured({} as never)
+
+    await runResearchDeepDivePhase(store, provider as never, deepDiveCommand(), {
+      ground: verifyAllGround(),
+      laneConcurrency: 7,
+      fundamentals: amortHeavy,
+      resolvePrice: async () => ({ available: true, price_per_share: 968, currency: 'USD', as_of: 'x', source: 'test' }),
+    })
+
+    const events = await store.list()
+    const projections = projectResearchCases(events as Parameters<typeof projectResearchCases>[0])
+    const cp = projections.find((c) => c.research_case_id === 'rc_edgar')
+    const boundMaint = cp?.valuation?.owner_earnings_bridge?.maintenance_capex
+    // The binding value must respect the envelope: ≤ total capex (195) — never the uncapped D&A proxy.
+    expect(boundMaint).toBeDefined()
+    expect(boundMaint!).toBeLessThanOrEqual(195)
   })
 
   it('rejects a model maintenance_capex above total capex (envelope) and falls back to the proxy with a visible flag', async () => {
@@ -4964,15 +4855,15 @@ describe('runStrategyResearchSwarm — schema-validation + retry (harness defens
         // Focused Shariah-reasoning pass (always-on): the overlay the harness recompute sources from.
         if (schemaName === 'BuffettMungerShariahReasoning') {
           return {
-            shariah_judgment: { sector_status: 'compliant', impermissible_income: 0, sector_citation: 'src_shariah_reasoning' },
+            shariah_judgment: { sector_reasoning: 'Grounded sector basis (test fixture).', sector_status: 'compliant', impermissible_income: 0, sector_citation: 'src_shariah_reasoning' },
             proposed_sources: [src('src_shariah_reasoning')],
           }
         }
         if (schemaName === 'BuffettMungerRedTeam') {
           return {
             strongest_bear_case: 'b', weakest_rubric_items: [], moat_decay_scenario: 'd', growth_credit_attack: 'g',
-            shared_narrative_blindspots: [], strongest_objection: { claim: 'c', severity: 'low', citations: ['src_qs_1'] },
-            proposed_sources: [src('src_qs_1')],
+            shared_narrative_blindspots: [], strongest_objection: { claim: 'c', severity: 'low', citations: ['src_shariah_reasoning'] },
+            proposed_sources: [src('src_shariah_reasoning')],
           }
         }
         if (schemaName === 'BuffettMungerRedTeamResponse') {
@@ -5149,7 +5040,7 @@ function crossCheckSwarmProvider(opts: {
       // Shariah sector cross-check now source from (the cross-check second model then re-classifies it).
       if (schemaName === 'BuffettMungerShariahReasoning') {
         return {
-          shariah_judgment: { sector_status: opts.primarySector ?? 'compliant', impermissible_income: 0, sector_citation: 'src_shariah_reasoning' },
+          shariah_judgment: { sector_reasoning: 'Grounded sector basis (test fixture).', sector_status: opts.primarySector ?? 'compliant', impermissible_income: 0, sector_citation: 'src_shariah_reasoning' },
           proposed_sources: [src('src_shariah_reasoning')],
         }
       }
@@ -5163,8 +5054,8 @@ function crossCheckSwarmProvider(opts: {
       if (schemaName === 'BuffettMungerRedTeam') {
         return {
           strongest_bear_case: 'b', weakest_rubric_items: [], moat_decay_scenario: 'd', growth_credit_attack: 'a',
-          shared_narrative_blindspots: [], strongest_objection: { claim: 'c', severity: 'low', citations: ['src_qs_1'] },
-          proposed_sources: [src('src_qs_1')],
+          shared_narrative_blindspots: [], strongest_objection: { claim: 'c', severity: 'low', citations: ['src_shariah_reasoning'] },
+          proposed_sources: [src('src_shariah_reasoning')],
         }
       }
       // synthesis/decision
@@ -5316,9 +5207,10 @@ describe('runStrategyResearchSwarm — model_role_env (file-configured tier over
       { ground, laneConcurrency: 3 },
     )
 
-    // The red-team pass ran on the env-configured model; the quick screen kept the run default.
+    // The red-team pass ran on the env-configured model; the circle gate (synthesis role, no
+    // override configured) kept the run default.
     expect(modelBySchema.get('BuffettMungerRedTeam')).toBe('env-red-team-model')
-    expect(modelBySchema.get('BuffettMungerQuickScreen')).toBe('run-default-model')
+    expect(modelBySchema.get('BuffettMungerCircleCompetence')).toBe('run-default-model')
   })
 })
 
@@ -5379,6 +5271,41 @@ describe('runStrategyResearchSwarm — synthesis own-grounding fail-closed (foun
     expect(cp?.valuation?.synthesis_grounding_unmet).toBe(true)
     expect(cp?.investment_verdict ?? cp?.decision).toBe('RESEARCH_MORE')
     expect(cp?.investment_verdict ?? cp?.decision).not.toBe('BUY')
+  })
+
+  it('Test 1b — CITATION-ALIGNED grounding (dogfood 2026-07-10): the decision proposes nothing of its own but CITES the corpus-verified filing → verdict passes through', async () => {
+    // Live COST/SPGI shape: the citation-alignment steer tells the decision agent to cite the
+    // harness-verified id instead of re-fetching its own copy. Kimi obeyed — valuation citations
+    // verified against the hash-verified corpus — but proposed no NEW source, so the old Layer-1
+    // check (dec.verified_ids empty) clamped a fully-cite-verified verdict to RESEARCH_MORE.
+    const groundExceptDecision = async (sources: { source_id: string }[]) => {
+      const verifiable = sources.filter((s) => !s.source_id.startsWith('src_dec'))
+      return {
+        captured: sources.map((s) => {
+          const ok = !s.source_id.startsWith('src_dec')
+          return {
+            source_id: s.source_id, title: 't', url: 'https://example.com/x', excerpt: 'e',
+            availability: (ok ? 'available' : 'unavailable') as 'available' | 'unavailable',
+            fetched_at: 'x', ...(ok ? { content_hash: 'sha256:1' } : {}),
+          }
+        }),
+        verified_ids: verifiable.map((s) => s.source_id),
+      }
+    }
+    const { cp } = await runWithSynthesis('rc_g_aligned', {
+      investmentVerdict: 'WATCH',
+      synthesis: {
+        valuation_reasoning: {
+          owner_earnings_basis: 'FY25 owner earnings per the 10-K bridge.',
+          owner_earnings_citation: 'src_lane_0', // a lane-grounded, hash-verified corpus id
+          assumed_growth: 0.06,
+          assumed_growth_rationale: 'Growth grounded in segment capex per the corpus filing.',
+          assumed_growth_citation: 'src_lane_0',
+        },
+      },
+    }, groundExceptDecision)
+    expect(cp?.valuation?.synthesis_grounding_unmet).toBeUndefined()
+    expect(cp?.investment_verdict ?? cp?.decision).toBe('WATCH')
   })
 
   it('Test 2 — UNGROUNDED GROWTH citation (not in corpus): verdict RESEARCH_MORE + synthesis_grounding_unmet', async () => {
@@ -5644,8 +5571,8 @@ describe('circle-of-competence gate', () => {
         if (schemaName === 'BuffettMungerRedTeam') {
           return {
             strongest_bear_case: 'b', weakest_rubric_items: [], moat_decay_scenario: 'd', growth_credit_attack: 'g',
-            shared_narrative_blindspots: [], strongest_objection: { claim: 'c', severity: 'low', citations: ['src_qs_1'] },
-            proposed_sources: [src('src_qs_1')],
+            shared_narrative_blindspots: [], strongest_objection: { claim: 'c', severity: 'low', citations: ['src_shariah_reasoning'] },
+            proposed_sources: [src('src_shariah_reasoning')],
           }
         }
         if (schemaName === 'BuffettMungerRedTeamResponse') {

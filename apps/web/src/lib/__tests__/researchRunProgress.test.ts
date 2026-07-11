@@ -24,7 +24,7 @@ describe('resolveRunProgress — stage mapping', () => {
     expect(p.currentStage).toBe('queued')
     expect(p.inProgress).toBe(true)
     expect(stateOf(p, 'queued')).toBe('current')
-    expect(stateOf(p, 'quick_screen')).toBe('pending')
+    expect(stateOf(p, 'shariah_gate')).toBe('pending')
   })
 
   it('no stage at all (run enqueued, case row not yet created) → queued', () => {
@@ -33,10 +33,10 @@ describe('resolveRunProgress — stage mapping', () => {
     expect(p.inProgress).toBe(true)
   })
 
-  it('quick_screened → quick_screen done, circle current (worker goes straight to circle)', () => {
+  it('quick_screened (legacy) → shariah_gate done, circle current (straight to circle)', () => {
     const p = resolveRunProgress({ stage: 'quick_screened' })
     expect(p.currentStage).toBe('circle')
-    expect(stateOf(p, 'quick_screen')).toBe('done')
+    expect(stateOf(p, 'shariah_gate')).toBe('done')
     expect(stateOf(p, 'circle')).toBe('current')
     expect(stateOf(p, 'deep_dive')).toBe('pending')
   })

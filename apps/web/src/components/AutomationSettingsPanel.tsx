@@ -408,17 +408,17 @@ export function AutomationSettingsPanel({ initialAutomation }: AutomationSetting
         createElement(
           ControlRow,
           {
-            label: 'Quick-screen approval',
-            helper: 'How to handle a passing quick screen before a deep dive is queued.',
+            label: 'Deep-dive approval',
+            helper: 'How to handle a name that passes the Shariah + circle gates before the expensive deep dive runs.',
           },
-          createElement(ControlSelect<AutomationSettings['quick_screen_approval']>, {
-            label: 'Quick-screen approval',
-            value: pendingSettings.quick_screen_approval,
+          createElement(ControlSelect<AutomationSettings['deep_dive_approval']>, {
+            label: 'Deep-dive approval',
+            value: pendingSettings.deep_dive_approval,
             options: [
               { value: 'review', label: 'Review before deep dive' },
-              { value: 'automatic', label: 'Automatic — queue deep dive immediately' },
+              { value: 'automatic', label: 'Automatic — run the deep dive immediately' },
             ],
-            onChange: (v) => update('quick_screen_approval', v),
+            onChange: (v) => update('deep_dive_approval', v),
           }),
         ),
 

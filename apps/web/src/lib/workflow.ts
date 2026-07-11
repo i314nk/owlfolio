@@ -34,6 +34,7 @@ import { isTerminalResearchStage } from './researchRunProgress'
 import { resolveAppConfigPath } from './appConfigStore'
 import { resolveProviderCertificationReportDir } from './providerStatus'
 import type { AppConfig } from '@owlfolio/shared'
+import { mergeSavingsSleeveConfig } from '@owlfolio/shared/appConfig'
 import { mergeAutomationSettings } from '@owlfolio/shared/appConfig'
 
 /** Resolve the clamped circle-gate hardening knobs from app config (k-sample agreement + evidence floors). */
@@ -510,12 +511,16 @@ export async function enqueueResearchRun(
           source_ledger_path: state.config.source_ledger_path,
           version,
           ...(supersedesId === undefined ? {} : { supersedes_research_case_id: supersedesId }),
-          quick_screen_approval: state.config.automation?.quick_screen_approval ?? 'review',
+          // mergeAutomationSettings migrates the retired quick_screen_approval key from older configs.
+          deep_dive_approval: mergeAutomationSettings(state.config.automation).deep_dive_approval,
           // model-tiering: file-configured per-role overrides (UI-managed env file = PINS) take effect
           // here, layered OVER the deterministic AUTO defaults (auto fills only unpinned roles).
           model_role_env: await resolveModelRoleEnv(),
           model_overrides: (await buildAutoModelRoleOverrides({ processEnv: process.env })).overrides,
           circle_gate: resolveCircleGateSettings(state.config),
+          // F.2: the compliant savings anchor (Settings → Valuation & capital) — same discount on the
+          // inline path as the worker paths.
+          risk_free_rate: mergeSavingsSleeveConfig(state.config.savings).savings_expected_profit_rate,
         },
         // Advanced research-depth knob: per-lane grounded-tool-call cap (undefined → loop default).
         { ground, ...(state.config.automation?.research_max_tool_calls === undefined ? {} : { maxToolCalls: state.config.automation.research_max_tool_calls }) },
@@ -699,8 +704,8 @@ export async function requestDeepDiveRun(
             model_id: pendingRun.model_id ?? resolveModelIdForProvider(state.config),
             decision_id: pendingRun.decision_id ?? `decision_${researchCaseId}`,
             source_ledger_path: pendingRun.source_ledger_path ?? state.config.source_ledger_path,
-            quick_screen_source_ids: pendingRun.quick_screen_source_ids,
-            quick_screen_event_id: pendingRun.quick_screen_event_id,
+            gate_source_ids: pendingRun.gate_source_ids,
+            gate_event_id: pendingRun.gate_event_id,
             // model-tiering: file-configured per-role overrides (PINS) take effect in the deep-dive phase
             // too, layered over the deterministic AUTO defaults (auto fills only unpinned roles).
             model_role_env: await resolveModelRoleEnv(),
@@ -962,15 +967,17 @@ export async function getAppResearchPipelineFromStore(
           .map(candidateToPipelineItem),
       },
       {
+        // The board key stays 'quick-screen' for UI/e2e stability; it now renders the FRONT GATES
+        // column (Shariah gate + circle gate, plus legacy quick-screened cases).
         key: 'quick-screen',
-        title: 'Quick Screen',
-        empty_message: 'No companies are waiting in or exiting quick screen.',
+        title: 'Front Gates',
+        empty_message: 'No companies are waiting in or exiting the front gates.',
         items: [
           ...selectedDiscoveryCandidates
             .filter((candidate) => candidate.status === 'queued_for_quick_screen')
             .map(candidateToPipelineItem),
           ...selectedResearchCases
-            .filter((researchCase) => researchCase.stage === 'quick_screened' || researchCase.stage === 'awaiting_deep_dive_approval')
+            .filter((researchCase) => researchCase.stage === 'shariah_gate_judged' || researchCase.stage === 'quick_screened' || researchCase.stage === 'awaiting_deep_dive_approval')
             .map(researchCaseToPipelineItem),
         ],
       },
@@ -2528,9 +2535,9 @@ function watchlistItemToPipelineItem(item: AppWatchlistItem): AppResearchPipelin
 function nextActionForDiscoveryCandidate(candidate: DiscoveryCandidateProjection): string {
   switch (candidate.status) {
     case 'discovered':
-      return 'Queue for quick screen'
+      return 'Queue for research'
     case 'queued_for_quick_screen':
-      return 'Run selected-strategy quick screen'
+      return 'Run the selected-strategy research (front gates first)'
     case 'duplicate':
       return `Review duplicate target ${candidate.duplicate_target_id ?? 'record'}`
     case 'promoted_to_research_case':
@@ -2543,13 +2550,15 @@ function nextActionForDiscoveryCandidate(candidate: DiscoveryCandidateProjection
 function nextActionForResearchCase(researchCase: ResearchCaseProjection): string {
   switch (researchCase.stage) {
     case 'discovered':
-      return 'Run selected-strategy quick screen'
-    case 'quick_screened':
+      return 'Run the selected-strategy research (front gates first)'
+    case 'shariah_gate_judged':
+      return 'Shariah gate judged; research in progress'
+    case 'quick_screened': // legacy (pre-restructure) cases
       return researchCase.screening_result === 'deep_dive_candidate'
         ? 'Send to deep dive queue'
         : 'Review quick screen outcome'
     case 'awaiting_deep_dive_approval':
-      return 'Review quick screen and click "Run deep dive" to start the swarm'
+      return 'Review the gate outcomes and click "Run deep dive" to start the swarm'
     case 'queued_for_deep_dive':
       return 'Start deep dive'
     case 'circle_competence_judged':

@@ -27,7 +27,7 @@ export const PIPELINE_SPECIALIST_LANES = [
 ] as const
 
 export type PipelineStageKey =
-  | 'quick_screen'
+  | 'shariah_gate'
   | 'deep_dive'
   | 'synthesis'
   | 'decision'
@@ -171,9 +171,12 @@ function stageLabelForCase(
   switch (stage) {
     case 'discovered':
       return 'Discovered'
-    case 'quick_screened':
-    case 'awaiting_deep_dive_approval':
+    case 'shariah_gate_judged':
+      return 'Shariah gate'
+    case 'quick_screened': // legacy (pre-restructure) cases
       return 'Quick screen'
+    case 'awaiting_deep_dive_approval':
+      return 'Awaiting deep-dive approval'
     case 'queued_for_deep_dive':
       return 'Deep dive (queued)'
     case 'circle_competence_judged':
@@ -294,7 +297,8 @@ function buildRuns(researchCases: ResearchCaseProjection[], failedCaseIds: Reado
  * failed (the failure is its latest lifecycle state, not "recovered").
  */
 const RUN_RECOVERY_EVENT_TYPES = new Set<string>([
-  'quick_screen_drafted',
+  'shariah_gate_judged',
+  'quick_screen_drafted', // legacy (pre-restructure) runs
   'deep_dive_started',
   'specialist_finding_recorded',
   'deep_dive_synthesis_drafted',
@@ -355,8 +359,8 @@ export function projectPipeline(events: LedgerEventEnvelope<unknown>[]): Pipelin
 
   // ── Stage counts ── (active stages exclude failed cases) ───────────────────
   const isActive = (c: ResearchCaseProjection): boolean => !failedCaseIds.has(c.research_case_id)
-  const quickScreen = liveCases.filter(
-    (c) => isActive(c) && (c.stage === 'quick_screened' || c.stage === 'awaiting_deep_dive_approval' || c.stage === 'pass'),
+  const shariahGate = liveCases.filter(
+    (c) => isActive(c) && (c.stage === 'shariah_gate_judged' || c.stage === 'quick_screened' || c.stage === 'awaiting_deep_dive_approval' || c.stage === 'pass'),
   ).length
   const deepDive = liveCases.filter((c) => isActive(c) && (c.stage === 'queued_for_deep_dive' || DEEP_DIVE_STAGES.has(c.stage))).length
   const synthesis = liveCases.filter((c) => isActive(c) && SYNTHESIS_STAGES.has(c.stage)).length
@@ -370,7 +374,7 @@ export function projectPipeline(events: LedgerEventEnvelope<unknown>[]): Pipelin
   const awaitingApproval = liveCases.filter((c) => isActive(c) && c.stage === 'awaiting_deep_dive_approval').length
 
   const stage_counts: PipelineStageCount[] = [
-    { key: 'quick_screen', label: 'Quick screen', count: quickScreen, health: 'ok' },
+    { key: 'shariah_gate', label: 'Shariah gate', count: shariahGate, health: 'ok' },
     {
       key: 'deep_dive',
       label: `Deep dive · ${PIPELINE_SPECIALIST_LANES.length} lanes`,
@@ -421,6 +425,12 @@ const TIMELINE_LABELS: Record<string, (payload: Record<string, unknown>) => stri
   research_run_requested: () => 'research_run_requested',
   research_run_claimed: () => 'research_run_claimed',
   research_run_failed: () => 'research_run_failed',
+  shariah_gate_judged: (payload) => {
+    const allowed = payload['allowed']
+    if (allowed === true) return 'shariah_gate_judged · OPEN gate'
+    if (allowed === false) return 'shariah_gate_judged · CLOSED gate'
+    return 'shariah_gate_judged'
+  },
   quick_screen_drafted: (payload) => {
     const result = getString(payload, 'screening_result')
     if (result === 'pass') return 'quick_screen_drafted · PASS gate'
