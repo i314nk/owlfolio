@@ -22,6 +22,7 @@ import {
 } from '@owlfolio/ledger/projections/researchCaseTimelineProjection'
 import type { HoldingProjection } from '@owlfolio/ledger/projections/holdingProjection'
 import { projectHoldings } from '@owlfolio/ledger/projections/holdingProjection'
+import { projectPassiveSleeve, type PassiveSleeveProjection } from '@owlfolio/ledger/projections/passiveSleeveProjection'
 import type { WatchlistProjection } from '@owlfolio/ledger/projections/watchlistProjection'
 import { projectWatchlist } from '@owlfolio/ledger/projections/watchlistProjection'
 import type { EventStore } from '@owlfolio/ledger/eventStore'
@@ -776,6 +777,82 @@ export async function archiveAppResearchCase(
     })
 
     return { research_case_id: researchCaseId }
+  } finally {
+    store.close()
+  }
+}
+
+// ---------------------------------------------------------------------------------------------------
+// B7 (Phase 4, book alignment): the PASSIVE SLEEVE — record a DCA contribution (user-authored,
+// append-only; a local record of an index purchase already made elsewhere) + the sleeve view
+// (recorded contributions + the active book's value for the drift read). Rule 3 by construction:
+// there is no withdrawal helper and no sell affordance anywhere in the sleeve.
+// ---------------------------------------------------------------------------------------------------
+
+export async function recordPassiveContribution(
+  state: OnboardingState,
+  input: { amount: number; contributed_at?: string; instrument?: string; note?: string },
+): Promise<{ contribution_id: string }> {
+  if (
+    !state.is_initialized
+    || state.config.mode !== 'personal-local'
+    || state.config.ledger_path === undefined
+  ) {
+    throw new Error('Personal-local workflow is not initialized')
+  }
+  if (!Number.isFinite(input.amount) || input.amount <= 0) {
+    throw new Error('Contribution amount must be a positive number')
+  }
+  const contributedAt = input.contributed_at !== undefined && !Number.isNaN(Date.parse(input.contributed_at))
+    ? input.contributed_at.slice(0, 10)
+    : new Date().toISOString().slice(0, 10)
+  const contributionId = `pc_${Date.now()}`
+  const store = new SQLiteEventStore(state.config.ledger_path)
+  try {
+    await store.append({
+      event_id: `evt_passive_contribution_${contributionId}`,
+      event_type: 'passive_contribution_recorded',
+      aggregate_type: 'passive_sleeve',
+      aggregate_id: 'passive_sleeve',
+      correlation_id: 'passive_sleeve',
+      actor_type: 'user',
+      actor_id: 'user_local',
+      payload: {
+        contribution_id: contributionId,
+        amount: input.amount,
+        contributed_at: contributedAt,
+        ...(input.instrument !== undefined && input.instrument.trim() !== '' ? { instrument: input.instrument.trim() } : {}),
+        ...(input.note !== undefined && input.note.trim() !== '' ? { note: input.note.trim() } : {}),
+      },
+      source_ids: [],
+      created_at: new Date().toISOString(),
+      schema_version: 1,
+      idempotency_key: `passive-contribution:${contributionId}`,
+    })
+    return { contribution_id: contributionId }
+  } finally {
+    store.close()
+  }
+}
+
+export async function getPassiveSleeveView(
+  state: OnboardingState,
+): Promise<{ sleeve: PassiveSleeveProjection; active_value: number }> {
+  if (
+    !state.is_initialized
+    || state.config.mode !== 'personal-local'
+    || state.config.ledger_path === undefined
+  ) {
+    throw new Error('Personal-local workflow is not initialized')
+  }
+  const store = new SQLiteEventStore(state.config.ledger_path)
+  try {
+    const events = await store.list()
+    const sleeve = projectPassiveSleeve(events as Parameters<typeof projectPassiveSleeve>[0])
+    // projectHoldings folds the OPEN book (closed holdings drop out of the projection).
+    const active_value = projectHoldings(events)
+      .reduce((sum, h) => sum + (h.latest_market_value ?? h.total_cost_basis ?? 0), 0)
+    return { sleeve, active_value }
   } finally {
     store.close()
   }

@@ -65,6 +65,7 @@ describe('Owlfolio v2 domain event boundary contracts', () => {
       'admit_judgment_recorded',
       'sizing_recommendation_recorded',
       'research_case_archived',
+      'passive_contribution_recorded',
       'research_case_re_review_recorded',
       'price_snapshot_recorded',
       'valuation_judgment_drafted',

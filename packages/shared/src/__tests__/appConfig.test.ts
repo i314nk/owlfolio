@@ -459,3 +459,29 @@ describe('app config defaults include the savings sleeve', () => {
     expect(defaultPersonalLocalAppConfig().version).toBe(1)
   })
 })
+
+// B7 (book alignment): the passive-sleeve plan config — fail-closed merge + vintage on a real plan.
+describe('mergePassiveSleeveConfig (B7)', () => {
+  it('defaults: 80/20 split, zero monthly amount (not configured), day 1', async () => {
+    const { mergePassiveSleeveConfig } = await import('../appConfig')
+    expect(mergePassiveSleeveConfig(undefined)).toEqual({ split: '80/20', monthly_amount: 0, schedule_day: 1 })
+  })
+  it('accepts the three book splits and fails closed on anything else', async () => {
+    const { mergePassiveSleeveConfig } = await import('../appConfig')
+    expect(mergePassiveSleeveConfig({ split: '60/40' }).split).toBe('60/40')
+    expect(mergePassiveSleeveConfig({ split: '100/0' }).split).toBe('100/0')
+    expect(mergePassiveSleeveConfig({ split: '90/10' as never }).split).toBe('80/20')
+  })
+  it('clamps the schedule day to 1–28 and rejects negative amounts (fail-closed to defaults)', async () => {
+    const { mergePassiveSleeveConfig } = await import('../appConfig')
+    expect(mergePassiveSleeveConfig({ schedule_day: 31 }).schedule_day).toBe(1)
+    expect(mergePassiveSleeveConfig({ schedule_day: 15 }).schedule_day).toBe(15)
+    expect(mergePassiveSleeveConfig({ monthly_amount: -50 }).monthly_amount).toBe(0)
+  })
+  it('stamps the vintage on a configured write (monthly_amount > 0)', async () => {
+    const { mergePassiveSleeveConfig } = await import('../appConfig')
+    const merged = mergePassiveSleeveConfig({ monthly_amount: 500, schedule_day: 5 }, { now: '2026-07-12T00:00:00Z' })
+    expect(merged.passive_set_at).toBe('2026-07-12T00:00:00Z')
+    expect(mergePassiveSleeveConfig({ monthly_amount: 0 }, { now: '2026-07-12T00:00:00Z' }).passive_set_at).toBeUndefined()
+  })
+})

@@ -29,6 +29,7 @@
     "./projections/investableCapitalProjection": "./src/projections/investableCapitalProjection.ts",
     "./projections/positionPostMortemProjection": "./src/projections/positionPostMortemProjection.ts",
     "./projections/forecastCalibrationProjection": "./src/projections/forecastCalibrationProjection.ts",
-    "./projections/priceSnapshotProjection": "./src/projections/priceSnapshotProjection.ts"
+    "./projections/priceSnapshotProjection": "./src/projections/priceSnapshotProjection.ts",
+    "./projections/passiveSleeveProjection": "./src/projections/passiveSleeveProjection.ts"
   }
 }

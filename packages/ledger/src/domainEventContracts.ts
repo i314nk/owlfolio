@@ -9,6 +9,8 @@ export type DomainProjectionOwner =
   | 'audit'
   | 'worker_status'
   | 'portfolio'
+  // B7 (book alignment): the passive index sleeve (DCA contribution fold).
+  | 'passive_sleeve'
 
 export type DomainEventContract = {
   event_type: DomainEventType
@@ -78,6 +80,7 @@ export const domainEventTypes = [
   'admit_judgment_recorded',
   'sizing_recommendation_recorded',
   'research_case_archived',
+  'passive_contribution_recorded',
   'research_case_re_review_recorded',
   'price_snapshot_recorded',
   'valuation_judgment_drafted',
@@ -826,6 +829,17 @@ export const domainEventContracts: readonly DomainEventContract[] = [
     actor_type: 'user',
     projection_owner: 'discovery',
     payload_fields: ['research_case_id', 'archived_at', 'reason'],
+  },
+  {
+    // B7 (book alignment): a PASSIVE-SLEEVE DCA contribution — USER-AUTHORED, append-only, a local
+    // record of an index purchase already made elsewhere (no broker, no execution). The plan (split /
+    // monthly amount / schedule day) lives in app-config; this event is the recorded side. Rule 3 by
+    // construction: no withdrawal/sell event type exists for the sleeve.
+    event_type: 'passive_contribution_recorded',
+    aggregate_type: 'passive_sleeve',
+    actor_type: 'user',
+    projection_owner: 'passive_sleeve',
+    payload_fields: ['contribution_id', 'amount', 'contributed_at', 'instrument', 'note'],
   },
   {
     // Thesis RE-REVIEW (the freshness layer). A provider-authored OBSERVATION recorded AFTER a decision:

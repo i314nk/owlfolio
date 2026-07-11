@@ -210,6 +210,8 @@ export type AppConfig = {
   savings?: SavingsSleeveConfig
   /** Phase 4 (book alignment): valuation knobs (required_return). Absent → defaults (15%). */
   valuation?: Partial<ValuationConfig>
+  /** B7 (book alignment): the passive-sleeve plan (split + monthly DCA). Absent → defaults. */
+  passive?: Partial<PassiveSleeveConfig>
   market_universe: MarketUniverseConfig
   automation?: AutomationSettings
   circle_of_competence?: CircleOfCompetenceConfig
@@ -249,6 +251,71 @@ export const defaultSavingsSleeveConfig = (): SavingsSleeveConfig => ({
   savings_model: 'mudarabah',
   equity_risk_margin: DEFAULT_EQUITY_RISK_MARGIN,
 })
+
+// ---------------------------------------------------------------------------------------------------
+// B7 (Phase 4, book alignment): the PASSIVE SLEEVE — the book's step-2 foundation. Passive index
+// investing on the side via monthly dollar-cost averaging, with a chosen passive/active split.
+// Rules 1–3: (1) only commit an amount you can commit to REGULARLY; (2) buy on a consistent
+// schedule, no matter what; (3) treat it as a LIFELONG commitment — never be tempted to sell.
+// This config is the PLAN; actual contributions are user-authored ledger events
+// (passive_contribution_recorded) — local-first, no broker, plan-and-track only.
+// ---------------------------------------------------------------------------------------------------
+export const PASSIVE_SPLITS = ['80/20', '60/40', '100/0'] as const
+export type PassiveSplit = (typeof PASSIVE_SPLITS)[number]
+export const DEFAULT_PASSIVE_SPLIT: PassiveSplit = '80/20'
+/** Schedule day clamp band (1–28 so every month has the day). */
+export const PASSIVE_SCHEDULE_DAY_MIN = 1
+export const PASSIVE_SCHEDULE_DAY_MAX = 28
+export const DEFAULT_PASSIVE_SCHEDULE_DAY = 1
+
+export type PassiveSleeveConfig = {
+  /** The passive/active split (passive share first). */
+  split: PassiveSplit
+  /** Rule 1 — the monthly amount you can REGULARLY commit (0 = not configured yet). */
+  monthly_amount: number
+  /** Rule 2 — the day of month (1–28) contributions are due. */
+  schedule_day: number
+  /** VINTAGE: when the plan was last set to explicit non-default values ("not set" otherwise). */
+  passive_set_at?: string
+}
+
+export const defaultPassiveSleeveConfig = (): PassiveSleeveConfig => ({
+  split: DEFAULT_PASSIVE_SPLIT,
+  monthly_amount: 0,
+  schedule_day: DEFAULT_PASSIVE_SCHEDULE_DAY,
+})
+
+/** Merge a (potentially partial/invalid) passive sleeve — mirror of the savings/valuation merges. */
+export const mergePassiveSleeveConfig = (
+  partial?: Partial<PassiveSleeveConfig>,
+  options: { now?: string } = {},
+): PassiveSleeveConfig => {
+  if (partial === undefined) return defaultPassiveSleeveConfig()
+  const split: PassiveSplit = (PASSIVE_SPLITS as readonly string[]).includes(partial.split as string)
+    ? partial.split as PassiveSplit
+    : DEFAULT_PASSIVE_SPLIT
+  const monthly_amount = typeof partial.monthly_amount === 'number'
+    && Number.isFinite(partial.monthly_amount) && partial.monthly_amount >= 0
+    ? partial.monthly_amount
+    : 0
+  const schedule_day = typeof partial.schedule_day === 'number'
+    && Number.isInteger(partial.schedule_day)
+    && partial.schedule_day >= PASSIVE_SCHEDULE_DAY_MIN
+    && partial.schedule_day <= PASSIVE_SCHEDULE_DAY_MAX
+    ? partial.schedule_day
+    : DEFAULT_PASSIVE_SCHEDULE_DAY
+  const isConfigured = monthly_amount > 0
+  const stampsThisWrite = options.now !== undefined && isConfigured
+  const vintage = stampsThisWrite
+    ? options.now
+    : (typeof partial.passive_set_at === 'string' && !Number.isNaN(Date.parse(partial.passive_set_at)) ? partial.passive_set_at : undefined)
+  return {
+    split,
+    monthly_amount,
+    schedule_day,
+    ...(vintage === undefined ? {} : { passive_set_at: vintage }),
+  }
+}
 
 // ---------------------------------------------------------------------------------------------------
 // Phase 4 (book alignment): the REQUIRED RETURN — the flat discount/hurdle for the 10-year FCF
