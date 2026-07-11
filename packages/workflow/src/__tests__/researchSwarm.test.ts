@@ -1272,6 +1272,9 @@ function configurableSwarmProvider(opts: {
     assumed_growth: number
     assumed_growth_rationale: string
     assumed_growth_citation: string
+    // Phase 2 V1: the stage-owned fields (optional in the fake exactly as in the schema).
+    proposed_buy_below?: number
+    valuation_status?: 'ATTRACTIVE' | 'FAIR' | 'EXPENSIVE' | 'INSUFFICIENT_DATA'
   }
   // Counter the test reads to confirm the focused call fired (or, for the happy path, did NOT).
   valuationReasoningCalls?: { count: number }
@@ -4276,6 +4279,25 @@ describe('FOCUSED valuation-reasoning fallback (when the monolithic decision dro
     expect(vjPayload['status']).toBe('ok')
     expect(vjPayload['assumed_growth']).toBe(0.06)
     expect((vjPayload['stage_cost'] as { provider_calls?: number }).provider_calls).toBe(1)
+  })
+
+  it('V1b — the valuation STAGE artifact is PRIMARY: its buy-below/status override the monolithic decision fields', async () => {
+    // The stage supplies buy-below 333 + FAIR; the monolithic decision (fall-through fake) still emits
+    // proposed_buy_below 150 + EXPENSIVE. Stage-first (V1b) means the recorded valuation carries 333/FAIR.
+    const { valuation, cp } = await runVR({
+      id: 'v1b-primary',
+      valuationReasoningResponse: {
+        owner_earnings_basis: 'FY25 owner earnings per the 10-K bridge.',
+        owner_earnings_citation: 'src_dec_1',
+        assumed_growth: 0.05,
+        assumed_growth_rationale: 'Modest growth grounded to the 10-K.',
+        assumed_growth_citation: 'src_dec_1',
+        proposed_buy_below: 333,
+        valuation_status: 'FAIR',
+      },
+    })
+    expect(valuation?.['buy_price_per_share']).toBe(333)
+    expect(cp?.valuation_status).toBe('FAIR')
   })
 
   it('Test 2 — decision drops it AND the focused call ALSO fails to ground → RESEARCH_MORE + valuation_reasoning_retry_exhausted', async () => {

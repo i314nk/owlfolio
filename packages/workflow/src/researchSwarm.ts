@@ -1963,10 +1963,14 @@ export async function runResearchDeepDivePhase(
     synthesisCorpusHashes.add(s.content_hash)
     synthesisCorpusHashes.add(s.source_id) // a citation may be by source_id OR content_hash; both are corpus-verified
   }
-  // The valuation_reasoning the harness reasons from downstream. It STARTS as the decision agent's own
-  // (the happy path) and is REPLACED below by the focused valuation-reasoning call ONLY when the decision
-  // dropped/ungrounded it (the focused-decomposition fallback — same pattern as the red-team response).
-  let valuationReasoning: ValuationReasoning | undefined = dec.analysis.valuation_reasoning
+  // Phase 2 V1b: the valuation STAGE's artifact is the PRIMARY valuation_reasoning; the monolithic
+  // decision's block is the legacy fallback (tolerated until V4 drops it). The first candidate whose
+  // citations cite-check wins; with none grounded the first candidate carries (visibly unmet below).
+  const valuationCandidates: ValuationReasoning[] = [
+    ...(valuationStageOutcome.status === 'ok' ? [valuationStageOutcome.valuation_reasoning] : []),
+    ...(dec.analysis.valuation_reasoning !== undefined ? [dec.analysis.valuation_reasoning] : []),
+  ]
+  let valuationReasoning: ValuationReasoning | undefined = valuationCandidates[0]
   // Cite-check the (possibly-replaced) valuation_reasoning citations against the content_hash-verified corpus.
   const groundValuation = (vr: ValuationReasoning | undefined): { ownerGrounded: boolean; growthGrounded: boolean; ownerCite?: string; growthCite?: string } => {
     const ownerCite = vr?.owner_earnings_citation
@@ -1976,6 +1980,13 @@ export async function runResearchDeepDivePhase(
       growthGrounded: growthCite !== undefined && isCitationGrounded(growthCite, synthesisCorpusHashes),
       ...(ownerCite === undefined ? {} : { ownerCite }),
       ...(growthCite === undefined ? {} : { growthCite }),
+    }
+  }
+  for (const candidate of valuationCandidates) {
+    const cg = groundValuation(candidate)
+    if (cg.ownerGrounded && cg.growthGrounded) {
+      valuationReasoning = candidate
+      break
     }
   }
   let g = groundValuation(valuationReasoning)
@@ -1997,39 +2008,15 @@ export async function runResearchDeepDivePhase(
   // happy path (the decision produced a grounded valuation_reasoning) NEVER fires this call.
   let valuationReasoningDegraded: string | undefined
   if (valuationGroundingUnmet) {
-    // Phase 2 V1: the always-on valuation stage ALREADY produced the focused artifact — adopt it
-    // instead of issuing a second identical call (the pre-V1 fallback re-ran the pass here).
-    const vrOutcome = valuationStageOutcome
-    if (vrOutcome.status === 'ok') {
-      // Persist the focused call's captured sources into the corpus (like the red-team response) so the
-      // cite-check below sees them, then RE-EVALUATE grounding against the focused result.
-      remember(vrOutcome.captured)
-      for (const s of accumulated.values()) {
-        if (s.content_hash === undefined) continue
-        synthesisCorpusHashes.add(s.content_hash)
-        synthesisCorpusHashes.add(s.source_id)
-      }
-      const candidate = vrOutcome.valuation_reasoning
-      const cg = groundValuation(candidate)
-      if (cg.ownerGrounded && cg.growthGrounded) {
-        // The focused call grounded it → adopt it as the valuation_reasoning + clear the valuation gate.
-        valuationReasoning = candidate
-        g = cg
-        valuationGroundingUnmet = false
-      } else {
-        // The focused call produced a payload but its citations do NOT verify → fail-closed (preserved).
-        valuationReasoningDegraded =
-          'valuation_reasoning_retry_exhausted: the focused valuation-reasoning call produced owner-earnings/'
-          + 'assumed-growth citations that did not verify against the corpus — the valuation stays ungrounded. '
-          + 'Routed to RESEARCH_MORE; re-run on a more capable model.'
-      }
-    } else {
-      // The focused call also failed (omitted the required field / errored / timed out) after its attempts.
-      valuationReasoningDegraded =
-        `valuation_reasoning_retry_exhausted: the focused valuation-reasoning call did not produce a usable, `
-        + `grounded valuation_reasoning after ${vrOutcome.attempts} attempt(s) (${vrOutcome.reason}). `
-        + `The valuation stays ungrounded — routed to RESEARCH_MORE; re-run on a more capable model.`
-    }
+    // Phase 2 V1b: both candidates (the always-on stage artifact AND the monolithic decision's block)
+    // were already tried above — nothing is re-called here; the gate stays unmet with a VISIBLE note.
+    valuationReasoningDegraded = valuationStageOutcome.status === 'ok'
+      ? 'valuation_reasoning_retry_exhausted: neither the valuation stage nor the synthesis produced '
+        + 'owner-earnings/assumed-growth citations that verify against the corpus — the valuation stays '
+        + 'ungrounded. Routed to RESEARCH_MORE; re-run on a more capable model.'
+      : `valuation_reasoning_retry_exhausted: the valuation stage did not produce a usable, grounded `
+        + `valuation_reasoning after ${valuationStageOutcome.attempts} attempt(s) (${valuationStageOutcome.reason}) `
+        + `and the synthesis fallback also failed to ground one. Routed to RESEARCH_MORE; re-run.`
   }
 
   // ---- Citation-alignment fold (dogfood 2026-07-10: live COST/SPGI) ----
@@ -2037,7 +2024,7 @@ export async function runResearchDeepDivePhase(
   // copy of the filing — so a cite-VERIFIED corpus source must satisfy the own-grounding layer. Fold
   // the verified valuation-citation ids into dec.verified_ids (source_id-shaped only — never a raw
   // content hash, since these ids flow into event source_ids). The layer still fails closed when the
-  // agent cited nothing verifiable at all (Test 1: its citations do not verify → nothing folds).
+  // agent cited nothing verifiable at all (Test 1 shape: its citations do not verify → nothing folds).
   for (const cite of [g.ownerCite, g.growthCite]) {
     if (cite === undefined || dec.verified_ids.includes(cite)) continue
     const corpusMatch = accumulated.get(cite)
@@ -2326,7 +2313,10 @@ export async function runResearchDeepDivePhase(
     degradedFlags.push(moatGroundingReason)
   }
 
-  const modelBridge = dec.analysis.owner_earnings_bridge
+  // Phase 2 V1b: the valuation stage's judged bridge inputs are PRIMARY; the monolithic block is the
+  // legacy fallback (V4 drops it from the decision schema).
+  const modelBridge = (valuationStageOutcome.status === 'ok' ? valuationStageOutcome.valuation_reasoning.owner_earnings_bridge : undefined)
+    ?? dec.analysis.owner_earnings_bridge
 
   // ---- EDGAR-anchored owner-earnings bridge ("judgment proposes, code computes") ----
   // When EDGAR fundamentals are present, the harness anchors NI/D&A/capex/SBC/diluted-shares to the
@@ -3020,7 +3010,9 @@ export async function runResearchDeepDivePhase(
   // (owner-earnings / price) is missing. There is NO band-derived verdict.
   const dr = valuationReasoning
   const assumed_growth = dr?.assumed_growth
-  const valuation_status = dec.analysis.valuation_status
+  // Phase 2 V1b: stage-first (the monolithic field is the legacy fallback until V4 drops it).
+  const valuation_status = (valuationStageOutcome.status === 'ok' ? valuationStageOutcome.valuation_reasoning.valuation_status : undefined)
+    ?? dec.analysis.valuation_status
 
   // forward-DCF removal: the forward two-stage DCF "reference fair value" (a dollar cross-check FV at the
   // model's assumed growth) is no longer computed or surfaced — a dollar reference FV below the model's
@@ -3028,10 +3020,12 @@ export async function runResearchDeepDivePhase(
   // valuation lens; the buy-below is the model's own number.
 
   // buy_below = the MODEL's proposed number (NOT a derived FV). Recorded verbatim when finite + positive.
-  const buy_below = (typeof dec.analysis.proposed_buy_below === 'number'
-    && Number.isFinite(dec.analysis.proposed_buy_below)
-    && dec.analysis.proposed_buy_below > 0)
-    ? dec.analysis.proposed_buy_below
+  const proposedBuyBelowRaw = (valuationStageOutcome.status === 'ok' ? valuationStageOutcome.valuation_reasoning.proposed_buy_below : undefined)
+    ?? dec.analysis.proposed_buy_below
+  const buy_below = (typeof proposedBuyBelowRaw === 'number'
+    && Number.isFinite(proposedBuyBelowRaw)
+    && proposedBuyBelowRaw > 0)
+    ? proposedBuyBelowRaw
     : undefined
 
   // in_buy_zone — pure arithmetic comparison on the model's number (fine; it is arithmetic, not judgment).
@@ -3396,7 +3390,7 @@ export async function runResearchDeepDivePhase(
       investment_verdict: gatedVerdict,
       strategy_compliance: dec.analysis.strategy_compliance,
       shariah_status: undefined, // will be set below
-      valuation_status: dec.analysis.valuation_status,
+      valuation_status,
       next_required_action: moat_passes_gate ? dec.analysis.next_required_action : gatedReason,
       // MARGIN-OF-SAFETY AUDIT SURFACE — the model's forward-looking risk judgments (the SINGLE assumption
       // that, if wrong, breaks the thesis + the observable invalidating events). Carried verbatim from the
